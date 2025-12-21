@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    // Module stuff
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "isolatedModules": true,
+    "esModuleInterop": true,
+
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "downlevelIteration": true,
+    "jsx": "react",
+    "lib": ["ES2023", "dom"],
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES6",
+
+    // needed because pixi does some weird shit
+    "paths": {
+      "mini-signals": [
+        "./node_modules/resource-loader/typings/mini-signals.d.ts"
+      ]
+    }
+  }
+}
