@@ -4,6 +4,10 @@ import { LayerInfo } from "../core/graphics/LayerInfo";
 /** TODO: Document layers */
 export const LAYERS = {
   water: new LayerInfo(),
+  wake: new LayerInfo(),
+
+  underhull: new LayerInfo(),
+  hull: new LayerInfo(),
   // DEFAULT: The main stuff
   main: new LayerInfo(),
 

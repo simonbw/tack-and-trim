@@ -1,6 +1,6 @@
 import BaseEntity from "../core/entity/BaseEntity";
 import { Camera2d } from "../core/graphics/Camera2d";
-import { Boat } from "./Boat";
+import { Boat } from "./boat/Boat";
 
 export class CameraController extends BaseEntity {
   constructor(
@@ -12,7 +12,7 @@ export class CameraController extends BaseEntity {
 
   onTick() {
     const boatPosition = this.boat.getPosition();
-    this.camera.smoothCenter(boatPosition);
-    this.camera.smoothZoom(1.0);
+    this.camera.smoothCenter(boatPosition, undefined, 0.5);
+    this.camera.smoothZoom(1.5);
   }
 }
