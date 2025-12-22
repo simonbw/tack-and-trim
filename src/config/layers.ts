@@ -3,8 +3,12 @@ import { LayerInfo } from "../core/graphics/LayerInfo";
 
 /** TODO: Document layers */
 export const LAYERS = {
+  water: new LayerInfo(),
   // DEFAULT: The main stuff
   main: new LayerInfo(),
+
+  sails: new LayerInfo(),
+
   // Stuff not in the world
   hud: new LayerInfo({ paralax: V(0, 0) }),
   // Stuff on the absolute top that's just used for debugging

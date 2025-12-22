@@ -4,7 +4,7 @@ import { makeCollisionGroups } from "../core/util/CollisionGroupUtils";
 
 export const CollisionGroups = makeCollisionGroups([
   "Environment",
-  "Ball",
+  "Boat",
 ] as const);
 
 export type CollisionGroupName = keyof typeof CollisionGroups;

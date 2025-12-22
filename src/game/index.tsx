@@ -1,8 +1,10 @@
 import { TextureStyle } from "pixi.js";
 import Game from "../core/Game";
 import FPSMeter from "../core/util/FPSMeter";
-import ExampleEntity from "./ExampleEntity";
+import { Boat } from "./Boat";
+import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
+import { Water } from "./Water";
 
 // Do this so we can access the game from the console
 declare global {
@@ -29,11 +31,9 @@ async function main() {
     game.addEntity(fpsMeter);
   }
 
-  game.addEntity(new ExampleEntity());
-  game.dispatch("exampleEvent", {
-    level: 1,
-    message: "Hello from main!",
-  });
+  game.addEntity(new Water());
+  const boat = game.addEntity(new Boat());
+  game.addEntity(new CameraController(boat, game.camera));
 }
 
 window.addEventListener("load", main);
