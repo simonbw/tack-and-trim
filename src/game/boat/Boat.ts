@@ -7,9 +7,11 @@ import { Keel } from "./Keel";
 import { Mainsheet } from "./Mainsheet";
 import { Rig } from "./Rig";
 import { Rudder } from "./Rudder";
-import { WindIndicator } from "./WindIndicator";
 
 const MAST_POSITION = V(5, 0);
+
+const ROW_DURATION = 0.6; // seconds per row
+const ROW_FORCE = 200; // force per row
 
 export class Boat extends BaseEntity {
   id = "boat";
@@ -19,7 +21,6 @@ export class Boat extends BaseEntity {
   rudder: Rudder;
   rig: Rig;
   mainsheet: Mainsheet;
-  windIndicator: WindIndicator;
 
   constructor() {
     super();
@@ -34,7 +35,6 @@ export class Boat extends BaseEntity {
 
     // Create parts that need rig reference
     this.mainsheet = new Mainsheet(this.hull, this.rig);
-    this.windIndicator = new WindIndicator(this.hull, this.rig);
   }
 
   onAdd() {
@@ -44,20 +44,24 @@ export class Boat extends BaseEntity {
     this.addChild(this.rudder);
     this.addChild(this.rig);
     this.addChild(this.mainsheet);
-    this.addChild(this.windIndicator);
   }
 
   onTick(dt: GameEventMap["tick"]) {
     // Handle input
-    const [steer] = this.game!.io.getMovementVector();
+    const [steer, sheet] = this.game!.io.getMovementVector();
 
     // Update rudder steering
     this.rudder.setSteer(steer, dt);
+
+    // Update mainsheet (W = sheet in, S = ease out)
+    this.mainsheet.setSheet(-sheet, dt);
   }
 
   onKeyDown({ key }: GameEventMap["keyDown"]) {
     if (key === "Space") {
-      this.hull.body.applyImpulse(polarToVec(this.hull.body.angle, 50));
+      this.wait(ROW_DURATION, (dt, t) => {
+        this.hull.body.applyForce(polarToVec(this.hull.body.angle, ROW_FORCE));
+      });
     }
   }
 

@@ -18,8 +18,8 @@ const CONFIG = {
   SPAWN_INTERVAL: 0.016,
   MIN_SPEED: 5,
   MAX_SPEED: 55,
-  REAR_OFFSET: -25,
-  INITIAL_SPREAD: 8,
+  REAR_OFFSET: -18,
+  INITIAL_SPREAD: 6,
   SPREAD_RATE: 15,
   COLOR: 0xffffff,
   MIN_ALPHA: 0.2,
@@ -96,16 +96,22 @@ export class Wake extends BaseEntity {
     if (this.wakePoints.length < 2) return;
 
     this.drawTrail(
-      this.wakePoints.map((p) => ({ pos: p.leftPos, age: p.age, speed: p.speed }))
+      this.wakePoints.map((p) => ({
+        pos: p.leftPos,
+        age: p.age,
+        speed: p.speed,
+      }))
     );
     this.drawTrail(
-      this.wakePoints.map((p) => ({ pos: p.rightPos, age: p.age, speed: p.speed }))
+      this.wakePoints.map((p) => ({
+        pos: p.rightPos,
+        age: p.age,
+        speed: p.speed,
+      }))
     );
   }
 
-  private drawTrail(
-    points: Array<{ pos: V2d; age: number; speed: number }>
-  ) {
+  private drawTrail(points: Array<{ pos: V2d; age: number; speed: number }>) {
     for (let i = 1; i < points.length; i++) {
       const prev = points[i - 1];
       const curr = points[i];
@@ -114,12 +120,14 @@ export class Wake extends BaseEntity {
       const speedFactor = clamp(
         (curr.speed - CONFIG.MIN_SPEED) / (CONFIG.MAX_SPEED - CONFIG.MIN_SPEED)
       );
-      const alpha = ageFactor * lerp(CONFIG.MIN_ALPHA, CONFIG.MAX_ALPHA, speedFactor);
+      const alpha =
+        ageFactor * lerp(CONFIG.MIN_ALPHA, CONFIG.MAX_ALPHA, speedFactor);
 
       if (alpha <= 0.01) continue;
 
       const lineWidth =
-        lerp(CONFIG.MIN_LINE_WIDTH, CONFIG.MAX_LINE_WIDTH, speedFactor) * ageFactor;
+        lerp(CONFIG.MIN_LINE_WIDTH, CONFIG.MAX_LINE_WIDTH, speedFactor) *
+        ageFactor;
 
       this.graphics
         .moveTo(prev.pos.x, prev.pos.y)

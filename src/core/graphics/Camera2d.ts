@@ -6,6 +6,11 @@ import { lerpOrSnap } from "../util/MathUtil";
 import { GameRenderer2d } from "./GameRenderer2d";
 import { LayerInfo } from "./LayerInfo";
 
+// Bounds for camera position/velocity validation
+const MAX_CAMERA_POSITION = 100000;
+const MAX_CAMERA_VELOCITY = 10000;
+const MAX_CAMERA_ZOOM = 1000;
+
 /** Controls the viewport.
  * TODO: Document camera better
  */
@@ -35,11 +40,28 @@ export class Camera2d extends BaseEntity implements Entity {
     this.velocity = V([0, 0]);
   }
 
+  /** Check if a value is valid (finite and within bounds) */
+  private isValidPosition(value: number): boolean {
+    return isFinite(value) && Math.abs(value) <= MAX_CAMERA_POSITION;
+  }
+
+  private isValidVelocity(value: number): boolean {
+    return isFinite(value) && Math.abs(value) <= MAX_CAMERA_VELOCITY;
+  }
+
+  private isValidZoom(value: number): boolean {
+    return isFinite(value) && value > 0 && value <= MAX_CAMERA_ZOOM;
+  }
+
   get x() {
     return this.position[0];
   }
 
   set x(value) {
+    if (!this.isValidPosition(value)) {
+      console.warn("Camera2d: Invalid x position rejected:", value);
+      return;
+    }
     this.position[0] = value;
   }
 
@@ -48,6 +70,10 @@ export class Camera2d extends BaseEntity implements Entity {
   }
 
   set y(value) {
+    if (!this.isValidPosition(value)) {
+      console.warn("Camera2d: Invalid y position rejected:", value);
+      return;
+    }
     this.position[1] = value;
   }
 
@@ -56,6 +82,10 @@ export class Camera2d extends BaseEntity implements Entity {
   }
 
   set vx(value) {
+    if (!this.isValidVelocity(value)) {
+      console.warn("Camera2d: Invalid vx velocity rejected:", value);
+      return;
+    }
     this.velocity[0] = value;
   }
 
@@ -64,6 +94,10 @@ export class Camera2d extends BaseEntity implements Entity {
   }
 
   set vy(value) {
+    if (!this.isValidVelocity(value)) {
+      console.warn("Camera2d: Invalid vy velocity rejected:", value);
+      return;
+    }
     this.velocity[1] = value;
   }
 
@@ -78,8 +112,12 @@ export class Camera2d extends BaseEntity implements Entity {
 
   /** Center the camera on a position */
   center([x, y]: V2d) {
-    this.x = x;
-    this.y = y;
+    if (!this.isValidPosition(x) || !this.isValidPosition(y)) {
+      console.warn("Camera2d.center: Invalid position rejected:", x, y);
+      return;
+    }
+    this.position[0] = x;
+    this.position[1] = y;
   }
 
   /** Move the camera toward being centered on a position, with a target velocity */
@@ -89,6 +127,19 @@ export class Camera2d extends BaseEntity implements Entity {
     stiffness: number = 1.0,
     damping: number = 1.0
   ) {
+    if (!this.isValidPosition(x) || !this.isValidPosition(y)) {
+      console.warn("Camera2d.smoothCenter: Invalid position rejected:", x, y);
+      return;
+    }
+    if (!this.isValidVelocity(vx) || !this.isValidVelocity(vy)) {
+      console.warn(
+        "Camera2d.smoothCenter: Invalid velocity rejected:",
+        vx,
+        vy
+      );
+      return;
+    }
+
     const dx = x - this.x;
     const dy = y - this.y;
 
@@ -99,12 +150,24 @@ export class Camera2d extends BaseEntity implements Entity {
   }
 
   smoothSetVelocity([vx, vy]: V2d, stiffness: number = 0.9) {
+    if (!this.isValidVelocity(vx) || !this.isValidVelocity(vy)) {
+      console.warn(
+        "Camera2d.smoothSetVelocity: Invalid velocity rejected:",
+        vx,
+        vy
+      );
+      return;
+    }
     this.vx = lerpOrSnap(this.vx, vx, stiffness, 0.001);
     this.vy = lerpOrSnap(this.vy, vy, stiffness, 0.001);
   }
 
   /** Move the camera part of the way to the desired zoom. */
   smoothZoom(z: number, smooth: number = 0.9) {
+    if (!this.isValidZoom(z)) {
+      console.warn("Camera2d.smoothZoom: Invalid zoom rejected:", z);
+      return;
+    }
     this.z = smooth * this.z + (1 - smooth) * z;
   }
 

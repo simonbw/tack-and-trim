@@ -12,7 +12,7 @@ export class CameraController extends BaseEntity {
 
   onTick() {
     const boatPosition = this.boat.getPosition();
-    this.camera.smoothCenter(boatPosition, undefined, 0.5);
-    this.camera.smoothZoom(1.5);
+    this.camera.smoothCenter(boatPosition, undefined, 0.8);
+    this.camera.smoothZoom(2.0);
   }
 }

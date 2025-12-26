@@ -2,20 +2,26 @@ import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import RopeSpring from "../../core/physics/RopeSpring";
+import { lerp, stepToward } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
 import { Hull } from "./Hull";
 import { Rig } from "./Rig";
 
-const MAINSHEET_BOOM_ATTACH_RATIO = 0.8; // attach near end of boom
-const MAINSHEET_HULL_ATTACH = V(-5, 0); // cockpit area on hull
-const MAINSHEET_LENGTH = 20;
-const MAINSHEET_STIFFNESS = 500;
-const MAINSHEET_DAMPING = 10;
+const MAINSHEET_BOOM_ATTACH_RATIO = 0.9; // attach near end of boom
+const MAINSHEET_HULL_ATTACH = V(-12, 0); // cockpit area on hull
+const MAINSHEET_MIN_LENGTH = 8; // Fully sheeted in
+const MAINSHEET_MAX_LENGTH = 35; // Fully eased out
+const MAINSHEET_DEFAULT_LENGTH = 20; // Starting position
+const MAINSHEET_ADJUST_SPEED = 15; // Units per second
+const MAINSHEET_STIFFNESS = 200000;
+const MAINSHEET_DAMPING = 0.1;
+const MAINSHEET_SAG_FACTOR = 0.5; // How much the rope sags per unit of slack
 
 export class Mainsheet extends BaseEntity {
   private mainsheetSprite: GameSprite & Graphics;
   private spring: RopeSpring;
   private boomAttachLocal: ReturnType<typeof V>;
+  private sheetPosition: number = 0.5; // 0 = full in, 1 = full out
 
   constructor(
     private hull: Hull,
@@ -27,17 +33,45 @@ export class Mainsheet extends BaseEntity {
     this.sprite = this.mainsheetSprite;
 
     // Calculate boom attach point from rig's boom length
-    this.boomAttachLocal = V(-this.rig.getBoomLength() * MAINSHEET_BOOM_ATTACH_RATIO, 0);
+    this.boomAttachLocal = V(
+      -this.rig.getBoomLength() * MAINSHEET_BOOM_ATTACH_RATIO,
+      0
+    );
 
     this.spring = new RopeSpring(this.rig.body, this.hull.body, {
       localAnchorA: [this.boomAttachLocal.x, this.boomAttachLocal.y],
       localAnchorB: [MAINSHEET_HULL_ATTACH.x, MAINSHEET_HULL_ATTACH.y],
-      restLength: MAINSHEET_LENGTH,
+      restLength: MAINSHEET_DEFAULT_LENGTH,
       stiffness: MAINSHEET_STIFFNESS,
       damping: MAINSHEET_DAMPING,
     });
 
     this.springs = [this.spring];
+  }
+
+  /**
+   * Adjust mainsheet length based on player input.
+   * @param input -1 to 1 where negative = sheet in (shorter), positive = ease out (longer)
+   * @param dt Delta time in seconds
+   */
+  setSheet(input: number, dt: number): void {
+    if (input === 0) return; // No input, hold current position
+
+    // Calculate target: input < 0 means sheet in (toward 0), input > 0 means ease out (toward 1)
+    const target = input < 0 ? 0 : 1;
+
+    // Smoothly adjust sheet position
+    const speed =
+      (Math.abs(input) * MAINSHEET_ADJUST_SPEED) /
+      (MAINSHEET_MAX_LENGTH - MAINSHEET_MIN_LENGTH);
+    this.sheetPosition = stepToward(this.sheetPosition, target, speed * dt);
+
+    // Update spring rest length
+    this.spring.restLength = lerp(
+      MAINSHEET_MIN_LENGTH,
+      MAINSHEET_MAX_LENGTH,
+      this.sheetPosition
+    );
   }
 
   onRender() {
@@ -51,10 +85,32 @@ export class Mainsheet extends BaseEntity {
       this.hull.body.angle
     ).iadd([x, y]);
 
+    // Calculate slack: positive when rope is loose
+    const actualDistance = boomAttachWorld.sub(hullAttachWorld).magnitude;
+    const slack = this.spring.restLength - actualDistance;
+
     this.mainsheetSprite.clear();
-    this.mainsheetSprite
-      .moveTo(boomAttachWorld.x, boomAttachWorld.y)
-      .lineTo(hullAttachWorld.x, hullAttachWorld.y)
-      .stroke({ color: 0x444444, width: 1 });
+    this.mainsheetSprite.moveTo(boomAttachWorld.x, boomAttachWorld.y);
+
+    if (slack > 0) {
+      // Slack rope: draw bezier curve sagging toward hull center
+      const midpoint = boomAttachWorld.add(hullAttachWorld).imul(0.5);
+      const hullCenter = V(x, y);
+      const towardCenter = hullCenter.sub(midpoint).inormalize();
+      const sagAmount = slack * MAINSHEET_SAG_FACTOR;
+      const controlPoint = midpoint.add(towardCenter.imul(sagAmount));
+
+      this.mainsheetSprite.quadraticCurveTo(
+        controlPoint.x,
+        controlPoint.y,
+        hullAttachWorld.x,
+        hullAttachWorld.y
+      );
+    } else {
+      // Taut rope: draw straight line
+      this.mainsheetSprite.lineTo(hullAttachWorld.x, hullAttachWorld.y);
+    }
+
+    this.mainsheetSprite.stroke({ color: 0x444444, width: 0.75 });
   }
 }

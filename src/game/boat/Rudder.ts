@@ -3,14 +3,18 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { degToRad, stepToward } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
-import { applyLiftAndDragToEdge } from "../lift-and-drag";
+import {
+  applyFluidForces,
+  flatPlateDrag,
+  flatPlateLift,
+} from "../lift-and-drag";
 import { Hull } from "./Hull";
 
 const RUDDER_POSITION = V(-10, 0);
 const RUDDER_LENGTH = 18;
 const RUDDER_LIFT_AND_DRAG = 1.0;
-const MAX_STEER_ANGLE = degToRad(30);
-const STEER_SPEED = 2.5;
+const MAX_STEER_ANGLE = degToRad(35);
+const STEER_ADJUST_SPEED = 1.5; // How fast the rudder position changes with input
 
 export class Rudder extends BaseEntity {
   private rudderSprite: GameSprite & Graphics;
@@ -27,8 +31,20 @@ export class Rudder extends BaseEntity {
     this.sprite = this.rudderSprite;
   }
 
-  setSteer(value: number, dt: number) {
-    this.steer = stepToward(this.steer, value, dt * STEER_SPEED);
+  /**
+   * Adjust rudder position based on player input.
+   * @param input -1 to 1 where negative = steer left, positive = steer right
+   * @param dt Delta time in seconds
+   */
+  setSteer(input: number, dt: number) {
+    if (input === 0) return; // No input, hold current position
+
+    // Calculate target: input determines direction
+    const target = input < 0 ? -1 : 1;
+
+    // Smoothly adjust rudder position
+    const speed = Math.abs(input) * STEER_ADJUST_SPEED;
+    this.steer = stepToward(this.steer, target, speed * dt);
   }
 
   getSteer(): number {
@@ -42,21 +58,12 @@ export class Rudder extends BaseEntity {
     );
     const rudderEnd = RUDDER_POSITION.add(rudderOffset);
 
+    const lift = flatPlateLift(RUDDER_LIFT_AND_DRAG);
+    const drag = flatPlateDrag(RUDDER_LIFT_AND_DRAG);
+
     // Apply rudder forces to hull (both directions)
-    applyLiftAndDragToEdge(
-      this.hull.body,
-      RUDDER_POSITION,
-      rudderEnd,
-      RUDDER_LIFT_AND_DRAG,
-      RUDDER_LIFT_AND_DRAG
-    );
-    applyLiftAndDragToEdge(
-      this.hull.body,
-      rudderEnd,
-      RUDDER_POSITION,
-      RUDDER_LIFT_AND_DRAG,
-      RUDDER_LIFT_AND_DRAG
-    );
+    applyFluidForces(this.hull.body, RUDDER_POSITION, rudderEnd, lift, drag);
+    applyFluidForces(this.hull.body, rudderEnd, RUDDER_POSITION, lift, drag);
   }
 
   onRender() {

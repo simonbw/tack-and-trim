@@ -3,7 +3,11 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { pairs } from "../../core/util/FunctionalUtils";
 import { V } from "../../core/Vector";
-import { applyLiftAndDragToEdge } from "../lift-and-drag";
+import {
+  applyFluidForces,
+  flatPlateDrag,
+  flatPlateLift,
+} from "../lift-and-drag";
 import { Hull } from "./Hull";
 
 const KEEL_VERTICES = [V(-15, 0), V(15, 0)];
@@ -24,22 +28,13 @@ export class Keel extends BaseEntity {
   }
 
   onTick() {
+    const lift = flatPlateLift(KEEL_LIFT_AND_DRAG);
+    const drag = flatPlateDrag(KEEL_LIFT_AND_DRAG);
+
     // Apply keel forces to hull (both directions for symmetry)
     for (const [start, end] of pairs(KEEL_VERTICES)) {
-      applyLiftAndDragToEdge(
-        this.hull.body,
-        start,
-        end,
-        KEEL_LIFT_AND_DRAG,
-        KEEL_LIFT_AND_DRAG
-      );
-      applyLiftAndDragToEdge(
-        this.hull.body,
-        end,
-        start,
-        KEEL_LIFT_AND_DRAG,
-        KEEL_LIFT_AND_DRAG
-      );
+      applyFluidForces(this.hull.body, start, end, lift, drag);
+      applyFluidForces(this.hull.body, end, start, lift, drag);
     }
   }
 

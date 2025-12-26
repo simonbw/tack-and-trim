@@ -55,6 +55,13 @@ export default class RopeSpring extends LinearSpring {
       // F = - k * ( x - L ) - D * ( u )
       vec2.scale(f, r_unit, -k * (rlen - l) - d * vec2.dot(u, r_unit));
 
+      // Clamp force magnitude to prevent instability
+      const maxForce = 200;
+      const forceMag = vec2.len(f);
+      if (forceMag > maxForce) {
+        vec2.scale(f, f, maxForce / forceMag);
+      }
+
       // Add forces to bodies
       vec2.sub(bodyA.force, bodyA.force, f);
       vec2.add(bodyB.force, bodyB.force, f);

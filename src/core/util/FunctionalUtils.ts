@@ -13,3 +13,11 @@ export function pairs<T>(arr: T[]): [T, T][] {
   }
   return result;
 }
+
+export function range(n: number): number[] {
+  const result: number[] = [];
+  for (let i = 0; i < n; i++) {
+    result.push(i);
+  }
+  return result;
+}

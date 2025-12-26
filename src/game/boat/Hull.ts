@@ -4,7 +4,11 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { V, V2d } from "../../core/Vector";
-import { applyLiftAndDragToBody } from "../lift-and-drag";
+import {
+  applyFluidForcesToBody,
+  flatPlateDrag,
+  flatPlateLift,
+} from "../lift-and-drag";
 
 const HULL_VERTICES = [
   // Stern (transom)
@@ -26,7 +30,7 @@ const HULL_VERTICES = [
   V(-20, 4),
 ];
 
-const HULL_LIFT_AND_DRAG = 0.01;
+const HULL_LIFT_AND_DRAG = 0.03;
 
 export class Hull extends BaseEntity {
   body: NonNullable<Entity["body"]>;
@@ -37,9 +41,9 @@ export class Hull extends BaseEntity {
 
     this.hullSprite = createGraphics("hull");
     this.hullSprite
-      .poly(HULL_VERTICES)
+      .roundShape(HULL_VERTICES, 10, true, 1)
       .fill({ color: 0xccaa33 })
-      .stroke({ color: 0x886633, width: 1 });
+      .stroke({ color: 0x886633, width: 1, join: "round" });
 
     this.body = new Body({
       mass: 1,
@@ -55,7 +59,11 @@ export class Hull extends BaseEntity {
   }
 
   onTick() {
-    applyLiftAndDragToBody(this.body, HULL_LIFT_AND_DRAG, HULL_LIFT_AND_DRAG);
+    applyFluidForcesToBody(
+      this.body,
+      flatPlateLift(HULL_LIFT_AND_DRAG),
+      flatPlateDrag(HULL_LIFT_AND_DRAG)
+    );
   }
 
   onRender() {
