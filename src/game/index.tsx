@@ -17,11 +17,13 @@ declare global {
   }
 }
 
+const ticksPerFrame = 2;
+
 async function main() {
   // Make the pixel art crisp
   TextureStyle.defaultOptions.scaleMode = "nearest";
 
-  const game = new Game();
+  const game = new Game({ ticksPerSecond: 120 * ticksPerFrame });
   await game.init({ rendererOptions: { backgroundColor: 0x000010 } });
   // Make the game accessible from the console
   window.DEBUG = { game };

@@ -7,12 +7,12 @@ import {
   applyFluidForces,
   flatPlateDrag,
   flatPlateLift,
-} from "../lift-and-drag";
+} from "../fluid-dynamics";
 import { Hull } from "./Hull";
 
 const RUDDER_POSITION = V(-10, 0);
 const RUDDER_LENGTH = 18;
-const RUDDER_LIFT_AND_DRAG = 1.0;
+const RUDDER_LIFT_AND_DRAG = 10.0;
 const MAX_STEER_ANGLE = degToRad(35);
 const STEER_ADJUST_SPEED = 1.5; // How fast the rudder position changes with input
 

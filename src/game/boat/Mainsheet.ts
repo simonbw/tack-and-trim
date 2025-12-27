@@ -1,7 +1,7 @@
+import { DistanceConstraint } from "p2";
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
-import RopeSpring from "../../core/physics/RopeSpring";
 import { lerp, stepToward } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
 import { Hull } from "./Hull";
@@ -13,15 +13,14 @@ const MAINSHEET_MIN_LENGTH = 8; // Fully sheeted in
 const MAINSHEET_MAX_LENGTH = 35; // Fully eased out
 const MAINSHEET_DEFAULT_LENGTH = 20; // Starting position
 const MAINSHEET_ADJUST_SPEED = 15; // Units per second
-const MAINSHEET_STIFFNESS = 200000;
-const MAINSHEET_DAMPING = 0.1;
 const MAINSHEET_SAG_FACTOR = 0.5; // How much the rope sags per unit of slack
 
 export class Mainsheet extends BaseEntity {
   private mainsheetSprite: GameSprite & Graphics;
-  private spring: RopeSpring;
+  private constraint: DistanceConstraint;
   private boomAttachLocal: ReturnType<typeof V>;
   private sheetPosition: number = 0.5; // 0 = full in, 1 = full out
+  private ropeLength: number = MAINSHEET_DEFAULT_LENGTH;
 
   constructor(
     private hull: Hull,
@@ -38,15 +37,21 @@ export class Mainsheet extends BaseEntity {
       0
     );
 
-    this.spring = new RopeSpring(this.rig.body, this.hull.body, {
+    // Create distance constraint configured as a rope:
+    // - upperLimitEnabled: true (can't stretch beyond length)
+    // - lowerLimitEnabled: false (can be slack/closer)
+    this.constraint = new DistanceConstraint(this.rig.body, this.hull.body, {
       localAnchorA: [this.boomAttachLocal.x, this.boomAttachLocal.y],
       localAnchorB: [MAINSHEET_HULL_ATTACH.x, MAINSHEET_HULL_ATTACH.y],
-      restLength: MAINSHEET_DEFAULT_LENGTH,
-      stiffness: MAINSHEET_STIFFNESS,
-      damping: MAINSHEET_DAMPING,
     });
 
-    this.springs = [this.spring];
+    // Configure as rope: only enforce upper limit (no stretching)
+    this.constraint.lowerLimit = 0;
+    this.constraint.lowerLimitEnabled = false;
+    this.constraint.upperLimitEnabled = true;
+    this.constraint.upperLimit = MAINSHEET_DEFAULT_LENGTH;
+
+    this.constraints = [this.constraint];
   }
 
   /**
@@ -66,12 +71,13 @@ export class Mainsheet extends BaseEntity {
       (MAINSHEET_MAX_LENGTH - MAINSHEET_MIN_LENGTH);
     this.sheetPosition = stepToward(this.sheetPosition, target, speed * dt);
 
-    // Update spring rest length
-    this.spring.restLength = lerp(
+    // Update rope length and constraint upper limit
+    this.ropeLength = lerp(
       MAINSHEET_MIN_LENGTH,
       MAINSHEET_MAX_LENGTH,
       this.sheetPosition
     );
+    this.constraint.upperLimit = this.ropeLength;
   }
 
   onRender() {
@@ -87,7 +93,7 @@ export class Mainsheet extends BaseEntity {
 
     // Calculate slack: positive when rope is loose
     const actualDistance = boomAttachWorld.sub(hullAttachWorld).magnitude;
-    const slack = this.spring.restLength - actualDistance;
+    const slack = this.ropeLength - actualDistance;
 
     this.mainsheetSprite.clear();
     this.mainsheetSprite.moveTo(boomAttachWorld.x, boomAttachWorld.y);

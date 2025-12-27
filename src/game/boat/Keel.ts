@@ -7,11 +7,11 @@ import {
   applyFluidForces,
   flatPlateDrag,
   flatPlateLift,
-} from "../lift-and-drag";
+} from "../fluid-dynamics";
 import { Hull } from "./Hull";
 
 const KEEL_VERTICES = [V(-15, 0), V(15, 0)];
-const KEEL_LIFT_AND_DRAG = 1.0;
+const KEEL_LIFT_AND_DRAG = 10.0;
 
 export class Keel extends BaseEntity {
   private keelSprite: GameSprite & Graphics;

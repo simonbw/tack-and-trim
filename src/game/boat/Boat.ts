@@ -68,4 +68,8 @@ export class Boat extends BaseEntity {
   getPosition(): V2d {
     return this.hull.getPosition();
   }
+
+  getVelocity(): V2d {
+    return V(this.hull.body.velocity);
+  }
 }

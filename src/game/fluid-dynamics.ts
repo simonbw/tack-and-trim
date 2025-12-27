@@ -169,5 +169,10 @@ export function flatPlateLift(scale: number): ForceMagnitudeFn {
  */
 export function flatPlateDrag(scale: number): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) =>
-    Math.sin(angleOfAttack) * speed * speed * edgeLength * scale * GLOBAL_FORCE_SCALE;
+    Math.sin(angleOfAttack) *
+    speed *
+    speed *
+    edgeLength *
+    scale *
+    GLOBAL_FORCE_SCALE;
 }

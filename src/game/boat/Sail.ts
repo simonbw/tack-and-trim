@@ -1,30 +1,26 @@
-import { Body, LinearSpring, Particle } from "p2";
+import { Body, DistanceConstraint, Particle } from "p2";
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { last, pairs, range } from "../../core/util/FunctionalUtils";
 import { degToRad, lerpV2d } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import {
-  applyFluidForces,
-  ForceMagnitudeFn,
-  GLOBAL_FORCE_SCALE,
-} from "../lift-and-drag";
+import { applyFluidForces } from "../fluid-dynamics";
 import { Wind } from "../Wind";
 import { Rig } from "./Rig";
+import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
 
-const SAIL_NODES = 16;
-const LIFT_SCALE = 0.5;
-const DRAG_SCALE = 0.6;
-const CAMBER_LIFT_FACTOR = 2.0; // How much camber increases lift
-const SAIL_STIFFNESS = 200;
-const SAIL_DAMPING = 2;
-const STALL_ANGLE = degToRad(15);
+const SAIL_NODES = 64;
+const SAIL_NODE_MASS = 0.08;
+const LIFT_SCALE = 0.0;
+const DRAG_SCALE = 2.6;
+export const CAMBER_LIFT_FACTOR = 0.0;
+export const STALL_ANGLE = degToRad(15);
 
 export class Sail extends BaseEntity {
   sprite: GameSprite & Graphics;
   bodies: NonNullable<BaseEntity["bodies"]>;
-  springs: NonNullable<BaseEntity["springs"]>;
+  constraints: NonNullable<BaseEntity["constraints"]>;
 
   constructor(private rig: Rig) {
     super();
@@ -32,16 +28,19 @@ export class Sail extends BaseEntity {
     this.sprite = createGraphics("sails");
 
     this.bodies = [];
-    this.springs = [];
+    this.constraints = [];
   }
 
   onAdd() {
     const start = this.rig.getMastWorldPosition();
     const end = this.rig.getBoomEndWorldPosition();
+    const totalLength = end.sub(start).magnitude;
+    const segmentLength = totalLength / (SAIL_NODES - 1);
+
     this.bodies = range(SAIL_NODES).map((i) => {
       const t = i / (SAIL_NODES - 1);
       const body = new Body({
-        mass: 0.1,
+        mass: SAIL_NODE_MASS,
         position: lerpV2d(start, end, t),
         collisionResponse: false,
         fixedRotation: true,
@@ -50,28 +49,35 @@ export class Sail extends BaseEntity {
       return body;
     });
 
-    const springConfig = {
-      stiffness: SAIL_STIFFNESS,
-      damping: SAIL_DAMPING,
-    };
-
+    // Connect adjacent particles with distance constraints
     for (const [a, b] of pairs(this.bodies)) {
-      this.springs.push(new LinearSpring(a, b, springConfig));
+      this.constraints.push(
+        new DistanceConstraint(a, b, { distance: segmentLength })
+      );
     }
+
     // Attach first particle to boom at mast (pivot point)
-    this.springs.push(
-      new LinearSpring(this.rig.body, this.bodies[0], {
-        ...springConfig,
+    this.constraints.push(
+      new DistanceConstraint(this.rig.body, this.bodies[0], {
+        distance: 0,
         localAnchorA: [0, 0],
       })
     );
+
     // Attach last particle to boom end
-    this.springs.push(
-      new LinearSpring(this.rig.body, last(this.bodies), {
-        ...springConfig,
+    this.constraints.push(
+      new DistanceConstraint(this.rig.body, last(this.bodies), {
+        distance: 0,
         localAnchorA: [-this.rig.getBoomLength(), 0],
       })
     );
+
+    // Add slack to allow billowing
+    for (const constraint of this.constraints) {
+      if (constraint instanceof DistanceConstraint) {
+        constraint.distance = constraint.distance * 1.2;
+      }
+    }
   }
 
   onTick() {
@@ -137,89 +143,8 @@ export class Sail extends BaseEntity {
     }
 
     this.sprite
+      .closePath()
       .fill({ color: 0xeeeeff })
       .stroke({ color: 0xeeeeff, join: "round", width: 1 });
   }
-}
-
-// ============================================================================
-// Sail Airfoil Physics
-// ============================================================================
-
-/**
- * Calculate camber from three points (prev, current, next).
- * Returns how far the middle point deviates from the chord line,
- * normalized by chord length. Positive = curved toward the normal.
- */
-function calculateCamber(prev: V2d, current: V2d, next: V2d): number {
-  const chord = next.sub(prev);
-  const chordLength = chord.magnitude;
-  if (chordLength < 0.001) return 0;
-
-  const chordMidpoint = prev.add(chord.mul(0.5));
-  const deviation = current.sub(chordMidpoint);
-
-  const chordNormal = chord.normalize().rotate90cw();
-  const camberDistance = deviation.dot(chordNormal);
-
-  return camberDistance / chordLength;
-}
-
-/**
- * Create a lift magnitude function for sail airfoil behavior.
- * Unlike flat plates, airfoil lift is proportional to sin(α) * Cl(α),
- * not sin(α) * cos(α). Camber increases lift coefficient.
- */
-function sailLift(scale: number, camber: number): ForceMagnitudeFn {
-  return ({ angleOfAttack, speed, edgeLength }) => {
-    const alpha = Math.abs(angleOfAttack);
-
-    // Lift coefficient: linear region up to stall, then exponential decay
-    let cl: number;
-    if (alpha < STALL_ANGLE) {
-      cl = 2 * Math.PI * Math.sin(alpha) * Math.sign(angleOfAttack);
-    } else {
-      const peak = 2 * Math.PI * Math.sin(STALL_ANGLE);
-      const decay = Math.exp(-3 * (alpha - STALL_ANGLE));
-      cl = peak * decay * Math.sign(angleOfAttack);
-    }
-
-    // Camber increases lift
-    cl += Math.abs(camber) * CAMBER_LIFT_FACTOR;
-
-    return (
-      Math.sin(angleOfAttack) *
-      cl *
-      speed *
-      speed *
-      edgeLength *
-      scale *
-      GLOBAL_FORCE_SCALE
-    );
-  };
-}
-
-/**
- * Create a drag magnitude function for sail airfoil behavior.
- */
-function sailDrag(scale: number): ForceMagnitudeFn {
-  return ({ angleOfAttack, speed, edgeLength }) => {
-    const alpha = Math.abs(angleOfAttack);
-
-    // Drag coefficient: base + induced + stall penalty
-    const baseDrag = 0.02;
-    const inducedDrag = 0.1 * alpha * alpha;
-    const stallDrag = alpha > STALL_ANGLE ? 0.5 * (alpha - STALL_ANGLE) : 0;
-    const cd = baseDrag + inducedDrag + stallDrag;
-
-    return (
-      Math.sin(angleOfAttack) *
-      cd *
-      speed *
-      speed *
-      edgeLength *
-      scale *
-      GLOBAL_FORCE_SCALE
-    );
-  };
 }

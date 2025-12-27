@@ -1,10 +1,10 @@
 import {
-  GSSolver,
-  World,
-  Equation,
   Body,
   ContactEquation,
+  Equation,
   FrictionEquation,
+  GSSolver,
+  World,
 } from "p2";
 import CustomWorld from "./CustomWorld";
 
@@ -35,7 +35,7 @@ export default class CustomSolver extends GSSolver {
   world!: CustomWorld;
 
   constructor() {
-    super({ iterations: 1, tolerance: 0 });
+    super({ iterations: 10, tolerance: 0 });
   }
 
   setWorld(world: CustomWorld) {

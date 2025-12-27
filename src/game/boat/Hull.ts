@@ -8,7 +8,9 @@ import {
   applyFluidForcesToBody,
   flatPlateDrag,
   flatPlateLift,
-} from "../lift-and-drag";
+} from "../fluid-dynamics";
+
+export const BOAT_MASS = 4; // kg?
 
 const HULL_VERTICES = [
   // Stern (transom)
@@ -46,7 +48,7 @@ export class Hull extends BaseEntity {
       .stroke({ color: 0x886633, width: 1, join: "round" });
 
     this.body = new Body({
-      mass: 1,
+      mass: BOAT_MASS,
     });
 
     this.body.addShape(
