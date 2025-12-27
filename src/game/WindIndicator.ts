@@ -15,7 +15,7 @@ const ARROW_HEAD_SIZE = 10;
 // Interaction configuration
 const MIN_WIND_SPEED = 20;
 const MAX_WIND_SPEED = 200;
-const DRAG_SPEED_SCALE = 1.5; // Pixels per unit of wind speed
+const DRAG_SPEED_SCALE = 5; // Pixels per unit of wind speed
 
 // Position (offset from top-right corner)
 const MARGIN_RIGHT = 60;
@@ -50,10 +50,7 @@ export class WindIndicator extends BaseEntity {
   }
 
   private updateIndicatorPosition(): void {
-    this.indicatorCenter = V(
-      this.screenSize.x - MARGIN_RIGHT,
-      MARGIN_TOP
-    );
+    this.indicatorCenter = V(this.screenSize.x - MARGIN_RIGHT, MARGIN_TOP);
     this.sprite.position.set(this.indicatorCenter.x, this.indicatorCenter.y);
   }
 

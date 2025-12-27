@@ -5,7 +5,7 @@ import Entity from "../../core/entity/Entity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { V, V2d } from "../../core/Vector";
 import { Hull } from "./Hull";
-import { Sail2 } from "./Sail2";
+import { Sail } from "./Sail";
 
 const BOOM_LENGTH = 25;
 const BOOM_WIDTH = 2;
@@ -15,7 +15,7 @@ export class Rig extends BaseEntity {
   private mastSprite: GameSprite & Graphics;
   private boomSprite: GameSprite & Graphics;
   private boomConstraint: RevoluteConstraint;
-  sail: Sail2;
+  sail: Sail;
 
   constructor(
     private hull: Hull,
@@ -23,7 +23,7 @@ export class Rig extends BaseEntity {
   ) {
     super();
 
-    this.sail = this.addChild(new Sail2(this));
+    this.sail = this.addChild(new Sail(this));
 
     // Mast visual (small circle at mast position)
     this.mastSprite = createGraphics("main");

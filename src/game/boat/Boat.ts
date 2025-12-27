@@ -11,7 +11,7 @@ import { Rudder } from "./Rudder";
 const MAST_POSITION = V(5, 0);
 
 const ROW_DURATION = 0.6; // seconds per row
-const ROW_FORCE = 200; // force per row
+const ROW_FORCE = 500; // force per row
 
 export class Boat extends BaseEntity {
   id = "boat";

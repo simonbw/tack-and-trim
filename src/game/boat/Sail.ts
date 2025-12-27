@@ -14,6 +14,7 @@ const SAIL_NODES = 64;
 const SAIL_NODE_MASS = 0.08;
 const LIFT_SCALE = 0.0;
 const DRAG_SCALE = 2.6;
+const SLACK_FACTOR = 1.2;
 export const CAMBER_LIFT_FACTOR = 0.0;
 export const STALL_ANGLE = degToRad(15);
 
@@ -52,14 +53,18 @@ export class Sail extends BaseEntity {
     // Connect adjacent particles with distance constraints
     for (const [a, b] of pairs(this.bodies)) {
       this.constraints.push(
-        new DistanceConstraint(a, b, { distance: segmentLength })
+        new DistanceConstraint(a, b, {
+          distance: segmentLength,
+          collideConnected: false,
+        })
       );
     }
 
     // Attach first particle to boom at mast (pivot point)
     this.constraints.push(
       new DistanceConstraint(this.rig.body, this.bodies[0], {
-        distance: 0,
+        // distance: 0,
+        collideConnected: false,
         localAnchorA: [0, 0],
       })
     );
@@ -67,7 +72,8 @@ export class Sail extends BaseEntity {
     // Attach last particle to boom end
     this.constraints.push(
       new DistanceConstraint(this.rig.body, last(this.bodies), {
-        distance: 0,
+        // distance: 0,
+        collideConnected: false,
         localAnchorA: [-this.rig.getBoomLength(), 0],
       })
     );
@@ -75,7 +81,7 @@ export class Sail extends BaseEntity {
     // Add slack to allow billowing
     for (const constraint of this.constraints) {
       if (constraint instanceof DistanceConstraint) {
-        constraint.distance = constraint.distance * 1.2;
+        constraint.distance = constraint.distance * SLACK_FACTOR;
       }
     }
   }
@@ -127,15 +133,20 @@ export class Sail extends BaseEntity {
     const start = this.rig.getMastWorldPosition();
     const end = this.rig.getBoomEndWorldPosition();
 
-    // Outside of sail
+    // Outside of sail - skip first and last bodies since they're constrained
+    // to start/end positions, which avoids degenerate line segments
     this.sprite.moveTo(start.x, start.y);
-    for (const body of this.bodies) {
-      const [x, y] = body.position;
+    for (let i = 1; i < this.bodies.length - 1; i++) {
+      const [x, y] = this.bodies[i].position;
       this.sprite.lineTo(x, y);
     }
     this.sprite.lineTo(end.x, end.y);
-    // Inside
-    for (const [i, body] of this.bodies.toReversed().entries()) {
+
+    // Inside - trace back along the boom with slight offset toward sail
+    // Skip first and last to avoid near-zero segments at endpoints
+    const reversedBodies = this.bodies.toReversed();
+    for (let i = 1; i < reversedBodies.length - 1; i++) {
+      const body = reversedBodies[i];
       const t = i / (this.bodies.length - 1);
       const boomPosition = lerpV2d(end, start, t);
       const [x, y] = lerpV2d(boomPosition, body.position, 0.3);
