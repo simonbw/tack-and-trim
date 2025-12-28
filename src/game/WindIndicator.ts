@@ -3,6 +3,7 @@ import BaseEntity from "../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../core/entity/GameSprite";
 import { clamp, lerp } from "../core/util/MathUtil";
 import { V, V2d } from "../core/Vector";
+import { Boat } from "./boat/Boat";
 import { Wind } from "./Wind";
 
 // Visual configuration
@@ -31,6 +32,10 @@ const ARROW_HOVER_COLOR = 0x66aaff;
 const ARROW_DRAG_COLOR = 0x88ccff;
 const TICK_COLOR = 0xffffff;
 const TICK_ALPHA = 0.3;
+const VELOCITY_ARROW_COLOR = 0xff4444;
+
+// Velocity scaling
+const MAX_BOAT_SPEED = 100; // Units per second for max arrow length
 
 export class WindIndicator extends BaseEntity {
   sprite: GameSprite & Graphics;
@@ -56,6 +61,10 @@ export class WindIndicator extends BaseEntity {
 
   private getWind(): Wind | undefined {
     return this.game?.entities.getById("wind") as Wind | undefined;
+  }
+
+  private getBoat(): Boat | undefined {
+    return this.game?.entities.getById("boat") as Boat | undefined;
   }
 
   private getMouseOffset(): V2d {
@@ -136,8 +145,25 @@ export class WindIndicator extends BaseEntity {
     );
     const arrowLength = lerp(ARROW_MIN_LENGTH, ARROW_MAX_LENGTH, speedRatio);
 
-    // Draw arrow
+    // Draw wind arrow
     this.drawArrow(g, windAngle, arrowLength, arrowColor);
+
+    // Draw velocity arrow
+    const boat = this.getBoat();
+    if (boat) {
+      const velocity = boat.getVelocity();
+      const speed = velocity.magnitude;
+      if (speed > 0.1) {
+        const velocityAngle = velocity.angle;
+        const speedRatio = clamp(speed / MAX_BOAT_SPEED, 0, 1);
+        const velocityArrowLength = lerp(
+          ARROW_MIN_LENGTH,
+          ARROW_MAX_LENGTH,
+          speedRatio
+        );
+        this.drawArrow(g, velocityAngle, velocityArrowLength, VELOCITY_ARROW_COLOR);
+      }
+    }
   }
 
   private drawTicks(g: Graphics): void {

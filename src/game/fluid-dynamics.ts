@@ -240,3 +240,36 @@ export function foilDrag(scale: number): ForceMagnitudeFn {
     return cd * speed * speed * edgeLength * scale * GLOBAL_FORCE_SCALE;
   };
 }
+
+// ============================================================================
+// Skin Friction (viscous drag from water flowing along hull surface)
+// ============================================================================
+
+/**
+ * Apply skin friction force to a body.
+ * This is viscous drag proportional to wetted area and velocity squared.
+ * Unlike form drag, it always opposes motion regardless of hull orientation.
+ */
+export function applySkinFriction(
+  body: p2.Body,
+  wettedArea: number,
+  frictionCoefficient: number,
+  getFluidVelocity: FluidVelocityFn = () => V(0, 0)
+) {
+  const fluidVelocity = getFluidVelocity(V(body.position));
+  const relativeVelocity = V(body.velocity).sub(fluidVelocity);
+
+  const speed = relativeVelocity.magnitude;
+  if (speed < 0.0001) return;
+
+  const cappedSpeed = Math.min(speed, MAX_RELATIVE_SPEED);
+
+  // F = -coefficient * area * v * |v| (quadratic drag, opposes motion)
+  const forceMagnitude =
+    frictionCoefficient * wettedArea * cappedSpeed * cappedSpeed * GLOBAL_FORCE_SCALE;
+
+  const force = relativeVelocity.normalize().mul(-forceMagnitude);
+
+  // Apply at center of mass (no torque)
+  body.applyForce(force, [0, 0]);
+}

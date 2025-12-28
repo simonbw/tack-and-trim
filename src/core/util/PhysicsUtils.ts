@@ -49,3 +49,13 @@ function baseShapeFromDef(shapeDef: ShapeDef): Shape {
     }
   }
 }
+// Calculate polygon area using shoelace formula
+export function polygonArea(vertices: V2d[]): number {
+  let area = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    const j = (i + 1) % vertices.length;
+    area += vertices[i].x * vertices[j].y;
+    area -= vertices[j].x * vertices[i].y;
+  }
+  return Math.abs(area) / 2;
+}

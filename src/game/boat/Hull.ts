@@ -3,9 +3,11 @@ import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
+import { polygonArea } from "../../core/util/PhysicsUtils";
 import { V, V2d } from "../../core/Vector";
 import {
   applyFluidForcesToBody,
+  applySkinFriction,
   flatPlateDrag,
   flatPlateLift,
 } from "../fluid-dynamics";
@@ -32,7 +34,10 @@ const HULL_VERTICES = [
   V(-20, 4),
 ];
 
+const HULL_AREA = polygonArea(HULL_VERTICES);
+
 const HULL_LIFT_AND_DRAG = 0.15;
+const SKIN_FRICTION_COEFFICIENT = 0.02;
 
 export class Hull extends BaseEntity {
   body: NonNullable<Entity["body"]>;
@@ -66,6 +71,8 @@ export class Hull extends BaseEntity {
       flatPlateLift(HULL_LIFT_AND_DRAG),
       flatPlateDrag(HULL_LIFT_AND_DRAG)
     );
+
+    applySkinFriction(this.body, HULL_AREA, SKIN_FRICTION_COEFFICIENT);
   }
 
   onRender() {

@@ -66,8 +66,6 @@ export class WaterParticles extends BaseEntity {
   onRender() {
     this.graphics.clear();
 
-    // Water velocity (currents not implemented yet, so just 0)
-
     for (const p of this.particles) {
       const t = p.age / MAX_AGE;
       const phase = Math.sin(t * Math.PI) * MAX_ALPHA;

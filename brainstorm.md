@@ -6,6 +6,7 @@
 - Turbulence
 - Waves
 - Tilting
+- Wind currents
 
 ## Game mechanics
 
@@ -25,6 +26,7 @@
 
 - spray on the bow
 - clouds
+- better rope simulation
 
 ## Titan
 
