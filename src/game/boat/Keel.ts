@@ -5,13 +5,13 @@ import { pairs } from "../../core/util/FunctionalUtils";
 import { V } from "../../core/Vector";
 import {
   applyFluidForces,
-  flatPlateDrag,
-  flatPlateLift,
+  foilDrag,
+  foilLift,
 } from "../fluid-dynamics";
 import { Hull } from "./Hull";
 
 const KEEL_VERTICES = [V(-15, 0), V(15, 0)];
-const KEEL_LIFT_AND_DRAG = 10.0;
+const KEEL_LIFT_AND_DRAG = 1.5; // Reduced from 10 to compensate for foil's ~6x higher coefficients
 
 export class Keel extends BaseEntity {
   private keelSprite: GameSprite & Graphics;
@@ -28,8 +28,8 @@ export class Keel extends BaseEntity {
   }
 
   onTick() {
-    const lift = flatPlateLift(KEEL_LIFT_AND_DRAG);
-    const drag = flatPlateDrag(KEEL_LIFT_AND_DRAG);
+    const lift = foilLift(KEEL_LIFT_AND_DRAG);
+    const drag = foilDrag(KEEL_LIFT_AND_DRAG);
 
     // Apply keel forces to hull (both directions for symmetry)
     for (const [start, end] of pairs(KEEL_VERTICES)) {

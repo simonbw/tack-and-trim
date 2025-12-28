@@ -32,7 +32,7 @@ const HULL_VERTICES = [
   V(-20, 4),
 ];
 
-const HULL_LIFT_AND_DRAG = 0.03;
+const HULL_LIFT_AND_DRAG = 0.1;
 
 export class Hull extends BaseEntity {
   body: NonNullable<Entity["body"]>;

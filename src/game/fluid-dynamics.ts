@@ -176,3 +176,67 @@ export function flatPlateDrag(scale: number): ForceMagnitudeFn {
     scale *
     GLOBAL_FORCE_SCALE;
 }
+
+// ============================================================================
+// Symmetric Foil Model (for keel, rudder - NACA-style symmetric hydrofoils)
+// ============================================================================
+
+const FOIL_STALL_ANGLE = 0.26; // ~15 degrees - typical for symmetric foils
+
+/**
+ * Create a lift magnitude function for symmetric foil behavior.
+ * Based on thin airfoil theory: Cl ≈ 2π·sin(α) before stall.
+ * Much more efficient than flat plate at small angles.
+ */
+export function foilLift(scale: number): ForceMagnitudeFn {
+  return ({ angleOfAttack, speed, edgeLength }) => {
+    // Use the effective angle (0 to 90°) for coefficient calculation
+    // but preserve the sign from cos(angleOfAttack) for correct force direction
+    const alpha = Math.abs(angleOfAttack);
+    const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
+
+    // Lift coefficient based on thin airfoil theory
+    let cl: number;
+    if (effectiveAlpha < FOIL_STALL_ANGLE) {
+      // Linear region: Cl = 2π·sin(α)
+      cl = 2 * Math.PI * Math.sin(effectiveAlpha);
+    } else {
+      // Post-stall: gradual decay
+      const peak = 2 * Math.PI * Math.sin(FOIL_STALL_ANGLE);
+      const decay = Math.exp(-2 * (effectiveAlpha - FOIL_STALL_ANGLE));
+      cl = peak * decay;
+    }
+
+    // Sign from cos(angleOfAttack) ensures correct force direction
+    // (negative when flow is "backward" along the edge, matching flat plate behavior)
+    cl *= Math.sign(Math.cos(angleOfAttack));
+
+    return cl * speed * speed * edgeLength * scale * GLOBAL_FORCE_SCALE;
+  };
+}
+
+/**
+ * Create a drag magnitude function for symmetric foil behavior.
+ * Lower base drag than flat plate, with induced drag and stall penalty.
+ */
+export function foilDrag(scale: number): ForceMagnitudeFn {
+  return ({ angleOfAttack, speed, edgeLength }) => {
+    // Use effective angle (0 to 90°) for coefficient calculation
+    const alpha = Math.abs(angleOfAttack);
+    const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
+
+    // Drag components:
+    // - Base drag: minimal for streamlined foil
+    // - Induced drag: proportional to α² (lift-induced)
+    // - Stall penalty: significant increase after stall
+    const baseDrag = 0.01;
+    const inducedDrag = 0.15 * effectiveAlpha * effectiveAlpha;
+    const stallDrag =
+      effectiveAlpha > FOIL_STALL_ANGLE
+        ? 0.8 * (effectiveAlpha - FOIL_STALL_ANGLE)
+        : 0;
+    const cd = baseDrag + inducedDrag + stallDrag;
+
+    return cd * speed * speed * edgeLength * scale * GLOBAL_FORCE_SCALE;
+  };
+}

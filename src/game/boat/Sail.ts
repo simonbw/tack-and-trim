@@ -3,20 +3,19 @@ import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { last, pairs, range } from "../../core/util/FunctionalUtils";
-import { degToRad, lerpV2d } from "../../core/util/MathUtil";
+import { lerpV2d } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { applyFluidForces } from "../fluid-dynamics";
 import { Wind } from "../Wind";
 import { Rig } from "./Rig";
 import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
 
-const SAIL_NODES = 64;
-const SAIL_NODE_MASS = 0.08;
-const LIFT_SCALE = 0.0;
-const DRAG_SCALE = 2.6;
-const SLACK_FACTOR = 1.2;
-export const CAMBER_LIFT_FACTOR = 0.0;
-export const STALL_ANGLE = degToRad(15);
+const SAIL_NODES = 32;
+const SAIL_NODE_MASS = 0.04;
+const LIFT_SCALE = 2.0;
+const DRAG_SCALE = 2.0;
+const SLACK_FACTOR = 1.01;
+const BILLOW_FACTOR = 3.3;
 
 export class Sail extends BaseEntity {
   sprite: GameSprite & Graphics;
@@ -149,7 +148,7 @@ export class Sail extends BaseEntity {
       const body = reversedBodies[i];
       const t = i / (this.bodies.length - 1);
       const boomPosition = lerpV2d(end, start, t);
-      const [x, y] = lerpV2d(boomPosition, body.position, 0.3);
+      const [x, y] = lerpV2d(boomPosition, body.position, BILLOW_FACTOR);
       this.sprite.lineTo(x, y);
     }
 

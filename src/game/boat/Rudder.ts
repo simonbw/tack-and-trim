@@ -5,14 +5,14 @@ import { degToRad, stepToward } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
 import {
   applyFluidForces,
-  flatPlateDrag,
-  flatPlateLift,
+  foilDrag,
+  foilLift,
 } from "../fluid-dynamics";
 import { Hull } from "./Hull";
 
 const RUDDER_POSITION = V(-10, 0);
 const RUDDER_LENGTH = 18;
-const RUDDER_LIFT_AND_DRAG = 10.0;
+const RUDDER_LIFT_AND_DRAG = 2.0; // Reduced from 10; slightly higher than keel for good steering authority
 const MAX_STEER_ANGLE = degToRad(35);
 const STEER_ADJUST_SPEED = 1.5; // How fast the rudder position changes with input
 
@@ -58,8 +58,8 @@ export class Rudder extends BaseEntity {
     );
     const rudderEnd = RUDDER_POSITION.add(rudderOffset);
 
-    const lift = flatPlateLift(RUDDER_LIFT_AND_DRAG);
-    const drag = flatPlateDrag(RUDDER_LIFT_AND_DRAG);
+    const lift = foilLift(RUDDER_LIFT_AND_DRAG);
+    const drag = foilDrag(RUDDER_LIFT_AND_DRAG);
 
     // Apply rudder forces to hull (both directions)
     applyFluidForces(this.hull.body, RUDDER_POSITION, rudderEnd, lift, drag);

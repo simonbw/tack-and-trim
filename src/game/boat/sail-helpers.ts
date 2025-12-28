@@ -1,6 +1,6 @@
+import { degToRad } from "../../core/util/MathUtil";
 import { V2d } from "../../core/Vector";
 import { ForceMagnitudeFn, GLOBAL_FORCE_SCALE } from "../fluid-dynamics";
-import { CAMBER_LIFT_FACTOR, STALL_ANGLE } from "./Sail";
 
 // ============================================================================
 // Sail Airfoil Physics
@@ -82,3 +82,5 @@ export function sailDrag(scale: number): ForceMagnitudeFn {
     );
   };
 }
+export const CAMBER_LIFT_FACTOR = 0.0;
+export const STALL_ANGLE = degToRad(15);

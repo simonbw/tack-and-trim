@@ -9,11 +9,11 @@ import { Rig } from "./Rig";
 
 const MAINSHEET_BOOM_ATTACH_RATIO = 0.9; // attach near end of boom
 const MAINSHEET_HULL_ATTACH = V(-12, 0); // cockpit area on hull
-const MAINSHEET_MIN_LENGTH = 8; // Fully sheeted in
+const MAINSHEET_MIN_LENGTH = 6; // Fully sheeted in
 const MAINSHEET_MAX_LENGTH = 35; // Fully eased out
 const MAINSHEET_DEFAULT_LENGTH = 20; // Starting position
 const MAINSHEET_ADJUST_SPEED = 15; // Units per second
-const MAINSHEET_SAG_FACTOR = 0.5; // How much the rope sags per unit of slack
+const MAINSHEET_SAG_FACTOR = 1.5; // How much the rope sags per unit of slack
 
 export class Mainsheet extends BaseEntity {
   private mainsheetSprite: GameSprite & Graphics;
