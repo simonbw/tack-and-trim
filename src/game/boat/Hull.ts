@@ -10,7 +10,7 @@ import {
   flatPlateLift,
 } from "../fluid-dynamics";
 
-export const BOAT_MASS = 4; // kg?
+export const BOAT_MASS = 5; // kg?
 
 const HULL_VERTICES = [
   // Stern (transom)
@@ -32,7 +32,7 @@ const HULL_VERTICES = [
   V(-20, 4),
 ];
 
-const HULL_LIFT_AND_DRAG = 0.1;
+const HULL_LIFT_AND_DRAG = 0.15;
 
 export class Hull extends BaseEntity {
   body: NonNullable<Entity["body"]>;

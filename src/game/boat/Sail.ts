@@ -14,8 +14,9 @@ const SAIL_NODES = 32;
 const SAIL_NODE_MASS = 0.04;
 const LIFT_SCALE = 2.0;
 const DRAG_SCALE = 2.0;
-const SLACK_FACTOR = 1.01;
-const BILLOW_FACTOR = 3.3;
+const SLACK_FACTOR = 1.01; // extra distance allowed between sail nodes
+const BILLOW_INNER = 0.8; // how much the inner edge of the sail billows for rendering
+const BILLOW_OUTER = 2.4; // how much the outer edge of the sail billows for rendering
 
 export class Sail extends BaseEntity {
   sprite: GameSprite & Graphics;
@@ -136,7 +137,10 @@ export class Sail extends BaseEntity {
     // to start/end positions, which avoids degenerate line segments
     this.sprite.moveTo(start.x, start.y);
     for (let i = 1; i < this.bodies.length - 1; i++) {
-      const [x, y] = this.bodies[i].position;
+      const body = this.bodies[i];
+      const t = i / (this.bodies.length - 1);
+      const boomPosition = lerpV2d(start, end, t);
+      const [x, y] = lerpV2d(boomPosition, body.position, BILLOW_INNER);
       this.sprite.lineTo(x, y);
     }
     this.sprite.lineTo(end.x, end.y);
@@ -148,7 +152,7 @@ export class Sail extends BaseEntity {
       const body = reversedBodies[i];
       const t = i / (this.bodies.length - 1);
       const boomPosition = lerpV2d(end, start, t);
-      const [x, y] = lerpV2d(boomPosition, body.position, BILLOW_FACTOR);
+      const [x, y] = lerpV2d(boomPosition, body.position, BILLOW_OUTER);
       this.sprite.lineTo(x, y);
     }
 
