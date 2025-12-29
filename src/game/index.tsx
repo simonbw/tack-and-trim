@@ -28,6 +28,9 @@ async function main() {
   // Make the game accessible from the console
   window.DEBUG = { game };
 
+  // Clean up resources when the page is unloaded
+  window.addEventListener("beforeunload", () => game.destroy());
+
   const preloader = game.addEntity(GamePreloader);
   await preloader.waitTillLoaded();
   preloader.destroy();

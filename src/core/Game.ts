@@ -65,6 +65,11 @@ export default class Game {
   /** Number of seconds to simulate per tick */
   readonly tickDuration: number;
 
+  /** ID of the current animation frame request, used for cancellation */
+  private animationFrameId: number = 0;
+  /** Whether the game has been destroyed */
+  private destroyed: boolean = false;
+
   /** Total amount of game time that has elapsed */
   elapsedTime: number = 0;
   /** Total amount of game time that has elapsed while not paused */
@@ -134,7 +139,9 @@ export default class Game {
     this.io = new IOManager(this.renderer.canvas);
     this.addEntity(this.renderer.camera);
 
-    window.requestAnimationFrame(() => this.loop(this.lastFrameTime));
+    this.animationFrameId = window.requestAnimationFrame(() =>
+      this.loop(this.lastFrameTime)
+    );
   }
 
   /** See pause() and unpause(). */
@@ -166,6 +173,38 @@ export default class Game {
   unpause() {
     this.paused = false;
     this.dispatch("unpause", undefined);
+  }
+
+  /** Destroy the game and clean up all resources. */
+  destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+
+    // Cancel the animation frame loop
+    window.cancelAnimationFrame(this.animationFrameId);
+
+    // Destroy all entities
+    for (const entity of this.entities) {
+      this.cleanupEntity(entity);
+    }
+    this.entitiesToRemove.clear();
+
+    // Remove physics world event listeners
+    this.world.off("beginContact", this.beginContact);
+    this.world.off("endContact", this.endContact);
+    this.world.off("impact", this.impact);
+
+    // Clear physics world
+    this.world.clear();
+
+    // Destroy IO manager (clears interval and event listeners)
+    this.io.destroy();
+
+    // Destroy renderer (removes resize listener, destroys Pixi app)
+    this.renderer.destroy();
+
+    // Close audio context
+    this.audio.close();
   }
 
   /** Dispatch an event. */
@@ -301,7 +340,8 @@ export default class Game {
   private iterationsRemaining = 0.0;
   /** The main event loop. Run one frame of the game.  */
   private loop(time: number): void {
-    window.requestAnimationFrame((t) => this.loop(t));
+    if (this.destroyed) return;
+    this.animationFrameId = window.requestAnimationFrame((t) => this.loop(t));
     this.framenumber += 1;
 
     const lastFrameDuration = (time - this.lastFrameTime) / 1000;

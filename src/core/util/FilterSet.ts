@@ -23,6 +23,10 @@ export default class FilterSet<T, T2 extends T> implements Iterable<T2> {
     }
   }
 
+  clear() {
+    this.items.clear();
+  }
+
   get size() {
     return this.items.size;
   }

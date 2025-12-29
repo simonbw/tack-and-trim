@@ -22,6 +22,12 @@ export class IOManager {
   usingGamepad: boolean = false; // True if the gamepad is the main input device
   view: HTMLElement;
 
+  // Store references for cleanup
+  private gamepadIntervalId: number;
+  private boundOnKeyDown: (e: KeyboardEvent) => void;
+  private boundOnKeyUp: (e: KeyboardEvent) => void;
+  private boundOnVisibilityChange: () => void;
+
   constructor(view: HTMLElement) {
     this.view = view;
 
@@ -35,12 +41,9 @@ export class IOManager {
       return false;
     };
 
-    document.onkeydown = (e) => {
-      this.onKeyDown(e);
-    };
-    document.onkeyup = (e) => this.onKeyUp(e);
-
-    document.onvisibilitychange = (event) => {
+    this.boundOnKeyDown = (e) => this.onKeyDown(e);
+    this.boundOnKeyUp = (e) => this.onKeyUp(e);
+    this.boundOnVisibilityChange = () => {
       for (const keyCode of this.keys.keys()) {
         this.keys.set(keyCode, false);
         for (const handler of this.handlers.filtered.onKeyUp) {
@@ -49,11 +52,38 @@ export class IOManager {
       }
     };
 
+    document.addEventListener("keydown", this.boundOnKeyDown);
+    document.addEventListener("keyup", this.boundOnKeyUp);
+    document.addEventListener("visibilitychange", this.boundOnVisibilityChange);
+
     // Because this is a polling not pushing interface
-    window.setInterval(
+    this.gamepadIntervalId = window.setInterval(
       () => this.handleGamepads(),
       1000 / GAMEPAD_POLLING_FREQUENCY
     );
+  }
+
+  destroy(): void {
+    // Clear gamepad polling interval
+    window.clearInterval(this.gamepadIntervalId);
+
+    // Remove document event listeners
+    document.removeEventListener("keydown", this.boundOnKeyDown);
+    document.removeEventListener("keyup", this.boundOnKeyUp);
+    document.removeEventListener(
+      "visibilitychange",
+      this.boundOnVisibilityChange
+    );
+
+    // Clear view event handlers
+    this.view.onclick = null;
+    this.view.onmousedown = null;
+    this.view.onmouseup = null;
+    this.view.onmousemove = null;
+    this.view.oncontextmenu = null;
+
+    // Clear handlers
+    this.handlers.clear();
   }
 
   // True if the left mouse button is down.

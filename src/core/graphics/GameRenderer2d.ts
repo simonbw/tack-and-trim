@@ -40,6 +40,9 @@ export class GameRenderer2d {
     return this.app.renderer.canvas;
   }
 
+  // Store reference for cleanup
+  private boundHandleResize: () => void;
+
   /** TODO: Document renderer constructor */
   constructor(
     private layerInfos: Record<LayerName, LayerInfo>,
@@ -54,7 +57,14 @@ export class GameRenderer2d {
       this.app.stage.addChild(layerInfo.container);
     }
 
-    window.addEventListener("resize", () => this.handleResize());
+    this.boundHandleResize = () => this.handleResize();
+    window.addEventListener("resize", this.boundHandleResize);
+  }
+
+  destroy(): void {
+    window.removeEventListener("resize", this.boundHandleResize);
+    this.canvas.remove();
+    this.app.destroy(true, { children: true, texture: true });
   }
 
   async init(pixiOptions: GameRenderer2dOptions = {}) {

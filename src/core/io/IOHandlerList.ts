@@ -49,6 +49,13 @@ export default class IOHandlerList implements Iterable<IOEventHandler> {
     }
   }
 
+  clear() {
+    this.all.clear();
+    for (const list of Object.values(this.filtered)) {
+      list.clear();
+    }
+  }
+
   [Symbol.iterator]() {
     return this.all[Symbol.iterator]();
   }
