@@ -6,7 +6,7 @@ import { last, pairs, range } from "../../core/util/FunctionalUtils";
 import { lerpV2d } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { applyFluidForces } from "../fluid-dynamics";
-import { Wind } from "../Wind";
+import type { Wind } from "../Wind";
 import { Rig } from "./Rig";
 import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
 
@@ -112,7 +112,7 @@ export class Sail extends BaseEntity {
       // Calculate local camber (how curved the sail is at this point)
       const camber = calculateCamber(prevPos, bodyPos, nextPos);
 
-      // Force decreases toward boom end because it's a traingular sail
+      // Force decreases toward boom end because it's a triangular sail
       const triangleCompensation = 1.0 - t;
 
       // Create force magnitude functions for this segment

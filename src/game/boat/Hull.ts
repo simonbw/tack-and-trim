@@ -5,12 +5,7 @@ import Entity from "../../core/entity/Entity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { polygonArea } from "../../core/util/PhysicsUtils";
 import { V, V2d } from "../../core/Vector";
-import {
-  applyFluidForcesToBody,
-  applySkinFriction,
-  flatPlateDrag,
-  flatPlateLift,
-} from "../fluid-dynamics";
+import { applySkinFriction } from "../fluid-dynamics";
 
 export const BOAT_MASS = 5; // kg?
 
@@ -66,12 +61,6 @@ export class Hull extends BaseEntity {
   }
 
   onTick() {
-    applyFluidForcesToBody(
-      this.body,
-      flatPlateLift(HULL_LIFT_AND_DRAG),
-      flatPlateDrag(HULL_LIFT_AND_DRAG)
-    );
-
     applySkinFriction(this.body, HULL_AREA, SKIN_FRICTION_COEFFICIENT);
   }
 

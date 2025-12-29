@@ -18,7 +18,7 @@ export class Rig extends BaseEntity {
   sail: Sail;
 
   constructor(
-    private hull: Hull,
+    readonly hull: Hull,
     private mastPosition: V2d
   ) {
     super();

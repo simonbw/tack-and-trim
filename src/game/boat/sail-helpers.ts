@@ -31,17 +31,23 @@ export function calculateCamber(prev: V2d, current: V2d, next: V2d): number {
  */
 export function sailLift(scale: number, camber: number): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
+    // Use effective angle (0 to 90°) for coefficient calculation
+    // This ensures symmetric behavior regardless of which edge direction is active
     const alpha = Math.abs(angleOfAttack);
+    const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
 
     // Lift coefficient: linear region up to stall, then exponential decay
     let cl: number;
-    if (alpha < STALL_ANGLE) {
-      cl = 2 * Math.PI * Math.sin(alpha) * Math.sign(angleOfAttack);
+    if (effectiveAlpha < STALL_ANGLE) {
+      cl = 2 * Math.PI * Math.sin(effectiveAlpha);
     } else {
       const peak = 2 * Math.PI * Math.sin(STALL_ANGLE);
-      const decay = Math.exp(-3 * (alpha - STALL_ANGLE));
-      cl = peak * decay * Math.sign(angleOfAttack);
+      const decay = Math.exp(-3 * (effectiveAlpha - STALL_ANGLE));
+      cl = peak * decay;
     }
+
+    // Sign from cos(angleOfAttack) ensures correct force direction
+    cl *= Math.sign(Math.cos(angleOfAttack));
 
     // Camber increases lift
     cl += Math.abs(camber) * CAMBER_LIFT_FACTOR;
@@ -63,12 +69,16 @@ export function sailLift(scale: number, camber: number): ForceMagnitudeFn {
  */
 export function sailDrag(scale: number): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
+    // Use effective angle (0 to 90°) for coefficient calculation
+    // This ensures symmetric behavior regardless of which edge direction is active
     const alpha = Math.abs(angleOfAttack);
+    const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
 
     // Drag coefficient: base + induced + stall penalty
     const baseDrag = 0.02;
-    const inducedDrag = 0.1 * alpha * alpha;
-    const stallDrag = alpha > STALL_ANGLE ? 0.5 * (alpha - STALL_ANGLE) : 0;
+    const inducedDrag = 0.1 * effectiveAlpha * effectiveAlpha;
+    const stallDrag =
+      effectiveAlpha > STALL_ANGLE ? 0.5 * (effectiveAlpha - STALL_ANGLE) : 0;
     const cd = baseDrag + inducedDrag + stallDrag;
 
     return (
