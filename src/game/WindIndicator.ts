@@ -34,6 +34,15 @@ const TICK_COLOR = 0xffffff;
 const TICK_ALPHA = 0.3;
 const VELOCITY_ARROW_COLOR = 0xff4444;
 
+// Tick marks
+const TICK_INNER_OFFSET = 8; // Distance from edge to inner tick point
+const TICK_OUTER_OFFSET = 3; // Distance from edge to outer tick point
+const TICK_CARDINAL_EXTRA = 3; // Extra length for cardinal directions (N/E/S/W)
+
+// Arrow proportions
+const ARROW_BASE_RATIO = 0.3; // How far back the arrow base extends (relative to length)
+const ARROW_HEAD_WIDTH_RATIO = 0.5; // Width of arrow head (relative to head size)
+
 // Velocity scaling
 const MAX_BOAT_SPEED = 100; // Units per second for max arrow length
 
@@ -167,13 +176,14 @@ export class WindIndicator extends BaseEntity {
   }
 
   private drawTicks(g: Graphics): void {
-    const innerRadius = INDICATOR_RADIUS - 8;
-    const outerRadius = INDICATOR_RADIUS - 3;
+    const innerRadius = INDICATOR_RADIUS - TICK_INNER_OFFSET;
+    const outerRadius = INDICATOR_RADIUS - TICK_OUTER_OFFSET;
 
     // Draw tick marks at cardinal directions
     for (let i = 0; i < 8; i++) {
       const angle = (i * Math.PI) / 4;
-      const inner = i % 2 === 0 ? innerRadius - 3 : innerRadius;
+      const isCardinal = i % 2 === 0;
+      const inner = isCardinal ? innerRadius - TICK_CARDINAL_EXTRA : innerRadius;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
 
@@ -193,7 +203,7 @@ export class WindIndicator extends BaseEntity {
     const perp = dir.rotate90cw();
 
     const tip = dir.mul(length);
-    const base = dir.mul(-length * 0.3);
+    const base = dir.mul(-length * ARROW_BASE_RATIO);
 
     // Arrow shaft
     g.moveTo(base.x, base.y);
@@ -202,8 +212,9 @@ export class WindIndicator extends BaseEntity {
 
     // Arrow head (triangle)
     const headBase = tip.sub(dir.mul(ARROW_HEAD_SIZE));
-    const headLeft = headBase.add(perp.mul(ARROW_HEAD_SIZE * 0.5));
-    const headRight = headBase.sub(perp.mul(ARROW_HEAD_SIZE * 0.5));
+    const headHalfWidth = ARROW_HEAD_SIZE * ARROW_HEAD_WIDTH_RATIO;
+    const headLeft = headBase.add(perp.mul(headHalfWidth));
+    const headRight = headBase.sub(perp.mul(headHalfWidth));
 
     g.moveTo(tip.x, tip.y);
     g.lineTo(headLeft.x, headLeft.y);
