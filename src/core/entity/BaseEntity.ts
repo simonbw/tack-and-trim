@@ -1,4 +1,4 @@
-import { Body, Constraint, Spring } from "../p2";
+import { Body, Constraint, Spring } from "../physics";
 import { EntityDef } from "../EntityDef";
 import Game from "../Game";
 import { V, V2d } from "../Vector";

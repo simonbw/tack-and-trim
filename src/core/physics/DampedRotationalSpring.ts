@@ -1,4 +1,6 @@
-import { Body, RotationalSpring, RotationalSpringOptions } from "../p2";
+import Body from "./objects/Body";
+import RotationalSpring from "./objects/RotationalSpring";
+import type { RotationalSpringOptions } from "./objects/RotationalSpring";
 import { clamp } from "../util/MathUtil";
 
 interface DampedRotationalSpringOptions extends RotationalSpringOptions {

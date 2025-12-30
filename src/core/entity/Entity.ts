@@ -1,4 +1,4 @@
-import { Body, Constraint, Spring } from "../p2";
+import { Body, Constraint, Spring } from "../physics";
 import { CustomEvents } from "../../config/CustomEvent";
 import Game from "../Game";
 import { BaseGameEvents } from "./BaseGameEvents";

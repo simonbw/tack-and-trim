@@ -1,17 +1,15 @@
-import {
-  World,
-  Body,
-  vec2,
-  Vec2,
-  Narrowphase,
-  Shape,
-  ContactMaterial,
-  Utils,
-  RaycastResult,
-  Ray,
-  WorldOptions,
-  AABB,
-} from "../p2";
+import World from "./world/World";
+import type { WorldOptions } from "./world/World";
+import Body from "./objects/Body";
+import vec2 from "./math/vec2";
+import type { Vec2 } from "./math/vec2";
+import Narrowphase from "./collision/Narrowphase";
+import Shape from "./shapes/Shape";
+import ContactMaterial from "./material/ContactMaterial";
+import Utils from "./utils/Utils";
+import RaycastResult from "./collision/RaycastResult";
+import Ray from "./collision/Ray";
+import AABB from "./collision/AABB";
 import { ContactInfo } from "../ContactList";
 import SpatialHashingBroadphase from "./SpatialHashingBroadphase";
 import CustomNarrowphase from "./CustomNarrowphase";

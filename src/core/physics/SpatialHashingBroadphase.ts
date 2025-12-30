@@ -1,4 +1,10 @@
-import { AABB, Body, Broadphase, Ray, SAPBroadphase, Shape, World } from "../p2";
+import AABB from "./collision/AABB";
+import Body from "./objects/Body";
+import Broadphase from "./collision/Broadphase";
+import Ray from "./collision/Ray";
+import SAPBroadphase from "./collision/SAPBroadphase";
+import Shape from "./shapes/Shape";
+import World from "./world/World";
 import { mod } from "../util/MathUtil";
 
 const CUSTOM_BROADPHASE_TYPE = 3;

@@ -1,4 +1,4 @@
-import { ContactMaterial, Material } from "../core/p2";
+import { ContactMaterial, Material } from "../core/physics";
 import { objectEntries } from "../core/util/ObjectUtils";
 
 export const Materials = {

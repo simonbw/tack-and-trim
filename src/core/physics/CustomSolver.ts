@@ -1,11 +1,9 @@
-import {
-  Body,
-  ContactEquation,
-  Equation,
-  FrictionEquation,
-  GSSolver,
-  World,
-} from "../p2";
+import Body from "./objects/Body";
+import ContactEquation from "./equations/ContactEquation";
+import Equation from "./equations/Equation";
+import FrictionEquation from "./equations/FrictionEquation";
+import GSSolver from "./solver/GSSolver";
+import World from "./world/World";
 import CustomWorld from "./CustomWorld";
 
 interface EquationExtended extends Equation {

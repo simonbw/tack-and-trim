@@ -1,4 +1,4 @@
-import { Body, Shape, ContactEquation } from "./p2";
+import { Body, Shape, ContactEquation } from "./physics";
 import { WithOwner } from "./entity/WithOwner";
 
 export interface ContactInfo {

@@ -1,5 +1,6 @@
-import { Body, RotationalSpring } from "../p2";
-import { angleDelta } from "../../core/util/MathUtil";
+import Body from "./objects/Body";
+import RotationalSpring from "./objects/RotationalSpring";
+import { angleDelta } from "../util/MathUtil";
 
 /**
  * A rotational spring that applies corrective torque to maintain a target angle.

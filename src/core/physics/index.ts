@@ -1,4 +1,5 @@
-// p2.js TypeScript port - Barrel export
+// Physics engine - Barrel export
+// Based on p2.js with custom extensions
 
 // Math
 export { default as vec2 } from "./math/vec2";
@@ -84,3 +85,15 @@ export type { WorldOptions } from "./world/World";
 export { default as Island } from "./world/Island";
 export { default as IslandNode } from "./world/IslandNode";
 export { default as IslandManager } from "./world/IslandManager";
+
+// Custom extensions
+export { default as CustomWorld } from "./CustomWorld";
+export { default as CustomSolver } from "./CustomSolver";
+export { default as SpatialHashingBroadphase } from "./SpatialHashingBroadphase";
+export { default as CCDBody } from "./CCDBody";
+
+// Custom springs
+export { default as AimSpring } from "./AimSpring";
+export { default as RopeSpring } from "./RopeSpring";
+export { default as DampedRotationalSpring } from "./DampedRotationalSpring";
+export { default as RotationalSolenoidSpring } from "./RotationalSolenoidSpring";

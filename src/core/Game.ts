@@ -1,4 +1,4 @@
-import { World, Body } from "./p2";
+import { World, Body } from "./physics";
 import { DEFAULT_LAYER, LAYERS } from "../config/layers";
 import ContactList, {
   ContactInfo,

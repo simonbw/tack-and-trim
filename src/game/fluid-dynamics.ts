@@ -1,4 +1,4 @@
-import { Body, Convex } from "../core/p2";
+import { Body, Convex } from "../core/physics";
 import { V, V2d } from "../core/Vector";
 
 const MAX_RELATIVE_SPEED = 50;

@@ -1,4 +1,5 @@
-import { LinearSpring, vec2 } from "../p2";
+import LinearSpring from "./objects/LinearSpring";
+import vec2 from "./math/vec2";
 
 var applyForce_r = vec2.create(),
   applyForce_r_unit = vec2.create(),
