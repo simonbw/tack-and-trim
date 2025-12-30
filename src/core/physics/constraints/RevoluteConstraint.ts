@@ -1,31 +1,31 @@
-import Constraint, { ConstraintOptions } from "./Constraint";
+import { CompatibleVector, V2d } from "../../Vector";
+import type Body from "../body/Body";
 import Equation from "../equations/Equation";
-import RotationalVelocityEquation from "../equations/RotationalVelocityEquation";
 import RotationalLockEquation from "../equations/RotationalLockEquation";
-import vec2, { Vec2 } from "../math/vec2";
-import type Body from "../objects/Body";
+import RotationalVelocityEquation from "../equations/RotationalVelocityEquation";
+import Constraint, { ConstraintOptions } from "./Constraint";
 
 export interface RevoluteConstraintOptions extends ConstraintOptions {
-  worldPivot?: Vec2;
-  localPivotA?: Vec2;
-  localPivotB?: Vec2;
+  worldPivot?: CompatibleVector;
+  localPivotA?: CompatibleVector;
+  localPivotB?: CompatibleVector;
   maxForce?: number;
 }
 
 // Module-level temp vectors
-const worldPivotA = vec2.create();
-const worldPivotB = vec2.create();
-const xAxis = vec2.fromValues(1, 0);
-const yAxis = vec2.fromValues(0, 1);
-const g = vec2.create();
+const worldPivotA = new V2d(0, 0);
+const worldPivotB = new V2d(0, 0);
+const xAxis = new V2d(1, 0);
+const yAxis = new V2d(0, 1);
+const g = new V2d(0, 0);
 
 /**
  * Connects two bodies at given offset points, letting them rotate relative
  * to each other around this point.
  */
 export default class RevoluteConstraint extends Constraint {
-  pivotA: Vec2;
-  pivotB: Vec2;
+  pivotA: V2d;
+  pivotB: V2d;
   maxForce: number;
   motorEquation: RotationalVelocityEquation;
 
@@ -63,7 +63,11 @@ export default class RevoluteConstraint extends Constraint {
   upperLimitEquation: RotationalLockEquation;
   lowerLimitEquation: RotationalLockEquation;
 
-  constructor(bodyA: Body, bodyB: Body, options: RevoluteConstraintOptions = {}) {
+  constructor(
+    bodyA: Body,
+    bodyB: Body,
+    options: RevoluteConstraintOptions = {}
+  ) {
     super(bodyA, bodyB, Constraint.REVOLUTE, options);
 
     const maxForce =
@@ -72,20 +76,20 @@ export default class RevoluteConstraint extends Constraint {
         : Number.MAX_VALUE;
     this.maxForce = maxForce;
 
-    this.pivotA = vec2.create();
-    this.pivotB = vec2.create();
+    this.pivotA = new V2d(0, 0);
+    this.pivotB = new V2d(0, 0);
 
     if (options.worldPivot) {
       // Compute pivotA and pivotB
-      vec2.sub(this.pivotA, options.worldPivot, bodyA.position);
-      vec2.sub(this.pivotB, options.worldPivot, bodyB.position);
+      this.pivotA.set(options.worldPivot).isub(bodyA.position);
+      this.pivotB.set(options.worldPivot).isub(bodyB.position);
       // Rotate to local coordinate system
-      vec2.rotate(this.pivotA, this.pivotA, -bodyA.angle);
-      vec2.rotate(this.pivotB, this.pivotB, -bodyB.angle);
+      this.pivotA.irotate(-bodyA.angle);
+      this.pivotB.irotate(-bodyB.angle);
     } else if (options.localPivotA && options.localPivotB) {
       // Get pivotA and pivotB
-      vec2.copy(this.pivotA, options.localPivotA);
-      vec2.copy(this.pivotB, options.localPivotB);
+      this.pivotA.set(options.localPivotA);
+      this.pivotB.set(options.localPivotB);
     }
 
     // Equations to be fed to the solver
@@ -94,21 +98,23 @@ export default class RevoluteConstraint extends Constraint {
     const that = this;
 
     x.computeGq = function () {
-      vec2.rotate(worldPivotA, that.pivotA, bodyA.angle);
-      vec2.rotate(worldPivotB, that.pivotB, bodyB.angle);
-      vec2.add(g, bodyB.position, worldPivotB);
-      vec2.sub(g, g, bodyA.position);
-      vec2.sub(g, g, worldPivotA);
-      return vec2.dot(g, xAxis);
+      worldPivotA.set(that.pivotA).irotate(bodyA.angle);
+      worldPivotB.set(that.pivotB).irotate(bodyB.angle);
+      g.set(bodyB.position)
+        .iadd(worldPivotB)
+        .isub(bodyA.position)
+        .isub(worldPivotA);
+      return g.dot(xAxis);
     };
 
     y.computeGq = function () {
-      vec2.rotate(worldPivotA, that.pivotA, bodyA.angle);
-      vec2.rotate(worldPivotB, that.pivotB, bodyB.angle);
-      vec2.add(g, bodyB.position, worldPivotB);
-      vec2.sub(g, g, bodyA.position);
-      vec2.sub(g, g, worldPivotA);
-      return vec2.dot(g, yAxis);
+      worldPivotA.set(that.pivotA).irotate(bodyA.angle);
+      worldPivotB.set(that.pivotB).irotate(bodyB.angle);
+      g.set(bodyB.position)
+        .iadd(worldPivotB)
+        .isub(bodyA.position)
+        .isub(worldPivotA);
+      return g.dot(yAxis);
     };
 
     x.minForce = y.minForce = -maxForce;
@@ -183,22 +189,22 @@ export default class RevoluteConstraint extends Constraint {
       }
     }
 
-    vec2.rotate(worldPivotA, pivotA, bodyA.angle);
-    vec2.rotate(worldPivotB, pivotB, bodyB.angle);
+    worldPivotA.set(pivotA).irotate(bodyA.angle);
+    worldPivotB.set(pivotB).irotate(bodyB.angle);
 
     x.G[0] = -1;
     x.G[1] = 0;
-    x.G[2] = -vec2.crossLength(worldPivotA, xAxis);
+    x.G[2] = -worldPivotA.crossLength(xAxis);
     x.G[3] = 1;
     x.G[4] = 0;
-    x.G[5] = vec2.crossLength(worldPivotB, xAxis);
+    x.G[5] = worldPivotB.crossLength(xAxis);
 
     y.G[0] = 0;
     y.G[1] = -1;
-    y.G[2] = -vec2.crossLength(worldPivotA, yAxis);
+    y.G[2] = -worldPivotA.crossLength(yAxis);
     y.G[3] = 0;
     y.G[4] = 1;
-    y.G[5] = vec2.crossLength(worldPivotB, yAxis);
+    y.G[5] = worldPivotB.crossLength(yAxis);
   }
 
   /**

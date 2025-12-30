@@ -1,4 +1,4 @@
-import type Body from "../objects/Body";
+import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
 
 /**

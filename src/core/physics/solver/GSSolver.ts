@@ -1,8 +1,8 @@
-import vec2 from "../math/vec2";
 import Solver, { SolverOptions, MinimalWorld } from "./Solver";
 import { ARRAY_TYPE } from "../utils/Utils";
 import FrictionEquation from "../equations/FrictionEquation";
 import type Equation from "../equations/Equation";
+import type World from "../world/World";
 
 export interface GSSolverOptions extends SolverOptions {
   iterations?: number;
@@ -55,6 +55,18 @@ export default class GSSolver extends Solver {
    */
   usedIterations: number = 0;
 
+  /**
+   * Reference to the world for optimized body iteration.
+   */
+  world?: World;
+
+  /**
+   * Set the world reference for optimized dynamic body iteration.
+   */
+  setWorld(world: World): void {
+    this.world = world;
+  }
+
   constructor(options: GSSolverOptions = {}) {
     super(options, Solver.GS);
 
@@ -79,18 +91,24 @@ export default class GSSolver extends Solver {
     const equations = this.equations;
     const Neq = equations.length;
     const tolSquared = Math.pow(this.tolerance * Neq, 2);
-    const bodies = world.bodies;
-    const Nbodies = world.bodies.length;
     const useZeroRHS = this.useZeroRHS;
     let lambda = this.lambda;
+
+    // Use dynamicBodies Set when available for better performance
+    const dynamicBodies = this.world?.dynamicBodies;
 
     this.usedIterations = 0;
 
     if (Neq) {
-      for (let i = 0; i !== Nbodies; i++) {
-        const b = bodies[i];
-        // Update solve mass
-        b.updateSolveMassProperties();
+      // Update solve mass properties
+      if (dynamicBodies) {
+        for (const b of dynamicBodies) {
+          b.updateSolveMassProperties();
+        }
+      } else {
+        for (const b of world.bodies) {
+          b.updateSolveMassProperties();
+        }
       }
     }
 
@@ -118,10 +136,15 @@ export default class GSSolver extends Solver {
     let deltalambdaTot: number;
 
     if (Neq !== 0) {
-      for (let i = 0; i !== Nbodies; i++) {
-        const b = bodies[i];
-        // Reset vlambda
-        b.resetConstraintVelocity();
+      // Reset constraint velocities
+      if (dynamicBodies) {
+        for (const b of dynamicBodies) {
+          b.resetConstraintVelocity();
+        }
+      } else {
+        for (const b of world.bodies) {
+          b.resetConstraintVelocity();
+        }
       }
 
       if (maxFrictionIter) {
@@ -201,8 +224,14 @@ export default class GSSolver extends Solver {
       }
 
       // Add result to velocity
-      for (let i = 0; i !== Nbodies; i++) {
-        bodies[i].addConstraintVelocity();
+      if (dynamicBodies) {
+        for (const b of dynamicBodies) {
+          b.addConstraintVelocity();
+        }
+      } else {
+        for (const b of world.bodies) {
+          b.addConstraintVelocity();
+        }
       }
 
       GSSolver.updateMultipliers(equations, lambda, 1 / h);

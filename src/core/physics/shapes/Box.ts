@@ -1,4 +1,4 @@
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d } from "../../Vector";
 import Shape from "./Shape";
 import Convex, { ConvexOptions } from "./Convex";
 import type AABB from "../collision/AABB";
@@ -20,12 +20,12 @@ export default class Box extends Convex {
     const height = options.height ?? 1;
 
     const verts = [
-      vec2.fromValues(-width / 2, -height / 2),
-      vec2.fromValues(width / 2, -height / 2),
-      vec2.fromValues(width / 2, height / 2),
-      vec2.fromValues(-width / 2, height / 2),
+      new V2d(-width / 2, -height / 2),
+      new V2d(width / 2, -height / 2),
+      new V2d(width / 2, height / 2),
+      new V2d(-width / 2, height / 2),
     ];
-    const axes = [vec2.fromValues(1, 0), vec2.fromValues(0, 1)];
+    const axes = [new V2d(1, 0), new V2d(0, 1)];
 
     const opts = {
       ...options,
@@ -55,7 +55,7 @@ export default class Box extends Convex {
     this.boundingRadius = Math.sqrt(w * w + h * h) / 2;
   }
 
-  computeAABB(out: AABB, position: Vec2, angle: number): void {
+  computeAABB(out: AABB, position: V2d, angle: number): void {
     out.setFromPoints(this.vertices, position, angle, 0);
   }
 

@@ -1,5 +1,5 @@
 import Shape, { ShapeOptions } from "./Shape";
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d } from "../../Vector";
 import type AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
@@ -8,11 +8,11 @@ export interface LineOptions extends ShapeOptions {
   length?: number;
 }
 
-const points = [vec2.create(), vec2.create()];
-const raycast_normal = vec2.create();
-const raycast_l0 = vec2.create();
-const raycast_l1 = vec2.create();
-const raycast_unit_y = vec2.fromValues(0, 1);
+const points = [new V2d(0, 0), new V2d(0, 0)];
+const raycast_normal = new V2d(0, 0);
+const raycast_l0 = new V2d(0, 0);
+const raycast_l1 = new V2d(0, 0);
+const raycast_unit_y = new V2d(0, 1);
 
 /**
  * Line shape class. The line shape is along the x direction, and stretches from [-length/2, 0] to [length/2,0].
@@ -36,14 +36,14 @@ export default class Line extends Shape {
     this.boundingRadius = this.length / 2;
   }
 
-  computeAABB(out: AABB, position: Vec2, angle: number): void {
+  computeAABB(out: AABB, position: V2d, angle: number): void {
     const l2 = this.length / 2;
-    vec2.set(points[0], -l2, 0);
-    vec2.set(points[1], l2, 0);
+    points[0].set(-l2, 0);
+    points[1].set(l2, 0);
     out.setFromPoints(points, position, angle, 0);
   }
 
-  raycast(result: RaycastResult, ray: Ray, position: Vec2, angle: number): void {
+  raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {
     const from = ray.from;
     const to = ray.to;
 
@@ -52,15 +52,15 @@ export default class Line extends Shape {
 
     // get start and end of the line
     const halfLen = this.length / 2;
-    vec2.set(l0, -halfLen, 0);
-    vec2.set(l1, halfLen, 0);
-    vec2.toGlobalFrame(l0, l0, position, angle);
-    vec2.toGlobalFrame(l1, l1, position, angle);
+    l0.set(-halfLen, 0);
+    l1.set(halfLen, 0);
+    l0.itoGlobalFrame(position, angle);
+    l1.itoGlobalFrame(position, angle);
 
-    const fraction = vec2.getLineSegmentsIntersectionFraction(l0, l1, from, to);
+    const fraction = V2d.lineSegmentsIntersectionFraction(l0, l1, from, to);
     if (fraction >= 0) {
       const normal = raycast_normal;
-      vec2.rotate(normal, raycast_unit_y, angle);
+      normal.set(raycast_unit_y).irotate(angle);
       ray.reportIntersection(result, fraction, normal, -1);
     }
   }

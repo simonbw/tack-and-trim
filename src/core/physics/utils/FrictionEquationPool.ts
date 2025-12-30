@@ -1,6 +1,6 @@
-import Pool, { PoolOptions } from "./Pool";
+import Body from "../body/Body";
 import FrictionEquation from "../equations/FrictionEquation";
-import Body from "../objects/Body";
+import Pool, { PoolOptions } from "./Pool";
 
 export default class FrictionEquationPool extends Pool<FrictionEquation> {
   constructor(options?: PoolOptions) {

@@ -1,8 +1,8 @@
-import TupleDictionary from "./TupleDictionary";
+import type Body from "../body/Body";
+import type Shape from "../shapes/Shape";
 import OverlapKeeperRecord from "./OverlapKeeperRecord";
 import OverlapKeeperRecordPool from "./OverlapKeeperRecordPool";
-import type Body from "../objects/Body";
-import type Shape from "../shapes/Shape";
+import TupleDictionary from "./TupleDictionary";
 
 /**
  * Keeps track of overlaps in the current state and the last step state.

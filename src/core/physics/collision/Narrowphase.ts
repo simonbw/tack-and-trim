@@ -1,17 +1,17 @@
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d } from "../../Vector";
+import Body from "../body/Body";
+import ContactEquation from "../equations/ContactEquation";
+import Equation from "../equations/Equation";
+import FrictionEquation from "../equations/FrictionEquation";
+import Shape from "../shapes/Shape";
 import ContactEquationPool from "../utils/ContactEquationPool";
 import FrictionEquationPool from "../utils/FrictionEquationPool";
 import TupleDictionary from "../utils/TupleDictionary";
-import Equation from "../equations/Equation";
-import ContactEquation from "../equations/ContactEquation";
-import FrictionEquation from "../equations/FrictionEquation";
-import Shape from "../shapes/Shape";
-import Body from "../objects/Body";
 import type World from "../world/World";
 
 // Module-level temp vectors
-const bodiesOverlap_shapePositionA = vec2.create();
-const bodiesOverlap_shapePositionB = vec2.create();
+const bodiesOverlap_shapePositionA = new V2d(0, 0);
+const bodiesOverlap_shapePositionB = new V2d(0, 0);
 
 /**
  * Narrowphase. Creates contacts and friction given shapes and transforms.
@@ -159,9 +159,7 @@ export default class Narrowphase {
     return c;
   }
 
-  // Collision detection methods - these are stubs that should be overridden
-  // by the actual implementation (e.g., CustomNarrowphase)
-  // The hitTest method in World uses these methods
+  // Collision detection methods used by World.hitTest
 
   /**
    * Circle/Particle collision
@@ -169,11 +167,11 @@ export default class Narrowphase {
   circleParticle(
     _bodyA: Body,
     _shapeA: Shape,
-    _posA: Vec2,
+    _posA: V2d,
     _angleA: number,
     _bodyB: Body,
     _shapeB: Shape,
-    _posB: Vec2,
+    _posB: V2d,
     _angleB: number,
     _justTest?: boolean
   ): number {
@@ -186,11 +184,11 @@ export default class Narrowphase {
   particleConvex(
     _bodyA: Body,
     _shapeA: Shape,
-    _posA: Vec2,
+    _posA: V2d,
     _angleA: number,
     _bodyB: Body,
     _shapeB: Shape,
-    _posB: Vec2,
+    _posB: V2d,
     _angleB: number,
     _justTest?: boolean
   ): number {
@@ -203,11 +201,11 @@ export default class Narrowphase {
   particleCapsule(
     _bodyA: Body,
     _shapeA: Shape,
-    _posA: Vec2,
+    _posA: V2d,
     _angleA: number,
     _bodyB: Body,
     _shapeB: Shape,
-    _posB: Vec2,
+    _posB: V2d,
     _angleB: number,
     _justTest?: boolean
   ): number {

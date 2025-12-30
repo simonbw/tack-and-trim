@@ -1,48 +1,45 @@
-import GSSolver from "../solver/GSSolver";
-import Solver from "../solver/Solver";
-import Ray from "../collision/Ray";
-import vec2, { Vec2 } from "../math/vec2";
-import Circle from "../shapes/Circle";
-import Convex from "../shapes/Convex";
-import Capsule from "../shapes/Capsule";
-import Particle from "../shapes/Particle";
-import EventEmitter from "../events/EventEmitter";
-import Body from "../objects/Body";
-import Shape from "../shapes/Shape";
-import Material from "../material/Material";
-import ContactMaterial from "../material/ContactMaterial";
-import Constraint from "../constraints/Constraint";
-import Broadphase from "../collision/Broadphase";
+import { CompatibleVector, V2d } from "../../Vector";
+import Body from "../body/Body";
 import AABB from "../collision/AABB";
-import SAPBroadphase from "../collision/SAPBroadphase";
+import Broadphase from "../collision/Broadphase";
 import Narrowphase from "../collision/Narrowphase";
-import Utils from "../utils/Utils";
-import OverlapKeeper from "../utils/OverlapKeeper";
-import IslandManager from "./IslandManager";
-import type Spring from "../objects/Spring";
+import Ray from "../collision/Ray";
 import type RaycastResult from "../collision/RaycastResult";
+import Constraint from "../constraints/Constraint";
 import type ContactEquation from "../equations/ContactEquation";
 import type FrictionEquation from "../equations/FrictionEquation";
+import EventEmitter from "../events/EventEmitter";
+import ContactMaterial from "../material/ContactMaterial";
+import Material from "../material/Material";
+import Capsule from "../shapes/Capsule";
+import Circle from "../shapes/Circle";
+import Convex from "../shapes/Convex";
+import Particle from "../shapes/Particle";
+import Shape from "../shapes/Shape";
+import GSSolver from "../solver/GSSolver";
+import Solver from "../solver/Solver";
+import SpatialHashingBroadphase from "../SpatialHashingBroadphase";
+import type Spring from "../springs/Spring";
+import OverlapKeeper from "../utils/OverlapKeeper";
 import type OverlapKeeperRecord from "../utils/OverlapKeeperRecord";
+import Utils from "../utils/Utils";
+import IslandManager from "./IslandManager";
 
 export interface WorldOptions {
   solver?: Solver;
-  gravity?: Vec2;
+  gravity?: CompatibleVector;
   broadphase?: Broadphase;
   islandSplit?: boolean;
 }
 
 // Module-level temp vectors
-const step_fhMinv = vec2.create();
-const step_velodt = vec2.create();
-const step_mg = vec2.create();
-const xiw = vec2.fromValues(0, 0);
-const xjw = vec2.fromValues(0, 0);
+const step_mg = new V2d(0, 0);
+const xiw = new V2d(0, 0);
+const xjw = new V2d(0, 0);
 const endOverlaps: OverlapKeeperRecord[] = [];
 
-const hitTest_tmp1 = vec2.create();
-const hitTest_zero = vec2.fromValues(0, 0);
-const hitTest_tmp2 = vec2.fromValues(0, 0);
+const hitTest_tmp1 = new V2d(0, 0);
+const hitTest_tmp2 = new V2d(0, 0);
 const tmpAABB = new AABB();
 const tmpArray: Body[] = [];
 
@@ -56,11 +53,13 @@ export default class World extends EventEmitter {
 
   springs: Spring[] = [];
   bodies: Body[] = [];
+  dynamicBodies: Set<Body> = new Set();
+  kinematicBodies: Set<Body> = new Set();
   disabledBodyCollisionPairs: Body[] = [];
   solver: Solver;
   narrowphase: Narrowphase;
   islandManager: IslandManager;
-  gravity: Vec2;
+  gravity: V2d;
   frictionGravity: number;
   useWorldGravityAsFrictionGravity: boolean = true;
   useFrictionGravityOnZeroGravity: boolean = true;
@@ -160,17 +159,18 @@ export default class World extends EventEmitter {
     super();
 
     this.solver = options.solver || new GSSolver();
+    this.solver.setWorld(this);
     this.narrowphase = new Narrowphase(this);
     this.islandManager = new IslandManager();
 
-    this.gravity = vec2.fromValues(0, -9.78);
+    this.gravity = new V2d(0, -9.78);
     if (options.gravity) {
-      vec2.copy(this.gravity, options.gravity);
+      this.gravity.set(options.gravity);
     }
 
-    this.frictionGravity = vec2.length(this.gravity) || 10;
+    this.frictionGravity = this.gravity.magnitude || 10;
 
-    this.broadphase = options.broadphase || new SAPBroadphase();
+    this.broadphase = options.broadphase || new SpatialHashingBroadphase();
     this.broadphase.setWorld(this);
 
     this.defaultMaterial = new Material();
@@ -180,7 +180,13 @@ export default class World extends EventEmitter {
     );
 
     this.islandSplit =
-      typeof options.islandSplit !== "undefined" ? !!options.islandSplit : true;
+      typeof options.islandSplit !== "undefined"
+        ? !!options.islandSplit
+        : false;
+
+    // Disable automatic gravity and damping - let game code apply these
+    this.applyGravity = false;
+    this.applyDamping = false;
 
     this.sleepMode = World.NO_SLEEPING;
     this.overlapKeeper = new OverlapKeeper();
@@ -266,7 +272,7 @@ export default class World extends EventEmitter {
       const t = (this.accumulator % dt) / dt;
       for (let j = 0; j !== this.bodies.length; j++) {
         const b = this.bodies[j];
-        vec2.lerp(b.interpolatedPosition, b.previousPosition, b.position, t);
+        b.interpolatedPosition.set(b.previousPosition).ilerp(b.position, t);
         b.interpolatedAngle = b.previousAngle + t * (b.angle - b.previousAngle);
       }
     }
@@ -287,7 +293,6 @@ export default class World extends EventEmitter {
     const np = this.narrowphase;
     const constraints = this.constraints;
     const mg = step_mg;
-    const add = vec2.add;
     const islandManager = this.islandManager;
 
     this.overlapKeeper.tick();
@@ -295,7 +300,7 @@ export default class World extends EventEmitter {
 
     // Update approximate friction gravity.
     if (this.useWorldGravityAsFrictionGravity) {
-      const gravityLen = vec2.length(this.gravity);
+      const gravityLen = this.gravity.magnitude;
       if (!(gravityLen === 0 && this.useFrictionGravityOnZeroGravity)) {
         this.frictionGravity = gravityLen;
       }
@@ -305,12 +310,11 @@ export default class World extends EventEmitter {
     if (this.applyGravity) {
       for (let i = 0; i !== Nbodies; i++) {
         const b = bodies[i];
-        const fi = b.force;
         if (b.type !== Body.DYNAMIC || b.sleepState === Body.SLEEPING) {
           continue;
         }
-        vec2.scale(mg, g, b.mass * b.gravityScale);
-        add(fi, fi, mg);
+        mg.set(g).imul(b.mass * b.gravityScale);
+        b.force.iadd(mg);
       }
     }
 
@@ -554,11 +558,11 @@ export default class World extends EventEmitter {
     np: Narrowphase,
     bi: Body,
     si: Shape,
-    xi: Vec2,
+    xi: V2d,
     ai: number,
     bj: Body,
     sj: Shape,
-    xj: Vec2,
+    xj: V2d,
     aj: number,
     cm: ContactMaterial,
     glen: number
@@ -574,10 +578,8 @@ export default class World extends EventEmitter {
     }
 
     // Get world position and angle of each shape
-    vec2.rotate(xiw, xi, bi.angle);
-    vec2.rotate(xjw, xj, bj.angle);
-    vec2.add(xiw, xiw, bi.position);
-    vec2.add(xjw, xjw, bj.position);
+    xiw.set(xi).irotate(bi.angle).iadd(bi.position);
+    xjw.set(xj).irotate(bj.angle).iadd(bj.position);
     const aiw = ai + bi.angle;
     const ajw = aj + bj.angle;
 
@@ -649,7 +651,7 @@ export default class World extends EventEmitter {
           bj.type !== Body.STATIC
         ) {
           const speedSquaredB =
-            vec2.squaredLength(bj.velocity) + Math.pow(bj.angularVelocity, 2);
+            bj.velocity.squaredMagnitude + Math.pow(bj.angularVelocity, 2);
           const speedLimitSquaredB = Math.pow(bj.sleepSpeedLimit, 2);
           if (speedSquaredB >= speedLimitSquaredB * 2) {
             bi._wakeUpAfterNarrowphase = true;
@@ -664,7 +666,7 @@ export default class World extends EventEmitter {
           bi.type !== Body.STATIC
         ) {
           const speedSquaredA =
-            vec2.squaredLength(bi.velocity) + Math.pow(bi.angularVelocity, 2);
+            bi.velocity.squaredMagnitude + Math.pow(bi.angularVelocity, 2);
           const speedLimitSquaredA = Math.pow(bi.sleepSpeedLimit, 2);
           if (speedSquaredA >= speedLimitSquaredA * 2) {
             bj._wakeUpAfterNarrowphase = true;
@@ -672,7 +674,10 @@ export default class World extends EventEmitter {
         }
 
         this.overlapKeeper.setOverlapping(bi, si, bj, sj);
-        if (this.has("beginContact") && this.overlapKeeper.isNewOverlap(si, sj)) {
+        if (
+          this.has("beginContact") &&
+          this.overlapKeeper.isNewOverlap(si, sj)
+        ) {
           // Report new shape overlap
           const e = this.beginContactEvent;
           e.shapeA = si;
@@ -739,6 +744,13 @@ export default class World extends EventEmitter {
     if (this.bodies.indexOf(body) === -1) {
       this.bodies.push(body);
       body.world = this;
+
+      if (body.type === Body.DYNAMIC) {
+        this.dynamicBodies.add(body);
+      } else if (body.type === Body.KINEMATIC) {
+        this.kinematicBodies.add(body);
+      }
+
       const evt = this.addBodyEvent;
       evt.body = body;
       this.emit(evt);
@@ -757,6 +769,10 @@ export default class World extends EventEmitter {
       const idx = this.bodies.indexOf(body);
       if (idx !== -1) {
         Utils.splice(this.bodies, idx, 1);
+
+        this.dynamicBodies.delete(body);
+        this.kinematicBodies.delete(body);
+
         this.removeBodyEvent.body = body;
         body.resetConstraintVelocity();
         this.emit(this.removeBodyEvent);
@@ -841,11 +857,7 @@ export default class World extends EventEmitter {
   /**
    * Test if a world point overlaps bodies
    */
-  hitTest(
-    worldPoint: Vec2,
-    bodies: Body[],
-    precision: number = 0
-  ): Body[] {
+  hitTest(worldPoint: V2d, bodies: Body[], precision: number = 0): Body[] {
     // Create a dummy particle body with a particle shape to test against the bodies
     const pb = new Body({ position: worldPoint });
     const ps = new Particle();
@@ -866,8 +878,7 @@ export default class World extends EventEmitter {
         const s = b.shapes[j];
 
         // Get shape world position + angle
-        vec2.rotate(x, s.position, b.angle);
-        vec2.add(x, x, b.position);
+        x.set(s.position).irotate(b.angle).iadd(b.position);
         const a = s.angle + b.angle;
 
         if (
@@ -878,7 +889,7 @@ export default class World extends EventEmitter {
           (s instanceof Capsule &&
             n.particleCapsule(pb, ps, px, pa, b, s, x, a, true)) ||
           (s instanceof Particle &&
-            vec2.squaredLength(vec2.sub(tmp, x, worldPoint)) <
+            tmp.set(x).isub(worldPoint).squaredMagnitude <
               precision * precision)
         ) {
           result.push(b);
@@ -944,10 +955,14 @@ export default class World extends EventEmitter {
   /**
    * Ray cast against all bodies in the world.
    */
-  raycast(result: RaycastResult, ray: Ray): boolean {
+  raycast(
+    result: RaycastResult,
+    ray: Ray,
+    shouldAddBodies: boolean = true
+  ): boolean {
     // Get all bodies within the ray AABB
     ray.getAABB(tmpAABB);
-    this.broadphase.aabbQuery(this, tmpAABB, tmpArray);
+    this.broadphase.aabbQuery(this, tmpAABB, tmpArray, shouldAddBodies);
     ray.intersectBodies(result, tmpArray);
     tmpArray.length = 0;
 

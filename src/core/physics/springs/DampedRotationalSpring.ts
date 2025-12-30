@@ -1,7 +1,7 @@
-import Body from "./objects/Body";
-import RotationalSpring from "./objects/RotationalSpring";
-import type { RotationalSpringOptions } from "./objects/RotationalSpring";
-import { clamp } from "../util/MathUtil";
+import { clamp } from "../../util/MathUtil";
+import Body from "../body/Body";
+import type { RotationalSpringOptions } from "./RotationalSpring";
+import RotationalSpring from "./RotationalSpring";
 
 interface DampedRotationalSpringOptions extends RotationalSpringOptions {
   maxTorque?: number;

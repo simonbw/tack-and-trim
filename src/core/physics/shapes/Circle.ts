@@ -1,5 +1,5 @@
 import Shape, { ShapeOptions } from "./Shape";
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d } from "../../Vector";
 import type AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
@@ -8,8 +8,8 @@ export interface CircleOptions extends ShapeOptions {
   radius?: number;
 }
 
-const Ray_intersectSphere_intersectionPoint = vec2.create();
-const Ray_intersectSphere_normal = vec2.create();
+const Ray_intersectSphere_intersectionPoint = new V2d(0, 0);
+const Ray_intersectSphere_normal = new V2d(0, 0);
 
 /**
  * Circle shape class.
@@ -38,17 +38,17 @@ export default class Circle extends Shape {
     this.area = Math.PI * this.radius * this.radius;
   }
 
-  computeAABB(out: AABB, position: Vec2, _angle: number): void {
+  computeAABB(out: AABB, position: V2d, _angle: number): void {
     const r = this.radius;
-    vec2.set(out.upperBound, r, r);
-    vec2.set(out.lowerBound, -r, -r);
+    out.upperBound.set(r, r);
+    out.lowerBound.set(-r, -r);
     if (position) {
-      vec2.add(out.lowerBound, out.lowerBound, position);
-      vec2.add(out.upperBound, out.upperBound, position);
+      out.lowerBound.iadd(position);
+      out.upperBound.iadd(position);
     }
   }
 
-  raycast(result: RaycastResult, ray: Ray, position: Vec2, _angle: number): void {
+  raycast(result: RaycastResult, ray: Ray, position: V2d, _angle: number): void {
     const from = ray.from;
     const to = ray.to;
     const r = this.radius;
@@ -73,10 +73,10 @@ export default class Circle extends Shape {
       return;
     } else if (delta === 0) {
       // single intersection point
-      vec2.lerp(intersectionPoint, from, to, delta);
+      intersectionPoint.set(from).ilerp(to, delta);
 
-      vec2.sub(normal, intersectionPoint, position);
-      vec2.normalize(normal, normal);
+      normal.set(intersectionPoint).isub(position);
+      normal.inormalize();
 
       ray.reportIntersection(result, delta, normal, -1);
     } else {
@@ -86,10 +86,10 @@ export default class Circle extends Shape {
       const d2 = (-b + sqrtDelta) * inv2a;
 
       if (d1 >= 0 && d1 <= 1) {
-        vec2.lerp(intersectionPoint, from, to, d1);
+        intersectionPoint.set(from).ilerp(to, d1);
 
-        vec2.sub(normal, intersectionPoint, position);
-        vec2.normalize(normal, normal);
+        normal.set(intersectionPoint).isub(position);
+        normal.inormalize();
 
         ray.reportIntersection(result, d1, normal, -1);
 
@@ -99,10 +99,10 @@ export default class Circle extends Shape {
       }
 
       if (d2 >= 0 && d2 <= 1) {
-        vec2.lerp(intersectionPoint, from, to, d2);
+        intersectionPoint.set(from).ilerp(to, d2);
 
-        vec2.sub(normal, intersectionPoint, position);
-        vec2.normalize(normal, normal);
+        normal.set(intersectionPoint).isub(position);
+        normal.inormalize();
 
         ray.reportIntersection(result, d2, normal, -1);
       }

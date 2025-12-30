@@ -1,5 +1,5 @@
+import type Body from "../body/Body";
 import Equation from "./Equation";
-import type Body from "../objects/Body";
 
 export interface AngleLockEquationOptions {
   angle?: number;
@@ -18,7 +18,11 @@ export default class AngleLockEquation extends Equation {
    */
   ratio: number;
 
-  constructor(bodyA: Body, bodyB: Body, options: AngleLockEquationOptions = {}) {
+  constructor(
+    bodyA: Body,
+    bodyB: Body,
+    options: AngleLockEquationOptions = {}
+  ) {
     super(bodyA, bodyB, -Number.MAX_VALUE, Number.MAX_VALUE);
     this.angle = options.angle || 0;
     this.ratio = typeof options.ratio === "number" ? options.ratio : 1;

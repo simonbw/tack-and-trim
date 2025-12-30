@@ -1,6 +1,6 @@
-import { defaults } from "../utils/Utils";
-import type Body from "../objects/Body";
+import type Body from "../body/Body";
 import type Equation from "../equations/Equation";
+import { defaults } from "../utils/Utils";
 
 export interface ConstraintOptions {
   collideConnected?: boolean;

@@ -1,5 +1,5 @@
+import type Body from "../body/Body";
 import Spring, { SpringOptions } from "./Spring";
-import type Body from "./Body";
 
 export interface RotationalSpringOptions extends SpringOptions {
   restAngle?: number;

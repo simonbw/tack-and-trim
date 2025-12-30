@@ -1,12 +1,12 @@
-import vec2, { Vec2 } from "../math/vec2";
+import { CompatibleVector, V2d } from "../../Vector";
+import type Body from "../body/Body";
 import type AABB from "../collision/AABB";
-import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
-import type Body from "../objects/Body";
+import type RaycastResult from "../collision/RaycastResult";
 import type Material from "../material/Material";
 
 export interface ShapeOptions {
-  position?: Vec2;
+  position?: CompatibleVector;
   angle?: number;
   collisionGroup?: number;
   collisionMask?: number;
@@ -39,7 +39,7 @@ export default class Shape {
   /**
    * Body-local position of the shape.
    */
-  position: Vec2;
+  position: V2d;
 
   /**
    * Body-local angle of the shape.
@@ -92,9 +92,9 @@ export default class Shape {
   sensor: boolean;
 
   constructor(options: ShapeOptions = {}) {
-    this.position = vec2.fromValues(0, 0);
+    this.position = new V2d(0, 0);
     if (options.position) {
-      vec2.copy(this.position, options.position);
+      this.position.set(options.position);
     }
 
     this.angle = options.angle ?? 0;
@@ -135,7 +135,7 @@ export default class Shape {
   /**
    * Compute the world axis-aligned bounding box (AABB) of this shape.
    */
-  computeAABB(_out: AABB, _position: Vec2, _angle: number): void {
+  computeAABB(_out: AABB, _position: V2d, _angle: number): void {
     // To be implemented in each subclass
   }
 
@@ -145,7 +145,7 @@ export default class Shape {
   raycast(
     _result: RaycastResult,
     _ray: Ray,
-    _position: Vec2,
+    _position: V2d,
     _angle: number
   ): void {
     // To be implemented in each subclass

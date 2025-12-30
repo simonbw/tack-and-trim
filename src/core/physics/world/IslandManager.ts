@@ -1,9 +1,9 @@
-import Island from "./Island";
-import IslandNode from "./IslandNode";
+import Body from "../body/Body";
+import type Equation from "../equations/Equation";
 import IslandNodePool from "../utils/IslandNodePool";
 import IslandPool from "../utils/IslandPool";
-import Body from "../objects/Body";
-import type Equation from "../equations/Equation";
+import Island from "./Island";
+import IslandNode from "./IslandNode";
 import type World from "./World";
 
 /**

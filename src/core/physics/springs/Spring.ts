@@ -1,5 +1,5 @@
+import type Body from "../body/Body";
 import { defaults } from "../utils/Utils";
-import type Body from "./Body";
 
 export interface SpringOptions {
   stiffness?: number;

@@ -1,12 +1,12 @@
-import vec2, { Vec2 } from "../math/vec2";
-import type RaycastResult from "./RaycastResult";
+import { CompatibleVector, V2d } from "../../Vector";
+import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
 import type AABB from "./AABB";
-import type Body from "../objects/Body";
+import type RaycastResult from "./RaycastResult";
 
 export interface RayOptions {
-  from?: Vec2;
-  to?: Vec2;
+  from?: CompatibleVector;
+  to?: CompatibleVector;
   checkCollisionResponse?: boolean;
   skipBackfaces?: boolean;
   collisionMask?: number;
@@ -15,25 +15,25 @@ export interface RayOptions {
   callback?: (result: RaycastResult) => void;
 }
 
-const intersectBody_worldPosition = vec2.create();
-const hitPointWorld = vec2.create();
-const v0 = vec2.create();
-const intersect = vec2.create();
+const intersectBody_worldPosition = new V2d(0, 0);
+const hitPointWorld = new V2d(0, 0);
+const v0 = new V2d(0, 0);
+const intersect = new V2d(0, 0);
 
 function distanceFromIntersectionSquared(
-  from: Vec2,
-  direction: Vec2,
-  position: Vec2
+  from: V2d,
+  direction: V2d,
+  position: V2d
 ): number {
   // v0 is vector from from to position
-  vec2.sub(v0, position, from);
-  const dot = vec2.dot(v0, direction);
+  v0.set(position).isub(from);
+  const dot = v0.dot(direction);
 
   // intersect = direction * dot + from
-  vec2.scale(intersect, direction, dot);
-  vec2.add(intersect, intersect, from);
+  intersect.set(direction).imul(dot);
+  intersect.iadd(from);
 
-  return vec2.squaredDistance(position, intersect);
+  return position.squaredDistanceTo(intersect);
 }
 
 /**
@@ -44,15 +44,15 @@ export default class Ray {
   static readonly ANY = 2;
   static readonly ALL = 4;
 
-  from: Vec2;
-  to: Vec2;
+  from: V2d;
+  to: V2d;
   checkCollisionResponse: boolean;
   skipBackfaces: boolean;
   collisionMask: number;
   collisionGroup: number;
   mode: number;
   callback: (result: RaycastResult) => void;
-  direction: Vec2;
+  direction: V2d;
   length: number;
 
   _currentBody: Body | null = null;
@@ -60,12 +60,12 @@ export default class Ray {
 
   constructor(options: RayOptions = {}) {
     this.from = options.from
-      ? vec2.fromValues(options.from[0], options.from[1])
-      : vec2.create();
+      ? new V2d(options.from[0], options.from[1])
+      : new V2d(0, 0);
 
     this.to = options.to
-      ? vec2.fromValues(options.to[0], options.to[1])
-      : vec2.create();
+      ? new V2d(options.to[0], options.to[1])
+      : new V2d(0, 0);
 
     this.checkCollisionResponse = options.checkCollisionResponse ?? true;
     this.skipBackfaces = options.skipBackfaces ?? false;
@@ -74,7 +74,7 @@ export default class Ray {
     this.mode = options.mode ?? Ray.ANY;
     this.callback = options.callback ?? ((_result: RaycastResult) => {});
 
-    this.direction = vec2.create();
+    this.direction = new V2d(0, 0);
     this.length = 1;
 
     this.update();
@@ -85,9 +85,9 @@ export default class Ray {
    */
   update(): void {
     const d = this.direction;
-    vec2.sub(d, this.to, this.from);
-    this.length = vec2.length(d);
-    vec2.normalize(d, d);
+    d.set(this.to).isub(this.from);
+    this.length = d.magnitude;
+    d.inormalize();
   }
 
   /**
@@ -130,8 +130,8 @@ export default class Ray {
       }
 
       // Get world angle and position of the shape
-      vec2.rotate(worldPosition, shape.position, body.angle);
-      vec2.add(worldPosition, worldPosition, body.position);
+      worldPosition.set(shape.position).irotate(body.angle);
+      worldPosition.iadd(body.position);
       const worldAngle = shape.angle + body.angle;
 
       this.intersectShape(result, shape, worldAngle, worldPosition, body);
@@ -149,13 +149,17 @@ export default class Ray {
     result: RaycastResult,
     shape: Shape,
     angle: number,
-    position: Vec2,
+    position: V2d,
     body: Body
   ): void {
     const from = this.from;
 
     // Checking radius
-    const distance = distanceFromIntersectionSquared(from, this.direction, position);
+    const distance = distanceFromIntersectionSquared(
+      from,
+      this.direction,
+      position
+    );
     if (distance > shape.boundingRadius * shape.boundingRadius) {
       return;
     }
@@ -174,16 +178,8 @@ export default class Ray {
   getAABB(result: AABB): void {
     const to = this.to;
     const from = this.from;
-    vec2.set(
-      result.lowerBound,
-      Math.min(to[0], from[0]),
-      Math.min(to[1], from[1])
-    );
-    vec2.set(
-      result.upperBound,
-      Math.max(to[0], from[0]),
-      Math.max(to[1], from[1])
-    );
+    result.lowerBound.set(Math.min(to[0], from[0]), Math.min(to[1], from[1]));
+    result.upperBound.set(Math.max(to[0], from[0]), Math.max(to[1], from[1]));
   }
 
   /**
@@ -192,14 +188,14 @@ export default class Ray {
   reportIntersection(
     result: RaycastResult,
     fraction: number,
-    normal: Vec2,
+    normal: V2d,
     faceIndex: number
   ): void {
     const shape = this._currentShape!;
     const body = this._currentBody!;
 
     // Skip back faces?
-    if (this.skipBackfaces && vec2.dot(normal, this.direction) > 0) {
+    if (this.skipBackfaces && normal.dot(this.direction) > 0) {
       return;
     }
 

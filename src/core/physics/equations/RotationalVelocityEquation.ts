@@ -1,5 +1,5 @@
+import type Body from "../body/Body";
 import Equation from "./Equation";
-import type Body from "../objects/Body";
 
 /**
  * Syncs rotational velocity of two bodies, or sets a relative velocity (motor).

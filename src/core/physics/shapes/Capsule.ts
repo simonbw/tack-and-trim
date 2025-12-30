@@ -1,5 +1,5 @@
 import Shape, { ShapeOptions } from "./Shape";
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d } from "../../Vector";
 import type AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
@@ -9,12 +9,12 @@ export interface CapsuleOptions extends ShapeOptions {
   radius?: number;
 }
 
-const r = vec2.create();
-const intersectCapsule_hitPointWorld = vec2.create();
-const intersectCapsule_normal = vec2.create();
-const intersectCapsule_l0 = vec2.create();
-const intersectCapsule_l1 = vec2.create();
-const intersectCapsule_unit_y = vec2.fromValues(0, 1);
+const r = new V2d(0, 0);
+const intersectCapsule_hitPointWorld = new V2d(0, 0);
+const intersectCapsule_normal = new V2d(0, 0);
+const intersectCapsule_l0 = new V2d(0, 0);
+const intersectCapsule_l1 = new V2d(0, 0);
+const intersectCapsule_unit_y = new V2d(0, 1);
 
 /**
  * Capsule shape class.
@@ -49,30 +49,28 @@ export default class Capsule extends Shape {
       Math.PI * this.radius * this.radius + this.radius * 2 * this.length;
   }
 
-  computeAABB(out: AABB, position: Vec2, angle: number): void {
+  computeAABB(out: AABB, position: V2d, angle: number): void {
     const radius = this.radius;
 
-    vec2.set(r, this.length / 2, 0);
+    r.set(this.length / 2, 0);
     if (angle !== 0) {
-      vec2.rotate(r, r, angle);
+      r.irotate(angle);
     }
 
-    vec2.set(
-      out.upperBound,
+    out.upperBound.set(
       Math.max(r[0] + radius, -r[0] + radius),
       Math.max(r[1] + radius, -r[1] + radius)
     );
-    vec2.set(
-      out.lowerBound,
+    out.lowerBound.set(
       Math.min(r[0] - radius, -r[0] - radius),
       Math.min(r[1] - radius, -r[1] - radius)
     );
 
-    vec2.add(out.lowerBound, out.lowerBound, position);
-    vec2.add(out.upperBound, out.upperBound, position);
+    out.lowerBound.iadd(position);
+    out.upperBound.iadd(position);
   }
 
-  raycast(result: RaycastResult, ray: Ray, position: Vec2, angle: number): void {
+  raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {
     const from = ray.from;
     const to = ray.to;
 
@@ -85,15 +83,15 @@ export default class Capsule extends Shape {
     const halfLen = this.length / 2;
     for (let i = 0; i < 2; i++) {
       const y = this.radius * (i * 2 - 1);
-      vec2.set(l0, -halfLen, y);
-      vec2.set(l1, halfLen, y);
-      vec2.toGlobalFrame(l0, l0, position, angle);
-      vec2.toGlobalFrame(l1, l1, position, angle);
+      l0.set(-halfLen, y);
+      l1.set(halfLen, y);
+      l0.itoGlobalFrame(position, angle);
+      l1.itoGlobalFrame(position, angle);
 
-      const delta = vec2.getLineSegmentsIntersectionFraction(from, to, l0, l1);
+      const delta = V2d.lineSegmentsIntersectionFraction(from, to, l0, l1);
       if (delta >= 0) {
-        vec2.rotate(normal, intersectCapsule_unit_y, angle);
-        vec2.scale(normal, normal, i * 2 - 1);
+        normal.set(intersectCapsule_unit_y).irotate(angle);
+        normal.imul(i * 2 - 1);
         ray.reportIntersection(result, delta, normal, -1);
         if (result.shouldStop(ray)) {
           return;
@@ -105,8 +103,8 @@ export default class Capsule extends Shape {
     const diagonalLengthSquared =
       Math.pow(this.radius, 2) + Math.pow(halfLen, 2);
     for (let i = 0; i < 2; i++) {
-      vec2.set(l0, halfLen * (i * 2 - 1), 0);
-      vec2.toGlobalFrame(l0, l0, position, angle);
+      l0.set(halfLen * (i * 2 - 1), 0);
+      l0.itoGlobalFrame(position, angle);
 
       const a =
         Math.pow(to[0] - from[0], 2) + Math.pow(to[1] - from[1], 2);
@@ -123,11 +121,11 @@ export default class Capsule extends Shape {
       if (delta < 0) {
         continue;
       } else if (delta === 0) {
-        vec2.lerp(hitPointWorld, from, to, delta);
+        hitPointWorld.set(from).ilerp(to, delta);
 
-        if (vec2.squaredDistance(hitPointWorld, position) > diagonalLengthSquared) {
-          vec2.sub(normal, hitPointWorld, l0);
-          vec2.normalize(normal, normal);
+        if (hitPointWorld.squaredDistanceTo(position) > diagonalLengthSquared) {
+          normal.set(hitPointWorld).isub(l0);
+          normal.inormalize();
           ray.reportIntersection(result, delta, normal, -1);
           if (result.shouldStop(ray)) {
             return;
@@ -140,10 +138,10 @@ export default class Capsule extends Shape {
         const d2 = (-b + sqrtDelta) * inv2a;
 
         if (d1 >= 0 && d1 <= 1) {
-          vec2.lerp(hitPointWorld, from, to, d1);
-          if (vec2.squaredDistance(hitPointWorld, position) > diagonalLengthSquared) {
-            vec2.sub(normal, hitPointWorld, l0);
-            vec2.normalize(normal, normal);
+          hitPointWorld.set(from).ilerp(to, d1);
+          if (hitPointWorld.squaredDistanceTo(position) > diagonalLengthSquared) {
+            normal.set(hitPointWorld).isub(l0);
+            normal.inormalize();
             ray.reportIntersection(result, d1, normal, -1);
             if (result.shouldStop(ray)) {
               return;
@@ -152,10 +150,10 @@ export default class Capsule extends Shape {
         }
 
         if (d2 >= 0 && d2 <= 1) {
-          vec2.lerp(hitPointWorld, from, to, d2);
-          if (vec2.squaredDistance(hitPointWorld, position) > diagonalLengthSquared) {
-            vec2.sub(normal, hitPointWorld, l0);
-            vec2.normalize(normal, normal);
+          hitPointWorld.set(from).ilerp(to, d2);
+          if (hitPointWorld.squaredDistanceTo(position) > diagonalLengthSquared) {
+            normal.set(hitPointWorld).isub(l0);
+            normal.inormalize();
             ray.reportIntersection(result, d2, normal, -1);
             if (result.shouldStop(ray)) {
               return;

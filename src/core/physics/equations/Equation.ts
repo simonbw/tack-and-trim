@@ -1,4 +1,4 @@
-import type Body from "../objects/Body";
+import type Body from "../body/Body";
 
 export interface EquationOptions {
   stiffness?: number;
@@ -32,7 +32,19 @@ export default class Equation {
   relativeVelocity: number;
   enabled: boolean;
 
-  constructor(bodyA: Body, bodyB: Body, minForce = -Number.MAX_VALUE, maxForce = Number.MAX_VALUE) {
+  // Pre-computed values for solver optimization (set during solve)
+  B: number = 0;
+  invC: number = 0;
+  lambda: number = 0;
+  maxForceDt: number = 0;
+  minForceDt: number = 0;
+
+  constructor(
+    bodyA: Body,
+    bodyB: Body,
+    minForce = -Number.MAX_VALUE,
+    maxForce = Number.MAX_VALUE
+  ) {
     this.id = Equation.idCounter++;
     this.minForce = minForce;
     this.maxForce = maxForce;

@@ -1,29 +1,29 @@
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d, CompatibleVector } from "../../Vector";
 import type Ray from "./Ray";
 
 export interface AABBOptions {
-  upperBound?: Vec2;
-  lowerBound?: Vec2;
+  upperBound?: CompatibleVector;
+  lowerBound?: CompatibleVector;
 }
 
-const tmp = vec2.create();
+const tmp = new V2d(0, 0);
 
 /**
  * Axis aligned bounding box class.
  */
 export default class AABB {
-  lowerBound: Vec2;
-  upperBound: Vec2;
+  lowerBound: V2d;
+  upperBound: V2d;
 
   constructor(options: AABBOptions = {}) {
-    this.lowerBound = vec2.create();
+    this.lowerBound = new V2d(0, 0);
     if (options.lowerBound) {
-      vec2.copy(this.lowerBound, options.lowerBound);
+      this.lowerBound.set(options.lowerBound);
     }
 
-    this.upperBound = vec2.create();
+    this.upperBound = new V2d(0, 0);
     if (options.upperBound) {
-      vec2.copy(this.upperBound, options.upperBound);
+      this.upperBound.set(options.upperBound);
     }
   }
 
@@ -31,8 +31,8 @@ export default class AABB {
    * Set the AABB bounds from a set of points, transformed by the given position and angle.
    */
   setFromPoints(
-    points: Vec2[],
-    position?: Vec2,
+    points: CompatibleVector[],
+    position?: CompatibleVector,
     angle: number = 0,
     skinSize: number = 0
   ): void {
@@ -41,18 +41,18 @@ export default class AABB {
 
     // Set to the first point
     if (angle !== 0) {
-      vec2.rotate(l, points[0], angle);
+      l.set(points[0]).irotate(angle);
     } else {
-      vec2.copy(l, points[0]);
+      l.set(points[0]);
     }
-    vec2.copy(u, l);
+    u.set(l);
 
     // Compute cosines and sines just once
     const cosAngle = Math.cos(angle);
     const sinAngle = Math.sin(angle);
 
     for (let i = 1; i < points.length; i++) {
-      let p = points[i];
+      let p: CompatibleVector = points[i];
 
       if (angle !== 0) {
         const x = p[0];
@@ -74,8 +74,8 @@ export default class AABB {
 
     // Add offset
     if (position) {
-      vec2.add(this.lowerBound, this.lowerBound, position);
-      vec2.add(this.upperBound, this.upperBound, position);
+      this.lowerBound.iadd(position);
+      this.upperBound.iadd(position);
     }
 
     if (skinSize) {
@@ -90,8 +90,8 @@ export default class AABB {
    * Copy bounds from an AABB to this AABB
    */
   copy(aabb: AABB): void {
-    vec2.copy(this.lowerBound, aabb.lowerBound);
-    vec2.copy(this.upperBound, aabb.upperBound);
+    this.lowerBound.set(aabb.lowerBound);
+    this.upperBound.set(aabb.upperBound);
   }
 
   /**
@@ -133,7 +133,7 @@ export default class AABB {
   /**
    * Check if this AABB contains the given point
    */
-  containsPoint(point: Vec2): boolean {
+  containsPoint(point: CompatibleVector): boolean {
     const l = this.lowerBound;
     const u = this.upperBound;
     return (

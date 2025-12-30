@@ -1,20 +1,20 @@
-import Constraint, { ConstraintOptions } from "./Constraint";
+import { CompatibleVector, V2d } from "../../Vector";
+import type Body from "../body/Body";
 import Equation from "../equations/Equation";
-import vec2, { Vec2 } from "../math/vec2";
-import type Body from "../objects/Body";
+import Constraint, { ConstraintOptions } from "./Constraint";
 
 export interface LockConstraintOptions extends ConstraintOptions {
-  localOffsetB?: Vec2;
+  localOffsetB?: CompatibleVector;
   localAngleB?: number;
   maxForce?: number;
 }
 
 // Module-level temp vectors
-const l = vec2.create();
-const r = vec2.create();
-const t = vec2.create();
-const xAxis = vec2.fromValues(1, 0);
-const yAxis = vec2.fromValues(0, 1);
+const l = new V2d(0, 0);
+const r = new V2d(0, 0);
+const t = new V2d(0, 0);
+const xAxis = new V2d(1, 0);
+const yAxis = new V2d(0, 1);
 
 /**
  * Locks the relative position and rotation between two bodies.
@@ -23,7 +23,7 @@ export default class LockConstraint extends Constraint {
   /**
    * The offset of bodyB in bodyA's frame.
    */
-  localOffsetB: Vec2;
+  localOffsetB: V2d;
 
   /**
    * The offset angle of bodyB in bodyA's frame.
@@ -43,43 +43,46 @@ export default class LockConstraint extends Constraint {
     const y = new Equation(bodyA, bodyB, -maxForce, maxForce);
     const rot = new Equation(bodyA, bodyB, -maxForce, maxForce);
 
-    const lLocal = vec2.create();
-    const gLocal = vec2.create();
+    const lLocal = new V2d(0, 0);
+    const gLocal = new V2d(0, 0);
     const that = this;
 
     x.computeGq = function () {
-      vec2.rotate(lLocal, that.localOffsetB, bodyA.angle);
-      vec2.sub(gLocal, bodyB.position, bodyA.position);
-      vec2.sub(gLocal, gLocal, lLocal);
+      lLocal.set(that.localOffsetB).irotate(bodyA.angle);
+      gLocal.set(bodyB.position).isub(bodyA.position).isub(lLocal);
       return gLocal[0];
     };
 
     y.computeGq = function () {
-      vec2.rotate(lLocal, that.localOffsetB, bodyA.angle);
-      vec2.sub(gLocal, bodyB.position, bodyA.position);
-      vec2.sub(gLocal, gLocal, lLocal);
+      lLocal.set(that.localOffsetB).irotate(bodyA.angle);
+      gLocal.set(bodyB.position).isub(bodyA.position).isub(lLocal);
       return gLocal[1];
     };
 
-    const rLocal = vec2.create();
-    const tLocal = vec2.create();
+    const rLocal = new V2d(0, 0);
+    const tLocal = new V2d(0, 0);
     rot.computeGq = function () {
-      vec2.rotate(rLocal, that.localOffsetB, bodyB.angle - that.localAngleB);
-      vec2.scale(rLocal, rLocal, -1);
-      vec2.sub(gLocal, bodyA.position, bodyB.position);
-      vec2.add(gLocal, gLocal, rLocal);
-      vec2.rotate(tLocal, rLocal, -Math.PI / 2);
-      vec2.normalize(tLocal, tLocal);
-      return vec2.dot(gLocal, tLocal);
+      rLocal
+        .set(that.localOffsetB)
+        .irotate(bodyB.angle - that.localAngleB)
+        .imul(-1);
+      gLocal.set(bodyA.position).isub(bodyB.position).iadd(rLocal);
+      tLocal
+        .set(rLocal)
+        .irotate(-Math.PI / 2)
+        .inormalize();
+      return gLocal.dot(tLocal);
     };
 
-    this.localOffsetB = vec2.create();
+    this.localOffsetB = new V2d(0, 0);
     if (options.localOffsetB) {
-      vec2.copy(this.localOffsetB, options.localOffsetB);
+      this.localOffsetB.set(options.localOffsetB);
     } else {
       // Construct from current positions
-      vec2.sub(this.localOffsetB, bodyB.position, bodyA.position);
-      vec2.rotate(this.localOffsetB, this.localOffsetB, -bodyA.angle);
+      this.localOffsetB
+        .set(bodyB.position)
+        .isub(bodyA.position)
+        .irotate(-bodyA.angle);
     }
 
     this.localAngleB = 0;
@@ -119,27 +122,29 @@ export default class LockConstraint extends Constraint {
     const bodyA = this.bodyA;
     const bodyB = this.bodyB;
 
-    vec2.rotate(l, this.localOffsetB, bodyA.angle);
-    vec2.rotate(r, this.localOffsetB, bodyB.angle - this.localAngleB);
-    vec2.scale(r, r, -1);
+    l.set(this.localOffsetB).irotate(bodyA.angle);
+    r.set(this.localOffsetB)
+      .irotate(bodyB.angle - this.localAngleB)
+      .imul(-1);
 
-    vec2.rotate(t, r, Math.PI / 2);
-    vec2.normalize(t, t);
+    t.set(r)
+      .irotate(Math.PI / 2)
+      .inormalize();
 
     x.G[0] = -1;
     x.G[1] = 0;
-    x.G[2] = -vec2.crossLength(l, xAxis);
+    x.G[2] = -l.crossLength(xAxis);
     x.G[3] = 1;
 
     y.G[0] = 0;
     y.G[1] = -1;
-    y.G[2] = -vec2.crossLength(l, yAxis);
+    y.G[2] = -l.crossLength(yAxis);
     y.G[4] = 1;
 
     rot.G[0] = -t[0];
     rot.G[1] = -t[1];
     rot.G[3] = t[0];
     rot.G[4] = t[1];
-    rot.G[5] = vec2.crossLength(r, t);
+    rot.G[5] = r.crossLength(t);
   }
 }

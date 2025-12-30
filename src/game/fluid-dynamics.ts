@@ -272,5 +272,5 @@ export function applySkinFriction(
   const force = relativeVelocity.normalize().mul(-forceMagnitude);
 
   // Apply at center of mass (no torque)
-  body.applyForce(force, [0, 0]);
+  body.applyForce(force, new V2d(0, 0));
 }

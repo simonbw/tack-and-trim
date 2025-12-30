@@ -1,16 +1,16 @@
+import { V2d } from "../../Vector";
+import type Body from "../body/Body";
 import Equation from "./Equation";
-import vec2 from "../math/vec2";
-import type Body from "../objects/Body";
 
 export interface RotationalLockEquationOptions {
   angle?: number;
 }
 
 // Module-level temp vectors
-const worldVectorA = vec2.create();
-const worldVectorB = vec2.create();
-const xAxis = vec2.fromValues(1, 0);
-const yAxis = vec2.fromValues(0, 1);
+const worldVectorA = new V2d(0, 0);
+const worldVectorB = new V2d(0, 0);
+const xAxis = new V2d(1, 0);
+const yAxis = new V2d(0, 1);
 
 /**
  * Locks the relative angle between two bodies. The constraint tries to keep
@@ -34,8 +34,8 @@ export default class RotationalLockEquation extends Equation {
   }
 
   computeGq(): number {
-    vec2.rotate(worldVectorA, xAxis, this.bodyA.angle + this.angle);
-    vec2.rotate(worldVectorB, yAxis, this.bodyB.angle);
-    return vec2.dot(worldVectorA, worldVectorB);
+    worldVectorA.set(xAxis).irotate(this.bodyA.angle + this.angle);
+    worldVectorB.set(yAxis).irotate(this.bodyB.angle);
+    return worldVectorA.dot(worldVectorB);
   }
 }

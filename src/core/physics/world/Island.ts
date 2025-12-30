@@ -1,4 +1,4 @@
-import Body from "../objects/Body";
+import Body from "../body/Body";
 import type Equation from "../equations/Equation";
 
 const bodyIds: number[] = [];

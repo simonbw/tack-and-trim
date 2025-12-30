@@ -1,5 +1,5 @@
 import Shape, { ShapeOptions } from "./Shape";
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d } from "../../Vector";
 import type AABB from "../collision/AABB";
 
 /**
@@ -21,8 +21,8 @@ export default class Particle extends Shape {
     this.boundingRadius = 0;
   }
 
-  computeAABB(out: AABB, position: Vec2, _angle: number): void {
-    vec2.copy(out.lowerBound, position);
-    vec2.copy(out.upperBound, position);
+  computeAABB(out: AABB, position: V2d, _angle: number): void {
+    out.lowerBound.set(position);
+    out.upperBound.set(position);
   }
 }

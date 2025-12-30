@@ -1,6 +1,7 @@
 import EventEmitter from "../events/EventEmitter";
 import type Equation from "../equations/Equation";
 import type Island from "../world/Island";
+import type World from "../world/World";
 
 export interface SolverOptions {
   equationSortFunction?: ((a: Equation, b: Equation) => number) | false;
@@ -36,6 +37,14 @@ export default class Solver extends EventEmitter {
 
     this.type = type ?? 0;
     this.equationSortFunction = options.equationSortFunction || false;
+  }
+
+  /**
+   * Set the world reference. Override in subclasses that need world access.
+   */
+  setWorld(_world: World): void {
+    // Default implementation does nothing
+    // Subclasses like GSSolver override this for optimization
   }
 
   /**

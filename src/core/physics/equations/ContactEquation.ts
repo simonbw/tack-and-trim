@@ -1,12 +1,12 @@
-import Equation from "./Equation";
-import vec2, { Vec2 } from "../math/vec2";
-import type Body from "../objects/Body";
+import { V2d } from "../../Vector";
+import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
+import Equation from "./Equation";
 
 // Module-level temp vectors
-const vi = vec2.create();
-const vj = vec2.create();
-const relVel = vec2.create();
+const vi = new V2d(0, 0);
+const vj = new V2d(0, 0);
+const relVel = new V2d(0, 0);
 
 /**
  * Non-penetration constraint equation. Tries to make the contactPointA and
@@ -16,18 +16,18 @@ export default class ContactEquation extends Equation {
   /**
    * Vector from body i center of mass to the contact point.
    */
-  contactPointA: Vec2;
-  penetrationVec: Vec2;
+  contactPointA: V2d;
+  penetrationVec: V2d;
 
   /**
    * World-oriented vector from body A center of mass to the contact point.
    */
-  contactPointB: Vec2;
+  contactPointB: V2d;
 
   /**
    * The normal vector, pointing out of body i
    */
-  normalA: Vec2;
+  normalA: V2d;
 
   /**
    * The restitution to use (0=no bounciness, 1=max bounciness).
@@ -53,10 +53,10 @@ export default class ContactEquation extends Equation {
   constructor(bodyA: Body, bodyB: Body) {
     super(bodyA, bodyB, 0, Number.MAX_VALUE);
 
-    this.contactPointA = vec2.create();
-    this.penetrationVec = vec2.create();
-    this.contactPointB = vec2.create();
-    this.normalA = vec2.create();
+    this.contactPointA = new V2d(0, 0);
+    this.penetrationVec = new V2d(0, 0);
+    this.contactPointB = new V2d(0, 0);
+    this.normalA = new V2d(0, 0);
   }
 
   computeB(a: number, b: number, h: number): number {
@@ -72,8 +72,8 @@ export default class ContactEquation extends Equation {
     const G = this.G;
 
     // Calculate cross products
-    const rixn = vec2.crossLength(ri, n);
-    const rjxn = vec2.crossLength(rj, n);
+    const rixn = ri.crossLength(n);
+    const rjxn = rj.crossLength(n);
 
     // G = [-n -rixn n rjxn]
     G[0] = -n[0];
@@ -84,9 +84,7 @@ export default class ContactEquation extends Equation {
     G[5] = rjxn;
 
     // Calculate q = xj+rj -(xi+ri) i.e. the penetration vector
-    vec2.add(penetrationVec, xj, rj);
-    vec2.sub(penetrationVec, penetrationVec, xi);
-    vec2.sub(penetrationVec, penetrationVec, ri);
+    penetrationVec.set(xj).iadd(rj).isub(xi).isub(ri);
 
     // Compute iteration
     let GW: number;
@@ -95,7 +93,7 @@ export default class ContactEquation extends Equation {
       Gq = 0;
       GW = (1 / b) * (1 + this.restitution) * this.computeGW();
     } else {
-      Gq = vec2.dot(n, penetrationVec) + this.offset;
+      Gq = n.dot(penetrationVec) + this.offset;
       GW = this.computeGW();
     }
 
@@ -112,8 +110,8 @@ export default class ContactEquation extends Equation {
     this.bodyA.getVelocityAtPoint(vi, this.contactPointA);
     this.bodyB.getVelocityAtPoint(vj, this.contactPointB);
 
-    vec2.subtract(relVel, vi, vj);
+    relVel.set(vi).isub(vj);
 
-    return vec2.dot(this.normalA, relVel);
+    return this.normalA.dot(relVel);
   }
 }

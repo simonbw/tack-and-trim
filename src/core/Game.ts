@@ -14,13 +14,12 @@ import {
   GameRenderer2dOptions,
 } from "./graphics/GameRenderer2d";
 import { IOManager } from "./io/IO";
-import CustomWorld from "./physics/CustomWorld";
 import { lerp } from "./util/MathUtil";
 
 interface GameOptions {
   audio?: AudioContext;
   ticksPerSecond?: number;
-  world?: World | CustomWorld;
+  world?: World;
 }
 
 /**
@@ -115,8 +114,7 @@ export default class Game {
 
     this.ticksPerSecond = ticksPerSecond;
     this.tickDuration = 1.0 / this.ticksPerSecond;
-    // this.world = new World({ gravity: [0, 0] });
-    this.world = (world ?? new CustomWorld({ gravity: [0, 0] })) as World;
+    this.world = world ?? new World({ gravity: [0, 0] });
     this.world.on("beginContact", this.beginContact as any, null);
     this.world.on("endContact", this.endContact as any, null);
     this.world.on("impact", this.impact as any, null);
@@ -490,8 +488,8 @@ export default class Game {
             angularVelocity: body.angularVelocity,
           }
         );
-        body.position = [0, 0];
-        body.velocity = [0, 0];
+        body.position.set(0, 0);
+        body.velocity.set(0, 0);
         body.angularVelocity = 0;
         continue;
       }

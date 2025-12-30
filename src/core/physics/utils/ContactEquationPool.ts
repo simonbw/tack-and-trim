@@ -1,6 +1,6 @@
-import Pool, { PoolOptions } from "./Pool";
+import Body from "../body/Body";
 import ContactEquation from "../equations/ContactEquation";
-import Body from "../objects/Body";
+import Pool, { PoolOptions } from "./Pool";
 
 export default class ContactEquationPool extends Pool<ContactEquation> {
   constructor(options?: PoolOptions) {

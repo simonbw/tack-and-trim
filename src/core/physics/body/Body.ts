@@ -1,4 +1,4 @@
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d, CompatibleVector } from "../../Vector";
 import RaycastResult from "../collision/RaycastResult";
 import Ray from "../collision/Ray";
 import AABB from "../collision/AABB";
@@ -8,9 +8,9 @@ import type World from "../world/World";
 
 
 export interface BodyOptions {
-  force?: Vec2;
-  position?: Vec2;
-  velocity?: Vec2;
+  force?: CompatibleVector;
+  position?: CompatibleVector;
+  velocity?: CompatibleVector;
   allowSleep?: boolean;
   collisionResponse?: boolean;
   angle?: number;
@@ -33,27 +33,27 @@ export interface BodyOptions {
 
 // Module-level temp vectors for performance
 const shapeAABB = new AABB();
-const tmp = vec2.create();
-const Body_applyForce_r = vec2.create();
-const Body_applyForce_forceWorld = vec2.create();
-const Body_applyForce_pointWorld = vec2.create();
-const Body_applyForce_pointLocal = vec2.create();
-const Body_applyImpulse_velo = vec2.create();
-const Body_applyImpulse_impulseWorld = vec2.create();
-const Body_applyImpulse_pointWorld = vec2.create();
-const Body_applyImpulse_pointLocal = vec2.create();
-const adjustCenterOfMass_tmp1 = vec2.fromValues(0, 0);
-const adjustCenterOfMass_tmp2 = vec2.fromValues(0, 0);
-const adjustCenterOfMass_tmp3 = vec2.fromValues(0, 0);
-const adjustCenterOfMass_tmp4 = vec2.fromValues(0, 0);
-const integrate_fhMinv = vec2.create();
-const integrate_velodt = vec2.create();
+const tmp = new V2d(0, 0);
+const Body_applyForce_r = new V2d(0, 0);
+const Body_applyForce_forceWorld = new V2d(0, 0);
+const Body_applyForce_pointWorld = new V2d(0, 0);
+const Body_applyForce_pointLocal = new V2d(0, 0);
+const Body_applyImpulse_velo = new V2d(0, 0);
+const Body_applyImpulse_impulseWorld = new V2d(0, 0);
+const Body_applyImpulse_pointWorld = new V2d(0, 0);
+const Body_applyImpulse_pointLocal = new V2d(0, 0);
+const adjustCenterOfMass_tmp1 = new V2d(0, 0);
+const adjustCenterOfMass_tmp2 = new V2d(0, 0);
+const adjustCenterOfMass_tmp3 = new V2d(0, 0);
+const adjustCenterOfMass_tmp4 = new V2d(0, 0);
+const integrate_fhMinv = new V2d(0, 0);
+const integrate_velodt = new V2d(0, 0);
 const result = new RaycastResult();
 const ray = new Ray({ mode: Ray.ALL });
-const direction = vec2.create();
-const end = vec2.create();
-const startToEnd = vec2.create();
-const rememberPosition = vec2.create();
+const direction = new V2d(0, 0);
+const end = new V2d(0, 0);
+const startToEnd = new V2d(0, 0);
+const rememberPosition = new V2d(0, 0);
 
 /**
  * A rigid body. Has got a center of mass, position, velocity and a number of
@@ -89,18 +89,18 @@ export default class Body extends EventEmitter {
   fixedRotation: boolean;
   fixedX: boolean;
   fixedY: boolean;
-  massMultiplier: Vec2;
-  position: Vec2;
-  interpolatedPosition: Vec2;
+  massMultiplier: V2d;
+  position: V2d;
+  interpolatedPosition: V2d;
   interpolatedAngle: number = 0;
-  previousPosition: Vec2;
+  previousPosition: V2d;
   previousAngle: number = 0;
-  velocity: Vec2;
-  vlambda: Vec2;
+  velocity: V2d;
+  vlambda: V2d;
   wlambda: number = 0;
   angle: number;
   angularVelocity: number;
-  force: Vec2;
+  force: V2d;
   angularForce: number;
   damping: number;
   angularDamping: number;
@@ -119,7 +119,7 @@ export default class Body extends EventEmitter {
   timeLastSleepy: number = 0;
   ccdSpeedThreshold: number;
   ccdIterations: number;
-  concavePath: Vec2[] | null = null;
+  concavePath: V2d[] | null = null;
   _wakeUpAfterNarrowphase: boolean = false;
 
   constructor(options: BodyOptions = {}) {
@@ -130,28 +130,28 @@ export default class Body extends EventEmitter {
     this.fixedRotation = !!options.fixedRotation;
     this.fixedX = !!options.fixedX;
     this.fixedY = !!options.fixedY;
-    this.massMultiplier = vec2.create();
+    this.massMultiplier = new V2d(0, 0);
 
-    this.position = vec2.fromValues(0, 0);
+    this.position = new V2d(0, 0);
     if (options.position) {
-      vec2.copy(this.position, options.position);
+      this.position.set(options.position);
     }
 
-    this.interpolatedPosition = vec2.fromValues(0, 0);
-    this.previousPosition = vec2.fromValues(0, 0);
+    this.interpolatedPosition = new V2d(0, 0);
+    this.previousPosition = new V2d(0, 0);
 
-    this.velocity = vec2.fromValues(0, 0);
+    this.velocity = new V2d(0, 0);
     if (options.velocity) {
-      vec2.copy(this.velocity, options.velocity);
+      this.velocity.set(options.velocity);
     }
 
-    this.vlambda = vec2.fromValues(0, 0);
+    this.vlambda = new V2d(0, 0);
     this.angle = options.angle || 0;
     this.angularVelocity = options.angularVelocity || 0;
 
-    this.force = vec2.create();
+    this.force = new V2d(0, 0);
     if (options.force) {
-      vec2.copy(this.force, options.force);
+      this.force.set(options.force);
     }
 
     this.angularForce = options.angularForce || 0;
@@ -246,8 +246,8 @@ export default class Body extends EventEmitter {
       const angle = shape.angle + bodyAngle;
 
       // Get shape world offset
-      vec2.rotate(offset, shape.position, bodyAngle);
-      vec2.add(offset, offset, this.position);
+      offset.set(shape.position).irotate(bodyAngle);
+      offset.iadd(this.position);
 
       // Get shape AABB
       shape.computeAABB(shapeAABB, offset, angle);
@@ -273,7 +273,7 @@ export default class Body extends EventEmitter {
 
     for (let i = 0; i !== N; i++) {
       const shape = shapes[i];
-      const offset = vec2.length(shape.position);
+      const offset = shape.position.magnitude;
       const r = shape.boundingRadius;
       if (offset + r > radius) {
         radius = offset + r;
@@ -288,7 +288,7 @@ export default class Body extends EventEmitter {
    * so that the shape gets an offset and angle relative to the body center of mass.
    * Will automatically update the mass properties and bounding radius.
    */
-  addShape(shape: Shape, offset?: Vec2, angle?: number): void {
+  addShape(shape: Shape, offset?: CompatibleVector, angle?: number): void {
     if (shape.body) {
       throw new Error("A shape can only be added to one body.");
     }
@@ -296,9 +296,9 @@ export default class Body extends EventEmitter {
 
     // Copy the offset vector
     if (offset) {
-      vec2.copy(shape.position, offset);
+      shape.position.set(offset);
     } else {
-      vec2.set(shape.position, 0, 0);
+      shape.position.set(0, 0);
     }
 
     shape.angle = angle || 0;
@@ -345,7 +345,7 @@ export default class Body extends EventEmitter {
       if (!this.fixedRotation) {
         for (let i = 0; i < N; i++) {
           const shape = shapes[i];
-          const r2 = vec2.squaredLength(shape.position);
+          const r2 = shape.position.squaredMagnitude;
           const Icm = shape.computeMomentOfInertia(m);
           I += Icm + m * r2;
         }
@@ -359,7 +359,7 @@ export default class Body extends EventEmitter {
       // Inverse mass properties are easy
       this.invMass = 1 / this.mass;
 
-      vec2.set(this.massMultiplier, this.fixedX ? 0 : 1, this.fixedY ? 0 : 1);
+      this.massMultiplier.set(this.fixedX ? 0 : 1, this.fixedY ? 0 : 1);
     }
   }
 
@@ -370,13 +370,13 @@ export default class Body extends EventEmitter {
    * If relativePoint is zero, the force will be applied directly on the center
    * of mass, and the torque produced will be zero.
    */
-  applyForce(force: Vec2, relativePoint?: Vec2): void {
+  applyForce(force: V2d, relativePoint?: V2d): void {
     // Add linear force
-    vec2.add(this.force, this.force, force);
+    this.force.iadd(force);
 
     if (relativePoint) {
       // Compute produced rotational force
-      const rotForce = vec2.crossLength(relativePoint, force);
+      const rotForce = relativePoint.crossLength(force);
 
       // Add rotational force
       this.angularForce += rotForce;
@@ -386,7 +386,7 @@ export default class Body extends EventEmitter {
   /**
    * Apply force to a body-local point.
    */
-  applyForceLocal(localForce: Vec2, localPoint?: Vec2): void {
+  applyForceLocal(localForce: V2d, localPoint?: V2d): void {
     localPoint = localPoint || Body_applyForce_pointLocal;
     const worldForce = Body_applyForce_forceWorld;
     const worldPoint = Body_applyForce_pointWorld;
@@ -401,22 +401,22 @@ export default class Body extends EventEmitter {
    * short period of time (impulse = force * time). Impulses will be added to
    * Body.velocity and Body.angularVelocity.
    */
-  applyImpulse(impulseVector: Vec2, relativePoint?: Vec2): void {
+  applyImpulse(impulseVector: V2d, relativePoint?: V2d): void {
     if (this.type !== Body.DYNAMIC) {
       return;
     }
 
     // Compute produced central impulse velocity
     const velo = Body_applyImpulse_velo;
-    vec2.scale(velo, impulseVector, this.invMass);
-    vec2.multiply(velo, this.massMultiplier, velo);
+    velo.set(impulseVector).imul(this.invMass);
+    velo.imulComponent(this.massMultiplier);
 
     // Add linear impulse
-    vec2.add(this.velocity, velo, this.velocity);
+    this.velocity.iadd(velo);
 
     if (relativePoint) {
       // Compute produced rotational impulse velocity
-      let rotVelo = vec2.crossLength(relativePoint, impulseVector);
+      let rotVelo = relativePoint.crossLength(impulseVector);
       rotVelo *= this.invInertia;
 
       // Add rotational Impulse
@@ -427,7 +427,7 @@ export default class Body extends EventEmitter {
   /**
    * Apply impulse to a body-local point.
    */
-  applyImpulseLocal(localImpulse: Vec2, localPoint?: Vec2): void {
+  applyImpulseLocal(localImpulse: V2d, localPoint?: V2d): void {
     localPoint = localPoint || Body_applyImpulse_pointLocal;
     const worldImpulse = Body_applyImpulse_impulseWorld;
     const worldPoint = Body_applyImpulse_pointWorld;
@@ -439,29 +439,29 @@ export default class Body extends EventEmitter {
   /**
    * Transform a world point to local body frame.
    */
-  toLocalFrame(out: Vec2, worldPoint: Vec2): void {
-    vec2.toLocalFrame(out, worldPoint, this.position, this.angle);
+  toLocalFrame(out: V2d, worldPoint: V2d): void {
+    out.set(worldPoint).itoLocalFrame(this.position, this.angle);
   }
 
   /**
    * Transform a local point to world frame.
    */
-  toWorldFrame(out: Vec2, localPoint: Vec2): void {
-    vec2.toGlobalFrame(out, localPoint, this.position, this.angle);
+  toWorldFrame(out: V2d, localPoint: V2d): void {
+    out.set(localPoint).itoGlobalFrame(this.position, this.angle);
   }
 
   /**
    * Transform a world vector to local body frame.
    */
-  vectorToLocalFrame(out: Vec2, worldVector: Vec2): void {
-    vec2.vectorToLocalFrame(out, worldVector, this.angle);
+  vectorToLocalFrame(out: V2d, worldVector: V2d): void {
+    out.set(worldVector).irotate(-this.angle);
   }
 
   /**
    * Transform a local vector to world frame.
    */
-  vectorToWorldFrame(out: Vec2, localVector: Vec2): void {
-    vec2.vectorToGlobalFrame(out, localVector, this.angle);
+  vectorToWorldFrame(out: V2d, localVector: V2d): void {
+    out.set(localVector).irotate(this.angle);
   }
 
   /**
@@ -470,7 +470,7 @@ export default class Body extends EventEmitter {
    * @deprecated This method requires poly-decomp which is not included. Use Convex shapes directly instead.
    */
   fromPolygon(
-    _path: Vec2[],
+    _path: V2d[],
     _options: {
       optimalDecomp?: boolean;
       skipSimpleCheck?: boolean;
@@ -490,29 +490,29 @@ export default class Body extends EventEmitter {
     const sum = adjustCenterOfMass_tmp3;
     const cm = adjustCenterOfMass_tmp4;
     let totalArea = 0;
-    vec2.set(sum, 0, 0);
+    sum.set(0, 0);
 
     for (let i = 0; i !== this.shapes.length; i++) {
       const s = this.shapes[i];
-      vec2.scale(offset_times_area, s.position, s.area);
-      vec2.add(sum, sum, offset_times_area);
+      offset_times_area.set(s.position).imul(s.area);
+      sum.iadd(offset_times_area);
       totalArea += s.area;
     }
 
-    vec2.scale(cm, sum, 1 / totalArea);
+    cm.set(sum).imul(1 / totalArea);
 
     // Now move all shapes
     for (let i = 0; i !== this.shapes.length; i++) {
       const s = this.shapes[i];
-      vec2.sub(s.position, s.position, cm);
+      s.position.isub(cm);
     }
 
     // Move the body position too
-    vec2.add(this.position, this.position, cm);
+    this.position.iadd(cm);
 
     // And concave path
     for (let i = 0; this.concavePath && i < this.concavePath.length; i++) {
-      vec2.sub(this.concavePath[i], this.concavePath[i], cm);
+      this.concavePath[i].isub(cm);
     }
 
     this.updateMassProperties();
@@ -523,19 +523,19 @@ export default class Body extends EventEmitter {
    * Sets the force on the body to zero.
    */
   setZeroForce(): void {
-    vec2.set(this.force, 0.0, 0.0);
+    this.force.set(0.0, 0.0);
     this.angularForce = 0.0;
   }
 
   resetConstraintVelocity(): void {
     const vlambda = this.vlambda;
-    vec2.set(vlambda, 0, 0);
+    vlambda.set(0, 0);
     this.wlambda = 0;
   }
 
   addConstraintVelocity(): void {
     const v = this.velocity;
-    vec2.add(v, v, this.vlambda);
+    v.iadd(this.vlambda);
     this.angularVelocity += this.wlambda;
   }
 
@@ -546,7 +546,7 @@ export default class Body extends EventEmitter {
     if (this.type === Body.DYNAMIC) {
       // Only for dynamic bodies
       const v = this.velocity;
-      vec2.scale(v, v, Math.pow(1.0 - this.damping, dt));
+      v.imul(Math.pow(1.0 - this.damping, dt));
       this.angularVelocity *= Math.pow(1.0 - this.angularDamping, dt);
     }
   }
@@ -573,8 +573,8 @@ export default class Body extends EventEmitter {
     this.sleepState = Body.SLEEPING;
     this.angularVelocity = 0;
     this.angularForce = 0;
-    vec2.set(this.velocity, 0, 0);
-    vec2.set(this.force, 0, 0);
+    this.velocity.set(0, 0);
+    this.force.set(0, 0);
     this.emit(Body.sleepEvent);
   }
 
@@ -590,7 +590,7 @@ export default class Body extends EventEmitter {
 
     const sleepState = this.sleepState;
     const speedSquared =
-      vec2.squaredLength(this.velocity) + Math.pow(this.angularVelocity, 2);
+      this.velocity.squaredMagnitude + Math.pow(this.angularVelocity, 2);
     const speedLimitSquared = Math.pow(this.sleepSpeedLimit, 2);
 
     // Add to idle time
@@ -629,22 +629,22 @@ export default class Body extends EventEmitter {
     const velo = this.velocity;
 
     // Save old position
-    vec2.copy(this.previousPosition, this.position);
+    this.previousPosition.set(this.position);
     this.previousAngle = this.angle;
 
     // Velocity update
     if (!this.fixedRotation) {
       this.angularVelocity += this.angularForce * this.invInertia * dt;
     }
-    vec2.scale(integrate_fhMinv, f, dt * minv);
-    vec2.multiply(integrate_fhMinv, this.massMultiplier, integrate_fhMinv);
-    vec2.add(velo, integrate_fhMinv, velo);
+    integrate_fhMinv.set(f).imul(dt * minv);
+    integrate_fhMinv.imulComponent(this.massMultiplier);
+    velo.iadd(integrate_fhMinv);
 
     // CCD
     if (!this.integrateToTimeOfImpact(dt)) {
       // Regular position update
-      vec2.scale(integrate_velodt, velo, dt);
-      vec2.add(pos, pos, integrate_velodt);
+      integrate_velodt.set(velo).imul(dt);
+      pos.iadd(integrate_velodt);
       if (!this.fixedRotation) {
         this.angle += this.angularVelocity * dt;
       }
@@ -656,19 +656,19 @@ export default class Body extends EventEmitter {
   integrateToTimeOfImpact(dt: number): boolean {
     if (
       this.ccdSpeedThreshold < 0 ||
-      vec2.squaredLength(this.velocity) < Math.pow(this.ccdSpeedThreshold, 2)
+      this.velocity.squaredMagnitude < Math.pow(this.ccdSpeedThreshold, 2)
     ) {
       return false;
     }
 
-    vec2.normalize(direction, this.velocity);
+    direction.set(this.velocity).inormalize();
 
-    vec2.scale(end, this.velocity, dt);
-    vec2.add(end, end, this.position);
+    end.set(this.velocity).imul(dt);
+    end.iadd(this.position);
 
-    vec2.sub(startToEnd, end, this.position);
+    startToEnd.set(end).isub(this.position);
     const startToEndAngle = this.angularVelocity * dt;
-    const len = vec2.length(startToEnd);
+    const len = startToEnd.magnitude;
 
     let timeOfImpact = 1;
 
@@ -681,12 +681,12 @@ export default class Body extends EventEmitter {
       }
       hit = res.body;
       res.getHitPoint(end, ray);
-      vec2.sub(startToEnd, end, that.position);
-      timeOfImpact = vec2.length(startToEnd) / len;
+      startToEnd.set(end).isub(that.position);
+      timeOfImpact = startToEnd.magnitude / len;
       res.stop();
     };
-    vec2.copy(ray.from, this.position);
-    vec2.copy(ray.to, end);
+    ray.from.set(this.position);
+    ray.to.set(end);
     ray.update();
     this.world!.raycast(result, ray);
 
@@ -698,7 +698,7 @@ export default class Body extends EventEmitter {
     const hitBody: Body = hit;
 
     const rememberAngle = this.angle;
-    vec2.copy(rememberPosition, this.position);
+    rememberPosition.set(this.position);
 
     // Got a start and end point. Approximate time of impact using binary search
     let iter = 0;
@@ -712,8 +712,8 @@ export default class Body extends EventEmitter {
       tmid = (tmax - tmin) / 2;
 
       // Move the body to that point
-      vec2.scale(integrate_velodt, startToEnd, timeOfImpact);
-      vec2.add(this.position, rememberPosition, integrate_velodt);
+      integrate_velodt.set(startToEnd).imul(timeOfImpact);
+      this.position.set(rememberPosition).iadd(integrate_velodt);
       this.angle = rememberAngle + startToEndAngle * timeOfImpact;
       this.updateAABB();
 
@@ -733,12 +733,12 @@ export default class Body extends EventEmitter {
 
     timeOfImpact = tmid;
 
-    vec2.copy(this.position, rememberPosition);
+    this.position.set(rememberPosition);
     this.angle = rememberAngle;
 
     // move to TOI
-    vec2.scale(integrate_velodt, startToEnd, timeOfImpact);
-    vec2.add(this.position, this.position, integrate_velodt);
+    integrate_velodt.set(startToEnd).imul(timeOfImpact);
+    this.position.iadd(integrate_velodt);
     if (!this.fixedRotation) {
       this.angle += startToEndAngle * timeOfImpact;
     }
@@ -749,9 +749,9 @@ export default class Body extends EventEmitter {
   /**
    * Get velocity of a point in the body.
    */
-  getVelocityAtPoint(result: Vec2, relativePoint: Vec2): Vec2 {
-    vec2.crossVZ(result, relativePoint, this.angularVelocity);
-    vec2.subtract(result, this.velocity, result);
+  getVelocityAtPoint(result: V2d, relativePoint: V2d): V2d {
+    result.set(relativePoint).icrossVZ(this.angularVelocity);
+    result.set(this.velocity).isub(result);
     return result;
   }
 }

@@ -1,20 +1,20 @@
-import Constraint, { ConstraintOptions } from "./Constraint";
+import { CompatibleVector, V2d } from "../../Vector";
+import type Body from "../body/Body";
 import Equation from "../equations/Equation";
-import vec2, { Vec2 } from "../math/vec2";
 import { defaults } from "../utils/Utils";
-import type Body from "../objects/Body";
+import Constraint, { ConstraintOptions } from "./Constraint";
 
 export interface DistanceConstraintOptions extends ConstraintOptions {
   distance?: number;
-  localAnchorA?: Vec2;
-  localAnchorB?: Vec2;
+  localAnchorA?: CompatibleVector;
+  localAnchorB?: CompatibleVector;
   maxForce?: number;
 }
 
 // Module-level temp vectors
-const n = vec2.create();
-const ri = vec2.create();
-const rj = vec2.create();
+const n = new V2d(0, 0);
+const ri = new V2d(0, 0);
+const rj = new V2d(0, 0);
 
 /**
  * Constraint that tries to keep the distance between two bodies constant.
@@ -23,12 +23,12 @@ export default class DistanceConstraint extends Constraint {
   /**
    * Local anchor in body A.
    */
-  localAnchorA: Vec2;
+  localAnchorA: V2d;
 
   /**
    * Local anchor in body B.
    */
-  localAnchorB: Vec2;
+  localAnchorB: V2d;
 
   /**
    * The distance to keep.
@@ -66,16 +66,20 @@ export default class DistanceConstraint extends Constraint {
    */
   position: number = 0;
 
-  constructor(bodyA: Body, bodyB: Body, options: DistanceConstraintOptions = {}) {
+  constructor(
+    bodyA: Body,
+    bodyB: Body,
+    options: DistanceConstraintOptions = {}
+  ) {
     const opts = defaults(options, {
-      localAnchorA: [0, 0] as Vec2,
-      localAnchorB: [0, 0] as Vec2,
+      localAnchorA: [0, 0] as CompatibleVector,
+      localAnchorB: [0, 0] as CompatibleVector,
     });
 
     super(bodyA, bodyB, Constraint.DISTANCE, options);
 
-    this.localAnchorA = vec2.fromValues(opts.localAnchorA[0], opts.localAnchorA[1]);
-    this.localAnchorB = vec2.fromValues(opts.localAnchorB[0], opts.localAnchorB[1]);
+    this.localAnchorA = new V2d(opts.localAnchorA[0], opts.localAnchorA[1]);
+    this.localAnchorB = new V2d(opts.localAnchorB[0], opts.localAnchorB[1]);
 
     const localAnchorA = this.localAnchorA;
     const localAnchorB = this.localAnchorB;
@@ -86,19 +90,20 @@ export default class DistanceConstraint extends Constraint {
       this.distance = options.distance;
     } else {
       // Use the current world distance between the world anchor points.
-      const worldAnchorA = vec2.create();
-      const worldAnchorB = vec2.create();
-      const r = vec2.create();
+      const worldAnchorA = new V2d(0, 0);
+      const worldAnchorB = new V2d(0, 0);
+      const r = new V2d(0, 0);
 
       // Transform local anchors to world
-      vec2.rotate(worldAnchorA, localAnchorA, bodyA.angle);
-      vec2.rotate(worldAnchorB, localAnchorB, bodyB.angle);
+      worldAnchorA.set(localAnchorA).irotate(bodyA.angle);
+      worldAnchorB.set(localAnchorB).irotate(bodyB.angle);
 
-      vec2.add(r, bodyB.position, worldAnchorB);
-      vec2.sub(r, r, worldAnchorA);
-      vec2.sub(r, r, bodyA.position);
+      r.set(bodyB.position)
+        .iadd(worldAnchorB)
+        .isub(worldAnchorA)
+        .isub(bodyA.position);
 
-      this.distance = vec2.length(r);
+      this.distance = r.magnitude;
     }
 
     let maxForce: number;
@@ -112,9 +117,9 @@ export default class DistanceConstraint extends Constraint {
     const normal = new Equation(bodyA, bodyB, -maxForce, maxForce);
 
     // Custom computeGq for this constraint
-    const riLocal = vec2.create();
-    const rjLocal = vec2.create();
-    const rLocal = vec2.create();
+    const riLocal = new V2d(0, 0);
+    const rjLocal = new V2d(0, 0);
+    const rLocal = new V2d(0, 0);
     normal.computeGq = function () {
       const bodyA = this.bodyA;
       const bodyB = this.bodyB;
@@ -122,14 +127,12 @@ export default class DistanceConstraint extends Constraint {
       const xj = bodyB.position;
 
       // Transform local anchors to world
-      vec2.rotate(riLocal, localAnchorA, bodyA.angle);
-      vec2.rotate(rjLocal, localAnchorB, bodyB.angle);
+      riLocal.set(localAnchorA).irotate(bodyA.angle);
+      rjLocal.set(localAnchorB).irotate(bodyB.angle);
 
-      vec2.add(rLocal, xj, rjLocal);
-      vec2.sub(rLocal, rLocal, riLocal);
-      vec2.sub(rLocal, rLocal, xi);
+      rLocal.set(xj).iadd(rjLocal).isub(riLocal).isub(xi);
 
-      return vec2.length(rLocal) - that.distance;
+      return rLocal.magnitude - that.distance;
     };
 
     this.equations = [normal];
@@ -153,14 +156,12 @@ export default class DistanceConstraint extends Constraint {
     const G = normal.G;
 
     // Transform local anchors to world
-    vec2.rotate(ri, this.localAnchorA, bodyA.angle);
-    vec2.rotate(rj, this.localAnchorB, bodyB.angle);
+    ri.set(this.localAnchorA).irotate(bodyA.angle);
+    rj.set(this.localAnchorB).irotate(bodyB.angle);
 
     // Get world anchor points and normal
-    vec2.add(n, xj, rj);
-    vec2.sub(n, n, ri);
-    vec2.sub(n, n, xi);
-    this.position = vec2.length(n);
+    n.set(xj).iadd(rj).isub(ri).isub(xi);
+    this.position = n.magnitude;
 
     let violating = false;
     if (this.upperLimitEnabled) {
@@ -189,11 +190,11 @@ export default class DistanceConstraint extends Constraint {
 
     normalEquation.enabled = true;
 
-    vec2.normalize(n, n);
+    n.inormalize();
 
     // Calculate cross products
-    const rixn = vec2.crossLength(ri, n);
-    const rjxn = vec2.crossLength(rj, n);
+    const rixn = ri.crossLength(n);
+    const rjxn = rj.crossLength(n);
 
     // G = [-n -rixn n rjxn]
     G[0] = -n[0];

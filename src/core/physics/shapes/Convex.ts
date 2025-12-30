@@ -1,32 +1,32 @@
 import Shape, { ShapeOptions } from "./Shape";
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d, CompatibleVector } from "../../Vector";
 import * as polyk from "../math/polyk";
 import type AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
 
 export interface ConvexOptions extends ShapeOptions {
-  vertices?: Vec2[];
-  axes?: Vec2[];
+  vertices?: CompatibleVector[];
+  axes?: CompatibleVector[];
 }
 
-const tmpVec1 = vec2.create();
-const tmpVec2 = vec2.create();
+const tmpVec1 = new V2d(0, 0);
+const tmpVec2 = new V2d(0, 0);
 
-const updateCenterOfMass_centroid = vec2.create();
-const updateCenterOfMass_centroid_times_mass = vec2.create();
+const updateCenterOfMass_centroid = new V2d(0, 0);
+const updateCenterOfMass_centroid_times_mass = new V2d(0, 0);
 
-const intersectConvex_rayStart = vec2.create();
-const intersectConvex_rayEnd = vec2.create();
-const intersectConvex_normal = vec2.create();
+const intersectConvex_rayStart = new V2d(0, 0);
+const intersectConvex_rayEnd = new V2d(0, 0);
+const intersectConvex_normal = new V2d(0, 0);
 
 /**
  * Convex shape class.
  */
 export default class Convex extends Shape {
-  vertices: Vec2[];
-  axes: Vec2[];
-  centerOfMass: Vec2;
+  vertices: V2d[];
+  axes: V2d[];
+  centerOfMass: V2d;
   triangles: number[][];
 
   constructor(options: ConvexOptions = {}) {
@@ -38,8 +38,8 @@ export default class Convex extends Shape {
     // Copy the verts
     const vertices = options.vertices ?? [];
     for (let i = 0; i < vertices.length; i++) {
-      const v = vec2.create();
-      vec2.copy(v, vertices[i]);
+      const v = new V2d(0, 0);
+      v.set(vertices[i]);
       this.vertices.push(v);
     }
 
@@ -48,8 +48,8 @@ export default class Convex extends Shape {
     if (options.axes) {
       // Copy the axes
       for (let i = 0; i < options.axes.length; i++) {
-        const axis = vec2.create();
-        vec2.copy(axis, options.axes[i]);
+        const axis = new V2d(0, 0);
+        axis.set(options.axes[i]);
         this.axes.push(axis);
       }
     } else {
@@ -58,18 +58,18 @@ export default class Convex extends Shape {
         const worldPoint0 = this.vertices[i];
         const worldPoint1 = this.vertices[(i + 1) % this.vertices.length];
 
-        const normal = vec2.create();
-        vec2.sub(normal, worldPoint1, worldPoint0);
+        const normal = new V2d(0, 0);
+        normal.set(worldPoint1).isub(worldPoint0);
 
         // Get normal - just rotate 90 degrees since vertices are given in CCW
-        vec2.rotate90cw(normal, normal);
-        vec2.normalize(normal, normal);
+        normal.irotate90cw();
+        normal.inormalize();
 
         this.axes.push(normal);
       }
     }
 
-    this.centerOfMass = vec2.fromValues(0, 0);
+    this.centerOfMass = new V2d(0, 0);
     this.triangles = [];
 
     if (this.vertices.length) {
@@ -86,15 +86,15 @@ export default class Convex extends Shape {
     }
   }
 
-  projectOntoLocalAxis(localAxis: Vec2, result: Vec2): void {
+  projectOntoLocalAxis(localAxis: V2d, result: V2d): void {
     let max: number | null = null;
     let min: number | null = null;
     const axis = tmpVec1;
-    vec2.copy(axis, localAxis);
+    axis.set(localAxis);
 
     for (let i = 0; i < this.vertices.length; i++) {
       const v = this.vertices[i];
-      const value = vec2.dot(v, axis);
+      const value = v.dot(axis);
       if (max === null || value > max) {
         max = value;
       }
@@ -109,14 +109,14 @@ export default class Convex extends Shape {
       max = t;
     }
 
-    vec2.set(result, min!, max!);
+    result.set(min!, max!);
   }
 
   projectOntoWorldAxis(
-    localAxis: Vec2,
-    shapeOffset: Vec2,
+    localAxis: V2d,
+    shapeOffset: V2d,
     shapeAngle: number,
-    result: Vec2
+    result: V2d
   ): void {
     const worldAxis = tmpVec2;
 
@@ -124,13 +124,13 @@ export default class Convex extends Shape {
 
     // Project the position of the body onto the axis
     if (shapeAngle !== 0) {
-      vec2.rotate(worldAxis, localAxis, shapeAngle);
+      worldAxis.set(localAxis).irotate(shapeAngle);
     } else {
-      vec2.copy(worldAxis, localAxis);
+      worldAxis.set(localAxis);
     }
-    const offset = vec2.dot(shapeOffset, worldAxis);
+    const offset = shapeOffset.dot(worldAxis);
 
-    vec2.set(result, result[0] + offset, result[1] + offset);
+    result.set(result[0] + offset, result[1] + offset);
   }
 
   updateTriangles(): void {
@@ -163,7 +163,7 @@ export default class Convex extends Shape {
     const centroid = updateCenterOfMass_centroid;
     const centroid_times_mass = updateCenterOfMass_centroid_times_mass;
 
-    vec2.set(cm, 0, 0);
+    cm.set(0, 0);
     let totalArea = 0;
 
     for (let i = 0; i !== triangles.length; i++) {
@@ -172,16 +172,16 @@ export default class Convex extends Shape {
       const b = verts[t[1]];
       const c = verts[t[2]];
 
-      vec2.centroid(centroid, a, b, c);
+      centroid.set(V2d.centroid(a, b, c));
 
       const m = Convex.triangleArea(a, b, c);
       totalArea += m;
 
-      vec2.scale(centroid_times_mass, centroid, m);
-      vec2.add(cm, cm, centroid_times_mass);
+      centroid_times_mass.set(centroid).imul(m);
+      cm.iadd(centroid_times_mass);
     }
 
-    vec2.scale(cm, cm, 1 / totalArea);
+    cm.imul(1 / totalArea);
   }
 
   computeMomentOfInertia(mass: number): number {
@@ -192,8 +192,8 @@ export default class Convex extends Shape {
     for (let j = N - 1, i = 0; i < N; j = i, i++) {
       const p0 = this.vertices[j];
       const p1 = this.vertices[i];
-      const a = Math.abs(vec2.crossLength(p0, p1));
-      const b = vec2.dot(p1, p1) + vec2.dot(p1, p0) + vec2.dot(p0, p0);
+      const a = Math.abs(p0.crossLength(p1));
+      const b = p1.dot(p1) + p1.dot(p0) + p0.dot(p0);
       denom += a * b;
       numer += a;
     }
@@ -206,7 +206,7 @@ export default class Convex extends Shape {
     let r2 = 0;
 
     for (let i = 0; i !== verts.length; i++) {
-      const l2 = vec2.squaredLength(verts[i]);
+      const l2 = verts[i].squaredMagnitude;
       if (l2 > r2) {
         r2 = l2;
       }
@@ -215,7 +215,7 @@ export default class Convex extends Shape {
     this.boundingRadius = Math.sqrt(r2);
   }
 
-  static triangleArea(a: Vec2, b: Vec2, c: Vec2): number {
+  static triangleArea(a: V2d, b: V2d, c: V2d): number {
     return ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) * 0.5;
   }
 
@@ -237,26 +237,26 @@ export default class Convex extends Shape {
     }
   }
 
-  computeAABB(out: AABB, position: Vec2, angle: number): void {
+  computeAABB(out: AABB, position: V2d, angle: number): void {
     out.setFromPoints(this.vertices, position, angle, 0);
   }
 
-  raycast(result: RaycastResult, ray: Ray, position: Vec2, angle: number): void {
+  raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {
     const rayStart = intersectConvex_rayStart;
     const rayEnd = intersectConvex_rayEnd;
     const normal = intersectConvex_normal;
     const vertices = this.vertices;
 
     // Transform to local shape space
-    vec2.toLocalFrame(rayStart, ray.from, position, angle);
-    vec2.toLocalFrame(rayEnd, ray.to, position, angle);
+    rayStart.set(ray.from).itoLocalFrame(position, angle);
+    rayEnd.set(ray.to).itoLocalFrame(position, angle);
 
     const n = vertices.length;
 
     for (let i = 0; i < n && !result.shouldStop(ray); i++) {
       const q1 = vertices[i];
       const q2 = vertices[(i + 1) % n];
-      const delta = vec2.getLineSegmentsIntersectionFraction(
+      const delta = V2d.lineSegmentsIntersectionFraction(
         rayStart,
         rayEnd,
         q1,
@@ -264,9 +264,9 @@ export default class Convex extends Shape {
       );
 
       if (delta >= 0) {
-        vec2.sub(normal, q2, q1);
-        vec2.rotate(normal, normal, -Math.PI / 2 + angle);
-        vec2.normalize(normal, normal);
+        normal.set(q2).isub(q1);
+        normal.irotate(-Math.PI / 2 + angle);
+        normal.inormalize();
         ray.reportIntersection(result, delta, normal, i);
       }
     }

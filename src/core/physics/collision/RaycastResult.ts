@@ -1,6 +1,6 @@
-import vec2, { Vec2 } from "../math/vec2";
+import { V2d } from "../../Vector";
+import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
-import type Body from "../objects/Body";
 
 /**
  * Storage for Ray casting hit data.
@@ -9,7 +9,7 @@ export default class RaycastResult {
   /**
    * The normal of the hit, oriented in world space.
    */
-  normal: Vec2;
+  normal: V2d;
 
   /**
    * The hit shape, or null.
@@ -38,14 +38,14 @@ export default class RaycastResult {
   isStopped: boolean = false;
 
   constructor() {
-    this.normal = vec2.create();
+    this.normal = new V2d(0, 0);
   }
 
   /**
    * Reset all result data. Must be done before re-using the result object.
    */
   reset(): void {
-    vec2.set(this.normal, 0, 0);
+    this.normal.set(0, 0);
     this.shape = null;
     this.body = null;
     this.faceIndex = -1;
@@ -57,7 +57,7 @@ export default class RaycastResult {
    * Get the distance to the hit point.
    */
   getHitDistance(ray: Ray): number {
-    return vec2.distance(ray.from, ray.to) * this.fraction;
+    return ray.from.distanceTo(ray.to) * this.fraction;
   }
 
   /**
@@ -70,8 +70,8 @@ export default class RaycastResult {
   /**
    * Get world hit point.
    */
-  getHitPoint(out: Vec2, ray: Ray): void {
-    vec2.lerp(out, ray.from, ray.to, this.fraction);
+  getHitPoint(out: V2d, ray: Ray): void {
+    out.set(ray.from).ilerp(ray.to, this.fraction);
   }
 
   /**
@@ -92,13 +92,13 @@ export default class RaycastResult {
    * @private
    */
   set(
-    normal: Vec2,
+    normal: V2d,
     shape: Shape,
     body: Body,
     fraction: number,
     faceIndex: number
   ): void {
-    vec2.copy(this.normal, normal);
+    this.normal.set(normal);
     this.shape = shape;
     this.body = body;
     this.fraction = fraction;

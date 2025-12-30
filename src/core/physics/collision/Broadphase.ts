@@ -1,9 +1,9 @@
-import vec2 from "../math/vec2";
-import type Body from "../objects/Body";
+import { V2d } from "../../Vector";
+import type Body from "../body/Body";
 import type World from "../world/World";
 import type AABB from "./AABB";
 
-const dist = vec2.create();
+const dist = new V2d(0, 0);
 
 /**
  * Base class for broadphase implementations.
@@ -44,8 +44,8 @@ export default class Broadphase {
    * Check whether the bounding radius of two bodies overlap.
    */
   static boundingRadiusCheck(bodyA: Body, bodyB: Body): boolean {
-    vec2.sub(dist, bodyA.position, bodyB.position);
-    const d2 = vec2.squaredLength(dist);
+    dist.set(bodyA.position).isub(bodyB.position);
+    const d2 = dist.squaredMagnitude;
     const r = bodyA.boundingRadius + bodyB.boundingRadius;
     return d2 <= r * r;
   }
@@ -80,8 +80,14 @@ export default class Broadphase {
 
   /**
    * Returns all the bodies within an AABB.
+   * @param shouldAddBodies If true, adds dynamic/kinematic bodies to hash before querying (SpatialHashingBroadphase only)
    */
-  aabbQuery(_world: World, _aabb: AABB, result: Body[] = []): Body[] {
+  aabbQuery(
+    _world: World,
+    _aabb: AABB,
+    result: Body[] = [],
+    _shouldAddBodies: boolean = true
+  ): Body[] {
     return result;
   }
 

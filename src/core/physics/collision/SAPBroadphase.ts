@@ -1,8 +1,8 @@
+import type Body from "../body/Body";
 import { appendArray } from "../utils/Utils";
-import Broadphase from "./Broadphase";
-import AABB from "./AABB";
-import type Body from "../objects/Body";
 import type World from "../world/World";
+import AABB from "./AABB";
+import Broadphase from "./Broadphase";
 
 /**
  * Sweep and prune broadphase along one axis.
@@ -49,10 +49,14 @@ export default class SAPBroadphase extends Broadphase {
     appendArray(this.axisList, world.bodies);
 
     // Remove old handlers, if any
-    world.off("addBody", this._addBodyHandler).off("removeBody", this._removeBodyHandler);
+    world
+      .off("addBody", this._addBodyHandler)
+      .off("removeBody", this._removeBodyHandler);
 
     // Add handlers to update the list of bodies.
-    world.on("addBody", this._addBodyHandler).on("removeBody", this._removeBodyHandler);
+    world
+      .on("addBody", this._addBodyHandler)
+      .on("removeBody", this._removeBodyHandler);
 
     this.world = world;
   }
@@ -132,7 +136,12 @@ export default class SAPBroadphase extends Broadphase {
   /**
    * Returns all the bodies within an AABB.
    */
-  aabbQuery(world: World, aabb: AABB, result: Body[] = []): Body[] {
+  aabbQuery(
+    _world: World,
+    aabb: AABB,
+    result: Body[] = [],
+    _shouldAddBodies: boolean = true
+  ): Body[] {
     this.sortList();
 
     const axisIndex = this.axisIndex;
