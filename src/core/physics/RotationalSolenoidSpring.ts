@@ -10,7 +10,7 @@ export default class RotationalSolenoidSpring extends RotationalSpring {
     const x = bodyB.angle - bodyA.angle;
     const u = bodyB.angularVelocity - bodyA.angularVelocity;
 
-    var torque = -k * (x - l) - d * u;
+    let torque = -k * (x - l) - d * u;
 
     torque = Math.sign(torque) * Math.abs(torque) ** 0.6 * 100;
 

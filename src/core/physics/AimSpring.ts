@@ -20,7 +20,7 @@ export default class AimSpring extends RotationalSpring {
     const body = this.bodyA;
     const displacement = angleDelta(this.restAngle, body.angle);
 
-    var torque =
+    const torque =
       -this.stiffness * displacement - this.damping * body.angularVelocity;
 
     body.angularForce += torque;

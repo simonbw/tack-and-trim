@@ -1,23 +1,26 @@
-// @ts-nocheck
 import Body from "./objects/Body";
 import RaycastResult from "./collision/RaycastResult";
 import Ray from "./collision/Ray";
 import vec2 from "./math/vec2";
 
-const result = new RaycastResult();
-const ray = new Ray({
+const _result = new RaycastResult();
+const _ray = new Ray({
   from: [0, 0],
   to: [0, 0],
   mode: Ray.CLOSEST,
   skipBackfaces: true,
 });
-const end = vec2.create();
-const startToEnd = vec2.create();
-const rememberPosition = vec2.create();
-const integrate_velodt = vec2.create();
+const _end = vec2.create();
+const _startToEnd = vec2.create();
+const _rememberPosition = vec2.create();
+const _integrateVelodt = vec2.create();
 
+/**
+ * A physics body with Continuous Collision Detection (CCD) support.
+ * Uses ray-casting to detect potential collisions for high-speed objects.
+ */
 export default class CCDBody extends Body {
-  integrateToTimeOfImpact(dt: number) {
+  integrateToTimeOfImpact(dt: number): boolean {
     if (
       this.ccdSpeedThreshold < 0 ||
       vec2.squaredLength(this.velocity) < Math.pow(this.ccdSpeedThreshold, 2)
@@ -25,47 +28,47 @@ export default class CCDBody extends Body {
       return false;
     }
 
-    vec2.scale(end, this.velocity, dt);
-    vec2.add(end, end, this.position);
+    vec2.scale(_end, this.velocity, dt);
+    vec2.add(_end, _end, this.position);
 
-    vec2.sub(startToEnd, end, this.position);
-    var startToEndAngle = this.angularVelocity * dt;
-    var len = vec2.length(startToEnd);
+    vec2.sub(_startToEnd, _end, this.position);
+    const startToEndAngle = this.angularVelocity * dt;
+    const len = vec2.length(_startToEnd);
 
-    var timeOfImpact = 1;
+    let timeOfImpact = 1;
+    let hit: Body | undefined;
+    const self = this;
 
-    var hit;
-    var that = this;
-    result.reset();
-    ray.callback = function (result) {
-      if (result.body === that) {
+    _result.reset();
+    _ray.callback = function (result: RaycastResult) {
+      if (result.body === self) {
         return;
       }
-      hit = result.body;
-      result.getHitPoint(end, ray);
-      vec2.sub(startToEnd, end, that.position);
-      timeOfImpact = vec2.length(startToEnd) / len;
+      hit = result.body ?? undefined;
+      result.getHitPoint(_end, _ray);
+      vec2.sub(_startToEnd, _end, self.position);
+      timeOfImpact = vec2.length(_startToEnd) / len;
       result.stop();
     };
-    vec2.copy(ray.from, this.position);
-    vec2.copy(ray.to, end);
-    ray.collisionGroup = this.getCollisionGroup();
-    ray.collisionMask = this.getCollisionMask();
-    ray.update();
-    this.world.raycast(result, ray);
+    vec2.copy(_ray.from, this.position);
+    vec2.copy(_ray.to, _end);
+    _ray.collisionGroup = this.getCollisionGroup();
+    _ray.collisionMask = this.getCollisionMask();
+    _ray.update();
+    this.world!.raycast(_result, _ray);
 
     if (!hit) {
       return false;
     }
 
-    var rememberAngle = this.angle;
-    vec2.copy(rememberPosition, this.position);
+    const rememberAngle = this.angle;
+    vec2.copy(_rememberPosition, this.position);
 
     // Got a start and end point. Approximate time of impact using binary search
-    var iter = 0;
-    var tmin = 0;
-    var tmid = 0;
-    var tmax = timeOfImpact;
+    let iter = 0;
+    let tmin = 0;
+    let tmid = 0;
+    let tmax = timeOfImpact;
     while (tmax >= tmin && iter < this.ccdIterations) {
       iter++;
 
@@ -73,15 +76,15 @@ export default class CCDBody extends Body {
       tmid = (tmax - tmin) / 2;
 
       // Move the body to that point
-      vec2.scale(integrate_velodt, startToEnd, timeOfImpact);
-      vec2.add(this.position, rememberPosition, integrate_velodt);
+      vec2.scale(_integrateVelodt, _startToEnd, timeOfImpact);
+      vec2.add(this.position, _rememberPosition, _integrateVelodt);
       this.angle = rememberAngle + startToEndAngle * timeOfImpact;
       this.updateAABB();
 
       // check overlap
-      var overlaps =
+      const overlaps =
         this.aabb.overlaps(hit.aabb) &&
-        this.world.narrowphase.bodiesOverlap(this, hit);
+        this.world!.narrowphase.bodiesOverlap(this, hit);
 
       if (overlaps) {
         // change min to search upper interval
@@ -94,12 +97,12 @@ export default class CCDBody extends Body {
 
     timeOfImpact = tmid;
 
-    vec2.copy(this.position, rememberPosition);
+    vec2.copy(this.position, _rememberPosition);
     this.angle = rememberAngle;
 
     // move to TOI
-    vec2.scale(integrate_velodt, startToEnd, timeOfImpact);
-    vec2.add(this.position, this.position, integrate_velodt);
+    vec2.scale(_integrateVelodt, _startToEnd, timeOfImpact);
+    vec2.add(this.position, this.position, _integrateVelodt);
     if (!this.fixedRotation) {
       this.angle += startToEndAngle * timeOfImpact;
     }
@@ -107,7 +110,7 @@ export default class CCDBody extends Body {
     return true;
   }
 
-  private getCollisionMask() {
+  private getCollisionMask(): number {
     let mask = 0;
     for (const shape of this.shapes) {
       mask |= shape.collisionMask;
@@ -115,7 +118,7 @@ export default class CCDBody extends Body {
     return mask;
   }
 
-  private getCollisionGroup() {
+  private getCollisionGroup(): number {
     let group = 0;
     for (const shape of this.shapes) {
       group |= shape.collisionGroup;

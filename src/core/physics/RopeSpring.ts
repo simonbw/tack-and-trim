@@ -1,77 +1,71 @@
 import LinearSpring from "./objects/LinearSpring";
 import vec2 from "./math/vec2";
 
-var applyForce_r = vec2.create(),
-  applyForce_r_unit = vec2.create(),
-  applyForce_u = vec2.create(),
-  applyForce_f = vec2.create(),
-  applyForce_worldAnchorA = vec2.create(),
-  applyForce_worldAnchorB = vec2.create(),
-  applyForce_ri = vec2.create(),
-  applyForce_rj = vec2.create(),
-  applyForce_tmp = vec2.create();
+// Module-level temp vectors for zero-allocation physics calculations
+const _r = vec2.create();
+const _rUnit = vec2.create();
+const _u = vec2.create();
+const _f = vec2.create();
+const _worldAnchorA = vec2.create();
+const _worldAnchorB = vec2.create();
+const _ri = vec2.create();
+const _rj = vec2.create();
+const _tmp = vec2.create();
 
-/** Like a spring but only applies force when stretched not when compressed */
+/**
+ * A spring that only applies force when stretched, not when compressed.
+ * Useful for rope/cable physics where slack is allowed.
+ */
 export default class RopeSpring extends LinearSpring {
   applyForce() {
-    var k = this.stiffness,
-      d = this.damping,
-      l = this.restLength,
-      bodyA = this.bodyA,
-      bodyB = this.bodyB,
-      r = applyForce_r,
-      r_unit = applyForce_r_unit,
-      u = applyForce_u,
-      f = applyForce_f,
-      tmp = applyForce_tmp;
-
-    var worldAnchorA = applyForce_worldAnchorA,
-      worldAnchorB = applyForce_worldAnchorB,
-      ri = applyForce_ri,
-      rj = applyForce_rj;
+    const k = this.stiffness;
+    const d = this.damping;
+    const l = this.restLength;
+    const bodyA = this.bodyA;
+    const bodyB = this.bodyB;
 
     // Get world anchors
-    this.getWorldAnchorA(worldAnchorA);
-    this.getWorldAnchorB(worldAnchorB);
+    this.getWorldAnchorA(_worldAnchorA);
+    this.getWorldAnchorB(_worldAnchorB);
 
     // Get offset points
-    vec2.sub(ri, worldAnchorA, bodyA.position);
-    vec2.sub(rj, worldAnchorB, bodyB.position);
+    vec2.sub(_ri, _worldAnchorA, bodyA.position);
+    vec2.sub(_rj, _worldAnchorB, bodyB.position);
 
     // Compute distance vector between world anchor points
-    vec2.sub(r, worldAnchorB, worldAnchorA);
-    var rlen = vec2.len(r);
+    vec2.sub(_r, _worldAnchorB, _worldAnchorA);
+    const rlen = vec2.len(_r);
 
     // Only apply force if we're beyond the length
     if (rlen > l) {
-      vec2.normalize(r_unit, r);
+      vec2.normalize(_rUnit, _r);
 
       // Compute relative velocity of the anchor points, u
-      vec2.sub(u, bodyB.velocity, bodyA.velocity);
-      vec2.crossZV(tmp, bodyB.angularVelocity, rj);
-      vec2.add(u, u, tmp);
-      vec2.crossZV(tmp, bodyA.angularVelocity, ri);
-      vec2.sub(u, u, tmp);
+      vec2.sub(_u, bodyB.velocity, bodyA.velocity);
+      vec2.crossZV(_tmp, bodyB.angularVelocity, _rj);
+      vec2.add(_u, _u, _tmp);
+      vec2.crossZV(_tmp, bodyA.angularVelocity, _ri);
+      vec2.sub(_u, _u, _tmp);
 
       // F = - k * ( x - L ) - D * ( u )
-      vec2.scale(f, r_unit, -k * (rlen - l) - d * vec2.dot(u, r_unit));
+      vec2.scale(_f, _rUnit, -k * (rlen - l) - d * vec2.dot(_u, _rUnit));
 
       // Clamp force magnitude to prevent instability
       const maxForce = 200;
-      const forceMag = vec2.len(f);
+      const forceMag = vec2.len(_f);
       if (forceMag > maxForce) {
-        vec2.scale(f, f, maxForce / forceMag);
+        vec2.scale(_f, _f, maxForce / forceMag);
       }
 
       // Add forces to bodies
-      vec2.sub(bodyA.force, bodyA.force, f);
-      vec2.add(bodyB.force, bodyB.force, f);
+      vec2.sub(bodyA.force, bodyA.force, _f);
+      vec2.add(bodyB.force, bodyB.force, _f);
 
       // Angular force
-      var ri_x_f = vec2.crossLength(ri, f);
-      var rj_x_f = vec2.crossLength(rj, f);
-      bodyA.angularForce -= ri_x_f;
-      bodyB.angularForce += rj_x_f;
+      const riCrossF = vec2.crossLength(_ri, _f);
+      const rjCrossF = vec2.crossLength(_rj, _f);
+      bodyA.angularForce -= riCrossF;
+      bodyB.angularForce += rjCrossF;
     }
   }
 }
