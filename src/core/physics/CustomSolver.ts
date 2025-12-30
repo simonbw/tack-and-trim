@@ -5,7 +5,7 @@ import {
   FrictionEquation,
   GSSolver,
   World,
-} from "p2";
+} from "../p2";
 import CustomWorld from "./CustomWorld";
 
 interface EquationExtended extends Equation {

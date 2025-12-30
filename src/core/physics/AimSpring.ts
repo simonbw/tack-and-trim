@@ -1,4 +1,4 @@
-import { Body, RotationalSpring } from "p2";
+import { Body, RotationalSpring } from "../p2";
 import { angleDelta } from "../../core/util/MathUtil";
 
 /**

@@ -31,8 +31,8 @@ export function lerp(a: number, b: number, t: number = 0.5): number {
 }
 
 export function lerpV2d(
-  a: [number, number],
-  b: [number, number],
+  a: ArrayLike<number>,
+  b: ArrayLike<number>,
   t: number = 0.5
 ): V2d {
   const x = lerp(a[0], b[0], t);

@@ -1,4 +1,4 @@
-import p2, { Body, Constraint, Spring } from "p2";
+import { Body, Constraint, Spring } from "../p2";
 import { EntityDef } from "../EntityDef";
 import Game from "../Game";
 import { V, V2d } from "../Vector";
@@ -11,8 +11,8 @@ import { GameSprite, spriteFromDef } from "./GameSprite";
  * Base class for lots of stuff in the game.
  */
 export default abstract class BaseEntity implements Entity {
-  bodies?: p2.Body[];
-  body?: p2.Body;
+  bodies?: Body[];
+  body?: Body;
   children: Entity[] = [];
   constraints?: Constraint[];
   game: Game | undefined = undefined;

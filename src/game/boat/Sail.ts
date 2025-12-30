@@ -1,4 +1,4 @@
-import { Body, DistanceConstraint, Particle } from "p2";
+import { Body, DistanceConstraint, Particle } from "../../core/p2";
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";

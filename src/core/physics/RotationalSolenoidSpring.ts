@@ -1,4 +1,4 @@
-import { RotationalSpring } from "p2";
+import { RotationalSpring } from "../p2";
 
 export default class RotationalSolenoidSpring extends RotationalSpring {
   applyForce() {

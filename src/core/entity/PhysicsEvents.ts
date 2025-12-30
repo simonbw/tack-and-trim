@@ -1,4 +1,4 @@
-import { ContactEquation, Shape } from "p2";
+import { ContactEquation, Shape } from "../p2";
 import Entity from "./Entity";
 
 export type PhysicsEvents = {

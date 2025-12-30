@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Body, RaycastResult, Ray, vec2, BodyOptions } from "p2";
+import { Body, RaycastResult, Ray, vec2, BodyOptions } from "../p2";
 
 const result = new RaycastResult();
 const ray = new Ray({

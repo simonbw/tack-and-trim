@@ -1,4 +1,4 @@
-import { Box, Circle, Convex, Line, Shape } from "p2";
+import { Box, Circle, Convex, Line, Shape } from "../p2";
 import { ShapeDef } from "../EntityDef";
 import { V, V2d } from "../Vector";
 

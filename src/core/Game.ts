@@ -1,4 +1,4 @@
-import p2, { World } from "p2";
+import { World, Body } from "./p2";
 import { DEFAULT_LAYER, LAYERS } from "../config/layers";
 import ContactList, {
   ContactInfo,
@@ -43,11 +43,11 @@ export default class Game {
   }
 
   /** The top level container for physics. */
-  readonly world: p2.World;
+  readonly world: World;
   /** Keep track of currently occuring collisions */
   readonly contactList: ContactList;
   /** A static physics body positioned at [0,0] with no shapes. Useful for constraints/springs */
-  readonly ground: p2.Body;
+  readonly ground: Body;
   /** The audio context that is connected to the output */
   readonly audio: AudioContext;
   /** Volume control for all sound output by the game. */
@@ -116,11 +116,11 @@ export default class Game {
     this.ticksPerSecond = ticksPerSecond;
     this.tickDuration = 1.0 / this.ticksPerSecond;
     // this.world = new World({ gravity: [0, 0] });
-    this.world = world ?? new CustomWorld({ gravity: [0, 0] });
-    this.world.on("beginContact", this.beginContact, null);
-    this.world.on("endContact", this.endContact, null);
-    this.world.on("impact", this.impact, null);
-    this.ground = new p2.Body({ mass: 0 });
+    this.world = (world ?? new CustomWorld({ gravity: [0, 0] })) as World;
+    this.world.on("beginContact", this.beginContact as any, null);
+    this.world.on("endContact", this.endContact as any, null);
+    this.world.on("impact", this.impact as any, null);
+    this.ground = new Body({ mass: 0 });
     this.world.addBody(this.ground);
     this.contactList = new ContactList();
 
@@ -190,9 +190,9 @@ export default class Game {
     this.entitiesToRemove.clear();
 
     // Remove physics world event listeners
-    this.world.off("beginContact", this.beginContact);
-    this.world.off("endContact", this.endContact);
-    this.world.off("impact", this.impact);
+    this.world.off("beginContact", this.beginContact as any);
+    this.world.off("endContact", this.endContact as any);
+    this.world.off("impact", this.impact as any);
 
     // Clear physics world
     this.world.clear();
@@ -466,7 +466,7 @@ export default class Game {
     const MAX_VELOCITY = 500;
 
     for (const body of this.world.bodies) {
-      if (body.type === p2.Body.STATIC) continue;
+      if (body.type === Body.STATIC) continue;
 
       const [x, y] = body.position;
       const [vx, vy] = body.velocity;
@@ -480,7 +480,7 @@ export default class Game {
       const velocityBad = !isFinite(vx) || !isFinite(vy);
 
       if (positionBad || velocityBad) {
-        const owner = (body as p2.Body & { owner?: Entity }).owner;
+        const owner = (body as Body & { owner?: Entity }).owner;
         console.warn(
           "Physics instability detected, resetting body:",
           owner?.constructor?.name ?? "unknown",
@@ -499,7 +499,7 @@ export default class Game {
       // Clamp extreme velocities
       const speed = Math.sqrt(vx * vx + vy * vy);
       if (speed > MAX_VELOCITY) {
-        const owner = (body as p2.Body & { owner?: Entity }).owner;
+        const owner = (body as Body & { owner?: Entity }).owner;
         console.warn(
           "Physics velocity clamped:",
           owner?.constructor?.name ?? "unknown",
@@ -603,8 +603,8 @@ export default class Game {
   // Handle collision between things.
   // Fired after physics step.
   private impact = (e: {
-    bodyA: p2.Body & WithOwner;
-    bodyB: p2.Body & WithOwner;
+    bodyA: Body & WithOwner;
+    bodyB: Body & WithOwner;
   }) => {
     const ownerA = e.bodyA.owner;
     const ownerB = e.bodyB.owner;

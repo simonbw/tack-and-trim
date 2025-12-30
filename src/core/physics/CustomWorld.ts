@@ -2,7 +2,7 @@ import {
   World,
   Body,
   vec2,
-  OverlapKeeper,
+  Vec2,
   Narrowphase,
   Shape,
   ContactMaterial,
@@ -11,7 +11,7 @@ import {
   Ray,
   WorldOptions,
   AABB,
-} from "p2";
+} from "../p2";
 import { ContactInfo } from "../ContactList";
 import SpatialHashingBroadphase from "./SpatialHashingBroadphase";
 import CustomNarrowphase from "./CustomNarrowphase";
@@ -25,11 +25,11 @@ interface WorldPrivate extends World {
     np: Narrowphase,
     bi: Body,
     si: Shape,
-    xi: [number, number],
+    xi: Vec2,
     ai: number,
     bj: Body,
     sj: Shape,
-    xj: [number, number],
+    xj: Vec2,
     aj: number,
     cm: ContactMaterial,
     glen: number
@@ -40,15 +40,12 @@ interface WorldPrivate extends World {
 const step_mg = vec2.create();
 const endOverlaps: ContactInfo[] = [];
 
-interface PrivateOverlapKeeper extends OverlapKeeper {
-  getEndOverlaps: (infos: ContactInfo[]) => void;
-}
-
 export default class CustomWorld extends World {
   // Adding types that are missing
   broadphase!: SpatialHashingBroadphase;
   solver!: CustomSolver;
-  overlapKeeper!: PrivateOverlapKeeper;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  overlapKeeper!: any;
   disabledBodyCollisionPairs!: Body[];
 
   // Actual stuff that we're keeping track of now
