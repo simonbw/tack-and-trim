@@ -1,4 +1,4 @@
-import { CompatibleVector, V2d } from "../../Vector";
+import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
 import type AABB from "./AABB";
@@ -15,10 +15,10 @@ export interface RayOptions {
   callback?: (result: RaycastResult) => void;
 }
 
-const intersectBody_worldPosition = new V2d(0, 0);
-const hitPointWorld = new V2d(0, 0);
-const v0 = new V2d(0, 0);
-const intersect = new V2d(0, 0);
+const intersectBody_worldPosition = V();
+const hitPointWorld = V();
+const v0 = V();
+const intersect = V();
 
 function distanceFromIntersectionSquared(
   from: V2d,
@@ -60,12 +60,12 @@ export default class Ray {
 
   constructor(options: RayOptions = {}) {
     this.from = options.from
-      ? new V2d(options.from[0], options.from[1])
-      : new V2d(0, 0);
+      ? V(options.from[0], options.from[1])
+      : V();
 
     this.to = options.to
-      ? new V2d(options.to[0], options.to[1])
-      : new V2d(0, 0);
+      ? V(options.to[0], options.to[1])
+      : V();
 
     this.checkCollisionResponse = options.checkCollisionResponse ?? true;
     this.skipBackfaces = options.skipBackfaces ?? false;
@@ -74,7 +74,7 @@ export default class Ray {
     this.mode = options.mode ?? Ray.ANY;
     this.callback = options.callback ?? ((_result: RaycastResult) => {});
 
-    this.direction = new V2d(0, 0);
+    this.direction = V();
     this.length = 1;
 
     this.update();

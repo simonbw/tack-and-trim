@@ -1,4 +1,4 @@
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import Shape from "./Shape";
 import Convex, { ConvexOptions } from "./Convex";
 import type AABB from "../collision/AABB";
@@ -20,12 +20,12 @@ export default class Box extends Convex {
     const height = options.height ?? 1;
 
     const verts = [
-      new V2d(-width / 2, -height / 2),
-      new V2d(width / 2, -height / 2),
-      new V2d(width / 2, height / 2),
-      new V2d(-width / 2, height / 2),
+      V(-width / 2, -height / 2),
+      V(width / 2, -height / 2),
+      V(width / 2, height / 2),
+      V(-width / 2, height / 2),
     ];
-    const axes = [new V2d(1, 0), new V2d(0, 1)];
+    const axes = [V(1, 0), V(0, 1)];
 
     const opts = {
       ...options,

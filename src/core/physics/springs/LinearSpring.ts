@@ -1,4 +1,4 @@
-import { CompatibleVector, V2d } from "../../Vector";
+import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import Spring, { SpringOptions } from "./Spring";
 
@@ -10,15 +10,15 @@ export interface LinearSpringOptions extends SpringOptions {
   worldAnchorB?: CompatibleVector;
 }
 
-const applyForce_r = new V2d(0, 0);
-const applyForce_r_unit = new V2d(0, 0);
-const applyForce_u = new V2d(0, 0);
-const applyForce_f = new V2d(0, 0);
-const applyForce_worldAnchorA = new V2d(0, 0);
-const applyForce_worldAnchorB = new V2d(0, 0);
-const applyForce_ri = new V2d(0, 0);
-const applyForce_rj = new V2d(0, 0);
-const applyForce_tmp = new V2d(0, 0);
+const applyForce_r = V();
+const applyForce_r_unit = V();
+const applyForce_u = V();
+const applyForce_f = V();
+const applyForce_worldAnchorA = V();
+const applyForce_worldAnchorB = V();
+const applyForce_ri = V();
+const applyForce_rj = V();
+const applyForce_tmp = V();
 
 /**
  * A spring, connecting two bodies.
@@ -31,8 +31,8 @@ export default class LinearSpring extends Spring {
   constructor(bodyA: Body, bodyB: Body, options: LinearSpringOptions = {}) {
     super(bodyA, bodyB, options);
 
-    this.localAnchorA = new V2d(0, 0);
-    this.localAnchorB = new V2d(0, 0);
+    this.localAnchorA = V();
+    this.localAnchorB = V();
 
     if (options.localAnchorA) {
       this.localAnchorA.set(options.localAnchorA);
@@ -47,8 +47,8 @@ export default class LinearSpring extends Spring {
       this.setWorldAnchorB(options.worldAnchorB);
     }
 
-    const worldAnchorA = new V2d(0, 0);
-    const worldAnchorB = new V2d(0, 0);
+    const worldAnchorA = V();
+    const worldAnchorB = V();
     this.getWorldAnchorA(worldAnchorA);
     this.getWorldAnchorB(worldAnchorB);
     const worldDistance = worldAnchorA.distanceTo(worldAnchorB);
@@ -60,12 +60,12 @@ export default class LinearSpring extends Spring {
   }
 
   setWorldAnchorA(worldAnchorA: CompatibleVector): void {
-    const anchor = new V2d(worldAnchorA[0], worldAnchorA[1]);
+    const anchor = V(worldAnchorA[0], worldAnchorA[1]);
     this.bodyA.toLocalFrame(this.localAnchorA, anchor);
   }
 
   setWorldAnchorB(worldAnchorB: CompatibleVector): void {
-    const anchor = new V2d(worldAnchorB[0], worldAnchorB[1]);
+    const anchor = V(worldAnchorB[0], worldAnchorB[1]);
     this.bodyB.toLocalFrame(this.localAnchorB, anchor);
   }
 

@@ -1,4 +1,4 @@
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import Equation from "./Equation";
 
@@ -7,10 +7,10 @@ export interface RotationalLockEquationOptions {
 }
 
 // Module-level temp vectors
-const worldVectorA = new V2d(0, 0);
-const worldVectorB = new V2d(0, 0);
-const xAxis = new V2d(1, 0);
-const yAxis = new V2d(0, 1);
+const worldVectorA = V();
+const worldVectorB = V();
+const xAxis = V(1, 0);
+const yAxis = V(0, 1);
 
 /**
  * Locks the relative angle between two bodies. The constraint tries to keep

@@ -1,4 +1,4 @@
-import { V2d, CompatibleVector } from "../../Vector";
+import { V, V2d, CompatibleVector } from "../../Vector";
 import type Ray from "./Ray";
 
 export interface AABBOptions {
@@ -6,7 +6,7 @@ export interface AABBOptions {
   lowerBound?: CompatibleVector;
 }
 
-const tmp = new V2d(0, 0);
+const tmp = V();
 
 /**
  * Axis aligned bounding box class.
@@ -16,12 +16,12 @@ export default class AABB {
   upperBound: V2d;
 
   constructor(options: AABBOptions = {}) {
-    this.lowerBound = new V2d(0, 0);
+    this.lowerBound = V();
     if (options.lowerBound) {
       this.lowerBound.set(options.lowerBound);
     }
 
-    this.upperBound = new V2d(0, 0);
+    this.upperBound = V();
     if (options.upperBound) {
       this.upperBound.set(options.upperBound);
     }

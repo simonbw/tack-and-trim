@@ -1,4 +1,4 @@
-import { CompatibleVector, V2d } from "../../Vector";
+import { CompatibleVector, V, V2d } from "../../Vector";
 import Body from "../body/Body";
 import AABB from "../collision/AABB";
 import Broadphase from "../collision/Broadphase";
@@ -33,13 +33,13 @@ export interface WorldOptions {
 }
 
 // Module-level temp vectors
-const step_mg = new V2d(0, 0);
-const xiw = new V2d(0, 0);
-const xjw = new V2d(0, 0);
+const step_mg = V();
+const xiw = V();
+const xjw = V();
 const endOverlaps: OverlapKeeperRecord[] = [];
 
-const hitTest_tmp1 = new V2d(0, 0);
-const hitTest_tmp2 = new V2d(0, 0);
+const hitTest_tmp1 = V();
+const hitTest_tmp2 = V();
 const tmpAABB = new AABB();
 const tmpArray: Body[] = [];
 
@@ -163,7 +163,7 @@ export default class World extends EventEmitter {
     this.narrowphase = new Narrowphase(this);
     this.islandManager = new IslandManager();
 
-    this.gravity = new V2d(0, -9.78);
+    this.gravity = V(0, -9.78);
     if (options.gravity) {
       this.gravity.set(options.gravity);
     }

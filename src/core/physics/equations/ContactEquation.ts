@@ -1,12 +1,12 @@
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
 import Equation from "./Equation";
 
 // Module-level temp vectors
-const vi = new V2d(0, 0);
-const vj = new V2d(0, 0);
-const relVel = new V2d(0, 0);
+const vi = V();
+const vj = V();
+const relVel = V();
 
 /**
  * Non-penetration constraint equation. Tries to make the contactPointA and
@@ -53,10 +53,10 @@ export default class ContactEquation extends Equation {
   constructor(bodyA: Body, bodyB: Body) {
     super(bodyA, bodyB, 0, Number.MAX_VALUE);
 
-    this.contactPointA = new V2d(0, 0);
-    this.penetrationVec = new V2d(0, 0);
-    this.contactPointB = new V2d(0, 0);
-    this.normalA = new V2d(0, 0);
+    this.contactPointA = V();
+    this.penetrationVec = V();
+    this.contactPointB = V();
+    this.normalA = V();
   }
 
   computeB(a: number, b: number, h: number): number {

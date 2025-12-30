@@ -1,4 +1,4 @@
-import { CompatibleVector, V2d } from "../../Vector";
+import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import Equation from "../equations/Equation";
 import Constraint, { ConstraintOptions } from "./Constraint";
@@ -10,11 +10,11 @@ export interface LockConstraintOptions extends ConstraintOptions {
 }
 
 // Module-level temp vectors
-const l = new V2d(0, 0);
-const r = new V2d(0, 0);
-const t = new V2d(0, 0);
-const xAxis = new V2d(1, 0);
-const yAxis = new V2d(0, 1);
+const l = V();
+const r = V();
+const t = V();
+const xAxis = V(1, 0);
+const yAxis = V(0, 1);
 
 /**
  * Locks the relative position and rotation between two bodies.
@@ -43,8 +43,8 @@ export default class LockConstraint extends Constraint {
     const y = new Equation(bodyA, bodyB, -maxForce, maxForce);
     const rot = new Equation(bodyA, bodyB, -maxForce, maxForce);
 
-    const lLocal = new V2d(0, 0);
-    const gLocal = new V2d(0, 0);
+    const lLocal = V();
+    const gLocal = V();
     const that = this;
 
     x.computeGq = function () {
@@ -59,8 +59,8 @@ export default class LockConstraint extends Constraint {
       return gLocal[1];
     };
 
-    const rLocal = new V2d(0, 0);
-    const tLocal = new V2d(0, 0);
+    const rLocal = V();
+    const tLocal = V();
     rot.computeGq = function () {
       rLocal
         .set(that.localOffsetB)
@@ -74,7 +74,7 @@ export default class LockConstraint extends Constraint {
       return gLocal.dot(tLocal);
     };
 
-    this.localOffsetB = new V2d(0, 0);
+    this.localOffsetB = V();
     if (options.localOffsetB) {
       this.localOffsetB.set(options.localOffsetB);
     } else {

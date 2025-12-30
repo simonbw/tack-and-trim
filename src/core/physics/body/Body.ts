@@ -1,4 +1,4 @@
-import { V2d, CompatibleVector } from "../../Vector";
+import { V, V2d, CompatibleVector } from "../../Vector";
 import RaycastResult from "../collision/RaycastResult";
 import Ray from "../collision/Ray";
 import AABB from "../collision/AABB";
@@ -33,27 +33,27 @@ export interface BodyOptions {
 
 // Module-level temp vectors for performance
 const shapeAABB = new AABB();
-const tmp = new V2d(0, 0);
-const Body_applyForce_r = new V2d(0, 0);
-const Body_applyForce_forceWorld = new V2d(0, 0);
-const Body_applyForce_pointWorld = new V2d(0, 0);
-const Body_applyForce_pointLocal = new V2d(0, 0);
-const Body_applyImpulse_velo = new V2d(0, 0);
-const Body_applyImpulse_impulseWorld = new V2d(0, 0);
-const Body_applyImpulse_pointWorld = new V2d(0, 0);
-const Body_applyImpulse_pointLocal = new V2d(0, 0);
-const adjustCenterOfMass_tmp1 = new V2d(0, 0);
-const adjustCenterOfMass_tmp2 = new V2d(0, 0);
-const adjustCenterOfMass_tmp3 = new V2d(0, 0);
-const adjustCenterOfMass_tmp4 = new V2d(0, 0);
-const integrate_fhMinv = new V2d(0, 0);
-const integrate_velodt = new V2d(0, 0);
+const tmp = V();
+const Body_applyForce_r = V();
+const Body_applyForce_forceWorld = V();
+const Body_applyForce_pointWorld = V();
+const Body_applyForce_pointLocal = V();
+const Body_applyImpulse_velo = V();
+const Body_applyImpulse_impulseWorld = V();
+const Body_applyImpulse_pointWorld = V();
+const Body_applyImpulse_pointLocal = V();
+const adjustCenterOfMass_tmp1 = V();
+const adjustCenterOfMass_tmp2 = V();
+const adjustCenterOfMass_tmp3 = V();
+const adjustCenterOfMass_tmp4 = V();
+const integrate_fhMinv = V();
+const integrate_velodt = V();
 const result = new RaycastResult();
 const ray = new Ray({ mode: Ray.ALL });
-const direction = new V2d(0, 0);
-const end = new V2d(0, 0);
-const startToEnd = new V2d(0, 0);
-const rememberPosition = new V2d(0, 0);
+const direction = V();
+const end = V();
+const startToEnd = V();
+const rememberPosition = V();
 
 /**
  * A rigid body. Has got a center of mass, position, velocity and a number of
@@ -130,26 +130,26 @@ export default class Body extends EventEmitter {
     this.fixedRotation = !!options.fixedRotation;
     this.fixedX = !!options.fixedX;
     this.fixedY = !!options.fixedY;
-    this.massMultiplier = new V2d(0, 0);
+    this.massMultiplier = V();
 
-    this.position = new V2d(0, 0);
+    this.position = V();
     if (options.position) {
       this.position.set(options.position);
     }
 
-    this.interpolatedPosition = new V2d(0, 0);
-    this.previousPosition = new V2d(0, 0);
+    this.interpolatedPosition = V();
+    this.previousPosition = V();
 
-    this.velocity = new V2d(0, 0);
+    this.velocity = V();
     if (options.velocity) {
       this.velocity.set(options.velocity);
     }
 
-    this.vlambda = new V2d(0, 0);
+    this.vlambda = V();
     this.angle = options.angle || 0;
     this.angularVelocity = options.angularVelocity || 0;
 
-    this.force = new V2d(0, 0);
+    this.force = V();
     if (options.force) {
       this.force.set(options.force);
     }

@@ -1,4 +1,4 @@
-import { CompatibleVector, V2d } from "../../Vector";
+import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import Equation from "../equations/Equation";
 import RotationalLockEquation from "../equations/RotationalLockEquation";
@@ -13,11 +13,11 @@ export interface RevoluteConstraintOptions extends ConstraintOptions {
 }
 
 // Module-level temp vectors
-const worldPivotA = new V2d(0, 0);
-const worldPivotB = new V2d(0, 0);
-const xAxis = new V2d(1, 0);
-const yAxis = new V2d(0, 1);
-const g = new V2d(0, 0);
+const worldPivotA = V();
+const worldPivotB = V();
+const xAxis = V(1, 0);
+const yAxis = V(0, 1);
+const g = V();
 
 /**
  * Connects two bodies at given offset points, letting them rotate relative
@@ -76,8 +76,8 @@ export default class RevoluteConstraint extends Constraint {
         : Number.MAX_VALUE;
     this.maxForce = maxForce;
 
-    this.pivotA = new V2d(0, 0);
-    this.pivotB = new V2d(0, 0);
+    this.pivotA = V();
+    this.pivotB = V();
 
     if (options.worldPivot) {
       // Compute pivotA and pivotB

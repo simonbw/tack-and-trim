@@ -1,4 +1,4 @@
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
 
@@ -38,7 +38,7 @@ export default class RaycastResult {
   isStopped: boolean = false;
 
   constructor() {
-    this.normal = new V2d(0, 0);
+    this.normal = V();
   }
 
   /**

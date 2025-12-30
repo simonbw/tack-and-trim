@@ -1,4 +1,4 @@
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
 import type ContactEquation from "./ContactEquation";
@@ -48,9 +48,9 @@ export default class FrictionEquation extends Equation {
   constructor(bodyA: Body, bodyB: Body, slipForce: number = 0) {
     super(bodyA, bodyB, -slipForce, slipForce);
 
-    this.contactPointA = new V2d(0, 0);
-    this.contactPointB = new V2d(0, 0);
-    this.t = new V2d(0, 0);
+    this.contactPointA = V();
+    this.contactPointB = V();
+    this.t = V();
   }
 
   /**

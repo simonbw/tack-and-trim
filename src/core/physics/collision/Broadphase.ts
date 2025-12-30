@@ -1,9 +1,9 @@
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import type World from "../world/World";
 import type AABB from "./AABB";
 
-const dist = new V2d(0, 0);
+const dist = V();
 
 /**
  * Base class for broadphase implementations.

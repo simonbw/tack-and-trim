@@ -1,5 +1,5 @@
 import Shape, { ShapeOptions } from "./Shape";
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import type AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
@@ -9,12 +9,12 @@ export interface CapsuleOptions extends ShapeOptions {
   radius?: number;
 }
 
-const r = new V2d(0, 0);
-const intersectCapsule_hitPointWorld = new V2d(0, 0);
-const intersectCapsule_normal = new V2d(0, 0);
-const intersectCapsule_l0 = new V2d(0, 0);
-const intersectCapsule_l1 = new V2d(0, 0);
-const intersectCapsule_unit_y = new V2d(0, 1);
+const r = V();
+const intersectCapsule_hitPointWorld = V();
+const intersectCapsule_normal = V();
+const intersectCapsule_l0 = V();
+const intersectCapsule_l1 = V();
+const intersectCapsule_unit_y = V(0, 1);
 
 /**
  * Capsule shape class.

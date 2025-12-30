@@ -1,5 +1,5 @@
 import Shape, { ShapeOptions } from "./Shape";
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import type AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
@@ -8,8 +8,8 @@ export interface CircleOptions extends ShapeOptions {
   radius?: number;
 }
 
-const Ray_intersectSphere_intersectionPoint = new V2d(0, 0);
-const Ray_intersectSphere_normal = new V2d(0, 0);
+const Ray_intersectSphere_intersectionPoint = V();
+const Ray_intersectSphere_normal = V();
 
 /**
  * Circle shape class.

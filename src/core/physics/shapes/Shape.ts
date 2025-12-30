@@ -1,4 +1,4 @@
-import { CompatibleVector, V2d } from "../../Vector";
+import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import type AABB from "../collision/AABB";
 import type Ray from "../collision/Ray";
@@ -92,7 +92,7 @@ export default class Shape {
   sensor: boolean;
 
   constructor(options: ShapeOptions = {}) {
-    this.position = new V2d(0, 0);
+    this.position = V();
     if (options.position) {
       this.position.set(options.position);
     }

@@ -1,5 +1,5 @@
 import Shape, { ShapeOptions } from "./Shape";
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import type AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
@@ -8,11 +8,11 @@ export interface LineOptions extends ShapeOptions {
   length?: number;
 }
 
-const points = [new V2d(0, 0), new V2d(0, 0)];
-const raycast_normal = new V2d(0, 0);
-const raycast_l0 = new V2d(0, 0);
-const raycast_l1 = new V2d(0, 0);
-const raycast_unit_y = new V2d(0, 1);
+const points = [V(), V()];
+const raycast_normal = V();
+const raycast_l0 = V();
+const raycast_l1 = V();
+const raycast_unit_y = V(0, 1);
 
 /**
  * Line shape class. The line shape is along the x direction, and stretches from [-length/2, 0] to [length/2,0].

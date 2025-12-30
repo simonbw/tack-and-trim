@@ -1,4 +1,4 @@
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import Ray from "../collision/Ray";
 import RaycastResult from "../collision/RaycastResult";
 import Body from "./Body";
@@ -10,10 +10,10 @@ const _ray = new Ray({
   mode: Ray.CLOSEST,
   skipBackfaces: true,
 });
-const _end = new V2d(0, 0);
-const _startToEnd = new V2d(0, 0);
-const _rememberPosition = new V2d(0, 0);
-const _integrateVelodt = new V2d(0, 0);
+const _end = V();
+const _startToEnd = V();
+const _rememberPosition = V();
+const _integrateVelodt = V();
 
 /**
  * A physics body with Continuous Collision Detection (CCD) support.

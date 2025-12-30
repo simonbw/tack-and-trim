@@ -1,16 +1,16 @@
 import LinearSpring from "./LinearSpring";
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 
 // Module-level temp vectors for zero-allocation physics calculations
-const _r = new V2d(0, 0);
-const _rUnit = new V2d(0, 0);
-const _u = new V2d(0, 0);
-const _f = new V2d(0, 0);
-const _worldAnchorA = new V2d(0, 0);
-const _worldAnchorB = new V2d(0, 0);
-const _ri = new V2d(0, 0);
-const _rj = new V2d(0, 0);
-const _tmp = new V2d(0, 0);
+const _r = V();
+const _rUnit = V();
+const _u = V();
+const _f = V();
+const _worldAnchorA = V();
+const _worldAnchorB = V();
+const _ri = V();
+const _rj = V();
+const _tmp = V();
 
 /**
  * A spring that only applies force when stretched, not when compressed.

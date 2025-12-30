@@ -1,5 +1,5 @@
 import Shape, { ShapeOptions } from "./Shape";
-import { V2d, CompatibleVector } from "../../Vector";
+import { V, V2d, CompatibleVector } from "../../Vector";
 import * as polyk from "../math/polyk";
 import type AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
@@ -10,15 +10,15 @@ export interface ConvexOptions extends ShapeOptions {
   axes?: CompatibleVector[];
 }
 
-const tmpVec1 = new V2d(0, 0);
-const tmpVec2 = new V2d(0, 0);
+const tmpVec1 = V();
+const tmpVec2 = V();
 
-const updateCenterOfMass_centroid = new V2d(0, 0);
-const updateCenterOfMass_centroid_times_mass = new V2d(0, 0);
+const updateCenterOfMass_centroid = V();
+const updateCenterOfMass_centroid_times_mass = V();
 
-const intersectConvex_rayStart = new V2d(0, 0);
-const intersectConvex_rayEnd = new V2d(0, 0);
-const intersectConvex_normal = new V2d(0, 0);
+const intersectConvex_rayStart = V();
+const intersectConvex_rayEnd = V();
+const intersectConvex_normal = V();
 
 /**
  * Convex shape class.
@@ -38,7 +38,7 @@ export default class Convex extends Shape {
     // Copy the verts
     const vertices = options.vertices ?? [];
     for (let i = 0; i < vertices.length; i++) {
-      const v = new V2d(0, 0);
+      const v = V();
       v.set(vertices[i]);
       this.vertices.push(v);
     }
@@ -48,7 +48,7 @@ export default class Convex extends Shape {
     if (options.axes) {
       // Copy the axes
       for (let i = 0; i < options.axes.length; i++) {
-        const axis = new V2d(0, 0);
+        const axis = V();
         axis.set(options.axes[i]);
         this.axes.push(axis);
       }
@@ -58,7 +58,7 @@ export default class Convex extends Shape {
         const worldPoint0 = this.vertices[i];
         const worldPoint1 = this.vertices[(i + 1) % this.vertices.length];
 
-        const normal = new V2d(0, 0);
+        const normal = V();
         normal.set(worldPoint1).isub(worldPoint0);
 
         // Get normal - just rotate 90 degrees since vertices are given in CCW
@@ -69,7 +69,7 @@ export default class Convex extends Shape {
       }
     }
 
-    this.centerOfMass = new V2d(0, 0);
+    this.centerOfMass = V();
     this.triangles = [];
 
     if (this.vertices.length) {

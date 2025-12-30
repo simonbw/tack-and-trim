@@ -1,4 +1,4 @@
-import { V2d } from "../../Vector";
+import { V, V2d } from "../../Vector";
 import Body from "../body/Body";
 import ContactEquation from "../equations/ContactEquation";
 import Equation from "../equations/Equation";
@@ -10,8 +10,8 @@ import TupleDictionary from "../utils/TupleDictionary";
 import type World from "../world/World";
 
 // Module-level temp vectors
-const bodiesOverlap_shapePositionA = new V2d(0, 0);
-const bodiesOverlap_shapePositionB = new V2d(0, 0);
+const bodiesOverlap_shapePositionA = V();
+const bodiesOverlap_shapePositionB = V();
 
 /**
  * Narrowphase. Creates contacts and friction given shapes and transforms.

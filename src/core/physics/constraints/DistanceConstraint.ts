@@ -1,4 +1,4 @@
-import { CompatibleVector, V2d } from "../../Vector";
+import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import Equation from "../equations/Equation";
 import { defaults } from "../utils/Utils";
@@ -12,9 +12,9 @@ export interface DistanceConstraintOptions extends ConstraintOptions {
 }
 
 // Module-level temp vectors
-const n = new V2d(0, 0);
-const ri = new V2d(0, 0);
-const rj = new V2d(0, 0);
+const n = V();
+const ri = V();
+const rj = V();
 
 /**
  * Constraint that tries to keep the distance between two bodies constant.
@@ -78,8 +78,8 @@ export default class DistanceConstraint extends Constraint {
 
     super(bodyA, bodyB, Constraint.DISTANCE, options);
 
-    this.localAnchorA = new V2d(opts.localAnchorA[0], opts.localAnchorA[1]);
-    this.localAnchorB = new V2d(opts.localAnchorB[0], opts.localAnchorB[1]);
+    this.localAnchorA = V(opts.localAnchorA[0], opts.localAnchorA[1]);
+    this.localAnchorB = V(opts.localAnchorB[0], opts.localAnchorB[1]);
 
     const localAnchorA = this.localAnchorA;
     const localAnchorB = this.localAnchorB;
@@ -90,9 +90,9 @@ export default class DistanceConstraint extends Constraint {
       this.distance = options.distance;
     } else {
       // Use the current world distance between the world anchor points.
-      const worldAnchorA = new V2d(0, 0);
-      const worldAnchorB = new V2d(0, 0);
-      const r = new V2d(0, 0);
+      const worldAnchorA = V();
+      const worldAnchorB = V();
+      const r = V();
 
       // Transform local anchors to world
       worldAnchorA.set(localAnchorA).irotate(bodyA.angle);
@@ -117,9 +117,9 @@ export default class DistanceConstraint extends Constraint {
     const normal = new Equation(bodyA, bodyB, -maxForce, maxForce);
 
     // Custom computeGq for this constraint
-    const riLocal = new V2d(0, 0);
-    const rjLocal = new V2d(0, 0);
-    const rLocal = new V2d(0, 0);
+    const riLocal = V();
+    const rjLocal = V();
+    const rLocal = V();
     normal.computeGq = function () {
       const bodyA = this.bodyA;
       const bodyB = this.bodyB;
