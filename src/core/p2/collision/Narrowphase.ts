@@ -198,23 +198,6 @@ export default class Narrowphase {
   }
 
   /**
-   * Particle/Plane collision
-   */
-  particlePlane(
-    _bodyA: Body,
-    _shapeA: Shape,
-    _posA: Vec2,
-    _angleA: number,
-    _bodyB: Body,
-    _shapeB: Shape,
-    _posB: Vec2,
-    _angleB: number,
-    _justTest?: boolean
-  ): number {
-    return 0;
-  }
-
-  /**
    * Particle/Capsule collision
    */
   particleCapsule(

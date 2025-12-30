@@ -1,36 +1,15 @@
-/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-  * Redistributions of source code must retain the above copyright notice, this
-    list of conditions and the following disclaimer.
-  * Redistributions in binary form must reproduce the above copyright notice,
-    this list of conditions and the following disclaimer in the documentation
-    and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
-
 /**
- * The vec2 object from glMatrix, with some extensions and some removed methods.
- * See http://glmatrix.net.
+ * 2D vector math utilities for p2 physics engine.
+ * Provides a functional API compatible with the original p2.js vec2 module,
+ * but uses V2d internally for compatibility with the game engine.
  */
 
-import { ARRAY_TYPE } from "../utils/Utils";
+import { V2d, CompatibleVector } from "../../Vector";
 
 /**
- * A 2D vector represented as a 2-element array
+ * A 2D vector represented as a 2-element array or V2d
  */
-export type Vec2 = [number, number] | Float32Array;
+export type Vec2 = CompatibleVector;
 
 /**
  * Make a cross product and only return the z component
@@ -43,8 +22,11 @@ function crossLength(a: Vec2, b: Vec2): number {
  * Cross product between a vector and the Z component of a vector
  */
 function crossVZ(out: Vec2, vec: Vec2, zcomp: number): Vec2 {
-  rotate(out, vec, -Math.PI / 2); // Rotate according to the right hand rule
-  scale(out, out, zcomp); // Scale with z
+  // Rotate 90 degrees CW and scale by zcomp
+  const x = vec[0];
+  const y = vec[1];
+  out[0] = y * zcomp;
+  out[1] = -x * zcomp;
   return out;
 }
 
@@ -52,8 +34,11 @@ function crossVZ(out: Vec2, vec: Vec2, zcomp: number): Vec2 {
  * Cross product between a vector and the Z component of a vector
  */
 function crossZV(out: Vec2, zcomp: number, vec: Vec2): Vec2 {
-  rotate(out, vec, Math.PI / 2); // Rotate according to the right hand rule
-  scale(out, out, zcomp); // Scale with z
+  // Rotate 90 degrees CCW and scale by zcomp
+  const x = vec[0];
+  const y = vec[1];
+  out[0] = -y * zcomp;
+  out[1] = x * zcomp;
   return out;
 }
 
@@ -62,10 +47,10 @@ function crossZV(out: Vec2, zcomp: number, vec: Vec2): Vec2 {
  */
 function rotate(out: Vec2, a: Vec2, angle: number): void {
   if (angle !== 0) {
-    const c = Math.cos(angle),
-      s = Math.sin(angle),
-      x = a[0],
-      y = a[1];
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const x = a[0];
+    const y = a[1];
     out[0] = c * x - s * y;
     out[1] = s * x + c * y;
   } else {
@@ -138,40 +123,30 @@ function vectorToGlobalFrame(
  * Compute centroid of a triangle spanned by vectors a,b,c.
  */
 function centroid(out: Vec2, a: Vec2, b: Vec2, c: Vec2): Vec2 {
-  add(out, a, b);
-  add(out, out, c);
-  scale(out, out, 1 / 3);
+  out[0] = (a[0] + b[0] + c[0]) / 3;
+  out[1] = (a[1] + b[1] + c[1]) / 3;
   return out;
 }
 
 /**
- * Creates a new, empty vec2
+ * Creates a new, empty vec2 as a V2d instance
  */
-function create(): Vec2 {
-  const out = new ARRAY_TYPE(2) as Vec2;
-  out[0] = 0;
-  out[1] = 0;
-  return out;
+function create(): V2d {
+  return new V2d(0, 0);
 }
 
 /**
  * Creates a new vec2 initialized with values from an existing vector
  */
-function clone(a: Vec2): Vec2 {
-  const out = new ARRAY_TYPE(2) as Vec2;
-  out[0] = a[0];
-  out[1] = a[1];
-  return out;
+function clone(a: Vec2): V2d {
+  return new V2d(a[0], a[1]);
 }
 
 /**
  * Creates a new vec2 initialized with the given values
  */
-function fromValues(x: number, y: number): Vec2 {
-  const out = new ARRAY_TYPE(2) as Vec2;
-  out[0] = x;
-  out[1] = y;
-  return out;
+function fromValues(x: number, y: number): V2d {
+  return new V2d(x, y);
 }
 
 /**
@@ -256,8 +231,8 @@ function scale(out: Vec2, a: Vec2, b: number): Vec2 {
  * Calculates the euclidian distance between two vec2's
  */
 function distance(a: Vec2, b: Vec2): number {
-  const x = b[0] - a[0],
-    y = b[1] - a[1];
+  const x = b[0] - a[0];
+  const y = b[1] - a[1];
   return Math.sqrt(x * x + y * y);
 }
 
@@ -270,8 +245,8 @@ const dist = distance;
  * Calculates the squared euclidian distance between two vec2's
  */
 function squaredDistance(a: Vec2, b: Vec2): number {
-  const x = b[0] - a[0],
-    y = b[1] - a[1];
+  const x = b[0] - a[0];
+  const y = b[1] - a[1];
   return x * x + y * y;
 }
 
@@ -284,8 +259,8 @@ const sqrDist = squaredDistance;
  * Calculates the length of a vec2
  */
 function length(a: Vec2): number {
-  const x = a[0],
-    y = a[1];
+  const x = a[0];
+  const y = a[1];
   return Math.sqrt(x * x + y * y);
 }
 
@@ -298,8 +273,8 @@ const len = length;
  * Calculates the squared length of a vec2
  */
 function squaredLength(a: Vec2): number {
-  const x = a[0],
-    y = a[1];
+  const x = a[0];
+  const y = a[1];
   return x * x + y * y;
 }
 
@@ -321,8 +296,8 @@ function negate(out: Vec2, a: Vec2): Vec2 {
  * Normalize a vec2
  */
 function normalize(out: Vec2, a: Vec2): Vec2 {
-  const x = a[0],
-    y = a[1];
+  const x = a[0];
+  const y = a[1];
   let len = x * x + y * y;
   if (len > 0) {
     len = 1 / Math.sqrt(len);
@@ -350,8 +325,8 @@ function str(a: Vec2): string {
  * Linearly interpolate/mix two vectors.
  */
 function lerp(out: Vec2, a: Vec2, b: Vec2, t: number): Vec2 {
-  const ax = a[0],
-    ay = a[1];
+  const ax = a[0];
+  const ay = a[1];
   out[0] = ax + t * (b[0] - ax);
   out[1] = ay + t * (b[1] - ay);
   return out;
@@ -402,17 +377,17 @@ function getLineSegmentsIntersectionFraction(
   const s2_x = p3[0] - p2[0];
   const s2_y = p3[1] - p2[1];
 
+  const denom = -s2_x * s1_y + s1_x * s2_y;
+  if (denom === 0) return -1; // Parallel lines
+
   const s =
-    (-s1_y * (p0[0] - p2[0]) + s1_x * (p0[1] - p2[1])) /
-    (-s2_x * s1_y + s1_x * s2_y);
+    (-s1_y * (p0[0] - p2[0]) + s1_x * (p0[1] - p2[1])) / denom;
   const t =
-    (s2_x * (p0[1] - p2[1]) - s2_y * (p0[0] - p2[0])) /
-    (-s2_x * s1_y + s1_x * s2_y);
+    (s2_x * (p0[1] - p2[1]) - s2_y * (p0[0] - p2[0])) / denom;
   if (s >= 0 && s <= 1 && t >= 0 && t <= 1) {
-    // Collision detected
     return t;
   }
-  return -1; // No collision
+  return -1;
 }
 
 const vec2 = {

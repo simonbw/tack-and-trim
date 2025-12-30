@@ -5,6 +5,10 @@ export { default as vec2 } from "./math/vec2";
 export type { Vec2 } from "./math/vec2";
 export * as polyk from "./math/polyk";
 
+// Re-export V2d for convenience
+export { V2d, V } from "../Vector";
+export type { CompatibleVector } from "../Vector";
+
 // Events
 export { default as EventEmitter } from "./events/EventEmitter";
 export type { P2Event } from "./events/EventEmitter";
@@ -25,7 +29,6 @@ export { default as IslandPool } from "./utils/IslandPool";
 // Collision
 export { default as AABB } from "./collision/AABB";
 export { default as Broadphase } from "./collision/Broadphase";
-export { default as NaiveBroadphase } from "./collision/NaiveBroadphase";
 export { default as SAPBroadphase } from "./collision/SAPBroadphase";
 export { default as Narrowphase } from "./collision/Narrowphase";
 export { default as Ray } from "./collision/Ray";
@@ -43,11 +46,9 @@ export type { ShapeOptions } from "./shapes/Shape";
 export { default as Circle } from "./shapes/Circle";
 export { default as Particle } from "./shapes/Particle";
 export { default as Line } from "./shapes/Line";
-export { default as Plane } from "./shapes/Plane";
 export { default as Capsule } from "./shapes/Capsule";
 export { default as Convex } from "./shapes/Convex";
 export { default as Box } from "./shapes/Box";
-export { default as Heightfield } from "./shapes/Heightfield";
 
 // Equations
 export { default as Equation } from "./equations/Equation";
@@ -61,10 +62,8 @@ export { default as RotationalVelocityEquation } from "./equations/RotationalVel
 export { default as Constraint } from "./constraints/Constraint";
 export type { ConstraintOptions } from "./constraints/Constraint";
 export { default as DistanceConstraint } from "./constraints/DistanceConstraint";
-export { default as GearConstraint } from "./constraints/GearConstraint";
 export { default as RevoluteConstraint } from "./constraints/RevoluteConstraint";
 export { default as LockConstraint } from "./constraints/LockConstraint";
-export { default as PrismaticConstraint } from "./constraints/PrismaticConstraint";
 
 // Solver
 export { default as Solver } from "./solver/Solver";
@@ -78,7 +77,6 @@ export { default as LinearSpring } from "./objects/LinearSpring";
 export type { LinearSpringOptions } from "./objects/LinearSpring";
 export { default as RotationalSpring } from "./objects/RotationalSpring";
 export type { RotationalSpringOptions } from "./objects/RotationalSpring";
-export { default as TopDownVehicle, WheelConstraint } from "./objects/TopDownVehicle";
 
 // World
 export { default as World } from "./world/World";

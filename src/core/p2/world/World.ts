@@ -4,7 +4,6 @@ import Ray from "../collision/Ray";
 import vec2, { Vec2 } from "../math/vec2";
 import Circle from "../shapes/Circle";
 import Convex from "../shapes/Convex";
-import Plane from "../shapes/Plane";
 import Capsule from "../shapes/Capsule";
 import Particle from "../shapes/Particle";
 import EventEmitter from "../events/EventEmitter";
@@ -876,8 +875,6 @@ export default class World extends EventEmitter {
             n.circleParticle(b, s, x, a, pb, ps, px, pa, true)) ||
           (s instanceof Convex &&
             n.particleConvex(pb, ps, px, pa, b, s, x, a, true)) ||
-          (s instanceof Plane &&
-            n.particlePlane(pb, ps, px, pa, b, s, x, a, true)) ||
           (s instanceof Capsule &&
             n.particleCapsule(pb, ps, px, pa, b, s, x, a, true)) ||
           (s instanceof Particle &&

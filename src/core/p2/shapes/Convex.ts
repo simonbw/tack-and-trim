@@ -118,7 +118,7 @@ export default class Convex extends Shape {
     shapeAngle: number,
     result: Vec2
   ): void {
-    let worldAxis = tmpVec2;
+    const worldAxis = tmpVec2;
 
     this.projectOntoLocalAxis(localAxis, result);
 
@@ -126,7 +126,7 @@ export default class Convex extends Shape {
     if (shapeAngle !== 0) {
       vec2.rotate(worldAxis, localAxis, shapeAngle);
     } else {
-      worldAxis = localAxis;
+      vec2.copy(worldAxis, localAxis);
     }
     const offset = vec2.dot(shapeOffset, worldAxis);
 
