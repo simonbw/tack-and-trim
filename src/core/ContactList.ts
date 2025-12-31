@@ -1,15 +1,17 @@
-import p2 from "p2";
+import Body from "./physics/body/Body";
+import Shape from "./physics/shapes/Shape";
+import ContactEquation from "./physics/equations/ContactEquation";
 import { WithOwner } from "./entity/WithOwner";
 
 export interface ContactInfo {
-  bodyA: p2.Body & WithOwner;
-  bodyB: p2.Body & WithOwner;
-  shapeA: p2.Shape & WithOwner;
-  shapeB: p2.Shape & WithOwner;
+  bodyA: Body & WithOwner;
+  bodyB: Body & WithOwner;
+  shapeA: Shape & WithOwner;
+  shapeB: Shape & WithOwner;
 }
 
 export interface ContactInfoWithEquations extends ContactInfo {
-  contactEquations: p2.ContactEquation[];
+  contactEquations: ContactEquation[];
 }
 
 /**

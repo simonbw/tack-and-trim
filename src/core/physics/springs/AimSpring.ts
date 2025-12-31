@@ -1,5 +1,6 @@
-import { Body, RotationalSpring } from "p2";
-import { angleDelta } from "../../core/util/MathUtil";
+import { angleDelta } from "../../util/MathUtil";
+import Body from "../body/Body";
+import RotationalSpring from "./RotationalSpring";
 
 /**
  * A rotational spring that applies corrective torque to maintain a target angle.
@@ -15,13 +16,14 @@ export default class AimSpring extends RotationalSpring {
     });
   }
 
-  applyForce() {
+  applyForce(): this {
     const body = this.bodyA;
     const displacement = angleDelta(this.restAngle, body.angle);
 
-    var torque =
+    const torque =
       -this.stiffness * displacement - this.damping * body.angularVelocity;
 
     body.angularForce += torque;
+    return this;
   }
 }

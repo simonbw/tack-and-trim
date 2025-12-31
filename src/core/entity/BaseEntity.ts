@@ -1,9 +1,11 @@
-import p2, { Body, Constraint, Spring } from "p2";
 import { EntityDef } from "../EntityDef";
 import Game from "../Game";
 import { V, V2d } from "../Vector";
+import Body from "../physics/body/Body";
+import Constraint from "../physics/constraints/Constraint";
+import Spring from "../physics/springs/Spring";
+import { shapeFromDef } from "../physics/utils/ShapeUtils";
 import { clamp } from "../util/MathUtil";
-import { shapeFromDef } from "../util/PhysicsUtils";
 import Entity, { GameEventMap } from "./Entity";
 import { GameSprite, spriteFromDef } from "./GameSprite";
 
@@ -11,8 +13,8 @@ import { GameSprite, spriteFromDef } from "./GameSprite";
  * Base class for lots of stuff in the game.
  */
 export default abstract class BaseEntity implements Entity {
-  bodies?: p2.Body[];
-  body?: p2.Body;
+  bodies?: Body[];
+  body?: Body;
   children: Entity[] = [];
   constraints?: Constraint[];
   game: Game | undefined = undefined;
@@ -56,20 +58,22 @@ export default abstract class BaseEntity implements Entity {
   }
 
   /** Convert local coordinates to world coordinates. Requires a body */
-  localToWorld(localPoint: [number, number]): V2d {
+  localToWorld(localPoint: V2d | [number, number]): V2d {
     if (this.body) {
-      const result: V2d = V(0, 0);
-      this.body.toWorldFrame(result, localPoint);
-      return result;
+      const local = Array.isArray(localPoint)
+        ? V(localPoint[0], localPoint[1])
+        : localPoint;
+      return this.body.toWorldFrame(local);
     }
     return V(0, 0);
   }
 
-  worldToLocal(worldPoint: [number, number]): V2d {
+  worldToLocal(worldPoint: V2d | [number, number]): V2d {
     if (this.body) {
-      const result: V2d = V(0, 0);
-      this.body.toLocalFrame(result, worldPoint);
-      return result;
+      const world = Array.isArray(worldPoint)
+        ? V(worldPoint[0], worldPoint[1])
+        : worldPoint;
+      return this.body.toLocalFrame(world);
     }
     return V(0, 0);
   }

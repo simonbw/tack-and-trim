@@ -1,9 +1,10 @@
-import { Body, Convex } from "p2";
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
-import { polygonArea } from "../../core/util/PhysicsUtils";
+import Body from "../../core/physics/body/Body";
+import Convex from "../../core/physics/shapes/Convex";
+import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { V, V2d } from "../../core/Vector";
 import { applySkinFriction } from "../fluid-dynamics";
 

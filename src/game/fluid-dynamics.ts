@@ -1,4 +1,5 @@
-import p2, { Convex } from "p2";
+import Body from "../core/physics/body/Body";
+import Convex from "../core/physics/shapes/Convex";
 import { V, V2d } from "../core/Vector";
 
 const MAX_RELATIVE_SPEED = 50;
@@ -26,7 +27,7 @@ type ForceMagnitudeParams = Parameters<ForceMagnitudeFn>[0];
  * Apply fluid forces to all edges of a body's convex shapes.
  */
 export function applyFluidForcesToBody(
-  body: p2.Body,
+  body: Body,
   getLiftMagnitude: ForceMagnitudeFn,
   getDragMagnitude: ForceMagnitudeFn,
   getFluidVelocity: FluidVelocityFn = () => V(0, 0)
@@ -54,17 +55,15 @@ export function applyFluidForcesToBody(
  * The edge is defined by two points in body-local coordinates.
  */
 export function applyFluidForces(
-  body: p2.Body,
+  body: Body,
   v1: V2d,
   v2: V2d,
   getLiftMagnitude: ForceMagnitudeFn,
   getDragMagnitude: ForceMagnitudeFn,
   getFluidVelocity: FluidVelocityFn = () => V(0, 0)
 ) {
-  const v1World = V(0, 0);
-  const v2World = V(0, 0);
-  body.toWorldFrame(v1World, v1);
-  body.toWorldFrame(v2World, v2);
+  const v1World = body.toWorldFrame(v1);
+  const v2World = body.toWorldFrame(v2);
 
   const edge = v2World.sub(v1World);
   const edgeLength = edge.magnitude;
@@ -98,7 +97,7 @@ export function applyFluidForces(
 }
 
 function applyFluidForcesAtPoint(
-  body: p2.Body,
+  body: Body,
   point: V2d,
   edge: V2d,
   edgeNormal: V2d,
@@ -252,7 +251,7 @@ export function foilDrag(scale: number): ForceMagnitudeFn {
  * Unlike form drag, it always opposes motion regardless of hull orientation.
  */
 export function applySkinFriction(
-  body: p2.Body,
+  body: Body,
   wettedArea: number,
   frictionCoefficient: number,
   getFluidVelocity: FluidVelocityFn = () => V(0, 0)
@@ -272,5 +271,5 @@ export function applySkinFriction(
   const force = relativeVelocity.normalize().mul(-forceMagnitude);
 
   // Apply at center of mass (no torque)
-  body.applyForce(force, [0, 0]);
+  body.applyForce(force, V());
 }

@@ -1,6 +1,10 @@
-import { Box, Circle, Convex, Line, Shape } from "p2";
-import { ShapeDef } from "../EntityDef";
-import { V, V2d } from "../Vector";
+import Box from "../shapes/Box";
+import Circle from "../shapes/Circle";
+import Convex from "../shapes/Convex";
+import Line from "../shapes/Line";
+import Shape from "../shapes/Shape";
+import { ShapeDef } from "../../EntityDef";
+import { V, V2d } from "../../Vector";
 
 /**
  * Creates a p2.js Line physics shape from two points.
@@ -29,13 +33,12 @@ function baseShapeFromDef(shapeDef: ShapeDef): Shape {
     case "line": {
       return lineFromPoints(V(shapeDef.start), V(shapeDef.end));
     }
-    case "circle": {
+    case "circle":
       return new Circle({
         radius: shapeDef.radius,
         position: V(shapeDef.center),
         angle: 0,
       });
-    }
     case "box": {
       return new Box({
         width: shapeDef.size[0],
@@ -49,7 +52,11 @@ function baseShapeFromDef(shapeDef: ShapeDef): Shape {
     }
   }
 }
-// Calculate polygon area using shoelace formula
+
+/**
+ * Calculate polygon area.
+ * Uses shoelace formula
+ */
 export function polygonArea(vertices: V2d[]): number {
   let area = 0;
   for (let i = 0; i < vertices.length; i++) {

@@ -1,5 +1,7 @@
-import { Body, RotationalSpring, RotationalSpringOptions } from "p2";
-import { clamp } from "../util/MathUtil";
+import { clamp } from "../../util/MathUtil";
+import Body from "../body/Body";
+import type { RotationalSpringOptions } from "./RotationalSpring";
+import RotationalSpring from "./RotationalSpring";
 
 interface DampedRotationalSpringOptions extends RotationalSpringOptions {
   maxTorque?: number;
@@ -18,7 +20,7 @@ export default class DampedRotationalSpring extends RotationalSpring {
     this.maxTorque = maxTorque ?? Infinity;
   }
 
-  applyForce() {
+  applyForce(): this {
     const k = this.stiffness;
     const d = this.damping;
     const l = this.restAngle;
@@ -32,5 +34,6 @@ export default class DampedRotationalSpring extends RotationalSpring {
 
     bodyA.angularForce -= torque;
     bodyB.angularForce += torque;
+    return this;
   }
 }

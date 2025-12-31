@@ -1,5 +1,11 @@
-import { AABB, Body, Broadphase, Ray, SAPBroadphase, Shape, World } from "p2";
-import { mod } from "../util/MathUtil";
+import { mod } from "../../util/MathUtil";
+import Body from "../body/Body";
+import Shape from "../shapes/Shape";
+import World from "../world/World";
+import AABB from "./AABB";
+import Broadphase from "./Broadphase";
+import Ray from "./Ray";
+import SAPBroadphase from "./SAPBroadphase";
 
 const CUSTOM_BROADPHASE_TYPE = 3;
 const HUGE_LIMIT = 200;
@@ -42,10 +48,9 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
   setWorld(world: World) {
     super.setWorld.call(this, world);
 
-    world.on("addBody", ({ body }: { body: Body }) => this.onAddBody(body));
-    world.on("removeBody", ({ body }: { body: Body }) =>
-      this.onRemoveBody(body)
-    );
+    world.on("addBody", ((e: { body: Body }) => this.onAddBody(e.body)) as any);
+    world.on("removeBody", ((e: { body: Body }) =>
+      this.onRemoveBody(e.body)) as any);
   }
 
   resize(cellSize: number, width: number, height: number) {
