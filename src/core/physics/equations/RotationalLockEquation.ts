@@ -6,12 +6,6 @@ export interface RotationalLockEquationOptions {
   angle?: number;
 }
 
-// Module-level temp vectors
-const worldVectorA = V();
-const worldVectorB = V();
-const xAxis = V(1, 0);
-const yAxis = V(0, 1);
-
 /**
  * Locks the relative angle between two bodies. The constraint tries to keep
  * the dot product between two vectors, local in each body, to zero.
@@ -34,8 +28,8 @@ export default class RotationalLockEquation extends Equation {
   }
 
   computeGq(): number {
-    worldVectorA.set(xAxis).irotate(this.bodyA.angle + this.angle);
-    worldVectorB.set(yAxis).irotate(this.bodyB.angle);
+    const worldVectorA = V(1, 0).irotate(this.bodyA.angle + this.angle);
+    const worldVectorB = V(0, 1).irotate(this.bodyB.angle);
     return worldVectorA.dot(worldVectorB);
   }
 }

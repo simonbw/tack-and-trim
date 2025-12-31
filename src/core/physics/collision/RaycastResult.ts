@@ -70,8 +70,8 @@ export default class RaycastResult {
   /**
    * Get world hit point.
    */
-  getHitPoint(out: V2d, ray: Ray): void {
-    out.set(ray.from).ilerp(ray.to, this.fraction);
+  getHitPoint(ray: Ray): V2d {
+    return V(ray.from).ilerp(ray.to, this.fraction);
   }
 
   /**

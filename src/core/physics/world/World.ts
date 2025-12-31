@@ -9,6 +9,7 @@ import Constraint from "../constraints/Constraint";
 import type ContactEquation from "../equations/ContactEquation";
 import type FrictionEquation from "../equations/FrictionEquation";
 import EventEmitter from "../events/EventEmitter";
+import { PhysicsEventMap } from "../events/PhysicsEvents";
 import ContactMaterial from "../material/ContactMaterial";
 import Material from "../material/Material";
 import Capsule from "../shapes/Capsule";
@@ -22,7 +23,7 @@ import SpatialHashingBroadphase from "../SpatialHashingBroadphase";
 import type Spring from "../springs/Spring";
 import OverlapKeeper from "../utils/OverlapKeeper";
 import type OverlapKeeperRecord from "../utils/OverlapKeeperRecord";
-import Utils from "../utils/Utils";
+import { appendArray, splice } from "../utils/Utils";
 import IslandManager from "./IslandManager";
 
 export interface WorldOptions {
@@ -46,7 +47,7 @@ const tmpArray: Body[] = [];
 /**
  * The dynamics world, where all bodies and constraints live.
  */
-export default class World extends EventEmitter {
+export default class World extends EventEmitter<PhysicsEventMap> {
   static readonly NO_SLEEPING = 1;
   static readonly BODY_SLEEPING = 2;
   static readonly ISLAND_SLEEPING = 4;
@@ -83,77 +84,6 @@ export default class World extends EventEmitter {
   _bodyIdCounter: number = 0;
   sleepMode: number;
   overlapKeeper: OverlapKeeper;
-
-  // Event objects for reuse
-  postStepEvent = { type: "postStep" };
-  addBodyEvent: { type: string; body: Body | null } = {
-    type: "addBody",
-    body: null,
-  };
-  removeBodyEvent: { type: string; body: Body | null } = {
-    type: "removeBody",
-    body: null,
-  };
-  addSpringEvent: { type: string; spring: Spring | null } = {
-    type: "addSpring",
-    spring: null,
-  };
-  impactEvent: {
-    type: string;
-    bodyA: Body | null;
-    bodyB: Body | null;
-    shapeA: Shape | null;
-    shapeB: Shape | null;
-    contactEquation: ContactEquation | null;
-  } = {
-    type: "impact",
-    bodyA: null,
-    bodyB: null,
-    shapeA: null,
-    shapeB: null,
-    contactEquation: null,
-  };
-  postBroadphaseEvent: { type: string; pairs: Body[] | null } = {
-    type: "postBroadphase",
-    pairs: null,
-  };
-  beginContactEvent: {
-    type: string;
-    shapeA: Shape | null;
-    shapeB: Shape | null;
-    bodyA: Body | null;
-    bodyB: Body | null;
-    contactEquations: ContactEquation[];
-  } = {
-    type: "beginContact",
-    shapeA: null,
-    shapeB: null,
-    bodyA: null,
-    bodyB: null,
-    contactEquations: [],
-  };
-  endContactEvent: {
-    type: string;
-    shapeA: Shape | null;
-    shapeB: Shape | null;
-    bodyA: Body | null;
-    bodyB: Body | null;
-  } = {
-    type: "endContact",
-    shapeA: null,
-    shapeB: null,
-    bodyA: null,
-    bodyB: null,
-  };
-  preSolveEvent: {
-    type: string;
-    contactEquations: ContactEquation[] | null;
-    frictionEquations: FrictionEquation[] | null;
-  } = {
-    type: "preSolve",
-    contactEquations: null,
-    frictionEquations: null,
-  };
 
   constructor(options: WorldOptions = {}) {
     super();
@@ -212,7 +142,7 @@ export default class World extends EventEmitter {
   removeContactMaterial(cm: ContactMaterial): void {
     const idx = this.contactMaterials.indexOf(cm);
     if (idx !== -1) {
-      Utils.splice(this.contactMaterials, idx, 1);
+      splice(this.contactMaterials, idx, 1);
     }
   }
 
@@ -243,7 +173,7 @@ export default class World extends EventEmitter {
   removeConstraint(constraint: Constraint): void {
     const idx = this.constraints.indexOf(constraint);
     if (idx !== -1) {
-      Utils.splice(this.constraints, idx, 1);
+      splice(this.constraints, idx, 1);
     }
   }
 
@@ -370,9 +300,7 @@ export default class World extends EventEmitter {
     }
 
     // postBroadphase event
-    this.postBroadphaseEvent.pairs = result;
-    this.emit(this.postBroadphaseEvent);
-    this.postBroadphaseEvent.pairs = null;
+    this.emit({ type: "postBroadphase", pairs: result });
 
     // Narrowphase
     np.reset();
@@ -429,24 +357,28 @@ export default class World extends EventEmitter {
     // Emit end overlap events
     if (this.has("endContact")) {
       this.overlapKeeper.getEndOverlaps(endOverlaps);
-      const e = this.endContactEvent;
       let l = endOverlaps.length;
       while (l--) {
         const data = endOverlaps[l];
-        e.shapeA = data.shapeA;
-        e.shapeB = data.shapeB;
-        e.bodyA = data.bodyA;
-        e.bodyB = data.bodyB;
-        this.emit(e);
+        // These should never be null in practice, but OverlapKeeperRecord allows null
+        if (data.shapeA && data.shapeB && data.bodyA && data.bodyB) {
+          this.emit({
+            type: "endContact",
+            shapeA: data.shapeA,
+            shapeB: data.shapeB,
+            bodyA: data.bodyA,
+            bodyB: data.bodyB,
+          });
+        }
       }
       endOverlaps.length = 0;
     }
 
-    const preSolveEvent = this.preSolveEvent;
-    preSolveEvent.contactEquations = np.contactEquations;
-    preSolveEvent.frictionEquations = np.frictionEquations;
-    this.emit(preSolveEvent);
-    preSolveEvent.contactEquations = preSolveEvent.frictionEquations = null;
+    this.emit({
+      type: "preSolve",
+      contactEquations: np.contactEquations,
+      frictionEquations: np.frictionEquations,
+    });
 
     // update constraint equations
     for (let i = 0; i !== Nconstraints; i++) {
@@ -461,10 +393,10 @@ export default class World extends EventEmitter {
       if (this.islandSplit) {
         // Split into islands
         islandManager.equations.length = 0;
-        Utils.appendArray(islandManager.equations, np.contactEquations);
-        Utils.appendArray(islandManager.equations, np.frictionEquations);
+        appendArray(islandManager.equations, np.contactEquations);
+        appendArray(islandManager.equations, np.frictionEquations);
         for (let i = 0; i !== Nconstraints; i++) {
-          Utils.appendArray(islandManager.equations, constraints[i].equations);
+          appendArray(islandManager.equations, constraints[i].equations);
         }
         islandManager.split(this);
 
@@ -505,16 +437,17 @@ export default class World extends EventEmitter {
 
     // Emit impact event
     if (this.emitImpactEvent && this.has("impact")) {
-      const ev = this.impactEvent;
       for (let i = 0; i !== np.contactEquations.length; i++) {
         const eq = np.contactEquations[i];
-        if (eq.firstImpact) {
-          ev.bodyA = eq.bodyA;
-          ev.bodyB = eq.bodyB;
-          ev.shapeA = eq.shapeA;
-          ev.shapeB = eq.shapeB;
-          ev.contactEquation = eq;
-          this.emit(ev);
+        if (eq.firstImpact && eq.shapeA && eq.shapeB) {
+          this.emit({
+            type: "impact",
+            bodyA: eq.bodyA,
+            bodyB: eq.bodyB,
+            shapeA: eq.shapeA,
+            shapeB: eq.shapeB,
+            contactEquation: eq,
+          });
         }
       }
     }
@@ -548,7 +481,7 @@ export default class World extends EventEmitter {
     }
     bodiesToBeRemoved.length = 0;
 
-    this.emit(this.postStepEvent);
+    this.emit({ type: "postStep" });
   }
 
   /**
@@ -679,14 +612,7 @@ export default class World extends EventEmitter {
           this.overlapKeeper.isNewOverlap(si, sj)
         ) {
           // Report new shape overlap
-          const e = this.beginContactEvent;
-          e.shapeA = si;
-          e.shapeB = sj;
-          e.bodyA = bi;
-          e.bodyB = bj;
-
-          // Reset contact equations
-          e.contactEquations.length = 0;
+          const contactEquations: ContactEquation[] = [];
 
           if (typeof numContacts === "number") {
             for (
@@ -694,11 +620,18 @@ export default class World extends EventEmitter {
               i < np.contactEquations.length;
               i++
             ) {
-              e.contactEquations.push(np.contactEquations[i]);
+              contactEquations.push(np.contactEquations[i]);
             }
           }
 
-          this.emit(e);
+          this.emit({
+            type: "beginContact",
+            shapeA: si,
+            shapeB: sj,
+            bodyA: bi,
+            bodyB: bj,
+            contactEquations,
+          });
         }
 
         // divide the max friction force by the number of contacts
@@ -721,10 +654,7 @@ export default class World extends EventEmitter {
    */
   addSpring(spring: Spring): void {
     this.springs.push(spring);
-    const evt = this.addSpringEvent;
-    evt.spring = spring;
-    this.emit(evt);
-    evt.spring = null;
+    this.emit({ type: "addSpring", spring });
   }
 
   /**
@@ -733,7 +663,7 @@ export default class World extends EventEmitter {
   removeSpring(spring: Spring): void {
     const idx = this.springs.indexOf(spring);
     if (idx !== -1) {
-      Utils.splice(this.springs, idx, 1);
+      splice(this.springs, idx, 1);
     }
   }
 
@@ -751,10 +681,7 @@ export default class World extends EventEmitter {
         this.kinematicBodies.add(body);
       }
 
-      const evt = this.addBodyEvent;
-      evt.body = body;
-      this.emit(evt);
-      evt.body = null;
+      this.emit({ type: "addBody", body });
     }
   }
 
@@ -768,15 +695,13 @@ export default class World extends EventEmitter {
       body.world = null;
       const idx = this.bodies.indexOf(body);
       if (idx !== -1) {
-        Utils.splice(this.bodies, idx, 1);
+        splice(this.bodies, idx, 1);
 
         this.dynamicBodies.delete(body);
         this.kinematicBodies.delete(body);
 
-        this.removeBodyEvent.body = body;
         body.resetConstraintVelocity();
-        this.emit(this.removeBodyEvent);
-        this.removeBodyEvent.body = null;
+        this.emit({ type: "removeBody", body });
       }
     }
   }

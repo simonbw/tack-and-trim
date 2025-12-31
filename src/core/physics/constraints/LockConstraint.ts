@@ -9,13 +9,6 @@ export interface LockConstraintOptions extends ConstraintOptions {
   maxForce?: number;
 }
 
-// Module-level temp vectors
-const l = V();
-const r = V();
-const t = V();
-const xAxis = V(1, 0);
-const yAxis = V(0, 1);
-
 /**
  * Locks the relative position and rotation between two bodies.
  */
@@ -115,21 +108,24 @@ export default class LockConstraint extends Constraint {
     return this.equations[0].maxForce;
   }
 
-  update(): void {
+  update(): this {
     const x = this.equations[0];
     const y = this.equations[1];
     const rot = this.equations[2];
     const bodyA = this.bodyA;
     const bodyB = this.bodyB;
 
-    l.set(this.localOffsetB).irotate(bodyA.angle);
-    r.set(this.localOffsetB)
-      .irotate(bodyB.angle - this.localAngleB)
-      .imul(-1);
+    const l = this.localOffsetB.rotate(bodyA.angle);
+    const r = this.localOffsetB
+      .rotate(bodyB.angle - this.localAngleB)
+      .mul(-1);
 
-    t.set(r)
-      .irotate(Math.PI / 2)
-      .inormalize();
+    const t = r
+      .rotate(Math.PI / 2)
+      .normalize();
+
+    const xAxis = V(1, 0);
+    const yAxis = V(0, 1);
 
     x.G[0] = -1;
     x.G[1] = 0;
@@ -146,5 +142,6 @@ export default class LockConstraint extends Constraint {
     rot.G[3] = t[0];
     rot.G[4] = t[1];
     rot.G[5] = r.crossLength(t);
+    return this;
   }
 }

@@ -17,7 +17,7 @@ const _tmp = V();
  * Useful for rope/cable physics where slack is allowed.
  */
 export default class RopeSpring extends LinearSpring {
-  applyForce() {
+  applyForce(): this {
     const k = this.stiffness;
     const d = this.damping;
     const l = this.restLength;
@@ -25,8 +25,8 @@ export default class RopeSpring extends LinearSpring {
     const bodyB = this.bodyB;
 
     // Get world anchors
-    this.getWorldAnchorA(_worldAnchorA);
-    this.getWorldAnchorB(_worldAnchorB);
+    _worldAnchorA.set(this.getWorldAnchorA());
+    _worldAnchorB.set(this.getWorldAnchorB());
 
     // Get offset points
     _ri.set(_worldAnchorA).isub(bodyA.position);
@@ -67,5 +67,6 @@ export default class RopeSpring extends LinearSpring {
       bodyA.angularForce -= riCrossF;
       bodyB.angularForce += rjCrossF;
     }
+    return this;
   }
 }

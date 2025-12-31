@@ -1,6 +1,6 @@
 import Shape, { ShapeOptions } from "./Shape";
 import { V, V2d } from "../../Vector";
-import type AABB from "../collision/AABB";
+import AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
 
@@ -36,11 +36,13 @@ export default class Line extends Shape {
     this.boundingRadius = this.length / 2;
   }
 
-  computeAABB(out: AABB, position: V2d, angle: number): void {
+  computeAABB(position: V2d, angle: number): AABB {
     const l2 = this.length / 2;
     points[0].set(-l2, 0);
     points[1].set(l2, 0);
+    const out = new AABB();
     out.setFromPoints(points, position, angle, 0);
+    return out;
   }
 
   raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {

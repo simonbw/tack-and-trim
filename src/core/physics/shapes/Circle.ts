@@ -1,6 +1,6 @@
 import Shape, { ShapeOptions } from "./Shape";
 import { V, V2d } from "../../Vector";
-import type AABB from "../collision/AABB";
+import AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
 
@@ -38,14 +38,16 @@ export default class Circle extends Shape {
     this.area = Math.PI * this.radius * this.radius;
   }
 
-  computeAABB(out: AABB, position: V2d, _angle: number): void {
+  computeAABB(position: V2d, _angle: number): AABB {
     const r = this.radius;
+    const out = new AABB();
     out.upperBound.set(r, r);
     out.lowerBound.set(-r, -r);
     if (position) {
       out.lowerBound.iadd(position);
       out.upperBound.iadd(position);
     }
+    return out;
   }
 
   raycast(result: RaycastResult, ray: Ray, position: V2d, _angle: number): void {

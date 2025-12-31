@@ -1,5 +1,4 @@
 import type Body from "../body/Body";
-import { defaults } from "../utils/Utils";
 
 export interface SpringOptions {
   stiffness?: number;
@@ -16,13 +15,8 @@ export default class Spring {
   bodyB: Body;
 
   constructor(bodyA: Body, bodyB: Body, options: SpringOptions = {}) {
-    const opts = defaults(options, {
-      stiffness: 100,
-      damping: 1,
-    });
-
-    this.stiffness = opts.stiffness;
-    this.damping = opts.damping;
+    this.stiffness = options?.stiffness ?? 100;
+    this.damping = options?.damping ?? 1;
     this.bodyA = bodyA;
     this.bodyB = bodyB;
   }
@@ -30,7 +24,8 @@ export default class Spring {
   /**
    * Apply the spring force to the connected bodies.
    */
-  applyForce(): void {
+  applyForce(): this {
     // To be implemented by subclasses
+    return this;
   }
 }

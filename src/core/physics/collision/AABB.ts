@@ -6,8 +6,6 @@ export interface AABBOptions {
   lowerBound?: CompatibleVector;
 }
 
-const tmp = V();
-
 /**
  * Axis aligned bounding box class.
  */
@@ -35,7 +33,7 @@ export default class AABB {
     position?: CompatibleVector,
     angle: number = 0,
     skinSize: number = 0
-  ): void {
+  ): this {
     const l = this.lowerBound;
     const u = this.upperBound;
 
@@ -57,9 +55,8 @@ export default class AABB {
       if (angle !== 0) {
         const x = p[0];
         const y = p[1];
-        tmp[0] = cosAngle * x - sinAngle * y;
-        tmp[1] = sinAngle * x + cosAngle * y;
-        p = tmp;
+        const rotated = V(cosAngle * x - sinAngle * y, sinAngle * x + cosAngle * y);
+        p = rotated;
       }
 
       for (let j = 0; j < 2; j++) {
@@ -84,22 +81,23 @@ export default class AABB {
       this.upperBound[0] += skinSize;
       this.upperBound[1] += skinSize;
     }
+    return this;
   }
 
   /**
    * Copy bounds from an AABB to this AABB
    */
-  copy(aabb: AABB): void {
+  copy(aabb: AABB): this {
     this.lowerBound.set(aabb.lowerBound);
     this.upperBound.set(aabb.upperBound);
+    return this;
   }
 
   /**
    * Extend this AABB so that it covers the given AABB too.
    */
-  extend(aabb: AABB): void {
-    let i = 2;
-    while (i--) {
+  extend(aabb: AABB): this {
+    for (let i = 1; i >= 0; i--) {
       // Extend lower bound
       const l = aabb.lowerBound[i];
       if (this.lowerBound[i] > l) {
@@ -112,6 +110,7 @@ export default class AABB {
         this.upperBound[i] = u;
       }
     }
+    return this;
   }
 
   /**

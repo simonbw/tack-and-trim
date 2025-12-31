@@ -64,7 +64,7 @@ export default class Equation {
     this.enabled = true;
   }
 
-  update(): void {
+  update(): this {
     const k = this.stiffness;
     const d = this.relaxation;
     const h = this.timeStep;
@@ -73,6 +73,7 @@ export default class Equation {
     this.b = (4.0 * d) / (1 + 4 * d);
     this.epsilon = 4.0 / (h * h * k * (1 + 4 * d));
     this.needsUpdate = false;
+    return this;
   }
 
   gmult(
@@ -174,7 +175,7 @@ export default class Equation {
     );
   }
 
-  addToWlambda(deltalambda: number): void {
+  addToWlambda(deltalambda: number): this {
     const bi = this.bodyA;
     const bj = this.bodyB;
     const invMassi = bi.invMassSolve;
@@ -191,6 +192,7 @@ export default class Equation {
     bj.vlambda[0] += invMassj * G[3] * deltalambda;
     bj.vlambda[1] += invMassj * G[4] * deltalambda;
     bj.wlambda += invIj * G[5] * deltalambda;
+    return this;
   }
 
   computeInvC(eps: number): number {

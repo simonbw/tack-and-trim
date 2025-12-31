@@ -9,10 +9,6 @@ import FrictionEquationPool from "../utils/FrictionEquationPool";
 import TupleDictionary from "../utils/TupleDictionary";
 import type World from "../world/World";
 
-// Module-level temp vectors
-const bodiesOverlap_shapePositionA = V();
-const bodiesOverlap_shapePositionB = V();
-
 /**
  * Narrowphase. Creates contacts and friction given shapes and transforms.
  */
@@ -56,18 +52,15 @@ export default class Narrowphase {
    * Check if bodies overlap.
    */
   bodiesOverlap(bodyA: Body, bodyB: Body): boolean {
-    const shapePositionA = bodiesOverlap_shapePositionA;
-    const shapePositionB = bodiesOverlap_shapePositionB;
-
     // Loop over all shapes of bodyA
     for (let k = 0, Nshapesi = bodyA.shapes.length; k !== Nshapesi; k++) {
       const shapeA = bodyA.shapes[k];
-      bodyA.toWorldFrame(shapePositionA, shapeA.position);
+      const shapePositionA = bodyA.toWorldFrame(shapeA.position);
 
       // All shapes of bodyB
       for (let l = 0, Nshapesj = bodyB.shapes.length; l !== Nshapesj; l++) {
         const shapeB = bodyB.shapes[l];
-        bodyB.toWorldFrame(shapePositionB, shapeB.position);
+        const shapePositionB = bodyB.toWorldFrame(shapeB.position);
 
         // Get the collision test function for these shape types
         const collisionFn = this[shapeA.type | shapeB.type];
@@ -98,13 +91,13 @@ export default class Narrowphase {
    */
   reset(): void {
     // Release contact equations back to pool
-    while (this.contactEquations.length) {
+    while (this.contactEquations.length > 0) {
       const eq = this.contactEquations.pop()!;
       this.contactEquationPool.release(eq);
     }
 
     // Release friction equations back to pool
-    while (this.frictionEquations.length) {
+    while (this.frictionEquations.length > 0) {
       const eq = this.frictionEquations.pop()!;
       this.frictionEquationPool.release(eq);
     }

@@ -3,6 +3,7 @@ import RaycastResult from "../collision/RaycastResult";
 import Ray from "../collision/Ray";
 import AABB from "../collision/AABB";
 import EventEmitter from "../events/EventEmitter";
+import { PhysicsEventMap } from "../events/PhysicsEvents";
 import type Shape from "../shapes/Shape";
 import type World from "../world/World";
 
@@ -31,35 +32,15 @@ export interface BodyOptions {
   type?: number;
 }
 
-// Module-level temp vectors for performance
-const shapeAABB = new AABB();
-const tmp = V();
-const Body_applyForce_r = V();
-const Body_applyForce_forceWorld = V();
-const Body_applyForce_pointWorld = V();
-const Body_applyForce_pointLocal = V();
-const Body_applyImpulse_velo = V();
-const Body_applyImpulse_impulseWorld = V();
-const Body_applyImpulse_pointWorld = V();
-const Body_applyImpulse_pointLocal = V();
-const adjustCenterOfMass_tmp1 = V();
-const adjustCenterOfMass_tmp2 = V();
-const adjustCenterOfMass_tmp3 = V();
-const adjustCenterOfMass_tmp4 = V();
-const integrate_fhMinv = V();
-const integrate_velodt = V();
+// Module-level temp objects for CCD raycast (used infrequently, safe to keep)
 const result = new RaycastResult();
 const ray = new Ray({ mode: Ray.ALL });
-const direction = V();
-const end = V();
-const startToEnd = V();
-const rememberPosition = V();
 
 /**
  * A rigid body. Has got a center of mass, position, velocity and a number of
  * shapes that are used for collisions.
  */
-export default class Body extends EventEmitter {
+export default class Body extends EventEmitter<PhysicsEventMap> {
   static _idCounter = 0;
 
   // Body type constants
@@ -71,11 +52,6 @@ export default class Body extends EventEmitter {
   static readonly AWAKE = 0;
   static readonly SLEEPY = 1;
   static readonly SLEEPING = 2;
-
-  // Events
-  static sleepyEvent = { type: "sleepy" };
-  static sleepEvent = { type: "sleep" };
-  static wakeUpEvent = { type: "wakeup" };
 
   id: number;
   world: World | null = null;
@@ -205,10 +181,11 @@ export default class Body extends EventEmitter {
   /**
    * Set the total density of the body
    */
-  setDensity(density: number): void {
+  setDensity(density: number): this {
     const totalArea = this.getArea();
     this.mass = totalArea * density;
     this.updateMassProperties();
+    return this;
   }
 
   /**
@@ -235,38 +212,39 @@ export default class Body extends EventEmitter {
   /**
    * Updates the AABB of the Body, and set .aabbNeedsUpdate = false.
    */
-  updateAABB(): void {
+  updateAABB(): this {
     const shapes = this.shapes;
     const N = shapes.length;
-    const offset = tmp;
     const bodyAngle = this.angle;
 
     for (let i = 0; i !== N; i++) {
       const shape = shapes[i];
       const angle = shape.angle + bodyAngle;
 
-      // Get shape world offset
-      offset.set(shape.position).irotate(bodyAngle);
+      // Get shape world offset (allocate locally)
+      const offset = V(shape.position);
+      offset.irotate(bodyAngle);
       offset.iadd(this.position);
 
       // Get shape AABB
-      shape.computeAABB(shapeAABB, offset, angle);
+      const aabb = shape.computeAABB(offset, angle);
 
       if (i === 0) {
-        this.aabb.copy(shapeAABB);
+        this.aabb.copy(aabb);
       } else {
-        this.aabb.extend(shapeAABB);
+        this.aabb.extend(aabb);
       }
     }
 
     this.aabbNeedsUpdate = false;
+    return this;
   }
 
   /**
    * Update the bounding radius of the body (this.boundingRadius).
    * Should be done if any of the shape dimensions or positions are changed.
    */
-  updateBoundingRadius(): void {
+  updateBoundingRadius(): this {
     const shapes = this.shapes;
     const N = shapes.length;
     let radius = 0;
@@ -281,6 +259,7 @@ export default class Body extends EventEmitter {
     }
 
     this.boundingRadius = radius;
+    return this;
   }
 
   /**
@@ -288,7 +267,7 @@ export default class Body extends EventEmitter {
    * so that the shape gets an offset and angle relative to the body center of mass.
    * Will automatically update the mass properties and bounding radius.
    */
-  addShape(shape: Shape, offset?: CompatibleVector, angle?: number): void {
+  addShape(shape: Shape, offset?: CompatibleVector, angle?: number): this {
     if (shape.body) {
       throw new Error("A shape can only be added to one body.");
     }
@@ -308,6 +287,7 @@ export default class Body extends EventEmitter {
     this.updateBoundingRadius();
 
     this.aabbNeedsUpdate = true;
+    return this;
   }
 
   /**
@@ -330,7 +310,7 @@ export default class Body extends EventEmitter {
    * Updates .inertia, .invMass, .invInertia for this Body. Should be called when
    * changing the structure or mass of the Body.
    */
-  updateMassProperties(): void {
+  updateMassProperties(): this {
     if (this.type === Body.STATIC || this.type === Body.KINEMATIC) {
       this.mass = Number.MAX_VALUE;
       this.invMass = 0;
@@ -361,6 +341,7 @@ export default class Body extends EventEmitter {
 
       this.massMultiplier.set(this.fixedX ? 0 : 1, this.fixedY ? 0 : 1);
     }
+    return this;
   }
 
   /**
@@ -370,7 +351,7 @@ export default class Body extends EventEmitter {
    * If relativePoint is zero, the force will be applied directly on the center
    * of mass, and the torque produced will be zero.
    */
-  applyForce(force: V2d, relativePoint?: V2d): void {
+  applyForce(force: V2d, relativePoint?: V2d): this {
     // Add linear force
     this.force.iadd(force);
 
@@ -381,18 +362,17 @@ export default class Body extends EventEmitter {
       // Add rotational force
       this.angularForce += rotForce;
     }
+    return this;
   }
 
   /**
    * Apply force to a body-local point.
    */
-  applyForceLocal(localForce: V2d, localPoint?: V2d): void {
-    localPoint = localPoint || Body_applyForce_pointLocal;
-    const worldForce = Body_applyForce_forceWorld;
-    const worldPoint = Body_applyForce_pointWorld;
-    this.vectorToWorldFrame(worldForce, localForce);
-    this.vectorToWorldFrame(worldPoint, localPoint);
+  applyForceLocal(localForce: V2d, localPoint?: V2d): this {
+    const worldForce = this.vectorToWorldFrame(localForce);
+    const worldPoint = localPoint ? this.vectorToWorldFrame(localPoint) : undefined;
     this.applyForce(worldForce, worldPoint);
+    return this;
   }
 
   /**
@@ -401,14 +381,14 @@ export default class Body extends EventEmitter {
    * short period of time (impulse = force * time). Impulses will be added to
    * Body.velocity and Body.angularVelocity.
    */
-  applyImpulse(impulseVector: V2d, relativePoint?: V2d): void {
+  applyImpulse(impulseVector: V2d, relativePoint?: V2d): this {
     if (this.type !== Body.DYNAMIC) {
-      return;
+      return this;
     }
 
-    // Compute produced central impulse velocity
-    const velo = Body_applyImpulse_velo;
-    velo.set(impulseVector).imul(this.invMass);
+    // Compute produced central impulse velocity (allocate locally)
+    const velo = V(impulseVector);
+    velo.imul(this.invMass);
     velo.imulComponent(this.massMultiplier);
 
     // Add linear impulse
@@ -422,46 +402,45 @@ export default class Body extends EventEmitter {
       // Add rotational Impulse
       this.angularVelocity += rotVelo;
     }
+    return this;
   }
 
   /**
    * Apply impulse to a body-local point.
    */
-  applyImpulseLocal(localImpulse: V2d, localPoint?: V2d): void {
-    localPoint = localPoint || Body_applyImpulse_pointLocal;
-    const worldImpulse = Body_applyImpulse_impulseWorld;
-    const worldPoint = Body_applyImpulse_pointWorld;
-    this.vectorToWorldFrame(worldImpulse, localImpulse);
-    this.vectorToWorldFrame(worldPoint, localPoint);
+  applyImpulseLocal(localImpulse: V2d, localPoint?: V2d): this {
+    const worldImpulse = this.vectorToWorldFrame(localImpulse);
+    const worldPoint = localPoint ? this.vectorToWorldFrame(localPoint) : undefined;
     this.applyImpulse(worldImpulse, worldPoint);
+    return this;
   }
 
   /**
    * Transform a world point to local body frame.
    */
-  toLocalFrame(out: V2d, worldPoint: V2d): void {
-    out.set(worldPoint).itoLocalFrame(this.position, this.angle);
+  toLocalFrame(worldPoint: V2d): V2d {
+    return V(worldPoint).itoLocalFrame(this.position, this.angle);
   }
 
   /**
    * Transform a local point to world frame.
    */
-  toWorldFrame(out: V2d, localPoint: V2d): void {
-    out.set(localPoint).itoGlobalFrame(this.position, this.angle);
+  toWorldFrame(localPoint: V2d): V2d {
+    return V(localPoint).itoGlobalFrame(this.position, this.angle);
   }
 
   /**
    * Transform a world vector to local body frame.
    */
-  vectorToLocalFrame(out: V2d, worldVector: V2d): void {
-    out.set(worldVector).irotate(-this.angle);
+  vectorToLocalFrame(worldVector: V2d): V2d {
+    return V(worldVector).irotate(-this.angle);
   }
 
   /**
    * Transform a local vector to world frame.
    */
-  vectorToWorldFrame(out: V2d, localVector: V2d): void {
-    out.set(localVector).irotate(this.angle);
+  vectorToWorldFrame(localVector: V2d): V2d {
+    return V(localVector).irotate(this.angle);
   }
 
   /**
@@ -485,21 +464,21 @@ export default class Body extends EventEmitter {
   /**
    * Moves the shape offsets so their center of mass becomes the body center of mass.
    */
-  adjustCenterOfMass(): void {
-    const offset_times_area = adjustCenterOfMass_tmp2;
-    const sum = adjustCenterOfMass_tmp3;
-    const cm = adjustCenterOfMass_tmp4;
+  adjustCenterOfMass(): this {
+    // Allocate local vectors
+    const sum = V();
     let totalArea = 0;
-    sum.set(0, 0);
 
     for (let i = 0; i !== this.shapes.length; i++) {
       const s = this.shapes[i];
-      offset_times_area.set(s.position).imul(s.area);
+      const offset_times_area = V(s.position);
+      offset_times_area.imul(s.area);
       sum.iadd(offset_times_area);
       totalArea += s.area;
     }
 
-    cm.set(sum).imul(1 / totalArea);
+    const cm = V(sum);
+    cm.imul(1 / totalArea);
 
     // Now move all shapes
     for (let i = 0; i !== this.shapes.length; i++) {
@@ -517,14 +496,16 @@ export default class Body extends EventEmitter {
 
     this.updateMassProperties();
     this.updateBoundingRadius();
+    return this;
   }
 
   /**
    * Sets the force on the body to zero.
    */
-  setZeroForce(): void {
+  setZeroForce(): this {
     this.force.set(0.0, 0.0);
     this.angularForce = 0.0;
+    return this;
   }
 
   resetConstraintVelocity(): void {
@@ -557,25 +538,27 @@ export default class Body extends EventEmitter {
    * Sets the sleepState to Body.AWAKE and emits the wakeUp event if the
    * body wasn't awake before.
    */
-  wakeUp(): void {
+  wakeUp(): this {
     const s = this.sleepState;
     this.sleepState = Body.AWAKE;
     this.idleTime = 0;
     if (s !== Body.AWAKE) {
-      this.emit(Body.wakeUpEvent);
+      this.emit({ type: "wakeup", body: this });
     }
+    return this;
   }
 
   /**
    * Force body sleep
    */
-  sleep(): void {
+  sleep(): this {
     this.sleepState = Body.SLEEPING;
     this.angularVelocity = 0;
     this.angularForce = 0;
     this.velocity.set(0, 0);
     this.force.set(0, 0);
-    this.emit(Body.sleepEvent);
+    this.emit({ type: "sleep", body: this });
+    return this;
   }
 
   /**
@@ -636,15 +619,17 @@ export default class Body extends EventEmitter {
     if (!this.fixedRotation) {
       this.angularVelocity += this.angularForce * this.invInertia * dt;
     }
-    integrate_fhMinv.set(f).imul(dt * minv);
-    integrate_fhMinv.imulComponent(this.massMultiplier);
-    velo.iadd(integrate_fhMinv);
+    const fhMinv = V(f);
+    fhMinv.imul(dt * minv);
+    fhMinv.imulComponent(this.massMultiplier);
+    velo.iadd(fhMinv);
 
     // CCD
     if (!this.integrateToTimeOfImpact(dt)) {
       // Regular position update
-      integrate_velodt.set(velo).imul(dt);
-      pos.iadd(integrate_velodt);
+      const velodt = V(velo);
+      velodt.imul(dt);
+      pos.iadd(velodt);
       if (!this.fixedRotation) {
         this.angle += this.angularVelocity * dt;
       }
@@ -661,12 +646,16 @@ export default class Body extends EventEmitter {
       return false;
     }
 
-    direction.set(this.velocity).inormalize();
+    // Allocate local vectors for CCD computation
+    const direction = V(this.velocity);
+    direction.inormalize();
 
-    end.set(this.velocity).imul(dt);
+    const end = V(this.velocity);
+    end.imul(dt);
     end.iadd(this.position);
 
-    startToEnd.set(end).isub(this.position);
+    const startToEnd = V(end);
+    startToEnd.isub(this.position);
     const startToEndAngle = this.angularVelocity * dt;
     const len = startToEnd.magnitude;
 
@@ -680,7 +669,7 @@ export default class Body extends EventEmitter {
         return;
       }
       hit = res.body;
-      res.getHitPoint(end, ray);
+      end.set(res.getHitPoint(ray));
       startToEnd.set(end).isub(that.position);
       timeOfImpact = startToEnd.magnitude / len;
       res.stop();
@@ -698,7 +687,7 @@ export default class Body extends EventEmitter {
     const hitBody: Body = hit;
 
     const rememberAngle = this.angle;
-    rememberPosition.set(this.position);
+    const rememberPosition = V(this.position);
 
     // Got a start and end point. Approximate time of impact using binary search
     let iter = 0;
@@ -712,8 +701,9 @@ export default class Body extends EventEmitter {
       tmid = (tmax - tmin) / 2;
 
       // Move the body to that point
-      integrate_velodt.set(startToEnd).imul(timeOfImpact);
-      this.position.set(rememberPosition).iadd(integrate_velodt);
+      const velodt = V(startToEnd);
+      velodt.imul(timeOfImpact);
+      this.position.set(rememberPosition).iadd(velodt);
       this.angle = rememberAngle + startToEndAngle * timeOfImpact;
       this.updateAABB();
 
@@ -737,8 +727,9 @@ export default class Body extends EventEmitter {
     this.angle = rememberAngle;
 
     // move to TOI
-    integrate_velodt.set(startToEnd).imul(timeOfImpact);
-    this.position.iadd(integrate_velodt);
+    const velodt = V(startToEnd);
+    velodt.imul(timeOfImpact);
+    this.position.iadd(velodt);
     if (!this.fixedRotation) {
       this.angle += startToEndAngle * timeOfImpact;
     }
@@ -749,9 +740,8 @@ export default class Body extends EventEmitter {
   /**
    * Get velocity of a point in the body.
    */
-  getVelocityAtPoint(result: V2d, relativePoint: V2d): V2d {
-    result.set(relativePoint).icrossVZ(this.angularVelocity);
-    result.set(this.velocity).isub(result);
-    return result;
+  getVelocityAtPoint(relativePoint: V2d): V2d {
+    const result = V(relativePoint).icrossVZ(this.angularVelocity);
+    return V(this.velocity).isub(result);
   }
 }

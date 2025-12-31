@@ -20,7 +20,7 @@ export default class DampedRotationalSpring extends RotationalSpring {
     this.maxTorque = maxTorque ?? Infinity;
   }
 
-  applyForce() {
+  applyForce(): this {
     const k = this.stiffness;
     const d = this.damping;
     const l = this.restAngle;
@@ -34,5 +34,6 @@ export default class DampedRotationalSpring extends RotationalSpring {
 
     bodyA.angularForce -= torque;
     bodyB.angularForce += torque;
+    return this;
   }
 }

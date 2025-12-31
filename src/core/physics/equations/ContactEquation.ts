@@ -3,11 +3,6 @@ import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
 import Equation from "./Equation";
 
-// Module-level temp vectors
-const vi = V();
-const vj = V();
-const relVel = V();
-
 /**
  * Non-penetration constraint equation. Tries to make the contactPointA and
  * contactPointB vectors coincide, while keeping the applied force repulsive.
@@ -107,10 +102,9 @@ export default class ContactEquation extends Equation {
    * Get the relative velocity along the normal vector.
    */
   getVelocityAlongNormal(): number {
-    this.bodyA.getVelocityAtPoint(vi, this.contactPointA);
-    this.bodyB.getVelocityAtPoint(vj, this.contactPointB);
-
-    relVel.set(vi).isub(vj);
+    const vi = this.bodyA.getVelocityAtPoint(this.contactPointA);
+    const vj = this.bodyB.getVelocityAtPoint(this.contactPointB);
+    const relVel = vi.isub(vj);
 
     return this.normalA.dot(relVel);
   }

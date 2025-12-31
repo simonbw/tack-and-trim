@@ -61,10 +61,8 @@ export function applyFluidForces(
   getDragMagnitude: ForceMagnitudeFn,
   getFluidVelocity: FluidVelocityFn = () => V(0, 0)
 ) {
-  const v1World = V(0, 0);
-  const v2World = V(0, 0);
-  body.toWorldFrame(v1World, v1);
-  body.toWorldFrame(v2World, v2);
+  const v1World = body.toWorldFrame(v1);
+  const v2World = body.toWorldFrame(v2);
 
   const edge = v2World.sub(v1World);
   const edgeLength = edge.magnitude;

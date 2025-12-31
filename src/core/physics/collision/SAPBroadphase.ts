@@ -65,7 +65,6 @@ export default class SAPBroadphase extends Broadphase {
    * Sorts bodies along an axis.
    */
   static sortAxisList(a: Body[], axisIndex: number): Body[] {
-    axisIndex = axisIndex | 0;
     for (let i = 1, l = a.length; i < l; i++) {
       const v = a[i];
       let j: number;
@@ -111,7 +110,7 @@ export default class SAPBroadphase extends Broadphase {
     this.sortList();
 
     // Look through the X list
-    for (let i = 0, N = bodies.length | 0; i !== N; i++) {
+    for (let i = 0, N = bodies.length; i !== N; i++) {
       const bi = bodies[i];
 
       for (let j = i + 1; j < N; j++) {

@@ -1,6 +1,6 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
-import type AABB from "../collision/AABB";
+import AABB from "../collision/AABB";
 import type Ray from "../collision/Ray";
 import type RaycastResult from "../collision/RaycastResult";
 import type Material from "../material/Material";
@@ -135,8 +135,9 @@ export default class Shape {
   /**
    * Compute the world axis-aligned bounding box (AABB) of this shape.
    */
-  computeAABB(_out: AABB, _position: V2d, _angle: number): void {
+  computeAABB(_position: V2d, _angle: number): AABB {
     // To be implemented in each subclass
+    return new AABB();
   }
 
   /**

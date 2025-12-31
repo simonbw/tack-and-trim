@@ -1,7 +1,7 @@
 import RotationalSpring from "./RotationalSpring";
 
 export default class RotationalSolenoidSpring extends RotationalSpring {
-  applyForce() {
+  applyForce(): this {
     const k = this.stiffness * 1000;
     const d = this.damping * 100;
     const l = this.restAngle;
@@ -16,5 +16,6 @@ export default class RotationalSolenoidSpring extends RotationalSpring {
 
     bodyA.angularForce -= torque;
     bodyB.angularForce += torque;
+    return this;
   }
 }

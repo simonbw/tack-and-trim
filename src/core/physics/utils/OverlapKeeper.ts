@@ -31,9 +31,8 @@ export default class OverlapKeeper {
     const current = this.overlappingShapesCurrentState;
 
     // Save old objects into pool
-    let l = last.keys.length;
-    while (l--) {
-      const key = last.keys[l];
+    for (let i = last.keys.length - 1; i >= 0; i--) {
+      const key = last.keys[i];
       const lastObject = last.getByKey(key);
       if (lastObject) {
         // The record is only used in the "last" dict, and will be removed.
@@ -63,19 +62,29 @@ export default class OverlapKeeper {
   }
 
   getNewOverlaps(result?: OverlapKeeperRecord[]): OverlapKeeperRecord[] {
-    return this.getDiff(
+    const diff = this.getDiff(
       this.overlappingShapesLastState,
-      this.overlappingShapesCurrentState,
-      result
+      this.overlappingShapesCurrentState
     );
+    if (result) {
+      result.length = 0;
+      result.push(...diff);
+      return result;
+    }
+    return diff;
   }
 
   getEndOverlaps(result?: OverlapKeeperRecord[]): OverlapKeeperRecord[] {
-    return this.getDiff(
+    const diff = this.getDiff(
       this.overlappingShapesCurrentState,
-      this.overlappingShapesLastState,
-      result
+      this.overlappingShapesLastState
     );
+    if (result) {
+      result.length = 0;
+      result.push(...diff);
+      return result;
+    }
+    return diff;
   }
 
   /**
@@ -83,9 +92,8 @@ export default class OverlapKeeper {
    */
   bodiesAreOverlapping(bodyA: Body, bodyB: Body): boolean {
     const current = this.overlappingShapesCurrentState;
-    let l = current.keys.length;
-    while (l--) {
-      const key = current.keys[l];
+    for (let i = current.keys.length - 1; i >= 0; i--) {
+      const key = current.keys[i];
       const data = current.data[key];
       if (
         (data.bodyA === bodyA && data.bodyB === bodyB) ||
@@ -99,17 +107,14 @@ export default class OverlapKeeper {
 
   getDiff(
     dictA: TupleDictionary<OverlapKeeperRecord>,
-    dictB: TupleDictionary<OverlapKeeperRecord>,
-    result: OverlapKeeperRecord[] = []
+    dictB: TupleDictionary<OverlapKeeperRecord>
   ): OverlapKeeperRecord[] {
     const last = dictA;
     const current = dictB;
+    const result: OverlapKeeperRecord[] = [];
 
-    result.length = 0;
-
-    let l = current.keys.length;
-    while (l--) {
-      const key = current.keys[l];
+    for (let i = current.keys.length - 1; i >= 0; i--) {
+      const key = current.keys[i];
       const data = current.data[key];
 
       if (!data) {
@@ -127,8 +132,8 @@ export default class OverlapKeeper {
   }
 
   isNewOverlap(shapeA: Shape, shapeB: Shape): boolean {
-    const idA = shapeA.id | 0;
-    const idB = shapeB.id | 0;
+    const idA = shapeA.id;
+    const idB = shapeB.id;
     const last = this.overlappingShapesLastState;
     const current = this.overlappingShapesCurrentState;
     // Not in last but in new
@@ -136,31 +141,26 @@ export default class OverlapKeeper {
   }
 
   getNewBodyOverlaps(result?: Body[]): Body[] {
-    this.tmpArray1.length = 0;
-    const overlaps = this.getNewOverlaps(this.tmpArray1);
+    const overlaps = this.getNewOverlaps();
     return this.getBodyDiff(overlaps, result);
   }
 
   getEndBodyOverlaps(result?: Body[]): Body[] {
-    this.tmpArray1.length = 0;
-    const overlaps = this.getEndOverlaps(this.tmpArray1);
+    const overlaps = this.getEndOverlaps();
     return this.getBodyDiff(overlaps, result);
   }
 
   getBodyDiff(overlaps: OverlapKeeperRecord[], result: Body[] = []): Body[] {
     const accumulator = this.tmpDict;
 
-    let l = overlaps.length;
-
-    while (l--) {
-      const data = overlaps[l];
+    for (let i = overlaps.length - 1; i >= 0; i--) {
+      const data = overlaps[i];
       // Since we use body id's for the accumulator, these will be a subset of the original one
-      accumulator.set(data.bodyA!.id | 0, data.bodyB!.id | 0, data);
+      accumulator.set(data.bodyA!.id, data.bodyB!.id, data);
     }
 
-    l = accumulator.keys.length;
-    while (l--) {
-      const data = accumulator.getByKey(accumulator.keys[l]);
+    for (let i = accumulator.keys.length - 1; i >= 0; i--) {
+      const data = accumulator.getByKey(accumulator.keys[i]);
       if (data) {
         result.push(data.bodyA!, data.bodyB!);
       }

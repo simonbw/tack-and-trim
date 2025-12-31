@@ -3,22 +3,23 @@
  */
 export interface P2Event {
   type: string;
-  target?: EventEmitter;
+  target?: EventEmitter<any>;
 }
 
 /**
  * Listener function with optional context
  */
-interface ListenerWithContext {
-  (event: P2Event): void;
+interface ListenerWithContext<T = P2Event> {
+  (event: T): void;
   context?: unknown;
 }
 
 /**
  * Base class for objects that dispatch events.
+ * @template EventMap - A map of event type names to their event payloads
  */
-export default class EventEmitter {
-  private _listeners?: Record<string, ListenerWithContext[]>;
+export default class EventEmitter<EventMap extends Record<string, P2Event> = Record<string, P2Event>> {
+  private _listeners?: Partial<Record<keyof EventMap, ListenerWithContext<EventMap[keyof EventMap]>[]>>;
 
   /**
    * Add an event listener
@@ -27,12 +28,12 @@ export default class EventEmitter {
    * @param context Optional context to bind the listener to
    * @returns The self object, for chainability.
    */
-  on(
-    type: string,
-    listener: (event: P2Event) => void,
+  on<K extends keyof EventMap>(
+    type: K,
+    listener: (event: EventMap[K]) => void,
     context?: unknown
   ): this {
-    const listenerWithContext = listener as ListenerWithContext;
+    const listenerWithContext = listener as ListenerWithContext<EventMap[K]>;
     listenerWithContext.context = context ?? this;
 
     if (this._listeners === undefined) {
@@ -44,8 +45,8 @@ export default class EventEmitter {
       listeners[type] = [];
     }
 
-    if (listeners[type].indexOf(listenerWithContext) === -1) {
-      listeners[type].push(listenerWithContext);
+    if (listeners[type]!.indexOf(listenerWithContext as any) === -1) {
+      listeners[type]!.push(listenerWithContext as any);
     }
 
     return this;
@@ -57,7 +58,10 @@ export default class EventEmitter {
    * @param listener Optional specific listener to check for
    * @returns True if listener(s) exist for the type
    */
-  has(type: string, listener?: (event: P2Event) => void): boolean {
+  has<K extends keyof EventMap>(
+    type: K,
+    listener?: (event: EventMap[K]) => void
+  ): boolean {
     if (this._listeners === undefined) {
       return false;
     }
@@ -66,7 +70,7 @@ export default class EventEmitter {
     if (listener) {
       if (
         listeners[type] !== undefined &&
-        listeners[type].indexOf(listener as ListenerWithContext) !== -1
+        listeners[type]!.indexOf(listener as any) !== -1
       ) {
         return true;
       }
@@ -85,15 +89,20 @@ export default class EventEmitter {
    * @param listener The listener to remove
    * @returns The self object, for chainability.
    */
-  off(type: string, listener: (event: P2Event) => void): this {
+  off<K extends keyof EventMap>(
+    type: K,
+    listener: (event: EventMap[K]) => void
+  ): this {
     if (this._listeners === undefined) {
       return this;
     }
 
     const listeners = this._listeners;
-    const index = listeners[type].indexOf(listener as ListenerWithContext);
-    if (index !== -1) {
-      listeners[type].splice(index, 1);
+    if (listeners[type]) {
+      const index = listeners[type]!.indexOf(listener as any);
+      if (index !== -1) {
+        listeners[type]!.splice(index, 1);
+      }
     }
 
     return this;
@@ -104,15 +113,15 @@ export default class EventEmitter {
    * @param event The event object to emit
    * @returns The self object, for chainability.
    */
-  emit(event: P2Event): this {
+  emit<K extends keyof EventMap>(event: EventMap[K]): this {
     if (this._listeners === undefined) {
       return this;
     }
 
     const listeners = this._listeners;
-    const listenerArray = listeners[event.type];
+    const listenerArray = listeners[event.type as K];
     if (listenerArray !== undefined) {
-      event.target = this;
+      (event as any).target = this;
       for (let i = 0, l = listenerArray.length; i < l; i++) {
         const listener = listenerArray[i];
         listener.call(listener.context, event);

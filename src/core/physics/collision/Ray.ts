@@ -15,23 +15,17 @@ export interface RayOptions {
   callback?: (result: RaycastResult) => void;
 }
 
-const intersectBody_worldPosition = V();
-const hitPointWorld = V();
-const v0 = V();
-const intersect = V();
-
 function distanceFromIntersectionSquared(
   from: V2d,
   direction: V2d,
   position: V2d
 ): number {
   // v0 is vector from from to position
-  v0.set(position).isub(from);
+  const v0 = position.sub(from);
   const dot = v0.dot(direction);
 
   // intersect = direction * dot + from
-  intersect.set(direction).imul(dot);
-  intersect.iadd(from);
+  const intersect = direction.mul(dot).add(from);
 
   return position.squaredDistanceTo(intersect);
 }
@@ -113,8 +107,6 @@ export default class Ray {
       return;
     }
 
-    const worldPosition = intersectBody_worldPosition;
-
     for (let i = 0, N = body.shapes.length; i < N; i++) {
       const shape = body.shapes[i];
 
@@ -130,8 +122,7 @@ export default class Ray {
       }
 
       // Get world angle and position of the shape
-      worldPosition.set(shape.position).irotate(body.angle);
-      worldPosition.iadd(body.position);
+      const worldPosition = V(shape.position).irotate(body.angle).iadd(body.position);
       const worldAngle = shape.angle + body.angle;
 
       this.intersectShape(result, shape, worldAngle, worldPosition, body);

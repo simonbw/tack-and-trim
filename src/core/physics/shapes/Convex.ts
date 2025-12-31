@@ -1,7 +1,7 @@
 import Shape, { ShapeOptions } from "./Shape";
 import { V, V2d, CompatibleVector } from "../../Vector";
-import * as polyk from "../math/polyk";
-import type AABB from "../collision/AABB";
+import { Triangulate } from "../math/polyk";
+import AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
 
@@ -9,16 +9,6 @@ export interface ConvexOptions extends ShapeOptions {
   vertices?: CompatibleVector[];
   axes?: CompatibleVector[];
 }
-
-const tmpVec1 = V();
-const tmpVec2 = V();
-
-const updateCenterOfMass_centroid = V();
-const updateCenterOfMass_centroid_times_mass = V();
-
-const intersectConvex_rayStart = V();
-const intersectConvex_rayEnd = V();
-const intersectConvex_normal = V();
 
 /**
  * Convex shape class.
@@ -86,11 +76,10 @@ export default class Convex extends Shape {
     }
   }
 
-  projectOntoLocalAxis(localAxis: V2d, result: V2d): void {
+  projectOntoLocalAxis(localAxis: V2d): V2d {
     let max: number | null = null;
     let min: number | null = null;
-    const axis = tmpVec1;
-    axis.set(localAxis);
+    const axis = V(localAxis);
 
     for (let i = 0; i < this.vertices.length; i++) {
       const v = this.vertices[i];
@@ -109,28 +98,23 @@ export default class Convex extends Shape {
       max = t;
     }
 
-    result.set(min!, max!);
+    return V(min!, max!);
   }
 
   projectOntoWorldAxis(
     localAxis: V2d,
     shapeOffset: V2d,
-    shapeAngle: number,
-    result: V2d
-  ): void {
-    const worldAxis = tmpVec2;
-
-    this.projectOntoLocalAxis(localAxis, result);
+    shapeAngle: number
+  ): V2d {
+    const result = this.projectOntoLocalAxis(localAxis);
 
     // Project the position of the body onto the axis
-    if (shapeAngle !== 0) {
-      worldAxis.set(localAxis).irotate(shapeAngle);
-    } else {
-      worldAxis.set(localAxis);
-    }
+    const worldAxis = shapeAngle !== 0
+      ? V(localAxis).rotate(shapeAngle)
+      : V(localAxis);
     const offset = shapeOffset.dot(worldAxis);
 
-    result.set(result[0] + offset, result[1] + offset);
+    return V(result[0] + offset, result[1] + offset);
   }
 
   updateTriangles(): void {
@@ -144,7 +128,7 @@ export default class Convex extends Shape {
     }
 
     // Triangulate
-    const triangles = polyk.Triangulate(polykVerts);
+    const triangles = Triangulate(polykVerts);
 
     // Loop over all triangles
     for (let i = 0; i < triangles.length; i += 3) {
@@ -160,8 +144,6 @@ export default class Convex extends Shape {
     const triangles = this.triangles;
     const verts = this.vertices;
     const cm = this.centerOfMass;
-    const centroid = updateCenterOfMass_centroid;
-    const centroid_times_mass = updateCenterOfMass_centroid_times_mass;
 
     cm.set(0, 0);
     let totalArea = 0;
@@ -172,12 +154,12 @@ export default class Convex extends Shape {
       const b = verts[t[1]];
       const c = verts[t[2]];
 
-      centroid.set(V2d.centroid(a, b, c));
+      const centroid = V2d.centroid(a, b, c);
 
       const m = Convex.triangleArea(a, b, c);
       totalArea += m;
 
-      centroid_times_mass.set(centroid).imul(m);
+      const centroid_times_mass = V(centroid).mul(m);
       cm.iadd(centroid_times_mass);
     }
 
@@ -237,19 +219,18 @@ export default class Convex extends Shape {
     }
   }
 
-  computeAABB(out: AABB, position: V2d, angle: number): void {
+  computeAABB(position: V2d, angle: number): AABB {
+    const out = new AABB();
     out.setFromPoints(this.vertices, position, angle, 0);
+    return out;
   }
 
   raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {
-    const rayStart = intersectConvex_rayStart;
-    const rayEnd = intersectConvex_rayEnd;
-    const normal = intersectConvex_normal;
     const vertices = this.vertices;
 
     // Transform to local shape space
-    rayStart.set(ray.from).itoLocalFrame(position, angle);
-    rayEnd.set(ray.to).itoLocalFrame(position, angle);
+    const rayStart = V(ray.from).toLocalFrame(position, angle);
+    const rayEnd = V(ray.to).toLocalFrame(position, angle);
 
     const n = vertices.length;
 
@@ -264,7 +245,7 @@ export default class Convex extends Shape {
       );
 
       if (delta >= 0) {
-        normal.set(q2).isub(q1);
+        const normal = V(q2).sub(q1);
         normal.irotate(-Math.PI / 2 + angle);
         normal.inormalize();
         ray.reportIntersection(result, delta, normal, i);

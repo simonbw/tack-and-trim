@@ -49,7 +49,7 @@ export function GetArea(p: number[]): number {
  * @returns Array of triangle indices
  */
 export function Triangulate(p: number[]): number[] {
-  const n = p.length >> 1;
+  const n = Math.floor(p.length / 2);
   if (n < 3) return [];
 
   const tgs: number[] = [];
@@ -140,10 +140,3 @@ function _convex(
 ): boolean {
   return (ay - by) * (cx - bx) + (bx - ax) * (cy - by) >= 0;
 }
-
-const PolyK = {
-  GetArea,
-  Triangulate,
-};
-
-export default PolyK;

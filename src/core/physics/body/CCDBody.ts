@@ -44,7 +44,7 @@ export default class CCDBody extends Body {
         return;
       }
       hit = result.body ?? undefined;
-      result.getHitPoint(_end, _ray);
+      _end.set(result.getHitPoint(_ray));
       _startToEnd.set(_end).isub(self.position);
       timeOfImpact = _startToEnd.magnitude / len;
       result.stop();

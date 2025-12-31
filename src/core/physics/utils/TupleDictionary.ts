@@ -11,23 +11,17 @@ export default class TupleDictionary<T = any> {
    * Generate a key given two integers
    */
   getKey(id1: number, id2: number): number {
-    id1 = id1 | 0;
-    id2 = id2 | 0;
-
-    if ((id1 | 0) === (id2 | 0)) {
+    if (id1 === id2) {
       return -1;
     }
 
     // valid for values < 2^16
-    return (
-      ((id1 | 0) > (id2 | 0)
-        ? (id1 << 16) | (id2 & 0xffff)
-        : (id2 << 16) | (id1 & 0xffff)) | 0
-    );
+    return id1 > id2
+      ? (id1 << 16) | (id2 & 0xffff)
+      : (id2 << 16) | (id1 & 0xffff);
   }
 
   getByKey(key: number): T | undefined {
-    key = key | 0;
     return this.data[key];
   }
 
@@ -56,9 +50,8 @@ export default class TupleDictionary<T = any> {
     const data = this.data;
     const keys = this.keys;
 
-    let l = keys.length;
-    while (l--) {
-      delete data[keys[l]];
+    for (let i = keys.length - 1; i >= 0; i--) {
+      delete data[keys[i]];
     }
 
     keys.length = 0;
@@ -67,9 +60,8 @@ export default class TupleDictionary<T = any> {
   copy(dict: TupleDictionary<T>): void {
     this.reset();
     appendArray(this.keys, dict.keys);
-    let l = dict.keys.length;
-    while (l--) {
-      const key = dict.keys[l];
+    for (let i = dict.keys.length - 1; i >= 0; i--) {
+      const key = dict.keys[i];
       this.data[key] = dict.data[key];
     }
   }

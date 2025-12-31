@@ -61,7 +61,7 @@ export default class IslandManager {
     root.visited = true;
     this.visit(root, bds, eqs);
 
-    while (queue.length) {
+    while (queue.length > 0) {
       const node = queue.pop()!;
 
       let child: IslandNode | false;
@@ -85,7 +85,7 @@ export default class IslandManager {
     const equations = this.equations;
 
     // Move old nodes to the node pool
-    while (nodes.length) {
+    while (nodes.length > 0) {
       this.nodePool.release(nodes.pop()!);
     }
 

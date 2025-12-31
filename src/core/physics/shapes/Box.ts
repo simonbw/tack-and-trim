@@ -1,7 +1,7 @@
 import { V, V2d } from "../../Vector";
 import Shape from "./Shape";
 import Convex, { ConvexOptions } from "./Convex";
-import type AABB from "../collision/AABB";
+import AABB from "../collision/AABB";
 
 export interface BoxOptions extends ConvexOptions {
   width?: number;
@@ -55,8 +55,10 @@ export default class Box extends Convex {
     this.boundingRadius = Math.sqrt(w * w + h * h) / 2;
   }
 
-  computeAABB(out: AABB, position: V2d, angle: number): void {
+  computeAABB(position: V2d, angle: number): AABB {
+    const out = new AABB();
     out.setFromPoints(this.vertices, position, angle, 0);
+    return out;
   }
 
   updateArea(): void {

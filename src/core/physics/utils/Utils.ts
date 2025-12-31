@@ -32,39 +32,3 @@ export function splice<T>(array: T[], index: number, howmany: number = 1): void 
   }
   array.length = len;
 }
-
-/**
- * Extend an object with the properties of another
- */
-export function extend<T extends object, U extends object>(a: T, b: U): T & U {
-  for (const key in b) {
-    (a as Record<string, unknown>)[key] = b[key];
-  }
-  return a as T & U;
-}
-
-/**
- * Extend an options object with default values.
- */
-export function defaults<T extends object>(
-  options: Partial<T> | undefined,
-  defaultValues: T
-): T {
-  const result = options || ({} as Partial<T>);
-  for (const key in defaultValues) {
-    if (!(key in result)) {
-      result[key] = defaultValues[key];
-    }
-  }
-  return result as T;
-}
-
-const Utils = {
-  ARRAY_TYPE,
-  appendArray,
-  splice,
-  extend,
-  defaults,
-};
-
-export default Utils;

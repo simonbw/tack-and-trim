@@ -20,7 +20,7 @@ export default class RotationalSpring extends Spring {
         : bodyB.angle - bodyA.angle;
   }
 
-  applyForce(): void {
+  applyForce(): this {
     const k = this.stiffness;
     const d = this.damping;
     const l = this.restAngle;
@@ -33,5 +33,6 @@ export default class RotationalSpring extends Spring {
 
     bodyA.angularForce -= torque;
     bodyB.angularForce += torque;
+    return this;
   }
 }

@@ -58,20 +58,16 @@ export default abstract class BaseEntity implements Entity {
   /** Convert local coordinates to world coordinates. Requires a body */
   localToWorld(localPoint: V2d | [number, number]): V2d {
     if (this.body) {
-      const result: V2d = V(0, 0);
       const local = Array.isArray(localPoint) ? V(localPoint[0], localPoint[1]) : localPoint;
-      this.body.toWorldFrame(result, local);
-      return result;
+      return this.body.toWorldFrame(local);
     }
     return V(0, 0);
   }
 
   worldToLocal(worldPoint: V2d | [number, number]): V2d {
     if (this.body) {
-      const result: V2d = V(0, 0);
       const world = Array.isArray(worldPoint) ? V(worldPoint[0], worldPoint[1]) : worldPoint;
-      this.body.toLocalFrame(result, world);
-      return result;
+      return this.body.toLocalFrame(world);
     }
     return V(0, 0);
   }

@@ -12,13 +12,6 @@ export interface RevoluteConstraintOptions extends ConstraintOptions {
   maxForce?: number;
 }
 
-// Module-level temp vectors
-const worldPivotA = V();
-const worldPivotB = V();
-const xAxis = V(1, 0);
-const yAxis = V(0, 1);
-const g = V();
-
 /**
  * Connects two bodies at given offset points, letting them rotate relative
  * to each other around this point.
@@ -97,23 +90,26 @@ export default class RevoluteConstraint extends Constraint {
     const y = new Equation(bodyA, bodyB, -maxForce, maxForce);
     const that = this;
 
+    const xAxis = V(1, 0);
+    const yAxis = V(0, 1);
+
     x.computeGq = function () {
-      worldPivotA.set(that.pivotA).irotate(bodyA.angle);
-      worldPivotB.set(that.pivotB).irotate(bodyB.angle);
-      g.set(bodyB.position)
-        .iadd(worldPivotB)
-        .isub(bodyA.position)
-        .isub(worldPivotA);
+      const worldPivotA = that.pivotA.rotate(bodyA.angle);
+      const worldPivotB = that.pivotB.rotate(bodyB.angle);
+      const g = bodyB.position
+        .add(worldPivotB)
+        .sub(bodyA.position)
+        .sub(worldPivotA);
       return g.dot(xAxis);
     };
 
     y.computeGq = function () {
-      worldPivotA.set(that.pivotA).irotate(bodyA.angle);
-      worldPivotB.set(that.pivotB).irotate(bodyB.angle);
-      g.set(bodyB.position)
-        .iadd(worldPivotB)
-        .isub(bodyA.position)
-        .isub(worldPivotA);
+      const worldPivotA = that.pivotA.rotate(bodyA.angle);
+      const worldPivotB = that.pivotB.rotate(bodyB.angle);
+      const g = bodyB.position
+        .add(worldPivotB)
+        .sub(bodyA.position)
+        .sub(worldPivotA);
       return g.dot(yAxis);
     };
 
@@ -150,7 +146,7 @@ export default class RevoluteConstraint extends Constraint {
     }
   }
 
-  update(): void {
+  update(): this {
     const bodyA = this.bodyA;
     const bodyB = this.bodyB;
     const pivotA = this.pivotA;
@@ -189,8 +185,11 @@ export default class RevoluteConstraint extends Constraint {
       }
     }
 
-    worldPivotA.set(pivotA).irotate(bodyA.angle);
-    worldPivotB.set(pivotB).irotate(bodyB.angle);
+    const worldPivotA = pivotA.rotate(bodyA.angle);
+    const worldPivotB = pivotB.rotate(bodyB.angle);
+
+    const xAxis = V(1, 0);
+    const yAxis = V(0, 1);
 
     x.G[0] = -1;
     x.G[1] = 0;
@@ -205,6 +204,7 @@ export default class RevoluteConstraint extends Constraint {
     y.G[3] = 0;
     y.G[4] = 1;
     y.G[5] = worldPivotB.crossLength(yAxis);
+    return this;
   }
 
   /**

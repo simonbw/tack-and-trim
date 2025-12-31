@@ -11,9 +11,8 @@ export interface GSSolverOptions extends SolverOptions {
 }
 
 function setArrayZero(array: Float32Array | number[]): void {
-  let l = array.length;
-  while (l--) {
-    array[l] = +0.0;
+  for (let i = array.length - 1; i >= 0; i--) {
+    array[i] = +0.0;
   }
 }
 
@@ -244,9 +243,8 @@ export default class GSSolver extends Solver {
     lambda: ArrayLike<number>,
     invDt: number
   ): void {
-    let l = equations.length;
-    while (l--) {
-      equations[l].multiplier = lambda[l] * invDt;
+    for (let i = equations.length - 1; i >= 0; i--) {
+      equations[i].multiplier = lambda[i] * invDt;
     }
   }
 

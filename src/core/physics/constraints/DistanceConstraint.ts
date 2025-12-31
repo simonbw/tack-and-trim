@@ -1,7 +1,6 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import Equation from "../equations/Equation";
-import { defaults } from "../utils/Utils";
 import Constraint, { ConstraintOptions } from "./Constraint";
 
 export interface DistanceConstraintOptions extends ConstraintOptions {
@@ -10,11 +9,6 @@ export interface DistanceConstraintOptions extends ConstraintOptions {
   localAnchorB?: CompatibleVector;
   maxForce?: number;
 }
-
-// Module-level temp vectors
-const n = V();
-const ri = V();
-const rj = V();
 
 /**
  * Constraint that tries to keep the distance between two bodies constant.
@@ -71,15 +65,13 @@ export default class DistanceConstraint extends Constraint {
     bodyB: Body,
     options: DistanceConstraintOptions = {}
   ) {
-    const opts = defaults(options, {
-      localAnchorA: [0, 0] as CompatibleVector,
-      localAnchorB: [0, 0] as CompatibleVector,
-    });
-
     super(bodyA, bodyB, Constraint.DISTANCE, options);
 
-    this.localAnchorA = V(opts.localAnchorA[0], opts.localAnchorA[1]);
-    this.localAnchorB = V(opts.localAnchorB[0], opts.localAnchorB[1]);
+    const localAnchorAOpt = options?.localAnchorA ?? [0, 0];
+    const localAnchorBOpt = options?.localAnchorB ?? [0, 0];
+
+    this.localAnchorA = V(localAnchorAOpt[0], localAnchorAOpt[1]);
+    this.localAnchorB = V(localAnchorBOpt[0], localAnchorBOpt[1]);
 
     const localAnchorA = this.localAnchorA;
     const localAnchorB = this.localAnchorB;
@@ -146,7 +138,7 @@ export default class DistanceConstraint extends Constraint {
    * Update the constraint equations. Should be done if any of the bodies
    * changed position, before solving.
    */
-  update(): void {
+  update(): this {
     const normal = this.equations[0];
     const bodyA = this.bodyA;
     const bodyB = this.bodyB;
@@ -156,11 +148,11 @@ export default class DistanceConstraint extends Constraint {
     const G = normal.G;
 
     // Transform local anchors to world
-    ri.set(this.localAnchorA).irotate(bodyA.angle);
-    rj.set(this.localAnchorB).irotate(bodyB.angle);
+    const ri = this.localAnchorA.rotate(bodyA.angle);
+    const rj = this.localAnchorB.rotate(bodyB.angle);
 
     // Get world anchor points and normal
-    n.set(xj).iadd(rj).isub(ri).isub(xi);
+    const n = xj.add(rj).sub(ri).sub(xi);
     this.position = n.magnitude;
 
     let violating = false;
@@ -185,24 +177,25 @@ export default class DistanceConstraint extends Constraint {
     if ((this.lowerLimitEnabled || this.upperLimitEnabled) && !violating) {
       // No constraint needed.
       normalEquation.enabled = false;
-      return;
+      return this;
     }
 
     normalEquation.enabled = true;
 
-    n.inormalize();
+    const nNormalized = n.normalize();
 
     // Calculate cross products
-    const rixn = ri.crossLength(n);
-    const rjxn = rj.crossLength(n);
+    const rixn = ri.crossLength(nNormalized);
+    const rjxn = rj.crossLength(nNormalized);
 
     // G = [-n -rixn n rjxn]
-    G[0] = -n[0];
-    G[1] = -n[1];
+    G[0] = -nNormalized[0];
+    G[1] = -nNormalized[1];
     G[2] = -rixn;
-    G[3] = n[0];
-    G[4] = n[1];
+    G[3] = nNormalized[0];
+    G[4] = nNormalized[1];
     G[5] = rjxn;
+    return this;
   }
 
   /**

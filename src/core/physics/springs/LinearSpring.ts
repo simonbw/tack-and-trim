@@ -10,16 +10,6 @@ export interface LinearSpringOptions extends SpringOptions {
   worldAnchorB?: CompatibleVector;
 }
 
-const applyForce_r = V();
-const applyForce_r_unit = V();
-const applyForce_u = V();
-const applyForce_f = V();
-const applyForce_worldAnchorA = V();
-const applyForce_worldAnchorB = V();
-const applyForce_ri = V();
-const applyForce_rj = V();
-const applyForce_tmp = V();
-
 /**
  * A spring, connecting two bodies.
  */
@@ -47,10 +37,8 @@ export default class LinearSpring extends Spring {
       this.setWorldAnchorB(options.worldAnchorB);
     }
 
-    const worldAnchorA = V();
-    const worldAnchorB = V();
-    this.getWorldAnchorA(worldAnchorA);
-    this.getWorldAnchorB(worldAnchorB);
+    const worldAnchorA = this.getWorldAnchorA();
+    const worldAnchorB = this.getWorldAnchorB();
     const worldDistance = worldAnchorA.distanceTo(worldAnchorB);
 
     this.restLength =
@@ -61,61 +49,50 @@ export default class LinearSpring extends Spring {
 
   setWorldAnchorA(worldAnchorA: CompatibleVector): void {
     const anchor = V(worldAnchorA[0], worldAnchorA[1]);
-    this.bodyA.toLocalFrame(this.localAnchorA, anchor);
+    this.localAnchorA.set(this.bodyA.toLocalFrame(anchor));
   }
 
   setWorldAnchorB(worldAnchorB: CompatibleVector): void {
     const anchor = V(worldAnchorB[0], worldAnchorB[1]);
-    this.bodyB.toLocalFrame(this.localAnchorB, anchor);
+    this.localAnchorB.set(this.bodyB.toLocalFrame(anchor));
   }
 
-  getWorldAnchorA(result: V2d): void {
-    this.bodyA.toWorldFrame(result, this.localAnchorA);
+  getWorldAnchorA(): V2d {
+    return this.bodyA.toWorldFrame(this.localAnchorA);
   }
 
-  getWorldAnchorB(result: V2d): void {
-    this.bodyB.toWorldFrame(result, this.localAnchorB);
+  getWorldAnchorB(): V2d {
+    return this.bodyB.toWorldFrame(this.localAnchorB);
   }
 
-  applyForce(): void {
+  applyForce(): this {
     const k = this.stiffness;
     const d = this.damping;
     const l = this.restLength;
     const bodyA = this.bodyA;
     const bodyB = this.bodyB;
-    const r = applyForce_r;
-    const r_unit = applyForce_r_unit;
-    const u = applyForce_u;
-    const f = applyForce_f;
-    const tmp = applyForce_tmp;
-
-    const worldAnchorA = applyForce_worldAnchorA;
-    const worldAnchorB = applyForce_worldAnchorB;
-    const ri = applyForce_ri;
-    const rj = applyForce_rj;
 
     // Get world anchors
-    this.getWorldAnchorA(worldAnchorA);
-    this.getWorldAnchorB(worldAnchorB);
+    const worldAnchorA = this.getWorldAnchorA();
+    const worldAnchorB = this.getWorldAnchorB();
 
     // Get offset points
-    ri.set(worldAnchorA).isub(bodyA.position);
-    rj.set(worldAnchorB).isub(bodyB.position);
+    const ri = worldAnchorA.sub(bodyA.position);
+    const rj = worldAnchorB.sub(bodyB.position);
 
     // Compute distance vector between world anchor points
-    r.set(worldAnchorB).isub(worldAnchorA);
+    const r = worldAnchorB.sub(worldAnchorA);
     const rlen = r.magnitude;
-    r_unit.set(r).inormalize();
+    const r_unit = r.normalize();
 
     // Compute relative velocity of the anchor points, u
-    u.set(bodyB.velocity).isub(bodyA.velocity);
-    tmp.set(rj).icrossZV(bodyB.angularVelocity);
-    u.iadd(tmp);
-    tmp.set(ri).icrossZV(bodyA.angularVelocity);
-    u.isub(tmp);
+    const u = bodyB.velocity
+      .sub(bodyA.velocity)
+      .add(rj.crossZV(bodyB.angularVelocity))
+      .sub(ri.crossZV(bodyA.angularVelocity));
 
     // F = - k * ( x - L ) - D * ( u )
-    f.set(r_unit).imul(-k * (rlen - l) - d * u.dot(r_unit));
+    const f = r_unit.mul(-k * (rlen - l) - d * u.dot(r_unit));
 
     // Add forces to bodies
     bodyA.force.isub(f);
@@ -126,5 +103,6 @@ export default class LinearSpring extends Spring {
     const rj_x_f = rj.crossLength(f);
     bodyA.angularForce -= ri_x_f;
     bodyB.angularForce += rj_x_f;
+    return this;
   }
 }

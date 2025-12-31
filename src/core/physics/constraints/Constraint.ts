@@ -1,6 +1,5 @@
 import type Body from "../body/Body";
 import type Equation from "../equations/Equation";
-import { defaults } from "../utils/Utils";
 
 export interface ConstraintOptions {
   collideConnected?: boolean;
@@ -52,17 +51,15 @@ export default class Constraint {
   ) {
     this.type = type ?? 0;
 
-    const opts = defaults(options, {
-      collideConnected: true,
-      wakeUpBodies: true,
-    });
+    const collideConnected = options?.collideConnected ?? true;
+    const wakeUpBodies = options?.wakeUpBodies ?? true;
 
     this.bodyA = bodyA;
     this.bodyB = bodyB;
-    this.collideConnected = opts.collideConnected;
+    this.collideConnected = collideConnected;
 
     // Wake up bodies when connected
-    if (opts.wakeUpBodies) {
+    if (wakeUpBodies) {
       if (bodyA) {
         bodyA.wakeUp();
       }
@@ -75,7 +72,7 @@ export default class Constraint {
   /**
    * Updates the internal constraint parameters before solve.
    */
-  update(): void {
+  update(): this {
     throw new Error(
       "method update() not implemented in this Constraint subclass!"
     );
@@ -84,24 +81,26 @@ export default class Constraint {
   /**
    * Set stiffness for this constraint.
    */
-  setStiffness(stiffness: number): void {
+  setStiffness(stiffness: number): this {
     const eqs = this.equations;
     for (let i = 0; i !== eqs.length; i++) {
       const eq = eqs[i];
       eq.stiffness = stiffness;
       eq.needsUpdate = true;
     }
+    return this;
   }
 
   /**
    * Set relaxation for this constraint.
    */
-  setRelaxation(relaxation: number): void {
+  setRelaxation(relaxation: number): this {
     const eqs = this.equations;
     for (let i = 0; i !== eqs.length; i++) {
       const eq = eqs[i];
       eq.relaxation = relaxation;
       eq.needsUpdate = true;
     }
+    return this;
   }
 }

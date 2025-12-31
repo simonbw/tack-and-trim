@@ -11,6 +11,7 @@ export type { CompatibleVector } from "../Vector";
 // Events
 export { default as EventEmitter } from "./events/EventEmitter";
 export type { P2Event } from "./events/EventEmitter";
+export type { PhysicsEvent, PhysicsEventMap } from "./events/PhysicsEvents";
 
 // Utils
 export { default as ContactEquationPool } from "./utils/ContactEquationPool";
@@ -23,14 +24,7 @@ export { default as OverlapKeeperRecordPool } from "./utils/OverlapKeeperRecordP
 export { default as Pool } from "./utils/Pool";
 export type { PoolOptions } from "./utils/Pool";
 export { default as TupleDictionary } from "./utils/TupleDictionary";
-export {
-  appendArray,
-  ARRAY_TYPE,
-  defaults,
-  extend,
-  splice,
-  default as Utils,
-} from "./utils/Utils";
+export { appendArray, ARRAY_TYPE, splice } from "./utils/Utils";
 
 // Collision
 export { default as AABB } from "./collision/AABB";

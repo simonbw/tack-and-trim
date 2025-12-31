@@ -1,6 +1,6 @@
 import Shape, { ShapeOptions } from "./Shape";
 import { V, V2d } from "../../Vector";
-import type AABB from "../collision/AABB";
+import AABB from "../collision/AABB";
 import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
 
@@ -49,7 +49,7 @@ export default class Capsule extends Shape {
       Math.PI * this.radius * this.radius + this.radius * 2 * this.length;
   }
 
-  computeAABB(out: AABB, position: V2d, angle: number): void {
+  computeAABB(position: V2d, angle: number): AABB {
     const radius = this.radius;
 
     r.set(this.length / 2, 0);
@@ -57,6 +57,7 @@ export default class Capsule extends Shape {
       r.irotate(angle);
     }
 
+    const out = new AABB();
     out.upperBound.set(
       Math.max(r[0] + radius, -r[0] + radius),
       Math.max(r[1] + radius, -r[1] + radius)
@@ -68,6 +69,7 @@ export default class Capsule extends Shape {
 
     out.lowerBound.iadd(position);
     out.upperBound.iadd(position);
+    return out;
   }
 
   raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {
