@@ -1,11 +1,11 @@
-import { mod } from "../util/MathUtil";
-import Body from "./body/Body";
-import AABB from "./collision/AABB";
-import Broadphase from "./collision/Broadphase";
-import Ray from "./collision/Ray";
-import SAPBroadphase from "./collision/SAPBroadphase";
-import Shape from "./shapes/Shape";
-import World from "./world/World";
+import { mod } from "../../util/MathUtil";
+import Body from "../body/Body";
+import Shape from "../shapes/Shape";
+import World from "../world/World";
+import AABB from "./AABB";
+import Broadphase from "./Broadphase";
+import Ray from "./Ray";
+import SAPBroadphase from "./SAPBroadphase";
 
 const CUSTOM_BROADPHASE_TYPE = 3;
 const HUGE_LIMIT = 200;

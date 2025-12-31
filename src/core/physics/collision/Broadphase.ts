@@ -1,4 +1,4 @@
-import { V, V2d } from "../../Vector";
+import { V } from "../../Vector";
 import type Body from "../body/Body";
 import type World from "../world/World";
 import type AABB from "./AABB";
@@ -8,7 +8,7 @@ const dist = V();
 /**
  * Base class for broadphase implementations.
  */
-export default class Broadphase {
+export default abstract class Broadphase {
   static readonly AABB = 1;
   static readonly BOUNDING_CIRCLE = 2;
   static readonly NAIVE = 1;

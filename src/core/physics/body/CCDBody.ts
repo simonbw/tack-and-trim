@@ -1,19 +1,7 @@
-import { V, V2d } from "../../Vector";
+import { V } from "../../Vector";
 import Ray from "../collision/Ray";
 import RaycastResult from "../collision/RaycastResult";
 import Body from "./Body";
-
-const _result = new RaycastResult();
-const _ray = new Ray({
-  from: [0, 0],
-  to: [0, 0],
-  mode: Ray.CLOSEST,
-  skipBackfaces: true,
-});
-const _end = V();
-const _startToEnd = V();
-const _rememberPosition = V();
-const _integrateVelodt = V();
 
 /**
  * A physics body with Continuous Collision Detection (CCD) support.
@@ -28,40 +16,45 @@ export default class CCDBody extends Body {
       return false;
     }
 
-    _end.set(this.velocity).imul(dt).iadd(this.position);
-
-    _startToEnd.set(_end).isub(this.position);
+    const end = V(this.velocity).imul(dt).iadd(this.position);
+    const startToEnd = V(end).isub(this.position);
     const startToEndAngle = this.angularVelocity * dt;
-    const len = _startToEnd.magnitude;
+    const len = startToEnd.magnitude;
 
     let timeOfImpact = 1;
     let hit: Body | undefined;
     const self = this;
 
-    _result.reset();
-    _ray.callback = function (result: RaycastResult) {
-      if (result.body === self) {
+    const result = new RaycastResult();
+    const ray = new Ray({
+      from: this.position,
+      to: end,
+      mode: Ray.CLOSEST,
+      skipBackfaces: true,
+    });
+
+    ray.callback = function (rayResult: RaycastResult) {
+      if (rayResult.body === self) {
         return;
       }
-      hit = result.body ?? undefined;
-      _end.set(result.getHitPoint(_ray));
-      _startToEnd.set(_end).isub(self.position);
-      timeOfImpact = _startToEnd.magnitude / len;
-      result.stop();
+      hit = rayResult.body ?? undefined;
+      end.set(rayResult.getHitPoint(ray));
+      startToEnd.set(end).isub(self.position);
+      timeOfImpact = startToEnd.magnitude / len;
+      rayResult.stop();
     };
-    _ray.from.set(this.position);
-    _ray.to.set(_end);
-    _ray.collisionGroup = this.getCollisionGroup();
-    _ray.collisionMask = this.getCollisionMask();
-    _ray.update();
-    this.world!.raycast(_result, _ray);
+
+    ray.collisionGroup = this.getCollisionGroup();
+    ray.collisionMask = this.getCollisionMask();
+    ray.update();
+    this.world!.raycast(result, ray);
 
     if (!hit) {
       return false;
     }
 
     const rememberAngle = this.angle;
-    _rememberPosition.set(this.position);
+    const rememberPosition = V(this.position);
 
     // Got a start and end point. Approximate time of impact using binary search
     let iter = 0;
@@ -75,8 +68,8 @@ export default class CCDBody extends Body {
       tmid = (tmax - tmin) / 2;
 
       // Move the body to that point
-      _integrateVelodt.set(_startToEnd).imul(timeOfImpact);
-      this.position.set(_rememberPosition).iadd(_integrateVelodt);
+      const integrateVelodt = V(startToEnd).imul(timeOfImpact);
+      this.position.set(rememberPosition).iadd(integrateVelodt);
       this.angle = rememberAngle + startToEndAngle * timeOfImpact;
       this.updateAABB();
 
@@ -96,12 +89,12 @@ export default class CCDBody extends Body {
 
     timeOfImpact = tmid;
 
-    this.position.set(_rememberPosition);
+    this.position.set(rememberPosition);
     this.angle = rememberAngle;
 
     // move to TOI
-    _integrateVelodt.set(_startToEnd).imul(timeOfImpact);
-    this.position.iadd(_integrateVelodt);
+    const finalVelodt = V(startToEnd).imul(timeOfImpact);
+    this.position.iadd(finalVelodt);
     if (!this.fixedRotation) {
       this.angle += startToEndAngle * timeOfImpact;
     }
