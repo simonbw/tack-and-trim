@@ -1,4 +1,6 @@
-import { Body, Box, RevoluteConstraint } from "../../core/physics";
+import Body from "../../core/physics/body/Body";
+import Box from "../../core/physics/shapes/Box";
+import RevoluteConstraint from "../../core/physics/constraints/RevoluteConstraint";
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";

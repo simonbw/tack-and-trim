@@ -1,9 +1,11 @@
-import { Body, Constraint, Spring } from "../physics";
 import { EntityDef } from "../EntityDef";
 import Game from "../Game";
 import { V, V2d } from "../Vector";
+import Body from "../physics/body/Body";
+import Constraint from "../physics/constraints/Constraint";
+import Spring from "../physics/springs/Spring";
+import { shapeFromDef } from "../physics/utils/ShapeUtils";
 import { clamp } from "../util/MathUtil";
-import { shapeFromDef } from "../util/PhysicsUtils";
 import Entity, { GameEventMap } from "./Entity";
 import { GameSprite, spriteFromDef } from "./GameSprite";
 
@@ -58,7 +60,9 @@ export default abstract class BaseEntity implements Entity {
   /** Convert local coordinates to world coordinates. Requires a body */
   localToWorld(localPoint: V2d | [number, number]): V2d {
     if (this.body) {
-      const local = Array.isArray(localPoint) ? V(localPoint[0], localPoint[1]) : localPoint;
+      const local = Array.isArray(localPoint)
+        ? V(localPoint[0], localPoint[1])
+        : localPoint;
       return this.body.toWorldFrame(local);
     }
     return V(0, 0);
@@ -66,7 +70,9 @@ export default abstract class BaseEntity implements Entity {
 
   worldToLocal(worldPoint: V2d | [number, number]): V2d {
     if (this.body) {
-      const world = Array.isArray(worldPoint) ? V(worldPoint[0], worldPoint[1]) : worldPoint;
+      const world = Array.isArray(worldPoint)
+        ? V(worldPoint[0], worldPoint[1])
+        : worldPoint;
       return this.body.toLocalFrame(world);
     }
     return V(0, 0);

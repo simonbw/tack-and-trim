@@ -1,4 +1,4 @@
-import { DistanceConstraint } from "../../core/physics";
+import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";

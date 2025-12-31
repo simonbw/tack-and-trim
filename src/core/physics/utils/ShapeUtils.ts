@@ -1,6 +1,10 @@
-import { ShapeDef } from "../EntityDef";
-import { Box, Circle, Convex, Line, Shape } from "../physics";
-import { V, V2d } from "../Vector";
+import Box from "../shapes/Box";
+import Circle from "../shapes/Circle";
+import Convex from "../shapes/Convex";
+import Line from "../shapes/Line";
+import Shape from "../shapes/Shape";
+import { ShapeDef } from "../../EntityDef";
+import { V, V2d } from "../../Vector";
 
 /**
  * Creates a p2.js Line physics shape from two points.

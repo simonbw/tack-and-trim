@@ -1,4 +1,5 @@
-import { ContactMaterial, Material } from "../core/physics";
+import ContactMaterial from "../core/physics/material/ContactMaterial";
+import Material from "../core/physics/material/Material";
 import { objectEntries } from "../core/util/ObjectUtils";
 
 export const Materials = {
