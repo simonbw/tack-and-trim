@@ -7,7 +7,6 @@ import Ray from "../collision/Ray";
 import type RaycastResult from "../collision/RaycastResult";
 import Constraint from "../constraints/Constraint";
 import type ContactEquation from "../equations/ContactEquation";
-import type FrictionEquation from "../equations/FrictionEquation";
 import EventEmitter from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
 import ContactMaterial from "../material/ContactMaterial";
@@ -23,7 +22,6 @@ import SpatialHashingBroadphase from "../SpatialHashingBroadphase";
 import type Spring from "../springs/Spring";
 import OverlapKeeper from "../utils/OverlapKeeper";
 import type OverlapKeeperRecord from "../utils/OverlapKeeperRecord";
-import { appendArray, splice } from "../utils/Utils";
 import IslandManager from "./IslandManager";
 
 export interface WorldOptions {
@@ -32,17 +30,6 @@ export interface WorldOptions {
   broadphase?: Broadphase;
   islandSplit?: boolean;
 }
-
-// Module-level temp vectors
-const step_mg = V();
-const xiw = V();
-const xjw = V();
-const endOverlaps: OverlapKeeperRecord[] = [];
-
-const hitTest_tmp1 = V();
-const hitTest_tmp2 = V();
-const tmpAABB = new AABB();
-const tmpArray: Body[] = [];
 
 /**
  * The dynamics world, where all bodies and constraints live.
@@ -142,7 +129,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   removeContactMaterial(cm: ContactMaterial): void {
     const idx = this.contactMaterials.indexOf(cm);
     if (idx !== -1) {
-      splice(this.contactMaterials, idx, 1);
+      this.contactMaterials.splice(idx, 1);
     }
   }
 
@@ -173,7 +160,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   removeConstraint(constraint: Constraint): void {
     const idx = this.constraints.indexOf(constraint);
     if (idx !== -1) {
-      splice(this.constraints, idx, 1);
+      this.constraints.splice(idx, 1);
     }
   }
 
@@ -222,7 +209,6 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     const broadphase = this.broadphase;
     const np = this.narrowphase;
     const constraints = this.constraints;
-    const mg = step_mg;
     const islandManager = this.islandManager;
 
     this.overlapKeeper.tick();
@@ -243,7 +229,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
         if (b.type !== Body.DYNAMIC || b.sleepState === Body.SLEEPING) {
           continue;
         }
-        mg.set(g).imul(b.mass * b.gravityScale);
+        const mg = V(g).imul(b.mass * b.gravityScale);
         b.force.iadd(mg);
       }
     }
@@ -356,10 +342,10 @@ export default class World extends EventEmitter<PhysicsEventMap> {
 
     // Emit end overlap events
     if (this.has("endContact")) {
+      const endOverlaps: OverlapKeeperRecord[] = [];
       this.overlapKeeper.getEndOverlaps(endOverlaps);
-      let l = endOverlaps.length;
-      while (l--) {
-        const data = endOverlaps[l];
+      for (let i = endOverlaps.length - 1; i >= 0; i--) {
+        const data = endOverlaps[i];
         // These should never be null in practice, but OverlapKeeperRecord allows null
         if (data.shapeA && data.shapeB && data.bodyA && data.bodyB) {
           this.emit({
@@ -371,7 +357,6 @@ export default class World extends EventEmitter<PhysicsEventMap> {
           });
         }
       }
-      endOverlaps.length = 0;
     }
 
     this.emit({
@@ -393,10 +378,10 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       if (this.islandSplit) {
         // Split into islands
         islandManager.equations.length = 0;
-        appendArray(islandManager.equations, np.contactEquations);
-        appendArray(islandManager.equations, np.frictionEquations);
+        islandManager.equations.push(...np.contactEquations);
+        islandManager.equations.push(...np.frictionEquations);
         for (let i = 0; i !== Nconstraints; i++) {
-          appendArray(islandManager.equations, constraints[i].equations);
+          islandManager.equations.push(...constraints[i].equations);
         }
         islandManager.split(this);
 
@@ -511,8 +496,8 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
 
     // Get world position and angle of each shape
-    xiw.set(xi).irotate(bi.angle).iadd(bi.position);
-    xjw.set(xj).irotate(bj.angle).iadd(bj.position);
+    const xiw = V(xi).irotate(bi.angle).iadd(bi.position);
+    const xjw = V(xj).irotate(bj.angle).iadd(bj.position);
     const aiw = ai + bi.angle;
     const ajw = aj + bj.angle;
 
@@ -663,7 +648,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   removeSpring(spring: Spring): void {
     const idx = this.springs.indexOf(spring);
     if (idx !== -1) {
-      splice(this.springs, idx, 1);
+      this.springs.splice(idx, 1);
     }
   }
 
@@ -695,7 +680,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       body.world = null;
       const idx = this.bodies.indexOf(body);
       if (idx !== -1) {
-        splice(this.bodies, idx, 1);
+        this.bodies.splice(idx, 1);
 
         this.dynamicBodies.delete(body);
         this.kinematicBodies.delete(body);
@@ -788,8 +773,6 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     const ps = new Particle();
     const px = worldPoint;
     const pa = 0;
-    const x = hitTest_tmp1;
-    const tmp = hitTest_tmp2;
     pb.addShape(ps);
 
     const n = this.narrowphase;
@@ -803,7 +786,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
         const s = b.shapes[j];
 
         // Get shape world position + angle
-        x.set(s.position).irotate(b.angle).iadd(b.position);
+        const x = V(s.position).irotate(b.angle).iadd(b.position);
         const a = s.angle + b.angle;
 
         if (
@@ -814,8 +797,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
           (s instanceof Capsule &&
             n.particleCapsule(pb, ps, px, pa, b, s, x, a, true)) ||
           (s instanceof Particle &&
-            tmp.set(x).isub(worldPoint).squaredMagnitude <
-              precision * precision)
+            V(x).isub(worldPoint).squaredMagnitude < precision * precision)
         ) {
           result.push(b);
         }
@@ -886,10 +868,11 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     shouldAddBodies: boolean = true
   ): boolean {
     // Get all bodies within the ray AABB
+    const tmpAABB = new AABB();
+    const tmpArray: Body[] = [];
     ray.getAABB(tmpAABB);
     this.broadphase.aabbQuery(this, tmpAABB, tmpArray, shouldAddBodies);
     ray.intersectBodies(result, tmpArray);
-    tmpArray.length = 0;
 
     return result.hasHit();
   }

@@ -1,12 +1,11 @@
-import { V, V2d, CompatibleVector } from "../../Vector";
-import RaycastResult from "../collision/RaycastResult";
-import Ray from "../collision/Ray";
+import { CompatibleVector, V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
+import Ray from "../collision/Ray";
+import RaycastResult from "../collision/RaycastResult";
 import EventEmitter from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
 import type Shape from "../shapes/Shape";
 import type World from "../world/World";
-
 
 export interface BodyOptions {
   force?: CompatibleVector;
@@ -131,8 +130,7 @@ export default class Body extends EventEmitter<PhysicsEventMap> {
     }
 
     this.angularForce = options.angularForce || 0;
-    this.damping =
-      typeof options.damping === "number" ? options.damping : 0.1;
+    this.damping = typeof options.damping === "number" ? options.damping : 0.1;
     this.angularDamping =
       typeof options.angularDamping === "number" ? options.angularDamping : 0.1;
 
@@ -156,7 +154,9 @@ export default class Body extends EventEmitter<PhysicsEventMap> {
     this.gravityScale =
       options.gravityScale !== undefined ? options.gravityScale : 1;
     this.collisionResponse =
-      options.collisionResponse !== undefined ? options.collisionResponse : true;
+      options.collisionResponse !== undefined
+        ? options.collisionResponse
+        : true;
     this.ccdSpeedThreshold =
       options.ccdSpeedThreshold !== undefined ? options.ccdSpeedThreshold : -1;
     this.ccdIterations =
@@ -370,7 +370,9 @@ export default class Body extends EventEmitter<PhysicsEventMap> {
    */
   applyForceLocal(localForce: V2d, localPoint?: V2d): this {
     const worldForce = this.vectorToWorldFrame(localForce);
-    const worldPoint = localPoint ? this.vectorToWorldFrame(localPoint) : undefined;
+    const worldPoint = localPoint
+      ? this.vectorToWorldFrame(localPoint)
+      : undefined;
     this.applyForce(worldForce, worldPoint);
     return this;
   }
@@ -410,7 +412,9 @@ export default class Body extends EventEmitter<PhysicsEventMap> {
    */
   applyImpulseLocal(localImpulse: V2d, localPoint?: V2d): this {
     const worldImpulse = this.vectorToWorldFrame(localImpulse);
-    const worldPoint = localPoint ? this.vectorToWorldFrame(localPoint) : undefined;
+    const worldPoint = localPoint
+      ? this.vectorToWorldFrame(localPoint)
+      : undefined;
     this.applyImpulse(worldImpulse, worldPoint);
     return this;
   }
@@ -441,24 +445,6 @@ export default class Body extends EventEmitter<PhysicsEventMap> {
    */
   vectorToWorldFrame(localVector: V2d): V2d {
     return V(localVector).irotate(this.angle);
-  }
-
-  /**
-   * Reads a polygon shape path, and assembles convex shapes from that and puts
-   * them at proper offset points.
-   * @deprecated This method requires poly-decomp which is not included. Use Convex shapes directly instead.
-   */
-  fromPolygon(
-    _path: V2d[],
-    _options: {
-      optimalDecomp?: boolean;
-      skipSimpleCheck?: boolean;
-      removeCollinearPoints?: boolean | number;
-    } = {}
-  ): boolean {
-    throw new Error(
-      "fromPolygon requires poly-decomp library which is not included. Use Convex shapes directly instead."
-    );
   }
 
   /**

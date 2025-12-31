@@ -1,5 +1,3 @@
-import { appendArray } from "./Utils";
-
 /**
  * Stores data keyed by integer pairs.
  */
@@ -59,7 +57,7 @@ export default class TupleDictionary<T = any> {
 
   copy(dict: TupleDictionary<T>): void {
     this.reset();
-    appendArray(this.keys, dict.keys);
+    this.keys.push(...dict.keys);
     for (let i = dict.keys.length - 1; i >= 0; i--) {
       const key = dict.keys[i];
       this.data[key] = dict.data[key];

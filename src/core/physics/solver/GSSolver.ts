@@ -1,8 +1,8 @@
-import Solver, { SolverOptions, MinimalWorld } from "./Solver";
-import { ARRAY_TYPE } from "../utils/Utils";
-import FrictionEquation from "../equations/FrictionEquation";
 import type Equation from "../equations/Equation";
+import FrictionEquation from "../equations/FrictionEquation";
+import { ARRAY_TYPE } from "../utils/Utils";
 import type World from "../world/World";
+import Solver, { MinimalWorld, SolverOptions } from "./Solver";
 
 export interface GSSolverOptions extends SolverOptions {
   iterations?: number;

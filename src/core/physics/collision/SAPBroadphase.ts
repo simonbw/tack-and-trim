@@ -1,5 +1,4 @@
 import type Body from "../body/Body";
-import { appendArray } from "../utils/Utils";
 import type World from "../world/World";
 import AABB from "./AABB";
 import Broadphase from "./Broadphase";
@@ -46,7 +45,7 @@ export default class SAPBroadphase extends Broadphase {
     this.axisList.length = 0;
 
     // Add all bodies from the new world
-    appendArray(this.axisList, world.bodies);
+    this.axisList.push(...world.bodies);
 
     // Remove old handlers, if any
     world

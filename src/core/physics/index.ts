@@ -24,7 +24,7 @@ export { default as OverlapKeeperRecordPool } from "./utils/OverlapKeeperRecordP
 export { default as Pool } from "./utils/Pool";
 export type { PoolOptions } from "./utils/Pool";
 export { default as TupleDictionary } from "./utils/TupleDictionary";
-export { appendArray, ARRAY_TYPE, splice } from "./utils/Utils";
+export { ARRAY_TYPE } from "./utils/Utils";
 
 // Collision
 export { default as AABB } from "./collision/AABB";
