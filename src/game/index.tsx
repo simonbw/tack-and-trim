@@ -2,6 +2,7 @@ import { TextureStyle } from "pixi.js";
 import Game from "../core/Game";
 import FPSMeter from "../core/util/FPSMeter";
 import { Boat } from "./boat/Boat";
+import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
 import { Wake } from "./Wake";
@@ -41,6 +42,10 @@ async function main() {
   }
 
   game.addEntity(new Water());
+  game.addEntity(new Buoy(200, 0));
+  game.addEntity(new Buoy(-160, 120));
+  game.addEntity(new Buoy(100, -200));
+  game.addEntity(new Buoy(-240, -100));
   game.addEntity(new Wind());
   game.addEntity(new WindIndicator());
   const boat = game.addEntity(new Boat());
