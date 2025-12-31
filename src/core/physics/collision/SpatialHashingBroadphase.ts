@@ -38,7 +38,7 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
     // number of cells tall
     private height: number = 24
   ) {
-    super(CUSTOM_BROADPHASE_TYPE as any);
+    super();
 
     for (let i = 0; i < width * height; i++) {
       this.partitions.push(new Set());

@@ -22,8 +22,8 @@ export default class SAPBroadphase extends Broadphase {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   _removeBodyHandler: (e: any) => void;
 
-  constructor(type?: number) {
-    super(type ?? Broadphase.SAP);
+  constructor() {
+    super();
 
     this._addBodyHandler = (e: { body: Body }) => {
       this.axisList.push(e.body);

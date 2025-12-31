@@ -11,19 +11,13 @@ const dist = V();
 export default abstract class Broadphase {
   static readonly AABB = 1;
   static readonly BOUNDING_CIRCLE = 2;
-  static readonly NAIVE = 1;
-  static readonly SAP = 2;
 
-  type: number;
   result: Body[];
   world: World | null;
-  boundingVolumeType: number;
 
-  constructor(type?: number) {
-    this.type = type ?? 0;
+  constructor() {
     this.result = [];
     this.world = null;
-    this.boundingVolumeType = Broadphase.AABB;
   }
 
   /**
@@ -36,60 +30,25 @@ export default abstract class Broadphase {
   /**
    * Get all potential intersecting body pairs.
    */
-  getCollisionPairs(_world: World): Body[] {
-    return [];
-  }
-
-  /**
-   * Check whether the bounding radius of two bodies overlap.
-   */
-  static boundingRadiusCheck(bodyA: Body, bodyB: Body): boolean {
-    dist.set(bodyA.position).isub(bodyB.position);
-    const d2 = dist.squaredMagnitude;
-    const r = bodyA.boundingRadius + bodyB.boundingRadius;
-    return d2 <= r * r;
-  }
+  abstract getCollisionPairs(_world: World): Body[];
 
   /**
    * Check whether the AABBs of two bodies overlap.
    */
-  static aabbCheck(bodyA: Body, bodyB: Body): boolean {
-    return bodyA.getAABB().overlaps(bodyB.getAABB());
-  }
-
-  /**
-   * Check whether the bounding volumes of two bodies overlap.
-   */
   boundingVolumeCheck(bodyA: Body, bodyB: Body): boolean {
-    let result: boolean;
-
-    switch (this.boundingVolumeType) {
-      case Broadphase.BOUNDING_CIRCLE:
-        result = Broadphase.boundingRadiusCheck(bodyA, bodyB);
-        break;
-      case Broadphase.AABB:
-        result = Broadphase.aabbCheck(bodyA, bodyB);
-        break;
-      default:
-        throw new Error(
-          "Bounding volume type not recognized: " + this.boundingVolumeType
-        );
-    }
-    return result;
+    return bodyA.getAABB().overlaps(bodyB.getAABB());
   }
 
   /**
    * Returns all the bodies within an AABB.
    * @param shouldAddBodies If true, adds dynamic/kinematic bodies to hash before querying (SpatialHashingBroadphase only)
    */
-  aabbQuery(
+  abstract aabbQuery(
     _world: World,
     _aabb: AABB,
-    result: Body[] = [],
-    _shouldAddBodies: boolean = true
-  ): Body[] {
-    return result;
-  }
+    result?: Body[],
+    _shouldAddBodies?: boolean
+  ): Body[];
 
   /**
    * Check whether two bodies are allowed to collide at all.
