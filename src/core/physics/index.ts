@@ -1,9 +1,6 @@
 // Physics engine - Barrel export
 // Based on p2.js with custom extensions
 
-// Math
-export * as polyk from "./math/polyk";
-
 // Re-export V2d for convenience
 export { V, V2d } from "../Vector";
 export type { CompatibleVector } from "../Vector";

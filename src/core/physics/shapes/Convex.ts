@@ -1,9 +1,8 @@
-import Shape, { ShapeOptions } from "./Shape";
-import { V, V2d, CompatibleVector } from "../../Vector";
-import { Triangulate } from "../math/polyk";
+import { CompatibleVector, V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
-import type RaycastResult from "../collision/RaycastResult";
 import type Ray from "../collision/Ray";
+import type RaycastResult from "../collision/RaycastResult";
+import Shape, { ShapeOptions } from "./Shape";
 
 export interface ConvexOptions extends ShapeOptions {
   vertices?: CompatibleVector[];
@@ -72,7 +71,9 @@ export default class Convex extends Shape {
     this.updateArea();
 
     if (this.area < 0) {
-      throw new Error("Convex vertices must be given in counter-clockwise winding.");
+      throw new Error(
+        "Convex vertices must be given in counter-clockwise winding."
+      );
     }
   }
 
@@ -109,9 +110,8 @@ export default class Convex extends Shape {
     const result = this.projectOntoLocalAxis(localAxis);
 
     // Project the position of the body onto the axis
-    const worldAxis = shapeAngle !== 0
-      ? V(localAxis).rotate(shapeAngle)
-      : V(localAxis);
+    const worldAxis =
+      shapeAngle !== 0 ? V(localAxis).rotate(shapeAngle) : V(localAxis);
     const offset = shapeOffset.dot(worldAxis);
 
     return V(result[0] + offset, result[1] + offset);
@@ -120,22 +120,14 @@ export default class Convex extends Shape {
   updateTriangles(): void {
     this.triangles.length = 0;
 
-    // Rewrite on polyk notation, array of numbers
-    const polykVerts: number[] = [];
-    for (let i = 0; i < this.vertices.length; i++) {
-      const v = this.vertices[i];
-      polykVerts.push(v[0], v[1]);
-    }
+    // Triangulate the polygon using ear clipping
+    const triangleIndices = Convex.triangulate(this.vertices);
 
-    // Triangulate
-    const triangles = Triangulate(polykVerts);
-
-    // Loop over all triangles
-    for (let i = 0; i < triangles.length; i += 3) {
-      const id1 = triangles[i];
-      const id2 = triangles[i + 1];
-      const id3 = triangles[i + 2];
-
+    // Convert flat array of indices to triangle arrays
+    for (let i = 0; i < triangleIndices.length; i += 3) {
+      const id1 = triangleIndices[i];
+      const id2 = triangleIndices[i + 1];
+      const id3 = triangleIndices[i + 2];
       this.triangles.push([id1, id2, id3]);
     }
   }
@@ -198,7 +190,9 @@ export default class Convex extends Shape {
   }
 
   static triangleArea(a: V2d, b: V2d, c: V2d): number {
-    return ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) * 0.5;
+    return (
+      ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) * 0.5
+    );
   }
 
   updateArea(): void {
@@ -251,5 +245,90 @@ export default class Convex extends Shape {
         ray.reportIntersection(result, delta, normal, i);
       }
     }
+  }
+
+  /**
+   * Triangulate a polygon using ear clipping algorithm.
+   * @param vertices Array of polygon vertices in counter-clockwise order
+   * @returns Array of triangle vertex indices [i0, i1, i2, i3, i4, i5, ...]
+   */
+  private static triangulate(vertices: V2d[]): number[] {
+    const n = vertices.length;
+    if (n < 3) return [];
+
+    const triangles: number[] = [];
+    const available: number[] = [];
+    for (let i = 0; i < n; i++) available.push(i);
+
+    let i = 0;
+    let al = n;
+    while (al > 3) {
+      const i0 = available[(i + 0) % al];
+      const i1 = available[(i + 1) % al];
+      const i2 = available[(i + 2) % al];
+
+      const a = vertices[i0];
+      const b = vertices[i1];
+      const c = vertices[i2];
+
+      let earFound = false;
+      if (Convex.isConvexAngle(a, b, c)) {
+        earFound = true;
+        // Check if any other vertex is inside this triangle
+        for (let j = 0; j < al; j++) {
+          const vi = available[j];
+          if (vi === i0 || vi === i1 || vi === i2) continue;
+          if (Convex.isPointInTriangle(vertices[vi], a, b, c)) {
+            earFound = false;
+            break;
+          }
+        }
+      }
+
+      if (earFound) {
+        triangles.push(i0, i1, i2);
+        available.splice((i + 1) % al, 1);
+        al--;
+        i = 0;
+      } else if (i++ > 3 * al) {
+        // No convex angles found - degenerate polygon
+        break;
+      }
+    }
+
+    // Add final triangle
+    triangles.push(available[0], available[1], available[2]);
+    return triangles;
+  }
+
+  /**
+   * Check if point p is inside triangle abc.
+   */
+  private static isPointInTriangle(p: V2d, a: V2d, b: V2d, c: V2d): boolean {
+    const v0x = c.x - a.x;
+    const v0y = c.y - a.y;
+    const v1x = b.x - a.x;
+    const v1y = b.y - a.y;
+    const v2x = p.x - a.x;
+    const v2y = p.y - a.y;
+
+    const dot00 = v0x * v0x + v0y * v0y;
+    const dot01 = v0x * v1x + v0y * v1y;
+    const dot02 = v0x * v2x + v0y * v2y;
+    const dot11 = v1x * v1x + v1y * v1y;
+    const dot12 = v1x * v2x + v1y * v2y;
+
+    const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+    const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+    const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+
+    return u >= 0 && v >= 0 && u + v < 1;
+  }
+
+  /**
+   * Check if three points form a convex angle (for counter-clockwise winding).
+   */
+  private static isConvexAngle(a: V2d, b: V2d, c: V2d): boolean {
+    return (a.y - b.y) * (c.x - b.x) + (b.x - a.x) * (c.y - b.y) >= 0;
   }
 }
