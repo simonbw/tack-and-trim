@@ -18,8 +18,7 @@ export default class Circle extends Shape {
   radius: number;
 
   constructor(options: CircleOptions = {}) {
-    const opts = { ...options, type: Shape.CIRCLE };
-    super(opts);
+    super(options);
     this.radius = options.radius ?? 1;
     this.updateBoundingRadius();
     this.updateArea();

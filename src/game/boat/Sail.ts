@@ -1,4 +1,4 @@
-import Body from "../../core/physics/body/Body";
+import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
 import { Graphics } from "pixi.js";
@@ -42,7 +42,7 @@ export class Sail extends BaseEntity {
 
     this.bodies = range(SAIL_NODES).map((i) => {
       const t = i / (SAIL_NODES - 1);
-      const body = new Body({
+      const body = new DynamicBody({
         mass: SAIL_NODE_MASS,
         position: lerpV2d(start, end, t),
         collisionResponse: false,

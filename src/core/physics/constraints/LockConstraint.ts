@@ -1,7 +1,8 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import Equation from "../equations/Equation";
-import Constraint, { ConstraintOptions } from "./Constraint";
+import { ConstraintOptions } from "./Constraint";
+import Constraint from "./Constraint";
 
 export interface LockConstraintOptions extends ConstraintOptions {
   localOffsetB?: CompatibleVector;
@@ -24,7 +25,7 @@ export default class LockConstraint extends Constraint {
   localAngleB: number;
 
   constructor(bodyA: Body, bodyB: Body, options: LockConstraintOptions = {}) {
-    super(bodyA, bodyB, Constraint.LOCK, options);
+    super(bodyA, bodyB, options);
 
     const maxForce =
       typeof options.maxForce === "undefined"

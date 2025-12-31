@@ -10,8 +10,7 @@ import Shape, { ShapeOptions } from "./Shape";
  */
 export default class Plane extends Shape {
   constructor(options: ShapeOptions = {}) {
-    const opts = { ...options, type: Shape.PLANE };
-    super(opts);
+    super(options);
     this.updateBoundingRadius();
     this.updateArea();
   }

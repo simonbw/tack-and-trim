@@ -1,4 +1,5 @@
-import Body from "../body/Body";
+import type Body from "../body/Body";
+import DynamicBody from "../body/DynamicBody";
 import type Equation from "../equations/Equation";
 import IslandNodePool from "../utils/IslandNodePool";
 import IslandPool from "../utils/IslandPool";
@@ -29,7 +30,7 @@ export default class IslandManager {
     const Nnodes = nodes.length;
     for (let i = 0; i !== Nnodes; i++) {
       const node = nodes[i];
-      if (!node.visited && node.body?.type === Body.DYNAMIC) {
+      if (!node.visited && node.body instanceof DynamicBody) {
         return node;
       }
     }
@@ -69,7 +70,7 @@ export default class IslandManager {
         child.visited = true;
         this.visit(child, bds, eqs);
 
-        if (child.body?.type === Body.DYNAMIC) {
+        if (child.body instanceof DynamicBody) {
           queue.push(child);
         }
       }

@@ -19,8 +19,7 @@ export default class Convex extends Shape {
   triangles: number[][];
 
   constructor(options: ConvexOptions = {}) {
-    const opts = { ...options, type: Shape.CONVEX };
-    super(opts);
+    super(options);
 
     this.vertices = [];
 

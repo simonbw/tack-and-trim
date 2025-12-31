@@ -1,4 +1,4 @@
-import Body from "../../core/physics/body/Body";
+import DynamicBody from "../../core/physics/body/DynamicBody";
 import Box from "../../core/physics/shapes/Box";
 import RevoluteConstraint from "../../core/physics/constraints/RevoluteConstraint";
 import { Graphics } from "pixi.js";
@@ -38,7 +38,7 @@ export class Rig extends BaseEntity {
       .fill({ color: 0x997744 });
 
     // Boom physics body - pivot is at origin, boom extends in -x direction
-    this.body = new Body({
+    this.body = new DynamicBody({
       mass: 1.0,
       position: [this.mastPosition.x, this.mastPosition.y],
     });

@@ -1,5 +1,4 @@
 import { V, V2d } from "../../Vector";
-import Shape from "./Shape";
 import Convex, { ConvexOptions } from "./Convex";
 import AABB from "../collision/AABB";
 
@@ -25,13 +24,13 @@ export default class Box extends Convex {
       V(width / 2, height / 2),
       V(-width / 2, height / 2),
     ];
-    const axes = [V(1, 0), V(0, 1)];
+    // Need 4 axes (one per edge) for circleConvex collision to work correctly
+    const axes = [V(0, -1), V(1, 0), V(0, 1), V(-1, 0)];
 
     const opts = {
       ...options,
       vertices: verts,
       axes: axes,
-      type: Shape.BOX,
     };
     super(opts);
 

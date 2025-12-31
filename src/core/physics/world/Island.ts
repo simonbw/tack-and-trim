@@ -1,4 +1,5 @@
-import Body from "../body/Body";
+import type Body from "../body/Body";
+import DynamicBody from "../body/DynamicBody";
 import type Equation from "../equations/Equation";
 
 const bodyIds: number[] = [];
@@ -41,7 +42,7 @@ export default class Island {
   wantsToSleep(): boolean {
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i];
-      if (b.type === Body.DYNAMIC && !b.wantsToSleep) {
+      if (b instanceof DynamicBody && !b.wantsToSleep) {
         return false;
       }
     }

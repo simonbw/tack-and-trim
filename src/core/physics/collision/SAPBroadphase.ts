@@ -47,7 +47,11 @@ export default class SAPBroadphase extends Broadphase {
     // Add all bodies from the new world
     this.axisList.push(...world.bodies);
 
-    // Remove old handlers, if any
+    // Remove handlers on the previous world
+    this.world?.off("addBody", this._addBodyHandler);
+    this.world?.off("removeBody", this._removeBodyHandler);
+
+    // Remove handlers that this new world may have previously had
     world
       .off("addBody", this._addBodyHandler)
       .off("removeBody", this._removeBodyHandler);
@@ -122,7 +126,7 @@ export default class SAPBroadphase extends Broadphase {
           break;
         }
 
-        if (Broadphase.canCollide(bi, bj) && this.boundingVolumeCheck(bi, bj)) {
+        if (this.canCollide(bi, bj) && this.boundingVolumeCheck(bi, bj)) {
           result.push(bi, bj);
         }
       }

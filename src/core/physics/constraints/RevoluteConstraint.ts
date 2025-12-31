@@ -3,7 +3,8 @@ import type Body from "../body/Body";
 import Equation from "../equations/Equation";
 import RotationalLockEquation from "../equations/RotationalLockEquation";
 import RotationalVelocityEquation from "../equations/RotationalVelocityEquation";
-import Constraint, { ConstraintOptions } from "./Constraint";
+import { ConstraintOptions } from "./Constraint";
+import Constraint from "./Constraint";
 
 export interface RevoluteConstraintOptions extends ConstraintOptions {
   worldPivot?: CompatibleVector;
@@ -61,7 +62,7 @@ export default class RevoluteConstraint extends Constraint {
     bodyB: Body,
     options: RevoluteConstraintOptions = {}
   ) {
-    super(bodyA, bodyB, Constraint.REVOLUTE, options);
+    super(bodyA, bodyB, options);
 
     const maxForce =
       typeof options.maxForce !== "undefined"

@@ -10,19 +10,6 @@ export interface ConstraintOptions {
  * Base constraint class.
  */
 export default class Constraint {
-  // Constraint type constants
-  static readonly DISTANCE = 1;
-  static readonly GEAR = 2;
-  static readonly LOCK = 3;
-  static readonly PRISMATIC = 4;
-  static readonly REVOLUTE = 5;
-
-  /**
-   * The type of constraint. May be one of Constraint.DISTANCE, Constraint.GEAR,
-   * Constraint.LOCK, Constraint.PRISMATIC or Constraint.REVOLUTE.
-   */
-  type: number;
-
   /**
    * Equations to be solved in this constraint
    */
@@ -43,14 +30,7 @@ export default class Constraint {
    */
   collideConnected: boolean;
 
-  constructor(
-    bodyA: Body,
-    bodyB: Body,
-    type?: number,
-    options: ConstraintOptions = {}
-  ) {
-    this.type = type ?? 0;
-
+  constructor(bodyA: Body, bodyB: Body, options: ConstraintOptions = {}) {
     const collideConnected = options?.collideConnected ?? true;
     const wakeUpBodies = options?.wakeUpBodies ?? true;
 

@@ -2,7 +2,7 @@ import { Graphics } from "pixi.js";
 import BaseEntity from "../core/entity/BaseEntity";
 import Entity from "../core/entity/Entity";
 import { createGraphics, GameSprite } from "../core/entity/GameSprite";
-import Body from "../core/physics/body/Body";
+import DynamicBody from "../core/physics/body/DynamicBody";
 import Circle from "../core/physics/shapes/Circle";
 import { V } from "../core/Vector";
 
@@ -26,7 +26,7 @@ export class Buoy extends BaseEntity {
       .stroke({ color: 0xffffff, width: 3, alignment: 1.5 });
 
     // Physics: circular body
-    this.body = new Body({ mass: BUOY_MASS });
+    this.body = new DynamicBody({ mass: BUOY_MASS });
     this.body.addShape(new Circle({ radius: BUOY_RADIUS }));
     this.body.position.set(x, y);
 

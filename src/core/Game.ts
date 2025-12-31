@@ -1,5 +1,6 @@
 import World from "./physics/world/World";
-import Body from "./physics/body/Body";
+import type Body from "./physics/body/Body";
+import StaticBody from "./physics/body/StaticBody";
 import { DEFAULT_LAYER, LAYERS } from "../config/layers";
 import ContactList, {
   ContactInfo,
@@ -119,7 +120,7 @@ export default class Game {
     this.world.on("beginContact", this.beginContact as any, null);
     this.world.on("endContact", this.endContact as any, null);
     this.world.on("impact", this.impact as any, null);
-    this.ground = new Body({ mass: 0 });
+    this.ground = new StaticBody();
     this.world.addBody(this.ground);
     this.contactList = new ContactList();
 
@@ -465,7 +466,7 @@ export default class Game {
     const MAX_VELOCITY = 500;
 
     for (const body of this.world.bodies) {
-      if (body.type === Body.STATIC) continue;
+      if (body instanceof StaticBody) continue;
 
       const [x, y] = body.position;
       const [vx, vy] = body.velocity;

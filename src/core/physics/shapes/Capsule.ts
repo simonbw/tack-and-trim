@@ -24,8 +24,7 @@ export default class Capsule extends Shape {
   radius: number;
 
   constructor(options: CapsuleOptions = {}) {
-    const opts = { ...options, type: Shape.CAPSULE };
-    super(opts);
+    super(options);
     this.length = options.length ?? 1;
     this.radius = options.radius ?? 1;
     this.updateBoundingRadius();

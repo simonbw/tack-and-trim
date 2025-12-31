@@ -65,7 +65,7 @@ export default class DistanceConstraint extends Constraint {
     bodyB: Body,
     options: DistanceConstraintOptions = {}
   ) {
-    super(bodyA, bodyB, Constraint.DISTANCE, options);
+    super(bodyA, bodyB, options);
 
     const localAnchorAOpt = options?.localAnchorA ?? [0, 0];
     const localAnchorBOpt = options?.localAnchorB ?? [0, 0];
@@ -195,6 +195,7 @@ export default class DistanceConstraint extends Constraint {
     G[3] = nNormalized[0];
     G[4] = nNormalized[1];
     G[5] = rjxn;
+
     return this;
   }
 

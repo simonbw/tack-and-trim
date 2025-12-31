@@ -7,8 +7,7 @@ import AABB from "../collision/AABB";
  */
 export default class Particle extends Shape {
   constructor(options: ShapeOptions = {}) {
-    const opts = { ...options, type: Shape.PARTICLE };
-    super(opts);
+    super(options);
     this.updateBoundingRadius();
     this.updateArea();
   }

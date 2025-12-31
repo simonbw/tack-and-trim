@@ -2,7 +2,8 @@ import type Equation from "../equations/Equation";
 import FrictionEquation from "../equations/FrictionEquation";
 import { ARRAY_TYPE } from "../utils/Utils";
 import type World from "../world/World";
-import Solver, { MinimalWorld, SolverOptions } from "./Solver";
+import { MinimalWorld, SolverOptions } from "./Solver";
+import Solver from "./Solver";
 
 export interface GSSolverOptions extends SolverOptions {
   iterations?: number;
@@ -67,7 +68,7 @@ export default class GSSolver extends Solver {
   }
 
   constructor(options: GSSolverOptions = {}) {
-    super(options, Solver.GS);
+    super(options);
 
     this.iterations = options.iterations || 10;
     this.tolerance = options.tolerance || 1e-7;

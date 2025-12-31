@@ -23,14 +23,15 @@ export default class RaycastResult {
 
   /**
    * The index of the hit triangle, if the hit shape was indexable.
+   * Will be null if there was no hit.
    */
-  faceIndex: number = -1;
+  faceIndex: number | null = null;
 
   /**
    * Distance to the hit, as a fraction. 0 is at the "from" point, 1 is at the "to" point.
-   * Will be set to -1 if there was no hit yet.
+   * Will be null if there was no hit yet.
    */
-  fraction: number = -1;
+  fraction: number | null = null;
 
   /**
    * If the ray should stop traversing.
@@ -48,30 +49,32 @@ export default class RaycastResult {
     this.normal.set(0, 0);
     this.shape = null;
     this.body = null;
-    this.faceIndex = -1;
-    this.fraction = -1;
+    this.faceIndex = null;
+    this.fraction = null;
     this.isStopped = false;
   }
 
   /**
    * Get the distance to the hit point.
+   * Only valid to call after hasHit() returns true.
    */
   getHitDistance(ray: Ray): number {
-    return ray.from.distanceTo(ray.to) * this.fraction;
+    return ray.from.distanceTo(ray.to) * this.fraction!;
   }
 
   /**
    * Returns true if the ray hit something since the last reset().
    */
   hasHit(): boolean {
-    return this.fraction !== -1;
+    return this.fraction !== null;
   }
 
   /**
    * Get world hit point.
+   * Only valid to call after hasHit() returns true.
    */
   getHitPoint(ray: Ray): V2d {
-    return V(ray.from).ilerp(ray.to, this.fraction);
+    return V(ray.from).ilerp(ray.to, this.fraction!);
   }
 
   /**
@@ -85,7 +88,7 @@ export default class RaycastResult {
    * @private
    */
   shouldStop(ray: Ray): boolean {
-    return this.isStopped || (this.fraction !== -1 && ray.mode === Ray.ANY);
+    return this.isStopped || (this.fraction !== null && ray.mode === Ray.ANY);
   }
 
   /**

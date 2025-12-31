@@ -17,11 +17,6 @@ const mockWorld: MinimalWorld = { bodies: [] };
  * Base class for constraint solvers.
  */
 export default class Solver extends EventEmitter {
-  static readonly GS = 1;
-  static readonly ISLAND = 2;
-
-  type: number;
-
   /**
    * Current equations in the solver.
    */
@@ -32,10 +27,9 @@ export default class Solver extends EventEmitter {
    */
   equationSortFunction: ((a: Equation, b: Equation) => number) | false;
 
-  constructor(options: SolverOptions = {}, type?: number) {
+  constructor(options: SolverOptions = {}) {
     super();
 
-    this.type = type ?? 0;
     this.equationSortFunction = options.equationSortFunction || false;
   }
 

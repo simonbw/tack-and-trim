@@ -1,4 +1,4 @@
-import Body from "../body/Body";
+import StaticBody from "../body/StaticBody";
 import FrictionEquation from "../equations/FrictionEquation";
 import Pool, { PoolOptions } from "./Pool";
 
@@ -9,7 +9,7 @@ export default class FrictionEquationPool extends Pool<FrictionEquation> {
 
   create(): FrictionEquation {
     // Create with dummy bodies - will be reassigned when used
-    const dummyBody = new Body();
+    const dummyBody = new StaticBody();
     return new FrictionEquation(dummyBody, dummyBody);
   }
 

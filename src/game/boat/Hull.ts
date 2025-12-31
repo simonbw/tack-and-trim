@@ -2,7 +2,7 @@ import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
-import Body from "../../core/physics/body/Body";
+import DynamicBody from "../../core/physics/body/DynamicBody";
 import Convex from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { V, V2d } from "../../core/Vector";
@@ -48,7 +48,7 @@ export class Hull extends BaseEntity {
       .fill({ color: 0xccaa33 })
       .stroke({ color: 0x886633, width: 1, join: "round" });
 
-    this.body = new Body({
+    this.body = new DynamicBody({
       mass: BOAT_MASS,
     });
 

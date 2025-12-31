@@ -1,5 +1,7 @@
 import { V } from "../../Vector";
 import type Body from "../body/Body";
+import KinematicBody from "../body/KinematicBody";
+import StaticBody from "../body/StaticBody";
 import type World from "../world/World";
 import type AABB from "./AABB";
 
@@ -15,29 +17,15 @@ export default abstract class Broadphase {
   result: Body[];
   world: World | null;
 
-  constructor() {
+  constructor(world?: World) {
     this.result = [];
-    this.world = null;
-  }
-
-  /**
-   * Set the world that we are searching for collision pairs in.
-   */
-  setWorld(world: World): void {
-    this.world = world;
+    this.world = world ?? null;
   }
 
   /**
    * Get all potential intersecting body pairs.
    */
   abstract getCollisionPairs(_world: World): Body[];
-
-  /**
-   * Check whether the AABBs of two bodies overlap.
-   */
-  boundingVolumeCheck(bodyA: Body, bodyB: Body): boolean {
-    return bodyA.getAABB().overlaps(bodyB.getAABB());
-  }
 
   /**
    * Returns all the bodies within an AABB.
@@ -51,29 +39,40 @@ export default abstract class Broadphase {
   ): Body[];
 
   /**
+   * Set the world that we are searching for collision pairs in.
+   */
+  setWorld(world: World): void {
+    this.world = world;
+  }
+
+  /**
+   * Check whether the AABBs of two bodies overlap.
+   */
+  boundingVolumeCheck(bodyA: Body, bodyB: Body): boolean {
+    return bodyA.getAABB().overlaps(bodyB.getAABB());
+  }
+
+  /**
    * Check whether two bodies are allowed to collide at all.
    */
-  static canCollide(bodyA: Body, bodyB: Body): boolean {
-    // Body type constants
-    const KINEMATIC = 4;
-    const STATIC = 2;
-    const SLEEPING = 2;
+  canCollide(bodyA: Body, bodyB: Body): boolean {
+    const SLEEPING = 2; // Body.SLEEPING
 
     // Cannot collide static bodies
-    if (bodyA.type === STATIC && bodyB.type === STATIC) {
+    if (bodyA instanceof StaticBody && bodyB instanceof StaticBody) {
       return false;
     }
 
     // Cannot collide static vs kinematic bodies
     if (
-      (bodyA.type === KINEMATIC && bodyB.type === STATIC) ||
-      (bodyA.type === STATIC && bodyB.type === KINEMATIC)
+      (bodyA instanceof KinematicBody && bodyB instanceof StaticBody) ||
+      (bodyA instanceof StaticBody && bodyB instanceof KinematicBody)
     ) {
       return false;
     }
 
     // Cannot collide kinematic vs kinematic
-    if (bodyA.type === KINEMATIC && bodyB.type === KINEMATIC) {
+    if (bodyA instanceof KinematicBody && bodyB instanceof KinematicBody) {
       return false;
     }
 
@@ -84,8 +83,8 @@ export default abstract class Broadphase {
 
     // Cannot collide if one is static and the other is sleeping
     if (
-      (bodyA.sleepState === SLEEPING && bodyB.type === STATIC) ||
-      (bodyB.sleepState === SLEEPING && bodyA.type === STATIC)
+      (bodyA.sleepState === SLEEPING && bodyB instanceof StaticBody) ||
+      (bodyB.sleepState === SLEEPING && bodyA instanceof StaticBody)
     ) {
       return false;
     }

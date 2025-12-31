@@ -198,7 +198,7 @@ export default class Ray {
 
       case Ray.CLOSEST:
         // Store if closer than current closest
-        if (fraction < result.fraction || !result.hasHit()) {
+        if (!result.hasHit() || fraction < result.fraction!) {
           result.set(normal, shape, body, fraction, faceIndex);
         }
         break;

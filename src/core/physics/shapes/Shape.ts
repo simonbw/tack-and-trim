@@ -12,7 +12,6 @@ export interface ShapeOptions {
   collisionMask?: number;
   sensor?: boolean;
   collisionResponse?: boolean;
-  type?: number;
   material?: Material | null;
 }
 
@@ -21,15 +20,6 @@ export interface ShapeOptions {
  */
 export default class Shape {
   static idCounter = 0;
-
-  static readonly CIRCLE = 1;
-  static readonly PARTICLE = 2;
-  static readonly PLANE = 4;
-  static readonly CONVEX = 8;
-  static readonly LINE = 16;
-  static readonly BOX = 32;
-  static readonly CAPSULE = 64;
-  static readonly HEIGHTFIELD = 128;
 
   /**
    * The body this shape is attached to.
@@ -45,11 +35,6 @@ export default class Shape {
    * Body-local angle of the shape.
    */
   angle: number;
-
-  /**
-   * The type of the shape.
-   */
-  type: number;
 
   /**
    * Shape object identifier.
@@ -98,7 +83,6 @@ export default class Shape {
     }
 
     this.angle = options.angle ?? 0;
-    this.type = options.type ?? 0;
     this.id = Shape.idCounter++;
     this.collisionGroup = options.collisionGroup ?? 1;
     this.collisionResponse = options.collisionResponse ?? true;

@@ -21,8 +21,7 @@ export default class Line extends Shape {
   length: number;
 
   constructor(options: LineOptions = {}) {
-    const opts = { ...options, type: Shape.LINE };
-    super(opts);
+    super(options);
     this.length = options.length ?? 1;
     this.updateBoundingRadius();
     this.updateArea();

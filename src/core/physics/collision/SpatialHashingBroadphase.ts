@@ -1,16 +1,16 @@
 import { mod } from "../../util/MathUtil";
-import Body from "../body/Body";
-import Shape from "../shapes/Shape";
+import type Body from "../body/Body";
+import DynamicBody from "../body/DynamicBody";
+import KinematicBody from "../body/KinematicBody";
+import Particle from "../shapes/Particle";
 import World from "../world/World";
 import AABB from "./AABB";
-import Broadphase from "./Broadphase";
 import Ray from "./Ray";
 import SAPBroadphase from "./SAPBroadphase";
 
-const CUSTOM_BROADPHASE_TYPE = 3;
 const HUGE_LIMIT = 200;
 const DEFAULT_CELL_SIZE = 6;
-const HUGE: number[] = [];
+const HUGE: number[] = []; // Sentinel value for huge bodies
 
 /**
  * A spatial hashing broadphase collision detection system that divides
@@ -18,9 +18,9 @@ const HUGE: number[] = [];
  * by only checking bodies within the same cells.
  */
 export default class SpatialHashingBroadphase extends SAPBroadphase {
-  particleBodies: Set<Body> = new Set();
-  dynamicBodies: Set<Body> = new Set();
-  kinematicBodies: Set<Body> = new Set();
+  particleBodies: Set<DynamicBody> = new Set();
+  dynamicBodies: Set<DynamicBody> = new Set();
+  kinematicBodies: Set<KinematicBody> = new Set();
   hugeBodies: Set<Body> = new Set();
   partitions: Set<Body>[] = [];
 
@@ -73,13 +73,13 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
   }
 
   onAddBody(body: Body) {
-    if (body.type === Body.DYNAMIC) {
+    if (body instanceof DynamicBody) {
       if (isParticleBody(body)) {
         this.particleBodies.add(body);
       } else {
         this.dynamicBodies.add(body);
       }
-    } else if (body.type === Body.KINEMATIC) {
+    } else if (body instanceof KinematicBody) {
       this.kinematicBodies.add(body);
     } else {
       this.addBodyToHash(body);
@@ -87,10 +87,10 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
   }
 
   onRemoveBody(body: Body) {
-    if (body.type === Body.DYNAMIC) {
+    if (body instanceof DynamicBody) {
       this.dynamicBodies.delete(body);
       this.particleBodies.delete(body);
-    } else if (body.type === Body.KINEMATIC) {
+    } else if (body instanceof KinematicBody) {
       this.kinematicBodies.delete(body);
     } else {
       this.removeBodyFromHash(body);
@@ -163,7 +163,7 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
         undefined,
         false
       )) {
-        if (Broadphase.canCollide(pBody, other)) {
+        if (this.canCollide(pBody, other)) {
           result.push(pBody, other);
         }
       }
@@ -178,7 +178,7 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
         undefined,
         false
       )) {
-        if (Broadphase.canCollide(dBody, other)) {
+        if (this.canCollide(dBody, other)) {
           result.push(dBody, other);
         }
       }
@@ -205,6 +205,7 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
     const lowY = Math.floor(aabb.lowerBound[1] / this.cellSize);
     const highX = Math.floor(aabb.upperBound[0] / this.cellSize);
     const highY = Math.floor(aabb.upperBound[1] / this.cellSize);
+    const size = Math.abs(highX - lowX) * Math.abs(highY - lowY);
 
     // Check for huge
     if (
@@ -213,7 +214,7 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
         !isFinite(lowY) ||
         !isFinite(highX) ||
         !isFinite(highY) ||
-        Math.abs(highX - lowX) * Math.abs(highY - lowY) > HUGE_LIMIT)
+        size > HUGE_LIMIT)
     ) {
       return HUGE;
     }
@@ -311,13 +312,10 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
   }
 }
 
-// Returns true if this is a dynamic body with no non-particle shapes
-function isParticleBody(body: Body): boolean {
-  if (body.type !== Body.DYNAMIC) {
-    return false;
-  }
+// Returns true if this is a dynamic body with only particle shapes
+function isParticleBody(body: DynamicBody): boolean {
   for (const shape of body.shapes) {
-    if (shape.type !== Shape.PARTICLE) {
+    if (!(shape instanceof Particle)) {
       return false;
     }
   }

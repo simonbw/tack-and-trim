@@ -1,10 +1,14 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import Body from "../body/Body";
+import DynamicBody from "../body/DynamicBody";
+import KinematicBody from "../body/KinematicBody";
+import StaticBody from "../body/StaticBody";
 import AABB from "../collision/AABB";
 import Broadphase from "../collision/Broadphase";
 import Narrowphase from "../collision/Narrowphase";
 import Ray from "../collision/Ray";
-import type RaycastResult from "../collision/RaycastResult";
+import { RaycastHit, RaycastOptions } from "../collision/RaycastHit";
+import RaycastResult from "../collision/RaycastResult";
 import SpatialHashingBroadphase from "../collision/SpatialHashingBroadphase";
 import Constraint from "../constraints/Constraint";
 import type ContactEquation from "../equations/ContactEquation";
@@ -41,8 +45,8 @@ export default class World extends EventEmitter<PhysicsEventMap> {
 
   springs: Spring[] = [];
   bodies: Body[] = [];
-  dynamicBodies: Set<Body> = new Set();
-  kinematicBodies: Set<Body> = new Set();
+  dynamicBodies: Set<DynamicBody> = new Set();
+  kinematicBodies: Set<KinematicBody> = new Set();
   disabledBodyCollisionPairs: Body[] = [];
   solver: Solver;
   narrowphase: Narrowphase;
@@ -71,6 +75,10 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   _bodyIdCounter: number = 0;
   sleepMode: number;
   overlapKeeper: OverlapKeeper;
+
+  // Internal reusable objects for raycast API
+  private _ray: Ray = new Ray();
+  private _raycastResult: RaycastResult = new RaycastResult();
 
   constructor(options: WorldOptions = {}) {
     super();
@@ -226,7 +234,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     if (this.applyGravity) {
       for (let i = 0; i !== Nbodies; i++) {
         const b = bodies[i];
-        if (b.type !== Body.DYNAMIC || b.sleepState === Body.SLEEPING) {
+        if (!(b instanceof DynamicBody) || b.sleepState === Body.SLEEPING) {
           continue;
         }
         const mg = V(g).imul(b.mass * b.gravityScale);
@@ -245,7 +253,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     if (this.applyDamping) {
       for (let i = 0; i !== Nbodies; i++) {
         const b = bodies[i];
-        if (b.type === Body.DYNAMIC) {
+        if (b instanceof DynamicBody) {
           b.applyDamping(dt);
         }
       }
@@ -501,12 +509,13 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     const aiw = ai + bi.angle;
     const ajw = aj + bj.angle;
 
+    // Configure narrowphase parameters from contact material
     np.enableFriction = cm.friction > 0;
     np.frictionCoefficient = cm.friction;
     let reducedMass: number;
-    if (bi.type === Body.STATIC || bi.type === Body.KINEMATIC) {
+    if (bi instanceof StaticBody || bi instanceof KinematicBody) {
       reducedMass = bj.mass;
-    } else if (bj.type === Body.STATIC || bj.type === Body.KINEMATIC) {
+    } else if (bj instanceof StaticBody || bj instanceof KinematicBody) {
       reducedMass = bi.mass;
     } else {
       reducedMass = (bi.mass * bj.mass) / (bi.mass + bj.mass);
@@ -525,110 +534,100 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       si.collisionResponse &&
       sj.collisionResponse;
 
-    const resolver = np[si.type | sj.type];
-    let numContacts = 0;
-    if (resolver) {
-      const sensor = si.sensor || sj.sensor;
-      const numFrictionBefore = np.frictionEquations.length;
-      if (si.type < sj.type) {
-        numContacts = resolver.call(
-          np,
-          bi,
-          si,
-          xiw,
-          aiw,
-          bj,
-          sj,
-          xjw,
-          ajw,
-          sensor
-        );
-      } else {
-        numContacts = resolver.call(
-          np,
-          bj,
-          sj,
-          xjw,
-          ajw,
-          bi,
-          si,
-          xiw,
-          aiw,
-          sensor
-        );
-      }
-      const numFrictionEquations =
-        np.frictionEquations.length - numFrictionBefore;
-
-      if (numContacts) {
-        if (
-          bi.allowSleep &&
-          bi.type === Body.DYNAMIC &&
-          bi.sleepState === Body.SLEEPING &&
-          bj.sleepState === Body.AWAKE &&
-          bj.type !== Body.STATIC
-        ) {
-          const speedSquaredB =
-            bj.velocity.squaredMagnitude + Math.pow(bj.angularVelocity, 2);
-          const speedLimitSquaredB = Math.pow(bj.sleepSpeedLimit, 2);
-          if (speedSquaredB >= speedLimitSquaredB * 2) {
-            bi._wakeUpAfterNarrowphase = true;
-          }
-        }
-
-        if (
-          bj.allowSleep &&
-          bj.type === Body.DYNAMIC &&
-          bj.sleepState === Body.SLEEPING &&
-          bi.sleepState === Body.AWAKE &&
-          bi.type !== Body.STATIC
-        ) {
-          const speedSquaredA =
-            bi.velocity.squaredMagnitude + Math.pow(bi.angularVelocity, 2);
-          const speedLimitSquaredA = Math.pow(bi.sleepSpeedLimit, 2);
-          if (speedSquaredA >= speedLimitSquaredA * 2) {
-            bj._wakeUpAfterNarrowphase = true;
-          }
-        }
-
+    // Skip actual collision if either shape is a sensor
+    const sensor = si.sensor || sj.sensor;
+    if (sensor) {
+      // For sensors, just check overlap without generating equations
+      if (np.bodiesOverlap(bi, bj)) {
         this.overlapKeeper.setOverlapping(bi, si, bj, sj);
         if (
           this.has("beginContact") &&
           this.overlapKeeper.isNewOverlap(si, sj)
         ) {
-          // Report new shape overlap
-          const contactEquations: ContactEquation[] = [];
-
-          if (typeof numContacts === "number") {
-            for (
-              let i = np.contactEquations.length - numContacts;
-              i < np.contactEquations.length;
-              i++
-            ) {
-              contactEquations.push(np.contactEquations[i]);
-            }
-          }
-
           this.emit({
             type: "beginContact",
             shapeA: si,
             shapeB: sj,
             bodyA: bi,
             bodyB: bj,
-            contactEquations,
+            contactEquations: [],
           });
         }
+      }
+      return;
+    }
 
-        // divide the max friction force by the number of contacts
-        if (typeof numContacts === "number" && numFrictionEquations > 1) {
-          for (
-            let i = np.frictionEquations.length - numFrictionEquations;
-            i < np.frictionEquations.length;
-            i++
-          ) {
-            const f = np.frictionEquations[i];
-            f.setSlipForce(f.getSlipForce() / numFrictionEquations);
-          }
+    // Run collision detection and generate equations
+    const numFrictionBefore = np.frictionEquations.length;
+    const numContacts = np.collideShapes(bi, si, xiw, aiw, bj, sj, xjw, ajw);
+
+    if (numContacts) {
+      const numFrictionEquations =
+        np.frictionEquations.length - numFrictionBefore;
+
+      // Wake up sleeping bodies if needed
+      if (
+        bi.allowSleep &&
+        bi instanceof DynamicBody &&
+        bi.sleepState === Body.SLEEPING &&
+        bj.sleepState === Body.AWAKE &&
+        !(bj instanceof StaticBody)
+      ) {
+        const speedSquaredB =
+          bj.velocity.squaredMagnitude + Math.pow(bj.angularVelocity, 2);
+        const speedLimitSquaredB = Math.pow(bj.sleepSpeedLimit, 2);
+        if (speedSquaredB >= speedLimitSquaredB * 2) {
+          bi._wakeUpAfterNarrowphase = true;
+        }
+      }
+
+      if (
+        bj.allowSleep &&
+        bj instanceof DynamicBody &&
+        bj.sleepState === Body.SLEEPING &&
+        bi.sleepState === Body.AWAKE &&
+        !(bi instanceof StaticBody)
+      ) {
+        const speedSquaredA =
+          bi.velocity.squaredMagnitude + Math.pow(bi.angularVelocity, 2);
+        const speedLimitSquaredA = Math.pow(bi.sleepSpeedLimit, 2);
+        if (speedSquaredA >= speedLimitSquaredA * 2) {
+          bj._wakeUpAfterNarrowphase = true;
+        }
+      }
+
+      // Track overlapping shapes
+      this.overlapKeeper.setOverlapping(bi, si, bj, sj);
+      if (this.has("beginContact") && this.overlapKeeper.isNewOverlap(si, sj)) {
+        // Report new shape overlap
+        const contactEquations: ContactEquation[] = [];
+        for (
+          let i = np.contactEquations.length - numContacts;
+          i < np.contactEquations.length;
+          i++
+        ) {
+          contactEquations.push(np.contactEquations[i]);
+        }
+
+        this.emit({
+          type: "beginContact",
+          shapeA: si,
+          shapeB: sj,
+          bodyA: bi,
+          bodyB: bj,
+          contactEquations,
+        });
+      }
+
+      // Divide the max friction force by the number of contacts
+      if (numFrictionEquations > 1) {
+        for (
+          let i = np.frictionEquations.length - numFrictionEquations;
+          i < np.frictionEquations.length;
+          i++
+        ) {
+          const f = np.frictionEquations[i];
+          f.setSlipForce(f.getSlipForce() / numFrictionEquations);
         }
       }
     }
@@ -660,9 +659,9 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       this.bodies.push(body);
       body.world = this;
 
-      if (body.type === Body.DYNAMIC) {
+      if (body instanceof DynamicBody) {
         this.dynamicBodies.add(body);
-      } else if (body.type === Body.KINEMATIC) {
+      } else if (body instanceof KinematicBody) {
         this.kinematicBodies.add(body);
       }
 
@@ -682,8 +681,11 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       if (idx !== -1) {
         this.bodies.splice(idx, 1);
 
-        this.dynamicBodies.delete(body);
-        this.kinematicBodies.delete(body);
+        if (body instanceof DynamicBody) {
+          this.dynamicBodies.delete(body);
+        } else if (body instanceof KinematicBody) {
+          this.kinematicBodies.delete(body);
+        }
 
         body.resetConstraintVelocity();
         this.emit({ type: "removeBody", body });
@@ -769,7 +771,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
    */
   hitTest(worldPoint: V2d, bodies: Body[], precision: number = 0): Body[] {
     // Create a dummy particle body with a particle shape to test against the bodies
-    const pb = new Body({ position: worldPoint });
+    const pb = new StaticBody({ position: worldPoint });
     const ps = new Particle();
     const px = worldPoint;
     const pa = 0;
@@ -860,9 +862,144 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   }
 
   /**
-   * Ray cast against all bodies in the world.
+   * Cast a ray and return the closest hit, or null if nothing was hit.
+   *
+   * @param from - Start point of the ray
+   * @param to - End point of the ray
+   * @param options - Optional raycast configuration
+   * @returns The closest hit, or null if nothing was hit
+   *
+   * @example
+   * ```typescript
+   * const hit = world.raycast([x1, y1], [x2, y2]);
+   * if (hit) {
+   *   console.log(hit.body, hit.point, hit.normal, hit.distance);
+   * }
+   * ```
    */
   raycast(
+    from: CompatibleVector,
+    to: CompatibleVector,
+    options?: RaycastOptions
+  ): RaycastHit | null {
+    const ray = this._ray;
+    const result = this._raycastResult;
+
+    // Configure ray
+    ray.from.set(from[0], from[1]);
+    ray.to.set(to[0], to[1]);
+    ray.mode = Ray.CLOSEST;
+    ray.update();
+
+    // Apply options
+    if (options?.collisionMask !== undefined) {
+      ray.collisionMask = options.collisionMask;
+    } else {
+      ray.collisionMask = -1; // Default: collide with everything
+    }
+    ray.skipBackfaces = options?.skipBackfaces ?? false;
+
+    // Reset and perform raycast
+    result.reset();
+    this._raycastInternal(result, ray);
+
+    // Apply custom filter if provided (need to re-check since internal raycast doesn't know about it)
+    if (result.hasHit() && options?.filter) {
+      if (!options.filter(result.body!, result.shape!)) {
+        return null;
+      }
+    }
+
+    // Return clean result object
+    if (result.hasHit()) {
+      return {
+        body: result.body!,
+        shape: result.shape!,
+        point: result.getHitPoint(ray),
+        normal: V(result.normal),
+        distance: result.getHitDistance(ray),
+        fraction: result.fraction!,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Cast a ray and return all hits, sorted by distance (closest first).
+   *
+   * @param from - Start point of the ray
+   * @param to - End point of the ray
+   * @param options - Optional raycast configuration
+   * @returns Array of all hits, sorted by distance
+   *
+   * @example
+   * ```typescript
+   * const hits = world.raycastAll([x1, y1], [x2, y2]);
+   * for (const hit of hits) {
+   *   console.log(hit.body, hit.point);
+   * }
+   * ```
+   */
+  raycastAll(
+    from: CompatibleVector,
+    to: CompatibleVector,
+    options?: RaycastOptions
+  ): RaycastHit[] {
+    const ray = this._ray;
+    const result = this._raycastResult;
+    const hits: RaycastHit[] = [];
+
+    // Configure ray
+    ray.from.set(from[0], from[1]);
+    ray.to.set(to[0], to[1]);
+    ray.mode = Ray.ALL;
+    ray.update();
+
+    // Apply options
+    if (options?.collisionMask !== undefined) {
+      ray.collisionMask = options.collisionMask;
+    } else {
+      ray.collisionMask = -1;
+    }
+    ray.skipBackfaces = options?.skipBackfaces ?? false;
+
+    // Store original callback
+    const originalCallback = ray.callback;
+
+    // Use callback to collect all hits
+    ray.callback = (res: RaycastResult) => {
+      // Apply custom filter if provided
+      if (options?.filter && !options.filter(res.body!, res.shape!)) {
+        return;
+      }
+
+      hits.push({
+        body: res.body!,
+        shape: res.shape!,
+        point: res.getHitPoint(ray),
+        normal: V(res.normal),
+        distance: res.getHitDistance(ray),
+        fraction: res.fraction!,
+      });
+    };
+
+    // Reset and perform raycast
+    result.reset();
+    this._raycastInternal(result, ray);
+
+    // Restore original callback
+    ray.callback = originalCallback;
+
+    // Sort by distance (closest first)
+    hits.sort((a, b) => a.distance - b.distance);
+
+    return hits;
+  }
+
+  /**
+   * Internal raycast implementation.
+   */
+  private _raycastInternal(
     result: RaycastResult,
     ray: Ray,
     shouldAddBodies: boolean = true

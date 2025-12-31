@@ -1,7 +1,8 @@
 import { EntityDef } from "../EntityDef";
 import Game from "../Game";
 import { V, V2d } from "../Vector";
-import Body from "../physics/body/Body";
+import type Body from "../physics/body/Body";
+import DynamicBody from "../physics/body/DynamicBody";
 import Constraint from "../physics/constraints/Constraint";
 import Spring from "../physics/springs/Spring";
 import { shapeFromDef } from "../physics/utils/ShapeUtils";
@@ -49,7 +50,7 @@ export default abstract class BaseEntity implements Entity {
     }
 
     if (def.body) {
-      this.body = new Body({ mass: def.body.mass });
+      this.body = new DynamicBody({ mass: def.body.mass });
       for (const shapeDef of def.body.shapes) {
         const shape = shapeFromDef(shapeDef);
         this.body.addShape(shape, shape.position, shape.angle);

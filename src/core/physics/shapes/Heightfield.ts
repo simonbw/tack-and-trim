@@ -22,8 +22,7 @@ export default class Heightfield extends Shape {
   elementWidth: number;
 
   constructor(options: HeightfieldOptions = {}) {
-    const opts = { ...options, type: Shape.HEIGHTFIELD };
-    super(opts);
+    super(options);
 
     this.heights = options.heights ? options.heights.slice(0) : [];
     this.elementWidth = options.elementWidth ?? 0.1;

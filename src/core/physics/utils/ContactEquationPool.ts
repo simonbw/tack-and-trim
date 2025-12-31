@@ -1,4 +1,4 @@
-import Body from "../body/Body";
+import StaticBody from "../body/StaticBody";
 import ContactEquation from "../equations/ContactEquation";
 import Pool, { PoolOptions } from "./Pool";
 
@@ -9,7 +9,7 @@ export default class ContactEquationPool extends Pool<ContactEquation> {
 
   create(): ContactEquation {
     // Create with dummy bodies - will be reassigned when used
-    const dummyBody = new Body();
+    const dummyBody = new StaticBody();
     return new ContactEquation(dummyBody, dummyBody);
   }
 
