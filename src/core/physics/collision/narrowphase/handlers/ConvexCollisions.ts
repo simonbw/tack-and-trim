@@ -26,8 +26,6 @@ const heightfieldTileConvex = new Convex({
   vertices: [V(), V(), V(), V()],
 });
 
-// ========== STANDALONE COLLISION FUNCTIONS ==========
-
 /**
  * Convex/Convex collision (SAT with edge clipping)
  */
@@ -206,9 +204,6 @@ export function convexConvex(
   return result;
 }
 
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
-
 /**
  * Convex/Capsule collision
  */
@@ -310,9 +305,6 @@ export function convexCapsule(
 
   return result;
 }
-
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
 
 /**
  * Convex/Heightfield collision

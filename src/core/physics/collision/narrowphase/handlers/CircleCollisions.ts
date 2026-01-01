@@ -11,8 +11,6 @@ import { pointInConvexLocal } from "../CollisionHelpers";
 
 const yAxis = V(0, 1);
 
-// ========== STANDALONE COLLISION FUNCTIONS ==========
-
 /**
  * Circle/Circle collision
  */
@@ -65,9 +63,6 @@ export function circleCircle(
   return result;
 }
 
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
-
 /**
  * Circle/Particle collision
  */
@@ -109,9 +104,6 @@ export function circleParticle(
 
   return result;
 }
-
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
 
 /**
  * Circle/Plane collision
@@ -160,9 +152,6 @@ export function circlePlane(
 
   return result;
 }
-
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
 
 /**
  * Circle/Line collision (also used for capsules via lineRadius parameter)
@@ -277,9 +266,6 @@ export function circleLine(
 
   return null;
 }
-
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
 
 /**
  * Circle/Convex collision
@@ -421,9 +407,6 @@ export function circleConvex(
   return null;
 }
 
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
-
 /**
  * Circle/Heightfield collision
  */
@@ -530,9 +513,6 @@ export function circleHeightfield(
 
   return result;
 }
-
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
 
 /**
  * Circle/Capsule collision

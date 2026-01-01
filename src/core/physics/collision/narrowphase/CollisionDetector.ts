@@ -1,6 +1,5 @@
-import { V2d } from "../../../Vector";
+import { V, V2d } from "../../../Vector";
 import Body from "../../body/Body";
-import Box from "../../shapes/Box";
 import Capsule from "../../shapes/Capsule";
 import Circle from "../../shapes/Circle";
 import Convex from "../../shapes/Convex";
@@ -51,146 +50,120 @@ export type CollisionHandler = (
   justTest: boolean
 ) => CollisionResult | null;
 
+type ShapeConstructor = new (...args: any[]) => Shape;
+
+/**
+ * Wraps a collision handler to swap A and B inputs/outputs.
+ */
+function swapped(handler: CollisionHandler): CollisionHandler {
+  return (
+    bodyA,
+    shapeA,
+    offsetA,
+    angleA,
+    bodyB,
+    shapeB,
+    offsetB,
+    angleB,
+    justTest
+  ) => {
+    const result = handler(
+      bodyB,
+      shapeB,
+      offsetB,
+      angleB,
+      bodyA,
+      shapeA,
+      offsetA,
+      angleA,
+      justTest
+    );
+    if (!result) return null;
+
+    // Swap contact points and negate normal
+    for (const contact of result.contacts) {
+      const temp = contact.worldContactA;
+      contact.worldContactA = contact.worldContactB;
+      contact.worldContactB = temp;
+      contact.normal = V(-contact.normal.x, -contact.normal.y);
+    }
+    return result;
+  };
+}
+
 /**
  * Collision detection class. Handles all shape-vs-shape collision tests
  * and returns raw collision data (contact points, normals, depths).
+ *
+ * Note: Line-vs-Line, Line-vs-Box, Line-vs-Capsule, and Line-vs-Convex
+ * collisions are not implemented.
  */
 export default class CollisionDetector {
-  /**
-   * Get the collision handler for two shapes using instanceof checks.
-   * Returns the handler and whether the shapes need to be swapped.
-   */
-  getCollisionHandler(
-    shapeA: Shape,
-    shapeB: Shape
-  ): { handler: CollisionHandler; swap: boolean } | null {
+  // Nested map: ShapeA constructor -> ShapeB constructor -> handler
+  private handlerRegistry = new Map<
+    ShapeConstructor,
+    Map<ShapeConstructor, CollisionHandler>
+  >();
+
+  constructor() {
     // Circle collisions
-    if (shapeA instanceof Circle && shapeB instanceof Circle) {
-      return { handler: circleCircle, swap: false };
-    }
-    if (shapeA instanceof Circle && shapeB instanceof Particle) {
-      return { handler: circleParticle, swap: false };
-    }
-    if (shapeA instanceof Particle && shapeB instanceof Circle) {
-      return { handler: circleParticle, swap: true };
-    }
-    if (shapeA instanceof Circle && shapeB instanceof Plane) {
-      return { handler: circlePlane, swap: false };
-    }
-    if (shapeA instanceof Plane && shapeB instanceof Circle) {
-      return { handler: circlePlane, swap: true };
-    }
-    if (shapeA instanceof Circle && shapeB instanceof Convex) {
-      return { handler: circleConvex, swap: false };
-    }
-    if (shapeA instanceof Convex && shapeB instanceof Circle) {
-      return { handler: circleConvex, swap: true };
-    }
-    if (shapeA instanceof Circle && shapeB instanceof Line) {
-      return { handler: circleLine, swap: false };
-    }
-    if (shapeA instanceof Line && shapeB instanceof Circle) {
-      return { handler: circleLine, swap: true };
-    }
-    if (shapeA instanceof Circle && shapeB instanceof Capsule) {
-      return { handler: circleCapsule, swap: false };
-    }
-    if (shapeA instanceof Capsule && shapeB instanceof Circle) {
-      return { handler: circleCapsule, swap: true };
-    }
-    if (shapeA instanceof Circle && shapeB instanceof Heightfield) {
-      return { handler: circleHeightfield, swap: false };
-    }
-    if (shapeA instanceof Heightfield && shapeB instanceof Circle) {
-      return { handler: circleHeightfield, swap: true };
-    }
+    this.registerHandler(Circle, Circle, circleCircle);
+    this.registerHandler(Circle, Particle, circleParticle);
+    this.registerHandler(Circle, Plane, circlePlane);
+    this.registerHandler(Circle, Convex, circleConvex);
+    this.registerHandler(Circle, Line, circleLine);
+    this.registerHandler(Circle, Capsule, circleCapsule);
+    this.registerHandler(Circle, Heightfield, circleHeightfield);
 
     // Particle collisions
-    if (shapeA instanceof Particle && shapeB instanceof Plane) {
-      return { handler: particlePlane, swap: false };
-    }
-    if (shapeA instanceof Plane && shapeB instanceof Particle) {
-      return { handler: particlePlane, swap: true };
-    }
-    if (shapeA instanceof Particle && shapeB instanceof Convex) {
-      return { handler: particleConvex, swap: false };
-    }
-    if (shapeA instanceof Convex && shapeB instanceof Particle) {
-      return { handler: particleConvex, swap: true };
-    }
-    if (shapeA instanceof Particle && shapeB instanceof Capsule) {
-      return { handler: particleCapsule, swap: false };
-    }
-    if (shapeA instanceof Capsule && shapeB instanceof Particle) {
-      return { handler: particleCapsule, swap: true };
-    }
+    this.registerHandler(Particle, Plane, particlePlane);
+    this.registerHandler(Particle, Convex, particleConvex);
+    this.registerHandler(Particle, Capsule, particleCapsule);
 
     // Plane collisions
-    if (shapeA instanceof Plane && shapeB instanceof Convex) {
-      return { handler: planeConvex, swap: false };
-    }
-    if (shapeA instanceof Convex && shapeB instanceof Plane) {
-      return { handler: planeConvex, swap: true };
-    }
-    if (shapeA instanceof Plane && shapeB instanceof Line) {
-      return { handler: planeLine, swap: false };
-    }
-    if (shapeA instanceof Line && shapeB instanceof Plane) {
-      return { handler: planeLine, swap: true };
-    }
-    if (shapeA instanceof Plane && shapeB instanceof Capsule) {
-      return { handler: planeCapsule, swap: false };
-    }
-    if (shapeA instanceof Capsule && shapeB instanceof Plane) {
-      return { handler: planeCapsule, swap: true };
-    }
+    this.registerHandler(Plane, Convex, planeConvex);
+    this.registerHandler(Plane, Line, planeLine);
+    this.registerHandler(Plane, Capsule, planeCapsule);
 
     // Convex collisions
-    if (shapeA instanceof Convex && shapeB instanceof Convex) {
-      return { handler: convexConvex, swap: false };
-    }
-    if (shapeA instanceof Convex && shapeB instanceof Capsule) {
-      return { handler: convexCapsule, swap: false };
-    }
-    if (shapeA instanceof Capsule && shapeB instanceof Convex) {
-      return { handler: convexCapsule, swap: true };
-    }
-    if (shapeA instanceof Convex && shapeB instanceof Heightfield) {
-      return { handler: convexHeightfield, swap: false };
-    }
-    if (shapeA instanceof Heightfield && shapeB instanceof Convex) {
-      return { handler: convexHeightfield, swap: true };
-    }
+    this.registerHandler(Convex, Convex, convexConvex);
+    this.registerHandler(Convex, Capsule, convexCapsule);
+    this.registerHandler(Convex, Heightfield, convexHeightfield);
 
     // Capsule collisions
-    if (shapeA instanceof Capsule && shapeB instanceof Capsule) {
-      return { handler: capsuleCapsule, swap: false };
-    }
+    this.registerHandler(Capsule, Capsule, capsuleCapsule);
+  }
 
-    // Line collisions (not implemented)
-    if (shapeA instanceof Line && shapeB instanceof Line) {
-      return { handler: () => null, swap: false };
+  /**
+   * Register a collision handler for a pair of shape types.
+   * By default, registers both directions (A->B and B->A with swapped inputs/outputs).
+   */
+  registerHandler(
+    shapeA: ShapeConstructor,
+    shapeB: ShapeConstructor,
+    handler: CollisionHandler,
+    bidirectional: boolean = true
+  ): void {
+    if (!this.handlerRegistry.has(shapeA)) {
+      this.handlerRegistry.set(shapeA, new Map());
     }
-    if (
-      (shapeA instanceof Line && shapeB instanceof Box) ||
-      (shapeA instanceof Box && shapeB instanceof Line)
-    ) {
-      return { handler: () => null, swap: false };
-    }
-    if (
-      (shapeA instanceof Line && shapeB instanceof Capsule) ||
-      (shapeA instanceof Capsule && shapeB instanceof Line)
-    ) {
-      return { handler: () => null, swap: false };
-    }
-    if (
-      (shapeA instanceof Convex && shapeB instanceof Line) ||
-      (shapeA instanceof Line && shapeB instanceof Convex)
-    ) {
-      return { handler: () => null, swap: false };
-    }
+    this.handlerRegistry.get(shapeA)!.set(shapeB, handler);
 
-    return null;
+    if (bidirectional && shapeA !== shapeB) {
+      if (!this.handlerRegistry.has(shapeB)) {
+        this.handlerRegistry.set(shapeB, new Map());
+      }
+      this.handlerRegistry.get(shapeB)!.set(shapeA, swapped(handler));
+    }
+  }
+
+  /**
+   * Get the collision handler for two shapes.
+   */
+  getCollisionHandler(shapeA: Shape, shapeB: Shape): CollisionHandler {
+    const ctorA = shapeA.constructor as ShapeConstructor;
+    const ctorB = shapeB.constructor as ShapeConstructor;
+    return this.handlerRegistry.get(ctorA)?.get(ctorB) ?? (() => null);
   }
 
   /**
@@ -208,34 +181,17 @@ export default class CollisionDetector {
     angleB: number,
     justTest: boolean = false
   ): CollisionResult | null {
-    const collision = this.getCollisionHandler(shapeA, shapeB);
-    if (!collision) return null;
-
-    const { handler, swap } = collision;
-    if (swap) {
-      return handler(
-        bodyB,
-        shapeB,
-        offsetB,
-        angleB,
-        bodyA,
-        shapeA,
-        offsetA,
-        angleA,
-        justTest
-      );
-    } else {
-      return handler(
-        bodyA,
-        shapeA,
-        offsetA,
-        angleA,
-        bodyB,
-        shapeB,
-        offsetB,
-        angleB,
-        justTest
-      );
-    }
+    const handler = this.getCollisionHandler(shapeA, shapeB);
+    return handler(
+      bodyA,
+      shapeA,
+      offsetA,
+      angleA,
+      bodyB,
+      shapeB,
+      offsetB,
+      angleB,
+      justTest
+    );
   }
 }

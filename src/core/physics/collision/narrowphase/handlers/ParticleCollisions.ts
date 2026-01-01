@@ -9,8 +9,6 @@ import { circleLine } from "./CircleCollisions";
 
 const yAxis = V(0, 1);
 
-// ========== STANDALONE COLLISION FUNCTIONS ==========
-
 /**
  * Particle/Plane collision
  */
@@ -54,9 +52,6 @@ export function particlePlane(
 
   return result;
 }
-
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
 
 /**
  * Particle/Convex collision
@@ -125,9 +120,6 @@ export function particleConvex(
 
   return result;
 }
-
-
-// ========== STANDALONE COLLISION FUNCTIONS ==========
 
 /**
  * Particle/Capsule collision
