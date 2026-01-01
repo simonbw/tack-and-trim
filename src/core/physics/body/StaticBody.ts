@@ -1,5 +1,5 @@
 import { V, V2d } from "../../Vector";
-import Body, { BaseBodyOptions } from "./Body";
+import Body, { BaseBodyOptions, SleepState } from "./Body";
 
 export interface StaticBodyOptions extends BaseBodyOptions {
   // Static bodies don't need mass, velocity, etc.
@@ -58,8 +58,8 @@ export default class StaticBody extends Body {
   }
 
   // Sleep state (always awake - never sleeps)
-  get sleepState(): number {
-    return Body.AWAKE;
+  get sleepState(): SleepState {
+    return SleepState.AWAKE;
   }
 
   get allowSleep(): boolean {

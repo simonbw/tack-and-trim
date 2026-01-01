@@ -1,4 +1,5 @@
 import type Body from "../../body/Body";
+import { SleepState } from "../../body/Body";
 import KinematicBody from "../../body/KinematicBody";
 import StaticBody from "../../body/StaticBody";
 import type World from "../../world/World";
@@ -8,9 +9,6 @@ import type AABB from "../AABB";
  * Base class for broadphase implementations.
  */
 export default abstract class Broadphase {
-  static readonly AABB = 1;
-  static readonly BOUNDING_CIRCLE = 2;
-
   result: Body[];
   world: World | null;
 
@@ -53,8 +51,6 @@ export default abstract class Broadphase {
    * Check whether two bodies are allowed to collide at all.
    */
   canCollide(bodyA: Body, bodyB: Body): boolean {
-    const SLEEPING = 2; // Body.SLEEPING
-
     // Cannot collide static bodies
     if (bodyA instanceof StaticBody && bodyB instanceof StaticBody) {
       return false;
@@ -74,14 +70,18 @@ export default abstract class Broadphase {
     }
 
     // Cannot collide both sleeping bodies
-    if (bodyA.sleepState === SLEEPING && bodyB.sleepState === SLEEPING) {
+    if (
+      bodyA.sleepState === SleepState.SLEEPING &&
+      bodyB.sleepState === SleepState.SLEEPING
+    ) {
       return false;
     }
 
     // Cannot collide if one is static and the other is sleeping
     if (
-      (bodyA.sleepState === SLEEPING && bodyB instanceof StaticBody) ||
-      (bodyB.sleepState === SLEEPING && bodyA instanceof StaticBody)
+      (bodyA.sleepState === SleepState.SLEEPING &&
+        bodyB instanceof StaticBody) ||
+      (bodyB.sleepState === SleepState.SLEEPING && bodyA instanceof StaticBody)
     ) {
       return false;
     }

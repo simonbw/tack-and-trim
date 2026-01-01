@@ -1,5 +1,5 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import Body from "../body/Body";
+import Body, { SleepState } from "../body/Body";
 import DynamicBody from "../body/DynamicBody";
 import KinematicBody from "../body/KinematicBody";
 import StaticBody from "../body/StaticBody";
@@ -7,7 +7,7 @@ import AABB from "../collision/AABB";
 import Broadphase from "../collision/broadphase/Broadphase";
 import SpatialHashingBroadphase from "../collision/broadphase/SpatialHashingBroadphase";
 import Narrowphase from "../collision/narrowphase/Narrowphase";
-import Ray from "../collision/raycast/Ray";
+import Ray, { RayMode } from "../collision/raycast/Ray";
 import { RaycastHit, RaycastOptions } from "../collision/raycast/RaycastHit";
 import RaycastResult from "../collision/raycast/RaycastResult";
 import Constraint from "../constraints/Constraint";
@@ -31,14 +31,16 @@ export interface WorldOptions {
   islandSplit?: boolean;
 }
 
+export enum SleepMode {
+  NO_SLEEPING = 1,
+  BODY_SLEEPING = 2,
+  ISLAND_SLEEPING = 4,
+}
+
 /**
  * The dynamics world, where all bodies and constraints live.
  */
 export default class World extends EventEmitter<PhysicsEventMap> {
-  static readonly NO_SLEEPING = 1;
-  static readonly BODY_SLEEPING = 2;
-  static readonly ISLAND_SLEEPING = 4;
-
   springs: Spring[] = [];
   bodies: Body[] = [];
   dynamicBodies: Set<DynamicBody> = new Set();
@@ -69,7 +71,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   emitImpactEvent: boolean = true;
   _constraintIdCounter: number = 0;
   _bodyIdCounter: number = 0;
-  sleepMode: number;
+  sleepMode: SleepMode;
   overlapKeeper: OverlapKeeper;
 
   // Internal reusable objects for raycast API
@@ -106,7 +108,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     this.applyGravity = false;
     this.applyDamping = false;
 
-    this.sleepMode = World.NO_SLEEPING;
+    this.sleepMode = SleepMode.NO_SLEEPING;
     this.overlapKeeper = new OverlapKeeper();
   }
 
@@ -227,7 +229,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     if (this.applyGravity) {
       for (let i = 0; i !== Nbodies; i++) {
         const b = bodies[i];
-        if (!(b instanceof DynamicBody) || b.sleepState === Body.SLEEPING) {
+        if (!(b instanceof DynamicBody) || b.sleepState === SleepState.SLEEPING) {
           continue;
         }
         const mg = V(g).imul(b.mass * b.gravityScale);
@@ -439,11 +441,11 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
 
     // Sleeping update
-    if (this.sleepMode === World.BODY_SLEEPING) {
+    if (this.sleepMode === SleepMode.BODY_SLEEPING) {
       for (let i = 0; i !== Nbodies; i++) {
         bodies[i].sleepTick(this.time, false, dt);
       }
-    } else if (this.sleepMode === World.ISLAND_SLEEPING && this.islandSplit) {
+    } else if (this.sleepMode === SleepMode.ISLAND_SLEEPING && this.islandSplit) {
       // Tell all bodies to sleep tick but dont sleep yet
       for (let i = 0; i !== Nbodies; i++) {
         bodies[i].sleepTick(this.time, true, dt);
@@ -562,8 +564,8 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       if (
         bi.allowSleep &&
         bi instanceof DynamicBody &&
-        bi.sleepState === Body.SLEEPING &&
-        bj.sleepState === Body.AWAKE &&
+        bi.sleepState === SleepState.SLEEPING &&
+        bj.sleepState === SleepState.AWAKE &&
         !(bj instanceof StaticBody)
       ) {
         const speedSquaredB =
@@ -577,8 +579,8 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       if (
         bj.allowSleep &&
         bj instanceof DynamicBody &&
-        bj.sleepState === Body.SLEEPING &&
-        bi.sleepState === Body.AWAKE &&
+        bj.sleepState === SleepState.SLEEPING &&
+        bi.sleepState === SleepState.AWAKE &&
         !(bi instanceof StaticBody)
       ) {
         const speedSquaredA =
@@ -838,7 +840,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     // Configure ray
     ray.from.set(from[0], from[1]);
     ray.to.set(to[0], to[1]);
-    ray.mode = Ray.CLOSEST;
+    ray.mode = RayMode.CLOSEST;
     ray.update();
 
     // Apply options
@@ -902,7 +904,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     // Configure ray
     ray.from.set(from[0], from[1]);
     ray.to.set(to[0], to[1]);
-    ray.mode = Ray.ALL;
+    ray.mode = RayMode.ALL;
     ray.update();
 
     // Apply options

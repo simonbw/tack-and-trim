@@ -4,6 +4,12 @@ import type Shape from "../../shapes/Shape";
 import type AABB from "../AABB";
 import type RaycastResult from "./RaycastResult";
 
+export enum RayMode {
+  CLOSEST = 1,
+  ANY = 2,
+  ALL = 4,
+}
+
 export interface RayOptions {
   from?: CompatibleVector;
   to?: CompatibleVector;
@@ -11,7 +17,7 @@ export interface RayOptions {
   skipBackfaces?: boolean;
   collisionMask?: number;
   collisionGroup?: number;
-  mode?: number;
+  mode?: RayMode;
   callback?: (result: RaycastResult) => void;
 }
 
@@ -34,17 +40,13 @@ function distanceFromIntersectionSquared(
  * A line with a start and end point that is used to intersect shapes.
  */
 export default class Ray {
-  static readonly CLOSEST = 1;
-  static readonly ANY = 2;
-  static readonly ALL = 4;
-
   from: V2d;
   to: V2d;
   checkCollisionResponse: boolean;
   skipBackfaces: boolean;
   collisionMask: number;
   collisionGroup: number;
-  mode: number;
+  mode: RayMode;
   callback: (result: RaycastResult) => void;
   direction: V2d;
   length: number;
@@ -61,7 +63,7 @@ export default class Ray {
     this.skipBackfaces = options.skipBackfaces ?? false;
     this.collisionMask = options.collisionMask ?? -1;
     this.collisionGroup = options.collisionGroup ?? -1;
-    this.mode = options.mode ?? Ray.ANY;
+    this.mode = options.mode ?? RayMode.ANY;
     this.callback = options.callback ?? ((_result: RaycastResult) => {});
 
     this.direction = V();
@@ -189,19 +191,19 @@ export default class Ray {
     }
 
     switch (this.mode) {
-      case Ray.ALL:
+      case RayMode.ALL:
         result.set(normal, shape, body, fraction, faceIndex);
         this.callback(result);
         break;
 
-      case Ray.CLOSEST:
+      case RayMode.CLOSEST:
         // Store if closer than current closest
         if (!result.hasHit() || fraction < result.fraction!) {
           result.set(normal, shape, body, fraction, faceIndex);
         }
         break;
 
-      case Ray.ANY:
+      case RayMode.ANY:
         // Report and stop.
         result.set(normal, shape, body, fraction, faceIndex);
         break;

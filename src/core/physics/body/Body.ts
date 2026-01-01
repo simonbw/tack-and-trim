@@ -5,6 +5,12 @@ import { PhysicsEventMap } from "../events/PhysicsEvents";
 import type Shape from "../shapes/Shape";
 import type World from "../world/World";
 
+export enum SleepState {
+  AWAKE = 0,
+  SLEEPY = 1,
+  SLEEPING = 2,
+}
+
 export interface BaseBodyOptions {
   position?: CompatibleVector;
   angle?: number;
@@ -19,11 +25,6 @@ export interface BaseBodyOptions {
  */
 export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   static _idCounter = 0;
-
-  // Sleep state constants
-  static readonly AWAKE = 0;
-  static readonly SLEEPY = 1;
-  static readonly SLEEPING = 2;
 
   // Identification
   id: number;
@@ -75,7 +76,7 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   abstract set angularForce(value: number);
 
   // Sleep state
-  abstract get sleepState(): number;
+  abstract get sleepState(): SleepState;
   abstract get allowSleep(): boolean;
   abstract get wantsToSleep(): boolean;
   abstract get sleepSpeedLimit(): number;

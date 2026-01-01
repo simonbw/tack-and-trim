@@ -1,5 +1,5 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import Body, { BaseBodyOptions } from "./Body";
+import Body, { BaseBodyOptions, SleepState } from "./Body";
 
 export interface DynamicBodyOptions extends BaseBodyOptions {
   mass: number; // Required for dynamic bodies
@@ -48,7 +48,7 @@ export default class DynamicBody extends Body {
   angularDamping: number;
 
   // Sleep state
-  private _sleepState: number;
+  private _sleepState: SleepState;
   private _allowSleep: boolean;
   private _sleepSpeedLimit: number;
   private _sleepTimeLimit: number;
@@ -78,7 +78,7 @@ export default class DynamicBody extends Body {
     this.angularDamping = options.angularDamping ?? 0.1;
 
     this._allowSleep = options.allowSleep ?? true;
-    this._sleepState = Body.AWAKE;
+    this._sleepState = SleepState.AWAKE;
     this._sleepSpeedLimit = options.sleepSpeedLimit ?? 0.2;
     this._sleepTimeLimit = options.sleepTimeLimit ?? 1;
 
@@ -135,7 +135,7 @@ export default class DynamicBody extends Body {
     return this._invInertiaSolve;
   }
 
-  get sleepState(): number {
+  get sleepState(): SleepState {
     return this._sleepState;
   }
 
@@ -185,7 +185,7 @@ export default class DynamicBody extends Body {
    * Update solver mass properties based on sleep state.
    */
   updateSolveMassProperties(): void {
-    if (this._sleepState === Body.SLEEPING) {
+    if (this._sleepState === SleepState.SLEEPING) {
       this._invMassSolve = 0;
       this._invInertiaSolve = 0;
     } else {
@@ -289,9 +289,9 @@ export default class DynamicBody extends Body {
    */
   wakeUp(): this {
     const s = this._sleepState;
-    this._sleepState = Body.AWAKE;
+    this._sleepState = SleepState.AWAKE;
     this.idleTime = 0;
-    if (s !== Body.AWAKE) {
+    if (s !== SleepState.AWAKE) {
       this.emit({ type: "wakeup", body: this });
     }
     return this;
@@ -301,7 +301,7 @@ export default class DynamicBody extends Body {
    * Force body sleep
    */
   sleep(): this {
-    this._sleepState = Body.SLEEPING;
+    this._sleepState = SleepState.SLEEPING;
     this._angularVelocity = 0;
     this._angularForce = 0;
     this._velocity.set(0, 0);
@@ -314,7 +314,7 @@ export default class DynamicBody extends Body {
    * Called every timestep to update internal sleep timer and change sleep state if needed.
    */
   sleepTick(time: number, dontSleep: boolean, dt: number): void {
-    if (!this._allowSleep || this._sleepState === Body.SLEEPING) {
+    if (!this._allowSleep || this._sleepState === SleepState.SLEEPING) {
       return;
     }
 
@@ -326,10 +326,10 @@ export default class DynamicBody extends Body {
 
     if (speedSquared >= speedLimitSquared) {
       this.idleTime = 0;
-      this._sleepState = Body.AWAKE;
+      this._sleepState = SleepState.AWAKE;
     } else {
       this.idleTime += dt;
-      this._sleepState = Body.SLEEPY;
+      this._sleepState = SleepState.SLEEPY;
     }
     if (this.idleTime > this._sleepTimeLimit) {
       if (!dontSleep) {

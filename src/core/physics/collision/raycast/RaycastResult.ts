@@ -72,7 +72,7 @@ export default class RaycastResult {
    * @private
    */
   shouldStop(ray: Ray): boolean {
-    return this.isStopped || (this.fraction !== null && ray.mode === Ray.ANY);
+    return this.isStopped || (this.fraction !== null && ray.mode === RayMode.ANY);
   }
 
   /**
@@ -95,4 +95,4 @@ export default class RaycastResult {
 
 // Re-import Ray for the class reference used in shouldStop
 // This creates a circular dependency but TypeScript handles it for runtime
-import Ray from "./Ray";
+import Ray, { RayMode } from "./Ray";
