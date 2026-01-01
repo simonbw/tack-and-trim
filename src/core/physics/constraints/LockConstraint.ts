@@ -10,18 +10,12 @@ export interface LockConstraintOptions extends ConstraintOptions {
   maxForce?: number;
 }
 
-/**
- * Locks the relative position and rotation between two bodies.
- */
+/** Locks the relative position and rotation between two bodies. */
 export default class LockConstraint extends Constraint {
-  /**
-   * The offset of bodyB in bodyA's frame.
-   */
+  /** The offset of bodyB in bodyA's frame. */
   localOffsetB: V2d;
 
-  /**
-   * The offset angle of bodyB in bodyA's frame.
-   */
+  /** The offset angle of bodyB in bodyA's frame. */
   localAngleB: number;
 
   constructor(bodyA: Body, bodyB: Body, options: LockConstraintOptions = {}) {
@@ -91,9 +85,7 @@ export default class LockConstraint extends Constraint {
     this.setMaxForce(maxForce);
   }
 
-  /**
-   * Set the maximum force to be applied.
-   */
+  /** Set the maximum force to be applied. */
   setMaxForce(force: number): void {
     const eqs = this.equations;
     for (let i = 0; i < this.equations.length; i++) {
@@ -102,9 +94,7 @@ export default class LockConstraint extends Constraint {
     }
   }
 
-  /**
-   * Get the max force.
-   */
+  /** Get the max force. */
   getMaxForce(): number {
     return this.equations[0].maxForce;
   }

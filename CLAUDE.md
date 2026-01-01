@@ -72,3 +72,5 @@ Define custom events in `src/config/CustomEvent.ts` and dispatch them with `game
 - Use `tags` array on entities for categorization
 - Query with `game.entities.getTagged("tagName")`
 - Use unique `id` for single entities: `game.entities.getById("entityId")`
+
+## 

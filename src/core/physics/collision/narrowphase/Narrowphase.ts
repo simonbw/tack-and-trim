@@ -86,9 +86,7 @@ export default class Narrowphase {
     this.frictionGenerator = new FrictionGenerator();
   }
 
-  /**
-   * Get current contact parameters
-   */
+  /** Get current contact parameters */
   private getContactParams(): ContactParams {
     return {
       restitution: this.restitution,
@@ -99,9 +97,7 @@ export default class Narrowphase {
     };
   }
 
-  /**
-   * Get current friction parameters
-   */
+  /** Get current friction parameters */
   private getFrictionParams(): FrictionParams {
     return {
       enabled: this.enableFriction,
@@ -115,9 +111,7 @@ export default class Narrowphase {
     };
   }
 
-  /**
-   * Check if bodies overlap (for testing only, doesn't generate equations)
-   */
+  /** Check if bodies overlap (for testing only, doesn't generate equations) */
   bodiesOverlap(bodyA: Body, bodyB: Body): boolean {
     for (const shapeA of bodyA.shapes) {
       const shapePositionA = bodyA.toWorldFrame(shapeA.position);
@@ -145,16 +139,12 @@ export default class Narrowphase {
     return false;
   }
 
-  /**
-   * Check if bodies were colliding in the previous step
-   */
+  /** Check if bodies were colliding in the previous step */
   collidedLastStep(bodyA: Body, bodyB: Body): boolean {
     return this.contactGenerator.collidedLastStep(bodyA, bodyB);
   }
 
-  /**
-   * Reset the narrowphase. Releases all equations back to pools.
-   */
+  /** Reset the narrowphase. Releases all equations back to pools. */
   reset(): void {
     // Update tracking of colliding bodies before clearing
     this.contactGenerator.updateCollidingBodies(this.contactEquations);
@@ -168,9 +158,7 @@ export default class Narrowphase {
     this.frictionEquations.length = 0;
   }
 
-  /**
-   * Collide two shapes and generate contact/friction equations
-   */
+  /** Collide two shapes and generate contact/friction equations */
   collideShapes(
     bodyA: Body,
     shapeA: Shape,

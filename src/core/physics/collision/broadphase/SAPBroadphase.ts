@@ -3,18 +3,12 @@ import type World from "../../world/World";
 import AABB from "../AABB";
 import Broadphase from "./Broadphase";
 
-/**
- * Sweep and prune broadphase along one axis.
- */
+/** Sweep and prune broadphase along one axis. */
 export default class SAPBroadphase extends Broadphase {
-  /**
-   * List of bodies currently in the broadphase.
-   */
+  /** List of bodies currently in the broadphase. */
   axisList: Body[] = [];
 
-  /**
-   * The axis to sort along. 0 means x-axis and 1 y-axis.
-   */
+  /** The axis to sort along. 0 means x-axis and 1 y-axis. */
   axisIndex: number = 0;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,9 +31,7 @@ export default class SAPBroadphase extends Broadphase {
     };
   }
 
-  /**
-   * Change the world
-   */
+  /** Change the world */
   setWorld(world: World): void {
     // Clear the old axis array
     this.axisList.length = 0;

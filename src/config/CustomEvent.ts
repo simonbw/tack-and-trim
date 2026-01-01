@@ -1,6 +1,4 @@
-/**
- * Global event types that can be dispatched by the Game and listened to by entities.
- */
+/** Global event types that can be dispatched by the Game and listened to by entities. */
 export type CustomEvents = {
   /** An example event.
    *

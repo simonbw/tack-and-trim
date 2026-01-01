@@ -24,9 +24,7 @@ export type GameEventHandler<Key extends GameEventName> = Record<
   GameEventHandlerFn<Key>
 >;
 
-/**
- * A thing that responds to game events.
- */
+/** A thing that responds to game events. */
 export default interface Entity extends EventHandler<GameEventMap> {
   /** The game this entity belongs to. This should only be set by the Game. */
   game: Game | undefined;

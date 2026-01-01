@@ -10,48 +10,30 @@ export interface DistanceConstraintOptions extends ConstraintOptions {
   maxForce?: number;
 }
 
-/**
- * Constraint that tries to keep the distance between two bodies constant.
- */
+/** Constraint that tries to keep the distance between two bodies constant. */
 export default class DistanceConstraint extends Constraint {
-  /**
-   * Local anchor in body A.
-   */
+  /** Local anchor in body A. */
   localAnchorA: V2d;
 
-  /**
-   * Local anchor in body B.
-   */
+  /** Local anchor in body B. */
   localAnchorB: V2d;
 
-  /**
-   * The distance to keep.
-   */
+  /** The distance to keep. */
   distance: number;
 
-  /**
-   * Max force to apply.
-   */
+  /** Max force to apply. */
   maxForce: number;
 
-  /**
-   * If the upper limit is enabled or not.
-   */
+  /** If the upper limit is enabled or not. */
   upperLimitEnabled: boolean = false;
 
-  /**
-   * The upper constraint limit.
-   */
+  /** The upper constraint limit. */
   upperLimit: number = 1;
 
-  /**
-   * If the lower limit is enabled or not.
-   */
+  /** If the lower limit is enabled or not. */
   lowerLimitEnabled: boolean = false;
 
-  /**
-   * The lower constraint limit.
-   */
+  /** The lower constraint limit. */
   lowerLimit: number = 0;
 
   /**
@@ -199,18 +181,14 @@ export default class DistanceConstraint extends Constraint {
     return this;
   }
 
-  /**
-   * Set the max force to be used
-   */
+  /** Set the max force to be used */
   setMaxForce(maxForce: number): void {
     const normal = this.equations[0];
     normal.minForce = -maxForce;
     normal.maxForce = maxForce;
   }
 
-  /**
-   * Get the max force
-   */
+  /** Get the max force */
   getMaxForce(): number {
     const normal = this.equations[0];
     return normal.maxForce;

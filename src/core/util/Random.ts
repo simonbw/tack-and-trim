@@ -1,8 +1,6 @@
 import { mod } from "./MathUtil";
 
-/**
- * Utility functions for doing things based on random numbers.
- */
+/** Utility functions for doing things based on random numbers. */
 
 // just for shorthand
 const r = Math.random;

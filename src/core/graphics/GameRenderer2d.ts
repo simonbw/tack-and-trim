@@ -89,16 +89,12 @@ export class GameRenderer2d {
     this.canvas.addEventListener("click", makeFullScreen);
   }
 
-  /**
-   * Gets the effective height of the renderer viewport in logical pixels.
-   */
+  /** Gets the effective height of the renderer viewport in logical pixels. */
   getHeight(): number {
     return this.app.renderer.height / this.app.renderer.resolution;
   }
 
-  /**
-   * Gets the effective width of the renderer viewport in logical pixels.
-   */
+  /** Gets the effective width of the renderer viewport in logical pixels. */
   getWidth(): number {
     return this.app.renderer.width / this.app.renderer.resolution;
   }

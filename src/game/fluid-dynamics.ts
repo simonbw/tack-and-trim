@@ -23,9 +23,7 @@ type ForceMagnitudeParams = Parameters<ForceMagnitudeFn>[0];
 // Core Functions
 // ============================================================================
 
-/**
- * Apply fluid forces to all edges of a body's convex shapes.
- */
+/** Apply fluid forces to all edges of a body's convex shapes. */
 export function applyFluidForcesToBody(
   body: Body,
   getLiftMagnitude: ForceMagnitudeFn,

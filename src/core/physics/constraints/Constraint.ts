@@ -6,28 +6,18 @@ export interface ConstraintOptions {
   wakeUpBodies?: boolean;
 }
 
-/**
- * Base constraint class.
- */
+/** Base constraint class. */
 export default class Constraint {
-  /**
-   * Equations to be solved in this constraint
-   */
+  /** Equations to be solved in this constraint */
   equations: Equation[] = [];
 
-  /**
-   * First body participating in the constraint.
-   */
+  /** First body participating in the constraint. */
   bodyA: Body;
 
-  /**
-   * Second body participating in the constraint.
-   */
+  /** Second body participating in the constraint. */
   bodyB: Body;
 
-  /**
-   * Set to true if you want the connected bodies to collide.
-   */
+  /** Set to true if you want the connected bodies to collide. */
   collideConnected: boolean;
 
   constructor(bodyA: Body, bodyB: Body, options: ConstraintOptions = {}) {
@@ -49,18 +39,14 @@ export default class Constraint {
     }
   }
 
-  /**
-   * Updates the internal constraint parameters before solve.
-   */
+  /** Updates the internal constraint parameters before solve. */
   update(): this {
     throw new Error(
       "method update() not implemented in this Constraint subclass!"
     );
   }
 
-  /**
-   * Set stiffness for this constraint.
-   */
+  /** Set stiffness for this constraint. */
   setStiffness(stiffness: number): this {
     const eqs = this.equations;
     for (let i = 0; i !== eqs.length; i++) {
@@ -71,9 +57,7 @@ export default class Constraint {
     return this;
   }
 
-  /**
-   * Set relaxation for this constraint.
-   */
+  /** Set relaxation for this constraint. */
   setRelaxation(relaxation: number): this {
     const eqs = this.equations;
     for (let i = 0; i !== eqs.length; i++) {

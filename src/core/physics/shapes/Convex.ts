@@ -9,9 +9,7 @@ export interface ConvexOptions extends ShapeOptions {
   axes?: CompatibleVector[];
 }
 
-/**
- * Convex shape class.
- */
+/** Convex shape class. */
 export default class Convex extends Shape {
   vertices: V2d[];
   axes: V2d[];

@@ -59,9 +59,7 @@ export function colorRange(from: number, to: number, steps: number): number[] {
   return out;
 }
 
-/**
- * Component wise lerp between colors
- */
+/** Component wise lerp between colors */
 export function colorLerp(from: number, to: number, percentTo: number): number {
   const rgbFrom = hexToRgb(from);
   const rgbTo = hexToRgb(to);

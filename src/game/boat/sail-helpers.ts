@@ -64,9 +64,7 @@ export function sailLift(scale: number, camber: number): ForceMagnitudeFn {
   };
 }
 
-/**
- * Create a drag magnitude function for sail airfoil behavior.
- */
+/** Create a drag magnitude function for sail airfoil behavior. */
 export function sailDrag(scale: number): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
     // Use effective angle (0 to 90°) for coefficient calculation

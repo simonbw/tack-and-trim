@@ -36,9 +36,7 @@ function distanceFromIntersectionSquared(
   return position.squaredDistanceTo(intersect);
 }
 
-/**
- * A line with a start and end point that is used to intersect shapes.
- */
+/** A line with a start and end point that is used to intersect shapes. */
 export default class Ray {
   from: V2d;
   to: V2d;
@@ -72,9 +70,7 @@ export default class Ray {
     this.update();
   }
 
-  /**
-   * Should be called if you change the from or to point.
-   */
+  /** Should be called if you change the from or to point. */
   update(): void {
     const d = this.direction;
     d.set(this.to).isub(this.from);
@@ -82,9 +78,7 @@ export default class Ray {
     d.inormalize();
   }
 
-  /**
-   * Intersect multiple bodies
-   */
+  /** Intersect multiple bodies */
   intersectBodies(result: RaycastResult, bodies: Body[]): void {
     for (let i = 0, l = bodies.length; !result.shouldStop(this) && i < l; i++) {
       const body = bodies[i];
@@ -95,9 +89,7 @@ export default class Ray {
     }
   }
 
-  /**
-   * Shoot a ray at a body, get back information about the hit.
-   */
+  /** Shoot a ray at a body, get back information about the hit. */
   intersectBody(result: RaycastResult, body: Body): void {
     const checkCollisionResponse = this.checkCollisionResponse;
 
@@ -163,9 +155,7 @@ export default class Ray {
     this._currentBody = this._currentShape = null;
   }
 
-  /**
-   * Get the AABB of the ray.
-   */
+  /** Get the AABB of the ray. */
   getAABB(result: AABB): void {
     const to = this.to;
     const from = this.from;

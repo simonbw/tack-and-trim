@@ -11,9 +11,7 @@ export interface CircleOptions extends ShapeOptions {
 const Ray_intersectSphere_intersectionPoint = V();
 const Ray_intersectSphere_normal = V();
 
-/**
- * Circle shape class.
- */
+/** Circle shape class. */
 export default class Circle extends Shape {
   radius: number;
 

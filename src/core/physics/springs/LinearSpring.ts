@@ -10,9 +10,7 @@ export interface LinearSpringOptions extends SpringOptions {
   worldAnchorB?: CompatibleVector;
 }
 
-/**
- * A spring, connecting two bodies.
- */
+/** A spring, connecting two bodies. */
 export default class LinearSpring extends Spring {
   localAnchorA: V2d;
   localAnchorB: V2d;

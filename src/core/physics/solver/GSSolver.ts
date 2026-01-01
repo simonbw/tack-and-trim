@@ -17,9 +17,7 @@ function setArrayZero(array: Float32Array | number[]): void {
   }
 }
 
-/**
- * Iterative Gauss-Seidel constraint equation solver.
- */
+/** Iterative Gauss-Seidel constraint equation solver. */
 export default class GSSolver extends Solver {
   /**
    * The max number of iterations to do when solving. More gives better
@@ -39,9 +37,7 @@ export default class GSSolver extends Solver {
   Bs: Float32Array | number[];
   invCs: Float32Array | number[];
 
-  /**
-   * Set to true to set all right hand side terms to zero when solving.
-   */
+  /** Set to true to set all right hand side terms to zero when solving. */
   useZeroRHS: boolean = false;
 
   /**
@@ -50,19 +46,13 @@ export default class GSSolver extends Solver {
    */
   frictionIterations: number;
 
-  /**
-   * The number of iterations that were made during the last solve.
-   */
+  /** The number of iterations that were made during the last solve. */
   usedIterations: number = 0;
 
-  /**
-   * Reference to the world for optimized body iteration.
-   */
+  /** Reference to the world for optimized body iteration. */
   world?: World;
 
-  /**
-   * Set the world reference for optimized dynamic body iteration.
-   */
+  /** Set the world reference for optimized dynamic body iteration. */
   setWorld(world: World): void {
     this.world = world;
   }
@@ -79,9 +69,7 @@ export default class GSSolver extends Solver {
       options.frictionIterations !== undefined ? options.frictionIterations : 0;
   }
 
-  /**
-   * Solve the system of equations
-   */
+  /** Solve the system of equations */
   solve(h: number, world: MinimalWorld): void {
     this.sortEquations();
 

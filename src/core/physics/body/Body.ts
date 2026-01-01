@@ -112,9 +112,7 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     return this._force;
   }
 
-  /**
-   * Reset constraint velocity accumulators to zero.
-   */
+  /** Reset constraint velocity accumulators to zero. */
   resetConstraintVelocity(): void {
     this._vlambda.set(0, 0);
     this._wlambda = 0;
@@ -135,9 +133,7 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   abstract sleepTick(time: number, dontSleep: boolean, dt: number): void;
   abstract integrate(dt: number): void;
 
-  /**
-   * Get the total area of all shapes in the body
-   */
+  /** Get the total area of all shapes in the body */
   getArea(): number {
     let totalArea = 0;
     for (let i = 0; i < this.shapes.length; i++) {
@@ -146,9 +142,7 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     return totalArea;
   }
 
-  /**
-   * Get the AABB from the body. The AABB is updated if necessary.
-   */
+  /** Get the AABB from the body. The AABB is updated if necessary. */
   getAABB(): AABB {
     if (this.aabbNeedsUpdate) {
       this.updateAABB();
@@ -156,9 +150,7 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     return this.aabb;
   }
 
-  /**
-   * Updates the AABB of the Body, and set .aabbNeedsUpdate = false.
-   */
+  /** Updates the AABB of the Body, and set .aabbNeedsUpdate = false. */
   updateAABB(): this {
     const shapes = this.shapes;
     const N = shapes.length;
@@ -237,9 +229,7 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     return this;
   }
 
-  /**
-   * Remove a shape
-   */
+  /** Remove a shape. */
   removeShape(shape: Shape): boolean {
     const idx = this.shapes.indexOf(shape);
 
@@ -253,30 +243,22 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     }
   }
 
-  /**
-   * Transform a world point to local body frame.
-   */
+  /** Transform a world point to local body frame. */
   toLocalFrame(worldPoint: V2d): V2d {
     return V(worldPoint).itoLocalFrame(this.position, this.angle);
   }
 
-  /**
-   * Transform a local point to world frame.
-   */
+  /** Transform a local point to world frame. */
   toWorldFrame(localPoint: V2d): V2d {
     return V(localPoint).itoGlobalFrame(this.position, this.angle);
   }
 
-  /**
-   * Transform a world vector to local body frame.
-   */
+  /** Transform a world vector to local body frame. */
   vectorToLocalFrame(worldVector: V2d): V2d {
     return V(worldVector).irotate(-this.angle);
   }
 
-  /**
-   * Transform a local vector to world frame.
-   */
+  /** Transform a local vector to world frame. */
   vectorToWorldFrame(localVector: V2d): V2d {
     return V(localVector).irotate(this.angle);
   }
@@ -290,9 +272,7 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     return this.world!.overlapKeeper.bodiesAreOverlapping(this, body);
   }
 
-  /**
-   * Get velocity of a point in the body.
-   */
+  /** Get velocity of a point in the body. */
   getVelocityAtPoint(relativePoint: V2d): V2d {
     const result = V(relativePoint).icrossVZ(this.angularVelocity);
     return V(this.velocity).isub(result);

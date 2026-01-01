@@ -11,9 +11,7 @@ import { pointInConvexLocal } from "../CollisionHelpers";
 
 const yAxis = V(0, 1);
 
-/**
- * Circle/Circle collision
- */
+/** Circle/Circle collision */
 export function circleCircle(
   bodyA: Body,
   shapeA: Shape,
@@ -63,9 +61,7 @@ export function circleCircle(
   return result;
 }
 
-/**
- * Circle/Particle collision
- */
+/** Circle/Particle collision */
 export function circleParticle(
   bodyA: Body,
   shapeA: Shape,
@@ -105,9 +101,7 @@ export function circleParticle(
   return result;
 }
 
-/**
- * Circle/Plane collision
- */
+/** Circle/Plane collision */
 export function circlePlane(
   bodyA: Body,
   shapeA: Shape,
@@ -153,9 +147,7 @@ export function circlePlane(
   return result;
 }
 
-/**
- * Circle/Line collision (also used for capsules via lineRadius parameter)
- */
+/** Circle/Line collision (also used for capsules via lineRadius parameter) */
 export function circleLine(
   bodyA: Body,
   shapeA: Shape,
@@ -267,9 +259,7 @@ export function circleLine(
   return null;
 }
 
-/**
- * Circle/Convex collision
- */
+/** Circle/Convex collision */
 export function circleConvex(
   bodyA: Body,
   shapeA: Shape,
@@ -407,9 +397,7 @@ export function circleConvex(
   return null;
 }
 
-/**
- * Circle/Heightfield collision
- */
+/** Circle/Heightfield collision */
 export function circleHeightfield(
   bodyA: Body,
   shapeA: Shape,
@@ -514,9 +502,7 @@ export function circleHeightfield(
   return result;
 }
 
-/**
- * Circle/Capsule collision
- */
+/** Circle/Capsule collision */
 export function circleCapsule(
   bodyA: Body,
   shapeA: Shape,

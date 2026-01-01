@@ -4,9 +4,7 @@ import { EntityFilter, hasBody } from "./EntityFilter";
 import { FilterMultiMap } from "./util/FilterListMap";
 import MultiMap from "./util/ListMap";
 
-/**
- * Keeps track of entities. Has lots of useful indexes.
- */
+/** Keeps track of entities. Has lots of useful indexes. */
 export default class EntityList implements Iterable<Entity> {
   /** Maps entity ids to entities */
   private idToEntity = new Map<string, Entity>();
@@ -107,16 +105,12 @@ export default class EntityList implements Iterable<Entity> {
     return [...result];
   }
 
-  /**
-   * Adds a filter for fast lookup with getByFilter() in the future.
-   */
+  /** Adds a filter for fast lookup with getByFilter() in the future. */
   addFilter<T extends Entity>(filter: EntityFilter<T>): void {
     this.filters.addFilter(filter, this.all);
   }
 
-  /**
-   * Removes a filter that was added with addFilter().
-   */
+  /** Removes a filter that was added with addFilter(). */
   removeFilter<T extends Entity>(filter: EntityFilter<T>): void {
     this.filters.removeFilter(filter);
   }
@@ -132,9 +126,7 @@ export default class EntityList implements Iterable<Entity> {
     return result ?? [...this.all].filter(filter);
   }
 
-  /**
-   * Get all entities that handle a specific event type.
-   */
+  /** Get all entities that handle a specific event type. */
   getHandlers(
     eventType: GameEventName
   ): ReadonlyArray<Entity & GameEventHandler<GameEventName>> {
@@ -143,9 +135,7 @@ export default class EntityList implements Iterable<Entity> {
     >;
   }
 
-  /**
-   * Iterate through all the entities.
-   */
+  /** Iterate through all the entities. */
   [Symbol.iterator]() {
     return this.all[Symbol.iterator]();
   }

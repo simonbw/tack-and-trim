@@ -18,9 +18,7 @@ export interface SoundOptions {
   outnode?: () => AudioNode;
 }
 
-/**
- * Represents a currently playing sound.
- */
+/** Represents a currently playing sound. */
 export class SoundInstance extends BaseEntity implements Entity {
   tags = ["sound"];
   public readonly continuous: boolean;

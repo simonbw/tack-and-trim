@@ -13,18 +13,12 @@ export interface MinimalWorld {
 
 const mockWorld: MinimalWorld = { bodies: [] };
 
-/**
- * Base class for constraint solvers.
- */
+/** Base class for constraint solvers. */
 export default class Solver extends EventEmitter {
-  /**
-   * Current equations in the solver.
-   */
+  /** Current equations in the solver. */
   equations: Equation[] = [];
 
-  /**
-   * Function that is used to sort all equations before each solve.
-   */
+  /** Function that is used to sort all equations before each solve. */
   equationSortFunction: ((a: Equation, b: Equation) => number) | false;
 
   constructor(options: SolverOptions = {}) {
@@ -41,16 +35,12 @@ export default class Solver extends EventEmitter {
     // Subclasses like GSSolver override this for optimization
   }
 
-  /**
-   * Method to be implemented in each subclass
-   */
+  /** Method to be implemented in each subclass */
   solve(_dt: number, _world: MinimalWorld): void {
     throw new Error("Solver.solve should be implemented by subclasses!");
   }
 
-  /**
-   * Solves all constraints in an island.
-   */
+  /** Solves all constraints in an island. */
   solveIsland(dt: number, island: Island): void {
     this.removeAllEquations();
 
@@ -77,9 +67,7 @@ export default class Solver extends EventEmitter {
     }
   }
 
-  /**
-   * Add an equation to be solved.
-   */
+  /** Add an equation to be solved. */
   addEquation(eq: Equation): void {
     if (eq.enabled) {
       this.equations.push(eq);
@@ -99,9 +87,7 @@ export default class Solver extends EventEmitter {
     }
   }
 
-  /**
-   * Remove an equation.
-   */
+  /** Remove an equation. */
   removeEquation(eq: Equation): void {
     const i = this.equations.indexOf(eq);
     if (i !== -1) {
@@ -109,9 +95,7 @@ export default class Solver extends EventEmitter {
     }
   }
 
-  /**
-   * Remove all currently added equations.
-   */
+  /** Remove all currently added equations. */
   removeAllEquations(): void {
     this.equations.length = 0;
   }

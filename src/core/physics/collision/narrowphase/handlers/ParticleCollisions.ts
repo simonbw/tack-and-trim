@@ -9,9 +9,7 @@ import { circleLine } from "./CircleCollisions";
 
 const yAxis = V(0, 1);
 
-/**
- * Particle/Plane collision
- */
+/** Particle/Plane collision */
 export function particlePlane(
   bodyA: Body,
   _shapeA: Shape,
@@ -53,9 +51,7 @@ export function particlePlane(
   return result;
 }
 
-/**
- * Particle/Convex collision
- */
+/** Particle/Convex collision */
 export function particleConvex(
   bodyA: Body,
   _shapeA: Shape,
@@ -121,9 +117,7 @@ export function particleConvex(
   return result;
 }
 
-/**
- * Particle/Capsule collision
- */
+/** Particle/Capsule collision */
 export function particleCapsule(
   bodyA: Body,
   shapeA: Shape,

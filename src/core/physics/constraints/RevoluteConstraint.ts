@@ -29,29 +29,19 @@ export default class RevoluteConstraint extends Constraint {
    */
   motorEnabled: boolean = false;
 
-  /**
-   * The constraint position.
-   */
+  /** The constraint position. */
   angle: number = 0;
 
-  /**
-   * Set to true to enable lower limit
-   */
+  /** Set to true to enable lower limit */
   lowerLimitEnabled: boolean = false;
 
-  /**
-   * Set to true to enable upper limit
-   */
+  /** Set to true to enable upper limit */
   upperLimitEnabled: boolean = false;
 
-  /**
-   * The lower limit on the constraint angle.
-   */
+  /** The lower limit on the constraint angle. */
   lowerLimit: number = 0;
 
-  /**
-   * The upper limit on the constraint angle.
-   */
+  /** The upper limit on the constraint angle. */
   upperLimit: number = 0;
 
   upperLimitEquation: RotationalLockEquation;
@@ -126,9 +116,7 @@ export default class RevoluteConstraint extends Constraint {
     this.lowerLimitEquation.maxForce = 0;
   }
 
-  /**
-   * Set the constraint angle limits.
-   */
+  /** Set the constraint angle limits. */
   setLimits(lower: number | undefined, upper: number | undefined): void {
     if (typeof lower === "number") {
       this.lowerLimit = lower;
@@ -208,9 +196,7 @@ export default class RevoluteConstraint extends Constraint {
     return this;
   }
 
-  /**
-   * Enable the rotational motor
-   */
+  /** Enable the rotational motor */
   enableMotor(): void {
     if (this.motorEnabled) {
       return;
@@ -219,9 +205,7 @@ export default class RevoluteConstraint extends Constraint {
     this.motorEnabled = true;
   }
 
-  /**
-   * Disable the rotational motor
-   */
+  /** Disable the rotational motor */
   disableMotor(): void {
     if (!this.motorEnabled) {
       return;
@@ -239,9 +223,7 @@ export default class RevoluteConstraint extends Constraint {
     return !!this.motorEnabled;
   }
 
-  /**
-   * Set the speed of the rotational constraint motor
-   */
+  /** Set the speed of the rotational constraint motor */
   setMotorSpeed(speed: number): void {
     if (!this.motorEnabled) {
       return;
@@ -250,9 +232,7 @@ export default class RevoluteConstraint extends Constraint {
     this.equations[i].relativeVelocity = speed;
   }
 
-  /**
-   * Get the speed of the rotational constraint motor
-   */
+  /** Get the speed of the rotational constraint motor */
   getMotorSpeed(): number | false {
     if (!this.motorEnabled) {
       return false;

@@ -6,9 +6,7 @@ export interface AABBOptions {
   lowerBound?: CompatibleVector;
 }
 
-/**
- * Axis aligned bounding box class.
- */
+/** Axis aligned bounding box class. */
 export default class AABB {
   lowerBound: V2d;
   upperBound: V2d;
@@ -25,9 +23,7 @@ export default class AABB {
     }
   }
 
-  /**
-   * Set the AABB bounds from a set of points, transformed by the given position and angle.
-   */
+  /** Set the AABB bounds from a set of points, transformed by the given position and angle. */
   setFromPoints(
     points: CompatibleVector[],
     position?: CompatibleVector,
@@ -84,18 +80,14 @@ export default class AABB {
     return this;
   }
 
-  /**
-   * Copy bounds from an AABB to this AABB
-   */
+  /** Copy bounds from an AABB to this AABB */
   copy(aabb: AABB): this {
     this.lowerBound.set(aabb.lowerBound);
     this.upperBound.set(aabb.upperBound);
     return this;
   }
 
-  /**
-   * Extend this AABB so that it covers the given AABB too.
-   */
+  /** Extend this AABB so that it covers the given AABB too. */
   extend(aabb: AABB): this {
     for (let i = 1; i >= 0; i--) {
       // Extend lower bound
@@ -113,9 +105,7 @@ export default class AABB {
     return this;
   }
 
-  /**
-   * Returns true if the given AABB overlaps this AABB.
-   */
+  /** Returns true if the given AABB overlaps this AABB. */
   overlaps(aabb: AABB): boolean {
     const l1 = this.lowerBound;
     const u1 = this.upperBound;
@@ -129,9 +119,7 @@ export default class AABB {
     );
   }
 
-  /**
-   * Check if this AABB contains the given point
-   */
+  /** Check if this AABB contains the given point */
   containsPoint(point: CompatibleVector): boolean {
     const l = this.lowerBound;
     const u = this.upperBound;

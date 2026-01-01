@@ -35,9 +35,7 @@ import {
   planeLine,
 } from "./handlers/PlaneCollisions";
 
-/**
- * Collision handler function type for dispatch
- */
+/** Collision handler function type for dispatch */
 export type CollisionHandler = (
   bodyA: Body,
   shapeA: Shape,
@@ -52,9 +50,7 @@ export type CollisionHandler = (
 
 type ShapeConstructor = new (...args: any[]) => Shape;
 
-/**
- * Wraps a collision handler to swap A and B inputs/outputs.
- */
+/** Wraps a collision handler to swap A and B inputs/outputs. */
 function swapped(handler: CollisionHandler): CollisionHandler {
   return (
     bodyA,
@@ -157,9 +153,7 @@ export default class CollisionDetector {
     }
   }
 
-  /**
-   * Get the collision handler for two shapes.
-   */
+  /** Get the collision handler for two shapes. */
   getCollisionHandler(shapeA: Shape, shapeB: Shape): CollisionHandler {
     const ctorA = shapeA.constructor as ShapeConstructor;
     const ctorB = shapeB.constructor as ShapeConstructor;

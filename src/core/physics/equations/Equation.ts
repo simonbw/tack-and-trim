@@ -5,9 +5,7 @@ export interface EquationOptions {
   relaxation?: number;
 }
 
-/**
- * Base class for constraint equations.
- */
+/** Base class for constraint equations. */
 export default class Equation {
   static DEFAULT_STIFFNESS = 1e6;
   static DEFAULT_RELAXATION = 4;

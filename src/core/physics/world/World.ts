@@ -37,9 +37,7 @@ export enum SleepMode {
   ISLAND_SLEEPING = 4,
 }
 
-/**
- * The dynamics world, where all bodies and constraints live.
- */
+/** The dynamics world, where all bodies and constraints live. */
 export default class World extends EventEmitter<PhysicsEventMap> {
   springs: Spring[] = [];
   bodies: Body[] = [];
@@ -112,23 +110,17 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     this.overlapKeeper = new OverlapKeeper();
   }
 
-  /**
-   * Add a constraint to the simulation.
-   */
+  /** Add a constraint to the simulation. */
   addConstraint(constraint: Constraint): void {
     this.constraints.push(constraint);
   }
 
-  /**
-   * Add a ContactMaterial to the simulation.
-   */
+  /** Add a ContactMaterial to the simulation. */
   addContactMaterial(contactMaterial: ContactMaterial): void {
     this.contactMaterials.push(contactMaterial);
   }
 
-  /**
-   * Removes a contact material
-   */
+  /** Removes a contact material */
   removeContactMaterial(cm: ContactMaterial): void {
     const idx = this.contactMaterials.indexOf(cm);
     if (idx !== -1) {
@@ -136,9 +128,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
-  /**
-   * Get a contact material given two materials
-   */
+  /** Get a contact material given two materials */
   getContactMaterial(
     materialA: Material,
     materialB: Material
@@ -157,9 +147,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     return false;
   }
 
-  /**
-   * Removes a constraint
-   */
+  /** Removes a constraint */
   removeConstraint(constraint: Constraint): void {
     const idx = this.constraints.indexOf(constraint);
     if (idx !== -1) {
@@ -167,9 +155,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
-  /**
-   * Step the physics world forward in time.
-   */
+  /** Step the physics world forward in time. */
   step(
     dt: number,
     timeSinceLastCalled: number = 0,
@@ -198,9 +184,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
-  /**
-   * Make a fixed step.
-   */
+  /** Make a fixed step. */
   internalStep(dt: number): void {
     this.stepping = true;
 
@@ -472,9 +456,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     this.emit({ type: "postStep" });
   }
 
-  /**
-   * Runs narrowphase for the shape pair i and j.
-   */
+  /** Runs narrowphase for the shape pair i and j. */
   runNarrowphase(
     np: Narrowphase,
     bi: Body,
@@ -628,17 +610,13 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
-  /**
-   * Add a spring to the simulation
-   */
+  /** Add a spring to the simulation */
   addSpring(spring: Spring): void {
     this.springs.push(spring);
     this.emit({ type: "addSpring", spring });
   }
 
-  /**
-   * Remove a spring
-   */
+  /** Remove a spring */
   removeSpring(spring: Spring): void {
     const idx = this.springs.indexOf(spring);
     if (idx !== -1) {
@@ -646,9 +624,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
-  /**
-   * Add a body to the simulation
-   */
+  /** Add a body to the simulation */
   addBody(body: Body): void {
     if (this.bodies.indexOf(body) === -1) {
       this.bodies.push(body);
@@ -688,9 +664,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
-  /**
-   * Get a body by its id.
-   */
+  /** Get a body by its id. */
   getBodyById(id: number): Body | false {
     const bodies = this.bodies;
     for (let i = 0; i < bodies.length; i++) {
@@ -702,16 +676,12 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     return false;
   }
 
-  /**
-   * Disable collision between two bodies
-   */
+  /** Disable collision between two bodies */
   disableBodyCollision(bodyA: Body, bodyB: Body): void {
     this.disabledBodyCollisionPairs.push(bodyA, bodyB);
   }
 
-  /**
-   * Enable collisions between the given two bodies
-   */
+  /** Enable collisions between the given two bodies */
   enableBodyCollision(bodyA: Body, bodyB: Body): void {
     const pairs = this.disabledBodyCollisionPairs;
     for (let i = 0; i < pairs.length; i += 2) {
@@ -725,9 +695,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
-  /**
-   * Resets the World, removes all bodies, constraints and springs.
-   */
+  /** Resets the World, removes all bodies, constraints and springs. */
   clear(): void {
     this.time = 0;
 
@@ -761,9 +729,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
-  /**
-   * Set the stiffness for all equations and contact materials.
-   */
+  /** Set the stiffness for all equations and contact materials. */
   setGlobalStiffness(stiffness: number): void {
     // Set for all constraints
     const constraints = this.constraints;
@@ -788,9 +754,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     c.stiffness = c.frictionStiffness = stiffness;
   }
 
-  /**
-   * Set the relaxation for all equations and contact materials.
-   */
+  /** Set the relaxation for all equations and contact materials. */
   setGlobalRelaxation(relaxation: number): void {
     // Set for all constraints
     for (let i = 0; i !== this.constraints.length; i++) {
@@ -948,9 +912,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     return hits;
   }
 
-  /**
-   * Internal raycast implementation.
-   */
+  /** Internal raycast implementation. */
   private _raycastInternal(
     result: RaycastResult,
     ray: Ray,

@@ -5,9 +5,7 @@ import StaticBody from "../../body/StaticBody";
 import type World from "../../world/World";
 import type AABB from "../AABB";
 
-/**
- * Base class for broadphase implementations.
- */
+/** Base class for broadphase implementations. */
 export default abstract class Broadphase {
   result: Body[];
   world: World | null;
@@ -17,9 +15,7 @@ export default abstract class Broadphase {
     this.world = world ?? null;
   }
 
-  /**
-   * Get all potential intersecting body pairs.
-   */
+  /** Get all potential intersecting body pairs. */
   abstract getCollisionPairs(_world: World): Body[];
 
   /**
@@ -33,23 +29,17 @@ export default abstract class Broadphase {
     _shouldAddBodies?: boolean
   ): Body[];
 
-  /**
-   * Set the world that we are searching for collision pairs in.
-   */
+  /** Set the world that we are searching for collision pairs in. */
   setWorld(world: World): void {
     this.world = world;
   }
 
-  /**
-   * Check whether the AABBs of two bodies overlap.
-   */
+  /** Check whether the AABBs of two bodies overlap. */
   boundingVolumeCheck(bodyA: Body, bodyB: Body): boolean {
     return bodyA.getAABB().overlaps(bodyB.getAABB());
   }
 
-  /**
-   * Check whether two bodies are allowed to collide at all.
-   */
+  /** Check whether two bodies are allowed to collide at all. */
   canCollide(bodyA: Body, bodyB: Body): boolean {
     // Cannot collide static bodies
     if (bodyA instanceof StaticBody && bodyB instanceof StaticBody) {

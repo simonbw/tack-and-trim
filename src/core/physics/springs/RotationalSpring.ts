@@ -5,9 +5,7 @@ export interface RotationalSpringOptions extends SpringOptions {
   restAngle?: number;
 }
 
-/**
- * A rotational spring, connecting two bodies rotation.
- */
+/** A rotational spring, connecting two bodies rotation. */
 export default class RotationalSpring extends Spring {
   restAngle: number;
 

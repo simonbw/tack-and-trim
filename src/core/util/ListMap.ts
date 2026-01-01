@@ -1,7 +1,4 @@
-/**
- * A map of lists. Automatically creates and removes lists as needed.
- * TODO: Consider using a Set instead of an Array for the values.
- */
+/** A map of lists. Automatically creates and removes lists as needed. TODO: Consider using a Set instead of an Array for the values. */
 export default class MultiMap<K, V> {
   private map: Map<K, V[]>;
 

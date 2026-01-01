@@ -24,9 +24,7 @@ interface GameOptions {
   world?: World;
 }
 
-/**
- * Top Level control structure
- */
+/** Top Level control structure */
 export default class Game {
   /** Keeps track of entities in lots of useful ways */
   readonly entities: EntityList;

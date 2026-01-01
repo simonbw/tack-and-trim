@@ -2,9 +2,7 @@ import { V, V2d } from "../../../Vector";
 import type Body from "../../body/Body";
 import type Shape from "../../shapes/Shape";
 
-/**
- * Storage for Ray casting hit data.
- */
+/** Storage for Ray casting hit data. */
 export default class RaycastResult {
   /** The normal of the hit, oriented in world space. */
   normal: V2d;
@@ -46,9 +44,7 @@ export default class RaycastResult {
     return ray.from.distanceTo(ray.to) * this.fraction!;
   }
 
-  /**
-   * Returns true if the ray hit something since the last reset().
-   */
+  /** Returns true if the ray hit something since the last reset(). */
   hasHit(): boolean {
     return this.fraction !== null;
   }
@@ -61,9 +57,7 @@ export default class RaycastResult {
     return V(ray.from).ilerp(ray.to, this.fraction!);
   }
 
-  /**
-   * Can be called while iterating over hits to stop searching for hit points.
-   */
+  /** Can be called while iterating over hits to stop searching for hit points. */
   stop(): void {
     this.isStopped = true;
   }

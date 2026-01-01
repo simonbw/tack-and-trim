@@ -215,9 +215,7 @@ export class V2d extends Array implements NumberTuple {
     return other != undefined && other[0] == this[0] && other[1] == this[1];
   }
 
-  /**
-   * Alias for [0].
-   */
+  /** Alias for [0]. */
   get x(): number {
     return this[0];
   }
@@ -226,9 +224,7 @@ export class V2d extends Array implements NumberTuple {
     this[0] = value;
   }
 
-  /**
-   * Alias for [1]
-   */
+  /** Alias for [1] */
   get y(): number {
     return this[1];
   }
@@ -361,9 +357,7 @@ export class V2d extends Array implements NumberTuple {
     return this;
   }
 
-  /**
-   * Transform this world point to a local frame defined by position and angle.
-   */
+  /** Transform this world point to a local frame defined by position and angle. */
   toLocalFrame(framePosition: CompatibleVector, frameAngle: number): V2d {
     return this.clone().itoLocalFrame(framePosition, frameAngle);
   }
@@ -375,9 +369,7 @@ export class V2d extends Array implements NumberTuple {
     return this;
   }
 
-  /**
-   * Transform this local point to world frame defined by position and angle.
-   */
+  /** Transform this local point to world frame defined by position and angle. */
   toGlobalFrame(framePosition: CompatibleVector, frameAngle: number): V2d {
     return this.clone().itoGlobalFrame(framePosition, frameAngle);
   }
@@ -391,9 +383,7 @@ export class V2d extends Array implements NumberTuple {
 
   // Static utility methods
 
-  /**
-   * Returns the intersection point of two line segments, or null if they don't intersect.
-   */
+  /** Returns the intersection point of two line segments, or null if they don't intersect. */
   static lineSegmentsIntersection(
     p0: CompatibleVector,
     p1: CompatibleVector,
@@ -432,9 +422,7 @@ export class V2d extends Array implements NumberTuple {
     return -1;
   }
 
-  /**
-   * Returns the centroid of a triangle defined by three points.
-   */
+  /** Returns the centroid of a triangle defined by three points. */
   static centroid(
     a: CompatibleVector,
     b: CompatibleVector,

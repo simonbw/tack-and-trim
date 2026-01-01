@@ -11,9 +11,7 @@ import { circlePlane } from "./CircleCollisions";
 const yAxis = V(0, 1);
 const tempCircle = new Circle({ radius: 1 });
 
-/**
- * Plane/Line collision
- */
+/** Plane/Line collision */
 export function planeLine(
   bodyA: Body,
   _shapeA: Shape,
@@ -68,9 +66,7 @@ export function planeLine(
   return result;
 }
 
-/**
- * Plane/Capsule collision
- */
+/** Plane/Capsule collision */
 export function planeCapsule(
   bodyA: Body,
   shapeA: Shape,
@@ -151,9 +147,7 @@ export function planeCapsule(
   return result;
 }
 
-/**
- * Plane/Convex collision
- */
+/** Plane/Convex collision */
 export function planeConvex(
   bodyA: Body,
   _shapeA: Shape,

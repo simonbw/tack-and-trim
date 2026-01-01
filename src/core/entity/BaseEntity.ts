@@ -10,9 +10,7 @@ import { clamp } from "../util/MathUtil";
 import Entity, { GameEventMap } from "./Entity";
 import { GameSprite, spriteFromDef } from "./GameSprite";
 
-/**
- * Base class for lots of stuff in the game.
- */
+/** Base class for lots of stuff in the game. */
 export default abstract class BaseEntity implements Entity {
   bodies?: Body[];
   body?: Body;
@@ -172,9 +170,7 @@ export default abstract class BaseEntity implements Entity {
     });
   }
 
-  /**
-   * Wait until a condition is filled. Probably not great to use, but seems kinda cool too.
-   */
+  /** Wait until a condition is filled. Probably not great to use, but seems kinda cool too. */
   waitUntil(
     predicate: () => boolean,
     onTick?: (dt: number, t: number) => void,
@@ -199,9 +195,7 @@ export default abstract class BaseEntity implements Entity {
     });
   }
 
-  /**
-   * Remove all timers from this instance. i.e. cancel all 'waits'.
-   */
+  /** Remove all timers from this instance. i.e. cancel all 'waits'. */
   clearTimers(timerId?: string): void {
     if (this.children) {
       const timers = this.children.filter(isTimer);
@@ -213,9 +207,7 @@ export default abstract class BaseEntity implements Entity {
     }
   }
 
-  /**
-   * Update the time remaing on a timer (or all timers).
-   */
+  /** Update the time remaing on a timer (or all timers). */
   updateTimers(value: number = 0, timerId?: string): void {
     if (this.children) {
       const timers = this.children.filter(isTimer);
