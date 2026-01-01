@@ -1,17 +1,15 @@
-import { V2d } from "../../Vector";
-import Body from "../body/Body";
-import ContactEquation from "../equations/ContactEquation";
-import Equation from "../equations/Equation";
-import FrictionEquation from "../equations/FrictionEquation";
-import Capsule from "../shapes/Capsule";
-import Circle from "../shapes/Circle";
-import Convex from "../shapes/Convex";
-import Particle from "../shapes/Particle";
-import Shape from "../shapes/Shape";
-import type World from "../world/World";
+import { V2d } from "../../../Vector";
+import Body from "../../body/Body";
+import ContactEquation from "../../equations/ContactEquation";
+import Equation from "../../equations/Equation";
+import FrictionEquation from "../../equations/FrictionEquation";
+import Shape from "../../shapes/Shape";
+import type World from "../../world/World";
+import ContactGenerator, { ContactParams } from "../response/ContactGenerator";
+import FrictionGenerator, {
+  FrictionParams,
+} from "../response/FrictionGenerator";
 import CollisionDetector from "./CollisionDetector";
-import ContactGenerator, { ContactParams } from "./ContactGenerator";
-import FrictionGenerator, { FrictionParams } from "./FrictionGenerator";
 
 /**
  * Narrowphase. Creates contacts and friction given shapes and transforms.
@@ -221,105 +219,5 @@ export default class Narrowphase {
     this.frictionEquations.push(...friction);
 
     return contacts.length;
-  }
-
-  // ========== LEGACY API (for backwards compatibility) ==========
-  // These methods delegate to the new subsystems
-
-  /**
-   * @deprecated Use collideShapes instead. This method exists for backwards compatibility.
-   */
-  getCollisionHandler(
-    shapeA: Shape,
-    shapeB: Shape
-  ): { handler: Function; swap: boolean } | null {
-    return this.collisionDetector.getCollisionHandler(shapeA, shapeB);
-  }
-
-  // ========== HIT TEST HELPERS ==========
-  // These are used by World.hitTest to check for point-shape collisions
-
-  /**
-   * Test circle vs particle collision (used for hit testing)
-   */
-  circleParticle(
-    bodyA: Body,
-    shapeA: Circle,
-    offsetA: V2d,
-    angleA: number,
-    bodyB: Body,
-    shapeB: Particle,
-    offsetB: V2d,
-    angleB: number,
-    justTest: boolean
-  ): number {
-    const result = this.collisionDetector.collide(
-      bodyA,
-      shapeA,
-      offsetA,
-      angleA,
-      bodyB,
-      shapeB,
-      offsetB,
-      angleB,
-      justTest
-    );
-    return result ? 1 : 0;
-  }
-
-  /**
-   * Test particle vs convex collision (used for hit testing)
-   */
-  particleConvex(
-    bodyA: Body,
-    shapeA: Particle,
-    offsetA: V2d,
-    angleA: number,
-    bodyB: Body,
-    shapeB: Convex,
-    offsetB: V2d,
-    angleB: number,
-    justTest: boolean
-  ): number {
-    const result = this.collisionDetector.collide(
-      bodyA,
-      shapeA,
-      offsetA,
-      angleA,
-      bodyB,
-      shapeB,
-      offsetB,
-      angleB,
-      justTest
-    );
-    return result ? 1 : 0;
-  }
-
-  /**
-   * Test particle vs capsule collision (used for hit testing)
-   */
-  particleCapsule(
-    bodyA: Body,
-    shapeA: Particle,
-    offsetA: V2d,
-    angleA: number,
-    bodyB: Body,
-    shapeB: Capsule,
-    offsetB: V2d,
-    angleB: number,
-    justTest: boolean
-  ): number {
-    const result = this.collisionDetector.collide(
-      bodyA,
-      shapeA,
-      offsetA,
-      angleA,
-      bodyB,
-      shapeB,
-      offsetB,
-      angleB,
-      justTest
-    );
-    return result ? 1 : 0;
   }
 }

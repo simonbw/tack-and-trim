@@ -1,5 +1,5 @@
 import { V, V2d, CompatibleVector } from "../../Vector";
-import type Ray from "./Ray";
+import type Ray from "./raycast/Ray";
 
 export interface AABBOptions {
   upperBound?: CompatibleVector;

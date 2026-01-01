@@ -1,8 +1,8 @@
 import Shape, { ShapeOptions } from "./Shape";
 import { V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
-import type RaycastResult from "../collision/RaycastResult";
-import type Ray from "../collision/Ray";
+import type RaycastResult from "../collision/raycast/RaycastResult";
+import type Ray from "../collision/raycast/Ray";
 
 export interface CircleOptions extends ShapeOptions {
   radius?: number;

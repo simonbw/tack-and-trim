@@ -1,11 +1,11 @@
-import { V2d } from "../../Vector";
-import Body from "../body/Body";
-import ContactEquation from "../equations/ContactEquation";
-import Equation from "../equations/Equation";
-import Shape from "../shapes/Shape";
-import ContactEquationPool from "../utils/ContactEquationPool";
-import TupleDictionary from "../utils/TupleDictionary";
-import { CollisionResult } from "./CollisionResult";
+import { V2d } from "../../../Vector";
+import Body from "../../body/Body";
+import ContactEquation from "../../equations/ContactEquation";
+import Equation from "../../equations/Equation";
+import Shape from "../../shapes/Shape";
+import ContactEquationPool from "../../utils/ContactEquationPool";
+import TupleDictionary from "../../utils/TupleDictionary";
+import { CollisionResult } from "../CollisionResult";
 
 /**
  * Parameters for contact equation generation

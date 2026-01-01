@@ -1,6 +1,6 @@
-import type Body from "../body/Body";
-import type World from "../world/World";
-import AABB from "./AABB";
+import type Body from "../../body/Body";
+import type World from "../../world/World";
+import AABB from "../AABB";
 import Broadphase from "./Broadphase";
 
 /**

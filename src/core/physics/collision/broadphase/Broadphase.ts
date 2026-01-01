@@ -1,11 +1,8 @@
-import { V } from "../../Vector";
-import type Body from "../body/Body";
-import KinematicBody from "../body/KinematicBody";
-import StaticBody from "../body/StaticBody";
-import type World from "../world/World";
-import type AABB from "./AABB";
-
-const dist = V();
+import type Body from "../../body/Body";
+import KinematicBody from "../../body/KinematicBody";
+import StaticBody from "../../body/StaticBody";
+import type World from "../../world/World";
+import type AABB from "../AABB";
 
 /**
  * Base class for broadphase implementations.

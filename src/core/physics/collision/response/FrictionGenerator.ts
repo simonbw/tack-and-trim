@@ -1,10 +1,9 @@
-import { V } from "../../Vector";
-import Body from "../body/Body";
-import ContactEquation from "../equations/ContactEquation";
-import Equation from "../equations/Equation";
-import FrictionEquation from "../equations/FrictionEquation";
-import Shape from "../shapes/Shape";
-import FrictionEquationPool from "../utils/FrictionEquationPool";
+import Body from "../../body/Body";
+import ContactEquation from "../../equations/ContactEquation";
+import Equation from "../../equations/Equation";
+import FrictionEquation from "../../equations/FrictionEquation";
+import Shape from "../../shapes/Shape";
+import FrictionEquationPool from "../../utils/FrictionEquationPool";
 
 /**
  * Parameters for friction equation generation

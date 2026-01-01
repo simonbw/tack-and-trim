@@ -4,22 +4,18 @@ import DynamicBody from "../body/DynamicBody";
 import KinematicBody from "../body/KinematicBody";
 import StaticBody from "../body/StaticBody";
 import AABB from "../collision/AABB";
-import Broadphase from "../collision/Broadphase";
-import Narrowphase from "../collision/Narrowphase";
-import Ray from "../collision/Ray";
-import { RaycastHit, RaycastOptions } from "../collision/RaycastHit";
-import RaycastResult from "../collision/RaycastResult";
-import SpatialHashingBroadphase from "../collision/SpatialHashingBroadphase";
+import Broadphase from "../collision/broadphase/Broadphase";
+import SpatialHashingBroadphase from "../collision/broadphase/SpatialHashingBroadphase";
+import Narrowphase from "../collision/narrowphase/Narrowphase";
+import Ray from "../collision/raycast/Ray";
+import { RaycastHit, RaycastOptions } from "../collision/raycast/RaycastHit";
+import RaycastResult from "../collision/raycast/RaycastResult";
 import Constraint from "../constraints/Constraint";
 import type ContactEquation from "../equations/ContactEquation";
 import EventEmitter from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
 import ContactMaterial from "../material/ContactMaterial";
 import Material from "../material/Material";
-import Capsule from "../shapes/Capsule";
-import Circle from "../shapes/Circle";
-import Convex from "../shapes/Convex";
-import Particle from "../shapes/Particle";
 import Shape from "../shapes/Shape";
 import GSSolver from "../solver/GSSolver";
 import Solver from "../solver/Solver";
@@ -104,10 +100,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       this.defaultMaterial
     );
 
-    this.islandSplit =
-      typeof options.islandSplit !== "undefined"
-        ? !!options.islandSplit
-        : false;
+    this.islandSplit = options.islandSplit ?? false;
 
     // Disable automatic gravity and damping - let game code apply these
     this.applyGravity = false;
@@ -764,49 +757,6 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     for (let i = cms.length - 1; i >= 0; i--) {
       this.removeContactMaterial(cms[i]);
     }
-  }
-
-  /**
-   * Test if a world point overlaps bodies
-   */
-  hitTest(worldPoint: V2d, bodies: Body[], precision: number = 0): Body[] {
-    // Create a dummy particle body with a particle shape to test against the bodies
-    const pb = new StaticBody({ position: worldPoint });
-    const ps = new Particle();
-    const px = worldPoint;
-    const pa = 0;
-    pb.addShape(ps);
-
-    const n = this.narrowphase;
-    const result: Body[] = [];
-
-    // Check bodies
-    for (let i = 0, N = bodies.length; i !== N; i++) {
-      const b = bodies[i];
-
-      for (let j = 0, NS = b.shapes.length; j !== NS; j++) {
-        const s = b.shapes[j];
-
-        // Get shape world position + angle
-        const x = V(s.position).irotate(b.angle).iadd(b.position);
-        const a = s.angle + b.angle;
-
-        if (
-          (s instanceof Circle &&
-            n.circleParticle(b, s, x, a, pb, ps, px, pa, true)) ||
-          (s instanceof Convex &&
-            n.particleConvex(pb, ps, px, pa, b, s, x, a, true)) ||
-          (s instanceof Capsule &&
-            n.particleCapsule(pb, ps, px, pa, b, s, x, a, true)) ||
-          (s instanceof Particle &&
-            V(x).isub(worldPoint).squaredMagnitude < precision * precision)
-        ) {
-          result.push(b);
-        }
-      }
-    }
-
-    return result;
   }
 
   /**

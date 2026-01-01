@@ -1,7 +1,7 @@
-import { CompatibleVector, V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import type Shape from "../shapes/Shape";
-import type AABB from "./AABB";
+import { CompatibleVector, V, V2d } from "../../../Vector";
+import type Body from "../../body/Body";
+import type Shape from "../../shapes/Shape";
+import type AABB from "../AABB";
 import type RaycastResult from "./RaycastResult";
 
 export interface RayOptions {
@@ -53,13 +53,9 @@ export default class Ray {
   _currentShape: Shape | null = null;
 
   constructor(options: RayOptions = {}) {
-    this.from = options.from
-      ? V(options.from[0], options.from[1])
-      : V();
+    this.from = options.from ? V(options.from[0], options.from[1]) : V();
 
-    this.to = options.to
-      ? V(options.to[0], options.to[1])
-      : V();
+    this.to = options.to ? V(options.to[0], options.to[1]) : V();
 
     this.checkCollisionResponse = options.checkCollisionResponse ?? true;
     this.skipBackfaces = options.skipBackfaces ?? false;
@@ -122,7 +118,9 @@ export default class Ray {
       }
 
       // Get world angle and position of the shape
-      const worldPosition = V(shape.position).irotate(body.angle).iadd(body.position);
+      const worldPosition = V(shape.position)
+        .irotate(body.angle)
+        .iadd(body.position);
       const worldAngle = shape.angle + body.angle;
 
       this.intersectShape(result, shape, worldAngle, worldPosition, body);

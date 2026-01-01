@@ -1,11 +1,11 @@
-import { mod } from "../../util/MathUtil";
-import type Body from "../body/Body";
-import DynamicBody from "../body/DynamicBody";
-import KinematicBody from "../body/KinematicBody";
-import Particle from "../shapes/Particle";
-import World from "../world/World";
-import AABB from "./AABB";
-import Ray from "./Ray";
+import { mod } from "../../../util/MathUtil";
+import type Body from "../../body/Body";
+import DynamicBody from "../../body/DynamicBody";
+import KinematicBody from "../../body/KinematicBody";
+import Particle from "../../shapes/Particle";
+import World from "../../world/World";
+import AABB from "../AABB";
+import Ray from "../raycast/Ray";
 import SAPBroadphase from "./SAPBroadphase";
 
 const HUGE_LIMIT = 200;

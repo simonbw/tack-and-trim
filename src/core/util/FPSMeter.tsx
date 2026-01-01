@@ -1,7 +1,7 @@
 import { Container } from "pixi.js";
 import React from "react";
 import Entity, { GameEventMap } from "../entity/Entity";
-import SpatialHashingBroadphase from "../physics/collision/SpatialHashingBroadphase";
+import SpatialHashingBroadphase from "../physics/collision/broadphase/SpatialHashingBroadphase";
 import { ReactEntity } from "../ReactEntity";
 
 const SMOOTHING = 0.95;

@@ -40,7 +40,7 @@ const shape = new Circle({ radius: 1 /** in meters, generally */ });
 this.body.addShape(shape);
 ```
 
-If you want to give an entity multiple bodies, you can use the `bodies` field instead, though be careful.
+If you want to give an entity multiple bodies, you can use the `bodies` field instead.
 
 ### Sprite
 
@@ -146,6 +146,7 @@ If you try to add an entity to the game with the same `id` as one that is alread
 ## Graphics
 
 TODO: Write documentation on Graphics engine, in particular things that are different from base Pixi.js.
+
 - Layers
 - GameSprite
 
@@ -158,6 +159,7 @@ TODO: Write documention on IO.
 ## Physics
 
 TODO: Write more documentation on physics, in particular things that are specific to this engine.
+
 - Things that are changed from `p2.js`
 - Custom World
 - Custom Broadphase

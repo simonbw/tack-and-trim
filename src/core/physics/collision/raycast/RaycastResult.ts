@@ -1,50 +1,34 @@
-import { V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import type Shape from "../shapes/Shape";
+import { V, V2d } from "../../../Vector";
+import type Body from "../../body/Body";
+import type Shape from "../../shapes/Shape";
 
 /**
  * Storage for Ray casting hit data.
  */
 export default class RaycastResult {
-  /**
-   * The normal of the hit, oriented in world space.
-   */
+  /** The normal of the hit, oriented in world space. */
   normal: V2d;
 
-  /**
-   * The hit shape, or null.
-   */
+  /** The hit shape, or null. */
   shape: Shape | null = null;
 
-  /**
-   * The hit body, or null.
-   */
+  /** The hit body, or null. */
   body: Body | null = null;
 
-  /**
-   * The index of the hit triangle, if the hit shape was indexable.
-   * Will be null if there was no hit.
-   */
+  /** The index of the hit triangle, if the hit shape was indexable. Will be null if there was no hit. */
   faceIndex: number | null = null;
 
-  /**
-   * Distance to the hit, as a fraction. 0 is at the "from" point, 1 is at the "to" point.
-   * Will be null if there was no hit yet.
-   */
+  /** Distance to the hit, as a fraction. 0 is at the "from" point, 1 is at the "to" point. Will be null if there was no hit yet. */
   fraction: number | null = null;
 
-  /**
-   * If the ray should stop traversing.
-   */
+  /** If the ray should stop traversing. */
   isStopped: boolean = false;
 
   constructor() {
     this.normal = V();
   }
 
-  /**
-   * Reset all result data. Must be done before re-using the result object.
-   */
+  /** Reset all result data. Must be done before re-using the result object. */
   reset(): void {
     this.normal.set(0, 0);
     this.shape = null;
