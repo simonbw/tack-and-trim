@@ -1,6 +1,44 @@
 import { lerp } from "./util/MathUtil";
 
-export type CompatibleVector = V2d | [number, number] | Float32Array;
+type CompatibleTuple = [number, number] | Float32Array;
+export type CompatibleVector = V2d | CompatibleTuple;
+
+/** Immutable interface for V2d that exposes only read-only properties and non-mutating methods. */
+export interface ReadonlyV2d {
+  readonly 0: number;
+  readonly 1: number;
+  readonly x: number;
+  readonly y: number;
+  readonly magnitude: number;
+  readonly angle: number;
+  readonly squaredMagnitude: number;
+
+  add(other: CompatibleTuple): V2d;
+  addScaled(other: CompatibleTuple, scale: number): V2d;
+  sub(other: CompatibleTuple): V2d;
+  mul(scalar: number): V2d;
+  div(scalar: number): V2d;
+  mulComponent(other: CompatibleTuple): V2d;
+  normalize(length?: number): V2d;
+  limit(max: number): V2d;
+  rotate(angle: number): V2d;
+  rotate90cw(): V2d;
+  rotate90ccw(): V2d;
+  lerp(other: CompatibleTuple, t?: number): V2d;
+  reflect(normal: CompatibleTuple): V2d;
+  negate(): V2d;
+  crossVZ(zcomp: number): V2d;
+  crossZV(zcomp: number): V2d;
+  toLocalFrame(framePosition: CompatibleTuple, frameAngle: number): V2d;
+  toGlobalFrame(framePosition: CompatibleTuple, frameAngle: number): V2d;
+  clone(): V2d;
+
+  dot(other: CompatibleTuple): number;
+  crossLength(other: CompatibleTuple): number;
+  distanceTo(other: CompatibleTuple): number;
+  squaredDistanceTo(other: CompatibleTuple): number;
+  equals(other: CompatibleTuple): boolean;
+}
 
 export function V(x?: number | CompatibleVector, y?: number) {
   if (x instanceof V2d) {
@@ -17,13 +55,13 @@ type NumberTuple = [number, number];
  * A 2D vector class extending Array that provides comprehensive vector mathematics operations.
  * Supports both in-place and non-mutating operations for performance optimization.
  * Can be used as a tuple [x, y] or accessed via .x and .y properties.
- * 
+ *
  * @example
  * const v = new V2d(3, 4);
  * console.log(v.magnitude); // 5
  * const normalized = v.normalize();
  */
-export class V2d extends Array implements NumberTuple {
+export class V2d extends Array implements NumberTuple, ReadonlyV2d {
   0: number;
   1: number;
   length: 2 = 2;
@@ -428,9 +466,6 @@ export class V2d extends Array implements NumberTuple {
     b: CompatibleVector,
     c: CompatibleVector
   ): V2d {
-    return new V2d(
-      (a[0] + b[0] + c[0]) / 3,
-      (a[1] + b[1] + c[1]) / 3
-    );
+    return new V2d((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3);
   }
 }
