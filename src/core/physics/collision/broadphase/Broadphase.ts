@@ -1,13 +1,10 @@
 import type Body from "../../body/Body";
-import { SleepState } from "../../body/Body";
-import KinematicBody from "../../body/KinematicBody";
-import StaticBody from "../../body/StaticBody";
 import type World from "../../world/World";
 import type AABB from "../AABB";
 
 /** Base class for broadphase implementations. */
 export default abstract class Broadphase {
-  result: Body[];
+  result: [Body, Body][];
   world: World | null;
 
   constructor(world?: World) {
@@ -16,7 +13,7 @@ export default abstract class Broadphase {
   }
 
   /** Get all potential intersecting body pairs. */
-  abstract getCollisionPairs(_world: World): Body[];
+  abstract getCollisionPairs(_world: World): [Body, Body][];
 
   /**
    * Returns all the bodies within an AABB.
@@ -37,45 +34,5 @@ export default abstract class Broadphase {
   /** Check whether the AABBs of two bodies overlap. */
   boundingVolumeCheck(bodyA: Body, bodyB: Body): boolean {
     return bodyA.getAABB().overlaps(bodyB.getAABB());
-  }
-
-  /** Check whether two bodies are allowed to collide at all. */
-  canCollide(bodyA: Body, bodyB: Body): boolean {
-    // Cannot collide static bodies
-    if (bodyA instanceof StaticBody && bodyB instanceof StaticBody) {
-      return false;
-    }
-
-    // Cannot collide static vs kinematic bodies
-    if (
-      (bodyA instanceof KinematicBody && bodyB instanceof StaticBody) ||
-      (bodyA instanceof StaticBody && bodyB instanceof KinematicBody)
-    ) {
-      return false;
-    }
-
-    // Cannot collide kinematic vs kinematic
-    if (bodyA instanceof KinematicBody && bodyB instanceof KinematicBody) {
-      return false;
-    }
-
-    // Cannot collide both sleeping bodies
-    if (
-      bodyA.sleepState === SleepState.SLEEPING &&
-      bodyB.sleepState === SleepState.SLEEPING
-    ) {
-      return false;
-    }
-
-    // Cannot collide if one is static and the other is sleeping
-    if (
-      (bodyA.sleepState === SleepState.SLEEPING &&
-        bodyB instanceof StaticBody) ||
-      (bodyB.sleepState === SleepState.SLEEPING && bodyA instanceof StaticBody)
-    ) {
-      return false;
-    }
-
-    return true;
   }
 }

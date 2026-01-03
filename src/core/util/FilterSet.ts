@@ -1,4 +1,4 @@
-/** TODO: Document filter */
+/** Function that takes an item and returns true if it is of the desired type */
 export type Filter<T, T2 extends T> = (item: T) => item is T2;
 
 /**

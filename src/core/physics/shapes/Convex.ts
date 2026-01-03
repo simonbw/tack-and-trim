@@ -1,7 +1,6 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
-import type Ray from "../collision/raycast/Ray";
-import type RaycastResult from "../collision/raycast/RaycastResult";
+import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 import Shape, { ShapeOptions } from "./Shape";
 
 export interface ConvexOptions extends ShapeOptions {
@@ -216,32 +215,46 @@ export default class Convex extends Shape {
     return out;
   }
 
-  raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {
+  raycast(
+    from: V2d,
+    to: V2d,
+    position: V2d,
+    angle: number,
+    _skipBackfaces: boolean
+  ): ShapeRaycastHit | null {
     const vertices = this.vertices;
 
-    // Transform to local shape space
-    const rayStart = V(ray.from).toLocalFrame(position, angle);
-    const rayEnd = V(ray.to).toLocalFrame(position, angle);
+    // Transform ray to local shape space
+    const rayStart = V(from).toLocalFrame(position, angle);
+    const rayEnd = V(to).toLocalFrame(position, angle);
 
     const n = vertices.length;
+    let closestFraction = Infinity;
+    let closestHit: ShapeRaycastHit | null = null;
+    const rayLength = from.distanceTo(to);
 
-    for (let i = 0; i < n && !result.shouldStop(ray); i++) {
+    for (let i = 0; i < n; i++) {
       const q1 = vertices[i];
       const q2 = vertices[(i + 1) % n];
-      const delta = V2d.lineSegmentsIntersectionFraction(
+      const fraction = V2d.lineSegmentsIntersectionFraction(
         rayStart,
         rayEnd,
         q1,
         q2
       );
 
-      if (delta >= 0) {
+      if (fraction >= 0 && fraction < closestFraction) {
+        closestFraction = fraction;
+        // Compute normal perpendicular to edge, rotated to world space
         const normal = V(q2).sub(q1);
         normal.irotate(-Math.PI / 2 + angle);
         normal.inormalize();
-        ray.reportIntersection(result, delta, normal, i);
+        const point = V(from).ilerp(to, fraction);
+        closestHit = { point, normal, distance: rayLength * fraction, fraction };
       }
     }
+
+    return closestHit;
   }
 
   /**

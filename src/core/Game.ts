@@ -114,12 +114,12 @@ export default class Game {
 
     this.ticksPerSecond = ticksPerSecond;
     this.tickDuration = 1.0 / this.ticksPerSecond;
-    this.world = world ?? new World({ gravity: [0, 0] });
+    this.world = world ?? new World();
     this.world.on("beginContact", this.beginContact as any, null);
     this.world.on("endContact", this.endContact as any, null);
     this.world.on("impact", this.impact as any, null);
     this.ground = new StaticBody();
-    this.world.addBody(this.ground);
+    this.world.bodies.add(this.ground);
     this.contactList = new ContactList();
 
     this.audio = audio ?? new AudioContext();
@@ -237,12 +237,12 @@ export default class Game {
 
     if (entity.body) {
       entity.body.owner = entity;
-      this.world.addBody(entity.body);
+      this.world.bodies.add(entity.body);
     }
     if (entity.bodies) {
       for (const body of entity.bodies) {
         body.owner = entity;
-        this.world.addBody(body);
+        this.world.bodies.add(body);
       }
     }
     if (entity.springs) {
@@ -252,7 +252,7 @@ export default class Game {
     }
     if (entity.constraints) {
       for (const constraint of entity.constraints) {
-        this.world.addConstraint(constraint);
+        this.world.constraints.add(constraint);
       }
     }
 
@@ -406,11 +406,11 @@ export default class Game {
     this.io.removeHandler(entity);
 
     if (entity.body) {
-      this.world.removeBody(entity.body);
+      this.world.bodies.remove(entity.body);
     }
     if (entity.bodies) {
       for (const body of entity.bodies) {
-        this.world.removeBody(body);
+        this.world.bodies.remove(body);
       }
     }
     if (entity.springs) {
@@ -420,7 +420,7 @@ export default class Game {
     }
     if (entity.constraints) {
       for (const constraint of entity.constraints) {
-        this.world.removeConstraint(constraint);
+        this.world.constraints.remove(constraint);
       }
     }
 

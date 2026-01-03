@@ -1,8 +1,8 @@
 import Body from "../body/Body";
-import Shape from "../shapes/Shape";
-import type Spring from "../springs/Spring";
 import type ContactEquation from "../equations/ContactEquation";
 import type FrictionEquation from "../equations/FrictionEquation";
+import Shape from "../shapes/Shape";
+import type Spring from "../springs/Spring";
 
 /**
  * Discriminated union type for all physics events.
@@ -21,7 +21,7 @@ export type PhysicsEvent =
       shapeB: Shape;
       contactEquation: ContactEquation;
     }
-  | { type: "postBroadphase"; pairs: Body[] }
+  | { type: "postBroadphase"; pairs: [Body, Body][] }
   | {
       type: "beginContact";
       shapeA: Shape;

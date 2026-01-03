@@ -1,7 +1,6 @@
 import { V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
-import type Ray from "../collision/raycast/Ray";
-import type RaycastResult from "../collision/raycast/RaycastResult";
+import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 import Shape, { ShapeOptions } from "./Shape";
 
 /**
@@ -35,30 +34,39 @@ export default class Plane extends Shape {
     return out;
   }
 
-  raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {
+  raycast(
+    from: V2d,
+    to: V2d,
+    position: V2d,
+    angle: number,
+    _skipBackfaces: boolean
+  ): ShapeRaycastHit | null {
     // World normal of plane (rotated +Y)
     const worldNormal = V(0, 1).irotate(angle);
 
     // Direction from ray start to plane position
-    const planeToRay = V(ray.from).isub(position);
+    const planeToRay = V(from).isub(position);
 
     // Distance from ray start to plane along plane normal
     const d1 = worldNormal.dot(planeToRay);
 
     // Ray direction projected onto plane normal
-    const rayDir = V(ray.to).isub(ray.from);
+    const rayDir = V(to).isub(from);
     const d2 = worldNormal.dot(rayDir);
 
     // Ray is parallel to plane or pointing away
     if (d2 >= 0) {
-      return;
+      return null;
     }
 
     // Compute intersection fraction
     const fraction = d1 / -d2;
 
     if (fraction >= 0 && fraction <= 1) {
-      ray.reportIntersection(result, fraction, worldNormal, -1);
+      const point = V(from).ilerp(to, fraction);
+      const distance = from.distanceTo(to) * fraction;
+      return { point, normal: worldNormal, distance, fraction };
     }
+    return null;
   }
 }

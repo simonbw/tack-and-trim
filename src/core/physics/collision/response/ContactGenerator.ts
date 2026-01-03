@@ -1,11 +1,6 @@
-import { V2d } from "../../../Vector";
-import Body from "../../body/Body";
 import ContactEquation from "../../equations/ContactEquation";
-import Equation from "../../equations/Equation";
-import Shape from "../../shapes/Shape";
-import ContactEquationPool from "../../utils/ContactEquationPool";
-import TupleDictionary from "../../utils/TupleDictionary";
-import { CollisionResult } from "../CollisionResult";
+import ContactMaterial from "../../material/ContactMaterial";
+import { Collision } from "../pipeline/getContactsFromCollisionPairs";
 
 /**
  * Parameters for contact equation generation
@@ -24,119 +19,38 @@ export interface ContactParams {
 }
 
 /**
- * Default contact parameters
+ * Generate contact equations from a collision result
  */
-export const DEFAULT_CONTACT_PARAMS: ContactParams = {
-  restitution: 0,
-  stiffness: Equation.DEFAULT_STIFFNESS,
-  relaxation: Equation.DEFAULT_RELAXATION,
-  enabled: true,
-  contactSkinSize: 0.01,
-};
+export function generateContactEquationsForCollision(
+  { bodyA, shapeA, bodyB, shapeB, contacts }: Collision,
+  contactMaterial: ContactMaterial,
+  isFirstImpact: boolean
+): ContactEquation[] {
+  // Only enable equations if all parties have collisionResponse enabled
+  const enabled =
+    bodyA.collisionResponse &&
+    bodyB.collisionResponse &&
+    shapeA.collisionResponse &&
+    shapeB.collisionResponse;
 
-/**
- * Generates ContactEquation objects from collision detection results.
- * Handles equation pooling and configuration.
- */
-export default class ContactGenerator {
-  private pool: ContactEquationPool;
+  return contacts.map((contact) => {
+    const eq = new ContactEquation(bodyA, bodyB);
+    eq.shapeA = shapeA;
+    eq.shapeB = shapeB;
 
-  /** Tracks which body pairs were colliding in the previous step */
-  collidingBodiesLastStep: TupleDictionary;
+    eq.restitution = contactMaterial.restitution;
+    eq.stiffness = contactMaterial.stiffness;
+    eq.relaxation = contactMaterial.relaxation;
+    eq.offset = contactMaterial.contactSkinSize;
 
-  constructor() {
-    this.pool = new ContactEquationPool({ size: 32 });
-    this.collidingBodiesLastStep = new TupleDictionary();
-  }
+    eq.normalA.set(contact.normal);
+    eq.contactPointA.set(contact.worldContactA);
+    eq.contactPointB.set(contact.worldContactB);
 
-  /**
-   * Generate contact equations from a collision result
-   */
-  generateContacts(
-    collision: CollisionResult,
-    bodyA: Body,
-    shapeA: Shape,
-    bodyB: Body,
-    shapeB: Shape,
-    params: ContactParams
-  ): ContactEquation[] {
-    const equations: ContactEquation[] = [];
+    eq.needsUpdate = true;
+    eq.enabled = enabled;
+    eq.firstImpact = isFirstImpact;
 
-    for (const contact of collision.contacts) {
-      const eq = this.createContactEquation(
-        bodyA,
-        bodyB,
-        shapeA,
-        shapeB,
-        contact.worldContactA,
-        contact.worldContactB,
-        contact.normal,
-        params
-      );
-      equations.push(eq);
-    }
-
-    return equations;
-  }
-
-  /**
-   * Create a single ContactEquation from collision data
-   */
-  private createContactEquation(
-    bodyA: Body,
-    bodyB: Body,
-    shapeA: Shape,
-    shapeB: Shape,
-    contactPointA: V2d,
-    contactPointB: V2d,
-    normal: V2d,
-    params: ContactParams
-  ): ContactEquation {
-    const c = this.pool.get();
-
-    c.bodyA = bodyA;
-    c.bodyB = bodyB;
-    c.shapeA = shapeA;
-    c.shapeB = shapeB;
-    c.restitution = params.restitution;
-    c.firstImpact = !this.collidingBodiesLastStep.get(bodyA.id, bodyB.id);
-    c.stiffness = params.stiffness;
-    c.relaxation = params.relaxation;
-    c.needsUpdate = true;
-    c.enabled = params.enabled;
-    c.offset = params.contactSkinSize;
-
-    // Set contact data
-    c.normalA.set(normal);
-    c.contactPointA.set(contactPointA);
-    c.contactPointB.set(contactPointB);
-
-    return c;
-  }
-
-  /**
-   * Update tracking of colliding bodies for the next step
-   */
-  updateCollidingBodies(contactEquations: ContactEquation[]): void {
-    this.collidingBodiesLastStep.reset();
-    for (const eq of contactEquations) {
-      this.collidingBodiesLastStep.set(eq.bodyA.id, eq.bodyB.id, true);
-    }
-  }
-
-  /**
-   * Check if bodies were colliding in the previous step
-   */
-  collidedLastStep(bodyA: Body, bodyB: Body): boolean {
-    return !!this.collidingBodiesLastStep.get(bodyA.id, bodyB.id);
-  }
-
-  /**
-   * Release contact equations back to the pool
-   */
-  releaseEquations(equations: ContactEquation[]): void {
-    for (const eq of equations) {
-      this.pool.release(eq);
-    }
-  }
+    return eq;
+  });
 }

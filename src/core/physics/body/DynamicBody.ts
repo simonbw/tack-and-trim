@@ -386,10 +386,6 @@ export default class DynamicBody extends Body {
     const pos = this.position;
     const velo = this._velocity;
 
-    // Save old position
-    this.previousPosition.set(this.position);
-    this.previousAngle = this.angle;
-
     // Velocity update
     if (!this.fixedRotation) {
       this._angularVelocity += this._angularForce * this._invInertia * dt;
@@ -476,7 +472,7 @@ export default class DynamicBody extends Body {
 
       const overlaps =
         this.aabb.overlaps(hitBody.aabb) &&
-        this.world!.narrowphase.bodiesOverlap(this, hitBody);
+        this.world!.overlapKeeper.bodiesAreOverlapping(this, hitBody);
 
       if (overlaps) {
         tmin = tmid;

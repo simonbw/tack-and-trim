@@ -1,18 +1,13 @@
 import Shape, { ShapeOptions } from "./Shape";
 import { V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
-import type RaycastResult from "../collision/raycast/RaycastResult";
-import type Ray from "../collision/raycast/Ray";
+import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 
 export interface LineOptions extends ShapeOptions {
   length?: number;
 }
 
 const points = [V(), V()];
-const raycast_normal = V();
-const raycast_l0 = V();
-const raycast_l1 = V();
-const raycast_unit_y = V(0, 1);
 
 /**
  * Line shape class. The line shape is along the x direction, and stretches from [-length/2, 0] to [length/2,0].
@@ -35,6 +30,10 @@ export default class Line extends Shape {
     this.boundingRadius = this.length / 2;
   }
 
+  updateArea(): void {
+    this.area = 0;
+  }
+
   computeAABB(position: V2d, angle: number): AABB {
     const l2 = this.length / 2;
     points[0].set(-l2, 0);
@@ -44,25 +43,25 @@ export default class Line extends Shape {
     return out;
   }
 
-  raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {
-    const from = ray.from;
-    const to = ray.to;
-
-    const l0 = raycast_l0;
-    const l1 = raycast_l1;
-
-    // get start and end of the line
+  raycast(
+    from: V2d,
+    to: V2d,
+    position: V2d,
+    angle: number,
+    _skipBackfaces: boolean
+  ): ShapeRaycastHit | null {
+    // Get start and end of the line in world space
     const halfLen = this.length / 2;
-    l0.set(-halfLen, 0);
-    l1.set(halfLen, 0);
-    l0.itoGlobalFrame(position, angle);
-    l1.itoGlobalFrame(position, angle);
+    const l0 = V(-halfLen, 0).itoGlobalFrame(position, angle);
+    const l1 = V(halfLen, 0).itoGlobalFrame(position, angle);
 
     const fraction = V2d.lineSegmentsIntersectionFraction(l0, l1, from, to);
     if (fraction >= 0) {
-      const normal = raycast_normal;
-      normal.set(raycast_unit_y).irotate(angle);
-      ray.reportIntersection(result, fraction, normal, -1);
+      const normal = V(0, 1).irotate(angle);
+      const point = V(from).ilerp(to, fraction);
+      const distance = from.distanceTo(to) * fraction;
+      return { point, normal, distance, fraction };
     }
+    return null;
   }
 }

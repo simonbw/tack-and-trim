@@ -1,6 +1,7 @@
 import type Body from "../../body/Body";
 import type World from "../../world/World";
 import AABB from "../AABB";
+import { bodiesCanCollide } from "../CollisionHelpers";
 import Broadphase from "./Broadphase";
 
 /** Sweep and prune broadphase along one axis. */
@@ -37,7 +38,7 @@ export default class SAPBroadphase extends Broadphase {
     this.axisList.length = 0;
 
     // Add all bodies from the new world
-    this.axisList.push(...world.bodies);
+    this.axisList.push(...world.bodies.all);
 
     // Remove handlers on the previous world
     this.world?.off("addBody", this._addBodyHandler);
@@ -85,7 +86,7 @@ export default class SAPBroadphase extends Broadphase {
   /**
    * Get the colliding pairs
    */
-  getCollisionPairs(world: World): Body[] {
+  getCollisionPairs(world: World): [Body, Body][] {
     const bodies = this.axisList;
     const result = this.result;
     const axisIndex = this.axisIndex;
@@ -118,8 +119,8 @@ export default class SAPBroadphase extends Broadphase {
           break;
         }
 
-        if (this.canCollide(bi, bj) && this.boundingVolumeCheck(bi, bj)) {
-          result.push(bi, bj);
+        if (bodiesCanCollide(bi, bj) && this.boundingVolumeCheck(bi, bj)) {
+          result.push([bi, bj]);
         }
       }
     }

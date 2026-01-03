@@ -15,7 +15,6 @@ export interface BaseBodyOptions {
   position?: CompatibleVector;
   angle?: number;
   id?: number;
-  gravityScale?: number;
   collisionResponse?: boolean;
 }
 
@@ -27,7 +26,7 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   static _idCounter = 0;
 
   // Identification
-  id: number;
+  readonly id: number;
   world: World | null = null;
 
   // Shape management
@@ -37,10 +36,6 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   // Position and rotation
   position: V2d = V();
   angle: number = 0;
-  previousPosition: V2d = V();
-  previousAngle: number = 0;
-  interpolatedPosition: V2d = V();
-  interpolatedAngle: number = 0;
 
   // AABB for collision detection
   aabb: AABB = new AABB();
@@ -49,7 +44,6 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
 
   // Collision settings
   collisionResponse: boolean;
-  gravityScale: number;
 
   // Internal flag for narrowphase wake-up
   _wakeUpAfterNarrowphase: boolean = false;
@@ -81,6 +75,10 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   abstract get wantsToSleep(): boolean;
   abstract get sleepSpeedLimit(): number;
 
+  isSleeping(): boolean {
+    return this.sleepState === SleepState.SLEEPING;
+  }
+
   constructor(options: BaseBodyOptions = {}) {
     super();
 
@@ -91,7 +89,6 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     }
 
     this.angle = options.angle || 0;
-    this.gravityScale = options.gravityScale ?? 1;
     this.collisionResponse = options.collisionResponse ?? true;
   }
 

@@ -138,10 +138,6 @@ export default class KinematicBody extends Body {
   }
 
   integrate(dt: number): void {
-    // Save old position for interpolation
-    this.previousPosition.set(this.position);
-    this.previousAngle = this.angle;
-
     // Move according to velocity (set by game code)
     const velodt = V(this._velocity);
     velodt.imul(dt);

@@ -1,20 +1,27 @@
-import EventEmitter from "../events/EventEmitter";
 import type Equation from "../equations/Equation";
-import type Island from "../world/Island";
+import EventEmitter from "../events/EventEmitter";
+import type { Island } from "../world/Island";
 import type World from "../world/World";
 
 export interface SolverOptions {
   equationSortFunction?: ((a: Equation, b: Equation) => number) | false;
 }
 
+type SolverBody = {
+  updateSolveMassProperties(): void;
+  resetConstraintVelocity(): void;
+  addConstraintVelocity(): void;
+};
+
 export interface MinimalWorld {
-  bodies: { updateSolveMassProperties(): void; resetConstraintVelocity(): void; addConstraintVelocity(): void }[];
+  bodies: Iterable<SolverBody>;
 }
 
-const mockWorld: MinimalWorld = { bodies: [] };
+const mockBodies: SolverBody[] = [];
+const mockWorld: MinimalWorld = { bodies: mockBodies };
 
 /** Base class for constraint solvers. */
-export default class Solver extends EventEmitter {
+export default abstract class Solver extends EventEmitter {
   /** Current equations in the solver. */
   equations: Equation[] = [];
 
@@ -36,9 +43,7 @@ export default class Solver extends EventEmitter {
   }
 
   /** Method to be implemented in each subclass */
-  solve(_dt: number, _world: MinimalWorld): void {
-    throw new Error("Solver.solve should be implemented by subclasses!");
-  }
+  abstract solve(_dt: number, _world: MinimalWorld): void;
 
   /** Solves all constraints in an island. */
   solveIsland(dt: number, island: Island): void {
@@ -46,12 +51,14 @@ export default class Solver extends EventEmitter {
 
     if (island.equations.length) {
       // Add equations to solver
-      this.addEquations(island.equations);
-      mockWorld.bodies.length = 0;
-      island.getBodies(mockWorld.bodies as any);
+      this.addEquations(island.equations as Equation[]);
+      mockBodies.length = 0;
+      for (const body of island.bodies) {
+        mockBodies.push(body);
+      }
 
       // Solve
-      if (mockWorld.bodies.length) {
+      if (mockBodies.length) {
         this.solve(dt, mockWorld);
       }
     }

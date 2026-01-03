@@ -1,11 +1,12 @@
 import { V, V2d } from "../../../../Vector";
 import Body from "../../../body/Body";
 import Capsule from "../../../shapes/Capsule";
+import type Circle from "../../../shapes/Circle";
 import Convex from "../../../shapes/Convex";
 import Shape from "../../../shapes/Shape";
+import { pointInConvex } from "../../CollisionHelpers";
 import { CollisionResult, createCollisionResult } from "../../CollisionResult";
-import { pointInConvex } from "../CollisionHelpers";
-import { circleLine } from "./CircleCollisions";
+import { circleLineOrCapsule } from "./CircleCollisions";
 
 const yAxis = V(0, 1);
 
@@ -124,15 +125,15 @@ export function particleCapsule(
   offsetA: V2d,
   angleA: number,
   bodyB: Body,
-  shapeB: Shape,
+  shapeB: Capsule,
   offsetB: V2d,
   angleB: number,
   justTest: boolean
 ): CollisionResult | null {
   const capsuleShape = shapeB as Capsule;
-  return circleLine(
+  return circleLineOrCapsule(
     bodyA,
-    shapeA,
+    shapeA as Circle, // pretend particle is a circle of radius 0
     offsetA,
     angleA,
     bodyB,

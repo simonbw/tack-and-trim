@@ -1,5 +1,11 @@
 import { V, V2d, CompatibleVector } from "../../Vector";
-import type Ray from "./raycast/Ray";
+
+/** Minimal ray interface for AABB overlap testing and spatial queries. */
+export interface RayLike {
+  from: CompatibleVector;
+  to: CompatibleVector;
+  direction: CompatibleVector;
+}
 
 export interface AABBOptions {
   upperBound?: CompatibleVector;
@@ -135,7 +141,7 @@ export default class AABB {
    * Check if the AABB is hit by a ray.
    * @returns -1 if no hit, a number between 0 and 1 if hit.
    */
-  overlapsRay(ray: Ray): number {
+  overlapsRay(ray: RayLike): number {
     // ray.direction is unit direction vector of ray
     const dirFracX = 1 / ray.direction[0];
     const dirFracY = 1 / ray.direction[1];

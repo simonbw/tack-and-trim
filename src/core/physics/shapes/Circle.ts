@@ -1,15 +1,11 @@
 import Shape, { ShapeOptions } from "./Shape";
 import { V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
-import type RaycastResult from "../collision/raycast/RaycastResult";
-import type Ray from "../collision/raycast/Ray";
+import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 
 export interface CircleOptions extends ShapeOptions {
   radius?: number;
 }
-
-const Ray_intersectSphere_intersectionPoint = V();
-const Ray_intersectSphere_normal = V();
 
 /** Circle shape class. */
 export default class Circle extends Shape {
@@ -47,13 +43,16 @@ export default class Circle extends Shape {
     return out;
   }
 
-  raycast(result: RaycastResult, ray: Ray, position: V2d, _angle: number): void {
-    const from = ray.from;
-    const to = ray.to;
+  raycast(
+    from: V2d,
+    to: V2d,
+    position: V2d,
+    _angle: number,
+    _skipBackfaces: boolean
+  ): ShapeRaycastHit | null {
     const r = this.radius;
 
-    const a =
-      Math.pow(to[0] - from[0], 2) + Math.pow(to[1] - from[1], 2);
+    const a = Math.pow(to[0] - from[0], 2) + Math.pow(to[1] - from[1], 2);
     const b =
       2 *
       ((to[0] - from[0]) * (from[0] - position[0]) +
@@ -64,47 +63,39 @@ export default class Circle extends Shape {
       Math.pow(r, 2);
     const delta = Math.pow(b, 2) - 4 * a * c;
 
-    const intersectionPoint = Ray_intersectSphere_intersectionPoint;
-    const normal = Ray_intersectSphere_normal;
-
     if (delta < 0) {
       // No intersection
-      return;
-    } else if (delta === 0) {
-      // single intersection point
-      intersectionPoint.set(from).ilerp(to, delta);
+      return null;
+    }
 
-      normal.set(intersectionPoint).isub(position);
-      normal.inormalize();
-
-      ray.reportIntersection(result, delta, normal, -1);
+    // Find the closest valid intersection
+    let fraction: number;
+    if (delta === 0) {
+      fraction = -b / (2 * a);
     } else {
       const sqrtDelta = Math.sqrt(delta);
       const inv2a = 1 / (2 * a);
       const d1 = (-b - sqrtDelta) * inv2a;
       const d2 = (-b + sqrtDelta) * inv2a;
 
+      // Pick the closest intersection that's within the ray segment
       if (d1 >= 0 && d1 <= 1) {
-        intersectionPoint.set(from).ilerp(to, d1);
-
-        normal.set(intersectionPoint).isub(position);
-        normal.inormalize();
-
-        ray.reportIntersection(result, d1, normal, -1);
-
-        if (result.shouldStop(ray)) {
-          return;
-        }
-      }
-
-      if (d2 >= 0 && d2 <= 1) {
-        intersectionPoint.set(from).ilerp(to, d2);
-
-        normal.set(intersectionPoint).isub(position);
-        normal.inormalize();
-
-        ray.reportIntersection(result, d2, normal, -1);
+        fraction = d1;
+      } else if (d2 >= 0 && d2 <= 1) {
+        fraction = d2;
+      } else {
+        return null;
       }
     }
+
+    if (fraction < 0 || fraction > 1) {
+      return null;
+    }
+
+    const point = V(from).ilerp(to, fraction);
+    const normal = V(point).isub(position).inormalize();
+    const distance = from.distanceTo(to) * fraction;
+
+    return { point, normal, distance, fraction };
   }
 }

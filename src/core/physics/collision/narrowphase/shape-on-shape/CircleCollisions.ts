@@ -5,20 +5,22 @@ import Circle from "../../../shapes/Circle";
 import Convex from "../../../shapes/Convex";
 import Heightfield from "../../../shapes/Heightfield";
 import Line from "../../../shapes/Line";
+import Particle from "../../../shapes/Particle";
+import Plane from "../../../shapes/Plane";
 import Shape from "../../../shapes/Shape";
+import { pointInConvexLocal } from "../../CollisionHelpers";
 import { CollisionResult, createCollisionResult } from "../../CollisionResult";
-import { pointInConvexLocal } from "../CollisionHelpers";
 
 const yAxis = V(0, 1);
 
 /** Circle/Circle collision */
 export function circleCircle(
   bodyA: Body,
-  shapeA: Shape,
+  shapeA: Circle,
   offsetA: V2d,
   _angleA: number,
   bodyB: Body,
-  shapeB: Shape,
+  shapeB: Circle,
   offsetB: V2d,
   _angleB: number,
   justTest: boolean,
@@ -64,11 +66,11 @@ export function circleCircle(
 /** Circle/Particle collision */
 export function circleParticle(
   bodyA: Body,
-  shapeA: Shape,
+  shapeA: Circle,
   offsetA: V2d,
   _angleA: number,
   bodyB: Body,
-  _shapeB: Shape,
+  _shapeB: Particle,
   offsetB: V2d,
   _angleB: number,
   justTest: boolean
@@ -104,11 +106,11 @@ export function circleParticle(
 /** Circle/Plane collision */
 export function circlePlane(
   bodyA: Body,
-  shapeA: Shape,
+  shapeA: Circle,
   offsetA: V2d,
   _angleA: number,
   bodyB: Body,
-  _shapeB: Shape,
+  _shapeB: Plane,
   offsetB: V2d,
   angleB: number,
   justTest: boolean
@@ -148,13 +150,13 @@ export function circlePlane(
 }
 
 /** Circle/Line collision (also used for capsules via lineRadius parameter) */
-export function circleLine(
+export function circleLineOrCapsule(
   bodyA: Body,
-  shapeA: Shape,
+  shapeA: Circle,
   offsetA: V2d,
   _angleA: number,
   bodyB: Body,
-  shapeB: Shape,
+  shapeB: Line | Capsule,
   offsetB: V2d,
   angleB: number,
   justTest: boolean,
@@ -464,7 +466,10 @@ export function circleHeightfield(
       const projectedPoint = V(edgeNormal).imul(-d).iadd(candidate);
 
       result.contacts.push({
-        worldContactA: V(edgeNormal).imul(-r).isub(bodyA.position).iadd(offsetA),
+        worldContactA: V(edgeNormal)
+          .imul(-r)
+          .isub(bodyA.position)
+          .iadd(offsetA),
         worldContactB: V(projectedPoint).isub(bodyB.position),
         normal: V(edgeNormal),
         depth: -d,
@@ -505,17 +510,17 @@ export function circleHeightfield(
 /** Circle/Capsule collision */
 export function circleCapsule(
   bodyA: Body,
-  shapeA: Shape,
+  shapeA: Circle,
   offsetA: V2d,
   angleA: number,
   bodyB: Body,
-  shapeB: Shape,
+  shapeB: Capsule,
   offsetB: V2d,
   angleB: number,
   justTest: boolean
 ): CollisionResult | null {
-  const capsuleShape = shapeB as Capsule;
-  return circleLine(
+  const capsuleShape = shapeB;
+  return circleLineOrCapsule(
     bodyA,
     shapeA,
     offsetA,
@@ -526,5 +531,31 @@ export function circleCapsule(
     angleB,
     justTest,
     capsuleShape.radius
+  );
+}
+
+/** Circle/Capsule collision */
+export function circleLine(
+  bodyA: Body,
+  shapeA: Circle,
+  offsetA: V2d,
+  angleA: number,
+  bodyB: Body,
+  shapeB: Line,
+  offsetB: V2d,
+  angleB: number,
+  justTest: boolean
+): CollisionResult | null {
+  const capsuleShape = shapeB;
+  return circleLineOrCapsule(
+    bodyA,
+    shapeA,
+    offsetA,
+    angleA,
+    bodyB,
+    shapeB,
+    offsetB,
+    angleB,
+    justTest
   );
 }

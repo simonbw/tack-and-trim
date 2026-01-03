@@ -3,8 +3,8 @@ import Body from "../../../body/Body";
 import Box from "../../../shapes/Box";
 import Capsule from "../../../shapes/Capsule";
 import Shape from "../../../shapes/Shape";
+import { setCapsuleMiddleRect } from "../../CollisionHelpers";
 import { CollisionResult, createCollisionResult } from "../../CollisionResult";
-import { setCapsuleMiddleRect } from "../CollisionHelpers";
 import { circleCircle } from "./CircleCollisions";
 import { convexCapsule } from "./ConvexCollisions";
 

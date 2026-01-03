@@ -3,14 +3,10 @@ import type Body from "../../body/Body";
 import type Shape from "../../shapes/Shape";
 
 /**
- * Result of a raycast hit.
- * Contains pre-computed values for convenience.
+ * Result of a shape-level raycast.
+ * Returned by Shape.raycast() without body information.
  */
-export interface RaycastHit {
-  /** The body that was hit */
-  body: Body;
-  /** The shape that was hit */
-  shape: Shape;
+export interface ShapeRaycastHit {
   /** The hit point in world coordinates */
   point: V2d;
   /** The surface normal at the hit point */
@@ -19,6 +15,17 @@ export interface RaycastHit {
   distance: number;
   /** The hit fraction (0 = ray start, 1 = ray end) */
   fraction: number;
+}
+
+/**
+ * Result of a world-level raycast hit.
+ * Contains pre-computed values for convenience.
+ */
+export interface RaycastHit extends ShapeRaycastHit {
+  /** The body that was hit */
+  body: Body;
+  /** The shape that was hit */
+  shape: Shape;
 }
 
 /**

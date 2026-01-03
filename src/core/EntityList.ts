@@ -2,7 +2,7 @@ import Entity, { GameEventHandler, GameEventName } from "./entity/Entity";
 import { handlerNameToEventName } from "./entity/EventHandler";
 import { EntityFilter, hasBody } from "./EntityFilter";
 import { FilterMultiMap } from "./util/FilterListMap";
-import MultiMap from "./util/ListMap";
+import MultiMap from "./util/MultiMap";
 
 /** Keeps track of entities. Has lots of useful indexes. */
 export default class EntityList implements Iterable<Entity> {

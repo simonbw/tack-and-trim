@@ -7,7 +7,7 @@ export interface ConstraintOptions {
 }
 
 /** Base constraint class. */
-export default class Constraint {
+export default abstract class Constraint {
   /** Equations to be solved in this constraint */
   equations: Equation[] = [];
 
@@ -17,16 +17,15 @@ export default class Constraint {
   /** Second body participating in the constraint. */
   bodyB: Body;
 
-  /** Set to true if you want the connected bodies to collide. */
-  collideConnected: boolean;
+  /** Whether the connected bodies should be able to collide with each other. */
+  readonly collideConnected: boolean;
 
   constructor(bodyA: Body, bodyB: Body, options: ConstraintOptions = {}) {
-    const collideConnected = options?.collideConnected ?? true;
+    this.collideConnected = options?.collideConnected ?? true;
     const wakeUpBodies = options?.wakeUpBodies ?? true;
 
     this.bodyA = bodyA;
     this.bodyB = bodyB;
-    this.collideConnected = collideConnected;
 
     // Wake up bodies when connected
     if (wakeUpBodies) {
@@ -40,11 +39,7 @@ export default class Constraint {
   }
 
   /** Updates the internal constraint parameters before solve. */
-  update(): this {
-    throw new Error(
-      "method update() not implemented in this Constraint subclass!"
-    );
-  }
+  abstract update(): this;
 
   /** Set stiffness for this constraint. */
   setStiffness(stiffness: number): this {

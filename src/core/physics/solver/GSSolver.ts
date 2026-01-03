@@ -1,9 +1,10 @@
 import type Equation from "../equations/Equation";
 import FrictionEquation from "../equations/FrictionEquation";
-import { ARRAY_TYPE } from "../utils/Utils";
 import type World from "../world/World";
-import { MinimalWorld, SolverOptions } from "./Solver";
-import Solver from "./Solver";
+import Solver, { MinimalWorld, SolverOptions } from "./Solver";
+
+const ARRAY_TYPE = Float32Array;
+type ArrayType = Float32Array;
 
 export interface GSSolverOptions extends SolverOptions {
   iterations?: number;
@@ -11,7 +12,7 @@ export interface GSSolverOptions extends SolverOptions {
   frictionIterations?: number;
 }
 
-function setArrayZero(array: Float32Array | number[]): void {
+function setArrayZero(array: ArrayType): void {
   for (let i = array.length - 1; i >= 0; i--) {
     array[i] = +0.0;
   }
@@ -33,9 +34,9 @@ export default class GSSolver extends Solver {
   tolerance: number;
 
   arrayStep: number = 30;
-  lambda: Float32Array | number[];
-  Bs: Float32Array | number[];
-  invCs: Float32Array | number[];
+  lambda: ArrayType;
+  Bs: ArrayType;
+  invCs: ArrayType;
 
   /** Set to true to set all right hand side terms to zero when solving. */
   useZeroRHS: boolean = false;
@@ -83,7 +84,7 @@ export default class GSSolver extends Solver {
     let lambda = this.lambda;
 
     // Use dynamicBodies Set when available for better performance
-    const dynamicBodies = this.world?.dynamicBodies;
+    const dynamicBodies = this.world?.bodies.dynamic;
 
     this.usedIterations = 0;
 

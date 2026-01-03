@@ -1,7 +1,6 @@
 import { V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
-import type Ray from "../collision/raycast/Ray";
-import type RaycastResult from "../collision/raycast/RaycastResult";
+import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 import Shape, { ShapeOptions } from "./Shape";
 
 export interface HeightfieldOptions extends ShapeOptions {
@@ -109,10 +108,16 @@ export default class Heightfield extends Shape {
     return this.heights[i] ?? 0;
   }
 
-  raycast(result: RaycastResult, ray: Ray, position: V2d, angle: number): void {
+  raycast(
+    from: V2d,
+    to: V2d,
+    position: V2d,
+    angle: number,
+    _skipBackfaces: boolean
+  ): ShapeRaycastHit | null {
     // Transform ray to local space
-    const localFrom = V(ray.from).itoLocalFrame(position, angle);
-    const localTo = V(ray.to).itoLocalFrame(position, angle);
+    const localFrom = V(from).itoLocalFrame(position, angle);
+    const localTo = V(to).itoLocalFrame(position, angle);
 
     // Find which segments the ray might intersect
     const x0 = localFrom.x;
@@ -126,7 +131,11 @@ export default class Heightfield extends Shape {
       Math.ceil(maxX / this.elementWidth)
     );
 
-    for (let i = idxStart; i <= idxEnd && !result.shouldStop(ray); i++) {
+    let closestHit: ShapeRaycastHit | null = null;
+    let closestFraction = Infinity;
+    const rayLength = from.distanceTo(to);
+
+    for (let i = idxStart; i <= idxEnd; i++) {
       const [segStart, segEnd] = this.getLineSegment(i);
 
       // Check intersection with this segment
@@ -137,17 +146,20 @@ export default class Heightfield extends Shape {
         segEnd
       );
 
-      if (fraction >= 0) {
+      if (fraction >= 0 && fraction < closestFraction) {
+        closestFraction = fraction;
         // Compute normal (perpendicular to segment, pointing up)
         const normal = V(segEnd).isub(segStart);
         normal.irotate(-Math.PI / 2);
         normal.inormalize();
-
         // Transform normal to world space
         normal.irotate(angle);
 
-        ray.reportIntersection(result, fraction, normal, i);
+        const point = V(from).ilerp(to, fraction);
+        closestHit = { point, normal, distance: rayLength * fraction, fraction };
       }
     }
+
+    return closestHit;
   }
 }

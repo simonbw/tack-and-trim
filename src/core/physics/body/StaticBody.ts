@@ -131,8 +131,6 @@ export default class StaticBody extends Body {
   }
 
   integrate(_dt: number): void {
-    // Static bodies don't move, but we still need to track previous position for interpolation
-    this.previousPosition.set(this.position);
-    this.previousAngle = this.angle;
+    // Static bodies don't move
   }
 }

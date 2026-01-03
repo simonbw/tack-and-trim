@@ -1,8 +1,7 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import AABB from "../collision/AABB";
-import type Ray from "../collision/raycast/Ray";
-import type RaycastResult from "../collision/raycast/RaycastResult";
+import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 import type Material from "../material/Material";
 
 export interface ShapeOptions {
@@ -12,11 +11,11 @@ export interface ShapeOptions {
   collisionMask?: number;
   sensor?: boolean;
   collisionResponse?: boolean;
-  material?: Material | null;
+  material?: Material;
 }
 
 /** Base class for shapes. */
-export default class Shape {
+export default abstract class Shape {
   static idCounter = 0;
 
   /** The body this shape is attached to. */
@@ -44,7 +43,7 @@ export default class Shape {
   collisionMask: number;
 
   /** Material to use in collisions for this Shape. */
-  material: Material | null;
+  material?: Material;
 
   /** Area of this shape. */
   area: number = 0;
@@ -63,7 +62,7 @@ export default class Shape {
     this.collisionGroup = options.collisionGroup ?? 1;
     this.collisionResponse = options.collisionResponse ?? true;
     this.collisionMask = options.collisionMask ?? 1;
-    this.material = options.material ?? null;
+    this.material = options.material;
     this.sensor = options.sensor ?? false;
 
     // Note: updateBoundingRadius() and updateArea() are NOT called here
@@ -77,28 +76,28 @@ export default class Shape {
   }
 
   /** Returns the bounding circle radius of this shape. */
-  updateBoundingRadius(): void {
-    // To be implemented in all subclasses
-  }
+  abstract updateBoundingRadius(): void;
 
   /** Update the .area property of the shape. */
-  updateArea(): void {
-    // To be implemented in all subclasses
-  }
+  abstract updateArea(): void;
 
   /** Compute the world axis-aligned bounding box (AABB) of this shape. */
-  computeAABB(_position: V2d, _angle: number): AABB {
-    // To be implemented in each subclass
-    return new AABB();
-  }
+  abstract computeAABB(position: V2d, angle: number): AABB;
 
-  /** Perform raycasting on this shape. */
-  raycast(
-    _result: RaycastResult,
-    _ray: Ray,
-    _position: V2d,
-    _angle: number
-  ): void {
-    // To be implemented in each subclass
-  }
+  /**
+   * Perform raycasting on this shape.
+   * @param from - Ray start point in world coordinates
+   * @param to - Ray end point in world coordinates
+   * @param position - Shape position in world coordinates
+   * @param angle - Shape angle in world coordinates
+   * @param skipBackfaces - Whether to skip hits on back faces
+   * @returns Hit result or null if no hit
+   */
+  abstract raycast(
+    from: V2d,
+    to: V2d,
+    position: V2d,
+    angle: number,
+    skipBackfaces: boolean
+  ): ShapeRaycastHit | null;
 }

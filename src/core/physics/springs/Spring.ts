@@ -6,7 +6,7 @@ export interface SpringOptions {
 }
 
 /** A spring, connecting two bodies. */
-export default class Spring {
+export default abstract class Spring {
   stiffness: number;
   damping: number;
   bodyA: Body;
@@ -20,8 +20,5 @@ export default class Spring {
   }
 
   /** Apply the spring force to the connected bodies. */
-  applyForce(): this {
-    // To be implemented by subclasses
-    return this;
-  }
+  abstract applyForce(): this;
 }

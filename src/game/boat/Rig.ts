@@ -1,10 +1,10 @@
-import DynamicBody from "../../core/physics/body/DynamicBody";
-import Box from "../../core/physics/shapes/Box";
-import RevoluteConstraint from "../../core/physics/constraints/RevoluteConstraint";
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
+import DynamicBody from "../../core/physics/body/DynamicBody";
+import RevoluteConstraint from "../../core/physics/constraints/RevoluteConstraint";
+import Box from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import { Hull } from "./Hull";
 import { Sail } from "./Sail";

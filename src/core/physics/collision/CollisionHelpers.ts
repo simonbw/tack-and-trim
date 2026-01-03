@@ -1,7 +1,10 @@
-import { V, V2d } from "../../../Vector";
-import Box from "../../shapes/Box";
-import Capsule from "../../shapes/Capsule";
-import Convex from "../../shapes/Convex";
+import { V, V2d } from "../../Vector";
+import Body from "../body/Body";
+import { isKinematicBody, isStaticBody } from "../body/body-helpers";
+import Box from "../shapes/Box";
+import Capsule from "../shapes/Capsule";
+import Convex from "../shapes/Convex";
+import Shape from "../shapes/Shape";
 
 /**
  * Check if a point is inside a convex polygon (world space)
@@ -19,7 +22,10 @@ export function pointInConvex(
 /**
  * Check if a point is inside a convex polygon (local space)
  */
-export function pointInConvexLocal(localPoint: V2d, convexShape: Convex): boolean {
+export function pointInConvexLocal(
+  localPoint: V2d,
+  convexShape: Convex
+): boolean {
   const verts = convexShape.vertices;
   const numVerts = verts.length;
   let lastCross: number | null = null;
@@ -184,7 +190,10 @@ export function clipSegmentToLine(
 /**
  * Set convex to capsule middle rectangle
  */
-export function setCapsuleMiddleRect(convexShape: Box, capsuleShape: Capsule): void {
+export function setCapsuleMiddleRect(
+  convexShape: Box,
+  capsuleShape: Capsule
+): void {
   const capsuleRadius = capsuleShape.radius;
   const halfCapsuleLength = capsuleShape.length * 0.5;
   const verts = convexShape.vertices;
@@ -192,4 +201,37 @@ export function setCapsuleMiddleRect(convexShape: Box, capsuleShape: Capsule): v
   verts[1].set(halfCapsuleLength, -capsuleRadius);
   verts[2].set(halfCapsuleLength, capsuleRadius);
   verts[3].set(-halfCapsuleLength, capsuleRadius);
+}
+
+/** Check whether two bodies are allowed to collide at all. */
+export function bodiesCanCollide(bodyA: Body, bodyB: Body): boolean {
+  // Static and kinematic bodies cannot collide with each other
+  if (
+    (isStaticBody(bodyA) || isKinematicBody(bodyA)) &&
+    (isStaticBody(bodyB) || isKinematicBody(bodyB))
+  ) {
+    return false;
+  }
+
+  // Cannot collide both sleeping bodies
+  if (bodyA.isSleeping() && bodyB.isSleeping()) {
+    return false;
+  }
+
+  // Cannot collide if one is sleeping and the other is static
+  if (
+    (bodyA.isSleeping() && isStaticBody(bodyB)) ||
+    (bodyB.isSleeping() && isStaticBody(bodyA))
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+export function shapesCanCollide(shapeA: Shape, shapeB: Shape): boolean {
+  return (
+    (shapeA.collisionGroup & shapeB.collisionMask) !== 0 &&
+    (shapeB.collisionGroup & shapeA.collisionMask) !== 0
+  );
 }

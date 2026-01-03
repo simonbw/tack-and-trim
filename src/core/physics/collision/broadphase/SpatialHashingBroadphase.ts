@@ -4,9 +4,9 @@ import DynamicBody from "../../body/DynamicBody";
 import KinematicBody from "../../body/KinematicBody";
 import Particle from "../../shapes/Particle";
 import World from "../../world/World";
-import AABB from "../AABB";
-import Ray from "../raycast/Ray";
-import SAPBroadphase from "./SAPBroadphase";
+import AABB, { RayLike } from "../AABB";
+import { bodiesCanCollide } from "../CollisionHelpers";
+import Broadphase from "./Broadphase";
 
 const HUGE_LIMIT = 200;
 const DEFAULT_CELL_SIZE = 6;
@@ -17,7 +17,7 @@ const HUGE: number[] = []; // Sentinel value for huge bodies
  * space into uniform grid cells. Provides efficient collision pair detection
  * by only checking bodies within the same cells.
  */
-export default class SpatialHashingBroadphase extends SAPBroadphase {
+export default class SpatialHashingBroadphase extends Broadphase {
   particleBodies: Set<DynamicBody> = new Set();
   dynamicBodies: Set<DynamicBody> = new Set();
   kinematicBodies: Set<KinematicBody> = new Set();
@@ -108,6 +108,12 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
     }
   }
 
+  addBodiesToHash(bodies: Iterable<Body>) {
+    for (const body of bodies) {
+      this.addBodyToHash(body);
+    }
+  }
+
   removeBodyFromHash(body: Body) {
     const cells = this.aabbToCells(body.getAABB());
     if (cells === HUGE) {
@@ -116,6 +122,12 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
       for (const cell of cells) {
         this.partitions[cell].delete(body);
       }
+    }
+  }
+
+  removeBodiesFromHash(bodies: Iterable<Body>) {
+    for (const body of bodies) {
+      this.removeBodyFromHash(body);
     }
   }
 
@@ -143,19 +155,14 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
     }
   }
 
-  /** Returns an array where every 2 entries represents a collision pair */
-  getCollisionPairs(world: World): Body[] {
-    const result: Body[] = [];
+  getCollisionPairs(world: World): [Body, Body][] {
+    const result: [Body, Body][] = [];
 
-    for (const kBody of this.kinematicBodies) {
-      this.addBodyToHash(kBody);
-    }
+    // Static bodies are already there, we never remove them
+    this.addBodiesToHash(this.kinematicBodies);
+    this.addBodiesToHash(this.dynamicBodies);
+    // Don't add particles because they can't collide with each other, so we just need to check if they're overlapping anything
 
-    for (const dBody of this.dynamicBodies) {
-      this.addBodyToHash(dBody);
-    }
-
-    //
     for (const pBody of this.particleBodies) {
       for (const other of this.aabbQuery(
         world,
@@ -163,12 +170,14 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
         undefined,
         false
       )) {
-        if (this.canCollide(pBody, other)) {
-          result.push(pBody, other);
+        if (bodiesCanCollide(pBody, other)) {
+          result.push([pBody, other]);
         }
       }
     }
 
+    // For the rest of collisions, at least one of the bodies must be dynamic,
+    // so we can find all collisions by iterating through just the dynamic bodies
     for (const dBody of this.dynamicBodies) {
       this.removeBodyFromHash(dBody); // This will make sure we don't overlap ourselves, and that we don't double count anything
 
@@ -178,15 +187,13 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
         undefined,
         false
       )) {
-        if (this.canCollide(dBody, other)) {
-          result.push(dBody, other);
+        if (bodiesCanCollide(dBody, other)) {
+          result.push([dBody, other]);
         }
       }
     }
 
-    for (const kBody of this.kinematicBodies) {
-      this.removeBodyFromHash(kBody);
-    }
+    this.removeBodiesFromHash(this.kinematicBodies);
 
     this.debugData.numCollisions = result.length;
 
@@ -262,7 +269,8 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
   }
 
   // TODO: This is broken for some reason
-  rayQuery(ray: Ray, shouldAddBodies = true): Body[] {
+  // I think it's because this is for drawing clean lines, not getting all pixels that intersect the line
+  rayQuery(ray: RayLike, shouldAddBodies = true): Body[] {
     if (shouldAddBodies) {
       this.addExtraBodies();
     }
@@ -313,11 +321,7 @@ export default class SpatialHashingBroadphase extends SAPBroadphase {
 }
 
 // Returns true if this is a dynamic body with only particle shapes
+// Useful because particle bodies cannot collide with each other
 function isParticleBody(body: DynamicBody): boolean {
-  for (const shape of body.shapes) {
-    if (!(shape instanceof Particle)) {
-      return false;
-    }
-  }
-  return true;
+  return body.shapes.every((shape) => shape instanceof Particle);
 }

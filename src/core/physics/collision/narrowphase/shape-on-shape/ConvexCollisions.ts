@@ -5,13 +5,13 @@ import Capsule from "../../../shapes/Capsule";
 import Convex from "../../../shapes/Convex";
 import Heightfield from "../../../shapes/Heightfield";
 import Shape from "../../../shapes/Shape";
-import { CollisionResult, createCollisionResult } from "../../CollisionResult";
 import {
   clipSegmentToLine,
   findIncidentEdge,
   findMaxSeparation,
   setCapsuleMiddleRect,
-} from "../CollisionHelpers";
+} from "../../CollisionHelpers";
+import { CollisionResult, createCollisionResult } from "../../CollisionResult";
 import { circleConvex } from "./CircleCollisions";
 
 // Clip points for convex-convex (Box2D style)
