@@ -14,10 +14,9 @@ export const LAYERS = {
 
   underhull: new LayerInfo(),
   hull: new LayerInfo(),
-  // DEFAULT: The main stuff
   main: new LayerInfo(),
-
   sails: new LayerInfo(),
+  telltails: new LayerInfo(),
 
   // Stuff not in the world
   hud: new LayerInfo({ paralax: V(0, 0) }),

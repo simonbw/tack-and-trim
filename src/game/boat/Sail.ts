@@ -1,9 +1,9 @@
-import DynamicBody from "../../core/physics/body/DynamicBody";
-import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
-import Particle from "../../core/physics/shapes/Particle";
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
+import DynamicBody from "../../core/physics/body/DynamicBody";
+import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
+import Particle from "../../core/physics/shapes/Particle";
 import { last, pairs, range } from "../../core/util/FunctionalUtils";
 import { lerpV2d } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
@@ -11,6 +11,7 @@ import { applyFluidForces } from "../fluid-dynamics";
 import type { Wind } from "../Wind";
 import { Rig } from "./Rig";
 import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
+import { TellTail } from "./TellTail";
 
 const SAIL_NODES = 32;
 const SAIL_NODE_MASS = 0.04;
@@ -86,6 +87,9 @@ export class Sail extends BaseEntity {
         constraint.distance = constraint.distance * SLACK_FACTOR;
       }
     }
+
+    // Add telltail attached to a sail particle
+    this.addChild(new TellTail(this.bodies[SAIL_NODES - 1]));
   }
 
   onTick() {
