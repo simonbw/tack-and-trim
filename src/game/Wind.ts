@@ -1,6 +1,7 @@
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import BaseEntity from "../core/entity/BaseEntity";
 import { V, V2d } from "../core/Vector";
+import { WindModifier } from "./WindModifier";
 
 // Wind variation configuration
 const NOISE_SPATIAL_SCALE = 0.005; // How quickly wind varies across space
@@ -14,6 +15,7 @@ export class Wind extends BaseEntity {
   private elapsedTime: number = 0;
   private speedNoise: NoiseFunction3D = createNoise3D();
   private angleNoise: NoiseFunction3D = createNoise3D();
+  private modifiers: Set<WindModifier> = new Set();
 
   onTick(dt: number) {
     this.elapsedTime += dt;
@@ -24,6 +26,25 @@ export class Wind extends BaseEntity {
   }
 
   getVelocityAtPoint(point: [number, number]): V2d {
+    const queryPoint = V(point[0], point[1]);
+    let velocity = this.getBaseVelocityAtPoint(point);
+
+    // Add contributions from all wind modifiers (sails, etc.)
+    for (const modifier of this.modifiers) {
+      const modifierPos = modifier.getWindModifierPosition();
+      const influenceRadius = modifier.getWindModifierInfluenceRadius();
+      const distance = queryPoint.sub(modifierPos).magnitude;
+
+      if (distance <= influenceRadius) {
+        velocity = velocity.add(modifier.getWindVelocityContribution(queryPoint));
+      }
+    }
+
+    return velocity;
+  }
+
+  /** Get base wind velocity from noise field, without modifier contributions. */
+  getBaseVelocityAtPoint(point: [number, number]): V2d {
     const [x, y] = point;
     const t = this.elapsedTime * NOISE_TIME_SCALE;
 
@@ -44,6 +65,14 @@ export class Wind extends BaseEntity {
     const newAngle = baseAngle + angleMod;
 
     return V(Math.cos(newAngle) * newSpeed, Math.sin(newAngle) * newSpeed);
+  }
+
+  registerModifier(modifier: WindModifier): void {
+    this.modifiers.add(modifier);
+  }
+
+  unregisterModifier(modifier: WindModifier): void {
+    this.modifiers.delete(modifier);
   }
 
   setVelocity(velocity: V2d): void {

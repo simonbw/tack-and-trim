@@ -9,8 +9,15 @@ import { lerpV2d } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { applyFluidForces } from "../fluid-dynamics";
 import type { Wind } from "../Wind";
+import { WindModifier } from "../WindModifier";
 import { Rig } from "./Rig";
-import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
+import {
+  calculateCamber,
+  getSailLiftCoefficient,
+  isSailStalled,
+  sailDrag,
+  sailLift,
+} from "./sail-helpers";
 import { TellTail } from "./TellTail";
 
 const SAIL_NODES = 32;
@@ -21,10 +28,24 @@ const SLACK_FACTOR = 1.01; // extra distance allowed between sail nodes
 const BILLOW_INNER = 0.8; // how much the inner edge of the sail billows for rendering
 const BILLOW_OUTER = 2.4; // how much the outer edge of the sail billows for rendering
 
-export class Sail extends BaseEntity {
+// Wind modifier configuration
+const WIND_INFLUENCE_RADIUS = 500; // How far sail affects wind
+const WIND_INFLUENCE_SCALE = 0.15; // Strength of circulation effect
+const WIND_MIN_DISTANCE = 5; // Minimum distance to avoid singularity
+const STALL_TURBULENCE_SCALE = 15; // Random perturbation when stalled
+
+export class Sail extends BaseEntity implements WindModifier {
   sprite: GameSprite & Graphics;
   bodies: NonNullable<BaseEntity["bodies"]>;
   constraints: NonNullable<BaseEntity["constraints"]>;
+
+  // Wind modifier state (updated each tick)
+  private windModifierPosition: V2d = V(0, 0);
+  private windModifierNormal: V2d = V(0, 1); // Perpendicular to sail chord
+  private currentLiftCoefficient: number = 0;
+  private currentChordLength: number = 0;
+  private currentWindSpeed: number = 0;
+  private isStalled: boolean = false;
 
   constructor(private rig: Rig) {
     super();
@@ -90,6 +111,16 @@ export class Sail extends BaseEntity {
 
     // Add telltail attached to a sail particle
     this.addChild(new TellTail(this.bodies[SAIL_NODES - 1]));
+
+    // Register as wind modifier
+    const wind = this.game?.entities.getById("wind") as Wind | undefined;
+    wind?.registerModifier(this);
+  }
+
+  onDestroy() {
+    // Unregister from wind modifier system
+    const wind = this.game?.entities.getById("wind") as Wind | undefined;
+    wind?.unregisterModifier(this);
   }
 
   onTick() {
@@ -132,6 +163,112 @@ export class Sail extends BaseEntity {
       applyFluidForces(body, v1Local, v2Local, lift, drag, getFluidVelocity);
       applyFluidForces(body, v2Local, v1Local, lift, drag, getFluidVelocity);
     }
+
+    // Update wind modifier state for circulation calculation
+    this.updateWindModifierState(wind);
+  }
+
+  /**
+   * Compute aggregate sail state for wind modification.
+   * Uses sail geometry and wind to determine circulation strength.
+   */
+  private updateWindModifierState(wind: Wind) {
+    const mastPos = this.rig.getMastWorldPosition();
+    const boomEndPos = this.rig.getBoomEndWorldPosition();
+
+    // Chord is from mast to boom end
+    const chord = boomEndPos.sub(mastPos);
+    this.currentChordLength = chord.magnitude;
+
+    // Normal perpendicular to chord (leeward direction depends on sail shape)
+    // Use sail billowing to determine which side is leeward
+    const midParticle = this.bodies[Math.floor(this.bodies.length / 2)];
+    const chordMidpoint = mastPos.add(chord.mul(0.5));
+    const billowDir = V(midParticle.position).sub(chordMidpoint);
+    const chordNormal = chord.normalize().rotate90cw();
+    // Normal points toward the billowed side (leeward)
+    this.windModifierNormal =
+      billowDir.dot(chordNormal) > 0 ? chordNormal : chordNormal.mul(-1);
+
+    // Position at sail centroid (weighted toward mast for triangular sail)
+    this.windModifierPosition = mastPos.add(chord.mul(0.33));
+
+    // Get base wind at sail position (use base to avoid feedback loop)
+    const baseWind = wind.getBaseVelocityAtPoint([
+      this.windModifierPosition.x,
+      this.windModifierPosition.y,
+    ]);
+    this.currentWindSpeed = baseWind.magnitude;
+
+    // Calculate angle of attack from wind and sail orientation
+    if (this.currentWindSpeed > 0.01 && this.currentChordLength > 0.01) {
+      const windDir = baseWind.normalize();
+      const chordDir = chord.normalize();
+      const angleOfAttack = Math.acos(
+        Math.max(-1, Math.min(1, windDir.dot(chordDir)))
+      );
+
+      // Average camber from middle of sail
+      const prevPos = V(this.bodies[Math.floor(this.bodies.length / 2) - 1].position);
+      const nextPos = V(this.bodies[Math.floor(this.bodies.length / 2) + 1].position);
+      const camber = calculateCamber(prevPos, V(midParticle.position), nextPos);
+
+      this.currentLiftCoefficient = getSailLiftCoefficient(angleOfAttack, camber);
+      this.isStalled = isSailStalled(angleOfAttack);
+    } else {
+      this.currentLiftCoefficient = 0;
+      this.isStalled = false;
+    }
+  }
+
+  // WindModifier interface implementation
+
+  getWindModifierPosition(): V2d {
+    return this.windModifierPosition;
+  }
+
+  getWindModifierInfluenceRadius(): number {
+    return WIND_INFLUENCE_RADIUS;
+  }
+
+  /**
+   * Calculate velocity contribution at a query point using circulation model.
+   * A lifting sail acts like a bound vortex, inducing tangential velocity.
+   */
+  getWindVelocityContribution(queryPoint: V2d): V2d {
+    const toQuery = queryPoint.sub(this.windModifierPosition);
+    const r = toQuery.magnitude;
+
+    if (r < WIND_MIN_DISTANCE || r > WIND_INFLUENCE_RADIUS) {
+      return V(0, 0);
+    }
+
+    // Circulation strength: Γ = Cl × chord × windSpeed
+    const gamma =
+      this.currentLiftCoefficient *
+      this.currentChordLength *
+      this.currentWindSpeed;
+
+    // Induced velocity magnitude decays with distance (1/r)
+    const magnitude =
+      (Math.abs(gamma) * WIND_INFLUENCE_SCALE) /
+      Math.max(r, WIND_MIN_DISTANCE);
+
+    // Direction: tangent to circles around sail (creates rotation)
+    // Sign of gamma determines rotation direction
+    const tangent = toQuery.normalize().rotate90ccw();
+    let contribution = tangent.mul(magnitude * Math.sign(gamma));
+
+    // Add turbulence when stalled
+    if (this.isStalled) {
+      const turbulence = V(
+        (Math.random() - 0.5) * STALL_TURBULENCE_SCALE,
+        (Math.random() - 0.5) * STALL_TURBULENCE_SCALE
+      );
+      contribution = contribution.add(turbulence);
+    }
+
+    return contribution;
   }
 
   onRender() {

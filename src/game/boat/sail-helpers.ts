@@ -92,3 +92,40 @@ export function sailDrag(scale: number): ForceMagnitudeFn {
 }
 export const CAMBER_LIFT_FACTOR = 0.0;
 export const STALL_ANGLE = degToRad(15);
+
+/**
+ * Calculate the lift coefficient for a sail at a given angle of attack.
+ * Based on thin airfoil theory: Cl ≈ 2π·sin(α) before stall.
+ * Used by wind modifiers to determine circulation strength.
+ */
+export function getSailLiftCoefficient(
+  angleOfAttack: number,
+  camber: number = 0
+): number {
+  const alpha = Math.abs(angleOfAttack);
+  const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
+
+  let cl: number;
+  if (effectiveAlpha < STALL_ANGLE) {
+    cl = 2 * Math.PI * Math.sin(effectiveAlpha);
+  } else {
+    const peak = 2 * Math.PI * Math.sin(STALL_ANGLE);
+    const decay = Math.exp(-3 * (effectiveAlpha - STALL_ANGLE));
+    cl = peak * decay;
+  }
+
+  // Sign from cos(angleOfAttack) ensures correct direction
+  cl *= Math.sign(Math.cos(angleOfAttack));
+
+  // Camber increases lift
+  cl += Math.abs(camber) * CAMBER_LIFT_FACTOR;
+
+  return cl;
+}
+
+/** Check if a sail is stalled at the given angle of attack. */
+export function isSailStalled(angleOfAttack: number): boolean {
+  const alpha = Math.abs(angleOfAttack);
+  const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
+  return effectiveAlpha > STALL_ANGLE;
+}
