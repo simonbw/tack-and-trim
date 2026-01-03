@@ -90,4 +90,9 @@ export class Wind extends BaseEntity {
   getAngle(): number {
     return this.velocity.angle;
   }
+
+  /** Get all registered wind modifiers (for visualization). */
+  getModifiers(): ReadonlySet<WindModifier> {
+    return this.modifiers;
+  }
 }

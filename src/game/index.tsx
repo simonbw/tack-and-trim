@@ -10,6 +10,7 @@ import { Water } from "./Water";
 import { WaterParticles } from "./WaterParticles";
 import { Wind } from "./Wind";
 import { WindIndicator } from "./WindIndicator";
+import { WindVisualization } from "./WindVisualization";
 
 // Do this so we can access the game from the console
 declare global {
@@ -48,6 +49,7 @@ async function main() {
   game.addEntity(new Buoy(-240, -100));
   game.addEntity(new Wind());
   game.addEntity(new WindIndicator());
+  game.addEntity(new WindVisualization());
   const boat = game.addEntity(new Boat());
   game.addEntity(new CameraController(boat, game.camera));
   game.addEntity(new Wake(boat));

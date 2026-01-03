@@ -18,6 +18,9 @@ export const LAYERS = {
   sails: new LayerInfo(),
   telltails: new LayerInfo(),
 
+  // Wind visualization layer (toggled on/off)
+  windViz: new LayerInfo({ alpha: 0 }),
+
   // Stuff not in the world
   hud: new LayerInfo({ paralax: V(0, 0) }),
   // Stuff on the absolute top that's just used for debugging
