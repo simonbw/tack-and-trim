@@ -70,17 +70,20 @@ export class TellTail extends BaseEntity {
       );
     }
 
-    // Attach first particle to the sail body
-    this.constraints.push(
-      new DistanceConstraint(this.attachmentBody, this.bodies[0], {
-        distance: 0,
-        collideConnected: false,
-        localAnchorA: [0, 0],
-      })
-    );
+    // Note: First particle is manually positioned in onTick to follow the sail
+    // without exerting forces back on it (one-way coupling). Since we set its
+    // position directly, the constraint between particles 0-1 only affects
+    // particle 1, not particle 0.
   }
 
   onTick() {
+    // Manually position first particle to follow the sail (one-way coupling)
+    const firstBody = this.bodies[0];
+    firstBody.position[0] = this.attachmentBody.position[0];
+    firstBody.position[1] = this.attachmentBody.position[1];
+    firstBody.velocity[0] = this.attachmentBody.velocity[0];
+    firstBody.velocity[1] = this.attachmentBody.velocity[1];
+
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
     if (!wind) return;
 
@@ -89,7 +92,8 @@ export class TellTail extends BaseEntity {
 
     const drag = flatPlateDrag(DRAG_SCALE);
 
-    for (let i = 0; i < this.bodies.length; i++) {
+    // Apply wind forces to all particles except the first (which is fixed to sail)
+    for (let i = 1; i < this.bodies.length; i++) {
       const body = this.bodies[i];
       const bodyPos = V(body.position);
 
