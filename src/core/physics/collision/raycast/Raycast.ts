@@ -61,8 +61,7 @@ export function raycast(
   const aabb = getRayAABB(ray);
 
   // Get candidate bodies from broadphase
-  const candidates: Body[] = [];
-  world.broadphase.aabbQuery(world, aabb, candidates, true);
+  const candidates = world.broadphase.aabbQuery(world, aabb, true);
 
   let closestHit: RaycastHit | null = null;
   let closestFraction = Infinity;
@@ -152,8 +151,7 @@ export function raycastAll(
   const aabb = getRayAABB(ray);
 
   // Get candidate bodies from broadphase
-  const candidates: Body[] = [];
-  world.broadphase.aabbQuery(world, aabb, candidates, true);
+  const candidates = world.broadphase.aabbQuery(world, aabb, true);
 
   const hits: RaycastHit[] = [];
 

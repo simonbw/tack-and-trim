@@ -11,3 +11,6 @@ export const isKinematicBody = (body: Body): body is KinematicBody =>
 
 export const isStaticBody = (body: Body): body is StaticBody =>
   body instanceof StaticBody;
+
+export const isAwakeDynamicBody = (body: Body): body is DynamicBody =>
+  body instanceof DynamicBody && !body.isSleeping();

@@ -2,7 +2,7 @@ import Body from "../../body/Body";
 import Shape from "../../shapes/Shape";
 import { shapesCanCollide } from "../CollisionHelpers";
 import { CollisionContact } from "../CollisionResult";
-import { getShapeCollision } from "../narrowphase/CollisionDetector";
+import { getShapeCollision } from "./CollisionDetector";
 
 export interface Collision {
   readonly bodyA: Body;
@@ -22,7 +22,7 @@ export interface SensorOverlap {
 /**
  * Narrowphase collision detection.
  */
-export function getContactsFromCollisionPairs(pairs: [Body, Body][]): {
+export function getContactsFromPairs(pairs: [Body, Body][]): {
   collisions: Collision[];
   sensorOverlaps: SensorOverlap[];
 } {

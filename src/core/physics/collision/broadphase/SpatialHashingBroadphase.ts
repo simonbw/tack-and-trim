@@ -1,5 +1,6 @@
 import { mod } from "../../../util/MathUtil";
 import type Body from "../../body/Body";
+import { isDynamicBody, isKinematicBody } from "../../body/body-helpers";
 import DynamicBody from "../../body/DynamicBody";
 import KinematicBody from "../../body/KinematicBody";
 import Particle from "../../shapes/Particle";
@@ -30,15 +31,20 @@ export default class SpatialHashingBroadphase extends Broadphase {
     numCollisions: 0,
   };
 
-  constructor(
-    // width/height of cell in meters
-    private cellSize: number = DEFAULT_CELL_SIZE,
-    // number of cells wide
-    private width: number = 24,
-    // number of cells tall
-    private height: number = 24
-  ) {
+  private cellSize: number;
+  private width: number;
+  private height: number;
+
+  constructor({
+    cellSize = DEFAULT_CELL_SIZE,
+    width = 24,
+    height = 24,
+  }: { cellSize?: number; width?: number; height?: number } = {}) {
     super();
+
+    this.cellSize = cellSize;
+    this.width = width;
+    this.height = height;
 
     for (let i = 0; i < width * height; i++) {
       this.partitions.push(new Set());
@@ -73,26 +79,28 @@ export default class SpatialHashingBroadphase extends Broadphase {
   }
 
   onAddBody(body: Body) {
-    if (body instanceof DynamicBody) {
+    if (isDynamicBody(body)) {
       if (isParticleBody(body)) {
         this.particleBodies.add(body);
       } else {
         this.dynamicBodies.add(body);
       }
-    } else if (body instanceof KinematicBody) {
+    } else if (isKinematicBody(body)) {
       this.kinematicBodies.add(body);
     } else {
+      // body is static
       this.addBodyToHash(body);
     }
   }
 
   onRemoveBody(body: Body) {
-    if (body instanceof DynamicBody) {
+    if (isDynamicBody(body)) {
       this.dynamicBodies.delete(body);
       this.particleBodies.delete(body);
-    } else if (body instanceof KinematicBody) {
+    } else if (isKinematicBody(body)) {
       this.kinematicBodies.delete(body);
     } else {
+      // body is static
       this.removeBodyFromHash(body);
     }
   }
@@ -164,12 +172,7 @@ export default class SpatialHashingBroadphase extends Broadphase {
     // Don't add particles because they can't collide with each other, so we just need to check if they're overlapping anything
 
     for (const pBody of this.particleBodies) {
-      for (const other of this.aabbQuery(
-        world,
-        pBody.getAABB(),
-        undefined,
-        false
-      )) {
+      for (const other of this.aabbQuery(world, pBody.getAABB(), false)) {
         if (bodiesCanCollide(pBody, other)) {
           result.push([pBody, other]);
         }
@@ -181,12 +184,7 @@ export default class SpatialHashingBroadphase extends Broadphase {
     for (const dBody of this.dynamicBodies) {
       this.removeBodyFromHash(dBody); // This will make sure we don't overlap ourselves, and that we don't double count anything
 
-      for (const other of this.aabbQuery(
-        world,
-        dBody.getAABB(),
-        undefined,
-        false
-      )) {
+      for (const other of this.aabbQuery(world, dBody.getAABB(), false)) {
         if (bodiesCanCollide(dBody, other)) {
           result.push([dBody, other]);
         }
@@ -238,26 +236,26 @@ export default class SpatialHashingBroadphase extends Broadphase {
   aabbQuery(
     _: World,
     aabb: AABB,
-    result?: Body[],
     shouldAddBodies: boolean = true
-  ): Body[] {
-    result = result ?? [];
-
+  ): Iterable<Body> {
     if (shouldAddBodies) {
       this.addExtraBodies();
     }
 
+    // Use Set for O(1) deduplication - return directly without array conversion
+    const resultSet = new Set<Body>();
+
     for (const cell of this.aabbToCells(aabb, false)) {
       for (const body of this.partitions[cell]) {
-        if (body.getAABB().overlaps(aabb) && result.indexOf(body) < 0) {
-          result.push(body);
+        if (body.getAABB().overlaps(aabb)) {
+          resultSet.add(body);
         }
       }
     }
 
     for (const hugeBody of this.hugeBodies) {
       if (aabb.overlaps(hugeBody.getAABB())) {
-        result.push(hugeBody);
+        resultSet.add(hugeBody);
       }
     }
 
@@ -265,58 +263,83 @@ export default class SpatialHashingBroadphase extends Broadphase {
       this.removeExtraBodies();
     }
 
-    return result;
+    return resultSet;
   }
 
-  // TODO: This is broken for some reason
-  // I think it's because this is for drawing clean lines, not getting all pixels that intersect the line
-  rayQuery(ray: RayLike, shouldAddBodies = true): Body[] {
+  /** Query all bodies whose cells intersect the ray using DDA grid traversal. */
+  rayQuery(ray: RayLike, shouldAddBodies = true): Iterable<Body> {
     if (shouldAddBodies) {
       this.addExtraBodies();
     }
 
-    const result: Body[] = [];
+    const resultSet = new Set<Body>();
 
-    // See https://www.redblobgames.com/grids/line-drawing.html
     const x1 = ray.from[0] / this.cellSize;
     const y1 = ray.from[1] / this.cellSize;
     const x2 = ray.to[0] / this.cellSize;
     const y2 = ray.to[1] / this.cellSize;
 
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const xSteps = Math.ceil(Math.abs(dx));
-    const ySteps = Math.ceil(Math.abs(dy));
-    const signX = dx > 0 ? 1 : -1;
-    const signY = dy > 0 ? 1 : -1;
-
     let cellX = Math.floor(x1);
     let cellY = Math.floor(y1);
-    for (let ix = 0, iy = 0; ix < xSteps || iy < ySteps; ) {
-      if ((0.5 + ix) / xSteps < (0.5 + iy) / ySteps) {
-        // next step is horizontal
-        cellX += signX;
-        ix++;
-      } else {
-        // next step is vertical
-        cellY += signY;
-        iy++;
-      }
+    const endCellX = Math.floor(x2);
+    const endCellY = Math.floor(y2);
 
-      const cell = this.xyToCell(cellX, cellY);
+    const dx = x2 - x1;
+    const dy = y2 - y1;
 
+    const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+
+    // How far along the ray (in t) we move when crossing one cell
+    const tDeltaX = stepX !== 0 ? Math.abs(1 / dx) : Infinity;
+    const tDeltaY = stepY !== 0 ? Math.abs(1 / dy) : Infinity;
+
+    // t value at which we cross the first cell boundary
+    let tMaxX =
+      stepX > 0
+        ? (Math.ceil(x1) - x1) * tDeltaX
+        : stepX < 0
+          ? (x1 - Math.floor(x1)) * tDeltaX
+          : Infinity;
+    let tMaxY =
+      stepY > 0
+        ? (Math.ceil(y1) - y1) * tDeltaY
+        : stepY < 0
+          ? (y1 - Math.floor(y1)) * tDeltaY
+          : Infinity;
+
+    const addCell = (cx: number, cy: number) => {
+      const cell = this.xyToCell(cx, cy);
       for (const body of this.partitions[cell]) {
-        if (result.indexOf(body) < 0) {
-          result.push(body);
-        }
+        resultSet.add(body);
       }
+    };
+
+    // Check starting cell
+    addCell(cellX, cellY);
+
+    // Traverse until we reach the end cell
+    while (cellX !== endCellX || cellY !== endCellY) {
+      if (tMaxX < tMaxY) {
+        tMaxX += tDeltaX;
+        cellX += stepX;
+      } else {
+        tMaxY += tDeltaY;
+        cellY += stepY;
+      }
+      addCell(cellX, cellY);
+    }
+
+    // Check huge bodies (which aren't in the spatial hash)
+    for (const hugeBody of this.hugeBodies) {
+      resultSet.add(hugeBody);
     }
 
     if (shouldAddBodies) {
       this.removeExtraBodies();
     }
 
-    return result;
+    return resultSet;
   }
 }
 

@@ -1,4 +1,5 @@
 import type Body from "../body/Body";
+import DynamicBody from "../body/DynamicBody";
 import type Equation from "../equations/Equation";
 
 export interface ConstraintOptions {
@@ -27,12 +28,12 @@ export default abstract class Constraint {
     this.bodyA = bodyA;
     this.bodyB = bodyB;
 
-    // Wake up bodies when connected
+    // Wake up dynamic bodies when connected
     if (wakeUpBodies) {
-      if (bodyA) {
+      if (bodyA instanceof DynamicBody) {
         bodyA.wakeUp();
       }
-      if (bodyB) {
+      if (bodyB instanceof DynamicBody) {
         bodyB.wakeUp();
       }
     }

@@ -13,13 +13,14 @@ export default class FilterSet<T, T2 extends T> implements Iterable<T2> {
   addIfValid(item: T) {
     if (this.predicate(item)) {
       this.items.add(item);
+    } else {
+      this.remove(item);
     }
   }
 
   remove(item: T) {
-    if (this.predicate(item)) {
-      this.items.delete(item);
-    }
+    // No predicate check - item may have changed state since being added
+    this.items.delete(item as T2);
   }
 
   clear() {

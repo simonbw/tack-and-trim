@@ -1,22 +1,6 @@
 import ContactEquation from "../../equations/ContactEquation";
 import ContactMaterial from "../../material/ContactMaterial";
-import { Collision } from "../pipeline/getContactsFromCollisionPairs";
-
-/**
- * Parameters for contact equation generation
- */
-export interface ContactParams {
-  /** Restitution (bounciness) coefficient (0 = no bounce, 1 = max bounce) */
-  restitution: number;
-  /** Contact stiffness */
-  stiffness: number;
-  /** Contact relaxation */
-  relaxation: number;
-  /** Whether equations should be enabled */
-  enabled: boolean;
-  /** Contact skin size (offset) */
-  contactSkinSize: number;
-}
+import { Collision } from "../narrowphase/getContactsFromCollisionPairs";
 
 /**
  * Generate contact equations from a collision result

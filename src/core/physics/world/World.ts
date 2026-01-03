@@ -6,9 +6,9 @@ import Broadphase from "../collision/broadphase/Broadphase";
 import SpatialHashingBroadphase from "../collision/broadphase/SpatialHashingBroadphase";
 import {
   Collision,
+  getContactsFromPairs,
   SensorOverlap,
-  getContactsFromCollisionPairs as getCollisionsFromPossible,
-} from "../collision/pipeline/getContactsFromCollisionPairs";
+} from "../collision/narrowphase/getContactsFromCollisionPairs";
 import { raycast, raycastAll } from "../collision/raycast/Raycast";
 import { RaycastHit, RaycastOptions } from "../collision/raycast/RaycastHit";
 import { generateContactEquationsForCollision } from "../collision/response/ContactGenerator";
@@ -17,8 +17,12 @@ import ContactEquation from "../equations/ContactEquation";
 import FrictionEquation from "../equations/FrictionEquation";
 import EventEmitter from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
-import GSSolver from "../solver/GSSolver";
-import Solver from "../solver/Solver";
+import {
+  DEFAULT_SOLVER_CONFIG,
+  solveEquations,
+  solveIsland,
+  type SolverConfig,
+} from "../solver/GSSolver";
 import type Spring from "../springs/Spring";
 import BodyManager from "./BodyManager";
 import ConstraintManager from "./ConstraintManager";
@@ -31,7 +35,7 @@ import OverlapKeeper, {
 } from "./OverlapKeeper";
 
 export interface WorldOptions {
-  solver?: Solver;
+  solverConfig?: Partial<SolverConfig>;
   broadphase?: Broadphase;
   islandSplit?: boolean;
 }
@@ -48,9 +52,8 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   constraints: ConstraintManager;
   contactMaterials: ContactMaterialManager;
   springs: Set<Spring>;
-  solver: Solver;
+  solverConfig: SolverConfig;
   broadphase: Broadphase;
-  solveConstraints: boolean = true;
   time: number = 0.0;
   stepping: boolean = false;
   islandSplit: boolean;
@@ -69,10 +72,9 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     this.constraints = new ConstraintManager();
     this.springs = new Set<Spring>();
 
-    this.solver = options.solver || new GSSolver();
-    this.solver.setWorld(this);
+    this.solverConfig = { ...DEFAULT_SOLVER_CONFIG, ...options.solverConfig };
 
-    this.broadphase = options.broadphase || new SpatialHashingBroadphase();
+    this.broadphase = options.broadphase ?? new SpatialHashingBroadphase();
     this.broadphase.setWorld(this);
 
     this.contactMaterials = new ContactMaterialManager();
@@ -91,11 +93,10 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     this.applyForces(dt);
 
     // 2. Broadphase - get potential collision pairs
-    const possibleCollisions = this.doBroadphase();
+    const pairsToCheck = this.doBroadphase();
 
     // 3. Narrowphase - get actual collisions
-    const { collisions, sensorOverlaps } =
-      getCollisionsFromPossible(possibleCollisions);
+    const { collisions, sensorOverlaps } = getContactsFromPairs(pairsToCheck);
 
     // 4. Update overlap tracking
     const overlapChanges = this.updateOverlapTracking(
@@ -163,69 +164,30 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     this.emit({ type: "postStep" });
   }
 
-  private doBroadphase() {
-    const possibleCollisions = this.broadphase.getCollisionPairs(this);
-
-    const disabledByConstraints = new Set<string>();
-    for (const constraint of this.constraints.collideConnectedDisabled) {
-      disabledByConstraints.add(bodyKey(constraint.bodyA, constraint.bodyB));
-    }
-
-    const filteredPossibleCollisions = possibleCollisions.filter(
-      ([bodyA, bodyB]) => !disabledByConstraints.has(bodyKey(bodyA, bodyB))
-    );
-
-    this.emit({ type: "postBroadphase", pairs: filteredPossibleCollisions });
-    return filteredPossibleCollisions;
-  }
-
   private applyForces(dt: number): void {
     // Add spring forces
     for (const spring of this.springs) {
       spring.applyForce();
     }
 
-    // Apply damping
-    for (const body of this.bodies.dynamic) {
+    // Apply damping (only to awake bodies)
+    for (const body of this.bodies.dynamicAwake) {
       body.applyDamping(dt);
     }
   }
 
-  /** Handle wake-up logic for sleeping bodies that collide with fast-moving bodies */
-  private handleCollisionWakeUps(collisions: Collision[]): void {
-    for (const { bodyA, bodyB } of collisions) {
-      // Check if bodyA should wake up
-      if (
-        bodyA.allowSleep &&
-        bodyA instanceof DynamicBody &&
-        bodyA.sleepState === SleepState.SLEEPING &&
-        bodyB.sleepState === SleepState.AWAKE &&
-        !(bodyB instanceof StaticBody)
-      ) {
-        const speedSquaredB =
-          bodyB.velocity.squaredMagnitude + bodyB.angularVelocity ** 2;
-        const speedLimitSquaredB = bodyB.sleepSpeedLimit ** 2;
-        if (speedSquaredB >= speedLimitSquaredB * 2) {
-          bodyA._wakeUpAfterNarrowphase = true;
-        }
-      }
+  private doBroadphase() {
+    const possibleCollisions = this.broadphase.getCollisionPairs(this);
 
-      // Check if bodyB should wake up
-      if (
-        bodyB.allowSleep &&
-        bodyB instanceof DynamicBody &&
-        bodyB.sleepState === SleepState.SLEEPING &&
-        bodyA.sleepState === SleepState.AWAKE &&
-        !(bodyA instanceof StaticBody)
-      ) {
-        const speedSquaredA =
-          bodyA.velocity.squaredMagnitude + bodyA.angularVelocity ** 2;
-        const speedLimitSquaredA = bodyA.sleepSpeedLimit ** 2;
-        if (speedSquaredA >= speedLimitSquaredA * 2) {
-          bodyB._wakeUpAfterNarrowphase = true;
-        }
-      }
-    }
+    // Use pre-computed disabled body keys from ConstraintManager
+    const disabledBodyKeys = this.constraints.disabledBodyKeys;
+
+    const filteredPossibleCollisions = possibleCollisions.filter(
+      ([bodyA, bodyB]) => !disabledBodyKeys.has(bodyKey(bodyA, bodyB))
+    );
+
+    this.emit({ type: "postBroadphase", pairs: filteredPossibleCollisions });
+    return filteredPossibleCollisions;
   }
 
   /** Update overlap tracking and return changes (called before contact equation generation) */
@@ -246,6 +208,47 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     ];
 
     return this.overlapKeeper.updateOverlaps(currentOverlaps);
+  }
+
+  /** Handle wake-up logic for sleeping bodies that collide with fast-moving bodies */
+  private handleCollisionWakeUps(collisions: Collision[]): void {
+    for (const { bodyA, bodyB } of collisions) {
+      // Only dynamic bodies can sleep or wake other bodies
+      const dynA = bodyA instanceof DynamicBody ? bodyA : null;
+      const dynB = bodyB instanceof DynamicBody ? bodyB : null;
+
+      // Check if bodyA (sleeping) should be woken by bodyB (fast-moving)
+      if (
+        dynA &&
+        dynB &&
+        dynA.allowSleep &&
+        dynA.sleepState === SleepState.SLEEPING &&
+        dynB.sleepState === SleepState.AWAKE
+      ) {
+        const speedSquaredB =
+          dynB.velocity.squaredMagnitude + dynB.angularVelocity ** 2;
+        const speedLimitSquaredB = dynB.sleepSpeedLimit ** 2;
+        if (speedSquaredB >= speedLimitSquaredB * 2) {
+          dynA._wakeUpAfterNarrowphase = true;
+        }
+      }
+
+      // Check if bodyB (sleeping) should be woken by bodyA (fast-moving)
+      if (
+        dynA &&
+        dynB &&
+        dynB.allowSleep &&
+        dynB.sleepState === SleepState.SLEEPING &&
+        dynA.sleepState === SleepState.AWAKE
+      ) {
+        const speedSquaredA =
+          dynA.velocity.squaredMagnitude + dynA.angularVelocity ** 2;
+        const speedLimitSquaredA = dynA.sleepSpeedLimit ** 2;
+        if (speedSquaredA >= speedLimitSquaredA * 2) {
+          dynB._wakeUpAfterNarrowphase = true;
+        }
+      }
+    }
   }
 
   /** Emit beginContact/endContact events using pre-computed overlap changes */
@@ -288,8 +291,8 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     contacts: ContactEquation[],
     friction: FrictionEquation[]
   ): void {
-    // Wake up bodies that need it
-    for (const body of this.bodies) {
+    // Wake up bodies that need it - check all dynamic bodies since sleeping ones may have the flag
+    for (const body of this.bodies.dynamic) {
       if (body._wakeUpAfterNarrowphase) {
         body.wakeUp();
         body._wakeUpAfterNarrowphase = false;
@@ -308,66 +311,45 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     contacts: ContactEquation[],
     friction: FrictionEquation[]
   ): Island[] | undefined {
-    const solver = this.solver;
-
     // Update constraint equations
     for (const c of this.constraints) {
       c.update();
     }
 
-    const hasEquations =
-      contacts.length || friction.length || this.constraints.length;
+    // Collect all equations
+    const allEquations = [
+      ...contacts,
+      ...friction,
+      ...[...this.constraints].flatMap((c) => c.equations),
+    ];
 
-    if (!hasEquations) {
+    if (allEquations.length === 0) {
       return undefined;
     }
 
     if (this.islandSplit) {
-      // Collect all equations
-      const allEquations = [
-        ...contacts,
-        ...friction,
-        ...[...this.constraints].flatMap((c) => c.equations),
-      ];
-
       // Split into islands and solve each
       const islands = splitIntoIslands(this.bodies.all, allEquations);
       for (const island of islands) {
         if (island.equations.length) {
-          solver.solveIsland(dt, island);
+          solveIsland(island, dt, this.solverConfig);
         }
       }
       return islands;
     } else {
-      solver.addEquations(contacts);
-      solver.addEquations(friction);
-
-      for (const c of this.constraints) {
-        solver.addEquations(c.equations);
-      }
-
-      if (this.solveConstraints) {
-        solver.solve(dt, this);
-      }
-
-      solver.removeAllEquations();
+      solveEquations(allEquations, this.bodies.dynamicAwake, dt, this.solverConfig);
       return undefined;
     }
   }
 
   private integrate(dt: number): void {
-    // We only need to integrate kinematic and dynamic bodies
+    // We only need to integrate kinematic and awake dynamic bodies
     for (const body of this.bodies.kinematic) {
       body.integrate(dt);
     }
-    for (const body of this.bodies.dynamic) {
+    // Combine integration and force reset in a single loop for awake dynamic bodies
+    for (const body of this.bodies.dynamicAwake) {
       body.integrate(dt);
-    }
-
-    // Reset forces
-    // TODO: Can we limit this to only dynamic and kinematic bodies?
-    // Do static bodies ever have forces? And if they do, does it matter?
-    for (const body of this.bodies.dynamic) {
       body.setZeroForce();
     }
   }
@@ -392,7 +374,9 @@ export default class World extends EventEmitter<PhysicsEventMap> {
 
   private updateSleeping(dt: number, islands: Island[] | undefined): void {
     if (this.sleepMode === SleepMode.BODY_SLEEPING) {
-      for (const body of this.bodies) {
+      // Only awake dynamic bodies participate in sleep logic
+      // Use Array.from since sleepTick may modify the set via sleep()
+      for (const body of Array.from(this.bodies.dynamicAwake)) {
         body.sleepTick(this.time, false, dt);
       }
     } else if (
@@ -400,8 +384,8 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       this.islandSplit &&
       islands
     ) {
-      // Tell all bodies to sleep tick but don't sleep yet
-      for (const body of this.bodies) {
+      // Only awake dynamic bodies participate in sleep logic
+      for (const body of this.bodies.dynamicAwake) {
         body.sleepTick(this.time, true, dt);
       }
 
@@ -412,7 +396,9 @@ export default class World extends EventEmitter<PhysicsEventMap> {
         );
         if (allWantToSleep) {
           for (const body of island.bodies) {
-            body.sleep();
+            if (body instanceof DynamicBody) {
+              body.sleep();
+            }
           }
         }
       }
@@ -433,9 +419,6 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   /** Resets the World, removes all bodies, constraints and springs. */
   clear(): void {
     this.time = 0;
-
-    // Remove all solver equations
-    this.solver.removeAllEquations();
 
     // Remove all constraints
     this.constraints.clear();

@@ -3,8 +3,7 @@ import type Body from "../body/Body";
 import Equation from "../equations/Equation";
 import RotationalLockEquation from "../equations/RotationalLockEquation";
 import RotationalVelocityEquation from "../equations/RotationalVelocityEquation";
-import { ConstraintOptions } from "./Constraint";
-import Constraint from "./Constraint";
+import Constraint, { ConstraintOptions } from "./Constraint";
 
 export interface RevoluteConstraintOptions extends ConstraintOptions {
   worldPivot?: CompatibleVector;
@@ -46,6 +45,11 @@ export default class RevoluteConstraint extends Constraint {
 
   upperLimitEquation: RotationalLockEquation;
   lowerLimitEquation: RotationalLockEquation;
+
+  /** Tracks whether upper limit equation is currently in the equations array */
+  private upperLimitActive: boolean = false;
+  /** Tracks whether lower limit equation is currently in the equations array */
+  private lowerLimitActive: boolean = false;
 
   constructor(
     bodyA: Body,
@@ -150,28 +154,29 @@ export default class RevoluteConstraint extends Constraint {
 
     const relAngle = (this.angle = bodyB.angle - bodyA.angle);
 
+    // Use tracking flags instead of indexOf() for O(1) checks
     if (this.upperLimitEnabled && relAngle > upperLimit) {
       upperLimitEquation.angle = upperLimit;
-      if (eqs.indexOf(upperLimitEquation) === -1) {
+      if (!this.upperLimitActive) {
         eqs.push(upperLimitEquation);
+        this.upperLimitActive = true;
       }
-    } else {
+    } else if (this.upperLimitActive) {
       const idx = eqs.indexOf(upperLimitEquation);
-      if (idx !== -1) {
-        eqs.splice(idx, 1);
-      }
+      eqs.splice(idx, 1);
+      this.upperLimitActive = false;
     }
 
     if (this.lowerLimitEnabled && relAngle < lowerLimit) {
       lowerLimitEquation.angle = lowerLimit;
-      if (eqs.indexOf(lowerLimitEquation) === -1) {
+      if (!this.lowerLimitActive) {
         eqs.push(lowerLimitEquation);
+        this.lowerLimitActive = true;
       }
-    } else {
+    } else if (this.lowerLimitActive) {
       const idx = eqs.indexOf(lowerLimitEquation);
-      if (idx !== -1) {
-        eqs.splice(idx, 1);
-      }
+      eqs.splice(idx, 1);
+      this.lowerLimitActive = false;
     }
 
     const worldPivotA = pivotA.rotate(bodyA.angle);
@@ -215,21 +220,13 @@ export default class RevoluteConstraint extends Constraint {
     this.motorEnabled = false;
   }
 
-  /**
-   * Check if the motor is enabled.
-   * @deprecated use property motorEnabled instead.
-   */
-  motorIsEnabled(): boolean {
-    return !!this.motorEnabled;
-  }
-
   /** Set the speed of the rotational constraint motor */
   setMotorSpeed(speed: number): void {
     if (!this.motorEnabled) {
       return;
     }
-    const i = this.equations.indexOf(this.motorEquation);
-    this.equations[i].relativeVelocity = speed;
+    // Direct access instead of indexOf() - we already have the reference
+    this.motorEquation.relativeVelocity = speed;
   }
 
   /** Get the speed of the rotational constraint motor */

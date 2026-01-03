@@ -151,6 +151,14 @@ export default class DynamicBody extends Body {
     return this._wantsToSleep;
   }
 
+  isSleeping(): boolean {
+    return this._sleepState === SleepState.SLEEPING;
+  }
+
+  isAwake(): boolean {
+    return this._sleepState === SleepState.AWAKE;
+  }
+
   /**
    * Updates .inertia, .invMass, .invInertia for this Body.
    * Called automatically when setting mass or density, or adding/removing shapes.
@@ -185,7 +193,7 @@ export default class DynamicBody extends Body {
    * Update solver mass properties based on sleep state.
    */
   updateSolveMassProperties(): void {
-    if (this._sleepState === SleepState.SLEEPING) {
+    if (this.isSleeping()) {
       this._invMassSolve = 0;
       this._invInertiaSolve = 0;
     } else {
@@ -288,10 +296,10 @@ export default class DynamicBody extends Body {
    * Wake the body up.
    */
   wakeUp(): this {
-    const s = this._sleepState;
-    this._sleepState = SleepState.AWAKE;
-    this.idleTime = 0;
-    if (s !== SleepState.AWAKE) {
+    if (!this.isAwake()) {
+      this._sleepState = SleepState.AWAKE;
+      this.idleTime = 0;
+      this.world?.bodies.onSleepStateChanged(this);
       this.emit({ type: "wakeup", body: this });
     }
     return this;
@@ -306,6 +314,7 @@ export default class DynamicBody extends Body {
     this._angularForce = 0;
     this._velocity.set(0, 0);
     this._force.set(0, 0);
+    this.world?.bodies.onSleepStateChanged(this);
     this.emit({ type: "sleep", body: this });
     return this;
   }

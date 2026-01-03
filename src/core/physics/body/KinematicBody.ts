@@ -1,5 +1,5 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import Body, { BaseBodyOptions, SleepState } from "./Body";
+import Body, { BaseBodyOptions } from "./Body";
 
 export interface KinematicBodyOptions extends BaseBodyOptions {
   velocity?: CompatibleVector;
@@ -64,23 +64,6 @@ export default class KinematicBody extends Body {
     return 0;
   }
 
-  // Sleep state (kinematic bodies don't sleep)
-  get sleepState(): SleepState {
-    return SleepState.AWAKE;
-  }
-
-  get allowSleep(): boolean {
-    return false;
-  }
-
-  get sleepSpeedLimit(): number {
-    return 0;
-  }
-
-  get wantsToSleep(): boolean {
-    return false;
-  }
-
   updateMassProperties(): this {
     // No-op for kinematic bodies
     return this;
@@ -121,20 +104,6 @@ export default class KinematicBody extends Body {
 
   addConstraintVelocity(): void {
     // No-op - kinematic bodies don't receive constraint velocity
-  }
-
-  wakeUp(): this {
-    // No-op
-    return this;
-  }
-
-  sleep(): this {
-    // No-op
-    return this;
-  }
-
-  sleepTick(_time: number, _dontSleep: boolean, _dt: number): void {
-    // No-op
   }
 
   integrate(dt: number): void {

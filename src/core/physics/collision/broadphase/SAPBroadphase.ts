@@ -134,13 +134,12 @@ export default class SAPBroadphase extends Broadphase {
   aabbQuery(
     _world: World,
     aabb: AABB,
-    result: Body[] = [],
     _shouldAddBodies: boolean = true
-  ): Body[] {
+  ): Iterable<Body> {
     this.sortList();
 
-    const axisIndex = this.axisIndex;
     const axisList = this.axisList;
+    const result: Body[] = [];
 
     for (let i = 0; i < axisList.length; i++) {
       const b = axisList[i];

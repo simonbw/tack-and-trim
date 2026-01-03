@@ -69,16 +69,6 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   abstract get angularForce(): number;
   abstract set angularForce(value: number);
 
-  // Sleep state
-  abstract get sleepState(): SleepState;
-  abstract get allowSleep(): boolean;
-  abstract get wantsToSleep(): boolean;
-  abstract get sleepSpeedLimit(): number;
-
-  isSleeping(): boolean {
-    return this.sleepState === SleepState.SLEEPING;
-  }
-
   constructor(options: BaseBodyOptions = {}) {
     super();
 
@@ -125,9 +115,6 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   abstract applyDamping(dt: number): void;
   abstract setZeroForce(): this;
   abstract addConstraintVelocity(): void;
-  abstract wakeUp(): this;
-  abstract sleep(): this;
-  abstract sleepTick(time: number, dontSleep: boolean, dt: number): void;
   abstract integrate(dt: number): void;
 
   /** Get the total area of all shapes in the body */

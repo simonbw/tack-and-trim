@@ -22,9 +22,8 @@ export default abstract class Broadphase {
   abstract aabbQuery(
     _world: World,
     _aabb: AABB,
-    result?: Body[],
     _shouldAddBodies?: boolean
-  ): Body[];
+  ): Iterable<Body>;
 
   /** Set the world that we are searching for collision pairs in. */
   setWorld(world: World): void {

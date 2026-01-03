@@ -1,7 +1,7 @@
 import ContactEquation from "../../equations/ContactEquation";
 import FrictionEquation from "../../equations/FrictionEquation";
 import ContactMaterial from "../../material/ContactMaterial";
-import { Collision } from "../pipeline/getContactsFromCollisionPairs";
+import { Collision } from "../narrowphase/getContactsFromCollisionPairs";
 
 /**
  * Initial slip force value used before the solver recalculates based on contact forces.

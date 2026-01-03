@@ -1,5 +1,5 @@
 import { V, V2d } from "../../Vector";
-import Body, { BaseBodyOptions, SleepState } from "./Body";
+import Body, { BaseBodyOptions } from "./Body";
 
 export interface StaticBodyOptions extends BaseBodyOptions {
   // Static bodies don't need mass, velocity, etc.
@@ -57,23 +57,6 @@ export default class StaticBody extends Body {
     return 0;
   }
 
-  // Sleep state (always awake - never sleeps)
-  get sleepState(): SleepState {
-    return SleepState.AWAKE;
-  }
-
-  get allowSleep(): boolean {
-    return false;
-  }
-
-  get sleepSpeedLimit(): number {
-    return 0;
-  }
-
-  get wantsToSleep(): boolean {
-    return false;
-  }
-
   updateMassProperties(): this {
     // No-op for static bodies
     return this;
@@ -114,20 +97,6 @@ export default class StaticBody extends Body {
 
   addConstraintVelocity(): void {
     // No-op - static bodies don't get velocity updates from constraints
-  }
-
-  wakeUp(): this {
-    // No-op
-    return this;
-  }
-
-  sleep(): this {
-    // No-op
-    return this;
-  }
-
-  sleepTick(_time: number, _dontSleep: boolean, _dt: number): void {
-    // No-op
   }
 
   integrate(_dt: number): void {

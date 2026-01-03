@@ -1,10 +1,12 @@
 import { FilterMultiMap } from "../../util/FilterListMap";
 import Body from "../body/Body";
 import {
+  isAwakeDynamicBody,
   isDynamicBody,
   isKinematicBody,
   isStaticBody,
 } from "../body/body-helpers";
+import DynamicBody from "../body/DynamicBody";
 import type World from "./World";
 
 /** Manages bodies in the physics world with type-specific sets and deferred removal. */
@@ -24,6 +26,7 @@ export default class BodyManager implements Iterable<Body> {
     this.filtered.addFilter(isDynamicBody);
     this.filtered.addFilter(isKinematicBody);
     this.filtered.addFilter(isStaticBody);
+    this.filtered.addFilter(isAwakeDynamicBody);
 
     this.world.on("postStep", () => this.endStep());
   }
@@ -39,6 +42,15 @@ export default class BodyManager implements Iterable<Body> {
   /** Set of static bodies for optimized iteration. */
   get static() {
     return this.filtered.getItems(isStaticBody)!;
+  }
+  /** Set of awake dynamic bodies for optimized simulation loops. */
+  get dynamicAwake() {
+    return this.filtered.getItems(isAwakeDynamicBody)!;
+  }
+
+  /** Update dynamicAwake filter membership when a body's sleep state changes. */
+  onSleepStateChanged(body: DynamicBody) {
+    this.dynamicAwake.addIfValid(body);
   }
 
   /** Add a body to the world. */

@@ -1,6 +1,6 @@
 import { V, V2d } from "../../Vector";
 import Body from "../body/Body";
-import { isKinematicBody, isStaticBody } from "../body/body-helpers";
+import { isDynamicBody, isKinematicBody, isStaticBody } from "../body/body-helpers";
 import Box from "../shapes/Box";
 import Capsule from "../shapes/Capsule";
 import Convex from "../shapes/Convex";
@@ -213,15 +213,19 @@ export function bodiesCanCollide(bodyA: Body, bodyB: Body): boolean {
     return false;
   }
 
-  // Cannot collide both sleeping bodies
-  if (bodyA.isSleeping() && bodyB.isSleeping()) {
+  // Check if bodies are sleeping (only dynamic bodies can sleep)
+  const aSleeping = isDynamicBody(bodyA) && bodyA.isSleeping();
+  const bSleeping = isDynamicBody(bodyB) && bodyB.isSleeping();
+
+  // Cannot collide if both sleeping
+  if (aSleeping && bSleeping) {
     return false;
   }
 
   // Cannot collide if one is sleeping and the other is static
   if (
-    (bodyA.isSleeping() && isStaticBody(bodyB)) ||
-    (bodyB.isSleeping() && isStaticBody(bodyA))
+    (aSleeping && isStaticBody(bodyB)) ||
+    (bSleeping && isStaticBody(bodyA))
   ) {
     return false;
   }
