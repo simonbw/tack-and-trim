@@ -1,49 +1,55 @@
-import { Container, Graphics } from "pixi.js";
+import { Container, Graphics, Sprite, Texture } from "pixi.js";
+import { LAYERS } from "../config/layers";
 import BaseEntity from "../core/entity/BaseEntity";
 import { GameSprite } from "../core/entity/GameSprite";
-import { V } from "../core/Vector";
-import { clamp, lerp } from "../core/util/MathUtil";
-import { LAYERS } from "../config/layers";
 import { Wind } from "./Wind";
+import { ScreenSpaceWindVisualization } from "./wind-visualization/ScreenSpaceWindVisualization";
+import { WindVisualizationMode } from "./wind-visualization/WindVisualizationMode";
+import { WorldSpaceWindVisualization } from "./wind-visualization/WorldSpaceWindVisualization";
 
-// Grid configuration
-const GRID_SPACING = 50;
+// Visualization modes: 0=off, 1=screen-space, 2=world-space
+type VisualizationModeIndex = 0 | 1 | 2;
 
-// Triangle configuration
-const TRIANGLE_MIN_SIZE = 8;
-const TRIANGLE_MAX_SIZE = 24;
-const MIN_WIND_SPEED = 20;
-const MAX_WIND_SPEED = 200;
+// Dim overlay
+const DIM_COLOR = 0x000000;
+const DIM_ALPHA = 0.4;
 
-// Colors
-const TRIANGLE_COLOR = 0x88ccff;
-const TRIANGLE_ALPHA = 0.7;
-const TRIANGLE_MODIFIED_COLOR = 0xffcc88;
-
+// Modifier circle styling
 const MODIFIER_FILL_COLOR = 0xffaa44;
 const MODIFIER_FILL_ALPHA = 0.15;
 const MODIFIER_STROKE_COLOR = 0xffaa44;
 const MODIFIER_STROKE_ALPHA = 0.4;
 const MODIFIER_STROKE_WIDTH = 2;
 
-const DIM_COLOR = 0x000000;
-const DIM_ALPHA = 0.4;
-
 export class WindVisualization extends BaseEntity {
   sprite: GameSprite;
-  private dimGraphics: Graphics;
-  private gridGraphics: Graphics;
-  private visible: boolean = false;
+  private dimSprite: Sprite;
+  private modifierGraphics: Graphics;
+  private modeContainer: Container;
+  private modeIndex: VisualizationModeIndex = 0;
+
+  private modes: (WindVisualizationMode | null)[] = [
+    null, // Mode 0 = off
+    new ScreenSpaceWindVisualization(),
+    new WorldSpaceWindVisualization(),
+  ];
 
   constructor() {
     super();
     const container = new Container() as Container & GameSprite;
     container.layerName = "windViz";
 
-    this.dimGraphics = new Graphics();
-    this.gridGraphics = new Graphics();
-    container.addChild(this.dimGraphics);
-    container.addChild(this.gridGraphics);
+    // Create a 1x1 white texture for the dim overlay
+    this.dimSprite = new Sprite(Texture.WHITE);
+    this.dimSprite.tint = DIM_COLOR;
+    this.dimSprite.alpha = DIM_ALPHA;
+
+    this.modifierGraphics = new Graphics();
+    this.modeContainer = new Container();
+
+    container.addChild(this.dimSprite);
+    container.addChild(this.modifierGraphics);
+    container.addChild(this.modeContainer);
 
     this.sprite = container;
   }
@@ -55,8 +61,13 @@ export class WindVisualization extends BaseEntity {
   }
 
   private toggle(): void {
-    this.visible = !this.visible;
-    LAYERS.windViz.container.alpha = this.visible ? 1 : 0;
+    // Hide current mode's visuals
+    const currentMode = this.modes[this.modeIndex];
+    currentMode?.hide();
+
+    this.modeIndex = ((this.modeIndex + 1) %
+      this.modes.length) as VisualizationModeIndex;
+    LAYERS.windViz.container.alpha = this.modeIndex > 0 ? 1 : 0;
   }
 
   private getWind(): Wind | undefined {
@@ -64,26 +75,30 @@ export class WindVisualization extends BaseEntity {
   }
 
   onRender(): void {
-    this.dimGraphics.clear();
-    this.gridGraphics.clear();
+    this.modifierGraphics.clear();
 
-    if (!this.visible) return;
+    const mode = this.modes[this.modeIndex];
+    if (!mode) {
+      return;
+    }
 
     const wind = this.getWind();
     if (!wind) return;
 
     const camera = this.game!.camera;
-    const { left, right, top, bottom } = camera.getWorldViewport();
+    const viewport = camera.getWorldViewport();
 
-    // Draw dim overlay (world-space, covering viewport)
-    this.dimGraphics.rect(left, top, right - left, bottom - top);
-    this.dimGraphics.fill({ color: DIM_COLOR, alpha: DIM_ALPHA });
+    // Position and scale dim sprite to cover viewport
+    this.dimSprite.position.set(viewport.left, viewport.top);
+    this.dimSprite.width = viewport.right - viewport.left;
+    this.dimSprite.height = viewport.bottom - viewport.top;
 
     // Draw modifier circles
     this.drawModifierCircles(wind);
 
-    // Draw triangle grid
-    this.drawTriangleGrid(wind, left, top, right, bottom);
+    // Delegate to active mode
+    const renderer = this.game!.renderer.app.renderer;
+    mode.draw(wind, viewport, camera, this.modeContainer, renderer);
   }
 
   private drawModifierCircles(wind: Wind): void {
@@ -91,77 +106,16 @@ export class WindVisualization extends BaseEntity {
       const pos = modifier.getWindModifierPosition();
       const radius = modifier.getWindModifierInfluenceRadius();
 
-      this.gridGraphics.circle(pos.x, pos.y, radius);
-      this.gridGraphics.fill({
+      this.modifierGraphics.circle(pos.x, pos.y, radius);
+      this.modifierGraphics.fill({
         color: MODIFIER_FILL_COLOR,
         alpha: MODIFIER_FILL_ALPHA,
       });
-      this.gridGraphics.stroke({
+      this.modifierGraphics.stroke({
         color: MODIFIER_STROKE_COLOR,
         alpha: MODIFIER_STROKE_ALPHA,
         width: MODIFIER_STROKE_WIDTH,
       });
     }
-  }
-
-  private drawTriangleGrid(
-    wind: Wind,
-    left: number,
-    top: number,
-    right: number,
-    bottom: number
-  ): void {
-    const startX = Math.floor(left / GRID_SPACING) * GRID_SPACING;
-    const startY = Math.floor(top / GRID_SPACING) * GRID_SPACING;
-    const endX = right + GRID_SPACING;
-    const endY = bottom + GRID_SPACING;
-
-    for (let x = startX; x <= endX; x += GRID_SPACING) {
-      for (let y = startY; y <= endY; y += GRID_SPACING) {
-        this.drawWindTriangle(wind, x, y);
-      }
-    }
-  }
-
-  private drawWindTriangle(wind: Wind, x: number, y: number): void {
-    const velocity = wind.getVelocityAtPoint([x, y]);
-    const baseVelocity = wind.getBaseVelocityAtPoint([x, y]);
-    const speed = velocity.magnitude;
-    const angle = velocity.angle;
-
-    if (speed < 1) return;
-
-    const isModified = !velocity.equals(baseVelocity);
-    const speedRatio = clamp(
-      (speed - MIN_WIND_SPEED) / (MAX_WIND_SPEED - MIN_WIND_SPEED),
-      0,
-      1
-    );
-    const size = lerp(TRIANGLE_MIN_SIZE, TRIANGLE_MAX_SIZE, speedRatio);
-    const color = isModified ? TRIANGLE_MODIFIED_COLOR : TRIANGLE_COLOR;
-
-    this.drawTriangle(x, y, angle, size, color);
-  }
-
-  private drawTriangle(
-    x: number,
-    y: number,
-    angle: number,
-    size: number,
-    color: number
-  ): void {
-    const dir = V(Math.cos(angle), Math.sin(angle));
-    const perp = dir.rotate90cw();
-
-    const tip = V(x, y).add(dir.mul(size * 0.6));
-    const baseCenter = V(x, y).sub(dir.mul(size * 0.4));
-    const left = baseCenter.add(perp.mul(size * 0.35));
-    const right = baseCenter.sub(perp.mul(size * 0.35));
-
-    this.gridGraphics.moveTo(tip.x, tip.y);
-    this.gridGraphics.lineTo(left.x, left.y);
-    this.gridGraphics.lineTo(right.x, right.y);
-    this.gridGraphics.closePath();
-    this.gridGraphics.fill({ color, alpha: TRIANGLE_ALPHA });
   }
 }
