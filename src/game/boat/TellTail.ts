@@ -88,7 +88,7 @@ export class TellTail extends BaseEntity {
     if (!wind) return;
 
     const getFluidVelocity = (point: V2d): V2d =>
-      wind.getVelocityAtPoint([point.x, point.y]);
+      wind.getVelocityAtPoint(point);
 
     const drag = flatPlateDrag(DRAG_SCALE);
 

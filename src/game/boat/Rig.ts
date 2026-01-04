@@ -17,15 +17,13 @@ export class Rig extends BaseEntity {
   private mastSprite: GameSprite & Graphics;
   private boomSprite: GameSprite & Graphics;
   private boomConstraint: RevoluteConstraint;
-  sail: Sail;
+  sail!: Sail;
 
   constructor(
     readonly hull: Hull,
     private mastPosition: V2d
   ) {
     super();
-
-    this.sail = this.addChild(new Sail(this));
 
     // Mast visual (small circle at mast position)
     this.mastSprite = createGraphics("main");
@@ -59,6 +57,17 @@ export class Rig extends BaseEntity {
 
     this.sprites = [this.boomSprite, this.mastSprite];
     this.constraints = [this.boomConstraint];
+
+    // Create mainsail with config
+    this.sail = this.addChild(
+      new Sail({
+        getHeadPosition: () => this.getMastWorldPosition(),
+        getClewPosition: () => this.getBoomEndWorldPosition(),
+        headConstraint: { body: this.body, localAnchor: V(0, 0) },
+        clewConstraint: { body: this.body, localAnchor: V(-BOOM_LENGTH, 0) },
+        getForceScale: (t) => 1.0 - t, // Triangular compensation
+      })
+    );
   }
 
   onRender() {
