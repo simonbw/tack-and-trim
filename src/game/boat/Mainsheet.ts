@@ -92,7 +92,7 @@ export class Mainsheet extends BaseEntity {
     ).iadd([x, y]);
 
     // Calculate slack: positive when rope is loose
-    const actualDistance = boomAttachWorld.sub(hullAttachWorld).magnitude;
+    const actualDistance = boomAttachWorld.distanceTo(hullAttachWorld);
     const slack = this.ropeLength - actualDistance;
 
     this.mainsheetSprite.clear();
@@ -100,7 +100,7 @@ export class Mainsheet extends BaseEntity {
 
     if (slack > 0) {
       // Slack rope: draw bezier curve sagging toward hull center
-      const midpoint = boomAttachWorld.add(hullAttachWorld).imul(0.5);
+      const midpoint = boomAttachWorld.lerp(hullAttachWorld, 0.5);
       const hullCenter = V(x, y);
       const towardCenter = hullCenter.sub(midpoint).inormalize();
       const sagAmount = slack * MAINSHEET_SAG_FACTOR;

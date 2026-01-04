@@ -135,7 +135,7 @@ export class Sail extends BaseEntity implements WindModifier {
       this.config.getInitialClewPosition?.() ??
       this.config.getClewPosition?.() ??
       head; // Fallback, will be overwritten
-    const totalLength = initialClew.sub(head).magnitude;
+    const totalLength = initialClew.distanceTo(head);
     const segmentLength = totalLength / (this.nodeCount - 1);
 
     // Create particle chain from head to clew
