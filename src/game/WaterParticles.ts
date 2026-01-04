@@ -37,7 +37,7 @@ export class WaterParticles extends BaseEntity {
     const boatPos = this.boat.getPosition();
     this.particles = this.particles.filter((p) => {
       if (p.age >= MAX_AGE) return false;
-      const dist = p.pos.sub(boatPos).magnitude;
+      const dist = p.pos.distanceTo(boatPos);
       return dist < SPAWN_RADIUS * 1.5;
     });
 

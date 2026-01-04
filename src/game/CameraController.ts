@@ -3,6 +3,8 @@ import { GameEventMap } from "../core/entity/Entity";
 import { Camera2d } from "../core/graphics/Camera2d";
 import { Boat } from "./boat/Boat";
 
+const ZOOM_SPEED = 0.75;
+
 export class CameraController extends BaseEntity {
   zTarget: number = 2;
   constructor(
@@ -19,10 +21,10 @@ export class CameraController extends BaseEntity {
     this.camera.smoothZoom(this.zTarget);
 
     if (this.game?.io.isKeyDown("Minus")) {
-      this.zTarget -= dt;
+      this.zTarget -= this.zTarget * dt * ZOOM_SPEED;
     }
     if (this.game?.io.isKeyDown("Equal")) {
-      this.zTarget += dt;
+      this.zTarget += this.zTarget * dt * ZOOM_SPEED;
     }
   }
 }

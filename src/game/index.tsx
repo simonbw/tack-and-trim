@@ -1,4 +1,5 @@
 import { TextureStyle } from "pixi.js";
+import AutoPauser from "../core/AutoPauser";
 import Game from "../core/Game";
 import FPSMeter from "../core/util/FPSMeter";
 import { Boat } from "./boat/Boat";
@@ -42,6 +43,7 @@ async function main() {
     game.addEntity(fpsMeter);
   }
 
+  game.addEntity(new AutoPauser());
   game.addEntity(new Water());
   game.addEntity(new Buoy(200, 0));
   game.addEntity(new Buoy(-160, 120));

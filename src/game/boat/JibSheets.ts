@@ -162,14 +162,14 @@ export class JibSheets extends BaseEntity {
     ropeLength: number,
     hullCenter: V2d
   ): void {
-    const actualDistance = from.sub(to).magnitude;
+    const actualDistance = from.distanceTo(to);
     const slack = ropeLength - actualDistance;
 
     this.sheetsSprite.moveTo(from.x, from.y);
 
     if (slack > 0) {
       // Slack rope: draw bezier curve sagging toward hull center
-      const midpoint = from.add(to).imul(0.5);
+      const midpoint = from.lerp(to, 0.5);
       const towardCenter = hullCenter.sub(midpoint).inormalize();
       const sagAmount = slack * SHEET_SAG_FACTOR;
       const controlPoint = midpoint.add(towardCenter.imul(sagAmount));
