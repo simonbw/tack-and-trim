@@ -4,6 +4,7 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { lerp, stepToward } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
+import { VerletRope } from "../rope/VerletRope";
 import { Hull } from "./Hull";
 import { Rig } from "./Rig";
 
@@ -13,7 +14,6 @@ const MAINSHEET_MIN_LENGTH = 6; // Fully sheeted in
 const MAINSHEET_MAX_LENGTH = 35; // Fully eased out
 const MAINSHEET_DEFAULT_LENGTH = 20; // Starting position
 const MAINSHEET_ADJUST_SPEED = 15; // Units per second
-const MAINSHEET_SAG_FACTOR = 1.5; // How much the rope sags per unit of slack
 
 export class Mainsheet extends BaseEntity {
   private mainsheetSprite: GameSprite & Graphics;
@@ -21,6 +21,7 @@ export class Mainsheet extends BaseEntity {
   private boomAttachLocal: ReturnType<typeof V>;
   private sheetPosition: number = 0.5; // 0 = full in, 1 = full out
   private ropeLength: number = MAINSHEET_DEFAULT_LENGTH;
+  private visualRope: VerletRope;
 
   constructor(
     private hull: Hull,
@@ -52,6 +53,15 @@ export class Mainsheet extends BaseEntity {
     this.constraint.upperLimit = MAINSHEET_DEFAULT_LENGTH;
 
     this.constraints = [this.constraint];
+
+    this.visualRope = new VerletRope({
+      pointCount: 8,
+      restLength: MAINSHEET_DEFAULT_LENGTH,
+      gravity: V(0, 3), // Light gravity
+      damping: 0.98,
+      thickness: 0.75,
+      color: 0x444444,
+    });
   }
 
   /**
@@ -78,45 +88,27 @@ export class Mainsheet extends BaseEntity {
       this.sheetPosition
     );
     this.constraint.upperLimit = this.ropeLength;
+    this.visualRope.setRestLength(this.ropeLength);
+  }
+
+  private getBoomAttachWorld() {
+    const [mx, my] = this.rig.getMastWorldPosition();
+    return this.boomAttachLocal.rotate(this.rig.body.angle).iadd([mx, my]);
+  }
+
+  private getHullAttachWorld() {
+    const [x, y] = this.hull.body.position;
+    return MAINSHEET_HULL_ATTACH.rotate(this.hull.body.angle).iadd([x, y]);
+  }
+
+  onTick(dt: number): void {
+    const boomAttachWorld = this.getBoomAttachWorld();
+    const hullAttachWorld = this.getHullAttachWorld();
+    this.visualRope.update(boomAttachWorld, hullAttachWorld, dt);
   }
 
   onRender() {
-    const [x, y] = this.hull.body.position;
-    const [mx, my] = this.rig.getMastWorldPosition();
-
-    const boomAttachWorld = this.boomAttachLocal
-      .rotate(this.rig.body.angle)
-      .iadd([mx, my]);
-    const hullAttachWorld = MAINSHEET_HULL_ATTACH.rotate(
-      this.hull.body.angle
-    ).iadd([x, y]);
-
-    // Calculate slack: positive when rope is loose
-    const actualDistance = boomAttachWorld.distanceTo(hullAttachWorld);
-    const slack = this.ropeLength - actualDistance;
-
     this.mainsheetSprite.clear();
-    this.mainsheetSprite.moveTo(boomAttachWorld.x, boomAttachWorld.y);
-
-    if (slack > 0) {
-      // Slack rope: draw bezier curve sagging toward hull center
-      const midpoint = boomAttachWorld.lerp(hullAttachWorld, 0.5);
-      const hullCenter = V(x, y);
-      const towardCenter = hullCenter.sub(midpoint).inormalize();
-      const sagAmount = slack * MAINSHEET_SAG_FACTOR;
-      const controlPoint = midpoint.add(towardCenter.imul(sagAmount));
-
-      this.mainsheetSprite.quadraticCurveTo(
-        controlPoint.x,
-        controlPoint.y,
-        hullAttachWorld.x,
-        hullAttachWorld.y
-      );
-    } else {
-      // Taut rope: draw straight line
-      this.mainsheetSprite.lineTo(hullAttachWorld.x, hullAttachWorld.y);
-    }
-
-    this.mainsheetSprite.stroke({ color: 0x444444, width: 0.75 });
+    this.visualRope.render(this.mainsheetSprite);
   }
 }
