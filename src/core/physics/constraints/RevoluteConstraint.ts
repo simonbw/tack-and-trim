@@ -3,6 +3,7 @@ import type Body from "../body/Body";
 import Equation from "../equations/Equation";
 import RotationalLockEquation from "../equations/RotationalLockEquation";
 import RotationalVelocityEquation from "../equations/RotationalVelocityEquation";
+import { EQ_G } from "../internal";
 import Constraint, { ConstraintOptions } from "./Constraint";
 
 export interface RevoluteConstraintOptions extends ConstraintOptions {
@@ -185,19 +186,19 @@ export default class RevoluteConstraint extends Constraint {
     const xAxis = V(1, 0);
     const yAxis = V(0, 1);
 
-    x.G[0] = -1;
-    x.G[1] = 0;
-    x.G[2] = -worldPivotA.crossLength(xAxis);
-    x.G[3] = 1;
-    x.G[4] = 0;
-    x.G[5] = worldPivotB.crossLength(xAxis);
+    x[EQ_G][0] = -1;
+    x[EQ_G][1] = 0;
+    x[EQ_G][2] = -worldPivotA.crossLength(xAxis);
+    x[EQ_G][3] = 1;
+    x[EQ_G][4] = 0;
+    x[EQ_G][5] = worldPivotB.crossLength(xAxis);
 
-    y.G[0] = 0;
-    y.G[1] = -1;
-    y.G[2] = -worldPivotA.crossLength(yAxis);
-    y.G[3] = 0;
-    y.G[4] = 1;
-    y.G[5] = worldPivotB.crossLength(yAxis);
+    y[EQ_G][0] = 0;
+    y[EQ_G][1] = -1;
+    y[EQ_G][2] = -worldPivotA.crossLength(yAxis);
+    y[EQ_G][3] = 0;
+    y[EQ_G][4] = 1;
+    y[EQ_G][5] = worldPivotB.crossLength(yAxis);
     return this;
   }
 

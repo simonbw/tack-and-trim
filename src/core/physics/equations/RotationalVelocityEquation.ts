@@ -1,4 +1,5 @@
 import type Body from "../body/Body";
+import { EQ_G } from "../internal";
 import Equation from "./Equation";
 
 /**
@@ -13,7 +14,7 @@ export default class RotationalVelocityEquation extends Equation {
   }
 
   computeB(a: number, b: number, h: number): number {
-    const G = this.G;
+    const G = this[EQ_G];
     G[2] = -1;
     G[5] = this.ratio;
 

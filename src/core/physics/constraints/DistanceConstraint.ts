@@ -1,6 +1,7 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import Equation from "../equations/Equation";
+import { EQ_G } from "../internal";
 import Constraint, { ConstraintOptions } from "./Constraint";
 
 export interface DistanceConstraintOptions extends ConstraintOptions {
@@ -127,7 +128,7 @@ export default class DistanceConstraint extends Constraint {
     const xi = bodyA.position;
     const xj = bodyB.position;
     const normalEquation = this.equations[0];
-    const G = normal.G;
+    const G = normal[EQ_G];
 
     // Transform local anchors to world
     const ri = this.localAnchorA.rotate(bodyA.angle);

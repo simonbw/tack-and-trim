@@ -1,5 +1,6 @@
 import { V, V2d } from "../../Vector";
 import type Body from "../body/Body";
+import { EQ_G } from "../internal";
 import type Shape from "../shapes/Shape";
 import type ContactEquation from "./ContactEquation";
 import Equation from "./Equation";
@@ -73,7 +74,7 @@ export default class FrictionEquation extends Equation {
     const ri = this.contactPointA;
     const rj = this.contactPointB;
     const t = this.t;
-    const G = this.G;
+    const G = this[EQ_G];
 
     // G = [-t -rixt t rjxt]
     // And remember, this is a pure velocity constraint, g is always zero!

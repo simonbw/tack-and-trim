@@ -1,5 +1,6 @@
 import { V, V2d } from "../../Vector";
 import type Body from "../body/Body";
+import { EQ_G } from "../internal";
 import type Shape from "../shapes/Shape";
 import Equation from "./Equation";
 
@@ -64,7 +65,7 @@ export default class ContactEquation extends Equation {
 
     const penetrationVec = this.penetrationVec;
     const n = this.normalA;
-    const G = this.G;
+    const G = this[EQ_G];
 
     // Calculate cross products
     const rixn = ri.crossLength(n);

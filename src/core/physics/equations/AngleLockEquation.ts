@@ -1,4 +1,5 @@
 import type Body from "../body/Body";
+import { EQ_G } from "../internal";
 import Equation from "./Equation";
 
 export interface AngleLockEquationOptions {
@@ -37,7 +38,7 @@ export default class AngleLockEquation extends Equation {
    * Set the gear ratio for this equation
    */
   setRatio(ratio: number): void {
-    const G = this.G;
+    const G = this[EQ_G];
     G[2] = ratio;
     G[5] = -1;
     this.ratio = ratio;
