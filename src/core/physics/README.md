@@ -201,6 +201,8 @@ constraint.setRelaxation(4);     // Higher = more damping
 
 Springs apply forces rather than hard constraints, creating softer connections.
 
+**Note:** Springs require `bodyA` to be a `DynamicBody` since forces are only applied to dynamic bodies. `bodyB` can be any body type.
+
 ### LinearSpring
 
 Connects two points with a spring force.
@@ -208,7 +210,7 @@ Connects two points with a spring force.
 ```typescript
 import LinearSpring from "core/physics/springs/LinearSpring";
 
-const spring = new LinearSpring(bodyA, bodyB, {
+const spring = new LinearSpring(dynamicBodyA, bodyB, {
   stiffness: 100,                // Spring constant
   damping: 5,                    // Damping coefficient
   restLength: 2,                 // Natural length
@@ -429,6 +431,7 @@ physics/
 │   ├── ContactMaterialManager.ts
 │   ├── OverlapKeeper.ts     — Contact tracking for events
 │   └── Island.ts            — Island detection for sleeping
+├── internal.ts              — Symbol exports for solver internals (advanced)
 └── utils/
     └── (helper utilities)
 ```
