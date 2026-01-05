@@ -64,7 +64,7 @@ export class GameRenderer2d {
   destroy(): void {
     window.removeEventListener("resize", this.boundHandleResize);
     this.canvas.remove();
-    this.app.destroy(true, { children: true, texture: true });
+    this.app.destroy(true, true);
   }
 
   async init(pixiOptions: GameRenderer2dOptions = {}) {
