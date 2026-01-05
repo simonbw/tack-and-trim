@@ -1,32 +1,53 @@
 import Material from "./Material";
 import Equation from "../equations/Equation";
 
+/** Options for creating a ContactMaterial. */
 export interface ContactMaterialOptions {
+  /** Friction coefficient (0 = frictionless, 1 = high friction). Default 0.3. */
   friction?: number;
+  /** Restitution/bounciness (0 = no bounce, 1 = perfect bounce). Default 0. */
   restitution?: number;
+  /** Contact stiffness for constraint solving. */
   stiffness?: number;
+  /** Contact relaxation for constraint solving. */
   relaxation?: number;
+  /** Friction stiffness for constraint solving. */
   frictionStiffness?: number;
+  /** Friction relaxation for constraint solving. */
   frictionRelaxation?: number;
+  /** Relative surface velocity (for conveyor belts). Default 0. */
   surfaceVelocity?: number;
 }
 
 /**
- * Defines what happens when two materials meet, such as what friction coefficient to use.
+ * Defines collision properties between two materials (friction, restitution, etc.).
+ * Add to world.contactMaterials to configure how material pairs interact.
  */
 export default class ContactMaterial {
+  /** @internal */
   static idCounter = 0;
 
+  /** Unique identifier. */
   id: number;
+  /** First material. */
   materialA: Material;
+  /** Second material. */
   materialB: Material;
+  /** Friction coefficient. */
   friction: number;
+  /** Restitution (bounciness). */
   restitution: number;
+  /** Contact constraint stiffness. */
   stiffness: number;
+  /** Contact constraint relaxation. */
   relaxation: number;
+  /** Friction constraint stiffness. */
   frictionStiffness: number;
+  /** Friction constraint relaxation. */
   frictionRelaxation: number;
+  /** Relative surface velocity (for conveyor belts). */
   surfaceVelocity: number;
+  /** Small skin around shapes for stable contacts. */
   contactSkinSize: number;
 
   constructor(

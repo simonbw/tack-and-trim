@@ -5,10 +5,15 @@ import RotationalLockEquation from "../equations/RotationalLockEquation";
 import RotationalVelocityEquation from "../equations/RotationalVelocityEquation";
 import Constraint, { ConstraintOptions } from "./Constraint";
 
+/** Options for creating a RevoluteConstraint. */
 export interface RevoluteConstraintOptions extends ConstraintOptions {
+  /** Pivot point in world coordinates (converted to local pivots). */
   worldPivot?: CompatibleVector;
+  /** Pivot point on bodyA in local coordinates. */
   localPivotA?: CompatibleVector;
+  /** Pivot point on bodyB in local coordinates. */
   localPivotB?: CompatibleVector;
+  /** Maximum force the constraint can apply. Default MAX_VALUE. */
   maxForce?: number;
 }
 

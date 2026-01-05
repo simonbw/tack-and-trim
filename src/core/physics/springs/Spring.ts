@@ -1,19 +1,27 @@
 import type Body from "../body/Body";
 import type DynamicBody from "../body/DynamicBody";
 
+/** Options shared by all spring types. */
 export interface SpringOptions {
+  /** Spring stiffness (force per unit displacement). Default 100. */
   stiffness?: number;
+  /** Damping coefficient. Default 1. */
   damping?: number;
 }
 
 /**
- * A spring, connecting two bodies.
+ * Abstract base class for springs connecting two bodies.
  * At least one body (bodyA) must be dynamic for the spring to have any effect.
+ * See LinearSpring, RotationalSpring, RopeSpring for concrete implementations.
  */
 export default abstract class Spring {
+  /** Spring stiffness (force per unit displacement). */
   stiffness: number;
+  /** Damping coefficient. */
   damping: number;
+  /** First body connected by the spring. Must be a DynamicBody. */
   bodyA: DynamicBody;
+  /** Second body connected by the spring. */
   bodyB: Body;
 
   constructor(bodyA: DynamicBody, bodyB: Body, options: SpringOptions = {}) {

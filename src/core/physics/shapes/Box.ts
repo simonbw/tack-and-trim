@@ -2,16 +2,19 @@ import { V, V2d } from "../../Vector";
 import Convex, { ConvexOptions } from "./Convex";
 import AABB from "../collision/AABB";
 
+/** Options for creating a Box. */
 export interface BoxOptions extends ConvexOptions {
+  /** Box width. Default 1. */
   width?: number;
+  /** Box height. Default 1. */
   height?: number;
 }
 
-/**
- * Box shape class.
- */
+/** An axis-aligned rectangular collision shape. Extends Convex. */
 export default class Box extends Convex {
+  /** The box width. */
   width: number;
+  /** The box height. */
   height: number;
 
   constructor(options: BoxOptions = {}) {

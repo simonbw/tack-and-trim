@@ -3,16 +3,23 @@ import AABB from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 import Shape, { ShapeOptions } from "./Shape";
 
+/** Options for creating a Convex polygon. */
 export interface ConvexOptions extends ShapeOptions {
+  /** Polygon vertices in counter-clockwise order. */
   vertices?: CompatibleVector[];
+  /** Face normals. Auto-computed from vertices if not provided. */
   axes?: CompatibleVector[];
 }
 
-/** Convex shape class. */
+/** A convex polygon collision shape. Vertices must be in counter-clockwise order. */
 export default class Convex extends Shape {
+  /** Polygon vertices in local coordinates. */
   vertices: V2d[];
+  /** Face normal vectors. */
   axes: V2d[];
+  /** Computed center of mass. */
   centerOfMass: V2d;
+  /** Triangulation for area/inertia calculation. */
   triangles: number[][];
 
   constructor(options: ConvexOptions = {}) {

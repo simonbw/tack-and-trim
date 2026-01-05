@@ -14,65 +14,87 @@ import {
 import type Shape from "../shapes/Shape";
 import type World from "../world/World";
 
+/** Sleep state for dynamic bodies. */
 export enum SleepState {
+  /** Body is active and simulated. */
   AWAKE = 0,
+  /** Body is nearly idle and may sleep soon. */
   SLEEPY = 1,
+  /** Body is sleeping and not simulated until woken. */
   SLEEPING = 2,
 }
 
+/** Options shared by all body types. */
 export interface BaseBodyOptions {
+  /** Initial position in world coordinates. */
   position?: CompatibleVector;
+  /** Initial rotation angle in radians. */
   angle?: number;
+  /** Custom body ID. Auto-generated if not provided. */
   id?: number;
+  /** Whether this body produces contact forces. Default true. */
   collisionResponse?: boolean;
 }
 
 /**
- * Abstract base class for physics bodies.
- * Subclasses: DynamicBody, StaticBody, KinematicBody
+ * Abstract base class for physics bodies. Use one of the concrete subclasses:
+ * - {@link DynamicBody} - responds to forces, has mass
+ * - {@link StaticBody} - immovable geometry
+ * - {@link KinematicBody} - scripted motion
  */
 export default abstract class Body extends EventEmitter<PhysicsEventMap> {
+  /** @internal */
   static _idCounter = 0;
 
-  // Identification
+  /** Unique identifier for this body. */
   readonly id: number;
+  /** The world this body belongs to, or null if not added. */
   world: World | null = null;
 
-  // Shape management
+  /** Shapes attached to this body for collision detection. */
   shapes: Shape[] = [];
+  /** Optional concave path for decomposition visualization. */
   concavePath: V2d[] | null = null;
 
-  // Position and rotation
+  /** Position in world coordinates. */
   position: V2d = V();
+  /** Rotation angle in radians. */
   angle: number = 0;
 
-  // AABB for collision detection
+  /** Axis-aligned bounding box (call getAABB() for up-to-date value). */
   aabb: AABB = new AABB();
+  /** @internal */
   aabbNeedsUpdate: boolean = true;
+  /** Bounding circle radius encompassing all shapes. */
   boundingRadius: number = 0;
 
-  // Collision settings
+  /** Whether this body produces contact forces when colliding. */
   collisionResponse: boolean;
 
-  // Internal flag for narrowphase wake-up
+  /** @internal */
   _wakeUpAfterNarrowphase: boolean = false;
 
-  // Force accumulator
+  /** @internal Force accumulator. */
   protected _force: V2d = V();
 
-  // Solver-internal properties (hidden from autocomplete via symbols)
+  /** @internal Constraint velocity accumulator (linear). */
   [SOLVER_VLAMBDA]: V2d = V();
+  /** @internal Constraint velocity accumulator (angular). */
   [SOLVER_WLAMBDA]: number = 0;
 
-  // Abstract properties that subclasses must implement
+  /** Current linear velocity. */
   abstract get velocity(): V2d;
+  /** Current angular velocity in radians/second. */
   abstract get angularVelocity(): number;
   abstract set angularVelocity(value: number);
+  /** Total mass of the body. */
   abstract get mass(): number;
+  /** Inverse mass (1/mass), or 0 for infinite mass. */
   abstract get invMass(): number;
+  /** Inverse moment of inertia, or 0 for infinite inertia. */
   abstract get invInertia(): number;
 
-  // Force accumulators
+  /** Current angular force (torque) accumulator. */
   abstract get angularForce(): number;
   abstract set angularForce(value: number);
 
@@ -106,8 +128,9 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     this[SOLVER_WLAMBDA] = 0;
   }
 
-  // Abstract methods that subclasses must implement
+  /** Recalculate mass and inertia from shapes. */
   abstract updateMassProperties(): this;
+  /** @internal Integrate position and velocity forward by dt. */
   abstract integrate(dt: number): void;
 
   /** Get the total area of all shapes in the body */

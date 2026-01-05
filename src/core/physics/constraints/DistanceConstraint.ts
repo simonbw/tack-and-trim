@@ -3,10 +3,15 @@ import type Body from "../body/Body";
 import Equation from "../equations/Equation";
 import Constraint, { ConstraintOptions } from "./Constraint";
 
+/** Options for creating a DistanceConstraint. */
 export interface DistanceConstraintOptions extends ConstraintOptions {
+  /** Target distance. If not set, uses current distance between anchors. */
   distance?: number;
+  /** Anchor point on bodyA in local coordinates. Default [0,0]. */
   localAnchorA?: CompatibleVector;
+  /** Anchor point on bodyB in local coordinates. Default [0,0]. */
   localAnchorB?: CompatibleVector;
+  /** Maximum force the constraint can apply. Default MAX_VALUE. */
   maxForce?: number;
 }
 

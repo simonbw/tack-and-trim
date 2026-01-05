@@ -7,9 +7,8 @@ import {
 } from "../internal";
 import Body, { BaseBodyOptions } from "./Body";
 
-export interface StaticBodyOptions extends BaseBodyOptions {
-  // Static bodies don't need mass, velocity, etc.
-}
+/** Options for creating a StaticBody. Same as BaseBodyOptions. */
+export interface StaticBodyOptions extends BaseBodyOptions {}
 
 // Immutable zero vector for static body velocity
 const ZERO_VELOCITY = Object.freeze(V(0, 0)) as V2d;

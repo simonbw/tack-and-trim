@@ -3,12 +3,15 @@ import { V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 
+/** Options for creating a Circle. */
 export interface CircleOptions extends ShapeOptions {
+  /** Circle radius. Default 1. */
   radius?: number;
 }
 
-/** Circle shape class. */
+/** A circular collision shape. */
 export default class Circle extends Shape {
+  /** The circle's radius. */
   radius: number;
 
   constructor(options: CircleOptions = {}) {

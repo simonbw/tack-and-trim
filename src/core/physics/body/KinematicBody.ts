@@ -7,8 +7,11 @@ import {
 } from "../internal";
 import Body, { BaseBodyOptions } from "./Body";
 
+/** Options for creating a KinematicBody. */
 export interface KinematicBodyOptions extends BaseBodyOptions {
+  /** Initial linear velocity. */
   velocity?: CompatibleVector;
+  /** Initial angular velocity in radians/second. */
   angularVelocity?: number;
 }
 

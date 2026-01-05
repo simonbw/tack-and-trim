@@ -4,9 +4,13 @@ import Equation from "../equations/Equation";
 import { ConstraintOptions } from "./Constraint";
 import Constraint from "./Constraint";
 
+/** Options for creating a LockConstraint. */
 export interface LockConstraintOptions extends ConstraintOptions {
+  /** Offset of bodyB relative to bodyA in A's local frame. Auto-computed if not set. */
   localOffsetB?: CompatibleVector;
+  /** Angle of bodyB relative to bodyA. Auto-computed if not set. */
   localAngleB?: number;
+  /** Maximum force the constraint can apply. Default MAX_VALUE. */
   maxForce?: number;
 }
 
