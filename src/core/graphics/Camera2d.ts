@@ -11,6 +11,15 @@ const MAX_CAMERA_POSITION = 100000;
 const MAX_CAMERA_VELOCITY = 10000;
 const MAX_CAMERA_ZOOM = 1000;
 
+export interface Viewport {
+  readonly top: number;
+  readonly bottom: number;
+  readonly left: number;
+  readonly right: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 /** Controls the viewport.
  * TODO: Document camera better
  */
@@ -25,6 +34,18 @@ export class Camera2d extends BaseEntity implements Entity {
   velocity: V2d;
 
   paralaxScale = 0.1;
+
+  // Cache for getWorldViewport
+  private _cachedViewport: Viewport | null = null;
+  private _viewportCacheInputs: {
+    x: number;
+    y: number;
+    z: number;
+    angle: number;
+    canvasWidth: number;
+    canvasHeight: number;
+    resolution: number;
+  } | null = null;
 
   constructor(
     renderer: GameRenderer2d,
@@ -132,11 +153,7 @@ export class Camera2d extends BaseEntity implements Entity {
       return;
     }
     if (!this.isValidVelocity(vx) || !this.isValidVelocity(vy)) {
-      console.warn(
-        "Camera2d.smoothCenter: Invalid velocity rejected:",
-        vx,
-        vy
-      );
+      console.warn("Camera2d.smoothCenter: Invalid velocity rejected:", vx, vy);
       return;
     }
 
@@ -182,20 +199,48 @@ export class Camera2d extends BaseEntity implements Entity {
   /**
    * Calculates the world coordinate bounds of the current camera viewport.
    * Useful for culling, bounds checking, and viewport-relative positioning.
+   * Results are cached and only recomputed when camera or viewport changes.
    */
-  getWorldViewport(): {
-    top: number;
-    bottom: number;
-    left: number;
-    right: number;
-    width: number;
-    height: number;
-  } {
+  getWorldViewport(): Viewport {
+    const canvasWidth = this.renderer.canvas.width;
+    const canvasHeight = this.renderer.canvas.height;
+    const resolution = this.renderer.app.renderer.resolution;
+
+    // Check if cache is valid
+    if (
+      this._cachedViewport &&
+      this._viewportCacheInputs &&
+      this._viewportCacheInputs.x === this.x &&
+      this._viewportCacheInputs.y === this.y &&
+      this._viewportCacheInputs.z === this.z &&
+      this._viewportCacheInputs.angle === this.angle &&
+      this._viewportCacheInputs.canvasWidth === canvasWidth &&
+      this._viewportCacheInputs.canvasHeight === canvasHeight &&
+      this._viewportCacheInputs.resolution === resolution
+    ) {
+      return this._cachedViewport;
+    }
+
+    // Compute viewport
     const [left, top] = this.toWorld(V(0, 0));
     const [right, bottom] = this.toWorld(this.getViewportSize());
     const width = right - left;
     const height = bottom - top;
-    return { top, bottom, left, right, width, height };
+    const viewport = { top, bottom, left, right, width, height };
+
+    // Cache the result
+    this._cachedViewport = viewport;
+    this._viewportCacheInputs = {
+      x: this.x,
+      y: this.y,
+      z: this.z,
+      angle: this.angle,
+      canvasWidth,
+      canvasHeight,
+      resolution,
+    };
+
+    return viewport;
   }
 
   /** Convert screen coordinates to world coordinates */
@@ -251,4 +296,13 @@ export class Camera2d extends BaseEntity implements Entity {
       });
     }
   }
+}
+
+export function viewportContains(viewport: Viewport, point: V2d): boolean {
+  return (
+    point.x >= viewport.left &&
+    point.x <= viewport.right &&
+    point.y >= viewport.top &&
+    point.y <= viewport.bottom
+  );
 }

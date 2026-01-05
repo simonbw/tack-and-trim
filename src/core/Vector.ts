@@ -40,11 +40,17 @@ export interface ReadonlyV2d {
   equals(other: CompatibleTuple): boolean;
 }
 
-export function V(x?: number | CompatibleVector, y?: number) {
+export function V(
+  x?: number | CompatibleVector | { x: number; y: number },
+  y?: number
+) {
   if (x instanceof V2d) {
     return x.clone();
   } else if (x instanceof Array || x instanceof Float32Array) {
     return new V2d(x[0], x[1]);
+  } else if (typeof x === "object") {
+    // like pixi Point
+    return new V2d(x.x, x.y);
   }
   return new V2d(x ?? 0, y ?? x ?? 0);
 }

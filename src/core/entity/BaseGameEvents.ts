@@ -1,9 +1,10 @@
 import Game from "../Game";
 import { V2d } from "../Vector";
+import Entity from "./Entity";
 
 export type BaseGameEvents = {
   /** Called when added to the game */
-  add: { game: Game };
+  add: { game: Game; parent?: Entity };
   /** Called right after being added to the game */
   afterAdded: { game: Game };
   /** Called after physics */

@@ -40,3 +40,9 @@ export function createGraphics(layerName: LayerName): GameSprite & Graphics {
   graphics.layerName = layerName;
   return graphics;
 }
+
+export function createEmptySprite(layerName: LayerName): GameSprite {
+  const container = new Container() as GameSprite;
+  container.layerName = layerName;
+  return container;
+}

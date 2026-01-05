@@ -53,15 +53,13 @@ export function rByte(): number {
   return rInteger(0, 256);
 }
 
-/**
- * Probabilistically round x to a nearby integer.
- */
+/** Probabilistically round x to a nearby integer. */
 export function rRound(x: number): number {
   const low = Math.floor(x);
   return rBool(x - low) ? low : low + 1;
 }
 
-/** Return a random element from an array. */
+/** Return a random element from a list of options. */
 export function choose<T>(...options: T[]): T {
   return options[rInteger(0, options.length)];
 }
