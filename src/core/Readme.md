@@ -145,16 +145,142 @@ If you try to add an entity to the game with the same `id` as one that is alread
 
 ## Graphics
 
-TODO: Write documentation on Graphics engine, in particular things that are different from base Pixi.js.
+The rendering system is built on [Pixi.js](https://pixijs.com/) with a layer-based architecture for controlling render order.
 
-- Layers
-- GameSprite
+### Layers
 
-See [pixi.js]
+Sprites are organized into **layers** that determine their render order. Layers are defined in `src/config/layers.ts`:
+
+```TypeScript
+export const LAYERS = {
+  water: new LayerInfo(),      // Rendered first (bottom)
+  hull: new LayerInfo(),
+  main: new LayerInfo(),       // Default layer
+  sails: new LayerInfo(),
+  hud: new LayerInfo({ paralax: V(0, 0) }),  // No camera parallax
+  // ...
+};
+```
+
+Sprites in earlier layers render behind sprites in later layers.
+
+### GameSprite
+
+`GameSprite` extends Pixi's Container with a `layerName` property to specify which layer it renders in:
+
+```TypeScript
+import { loadGameSprite, createGraphics } from "core/entity/GameSprite";
+
+// Load an image as a sprite
+this.sprite = loadGameSprite("boat", "hull", {
+  anchor: [0.5, 0.5],
+  size: [100, 50]
+});
+
+// Create a graphics object for drawing
+this.debugGraphics = createGraphics("debugHud");
+```
+
+When an entity with a `sprite` property is added to the game, the sprite is automatically added to the renderer. When the entity is destroyed, the sprite is automatically removed.
+
+### Camera
+
+The camera controls the viewport. Access it via `game.renderer.camera`:
+
+```TypeScript
+// Move camera to position
+game.renderer.camera.position.set(100, 200);
+
+// Get world coordinates from screen position
+const worldPos = game.renderer.camera.toWorldCoords(screenPos);
+```
+
+Layers can have different parallax values. A parallax of `V(0, 0)` means the layer stays fixed to the screen (like a HUD), while `V(1, 1)` moves 1:1 with the camera.
+
+### Helper Functions
+
+```TypeScript
+import { loadGameSprite, createGraphics, createEmptySprite } from "core/entity/GameSprite";
+
+loadGameSprite(imageName, layerName, options)  // Load image as sprite
+createGraphics(layerName)                       // Create Graphics object
+createEmptySprite(layerName)                    // Create empty Container
+```
 
 ## IO
 
-TODO: Write documention on IO.
+The `IOManager` class (accessible via `game.io`) handles all input from keyboard, mouse, and gamepad.
+
+### Keyboard
+
+```TypeScript
+// Check if a key is currently held down
+if (this.game.io.isKeyDown("Space")) {
+  this.jump();
+}
+
+// Handle key press/release events in an entity
+class Player extends BaseEntity implements Entity {
+  onKeyDown({ key }: { key: KeyCode }) {
+    if (key === "KeyE") {
+      this.interact();
+    }
+  }
+}
+```
+
+Key codes use the browser's `event.code` format: `"KeyW"`, `"Space"`, `"ArrowUp"`, `"ShiftLeft"`, etc.
+
+### Mouse
+
+```TypeScript
+// Check mouse button state
+if (this.game.io.lmb) { /* left mouse button down */ }
+if (this.game.io.rmb) { /* right mouse button down */ }
+
+// Get mouse position (screen coordinates)
+const mousePos = this.game.io.mousePosition;
+
+// Handle click events in an entity
+class Clicker extends BaseEntity implements Entity {
+  onClick() {
+    console.log("Left clicked!");
+  }
+  onRightClick() {
+    console.log("Right clicked!");
+  }
+}
+```
+
+### Gamepad
+
+```TypeScript
+// Get analog stick input (returns V2d with values -1 to 1)
+const leftStick = this.game.io.getStick("left");
+const rightStick = this.game.io.getStick("right");
+
+// Get button value (0 to 1 for analog triggers)
+const triggerValue = this.game.io.getButton(ControllerButton.RIGHT_TRIGGER);
+
+// Unified movement input (combines WASD/arrows with left stick)
+const movement = this.game.io.getMovementVector();
+```
+
+### Input Device Detection
+
+```TypeScript
+// Check if player is using gamepad (vs keyboard/mouse)
+if (this.game.io.usingGamepad) {
+  this.showGamepadPrompts();
+}
+
+// React to input device changes
+class HUD extends BaseEntity implements Entity {
+  onInputDeviceChange({ usingGamepad }: { usingGamepad: boolean }) {
+    this.updateButtonPrompts(usingGamepad);
+  }
+}
+```
 
 ## Physics
 
@@ -187,8 +313,69 @@ There are a lot of random utilities I've written over the years. In particular, 
 
 ## Vector
 
-TODO: Write Vector documentation
+The `V2d` class is a 2D vector that extends Array, so it can be used as `[x, y]` tuples.
 
+### Creating Vectors
+
+Use the `V()` factory function to create vectors:
+
+```TypeScript
+import { V } from "core/Vector";
+
+const a = V(3, 4);        // Create from x, y
+const b = V([1, 2]);      // Create from array
+const c = V(a);           // Clone another vector
+const d = V();            // Zero vector (0, 0)
 ```
 
+### Accessing Components
+
+```TypeScript
+const v = V(3, 4);
+v.x;           // 3
+v.y;           // 4
+v[0];          // 3 (same as x)
+v[1];          // 4 (same as y)
+v.magnitude;   // 5 (length)
+v.angle;       // angle in radians from east
+```
+
+### Immutable vs. In-Place Operations
+
+Most operations come in two forms:
+- **Immutable** (e.g., `add`) — returns a new vector, leaves original unchanged
+- **In-place** (e.g., `iadd`) — modifies the vector, prefixed with `i`
+
+```TypeScript
+const a = V(1, 2);
+const b = V(3, 4);
+
+const c = a.add(b);  // c is [4, 6], a is still [1, 2]
+a.iadd(b);           // a is now [4, 6]
+```
+
+### Common Operations
+
+```TypeScript
+v.add(other)       // Vector addition
+v.sub(other)       // Vector subtraction
+v.mul(scalar)      // Scalar multiplication
+v.div(scalar)      // Scalar division
+v.normalize()      // Unit vector (length 1)
+v.rotate(angle)    // Rotate by angle (radians)
+v.dot(other)       // Dot product
+v.crossLength(other) // 2D cross product (z component)
+v.distanceTo(other)  // Distance between points
+v.lerp(other, t)   // Linear interpolation
+v.reflect(normal)  // Reflect across a normal
+v.limit(max)       // Clamp magnitude
+```
+
+### Coordinate Frame Conversion
+
+Useful for converting between world and local coordinates:
+
+```TypeScript
+worldPoint.toLocalFrame(bodyPosition, bodyAngle)
+localPoint.toGlobalFrame(bodyPosition, bodyAngle)
 ```
