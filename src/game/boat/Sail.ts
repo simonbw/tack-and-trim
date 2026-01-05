@@ -10,14 +10,8 @@ import { lerpV2d } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { applyFluidForces } from "../fluid-dynamics";
 import type { Wind } from "../Wind";
-import { WindModifier } from "../WindModifier";
-import {
-  calculateCamber,
-  getSailLiftCoefficient,
-  isSailStalled,
-  sailDrag,
-  sailLift,
-} from "./sail-helpers";
+import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
+import { SailWindEffect } from "./SailWindEffect";
 import { TellTail } from "./TellTail";
 
 // Default values
@@ -29,9 +23,6 @@ const DEFAULT_DRAG_SCALE = 2.0;
 const DEFAULT_BILLOW_INNER = 0.8;
 const DEFAULT_BILLOW_OUTER = 2.4;
 const DEFAULT_WIND_INFLUENCE_RADIUS = 50;
-const WIND_INFLUENCE_SCALE = 0.15;
-const WIND_MIN_DISTANCE = 5;
-const STALL_TURBULENCE_SCALE = 15;
 
 export interface SailConfig {
   // Particle configuration
@@ -64,7 +55,7 @@ export interface SailConfig {
   windInfluenceRadius?: number;
 }
 
-export class Sail extends BaseEntity implements WindModifier {
+export class Sail extends BaseEntity {
   sprite: GameSprite & Graphics;
   bodies: NonNullable<BaseEntity["bodies"]>;
   constraints: NonNullable<BaseEntity["constraints"]>;
@@ -83,14 +74,6 @@ export class Sail extends BaseEntity implements WindModifier {
 
   // Hoist state
   private hoisted: boolean = true;
-
-  // Wind modifier state
-  private windModifierPosition: V2d = V(0, 0);
-  private windModifierNormal: V2d = V(0, 1);
-  private currentLiftCoefficient: number = 0;
-  private currentChordLength: number = 0;
-  private currentWindSpeed: number = 0;
-  private isStalled: boolean = false;
 
   constructor(private config: SailConfig) {
     super();
@@ -123,13 +106,28 @@ export class Sail extends BaseEntity implements WindModifier {
     return last(this.bodies);
   }
 
+  /** Get current head position */
+  getHeadPosition(): V2d {
+    return this.config.getHeadPosition();
+  }
+
   /** Get current clew position - from config or from particle */
-  private getClewPosition(): V2d {
+  getClewPosition(): V2d {
     if (this.config.getClewPosition) {
       return this.config.getClewPosition();
     }
     // Default: read from last particle (for free-clew sails)
     return V(last(this.bodies).position);
+  }
+
+  /** Get all particle bodies */
+  getBodies(): Body[] {
+    return this.bodies;
+  }
+
+  /** Get wind influence radius */
+  getWindInfluenceRadius(): number {
+    return this.windInfluenceRadius;
   }
 
   /** Check if sail is hoisted */
@@ -210,14 +208,8 @@ export class Sail extends BaseEntity implements WindModifier {
       this.addChild(new TellTail(this.bodies[this.nodeCount - 1]));
     }
 
-    // Register as wind modifier
-    const wind = this.game?.entities.getById("wind") as Wind | undefined;
-    wind?.registerModifier(this);
-  }
-
-  onDestroy() {
-    const wind = this.game?.entities.getById("wind") as Wind | undefined;
-    wind?.unregisterModifier(this);
+    // Add wind effect child
+    this.addChild(new SailWindEffect(this));
   }
 
   onTick() {
@@ -226,7 +218,6 @@ export class Sail extends BaseEntity implements WindModifier {
 
     // When sail is lowered, skip all forces
     if (!this.hoisted) {
-      this.clearWindModifierState();
       return;
     }
 
@@ -262,105 +253,6 @@ export class Sail extends BaseEntity implements WindModifier {
       applyFluidForces(body, v1Local, v2Local, lift, drag, getFluidVelocity);
       applyFluidForces(body, v2Local, v1Local, lift, drag, getFluidVelocity);
     }
-
-    this.updateWindModifierState(wind);
-  }
-
-  private updateWindModifierState(wind: Wind) {
-    const head = this.config.getHeadPosition();
-    const clew = this.getClewPosition();
-
-    // Chord from head to clew
-    const chord = clew.sub(head);
-    this.currentChordLength = chord.magnitude;
-
-    // Normal perpendicular to chord
-    const midParticle = this.bodies[Math.floor(this.bodies.length / 2)];
-    const chordMidpoint = head.add(chord.mul(0.5));
-    const billowDir = V(midParticle.position).sub(chordMidpoint);
-    const chordNormal = chord.normalize().rotate90cw();
-    this.windModifierNormal =
-      billowDir.dot(chordNormal) > 0 ? chordNormal : chordNormal.mul(-1);
-
-    // Position at sail centroid
-    this.windModifierPosition = head.add(chord.mul(0.33));
-
-    // Get base wind at sail position
-    const baseWind = wind.getBaseVelocityAtPoint(this.windModifierPosition);
-    this.currentWindSpeed = baseWind.magnitude;
-
-    if (this.currentWindSpeed > 0.01 && this.currentChordLength > 0.01) {
-      const windDir = baseWind.normalize();
-      const chordDir = chord.normalize();
-      const angleOfAttack = Math.acos(
-        Math.max(-1, Math.min(1, windDir.dot(chordDir)))
-      );
-
-      const prevPos = V(
-        this.bodies[Math.floor(this.bodies.length / 2) - 1].position
-      );
-      const nextPos = V(
-        this.bodies[Math.floor(this.bodies.length / 2) + 1].position
-      );
-      const camber = calculateCamber(prevPos, V(midParticle.position), nextPos);
-
-      this.currentLiftCoefficient = getSailLiftCoefficient(
-        angleOfAttack,
-        camber
-      );
-      this.isStalled = isSailStalled(angleOfAttack);
-    } else {
-      this.currentLiftCoefficient = 0;
-      this.isStalled = false;
-    }
-  }
-
-  /** Clear wind modifier state when sail is lowered */
-  private clearWindModifierState(): void {
-    this.currentLiftCoefficient = 0;
-    this.currentChordLength = 0;
-    this.currentWindSpeed = 0;
-    this.isStalled = false;
-  }
-
-  // WindModifier interface
-
-  getWindModifierPosition(): V2d {
-    return this.windModifierPosition;
-  }
-
-  getWindModifierInfluenceRadius(): number {
-    return this.windInfluenceRadius;
-  }
-
-  getWindVelocityContribution(queryPoint: V2d): V2d {
-    const toQuery = queryPoint.sub(this.windModifierPosition);
-    const r = toQuery.magnitude;
-
-    if (r < WIND_MIN_DISTANCE || r > this.windInfluenceRadius) {
-      return V(0, 0);
-    }
-
-    const gamma =
-      this.currentLiftCoefficient *
-      this.currentChordLength *
-      this.currentWindSpeed;
-
-    const magnitude =
-      (Math.abs(gamma) * WIND_INFLUENCE_SCALE) / Math.max(r, WIND_MIN_DISTANCE);
-
-    const tangent = toQuery.normalize().rotate90ccw();
-    let contribution = tangent.mul(magnitude * Math.sign(gamma));
-
-    if (this.isStalled) {
-      const turbulence = V(
-        (Math.random() - 0.5) * STALL_TURBULENCE_SCALE,
-        (Math.random() - 0.5) * STALL_TURBULENCE_SCALE
-      );
-      contribution = contribution.add(turbulence);
-    }
-
-    return contribution;
   }
 
   onRender() {

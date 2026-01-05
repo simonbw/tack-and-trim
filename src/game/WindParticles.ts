@@ -4,7 +4,7 @@ import { GameEventMap } from "../core/entity/Entity";
 import { createEmptySprite } from "../core/entity/GameSprite";
 import Game from "../core/Game";
 import { Viewport } from "../core/graphics/Camera2d";
-import { last } from "../core/util/FunctionalUtils";
+import { range } from "../core/util/FunctionalUtils";
 import { invLerp, stepToward, sum } from "../core/util/MathUtil";
 import { rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
@@ -21,7 +21,7 @@ const PARTICLE_MOVE_SCALE = 0.5; // Percent of wind speed
 
 // Sector balancing
 const SECTOR_GRID_SIZE = 6; // width and height
-const REBALANCE_THRESHOLD = 2.0; // max allowed ratio of densest to sparsest. Must be greater that 1.0
+const REBALANCE_THRESHOLD = 1.5; // max allowed ratio of densest to sparsest. Must be greater that 1.0
 
 /**
  * Main entity that manages wind particles.
@@ -61,9 +61,7 @@ export class WindParticles extends BaseEntity {
     const scale = (PARTICLE_SIZE / (TEXTURE_SIZE * zoom)) * 1.01 ** zoom;
 
     this.grid.rebuildSectors(this.particles, viewport);
-
     this.grid.placeOutOfBoundsParticles(viewport);
-
     this.grid.rebalance(viewport);
 
     for (const p of this.particles) {
@@ -126,10 +124,15 @@ function getParticleTexture(game: Game): Texture {
  * Sectors are kept sorted by particle count (sparsest first).
  */
 class ParticleGrid {
-  private readonly sectors: WindParticle[][] = [];
+  private readonly sectors: WindParticle[][];
   private readonly outOfBounds: WindParticle[] = [];
   private readonly gridWidth: number;
   private readonly gridHeight: number;
+
+  private readonly sparsestIndex = 0;
+  private get densestIndex(): number {
+    return this.sectors.length - 1;
+  }
 
   constructor(gridWidth: number, gridHeight: number) {
     this.gridWidth = gridWidth;
@@ -137,9 +140,12 @@ class ParticleGrid {
 
     // Initialize empty sectors
     const numSectors = gridWidth * gridHeight;
-    for (let i = 0; i < numSectors; i++) {
-      this.sectors.push([]);
+    if (numSectors <= 1) {
+      throw new Error(
+        `Invalid sector grid size: ${numSectors} (${gridWidth}x${gridHeight})`
+      );
     }
+    this.sectors = range(numSectors).map(() => []);
   }
 
   /** Get the sector index for a world position, or -1 if out of bounds */
@@ -155,17 +161,30 @@ class ParticleGrid {
     return row * this.gridWidth + col;
   }
 
-  /** Get a random position within a sector */
-  private getRandomPosInSector(sectorIndex: number, viewport: Viewport): V2d {
+  private getSectorBounds(
+    sectorIndex: number,
+    viewport: Viewport
+  ): { left: number; right: number; top: number; bottom: number } {
     const col = sectorIndex % this.gridWidth;
     const row = Math.floor(sectorIndex / this.gridWidth);
     const sectorWidth = viewport.width / this.gridWidth;
     const sectorHeight = viewport.height / this.gridHeight;
 
-    return V(
-      viewport.left + col * sectorWidth + rUniform(0, sectorWidth),
-      viewport.top + row * sectorHeight + rUniform(0, sectorHeight)
+    const left = viewport.left + col * sectorWidth;
+    const right = left + sectorWidth;
+    const top = viewport.top + row * sectorHeight;
+    const bottom = top + sectorHeight;
+
+    return { left, right, top, bottom };
+  }
+
+  /** Get a random position within a sector */
+  private getRandomPosInSector(sectorIndex: number, viewport: Viewport): V2d {
+    const { left, right, top, bottom } = this.getSectorBounds(
+      sectorIndex,
+      viewport
     );
+    return V(rUniform(left, right), rUniform(top, bottom));
   }
 
   /** Rebuild sector assignments from particle positions */
@@ -194,37 +213,28 @@ class ParticleGrid {
   placeOutOfBoundsParticles(viewport: Viewport) {
     while (this.outOfBounds.length > 0) {
       const p = this.outOfBounds.pop()!;
-      // Place in sparsest sector (index 0 after sorting)
-      const sparsestIdx = this.findSparsestSectorIndex();
-      p.teleport(this.getRandomPosInSector(sparsestIdx, viewport));
-      this.sectors[0].push(p);
+      const sectorIndex = this.sparsestIndex;
+      p.teleport(this.getRandomPosInSector(sectorIndex, viewport));
+      this.sectors[sectorIndex].push(p);
       this.bubbleUp();
     }
   }
 
   /** Rebalance sectors until the ratio is acceptable */
-  rebalance(viewport: Viewport, maxIterations: number = 100) {
+  rebalance(viewport: Viewport) {
     const numSectors = this.sectors.length;
-    const targetPerSector = Math.ceil(
-      sum(...this.sectors.map((s) => s.length)) / numSectors
-    );
-    const maxAllowed = Math.ceil(targetPerSector * REBALANCE_THRESHOLD) || 1; // never allow 0
+    const totalParticles = sum(...this.sectors.map((s) => s.length));
+    const perSector = totalParticles / numSectors;
+    const maxAllowed = Math.max(Math.ceil(perSector * REBALANCE_THRESHOLD), 1); // never allow 0
 
-    while (last(this.sectors).length > maxAllowed) {
-      const p = last(this.sectors).pop()!;
-      p.teleport(this.getRandomPosInSector(0, viewport));
-      this.sectors[0].push(p);
+    while (this.sectors[this.densestIndex].length > maxAllowed) {
+      const p = this.sectors[this.densestIndex].pop()!;
+      const sectorIndex = this.sparsestIndex;
+      p.teleport(this.getRandomPosInSector(sectorIndex, viewport));
+      this.sectors[sectorIndex].push(p);
       this.bubbleUp();
       this.bubbleDown();
     }
-  }
-
-  /** Find the original sector index of the sparsest sector */
-  private findSparsestSectorIndex(): number {
-    // Since we sorted, we need to find which original sector is at position 0
-    // For simplicity, just pick a random sector index - the position within
-    // the sector is what matters for visual distribution
-    return Math.floor(Math.random() * this.sectors.length);
   }
 
   /** Bubble a sector up if it became larger than its neighbors */
