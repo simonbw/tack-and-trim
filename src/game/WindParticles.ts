@@ -4,15 +4,16 @@ import { GameEventMap } from "../core/entity/Entity";
 import { createEmptySprite } from "../core/entity/GameSprite";
 import Game from "../core/Game";
 import { Viewport } from "../core/graphics/Camera2d";
-import { stepToward } from "../core/util/MathUtil";
+import { last } from "../core/util/FunctionalUtils";
+import { invLerp, stepToward, sum } from "../core/util/MathUtil";
 import { rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Wind } from "./Wind";
 
 // Configuration
-const PARTICLE_COUNT = 1000;
+const PARTICLE_COUNT = 2000;
 const TARGET_ALPHA = 0.8;
-const ALPHA_LERP_SPEED = 1.0; // per second
+const ALPHA_LERP_SPEED = 0.7; // per second
 const PARTICLE_SIZE = 2.5; // pixels on screen, regardless of zoom
 const TEXTURE_SIZE = 8; // texture resolution
 const COLOR = 0xffffff;
@@ -20,7 +21,7 @@ const PARTICLE_MOVE_SCALE = 0.5; // Percent of wind speed
 
 // Sector balancing
 const SECTOR_GRID_SIZE = 6; // width and height
-const REBALANCE_THRESHOLD = 1.5; // max allowed ratio of densest to sparsest
+const REBALANCE_THRESHOLD = 2.0; // max allowed ratio of densest to sparsest. Must be greater that 1.0
 
 /**
  * Main entity that manages wind particles.
@@ -143,12 +144,10 @@ class ParticleGrid {
 
   /** Get the sector index for a world position, or -1 if out of bounds */
   private getSectorIndex(pos: V2d, viewport: Viewport): number {
-    const col = Math.floor(
-      ((pos.x - viewport.left) / viewport.width) * this.gridWidth
-    );
-    const row = Math.floor(
-      ((pos.y - viewport.top) / viewport.height) * this.gridHeight
-    );
+    const x = invLerp(viewport.left, viewport.right, pos.x) * this.gridWidth;
+    const y = invLerp(viewport.top, viewport.bottom, pos.y) * this.gridHeight;
+    const col = Math.floor(x);
+    const row = Math.floor(y);
 
     if (col < 0 || col >= this.gridWidth || row < 0 || row >= this.gridHeight) {
       return -1;
@@ -199,42 +198,24 @@ class ParticleGrid {
       const sparsestIdx = this.findSparsestSectorIndex();
       p.teleport(this.getRandomPosInSector(sparsestIdx, viewport));
       this.sectors[0].push(p);
-      this.bubbleUp(0);
+      this.bubbleUp();
     }
   }
 
   /** Rebalance sectors until the ratio is acceptable */
   rebalance(viewport: Viewport, maxIterations: number = 100) {
     const numSectors = this.sectors.length;
-    const targetPerSector = Math.floor(
-      this.sectors.reduce((sum, s) => sum + s.length, 0) / numSectors
+    const targetPerSector = Math.ceil(
+      sum(...this.sectors.map((s) => s.length)) / numSectors
     );
-    const maxAllowed = Math.ceil(targetPerSector * REBALANCE_THRESHOLD);
+    const maxAllowed = Math.ceil(targetPerSector * REBALANCE_THRESHOLD) || 1; // never allow 0
 
-    for (let i = 0; i < maxIterations; i++) {
-      const sparsest = this.sectors[0];
-      const densest = this.sectors[numSectors - 1];
-
-      // Stop if balanced enough
-      if (
-        densest.length <= maxAllowed ||
-        densest.length <= sparsest.length + 1
-      ) {
-        break;
-      }
-
-      // Move one particle from densest to sparsest
-      const p = densest.pop();
-      if (!p) break;
-
-      // Find actual sector index for sparsest (we need it for positioning)
-      const sparsestIdx = this.findSparsestSectorIndex();
-      p.teleport(this.getRandomPosInSector(sparsestIdx, viewport));
-      sparsest.push(p);
-
-      // Re-sort affected sectors
-      this.bubbleUp(0);
-      this.bubbleDown(numSectors - 1);
+    while (last(this.sectors).length > maxAllowed) {
+      const p = last(this.sectors).pop()!;
+      p.teleport(this.getRandomPosInSector(0, viewport));
+      this.sectors[0].push(p);
+      this.bubbleUp();
+      this.bubbleDown();
     }
   }
 
@@ -247,25 +228,29 @@ class ParticleGrid {
   }
 
   /** Bubble a sector up if it became larger than its neighbors */
-  private bubbleUp(idx: number) {
-    while (
-      idx < this.sectors.length - 1 &&
-      this.sectors[idx].length > this.sectors[idx + 1].length
+  private bubbleUp() {
+    for (
+      let i = 0;
+      i < this.sectors.length - 1 &&
+      this.sectors[i].length > this.sectors[i + 1].length;
+      i++
     ) {
-      const temp = this.sectors[idx];
-      this.sectors[idx] = this.sectors[idx + 1];
-      this.sectors[idx + 1] = temp;
-      idx++;
+      const temp = this.sectors[i];
+      this.sectors[i] = this.sectors[i + 1];
+      this.sectors[i + 1] = temp;
     }
   }
 
   /** Bubble a sector down if it became smaller than its neighbors */
-  private bubbleDown(idx: number) {
-    while (idx > 0 && this.sectors[idx].length < this.sectors[idx - 1].length) {
-      const temp = this.sectors[idx];
-      this.sectors[idx] = this.sectors[idx - 1];
-      this.sectors[idx - 1] = temp;
-      idx--;
+  private bubbleDown() {
+    for (
+      let i = this.sectors.length - 1;
+      i > 0 && this.sectors[i].length < this.sectors[i - 1].length;
+      i--
+    ) {
+      const temp = this.sectors[i];
+      this.sectors[i] = this.sectors[i - 1];
+      this.sectors[i - 1] = temp;
     }
   }
 }

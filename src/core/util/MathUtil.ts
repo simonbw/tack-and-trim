@@ -1,35 +1,48 @@
-import { V2d, V } from "../Vector";
+import { V, V2d } from "../Vector";
 
-// Modulo operator for modular arithmetic
+/** Returns the sum of all values */
+export function sum(...values: number[]): number {
+  return values.reduce((acc, val) => acc + val, 0);
+}
+
+/** Modulo operator for modular arithmetic */
 export function mod(a: number, b: number): number {
   return ((a % b) + b) % b;
 }
 
-// Make sure a value is >= zero
+/** Make sure a value is >= zero */
 export function clampUp(value: number) {
   return Math.max(value, 0);
 }
 
-// Limit a value to be in a range.
+/** Limit a value to be in a range. */
 export function clamp(value: number, min = 0, max = 1): number {
   return Math.max(min, Math.min(max, value));
 }
 
-// The smoothstep function between 0 and 1
+/** The smoothstep function between 0 and 1 */
 export function smoothStep(t: number): number {
   t = clamp(t);
   return 3 * t ** 2 - 2 * t ** 3;
 }
 
+/** Smoothstep function between 0 and 1 */
 export function smootherStep(t: number): number {
   t = clamp(t);
   return 6 * t ** 5 - 15 * t ** 4 + 10 * t ** 3;
 }
 
+/** Linear interpolation between a and b, where t is in [0, 1] */
 export function lerp(a: number, b: number, t: number = 0.5): number {
   return (1 - t) * a + t * b;
 }
 
+/** Returns t such that lerp(a, b, t) = t */
+export function invLerp(a: number, b: number, value: number): number {
+  return (value - a) / (b - a);
+}
+
+/** Linear interpolation between two 2D vectors */
 export function lerpV2d(
   a: ArrayLike<number>,
   b: ArrayLike<number>,
@@ -57,15 +70,17 @@ export function normalizeAngle(angle: number) {
   return mod(angle + Math.PI, Math.PI * 2) - Math.PI;
 }
 
-// Return the difference between two angles
+/** Return the difference between two angles */
 export function angleDelta(a: number, b: number): number {
   return mod(b - a + Math.PI, Math.PI * 2) - Math.PI;
 }
 
+/** Converts degrees to radians */
 export function degToRad(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
+/** Converts radians to degrees */
 export function radToDeg(radians: number): number {
   return (radians * 180) / Math.PI;
 }
@@ -80,6 +95,7 @@ export function reflectY(theta: number): number {
   return normalizeAngle(-theta);
 }
 
+/** Returns the result of reflecting an angle across the XY axis. */
 export function reflectXY(theta: number): number {
   return normalizeAngle(theta - Math.PI);
 }
@@ -94,6 +110,7 @@ export function polarToVec(theta: number, r: number): V2d {
   return V(r * Math.cos(theta), r * Math.sin(theta));
 }
 
+/** Checks if a polygon is oriented counter-clockwise */
 export function isCCW(points: readonly V2d[]): boolean {
   let total = 0;
   for (let i = 1; i < points.length; i++) {
@@ -104,9 +121,9 @@ export function isCCW(points: readonly V2d[]): boolean {
   return total > 0;
 }
 
-// Step from one number towards another with a maximum step size
+/** Step from one number towards another with a maximum step size */
 export function stepToward(from: number, to: number, stepSize: number): number {
-  if (to > from) {
+  if (from < to) {
     return Math.min(from + stepSize, to);
   } else {
     return Math.max(from - stepSize, to);
