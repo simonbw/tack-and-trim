@@ -3,6 +3,7 @@ import AutoPauser from "../core/AutoPauser";
 import Game from "../core/Game";
 import FPSMeter from "../core/util/FPSMeter";
 import { Boat } from "./boat/Boat";
+import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
@@ -54,6 +55,7 @@ async function main() {
   game.addEntity(new WindIndicator());
   game.addEntity(new WindVisualization());
   const boat = game.addEntity(new Boat());
+  game.addEntity(new PlayerBoatController(boat));
   game.addEntity(new CameraController(boat, game.camera));
   game.addEntity(new Wake(boat));
   game.addEntity(new WaterParticles(boat));

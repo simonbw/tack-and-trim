@@ -1,15 +1,13 @@
 import BaseEntity from "../../core/entity/BaseEntity";
-import { GameEventMap } from "../../core/entity/Entity";
 import { polarToVec } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { Anchor } from "./Anchor";
 import { Hull } from "./Hull";
-import { JibSheets } from "./JibSheets";
 import { Keel } from "./Keel";
-import { Mainsheet } from "./Mainsheet";
 import { Rig } from "./Rig";
 import { Rudder } from "./Rudder";
 import { Sail } from "./Sail";
+import { Sheet } from "./Sheet";
 
 const MAST_POSITION = V(5, 0);
 const JIB_HEAD_POSITION = V(5, 0); // At mast (hull-local)
@@ -18,6 +16,14 @@ const JIB_TACK_POSITION = V(26, 0); // Near bow (hull-local)
 const ROW_DURATION = 0.6; // seconds per row
 const ROW_FORCE = 500; // force per row
 
+// Mainsheet attachment points and config
+const MAINSHEET_BOOM_ATTACH_RATIO = 0.9;
+const MAINSHEET_HULL_ATTACH = V(-12, 0);
+
+// Jib sheet attachment points
+const PORT_JIB_SHEET_ATTACH = V(-5, 10);
+const STARBOARD_JIB_SHEET_ATTACH = V(-5, -10);
+
 export class Boat extends BaseEntity {
   id = "boat";
 
@@ -25,10 +31,14 @@ export class Boat extends BaseEntity {
   keel: Keel;
   rudder: Rudder;
   rig: Rig;
-  mainsheet: Mainsheet;
   jib!: Sail;
-  jibSheets!: JibSheets;
   anchor!: Anchor;
+
+  // Sheets - created in onAdd()
+  mainsheet!: Sheet;
+  portJibSheet!: Sheet;
+  starboardJibSheet!: Sheet;
+  private activeJibSheet: "port" | "starboard" = "port";
 
   constructor() {
     super();
@@ -41,10 +51,7 @@ export class Boat extends BaseEntity {
     this.rudder = new Rudder(this.hull);
     this.rig = new Rig(this.hull, MAST_POSITION);
 
-    // Create parts that need rig reference
-    this.mainsheet = new Mainsheet(this.hull, this.rig);
-
-    // Jib is created in onAdd() since it needs hull body reference
+    // Sheets and jib are created in onAdd() since they need body references
   }
 
   onAdd() {
@@ -53,7 +60,21 @@ export class Boat extends BaseEntity {
     this.addChild(this.keel);
     this.addChild(this.rudder);
     this.addChild(this.rig);
-    this.addChild(this.mainsheet);
+
+    // Create mainsheet (boom to hull)
+    const boomAttachLocal = V(
+      -this.rig.getBoomLength() * MAINSHEET_BOOM_ATTACH_RATIO,
+      0
+    );
+    this.mainsheet = this.addChild(
+      new Sheet(this.rig.body, boomAttachLocal, this.hull.body, MAINSHEET_HULL_ATTACH, {
+        minLength: 6,
+        maxLength: 35,
+        defaultLength: 20,
+        trimSpeed: 15,
+        easeSpeed: 15,
+      })
+    );
 
     // Helper to transform hull-local position to world
     const toWorld = (localPos: V2d): V2d => {
@@ -91,64 +112,102 @@ export class Boat extends BaseEntity {
       })
     );
 
-    // Create jib sheets connecting clew to hull
-    this.jibSheets = new JibSheets(this.hull, this.jib.getClew());
-    this.addChild(this.jibSheets);
+    // Create jib sheets (clew to hull, port and starboard)
+    const jibSheetConfig = {
+      minLength: 8,
+      maxLength: 40,
+      defaultLength: 25,
+      trimSpeed: 20,
+      easeSpeed: 60,
+    };
+    const clewBody = this.jib.getClew();
+
+    this.portJibSheet = this.addChild(
+      new Sheet(
+        clewBody,
+        V(0, 0),
+        this.hull.body,
+        PORT_JIB_SHEET_ATTACH,
+        jibSheetConfig
+      )
+    );
+
+    this.starboardJibSheet = this.addChild(
+      new Sheet(
+        clewBody,
+        V(0, 0),
+        this.hull.body,
+        STARBOARD_JIB_SHEET_ATTACH,
+        { ...jibSheetConfig, defaultLength: 40 } // Inactive sheet starts slack
+      )
+    );
+    // Inactive starboard sheet starts released
+    this.starboardJibSheet.release();
 
     // Create anchor
     this.anchor = this.addChild(new Anchor(this.hull));
   }
 
-  onTick(dt: GameEventMap["tick"]) {
-    const io = this.game!.io;
+  // ============ Action Methods ============
+  // These are called by controllers (player input, AI, etc.)
 
-    // Handle input
-    const [steer, sheet] = io.getMovementVector();
+  /** Steer the boat. input: -1 (left) to +1 (right) */
+  steer(input: number, dt: number): void {
+    this.rudder.setSteer(input, dt);
+  }
 
-    // Update rudder steering
-    this.rudder.setSteer(steer, dt);
+  /** Adjust mainsheet. input: -1 (trim in) to +1 (ease out) */
+  adjustMainsheet(input: number, dt: number): void {
+    this.mainsheet.adjust(input, dt);
+  }
 
-    // Update mainsheet (W = sheet in, S = ease out)
-    this.mainsheet.setSheet(-sheet, dt);
+  /** Adjust the active jib sheet. input: -1 (trim in) to +1 (ease out) */
+  adjustJibSheet(input: number, dt: number, fast: boolean = false): void {
+    const effectiveDt = fast ? dt : dt * 0.5;
+    const activeSheet =
+      this.activeJibSheet === "port" ? this.portJibSheet : this.starboardJibSheet;
+    activeSheet.adjust(input, effectiveDt);
+  }
 
-    // Jib sheet controls: Q = port, E = starboard
-    // SHIFT + Q/E = ease out (release), Q/E alone = pull in
-    const shiftHeld = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
+  /** Switch active jib sheet (tack) */
+  tackJib(side: "port" | "starboard"): void {
+    if (this.activeJibSheet === side) return;
 
-    if (shiftHeld) {
-      // Ease mode: release sheets
-      const portEase = io.isKeyDown("KeyQ") ? 1 : 0;
-      const starboardEase = io.isKeyDown("KeyE") ? 1 : 0;
-      this.jibSheets.adjustPortSheet(portEase, dt);
-      this.jibSheets.adjustStarboardSheet(starboardEase, dt);
+    // Release the old sheet
+    if (this.activeJibSheet === "port") {
+      this.portJibSheet.release();
     } else {
-      // Trim mode: pull sheets in
-      const portPull = io.isKeyDown("KeyQ") ? -1 : 0;
-      const starboardPull = io.isKeyDown("KeyE") ? -1 : 0;
-      this.jibSheets.adjustPortSheet(portPull, dt);
-      this.jibSheets.adjustStarboardSheet(starboardPull, dt);
+      this.starboardJibSheet.release();
     }
+
+    this.activeJibSheet = side;
   }
 
-  onKeyDown({ key }: GameEventMap["keyDown"]) {
-    if (key === "Space") {
-      this.wait(ROW_DURATION, (dt, t) => {
-        this.hull.body.applyForce(polarToVec(this.hull.body.angle, ROW_FORCE));
-      });
-    }
-
-    // Toggle sails hoisted/lowered
-    if (key === "KeyR") {
-      const newState = !this.rig.sail.isHoisted();
-      this.rig.sail.setHoisted(newState);
-      this.jib.setHoisted(newState);
-    }
-
-    // Toggle anchor
-    if (key === "KeyF") {
-      this.anchor.toggle();
-    }
+  /** Get current active jib sheet side */
+  getActiveJibSheet(): "port" | "starboard" {
+    return this.activeJibSheet;
   }
+
+  /** Row the boat forward */
+  row(): void {
+    this.wait(ROW_DURATION, (dt, t) => {
+      this.hull.body.applyForce(polarToVec(this.hull.body.angle, ROW_FORCE));
+    });
+  }
+
+  /** Toggle sails hoisted/lowered */
+  toggleSails(): void {
+    const newState = !this.rig.sail.isHoisted();
+    this.rig.sail.setHoisted(newState);
+    this.jib.setHoisted(newState);
+  }
+
+  /** Toggle anchor deployed/retrieved */
+  toggleAnchor(): void {
+    this.anchor.toggle();
+  }
+
+  // ============ Getters ============
 
   getPosition(): V2d {
     return this.hull.getPosition();
