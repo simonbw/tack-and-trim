@@ -1,5 +1,6 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
+import type DynamicBody from "../body/DynamicBody";
 import Spring, { SpringOptions } from "./Spring";
 
 export interface LinearSpringOptions extends SpringOptions {
@@ -16,7 +17,7 @@ export default class LinearSpring extends Spring {
   localAnchorB: V2d;
   restLength: number;
 
-  constructor(bodyA: Body, bodyB: Body, options: LinearSpringOptions = {}) {
+  constructor(bodyA: DynamicBody, bodyB: Body, options: LinearSpringOptions = {}) {
     super(bodyA, bodyB, options);
 
     this.localAnchorA = V();

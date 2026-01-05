@@ -1,4 +1,12 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
+import {
+  SOLVER_ADD_VELOCITY,
+  SOLVER_INV_INERTIA,
+  SOLVER_INV_MASS,
+  SOLVER_UPDATE_MASS,
+  SOLVER_VLAMBDA,
+  SOLVER_WLAMBDA,
+} from "../internal";
 import Body, { BaseBodyOptions, SleepState } from "./Body";
 
 export interface DynamicBodyOptions extends BaseBodyOptions {
@@ -127,11 +135,12 @@ export default class DynamicBody extends Body {
     return this._invInertia;
   }
 
-  get invMassSolve(): number {
+  // Solver-internal getters (hidden from autocomplete via symbols)
+  get [SOLVER_INV_MASS](): number {
     return this._invMassSolve;
   }
 
-  get invInertiaSolve(): number {
+  get [SOLVER_INV_INERTIA](): number {
     return this._invInertiaSolve;
   }
 
@@ -190,9 +199,9 @@ export default class DynamicBody extends Body {
   }
 
   /**
-   * Update solver mass properties based on sleep state.
+   * Update solver mass properties based on sleep state. (Solver internal)
    */
-  updateSolveMassProperties(): void {
+  [SOLVER_UPDATE_MASS](): void {
     if (this.isSleeping()) {
       this._invMassSolve = 0;
       this._invInertiaSolve = 0;
@@ -287,9 +296,9 @@ export default class DynamicBody extends Body {
     return this;
   }
 
-  addConstraintVelocity(): void {
-    this._velocity.iadd(this._vlambda);
-    this._angularVelocity += this._wlambda;
+  [SOLVER_ADD_VELOCITY](): void {
+    this._velocity.iadd(this[SOLVER_VLAMBDA]);
+    this._angularVelocity += this[SOLVER_WLAMBDA];
   }
 
   /**

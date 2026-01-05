@@ -1,6 +1,5 @@
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import Entity from "../../core/entity/Entity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import Convex from "../../core/physics/shapes/Convex";
@@ -36,7 +35,7 @@ const HULL_LIFT_AND_DRAG = 0.15;
 const SKIN_FRICTION_COEFFICIENT = 0.02;
 
 export class Hull extends BaseEntity {
-  body: NonNullable<Entity["body"]>;
+  body: DynamicBody;
   private hullSprite: GameSprite & Graphics;
 
   constructor() {

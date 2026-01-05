@@ -2,6 +2,15 @@ import { CompatibleVector, V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
 import EventEmitter from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
+import {
+  SOLVER_VLAMBDA,
+  SOLVER_WLAMBDA,
+  SOLVER_INV_MASS,
+  SOLVER_INV_INERTIA,
+  SOLVER_RESET_VELOCITY,
+  SOLVER_ADD_VELOCITY,
+  SOLVER_UPDATE_MASS,
+} from "../internal";
 import type Shape from "../shapes/Shape";
 import type World from "../world/World";
 
@@ -48,12 +57,12 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   // Internal flag for narrowphase wake-up
   _wakeUpAfterNarrowphase: boolean = false;
 
-  // Constraint velocity accumulators (needed by solver)
-  protected _vlambda: V2d = V();
-  protected _wlambda: number = 0;
-
   // Force accumulator
   protected _force: V2d = V();
+
+  // Solver-internal properties (hidden from autocomplete via symbols)
+  [SOLVER_VLAMBDA]: V2d = V();
+  [SOLVER_WLAMBDA]: number = 0;
 
   // Abstract properties that subclasses must implement
   abstract get velocity(): V2d;
@@ -62,12 +71,16 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   abstract get mass(): number;
   abstract get invMass(): number;
   abstract get invInertia(): number;
-  abstract get invMassSolve(): number;
-  abstract get invInertiaSolve(): number;
 
   // Force accumulators
   abstract get angularForce(): number;
   abstract set angularForce(value: number);
+
+  // Solver-internal abstract properties (hidden via symbols)
+  abstract get [SOLVER_INV_MASS](): number;
+  abstract get [SOLVER_INV_INERTIA](): number;
+  abstract [SOLVER_UPDATE_MASS](): void;
+  abstract [SOLVER_ADD_VELOCITY](): void;
 
   constructor(options: BaseBodyOptions = {}) {
     super();
@@ -82,39 +95,19 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     this.collisionResponse = options.collisionResponse ?? true;
   }
 
-  // Constraint velocity getters/setters
-  get vlambda(): V2d {
-    return this._vlambda;
-  }
-
-  get wlambda(): number {
-    return this._wlambda;
-  }
-  set wlambda(value: number) {
-    this._wlambda = value;
-  }
-
   // Force getter
   get force(): V2d {
     return this._force;
   }
 
-  /** Reset constraint velocity accumulators to zero. */
-  resetConstraintVelocity(): void {
-    this._vlambda.set(0, 0);
-    this._wlambda = 0;
+  /** Reset constraint velocity accumulators to zero. (Solver internal) */
+  [SOLVER_RESET_VELOCITY](): void {
+    this[SOLVER_VLAMBDA].set(0, 0);
+    this[SOLVER_WLAMBDA] = 0;
   }
 
   // Abstract methods that subclasses must implement
   abstract updateMassProperties(): this;
-  abstract updateSolveMassProperties(): void;
-  abstract applyForce(force: V2d, relativePoint?: V2d): this;
-  abstract applyForceLocal(localForce: V2d, localPoint?: V2d): this;
-  abstract applyImpulse(impulseVector: V2d, relativePoint?: V2d): this;
-  abstract applyImpulseLocal(localImpulse: V2d, localPoint?: V2d): this;
-  abstract applyDamping(dt: number): void;
-  abstract setZeroForce(): this;
-  abstract addConstraintVelocity(): void;
   abstract integrate(dt: number): void;
 
   /** Get the total area of all shapes in the body */

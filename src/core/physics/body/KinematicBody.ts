@@ -1,4 +1,10 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
+import {
+  SOLVER_ADD_VELOCITY,
+  SOLVER_INV_INERTIA,
+  SOLVER_INV_MASS,
+  SOLVER_UPDATE_MASS,
+} from "../internal";
 import Body, { BaseBodyOptions } from "./Body";
 
 export interface KinematicBodyOptions extends BaseBodyOptions {
@@ -56,11 +62,12 @@ export default class KinematicBody extends Body {
     return 0;
   }
 
-  get invMassSolve(): number {
+  // Solver-internal getters (hidden from autocomplete via symbols)
+  get [SOLVER_INV_MASS](): number {
     return 0;
   }
 
-  get invInertiaSolve(): number {
+  get [SOLVER_INV_INERTIA](): number {
     return 0;
   }
 
@@ -69,40 +76,11 @@ export default class KinematicBody extends Body {
     return this;
   }
 
-  updateSolveMassProperties(): void {
+  [SOLVER_UPDATE_MASS](): void {
     // Always 0 for kinematic - they push but aren't pushed
   }
 
-  applyForce(_force: V2d, _relativePoint?: V2d): this {
-    // No-op - kinematic bodies don't respond to forces
-    return this;
-  }
-
-  applyForceLocal(_localForce: V2d, _localPoint?: V2d): this {
-    // No-op
-    return this;
-  }
-
-  applyImpulse(_impulseVector: V2d, _relativePoint?: V2d): this {
-    // No-op - kinematic bodies don't respond to impulses
-    return this;
-  }
-
-  applyImpulseLocal(_localImpulse: V2d, _localPoint?: V2d): this {
-    // No-op
-    return this;
-  }
-
-  applyDamping(_dt: number): void {
-    // No-op
-  }
-
-  setZeroForce(): this {
-    this._force.set(0, 0);
-    return this;
-  }
-
-  addConstraintVelocity(): void {
+  [SOLVER_ADD_VELOCITY](): void {
     // No-op - kinematic bodies don't receive constraint velocity
   }
 

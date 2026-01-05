@@ -1,4 +1,15 @@
 import type Body from "../body/Body";
+import {
+  EQ_B,
+  EQ_INV_C,
+  EQ_LAMBDA,
+  EQ_MAX_FORCE_DT,
+  EQ_MIN_FORCE_DT,
+  SOLVER_INV_INERTIA,
+  SOLVER_INV_MASS,
+  SOLVER_VLAMBDA,
+  SOLVER_WLAMBDA,
+} from "../internal";
 
 export interface EquationOptions {
   stiffness?: number;
@@ -19,7 +30,6 @@ export default class Equation {
   bodyB: Body;
   stiffness: number;
   relaxation: number;
-  G: Float32Array;
   offset: number;
   a: number;
   b: number;
@@ -30,12 +40,18 @@ export default class Equation {
   relativeVelocity: number;
   enabled: boolean;
 
-  // Pre-computed values for solver optimization (set during solve)
-  B: number = 0;
-  invC: number = 0;
-  lambda: number = 0;
-  maxForceDt: number = 0;
-  minForceDt: number = 0;
+  /**
+   * Jacobian vector: [vx_A, vy_A, ω_A, vx_B, vy_B, ω_B]
+   * Defines what velocities this constraint restricts.
+   */
+  G: Float32Array = new Float32Array(6);
+
+  // Solver-internal properties (hidden from autocomplete via symbols)
+  [EQ_B]: number = 0;
+  [EQ_INV_C]: number = 0;
+  [EQ_LAMBDA]: number = 0;
+  [EQ_MAX_FORCE_DT]: number = 0;
+  [EQ_MIN_FORCE_DT]: number = 0;
 
   constructor(
     bodyA: Body,
@@ -50,7 +66,6 @@ export default class Equation {
     this.bodyB = bodyB;
     this.stiffness = Equation.DEFAULT_STIFFNESS;
     this.relaxation = Equation.DEFAULT_RELAXATION;
-    this.G = new Float32Array(6);
     this.offset = 0;
     this.a = 0;
     this.b = 0;
@@ -124,10 +139,10 @@ export default class Equation {
     const G = this.G;
     const bi = this.bodyA;
     const bj = this.bodyB;
-    const vi = bi.vlambda;
-    const vj = bj.vlambda;
-    const wi = bi.wlambda;
-    const wj = bj.wlambda;
+    const vi = bi[SOLVER_VLAMBDA];
+    const vj = bj[SOLVER_VLAMBDA];
+    const wi = bi[SOLVER_WLAMBDA];
+    const wj = bj[SOLVER_WLAMBDA];
     return this.gmult(G, vi, wi, vj, wj);
   }
 
@@ -138,10 +153,10 @@ export default class Equation {
     const ti = bi.angularForce;
     const fj = bj.force;
     const tj = bj.angularForce;
-    const invMassi = bi.invMassSolve;
-    const invMassj = bj.invMassSolve;
-    const invIi = bi.invInertiaSolve;
-    const invIj = bj.invInertiaSolve;
+    const invMassi = bi[SOLVER_INV_MASS];
+    const invMassj = bj[SOLVER_INV_MASS];
+    const invIi = bi[SOLVER_INV_INERTIA];
+    const invIj = bj[SOLVER_INV_INERTIA];
     const G = this.G;
 
     return (
@@ -157,10 +172,10 @@ export default class Equation {
   computeGiMGt(): number {
     const bi = this.bodyA;
     const bj = this.bodyB;
-    const invMassi = bi.invMassSolve;
-    const invMassj = bj.invMassSolve;
-    const invIi = bi.invInertiaSolve;
-    const invIj = bj.invInertiaSolve;
+    const invMassi = bi[SOLVER_INV_MASS];
+    const invMassj = bj[SOLVER_INV_MASS];
+    const invIi = bi[SOLVER_INV_INERTIA];
+    const invIj = bj[SOLVER_INV_INERTIA];
     const G = this.G;
 
     return (
@@ -176,20 +191,20 @@ export default class Equation {
   addToWlambda(deltalambda: number): this {
     const bi = this.bodyA;
     const bj = this.bodyB;
-    const invMassi = bi.invMassSolve;
-    const invMassj = bj.invMassSolve;
-    const invIi = bi.invInertiaSolve;
-    const invIj = bj.invInertiaSolve;
+    const invMassi = bi[SOLVER_INV_MASS];
+    const invMassj = bj[SOLVER_INV_MASS];
+    const invIi = bi[SOLVER_INV_INERTIA];
+    const invIj = bj[SOLVER_INV_INERTIA];
     const G = this.G;
 
     // v_lambda += inv(M) * delta_lambda * G
-    bi.vlambda[0] += invMassi * G[0] * deltalambda;
-    bi.vlambda[1] += invMassi * G[1] * deltalambda;
-    bi.wlambda += invIi * G[2] * deltalambda;
+    bi[SOLVER_VLAMBDA][0] += invMassi * G[0] * deltalambda;
+    bi[SOLVER_VLAMBDA][1] += invMassi * G[1] * deltalambda;
+    bi[SOLVER_WLAMBDA] += invIi * G[2] * deltalambda;
 
-    bj.vlambda[0] += invMassj * G[3] * deltalambda;
-    bj.vlambda[1] += invMassj * G[4] * deltalambda;
-    bj.wlambda += invIj * G[5] * deltalambda;
+    bj[SOLVER_VLAMBDA][0] += invMassj * G[3] * deltalambda;
+    bj[SOLVER_VLAMBDA][1] += invMassj * G[4] * deltalambda;
+    bj[SOLVER_WLAMBDA] += invIj * G[5] * deltalambda;
     return this;
   }
 

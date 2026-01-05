@@ -32,7 +32,7 @@ const noLift: ForceMagnitudeFn = () => 0;
 
 export class TellTail extends BaseEntity {
   sprite: GameSprite & Graphics;
-  bodies: NonNullable<BaseEntity["bodies"]>;
+  bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
   constructor(private attachmentBody: Body) {

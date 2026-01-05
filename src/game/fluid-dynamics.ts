@@ -1,4 +1,4 @@
-import Body from "../core/physics/body/Body";
+import DynamicBody from "../core/physics/body/DynamicBody";
 import Convex from "../core/physics/shapes/Convex";
 import { V, V2d } from "../core/Vector";
 
@@ -25,7 +25,7 @@ type ForceMagnitudeParams = Parameters<ForceMagnitudeFn>[0];
 
 /** Apply fluid forces to all edges of a body's convex shapes. */
 export function applyFluidForcesToBody(
-  body: Body,
+  body: DynamicBody,
   getLiftMagnitude: ForceMagnitudeFn,
   getDragMagnitude: ForceMagnitudeFn,
   getFluidVelocity: FluidVelocityFn = () => V(0, 0)
@@ -53,7 +53,7 @@ export function applyFluidForcesToBody(
  * The edge is defined by two points in body-local coordinates.
  */
 export function applyFluidForces(
-  body: Body,
+  body: DynamicBody,
   v1: V2d,
   v2: V2d,
   getLiftMagnitude: ForceMagnitudeFn,
@@ -95,7 +95,7 @@ export function applyFluidForces(
 }
 
 function applyFluidForcesAtPoint(
-  body: Body,
+  body: DynamicBody,
   point: V2d,
   edge: V2d,
   edgeNormal: V2d,
@@ -249,7 +249,7 @@ export function foilDrag(scale: number): ForceMagnitudeFn {
  * Unlike form drag, it always opposes motion regardless of hull orientation.
  */
 export function applySkinFriction(
-  body: Body,
+  body: DynamicBody,
   wettedArea: number,
   frictionCoefficient: number,
   getFluidVelocity: FluidVelocityFn = () => V(0, 0)

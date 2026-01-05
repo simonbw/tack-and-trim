@@ -1,6 +1,5 @@
 import { Graphics } from "pixi.js";
 import BaseEntity from "../core/entity/BaseEntity";
-import Entity from "../core/entity/Entity";
 import { createGraphics, GameSprite } from "../core/entity/GameSprite";
 import DynamicBody from "../core/physics/body/DynamicBody";
 import Circle from "../core/physics/shapes/Circle";
@@ -12,7 +11,7 @@ const BUOYANCY_STRENGTH = 0.5;
 const WATER_DAMPING = 0.98;
 
 export class Buoy extends BaseEntity {
-  body: NonNullable<Entity["body"]>;
+  body: DynamicBody;
   private buoySprite: GameSprite & Graphics;
 
   constructor(x: number, y: number) {

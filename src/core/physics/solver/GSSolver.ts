@@ -1,6 +1,11 @@
 import DynamicBody from "../body/DynamicBody";
 import type Equation from "../equations/Equation";
 import FrictionEquation from "../equations/FrictionEquation";
+import {
+  SOLVER_ADD_VELOCITY,
+  SOLVER_RESET_VELOCITY,
+  SOLVER_UPDATE_MASS,
+} from "../internal";
 import type { Island } from "../world/Island";
 
 // --- Types ---
@@ -67,7 +72,7 @@ export function solveEquations(
 
   // Update solve mass properties for all dynamic bodies
   for (const body of dynamicBodies) {
-    body.updateSolveMassProperties();
+    body[SOLVER_UPDATE_MASS]();
   }
 
   // Allocate fresh arrays
@@ -88,7 +93,7 @@ export function solveEquations(
 
   // Reset constraint velocities
   for (const body of dynamicBodies) {
-    body.resetConstraintVelocity();
+    body[SOLVER_RESET_VELOCITY]();
   }
 
   // Optional friction pre-iteration phase
@@ -125,7 +130,7 @@ export function solveEquations(
 
   // Apply constraint velocities to bodies
   for (const body of dynamicBodies) {
-    body.addConstraintVelocity();
+    body[SOLVER_ADD_VELOCITY]();
   }
 
   // Update equation multipliers
