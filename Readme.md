@@ -55,11 +55,9 @@ The code for this project is written in [TypeScript](https://www.typescriptlang.
 
 This game uses a 2d rendering engine called [Pixi.js](https://pixijs.com/).
 
-### P2.js
+### Physics Engine
 
-This game uses a 2d physics engine called [p2.js](https://github.com/schteppe/p2.js/).
-It isn't the most performant or featureful engine, but the API is really simple, which is why I originally chose it.
-I'm hoping to replace it soon.
+This game uses a custom 2D physics engine built specifically for this project. It features rigid body dynamics, constraint solving, collision detection, and more. See [src/core/physics/](src/core/physics/) for documentation.
 
 ### Parcel
 

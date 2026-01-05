@@ -158,21 +158,16 @@ TODO: Write documention on IO.
 
 ## Physics
 
-TODO: Write more documentation on physics, in particular things that are specific to this engine.
+The physics system is a custom 2D rigid body engine. See [physics/README.md](./physics/README.md) for comprehensive documentation.
 
-- Things that are changed from `p2.js`
-- Custom World
-- Custom Broadphase
+Key concepts:
+- **World** — The simulation container that manages bodies, constraints, and collision
+- **Bodies** — `DynamicBody` (responds to forces), `StaticBody` (immovable), `KinematicBody` (scripted motion)
+- **Shapes** — Collision geometry: `Circle`, `Box`, `Convex`, `Capsule`, `Line`, `Plane`, `Particle`, `Heightfield`
+- **Constraints** — Maintain relationships between bodies: `DistanceConstraint`, `RevoluteConstraint`, `LockConstraint`
+- **Springs** — Soft connections: `LinearSpring`, `RotationalSpring`, `RopeSpring`, and more
 
-See `p2.js`.
-
-### Constraints
-
-TODO: Write documentation on Constraints
-
-### Springs
-
-TODO: Write documentation on Springs
+<!-- TODO: Write tutorial-style documentation in physics/docs/ -->
 
 ## Sound
 
