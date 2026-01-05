@@ -2,6 +2,7 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { polarToVec } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
+import { Anchor } from "./Anchor";
 import { Hull } from "./Hull";
 import { JibSheets } from "./JibSheets";
 import { Keel } from "./Keel";
@@ -27,6 +28,7 @@ export class Boat extends BaseEntity {
   mainsheet: Mainsheet;
   jib!: Sail;
   jibSheets!: JibSheets;
+  anchor!: Anchor;
 
   constructor() {
     super();
@@ -92,6 +94,9 @@ export class Boat extends BaseEntity {
     // Create jib sheets connecting clew to hull
     this.jibSheets = new JibSheets(this.hull, this.jib.getClew());
     this.addChild(this.jibSheets);
+
+    // Create anchor
+    this.anchor = this.addChild(new Anchor(this.hull));
   }
 
   onTick(dt: GameEventMap["tick"]) {
@@ -130,6 +135,18 @@ export class Boat extends BaseEntity {
       this.wait(ROW_DURATION, (dt, t) => {
         this.hull.body.applyForce(polarToVec(this.hull.body.angle, ROW_FORCE));
       });
+    }
+
+    // Toggle sails hoisted/lowered
+    if (key === "KeyR") {
+      const newState = !this.rig.sail.isHoisted();
+      this.rig.sail.setHoisted(newState);
+      this.jib.setHoisted(newState);
+    }
+
+    // Toggle anchor
+    if (key === "KeyF") {
+      this.anchor.toggle();
     }
   }
 
