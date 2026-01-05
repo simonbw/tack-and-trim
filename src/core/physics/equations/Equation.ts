@@ -1,7 +1,6 @@
 import type Body from "../body/Body";
 import {
   EQ_B,
-  EQ_G,
   EQ_INV_C,
   EQ_LAMBDA,
   EQ_MAX_FORCE_DT,
@@ -41,8 +40,13 @@ export default class Equation {
   relativeVelocity: number;
   enabled: boolean;
 
+  /**
+   * Jacobian vector: [vx_A, vy_A, ω_A, vx_B, vy_B, ω_B]
+   * Defines what velocities this constraint restricts.
+   */
+  G: Float32Array = new Float32Array(6);
+
   // Solver-internal properties (hidden from autocomplete via symbols)
-  [EQ_G]: Float32Array = new Float32Array(6);
   [EQ_B]: number = 0;
   [EQ_INV_C]: number = 0;
   [EQ_LAMBDA]: number = 0;
@@ -110,7 +114,7 @@ export default class Equation {
   }
 
   computeGq(): number {
-    const G = this[EQ_G];
+    const G = this.G;
     const bi = this.bodyA;
     const bj = this.bodyB;
     const xi = bi.position;
@@ -121,7 +125,7 @@ export default class Equation {
   }
 
   computeGW(): number {
-    const G = this[EQ_G];
+    const G = this.G;
     const bi = this.bodyA;
     const bj = this.bodyB;
     const vi = bi.velocity;
@@ -132,7 +136,7 @@ export default class Equation {
   }
 
   computeGWlambda(): number {
-    const G = this[EQ_G];
+    const G = this.G;
     const bi = this.bodyA;
     const bj = this.bodyB;
     const vi = bi[SOLVER_VLAMBDA];
@@ -153,7 +157,7 @@ export default class Equation {
     const invMassj = bj[SOLVER_INV_MASS];
     const invIi = bi[SOLVER_INV_INERTIA];
     const invIj = bj[SOLVER_INV_INERTIA];
-    const G = this[EQ_G];
+    const G = this.G;
 
     return (
       G[0] * fi[0] * invMassi +
@@ -172,7 +176,7 @@ export default class Equation {
     const invMassj = bj[SOLVER_INV_MASS];
     const invIi = bi[SOLVER_INV_INERTIA];
     const invIj = bj[SOLVER_INV_INERTIA];
-    const G = this[EQ_G];
+    const G = this.G;
 
     return (
       G[0] * G[0] * invMassi +
@@ -191,7 +195,7 @@ export default class Equation {
     const invMassj = bj[SOLVER_INV_MASS];
     const invIi = bi[SOLVER_INV_INERTIA];
     const invIj = bj[SOLVER_INV_INERTIA];
-    const G = this[EQ_G];
+    const G = this.G;
 
     // v_lambda += inv(M) * delta_lambda * G
     bi[SOLVER_VLAMBDA][0] += invMassi * G[0] * deltalambda;

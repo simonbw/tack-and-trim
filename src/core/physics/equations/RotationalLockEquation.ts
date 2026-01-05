@@ -1,6 +1,5 @@
 import { V, V2d } from "../../Vector";
 import type Body from "../body/Body";
-import { EQ_G } from "../internal";
 import Equation from "./Equation";
 
 export interface RotationalLockEquationOptions {
@@ -23,7 +22,7 @@ export default class RotationalLockEquation extends Equation {
 
     this.angle = options.angle || 0;
 
-    const G = this[EQ_G];
+    const G = this.G;
     G[2] = 1;
     G[5] = -1;
   }

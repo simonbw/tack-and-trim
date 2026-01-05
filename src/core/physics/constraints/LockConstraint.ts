@@ -1,7 +1,6 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import Equation from "../equations/Equation";
-import { EQ_G } from "../internal";
 import { ConstraintOptions } from "./Constraint";
 import Constraint from "./Constraint";
 
@@ -119,21 +118,21 @@ export default class LockConstraint extends Constraint {
     const xAxis = V(1, 0);
     const yAxis = V(0, 1);
 
-    x[EQ_G][0] = -1;
-    x[EQ_G][1] = 0;
-    x[EQ_G][2] = -l.crossLength(xAxis);
-    x[EQ_G][3] = 1;
+    x.G[0] = -1;
+    x.G[1] = 0;
+    x.G[2] = -l.crossLength(xAxis);
+    x.G[3] = 1;
 
-    y[EQ_G][0] = 0;
-    y[EQ_G][1] = -1;
-    y[EQ_G][2] = -l.crossLength(yAxis);
-    y[EQ_G][4] = 1;
+    y.G[0] = 0;
+    y.G[1] = -1;
+    y.G[2] = -l.crossLength(yAxis);
+    y.G[4] = 1;
 
-    rot[EQ_G][0] = -t[0];
-    rot[EQ_G][1] = -t[1];
-    rot[EQ_G][3] = t[0];
-    rot[EQ_G][4] = t[1];
-    rot[EQ_G][5] = r.crossLength(t);
+    rot.G[0] = -t[0];
+    rot.G[1] = -t[1];
+    rot.G[3] = t[0];
+    rot.G[4] = t[1];
+    rot.G[5] = r.crossLength(t);
     return this;
   }
 }

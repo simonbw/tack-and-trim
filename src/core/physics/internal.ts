@@ -16,7 +16,6 @@ export const SOLVER_ADD_VELOCITY = Symbol("addConstraintVelocity");
 export const SOLVER_UPDATE_MASS = Symbol("updateSolveMassProperties");
 
 // Equation solver internals
-export const EQ_G = Symbol("G");
 export const EQ_B = Symbol("B");
 export const EQ_INV_C = Symbol("invC");
 export const EQ_LAMBDA = Symbol("lambda");

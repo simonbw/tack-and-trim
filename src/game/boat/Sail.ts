@@ -1,7 +1,7 @@
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
-import Body from "../../core/physics/body/Body";
+import type Body from "../../core/physics/body/Body";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
@@ -57,7 +57,7 @@ export interface SailConfig {
 
 export class Sail extends BaseEntity {
   sprite: GameSprite & Graphics;
-  bodies: NonNullable<BaseEntity["bodies"]>;
+  bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
   // Resolved config values
