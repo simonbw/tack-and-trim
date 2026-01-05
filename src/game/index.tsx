@@ -10,6 +10,7 @@ import { Wake } from "./Wake";
 import { Water } from "./Water";
 import { WaterParticles } from "./WaterParticles";
 import { Wind } from "./Wind";
+import { WindParticles } from "./WindParticles";
 import { WindIndicator } from "./WindIndicator";
 import { WindVisualization } from "./WindVisualization";
 
@@ -56,6 +57,7 @@ async function main() {
   game.addEntity(new CameraController(boat, game.camera));
   game.addEntity(new Wake(boat));
   game.addEntity(new WaterParticles(boat));
+  game.addEntity(new WindParticles());
 }
 
 window.addEventListener("load", main);

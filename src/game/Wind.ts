@@ -34,8 +34,7 @@ export class Wind extends BaseEntity {
   }
 
   /** Get base wind velocity from noise field, without modifier contributions. */
-  getBaseVelocityAtPoint(point: V2d): V2d {
-    const [x, y] = point;
+  getBaseVelocityAtPoint([x, y]: V2d): V2d {
     const t = this.game!.elapsedUnpausedTime * NOISE_TIME_SCALE;
 
     const sx = x * NOISE_SPATIAL_SCALE;

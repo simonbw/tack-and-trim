@@ -18,6 +18,8 @@ export const LAYERS = {
   sails: new LayerInfo(),
   telltails: new LayerInfo(),
 
+  windParticles: new LayerInfo(),
+
   // Wind visualization layer (toggled on/off)
   windViz: new LayerInfo({ alpha: 0 }),
 

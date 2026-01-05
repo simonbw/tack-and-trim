@@ -1,9 +1,9 @@
 import { Container, Graphics, Renderer, Sprite, Texture } from "pixi.js";
-import { Camera2d } from "../../core/graphics/Camera2d";
+import { Camera2d, Viewport } from "../../core/graphics/Camera2d";
 import { clamp, lerp } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
 import { Wind } from "../Wind";
-import { Viewport, WindVisualizationMode } from "./WindVisualizationMode";
+import { WindVisualizationMode } from "./WindVisualizationMode";
 
 // Grid configuration - adaptive LOD
 const BASE_SPACING = 8;
