@@ -2,12 +2,15 @@ import type Body from "../body/Body";
 import type DynamicBody from "../body/DynamicBody";
 import Spring, { SpringOptions } from "./Spring";
 
+/** Options for creating a RotationalSpring. */
 export interface RotationalSpringOptions extends SpringOptions {
+  /** Target angle between bodies. Auto-computed from current angles if not set. */
   restAngle?: number;
 }
 
-/** A rotational spring, connecting two bodies rotation. */
+/** A spring that applies torque to maintain a target angle between two bodies. */
 export default class RotationalSpring extends Spring {
+  /** Target angle between the two bodies (no torque applied at this angle). */
   restAngle: number;
 
   constructor(bodyA: DynamicBody, bodyB: Body, options: RotationalSpringOptions = {}) {

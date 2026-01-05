@@ -2,9 +2,16 @@ import type Body from "../../body/Body";
 import type World from "../../world/World";
 import type AABB from "../AABB";
 
-/** Base class for broadphase implementations. */
+/**
+ * Abstract base class for broadphase collision detection.
+ * Broadphase algorithms quickly cull pairs of bodies that cannot possibly collide,
+ * reducing the number of expensive narrow-phase checks needed.
+ * Implementations: SpatialHashingBroadphase, SAPBroadphase.
+ */
 export default abstract class Broadphase {
+  /** @internal Reusable result array for collision pairs. */
   result: [Body, Body][];
+  /** The world this broadphase is attached to. */
   world: World | null;
 
   constructor(world?: World) {

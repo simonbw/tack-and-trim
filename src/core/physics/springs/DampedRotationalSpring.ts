@@ -4,11 +4,15 @@ import type DynamicBody from "../body/DynamicBody";
 import type { RotationalSpringOptions } from "./RotationalSpring";
 import RotationalSpring from "./RotationalSpring";
 
-interface DampedRotationalSpringOptions extends RotationalSpringOptions {
+/** Options for creating a DampedRotationalSpring. */
+export interface DampedRotationalSpringOptions extends RotationalSpringOptions {
+  /** Maximum torque the spring can apply. Default Infinity. */
   maxTorque?: number;
 }
 
+/** A rotational spring with velocity-based damping and optional torque clamping. */
 export default class DampedRotationalSpring extends RotationalSpring {
+  /** Maximum torque magnitude this spring can apply. */
   maxTorque: number;
 
   constructor(
