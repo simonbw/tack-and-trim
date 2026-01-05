@@ -81,6 +81,9 @@ export class Sail extends BaseEntity implements WindModifier {
   private readonly windInfluenceRadius: number;
   private readonly getForceScale: (t: number) => number;
 
+  // Hoist state
+  private hoisted: boolean = true;
+
   // Wind modifier state
   private windModifierPosition: V2d = V(0, 0);
   private windModifierNormal: V2d = V(0, 1);
@@ -127,6 +130,16 @@ export class Sail extends BaseEntity implements WindModifier {
     }
     // Default: read from last particle (for free-clew sails)
     return V(last(this.bodies).position);
+  }
+
+  /** Check if sail is hoisted */
+  isHoisted(): boolean {
+    return this.hoisted;
+  }
+
+  /** Set sail hoist state */
+  setHoisted(hoisted: boolean): void {
+    this.hoisted = hoisted;
   }
 
   onAdd() {
@@ -210,6 +223,12 @@ export class Sail extends BaseEntity implements WindModifier {
   onTick() {
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
     if (!wind) return;
+
+    // When sail is lowered, skip all forces
+    if (!this.hoisted) {
+      this.clearWindModifierState();
+      return;
+    }
 
     const getFluidVelocity = (point: V2d): V2d =>
       wind.getVelocityAtPoint(point);
@@ -296,6 +315,14 @@ export class Sail extends BaseEntity implements WindModifier {
     }
   }
 
+  /** Clear wind modifier state when sail is lowered */
+  private clearWindModifierState(): void {
+    this.currentLiftCoefficient = 0;
+    this.currentChordLength = 0;
+    this.currentWindSpeed = 0;
+    this.isStalled = false;
+  }
+
   // WindModifier interface
 
   getWindModifierPosition(): V2d {
@@ -337,10 +364,15 @@ export class Sail extends BaseEntity implements WindModifier {
   }
 
   onRender() {
+    this.sprite.clear();
+
+    // Hide sail when lowered
+    if (!this.hoisted) {
+      return;
+    }
+
     const head = this.config.getHeadPosition();
     const clew = this.getClewPosition();
-
-    this.sprite.clear();
 
     if (this.sailShape === "triangle") {
       // Triangle rendering: single polygon with billow on one edge
