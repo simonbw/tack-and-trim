@@ -4,7 +4,8 @@ import { WaterShader } from "./water/WaterShader";
 
 /**
  * Water entity that renders an infinite ocean using a custom shader.
- * The water pattern is in world-space, so it stays fixed as the camera moves.
+ * The shader computes world-space coordinates from screen position + camera,
+ * so the water pattern stays fixed in world space as the camera moves.
  */
 export class Water extends BaseEntity {
   private waterShader: WaterShader;
@@ -12,10 +13,9 @@ export class Water extends BaseEntity {
   constructor() {
     super();
 
-    // Create a full-screen quad that we'll apply the shader to.
-    // We make it very large to ensure it always covers the viewport at any zoom level.
+    // Create a screen-sized quad. We position it to follow the camera each frame.
+    // The shader handles converting screen coords to world coords.
     const graphics = createGraphics("water");
-    graphics.rect(-50000, -50000, 100000, 100000).fill({ color: 0x1a4a6e });
 
     this.waterShader = new WaterShader();
     graphics.filters = [this.waterShader];
@@ -27,14 +27,28 @@ export class Water extends BaseEntity {
     if (!this.game) return;
 
     const camera = this.game.camera;
+    const width = this.game.renderer.getWidth();
+    const height = this.game.renderer.getHeight();
+
+    // Rebuild the quad to match screen size, positioned to always be in view.
+    // We position it at the camera location and scale it to cover the viewport.
+    const sprite = this.sprite!;
+    sprite.clear();
+    const halfWidth = width / camera.z / 2;
+    const halfHeight = height / camera.z / 2;
+    sprite
+      .rect(
+        camera.x - halfWidth,
+        camera.y - halfHeight,
+        width / camera.z,
+        height / camera.z
+      )
+      .fill({ color: 0x1a4a6e });
 
     // Update shader uniforms
     this.waterShader.time = this.game.elapsedTime;
     this.waterShader.cameraPosition = [camera.x, camera.y];
     this.waterShader.cameraZoom = camera.z;
-    this.waterShader.resolution = [
-      this.game.renderer.getWidth(),
-      this.game.renderer.getHeight(),
-    ];
+    this.waterShader.resolution = [width, height];
   }
 }
