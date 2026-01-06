@@ -2,12 +2,13 @@ import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { pairs } from "../../core/util/FunctionalUtils";
-import { V } from "../../core/Vector";
+import { V, V2d } from "../../core/Vector";
 import {
   applyFluidForces,
   foilDrag,
   foilLift,
 } from "../fluid-dynamics";
+import { Water } from "../water/Water";
 import { Hull } from "./Hull";
 
 const KEEL_VERTICES = [V(-15, 0), V(15, 0)];
@@ -31,10 +32,15 @@ export class Keel extends BaseEntity {
     const lift = foilLift(KEEL_LIFT_AND_DRAG);
     const drag = foilDrag(KEEL_LIFT_AND_DRAG);
 
+    // Get water velocity function
+    const water = this.game?.entities.getById("water") as Water | undefined;
+    const getWaterVelocity = (point: V2d): V2d =>
+      water?.getStateAtPoint(point).velocity ?? V(0, 0);
+
     // Apply keel forces to hull (both directions for symmetry)
     for (const [start, end] of pairs(KEEL_VERTICES)) {
-      applyFluidForces(this.hull.body, start, end, lift, drag);
-      applyFluidForces(this.hull.body, end, start, lift, drag);
+      applyFluidForces(this.hull.body, start, end, lift, drag, getWaterVelocity);
+      applyFluidForces(this.hull.body, end, start, lift, drag, getWaterVelocity);
     }
   }
 

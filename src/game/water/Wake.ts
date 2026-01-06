@@ -1,9 +1,9 @@
 import { Graphics } from "pixi.js";
-import BaseEntity from "../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../core/entity/GameSprite";
-import { clamp, lerp } from "../core/util/MathUtil";
-import { V, V2d } from "../core/Vector";
-import { Boat } from "./boat/Boat";
+import BaseEntity from "../../core/entity/BaseEntity";
+import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
+import { clamp, lerp } from "../../core/util/MathUtil";
+import { V, V2d } from "../../core/Vector";
+import { Boat } from "../boat/Boat";
 
 interface WakePoint {
   leftPos: V2d;

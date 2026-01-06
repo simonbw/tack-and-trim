@@ -2,12 +2,13 @@ import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { degToRad, stepToward } from "../../core/util/MathUtil";
-import { V } from "../../core/Vector";
+import { V, V2d } from "../../core/Vector";
 import {
   applyFluidForces,
   foilDrag,
   foilLift,
 } from "../fluid-dynamics";
+import { Water } from "../water/Water";
 import { Hull } from "./Hull";
 
 const RUDDER_POSITION = V(-10, 0);
@@ -64,9 +65,14 @@ export class Rudder extends BaseEntity {
     const lift = foilLift(RUDDER_LIFT_AND_DRAG);
     const drag = foilDrag(RUDDER_LIFT_AND_DRAG);
 
+    // Get water velocity function
+    const water = this.game?.entities.getById("water") as Water | undefined;
+    const getWaterVelocity = (point: V2d): V2d =>
+      water?.getStateAtPoint(point).velocity ?? V(0, 0);
+
     // Apply rudder forces to hull (both directions)
-    applyFluidForces(this.hull.body, RUDDER_POSITION, rudderEnd, lift, drag);
-    applyFluidForces(this.hull.body, rudderEnd, RUDDER_POSITION, lift, drag);
+    applyFluidForces(this.hull.body, RUDDER_POSITION, rudderEnd, lift, drag, getWaterVelocity);
+    applyFluidForces(this.hull.body, rudderEnd, RUDDER_POSITION, lift, drag, getWaterVelocity);
   }
 
   onRender() {

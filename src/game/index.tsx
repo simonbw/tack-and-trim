@@ -4,16 +4,16 @@ import Game from "../core/Game";
 import FPSMeter from "../core/util/FPSMeter";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
+import { BoatSpray } from "./BoatSpray";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
-import { Wake } from "./Wake";
-import { Water } from "./Water";
-import { WaterParticles } from "./WaterParticles";
+import { Wake } from "./water/Wake";
+import { Water } from "./water/Water";
 import { Wind } from "./Wind";
-import { WindParticles } from "./WindParticles";
+import { WindVisualization } from "./wind-visualization/WindVisualization";
 import { WindIndicator } from "./WindIndicator";
-import { WindVisualization } from "./WindVisualization";
+import { WindParticles } from "./WindParticles";
 
 // Do this so we can access the game from the console
 declare global {
@@ -58,7 +58,8 @@ async function main() {
   game.addEntity(new PlayerBoatController(boat));
   game.addEntity(new CameraController(boat, game.camera));
   game.addEntity(new Wake(boat));
-  game.addEntity(new WaterParticles(boat));
+  game.addEntity(new BoatSpray(boat));
+  // game.addEntity(new WaterParticles(boat)); // Disabled to debug water shader
   game.addEntity(new WindParticles());
 }
 

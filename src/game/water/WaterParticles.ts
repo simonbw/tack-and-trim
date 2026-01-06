@@ -1,8 +1,8 @@
 import { Graphics } from "pixi.js";
-import BaseEntity from "../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../core/entity/GameSprite";
-import { V, V2d } from "../core/Vector";
-import { Boat } from "./boat/Boat";
+import BaseEntity from "../../core/entity/BaseEntity";
+import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
+import { V, V2d } from "../../core/Vector";
+import { Boat } from "../boat/Boat";
 
 interface WaterParticle {
   pos: V2d;
