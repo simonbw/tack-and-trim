@@ -10,11 +10,11 @@ import { V, V2d } from "../core/Vector";
 import { Wind } from "./Wind";
 
 // Configuration
-const PARTICLE_COUNT = 5000;
+const PARTICLE_COUNT = 500;
 const SPAWN_RATE = 500; // particles per second (spawn and despawn)
 const TARGET_ALPHA = 0.8;
 const ALPHA_LERP_SPEED = 0.7; // per second
-const PARTICLE_SIZE = 2.5; // pixels on screen, regardless of zoom
+const PARTICLE_SIZE = 1.5; // pixels on screen, regardless of zoom
 const TEXTURE_SIZE = 8; // texture resolution
 const COLOR = 0xffffff;
 const PARTICLE_MOVE_SCALE = 0.5; // Percent of wind speed

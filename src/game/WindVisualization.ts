@@ -3,10 +3,7 @@ import { LAYERS } from "../config/layers";
 import BaseEntity from "../core/entity/BaseEntity";
 import { GameSprite } from "../core/entity/GameSprite";
 import { Wind } from "./Wind";
-import { ScreenSpaceStreamlineVisualization } from "./wind-visualization/ScreenSpaceStreamlineVisualization";
-import { ScreenSpaceWindVisualization } from "./wind-visualization/ScreenSpaceWindVisualization";
 import { WindVisualizationMode } from "./wind-visualization/WindVisualizationMode";
-import { WorldSpaceStreamlineVisualization } from "./wind-visualization/WorldSpaceStreamlineVisualization";
 import { WorldSpaceWindVisualization } from "./wind-visualization/WorldSpaceWindVisualization";
 
 // Visualization modes: 0=off, 1=screen triangles, 2=world triangles, 3=screen streamlines, 4=world streamlines
@@ -16,12 +13,10 @@ type VisualizationModeIndex = 0 | 1 | 2 | 3 | 4;
 const DIM_COLOR = 0x000000;
 const DIM_ALPHA = 0.4;
 
-// Modifier circle styling
-const MODIFIER_FILL_COLOR = 0xffaa44;
-const MODIFIER_FILL_ALPHA = 0.15;
-const MODIFIER_STROKE_COLOR = 0xffaa44;
-const MODIFIER_STROKE_ALPHA = 0.4;
-const MODIFIER_STROKE_WIDTH = 2;
+const MODIFIER_FILL_STYLE = {
+  color: 0xffaa44,
+  alpha: 0.15,
+};
 
 export class WindVisualization extends BaseEntity {
   sprite: GameSprite;
@@ -32,10 +27,10 @@ export class WindVisualization extends BaseEntity {
 
   private modes: (WindVisualizationMode | null)[] = [
     null, // Mode 0 = off
-    new ScreenSpaceWindVisualization(), // Mode 1 = screen triangles
+    // new ScreenSpaceWindVisualization(), // Mode 1 = screen triangles
     new WorldSpaceWindVisualization(), // Mode 2 = world triangles
-    new ScreenSpaceStreamlineVisualization(), // Mode 3 = screen streamlines
-    new WorldSpaceStreamlineVisualization(), // Mode 4 = world streamlines
+    // new ScreenSpaceStreamlineVisualization(), // Mode 3 = screen streamlines
+    // new WorldSpaceStreamlineVisualization(), // Mode 4 = world streamlines
   ];
 
   constructor() {
@@ -110,16 +105,9 @@ export class WindVisualization extends BaseEntity {
       const pos = modifier.getWindModifierPosition();
       const radius = modifier.getWindModifierInfluenceRadius();
 
-      this.modifierGraphics.circle(pos.x, pos.y, radius);
-      this.modifierGraphics.fill({
-        color: MODIFIER_FILL_COLOR,
-        alpha: MODIFIER_FILL_ALPHA,
-      });
-      this.modifierGraphics.stroke({
-        color: MODIFIER_STROKE_COLOR,
-        alpha: MODIFIER_STROKE_ALPHA,
-        width: MODIFIER_STROKE_WIDTH,
-      });
+      this.modifierGraphics
+        .circle(pos.x, pos.y, radius)
+        .fill(MODIFIER_FILL_STYLE);
     }
   }
 }
