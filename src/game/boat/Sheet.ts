@@ -137,6 +137,11 @@ export class Sheet extends BaseEntity {
     return lerp(this.config.minLength, this.config.maxLength, this.position);
   }
 
+  /** Check if sheet is fully eased out (at max length) */
+  isAtMaxLength(): boolean {
+    return this.position >= 1;
+  }
+
   private getAnchorAWorld(): V2d {
     const [x, y] = this.bodyA.position;
     return this.localAnchorA.rotate(this.bodyA.angle).iadd([x, y]);

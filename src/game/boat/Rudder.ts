@@ -14,7 +14,8 @@ const RUDDER_POSITION = V(-10, 0);
 const RUDDER_LENGTH = 18;
 const RUDDER_LIFT_AND_DRAG = 2.0; // Reduced from 10; slightly higher than keel for good steering authority
 const MAX_STEER_ANGLE = degToRad(35);
-const STEER_ADJUST_SPEED = 1.5; // How fast the rudder position changes with input
+const STEER_ADJUST_SPEED = 0.8; // Base rudder adjustment speed
+const STEER_ADJUST_SPEED_FAST = 2.0; // Fast rudder adjustment speed (when shift held)
 
 export class Rudder extends BaseEntity {
   private rudderSprite: GameSprite & Graphics;
@@ -35,15 +36,17 @@ export class Rudder extends BaseEntity {
    * Adjust rudder position based on player input.
    * @param input -1 to 1 where negative = steer left, positive = steer right
    * @param dt Delta time in seconds
+   * @param fast Whether to use fast adjustment speed
    */
-  setSteer(input: number, dt: number) {
+  setSteer(input: number, dt: number, fast: boolean = false) {
     if (input === 0) return; // No input, hold current position
 
     // Calculate target: input determines direction
     const target = input < 0 ? -1 : 1;
 
     // Smoothly adjust rudder position
-    const speed = Math.abs(input) * STEER_ADJUST_SPEED;
+    const baseSpeed = fast ? STEER_ADJUST_SPEED_FAST : STEER_ADJUST_SPEED;
+    const speed = Math.abs(input) * baseSpeed;
     this.steer = stepToward(this.steer, target, speed * dt);
   }
 

@@ -71,8 +71,8 @@ export class Boat extends BaseEntity {
         minLength: 6,
         maxLength: 35,
         defaultLength: 20,
-        trimSpeed: 15,
-        easeSpeed: 15,
+        trimSpeed: 8,
+        easeSpeed: 8,
       })
     );
 
@@ -152,13 +152,14 @@ export class Boat extends BaseEntity {
   // These are called by controllers (player input, AI, etc.)
 
   /** Steer the boat. input: -1 (left) to +1 (right) */
-  steer(input: number, dt: number): void {
-    this.rudder.setSteer(input, dt);
+  steer(input: number, dt: number, fast: boolean = false): void {
+    this.rudder.setSteer(input, dt, fast);
   }
 
   /** Adjust mainsheet. input: -1 (trim in) to +1 (ease out) */
-  adjustMainsheet(input: number, dt: number): void {
-    this.mainsheet.adjust(input, dt);
+  adjustMainsheet(input: number, dt: number, fast: boolean = false): void {
+    const effectiveDt = fast ? dt * 2.5 : dt;
+    this.mainsheet.adjust(input, effectiveDt);
   }
 
   /** Adjust the active jib sheet. input: -1 (trim in) to +1 (ease out) */
@@ -186,6 +187,13 @@ export class Boat extends BaseEntity {
   /** Get current active jib sheet side */
   getActiveJibSheet(): "port" | "starboard" {
     return this.activeJibSheet;
+  }
+
+  /** Check if the active jib sheet is fully eased out */
+  isActiveJibSheetAtMax(): boolean {
+    const activeSheet =
+      this.activeJibSheet === "port" ? this.portJibSheet : this.starboardJibSheet;
+    return activeSheet.isAtMaxLength();
   }
 
   /** Row the boat forward */

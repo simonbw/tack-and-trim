@@ -16,30 +16,21 @@ export class PlayerBoatController extends BaseEntity {
 
     // Handle continuous input
     const [steer, sheet] = io.getMovementVector();
+    const shiftHeld = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
 
     // Update rudder steering (A/D or left/right arrows)
-    this.boat.steer(steer, dt);
+    this.boat.steer(steer, dt, shiftHeld);
 
     // Update mainsheet (W = trim in, S = ease out)
-    this.boat.adjustMainsheet(-sheet, dt);
+    this.boat.adjustMainsheet(-sheet, dt, shiftHeld);
 
     // Jib sheet controls - single active sheet model
     // Q/E meaning depends on which sheet is active:
     //   Port active: Q = ease out, E = trim in
     //   Starboard active: Q = trim in, E = ease out
     // SHIFT + Q/E = switch sheets (tack)
-    const shiftHeld = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
     const qHeld = io.isKeyDown("KeyQ");
     const eHeld = io.isKeyDown("KeyE");
-
-    // Handle tacking (switching sheets)
-    if (shiftHeld) {
-      if (qHeld) {
-        this.boat.tackJib("starboard");
-      } else if (eHeld) {
-        this.boat.tackJib("port");
-      }
-    }
 
     // Calculate trim input based on active sheet
     const activeSheet = this.boat.getActiveJibSheet();
@@ -51,6 +42,21 @@ export class PlayerBoatController extends BaseEntity {
       if (qHeld) trimInput = -1; // Q = trim in (starboard)
       else if (eHeld) trimInput = 1; // E = ease out
     }
+
+    // Handle tacking (switching sheets)
+    if (shiftHeld) {
+      // Shift+Q/E explicitly switches sheets
+      if (qHeld) {
+        this.boat.tackJib("starboard");
+      } else if (eHeld) {
+        this.boat.tackJib("port");
+      }
+    } else if (trimInput > 0 && this.boat.isActiveJibSheetAtMax()) {
+      // Auto-switch when trying to ease out a fully slack sheet
+      const newSheet = activeSheet === "port" ? "starboard" : "port";
+      this.boat.tackJib(newSheet);
+    }
+
     this.boat.adjustJibSheet(trimInput, dt, shiftHeld);
   }
 
