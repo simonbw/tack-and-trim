@@ -6,7 +6,7 @@ import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
 import { last, pairs, range } from "../../core/util/FunctionalUtils";
-import { lerpV2d } from "../../core/util/MathUtil";
+import { lerpV2d, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { applyFluidForces } from "../fluid-dynamics";
 import type { Wind } from "../Wind";
@@ -23,6 +23,9 @@ const DEFAULT_DRAG_SCALE = 2.0;
 const DEFAULT_BILLOW_INNER = 0.8;
 const DEFAULT_BILLOW_OUTER = 2.4;
 const DEFAULT_WIND_INFLUENCE_RADIUS = 50;
+
+// Hoist animation
+const HOIST_SPEED = 0.4; // Full hoist/lower takes ~2.5 seconds
 
 export interface SailConfig {
   // Particle configuration
@@ -72,8 +75,9 @@ export class Sail extends BaseEntity {
   private readonly windInfluenceRadius: number;
   private readonly getForceScale: (t: number) => number;
 
-  // Hoist state
-  private hoisted: boolean = true;
+  // Hoist state (0 = fully lowered, 1 = fully hoisted)
+  private hoistAmount: number = 1;
+  private targetHoistAmount: number = 1;
 
   constructor(private config: SailConfig) {
     super();
@@ -130,14 +134,19 @@ export class Sail extends BaseEntity {
     return this.windInfluenceRadius;
   }
 
-  /** Check if sail is hoisted */
+  /** Check if sail is hoisted (or hoisting) */
   isHoisted(): boolean {
-    return this.hoisted;
+    return this.targetHoistAmount > 0.5;
   }
 
-  /** Set sail hoist state */
+  /** Get current hoist amount (0 = lowered, 1 = hoisted) */
+  getHoistAmount(): number {
+    return this.hoistAmount;
+  }
+
+  /** Set sail hoist state - will animate to target */
   setHoisted(hoisted: boolean): void {
-    this.hoisted = hoisted;
+    this.targetHoistAmount = hoisted ? 1 : 0;
   }
 
   onAdd() {
@@ -212,12 +221,19 @@ export class Sail extends BaseEntity {
     this.addChild(new SailWindEffect(this));
   }
 
-  onTick() {
+  onTick(dt: number) {
+    // Animate hoist amount toward target
+    this.hoistAmount = stepToward(
+      this.hoistAmount,
+      this.targetHoistAmount,
+      HOIST_SPEED * dt
+    );
+
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
     if (!wind) return;
 
-    // When sail is lowered, skip all forces
-    if (!this.hoisted) {
+    // When sail is fully lowered, skip all forces
+    if (this.hoistAmount <= 0) {
       return;
     }
 
@@ -229,7 +245,8 @@ export class Sail extends BaseEntity {
 
     for (let i = 0; i < this.bodies.length; i++) {
       const t = i / (this.bodies.length - 1);
-      const forceScale = this.getForceScale(t);
+      // Scale forces by hoist amount (partially lowered sail produces less force)
+      const forceScale = this.getForceScale(t) * this.hoistAmount;
 
       const body = this.bodies[i];
       const bodyPos = V(body.position);
@@ -258,13 +275,17 @@ export class Sail extends BaseEntity {
   onRender() {
     this.sprite.clear();
 
-    // Hide sail when lowered
-    if (!this.hoisted) {
+    // Hide sail when fully lowered
+    if (this.hoistAmount <= 0) {
       return;
     }
 
     const head = this.config.getHeadPosition();
     const clew = this.getClewPosition();
+
+    // Scale billow by hoist amount - sail flattens as it's lowered
+    const scaledBillowOuter = this.billowOuter * this.hoistAmount;
+    const scaledBillowInner = this.billowInner * this.hoistAmount;
 
     if (this.sailShape === "triangle") {
       // Triangle rendering: single polygon with billow on one edge
@@ -276,18 +297,23 @@ export class Sail extends BaseEntity {
         const body = this.bodies[i];
         const t = i / (this.bodies.length - 1);
         const baseline = lerpV2d(head, clew, t);
-        const [x, y] = lerpV2d(baseline, body.position, this.billowOuter);
+        const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
         this.sprite.lineTo(x, y);
       }
       this.sprite.lineTo(clew.x, clew.y);
 
       // Extra points (e.g., masthead for jib - forms the leech)
+      // Scale extra points toward clew as sail is lowered
       const extraPoints = this.config.extraPoints?.() ?? [];
       for (const point of extraPoints) {
-        this.sprite.lineTo(point.x, point.y);
+        const scaledPoint = lerpV2d(clew, point, this.hoistAmount);
+        this.sprite.lineTo(scaledPoint.x, scaledPoint.y);
       }
 
-      // Close path back to head (forms the luff)
+      // Close path back to head (scale head position too)
+      const scaledHead = lerpV2d(clew, head, this.hoistAmount);
+      this.sprite.lineTo(scaledHead.x, scaledHead.y);
+
       this.sprite
         .closePath()
         .fill({ color: 0xeeeeff })
@@ -301,7 +327,7 @@ export class Sail extends BaseEntity {
         const body = this.bodies[i];
         const t = i / (this.bodies.length - 1);
         const baseline = lerpV2d(head, clew, t);
-        const [x, y] = lerpV2d(baseline, body.position, this.billowOuter);
+        const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
         this.sprite.lineTo(x, y);
       }
       this.sprite.lineTo(clew.x, clew.y);
@@ -312,7 +338,7 @@ export class Sail extends BaseEntity {
         const body = reversedBodies[i];
         const t = i / (this.bodies.length - 1);
         const baseline = lerpV2d(clew, head, t);
-        const [x, y] = lerpV2d(baseline, body.position, this.billowInner);
+        const [x, y] = lerpV2d(baseline, body.position, scaledBillowInner);
         this.sprite.lineTo(x, y);
       }
 
