@@ -4,11 +4,14 @@ import { createGraphics, GameSprite } from "../core/entity/GameSprite";
 import DynamicBody from "../core/physics/body/DynamicBody";
 import Circle from "../core/physics/shapes/Circle";
 import { V } from "../core/Vector";
+import { Water } from "./water/Water";
 
 const BUOY_RADIUS = 6;
 const BUOY_MASS = 2;
 const BUOYANCY_STRENGTH = 0.5;
 const WATER_DAMPING = 0.98;
+const WATER_DRAG = 0.1; // How strongly the buoy is pushed by water velocity
+const HEIGHT_SCALE_FACTOR = 0.005; // How much surface height affects sprite scale
 
 export class Buoy extends BaseEntity {
   body: DynamicBody;
@@ -41,6 +44,15 @@ export class Buoy extends BaseEntity {
       this.body.applyForce(V(0, buoyancyForce));
     }
 
+    // Apply water velocity as a drag force (pushes buoy with the current/wake)
+    const water = this.game?.entities.getById("water") as Water | undefined;
+    if (water) {
+      const waterState = water.getStateAtPoint(V(x, y));
+      // Force proportional to difference between water velocity and buoy velocity
+      const relativeVelocity = waterState.velocity.sub(V(this.body.velocity));
+      this.body.applyForce(relativeVelocity.mul(WATER_DRAG));
+    }
+
     // Damping to prevent wild oscillation
     this.body.velocity[0] *= WATER_DAMPING;
     this.body.velocity[1] *= WATER_DAMPING;
@@ -51,5 +63,13 @@ export class Buoy extends BaseEntity {
     const [x, y] = this.body.position;
     this.buoySprite.position.set(x, y);
     this.buoySprite.rotation = this.body.angle;
+
+    // Scale sprite based on water surface height (simulates bobbing up/down)
+    const water = this.game?.entities.getById("water") as Water | undefined;
+    if (water) {
+      const waterState = water.getStateAtPoint(V(x, y));
+      const scale = 1 + waterState.surfaceHeight * HEIGHT_SCALE_FACTOR;
+      this.buoySprite.scale.set(scale);
+    }
   }
 }

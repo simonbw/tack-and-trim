@@ -4,6 +4,7 @@ import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { clamp, lerp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { Boat } from "../boat/Boat";
+import { WakeField } from "./WakeField";
 
 interface WakePoint {
   leftPos: V2d;
@@ -82,6 +83,7 @@ export class Wake extends BaseEntity {
     const rearPos = boatPos.add(rearOffset);
     const perpendicular = V(0, 1).rotate(boatAngle);
 
+    // Spawn visual wake points
     this.wakePoints.push({
       leftPos: rearPos.add(perpendicular.mul(CONFIG.INITIAL_SPREAD)),
       rightPos: rearPos.add(perpendicular.mul(-CONFIG.INITIAL_SPREAD)),
@@ -89,6 +91,28 @@ export class Wake extends BaseEntity {
       age: 0,
       speed,
     });
+
+    // Spawn physics wake particles into WakeField
+    const wakeField = this.game?.entities.getById("wakeField") as
+      | WakeField
+      | undefined;
+    if (wakeField) {
+      // Wake velocity is outward from the boat's path, scaled by boat speed
+      const wakeSpeed = speed * 0.3; // Wake moves slower than boat
+      const leftVelocity = perpendicular.mul(wakeSpeed);
+      const rightVelocity = perpendicular.mul(-wakeSpeed);
+
+      wakeField.spawnParticle(
+        rearPos.add(perpendicular.mul(CONFIG.INITIAL_SPREAD)),
+        leftVelocity,
+        speedFactor
+      );
+      wakeField.spawnParticle(
+        rearPos.add(perpendicular.mul(-CONFIG.INITIAL_SPREAD)),
+        rightVelocity,
+        speedFactor
+      );
+    }
   }
 
   onRender() {

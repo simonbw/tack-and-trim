@@ -3,6 +3,7 @@ import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { V, V2d } from "../../core/Vector";
+import { WakeField } from "./WakeField";
 import { createWaterShader } from "./WaterShader";
 
 // Current variation configuration
@@ -91,10 +92,27 @@ export class Water extends BaseEntity {
    * Used by underwater physics components to determine water velocity.
    */
   getStateAtPoint(point: V2d): WaterState {
+    // Start with current velocity
+    const velocity = this.getCurrentVelocityAtPoint(point);
+
+    // Add wake contributions
+    const wakeField = this.game?.entities.getById("wakeField") as
+      | WakeField
+      | undefined;
+
+    let surfaceHeight = 0;
+    let wakeIntensity = 0;
+
+    if (wakeField) {
+      velocity.iadd(wakeField.getVelocityAtPoint(point));
+      surfaceHeight += wakeField.getHeightAtPoint(point);
+      wakeIntensity = wakeField.getIntensityAtPoint(point);
+    }
+
     return {
-      velocity: this.getCurrentVelocityAtPoint(point),
-      surfaceHeight: 0,
-      wakeIntensity: 0,
+      velocity,
+      surfaceHeight,
+      wakeIntensity,
     };
   }
 

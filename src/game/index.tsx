@@ -9,6 +9,7 @@ import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
 import { Wake } from "./water/Wake";
+import { WakeField } from "./water/WakeField";
 import { Water } from "./water/Water";
 import { Wind } from "./Wind";
 import { WindVisualization } from "./wind-visualization/WindVisualization";
@@ -57,9 +58,9 @@ async function main() {
   const boat = game.addEntity(new Boat());
   game.addEntity(new PlayerBoatController(boat));
   game.addEntity(new CameraController(boat, game.camera));
+  game.addEntity(new WakeField());
   game.addEntity(new Wake(boat));
   game.addEntity(new BoatSpray(boat));
-  // game.addEntity(new WaterParticles(boat)); // Disabled to debug water shader
   game.addEntity(new WindParticles());
 }
 
