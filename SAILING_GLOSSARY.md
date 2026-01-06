@@ -29,6 +29,9 @@ A lever attached to the rudder used to steer. Push the tiller left to turn the b
 ### Bow
 The front of the boat. In the code, the bow is in the positive X direction (when the boat faces right).
 
+### Bowsprit
+A spar (pole) that extends forward from the bow of the boat. Bowsprits are used to attach the forestay further forward, allowing for larger headsails, or to fly additional sails like asymmetric spinnakers or gennakers. (Not yet implemented in this game.)
+
 ### Stern
 The back of the boat. Where the rudder is mounted.
 
