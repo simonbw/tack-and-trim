@@ -284,8 +284,8 @@ export class Camera2d extends BaseEntity implements Entity {
   /** Update the properties of a renderer layer to match this camera */
   updateLayer(layer: LayerInfo) {
     const container = layer.container;
-    if (!layer.paralax.equals([0, 0])) {
-      const matrix = this.getMatrix(layer.paralax, layer.anchor);
+    if (!layer.parallax.equals([0, 0])) {
+      const matrix = this.getMatrix(layer.parallax, layer.anchor);
       container.updateTransform({
         x: matrix.tx,
         y: matrix.ty,

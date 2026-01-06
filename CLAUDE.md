@@ -18,7 +18,6 @@ This is a custom 2D game engine built on TypeScript, with three main technology 
 ### Technologies
 
 - **Pixi.js** - 2D rendering engine for graphics and sprites
-- **p2.js** - 2D physics engine (planning to replace due to performance limitations)
 - **Parcel** - Zero-config bundler and dev server
 
 ### Entity-Component System

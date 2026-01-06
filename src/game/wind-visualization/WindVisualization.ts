@@ -1,10 +1,10 @@
 import { Container, Graphics, Sprite, Texture } from "pixi.js";
-import { LAYERS } from "../config/layers";
-import BaseEntity from "../core/entity/BaseEntity";
-import { GameSprite } from "../core/entity/GameSprite";
-import { Wind } from "./Wind";
-import { WindVisualizationMode } from "./wind-visualization/WindVisualizationMode";
-import { WorldSpaceWindVisualization } from "./wind-visualization/WorldSpaceWindVisualization";
+import { LAYERS } from "../../config/layers";
+import BaseEntity from "../../core/entity/BaseEntity";
+import { GameSprite } from "../../core/entity/GameSprite";
+import { Wind } from "../Wind";
+import { WindVisualizationMode } from "./WindVisualizationMode";
+import { WorldSpaceWindVisualization } from "./WorldSpaceWindVisualization";
 
 // Visualization modes: 0=off, 1=screen triangles, 2=world triangles, 3=screen streamlines, 4=world streamlines
 type VisualizationModeIndex = 0 | 1 | 2 | 3 | 4;

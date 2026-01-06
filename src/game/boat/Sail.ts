@@ -76,8 +76,8 @@ export class Sail extends BaseEntity {
   private readonly getForceScale: (t: number) => number;
 
   // Hoist state (0 = fully lowered, 1 = fully hoisted)
-  private hoistAmount: number = 1;
-  private targetHoistAmount: number = 1;
+  private hoistAmount: number = 0;
+  private targetHoistAmount: number = 0;
 
   constructor(private config: SailConfig) {
     super();

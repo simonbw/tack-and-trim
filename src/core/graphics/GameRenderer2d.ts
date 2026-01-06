@@ -73,6 +73,7 @@ export class GameRenderer2d {
         resizeTo: window,
         autoDensity: true,
         antialias: true,
+        preference: "webgl", // Force WebGL for custom GLSL shaders
         ...pixiOptions,
       })
       .then(() => {

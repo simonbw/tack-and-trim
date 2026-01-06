@@ -1,6 +1,3 @@
-import World from "./physics/world/World";
-import type Body from "./physics/body/Body";
-import StaticBody from "./physics/body/StaticBody";
 import { DEFAULT_LAYER, LAYERS } from "../config/layers";
 import ContactList, {
   ContactInfo,
@@ -16,6 +13,9 @@ import {
   GameRenderer2dOptions,
 } from "./graphics/GameRenderer2d";
 import { IOManager } from "./io/IO";
+import type Body from "./physics/body/Body";
+import StaticBody from "./physics/body/StaticBody";
+import World from "./physics/world/World";
 import { lerp } from "./util/MathUtil";
 
 interface GameOptions {
@@ -461,7 +461,7 @@ export default class Game {
   /** Validate physics state and reset any bodies that have gone unstable. */
   private validatePhysics() {
     const MAX_POSITION = 10000;
-    const MAX_VELOCITY = 500;
+    const MAX_VELOCITY = 1000;
 
     for (const body of this.world.bodies) {
       if (body instanceof StaticBody) continue;

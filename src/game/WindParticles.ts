@@ -10,7 +10,7 @@ import { V, V2d } from "../core/Vector";
 import { Wind } from "./Wind";
 
 // Configuration
-const PARTICLE_COUNT = 500;
+const PARTICLE_COUNT = 5;
 const SPAWN_RATE = 500; // particles per second (spawn and despawn)
 const TARGET_ALPHA = 0.8;
 const ALPHA_LERP_SPEED = 0.7; // per second
