@@ -31,9 +31,7 @@ export class Bowsprit extends BaseEntity {
   }
 
   onRender() {
-    const [x, y] = V(BOWSPRIT_ATTACH_POINT, 0)
-      .rotate(this.hull.body.angle)
-      .iadd(this.hull.body.position);
+    const [x, y] = this.hull.body.toWorldFrame(V(BOWSPRIT_ATTACH_POINT, 0));
     this.bowspritSprite.position.set(x, y);
     this.bowspritSprite.rotation = this.hull.body.angle;
   }
