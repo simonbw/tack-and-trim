@@ -1,5 +1,6 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { V, V2d } from "../../core/Vector";
+import { TurbulenceParticle } from "../TurbulenceParticle";
 import type { Wind } from "../Wind";
 import { WindModifier } from "../WindModifier";
 import {
@@ -10,9 +11,31 @@ import {
 import type { Sail } from "./Sail";
 
 // Wind effect constants
-const WIND_INFLUENCE_SCALE = 0.15;
 const WIND_MIN_DISTANCE = 5;
-const STALL_TURBULENCE_SCALE = 15;
+
+// Directional wind effect constants
+const LEEWARD_ACCELERATION = 0.15; // Flow speedup on leeward side
+const WINDWARD_BLOCKAGE = 0.1; // Flow reduction on windward side
+const WAKE_SHADOW_FACTOR = 0.2; // Wind reduction in wake
+const WAKE_LENGTH_FACTOR = 3.0; // How far wake extends (× segment length)
+
+// Turbulence spawning constants
+const TURBULENCE_SPAWN_INTERVAL = 0.1; // Min time between spawns per segment
+const TURBULENCE_SPAWN_OFFSET = 5; // Distance downwind to spawn particle
+const MAX_TURBULENCE_PARTICLES = 30; // Global cap on active turbulence particles
+
+/**
+ * State for a single sail segment (edge between adjacent particles).
+ */
+export interface SailSegmentState {
+  position: V2d; // Segment midpoint
+  normal: V2d; // Perpendicular to segment, pointing to leeward side
+  tangent: V2d; // Along segment direction (head to clew)
+  length: number; // Segment length
+  liftCoefficient: number; // Local Cl
+  isStalled: boolean; // Local stall state
+  camber: number; // Local curvature
+}
 
 /**
  * Manages the wind modification effects produced by a sail.
@@ -23,27 +46,27 @@ const STALL_TURBULENCE_SCALE = 15;
  * - Stall turbulence (disturbed air downstream of stalled sails)
  */
 export class SailWindEffect extends BaseEntity implements WindModifier {
-  // Wind modifier state
-  private windModifierPosition: V2d = V(0, 0);
-  private windModifierNormal: V2d = V(0, 1);
-  private currentLiftCoefficient: number = 0;
-  private currentChordLength: number = 0;
-  private currentWindSpeed: number = 0;
-  private isStalled: boolean = false;
+  tags = ["windModifier"];
+
+  // Per-segment state (kept for turbulence spawning only)
+  private segmentStates: SailSegmentState[] = [];
+
+  // Stall tracking for turbulence spawning
+  private prevSegmentStalled: boolean[] = [];
+  private lastSpawnTime: number[] = [];
+
+  // Pre-computed aggregate state for O(1) wind contribution
+  private centroid: V2d = V(0, 0);
+  private chordDirection: V2d = V(1, 0);
+  private chordLength: number = 0;
+  private averageNormal: V2d = V(0, 1);
+  private averageLiftCoefficient: number = 0;
+  private stallFraction: number = 0;
+  private windSpeed: number = 0;
+  private windDirection: V2d = V(1, 0);
 
   constructor(private sail: Sail) {
     super();
-  }
-
-  onAdd() {
-    // Register as wind modifier
-    const wind = this.game?.entities.getById("wind") as Wind | undefined;
-    wind?.registerModifier(this);
-  }
-
-  onDestroy() {
-    const wind = this.game?.entities.getById("wind") as Wind | undefined;
-    wind?.unregisterModifier(this);
   }
 
   onTick() {
@@ -57,6 +80,7 @@ export class SailWindEffect extends BaseEntity implements WindModifier {
     }
 
     this.updateState(wind);
+    this.handleStallTransitions(wind);
   }
 
   private updateState(wind: Wind) {
@@ -64,92 +88,259 @@ export class SailWindEffect extends BaseEntity implements WindModifier {
     const clew = this.sail.getClewPosition();
     const bodies = this.sail.getBodies();
 
-    // Chord from head to clew
+    // Chord geometry
     const chord = clew.sub(head);
-    this.currentChordLength = chord.magnitude;
+    this.chordLength = chord.magnitude;
+    this.chordDirection =
+      this.chordLength > 0.01 ? chord.mul(1 / this.chordLength) : V(1, 0);
 
-    // Normal perpendicular to chord
+    // Centroid at 1/3 along chord (toward head)
+    this.centroid = head.add(chord.mul(0.33));
+
+    // Get base wind at sail position
+    const baseWind = wind.getBaseVelocityAtPoint(this.centroid);
+    this.windSpeed = baseWind.magnitude;
+    this.windDirection = this.windSpeed > 0.01 ? baseWind.normalize() : V(1, 0);
+
+    // Determine overall leeward direction from middle of sail
     const midParticle = bodies[Math.floor(bodies.length / 2)];
     const chordMidpoint = head.add(chord.mul(0.5));
     const billowDir = V(midParticle.position).sub(chordMidpoint);
-    const chordNormal = chord.normalize().rotate90cw();
-    this.windModifierNormal =
-      billowDir.dot(chordNormal) > 0 ? chordNormal : chordNormal.mul(-1);
+    const chordNormal = this.chordDirection.rotate90cw();
+    const leewardSign = billowDir.dot(chordNormal) > 0 ? 1 : -1;
+    this.averageNormal = chordNormal.mul(leewardSign);
 
-    // Position at sail centroid
-    this.windModifierPosition = head.add(chord.mul(0.33));
+    // Compute per-segment state (for turbulence spawning)
+    const numSegments = bodies.length - 1;
+    if (this.segmentStates.length !== numSegments) {
+      this.segmentStates = new Array(numSegments);
+    }
 
-    // Get base wind at sail position
-    const baseWind = wind.getBaseVelocityAtPoint(this.windModifierPosition);
-    this.currentWindSpeed = baseWind.magnitude;
+    // Accumulators for aggregate stats
+    let totalLiftCoefficient = 0;
+    let totalLength = 0;
+    let stalledLength = 0;
 
-    if (this.currentWindSpeed > 0.01 && this.currentChordLength > 0.01) {
-      const windDir = baseWind.normalize();
-      const chordDir = chord.normalize();
-      const angleOfAttack = Math.acos(
-        Math.max(-1, Math.min(1, windDir.dot(chordDir)))
-      );
+    for (let i = 0; i < numSegments; i++) {
+      const p0 = i === 0 ? head : V(bodies[i].position);
+      const p1 = V(bodies[i + 1].position);
+      const p2 = i + 2 < bodies.length ? V(bodies[i + 2].position) : clew;
 
-      const prevPos = V(bodies[Math.floor(bodies.length / 2) - 1].position);
-      const nextPos = V(bodies[Math.floor(bodies.length / 2) + 1].position);
-      const camber = calculateCamber(prevPos, V(midParticle.position), nextPos);
+      // Segment midpoint
+      const position = p0.add(p1).mul(0.5);
 
-      this.currentLiftCoefficient = getSailLiftCoefficient(
-        angleOfAttack,
-        camber
-      );
-      this.isStalled = isSailStalled(angleOfAttack);
+      // Segment tangent and length
+      const segmentVec = p1.sub(p0);
+      const length = segmentVec.magnitude;
+      const tangent = length > 0.001 ? segmentVec.mul(1 / length) : V(1, 0);
+
+      // Normal pointing to leeward side
+      const rawNormal = tangent.rotate90cw();
+      const normal = rawNormal.mul(leewardSign);
+
+      // Local camber from 3-point geometry
+      const camber = calculateCamber(p0, p1, p2);
+
+      // Local aerodynamic state
+      let liftCoefficient = 0;
+      let isStalled = false;
+
+      if (this.windSpeed > 0.01 && length > 0.01) {
+        const angleOfAttack = Math.acos(
+          Math.max(-1, Math.min(1, this.windDirection.dot(tangent)))
+        );
+        liftCoefficient = getSailLiftCoefficient(angleOfAttack, camber);
+        isStalled = isSailStalled(angleOfAttack);
+      }
+
+      this.segmentStates[i] = {
+        position,
+        normal,
+        tangent,
+        length,
+        liftCoefficient,
+        isStalled,
+        camber,
+      };
+
+      // Accumulate for aggregates (weighted by segment length)
+      totalLiftCoefficient += liftCoefficient * length;
+      totalLength += length;
+      if (isStalled) {
+        stalledLength += length;
+      }
+    }
+
+    // Compute final aggregate values
+    if (totalLength > 0.01) {
+      this.averageLiftCoefficient = totalLiftCoefficient / totalLength;
+      this.stallFraction = stalledLength / totalLength;
     } else {
-      this.currentLiftCoefficient = 0;
-      this.isStalled = false;
+      this.averageLiftCoefficient = 0;
+      this.stallFraction = 0;
     }
   }
 
   private clearState(): void {
-    this.currentLiftCoefficient = 0;
-    this.currentChordLength = 0;
-    this.currentWindSpeed = 0;
-    this.isStalled = false;
+    this.chordLength = 0;
+    this.windSpeed = 0;
+    this.averageLiftCoefficient = 0;
+    this.stallFraction = 0;
+    this.segmentStates = [];
+    this.prevSegmentStalled = [];
+    this.lastSpawnTime = [];
+  }
+
+  /**
+   * Check for stall transitions and spawn turbulence particles.
+   */
+  private handleStallTransitions(wind: Wind): void {
+    const currentTime = this.game?.elapsedUnpausedTime ?? 0;
+    const numSegments = this.segmentStates.length;
+
+    // Initialize tracking arrays if needed
+    if (this.prevSegmentStalled.length !== numSegments) {
+      this.prevSegmentStalled = new Array(numSegments).fill(false);
+      this.lastSpawnTime = new Array(numSegments).fill(0);
+    }
+
+    // Count active turbulence particles globally
+    const activeTurbulence =
+      this.game?.entities.getTagged("turbulence").length ?? 0;
+
+    for (let i = 0; i < numSegments; i++) {
+      const segment = this.segmentStates[i];
+      const wasStalled = this.prevSegmentStalled[i];
+      const isStalled = segment.isStalled;
+
+      // Spawn turbulence on stall transition or while stalled (rate-limited)
+      if (isStalled) {
+        const timeSinceLastSpawn = currentTime - this.lastSpawnTime[i];
+
+        if (
+          (!wasStalled || timeSinceLastSpawn >= TURBULENCE_SPAWN_INTERVAL) &&
+          activeTurbulence < MAX_TURBULENCE_PARTICLES
+        ) {
+          this.spawnTurbulence(segment, wind);
+          this.lastSpawnTime[i] = currentTime;
+        }
+      }
+
+      this.prevSegmentStalled[i] = isStalled;
+    }
+  }
+
+  /**
+   * Spawn a turbulence particle downwind of a stalled segment.
+   */
+  private spawnTurbulence(segment: SailSegmentState, wind: Wind): void {
+    if (!this.game) return;
+
+    const windVel = wind.getBaseVelocityAtPoint(segment.position);
+    if (windVel.magnitude < 0.01) return;
+
+    // Spawn slightly downwind of the segment
+    const spawnPos = segment.position.add(
+      windVel.normalize().mul(TURBULENCE_SPAWN_OFFSET)
+    );
+
+    const particle = new TurbulenceParticle(spawnPos, windVel);
+    this.game.addEntity(particle);
   }
 
   // WindModifier interface
 
   getWindModifierPosition(): V2d {
-    return this.windModifierPosition;
+    return this.centroid;
   }
 
   getWindModifierInfluenceRadius(): number {
     return this.sail.getWindInfluenceRadius();
   }
 
+  /**
+   * O(1) wind contribution using pre-computed aggregate stats.
+   * Uses zone-based directional effects:
+   * - Leeward: accelerated flow parallel to surface
+   * - Windward: decelerated/blocked flow
+   * - Downwind: wake shadow zone (based on stall fraction)
+   */
   getWindVelocityContribution(queryPoint: V2d): V2d {
     const influenceRadius = this.sail.getWindInfluenceRadius();
-    const toQuery = queryPoint.sub(this.windModifierPosition);
-    const r = toQuery.magnitude;
 
-    if (r < WIND_MIN_DISTANCE || r > influenceRadius) {
+    // Quick check: is query point within overall influence radius?
+    const toQuery = queryPoint.sub(this.centroid);
+    const dist = toQuery.magnitude;
+
+    if (dist < WIND_MIN_DISTANCE || dist > influenceRadius) {
       return V(0, 0);
     }
 
-    const gamma =
-      this.currentLiftCoefficient *
-      this.currentChordLength *
-      this.currentWindSpeed;
+    // Classify query point relative to sail
+    const toQueryDir = toQuery.mul(1 / dist);
 
-    const magnitude =
-      (Math.abs(gamma) * WIND_INFLUENCE_SCALE) / Math.max(r, WIND_MIN_DISTANCE);
+    // Component perpendicular to sail (positive = leeward side)
+    const normalComponent = toQueryDir.dot(this.averageNormal);
 
-    const tangent = toQuery.normalize().rotate90ccw();
-    let contribution = tangent.mul(magnitude * Math.sign(gamma));
+    // Component along wind direction (positive = downwind)
+    const windComponent = toQueryDir.dot(this.windDirection);
 
-    if (this.isStalled) {
-      const turbulence = V(
-        (Math.random() - 0.5) * STALL_TURBULENCE_SCALE,
-        (Math.random() - 0.5) * STALL_TURBULENCE_SCALE
-      );
-      contribution = contribution.add(turbulence);
+    // Distance falloff (inverse linear)
+    const distanceFalloff = 1 - dist / influenceRadius;
+
+    // Lift-based strength (using aggregate values)
+    const liftStrength =
+      Math.abs(this.averageLiftCoefficient) * this.chordLength;
+
+    // Use in-place math to avoid allocations
+    let cx = 0;
+    let cy = 0;
+
+    if (normalComponent > 0.3) {
+      // LEEWARD ZONE: Accelerated flow parallel to sail surface
+      const acceleration =
+        LEEWARD_ACCELERATION *
+        liftStrength *
+        normalComponent *
+        distanceFalloff *
+        this.windSpeed;
+
+      // Flow accelerates in chord direction (toward trailing edge)
+      cx += this.chordDirection.x * acceleration;
+      cy += this.chordDirection.y * acceleration;
+    } else if (normalComponent < -0.3) {
+      // WINDWARD ZONE: Blocked/decelerated flow
+      const blockage =
+        WINDWARD_BLOCKAGE *
+        liftStrength *
+        Math.abs(normalComponent) *
+        distanceFalloff *
+        this.windSpeed;
+
+      // Reduce wind velocity (negative contribution in wind direction)
+      cx -= this.windDirection.x * blockage;
+      cy -= this.windDirection.y * blockage;
     }
 
-    return contribution;
+    // WAKE/SHADOW ZONE: Downwind of sail (scaled by stall fraction)
+    if (windComponent > 0.5 && this.stallFraction > 0) {
+      const wakeLength = this.chordLength * WAKE_LENGTH_FACTOR;
+      const wakeDistance = dist * windComponent;
+
+      if (wakeDistance < wakeLength) {
+        const wakeFalloff = 1 - wakeDistance / wakeLength;
+        const shadow =
+          WAKE_SHADOW_FACTOR *
+          this.stallFraction *
+          wakeFalloff *
+          this.windSpeed;
+
+        // Reduce wind in the wake
+        cx -= this.windDirection.x * shadow;
+        cy -= this.windDirection.y * shadow;
+      }
+    }
+
+    return V(cx, cy);
   }
 }

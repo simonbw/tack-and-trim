@@ -2,6 +2,7 @@ import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import BaseEntity from "../core/entity/BaseEntity";
 import { V, V2d } from "../core/Vector";
 import { WindModifier } from "./WindModifier";
+import { WindModifierSpatialHash } from "./WindModifierSpatialHash";
 
 // Wind variation configuration
 const NOISE_SPATIAL_SCALE = 0.005; // How quickly wind varies across space
@@ -14,20 +15,24 @@ export class Wind extends BaseEntity {
   private baseVelocity: V2d = V(100, 100);
   private speedNoise: NoiseFunction3D = createNoise3D();
   private angleNoise: NoiseFunction3D = createNoise3D();
-  private modifiers: Set<WindModifier> = new Set();
+  private spatialHash = new WindModifierSpatialHash();
 
-  getVelocityAtPoint(point: V2d): V2d {
+  onTick() {
+    // Rebuild spatial hash from all wind modifiers
+    this.spatialHash.clear();
+    const modifiers = this.game!.entities.getTagged("windModifier");
+    for (const modifier of modifiers) {
+      this.spatialHash.addModifier(modifier as unknown as WindModifier);
+    }
+  }
+
+  getVelocityAtPoint(point: V2d, skipModifier?: WindModifier): V2d {
     const velocity = this.getBaseVelocityAtPoint(point);
 
-    // Add contributions from all wind modifiers (sails, etc.)
-    for (const modifier of this.modifiers) {
-      const modifierPos = modifier.getWindModifierPosition();
-      const influenceRadius = modifier.getWindModifierInfluenceRadius();
-      const distanceSquared = point.squaredDistanceTo(modifierPos);
-
-      if (distanceSquared <= influenceRadius * influenceRadius) {
-        velocity.iadd(modifier.getWindVelocityContribution(point));
-      }
+    // Query spatial hash for modifiers that might affect this point
+    for (const modifier of this.spatialHash.queryPoint(point)) {
+      if (modifier === skipModifier) continue;
+      velocity.iadd(modifier.getWindVelocityContribution(point));
     }
 
     return velocity;
@@ -46,14 +51,6 @@ export class Wind extends BaseEntity {
     return this.baseVelocity.mul(speedScale).irotate(angleVariance);
   }
 
-  registerModifier(modifier: WindModifier): void {
-    this.modifiers.add(modifier);
-  }
-
-  unregisterModifier(modifier: WindModifier): void {
-    this.modifiers.delete(modifier);
-  }
-
   setVelocity(velocity: V2d): void {
     this.baseVelocity.set(velocity);
   }
@@ -70,8 +67,10 @@ export class Wind extends BaseEntity {
     return this.baseVelocity.angle;
   }
 
-  /** Get all registered wind modifiers (for visualization). */
-  getModifiers(): ReadonlySet<WindModifier> {
-    return this.modifiers;
+  /** Get all wind modifiers (for visualization). */
+  getModifiers(): readonly WindModifier[] {
+    return this.game!.entities.getTagged(
+      "windModifier"
+    ) as unknown as readonly WindModifier[];
   }
 }
