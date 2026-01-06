@@ -31,17 +31,10 @@ export class Bowsprit extends BaseEntity {
   }
 
   onRender() {
-    // Position bowsprit at the bow, extending forward
-    const [hx, hy] = this.hull.body.position;
-    const angle = this.hull.body.angle;
-
-    // Transform attach point to world coordinates
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    const worldX = hx + BOWSPRIT_ATTACH_POINT * cos;
-    const worldY = hy + BOWSPRIT_ATTACH_POINT * sin;
-
-    this.bowspritSprite.position.set(worldX, worldY);
-    this.bowspritSprite.rotation = angle;
+    const [x, y] = V(BOWSPRIT_ATTACH_POINT, 0)
+      .rotate(this.hull.body.angle)
+      .iadd(this.hull.body.position);
+    this.bowspritSprite.position.set(x, y);
+    this.bowspritSprite.rotation = this.hull.body.angle;
   }
 }
