@@ -2,12 +2,18 @@ import type Body from "../body/Body";
 import DynamicBody from "../body/DynamicBody";
 import type Equation from "../equations/Equation";
 
+/** Options shared by all constraint types. */
 export interface ConstraintOptions {
+  /** Whether connected bodies should collide with each other. Default true. */
   collideConnected?: boolean;
+  /** Whether to wake up sleeping bodies when constraint is created. Default true. */
   wakeUpBodies?: boolean;
 }
 
-/** Base constraint class. */
+/**
+ * Abstract base class for constraints. Constraints maintain geometric relationships
+ * between bodies using iterative solving. See DistanceConstraint, RevoluteConstraint, LockConstraint.
+ */
 export default abstract class Constraint {
   /** Equations to be solved in this constraint */
   equations: Equation[] = [];

@@ -9,35 +9,45 @@ import {
 } from "../internal";
 import Body, { BaseBodyOptions, SleepState } from "./Body";
 
+/** Options for creating a DynamicBody. */
 export interface DynamicBodyOptions extends BaseBodyOptions {
-  mass: number; // Required for dynamic bodies
+  /** Total mass of the body. Required. */
+  mass: number;
+  /** Initial linear velocity. */
   velocity?: CompatibleVector;
+  /** Initial angular velocity in radians/second. */
   angularVelocity?: number;
+  /** Linear velocity damping (0-1). Default 0.1. */
   damping?: number;
+  /** Angular velocity damping (0-1). Default 0.1. */
   angularDamping?: number;
+  /** If true, body cannot rotate. */
   fixedRotation?: boolean;
+  /** If true, body cannot move on X axis. */
   fixedX?: boolean;
+  /** If true, body cannot move on Y axis. */
   fixedY?: boolean;
+  /** Whether this body can sleep when idle. Default true. */
   allowSleep?: boolean;
+  /** Speed below which body becomes sleepy. Default 0.2. */
   sleepSpeedLimit?: number;
+  /** Seconds of low speed before sleeping. Default 1. */
   sleepTimeLimit?: number;
+  /** Enable CCD above this speed (-1 to disable). Default -1. */
   ccdSpeedThreshold?: number;
+  /** Binary search iterations for CCD. Default 10. */
   ccdIterations?: number;
 }
 
 /**
- * A dynamic body that responds to forces, has mass, and can sleep.
- * This is the most common body type for game objects.
+ * A body that responds to forces and collisions.
+ * This is the most common body type for game objects like players, projectiles, and physics props.
  */
 export default class DynamicBody extends Body {
-  // Velocity state
   private _velocity: V2d = V();
   private _angularVelocity: number = 0;
-
-  // Angular force accumulation (linear force is in base class)
   private _angularForce: number = 0;
 
-  // Mass properties
   private _mass: number;
   private _invMass: number = 0;
   private _inertia: number = 0;
@@ -45,27 +55,33 @@ export default class DynamicBody extends Body {
   private _invMassSolve: number = 0;
   private _invInertiaSolve: number = 0;
 
-  // Mass modification
+  /** If true, body cannot rotate. */
   fixedRotation: boolean;
+  /** If true, body cannot move on X axis. */
   fixedX: boolean;
+  /** If true, body cannot move on Y axis. */
   fixedY: boolean;
+  /** @internal */
   massMultiplier: V2d = V();
 
-  // Damping
+  /** Linear velocity damping per second (0 = no damping, 1 = full stop). */
   damping: number;
+  /** Angular velocity damping per second. */
   angularDamping: number;
 
-  // Sleep state
   private _sleepState: SleepState;
   private _allowSleep: boolean;
   private _sleepSpeedLimit: number;
   private _sleepTimeLimit: number;
   private _wantsToSleep: boolean = false;
+  /** Time spent below sleep speed limit. */
   idleTime: number = 0;
+  /** @internal */
   timeLastSleepy: number = 0;
 
-  // CCD
+  /** Speed threshold for enabling CCD. -1 disables CCD. */
   ccdSpeedThreshold: number;
+  /** Number of binary search iterations for CCD. */
   ccdIterations: number;
 
   constructor(options: DynamicBodyOptions) {
@@ -144,26 +160,32 @@ export default class DynamicBody extends Body {
     return this._invInertiaSolve;
   }
 
+  /** Current sleep state. */
   get sleepState(): SleepState {
     return this._sleepState;
   }
 
+  /** Whether this body is allowed to sleep. */
   get allowSleep(): boolean {
     return this._allowSleep;
   }
 
+  /** Speed threshold below which body becomes sleepy. */
   get sleepSpeedLimit(): number {
     return this._sleepSpeedLimit;
   }
 
+  /** @internal True if body is ready to sleep (used for island sleeping). */
   get wantsToSleep(): boolean {
     return this._wantsToSleep;
   }
 
+  /** Returns true if the body is currently sleeping. */
   isSleeping(): boolean {
     return this._sleepState === SleepState.SLEEPING;
   }
 
+  /** Returns true if the body is currently awake. */
   isAwake(): boolean {
     return this._sleepState === SleepState.AWAKE;
   }

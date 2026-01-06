@@ -34,37 +34,69 @@ import OverlapKeeper, {
   type ShapeOverlap,
 } from "./OverlapKeeper";
 
+/** Options for creating a World. */
 export interface WorldOptions {
+  /** Configuration for the constraint solver (iterations, tolerance). */
   solverConfig?: Partial<SolverConfig>;
+  /** Broadphase algorithm for collision culling. Defaults to SpatialHashingBroadphase. */
   broadphase?: Broadphase;
+  /** Enable island splitting for more efficient solving and sleeping. */
   islandSplit?: boolean;
 }
 
+/** Controls how bodies are allowed to sleep. */
 export enum SleepMode {
+  /** Bodies never sleep. */
   NO_SLEEPING = 1,
+  /** Individual bodies sleep when idle. */
   BODY_SLEEPING = 2,
+  /** Connected body groups (islands) sleep together. Requires islandSplit=true. */
   ISLAND_SLEEPING = 4,
 }
 
-/** The dynamics world, where all bodies and constraints live. */
+/**
+ * The physics simulation world. Contains all bodies, constraints, springs, and handles stepping.
+ *
+ * @example
+ * ```ts
+ * const world = new World({ islandSplit: true });
+ * world.bodies.add(new DynamicBody({ mass: 1 }));
+ * world.step(1/60);
+ * ```
+ */
 export default class World extends EventEmitter<PhysicsEventMap> {
+  /** Manages all bodies in the simulation. */
   bodies: BodyManager;
+  /** Manages all constraints between bodies. */
   constraints: ConstraintManager;
+  /** Manages friction/restitution properties between material pairs. */
   contactMaterials: ContactMaterialManager;
+  /** All springs in the simulation. */
   springs: Set<Spring>;
+  /** Configuration for the Gauss-Seidel constraint solver. */
   solverConfig: SolverConfig;
+  /** Broadphase algorithm used for collision culling. */
   broadphase: Broadphase;
+  /** Total simulated time in seconds. */
   time: number = 0.0;
+  /** True while step() is executing. */
   stepping: boolean = false;
+  /** Whether to split bodies into islands for solving. */
   islandSplit: boolean;
+  /** Whether to emit "impact" events on first contact. */
   emitImpactEvent: boolean = true;
   /** When true, multiple contacts between shapes produce one averaged friction equation instead of many. */
   frictionReduction: boolean = true;
+  /** @internal */
   _constraintIdCounter: number = 0;
+  /** @internal */
   _bodyIdCounter: number = 0;
+  /** Controls body sleeping behavior. */
   sleepMode: SleepMode;
+  /** Tracks shape overlaps for begin/end contact events. */
   overlapKeeper: OverlapKeeper;
 
+  /** Creates a new physics world. */
   constructor(options: WorldOptions = {}) {
     super();
 
@@ -85,7 +117,10 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     this.overlapKeeper = new OverlapKeeper();
   }
 
-  /** Step the physics world forward in time. */
+  /**
+   * Step the simulation forward by dt seconds.
+   * Applies forces, detects collisions, solves constraints, and integrates positions.
+   */
   step(dt: number): void {
     this.stepping = true;
 

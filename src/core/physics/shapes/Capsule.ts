@@ -3,18 +3,21 @@ import { V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 
+/** Options for creating a Capsule. */
 export interface CapsuleOptions extends ShapeOptions {
+  /** Distance between circle centers. Default 1. */
   length?: number;
+  /** Radius of the end caps. Default 1. */
   radius?: number;
 }
 
 const r = V();
 
-/**
- * Capsule shape class.
- */
+/** A capsule shape (rectangle with semicircular end caps). Also called a stadium. */
 export default class Capsule extends Shape {
+  /** Distance between the two circle centers. */
   length: number;
+  /** Radius of the semicircular end caps. */
   radius: number;
 
   constructor(options: CapsuleOptions = {}) {

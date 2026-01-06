@@ -4,51 +4,63 @@ import AABB from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 import type Material from "../material/Material";
 
+/** Options for creating a Shape. */
 export interface ShapeOptions {
+  /** Offset from body center. */
   position?: CompatibleVector;
+  /** Local rotation in radians. */
   angle?: number;
+  /** Collision group bit mask (what group this belongs to). Default 1. */
   collisionGroup?: number;
+  /** Collision mask bit mask (what groups this collides with). Default 1. */
   collisionMask?: number;
+  /** If true, detects overlaps but doesn't create contact forces. */
   sensor?: boolean;
+  /** Whether to produce contact forces. Default true. */
   collisionResponse?: boolean;
+  /** Material for friction/restitution lookup. */
   material?: Material;
 }
 
-/** Base class for shapes. */
+/**
+ * Abstract base class for collision shapes. Attach to a Body using body.addShape().
+ * Concrete implementations: Circle, Box, Convex, Capsule, Line, Plane, Particle, Heightfield.
+ */
 export default abstract class Shape {
+  /** @internal */
   static idCounter = 0;
 
-  /** The body this shape is attached to. */
+  /** The body this shape is attached to, or null. */
   body: Body | null = null;
 
-  /** Body-local position of the shape. */
+  /** Offset from body center in body-local coordinates. */
   position: V2d;
 
-  /** Body-local angle of the shape. */
+  /** Local rotation angle in radians. */
   angle: number;
 
-  /** Shape object identifier. */
+  /** Unique identifier for this shape. */
   id: number;
 
-  /** Bounding circle radius of this shape. */
+  /** Bounding circle radius for broad-phase collision. */
   boundingRadius: number = 0;
 
-  /** Collision group that this shape belongs to (bit mask). */
+  /** Bit mask defining what collision group this shape belongs to. */
   collisionGroup: number;
 
-  /** Whether to produce contact forces when in contact with other bodies. */
+  /** Whether this shape produces contact forces on collision. */
   collisionResponse: boolean;
 
-  /** Collision mask of this shape. */
+  /** Bit mask defining what collision groups this shape interacts with. */
   collisionMask: number;
 
-  /** Material to use in collisions for this Shape. */
+  /** Material for friction/restitution lookup. */
   material?: Material;
 
-  /** Area of this shape. */
+  /** Surface area of this shape. */
   area: number = 0;
 
-  /** Set to true if you want this shape to be a sensor. */
+  /** If true, detects overlaps but doesn't generate contact forces. */
   sensor: boolean;
 
   constructor(options: ShapeOptions = {}) {
@@ -70,29 +82,21 @@ export default abstract class Shape {
     // Each subclass (Circle, Convex, etc.) calls these methods in their own constructor.
   }
 
-  /** Should return the moment of inertia around the Z axis of the body given the total mass. */
+  /** Compute moment of inertia for the given mass. Override in subclasses. */
   computeMomentOfInertia(_mass: number): number {
     return 0;
   }
 
-  /** Returns the bounding circle radius of this shape. */
+  /** Recalculate the bounding radius. Called after shape properties change. */
   abstract updateBoundingRadius(): void;
 
-  /** Update the .area property of the shape. */
+  /** Recalculate the area. Called after shape properties change. */
   abstract updateArea(): void;
 
-  /** Compute the world axis-aligned bounding box (AABB) of this shape. */
+  /** Compute the axis-aligned bounding box at the given world position and angle. */
   abstract computeAABB(position: V2d, angle: number): AABB;
 
-  /**
-   * Perform raycasting on this shape.
-   * @param from - Ray start point in world coordinates
-   * @param to - Ray end point in world coordinates
-   * @param position - Shape position in world coordinates
-   * @param angle - Shape angle in world coordinates
-   * @param skipBackfaces - Whether to skip hits on back faces
-   * @returns Hit result or null if no hit
-   */
+  /** Cast a ray against this shape. Returns hit info or null if no hit. */
   abstract raycast(
     from: V2d,
     to: V2d,
