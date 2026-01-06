@@ -2,6 +2,7 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import { polarToVec } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { Anchor } from "./Anchor";
+import { Bowsprit, BOWSPRIT_TIP_POSITION } from "./Bowsprit";
 import { Hull } from "./Hull";
 import { Keel } from "./Keel";
 import { Rig } from "./Rig";
@@ -11,7 +12,7 @@ import { Sheet } from "./Sheet";
 
 const MAST_POSITION = V(5, 0);
 const JIB_HEAD_POSITION = V(5, 0); // At mast (hull-local)
-const JIB_TACK_POSITION = V(26, 0); // Near bow (hull-local)
+const JIB_TACK_POSITION = BOWSPRIT_TIP_POSITION; // At end of bowsprit (hull-local)
 
 const ROW_DURATION = 0.6; // seconds per row
 const ROW_FORCE = 500; // force per row
@@ -31,6 +32,7 @@ export class Boat extends BaseEntity {
   keel: Keel;
   rudder: Rudder;
   rig: Rig;
+  bowsprit: Bowsprit;
   jib!: Sail;
   anchor!: Anchor;
 
@@ -50,6 +52,7 @@ export class Boat extends BaseEntity {
     this.keel = new Keel(this.hull);
     this.rudder = new Rudder(this.hull);
     this.rig = new Rig(this.hull, MAST_POSITION);
+    this.bowsprit = new Bowsprit(this.hull);
 
     // Sheets and jib are created in onAdd() since they need body references
   }
@@ -60,6 +63,7 @@ export class Boat extends BaseEntity {
     this.addChild(this.keel);
     this.addChild(this.rudder);
     this.addChild(this.rig);
+    this.addChild(this.bowsprit);
 
     // Create mainsheet (boom to hull)
     const boomAttachLocal = V(
