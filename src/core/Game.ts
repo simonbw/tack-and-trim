@@ -1,4 +1,5 @@
 import { DEFAULT_LAYER, LAYERS } from "../config/layers";
+import { profiler } from "./util/Profiler";
 import ContactList, {
   ContactInfo,
   ContactInfoWithEquations,
@@ -339,6 +340,8 @@ export default class Game {
   /** The main event loop. Run one frame of the game.  */
   private loop(time: number): void {
     if (this.destroyed) return;
+    profiler.start("frame");
+
     this.animationFrameId = window.requestAnimationFrame((t) => this.loop(t));
     this.framenumber += 1;
 
@@ -365,22 +368,35 @@ export default class Game {
 
     this.slowTick(renderDt * this.slowMo);
 
+    profiler.start("tick-loop");
     this.timeToSimulate += renderDt * this.slowMo;
     while (this.timeToSimulate >= this.tickDuration) {
       this.timeToSimulate -= this.tickDuration;
+
+      profiler.start("tick");
       this.tick(this.tickDuration);
+      profiler.end("tick");
+
       if (!this.paused) {
+        profiler.start("physics");
         const stepDt = this.tickDuration;
         this.world.step(stepDt);
+        profiler.end("physics");
+
         this.validatePhysics();
         this.cleanupEntities();
         this.contacts();
       }
     }
+    profiler.end("tick-loop");
 
     this.afterPhysics();
 
+    profiler.start("render");
     this.render(renderDt);
+    profiler.end("render");
+
+    profiler.end("frame");
   }
 
   /**

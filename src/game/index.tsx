@@ -1,7 +1,7 @@
 import { TextureStyle } from "pixi.js";
 import AutoPauser from "../core/AutoPauser";
 import Game from "../core/Game";
-import FPSMeter from "../core/util/FPSMeter";
+import DebugOverlay from "../core/util/DebugOverlay";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { BoatSpray } from "./BoatSpray";
@@ -9,8 +9,8 @@ import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
 import { Wake } from "./water/Wake";
-import { WakeField } from "./water/WakeField";
-import { Water } from "./water/Water";
+import { WaterInfo } from "./water/WaterInfo";
+import { WaterRenderer } from "./water/WaterRenderer";
 import { Wind } from "./Wind";
 import { WindVisualization } from "./wind-visualization/WindVisualization";
 import { WindIndicator } from "./WindIndicator";
@@ -42,12 +42,13 @@ async function main() {
   preloader.destroy();
 
   if (process.env.NODE_ENV === "development") {
-    const fpsMeter = new FPSMeter();
-    game.addEntity(fpsMeter);
+    const debugOverlay = new DebugOverlay();
+    game.addEntity(debugOverlay);
   }
 
   game.addEntity(new AutoPauser());
-  game.addEntity(new Water());
+  game.addEntity(new WaterInfo());
+  game.addEntity(new WaterRenderer());
   game.addEntity(new Buoy(200, 0));
   game.addEntity(new Buoy(-160, 120));
   game.addEntity(new Buoy(100, -200));
@@ -58,7 +59,6 @@ async function main() {
   const boat = game.addEntity(new Boat());
   game.addEntity(new PlayerBoatController(boat));
   game.addEntity(new CameraController(boat, game.camera));
-  game.addEntity(new WakeField());
   game.addEntity(new Wake(boat));
   game.addEntity(new BoatSpray(boat));
   game.addEntity(new WindParticles());

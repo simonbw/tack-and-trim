@@ -84,4 +84,27 @@ Define custom events in `src/config/CustomEvent.ts` and dispatch them with `game
 - Query with `game.entities.getTagged("tagName")`
 - Use unique `id` for single entities: `game.entities.getById("entityId")`
 
+### Profiler
+
+Use the `profiler` singleton from `src/core/util/Profiler.ts` to measure performance:
+
+```typescript
+import { profiler } from "./util/Profiler";
+
+// Wrap code to measure
+profiler.start("myOperation");
+// ... code to measure ...
+profiler.end("myOperation");
+
+// Or use measure() for cleaner scoping
+profiler.measure("myOperation", () => {
+  // ... code to measure ...
+});
+
+// Just count calls without timing overhead
+profiler.count("frequentEvent");
+```
+
+The game loop automatically profiles: `frame`, `tick-loop`, `tick`, `physics`, and `render`.
+
 ## Code Style
