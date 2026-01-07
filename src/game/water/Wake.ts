@@ -4,7 +4,7 @@ import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { clamp, lerp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { Boat } from "../boat/Boat";
-import { WakeField } from "./WakeField";
+import { WakeParticle } from "./WakeParticle";
 
 interface WakePoint {
   leftPos: V2d;
@@ -16,7 +16,7 @@ interface WakePoint {
 
 const CONFIG = {
   MAX_AGE: 3.0,
-  SPAWN_INTERVAL: 0.016,
+  SPAWN_DISTANCE: 8, // Spawn particles every N units of distance traveled
   MIN_SPEED: 5,
   MAX_SPEED: 55,
   REAR_OFFSET: -18,
@@ -27,12 +27,15 @@ const CONFIG = {
   MAX_ALPHA: 0.7,
   MIN_LINE_WIDTH: 1,
   MAX_LINE_WIDTH: 3,
+  // Wake particle lifespan range for natural variation
+  MIN_PARTICLE_LIFESPAN: 2.0,
+  MAX_PARTICLE_LIFESPAN: 5.0,
 };
 
 export class Wake extends BaseEntity {
   private graphics: GameSprite & Graphics;
   private wakePoints: WakePoint[] = [];
-  private timeSinceLastSpawn = 0;
+  private lastSpawnPos: V2d | null = null;
 
   constructor(private boat: Boat) {
     super();
@@ -42,10 +45,7 @@ export class Wake extends BaseEntity {
 
   onTick(dt: number) {
     this.updatePoints(dt);
-
-    this.timeSinceLastSpawn += dt;
     this.maybeSpawnPoint();
-
     this.wakePoints = this.wakePoints.filter((p) => p.age < CONFIG.MAX_AGE);
   }
 
@@ -64,19 +64,20 @@ export class Wake extends BaseEntity {
 
     if (speed < CONFIG.MIN_SPEED) return;
 
+    const boatPos = this.boat.getPosition();
+
+    // Check distance traveled since last spawn
+    if (this.lastSpawnPos) {
+      const dx = boatPos.x - this.lastSpawnPos.x;
+      const dy = boatPos.y - this.lastSpawnPos.y;
+      const distSquared = dx * dx + dy * dy;
+      if (distSquared < CONFIG.SPAWN_DISTANCE * CONFIG.SPAWN_DISTANCE) return;
+    }
+    this.lastSpawnPos = boatPos.clone();
+
     const speedFactor = clamp(
       (speed - CONFIG.MIN_SPEED) / (CONFIG.MAX_SPEED - CONFIG.MIN_SPEED)
     );
-    const interval = lerp(
-      CONFIG.SPAWN_INTERVAL * 2,
-      CONFIG.SPAWN_INTERVAL * 0.5,
-      speedFactor
-    );
-
-    if (this.timeSinceLastSpawn < interval) return;
-    this.timeSinceLastSpawn = 0;
-
-    const boatPos = this.boat.getPosition();
     const boatAngle = this.boat.hull.body.angle;
 
     const rearOffset = V(CONFIG.REAR_OFFSET, 0).rotate(boatAngle);
@@ -92,47 +93,41 @@ export class Wake extends BaseEntity {
       speed,
     });
 
-    // Spawn physics wake particles into WakeField
-    const wakeField = this.game?.entities.getById("wakeField") as
-      | WakeField
-      | undefined;
-    if (wakeField) {
-      // Wake velocity is outward from the boat's path, scaled by boat speed
-      const wakeSpeed = speed * 0.3; // Wake moves slower than boat
-      const leftVelocity = perpendicular.mul(wakeSpeed);
-      const rightVelocity = perpendicular.mul(-wakeSpeed);
+    // Spawn physics wake particles as entities
+    // Wake velocity is outward from the boat's path, scaled by boat speed
+    const wakeSpeed = speed * 0.3; // Wake moves slower than boat
+    const leftVelocity = perpendicular.mul(wakeSpeed);
+    const rightVelocity = perpendicular.mul(-wakeSpeed);
 
-      wakeField.spawnParticle(
+    // Random lifespan for natural variation
+    const lifespanRange =
+      CONFIG.MAX_PARTICLE_LIFESPAN - CONFIG.MIN_PARTICLE_LIFESPAN;
+    const leftLifespan =
+      CONFIG.MIN_PARTICLE_LIFESPAN + Math.random() * lifespanRange;
+    const rightLifespan =
+      CONFIG.MIN_PARTICLE_LIFESPAN + Math.random() * lifespanRange;
+
+    this.game?.addEntity(
+      new WakeParticle(
         rearPos.add(perpendicular.mul(CONFIG.INITIAL_SPREAD)),
         leftVelocity,
-        speedFactor
-      );
-      wakeField.spawnParticle(
+        speedFactor,
+        leftLifespan
+      )
+    );
+    this.game?.addEntity(
+      new WakeParticle(
         rearPos.add(perpendicular.mul(-CONFIG.INITIAL_SPREAD)),
         rightVelocity,
-        speedFactor
-      );
-    }
+        speedFactor,
+        rightLifespan
+      )
+    );
   }
 
   onRender() {
+    // Disabled - using shader-based height coloring instead
     this.graphics.clear();
-    if (this.wakePoints.length < 2) return;
-
-    this.drawTrail(
-      this.wakePoints.map((p) => ({
-        pos: p.leftPos,
-        age: p.age,
-        speed: p.speed,
-      }))
-    );
-    this.drawTrail(
-      this.wakePoints.map((p) => ({
-        pos: p.rightPos,
-        age: p.age,
-        speed: p.speed,
-      }))
-    );
   }
 
   private drawTrail(points: Array<{ pos: V2d; age: number; speed: number }>) {

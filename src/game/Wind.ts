@@ -1,8 +1,9 @@
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import BaseEntity from "../core/entity/BaseEntity";
+import { profiler } from "../core/util/Profiler";
+import { SparseSpatialHash } from "../core/util/SparseSpatialHash";
 import { V, V2d } from "../core/Vector";
 import { WindModifier } from "./WindModifier";
-import { WindModifierSpatialHash } from "./WindModifierSpatialHash";
 
 // Wind variation configuration
 const NOISE_SPATIAL_SCALE = 0.005; // How quickly wind varies across space
@@ -15,15 +16,20 @@ export class Wind extends BaseEntity {
   private baseVelocity: V2d = V(100, 100);
   private speedNoise: NoiseFunction3D = createNoise3D();
   private angleNoise: NoiseFunction3D = createNoise3D();
-  private spatialHash = new WindModifierSpatialHash();
+  private spatialHash = new SparseSpatialHash<WindModifier>(
+    (m) => m.getWindModifierPosition(),
+    (m) => m.getWindModifierInfluenceRadius()
+  );
 
   onTick() {
+    profiler.start("wind-tick");
     // Rebuild spatial hash from all wind modifiers
     this.spatialHash.clear();
     const modifiers = this.game!.entities.getTagged("windModifier");
     for (const modifier of modifiers) {
-      this.spatialHash.addModifier(modifier as unknown as WindModifier);
+      this.spatialHash.add(modifier as unknown as WindModifier);
     }
+    profiler.end("wind-tick");
   }
 
   getVelocityAtPoint(point: V2d, skipModifier?: WindModifier): V2d {

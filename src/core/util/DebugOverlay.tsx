@@ -6,7 +6,7 @@ import { ReactEntity } from "../ReactEntity";
 import { profiler, ProfileStats } from "./Profiler";
 
 const SMOOTHING = 0.95;
-const TOP_N_PROFILES = 8;
+const TOP_N_PROFILES = 100;
 
 const MODES = ["closed", "lean", "physics", "profiler"] as const;
 type Mode = (typeof MODES)[number];
@@ -109,21 +109,26 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "100px 50px 60px 50px 50px",
+                    gridTemplateColumns: "1fr 50px 50px 50px 35px",
                     fontSize: "10px",
                     color: "#888",
                     marginBottom: "2px",
                   }}
                 >
                   <span>Label</span>
-                  <span style={{ textAlign: "right" }}>Calls</span>
-                  <span style={{ textAlign: "right" }}>Total</span>
+                  <span style={{ textAlign: "right" }}>Calls/s</span>
                   <span style={{ textAlign: "right" }}>Avg</span>
                   <span style={{ textAlign: "right" }}>Max</span>
+                  <span style={{ textAlign: "right" }}>%</span>
                 </div>
 
                 {profileStats.map((stat, i) => (
-                  <ProfileRow key={stat.label} stat={stat} index={i} />
+                  <ProfileRow
+                    key={stat.label}
+                    stat={stat}
+                    index={i}
+                    allStats={profileStats}
+                  />
                 ))}
 
                 {profileStats.length === 0 && (
@@ -196,32 +201,91 @@ export default class DebugOverlay extends ReactEntity implements Entity {
   }
 }
 
-function ProfileRow({ stat, index }: { stat: ProfileStats; index: number }) {
-  const isFrameMetric = stat.label === "frame";
+const SEPARATOR = " > ";
+
+/** Compute tree prefix using box-drawing characters */
+function getTreePrefix(
+  stat: ProfileStats,
+  index: number,
+  allStats: ProfileStats[]
+): string {
+  if (stat.depth === 0) return "";
+
+  const segments = stat.label.split(SEPARATOR);
+  let prefix = "";
+
+  // For each ancestor level, determine if we need a vertical line
+  for (let level = 0; level < stat.depth - 1; level++) {
+    const ancestorPath = segments.slice(0, level + 1).join(SEPARATOR);
+    // Check if any later stat shares this ancestor (meaning the line continues)
+    const hasLaterSibling = allStats.slice(index + 1).some((s) => {
+      const sSegments = s.label.split(SEPARATOR);
+      return (
+        sSegments.length > level + 1 &&
+        sSegments.slice(0, level + 1).join(SEPARATOR) === ancestorPath
+      );
+    });
+    prefix += hasLaterSibling ? "│" : " ";
+  }
+
+  // For the current level, determine if this is the last child
+  const parentPath = segments.slice(0, stat.depth).join(SEPARATOR);
+  const isLastChild = !allStats.slice(index + 1).some((s) => {
+    const sSegments = s.label.split(SEPARATOR);
+    return (
+      sSegments.length > stat.depth &&
+      sSegments.slice(0, stat.depth).join(SEPARATOR) === parentPath
+    );
+  });
+
+  prefix += isLastChild ? "└" : "├";
+  return prefix;
+}
+
+function ProfileRow({
+  stat,
+  index,
+  allStats,
+}: {
+  stat: ProfileStats;
+  index: number;
+  allStats: ProfileStats[];
+}) {
+  const isFrameMetric = stat.shortLabel === "frame" && stat.depth === 0;
   const isSlow = isFrameMetric && stat.avgMs > 16.67;
   const color = isSlow ? "#ff6666" : index < 4 ? "#fff" : "#aaa";
+  const treePrefix = getTreePrefix(stat, index, allStats);
+
+  // Compute % of parent
+  let percentOfParent = "";
+  if (stat.depth > 0) {
+    const parentPath = stat.label
+      .split(SEPARATOR)
+      .slice(0, stat.depth)
+      .join(SEPARATOR);
+    const parent = allStats.find((s) => s.label === parentPath);
+    if (parent && parent.msPerSec > 0) {
+      const pct = (stat.msPerSec / parent.msPerSec) * 100;
+      percentOfParent = pct.toFixed(0) + "%";
+    }
+  }
 
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "100px 50px 60px 50px 50px",
+        gridTemplateColumns: "1fr 50px 50px 50px 35px",
         color,
       }}
     >
-      <span
-        style={{
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {stat.label}
+      <span>
+        {treePrefix}
+        {stat.shortLabel}
       </span>
-      <span style={{ textAlign: "right" }}>{stat.calls}</span>
-      <span style={{ textAlign: "right" }}>{stat.totalMs.toFixed(1)}ms</span>
-      <span style={{ textAlign: "right" }}>{stat.avgMs.toFixed(2)}</span>
-      <span style={{ textAlign: "right" }}>{stat.maxMs.toFixed(1)}</span>
+      <span style={{ textAlign: "right" }}>{stat.callsPerSec.toFixed(0)}</span>
+      <span style={{ textAlign: "right" }}>{stat.avgMs.toFixed(2)}ms</span>
+      <span style={{ textAlign: "right" }}>{stat.maxMs.toFixed(1)}ms</span>
+      <span style={{ textAlign: "right" }}>{percentOfParent}</span>
     </div>
   );
 }

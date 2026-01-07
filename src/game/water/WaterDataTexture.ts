@@ -1,0 +1,99 @@
+import { BufferImageSource, Texture } from "pixi.js";
+import { profiler } from "../../core/util/Profiler";
+import { WaterInfo } from "./WaterInfo";
+
+const TEXTURE_SIZE = 256;
+
+// Update every Nth pixel each frame, cycling through offsets.
+// Higher = less work per frame, but more latency for updates.
+const UPDATE_STRIDE = 4;
+
+// Scale factors for packing floats into 0-255 range
+const HEIGHT_SCALE = 255 / 5; // Map 0-5 units to 0-255
+const VELOCITY_SCALE = 255 / 100; // Map -50 to +50 to 0-255 (with 127.5 as zero)
+const VELOCITY_OFFSET = 127.5;
+
+export interface Viewport {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Creates and maintains a data texture containing water state information.
+ * The texture is sampled by the water shader to render height-based coloring.
+ *
+ * Uses partial updates: only a slice of rows is updated each frame,
+ * cycling through all slices over NUM_SLICES frames. This trades temporal
+ * resolution for performance.
+ *
+ * Each texel contains (packed as RGBA8):
+ * - R: surface height (0-255 maps to 0-5 units)
+ * - G: velocity X (0-255 maps to -50 to +50)
+ * - B: velocity Y (0-255 maps to -50 to +50)
+ * - A: unused (set to 255)
+ */
+export class WaterDataTexture {
+  private dataArray: Uint8Array;
+  private texture: Texture;
+  private currentOffset: number = 0;
+
+  constructor() {
+    // Create RGBA8 array for texture data
+    this.dataArray = new Uint8Array(TEXTURE_SIZE * TEXTURE_SIZE * 4);
+
+    // Create texture from buffer with linear filtering for smooth interpolation
+    const source = new BufferImageSource({
+      resource: this.dataArray,
+      width: TEXTURE_SIZE,
+      height: TEXTURE_SIZE,
+      format: "rgba8unorm",
+      alphaMode: "no-premultiply-alpha",
+      scaleMode: "linear",
+    });
+
+    this.texture = new Texture({ source });
+  }
+
+  /**
+   * Update a portion of the texture with water state data for the current viewport.
+   * Updates every Nth pixel, cycling through offsets each frame.
+   */
+  update(viewport: Viewport, waterInfo: WaterInfo): void {
+    profiler.start("water-data-texture");
+    const { left, top, width, height } = viewport;
+    const cellWidth = width / TEXTURE_SIZE;
+    const cellHeight = height / TEXTURE_SIZE;
+
+    // Update every Nth pixel starting at current offset
+    profiler.start("water-update-slice");
+    waterInfo.writeStateToTexture(
+      this.dataArray,
+      this.currentOffset,
+      UPDATE_STRIDE,
+      left,
+      top,
+      cellWidth,
+      cellHeight,
+      TEXTURE_SIZE,
+      HEIGHT_SCALE,
+      VELOCITY_SCALE,
+      VELOCITY_OFFSET
+    );
+    profiler.end("water-update-slice");
+
+    // Advance to next offset for next frame
+    this.currentOffset = (this.currentOffset + 1) % UPDATE_STRIDE;
+
+    // Upload to GPU
+    profiler.start("water-gpu-upload");
+    this.texture.source.update();
+    profiler.end("water-gpu-upload");
+    profiler.end("water-data-texture");
+  }
+
+  getTexture(): Texture {
+    return this.texture;
+  }
+}

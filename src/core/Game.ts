@@ -368,7 +368,6 @@ export default class Game {
 
     this.slowTick(renderDt * this.slowMo);
 
-    profiler.start("tick-loop");
     this.timeToSimulate += renderDt * this.slowMo;
     while (this.timeToSimulate >= this.tickDuration) {
       this.timeToSimulate -= this.tickDuration;
@@ -383,12 +382,13 @@ export default class Game {
         this.world.step(stepDt);
         profiler.end("physics");
 
+        profiler.start("contacts");
         this.validatePhysics();
         this.cleanupEntities();
         this.contacts();
+        profiler.end("contacts");
       }
     }
-    profiler.end("tick-loop");
 
     this.afterPhysics();
 

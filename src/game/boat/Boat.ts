@@ -152,6 +152,13 @@ export class Boat extends BaseEntity {
     this.anchor = this.addChild(new Anchor(this.hull));
   }
 
+  onTick(): void {
+    // Fade jib sheets based on jib hoist amount
+    const jibOpacity = this.jib.getHoistAmount();
+    this.portJibSheet.setOpacity(jibOpacity);
+    this.starboardJibSheet.setOpacity(jibOpacity);
+  }
+
   // ============ Action Methods ============
   // These are called by controllers (player input, AI, etc.)
 

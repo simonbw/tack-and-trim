@@ -8,7 +8,7 @@ import {
   foilDrag,
   foilLift,
 } from "../fluid-dynamics";
-import { Water } from "../water/Water";
+import { WaterInfo } from "../water/WaterInfo";
 import { Hull } from "./Hull";
 
 const KEEL_VERTICES = [V(-15, 0), V(15, 0)];
@@ -33,7 +33,7 @@ export class Keel extends BaseEntity {
     const drag = foilDrag(KEEL_LIFT_AND_DRAG);
 
     // Get water velocity function
-    const water = this.game?.entities.getById("water") as Water | undefined;
+    const water = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
     const getWaterVelocity = (point: V2d): V2d =>
       water?.getStateAtPoint(point).velocity ?? V(0, 0);
 

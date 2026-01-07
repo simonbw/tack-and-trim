@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { profiler } from "../../core/util/Profiler";
 import { V, V2d } from "../../core/Vector";
 import { TurbulenceParticle } from "../TurbulenceParticle";
 import type { Wind } from "../Wind";
@@ -70,17 +71,23 @@ export class SailWindEffect extends BaseEntity implements WindModifier {
   }
 
   onTick() {
+    profiler.start("sail-wind-effect-tick");
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
-    if (!wind) return;
+    if (!wind) {
+      profiler.end("sail-wind-effect-tick");
+      return;
+    }
 
     // When sail is lowered, skip all calculations
     if (!this.sail.isHoisted()) {
       this.clearState();
+      profiler.end("sail-wind-effect-tick");
       return;
     }
 
     this.updateState(wind);
     this.handleStallTransitions(wind);
+    profiler.end("sail-wind-effect-tick");
   }
 
   private updateState(wind: Wind) {

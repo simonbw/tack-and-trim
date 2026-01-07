@@ -4,7 +4,7 @@ import { createGraphics, GameSprite } from "../core/entity/GameSprite";
 import DynamicBody from "../core/physics/body/DynamicBody";
 import Circle from "../core/physics/shapes/Circle";
 import { V } from "../core/Vector";
-import { Water } from "./water/Water";
+import { WaterInfo } from "./water/WaterInfo";
 
 const BUOY_RADIUS = 6;
 const BUOY_MASS = 2;
@@ -45,7 +45,7 @@ export class Buoy extends BaseEntity {
     }
 
     // Apply water velocity as a drag force (pushes buoy with the current/wake)
-    const water = this.game?.entities.getById("water") as Water | undefined;
+    const water = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
     if (water) {
       const waterState = water.getStateAtPoint(V(x, y));
       // Force proportional to difference between water velocity and buoy velocity
@@ -65,7 +65,7 @@ export class Buoy extends BaseEntity {
     this.buoySprite.rotation = this.body.angle;
 
     // Scale sprite based on water surface height (simulates bobbing up/down)
-    const water = this.game?.entities.getById("water") as Water | undefined;
+    const water = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
     if (water) {
       const waterState = water.getStateAtPoint(V(x, y));
       const scale = 1 + waterState.surfaceHeight * HEIGHT_SCALE_FACTOR;

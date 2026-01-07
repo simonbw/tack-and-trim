@@ -137,6 +137,11 @@ export class Sheet extends BaseEntity {
     return lerp(this.config.minLength, this.config.maxLength, this.position);
   }
 
+  /** Set the visual opacity of the sheet (0 = invisible, 1 = fully visible) */
+  setOpacity(opacity: number): void {
+    this.sheetSprite.alpha = Math.max(0, Math.min(1, opacity));
+  }
+
   /** Check if sheet is fully eased out (at max length) */
   isAtMaxLength(): boolean {
     return this.position >= 1;

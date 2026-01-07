@@ -5,6 +5,7 @@ import Game from "../core/Game";
 import { Viewport } from "../core/graphics/Camera2d";
 import { range } from "../core/util/FunctionalUtils";
 import { invLerp, stepToward, sum } from "../core/util/MathUtil";
+import { profiler } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Wind } from "./Wind";
@@ -43,10 +44,14 @@ export class WindParticles extends BaseEntity {
   }
 
   onRender(dt: number) {
+    profiler.start("wind-particles-render");
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
     const viewport = this.game?.camera.getWorldViewport();
 
-    if (!this.game || !wind || !viewport || !this.grid) return;
+    if (!this.game || !wind || !viewport || !this.grid) {
+      profiler.end("wind-particles-render");
+      return;
+    }
 
     const zoom = this.game.camera.z;
     const scale = (PARTICLE_SIZE / (TEXTURE_SIZE * zoom)) * 1.01 ** zoom;
@@ -83,6 +88,7 @@ export class WindParticles extends BaseEntity {
     for (const p of this.particles) {
       p.onRender(dt, scale, wind);
     }
+    profiler.end("wind-particles-render");
   }
 }
 

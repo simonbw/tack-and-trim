@@ -6,7 +6,7 @@ import Convex from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { V, V2d } from "../../core/Vector";
 import { applySkinFriction } from "../fluid-dynamics";
-import { Water } from "../water/Water";
+import { WaterInfo } from "../water/WaterInfo";
 
 export const BOAT_MASS = 5; // kg?
 
@@ -63,7 +63,7 @@ export class Hull extends BaseEntity {
 
   onTick() {
     // Get water velocity function
-    const water = this.game?.entities.getById("water") as Water | undefined;
+    const water = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
     const getWaterVelocity = (point: V2d): V2d =>
       water?.getStateAtPoint(point).velocity ?? V(0, 0);
 

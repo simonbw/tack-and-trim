@@ -1,17 +1,27 @@
-import { V2d } from "../core/Vector";
-import { WindModifier } from "./WindModifier";
+import { V2d } from "../Vector";
 
-const DEFAULT_CELL_SIZE = 10; // Tunable - roughly matches typical influence radius
+const DEFAULT_CELL_SIZE = 10;
 
 /**
- * Sparse spatial hash for efficient point queries against wind modifiers.
+ * Generic sparse spatial hash for efficient point queries.
  * Uses a Map so only non-empty cells exist in memory.
+ *
+ * @param T The type of items stored in the hash
  */
-export class WindModifierSpatialHash {
+export class SparseSpatialHash<T> {
   private cellSize: number;
-  private cells = new Map<number, WindModifier[]>();
+  private cells = new Map<number, T[]>();
 
-  constructor(cellSize: number = DEFAULT_CELL_SIZE) {
+  /**
+   * @param getPosition Function to get an item's position
+   * @param getRadius Function to get an item's influence radius
+   * @param cellSize Size of each cell (default 10, roughly matches typical influence radius)
+   */
+  constructor(
+    private getPosition: (item: T) => V2d,
+    private getRadius: (item: T) => number,
+    cellSize: number = DEFAULT_CELL_SIZE
+  ) {
     this.cellSize = cellSize;
   }
 
@@ -23,10 +33,10 @@ export class WindModifierSpatialHash {
     return ((cx + 0x8000) << 16) | ((cy + 0x8000) & 0xffff);
   }
 
-  /** Add modifier to all cells its influence radius overlaps */
-  addModifier(modifier: WindModifier): void {
-    const pos = modifier.getWindModifierPosition();
-    const r = modifier.getWindModifierInfluenceRadius();
+  /** Add item to all cells its influence radius overlaps */
+  add(item: T): void {
+    const pos = this.getPosition(item);
+    const r = this.getRadius(item);
 
     const minCX = Math.floor((pos.x - r) / this.cellSize);
     const maxCX = Math.floor((pos.x + r) / this.cellSize);
@@ -41,13 +51,13 @@ export class WindModifierSpatialHash {
           cell = [];
           this.cells.set(key, cell);
         }
-        cell.push(modifier);
+        cell.push(item);
       }
     }
   }
 
-  /** Query modifiers that might affect a point */
-  queryPoint(point: V2d): readonly WindModifier[] {
+  /** Query items that might affect a point */
+  queryPoint(point: V2d): readonly T[] {
     const key = this.getCellKey(point.x, point.y);
     return this.cells.get(key) ?? [];
   }
