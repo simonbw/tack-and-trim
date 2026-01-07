@@ -10,6 +10,7 @@ import { lerpV2d, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { applyFluidForces } from "../fluid-dynamics";
 import type { Wind } from "../Wind";
+import type { WindModifier } from "../WindModifier";
 import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
 import { SailWindEffect } from "./SailWindEffect";
 import { TellTail } from "./TellTail";
@@ -78,6 +79,9 @@ export class Sail extends BaseEntity {
   // Hoist state (0 = fully lowered, 1 = fully hoisted)
   private hoistAmount: number = 0;
   private targetHoistAmount: number = 0;
+
+  // Reference to our wind effect (for self-skip during wind queries)
+  private windEffect: WindModifier | null = null;
 
   constructor(private config: SailConfig) {
     super();
@@ -217,8 +221,10 @@ export class Sail extends BaseEntity {
       this.addChild(new TellTail(this.bodies[this.nodeCount - 1]));
     }
 
-    // Add wind effect child
-    this.addChild(new SailWindEffect(this));
+    // Add wind effect child and store reference for self-skip
+    const windEffect = new SailWindEffect(this);
+    this.windEffect = windEffect;
+    this.addChild(windEffect);
   }
 
   onTick(dt: number) {
@@ -237,8 +243,10 @@ export class Sail extends BaseEntity {
       return;
     }
 
+    // Skip our own wind effect to prevent feedback loops
+    const selfWindEffect = this.windEffect ?? undefined;
     const getFluidVelocity = (point: V2d): V2d =>
-      wind.getVelocityAtPoint(point);
+      wind.getVelocityAtPoint(point, selfWindEffect);
 
     const head = this.config.getHeadPosition();
     const clew = this.getClewPosition();
