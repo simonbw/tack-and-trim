@@ -26,18 +26,27 @@ const fragment = /*glsl*/ `
     // Sample the data texture (values are packed as 0-255 -> 0.0-1.0)
     vec4 waterData = texture(uWaterData, dataUV);
 
-    // Unpack height: texture R channel (0-1 maps to 0-5 world units)
-    float surfaceHeight = waterData.r * 5.0;
+    // Unpack height: 0.5 (127) is neutral, below is trough, above is peak
+    float rawHeight = waterData.r;
+    float relativeHeight = (rawHeight - 0.5) * 2.0; // -1 to +1 range
 
-    // Normalize height for color mixing
-    float h = clamp(surfaceHeight / 3.0, 0.0, 1.0);
+    // 4-level color palette for vector art style
+    vec3 darkBlue = vec3(0.02, 0.08, 0.20);    // troughs (low)
+    vec3 mediumBlue = vec3(0.08, 0.20, 0.45);  // normal
+    vec3 lightBlue = vec3(0.25, 0.50, 0.70);   // elevated
+    vec3 white = vec3(0.85, 0.92, 0.98);       // peaks
 
-    // Color palette based on height
-    vec3 deepBlue = vec3(0.05, 0.15, 0.35);
-    vec3 lightBlue = vec3(0.3, 0.55, 0.75);
-
-    // Mix based on height
-    vec3 color = mix(deepBlue, lightBlue, h);
+    // Quantize to 4 levels based on height
+    vec3 color;
+    if (relativeHeight < -0.15) {
+      color = darkBlue;      // trough
+    } else if (relativeHeight < 0.15) {
+      color = mediumBlue;    // normal
+    } else if (relativeHeight < 0.5) {
+      color = lightBlue;     // elevated
+    } else {
+      color = white;         // peak
+    }
 
     gl_FragColor = vec4(color, 1.0);
   }

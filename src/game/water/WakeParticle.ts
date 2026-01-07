@@ -7,9 +7,9 @@ const DEFAULT_MAX_AGE = 4.0; // Default lifespan if not specified
 const WARMUP_TIME = 0.3; // Seconds before particle affects physics (reduced since particles move away)
 const BASE_RADIUS = 15; // Starting influence radius
 const MAX_RADIUS = 60; // Radius at end of life
-const DECAY_RATE = 0.5; // How quickly intensity decays (per second)
+const DECAY_RATE = 1.5; // How quickly intensity decays (per second)
 const VELOCITY_SCALE = 0.8; // Scale factor for wake velocity effect
-const HEIGHT_SCALE = 0.25; // Max height contribution from wake (kept low so overlapping particles can build up)
+const HEIGHT_SCALE = 1.5; // Max height contribution from wake
 
 // Shared zero contribution to avoid allocations
 const ZERO_CONTRIBUTION: WaterContribution = {
@@ -118,19 +118,21 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
 
     // Compute distance and falloff
     const dist = Math.sqrt(distSquared);
-    const t = dist / radius;
-    const linearFalloff = 1 - t;
-    const quadraticFalloff = linearFalloff * linearFalloff;
+    const t = dist / radius; // 0 at center, 1 at edge
 
     const intensity = this.intensity;
 
     // Velocity uses linear falloff (velocity already pre-scaled)
+    const linearFalloff = 1 - t;
     const velFalloff = linearFalloff * intensity;
     this.contribution.velocityX = this.scaledVelX * velFalloff;
     this.contribution.velocityY = this.scaledVelY * velFalloff;
 
-    // Height uses quadratic falloff for smoother wave shape
-    this.contribution.height = quadraticFalloff * intensity * HEIGHT_SCALE;
+    // Height: cosine wave profile creates peak at center, trough at mid-radius
+    // cos(t * PI) gives: +1 at center, 0 at t=0.5, -1 at edge
+    // Multiply by (1-t) to fade to zero at the edge
+    const waveProfile = Math.cos(t * Math.PI) * (1 - t);
+    this.contribution.height = waveProfile * intensity * HEIGHT_SCALE;
 
     return this.contribution;
   }

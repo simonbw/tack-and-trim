@@ -92,6 +92,7 @@ export class WaterInfo extends BaseEntity {
    * @param cellHeight - Height of each cell in world units
    * @param gridSize - Number of cells per row/column
    * @param heightScale - Scale factor for height packing
+   * @param heightOffset - Offset for height packing (neutral height value, e.g. 127)
    * @param velocityScale - Scale factor for velocity packing
    * @param velocityOffset - Offset for velocity packing (to handle negative values)
    */
@@ -105,6 +106,7 @@ export class WaterInfo extends BaseEntity {
     cellHeight: number,
     gridSize: number,
     heightScale: number,
+    heightOffset: number,
     velocityScale: number,
     velocityOffset: number
   ): void {
@@ -134,8 +136,12 @@ export class WaterInfo extends BaseEntity {
       }
 
       // Pack directly into texture array
+      // Height is centered at heightOffset (127), can go up or down
       const idx = i * 4;
-      dataArray[idx + 0] = Math.min(255, Math.max(0, height * heightScale));
+      dataArray[idx + 0] = Math.min(
+        255,
+        Math.max(0, height * heightScale + heightOffset)
+      );
       dataArray[idx + 1] = Math.min(
         255,
         Math.max(0, velX * velocityScale + velocityOffset)

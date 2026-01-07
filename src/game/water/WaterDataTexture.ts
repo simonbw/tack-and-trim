@@ -2,14 +2,16 @@ import { BufferImageSource, Texture } from "pixi.js";
 import { profiler } from "../../core/util/Profiler";
 import { WaterInfo } from "./WaterInfo";
 
-const TEXTURE_SIZE = 256;
+const TEXTURE_SIZE = 128;
 
 // Update every Nth pixel each frame, cycling through offsets.
 // Higher = less work per frame, but more latency for updates.
 const UPDATE_STRIDE = 4;
 
 // Scale factors for packing floats into 0-255 range
-const HEIGHT_SCALE = 255 / 5; // Map 0-5 units to 0-255
+// Height: 127 is neutral, 0 is max trough (-2.5 units), 255 is max peak (+2.5 units)
+const HEIGHT_OFFSET = 127;
+const HEIGHT_SCALE = 255 / 5; // ±2.5 units maps to 0-255
 const VELOCITY_SCALE = 255 / 100; // Map -50 to +50 to 0-255 (with 127.5 as zero)
 const VELOCITY_OFFSET = 127.5;
 
@@ -78,6 +80,7 @@ export class WaterDataTexture {
       cellHeight,
       TEXTURE_SIZE,
       HEIGHT_SCALE,
+      HEIGHT_OFFSET,
       VELOCITY_SCALE,
       VELOCITY_OFFSET
     );

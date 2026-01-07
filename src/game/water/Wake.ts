@@ -16,7 +16,7 @@ interface WakePoint {
 
 const CONFIG = {
   MAX_AGE: 3.0,
-  SPAWN_DISTANCE: 8, // Spawn particles every N units of distance traveled
+  SPAWN_DISTANCE: 4, // Spawn particles every N units of distance traveled
   MIN_SPEED: 5,
   MAX_SPEED: 55,
   REAR_OFFSET: -18,

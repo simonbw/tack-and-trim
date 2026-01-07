@@ -33,7 +33,7 @@ const CONFIG = {
   MAX_SPEED: 55,
 
   // Spawning
-  SPAWN_RATE: 500, // Base particles per second at max speed
+  SPAWN_RATE: 5, // Base particles per second at max speed
 
   // Physics
   SPRAY_SPEED: 12, // How fast particles spray outward from hull
