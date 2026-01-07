@@ -9,28 +9,34 @@ import {
   foilLift,
 } from "../fluid-dynamics";
 import { WaterInfo } from "../water/WaterInfo";
+import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
-
-const KEEL_VERTICES = [V(-15, 0), V(15, 0)];
-const KEEL_LIFT_AND_DRAG = 1.5; // Reduced from 10 to compensate for foil's ~6x higher coefficients
 
 export class Keel extends BaseEntity {
   private keelSprite: GameSprite & Graphics;
+  private vertices: V2d[];
+  private liftAndDrag: number;
 
-  constructor(private hull: Hull) {
+  constructor(
+    private hull: Hull,
+    config: KeelConfig
+  ) {
     super();
+
+    this.vertices = config.vertices;
+    this.liftAndDrag = config.liftAndDrag;
 
     this.keelSprite = createGraphics("underhull");
     this.keelSprite
-      .poly(KEEL_VERTICES, false)
-      .stroke({ color: 0x665522, width: 3 });
+      .poly(config.vertices, false)
+      .stroke({ color: config.color, width: 1 });
 
     this.sprite = this.keelSprite;
   }
 
   onTick() {
-    const lift = foilLift(KEEL_LIFT_AND_DRAG);
-    const drag = foilDrag(KEEL_LIFT_AND_DRAG);
+    const lift = foilLift(this.liftAndDrag);
+    const drag = foilDrag(this.liftAndDrag);
 
     // Get water velocity function
     const water = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
@@ -38,7 +44,7 @@ export class Keel extends BaseEntity {
       water?.getStateAtPoint(point).velocity ?? V(0, 0);
 
     // Apply keel forces to hull (both directions for symmetry)
-    for (const [start, end] of pairs(KEEL_VERTICES)) {
+    for (const [start, end] of pairs(this.vertices)) {
       applyFluidForces(this.hull.body, start, end, lift, drag, getWaterVelocity);
       applyFluidForces(this.hull.body, end, start, lift, drag, getWaterVelocity);
     }

@@ -146,8 +146,7 @@ export default class DebugOverlay extends ReactEntity implements Entity {
 
   private cycleMode(direction: 1 | -1) {
     const currentIndex = MODES.indexOf(this.mode);
-    const nextIndex =
-      (currentIndex + direction + MODES.length) % MODES.length;
+    const nextIndex = (currentIndex + direction + MODES.length) % MODES.length;
     this.mode = MODES[nextIndex];
   }
 
@@ -253,7 +252,7 @@ function ProfileRow({
 }) {
   const isFrameMetric = stat.shortLabel === "frame" && stat.depth === 0;
   const isSlow = isFrameMetric && stat.avgMs > 16.67;
-  const color = isSlow ? "#ff6666" : index < 4 ? "#fff" : "#aaa";
+  const color = isSlow ? "#ff6666" : "#fff";
   const treePrefix = getTreePrefix(stat, index, allStats);
 
   // Compute % of parent

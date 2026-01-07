@@ -2,11 +2,11 @@ import { BufferImageSource, Texture } from "pixi.js";
 import { profiler } from "../../core/util/Profiler";
 import { WaterInfo } from "./WaterInfo";
 
-const TEXTURE_SIZE = 128;
+const TEXTURE_SIZE = 64;
 
 // Update every Nth pixel each frame, cycling through offsets.
 // Higher = less work per frame, but more latency for updates.
-const UPDATE_STRIDE = 4;
+const UPDATE_STRIDE = 1;
 
 // Scale factors for packing floats into 0-255 range
 // Height: 127 is neutral, 0 is max trough (-2.5 units), 255 is max peak (+2.5 units)

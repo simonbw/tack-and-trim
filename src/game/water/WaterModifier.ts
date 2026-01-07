@@ -1,3 +1,4 @@
+import { AABB } from "../../core/util/SparseSpatialHash";
 import { V2d } from "../../core/Vector";
 
 /**
@@ -22,11 +23,8 @@ export interface WaterContribution {
  * when computing water state at any point.
  */
 export interface WaterModifier {
-  /** Get the center position of this modifier (for distance checks). */
-  getWaterModifierPosition(): V2d;
-
-  /** Get the maximum distance at which this modifier affects water. */
-  getWaterModifierInfluenceRadius(): number;
+  /** Get the axis-aligned bounding box of this modifier's influence area. */
+  getWaterModifierAABB(): AABB;
 
   /**
    * Calculate all contributions at a query point in one call.

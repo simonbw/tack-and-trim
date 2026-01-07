@@ -5,12 +5,23 @@ import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
 import { WaterModifier } from "./WaterModifier";
 
+// Units: ft, ft/s for velocities
 // Current variation configuration
 // Water currents are much slower and vary more gradually than wind
 const CURRENT_SPATIAL_SCALE = 0.002; // Currents vary slowly across space
 const CURRENT_TIME_SCALE = 0.05; // Currents change slowly over time
 const CURRENT_SPEED_VARIATION = 0.4; // ±40% speed variation
 const CURRENT_ANGLE_VARIATION = 0.5; // ±~30° direction variation
+
+// Wave configuration - sum of sines approach
+// Each wave: [amplitude (ft), wavelength (ft), speed (ft/s), direction (radians)]
+// Light conditions in protected water (small chop)
+const WAVE_COMPONENTS: [number, number, number, number][] = [
+  [0.3, 40, 3, 0.2], // Primary wave - 4" amplitude, 40ft wavelength
+  [0.15, 25, 2, -0.4], // Secondary wave
+  [0.08, 15, 1.5, 0.8], // Tertiary wave
+  [0.04, 8, 1, -1.2], // Detail wave - small ripples
+];
 
 /**
  * Water state at a given point in the world.
@@ -31,14 +42,13 @@ export class WaterInfo extends BaseEntity {
   id = "waterInfo";
 
   // Current simulation
-  private baseCurrentVelocity: V2d = V(15, 5); // Base current direction and speed
+  private baseCurrentVelocity: V2d = V(1.5, 0.5); // ~1.6 ft/s (~1 kt) tidal current
   private speedNoise: NoiseFunction3D = createNoise3D();
   private angleNoise: NoiseFunction3D = createNoise3D();
 
   // Spatial hash for efficient water modifier queries
   private spatialHash = new SparseSpatialHash<WaterModifier>(
-    (m) => m.getWaterModifierPosition(),
-    (m) => m.getWaterModifierInfluenceRadius()
+    (m) => m.getWaterModifierAABB()
   );
 
   onTick() {
@@ -60,7 +70,8 @@ export class WaterInfo extends BaseEntity {
     // Start with current velocity
     const velocity = this.getCurrentVelocityAtPoint(point);
 
-    let surfaceHeight = 0;
+    // Start with wave height
+    let surfaceHeight = this.getWaveHeightAtPoint(point[0], point[1]);
 
     // Query spatial hash for nearby water modifiers
     for (const modifier of this.spatialHash.queryPoint(point)) {
@@ -125,7 +136,7 @@ export class WaterInfo extends BaseEntity {
       const baseVel = this.getCurrentVelocityAtPoint(point);
       let velX = baseVel.x;
       let velY = baseVel.y;
-      let height = 0;
+      let height = this.getWaveHeightAtPoint(point.x, point.y);
 
       // Query and apply modifiers directly (no intermediate arrays)
       for (const modifier of this.spatialHash.queryPoint(point)) {
@@ -152,6 +163,29 @@ export class WaterInfo extends BaseEntity {
       );
       dataArray[idx + 3] = 255; // Alpha channel unused
     }
+  }
+
+  /**
+   * Calculate wave height at a given world position using sum of sines.
+   */
+  private getWaveHeightAtPoint(x: number, y: number): number {
+    const t = this.game?.elapsedUnpausedTime ?? 0;
+    let height = 0;
+
+    for (const [amplitude, wavelength, speed, direction] of WAVE_COMPONENTS) {
+      // Project position onto wave direction
+      const dx = Math.cos(direction);
+      const dy = Math.sin(direction);
+      const projected = x * dx + y * dy;
+
+      // Calculate phase
+      const k = (2 * Math.PI) / wavelength;
+      const phase = k * projected - speed * t;
+
+      height += amplitude * Math.sin(phase);
+    }
+
+    return height;
   }
 
   /**

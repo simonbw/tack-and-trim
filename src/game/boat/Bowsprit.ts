@@ -1,41 +1,33 @@
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
-import { V } from "../../core/Vector";
-import { Hull } from "./Hull";
+import { V2d } from "../../core/Vector";
+import { Boat } from "./Boat";
+import { BowspritConfig } from "./BoatConfig";
 
-// Bowsprit dimensions
-const BOWSPRIT_LENGTH = 6;
-const BOWSPRIT_WIDTH = 1.5;
-
-// Where the bowsprit attaches to the hull (at the bow)
-const BOWSPRIT_ATTACH_POINT = 27;
-
-/** The tip of the bowsprit in hull-local coordinates */
-export const BOWSPRIT_TIP_POSITION = V(
-  BOWSPRIT_ATTACH_POINT + BOWSPRIT_LENGTH,
-  0
-);
-
+/** Bowsprit - a spar extending forward from the bow for jib attachment */
 export class Bowsprit extends BaseEntity {
-  private bowspritSprite: GameSprite & Graphics;
+  sprite: GameSprite & Graphics;
+  localPosition: V2d;
+  size: V2d;
+  boat: Boat;
 
-  constructor(readonly hull: Hull) {
+  constructor(boat: Boat, config: BowspritConfig) {
     super();
 
-    // Bowsprit visual - a spar extending forward from the bow
-    this.bowspritSprite = createGraphics("main");
-    this.bowspritSprite
-      .rect(0, -BOWSPRIT_WIDTH / 2, BOWSPRIT_LENGTH, BOWSPRIT_WIDTH)
-      .fill({ color: 0x997744 })
-      .stroke({ color: 0x775533, width: 0.5 });
+    this.localPosition = config.attachPoint;
+    this.size = config.size;
+    this.boat = boat;
 
-    this.sprite = this.bowspritSprite;
+    // Bowsprit visual - a spar extending forward from the bow
+    this.sprite = createGraphics("main")
+      .rect(0, -config.size.y / 2, config.size.x, config.size.y)
+      .fill({ color: config.color });
   }
 
   onRender() {
-    const [x, y] = this.hull.body.toWorldFrame(V(BOWSPRIT_ATTACH_POINT, 0));
-    this.bowspritSprite.position.set(x, y);
-    this.bowspritSprite.rotation = this.hull.body.angle;
+    const hullBody = this.boat.hull.body;
+    this.sprite.position.copyFrom(hullBody.toWorldFrame(this.localPosition));
+    this.sprite.rotation = hullBody.angle;
   }
 }

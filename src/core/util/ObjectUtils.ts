@@ -52,3 +52,40 @@ export function grouped<T, K extends string = string>(
     )
   );
 }
+
+/** Deep partial type for nested config overrides */
+export type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
+};
+
+/** Check if a value is a plain object (not an array or class instance) */
+function isPlainObject(value: unknown): value is object {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    value.constructor === Object
+  );
+}
+
+/**
+ * Deep merge two objects, with overrides taking precedence.
+ * Only plain objects are recursively merged; arrays and class instances are replaced.
+ */
+export function deepMerge<T extends object>(base: T, overrides: DeepPartial<T>): T {
+  const result = { ...base };
+  for (const key in overrides) {
+    const override = overrides[key];
+    if (override !== undefined) {
+      if (isPlainObject(override) && isPlainObject(base[key])) {
+        result[key] = deepMerge(
+          base[key] as object,
+          override as DeepPartial<object>
+        ) as T[typeof key];
+      } else {
+        result[key] = override as T[typeof key];
+      }
+    }
+  }
+  return result;
+}

@@ -6,7 +6,8 @@ import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { Wind } from "./Wind";
 
-// Visual configuration
+// Units: ft/s for speeds (1 kt ≈ 1.69 ft/s)
+// Visual configuration (pixels)
 const INDICATOR_RADIUS = 40;
 const ARROW_MIN_LENGTH = 8;
 const ARROW_MAX_LENGTH = 32;
@@ -14,11 +15,11 @@ const ARROW_WIDTH = 4;
 const ARROW_HEAD_SIZE = 10;
 
 // Interaction configuration
-const MIN_WIND_SPEED = 20;
-const MAX_WIND_SPEED = 200;
-const DRAG_SPEED_SCALE = 5; // Pixels per unit of wind speed
+const MIN_WIND_SPEED = 8; // ft/s (~5 kts) - light breeze
+const MAX_WIND_SPEED = 50; // ft/s (~30 kts) - strong breeze
+const DRAG_SPEED_SCALE = 1.5; // Pixels per ft/s of wind speed
 
-// Position (offset from top-right corner)
+// Position (offset from top-right corner, pixels)
 const MARGIN_RIGHT = 60;
 const MARGIN_TOP = 60;
 
@@ -34,17 +35,17 @@ const TICK_COLOR = 0xffffff;
 const TICK_ALPHA = 0.3;
 const VELOCITY_ARROW_COLOR = 0xff4444;
 
-// Tick marks
+// Tick marks (pixels)
 const TICK_INNER_OFFSET = 8; // Distance from edge to inner tick point
 const TICK_OUTER_OFFSET = 3; // Distance from edge to outer tick point
 const TICK_CARDINAL_EXTRA = 3; // Extra length for cardinal directions (N/E/S/W)
 
-// Arrow proportions
+// Arrow proportions (dimensionless)
 const ARROW_BASE_RATIO = 0.3; // How far back the arrow base extends (relative to length)
 const ARROW_HEAD_WIDTH_RATIO = 0.5; // Width of arrow head (relative to head size)
 
 // Velocity scaling
-const MAX_BOAT_SPEED = 100; // Units per second for max arrow length
+const MAX_BOAT_SPEED = 15; // ft/s (~9 kts) - hull speed for max arrow length
 
 export class WindIndicator extends BaseEntity {
   sprite: GameSprite & Graphics;

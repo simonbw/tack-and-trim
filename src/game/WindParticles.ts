@@ -10,19 +10,19 @@ import { rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Wind } from "./Wind";
 
-// Configuration
-const PARTICLE_COUNT = 5;
+// Configuration (visual/screen-space, not world units)
+const PARTICLE_COUNT = 5; // Target particles per sector
 const SPAWN_RATE = 500; // particles per second (spawn and despawn)
-const TARGET_ALPHA = 0.8;
-const ALPHA_LERP_SPEED = 0.7; // per second
+const TARGET_ALPHA = 0.8; // Dimensionless opacity
+const ALPHA_LERP_SPEED = 0.7; // 1/s - alpha transition speed
 const PARTICLE_SIZE = 1.5; // pixels on screen, regardless of zoom
-const TEXTURE_SIZE = 8; // texture resolution
+const TEXTURE_SIZE = 8; // pixels - texture resolution
 const COLOR = 0xffffff;
-const PARTICLE_MOVE_SCALE = 0.5; // Percent of wind speed
+const PARTICLE_MOVE_SCALE = 0.5; // Dimensionless - fraction of wind speed
 
 // Sector balancing
-const SECTOR_GRID_SIZE = 6; // width and height
-const REBALANCE_THRESHOLD = 1.5; // max allowed ratio of densest to sparsest. Must be greater that 1.0
+const SECTOR_GRID_SIZE = 6; // Grid divisions per axis
+const REBALANCE_THRESHOLD = 1.5; // max allowed density ratio. Must be > 1.0
 
 /**
  * Main entity that manages wind particles.

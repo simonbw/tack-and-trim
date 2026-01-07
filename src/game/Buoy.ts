@@ -6,12 +6,13 @@ import Circle from "../core/physics/shapes/Circle";
 import { V } from "../core/Vector";
 import { WaterInfo } from "./water/WaterInfo";
 
-const BUOY_RADIUS = 6;
-const BUOY_MASS = 2;
-const BUOYANCY_STRENGTH = 0.5;
-const WATER_DAMPING = 0.98;
-const WATER_DRAG = 0.1; // How strongly the buoy is pushed by water velocity
-const HEIGHT_SCALE_FACTOR = 0.005; // How much surface height affects sprite scale
+// Units: feet (ft), pounds (lbs)
+const BUOY_RADIUS = 2; // ft - typical racing mark buoy
+const BUOY_MASS = 50; // lbs - buoy with ballast
+const BUOYANCY_STRENGTH = 0.5; // Dimensionless force per unit displacement
+const WATER_DAMPING = 0.98; // Dimensionless velocity retention
+const WATER_DRAG = 0.1; // Dimensionless - how strongly the buoy is pushed by water velocity
+const HEIGHT_SCALE_FACTOR = 0.2; // Dimensionless - how much surface height affects sprite scale
 
 export class Buoy extends BaseEntity {
   body: DynamicBody;
@@ -25,7 +26,7 @@ export class Buoy extends BaseEntity {
     this.buoySprite
       .circle(0, 0, BUOY_RADIUS)
       .fill({ color: 0xff4422 })
-      .stroke({ color: 0xffffff, width: 3, alignment: 1.5 });
+      .stroke({ color: 0xffffff, width: 0.5, alignment: 1.5 });
 
     // Physics: circular body
     this.body = new DynamicBody({ mass: BUOY_MASS });
@@ -45,7 +46,9 @@ export class Buoy extends BaseEntity {
     }
 
     // Apply water velocity as a drag force (pushes buoy with the current/wake)
-    const water = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
+    const water = this.game?.entities.getById("waterInfo") as
+      | WaterInfo
+      | undefined;
     if (water) {
       const waterState = water.getStateAtPoint(V(x, y));
       // Force proportional to difference between water velocity and buoy velocity
@@ -65,7 +68,9 @@ export class Buoy extends BaseEntity {
     this.buoySprite.rotation = this.body.angle;
 
     // Scale sprite based on water surface height (simulates bobbing up/down)
-    const water = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
+    const water = this.game?.entities.getById("waterInfo") as
+      | WaterInfo
+      | undefined;
     if (water) {
       const waterState = water.getStateAtPoint(V(x, y));
       const scale = 1 + waterState.surfaceHeight * HEIGHT_SCALE_FACTOR;

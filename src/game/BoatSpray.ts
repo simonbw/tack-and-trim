@@ -8,50 +8,52 @@ import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 
 // Hull outline points (from Hull.ts) for spawning along the perimeter
+// Units: feet (ft)
 const HULL_POINTS: V2d[] = [
-  V(-20, -4),
-  V(-18, -7),
-  V(-8, -10),
-  V(6, -10),
-  V(16, -8),
-  V(24, -4),
-  V(28, 0), // Bow
-  V(24, 4),
-  V(16, 8),
-  V(6, 10),
-  V(-8, 10),
-  V(-18, 7),
-  V(-20, 4),
+  V(-6.5, -1.3),
+  V(-6, -2.3),
+  V(-2.5, -3.3),
+  V(2, -3.3),
+  V(5.3, -2.6),
+  V(8, -1.3),
+  V(9.2, 0), // Bow
+  V(8, 1.3),
+  V(5.3, 2.6),
+  V(2, 3.3),
+  V(-2.5, 3.3),
+  V(-6, 2.3),
+  V(-6.5, 1.3),
 ];
 
+// Units: ft, ft/s, seconds
 const CONFIG = {
   // Particle lifecycle
-  MAX_AGE: 0.6,
+  MAX_AGE: 0.6, // seconds
 
   // Speed thresholds
-  MIN_SPEED: 10,
-  MAX_SPEED: 55,
+  MIN_SPEED: 5, // ft/s (~3 kts) - spray starts appearing
+  MAX_SPEED: 12, // ft/s (~7 kts) - hull speed limit
 
   // Spawning
   SPAWN_RATE: 5, // Base particles per second at max speed
 
-  // Physics
-  SPRAY_SPEED: 12, // How fast particles spray outward from hull
-  INITIAL_VZ: 30, // Initial upward velocity
-  GRAVITY: 120,
-  DRAG: 2.0, // Velocity decay rate per second
+  // Physics (in ft and ft/s)
+  SPRAY_SPEED: 4, // ft/s - how fast particles spray outward from hull
+  INITIAL_VZ: 10, // ft/s - initial upward velocity
+  GRAVITY: 40, // ft/s² - gravitational acceleration (scaled for visual effect)
+  DRAG: 2.0, // 1/s - velocity decay rate (dimensionless)
 
-  // Rendering
+  // Rendering (visual/pixels)
   COLOR: 0xffffff,
   MIN_ALPHA: 0.7,
   MAX_ALPHA: 1.0,
-  MIN_SIZE: 1.4,
-  MAX_SIZE: 2.0,
+  MIN_SIZE: 1.4, // pixels
+  MAX_SIZE: 2.0, // pixels
   TEXTURE_SIZE: 8, // Texture resolution in pixels
 
   // Splash (when hitting water)
-  SPLASH_DURATION: 0.3,
-  SPLASH_GROW_SCALE: 2.0, // How much bigger the splash grows
+  SPLASH_DURATION: 0.3, // seconds
+  SPLASH_GROW_SCALE: 2.0, // multiplier
 };
 
 // Cached particle texture

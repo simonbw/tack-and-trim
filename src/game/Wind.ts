@@ -5,6 +5,7 @@ import { SparseSpatialHash } from "../core/util/SparseSpatialHash";
 import { V, V2d } from "../core/Vector";
 import { WindModifier } from "./WindModifier";
 
+// Units: ft/s for velocity
 // Wind variation configuration
 const NOISE_SPATIAL_SCALE = 0.005; // How quickly wind varies across space
 const NOISE_TIME_SCALE = 0.15; // How quickly wind varies over time
@@ -13,12 +14,11 @@ const ANGLE_VARIATION = 0.17; // ±10° direction variation (~0.17 rad)
 
 export class Wind extends BaseEntity {
   id = "wind";
-  private baseVelocity: V2d = V(100, 100);
+  private baseVelocity: V2d = V(11, 11); // ~15 ft/s (~9 kts), NW breeze
   private speedNoise: NoiseFunction3D = createNoise3D();
   private angleNoise: NoiseFunction3D = createNoise3D();
   private spatialHash = new SparseSpatialHash<WindModifier>(
-    (m) => m.getWindModifierPosition(),
-    (m) => m.getWindModifierInfluenceRadius()
+    (m) => m.getWindModifierAABB()
   );
 
   onTick() {

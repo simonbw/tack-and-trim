@@ -7,20 +7,8 @@ import Particle from "../../core/physics/shapes/Particle";
 import { stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { VerletRope } from "../rope/VerletRope";
+import { AnchorConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
-
-// Configuration
-const BOW_ATTACH_POINT = V(26, 0); // Near bow (hull-local), matches JIB_TACK_POSITION
-const MAX_RODE_LENGTH = 100; // Maximum rope length
-const ANCHOR_SIZE = 3; // Visual size of anchor
-
-// Animation speeds
-const RODE_DEPLOY_SPEED = 40; // Units per second when dropping anchor
-const RODE_RETRIEVE_SPEED = 20; // Units per second when raising anchor (slower - winching)
-
-// Anchor physics - holding power scales with scope (rope out / max rope)
-const ANCHOR_MASS = 50; // Base mass of anchor
-const ANCHOR_DRAG_COEFFICIENT = 200; // Drag force per unit velocity at full scope
 
 type AnchorState = "stowed" | "deploying" | "deployed" | "retrieving";
 
@@ -39,8 +27,28 @@ export class Anchor extends BaseEntity {
 
   private visualRope: VerletRope;
 
-  constructor(private hull: Hull) {
+  // Config values
+  private bowAttachPoint: V2d;
+  private maxRodeLength: number;
+  private anchorSize: number;
+  private rodeDeploySpeed: number;
+  private rodeRetrieveSpeed: number;
+  private anchorMass: number;
+  private anchorDragCoefficient: number;
+
+  constructor(
+    private hull: Hull,
+    config: AnchorConfig
+  ) {
     super();
+
+    this.bowAttachPoint = config.bowAttachPoint;
+    this.maxRodeLength = config.maxRodeLength;
+    this.anchorSize = config.anchorSize;
+    this.rodeDeploySpeed = config.rodeDeploySpeed;
+    this.rodeRetrieveSpeed = config.rodeRetrieveSpeed;
+    this.anchorMass = config.anchorMass;
+    this.anchorDragCoefficient = config.anchorDragCoefficient;
 
     this.anchorSprite = createGraphics("underhull");
     this.rodeSprite = createGraphics("underhull");
@@ -48,10 +56,10 @@ export class Anchor extends BaseEntity {
 
     this.visualRope = new VerletRope({
       pointCount: 12,
-      restLength: MAX_RODE_LENGTH,
-      gravity: V(0, 5), // Gentle gravity (underwater drag)
+      restLength: config.maxRodeLength,
+      gravity: V(0, 2), // Gentle gravity (underwater drag, ft/s²)
       damping: 0.95, // Heavy damping for anchor rode
-      thickness: 1.5,
+      thickness: 0.3, // Rope thickness in ft (~4 inches)
       color: 0x666644,
     });
   }
@@ -75,7 +83,7 @@ export class Anchor extends BaseEntity {
 
     // Create dynamic body at anchor position with high mass
     this.anchorBody = new DynamicBody({
-      mass: ANCHOR_MASS,
+      mass: this.anchorMass,
       position: [this.anchorPosition.x, this.anchorPosition.y],
       damping: 0.5, // Some base damping
       fixedRotation: true,
@@ -92,7 +100,7 @@ export class Anchor extends BaseEntity {
       this.hull.body,
       {
         localAnchorA: [0, 0],
-        localAnchorB: [BOW_ATTACH_POINT.x, BOW_ATTACH_POINT.y],
+        localAnchorB: [this.bowAttachPoint.x, this.bowAttachPoint.y],
         collideConnected: false, // Don't collide with anchor
       }
     );
@@ -101,7 +109,7 @@ export class Anchor extends BaseEntity {
     this.rodeConstraint.upperLimitEnabled = true;
     // Start with minimal rope - will animate outward
     this.currentRodeLength = 1;
-    this.targetRodeLength = MAX_RODE_LENGTH;
+    this.targetRodeLength = this.maxRodeLength;
     this.rodeConstraint.upperLimit = this.currentRodeLength;
 
     // Add constraint to physics world
@@ -154,7 +162,7 @@ export class Anchor extends BaseEntity {
 
   private getBowWorldPosition(): V2d {
     const [hx, hy] = this.hull.body.position;
-    return BOW_ATTACH_POINT.rotate(this.hull.body.angle).iadd([hx, hy]);
+    return this.bowAttachPoint.rotate(this.hull.body.angle).iadd([hx, hy]);
   }
 
   onTick(dt: number): void {
@@ -162,7 +170,7 @@ export class Anchor extends BaseEntity {
 
     // Animate rope length toward target
     const speed =
-      this.state === "retrieving" ? RODE_RETRIEVE_SPEED : RODE_DEPLOY_SPEED;
+      this.state === "retrieving" ? this.rodeRetrieveSpeed : this.rodeDeploySpeed;
     const previousLength = this.currentRodeLength;
     this.currentRodeLength = stepToward(
       this.currentRodeLength,
@@ -180,7 +188,7 @@ export class Anchor extends BaseEntity {
     }
 
     // Check for state transitions
-    if (this.state === "deploying" && this.currentRodeLength >= MAX_RODE_LENGTH) {
+    if (this.state === "deploying" && this.currentRodeLength >= this.maxRodeLength) {
       this.state = "deployed";
     } else if (this.state === "retrieving" && this.currentRodeLength <= 1) {
       this.completeRetrieval();
@@ -191,13 +199,13 @@ export class Anchor extends BaseEntity {
     // Scope = how much rope is out relative to max (0-1)
     // More scope = more holding power (simulates chain weight on bottom)
     if (this.anchorBody) {
-      const scope = this.currentRodeLength / MAX_RODE_LENGTH;
+      const scope = this.currentRodeLength / this.maxRodeLength;
       const velocity = this.anchorBody.velocity;
       const speed = velocity.magnitude;
 
       if (speed > 0.01) {
         // Drag force opposing velocity, scaled by scope
-        const dragMagnitude = ANCHOR_DRAG_COEFFICIENT * scope * speed;
+        const dragMagnitude = this.anchorDragCoefficient * scope * speed;
         const dragForce = velocity.normalize().imul(-dragMagnitude);
         this.anchorBody.applyForce(dragForce);
       }
@@ -227,7 +235,7 @@ export class Anchor extends BaseEntity {
   private drawAnchor(pos: V2d): void {
     // Simple anchor shape
     this.anchorSprite
-      .circle(pos.x, pos.y, ANCHOR_SIZE)
+      .circle(pos.x, pos.y, this.anchorSize)
       .fill({ color: 0x444444 })
       .stroke({ color: 0x333333, width: 1 });
   }

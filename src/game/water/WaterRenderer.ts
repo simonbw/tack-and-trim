@@ -18,6 +18,7 @@ export class WaterRenderer extends BaseEntity {
   private waterShader: Filter;
   private graphics: Graphics & GameSprite;
   private waterDataTexture: WaterDataTexture;
+  private renderMode = 0;
 
   constructor() {
     super();
@@ -82,5 +83,16 @@ export class WaterRenderer extends BaseEntity {
         true,
         this.waterShader.resources.waterUniforms.uniforms.uCameraMatrix
       );
+  }
+
+  setRenderMode(mode: number) {
+    this.renderMode = mode;
+    this.waterShader.resources.waterUniforms.uniforms.uRenderMode = mode;
+  }
+
+  onKeyDown({ key }: { key: string }) {
+    if (key === "KeyB") {
+      this.setRenderMode((this.renderMode + 1) % 2);
+    }
   }
 }

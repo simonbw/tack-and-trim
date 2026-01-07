@@ -3,6 +3,16 @@ import { V2d } from "../Vector";
 const DEFAULT_CELL_SIZE = 10;
 
 /**
+ * Axis-aligned bounding box for spatial queries.
+ */
+export interface AABB {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/**
  * Generic sparse spatial hash for efficient point queries.
  * Uses a Map so only non-empty cells exist in memory.
  *
@@ -13,13 +23,11 @@ export class SparseSpatialHash<T> {
   private cells = new Map<number, T[]>();
 
   /**
-   * @param getPosition Function to get an item's position
-   * @param getRadius Function to get an item's influence radius
+   * @param getAABB Function to get an item's axis-aligned bounding box
    * @param cellSize Size of each cell (default 10, roughly matches typical influence radius)
    */
   constructor(
-    private getPosition: (item: T) => V2d,
-    private getRadius: (item: T) => number,
+    private getAABB: (item: T) => AABB,
     cellSize: number = DEFAULT_CELL_SIZE
   ) {
     this.cellSize = cellSize;
@@ -33,15 +41,14 @@ export class SparseSpatialHash<T> {
     return ((cx + 0x8000) << 16) | ((cy + 0x8000) & 0xffff);
   }
 
-  /** Add item to all cells its influence radius overlaps */
+  /** Add item to all cells its bounding box overlaps */
   add(item: T): void {
-    const pos = this.getPosition(item);
-    const r = this.getRadius(item);
+    const aabb = this.getAABB(item);
 
-    const minCX = Math.floor((pos.x - r) / this.cellSize);
-    const maxCX = Math.floor((pos.x + r) / this.cellSize);
-    const minCY = Math.floor((pos.y - r) / this.cellSize);
-    const maxCY = Math.floor((pos.y + r) / this.cellSize);
+    const minCX = Math.floor(aabb.minX / this.cellSize);
+    const maxCX = Math.floor(aabb.maxX / this.cellSize);
+    const minCY = Math.floor(aabb.minY / this.cellSize);
+    const maxCY = Math.floor(aabb.maxY / this.cellSize);
 
     for (let cx = minCX; cx <= maxCX; cx++) {
       for (let cy = minCY; cy <= maxCY; cy++) {

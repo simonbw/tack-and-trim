@@ -15,18 +15,18 @@ import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
 import { SailWindEffect } from "./SailWindEffect";
 import { TellTail } from "./TellTail";
 
+// Units: ft, lbs, seconds (where applicable)
 // Default values
 const DEFAULT_NODE_COUNT = 32;
-const DEFAULT_NODE_MASS = 0.04;
-const DEFAULT_SLACK_FACTOR = 1.01;
-const DEFAULT_LIFT_SCALE = 2.0;
-const DEFAULT_DRAG_SCALE = 2.0;
-const DEFAULT_BILLOW_INNER = 0.8;
-const DEFAULT_BILLOW_OUTER = 2.4;
-const DEFAULT_WIND_INFLUENCE_RADIUS = 50;
-
-// Hoist animation
-const HOIST_SPEED = 0.4; // Full hoist/lower takes ~2.5 seconds
+const DEFAULT_NODE_MASS = 0.04; // lbs per particle (tuned for physics behavior)
+const DEFAULT_SLACK_FACTOR = 1.01; // 1% slack in sail constraints
+const DEFAULT_LIFT_SCALE = 2.0; // Dimensionless lift coefficient
+const DEFAULT_DRAG_SCALE = 2.0; // Dimensionless drag coefficient
+const DEFAULT_BILLOW_INNER = 0.8; // Billow scale at boom (dimensionless)
+const DEFAULT_BILLOW_OUTER = 2.4; // Billow scale at leech (dimensionless)
+const DEFAULT_WIND_INFLUENCE_RADIUS = 15; // ft - sail's wind shadow radius
+const DEFAULT_HOIST_SPEED = 0.4; // Full hoist/lower takes ~2.5 seconds
+const DEFAULT_COLOR = 0xeeeeff; // Sail color
 
 export interface SailConfig {
   // Particle configuration
@@ -53,6 +53,10 @@ export interface SailConfig {
   billowInner?: number;
   billowOuter?: number;
   extraPoints?: () => V2d[]; // Additional vertices after clew (e.g., masthead for triangle jib)
+  color?: number; // Sail fill and stroke color
+
+  // Animation
+  hoistSpeed?: number; // Speed of hoist/lower animation (0-1 per second)
 
   // Extras
   attachTellTail?: boolean;
@@ -74,6 +78,8 @@ export class Sail extends BaseEntity {
   private readonly billowInner: number;
   private readonly billowOuter: number;
   private readonly windInfluenceRadius: number;
+  private readonly hoistSpeed: number;
+  private readonly color: number;
   private readonly getForceScale: (t: number) => number;
 
   // Hoist state (0 = fully lowered, 1 = fully hoisted)
@@ -97,6 +103,8 @@ export class Sail extends BaseEntity {
     this.liftScale = config.liftScale ?? DEFAULT_LIFT_SCALE;
     this.dragScale = config.dragScale ?? DEFAULT_DRAG_SCALE;
     this.sailShape = config.sailShape ?? "boom";
+    this.hoistSpeed = config.hoistSpeed ?? DEFAULT_HOIST_SPEED;
+    this.color = config.color ?? DEFAULT_COLOR;
     this.billowInner = config.billowInner ?? DEFAULT_BILLOW_INNER;
     this.billowOuter = config.billowOuter ?? DEFAULT_BILLOW_OUTER;
     this.windInfluenceRadius =
@@ -232,7 +240,7 @@ export class Sail extends BaseEntity {
     this.hoistAmount = stepToward(
       this.hoistAmount,
       this.targetHoistAmount,
-      HOIST_SPEED * dt
+      this.hoistSpeed * dt
     );
 
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
@@ -324,8 +332,8 @@ export class Sail extends BaseEntity {
 
       this.sprite
         .closePath()
-        .fill({ color: 0xeeeeff })
-        .stroke({ color: 0xeeeeff, join: "round", width: 1 });
+        .fill({ color: this.color })
+        .stroke({ color: this.color, join: "round", width: 1 });
     } else {
       // Boom rendering: double-pass with inner and outer billow
       this.sprite.moveTo(head.x, head.y);
@@ -352,8 +360,8 @@ export class Sail extends BaseEntity {
 
       this.sprite
         .closePath()
-        .fill({ color: 0xeeeeff })
-        .stroke({ color: 0xeeeeff, join: "round", width: 1 });
+        .fill({ color: this.color })
+        .stroke({ color: this.color, join: "round", width: 1 });
     }
   }
 }

@@ -50,26 +50,24 @@ Replace Pixi.js with a **custom immediate-mode WebGL renderer**:
 4. **Imperative API** - `draw.line()`, `draw.circle()`, `draw.sprite()`
 5. **Tight V2d integration** - All methods accept V2d directly
 
-**Target scope:** ~2,000-2,500 lines (simpler than retained mode)
+**Target scope:** ~1,500-2,000 lines (simpler than retained mode)
 
 ## Files to Modify
 
 ### New Files to Create
 
-**Core Renderer (~800 lines total):**
+**Core Renderer (~600 lines total):**
 ```
 src/core/graphics/
-  Renderer.ts           - WebGL context, frame management, layer system (~300 lines)
-  Draw.ts               - Immediate-mode drawing API (~350 lines)
+  Renderer.ts           - WebGL context, draw methods, batching (~450 lines)
   ShaderProgram.ts      - GLSL compile/link, uniform setters (~150 lines)
 ```
 
-**Support (~400 lines total):**
+**Support (~350 lines total):**
 ```
 src/core/graphics/
   TextureManager.ts     - Texture loading, generateTexture (~200 lines)
   Matrix3.ts            - 3x3 matrix for 2D transforms (~150 lines)
-  LayerRenderer.ts      - Per-layer framebuffer + shader support (~150 lines)
 ```
 
 **Shaders:**
@@ -131,56 +129,57 @@ Build the foundation:
 3. Create Renderer.ts
    - WebGL context creation
    - Canvas resize handling
-   - Layer management (render order, per-layer framebuffers)
    - Frame begin/end, clear
-
-4. Create Draw.ts
-   - Immediate-mode API attached to Renderer
+   - All draw methods live here (drawRect, drawCircle, drawImage, etc.)
    - Batches draw calls by shader+texture
    - Flushes batch on layer change or frame end
 ```
 
 ### Phase 2: Drawing Primitives (Sequential)
 
-Build up the Draw API:
+Build up the Renderer's draw methods:
 
 ```
 1. Basic shapes
-   - draw.rect(x, y, w, h, options)
-   - draw.circle(x, y, r, options)
-   - draw.polygon(vertices, options)
-   - draw.line(x1, y1, x2, y2, options)
+   - renderer.drawRect(x, y, w, h, options)
+   - renderer.drawCircle(x, y, r, options)
+   - renderer.drawPolygon(vertices, options)
+   - renderer.drawLine(x1, y1, x2, y2, options)
 
-2. Sprites
+2. Images/Sprites
    - Create TextureManager.ts (load images, generateTexture)
-   - draw.sprite(texture, x, y, options)
+   - renderer.drawImage(texture, x, y, options)
    - Options: rotation, scale, alpha, tint, anchor
 
 3. Transform stack
-   - draw.save() / draw.restore()
-   - draw.translate(x, y) / draw.rotate(angle) / draw.scale(s)
+   - renderer.save() / renderer.restore()
+   - renderer.translate(x, y) / renderer.rotate(angle) / renderer.scale(s)
 
 4. Path API (for Sail-like shapes)
-   - draw.beginPath() / draw.moveTo() / draw.lineTo()
-   - draw.fill(color) / draw.stroke(color, width)
+   - renderer.beginPath() / renderer.moveTo() / renderer.lineTo()
+   - renderer.fill(color) / renderer.stroke(color, width)
 ```
 
 ### Phase 3: Layer System (Sequential)
 
+Layers are simple: just render priority + camera transform. No framebuffers needed.
+
 ```
 1. Update LayerInfo.ts
-   - Remove Pixi.Container
-   - Add optional shader (for water layer)
-   - Keep parallax, alpha config
+   - Remove Pixi.Container entirely
+   - Keep parallax config
+   - Layers are just config, not containers
 
-2. Create LayerRenderer.ts
-   - Render-to-framebuffer for layers with shaders
-   - Composite layers in order
-   - Apply layer shader during composite
+2. Update Renderer to iterate layers
+   - For each layer in order:
+     - Set camera transform (applying parallax)
+     - Render all entities on that layer
+   - Entities specify their layer (or use tags)
 
-3. Port WaterShader.ts
-   - Adapt GLSL to new uniform system
-   - Water layer renders full-screen quad with shader
+3. Water shader is a special case
+   - Water entity draws a full-screen quad with custom shader
+   - Not a "layer filter", just an entity that draws itself
+   - Renders in the "water" layer like any other entity
 ```
 
 ### Phase 4: Integration (Sequential)
@@ -195,16 +194,17 @@ Connect new renderer to game:
 
 2. Update GameRenderer2d.ts (or replace with Renderer.ts)
    - Remove all Pixi references
-   - Expose draw API to game: game.draw
+   - Renderer has draw methods: drawRect(), drawCircle(), drawSprite(), etc.
    - Wire up layer rendering
 
 3. Update Game.ts
    - Remove sprite add/remove from entity lifecycle
-   - Pass draw context to onRender handlers
+   - Render loop iterates layers, then entities per layer
+   - Pass renderer to onRender: entity.onRender(dt, renderer)
 
 4. Update BaseEntity.ts
    - Remove sprite/sprites properties
-   - onRender receives draw context
+   - onRender signature changes: onRender(dt: number, renderer: Renderer)
 ```
 
 ### Phase 5: Entity Migration (Parallel by complexity)
@@ -247,7 +247,9 @@ Group D - Special:
 
 ## API Design
 
-### Draw API (immediate mode)
+### Renderer API (passed to onRender)
+
+The renderer is passed directly to `onRender(dt, renderer)` and has all drawing methods:
 
 ```typescript
 interface DrawOptions {
@@ -265,10 +267,7 @@ interface SpriteOptions {
   anchorY?: number;
 }
 
-interface Draw {
-  // Layer selection
-  layer(name: LayerName): void;
-
+class Renderer {
   // Transform stack
   save(): void;
   restore(): void;
@@ -279,13 +278,13 @@ interface Draw {
   scale(sx: number, sy: number): void;
 
   // Primitives
-  rect(x: number, y: number, w: number, h: number, opts?: DrawOptions): void;
-  circle(x: number, y: number, r: number, opts?: DrawOptions): void;
-  polygon(vertices: V2d[] | number[], opts?: DrawOptions): void;
-  line(x1: number, y1: number, x2: number, y2: number, opts?: DrawOptions & { width?: number }): void;
+  drawRect(x: number, y: number, w: number, h: number, opts?: DrawOptions): void;
+  drawCircle(x: number, y: number, r: number, opts?: DrawOptions): void;
+  drawPolygon(vertices: V2d[] | number[], opts?: DrawOptions): void;
+  drawLine(x1: number, y1: number, x2: number, y2: number, opts?: DrawOptions & { width?: number }): void;
 
-  // Sprites
-  sprite(texture: Texture, x: number, y: number, opts?: SpriteOptions): void;
+  // Sprites/Images
+  drawImage(texture: Texture, x: number, y: number, opts?: SpriteOptions): void;
 
   // Path API (for complex shapes like Sail)
   beginPath(): void;
@@ -294,8 +293,13 @@ interface Draw {
   closePath(): void;
   fill(color: number, alpha?: number): void;
   stroke(color: number, width: number, alpha?: number): void;
+
+  // Textures
+  generateTexture(draw: (r: Renderer) => void, width: number, height: number): Texture;
 }
 ```
+
+Note: Layer is determined by which layer the entity is on, not by a draw call. The game loop handles this.
 
 ### Usage Examples
 
@@ -318,17 +322,16 @@ onRender() {
 
 **After (Immediate):**
 ```typescript
-// Sail.ts - no constructor sprite setup needed
-onRender() {
-  const draw = this.game!.draw;
-  draw.layer("sails");
-  draw.beginPath();
-  draw.moveTo(head.x, head.y);
+// Sail.ts - no constructor sprite setup, no sprite property
+// Entity is on "sails" layer (via tag or layer property)
+onRender(dt: number, renderer: Renderer) {
+  renderer.beginPath();
+  renderer.moveTo(head.x, head.y);
   for (const body of this.bodies) {
-    draw.lineTo(body.position[0], body.position[1]);
+    renderer.lineTo(body.position[0], body.position[1]);
   }
-  draw.closePath();
-  draw.fill(0xeeeeff);
+  renderer.closePath();
+  renderer.fill(0xeeeeff);
 }
 ```
 
@@ -347,13 +350,12 @@ this.sprite.alpha = this.alpha;
 
 **After (Immediate):**
 ```typescript
-// No sprite property, WindParticle is just data
-onRender() {
-  const draw = this.game!.draw;
-  draw.layer("windParticles");
+// No sprite property, WindParticle is just data (pos, alpha)
+onRender(dt: number, renderer: Renderer) {
   for (const p of this.particles) {
-    draw.sprite(particleTexture, p.pos.x, p.pos.y, {
-      scale: scale,
+    renderer.drawImage(particleTexture, p.pos.x, p.pos.y, {
+      scaleX: scale,
+      scaleY: scale,
       alpha: p.alpha,
       tint: COLOR
     });

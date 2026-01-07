@@ -2,8 +2,10 @@ import DynamicBody from "../core/physics/body/DynamicBody";
 import Convex from "../core/physics/shapes/Convex";
 import { V, V2d } from "../core/Vector";
 
-const MAX_RELATIVE_SPEED = 50;
-export const GLOBAL_FORCE_SCALE = 0.005;
+// Units: ft/s for speed, ft for length, lbf for force
+// The physics uses F = coefficient * speed² * edgeLength * GLOBAL_FORCE_SCALE
+const MAX_RELATIVE_SPEED = 15; // ft/s - cap for numerical stability (~9 kts)
+export const GLOBAL_FORCE_SCALE = 0.005; // Master scaling factor (needs tuning)
 
 
 // ============================================================================

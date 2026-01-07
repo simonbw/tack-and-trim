@@ -7,6 +7,8 @@ import { Boat } from "./Boat";
  * Separating this from Boat allows for AI-controlled boats, network boats, etc.
  */
 export class PlayerBoatController extends BaseEntity {
+  private activeJibSheet: "port" | "starboard" = "port";
+
   constructor(private boat: Boat) {
     super();
   }
@@ -19,10 +21,11 @@ export class PlayerBoatController extends BaseEntity {
     const shiftHeld = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
 
     // Update rudder steering (A/D or left/right arrows)
-    this.boat.steer(steer, dt, shiftHeld);
+    this.boat.rudder.setSteer(steer, shiftHeld);
 
     // Update mainsheet (W = trim in, S = ease out)
-    this.boat.adjustMainsheet(-sheet, dt, shiftHeld);
+    const mainsheetDt = shiftHeld ? dt * 2.5 : dt;
+    this.boat.mainsheet.adjust(-sheet, mainsheetDt);
 
     // Jib sheet controls - single active sheet model
     // Q/E meaning depends on which sheet is active:
@@ -32,10 +35,15 @@ export class PlayerBoatController extends BaseEntity {
     const qHeld = io.isKeyDown("KeyQ");
     const eHeld = io.isKeyDown("KeyE");
 
+    // Get active sheet reference
+    const activeSheet =
+      this.activeJibSheet === "port"
+        ? this.boat.portJibSheet
+        : this.boat.starboardJibSheet;
+
     // Calculate trim input based on active sheet
-    const activeSheet = this.boat.getActiveJibSheet();
     let trimInput = 0;
-    if (activeSheet === "port") {
+    if (this.activeJibSheet === "port") {
       if (eHeld) trimInput = -1; // E = trim in (port)
       else if (qHeld) trimInput = 1; // Q = ease out
     } else {
@@ -47,17 +55,26 @@ export class PlayerBoatController extends BaseEntity {
     if (shiftHeld) {
       // Shift+Q/E explicitly switches sheets
       if (qHeld) {
-        this.boat.tackJib("starboard");
+        this.activeJibSheet = "starboard";
+        this.boat.portJibSheet.release();
       } else if (eHeld) {
-        this.boat.tackJib("port");
+        this.activeJibSheet = "port";
+        this.boat.starboardJibSheet.release();
       }
-    } else if (trimInput > 0 && this.boat.isActiveJibSheetAtMax()) {
+    } else if (trimInput > 0 && activeSheet.isAtMaxLength()) {
       // Auto-switch when trying to ease out a fully slack sheet
-      const newSheet = activeSheet === "port" ? "starboard" : "port";
-      this.boat.tackJib(newSheet);
+      const newSheet = this.activeJibSheet === "port" ? "starboard" : "port";
+      this.activeJibSheet = newSheet;
+      if (newSheet === "port") {
+        this.boat.starboardJibSheet.release();
+      } else {
+        this.boat.portJibSheet.release();
+      }
     }
 
-    this.boat.adjustJibSheet(trimInput, dt, shiftHeld);
+    // Jib sheet speed: normal = 0.5x, fast = 1x
+    const jibDt = shiftHeld ? dt : dt * 0.5;
+    activeSheet.adjust(trimInput, jibDt);
   }
 
   onKeyDown({ key }: GameEventMap["keyDown"]) {
@@ -73,7 +90,7 @@ export class PlayerBoatController extends BaseEntity {
 
     // Toggle anchor
     if (key === "KeyF") {
-      this.boat.toggleAnchor();
+      this.boat.anchor.toggle();
     }
   }
 }

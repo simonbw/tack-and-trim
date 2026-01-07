@@ -14,17 +14,18 @@ import {
 } from "../fluid-dynamics";
 import type { Wind } from "../Wind";
 
+// Units: feet (ft), lbs
 // TellTail dimensions
 const TELLTAIL_NODES = 6;
-const TELLTAIL_NODE_MASS = 0.01;
-const TELLTAIL_LENGTH = 6;
-const SLACK_FACTOR = 1.02;
+const TELLTAIL_NODE_MASS = 0.01; // lbs per particle (tuned for physics)
+const TELLTAIL_LENGTH = 2; // ft - total streamer length
+const SLACK_FACTOR = 1.02; // Dimensionless constraint slack
 
 // Drag parameters
-const DRAG_SCALE = 0.5;
+const DRAG_SCALE = 0.5; // Dimensionless drag coefficient
 
 // Rendering
-const TELLTAIL_WIDTH = 1.5;
+const TELLTAIL_WIDTH = 0.3; // ft - visual ribbon width
 const TELLTAIL_COLOR = 0xff6600;
 
 /** No lift for a thin streamer - it just gets pushed by the wind. */

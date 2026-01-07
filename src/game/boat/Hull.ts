@@ -7,54 +7,33 @@ import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { V, V2d } from "../../core/Vector";
 import { applySkinFriction } from "../fluid-dynamics";
 import { WaterInfo } from "../water/WaterInfo";
-
-export const BOAT_MASS = 5; // kg?
-
-const HULL_VERTICES = [
-  // Stern (transom)
-  V(-20, -4),
-  V(-18, -7),
-  // Starboard side
-  V(-8, -10),
-  V(6, -10),
-  V(16, -8),
-  V(24, -4),
-  // Bow
-  V(28, 0),
-  // Port side
-  V(24, 4),
-  V(16, 8),
-  V(6, 10),
-  V(-8, 10),
-  V(-18, 7),
-  V(-20, 4),
-];
-
-const HULL_AREA = polygonArea(HULL_VERTICES);
-
-const HULL_LIFT_AND_DRAG = 0.15;
-const SKIN_FRICTION_COEFFICIENT = 0.02;
+import { HullConfig } from "./BoatConfig";
 
 export class Hull extends BaseEntity {
   body: DynamicBody;
   private hullSprite: GameSprite & Graphics;
+  private hullArea: number;
+  private skinFrictionCoefficient: number;
 
-  constructor() {
+  constructor(config: HullConfig) {
     super();
+
+    this.hullArea = polygonArea(config.vertices);
+    this.skinFrictionCoefficient = config.skinFrictionCoefficient;
 
     this.hullSprite = createGraphics("hull");
     this.hullSprite
-      .roundShape(HULL_VERTICES, 10, true, 1)
-      .fill({ color: 0xccaa33 })
-      .stroke({ color: 0x886633, width: 1, join: "round" });
+      .roundShape(config.vertices, 3, true, 1) // Corner radius in ft
+      .fill({ color: config.colors.fill })
+      .stroke({ color: config.colors.stroke, width: 1, join: "round" });
 
     this.body = new DynamicBody({
-      mass: BOAT_MASS,
+      mass: config.mass,
     });
 
     this.body.addShape(
       new Convex({
-        vertices: [...HULL_VERTICES],
+        vertices: [...config.vertices],
       })
     );
 
@@ -67,7 +46,7 @@ export class Hull extends BaseEntity {
     const getWaterVelocity = (point: V2d): V2d =>
       water?.getStateAtPoint(point).velocity ?? V(0, 0);
 
-    applySkinFriction(this.body, HULL_AREA, SKIN_FRICTION_COEFFICIENT, getWaterVelocity);
+    applySkinFriction(this.body, this.hullArea, this.skinFrictionCoefficient, getWaterVelocity);
   }
 
   onRender() {

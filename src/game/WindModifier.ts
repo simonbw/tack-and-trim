@@ -1,3 +1,4 @@
+import { AABB } from "../core/util/SparseSpatialHash";
 import { V2d } from "../core/Vector";
 
 /**
@@ -14,11 +15,8 @@ import { V2d } from "../core/Vector";
  * - Stall turbulence (disturbed air downstream of stalled sails)
  */
 export interface WindModifier {
-  /** Get the center position of this modifier (for distance checks). */
-  getWindModifierPosition(): V2d;
-
-  /** Get the maximum distance at which this modifier affects wind. */
-  getWindModifierInfluenceRadius(): number;
+  /** Get the axis-aligned bounding box of this modifier's influence area. */
+  getWindModifierAABB(): AABB;
 
   /**
    * Calculate the velocity contribution at a query point.

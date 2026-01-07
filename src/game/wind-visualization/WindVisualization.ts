@@ -102,11 +102,15 @@ export class WindVisualization extends BaseEntity {
 
   private drawModifierCircles(wind: Wind): void {
     for (const modifier of wind.getModifiers()) {
-      const pos = modifier.getWindModifierPosition();
-      const radius = modifier.getWindModifierInfluenceRadius();
+      const aabb = modifier.getWindModifierAABB();
 
       this.modifierGraphics
-        .circle(pos.x, pos.y, radius)
+        .rect(
+          aabb.minX,
+          aabb.minY,
+          aabb.maxX - aabb.minX,
+          aabb.maxY - aabb.minY
+        )
         .fill(MODIFIER_FILL_STYLE);
     }
   }

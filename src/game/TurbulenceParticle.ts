@@ -1,11 +1,13 @@
 import BaseEntity from "../core/entity/BaseEntity";
+import { AABB } from "../core/util/SparseSpatialHash";
 import { V, V2d } from "../core/Vector";
 import type { Wind } from "./Wind";
 import { WindModifier } from "./WindModifier";
 
+// Units: ft, ft/s, seconds
 // Turbulence particle configuration
-const TURBULENCE_STRENGTH = 10; // Magnitude of chaotic velocity contribution
-const TURBULENCE_RADIUS = 8; // Influence radius of each particle
+const TURBULENCE_STRENGTH = 3; // Magnitude of chaotic velocity contribution (ft/s)
+const TURBULENCE_RADIUS = 3; // Influence radius in ft
 const TURBULENCE_LIFETIME = 1.5; // Particle lifespan in seconds
 
 /**
@@ -18,6 +20,9 @@ export class TurbulenceParticle extends BaseEntity implements WindModifier {
   private age: number = 0;
   private intensity: number = 1.0;
   private seed: number;
+
+  // Reusable AABB to avoid allocations
+  private readonly aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
   constructor(
     private position: V2d,
@@ -50,12 +55,12 @@ export class TurbulenceParticle extends BaseEntity implements WindModifier {
 
   // WindModifier interface
 
-  getWindModifierPosition(): V2d {
-    return this.position;
-  }
-
-  getWindModifierInfluenceRadius(): number {
-    return TURBULENCE_RADIUS;
+  getWindModifierAABB(): AABB {
+    this.aabb.minX = this.position.x - TURBULENCE_RADIUS;
+    this.aabb.minY = this.position.y - TURBULENCE_RADIUS;
+    this.aabb.maxX = this.position.x + TURBULENCE_RADIUS;
+    this.aabb.maxY = this.position.y + TURBULENCE_RADIUS;
+    return this.aabb;
   }
 
   getWindVelocityContribution(queryPoint: V2d): V2d {

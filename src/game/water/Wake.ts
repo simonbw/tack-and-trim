@@ -1,65 +1,55 @@
 import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
-import { clamp, lerp } from "../../core/util/MathUtil";
+import { clamp, invLerp, lerp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { Boat } from "../boat/Boat";
-import { WakeParticle } from "./WakeParticle";
+import { WakeParticle, WakeSide } from "./WakeParticle";
 
-interface WakePoint {
-  leftPos: V2d;
-  rightPos: V2d;
-  perpendicular: V2d;
-  age: number;
-  speed: number;
-}
-
+// Units: feet (ft), ft/s, seconds
 const CONFIG = {
-  MAX_AGE: 3.0,
-  SPAWN_DISTANCE: 4, // Spawn particles every N units of distance traveled
-  MIN_SPEED: 5,
-  MAX_SPEED: 55,
-  REAR_OFFSET: -18,
-  INITIAL_SPREAD: 6,
-  SPREAD_RATE: 15,
+  MAX_AGE: 3.0, // seconds
+  SPAWN_DISTANCE: 1.3, // Spawn particles every N ft of distance traveled
+  MIN_SPEED: 3, // ft/s (~2 kts) - wake starts forming
+  MAX_SPEED: 12, // ft/s (~7 kts) - hull speed limit
+  REAR_OFFSET: -6, // ft behind hull center
+  INITIAL_SPREAD: 2, // ft initial lateral spread
+  SPREAD_RATE: 5, // ft/s lateral spreading rate
   COLOR: 0xffffff,
   MIN_ALPHA: 0.2,
   MAX_ALPHA: 0.7,
-  MIN_LINE_WIDTH: 1,
-  MAX_LINE_WIDTH: 3,
+  MIN_LINE_WIDTH: 1, // pixels
+  MAX_LINE_WIDTH: 3, // pixels
   // Wake particle lifespan range for natural variation
-  MIN_PARTICLE_LIFESPAN: 2.0,
-  MAX_PARTICLE_LIFESPAN: 5.0,
+  MIN_PARTICLE_LIFESPAN: 2.0, // seconds
+  MAX_PARTICLE_LIFESPAN: 5.0, // seconds
 };
 
 export class Wake extends BaseEntity {
   private graphics: GameSprite & Graphics;
-  private wakePoints: WakePoint[] = [];
   private lastSpawnPos: V2d | null = null;
 
-  constructor(private boat: Boat) {
+  // Track the most recently spawned particle on each side (head of chain)
+  // New particles link to these, forming a chain from newest to oldest
+  private leftChainHead: WakeParticle | null = null;
+  private rightChainHead: WakeParticle | null = null;
+
+  boat: Boat;
+  leftSpawnLocal: V2d;
+  rightSpawnLocal: V2d;
+
+  constructor(boat: Boat, leftSpawnLocal: V2d, rightSpawnLocal: V2d) {
     super();
     this.graphics = createGraphics("wake");
     this.sprite = this.graphics;
+    this.boat = boat;
+
+    this.leftSpawnLocal = leftSpawnLocal;
+    this.rightSpawnLocal = rightSpawnLocal;
   }
 
   onTick(dt: number) {
-    this.updatePoints(dt);
-    this.maybeSpawnPoint();
-    this.wakePoints = this.wakePoints.filter((p) => p.age < CONFIG.MAX_AGE);
-  }
-
-  private updatePoints(dt: number) {
-    for (const point of this.wakePoints) {
-      point.age += dt;
-      const spreadAmount = CONFIG.SPREAD_RATE * dt;
-      point.leftPos.iaddScaled(point.perpendicular, spreadAmount);
-      point.rightPos.iaddScaled(point.perpendicular, -spreadAmount);
-    }
-  }
-
-  private maybeSpawnPoint() {
-    const velocity = V(this.boat.hull.body.velocity);
+    const velocity = this.boat.getVelocity();
     const speed = velocity.magnitude;
 
     if (speed < CONFIG.MIN_SPEED) return;
@@ -68,90 +58,63 @@ export class Wake extends BaseEntity {
 
     // Check distance traveled since last spawn
     if (this.lastSpawnPos) {
-      const dx = boatPos.x - this.lastSpawnPos.x;
-      const dy = boatPos.y - this.lastSpawnPos.y;
-      const distSquared = dx * dx + dy * dy;
-      if (distSquared < CONFIG.SPAWN_DISTANCE * CONFIG.SPAWN_DISTANCE) return;
+      if (
+        this.lastSpawnPos.squaredDistanceTo(boatPos) <
+        CONFIG.SPAWN_DISTANCE * CONFIG.SPAWN_DISTANCE
+      )
+        return;
     }
-    this.lastSpawnPos = boatPos.clone();
+    this.lastSpawnPos = boatPos;
 
     const speedFactor = clamp(
-      (speed - CONFIG.MIN_SPEED) / (CONFIG.MAX_SPEED - CONFIG.MIN_SPEED)
+      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed)
     );
-    const boatAngle = this.boat.hull.body.angle;
 
-    const rearOffset = V(CONFIG.REAR_OFFSET, 0).rotate(boatAngle);
-    const rearPos = boatPos.add(rearOffset);
-    const perpendicular = V(0, 1).rotate(boatAngle);
-
-    // Spawn visual wake points
-    this.wakePoints.push({
-      leftPos: rearPos.add(perpendicular.mul(CONFIG.INITIAL_SPREAD)),
-      rightPos: rearPos.add(perpendicular.mul(-CONFIG.INITIAL_SPREAD)),
-      perpendicular: perpendicular.clone(),
-      age: 0,
-      speed,
-    });
-
-    // Spawn physics wake particles as entities
-    // Wake velocity is outward from the boat's path, scaled by boat speed
+    const body = this.boat.hull.body;
     const wakeSpeed = speed * 0.3; // Wake moves slower than boat
-    const leftVelocity = perpendicular.mul(wakeSpeed);
-    const rightVelocity = perpendicular.mul(-wakeSpeed);
 
-    // Random lifespan for natural variation
-    const lifespanRange =
-      CONFIG.MAX_PARTICLE_LIFESPAN - CONFIG.MIN_PARTICLE_LIFESPAN;
-    const leftLifespan =
-      CONFIG.MIN_PARTICLE_LIFESPAN + Math.random() * lifespanRange;
-    const rightLifespan =
-      CONFIG.MIN_PARTICLE_LIFESPAN + Math.random() * lifespanRange;
-
-    this.game?.addEntity(
-      new WakeParticle(
-        rearPos.add(perpendicular.mul(CONFIG.INITIAL_SPREAD)),
-        leftVelocity,
-        speedFactor,
-        leftLifespan
-      )
-    );
-    this.game?.addEntity(
-      new WakeParticle(
-        rearPos.add(perpendicular.mul(-CONFIG.INITIAL_SPREAD)),
-        rightVelocity,
-        speedFactor,
-        rightLifespan
-      )
-    );
+    // Spawn left and right wake particles and link them into chains
+    this.spawnAndLinkParticle("left", body, wakeSpeed, speedFactor);
+    this.spawnAndLinkParticle("right", body, wakeSpeed, speedFactor);
   }
 
-  onRender() {
-    // Disabled - using shader-based height coloring instead
-    this.graphics.clear();
-  }
+  private spawnAndLinkParticle(
+    side: WakeSide,
+    body: { toWorldFrame: (v: V2d) => V2d; angle: number },
+    wakeSpeed: number,
+    speedFactor: number
+  ) {
+    const sideSign = side === "left" ? 1 : -1;
 
-  private drawTrail(points: Array<{ pos: V2d; age: number; speed: number }>) {
-    for (let i = 1; i < points.length; i++) {
-      const prev = points[i - 1];
-      const curr = points[i];
+    const pos = body.toWorldFrame(
+      side === "left" ? this.leftSpawnLocal : this.rightSpawnLocal
+    );
+    const vel = V(0, wakeSpeed * sideSign).irotate(body.angle);
+    const lifespan = lerp(
+      CONFIG.MIN_PARTICLE_LIFESPAN,
+      CONFIG.MAX_PARTICLE_LIFESPAN,
+      Math.random()
+    );
 
-      const ageFactor = 1 - curr.age / CONFIG.MAX_AGE;
-      const speedFactor = clamp(
-        (curr.speed - CONFIG.MIN_SPEED) / (CONFIG.MAX_SPEED - CONFIG.MIN_SPEED)
-      );
-      const alpha =
-        ageFactor * lerp(CONFIG.MIN_ALPHA, CONFIG.MAX_ALPHA, speedFactor);
+    const particle = new WakeParticle(pos, vel, side, speedFactor, lifespan);
 
-      if (alpha <= 0.01) continue;
+    // Link to previous head of chain
+    const prevHead = side === "left" ? this.leftChainHead : this.rightChainHead;
 
-      const lineWidth =
-        lerp(CONFIG.MIN_LINE_WIDTH, CONFIG.MAX_LINE_WIDTH, speedFactor) *
-        ageFactor;
-
-      this.graphics
-        .moveTo(prev.pos.x, prev.pos.y)
-        .lineTo(curr.pos.x, curr.pos.y)
-        .stroke({ color: CONFIG.COLOR, width: lineWidth, alpha });
+    if (prevHead && !prevHead.isDestroyed) {
+      // New particle's next points to the previous head (older particle)
+      particle.next = prevHead;
+      // Previous head's prev points back to new particle
+      prevHead.prev = particle;
     }
+
+    // Update chain head reference
+    if (side === "left") {
+      this.leftChainHead = particle;
+    } else {
+      this.rightChainHead = particle;
+    }
+
+    this.game?.addEntity(particle);
   }
 }

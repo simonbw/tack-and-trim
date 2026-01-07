@@ -2,6 +2,7 @@ import { TextureStyle } from "pixi.js";
 import AutoPauser from "../core/AutoPauser";
 import Game from "../core/Game";
 import DebugOverlay from "../core/util/DebugOverlay";
+import { V } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { BoatSpray } from "./BoatSpray";
@@ -59,7 +60,7 @@ async function main() {
   const boat = game.addEntity(new Boat());
   game.addEntity(new PlayerBoatController(boat));
   game.addEntity(new CameraController(boat, game.camera));
-  game.addEntity(new Wake(boat));
+  game.addEntity(new Wake(boat, V(-6, 2), V(-6, -2))); // Stern wake spawn positions (ft)
   game.addEntity(new BoatSpray(boat));
   game.addEntity(new WindParticles());
 }

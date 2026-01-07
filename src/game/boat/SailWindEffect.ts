@@ -1,5 +1,6 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { profiler } from "../../core/util/Profiler";
+import { AABB } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
 import { TurbulenceParticle } from "../TurbulenceParticle";
 import type { Wind } from "../Wind";
@@ -11,18 +12,19 @@ import {
 } from "./sail-helpers";
 import type { Sail } from "./Sail";
 
+// Units: feet (ft), seconds
 // Wind effect constants
-const WIND_MIN_DISTANCE = 5;
+const WIND_MIN_DISTANCE = 1.5; // ft - minimum distance for wind effect
 
-// Directional wind effect constants
+// Directional wind effect constants (dimensionless)
 const LEEWARD_ACCELERATION = 0.15; // Flow speedup on leeward side
 const WINDWARD_BLOCKAGE = 0.1; // Flow reduction on windward side
 const WAKE_SHADOW_FACTOR = 0.2; // Wind reduction in wake
 const WAKE_LENGTH_FACTOR = 3.0; // How far wake extends (× segment length)
 
 // Turbulence spawning constants
-const TURBULENCE_SPAWN_INTERVAL = 0.1; // Min time between spawns per segment
-const TURBULENCE_SPAWN_OFFSET = 5; // Distance downwind to spawn particle
+const TURBULENCE_SPAWN_INTERVAL = 0.1; // seconds - min time between spawns per segment
+const TURBULENCE_SPAWN_OFFSET = 1.5; // ft - distance downwind to spawn particle
 const MAX_TURBULENCE_PARTICLES = 30; // Global cap on active turbulence particles
 
 /**
@@ -65,6 +67,9 @@ export class SailWindEffect extends BaseEntity implements WindModifier {
   private stallFraction: number = 0;
   private windSpeed: number = 0;
   private windDirection: V2d = V(1, 0);
+
+  // Reusable AABB to avoid allocations
+  private readonly aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
   constructor(private sail: Sail) {
     super();
@@ -257,12 +262,13 @@ export class SailWindEffect extends BaseEntity implements WindModifier {
 
   // WindModifier interface
 
-  getWindModifierPosition(): V2d {
-    return this.centroid;
-  }
-
-  getWindModifierInfluenceRadius(): number {
-    return this.sail.getWindInfluenceRadius();
+  getWindModifierAABB(): AABB {
+    const radius = this.sail.getWindInfluenceRadius();
+    this.aabb.minX = this.centroid.x - radius;
+    this.aabb.minY = this.centroid.y - radius;
+    this.aabb.maxX = this.centroid.x + radius;
+    this.aabb.maxY = this.centroid.y + radius;
+    return this.aabb;
   }
 
   /**
