@@ -1,6 +1,4 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { clamp, invLerp, lerp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { Boat } from "../boat/Boat";
@@ -26,7 +24,8 @@ const CONFIG = {
 };
 
 export class Wake extends BaseEntity {
-  private graphics: GameSprite & Graphics;
+  layer = "wake" as const;
+
   private lastSpawnPos: V2d | null = null;
 
   // Track the most recently spawned particle on each side (head of chain)
@@ -40,10 +39,7 @@ export class Wake extends BaseEntity {
 
   constructor(boat: Boat, leftSpawnLocal: V2d, rightSpawnLocal: V2d) {
     super();
-    this.graphics = createGraphics("wake");
-    this.sprite = this.graphics;
     this.boat = boat;
-
     this.leftSpawnLocal = leftSpawnLocal;
     this.rightSpawnLocal = rightSpawnLocal;
   }

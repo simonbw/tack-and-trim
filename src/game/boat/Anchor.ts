@@ -1,6 +1,4 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
@@ -13,8 +11,7 @@ import { Hull } from "./Hull";
 type AnchorState = "stowed" | "deploying" | "deployed" | "retrieving";
 
 export class Anchor extends BaseEntity {
-  private anchorSprite: GameSprite & Graphics;
-  private rodeSprite: GameSprite & Graphics;
+  layer = "underhull" as const;
 
   private anchorBody: DynamicBody | null = null;
   private rodeConstraint: DistanceConstraint | null = null;
@@ -49,10 +46,6 @@ export class Anchor extends BaseEntity {
     this.rodeRetrieveSpeed = config.rodeRetrieveSpeed;
     this.anchorMass = config.anchorMass;
     this.anchorDragCoefficient = config.anchorDragCoefficient;
-
-    this.anchorSprite = createGraphics("underhull");
-    this.rodeSprite = createGraphics("underhull");
-    this.sprites = [this.rodeSprite, this.anchorSprite];
 
     this.visualRope = new VerletRope({
       pointCount: 12,
@@ -220,24 +213,17 @@ export class Anchor extends BaseEntity {
   }
 
   onRender(): void {
-    this.anchorSprite.clear();
-    this.rodeSprite.clear();
-
     if (this.state === "stowed") return;
 
-    // Draw anchor
-    this.drawAnchor(this.anchorPosition);
+    const renderer = this.game!.getRenderer();
 
     // Draw rode using visual rope simulation
-    this.visualRope.render(this.rodeSprite);
-  }
+    this.visualRope.render(renderer);
 
-  private drawAnchor(pos: V2d): void {
-    // Simple anchor shape
-    this.anchorSprite
-      .circle(pos.x, pos.y, this.anchorSize)
-      .fill({ color: 0x444444 })
-      .stroke({ color: 0x333333, width: 1 });
+    // Draw anchor (simple circle)
+    renderer.drawCircle(this.anchorPosition.x, this.anchorPosition.y, this.anchorSize, {
+      color: 0x444444,
+    });
   }
 
   onDestroy(): void {

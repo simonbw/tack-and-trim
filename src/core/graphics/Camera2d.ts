@@ -1,10 +1,8 @@
-import { Matrix, Point } from "pixi.js";
 import { V, V2d } from "../Vector";
 import BaseEntity from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
 import { lerpOrSnap } from "../util/MathUtil";
-import { GameRenderer2d } from "./GameRenderer2d";
-import { LayerInfo } from "./LayerInfo";
+import { Matrix3 } from "./Matrix3";
 
 // Bounds for camera position/velocity validation
 const MAX_CAMERA_POSITION = 100000;
@@ -20,14 +18,20 @@ export interface Viewport {
   readonly height: number;
 }
 
+/** Interface for getting viewport dimensions */
+export interface ViewportProvider {
+  getWidth(): number;
+  getHeight(): number;
+}
+
 /** Controls the viewport.
- * TODO: Document camera better
+ * Uses Matrix3 for transforms instead of Pixi.Matrix.
  */
 export class Camera2d extends BaseEntity implements Entity {
   tags = ["camera"];
   persistenceLevel = 100;
 
-  renderer: GameRenderer2d;
+  viewportProvider: ViewportProvider;
   position: V2d;
   z: number;
   angle: number;
@@ -42,19 +46,18 @@ export class Camera2d extends BaseEntity implements Entity {
     y: number;
     z: number;
     angle: number;
-    canvasWidth: number;
-    canvasHeight: number;
-    resolution: number;
+    viewportWidth: number;
+    viewportHeight: number;
   } | null = null;
 
   constructor(
-    renderer: GameRenderer2d,
+    viewportProvider: ViewportProvider,
     position: V2d = V([0, 0]),
     z = 25.0,
     angle = 0
   ) {
     super();
-    this.renderer = renderer;
+    this.viewportProvider = viewportProvider;
     this.position = position;
     this.z = z;
     this.angle = angle;
@@ -191,8 +194,8 @@ export class Camera2d extends BaseEntity implements Entity {
   /** Returns [width, height] of the viewport in pixels */
   getViewportSize(): V2d {
     return V(
-      this.renderer.canvas.width / this.renderer.app.renderer.resolution,
-      this.renderer.canvas.height / this.renderer.app.renderer.resolution
+      this.viewportProvider.getWidth(),
+      this.viewportProvider.getHeight()
     );
   }
 
@@ -202,9 +205,8 @@ export class Camera2d extends BaseEntity implements Entity {
    * Results are cached and only recomputed when camera or viewport changes.
    */
   getWorldViewport(): Viewport {
-    const canvasWidth = this.renderer.canvas.width;
-    const canvasHeight = this.renderer.canvas.height;
-    const resolution = this.renderer.app.renderer.resolution;
+    const viewportWidth = this.viewportProvider.getWidth();
+    const viewportHeight = this.viewportProvider.getHeight();
 
     // Check if cache is valid
     if (
@@ -214,9 +216,8 @@ export class Camera2d extends BaseEntity implements Entity {
       this._viewportCacheInputs.y === this.y &&
       this._viewportCacheInputs.z === this.z &&
       this._viewportCacheInputs.angle === this.angle &&
-      this._viewportCacheInputs.canvasWidth === canvasWidth &&
-      this._viewportCacheInputs.canvasHeight === canvasHeight &&
-      this._viewportCacheInputs.resolution === resolution
+      this._viewportCacheInputs.viewportWidth === viewportWidth &&
+      this._viewportCacheInputs.viewportHeight === viewportHeight
     ) {
       return this._cachedViewport;
     }
@@ -235,9 +236,8 @@ export class Camera2d extends BaseEntity implements Entity {
       y: this.y,
       z: this.z,
       angle: this.angle,
-      canvasWidth,
-      canvasHeight,
-      resolution,
+      viewportWidth,
+      viewportHeight,
     };
 
     return viewport;
@@ -245,56 +245,46 @@ export class Camera2d extends BaseEntity implements Entity {
 
   /** Convert screen coordinates to world coordinates */
   toWorld([x, y]: V2d, parallax = V(1.0, 1.0)): V2d {
-    let p = new Point(x, y);
-    p = this.getMatrix(parallax).applyInverse(p, p);
-    return V(p.x, p.y);
+    const matrix = this.getMatrix(parallax);
+    return matrix.applyInverse(V(x, y));
   }
 
   /** Convert world coordinates to screen coordinates */
   toScreen([x, y]: V2d, parallax = V(1.0, 1.0)): V2d {
-    let p = new Point(x, y);
-    p = this.getMatrix(parallax).apply(p, p);
-    return V(p.x, p.y);
+    const matrix = this.getMatrix(parallax);
+    return matrix.apply(V(x, y));
   }
 
-  /** Creates a transformation matrix to go from screen world space to screen space. */
+  /** Creates a transformation matrix to go from world space to screen space. */
   getMatrix(
     [px, py]: [number, number] = [1, 1],
     [ax, ay]: V2d = V(0, 0)
-  ): Matrix {
+  ): Matrix3 {
     const [w, h] = this.getViewportSize();
+
+    // Special case: parallax (0,0) means screen-space rendering (HUD)
+    // Return identity - coordinates are already in screen pixels
+    if (px === 0 && py === 0) {
+      return new Matrix3().identity();
+    }
+
     const { x: cx, y: cy, z, angle } = this;
 
-    return (
-      new Matrix()
-        // align the anchor with the camera
-        .translate(ax * px, ay * py)
-        .translate(-cx * px, -cy * py)
-        // do all the scaling and rotating
-        .scale(z * px, z * py)
-        .rotate(angle)
-        // put it back
-        .translate(-ax * z, -ay * z)
-        .scale(1 / px, 1 / py)
-        // Put it on the center of the screen
-        .translate(w / 2.0, h / 2.0)
-    );
-  }
+    const matrix = new Matrix3();
 
-  /** Update the properties of a renderer layer to match this camera */
-  updateLayer(layer: LayerInfo) {
-    const container = layer.container;
-    if (!layer.parallax.equals([0, 0])) {
-      const matrix = this.getMatrix(layer.parallax, layer.anchor);
-      container.updateTransform({
-        x: matrix.tx,
-        y: matrix.ty,
-        scaleX: matrix.a,
-        scaleY: matrix.d,
-        skewX: matrix.b,
-        skewY: matrix.c,
-      });
-    }
+    // align the anchor with the camera
+    matrix.translate(ax * px, ay * py);
+    matrix.translate(-cx * px, -cy * py);
+    // do all the scaling and rotating
+    matrix.scale(z * px, z * py);
+    matrix.rotate(angle);
+    // put it back
+    matrix.translate(-ax * z, -ay * z);
+    matrix.scale(1 / px, 1 / py);
+    // Put it on the center of the screen
+    matrix.translate(w / 2.0, h / 2.0);
+
+    return matrix;
   }
 }
 

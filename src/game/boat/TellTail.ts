@@ -1,6 +1,4 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import Body from "../../core/physics/body/Body";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
@@ -32,14 +30,12 @@ const TELLTAIL_COLOR = 0xff6600;
 const noLift: ForceMagnitudeFn = () => 0;
 
 export class TellTail extends BaseEntity {
-  sprite: GameSprite & Graphics;
+  layer = "telltails" as const;
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
   constructor(private attachmentBody: Body) {
     super();
-
-    this.sprite = createGraphics("telltails");
 
     this.bodies = [];
     this.constraints = [];
@@ -118,19 +114,20 @@ export class TellTail extends BaseEntity {
   }
 
   onRender() {
-    this.sprite.clear();
-
     if (this.bodies.length < 2) return;
 
-    // Draw using moveTo/lineTo like Sail does
+    const renderer = this.game!.getRenderer();
+
+    // Draw using path API
+    renderer.beginPath();
     const [startX, startY] = this.bodies[0].position;
-    this.sprite.moveTo(startX, startY);
+    renderer.moveTo(startX, startY);
 
     for (let i = 1; i < this.bodies.length; i++) {
       const [x, y] = this.bodies[i].position;
-      this.sprite.lineTo(x, y);
+      renderer.lineTo(x, y);
     }
 
-    this.sprite.stroke({ color: TELLTAIL_COLOR, width: TELLTAIL_WIDTH });
+    renderer.stroke(TELLTAIL_COLOR, TELLTAIL_WIDTH, 1.0, false);
   }
 }

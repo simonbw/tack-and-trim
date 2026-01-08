@@ -8,7 +8,6 @@ import Spring from "../physics/springs/Spring";
 import { shapeFromDef } from "../physics/utils/ShapeUtils";
 import { clamp } from "../util/MathUtil";
 import Entity, { GameEventMap } from "./Entity";
-import { GameSprite, spriteFromDef } from "./GameSprite";
 
 /** Base class for lots of stuff in the game. */
 export default abstract class BaseEntity implements Entity {
@@ -23,8 +22,8 @@ export default abstract class BaseEntity implements Entity {
   springs?: Spring[];
   id?: string;
   tags: string[] = [];
-  sprite?: GameSprite;
-  sprites?: GameSprite[];
+  /** The layer this entity renders on */
+  layer?: string;
 
   constructor(entityDef?: EntityDef) {
     if (entityDef) {
@@ -37,14 +36,6 @@ export default abstract class BaseEntity implements Entity {
       throw new Error(
         "Can't load from def after entity has been added to game."
       );
-    }
-
-    if (def.sprites) {
-      if (def.sprites.length === 1) {
-        this.sprite = spriteFromDef(def.sprites[0]);
-      } else {
-        this.sprites = def.sprites.map((spriteDef) => spriteFromDef(spriteDef));
-      }
     }
 
     if (def.body) {
@@ -80,8 +71,6 @@ export default abstract class BaseEntity implements Entity {
   getPosition(): V2d {
     if (this.body) {
       return V(this.body.position);
-    } else if (this.sprite) {
-      return V(this.sprite.position.x, this.sprite.position.y);
     }
     throw new Error("Position is not implemented for this entity");
   }

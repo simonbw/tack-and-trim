@@ -1,4 +1,4 @@
-import { DEFAULT_LAYER, LAYERS } from "../config/layers";
+import { DEFAULT_LAYER, LAYERS, LayerName } from "../config/layers";
 import { profiler } from "./util/Profiler";
 import ContactList, {
   ContactInfo,
@@ -13,6 +13,7 @@ import {
   GameRenderer2d,
   GameRenderer2dOptions,
 } from "./graphics/GameRenderer2d";
+import { Renderer } from "./graphics/Renderer";
 import { IOManager } from "./io/IO";
 import type Body from "./physics/body/Body";
 import StaticBody from "./physics/body/StaticBody";
@@ -31,7 +32,7 @@ export default class Game {
   readonly entities: EntityList;
   /** Keeps track of entities that are ready to be removed */
   readonly entitiesToRemove: Set<Entity>;
-  /** TODO: Document game.renderer */
+  /** The game renderer wrapper */
   readonly renderer: GameRenderer2d;
   /** Manages keyboard/mouse/gamepad state and events. */
   private _io!: IOManager;
@@ -77,7 +78,7 @@ export default class Game {
   /** Keep track of how long each frame is taking on average */
   averageFrameDuration = 1 / 60;
 
-  /** TODO: Document game.camera */
+  /** Get the camera */
   get camera() {
     return this.renderer.camera;
   }
@@ -152,7 +153,7 @@ export default class Game {
     }
   }
 
-  /** TODO: Document onResize */
+  /** Called when renderer is resized */
   onResize(size: [number, number]) {
     this.dispatch("resize", { size: V(size) });
   }
@@ -199,7 +200,7 @@ export default class Game {
     // Destroy IO manager (clears interval and event listeners)
     this.io.destroy();
 
-    // Destroy renderer (removes resize listener, destroys Pixi app)
+    // Destroy renderer
     this.renderer.destroy();
 
     // Close audio context
@@ -257,17 +258,6 @@ export default class Game {
       }
     }
 
-    if (entity.sprite) {
-      this.renderer.addSprite(entity.sprite);
-      entity.sprite.owner = entity;
-    }
-    if (entity.sprites) {
-      for (const sprite of entity.sprites) {
-        this.renderer.addSprite(sprite);
-        sprite.owner = entity;
-      }
-    }
-
     if (entity.onResize) {
       entity.onResize({ size: this.renderer.getSize() });
     }
@@ -315,12 +305,6 @@ export default class Game {
    * Only removes top-level entities (those without parents) to avoid double-cleanup.
    *
    * @param persistenceThreshold - Entities with persistence level <= this value will be removed (default: 0)
-   * @example
-   * // Remove all level-specific entities (Persistence.Level)
-   * game.clearScene();
-   *
-   * // Remove level and game-specific entities (Persistence.Level and Persistence.Game)
-   * game.clearScene(Persistence.Game);
    */
   clearScene(persistenceThreshold = 0) {
     for (const entity of this.entities) {
@@ -348,7 +332,6 @@ export default class Game {
     const lastFrameDuration = (time - this.lastFrameTime) / 1000;
     this.lastFrameTime = time;
 
-    // TODO: This honestly doesn't work great
     // Keep a rolling average
     if (0 < lastFrameDuration && lastFrameDuration < 0.3) {
       // Ignore weird durations because they're probably flukes from the user
@@ -440,17 +423,6 @@ export default class Game {
       }
     }
 
-    if (entity.sprite) {
-      this.renderer.removeSprite(entity.sprite);
-      entity.sprite.destroy({ children: true });
-    }
-    if (entity.sprites) {
-      for (const sprite of entity.sprites) {
-        this.renderer.removeSprite(sprite);
-        sprite.destroy({ children: true });
-      }
-    }
-
     if (entity.onDestroy) {
       entity.onDestroy({ game: this });
     }
@@ -526,12 +498,56 @@ export default class Game {
     }
   }
 
-  /** Called before actually rendering. */
+  /** Get the low-level renderer for direct drawing */
+  getRenderer(): Renderer {
+    return this.renderer.getRenderer();
+  }
+
+  /** Called to render the current frame. */
   private render(dt: number) {
     this.cleanupEntities();
-    this.dispatch("render", dt);
-    this.dispatch("lateRender", dt);
-    this.renderer.render();
+
+    // Begin frame
+    this.renderer.beginFrame();
+    this.renderer.clear(0x1a1a2e); // Dark blue background
+
+    // Render each layer in order
+    const layerNames = this.renderer.getLayerNames();
+    for (const layerName of layerNames) {
+      // Set the camera transform for this layer
+      this.renderer.setLayer(layerName);
+
+      // Dispatch render event for entities on this layer
+      this.dispatchRenderForLayer(layerName, dt);
+    }
+
+    // End frame
+    this.renderer.endFrame();
+  }
+
+  /** Dispatch render event to entities on a specific layer */
+  private dispatchRenderForLayer(layerName: LayerName, dt: number) {
+    const effectivelyPaused = this.paused;
+
+    for (const entity of this.entities.getHandlers("render")) {
+      if (entity.game && !(effectivelyPaused && !entity.pausable)) {
+        // Check if entity is on this layer
+        const entityLayer = entity.layer ?? DEFAULT_LAYER;
+        if (entityLayer === layerName) {
+          entity.onRender?.(dt);
+        }
+      }
+    }
+
+    // Also dispatch lateRender for this layer
+    for (const entity of this.entities.getHandlers("lateRender")) {
+      if (entity.game && !(effectivelyPaused && !entity.pausable)) {
+        const entityLayer = entity.layer ?? DEFAULT_LAYER;
+        if (entityLayer === layerName) {
+          entity.onLateRender?.(dt);
+        }
+      }
+    }
   }
 
   // Handle beginning of collision between things.

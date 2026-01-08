@@ -1,16 +1,15 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { V2d } from "../../core/Vector";
 import { Boat } from "./Boat";
 import { BowspritConfig } from "./BoatConfig";
 
 /** Bowsprit - a spar extending forward from the bow for jib attachment */
 export class Bowsprit extends BaseEntity {
-  sprite: GameSprite & Graphics;
+  layer = "main" as const;
   localPosition: V2d;
   size: V2d;
   boat: Boat;
+  private color: number;
 
   constructor(boat: Boat, config: BowspritConfig) {
     super();
@@ -18,16 +17,21 @@ export class Bowsprit extends BaseEntity {
     this.localPosition = config.attachPoint;
     this.size = config.size;
     this.boat = boat;
-
-    // Bowsprit visual - a spar extending forward from the bow
-    this.sprite = createGraphics("main")
-      .rect(0, -config.size.y / 2, config.size.x, config.size.y)
-      .fill({ color: config.color });
+    this.color = config.color;
   }
 
   onRender() {
+    const renderer = this.game!.getRenderer();
     const hullBody = this.boat.hull.body;
-    this.sprite.position.copyFrom(hullBody.toWorldFrame(this.localPosition));
-    this.sprite.rotation = hullBody.angle;
+    const worldPos = hullBody.toWorldFrame(this.localPosition);
+
+    renderer.save();
+    renderer.translate(worldPos[0], worldPos[1]);
+    renderer.rotate(hullBody.angle);
+
+    // Bowsprit visual - a spar extending forward from the bow
+    renderer.drawRect(0, -this.size.y / 2, this.size.x, this.size.y, { color: this.color });
+
+    renderer.restore();
   }
 }

@@ -1,61 +1,39 @@
-import * as Pixi from "pixi.js";
 import { LAYERS, LayerName } from "../../config/layers";
 import { V, V2d } from "../Vector";
-import { GameSprite } from "../entity/GameSprite";
-import { Camera2d } from "./Camera2d";
+import { Camera2d, ViewportProvider } from "./Camera2d";
 import { LayerInfo } from "./LayerInfo";
+import { Matrix3 } from "./Matrix3";
+import { Renderer } from "./Renderer";
 
 /** Options for the GameRenderer2d constructor */
-export interface GameRenderer2dOptions extends Partial<Pixi.RendererOptions> {}
+export interface GameRenderer2dOptions {
+  antialias?: boolean;
+}
 
-/** The thing that renders stuff to the screen. Mostly for handling layers.
- * TODO: Document GameRenderer2d better
+/**
+ * The thing that renders stuff to the screen.
+ * Wraps the low-level Renderer and manages layers and camera.
  */
-export class GameRenderer2d {
-  // TODO: Do we really need to store this ourselves? Can't we just set it on the canvas?
+export class GameRenderer2d implements ViewportProvider {
   private cursor: CSSStyleDeclaration["cursor"] = "none";
 
-  /** The number of sprites currently managed by this renderer. Mostly useful for debugging. */
-  public get spriteCount() {
-    return this._spriteCount;
-  }
-  private set spriteCount(value) {
-    this._spriteCount = value;
-  }
-  private _spriteCount: number = 0;
+  /** The underlying WebGL renderer */
+  readonly renderer: Renderer;
 
-  /** TODO: Document renderer.app */
-  app: Pixi.Application;
-
-  /** TODO: Document renderer.camera */
+  /** Camera for viewport transformations */
   camera: Camera2d;
 
-  /** TODO: Document renderer.stage */
-  get stage(): Pixi.Container {
-    return this.app.stage;
-  }
-
-  /** TODO: Document renderer.canvas */
-  get canvas(): HTMLCanvasElement {
-    return this.app.renderer.canvas;
-  }
-
-  // Store reference for cleanup
+  /** Store reference for cleanup */
   private boundHandleResize: () => void;
 
-  /** TODO: Document renderer constructor */
   constructor(
     private layerInfos: Record<LayerName, LayerInfo>,
     private defaultLayerName: LayerName,
     private onResize?: ([width, height]: [number, number]) => void
   ) {
-    this.app = new Pixi.Application();
+    this.renderer = new Renderer();
     this.showCursor();
     this.camera = new Camera2d(this, V(0, 0));
-
-    for (const layerInfo of Object.values(LAYERS)) {
-      this.app.stage.addChild(layerInfo.container);
-    }
 
     this.boundHandleResize = () => this.handleResize();
     window.addEventListener("resize", this.boundHandleResize);
@@ -64,25 +42,24 @@ export class GameRenderer2d {
   destroy(): void {
     window.removeEventListener("resize", this.boundHandleResize);
     this.canvas.remove();
-    this.app.destroy(true, true);
+    this.renderer.destroy();
   }
 
-  async init(pixiOptions: GameRenderer2dOptions = {}) {
-    await this.app
-      .init({
-        resizeTo: window,
-        autoDensity: true,
-        antialias: true,
-        preference: "webgl", // Force WebGL for custom GLSL shaders
-        ...pixiOptions,
-      })
-      .then(() => {
-        document.body.appendChild(this.canvas);
-      });
+  async init(options: GameRenderer2dOptions = {}): Promise<void> {
+    // Add canvas to document
+    document.body.appendChild(this.canvas);
+
+    // Initial resize
+    this.handleResize();
   }
 
-  /** TODO: Document request fullscreen */
-  requestFullscreen() {
+  /** Get the canvas element */
+  get canvas(): HTMLCanvasElement {
+    return this.renderer.canvas;
+  }
+
+  /** Request fullscreen on next click */
+  requestFullscreen(): void {
     const makeFullScreen = () => {
       this.canvas.requestFullscreen();
       this.canvas.removeEventListener("click", makeFullScreen);
@@ -92,88 +69,79 @@ export class GameRenderer2d {
 
   /** Gets the effective height of the renderer viewport in logical pixels. */
   getHeight(): number {
-    return this.app.renderer.height / this.app.renderer.resolution;
+    return this.renderer.getHeight();
   }
 
   /** Gets the effective width of the renderer viewport in logical pixels. */
   getWidth(): number {
-    return this.app.renderer.width / this.app.renderer.resolution;
+    return this.renderer.getWidth();
   }
 
   getSize(): V2d {
     return V(this.getWidth(), this.getHeight());
   }
 
-  handleResize() {
-    this.app.resizeTo = window;
-    this.app.resize();
+  handleResize(): void {
+    this.renderer.resize(window.innerWidth, window.innerHeight);
     this.onResize?.(this.getSize());
   }
 
-  hideCursor() {
+  hideCursor(): void {
     this.cursor = "none";
   }
 
-  showCursor() {
+  showCursor(): void {
     this.cursor = "auto";
   }
 
-  setCursor(value: CSSStyleDeclaration["cursor"]) {
+  setCursor(value: CSSStyleDeclaration["cursor"]): void {
     this.cursor = value;
   }
 
-  // Render the current frame.
-  render() {
-    for (const layerInfo of Object.values(this.layerInfos)) {
-      this.camera.updateLayer(layerInfo);
-    }
-    this.app.render();
-    if (this.app.renderer.view.canvas.style) {
-      this.app.renderer.view.canvas.style.cursor = this.cursor;
+  /** Get the layer infos */
+  getLayers(): Record<LayerName, LayerInfo> {
+    return this.layerInfos;
+  }
+
+  /** Get layer names in render order */
+  getLayerNames(): LayerName[] {
+    return Object.keys(this.layerInfos) as LayerName[];
+  }
+
+  /** Get the camera transform for a specific layer */
+  getLayerTransform(layerName: LayerName): Matrix3 {
+    const layer = this.layerInfos[layerName];
+    return this.camera.getMatrix(layer.parallax, layer.anchor);
+  }
+
+  /** Begin rendering a frame */
+  beginFrame(): void {
+    this.renderer.beginFrame();
+  }
+
+  /** End the frame and present */
+  endFrame(): void {
+    this.renderer.endFrame();
+
+    // Update cursor
+    if (this.canvas.style) {
+      this.canvas.style.cursor = this.cursor;
     }
   }
 
-  addSprite(sprite: GameSprite): GameSprite {
-    const layerName = sprite.layerName ?? this.defaultLayerName;
-    this.layerInfos[layerName].container.addChild(sprite);
-    this.spriteCount += 1;
-    return sprite;
+  /** Clear the screen */
+  clear(color: number = 0x1a1a2e): void {
+    this.renderer.clear(color);
   }
 
-  // Remove a child from a specific layer.
-  removeSprite(sprite: GameSprite): void {
-    const layerName = sprite.layerName ?? this.defaultLayerName;
-    this.layerInfos[layerName].container.removeChild(sprite);
-    this.spriteCount -= 1;
+  /** Set up the renderer for drawing on a specific layer */
+  setLayer(layerName: LayerName): void {
+    const transform = this.getLayerTransform(layerName);
+    this.renderer.setTransform(transform);
   }
 
-  /**
-   * Adds a visual filter effect to a specific rendering layer.
-   * @param filter - Pixi filter to apply to the layer
-   * @param layerName - Name of the layer to apply the filter to
-   */
-  addLayerFilter(filter: Pixi.Filter, layerName: LayerName): void {
-    const container = this.layerInfos[layerName].container;
-    if (!(container.filters instanceof Array)) {
-      throw new Error("layer.filters is not an array");
-    }
-    container.filters;
-    container.filters = [...container.filters!, filter];
-  }
-
-  addStageFilter(filter: Pixi.Filter): void {
-    if (!(this.stage.filters instanceof Array)) {
-      throw new Error("stage.filters is not an array");
-    }
-    this.stage.filters = [...(this.stage.filters ?? []), filter];
-  }
-
-  removeStageFilter(filterToRemove: Pixi.Filter): void {
-    if (!(this.stage.filters instanceof Array)) {
-      throw new Error("stage.filters is not an array");
-    }
-    this.stage.filters = (this.stage.filters ?? []).filter(
-      (filter) => filter != filterToRemove
-    );
+  /** Get the low-level renderer for direct drawing */
+  getRenderer(): Renderer {
+    return this.renderer;
   }
 }

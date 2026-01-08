@@ -1,6 +1,4 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import {
@@ -13,7 +11,8 @@ import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
 export class Rudder extends BaseEntity {
-  private rudderSprite: GameSprite & Graphics;
+  layer = "underhull" as const;
+
   private steer: number = 0; // -1 to 1
   private steerInput: number = 0; // Current steering input from controller
   private fastMode: boolean = false;
@@ -24,6 +23,7 @@ export class Rudder extends BaseEntity {
   private maxSteerAngle: number;
   private steerAdjustSpeed: number;
   private steerAdjustSpeedFast: number;
+  private color: number;
 
   constructor(
     private hull: Hull,
@@ -37,13 +37,7 @@ export class Rudder extends BaseEntity {
     this.maxSteerAngle = config.maxSteerAngle;
     this.steerAdjustSpeed = config.steerAdjustSpeed;
     this.steerAdjustSpeedFast = config.steerAdjustSpeedFast;
-
-    this.rudderSprite = createGraphics("underhull");
-    this.rudderSprite
-      .lineTo(-config.length, 0)
-      .stroke({ color: config.color, width: 0.5 });
-
-    this.sprite = this.rudderSprite;
+    this.color = config.color;
   }
 
   /**
@@ -91,11 +85,18 @@ export class Rudder extends BaseEntity {
   }
 
   onRender() {
+    const renderer = this.game!.getRenderer();
     const [x, y] = this.hull.body.position;
     const [rx, ry] = this.position.rotate(this.hull.body.angle).iadd([x, y]);
+    const angle = this.hull.body.angle - this.steer * this.maxSteerAngle;
 
-    this.rudderSprite.position.set(rx, ry);
-    this.rudderSprite.rotation =
-      this.hull.body.angle - this.steer * this.maxSteerAngle;
+    renderer.save();
+    renderer.translate(rx, ry);
+    renderer.rotate(angle);
+
+    // Draw rudder as a line from origin to (-length, 0)
+    renderer.drawLine(0, 0, -this.length, 0, { color: this.color, width: 0.5 });
+
+    renderer.restore();
   }
 }

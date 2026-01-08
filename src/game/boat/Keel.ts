@@ -1,6 +1,4 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { pairs } from "../../core/util/FunctionalUtils";
 import { V, V2d } from "../../core/Vector";
 import {
@@ -13,9 +11,11 @@ import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
 export class Keel extends BaseEntity {
-  private keelSprite: GameSprite & Graphics;
+  layer = "underhull" as const;
+
   private vertices: V2d[];
   private liftAndDrag: number;
+  private color: number;
 
   constructor(
     private hull: Hull,
@@ -25,13 +25,7 @@ export class Keel extends BaseEntity {
 
     this.vertices = config.vertices;
     this.liftAndDrag = config.liftAndDrag;
-
-    this.keelSprite = createGraphics("underhull");
-    this.keelSprite
-      .poly(config.vertices, false)
-      .stroke({ color: config.color, width: 1 });
-
-    this.sprite = this.keelSprite;
+    this.color = config.color;
   }
 
   onTick() {
@@ -51,8 +45,23 @@ export class Keel extends BaseEntity {
   }
 
   onRender() {
+    const renderer = this.game!.getRenderer();
     const [x, y] = this.hull.body.position;
-    this.keelSprite.position.set(x, y);
-    this.keelSprite.rotation = this.hull.body.angle;
+
+    renderer.save();
+    renderer.translate(x, y);
+    renderer.rotate(this.hull.body.angle);
+
+    // Draw keel as a polyline (open path)
+    renderer.beginPath();
+    const first = this.vertices[0];
+    renderer.moveTo(first.x, first.y);
+    for (let i = 1; i < this.vertices.length; i++) {
+      const v = this.vertices[i];
+      renderer.lineTo(v.x, v.y);
+    }
+    renderer.stroke(this.color, 1, 1.0, false);
+
+    renderer.restore();
   }
 }

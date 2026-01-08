@@ -5,7 +5,6 @@ import { CustomEvents } from "../../config/CustomEvent";
 import Game from "../Game";
 import { BaseGameEvents } from "./BaseGameEvents";
 import { EventHandler, EventHandlerName } from "./EventHandler";
-import { GameSprite } from "./GameSprite";
 import { IoEvents } from "./IoEvents";
 import { PhysicsEvents } from "./PhysicsEvents";
 import { WithOwner } from "./WithOwner";
@@ -54,10 +53,8 @@ export default interface Entity extends EventHandler<GameEventMap> {
   /// Rendering Stuff ///
   ///////////////////////
 
-  /** TODO: Document entity.sprite */
-  sprite?: GameSprite;
-  /** TODO: Document entity.sprites */
-  sprites?: GameSprite[];
+  /** The layer this entity renders on (defaults to "main" if not specified) */
+  readonly layer?: string;
 
   /////////////////////
   /// Physics Stuff ///

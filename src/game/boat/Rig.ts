@@ -1,7 +1,5 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import RevoluteConstraint from "../../core/physics/constraints/RevoluteConstraint";
 import Box from "../../core/physics/shapes/Box";
@@ -11,17 +9,20 @@ import { Hull } from "./Hull";
 import { Sail } from "./Sail";
 
 export class Rig extends BaseEntity {
+  layer = "main" as const;
   body: NonNullable<Entity["body"]>;
-  sail: Sail;
+  private boomConstraint: RevoluteConstraint;
+  sail!: Sail;
 
-  private mastSprite: GameSprite & Graphics;
-  private boomSprite: GameSprite & Graphics;
   private mastPosition: V2d;
   private boomLength: number;
+  private boomWidth: number;
+  private mastColor: number;
+  private boomColor: number;
 
   constructor(
     readonly hull: Hull,
-    config: RigConfig
+    config: RigConfig,
   ) {
     super();
 
@@ -30,35 +31,28 @@ export class Rig extends BaseEntity {
 
     this.mastPosition = mastPosition;
     this.boomLength = boomLength;
-
-    // Mast visual (small circle at mast position)
-    this.mastSprite = createGraphics("main");
-    this.mastSprite.circle(0, 0, 0.5).fill({ color: colors.mast });
-
-    // Boom visual
-    this.boomSprite = createGraphics("main");
-    this.boomSprite
-      .rect(-boomLength, -boomWidth / 2, boomLength, boomWidth)
-      .fill({ color: colors.boom });
+    this.boomWidth = boomWidth;
+    this.mastColor = colors.mast;
+    this.boomColor = colors.boom;
 
     // Boom physics body - pivot is at origin, boom extends in -x direction
     this.body = new DynamicBody({
       mass: boomMass,
       position: [mastPosition.x, mastPosition.y],
     });
-    this.body.addShape(
-      new Box({ width: boomLength, height: boomWidth }),
-      [-boomLength / 2, 0]
-    );
+    this.body.addShape(new Box({ width: boomLength, height: boomWidth }), [
+      -boomLength / 2,
+      0,
+    ]);
 
-    this.sprites = [this.boomSprite, this.mastSprite];
-    this.constraints = [
-      new RevoluteConstraint(hull.body, this.body, {
-        localPivotA: [mastPosition.x, mastPosition.y],
-        localPivotB: [0, 0],
-        collideConnected: false,
-      }),
-    ];
+    // Constraint connecting boom to hull at mast position
+    this.boomConstraint = new RevoluteConstraint(hull.body, this.body, {
+      localPivotA: [mastPosition.x, mastPosition.y],
+      localPivotB: [0, 0],
+      collideConnected: false,
+    });
+
+    this.constraints = [this.boomConstraint];
 
     // Create mainsail
     this.sail = this.addChild(
@@ -69,16 +63,31 @@ export class Rig extends BaseEntity {
         headConstraint: { body: this.body, localAnchor: V(0, 0) },
         clewConstraint: { body: this.body, localAnchor: V(-boomLength, 0) },
         getForceScale: (t) => 1.0 - t,
-      })
+      }),
     );
   }
 
   onRender() {
+    const renderer = this.game!.getRenderer();
     const [mx, my] = this.getMastWorldPosition();
 
-    this.mastSprite.position.set(mx, my);
-    this.boomSprite.position.set(mx, my);
-    this.boomSprite.rotation = this.body.angle;
+    // Draw boom (rectangle extending from mast)
+    renderer.save();
+    renderer.translate(mx, my);
+    renderer.rotate(this.body.angle);
+    renderer.drawRect(
+      -this.boomLength,
+      -this.boomWidth / 2,
+      this.boomLength,
+      this.boomWidth,
+      {
+        color: this.boomColor,
+      },
+    );
+    renderer.restore();
+
+    // Draw mast (small circle at mast position)
+    renderer.drawCircle(mx, my, 0.5, { color: this.mastColor });
   }
 
   getMastWorldPosition(): V2d {

@@ -1,6 +1,4 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../core/entity/GameSprite";
 import DynamicBody from "../core/physics/body/DynamicBody";
 import Circle from "../core/physics/shapes/Circle";
 import { V } from "../core/Vector";
@@ -15,25 +13,17 @@ const WATER_DRAG = 0.1; // Dimensionless - how strongly the buoy is pushed by wa
 const HEIGHT_SCALE_FACTOR = 0.2; // Dimensionless - how much surface height affects sprite scale
 
 export class Buoy extends BaseEntity {
+  layer = "main" as const;
   body: DynamicBody;
-  private buoySprite: GameSprite & Graphics;
+  private currentScale: number = 1;
 
   constructor(x: number, y: number) {
     super();
-
-    // Graphics: red/orange circle with small pole on top
-    this.buoySprite = createGraphics("main");
-    this.buoySprite
-      .circle(0, 0, BUOY_RADIUS)
-      .fill({ color: 0xff4422 })
-      .stroke({ color: 0xffffff, width: 0.5, alignment: 1.5 });
 
     // Physics: circular body
     this.body = new DynamicBody({ mass: BUOY_MASS });
     this.body.addShape(new Circle({ radius: BUOY_RADIUS }));
     this.body.position.set(x, y);
-
-    this.sprite = this.buoySprite;
   }
 
   onTick() {
@@ -60,21 +50,26 @@ export class Buoy extends BaseEntity {
     this.body.velocity[0] *= WATER_DAMPING;
     this.body.velocity[1] *= WATER_DAMPING;
     this.body.angularVelocity *= WATER_DAMPING;
+
+    // Update scale based on water surface height (simulates bobbing up/down)
+    if (water) {
+      const waterState = water.getStateAtPoint(V(x, y));
+      this.currentScale = 1 + waterState.surfaceHeight * HEIGHT_SCALE_FACTOR;
+    }
   }
 
   onRender() {
+    const renderer = this.game!.getRenderer();
     const [x, y] = this.body.position;
-    this.buoySprite.position.set(x, y);
-    this.buoySprite.rotation = this.body.angle;
 
-    // Scale sprite based on water surface height (simulates bobbing up/down)
-    const water = this.game?.entities.getById("waterInfo") as
-      | WaterInfo
-      | undefined;
-    if (water) {
-      const waterState = water.getStateAtPoint(V(x, y));
-      const scale = 1 + waterState.surfaceHeight * HEIGHT_SCALE_FACTOR;
-      this.buoySprite.scale.set(scale);
-    }
+    renderer.save();
+    renderer.translate(x, y);
+    renderer.rotate(this.body.angle);
+    renderer.scale(this.currentScale);
+
+    // Draw buoy: red/orange filled circle
+    renderer.drawCircle(0, 0, BUOY_RADIUS, { color: 0xff4422 });
+
+    renderer.restore();
   }
 }
