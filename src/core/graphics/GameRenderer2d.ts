@@ -8,6 +8,7 @@ import { Renderer } from "./Renderer";
 /** Options for the GameRenderer2d constructor */
 export interface GameRenderer2dOptions {
   antialias?: boolean;
+  backgroundColor?: number;
 }
 
 /**
@@ -16,6 +17,7 @@ export interface GameRenderer2dOptions {
  */
 export class GameRenderer2d implements ViewportProvider {
   private cursor: CSSStyleDeclaration["cursor"] = "none";
+  private backgroundColor: number = 0x1a1a2e;
 
   /** The underlying WebGL renderer */
   readonly renderer: Renderer;
@@ -29,7 +31,7 @@ export class GameRenderer2d implements ViewportProvider {
   constructor(
     private layerInfos: Record<LayerName, LayerInfo>,
     private defaultLayerName: LayerName,
-    private onResize?: ([width, height]: [number, number]) => void
+    private onResize?: ([width, height]: [number, number]) => void,
   ) {
     this.renderer = new Renderer();
     this.showCursor();
@@ -46,6 +48,10 @@ export class GameRenderer2d implements ViewportProvider {
   }
 
   async init(options: GameRenderer2dOptions = {}): Promise<void> {
+    if (options.backgroundColor !== undefined) {
+      this.backgroundColor = options.backgroundColor;
+    }
+
     // Add canvas to document
     document.body.appendChild(this.canvas);
 
@@ -130,8 +136,8 @@ export class GameRenderer2d implements ViewportProvider {
   }
 
   /** Clear the screen */
-  clear(color: number = 0x1a1a2e): void {
-    this.renderer.clear(color);
+  clear(color?: number): void {
+    this.renderer.clear(color ?? this.backgroundColor);
   }
 
   /** Set up the renderer for drawing on a specific layer */
@@ -143,5 +149,42 @@ export class GameRenderer2d implements ViewportProvider {
   /** Get the low-level renderer for direct drawing */
   getRenderer(): Renderer {
     return this.renderer;
+  }
+
+  // ============ GPU Timing ============
+
+  /** Check if GPU timer extension is available */
+  hasGpuTimerSupport(): boolean {
+    return this.renderer.hasGpuTimerSupport();
+  }
+
+  /** Enable or disable GPU timing */
+  setGpuTimingEnabled(enabled: boolean): void {
+    this.renderer.setGpuTimingEnabled(enabled);
+  }
+
+  /** Check if GPU timing is enabled */
+  isGpuTimingEnabled(): boolean {
+    return this.renderer.isGpuTimingEnabled();
+  }
+
+  /** Begin a GPU-timed section */
+  beginGpuTimer(label: string): void {
+    this.renderer.beginGpuTimer(label);
+  }
+
+  /** End the current GPU-timed section */
+  endGpuTimer(): void {
+    this.renderer.endGpuTimer();
+  }
+
+  /** Poll for completed GPU timer queries */
+  pollGpuTimers(): void {
+    this.renderer.pollGpuTimers();
+  }
+
+  /** Debug: get GPU timing status */
+  getGpuTimingDebugInfo() {
+    return this.renderer.getGpuTimingDebugInfo();
   }
 }

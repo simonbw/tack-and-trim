@@ -1,5 +1,4 @@
 import { DEFAULT_LAYER, LAYERS, LayerName } from "../config/layers";
-import { profiler } from "./util/Profiler";
 import ContactList, {
   ContactInfo,
   ContactInfoWithEquations,
@@ -19,6 +18,7 @@ import type Body from "./physics/body/Body";
 import StaticBody from "./physics/body/StaticBody";
 import World from "./physics/world/World";
 import { lerp } from "./util/MathUtil";
+import { profiler } from "./util/Profiler";
 
 interface GameOptions {
   audio?: AudioContext;
@@ -324,6 +324,10 @@ export default class Game {
   /** The main event loop. Run one frame of the game.  */
   private loop(time: number): void {
     if (this.destroyed) return;
+
+    // Poll GPU timers outside frame profiler context so results appear top-level
+    this.renderer.pollGpuTimers();
+
     profiler.start("frame");
 
     this.animationFrameId = window.requestAnimationFrame((t) => this.loop(t));
@@ -503,13 +507,34 @@ export default class Game {
     return this.renderer.getRenderer();
   }
 
+  /**
+   * Enable or disable GPU timing.
+   * When enabled, GPU render time will appear in profiler under "gpu".
+   */
+  setGpuTimingEnabled(enabled: boolean): void {
+    this.renderer.setGpuTimingEnabled(enabled);
+  }
+
+  /** Check if GPU timer extension is available */
+  hasGpuTimerSupport(): boolean {
+    return this.renderer.hasGpuTimerSupport();
+  }
+
+  /** Debug: get GPU timing status */
+  getGpuTimingDebugInfo() {
+    return this.renderer.getGpuTimingDebugInfo();
+  }
+
   /** Called to render the current frame. */
   private render(dt: number) {
     this.cleanupEntities();
 
     // Begin frame
     this.renderer.beginFrame();
-    this.renderer.clear(0x1a1a2e); // Dark blue background
+    this.renderer.clear();
+
+    // Start GPU timing for the whole frame if enabled
+    this.renderer.beginGpuTimer("gpu");
 
     // Render each layer in order
     const layerNames = this.renderer.getLayerNames();
@@ -520,6 +545,9 @@ export default class Game {
       // Dispatch render event for entities on this layer
       this.dispatchRenderForLayer(layerName, dt);
     }
+
+    // End GPU timing
+    this.renderer.endGpuTimer();
 
     // End frame
     this.renderer.endFrame();

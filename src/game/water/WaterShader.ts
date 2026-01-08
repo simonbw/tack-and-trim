@@ -146,7 +146,11 @@ export class WaterShader {
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
-    this.program = new ShaderProgram(gl, WATER_VERTEX_SHADER, WATER_FRAGMENT_SHADER);
+    this.program = new ShaderProgram(
+      gl,
+      WATER_VERTEX_SHADER,
+      WATER_FRAGMENT_SHADER,
+    );
 
     // Create VAO and fullscreen quad
     this.vao = gl.createVertexArray()!;
@@ -157,8 +161,7 @@ export class WaterShader {
 
     // Fullscreen quad vertices (two triangles)
     const vertices = new Float32Array([
-      -1, -1, 1, -1, 1, 1,
-      -1, -1, 1, 1, -1, 1,
+      -1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1,
     ]);
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
@@ -173,7 +176,12 @@ export class WaterShader {
     this.cameraMatrix.set(matrix);
   }
 
-  setViewportBounds(left: number, top: number, width: number, height: number): void {
+  setViewportBounds(
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ): void {
     this.viewportBounds[0] = left;
     this.viewportBounds[1] = top;
     this.viewportBounds[2] = width;
@@ -202,13 +210,17 @@ export class WaterShader {
     this.program.setUniformMatrix3fv("u_cameraMatrix", this.cameraMatrix);
     this.program.setUniform1f("u_time", this.time);
     this.program.setUniform1i("u_renderMode", this.renderMode);
-    this.program.setUniform2f("u_screenSize", this.screenWidth, this.screenHeight);
+    this.program.setUniform2f(
+      "u_screenSize",
+      this.screenWidth,
+      this.screenHeight,
+    );
     this.program.setUniform4f(
       "u_viewportBounds",
       this.viewportBounds[0],
       this.viewportBounds[1],
       this.viewportBounds[2],
-      this.viewportBounds[3]
+      this.viewportBounds[3],
     );
 
     // Bind water data texture

@@ -54,7 +54,7 @@ export class Camera2d extends BaseEntity implements Entity {
     viewportProvider: ViewportProvider,
     position: V2d = V([0, 0]),
     z = 25.0,
-    angle = 0
+    angle = 0,
   ) {
     super();
     this.viewportProvider = viewportProvider;
@@ -149,7 +149,7 @@ export class Camera2d extends BaseEntity implements Entity {
     [x, y]: V2d,
     [vx, vy]: V2d = V([0, 0]),
     stiffness: number = 1.0,
-    damping: number = 1.0
+    damping: number = 1.0,
   ) {
     if (!this.isValidPosition(x) || !this.isValidPosition(y)) {
       console.warn("Camera2d.smoothCenter: Invalid position rejected:", x, y);
@@ -174,7 +174,7 @@ export class Camera2d extends BaseEntity implements Entity {
       console.warn(
         "Camera2d.smoothSetVelocity: Invalid velocity rejected:",
         vx,
-        vy
+        vy,
       );
       return;
     }
@@ -195,7 +195,7 @@ export class Camera2d extends BaseEntity implements Entity {
   getViewportSize(): V2d {
     return V(
       this.viewportProvider.getWidth(),
-      this.viewportProvider.getHeight()
+      this.viewportProvider.getHeight(),
     );
   }
 
@@ -258,7 +258,7 @@ export class Camera2d extends BaseEntity implements Entity {
   /** Creates a transformation matrix to go from world space to screen space. */
   getMatrix(
     [px, py]: [number, number] = [1, 1],
-    [ax, ay]: V2d = V(0, 0)
+    [ax, ay]: V2d = V(0, 0),
   ): Matrix3 {
     const [w, h] = this.getViewportSize();
 
@@ -272,17 +272,33 @@ export class Camera2d extends BaseEntity implements Entity {
 
     const matrix = new Matrix3();
 
-    // align the anchor with the camera
-    matrix.translate(ax * px, ay * py);
-    matrix.translate(-cx * px, -cy * py);
-    // do all the scaling and rotating
-    matrix.scale(z * px, z * py);
-    matrix.rotate(angle);
-    // put it back
-    matrix.translate(-ax * z, -ay * z);
-    matrix.scale(1 / px, 1 / py);
-    // Put it on the center of the screen
+    // With right-multiplication (this = this * T), operations are applied to
+    // points in reverse order from how they're coded. So we code them in
+    // reverse order of desired application:
+    //
+    // Desired application order to point:
+    // 1. Align anchor with camera (first applied to point)
+    // 2. Move camera to world origin
+    // 3. Scale (zoom with parallax)
+    // 4. Rotate
+    // 5. Restore anchor position
+    // 6. Undo parallax scale
+    // 7. Center on screen (last applied to point)
+
+    // Center on screen (applied last to point)
     matrix.translate(w / 2.0, h / 2.0);
+    // Undo parallax scale
+    matrix.scale(1 / px, 1 / py);
+    // Restore anchor position
+    matrix.translate(-ax * z, -ay * z);
+    // Rotate
+    matrix.rotate(angle);
+    // Scale (zoom with parallax)
+    matrix.scale(z * px, z * py);
+    // Move camera to world origin
+    matrix.translate(-cx * px, -cy * py);
+    // Align anchor with camera (applied first to point)
+    matrix.translate(ax * px, ay * py);
 
     return matrix;
   }

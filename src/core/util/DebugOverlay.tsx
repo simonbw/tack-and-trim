@@ -7,7 +7,7 @@ import { profiler, ProfileStats } from "./Profiler";
 const SMOOTHING = 0.95;
 const TOP_N_PROFILES = 100;
 
-const MODES = ["closed", "lean", "physics", "profiler"] as const;
+const MODES = ["closed", "lean", "physics", "profiler", "graphics"] as const;
 type Mode = (typeof MODES)[number];
 
 export default class DebugOverlay extends ReactEntity implements Entity {
@@ -86,7 +86,8 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                 style={{ marginBottom: "8px", fontSize: "10px", color: "#aaa" }}
               >
                 Bodies: {stats.kinematicBodyCount}K / {stats.particleBodyCount}P
-                / {stats.dynamicBodyCount}D / {stats.hugeBodyCount}H | Collisions: {stats.collisions}
+                / {stats.dynamicBodyCount}D / {stats.hugeBodyCount}H |
+                Collisions: {stats.collisions}
               </div>
 
               <div style={{ borderTop: "1px solid #444", paddingTop: "8px" }}>
@@ -136,6 +137,123 @@ export default class DebugOverlay extends ReactEntity implements Entity {
               </div>
             </>
           )}
+
+          {/* Graphics mode: rendering stats */}
+          {this.mode === "graphics" &&
+            (() => {
+              const gfx = this.getGraphicsStats();
+              return (
+                <>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "16px",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    <span>
+                      FPS: {stats.fps} ({stats.fps2})
+                    </span>
+                  </div>
+
+                  <div
+                    style={{ borderTop: "1px solid #444", paddingTop: "8px" }}
+                  >
+                    <div style={{ fontWeight: "bold", marginBottom: "8px" }}>
+                      Graphics
+                    </div>
+
+                    <div
+                      style={{ display: "grid", gap: "4px", fontSize: "11px" }}
+                    >
+                      {/* GPU Timing */}
+                      {gfx.gpuTimerSupported ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <span style={{ color: "#aaa" }}>GPU Time</span>
+                          <span
+                            style={{
+                              color: gfx.gpuAvgMs > 8.33 ? "#ff6666" : "#fff",
+                            }}
+                          >
+                            {gfx.gpuAvgMs.toFixed(2)}ms (
+                            {((gfx.gpuAvgMs / 8.33) * 100).toFixed(0)}%)
+                          </span>
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <span style={{ color: "#aaa" }}>GPU Time</span>
+                          <span style={{ color: "#666" }}>not supported</span>
+                        </div>
+                      )}
+
+                      {/* Draw stats */}
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span style={{ color: "#aaa" }}>Draw Calls</span>
+                        <span>{gfx.drawCalls.toLocaleString()}</span>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span style={{ color: "#aaa" }}>Triangles</span>
+                        <span>{gfx.triangles.toLocaleString()}</span>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span style={{ color: "#aaa" }}>Vertices</span>
+                        <span>{gfx.vertices.toLocaleString()}</span>
+                      </div>
+
+                      {/* Resources */}
+                      <div
+                        style={{
+                          borderTop: "1px solid #333",
+                          marginTop: "4px",
+                          paddingTop: "4px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span style={{ color: "#aaa" }}>Textures</span>
+                        <span>{gfx.textures}</span>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span style={{ color: "#aaa" }}>Resolution</span>
+                        <span>
+                          {gfx.resolution} @{gfx.pixelRatio}x
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
         </div>
       );
     });
@@ -179,6 +297,28 @@ export default class DebugOverlay extends ReactEntity implements Entity {
     };
   }
 
+  getGraphicsStats() {
+    const renderer = this.game?.getRenderer();
+    const rendererStats = renderer?.getStats();
+    const gpuTimerSupported = this.game?.hasGpuTimerSupport() ?? false;
+    const gpuProfileStat = profiler
+      .getStats()
+      .find((s) => s.label === "gpu" && s.depth === 0);
+
+    return {
+      drawCalls: rendererStats?.drawCalls ?? 0,
+      triangles: rendererStats?.triangles ?? 0,
+      vertices: rendererStats?.vertices ?? 0,
+      textures: rendererStats?.textures ?? 0,
+      resolution: rendererStats
+        ? `${rendererStats.canvasWidth}x${rendererStats.canvasHeight}`
+        : "N/A",
+      pixelRatio: rendererStats?.pixelRatio ?? 1,
+      gpuTimerSupported,
+      gpuAvgMs: gpuProfileStat?.avgMs ?? 0,
+    };
+  }
+
   onKeyDown({ key, event }: GameEventMap["keyDown"]) {
     if (key === "Backquote") {
       this.cycleMode(event.shiftKey ? -1 : 1);
@@ -202,7 +342,7 @@ const SEPARATOR = " > ";
 function getTreePrefix(
   stat: ProfileStats,
   index: number,
-  allStats: ProfileStats[]
+  allStats: ProfileStats[],
 ): string {
   if (stat.depth === 0) return "";
 

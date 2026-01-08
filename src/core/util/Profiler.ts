@@ -74,7 +74,7 @@ class Profiler {
     if (!this.enabled) return;
     if (this.stack.length >= this.maxStackDepth) {
       console.warn(
-        `Profiler: max stack depth (${this.maxStackDepth}) exceeded, ignoring: ${label}`
+        `Profiler: max stack depth (${this.maxStackDepth}) exceeded, ignoring: ${label}`,
       );
       return;
     }
@@ -94,7 +94,7 @@ class Profiler {
     const expectedLabel = this.stack[this.stack.length - 1];
     if (expectedLabel !== label) {
       console.warn(
-        `Profiler: mismatched end - expected "${expectedLabel}", got "${label}"`
+        `Profiler: mismatched end - expected "${expectedLabel}", got "${label}"`,
       );
       return;
     }
@@ -148,10 +148,12 @@ class Profiler {
           `${label} calls/s: ${stat.callsPerSec.toFixed(0).padStart(6)}  ` +
             `ms/s: ${stat.msPerSec.toFixed(1).padStart(7)}  ` +
             `avg: ${stat.avgMs.toFixed(3).padStart(8)}ms  ` +
-            `max: ${stat.maxMs.toFixed(2).padStart(7)}ms`
+            `max: ${stat.maxMs.toFixed(2).padStart(7)}ms`,
         );
       } else {
-        console.log(`${label} calls/s: ${stat.callsPerSec.toFixed(0).padStart(6)}  (count only)`);
+        console.log(
+          `${label} calls/s: ${stat.callsPerSec.toFixed(0).padStart(6)}  (count only)`,
+        );
       }
     }
     console.log("========================");
@@ -179,7 +181,7 @@ class Profiler {
   getStats(): ProfileStats[] {
     const elapsedSec = Math.max(
       0.001,
-      (performance.now() - this.resetTime) / 1000
+      (performance.now() - this.resetTime) / 1000,
     );
 
     // Build flat stats list
@@ -198,18 +200,32 @@ class Profiler {
 
     // Find children of a given parent path
     const getChildren = (parentPath: string): ProfileStats[] => {
-      const parentDepth = parentPath ? parentPath.split(this.separator).length : 0;
+      const parentDepth = parentPath
+        ? parentPath.split(this.separator).length
+        : 0;
       return allStats.filter((s) => {
         if (s.depth !== parentDepth) return false;
         if (parentPath === "") return s.depth === 0;
-        return s.label.startsWith(parentPath + this.separator) &&
-               s.label.split(this.separator).length === parentDepth + 1;
+        return (
+          s.label.startsWith(parentPath + this.separator) &&
+          s.label.split(this.separator).length === parentDepth + 1
+        );
       });
     };
 
-    // Recursively build sorted tree (depth-first, siblings sorted by msPerSec desc)
+    // Recursively build sorted tree (depth-first, siblings sorted by % of parent desc)
     const buildSortedList = (parentPath: string): ProfileStats[] => {
-      const children = getChildren(parentPath).sort((a, b) => b.msPerSec - a.msPerSec);
+      const parent = allStats.find((s) => s.label === parentPath);
+      const parentMs = parent?.msPerSec ?? 0;
+
+      // Sort children by percentage of parent (or by msPerSec if no parent)
+      const children = getChildren(parentPath).sort((a, b) => {
+        if (parentMs > 0) {
+          return b.msPerSec / parentMs - a.msPerSec / parentMs;
+        }
+        return b.msPerSec - a.msPerSec;
+      });
+
       const result: ProfileStats[] = [];
       for (const child of children) {
         result.push(child);

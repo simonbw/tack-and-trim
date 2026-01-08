@@ -44,22 +44,34 @@ export class WaterRenderer extends BaseEntity {
     const renderer = this.game.getRenderer();
     const worldViewport = camera.getWorldViewport();
 
-    // Update data texture with current water state
+    // Expand viewport bounds with margin so we have valid data beyond screen edges.
+    // This prevents edge artifacts from texture clamping.
+    const margin = 0.1; // 10% margin on each side
+    const marginX = worldViewport.width * margin;
+    const marginY = worldViewport.height * margin;
+    const expandedViewport = {
+      left: worldViewport.left - marginX,
+      top: worldViewport.top - marginY,
+      width: worldViewport.width + marginX * 2,
+      height: worldViewport.height + marginY * 2,
+    };
+
+    // Update data texture with current water state (using expanded viewport)
     const waterInfo = this.game.entities.getById("waterInfo") as
       | WaterInfo
       | undefined;
     if (waterInfo) {
-      this.waterDataTexture.update(worldViewport, waterInfo);
+      this.waterDataTexture.update(expandedViewport, waterInfo);
     }
 
-    // Update shader uniforms
+    // Update shader uniforms (using same expanded viewport so UVs map correctly)
     this.waterShader.setTime(this.game.elapsedTime);
     this.waterShader.setScreenSize(renderer.getWidth(), renderer.getHeight());
     this.waterShader.setViewportBounds(
-      worldViewport.left,
-      worldViewport.top,
-      worldViewport.width,
-      worldViewport.height
+      expandedViewport.left,
+      expandedViewport.top,
+      expandedViewport.width,
+      expandedViewport.height,
     );
 
     // Get inverse camera matrix for screen-to-world transform

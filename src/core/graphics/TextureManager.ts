@@ -136,7 +136,7 @@ export class TextureManager {
       0,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
-      null
+      null,
     );
 
     return {
@@ -153,7 +153,7 @@ export class TextureManager {
     data: Uint8Array,
     width: number,
     height: number,
-    format: "RGBA" | "RGB" = "RGBA"
+    format: "RGBA" | "RGB" = "RGBA",
   ): Texture {
     const gl = this.gl;
     const glTexture = gl.createTexture();
@@ -181,7 +181,7 @@ export class TextureManager {
       0,
       glFormat,
       gl.UNSIGNED_BYTE,
-      data
+      data,
     );
 
     return {
@@ -197,7 +197,7 @@ export class TextureManager {
   updateTexture(
     texture: Texture,
     data: Uint8Array,
-    format: "RGBA" | "RGB" = "RGBA"
+    format: "RGBA" | "RGB" = "RGBA",
   ): void {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, texture.glTexture);
@@ -213,7 +213,7 @@ export class TextureManager {
       texture.height,
       glFormat,
       gl.UNSIGNED_BYTE,
-      data
+      data,
     );
   }
 
@@ -254,6 +254,13 @@ export class TextureManager {
    */
   destroy(): void {
     this.clearCache();
+  }
+
+  /**
+   * Get the number of cached textures.
+   */
+  getTextureCount(): number {
+    return this.cache.size;
   }
 
   /**
