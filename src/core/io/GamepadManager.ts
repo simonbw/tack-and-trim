@@ -3,9 +3,21 @@ import { V, V2d } from "../Vector";
 import { ControllerAxis, ControllerButton } from "./Gamepad";
 import IOHandlerList from "./IOHandlerList";
 
-const POLLING_FREQUENCY = 250; // Hz
-const DEADZONE_MIN = 0.2;
-const DEADZONE_MAX = 0.95;
+/** Configuration options for GamepadManager. */
+export interface GamepadConfig {
+  /** Polling frequency in Hz. Default: 250 */
+  pollingFrequency?: number;
+  /** Minimum stick magnitude to register input (dead zone inner). Default: 0.2 */
+  deadzoneMin?: number;
+  /** Maximum stick magnitude (dead zone outer). Default: 0.95 */
+  deadzoneMax?: number;
+}
+
+const DEFAULT_CONFIG: Required<GamepadConfig> = {
+  pollingFrequency: 250,
+  deadzoneMin: 0.2,
+  deadzoneMax: 0.95,
+};
 
 /**
  * Manages gamepad input state and events.
@@ -16,16 +28,63 @@ export class GamepadManager {
   private intervalId: number;
   private _usingGamepad = false;
 
+  private _pollingFrequency: number;
+  private _deadzoneMin: number;
+  private _deadzoneMax: number;
+
   constructor(
     private handlers: IOHandlerList,
-    private onDeviceChange: (usingGamepad: boolean) => void
+    private onDeviceChange: (usingGamepad: boolean) => void,
+    config: GamepadConfig = {}
   ) {
-    // Because gamepad is a polling not pushing interface
-    this.intervalId = window.setInterval(
+    this._pollingFrequency = config.pollingFrequency ?? DEFAULT_CONFIG.pollingFrequency;
+    this._deadzoneMin = config.deadzoneMin ?? DEFAULT_CONFIG.deadzoneMin;
+    this._deadzoneMax = config.deadzoneMax ?? DEFAULT_CONFIG.deadzoneMax;
+
+    this.intervalId = this.startPolling();
+  }
+
+  private startPolling(): number {
+    return window.setInterval(
       () => this.poll(),
-      1000 / POLLING_FREQUENCY
+      1000 / this._pollingFrequency
     );
   }
+
+  // --- Configuration getters/setters ---
+
+  /** Polling frequency in Hz. Changing this restarts the polling interval. */
+  get pollingFrequency(): number {
+    return this._pollingFrequency;
+  }
+
+  set pollingFrequency(value: number) {
+    if (value !== this._pollingFrequency && value > 0) {
+      this._pollingFrequency = value;
+      window.clearInterval(this.intervalId);
+      this.intervalId = this.startPolling();
+    }
+  }
+
+  /** Minimum stick magnitude to register input (inner dead zone). */
+  get deadzoneMin(): number {
+    return this._deadzoneMin;
+  }
+
+  set deadzoneMin(value: number) {
+    this._deadzoneMin = clamp(value, 0, this._deadzoneMax);
+  }
+
+  /** Maximum stick magnitude before clamping (outer dead zone). */
+  get deadzoneMax(): number {
+    return this._deadzoneMax;
+  }
+
+  set deadzoneMax(value: number) {
+    this._deadzoneMax = clamp(value, this._deadzoneMin, 1);
+  }
+
+  // --- State ---
 
   /** True if the gamepad is currently the active input device. */
   get usingGamepad(): boolean {
@@ -104,9 +163,9 @@ export class GamepadManager {
         axes.x = gamepad.axes[ControllerAxis.RIGHT_X];
         axes.y = gamepad.axes[ControllerAxis.RIGHT_Y];
       }
-      const gamepadRange = DEADZONE_MAX - DEADZONE_MIN;
+      const deadzoneRange = this._deadzoneMax - this._deadzoneMin;
       axes.magnitude = clampUp(
-        (axes.magnitude - DEADZONE_MIN) / gamepadRange
+        (axes.magnitude - this._deadzoneMin) / deadzoneRange
       );
       axes.x = clamp(axes.x, -1, 1);
       axes.y = clamp(axes.y, -1, 1);
