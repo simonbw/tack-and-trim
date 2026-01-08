@@ -2,14 +2,11 @@ import { TextureStyle } from "pixi.js";
 import AutoPauser from "../core/AutoPauser";
 import Game from "../core/Game";
 import DebugOverlay from "../core/util/DebugOverlay";
-import { V } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
-import { BoatSpray } from "./BoatSpray";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
-import { Wake } from "./water/Wake";
 import { WaterInfo } from "./water/WaterInfo";
 import { WaterRenderer } from "./water/WaterRenderer";
 import { Wind } from "./Wind";
@@ -42,11 +39,7 @@ async function main() {
   await preloader.waitTillLoaded();
   preloader.destroy();
 
-  if (process.env.NODE_ENV === "development") {
-    const debugOverlay = new DebugOverlay();
-    game.addEntity(debugOverlay);
-  }
-
+  game.addEntity(new DebugOverlay());
   game.addEntity(new AutoPauser());
   game.addEntity(new WaterInfo());
   game.addEntity(new WaterRenderer());
@@ -57,11 +50,10 @@ async function main() {
   game.addEntity(new Wind());
   game.addEntity(new WindIndicator());
   game.addEntity(new WindVisualization());
+
   const boat = game.addEntity(new Boat());
   game.addEntity(new PlayerBoatController(boat));
   game.addEntity(new CameraController(boat, game.camera));
-  game.addEntity(new Wake(boat, V(-6, 2), V(-6, -2))); // Stern wake spawn positions (ft)
-  game.addEntity(new BoatSpray(boat));
   game.addEntity(new WindParticles());
 }
 

@@ -1,6 +1,8 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { polarToVec } from "../../core/util/MathUtil";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
+import { BoatSpray } from "../BoatSpray";
+import { Wake } from "../water/Wake";
 import { Anchor } from "./Anchor";
 import { BoatConfig, StarterDinghy } from "./BoatConfig";
 import { Bowsprit } from "./Bowsprit";
@@ -75,8 +77,8 @@ export class Boat extends BaseEntity {
         V(-this.rig.getBoomLength() * boomAttachRatio, 0),
         this.hull.body,
         hullAttachPoint,
-        mainsheetConfig
-      )
+        mainsheetConfig,
+      ),
     );
 
     // Compute initial clew position for jib
@@ -99,7 +101,7 @@ export class Boat extends BaseEntity {
         },
         sailShape: "triangle",
         extraPoints: () => [this.toWorldFrame(this.jibHeadPosition)],
-      })
+      }),
     );
 
     // Create jib sheets (clew to hull, port and starboard)
@@ -113,19 +115,23 @@ export class Boat extends BaseEntity {
         V(0, 0),
         this.hull.body,
         portAttachPoint,
-        jibSheetConfig
-      )
+        jibSheetConfig,
+      ),
     );
 
     this.starboardJibSheet = this.addChild(
       new Sheet(clewBody, V(0, 0), this.hull.body, starboardAttachPoint, {
         ...jibSheetConfig,
-      })
+      }),
     );
     this.starboardJibSheet.release();
 
     // Create anchor
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
+
+    // Create wake and spray effects
+    this.addChild(new Wake(this, V(-6, 2), V(-6, -2))); // Stern wake spawn positions (ft)
+    this.addChild(new BoatSpray(this));
   }
 
   onTick(): void {
@@ -139,7 +145,7 @@ export class Boat extends BaseEntity {
   row(): void {
     this.wait(this.config.rowing.duration, (dt, t) => {
       this.hull.body.applyForce(
-        polarToVec(this.hull.body.angle, this.config.rowing.force)
+        polarToVec(this.hull.body.angle, this.config.rowing.force),
       );
     });
   }
