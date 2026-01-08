@@ -6,10 +6,21 @@ import IOHandlerList from "./IOHandlerList";
 import { KeyCode } from "./Keys";
 import { MouseButtons } from "./MouseButtons";
 
-const GAMEPAD_POLLING_FREQUENCY = 250; // Hz
+/** Configuration options for gamepad input handling */
+export interface GamepadConfig {
+  /** Polling frequency in Hz (default: 250) */
+  pollingFrequency?: number;
+  /** Minimum stick deflection to register input, 0-1 (default: 0.2) */
+  deadzone?: number;
+  /** Maximum stick deflection before clamping to 1, 0-1 (default: 0.95) */
+  saturation?: number;
+}
 
-const GAMEPAD_MINIMUM = 0.2;
-const GAMEPAD_MAXIMUM = 0.95;
+const DEFAULT_GAMEPAD_CONFIG: Required<GamepadConfig> = {
+  pollingFrequency: 250,
+  deadzone: 0.2,
+  saturation: 0.95,
+};
 
 // Manages IO
 export class IOManager {
@@ -22,14 +33,18 @@ export class IOManager {
   usingGamepad: boolean = false; // True if the gamepad is the main input device
   view: HTMLElement;
 
+  // Gamepad configuration
+  private gamepadConfig: Required<GamepadConfig>;
+
   // Store references for cleanup
   private gamepadIntervalId: number;
   private boundOnKeyDown: (e: KeyboardEvent) => void;
   private boundOnKeyUp: (e: KeyboardEvent) => void;
   private boundOnVisibilityChange: () => void;
 
-  constructor(view: HTMLElement) {
+  constructor(view: HTMLElement, gamepadConfig?: GamepadConfig) {
     this.view = view;
+    this.gamepadConfig = { ...DEFAULT_GAMEPAD_CONFIG, ...gamepadConfig };
 
     this.view.onclick = (e) => this.onClick(e);
     this.view.onmousedown = (e) => this.onMouseDown(e);
@@ -59,8 +74,28 @@ export class IOManager {
     // Because this is a polling not pushing interface
     this.gamepadIntervalId = window.setInterval(
       () => this.handleGamepads(),
-      1000 / GAMEPAD_POLLING_FREQUENCY
+      1000 / this.gamepadConfig.pollingFrequency
     );
+  }
+
+  /** Update gamepad configuration at runtime */
+  setGamepadConfig(config: GamepadConfig): void {
+    const oldPollingFrequency = this.gamepadConfig.pollingFrequency;
+    this.gamepadConfig = { ...this.gamepadConfig, ...config };
+
+    // Restart polling interval if frequency changed
+    if (config.pollingFrequency && config.pollingFrequency !== oldPollingFrequency) {
+      window.clearInterval(this.gamepadIntervalId);
+      this.gamepadIntervalId = window.setInterval(
+        () => this.handleGamepads(),
+        1000 / this.gamepadConfig.pollingFrequency
+      );
+    }
+  }
+
+  /** Get current gamepad configuration */
+  getGamepadConfig(): Readonly<Required<GamepadConfig>> {
+    return this.gamepadConfig;
   }
 
   destroy(): void {
@@ -283,10 +318,9 @@ export class IOManager {
         axes.x = gamepad.axes[ControllerAxis.RIGHT_X];
         axes.y = gamepad.axes[ControllerAxis.RIGHT_Y];
       }
-      const gamepadRange = GAMEPAD_MAXIMUM - GAMEPAD_MINIMUM;
-      axes.magnitude = clampUp(
-        (axes.magnitude - GAMEPAD_MINIMUM) / gamepadRange
-      );
+      const { deadzone, saturation } = this.gamepadConfig;
+      const range = saturation - deadzone;
+      axes.magnitude = clampUp((axes.magnitude - deadzone) / range);
       axes.x = clamp(axes.x, -1, 1);
       axes.y = clamp(axes.y, -1, 1);
     }
