@@ -39,7 +39,13 @@ export class WindParticles extends BaseEntity {
     this.grid = new ParticleGrid(SECTOR_GRID_SIZE, SECTOR_GRID_SIZE);
   }
 
-  onRender(dt: number) {
+  onRender({
+    dt,
+    draw,
+  }: {
+    dt: number;
+    draw: import("../core/graphics/Draw").Draw;
+  }) {
     profiler.start("wind-particles-render");
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
     const viewport = this.game?.camera.getWorldViewport();
@@ -81,10 +87,9 @@ export class WindParticles extends BaseEntity {
     this.grid.rebalance(viewport);
 
     // Update and draw particles
-    const renderer = this.game.getRenderer();
     for (const p of this.particles) {
       p.update(dt, wind);
-      renderer.drawCircle(p.pos.x, p.pos.y, radius, {
+      draw.circle(p.pos.x, p.pos.y, radius, {
         color: COLOR,
         alpha: p.alpha,
       });
@@ -145,7 +150,7 @@ class ParticleGrid {
     const numSectors = gridWidth * gridHeight;
     if (numSectors <= 1) {
       throw new Error(
-        `Invalid sector grid size: ${numSectors} (${gridWidth}x${gridHeight})`
+        `Invalid sector grid size: ${numSectors} (${gridWidth}x${gridHeight})`,
       );
     }
     this.sectors = range(numSectors).map(() => []);
@@ -167,7 +172,7 @@ class ParticleGrid {
 
   private getSectorBounds(
     sectorIndex: number,
-    viewport: Viewport
+    viewport: Viewport,
   ): { left: number; right: number; top: number; bottom: number } {
     const col = sectorIndex % this.gridWidth;
     const row = Math.floor(sectorIndex / this.gridWidth);
@@ -186,7 +191,7 @@ class ParticleGrid {
   private getRandomPosInSector(sectorIndex: number, viewport: Viewport): V2d {
     const { left, right, top, bottom } = this.getSectorBounds(
       sectorIndex,
-      viewport
+      viewport,
     );
     return V(rUniform(left, right), rUniform(top, bottom));
   }
@@ -211,7 +216,7 @@ class ParticleGrid {
 
     // Sort indices by sector count (sparsest first)
     this.sortedIndices.sort(
-      (a, b) => this.sectors[a].length - this.sectors[b].length
+      (a, b) => this.sectors[a].length - this.sectors[b].length,
     );
   }
 

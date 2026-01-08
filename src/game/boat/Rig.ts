@@ -67,27 +67,22 @@ export class Rig extends BaseEntity {
     );
   }
 
-  onRender() {
-    const renderer = this.game!.getRenderer();
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [mx, my] = this.getMastWorldPosition();
 
     // Draw boom (rectangle extending from mast)
-    renderer.save();
-    renderer.translate(mx, my);
-    renderer.rotate(this.body.angle);
-    renderer.drawRect(
-      -this.boomLength,
-      -this.boomWidth / 2,
-      this.boomLength,
-      this.boomWidth,
-      {
-        color: this.boomColor,
-      },
-    );
-    renderer.restore();
+    draw.at({ pos: V(mx, my), angle: this.body.angle }, () => {
+      draw.rect(
+        -this.boomLength,
+        -this.boomWidth / 2,
+        this.boomLength,
+        this.boomWidth,
+        { color: this.boomColor },
+      );
+    });
 
     // Draw mast (small circle at mast position)
-    renderer.drawCircle(mx, my, 0.5, { color: this.mastColor });
+    draw.circle(mx, my, 0.5, { color: this.mastColor });
   }
 
   getMastWorldPosition(): V2d {

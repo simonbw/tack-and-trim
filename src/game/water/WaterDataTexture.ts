@@ -1,7 +1,7 @@
 import { profiler } from "../../core/util/Profiler";
 import { WaterInfo } from "./WaterInfo";
 
-const TEXTURE_SIZE = 64;
+const TEXTURE_SIZE = 128;
 
 // Update every Nth pixel each frame, cycling through offsets.
 // Higher = less work per frame, but more latency for updates.

@@ -16,7 +16,7 @@ export type GameEventMap = BaseGameEvents &
 
 export type GameEventName = keyof GameEventMap;
 export type GameEventHandlerFn<Key extends GameEventName> = (
-  data: GameEventMap[Key]
+  data: GameEventMap[Key],
 ) => void;
 export type GameEventHandler<Key extends GameEventName> = Record<
   EventHandlerName<Key>,
@@ -53,8 +53,23 @@ export default interface Entity extends EventHandler<GameEventMap> {
   /// Rendering Stuff ///
   ///////////////////////
 
-  /** The layer this entity renders on (defaults to "main" if not specified) */
+  /**
+   * The layer this entity renders on (defaults to "main" if not specified).
+   * For single-layer entities, use this property.
+   * For multi-layer entities, use `layers` instead.
+   */
   readonly layer?: string;
+
+  /**
+   * Multiple layers this entity renders on.
+   * The onRender callback will be called once for each layer.
+   * Use `layer` for single-layer entities.
+   */
+  readonly layers?: readonly string[];
+
+  // Note: onRender and onLateRender are defined via EventHandler<GameEventMap>
+  // They receive a RenderEventData object: { dt, layer, draw }
+  // Usage: onRender({ dt, layer, draw }) { ... }
 
   /////////////////////
   /// Physics Stuff ///

@@ -1,7 +1,7 @@
 import { Camera2d, Viewport } from "../../core/graphics/Camera2d";
-import { Renderer } from "../../core/graphics/Renderer";
+import type { Draw } from "../../core/graphics/Draw";
 import { clamp, lerp } from "../../core/util/MathUtil";
-import { V, V2d } from "../../core/Vector";
+import { V } from "../../core/Vector";
 import { Wind } from "../Wind";
 import { WindVisualizationMode } from "./WindVisualizationMode";
 
@@ -26,12 +26,7 @@ const TRIANGLE_MODIFIED_COLOR = 0xffcc88;
  * Triangle size scales inversely with zoom to stay constant on screen.
  */
 export class WorldSpaceWindVisualization implements WindVisualizationMode {
-  draw(
-    wind: Wind,
-    viewport: Viewport,
-    camera: Camera2d,
-    renderer: Renderer
-  ): void {
+  draw(wind: Wind, viewport: Viewport, camera: Camera2d, draw: Draw): void {
     const { left, right, top, bottom } = viewport;
 
     // Triangle size scales inversely with zoom to stay constant on screen
@@ -63,7 +58,7 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
             y,
             triangleSize,
             alpha * TRIANGLE_ALPHA,
-            renderer
+            draw,
           );
         }
       }
@@ -92,7 +87,7 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
     y: number,
     maxSize: number,
     alpha: number,
-    renderer: Renderer
+    draw: Draw,
   ): void {
     const point = V(x, y);
     const velocity = wind.getVelocityAtPoint(point);
@@ -106,7 +101,7 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
     const speedRatio = clamp(
       (speed - MIN_WIND_SPEED) / (MAX_WIND_SPEED - MIN_WIND_SPEED),
       0,
-      1
+      1,
     );
 
     const size = lerp(maxSize * 0.3, maxSize, speedRatio);
@@ -124,13 +119,13 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
     const tip = V(tipX * cos + x, tipX * sin + y);
     const wingUp = V(
       backX * cos - wingY * sin + x,
-      backX * sin + wingY * cos + y
+      backX * sin + wingY * cos + y,
     );
     const wingDown = V(
       backX * cos + wingY * sin + x,
-      backX * sin - wingY * cos + y
+      backX * sin - wingY * cos + y,
     );
 
-    renderer.drawPolygon([tip, wingUp, wingDown], { color, alpha });
+    draw.polygon([tip, wingUp, wingDown], { color, alpha });
   }
 }

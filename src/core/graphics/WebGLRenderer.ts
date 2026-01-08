@@ -1,5 +1,5 @@
-import { profiler } from "../util/Profiler";
 import { CompatibleVector, V, V2d } from "../Vector";
+import { GpuTimer } from "./GpuTimer";
 import { Matrix3 } from "./Matrix3";
 import {
   ShaderProgram,
@@ -9,14 +9,6 @@ import {
   SPRITE_FRAGMENT_SHADER,
 } from "./ShaderProgram";
 import { Texture, TextureManager } from "./TextureManager";
-
-/** WebGL2 timer query extension interface */
-interface TimerQueryExt {
-  TIME_ELAPSED_EXT: number;
-  TIMESTAMP_EXT: number;
-  GPU_DISJOINT_EXT: number;
-  QUERY_COUNTER_BITS_EXT: number;
-}
 
 /** Options for shape drawing */
 export interface DrawOptions {
@@ -61,7 +53,7 @@ function getCircleSegments(radius: number): number {
  * Immediate-mode 2D WebGL renderer.
  * All draw calls are batched and flushed at frame end or on state change.
  */
-export class Renderer {
+export class WebGLRenderer {
   readonly canvas: HTMLCanvasElement;
   readonly gl: WebGL2RenderingContext;
   readonly textureManager: TextureManager;
@@ -113,13 +105,8 @@ export class Renderer {
   // Pixel ratio for high-DPI displays
   private pixelRatio: number = 1;
 
-  // GPU timing support
-  private timerQueryExt: TimerQueryExt | null = null;
-  private gpuTimerEnabled: boolean = false;
-  private pendingQueries: Array<{
-    query: WebGLQuery;
-    label: string;
-  }> = [];
+  // GPU timing
+  private gpuTimer: GpuTimer;
 
   constructor(canvas?: HTMLCanvasElement) {
     this.canvas = canvas ?? document.createElement("canvas");
@@ -242,13 +229,8 @@ export class Renderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    // Try to get GPU timer extension
-    this.timerQueryExt = gl.getExtension(
-      "EXT_disjoint_timer_query_webgl2",
-    ) as TimerQueryExt | null;
-    if (this.timerQueryExt) {
-      console.log("GPU timer query extension available");
-    }
+    // Initialize GPU timer
+    this.gpuTimer = new GpuTimer(gl);
   }
 
   /** Resize the canvas to match the window size */
@@ -817,7 +799,7 @@ export class Renderer {
 
   /** Generate a texture from draw commands */
   generateTexture(
-    draw: (renderer: Renderer) => void,
+    draw: (renderer: WebGLRenderer) => void,
     width: number,
     height: number,
   ): Texture {
@@ -903,21 +885,17 @@ export class Renderer {
 
   /** Check if GPU timer extension is available */
   hasGpuTimerSupport(): boolean {
-    return this.timerQueryExt !== null;
+    return this.gpuTimer.hasSupport();
   }
 
   /** Enable or disable GPU timing */
   setGpuTimingEnabled(enabled: boolean): void {
-    if (enabled && !this.timerQueryExt) {
-      console.warn("GPU timer extension not available");
-      return;
-    }
-    this.gpuTimerEnabled = enabled;
+    this.gpuTimer.setEnabled(enabled);
   }
 
   /** Check if GPU timing is enabled */
   isGpuTimingEnabled(): boolean {
-    return this.gpuTimerEnabled && this.timerQueryExt !== null;
+    return this.gpuTimer.isEnabled();
   }
 
   /** Debug: get GPU timing status */
@@ -926,36 +904,17 @@ export class Renderer {
     enabled: boolean;
     pendingQueries: number;
   } {
-    return {
-      extensionAvailable: this.timerQueryExt !== null,
-      enabled: this.gpuTimerEnabled,
-      pendingQueries: this.pendingQueries.length,
-    };
+    return this.gpuTimer.getDebugInfo();
   }
 
   /** Begin a GPU-timed section */
   beginGpuTimer(label: string): void {
-    if (!this.gpuTimerEnabled || !this.timerQueryExt) return;
-
-    const gl = this.gl;
-    const ext = this.timerQueryExt;
-
-    // Create and begin query
-    const query = gl.createQuery();
-    if (!query) return;
-
-    gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
-    this.pendingQueries.push({ query, label });
+    this.gpuTimer.begin(label);
   }
 
   /** End the current GPU-timed section */
   endGpuTimer(): void {
-    if (!this.gpuTimerEnabled || !this.timerQueryExt) return;
-
-    const gl = this.gl;
-    const ext = this.timerQueryExt;
-
-    gl.endQuery(ext.TIME_ELAPSED_EXT);
+    this.gpuTimer.end();
   }
 
   /**
@@ -963,55 +922,15 @@ export class Renderer {
    * Call this at the end of each frame.
    */
   pollGpuTimers(): void {
-    if (!this.timerQueryExt) return;
-
-    const gl = this.gl;
-    const ext = this.timerQueryExt;
-
-    // Check for GPU disjoint - if true, all results are invalid
-    const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
-    if (disjoint) {
-      // Discard all pending queries
-      for (const { query } of this.pendingQueries) {
-        gl.deleteQuery(query);
-      }
-      this.pendingQueries = [];
-      return;
-    }
-
-    // Process completed queries
-    const stillPending: typeof this.pendingQueries = [];
-
-    for (const { query, label } of this.pendingQueries) {
-      const available = gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE);
-
-      if (available) {
-        const timeNs = gl.getQueryParameter(query, gl.QUERY_RESULT);
-        const timeMs = timeNs / 1_000_000;
-
-        // Report to profiler using explicit elapsed time
-        profiler.start(label);
-        profiler.end(label, timeMs);
-
-        gl.deleteQuery(query);
-      } else {
-        // Keep for next poll
-        stillPending.push({ query, label });
-      }
-    }
-
-    this.pendingQueries = stillPending;
+    this.gpuTimer.poll();
   }
 
   /** Clean up all resources */
   destroy(): void {
     const gl = this.gl;
 
-    // Clean up pending GPU timer queries
-    for (const { query } of this.pendingQueries) {
-      gl.deleteQuery(query);
-    }
-    this.pendingQueries = [];
+    // Clean up GPU timer
+    this.gpuTimer.destroy();
 
     this.shapeProgram.destroy();
     this.spriteProgram.destroy();

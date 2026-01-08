@@ -237,7 +237,7 @@ export class Sail extends BaseEntity {
     }
   }
 
-  onRender() {
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     // Hide sail when fully lowered
     if (this.hoistAmount <= 0) {
       return;
@@ -245,7 +245,6 @@ export class Sail extends BaseEntity {
 
     const { billowOuter, billowInner, sailShape, color } = this.config;
 
-    const renderer = this.game!.getRenderer();
     const head = this.config.getHeadPosition();
     const clew = this.getClewPosition();
 
@@ -253,11 +252,17 @@ export class Sail extends BaseEntity {
     const scaledBillowOuter = billowOuter * this.hoistAmount;
     const scaledBillowInner = billowInner * this.hoistAmount;
 
+    // Fade alpha near the end of lowering (stays opaque until ~40% lowered)
+    const fadeStart = 0.4;
+    const alpha =
+      this.hoistAmount >= fadeStart ? 1 : (this.hoistAmount / fadeStart) ** 0.5; // sqrt easing for smooth fade
+
+    const path = draw.path();
+
     if (sailShape === "triangle") {
       // Triangle rendering: single polygon with billow on one edge
       // head → particles with billow → clew → extraPoints → back to head
-      renderer.beginPath();
-      renderer.moveTo(head.x, head.y);
+      path.moveTo(head.x, head.y);
 
       // Billowed edge (foot for jib)
       for (let i = 1; i < this.bodies.length - 1; i++) {
@@ -265,28 +270,31 @@ export class Sail extends BaseEntity {
         const t = i / (this.bodies.length - 1);
         const baseline = lerpV2d(head, clew, t);
         const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
-        renderer.lineTo(x, y);
+        path.lineTo(x, y);
       }
-      renderer.lineTo(clew.x, clew.y);
+      path.lineTo(clew.x, clew.y);
 
       // Extra points (e.g., masthead for jib - forms the leech)
       // Scale extra points toward clew as sail is lowered
       const extraPoints = this.config.extraPoints?.() ?? [];
       for (const point of extraPoints) {
         const scaledPoint = lerpV2d(clew, point, this.hoistAmount);
-        renderer.lineTo(scaledPoint.x, scaledPoint.y);
+        path.lineTo(scaledPoint.x, scaledPoint.y);
       }
 
       const scaledHead = lerpV2d(clew, head, this.hoistAmount);
-      renderer.lineTo(scaledHead.x, scaledHead.y);
+      path.lineTo(scaledHead.x, scaledHead.y);
 
-      renderer.closePath();
-      renderer.fill(color);
-      renderer.stroke(color, 1 / this.game!.camera.z);
+      path.close();
+      path.fill(color, alpha);
+      draw.screenLine(head.x, head.y, clew.x, clew.y, {
+        color,
+        alpha,
+        width: 1,
+      });
     } else {
       // Boom rendering: double-pass with inner and outer billow
-      renderer.beginPath();
-      renderer.moveTo(head.x, head.y);
+      path.moveTo(head.x, head.y);
 
       // Outer edge: head → particles (with billowOuter) → clew
       for (let i = 1; i < this.bodies.length - 1; i++) {
@@ -294,9 +302,9 @@ export class Sail extends BaseEntity {
         const t = i / (this.bodies.length - 1);
         const baseline = lerpV2d(head, clew, t);
         const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
-        renderer.lineTo(x, y);
+        path.lineTo(x, y);
       }
-      renderer.lineTo(clew.x, clew.y);
+      path.lineTo(clew.x, clew.y);
 
       // Inner edge: back to head (with billowInner)
       const reversedBodies = this.bodies.toReversed();
@@ -305,12 +313,16 @@ export class Sail extends BaseEntity {
         const t = i / (this.bodies.length - 1);
         const baseline = lerpV2d(clew, head, t);
         const [x, y] = lerpV2d(baseline, body.position, scaledBillowInner);
-        renderer.lineTo(x, y);
+        path.lineTo(x, y);
       }
 
-      renderer.closePath();
-      renderer.fill(color);
-      renderer.stroke(color, 1 / this.game!.camera.z);
+      path.close();
+      path.fill(color, alpha);
+      draw.screenLine(head.x, head.y, clew.x, clew.y, {
+        color,
+        alpha,
+        width: 1,
+      });
     }
   }
 }

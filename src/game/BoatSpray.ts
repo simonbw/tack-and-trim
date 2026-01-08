@@ -150,11 +150,9 @@ export class BoatSpray extends BaseEntity {
     this.spawnParticles(dt);
   }
 
-  onRender(): void {
-    const renderer = this.game!.getRenderer();
-
+  onRender({ draw }: { draw: import("../core/graphics/Draw").Draw }): void {
     for (const p of this.particles) {
-      renderer.drawCircle(p.pos.x, p.pos.y, p.getRadius(), {
+      draw.circle(p.pos.x, p.pos.y, p.getRadius(), {
         color: CONFIG.COLOR,
         alpha: p.getAlpha(),
       });
@@ -169,7 +167,7 @@ export class BoatSpray extends BaseEntity {
     if (speed < CONFIG.MIN_SPEED) return;
 
     const speedFactor = clamp(
-      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed)
+      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed),
     );
 
     // Spawn rate scales with speed
@@ -207,7 +205,7 @@ export class BoatSpray extends BaseEntity {
 
       // Spray velocity: based on boat velocity plus outward spray
       const sprayOutward = worldNormal.mul(
-        CONFIG.SPRAY_SPEED * rUniform(0.0, 2.0)
+        CONFIG.SPRAY_SPEED * rUniform(0.0, 2.0),
       );
       const particleVel = velocity.mul(rNormal(1, 0.1)).add(sprayOutward);
       const vz = CONFIG.INITIAL_VZ * rUniform(0.6, 1.2) * (0.5 + facing * 0.5);

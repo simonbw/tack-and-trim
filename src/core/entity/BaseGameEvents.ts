@@ -1,6 +1,18 @@
+import { LayerName } from "../../config/layers";
 import Game from "../Game";
+import { Draw } from "../graphics/Draw";
 import { V2d } from "../Vector";
 import Entity from "./Entity";
+
+/** Data passed to onRender and onLateRender callbacks */
+export interface RenderEventData {
+  /** Delta time since last frame */
+  dt: number;
+  /** The layer being rendered */
+  layer: LayerName;
+  /** The drawing API */
+  draw: Draw;
+}
 
 export type BaseGameEvents = {
   /** Called when added to the game */
@@ -11,10 +23,10 @@ export type BaseGameEvents = {
   afterPhysics: void;
   /** Called before the tick happens */
   beforeTick: number;
-  /** Called before rendering */
-  render: number;
-  /** Called _right_ before rendering. This is for special cases only */
-  lateRender: number;
+  /** Called before rendering - use destructuring: onRender({ dt, layer, draw }) */
+  render: RenderEventData;
+  /** Called right before rendering, for special cases */
+  lateRender: RenderEventData;
   /** Called during the update tick */
   tick: number;
   /** Called less frequently */

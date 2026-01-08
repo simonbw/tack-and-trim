@@ -3,24 +3,24 @@ import { V, V2d } from "../Vector";
 import { Camera2d, ViewportProvider } from "./Camera2d";
 import { LayerInfo } from "./LayerInfo";
 import { Matrix3 } from "./Matrix3";
-import { Renderer } from "./Renderer";
+import { WebGLRenderer } from "./WebGLRenderer";
 
-/** Options for the GameRenderer2d constructor */
-export interface GameRenderer2dOptions {
+/** Options for the RenderManager constructor */
+export interface RenderManagerOptions {
   antialias?: boolean;
   backgroundColor?: number;
 }
 
 /**
- * The thing that renders stuff to the screen.
- * Wraps the low-level Renderer and manages layers and camera.
+ * Coordinates rendering for the game.
+ * Manages the WebGL renderer, camera, and layer system.
  */
-export class GameRenderer2d implements ViewportProvider {
+export class RenderManager implements ViewportProvider {
   private cursor: CSSStyleDeclaration["cursor"] = "none";
   private backgroundColor: number = 0x1a1a2e;
 
   /** The underlying WebGL renderer */
-  readonly renderer: Renderer;
+  readonly renderer: WebGLRenderer;
 
   /** Camera for viewport transformations */
   camera: Camera2d;
@@ -33,7 +33,7 @@ export class GameRenderer2d implements ViewportProvider {
     private defaultLayerName: LayerName,
     private onResize?: ([width, height]: [number, number]) => void,
   ) {
-    this.renderer = new Renderer();
+    this.renderer = new WebGLRenderer();
     this.showCursor();
     this.camera = new Camera2d(this, V(0, 0));
 
@@ -47,7 +47,7 @@ export class GameRenderer2d implements ViewportProvider {
     this.renderer.destroy();
   }
 
-  async init(options: GameRenderer2dOptions = {}): Promise<void> {
+  async init(options: RenderManagerOptions = {}): Promise<void> {
     if (options.backgroundColor !== undefined) {
       this.backgroundColor = options.backgroundColor;
     }
@@ -147,7 +147,7 @@ export class GameRenderer2d implements ViewportProvider {
   }
 
   /** Get the low-level renderer for direct drawing */
-  getRenderer(): Renderer {
+  getRenderer(): WebGLRenderer {
     return this.renderer;
   }
 

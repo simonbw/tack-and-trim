@@ -1,4 +1,4 @@
-import { Renderer } from "../../core/graphics/Renderer";
+import type { Draw } from "../../core/graphics/Draw";
 import { V, V2d } from "../../core/Vector";
 
 export interface VerletRopeConfig {
@@ -161,20 +161,20 @@ export class VerletRope {
   }
 
   /**
-   * Render the rope to a Renderer.
+   * Render the rope.
    * Draws a smooth curve through all points using quadratic beziers.
    */
-  render(renderer: Renderer): void {
+  render(draw: Draw, alpha: number = 1): void {
     if (this.pointCount < 2) return;
 
+    const path = draw.path();
     const start = this.positions[0];
-    renderer.beginPath();
-    renderer.moveTo(start.x, start.y);
+    path.moveTo(start.x, start.y);
 
     if (this.pointCount === 2) {
       // Just two points - draw a straight line
       const end = this.positions[1];
-      renderer.lineTo(end.x, end.y);
+      path.lineTo(end.x, end.y);
     } else {
       // Draw smooth curve using quadratic beziers
       // Points become control points, curve passes through midpoints
@@ -187,17 +187,16 @@ export class VerletRope {
         const midY = (p1.y + p2.y) / 2;
 
         // Curve to midpoint, using p1 as control point
-        renderer.quadraticCurveTo(p1.x, p1.y, midX, midY);
+        path.quadraticTo(p1.x, p1.y, midX, midY);
       }
 
       // Last segment: curve from last midpoint to end, control point is second-to-last
       const pLast = this.positions[this.pointCount - 1];
       const pSecondLast = this.positions[this.pointCount - 2];
-      renderer.quadraticCurveTo(pSecondLast.x, pSecondLast.y, pLast.x, pLast.y);
+      path.quadraticTo(pSecondLast.x, pSecondLast.y, pLast.x, pLast.y);
     }
 
-    // Stroke without closing the path (rope is not a closed shape)
-    renderer.stroke(this.color, this.thickness, 1.0, false);
+    path.stroke(this.color, this.thickness, alpha);
   }
 
   /**

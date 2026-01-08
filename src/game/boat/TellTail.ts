@@ -63,7 +63,7 @@ export class TellTail extends BaseEntity {
         new DistanceConstraint(a, b, {
           distance: segmentLength * SLACK_FACTOR,
           collideConnected: false,
-        })
+        }),
       );
     }
 
@@ -113,21 +113,19 @@ export class TellTail extends BaseEntity {
     }
   }
 
-  onRender() {
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     if (this.bodies.length < 2) return;
 
-    const renderer = this.game!.getRenderer();
-
     // Draw using path API
-    renderer.beginPath();
+    const path = draw.path();
     const [startX, startY] = this.bodies[0].position;
-    renderer.moveTo(startX, startY);
+    path.moveTo(startX, startY);
 
     for (let i = 1; i < this.bodies.length; i++) {
       const [x, y] = this.bodies[i].position;
-      renderer.lineTo(x, y);
+      path.lineTo(x, y);
     }
 
-    renderer.stroke(TELLTAIL_COLOR, TELLTAIL_WIDTH, 1.0, false);
+    path.stroke(TELLTAIL_COLOR, TELLTAIL_WIDTH, 1.0);
   }
 }

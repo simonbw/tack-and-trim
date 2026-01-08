@@ -35,7 +35,7 @@ export class Anchor extends BaseEntity {
 
   constructor(
     private hull: Hull,
-    config: AnchorConfig
+    config: AnchorConfig,
   ) {
     super();
 
@@ -95,7 +95,7 @@ export class Anchor extends BaseEntity {
         localAnchorA: [0, 0],
         localAnchorB: [this.bowAttachPoint.x, this.bowAttachPoint.y],
         collideConnected: false, // Don't collide with anchor
-      }
+      },
     );
     this.rodeConstraint.lowerLimit = 0;
     this.rodeConstraint.lowerLimitEnabled = false;
@@ -163,25 +163,27 @@ export class Anchor extends BaseEntity {
 
     // Animate rope length toward target
     const speed =
-      this.state === "retrieving" ? this.rodeRetrieveSpeed : this.rodeDeploySpeed;
+      this.state === "retrieving"
+        ? this.rodeRetrieveSpeed
+        : this.rodeDeploySpeed;
     const previousLength = this.currentRodeLength;
     this.currentRodeLength = stepToward(
       this.currentRodeLength,
       this.targetRodeLength,
-      speed * dt
+      speed * dt,
     );
 
     // Update constraint if rope length changed
-    if (
-      this.rodeConstraint &&
-      this.currentRodeLength !== previousLength
-    ) {
+    if (this.rodeConstraint && this.currentRodeLength !== previousLength) {
       this.rodeConstraint.upperLimit = Math.max(1, this.currentRodeLength);
       this.visualRope.setRestLength(this.currentRodeLength);
     }
 
     // Check for state transitions
-    if (this.state === "deploying" && this.currentRodeLength >= this.maxRodeLength) {
+    if (
+      this.state === "deploying" &&
+      this.currentRodeLength >= this.maxRodeLength
+    ) {
       this.state = "deployed";
     } else if (this.state === "retrieving" && this.currentRodeLength <= 1) {
       this.completeRetrieval();
@@ -212,16 +214,14 @@ export class Anchor extends BaseEntity {
     this.visualRope.update(this.anchorPosition, bowWorld, dt);
   }
 
-  onRender(): void {
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     if (this.state === "stowed") return;
 
-    const renderer = this.game!.getRenderer();
-
     // Draw rode using visual rope simulation
-    this.visualRope.render(renderer);
+    this.visualRope.render(draw);
 
     // Draw anchor (simple circle)
-    renderer.drawCircle(this.anchorPosition.x, this.anchorPosition.y, this.anchorSize, {
+    draw.circle(this.anchorPosition.x, this.anchorPosition.y, this.anchorSize, {
       color: 0x444444,
     });
   }

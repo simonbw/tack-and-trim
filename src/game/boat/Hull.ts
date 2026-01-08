@@ -52,30 +52,23 @@ export class Hull extends BaseEntity {
     );
   }
 
-  onRender() {
-    const renderer = this.game!.getRenderer();
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [x, y] = this.body.position;
-    const angle = this.body.angle;
 
-    // Save transform, translate and rotate to body position
-    renderer.save();
-    renderer.translate(x, y);
-    renderer.rotate(angle);
+    draw.at({ pos: V(x, y), angle: this.body.angle }, () => {
+      // Draw hull polygon
+      draw.polygon(this.vertices, { color: this.fillColor });
 
-    // Draw hull polygon
-    renderer.drawPolygon(this.vertices, { color: this.fillColor });
-
-    // Draw stroke (outline) by drawing lines between vertices
-    for (let i = 0; i < this.vertices.length; i++) {
-      const v1 = this.vertices[i];
-      const v2 = this.vertices[(i + 1) % this.vertices.length];
-      renderer.drawLine(v1[0], v1[1], v2[0], v2[1], {
-        color: this.strokeColor,
-        width: 1 / this.game!.camera.z, // Adjust for zoom
-      });
-    }
-
-    renderer.restore();
+      // Draw stroke (outline) by drawing lines between vertices
+      for (let i = 0; i < this.vertices.length; i++) {
+        const v1 = this.vertices[i];
+        const v2 = this.vertices[(i + 1) % this.vertices.length];
+        draw.screenLine(v1.x, v1.y, v2.x, v2.y, {
+          color: this.strokeColor,
+          width: 1,
+        });
+      }
+    });
   }
 
   getPosition(): V2d {

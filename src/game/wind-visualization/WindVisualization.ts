@@ -41,7 +41,7 @@ export class WindVisualization extends BaseEntity {
     return this.game?.entities.getById("wind") as Wind | undefined;
   }
 
-  onRender(): void {
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     const mode = this.modes[this.modeIndex];
     if (!mode) {
       return;
@@ -52,30 +52,29 @@ export class WindVisualization extends BaseEntity {
 
     const camera = this.game!.camera;
     const viewport = camera.getWorldViewport();
-    const renderer = this.game!.getRenderer();
 
     // Draw dim overlay
-    renderer.drawRect(
-      viewport.left,
-      viewport.top,
-      viewport.width,
-      viewport.height,
-      { color: DIM_COLOR, alpha: DIM_ALPHA }
-    );
+    draw.rect(viewport.left, viewport.top, viewport.width, viewport.height, {
+      color: DIM_COLOR,
+      alpha: DIM_ALPHA,
+    });
 
     // Draw modifier areas
     for (const modifier of wind.getModifiers()) {
       const aabb = modifier.getWindModifierAABB();
-      renderer.drawRect(
+      draw.rect(
         aabb.minX,
         aabb.minY,
         aabb.maxX - aabb.minX,
         aabb.maxY - aabb.minY,
-        { color: MODIFIER_FILL_COLOR, alpha: MODIFIER_FILL_ALPHA }
+        {
+          color: MODIFIER_FILL_COLOR,
+          alpha: MODIFIER_FILL_ALPHA,
+        },
       );
     }
 
     // Delegate to active mode
-    mode.draw(wind, viewport, camera, renderer);
+    mode.draw(wind, viewport, camera, draw);
   }
 }

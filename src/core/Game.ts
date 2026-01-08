@@ -8,11 +8,9 @@ import { V } from "./Vector";
 import Entity, { GameEventMap } from "./entity/Entity";
 import { eventHandlerName } from "./entity/EventHandler";
 import { WithOwner } from "./entity/WithOwner";
-import {
-  GameRenderer2d,
-  GameRenderer2dOptions,
-} from "./graphics/GameRenderer2d";
-import { Renderer } from "./graphics/Renderer";
+import { Draw } from "./graphics/Draw";
+import { RenderManager, RenderManagerOptions } from "./graphics/RenderManager";
+import { WebGLRenderer } from "./graphics/WebGLRenderer";
 import { IOManager } from "./io/IO";
 import type Body from "./physics/body/Body";
 import StaticBody from "./physics/body/StaticBody";
@@ -32,8 +30,8 @@ export default class Game {
   readonly entities: EntityList;
   /** Keeps track of entities that are ready to be removed */
   readonly entitiesToRemove: Set<Entity>;
-  /** The game renderer wrapper */
-  readonly renderer: GameRenderer2d;
+  /** The render manager - coordinates rendering */
+  readonly renderer: RenderManager;
   /** Manages keyboard/mouse/gamepad state and events. */
   private _io!: IOManager;
   get io(): IOManager {
@@ -108,10 +106,10 @@ export default class Game {
     this.entities = new EntityList();
     this.entitiesToRemove = new Set();
 
-    this.renderer = new GameRenderer2d(
+    this.renderer = new RenderManager(
       LAYERS,
       DEFAULT_LAYER,
-      this.onResize.bind(this)
+      this.onResize.bind(this),
     );
 
     this.ticksPerSecond = ticksPerSecond;
@@ -133,14 +131,14 @@ export default class Game {
   async init({
     rendererOptions = {},
   }: {
-    rendererOptions?: GameRenderer2dOptions;
+    rendererOptions?: RenderManagerOptions;
   } = {}) {
     await this.renderer.init(rendererOptions);
     this.io = new IOManager(this.renderer.canvas);
     this.addEntity(this.renderer.camera);
 
     this.animationFrameId = window.requestAnimationFrame(() =>
-      this.loop(this.lastFrameTime)
+      this.loop(this.lastFrameTime),
     );
   }
 
@@ -211,7 +209,7 @@ export default class Game {
   dispatch<EventName extends keyof GameEventMap>(
     eventName: EventName,
     data: GameEventMap[EventName],
-    respectPause = true
+    respectPause = true,
   ) {
     const effectivelyPaused = respectPause && this.paused;
     for (const entity of this.entities.getHandlers(eventName)) {
@@ -343,7 +341,7 @@ export default class Game {
       this.averageFrameDuration = lerp(
         this.averageFrameDuration,
         lastFrameDuration,
-        0.05
+        0.05,
       );
     }
 
@@ -478,7 +476,7 @@ export default class Game {
             position: [x, y],
             velocity: [vx, vy],
             angularVelocity: body.angularVelocity,
-          }
+          },
         );
         body.position.set(0, 0);
         body.velocity.set(0, 0);
@@ -493,7 +491,7 @@ export default class Game {
         console.warn(
           "Physics velocity clamped:",
           owner?.constructor?.name ?? "unknown",
-          { speed, maxVelocity: MAX_VELOCITY }
+          { speed, maxVelocity: MAX_VELOCITY },
         );
         const scale = MAX_VELOCITY / speed;
         body.velocity[0] *= scale;
@@ -503,7 +501,7 @@ export default class Game {
   }
 
   /** Get the low-level renderer for direct drawing */
-  getRenderer(): Renderer {
+  getRenderer(): WebGLRenderer {
     return this.renderer.getRenderer();
   }
 
@@ -536,6 +534,9 @@ export default class Game {
     // Start GPU timing for the whole frame if enabled
     this.renderer.beginGpuTimer("gpu");
 
+    // Create Draw context for this frame
+    const draw = new Draw(this.renderer.getRenderer(), this.renderer.camera);
+
     // Render each layer in order
     const layerNames = this.renderer.getLayerNames();
     for (const layerName of layerNames) {
@@ -543,7 +544,7 @@ export default class Game {
       this.renderer.setLayer(layerName);
 
       // Dispatch render event for entities on this layer
-      this.dispatchRenderForLayer(layerName, dt);
+      this.dispatchRenderForLayer(layerName, dt, draw);
     }
 
     // End GPU timing
@@ -553,16 +554,26 @@ export default class Game {
     this.renderer.endFrame();
   }
 
+  /** Check if an entity should render on the given layer */
+  private entityRendersOnLayer(entity: Entity, layerName: LayerName): boolean {
+    // Check multi-layer entities first
+    if (entity.layers && entity.layers.length > 0) {
+      return entity.layers.includes(layerName);
+    }
+    // Fall back to single layer
+    const entityLayer = entity.layer ?? DEFAULT_LAYER;
+    return entityLayer === layerName;
+  }
+
   /** Dispatch render event to entities on a specific layer */
-  private dispatchRenderForLayer(layerName: LayerName, dt: number) {
+  private dispatchRenderForLayer(layerName: LayerName, dt: number, draw: Draw) {
     const effectivelyPaused = this.paused;
+    const renderData = { dt, layer: layerName, draw };
 
     for (const entity of this.entities.getHandlers("render")) {
       if (entity.game && !(effectivelyPaused && !entity.pausable)) {
-        // Check if entity is on this layer
-        const entityLayer = entity.layer ?? DEFAULT_LAYER;
-        if (entityLayer === layerName) {
-          entity.onRender?.(dt);
+        if (this.entityRendersOnLayer(entity, layerName)) {
+          entity.onRender?.(renderData);
         }
       }
     }
@@ -570,9 +581,8 @@ export default class Game {
     // Also dispatch lateRender for this layer
     for (const entity of this.entities.getHandlers("lateRender")) {
       if (entity.game && !(effectivelyPaused && !entity.pausable)) {
-        const entityLayer = entity.layer ?? DEFAULT_LAYER;
-        if (entityLayer === layerName) {
-          entity.onLateRender?.(dt);
+        if (this.entityRendersOnLayer(entity, layerName)) {
+          entity.onLateRender?.(renderData);
         }
       }
     }

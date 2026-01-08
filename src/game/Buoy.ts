@@ -58,19 +58,16 @@ export class Buoy extends BaseEntity {
     }
   }
 
-  onRender() {
-    const renderer = this.game!.getRenderer();
+  onRender({ draw }: { draw: import("../core/graphics/Draw").Draw }) {
     const [x, y] = this.body.position;
 
-    renderer.save();
-    renderer.translate(x, y);
-    renderer.rotate(this.body.angle);
-    renderer.scale(this.currentScale);
-
-    // Draw buoy: red/orange filled circle
-    renderer.drawCircle(0, 0, BUOY_RADIUS, { color: 0xff4422 });
-    renderer.drawCircle(0, 0, BUOY_RADIUS * 0.3, { color: 0xcccccc });
-
-    renderer.restore();
+    draw.at(
+      { pos: V(x, y), angle: this.body.angle, scale: this.currentScale },
+      () => {
+        // Draw buoy: red/orange filled circle
+        draw.circle(0, 0, BUOY_RADIUS, { color: 0xff4422 });
+        draw.circle(0, 0, BUOY_RADIUS * 0.3, { color: 0xcccccc });
+      },
+    );
   }
 }

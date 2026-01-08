@@ -1,5 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
-import { V2d } from "../../core/Vector";
+import { V, V2d } from "../../core/Vector";
 import { Boat } from "./Boat";
 import { BowspritConfig } from "./BoatConfig";
 
@@ -20,18 +20,15 @@ export class Bowsprit extends BaseEntity {
     this.color = config.color;
   }
 
-  onRender() {
-    const renderer = this.game!.getRenderer();
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const hullBody = this.boat.hull.body;
     const worldPos = hullBody.toWorldFrame(this.localPosition);
 
-    renderer.save();
-    renderer.translate(worldPos[0], worldPos[1]);
-    renderer.rotate(hullBody.angle);
-
-    // Bowsprit visual - a spar extending forward from the bow
-    renderer.drawRect(0, -this.size.y / 2, this.size.x, this.size.y, { color: this.color });
-
-    renderer.restore();
+    draw.at({ pos: V(worldPos[0], worldPos[1]), angle: hullBody.angle }, () => {
+      // Bowsprit visual - a spar extending forward from the bow
+      draw.rect(0, -this.size.y / 2, this.size.x, this.size.y, {
+        color: this.color,
+      });
+    });
   }
 }

@@ -270,14 +270,14 @@ export default class DebugOverlay extends ReactEntity implements Entity {
     this.averageDuration = 1 / 60;
   }
 
-  onRender() {
+  onRender(renderData: { dt: number }) {
     const now = performance.now();
     const duration = now - this.lastUpdate;
     this.averageDuration =
       SMOOTHING * this.averageDuration + (1.0 - SMOOTHING) * duration;
     this.lastUpdate = now;
 
-    super.onRender();
+    super.onRender(renderData);
   }
 
   getStats() {

@@ -45,7 +45,7 @@ export class Sheet extends BaseEntity {
     private localAnchorA: V2d,
     private bodyB: Body,
     private localAnchorB: V2d,
-    config: Partial<SheetConfig> = {}
+    config: Partial<SheetConfig> = {},
   ) {
     super();
 
@@ -158,10 +158,9 @@ export class Sheet extends BaseEntity {
     this.visualRope.update(anchorA, anchorB, dt);
   }
 
-  onRender(): void {
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     if (this.opacity <= 0) return;
 
-    const renderer = this.game!.getRenderer();
-    this.visualRope.render(renderer);
+    this.visualRope.render(draw, this.opacity);
   }
 }

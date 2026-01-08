@@ -34,14 +34,14 @@ export class WaterRenderer extends BaseEntity {
     this.initialized = true;
   }
 
-  onRender() {
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     if (!this.game) return;
 
     this.ensureInitialized();
     if (!this.waterShader) return;
 
     const camera = this.game.camera;
-    const renderer = this.game.getRenderer();
+    const renderer = draw.renderer;
     const worldViewport = camera.getWorldViewport();
 
     // Expand viewport bounds with margin so we have valid data beyond screen edges.

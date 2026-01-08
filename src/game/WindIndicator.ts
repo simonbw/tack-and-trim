@@ -1,5 +1,5 @@
 import BaseEntity from "../core/entity/BaseEntity";
-import { Renderer } from "../core/graphics/Renderer";
+import type { Draw } from "../core/graphics/Draw";
 import { clamp, lerp } from "../core/util/MathUtil";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
@@ -92,7 +92,7 @@ export class WindIndicator extends BaseEntity {
     this.isDragging = false;
   }
 
-  onRender(): void {
+  onRender({ draw }: { draw: Draw }): void {
     const wind = this.getWind();
     if (!wind) return;
 
@@ -108,7 +108,7 @@ export class WindIndicator extends BaseEntity {
         const speed = clamp(
           distance * DRAG_SPEED_SCALE,
           MIN_WIND_SPEED,
-          MAX_WIND_SPEED
+          MAX_WIND_SPEED,
         );
         wind.setFromAngleAndSpeed(angle, speed);
       }
@@ -117,12 +117,10 @@ export class WindIndicator extends BaseEntity {
     }
 
     // Draw the indicator
-    this.drawIndicator(wind, isHovering);
+    this.drawIndicator(draw, wind, isHovering);
   }
 
-  private drawIndicator(wind: Wind, isHovering: boolean): void {
-    const renderer = this.game!.getRenderer();
-
+  private drawIndicator(draw: Draw, wind: Wind, isHovering: boolean): void {
     // Determine color based on state
     let arrowColor = ARROW_COLOR;
     if (this.isDragging) {
@@ -132,13 +130,18 @@ export class WindIndicator extends BaseEntity {
     }
 
     // Draw background circle
-    renderer.drawCircle(this.indicatorCenter.x, this.indicatorCenter.y, INDICATOR_RADIUS, {
-      color: BG_COLOR,
-      alpha: BG_ALPHA,
-    });
+    draw.circle(
+      this.indicatorCenter.x,
+      this.indicatorCenter.y,
+      INDICATOR_RADIUS,
+      {
+        color: BG_COLOR,
+        alpha: BG_ALPHA,
+      },
+    );
 
     // Draw tick marks
-    this.drawTicks(renderer);
+    this.drawTicks(draw);
 
     // Calculate arrow properties
     const windSpeed = wind.getSpeed();
@@ -146,12 +149,12 @@ export class WindIndicator extends BaseEntity {
     const speedRatio = clamp(
       (windSpeed - MIN_WIND_SPEED) / (MAX_WIND_SPEED - MIN_WIND_SPEED),
       0,
-      1
+      1,
     );
     const arrowLength = lerp(ARROW_MIN_LENGTH, ARROW_MAX_LENGTH, speedRatio);
 
     // Draw wind arrow
-    this.drawArrow(renderer, windAngle, arrowLength, arrowColor);
+    this.drawArrow(draw, windAngle, arrowLength, arrowColor);
 
     // Draw velocity arrow
     const boat = this.getBoat();
@@ -164,14 +167,19 @@ export class WindIndicator extends BaseEntity {
         const velocityArrowLength = lerp(
           ARROW_MIN_LENGTH,
           ARROW_MAX_LENGTH,
-          speedRatio
+          speedRatio,
         );
-        this.drawArrow(renderer, velocityAngle, velocityArrowLength, VELOCITY_ARROW_COLOR);
+        this.drawArrow(
+          draw,
+          velocityAngle,
+          velocityArrowLength,
+          VELOCITY_ARROW_COLOR,
+        );
       }
     }
   }
 
-  private drawTicks(renderer: Renderer): void {
+  private drawTicks(draw: Draw): void {
     const innerRadius = INDICATOR_RADIUS - TICK_INNER_OFFSET;
     const outerRadius = INDICATOR_RADIUS - TICK_OUTER_OFFSET;
 
@@ -179,7 +187,9 @@ export class WindIndicator extends BaseEntity {
     for (let i = 0; i < 8; i++) {
       const angle = (i * Math.PI) / 4;
       const isCardinal = i % 2 === 0;
-      const inner = isCardinal ? innerRadius - TICK_CARDINAL_EXTRA : innerRadius;
+      const inner = isCardinal
+        ? innerRadius - TICK_CARDINAL_EXTRA
+        : innerRadius;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
 
@@ -188,15 +198,19 @@ export class WindIndicator extends BaseEntity {
       const x2 = this.indicatorCenter.x + cos * outerRadius;
       const y2 = this.indicatorCenter.y + sin * outerRadius;
 
-      renderer.drawLine(x1, y1, x2, y2, { color: TICK_COLOR, alpha: TICK_ALPHA, width: 1 });
+      draw.line(x1, y1, x2, y2, {
+        color: TICK_COLOR,
+        alpha: TICK_ALPHA,
+        width: 1,
+      });
     }
   }
 
   private drawArrow(
-    renderer: Renderer,
+    draw: Draw,
     angle: number,
     length: number,
-    color: number
+    color: number,
   ): void {
     const dir = V(Math.cos(angle), Math.sin(angle));
     const perp = dir.rotate90cw();
@@ -206,7 +220,10 @@ export class WindIndicator extends BaseEntity {
 
     // Arrow shaft
     const shaftEnd = tip.sub(dir.mul(ARROW_HEAD_SIZE));
-    renderer.drawLine(base.x, base.y, shaftEnd.x, shaftEnd.y, { color, width: ARROW_WIDTH });
+    draw.line(base.x, base.y, shaftEnd.x, shaftEnd.y, {
+      color,
+      width: ARROW_WIDTH,
+    });
 
     // Arrow head (triangle)
     const headBase = tip.sub(dir.mul(ARROW_HEAD_SIZE));
@@ -214,6 +231,6 @@ export class WindIndicator extends BaseEntity {
     const headLeft = headBase.add(perp.mul(headHalfWidth));
     const headRight = headBase.sub(perp.mul(headHalfWidth));
 
-    renderer.drawPolygon([tip, headLeft, headRight], { color });
+    draw.polygon([tip, headLeft, headRight], { color });
   }
 }
