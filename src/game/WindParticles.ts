@@ -1,7 +1,4 @@
-import { Graphics, Sprite, Texture } from "pixi.js";
 import BaseEntity from "../core/entity/BaseEntity";
-import { createEmptySprite } from "../core/entity/GameSprite";
-import Game from "../core/Game";
 import { Viewport } from "../core/graphics/Camera2d";
 import { range } from "../core/util/FunctionalUtils";
 import { invLerp, stepToward, sum } from "../core/util/MathUtil";
@@ -28,15 +25,14 @@ const REBALANCE_THRESHOLD = 1.5; // max allowed density ratio. Must be > 1.0
  * Main entity that manages wind particles.
  */
 export class WindParticles extends BaseEntity {
+  layer = "windParticles" as const;
+
   private particles: WindParticle[] = [];
-  private _particleTexture?: Texture;
   private grid: ParticleGrid | null = null;
-  sprite: NonNullable<BaseEntity["sprite"]>;
   targetParticleCount = PARTICLE_COUNT;
 
   constructor() {
     super();
-    this.sprite = createEmptySprite("windParticles");
   }
 
   onAdd() {
@@ -54,7 +50,8 @@ export class WindParticles extends BaseEntity {
     }
 
     const zoom = this.game.camera.z;
-    const scale = (PARTICLE_SIZE / (TEXTURE_SIZE * zoom)) * 1.01 ** zoom;
+    // Particle radius in world units that appears as PARTICLE_SIZE pixels on screen
+    const radius = (PARTICLE_SIZE / zoom) * 1.01 ** zoom;
 
     this.grid.rebuildSectors(this.particles, viewport);
 
@@ -67,16 +64,14 @@ export class WindParticles extends BaseEntity {
       // Spawn particles
       for (let i = 0; i < change; i++) {
         const pos = this.grid.getSpawnPosition(viewport);
-        const particle = new WindParticle(pos, this.game);
+        const particle = new WindParticle(pos);
         this.particles.push(particle);
-        this.sprite.addChild(particle.sprite);
       }
     } else if (change < 0) {
       // Despawn particles
       for (let i = 0; i < -change; i++) {
         const particle = this.grid.popFromDensest();
         if (!particle) break;
-        particle.destroy();
         const idx = this.particles.indexOf(particle);
         if (idx !== -1) this.particles.splice(idx, 1);
       }
@@ -85,64 +80,43 @@ export class WindParticles extends BaseEntity {
     this.grid.placeOutOfBoundsParticles(viewport);
     this.grid.rebalance(viewport);
 
+    // Update and draw particles
+    const renderer = this.game.getRenderer();
     for (const p of this.particles) {
-      p.onRender(dt, scale, wind);
+      p.update(dt, wind);
+      renderer.drawCircle(p.pos.x, p.pos.y, radius, {
+        color: COLOR,
+        alpha: p.alpha,
+      });
     }
     profiler.end("wind-particles-render");
   }
 }
 
 /**
- * A single wind particle with position, alpha, and sprite.
+ * A single wind particle with position and alpha.
  */
 class WindParticle {
-  pos: V2d; // Yes it's redundant with sprite.position, but it keeps us from allocations and makes vector math cleaner
-  readonly sprite: Sprite;
+  pos: V2d;
+  alpha: number = 0;
 
-  constructor(pos: V2d, game: Game) {
+  constructor(pos: V2d) {
     this.pos = pos;
-    this.sprite = new Sprite(getParticleTexture(game));
-    this.sprite.alpha = 0;
-    this.sprite.anchor.set(0.5, 0.5);
-    this.sprite.position.copyFrom(this.pos);
   }
 
   /** Teleport to a new position, resetting alpha to fade in */
   teleport(newPos: V2d) {
-    this.sprite.alpha = 0;
+    this.alpha = 0;
     this.pos.set(newPos);
-    this.sprite.position.copyFrom(this.pos);
   }
 
-  /** Update sprite to match current state */
-  onRender(dt: number, scale: number, wind: Wind) {
+  /** Update particle state */
+  update(dt: number, wind: Wind) {
     const velocity = wind.getVelocityAtPoint(this.pos);
     this.pos.iadd(velocity.imul(dt * PARTICLE_MOVE_SCALE));
-    this.sprite.position.copyFrom(this.pos);
 
-    this.sprite.scale.set(scale);
-    this.sprite.tint = COLOR;
-    this.sprite.alpha = stepToward(
-      this.sprite.alpha,
-      TARGET_ALPHA,
-      ALPHA_LERP_SPEED * dt
-    );
+    this.alpha = stepToward(this.alpha, TARGET_ALPHA, ALPHA_LERP_SPEED * dt);
   }
-
-  destroy() {
-    this.sprite.destroy();
-  }
-}
-
-let _particleTexture: Texture | null = null;
-function getParticleTexture(game: Game): Texture {
-  if (!_particleTexture) {
-    const g = new Graphics();
-    g.circle(TEXTURE_SIZE / 2, TEXTURE_SIZE / 2, TEXTURE_SIZE / 2);
-    g.fill({ color: 0xffffff });
-    _particleTexture = game.renderer.app.renderer.generateTexture(g);
-  }
-  return _particleTexture;
 }
 
 /**

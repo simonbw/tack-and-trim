@@ -1,4 +1,3 @@
-import { Container } from "pixi.js";
 import React from "react";
 import Entity, { GameEventMap } from "../entity/Entity";
 import SpatialHashingBroadphase from "../physics/collision/broadphase/SpatialHashingBroadphase";
@@ -65,8 +64,7 @@ export default class DebugOverlay extends ReactEntity implements Entity {
               <div style={{ fontSize: "10px", color: "#aaa" }}>
                 Bodies: {stats.bodyCount} ({stats.kinematicBodyCount}K /{" "}
                 {stats.particleBodyCount}P / {stats.dynamicBodyCount}D /{" "}
-                {stats.hugeBodyCount}H) | Sprites: {stats.spriteCount} |
-                Collisions: {stats.collisions}
+                {stats.hugeBodyCount}H) | Collisions: {stats.collisions}
               </div>
             </>
           )}
@@ -88,8 +86,7 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                 style={{ marginBottom: "8px", fontSize: "10px", color: "#aaa" }}
               >
                 Bodies: {stats.kinematicBodyCount}K / {stats.particleBodyCount}P
-                / {stats.dynamicBodyCount}D / {stats.hugeBodyCount}H | Sprites:{" "}
-                {stats.spriteCount} | Collisions: {stats.collisions}
+                / {stats.dynamicBodyCount}D / {stats.hugeBodyCount}H | Collisions: {stats.collisions}
               </div>
 
               <div style={{ borderTop: "1px solid #444", paddingTop: "8px" }}>
@@ -177,7 +174,6 @@ export default class DebugOverlay extends ReactEntity implements Entity {
       kinematicBodyCount: world?.bodies.kinematic.length ?? 0,
       particleBodyCount: broadphase.particleBodies.size,
       entityCount: this.game?.entities.all.size ?? 0,
-      spriteCount: getSpriteCount(this.game!.renderer.stage),
       collisions: (this.game?.world.broadphase as SpatialHashingBroadphase)
         .debugData.numCollisions,
     };
@@ -287,15 +283,4 @@ function ProfileRow({
       <span style={{ textAlign: "right" }}>{percentOfParent}</span>
     </div>
   );
-}
-
-/** Counts the number of children of a display object. */
-function getSpriteCount(root: Container): number {
-  let total = 1;
-
-  for (const child of root.children ?? []) {
-    total += getSpriteCount(child);
-  }
-
-  return total;
 }
