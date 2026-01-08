@@ -25,6 +25,7 @@ const ticksPerFrame = 2;
 async function main() {
   const game = new Game({ ticksPerSecond: 120 * ticksPerFrame });
   await game.init({ rendererOptions: { backgroundColor: 0x000010 } });
+  game.setGpuTimingEnabled(true);
   // Make the game accessible from the console
   window.DEBUG = { game };
 

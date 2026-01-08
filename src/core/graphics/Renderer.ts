@@ -1,3 +1,4 @@
+import { profiler } from "../util/Profiler";
 import { CompatibleVector, V, V2d } from "../Vector";
 import { Matrix3 } from "./Matrix3";
 import {
@@ -8,6 +9,14 @@ import {
   SPRITE_FRAGMENT_SHADER,
 } from "./ShaderProgram";
 import { Texture, TextureManager } from "./TextureManager";
+
+/** WebGL2 timer query extension interface */
+interface TimerQueryExt {
+  TIME_ELAPSED_EXT: number;
+  TIMESTAMP_EXT: number;
+  GPU_DISJOINT_EXT: number;
+  QUERY_COUNTER_BITS_EXT: number;
+}
 
 /** Options for shape drawing */
 export interface DrawOptions {
@@ -39,7 +48,7 @@ export interface SpriteOptions {
 
 // Batch vertex size (position: 2, texCoord: 2, color: 4)
 const SPRITE_VERTEX_SIZE = 8;
-const SHAPE_VERTEX_SIZE = 2;
+const SHAPE_VERTEX_SIZE = 6; // position (2) + color (4)
 const MAX_BATCH_VERTICES = 65536;
 const MAX_BATCH_INDICES = MAX_BATCH_VERTICES * 6;
 
@@ -91,20 +100,35 @@ export class Renderer {
   private pathPoints: V2d[] = [];
   private pathStarted = false;
 
-  // Current draw color
-  private currentColor: number = 0xffffff;
-  private currentAlpha: number = 1.0;
+  // Stats for debugging (current frame, accumulating)
+  private drawCallCount: number = 0;
+  private triangleCount: number = 0;
+  private vertexCount: number = 0;
+
+  // Stats from last completed frame (for display)
+  private lastDrawCallCount: number = 0;
+  private lastTriangleCount: number = 0;
+  private lastVertexCount: number = 0;
 
   // Pixel ratio for high-DPI displays
   private pixelRatio: number = 1;
+
+  // GPU timing support
+  private timerQueryExt: TimerQueryExt | null = null;
+  private gpuTimerEnabled: boolean = false;
+  private pendingQueries: Array<{
+    query: WebGLQuery;
+    label: string;
+  }> = [];
 
   constructor(canvas?: HTMLCanvasElement) {
     this.canvas = canvas ?? document.createElement("canvas");
 
     const gl = this.canvas.getContext("webgl2", {
       alpha: false,
-      antialias: true,
+      antialias: false,
       premultipliedAlpha: false,
+      powerPreference: "high-performance",
     });
     if (!gl) {
       throw new Error("WebGL2 not supported");
@@ -115,11 +139,21 @@ export class Renderer {
     this.textureManager = new TextureManager(gl);
 
     // Initialize shaders
-    this.shapeProgram = new ShaderProgram(gl, SHAPE_VERTEX_SHADER, SHAPE_FRAGMENT_SHADER);
-    this.spriteProgram = new ShaderProgram(gl, SPRITE_VERTEX_SHADER, SPRITE_FRAGMENT_SHADER);
+    this.shapeProgram = new ShaderProgram(
+      gl,
+      SHAPE_VERTEX_SHADER,
+      SHAPE_FRAGMENT_SHADER,
+    );
+    this.spriteProgram = new ShaderProgram(
+      gl,
+      SPRITE_VERTEX_SHADER,
+      SPRITE_FRAGMENT_SHADER,
+    );
 
     // Initialize shape batch buffers
-    this.shapeVertices = new Float32Array(MAX_BATCH_VERTICES * SHAPE_VERTEX_SIZE);
+    this.shapeVertices = new Float32Array(
+      MAX_BATCH_VERTICES * SHAPE_VERTEX_SIZE,
+    );
     this.shapeIndices = new Uint16Array(MAX_BATCH_INDICES);
 
     this.shapeVertexBuffer = gl.createBuffer()!;
@@ -134,10 +168,30 @@ export class Renderer {
 
     const posLoc = this.shapeProgram.getAttribLocation("a_position");
     gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, SHAPE_VERTEX_SIZE * 4, 0);
+    gl.vertexAttribPointer(
+      posLoc,
+      2,
+      gl.FLOAT,
+      false,
+      SHAPE_VERTEX_SIZE * 4,
+      0,
+    );
+
+    const colorLoc = this.shapeProgram.getAttribLocation("a_color");
+    gl.enableVertexAttribArray(colorLoc);
+    gl.vertexAttribPointer(
+      colorLoc,
+      4,
+      gl.FLOAT,
+      false,
+      SHAPE_VERTEX_SIZE * 4,
+      2 * 4, // offset after position (2 floats * 4 bytes)
+    );
 
     // Initialize sprite batch buffers
-    this.spriteVertices = new Float32Array(MAX_BATCH_VERTICES * SPRITE_VERTEX_SIZE);
+    this.spriteVertices = new Float32Array(
+      MAX_BATCH_VERTICES * SPRITE_VERTEX_SIZE,
+    );
     this.spriteIndices = new Uint16Array(MAX_BATCH_INDICES);
 
     this.spriteVertexBuffer = gl.createBuffer()!;
@@ -155,21 +209,54 @@ export class Renderer {
     const sprColLoc = this.spriteProgram.getAttribLocation("a_color");
 
     gl.enableVertexAttribArray(sprPosLoc);
-    gl.vertexAttribPointer(sprPosLoc, 2, gl.FLOAT, false, SPRITE_VERTEX_SIZE * 4, 0);
+    gl.vertexAttribPointer(
+      sprPosLoc,
+      2,
+      gl.FLOAT,
+      false,
+      SPRITE_VERTEX_SIZE * 4,
+      0,
+    );
     gl.enableVertexAttribArray(sprTexLoc);
-    gl.vertexAttribPointer(sprTexLoc, 2, gl.FLOAT, false, SPRITE_VERTEX_SIZE * 4, 8);
+    gl.vertexAttribPointer(
+      sprTexLoc,
+      2,
+      gl.FLOAT,
+      false,
+      SPRITE_VERTEX_SIZE * 4,
+      8,
+    );
     gl.enableVertexAttribArray(sprColLoc);
-    gl.vertexAttribPointer(sprColLoc, 4, gl.FLOAT, false, SPRITE_VERTEX_SIZE * 4, 16);
+    gl.vertexAttribPointer(
+      sprColLoc,
+      4,
+      gl.FLOAT,
+      false,
+      SPRITE_VERTEX_SIZE * 4,
+      16,
+    );
 
     gl.bindVertexArray(null);
 
     // Default GL state
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // Try to get GPU timer extension
+    this.timerQueryExt = gl.getExtension(
+      "EXT_disjoint_timer_query_webgl2",
+    ) as TimerQueryExt | null;
+    if (this.timerQueryExt) {
+      console.log("GPU timer query extension available");
+    }
   }
 
   /** Resize the canvas to match the window size */
-  resize(width: number, height: number, pixelRatio: number = window.devicePixelRatio): void {
+  resize(
+    width: number,
+    height: number,
+    pixelRatio: number = window.devicePixelRatio,
+  ): void {
     this.pixelRatio = pixelRatio;
     const w = Math.floor(width * pixelRatio);
     const h = Math.floor(height * pixelRatio);
@@ -212,12 +299,48 @@ export class Renderer {
     this.spriteVertexCount = 0;
     this.spriteIndexCount = 0;
     this.currentTexture = null;
+
+    // Reset stats
+    this.drawCallCount = 0;
+    this.triangleCount = 0;
+    this.vertexCount = 0;
+  }
+
+  /** Get rendering stats from the last completed frame */
+  getStats(): {
+    drawCalls: number;
+    triangles: number;
+    vertices: number;
+    textures: number;
+    canvasWidth: number;
+    canvasHeight: number;
+    pixelRatio: number;
+  } {
+    return {
+      drawCalls: this.lastDrawCallCount,
+      triangles: this.lastTriangleCount,
+      vertices: this.lastVertexCount,
+      textures: this.textureManager.getTextureCount(),
+      canvasWidth: this.canvas.width,
+      canvasHeight: this.canvas.height,
+      pixelRatio: this.pixelRatio,
+    };
+  }
+
+  /** Get the number of draw calls in the current/last frame */
+  getDrawCallCount(): number {
+    return this.drawCallCount;
   }
 
   /** End frame and flush all batches */
   endFrame(): void {
     this.flushShapes();
     this.flushSprites();
+
+    // Save stats for display (before next beginFrame resets them)
+    this.lastDrawCallCount = this.drawCallCount;
+    this.lastTriangleCount = this.triangleCount;
+    this.lastVertexCount = this.vertexCount;
   }
 
   /** Clear the screen with a color */
@@ -287,7 +410,13 @@ export class Renderer {
   // ============ Shape Drawing ============
 
   /** Draw a filled rectangle */
-  drawRect(x: number, y: number, w: number, h: number, opts: DrawOptions = {}): void {
+  drawRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    opts: DrawOptions = {},
+  ): void {
     const color = opts.color ?? 0xffffff;
     const alpha = opts.alpha ?? 1.0;
 
@@ -357,7 +486,7 @@ export class Renderer {
     y1: number,
     x2: number,
     y2: number,
-    opts: LineOptions = {}
+    opts: LineOptions = {},
   ): void {
     const color = opts.color ?? 0xffffff;
     const alpha = opts.alpha ?? 1.0;
@@ -387,7 +516,7 @@ export class Renderer {
     vertices: V2d[],
     indices: number[],
     color: number,
-    alpha: number
+    alpha: number,
   ): void {
     // Check if we need to flush
     if (
@@ -397,18 +526,23 @@ export class Renderer {
       this.flushShapes();
     }
 
-    // Save current color for flush
-    this.currentColor = color;
-    this.currentAlpha = alpha;
+    // Extract color components
+    const r = ((color >> 16) & 0xff) / 255;
+    const g = ((color >> 8) & 0xff) / 255;
+    const b = (color & 0xff) / 255;
 
     const baseVertex = this.shapeVertexCount;
 
-    // Transform and add vertices
+    // Transform and add vertices with per-vertex color
     for (const v of vertices) {
       const transformed = this.currentTransform.apply(v);
       const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
       this.shapeVertices[offset] = transformed[0];
       this.shapeVertices[offset + 1] = transformed[1];
+      this.shapeVertices[offset + 2] = r;
+      this.shapeVertices[offset + 3] = g;
+      this.shapeVertices[offset + 4] = b;
+      this.shapeVertices[offset + 5] = alpha;
       this.shapeVertexCount++;
     }
 
@@ -416,27 +550,23 @@ export class Renderer {
     for (const idx of indices) {
       this.shapeIndices[this.shapeIndexCount++] = baseVertex + idx;
     }
-
-    // Flush immediately (no batching for different colors)
-    this.flushShapes();
   }
 
   /** Flush the shape batch to the GPU */
   private flushShapes(): void {
     if (this.shapeIndexCount === 0) return;
 
+    this.drawCallCount++;
+    this.triangleCount += this.shapeIndexCount / 3;
+    this.vertexCount += this.shapeVertexCount;
+
     const gl = this.gl;
 
     this.shapeProgram.use();
 
-    // Set uniforms
+    // Set uniforms (color is now per-vertex, so only matrix needed)
     const projMatrix = this.viewMatrix.toArray();
     this.shapeProgram.setUniformMatrix3fv("u_matrix", projMatrix);
-
-    const r = ((this.currentColor >> 16) & 0xff) / 255;
-    const g = ((this.currentColor >> 8) & 0xff) / 255;
-    const b = (this.currentColor & 0xff) / 255;
-    this.shapeProgram.setUniform4f("u_color", r, g, b, this.currentAlpha);
 
     // Upload data
     gl.bindVertexArray(this.shapeVAO);
@@ -444,13 +574,13 @@ export class Renderer {
     gl.bufferSubData(
       gl.ARRAY_BUFFER,
       0,
-      this.shapeVertices.subarray(0, this.shapeVertexCount * SHAPE_VERTEX_SIZE)
+      this.shapeVertices.subarray(0, this.shapeVertexCount * SHAPE_VERTEX_SIZE),
     );
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.shapeIndexBuffer);
     gl.bufferSubData(
       gl.ELEMENT_ARRAY_BUFFER,
       0,
-      this.shapeIndices.subarray(0, this.shapeIndexCount)
+      this.shapeIndices.subarray(0, this.shapeIndexCount),
     );
 
     // Draw
@@ -468,7 +598,7 @@ export class Renderer {
     texture: Texture,
     x: number,
     y: number,
-    opts: SpriteOptions = {}
+    opts: SpriteOptions = {},
   ): void {
     // Flush if texture changes
     if (this.currentTexture && this.currentTexture !== texture) {
@@ -554,6 +684,10 @@ export class Renderer {
   private flushSprites(): void {
     if (this.spriteIndexCount === 0 || !this.currentTexture) return;
 
+    this.drawCallCount++;
+    this.triangleCount += this.spriteIndexCount / 3;
+    this.vertexCount += this.spriteVertexCount / SPRITE_VERTEX_SIZE;
+
     const gl = this.gl;
 
     this.spriteProgram.use();
@@ -573,13 +707,13 @@ export class Renderer {
     gl.bufferSubData(
       gl.ARRAY_BUFFER,
       0,
-      this.spriteVertices.subarray(0, this.spriteVertexCount)
+      this.spriteVertices.subarray(0, this.spriteVertexCount),
     );
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.spriteIndexBuffer);
     gl.bufferSubData(
       gl.ELEMENT_ARRAY_BUFFER,
       0,
-      this.spriteIndices.subarray(0, this.spriteIndexCount)
+      this.spriteIndices.subarray(0, this.spriteIndexCount),
     );
 
     // Draw
@@ -652,7 +786,12 @@ export class Renderer {
   }
 
   /** Stroke the current path */
-  stroke(color: number, width: number = 1, alpha: number = 1.0, close: boolean = true): void {
+  stroke(
+    color: number,
+    width: number = 1,
+    alpha: number = 1.0,
+    close: boolean = true,
+  ): void {
     if (this.pathPoints.length < 2) return;
 
     // Draw lines between consecutive points
@@ -666,7 +805,11 @@ export class Renderer {
     if (close && this.pathPoints.length >= 3) {
       const first = this.pathPoints[0];
       const last = this.pathPoints[this.pathPoints.length - 1];
-      this.drawLine(last[0], last[1], first[0], first[1], { color, width, alpha });
+      this.drawLine(last[0], last[1], first[0], first[1], {
+        color,
+        width,
+        alpha,
+      });
     }
   }
 
@@ -676,7 +819,7 @@ export class Renderer {
   generateTexture(
     draw: (renderer: Renderer) => void,
     width: number,
-    height: number
+    height: number,
   ): Texture {
     const gl = this.gl;
 
@@ -690,7 +833,7 @@ export class Renderer {
       gl.COLOR_ATTACHMENT0,
       gl.TEXTURE_2D,
       texture.glTexture,
-      0
+      0,
     );
 
     // Save current state
@@ -756,9 +899,119 @@ export class Renderer {
     gl.deleteBuffer(buffer);
   }
 
+  // ============ GPU Timing ============
+
+  /** Check if GPU timer extension is available */
+  hasGpuTimerSupport(): boolean {
+    return this.timerQueryExt !== null;
+  }
+
+  /** Enable or disable GPU timing */
+  setGpuTimingEnabled(enabled: boolean): void {
+    if (enabled && !this.timerQueryExt) {
+      console.warn("GPU timer extension not available");
+      return;
+    }
+    this.gpuTimerEnabled = enabled;
+  }
+
+  /** Check if GPU timing is enabled */
+  isGpuTimingEnabled(): boolean {
+    return this.gpuTimerEnabled && this.timerQueryExt !== null;
+  }
+
+  /** Debug: get GPU timing status */
+  getGpuTimingDebugInfo(): {
+    extensionAvailable: boolean;
+    enabled: boolean;
+    pendingQueries: number;
+  } {
+    return {
+      extensionAvailable: this.timerQueryExt !== null,
+      enabled: this.gpuTimerEnabled,
+      pendingQueries: this.pendingQueries.length,
+    };
+  }
+
+  /** Begin a GPU-timed section */
+  beginGpuTimer(label: string): void {
+    if (!this.gpuTimerEnabled || !this.timerQueryExt) return;
+
+    const gl = this.gl;
+    const ext = this.timerQueryExt;
+
+    // Create and begin query
+    const query = gl.createQuery();
+    if (!query) return;
+
+    gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
+    this.pendingQueries.push({ query, label });
+  }
+
+  /** End the current GPU-timed section */
+  endGpuTimer(): void {
+    if (!this.gpuTimerEnabled || !this.timerQueryExt) return;
+
+    const gl = this.gl;
+    const ext = this.timerQueryExt;
+
+    gl.endQuery(ext.TIME_ELAPSED_EXT);
+  }
+
+  /**
+   * Poll for completed GPU timer queries and report results to profiler.
+   * Call this at the end of each frame.
+   */
+  pollGpuTimers(): void {
+    if (!this.timerQueryExt) return;
+
+    const gl = this.gl;
+    const ext = this.timerQueryExt;
+
+    // Check for GPU disjoint - if true, all results are invalid
+    const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
+    if (disjoint) {
+      // Discard all pending queries
+      for (const { query } of this.pendingQueries) {
+        gl.deleteQuery(query);
+      }
+      this.pendingQueries = [];
+      return;
+    }
+
+    // Process completed queries
+    const stillPending: typeof this.pendingQueries = [];
+
+    for (const { query, label } of this.pendingQueries) {
+      const available = gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE);
+
+      if (available) {
+        const timeNs = gl.getQueryParameter(query, gl.QUERY_RESULT);
+        const timeMs = timeNs / 1_000_000;
+
+        // Report to profiler using explicit elapsed time
+        profiler.start(label);
+        profiler.end(label, timeMs);
+
+        gl.deleteQuery(query);
+      } else {
+        // Keep for next poll
+        stillPending.push({ query, label });
+      }
+    }
+
+    this.pendingQueries = stillPending;
+  }
+
   /** Clean up all resources */
   destroy(): void {
     const gl = this.gl;
+
+    // Clean up pending GPU timer queries
+    for (const { query } of this.pendingQueries) {
+      gl.deleteQuery(query);
+    }
+    this.pendingQueries = [];
 
     this.shapeProgram.destroy();
     this.spriteProgram.destroy();

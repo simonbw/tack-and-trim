@@ -14,10 +14,13 @@ export class ShaderProgram {
   constructor(
     private gl: WebGL2RenderingContext,
     vertexSource: string,
-    fragmentSource: string
+    fragmentSource: string,
   ) {
     const vertexShader = this.compileShader(gl.VERTEX_SHADER, vertexSource);
-    const fragmentShader = this.compileShader(gl.FRAGMENT_SHADER, fragmentSource);
+    const fragmentShader = this.compileShader(
+      gl.FRAGMENT_SHADER,
+      fragmentSource,
+    );
 
     const program = gl.createProgram();
     if (!program) {
@@ -132,7 +135,11 @@ export class ShaderProgram {
   }
 
   /** Set a mat3 uniform */
-  setUniformMatrix3fv(name: string, value: Float32Array, transpose = false): void {
+  setUniformMatrix3fv(
+    name: string,
+    value: Float32Array,
+    transpose = false,
+  ): void {
     const location = this.getUniformLocation(name);
     if (location) {
       this.gl.uniformMatrix3fv(location, transpose, value);
@@ -140,7 +147,11 @@ export class ShaderProgram {
   }
 
   /** Set a mat4 uniform */
-  setUniformMatrix4fv(name: string, value: Float32Array, transpose = false): void {
+  setUniformMatrix4fv(
+    name: string,
+    value: Float32Array,
+    transpose = false,
+  ): void {
     const location = this.getUniformLocation(name);
     if (location) {
       this.gl.uniformMatrix4fv(location, transpose, value);
@@ -185,22 +196,26 @@ export const SHAPE_VERTEX_SHADER = `#version 300 es
 precision highp float;
 
 in vec2 a_position;
+in vec4 a_color;
 uniform mat3 u_matrix;
+
+out vec4 v_color;
 
 void main() {
   vec3 position = u_matrix * vec3(a_position, 1.0);
   gl_Position = vec4(position.xy, 0.0, 1.0);
+  v_color = a_color;
 }
 `;
 
 export const SHAPE_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
-uniform vec4 u_color;
+in vec4 v_color;
 out vec4 fragColor;
 
 void main() {
-  fragColor = u_color;
+  fragColor = v_color;
 }
 `;
 
