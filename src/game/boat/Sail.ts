@@ -15,72 +15,54 @@ import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
 import { SailWindEffect } from "./SailWindEffect";
 import { TellTail } from "./TellTail";
 
-// Units: ft, lbs, seconds (where applicable)
-// Default values
-const DEFAULT_NODE_COUNT = 32;
-const DEFAULT_NODE_MASS = 0.04; // lbs per particle (tuned for physics behavior)
-const DEFAULT_SLACK_FACTOR = 1.01; // 1% slack in sail constraints
-const DEFAULT_LIFT_SCALE = 2.0; // Dimensionless lift coefficient
-const DEFAULT_DRAG_SCALE = 2.0; // Dimensionless drag coefficient
-const DEFAULT_BILLOW_INNER = 0.8; // Billow scale at boom (dimensionless)
-const DEFAULT_BILLOW_OUTER = 2.4; // Billow scale at leech (dimensionless)
-const DEFAULT_WIND_INFLUENCE_RADIUS = 15; // ft - sail's wind shadow radius
-const DEFAULT_HOIST_SPEED = 0.4; // Full hoist/lower takes ~2.5 seconds
-const DEFAULT_COLOR = 0xeeeeff; // Sail color
-
+// Optional config with defaults
 export interface SailConfig {
-  // Particle configuration
-  nodeCount?: number;
-  nodeMass?: number;
-  slackFactor?: number;
-  liftScale?: number;
-  dragScale?: number;
-
-  // Position providers
-  getHeadPosition: () => V2d;
-  getClewPosition?: () => V2d; // Optional - defaults to reading from clew particle if no clewConstraint
-  getInitialClewPosition?: () => V2d; // Required if getClewPosition not provided
-
-  // Constraints
-  headConstraint: { body: Body; localAnchor: V2d };
-  clewConstraint?: { body: Body; localAnchor: V2d };
-
-  // Force distribution (t: 0=head, 1=clew)
-  getForceScale?: (t: number) => number;
-
-  // Rendering
-  sailShape?: "boom" | "triangle"; // 'boom' = double-pass (mainsail), 'triangle' = single polygon (jib)
-  billowInner?: number;
-  billowOuter?: number;
-  extraPoints?: () => V2d[]; // Additional vertices after clew (e.g., masthead for triangle jib)
-  color?: number; // Sail fill and stroke color
-
-  // Animation
-  hoistSpeed?: number; // Speed of hoist/lower animation (0-1 per second)
-
-  // Extras
-  attachTellTail?: boolean;
-  windInfluenceRadius?: number;
+  nodeCount: number;
+  nodeMass: number;
+  slackFactor: number;
+  liftScale: number;
+  dragScale: number;
+  sailShape: "boom" | "triangle";
+  billowInner: number;
+  billowOuter: number;
+  windInfluenceRadius: number;
+  hoistSpeed: number;
+  color: number;
+  getForceScale: (t: number) => number;
+  attachTellTail: boolean;
 }
+
+// Required params (no defaults)
+export interface SailParams {
+  getHeadPosition: () => V2d; // Called each frame - head moves with boat
+  headConstraint: { body: Body; localAnchor: V2d };
+  // Optional with no default
+  getClewPosition?: () => V2d; // Called each frame for constrained clews
+  initialClewPosition?: V2d; // Only used once during construction
+  clewConstraint?: { body: Body; localAnchor: V2d };
+  extraPoints?: () => V2d[];
+}
+
+const DEFAULT_CONFIG: SailConfig = {
+  nodeCount: 32,
+  nodeMass: 0.04, // lbs per particle
+  slackFactor: 1.01, // 1% slack in sail constraints
+  liftScale: 2.0,
+  dragScale: 2.0,
+  sailShape: "boom",
+  billowInner: 0.8, // Billow scale at boom
+  billowOuter: 2.4, // Billow scale at leech
+  windInfluenceRadius: 15, // ft - sail's wind shadow radius
+  hoistSpeed: 0.4, // Full hoist/lower takes ~2.5 seconds
+  color: 0xeeeeff,
+  getForceScale: () => 1.0,
+  attachTellTail: true,
+};
 
 export class Sail extends BaseEntity {
   sprite: GameSprite & Graphics;
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
-
-  // Resolved config values
-  private readonly nodeCount: number;
-  private readonly nodeMass: number;
-  private readonly slackFactor: number;
-  private readonly liftScale: number;
-  private readonly dragScale: number;
-  private readonly sailShape: "boom" | "triangle";
-  private readonly billowInner: number;
-  private readonly billowOuter: number;
-  private readonly windInfluenceRadius: number;
-  private readonly hoistSpeed: number;
-  private readonly color: number;
-  private readonly getForceScale: (t: number) => number;
 
   // Hoist state (0 = fully lowered, 1 = fully hoisted)
   private hoistAmount: number = 0;
@@ -89,27 +71,81 @@ export class Sail extends BaseEntity {
   // Reference to our wind effect (for self-skip during wind queries)
   private windEffect: WindModifier | null = null;
 
-  constructor(private config: SailConfig) {
+  private config: SailParams & SailConfig;
+
+  constructor(config: SailParams & Partial<SailConfig>) {
     super();
 
+    this.config = { ...DEFAULT_CONFIG, ...config };
     this.sprite = createGraphics("sails");
-    this.bodies = [];
-    this.constraints = [];
 
-    // Resolve config with defaults
-    this.nodeCount = config.nodeCount ?? DEFAULT_NODE_COUNT;
-    this.nodeMass = config.nodeMass ?? DEFAULT_NODE_MASS;
-    this.slackFactor = config.slackFactor ?? DEFAULT_SLACK_FACTOR;
-    this.liftScale = config.liftScale ?? DEFAULT_LIFT_SCALE;
-    this.dragScale = config.dragScale ?? DEFAULT_DRAG_SCALE;
-    this.sailShape = config.sailShape ?? "boom";
-    this.hoistSpeed = config.hoistSpeed ?? DEFAULT_HOIST_SPEED;
-    this.color = config.color ?? DEFAULT_COLOR;
-    this.billowInner = config.billowInner ?? DEFAULT_BILLOW_INNER;
-    this.billowOuter = config.billowOuter ?? DEFAULT_BILLOW_OUTER;
-    this.windInfluenceRadius =
-      config.windInfluenceRadius ?? DEFAULT_WIND_INFLUENCE_RADIUS;
-    this.getForceScale = config.getForceScale ?? (() => 1.0);
+    const {
+      getHeadPosition,
+      initialClewPosition,
+      getClewPosition,
+      headConstraint,
+      clewConstraint,
+      nodeCount,
+      nodeMass,
+      slackFactor,
+      attachTellTail,
+    } = this.config;
+
+    const head = getHeadPosition();
+    const initialClew = initialClewPosition ?? getClewPosition?.() ?? head;
+    const totalLength = initialClew.distanceTo(head);
+    const segmentLength = totalLength / (nodeCount - 1);
+
+    // Create particle chain from head to clew
+    this.bodies = range(nodeCount).map((i) =>
+      new DynamicBody({
+        mass: nodeMass,
+        position: lerpV2d(head, initialClew, i / (nodeCount - 1)),
+        collisionResponse: false,
+        fixedRotation: true,
+      }).addShape(new Particle())
+    );
+
+    // Connect adjacent particles with distance constraints
+    this.constraints = pairs(this.bodies).map(
+      ([a, b]) =>
+        new DistanceConstraint(a, b, {
+          distance: segmentLength * slackFactor,
+          collideConnected: false,
+        })
+    );
+
+    // Attach head (first particle) to specified body
+    this.constraints.push(
+      new DistanceConstraint(headConstraint.body, this.bodies[0], {
+        distance: 0,
+        collideConnected: false,
+        localAnchorA: [
+          headConstraint.localAnchor.x,
+          headConstraint.localAnchor.y,
+        ],
+      })
+    );
+
+    // Optionally attach clew (last particle) to specified body
+    if (clewConstraint) {
+      this.constraints.push(
+        new DistanceConstraint(clewConstraint.body, last(this.bodies), {
+          distance: 0,
+          collideConnected: false,
+          localAnchorA: [
+            clewConstraint.localAnchor.x,
+            clewConstraint.localAnchor.y,
+          ],
+        })
+      );
+    }
+
+    if (attachTellTail) {
+      this.addChild(new TellTail(this.bodies[nodeCount - 1]));
+    }
+
+    this.windEffect = this.addChild(new SailWindEffect(this));
   }
 
   /** Get head body (first particle) */
@@ -143,7 +179,7 @@ export class Sail extends BaseEntity {
 
   /** Get wind influence radius */
   getWindInfluenceRadius(): number {
-    return this.windInfluenceRadius;
+    return this.config.windInfluenceRadius;
   }
 
   /** Check if sail is hoisted (or hoisting) */
@@ -161,125 +197,41 @@ export class Sail extends BaseEntity {
     this.targetHoistAmount = hoisted ? 1 : 0;
   }
 
-  onAdd() {
-    const head = this.config.getHeadPosition();
-    const initialClew =
-      this.config.getInitialClewPosition?.() ??
-      this.config.getClewPosition?.() ??
-      head; // Fallback, will be overwritten
-    const totalLength = initialClew.distanceTo(head);
-    const segmentLength = totalLength / (this.nodeCount - 1);
-
-    // Create particle chain from head to clew
-    this.bodies = range(this.nodeCount).map((i) => {
-      const t = i / (this.nodeCount - 1);
-      const body = new DynamicBody({
-        mass: this.nodeMass,
-        position: lerpV2d(head, initialClew, t),
-        collisionResponse: false,
-        fixedRotation: true,
-      });
-      body.addShape(new Particle());
-      return body;
-    });
-
-    // Connect adjacent particles with distance constraints
-    for (const [a, b] of pairs(this.bodies)) {
-      this.constraints.push(
-        new DistanceConstraint(a, b, {
-          distance: segmentLength,
-          collideConnected: false,
-        })
-      );
-    }
-
-    // Attach head (first particle) to specified body
-    const { body: headBody, localAnchor: headAnchor } =
-      this.config.headConstraint;
-    this.constraints.push(
-      new DistanceConstraint(headBody, this.bodies[0], {
-        distance: 0,
-        collideConnected: false,
-        localAnchorA: [headAnchor.x, headAnchor.y],
-      })
-    );
-
-    // Optionally attach clew (last particle) to specified body
-    if (this.config.clewConstraint) {
-      const { body: clewBody, localAnchor: clewAnchor } =
-        this.config.clewConstraint;
-      this.constraints.push(
-        new DistanceConstraint(clewBody, last(this.bodies), {
-          distance: 0,
-          collideConnected: false,
-          localAnchorA: [clewAnchor.x, clewAnchor.y],
-        })
-      );
-    }
-
-    // Add slack to allow billowing
-    for (const constraint of this.constraints) {
-      if (constraint instanceof DistanceConstraint) {
-        constraint.distance = constraint.distance * this.slackFactor;
-      }
-    }
-
-    // Optionally add telltail
-    if (this.config.attachTellTail !== false) {
-      this.addChild(new TellTail(this.bodies[this.nodeCount - 1]));
-    }
-
-    // Add wind effect child and store reference for self-skip
-    const windEffect = new SailWindEffect(this);
-    this.windEffect = windEffect;
-    this.addChild(windEffect);
-  }
-
   onTick(dt: number) {
+    const { hoistSpeed, getHeadPosition, getForceScale, liftScale, dragScale } =
+      this.config;
+
     // Animate hoist amount toward target
     this.hoistAmount = stepToward(
       this.hoistAmount,
       this.targetHoistAmount,
-      this.hoistSpeed * dt
+      hoistSpeed * dt
     );
 
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
-    if (!wind) return;
-
-    // When sail is fully lowered, skip all forces
-    if (this.hoistAmount <= 0) {
-      return;
-    }
+    if (!wind || this.hoistAmount <= 0) return;
 
     // Skip our own wind effect to prevent feedback loops
-    const selfWindEffect = this.windEffect ?? undefined;
     const getFluidVelocity = (point: V2d): V2d =>
-      wind.getVelocityAtPoint(point, selfWindEffect);
+      wind.getVelocityAtPoint(point, this.windEffect ?? undefined);
 
-    const head = this.config.getHeadPosition();
+    const head = getHeadPosition();
     const clew = this.getClewPosition();
 
     for (let i = 0; i < this.bodies.length; i++) {
       const t = i / (this.bodies.length - 1);
-      // Scale forces by hoist amount (partially lowered sail produces less force)
-      const forceScale = this.getForceScale(t) * this.hoistAmount;
+      const forceScale = getForceScale(t) * this.hoistAmount;
 
       const body = this.bodies[i];
       const bodyPos = V(body.position);
-
-      // Get previous and next positions for edge calculation
       const prevPos = i === 0 ? head : V(this.bodies[i - 1].position);
       const nextPos =
         i === this.bodies.length - 1 ? clew : V(this.bodies[i + 1].position);
 
-      // Calculate local camber
       const camber = calculateCamber(prevPos, bodyPos, nextPos);
+      const lift = sailLift(liftScale * forceScale, camber);
+      const drag = sailDrag(dragScale * forceScale);
 
-      // Create force magnitude functions
-      const lift = sailLift(this.liftScale * forceScale, camber);
-      const drag = sailDrag(this.dragScale * forceScale);
-
-      // Virtual edge from prev to next
       const v1Local = prevPos.sub(bodyPos);
       const v2Local = nextPos.sub(bodyPos);
 
@@ -290,78 +242,61 @@ export class Sail extends BaseEntity {
 
   onRender() {
     this.sprite.clear();
+    if (this.hoistAmount <= 0) return;
 
-    // Hide sail when fully lowered
-    if (this.hoistAmount <= 0) {
-      return;
-    }
+    const {
+      getHeadPosition,
+      extraPoints,
+      sailShape,
+      billowOuter,
+      billowInner,
+      color,
+    } = this.config;
 
-    const head = this.config.getHeadPosition();
+    const head = getHeadPosition();
     const clew = this.getClewPosition();
+    const scaledBillowOuter = billowOuter * this.hoistAmount;
+    const scaledBillowInner = billowInner * this.hoistAmount;
 
-    // Scale billow by hoist amount - sail flattens as it's lowered
-    const scaledBillowOuter = this.billowOuter * this.hoistAmount;
-    const scaledBillowInner = this.billowInner * this.hoistAmount;
-
-    if (this.sailShape === "triangle") {
-      // Triangle rendering: single polygon with billow on one edge
-      // head → particles with billow → clew → extraPoints → back to head
-      this.sprite.moveTo(head.x, head.y);
-
-      // Billowed edge (foot for jib)
-      for (let i = 1; i < this.bodies.length - 1; i++) {
-        const body = this.bodies[i];
-        const t = i / (this.bodies.length - 1);
-        const baseline = lerpV2d(head, clew, t);
-        const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
+    // Helper to draw billowed edge between two points
+    const drawBillowedEdge = (
+      from: V2d,
+      to: V2d,
+      bodies: DynamicBody[],
+      billow: number
+    ) => {
+      for (let i = 1; i < bodies.length - 1; i++) {
+        const t = i / (bodies.length - 1);
+        const baseline = lerpV2d(from, to, t);
+        const [x, y] = lerpV2d(baseline, bodies[i].position, billow);
         this.sprite.lineTo(x, y);
       }
+    };
+
+    this.sprite.moveTo(head.x, head.y);
+
+    if (sailShape === "triangle") {
+      drawBillowedEdge(head, clew, this.bodies, scaledBillowOuter);
       this.sprite.lineTo(clew.x, clew.y);
 
-      // Extra points (e.g., masthead for jib - forms the leech)
-      // Scale extra points toward clew as sail is lowered
-      const extraPoints = this.config.extraPoints?.() ?? [];
-      for (const point of extraPoints) {
-        const scaledPoint = lerpV2d(clew, point, this.hoistAmount);
-        this.sprite.lineTo(scaledPoint.x, scaledPoint.y);
+      // Extra points (e.g., masthead for jib), scaled toward clew when lowering
+      for (const point of extraPoints?.() ?? []) {
+        const scaled = lerpV2d(clew, point, this.hoistAmount);
+        this.sprite.lineTo(scaled.x, scaled.y);
       }
 
-      // Close path back to head (scale head position too)
       const scaledHead = lerpV2d(clew, head, this.hoistAmount);
       this.sprite.lineTo(scaledHead.x, scaledHead.y);
-
-      this.sprite
-        .closePath()
-        .fill({ color: this.color })
-        .stroke({ color: this.color, join: "round", width: 1 });
     } else {
-      // Boom rendering: double-pass with inner and outer billow
-      this.sprite.moveTo(head.x, head.y);
-
-      // Outer edge: head → particles (with billowOuter) → clew
-      for (let i = 1; i < this.bodies.length - 1; i++) {
-        const body = this.bodies[i];
-        const t = i / (this.bodies.length - 1);
-        const baseline = lerpV2d(head, clew, t);
-        const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
-        this.sprite.lineTo(x, y);
-      }
+      // Boom: double-pass with outer and inner billow
+      drawBillowedEdge(head, clew, this.bodies, scaledBillowOuter);
       this.sprite.lineTo(clew.x, clew.y);
-
-      // Inner edge: back to head (with billowInner)
-      const reversedBodies = this.bodies.toReversed();
-      for (let i = 1; i < reversedBodies.length - 1; i++) {
-        const body = reversedBodies[i];
-        const t = i / (this.bodies.length - 1);
-        const baseline = lerpV2d(clew, head, t);
-        const [x, y] = lerpV2d(baseline, body.position, scaledBillowInner);
-        this.sprite.lineTo(x, y);
-      }
-
-      this.sprite
-        .closePath()
-        .fill({ color: this.color })
-        .stroke({ color: this.color, join: "round", width: 1 });
+      drawBillowedEdge(clew, head, this.bodies.toReversed(), scaledBillowInner);
     }
+
+    this.sprite
+      .closePath()
+      .fill({ color })
+      .stroke({ color, join: "round", width: 0.25 });
   }
 }

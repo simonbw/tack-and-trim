@@ -56,7 +56,7 @@ export class VerletRope {
     this.gravity = config.gravity ?? V(0, 9.8);
     this.damping = config.damping ?? 0.98;
     this.constraintIterations = config.constraintIterations ?? 3;
-    this.thickness = config.thickness ?? 1.0;
+    this.thickness = config.thickness ?? 0.25;
     this.color = config.color ?? 0x444444;
 
     // Initialize positions arrays

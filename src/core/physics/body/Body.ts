@@ -3,13 +3,13 @@ import AABB from "../collision/AABB";
 import EventEmitter from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
 import {
+  SOLVER_ADD_VELOCITY,
+  SOLVER_INV_INERTIA,
+  SOLVER_INV_MASS,
+  SOLVER_RESET_VELOCITY,
+  SOLVER_UPDATE_MASS,
   SOLVER_VLAMBDA,
   SOLVER_WLAMBDA,
-  SOLVER_INV_MASS,
-  SOLVER_INV_INERTIA,
-  SOLVER_RESET_VELOCITY,
-  SOLVER_ADD_VELOCITY,
-  SOLVER_UPDATE_MASS,
 } from "../internal";
 import type Shape from "../shapes/Shape";
 import type World from "../world/World";
@@ -215,8 +215,6 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
     // Copy the offset vector
     if (offset) {
       shape.position.set(offset);
-    } else {
-      shape.position.set(0, 0);
     }
 
     shape.angle = angle || 0;

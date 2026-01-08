@@ -8,6 +8,8 @@ import {
   SOLVER_WLAMBDA,
 } from "../internal";
 import Body, { BaseBodyOptions, SleepState } from "./Body";
+import { integrateToTimeOfImpact } from "./ccdUtils";
+import { SleepBehavior, type SleepableBody } from "./SleepBehavior";
 
 /** Options for creating a DynamicBody. */
 export interface DynamicBodyOptions extends BaseBodyOptions {
@@ -43,7 +45,7 @@ export interface DynamicBodyOptions extends BaseBodyOptions {
  * A body that responds to forces and collisions.
  * This is the most common body type for game objects like players, projectiles, and physics props.
  */
-export default class DynamicBody extends Body {
+export default class DynamicBody extends Body implements SleepableBody {
   private _velocity: V2d = V();
   private _angularVelocity: number = 0;
   private _angularForce: number = 0;
@@ -69,15 +71,8 @@ export default class DynamicBody extends Body {
   /** Angular velocity damping per second. */
   angularDamping: number;
 
-  private _sleepState: SleepState;
-  private _allowSleep: boolean;
-  private _sleepSpeedLimit: number;
-  private _sleepTimeLimit: number;
-  private _wantsToSleep: boolean = false;
-  /** Time spent below sleep speed limit. */
-  idleTime: number = 0;
-  /** @internal */
-  timeLastSleepy: number = 0;
+  /** Sleep behavior manager. */
+  private _sleep: SleepBehavior;
 
   /** Speed threshold for enabling CCD. -1 disables CCD. */
   ccdSpeedThreshold: number;
@@ -101,10 +96,11 @@ export default class DynamicBody extends Body {
     this.damping = options.damping ?? 0.1;
     this.angularDamping = options.angularDamping ?? 0.1;
 
-    this._allowSleep = options.allowSleep ?? true;
-    this._sleepState = SleepState.AWAKE;
-    this._sleepSpeedLimit = options.sleepSpeedLimit ?? 0.2;
-    this._sleepTimeLimit = options.sleepTimeLimit ?? 1;
+    this._sleep = new SleepBehavior({
+      allowSleep: options.allowSleep ?? true,
+      sleepSpeedLimit: options.sleepSpeedLimit ?? 0.2,
+      sleepTimeLimit: options.sleepTimeLimit ?? 1,
+    });
 
     this.ccdSpeedThreshold = options.ccdSpeedThreshold ?? -1;
     this.ccdIterations = options.ccdIterations ?? 10;
@@ -162,32 +158,48 @@ export default class DynamicBody extends Body {
 
   /** Current sleep state. */
   get sleepState(): SleepState {
-    return this._sleepState;
+    return this._sleep.sleepState;
   }
 
   /** Whether this body is allowed to sleep. */
   get allowSleep(): boolean {
-    return this._allowSleep;
+    return this._sleep.allowSleep;
   }
 
   /** Speed threshold below which body becomes sleepy. */
   get sleepSpeedLimit(): number {
-    return this._sleepSpeedLimit;
+    return this._sleep.sleepSpeedLimit;
   }
 
   /** @internal True if body is ready to sleep (used for island sleeping). */
   get wantsToSleep(): boolean {
-    return this._wantsToSleep;
+    return this._sleep.wantsToSleep;
+  }
+
+  /** Time spent below sleep speed limit. */
+  get idleTime(): number {
+    return this._sleep.idleTime;
+  }
+  set idleTime(value: number) {
+    this._sleep.idleTime = value;
+  }
+
+  /** @internal */
+  get timeLastSleepy(): number {
+    return this._sleep.timeLastSleepy;
+  }
+  set timeLastSleepy(value: number) {
+    this._sleep.timeLastSleepy = value;
   }
 
   /** Returns true if the body is currently sleeping. */
   isSleeping(): boolean {
-    return this._sleepState === SleepState.SLEEPING;
+    return this._sleep.isSleeping();
   }
 
   /** Returns true if the body is currently awake. */
   isAwake(): boolean {
-    return this._sleepState === SleepState.AWAKE;
+    return this._sleep.isAwake();
   }
 
   /**
@@ -327,12 +339,7 @@ export default class DynamicBody extends Body {
    * Wake the body up.
    */
   wakeUp(): this {
-    if (!this.isAwake()) {
-      this._sleepState = SleepState.AWAKE;
-      this.idleTime = 0;
-      this.world?.bodies.onSleepStateChanged(this);
-      this.emit({ type: "wakeup", body: this });
-    }
+    this._sleep.wakeUp(this);
     return this;
   }
 
@@ -340,13 +347,7 @@ export default class DynamicBody extends Body {
    * Force body sleep
    */
   sleep(): this {
-    this._sleepState = SleepState.SLEEPING;
-    this._angularVelocity = 0;
-    this._angularForce = 0;
-    this._velocity.set(0, 0);
-    this._force.set(0, 0);
-    this.world?.bodies.onSleepStateChanged(this);
-    this.emit({ type: "sleep", body: this });
+    this._sleep.sleep(this);
     return this;
   }
 
@@ -354,30 +355,7 @@ export default class DynamicBody extends Body {
    * Called every timestep to update internal sleep timer and change sleep state if needed.
    */
   sleepTick(time: number, dontSleep: boolean, dt: number): void {
-    if (!this._allowSleep || this._sleepState === SleepState.SLEEPING) {
-      return;
-    }
-
-    this._wantsToSleep = false;
-
-    const speedSquared =
-      this._velocity.squaredMagnitude + Math.pow(this._angularVelocity, 2);
-    const speedLimitSquared = Math.pow(this._sleepSpeedLimit, 2);
-
-    if (speedSquared >= speedLimitSquared) {
-      this.idleTime = 0;
-      this._sleepState = SleepState.AWAKE;
-    } else {
-      this.idleTime += dt;
-      this._sleepState = SleepState.SLEEPY;
-    }
-    if (this.idleTime > this._sleepTimeLimit) {
-      if (!dontSleep) {
-        this.sleep();
-      } else {
-        this._wantsToSleep = true;
-      }
-    }
+    this._sleep.sleepTick(this, time, dontSleep, dt);
   }
 
   /**
@@ -435,8 +413,21 @@ export default class DynamicBody extends Body {
     fhMinv.imulComponent(this.massMultiplier);
     velo.iadd(fhMinv);
 
-    // CCD
-    if (!this.integrateToTimeOfImpact(dt)) {
+    // CCD - use utility function
+    const ccdApplied =
+      this.world &&
+      integrateToTimeOfImpact(
+        this,
+        this,
+        {
+          ccdSpeedThreshold: this.ccdSpeedThreshold,
+          ccdIterations: this.ccdIterations,
+        },
+        this.world,
+        dt
+      );
+
+    if (!ccdApplied) {
       // Regular position update
       const velodt = V(velo);
       velodt.imul(dt);
@@ -447,93 +438,5 @@ export default class DynamicBody extends Body {
     }
 
     this.aabbNeedsUpdate = true;
-  }
-
-  /**
-   * Continuous collision detection integration.
-   */
-  private integrateToTimeOfImpact(dt: number): boolean {
-    if (
-      this.ccdSpeedThreshold < 0 ||
-      this._velocity.squaredMagnitude < Math.pow(this.ccdSpeedThreshold, 2)
-    ) {
-      return false;
-    }
-
-    const direction = V(this._velocity);
-    direction.inormalize();
-
-    const end = V(this._velocity);
-    end.imul(dt);
-    end.iadd(this.position);
-
-    const startToEnd = V(end);
-    startToEnd.isub(this.position);
-    const startToEndAngle = this._angularVelocity * dt;
-    const len = startToEnd.magnitude;
-
-    let timeOfImpact = 1;
-
-    // Use new raycast API with filter to exclude self
-    const that = this;
-    const raycastHit = this.world!.raycast(this.position, end, {
-      filter: (body) => body !== that,
-    });
-
-    if (!raycastHit) {
-      return false;
-    }
-
-    // Update end point and time of impact based on hit
-    end.set(raycastHit.point);
-    startToEnd.set(end).isub(this.position);
-    timeOfImpact = startToEnd.magnitude / len;
-
-    const hitBody: Body = raycastHit.body;
-
-    const rememberAngle = this.angle;
-    const rememberPosition = V(this.position);
-
-    // Binary search for time of impact
-    let iter = 0;
-    let tmin = 0;
-    let tmid = 0;
-    let tmax = timeOfImpact;
-    while (tmax >= tmin && iter < this.ccdIterations) {
-      iter++;
-
-      tmid = (tmax - tmin) / 2;
-
-      const velodt = V(startToEnd);
-      velodt.imul(timeOfImpact);
-      this.position.set(rememberPosition).iadd(velodt);
-      this.angle = rememberAngle + startToEndAngle * timeOfImpact;
-      this.updateAABB();
-
-      const overlaps =
-        this.aabb.overlaps(hitBody.aabb) &&
-        this.world!.overlapKeeper.bodiesAreOverlapping(this, hitBody);
-
-      if (overlaps) {
-        tmin = tmid;
-      } else {
-        tmax = tmid;
-      }
-    }
-
-    timeOfImpact = tmid;
-
-    this.position.set(rememberPosition);
-    this.angle = rememberAngle;
-
-    // Move to TOI
-    const velodt = V(startToEnd);
-    velodt.imul(timeOfImpact);
-    this.position.iadd(velodt);
-    if (!this.fixedRotation) {
-      this.angle += startToEndAngle * timeOfImpact;
-    }
-
-    return true;
   }
 }

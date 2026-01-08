@@ -1,6 +1,8 @@
 import { DeepPartial, deepMerge } from "../../core/util/ObjectUtils";
 import { V2d } from "../../core/Vector";
 import { StarterDinghy } from "./configs/StarterDinghy";
+import { SailConfig } from "./Sail";
+import { SheetConfig } from "./Sheet";
 
 // ============================================
 // Component Config Interfaces
@@ -33,17 +35,24 @@ export interface RudderConfig {
   color: number;
 }
 
-export interface MainsailConfig {
-  nodeCount: number;
-  nodeMass: number; // lbs per particle
-  slackFactor: number; // dimensionless (1.01 = 1% slack)
-  liftScale: number; // dimensionless
-  dragScale: number; // dimensionless
-  billowInner: number; // dimensionless
-  billowOuter: number; // dimensionless
-  windInfluenceRadius: number; // ft
-  hoistSpeed: number; // 0-1 per second
-  color: number;
+// Sail physics properties configurable per-boat (optional, defaults in Sail.ts)
+export type BaseSailConfig = Partial<
+  Pick<
+    SailConfig,
+    | "nodeCount"
+    | "nodeMass"
+    | "slackFactor"
+    | "liftScale"
+    | "dragScale"
+    | "billowOuter"
+    | "windInfluenceRadius"
+    | "hoistSpeed"
+    | "color"
+  >
+>;
+
+export interface MainsailConfig extends BaseSailConfig {
+  billowInner?: number;
 }
 
 export interface RigConfig {
@@ -74,36 +83,16 @@ export interface AnchorConfig {
   anchorDragCoefficient: number; // dimensionless
 }
 
-export interface JibConfig {
-  nodeCount: number;
-  nodeMass: number; // lbs per particle
-  slackFactor: number; // dimensionless
-  liftScale: number; // dimensionless
-  dragScale: number; // dimensionless
-  billowOuter: number; // dimensionless (jib uses billowOuter only)
-  windInfluenceRadius: number; // ft
-  hoistSpeed: number; // 0-1 per second
-  color: number;
-}
+export interface JibConfig extends BaseSailConfig {}
 
-export interface MainsheetConfig {
+export interface MainsheetConfig extends Partial<SheetConfig> {
   boomAttachRatio: number; // 0-1 along boom
   hullAttachPoint: V2d; // ft from hull center
-  minLength: number; // ft
-  maxLength: number; // ft
-  defaultLength: number; // ft
-  trimSpeed: number; // ft/s
-  easeSpeed: number; // ft/s
 }
 
-export interface JibSheetConfig {
+export interface JibSheetConfig extends Partial<SheetConfig> {
   portAttachPoint: V2d; // ft from hull center
   starboardAttachPoint: V2d; // ft from hull center
-  minLength: number; // ft
-  maxLength: number; // ft
-  defaultLength: number; // ft
-  trimSpeed: number; // ft/s
-  easeSpeed: number; // ft/s
 }
 
 export interface RowingConfig {

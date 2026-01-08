@@ -11,11 +11,11 @@ export interface SheetConfig {
   minLength: number;
   maxLength: number;
   defaultLength: number;
-  trimSpeed: number; // Units per second when pulling in
-  easeSpeed: number; // Units per second when easing out
-  ropePointCount?: number;
-  ropeThickness?: number;
-  ropeColor?: number;
+  trimSpeed: number; // Ft / second when pulling in
+  easeSpeed: number; // Ft / second when easing out
+  ropePointCount: number;
+  ropeThickness: number;
+  ropeColor: number;
 }
 
 const DEFAULT_CONFIG: SheetConfig = {
@@ -96,8 +96,7 @@ export class Sheet extends BaseEntity {
     if (input === 0) return;
 
     const target = input < 0 ? 0 : 1;
-    const baseSpeed =
-      input < 0 ? this.config.trimSpeed : this.config.easeSpeed;
+    const baseSpeed = input < 0 ? this.config.trimSpeed : this.config.easeSpeed;
     const speed =
       (Math.abs(input) * baseSpeed) /
       (this.config.maxLength - this.config.minLength);

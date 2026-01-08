@@ -25,7 +25,7 @@ export class Hull extends BaseEntity {
     this.hullSprite
       .roundShape(config.vertices, 3, true, 1) // Corner radius in ft
       .fill({ color: config.colors.fill })
-      .stroke({ color: config.colors.stroke, width: 1, join: "round" });
+      .stroke({ color: config.colors.stroke, width: 0.2, join: "round" });
 
     this.body = new DynamicBody({
       mass: config.mass,
@@ -42,11 +42,18 @@ export class Hull extends BaseEntity {
 
   onTick() {
     // Get water velocity function
-    const water = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
+    const water = this.game?.entities.getById("waterInfo") as
+      | WaterInfo
+      | undefined;
     const getWaterVelocity = (point: V2d): V2d =>
       water?.getStateAtPoint(point).velocity ?? V(0, 0);
 
-    applySkinFriction(this.body, this.hullArea, this.skinFrictionCoefficient, getWaterVelocity);
+    applySkinFriction(
+      this.body,
+      this.hullArea,
+      this.skinFrictionCoefficient,
+      getWaterVelocity
+    );
   }
 
   onRender() {

@@ -111,6 +111,7 @@ export const StarterDinghy: BoatConfig = {
     defaultLength: 7, // ft
     trimSpeed: 3, // ft/s
     easeSpeed: 3, // ft/s
+    ropeThickness: 0.3,
   },
 
   jibSheet: {
@@ -121,6 +122,7 @@ export const StarterDinghy: BoatConfig = {
     defaultLength: 8, // ft
     trimSpeed: 6, // ft/s
     easeSpeed: 18, // ft/s
+    ropeThickness: 0.3,
   },
 
   rowing: {
