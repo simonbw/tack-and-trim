@@ -1,7 +1,4 @@
-import { Graphics, Sprite, Texture } from "pixi.js";
 import BaseEntity from "../core/entity/BaseEntity";
-import { createEmptySprite } from "../core/entity/GameSprite";
-import Game from "../core/Game";
 import { clamp, invLerp, lerp, lerpV2d } from "../core/util/MathUtil";
 import { rNormal, rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
@@ -56,60 +53,36 @@ const CONFIG = {
   SPLASH_GROW_SCALE: 2.0, // multiplier
 };
 
-// Cached particle texture
-let _particleTexture: Texture | null = null;
-function getParticleTexture(game: Game): Texture {
-  if (!_particleTexture) {
-    const g = new Graphics();
-    g.circle(
-      CONFIG.TEXTURE_SIZE / 2,
-      CONFIG.TEXTURE_SIZE / 2,
-      CONFIG.TEXTURE_SIZE / 2
-    );
-    g.fill({ color: 0xffffff });
-    _particleTexture = game.renderer.app.renderer.generateTexture(g);
-  }
-  return _particleTexture;
-}
-
 /**
- * A single spray particle entity with position, velocity, and sprite.
+ * A single spray particle with position, velocity, and state.
  */
-class SprayParticle extends BaseEntity {
+class SprayParticle {
   pos: V2d;
   vel: V2d;
   z: number; // Height above water
   vz: number; // Vertical velocity
   age: number = 0;
   size: number;
+  destroyed: boolean = false;
 
   // Splash state (when particle hits water)
   splashing: boolean = false;
   splashAge: number = 0;
 
-  // Named particleSprite to avoid auto-adding to world
-  readonly particleSprite: Sprite;
-
-  constructor(pos: V2d, vel: V2d, vz: number, size: number, texture: Texture) {
-    super();
+  constructor(pos: V2d, vel: V2d, vz: number, size: number) {
     this.pos = pos;
     this.vel = vel;
     this.z = 0.1;
     this.vz = vz;
     this.size = size;
-
-    this.particleSprite = new Sprite(texture);
-    this.particleSprite.anchor.set(0.5, 0.5);
-    this.particleSprite.tint = CONFIG.COLOR;
-    this.particleSprite.position.copyFrom(this.pos);
   }
 
-  onTick(dt: number): void {
+  update(dt: number): void {
     if (this.splashing) {
       // Splash phase: grow and fade, then destroy
       this.splashAge += dt;
       if (this.splashAge >= CONFIG.SPLASH_DURATION) {
-        this.destroy();
+        this.destroyed = true;
       }
     } else {
       // Flying phase: physics update
@@ -126,56 +99,64 @@ class SprayParticle extends BaseEntity {
         this.vel.set(0, 0);
         this.vz = 0;
       } else if (this.age >= CONFIG.MAX_AGE) {
-        this.destroy();
+        this.destroyed = true;
       }
     }
   }
 
-  onRender(): void {
-    this.particleSprite.position.copyFrom(this.pos);
-
+  /** Get current visual alpha */
+  getAlpha(): number {
     if (this.splashing) {
-      // Splash: grow and fade out
       const t = this.splashAge / CONFIG.SPLASH_DURATION;
-      const alpha = CONFIG.MIN_ALPHA * (1 - t);
-      const scale =
-        (this.size * lerp(1, CONFIG.SPLASH_GROW_SCALE, t)) /
-        CONFIG.TEXTURE_SIZE;
-
-      this.particleSprite.alpha = alpha;
-      this.particleSprite.scale.set(scale);
+      return CONFIG.MIN_ALPHA * (1 - t);
     } else {
-      // Flying: normal rendering
       const ageFactor = 1 - this.age / CONFIG.MAX_AGE;
       const heightFactor = Math.min(this.z / 8, 1);
-      const alpha =
-        lerp(CONFIG.MIN_ALPHA, CONFIG.MAX_ALPHA, ageFactor) * heightFactor;
-
-      this.particleSprite.alpha = alpha;
-
-      const visualSize =
-        this.size * (1 + this.z * 0.02) * (0.6 + 0.4 * ageFactor);
-      const scale = visualSize / CONFIG.TEXTURE_SIZE;
-      this.particleSprite.scale.set(scale);
+      return lerp(CONFIG.MIN_ALPHA, CONFIG.MAX_ALPHA, ageFactor) * heightFactor;
     }
   }
 
-  onDestroy(): void {
-    this.particleSprite.destroy();
+  /** Get current visual radius */
+  getRadius(): number {
+    if (this.splashing) {
+      const t = this.splashAge / CONFIG.SPLASH_DURATION;
+      return this.size * lerp(1, CONFIG.SPLASH_GROW_SCALE, t);
+    } else {
+      const ageFactor = 1 - this.age / CONFIG.MAX_AGE;
+      return this.size * (1 + this.z * 0.02) * (0.6 + 0.4 * ageFactor);
+    }
   }
 }
 
 export class BoatSpray extends BaseEntity {
+  layer = "wake" as const;
+
+  private particles: SprayParticle[] = [];
   private spawnAccumulator = 0;
-  sprite: NonNullable<BaseEntity["sprite"]>;
 
   constructor(private boat: Boat) {
     super();
-    this.sprite = createEmptySprite("wake");
   }
 
   onTick(dt: number): void {
+    // Update and remove destroyed particles
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      this.particles[i].update(dt);
+      if (this.particles[i].destroyed) {
+        this.particles.splice(i, 1);
+      }
+    }
+
     this.spawnParticles(dt);
+  }
+
+  onRender({ draw }: { draw: import("../core/graphics/Draw").Draw }): void {
+    for (const p of this.particles) {
+      draw.circle(p.pos.x, p.pos.y, p.getRadius(), {
+        color: CONFIG.COLOR,
+        alpha: p.getAlpha(),
+      });
+    }
   }
 
   private spawnParticles(dt: number): void {
@@ -186,7 +167,7 @@ export class BoatSpray extends BaseEntity {
     if (speed < CONFIG.MIN_SPEED) return;
 
     const speedFactor = clamp(
-      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed)
+      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed),
     );
 
     // Spawn rate scales with speed
@@ -194,7 +175,6 @@ export class BoatSpray extends BaseEntity {
     this.spawnAccumulator += dt * spawnRate;
 
     const velDir = velocity.normalize();
-    const texture = getParticleTexture(this.game);
 
     while (this.spawnAccumulator >= 1) {
       this.spawnAccumulator -= 1;
@@ -225,23 +205,14 @@ export class BoatSpray extends BaseEntity {
 
       // Spray velocity: based on boat velocity plus outward spray
       const sprayOutward = worldNormal.mul(
-        CONFIG.SPRAY_SPEED * rUniform(0.0, 2.0)
+        CONFIG.SPRAY_SPEED * rUniform(0.0, 2.0),
       );
       const particleVel = velocity.mul(rNormal(1, 0.1)).add(sprayOutward);
       const vz = CONFIG.INITIAL_VZ * rUniform(0.6, 1.2) * (0.5 + facing * 0.5);
       const size = rUniform(CONFIG.MIN_SIZE, CONFIG.MAX_SIZE);
 
-      const particle = new SprayParticle(
-        worldPos,
-        particleVel,
-        vz,
-        size,
-        texture
-      );
-
-      // Add as child entity and add sprite to our container
-      this.addChild(particle);
-      this.sprite.addChild(particle.particleSprite);
+      const particle = new SprayParticle(worldPos, particleVel, vz, size);
+      this.particles.push(particle);
     }
   }
 }

@@ -8,7 +8,6 @@ import Spring from "../physics/springs/Spring";
 import { shapeFromDef } from "../physics/utils/ShapeUtils";
 import { clamp } from "../util/MathUtil";
 import Entity, { GameEventMap } from "./Entity";
-import { GameSprite, spriteFromDef } from "./GameSprite";
 
 /** Base class for lots of stuff in the game. */
 export default abstract class BaseEntity implements Entity {
@@ -23,8 +22,8 @@ export default abstract class BaseEntity implements Entity {
   springs?: Spring[];
   id?: string;
   tags: string[] = [];
-  sprite?: GameSprite;
-  sprites?: GameSprite[];
+  /** The layer this entity renders on */
+  layer?: string;
 
   constructor(entityDef?: EntityDef) {
     if (entityDef) {
@@ -35,16 +34,8 @@ export default abstract class BaseEntity implements Entity {
   loadFromDef(def: EntityDef): void {
     if (this.game) {
       throw new Error(
-        "Can't load from def after entity has been added to game."
+        "Can't load from def after entity has been added to game.",
       );
-    }
-
-    if (def.sprites) {
-      if (def.sprites.length === 1) {
-        this.sprite = spriteFromDef(def.sprites[0]);
-      } else {
-        this.sprites = def.sprites.map((spriteDef) => spriteFromDef(spriteDef));
-      }
     }
 
     if (def.body) {
@@ -80,8 +71,6 @@ export default abstract class BaseEntity implements Entity {
   getPosition(): V2d {
     if (this.body) {
       return V(this.body.position);
-    } else if (this.sprite) {
-      return V(this.sprite.position.x, this.sprite.position.y);
     }
     throw new Error("Position is not implemented for this entity");
   }
@@ -144,7 +133,7 @@ export default abstract class BaseEntity implements Entity {
   wait(
     delay: number = 0,
     onTick?: (dt: number, t: number) => void,
-    timerId?: string
+    timerId?: string,
   ): Promise<void> {
     return new Promise((resolve) => {
       const timer = new Timer(delay, () => resolve(), onTick, timerId);
@@ -161,7 +150,7 @@ export default abstract class BaseEntity implements Entity {
   waitRender(
     delay: number = 0,
     onRender?: (dt: number, t: number) => void,
-    timerId?: string
+    timerId?: string,
   ): Promise<void> {
     return new Promise((resolve) => {
       const timer = new RenderTimer(delay, () => resolve(), onRender, timerId);
@@ -174,7 +163,7 @@ export default abstract class BaseEntity implements Entity {
   waitUntil(
     predicate: () => boolean,
     onTick?: (dt: number, t: number) => void,
-    timerId?: string
+    timerId?: string,
   ): Promise<void> {
     return new Promise((resolve) => {
       const timer = new Timer(
@@ -188,7 +177,7 @@ export default abstract class BaseEntity implements Entity {
             timer.timeRemaining = 0;
           }
         },
-        timerId
+        timerId,
       );
       timer.persistenceLevel = this.persistenceLevel;
       this.addChild(timer);
@@ -223,7 +212,7 @@ export default abstract class BaseEntity implements Entity {
   dispatch<EventName extends keyof GameEventMap>(
     eventName: EventName,
     data: GameEventMap[EventName],
-    respectPause?: boolean
+    respectPause?: boolean,
   ) {
     this.game?.dispatch(eventName, data, respectPause);
   }
@@ -238,7 +227,7 @@ class Timer extends BaseEntity implements Entity {
     private delay: number,
     endEffect?: () => void,
     duringEffect?: (dt: number, t: number) => void,
-    public timerId?: string
+    public timerId?: string,
   ) {
     super();
     this.timeRemaining = delay;
@@ -266,7 +255,7 @@ class RenderTimer extends BaseEntity implements Entity {
     private delay: number,
     endEffect?: () => void,
     duringEffect?: (dt: number, t: number) => void,
-    public timerId?: string
+    public timerId?: string,
   ) {
     super();
     this.timeRemaining = delay;
@@ -274,7 +263,7 @@ class RenderTimer extends BaseEntity implements Entity {
     this.duringEffect = duringEffect;
   }
 
-  onRender(dt: number) {
+  onRender({ dt }: { dt: number }) {
     this.timeRemaining -= dt;
     const t = clamp(1.0 - this.timeRemaining / this.delay);
     this.duringEffect?.(dt, t);

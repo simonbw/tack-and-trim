@@ -1,19 +1,14 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import { stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import {
-  applyFluidForces,
-  foilDrag,
-  foilLift,
-} from "../fluid-dynamics";
+import { applyFluidForces, foilDrag, foilLift } from "../fluid-dynamics";
 import { WaterInfo } from "../water/WaterInfo";
 import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
 export class Rudder extends BaseEntity {
-  private rudderSprite: GameSprite & Graphics;
+  layer = "underhull" as const;
+
   private steer: number = 0; // -1 to 1
   private steerInput: number = 0; // Current steering input from controller
   private fastMode: boolean = false;
@@ -24,10 +19,11 @@ export class Rudder extends BaseEntity {
   private maxSteerAngle: number;
   private steerAdjustSpeed: number;
   private steerAdjustSpeedFast: number;
+  private color: number;
 
   constructor(
     private hull: Hull,
-    config: RudderConfig
+    config: RudderConfig,
   ) {
     super();
 
@@ -37,13 +33,7 @@ export class Rudder extends BaseEntity {
     this.maxSteerAngle = config.maxSteerAngle;
     this.steerAdjustSpeed = config.steerAdjustSpeed;
     this.steerAdjustSpeedFast = config.steerAdjustSpeedFast;
-
-    this.rudderSprite = createGraphics("underhull");
-    this.rudderSprite
-      .lineTo(-config.length, 0)
-      .stroke({ color: config.color, width: 0.5 });
-
-    this.sprite = this.rudderSprite;
+    this.color = config.color;
   }
 
   /**
@@ -73,7 +63,7 @@ export class Rudder extends BaseEntity {
 
     // Calculate rudder end position based on steering angle
     const rudderOffset = V(-this.length, 0).irotate(
-      -this.steer * this.maxSteerAngle
+      -this.steer * this.maxSteerAngle,
     );
     const rudderEnd = this.position.add(rudderOffset);
 
@@ -81,21 +71,39 @@ export class Rudder extends BaseEntity {
     const drag = foilDrag(this.liftAndDrag);
 
     // Get water velocity function
-    const water = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
+    const water = this.game?.entities.getById("waterInfo") as
+      | WaterInfo
+      | undefined;
     const getWaterVelocity = (point: V2d): V2d =>
       water?.getStateAtPoint(point).velocity ?? V(0, 0);
 
     // Apply rudder forces to hull (both directions)
-    applyFluidForces(this.hull.body, this.position, rudderEnd, lift, drag, getWaterVelocity);
-    applyFluidForces(this.hull.body, rudderEnd, this.position, lift, drag, getWaterVelocity);
+    applyFluidForces(
+      this.hull.body,
+      this.position,
+      rudderEnd,
+      lift,
+      drag,
+      getWaterVelocity,
+    );
+    applyFluidForces(
+      this.hull.body,
+      rudderEnd,
+      this.position,
+      lift,
+      drag,
+      getWaterVelocity,
+    );
   }
 
-  onRender() {
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [x, y] = this.hull.body.position;
     const [rx, ry] = this.position.rotate(this.hull.body.angle).iadd([x, y]);
+    const angle = this.hull.body.angle - this.steer * this.maxSteerAngle;
 
-    this.rudderSprite.position.set(rx, ry);
-    this.rudderSprite.rotation =
-      this.hull.body.angle - this.steer * this.maxSteerAngle;
+    draw.at({ pos: V(rx, ry), angle }, () => {
+      // Draw rudder as a line from origin to (-length, 0)
+      draw.line(0, 0, -this.length, 0, { color: this.color, width: 0.5 });
+    });
   }
 }

@@ -1,6 +1,4 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
@@ -13,8 +11,7 @@ import { Hull } from "./Hull";
 type AnchorState = "stowed" | "deploying" | "deployed" | "retrieving";
 
 export class Anchor extends BaseEntity {
-  private anchorSprite: GameSprite & Graphics;
-  private rodeSprite: GameSprite & Graphics;
+  layer = "underhull" as const;
 
   private anchorBody: DynamicBody | null = null;
   private rodeConstraint: DistanceConstraint | null = null;
@@ -38,7 +35,7 @@ export class Anchor extends BaseEntity {
 
   constructor(
     private hull: Hull,
-    config: AnchorConfig
+    config: AnchorConfig,
   ) {
     super();
 
@@ -49,10 +46,6 @@ export class Anchor extends BaseEntity {
     this.rodeRetrieveSpeed = config.rodeRetrieveSpeed;
     this.anchorMass = config.anchorMass;
     this.anchorDragCoefficient = config.anchorDragCoefficient;
-
-    this.anchorSprite = createGraphics("underhull");
-    this.rodeSprite = createGraphics("underhull");
-    this.sprites = [this.rodeSprite, this.anchorSprite];
 
     this.visualRope = new VerletRope({
       pointCount: 12,
@@ -102,7 +95,7 @@ export class Anchor extends BaseEntity {
         localAnchorA: [0, 0],
         localAnchorB: [this.bowAttachPoint.x, this.bowAttachPoint.y],
         collideConnected: false, // Don't collide with anchor
-      }
+      },
     );
     this.rodeConstraint.lowerLimit = 0;
     this.rodeConstraint.lowerLimitEnabled = false;
@@ -170,25 +163,27 @@ export class Anchor extends BaseEntity {
 
     // Animate rope length toward target
     const speed =
-      this.state === "retrieving" ? this.rodeRetrieveSpeed : this.rodeDeploySpeed;
+      this.state === "retrieving"
+        ? this.rodeRetrieveSpeed
+        : this.rodeDeploySpeed;
     const previousLength = this.currentRodeLength;
     this.currentRodeLength = stepToward(
       this.currentRodeLength,
       this.targetRodeLength,
-      speed * dt
+      speed * dt,
     );
 
     // Update constraint if rope length changed
-    if (
-      this.rodeConstraint &&
-      this.currentRodeLength !== previousLength
-    ) {
+    if (this.rodeConstraint && this.currentRodeLength !== previousLength) {
       this.rodeConstraint.upperLimit = Math.max(1, this.currentRodeLength);
       this.visualRope.setRestLength(this.currentRodeLength);
     }
 
     // Check for state transitions
-    if (this.state === "deploying" && this.currentRodeLength >= this.maxRodeLength) {
+    if (
+      this.state === "deploying" &&
+      this.currentRodeLength >= this.maxRodeLength
+    ) {
       this.state = "deployed";
     } else if (this.state === "retrieving" && this.currentRodeLength <= 1) {
       this.completeRetrieval();
@@ -219,25 +214,16 @@ export class Anchor extends BaseEntity {
     this.visualRope.update(this.anchorPosition, bowWorld, dt);
   }
 
-  onRender(): void {
-    this.anchorSprite.clear();
-    this.rodeSprite.clear();
-
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     if (this.state === "stowed") return;
 
-    // Draw anchor
-    this.drawAnchor(this.anchorPosition);
-
     // Draw rode using visual rope simulation
-    this.visualRope.render(this.rodeSprite);
-  }
+    this.visualRope.render(draw);
 
-  private drawAnchor(pos: V2d): void {
-    // Simple anchor shape
-    this.anchorSprite
-      .circle(pos.x, pos.y, this.anchorSize)
-      .fill({ color: 0x444444 })
-      .stroke({ color: 0x333333, width: 1 });
+    // Draw anchor (simple circle)
+    draw.circle(this.anchorPosition.x, this.anchorPosition.y, this.anchorSize, {
+      color: 0x444444,
+    });
   }
 
   onDestroy(): void {

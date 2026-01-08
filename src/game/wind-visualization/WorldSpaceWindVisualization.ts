@@ -1,5 +1,5 @@
-import { Container, Graphics, Renderer, Sprite, Texture } from "pixi.js";
 import { Camera2d, Viewport } from "../../core/graphics/Camera2d";
+import type { Draw } from "../../core/graphics/Draw";
 import { clamp, lerp } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
 import { Wind } from "../Wind";
@@ -12,7 +12,6 @@ const WORLD_TRIANGLE_SIZE = 12;
 const BASE_VIEWPORT_SIZE = 400;
 
 // Triangle rendering
-const TRIANGLE_TEXTURE_SIZE = 32;
 const TRIANGLE_ALPHA = 0.7;
 const MIN_WIND_SPEED = 10;
 const MAX_WIND_SPEED = 200;
@@ -27,21 +26,7 @@ const TRIANGLE_MODIFIED_COLOR = 0xffcc88;
  * Triangle size scales inversely with zoom to stay constant on screen.
  */
 export class WorldSpaceWindVisualization implements WindVisualizationMode {
-  private triangleSprites: Sprite[] = [];
-  private triangleTexture: Texture | null = null;
-
-  draw(
-    wind: Wind,
-    viewport: Viewport,
-    camera: Camera2d,
-    container: Container,
-    renderer: Renderer
-  ): void {
-    // Lazy init
-    if (!this.triangleTexture) {
-      this.triangleTexture = this.createTriangleTexture(renderer);
-    }
-
+  draw(wind: Wind, viewport: Viewport, camera: Camera2d, draw: Draw): void {
     const { left, right, top, bottom } = viewport;
 
     // Triangle size scales inversely with zoom to stay constant on screen
@@ -61,61 +46,23 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
     const endX = right + iterSpacing;
     const endY = bottom + iterSpacing;
 
-    let spriteIndex = 0;
-
     for (let x = startX; x <= endX; x += iterSpacing) {
       for (let y = startY; y <= endY; y += iterSpacing) {
         const triangleLOD = this.getTriangleLOD(x, y);
         const alpha = this.getLODAlpha(triangleLOD, lodValue);
 
         if (alpha > 0.01) {
-          const sprite = this.getTriangleSprite(spriteIndex, container);
-          const used = this.updateTriangleSprite(
+          this.drawTriangle(
             wind,
             x,
             y,
             triangleSize,
-            sprite,
-            alpha * TRIANGLE_ALPHA
+            alpha * TRIANGLE_ALPHA,
+            draw,
           );
-          if (used) spriteIndex++;
         }
       }
     }
-
-    // Hide unused sprites
-    for (let i = spriteIndex; i < this.triangleSprites.length; i++) {
-      this.triangleSprites[i].visible = false;
-    }
-  }
-
-  hide(): void {
-    for (const sprite of this.triangleSprites) {
-      sprite.visible = false;
-    }
-  }
-
-  private createTriangleTexture(renderer: Renderer): Texture {
-    const g = new Graphics();
-    const size = TRIANGLE_TEXTURE_SIZE;
-
-    g.moveTo(size * 0.6, 0);
-    g.lineTo(-size * 0.4, size * 0.35);
-    g.lineTo(-size * 0.4, -size * 0.35);
-    g.closePath();
-    g.fill({ color: 0xffffff });
-
-    return renderer.generateTexture(g);
-  }
-
-  private getTriangleSprite(index: number, container: Container): Sprite {
-    while (this.triangleSprites.length <= index) {
-      const sprite = new Sprite(this.triangleTexture!);
-      sprite.anchor.set(0.5, 0.5);
-      this.triangleSprites.push(sprite);
-      container.addChild(sprite);
-    }
-    return this.triangleSprites[index];
   }
 
   private getTriangleLOD(x: number, y: number): number {
@@ -134,42 +81,51 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
     return 1 - (lodValue - triangleLOD);
   }
 
-  private updateTriangleSprite(
+  private drawTriangle(
     wind: Wind,
     x: number,
     y: number,
     maxSize: number,
-    sprite: Sprite,
-    alpha: number
-  ): boolean {
+    alpha: number,
+    draw: Draw,
+  ): void {
     const point = V(x, y);
     const velocity = wind.getVelocityAtPoint(point);
     const baseVelocity = wind.getBaseVelocityAtPoint(point);
     const speed = velocity.magnitude;
     const angle = velocity.angle;
 
-    if (speed < 1) {
-      sprite.visible = false;
-      return false;
-    }
+    if (speed < 1) return;
 
     const isModified = !velocity.equals(baseVelocity);
     const speedRatio = clamp(
       (speed - MIN_WIND_SPEED) / (MAX_WIND_SPEED - MIN_WIND_SPEED),
       0,
-      1
+      1,
     );
 
     const size = lerp(maxSize * 0.3, maxSize, speedRatio);
-    const scale = size / TRIANGLE_TEXTURE_SIZE;
+    const color = isModified ? TRIANGLE_MODIFIED_COLOR : TRIANGLE_COLOR;
 
-    sprite.visible = true;
-    sprite.position.set(x, y);
-    sprite.rotation = angle;
-    sprite.scale.set(scale);
-    sprite.tint = isModified ? TRIANGLE_MODIFIED_COLOR : TRIANGLE_COLOR;
-    sprite.alpha = alpha;
+    // Triangle vertices (pointing right, centered at origin)
+    const tipX = size * 0.6;
+    const backX = -size * 0.4;
+    const wingY = size * 0.35;
 
-    return true;
+    // Rotate and translate vertices
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    const tip = V(tipX * cos + x, tipX * sin + y);
+    const wingUp = V(
+      backX * cos - wingY * sin + x,
+      backX * sin + wingY * cos + y,
+    );
+    const wingDown = V(
+      backX * cos + wingY * sin + x,
+      backX * sin - wingY * cos + y,
+    );
+
+    draw.polygon([tip, wingUp, wingDown], { color, alpha });
   }
 }

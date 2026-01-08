@@ -1,4 +1,3 @@
-import * as Pixi from "pixi.js";
 import { ReactElement } from "react";
 import { SoundName } from "../../../resources/resources";
 import Game from "../Game";
@@ -60,7 +59,7 @@ export default class ReactPreloader extends BaseEntity implements Entity {
     await Promise.all([
       this.loadFonts(),
       this.loadSounds(game.audio),
-      this.loadImages(),
+      this.loadImages(game),
     ]);
     const bytes = getTotalSoundBytes();
 
@@ -115,19 +114,22 @@ export default class ReactPreloader extends BaseEntity implements Entity {
     );
   }
 
-  async loadImages() {
+  async loadImages(game: Game) {
     this.progress.images.loaded = 0;
     this.progress.images.total = Object.values(this.manifest.images).length;
 
-    Pixi.Assets.addBundle("images", this.manifest.images);
+    const textureManager = game.getRenderer().textureManager;
 
-    try {
-      await Pixi.Assets.loadBundle("images", (progressPercent) => {
+    await Promise.all(
+      Object.entries(this.manifest.images).map(async ([name, url]) => {
+        try {
+          await textureManager.load(url);
+        } catch (e) {
+          console.warn(`Image failed to load: ${url}`, e);
+        }
         this.progress.images.loaded += 1;
-      });
-    } catch (e) {
-      console.error("Images failed to load", e);
-    }
+      })
+    );
   }
 
   onDestroy() {

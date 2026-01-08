@@ -11,7 +11,7 @@ export class ReactEntity extends BaseEntity implements Entity {
 
   constructor(
     public getReactContent: () => React.ReactElement,
-    public autoRender = true
+    public autoRender = true,
   ) {
     super();
   }
@@ -20,7 +20,7 @@ export class ReactEntity extends BaseEntity implements Entity {
     this.reactRoot?.render(this.getReactContent());
   }
 
-  onRender() {
+  onRender({}: { dt: number }) {
     if (this.autoRender) {
       this.reactRender();
     }

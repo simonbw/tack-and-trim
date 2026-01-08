@@ -20,18 +20,15 @@ export class IOManager {
   private gamepad: GamepadManager;
 
   constructor(view: HTMLElement) {
-    this.keyboard = new KeyboardManager(
-      this.handlers,
-      () => this.gamepad.setUsingGamepad(false)
+    this.keyboard = new KeyboardManager(this.handlers, () =>
+      this.gamepad.setUsingGamepad(false),
     );
-    this.mouse = new MouseManager(
-      view,
-      this.handlers,
-      () => this.gamepad.setUsingGamepad(false)
+    this.mouse = new MouseManager(view, this.handlers, () =>
+      this.gamepad.setUsingGamepad(false),
     );
     this.gamepad = new GamepadManager(
       this.handlers,
-      () => {} // Device change is handled internally by GamepadManager
+      () => {}, // Device change is handled internally by GamepadManager
     );
   }
 

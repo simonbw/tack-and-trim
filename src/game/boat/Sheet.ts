@@ -1,6 +1,4 @@
-import { Graphics } from "pixi.js";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { createGraphics, GameSprite } from "../../core/entity/GameSprite";
 import Body from "../../core/physics/body/Body";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import { lerp, stepToward } from "../../core/util/MathUtil";
@@ -34,19 +32,20 @@ const DEFAULT_CONFIG: SheetConfig = {
  * Can be trimmed in or eased out smoothly.
  */
 export class Sheet extends BaseEntity {
-  private sheetSprite: GameSprite & Graphics;
+  layer = "main" as const;
   private constraint: DistanceConstraint;
   private visualRope: VerletRope;
 
   private config: SheetConfig;
   private position: number; // 0 = full in, 1 = full out (single source of truth)
+  private opacity: number = 1.0;
 
   constructor(
     private bodyA: Body,
     private localAnchorA: V2d,
     private bodyB: Body,
     private localAnchorB: V2d,
-    config: Partial<SheetConfig> = {}
+    config: Partial<SheetConfig> = {},
   ) {
     super();
 
@@ -58,9 +57,6 @@ export class Sheet extends BaseEntity {
       (this.config.maxLength - this.config.minLength);
 
     const initialLength = this.getSheetLength();
-
-    this.sheetSprite = createGraphics("main");
-    this.sprite = this.sheetSprite;
 
     // Create distance constraint configured as a rope:
     // - upperLimitEnabled: true (can't stretch beyond length)
@@ -138,7 +134,7 @@ export class Sheet extends BaseEntity {
 
   /** Set the visual opacity of the sheet (0 = invisible, 1 = fully visible) */
   setOpacity(opacity: number): void {
-    this.sheetSprite.alpha = Math.max(0, Math.min(1, opacity));
+    this.opacity = Math.max(0, Math.min(1, opacity));
   }
 
   /** Check if sheet is fully eased out (at max length) */
@@ -162,8 +158,9 @@ export class Sheet extends BaseEntity {
     this.visualRope.update(anchorA, anchorB, dt);
   }
 
-  onRender(): void {
-    this.sheetSprite.clear();
-    this.visualRope.render(this.sheetSprite);
+  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
+    if (this.opacity <= 0) return;
+
+    this.visualRope.render(draw, this.opacity);
   }
 }
