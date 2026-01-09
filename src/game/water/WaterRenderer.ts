@@ -79,7 +79,7 @@ export class WaterRenderer extends BaseEntity {
     this.waterShader.setCameraMatrix(cameraMatrix.toArray());
 
     // Render water as fullscreen quad
-    this.waterShader.render(this.waterDataTexture.getGLTexture());
+    this.waterShader.renderWater(this.waterDataTexture.getGLTexture());
   }
 
   setRenderMode(mode: number) {

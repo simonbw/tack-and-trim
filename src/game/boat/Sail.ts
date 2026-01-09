@@ -100,7 +100,7 @@ export class Sail extends BaseEntity {
         position: lerpV2d(head, initialClew, i / (nodeCount - 1)),
         collisionResponse: false,
         fixedRotation: true,
-      }).addShape(new Particle()),
+      }).addShape(new Particle())
     );
 
     // Connect adjacent particles with distance constraints
@@ -109,7 +109,7 @@ export class Sail extends BaseEntity {
         new DistanceConstraint(a, b, {
           distance: segmentLength * slackFactor,
           collideConnected: false,
-        }),
+        })
     );
 
     // Attach head (first particle) to specified body
@@ -121,7 +121,7 @@ export class Sail extends BaseEntity {
           headConstraint.localAnchor.x,
           headConstraint.localAnchor.y,
         ],
-      }),
+      })
     );
 
     // Optionally attach clew (last particle) to specified body
@@ -134,12 +134,18 @@ export class Sail extends BaseEntity {
             clewConstraint.localAnchor.x,
             clewConstraint.localAnchor.y,
           ],
-        }),
+        })
       );
     }
 
     if (attachTellTail) {
-      this.addChild(new TellTail(this.bodies[nodeCount - 1]));
+      const attachmentBody = this.bodies[nodeCount - 1];
+      this.addChild(
+        new TellTail(
+          () => attachmentBody.position,
+          () => attachmentBody.velocity
+        )
+      );
     }
 
     this.windEffect = this.addChild(new SailWindEffect(this));
@@ -202,7 +208,7 @@ export class Sail extends BaseEntity {
     this.hoistAmount = stepToward(
       this.hoistAmount,
       this.targetHoistAmount,
-      hoistSpeed * dt,
+      hoistSpeed * dt
     );
 
     const wind = this.game?.entities.getById("wind") as Wind | undefined;

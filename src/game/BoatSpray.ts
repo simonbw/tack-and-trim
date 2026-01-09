@@ -152,7 +152,7 @@ export class BoatSpray extends BaseEntity {
 
   onRender({ draw }: { draw: import("../core/graphics/Draw").Draw }): void {
     for (const p of this.particles) {
-      draw.circle(p.pos.x, p.pos.y, p.getRadius(), {
+      draw.fillCircle(p.pos.x, p.pos.y, p.getRadius(), {
         color: CONFIG.COLOR,
         alpha: p.getAlpha(),
       });

@@ -14,13 +14,6 @@
     "noEmit": true,
     "skipLibCheck": true,
     "strict": true,
-    "target": "ES6",
-
-    // needed because pixi does some weird shit
-    "paths": {
-      "mini-signals": [
-        "./node_modules/resource-loader/typings/mini-signals.d.ts"
-      ]
-    }
+    "target": "ES6"
   }
 }

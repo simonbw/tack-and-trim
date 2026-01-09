@@ -65,8 +65,8 @@ export class Buoy extends BaseEntity {
       { pos: V(x, y), angle: this.body.angle, scale: this.currentScale },
       () => {
         // Draw buoy: red/orange filled circle
-        draw.circle(0, 0, BUOY_RADIUS, { color: 0xff4422 });
-        draw.circle(0, 0, BUOY_RADIUS * 0.3, { color: 0xcccccc });
+        draw.fillCircle(0, 0, BUOY_RADIUS, { color: 0xff4422 });
+        draw.fillCircle(0, 0, BUOY_RADIUS * 0.3, { color: 0xcccccc });
       },
     );
   }

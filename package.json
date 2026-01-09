@@ -33,8 +33,6 @@
     "glob": "^11.0.3",
     "http-proxy": "^1.18.1",
     "parcel": "^2.15.4",
-    "pixi-filters": "^6.1.3",
-    "pixi.js": "^8.14.3",
     "prettier": "^3.6.0",
     "process": "^0.11.10",
     "react": "^19.1.0",
@@ -42,7 +40,7 @@
     "simplex-noise": "^4.0.3",
     "ts-morph": "^27.0.2",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3",
+    "typescript": "^5.9.3",
     "yargs": "^18.0.0"
   }
 }

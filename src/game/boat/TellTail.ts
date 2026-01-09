@@ -1,10 +1,9 @@
 import BaseEntity from "../../core/entity/BaseEntity";
-import Body from "../../core/physics/body/Body";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
 import { pairs, range } from "../../core/util/FunctionalUtils";
-import { V, V2d } from "../../core/Vector";
+import { ReadonlyV2d, V2d } from "../../core/Vector";
 import {
   applyFluidForces,
   flatPlateDrag,
@@ -33,53 +32,45 @@ export class TellTail extends BaseEntity {
   layer = "telltails" as const;
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
+  getAttachmentPoint: () => ReadonlyV2d;
+  getAttachmentVelocity: () => ReadonlyV2d;
 
-  constructor(private attachmentBody: Body) {
+  constructor(
+    getAttachmentPoint: () => ReadonlyV2d,
+    getAttachmentVelocity: () => ReadonlyV2d
+  ) {
     super();
 
-    this.bodies = [];
-    this.constraints = [];
-  }
-
-  onAdd() {
-    const attachPos = V(this.attachmentBody.position);
+    this.getAttachmentPoint = getAttachmentPoint;
+    this.getAttachmentVelocity = getAttachmentVelocity;
+    const attachPos = this.getAttachmentPoint();
     const segmentLength = TELLTAIL_LENGTH / (TELLTAIL_NODES - 1);
 
     // Create particle chain - initially laid out horizontally from attachment
-    this.bodies = range(TELLTAIL_NODES).map((i) => {
-      const body = new DynamicBody({
+    this.bodies = range(TELLTAIL_NODES).map((i) =>
+      new DynamicBody({
         mass: TELLTAIL_NODE_MASS,
-        position: [attachPos.x + i * segmentLength, attachPos.y],
+        position: attachPos.add([i * segmentLength, 0]),
         collisionResponse: false,
         fixedRotation: true,
-      });
-      body.addShape(new Particle());
-      return body;
-    });
+      }).addShape(new Particle())
+    );
 
     // Connect adjacent particles with distance constraints
-    for (const [a, b] of pairs(this.bodies)) {
-      this.constraints.push(
+    this.constraints = pairs(this.bodies).map(
+      ([a, b]) =>
         new DistanceConstraint(a, b, {
           distance: segmentLength * SLACK_FACTOR,
           collideConnected: false,
-        }),
-      );
-    }
-
-    // Note: First particle is manually positioned in onTick to follow the sail
-    // without exerting forces back on it (one-way coupling). Since we set its
-    // position directly, the constraint between particles 0-1 only affects
-    // particle 1, not particle 0.
+        })
+    );
   }
 
   onTick() {
     // Manually position first particle to follow the sail (one-way coupling)
     const firstBody = this.bodies[0];
-    firstBody.position[0] = this.attachmentBody.position[0];
-    firstBody.position[1] = this.attachmentBody.position[1];
-    firstBody.velocity[0] = this.attachmentBody.velocity[0];
-    firstBody.velocity[1] = this.attachmentBody.velocity[1];
+    firstBody.position.set(this.getAttachmentPoint());
+    firstBody.velocity.set(this.getAttachmentVelocity());
 
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
     if (!wind) return;
@@ -92,17 +83,15 @@ export class TellTail extends BaseEntity {
     // Apply wind forces to all particles except the first (which is fixed to sail)
     for (let i = 1; i < this.bodies.length; i++) {
       const body = this.bodies[i];
-      const bodyPos = V(body.position);
+      const bodyPos = body.position;
 
       // Get previous and next positions for edge calculation
       const prevPos =
-        i === 0
-          ? V(this.attachmentBody.position)
-          : V(this.bodies[i - 1].position);
+        i === 0 ? this.getAttachmentPoint() : this.bodies[i - 1].position;
       const nextPos =
         i === this.bodies.length - 1
           ? bodyPos.add(bodyPos.sub(prevPos).normalize()) // Extrapolate past end
-          : V(this.bodies[i + 1].position);
+          : this.bodies[i + 1].position;
 
       // Virtual edge from prev to next, expressed in body-local coordinates
       const v1Local = prevPos.sub(bodyPos);

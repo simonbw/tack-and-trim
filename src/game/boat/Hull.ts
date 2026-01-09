@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import type { Draw } from "../../core/graphics/Draw";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import Convex from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
@@ -32,7 +33,7 @@ export class Hull extends BaseEntity {
     this.body.addShape(
       new Convex({
         vertices: [...config.vertices],
-      }),
+      })
     );
   }
 
@@ -48,26 +49,24 @@ export class Hull extends BaseEntity {
       this.body,
       this.hullArea,
       this.skinFrictionCoefficient,
-      getWaterVelocity,
+      getWaterVelocity
     );
   }
 
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
+  onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
 
     draw.at({ pos: V(x, y), angle: this.body.angle }, () => {
-      // Draw hull polygon
-      draw.polygon(this.vertices, { color: this.fillColor });
-
-      // Draw stroke (outline) by drawing lines between vertices
-      for (let i = 0; i < this.vertices.length; i++) {
-        const v1 = this.vertices[i];
-        const v2 = this.vertices[(i + 1) % this.vertices.length];
-        draw.screenLine(v1.x, v1.y, v2.x, v2.y, {
-          color: this.strokeColor,
-          width: 1,
-        });
-      }
+      draw.strokePolygon(this.vertices, {
+        color: 0x000000,
+        alpha: 0.1,
+        width: 1.5,
+      });
+      draw.fillPolygon(this.vertices, { color: this.fillColor });
+      draw.strokePolygon(this.vertices, {
+        color: this.strokeColor,
+        width: 0.5,
+      });
     });
   }
 

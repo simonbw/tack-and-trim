@@ -89,7 +89,7 @@ export class WindParticles extends BaseEntity {
     // Update and draw particles
     for (const p of this.particles) {
       p.update(dt, wind);
-      draw.circle(p.pos.x, p.pos.y, radius, {
+      draw.fillCircle(p.pos.x, p.pos.y, radius, {
         color: COLOR,
         alpha: p.alpha,
       });

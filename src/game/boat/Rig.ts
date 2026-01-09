@@ -72,7 +72,7 @@ export class Rig extends BaseEntity {
 
     // Draw boom (rectangle extending from mast)
     draw.at({ pos: V(mx, my), angle: this.body.angle }, () => {
-      draw.rect(
+      draw.fillRect(
         -this.boomLength,
         -this.boomWidth / 2,
         this.boomLength,
@@ -82,7 +82,7 @@ export class Rig extends BaseEntity {
     });
 
     // Draw mast (small circle at mast position)
-    draw.circle(mx, my, 0.5, { color: this.mastColor });
+    draw.fillCircle(mx, my, 0.5, { color: this.mastColor });
   }
 
   getMastWorldPosition(): V2d {

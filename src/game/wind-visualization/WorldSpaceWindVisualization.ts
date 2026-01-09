@@ -126,6 +126,6 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
       backX * sin - wingY * cos + y,
     );
 
-    draw.polygon([tip, wingUp, wingDown], { color, alpha });
+    draw.fillPolygon([tip, wingUp, wingDown], { color, alpha });
   }
 }

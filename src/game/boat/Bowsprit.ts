@@ -26,7 +26,7 @@ export class Bowsprit extends BaseEntity {
 
     draw.at({ pos: V(worldPos[0], worldPos[1]), angle: hullBody.angle }, () => {
       // Bowsprit visual - a spar extending forward from the bow
-      draw.rect(0, -this.size.y / 2, this.size.x, this.size.y, {
+      draw.fillRect(0, -this.size.y / 2, this.size.x, this.size.y, {
         color: this.color,
       });
     });

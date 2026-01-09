@@ -80,7 +80,7 @@ export class Matrix3 {
     tx: number,
     b: number,
     d: number,
-    ty: number
+    ty: number,
   ): this {
     this.data[0] = a;
     this.data[1] = b;
@@ -228,14 +228,18 @@ export class Matrix3 {
     return this;
   }
 
-  /** Apply this matrix to a point, returning a new V2d */
-  apply(point: CompatibleVector): V2d {
+  /** Apply this matrix to a point. If `out` is provided, writes result there and returns it. */
+  apply(point: CompatibleVector, out?: V2d): V2d {
     const x = point[0];
     const y = point[1];
-    return V(
-      this.data[0] * x + this.data[3] * y + this.data[6],
-      this.data[1] * x + this.data[4] * y + this.data[7]
-    );
+    const rx = this.data[0] * x + this.data[3] * y + this.data[6];
+    const ry = this.data[1] * x + this.data[4] * y + this.data[7];
+    if (out) {
+      out[0] = rx;
+      out[1] = ry;
+      return out;
+    }
+    return V(rx, ry);
   }
 
   /** Apply the inverse of this matrix to a point, returning a new V2d */

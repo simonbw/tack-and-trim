@@ -6,6 +6,13 @@ import BaseEntity from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
 import { getBiggestSounds, getTotalSoundBytes, loadSound } from "./sounds";
 
+// TypeScript's DOM types are missing FontFaceSet.add()
+declare global {
+  interface FontFaceSet {
+    add(font: FontFace): void;
+  }
+}
+
 export type ResourceManifest = {
   images: { [name: string]: string };
   sounds: { [name: string]: string };
@@ -44,7 +51,7 @@ export default class ReactPreloader extends BaseEntity implements Entity {
 
   constructor(
     private manifest: ResourceManifest,
-    reactRender: (props: RenderInfo) => ReactElement
+    reactRender: (props: RenderInfo) => ReactElement,
   ) {
     super();
 
@@ -64,13 +71,13 @@ export default class ReactPreloader extends BaseEntity implements Entity {
     const bytes = getTotalSoundBytes();
 
     console.groupCollapsed(
-      `Audio Loaded: ${(bytes / 2 ** 20).toFixed(1)}MB total`
+      `Audio Loaded: ${(bytes / 2 ** 20).toFixed(1)}MB total`,
     );
 
     getBiggestSounds()
       .slice(0, 5)
       .forEach(([url, size]) =>
-        console.info(url, "\n", `${(size / 1024).toFixed(1)}kB`)
+        console.info(url, "\n", `${(size / 1024).toFixed(1)}kB`),
       );
 
     console.groupEnd();
@@ -91,7 +98,7 @@ export default class ReactPreloader extends BaseEntity implements Entity {
           const fontFace = new FontFace(name, `url(${src})`);
           document.fonts.add(await fontFace.load());
           this.progress.fonts.loaded += 1;
-        })
+        }),
       );
     } catch (e) {
       console.error("Fonts failed to load", e);
@@ -110,7 +117,7 @@ export default class ReactPreloader extends BaseEntity implements Entity {
           console.warn(`Sound failed to load: ${url}, ${url}`, e);
         }
         this.progress.sounds.loaded += 1;
-      })
+      }),
     );
   }
 
@@ -128,7 +135,7 @@ export default class ReactPreloader extends BaseEntity implements Entity {
           console.warn(`Image failed to load: ${url}`, e);
         }
         this.progress.images.loaded += 1;
-      })
+      }),
     );
   }
 

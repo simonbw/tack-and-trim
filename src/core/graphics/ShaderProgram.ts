@@ -197,13 +197,24 @@ precision highp float;
 
 in vec2 a_position;
 in vec4 a_color;
+in vec2 a_modelCol0;  // model matrix column 0: [a, b]
+in vec2 a_modelCol1;  // model matrix column 1: [c, d]
+in vec2 a_modelCol2;  // model matrix column 2: [tx, ty]
+
 uniform mat3 u_matrix;
 
 out vec4 v_color;
 
 void main() {
-  vec3 position = u_matrix * vec3(a_position, 1.0);
-  gl_Position = vec4(position.xy, 0.0, 1.0);
+  // Reconstruct model matrix from per-vertex attributes
+  mat3 modelMatrix = mat3(
+    a_modelCol0.x, a_modelCol0.y, 0.0,
+    a_modelCol1.x, a_modelCol1.y, 0.0,
+    a_modelCol2.x, a_modelCol2.y, 1.0
+  );
+  vec3 worldPos = modelMatrix * vec3(a_position, 1.0);
+  vec3 clipPos = u_matrix * worldPos;
+  gl_Position = vec4(clipPos.xy, 0.0, 1.0);
   v_color = a_color;
 }
 `;
@@ -225,6 +236,9 @@ precision highp float;
 in vec2 a_position;
 in vec2 a_texCoord;
 in vec4 a_color;
+in vec2 a_modelCol0;  // model matrix column 0: [a, b]
+in vec2 a_modelCol1;  // model matrix column 1: [c, d]
+in vec2 a_modelCol2;  // model matrix column 2: [tx, ty]
 
 uniform mat3 u_matrix;
 
@@ -232,8 +246,15 @@ out vec2 v_texCoord;
 out vec4 v_color;
 
 void main() {
-  vec3 position = u_matrix * vec3(a_position, 1.0);
-  gl_Position = vec4(position.xy, 0.0, 1.0);
+  // Reconstruct model matrix from per-vertex attributes
+  mat3 modelMatrix = mat3(
+    a_modelCol0.x, a_modelCol0.y, 0.0,
+    a_modelCol1.x, a_modelCol1.y, 0.0,
+    a_modelCol2.x, a_modelCol2.y, 1.0
+  );
+  vec3 worldPos = modelMatrix * vec3(a_position, 1.0);
+  vec3 clipPos = u_matrix * worldPos;
+  gl_Position = vec4(clipPos.xy, 0.0, 1.0);
   v_texCoord = a_texCoord;
   v_color = a_color;
 }

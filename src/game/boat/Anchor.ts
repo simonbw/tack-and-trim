@@ -221,9 +221,14 @@ export class Anchor extends BaseEntity {
     this.visualRope.render(draw);
 
     // Draw anchor (simple circle)
-    draw.circle(this.anchorPosition.x, this.anchorPosition.y, this.anchorSize, {
-      color: 0x444444,
-    });
+    draw.fillCircle(
+      this.anchorPosition.x,
+      this.anchorPosition.y,
+      this.anchorSize,
+      {
+        color: 0x444444,
+      },
+    );
   }
 
   onDestroy(): void {

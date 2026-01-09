@@ -1,12 +1,12 @@
-import { CompatibleVector, V, V2d } from "../Vector";
+import { CompatibleVector, V2d } from "../Vector";
 import { GpuTimer } from "./GpuTimer";
 import { Matrix3 } from "./Matrix3";
 import {
   ShaderProgram,
-  SHAPE_VERTEX_SHADER,
   SHAPE_FRAGMENT_SHADER,
-  SPRITE_VERTEX_SHADER,
+  SHAPE_VERTEX_SHADER,
   SPRITE_FRAGMENT_SHADER,
+  SPRITE_VERTEX_SHADER,
 } from "./ShaderProgram";
 import { Texture, TextureManager } from "./TextureManager";
 
@@ -21,9 +21,9 @@ export interface SpriteOptions {
   anchorY?: number; // 0-1, default 0.5
 }
 
-// Batch vertex size (position: 2, texCoord: 2, color: 4)
-const SPRITE_VERTEX_SIZE = 8;
-const SHAPE_VERTEX_SIZE = 6; // position (2) + color (4)
+// Batch vertex size includes per-vertex model matrix (6 floats: a, b, c, d, tx, ty)
+const SPRITE_VERTEX_SIZE = 14; // position (2) + texCoord (2) + color (4) + matrix (6)
+const SHAPE_VERTEX_SIZE = 12; // position (2) + color (4) + matrix (6)
 const MAX_BATCH_VERTICES = 65536;
 const MAX_BATCH_INDICES = MAX_BATCH_VERTICES * 6;
 
@@ -82,6 +82,12 @@ export class WebGLRenderer {
   // GPU timing
   private gpuTimer: GpuTimer;
 
+  // Pre-allocated array for matrix uniform uploads (avoids allocation per flush)
+  private projMatrixArray: Float32Array = new Float32Array(9);
+
+  // Pre-allocated Matrix3 for building sprite transforms (avoids allocation per sprite)
+  private spriteMatrix: Matrix3 = new Matrix3();
+
   constructor(canvas?: HTMLCanvasElement) {
     this.canvas = canvas ?? document.createElement("canvas");
 
@@ -127,27 +133,28 @@ export class WebGLRenderer {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.shapeIndexBuffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.shapeIndices, gl.DYNAMIC_DRAW);
 
+    const stride = SHAPE_VERTEX_SIZE * 4; // 48 bytes
+
     const posLoc = this.shapeProgram.getAttribLocation("a_position");
     gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(
-      posLoc,
-      2,
-      gl.FLOAT,
-      false,
-      SHAPE_VERTEX_SIZE * 4,
-      0,
-    );
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, stride, 0);
 
     const colorLoc = this.shapeProgram.getAttribLocation("a_color");
     gl.enableVertexAttribArray(colorLoc);
-    gl.vertexAttribPointer(
-      colorLoc,
-      4,
-      gl.FLOAT,
-      false,
-      SHAPE_VERTEX_SIZE * 4,
-      2 * 4, // offset after position (2 floats * 4 bytes)
-    );
+    gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, stride, 2 * 4);
+
+    // Model matrix columns (6 floats total, split into 3 vec2s)
+    const modelCol0Loc = this.shapeProgram.getAttribLocation("a_modelCol0");
+    gl.enableVertexAttribArray(modelCol0Loc);
+    gl.vertexAttribPointer(modelCol0Loc, 2, gl.FLOAT, false, stride, 6 * 4);
+
+    const modelCol1Loc = this.shapeProgram.getAttribLocation("a_modelCol1");
+    gl.enableVertexAttribArray(modelCol1Loc);
+    gl.vertexAttribPointer(modelCol1Loc, 2, gl.FLOAT, false, stride, 8 * 4);
+
+    const modelCol2Loc = this.shapeProgram.getAttribLocation("a_modelCol2");
+    gl.enableVertexAttribArray(modelCol2Loc);
+    gl.vertexAttribPointer(modelCol2Loc, 2, gl.FLOAT, false, stride, 10 * 4);
 
     // Initialize sprite batch buffers
     this.spriteVertices = new Float32Array(
@@ -165,36 +172,52 @@ export class WebGLRenderer {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.spriteIndexBuffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.spriteIndices, gl.DYNAMIC_DRAW);
 
-    const sprPosLoc = this.spriteProgram.getAttribLocation("a_position");
-    const sprTexLoc = this.spriteProgram.getAttribLocation("a_texCoord");
-    const sprColLoc = this.spriteProgram.getAttribLocation("a_color");
+    const spriteStride = SPRITE_VERTEX_SIZE * 4; // 56 bytes
 
+    const sprPosLoc = this.spriteProgram.getAttribLocation("a_position");
     gl.enableVertexAttribArray(sprPosLoc);
-    gl.vertexAttribPointer(
-      sprPosLoc,
-      2,
-      gl.FLOAT,
-      false,
-      SPRITE_VERTEX_SIZE * 4,
-      0,
-    );
+    gl.vertexAttribPointer(sprPosLoc, 2, gl.FLOAT, false, spriteStride, 0);
+
+    const sprTexLoc = this.spriteProgram.getAttribLocation("a_texCoord");
     gl.enableVertexAttribArray(sprTexLoc);
+    gl.vertexAttribPointer(sprTexLoc, 2, gl.FLOAT, false, spriteStride, 2 * 4);
+
+    const sprColLoc = this.spriteProgram.getAttribLocation("a_color");
+    gl.enableVertexAttribArray(sprColLoc);
+    gl.vertexAttribPointer(sprColLoc, 4, gl.FLOAT, false, spriteStride, 4 * 4);
+
+    // Model matrix columns (6 floats total, split into 3 vec2s)
+    const sprModelCol0Loc = this.spriteProgram.getAttribLocation("a_modelCol0");
+    gl.enableVertexAttribArray(sprModelCol0Loc);
     gl.vertexAttribPointer(
-      sprTexLoc,
+      sprModelCol0Loc,
       2,
       gl.FLOAT,
       false,
-      SPRITE_VERTEX_SIZE * 4,
-      8,
+      spriteStride,
+      8 * 4,
     );
-    gl.enableVertexAttribArray(sprColLoc);
+
+    const sprModelCol1Loc = this.spriteProgram.getAttribLocation("a_modelCol1");
+    gl.enableVertexAttribArray(sprModelCol1Loc);
     gl.vertexAttribPointer(
-      sprColLoc,
-      4,
+      sprModelCol1Loc,
+      2,
       gl.FLOAT,
       false,
-      SPRITE_VERTEX_SIZE * 4,
-      16,
+      spriteStride,
+      10 * 4,
+    );
+
+    const sprModelCol2Loc = this.spriteProgram.getAttribLocation("a_modelCol2");
+    gl.enableVertexAttribArray(sprModelCol2Loc);
+    gl.vertexAttribPointer(
+      sprModelCol2Loc,
+      2,
+      gl.FLOAT,
+      false,
+      spriteStride,
+      12 * 4,
     );
 
     gl.bindVertexArray(null);
@@ -384,18 +407,37 @@ export class WebGLRenderer {
     const g = ((color >> 8) & 0xff) / 255;
     const b = (color & 0xff) / 255;
 
+    // Extract model matrix components (same for all vertices in this call)
+    const m = this.currentTransform;
+    const ma = m.a,
+      mb = m.b,
+      mc = m.c,
+      md = m.d,
+      mtx = m.tx,
+      mty = m.ty;
+
     const baseVertex = this.shapeVertexCount;
 
-    // Transform and add vertices with per-vertex color
+    // Store untransformed vertices with per-vertex color and model matrix
     for (const v of vertices) {
-      const transformed = this.currentTransform.apply(v);
       const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
-      this.shapeVertices[offset] = transformed[0];
-      this.shapeVertices[offset + 1] = transformed[1];
+      // Position (untransformed - GPU will apply model matrix)
+      this.shapeVertices[offset] = v[0];
+      this.shapeVertices[offset + 1] = v[1];
+      // Color
       this.shapeVertices[offset + 2] = r;
       this.shapeVertices[offset + 3] = g;
       this.shapeVertices[offset + 4] = b;
       this.shapeVertices[offset + 5] = alpha;
+      // Model matrix (column 0: a, b)
+      this.shapeVertices[offset + 6] = ma;
+      this.shapeVertices[offset + 7] = mb;
+      // Model matrix (column 1: c, d)
+      this.shapeVertices[offset + 8] = mc;
+      this.shapeVertices[offset + 9] = md;
+      // Model matrix (column 2: tx, ty)
+      this.shapeVertices[offset + 10] = mtx;
+      this.shapeVertices[offset + 11] = mty;
       this.shapeVertexCount++;
     }
 
@@ -418,8 +460,8 @@ export class WebGLRenderer {
     this.shapeProgram.use();
 
     // Set uniforms (color is now per-vertex, so only matrix needed)
-    const projMatrix = this.viewMatrix.toArray();
-    this.shapeProgram.setUniformMatrix3fv("u_matrix", projMatrix);
+    this.viewMatrix.toArray(false, this.projMatrixArray);
+    this.shapeProgram.setUniformMatrix3fv("u_matrix", this.projMatrixArray);
 
     // Upload data
     gl.bindVertexArray(this.shapeVAO);
@@ -467,26 +509,40 @@ export class WebGLRenderer {
     const anchorX = opts.anchorX ?? 0.5;
     const anchorY = opts.anchorY ?? 0.5;
 
-    const w = texture.width * scaleX;
-    const h = texture.height * scaleY;
-    const ax = w * anchorX;
-    const ay = h * anchorY;
+    const tw = texture.width;
+    const th = texture.height;
 
-    // Calculate rotated corners
-    const cos = Math.cos(rotation);
-    const sin = Math.sin(rotation);
+    // Build combined transform matrix:
+    // currentTransform * translate(x,y) * rotate(rotation) * scale(scaleX,scaleY) * translate(-anchorX*tw, -anchorY*th)
+    // Operations are written in reverse order of application due to right-multiplication
+    const m = this.spriteMatrix;
+    m.identity();
+    m.translate(x, y);
+    m.rotate(rotation);
+    m.scale(scaleX, scaleY);
+    m.translate(-anchorX * tw, -anchorY * th);
+    m.premultiply(this.currentTransform);
 
-    const corners = [
-      [-ax, -ay],
-      [w - ax, -ay],
-      [w - ax, h - ay],
-      [-ax, h - ay],
-    ];
+    // Extract matrix values for per-vertex storage
+    const ma = m.a,
+      mb = m.b,
+      mc = m.c,
+      md = m.d,
+      mtx = m.tx,
+      mty = m.ty;
 
     const tr = ((tint >> 16) & 0xff) / 255;
     const tg = ((tint >> 8) & 0xff) / 255;
     const tb = (tint & 0xff) / 255;
 
+    // Untransformed corners in texture local space (0,0) to (tw, th)
+    // UV coordinates map directly to these
+    const corners = [
+      [0, 0],
+      [tw, 0],
+      [tw, th],
+      [0, th],
+    ];
     const uvs = [
       [0, 0],
       [1, 0],
@@ -505,22 +561,27 @@ export class WebGLRenderer {
     const baseVertex = this.spriteVertexCount / SPRITE_VERTEX_SIZE;
 
     for (let i = 0; i < 4; i++) {
-      const [cx, cy] = corners[i];
-      const rx = cx * cos - cy * sin + x;
-      const ry = cx * sin + cy * cos + y;
-
-      // Apply transform
-      const transformed = this.currentTransform.apply(V(rx, ry));
-
       const offset = this.spriteVertexCount;
-      this.spriteVertices[offset] = transformed[0];
-      this.spriteVertices[offset + 1] = transformed[1];
+      // Position (untransformed - GPU will apply model matrix)
+      this.spriteVertices[offset] = corners[i][0];
+      this.spriteVertices[offset + 1] = corners[i][1];
+      // Texture coordinates
       this.spriteVertices[offset + 2] = uvs[i][0];
       this.spriteVertices[offset + 3] = uvs[i][1];
+      // Color/tint
       this.spriteVertices[offset + 4] = tr;
       this.spriteVertices[offset + 5] = tg;
       this.spriteVertices[offset + 6] = tb;
       this.spriteVertices[offset + 7] = alpha;
+      // Model matrix (column 0: a, b)
+      this.spriteVertices[offset + 8] = ma;
+      this.spriteVertices[offset + 9] = mb;
+      // Model matrix (column 1: c, d)
+      this.spriteVertices[offset + 10] = mc;
+      this.spriteVertices[offset + 11] = md;
+      // Model matrix (column 2: tx, ty)
+      this.spriteVertices[offset + 12] = mtx;
+      this.spriteVertices[offset + 13] = mty;
       this.spriteVertexCount += SPRITE_VERTEX_SIZE;
     }
 
@@ -546,8 +607,8 @@ export class WebGLRenderer {
     this.spriteProgram.use();
 
     // Set uniforms
-    const projMatrix = this.viewMatrix.toArray();
-    this.spriteProgram.setUniformMatrix3fv("u_matrix", projMatrix);
+    this.viewMatrix.toArray(false, this.projMatrixArray);
+    this.spriteProgram.setUniformMatrix3fv("u_matrix", this.projMatrixArray);
     this.spriteProgram.setUniform1i("u_texture", 0);
 
     // Bind texture
@@ -635,32 +696,6 @@ export class WebGLRenderer {
   /** Get the WebGL context for custom shader use */
   getGL(): WebGL2RenderingContext {
     return this.gl;
-  }
-
-  /** Draw a full-screen quad with a custom shader */
-  drawFullscreenQuad(shader: ShaderProgram): void {
-    this.flushShapes();
-    this.flushSprites();
-
-    const gl = this.gl;
-    shader.use();
-
-    // Create a simple fullscreen quad
-    const vertices = new Float32Array([
-      -1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1,
-    ]);
-
-    const buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-
-    const posLoc = shader.getAttribLocation("a_position");
-    gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-    gl.deleteBuffer(buffer);
   }
 
   // ============ GPU Timing ============

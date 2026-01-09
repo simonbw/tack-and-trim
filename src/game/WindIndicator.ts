@@ -130,7 +130,7 @@ export class WindIndicator extends BaseEntity {
     }
 
     // Draw background circle
-    draw.circle(
+    draw.fillCircle(
       this.indicatorCenter.x,
       this.indicatorCenter.y,
       INDICATOR_RADIUS,
@@ -231,6 +231,6 @@ export class WindIndicator extends BaseEntity {
     const headLeft = headBase.add(perp.mul(headHalfWidth));
     const headRight = headBase.sub(perp.mul(headHalfWidth));
 
-    draw.polygon([tip, headLeft, headRight], { color });
+    draw.fillPolygon([tip, headLeft, headRight], { color });
   }
 }

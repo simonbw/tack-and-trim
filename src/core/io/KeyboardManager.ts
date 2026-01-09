@@ -14,7 +14,7 @@ export class KeyboardManager {
 
   constructor(
     private handlers: IOHandlerList,
-    private onInputActivity: () => void
+    private onInputActivity: () => void,
   ) {
     this.boundOnKeyDown = (e) => this.onKeyDown(e);
     this.boundOnKeyUp = (e) => this.onKeyUp(e);
@@ -56,6 +56,13 @@ export class KeyboardManager {
       // s for save
       return true;
     }
+    // Prevent browser zoom shortcuts (Cmd/Ctrl + Plus/Minus)
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      (event.key === "=" || event.key === "-")
+    ) {
+      return true;
+    }
     return false;
   }
 
@@ -88,6 +95,9 @@ export class KeyboardManager {
   destroy(): void {
     document.removeEventListener("keydown", this.boundOnKeyDown);
     document.removeEventListener("keyup", this.boundOnKeyUp);
-    document.removeEventListener("visibilitychange", this.boundOnVisibilityChange);
+    document.removeEventListener(
+      "visibilitychange",
+      this.boundOnVisibilityChange,
+    );
   }
 }

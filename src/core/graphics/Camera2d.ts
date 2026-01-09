@@ -1,4 +1,4 @@
-import { V, V2d } from "../Vector";
+import { ReadonlyV2d, V, V2d } from "../Vector";
 import BaseEntity from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
 import { lerpOrSnap } from "../util/MathUtil";
@@ -32,23 +32,20 @@ export class Camera2d extends BaseEntity implements Entity {
   persistenceLevel = 100;
 
   viewportProvider: ViewportProvider;
-  position: V2d;
-  z: number;
-  angle: number;
+  private _position: V2d;
+  private _z: number;
+  private _angle: number;
   velocity: V2d;
 
   paralaxScale = 0.1;
 
-  // Cache for getWorldViewport
+  // Cache for getWorldViewport (set to null to invalidate)
   private _cachedViewport: Viewport | null = null;
-  private _viewportCacheInputs: {
-    x: number;
-    y: number;
-    z: number;
-    angle: number;
-    viewportWidth: number;
-    viewportHeight: number;
-  } | null = null;
+  // Cache for viewport dimensions (to detect external resize)
+  private _lastViewportWidth: number = 0;
+  private _lastViewportHeight: number = 0;
+  // Cache for getMatrix with default parallax [1,1] and anchor [0,0]
+  private _cachedMatrix: Matrix3 | null = null;
 
   constructor(
     viewportProvider: ViewportProvider,
@@ -58,9 +55,9 @@ export class Camera2d extends BaseEntity implements Entity {
   ) {
     super();
     this.viewportProvider = viewportProvider;
-    this.position = position;
-    this.z = z;
-    this.angle = angle;
+    this._position = position;
+    this._z = z;
+    this._angle = angle;
     this.velocity = V([0, 0]);
   }
 
@@ -77,8 +74,19 @@ export class Camera2d extends BaseEntity implements Entity {
     return isFinite(value) && value > 0 && value <= MAX_CAMERA_ZOOM;
   }
 
+  /** Invalidate caches (called when camera properties change) */
+  private invalidateCache(): void {
+    this._cachedViewport = null;
+    this._cachedMatrix = null;
+  }
+
+  /** Read-only access to position. Use x/y setters or setPosition() to modify. */
+  get position(): ReadonlyV2d {
+    return this._position;
+  }
+
   get x() {
-    return this.position[0];
+    return this._position[0];
   }
 
   set x(value) {
@@ -86,11 +94,12 @@ export class Camera2d extends BaseEntity implements Entity {
       console.warn("Camera2d: Invalid x position rejected:", value);
       return;
     }
-    this.position[0] = value;
+    this._position[0] = value;
+    this.invalidateCache();
   }
 
   get y() {
-    return this.position[1];
+    return this._position[1];
   }
 
   set y(value) {
@@ -98,7 +107,41 @@ export class Camera2d extends BaseEntity implements Entity {
       console.warn("Camera2d: Invalid y position rejected:", value);
       return;
     }
-    this.position[1] = value;
+    this._position[1] = value;
+    this.invalidateCache();
+  }
+
+  get z() {
+    return this._z;
+  }
+
+  set z(value) {
+    if (!this.isValidZoom(value)) {
+      console.warn("Camera2d: Invalid zoom rejected:", value);
+      return;
+    }
+    this._z = value;
+    this.invalidateCache();
+  }
+
+  get angle() {
+    return this._angle;
+  }
+
+  set angle(value) {
+    this._angle = value;
+    this.invalidateCache();
+  }
+
+  /** Set position directly (invalidates cache) */
+  setPosition(x: number, y: number): void {
+    if (!this.isValidPosition(x) || !this.isValidPosition(y)) {
+      console.warn("Camera2d.setPosition: Invalid position rejected:", x, y);
+      return;
+    }
+    this._position[0] = x;
+    this._position[1] = y;
+    this.invalidateCache();
   }
 
   get vx() {
@@ -125,8 +168,8 @@ export class Camera2d extends BaseEntity implements Entity {
     this.velocity[1] = value;
   }
 
-  getPosition() {
-    return this.position;
+  getPosition(): V2d {
+    return this._position;
   }
 
   onTick(dt: number) {
@@ -136,12 +179,7 @@ export class Camera2d extends BaseEntity implements Entity {
 
   /** Center the camera on a position */
   center([x, y]: V2d) {
-    if (!this.isValidPosition(x) || !this.isValidPosition(y)) {
-      console.warn("Camera2d.center: Invalid position rejected:", x, y);
-      return;
-    }
-    this.position[0] = x;
-    this.position[1] = y;
+    this.setPosition(x, y);
   }
 
   /** Move the camera toward being centered on a position, with a target velocity */
@@ -208,17 +246,18 @@ export class Camera2d extends BaseEntity implements Entity {
     const viewportWidth = this.viewportProvider.getWidth();
     const viewportHeight = this.viewportProvider.getHeight();
 
-    // Check if cache is valid
+    // Check if viewport dimensions changed (external resize)
     if (
-      this._cachedViewport &&
-      this._viewportCacheInputs &&
-      this._viewportCacheInputs.x === this.x &&
-      this._viewportCacheInputs.y === this.y &&
-      this._viewportCacheInputs.z === this.z &&
-      this._viewportCacheInputs.angle === this.angle &&
-      this._viewportCacheInputs.viewportWidth === viewportWidth &&
-      this._viewportCacheInputs.viewportHeight === viewportHeight
+      viewportWidth !== this._lastViewportWidth ||
+      viewportHeight !== this._lastViewportHeight
     ) {
+      this._cachedViewport = null;
+      this._lastViewportWidth = viewportWidth;
+      this._lastViewportHeight = viewportHeight;
+    }
+
+    // Return cached viewport if valid
+    if (this._cachedViewport) {
       return this._cachedViewport;
     }
 
@@ -227,20 +266,10 @@ export class Camera2d extends BaseEntity implements Entity {
     const [right, bottom] = this.toWorld(this.getViewportSize());
     const width = right - left;
     const height = bottom - top;
-    const viewport = { top, bottom, left, right, width, height };
 
-    // Cache the result
-    this._cachedViewport = viewport;
-    this._viewportCacheInputs = {
-      x: this.x,
-      y: this.y,
-      z: this.z,
-      angle: this.angle,
-      viewportWidth,
-      viewportHeight,
-    };
-
-    return viewport;
+    // Cache and return
+    this._cachedViewport = { top, bottom, left, right, width, height };
+    return this._cachedViewport;
   }
 
   /** Convert screen coordinates to world coordinates */
@@ -260,12 +289,25 @@ export class Camera2d extends BaseEntity implements Entity {
     [px, py]: [number, number] = [1, 1],
     [ax, ay]: V2d = V(0, 0),
   ): Matrix3 {
-    const [w, h] = this.getViewportSize();
-
     // Special case: parallax (0,0) means screen-space rendering (HUD)
     // Return identity - coordinates are already in screen pixels
     if (px === 0 && py === 0) {
       return new Matrix3().identity();
+    }
+
+    const [w, h] = this.getViewportSize();
+
+    // Check if viewport dimensions changed (invalidates matrix cache)
+    if (w !== this._lastViewportWidth || h !== this._lastViewportHeight) {
+      this._cachedMatrix = null;
+      this._lastViewportWidth = w;
+      this._lastViewportHeight = h;
+    }
+
+    // Use cached matrix for default case (parallax [1,1], anchor [0,0])
+    const isDefaultCase = px === 1 && py === 1 && ax === 0 && ay === 0;
+    if (isDefaultCase && this._cachedMatrix) {
+      return this._cachedMatrix;
     }
 
     const { x: cx, y: cy, z, angle } = this;
@@ -299,6 +341,11 @@ export class Camera2d extends BaseEntity implements Entity {
     matrix.translate(-cx * px, -cy * py);
     // Align anchor with camera (applied first to point)
     matrix.translate(ax * px, ay * py);
+
+    // Cache for default case
+    if (isDefaultCase) {
+      this._cachedMatrix = matrix;
+    }
 
     return matrix;
   }

@@ -54,15 +54,21 @@ export class WindVisualization extends BaseEntity {
     const viewport = camera.getWorldViewport();
 
     // Draw dim overlay
-    draw.rect(viewport.left, viewport.top, viewport.width, viewport.height, {
-      color: DIM_COLOR,
-      alpha: DIM_ALPHA,
-    });
+    draw.fillRect(
+      viewport.left,
+      viewport.top,
+      viewport.width,
+      viewport.height,
+      {
+        color: DIM_COLOR,
+        alpha: DIM_ALPHA,
+      },
+    );
 
     // Draw modifier areas
     for (const modifier of wind.getModifiers()) {
       const aabb = modifier.getWindModifierAABB();
-      draw.rect(
+      draw.fillRect(
         aabb.minX,
         aabb.minY,
         aabb.maxX - aabb.minX,

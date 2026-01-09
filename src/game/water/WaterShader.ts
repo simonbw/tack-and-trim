@@ -1,4 +1,4 @@
-import { ShaderProgram } from "../../core/graphics/ShaderProgram";
+import { FullscreenShader } from "../../core/graphics/FullscreenShader";
 
 const WATER_VERTEX_SHADER = /*glsl*/ `#version 300 es
 precision highp float;
@@ -212,61 +212,31 @@ void main(void) {
 `;
 
 /**
- * Water shader using raw WebGL.
+ * Water shader using the FullscreenShader base class.
  */
-export class WaterShader {
-  private program: ShaderProgram;
-  private gl: WebGL2RenderingContext;
-  private vao: WebGLVertexArrayObject;
-  private vertexBuffer: WebGLBuffer;
-
-  // Uniform values
-  private cameraMatrix = new Float32Array(9);
-  private viewportBounds = new Float32Array(4);
-  private time = 0;
-  private renderMode = 0;
-  private screenWidth = 800;
-  private screenHeight = 600;
-
-  // Foam uniforms - subtle defaults for calm water
-  private foamThreshold = 0.7;
-  private foamIntensity = 0.5;
-  private foamCoverage = 0.3;
-  private foamSharpness = 2.0;
-
-  // Color variation uniforms
-  private colorNoiseStrength = 0.1;
-
+export class WaterShader extends FullscreenShader {
   constructor(gl: WebGL2RenderingContext) {
-    this.gl = gl;
-    this.program = new ShaderProgram(
-      gl,
-      WATER_VERTEX_SHADER,
-      WATER_FRAGMENT_SHADER,
-    );
-
-    // Create VAO and fullscreen quad
-    this.vao = gl.createVertexArray()!;
-    this.vertexBuffer = gl.createBuffer()!;
-
-    gl.bindVertexArray(this.vao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
-
-    // Fullscreen quad vertices (two triangles)
-    const vertices = new Float32Array([
-      -1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1,
-    ]);
-    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-
-    const posLoc = this.program.getAttribLocation("a_position");
-    gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-
-    gl.bindVertexArray(null);
+    super(gl, {
+      vertexSource: WATER_VERTEX_SHADER,
+      fragmentSource: WATER_FRAGMENT_SHADER,
+      uniforms: {
+        u_cameraMatrix: { type: "mat3", value: new Float32Array(9) },
+        u_time: { type: "1f", value: 0 },
+        u_renderMode: { type: "1i", value: 0 },
+        u_screenSize: { type: "2f", value: [800, 600] },
+        u_viewportBounds: { type: "4f", value: [0, 0, 100, 100] },
+        u_foamThreshold: { type: "1f", value: 0.7 },
+        u_foamIntensity: { type: "1f", value: 0.5 },
+        u_foamCoverage: { type: "1f", value: 0.3 },
+        u_foamSharpness: { type: "1f", value: 2.0 },
+        u_colorNoiseStrength: { type: "1f", value: 0.1 },
+      },
+      textures: ["u_waterData"],
+    });
   }
 
   setCameraMatrix(matrix: Float32Array): void {
-    this.cameraMatrix.set(matrix);
+    this.uniforms.u_cameraMatrix.value.set(matrix);
   }
 
   setViewportBounds(
@@ -275,93 +245,46 @@ export class WaterShader {
     width: number,
     height: number,
   ): void {
-    this.viewportBounds[0] = left;
-    this.viewportBounds[1] = top;
-    this.viewportBounds[2] = width;
-    this.viewportBounds[3] = height;
+    this.uniforms.u_viewportBounds.value[0] = left;
+    this.uniforms.u_viewportBounds.value[1] = top;
+    this.uniforms.u_viewportBounds.value[2] = width;
+    this.uniforms.u_viewportBounds.value[3] = height;
   }
 
   setTime(time: number): void {
-    this.time = time;
+    this.uniforms.u_time.value = time;
   }
 
   setRenderMode(mode: number): void {
-    this.renderMode = mode;
+    this.uniforms.u_renderMode.value = mode;
   }
 
   setScreenSize(width: number, height: number): void {
-    this.screenWidth = width;
-    this.screenHeight = height;
+    this.uniforms.u_screenSize.value[0] = width;
+    this.uniforms.u_screenSize.value[1] = height;
   }
 
-  // Foam setters
   setFoamThreshold(value: number): void {
-    this.foamThreshold = value;
+    this.uniforms.u_foamThreshold.value = value;
   }
 
   setFoamIntensity(value: number): void {
-    this.foamIntensity = value;
+    this.uniforms.u_foamIntensity.value = value;
   }
 
   setFoamCoverage(value: number): void {
-    this.foamCoverage = value;
+    this.uniforms.u_foamCoverage.value = value;
   }
 
   setFoamSharpness(value: number): void {
-    this.foamSharpness = value;
+    this.uniforms.u_foamSharpness.value = value;
   }
 
-  // Color variation setter
   setColorNoiseStrength(value: number): void {
-    this.colorNoiseStrength = value;
+    this.uniforms.u_colorNoiseStrength.value = value;
   }
 
-  render(waterDataTexture: WebGLTexture | null): void {
-    const gl = this.gl;
-
-    this.program.use();
-
-    // Set uniforms
-    this.program.setUniformMatrix3fv("u_cameraMatrix", this.cameraMatrix);
-    this.program.setUniform1f("u_time", this.time);
-    this.program.setUniform1i("u_renderMode", this.renderMode);
-    this.program.setUniform2f(
-      "u_screenSize",
-      this.screenWidth,
-      this.screenHeight,
-    );
-    this.program.setUniform4f(
-      "u_viewportBounds",
-      this.viewportBounds[0],
-      this.viewportBounds[1],
-      this.viewportBounds[2],
-      this.viewportBounds[3],
-    );
-
-    // Foam uniforms
-    this.program.setUniform1f("u_foamThreshold", this.foamThreshold);
-    this.program.setUniform1f("u_foamIntensity", this.foamIntensity);
-    this.program.setUniform1f("u_foamCoverage", this.foamCoverage);
-    this.program.setUniform1f("u_foamSharpness", this.foamSharpness);
-
-    // Color variation uniform
-    this.program.setUniform1f("u_colorNoiseStrength", this.colorNoiseStrength);
-
-    // Bind water data texture
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, waterDataTexture);
-    this.program.setUniform1i("u_waterData", 0);
-
-    // Draw fullscreen quad
-    gl.bindVertexArray(this.vao);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-    gl.bindVertexArray(null);
-  }
-
-  destroy(): void {
-    const gl = this.gl;
-    this.program.destroy();
-    gl.deleteVertexArray(this.vao);
-    gl.deleteBuffer(this.vertexBuffer);
+  renderWater(waterDataTexture: WebGLTexture | null): void {
+    this.render({ u_waterData: waterDataTexture });
   }
 }
