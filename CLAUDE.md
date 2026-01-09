@@ -1,6 +1,17 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this 2D sailing game and its custom engine.
+
+## Project Overview
+
+**Tack & Trim** is a 2D top-down sailing simulator built on a custom TypeScript game engine. Players control a dinghy, managing sails and rudder to navigate realistic wind and water physics.
+
+### Key Game Systems (`src/game/`)
+
+- **Boat** (`boat/`) - Hull, keel, rudder, mainsail, jib, and rigging with physics-based sail simulation
+- **Wind** (`Wind.ts`, `WindParticles.ts`) - Global wind field with procedural variation using simplex noise
+- **Water** (`water/`) - Gerstner wave simulation with currents and wake effects
+- **Controls** - Steering (A/D), sail trim (W/S for main, Q/E for jib), rowing (Space), anchor (F)
 
 ## Development Commands
 
@@ -11,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run prettier` - Format source code with Prettier
 - `npm run generate-manifest` - Generate asset type definitions from resources folder
 
-## Core Architecture
+## Engine Architecture
 
 This is a custom 2D game engine built on TypeScript, with three main technology pillars:
 
