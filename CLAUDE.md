@@ -17,7 +17,7 @@ This is a custom 2D game engine built on TypeScript, with three main technology 
 
 ### Technologies
 
-- **Pixi.js** - 2D rendering engine for graphics and sprites
+- **Custom WebGL2 Renderer** - Immediate-mode 2D rendering with batched draw calls
 - **Parcel** - Zero-config bundler and dev server
 
 ### Entity-Component System
@@ -32,7 +32,7 @@ The engine follows an Entity-based architecture where everything in the game ext
 ### Key Systems
 
 - **Physics**: Simulate rigid bodies with collision detection, springs, and constraints
-- **Rendering**: Layered sprite system with camera controls
+- **Rendering**: Custom WebGL2 renderer with `Draw` API for shapes, sprites, and paths
 - **Input**: Centralized IO manager for keyboard, mouse, and gamepad input
 - **Audio**: Web Audio API integration with positional sound support
 - **Asset Management**: Automatic type generation for resources in `resources/` folder
@@ -108,3 +108,6 @@ profiler.count("frequentEvent");
 The game loop automatically profiles: `frame`, `tick-loop`, `tick`, `physics`, and `render`.
 
 ## Code Style
+
+- Use built-in classes for math operations. For vector math, use `V2d` and utility functions from `src/core/util/MathUtil.ts`.
+- Only use `onAdd()` if you need access to `this.game` during initialization. Otherwise, do all initialization in the constructor.
