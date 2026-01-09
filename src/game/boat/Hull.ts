@@ -8,6 +8,11 @@ import { applySkinFriction } from "../fluid-dynamics";
 import { WaterInfo } from "../water/WaterInfo";
 import { HullConfig } from "./BoatConfig";
 
+export interface TillerConfig {
+  position: V2d;
+  getTillerAngle: () => number;
+}
+
 export class Hull extends BaseEntity {
   layer = "hull" as const;
   body: DynamicBody;
@@ -16,6 +21,7 @@ export class Hull extends BaseEntity {
   private vertices: V2d[];
   private fillColor: number;
   private strokeColor: number;
+  private tillerConfig?: TillerConfig;
 
   constructor(config: HullConfig) {
     super();
@@ -33,7 +39,7 @@ export class Hull extends BaseEntity {
     this.body.addShape(
       new Convex({
         vertices: [...config.vertices],
-      })
+      }),
     );
   }
 
@@ -49,7 +55,7 @@ export class Hull extends BaseEntity {
       this.body,
       this.hullArea,
       this.skinFrictionCoefficient,
-      getWaterVelocity
+      getWaterVelocity,
     );
   }
 
@@ -57,16 +63,45 @@ export class Hull extends BaseEntity {
     const [x, y] = this.body.position;
 
     draw.at({ pos: V(x, y), angle: this.body.angle }, () => {
-      draw.strokePolygon(this.vertices, {
+      draw.strokeSmoothPolygon(this.vertices, {
         color: 0x000000,
         alpha: 0.1,
         width: 1.5,
       });
-      draw.fillPolygon(this.vertices, { color: this.fillColor });
-      draw.strokePolygon(this.vertices, {
+      draw.fillSmoothPolygon(this.vertices, { color: this.fillColor });
+      draw.strokeSmoothPolygon(this.vertices, {
         color: this.strokeColor,
         width: 0.5,
       });
+
+      // Thwart (bench seat) - where helmsman sits, aft of centerboard
+      const thwartColor = 0x886633;
+      draw.fillRect(-3.5, -2.5, 0.5, 5, { color: thwartColor });
+      draw.strokeRect(-3.5, -2.5, 0.5, 5, { color: 0x664422, width: 0.2 });
+
+      // Centerboard trunk - center of cockpit
+      const trunkColor = 0x665522;
+      draw.fillRect(-1, -0.2, 2, 0.4, { color: trunkColor });
+      draw.strokeRect(-1, -0.2, 2, 0.4, { color: 0x443311, width: 0.15 });
+
+      // Tiller (rotates opposite to rudder)
+      if (this.tillerConfig) {
+        const tillerAngle = this.tillerConfig.getTillerAngle();
+        const tillerPos = this.tillerConfig.position;
+        const tillerLength = 3;
+        const tillerWidth = 0.25;
+        const tillerColor = 0x886633;
+
+        draw.at({ pos: tillerPos, angle: tillerAngle }, () => {
+          draw.fillRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
+            color: tillerColor,
+          });
+          draw.strokeRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
+            color: 0x664422,
+            width: 0.1,
+          });
+        });
+      }
     });
   }
 
@@ -76,5 +111,9 @@ export class Hull extends BaseEntity {
 
   getAngle(): number {
     return this.body.angle;
+  }
+
+  setTillerConfig(config: TillerConfig): void {
+    this.tillerConfig = config;
   }
 }

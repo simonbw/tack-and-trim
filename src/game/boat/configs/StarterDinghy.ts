@@ -43,8 +43,8 @@ export const StarterDinghy: BoatConfig = {
   },
 
   rudder: {
-    position: V(-2, 0), // Near stern
-    length: 3, // ft
+    position: V(-6, 0), // At transom
+    length: 2.5, // ft
     liftAndDrag: 2.0,
     maxSteerAngle: degToRad(35),
     steerAdjustSpeed: 0.8, // rad/sec
@@ -53,8 +53,8 @@ export const StarterDinghy: BoatConfig = {
   },
 
   rig: {
-    mastPosition: V(1.5, 0),
-    boomLength: 8, // ft
+    mastPosition: V(3, 0), // ~35-40% from bow
+    boomLength: 7, // ft
     boomWidth: 0.5, // ft (~6 inches)
     boomMass: 15, // lbs
     colors: {
@@ -105,21 +105,21 @@ export const StarterDinghy: BoatConfig = {
 
   mainsheet: {
     boomAttachRatio: 0.9,
-    hullAttachPoint: V(-4, 0), // ft from hull center (stern area)
+    hullAttachPoint: V(-5, 0), // ft from hull center (cockpit floor)
     minLength: 2, // ft
-    maxLength: 12, // ft
-    defaultLength: 7, // ft
+    maxLength: 10, // ft
+    defaultLength: 5, // ft
     trimSpeed: 3, // ft/s
     easeSpeed: 3, // ft/s
     ropeThickness: 0.3,
   },
 
   jibSheet: {
-    portAttachPoint: V(-1.5, 3), // ft from hull center
-    starboardAttachPoint: V(-1.5, -3), // ft from hull center
-    minLength: 3, // ft
-    maxLength: 13, // ft
-    defaultLength: 8, // ft
+    portAttachPoint: V(-3, 2.5), // cockpit, port side
+    starboardAttachPoint: V(-3, -2.5), // cockpit, starboard side
+    minLength: 5, // ft
+    maxLength: 15, // ft
+    defaultLength: 10, // ft
     trimSpeed: 6, // ft/s
     easeSpeed: 18, // ft/s
     ropeThickness: 0.3,

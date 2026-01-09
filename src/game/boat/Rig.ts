@@ -68,7 +68,42 @@ export class Rig extends BaseEntity {
   }
 
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
+    const [hx, hy] = this.hull.body.position;
+    const hullAngle = this.hull.body.angle;
     const [mx, my] = this.getMastWorldPosition();
+
+    // Draw standing rigging (in hull coordinate space)
+    const riggingColor = 0x444444;
+    const riggingWidth = 0.15;
+
+    draw.at({ pos: V(hx, hy), angle: hullAngle }, () => {
+      const mx = this.mastPosition.x;
+      const my = this.mastPosition.y;
+
+      // Forestay - mast to bowsprit tip
+      draw.line(mx, my, 11, 0, {
+        color: riggingColor,
+        width: riggingWidth,
+      });
+
+      // Port shroud - mast to chainplate on hull (port side, slightly aft of mast)
+      draw.line(mx, my, mx - 1, 3, {
+        color: riggingColor,
+        width: riggingWidth,
+      });
+
+      // Starboard shroud - mast to chainplate on hull (starboard side)
+      draw.line(mx, my, mx - 1, -3, {
+        color: riggingColor,
+        width: riggingWidth,
+      });
+
+      // Backstay - mast to stern
+      draw.line(mx, my, -6, 0, {
+        color: riggingColor,
+        width: riggingWidth,
+      });
+    });
 
     // Draw boom (rectangle extending from mast)
     draw.at({ pos: V(mx, my), angle: this.body.angle }, () => {
@@ -79,10 +114,17 @@ export class Rig extends BaseEntity {
         this.boomWidth,
         { color: this.boomColor },
       );
+
+      // Boom end cap
+      draw.fillCircle(-this.boomLength, 0, 0.3, { color: 0x664422 });
     });
 
-    // Draw mast (small circle at mast position)
+    // Draw mast with outer ring for depth
+    draw.strokeCircle(mx, my, 0.6, { color: 0x664422, width: 0.2 });
     draw.fillCircle(mx, my, 0.5, { color: this.mastColor });
+
+    // Gooseneck fitting at boom pivot
+    draw.fillCircle(mx, my, 0.25, { color: 0x555555 });
   }
 
   getMastWorldPosition(): V2d {

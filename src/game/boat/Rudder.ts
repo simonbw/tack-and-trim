@@ -99,11 +99,21 @@ export class Rudder extends BaseEntity {
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [x, y] = this.hull.body.position;
     const [rx, ry] = this.position.rotate(this.hull.body.angle).iadd([x, y]);
-    const angle = this.hull.body.angle - this.steer * this.maxSteerAngle;
+    const rudderAngle = this.hull.body.angle - this.steer * this.maxSteerAngle;
 
-    draw.at({ pos: V(rx, ry), angle }, () => {
-      // Draw rudder as a line from origin to (-length, 0)
+    // Draw rudder blade (underwater)
+    draw.at({ pos: V(rx, ry), angle: rudderAngle }, () => {
       draw.line(0, 0, -this.length, 0, { color: this.color, width: 0.5 });
     });
+  }
+
+  /** Get rudder position in hull-local coordinates */
+  getPosition(): V2d {
+    return this.position;
+  }
+
+  /** Get the current tiller angle offset (same as rudder, they're on the same shaft) */
+  getTillerAngleOffset(): number {
+    return -this.steer * this.maxSteerAngle;
   }
 }

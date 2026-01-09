@@ -66,6 +66,12 @@ export class Boat extends BaseEntity {
     this.keel = this.addChild(new Keel(this.hull, config.keel));
     this.rudder = this.addChild(new Rudder(this.hull, config.rudder));
     this.rig = this.addChild(new Rig(this.hull, config.rig));
+
+    // Wire up tiller rendering (drawn by hull, but follows rudder angle)
+    this.hull.setTillerConfig({
+      position: this.rudder.getPosition(),
+      getTillerAngle: () => this.rudder.getTillerAngleOffset(),
+    });
     this.bowsprit = this.addChild(new Bowsprit(this, config.bowsprit));
 
     // Create mainsheet (boom to hull)
@@ -130,6 +136,7 @@ export class Boat extends BaseEntity {
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
 
     // Create wake and spray effects
+    // TODO: Compute these points from the end of the hull
     this.addChild(new Wake(this, V(-6, 2), V(-6, -2))); // Stern wake spawn positions (ft)
     this.addChild(new BoatSpray(this));
   }
