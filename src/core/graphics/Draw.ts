@@ -46,8 +46,6 @@ export class Draw {
     readonly camera: Camera2d,
   ) {}
 
-  // ============ Transform Helpers ============
-
   /**
    * Execute draw commands at a specific position, rotation, and scale.
    * Automatically handles save/restore of transform state.
@@ -88,8 +86,6 @@ export class Draw {
 
     this.renderer.restore();
   }
-
-  // ============ Shape Drawing ============
 
   /** Draw a filled rectangle */
   rect(x: number, y: number, w: number, h: number, opts?: DrawOptions): void {
@@ -193,8 +189,6 @@ export class Draw {
     this.line(x1, y1, x2, y2, adjustedOpts);
   }
 
-  // ============ Image Drawing ============
-
   /** Draw a textured image/sprite */
   image(texture: Texture, x: number, y: number, opts?: ImageOptions): void {
     // Convert ImageOptions to SpriteOptions (color -> tint)
@@ -212,8 +206,6 @@ export class Draw {
     this.renderer.drawImage(texture, x, y, spriteOpts);
   }
 
-  // ============ Path API ============
-
   /**
    * Start a new path for complex shapes.
    *
@@ -227,44 +219,5 @@ export class Draw {
    */
   path(): PathBuilder {
     return new PathBuilder(this.renderer);
-  }
-
-  // ============ Direct Renderer Access ============
-
-  /** Save the current transform state */
-  save(): void {
-    this.renderer.save();
-  }
-
-  /** Restore the previous transform state */
-  restore(): void {
-    this.renderer.restore();
-  }
-
-  /** Translate the current transform */
-  translate(x: number, y: number): void;
-  translate(pos: V2d): void;
-  translate(xOrPos: number | V2d, y?: number): void {
-    if (typeof xOrPos === "number") {
-      this.renderer.translate(xOrPos, y!);
-    } else {
-      this.renderer.translate(xOrPos);
-    }
-  }
-
-  /** Rotate the current transform */
-  rotate(radians: number): void {
-    this.renderer.rotate(radians);
-  }
-
-  /** Scale the current transform */
-  scale(s: number): void;
-  scale(sx: number, sy: number): void;
-  scale(sx: number, sy?: number): void {
-    if (sy === undefined) {
-      this.renderer.scale(sx, sx);
-    } else {
-      this.renderer.scale(sx, sy);
-    }
   }
 }
