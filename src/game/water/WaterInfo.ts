@@ -3,6 +3,14 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import { profiler } from "../../core/util/Profiler";
 import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
+import {
+  GERSTNER_STEEPNESS,
+  GRAVITY_FT_PER_S2,
+  WAVE_AMP_MOD_SPATIAL_SCALE,
+  WAVE_AMP_MOD_STRENGTH,
+  WAVE_AMP_MOD_TIME_SCALE,
+  WAVE_COMPONENTS,
+} from "./WaterConstants";
 import { WaterModifier } from "./WaterModifier";
 
 // Units: ft, ft/s for velocities
@@ -12,52 +20,6 @@ const CURRENT_SPATIAL_SCALE = 0.002; // Currents vary slowly across space
 const CURRENT_TIME_SCALE = 0.05; // Currents change slowly over time
 const CURRENT_SPEED_VARIATION = 0.4; // ±40% speed variation
 const CURRENT_ANGLE_VARIATION = 0.5; // ±~30° direction variation
-
-// Gerstner wave configuration
-// Each wave: [amplitude, wavelength, direction, phaseOffset, speedMult, sourceDist, sourceOffset]
-// - amplitude (ft): wave height
-// - wavelength (ft): distance between peaks
-// - direction (radians): wave travel direction
-// - phaseOffset (radians): initial phase (decoheres waves so they don't peak together)
-// - speedMult: multiplier on physical wave speed (creates interference drift)
-// - sourceDist (ft): distance to wave source (Infinity = planar wave, finite = curved)
-// - sourceOffset ([x,y] ft): offset of source from the direction axis (adds variety)
-const WAVE_COMPONENTS: [
-  number,
-  number,
-  number,
-  number,
-  number,
-  number,
-  [number, number],
-][] = [
-  // Large ocean swells - planar (traveled thousands of miles)
-  [0.25, 400, 0.1, 0.0, 1.0, Infinity, [0, 0]],
-  [0.18, 250, 1.7, 3.2, 0.98, Infinity, [0, 0]],
-  [0.12, 150, -0.5, 1.5, 1.02, Infinity, [0, 0]],
-  // Medium swells - very slight curvature
-  [0.15, 80, 0.8, 4.8, 0.97, 8000, [500, -300]],
-  [0.12, 55, -1.2, 2.1, 1.03, 6000, [-400, 600]],
-  // Wind waves - noticeable curvature, from nearby weather
-  [0.18, 35, 1.5, 5.5, 0.99, 2000, [300, 200]],
-  [0.12, 22, -0.3, 0.9, 1.01, 1500, [-500, -400]],
-  [0.08, 14, 2.2, 3.7, 0.96, 1200, [200, -300]],
-  // Chop - more curvature, local disturbances
-  [0.04, 8, -1.5, 1.3, 1.05, 600, [-150, 100]],
-  [0.025, 5, 0.5, 4.2, 0.94, 400, [100, -80]],
-  // Fine ripples - high curvature, very local
-  [0.012, 3, 1.8, 2.6, 1.08, 200, [-60, 40]],
-  [0.006, 2, -0.8, 5.9, 0.92, 150, [30, -50]],
-];
-
-// Gerstner wave steepness (0 = sine waves, higher = sharper peaks)
-// Max safe value is 1/(k*A*numWaves) to prevent self-intersection
-const GERSTNER_STEEPNESS = 0.7; // 0.7 gives nice sharp peaks without breaking
-
-// Amplitude modulation configuration
-const WAVE_AMP_MOD_SPATIAL_SCALE = 0.005; // Slower variation across space
-const WAVE_AMP_MOD_TIME_SCALE = 0.015; // Very slow temporal variation
-const WAVE_AMP_MOD_STRENGTH = 0.5; // ±50% amplitude variation
 
 /**
  * Simple hash function for white noise - returns value in range [0, 1]
@@ -139,84 +101,6 @@ export class WaterInfo extends BaseEntity {
     };
   }
 
-  // Preallocated scratch point to avoid allocations during grid updates
-  private readonly scratchPoint: V2d = V(0, 0);
-
-  /**
-   * Update every Nth pixel in the water data texture, starting at a given offset.
-   * Writes directly to the Uint8Array to avoid intermediate allocations.
-   *
-   * @param dataArray - The texture's Uint8Array to write to
-   * @param offset - Which pixel to start at (0 to stride-1)
-   * @param stride - Update every Nth pixel
-   * @param left - World X coordinate of left edge
-   * @param top - World Y coordinate of top edge
-   * @param cellWidth - Width of each cell in world units
-   * @param cellHeight - Height of each cell in world units
-   * @param gridSize - Number of cells per row/column
-   * @param heightScale - Scale factor for height packing
-   * @param heightOffset - Offset for height packing (neutral height value, e.g. 127)
-   * @param velocityScale - Scale factor for velocity packing
-   * @param velocityOffset - Offset for velocity packing (to handle negative values)
-   */
-  writeStateToTexture(
-    dataArray: Uint8Array,
-    offset: number,
-    stride: number,
-    left: number,
-    top: number,
-    cellWidth: number,
-    cellHeight: number,
-    gridSize: number,
-    heightScale: number,
-    heightOffset: number,
-    velocityScale: number,
-    velocityOffset: number,
-  ): void {
-    const point = this.scratchPoint;
-    const numCells = gridSize * gridSize;
-
-    for (let i = offset; i < numCells; i += stride) {
-      const x = i % gridSize;
-      const y = Math.floor(i / gridSize);
-
-      // Compute world position (reuse scratch point)
-      point.x = left + (x + 0.5) * cellWidth;
-      point.y = top + (y + 0.5) * cellHeight;
-
-      // Get base velocity from noise
-      const baseVel = this.getCurrentVelocityAtPoint(point);
-      let velX = baseVel.x;
-      let velY = baseVel.y;
-      let height = this.getWaveHeightAtPoint(point.x, point.y);
-
-      // Query and apply modifiers directly (no intermediate arrays)
-      for (const modifier of this.spatialHash.queryPoint(point)) {
-        const contrib = modifier.getWaterContribution(point);
-        velX += contrib.velocityX;
-        velY += contrib.velocityY;
-        height += contrib.height;
-      }
-
-      // Pack directly into texture array
-      // Height is centered at heightOffset (127), can go up or down
-      const idx = i * 4;
-      dataArray[idx + 0] = Math.min(
-        255,
-        Math.max(0, height * heightScale + heightOffset),
-      );
-      dataArray[idx + 1] = Math.min(
-        255,
-        Math.max(0, velX * velocityScale + velocityOffset),
-      );
-      dataArray[idx + 2] = Math.min(
-        255,
-        Math.max(0, velY * velocityScale + velocityOffset),
-      );
-      dataArray[idx + 3] = 255; // Alpha channel unused
-    }
-  }
-
   /**
    * Calculate wave height using Gerstner waves with decoherence.
    * - Phase offsets prevent all waves from peaking together
@@ -249,16 +133,18 @@ export class WaterInfo extends BaseEntity {
       phaseOffset,
       speedMult,
       sourceDist,
-      sourceOffset,
+      sourceOffsetX,
+      sourceOffsetY,
     ] of WAVE_COMPONENTS) {
       const baseDx = Math.cos(direction);
       const baseDy = Math.sin(direction);
       const k = (2 * Math.PI) / wavelength;
-      const omega = Math.sqrt(9.8 * 3.28084 * k) * speedMult;
+      const omega = Math.sqrt(GRAVITY_FT_PER_S2 * k) * speedMult;
 
       let dx: number, dy: number, phase: number;
 
-      if (!isFinite(sourceDist)) {
+      // sourceDist > 1e9 means planar wave (using 1e10 instead of Infinity for GLSL compat)
+      if (sourceDist > 1e9) {
         // Planar wave - original calculation
         dx = baseDx;
         dy = baseDy;
@@ -267,8 +153,8 @@ export class WaterInfo extends BaseEntity {
       } else {
         // Point source wave - curved wavefronts
         // Source is behind the wave direction, with optional offset
-        const sourceX = -baseDx * sourceDist + sourceOffset[0];
-        const sourceY = -baseDy * sourceDist + sourceOffset[1];
+        const sourceX = -baseDx * sourceDist + sourceOffsetX;
+        const sourceY = -baseDy * sourceDist + sourceOffsetY;
 
         const toPointX = x - sourceX;
         const toPointY = y - sourceY;
@@ -301,23 +187,24 @@ export class WaterInfo extends BaseEntity {
       phaseOffset,
       speedMult,
       sourceDist,
-      sourceOffset,
+      sourceOffsetX,
+      sourceOffsetY,
     ] of WAVE_COMPONENTS) {
       const baseDx = Math.cos(direction);
       const baseDy = Math.sin(direction);
       const k = (2 * Math.PI) / wavelength;
-      const omega = Math.sqrt(9.8 * 3.28084 * k) * speedMult;
+      const omega = Math.sqrt(GRAVITY_FT_PER_S2 * k) * speedMult;
 
       let phase: number;
 
-      if (!isFinite(sourceDist)) {
+      if (sourceDist > 1e9) {
         // Planar wave
         const projected = sampleX * baseDx + sampleY * baseDy;
         phase = k * projected - omega * t + phaseOffset;
       } else {
         // Point source wave
-        const sourceX = -baseDx * sourceDist + sourceOffset[0];
-        const sourceY = -baseDy * sourceDist + sourceOffset[1];
+        const sourceX = -baseDx * sourceDist + sourceOffsetX;
+        const sourceY = -baseDy * sourceDist + sourceOffsetY;
 
         const toPointX = sampleX - sourceX;
         const toPointY = sampleY - sourceY;

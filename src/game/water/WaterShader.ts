@@ -1,4 +1,5 @@
 import { FullscreenShader } from "../../core/graphics/FullscreenShader";
+import { WATER_TEXTURE_SIZE } from "./WaterConstants";
 
 const WATER_VERTEX_SHADER = /*glsl*/ `#version 300 es
 precision highp float;
@@ -184,7 +185,7 @@ void main(void) {
   }
 
   // Compute surface normal from height gradients
-  float texelSize = 1.0 / 64.0;
+  float texelSize = 1.0 / ${WATER_TEXTURE_SIZE}.0;
   float heightL = texture(u_waterData, dataUV + vec2(-texelSize, 0.0)).r;
   float heightR = texture(u_waterData, dataUV + vec2(texelSize, 0.0)).r;
   float heightD = texture(u_waterData, dataUV + vec2(0.0, -texelSize)).r;
