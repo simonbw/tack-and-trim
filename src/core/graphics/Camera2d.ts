@@ -325,10 +325,13 @@ export class Camera2d extends BaseEntity implements Entity {
     // 4. Rotate
     // 5. Restore anchor position
     // 6. Undo parallax scale
-    // 7. Center on screen (last applied to point)
+    // 7. Y-flip (convert from Y-up world to Y-down screen)
+    // 8. Center on screen (last applied to point)
 
     // Center on screen (applied last to point)
     matrix.translate(w / 2.0, h / 2.0);
+    // Y-flip for screen coordinates (Y increases downward on screen)
+    matrix.scale(1, -1);
     // Undo parallax scale
     matrix.scale(1 / px, 1 / py);
     // Restore anchor position
