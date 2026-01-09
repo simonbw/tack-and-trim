@@ -17,12 +17,8 @@ import ContactEquation from "../equations/ContactEquation";
 import FrictionEquation from "../equations/FrictionEquation";
 import EventEmitter from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
-import {
-  DEFAULT_SOLVER_CONFIG,
-  solveEquations,
-  solveIsland,
-  type SolverConfig,
-} from "../solver/GSSolver";
+import GSSolver from "../solver/GSSolver";
+import type { Solver } from "../solver/Solver";
 import type Spring from "../springs/Spring";
 import BodyManager from "./BodyManager";
 import ConstraintManager from "./ConstraintManager";
@@ -36,8 +32,8 @@ import OverlapKeeper, {
 
 /** Options for creating a World. */
 export interface WorldOptions {
-  /** Configuration for the constraint solver (iterations, tolerance). */
-  solverConfig?: Partial<SolverConfig>;
+  /** Constraint solver to use. Defaults to GSSolver. */
+  solver?: Solver;
   /** Broadphase algorithm for collision culling. Defaults to SpatialHashingBroadphase. */
   broadphase?: Broadphase;
   /** Enable island splitting for more efficient solving and sleeping. */
@@ -73,8 +69,8 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   contactMaterials: ContactMaterialManager;
   /** All springs in the simulation. */
   springs: Set<Spring>;
-  /** Configuration for the Gauss-Seidel constraint solver. */
-  solverConfig: SolverConfig;
+  /** Constraint solver instance. */
+  solver: Solver;
   /** Broadphase algorithm used for collision culling. */
   broadphase: Broadphase;
   /** Total simulated time in seconds. */
@@ -104,7 +100,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     this.constraints = new ConstraintManager();
     this.springs = new Set<Spring>();
 
-    this.solverConfig = { ...DEFAULT_SOLVER_CONFIG, ...options.solverConfig };
+    this.solver = options.solver ?? new GSSolver();
 
     this.broadphase = options.broadphase ?? new SpatialHashingBroadphase();
     this.broadphase.setWorld(this);
@@ -367,12 +363,12 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       const islands = splitIntoIslands(this.bodies.all, allEquations);
       for (const island of islands) {
         if (island.equations.length) {
-          solveIsland(island, dt, this.solverConfig);
+          this.solver.solveIsland(island, dt);
         }
       }
       return islands;
     } else {
-      solveEquations(allEquations, this.bodies.dynamicAwake, dt, this.solverConfig);
+      this.solver.solveEquations(allEquations, this.bodies.dynamicAwake, dt);
       return undefined;
     }
   }

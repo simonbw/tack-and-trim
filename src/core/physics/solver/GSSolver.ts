@@ -7,99 +7,109 @@ import {
   SOLVER_UPDATE_MASS,
 } from "../internal";
 import type { Island } from "../world/Island";
-
-// --- Types ---
-
-export interface SolverConfig {
-  readonly iterations: number;
-  readonly tolerance: number;
-  readonly frictionIterations: number;
-  readonly useZeroRHS: boolean;
-  readonly equationSortFunction?:
-    | ((a: Equation, b: Equation) => number)
-    | false;
-}
-
-export interface SolverResult {
-  readonly usedIterations: number;
-}
-
-export const DEFAULT_SOLVER_CONFIG: SolverConfig = {
-  iterations: 10,
-  tolerance: 1e-7,
-  frictionIterations: 0,
-  useZeroRHS: false,
-  equationSortFunction: false,
-};
-
-// --- Main Functions ---
+import {
+  DEFAULT_SOLVER_CONFIG,
+  type Solver,
+  type SolverConfig,
+  type SolverResult,
+} from "./Solver";
 
 /**
- * Solve a set of constraint equations using the iterative Gauss-Seidel method.
+ * Gauss-Seidel iterative constraint solver.
  *
- * This is a pure function that takes equations and bodies, solves the
- * constraints, and updates body velocities and equation multipliers in place.
+ * This is a sequential solver that updates body velocities immediately
+ * after computing each constraint impulse. This leads to fast convergence
+ * (typically 4-10 iterations) but cannot be parallelized.
+ *
+ * Also known as "Sequential Impulse" or "Projected Gauss-Seidel" (PGS).
  */
-export function solveEquations(
-  equations: readonly Equation[],
-  dynamicBodies: Iterable<DynamicBody>,
-  h: number,
-  config: SolverConfig
-): SolverResult {
-  const {
-    iterations,
-    tolerance,
-    frictionIterations,
-    useZeroRHS,
-    equationSortFunction,
-  } = config;
+export default class GSSolver implements Solver {
+  readonly config: SolverConfig;
 
-  // Sort if configured
-  if (equationSortFunction) {
-    equations = equations.toSorted(equationSortFunction);
+  constructor(config: Partial<SolverConfig> = {}) {
+    this.config = { ...DEFAULT_SOLVER_CONFIG, ...config };
   }
 
-  // Filter out disabled equations (e.g. bodies with collisionResponse: false)
-  equations = equations.filter((eq) => eq.enabled);
+  solveEquations(
+    equations: readonly Equation[],
+    dynamicBodies: Iterable<DynamicBody>,
+    h: number
+  ): SolverResult {
+    const {
+      iterations,
+      tolerance,
+      frictionIterations,
+      useZeroRHS,
+      equationSortFunction,
+    } = this.config;
 
-  const Neq = equations.length;
-  if (Neq === 0) {
-    return { usedIterations: 0 };
-  }
-
-  const tolSquared = (tolerance * Neq) ** 2;
-  let usedIterations = 0;
-
-  // Update solve mass properties for all dynamic bodies
-  for (const body of dynamicBodies) {
-    body[SOLVER_UPDATE_MASS]();
-  }
-
-  // Allocate fresh arrays
-  const lambda = new Float32Array(Neq);
-  const Bs = new Float32Array(Neq);
-  const invCs = new Float32Array(Neq);
-
-  // Prepare equations - compute B and invC values
-  for (let i = 0; i < Neq; i++) {
-    const eq = equations[i];
-    if (eq.timeStep !== h || eq.needsUpdate) {
-      eq.timeStep = h;
-      eq.update();
+    // Sort if configured
+    if (equationSortFunction) {
+      equations = equations.toSorted(equationSortFunction);
     }
-    Bs[i] = eq.computeB(eq.a, eq.b, h);
-    invCs[i] = eq.computeInvC(eq.epsilon);
-  }
 
-  // Reset constraint velocities
-  for (const body of dynamicBodies) {
-    body[SOLVER_RESET_VELOCITY]();
-  }
+    // Filter out disabled equations (e.g. bodies with collisionResponse: false)
+    equations = equations.filter((eq) => eq.enabled);
 
-  // Optional friction pre-iteration phase
-  if (frictionIterations > 0) {
-    for (let iter = 0; iter < frictionIterations; iter++) {
-      const deltaTot = runIteration(
+    const Neq = equations.length;
+    if (Neq === 0) {
+      return { usedIterations: 0 };
+    }
+
+    const tolSquared = (tolerance * Neq) ** 2;
+    let usedIterations = 0;
+
+    // Update solve mass properties for all dynamic bodies
+    for (const body of dynamicBodies) {
+      body[SOLVER_UPDATE_MASS]();
+    }
+
+    // Allocate fresh arrays
+    const lambda = new Float32Array(Neq);
+    const Bs = new Float32Array(Neq);
+    const invCs = new Float32Array(Neq);
+
+    // Prepare equations - compute B and invC values
+    for (let i = 0; i < Neq; i++) {
+      const eq = equations[i];
+      if (eq.timeStep !== h || eq.needsUpdate) {
+        eq.timeStep = h;
+        eq.update();
+      }
+      Bs[i] = eq.computeB(eq.a, eq.b, h);
+      invCs[i] = eq.computeInvC(eq.epsilon);
+    }
+
+    // Reset constraint velocities
+    for (const body of dynamicBodies) {
+      body[SOLVER_RESET_VELOCITY]();
+    }
+
+    // Optional friction pre-iteration phase
+    if (frictionIterations > 0) {
+      for (let iter = 0; iter < frictionIterations; iter++) {
+        const deltaTot = this.runIteration(
+          equations,
+          Bs,
+          invCs,
+          lambda,
+          useZeroRHS,
+          h
+        );
+        usedIterations++;
+
+        if (deltaTot * deltaTot <= tolSquared) {
+          break;
+        }
+      }
+
+      updateMultipliers(equations, lambda, 1 / h);
+      updateFrictionBounds(equations);
+    }
+
+    // Main iteration phase
+    for (let iter = 0; iter < iterations; iter++) {
+      const deltaTot = this.runIteration(
         equations,
         Bs,
         invCs,
@@ -114,55 +124,96 @@ export function solveEquations(
       }
     }
 
+    // Apply constraint velocities to bodies
+    for (const body of dynamicBodies) {
+      body[SOLVER_ADD_VELOCITY]();
+    }
+
+    // Update equation multipliers
     updateMultipliers(equations, lambda, 1 / h);
-    updateFrictionBounds(equations);
+
+    return { usedIterations };
   }
 
-  // Main iteration phase
-  for (let iter = 0; iter < iterations; iter++) {
-    const deltaTot = runIteration(equations, Bs, invCs, lambda, useZeroRHS, h);
-    usedIterations++;
-
-    if (deltaTot * deltaTot <= tolSquared) {
-      break;
+  solveIsland(island: Island, h: number): SolverResult {
+    // Extract dynamic bodies from island
+    const dynamicBodies: DynamicBody[] = [];
+    for (const body of island.bodies) {
+      if (body instanceof DynamicBody) {
+        dynamicBodies.push(body);
+      }
     }
+
+    return this.solveEquations(island.equations as Equation[], dynamicBodies, h);
   }
 
-  // Apply constraint velocities to bodies
-  for (const body of dynamicBodies) {
-    body[SOLVER_ADD_VELOCITY]();
-  }
+  /** Runs one iteration over all equations. Returns total absolute delta. */
+  private runIteration(
+    equations: readonly Equation[],
+    Bs: Float32Array,
+    invCs: Float32Array,
+    lambda: Float32Array,
+    useZeroRHS: boolean,
+    h: number
+  ): number {
+    let deltalambdaTot = 0.0;
+    const Neq = equations.length;
 
-  // Update equation multipliers
-  updateMultipliers(equations, lambda, 1 / h);
-
-  return { usedIterations };
-}
-
-/**
- * Solve all equations in an island.
- *
- * Extracts dynamic bodies from the island and delegates to solveEquations.
- */
-export function solveIsland(
-  island: Island,
-  h: number,
-  config: SolverConfig
-): SolverResult {
-  // Extract dynamic bodies from island
-  const dynamicBodies: DynamicBody[] = [];
-  for (const body of island.bodies) {
-    if (body instanceof DynamicBody) {
-      dynamicBodies.push(body);
+    for (let j = 0; j < Neq; j++) {
+      const eq = equations[j];
+      const deltalambda = this.iterateEquation(
+        j,
+        eq,
+        eq.epsilon,
+        Bs,
+        invCs,
+        lambda,
+        useZeroRHS,
+        h
+      );
+      deltalambdaTot += Math.abs(deltalambda);
     }
+
+    return deltalambdaTot;
   }
 
-  return solveEquations(
-    island.equations as Equation[],
-    dynamicBodies,
-    h,
-    config
-  );
+  /** Iterates a single equation and returns the delta lambda. */
+  private iterateEquation(
+    j: number,
+    eq: Equation,
+    eps: number,
+    Bs: ArrayLike<number>,
+    invCs: ArrayLike<number>,
+    lambda: Float32Array,
+    useZeroRHS: boolean,
+    dt: number
+  ): number {
+    let B = Bs[j];
+    const invC = invCs[j];
+    const lambdaj = lambda[j];
+    const GWlambda = eq.computeGWlambda();
+
+    const maxForce = eq.maxForce;
+    const minForce = eq.minForce;
+
+    if (useZeroRHS) {
+      B = 0;
+    }
+
+    let deltalambda = invC * (B - GWlambda - eps * lambdaj);
+
+    // Clamp if we are not within the min/max interval
+    const lambdaj_plus_deltalambda = lambdaj + deltalambda;
+    if (lambdaj_plus_deltalambda < minForce * dt) {
+      deltalambda = minForce * dt - lambdaj;
+    } else if (lambdaj_plus_deltalambda > maxForce * dt) {
+      deltalambda = maxForce * dt - lambdaj;
+    }
+    lambda[j] += deltalambda;
+    eq.addToWlambda(deltalambda);
+
+    return deltalambda;
+  }
 }
 
 // --- Helper Functions ---
@@ -176,74 +227,6 @@ function updateMultipliers(
   for (let i = equations.length - 1; i >= 0; i--) {
     equations[i].multiplier = lambda[i] * invDt;
   }
-}
-
-/** Runs one iteration over all equations. Returns total absolute delta. */
-function runIteration(
-  equations: readonly Equation[],
-  Bs: Float32Array,
-  invCs: Float32Array,
-  lambda: Float32Array,
-  useZeroRHS: boolean,
-  h: number
-): number {
-  let deltalambdaTot = 0.0;
-  const Neq = equations.length;
-
-  for (let j = 0; j < Neq; j++) {
-    const eq = equations[j];
-    const deltalambda = iterateEquation(
-      j,
-      eq,
-      eq.epsilon,
-      Bs,
-      invCs,
-      lambda,
-      useZeroRHS,
-      h
-    );
-    deltalambdaTot += Math.abs(deltalambda);
-  }
-
-  return deltalambdaTot;
-}
-
-/** Iterates a single equation and returns the delta lambda. */
-function iterateEquation(
-  j: number,
-  eq: Equation,
-  eps: number,
-  Bs: ArrayLike<number>,
-  invCs: ArrayLike<number>,
-  lambda: Float32Array,
-  useZeroRHS: boolean,
-  dt: number
-): number {
-  let B = Bs[j];
-  const invC = invCs[j];
-  const lambdaj = lambda[j];
-  const GWlambda = eq.computeGWlambda();
-
-  const maxForce = eq.maxForce;
-  const minForce = eq.minForce;
-
-  if (useZeroRHS) {
-    B = 0;
-  }
-
-  let deltalambda = invC * (B - GWlambda - eps * lambdaj);
-
-  // Clamp if we are not within the min/max interval
-  const lambdaj_plus_deltalambda = lambdaj + deltalambda;
-  if (lambdaj_plus_deltalambda < minForce * dt) {
-    deltalambda = minForce * dt - lambdaj;
-  } else if (lambdaj_plus_deltalambda > maxForce * dt) {
-    deltalambda = maxForce * dt - lambdaj;
-  }
-  lambda[j] += deltalambda;
-  eq.addToWlambda(deltalambda);
-
-  return deltalambda;
 }
 
 /** Updates friction equation bounds based on contact equation multipliers. */
