@@ -13,15 +13,61 @@ const CURRENT_TIME_SCALE = 0.05; // Currents change slowly over time
 const CURRENT_SPEED_VARIATION = 0.4; // ±40% speed variation
 const CURRENT_ANGLE_VARIATION = 0.5; // ±~30° direction variation
 
-// Wave configuration - sum of sines approach
-// Each wave: [amplitude (ft), wavelength (ft), speed (ft/s), direction (radians)]
-// Light conditions in protected water (small chop)
-const WAVE_COMPONENTS: [number, number, number, number][] = [
-  [0.3, 40, 3, 0.2], // Primary wave - 4" amplitude, 40ft wavelength
-  [0.15, 25, 2, -0.4], // Secondary wave
-  [0.08, 15, 1.5, 0.8], // Tertiary wave
-  [0.04, 8, 1, -1.2], // Detail wave - small ripples
+// Gerstner wave configuration
+// Each wave: [amplitude, wavelength, direction, phaseOffset, speedMult, sourceDist, sourceOffset]
+// - amplitude (ft): wave height
+// - wavelength (ft): distance between peaks
+// - direction (radians): wave travel direction
+// - phaseOffset (radians): initial phase (decoheres waves so they don't peak together)
+// - speedMult: multiplier on physical wave speed (creates interference drift)
+// - sourceDist (ft): distance to wave source (Infinity = planar wave, finite = curved)
+// - sourceOffset ([x,y] ft): offset of source from the direction axis (adds variety)
+const WAVE_COMPONENTS: [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  [number, number],
+][] = [
+  // Large ocean swells - planar (traveled thousands of miles)
+  [0.25, 400, 0.1, 0.0, 1.0, Infinity, [0, 0]],
+  [0.18, 250, 1.7, 3.2, 0.98, Infinity, [0, 0]],
+  [0.12, 150, -0.5, 1.5, 1.02, Infinity, [0, 0]],
+  // Medium swells - very slight curvature
+  [0.15, 80, 0.8, 4.8, 0.97, 8000, [500, -300]],
+  [0.12, 55, -1.2, 2.1, 1.03, 6000, [-400, 600]],
+  // Wind waves - noticeable curvature, from nearby weather
+  [0.18, 35, 1.5, 5.5, 0.99, 2000, [300, 200]],
+  [0.12, 22, -0.3, 0.9, 1.01, 1500, [-500, -400]],
+  [0.08, 14, 2.2, 3.7, 0.96, 1200, [200, -300]],
+  // Chop - more curvature, local disturbances
+  [0.04, 8, -1.5, 1.3, 1.05, 600, [-150, 100]],
+  [0.025, 5, 0.5, 4.2, 0.94, 400, [100, -80]],
+  // Fine ripples - high curvature, very local
+  [0.012, 3, 1.8, 2.6, 1.08, 200, [-60, 40]],
+  [0.006, 2, -0.8, 5.9, 0.92, 150, [30, -50]],
 ];
+
+// Gerstner wave steepness (0 = sine waves, higher = sharper peaks)
+// Max safe value is 1/(k*A*numWaves) to prevent self-intersection
+const GERSTNER_STEEPNESS = 0.7; // 0.7 gives nice sharp peaks without breaking
+
+// Amplitude modulation configuration
+const WAVE_AMP_MOD_SPATIAL_SCALE = 0.005; // Slower variation across space
+const WAVE_AMP_MOD_TIME_SCALE = 0.015; // Very slow temporal variation
+const WAVE_AMP_MOD_STRENGTH = 0.5; // ±50% amplitude variation
+
+/**
+ * Simple hash function for white noise - returns value in range [0, 1]
+ * Uses the fractional part of a large sine product
+ */
+function hash2D(x: number, y: number): number {
+  // Different large primes for x and y to avoid correlation
+  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return n - Math.floor(n);
+}
 
 /**
  * Water state at a given point in the world.
@@ -46,9 +92,15 @@ export class WaterInfo extends BaseEntity {
   private speedNoise: NoiseFunction3D = createNoise3D();
   private angleNoise: NoiseFunction3D = createNoise3D();
 
+  // Wave amplitude modulation - simulates wave groups/packets (physically real)
+  private waveAmpModNoise: NoiseFunction3D = createNoise3D();
+
+  // Surface turbulence noise - small chaotic variations that break up the grid
+  private surfaceNoise: NoiseFunction3D = createNoise3D();
+
   // Spatial hash for efficient water modifier queries
-  private spatialHash = new SparseSpatialHash<WaterModifier>(
-    (m) => m.getWaterModifierAABB()
+  private spatialHash = new SparseSpatialHash<WaterModifier>((m) =>
+    m.getWaterModifierAABB(),
   );
 
   onTick() {
@@ -119,7 +171,7 @@ export class WaterInfo extends BaseEntity {
     heightScale: number,
     heightOffset: number,
     velocityScale: number,
-    velocityOffset: number
+    velocityOffset: number,
   ): void {
     const point = this.scratchPoint;
     const numCells = gridSize * gridSize;
@@ -151,39 +203,147 @@ export class WaterInfo extends BaseEntity {
       const idx = i * 4;
       dataArray[idx + 0] = Math.min(
         255,
-        Math.max(0, height * heightScale + heightOffset)
+        Math.max(0, height * heightScale + heightOffset),
       );
       dataArray[idx + 1] = Math.min(
         255,
-        Math.max(0, velX * velocityScale + velocityOffset)
+        Math.max(0, velX * velocityScale + velocityOffset),
       );
       dataArray[idx + 2] = Math.min(
         255,
-        Math.max(0, velY * velocityScale + velocityOffset)
+        Math.max(0, velY * velocityScale + velocityOffset),
       );
       dataArray[idx + 3] = 255; // Alpha channel unused
     }
   }
 
   /**
-   * Calculate wave height at a given world position using sum of sines.
+   * Calculate wave height using Gerstner waves with decoherence.
+   * - Phase offsets prevent all waves from peaking together
+   * - Speed multipliers create drifting interference patterns
+   * - Position-dependent phase noise adds local variation
    */
   private getWaveHeightAtPoint(x: number, y: number): number {
     const t = this.game?.elapsedUnpausedTime ?? 0;
+
+    // Sample amplitude modulation noise once per point (slow-changing)
+    const ampModTime = t * WAVE_AMP_MOD_TIME_SCALE;
+    const ampMod =
+      1 +
+      this.waveAmpModNoise(
+        x * WAVE_AMP_MOD_SPATIAL_SCALE,
+        y * WAVE_AMP_MOD_SPATIAL_SCALE,
+        ampModTime,
+      ) *
+        WAVE_AMP_MOD_STRENGTH;
+
+    // First pass: compute Gerstner horizontal displacement
+    let dispX = 0;
+    let dispY = 0;
+    const numWaves = WAVE_COMPONENTS.length;
+
+    for (const [
+      amplitude,
+      wavelength,
+      direction,
+      phaseOffset,
+      speedMult,
+      sourceDist,
+      sourceOffset,
+    ] of WAVE_COMPONENTS) {
+      const baseDx = Math.cos(direction);
+      const baseDy = Math.sin(direction);
+      const k = (2 * Math.PI) / wavelength;
+      const omega = Math.sqrt(9.8 * 3.28084 * k) * speedMult;
+
+      let dx: number, dy: number, phase: number;
+
+      if (!isFinite(sourceDist)) {
+        // Planar wave - original calculation
+        dx = baseDx;
+        dy = baseDy;
+        const projected = x * dx + y * dy;
+        phase = k * projected - omega * t + phaseOffset;
+      } else {
+        // Point source wave - curved wavefronts
+        // Source is behind the wave direction, with optional offset
+        const sourceX = -baseDx * sourceDist + sourceOffset[0];
+        const sourceY = -baseDy * sourceDist + sourceOffset[1];
+
+        const toPointX = x - sourceX;
+        const toPointY = y - sourceY;
+        const distFromSource = Math.sqrt(
+          toPointX * toPointX + toPointY * toPointY,
+        );
+
+        // Local wave direction is radial from source
+        dx = toPointX / distFromSource;
+        dy = toPointY / distFromSource;
+        phase = k * distFromSource - omega * t + phaseOffset;
+      }
+
+      // Gerstner horizontal displacement
+      const Q = GERSTNER_STEEPNESS / (k * amplitude * numWaves);
+      const cosPhase = Math.cos(phase);
+      dispX += Q * amplitude * dx * cosPhase;
+      dispY += Q * amplitude * dy * cosPhase;
+    }
+
+    // Second pass: compute height at displaced position
+    const sampleX = x - dispX;
+    const sampleY = y - dispY;
     let height = 0;
 
-    for (const [amplitude, wavelength, speed, direction] of WAVE_COMPONENTS) {
-      // Project position onto wave direction
-      const dx = Math.cos(direction);
-      const dy = Math.sin(direction);
-      const projected = x * dx + y * dy;
-
-      // Calculate phase
+    for (const [
+      amplitude,
+      wavelength,
+      direction,
+      phaseOffset,
+      speedMult,
+      sourceDist,
+      sourceOffset,
+    ] of WAVE_COMPONENTS) {
+      const baseDx = Math.cos(direction);
+      const baseDy = Math.sin(direction);
       const k = (2 * Math.PI) / wavelength;
-      const phase = k * projected - speed * t;
+      const omega = Math.sqrt(9.8 * 3.28084 * k) * speedMult;
 
-      height += amplitude * Math.sin(phase);
+      let phase: number;
+
+      if (!isFinite(sourceDist)) {
+        // Planar wave
+        const projected = sampleX * baseDx + sampleY * baseDy;
+        phase = k * projected - omega * t + phaseOffset;
+      } else {
+        // Point source wave
+        const sourceX = -baseDx * sourceDist + sourceOffset[0];
+        const sourceY = -baseDy * sourceDist + sourceOffset[1];
+
+        const toPointX = sampleX - sourceX;
+        const toPointY = sampleY - sourceY;
+        const distFromSource = Math.sqrt(
+          toPointX * toPointX + toPointY * toPointY,
+        );
+
+        phase = k * distFromSource - omega * t + phaseOffset;
+      }
+
+      height += amplitude * ampMod * Math.sin(phase);
     }
+
+    // Add surface turbulence - small non-periodic noise that breaks up the grid
+    // This represents chaotic micro-variations not captured by the wave model
+    // Mix of smooth noise (for organic feel) and white noise (for randomness)
+    const smoothTurbulence =
+      this.surfaceNoise(x * 0.15, y * 0.15, t * 0.5) * 0.03 +
+      this.surfaceNoise(x * 0.4, y * 0.4, t * 0.8) * 0.01;
+
+    // White noise - changes per pixel, animated slowly with time
+    // Use floor(t) to change the noise pattern roughly once per second
+    const timeCell = Math.floor(t * 0.5);
+    const whiteTurbulence = (hash2D(x * 0.5 + timeCell, y * 0.5) - 0.5) * 0.02;
+
+    height += smoothTurbulence + whiteTurbulence;
 
     return height;
   }

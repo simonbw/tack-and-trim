@@ -14,6 +14,12 @@ const HEIGHT_SCALE = 255 / 5; // ±2.5 units maps to 0-255
 const VELOCITY_SCALE = 255 / 100; // Map -50 to +50 to 0-255 (with 127.5 as zero)
 const VELOCITY_OFFSET = 127.5;
 
+// Foam advection configuration
+const FOAM_DECAY_RATE = 0.985; // Per-frame decay (foam fades over ~5 seconds at 60fps)
+const FOAM_GENERATION_HEIGHT_THRESHOLD = 0.6; // Normalized height above which foam generates
+const FOAM_GENERATION_RATE = 0.15; // How much foam is added per frame at peaks
+const FOAM_ADVECTION_SCALE = 0.3; // How much velocity affects foam movement (lower = slower drift)
+
 export interface Viewport {
   left: number;
   top: number;
@@ -33,7 +39,7 @@ export interface Viewport {
  * - R: surface height (0-255 maps to 0-5 units)
  * - G: velocity X (0-255 maps to -50 to +50)
  * - B: velocity Y (0-255 maps to -50 to +50)
- * - A: unused (set to 255)
+ * - A: foam amount (0-255 maps to 0.0-1.0 foam density)
  */
 export class WaterDataTexture {
   private dataArray: Uint8Array;
@@ -41,9 +47,17 @@ export class WaterDataTexture {
   private gl: WebGL2RenderingContext | null = null;
   private currentOffset: number = 0;
 
+  // Foam state tracking for advection
+  private foamArray: Float32Array;
+  private foamArrayPrev: Float32Array; // Double buffer for advection
+  private lastViewport: Viewport | null = null;
+
   constructor() {
     // Create RGBA8 array for texture data
     this.dataArray = new Uint8Array(TEXTURE_SIZE * TEXTURE_SIZE * 4);
+    // Create foam state arrays (double-buffered for advection)
+    this.foamArray = new Float32Array(TEXTURE_SIZE * TEXTURE_SIZE);
+    this.foamArrayPrev = new Float32Array(TEXTURE_SIZE * TEXTURE_SIZE);
   }
 
   /** Initialize the WebGL texture. Must be called with the GL context. */
@@ -75,6 +89,7 @@ export class WaterDataTexture {
   /**
    * Update a portion of the texture with water state data for the current viewport.
    * Updates every Nth pixel, cycling through offsets each frame.
+   * Also handles foam advection - foam drifts with water velocity.
    */
   update(viewport: Viewport, waterInfo: WaterInfo): void {
     if (!this.gl || !this.glTexture) return;
@@ -102,8 +117,14 @@ export class WaterDataTexture {
     );
     profiler.end("water-update-slice");
 
+    // Foam advection - foam drifts with water velocity, decays, regenerates at peaks
+    profiler.start("foam-advection");
+    this.advectFoam(viewport, cellWidth, cellHeight);
+    profiler.end("foam-advection");
+
     // Advance to next offset for next frame
     this.currentOffset = (this.currentOffset + 1) % UPDATE_STRIDE;
+    this.lastViewport = viewport;
 
     // Upload to GPU
     profiler.start("water-gpu-upload");
@@ -122,6 +143,113 @@ export class WaterDataTexture {
     );
     profiler.end("water-gpu-upload");
     profiler.end("water-data-texture");
+  }
+
+  /**
+   * Advect foam using a semi-Lagrangian approach.
+   * For each cell, look upstream based on velocity and sample foam from there.
+   */
+  private advectFoam(
+    viewport: Viewport,
+    cellWidth: number,
+    cellHeight: number
+  ): void {
+    // Swap buffers - previous becomes source for advection
+    const temp = this.foamArrayPrev;
+    this.foamArrayPrev = this.foamArray;
+    this.foamArray = temp;
+
+    // If viewport changed significantly, clear foam to avoid artifacts
+    if (this.lastViewport && this.viewportChanged(viewport)) {
+      this.foamArrayPrev.fill(0);
+    }
+
+    const invCellWidth = 1 / cellWidth;
+    const invCellHeight = 1 / cellHeight;
+
+    for (let y = 0; y < TEXTURE_SIZE; y++) {
+      for (let x = 0; x < TEXTURE_SIZE; x++) {
+        const idx = y * TEXTURE_SIZE + x;
+        const dataIdx = idx * 4;
+
+        // Read velocity from data array (unpack from 0-255)
+        const velX =
+          (this.dataArray[dataIdx + 1] - VELOCITY_OFFSET) / VELOCITY_SCALE;
+        const velY =
+          (this.dataArray[dataIdx + 2] - VELOCITY_OFFSET) / VELOCITY_SCALE;
+
+        // Calculate upstream position (semi-Lagrangian: where did this foam come from?)
+        // Scale velocity to texel units and apply advection scale for slower drift
+        const upstreamX = x - velX * invCellWidth * FOAM_ADVECTION_SCALE;
+        const upstreamY = y - velY * invCellHeight * FOAM_ADVECTION_SCALE;
+
+        // Sample foam from upstream position with bilinear interpolation
+        const advectedFoam = this.sampleFoamBilinear(upstreamX, upstreamY);
+
+        // Generate new foam based on wave height
+        const normalizedHeight =
+          (this.dataArray[dataIdx] - HEIGHT_OFFSET) / HEIGHT_SCALE / 2.5 + 0.5;
+        const heightAboveThreshold = Math.max(
+          0,
+          normalizedHeight - FOAM_GENERATION_HEIGHT_THRESHOLD
+        );
+        const newFoam =
+          heightAboveThreshold *
+          FOAM_GENERATION_RATE *
+          (1 / (1 - FOAM_GENERATION_HEIGHT_THRESHOLD));
+
+        // Combine: decay existing + add new
+        const foam = Math.min(1, advectedFoam * FOAM_DECAY_RATE + newFoam);
+
+        // Store in foam array and pack into A channel
+        this.foamArray[idx] = foam;
+        this.dataArray[dataIdx + 3] = Math.floor(foam * 255);
+      }
+    }
+  }
+
+  /**
+   * Bilinear interpolation of foam values.
+   */
+  private sampleFoamBilinear(x: number, y: number): number {
+    // Clamp to valid range
+    const clampedX = Math.max(0, Math.min(TEXTURE_SIZE - 1.001, x));
+    const clampedY = Math.max(0, Math.min(TEXTURE_SIZE - 1.001, y));
+
+    const x0 = Math.floor(clampedX);
+    const y0 = Math.floor(clampedY);
+    const x1 = Math.min(x0 + 1, TEXTURE_SIZE - 1);
+    const y1 = Math.min(y0 + 1, TEXTURE_SIZE - 1);
+
+    const fx = clampedX - x0;
+    const fy = clampedY - y0;
+
+    const f00 = this.foamArrayPrev[y0 * TEXTURE_SIZE + x0];
+    const f10 = this.foamArrayPrev[y0 * TEXTURE_SIZE + x1];
+    const f01 = this.foamArrayPrev[y1 * TEXTURE_SIZE + x0];
+    const f11 = this.foamArrayPrev[y1 * TEXTURE_SIZE + x1];
+
+    // Bilinear interpolation
+    const f0 = f00 * (1 - fx) + f10 * fx;
+    const f1 = f01 * (1 - fx) + f11 * fx;
+    return f0 * (1 - fy) + f1 * fy;
+  }
+
+  /**
+   * Check if viewport has changed significantly (pan/zoom).
+   */
+  private viewportChanged(viewport: Viewport): boolean {
+    if (!this.lastViewport) return false;
+    const threshold = 0.5; // Allow 50% overlap before clearing
+    const widthChange =
+      Math.abs(viewport.width - this.lastViewport.width) / viewport.width;
+    const leftChange =
+      Math.abs(viewport.left - this.lastViewport.left) / viewport.width;
+    const topChange =
+      Math.abs(viewport.top - this.lastViewport.top) / viewport.height;
+    return (
+      widthChange > threshold || leftChange > threshold || topChange > threshold
+    );
   }
 
   getGLTexture(): WebGLTexture | null {
