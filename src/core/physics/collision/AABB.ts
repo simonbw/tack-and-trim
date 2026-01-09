@@ -34,7 +34,7 @@ export default class AABB {
     points: CompatibleVector[],
     position?: CompatibleVector,
     angle: number = 0,
-    skinSize: number = 0
+    skinSize: number = 0,
   ): this {
     const l = this.lowerBound;
     const u = this.upperBound;
@@ -57,18 +57,17 @@ export default class AABB {
       if (angle !== 0) {
         const x = p[0];
         const y = p[1];
-        const rotated = V(cosAngle * x - sinAngle * y, sinAngle * x + cosAngle * y);
+        const rotated = V(
+          cosAngle * x - sinAngle * y,
+          sinAngle * x + cosAngle * y,
+        );
         p = rotated;
       }
 
-      for (let j = 0; j < 2; j++) {
-        if (p[j] > u[j]) {
-          u[j] = p[j];
-        }
-        if (p[j] < l[j]) {
-          l[j] = p[j];
-        }
-      }
+      if (p[0] > u[0]) u[0] = p[0];
+      if (p[1] > u[1]) u[1] = p[1];
+      if (p[0] < l[0]) l[0] = p[0];
+      if (p[1] < l[1]) l[1] = p[1];
     }
 
     // Add offset
