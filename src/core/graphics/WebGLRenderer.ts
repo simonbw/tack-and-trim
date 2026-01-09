@@ -21,12 +21,6 @@ export interface LineOptions extends DrawOptions {
   width?: number;
 }
 
-/** Options for stroke */
-export interface StrokeOptions extends DrawOptions {
-  width?: number;
-  join?: "miter" | "round" | "bevel";
-}
-
 /** Options for sprite drawing */
 export interface SpriteOptions {
   rotation?: number;
@@ -43,11 +37,6 @@ const SPRITE_VERTEX_SIZE = 8;
 const SHAPE_VERTEX_SIZE = 6; // position (2) + color (4)
 const MAX_BATCH_VERTICES = 65536;
 const MAX_BATCH_INDICES = MAX_BATCH_VERTICES * 6;
-
-// Number of circle segments based on radius
-function getCircleSegments(radius: number): number {
-  return Math.max(16, Math.min(64, Math.floor(radius * 4)));
-}
 
 /**
  * Immediate-mode 2D WebGL renderer.
@@ -87,10 +76,6 @@ export class WebGLRenderer {
 
   // View matrix (screen projection)
   private viewMatrix: Matrix3 = new Matrix3();
-
-  // Path state
-  private pathPoints: V2d[] = [];
-  private pathStarted = false;
 
   // Stats for debugging (current frame, accumulating)
   private drawCallCount: number = 0;
@@ -384,117 +369,14 @@ export class WebGLRenderer {
     return this.currentTransform.clone();
   }
 
-  /** Get the combined projection * transform matrix */
-  private getProjectedMatrix(): Matrix3 {
-    return this.viewMatrix.clone().multiply(this.currentTransform);
-  }
+  // ============ Core Primitive ============
 
-  // ============ Shape Drawing ============
-
-  /** Draw a filled rectangle */
-  drawRect(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    opts: DrawOptions = {},
-  ): void {
-    const color = opts.color ?? 0xffffff;
-    const alpha = opts.alpha ?? 1.0;
-
-    // Rectangle as two triangles
-    const vertices: V2d[] = [
-      V(x, y),
-      V(x + w, y),
-      V(x + w, y + h),
-      V(x, y + h),
-    ];
-
-    this.addShapeTriangles(vertices, [0, 1, 2, 0, 2, 3], color, alpha);
-  }
-
-  /** Draw a filled circle */
-  drawCircle(x: number, y: number, r: number, opts: DrawOptions = {}): void {
-    const color = opts.color ?? 0xffffff;
-    const alpha = opts.alpha ?? 1.0;
-    const segments = getCircleSegments(r);
-
-    const vertices: V2d[] = [V(x, y)]; // Center
-    const indices: number[] = [];
-
-    for (let i = 0; i <= segments; i++) {
-      const angle = (i / segments) * Math.PI * 2;
-      vertices.push(V(x + Math.cos(angle) * r, y + Math.sin(angle) * r));
-    }
-
-    for (let i = 1; i <= segments; i++) {
-      indices.push(0, i, i + 1 > segments ? 1 : i + 1);
-    }
-
-    this.addShapeTriangles(vertices, indices, color, alpha);
-  }
-
-  /** Draw a filled polygon */
-  drawPolygon(vertices: V2d[] | number[], opts: DrawOptions = {}): void {
-    const color = opts.color ?? 0xffffff;
-    const alpha = opts.alpha ?? 1.0;
-
-    // Convert number array to V2d array if needed
-    let points: V2d[];
-    if (typeof vertices[0] === "number") {
-      points = [];
-      const arr = vertices as number[];
-      for (let i = 0; i < arr.length; i += 2) {
-        points.push(V(arr[i], arr[i + 1]));
-      }
-    } else {
-      points = vertices as V2d[];
-    }
-
-    if (points.length < 3) return;
-
-    // Simple fan triangulation (works for convex polygons)
-    const indices: number[] = [];
-    for (let i = 1; i < points.length - 1; i++) {
-      indices.push(0, i, i + 1);
-    }
-
-    this.addShapeTriangles(points, indices, color, alpha);
-  }
-
-  /** Draw a line */
-  drawLine(
-    x1: number,
-    y1: number,
-    x2: number,
-    y2: number,
-    opts: LineOptions = {},
-  ): void {
-    const color = opts.color ?? 0xffffff;
-    const alpha = opts.alpha ?? 1.0;
-    const width = opts.width ?? 1;
-
-    // Create a quad along the line
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len === 0) return;
-
-    const nx = (-dy / len) * (width / 2);
-    const ny = (dx / len) * (width / 2);
-
-    const vertices: V2d[] = [
-      V(x1 + nx, y1 + ny),
-      V(x2 + nx, y2 + ny),
-      V(x2 - nx, y2 - ny),
-      V(x1 - nx, y1 - ny),
-    ];
-
-    this.addShapeTriangles(vertices, [0, 1, 2, 0, 2, 3], color, alpha);
-  }
-
-  /** Add triangles to the shape batch */
-  private addShapeTriangles(
+  /**
+   * Submit triangles to the shape batch for rendering.
+   * This is the core primitive for all shape drawing.
+   * Vertices are transformed by the current transform matrix.
+   */
+  submitTriangles(
     vertices: V2d[],
     indices: number[],
     color: number,
@@ -704,95 +586,6 @@ export class WebGLRenderer {
     // Reset batch
     this.spriteVertexCount = 0;
     this.spriteIndexCount = 0;
-  }
-
-  // ============ Path API ============
-
-  /** Begin a new path */
-  beginPath(): void {
-    this.pathPoints = [];
-    this.pathStarted = false;
-  }
-
-  /** Move to a point (start a new subpath) */
-  moveTo(x: number, y: number): void {
-    this.pathPoints = [V(x, y)];
-    this.pathStarted = true;
-  }
-
-  /** Add a line to the path */
-  lineTo(x: number, y: number): void {
-    if (!this.pathStarted) {
-      this.moveTo(x, y);
-    } else {
-      this.pathPoints.push(V(x, y));
-    }
-  }
-
-  /** Add a quadratic bezier curve to the path */
-  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void {
-    if (!this.pathStarted || this.pathPoints.length === 0) {
-      this.moveTo(cpx, cpy);
-      this.lineTo(x, y);
-      return;
-    }
-
-    // Approximate quadratic bezier with line segments
-    const start = this.pathPoints[this.pathPoints.length - 1];
-    const cp = V(cpx, cpy);
-    const end = V(x, y);
-    const segments = 8; // Number of segments to approximate curve
-
-    for (let i = 1; i <= segments; i++) {
-      const t = i / segments;
-      const t2 = t * t;
-      const mt = 1 - t;
-      const mt2 = mt * mt;
-
-      // Quadratic bezier: B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2
-      const px = mt2 * start.x + 2 * mt * t * cp.x + t2 * end.x;
-      const py = mt2 * start.y + 2 * mt * t * cp.y + t2 * end.y;
-      this.pathPoints.push(V(px, py));
-    }
-  }
-
-  /** Close the current path */
-  closePath(): void {
-    // Path will be closed when filling
-  }
-
-  /** Fill the current path */
-  fill(color: number, alpha: number = 1.0): void {
-    if (this.pathPoints.length < 3) return;
-    this.drawPolygon(this.pathPoints, { color, alpha });
-  }
-
-  /** Stroke the current path */
-  stroke(
-    color: number,
-    width: number = 1,
-    alpha: number = 1.0,
-    close: boolean = true,
-  ): void {
-    if (this.pathPoints.length < 2) return;
-
-    // Draw lines between consecutive points
-    for (let i = 0; i < this.pathPoints.length - 1; i++) {
-      const p1 = this.pathPoints[i];
-      const p2 = this.pathPoints[i + 1];
-      this.drawLine(p1[0], p1[1], p2[0], p2[1], { color, width, alpha });
-    }
-
-    // Close the path if requested and it has 3+ points
-    if (close && this.pathPoints.length >= 3) {
-      const first = this.pathPoints[0];
-      const last = this.pathPoints[this.pathPoints.length - 1];
-      this.drawLine(last[0], last[1], first[0], first[1], {
-        color,
-        width,
-        alpha,
-      });
-    }
   }
 
   // ============ Texture Generation ============
