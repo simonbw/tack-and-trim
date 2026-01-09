@@ -109,7 +109,7 @@ export default class Game {
     this.renderer = new RenderManager(
       LAYERS,
       DEFAULT_LAYER,
-      this.onResize.bind(this)
+      this.onResize.bind(this),
     );
 
     this.ticksPerSecond = ticksPerSecond;
@@ -138,7 +138,7 @@ export default class Game {
     this.addEntity(this.renderer.camera);
 
     this.animationFrameId = window.requestAnimationFrame(() =>
-      this.loop(this.lastFrameTime)
+      this.loop(this.lastFrameTime),
     );
   }
 
@@ -209,7 +209,7 @@ export default class Game {
   dispatch<EventName extends keyof GameEventMap>(
     eventName: EventName,
     data: GameEventMap[EventName],
-    respectPause = true
+    respectPause = true,
   ) {
     const effectivelyPaused = respectPause && this.paused;
     for (const entity of this.entities.getHandlers(eventName)) {
@@ -341,7 +341,7 @@ export default class Game {
       this.averageFrameDuration = lerp(
         this.averageFrameDuration,
         lastFrameDuration,
-        0.05
+        0.05,
       );
     }
 
@@ -368,7 +368,7 @@ export default class Game {
         profiler.end("physics");
 
         profiler.start("contacts");
-        this.validatePhysics();
+        this.dispatch("afterPhysicsStep", stepDt);
         this.cleanupEntities();
         this.contacts();
         profiler.end("contacts");
@@ -446,58 +446,6 @@ export default class Game {
   private afterPhysics() {
     this.cleanupEntities();
     this.dispatch("afterPhysics", undefined);
-  }
-
-  /** Validate physics state and reset any bodies that have gone unstable. */
-  private validatePhysics() {
-    const MAX_POSITION = 10000;
-    const MAX_VELOCITY = 1000;
-
-    for (const body of this.world.bodies) {
-      if (body instanceof StaticBody) continue;
-
-      const [x, y] = body.position;
-      const [vx, vy] = body.velocity;
-
-      // Check for NaN/Infinity or extreme positions
-      const positionBad =
-        !isFinite(x) ||
-        !isFinite(y) ||
-        Math.abs(x) > MAX_POSITION ||
-        Math.abs(y) > MAX_POSITION;
-      const velocityBad = !isFinite(vx) || !isFinite(vy);
-
-      if (positionBad || velocityBad) {
-        const owner = (body as Body & { owner?: Entity }).owner;
-        console.warn(
-          "Physics instability detected, resetting body:",
-          owner?.constructor?.name ?? "unknown",
-          {
-            position: [x, y],
-            velocity: [vx, vy],
-            angularVelocity: body.angularVelocity,
-          }
-        );
-        body.position.set(0, 0);
-        body.velocity.set(0, 0);
-        body.angularVelocity = 0;
-        continue;
-      }
-
-      // Clamp extreme velocities
-      const speed = Math.sqrt(vx * vx + vy * vy);
-      if (speed > MAX_VELOCITY) {
-        const owner = (body as Body & { owner?: Entity }).owner;
-        console.warn(
-          "Physics velocity clamped:",
-          owner?.constructor?.name ?? "unknown",
-          { speed, maxVelocity: MAX_VELOCITY }
-        );
-        const scale = MAX_VELOCITY / speed;
-        body.velocity[0] *= scale;
-        body.velocity[1] *= scale;
-      }
-    }
   }
 
   /** Get the low-level renderer for direct drawing */

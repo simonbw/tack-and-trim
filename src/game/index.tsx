@@ -6,6 +6,7 @@ import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
+import { PhysicsValidator } from "./PhysicsValidator";
 import { WaterInfo } from "./water/WaterInfo";
 import { WaterRenderer } from "./water/WaterRenderer";
 import { Wind } from "./Wind";
@@ -38,6 +39,7 @@ async function main() {
 
   game.addEntity(new DebugOverlay());
   game.addEntity(new AutoPauser());
+  game.addEntity(new PhysicsValidator());
   game.addEntity(new WaterInfo());
   game.addEntity(new WaterRenderer());
   game.addEntity(new Buoy(200, 0));
