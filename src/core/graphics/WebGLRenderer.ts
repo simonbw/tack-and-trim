@@ -10,17 +10,6 @@ import {
 } from "./ShaderProgram";
 import { Texture, TextureManager } from "./TextureManager";
 
-/** Options for shape drawing */
-export interface DrawOptions {
-  color?: number; // 0xRRGGBB
-  alpha?: number; // 0-1
-}
-
-/** Options for line drawing */
-export interface LineOptions extends DrawOptions {
-  width?: number;
-}
-
 /** Options for sprite drawing */
 export interface SpriteOptions {
   rotation?: number;

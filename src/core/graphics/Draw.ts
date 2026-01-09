@@ -2,7 +2,7 @@ import { V, V2d } from "../Vector";
 import { Camera2d } from "./Camera2d";
 import { PathBuilder } from "./PathBuilder";
 import { Texture } from "./TextureManager";
-import { DrawOptions, LineOptions, WebGLRenderer } from "./WebGLRenderer";
+import { WebGLRenderer } from "./WebGLRenderer";
 
 // Re-export PathBuilder for convenience
 export { PathBuilder };
@@ -10,6 +10,17 @@ export { PathBuilder };
 // Number of circle segments based on radius
 function getCircleSegments(radius: number): number {
   return Math.max(16, Math.min(64, Math.floor(radius * 4)));
+}
+
+/** Options for shape drawing */
+export interface DrawOptions {
+  color?: number; // 0xRRGGBB
+  alpha?: number; // 0-1
+}
+
+/** Options for line drawing */
+export interface LineOptions extends DrawOptions {
+  width?: number;
 }
 
 /** Options for sprite/image drawing */
@@ -22,9 +33,6 @@ export interface ImageOptions {
   anchorX?: number; // 0-1, default 0.5
   anchorY?: number; // 0-1, default 0.5
 }
-
-// Re-export types from WebGLRenderer for convenience
-export type { DrawOptions, LineOptions };
 
 /**
  * High-level drawing API passed to entity onRender callbacks.
