@@ -37,12 +37,21 @@ export interface SolverResult {
 }
 
 /**
+ * Result type that can be sync or async.
+ * GPU solvers may return promises due to async buffer readback.
+ */
+export type MaybeSolverResult = SolverResult | Promise<SolverResult>;
+
+/**
  * Interface for constraint solvers.
  *
  * Solvers take a set of constraint equations and bodies, then compute
  * impulses that satisfy the constraints. Different implementations may
  * use different algorithms (Gauss-Seidel, Jacobi, etc.) with different
  * performance/parallelism tradeoffs.
+ *
+ * Note: GPU-based solvers may return Promises due to async buffer operations.
+ * The physics world should handle both sync and async results appropriately.
  */
 export interface Solver {
   /** Solver configuration (iterations, tolerance, etc.) */
@@ -56,13 +65,13 @@ export interface Solver {
    * @param equations - Constraint equations to solve
    * @param dynamicBodies - Dynamic bodies involved in the equations
    * @param h - Time step
-   * @returns Result containing iteration count
+   * @returns Result containing iteration count (may be async for GPU solvers)
    */
   solveEquations(
     equations: readonly Equation[],
     dynamicBodies: Iterable<DynamicBody>,
     h: number
-  ): SolverResult;
+  ): MaybeSolverResult;
 
   /**
    * Solve all equations in an island.
@@ -72,9 +81,9 @@ export interface Solver {
    *
    * @param island - Island containing bodies and equations
    * @param h - Time step
-   * @returns Result containing iteration count
+   * @returns Result containing iteration count (may be async for GPU solvers)
    */
-  solveIsland(island: Island, h: number): SolverResult;
+  solveIsland(island: Island, h: number): MaybeSolverResult;
 
   /**
    * Release any resources held by the solver (GPU buffers, etc.)
