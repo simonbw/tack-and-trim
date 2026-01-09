@@ -11,8 +11,7 @@ import { SheetConfig } from "./Sheet";
 export interface HullConfig {
   mass: number; // lbs
   vertices: V2d[]; // ft, hull shape polygon
-  liftAndDrag: number; // dimensionless coefficient
-  skinFrictionCoefficient: number; // dimensionless
+  skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
   colors: {
     fill: number;
     stroke: number;
@@ -21,14 +20,12 @@ export interface HullConfig {
 
 export interface KeelConfig {
   vertices: V2d[]; // ft, keel shape (usually a line)
-  liftAndDrag: number; // dimensionless coefficient
   color: number;
 }
 
 export interface RudderConfig {
   position: V2d; // ft from hull center
-  length: number; // ft
-  liftAndDrag: number; // dimensionless coefficient
+  length: number; // ft (span of rudder blade)
   maxSteerAngle: number; // radians
   steerAdjustSpeed: number; // rad/sec
   steerAdjustSpeedFast: number; // rad/sec
@@ -131,7 +128,7 @@ export const DEFAULT_BOAT_CONFIG = StarterDinghy;
  */
 export function createBoatConfig(
   base: BoatConfig,
-  overrides: DeepPartial<BoatConfig>
+  overrides: DeepPartial<BoatConfig>,
 ): BoatConfig {
   return deepMerge(base, overrides);
 }

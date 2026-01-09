@@ -24,7 +24,8 @@ uniform mat3 u_cameraMatrix;
 uniform float u_time;
 uniform vec4 u_viewportBounds;  // [left, top, width, height] in world space
 uniform vec2 u_screenSize;      // Screen size in pixels
-uniform sampler2D u_waterData;  // 64x64 data texture with height/velocity
+uniform sampler2D u_waterData;  // Wave data texture with height
+uniform sampler2D u_modifierData;  // Modifier texture (wakes, etc.)
 uniform int u_renderMode;       // 0 = realistic, 1 = debug height
 
 // Foam uniforms
@@ -163,9 +164,15 @@ void main(void) {
 
   // Sample the data texture (values are packed as 0-255 -> 0.0-1.0)
   vec4 waterData = texture(u_waterData, dataUV);
+  vec4 modifierData = texture(u_modifierData, dataUV);
 
   // Unpack height: 0.5 (127) is neutral, below is trough, above is peak
-  float rawHeight = waterData.r;
+  // Wave height from GPU-computed Gerstner waves
+  float waveHeight = waterData.r;
+  // Modifier height contribution (wakes, etc.) - 0.5 is neutral
+  float modifierHeight = modifierData.r - 0.5;
+  // Combined height
+  float rawHeight = waveHeight + modifierHeight;
 
   // Debug mode: height mapped to blue gradient with clipping indicators
   if (u_renderMode == 1) {
@@ -287,7 +294,7 @@ export class WaterShader extends FullscreenShader {
         u_foamSharpness: { type: "1f", value: 2.0 },
         u_colorNoiseStrength: { type: "1f", value: 0.1 },
       },
-      textures: ["u_waterData"],
+      textures: ["u_waterData", "u_modifierData"],
     });
   }
 
@@ -340,7 +347,13 @@ export class WaterShader extends FullscreenShader {
     this.uniforms.u_colorNoiseStrength.value = value;
   }
 
-  renderWater(waterDataTexture: WebGLTexture | null): void {
-    this.render({ u_waterData: waterDataTexture });
+  renderWater(
+    waterDataTexture: WebGLTexture | null,
+    modifierDataTexture: WebGLTexture | null,
+  ): void {
+    this.render({
+      u_waterData: waterDataTexture,
+      u_modifierData: modifierDataTexture,
+    });
   }
 }

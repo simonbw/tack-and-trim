@@ -39,7 +39,7 @@ export class Hull extends BaseEntity {
     this.body.addShape(
       new Convex({
         vertices: [...config.vertices],
-      }),
+      })
     );
   }
 
@@ -55,7 +55,7 @@ export class Hull extends BaseEntity {
       this.body,
       this.hullArea,
       this.skinFrictionCoefficient,
-      getWaterVelocity,
+      getWaterVelocity
     );
   }
 
@@ -71,7 +71,7 @@ export class Hull extends BaseEntity {
       draw.fillSmoothPolygon(this.vertices, { color: this.fillColor });
       draw.strokeSmoothPolygon(this.vertices, {
         color: this.strokeColor,
-        width: 0.5,
+        width: 0.25,
       });
 
       // Thwart (bench seat) - where helmsman sits, aft of centerboard

@@ -272,4 +272,22 @@ export class WaterInfo extends BaseEntity {
   getCurrentAngle(): number {
     return this.baseCurrentVelocity.angle;
   }
+
+  /**
+   * Query water modifiers at a given point.
+   * Used by ModifierDataTexture to build the modifier texture.
+   */
+  queryModifiersAtPoint(point: V2d): Iterable<WaterModifier> {
+    return this.spatialHash.queryPoint(point);
+  }
+
+  /**
+   * Get all water modifiers.
+   * Used by ModifierDataTexture to iterate through modifiers efficiently.
+   */
+  getAllModifiers(): Iterable<WaterModifier> {
+    return this.game!.entities.getTagged(
+      "waterModifier",
+    ) as unknown as WaterModifier[];
+  }
 }

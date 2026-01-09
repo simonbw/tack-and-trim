@@ -37,7 +37,7 @@ export class TellTail extends BaseEntity {
 
   constructor(
     getAttachmentPoint: () => ReadonlyV2d,
-    getAttachmentVelocity: () => ReadonlyV2d
+    getAttachmentVelocity: () => ReadonlyV2d,
   ) {
     super();
 
@@ -53,7 +53,7 @@ export class TellTail extends BaseEntity {
         position: attachPos.add([i * segmentLength, 0]),
         collisionResponse: false,
         fixedRotation: true,
-      }).addShape(new Particle())
+      }).addShape(new Particle()),
     );
 
     // Connect adjacent particles with distance constraints
@@ -62,7 +62,7 @@ export class TellTail extends BaseEntity {
         new DistanceConstraint(a, b, {
           distance: segmentLength * SLACK_FACTOR,
           collideConnected: false,
-        })
+        }),
     );
   }
 
@@ -105,16 +105,12 @@ export class TellTail extends BaseEntity {
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     if (this.bodies.length < 2) return;
 
-    // Draw using path API
-    const path = draw.path();
-    const [startX, startY] = this.bodies[0].position;
-    path.moveTo(startX, startY);
+    const vertices = this.bodies.map((b) => b.position.clone());
 
-    for (let i = 1; i < this.bodies.length; i++) {
-      const [x, y] = this.bodies[i].position;
-      path.lineTo(x, y);
-    }
-
-    path.stroke(TELLTAIL_COLOR, TELLTAIL_WIDTH, 1.0);
+    draw.spline(vertices, {
+      color: TELLTAIL_COLOR,
+      width: TELLTAIL_WIDTH,
+      alpha: 1.0,
+    });
   }
 }

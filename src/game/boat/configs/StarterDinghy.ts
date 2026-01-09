@@ -28,8 +28,7 @@ export const StarterDinghy: BoatConfig = {
       V(-6, 2.3),
       V(-6.5, 1.3),
     ], // ~16 ft LOA, ~6.6 ft beam
-    liftAndDrag: 0.15,
-    skinFrictionCoefficient: 0.02,
+    skinFrictionCoefficient: 0.003, // Typical smooth hull skin friction
     colors: {
       fill: 0xccaa33,
       stroke: 0x886633,
@@ -37,19 +36,17 @@ export const StarterDinghy: BoatConfig = {
   },
 
   keel: {
-    vertices: [V(-5, 0), V(5, 0)], // 10ft span across hull bottom
-    liftAndDrag: 1.5,
+    vertices: [V(-5, 0), V(5, 0)], // 10ft span centerboard
     color: 0x665522,
   },
 
   rudder: {
     position: V(-6, 0), // At transom
-    length: 2.5, // ft
-    liftAndDrag: 2.0,
+    length: 2.5, // ft (span of rudder blade)
     maxSteerAngle: degToRad(35),
     steerAdjustSpeed: 0.8, // rad/sec
     steerAdjustSpeedFast: 2.0, // rad/sec
-    color: 0x665599,
+    color: 0x4a3a3d, // Dark brown with bluish tint for underwater rudder
   },
 
   rig: {

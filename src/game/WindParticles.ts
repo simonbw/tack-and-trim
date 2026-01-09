@@ -8,12 +8,11 @@ import { V, V2d } from "../core/Vector";
 import { Wind } from "./Wind";
 
 // Configuration (visual/screen-space, not world units)
-const PARTICLE_COUNT = 5; // Target particles per sector
+const PARTICLE_COUNT = 0; // Target particles per sector
 const SPAWN_RATE = 500; // particles per second (spawn and despawn)
 const TARGET_ALPHA = 0.8; // Dimensionless opacity
 const ALPHA_LERP_SPEED = 0.7; // 1/s - alpha transition speed
 const PARTICLE_SIZE = 1.5; // pixels on screen, regardless of zoom
-const TEXTURE_SIZE = 8; // pixels - texture resolution
 const COLOR = 0xffffff;
 const PARTICLE_MOVE_SCALE = 0.5; // Dimensionless - fraction of wind speed
 
@@ -150,7 +149,7 @@ class ParticleGrid {
     const numSectors = gridWidth * gridHeight;
     if (numSectors <= 1) {
       throw new Error(
-        `Invalid sector grid size: ${numSectors} (${gridWidth}x${gridHeight})`,
+        `Invalid sector grid size: ${numSectors} (${gridWidth}x${gridHeight})`
       );
     }
     this.sectors = range(numSectors).map(() => []);
@@ -172,7 +171,7 @@ class ParticleGrid {
 
   private getSectorBounds(
     sectorIndex: number,
-    viewport: Viewport,
+    viewport: Viewport
   ): { left: number; right: number; top: number; bottom: number } {
     const col = sectorIndex % this.gridWidth;
     const row = Math.floor(sectorIndex / this.gridWidth);
@@ -191,7 +190,7 @@ class ParticleGrid {
   private getRandomPosInSector(sectorIndex: number, viewport: Viewport): V2d {
     const { left, right, top, bottom } = this.getSectorBounds(
       sectorIndex,
-      viewport,
+      viewport
     );
     return V(rUniform(left, right), rUniform(top, bottom));
   }
@@ -216,7 +215,7 @@ class ParticleGrid {
 
     // Sort indices by sector count (sparsest first)
     this.sortedIndices.sort(
-      (a, b) => this.sectors[a].length - this.sectors[b].length,
+      (a, b) => this.sectors[a].length - this.sectors[b].length
     );
   }
 

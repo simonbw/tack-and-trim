@@ -1,4 +1,5 @@
-import { CompatibleVector, V2d } from "../Vector";
+import { hexToVec3 } from "../util/ColorUtils";
+import { CompatibleVector } from "../Vector";
 import { GpuTimer } from "./GpuTimer";
 import { Matrix3 } from "./Matrix3";
 import {
@@ -109,17 +110,17 @@ export class WebGLRenderer {
     this.shapeProgram = new ShaderProgram(
       gl,
       SHAPE_VERTEX_SHADER,
-      SHAPE_FRAGMENT_SHADER,
+      SHAPE_FRAGMENT_SHADER
     );
     this.spriteProgram = new ShaderProgram(
       gl,
       SPRITE_VERTEX_SHADER,
-      SPRITE_FRAGMENT_SHADER,
+      SPRITE_FRAGMENT_SHADER
     );
 
     // Initialize shape batch buffers
     this.shapeVertices = new Float32Array(
-      MAX_BATCH_VERTICES * SHAPE_VERTEX_SIZE,
+      MAX_BATCH_VERTICES * SHAPE_VERTEX_SIZE
     );
     this.shapeIndices = new Uint16Array(MAX_BATCH_INDICES);
 
@@ -158,7 +159,7 @@ export class WebGLRenderer {
 
     // Initialize sprite batch buffers
     this.spriteVertices = new Float32Array(
-      MAX_BATCH_VERTICES * SPRITE_VERTEX_SIZE,
+      MAX_BATCH_VERTICES * SPRITE_VERTEX_SIZE
     );
     this.spriteIndices = new Uint16Array(MAX_BATCH_INDICES);
 
@@ -195,7 +196,7 @@ export class WebGLRenderer {
       gl.FLOAT,
       false,
       spriteStride,
-      8 * 4,
+      8 * 4
     );
 
     const sprModelCol1Loc = this.spriteProgram.getAttribLocation("a_modelCol1");
@@ -206,7 +207,7 @@ export class WebGLRenderer {
       gl.FLOAT,
       false,
       spriteStride,
-      10 * 4,
+      10 * 4
     );
 
     const sprModelCol2Loc = this.spriteProgram.getAttribLocation("a_modelCol2");
@@ -217,7 +218,7 @@ export class WebGLRenderer {
       gl.FLOAT,
       false,
       spriteStride,
-      12 * 4,
+      12 * 4
     );
 
     gl.bindVertexArray(null);
@@ -234,7 +235,7 @@ export class WebGLRenderer {
   resize(
     width: number,
     height: number,
-    pixelRatio: number = window.devicePixelRatio,
+    pixelRatio: number = window.devicePixelRatio
   ): void {
     this.pixelRatio = pixelRatio;
     const w = Math.floor(width * pixelRatio);
@@ -389,10 +390,10 @@ export class WebGLRenderer {
    * Vertices are transformed by the current transform matrix.
    */
   submitTriangles(
-    vertices: V2d[],
+    vertices: [number, number][],
     indices: number[],
     color: number,
-    alpha: number,
+    alpha: number
   ): void {
     // Check if we need to flush
     if (
@@ -403,9 +404,7 @@ export class WebGLRenderer {
     }
 
     // Extract color components
-    const r = ((color >> 16) & 0xff) / 255;
-    const g = ((color >> 8) & 0xff) / 255;
-    const b = (color & 0xff) / 255;
+    const [r, g, b] = hexToVec3(color);
 
     // Extract model matrix components (same for all vertices in this call)
     const m = this.currentTransform;
@@ -469,13 +468,13 @@ export class WebGLRenderer {
     gl.bufferSubData(
       gl.ARRAY_BUFFER,
       0,
-      this.shapeVertices.subarray(0, this.shapeVertexCount * SHAPE_VERTEX_SIZE),
+      this.shapeVertices.subarray(0, this.shapeVertexCount * SHAPE_VERTEX_SIZE)
     );
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.shapeIndexBuffer);
     gl.bufferSubData(
       gl.ELEMENT_ARRAY_BUFFER,
       0,
-      this.shapeIndices.subarray(0, this.shapeIndexCount),
+      this.shapeIndices.subarray(0, this.shapeIndexCount)
     );
 
     // Draw
@@ -493,7 +492,7 @@ export class WebGLRenderer {
     texture: Texture,
     x: number,
     y: number,
-    opts: SpriteOptions = {},
+    opts: SpriteOptions = {}
   ): void {
     // Flush if texture changes
     if (this.currentTexture && this.currentTexture !== texture) {
@@ -621,13 +620,13 @@ export class WebGLRenderer {
     gl.bufferSubData(
       gl.ARRAY_BUFFER,
       0,
-      this.spriteVertices.subarray(0, this.spriteVertexCount),
+      this.spriteVertices.subarray(0, this.spriteVertexCount)
     );
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.spriteIndexBuffer);
     gl.bufferSubData(
       gl.ELEMENT_ARRAY_BUFFER,
       0,
-      this.spriteIndices.subarray(0, this.spriteIndexCount),
+      this.spriteIndices.subarray(0, this.spriteIndexCount)
     );
 
     // Draw
@@ -644,7 +643,7 @@ export class WebGLRenderer {
   generateTexture(
     draw: (renderer: WebGLRenderer) => void,
     width: number,
-    height: number,
+    height: number
   ): Texture {
     const gl = this.gl;
 
@@ -658,7 +657,7 @@ export class WebGLRenderer {
       gl.COLOR_ATTACHMENT0,
       gl.TEXTURE_2D,
       texture.glTexture,
-      0,
+      0
     );
 
     // Save current state

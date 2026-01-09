@@ -1,10 +1,15 @@
 import { degToRad } from "../../core/util/MathUtil";
 import { V2d } from "../../core/Vector";
-import { ForceMagnitudeFn, GLOBAL_FORCE_SCALE } from "../fluid-dynamics";
+import { ForceMagnitudeFn, RHO_AIR } from "../fluid-dynamics";
 
 // ============================================================================
 // Sail Airfoil Physics
 // ============================================================================
+
+// Default sail chord (depth from luff to leech) in feet
+// A typical dinghy mainsail might be 5-6 ft from luff to leech
+export const DEFAULT_SAIL_CHORD = 5.0; // ft
+
 /**
  * Calculate camber from three points (prev, current, next).
  * Returns how far the middle point deviates from the chord line,
@@ -26,13 +31,18 @@ export function calculateCamber(prev: V2d, current: V2d, next: V2d): number {
 
 /**
  * Create a lift magnitude function for sail airfoil behavior.
- * Unlike flat plates, airfoil lift is proportional to sin(α) * Cl(α),
- * not sin(α) * cos(α). Camber increases lift coefficient.
+ * Uses proper fluid dynamics: F = 0.5 * ρ_air * v² * Cl * A
+ * @param chord - Sail chord (depth) in feet
+ * @param camber - Sail camber (curvature)
+ * @param rho - Air density in slugs/ft³ (default: sea level air)
  */
-export function sailLift(scale: number, camber: number): ForceMagnitudeFn {
+export function sailLift(
+  chord: number,
+  camber: number,
+  rho: number = RHO_AIR,
+): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
     // Use effective angle (0 to 90°) for coefficient calculation
-    // This ensures symmetric behavior regardless of which edge direction is active
     const alpha = Math.abs(angleOfAttack);
     const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
 
@@ -52,23 +62,26 @@ export function sailLift(scale: number, camber: number): ForceMagnitudeFn {
     // Camber increases lift
     cl += Math.abs(camber) * CAMBER_LIFT_FACTOR;
 
-    return (
-      Math.sin(angleOfAttack) *
-      cl *
-      speed *
-      speed *
-      edgeLength *
-      scale *
-      GLOBAL_FORCE_SCALE
-    );
+    // Proper fluid dynamics formula: F = 0.5 * ρ * v² * Cl * A
+    // The sin(angleOfAttack) factor projects the force appropriately
+    const area = edgeLength * chord;
+    const dynamicPressure = 0.5 * rho * speed * speed;
+    return Math.sin(angleOfAttack) * cl * dynamicPressure * area;
   };
 }
 
-/** Create a drag magnitude function for sail airfoil behavior. */
-export function sailDrag(scale: number): ForceMagnitudeFn {
+/**
+ * Create a drag magnitude function for sail airfoil behavior.
+ * Uses proper fluid dynamics: F = 0.5 * ρ_air * v² * Cd * A
+ * @param chord - Sail chord (depth) in feet
+ * @param rho - Air density in slugs/ft³ (default: sea level air)
+ */
+export function sailDrag(
+  chord: number,
+  rho: number = RHO_AIR,
+): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
     // Use effective angle (0 to 90°) for coefficient calculation
-    // This ensures symmetric behavior regardless of which edge direction is active
     const alpha = Math.abs(angleOfAttack);
     const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
 
@@ -79,15 +92,10 @@ export function sailDrag(scale: number): ForceMagnitudeFn {
       effectiveAlpha > STALL_ANGLE ? 0.5 * (effectiveAlpha - STALL_ANGLE) : 0;
     const cd = baseDrag + inducedDrag + stallDrag;
 
-    return (
-      Math.sin(angleOfAttack) *
-      cd *
-      speed *
-      speed *
-      edgeLength *
-      scale *
-      GLOBAL_FORCE_SCALE
-    );
+    // Proper fluid dynamics formula: F = 0.5 * ρ * v² * Cd * A
+    const area = edgeLength * chord;
+    const dynamicPressure = 0.5 * rho * speed * speed;
+    return Math.sin(angleOfAttack) * cd * dynamicPressure * area;
   };
 }
 export const CAMBER_LIFT_FACTOR = 0.0;
@@ -100,7 +108,7 @@ export const STALL_ANGLE = degToRad(15);
  */
 export function getSailLiftCoefficient(
   angleOfAttack: number,
-  camber: number = 0
+  camber: number = 0,
 ): number {
   const alpha = Math.abs(angleOfAttack);
   const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;

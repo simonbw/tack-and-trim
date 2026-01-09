@@ -1,7 +1,12 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { pairs } from "../../core/util/FunctionalUtils";
 import { V, V2d } from "../../core/Vector";
-import { applyFluidForces, foilDrag, foilLift } from "../fluid-dynamics";
+import {
+  applyFluidForces,
+  foilDrag,
+  foilLift,
+  KEEL_CHORD,
+} from "../fluid-dynamics";
 import { WaterInfo } from "../water/WaterInfo";
 import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
@@ -10,7 +15,6 @@ export class Keel extends BaseEntity {
   layer = "underhull" as const;
 
   private vertices: V2d[];
-  private liftAndDrag: number;
   private color: number;
 
   constructor(
@@ -20,13 +24,13 @@ export class Keel extends BaseEntity {
     super();
 
     this.vertices = config.vertices;
-    this.liftAndDrag = config.liftAndDrag;
     this.color = config.color;
   }
 
   onTick() {
-    const lift = foilLift(this.liftAndDrag);
-    const drag = foilDrag(this.liftAndDrag);
+    // Use proper foil physics with real chord dimension
+    const lift = foilLift(KEEL_CHORD);
+    const drag = foilDrag(KEEL_CHORD);
 
     // Get water velocity function
     const water = this.game?.entities.getById("waterInfo") as

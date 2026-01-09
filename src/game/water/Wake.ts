@@ -44,7 +44,7 @@ export class Wake extends BaseEntity {
     this.rightSpawnLocal = rightSpawnLocal;
   }
 
-  onTick(dt: number) {
+  onTick(_dt: number) {
     const velocity = this.boat.getVelocity();
     const speed = velocity.magnitude;
 
@@ -54,16 +54,14 @@ export class Wake extends BaseEntity {
 
     // Check distance traveled since last spawn
     if (this.lastSpawnPos) {
-      if (
-        this.lastSpawnPos.squaredDistanceTo(boatPos) <
-        CONFIG.SPAWN_DISTANCE * CONFIG.SPAWN_DISTANCE
-      )
-        return;
+      const distSq = this.lastSpawnPos.squaredDistanceTo(boatPos);
+      if (distSq < CONFIG.SPAWN_DISTANCE * CONFIG.SPAWN_DISTANCE) return;
     }
-    this.lastSpawnPos = boatPos;
+    // Clone position since getPosition() returns a reference to the physics body's position
+    this.lastSpawnPos = boatPos.clone();
 
     const speedFactor = clamp(
-      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed)
+      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed),
     );
 
     const body = this.boat.hull.body;
@@ -78,18 +76,18 @@ export class Wake extends BaseEntity {
     side: WakeSide,
     body: { toWorldFrame: (v: V2d) => V2d; angle: number },
     wakeSpeed: number,
-    speedFactor: number
+    speedFactor: number,
   ) {
     const sideSign = side === "left" ? 1 : -1;
 
     const pos = body.toWorldFrame(
-      side === "left" ? this.leftSpawnLocal : this.rightSpawnLocal
+      side === "left" ? this.leftSpawnLocal : this.rightSpawnLocal,
     );
     const vel = V(0, wakeSpeed * sideSign).irotate(body.angle);
     const lifespan = lerp(
       CONFIG.MIN_PARTICLE_LIFESPAN,
       CONFIG.MAX_PARTICLE_LIFESPAN,
-      Math.random()
+      Math.random(),
     );
 
     const particle = new WakeParticle(pos, vel, side, speedFactor, lifespan);

@@ -4,53 +4,34 @@ import { rNormal, rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 
-// Hull outline points (from Hull.ts) for spawning along the perimeter
-// Units: feet (ft)
-const HULL_POINTS: V2d[] = [
-  V(-6.5, -1.3),
-  V(-6, -2.3),
-  V(-2.5, -3.3),
-  V(2, -3.3),
-  V(5.3, -2.6),
-  V(8, -1.3),
-  V(9.2, 0), // Bow
-  V(8, 1.3),
-  V(5.3, 2.6),
-  V(2, 3.3),
-  V(-2.5, 3.3),
-  V(-6, 2.3),
-  V(-6.5, 1.3),
-];
-
 // Units: ft, ft/s, seconds
 const CONFIG = {
   // Particle lifecycle
-  MAX_AGE: 0.6, // seconds
+  MAX_AGE: 1.0, // seconds (flight time before forced destroy)
 
   // Speed thresholds
   MIN_SPEED: 5, // ft/s (~3 kts) - spray starts appearing
-  MAX_SPEED: 12, // ft/s (~7 kts) - hull speed limit
+  MAX_SPEED: 20, // ft/s (~7 kts) - hull speed limit
 
   // Spawning
-  SPAWN_RATE: 5, // Base particles per second at max speed
+  SPAWN_RATE: 1000, // Base particles per second at max speed
 
   // Physics (in ft and ft/s)
-  SPRAY_SPEED: 4, // ft/s - how fast particles spray outward from hull
-  INITIAL_VZ: 10, // ft/s - initial upward velocity
-  GRAVITY: 40, // ft/s² - gravitational acceleration (scaled for visual effect)
-  DRAG: 2.0, // 1/s - velocity decay rate (dimensionless)
+  SPRAY_SPEED: 10, // ft/s - how fast particles spray outward from hull
+  INITIAL_VZ: 18, // ft/s - initial upward velocity
+  GRAVITY: 32, // ft/s² - gravitational acceleration (real gravity)
+  DRAG: 6.0, // 1/s - air drag so droplets slow and trail behind boat
 
-  // Rendering (visual/pixels)
+  // Rendering
   COLOR: 0xffffff,
   MIN_ALPHA: 0.7,
   MAX_ALPHA: 1.0,
-  MIN_SIZE: 1.4, // pixels
-  MAX_SIZE: 2.0, // pixels
-  TEXTURE_SIZE: 8, // Texture resolution in pixels
+  MIN_SIZE: 0.05, // ft (~1.5 cm diameter)
+  MAX_SIZE: 0.12, // ft (~3.6 cm diameter)
 
   // Splash (when hitting water)
-  SPLASH_DURATION: 0.3, // seconds
-  SPLASH_GROW_SCALE: 2.0, // multiplier
+  SPLASH_DURATION: 2.0, // seconds
+  SPLASH_GROW_SCALE: 3.0, // multiplier
 };
 
 /**
@@ -98,8 +79,6 @@ class SprayParticle {
         this.z = 0;
         this.vel.set(0, 0);
         this.vz = 0;
-      } else if (this.age >= CONFIG.MAX_AGE) {
-        this.destroyed = true;
       }
     }
   }
@@ -107,12 +86,12 @@ class SprayParticle {
   /** Get current visual alpha */
   getAlpha(): number {
     if (this.splashing) {
+      // Fade out during splash
       const t = this.splashAge / CONFIG.SPLASH_DURATION;
-      return CONFIG.MIN_ALPHA * (1 - t);
+      return CONFIG.MAX_ALPHA * (1 - t);
     } else {
-      const ageFactor = 1 - this.age / CONFIG.MAX_AGE;
-      const heightFactor = Math.min(this.z / 8, 1);
-      return lerp(CONFIG.MIN_ALPHA, CONFIG.MAX_ALPHA, ageFactor) * heightFactor;
+      // Full opacity while flying
+      return CONFIG.MAX_ALPHA;
     }
   }
 
@@ -122,8 +101,7 @@ class SprayParticle {
       const t = this.splashAge / CONFIG.SPLASH_DURATION;
       return this.size * lerp(1, CONFIG.SPLASH_GROW_SCALE, t);
     } else {
-      const ageFactor = 1 - this.age / CONFIG.MAX_AGE;
-      return this.size * (1 + this.z * 0.02) * (0.6 + 0.4 * ageFactor);
+      return this.size * (1 + this.z * 0.02);
     }
   }
 }
@@ -167,7 +145,7 @@ export class BoatSpray extends BaseEntity {
     if (speed < CONFIG.MIN_SPEED) return;
 
     const speedFactor = clamp(
-      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed),
+      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed)
     );
 
     // Spawn rate scales with speed
@@ -180,9 +158,10 @@ export class BoatSpray extends BaseEntity {
       this.spawnAccumulator -= 1;
 
       // Pick a random edge on the hull
-      const edgeIndex = Math.floor(Math.random() * HULL_POINTS.length);
-      const p1 = HULL_POINTS[edgeIndex];
-      const p2 = HULL_POINTS[(edgeIndex + 1) % HULL_POINTS.length];
+      const hullVertices = this.boat.config.hull.vertices;
+      const edgeIndex = Math.floor(Math.random() * hullVertices.length);
+      const p1 = hullVertices[edgeIndex];
+      const p2 = hullVertices[(edgeIndex + 1) % hullVertices.length];
 
       // Random point along this edge
       const localPos = lerpV2d(p1, p2, Math.random());
@@ -205,7 +184,7 @@ export class BoatSpray extends BaseEntity {
 
       // Spray velocity: based on boat velocity plus outward spray
       const sprayOutward = worldNormal.mul(
-        CONFIG.SPRAY_SPEED * rUniform(0.0, 2.0),
+        CONFIG.SPRAY_SPEED * rUniform(0.0, 2.0)
       );
       const particleVel = velocity.mul(rNormal(1, 0.1)).add(sprayOutward);
       const vz = CONFIG.INITIAL_VZ * rUniform(0.6, 1.2) * (0.5 + facing * 0.5);

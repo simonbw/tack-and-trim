@@ -1,7 +1,12 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import { applyFluidForces, foilDrag, foilLift } from "../fluid-dynamics";
+import {
+  applyFluidForces,
+  foilDrag,
+  foilLift,
+  RUDDER_CHORD,
+} from "../fluid-dynamics";
 import { WaterInfo } from "../water/WaterInfo";
 import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
@@ -15,7 +20,6 @@ export class Rudder extends BaseEntity {
 
   private position: V2d;
   private length: number;
-  private liftAndDrag: number;
   private maxSteerAngle: number;
   private steerAdjustSpeed: number;
   private steerAdjustSpeedFast: number;
@@ -29,7 +33,6 @@ export class Rudder extends BaseEntity {
 
     this.position = config.position;
     this.length = config.length;
-    this.liftAndDrag = config.liftAndDrag;
     this.maxSteerAngle = config.maxSteerAngle;
     this.steerAdjustSpeed = config.steerAdjustSpeed;
     this.steerAdjustSpeedFast = config.steerAdjustSpeedFast;
@@ -67,8 +70,9 @@ export class Rudder extends BaseEntity {
     );
     const rudderEnd = this.position.add(rudderOffset);
 
-    const lift = foilLift(this.liftAndDrag);
-    const drag = foilDrag(this.liftAndDrag);
+    // Use proper foil physics with real chord dimension
+    const lift = foilLift(RUDDER_CHORD);
+    const drag = foilDrag(RUDDER_CHORD);
 
     // Get water velocity function
     const water = this.game?.entities.getById("waterInfo") as

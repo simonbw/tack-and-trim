@@ -1,4 +1,5 @@
 import { profiler } from "../../core/util/Profiler";
+import { ModifierDataTexture } from "./ModifierDataTexture";
 import { WATER_TEXTURE_SIZE } from "./WaterConstants";
 import { WaterInfo } from "./WaterInfo";
 import { WaveComputeShader } from "./WaveComputeShader";
@@ -27,6 +28,7 @@ export class WaterDataTexture {
   private gl: WebGL2RenderingContext | null = null;
   private waveComputeShader: WaveComputeShader | null = null;
   private waveTexture: WaveTexture | null = null;
+  private modifierTexture: ModifierDataTexture | null = null;
   private savedViewport: [number, number, number, number] = [0, 0, 0, 0];
 
   constructor() {
@@ -42,6 +44,8 @@ export class WaterDataTexture {
       WATER_TEXTURE_SIZE,
       WATER_TEXTURE_SIZE,
     );
+    this.modifierTexture = new ModifierDataTexture();
+    this.modifierTexture.initGL(gl);
   }
 
   /**
@@ -88,10 +92,10 @@ export class WaterDataTexture {
       this.savedViewport[3],
     );
 
-    // TODO: Apply water modifiers sparsely
-    // This would read back affected regions, apply modifier contributions,
-    // and re-upload only those texels. For now, modifiers are handled
-    // entirely in WaterInfo.getStateAtPoint() for physics queries.
+    // Update modifier texture (wakes, etc.) on CPU
+    if (this.modifierTexture) {
+      this.modifierTexture.update(viewport, waterInfo);
+    }
 
     profiler.end("water-data-texture");
   }
@@ -100,8 +104,16 @@ export class WaterDataTexture {
     return this.waveTexture?.getTexture() ?? null;
   }
 
+  getModifierGLTexture(): WebGLTexture | null {
+    return this.modifierTexture?.getTexture() ?? null;
+  }
+
   getTextureSize(): number {
     return WATER_TEXTURE_SIZE;
+  }
+
+  getModifierTextureSize(): number {
+    return this.modifierTexture?.getTextureSize() ?? 128;
   }
 
   destroy(): void {
@@ -112,6 +124,10 @@ export class WaterDataTexture {
     if (this.waveTexture) {
       this.waveTexture.destroy();
       this.waveTexture = null;
+    }
+    if (this.modifierTexture) {
+      this.modifierTexture.destroy();
+      this.modifierTexture = null;
     }
   }
 }

@@ -9,7 +9,12 @@ import { V, V2d } from "../../core/Vector";
 import { applyFluidForces } from "../fluid-dynamics";
 import type { Wind } from "../Wind";
 import type { WindModifier } from "../WindModifier";
-import { calculateCamber, sailDrag, sailLift } from "./sail-helpers";
+import {
+  calculateCamber,
+  DEFAULT_SAIL_CHORD,
+  sailDrag,
+  sailLift,
+} from "./sail-helpers";
 import { SailWindEffect } from "./SailWindEffect";
 import { TellTail } from "./TellTail";
 
@@ -100,7 +105,7 @@ export class Sail extends BaseEntity {
         position: lerpV2d(head, initialClew, i / (nodeCount - 1)),
         collisionResponse: false,
         fixedRotation: true,
-      }).addShape(new Particle())
+      }).addShape(new Particle()),
     );
 
     // Connect adjacent particles with distance constraints
@@ -109,7 +114,7 @@ export class Sail extends BaseEntity {
         new DistanceConstraint(a, b, {
           distance: segmentLength * slackFactor,
           collideConnected: false,
-        })
+        }),
     );
 
     // Attach head (first particle) to specified body
@@ -121,7 +126,7 @@ export class Sail extends BaseEntity {
           headConstraint.localAnchor.x,
           headConstraint.localAnchor.y,
         ],
-      })
+      }),
     );
 
     // Optionally attach clew (last particle) to specified body
@@ -134,7 +139,7 @@ export class Sail extends BaseEntity {
             clewConstraint.localAnchor.x,
             clewConstraint.localAnchor.y,
           ],
-        })
+        }),
       );
     }
 
@@ -143,8 +148,8 @@ export class Sail extends BaseEntity {
       this.addChild(
         new TellTail(
           () => attachmentBody.position,
-          () => attachmentBody.velocity
-        )
+          () => attachmentBody.velocity,
+        ),
       );
     }
 
@@ -201,14 +206,13 @@ export class Sail extends BaseEntity {
   }
 
   onTick(dt: number) {
-    const { hoistSpeed, getHeadPosition, getForceScale, liftScale, dragScale } =
-      this.config;
+    const { hoistSpeed, getHeadPosition, getForceScale } = this.config;
 
     // Animate hoist amount toward target
     this.hoistAmount = stepToward(
       this.hoistAmount,
       this.targetHoistAmount,
-      hoistSpeed * dt
+      hoistSpeed * dt,
     );
 
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
@@ -232,8 +236,11 @@ export class Sail extends BaseEntity {
         i === this.bodies.length - 1 ? clew : V(this.bodies[i + 1].position);
 
       const camber = calculateCamber(prevPos, bodyPos, nextPos);
-      const lift = sailLift(liftScale * forceScale, camber);
-      const drag = sailDrag(dragScale * forceScale);
+      // Use proper sail physics with real chord dimension
+      // Scale effective chord by forceScale (position along sail and hoist amount)
+      const effectiveChord = DEFAULT_SAIL_CHORD * forceScale;
+      const lift = sailLift(effectiveChord, camber);
+      const drag = sailDrag(effectiveChord);
 
       const v1Local = prevPos.sub(bodyPos);
       const v2Local = nextPos.sub(bodyPos);
