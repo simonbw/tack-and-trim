@@ -1,5 +1,4 @@
-import IOEventHandler from "../entity/IoEvents";
-import IOHandlerList from "./IOHandlerList";
+import { IoEventDispatch } from "../entity/IoEvents";
 import { KeyCode } from "./Keys";
 
 /**
@@ -13,7 +12,7 @@ export class KeyboardManager {
   private boundOnVisibilityChange: () => void;
 
   constructor(
-    private handlers: IOHandlerList,
+    private dispatch: IoEventDispatch,
     private onInputActivity: () => void,
   ) {
     this.boundOnKeyDown = (e) => this.onKeyDown(e);
@@ -39,9 +38,7 @@ export class KeyboardManager {
   private clearAllKeys(): void {
     for (const keyCode of this.keys.keys()) {
       this.keys.set(keyCode, false);
-      for (const handler of this.handlers.filtered.onKeyUp) {
-        handler.onKeyUp({ key: keyCode });
-      }
+      this.dispatch("keyUp", { key: keyCode });
     }
   }
 
@@ -72,9 +69,7 @@ export class KeyboardManager {
     const wasPressed = this.keys.get(code); // for filtering out auto-repeat stuff
     this.keys.set(code, true);
     if (!wasPressed) {
-      for (const handler of this.handlers.filtered.onKeyDown) {
-        handler.onKeyDown({ key: code, event });
-      }
+      this.dispatch("keyDown", { key: code, event });
     }
     if (this.shouldPreventDefault(event)) {
       event.preventDefault();
@@ -84,9 +79,7 @@ export class KeyboardManager {
   private onKeyUp(event: KeyboardEvent): void {
     const code = event.code as KeyCode;
     this.keys.set(code, false);
-    for (const handler of this.handlers.filtered.onKeyUp) {
-      handler.onKeyUp({ key: code, event });
-    }
+    this.dispatch("keyUp", { key: code, event });
     if (this.shouldPreventDefault(event)) {
       event.preventDefault();
     }

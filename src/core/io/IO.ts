@@ -1,9 +1,8 @@
-import IOEventHandler from "../entity/IoEvents";
+import { IoEventDispatch } from "../entity/IoEvents";
 import { clamp } from "../util/MathUtil";
 import { V, V2d } from "../Vector";
 import { ControllerAxis, ControllerButton } from "./Gamepad";
 import { GamepadManager } from "./GamepadManager";
-import IOHandlerList from "./IOHandlerList";
 import { KeyboardManager } from "./KeyboardManager";
 import { KeyCode } from "./Keys";
 import { MouseManager } from "./MouseManager";
@@ -13,21 +12,22 @@ import { MouseManager } from "./MouseManager";
  * Acts as a facade over the individual input managers.
  */
 export class IOManager {
-  handlers = new IOHandlerList();
-
   private keyboard: KeyboardManager;
   private mouse: MouseManager;
   private gamepad: GamepadManager;
 
-  constructor(view: HTMLElement) {
-    this.keyboard = new KeyboardManager(this.handlers, () =>
+  constructor(
+    view: HTMLElement,
+    private dispatch: IoEventDispatch,
+  ) {
+    this.keyboard = new KeyboardManager(this.dispatch, () =>
       this.gamepad.setUsingGamepad(false),
     );
-    this.mouse = new MouseManager(view, this.handlers, () =>
+    this.mouse = new MouseManager(view, this.dispatch, () =>
       this.gamepad.setUsingGamepad(false),
     );
     this.gamepad = new GamepadManager(
-      this.handlers,
+      this.dispatch,
       () => {}, // Device change is handled internally by GamepadManager
     );
   }
@@ -36,20 +36,6 @@ export class IOManager {
     this.keyboard.destroy();
     this.mouse.destroy();
     this.gamepad.destroy();
-    this.handlers.clear();
-  }
-
-  // --- Handler Management ---
-
-  addHandler(handler: IOEventHandler): void {
-    this.handlers.add(handler);
-    if (handler.onInputDeviceChange) {
-      handler.onInputDeviceChange({ usingGamepad: this.usingGamepad });
-    }
-  }
-
-  removeHandler(handler: IOEventHandler): void {
-    this.handlers.remove(handler);
   }
 
   // --- Keyboard ---

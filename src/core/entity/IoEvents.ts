@@ -28,3 +28,9 @@ export type IoEvents = {
 };
 
 export default interface IOEventHandler extends EventHandler<IoEvents> {}
+
+/** Function type for dispatching IO events. */
+export type IoEventDispatch = <E extends keyof IoEvents>(
+  event: E,
+  data: IoEvents[E],
+) => void;

@@ -6,6 +6,7 @@ import ContactList, {
 import EntityList from "./EntityList";
 import { V } from "./Vector";
 import Entity, { GameEventMap } from "./entity/Entity";
+import { IoEvents } from "./entity/IoEvents";
 import { eventHandlerName } from "./entity/EventHandler";
 import { WithOwner } from "./entity/WithOwner";
 import { Draw } from "./graphics/Draw";
@@ -134,7 +135,12 @@ export default class Game {
     rendererOptions?: RenderManagerOptions;
   } = {}) {
     await this.renderer.init(rendererOptions);
-    this.io = new IOManager(this.renderer.canvas);
+    // IO events don't respect pause state
+    const dispatchIo = <E extends keyof IoEvents>(
+      event: E,
+      data: IoEvents[E],
+    ) => this.dispatch(event, data as GameEventMap[E], false);
+    this.io = new IOManager(this.renderer.canvas, dispatchIo);
     this.addEntity(this.renderer.camera);
 
     this.animationFrameId = window.requestAnimationFrame(() =>
@@ -233,7 +239,6 @@ export default class Game {
     }
 
     this.entities.add(entity);
-    this.io.addHandler(entity);
 
     if (entity.body) {
       entity.body.owner = entity;
@@ -404,7 +409,6 @@ export default class Game {
   private cleanupEntity(entity: Entity) {
     entity.game = undefined; // This should be done by `removeEntity`, but better safe than sorry
     this.entities.remove(entity);
-    this.io.removeHandler(entity);
 
     if (entity.body) {
       this.world.bodies.remove(entity.body);

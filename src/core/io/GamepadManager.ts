@@ -1,7 +1,7 @@
+import { IoEventDispatch } from "../entity/IoEvents";
 import { clamp, clampUp } from "../util/MathUtil";
 import { V, V2d } from "../Vector";
 import { ControllerAxis, ControllerButton } from "./Gamepad";
-import IOHandlerList from "./IOHandlerList";
 
 /** Configuration options for GamepadManager. */
 export interface GamepadConfig {
@@ -33,11 +33,12 @@ export class GamepadManager {
   private _deadzoneMax: number;
 
   constructor(
-    private handlers: IOHandlerList,
+    private dispatch: IoEventDispatch,
     private onDeviceChange: (usingGamepad: boolean) => void,
-    config: GamepadConfig = {}
+    config: GamepadConfig = {},
   ) {
-    this._pollingFrequency = config.pollingFrequency ?? DEFAULT_CONFIG.pollingFrequency;
+    this._pollingFrequency =
+      config.pollingFrequency ?? DEFAULT_CONFIG.pollingFrequency;
     this._deadzoneMin = config.deadzoneMin ?? DEFAULT_CONFIG.deadzoneMin;
     this._deadzoneMax = config.deadzoneMax ?? DEFAULT_CONFIG.deadzoneMax;
 
@@ -45,10 +46,7 @@ export class GamepadManager {
   }
 
   private startPolling(): number {
-    return window.setInterval(
-      () => this.poll(),
-      1000 / this._pollingFrequency
-    );
+    return window.setInterval(() => this.poll(), 1000 / this._pollingFrequency);
   }
 
   // --- Configuration getters/setters ---
@@ -96,9 +94,7 @@ export class GamepadManager {
     if (this._usingGamepad !== value) {
       this._usingGamepad = value;
       this.onDeviceChange(this._usingGamepad);
-      for (const handler of this.handlers.filtered.onInputDeviceChange) {
-        handler.onInputDeviceChange({ usingGamepad: this._usingGamepad });
-      }
+      this.dispatch("inputDeviceChange", { usingGamepad: this._usingGamepad });
     }
   }
 
@@ -113,13 +109,9 @@ export class GamepadManager {
       for (const [button, isDown] of buttons.entries()) {
         if (isDown && !this.lastButtons[button]) {
           this.setUsingGamepad(true);
-          for (const handler of this.handlers.filtered.onButtonDown) {
-            handler.onButtonDown({ button });
-          }
+          this.dispatch("buttonDown", { button });
         } else if (!isDown && this.lastButtons[button]) {
-          for (const handler of this.handlers.filtered.onButtonUp) {
-            handler.onButtonUp({ button });
-          }
+          this.dispatch("buttonUp", { button });
         }
       }
       this.lastButtons = buttons;
@@ -165,7 +157,7 @@ export class GamepadManager {
       }
       const deadzoneRange = this._deadzoneMax - this._deadzoneMin;
       axes.magnitude = clampUp(
-        (axes.magnitude - this._deadzoneMin) / deadzoneRange
+        (axes.magnitude - this._deadzoneMin) / deadzoneRange,
       );
       axes.x = clamp(axes.x, -1, 1);
       axes.y = clamp(axes.y, -1, 1);

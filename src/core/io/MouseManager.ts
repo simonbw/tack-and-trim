@@ -1,6 +1,6 @@
-import IOHandlerList from "./IOHandlerList";
-import { MouseButtons } from "./MouseButtons";
+import { IoEventDispatch } from "../entity/IoEvents";
 import { V, V2d } from "../Vector";
+import { MouseButtons } from "./MouseButtons";
 
 /**
  * Manages mouse input state and events.
@@ -12,8 +12,8 @@ export class MouseManager {
 
   constructor(
     private view: HTMLElement,
-    private handlers: IOHandlerList,
-    private onInputActivity: () => void
+    private dispatch: IoEventDispatch,
+    private onInputActivity: () => void,
   ) {
     this.view.onclick = (e) => this.onClick(e);
     this.view.onmousedown = (e) => this.onMouseDown(e);
@@ -61,14 +61,10 @@ export class MouseManager {
     this._position = V(event.clientX, event.clientY);
     switch (event.button) {
       case MouseButtons.LEFT:
-        for (const handler of this.handlers.filtered.onClick) {
-          handler.onClick();
-        }
+        this.dispatch("click", undefined as void);
         break;
       case MouseButtons.RIGHT:
-        for (const handler of this.handlers.filtered.onRightClick) {
-          handler.onRightClick();
-        }
+        this.dispatch("rightClick", undefined as void);
         break;
     }
   }
@@ -79,14 +75,10 @@ export class MouseManager {
     this.buttons[event.button] = true;
     switch (event.button) {
       case MouseButtons.LEFT:
-        for (const handler of this.handlers.filtered.onMouseDown) {
-          handler.onMouseDown();
-        }
+        this.dispatch("mouseDown", undefined as void);
         break;
       case MouseButtons.RIGHT:
-        for (const handler of this.handlers.filtered.onRightDown) {
-          handler.onRightDown();
-        }
+        this.dispatch("rightDown", undefined as void);
         break;
     }
   }
@@ -97,14 +89,10 @@ export class MouseManager {
     this.buttons[event.button] = false;
     switch (event.button) {
       case MouseButtons.LEFT:
-        for (const handler of this.handlers.filtered.onMouseUp) {
-          handler.onMouseUp();
-        }
+        this.dispatch("mouseUp", undefined as void);
         break;
       case MouseButtons.RIGHT:
-        for (const handler of this.handlers.filtered.onRightUp) {
-          handler.onRightUp();
-        }
+        this.dispatch("rightUp", undefined as void);
         break;
     }
   }
