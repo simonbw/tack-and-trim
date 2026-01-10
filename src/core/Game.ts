@@ -545,7 +545,7 @@ export default class Game {
     const ownerB = shapeB.owner || bodyB.owner;
 
     // If either owner has been removed from the game, we shouldn't do the contact
-    if (!(ownerA && !ownerA.game) || (ownerB && !ownerB.game)) {
+    if (ownerA?.game && ownerB?.game) {
       if (ownerA?.onBeginContact) {
         ownerA.onBeginContact({
           other: ownerB,
@@ -574,7 +574,7 @@ export default class Game {
     const ownerB = shapeB.owner || bodyB.owner;
 
     // If either owner has been removed from the game, we shouldn't do the contact
-    if (!(ownerA && !ownerA.game) || (ownerB && !ownerB.game)) {
+    if (ownerA?.game && ownerB?.game) {
       if (ownerA?.onEndContact) {
         ownerA.onEndContact({
           other: ownerB,
@@ -625,7 +625,7 @@ export default class Game {
     const ownerA = e.bodyA.owner;
     const ownerB = e.bodyB.owner;
     // If either owner has been removed from the game, we shouldn't do the contact
-    if (!(ownerA && !ownerA.game) || (ownerB && !ownerB.game)) {
+    if (ownerA?.game && ownerB?.game) {
       if (ownerA?.onImpact) {
         ownerA.onImpact({ other: ownerB });
       }
