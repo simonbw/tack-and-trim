@@ -1,197 +1,184 @@
 import BaseEntity from "../core/entity/BaseEntity";
-import { clamp, invLerp, lerp, lerpV2d } from "../core/util/MathUtil";
-import { rNormal, rUniform } from "../core/util/Random";
+import { range } from "../core/util/FunctionalUtils";
+import { clamp, lerp, lerpV2d } from "../core/util/MathUtil";
+import { chooseWeighted, rNormal } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
+import { SprayParticle } from "./SprayParticle";
+import { WaterInfo } from "./water/WaterInfo";
 
-// Units: ft, ft/s, seconds
-const CONFIG = {
-  // Particle lifecycle
-  MAX_AGE: 1.0, // seconds (flight time before forced destroy)
+// Spawn rate (linear with velocity and edge length)
+const MIN_IMPACT_SPEED = 3; // ft/s - minimum normal velocity to generate spray
+const SPAWN_PER_FT_PER_SECOND = 0.3; // particles/sec per ft of edge per ft/s of impact
+const MAX_SPAWN_RATE = 500; // emergency cap (shouldn't hit normally)
 
-  // Speed thresholds
-  MIN_SPEED: 5, // ft/s (~3 kts) - spray starts appearing
-  MAX_SPEED: 20, // ft/s (~7 kts) - hull speed limit
+// Particle size scaling with velocity
+const MIN_SIZE = 0.06; // ft - at low speeds
+const SIZE_VELOCITY_SCALE = 0.001; // ft per ft/s - size increase per speed increase
 
-  // Spawning
-  SPAWN_RATE: 1000, // Base particles per second at max speed
+// Particle velocity - scales with impact for more violent spray at high speeds
+const SPRAY_SPEED_SCALE = 0.5; // additional ft/s per ft/s of vNormal
+const BASE_VZ = 2; // ft/s - base vertical velocity
+const VZ_VELOCITY_SCALE = 0.5; // additional vz per ft/s of impact
 
-  // Physics (in ft and ft/s)
-  SPRAY_SPEED: 10, // ft/s - how fast particles spray outward from hull
-  INITIAL_VZ: 18, // ft/s - initial upward velocity
-  GRAVITY: 32, // ft/s² - gravitational acceleration (real gravity)
-  DRAG: 6.0, // 1/s - air drag so droplets slow and trail behind boat
-
-  // Rendering
-  COLOR: 0xffffff,
-  MIN_ALPHA: 0.7,
-  MAX_ALPHA: 1.0,
-  MIN_SIZE: 0.05, // ft (~1.5 cm diameter)
-  MAX_SIZE: 0.12, // ft (~3.6 cm diameter)
-
-  // Splash (when hitting water)
-  SPLASH_DURATION: 2.0, // seconds
-  SPLASH_GROW_SCALE: 3.0, // multiplier
-};
+// Wave interaction
+const WAVE_BONUS_SCALE = 0.3; // How much dh/dt affects spray intensity
 
 /**
- * A single spray particle with position, velocity, and state.
+ * Spawns spray particles from a boat's hull based on physics.
+ *
+ * Spray intensity is determined by:
+ * - Normal component of relative velocity (hull vs water) - LINEAR
+ * - Edge length (longer edges spawn more)
+ * - Wave impact bonus (more spray when hitting rising waves)
+ *
+ * Higher velocity also produces larger particles with higher arcs,
+ * giving the visual impression of more energy without exploding particle count.
  */
-class SprayParticle {
-  pos: V2d;
-  vel: V2d;
-  z: number; // Height above water
-  vz: number; // Vertical velocity
-  age: number = 0;
-  size: number;
-  destroyed: boolean = false;
-
-  // Splash state (when particle hits water)
-  splashing: boolean = false;
-  splashAge: number = 0;
-
-  constructor(pos: V2d, vel: V2d, vz: number, size: number) {
-    this.pos = pos;
-    this.vel = vel;
-    this.z = 0.1;
-    this.vz = vz;
-    this.size = size;
-  }
-
-  update(dt: number): void {
-    if (this.splashing) {
-      // Splash phase: grow and fade, then destroy
-      this.splashAge += dt;
-      if (this.splashAge >= CONFIG.SPLASH_DURATION) {
-        this.destroyed = true;
-      }
-    } else {
-      // Flying phase: physics update
-      this.age += dt;
-      this.vz -= CONFIG.GRAVITY * dt;
-      this.z += this.vz * dt;
-      this.pos.iaddScaled(this.vel, dt);
-      this.vel.imul(Math.exp(-CONFIG.DRAG * dt));
-
-      // Check if hit water
-      if (this.z <= 0) {
-        this.splashing = true;
-        this.z = 0;
-        this.vel.set(0, 0);
-        this.vz = 0;
-      }
-    }
-  }
-
-  /** Get current visual alpha */
-  getAlpha(): number {
-    if (this.splashing) {
-      // Fade out during splash
-      const t = this.splashAge / CONFIG.SPLASH_DURATION;
-      return CONFIG.MAX_ALPHA * (1 - t);
-    } else {
-      // Full opacity while flying
-      return CONFIG.MAX_ALPHA;
-    }
-  }
-
-  /** Get current visual radius */
-  getRadius(): number {
-    if (this.splashing) {
-      const t = this.splashAge / CONFIG.SPLASH_DURATION;
-      return this.size * lerp(1, CONFIG.SPLASH_GROW_SCALE, t);
-    } else {
-      return this.size * (1 + this.z * 0.02);
-    }
-  }
-}
-
 export class BoatSpray extends BaseEntity {
-  layer = "wake" as const;
-
-  private particles: SprayParticle[] = [];
+  private edges: Edge[];
   private spawnAccumulator = 0;
 
   constructor(private boat: Boat) {
     super();
+    const numEdges = boat.config.hull.vertices.length;
+
+    const vertices = boat.config.hull.vertices;
+    this.edges = range(numEdges).map((i) => new Edge(boat, i));
   }
 
   onTick(dt: number): void {
-    // Update and remove destroyed particles
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      this.particles[i].update(dt);
-      if (this.particles[i].destroyed) {
-        this.particles.splice(i, 1);
-      }
-    }
-
-    this.spawnParticles(dt);
-  }
-
-  onRender({ draw }: { draw: import("../core/graphics/Draw").Draw }): void {
-    for (const p of this.particles) {
-      draw.fillCircle(p.pos.x, p.pos.y, p.getRadius(), {
-        color: CONFIG.COLOR,
-        alpha: p.getAlpha(),
-      });
-    }
-  }
-
-  private spawnParticles(dt: number): void {
     if (!this.game) return;
+    const water = this.game.entities.getById("waterInfo") as WaterInfo;
 
-    const velocity = V(this.boat.hull.body.velocity);
-    const speed = velocity.magnitude;
-    if (speed < CONFIG.MIN_SPEED) return;
+    let totalSpawnRate = 0;
+    for (const edge of this.edges) {
+      edge.update(water);
+      totalSpawnRate += edge.spawnRate;
+    }
 
-    const speedFactor = clamp(
-      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed)
+    if (totalSpawnRate === 0) return;
+
+    // Spawn particles
+    const clampedSpawnRate = Math.min(
+      SPAWN_PER_FT_PER_SECOND * totalSpawnRate,
+      MAX_SPAWN_RATE
     );
-
-    // Spawn rate scales with speed
-    const spawnRate = CONFIG.SPAWN_RATE * speedFactor;
-    this.spawnAccumulator += dt * spawnRate;
-
-    const velDir = velocity.normalize();
+    this.spawnAccumulator += dt * clampedSpawnRate;
 
     while (this.spawnAccumulator >= 1) {
-      this.spawnAccumulator -= 1;
-
-      // Pick a random edge on the hull
-      const hullVertices = this.boat.config.hull.vertices;
-      const edgeIndex = Math.floor(Math.random() * hullVertices.length);
-      const p1 = hullVertices[edgeIndex];
-      const p2 = hullVertices[(edgeIndex + 1) % hullVertices.length];
-
-      // Random point along this edge
-      const localPos = lerpV2d(p1, p2, Math.random());
-
-      // Calculate outward normal for this edge (perpendicular to edge, pointing out)
-      const edge = p2.sub(p1);
-
-      // Transform to world space
-      const worldPos = this.boat.hull.body.toWorldFrame(localPos);
-      const worldNormal = V(edge.y, -edge.x)
-        .inormalize()
-        .irotate(this.boat.hull.body.angle);
-
-      // Only spawn if this edge is facing into the velocity (cutting through water)
-      // We want edges where the outward normal aligns with velocity direction
-      const facing = velDir.dot(worldNormal);
-
-      // Skip edges not facing the velocity, with some randomness for variety
-      if (facing < Math.random() * 0.3) continue;
-
-      // Spray velocity: based on boat velocity plus outward spray
-      const sprayOutward = worldNormal.mul(
-        CONFIG.SPRAY_SPEED * rUniform(0.0, 2.0)
-      );
-      const particleVel = velocity.mul(rNormal(1, 0.1)).add(sprayOutward);
-      const vz = CONFIG.INITIAL_VZ * rUniform(0.6, 1.2) * (0.5 + facing * 0.5);
-      const size = rUniform(CONFIG.MIN_SIZE, CONFIG.MAX_SIZE);
-
-      const particle = new SprayParticle(worldPos, particleVel, vz, size);
-      this.particles.push(particle);
+      const edge = chooseWeighted(this.edges, (edge) => edge.spawnRate);
+      this.spawnParticle(edge);
     }
+  }
+
+  spawnParticle(edge: Edge) {
+    this.spawnAccumulator -= 1;
+
+    // Spray velocity: relative velocity plus outward spray
+
+    // The additional velocity beyond just velocity at the point
+    const spraySpeed = lerp(0, edge.vDotN * SPRAY_SPEED_SCALE, Math.random());
+
+    // Reflect the apparent velocity off the edge (like a billiard ball).
+    // reflection = v - 2(v · n)n, but we want the outward bounce, so we negate it:
+    // spray direction = -v + 2(v · n)n = 2(v · n)n - v
+    const sprayVelocity = edge.worldNormal
+      .mul(2 * edge.vDotN)
+      .isub(edge.apparentVelocity)
+      .irotate(rNormal(0, 0.3))
+      .inormalize(spraySpeed);
+
+    // Size increases with impact velocity
+    const maxSize = MIN_SIZE + edge.vDotN * SIZE_VELOCITY_SCALE;
+    const size = lerp(MIN_SIZE, maxSize, Math.random());
+
+    // Vertical velocity increases with impact velocity
+    const minZVelocity = BASE_VZ;
+    const maxZVelocity = BASE_VZ + edge.vDotN * VZ_VELOCITY_SCALE;
+    const zVelocity = lerp(minZVelocity, maxZVelocity, Math.random());
+
+    const position = edge.randomPosOnEdge();
+    const velocity = edge.apparentVelocity.add(sprayVelocity);
+
+    this.game!.addEntity(
+      new SprayParticle(position, velocity, zVelocity, size)
+    );
+  }
+}
+
+class Edge {
+  /** Start vertex in boat local space */
+  v1: V2d;
+  /** End vertex in boat local space */
+  v2: V2d;
+  /** Start vertex in world space */
+  p1 = V();
+  /** End vertex in world space */
+  p2 = V();
+  /** Edge displacement vector in world space */
+  _displacement = V();
+  /** Midpoint in world space */
+  _midpoint = V();
+  /** World normal vector */
+  worldNormal = V();
+  /** Apparent velocity (hull vs water) in world space */
+  apparentVelocity = V();
+  /** Normal component of apparent velocity */
+  vDotN = 0;
+  /** Multiplier for spawn rate, and particle velocity. Based on wave impact. Between 1 and 2. */
+  waveBonus = 0;
+  spawnRate = 0;
+  boat: Boat;
+
+  constructor(boat: Boat, i: number) {
+    this.boat = boat;
+
+    const vertices = boat.config.hull.vertices;
+    this.v1 = vertices[i];
+    this.v2 = vertices[(i + 1) % vertices.length];
+  }
+
+  update(water: WaterInfo) {
+    const hullBody = this.boat.hull.body;
+
+    // Transform edge endpoints to world frame
+    this.p1.set(this.v1).itoGlobalFrame(hullBody.position, hullBody.angle);
+    this.p2.set(this.v2).itoGlobalFrame(hullBody.position, hullBody.angle);
+
+    // Edge displacement and length
+    this._displacement.set(this.p2).isub(this.p1);
+
+    // Hull velocity: average of velocities at endpoints
+    this.apparentVelocity
+      .set(hullBody.getVelocityAtWorldPoint(this.p1))
+      .iadd(hullBody.getVelocityAtWorldPoint(this.p2))
+      .imul(0.5);
+
+    // Subtract water velocity (sample at midpoint)
+    this._midpoint.set(this.p1).iadd(this.p2).imul(0.5);
+    const waterState = water.getStateAtPoint(this._midpoint);
+    this.apparentVelocity.isub(waterState.velocity);
+
+    // Outward normal
+    this.worldNormal.set(this._displacement).irotate90cw().inormalize();
+
+    // Normal component of velocity
+    this.vDotN = this.apparentVelocity.dot(this.worldNormal);
+
+    if (this.vDotN < MIN_IMPACT_SPEED) {
+      this.spawnRate = 0;
+    } else {
+      // Wave bonus and weight
+      // TODO: This shouldn't be based on wave speed, but on the relative vertical speed based on the boat at this point and the water's speed
+      this.waveBonus =
+        1 + clamp(waterState.surfaceHeightRate * WAVE_BONUS_SCALE, 0, 1);
+      this.spawnRate =
+        this._displacement.magnitude * this.vDotN * this.waveBonus;
+    }
+  }
+
+  randomPosOnEdge() {
+    return lerpV2d(this.p1, this.p2, Math.random());
   }
 }

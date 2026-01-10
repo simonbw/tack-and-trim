@@ -42,7 +42,7 @@ export interface ReadonlyV2d {
 
 export function V(
   x?: number | CompatibleVector | { x: number; y: number },
-  y?: number,
+  y?: number
 ) {
   if (x instanceof V2d) {
     return x.clone();
@@ -79,6 +79,10 @@ export class V2d extends Array implements NumberTuple, ReadonlyV2d {
     }
     this[0] = x;
     this[1] = y;
+  }
+
+  static fromPolar(radius: number, theta: number) {
+    return new V2d(radius * Math.cos(theta), radius * Math.sin(theta));
   }
 
   get v() {
@@ -408,9 +412,7 @@ export class V2d extends Array implements NumberTuple, ReadonlyV2d {
 
   /** (In Place) Transform this world point to a local frame. */
   itoLocalFrame(framePosition: CompatibleVector, frameAngle: number): this {
-    this.isub(framePosition);
-    this.irotate(-frameAngle);
-    return this;
+    return this.isub(framePosition).irotate(-frameAngle);
   }
 
   /** Transform this local point to world frame defined by position and angle. */
@@ -420,9 +422,7 @@ export class V2d extends Array implements NumberTuple, ReadonlyV2d {
 
   /** (In Place) Transform this local point to world frame. */
   itoGlobalFrame(framePosition: CompatibleVector, frameAngle: number): this {
-    this.irotate(frameAngle);
-    this.iadd(framePosition);
-    return this;
+    return this.irotate(frameAngle).iadd(framePosition);
   }
 
   // Static utility methods
@@ -432,7 +432,7 @@ export class V2d extends Array implements NumberTuple, ReadonlyV2d {
     p0: CompatibleVector,
     p1: CompatibleVector,
     p2: CompatibleVector,
-    p3: CompatibleVector,
+    p3: CompatibleVector
   ): V2d | null {
     const t = V2d.lineSegmentsIntersectionFraction(p0, p1, p2, p3);
     if (t < 0) return null;
@@ -447,7 +447,7 @@ export class V2d extends Array implements NumberTuple, ReadonlyV2d {
     p0: CompatibleVector,
     p1: CompatibleVector,
     p2: CompatibleVector,
-    p3: CompatibleVector,
+    p3: CompatibleVector
   ): number {
     const s1_x = p1[0] - p0[0];
     const s1_y = p1[1] - p0[1];
@@ -470,7 +470,7 @@ export class V2d extends Array implements NumberTuple, ReadonlyV2d {
   static centroid(
     a: CompatibleVector,
     b: CompatibleVector,
-    c: CompatibleVector,
+    c: CompatibleVector
   ): V2d {
     return new V2d((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3);
   }

@@ -28,12 +28,6 @@ uniform sampler2D u_waterData;  // Wave data texture with height
 uniform sampler2D u_modifierData;  // Modifier texture (wakes, etc.)
 uniform int u_renderMode;       // 0 = realistic, 1 = debug height
 
-// Foam uniforms
-uniform float u_foamThreshold;
-uniform float u_foamIntensity;
-uniform float u_foamCoverage;
-uniform float u_foamSharpness;
-
 // Color variation uniforms
 uniform float u_colorNoiseStrength;
 
@@ -44,110 +38,6 @@ float hash21(vec2 p) {
   p = fract(p * vec2(234.34, 435.345));
   p += dot(p, p + 34.23);
   return fract(p.x * p.y);
-}
-
-// Hash function for procedural noise - vec2 output (for Worley)
-vec2 hash22(vec2 p) {
-  p = vec2(dot(p, vec2(127.1, 311.7)),
-           dot(p, vec2(269.5, 183.3)));
-  return fract(sin(p) * 43758.5453);
-}
-
-// Value noise with smooth interpolation
-float valueNoise(vec2 uv) {
-  vec2 ip = floor(uv);
-  vec2 fp = fract(uv);
-  fp = fp * fp * (3.0 - 2.0 * fp); // Smoothstep
-  float a = hash21(ip);
-  float b = hash21(ip + vec2(1.0, 0.0));
-  float c = hash21(ip + vec2(0.0, 1.0));
-  float d = hash21(ip + vec2(1.0, 1.0));
-  return mix(mix(a, b, fp.x), mix(c, d, fp.x), fp.y);
-}
-
-// Worley (cellular) noise - creates sharp angular cell boundaries
-// Returns vec2: x = distance to nearest cell point, y = edge factor (distance to second nearest - nearest)
-vec2 worleyNoise(vec2 uv) {
-  vec2 ip = floor(uv);
-  vec2 fp = fract(uv);
-
-  float minDist = 1.0;
-  float secondMinDist = 1.0;
-
-  for (int j = -1; j <= 1; j++) {
-    for (int i = -1; i <= 1; i++) {
-      vec2 neighbor = vec2(float(i), float(j));
-      vec2 cellPoint = neighbor + hash22(ip + neighbor) - fp;
-      float dist = length(cellPoint);
-
-      if (dist < minDist) {
-        secondMinDist = minDist;
-        minDist = dist;
-      } else if (dist < secondMinDist) {
-        secondMinDist = dist;
-      }
-    }
-  }
-
-  return vec2(minDist, secondMinDist - minDist);
-}
-
-// Ridged noise - creates sharp crease lines
-float ridgedNoise(vec2 uv, float time) {
-  float n = 0.0;
-  float amp = 0.5;
-  float freq = 1.0;
-
-  for (int i = 0; i < 4; i++) {
-    // 1 - abs(noise) creates sharp ridges at zero crossings
-    float noiseVal = valueNoise(uv * freq + time * 0.02);
-    n += amp * (1.0 - abs(noiseVal * 2.0 - 1.0));
-    amp *= 0.5;
-    freq *= 2.0;
-  }
-  return n;
-}
-
-// Multi-octave foam noise - blends Worley, ridged, and value noise for angular, sharp foam
-float foamNoise(vec2 uv, float time) {
-  // Worley noise for angular cell boundaries (sharp edges)
-  vec2 worley = worleyNoise(uv * 0.5 + time * 0.008);
-  float cellEdge = smoothstep(0.02, 0.12, worley.y); // Sharp at cell edges
-
-  // Ridged noise for sharp streak/crease patterns
-  float ridged = ridgedNoise(uv * 0.7, time);
-
-  // Original value noise for organic variation
-  float value = valueNoise(uv * 1.0 + time * 0.02) * 0.5 +
-                valueNoise(uv * 2.0 - time * 0.015) * 0.35;
-
-  // Blend: Worley edges provide angular structure, ridged adds sharp lines
-  // Value noise breaks up uniformity
-  float sharp = cellEdge * ridged;
-  return mix(value, sharp, 0.55);
-}
-
-// Calculate foam amount based on wave height, slope, and noise
-float calculateFoam(float height, float gradientMag, vec2 worldPos, float time) {
-  // Height-based foam (wave peaks)
-  float heightFoam = smoothstep(u_foamThreshold, u_foamThreshold + 0.15, height);
-
-  // Slope-based foam (steep surfaces = breaking waves)
-  float slopeFoam = smoothstep(0.3, 0.7, gradientMag);
-
-  float baseFoam = max(heightFoam, slopeFoam * 0.4);
-
-  // Noise breakup for patchy appearance
-  float noise = foamNoise(worldPos * 0.12, time);
-
-  float threshold = 1.0 - u_foamCoverage;
-  float foamMask = smoothstep(threshold - 0.1, threshold + 0.1, noise);
-
-  // Final foam with sharpness control
-  float foam = baseFoam * foamMask * u_foamIntensity;
-  foam = pow(clamp(foam, 0.0, 1.0), 1.0 / u_foamSharpness);
-
-  return clamp(foam, 0.0, 1.0);
 }
 
 void main(void) {
@@ -205,9 +95,6 @@ void main(void) {
     1.0
   ));
 
-  // Store gradient magnitude for foam calculation
-  float gradientMag = length(normal.xy);
-
   // Fixed midday sun
   vec3 sunDir = normalize(vec3(0.3, 0.2, 0.9));
 
@@ -262,14 +149,6 @@ void main(void) {
   float fineNoise = hash21(worldPos * 2.0) * 0.02 - 0.01;
   color += fineNoise;
 
-  // Foam disabled while working on wave improvements
-  // float textureFoam = waterData.a;
-  // float detailFoam = calculateFoam(rawHeight, gradientMag, worldPos, u_time);
-  // float foam = max(textureFoam * 0.85, detailFoam * 0.6) + textureFoam * detailFoam * 0.25;
-  // foam = clamp(foam, 0.0, 1.0);
-  // vec3 foamColor = vec3(0.92, 0.95, 0.98);
-  // color = mix(color, foamColor, foam * 0.85);
-
   fragColor = vec4(color, 1.0);
 }
 `;
@@ -288,10 +167,6 @@ export class WaterShader extends FullscreenShader {
         u_renderMode: { type: "1i", value: 0 },
         u_screenSize: { type: "2f", value: [800, 600] },
         u_viewportBounds: { type: "4f", value: [0, 0, 100, 100] },
-        u_foamThreshold: { type: "1f", value: 0.7 },
-        u_foamIntensity: { type: "1f", value: 0.5 },
-        u_foamCoverage: { type: "1f", value: 0.3 },
-        u_foamSharpness: { type: "1f", value: 2.0 },
         u_colorNoiseStrength: { type: "1f", value: 0.1 },
       },
       textures: ["u_waterData", "u_modifierData"],
@@ -325,22 +200,6 @@ export class WaterShader extends FullscreenShader {
   setScreenSize(width: number, height: number): void {
     this.uniforms.u_screenSize.value[0] = width;
     this.uniforms.u_screenSize.value[1] = height;
-  }
-
-  setFoamThreshold(value: number): void {
-    this.uniforms.u_foamThreshold.value = value;
-  }
-
-  setFoamIntensity(value: number): void {
-    this.uniforms.u_foamIntensity.value = value;
-  }
-
-  setFoamCoverage(value: number): void {
-    this.uniforms.u_foamCoverage.value = value;
-  }
-
-  setFoamSharpness(value: number): void {
-    this.uniforms.u_foamSharpness.value = value;
   }
 
   setColorNoiseStrength(value: number): void {

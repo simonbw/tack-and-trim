@@ -243,22 +243,22 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
 
   /** Transform a world point to local body frame. */
   toLocalFrame(worldPoint: V2d): V2d {
-    return V(worldPoint).itoLocalFrame(this.position, this.angle);
+    return worldPoint.toLocalFrame(this.position, this.angle);
   }
 
   /** Transform a local point to world frame. */
   toWorldFrame(localPoint: V2d): V2d {
-    return V(localPoint).itoGlobalFrame(this.position, this.angle);
+    return localPoint.toGlobalFrame(this.position, this.angle);
   }
 
   /** Transform a world vector to local body frame. */
   vectorToLocalFrame(worldVector: V2d): V2d {
-    return V(worldVector).irotate(-this.angle);
+    return worldVector.rotate(-this.angle);
   }
 
   /** Transform a local vector to world frame. */
   vectorToWorldFrame(localVector: V2d): V2d {
-    return V(localVector).irotate(this.angle);
+    return localVector.rotate(this.angle);
   }
 
   /**
@@ -271,8 +271,19 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   }
 
   /** Get velocity of a point in the body. */
-  getVelocityAtPoint(relativePoint: V2d): V2d {
-    const result = V(relativePoint).icrossVZ(this.angularVelocity);
-    return V(this.velocity).isub(result);
+  getVelocityAtPoint(localPoint: V2d): V2d {
+    return localPoint
+      .crossVZ(this.angularVelocity)
+      .imul(-1)
+      .iadd(this.velocity); // this.velocity - velocityFromRotation
+  }
+
+  /** Get velocity of a point in the body. */
+  getVelocityAtWorldPoint(worldPoint: V2d): V2d {
+    return worldPoint
+      .toLocalFrame(this.position, this.angle)
+      .icrossVZ(this.angularVelocity)
+      .imul(-1)
+      .iadd(this.velocity);
   }
 }

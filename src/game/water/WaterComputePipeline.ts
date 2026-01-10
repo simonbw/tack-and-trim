@@ -1,9 +1,9 @@
+import { RenderTargetTexture } from "../../core/graphics/texture/RenderTargetTexture";
 import { profiler } from "../../core/util/Profiler";
 import { ModifierDataTexture } from "./ModifierDataTexture";
 import { WATER_TEXTURE_SIZE } from "./WaterConstants";
 import { WaterInfo } from "./WaterInfo";
 import { WaveComputeShader } from "./WaveComputeShader";
-import { WaveTexture } from "./WaveTexture";
 
 export interface Viewport {
   left: number;
@@ -13,44 +13,40 @@ export interface Viewport {
 }
 
 /**
- * Creates and maintains a data texture containing water state information.
+ * Orchestrates the water computation pipeline each frame:
+ * 1. GPU: Runs WaveComputeShader to compute Gerstner waves → WaveTexture
+ * 2. CPU: Samples WaterModifiers (wakes) → ModifierDataTexture
  *
- * Uses GPU-based wave computation via WaveComputeShader, then applies
- * water modifiers (wakes, etc.) sparsely on CPU for affected texels only.
+ * Produces two textures consumed by WaterShader for rendering.
  *
- * Each texel contains (packed as RGBA):
- * - R: surface height (0-1 maps to roughly ±2.5 units)
- * - G: velocity X (reserved, currently 0.5)
- * - B: velocity Y (reserved, currently 0.5)
- * - A: reserved (currently 1.0)
+ * Note: Physics queries use WaterInfo which duplicates wave calculations
+ * on the CPU. Future optimization could sample from GPU textures instead.
  */
-export class WaterDataTexture {
+export class WaterComputePipeline {
   private gl: WebGL2RenderingContext | null = null;
   private waveComputeShader: WaveComputeShader | null = null;
-  private waveTexture: WaveTexture | null = null;
+  private waveTexture: RenderTargetTexture | null = null;
   private modifierTexture: ModifierDataTexture | null = null;
   private savedViewport: [number, number, number, number] = [0, 0, 0, 0];
-
-  constructor() {
-    // Resources created in initGL
-  }
 
   /** Initialize WebGL resources. Must be called with the GL context. */
   initGL(gl: WebGL2RenderingContext): void {
     this.gl = gl;
     this.waveComputeShader = new WaveComputeShader(gl);
-    this.waveTexture = new WaveTexture(
+    // Wave texture: RGBA16F preferred for height precision (R=height, G=dh/dt)
+    this.waveTexture = new RenderTargetTexture(
       gl,
       WATER_TEXTURE_SIZE,
       WATER_TEXTURE_SIZE,
+      true
     );
     this.modifierTexture = new ModifierDataTexture();
     this.modifierTexture.initGL(gl);
   }
 
   /**
-   * Update the wave texture with current water state for the given viewport.
-   * Uses GPU shader for wave computation, then applies modifiers sparsely.
+   * Update water textures with current state for the given viewport.
+   * Runs GPU wave computation, then applies modifiers on CPU.
    */
   update(viewport: Viewport, waterInfo: WaterInfo): void {
     if (!this.gl || !this.waveComputeShader || !this.waveTexture) return;
@@ -58,7 +54,7 @@ export class WaterDataTexture {
     const gl = this.gl;
     const { left, top, width, height } = viewport;
 
-    profiler.start("water-data-texture");
+    profiler.start("water-compute-pipeline");
 
     // Save current viewport
     this.savedViewport[0] = gl.getParameter(gl.VIEWPORT)[0];
@@ -77,7 +73,7 @@ export class WaterDataTexture {
     this.waveComputeShader.setViewportBounds(left, top, width, height);
     this.waveComputeShader.setTextureSize(
       WATER_TEXTURE_SIZE,
-      WATER_TEXTURE_SIZE,
+      WATER_TEXTURE_SIZE
     );
     this.waveComputeShader.compute();
 
@@ -89,7 +85,7 @@ export class WaterDataTexture {
       this.savedViewport[0],
       this.savedViewport[1],
       this.savedViewport[2],
-      this.savedViewport[3],
+      this.savedViewport[3]
     );
 
     // Update modifier texture (wakes, etc.) on CPU
@@ -97,14 +93,14 @@ export class WaterDataTexture {
       this.modifierTexture.update(viewport, waterInfo);
     }
 
-    profiler.end("water-data-texture");
+    profiler.end("water-compute-pipeline");
   }
 
-  getGLTexture(): WebGLTexture | null {
+  getWaveTexture(): WebGLTexture | null {
     return this.waveTexture?.getTexture() ?? null;
   }
 
-  getModifierGLTexture(): WebGLTexture | null {
+  getModifierTexture(): WebGLTexture | null {
     return this.modifierTexture?.getTexture() ?? null;
   }
 

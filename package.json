@@ -9,6 +9,8 @@
     "build": "parcel build src/index.html",
     "tsc": "tsc --noEmit",
     "tsc-watch": "tsc --noEmit --watch",
+    "tsgo": "tsgo --noEmit",
+    "tsgo-watch": "tsgo --noEmit --watch",
     "prettier": "prettier --write src",
     "generate-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources"
   },
@@ -42,5 +44,8 @@
     "tsx": "^4.20.3",
     "typescript": "^5.9.3",
     "yargs": "^18.0.0"
+  },
+  "devDependencies": {
+    "@typescript/native-preview": "^7.0.0-dev.20260109.1"
   }
 }

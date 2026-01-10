@@ -1,28 +1,41 @@
 /**
- * Manages a framebuffer object (FBO) for GPU-side wave computation.
- * The wave compute shader renders to this texture, which is then
- * sampled by the water rendering shader.
+ * Base class for GPU render target textures (framebuffer objects).
+ *
+ * Manages a WebGL texture attached to a framebuffer, allowing shaders to
+ * render directly to the texture. Supports RGBA16F format with automatic
+ * fallback to RGBA8 if the platform doesn't support float render targets.
+ *
+ * Usage:
+ *   target.bind();      // Start rendering to this texture
+ *   // ... draw calls ...
+ *   target.unbind();    // Return to default framebuffer
+ *   target.getTexture() // Sample in other shaders
  */
-export class WaveTexture {
-  private gl: WebGL2RenderingContext;
-  private framebuffer: WebGLFramebuffer | null = null;
-  private texture: WebGLTexture | null = null;
-  private width: number;
-  private height: number;
-  private useFloat16: boolean;
+export class RenderTargetTexture {
+  protected gl: WebGL2RenderingContext;
+  protected framebuffer: WebGLFramebuffer | null = null;
+  protected texture: WebGLTexture | null = null;
+  protected width: number;
+  protected height: number;
+  protected useFloat16: boolean;
 
   constructor(
     gl: WebGL2RenderingContext,
-    width: number = 128,
-    height: number = 128,
+    width: number,
+    height: number,
+    preferFloat16: boolean = true,
   ) {
     this.gl = gl;
     this.width = width;
     this.height = height;
 
-    // Check for EXT_color_buffer_half_float extension for RGBA16F render targets
-    const ext = gl.getExtension("EXT_color_buffer_half_float");
-    this.useFloat16 = ext !== null;
+    // Check for float render target support
+    if (preferFloat16) {
+      const ext = gl.getExtension("EXT_color_buffer_half_float");
+      this.useFloat16 = ext !== null;
+    } else {
+      this.useFloat16 = false;
+    }
 
     this.createResources();
   }
@@ -34,7 +47,7 @@ export class WaveTexture {
     this.texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
 
-    // Set texture parameters
+    // Standard texture parameters
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -42,7 +55,6 @@ export class WaveTexture {
 
     // Allocate texture with appropriate format
     if (this.useFloat16) {
-      // RGBA16F - better precision for wave heights
       gl.texImage2D(
         gl.TEXTURE_2D,
         0,
@@ -55,7 +67,6 @@ export class WaveTexture {
         null,
       );
     } else {
-      // Fallback to RGBA8
       gl.texImage2D(
         gl.TEXTURE_2D,
         0,
@@ -86,6 +97,7 @@ export class WaveTexture {
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
       console.error(`Framebuffer not complete: ${status}`);
+
       // Try falling back to RGBA8 if RGBA16F failed
       if (this.useFloat16) {
         console.warn("RGBA16F framebuffer failed, falling back to RGBA8");
@@ -102,7 +114,7 @@ export class WaveTexture {
           gl.UNSIGNED_BYTE,
           null,
         );
-        // Re-check
+
         const status2 = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
         if (status2 !== gl.FRAMEBUFFER_COMPLETE) {
           throw new Error(
@@ -119,7 +131,7 @@ export class WaveTexture {
 
   /**
    * Bind this framebuffer for rendering.
-   * After calling this, draw calls will render to the wave texture.
+   * Sets the viewport to match texture dimensions.
    */
   bind(): void {
     const gl = this.gl;
@@ -129,6 +141,7 @@ export class WaveTexture {
 
   /**
    * Unbind the framebuffer, returning to the default framebuffer.
+   * Note: Does not restore viewport - caller must handle that.
    */
   unbind(): void {
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);

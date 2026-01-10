@@ -8,6 +8,8 @@ export interface WaterContribution {
   velocityX: number;
   velocityY: number;
   height: number;
+  /** Optional rate of height change (dh/dt) in ft/s */
+  heightRate?: number;
 }
 
 /**

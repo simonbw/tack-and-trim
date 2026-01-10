@@ -39,6 +39,8 @@ export interface WaterState {
   velocity: V2d;
   /** Wave surface displacement at this point */
   surfaceHeight: number;
+  /** Rate of height change (dh/dt) in ft/s - positive when water is rising */
+  surfaceHeightRate: number;
 }
 
 /**
@@ -84,8 +86,10 @@ export class WaterInfo extends BaseEntity {
     // Start with current velocity
     const velocity = this.getCurrentVelocityAtPoint(point);
 
-    // Start with wave height
-    let surfaceHeight = this.getWaveHeightAtPoint(point[0], point[1]);
+    // Get wave height and dh/dt
+    const waveData = this.getWaveDataAtPoint(point[0], point[1]);
+    let surfaceHeight = waveData.height;
+    let surfaceHeightRate = waveData.dhdt;
 
     // Query spatial hash for nearby water modifiers
     for (const modifier of this.spatialHash.queryPoint(point)) {
@@ -93,21 +97,26 @@ export class WaterInfo extends BaseEntity {
       velocity.x += contrib.velocityX;
       velocity.y += contrib.velocityY;
       surfaceHeight += contrib.height;
+      surfaceHeightRate += contrib.heightRate ?? 0;
     }
 
     return {
       velocity,
       surfaceHeight,
+      surfaceHeightRate,
     };
   }
 
   /**
-   * Calculate wave height using Gerstner waves with decoherence.
+   * Calculate wave height and dh/dt using Gerstner waves with decoherence.
    * - Phase offsets prevent all waves from peaking together
    * - Speed multipliers create drifting interference patterns
    * - Position-dependent phase noise adds local variation
    */
-  private getWaveHeightAtPoint(x: number, y: number): number {
+  private getWaveDataAtPoint(
+    x: number,
+    y: number,
+  ): { height: number; dhdt: number } {
     const t = this.game?.elapsedUnpausedTime ?? 0;
 
     // Sample amplitude modulation noise once per point (slow-changing)
@@ -175,10 +184,11 @@ export class WaterInfo extends BaseEntity {
       dispY += Q * amplitude * dy * cosPhase;
     }
 
-    // Second pass: compute height at displaced position
+    // Second pass: compute height and dh/dt at displaced position
     const sampleX = x - dispX;
     const sampleY = y - dispY;
     let height = 0;
+    let dhdt = 0;
 
     for (const [
       amplitude,
@@ -215,7 +225,15 @@ export class WaterInfo extends BaseEntity {
         phase = k * distFromSource - omega * t + phaseOffset;
       }
 
-      height += amplitude * ampMod * Math.sin(phase);
+      const sinPhase = Math.sin(phase);
+      const cosPhase = Math.cos(phase);
+
+      height += amplitude * ampMod * sinPhase;
+
+      // dh/dt = d/dt[A * ampMod * sin(k*d - omega*t + phi)]
+      //       = A * ampMod * cos(phase) * (-omega)
+      //       = -A * ampMod * omega * cos(phase)
+      dhdt += -amplitude * ampMod * omega * cosPhase;
     }
 
     // Add surface turbulence - small non-periodic noise that breaks up the grid
@@ -231,8 +249,9 @@ export class WaterInfo extends BaseEntity {
     const whiteTurbulence = (hash2D(x * 0.5 + timeCell, y * 0.5) - 0.5) * 0.02;
 
     height += smoothTurbulence + whiteTurbulence;
+    // Note: turbulence contribution to dhdt is negligible and non-physical, so we skip it
 
-    return height;
+    return { height, dhdt };
   }
 
   /**
@@ -286,8 +305,9 @@ export class WaterInfo extends BaseEntity {
    * Used by ModifierDataTexture to iterate through modifiers efficiently.
    */
   getAllModifiers(): Iterable<WaterModifier> {
-    return this.game!.entities.getTagged(
-      "waterModifier",
-    ) as unknown as WaterModifier[];
+    const modifiers = this.game!.entities.getTagged("waterModifier");
+    // Debug: uncomment to verify modifiers are found
+    // console.log("[WaterInfo] getAllModifiers:", modifiers.length);
+    return modifiers as unknown as WaterModifier[];
   }
 }

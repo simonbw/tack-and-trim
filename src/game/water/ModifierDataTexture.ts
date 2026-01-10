@@ -1,6 +1,7 @@
+import { DataTexture } from "../../core/graphics/texture/DataTexture";
 import { profiler } from "../../core/util/Profiler";
 import { V, V2d } from "../../core/Vector";
-import { Viewport } from "./WaterDataTexture";
+import { Viewport } from "./WaterComputePipeline";
 import { WaterInfo } from "./WaterInfo";
 
 // Modifier texture is smaller than wave texture since modifiers are sparse
@@ -11,10 +12,11 @@ const HEIGHT_SCALE = 5.0;
 const HEIGHT_OFFSET = 0.5;
 
 /**
- * Creates and maintains a data texture containing water modifier contributions.
+ * CPU-updated texture containing water modifier contributions (wakes, splashes).
  *
- * Built on CPU by sampling all water modifiers (wakes, etc.) and uploading
- * to GPU for compositing with the wave texture in the water shader.
+ * Updated each frame by iterating WaterModifier entities and baking their
+ * height contributions into a 128x128 texture. Sampled by WaterShader
+ * and combined with wave data for final rendering.
  *
  * Texel format (RGBA8):
  * - R: height contribution (0.5 = neutral, encoded as height/5.0 + 0.5)
@@ -22,50 +24,14 @@ const HEIGHT_OFFSET = 0.5;
  * - B: reserved (velocity Y)
  * - A: reserved
  */
-export class ModifierDataTexture {
-  private gl: WebGL2RenderingContext | null = null;
-  private texture: WebGLTexture | null = null;
-  private pixels: Uint8Array;
-
+export class ModifierDataTexture extends DataTexture {
   // Reusable query point to avoid allocations
   private queryPoint: V2d = V(0, 0);
 
   constructor() {
-    // RGBA8 format: 4 bytes per pixel
-    this.pixels = new Uint8Array(
-      MODIFIER_TEXTURE_SIZE * MODIFIER_TEXTURE_SIZE * 4,
-    );
-  }
-
-  /** Initialize WebGL resources. Must be called with the GL context. */
-  initGL(gl: WebGL2RenderingContext): void {
-    this.gl = gl;
-
-    // Create texture
-    this.texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-
-    // Set texture parameters
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    // Initialize with neutral values (0.5 = zero height)
+    super(MODIFIER_TEXTURE_SIZE, MODIFIER_TEXTURE_SIZE);
+    // Initialize to neutral values
     this.clearToNeutral();
-    gl.texImage2D(
-      gl.TEXTURE_2D,
-      0,
-      gl.RGBA,
-      MODIFIER_TEXTURE_SIZE,
-      MODIFIER_TEXTURE_SIZE,
-      0,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      this.pixels,
-    );
-
-    gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
   /** Clear pixel buffer to neutral values (0.5 height = no contribution) */
@@ -96,7 +62,9 @@ export class ModifierDataTexture {
     const texelHeight = height / MODIFIER_TEXTURE_SIZE;
 
     // Iterate through all modifiers and write to affected texels
+    let modifierCount = 0;
     for (const modifier of waterInfo.getAllModifiers()) {
+      modifierCount++;
       // Get modifier's world-space AABB
       const aabb = modifier.getWaterModifierAABB();
 
@@ -140,38 +108,17 @@ export class ModifierDataTexture {
         }
       }
     }
+    if (modifierCount > 0) {
+      console.log("[ModifierDataTexture] Found", modifierCount, "modifiers");
+    }
 
     // Upload to GPU
-    const gl = this.gl;
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texSubImage2D(
-      gl.TEXTURE_2D,
-      0,
-      0,
-      0,
-      MODIFIER_TEXTURE_SIZE,
-      MODIFIER_TEXTURE_SIZE,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      this.pixels,
-    );
-    gl.bindTexture(gl.TEXTURE_2D, null);
+    this.upload();
 
     profiler.end("modifier-texture");
   }
 
-  getTexture(): WebGLTexture | null {
-    return this.texture;
-  }
-
   getTextureSize(): number {
     return MODIFIER_TEXTURE_SIZE;
-  }
-
-  destroy(): void {
-    if (this.gl && this.texture) {
-      this.gl.deleteTexture(this.texture);
-      this.texture = null;
-    }
   }
 }

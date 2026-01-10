@@ -17,8 +17,8 @@ This file provides guidance to Claude Code when working with this 2D sailing gam
 
 - `npm start` - Start development server with asset watching and Parcel dev server
 - `npm run build` - Build production version using Parcel
-- `npm run tsc` - Run TypeScript type checking (no emit)
-- `npm run tsc-watch` - Run TypeScript type checking in watch mode
+- `npm run tsgo` - Run TypeScript type checking (no emit)
+- `npm run tsgo-watch` - Run TypeScript type checking in watch mode
 - `npm run prettier` - Format source code with Prettier
 - `npm run generate-manifest` - Generate asset type definitions from resources folder
 

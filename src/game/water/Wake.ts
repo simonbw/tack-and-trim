@@ -110,5 +110,6 @@ export class Wake extends BaseEntity {
     }
 
     this.game?.addEntity(particle);
+    console.log("[Wake] Spawned particle", particle.side);
   }
 }

@@ -9,27 +9,27 @@ import { SheetConfig } from "./Sheet";
 // ============================================
 
 export interface HullConfig {
-  mass: number; // lbs
-  vertices: V2d[]; // ft, hull shape polygon
-  skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
-  colors: {
-    fill: number;
-    stroke: number;
+  readonly mass: number; // lbs
+  readonly vertices: V2d[]; // ft, hull shape polygon, counter-clockwise winding
+  readonly skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
+  readonly colors: {
+    readonly fill: number;
+    readonly stroke: number;
   };
 }
 
 export interface KeelConfig {
-  vertices: V2d[]; // ft, keel shape (usually a line)
-  color: number;
+  readonly vertices: V2d[]; // ft, keel shape (usually a line)
+  readonly color: number;
 }
 
 export interface RudderConfig {
-  position: V2d; // ft from hull center
-  length: number; // ft (span of rudder blade)
-  maxSteerAngle: number; // radians
-  steerAdjustSpeed: number; // rad/sec
-  steerAdjustSpeedFast: number; // rad/sec
-  color: number;
+  readonly position: V2d; // ft from hull center
+  readonly length: number; // ft (span of rudder blade)
+  readonly maxSteerAngle: number; // radians
+  readonly steerAdjustSpeed: number; // rad/sec
+  readonly steerAdjustSpeedFast: number; // rad/sec
+  readonly color: number;
 }
 
 // Sail physics properties configurable per-boat (optional, defaults in Sail.ts)
@@ -53,48 +53,48 @@ export interface MainsailConfig extends BaseSailConfig {
 }
 
 export interface RigConfig {
-  mastPosition: V2d; // ft from hull center
-  boomLength: number; // ft
-  boomWidth: number; // ft
-  boomMass: number; // lbs
-  colors: {
-    mast: number;
-    boom: number;
+  readonly mastPosition: V2d; // ft from hull center
+  readonly boomLength: number; // ft
+  readonly boomWidth: number; // ft
+  readonly boomMass: number; // lbs
+  readonly colors: {
+    readonly mast: number;
+    readonly boom: number;
   };
-  mainsail: MainsailConfig;
+  readonly mainsail: MainsailConfig;
 }
 
 export interface BowspritConfig {
-  attachPoint: V2d; // ft from hull center
-  size: V2d; // ft (length, width)
-  color: number;
+  readonly attachPoint: V2d; // ft from hull center
+  readonly size: V2d; // ft (length, width)
+  readonly color: number;
 }
 
 export interface AnchorConfig {
-  bowAttachPoint: V2d; // ft from hull center
-  maxRodeLength: number; // ft
-  anchorSize: number; // ft (visual radius)
-  rodeDeploySpeed: number; // ft/s
-  rodeRetrieveSpeed: number; // ft/s
-  anchorMass: number; // lbs
-  anchorDragCoefficient: number; // dimensionless
+  readonly bowAttachPoint: V2d; // ft from hull center
+  readonly maxRodeLength: number; // ft
+  readonly anchorSize: number; // ft (visual radius)
+  readonly rodeDeploySpeed: number; // ft/s
+  readonly rodeRetrieveSpeed: number; // ft/s
+  readonly anchorMass: number; // lbs
+  readonly anchorDragCoefficient: number; // dimensionless
 }
 
 export interface JibConfig extends BaseSailConfig {}
 
 export interface MainsheetConfig extends Partial<SheetConfig> {
-  boomAttachRatio: number; // 0-1 along boom
-  hullAttachPoint: V2d; // ft from hull center
+  readonly boomAttachRatio: number; // 0-1 along boom
+  readonly hullAttachPoint: V2d; // ft from hull center
 }
 
 export interface JibSheetConfig extends Partial<SheetConfig> {
-  portAttachPoint: V2d; // ft from hull center
-  starboardAttachPoint: V2d; // ft from hull center
+  readonly portAttachPoint: V2d; // ft from hull center
+  readonly starboardAttachPoint: V2d; // ft from hull center
 }
 
 export interface RowingConfig {
-  duration: number; // seconds per stroke
-  force: number; // lbf
+  readonly duration: number; // seconds per stroke
+  readonly force: number; // lbf
 }
 
 // ============================================
@@ -102,16 +102,16 @@ export interface RowingConfig {
 // ============================================
 
 export interface BoatConfig {
-  hull: HullConfig;
-  keel: KeelConfig;
-  rudder: RudderConfig;
-  rig: RigConfig;
-  bowsprit: BowspritConfig;
-  anchor: AnchorConfig;
-  jib: JibConfig;
-  mainsheet: MainsheetConfig;
-  jibSheet: JibSheetConfig;
-  rowing: RowingConfig;
+  readonly hull: HullConfig;
+  readonly keel: KeelConfig;
+  readonly rudder: RudderConfig;
+  readonly rig: RigConfig;
+  readonly bowsprit: BowspritConfig;
+  readonly anchor: AnchorConfig;
+  readonly jib: JibConfig;
+  readonly mainsheet: MainsheetConfig;
+  readonly jibSheet: JibSheetConfig;
+  readonly rowing: RowingConfig;
 }
 
 // Re-export boat configs
@@ -128,7 +128,7 @@ export const DEFAULT_BOAT_CONFIG = StarterDinghy;
  */
 export function createBoatConfig(
   base: BoatConfig,
-  overrides: DeepPartial<BoatConfig>,
+  overrides: DeepPartial<BoatConfig>
 ): BoatConfig {
   return deepMerge(base, overrides);
 }

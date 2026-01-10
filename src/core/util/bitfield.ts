@@ -8,6 +8,3 @@ export function makeBitfield(...bits: boolean[]): number {
   }
   return result;
 }
-
-// Expose it on the window because sometimes it's useful for debugging
-(window as any).makeBitfield = makeBitfield;

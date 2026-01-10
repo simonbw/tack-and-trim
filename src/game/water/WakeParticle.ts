@@ -11,6 +11,7 @@ const BASE_RADIUS = 5; // Starting influence radius in ft
 const MAX_RADIUS = 20; // Radius at end of life in ft
 const DECAY_RATE = 1.5; // Intensity decay rate (1/s, dimensionless)
 const VELOCITY_SCALE = 0.8; // Velocity contribution scale (dimensionless)
+const WATER_VELOCITY_FACTOR = 0.0; // Percent that this affects water velocity
 const HEIGHT_SCALE = 0.5; // Max height contribution in ft
 
 // Shared zero contribution to avoid allocations
@@ -186,7 +187,10 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
     const toQueryY = queryPoint.y - this.posY;
 
     // Project query point onto segment (t=0 at this, t=1 at next)
-    const t = Math.max(0, Math.min(1, (toQueryX * segX + toQueryY * segY) / segLenSq));
+    const t = Math.max(
+      0,
+      Math.min(1, (toQueryX * segX + toQueryY * segY) / segLenSq)
+    );
 
     // Closest point on segment
     const closestX = this.posX + t * segX;
@@ -219,11 +223,12 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
     // Velocity uses linear falloff from ribbon center
     const linearFalloff = 1 - normalizedDist;
     const velFalloff = linearFalloff * intensity;
-    this.contribution.velocityX = velX * velFalloff;
-    this.contribution.velocityY = velY * velFalloff;
+    this.contribution.velocityX = velX * velFalloff * WATER_VELOCITY_FACTOR;
+    this.contribution.velocityY = velY * velFalloff * WATER_VELOCITY_FACTOR;
 
     // Height: cosine wave profile from ribbon center
-    const waveProfile = Math.cos(normalizedDist * Math.PI) * (1 - normalizedDist);
+    const waveProfile =
+      Math.cos(normalizedDist * Math.PI) * (1 - normalizedDist);
     this.contribution.height = waveProfile * intensity * HEIGHT_SCALE;
 
     return this.contribution;

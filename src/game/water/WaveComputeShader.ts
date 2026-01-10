@@ -110,7 +110,7 @@ float hash2D(float x, float y) {
 // Gerstner Wave Calculation
 // ============================================================================
 
-vec3 calculateWaves(vec2 worldPos, float time) {
+vec4 calculateWaves(vec2 worldPos, float time) {
   float x = worldPos.x;
   float y = worldPos.y;
 
@@ -171,10 +171,11 @@ vec3 calculateWaves(vec2 worldPos, float time) {
     dispY += Q * amplitude * dy * cosPhase;
   }
 
-  // Second pass: compute height at displaced position
+  // Second pass: compute height and dh/dt at displaced position
   float sampleX = x - dispX;
   float sampleY = y - dispY;
   float height = 0.0;
+  float dhdt = 0.0;  // Rate of height change (time derivative)
 
   for (int i = 0; i < NUM_WAVES; i++) {
     int base = i * 8;
@@ -210,7 +211,15 @@ vec3 calculateWaves(vec2 worldPos, float time) {
       phase = k * distFromSource - omega * time + phaseOffset;
     }
 
-    height += amplitude * ampMod * sin(phase);
+    float sinPhase = sin(phase);
+    float cosPhase = cos(phase);
+
+    height += amplitude * ampMod * sinPhase;
+
+    // dh/dt = d/dt[A * ampMod * sin(k*d - omega*t + phi)]
+    //       = A * ampMod * cos(phase) * (-omega)
+    //       = -A * ampMod * omega * cos(phase)
+    dhdt += -amplitude * ampMod * omega * cosPhase;
   }
 
   // Add surface turbulence - small non-periodic noise
@@ -223,9 +232,10 @@ vec3 calculateWaves(vec2 worldPos, float time) {
   float whiteTurbulence = (hash2D(x * 0.5 + timeCell, y * 0.5) - 0.5) * 0.02;
 
   height += smoothTurbulence + whiteTurbulence;
+  // Note: turbulence contribution to dhdt is negligible and non-physical, so we skip it
 
-  // Return height and displacement (displacement used for velocity approximation)
-  return vec3(height, dispX, dispY);
+  // Return height, displacement, and dhdt
+  return vec4(height, dispX, dispY, dhdt);
 }
 
 void main() {
@@ -236,26 +246,39 @@ void main() {
   vec2 worldPos = u_viewportBounds.xy + uv * u_viewportBounds.zw;
 
   // Calculate waves
-  vec3 waveResult = calculateWaves(worldPos, u_time);
+  vec4 waveResult = calculateWaves(worldPos, u_time);
   float height = waveResult.x;
+  float dhdt = waveResult.w;  // Rate of height change
 
   // Pack output:
   // R: height (normalized, will be unpacked by water shader)
-  // G: reserved (could store velocity X or gradient)
-  // B: reserved (could store velocity Y or gradient)
+  // G: dh/dt (normalized rate of height change)
+  // B: reserved (could store gradient in future)
   // A: reserved
 
-  // For now, just output height centered at 0.5
   // Height range is roughly ±1.5 ft, so we map to 0-1 with 0.5 as neutral
   float normalizedHeight = height / 5.0 + 0.5;
 
-  fragColor = vec4(normalizedHeight, 0.5, 0.5, 1.0);
+  // dh/dt range is roughly ±5 ft/s, so we map to 0-1 with 0.5 as zero
+  float normalizedDhdt = dhdt / 10.0 + 0.5;
+
+  fragColor = vec4(normalizedHeight, normalizedDhdt, 0.5, 1.0);
 }
 `;
 
 /**
- * GPU shader for computing Gerstner wave heights.
- * Renders wave data to a texture that can be sampled by WaterShader.
+ * GPU shader computing Gerstner wave surface → WaveTexture (512x512).
+ *
+ * Implements 12 configurable waves with:
+ * - Two-pass Gerstner: horizontal displacement, then height at displaced position
+ * - Amplitude modulation via 3D simplex noise (wave grouping effect)
+ * - Planar waves (distant swells) and point-source waves (localized disturbances)
+ * - Surface turbulence from simplex + white noise
+ *
+ * Output format (RGBA):
+ * - R: Normalized height (height/5.0 + 0.5)
+ * - G: Normalized dh/dt (rate of height change, for physics)
+ * - B, A: Reserved (unused)
  */
 export class WaveComputeShader extends FullscreenShader {
   private waveData: Float32Array;
