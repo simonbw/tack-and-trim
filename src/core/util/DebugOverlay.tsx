@@ -7,6 +7,8 @@ import { profiler, ProfileStats } from "./Profiler";
 const SMOOTHING = 0.95;
 const TOP_N_PROFILES = 100;
 
+// TODO: Support custom debug modes or extensible stats providers so game-specific
+// stats (like water readback) don't need to be hardcoded in the core engine.
 const MODES = ["closed", "lean", "physics", "profiler", "graphics"] as const;
 type Mode = (typeof MODES)[number];
 
@@ -249,6 +251,39 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                           {gfx.resolution} @{gfx.pixelRatio}x
                         </span>
                       </div>
+
+                      {/* Water readback stats (game-specific) */}
+                      {gfx.waterReadback && (
+                        <>
+                          <div
+                            style={{
+                              borderTop: "1px solid #333",
+                              marginTop: "4px",
+                              paddingTop: "4px",
+                              display: "flex",
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <span style={{ color: "#aaa" }}>
+                              Water GPU Hits
+                            </span>
+                            <span
+                              style={{
+                                color:
+                                  gfx.waterReadback.gpuPercent > 90
+                                    ? "#66ff66"
+                                    : gfx.waterReadback.gpuPercent > 50
+                                      ? "#ffff66"
+                                      : "#ff6666",
+                              }}
+                            >
+                              {gfx.waterReadback.gpuPercent.toFixed(0)}% (
+                              {gfx.waterReadback.gpuHits}/
+                              {gfx.waterReadback.total})
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 </>
@@ -305,6 +340,34 @@ export default class DebugOverlay extends ReactEntity implements Entity {
       .getStats()
       .find((s) => s.label === "gpu" && s.depth === 0);
 
+    // Get water readback stats (game-specific, may not exist)
+    // TODO: This couples core to game code - should use extensible stats system
+    const waterInfo = this.game?.entities.getById("waterInfo") as
+      | {
+          getReadbackStats?: () => {
+            gpuHits: number;
+            cpuFallbacks: number;
+          } | null;
+        }
+      | undefined;
+    const readbackStats = waterInfo?.getReadbackStats?.();
+    let waterReadback: {
+      gpuHits: number;
+      total: number;
+      gpuPercent: number;
+    } | null = null;
+    if (readbackStats) {
+      const total = readbackStats.gpuHits + readbackStats.cpuFallbacks;
+      waterReadback = {
+        gpuHits: readbackStats.gpuHits,
+        total,
+        gpuPercent: total > 0 ? (readbackStats.gpuHits / total) * 100 : 0,
+      };
+      // Reset stats each frame for per-frame tracking
+      readbackStats.gpuHits = 0;
+      readbackStats.cpuFallbacks = 0;
+    }
+
     return {
       drawCalls: rendererStats?.drawCalls ?? 0,
       triangles: rendererStats?.triangles ?? 0,
@@ -316,6 +379,7 @@ export default class DebugOverlay extends ReactEntity implements Entity {
       pixelRatio: rendererStats?.pixelRatio ?? 1,
       gpuTimerSupported,
       gpuAvgMs: gpuProfileStat?.avgMs ?? 0,
+      waterReadback,
     };
   }
 
