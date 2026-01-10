@@ -6,7 +6,6 @@
  */
 
 import BaseEntity from "../../../core/entity/BaseEntity";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { WaterInfo } from "../WaterInfo";
 import { WaterComputePipelineGPU } from "./WaterComputePipelineGPU";
 import { WaterShaderGPU } from "./WaterShaderGPU";
@@ -85,7 +84,7 @@ export class WaterRendererGPU extends BaseEntity {
       expandedViewport.left,
       expandedViewport.top,
       expandedViewport.width,
-      expandedViewport.height
+      expandedViewport.height,
     );
     this.waterShader.setRenderMode(this.renderMode);
 
@@ -93,41 +92,12 @@ export class WaterRendererGPU extends BaseEntity {
     const cameraMatrix = camera.getMatrix().clone().invert();
     this.waterShader.setCameraMatrix(cameraMatrix.toArray());
 
-    // Create command encoder for water rendering
-    const device = getWebGPU().device;
-    const commandEncoder = device.createCommandEncoder({
-      label: "Water Render Command Encoder",
-    });
+    // Use the main renderer's render pass
+    const renderPass = renderer.getCurrentRenderPass();
+    if (!renderPass) return;
 
-    // Get canvas texture view for rendering
-    // Note: In a full integration, this would use the main render pass
-    // For now, we create a separate pass
-    const canvas = renderer.canvas as HTMLCanvasElement;
-    const context = canvas.getContext("webgpu");
-    if (!context) return;
-
-    const canvasTexture = context.getCurrentTexture();
-    const canvasView = canvasTexture.createView();
-
-    // Begin render pass
-    const renderPass = commandEncoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: canvasView,
-          loadOp: "load", // Preserve previous content
-          storeOp: "store",
-        },
-      ],
-      label: "Water Render Pass",
-    });
-
-    // Render water
+    // Render water to the main render pass
     this.waterShader.render(renderPass, waveTextureView, modifierTextureView);
-
-    renderPass.end();
-
-    // Submit
-    device.queue.submit([commandEncoder.finish()]);
   }
 
   setRenderMode(mode: number): void {
