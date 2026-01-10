@@ -4,14 +4,11 @@ import { profiler } from "../../core/util/Profiler";
 import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
 import {
-  GERSTNER_STEEPNESS,
-  GRAVITY_FT_PER_S2,
-  WAVE_AMP_MOD_SPATIAL_SCALE,
-  WAVE_AMP_MOD_STRENGTH,
-  WAVE_AMP_MOD_TIME_SCALE,
-  WAVE_COMPONENTS,
-} from "./WaterConstants";
+  computeWaveDataAtPoint,
+  WaterComputeParams,
+} from "./cpu/WaterComputeCPU";
 import { WaterModifier } from "./WaterModifier";
+import type { WaterReadbackBuffer } from "./webgpu/WaterReadbackBuffer";
 
 // Units: ft, ft/s for velocities
 // Current variation configuration
@@ -20,16 +17,6 @@ const CURRENT_SPATIAL_SCALE = 0.002; // Currents vary slowly across space
 const CURRENT_TIME_SCALE = 0.05; // Currents change slowly over time
 const CURRENT_SPEED_VARIATION = 0.4; // ±40% speed variation
 const CURRENT_ANGLE_VARIATION = 0.5; // ±~30° direction variation
-
-/**
- * Simple hash function for white noise - returns value in range [0, 1]
- * Uses the fractional part of a large sine product
- */
-function hash2D(x: number, y: number): number {
-  // Different large primes for x and y to avoid correlation
-  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
-  return n - Math.floor(n);
-}
 
 /**
  * Water state at a given point in the world.
@@ -47,6 +34,10 @@ export interface WaterState {
  * Water physics data provider.
  * Provides a query interface for water state at any world position,
  * used by underwater physics components (keel, rudder, hull).
+ *
+ * Supports hybrid GPU/CPU wave computation:
+ * - GPU readback provides wave data for in-viewport queries (faster)
+ * - CPU fallback for out-of-viewport queries (consistent)
  */
 export class WaterInfo extends BaseEntity {
   id = "waterInfo";
@@ -67,6 +58,18 @@ export class WaterInfo extends BaseEntity {
     m.getWaterModifierAABB(),
   );
 
+  // GPU readback buffer for physics queries (set by WaterRendererGPU)
+  private readbackBuffer: WaterReadbackBuffer | null = null;
+
+  // CPU compute params (cached for fallback computations)
+  private get cpuParams(): WaterComputeParams {
+    return {
+      time: this.readbackBuffer?.getComputedTime() ?? this.game?.elapsedUnpausedTime ?? 0,
+      waveAmpModNoise: this.waveAmpModNoise,
+      surfaceNoise: this.surfaceNoise,
+    };
+  }
+
   onTick() {
     profiler.start("water-info-tick");
     // Rebuild spatial hash from all water modifiers
@@ -79,15 +82,38 @@ export class WaterInfo extends BaseEntity {
   }
 
   /**
+   * Set the GPU readback buffer for physics queries.
+   * Called by WaterRendererGPU after initialization.
+   */
+  setReadbackBuffer(buffer: WaterReadbackBuffer): void {
+    this.readbackBuffer = buffer;
+  }
+
+  /**
+   * Get readback statistics for debugging/tuning.
+   * Returns null if no readback buffer is set.
+   */
+  getReadbackStats(): { gpuHits: number; cpuFallbacks: number } | null {
+    return this.readbackBuffer?.stats ?? null;
+  }
+
+  /**
    * Get the water state at a given world position.
+   * Uses GPU readback when available, falls back to CPU computation.
    * Used by underwater physics components to determine water velocity.
    */
   getStateAtPoint(point: V2d): WaterState {
     // Start with current velocity
     const velocity = this.getCurrentVelocityAtPoint(point);
 
-    // Get wave height and dh/dt
-    const waveData = this.getWaveDataAtPoint(point[0], point[1]);
+    // Try GPU readback first, fall back to CPU
+    let waveData = this.readbackBuffer?.sampleAt(point[0], point[1]);
+
+    if (!waveData) {
+      // CPU fallback - use the same time as GPU computation for consistency
+      waveData = computeWaveDataAtPoint(point[0], point[1], this.cpuParams);
+    }
+
     let surfaceHeight = waveData.height;
     let surfaceHeightRate = waveData.dhdt;
 
@@ -105,153 +131,6 @@ export class WaterInfo extends BaseEntity {
       surfaceHeight,
       surfaceHeightRate,
     };
-  }
-
-  /**
-   * Calculate wave height and dh/dt using Gerstner waves with decoherence.
-   * - Phase offsets prevent all waves from peaking together
-   * - Speed multipliers create drifting interference patterns
-   * - Position-dependent phase noise adds local variation
-   */
-  private getWaveDataAtPoint(
-    x: number,
-    y: number,
-  ): { height: number; dhdt: number } {
-    const t = this.game?.elapsedUnpausedTime ?? 0;
-
-    // Sample amplitude modulation noise once per point (slow-changing)
-    const ampModTime = t * WAVE_AMP_MOD_TIME_SCALE;
-    const ampMod =
-      1 +
-      this.waveAmpModNoise(
-        x * WAVE_AMP_MOD_SPATIAL_SCALE,
-        y * WAVE_AMP_MOD_SPATIAL_SCALE,
-        ampModTime,
-      ) *
-        WAVE_AMP_MOD_STRENGTH;
-
-    // First pass: compute Gerstner horizontal displacement
-    let dispX = 0;
-    let dispY = 0;
-    const numWaves = WAVE_COMPONENTS.length;
-
-    for (const [
-      amplitude,
-      wavelength,
-      direction,
-      phaseOffset,
-      speedMult,
-      sourceDist,
-      sourceOffsetX,
-      sourceOffsetY,
-    ] of WAVE_COMPONENTS) {
-      const baseDx = Math.cos(direction);
-      const baseDy = Math.sin(direction);
-      const k = (2 * Math.PI) / wavelength;
-      const omega = Math.sqrt(GRAVITY_FT_PER_S2 * k) * speedMult;
-
-      let dx: number, dy: number, phase: number;
-
-      // sourceDist > 1e9 means planar wave (using 1e10 instead of Infinity for GLSL compat)
-      if (sourceDist > 1e9) {
-        // Planar wave - original calculation
-        dx = baseDx;
-        dy = baseDy;
-        const projected = x * dx + y * dy;
-        phase = k * projected - omega * t + phaseOffset;
-      } else {
-        // Point source wave - curved wavefronts
-        // Source is behind the wave direction, with optional offset
-        const sourceX = -baseDx * sourceDist + sourceOffsetX;
-        const sourceY = -baseDy * sourceDist + sourceOffsetY;
-
-        const toPointX = x - sourceX;
-        const toPointY = y - sourceY;
-        const distFromSource = Math.sqrt(
-          toPointX * toPointX + toPointY * toPointY,
-        );
-
-        // Local wave direction is radial from source
-        dx = toPointX / distFromSource;
-        dy = toPointY / distFromSource;
-        phase = k * distFromSource - omega * t + phaseOffset;
-      }
-
-      // Gerstner horizontal displacement
-      const Q = GERSTNER_STEEPNESS / (k * amplitude * numWaves);
-      const cosPhase = Math.cos(phase);
-      dispX += Q * amplitude * dx * cosPhase;
-      dispY += Q * amplitude * dy * cosPhase;
-    }
-
-    // Second pass: compute height and dh/dt at displaced position
-    const sampleX = x - dispX;
-    const sampleY = y - dispY;
-    let height = 0;
-    let dhdt = 0;
-
-    for (const [
-      amplitude,
-      wavelength,
-      direction,
-      phaseOffset,
-      speedMult,
-      sourceDist,
-      sourceOffsetX,
-      sourceOffsetY,
-    ] of WAVE_COMPONENTS) {
-      const baseDx = Math.cos(direction);
-      const baseDy = Math.sin(direction);
-      const k = (2 * Math.PI) / wavelength;
-      const omega = Math.sqrt(GRAVITY_FT_PER_S2 * k) * speedMult;
-
-      let phase: number;
-
-      if (sourceDist > 1e9) {
-        // Planar wave
-        const projected = sampleX * baseDx + sampleY * baseDy;
-        phase = k * projected - omega * t + phaseOffset;
-      } else {
-        // Point source wave
-        const sourceX = -baseDx * sourceDist + sourceOffsetX;
-        const sourceY = -baseDy * sourceDist + sourceOffsetY;
-
-        const toPointX = sampleX - sourceX;
-        const toPointY = sampleY - sourceY;
-        const distFromSource = Math.sqrt(
-          toPointX * toPointX + toPointY * toPointY,
-        );
-
-        phase = k * distFromSource - omega * t + phaseOffset;
-      }
-
-      const sinPhase = Math.sin(phase);
-      const cosPhase = Math.cos(phase);
-
-      height += amplitude * ampMod * sinPhase;
-
-      // dh/dt = d/dt[A * ampMod * sin(k*d - omega*t + phi)]
-      //       = A * ampMod * cos(phase) * (-omega)
-      //       = -A * ampMod * omega * cos(phase)
-      dhdt += -amplitude * ampMod * omega * cosPhase;
-    }
-
-    // Add surface turbulence - small non-periodic noise that breaks up the grid
-    // This represents chaotic micro-variations not captured by the wave model
-    // Mix of smooth noise (for organic feel) and white noise (for randomness)
-    const smoothTurbulence =
-      this.surfaceNoise(x * 0.15, y * 0.15, t * 0.5) * 0.03 +
-      this.surfaceNoise(x * 0.4, y * 0.4, t * 0.8) * 0.01;
-
-    // White noise - changes per pixel, animated slowly with time
-    // Use floor(t) to change the noise pattern roughly once per second
-    const timeCell = Math.floor(t * 0.5);
-    const whiteTurbulence = (hash2D(x * 0.5 + timeCell, y * 0.5) - 0.5) * 0.02;
-
-    height += smoothTurbulence + whiteTurbulence;
-    // Note: turbulence contribution to dhdt is negligible and non-physical, so we skip it
-
-    return { height, dhdt };
   }
 
   /**
