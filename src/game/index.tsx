@@ -8,7 +8,7 @@ import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
 import { PhysicsValidator } from "./PhysicsValidator";
 import { WaterInfo } from "./water/WaterInfo";
-import { WaterRenderer } from "./water/WaterRenderer";
+import { WaterRendererGPU } from "./water/webgpu/WaterRendererGPU";
 import { Wind } from "./Wind";
 import { WindVisualization } from "./wind-visualization/WindVisualization";
 import { WindIndicator } from "./WindIndicator";
@@ -41,7 +41,7 @@ async function main() {
   game.addEntity(new AutoPauser());
   game.addEntity(new PhysicsValidator());
   game.addEntity(new WaterInfo());
-  game.addEntity(new WaterRenderer());
+  game.addEntity(new WaterRendererGPU());
   game.addEntity(new Buoy(200, 0));
   game.addEntity(new Buoy(-160, 120));
   game.addEntity(new Buoy(100, -200));

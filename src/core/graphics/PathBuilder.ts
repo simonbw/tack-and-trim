@@ -1,5 +1,5 @@
 import { V, V2d } from "../Vector";
-import { WebGLRenderer } from "./WebGLRenderer";
+import { WebGPURenderer } from "./webgpu/WebGPURenderer";
 
 /**
  * Self-contained fluent path builder for complex shapes.
@@ -10,7 +10,7 @@ export class PathBuilder {
   private pathStarted = false;
   private closed = false;
 
-  constructor(private renderer: WebGLRenderer) {}
+  constructor(private renderer: WebGPURenderer) {}
 
   /** Move to a point without drawing */
   moveTo(x: number, y: number): this {

@@ -11,7 +11,11 @@ import { eventHandlerName } from "./entity/EventHandler";
 import { WithOwner } from "./entity/WithOwner";
 import { Draw } from "./graphics/Draw";
 import { RenderManager, RenderManagerOptions } from "./graphics/RenderManager";
-import { WebGLRenderer } from "./graphics/WebGLRenderer";
+import {
+  WebGPUDeviceManager,
+  getWebGPU,
+} from "./graphics/webgpu/WebGPUDevice";
+import { WebGPURenderer } from "./graphics/webgpu/WebGPURenderer";
 import { IOManager } from "./io/IO";
 import type Body from "./physics/body/Body";
 import StaticBody from "./physics/body/StaticBody";
@@ -128,12 +132,23 @@ export default class Game {
     this.masterGain.connect(this.audio.destination);
   }
 
+  /** Whether WebGPU has been initialized */
+  private webGpuInitialized = false;
+
   /** Start the event loop for the game. */
   async init({
     rendererOptions = {},
   }: {
     rendererOptions?: RenderManagerOptions;
   } = {}) {
+    // Initialize WebGPU
+    if (!WebGPUDeviceManager.isAvailable()) {
+      throw new Error("WebGPU is not available in this browser");
+    }
+    await getWebGPU().init();
+    this.webGpuInitialized = true;
+    console.log("WebGPU initialized successfully");
+
     await this.renderer.init(rendererOptions);
     // IO events don't respect pause state
     const dispatchIo = <E extends keyof IoEvents>(
@@ -146,6 +161,19 @@ export default class Game {
     this.animationFrameId = window.requestAnimationFrame(() =>
       this.loop(this.lastFrameTime),
     );
+  }
+
+  /** Check if WebGPU is available and initialized */
+  isWebGPUEnabled(): boolean {
+    return this.webGpuInitialized;
+  }
+
+  /** Get the WebGPU device manager (throws if not initialized) */
+  getWebGPUDevice(): WebGPUDeviceManager {
+    if (!this.webGpuInitialized) {
+      throw new Error("WebGPU is not initialized");
+    }
+    return getWebGPU();
   }
 
   /** See pause() and unpause(). */
@@ -453,7 +481,7 @@ export default class Game {
   }
 
   /** Get the low-level renderer for direct drawing */
-  getRenderer(): WebGLRenderer {
+  getRenderer(): WebGPURenderer {
     return this.renderer.getRenderer();
   }
 
