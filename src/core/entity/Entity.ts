@@ -28,7 +28,23 @@ export default interface Entity extends EventHandler<GameEventMap> {
   /** The game this entity belongs to. This should only be set by the Game. */
   game: Game | undefined;
 
-  /** TODO: Document entity.id */
+  /**
+   * Optional unique identifier for this entity within the game.
+   *
+   * When set, the entity can be retrieved via `game.entities.getById(id)`.
+   * IDs must be unique per Game instance - adding an entity with a duplicate ID
+   * will throw an error.
+   *
+   * Use this for singleton entities or entities that need to be referenced
+   * by other parts of the codebase without direct references.
+   *
+   * @example
+   * // In entity constructor or definition:
+   * this.id = "player";
+   *
+   * // Later, retrieve the entity:
+   * const player = game.entities.getById("player");
+   */
   id?: string;
   /** Tags to find entities by */
   readonly tags: ReadonlyArray<string>;
