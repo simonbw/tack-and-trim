@@ -3,7 +3,7 @@ import { V, V2d } from "../Vector";
 import { Camera2d, ViewportProvider } from "./Camera2d";
 import { LayerInfo } from "./LayerInfo";
 import { Matrix3 } from "./Matrix3";
-import { WebGLRenderer } from "./WebGLRenderer";
+import { WebGPURenderer } from "./webgpu/WebGPURenderer";
 
 /** Options for the RenderManager constructor */
 export interface RenderManagerOptions {
@@ -13,14 +13,14 @@ export interface RenderManagerOptions {
 
 /**
  * Coordinates rendering for the game.
- * Manages the WebGL renderer, camera, and layer system.
+ * Manages the WebGPU renderer, camera, and layer system.
  */
 export class RenderManager implements ViewportProvider {
   private cursor: CSSStyleDeclaration["cursor"] = "none";
   private backgroundColor: number = 0x1a1a2e;
 
-  /** The underlying WebGL renderer */
-  readonly renderer: WebGLRenderer;
+  /** The underlying WebGPU renderer */
+  readonly renderer: WebGPURenderer;
 
   /** Camera for viewport transformations */
   camera: Camera2d;
@@ -33,7 +33,7 @@ export class RenderManager implements ViewportProvider {
     private defaultLayerName: LayerName,
     private onResize?: ([width, height]: [number, number]) => void,
   ) {
-    this.renderer = new WebGLRenderer();
+    this.renderer = new WebGPURenderer();
     this.showCursor();
     this.camera = new Camera2d(this, V(0, 0));
 
@@ -51,6 +51,9 @@ export class RenderManager implements ViewportProvider {
     if (options.backgroundColor !== undefined) {
       this.backgroundColor = options.backgroundColor;
     }
+
+    // Initialize WebGPU renderer
+    await this.renderer.init();
 
     // Add canvas to document
     document.body.appendChild(this.canvas);
@@ -147,7 +150,7 @@ export class RenderManager implements ViewportProvider {
   }
 
   /** Get the low-level renderer for direct drawing */
-  getRenderer(): WebGLRenderer {
+  getRenderer(): WebGPURenderer {
     return this.renderer;
   }
 

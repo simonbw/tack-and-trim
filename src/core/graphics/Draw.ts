@@ -1,8 +1,8 @@
 import { V, V2d } from "../Vector";
 import { Camera2d } from "./Camera2d";
 import { PathBuilder } from "./PathBuilder";
-import { Texture } from "./TextureManager";
-import { WebGLRenderer } from "./WebGLRenderer";
+import { WebGPURenderer } from "./webgpu/WebGPURenderer";
+import { WebGPUTexture } from "./webgpu/WebGPUTextureManager";
 
 // Re-export PathBuilder for convenience
 export { PathBuilder };
@@ -184,8 +184,8 @@ export interface ImageOptions {
  */
 export class Draw {
   constructor(
-    /** The underlying WebGL renderer */
-    readonly renderer: WebGLRenderer,
+    /** The underlying WebGPU renderer */
+    readonly renderer: WebGPURenderer,
     /** The camera for coordinate conversions and zoom */
     readonly camera: Camera2d,
   ) {}
@@ -389,7 +389,7 @@ export class Draw {
   }
 
   /** Draw a textured image/sprite */
-  image(texture: Texture, x: number, y: number, opts?: ImageOptions): void {
+  image(texture: WebGPUTexture, x: number, y: number, opts?: ImageOptions): void {
     // Convert ImageOptions to SpriteOptions (color -> tint)
     const spriteOpts = opts
       ? {
