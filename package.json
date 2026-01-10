@@ -46,6 +46,7 @@
     "yargs": "^18.0.0"
   },
   "devDependencies": {
-    "@typescript/native-preview": "^7.0.0-dev.20260109.1"
+    "@typescript/native-preview": "^7.0.0-dev.20260109.1",
+    "@webgpu/types": "^0.1.68"
   }
 }
