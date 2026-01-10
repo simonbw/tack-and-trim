@@ -1,267 +1,340 @@
-# Gameplan: WebGPU Wave Computation Migration
+# Gameplan: Full WebGPU Migration
 
-Migrate wave computation from WebGL2 fullscreen shader to WebGPU compute shader with async readback for physics. Staged approach allows stopping after Stage 1.
+Replace the entire WebGL2 rendering pipeline with WebGPU. This includes the 2D renderer, all shaders (ported to WGSL), texture management, and wave computation. The result is a clean WebGPU-native architecture with compute shaders for wave physics and direct texture sharing.
 
----
-
-## Current State
-
-### Wave Computation (GPU - Rendering)
-- `WaveComputeShader.ts` - Fragment shader computing Gerstner waves
-- Renders to `RenderTargetTexture` (512×512 RGBA16F)
-- Output sampled by `WaterShader` for water rendering
-- Uses `FullscreenShader` base class (WebGL2)
-
-### Wave Computation (CPU - Physics)
-- `WaterInfo.getStateAtPoint()` - Duplicates Gerstner math on CPU
-- Called 5-6 times per physics tick (120Hz) by Keel, Rudder, Hull
-- Returns: `{velocity, surfaceHeight, surfaceHeightRate}`
-- Latency-sensitive: 1 frame delay acceptable, 2+ frames noticeable
-
-### Renderer
-- `WebGLRenderer.ts` - Immediate-mode batched 2D renderer
-- `RenderManager.ts` - Bridge between Game and renderer
-- Context created in WebGLRenderer, passed via `getGL()`
+**Requirements:**
+- WebGPU required (no WebGL2 fallback)
+- Game-specific code stays in `src/game/`, engine code in `src/core/`
 
 ---
 
-## Desired Changes
+## Current Architecture Overview
 
-### Stage 1: WebGPU Compute (Can Stop Here)
-- Add WebGPU device alongside existing WebGL2 renderer
-- Move wave computation to WebGPU compute shader
-- Async readback wave data to CPU for physics
-- Keep WebGL2 for all rendering (upload wave data as DataTexture)
-- **Benefit:** Unified wave computation, no CPU/GPU duplication
-
-### Stage 2: Full WebGPU Renderer
-- Replace WebGL2 renderer with WebGPU
-- Native texture sharing (no readback needed for rendering)
-- Modern compute-first architecture
-- **Benefit:** Cleaner architecture, better performance
+| Component | File | Lines | Purpose |
+|-----------|------|-------|---------|
+| Core Renderer | `src/core/graphics/WebGLRenderer.ts` | 1-765 | Batched 2D rendering |
+| Shape Shader | `src/core/graphics/ShaderProgram.ts` | 195-231 | Untextured primitives |
+| Sprite Shader | `src/core/graphics/ShaderProgram.ts` | 233-277 | Textured quads |
+| Water Shader | `src/game/water/WaterShader.ts` | 17-154 | Water surface rendering |
+| Wave Compute | `src/game/water/WaveComputeShader.ts` | 8-267 | Gerstner wave computation |
+| Texture Manager | `src/core/graphics/TextureManager.ts` | 1-290 | Texture loading/caching |
+| Render Targets | `src/core/graphics/texture/RenderTargetTexture.ts` | 1-202 | Off-screen rendering |
+| Data Textures | `src/core/graphics/texture/DataTexture.ts` | 1-105 | CPU-updated textures |
+| GPU Timing | `src/core/graphics/GpuTimer.ts` | 1-143 | Performance measurement |
 
 ---
 
-## Stage 1: WebGPU Compute Only
+## Implementation Phases
 
-### Files to Create
+### Phase 1: WebGPU Infrastructure (Engine)
+Foundation classes that everything else builds on.
 
-#### `src/core/graphics/webgpu/WebGPUDevice.ts`
-Device initialization and management:
-```typescript
-export class WebGPUDevice {
-  device: GPUDevice;
-  async init(): Promise<void>;
-  destroy(): void;
-}
-```
-- Request adapter with `powerPreference: "high-performance"`
-- Request device with required features/limits
-- Singleton pattern - one device for the app
+**Create `src/core/graphics/webgpu/WebGPUDevice.ts`**
+- Adapter/device initialization with `powerPreference: "high-performance"`
+- Feature detection and capability reporting
+- Singleton pattern for app-wide device access
+- Throw error if WebGPU unavailable (no fallback)
 
-#### `src/core/graphics/webgpu/ComputeBuffer.ts`
-Buffer abstraction for compute I/O:
-```typescript
-export class ComputeBuffer {
-  // Storage buffer (GPU read/write)
-  // Staging buffer (for async readback)
-  async readback(): Promise<Float32Array>;
-}
-```
-- Ring buffer of staging buffers for async readback
-- Map/unmap lifecycle management
+**Create `src/core/graphics/webgpu/WebGPUTextureManager.ts`**
+- Same interface as existing TextureManager
+- Texture loading from URL, Image, Canvas, raw pixels
+- Texture caching with deduplication
+- Format: RGBA8 for sprites, RGBA16Float for render targets
+- Sampler creation (LINEAR filtering, CLAMP_TO_EDGE)
 
-#### `src/core/graphics/webgpu/WaveComputeGPU.ts`
-WebGPU compute shader for Gerstner waves:
-```typescript
-export class WaveComputeGPU {
-  constructor(device: WebGPUDevice);
-  setTime(t: number): void;
-  setViewportBounds(left, top, width, height): void;
-  compute(): void;
-  async readbackRegion(x, y, w, h): Promise<Float32Array>;
-}
-```
-- WGSL compute shader (port from GLSL)
-- Workgroup size 8×8 for 512×512 texture
-- Output to storage texture (r32float or rgba16float)
-- Selective readback (small region around boat for physics)
+### Phase 2: Core Renderer (Engine)
+The batched 2D renderer - most critical component.
 
-### Files to Modify
+**Create `src/core/graphics/webgpu/WebGPURenderer.ts`**
+Replicate WebGLRenderer's architecture:
+- **Two batch types**: shapes (untextured) and sprites (textured)
+- **Vertex formats**:
+  - Shape: position(2) + color(4) + modelMatrix(6) = 12 floats/vertex
+  - Sprite: position(2) + uv(2) + color(4) + modelMatrix(6) = 14 floats/vertex
+- **Batching**: Flush on overflow or texture change
+- **Transform stack**: Same Matrix3-based API
+- **Blend mode**: SRC_ALPHA, ONE_MINUS_SRC_ALPHA
 
-#### `src/game/water/WaterComputePipeline.ts`
-- Add WebGPU device initialization
-- Replace `WaveComputeShader` with `WaveComputeGPU`
-- After compute: readback small region, update CPU cache
-- Upload full texture to WebGL `DataTexture` for rendering
-- Keep `ModifierDataTexture` unchanged (still CPU-updated)
+**Create WGSL shaders:**
 
-#### `src/game/water/WaterInfo.ts`
-- Remove CPU Gerstner wave calculation (~140 lines)
-- Query wave data from `WaterComputePipeline`'s cached readback
-- Keep: current velocity (simplex noise), spatial hash, modifier queries
-- Interpolate between cached wave samples for sub-pixel accuracy
-
-#### `src/core/Game.ts`
-- Initialize WebGPU device in `init()`
-- Add `getWebGPUDevice()` accessor
-- Poll async readback results each frame
-
-### WGSL Shader (Wave Compute)
-
-Port the existing GLSL to WGSL:
+`src/core/graphics/webgpu/shaders/shape.wgsl`:
 ```wgsl
-@group(0) @binding(0) var<storage, read_write> output: array<vec4<f32>>;
-@group(0) @binding(1) var<uniform> params: WaveParams;
+struct Uniforms { viewMatrix: mat3x3<f32> }
+struct VertexInput {
+  @location(0) position: vec2<f32>,
+  @location(1) color: vec4<f32>,
+  @location(2) modelCol0: vec2<f32>,
+  @location(3) modelCol1: vec2<f32>,
+  @location(4) modelCol2: vec2<f32>,
+}
 
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+  // Reconstruct 3x3 model matrix from per-vertex attributes
+  // Apply model transform then view matrix
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+  return in.color;  // Direct color output
+}
+```
+
+`src/core/graphics/webgpu/shaders/sprite.wgsl`:
+- Same as shape + texture sampling with tint multiplication
+
+### Phase 3: Fullscreen Effects (Engine)
+Infrastructure for water rendering and post-processing.
+
+**Create `src/core/graphics/webgpu/WebGPUFullscreenQuad.ts`**
+- Static vertex buffer covering clip space
+- Reusable for all fullscreen effects
+
+**Create `src/core/graphics/webgpu/WebGPURenderTarget.ts`**
+- GPUTexture with render attachment capability
+- Support for RGBA8 and RGBA16Float formats
+- Samplable for use as input to other passes
+
+### Phase 4: Wave Computation (Game-Specific)
+The key motivation - native compute + direct texture sharing.
+
+**Create `src/game/water/webgpu/WaveComputeGPU.ts`**
+Port GLSL fragment shader to WGSL compute shader:
+- **Workgroup size**: 8×8 for 512×512 texture
+- **Output**: Storage texture (rgba16float)
+- **Readback**: `buffer.mapAsync()` for physics data
+
+**Create `src/game/water/webgpu/waveCompute.wgsl`**
+Port from `WaveComputeShader.ts:8-267`:
+- 3D simplex noise (amplitude modulation + turbulence)
+- Two-pass Gerstner wave algorithm
+- 12 wave components from uniform buffer
+- Output: height (R), dh/dt (G)
+
+```wgsl
 struct WaveParams {
   time: f32,
   viewport: vec4<f32>,  // left, top, width, height
+  textureSize: vec2<f32>,
   waveData: array<f32, 96>,  // 12 waves × 8 floats
 }
 
+@group(0) @binding(0) var<uniform> params: WaveParams;
+@group(0) @binding(1) var output: texture_storage_2d<rgba16float, write>;
+
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-  let uv = vec2<f32>(id.xy) / vec2<f32>(512.0);
+  let uv = vec2<f32>(id.xy) / params.textureSize;
   let worldPos = params.viewport.xy + uv * params.viewport.zw;
 
-  // Gerstner wave calculation (same math as GLSL)
-  let result = calculateWaves(worldPos, params.time);
+  // Pass 1: Compute horizontal displacement
+  var dispX = 0.0;
+  var dispY = 0.0;
+  for (var i = 0; i < 12; i++) {
+    // Gerstner displacement calculation
+  }
 
-  let idx = id.y * 512 + id.x;
-  output[idx] = result;
+  // Pass 2: Sample height at displaced position
+  var height = 0.0;
+  var dhdt = 0.0;
+  for (var i = 0; i < 12; i++) {
+    // Height calculation at (worldPos.x - dispX, worldPos.y - dispY)
+  }
+
+  // Add turbulence (simplex noise)
+  height += simplex3D(worldPos.x * 0.15, worldPos.y * 0.15, params.time * 0.3) * 0.1;
+
+  // Normalize and write output
+  let normalizedHeight = height / 5.0 + 0.5;
+  let normalizedDhdt = dhdt / 10.0 + 0.5;
+  textureStore(output, id.xy, vec4(normalizedHeight, normalizedDhdt, 0.5, 1.0));
 }
 ```
 
-### Async Readback Strategy
+### Phase 5: Water Rendering (Game-Specific)
+Port the water surface shader.
 
-**Problem:** Physics needs wave data at specific points, but GPU readback is async.
+**Create `src/game/water/webgpu/water.wgsl`**
+Port from `WaterShader.ts:17-154`:
+- Sample wave texture (now native WebGPU texture)
+- Sample modifier texture (wakes)
+- Surface normal calculation from height gradients
+- Fresnel, subsurface scattering, diffuse/specular lighting
+- Height-based color interpolation
 
-**Solution:** Double-buffered region cache
-1. Each frame: dispatch compute for full 512×512 texture
-2. Request async readback of small region around boat (e.g., 32×32)
-3. Next frame: use previous frame's readback for physics
-4. Interpolate within cached region for query points
+**Modify `src/game/water/WaterComputePipeline.ts`**
+- Use WebGPU compute shader instead of WebGL fragment shader
+- Output directly to WebGPU texture (no readback for rendering)
+- Add async readback for physics (region around boat)
 
-**Latency:** 1 frame (8.3ms @ 120Hz physics) - acceptable per analysis.
+**Modify `src/game/water/WaterInfo.ts`**
+- Query cached GPU readback for wave data
+- Keep CPU fallback for out-of-range queries or immediate answers
 
-### Execution Order (Stage 1)
+### Phase 6: Integration
+Wire everything together.
+
+**Modify `src/core/Game.ts`**
+- Initialize WebGPU device before renderer
+- Add `getWebGPUDevice()` accessor
+- Update render loop to work with WebGPU
+
+**Modify `src/core/graphics/RenderManager.ts`**
+- Replace WebGLRenderer with WebGPURenderer
+- Same public API, WebGPU backend only
+
+**Update entity rendering:**
+- Most entities use Draw API - should work unchanged
+- WaterRenderer needs WebGPU-specific code path
+
+---
+
+## File Summary
+
+### Create (Engine - `src/core/graphics/webgpu/`)
+| File | Purpose |
+|------|---------|
+| `WebGPUDevice.ts` | Device management |
+| `WebGPURenderer.ts` | Batched 2D renderer |
+| `WebGPUTextureManager.ts` | Texture loading |
+| `WebGPURenderTarget.ts` | Off-screen textures |
+| `WebGPUFullscreenQuad.ts` | Fullscreen geometry |
+| `shaders/shape.wgsl` | Untextured primitives |
+| `shaders/sprite.wgsl` | Textured quads |
+
+### Create (Game - `src/game/water/webgpu/`)
+| File | Purpose |
+|------|---------|
+| `WaveComputeGPU.ts` | Wave compute shader wrapper |
+| `waveCompute.wgsl` | Gerstner waves (WGSL) |
+| `water.wgsl` | Water surface (WGSL) |
+
+### Modify
+| File | Changes |
+|------|---------|
+| `src/core/Game.ts` | Init WebGPU device |
+| `src/core/graphics/RenderManager.ts` | Use WebGPURenderer |
+| `src/game/water/WaterComputePipeline.ts` | Use WebGPU compute |
+| `src/game/water/WaterInfo.ts` | Use GPU readback |
+| `src/game/water/WaterRenderer.ts` | WebGPU render path |
+
+### Can Remove Later (After Migration Complete)
+| File | Reason |
+|------|--------|
+| `src/core/graphics/WebGLRenderer.ts` | Replaced by WebGPURenderer |
+| `src/core/graphics/ShaderProgram.ts` | WebGL-specific |
+| `src/core/graphics/GpuTimer.ts` | WebGL-specific timing |
+| `src/core/graphics/FullscreenShader.ts` | WebGL-specific |
+| `src/core/graphics/FullscreenQuad.ts` | WebGL-specific |
+| `src/core/graphics/texture/RenderTargetTexture.ts` | WebGL-specific |
+| `src/game/water/WaveComputeShader.ts` | Replaced by WaveComputeGPU |
+
+---
+
+## Execution Order
 
 ```
-## Phase 1.1: WebGPU Infrastructure (Parallel)
-- [ ] WebGPUDevice.ts - Device init/management
-- [ ] ComputeBuffer.ts - Buffer abstraction + readback
+Phase 1: Infrastructure (Engine)
+├── WebGPUDevice.ts
+└── WebGPUTextureManager.ts
 
-## Phase 1.2: Wave Compute (Sequential)
-1. [ ] WaveComputeGPU.ts - Port GLSL → WGSL compute shader
-2. [ ] WaterComputePipeline.ts - Integrate WebGPU compute
-3. [ ] WaterInfo.ts - Use cached readback instead of CPU waves
+Phase 2: Core Renderer (Engine - biggest piece)
+├── shaders/shape.wgsl
+├── shaders/sprite.wgsl
+└── WebGPURenderer.ts
 
-## Phase 1.3: Integration
-- [ ] Game.ts - Init WebGPU device
-- [ ] Test: Water renders correctly, physics feels responsive
+Phase 3: Fullscreen Effects (Engine)
+├── WebGPUFullscreenQuad.ts
+└── WebGPURenderTarget.ts
+
+Phase 4: Wave Computation (Game)
+├── webgpu/waveCompute.wgsl (port simplex + Gerstner)
+└── webgpu/WaveComputeGPU.ts
+
+Phase 5: Water Rendering (Game)
+├── webgpu/water.wgsl
+├── WaterComputePipeline.ts (modify)
+└── WaterInfo.ts (modify)
+
+Phase 6: Integration
+├── Game.ts (modify)
+├── RenderManager.ts (modify)
+└── Testing
 ```
 
 ---
 
-## Stage 2: Full WebGPU Renderer
+## Key Algorithm: Simplex Noise in WGSL
 
-### Files to Create
+The wave shader uses 3D simplex noise for amplitude modulation and turbulence. This needs careful porting from GLSL (WaveComputeShader.ts:34-98):
 
-#### `src/core/graphics/webgpu/WebGPURenderer.ts`
-Replace WebGLRenderer with WebGPU equivalent:
-- Same immediate-mode batching API
-- Vertex/index buffers as GPUBuffers
-- Render pipeline for shapes/sprites
-- Bind group management for textures/uniforms
+```wgsl
+// Simplex 3D noise - port from GLSL
+fn mod289_3(x: vec3<f32>) -> vec3<f32> {
+  return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
 
-#### `src/core/graphics/webgpu/WebGPUTextureManager.ts`
-Texture loading and caching for WebGPU:
-- `GPUTexture` instead of `WebGLTexture`
-- Same interface as current TextureManager
-- Support for storage textures (compute output)
+fn mod289_4(x: vec4<f32>) -> vec4<f32> {
+  return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
 
-#### `src/core/graphics/webgpu/WebGPUShaderProgram.ts`
-WGSL shader compilation and pipeline creation:
-- Render pipelines (vertex + fragment)
-- Compute pipelines
-- Bind group layout management
+fn permute(x: vec4<f32>) -> vec4<f32> {
+  return mod289_4(((x * 34.0) + 1.0) * x);
+}
 
-### Files to Modify
+fn taylorInvSqrt(r: vec4<f32>) -> vec4<f32> {
+  return 1.79284291400159 - 0.85373472095314 * r;
+}
 
-#### `src/core/graphics/RenderManager.ts`
-- Accept renderer type in options: `'webgl' | 'webgpu'`
-- Instantiate appropriate renderer
-- Same public API, different backend
-
-#### `src/core/graphics/Draw.ts`
-- Should work unchanged (delegates to renderer)
-- May need minor adjustments for texture binding
-
-#### `src/game/water/WaterComputePipeline.ts`
-- Remove WebGL DataTexture upload (no longer needed)
-- Wave compute output directly sampled by WebGPU WaterShader
-- Native texture sharing, no copy
-
-#### `src/game/water/WaterShader.ts`
-- Port GLSL fragment shader to WGSL
-- Use render pipeline instead of FullscreenShader
-
-### Execution Order (Stage 2)
-
+fn simplex3D(v: vec3<f32>) -> f32 {
+  // Full simplex noise implementation
+  // ~50 lines of WGSL
+}
 ```
-## Phase 2.1: Core Renderer (Sequential)
-1. [ ] WebGPUShaderProgram.ts - Pipeline management
-2. [ ] WebGPUTextureManager.ts - Texture loading
-3. [ ] WebGPURenderer.ts - Batched 2D rendering
 
-## Phase 2.2: Shader Ports (Parallel)
-- [ ] Port shape/sprite shaders to WGSL
-- [ ] Port WaterShader to WGSL
+---
 
-## Phase 2.3: Integration (Sequential)
-1. [ ] RenderManager.ts - Backend selection
-2. [ ] Remove WebGL fallback code
-3. [ ] Full testing pass
-```
+## Key Algorithm: Two-Pass Gerstner Waves
+
+The Gerstner wave algorithm must be ported exactly (WaveComputeShader.ts:113-239):
+
+**Pass 1 - Horizontal Displacement:**
+- For each of 12 waves, calculate displacement in X and Y
+- Handle planar waves (sourceDist > 1e9) vs point-source waves
+- Apply Gerstner steepness factor Q
+
+**Pass 2 - Height at Displaced Position:**
+- Sample at (x - dispX, y - dispY)
+- Calculate height = amplitude × ampMod × sin(phase)
+- Calculate dh/dt = -amplitude × ampMod × omega × cos(phase)
 
 ---
 
 ## Verification
 
-### Stage 1 Tests
-1. `npm run tsgo` - No type errors
-2. `npm start` - Water renders (via DataTexture upload)
-3. Sail the boat - Steering feels responsive (no input lag)
-4. Check profiler - "wave-gpu-compute" timing, readback timing
-5. Compare: Disable waves, measure physics tick time reduction
-
-### Stage 2 Tests
-1. All Stage 1 tests pass
-2. Visual comparison - Rendering identical to WebGL version
-3. Performance comparison - Frame time, GPU memory
-4. Stress test - Multiple boats, many wake particles
+1. **Type check**: `npm run tsgo` - no errors
+2. **Basic rendering**: Shapes and sprites render correctly
+3. **Water rendering**: Water looks identical to WebGL version
+4. **Physics**: Boat steering feels responsive (no input lag)
+5. **Performance**: Frame time comparable to or better than WebGL
+6. **Error handling**: Clear error message if WebGPU unavailable
 
 ---
 
-## Key Files Summary
+## Risk Areas
 
-### Stage 1 (Compute Only)
-| File | Action |
-|------|--------|
-| `src/core/graphics/webgpu/WebGPUDevice.ts` | CREATE |
-| `src/core/graphics/webgpu/ComputeBuffer.ts` | CREATE |
-| `src/core/graphics/webgpu/WaveComputeGPU.ts` | CREATE |
-| `src/game/water/WaterComputePipeline.ts` | MODIFY |
-| `src/game/water/WaterInfo.ts` | MODIFY (remove CPU waves) |
-| `src/core/Game.ts` | MODIFY (init WebGPU) |
+1. **Simplex noise in WGSL** - Complex algorithm, must port carefully
+2. **Batching performance** - Buffer management differs from WebGL
+3. **Texture format compatibility** - RGBA16Float support varies
+4. **Transform stack** - Per-vertex model matrix must work correctly
 
-### Stage 2 (Full Renderer)
-| File | Action |
-|------|--------|
-| `src/core/graphics/webgpu/WebGPURenderer.ts` | CREATE |
-| `src/core/graphics/webgpu/WebGPUTextureManager.ts` | CREATE |
-| `src/core/graphics/webgpu/WebGPUShaderProgram.ts` | CREATE |
-| `src/core/graphics/RenderManager.ts` | MODIFY |
-| `src/game/water/WaterShader.ts` | REWRITE (WGSL) |
-| Multiple entity files | MINOR (texture type changes) |
+**Note**: WebGPU is required - Chrome/Edge stable, Firefox/Safari experimental as of 2025.
+
+---
+
+## Estimated Scope
+
+- **New files**: ~10 files, ~2000-3000 lines
+- **Modified files**: ~5 files, ~200-300 lines changed
+- **Deleted code**: ~200 lines (CPU wave duplication in WaterInfo.ts)
+- **Removable code**: ~1500 lines (WebGL-specific code after migration)
