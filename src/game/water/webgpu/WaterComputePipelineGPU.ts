@@ -9,10 +9,11 @@
  */
 
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { profiler } from "../../../core/util/Profiler";
+import { profile, profiler } from "../../../core/util/Profiler";
 import { V } from "../../../core/Vector";
 import { WATER_TEXTURE_SIZE } from "../WaterConstants";
 import type { WaterInfo } from "../WaterInfo";
+import { WaterReadbackBuffer, ReadbackViewport } from "./WaterReadbackBuffer";
 import { WaveComputeGPU } from "./WaveComputeGPU";
 
 export interface Viewport {
@@ -32,9 +33,15 @@ export class WaterComputePipelineGPU {
   private modifierData: Uint8Array;
   private initialized = false;
 
+  // Readback buffer for physics queries
+  private readbackBuffer: WaterReadbackBuffer;
+  private lastComputeViewport: ReadbackViewport | null = null;
+
   constructor() {
     // Pre-allocate modifier texture data (RGBA8)
-    this.modifierData = new Uint8Array(WATER_TEXTURE_SIZE * WATER_TEXTURE_SIZE * 4);
+    this.modifierData = new Uint8Array(
+      WATER_TEXTURE_SIZE * WATER_TEXTURE_SIZE * 4,
+    );
     // Initialize with neutral values (0.5 = no modification)
     for (let i = 0; i < this.modifierData.length; i += 4) {
       this.modifierData[i] = 128; // R: height modifier (0.5 = neutral)
@@ -42,6 +49,9 @@ export class WaterComputePipelineGPU {
       this.modifierData[i + 2] = 128; // B: unused
       this.modifierData[i + 3] = 255; // A: opacity
     }
+
+    // Initialize readback buffer for physics queries
+    this.readbackBuffer = new WaterReadbackBuffer(WATER_TEXTURE_SIZE);
   }
 
   /**
@@ -56,13 +66,14 @@ export class WaterComputePipelineGPU {
     this.waveCompute = new WaveComputeGPU(WATER_TEXTURE_SIZE);
     await this.waveCompute.init();
 
+    // Initialize readback buffer
+    await this.readbackBuffer.init();
+
     // Create modifier texture (CPU-uploaded)
     this.modifierTexture = device.createTexture({
       size: { width: WATER_TEXTURE_SIZE, height: WATER_TEXTURE_SIZE },
       format: "rgba8unorm",
-      usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.COPY_DST,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       label: "Modifier Texture",
     });
     this.modifierTextureView = this.modifierTexture.createView();
@@ -72,7 +83,7 @@ export class WaterComputePipelineGPU {
       { texture: this.modifierTexture },
       this.modifierData.buffer,
       { bytesPerRow: WATER_TEXTURE_SIZE * 4, rowsPerImage: WATER_TEXTURE_SIZE },
-      { width: WATER_TEXTURE_SIZE, height: WATER_TEXTURE_SIZE }
+      { width: WATER_TEXTURE_SIZE, height: WATER_TEXTURE_SIZE },
     );
 
     this.initialized = true;
@@ -81,34 +92,32 @@ export class WaterComputePipelineGPU {
   /**
    * Update water textures with current state for the given viewport.
    */
+  @profile
   update(viewport: Viewport, waterInfo: WaterInfo): void {
     if (!this.initialized || !this.waveCompute) return;
-
     const { left, top, width, height } = viewport;
 
-    profiler.start("water-compute-pipeline-gpu");
-
     // Get elapsed time from waterInfo's game reference
-    const game = (waterInfo as { game?: { elapsedUnpausedTime?: number } }).game;
+    const game = (waterInfo as { game?: { elapsedUnpausedTime?: number } })
+      .game;
     const time = game?.elapsedUnpausedTime ?? 0;
 
     // Run GPU wave computation
-    profiler.start("wave-gpu-compute");
-    this.waveCompute.compute(time, left, top, width, height);
-    profiler.end("wave-gpu-compute");
+    profiler.measure("wave-gpu-compute", () => {
+      this.waveCompute!.compute(time, left, top, width, height);
+    });
 
     // Update modifier texture from CPU water modifiers
-    profiler.start("modifier-update");
-    this.updateModifierTexture(viewport, waterInfo);
-    profiler.end("modifier-update");
-
-    profiler.end("water-compute-pipeline-gpu");
+    profiler.measure("modifier-update", () => {
+      this.updateModifierTexture(viewport, waterInfo);
+    });
   }
 
   /**
    * Update modifier texture with wake contributions.
+   * Made public so WaterRendererGPU can update it separately from compute.
    */
-  private updateModifierTexture(viewport: Viewport, waterInfo: WaterInfo): void {
+  updateModifierTexture(viewport: Viewport, waterInfo: WaterInfo): void {
     if (!this.modifierTexture) return;
 
     const device = getWebGPU().device;
@@ -129,10 +138,22 @@ export class WaterComputePipelineGPU {
       const aabb = modifier.getWaterModifierAABB();
 
       // Convert world AABB to texture coordinates
-      const minU = Math.max(0, Math.floor(((aabb.minX - left) / width) * texSize));
-      const maxU = Math.min(texSize, Math.ceil(((aabb.maxX - left) / width) * texSize));
-      const minV = Math.max(0, Math.floor(((aabb.minY - top) / height) * texSize));
-      const maxV = Math.min(texSize, Math.ceil(((aabb.maxY - top) / height) * texSize));
+      const minU = Math.max(
+        0,
+        Math.floor(((aabb.minX - left) / width) * texSize),
+      );
+      const maxU = Math.min(
+        texSize,
+        Math.ceil(((aabb.maxX - left) / width) * texSize),
+      );
+      const minV = Math.max(
+        0,
+        Math.floor(((aabb.minY - top) / height) * texSize),
+      );
+      const maxV = Math.min(
+        texSize,
+        Math.ceil(((aabb.maxY - top) / height) * texSize),
+      );
 
       // Sample contribution at each pixel
       for (let v = minV; v < maxV; v++) {
@@ -145,7 +166,10 @@ export class WaterComputePipelineGPU {
             const idx = (v * texSize + u) * 4;
             // Add height contribution (normalized to 0-255 range)
             const currentHeight = this.modifierData[idx] / 255;
-            const newHeight = Math.max(0, Math.min(1, currentHeight + contrib.height * 0.1));
+            const newHeight = Math.max(
+              0,
+              Math.min(1, currentHeight + contrib.height * 0.1),
+            );
             this.modifierData[idx] = Math.floor(newHeight * 255);
           }
         }
@@ -157,7 +181,7 @@ export class WaterComputePipelineGPU {
       { texture: this.modifierTexture },
       this.modifierData.buffer,
       { bytesPerRow: texSize * 4, rowsPerImage: texSize },
-      { width: texSize, height: texSize }
+      { width: texSize, height: texSize },
     );
   }
 
@@ -186,12 +210,67 @@ export class WaterComputePipelineGPU {
     return WATER_TEXTURE_SIZE;
   }
 
+  /**
+   * Run GPU compute and initiate async readback.
+   * Call at end of tick phase.
+   *
+   * @param viewport World-space bounds for computation
+   * @param time Current game time (for physics consistency)
+   */
+  @profile
+  computeAndInitiateReadback(viewport: Viewport, time: number): void {
+    if (!this.initialized || !this.waveCompute) return;
+
+    const { left, top, width, height } = viewport;
+
+    // Run GPU compute
+    this.waveCompute.compute(time, left, top, width, height);
+
+    // Store viewport with time for readback
+    this.lastComputeViewport = { ...viewport, time };
+
+    // Initiate async readback
+    const outputTexture = this.waveCompute.getOutputTexture();
+    if (outputTexture) {
+      this.readbackBuffer.initiateReadback(
+        outputTexture,
+        this.lastComputeViewport,
+      );
+    }
+  }
+
+  /**
+   * Complete readback from previous frame.
+   * Call at start of tick phase.
+   *
+   * @returns True if readback completed successfully
+   */
+  async completeReadback(): Promise<boolean> {
+    return this.readbackBuffer.completeReadback();
+  }
+
+  /**
+   * Get the readback buffer for sampling wave data.
+   */
+  getReadbackBuffer(): WaterReadbackBuffer {
+    return this.readbackBuffer;
+  }
+
+  /**
+   * Check if the pipeline is initialized.
+   */
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
   destroy(): void {
     this.waveCompute?.destroy();
     this.modifierTexture?.destroy();
+    this.readbackBuffer.destroy();
     this.waveCompute = null;
     this.modifierTexture = null;
     this.modifierTextureView = null;
+    this.lastComputeViewport = null;
     this.initialized = false;
   }
 }

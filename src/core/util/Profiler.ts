@@ -253,3 +253,28 @@ class Profiler {
 }
 
 export const profiler = new Profiler();
+
+/**
+ * Method decorator for easy profiling.
+ *
+ * Usage:
+ *   class MyClass {
+ *     @profile
+ *     myMethod() { ... }
+ *   }
+ *
+ * This will automatically profile as "MyClass.myMethod"
+ */
+export function profile<T extends (...args: any[]) => any>(
+  target: T,
+  context: ClassMethodDecoratorContext,
+): T {
+  const methodName = String(context.name);
+
+  return function (this: any, ...args: Parameters<T>): ReturnType<T> {
+    const className = this.constructor.name;
+    return profiler.measure(`${className}.${methodName}`, () => {
+      return target.call(this, ...args);
+    });
+  } as T;
+}

@@ -2,6 +2,7 @@ import BaseEntity from "../core/entity/BaseEntity";
 import { GameEventMap } from "../core/entity/Entity";
 import { V2d } from "../core/Vector";
 import { FoamParticle } from "./FoamParticle";
+import { profile } from "../core/util/Profiler";
 
 // Physics (in ft and ft/s)
 const GRAVITY = 32; // ft/s² - gravitational acceleration
@@ -41,6 +42,7 @@ export class SprayParticle extends BaseEntity {
     this.size = size;
   }
 
+  @profile
   onRender({ draw, dt }: GameEventMap["render"]): void {
     // Physics update
     this.zVelocity -= GRAVITY * dt;

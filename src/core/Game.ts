@@ -6,15 +6,12 @@ import ContactList, {
 import EntityList from "./EntityList";
 import { V } from "./Vector";
 import Entity, { GameEventMap } from "./entity/Entity";
-import { IoEvents } from "./entity/IoEvents";
 import { eventHandlerName } from "./entity/EventHandler";
+import { IoEvents } from "./entity/IoEvents";
 import { WithOwner } from "./entity/WithOwner";
 import { Draw } from "./graphics/Draw";
 import { RenderManager, RenderManagerOptions } from "./graphics/RenderManager";
-import {
-  WebGPUDeviceManager,
-  getWebGPU,
-} from "./graphics/webgpu/WebGPUDevice";
+import { WebGPUDeviceManager, getWebGPU } from "./graphics/webgpu/WebGPUDevice";
 import { WebGPURenderer } from "./graphics/webgpu/WebGPURenderer";
 import { IOManager } from "./io/IO";
 import type Body from "./physics/body/Body";
@@ -114,7 +111,7 @@ export default class Game {
     this.renderer = new RenderManager(
       LAYERS,
       DEFAULT_LAYER,
-      this.onResize.bind(this),
+      this.onResize.bind(this)
     );
 
     this.ticksPerSecond = ticksPerSecond;
@@ -153,13 +150,13 @@ export default class Game {
     // IO events don't respect pause state
     const dispatchIo = <E extends keyof IoEvents>(
       event: E,
-      data: IoEvents[E],
+      data: IoEvents[E]
     ) => this.dispatch(event, data as GameEventMap[E], false);
     this.io = new IOManager(this.renderer.canvas, dispatchIo);
     this.addEntity(this.renderer.camera);
 
     this.animationFrameId = window.requestAnimationFrame(() =>
-      this.loop(this.lastFrameTime),
+      this.loop(this.lastFrameTime)
     );
   }
 
@@ -243,7 +240,7 @@ export default class Game {
   dispatch<EventName extends keyof GameEventMap>(
     eventName: EventName,
     data: GameEventMap[EventName],
-    respectPause = true,
+    respectPause = true
   ) {
     const effectivelyPaused = respectPause && this.paused;
     for (const entity of this.entities.getHandlers(eventName)) {
@@ -374,7 +371,7 @@ export default class Game {
       this.averageFrameDuration = lerp(
         this.averageFrameDuration,
         lastFrameDuration,
-        0.05,
+        0.05
       );
     }
 
@@ -548,7 +545,7 @@ export default class Game {
   /** Dispatch render event to entities on a specific layer */
   private dispatchRenderForLayer(layerName: LayerName, dt: number, draw: Draw) {
     const effectivelyPaused = this.paused;
-    const renderData = { dt, layer: layerName, draw };
+    const renderData = { dt, layer: layerName, draw, camera: draw.camera };
 
     for (const entity of this.entities.getHandlers("render")) {
       if (entity.game && !(effectivelyPaused && !entity.pausable)) {

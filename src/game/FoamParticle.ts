@@ -1,6 +1,7 @@
 import BaseEntity from "../core/entity/BaseEntity";
 import { GameEventMap } from "../core/entity/Entity";
 import { clamp, lerp } from "../core/util/MathUtil";
+import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import { V2d } from "../core/Vector";
 
@@ -37,13 +38,17 @@ export class FoamParticle extends BaseEntity {
     this.lifespan = rUniform(0, MAX_LIFESPAN);
   }
 
-  onRender({ draw, dt }: GameEventMap["render"]): void {
+  onTick(dt: number): void {
     this.age += dt;
     if (this.age >= this.lifespan) {
       this.destroy();
       return;
     }
+  }
 
+  @profile
+  onRender({ draw }: GameEventMap["render"]): void {
+    draw.camera;
     draw.fillCircle(this.pos.x, this.pos.y, this.getRadius(), {
       color: COLOR,
       alpha: this.getAlpha(),

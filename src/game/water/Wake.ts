@@ -61,7 +61,7 @@ export class Wake extends BaseEntity {
     this.lastSpawnPos = boatPos.clone();
 
     const speedFactor = clamp(
-      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed),
+      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed)
     );
 
     const body = this.boat.hull.body;
@@ -76,18 +76,18 @@ export class Wake extends BaseEntity {
     side: WakeSide,
     body: { toWorldFrame: (v: V2d) => V2d; angle: number },
     wakeSpeed: number,
-    speedFactor: number,
+    speedFactor: number
   ) {
     const sideSign = side === "left" ? 1 : -1;
 
     const pos = body.toWorldFrame(
-      side === "left" ? this.leftSpawnLocal : this.rightSpawnLocal,
+      side === "left" ? this.leftSpawnLocal : this.rightSpawnLocal
     );
     const vel = V(0, wakeSpeed * sideSign).irotate(body.angle);
     const lifespan = lerp(
       CONFIG.MIN_PARTICLE_LIFESPAN,
       CONFIG.MAX_PARTICLE_LIFESPAN,
-      Math.random(),
+      Math.random()
     );
 
     const particle = new WakeParticle(pos, vel, side, speedFactor, lifespan);
@@ -110,6 +110,5 @@ export class Wake extends BaseEntity {
     }
 
     this.game?.addEntity(particle);
-    console.log("[Wake] Spawned particle", particle.side);
   }
 }
