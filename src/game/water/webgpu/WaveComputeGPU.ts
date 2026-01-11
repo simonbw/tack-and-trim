@@ -13,6 +13,7 @@
  * - B, A: Reserved
  */
 
+import { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import {
   NUM_WAVES,
@@ -423,13 +424,15 @@ export class WaveComputeGPU {
 
   /**
    * Run the wave computation for the given viewport.
+   * @param gpuProfiler Optional profiler for timing the compute pass
    */
   compute(
     time: number,
     viewportLeft: number,
     viewportTop: number,
     viewportWidth: number,
-    viewportHeight: number
+    viewportHeight: number,
+    gpuProfiler?: GPUProfiler | null,
   ): void {
     if (!this.pipeline || !this.bindGroup || !this.paramsBuffer) {
       console.warn("WaveComputeGPU not initialized");
@@ -456,9 +459,10 @@ export class WaveComputeGPU {
       label: "Wave Compute Command Encoder",
     });
 
-    // Begin compute pass
+    // Begin compute pass with optional timestamp writes
     const computePass = commandEncoder.beginComputePass({
       label: "Wave Compute Pass",
+      timestampWrites: gpuProfiler?.getComputeTimestampWrites("waterCompute"),
     });
 
     computePass.setPipeline(this.pipeline);
@@ -523,7 +527,7 @@ export class WaveComputeGPU {
     commandEncoder.copyTextureToBuffer(
       { texture: this.outputTexture },
       { buffer: stagingBuffer, bytesPerRow: paddedBytesPerRow },
-      { width: this.textureSize, height: this.textureSize }
+      { width: this.textureSize, height: this.textureSize },
     );
     device.queue.submit([commandEncoder.finish()]);
 
@@ -541,7 +545,7 @@ export class WaveComputeGPU {
       // This is simplified - actual float16 to float32 conversion may be needed
       result.set(
         paddedData.subarray(srcOffset, srcOffset + this.textureSize * 4),
-        dstOffset
+        dstOffset,
       );
     }
 
@@ -558,7 +562,7 @@ export class WaveComputeGPU {
     x: number,
     y: number,
     width: number,
-    height: number
+    height: number,
   ): Promise<Float32Array> {
     if (!this.outputTexture) {
       return new Float32Array(0);
@@ -581,7 +585,7 @@ export class WaveComputeGPU {
     commandEncoder.copyTextureToBuffer(
       { texture: this.outputTexture, origin: { x, y } },
       { buffer: stagingBuffer, bytesPerRow: paddedBytesPerRow },
-      { width, height }
+      { width, height },
     );
     device.queue.submit([commandEncoder.finish()]);
 
@@ -596,7 +600,7 @@ export class WaveComputeGPU {
       const dstOffset = row * width * 4;
       result.set(
         paddedData.subarray(srcOffset, srcOffset + width * 4),
-        dstOffset
+        dstOffset,
       );
     }
 

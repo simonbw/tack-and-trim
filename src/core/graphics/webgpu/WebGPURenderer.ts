@@ -9,9 +9,9 @@
  */
 
 import { hexToVec3 } from "../../util/ColorUtils";
-import { profiler } from "../../util/Profiler";
 import { CompatibleVector } from "../../Vector";
 import { Matrix3 } from "../Matrix3";
+import { GPUProfiler, GPUProfileSection } from "./GPUProfiler";
 import { getWebGPU } from "./WebGPUDevice";
 import { WebGPUTexture, WebGPUTextureManager } from "./WebGPUTextureManager";
 
@@ -201,6 +201,9 @@ export class WebGPURenderer {
 
   // Track initialization state
   private initialized = false;
+
+  // GPU profiler (null if timestamp queries not supported)
+  private gpuProfiler: GPUProfiler | null = null;
 
   constructor(canvas?: HTMLCanvasElement) {
     this.canvas = canvas ?? document.createElement("canvas");
@@ -498,6 +501,13 @@ export class WebGPURenderer {
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       label: "Sprite Index Buffer",
     });
+
+    // Initialize GPU profiler if timestamp queries are supported
+    const gpuManager = getWebGPU();
+    if (gpuManager.features.timestampQuery) {
+      this.gpuProfiler = new GPUProfiler(device);
+      this.gpuProfiler.setEnabled(true);
+    }
   }
 
   /** Resize the canvas to match the window size */
@@ -572,6 +582,7 @@ export class WebGPURenderer {
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
         },
       ],
+      timestampWrites: this.gpuProfiler?.getTimestampWrites(),
       label: "Main Render Pass",
     });
   }
@@ -614,8 +625,14 @@ export class WebGPURenderer {
     // End render pass
     this.currentRenderPass.end();
 
+    // Resolve GPU profiler timestamps before submit
+    this.gpuProfiler?.resolve(this.currentCommandEncoder);
+
     // Submit command buffer
     this.device.queue.submit([this.currentCommandEncoder.finish()]);
+
+    // Start async read of GPU profiler results
+    this.gpuProfiler?.readResults();
 
     // Save stats for display
     this.lastDrawCallCount = this.drawCallCount;
@@ -1087,55 +1104,35 @@ export class WebGPURenderer {
   }
 
   // ============ GPU Timing ============
-  // WebGPU timestamp queries require feature support and complex async handling.
-  // For simplicity, we use CPU-side timing around frame submission which gives
-  // a reasonable approximation of GPU time for typical rendering workloads.
 
-  private gpuTimingEnabled = false;
-  private gpuTimerLabel: string | null = null;
-  private gpuTimerStartTime = 0;
-
+  /** Check if GPU timing (timestamp queries) is supported */
   hasGpuTimerSupport(): boolean {
-    // We support basic timing even without timestamp queries
-    return true;
+    return this.gpuProfiler !== null;
   }
 
+  /** Enable/disable GPU timing */
   setGpuTimingEnabled(enabled: boolean): void {
-    this.gpuTimingEnabled = enabled;
+    this.gpuProfiler?.setEnabled(enabled);
   }
 
+  /** Check if GPU timing is currently enabled */
   isGpuTimingEnabled(): boolean {
-    return this.gpuTimingEnabled;
+    return this.gpuProfiler?.isEnabled() ?? false;
   }
 
-  getGpuTimingDebugInfo(): {
-    extensionAvailable: boolean;
-    enabled: boolean;
-    pendingQueries: number;
-  } {
-    return {
-      extensionAvailable: true,
-      enabled: this.gpuTimingEnabled,
-      pendingQueries: 0,
-    };
+  /** Get GPU time in milliseconds for a specific section (default: render) */
+  getGpuMs(section?: GPUProfileSection): number {
+    return this.gpuProfiler?.getMs(section) ?? 0;
   }
 
-  beginGpuTimer(label: string): void {
-    if (!this.gpuTimingEnabled) return;
-    this.gpuTimerLabel = label;
-    this.gpuTimerStartTime = performance.now();
+  /** Get all GPU section timings */
+  getAllGpuMs(): Record<GPUProfileSection, number> | null {
+    return this.gpuProfiler?.getAllMs() ?? null;
   }
 
-  endGpuTimer(): void {
-    if (!this.gpuTimingEnabled || !this.gpuTimerLabel) return;
-    const elapsed = performance.now() - this.gpuTimerStartTime;
-    profiler.start(this.gpuTimerLabel);
-    profiler.end(this.gpuTimerLabel, elapsed);
-    this.gpuTimerLabel = null;
-  }
-
-  pollGpuTimers(): void {
-    // No-op - timing is synchronous in this implementation
+  /** Get the GPU profiler instance (for external systems like water compute) */
+  getGpuProfiler(): GPUProfiler | null {
+    return this.gpuProfiler;
   }
 
   /** Clean up all resources */

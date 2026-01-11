@@ -62,7 +62,9 @@ export class WaterRendererGPU extends BaseEntity {
   private connectReadbackBuffer(): void {
     if (this.readbackConnected || !this.initialized) return;
 
-    const waterInfo = this.game?.entities.getById("waterInfo") as WaterInfo | undefined;
+    const waterInfo = this.game?.entities.getById("waterInfo") as
+      | WaterInfo
+      | undefined;
     if (waterInfo) {
       waterInfo.setReadbackBuffer(this.computePipeline.getReadbackBuffer());
       this.readbackConnected = true;
@@ -103,9 +105,14 @@ export class WaterRendererGPU extends BaseEntity {
 
     const viewport = this.getExpandedViewport(PHYSICS_VIEWPORT_MARGIN);
     const time = this.game.elapsedUnpausedTime;
+    const gpuProfiler = this.game.renderer.getGpuProfiler();
 
     // Run GPU compute and initiate async readback
-    this.computePipeline.computeAndInitiateReadback(viewport, time);
+    this.computePipeline.computeAndInitiateReadback(
+      viewport,
+      time,
+      gpuProfiler,
+    );
   }
 
   /**
@@ -132,13 +139,14 @@ export class WaterRendererGPU extends BaseEntity {
     const camera = this.game.camera;
     const renderer = this.game.getRenderer();
     const expandedViewport = this.getExpandedViewport(RENDER_VIEWPORT_MARGIN);
+    const gpuProfiler = this.game.renderer.getGpuProfiler();
 
     // Update compute pipeline (runs GPU compute for rendering + updates modifier texture)
     const waterInfo = this.game.entities.getById("waterInfo") as
       | WaterInfo
       | undefined;
     if (waterInfo) {
-      this.computePipeline.update(expandedViewport, waterInfo);
+      this.computePipeline.update(expandedViewport, waterInfo, gpuProfiler);
     }
 
     // Get texture views

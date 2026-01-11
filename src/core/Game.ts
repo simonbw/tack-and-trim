@@ -18,7 +18,7 @@ import type Body from "./physics/body/Body";
 import StaticBody from "./physics/body/StaticBody";
 import World from "./physics/world/World";
 import { lerp } from "./util/MathUtil";
-import { profiler } from "./util/Profiler";
+import { profile, profiler } from "./util/Profiler";
 
 interface GameOptions {
   audio?: AudioContext;
@@ -111,7 +111,7 @@ export default class Game {
     this.renderer = new RenderManager(
       LAYERS,
       DEFAULT_LAYER,
-      this.onResize.bind(this)
+      this.onResize.bind(this),
     );
 
     this.ticksPerSecond = ticksPerSecond;
@@ -150,13 +150,13 @@ export default class Game {
     // IO events don't respect pause state
     const dispatchIo = <E extends keyof IoEvents>(
       event: E,
-      data: IoEvents[E]
+      data: IoEvents[E],
     ) => this.dispatch(event, data as GameEventMap[E], false);
     this.io = new IOManager(this.renderer.canvas, dispatchIo);
     this.addEntity(this.renderer.camera);
 
     this.animationFrameId = window.requestAnimationFrame(() =>
-      this.loop(this.lastFrameTime)
+      this.loop(this.lastFrameTime),
     );
   }
 
@@ -240,7 +240,7 @@ export default class Game {
   dispatch<EventName extends keyof GameEventMap>(
     eventName: EventName,
     data: GameEventMap[EventName],
-    respectPause = true
+    respectPause = true,
   ) {
     const effectivelyPaused = respectPause && this.paused;
     for (const entity of this.entities.getHandlers(eventName)) {
@@ -348,15 +348,10 @@ export default class Game {
   }
 
   private timeToSimulate = 0.0;
-  private iterationsRemaining = 0.0;
   /** The main event loop. Run one frame of the game.  */
+  @profile
   private loop(time: number): void {
     if (this.destroyed) return;
-
-    // Poll GPU timers outside frame profiler context so results appear top-level
-    this.renderer.pollGpuTimers();
-
-    profiler.start("frame");
 
     this.animationFrameId = window.requestAnimationFrame((t) => this.loop(t));
     this.framenumber += 1;
@@ -371,7 +366,7 @@ export default class Game {
       this.averageFrameDuration = lerp(
         this.averageFrameDuration,
         lastFrameDuration,
-        0.05
+        0.05,
       );
     }
 
@@ -387,31 +382,25 @@ export default class Game {
     while (this.timeToSimulate >= this.tickDuration) {
       this.timeToSimulate -= this.tickDuration;
 
-      profiler.start("tick");
       this.tick(this.tickDuration);
-      profiler.end("tick");
 
       if (!this.paused) {
-        profiler.start("physics");
         const stepDt = this.tickDuration;
-        this.world.step(stepDt);
-        profiler.end("physics");
+        profiler.measure("Game.physics", () => {
+          this.world.step(stepDt);
+        });
+        profiler.measure("Game.afterPhysicsStep", () => {
+          this.dispatch("afterPhysicsStep", stepDt);
+          this.cleanupEntities();
+        });
 
-        profiler.start("contacts");
-        this.dispatch("afterPhysicsStep", stepDt);
-        this.cleanupEntities();
         this.contacts();
-        profiler.end("contacts");
       }
     }
 
     this.afterPhysics();
 
-    profiler.start("render");
     this.render(renderDt);
-    profiler.end("render");
-
-    profiler.end("frame");
   }
 
   /**
@@ -460,6 +449,7 @@ export default class Game {
   }
 
   /** Called before physics. */
+  @profile
   private tick(dt: number) {
     this.ticknumber += 1;
     this.dispatch("beforeTick", dt);
@@ -467,6 +457,7 @@ export default class Game {
   }
 
   /** Called before normal ticks */
+  @profile
   private slowTick(dt: number) {
     this.dispatch("slowTick", dt);
   }
@@ -495,21 +486,13 @@ export default class Game {
     return this.renderer.hasGpuTimerSupport();
   }
 
-  /** Debug: get GPU timing status */
-  getGpuTimingDebugInfo() {
-    return this.renderer.getGpuTimingDebugInfo();
-  }
-
   /** Called to render the current frame. */
+  @profile
   private render(dt: number) {
     this.cleanupEntities();
 
     // Begin frame
     this.renderer.beginFrame();
-    // this.renderer.clear();
-
-    // Start GPU timing for the whole frame if enabled
-    this.renderer.beginGpuTimer("gpu");
 
     // Create Draw context for this frame
     const draw = new Draw(this.renderer.getRenderer(), this.renderer.camera);
@@ -517,15 +500,14 @@ export default class Game {
     // Render each layer in order
     const layerNames = this.renderer.getLayerNames();
     for (const layerName of layerNames) {
-      // Set the camera transform for this layer
-      this.renderer.setLayer(layerName);
+      profiler.measure(`layer.${layerName}`, () => {
+        // Set the camera transform for this layer
+        this.renderer.setLayer(layerName);
 
-      // Dispatch render event for entities on this layer
-      this.dispatchRenderForLayer(layerName, dt, draw);
+        // Dispatch render event for entities on this layer
+        this.dispatchRenderForLayer(layerName, dt, draw);
+      });
     }
-
-    // End GPU timing
-    this.renderer.endGpuTimer();
 
     // End frame
     this.renderer.endFrame();
@@ -621,6 +603,7 @@ export default class Game {
     }
   };
 
+  @profile
   private contacts() {
     for (const contactInfo of this.contactList.getContacts()) {
       const { shapeA, shapeB, bodyA, bodyB, contactEquations } = contactInfo;

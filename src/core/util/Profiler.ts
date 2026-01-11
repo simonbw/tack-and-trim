@@ -1,6 +1,13 @@
 interface ProfileEntry {
-  calls: number;
-  totalMs: number;
+  // Per-frame accumulators (reset each frame)
+  frameCalls: number;
+  frameMs: number;
+
+  // Smoothed per-frame values (for display)
+  smoothedCallsPerFrame: number;
+  smoothedMsPerFrame: number;
+
+  // Other fields
   maxMs: number;
   startTime?: number;
 }
@@ -9,9 +16,8 @@ export interface ProfileStats {
   label: string;
   shortLabel: string;
   depth: number;
-  callsPerSec: number;
-  msPerSec: number;
-  avgMs: number;
+  callsPerFrame: number;
+  msPerFrame: number;
   maxMs: number;
 }
 
@@ -36,13 +42,15 @@ export interface ProfileStats {
 class Profiler {
   private entries = new Map<string, ProfileEntry>();
   private enabled = true;
-  private resetTime = performance.now();
 
   // Stack tracking
   private stack: string[] = [];
   private pathCache = new Map<string, string>();
   private readonly separator = " > ";
   private readonly maxStackDepth = 10;
+
+  // Smoothing factor (higher = smoother, slower to respond)
+  private readonly smoothing = 0.975;
 
   /** Get the current stack as a path string (cached) */
   private getCurrentPath(): string {
@@ -111,10 +119,32 @@ class Profiler {
         : entry.startTime !== undefined
           ? performance.now() - entry.startTime
           : 0;
-    entry.calls++;
-    entry.totalMs += elapsed;
+    entry.frameCalls++;
+    entry.frameMs += elapsed;
     entry.maxMs = Math.max(entry.maxMs, elapsed);
     entry.startTime = undefined;
+
+    // Trigger frame end processing when the root "Game.loop" label ends
+    if (this.stack.length === 0 && label === "Game.loop") {
+      this.endFrame();
+    }
+  }
+
+  /** Process end of frame - update smoothed values and reset accumulators */
+  private endFrame(): void {
+    for (const entry of this.entries.values()) {
+      // Update smoothed values with exponential moving average
+      entry.smoothedCallsPerFrame =
+        this.smoothing * entry.smoothedCallsPerFrame +
+        (1 - this.smoothing) * entry.frameCalls;
+      entry.smoothedMsPerFrame =
+        this.smoothing * entry.smoothedMsPerFrame +
+        (1 - this.smoothing) * entry.frameMs;
+
+      // Reset frame accumulators
+      entry.frameCalls = 0;
+      entry.frameMs = 0;
+    }
   }
 
   /** Measure a function's execution time */
@@ -132,7 +162,7 @@ class Profiler {
     if (!this.enabled) return;
     const entryKey = this.getEntryKey(label);
     const entry = this.getOrCreate(entryKey);
-    entry.calls += amount;
+    entry.frameCalls += amount;
   }
 
   /** Log a formatted report to console */
@@ -143,16 +173,15 @@ class Profiler {
       const indent = "  ".repeat(stat.depth);
       const prefix = stat.depth > 0 ? "- " : "";
       const label = (indent + prefix + stat.shortLabel).padEnd(30);
-      if (stat.msPerSec > 0) {
+      if (stat.msPerFrame > 0) {
         console.log(
-          `${label} calls/s: ${stat.callsPerSec.toFixed(0).padStart(6)}  ` +
-            `ms/s: ${stat.msPerSec.toFixed(1).padStart(7)}  ` +
-            `avg: ${stat.avgMs.toFixed(3).padStart(8)}ms  ` +
+          `${label} calls/frame: ${stat.callsPerFrame.toFixed(1).padStart(6)}  ` +
+            `ms/frame: ${stat.msPerFrame.toFixed(2).padStart(7)}  ` +
             `max: ${stat.maxMs.toFixed(2).padStart(7)}ms`,
         );
       } else {
         console.log(
-          `${label} calls/s: ${stat.callsPerSec.toFixed(0).padStart(6)}  (count only)`,
+          `${label} calls/frame: ${stat.callsPerFrame.toFixed(1).padStart(6)}  (count only)`,
         );
       }
     }
@@ -164,7 +193,6 @@ class Profiler {
     this.entries.clear();
     this.pathCache.clear();
     this.stack = [];
-    this.resetTime = performance.now();
   }
 
   /** Enable/disable profiling (disabled = no overhead) */
@@ -177,23 +205,20 @@ class Profiler {
     return this.enabled;
   }
 
-  /** Get all stats sorted hierarchically */
-  getStats(): ProfileStats[] {
-    const elapsedSec = Math.max(
-      0.001,
-      (performance.now() - this.resetTime) / 1000,
-    );
-
-    // Build flat stats list
+  /**
+   * Get all stats sorted hierarchically.
+   * @param maxChildrenPerParent If specified, limits the number of children shown per parent
+   */
+  getStats(maxChildrenPerParent?: number): ProfileStats[] {
+    // Build flat stats list from smoothed values
     const allStats = [...this.entries.entries()].map(([label, entry]) => {
       const segments = label.split(this.separator);
       return {
         label,
         shortLabel: segments[segments.length - 1],
         depth: segments.length - 1,
-        callsPerSec: entry.calls / elapsedSec,
-        msPerSec: entry.totalMs / elapsedSec,
-        avgMs: entry.calls > 0 ? entry.totalMs / entry.calls : 0,
+        callsPerFrame: entry.smoothedCallsPerFrame,
+        msPerFrame: entry.smoothedMsPerFrame,
         maxMs: entry.maxMs,
       };
     });
@@ -216,15 +241,23 @@ class Profiler {
     // Recursively build sorted tree (depth-first, siblings sorted by % of parent desc)
     const buildSortedList = (parentPath: string): ProfileStats[] => {
       const parent = allStats.find((s) => s.label === parentPath);
-      const parentMs = parent?.msPerSec ?? 0;
+      const parentMs = parent?.msPerFrame ?? 0;
 
-      // Sort children by percentage of parent (or by msPerSec if no parent)
-      const children = getChildren(parentPath).sort((a, b) => {
+      // Sort children by percentage of parent (or by msPerFrame if no parent)
+      let children = getChildren(parentPath).sort((a, b) => {
         if (parentMs > 0) {
-          return b.msPerSec / parentMs - a.msPerSec / parentMs;
+          return b.msPerFrame / parentMs - a.msPerFrame / parentMs;
         }
-        return b.msPerSec - a.msPerSec;
+        return b.msPerFrame - a.msPerFrame;
       });
+
+      // Limit children if maxChildrenPerParent is specified
+      if (
+        maxChildrenPerParent !== undefined &&
+        children.length > maxChildrenPerParent
+      ) {
+        children = children.slice(0, maxChildrenPerParent);
+      }
 
       const result: ProfileStats[] = [];
       for (const child of children) {
@@ -238,14 +271,20 @@ class Profiler {
   }
 
   /** Get top N stats by total time */
-  getTopStats(n: number): ProfileStats[] {
-    return this.getStats().slice(0, n);
+  getTopStats(n: number, maxChildrenPerParent?: number): ProfileStats[] {
+    return this.getStats(maxChildrenPerParent).slice(0, n);
   }
 
   private getOrCreate(label: string): ProfileEntry {
     let entry = this.entries.get(label);
     if (!entry) {
-      entry = { calls: 0, totalMs: 0, maxMs: 0 };
+      entry = {
+        frameCalls: 0,
+        frameMs: 0,
+        smoothedCallsPerFrame: 0,
+        smoothedMsPerFrame: 0,
+        maxMs: 0,
+      };
       this.entries.set(label, entry);
     }
     return entry;

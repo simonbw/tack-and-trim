@@ -1,8 +1,9 @@
-import { LAYERS, LayerName } from "../../config/layers";
+import { LayerName } from "../../config/layers";
 import { V, V2d } from "../Vector";
 import { Camera2d, ViewportProvider } from "./Camera2d";
 import { LayerInfo } from "./LayerInfo";
 import { Matrix3 } from "./Matrix3";
+import { GPUProfiler, GPUProfileSection } from "./webgpu/GPUProfiler";
 import { WebGPURenderer } from "./webgpu/WebGPURenderer";
 
 /** Options for the RenderManager constructor */
@@ -156,7 +157,7 @@ export class RenderManager implements ViewportProvider {
 
   // ============ GPU Timing ============
 
-  /** Check if GPU timer extension is available */
+  /** Check if GPU timing (timestamp queries) is supported */
   hasGpuTimerSupport(): boolean {
     return this.renderer.hasGpuTimerSupport();
   }
@@ -171,23 +172,18 @@ export class RenderManager implements ViewportProvider {
     return this.renderer.isGpuTimingEnabled();
   }
 
-  /** Begin a GPU-timed section */
-  beginGpuTimer(label: string): void {
-    this.renderer.beginGpuTimer(label);
+  /** Get GPU time in milliseconds for a specific section (default: render) */
+  getGpuMs(section?: GPUProfileSection): number {
+    return this.renderer.getGpuMs(section);
   }
 
-  /** End the current GPU-timed section */
-  endGpuTimer(): void {
-    this.renderer.endGpuTimer();
+  /** Get all GPU section timings */
+  getAllGpuMs(): Record<GPUProfileSection, number> | null {
+    return this.renderer.getAllGpuMs();
   }
 
-  /** Poll for completed GPU timer queries */
-  pollGpuTimers(): void {
-    this.renderer.pollGpuTimers();
-  }
-
-  /** Debug: get GPU timing status */
-  getGpuTimingDebugInfo() {
-    return this.renderer.getGpuTimingDebugInfo();
+  /** Get the GPU profiler instance (for external systems like water compute) */
+  getGpuProfiler(): GPUProfiler | null {
+    return this.renderer.getGpuProfiler();
   }
 }

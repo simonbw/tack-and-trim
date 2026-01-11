@@ -8,6 +8,7 @@
  * Produces textures consumed by WaterShaderGPU for rendering.
  */
 
+import { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { profile, profiler } from "../../../core/util/Profiler";
 import { V } from "../../../core/Vector";
@@ -91,9 +92,14 @@ export class WaterComputePipelineGPU {
 
   /**
    * Update water textures with current state for the given viewport.
+   * @param gpuProfiler Optional GPU profiler for timing the compute pass
    */
   @profile
-  update(viewport: Viewport, waterInfo: WaterInfo): void {
+  update(
+    viewport: Viewport,
+    waterInfo: WaterInfo,
+    gpuProfiler?: GPUProfiler | null,
+  ): void {
     if (!this.initialized || !this.waveCompute) return;
     const { left, top, width, height } = viewport;
 
@@ -104,7 +110,7 @@ export class WaterComputePipelineGPU {
 
     // Run GPU wave computation
     profiler.measure("wave-gpu-compute", () => {
-      this.waveCompute!.compute(time, left, top, width, height);
+      this.waveCompute!.compute(time, left, top, width, height, gpuProfiler);
     });
 
     // Update modifier texture from CPU water modifiers
@@ -216,15 +222,20 @@ export class WaterComputePipelineGPU {
    *
    * @param viewport World-space bounds for computation
    * @param time Current game time (for physics consistency)
+   * @param gpuProfiler Optional GPU profiler for timing
    */
   @profile
-  computeAndInitiateReadback(viewport: Viewport, time: number): void {
+  computeAndInitiateReadback(
+    viewport: Viewport,
+    time: number,
+    gpuProfiler?: GPUProfiler | null,
+  ): void {
     if (!this.initialized || !this.waveCompute) return;
 
     const { left, top, width, height } = viewport;
 
     // Run GPU compute
-    this.waveCompute.compute(time, left, top, width, height);
+    this.waveCompute.compute(time, left, top, width, height, gpuProfiler);
 
     // Store viewport with time for readback
     this.lastComputeViewport = { ...viewport, time };
@@ -235,6 +246,7 @@ export class WaterComputePipelineGPU {
       this.readbackBuffer.initiateReadback(
         outputTexture,
         this.lastComputeViewport,
+        gpuProfiler,
       );
     }
   }

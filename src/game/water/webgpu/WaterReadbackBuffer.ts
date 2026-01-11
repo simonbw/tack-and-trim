@@ -8,6 +8,7 @@
  * 4. Tracks GPU vs CPU usage statistics
  */
 
+import { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { WaveData } from "../cpu/WaterComputeCPU";
 
@@ -31,6 +32,12 @@ export interface ReadbackStats {
   gpuHits: number;
   /** Number of queries that fell back to CPU computation */
   cpuFallbacks: number;
+  /** Fallbacks specifically due to low resolution */
+  lowResolutionFallbacks: number;
+  /** Fallbacks specifically due to being outside viewport bounds */
+  outOfBoundsFallbacks: number;
+  /** Current resolution in pixels per world unit (at viewport center) */
+  currentResolution: number;
   /** Reset counters to zero */
   reset(): void;
 }
@@ -103,9 +110,15 @@ export class WaterReadbackBuffer {
   readonly stats: ReadbackStats = {
     gpuHits: 0,
     cpuFallbacks: 0,
+    lowResolutionFallbacks: 0,
+    outOfBoundsFallbacks: 0,
+    currentResolution: 0,
     reset() {
       this.gpuHits = 0;
       this.cpuFallbacks = 0;
+      this.lowResolutionFallbacks = 0;
+      this.outOfBoundsFallbacks = 0;
+      // Don't reset currentResolution - it's updated on each frame
     },
   };
 
@@ -153,10 +166,12 @@ export class WaterReadbackBuffer {
    *
    * @param outputTexture The GPU texture to read from
    * @param viewport The world-space bounds of the computed data
+   * @param gpuProfiler Optional GPU profiler for timing the readback
    */
   initiateReadback(
     outputTexture: GPUTexture,
-    viewport: ReadbackViewport
+    viewport: ReadbackViewport,
+    gpuProfiler?: GPUProfiler | null,
   ): void {
     if (!this.writeStaging || this.readbackInProgress) {
       return;
@@ -169,11 +184,17 @@ export class WaterReadbackBuffer {
       label: "Water Readback Copy",
     });
 
+    // Write start timestamp for profiling
+    gpuProfiler?.writeTimestamp("readback", "start", commandEncoder);
+
     commandEncoder.copyTextureToBuffer(
       { texture: outputTexture },
       { buffer: this.writeStaging, bytesPerRow: this.paddedBytesPerRow },
-      { width: this.textureSize, height: this.textureSize }
+      { width: this.textureSize, height: this.textureSize },
     );
+
+    // Write end timestamp for profiling
+    gpuProfiler?.writeTimestamp("readback", "end", commandEncoder);
 
     device.queue.submit([commandEncoder.finish()]);
 
@@ -251,6 +272,9 @@ export class WaterReadbackBuffer {
       // Swap buffers
       this.readBuffer = writeBuffer;
       this.viewport = this.pendingViewport;
+
+      // Update resolution stat
+      this.stats.currentResolution = this.getResolution();
 
       // Swap staging buffers for next readback
       this.writeStaging =
@@ -364,6 +388,35 @@ export class WaterReadbackBuffer {
     const v = (worldY - top) / height;
 
     return u >= 0 && u <= 1 && v >= 0 && v <= 1;
+  }
+
+  /**
+   * Get the current resolution in pixels per world unit.
+   * Resolution is uniform across the viewport since the texture size is fixed.
+   */
+  getResolution(): number {
+    if (!this.viewport) return 0;
+    // Use the smaller dimension to get the worst-case resolution
+    const worldSize = Math.max(this.viewport.width, this.viewport.height);
+    return this.textureSize / worldSize;
+  }
+
+  /**
+   * Check if a point has adequate resolution for physics queries.
+   * @param worldX World X coordinate
+   * @param worldY World Y coordinate
+   * @param minPixelsPerUnit Minimum required pixels per world unit
+   * @returns true if resolution is adequate and point is in viewport
+   */
+  hasAdequateResolution(
+    worldX: number,
+    worldY: number,
+    minPixelsPerUnit: number,
+  ): boolean {
+    if (!this.isInViewport(worldX, worldY)) {
+      return false;
+    }
+    return this.getResolution() >= minPixelsPerUnit;
   }
 
   /**

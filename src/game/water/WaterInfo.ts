@@ -18,6 +18,12 @@ const CURRENT_TIME_SCALE = 0.05; // Currents change slowly over time
 const CURRENT_SPEED_VARIATION = 0.4; // ±40% speed variation
 const CURRENT_ANGLE_VARIATION = 0.5; // ±~30° direction variation
 
+// Minimum resolution (pixels per foot) for GPU wave data to be considered adequate
+// for physics calculations. Below this threshold, fall back to CPU computation.
+// Based on Nyquist: shortest waves are ~2ft ripples, need 2 samples per wavelength,
+// so minimum ~1 px/ft, using 2 px/ft for safety margin.
+const MIN_PHYSICS_RESOLUTION = 2;
+
 /**
  * Water state at a given point in the world.
  */
@@ -55,7 +61,7 @@ export class WaterInfo extends BaseEntity {
 
   // Spatial hash for efficient water modifier queries
   private spatialHash = new SparseSpatialHash<WaterModifier>((m) =>
-    m.getWaterModifierAABB()
+    m.getWaterModifierAABB(),
   );
 
   // GPU readback buffer for physics queries (set by WaterRendererGPU)
@@ -95,21 +101,50 @@ export class WaterInfo extends BaseEntity {
    * Get readback statistics for debugging/tuning.
    * Returns null if no readback buffer is set.
    */
-  getReadbackStats(): { gpuHits: number; cpuFallbacks: number } | null {
+  getReadbackStats(): {
+    gpuHits: number;
+    cpuFallbacks: number;
+    lowResolutionFallbacks: number;
+    outOfBoundsFallbacks: number;
+    currentResolution: number;
+  } | null {
     return this.readbackBuffer?.stats ?? null;
   }
 
   /**
    * Get the water state at a given world position.
-   * Uses GPU readback when available, falls back to CPU computation.
+   * Uses GPU readback when available and resolution is adequate,
+   * otherwise falls back to CPU computation.
    * Used by underwater physics components to determine water velocity.
    */
   getStateAtPoint(point: V2d): WaterState {
     // Start with current velocity
     const velocity = this.getCurrentVelocityAtPoint(point);
 
-    // Try GPU readback first, fall back to CPU
-    let waveData = this.readbackBuffer?.sampleAt(point[0], point[1]);
+    // Try GPU readback if resolution is adequate
+    let waveData = null;
+    if (this.readbackBuffer) {
+      const hasAdequate = this.readbackBuffer.hasAdequateResolution(
+        point[0],
+        point[1],
+        MIN_PHYSICS_RESOLUTION,
+      );
+
+      if (hasAdequate) {
+        // Resolution is adequate, sample from GPU buffer
+        waveData = this.readbackBuffer.sampleAt(point[0], point[1]);
+      } else {
+        // Track why we're falling back
+        const stats = this.readbackBuffer.stats;
+        stats.cpuFallbacks++;
+
+        if (!this.readbackBuffer.isInViewport(point[0], point[1])) {
+          stats.outOfBoundsFallbacks++;
+        } else {
+          stats.lowResolutionFallbacks++;
+        }
+      }
+    }
 
     if (!waveData) {
       // CPU fallback - use the same time as GPU computation for consistency

@@ -9,7 +9,7 @@ const TOP_N_PROFILES = 100;
 
 // TODO: Support custom debug modes or extensible stats providers so game-specific
 // stats (like water readback) don't need to be hardcoded in the core engine.
-const MODES = ["closed", "lean", "physics", "profiler", "graphics"] as const;
+const MODES = ["closed", "lean", "profiler", "graphics"] as const;
 type Mode = (typeof MODES)[number];
 
 export default class DebugOverlay extends ReactEntity implements Entity {
@@ -28,7 +28,7 @@ export default class DebugOverlay extends ReactEntity implements Entity {
       }
 
       const stats = this.getStats();
-      const profileStats = profiler.getTopStats(TOP_N_PROFILES);
+      const profileStats = profiler.getTopStats(TOP_N_PROFILES, 3);
 
       return (
         <div
@@ -50,25 +50,6 @@ export default class DebugOverlay extends ReactEntity implements Entity {
             <div>
               FPS: {stats.fps} ({stats.fps2})
             </div>
-          )}
-
-          {/* Physics mode: body info */}
-          {this.mode === "physics" && (
-            <>
-              <div
-                style={{ display: "flex", gap: "16px", marginBottom: "4px" }}
-              >
-                <span>
-                  FPS: {stats.fps} ({stats.fps2})
-                </span>
-                <span>Entities: {stats.entityCount}</span>
-              </div>
-              <div style={{ fontSize: "10px", color: "#aaa" }}>
-                Bodies: {stats.bodyCount} ({stats.kinematicBodyCount}K /{" "}
-                {stats.particleBodyCount}P / {stats.dynamicBodyCount}D /{" "}
-                {stats.hugeBodyCount}H) | Collisions: {stats.collisions}
-              </div>
-            </>
           )}
 
           {/* Profiler mode: full profiler display */}
@@ -106,31 +87,20 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                   </span>
                 </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 50px 50px 50px 50px 35px",
-                    fontSize: "10px",
-                    color: "#888",
-                    marginBottom: "2px",
-                  }}
-                >
-                  <span>Label</span>
-                  <span style={{ textAlign: "right" }}>Calls/s</span>
-                  <span style={{ textAlign: "right" }}>ms/s</span>
-                  <span style={{ textAlign: "right" }}>Avg</span>
-                  <span style={{ textAlign: "right" }}>Max</span>
-                  <span style={{ textAlign: "right" }}>%</span>
-                </div>
-
-                {profileStats.map((stat, i) => (
-                  <ProfileRow
-                    key={stat.label}
-                    stat={stat}
-                    index={i}
-                    allStats={profileStats}
-                  />
-                ))}
+                {(() => {
+                  const frameStat = profileStats.find(
+                    (s) => s.label === "Game.loop" && s.depth === 0,
+                  );
+                  const frameTotalMs = frameStat?.msPerFrame ?? 1;
+                  return profileStats.map((stat) => (
+                    <ProfileRow
+                      key={stat.label}
+                      stat={stat}
+                      allStats={profileStats}
+                      frameTotalMs={frameTotalMs}
+                    />
+                  ));
+                })()}
 
                 {profileStats.length === 0 && (
                   <div style={{ color: "#666", fontStyle: "italic" }}>
@@ -171,22 +141,67 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                     >
                       {/* GPU Timing */}
                       {gfx.gpuTimerSupported ? (
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                          }}
-                        >
-                          <span style={{ color: "#aaa" }}>GPU Time</span>
-                          <span
+                        <>
+                          <div
                             style={{
-                              color: gfx.gpuAvgMs > 8.33 ? "#ff6666" : "#fff",
+                              display: "flex",
+                              justifyContent: "space-between",
                             }}
                           >
-                            {gfx.gpuAvgMs.toFixed(2)}ms (
-                            {((gfx.gpuAvgMs / 8.33) * 100).toFixed(0)}%)
-                          </span>
-                        </div>
+                            <span style={{ color: "#aaa" }}>GPU Time</span>
+                            <span
+                              style={{
+                                color: gfx.gpuAvgMs > 8.33 ? "#ff6666" : "#fff",
+                              }}
+                            >
+                              {gfx.gpuAvgMs.toFixed(2)}ms (
+                              {((gfx.gpuAvgMs / 8.33) * 100).toFixed(0)}%)
+                            </span>
+                          </div>
+                          {/* GPU Section Breakdown */}
+                          {gfx.gpuSections && (
+                            <>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  paddingLeft: "12px",
+                                }}
+                              >
+                                <span style={{ color: "#666" }}>Render</span>
+                                <span style={{ color: "#888" }}>
+                                  {gfx.gpuSections.render.toFixed(2)}ms
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  paddingLeft: "12px",
+                                }}
+                              >
+                                <span style={{ color: "#666" }}>
+                                  Water Compute
+                                </span>
+                                <span style={{ color: "#888" }}>
+                                  {gfx.gpuSections.waterCompute.toFixed(2)}ms
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  paddingLeft: "12px",
+                                }}
+                              >
+                                <span style={{ color: "#666" }}>Readback</span>
+                                <span style={{ color: "#888" }}>
+                                  {gfx.gpuSections.readback.toFixed(2)}ms
+                                </span>
+                              </div>
+                            </>
+                          )}
+                        </>
                       ) : (
                         <div
                           style={{
@@ -265,6 +280,26 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                               justifyContent: "space-between",
                             }}
                           >
+                            <span style={{ color: "#aaa" }}>Water Res</span>
+                            <span
+                              style={{
+                                color:
+                                  gfx.waterReadback.resolution >= 2
+                                    ? "#66ff66"
+                                    : gfx.waterReadback.resolution >= 1
+                                      ? "#ffff66"
+                                      : "#ff6666",
+                              }}
+                            >
+                              {gfx.waterReadback.resolution.toFixed(1)} px/ft
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                            }}
+                          >
                             <span style={{ color: "#aaa" }}>
                               Water GPU Hits
                             </span>
@@ -283,6 +318,27 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                               {gfx.waterReadback.total})
                             </span>
                           </div>
+                          {(gfx.waterReadback.lowResFallbacks > 0 ||
+                            gfx.waterReadback.outOfBoundsFallbacks > 0) && (
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                paddingLeft: "12px",
+                              }}
+                            >
+                              <span style={{ color: "#666" }}>Fallbacks</span>
+                              <span style={{ color: "#888" }}>
+                                {gfx.waterReadback.lowResFallbacks > 0 &&
+                                  `${gfx.waterReadback.lowResFallbacks} low-res`}
+                                {gfx.waterReadback.lowResFallbacks > 0 &&
+                                  gfx.waterReadback.outOfBoundsFallbacks > 0 &&
+                                  " / "}
+                                {gfx.waterReadback.outOfBoundsFallbacks > 0 &&
+                                  `${gfx.waterReadback.outOfBoundsFallbacks} OOB`}
+                              </span>
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
@@ -337,9 +393,8 @@ export default class DebugOverlay extends ReactEntity implements Entity {
     const renderer = this.game?.getRenderer();
     const rendererStats = renderer?.getStats();
     const gpuTimerSupported = this.game?.hasGpuTimerSupport() ?? false;
-    const gpuProfileStat = profiler
-      .getStats()
-      .find((s) => s.label === "gpu" && s.depth === 0);
+    const gpuMs = this.game?.renderer.getGpuMs() ?? 0;
+    const gpuAllMs = this.game?.renderer.getAllGpuMs() ?? null;
 
     // Get water readback stats (game-specific, may not exist)
     // TODO: This couples core to game code - should use extensible stats system
@@ -348,6 +403,9 @@ export default class DebugOverlay extends ReactEntity implements Entity {
           getReadbackStats?: () => {
             gpuHits: number;
             cpuFallbacks: number;
+            lowResolutionFallbacks: number;
+            outOfBoundsFallbacks: number;
+            currentResolution: number;
           } | null;
         }
       | undefined;
@@ -356,6 +414,9 @@ export default class DebugOverlay extends ReactEntity implements Entity {
       gpuHits: number;
       total: number;
       gpuPercent: number;
+      lowResFallbacks: number;
+      outOfBoundsFallbacks: number;
+      resolution: number;
     } | null = null;
     if (readbackStats) {
       const total = readbackStats.gpuHits + readbackStats.cpuFallbacks;
@@ -363,10 +424,15 @@ export default class DebugOverlay extends ReactEntity implements Entity {
         gpuHits: readbackStats.gpuHits,
         total,
         gpuPercent: total > 0 ? (readbackStats.gpuHits / total) * 100 : 0,
+        lowResFallbacks: readbackStats.lowResolutionFallbacks,
+        outOfBoundsFallbacks: readbackStats.outOfBoundsFallbacks,
+        resolution: readbackStats.currentResolution,
       };
       // Reset stats each frame for per-frame tracking
       readbackStats.gpuHits = 0;
       readbackStats.cpuFallbacks = 0;
+      readbackStats.lowResolutionFallbacks = 0;
+      readbackStats.outOfBoundsFallbacks = 0;
     }
 
     return {
@@ -379,7 +445,8 @@ export default class DebugOverlay extends ReactEntity implements Entity {
         : "N/A",
       pixelRatio: rendererStats?.pixelRatio ?? 1,
       gpuTimerSupported,
-      gpuAvgMs: gpuProfileStat?.avgMs ?? 0,
+      gpuAvgMs: gpuMs,
+      gpuSections: gpuAllMs,
       waterReadback,
     };
   }
@@ -401,92 +468,45 @@ export default class DebugOverlay extends ReactEntity implements Entity {
   }
 }
 
-const SEPARATOR = " > ";
-
-/** Compute tree prefix using box-drawing characters */
-function getTreePrefix(
-  stat: ProfileStats,
-  index: number,
-  allStats: ProfileStats[],
-): string {
-  if (stat.depth === 0) return "";
-
-  const segments = stat.label.split(SEPARATOR);
-  let prefix = "";
-
-  // For each ancestor level, determine if we need a vertical line
-  for (let level = 0; level < stat.depth - 1; level++) {
-    const ancestorPath = segments.slice(0, level + 1).join(SEPARATOR);
-    // Check if any later stat shares this ancestor (meaning the line continues)
-    const hasLaterSibling = allStats.slice(index + 1).some((s) => {
-      const sSegments = s.label.split(SEPARATOR);
-      return (
-        sSegments.length > level + 1 &&
-        sSegments.slice(0, level + 1).join(SEPARATOR) === ancestorPath
-      );
-    });
-    prefix += hasLaterSibling ? "│" : " ";
-  }
-
-  // For the current level, determine if this is the last child
-  const parentPath = segments.slice(0, stat.depth).join(SEPARATOR);
-  const isLastChild = !allStats.slice(index + 1).some((s) => {
-    const sSegments = s.label.split(SEPARATOR);
-    return (
-      sSegments.length > stat.depth &&
-      sSegments.slice(0, stat.depth).join(SEPARATOR) === parentPath
-    );
-  });
-
-  prefix += isLastChild ? "└" : "├";
-  return prefix;
-}
-
 function ProfileRow({
   stat,
-  index,
-  allStats,
+  frameTotalMs,
 }: {
   stat: ProfileStats;
-  index: number;
   allStats: ProfileStats[];
+  frameTotalMs: number;
 }) {
   const isFrameMetric = stat.shortLabel === "frame" && stat.depth === 0;
-  const isSlow = isFrameMetric && stat.avgMs > 16.67;
+  const isSlow = isFrameMetric && stat.msPerFrame > 16.67;
   const color = isSlow ? "#ff6666" : "#fff";
-  const treePrefix = getTreePrefix(stat, index, allStats);
 
-  // Compute % of parent
-  let percentOfParent = "";
-  if (stat.depth > 0) {
-    const parentPath = stat.label
-      .split(SEPARATOR)
-      .slice(0, stat.depth)
-      .join(SEPARATOR);
-    const parent = allStats.find((s) => s.label === parentPath);
-    if (parent && parent.msPerSec > 0) {
-      const pct = (stat.msPerSec / parent.msPerSec) * 100;
-      percentOfParent = pct.toFixed(0) + "%";
-    }
-  }
+  // Calculate bar width as percentage of frame time
+  const barPercent = Math.min(
+    100,
+    100 - (stat.msPerFrame / frameTotalMs) * 100,
+  );
+
+  // Slight bar color variation by depth
+  const barColor = `hsl(235, 80%, ${40 + stat.depth * 4}%)`;
+
+  // Display calls per frame if > 1
+  const callsDisplay =
+    stat.callsPerFrame >= 1 ? `(x${Math.round(stat.callsPerFrame)})` : "";
 
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 50px 50px 50px 50px 35px",
+        padding: "1px 0",
+        paddingLeft: `${stat.depth * 16}px`,
+        background: `linear-gradient(to right, transparent 0% ${barPercent}%, ${barColor} ${barPercent}%)`,
+        fontFamily: "monospace",
         color,
       }}
     >
-      <span>
-        {treePrefix}
-        {stat.shortLabel}
-      </span>
-      <span style={{ textAlign: "right" }}>{stat.callsPerSec.toFixed(0)}</span>
-      <span style={{ textAlign: "right" }}>{stat.msPerSec.toFixed(1)}</span>
-      <span style={{ textAlign: "right" }}>{stat.avgMs.toFixed(2)}ms</span>
-      <span style={{ textAlign: "right" }}>{stat.maxMs.toFixed(1)}ms</span>
-      <span style={{ textAlign: "right" }}>{percentOfParent}</span>
+      {stat.shortLabel}
+      {callsDisplay && (
+        <span style={{ color: "#888", marginLeft: "8px" }}>{callsDisplay}</span>
+      )}
     </div>
   );
 }
