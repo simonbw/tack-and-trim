@@ -109,7 +109,7 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 50px 50px 50px 35px",
+                    gridTemplateColumns: "1fr 50px 50px 50px 50px 35px",
                     fontSize: "10px",
                     color: "#888",
                     marginBottom: "2px",
@@ -117,6 +117,7 @@ export default class DebugOverlay extends ReactEntity implements Entity {
                 >
                   <span>Label</span>
                   <span style={{ textAlign: "right" }}>Calls/s</span>
+                  <span style={{ textAlign: "right" }}>ms/s</span>
                   <span style={{ textAlign: "right" }}>Avg</span>
                   <span style={{ textAlign: "right" }}>Max</span>
                   <span style={{ textAlign: "right" }}>%</span>
@@ -473,7 +474,7 @@ function ProfileRow({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "1fr 50px 50px 50px 35px",
+        gridTemplateColumns: "1fr 50px 50px 50px 50px 35px",
         color,
       }}
     >
@@ -482,6 +483,7 @@ function ProfileRow({
         {stat.shortLabel}
       </span>
       <span style={{ textAlign: "right" }}>{stat.callsPerSec.toFixed(0)}</span>
+      <span style={{ textAlign: "right" }}>{stat.msPerSec.toFixed(1)}</span>
       <span style={{ textAlign: "right" }}>{stat.avgMs.toFixed(2)}ms</span>
       <span style={{ textAlign: "right" }}>{stat.maxMs.toFixed(1)}ms</span>
       <span style={{ textAlign: "right" }}>{percentOfParent}</span>

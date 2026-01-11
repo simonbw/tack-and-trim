@@ -2,7 +2,7 @@ import BaseEntity from "../core/entity/BaseEntity";
 import { Viewport } from "../core/graphics/Camera2d";
 import { range } from "../core/util/FunctionalUtils";
 import { invLerp, stepToward, sum } from "../core/util/MathUtil";
-import { profiler } from "../core/util/Profiler";
+import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Wind } from "./Wind";
@@ -38,6 +38,7 @@ export class WindParticles extends BaseEntity {
     this.grid = new ParticleGrid(SECTOR_GRID_SIZE, SECTOR_GRID_SIZE);
   }
 
+  @profile
   onRender({
     dt,
     draw,
@@ -45,12 +46,10 @@ export class WindParticles extends BaseEntity {
     dt: number;
     draw: import("../core/graphics/Draw").Draw;
   }) {
-    profiler.start("wind-particles-render");
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
     const viewport = this.game?.camera.getWorldViewport();
 
     if (!this.game || !wind || !viewport || !this.grid) {
-      profiler.end("wind-particles-render");
       return;
     }
 
@@ -93,7 +92,6 @@ export class WindParticles extends BaseEntity {
         alpha: p.alpha,
       });
     }
-    profiler.end("wind-particles-render");
   }
 }
 
@@ -149,7 +147,7 @@ class ParticleGrid {
     const numSectors = gridWidth * gridHeight;
     if (numSectors <= 1) {
       throw new Error(
-        `Invalid sector grid size: ${numSectors} (${gridWidth}x${gridHeight})`
+        `Invalid sector grid size: ${numSectors} (${gridWidth}x${gridHeight})`,
       );
     }
     this.sectors = range(numSectors).map(() => []);
@@ -171,7 +169,7 @@ class ParticleGrid {
 
   private getSectorBounds(
     sectorIndex: number,
-    viewport: Viewport
+    viewport: Viewport,
   ): { left: number; right: number; top: number; bottom: number } {
     const col = sectorIndex % this.gridWidth;
     const row = Math.floor(sectorIndex / this.gridWidth);
@@ -190,7 +188,7 @@ class ParticleGrid {
   private getRandomPosInSector(sectorIndex: number, viewport: Viewport): V2d {
     const { left, right, top, bottom } = this.getSectorBounds(
       sectorIndex,
-      viewport
+      viewport,
     );
     return V(rUniform(left, right), rUniform(top, bottom));
   }
@@ -215,7 +213,7 @@ class ParticleGrid {
 
     // Sort indices by sector count (sparsest first)
     this.sortedIndices.sort(
-      (a, b) => this.sectors[a].length - this.sectors[b].length
+      (a, b) => this.sectors[a].length - this.sectors[b].length,
     );
   }
 

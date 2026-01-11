@@ -1,5 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
-import { profiler } from "../../core/util/Profiler";
+import { profile } from "../../core/util/Profiler";
 import { AABB } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
 import { TurbulenceParticle } from "../TurbulenceParticle";
@@ -75,24 +75,21 @@ export class SailWindEffect extends BaseEntity implements WindModifier {
     super();
   }
 
+  @profile
   onTick() {
-    profiler.start("sail-wind-effect-tick");
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
     if (!wind) {
-      profiler.end("sail-wind-effect-tick");
       return;
     }
 
     // When sail is lowered, skip all calculations
     if (!this.sail.isHoisted()) {
       this.clearState();
-      profiler.end("sail-wind-effect-tick");
       return;
     }
 
     this.updateState(wind);
     this.handleStallTransitions(wind);
-    profiler.end("sail-wind-effect-tick");
   }
 
   private updateState(wind: Wind) {
@@ -159,7 +156,7 @@ export class SailWindEffect extends BaseEntity implements WindModifier {
 
       if (this.windSpeed > 0.01 && length > 0.01) {
         const angleOfAttack = Math.acos(
-          Math.max(-1, Math.min(1, this.windDirection.dot(tangent)))
+          Math.max(-1, Math.min(1, this.windDirection.dot(tangent))),
         );
         liftCoefficient = getSailLiftCoefficient(angleOfAttack, camber);
         isStalled = isSailStalled(angleOfAttack);
@@ -253,7 +250,7 @@ export class SailWindEffect extends BaseEntity implements WindModifier {
 
     // Spawn slightly downwind of the segment
     const spawnPos = segment.position.add(
-      windVel.normalize().mul(TURBULENCE_SPAWN_OFFSET)
+      windVel.normalize().mul(TURBULENCE_SPAWN_OFFSET),
     );
 
     const particle = new TurbulenceParticle(spawnPos, windVel);

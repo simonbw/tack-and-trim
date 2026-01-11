@@ -1,6 +1,6 @@
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import BaseEntity from "../../core/entity/BaseEntity";
-import { profiler } from "../../core/util/Profiler";
+import { profile } from "../../core/util/Profiler";
 import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
 import {
@@ -55,7 +55,7 @@ export class WaterInfo extends BaseEntity {
 
   // Spatial hash for efficient water modifier queries
   private spatialHash = new SparseSpatialHash<WaterModifier>((m) =>
-    m.getWaterModifierAABB(),
+    m.getWaterModifierAABB()
   );
 
   // GPU readback buffer for physics queries (set by WaterRendererGPU)
@@ -64,21 +64,23 @@ export class WaterInfo extends BaseEntity {
   // CPU compute params (cached for fallback computations)
   private get cpuParams(): WaterComputeParams {
     return {
-      time: this.readbackBuffer?.getComputedTime() ?? this.game?.elapsedUnpausedTime ?? 0,
+      time:
+        this.readbackBuffer?.getComputedTime() ??
+        this.game?.elapsedUnpausedTime ??
+        0,
       waveAmpModNoise: this.waveAmpModNoise,
       surfaceNoise: this.surfaceNoise,
     };
   }
 
+  @profile
   onTick() {
-    profiler.start("water-info-tick");
     // Rebuild spatial hash from all water modifiers
     this.spatialHash.clear();
     const modifiers = this.game!.entities.getTagged("waterModifier");
     for (const modifier of modifiers) {
       this.spatialHash.add(modifier as unknown as WaterModifier);
     }
-    profiler.end("water-info-tick");
   }
 
   /**

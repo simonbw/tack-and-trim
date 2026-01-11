@@ -1,5 +1,6 @@
 import { LayerName } from "../../config/layers";
 import Game from "../Game";
+import type { Camera2d } from "../graphics/Camera2d";
 import { Draw } from "../graphics/Draw";
 import { V2d } from "../Vector";
 import Entity from "./Entity";
@@ -12,6 +13,8 @@ export interface RenderEventData {
   layer: LayerName;
   /** The drawing API */
   draw: Draw;
+  /** The camera being used for rendering */
+  camera: Camera2d;
 }
 
 export type BaseGameEvents = {
