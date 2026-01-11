@@ -352,6 +352,22 @@ export class Camera2d extends BaseEntity implements Entity {
 
     return matrix;
   }
+
+  /**
+   * Check if a circle at (x, y) with given radius is visible in the viewport.
+   * Uses cached viewport bounds - no allocations.
+   * Useful for culling objects before rendering.
+   */
+  isVisible(x: number, y: number, radius: number): boolean {
+    const v = this.getWorldViewport();
+    // Note: Due to Y-flip, top > bottom in world coords (top is max Y, bottom is min Y)
+    return (
+      x + radius >= v.left &&
+      x - radius <= v.right &&
+      y + radius >= v.bottom &&
+      y - radius <= v.top
+    );
+  }
 }
 
 export function viewportContains(viewport: Viewport, point: V2d): boolean {

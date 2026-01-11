@@ -1,3 +1,4 @@
+import { clamp } from "../util/MathUtil";
 import { V, V2d } from "../Vector";
 import { Camera2d } from "./Camera2d";
 import { PathBuilder } from "./PathBuilder";
@@ -9,12 +10,35 @@ export { PathBuilder };
 
 // Number of circle segments based on radius
 function getCircleSegments(radius: number): number {
-  return Math.max(16, Math.min(64, Math.floor(radius * 4)));
+  return clamp(Math.floor(radius * 4), 8, 64);
+}
+
+// Cache for pre-computed unit circle vertices
+// Key: segment count, Value: array of [cos(angle), sin(angle)] for each vertex
+const circleCache = new Map<number, { cos: Float32Array; sin: Float32Array }>();
+
+function getCircleVertices(segments: number): {
+  cos: Float32Array;
+  sin: Float32Array;
+} {
+  let cached = circleCache.get(segments);
+  if (!cached) {
+    const cos = new Float32Array(segments + 1);
+    const sin = new Float32Array(segments + 1);
+    for (let i = 0; i <= segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      cos[i] = Math.cos(angle);
+      sin[i] = Math.sin(angle);
+    }
+    cached = { cos, sin };
+    circleCache.set(segments, cached);
+  }
+  return cached;
 }
 
 // Number of segments for a Bézier corner based on offset
 function getCornerSegments(offset: number): number {
-  return Math.max(4, Math.min(12, Math.ceil(offset)));
+  return clamp(Math.ceil(offset), 4, 12);
 }
 
 /**
@@ -178,6 +202,12 @@ export interface ImageOptions {
   anchorY?: number; // 0-1, default 0.5
 }
 
+/** Options for circle drawing */
+export interface CircleOptions extends DrawOptions {
+  /** Number of segments to use. If not specified, calculated from radius. */
+  segments?: number;
+}
+
 /**
  * High-level drawing API passed to entity onRender callbacks.
  * Provides a clean interface for drawing shapes, images, and paths.
@@ -265,19 +295,20 @@ export class Draw {
   }
 
   /** Draw a filled circle */
-  fillCircle(x: number, y: number, radius: number, opts?: DrawOptions): void {
+  fillCircle(x: number, y: number, radius: number, opts?: CircleOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
-    const segments = getCircleSegments(radius);
+    const segments = opts?.segments ?? getCircleSegments(radius);
+
+    // Get cached unit circle vertices (no trig needed per-call)
+    const cached = getCircleVertices(segments);
 
     const vertices: V2d[] = [V(x, y)]; // Center
     const indices: number[] = [];
 
+    // Scale and translate cached unit circle
     for (let i = 0; i <= segments; i++) {
-      const angle = (i / segments) * Math.PI * 2;
-      vertices.push(
-        V(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius),
-      );
+      vertices.push(V(x + cached.cos[i] * radius, y + cached.sin[i] * radius));
     }
 
     for (let i = 1; i <= segments; i++) {
@@ -389,7 +420,12 @@ export class Draw {
   }
 
   /** Draw a textured image/sprite */
-  image(texture: WebGPUTexture, x: number, y: number, opts?: ImageOptions): void {
+  image(
+    texture: WebGPUTexture,
+    x: number,
+    y: number,
+    opts?: ImageOptions,
+  ): void {
     // Convert ImageOptions to SpriteOptions (color -> tint)
     const spriteOpts = opts
       ? {

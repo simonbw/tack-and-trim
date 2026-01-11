@@ -12,6 +12,7 @@ const DRAG = 2.5; // 1/s - air drag (lower = particles travel further)
 const COLOR = 0xffffff;
 const ALPHA = 0.8;
 const Z_SCALE = 0.05;
+const SEGMENTS = 6; // Hexagon for performance
 
 /**
  * A water droplet flying through the air.
@@ -59,9 +60,16 @@ export class SprayParticle extends BaseEntity {
 
     // Render (slightly larger when higher for perspective)
     const radius = this.size * (1 + this.z * Z_SCALE);
+
+    // Skip if not visible
+    if (!draw.camera.isVisible(this.position.x, this.position.y, radius)) {
+      return;
+    }
+
     draw.fillCircle(this.position.x, this.position.y, radius, {
       color: COLOR,
       alpha: ALPHA,
+      segments: SEGMENTS,
     });
   }
 }

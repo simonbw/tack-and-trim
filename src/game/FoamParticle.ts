@@ -8,6 +8,7 @@ import { V2d } from "../core/Vector";
 // Rendering
 const COLOR = 0xffffff;
 const ALPHA = 0.8;
+const SEGMENTS = 8; // Hexagon-ish shape for performance
 
 // Foam lifecycle
 const MAX_LIFESPAN = 4.0; // seconds
@@ -48,10 +49,17 @@ export class FoamParticle extends BaseEntity {
 
   @profile
   onRender({ draw }: GameEventMap["render"]): void {
-    draw.camera;
-    draw.fillCircle(this.pos.x, this.pos.y, this.getRadius(), {
+    const radius = this.getRadius();
+
+    // Skip if not visible
+    if (!draw.camera.isVisible(this.pos.x, this.pos.y, radius)) {
+      return;
+    }
+
+    draw.fillCircle(this.pos.x, this.pos.y, radius, {
       color: COLOR,
       alpha: this.getAlpha(),
+      segments: SEGMENTS,
     });
   }
 
