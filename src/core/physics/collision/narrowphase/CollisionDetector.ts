@@ -9,31 +9,23 @@ import Particle from "../../shapes/Particle";
 import Plane from "../../shapes/Plane";
 import Shape from "../../shapes/Shape";
 import { CollisionResult } from "../CollisionResult";
-import { capsuleCapsule } from "./shape-on-shape/CapsuleCollisions";
-import {
-  circleCapsule,
-  circleCircle,
-  circleConvex,
-  circleHeightfield,
-  circleLine,
-  circleParticle,
-  circlePlane,
-} from "./shape-on-shape/CircleCollisions";
-import {
-  convexCapsule,
-  convexConvex,
-  convexHeightfield,
-} from "./shape-on-shape/ConvexCollisions";
-import {
-  particleCapsule,
-  particleConvex,
-  particlePlane,
-} from "./shape-on-shape/ParticleCollisions";
-import {
-  planeCapsule,
-  planeConvex,
-  planeLine,
-} from "./shape-on-shape/PlaneCollisions";
+import { capsuleCapsule } from "./shape-on-shape/capsuleCapsule";
+import { circleCapsule } from "./shape-on-shape/circleCapsule";
+import { circleCircle } from "./shape-on-shape/circleCircle";
+import { circleConvex } from "./shape-on-shape/circleConvex";
+import { circleHeightfield } from "./shape-on-shape/circleHeightfield";
+import { circleLine } from "./shape-on-shape/circleLine";
+import { circleParticle } from "./shape-on-shape/circleParticle";
+import { circlePlane } from "./shape-on-shape/circlePlane";
+import { convexCapsule } from "./shape-on-shape/convexCapsule";
+import { convexConvex } from "./shape-on-shape/convexConvex";
+import { convexHeightfield } from "./shape-on-shape/convexHeightfield";
+import { particleCapsule } from "./shape-on-shape/particleCapsule";
+import { particleConvex } from "./shape-on-shape/particleConvex";
+import { particlePlane } from "./shape-on-shape/particlePlane";
+import { planeCapsule } from "./shape-on-shape/planeCapsule";
+import { planeConvex } from "./shape-on-shape/planeConvex";
+import { planeLine } from "./shape-on-shape/planeLine";
 
 /** Collision handler function type for dispatch */
 export type CollisionHandler<T1 = Shape, T2 = Shape> = (
@@ -45,14 +37,14 @@ export type CollisionHandler<T1 = Shape, T2 = Shape> = (
   shapeB: T2,
   offsetB: V2d,
   angleB: number,
-  justTest: boolean
+  justTest: boolean,
 ) => CollisionResult | null;
 
 type ShapeConstructor<T extends Shape = Shape> = new (...args: any[]) => T;
 
 /** Wraps a collision handler to swap A and B inputs/outputs. */
 function swapped<T1, T2>(
-  handler: CollisionHandler<T1, T2>
+  handler: CollisionHandler<T1, T2>,
 ): CollisionHandler<T2, T1> {
   return (
     bodyA,
@@ -63,7 +55,7 @@ function swapped<T1, T2>(
     shapeB,
     offsetB,
     angleB,
-    justTest
+    justTest,
   ) => {
     const result = handler(
       bodyB,
@@ -74,7 +66,7 @@ function swapped<T1, T2>(
       shapeA,
       offsetA,
       angleA,
-      justTest
+      justTest,
     );
     if (!result) return null;
 
@@ -99,7 +91,7 @@ function registerHandler<T1 extends Shape, T2 extends Shape>(
   shapeTypeA: ShapeConstructor<T1>,
   shapeTypeB: ShapeConstructor<T2>,
   handler: CollisionHandler<T1, T2>,
-  bidirectional: boolean = true
+  bidirectional: boolean = true,
 ): void {
   if (!handlerRegistry.has(shapeTypeA)) {
     handlerRegistry.set(shapeTypeA, new Map());
@@ -168,7 +160,7 @@ export function getShapeCollision(
   shapeB: Shape,
   offsetB: V2d,
   angleB: number,
-  justTest: boolean = false
+  justTest: boolean = false,
 ): CollisionResult | null {
   const handler = getCollisionHandler(shapeA, shapeB);
   return handler(
@@ -180,6 +172,6 @@ export function getShapeCollision(
     shapeB,
     offsetB,
     angleB,
-    justTest
+    justTest,
   );
 }

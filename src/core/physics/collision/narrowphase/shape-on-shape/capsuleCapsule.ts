@@ -5,12 +5,15 @@ import Capsule from "../../../shapes/Capsule";
 import Shape from "../../../shapes/Shape";
 import { setCapsuleMiddleRect } from "../../CollisionHelpers";
 import { CollisionResult, createCollisionResult } from "../../CollisionResult";
-import { circleCircle } from "./CircleCollisions";
-import { convexCapsule } from "./ConvexCollisions";
+import { circleCircle } from "./circleCircle";
+import { convexCapsule } from "./convexCapsule";
 
-// Reusable shapes for capsule-capsule collision
 const capsuleMiddleRect = new Box({ width: 1, height: 1 });
 const capsuleMiddleRect2 = new Box({ width: 1, height: 1 });
+
+// Scratch vectors to avoid per-call allocations
+const _circlePosA = V();
+const _circlePosB = V();
 
 /**
  * Capsule/Capsule collision
@@ -24,7 +27,7 @@ export function capsuleCapsule(
   shapeB: Shape,
   offsetB: V2d,
   angleB: number,
-  justTest: boolean
+  justTest: boolean,
 ): CollisionResult | null {
   const capsuleA = shapeA as Capsule;
   const capsuleB = shapeB as Capsule;
@@ -33,29 +36,27 @@ export function capsuleCapsule(
 
   // Need 4 circle checks between all endpoints
   for (let i = 0; i < 2; i++) {
-    const circlePosA = V(
-      (i === 0 ? -1 : 1) * (capsuleA.length / 2),
-      0
-    ).itoGlobalFrame(offsetA, angleA);
+    _circlePosA
+      .set((i === 0 ? -1 : 1) * (capsuleA.length / 2), 0)
+      .itoGlobalFrame(offsetA, angleA);
 
     for (let j = 0; j < 2; j++) {
-      const circlePosB = V(
-        (j === 0 ? -1 : 1) * (capsuleB.length / 2),
-        0
-      ).itoGlobalFrame(offsetB, angleB);
+      _circlePosB
+        .set((j === 0 ? -1 : 1) * (capsuleB.length / 2), 0)
+        .itoGlobalFrame(offsetB, angleB);
 
       const circleResult = circleCircle(
         bodyA,
         capsuleA,
-        circlePosA,
+        _circlePosA,
         angleA,
         bodyB,
         capsuleB,
-        circlePosB,
+        _circlePosB,
         angleB,
         justTest,
         capsuleA.radius,
-        capsuleB.radius
+        capsuleB.radius,
       );
 
       if (justTest && circleResult) {
@@ -79,7 +80,7 @@ export function capsuleCapsule(
     capsuleB,
     offsetB,
     angleB,
-    justTest
+    justTest,
   );
 
   if (justTest && rect1Result) {
@@ -100,7 +101,7 @@ export function capsuleCapsule(
     capsuleA,
     offsetA,
     angleA,
-    justTest
+    justTest,
   );
 
   if (justTest && rect2Result) {
