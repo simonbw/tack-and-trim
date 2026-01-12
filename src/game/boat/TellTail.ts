@@ -105,12 +105,18 @@ export class TellTail extends BaseEntity {
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     if (this.bodies.length < 2) return;
 
+    // Match sail's fade behavior: fade when hoistAmount < 0.4
+    const fadeStart = 0.4;
+    const hoistAmount = (this.parent as any)?.hoistAmount ?? 1;
+    const alpha =
+      hoistAmount >= fadeStart ? 1 : (hoistAmount / fadeStart) ** 0.5;
+
     const vertices = this.bodies.map((b) => b.position.clone());
 
     draw.spline(vertices, {
       color: TELLTAIL_COLOR,
       width: TELLTAIL_WIDTH,
-      alpha: 1.0,
+      alpha,
     });
   }
 }
