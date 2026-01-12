@@ -208,11 +208,26 @@ export class PathBuilder {
 
   /** Stroke the path outline */
   stroke(color: number, width: number = 1, alpha: number = 1): void {
-    const points = this.points;
+    let points = this.points;
     if (points.length < 2) return;
 
     // For closed paths, we need to handle the wrap-around at start/end
-    const shouldClose = this.closed && points.length >= 3;
+    let shouldClose = this.closed && points.length >= 3;
+
+    // For closed paths, check if first and last points are nearly coincident.
+    // If so, remove the last point to avoid a tiny degenerate segment that
+    // causes incorrect miter calculation (manifests as arrowhead artifacts).
+    if (shouldClose && points.length >= 3) {
+      const first = points[0];
+      const last = points[points.length - 1];
+      const dx = last.x - first.x;
+      const dy = last.y - first.y;
+      const distSq = dx * dx + dy * dy;
+      const epsilon = 0.001;
+      if (distSq < epsilon * epsilon) {
+        points = points.slice(0, -1);
+      }
+    }
 
     const halfWidth = width / 2;
     const vertices: V2d[] = [];
