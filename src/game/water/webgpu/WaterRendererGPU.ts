@@ -5,9 +5,9 @@
  * Uses WaterComputePipelineGPU for wave computation and WaterShaderGPU for rendering.
  *
  * Lifecycle:
- * - onBeforeTick: Complete async readback from previous frame
- * - onAfterPhysics: Kick off GPU compute and initiate readback for next frame
- * - onRender: Update modifier texture and render water
+ * - onBeforeTick: Complete tile readbacks from previous frame
+ * - onAfterPhysics: Compute tiles for physics queries
+ * - onRender: Run wave and modifier compute, render water
  */
 
 import BaseEntity from "../../../core/entity/BaseEntity";
@@ -21,8 +21,6 @@ import { WaterShaderGPU } from "./WaterShaderGPU";
 /**
  * WebGPU water renderer entity.
  */
-// Margin for physics viewport expansion (larger than render margin)
-const PHYSICS_VIEWPORT_MARGIN = 0.25;
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
 
@@ -34,9 +32,6 @@ export class WaterRendererGPU extends BaseEntity {
   private computePipeline: WaterComputePipelineGPU;
   private renderMode = 0;
   private initialized = false;
-
-  // Track if we need to connect the readback buffer to WaterInfo
-  private readbackConnected = false;
 
   // Tile system for physics queries
   private tileManager: TileManager;
@@ -62,24 +57,11 @@ export class WaterRendererGPU extends BaseEntity {
       await this.waterShader.init();
       this.initialized = true;
 
-      // Connect readback buffer and tile system to WaterInfo
-      this.connectReadbackBuffer();
+      // Connect tile system to WaterInfo
       this.connectTileSystem();
     } catch (error) {
       console.error("Failed to initialize WaterRendererGPU:", error);
     }
-  }
-
-  /**
-   * Connect the readback buffer to WaterInfo for physics queries.
-   */
-  private connectReadbackBuffer(): void {
-    if (this.readbackConnected || !this.initialized || !this.game) return;
-
-    WaterInfo.fromGame(this.game).setReadbackBuffer(
-      this.computePipeline.getReadbackBuffer(),
-    );
-    this.readbackConnected = true;
   }
 
   /**
@@ -101,16 +83,13 @@ export class WaterRendererGPU extends BaseEntity {
   }
 
   /**
-   * Complete readback from previous frame.
+   * Complete tile readbacks from previous frame.
    * Called at start of tick to make last frame's GPU data available for physics.
    */
   onBeforeTick() {
     if (!this.initialized) return;
 
-    // Ensure readback buffer and tiles are connected (in case WaterInfo was added after us)
-    if (!this.readbackConnected) {
-      this.connectReadbackBuffer();
-    }
+    // Ensure tiles are connected (in case WaterInfo was added after us)
     if (!this.tilesConnected) {
       this.connectTileSystem();
     }
@@ -119,17 +98,10 @@ export class WaterRendererGPU extends BaseEntity {
     this.tileComputePipeline.completeReadbacks().catch((error) => {
       console.warn("Tile readback completion error:", error);
     });
-
-    // Complete async readback from previous frame (camera viewport)
-    // Note: This is fire-and-forget since we can't await in event handlers
-    // The readback should already be complete by now in most cases
-    this.computePipeline.completeReadback().catch((error) => {
-      console.warn("Water readback completion error:", error);
-    });
   }
 
   /**
-   * Kick off GPU compute and initiate readback for next frame's physics.
+   * Compute tiles for physics queries.
    * Called after physics step so the computed data will be ready for next frame.
    */
   onAfterPhysics() {
@@ -156,14 +128,6 @@ export class WaterRendererGPU extends BaseEntity {
         gpuProfiler,
       );
     }
-
-    // Run GPU compute for camera viewport and initiate async readback
-    const viewport = this.getExpandedViewport(PHYSICS_VIEWPORT_MARGIN);
-    this.computePipeline.computeAndInitiateReadback(
-      viewport,
-      time,
-      gpuProfiler,
-    );
   }
 
   /**

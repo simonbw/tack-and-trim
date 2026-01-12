@@ -13,7 +13,6 @@ import { profile } from "../../../core/util/Profiler";
 import { WATER_TEXTURE_SIZE } from "../WaterConstants";
 import type { WaterInfo } from "../WaterInfo";
 import { ModifierComputeGPU } from "./ModifierComputeGPU";
-import { ReadbackViewport, WaterReadbackBuffer } from "./WaterReadbackBuffer";
 import { WaveComputeGPU } from "./WaveComputeGPU";
 
 export interface Viewport {
@@ -31,15 +30,6 @@ export class WaterComputePipelineGPU {
   private modifierCompute: ModifierComputeGPU | null = null;
   private initialized = false;
 
-  // Readback buffer for physics queries
-  private readbackBuffer: WaterReadbackBuffer;
-  private lastComputeViewport: ReadbackViewport | null = null;
-
-  constructor() {
-    // Initialize readback buffer for physics queries
-    this.readbackBuffer = new WaterReadbackBuffer(WATER_TEXTURE_SIZE);
-  }
-
   /**
    * Initialize WebGPU resources.
    */
@@ -53,9 +43,6 @@ export class WaterComputePipelineGPU {
     // Initialize modifier compute shader
     this.modifierCompute = new ModifierComputeGPU(WATER_TEXTURE_SIZE);
     await this.modifierCompute.init();
-
-    // Initialize readback buffer
-    await this.readbackBuffer.init();
 
     this.initialized = true;
   }
@@ -139,58 +126,6 @@ export class WaterComputePipelineGPU {
   }
 
   /**
-   * Run GPU compute and initiate async readback.
-   * Call at end of tick phase.
-   *
-   * @param viewport World-space bounds for computation
-   * @param time Current game time (for physics consistency)
-   * @param gpuProfiler Optional GPU profiler for timing
-   */
-  @profile
-  computeAndInitiateReadback(
-    viewport: Viewport,
-    time: number,
-    gpuProfiler?: GPUProfiler | null,
-  ): void {
-    if (!this.initialized || !this.waveCompute) return;
-
-    const { left, top, width, height } = viewport;
-
-    // Run GPU compute
-    this.waveCompute.compute(time, left, top, width, height, gpuProfiler);
-
-    // Store viewport with time for readback
-    this.lastComputeViewport = { ...viewport, time };
-
-    // Initiate async readback
-    const outputTexture = this.waveCompute.getOutputTexture();
-    if (outputTexture) {
-      this.readbackBuffer.initiateReadback(
-        outputTexture,
-        this.lastComputeViewport,
-        gpuProfiler,
-      );
-    }
-  }
-
-  /**
-   * Complete readback from previous frame.
-   * Call at start of tick phase.
-   *
-   * @returns True if readback completed successfully
-   */
-  async completeReadback(): Promise<boolean> {
-    return this.readbackBuffer.completeReadback();
-  }
-
-  /**
-   * Get the readback buffer for sampling wave data.
-   */
-  getReadbackBuffer(): WaterReadbackBuffer {
-    return this.readbackBuffer;
-  }
-
-  /**
    * Check if the pipeline is initialized.
    */
   isInitialized(): boolean {
@@ -200,10 +135,8 @@ export class WaterComputePipelineGPU {
   destroy(): void {
     this.waveCompute?.destroy();
     this.modifierCompute?.destroy();
-    this.readbackBuffer.destroy();
     this.waveCompute = null;
     this.modifierCompute = null;
-    this.lastComputeViewport = null;
     this.initialized = false;
   }
 }

@@ -89,6 +89,7 @@ export class TileComputePipeline {
         viewport.width,
         viewport.height,
         gpuProfiler,
+        "tileCompute",
       );
 
       // Initiate readback from this tile's compute instance

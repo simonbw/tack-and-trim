@@ -13,7 +13,10 @@
  * - B, A: Reserved
  */
 
-import { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
+import {
+  GPUProfiler,
+  GPUProfileSection,
+} from "../../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import {
   NUM_WAVES,
@@ -425,6 +428,7 @@ export class WaveComputeGPU {
   /**
    * Run the wave computation for the given viewport.
    * @param gpuProfiler Optional profiler for timing the compute pass
+   * @param section GPU profile section to use (default: waterCompute)
    */
   compute(
     time: number,
@@ -433,6 +437,7 @@ export class WaveComputeGPU {
     viewportWidth: number,
     viewportHeight: number,
     gpuProfiler?: GPUProfiler | null,
+    section: GPUProfileSection = "waterCompute",
   ): void {
     if (!this.pipeline || !this.bindGroup || !this.paramsBuffer) {
       console.warn("WaveComputeGPU not initialized");
@@ -462,7 +467,7 @@ export class WaveComputeGPU {
     // Begin compute pass with optional timestamp writes
     const computePass = commandEncoder.beginComputePass({
       label: "Wave Compute Pass",
-      timestampWrites: gpuProfiler?.getComputeTimestampWrites("waterCompute"),
+      timestampWrites: gpuProfiler?.getComputeTimestampWrites(section),
     });
 
     computePass.setPipeline(this.pipeline);

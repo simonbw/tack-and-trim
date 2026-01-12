@@ -20,6 +20,8 @@ import type { Tile } from "./TileTypes";
 export interface TileReadbackStats {
   /** Number of queries satisfied from tile buffers */
   tileHits: number;
+  /** Number of queries that fell back to CPU computation */
+  cpuFallbacks: number;
   /** Number of tile readbacks completed this frame */
   readbacksCompleted: number;
   /** Reset counters to zero */
@@ -36,9 +38,11 @@ export class TileReadbackPool {
 
   readonly stats: TileReadbackStats = {
     tileHits: 0,
+    cpuFallbacks: 0,
     readbacksCompleted: 0,
     reset() {
       this.tileHits = 0;
+      this.cpuFallbacks = 0;
       this.readbacksCompleted = 0;
     },
   };

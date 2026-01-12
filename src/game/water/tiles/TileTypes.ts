@@ -28,13 +28,13 @@ export interface TileGridConfig {
  * Default configuration for the tile grid.
  * - 64 ft tiles: good balance of precision vs tile count
  * - 128 px resolution: 2 px/ft matches MIN_PHYSICS_RESOLUTION
- * - 4 tiles max: limits GPU work per frame
+ * - 64 tiles max per frame
  * - Score threshold 1: at least 1 expected query
  */
 export const DEFAULT_TILE_CONFIG: TileGridConfig = {
   tileSize: 64,
   tileResolution: 128,
-  maxTilesPerFrame: 16,
+  maxTilesPerFrame: 64,
   minScoreThreshold: 1,
 };
 

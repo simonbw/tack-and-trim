@@ -1,6 +1,6 @@
 /**
  * Single WaterQuerier for a boat and all its underwater components.
- * Forecasts all water queries for hull, keel, and rudder.
+ * Forecasts all water queries for hull, keel, rudder, and spray.
  */
 
 import BaseEntity from "../../core/entity/BaseEntity";
@@ -8,15 +8,8 @@ import type { AABB } from "../../core/util/SparseSpatialHash";
 import type { QueryForecast, WaterQuerier } from "../water/WaterQuerier";
 import type { Boat } from "./Boat";
 
-// Estimated query counts per component per tick
-const HULL_QUERIES = 8; // ~8 edges, 1 query each
-const KEEL_QUERIES = 4; // ~2 edges * 2 samples each
-const RUDDER_QUERIES = 4; // 2 edges * 2 samples each
-const TOTAL_QUERIES = HULL_QUERIES + KEEL_QUERIES + RUDDER_QUERIES; // ~16
-
-// Margin around boat for query AABB (ft)
-// Accounts for velocity and sampling outside the exact hull shape
-const QUERY_MARGIN = 5;
+// Margin around hull AABB for query forecast (ft)
+const QUERY_MARGIN = 2;
 
 /**
  * WaterQuerier that forecasts water queries for an entire boat.
@@ -35,62 +28,22 @@ export class BoatWaterQuerier extends BaseEntity implements WaterQuerier {
     const hull = this.boat.hull;
     if (!hull?.body) return null;
 
-    const pos = hull.body.position;
-    const angle = hull.body.angle;
+    // Get AABB directly from physics body
+    const bodyAABB = hull.body.getAABB();
 
-    // Get hull dimensions from config
-    // Use approximate bounding box based on hull vertices
-    // For a ~16ft boat, half-length ~8ft, half-width ~3.5ft
-    const config = this.boat.config;
-    const vertices = config.hull.vertices;
+    // Add margin
+    this.cachedAABB.minX = bodyAABB.lowerBound[0] - QUERY_MARGIN;
+    this.cachedAABB.minY = bodyAABB.lowerBound[1] - QUERY_MARGIN;
+    this.cachedAABB.maxX = bodyAABB.upperBound[0] + QUERY_MARGIN;
+    this.cachedAABB.maxY = bodyAABB.upperBound[1] + QUERY_MARGIN;
 
-    // Compute local bounds from vertices
-    let localMinX = Infinity,
-      localMinY = Infinity;
-    let localMaxX = -Infinity,
-      localMaxY = -Infinity;
-
-    for (const v of vertices) {
-      localMinX = Math.min(localMinX, v[0]);
-      localMinY = Math.min(localMinY, v[1]);
-      localMaxX = Math.max(localMaxX, v[0]);
-      localMaxY = Math.max(localMaxY, v[1]);
-    }
-
-    // Transform corners to world space and find AABB
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-
-    const corners = [
-      [localMinX, localMinY],
-      [localMaxX, localMinY],
-      [localMinX, localMaxY],
-      [localMaxX, localMaxY],
-    ];
-
-    let minX = Infinity,
-      minY = Infinity;
-    let maxX = -Infinity,
-      maxY = -Infinity;
-
-    for (const [lx, ly] of corners) {
-      const wx = pos[0] + lx * cos - ly * sin;
-      const wy = pos[1] + lx * sin + ly * cos;
-      minX = Math.min(minX, wx);
-      minY = Math.min(minY, wy);
-      maxX = Math.max(maxX, wx);
-      maxY = Math.max(maxY, wy);
-    }
-
-    // Add margin for velocity and sampling
-    this.cachedAABB.minX = minX - QUERY_MARGIN;
-    this.cachedAABB.minY = minY - QUERY_MARGIN;
-    this.cachedAABB.maxX = maxX + QUERY_MARGIN;
-    this.cachedAABB.maxY = maxY + QUERY_MARGIN;
+    // Query count: hull skin friction (1) + keel (4) + rudder (4) + spray (1 per vertex)
+    const sprayQueries = this.boat.config.hull.vertices.length;
+    const queryCount = 1 + 4 + 4 + sprayQueries;
 
     return {
       aabb: this.cachedAABB,
-      queryCount: TOTAL_QUERIES,
+      queryCount,
     };
   }
 }

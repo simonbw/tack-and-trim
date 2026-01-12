@@ -10,6 +10,7 @@
 export type GPUProfileSection =
   | "render"
   | "waterCompute"
+  | "tileCompute"
   | "modifierCompute"
   | "readback";
 
@@ -27,6 +28,7 @@ export class GPUProfiler {
   private static readonly SECTIONS: GPUProfileSection[] = [
     "render",
     "waterCompute",
+    "tileCompute",
     "modifierCompute",
     "readback",
   ];
@@ -225,6 +227,7 @@ export class GPUProfiler {
     return {
       render: this.getMs("render"),
       waterCompute: this.getMs("waterCompute"),
+      tileCompute: this.getMs("tileCompute"),
       modifierCompute: this.getMs("modifierCompute"),
       readback: this.getMs("readback"),
     };

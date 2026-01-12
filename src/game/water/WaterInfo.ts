@@ -18,7 +18,6 @@ import { WakeParticle } from "./WakeParticle";
 import { WaterModifier } from "./WaterModifier";
 import { isWaterQuerier } from "./WaterQuerier";
 import type { WakeSegmentData } from "./webgpu/ModifierComputeGPU";
-import type { WaterReadbackBuffer } from "./webgpu/WaterReadbackBuffer";
 import type { Viewport } from "./webgpu/WaterComputePipelineGPU";
 
 // Units: ft, ft/s for velocities
@@ -28,12 +27,6 @@ const CURRENT_SPATIAL_SCALE = 0.002; // Currents vary slowly across space
 const CURRENT_TIME_SCALE = 0.05; // Currents change slowly over time
 const CURRENT_SPEED_VARIATION = 0.4; // ±40% speed variation
 const CURRENT_ANGLE_VARIATION = 0.5; // ±~30° direction variation
-
-// Minimum resolution (pixels per foot) for GPU wave data to be considered adequate
-// for physics calculations. Below this threshold, fall back to CPU computation.
-// Based on Nyquist: shortest waves are ~2ft ripples, need 2 samples per wavelength,
-// so minimum ~1 px/ft, using 2 px/ft for safety margin.
-const MIN_PHYSICS_RESOLUTION = 2;
 
 // Margin to expand viewport for wake particle filtering (ft)
 // Must be >= MAX_RADIUS from WakeParticle.ts to catch particles that affect the edge
@@ -92,9 +85,6 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
     m.getWaterModifierAABB(),
   );
 
-  // GPU readback buffer for physics queries (set by WaterRendererGPU)
-  private readbackBuffer: WaterReadbackBuffer | null = null;
-
   // Tile system for physics queries (set by WaterRendererGPU)
   private tileManager: TileManager | null = null;
   private tileReadbackPool: TileReadbackPool | null = null;
@@ -102,10 +92,7 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
   // CPU compute params (cached for fallback computations)
   private get cpuParams(): WaterComputeParams {
     return {
-      time:
-        this.readbackBuffer?.getComputedTime() ??
-        this.game?.elapsedUnpausedTime ??
-        0,
+      time: this.game?.elapsedUnpausedTime ?? 0,
       waveAmpModNoise: this.waveAmpModNoise,
       surfaceNoise: this.surfaceNoise,
     };
@@ -119,14 +106,6 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
     for (const modifier of modifiers) {
       this.spatialHash.add(modifier as unknown as WaterModifier);
     }
-  }
-
-  /**
-   * Set the GPU readback buffer for physics queries.
-   * Called by WaterRendererGPU after initialization.
-   */
-  setReadbackBuffer(buffer: WaterReadbackBuffer): void {
-    this.readbackBuffer = buffer;
   }
 
   /**
@@ -163,87 +142,47 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
   }
 
   /**
-   * Get readback statistics for debugging/tuning.
-   * Returns null if no readback buffer is set.
-   */
-  getReadbackStats(): {
-    gpuHits: number;
-    cpuFallbacks: number;
-    lowResolutionFallbacks: number;
-    outOfBoundsFallbacks: number;
-    currentResolution: number;
-  } | null {
-    return this.readbackBuffer?.stats ?? null;
-  }
-
-  /**
-   * StatsProvider implementation - provides water readback stats for StatsOverlay
+   * StatsProvider implementation - provides water tile stats for StatsOverlay
    */
   getStatsSection(): StatsSection | null {
-    const stats = this.readbackBuffer?.stats;
-    if (!stats) return null;
+    if (!this.tileManager || !this.tileReadbackPool) return null;
 
-    const total = stats.gpuHits + stats.cpuFallbacks;
-    if (total === 0) return null;
+    const activeTiles = this.tileManager.getActiveTileCount();
+    const tileHits = this.tileReadbackPool.stats.tileHits;
+    const cpuFallbacks = this.tileReadbackPool.stats.cpuFallbacks;
+    const total = tileHits + cpuFallbacks;
 
-    const gpuPercent = (stats.gpuHits / total) * 100;
+    if (total === 0 && activeTiles === 0) return null;
+
     const items: StatsSection["items"] = [
       {
-        label: "Water Res",
-        value: `${stats.currentResolution.toFixed(1)} px/ft`,
-        color:
-          stats.currentResolution >= 2
-            ? "success"
-            : stats.currentResolution >= 1
-              ? "warning"
-              : "error",
-      },
-      {
-        label: "Water GPU Hits",
-        value: `${gpuPercent.toFixed(0)}% (${stats.gpuHits}/${total})`,
-        color:
-          gpuPercent > 90 ? "success" : gpuPercent > 50 ? "warning" : "error",
-      },
-    ];
-
-    // Add tile stats if tile system is active
-    if (this.tileManager && this.tileReadbackPool) {
-      const activeTiles = this.tileManager.getActiveTileCount();
-      const tileHits = this.tileReadbackPool.stats.tileHits;
-      items.push({
         label: "Active Tiles",
         value: `${activeTiles}`,
         color: activeTiles > 0 ? "success" : "muted",
+      },
+    ];
+
+    if (total > 0) {
+      const gpuPercent = (tileHits / total) * 100;
+      items.push({
+        label: "Tile Hits",
+        value: `${gpuPercent.toFixed(0)}% (${tileHits}/${total})`,
+        color:
+          gpuPercent > 90 ? "success" : gpuPercent > 50 ? "warning" : "error",
       });
-      if (tileHits > 0) {
+
+      if (cpuFallbacks > 0) {
         items.push({
-          label: "Tile Hits",
-          value: `${tileHits}`,
+          label: "CPU Fallbacks",
+          value: `${cpuFallbacks}`,
           indent: true,
-          color: "success",
+          color: "muted",
         });
       }
     }
 
-    // Add fallback breakdown if any
-    if (stats.lowResolutionFallbacks > 0 || stats.outOfBoundsFallbacks > 0) {
-      const parts: string[] = [];
-      if (stats.lowResolutionFallbacks > 0) {
-        parts.push(`${stats.lowResolutionFallbacks} low-res`);
-      }
-      if (stats.outOfBoundsFallbacks > 0) {
-        parts.push(`${stats.outOfBoundsFallbacks} OOB`);
-      }
-      items.push({
-        label: "Fallbacks",
-        value: parts.join(" / "),
-        indent: true,
-        color: "muted",
-      });
-    }
-
     return {
-      title: "Water Readback",
+      title: "Water Physics",
       items,
     };
   }
@@ -252,14 +191,6 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
    * StatsProvider implementation - reset per-frame counters
    */
   resetStatsCounters(): void {
-    if (this.readbackBuffer?.stats) {
-      const stats = this.readbackBuffer.stats;
-      stats.gpuHits = 0;
-      stats.cpuFallbacks = 0;
-      stats.lowResolutionFallbacks = 0;
-      stats.outOfBoundsFallbacks = 0;
-    }
-    // Reset tile stats
     if (this.tileReadbackPool?.stats) {
       this.tileReadbackPool.stats.reset();
     }
@@ -267,8 +198,7 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
 
   /**
    * Get the water state at a given world position.
-   * Checks tile readback buffers first, then camera viewport buffer,
-   * otherwise falls back to CPU computation.
+   * Checks tile readback buffers first, otherwise falls back to CPU computation.
    * Used by underwater physics components to determine water velocity.
    */
   getStateAtPoint(point: V2d): WaterState {
@@ -285,40 +215,20 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
           point[0],
           point[1],
         );
-        // Track tile hit in readback stats
-        if (waveData && this.readbackBuffer?.stats) {
-          this.readbackBuffer.stats.gpuHits++;
+        // Track tile hit in stats
+        if (waveData) {
+          this.tileReadbackPool.stats.tileHits++;
         }
       }
     }
 
-    // Fall back to camera viewport readback if tile lookup failed
-    if (!waveData && this.readbackBuffer) {
-      const hasAdequate = this.readbackBuffer.hasAdequateResolution(
-        point[0],
-        point[1],
-        MIN_PHYSICS_RESOLUTION,
-      );
-
-      if (hasAdequate) {
-        // Resolution is adequate, sample from GPU buffer
-        waveData = this.readbackBuffer.sampleAt(point[0], point[1]);
-      } else {
-        // Track why we're falling back
-        const stats = this.readbackBuffer.stats;
-        stats.cpuFallbacks++;
-
-        if (!this.readbackBuffer.isInViewport(point[0], point[1])) {
-          stats.outOfBoundsFallbacks++;
-        } else {
-          stats.lowResolutionFallbacks++;
-        }
-      }
-    }
-
+    // CPU fallback if tile lookup failed
     if (!waveData) {
-      // CPU fallback - use the same time as GPU computation for consistency
       waveData = computeWaveDataAtPoint(point[0], point[1], this.cpuParams);
+      // Track CPU fallback
+      if (this.tileReadbackPool) {
+        this.tileReadbackPool.stats.cpuFallbacks++;
+      }
     }
 
     let surfaceHeight = waveData.height;
