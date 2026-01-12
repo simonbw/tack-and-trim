@@ -162,15 +162,17 @@ Subtle drift particles showing current flow:
 
 ---
 
+## Design Decisions
+
+1. **Wind-Wave Coupling Timing**: Use realistic lag (waves build/decay gradually as wind changes). Fall back to immediate updates only if performance is problematic.
+
+2. **Eddy Placement**: TBD - either map-defined or procedural. Will be determined during world map design.
+
+3. **Current Visualization**: Likely solved by foam particles drifting with current (see `water-shader-improvements.md`). Once foam is implemented, current direction should be visible from particle movement. May not need a separate indicator.
+
 ## Open Questions
 
-1. **Wind-Wave Coupling Timing**: Should waves update immediately when wind changes, or have realistic lag? Immediate is simpler, lag is more realistic.
-
-2. **Eddy Placement**: Static (map-defined), procedural, or dynamic (responding to terrain)?
-
-3. **Current Indicator Design**: How prominent should current visualization be? It's less immediately relevant than wind but important for tactics.
-
-4. **Multi-boat Wake Interaction**: Current system handles this, but do we need aggressive culling for many boats? Spatial hash helps, but particle count could grow.
+1. **Multi-boat Wake Interaction**: Current system handles this, but do we need aggressive culling for many boats? Spatial hash helps, but particle count could grow.
 
 ---
 
