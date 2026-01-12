@@ -68,11 +68,11 @@ export class Sail extends BaseEntity {
   constraints: NonNullable<BaseEntity["constraints"]>;
 
   // Hoist state (0 = fully lowered, 1 = fully hoisted)
-  private hoistAmount: number = 0;
-  private targetHoistAmount: number = 0;
+  hoistAmount: number = 0;
+  targetHoistAmount: number = 0;
 
   // Reference to our wind effect (for self-skip during wind queries)
-  private windEffect: WindModifier | null = null;
+  windEffect: WindModifier | null = null;
 
   private config: SailParams & SailConfig;
 
@@ -105,7 +105,7 @@ export class Sail extends BaseEntity {
         position: lerpV2d(head, initialClew, i / (nodeCount - 1)),
         collisionResponse: false,
         fixedRotation: true,
-      }).addShape(new Particle()),
+      }).addShape(new Particle())
     );
 
     // Connect adjacent particles with distance constraints
@@ -114,7 +114,7 @@ export class Sail extends BaseEntity {
         new DistanceConstraint(a, b, {
           distance: segmentLength * slackFactor,
           collideConnected: false,
-        }),
+        })
     );
 
     // Attach head (first particle) to specified body
@@ -126,7 +126,7 @@ export class Sail extends BaseEntity {
           headConstraint.localAnchor.x,
           headConstraint.localAnchor.y,
         ],
-      }),
+      })
     );
 
     // Optionally attach clew (last particle) to specified body
@@ -139,7 +139,7 @@ export class Sail extends BaseEntity {
             clewConstraint.localAnchor.x,
             clewConstraint.localAnchor.y,
           ],
-        }),
+        })
       );
     }
 
@@ -148,8 +148,8 @@ export class Sail extends BaseEntity {
       this.addChild(
         new TellTail(
           () => attachmentBody.position,
-          () => attachmentBody.velocity,
-        ),
+          () => attachmentBody.velocity
+        )
       );
     }
 
@@ -212,7 +212,7 @@ export class Sail extends BaseEntity {
     this.hoistAmount = stepToward(
       this.hoistAmount,
       this.targetHoistAmount,
-      hoistSpeed * dt,
+      hoistSpeed * dt
     );
 
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
