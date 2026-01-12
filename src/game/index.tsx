@@ -1,6 +1,10 @@
 import AutoPauser from "../core/AutoPauser";
 import Game from "../core/Game";
-import DebugOverlay from "../core/util/DebugOverlay";
+import StatsOverlay, {
+  createLeanPanel,
+  createProfilerPanel,
+  createGraphicsPanel,
+} from "../core/util/stats-overlay";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
@@ -37,7 +41,13 @@ async function main() {
   await preloader.waitTillLoaded();
   preloader.destroy();
 
-  game.addEntity(new DebugOverlay());
+  game.addEntity(
+    new StatsOverlay([
+      createLeanPanel(),
+      createProfilerPanel(),
+      createGraphicsPanel(),
+    ]),
+  );
   game.addEntity(new AutoPauser());
   game.addEntity(new PhysicsValidator());
   game.addEntity(new WaterInfo());

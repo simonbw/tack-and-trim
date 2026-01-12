@@ -5,6 +5,7 @@ import { BoatSpray } from "../BoatSpray";
 import { Wake } from "../water/Wake";
 import { Anchor } from "./Anchor";
 import { BoatConfig, StarterDinghy } from "./BoatConfig";
+import { BoatWaterQuerier } from "./BoatWaterQuerier";
 import { Bowsprit } from "./Bowsprit";
 import { Hull } from "./Hull";
 import { Keel } from "./Keel";
@@ -139,6 +140,9 @@ export class Boat extends BaseEntity {
     // TODO: Compute these points from the end of the hull
     this.addChild(new Wake(this, V(-6, 2), V(-6, -2))); // Stern wake spawn positions (ft)
     this.addChild(new BoatSpray(this));
+
+    // Create water querier for tile-based GPU water computation
+    this.addChild(new BoatWaterQuerier(this));
   }
 
   onTick(): void {

@@ -1,0 +1,128 @@
+.stats-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  font-family: monospace;
+  font-size: 11px;
+  color: white;
+  background-color: rgba(0, 0, 0, 0.4);
+  padding: 8px;
+}
+
+.stats-overlay__header {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.stats-overlay__subheader {
+  margin-bottom: 8px;
+  font-size: 10px;
+  color: #aaa;
+}
+
+.stats-overlay__section {
+  border-top: 1px solid #444;
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.stats-overlay__section-title {
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.stats-overlay__section-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.stats-overlay__hint {
+  font-size: 10px;
+  color: #888;
+}
+
+.stats-overlay__grid {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.stats-overlay__divider {
+  border-top: 1px solid #333;
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+/* Stat rows */
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.stats-row--indent {
+  padding-left: 12px;
+}
+
+.stats-row__label {
+  color: #aaa;
+}
+
+.stats-row__value {
+  color: #fff;
+}
+
+.stats-row__value--warning {
+  color: #ffff66;
+}
+
+.stats-row__value--error {
+  color: #ff6666;
+}
+
+.stats-row__value--success {
+  color: #66ff66;
+}
+
+.stats-row__value--muted {
+  color: #888;
+}
+
+.stats-row__value--dim {
+  color: #666;
+}
+
+/* Profile rows with bar visualization */
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 0;
+  font-family: monospace;
+}
+
+.profile-row__label {
+  display: flex;
+  align-items: center;
+}
+
+.profile-row__calls {
+  color: #888;
+  margin-left: 8px;
+}
+
+.profile-row__time {
+  color: #888;
+  margin-left: 8px;
+}
+
+.profile-row--slow {
+  color: #ff6666;
+}
+
+/* Empty state */
+.stats-overlay__empty {
+  color: #666;
+  font-style: italic;
+}

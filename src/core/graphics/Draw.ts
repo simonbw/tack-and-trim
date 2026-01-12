@@ -8,9 +8,16 @@ import { WebGPUTexture } from "./webgpu/WebGPUTextureManager";
 // Re-export PathBuilder for convenience
 export { PathBuilder };
 
+const MIN_CIRCLE_SEGMENTS = 4;
+const MAX_CIRCLE_SEGMENTS = 64;
+
 // Number of circle segments based on radius
 function getCircleSegments(radius: number): number {
-  return clamp(Math.floor(radius * 4), 8, 64);
+  return clamp(
+    Math.floor(radius * 4),
+    MIN_CIRCLE_SEGMENTS,
+    MAX_CIRCLE_SEGMENTS
+  );
 }
 
 // Cache for pre-computed unit circle vertices
@@ -104,7 +111,7 @@ function buildCatmullRomSpline(
   points: V2d[],
   closed: boolean,
   tension: number = 0.5,
-  segmentsPerSpan: number = 8,
+  segmentsPerSpan: number = 8
 ): V2d[] {
   if (points.length < 2) return points.slice();
 
@@ -217,7 +224,7 @@ export class Draw {
     /** The underlying WebGPU renderer */
     readonly renderer: WebGPURenderer,
     /** The camera for coordinate conversions and zoom */
-    readonly camera: Camera2d,
+    readonly camera: Camera2d
   ) {}
 
   /**
@@ -239,7 +246,7 @@ export class Draw {
       angle?: number;
       scale?: number | V2d;
     },
-    draw: () => void,
+    draw: () => void
   ): void {
     this.renderer.save();
     this.renderer.translate(pos);
@@ -267,7 +274,7 @@ export class Draw {
     y: number,
     w: number,
     h: number,
-    opts?: DrawOptions,
+    opts?: DrawOptions
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
@@ -288,7 +295,7 @@ export class Draw {
     y: number,
     w: number,
     h: number,
-    opts?: LineOptions,
+    opts?: LineOptions
   ): void {
     const vertices = [V(x, y), V(x + w, y), V(x + w, y + h), V(x, y + h)];
     this.strokePolygon(vertices, opts);
@@ -298,7 +305,8 @@ export class Draw {
   fillCircle(x: number, y: number, radius: number, opts?: CircleOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
-    const segments = opts?.segments ?? getCircleSegments(radius);
+    const radiusOnScreen = radius * this.renderer.getCurrentScale();
+    const segments = opts?.segments ?? getCircleSegments(radiusOnScreen);
 
     // Get cached unit circle vertices (no trig needed per-call)
     const cached = getCircleVertices(segments);
@@ -377,7 +385,7 @@ export class Draw {
     y1: number,
     x2: number,
     y2: number,
-    opts?: LineOptions,
+    opts?: LineOptions
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
@@ -411,7 +419,7 @@ export class Draw {
     y1: number,
     x2: number,
     y2: number,
-    opts?: LineOptions,
+    opts?: LineOptions
   ): void {
     const adjustedOpts = opts ? { ...opts } : {};
     const width = adjustedOpts.width ?? 1;
@@ -424,7 +432,7 @@ export class Draw {
     texture: WebGPUTexture,
     x: number,
     y: number,
-    opts?: ImageOptions,
+    opts?: ImageOptions
   ): void {
     // Convert ImageOptions to SpriteOptions (color -> tint)
     const spriteOpts = opts
@@ -463,7 +471,7 @@ export class Draw {
     w: number,
     h: number,
     radius: number,
-    opts?: DrawOptions,
+    opts?: DrawOptions
   ): void {
     const vertices = [V(x, y), V(x + w, y), V(x + w, y + h), V(x, y + h)];
     this.fillRoundedPolygon(vertices, radius, opts);
@@ -476,7 +484,7 @@ export class Draw {
     w: number,
     h: number,
     radius: number,
-    opts?: LineOptions,
+    opts?: LineOptions
   ): void {
     const vertices = [V(x, y), V(x + w, y), V(x + w, y + h), V(x, y + h)];
     this.strokeRoundedPolygon(vertices, radius, opts);
@@ -486,7 +494,7 @@ export class Draw {
   fillRoundedPolygon(
     vertices: V2d[],
     radius: number,
-    opts?: DrawOptions,
+    opts?: DrawOptions
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
@@ -507,7 +515,7 @@ export class Draw {
   strokeRoundedPolygon(
     vertices: V2d[],
     radius: number,
-    opts?: LineOptions,
+    opts?: LineOptions
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
@@ -545,7 +553,7 @@ export class Draw {
   /** Draw a stroked smooth polygon using Catmull-Rom spline through control points */
   strokeSmoothPolygon(
     vertices: V2d[],
-    opts?: SmoothOptions & LineOptions,
+    opts?: SmoothOptions & LineOptions
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;

@@ -7,7 +7,11 @@
  */
 
 /** Available profiling sections */
-export type GPUProfileSection = "render" | "waterCompute" | "readback";
+export type GPUProfileSection =
+  | "render"
+  | "waterCompute"
+  | "modifierCompute"
+  | "readback";
 
 interface SectionData {
   queryStartIndex: number;
@@ -23,6 +27,7 @@ export class GPUProfiler {
   private static readonly SECTIONS: GPUProfileSection[] = [
     "render",
     "waterCompute",
+    "modifierCompute",
     "readback",
   ];
   private static readonly QUERY_COUNT = GPUProfiler.SECTIONS.length * 2;
@@ -127,9 +132,13 @@ export class GPUProfiler {
     if (!this.enabled) return;
     const data = this.sections.get(section);
     if (!data) return;
+
+    // writeTimestamp may not be available in all WebGPU implementations
+    const writeTimestampFn = (encoder as any).writeTimestamp;
+    if (typeof writeTimestampFn !== "function") return;
+
     const index = point === "start" ? data.queryStartIndex : data.queryEndIndex;
-    // writeTimestamp is part of the timestamp-query feature but not in all TS type definitions
-    (encoder as any).writeTimestamp(this.querySet, index);
+    writeTimestampFn.call(encoder, this.querySet, index);
   }
 
   /**
@@ -216,6 +225,7 @@ export class GPUProfiler {
     return {
       render: this.getMs("render"),
       waterCompute: this.getMs("waterCompute"),
+      modifierCompute: this.getMs("modifierCompute"),
       readback: this.getMs("readback"),
     };
   }

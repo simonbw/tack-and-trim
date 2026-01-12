@@ -3,12 +3,14 @@ import { GameEventMap } from "../core/entity/Entity";
 import { clamp, lerp } from "../core/util/MathUtil";
 import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
+import type { AABB } from "../core/util/SparseSpatialHash";
 import { V2d } from "../core/Vector";
+import { WaterInfo } from "./water/WaterInfo";
+import type { QueryForecast, WaterQuerier } from "./water/WaterQuerier";
 
 // Rendering
 const COLOR = 0xffffff;
 const ALPHA = 0.8;
-const SEGMENTS = 8; // Hexagon-ish shape for performance
 
 // Foam lifecycle
 const MAX_LIFESPAN = 4.0; // seconds
@@ -19,8 +21,9 @@ const GROW_SPEED = 1.0; // radiuses per second
  * Created when a SprayParticle hits the water.
  * Grows outward and fades over time.
  */
-export class FoamParticle extends BaseEntity {
+export class FoamParticle extends BaseEntity implements WaterQuerier {
   layer = "foamParticles" as const;
+  tags = ["waterQuerier"];
 
   private pos: V2d;
   private size: number;
@@ -32,11 +35,22 @@ export class FoamParticle extends BaseEntity {
    * @param pos World position (x, y)
    * @param size Initial size (radius) in ft
    */
+  // Reusable AABB to avoid allocations
+  private aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
   constructor(pos: V2d, size: number) {
     super();
     this.pos = pos;
     this.size = size;
     this.lifespan = rUniform(0, MAX_LIFESPAN);
+  }
+
+  getQueryForecast(): QueryForecast {
+    this.aabb.minX = this.pos[0];
+    this.aabb.maxX = this.pos[0];
+    this.aabb.minY = this.pos[1];
+    this.aabb.maxY = this.pos[1];
+    return { aabb: this.aabb, queryCount: 1 };
   }
 
   onTick(dt: number): void {
@@ -45,6 +59,12 @@ export class FoamParticle extends BaseEntity {
       this.destroy();
       return;
     }
+
+    // Move foam based on water surface velocity
+    const waterInfo = WaterInfo.fromGame(this.game!);
+    const state = waterInfo.getStateAtPoint(this.pos);
+    this.pos[0] += state.velocity[0] * dt;
+    this.pos[1] += state.velocity[1] * dt;
   }
 
   @profile
@@ -59,7 +79,6 @@ export class FoamParticle extends BaseEntity {
     draw.fillCircle(this.pos.x, this.pos.y, radius, {
       color: COLOR,
       alpha: this.getAlpha(),
-      segments: SEGMENTS,
     });
   }
 

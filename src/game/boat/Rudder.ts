@@ -75,11 +75,9 @@ export class Rudder extends BaseEntity {
     const drag = foilDrag(RUDDER_CHORD);
 
     // Get water velocity function
-    const water = this.game?.entities.getById("waterInfo") as
-      | WaterInfo
-      | undefined;
+    const water = WaterInfo.fromGame(this.game!);
     const getWaterVelocity = (point: V2d): V2d =>
-      water?.getStateAtPoint(point).velocity ?? V(0, 0);
+      water.getStateAtPoint(point).velocity;
 
     // Apply rudder forces to hull (both directions)
     applyFluidForces(

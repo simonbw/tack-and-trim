@@ -3,18 +3,17 @@
  *
  * Orchestrates:
  * 1. GPU: WaveComputeGPU for Gerstner wave computation
- * 2. CPU: ModifierDataTexture for wakes (still CPU-based for now)
+ * 2. GPU: ModifierComputeGPU for wake modifiers
  *
  * Produces textures consumed by WaterShaderGPU for rendering.
  */
 
 import { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { profile, profiler } from "../../../core/util/Profiler";
-import { V } from "../../../core/Vector";
+import { profile } from "../../../core/util/Profiler";
 import { WATER_TEXTURE_SIZE } from "../WaterConstants";
 import type { WaterInfo } from "../WaterInfo";
-import { WaterReadbackBuffer, ReadbackViewport } from "./WaterReadbackBuffer";
+import { ModifierComputeGPU } from "./ModifierComputeGPU";
+import { ReadbackViewport, WaterReadbackBuffer } from "./WaterReadbackBuffer";
 import { WaveComputeGPU } from "./WaveComputeGPU";
 
 export interface Viewport {
@@ -29,9 +28,7 @@ export interface Viewport {
  */
 export class WaterComputePipelineGPU {
   private waveCompute: WaveComputeGPU | null = null;
-  private modifierTexture: GPUTexture | null = null;
-  private modifierTextureView: GPUTextureView | null = null;
-  private modifierData: Uint8Array;
+  private modifierCompute: ModifierComputeGPU | null = null;
   private initialized = false;
 
   // Readback buffer for physics queries
@@ -39,18 +36,6 @@ export class WaterComputePipelineGPU {
   private lastComputeViewport: ReadbackViewport | null = null;
 
   constructor() {
-    // Pre-allocate modifier texture data (RGBA8)
-    this.modifierData = new Uint8Array(
-      WATER_TEXTURE_SIZE * WATER_TEXTURE_SIZE * 4,
-    );
-    // Initialize with neutral values (0.5 = no modification)
-    for (let i = 0; i < this.modifierData.length; i += 4) {
-      this.modifierData[i] = 128; // R: height modifier (0.5 = neutral)
-      this.modifierData[i + 1] = 128; // G: unused
-      this.modifierData[i + 2] = 128; // B: unused
-      this.modifierData[i + 3] = 255; // A: opacity
-    }
-
     // Initialize readback buffer for physics queries
     this.readbackBuffer = new WaterReadbackBuffer(WATER_TEXTURE_SIZE);
   }
@@ -61,31 +46,16 @@ export class WaterComputePipelineGPU {
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    const device = getWebGPU().device;
-
     // Initialize wave compute shader
     this.waveCompute = new WaveComputeGPU(WATER_TEXTURE_SIZE);
     await this.waveCompute.init();
 
+    // Initialize modifier compute shader
+    this.modifierCompute = new ModifierComputeGPU(WATER_TEXTURE_SIZE);
+    await this.modifierCompute.init();
+
     // Initialize readback buffer
     await this.readbackBuffer.init();
-
-    // Create modifier texture (CPU-uploaded)
-    this.modifierTexture = device.createTexture({
-      size: { width: WATER_TEXTURE_SIZE, height: WATER_TEXTURE_SIZE },
-      format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-      label: "Modifier Texture",
-    });
-    this.modifierTextureView = this.modifierTexture.createView();
-
-    // Upload initial neutral data
-    device.queue.writeTexture(
-      { texture: this.modifierTexture },
-      this.modifierData.buffer,
-      { bytesPerRow: WATER_TEXTURE_SIZE * 4, rowsPerImage: WATER_TEXTURE_SIZE },
-      { width: WATER_TEXTURE_SIZE, height: WATER_TEXTURE_SIZE },
-    );
 
     this.initialized = true;
   }
@@ -100,7 +70,7 @@ export class WaterComputePipelineGPU {
     waterInfo: WaterInfo,
     gpuProfiler?: GPUProfiler | null,
   ): void {
-    if (!this.initialized || !this.waveCompute) return;
+    if (!this.initialized || !this.waveCompute || !this.modifierCompute) return;
     const { left, top, width, height } = viewport;
 
     // Get elapsed time from waterInfo's game reference
@@ -108,86 +78,38 @@ export class WaterComputePipelineGPU {
       .game;
     const time = game?.elapsedUnpausedTime ?? 0;
 
-    // Run GPU wave computation
-    profiler.measure("wave-gpu-compute", () => {
-      this.waveCompute!.compute(time, left, top, width, height, gpuProfiler);
-    });
+    // Run wave compute shader
+    this.waveCompute.compute(time, left, top, width, height, gpuProfiler);
 
-    // Update modifier texture from CPU water modifiers
-    profiler.measure("modifier-update", () => {
-      this.updateModifierTexture(viewport, waterInfo);
-    });
+    // Run modifier compute shader (GPU-based wake contribution)
+    this.updateModifierTexture(viewport, waterInfo, gpuProfiler);
   }
 
   /**
-   * Update modifier texture with wake contributions.
+   * Update modifier texture with wake contributions using GPU compute.
    * Made public so WaterRendererGPU can update it separately from compute.
    */
-  updateModifierTexture(viewport: Viewport, waterInfo: WaterInfo): void {
-    if (!this.modifierTexture) return;
+  @profile
+  updateModifierTexture(
+    viewport: Viewport,
+    waterInfo: WaterInfo,
+    gpuProfiler?: GPUProfiler | null,
+  ): void {
+    if (!this.modifierCompute) return;
 
-    const device = getWebGPU().device;
     const { left, top, width, height } = viewport;
-    const texSize = WATER_TEXTURE_SIZE;
 
-    // Reset to neutral
-    for (let i = 0; i < this.modifierData.length; i += 4) {
-      this.modifierData[i] = 128;
-      this.modifierData[i + 1] = 128;
-      this.modifierData[i + 2] = 128;
-      this.modifierData[i + 3] = 255;
-    }
+    // Collect segment data from wake particles (filtered by viewport)
+    const segments = waterInfo.collectGPUSegmentData(viewport);
 
-    // Sample modifiers and write to texture
-    const modifiers = waterInfo.getAllModifiers();
-    for (const modifier of modifiers) {
-      const aabb = modifier.getWaterModifierAABB();
-
-      // Convert world AABB to texture coordinates
-      const minU = Math.max(
-        0,
-        Math.floor(((aabb.minX - left) / width) * texSize),
-      );
-      const maxU = Math.min(
-        texSize,
-        Math.ceil(((aabb.maxX - left) / width) * texSize),
-      );
-      const minV = Math.max(
-        0,
-        Math.floor(((aabb.minY - top) / height) * texSize),
-      );
-      const maxV = Math.min(
-        texSize,
-        Math.ceil(((aabb.maxY - top) / height) * texSize),
-      );
-
-      // Sample contribution at each pixel
-      for (let v = minV; v < maxV; v++) {
-        for (let u = minU; u < maxU; u++) {
-          const worldX = left + (u / texSize) * width;
-          const worldY = top + (v / texSize) * height;
-
-          const contrib = modifier.getWaterContribution(V(worldX, worldY));
-          if (Math.abs(contrib.height) > 0.001) {
-            const idx = (v * texSize + u) * 4;
-            // Add height contribution (normalized to 0-255 range)
-            const currentHeight = this.modifierData[idx] / 255;
-            const newHeight = Math.max(
-              0,
-              Math.min(1, currentHeight + contrib.height * 0.1),
-            );
-            this.modifierData[idx] = Math.floor(newHeight * 255);
-          }
-        }
-      }
-    }
-
-    // Upload to GPU
-    device.queue.writeTexture(
-      { texture: this.modifierTexture },
-      this.modifierData.buffer,
-      { bytesPerRow: texSize * 4, rowsPerImage: texSize },
-      { width: texSize, height: texSize },
+    // Run GPU compute shader
+    this.modifierCompute.compute(
+      left,
+      top,
+      width,
+      height,
+      segments,
+      gpuProfiler,
     );
   }
 
@@ -202,7 +124,7 @@ export class WaterComputePipelineGPU {
    * Get the modifier texture view for rendering.
    */
   getModifierTextureView(): GPUTextureView | null {
-    return this.modifierTextureView;
+    return this.modifierCompute?.getOutputTextureView() ?? null;
   }
 
   /**
@@ -277,11 +199,10 @@ export class WaterComputePipelineGPU {
 
   destroy(): void {
     this.waveCompute?.destroy();
-    this.modifierTexture?.destroy();
+    this.modifierCompute?.destroy();
     this.readbackBuffer.destroy();
     this.waveCompute = null;
-    this.modifierTexture = null;
-    this.modifierTextureView = null;
+    this.modifierCompute = null;
     this.lastComputeViewport = null;
     this.initialized = false;
   }

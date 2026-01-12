@@ -111,7 +111,7 @@ export default class Game {
     this.renderer = new RenderManager(
       LAYERS,
       DEFAULT_LAYER,
-      this.onResize.bind(this),
+      this.onResize.bind(this)
     );
 
     this.ticksPerSecond = ticksPerSecond;
@@ -150,13 +150,13 @@ export default class Game {
     // IO events don't respect pause state
     const dispatchIo = <E extends keyof IoEvents>(
       event: E,
-      data: IoEvents[E],
+      data: IoEvents[E]
     ) => this.dispatch(event, data as GameEventMap[E], false);
     this.io = new IOManager(this.renderer.canvas, dispatchIo);
     this.addEntity(this.renderer.camera);
 
     this.animationFrameId = window.requestAnimationFrame(() =>
-      this.loop(this.lastFrameTime),
+      this.loop(this.lastFrameTime)
     );
   }
 
@@ -240,7 +240,7 @@ export default class Game {
   dispatch<EventName extends keyof GameEventMap>(
     eventName: EventName,
     data: GameEventMap[EventName],
-    respectPause = true,
+    respectPause = true
   ) {
     const effectivelyPaused = respectPause && this.paused;
     for (const entity of this.entities.getHandlers(eventName)) {
@@ -366,7 +366,7 @@ export default class Game {
       this.averageFrameDuration = lerp(
         this.averageFrameDuration,
         lastFrameDuration,
-        0.05,
+        0.05
       );
     }
 
@@ -386,9 +386,7 @@ export default class Game {
 
       if (!this.paused) {
         const stepDt = this.tickDuration;
-        profiler.measure("Game.physics", () => {
-          this.world.step(stepDt);
-        });
+        this.world.step(stepDt);
         profiler.measure("Game.afterPhysicsStep", () => {
           this.dispatch("afterPhysicsStep", stepDt);
           this.cleanupEntities();

@@ -11,7 +11,10 @@
  */
 
 import BaseEntity from "../../../core/entity/BaseEntity";
-import type { WaterInfo } from "../WaterInfo";
+import { TileComputePipeline } from "../tiles/TileComputePipeline";
+import { TileManager } from "../tiles/TileManager";
+import { DEFAULT_TILE_CONFIG } from "../tiles/TileTypes";
+import { WaterInfo } from "../WaterInfo";
 import { WaterComputePipelineGPU, Viewport } from "./WaterComputePipelineGPU";
 import { WaterShaderGPU } from "./WaterShaderGPU";
 
@@ -35,9 +38,18 @@ export class WaterRendererGPU extends BaseEntity {
   // Track if we need to connect the readback buffer to WaterInfo
   private readbackConnected = false;
 
+  // Tile system for physics queries
+  private tileManager: TileManager;
+  private tileComputePipeline: TileComputePipeline;
+  private tilesConnected = false;
+
   constructor() {
     super();
     this.computePipeline = new WaterComputePipelineGPU();
+
+    // Initialize tile system
+    this.tileManager = new TileManager(DEFAULT_TILE_CONFIG);
+    this.tileComputePipeline = new TileComputePipeline(DEFAULT_TILE_CONFIG);
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -45,12 +57,14 @@ export class WaterRendererGPU extends BaseEntity {
 
     try {
       await this.computePipeline.init();
+      await this.tileComputePipeline.init();
       this.waterShader = new WaterShaderGPU();
       await this.waterShader.init();
       this.initialized = true;
 
-      // Connect readback buffer to WaterInfo
+      // Connect readback buffer and tile system to WaterInfo
       this.connectReadbackBuffer();
+      this.connectTileSystem();
     } catch (error) {
       console.error("Failed to initialize WaterRendererGPU:", error);
     }
@@ -60,15 +74,25 @@ export class WaterRendererGPU extends BaseEntity {
    * Connect the readback buffer to WaterInfo for physics queries.
    */
   private connectReadbackBuffer(): void {
-    if (this.readbackConnected || !this.initialized) return;
+    if (this.readbackConnected || !this.initialized || !this.game) return;
 
-    const waterInfo = this.game?.entities.getById("waterInfo") as
-      | WaterInfo
-      | undefined;
-    if (waterInfo) {
-      waterInfo.setReadbackBuffer(this.computePipeline.getReadbackBuffer());
-      this.readbackConnected = true;
-    }
+    WaterInfo.fromGame(this.game).setReadbackBuffer(
+      this.computePipeline.getReadbackBuffer(),
+    );
+    this.readbackConnected = true;
+  }
+
+  /**
+   * Connect the tile system to WaterInfo for physics queries.
+   */
+  private connectTileSystem(): void {
+    if (this.tilesConnected || !this.initialized || !this.game) return;
+
+    WaterInfo.fromGame(this.game).setTileSystem(
+      this.tileManager,
+      this.tileComputePipeline.getReadbackPool(),
+    );
+    this.tilesConnected = true;
   }
 
   onAdd() {
@@ -83,12 +107,20 @@ export class WaterRendererGPU extends BaseEntity {
   onBeforeTick() {
     if (!this.initialized) return;
 
-    // Ensure readback buffer is connected (in case WaterInfo was added after us)
+    // Ensure readback buffer and tiles are connected (in case WaterInfo was added after us)
     if (!this.readbackConnected) {
       this.connectReadbackBuffer();
     }
+    if (!this.tilesConnected) {
+      this.connectTileSystem();
+    }
 
-    // Complete async readback from previous frame
+    // Complete tile readbacks from previous frame
+    this.tileComputePipeline.completeReadbacks().catch((error) => {
+      console.warn("Tile readback completion error:", error);
+    });
+
+    // Complete async readback from previous frame (camera viewport)
     // Note: This is fire-and-forget since we can't await in event handlers
     // The readback should already be complete by now in most cases
     this.computePipeline.completeReadback().catch((error) => {
@@ -103,11 +135,30 @@ export class WaterRendererGPU extends BaseEntity {
   onAfterPhysics() {
     if (!this.initialized || !this.game) return;
 
-    const viewport = this.getExpandedViewport(PHYSICS_VIEWPORT_MARGIN);
     const time = this.game.elapsedUnpausedTime;
     const gpuProfiler = this.game.renderer.getGpuProfiler();
 
-    // Run GPU compute and initiate async readback
+    // Get WaterInfo for query forecast collection
+    const waterInfo = WaterInfo.fromGame(this.game);
+
+    // Collect query forecasts from all WaterQueriers
+    waterInfo.collectQueryForecasts();
+
+    // Select tiles to compute
+    const tilesToCompute = this.tileManager.selectTilesToCompute(time);
+
+    // Compute selected tiles
+    if (tilesToCompute.length > 0) {
+      this.tileComputePipeline.computeTiles(
+        tilesToCompute,
+        time,
+        waterInfo,
+        gpuProfiler,
+      );
+    }
+
+    // Run GPU compute for camera viewport and initiate async readback
+    const viewport = this.getExpandedViewport(PHYSICS_VIEWPORT_MARGIN);
     this.computePipeline.computeAndInitiateReadback(
       viewport,
       time,
@@ -142,12 +193,8 @@ export class WaterRendererGPU extends BaseEntity {
     const gpuProfiler = this.game.renderer.getGpuProfiler();
 
     // Update compute pipeline (runs GPU compute for rendering + updates modifier texture)
-    const waterInfo = this.game.entities.getById("waterInfo") as
-      | WaterInfo
-      | undefined;
-    if (waterInfo) {
-      this.computePipeline.update(expandedViewport, waterInfo, gpuProfiler);
-    }
+    const waterInfo = WaterInfo.fromGame(this.game);
+    this.computePipeline.update(expandedViewport, waterInfo, gpuProfiler);
 
     // Get texture views
     const waveTextureView = this.computePipeline.getWaveTextureView();
@@ -190,6 +237,7 @@ export class WaterRendererGPU extends BaseEntity {
 
   onDestroy(): void {
     this.computePipeline.destroy();
+    this.tileComputePipeline.destroy();
     this.waterShader?.destroy();
   }
 }

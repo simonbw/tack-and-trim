@@ -1,8 +1,8 @@
 import BaseEntity from "../core/entity/BaseEntity";
 import { GameEventMap } from "../core/entity/Entity";
+import { profile } from "../core/util/Profiler";
 import { V2d } from "../core/Vector";
 import { FoamParticle } from "./FoamParticle";
-import { profile } from "../core/util/Profiler";
 
 // Physics (in ft and ft/s)
 const GRAVITY = 32; // ft/s² - gravitational acceleration
@@ -69,7 +69,6 @@ export class SprayParticle extends BaseEntity {
     draw.fillCircle(this.position.x, this.position.y, radius, {
       color: COLOR,
       alpha: ALPHA,
-      segments: SEGMENTS,
     });
   }
 }

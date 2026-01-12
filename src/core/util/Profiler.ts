@@ -1,3 +1,5 @@
+import { lerp } from "./MathUtil";
+
 interface ProfileEntry {
   // Per-frame accumulators (reset each frame)
   frameCalls: number;
@@ -51,6 +53,10 @@ class Profiler {
 
   // Smoothing factor (higher = smoother, slower to respond)
   private readonly smoothing = 0.975;
+
+  // Stats caching - invalidated each frame
+  private cachedStats: ProfileStats[] | null = null;
+  private cachedStatsParams: { maxChildren?: number } | null = null;
 
   /** Get the current stack as a path string (cached) */
   private getCurrentPath(): string {
@@ -132,14 +138,22 @@ class Profiler {
 
   /** Process end of frame - update smoothed values and reset accumulators */
   private endFrame(): void {
+    // Invalidate stats cache
+    this.cachedStats = null;
+    this.cachedStatsParams = null;
+
     for (const entry of this.entries.values()) {
       // Update smoothed values with exponential moving average
-      entry.smoothedCallsPerFrame =
-        this.smoothing * entry.smoothedCallsPerFrame +
-        (1 - this.smoothing) * entry.frameCalls;
-      entry.smoothedMsPerFrame =
-        this.smoothing * entry.smoothedMsPerFrame +
-        (1 - this.smoothing) * entry.frameMs;
+      entry.smoothedCallsPerFrame = lerp(
+        entry.frameCalls,
+        entry.smoothedCallsPerFrame,
+        this.smoothing,
+      );
+      entry.smoothedMsPerFrame = lerp(
+        entry.frameMs,
+        entry.smoothedMsPerFrame,
+        this.smoothing,
+      );
 
       // Reset frame accumulators
       entry.frameCalls = 0;
@@ -207,13 +221,17 @@ class Profiler {
 
   /**
    * Get all stats sorted hierarchically.
+   * Optimized to O(n log n) by building parent-child map in a single pass.
    * @param maxChildrenPerParent If specified, limits the number of children shown per parent
    */
   getStats(maxChildrenPerParent?: number): ProfileStats[] {
-    // Build flat stats list from smoothed values
-    const allStats = [...this.entries.entries()].map(([label, entry]) => {
+    // Build parent-child map in a single pass (O(n))
+    const childrenMap = new Map<string, ProfileStats[]>();
+    const msLookup = new Map<string, number>();
+
+    for (const [label, entry] of this.entries) {
       const segments = label.split(this.separator);
-      return {
+      const stat: ProfileStats = {
         label,
         shortLabel: segments[segments.length - 1],
         depth: segments.length - 1,
@@ -221,46 +239,42 @@ class Profiler {
         msPerFrame: entry.smoothedMsPerFrame,
         maxMs: entry.maxMs,
       };
-    });
+      msLookup.set(label, entry.smoothedMsPerFrame);
 
-    // Find children of a given parent path
-    const getChildren = (parentPath: string): ProfileStats[] => {
-      const parentDepth = parentPath
-        ? parentPath.split(this.separator).length
-        : 0;
-      return allStats.filter((s) => {
-        if (s.depth !== parentDepth) return false;
-        if (parentPath === "") return s.depth === 0;
-        return (
-          s.label.startsWith(parentPath + this.separator) &&
-          s.label.split(this.separator).length === parentDepth + 1
-        );
-      });
-    };
+      // Determine parent path and register this stat as a child
+      const parentPath =
+        segments.length > 1 ? segments.slice(0, -1).join(this.separator) : "";
+      let children = childrenMap.get(parentPath);
+      if (!children) {
+        children = [];
+        childrenMap.set(parentPath, children);
+      }
+      children.push(stat);
+    }
 
-    // Recursively build sorted tree (depth-first, siblings sorted by % of parent desc)
+    // Recursively build sorted list (O(n log n) total for sorting)
     const buildSortedList = (parentPath: string): ProfileStats[] => {
-      const parent = allStats.find((s) => s.label === parentPath);
-      const parentMs = parent?.msPerFrame ?? 0;
+      const children = childrenMap.get(parentPath);
+      if (!children || children.length === 0) return [];
 
-      // Sort children by percentage of parent (or by msPerFrame if no parent)
-      let children = getChildren(parentPath).sort((a, b) => {
+      const parentMs = msLookup.get(parentPath) ?? 0;
+
+      // Sort children by ms descending
+      children.sort((a, b) => {
         if (parentMs > 0) {
           return b.msPerFrame / parentMs - a.msPerFrame / parentMs;
         }
         return b.msPerFrame - a.msPerFrame;
       });
 
-      // Limit children if maxChildrenPerParent is specified
-      if (
-        maxChildrenPerParent !== undefined &&
-        children.length > maxChildrenPerParent
-      ) {
-        children = children.slice(0, maxChildrenPerParent);
-      }
+      // Limit children if needed
+      const limited =
+        maxChildrenPerParent !== undefined
+          ? children.slice(0, maxChildrenPerParent)
+          : children;
 
       const result: ProfileStats[] = [];
-      for (const child of children) {
+      for (const child of limited) {
         result.push(child);
         result.push(...buildSortedList(child.label));
       }
@@ -270,9 +284,21 @@ class Profiler {
     return buildSortedList("");
   }
 
-  /** Get top N stats by total time */
+  /** Get top N stats by total time (cached within frame) */
   getTopStats(n: number, maxChildrenPerParent?: number): ProfileStats[] {
-    return this.getStats(maxChildrenPerParent).slice(0, n);
+    // Check cache
+    if (
+      this.cachedStats &&
+      this.cachedStatsParams?.maxChildren === maxChildrenPerParent
+    ) {
+      return this.cachedStats.slice(0, n);
+    }
+
+    // Compute and cache
+    const stats = this.getStats(maxChildrenPerParent);
+    this.cachedStats = stats;
+    this.cachedStatsParams = { maxChildren: maxChildrenPerParent };
+    return stats.slice(0, n);
   }
 
   private getOrCreate(label: string): ProfileEntry {

@@ -3,12 +3,26 @@ import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
 import { stepToward } from "../../core/util/MathUtil";
+import { rDirection, rUniform } from "../../core/util/Random";
 import { V, V2d } from "../../core/Vector";
 import { VerletRope } from "../rope/VerletRope";
+import { SprayParticle } from "../SprayParticle";
+import { AnchorSplashRipple } from "../water/AnchorSplashRipple";
 import { AnchorConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
 type AnchorState = "stowed" | "deploying" | "deployed" | "retrieving";
+
+// Splash effect configuration
+const SPLASH_SPRAY_COUNT = 128;
+const SPLASH_SPRAY_MIN_SIZE = 0.06; // ft
+const SPLASH_SPRAY_MAX_SIZE = 0.2; // ft
+const SPLASH_SPRAY_MIN_H_SPEED = 3; // ft/s
+const SPLASH_SPRAY_MAX_H_SPEED = 30; // ft/s
+const SPLASH_SPRAY_MIN_Z_VELOCITY = 2; // ft/s
+const SPLASH_SPRAY_MAX_Z_VELOCITY = 60; // ft/s
+
+const RODE_RETRIEVAL_THRESHOLD = 0.1; // ft
 
 export class Anchor extends BaseEntity {
   layer = "underhull" as const;
@@ -35,7 +49,7 @@ export class Anchor extends BaseEntity {
 
   constructor(
     private hull: Hull,
-    config: AnchorConfig,
+    config: AnchorConfig
   ) {
     super();
 
@@ -95,7 +109,7 @@ export class Anchor extends BaseEntity {
         localAnchorA: [0, 0],
         localAnchorB: [this.bowAttachPoint.x, this.bowAttachPoint.y],
         collideConnected: false, // Don't collide with anchor
-      },
+      }
     );
     this.rodeConstraint.lowerLimit = 0;
     this.rodeConstraint.lowerLimitEnabled = false;
@@ -114,6 +128,9 @@ export class Anchor extends BaseEntity {
     this.visualRope.setRestLength(this.currentRodeLength);
 
     this.state = "deploying";
+
+    // Spawn splash effects
+    this.spawnSplashEffects();
   }
 
   /** Start retrieving the anchor */
@@ -158,6 +175,37 @@ export class Anchor extends BaseEntity {
     return this.bowAttachPoint.rotate(this.hull.body.angle).iadd([hx, hy]);
   }
 
+  /** Spawn ripple and spray particles at anchor position */
+  private spawnSplashEffects(): void {
+    if (!this.game) return;
+
+    // Spawn ripple effect
+    this.game.addEntity(new AnchorSplashRipple(this.anchorPosition.clone()));
+
+    // Spawn spray particles radiating outward
+    for (let i = 0; i < SPLASH_SPRAY_COUNT; i++) {
+      const angle = rDirection();
+      const hSpeed = rUniform(
+        SPLASH_SPRAY_MIN_H_SPEED,
+        SPLASH_SPRAY_MAX_H_SPEED
+      );
+      const velocity = V2d.fromPolar(hSpeed, angle);
+      const zVelocity = rUniform(
+        SPLASH_SPRAY_MIN_Z_VELOCITY,
+        SPLASH_SPRAY_MAX_Z_VELOCITY
+      );
+      const size = rUniform(SPLASH_SPRAY_MIN_SIZE, SPLASH_SPRAY_MAX_SIZE);
+
+      // Slight position offset for natural spread
+      const offset = V2d.fromPolar(rUniform(0, 0.5), angle);
+      const spawnPos = this.anchorPosition.add(offset);
+
+      this.game.addEntity(
+        new SprayParticle(spawnPos, velocity, zVelocity, size)
+      );
+    }
+  }
+
   onTick(dt: number): void {
     if (this.state === "stowed") return;
 
@@ -170,7 +218,7 @@ export class Anchor extends BaseEntity {
     this.currentRodeLength = stepToward(
       this.currentRodeLength,
       this.targetRodeLength,
-      speed * dt,
+      speed * dt
     );
 
     // Update constraint if rope length changed
@@ -185,7 +233,10 @@ export class Anchor extends BaseEntity {
       this.currentRodeLength >= this.maxRodeLength
     ) {
       this.state = "deployed";
-    } else if (this.state === "retrieving" && this.currentRodeLength <= 1) {
+    } else if (
+      this.state === "retrieving" &&
+      this.currentRodeLength <= RODE_RETRIEVAL_THRESHOLD
+    ) {
       this.completeRetrieval();
       return;
     }
@@ -215,7 +266,14 @@ export class Anchor extends BaseEntity {
   }
 
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
-    if (this.state === "stowed") return;
+    if (this.state === "stowed") {
+      // Draw stowed anchor at bow
+      const bowPos = this.getBowWorldPosition();
+      draw.fillCircle(bowPos.x, bowPos.y, this.anchorSize, {
+        color: 0x444444,
+      });
+      return;
+    }
 
     // Draw rode using visual rope simulation
     this.visualRope.render(draw);
@@ -227,7 +285,7 @@ export class Anchor extends BaseEntity {
       this.anchorSize,
       {
         color: 0x444444,
-      },
+      }
     );
   }
 

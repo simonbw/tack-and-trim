@@ -2,6 +2,7 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import { AABB } from "../../core/util/SparseSpatialHash";
 import { V2d } from "../../core/Vector";
 import { WaterContribution, WaterModifier } from "./WaterModifier";
+import type { WakeSegmentData } from "./webgpu/ModifierComputeGPU";
 
 // Units: feet (ft), seconds
 // Wake particle configuration
@@ -69,7 +70,7 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
     velocity: V2d,
     side: WakeSide,
     intensity: number = 1,
-    maxAge: number = DEFAULT_MAX_AGE
+    maxAge: number = DEFAULT_MAX_AGE,
   ) {
     super();
     this.side = side;
@@ -189,7 +190,7 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
     // Project query point onto segment (t=0 at this, t=1 at next)
     const t = Math.max(
       0,
-      Math.min(1, (toQueryX * segX + toQueryY * segY) / segLenSq)
+      Math.min(1, (toQueryX * segX + toQueryY * segY) / segLenSq),
     );
 
     // Closest point on segment
@@ -265,5 +266,43 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
     this.contribution.height = waveProfile * intensity * HEIGHT_SCALE;
 
     return this.contribution;
+  }
+
+  /**
+   * Export segment data for GPU compute shader.
+   * Returns null if this particle should not contribute (destroyed, etc.)
+   * For tail particles (no next), returns a degenerate segment (start == end).
+   */
+  getGPUSegmentData(): WakeSegmentData | null {
+    if (this.isDestroyed) return null;
+
+    const startRadius = this.getCurrentRadius();
+    const startIntensity = this.intensity * this.getWarmupMultiplier();
+
+    if (this.hasNextSegment()) {
+      const next = this.next!;
+      return {
+        startX: this.posX,
+        startY: this.posY,
+        endX: next.posX,
+        endY: next.posY,
+        startRadius: startRadius,
+        endRadius: next.getCurrentRadius(),
+        startIntensity: startIntensity,
+        endIntensity: next.intensity * next.getWarmupMultiplier(),
+      };
+    } else {
+      // Tail particle - degenerate segment (circle)
+      return {
+        startX: this.posX,
+        startY: this.posY,
+        endX: this.posX,
+        endY: this.posY,
+        startRadius: startRadius,
+        endRadius: startRadius,
+        startIntensity: startIntensity,
+        endIntensity: startIntensity,
+      };
+    }
   }
 }

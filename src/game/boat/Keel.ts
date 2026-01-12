@@ -33,11 +33,9 @@ export class Keel extends BaseEntity {
     const drag = foilDrag(KEEL_CHORD);
 
     // Get water velocity function
-    const water = this.game?.entities.getById("waterInfo") as
-      | WaterInfo
-      | undefined;
+    const water = WaterInfo.fromGame(this.game!);
     const getWaterVelocity = (point: V2d): V2d =>
-      water?.getStateAtPoint(point).velocity ?? V(0, 0);
+      water.getStateAtPoint(point).velocity;
 
     // Apply keel forces to hull (both directions for symmetry)
     for (const [start, end] of pairs(this.vertices)) {

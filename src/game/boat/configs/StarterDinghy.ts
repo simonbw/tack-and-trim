@@ -79,11 +79,11 @@ export const StarterDinghy: BoatConfig = {
   },
 
   anchor: {
-    bowAttachPoint: V(8.5, 0),
+    bowAttachPoint: V(9.1, 0),
     maxRodeLength: 100, // ft
     anchorSize: 1, // ft (visual radius)
-    rodeDeploySpeed: 6, // ft/s
-    rodeRetrieveSpeed: 3, // ft/s
+    rodeDeploySpeed: 8, // ft/s
+    rodeRetrieveSpeed: 4, // ft/s
     anchorMass: 15, // lbs
     anchorDragCoefficient: 200,
   },

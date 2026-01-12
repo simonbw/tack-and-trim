@@ -8,6 +8,7 @@ import { WakeParticle, WakeSide } from "./WakeParticle";
 const CONFIG = {
   MAX_AGE: 3.0, // seconds
   SPAWN_DISTANCE: 1.3, // Spawn particles every N ft of distance traveled
+  MIN_SPAWN_INTERVAL: 0.15, // seconds - max ~6.7 spawns/sec at high speed
   MIN_SPEED: 3, // ft/s (~2 kts) - wake starts forming
   MAX_SPEED: 12, // ft/s (~7 kts) - hull speed limit
   REAR_OFFSET: -6, // ft behind hull center
@@ -27,6 +28,7 @@ export class Wake extends BaseEntity {
   layer = "wake" as const;
 
   private lastSpawnPos: V2d | null = null;
+  private lastSpawnTime: number = 0;
 
   // Track the most recently spawned particle on each side (head of chain)
   // New particles link to these, forming a chain from newest to oldest
@@ -51,17 +53,23 @@ export class Wake extends BaseEntity {
     if (speed < CONFIG.MIN_SPEED) return;
 
     const boatPos = this.boat.getPosition();
+    const now = this.game?.elapsedUnpausedTime ?? 0;
 
     // Check distance traveled since last spawn
     if (this.lastSpawnPos) {
       const distSq = this.lastSpawnPos.squaredDistanceTo(boatPos);
       if (distSq < CONFIG.SPAWN_DISTANCE * CONFIG.SPAWN_DISTANCE) return;
     }
+
+    // Also check time since last spawn to limit rate at high speeds
+    if (now - this.lastSpawnTime < CONFIG.MIN_SPAWN_INTERVAL) return;
+
     // Clone position since getPosition() returns a reference to the physics body's position
     this.lastSpawnPos = boatPos.clone();
+    this.lastSpawnTime = now;
 
     const speedFactor = clamp(
-      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed)
+      invLerp(CONFIG.MIN_SPEED, CONFIG.MAX_SPEED, speed),
     );
 
     const body = this.boat.hull.body;
@@ -76,18 +84,18 @@ export class Wake extends BaseEntity {
     side: WakeSide,
     body: { toWorldFrame: (v: V2d) => V2d; angle: number },
     wakeSpeed: number,
-    speedFactor: number
+    speedFactor: number,
   ) {
     const sideSign = side === "left" ? 1 : -1;
 
     const pos = body.toWorldFrame(
-      side === "left" ? this.leftSpawnLocal : this.rightSpawnLocal
+      side === "left" ? this.leftSpawnLocal : this.rightSpawnLocal,
     );
     const vel = V(0, wakeSpeed * sideSign).irotate(body.angle);
     const lifespan = lerp(
       CONFIG.MIN_PARTICLE_LIFESPAN,
       CONFIG.MAX_PARTICLE_LIFESPAN,
-      Math.random()
+      Math.random(),
     );
 
     const particle = new WakeParticle(pos, vel, side, speedFactor, lifespan);

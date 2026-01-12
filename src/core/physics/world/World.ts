@@ -1,7 +1,7 @@
+import { profile, profiler } from "../../util/Profiler";
 import { CompatibleVector } from "../../Vector";
 import { SleepState } from "../body/Body";
 import DynamicBody from "../body/DynamicBody";
-import StaticBody from "../body/StaticBody";
 import Broadphase from "../collision/broadphase/Broadphase";
 import SpatialHashingBroadphase from "../collision/broadphase/SpatialHashingBroadphase";
 import {
@@ -121,6 +121,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
    * Step the simulation forward by dt seconds.
    * Applies forces, detects collisions, solves constraints, and integrates positions.
    */
+  @profile
   step(dt: number): void {
     this.stepping = true;
 
@@ -131,7 +132,9 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     const pairsToCheck = this.doBroadphase();
 
     // 3. Narrowphase - get actual collisions
+    profiler.start("World.narrowphase");
     const { collisions, sensorOverlaps } = getContactsFromPairs(pairsToCheck);
+    profiler.end("World.narrowphase");
 
     // 4. Update overlap tracking
     const overlapChanges = this.updateOverlapTracking(
@@ -140,6 +143,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     );
 
     // 5. Build contact equations to resolve overlaps
+    profiler.start("World.contactEquations");
     const collisionsWithContactEquations: [Collision, ContactEquation[]][] =
       collisions.map((collision) => [
         collision,
@@ -155,12 +159,14 @@ export default class World extends EventEmitter<PhysicsEventMap> {
         ),
       ]);
 
-    // 6. Build friction equations and flatten all equations
     const contactEquations: ContactEquation[] =
       collisionsWithContactEquations.flatMap(
         ([, contactEquations]) => contactEquations
       );
+    profiler.end("World.contactEquations");
 
+    // 6. Build friction equations and flatten all equations
+    profiler.start("World.frictionEquations");
     const frictionEquations: FrictionEquation[] =
       collisionsWithContactEquations.flatMap(([collision, contactEquations]) =>
         generateFrictionEquationsForCollision(
@@ -173,6 +179,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
           this.frictionReduction
         )
       );
+    profiler.end("World.frictionEquations");
 
     // 7. Handle wake-ups for sleeping bodies
     this.handleCollisionWakeUps(collisions);
@@ -199,6 +206,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     this.emit({ type: "postStep" });
   }
 
+  @profile
   private applyForces(dt: number): void {
     // Add spring forces
     for (const spring of this.springs) {
@@ -211,6 +219,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
+  @profile
   private doBroadphase() {
     const possibleCollisions = this.broadphase.getCollisionPairs(this);
 
@@ -226,6 +235,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   }
 
   /** Update overlap tracking and return changes (called before contact equation generation) */
+  @profile
   private updateOverlapTracking(
     collisions: Collision[],
     sensorOverlaps: SensorOverlap[]
@@ -246,6 +256,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   }
 
   /** Handle wake-up logic for sleeping bodies that collide with fast-moving bodies */
+  @profile
   private handleCollisionWakeUps(collisions: Collision[]): void {
     for (const { bodyA, bodyB } of collisions) {
       // Only dynamic bodies can sleep or wake other bodies
@@ -287,6 +298,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   }
 
   /** Emit beginContact/endContact events using pre-computed overlap changes */
+  @profile
   private emitContactEvents(
     overlapChanges: OverlapChanges,
     collisionsWithContacts: [Collision, ContactEquation[]][]
@@ -322,6 +334,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   }
 
   /** Wake up bodies and emit preSolve event */
+  @profile
   private emitPreSolveAndWakeUp(
     contacts: ContactEquation[],
     friction: FrictionEquation[]
@@ -341,6 +354,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     });
   }
 
+  @profile
   private solve(
     dt: number,
     contacts: ContactEquation[],
@@ -372,17 +386,22 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       }
       return islands;
     } else {
-      solveEquations(allEquations, this.bodies.dynamicAwake, dt, this.solverConfig);
+      solveEquations(
+        allEquations,
+        this.bodies.dynamicAwake,
+        dt,
+        this.solverConfig
+      );
       return undefined;
     }
   }
 
+  @profile
   private integrate(dt: number): void {
     // We only need to integrate kinematic and awake dynamic bodies
     for (const body of this.bodies.kinematic) {
       body.integrate(dt);
     }
-    // Combine integration and force reset in a single loop for awake dynamic bodies
     for (const body of this.bodies.dynamicAwake) {
       body.integrate(dt);
       body.setZeroForce();
@@ -390,6 +409,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   }
 
   /** Emit impact events for first-time contacts */
+  @profile
   private emitImpactEvents(contacts: ContactEquation[]): void {
     if (this.emitImpactEvent && this.has("impact")) {
       for (const eq of contacts) {
@@ -407,6 +427,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     }
   }
 
+  @profile
   private updateSleeping(dt: number, islands: Island[] | undefined): void {
     if (this.sleepMode === SleepMode.BODY_SLEEPING) {
       // Only awake dynamic bodies participate in sleep logic

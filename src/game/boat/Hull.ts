@@ -39,23 +39,21 @@ export class Hull extends BaseEntity {
     this.body.addShape(
       new Convex({
         vertices: [...config.vertices],
-      })
+      }),
     );
   }
 
   onTick() {
     // Get water velocity function
-    const water = this.game?.entities.getById("waterInfo") as
-      | WaterInfo
-      | undefined;
+    const water = WaterInfo.fromGame(this.game!);
     const getWaterVelocity = (point: V2d): V2d =>
-      water?.getStateAtPoint(point).velocity ?? V(0, 0);
+      water.getStateAtPoint(point).velocity;
 
     applySkinFriction(
       this.body,
       this.hullArea,
       this.skinFrictionCoefficient,
-      getWaterVelocity
+      getWaterVelocity,
     );
   }
 

@@ -9,7 +9,7 @@ import { WaterInfo } from "./water/WaterInfo";
 
 // Spawn rate (linear with velocity and edge length)
 const MIN_IMPACT_SPEED = 3; // ft/s - minimum normal velocity to generate spray
-const SPAWN_PER_FT_PER_SECOND = 0.3; // particles/sec per ft of edge per ft/s of impact
+const SPAWN_PER_FT_PER_SECOND = 0.2; // particles/sec per ft of edge per ft/s of impact
 const MAX_SPAWN_RATE = 500; // emergency cap (shouldn't hit normally)
 
 // Particle size scaling with velocity
@@ -48,8 +48,7 @@ export class BoatSpray extends BaseEntity {
   }
 
   onTick(dt: number): void {
-    if (!this.game) return;
-    const water = this.game.entities.getById("waterInfo") as WaterInfo;
+    const water = WaterInfo.fromGame(this.game!);
 
     let totalSpawnRate = 0;
     for (const edge of this.edges) {
@@ -62,7 +61,7 @@ export class BoatSpray extends BaseEntity {
     // Spawn particles
     const clampedSpawnRate = Math.min(
       SPAWN_PER_FT_PER_SECOND * totalSpawnRate,
-      MAX_SPAWN_RATE
+      MAX_SPAWN_RATE,
     );
     this.spawnAccumulator += dt * clampedSpawnRate;
 
@@ -102,7 +101,7 @@ export class BoatSpray extends BaseEntity {
     const velocity = edge.apparentVelocity.add(sprayVelocity);
 
     this.game!.addEntity(
-      new SprayParticle(position, velocity, zVelocity, size)
+      new SprayParticle(position, velocity, zVelocity, size),
     );
   }
 }

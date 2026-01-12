@@ -32,5 +32,5 @@ export interface WaterModifier {
    * Calculate all contributions at a query point in one call.
    * More efficient than separate calls since distance is computed once.
    */
-  getWaterContribution(queryPoint: V2d): WaterContribution;
+  getWaterContribution(queryPoint: V2d): Readonly<WaterContribution>;
 }

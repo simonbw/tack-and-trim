@@ -1,4 +1,5 @@
 import BaseEntity from "../core/entity/BaseEntity";
+import type { Draw } from "../core/graphics/Draw";
 import DynamicBody from "../core/physics/body/DynamicBody";
 import Circle from "../core/physics/shapes/Circle";
 import { V } from "../core/Vector";
@@ -36,15 +37,12 @@ export class Buoy extends BaseEntity {
     }
 
     // Apply water velocity as a drag force (pushes buoy with the current/wake)
-    const water = this.game?.entities.getById("waterInfo") as
-      | WaterInfo
-      | undefined;
-    if (water) {
-      const waterState = water.getStateAtPoint(V(x, y));
-      // Force proportional to difference between water velocity and buoy velocity
-      const relativeVelocity = waterState.velocity.sub(V(this.body.velocity));
-      this.body.applyForce(relativeVelocity.mul(WATER_DRAG));
-    }
+    const water = WaterInfo.fromGame(this.game!);
+    const waterState = water.getStateAtPoint(V(x, y));
+
+    // Force proportional to difference between water velocity and buoy velocity
+    const relativeVelocity = waterState.velocity.sub(V(this.body.velocity));
+    this.body.applyForce(relativeVelocity.mul(WATER_DRAG));
 
     // Damping to prevent wild oscillation
     this.body.velocity[0] *= WATER_DAMPING;
@@ -52,21 +50,19 @@ export class Buoy extends BaseEntity {
     this.body.angularVelocity *= WATER_DAMPING;
 
     // Update scale based on water surface height (simulates bobbing up/down)
-    if (water) {
-      const waterState = water.getStateAtPoint(V(x, y));
-      this.currentScale = 1 + waterState.surfaceHeight * HEIGHT_SCALE_FACTOR;
-    }
+    this.currentScale = 1 + waterState.surfaceHeight * HEIGHT_SCALE_FACTOR;
   }
 
-  onRender({ draw }: { draw: import("../core/graphics/Draw").Draw }) {
+  onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
 
     draw.at(
       { pos: V(x, y), angle: this.body.angle, scale: this.currentScale },
       () => {
+        const r = BUOY_RADIUS;
         // Draw buoy: red/orange filled circle
-        draw.fillCircle(0, 0, BUOY_RADIUS, { color: 0xff4422 });
-        draw.fillCircle(0, 0, BUOY_RADIUS * 0.3, { color: 0xcccccc });
+        draw.fillCircle(0, 0, r, { color: 0xff4422 });
+        draw.fillCircle(0, 0, r * 0.3, { color: 0xcccccc });
       },
     );
   }
