@@ -10,6 +10,7 @@ import {
   ForceMagnitudeFn,
 } from "../fluid-dynamics";
 import type { Wind } from "../Wind";
+import type { WindQueryForecast, WindQuerier } from "../wind/WindQuerier";
 
 // Units: feet (ft), lbs
 // TellTail dimensions
@@ -28,8 +29,9 @@ const TELLTAIL_COLOR = 0xff6600;
 /** No lift for a thin streamer - it just gets pushed by the wind. */
 const noLift: ForceMagnitudeFn = () => 0;
 
-export class TellTail extends BaseEntity {
+export class TellTail extends BaseEntity implements WindQuerier {
   layer = "telltails" as const;
+  tags = ["windQuerier"];
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
   getAttachmentPoint: () => ReadonlyV2d;
@@ -118,5 +120,34 @@ export class TellTail extends BaseEntity {
       width: TELLTAIL_WIDTH,
       alpha,
     });
+  }
+
+  // WindQuerier implementation
+  getWindQueryForecast(): WindQueryForecast | null {
+    // Compute AABB around tell tail bodies
+    let minX = Infinity,
+      minY = Infinity;
+    let maxX = -Infinity,
+      maxY = -Infinity;
+
+    for (const body of this.bodies) {
+      const [x, y] = body.position;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+
+    const margin = 1;
+    return {
+      aabb: {
+        minX: minX - margin,
+        minY: minY - margin,
+        maxX: maxX + margin,
+        maxY: maxY + margin,
+      },
+      // ~2 queries per body
+      queryCount: this.bodies.length * 2,
+    };
   }
 }

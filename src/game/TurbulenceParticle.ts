@@ -2,6 +2,7 @@ import BaseEntity from "../core/entity/BaseEntity";
 import { AABB } from "../core/util/SparseSpatialHash";
 import { V, V2d } from "../core/Vector";
 import type { Wind } from "./Wind";
+import type { GPUTurbulenceData } from "./wind/webgpu/WindModifierData";
 import { WindModifier } from "./WindModifier";
 
 // Units: ft, ft/s, seconds
@@ -26,13 +27,11 @@ export class TurbulenceParticle extends BaseEntity implements WindModifier {
 
   constructor(
     private position: V2d,
-    private initialVelocity: V2d
+    private initialVelocity: V2d,
   ) {
     super();
     // Use position hash as seed for deterministic chaos
-    this.seed = Math.abs(
-      Math.floor(position.x * 1000 + position.y * 7919)
-    );
+    this.seed = Math.abs(Math.floor(position.x * 1000 + position.y * 7919));
   }
 
   onTick(dt: number) {
@@ -96,5 +95,19 @@ export class TurbulenceParticle extends BaseEntity implements WindModifier {
     const y = ((seed >> 16) & 0x7fff) / 0x7fff - 0.5;
 
     return V(x * 2, y * 2);
+  }
+
+  /**
+   * Get GPU-uploadable turbulence data for the wind compute shader.
+   */
+  getGPUTurbulenceData(): GPUTurbulenceData {
+    return {
+      positionX: this.position.x,
+      positionY: this.position.y,
+      radius: TURBULENCE_RADIUS,
+      intensity: this.intensity,
+      seed: this.seed,
+      age: this.age,
+    };
   }
 }

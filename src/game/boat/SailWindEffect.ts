@@ -4,6 +4,7 @@ import { AABB } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
 import { TurbulenceParticle } from "../TurbulenceParticle";
 import type { Wind } from "../Wind";
+import type { GPUSailData } from "../wind/webgpu/WindModifierData";
 import { WindModifier } from "../WindModifier";
 import {
   calculateCamber,
@@ -352,5 +353,36 @@ export class SailWindEffect extends BaseEntity implements WindModifier {
     }
 
     return V(cx, cy);
+  }
+
+  /**
+   * Get GPU-uploadable sail data for the wind compute shader.
+   * Returns null if sail is not hoisted or has no valid data.
+   */
+  getGPUSailData(): GPUSailData | null {
+    // Don't contribute if not hoisted or no wind
+    if (
+      !this.sail.isHoisted() ||
+      this.chordLength < 0.01 ||
+      this.windSpeed < 0.01
+    ) {
+      return null;
+    }
+
+    return {
+      centroidX: this.centroid.x,
+      centroidY: this.centroid.y,
+      chordDirX: this.chordDirection.x,
+      chordDirY: this.chordDirection.y,
+      normalX: this.averageNormal.x,
+      normalY: this.averageNormal.y,
+      chordLength: this.chordLength,
+      influenceRadius: this.sail.getWindInfluenceRadius(),
+      windDirX: this.windDirection.x,
+      windDirY: this.windDirection.y,
+      windSpeed: this.windSpeed,
+      averageLiftCoefficient: this.averageLiftCoefficient,
+      stallFraction: this.stallFraction,
+    };
   }
 }

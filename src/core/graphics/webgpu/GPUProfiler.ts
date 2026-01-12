@@ -7,12 +7,7 @@
  */
 
 /** Available profiling sections */
-export type GPUProfileSection =
-  | "render"
-  | "waterCompute"
-  | "tileCompute"
-  | "modifierCompute"
-  | "readback";
+export type GPUProfileSection = (typeof GPUProfiler)["SECTIONS"][number];
 
 interface SectionData {
   queryStartIndex: number;
@@ -25,13 +20,14 @@ export class GPUProfiler {
   private device: GPUDevice;
 
   // Section definitions
-  private static readonly SECTIONS: GPUProfileSection[] = [
+  private static readonly SECTIONS = [
     "render",
     "waterCompute",
     "tileCompute",
     "modifierCompute",
+    "windCompute",
     "readback",
-  ];
+  ] as const;
   private static readonly QUERY_COUNT = GPUProfiler.SECTIONS.length * 2;
 
   // Query resources
@@ -91,7 +87,7 @@ export class GPUProfiler {
    * Returns undefined if profiling is disabled.
    */
   getTimestampWrites(
-    section: GPUProfileSection = "render",
+    section: GPUProfileSection = "render"
   ): GPURenderPassTimestampWrites | undefined {
     if (!this.enabled) return undefined;
     const data = this.sections.get(section);
@@ -108,7 +104,7 @@ export class GPUProfiler {
    * Returns undefined if profiling is disabled.
    */
   getComputeTimestampWrites(
-    section: GPUProfileSection,
+    section: GPUProfileSection
   ): GPUComputePassTimestampWrites | undefined {
     if (!this.enabled) return undefined;
     const data = this.sections.get(section);
@@ -129,7 +125,7 @@ export class GPUProfiler {
   writeTimestamp(
     section: GPUProfileSection,
     point: "start" | "end",
-    encoder: GPUCommandEncoder,
+    encoder: GPUCommandEncoder
   ): void {
     if (!this.enabled) return;
     const data = this.sections.get(section);
@@ -156,7 +152,7 @@ export class GPUProfiler {
       0,
       GPUProfiler.QUERY_COUNT,
       this.resolveBuffer,
-      0,
+      0
     );
 
     // Copy to mappable read buffer (use the buffer we're NOT currently reading from)
@@ -167,7 +163,7 @@ export class GPUProfiler {
       0,
       readBuffer,
       0,
-      GPUProfiler.QUERY_COUNT * 8,
+      GPUProfiler.QUERY_COUNT * 8
     );
   }
 
@@ -224,13 +220,9 @@ export class GPUProfiler {
    * Get all section timings.
    */
   getAllMs(): Record<GPUProfileSection, number> {
-    return {
-      render: this.getMs("render"),
-      waterCompute: this.getMs("waterCompute"),
-      tileCompute: this.getMs("tileCompute"),
-      modifierCompute: this.getMs("modifierCompute"),
-      readback: this.getMs("readback"),
-    };
+    return Object.fromEntries(
+      GPUProfiler.SECTIONS.map((section) => [section, this.getMs(section)])
+    ) as Record<GPUProfileSection, number>;
   }
 
   setEnabled(enabled: boolean): void {

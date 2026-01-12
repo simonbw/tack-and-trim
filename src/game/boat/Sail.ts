@@ -8,6 +8,7 @@ import { lerpV2d, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { applyFluidForces } from "../fluid-dynamics";
 import type { Wind } from "../Wind";
+import type { WindQueryForecast, WindQuerier } from "../wind/WindQuerier";
 import type { WindModifier } from "../WindModifier";
 import {
   calculateCamber,
@@ -62,8 +63,9 @@ const DEFAULT_CONFIG: SailConfig = {
   attachTellTail: true,
 };
 
-export class Sail extends BaseEntity {
+export class Sail extends BaseEntity implements WindQuerier {
   layer = "sails" as const;
+  tags = ["windQuerier"];
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
@@ -105,7 +107,7 @@ export class Sail extends BaseEntity {
         position: lerpV2d(head, initialClew, i / (nodeCount - 1)),
         collisionResponse: false,
         fixedRotation: true,
-      }).addShape(new Particle())
+      }).addShape(new Particle()),
     );
 
     // Connect adjacent particles with distance constraints
@@ -114,7 +116,7 @@ export class Sail extends BaseEntity {
         new DistanceConstraint(a, b, {
           distance: segmentLength * slackFactor,
           collideConnected: false,
-        })
+        }),
     );
 
     // Attach head (first particle) to specified body
@@ -126,7 +128,7 @@ export class Sail extends BaseEntity {
           headConstraint.localAnchor.x,
           headConstraint.localAnchor.y,
         ],
-      })
+      }),
     );
 
     // Optionally attach clew (last particle) to specified body
@@ -139,7 +141,7 @@ export class Sail extends BaseEntity {
             clewConstraint.localAnchor.x,
             clewConstraint.localAnchor.y,
           ],
-        })
+        }),
       );
     }
 
@@ -148,8 +150,8 @@ export class Sail extends BaseEntity {
       this.addChild(
         new TellTail(
           () => attachmentBody.position,
-          () => attachmentBody.velocity
-        )
+          () => attachmentBody.velocity,
+        ),
       );
     }
 
@@ -212,15 +214,14 @@ export class Sail extends BaseEntity {
     this.hoistAmount = stepToward(
       this.hoistAmount,
       this.targetHoistAmount,
-      hoistSpeed * dt
+      hoistSpeed * dt,
     );
 
     const wind = this.game?.entities.getById("wind") as Wind | undefined;
     if (!wind || this.hoistAmount <= 0) return;
 
-    // Skip our own wind effect to prevent feedback loops
     const getFluidVelocity = (point: V2d): V2d =>
-      wind.getVelocityAtPoint(point, this.windEffect ?? undefined);
+      wind.getVelocityAtPoint(point);
 
     const head = getHeadPosition();
     const clew = this.getClewPosition();
@@ -337,5 +338,38 @@ export class Sail extends BaseEntity {
         width: 1,
       });
     }
+  }
+
+  // WindQuerier implementation
+  getWindQueryForecast(): WindQueryForecast | null {
+    // Don't forecast if sail is lowered
+    if (this.hoistAmount <= 0) return null;
+
+    // Compute AABB around all sail bodies
+    let minX = Infinity,
+      minY = Infinity;
+    let maxX = -Infinity,
+      maxY = -Infinity;
+
+    for (const body of this.bodies) {
+      const [x, y] = body.position;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+
+    // Add a margin for edge queries
+    const margin = 2;
+    return {
+      aabb: {
+        minX: minX - margin,
+        minY: minY - margin,
+        maxX: maxX + margin,
+        maxY: maxY + margin,
+      },
+      // ~2 queries per body (prev/next edges)
+      queryCount: this.bodies.length * 2,
+    };
   }
 }

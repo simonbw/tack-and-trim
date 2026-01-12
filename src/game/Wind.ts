@@ -3,6 +3,7 @@ import BaseEntity from "../core/entity/BaseEntity";
 import { profile } from "../core/util/Profiler";
 import { SparseSpatialHash } from "../core/util/SparseSpatialHash";
 import { V, V2d } from "../core/Vector";
+import { WindInfo } from "./wind/WindInfo";
 import { WindModifier } from "./WindModifier";
 
 // Units: ft/s for velocity
@@ -20,10 +21,16 @@ export class Wind extends BaseEntity {
   private spatialHash = new SparseSpatialHash<WindModifier>((m) =>
     m.getWindModifierAABB(),
   );
+  private windInfo: WindInfo | null = null;
+
+  onAdd() {
+    // Get or create WindInfo for GPU-accelerated wind queries
+    this.windInfo = WindInfo.fromGame(this.game!);
+  }
 
   @profile
   onTick() {
-    // Rebuild spatial hash from all wind modifiers
+    // Rebuild spatial hash from all wind modifiers (for CPU fallback)
     this.spatialHash.clear();
     const modifiers = this.game!.entities.getTagged("windModifier");
     for (const modifier of modifiers) {
@@ -31,12 +38,18 @@ export class Wind extends BaseEntity {
     }
   }
 
-  getVelocityAtPoint(point: V2d, skipModifier?: WindModifier): V2d {
+  getVelocityAtPoint(point: V2d): V2d {
+    // Try GPU path first (includes modifiers)
+    if (this.windInfo) {
+      const result = this.windInfo.getVelocityAtPoint(point);
+      if (result) return result;
+    }
+
+    // CPU fallback: base wind + modifiers
     const velocity = this.getBaseVelocityAtPoint(point);
 
     // Query spatial hash for modifiers that might affect this point
     for (const modifier of this.spatialHash.queryPoint(point)) {
-      if (modifier === skipModifier) continue;
       velocity.iadd(modifier.getWindVelocityContribution(point));
     }
 
