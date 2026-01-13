@@ -5,7 +5,7 @@ import { Draw } from "../graphics/Draw";
 import { V2d } from "../Vector";
 import Entity from "./Entity";
 
-/** Data passed to onRender and onLateRender callbacks */
+/** Data passed to onRender callbacks */
 export interface RenderEventData {
   /** Delta time since last frame */
   dt: number;
@@ -63,8 +63,6 @@ export type BaseGameEvents = {
   beforeTick: number;
   /** Called before rendering - use destructuring: onRender({ dt, layer, draw }) */
   render: RenderEventData;
-  /** Called right before rendering, for special cases */
-  lateRender: RenderEventData;
   /** Called during the update tick */
   tick: number;
   /** Called less frequently */

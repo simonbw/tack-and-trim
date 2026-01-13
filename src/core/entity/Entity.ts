@@ -83,8 +83,8 @@ export default interface Entity extends EventHandler<GameEventMap> {
    */
   readonly layers?: readonly string[];
 
-  // Note: onRender and onLateRender are defined via EventHandler<GameEventMap>
-  // They receive a RenderEventData object: { dt, layer, draw }
+  // Note: onRender is defined via EventHandler<GameEventMap>
+  // It receives a RenderEventData object: { dt, layer, draw }
   // Usage: onRender({ dt, layer, draw }) { ... }
 
   /////////////////////

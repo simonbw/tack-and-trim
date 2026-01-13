@@ -94,8 +94,6 @@ Most of the time you probably want to use `onAdd`, but there are some times when
 `beforeTick?()` — Sometimes you want to make sure stuff happens at the beginning of the tick, before any `onTick()` handlers are called.
 That's when this is useful.
 
-`onLateRender?(dt: number)` — Called _right_ before rendering. This is for special cases only
-
 `onPause?()` — Called when the game is paused
 
 `onUnpause?()` — Called when the game is unpaused

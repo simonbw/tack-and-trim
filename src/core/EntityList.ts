@@ -3,6 +3,7 @@ import { handlerNameToEventName } from "./entity/EventHandler";
 import { EntityFilter, hasBody } from "./EntityFilter";
 import { FilterMultiMap } from "./util/FilterListMap";
 import MultiMap from "./util/MultiMap";
+import { DEFAULT_LAYER } from "../config/layers";
 
 /** Keeps track of entities. Has lots of useful indexes. */
 export default class EntityList implements Iterable<Entity> {
@@ -14,6 +15,8 @@ export default class EntityList implements Iterable<Entity> {
   private handlers = new MultiMap<GameEventName, Entity>();
   /** Maps filters to entities that pass them */
   private filters = new FilterMultiMap<Entity>();
+  /** Maps render layers to entities that render on them */
+  private renderLayerEntities = new MultiMap<string, Entity>();
   /** All entities */
   all = new Set<Entity>();
 
@@ -43,6 +46,14 @@ export default class EntityList implements Iterable<Entity> {
       }
     }
 
+    // Index by render layer for efficient per-layer rendering
+    if (this.handlers.get("render").includes(entity)) {
+      const layers = entity.layers ?? [entity.layer ?? DEFAULT_LAYER];
+      for (const layer of layers) {
+        this.renderLayerEntities.add(layer, entity);
+      }
+    }
+
     if (entity.id) {
       if (this.idToEntity.has(entity.id)) {
         throw new Error(`entities with duplicate ids: ${entity.id}`);
@@ -69,6 +80,12 @@ export default class EntityList implements Iterable<Entity> {
       }
     }
 
+    // Remove from layer index
+    const layers = entity.layers ?? [entity.layer ?? DEFAULT_LAYER];
+    for (const layer of layers) {
+      this.renderLayerEntities.remove(layer, entity);
+    }
+
     if (entity.id) {
       this.idToEntity.delete(entity.id);
     }
@@ -90,7 +107,7 @@ export default class EntityList implements Iterable<Entity> {
       return [];
     }
     return this.getTagged(tags[0]).filter((e) =>
-      tags.every((t) => e.tags!.includes(t))
+      tags.every((t) => e.tags!.includes(t)),
     );
   }
 
@@ -120,7 +137,7 @@ export default class EntityList implements Iterable<Entity> {
    * Pair with addFilter() to make this fast.
    */
   getByFilter<T extends Entity>(
-    filter: EntityFilter<T>
+    filter: EntityFilter<T>,
   ): Iterable<T> & { readonly length: number } {
     const result = this.filters.getItems(filter);
     return result ?? [...this.all].filter(filter);
@@ -128,11 +145,16 @@ export default class EntityList implements Iterable<Entity> {
 
   /** Get all entities that handle a specific event type. */
   getHandlers(
-    eventType: GameEventName
+    eventType: GameEventName,
   ): ReadonlyArray<Entity & GameEventHandler<GameEventName>> {
     return this.handlers.get(eventType) as ReadonlyArray<
       Entity & GameEventHandler<GameEventName>
     >;
+  }
+
+  /** Get all entities that render on a specific layer. */
+  getRenderersOnLayer(layer: string): readonly Entity[] {
+    return this.renderLayerEntities.get(layer);
   }
 
   /** Iterate through all the entities. */
