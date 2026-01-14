@@ -5,6 +5,7 @@ import StatsOverlay, {
   createProfilerPanel,
   createGraphicsPanel,
 } from "../core/util/stats-overlay";
+import { createSimulationStatsPanel } from "./stats/SimulationStatsPanel";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
@@ -12,8 +13,8 @@ import { CameraController } from "./CameraController";
 import { GamePreloader } from "./GamePreloader";
 import { PhysicsValidator } from "./PhysicsValidator";
 import { WaterInfo } from "./water/WaterInfo";
-import { WaterRendererGPU } from "./water/webgpu/WaterRendererGPU";
-import { Wind } from "./Wind";
+import { WaterRenderer } from "./water/rendering/WaterRenderer";
+import { WindInfo } from "./wind/WindInfo";
 import { WindVisualization } from "./wind-visualization/WindVisualization";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
@@ -46,17 +47,18 @@ async function main() {
       createLeanPanel(),
       createProfilerPanel(),
       createGraphicsPanel(),
+      createSimulationStatsPanel(),
     ]),
   );
   game.addEntity(new AutoPauser());
   game.addEntity(new PhysicsValidator());
   game.addEntity(new WaterInfo());
-  game.addEntity(new WaterRendererGPU());
+  game.addEntity(new WaterRenderer());
   game.addEntity(new Buoy(200, 0));
   game.addEntity(new Buoy(-160, 120));
   game.addEntity(new Buoy(100, -200));
   game.addEntity(new Buoy(-240, -100));
-  game.addEntity(new Wind());
+  game.addEntity(new WindInfo());
   game.addEntity(new WindIndicator());
   game.addEntity(new WindVisualization());
 

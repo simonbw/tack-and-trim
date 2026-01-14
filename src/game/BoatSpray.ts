@@ -36,6 +36,7 @@ const WAVE_BONUS_SCALE = 0.3; // How much dh/dt affects spray intensity
  * giving the visual impression of more energy without exploding particle count.
  */
 export class BoatSpray extends BaseEntity {
+  tickLayer = "effects" as const;
   private edges: Edge[];
   private spawnAccumulator = 0;
 

@@ -1,9 +1,8 @@
 /**
- * WebGPU water surface rendering shader.
+ * Water surface rendering shader.
  *
  * Renders the water surface using:
- * - Wave height data from compute shader
- * - Modifier data (wakes) from CPU texture
+ * - Combined wave + modifier height data from unified compute shader
  * - Surface normal calculation from height gradients
  * - Fresnel, subsurface scattering, and specular lighting
  */
@@ -37,7 +36,6 @@ struct VertexOutput {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var waterSampler: sampler;
 @group(0) @binding(2) var waterDataTexture: texture_2d<f32>;
-@group(0) @binding(3) var modifierDataTexture: texture_2d<f32>;
 
 const PI: f32 = 3.14159265359;
 const TEXTURE_SIZE: f32 = ${WATER_TEXTURE_SIZE}.0;
@@ -71,14 +69,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                vec2<f32>(uniforms.viewportWidth, uniforms.viewportHeight);
   dataUV = clamp(dataUV, vec2<f32>(0.0), vec2<f32>(1.0));
 
-  // Sample the data textures
+  // Sample the unified water data texture
+  // R: combined height (waves + modifiers), normalized
+  // G: dh/dt, normalized
+  // B, A: reserved
   let waterData = textureSample(waterDataTexture, waterSampler, dataUV);
-  let modifierData = textureSample(modifierDataTexture, waterSampler, dataUV);
-
-  // Unpack height
-  let waveHeight = waterData.r;
-  let modifierHeight = modifierData.r - 0.5;
-  let rawHeight = waveHeight + modifierHeight;
+  let rawHeight = waterData.r;
 
   // Debug mode: height mapped to blue gradient
   if (uniforms.renderMode == 1) {
@@ -166,9 +162,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 `;
 
 /**
- * Water surface rendering shader using WebGPU.
+ * Water surface rendering shader.
  */
-export class WaterShaderGPU {
+export class WaterShader {
   private pipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private uniformBuffer: GPUBuffer | null = null;
@@ -178,10 +174,9 @@ export class WaterShaderGPU {
   // Uniform data
   private uniformData: Float32Array;
 
-  // Cached bind group (recreated when textures change)
+  // Cached bind group (recreated when texture changes)
   private bindGroup: GPUBindGroup | null = null;
   private lastWaterTexture: GPUTextureView | null = null;
-  private lastModifierTexture: GPUTextureView | null = null;
 
   constructor() {
     // Uniform buffer layout:
@@ -214,7 +209,7 @@ export class WaterShaderGPU {
       addressModeV: "clamp-to-edge",
     });
 
-    // Create bind group layout
+    // Create bind group layout (single texture now)
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: [
         {
@@ -229,11 +224,6 @@ export class WaterShaderGPU {
         },
         {
           binding: 2,
-          visibility: GPUShaderStage.FRAGMENT,
-          texture: { sampleType: "float" },
-        },
-        {
-          binding: 3,
           visibility: GPUShaderStage.FRAGMENT,
           texture: { sampleType: "float" },
         },
@@ -312,7 +302,7 @@ export class WaterShaderGPU {
     left: number,
     top: number,
     width: number,
-    height: number
+    height: number,
   ): void {
     this.uniformData[16] = left;
     this.uniformData[17] = top;
@@ -330,7 +320,6 @@ export class WaterShaderGPU {
   render(
     renderPass: GPURenderPassEncoder,
     waterTextureView: GPUTextureView,
-    modifierTextureView: GPUTextureView
   ): void {
     if (!this.pipeline || !this.quad || !this.uniformBuffer) {
       return;
@@ -341,24 +330,18 @@ export class WaterShaderGPU {
     // Upload uniforms
     device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData.buffer);
 
-    // Recreate bind group if textures changed
-    if (
-      !this.bindGroup ||
-      this.lastWaterTexture !== waterTextureView ||
-      this.lastModifierTexture !== modifierTextureView
-    ) {
+    // Recreate bind group if texture changed
+    if (!this.bindGroup || this.lastWaterTexture !== waterTextureView) {
       this.bindGroup = device.createBindGroup({
         layout: this.bindGroupLayout!,
         entries: [
           { binding: 0, resource: { buffer: this.uniformBuffer } },
           { binding: 1, resource: this.sampler! },
           { binding: 2, resource: waterTextureView },
-          { binding: 3, resource: modifierTextureView },
         ],
         label: "Water Bind Group",
       });
       this.lastWaterTexture = waterTextureView;
-      this.lastModifierTexture = modifierTextureView;
     }
 
     // Render

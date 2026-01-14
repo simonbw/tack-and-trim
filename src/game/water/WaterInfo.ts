@@ -1,35 +1,54 @@
+/**
+ * Water physics data provider with GPU acceleration.
+ *
+ * Provides a query interface for water state at any world position.
+ * Supports hybrid GPU/CPU computation:
+ * - GPU tiles provide water data (waves + modifiers) for in-viewport queries
+ * - CPU fallback for out-of-viewport queries
+ */
+
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import BaseEntity from "../../core/entity/BaseEntity";
 import Game from "../../core/Game";
 import { profile } from "../../core/util/Profiler";
 import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
-import type {
-  StatsProvider,
-  StatsSection,
-} from "../../core/util/stats-overlay/StatsProvider";
 import { V, V2d } from "../../core/Vector";
+import { DataTileComputePipeline } from "../datatiles/DataTileComputePipeline";
+import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
+import type {
+  DataTileGridConfig,
+  QueryForecast,
+} from "../datatiles/DataTileTypes";
 import {
   computeWaveDataAtPoint,
   WaterComputeParams,
 } from "./cpu/WaterComputeCPU";
-import type { TileManager } from "./tiles/TileManager";
-import type { TileReadbackPool } from "./tiles/TileReadbackPool";
 import { WakeParticle } from "./WakeParticle";
 import { WaterModifier } from "./WaterModifier";
-import { isWaterQuerier } from "./WaterQuerier";
-import type { WakeSegmentData } from "./webgpu/ModifierComputeGPU";
-import type { Viewport } from "./webgpu/WaterComputePipelineGPU";
+import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
+import {
+  WaterDataTileCompute,
+  type WaterPhysicsData,
+} from "./webgpu/WaterDataTileCompute";
+
+/**
+ * Viewport bounds for water computation.
+ */
+export interface Viewport {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
 
 // Units: ft, ft/s for velocities
 // Current variation configuration
-// Water currents are much slower and vary more gradually than wind
-const CURRENT_SPATIAL_SCALE = 0.002; // Currents vary slowly across space
-const CURRENT_TIME_SCALE = 0.05; // Currents change slowly over time
-const CURRENT_SPEED_VARIATION = 0.4; // ±40% speed variation
-const CURRENT_ANGLE_VARIATION = 0.5; // ±~30° direction variation
+const CURRENT_SPATIAL_SCALE = 0.002;
+const CURRENT_TIME_SCALE = 0.05;
+const CURRENT_SPEED_VARIATION = 0.4;
+const CURRENT_ANGLE_VARIATION = 0.5;
 
 // Margin to expand viewport for wake particle filtering (ft)
-// Must be >= MAX_RADIUS from WakeParticle.ts to catch particles that affect the edge
 const WAKE_VIEWPORT_MARGIN = 25;
 
 /**
@@ -45,21 +64,45 @@ export interface WaterState {
 }
 
 /**
- * Water physics data provider.
- * Provides a query interface for water state at any world position,
- * used by underwater physics components (keel, rudder, hull).
- *
- * Supports hybrid GPU/CPU wave computation:
- * - GPU readback provides wave data for in-viewport queries (faster)
- * - CPU fallback for out-of-viewport queries (consistent)
+ * Water tile grid configuration.
  */
-export class WaterInfo extends BaseEntity implements StatsProvider {
+const WATER_TILE_CONFIG: DataTileGridConfig = {
+  tileSize: 64,
+  tileResolution: 128,
+  maxTilesPerFrame: 64,
+  minScoreThreshold: 1,
+};
+
+/**
+ * Water readback buffer configuration.
+ */
+const WATER_READBACK_CONFIG: DataTileReadbackConfig<WaterPhysicsData> = {
+  channelCount: 4,
+  bytesPerPixel: 16, // rgba32float
+  label: "WaterPhysics",
+  texelToSample: (c) => ({
+    height: c[0],
+    dhdt: c[1],
+    velocityX: c[2],
+    velocityY: c[3],
+  }),
+  denormalize: (s) => ({
+    height: (s.height - 0.5) * 5.0,
+    dhdt: (s.dhdt - 0.5) * 10.0,
+    velocityX: (s.velocityX - 0.5) * 10.0,
+    velocityY: (s.velocityY - 0.5) * 10.0,
+  }),
+};
+
+/**
+ * Water physics data provider.
+ */
+export class WaterInfo extends BaseEntity {
   id = "waterInfo";
-  tags = ["statsProvider"];
+  tickLayer = "environment" as const;
 
   /**
    * Get the WaterInfo entity from a game instance.
-   * @throws Error if WaterInfo is not found in the game
    */
   static fromGame(game: Game): WaterInfo {
     const waterInfo = game.entities.getById("waterInfo");
@@ -69,25 +112,29 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
     return waterInfo;
   }
 
+  // Tile pipeline for physics queries (owned by WaterInfo)
+  private tilePipeline: DataTileComputePipeline<
+    WaterPhysicsData,
+    WaterDataTileCompute
+  > | null = null;
+  private gpuInitialized = false;
+
   // Current simulation
-  private baseCurrentVelocity: V2d = V(1.5, 0.5); // ~1.6 ft/s (~1 kt) tidal current
+  private baseCurrentVelocity: V2d = V(1.5, 0.5);
   private speedNoise: NoiseFunction3D = createNoise3D();
   private angleNoise: NoiseFunction3D = createNoise3D();
 
-  // Wave amplitude modulation - simulates wave groups/packets (physically real)
+  // Wave amplitude modulation noise (for CPU fallback)
   private waveAmpModNoise: NoiseFunction3D = createNoise3D();
-
-  // Surface turbulence noise - small chaotic variations that break up the grid
   private surfaceNoise: NoiseFunction3D = createNoise3D();
 
-  // Spatial hash for efficient water modifier queries
+  // Spatial hash for CPU fallback modifier queries
   private spatialHash = new SparseSpatialHash<WaterModifier>((m) =>
     m.getWaterModifierAABB(),
   );
 
-  // Tile system for physics queries (set by WaterRendererGPU)
-  private tileManager: TileManager | null = null;
-  private tileReadbackPool: TileReadbackPool | null = null;
+  // Cached segment data for current frame
+  private cachedSegments: WakeSegmentData[] = [];
 
   // CPU compute params (cached for fallback computations)
   private get cpuParams(): WaterComputeParams {
@@ -98,9 +145,43 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
     };
   }
 
+  onAfterAdded() {
+    this.initGPU().catch(console.error);
+  }
+
+  /**
+   * Initialize GPU resources.
+   */
+  async initGPU(): Promise<void> {
+    if (this.gpuInitialized) return;
+
+    this.tilePipeline = new DataTileComputePipeline<
+      WaterPhysicsData,
+      WaterDataTileCompute
+    >(
+      WATER_TILE_CONFIG,
+      WATER_READBACK_CONFIG,
+      (resolution) => new WaterDataTileCompute(resolution),
+    );
+    await this.tilePipeline.init();
+
+    this.gpuInitialized = true;
+  }
+
+  /**
+   * Complete pending readbacks from previous frame.
+   * Called at start of tick.
+   */
   @profile
   onTick() {
-    // Rebuild spatial hash from all water modifiers
+    // Complete readbacks from previous frame
+    if (this.tilePipeline) {
+      this.tilePipeline.completeReadbacks().catch((error) => {
+        console.warn("Water tile readback error:", error);
+      });
+    }
+
+    // Rebuild spatial hash for CPU fallback
     this.spatialHash.clear();
     const modifiers = this.game!.entities.getTagged("waterModifier");
     for (const modifier of modifiers) {
@@ -109,132 +190,120 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
   }
 
   /**
-   * Set the tile system for physics queries.
-   * Called by WaterRendererGPU after initialization.
+   * Compute tiles after physics.
+   * Called via afterPhysics event.
    */
-  setTileSystem(
-    tileManager: TileManager,
-    tileReadbackPool: TileReadbackPool,
-  ): void {
-    this.tileManager = tileManager;
-    this.tileReadbackPool = tileReadbackPool;
+  @profile
+  onAfterPhysics() {
+    if (!this.tilePipeline || !this.gpuInitialized) return;
+
+    this.collectQueryForecasts();
+    this.computeTiles();
   }
 
   /**
-   * Collect query forecasts from all WaterQuerier entities.
-   * Called during tile selection phase (before GPU compute).
+   * Collect query forecasts from all waterQuerier-tagged entities.
    */
-  collectQueryForecasts(): void {
-    if (!this.tileManager) return;
+  @profile
+  private collectQueryForecasts(): void {
+    if (!this.tilePipeline) return;
 
-    this.tileManager.resetScores();
+    this.tilePipeline.resetScores();
 
-    // Find all entities that implement WaterQuerier
     const queriers = this.game!.entities.getTagged("waterQuerier");
     for (const entity of queriers) {
-      if (isWaterQuerier(entity)) {
-        const forecast = entity.getQueryForecast();
-        if (forecast) {
-          this.tileManager.accumulateScore(forecast);
-        }
+      const forecast = (
+        entity as { getQueryForecast?(): QueryForecast | null }
+      ).getQueryForecast?.();
+      if (forecast) {
+        this.tilePipeline.accumulateForecast(forecast);
       }
     }
   }
 
   /**
-   * StatsProvider implementation - provides water tile stats for StatsOverlay
+   * Compute tiles for this frame.
    */
-  getStatsSection(): StatsSection | null {
-    if (!this.tileManager || !this.tileReadbackPool) return null;
+  @profile
+  private computeTiles(): void {
+    if (!this.tilePipeline) return;
 
-    const activeTiles = this.tileManager.getActiveTileCount();
-    const tileHits = this.tileReadbackPool.stats.tileHits;
-    const cpuFallbacks = this.tileReadbackPool.stats.cpuFallbacks;
-    const total = tileHits + cpuFallbacks;
+    const time = this.game!.elapsedUnpausedTime;
+    const gpuProfiler = this.game?.renderer.getGpuProfiler();
 
-    if (total === 0 && activeTiles === 0) return null;
+    // Collect segment data for all tiles (using full world bounds approximation)
+    // Each tile will receive the same segment data
+    const camera = this.game!.camera;
+    const worldViewport = camera.getWorldViewport();
+    this.cachedSegments = this.collectShaderSegmentData({
+      left: worldViewport.left - WAKE_VIEWPORT_MARGIN * 2,
+      top: worldViewport.top - WAKE_VIEWPORT_MARGIN * 2,
+      width: worldViewport.width + WAKE_VIEWPORT_MARGIN * 4,
+      height: worldViewport.height + WAKE_VIEWPORT_MARGIN * 4,
+    });
 
-    const items: StatsSection["items"] = [
-      {
-        label: "Active Tiles",
-        value: `${activeTiles}`,
-        color: activeTiles > 0 ? "success" : "muted",
+    // Compute tiles with segment data
+    this.tilePipeline.computeTiles(
+      time,
+      (compute, viewport) => {
+        compute.setSegments(this.cachedSegments);
+        compute.runCompute(
+          viewport.time,
+          viewport.left,
+          viewport.top,
+          viewport.width,
+          viewport.height,
+        );
       },
-    ];
-
-    if (total > 0) {
-      const gpuPercent = (tileHits / total) * 100;
-      items.push({
-        label: "Tile Hits",
-        value: `${gpuPercent.toFixed(0)}% (${tileHits}/${total})`,
-        color:
-          gpuPercent > 90 ? "success" : gpuPercent > 50 ? "warning" : "error",
-      });
-
-      if (cpuFallbacks > 0) {
-        items.push({
-          label: "CPU Fallbacks",
-          value: `${cpuFallbacks}`,
-          indent: true,
-          color: "muted",
-        });
-      }
-    }
-
-    return {
-      title: "Water Physics",
-      items,
-    };
+      gpuProfiler,
+    );
   }
 
   /**
-   * StatsProvider implementation - reset per-frame counters
-   */
-  resetStatsCounters(): void {
-    if (this.tileReadbackPool?.stats) {
-      this.tileReadbackPool.stats.reset();
-    }
-  }
-
-  /**
-   * Get the water state at a given world position.
-   * Checks tile readback buffers first, otherwise falls back to CPU computation.
-   * Used by underwater physics components to determine water velocity.
+   * Get water state at a given world position.
+   * Uses GPU tiles when available, falls back to CPU.
    */
   getStateAtPoint(point: V2d): WaterState {
-    // Start with current velocity
-    const velocity = this.getCurrentVelocityAtPoint(point);
+    return this.getStateAtPointGPU(point) ?? this.getStateAtPointCPU(point);
+  }
 
-    // Try tile-based lookup first
-    let waveData = null;
-    if (this.tileManager && this.tileReadbackPool) {
-      const tile = this.tileManager.findTileForPoint(point[0], point[1]);
-      if (tile) {
-        waveData = this.tileReadbackPool.sampleAtWorldPoint(
-          tile,
-          point[0],
-          point[1],
-        );
-        // Track tile hit in stats
-        if (waveData) {
-          this.tileReadbackPool.stats.tileHits++;
-        }
-      }
+  private getStateAtPointGPU(point: V2d): WaterState | null {
+    if (!this.tilePipeline) return null;
+
+    const physicsData = this.tilePipeline.sampleAtWorldPoint(
+      point[0],
+      point[1],
+    );
+    if (physicsData) {
+      return {
+        velocity: V(physicsData.velocityX, physicsData.velocityY),
+        surfaceHeight: physicsData.height,
+        surfaceHeightRate: physicsData.dhdt,
+      };
     }
 
-    // CPU fallback if tile lookup failed
-    if (!waveData) {
-      waveData = computeWaveDataAtPoint(point[0], point[1], this.cpuParams);
-      // Track CPU fallback
-      if (this.tileReadbackPool) {
-        this.tileReadbackPool.stats.cpuFallbacks++;
-      }
-    }
+    return null;
+  }
+
+  private getStateAtPointCPU(point: V2d): WaterState {
+    const t = (this.game?.elapsedUnpausedTime ?? 0) * CURRENT_TIME_SCALE;
+
+    const sx = point.x * CURRENT_SPATIAL_SCALE;
+    const sy = point.y * CURRENT_SPATIAL_SCALE;
+
+    const speedScale = 1 + this.speedNoise(sx, sy, t) * CURRENT_SPEED_VARIATION;
+    const angleVariance = this.angleNoise(sx, sy, t) * CURRENT_ANGLE_VARIATION;
+
+    const velocity = this.baseCurrentVelocity
+      .mul(speedScale)
+      .irotate(angleVariance);
+
+    // CPU fallback: waves + modifier queries
+    const waveData = computeWaveDataAtPoint(point[0], point[1], this.cpuParams);
 
     let surfaceHeight = waveData.height;
     let surfaceHeightRate = waveData.dhdt;
 
-    // Query spatial hash for nearby water modifiers
     for (const modifier of this.spatialHash.queryPoint(point)) {
       const contrib = modifier.getWaterContribution(point);
       velocity.x += contrib.velocityX;
@@ -251,74 +320,13 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
   }
 
   /**
-   * Get the current velocity at a given world position.
-   * Uses simplex noise for natural spatial and temporal variation.
-   */
-  private getCurrentVelocityAtPoint([x, y]: V2d): V2d {
-    const t = (this.game?.elapsedUnpausedTime ?? 0) * CURRENT_TIME_SCALE;
-
-    const sx = x * CURRENT_SPATIAL_SCALE;
-    const sy = y * CURRENT_SPATIAL_SCALE;
-
-    // Sample noise for speed and angle variation
-    const speedScale = 1 + this.speedNoise(sx, sy, t) * CURRENT_SPEED_VARIATION;
-    const angleVariance = this.angleNoise(sx, sy, t) * CURRENT_ANGLE_VARIATION;
-
-    return this.baseCurrentVelocity.mul(speedScale).irotate(angleVariance);
-  }
-
-  /**
-   * Set the base current velocity.
-   */
-  setCurrentVelocity(velocity: V2d): void {
-    this.baseCurrentVelocity.set(velocity);
-  }
-
-  /**
-   * Get the current speed (magnitude of base velocity).
-   */
-  getCurrentSpeed(): number {
-    return this.baseCurrentVelocity.magnitude;
-  }
-
-  /**
-   * Get the current direction angle.
-   */
-  getCurrentAngle(): number {
-    return this.baseCurrentVelocity.angle;
-  }
-
-  /**
-   * Query water modifiers at a given point.
-   * Used by ModifierDataTexture to build the modifier texture.
-   */
-  queryModifiersAtPoint(point: V2d): Iterable<WaterModifier> {
-    return this.spatialHash.queryPoint(point);
-  }
-
-  /**
-   * Get all water modifiers.
-   * Used by ModifierDataTexture to iterate through modifiers efficiently.
-   */
-  getAllModifiers(): Iterable<WaterModifier> {
-    const modifiers = this.game!.entities.getTagged("waterModifier");
-    // Debug: uncomment to verify modifiers are found
-    // console.log("[WaterInfo] getAllModifiers:", modifiers.length);
-    return modifiers as unknown as WaterModifier[];
-  }
-
-  /**
    * Collect wake segment data for GPU compute shader.
-   * Returns an array of segment data that can be uploaded to GPU buffer.
-   * Filters to only include particles that intersect the expanded viewport.
-   * Reversed so newest particles are first (prioritized when hitting segment limit).
+   * Filters to particles that intersect the viewport.
    */
-  collectGPUSegmentData(viewport: Viewport): WakeSegmentData[] {
+  collectShaderSegmentData(viewport: Viewport): WakeSegmentData[] {
     const segments: WakeSegmentData[] = [];
     const modifiers = this.game!.entities.getTagged("waterModifier");
 
-    // Expand viewport by margin to catch particles that affect the edges
-    // Note: viewport.height can be negative (Y-up coordinate system), so use min/max
     const viewportRight = viewport.left + viewport.width;
     const viewportBottom = viewport.top + viewport.height;
     const expandedMinX =
@@ -334,7 +342,6 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
       if (entity instanceof WakeParticle) {
         const aabb = entity.getWaterModifierAABB();
 
-        // Check if particle's AABB intersects expanded viewport
         if (
           aabb.maxX >= expandedMinX &&
           aabb.minX <= expandedMaxX &&
@@ -349,8 +356,40 @@ export class WaterInfo extends BaseEntity implements StatsProvider {
       }
     }
 
-    // Reverse so newest particles are first - when we hit MAX_SEGMENTS limit,
-    // we want to keep the newest (near the boat) and drop the oldest (far behind)
     return segments.reverse();
+  }
+
+  /**
+   * Get tile statistics for stats panel.
+   */
+  getTileStats(): {
+    activeTiles: number;
+    maxTiles: number;
+    tileHits: number;
+    cpuFallbacks: number;
+  } | null {
+    if (!this.tilePipeline) return null;
+    return {
+      activeTiles: this.tilePipeline.getActiveTileCount(),
+      maxTiles: this.tilePipeline.getMaxTileCount(),
+      tileHits: this.tilePipeline.stats.tileHits,
+      cpuFallbacks: this.tilePipeline.stats.cpuFallbacks,
+    };
+  }
+
+  /**
+   * Reset per-frame stats counters.
+   */
+  resetStatsCounters(): void {
+    this.tilePipeline?.stats.reset();
+  }
+
+  /**
+   * Clean up GPU resources.
+   */
+  onDestroy() {
+    this.tilePipeline?.destroy();
+    this.tilePipeline = null;
+    this.gpuInitialized = false;
   }
 }

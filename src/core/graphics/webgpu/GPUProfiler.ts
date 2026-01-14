@@ -6,6 +6,9 @@
  * mapping conflicts since mapAsync is asynchronous.
  */
 
+import { asyncProfiler } from "../../util/AsyncProfiler";
+import { DoubleBuffer } from "../../util/DoubleBuffer";
+
 /** Available profiling sections */
 export type GPUProfileSection = (typeof GPUProfiler)["SECTIONS"][number];
 
@@ -26,7 +29,6 @@ export class GPUProfiler {
     "tileCompute",
     "modifierCompute",
     "windCompute",
-    "readback",
   ] as const;
   private static readonly QUERY_COUNT = GPUProfiler.SECTIONS.length * 2;
 
@@ -35,8 +37,7 @@ export class GPUProfiler {
   private resolveBuffer: GPUBuffer;
 
   // Double-buffer to avoid mapping conflicts
-  private readBuffers: GPUBuffer[];
-  private currentBufferIndex = 0;
+  private readBuffers: DoubleBuffer<GPUBuffer>;
   private pendingMap = false;
 
   // Section data with smoothed results
@@ -60,7 +61,7 @@ export class GPUProfiler {
     });
 
     // Double-buffered read buffers to avoid mapping conflicts
-    this.readBuffers = [
+    this.readBuffers = new DoubleBuffer(
       device.createBuffer({
         size: bufferSize,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
@@ -69,7 +70,7 @@ export class GPUProfiler {
         size: bufferSize,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       }),
-    ];
+    );
 
     // Initialize section data with query indices
     this.sections = new Map();
@@ -87,7 +88,7 @@ export class GPUProfiler {
    * Returns undefined if profiling is disabled.
    */
   getTimestampWrites(
-    section: GPUProfileSection = "render"
+    section: GPUProfileSection = "render",
   ): GPURenderPassTimestampWrites | undefined {
     if (!this.enabled) return undefined;
     const data = this.sections.get(section);
@@ -104,7 +105,7 @@ export class GPUProfiler {
    * Returns undefined if profiling is disabled.
    */
   getComputeTimestampWrites(
-    section: GPUProfileSection
+    section: GPUProfileSection,
   ): GPUComputePassTimestampWrites | undefined {
     if (!this.enabled) return undefined;
     const data = this.sections.get(section);
@@ -125,7 +126,7 @@ export class GPUProfiler {
   writeTimestamp(
     section: GPUProfileSection,
     point: "start" | "end",
-    encoder: GPUCommandEncoder
+    encoder: GPUCommandEncoder,
   ): void {
     if (!this.enabled) return;
     const data = this.sections.get(section);
@@ -152,18 +153,16 @@ export class GPUProfiler {
       0,
       GPUProfiler.QUERY_COUNT,
       this.resolveBuffer,
-      0
+      0,
     );
 
     // Copy to mappable read buffer (use the buffer we're NOT currently reading from)
-    const writeBufferIndex = (this.currentBufferIndex + 1) % 2;
-    const readBuffer = this.readBuffers[writeBufferIndex];
     encoder.copyBufferToBuffer(
       this.resolveBuffer,
       0,
-      readBuffer,
+      this.readBuffers.getWrite(),
       0,
-      GPUProfiler.QUERY_COUNT * 8
+      GPUProfiler.QUERY_COUNT * 8,
     );
   }
 
@@ -174,34 +173,36 @@ export class GPUProfiler {
   readResults(): void {
     if (!this.enabled || this.pendingMap) return;
 
-    const readBuffer = this.readBuffers[this.currentBufferIndex];
+    const readBuffer = this.readBuffers.getRead();
     this.pendingMap = true;
 
     readBuffer
       .mapAsync(GPUMapMode.READ)
-      .then(() => {
-        const times = new BigUint64Array(readBuffer.getMappedRange());
+      .then(
+        asyncProfiler.wrapCallback("GPUProfiler.processResults", () => {
+          const times = new BigUint64Array(readBuffer.getMappedRange());
 
-        // Process each section
-        for (const [section, data] of this.sections) {
-          const startNs = times[data.queryStartIndex];
-          const endNs = times[data.queryEndIndex];
+          // Process each section
+          for (const [, data] of this.sections) {
+            const startNs = times[data.queryStartIndex];
+            const endNs = times[data.queryEndIndex];
 
-          // Only update if we have valid timestamps (non-zero)
-          if (startNs > 0 && endNs > 0 && endNs >= startNs) {
-            const elapsedMs = Number(endNs - startNs) / 1_000_000;
-            data.smoothedMs =
-              this.smoothing * data.smoothedMs +
-              (1 - this.smoothing) * elapsedMs;
+            // Only update if we have valid timestamps (non-zero)
+            if (startNs > 0 && endNs > 0 && endNs >= startNs) {
+              const elapsedMs = Number(endNs - startNs) / 1_000_000;
+              data.smoothedMs =
+                this.smoothing * data.smoothedMs +
+                (1 - this.smoothing) * elapsedMs;
+            }
           }
-        }
 
-        readBuffer.unmap();
-        this.pendingMap = false;
+          readBuffer.unmap();
+          this.pendingMap = false;
 
-        // Swap to other buffer for next frame
-        this.currentBufferIndex = (this.currentBufferIndex + 1) % 2;
-      })
+          // Swap to other buffer for next frame
+          this.readBuffers.swap();
+        }),
+      )
       .catch(() => {
         // Mapping failed (e.g., buffer already mapped), ignore
         this.pendingMap = false;
@@ -221,7 +222,7 @@ export class GPUProfiler {
    */
   getAllMs(): Record<GPUProfileSection, number> {
     return Object.fromEntries(
-      GPUProfiler.SECTIONS.map((section) => [section, this.getMs(section)])
+      GPUProfiler.SECTIONS.map((section) => [section, this.getMs(section)]),
     ) as Record<GPUProfileSection, number>;
   }
 

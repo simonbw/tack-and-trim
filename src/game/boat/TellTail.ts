@@ -9,8 +9,8 @@ import {
   flatPlateDrag,
   ForceMagnitudeFn,
 } from "../fluid-dynamics";
-import type { Wind } from "../Wind";
-import type { WindQueryForecast, WindQuerier } from "../wind/WindQuerier";
+import type { QueryForecast } from "../datatiles/DataTileTypes";
+import type { WindInfo } from "../wind/WindInfo";
 
 // Units: feet (ft), lbs
 // TellTail dimensions
@@ -29,7 +29,7 @@ const TELLTAIL_COLOR = 0xff6600;
 /** No lift for a thin streamer - it just gets pushed by the wind. */
 const noLift: ForceMagnitudeFn = () => 0;
 
-export class TellTail extends BaseEntity implements WindQuerier {
+export class TellTail extends BaseEntity {
   layer = "telltails" as const;
   tags = ["windQuerier"];
   bodies: DynamicBody[];
@@ -74,7 +74,9 @@ export class TellTail extends BaseEntity implements WindQuerier {
     firstBody.position.set(this.getAttachmentPoint());
     firstBody.velocity.set(this.getAttachmentVelocity());
 
-    const wind = this.game?.entities.getById("wind") as Wind | undefined;
+    const wind = this.game?.entities.getById("windInfo") as
+      | WindInfo
+      | undefined;
     if (!wind) return;
 
     const getFluidVelocity = (point: V2d): V2d =>
@@ -122,8 +124,8 @@ export class TellTail extends BaseEntity implements WindQuerier {
     });
   }
 
-  // WindQuerier implementation
-  getWindQueryForecast(): WindQueryForecast | null {
+  // Wind querier implementation (duck typed via "windQuerier" tag)
+  getQueryForecast(): QueryForecast | null {
     // Compute AABB around tell tail bodies
     let minX = Infinity,
       minY = Infinity;

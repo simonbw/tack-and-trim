@@ -2,7 +2,7 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import { AABB } from "../../core/util/SparseSpatialHash";
 import { V2d } from "../../core/Vector";
 import { WaterContribution, WaterModifier } from "./WaterModifier";
-import type { WakeSegmentData } from "./webgpu/ModifierComputeGPU";
+import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
 
 // Units: feet (ft), seconds
 // Wake particle configuration
@@ -31,6 +31,7 @@ export type WakeSide = "left" | "right";
  * Implements WaterModifier to contribute to water state queries.
  */
 export class WakeParticle extends BaseEntity implements WaterModifier {
+  tickLayer = "effects" as const;
   tags = ["waterModifier"];
 
   // Chain links for ribbon rendering
@@ -290,6 +291,10 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
         endRadius: next.getCurrentRadius(),
         startIntensity: startIntensity,
         endIntensity: next.intensity * next.getWarmupMultiplier(),
+        startVelX: this.scaledVelX,
+        startVelY: this.scaledVelY,
+        endVelX: next.scaledVelX,
+        endVelY: next.scaledVelY,
       };
     } else {
       // Tail particle - degenerate segment (circle)
@@ -302,6 +307,10 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
         endRadius: startRadius,
         startIntensity: startIntensity,
         endIntensity: startIntensity,
+        startVelX: this.scaledVelX,
+        startVelY: this.scaledVelY,
+        endVelX: this.scaledVelX,
+        endVelY: this.scaledVelY,
       };
     }
   }

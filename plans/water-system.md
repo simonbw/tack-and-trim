@@ -72,8 +72,8 @@ interface WaterState {
 - [x] Expanding influence radius over lifetime
 - [x] Warmup period before physics effects
 - [x] Decay/aging and self-destruction
-- [ ] Bow wave spray particles
-- [ ] Kelvin wake pattern overlay (V-shaped visual)
+- [x] Bow wave spray particles
+- [x] Kelvin wake pattern overlay (V-shaped visual)
 
 ---
 

@@ -59,8 +59,6 @@ export type BaseGameEvents = {
   afterPhysics: void;
   /** Called after each physics step (inside the tick loop, before contacts) */
   afterPhysicsStep: number;
-  /** Called before the tick happens */
-  beforeTick: number;
   /** Called before rendering - use destructuring: onRender({ dt, layer, draw }) */
   render: RenderEventData;
   /** Called during the update tick */

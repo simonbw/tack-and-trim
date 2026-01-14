@@ -1,10 +1,10 @@
 import { Camera2d, Viewport } from "../../core/graphics/Camera2d";
 import type { Draw } from "../../core/graphics/Draw";
-import { Wind } from "../Wind";
+import type { WindInfo } from "../wind/WindInfo";
 
 export interface WindVisualizationMode {
   /**
    * Draw the visualization.
    */
-  draw(wind: Wind, viewport: Viewport, camera: Camera2d, draw: Draw): void;
+  draw(wind: WindInfo, viewport: Viewport, camera: Camera2d, draw: Draw): void;
 }

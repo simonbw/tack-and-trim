@@ -1,14 +1,21 @@
 /**
- * WebGPU Water System
+ * WebGPU Water Physics
  *
- * Provides WebGPU-based water rendering:
- * - WaveComputeGPU: Compute shader for Gerstner waves
- * - WaterShaderGPU: Render shader for water surface
- * - WaterComputePipelineGPU: Orchestrates wave computation
- * - WaterRendererGPU: Entity for water rendering
+ * Provides WebGPU-based water physics computation:
+ * - WaterStateCompute: Unified compute shader for waves + modifiers
+ * - WaterComputeBuffers: Shared buffer management
+ * - WaterPhysicsTileCompute: Physics tile compute
+ *
+ * For rendering, see water/rendering/
  */
 
-export { WaveComputeGPU } from "./WaveComputeGPU";
-export { WaterShaderGPU } from "./WaterShaderGPU";
-export { WaterComputePipelineGPU, type Viewport } from "./WaterComputePipelineGPU";
-export { WaterRendererGPU } from "./WaterRendererGPU";
+export {
+  WaterComputeBuffers,
+  type WakeSegmentData,
+  type WaterComputeParams,
+} from "./WaterComputeBuffers";
+export {
+  WaterDataTileCompute as WaterPhysicsTileCompute,
+  type WaterPhysicsData,
+} from "./WaterDataTileCompute";
+export { WATER_STATE_SHADER, WaterStateCompute } from "./WaterStateCompute";

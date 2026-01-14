@@ -5,31 +5,37 @@
  * Supports hybrid GPU/CPU computation:
  * - GPU tiles provide wind data for in-viewport queries (faster)
  * - CPU fallback for out-of-viewport queries (consistent)
+ *
+ * Also provides control methods for setting base wind direction/speed.
  */
 
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import BaseEntity from "../../core/entity/BaseEntity";
 import Game from "../../core/Game";
 import { profile } from "../../core/util/Profiler";
-import type {
-  StatsProvider,
-  StatsSection,
-} from "../../core/util/stats-overlay/StatsProvider";
+import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
-import type { Wind } from "../Wind";
+import { DataTileComputePipeline } from "../datatiles/DataTileComputePipeline";
+import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
+import type {
+  DataTileGridConfig,
+  QueryForecast,
+} from "../datatiles/DataTileTypes";
+import { WindModifier } from "../WindModifier";
 import {
   computeBaseWindAtPoint,
   WindComputeParams,
 } from "./cpu/WindComputeCPU";
-import { WindTileManager } from "./tiles/WindTileManager";
-import { WindTileReadbackPool } from "./tiles/WindTileReadbackPool";
-import { DEFAULT_WIND_TILE_CONFIG } from "./tiles/WindTileTypes";
-import { isWindQuerier } from "./WindQuerier";
-import type { GPUSailData, GPUTurbulenceData } from "./webgpu/WindModifierData";
-import {
-  WindComputePipelineGPU,
-  WindViewport,
-} from "./webgpu/WindComputePipelineGPU";
+import { WindTileCompute } from "./webgpu/WindTileCompute";
+import { WIND_VELOCITY_SCALE } from "./WindConstants";
+
+/**
+ * Wind velocity sample type.
+ */
+export interface WindVelocity {
+  velocityX: number;
+  velocityY: number;
+}
 
 /**
  * Wind velocity at a given point.
@@ -40,11 +46,35 @@ export interface WindState {
 }
 
 /**
+ * Wind tile grid configuration.
+ */
+const WIND_TILE_CONFIG: DataTileGridConfig = {
+  tileSize: 64,
+  tileResolution: 256,
+  maxTilesPerFrame: 64,
+  minScoreThreshold: 1,
+};
+
+/**
+ * Wind readback buffer configuration.
+ */
+const WIND_READBACK_CONFIG: DataTileReadbackConfig<WindVelocity> = {
+  channelCount: 2,
+  bytesPerPixel: 8, // rg32float
+  label: "Wind",
+  texelToSample: (c) => ({ velocityX: c[0], velocityY: c[1] }),
+  denormalize: (s) => ({
+    velocityX: (s.velocityX - 0.5) * WIND_VELOCITY_SCALE,
+    velocityY: (s.velocityY - 0.5) * WIND_VELOCITY_SCALE,
+  }),
+};
+
+/**
  * Wind physics data provider.
  */
-export class WindInfo extends BaseEntity implements StatsProvider {
+export class WindInfo extends BaseEntity {
   id = "windInfo";
-  tags = ["statsProvider"];
+  tickLayer = "environment" as const;
 
   /**
    * Get the WindInfo entity from a game instance.
@@ -53,30 +83,61 @@ export class WindInfo extends BaseEntity implements StatsProvider {
     return game.entities.getById("windInfo") as WindInfo | null;
   }
 
-  // GPU compute pipeline
-  private pipeline: WindComputePipelineGPU | null = null;
+  // Base wind velocity - the global wind direction and speed
+  private baseVelocity: V2d = V(11, 11); // ~15 ft/s (~9 kts), NW breeze
 
-  // Tile system
-  private tileManager: WindTileManager;
-  private tileReadbackPool: WindTileReadbackPool | null = null;
+  // Tile pipeline for physics queries (using shared abstraction)
+  private tilePipeline: DataTileComputePipeline<
+    WindVelocity,
+    WindTileCompute
+  > | null = null;
 
   // CPU fallback noise functions
   private speedNoise: NoiseFunction3D = createNoise3D();
   private angleNoise: NoiseFunction3D = createNoise3D();
 
-  // Cache base wind reference
-  private wind: Wind | null = null;
+  // Spatial hash for wind modifier queries (CPU fallback)
+  private spatialHash = new SparseSpatialHash<WindModifier>((m) =>
+    m.getWindModifierAABB(),
+  );
 
   // Track initialization state
   private gpuInitialized = false;
 
-  constructor() {
-    super();
-    this.tileManager = new WindTileManager();
+  onAfterAdded() {
+    // Initialize GPU resources after entity is fully added
+    this.initGPU().catch(console.error);
   }
 
-  onAdd() {
-    this.wind = this.game!.entities.getById("wind") as Wind | null;
+  /**
+   * Complete tile readbacks and rebuild spatial hash.
+   */
+  @profile
+  onTick() {
+    // Complete readbacks from previous frame
+    if (this.tilePipeline) {
+      this.tilePipeline.completeReadbacks().catch((error) => {
+        console.warn("Wind tile readback error:", error);
+      });
+    }
+
+    // Rebuild spatial hash from all wind modifiers (for CPU fallback)
+    this.spatialHash.clear();
+    const modifiers = this.game!.entities.getTagged("windModifier");
+    for (const modifier of modifiers) {
+      this.spatialHash.add(modifier as unknown as WindModifier);
+    }
+  }
+
+  /**
+   * Compute tiles after physics.
+   */
+  @profile
+  onAfterPhysics() {
+    if (!this.tilePipeline || !this.gpuInitialized) return;
+
+    this.collectQueryForecasts();
+    this.computeTiles();
   }
 
   /**
@@ -86,155 +147,112 @@ export class WindInfo extends BaseEntity implements StatsProvider {
   async initGPU(): Promise<void> {
     if (this.gpuInitialized) return;
 
-    const config = DEFAULT_WIND_TILE_CONFIG;
-
-    // Initialize compute pipeline
-    this.pipeline = new WindComputePipelineGPU();
-    await this.pipeline.init();
-
-    // Initialize readback pool
-    this.tileReadbackPool = new WindTileReadbackPool(
-      config.maxTilesPerFrame,
-      config.tileResolution,
+    // Initialize tile pipeline with composition pattern
+    // This creates one WindTileCompute per tile slot
+    this.tilePipeline = new DataTileComputePipeline<
+      WindVelocity,
+      WindTileCompute
+    >(
+      WIND_TILE_CONFIG,
+      WIND_READBACK_CONFIG,
+      (resolution) => new WindTileCompute(resolution),
     );
-    await this.tileReadbackPool.init();
+    await this.tilePipeline.init();
 
     this.gpuInitialized = true;
   }
 
   /**
-   * Complete pending readbacks from previous frame.
-   * Call at start of tick.
-   */
-  async completeReadbacks(): Promise<void> {
-    if (this.tileReadbackPool) {
-      await this.tileReadbackPool.completeAllReadbacks();
-    }
-  }
-
-  /**
-   * Collect query forecasts from all WindQuerier entities.
-   * Call during tile selection phase.
+   * Collect query forecasts from all windQuerier-tagged entities.
    */
   @profile
-  collectQueryForecasts(): void {
-    this.tileManager.resetScores();
+  private collectQueryForecasts(): void {
+    if (!this.tilePipeline) return;
+
+    this.tilePipeline.resetScores();
 
     const queriers = this.game!.entities.getTagged("windQuerier");
     for (const entity of queriers) {
-      if (isWindQuerier(entity)) {
-        const forecast = entity.getWindQueryForecast();
-        if (forecast) {
-          this.tileManager.accumulateScore(forecast);
-        }
+      const forecast = (
+        entity as { getQueryForecast?(): QueryForecast | null }
+      ).getQueryForecast?.();
+      if (forecast) {
+        this.tilePipeline.accumulateForecast(forecast);
       }
     }
   }
 
   /**
    * Select and compute wind tiles for this frame.
-   * Call after collecting forecasts.
    */
   @profile
-  computeTiles(): void {
-    if (!this.pipeline || !this.tileReadbackPool || !this.wind) return;
+  private computeTiles(): void {
+    if (!this.tilePipeline) return;
 
     const currentTime = this.game!.elapsedUnpausedTime;
-
-    // Get GPU profiler for timing
     const gpuProfiler = this.game?.renderer.getGpuProfiler();
 
-    // Select tiles to compute
-    const tiles = this.tileManager.selectTilesToCompute(currentTime);
+    // Get base wind velocity components
+    const baseWindX = this.baseVelocity.x;
+    const baseWindY = this.baseVelocity.y;
 
-    // Assign buffers to tiles
-    this.tileReadbackPool.assignBuffersToTiles(tiles);
-
-    // Collect modifier data
-    const sails = this.collectGPUSailData();
-    const turbulence = this.collectGPUTurbulenceData();
-
-    // Get base wind velocity
-    const baseWind = V(
-      this.wind.getSpeed() * Math.cos(this.wind.getAngle()),
-      this.wind.getSpeed() * Math.sin(this.wind.getAngle()),
+    // Compute tiles using callback pattern for domain-specific compute
+    this.tilePipeline.computeTiles(
+      currentTime,
+      (compute, viewport) => {
+        compute.setBaseWind(baseWindX, baseWindY);
+        compute.runCompute(
+          viewport.time,
+          viewport.left,
+          viewport.top,
+          viewport.width,
+          viewport.height,
+        );
+      },
+      gpuProfiler,
     );
-
-    // Compute each tile
-    for (let i = 0; i < tiles.length; i++) {
-      const tile = tiles[i];
-      const viewport: WindViewport = {
-        left: tile.bounds.minX,
-        top: tile.bounds.minY,
-        width: tile.bounds.maxX - tile.bounds.minX,
-        height: tile.bounds.maxY - tile.bounds.minY,
-      };
-
-      // Run GPU compute with profiler
-      this.pipeline.update(
-        viewport,
-        currentTime,
-        baseWind,
-        sails,
-        turbulence,
-        gpuProfiler,
-      );
-
-      // Initiate readback
-      const texture = this.pipeline.getWindTexture();
-      if (texture) {
-        this.tileReadbackPool.initiateReadback(i, texture, {
-          left: viewport.left,
-          top: viewport.top,
-          width: viewport.width,
-          height: viewport.height,
-          time: currentTime,
-        });
-      }
-
-      tile.lastComputedTime = currentTime;
-    }
   }
 
   /**
    * Get wind velocity at a given world position.
    * Uses GPU tiles when available, falls back to CPU.
    */
-  getVelocityAtPoint(point: V2d): V2d | null {
-    if (!this.gpuInitialized || !this.tileReadbackPool || !this.wind) {
-      return null;
-    }
-
-    // Try tile lookup
-    const tile = this.tileManager.findTileForPoint(point[0], point[1]);
-    if (tile) {
-      const result = this.tileReadbackPool.sampleAtWorldPoint(
-        tile,
-        point[0],
-        point[1],
-      );
+  getVelocityAtPoint(point: V2d): V2d {
+    // Try GPU path if initialized
+    if (this.gpuInitialized && this.tilePipeline) {
+      const result = this.tilePipeline.sampleAtWorldPoint(point[0], point[1]);
       if (result) {
-        // GPU returns combined base + modifiers
         return V(result.velocityX, result.velocityY);
       }
     }
 
-    // CPU fallback
-    return this.computeCPUWind(point);
+    // CPU fallback: base wind + modifiers
+    const velocity = this.computeCPUBaseWind(point);
+
+    // Query spatial hash for modifiers that might affect this point
+    for (const modifier of this.spatialHash.queryPoint(point)) {
+      velocity.iadd(modifier.getWindVelocityContribution(point));
+    }
+
+    return velocity;
   }
 
   /**
-   * CPU fallback for wind computation.
+   * Get base wind velocity at a point (without modifier contributions).
+   * Uses GPU path if available, CPU fallback otherwise.
    */
-  private computeCPUWind(point: V2d): V2d | null {
-    if (!this.wind) return null;
+  getBaseVelocityAtPoint(point: V2d): V2d {
+    // For now, always use CPU computation since GPU doesn't distinguish base vs modified
+    return this.computeCPUBaseWind(point);
+  }
 
+  /**
+   * CPU fallback for base wind computation.
+   */
+  private computeCPUBaseWind(point: V2d): V2d {
     const params: WindComputeParams = {
       time: this.game!.elapsedUnpausedTime,
-      baseVelocity: V(
-        this.wind.getSpeed() * Math.cos(this.wind.getAngle()),
-        this.wind.getSpeed() * Math.sin(this.wind.getAngle()),
-      ),
+      baseVelocity: this.baseVelocity.clone(),
       speedNoise: this.speedNoise,
       angleNoise: this.angleNoise,
     };
@@ -243,107 +261,68 @@ export class WindInfo extends BaseEntity implements StatsProvider {
     return V(result.velocityX, result.velocityY);
   }
 
+  // ==========================================
+  // Wind control methods (moved from Wind.ts)
+  // ==========================================
+
   /**
-   * Collect sail wind effect data for GPU compute.
+   * Set the base wind velocity directly.
    */
-  private collectGPUSailData(): GPUSailData[] {
-    const sails: GPUSailData[] = [];
-    const modifiers = this.game!.entities.getTagged("windModifier");
-
-    for (const entity of modifiers) {
-      // Check if entity has GPU data method
-      const maybeProvider = entity as unknown as {
-        getGPUSailData?: () => GPUSailData | null;
-      };
-      if (typeof maybeProvider.getGPUSailData === "function") {
-        const data = maybeProvider.getGPUSailData();
-        if (data) {
-          sails.push(data);
-        }
-      }
-    }
-
-    return sails;
+  setVelocity(velocity: V2d): void {
+    this.baseVelocity.set(velocity);
   }
 
   /**
-   * Collect turbulence particle data for GPU compute.
+   * Set the base wind from angle and speed.
+   * @param angle Wind direction in radians (0 = east, PI/2 = north)
+   * @param speed Wind speed in ft/s
    */
-  private collectGPUTurbulenceData(): GPUTurbulenceData[] {
-    const particles: GPUTurbulenceData[] = [];
-    const turbulenceEntities = this.game!.entities.getTagged("turbulence");
-
-    for (const entity of turbulenceEntities) {
-      // Check if entity has GPU data method
-      const maybeProvider = entity as unknown as {
-        getGPUTurbulenceData?: () => GPUTurbulenceData | null;
-      };
-      if (typeof maybeProvider.getGPUTurbulenceData === "function") {
-        const data = maybeProvider.getGPUTurbulenceData();
-        if (data) {
-          particles.push(data);
-        }
-      }
-    }
-
-    return particles;
+  setFromAngleAndSpeed(angle: number, speed: number): void {
+    this.baseVelocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed);
   }
 
   /**
-   * StatsProvider implementation.
+   * Get the base wind speed.
    */
-  getStatsSection(): StatsSection | null {
-    if (!this.tileReadbackPool) return null;
+  getSpeed(): number {
+    return this.baseVelocity.magnitude;
+  }
 
-    const activeTiles = this.tileManager.getActiveTileCount();
-    const tileHits = this.tileReadbackPool.stats.tileHits;
-    const cpuFallbacks = this.tileReadbackPool.stats.cpuFallbacks;
-    const total = tileHits + cpuFallbacks;
+  /**
+   * Get the base wind angle in radians.
+   */
+  getAngle(): number {
+    return this.baseVelocity.angle;
+  }
 
-    if (total === 0 && activeTiles === 0) return null;
+  /**
+   * Get all wind modifiers (for visualization).
+   */
+  getModifiers(): readonly WindModifier[] {
+    return this.game!.entities.getTagged(
+      "windModifier",
+    ) as unknown as readonly WindModifier[];
+  }
 
-    // Get GPU timing
-    const gpuMs = this.game?.renderer.getGpuMs("windCompute") ?? 0;
+  // ==========================================
+  // Stats and utility methods
+  // ==========================================
 
-    const items: StatsSection["items"] = [];
-
-    // GPU time (if available)
-    if (gpuMs > 0) {
-      items.push({
-        label: "GPU Time",
-        value: `${gpuMs.toFixed(2)}ms`,
-        color: gpuMs > 2 ? "warning" : "success",
-      });
-    }
-
-    items.push({
-      label: "Active Tiles",
-      value: `${activeTiles}`,
-      color: activeTiles > 0 ? "success" : "muted",
-    });
-
-    if (total > 0) {
-      const gpuPercent = (tileHits / total) * 100;
-      items.push({
-        label: "Tile Hits",
-        value: `${gpuPercent.toFixed(0)}% (${tileHits}/${total})`,
-        color:
-          gpuPercent > 90 ? "success" : gpuPercent > 50 ? "warning" : "error",
-      });
-
-      if (cpuFallbacks > 0) {
-        items.push({
-          label: "CPU Fallbacks",
-          value: `${cpuFallbacks}`,
-          indent: true,
-          color: "muted",
-        });
-      }
-    }
-
+  /**
+   * Get tile statistics for stats panel.
+   */
+  getTileStats(): {
+    activeTiles: number;
+    maxTiles: number;
+    tileHits: number;
+    cpuFallbacks: number;
+  } | null {
+    if (!this.tilePipeline) return null;
     return {
-      title: "Wind Physics",
-      items,
+      activeTiles: this.tilePipeline.getActiveTileCount(),
+      maxTiles: this.tilePipeline.getMaxTileCount(),
+      tileHits: this.tilePipeline.stats.tileHits,
+      cpuFallbacks: this.tilePipeline.stats.cpuFallbacks,
     };
   }
 
@@ -351,7 +330,7 @@ export class WindInfo extends BaseEntity implements StatsProvider {
    * Reset per-frame stats counters.
    */
   resetStatsCounters(): void {
-    this.tileReadbackPool?.stats.reset();
+    this.tilePipeline?.stats.reset();
   }
 
   /**
@@ -364,18 +343,16 @@ export class WindInfo extends BaseEntity implements StatsProvider {
   /**
    * Get the tile manager.
    */
-  getTileManager(): WindTileManager {
-    return this.tileManager;
+  getTileManager() {
+    return this.tilePipeline?.getTileManager() ?? null;
   }
 
   /**
    * Clean up GPU resources.
    */
   onDestroy() {
-    this.pipeline?.destroy();
-    this.tileReadbackPool?.destroy();
-    this.pipeline = null;
-    this.tileReadbackPool = null;
+    this.tilePipeline?.destroy();
+    this.tilePipeline = null;
     this.gpuInitialized = false;
   }
 }

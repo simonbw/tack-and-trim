@@ -7,10 +7,11 @@ import { Boat } from "./boat/Boat";
 const ZOOM_SPEED = 0.75;
 
 export class CameraController extends BaseEntity {
+  tickLayer = "camera" as const;
   zTarget: number = 5;
   constructor(
     private boat: Boat,
-    private camera: Camera2d
+    private camera: Camera2d,
   ) {
     super();
   }

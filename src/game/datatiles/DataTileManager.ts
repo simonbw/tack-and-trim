@@ -1,34 +1,33 @@
 /**
- * Manages the tile grid and scoring for GPU wind computation.
+ * Manages the data tile grid and scoring for GPU computation.
  *
  * Responsibilities:
- * - Track tiles and their scores
+ * - Track data tiles and their scores
  * - Accumulate scores from query forecasts
  * - Select which tiles to compute each frame
  * - Find tiles for world-space queries
  */
 
-import type { WindQueryForecast } from "../WindQuerier";
 import {
-  DEFAULT_WIND_TILE_CONFIG,
-  getWindTileBounds,
-  WindTile,
-  WindTileGridConfig,
-  WindTileId,
-  toWindTileId,
-  worldToWindGrid,
-} from "./WindTileTypes";
+  getTileBounds,
+  QueryForecast,
+  DataTile,
+  DataTileGridConfig,
+  DataTileId,
+  toDataTileId,
+  worldToTileGrid,
+} from "./DataTileTypes";
 
 /**
- * Manages the tile grid and scoring for wind physics computation.
+ * Manages the data tile grid and scoring for GPU computation.
  */
-export class WindTileManager {
-  private config: WindTileGridConfig;
-  private tiles = new Map<WindTileId, WindTile>();
-  private activeTiles: WindTile[] = [];
+export class DataTileManager {
+  private config: DataTileGridConfig;
+  private tiles = new Map<DataTileId, DataTile>();
+  private activeTiles: DataTile[] = [];
 
-  constructor(config: Partial<WindTileGridConfig> = {}) {
-    this.config = { ...DEFAULT_WIND_TILE_CONFIG, ...config };
+  constructor(config: DataTileGridConfig) {
+    this.config = config;
   }
 
   /**
@@ -44,7 +43,7 @@ export class WindTileManager {
    * Accumulate scores from a query forecast.
    * Distributes the query count proportionally across overlapping tiles.
    */
-  accumulateScore(forecast: WindQueryForecast): void {
+  accumulateScore(forecast: QueryForecast): void {
     const { aabb, queryCount } = forecast;
     if (queryCount <= 0) return;
 
@@ -69,7 +68,7 @@ export class WindTileManager {
    * Select which tiles to compute this frame.
    * Returns tiles sorted by score (highest first), limited to maxTilesPerFrame.
    */
-  selectTilesToCompute(_currentTime: number): WindTile[] {
+  selectTilesToCompute(_currentTime: number): DataTile[] {
     // Filter tiles above threshold
     const candidates = Array.from(this.tiles.values()).filter(
       (t) => t.score >= this.config.minScoreThreshold,
@@ -87,8 +86,8 @@ export class WindTileManager {
   /**
    * Get or create a tile at grid coordinates.
    */
-  private getOrCreateTile(gridX: number, gridY: number): WindTile {
-    const id = toWindTileId(gridX, gridY);
+  private getOrCreateTile(gridX: number, gridY: number): DataTile {
+    const id = toDataTileId(gridX, gridY);
     let tile = this.tiles.get(id);
 
     if (!tile) {
@@ -96,7 +95,7 @@ export class WindTileManager {
         id,
         gridX,
         gridY,
-        bounds: getWindTileBounds(gridX, gridY, this.config.tileSize),
+        bounds: getTileBounds(gridX, gridY, this.config.tileSize),
         score: 0,
         lastComputedTime: -Infinity,
         bufferIndex: -1,
@@ -111,13 +110,13 @@ export class WindTileManager {
    * Find tile containing a world point.
    * Returns null if no tile exists or tile is not active (no buffer assigned).
    */
-  findTileForPoint(worldX: number, worldY: number): WindTile | null {
-    const [gridX, gridY] = worldToWindGrid(
+  findTileForPoint(worldX: number, worldY: number): DataTile | null {
+    const [gridX, gridY] = worldToTileGrid(
       worldX,
       worldY,
       this.config.tileSize,
     );
-    const id = toWindTileId(gridX, gridY);
+    const id = toDataTileId(gridX, gridY);
     const tile = this.tiles.get(id);
 
     // Only return if tile is active (has a buffer assigned)
@@ -134,14 +133,14 @@ export class WindTileManager {
   /**
    * Get active tiles for this frame.
    */
-  getActiveTiles(): readonly WindTile[] {
+  getActiveTiles(): readonly DataTile[] {
     return this.activeTiles;
   }
 
   /**
    * Get the tile configuration.
    */
-  getConfig(): WindTileGridConfig {
+  getConfig(): DataTileGridConfig {
     return this.config;
   }
 

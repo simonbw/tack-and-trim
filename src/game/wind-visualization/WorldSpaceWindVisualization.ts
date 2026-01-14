@@ -2,13 +2,13 @@ import { Camera2d, Viewport } from "../../core/graphics/Camera2d";
 import type { Draw } from "../../core/graphics/Draw";
 import { clamp, lerp } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
-import { Wind } from "../Wind";
+import type { WindInfo } from "../wind/WindInfo";
 import { WindVisualizationMode } from "./WindVisualizationMode";
 
 // Grid configuration - adaptive LOD
 const BASE_SPACING = 8;
 const MAX_LOD = 4;
-const WORLD_TRIANGLE_SIZE = 12;
+const WORLD_TRIANGLE_SIZE = 24;
 const BASE_VIEWPORT_SIZE = 400;
 
 // Triangle rendering
@@ -19,6 +19,7 @@ const MAX_WIND_SPEED = 200;
 // Colors
 const TRIANGLE_COLOR = 0x88ccff;
 const TRIANGLE_MODIFIED_COLOR = 0xffcc88;
+const CALM_WIND_COLOR = 0x666666;
 
 /**
  * World-space wind visualization mode.
@@ -26,7 +27,7 @@ const TRIANGLE_MODIFIED_COLOR = 0xffcc88;
  * Triangle size scales inversely with zoom to stay constant on screen.
  */
 export class WorldSpaceWindVisualization implements WindVisualizationMode {
-  draw(wind: Wind, viewport: Viewport, camera: Camera2d, draw: Draw): void {
+  draw(wind: WindInfo, viewport: Viewport, camera: Camera2d, draw: Draw): void {
     const { left, right, top, bottom } = viewport;
 
     // Triangle size scales inversely with zoom to stay constant on screen
@@ -82,7 +83,7 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
   }
 
   private drawTriangle(
-    wind: Wind,
+    wind: WindInfo,
     x: number,
     y: number,
     maxSize: number,
@@ -95,7 +96,11 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
     const speed = velocity.magnitude;
     const angle = velocity.angle;
 
-    if (speed < 1) return;
+    // Draw a small circle for calm/zero wind
+    if (speed < 1) {
+      draw.fillCircle(x, y, maxSize * 0.15, { color: CALM_WIND_COLOR, alpha });
+      return;
+    }
 
     const isModified = !velocity.equals(baseVelocity);
     const speedRatio = clamp(

@@ -26,6 +26,7 @@ const CONFIG = {
 
 export class Wake extends BaseEntity {
   layer = "wake" as const;
+  tickLayer = "effects" as const;
 
   private lastSpawnPos: V2d | null = null;
   private lastSpawnTime: number = 0;

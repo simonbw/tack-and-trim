@@ -5,7 +5,7 @@ import { invLerp, stepToward, sum } from "../core/util/MathUtil";
 import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
-import { Wind } from "./Wind";
+import { WindInfo } from "./wind/WindInfo";
 
 // Configuration (visual/screen-space, not world units)
 const PARTICLE_COUNT = 0; // Target particles per sector
@@ -46,7 +46,9 @@ export class WindParticles extends BaseEntity {
     dt: number;
     draw: import("../core/graphics/Draw").Draw;
   }) {
-    const wind = this.game?.entities.getById("wind") as Wind | undefined;
+    const wind = this.game?.entities.getById("windInfo") as
+      | WindInfo
+      | undefined;
     const viewport = this.game?.camera.getWorldViewport();
 
     if (!this.game || !wind || !viewport || !this.grid) {
@@ -113,7 +115,7 @@ class WindParticle {
   }
 
   /** Update particle state */
-  update(dt: number, wind: Wind) {
+  update(dt: number, wind: WindInfo) {
     const velocity = wind.getVelocityAtPoint(this.pos);
     this.pos.iadd(velocity.imul(dt * PARTICLE_MOVE_SCALE));
 

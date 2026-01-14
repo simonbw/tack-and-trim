@@ -3,20 +3,18 @@ import type Body from "../../core/physics/body/Body";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
+import { AABB } from "../../core/util/SparseSpatialHash";
 import { last, pairs, range } from "../../core/util/FunctionalUtils";
 import { lerpV2d, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import { applyFluidForces } from "../fluid-dynamics";
-import type { Wind } from "../Wind";
-import type { WindQueryForecast, WindQuerier } from "../wind/WindQuerier";
-import type { WindModifier } from "../WindModifier";
-import {
-  calculateCamber,
-  DEFAULT_SAIL_CHORD,
-  sailDrag,
-  sailLift,
-} from "./sail-helpers";
-import { SailWindEffect } from "./SailWindEffect";
+import type { QueryForecast } from "../datatiles/DataTileTypes";
+import type { WindInfo } from "../wind/WindInfo";
+import { SEGMENT_INFLUENCE_RADIUS } from "../wind/WindConstants";
+import { WindModifier } from "../WindModifier";
+import { applySailForces } from "./sail-aerodynamics";
+import { DEFAULT_SAIL_CHORD } from "./sail-helpers";
+import { SailFlowSimulator } from "./SailFlowSimulator";
+import type { SailSegment } from "./SailSegment";
 import { TellTail } from "./TellTail";
 
 // Optional config with defaults
@@ -63,9 +61,9 @@ const DEFAULT_CONFIG: SailConfig = {
   attachTellTail: true,
 };
 
-export class Sail extends BaseEntity implements WindQuerier {
+export class Sail extends BaseEntity implements WindModifier {
   layer = "sails" as const;
-  tags = ["windQuerier"];
+  tags = ["windQuerier", "sail", "windModifier"];
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
@@ -73,8 +71,13 @@ export class Sail extends BaseEntity implements WindQuerier {
   hoistAmount: number = 0;
   targetHoistAmount: number = 0;
 
-  // Reference to our wind effect (for self-skip during wind queries)
-  windEffect: WindModifier | null = null;
+  // Flow simulation
+  private flowSimulator = new SailFlowSimulator();
+  private cachedSegments: SailSegment[] = [];
+  private flowComputedFrame: number = -1;
+
+  // Reusable AABB for WindModifier
+  private readonly aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
   private config: SailParams & SailConfig;
 
@@ -154,8 +157,6 @@ export class Sail extends BaseEntity implements WindQuerier {
         ),
       );
     }
-
-    this.windEffect = this.addChild(new SailWindEffect(this));
   }
 
   /** Get head body (first particle) */
@@ -208,7 +209,7 @@ export class Sail extends BaseEntity implements WindQuerier {
   }
 
   onTick(dt: number) {
-    const { hoistSpeed, getHeadPosition, getForceScale } = this.config;
+    const { hoistSpeed, getForceScale } = this.config;
 
     // Animate hoist amount toward target
     this.hoistAmount = stepToward(
@@ -217,38 +218,134 @@ export class Sail extends BaseEntity implements WindQuerier {
       hoistSpeed * dt,
     );
 
-    const wind = this.game?.entities.getById("wind") as Wind | undefined;
-    if (!wind || this.hoistAmount <= 0) return;
+    if (!this.isHoisted() || this.hoistAmount <= 0) return;
 
-    const getFluidVelocity = (point: V2d): V2d =>
-      wind.getVelocityAtPoint(point);
+    // Get flow states (triggers upwind sail computation if needed)
+    const segments = this.getFlowStates();
+    if (segments.length === 0) return;
 
-    const head = getHeadPosition();
-    const clew = this.getClewPosition();
-
+    // Apply forces based on flow states
     for (let i = 0; i < this.bodies.length; i++) {
       const t = i / (this.bodies.length - 1);
       const forceScale = getForceScale(t) * this.hoistAmount;
 
-      const body = this.bodies[i];
-      const bodyPos = V(body.position);
-      const prevPos = i === 0 ? head : V(this.bodies[i - 1].position);
-      const nextPos =
-        i === this.bodies.length - 1 ? clew : V(this.bodies[i + 1].position);
+      // Find corresponding segment (bodies.length = segments.length + 1)
+      const segmentIndex = Math.min(i, segments.length - 1);
+      const segment = segments[segmentIndex];
 
-      const camber = calculateCamber(prevPos, bodyPos, nextPos);
-      // Use proper sail physics with real chord dimension
-      // Scale effective chord by forceScale (position along sail and hoist amount)
-      const effectiveChord = DEFAULT_SAIL_CHORD * forceScale;
-      const lift = sailLift(effectiveChord, camber);
-      const drag = sailDrag(effectiveChord);
-
-      const v1Local = prevPos.sub(bodyPos);
-      const v2Local = nextPos.sub(bodyPos);
-
-      applyFluidForces(body, v1Local, v2Local, lift, drag, getFluidVelocity);
-      applyFluidForces(body, v2Local, v1Local, lift, drag, getFluidVelocity);
+      applySailForces(this.bodies[i], segment, DEFAULT_SAIL_CHORD, forceScale);
     }
+  }
+
+  /**
+   * Get flow states for all segments. Lazy computation with per-frame caching.
+   * Automatically triggers computation of upwind sails first.
+   */
+  getFlowStates(): SailSegment[] {
+    const currentFrame = this.game?.ticknumber ?? 0;
+
+    if (this.flowComputedFrame === currentFrame) {
+      return this.cachedSegments;
+    }
+
+    const wind = this.game?.entities.getById("windInfo") as
+      | WindInfo
+      | undefined;
+    if (!wind) {
+      return [];
+    }
+
+    // Get upwind sails and trigger their flow computation first
+    const upwindSails = this.getUpwindSails();
+
+    // Build contribution function from upwind sails
+    const getUpwindContribution = (point: V2d): V2d => {
+      let contribution = V(0, 0);
+      for (const sail of upwindSails) {
+        contribution.iadd(sail.getWindContributionAt(point));
+      }
+      return contribution;
+    };
+
+    // Get base wind at sail centroid
+    const baseWind = wind.getBaseVelocityAtPoint(this.getCentroid());
+
+    // Run flow simulation
+    this.cachedSegments = this.flowSimulator.simulate(
+      this.bodies,
+      this.getHeadPosition(),
+      this.getClewPosition(),
+      baseWind,
+      getUpwindContribution,
+    );
+    this.flowComputedFrame = currentFrame;
+
+    return this.cachedSegments;
+  }
+
+  /**
+   * Get sails that are upwind of this sail and might affect it.
+   */
+  private getUpwindSails(): Sail[] {
+    const wind = this.game?.entities.getById("windInfo") as
+      | WindInfo
+      | undefined;
+    if (!wind) return [];
+
+    const windDir = wind.getBaseVelocityAtPoint(this.getCentroid()).normalize();
+    const myPos = this.getCentroid();
+
+    const allSails = this.game?.entities.getTagged("sail") as Sail[];
+    return allSails.filter((sail) => {
+      if (sail === this) return false;
+      const toOther = sail.getCentroid().sub(myPos);
+      return toOther.dot(windDir) < 0; // Other sail is upwind
+    });
+  }
+
+  /**
+   * Get wind velocity contribution at a point from this sail's pressure field.
+   * Used by downwind sails querying this sail's effect.
+   */
+  getWindContributionAt(point: V2d): V2d {
+    const segments = this.getFlowStates();
+    let contribution = V(0, 0);
+
+    for (const segment of segments) {
+      contribution.iadd(
+        this.flowSimulator.getSegmentContribution(point, segment),
+      );
+    }
+
+    return contribution;
+  }
+
+  /**
+   * Get the sail centroid (approximately 1/3 along chord from head).
+   */
+  private getCentroid(): V2d {
+    const head = this.getHeadPosition();
+    const clew = this.getClewPosition();
+    return head.add(clew.sub(head).mul(0.33));
+  }
+
+  // WindModifier interface
+
+  getWindModifierAABB(): AABB {
+    const centroid = this.getCentroid();
+    const radius = this.config.windInfluenceRadius + SEGMENT_INFLUENCE_RADIUS;
+    this.aabb.minX = centroid.x - radius;
+    this.aabb.minY = centroid.y - radius;
+    this.aabb.maxX = centroid.x + radius;
+    this.aabb.maxY = centroid.y + radius;
+    return this.aabb;
+  }
+
+  getWindVelocityContribution(queryPoint: V2d): V2d {
+    if (!this.isHoisted()) {
+      return V(0, 0);
+    }
+    return this.getWindContributionAt(queryPoint);
   }
 
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
@@ -340,8 +437,8 @@ export class Sail extends BaseEntity implements WindQuerier {
     }
   }
 
-  // WindQuerier implementation
-  getWindQueryForecast(): WindQueryForecast | null {
+  // Wind querier implementation (duck typed via "windQuerier" tag)
+  getQueryForecast(): QueryForecast | null {
     // Don't forecast if sail is lowered
     if (this.hoistAmount <= 0) return null;
 

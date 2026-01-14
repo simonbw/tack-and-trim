@@ -1,5 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
-import { Wind } from "../Wind";
+import { WindInfo } from "../wind/WindInfo";
 import { WindVisualizationMode } from "./WindVisualizationMode";
 import { WorldSpaceWindVisualization } from "./WorldSpaceWindVisualization";
 
@@ -37,8 +37,8 @@ export class WindVisualization extends BaseEntity {
       this.modes.length) as VisualizationModeIndex;
   }
 
-  private getWind(): Wind | undefined {
-    return this.game?.entities.getById("wind") as Wind | undefined;
+  private getWind(): WindInfo | undefined {
+    return this.game?.entities.getById("windInfo") as WindInfo | undefined;
   }
 
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {

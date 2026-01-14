@@ -4,6 +4,7 @@ import { EntityFilter, hasBody } from "./EntityFilter";
 import { FilterMultiMap } from "./util/FilterListMap";
 import MultiMap from "./util/MultiMap";
 import { DEFAULT_LAYER } from "../config/layers";
+import { DEFAULT_TICK_LAYER } from "../config/tickLayers";
 
 /** Keeps track of entities. Has lots of useful indexes. */
 export default class EntityList implements Iterable<Entity> {
@@ -17,6 +18,8 @@ export default class EntityList implements Iterable<Entity> {
   private filters = new FilterMultiMap<Entity>();
   /** Maps render layers to entities that render on them */
   private renderLayerEntities = new MultiMap<string, Entity>();
+  /** Maps tick layers to entities that tick on them */
+  private tickLayerEntities = new MultiMap<string, Entity>();
   /** All entities */
   all = new Set<Entity>();
 
@@ -54,6 +57,16 @@ export default class EntityList implements Iterable<Entity> {
       }
     }
 
+    // Index by tick layer for efficient per-layer ticking
+    if (this.handlers.get("tick").includes(entity)) {
+      const tickLayers = entity.tickLayers ?? [
+        entity.tickLayer ?? DEFAULT_TICK_LAYER,
+      ];
+      for (const layer of tickLayers) {
+        this.tickLayerEntities.add(layer, entity);
+      }
+    }
+
     if (entity.id) {
       if (this.idToEntity.has(entity.id)) {
         throw new Error(`entities with duplicate ids: ${entity.id}`);
@@ -74,16 +87,28 @@ export default class EntityList implements Iterable<Entity> {
       }
     }
 
+    // Remove from layer index before removing from handlers (need to check handlers.has first)
+    if (this.handlers.has("render", entity)) {
+      const layers = entity.layers ?? [entity.layer ?? DEFAULT_LAYER];
+      for (const layer of layers) {
+        this.renderLayerEntities.remove(layer, entity);
+      }
+    }
+
+    // Remove from tick layer index before removing from handlers
+    if (this.handlers.has("tick", entity)) {
+      const tickLayers = entity.tickLayers ?? [
+        entity.tickLayer ?? DEFAULT_TICK_LAYER,
+      ];
+      for (const layer of tickLayers) {
+        this.tickLayerEntities.remove(layer, entity);
+      }
+    }
+
     for (const methodName of getAllMethods(entity)) {
       if (methodName.startsWith("on")) {
         this.handlers.remove(handlerNameToEventName(methodName), entity);
       }
-    }
-
-    // Remove from layer index
-    const layers = entity.layers ?? [entity.layer ?? DEFAULT_LAYER];
-    for (const layer of layers) {
-      this.renderLayerEntities.remove(layer, entity);
     }
 
     if (entity.id) {
@@ -155,6 +180,11 @@ export default class EntityList implements Iterable<Entity> {
   /** Get all entities that render on a specific layer. */
   getRenderersOnLayer(layer: string): readonly Entity[] {
     return this.renderLayerEntities.get(layer);
+  }
+
+  /** Get all entities that tick on a specific layer. */
+  getTickersOnLayer(layer: string): readonly Entity[] {
+    return this.tickLayerEntities.get(layer);
   }
 
   /** Iterate through all the entities. */

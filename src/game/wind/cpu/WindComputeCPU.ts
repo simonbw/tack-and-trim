@@ -41,7 +41,7 @@ export interface WindComputeParams {
 /**
  * Compute base wind velocity at a world position using simplex noise.
  *
- * This implements the same algorithm as Wind.getBaseVelocityAtPoint(),
+ * This implements the same algorithm as WindInfo.getBaseVelocityAtPoint(),
  * matching the GPU compute shader exactly.
  *
  * @param x World X coordinate in ft

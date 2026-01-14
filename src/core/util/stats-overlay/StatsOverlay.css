@@ -9,16 +9,17 @@
   background-color: rgba(0, 0, 0, 0.4);
   padding: 8px;
   min-width: 32em;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .stats-overlay__header {
   display: flex;
   gap: 16px;
-  margin-bottom: 8px;
 }
 
 .stats-overlay__subheader {
-  margin-bottom: 8px;
   font-size: 10px;
   color: #aaa;
 }
@@ -26,7 +27,6 @@
 .stats-overlay__section {
   border-top: 1px solid #444;
   padding-top: 8px;
-  margin-top: 8px;
 }
 
 .stats-overlay__section-title {

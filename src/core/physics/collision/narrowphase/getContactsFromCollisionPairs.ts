@@ -45,7 +45,7 @@ export function getContactsFromPairs(pairs: [Body, Body][]): {
 
         const isSensor = shapeA.sensor || shapeB.sensor;
 
-        const result = getShapeCollision(
+        const collisionResult = getShapeCollision(
           bodyA,
           shapeA,
           positionA,
@@ -57,11 +57,17 @@ export function getContactsFromPairs(pairs: [Body, Body][]): {
           isSensor // justTest = false, we want full collision data
         );
 
-        if (result) {
+        if (collisionResult) {
           if (isSensor) {
             sensorOverlaps.push({ bodyA, shapeA, bodyB, shapeB });
           } else {
-            collisions.push({ bodyA, shapeA, bodyB, shapeB, ...result });
+            collisions.push({
+              bodyA,
+              shapeA,
+              bodyB,
+              shapeB,
+              ...collisionResult,
+            });
           }
         }
       }

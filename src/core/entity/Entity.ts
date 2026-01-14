@@ -87,6 +87,24 @@ export default interface Entity extends EventHandler<GameEventMap> {
   // It receives a RenderEventData object: { dt, layer, draw }
   // Usage: onRender({ dt, layer, draw }) { ... }
 
+  ///////////////////////
+  /// Tick Layer Stuff ///
+  ///////////////////////
+
+  /**
+   * The tick layer this entity updates on (defaults to "main" if not specified).
+   * For single-layer entities, use this property.
+   * For multi-layer entities, use `tickLayers` instead.
+   */
+  readonly tickLayer?: string;
+
+  /**
+   * Multiple tick layers this entity updates on.
+   * The onTick callback will be called once for each layer.
+   * Use `tickLayer` for single-layer entities.
+   */
+  readonly tickLayers?: readonly string[];
+
   /////////////////////
   /// Physics Stuff ///
   /////////////////////

@@ -261,9 +261,11 @@ export class Camera2d extends BaseEntity implements Entity {
       return this._cachedViewport;
     }
 
-    // Compute viewport
-    const [left, top] = this.toWorld(V(0, 0));
-    const [right, bottom] = this.toWorld(this.getViewportSize());
+    // Compute viewport - normalize so top < bottom (top = minY, bottom = maxY)
+    const [left, y1] = this.toWorld(V(0, 0));
+    const [right, y2] = this.toWorld(this.getViewportSize());
+    const top = Math.min(y1, y2);
+    const bottom = Math.max(y1, y2);
     const width = right - left;
     const height = bottom - top;
 
@@ -290,9 +292,14 @@ export class Camera2d extends BaseEntity implements Entity {
     [ax, ay]: V2d = V(0, 0),
   ): Matrix3 {
     // Special case: parallax (0,0) means screen-space rendering (HUD)
-    // Return identity - coordinates are already in screen pixels
+    // Flip Y to convert from screen coords (Y-down) to match clip space (Y-up)
     if (px === 0 && py === 0) {
-      return new Matrix3().identity();
+      const h = this.viewportProvider.getHeight();
+      const matrix = new Matrix3();
+      matrix.identity();
+      matrix.translate(0, h);
+      matrix.scale(1, -1);
+      return matrix;
     }
 
     const [w, h] = this.getViewportSize();
@@ -360,12 +367,11 @@ export class Camera2d extends BaseEntity implements Entity {
    */
   isVisible(x: number, y: number, radius: number): boolean {
     const v = this.getWorldViewport();
-    // Note: Due to Y-flip, top > bottom in world coords (top is max Y, bottom is min Y)
     return (
       x + radius >= v.left &&
       x - radius <= v.right &&
-      y + radius >= v.bottom &&
-      y - radius <= v.top
+      y + radius >= v.top &&
+      y - radius <= v.bottom
     );
   }
 }

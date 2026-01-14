@@ -91,9 +91,6 @@ Useful for logic like updating the position of the sprite.
 `afterAdded?(game: Game)` — Called when added to the game, _after_ the body, sprite, handlers, and everything else is dealt with.
 Most of the time you probably want to use `onAdd`, but there are some times when this comes in handy.
 
-`beforeTick?()` — Sometimes you want to make sure stuff happens at the beginning of the tick, before any `onTick()` handlers are called.
-That's when this is useful.
-
 `onPause?()` — Called when the game is paused
 
 `onUnpause?()` — Called when the game is unpaused

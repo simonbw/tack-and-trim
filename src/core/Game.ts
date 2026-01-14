@@ -1,4 +1,5 @@
 import { DEFAULT_LAYER, LAYERS, LayerName } from "../config/layers";
+import { TICK_LAYERS, TickLayerName } from "../config/tickLayers";
 import ContactList, {
   ContactInfo,
   ContactInfoWithEquations,
@@ -450,8 +451,24 @@ export default class Game {
   @profile
   private tick(dt: number) {
     this.ticknumber += 1;
-    this.dispatch("beforeTick", dt);
-    this.dispatch("tick", dt);
+
+    // Dispatch tick events layer by layer
+    for (const layerName of TICK_LAYERS) {
+      profiler.measure(`tick.${layerName}`, () => {
+        this.dispatchTickForLayer(layerName, dt);
+      });
+    }
+  }
+
+  /** Dispatch tick event to entities on a specific layer */
+  private dispatchTickForLayer(layerName: TickLayerName, dt: number) {
+    const effectivelyPaused = this.paused;
+
+    for (const entity of this.entities.getTickersOnLayer(layerName)) {
+      if (entity.game && !(effectivelyPaused && !entity.pausable)) {
+        entity.onTick?.(dt);
+      }
+    }
   }
 
   /** Called before normal ticks */

@@ -5,8 +5,8 @@ import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import type { AABB } from "../core/util/SparseSpatialHash";
 import { V2d } from "../core/Vector";
+import type { QueryForecast } from "./datatiles/DataTileTypes";
 import { WaterInfo } from "./water/WaterInfo";
-import type { QueryForecast, WaterQuerier } from "./water/WaterQuerier";
 
 // Rendering
 const COLOR = 0xffffff;
@@ -21,8 +21,9 @@ const GROW_SPEED = 1.0; // radiuses per second
  * Created when a SprayParticle hits the water.
  * Grows outward and fades over time.
  */
-export class FoamParticle extends BaseEntity implements WaterQuerier {
+export class FoamParticle extends BaseEntity {
   layer = "foamParticles" as const;
+  tickLayer = "effects" as const;
   tags = ["waterQuerier"];
 
   private pos: V2d;
@@ -63,8 +64,7 @@ export class FoamParticle extends BaseEntity implements WaterQuerier {
     // Move foam based on water surface velocity
     const waterInfo = WaterInfo.fromGame(this.game!);
     const state = waterInfo.getStateAtPoint(this.pos);
-    this.pos[0] += state.velocity[0] * dt;
-    this.pos[1] += state.velocity[1] * dt;
+    this.pos.iaddScaled(state.velocity, dt);
   }
 
   @profile

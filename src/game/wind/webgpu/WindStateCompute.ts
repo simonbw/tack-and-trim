@@ -1,20 +1,16 @@
 /**
- * WebGPU compute shader for base wind computation.
+ * Wind state compute shader.
  *
- * Implements:
- * - Base wind velocity with configurable direction and speed
- * - 3D simplex noise for spatiotemporal variation (speed and angle)
- * - Direct output to storage texture (rg16float)
+ * This class owns the compute pipeline and provides the bind group layout.
+ * Callers (WindTileCompute instances) create their own bind groups and output textures.
  *
- * Output format:
- * - R: Normalized velocity X (velocityX / 100.0 + 0.5)
- * - G: Normalized velocity Y (velocityY / 100.0 + 0.5)
+ * Implements base wind velocity with simplex noise variation.
+ *
+ * Output format (rg32float):
+ * - R: Normalized velocity X (velocityX / WIND_VELOCITY_SCALE + 0.5)
+ * - G: Normalized velocity Y (velocityY / WIND_VELOCITY_SCALE + 0.5)
  */
 
-import {
-  GPUProfiler,
-  GPUProfileSection,
-} from "../../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import {
   WIND_ANGLE_VARIATION,
@@ -24,8 +20,10 @@ import {
   WIND_VELOCITY_SCALE,
 } from "../WindConstants";
 
-// WGSL compute shader for wind computation
-const windComputeShader = /*wgsl*/ `
+/**
+ * WGSL compute shader for wind computation.
+ */
+export const WIND_STATE_SHADER = /*wgsl*/ `
 // Constants
 const PI: f32 = 3.14159265359;
 const WIND_NOISE_SPATIAL_SCALE: f32 = ${WIND_NOISE_SPATIAL_SCALE};
@@ -51,7 +49,7 @@ struct Params {
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var outputTexture: texture_storage_2d<rg16float, write>;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rg32float, write>;
 
 // ============================================================================
 // Simplex 3D Noise - ported from Ashima Arts / Stefan Gustavson
@@ -195,7 +193,6 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let velocity = calculateWindVelocity(worldPos, params.time);
 
   // Normalize output to 0-1 range
-  // Wind velocity typically ranges -50 to +50 ft/s
   let normalizedVel = velocity / WIND_VELOCITY_SCALE + vec2<f32>(0.5, 0.5);
 
   textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(normalizedVel.x, normalizedVel.y, 0.0, 0.0));
@@ -203,53 +200,25 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 `;
 
 /**
- * GPU compute shader wrapper for base wind calculation.
+ * Wind state compute shader.
+ *
+ * This class owns the compute pipeline and provides the bind group layout.
+ * Callers create their own bind groups and output textures.
  */
-export class WindComputeGPU {
+export class WindStateCompute {
   private pipeline: GPUComputePipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
-  private bindGroup: GPUBindGroup | null = null;
-
-  private paramsBuffer: GPUBuffer | null = null;
-  private outputTexture: GPUTexture | null = null;
-  private outputTextureView: GPUTextureView | null = null;
-
-  private textureSize: number;
-
-  constructor(textureSize: number = 256) {
-    this.textureSize = textureSize;
-  }
 
   /**
-   * Initialize WebGPU resources.
+   * Initialize the compute pipeline.
    */
   async init(): Promise<void> {
     const device = getWebGPU().device;
 
-    // Create shader module
     const shaderModule = device.createShaderModule({
-      code: windComputeShader,
-      label: "Wind Compute Shader",
+      code: WIND_STATE_SHADER,
+      label: "Wind State Compute Shader",
     });
-
-    // Create params uniform buffer (48 bytes = 12 floats, aligned to 16)
-    this.paramsBuffer = device.createBuffer({
-      size: 48, // 12 floats * 4 bytes
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: "Wind Params Buffer",
-    });
-
-    // Create output texture (rg16float - 2 channels for velocity X and Y)
-    this.outputTexture = device.createTexture({
-      size: { width: this.textureSize, height: this.textureSize },
-      format: "rg16float",
-      usage:
-        GPUTextureUsage.STORAGE_BINDING |
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.COPY_SRC,
-      label: "Wind Output Texture",
-    });
-    this.outputTextureView = this.outputTexture.createView();
 
     // Create bind group layout
     this.bindGroupLayout = device.createBindGroupLayout({
@@ -264,28 +233,18 @@ export class WindComputeGPU {
           visibility: GPUShaderStage.COMPUTE,
           storageTexture: {
             access: "write-only",
-            format: "rg16float",
+            format: "rg32float",
             viewDimension: "2d",
           },
         },
       ],
-      label: "Wind Compute Bind Group Layout",
-    });
-
-    // Create bind group
-    this.bindGroup = device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.paramsBuffer } },
-        { binding: 1, resource: this.outputTextureView },
-      ],
-      label: "Wind Compute Bind Group",
+      label: "Wind State Bind Group Layout",
     });
 
     // Create compute pipeline
     const pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
-      label: "Wind Compute Pipeline Layout",
+      label: "Wind State Pipeline Layout",
     });
 
     this.pipeline = device.createComputePipeline({
@@ -294,118 +253,60 @@ export class WindComputeGPU {
         module: shaderModule,
         entryPoint: "main",
       },
-      label: "Wind Compute Pipeline",
+      label: "Wind State Compute Pipeline",
     });
   }
 
   /**
-   * Run the wind computation for the given viewport.
-   * @param time Current game time in seconds
-   * @param viewportLeft Left edge of viewport in world units
-   * @param viewportTop Top edge of viewport in world units
-   * @param viewportWidth Width of viewport in world units
-   * @param viewportHeight Height of viewport in world units
-   * @param baseWindX Base wind velocity X component
-   * @param baseWindY Base wind velocity Y component
-   * @param gpuProfiler Optional profiler for timing the compute pass
-   * @param section GPU profile section to use
+   * Get the bind group layout for creating bind groups.
    */
-  compute(
-    time: number,
-    viewportLeft: number,
-    viewportTop: number,
-    viewportWidth: number,
-    viewportHeight: number,
-    baseWindX: number,
-    baseWindY: number,
-    gpuProfiler?: GPUProfiler | null,
-    section?: GPUProfileSection,
+  getBindGroupLayout(): GPUBindGroupLayout {
+    if (!this.bindGroupLayout) {
+      throw new Error("WindStateCompute not initialized");
+    }
+    return this.bindGroupLayout;
+  }
+
+  /**
+   * Get the compute pipeline.
+   */
+  getPipeline(): GPUComputePipeline {
+    if (!this.pipeline) {
+      throw new Error("WindStateCompute not initialized");
+    }
+    return this.pipeline;
+  }
+
+  /**
+   * Dispatch the compute shader.
+   *
+   * @param computePass - The compute pass to dispatch on
+   * @param bindGroup - Bind group with buffers and output texture
+   * @param textureSize - Size of the output texture
+   */
+  dispatch(
+    computePass: GPUComputePassEncoder,
+    bindGroup: GPUBindGroup,
+    textureSize: number,
   ): void {
-    if (!this.pipeline || !this.bindGroup || !this.paramsBuffer) {
-      console.warn("WindComputeGPU not initialized");
+    if (!this.pipeline) {
+      console.warn("WindStateCompute not initialized");
       return;
     }
 
-    const device = getWebGPU().device;
-
-    // Update params buffer
-    const paramsData = new Float32Array([
-      time,
-      viewportLeft,
-      viewportTop,
-      viewportWidth,
-      viewportHeight,
-      this.textureSize,
-      this.textureSize,
-      0, // padding
-      baseWindX,
-      baseWindY,
-      0, // padding2
-      0, // padding3
-    ]);
-    device.queue.writeBuffer(this.paramsBuffer, 0, paramsData.buffer);
-
-    // Create command encoder
-    const commandEncoder = device.createCommandEncoder({
-      label: "Wind Compute Command Encoder",
-    });
-
-    // Begin compute pass with optional timestamp writes
-    const computePass = commandEncoder.beginComputePass({
-      label: "Wind Compute Pass",
-      timestampWrites:
-        section && gpuProfiler
-          ? gpuProfiler.getComputeTimestampWrites(section)
-          : undefined,
-    });
-
     computePass.setPipeline(this.pipeline);
-    computePass.setBindGroup(0, this.bindGroup);
+    computePass.setBindGroup(0, bindGroup);
 
-    // Dispatch workgroups (8x8 threads per workgroup)
-    const workgroupsX = Math.ceil(this.textureSize / 8);
-    const workgroupsY = Math.ceil(this.textureSize / 8);
+    const workgroupsX = Math.ceil(textureSize / 8);
+    const workgroupsY = Math.ceil(textureSize / 8);
     computePass.dispatchWorkgroups(workgroupsX, workgroupsY);
-
-    computePass.end();
-
-    // Submit
-    device.queue.submit([commandEncoder.finish()]);
   }
 
   /**
-   * Get the output texture for further processing or readback.
-   */
-  getOutputTexture(): GPUTexture | null {
-    return this.outputTexture;
-  }
-
-  /**
-   * Get the output texture view for binding.
-   */
-  getOutputTextureView(): GPUTextureView | null {
-    return this.outputTextureView;
-  }
-
-  /**
-   * Get the texture size.
-   */
-  getTextureSize(): number {
-    return this.textureSize;
-  }
-
-  /**
-   * Destroy GPU resources.
+   * Clean up resources.
    */
   destroy(): void {
-    this.outputTexture?.destroy();
-    this.paramsBuffer?.destroy();
-
-    this.outputTexture = null;
-    this.outputTextureView = null;
-    this.paramsBuffer = null;
     this.pipeline = null;
     this.bindGroupLayout = null;
-    this.bindGroup = null;
   }
 }

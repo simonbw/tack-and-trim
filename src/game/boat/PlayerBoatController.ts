@@ -7,6 +7,7 @@ import { Boat } from "./Boat";
  * Separating this from Boat allows for AI-controlled boats, network boats, etc.
  */
 export class PlayerBoatController extends BaseEntity {
+  tickLayer = "input" as const;
   private activeJibSheet: "port" | "starboard" = "port";
 
   constructor(private boat: Boat) {
@@ -44,10 +45,12 @@ export class PlayerBoatController extends BaseEntity {
     // Calculate trim input based on active sheet
     let trimInput = 0;
     if (this.activeJibSheet === "port") {
-      if (eHeld) trimInput = -1; // E = trim in (port)
+      if (eHeld)
+        trimInput = -1; // E = trim in (port)
       else if (qHeld) trimInput = 1; // Q = ease out
     } else {
-      if (qHeld) trimInput = -1; // Q = trim in (starboard)
+      if (qHeld)
+        trimInput = -1; // Q = trim in (starboard)
       else if (eHeld) trimInput = 1; // E = ease out
     }
 

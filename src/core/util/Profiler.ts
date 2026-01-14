@@ -1,3 +1,4 @@
+import { asyncProfiler } from "./AsyncProfiler";
 import { lerp } from "./MathUtil";
 
 interface ProfileEntry {
@@ -141,6 +142,9 @@ class Profiler {
     // Invalidate stats cache
     this.cachedStats = null;
     this.cachedStatsParams = null;
+
+    // Also end the async profiler's frame
+    asyncProfiler.endFrame();
 
     for (const entry of this.entries.values()) {
       // Update smoothed values with exponential moving average
