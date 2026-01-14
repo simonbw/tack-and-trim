@@ -12,7 +12,8 @@
     "tsgo": "tsgo --noEmit",
     "tsgo-watch": "tsgo --noEmit --watch",
     "prettier": "prettier --write src",
-    "generate-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources"
+    "generate-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources",
+    "test": "playwright test"
   },
   "repository": {
     "type": "git",
@@ -51,6 +52,7 @@
   "devDependencies": {
     "@parcel/reporter-bundle-analyzer": "^2.16.3",
     "@parcel/transformer-typescript-tsc": "^2.16.3",
+    "@playwright/test": "^1.57.0",
     "@typescript/native-preview": "^7.0.0-dev.20260109.1",
     "@webgpu/types": "^0.1.68",
     "assert": "^2.1.0",

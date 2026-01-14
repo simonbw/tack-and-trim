@@ -21,6 +21,7 @@ This file provides guidance to Claude Code when working with this 2D sailing gam
 - `npm run tsgo-watch` - Run TypeScript type checking in watch mode
 - `npm run prettier` - Format source code with Prettier
 - `npm run generate-manifest` - Generate asset type definitions from resources folder
+- `npm test` - Run e2e tests (verifies game compiles and runs without errors)
 
 ## Engine Architecture
 
@@ -118,7 +119,14 @@ profiler.count("frequentEvent");
 
 The game loop automatically profiles: `frame`, `tick-loop`, `tick`, `physics`, and `render`.
 
-## Code Style
+## Development Practice
+
+You never need to run the dev server.
+You never need to ask the user if they want you to run the dev server.
+The user always has the dev server running and can test things out if you want them to.
+Don't try to access their running dev server yourself.
+
+### Code Style
 
 - Use built-in classes for math operations. For vector math, use `V2d` and utility functions from `src/core/util/MathUtil.ts`.
 - Only use `onAdd()` if you need access to `this.game` during initialization. Otherwise, do all initialization in the constructor.
