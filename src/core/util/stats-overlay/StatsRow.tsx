@@ -1,5 +1,3 @@
-import React from "react";
-
 export interface StatsRowProps {
   label: string;
   value: string | number;
@@ -7,12 +5,7 @@ export interface StatsRowProps {
   indent?: boolean;
 }
 
-export const StatsRow: React.FC<StatsRowProps> = ({
-  label,
-  value,
-  color,
-  indent,
-}) => {
+export const StatsRow = ({ label, value, color, indent }: StatsRowProps) => {
   const rowClass = indent ? "stats-row stats-row--indent" : "stats-row";
   const valueClass = color
     ? `stats-row__value stats-row__value--${color}`

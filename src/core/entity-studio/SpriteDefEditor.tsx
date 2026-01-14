@@ -1,4 +1,3 @@
-import React from "react";
 import { ImageName, RESOURCES } from "../../../resources/resources";
 import { LayerName, LAYERS } from "../../config/layers";
 import { SpriteDef } from "../EntityDef";
@@ -6,11 +5,17 @@ import { objectKeys } from "../util/ObjectUtils";
 import { PointInput } from "./PointInput";
 import { CollapsibleCard } from "./CollapsibleCard";
 
-export const SpriteDefEditor: React.FC<{
+interface SpriteDefEditorProps {
   spriteDef: SpriteDef;
   update: (spriteDef: SpriteDef) => void;
   remove: () => void;
-}> = ({ spriteDef, update, remove }) => {
+}
+
+export const SpriteDefEditor = ({
+  spriteDef,
+  update,
+  remove,
+}: SpriteDefEditorProps) => {
   return (
     <CollapsibleCard
       summary={
@@ -33,7 +38,7 @@ export const SpriteDefEditor: React.FC<{
               onChange={(event) => {
                 update({
                   ...spriteDef,
-                  image: event.target.value as ImageName,
+                  image: (event.target as HTMLSelectElement).value as ImageName,
                 });
               }}
               value={spriteDef.image}
@@ -50,7 +55,7 @@ export const SpriteDefEditor: React.FC<{
               onChange={(event) => {
                 update({
                   ...spriteDef,
-                  layer: event.target.value as LayerName,
+                  layer: (event.target as HTMLSelectElement).value as LayerName,
                 });
               }}
             >

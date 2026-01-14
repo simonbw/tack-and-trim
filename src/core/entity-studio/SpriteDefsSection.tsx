@@ -1,12 +1,16 @@
-import React from "react";
 import { SpriteDef } from "../EntityDef";
 import { SpriteDefEditor } from "./SpriteDefEditor";
 import { EditorColumnSection } from "./EditorColumn";
 
-export const SpriteDefsSection: React.FC<{
+interface SpriteDeSectionProps {
   sprites: ReadonlyArray<SpriteDef>;
   updateSprites: (newSprites: SpriteDef[]) => void;
-}> = ({ sprites, updateSprites }) => {
+}
+
+export const SpriteDefsSection = ({
+  sprites,
+  updateSprites,
+}: SpriteDeSectionProps) => {
   return (
     <>
       {sprites.map((spriteDef, i) => (
@@ -15,7 +19,7 @@ export const SpriteDefsSection: React.FC<{
           spriteDef={spriteDef}
           update={(newSprite) =>
             updateSprites(
-              sprites.map((sprite, j) => (i === j ? newSprite : sprite))
+              sprites.map((sprite, j) => (i === j ? newSprite : sprite)),
             )
           }
           remove={() => {

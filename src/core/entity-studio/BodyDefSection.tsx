@@ -1,12 +1,16 @@
-import React from "react";
 import { CollisionGroups } from "../../config/CollisionGroups";
 import { BodyDef, ShapeDef } from "../EntityDef";
 import { ShapeDefEditor } from "./ShapeDefEditor";
 
-export const BodyDefSection: React.FC<{
+interface BodyDefSectionProps {
   bodyDef: BodyDef;
   updateBody: (newBody: BodyDef) => void;
-}> = ({ bodyDef, updateBody }) => {
+}
+
+export const BodyDefSection = ({
+  bodyDef,
+  updateBody,
+}: BodyDefSectionProps) => {
   return (
     <>
       <article>
@@ -16,7 +20,10 @@ export const BodyDefSection: React.FC<{
             type="number"
             value={bodyDef?.mass ?? 1}
             onChange={(event) =>
-              updateBody({ ...bodyDef, mass: parseFloat(event.target.value) })
+              updateBody({
+                ...bodyDef,
+                mass: parseFloat((event.target as HTMLInputElement).value),
+              })
             }
           />
         </label>
@@ -33,10 +40,15 @@ export const BodyDefSection: React.FC<{
   );
 };
 
-export const ShapeDefsSection: React.FC<{
+interface ShapeDefsSectionProps {
   shapes: ReadonlyArray<ShapeDef>;
-  updateShapes: (newSprites: ShapeDef[]) => void;
-}> = ({ shapes: shapes, updateShapes }) => {
+  updateShapes: (newShapes: ShapeDef[]) => void;
+}
+
+export const ShapeDefsSection = ({
+  shapes,
+  updateShapes,
+}: ShapeDefsSectionProps) => {
   return (
     <>
       {shapes.map((shapeDef, i) => (

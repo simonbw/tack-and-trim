@@ -1,4 +1,4 @@
-import { ReactElement } from "react";
+import type { VNode } from "preact";
 import { SoundName } from "../../../resources/resources";
 import Game from "../Game";
 import { ReactEntity } from "../ReactEntity";
@@ -51,7 +51,7 @@ export default class ReactPreloader extends BaseEntity implements Entity {
 
   constructor(
     private manifest: ResourceManifest,
-    reactRender: (props: RenderInfo) => ReactElement,
+    reactRender: (props: RenderInfo) => VNode,
   ) {
     super();
 

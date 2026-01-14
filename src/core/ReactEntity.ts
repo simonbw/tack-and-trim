@@ -1,23 +1,20 @@
-import React from "react";
-import { createRoot, Root } from "react-dom/client";
+import { render, VNode } from "preact";
 import BaseEntity from "./entity/BaseEntity";
 import Entity from "./entity/Entity";
 
-/** Useful for rendering react to the screen when you want it */
+/** Useful for rendering preact to the screen when you want it */
 export class ReactEntity extends BaseEntity implements Entity {
   el!: HTMLDivElement;
 
-  reactRoot!: Root;
-
   constructor(
-    public getReactContent: () => React.ReactElement,
+    public getReactContent: () => VNode,
     public autoRender = true,
   ) {
     super();
   }
 
   reactRender() {
-    this.reactRoot?.render(this.getReactContent());
+    render(this.getReactContent(), this.el);
   }
 
   onRender({}: { dt: number }) {
@@ -29,11 +26,10 @@ export class ReactEntity extends BaseEntity implements Entity {
   onAdd() {
     this.el = document.createElement("div");
     document.body.append(this.el);
-    this.reactRoot = createRoot(this.el);
   }
 
   onDestroy() {
+    render(null, this.el);
     this.el.remove();
-    this.reactRoot.unmount();
   }
 }

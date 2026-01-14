@@ -1,4 +1,4 @@
-import React from "react";
+import { useState } from "preact/hooks";
 import { EntityDef } from "../EntityDef";
 import { EditorColumn } from "./EditorColumn";
 import { PreviewSection } from "./PreviewSection";
@@ -21,10 +21,8 @@ function saveEntityDef(entityDef: EntityDef) {
   localStorage.setItem("entityDef", JSON.stringify(entityDef));
 }
 
-export const EntityStudioApp: React.FC = () => {
-  const [entityDef, setEntityDef] = React.useState<EntityDef>(() =>
-    loadEntityDef()
-  );
+export const EntityStudioApp = () => {
+  const [entityDef, setEntityDef] = useState<EntityDef>(() => loadEntityDef());
 
   return (
     <main

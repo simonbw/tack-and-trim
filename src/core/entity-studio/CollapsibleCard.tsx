@@ -1,10 +1,16 @@
-import React, { ReactNode } from "react";
+import type { ComponentChildren } from "preact";
 
-export const CollapsibleCard: React.FC<{
-  summary: ReactNode;
+interface CollapsibleCardProps {
+  summary: ComponentChildren;
   onRemove?: () => void;
-  children?: ReactNode;
-}> = ({ summary, onRemove, children }) => {
+  children?: ComponentChildren;
+}
+
+export const CollapsibleCard = ({
+  summary,
+  onRemove,
+  children,
+}: CollapsibleCardProps) => {
   return (
     <article>
       <details style={{ margin: 0 }} open>

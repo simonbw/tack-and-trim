@@ -1,4 +1,3 @@
-import React from "react";
 import type { StatsProvider, StatsSection } from "./StatsProvider";
 import { StatsRow } from "./StatsRow";
 import type { StatsPanel, StatsPanelContext } from "./StatsPanel";
@@ -29,12 +28,6 @@ export function createGraphicsPanel(): StatsPanel {
 
       return (
         <>
-          <div className="stats-overlay__header">
-            <span>
-              FPS: {ctx.fps} ({ctx.fps2})
-            </span>
-          </div>
-
           <div className="stats-overlay__section">
             <div className="stats-overlay__section-title">Graphics</div>
 

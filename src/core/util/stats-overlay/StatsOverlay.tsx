@@ -1,4 +1,4 @@
-import React from "react";
+import type { VNode } from "preact";
 import Entity, { GameEventMap } from "../../entity/Entity";
 import { ReactEntity } from "../../ReactEntity";
 import { profile } from "../Profiler";
@@ -43,7 +43,7 @@ export default class StatsOverlay extends ReactEntity implements Entity {
     this.panels = panels;
   }
 
-  private renderContent(): React.ReactElement {
+  private renderContent(): VNode {
     if (this.activePanelIndex < 0) {
       return <></>;
     }
@@ -51,7 +51,16 @@ export default class StatsOverlay extends ReactEntity implements Entity {
     const panel = this.panels[this.activePanelIndex];
     const ctx = this.getContext();
 
-    return <div className="stats-overlay">{panel.render(ctx)}</div>;
+    return (
+      <div className="stats-overlay">
+        <div className="stats-overlay__header">
+          <span>
+            FPS: {ctx.fps} ({ctx.fps2})
+          </span>
+        </div>
+        {panel.render(ctx)}
+      </div>
+    );
   }
 
   private getContext(): StatsPanelContext {

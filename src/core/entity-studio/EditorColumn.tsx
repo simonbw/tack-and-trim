@@ -1,12 +1,17 @@
-import React, { ReactNode } from "react";
+import type { ComponentChildren } from "preact";
 import { EntityDef } from "../EntityDef";
 import { BodyDefSection } from "./BodyDefSection";
 import { SpriteDefsSection } from "./SpriteDefsSection";
 
-export const EditorColumn: React.FC<{
+interface EditorColumnProps {
   entityDef: EntityDef;
   updateEntityDef: (newEntityDef: EntityDef) => void;
-}> = ({ entityDef, updateEntityDef }) => {
+}
+
+export const EditorColumn = ({
+  entityDef,
+  updateEntityDef,
+}: EditorColumnProps) => {
   return (
     <aside
       style={{
@@ -45,10 +50,15 @@ export const EditorColumn: React.FC<{
   );
 };
 
-export const EditorColumnSection: React.FC<{
+interface EditorColumnSectionProps {
   title: string;
-  children: ReactNode;
-}> = ({ title, children }) => (
+  children: ComponentChildren;
+}
+
+export const EditorColumnSection = ({
+  title,
+  children,
+}: EditorColumnSectionProps) => (
   <details open>
     <summary>
       <h3>{title}</h3>

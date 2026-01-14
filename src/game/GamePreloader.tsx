@@ -1,4 +1,3 @@
-import React from "react";
 import { RESOURCES } from "../../resources/resources.ts";
 import ReactPreloader from "../core/resources/Preloader.ts";
 
@@ -58,5 +57,5 @@ export const GamePreloader = new ReactPreloader(
         </label>
       </div>
     </div>
-  )
+  ),
 );

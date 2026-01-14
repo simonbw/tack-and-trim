@@ -1,23 +1,22 @@
-import React, { Fragment, useMemo, useState } from "react";
+import { Fragment } from "preact";
+import { useMemo, useState } from "preact/hooks";
 import { RESOURCES } from "../../../resources/resources";
 import { LayerName, LAYERS } from "../../config/layers";
 import { EntityDef, ShapeDef, SpriteDef } from "../EntityDef";
 import { clamp } from "../util/MathUtil";
 import { objectKeys } from "../util/ObjectUtils";
 
-export const PreviewSection: React.FC<{ entityDef: EntityDef }> = ({
-  entityDef,
-}) => {
+export const PreviewSection = ({ entityDef }: { entityDef: EntityDef }) => {
   const [zoom, setZoom] = useState(2);
   const viewBox = [-zoom, -zoom, zoom * 2, zoom * 2];
 
   // Sort the sprites by layer so they overlap properly
   const sortedSprites = useMemo(() => {
     const layerToScore = Object.fromEntries(
-      objectKeys(LAYERS).map((key, index) => [key, index])
+      objectKeys(LAYERS).map((key, index) => [key, index]),
     ) as Record<LayerName, number>;
     return entityDef.sprites!.toSorted(
-      (a, b) => layerToScore[a.layer] - layerToScore[b.layer]
+      (a, b) => layerToScore[a.layer] - layerToScore[b.layer],
     );
   }, [entityDef.sprites]);
 
@@ -86,7 +85,7 @@ export const PreviewSection: React.FC<{ entityDef: EntityDef }> = ({
   );
 };
 
-const Grid: React.FC<{ zoom: number }> = ({ zoom }) => {
+const Grid = ({ zoom }: { zoom: number }) => {
   let min = Math.floor(-(zoom * 10));
   let max = Math.ceil(zoom * 10);
 
@@ -137,9 +136,7 @@ const Grid: React.FC<{ zoom: number }> = ({ zoom }) => {
   );
 };
 
-const SpriteDefPreview: React.FC<{ spriteDef: SpriteDef }> = ({
-  spriteDef,
-}) => {
+const SpriteDefPreview = ({ spriteDef }: { spriteDef: SpriteDef }) => {
   const [width, height] = spriteDef.size;
   const x = -spriteDef.anchor[0] * width;
   const y = -spriteDef.anchor[1] * height;
@@ -155,10 +152,13 @@ const SpriteDefPreview: React.FC<{ spriteDef: SpriteDef }> = ({
   );
 };
 
-const ShapeDefPreview: React.FC<{
+const ShapeDefPreview = ({
+  shapeDef,
+  zoom,
+}: {
   shapeDef: ShapeDef;
   zoom: number;
-}> = ({ shapeDef, zoom }) => {
+}) => {
   switch (shapeDef.type) {
     case "circle": {
       const { center, radius } = shapeDef;

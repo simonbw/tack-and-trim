@@ -1,4 +1,3 @@
-import React from "react";
 import type { ProfileStats } from "./types";
 
 export interface ProfileRowProps {
@@ -6,17 +5,14 @@ export interface ProfileRowProps {
   frameTotalMs: number;
 }
 
-export const ProfileRow: React.FC<ProfileRowProps> = ({
-  stat,
-  frameTotalMs,
-}) => {
+export const ProfileRow = ({ stat, frameTotalMs }: ProfileRowProps) => {
   const isFrameMetric = stat.shortLabel === "loop" && stat.depth === 0;
   const isSlow = isFrameMetric && stat.msPerFrame > 16.67;
 
   // Calculate bar width as percentage of frame time
   const barPercent = Math.min(
     100,
-    100 - (stat.msPerFrame / frameTotalMs) * 100
+    100 - (stat.msPerFrame / frameTotalMs) * 100,
   );
 
   // Slight bar color variation by depth

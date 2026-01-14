@@ -1,4 +1,4 @@
-import type React from "react";
+import type { VNode } from "preact";
 import type Game from "../../Game";
 
 /**
@@ -22,7 +22,7 @@ export interface StatsPanel {
   id: string;
 
   /** Render the panel content */
-  render(ctx: StatsPanelContext): React.ReactElement;
+  render(ctx: StatsPanelContext): VNode;
 
   /**
    * Optional keyboard handler.
