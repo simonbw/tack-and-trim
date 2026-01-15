@@ -8,6 +8,29 @@ import { applySkinFriction } from "../fluid-dynamics";
 import { WaterInfo } from "../water/WaterInfo";
 import { HullConfig } from "./BoatConfig";
 
+/**
+ * Find the stern (aftmost) port and starboard vertices from hull geometry.
+ * Finds the two vertices with the minimum x values (furthest aft).
+ */
+export function findSternPoints(vertices: V2d[]): {
+  port: V2d;
+  starboard: V2d;
+} {
+  // Sort vertices by x (ascending) to find the aftmost points
+  const sorted = [...vertices].sort((a, b) => a.x - b.x);
+
+  // Take the two most aft vertices
+  const v1 = sorted[0];
+  const v2 = sorted[1];
+
+  // Determine port (positive y) vs starboard (negative y)
+  if (v1.y > v2.y) {
+    return { port: v1, starboard: v2 };
+  } else {
+    return { port: v2, starboard: v1 };
+  }
+}
+
 export interface TillerConfig {
   position: V2d;
   getTillerAngle: () => number;

@@ -7,7 +7,7 @@ import { Anchor } from "./Anchor";
 import { BoatConfig, StarterDinghy } from "./BoatConfig";
 import { BoatWaterQuerier } from "./BoatWaterQuerier";
 import { Bowsprit } from "./Bowsprit";
-import { Hull } from "./Hull";
+import { findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
 import { Rig } from "./Rig";
 import { Rudder } from "./Rudder";
@@ -137,8 +137,8 @@ export class Boat extends BaseEntity {
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
 
     // Create wake and spray effects
-    // TODO: Compute these points from the end of the hull
-    this.addChild(new Wake(this, V(-6, 2), V(-6, -2))); // Stern wake spawn positions (ft)
+    const sternPoints = findSternPoints(config.hull.vertices);
+    this.addChild(new Wake(this, sternPoints.port, sternPoints.starboard));
     this.addChild(new BoatSpray(this));
 
     // Create water querier for tile-based GPU water computation
