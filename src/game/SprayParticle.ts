@@ -1,5 +1,6 @@
 import BaseEntity from "../core/entity/BaseEntity";
 import { GameEventMap } from "../core/entity/Entity";
+import { on } from "../core/entity/handler";
 import { profile } from "../core/util/Profiler";
 import { V2d } from "../core/Vector";
 import { FoamParticle } from "./FoamParticle";
@@ -43,6 +44,7 @@ export class SprayParticle extends BaseEntity {
     this.size = size;
   }
 
+  @on("render")
   @profile
   onRender({ draw, dt }: GameEventMap["render"]): void {
     // Physics update

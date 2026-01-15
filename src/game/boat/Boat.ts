@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import { polarToVec } from "../../core/util/MathUtil";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
@@ -145,6 +146,7 @@ export class Boat extends BaseEntity {
     this.addChild(new BoatWaterQuerier(this));
   }
 
+  @on("tick")
   onTick(): void {
     // Fade jib sheets based on jib hoist amount
     const jibOpacity = this.jib.getHoistAmount();

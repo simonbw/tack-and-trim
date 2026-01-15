@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import { AABB } from "../../core/util/SparseSpatialHash";
 import { V2d } from "../../core/Vector";
 import { WaterContribution, WaterModifier } from "./WaterModifier";
@@ -87,6 +88,7 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
     this.maxAge = maxAge;
   }
 
+  @on("tick")
   onTick(dt: number): void {
     this.age += dt;
 
@@ -105,6 +107,7 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
     }
   }
 
+  @on("destroy")
   onDestroy(): void {
     // Unlink from chain
     if (this.prev) {

@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
@@ -68,6 +69,7 @@ export class TellTail extends BaseEntity {
     );
   }
 
+  @on("tick")
   onTick() {
     // Manually position first particle to follow the sail (one-way coupling)
     const firstBody = this.bodies[0];
@@ -106,6 +108,7 @@ export class TellTail extends BaseEntity {
     }
   }
 
+  @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     if (this.bodies.length < 2) return;
 

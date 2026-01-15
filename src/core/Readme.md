@@ -54,19 +54,24 @@ _Note: `imageName` is a helper function that limits the string type to only name
 
 ### Events
 
-Entities can run code at certain times in the game loop.
-The three most important events are probably `onAdd`, `onTick`, and `onRender`.
+Entities respond to game events by implementing handler methods decorated with `@on`.
+The three most important events are probably `add`, `tick`, and `render`.
 
-#### `onAdd?(game: Game)`
+```TypeScript
+import { on } from "./entity/handler";
+```
+
+#### `@on("add")`
 
 Called when added to the game, before dealing with the body, sprite, handlers, or anything else.
 Useful for initializing stuff that you need access to the `game` for.
 
-#### `onTick()`
+#### `@on("tick")`
 
 If you want an entity to do something every frame, put that logic in the `onTick()` method.
 
 ```TypeScript
+  @on("tick")
   onTick(dt: number) {
     if (this.game!.io.keyIsDown("Space")) {
       // Accelerate upwards
@@ -75,58 +80,69 @@ If you want an entity to do something every frame, put that logic in the `onTick
   }
 ```
 
-#### `onRender?(dt: number)`
+#### `@on("render")`
 
 Called on every frame right before the screen is redrawn.
 Useful for logic like updating the position of the sprite.
 
 ```TypeScript
-  onRender(dt: number): void {
+  @on("render")
+  onRender({ dt }: { dt: number }) {
     this.sprite?.position.set(...this.body.position);
   }
 ```
 
 ### Less important events
 
-`afterAdded?(game: Game)` — Called when added to the game, _after_ the body, sprite, handlers, and everything else is dealt with.
+`@on("afterAdded")` — Called when added to the game, _after_ the body, sprite, handlers, and everything else is dealt with.
 Most of the time you probably want to use `onAdd`, but there are some times when this comes in handy.
 
-`onPause?()` — Called when the game is paused
+`@on("pause")` — Called when the game is paused
 
-`onUnpause?()` — Called when the game is unpaused
+`@on("unpause")` — Called when the game is unpaused
 
-`onDestroy?(game: Game)` — Called after being destroyed.
+`@on("destroy")` — Called after being destroyed.
 
-`onResize?(size: [number, number])` — Called when the renderer is resized or recreated for some reason.
+`@on("resize")` — Called when the renderer is resized or recreated for some reason.
 You shouldn't need to deal with this often.
 
 ### Custom Events
 
-You can define handlers for any type of custom event you want using the `handlers` field.
+You can define and handle custom events using the `@on` decorator.
 
-For example, say we have a `LevelManager` class somewhere that determines when we start a level.
-It can dispatch a `levelStarted` event using `Game#dispatch`...
+First, define your event type in `src/config/CustomEvent.ts`:
+
+```TypeScript
+export type CustomEvents = {
+  levelStarted: { level: number };
+};
+```
+
+Then dispatch events using `game.dispatch()`:
 
 ```TypeScript
 class LevelManager extends BaseEntity implements Entity {
-  //...
+  @on("tick")
   onTick() {
     //...level management stuff
-    this.game.dispatch({ type: 'levelStarted', level: 1 });
+    this.game.dispatch('levelStarted', { level: 1 });
   }
 }
 ```
 
-and then we can listen for that event in our `Ball` class to do something at the start of a level.
+And handle them in other entities with the `@on` decorator:
 
 ```TypeScript
-class Ball extends BaseEntity implements Entity
-  handlers = {
-    levelStarted: () => {
-      this.body.velocity = [0, 0];
-    },
-  };
+class Ball extends BaseEntity implements Entity {
+  @on("levelStarted")
+  onLevelStarted({ level }: GameEventMap["levelStarted"]) {
+    this.body.velocity = [0, 0];
+    console.log(`Starting level ${level}`);
+  }
+}
 ```
+
+The `@on` decorator provides compile-time type checking for handler parameters.
 
 ## Finding Entities
 
@@ -216,6 +232,7 @@ if (this.game.io.isKeyDown("Space")) {
 
 // Handle key press/release events in an entity
 class Player extends BaseEntity implements Entity {
+  @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
     if (key === "KeyE") {
       this.interact();
@@ -238,9 +255,12 @@ const mousePos = this.game.io.mousePosition;
 
 // Handle click events in an entity
 class Clicker extends BaseEntity implements Entity {
+  @on("click")
   onClick() {
     console.log("Left clicked!");
   }
+
+  @on("rightClick")
   onRightClick() {
     console.log("Right clicked!");
   }
@@ -271,6 +291,7 @@ if (this.game.io.usingGamepad) {
 
 // React to input device changes
 class HUD extends BaseEntity implements Entity {
+  @on("inputDeviceChange")
   onInputDeviceChange({ usingGamepad }: { usingGamepad: boolean }) {
     this.updateButtonPrompts(usingGamepad);
   }
@@ -282,13 +303,12 @@ class HUD extends BaseEntity implements Entity {
 The physics system is a custom 2D rigid body engine. See [physics/README.md](./physics/README.md) for comprehensive documentation.
 
 Key concepts:
+
 - **World** — The simulation container that manages bodies, constraints, and collision
 - **Bodies** — `DynamicBody` (responds to forces), `StaticBody` (immovable), `KinematicBody` (scripted motion)
 - **Shapes** — Collision geometry: `Circle`, `Box`, `Convex`, `Capsule`, `Line`, `Plane`, `Particle`, `Heightfield`
 - **Constraints** — Maintain relationships between bodies: `DistanceConstraint`, `RevoluteConstraint`, `LockConstraint`
 - **Springs** — Soft connections: `LinearSpring`, `RotationalSpring`, `RopeSpring`, and more
-
-<!-- TODO: Write tutorial-style documentation in physics/docs/ -->
 
 ## Sound
 
@@ -338,6 +358,7 @@ v.angle;       // angle in radians from east
 ### Immutable vs. In-Place Operations
 
 Most operations come in two forms:
+
 - **Immutable** (e.g., `add`) — returns a new vector, leaves original unchanged
 - **In-place** (e.g., `iadd`) — modifies the vector, prefixed with `i`
 

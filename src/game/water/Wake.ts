@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import { clamp, invLerp, lerp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { Boat } from "../boat/Boat";
@@ -47,6 +48,7 @@ export class Wake extends BaseEntity {
     this.rightSpawnLocal = rightSpawnLocal;
   }
 
+  @on("tick")
   onTick(_dt: number) {
     const velocity = this.boat.getVelocity();
     const speed = velocity.magnitude;

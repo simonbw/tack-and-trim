@@ -1,5 +1,6 @@
 import BaseEntity from "../core/entity/BaseEntity";
 import { GameEventMap } from "../core/entity/Entity";
+import { on } from "../core/entity/handler";
 import { Camera2d } from "../core/graphics/Camera2d";
 import { V } from "../core/Vector";
 import { Boat } from "./boat/Boat";
@@ -16,6 +17,7 @@ export class CameraController extends BaseEntity {
     super();
   }
 
+  @on("tick")
   onTick(dt: GameEventMap["tick"]) {
     const boatPosition = this.boat.getPosition();
     const boatVelocity = V(this.boat.getVelocity()); // Convert ReadonlyV2d to V2d

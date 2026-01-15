@@ -1,5 +1,6 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
+import { on } from "../../core/entity/handler";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import RevoluteConstraint from "../../core/physics/constraints/RevoluteConstraint";
 import Box from "../../core/physics/shapes/Box";
@@ -67,6 +68,7 @@ export class Rig extends BaseEntity {
     );
   }
 
+  @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [hx, hy] = this.hull.body.position;
     const hullAngle = this.hull.body.angle;

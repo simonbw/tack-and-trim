@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import { AABB } from "../../core/util/SparseSpatialHash";
 import { V2d } from "../../core/Vector";
 import { WaterContribution, WaterModifier } from "./WaterModifier";
@@ -45,6 +46,7 @@ export class AnchorSplashRipple extends BaseEntity implements WaterModifier {
     this.posY = position.y;
   }
 
+  @on("tick")
   onTick(dt: number): void {
     this.age += dt;
 

@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import type Body from "../../core/physics/body/Body";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
@@ -208,6 +209,7 @@ export class Sail extends BaseEntity implements WindModifier {
     this.targetHoistAmount = hoisted ? 1 : 0;
   }
 
+  @on("tick")
   onTick(dt: number) {
     const { hoistSpeed, getForceScale } = this.config;
 
@@ -348,6 +350,7 @@ export class Sail extends BaseEntity implements WindModifier {
     return this.getWindContributionAt(queryPoint);
   }
 
+  @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     // Hide sail when fully lowered
     if (this.hoistAmount <= 0) {

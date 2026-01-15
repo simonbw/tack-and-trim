@@ -8,6 +8,7 @@ import Spring from "../physics/springs/Spring";
 import { shapeFromDef } from "../physics/utils/ShapeUtils";
 import { clamp } from "../util/MathUtil";
 import Entity, { GameEventMap } from "./Entity";
+import { on } from "./handler";
 
 /** Base class for lots of stuff in the game. */
 export default abstract class BaseEntity implements Entity {
@@ -216,6 +217,44 @@ export default abstract class BaseEntity implements Entity {
   ) {
     this.game?.dispatch(eventName, data, respectPause);
   }
+
+  // =========================================================================
+  // Optional handler method declarations for autocomplete.
+  // Override these in subclasses and use the @on decorator.
+  // =========================================================================
+
+  // Base game events
+  onAdd?(data: GameEventMap["add"]): void;
+  onAfterAdded?(data: GameEventMap["afterAdded"]): void;
+  onAfterPhysics?(): void;
+  onAfterPhysicsStep?(step: number): void;
+  onRender?(data: GameEventMap["render"]): void;
+  onTick?(dt: number): void;
+  onSlowTick?(dt: number): void;
+  onPause?(): void;
+  onUnpause?(): void;
+  onDestroy?(data: GameEventMap["destroy"]): void;
+  onResize?(data: GameEventMap["resize"]): void;
+  onSlowMoChanged?(data: GameEventMap["slowMoChanged"]): void;
+
+  // IO events
+  onClick?(): void;
+  onMouseDown?(): void;
+  onMouseUp?(): void;
+  onRightClick?(): void;
+  onRightDown?(): void;
+  onRightUp?(): void;
+  onKeyDown?(data: GameEventMap["keyDown"]): void;
+  onKeyUp?(data: GameEventMap["keyUp"]): void;
+  onButtonDown?(data: GameEventMap["buttonDown"]): void;
+  onButtonUp?(data: GameEventMap["buttonUp"]): void;
+  onInputDeviceChange?(data: GameEventMap["inputDeviceChange"]): void;
+
+  // Physics events
+  onBeginContact?(data: GameEventMap["beginContact"]): void;
+  onEndContact?(data: GameEventMap["endContact"]): void;
+  onContacting?(data: GameEventMap["contacting"]): void;
+  onImpact?(data: GameEventMap["impact"]): void;
 }
 
 class Timer extends BaseEntity implements Entity {
@@ -235,6 +274,7 @@ class Timer extends BaseEntity implements Entity {
     this.duringEffect = duringEffect;
   }
 
+  @on("tick")
   onTick(dt: number) {
     this.timeRemaining -= dt;
     const t = clamp(1.0 - this.timeRemaining / this.delay);
@@ -263,6 +303,7 @@ class RenderTimer extends BaseEntity implements Entity {
     this.duringEffect = duringEffect;
   }
 
+  @on("render")
   onRender({ dt }: { dt: number }) {
     this.timeRemaining -= dt;
     const t = clamp(1.0 - this.timeRemaining / this.delay);

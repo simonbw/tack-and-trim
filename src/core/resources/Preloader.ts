@@ -4,6 +4,7 @@ import Game from "../Game";
 import { ReactEntity } from "../ReactEntity";
 import BaseEntity from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
+import { on } from "../entity/handler";
 import { getBiggestSounds, getTotalSoundBytes, loadSound } from "./sounds";
 
 // TypeScript's DOM types are missing FontFaceSet.add()
@@ -62,6 +63,7 @@ export default class ReactPreloader extends BaseEntity implements Entity {
     this.addChild(new ReactEntity(() => reactRender(this.progress)));
   }
 
+  @on("add")
   async onAdd({ game }: { game: Game }) {
     await Promise.all([
       this.loadFonts(),
@@ -139,6 +141,7 @@ export default class ReactPreloader extends BaseEntity implements Entity {
     );
   }
 
+  @on("destroy")
   onDestroy() {
     document.getElementById("preloader")?.remove();
   }

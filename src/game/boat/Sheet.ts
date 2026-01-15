@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import Body from "../../core/physics/body/Body";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import { lerp, stepToward } from "../../core/util/MathUtil";
@@ -152,12 +153,14 @@ export class Sheet extends BaseEntity {
     return this.localAnchorB.rotate(this.bodyB.angle).iadd([x, y]);
   }
 
+  @on("tick")
   onTick(dt: number): void {
     const anchorA = this.getAnchorAWorld();
     const anchorB = this.getAnchorBWorld();
     this.visualRope.update(anchorA, anchorB, dt);
   }
 
+  @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     if (this.opacity <= 0) return;
 

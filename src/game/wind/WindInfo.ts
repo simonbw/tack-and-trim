@@ -11,6 +11,7 @@
 
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import Game from "../../core/Game";
 import { profile } from "../../core/util/Profiler";
 import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
@@ -104,6 +105,7 @@ export class WindInfo extends BaseEntity {
   // Track initialization state
   private gpuInitialized = false;
 
+  @on("afterAdded")
   onAfterAdded() {
     // Initialize GPU resources after entity is fully added
     this.initGPU().catch(console.error);
@@ -112,6 +114,7 @@ export class WindInfo extends BaseEntity {
   /**
    * Complete tile readbacks and rebuild spatial hash.
    */
+  @on("tick")
   @profile
   onTick() {
     // Complete readbacks from previous frame
@@ -132,6 +135,7 @@ export class WindInfo extends BaseEntity {
   /**
    * Compute tiles after physics.
    */
+  @on("afterPhysics")
   @profile
   onAfterPhysics() {
     if (!this.tilePipeline || !this.gpuInitialized) return;
@@ -350,6 +354,7 @@ export class WindInfo extends BaseEntity {
   /**
    * Clean up GPU resources.
    */
+  @on("destroy")
   onDestroy() {
     this.tilePipeline?.destroy();
     this.tilePipeline = null;

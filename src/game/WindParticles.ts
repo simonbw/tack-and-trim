@@ -1,4 +1,5 @@
 import BaseEntity from "../core/entity/BaseEntity";
+import { on } from "../core/entity/handler";
 import { Viewport } from "../core/graphics/Camera2d";
 import { range } from "../core/util/FunctionalUtils";
 import { invLerp, stepToward, sum } from "../core/util/MathUtil";
@@ -34,10 +35,12 @@ export class WindParticles extends BaseEntity {
     super();
   }
 
+  @on("add")
   onAdd() {
     this.grid = new ParticleGrid(SECTOR_GRID_SIZE, SECTOR_GRID_SIZE);
   }
 
+  @on("render")
   @profile
   onRender({
     dt,

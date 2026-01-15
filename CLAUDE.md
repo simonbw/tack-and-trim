@@ -57,15 +57,33 @@ The engine follows an Entity-based architecture where everything in the game ext
 - `resources/` - Assets (images, audio, fonts) with auto-generated TypeScript definitions
 - `bin/generate-asset-types.ts` - Asset processing script that creates type-safe resource imports
 
-### Entity Lifecycle
+### Entity Lifecycle & Event Handlers
 
-Entities have multiple lifecycle hooks:
+Entities respond to game events by implementing handler methods decorated with `@on`:
 
-- `onAdd()` - Called when added to game, before physics/rendering setup
-- `onAfterAdded()` - Called after all setup is complete
-- `onTick(dt)` - Called every physics tick (120fps by default)
-- `onRender(dt)` - Called every render frame for visual updates
-- `onDestroy()` - Called when entity is removed
+```typescript
+import { on } from "../core/entity/handler";
+
+class MyEntity extends BaseEntity {
+  @on("tick")
+  onTick(dt: number) {
+    // Called every physics tick (120fps by default)
+  }
+
+  @on("render")
+  onRender({ dt, draw }: GameEventMap["render"]) {
+    // Called every render frame for visual updates
+  }
+}
+```
+
+Common lifecycle events:
+
+- `add` - Called when added to game, before physics/rendering setup
+- `afterAdded` - Called after all setup is complete
+- `tick` - Called every physics tick
+- `render` - Called every render frame
+- `destroy` - Called when entity is removed
 
 ### Asset System
 
@@ -88,7 +106,20 @@ All automatically added/removed from the physics world when entities are added/d
 
 ### Custom Events
 
-Define custom events in `src/config/CustomEvent.ts` and dispatch them with `game.dispatch()`. Entities can handle custom events via the `handlers` property.
+Define custom events in `src/config/CustomEvent.ts` and dispatch them with `game.dispatch()`. Handle them with the `@on` decorator:
+
+```typescript
+// In src/config/CustomEvent.ts
+export type CustomEvents = {
+  levelStarted: { level: number };
+};
+
+// In your entity
+@on("levelStarted")
+onLevelStarted({ level }: GameEventMap["levelStarted"]) {
+  console.log(`Starting level ${level}`);
+}
+```
 
 ### Entity Finding
 

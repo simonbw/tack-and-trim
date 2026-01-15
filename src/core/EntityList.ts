@@ -1,10 +1,10 @@
+import { DEFAULT_LAYER } from "../config/layers";
+import { DEFAULT_TICK_LAYER } from "../config/tickLayers";
 import Entity, { GameEventHandler, GameEventName } from "./entity/Entity";
-import { handlerNameToEventName } from "./entity/EventHandler";
+import { getHandlers } from "./entity/handler";
 import { EntityFilter, hasBody } from "./EntityFilter";
 import { FilterMultiMap } from "./util/FilterListMap";
 import MultiMap from "./util/MultiMap";
-import { DEFAULT_LAYER } from "../config/layers";
-import { DEFAULT_TICK_LAYER } from "../config/tickLayers";
 
 /** Keeps track of entities. Has lots of useful indexes. */
 export default class EntityList implements Iterable<Entity> {
@@ -43,14 +43,12 @@ export default class EntityList implements Iterable<Entity> {
       }
     }
 
-    for (const methodName of getAllMethods(entity)) {
-      if (methodName.startsWith("on")) {
-        this.handlers.add(handlerNameToEventName(methodName), entity);
-      }
+    for (const eventName of getHandlers(entity)) {
+      this.handlers.add(eventName, entity);
     }
 
     // Index by render layer for efficient per-layer rendering
-    if (this.handlers.get("render").includes(entity)) {
+    if (this.handlers.get("render").has(entity)) {
       const layers = entity.layers ?? [entity.layer ?? DEFAULT_LAYER];
       for (const layer of layers) {
         this.renderLayerEntities.add(layer, entity);
@@ -58,7 +56,7 @@ export default class EntityList implements Iterable<Entity> {
     }
 
     // Index by tick layer for efficient per-layer ticking
-    if (this.handlers.get("tick").includes(entity)) {
+    if (this.handlers.get("tick").has(entity)) {
       const tickLayers = entity.tickLayers ?? [
         entity.tickLayer ?? DEFAULT_TICK_LAYER,
       ];
@@ -105,10 +103,8 @@ export default class EntityList implements Iterable<Entity> {
       }
     }
 
-    for (const methodName of getAllMethods(entity)) {
-      if (methodName.startsWith("on")) {
-        this.handlers.remove(handlerNameToEventName(methodName), entity);
-      }
+    for (const eventName of getHandlers(entity)) {
+      this.handlers.remove(eventName, entity);
     }
 
     if (entity.id) {
@@ -122,29 +118,34 @@ export default class EntityList implements Iterable<Entity> {
   }
 
   /** Returns all entities with the given tag. */
-  getTagged(tag: string): readonly Entity[] {
+  getTagged(tag: string): Iterable<Entity> {
     return this.tagged.get(tag);
   }
 
   /** Returns all entities that have all the given tags */
-  getTaggedAll(...tags: string[]): Entity[] {
+  getTaggedAll(...tags: string[]): Iterable<Entity> {
     if (tags.length === 0) {
       return [];
     }
-    return this.getTagged(tags[0]).filter((e) =>
-      tags.every((t) => e.tags!.includes(t)),
-    );
+    const result = new Set<Entity>();
+    const [firstTag, ...otherTags] = tags;
+    for (const e of this.getTagged(firstTag)) {
+      if (otherTags.every((t) => e.tags!.includes(t))) {
+        result.add(e);
+      }
+    }
+    return result;
   }
 
   /** Returns all entities that have at least one of the given tags */
-  getTaggedAny(...tags: string[]): Entity[] {
+  getTaggedAny(...tags: string[]): Iterable<Entity> {
     const result = new Set<Entity>();
     for (const tag of tags) {
       for (const e of this.getTagged(tag)) {
         result.add(e);
       }
     }
-    return [...result];
+    return result;
   }
 
   /** Adds a filter for fast lookup with getByFilter() in the future. */
@@ -171,19 +172,19 @@ export default class EntityList implements Iterable<Entity> {
   /** Get all entities that handle a specific event type. */
   getHandlers(
     eventType: GameEventName,
-  ): ReadonlyArray<Entity & GameEventHandler<GameEventName>> {
-    return this.handlers.get(eventType) as ReadonlyArray<
+  ): Iterable<Entity & GameEventHandler<GameEventName>> {
+    return this.handlers.get(eventType) as Iterable<
       Entity & GameEventHandler<GameEventName>
     >;
   }
 
   /** Get all entities that render on a specific layer. */
-  getRenderersOnLayer(layer: string): readonly Entity[] {
+  getRenderersOnLayer(layer: string): Iterable<Entity> {
     return this.renderLayerEntities.get(layer);
   }
 
   /** Get all entities that tick on a specific layer. */
-  getTickersOnLayer(layer: string): readonly Entity[] {
+  getTickersOnLayer(layer: string): Iterable<Entity> {
     return this.tickLayerEntities.get(layer);
   }
 
@@ -191,32 +192,4 @@ export default class EntityList implements Iterable<Entity> {
   [Symbol.iterator]() {
     return this.all[Symbol.iterator]();
   }
-}
-
-function getAllMethods(entity: object): string[] {
-  const methods: string[] = [];
-  let current = entity;
-
-  // Traverse up the prototype chain
-  while (
-    current !== null &&
-    current !== undefined &&
-    current !== Object.prototype
-  ) {
-    // Get own property names of the current object
-    const propertyNames = Object.getOwnPropertyNames(current);
-
-    // Filter out non-function properties and already added methods
-    for (const name of propertyNames as [keyof typeof current]) {
-      // Access on entity and not currentObject because we're looking at prototypes
-      if (typeof entity[name] === "function" && !methods.includes(name)) {
-        methods.push(name);
-      }
-    }
-
-    // Move up the prototype chain
-    current = Object.getPrototypeOf(current);
-  }
-
-  return methods;
 }

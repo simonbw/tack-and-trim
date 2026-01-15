@@ -1,4 +1,5 @@
 import BaseEntity from "../core/entity/BaseEntity";
+import { on } from "../core/entity/handler";
 import type { Draw } from "../core/graphics/Draw";
 import { clamp, lerp } from "../core/util/MathUtil";
 import { V, V2d } from "../core/Vector";
@@ -55,6 +56,7 @@ export class WindIndicator extends BaseEntity {
     super();
   }
 
+  @on("resize")
   onResize({ size }: { size: V2d }): void {
     this.screenSize = V(size);
     this.updateIndicatorPosition();
@@ -82,16 +84,19 @@ export class WindIndicator extends BaseEntity {
     return offset.magnitude <= INDICATOR_RADIUS;
   }
 
+  @on("mouseDown")
   onMouseDown(): void {
     if (this.isMouseOverIndicator()) {
       this.isDragging = true;
     }
   }
 
+  @on("mouseUp")
   onMouseUp(): void {
     this.isDragging = false;
   }
 
+  @on("render")
   onRender({ draw }: { draw: Draw }): void {
     const wind = this.getWind();
     if (!wind) return;

@@ -72,7 +72,10 @@ function isPlainObject(value: unknown): value is object {
  * Deep merge two objects, with overrides taking precedence.
  * Only plain objects are recursively merged; arrays and class instances are replaced.
  */
-export function deepMerge<T extends object>(base: T, overrides: DeepPartial<T>): T {
+export function deepMerge<T extends object>(
+  base: T,
+  overrides: DeepPartial<T>
+): T {
   const result = { ...base };
   for (const key in overrides) {
     const override = overrides[key];
@@ -88,4 +91,31 @@ export function deepMerge<T extends object>(base: T, overrides: DeepPartial<T>):
     }
   }
   return result;
+}
+export function getAllMethods(entity: object): string[] {
+  const methods: string[] = [];
+  let current = entity;
+
+  // Traverse up the prototype chain
+  while (
+    current !== null &&
+    current !== undefined &&
+    current !== Object.prototype
+  ) {
+    // Get own property names of the current object
+    const propertyNames = Object.getOwnPropertyNames(current);
+
+    // Filter out non-function properties and already added methods
+    for (const name of propertyNames as [keyof typeof current]) {
+      // Access on entity and not currentObject because we're looking at prototypes
+      if (typeof entity[name] === "function" && !methods.includes(name)) {
+        methods.push(name);
+      }
+    }
+
+    // Move up the prototype chain
+    current = Object.getPrototypeOf(current);
+  }
+
+  return methods;
 }

@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import { pairs } from "../../core/util/FunctionalUtils";
 import { V, V2d } from "../../core/Vector";
 import {
@@ -27,6 +28,7 @@ export class Keel extends BaseEntity {
     this.color = config.color;
   }
 
+  @on("tick")
   onTick() {
     // Use proper foil physics with real chord dimension
     const lift = foilLift(KEEL_CHORD);
@@ -58,6 +60,7 @@ export class Keel extends BaseEntity {
     }
   }
 
+  @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [x, y] = this.hull.body.position;
 

@@ -1,39 +1,41 @@
-/** A map of lists. Automatically creates and removes lists as needed. TODO: Consider using a Set instead of an Array for the values. */
+const EMPTY_SET: ReadonlySet<never> = new Set();
+
+/** A map of lists. Automatically creates and removes lists as needed. */
 export default class MultiMap<K, V> {
-  private map: Map<K, V[]>;
+  private map: Map<K, Set<V>>;
 
   constructor() {
-    this.map = new Map<K, V[]>();
+    this.map = new Map<K, Set<V>>();
   }
 
   add(key: K, value: V): void {
     if (!this.map.has(key)) {
-      this.map.set(key, [value]);
+      this.map.set(key, new Set([value]));
     } else {
-      this.map.get(key)!.push(value);
+      this.map.get(key)!.add(value);
     }
   }
 
-  get(key: K): ReadonlyArray<V> {
-    return this.map.get(key) ?? [];
+  get(key: K): ReadonlySet<V> {
+    return this.map.get(key) ?? EMPTY_SET;
   }
 
   has(key: K, value: V): boolean {
-    return this.map.has(key) && this.map.get(key)!.includes(value);
+    return this.map.has(key) && this.map.get(key)!.has(value);
   }
 
   remove(key: K, value: V): void {
-    if (this.map.has(key)) {
-      const array = this.map.get(key)!;
-      const index = array.indexOf(value);
-      if (index >= 0) {
-        array.splice(index, 1);
-        if (array.length === 0) {
-          this.map.delete(key);
-        }
-        return;
-      }
+    const set = this.map.get(key);
+    if (!set) {
+      throw new Error(`<${key}:${value}> not found`);
     }
-    throw new Error(`<${key}:${value}> not found`);
+
+    const existed = set.delete(value);
+    if (!existed) {
+      throw new Error(`<${key}:${value}> not found`);
+    }
+    if (set.size === 0) {
+      this.map.delete(key);
+    }
   }
 }

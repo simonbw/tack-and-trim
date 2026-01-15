@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
 import Particle from "../../core/physics/shapes/Particle";
@@ -49,7 +50,7 @@ export class Anchor extends BaseEntity {
 
   constructor(
     private hull: Hull,
-    config: AnchorConfig
+    config: AnchorConfig,
   ) {
     super();
 
@@ -109,7 +110,7 @@ export class Anchor extends BaseEntity {
         localAnchorA: [0, 0],
         localAnchorB: [this.bowAttachPoint.x, this.bowAttachPoint.y],
         collideConnected: false, // Don't collide with anchor
-      }
+      },
     );
     this.rodeConstraint.lowerLimit = 0;
     this.rodeConstraint.lowerLimitEnabled = false;
@@ -187,12 +188,12 @@ export class Anchor extends BaseEntity {
       const angle = rDirection();
       const hSpeed = rUniform(
         SPLASH_SPRAY_MIN_H_SPEED,
-        SPLASH_SPRAY_MAX_H_SPEED
+        SPLASH_SPRAY_MAX_H_SPEED,
       );
       const velocity = V2d.fromPolar(hSpeed, angle);
       const zVelocity = rUniform(
         SPLASH_SPRAY_MIN_Z_VELOCITY,
-        SPLASH_SPRAY_MAX_Z_VELOCITY
+        SPLASH_SPRAY_MAX_Z_VELOCITY,
       );
       const size = rUniform(SPLASH_SPRAY_MIN_SIZE, SPLASH_SPRAY_MAX_SIZE);
 
@@ -201,11 +202,12 @@ export class Anchor extends BaseEntity {
       const spawnPos = this.anchorPosition.add(offset);
 
       this.game.addEntity(
-        new SprayParticle(spawnPos, velocity, zVelocity, size)
+        new SprayParticle(spawnPos, velocity, zVelocity, size),
       );
     }
   }
 
+  @on("tick")
   onTick(dt: number): void {
     if (this.state === "stowed") return;
 
@@ -218,7 +220,7 @@ export class Anchor extends BaseEntity {
     this.currentRodeLength = stepToward(
       this.currentRodeLength,
       this.targetRodeLength,
-      speed * dt
+      speed * dt,
     );
 
     // Update constraint if rope length changed
@@ -265,6 +267,7 @@ export class Anchor extends BaseEntity {
     this.visualRope.update(this.anchorPosition, bowWorld, dt);
   }
 
+  @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     if (this.state === "stowed") {
       // Draw stowed anchor at bow
@@ -285,10 +288,11 @@ export class Anchor extends BaseEntity {
       this.anchorSize,
       {
         color: 0x444444,
-      }
+      },
     );
   }
 
+  @on("destroy")
   onDestroy(): void {
     // Clean up physics objects directly (bypass animation)
     if (this.game) {

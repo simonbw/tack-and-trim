@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import { stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import {
@@ -53,6 +54,7 @@ export class Rudder extends BaseEntity {
     return this.steer;
   }
 
+  @on("tick")
   onTick(dt: number) {
     // Update steering position based on input
     if (this.steerInput !== 0) {
@@ -98,6 +100,7 @@ export class Rudder extends BaseEntity {
     );
   }
 
+  @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [x, y] = this.hull.body.position;
     const [rx, ry] = this.position.rotate(this.hull.body.angle).iadd([x, y]);

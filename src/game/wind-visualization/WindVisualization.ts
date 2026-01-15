@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import { WindInfo } from "../wind/WindInfo";
 import { WindVisualizationMode } from "./WindVisualizationMode";
 import { WorldSpaceWindVisualization } from "./WorldSpaceWindVisualization";
@@ -26,6 +27,7 @@ export class WindVisualization extends BaseEntity {
     super();
   }
 
+  @on("keyDown")
   onKeyDown({ key }: { key: string }): void {
     if (key === "KeyV") {
       this.toggle();
@@ -41,6 +43,7 @@ export class WindVisualization extends BaseEntity {
     return this.game?.entities.getById("windInfo") as WindInfo | undefined;
   }
 
+  @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     const mode = this.modes[this.modeIndex];
     if (!mode) {

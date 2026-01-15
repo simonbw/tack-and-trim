@@ -1,5 +1,6 @@
 import BaseEntity from "../core/entity/BaseEntity";
 import Entity from "../core/entity/Entity";
+import { on } from "../core/entity/handler";
 import type Body from "../core/physics/body/Body";
 import StaticBody from "../core/physics/body/StaticBody";
 
@@ -14,6 +15,7 @@ const MAX_VELOCITY = 1000;
  * in a stable simulation but prevents bodies from flying off to infinity.
  */
 export class PhysicsValidator extends BaseEntity {
+  @on("afterPhysicsStep")
   onAfterPhysicsStep() {
     for (const body of this.game!.world.bodies) {
       if (body instanceof StaticBody) continue;

@@ -1,4 +1,5 @@
 import BaseEntity from "../core/entity/BaseEntity";
+import { on } from "../core/entity/handler";
 import { range } from "../core/util/FunctionalUtils";
 import { clamp, lerp, lerpV2d } from "../core/util/MathUtil";
 import { chooseWeighted, rNormal } from "../core/util/Random";
@@ -48,6 +49,7 @@ export class BoatSpray extends BaseEntity {
     this.edges = range(numEdges).map((i) => new Edge(boat, i));
   }
 
+  @on("tick")
   onTick(dt: number): void {
     const water = WaterInfo.fromGame(this.game!);
 

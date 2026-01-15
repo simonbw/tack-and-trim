@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
 import DynamicBody from "../../core/physics/body/DynamicBody";
 import Convex from "../../core/physics/shapes/Convex";
@@ -66,6 +67,7 @@ export class Hull extends BaseEntity {
     );
   }
 
+  @on("tick")
   onTick() {
     // Get water velocity function
     const water = WaterInfo.fromGame(this.game!);
@@ -80,6 +82,7 @@ export class Hull extends BaseEntity {
     );
   }
 
+  @on("render")
   onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
 

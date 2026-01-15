@@ -1,5 +1,6 @@
 import BaseEntity from "../core/entity/BaseEntity";
 import { GameEventMap } from "../core/entity/Entity";
+import { on } from "../core/entity/handler";
 import { clamp, lerp } from "../core/util/MathUtil";
 import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
@@ -54,6 +55,7 @@ export class FoamParticle extends BaseEntity {
     return { aabb: this.aabb, queryCount: 1 };
   }
 
+  @on("tick")
   onTick(dt: number): void {
     this.age += dt;
     if (this.age >= this.lifespan) {
@@ -67,6 +69,7 @@ export class FoamParticle extends BaseEntity {
     this.pos.iaddScaled(state.velocity, dt);
   }
 
+  @on("render")
   @profile
   onRender({ draw }: GameEventMap["render"]): void {
     const radius = this.getRadius();

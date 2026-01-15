@@ -1,5 +1,6 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
+import { on } from "../../core/entity/handler";
 import { Boat } from "./Boat";
 
 /**
@@ -14,6 +15,7 @@ export class PlayerBoatController extends BaseEntity {
     super();
   }
 
+  @on("tick")
   onTick(dt: GameEventMap["tick"]) {
     const io = this.game!.io;
 
@@ -80,6 +82,7 @@ export class PlayerBoatController extends BaseEntity {
     activeSheet.adjust(trimInput, jibDt);
   }
 
+  @on("keyDown")
   onKeyDown({ key }: GameEventMap["keyDown"]) {
     // Row the boat
     if (key === "Space") {

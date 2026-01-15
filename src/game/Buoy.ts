@@ -1,4 +1,5 @@
 import BaseEntity from "../core/entity/BaseEntity";
+import { on } from "../core/entity/handler";
 import type { Draw } from "../core/graphics/Draw";
 import DynamicBody from "../core/physics/body/DynamicBody";
 import Circle from "../core/physics/shapes/Circle";
@@ -27,6 +28,7 @@ export class Buoy extends BaseEntity {
     this.body.position.set(x, y);
   }
 
+  @on("tick")
   onTick() {
     const [x, y] = this.body.position;
 
@@ -53,6 +55,7 @@ export class Buoy extends BaseEntity {
     this.currentScale = 1 + waterState.surfaceHeight * HEIGHT_SCALE_FACTOR;
   }
 
+  @on("render")
   onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
 

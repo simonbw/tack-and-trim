@@ -1,4 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import { V, V2d } from "../../core/Vector";
 import { Boat } from "./Boat";
 import { BowspritConfig } from "./BoatConfig";
@@ -20,6 +21,7 @@ export class Bowsprit extends BaseEntity {
     this.color = config.color;
   }
 
+  @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const hullBody = this.boat.hull.body;
     const worldPos = hullBody.toWorldFrame(this.localPosition);

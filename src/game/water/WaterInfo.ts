@@ -9,6 +9,7 @@
 
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import Game from "../../core/Game";
 import { profile } from "../../core/util/Profiler";
 import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
@@ -145,6 +146,7 @@ export class WaterInfo extends BaseEntity {
     };
   }
 
+  @on("afterAdded")
   onAfterAdded() {
     this.initGPU().catch(console.error);
   }
@@ -172,6 +174,7 @@ export class WaterInfo extends BaseEntity {
    * Complete pending readbacks from previous frame.
    * Called at start of tick.
    */
+  @on("tick")
   @profile
   onTick() {
     // Complete readbacks from previous frame
@@ -193,6 +196,7 @@ export class WaterInfo extends BaseEntity {
    * Compute tiles after physics.
    * Called via afterPhysics event.
    */
+  @on("afterPhysics")
   @profile
   onAfterPhysics() {
     if (!this.tilePipeline || !this.gpuInitialized) return;
@@ -387,6 +391,7 @@ export class WaterInfo extends BaseEntity {
   /**
    * Clean up GPU resources.
    */
+  @on("destroy")
   onDestroy() {
     this.tilePipeline?.destroy();
     this.tilePipeline = null;

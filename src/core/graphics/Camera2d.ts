@@ -1,6 +1,7 @@
 import { ReadonlyV2d, V, V2d } from "../Vector";
 import BaseEntity from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
+import { on } from "../entity/handler";
 import { lerpOrSnap } from "../util/MathUtil";
 import { Matrix3 } from "./Matrix3";
 
@@ -172,6 +173,7 @@ export class Camera2d extends BaseEntity implements Entity {
     return this._position;
   }
 
+  @on("tick")
   onTick(dt: number) {
     this.x += this.vx * dt;
     this.y += this.vy * dt;

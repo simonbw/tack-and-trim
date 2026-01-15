@@ -5,18 +5,6 @@ import { Draw } from "../graphics/Draw";
 import { V2d } from "../Vector";
 import Entity from "./Entity";
 
-/** Data passed to onRender callbacks */
-export interface RenderEventData {
-  /** Delta time since last frame */
-  dt: number;
-  /** The layer being rendered */
-  layer: LayerName;
-  /** The drawing API */
-  draw: Draw;
-  /** The camera being used for rendering */
-  camera: Camera2d;
-}
-
 export type BaseGameEvents = {
   /**
    * Called when added to the game, during the early phase of entity setup.
@@ -60,7 +48,16 @@ export type BaseGameEvents = {
   /** Called after each physics step (inside the tick loop, before contacts) */
   afterPhysicsStep: number;
   /** Called before rendering - use destructuring: onRender({ dt, layer, draw }) */
-  render: RenderEventData;
+  render: {
+    /** Delta time since last frame */
+    dt: number;
+    /** The layer being rendered */
+    layer: LayerName;
+    /** The drawing API */
+    draw: Draw;
+    /** The camera being used for rendering */
+    camera: Camera2d;
+  };
   /** Called during the update tick */
   tick: number;
   /** Called less frequently */

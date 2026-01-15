@@ -10,6 +10,7 @@
  */
 
 import BaseEntity from "../../../core/entity/BaseEntity";
+import { on } from "../../../core/entity/handler";
 import { WaterInfo, type Viewport } from "../WaterInfo";
 import { WaterRenderPipeline } from "./WaterRenderPipeline";
 import { WaterShader } from "./WaterShader";
@@ -49,6 +50,7 @@ export class WaterRenderer extends BaseEntity {
     }
   }
 
+  @on("add")
   onAdd() {
     this.ensureInitialized();
   }
@@ -71,6 +73,7 @@ export class WaterRenderer extends BaseEntity {
     };
   }
 
+  @on("render")
   onRender() {
     if (!this.game || !this.initialized || !this.waterShader) return;
 
@@ -114,12 +117,14 @@ export class WaterRenderer extends BaseEntity {
     this.renderMode = mode;
   }
 
+  @on("keyDown")
   onKeyDown({ key }: { key: string }): void {
     if (key === "KeyB") {
       this.setRenderMode((this.renderMode + 1) % 2);
     }
   }
 
+  @on("destroy")
   onDestroy(): void {
     this.renderPipeline.destroy();
     this.waterShader?.destroy();

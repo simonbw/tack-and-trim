@@ -1,6 +1,7 @@
 import { SoundName } from "../../../resources/resources";
 import BaseEntity from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
+import { on } from "../entity/handler";
 import Game from "../Game";
 import { getSoundBuffer, hasSoundBuffer } from "../resources/sounds";
 import { clamp } from "../util/MathUtil";
@@ -80,7 +81,7 @@ export class SoundInstance extends BaseEntity implements Entity {
 
   constructor(
     public readonly soundName: SoundName,
-    private options: SoundOptions = {}
+    private options: SoundOptions = {},
   ) {
     super();
     this.speed = options.speed ?? 1.0;
@@ -98,6 +99,7 @@ export class SoundInstance extends BaseEntity implements Entity {
     });
   }
 
+  @on("add")
   onAdd({ game }: { game: Game }) {
     const chain = this.makeChain(game);
     if (this.options.outnode) {
@@ -149,6 +151,7 @@ export class SoundInstance extends BaseEntity implements Entity {
     return this._promise;
   }
 
+  @on("tick")
   onTick() {
     const now = this.game!.audio.currentTime;
     this.elapsed += (now - this.lastTick) * this.sourceNode.playbackRate.value;
@@ -168,11 +171,10 @@ export class SoundInstance extends BaseEntity implements Entity {
     }
   }
 
-  handlers = {
-    slowMoChanged: () => {
-      this.updatePlaybackRate();
-    },
-  };
+  @on("slowMoChanged")
+  onSlowMoChanged() {
+    this.updatePlaybackRate();
+  }
 
   pause() {
     if (this.pausable) {
@@ -203,7 +205,7 @@ export class SoundInstance extends BaseEntity implements Entity {
     this.sourceNode.connect(this.panNode);
     this.sourceNode.start(
       this.game!.audio.currentTime,
-      clamp(startTime, 0, this.sourceNode.buffer!.duration)
+      clamp(startTime, 0, this.sourceNode.buffer!.duration),
     );
   }
 
@@ -211,14 +213,17 @@ export class SoundInstance extends BaseEntity implements Entity {
     this.restartSound(rUniform(0, this.sourceNode.buffer!.duration * 0.99));
   }
 
+  @on("pause")
   onPause() {
     this.pause();
   }
 
+  @on("unpause")
   onUnpause() {
     this.unpause();
   }
 
+  @on("destroy")
   onDestroy() {
     this.sourceNode.stop();
     this._resolve();
