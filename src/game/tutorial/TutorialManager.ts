@@ -1,6 +1,5 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import { V } from "../../core/Vector";
 import type { Boat } from "../boat/Boat";
 import type { WindInfo } from "../wind/WindInfo";
 import { TutorialPopup } from "./TutorialPopup";
