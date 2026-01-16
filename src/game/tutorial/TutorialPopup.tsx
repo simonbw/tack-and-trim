@@ -1,4 +1,4 @@
-import type { VNode } from "preact";
+import { Fragment, type VNode } from "preact";
 import { ReactEntity } from "../../core/ReactEntity";
 import type { TutorialStep } from "./TutorialStep";
 import "./TutorialPopup.css";
@@ -79,10 +79,10 @@ export class TutorialPopup extends ReactEntity {
     return (
       <>
         {keys.map((key, i) => (
-          <>
+          <Fragment key={i}>
             {i > 0 && <span className="tutorial-keyhint__label"> or </span>}
             <kbd className="tutorial-key">{key.trim()}</kbd>
-          </>
+          </Fragment>
         ))}
       </>
     );
