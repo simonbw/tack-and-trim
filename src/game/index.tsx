@@ -16,6 +16,7 @@ import { WaterInfo } from "./water/WaterInfo";
 import { WaterRenderer } from "./water/rendering/WaterRenderer";
 import { WindInfo } from "./wind/WindInfo";
 import { WindVisualization } from "./wind-visualization/WindVisualization";
+import { TutorialManager } from "./tutorial";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
 
@@ -66,6 +67,9 @@ async function main() {
   game.addEntity(new PlayerBoatController(boat));
   game.addEntity(new CameraController(boat, game.camera));
   game.addEntity(new WindParticles());
+
+  // Start the tutorial
+  game.addEntity(new TutorialManager());
 }
 
 window.addEventListener("load", main);
