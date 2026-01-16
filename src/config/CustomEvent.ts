@@ -6,4 +6,10 @@ export type CustomEvents = {
    * Add an onExampleEvent({ level, message }) function to an entity to listen to this event.
    */
   exampleEvent: { level: number; message: string };
+
+  /** Fired when a tutorial step is completed */
+  tutorialStepComplete: { stepIndex: number; stepTitle: string };
+
+  /** Fired when the entire tutorial is completed */
+  tutorialComplete: {};
 };
