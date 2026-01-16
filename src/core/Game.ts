@@ -247,7 +247,15 @@ export default class Game {
     for (const entity of this.entities.getHandlers(eventName)) {
       if (entity.game && !(effectivelyPaused && !entity.pausable)) {
         const functionName = eventHandlerName(eventName);
-        entity[functionName](data);
+        const handler = entity[functionName];
+        if (typeof handler !== "function") {
+          console.error(
+            `Entity ${entity.constructor.name} registered for "${eventName}" but has no ${functionName} method`,
+            entity,
+          );
+          continue;
+        }
+        handler.call(entity, data);
       }
     }
   }

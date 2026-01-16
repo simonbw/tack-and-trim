@@ -13,11 +13,12 @@ type HandlerFn<K extends GameEventName> = GameEventMap[K] extends void
   ? () => void
   : (data: GameEventMap[K]) => void;
 
-// Symbol to store handler metadata on the class constructor
-const HANDLERS_KEY = Symbol("handlers");
+// Map from class constructor to its directly declared handlers
+const classHandlers = new WeakMap<object, Set<GameEventName>>();
 
-// Type for the metadata we store
-type HandlerMetadata = GameEventName[];
+// Track which (class, event) pairs have already been processed
+// Key format: uses a WeakMap of class -> Set of event names
+const processedHandlers = new WeakMap<object, Set<GameEventName>>();
 
 /**
  * Decorator that marks a method as an event handler.
@@ -41,21 +42,40 @@ export function on<K extends GameEventName>(event: K) {
     _target: T,
     context: ClassMethodDecoratorContext,
   ): T {
-    // Use addInitializer to register metadata on the constructor
-    // This runs once per class (when first instance is created)
+    const methodName = String(context.name);
+
+    // Use addInitializer to register handlers on first instantiation
+    // We need this because we don't have access to the class constructor at decoration time
     context.addInitializer(function (this: unknown) {
-      const constructor = (this as object).constructor as {
-        [HANDLERS_KEY]?: HandlerMetadata;
-      };
+      const instance = this as object;
 
-      // Initialize handlers array if not present
-      if (!constructor[HANDLERS_KEY]) {
-        constructor[HANDLERS_KEY] = [];
-      }
+      // Find which class in the prototype chain actually owns this method
+      let proto = Object.getPrototypeOf(instance);
+      while (proto && proto !== Object.prototype) {
+        if (Object.prototype.hasOwnProperty.call(proto, methodName)) {
+          const owningClass = proto.constructor;
 
-      // Only add if not already registered (handles inheritance)
-      if (!constructor[HANDLERS_KEY].includes(event)) {
-        constructor[HANDLERS_KEY].push(event);
+          // Check if we've already processed this (class, event) pair
+          let processed = processedHandlers.get(owningClass);
+          if (!processed) {
+            processed = new Set();
+            processedHandlers.set(owningClass, processed);
+          }
+          if (processed.has(event)) {
+            return; // Already registered
+          }
+          processed.add(event);
+
+          // Register this event for the class that owns the method
+          let handlers = classHandlers.get(owningClass);
+          if (!handlers) {
+            handlers = new Set();
+            classHandlers.set(owningClass, handlers);
+          }
+          handlers.add(event);
+          return;
+        }
+        proto = Object.getPrototypeOf(proto);
       }
     });
 
@@ -66,10 +86,22 @@ export function on<K extends GameEventName>(event: K) {
 /**
  * Get all registered event handlers for an entity.
  * Returns an array of event names that the entity handles.
+ * Walks up the prototype chain to collect handlers from parent classes.
  */
 export function getHandlers(entity: object): readonly GameEventName[] {
-  const constructor = entity.constructor as {
-    [HANDLERS_KEY]?: HandlerMetadata;
-  };
-  return constructor[HANDLERS_KEY] ?? [];
+  const result = new Set<GameEventName>();
+
+  // Walk up the prototype chain to collect all handlers
+  let current: object | null = entity.constructor;
+  while (current && current !== Object && current !== Function) {
+    const handlers = classHandlers.get(current);
+    if (handlers) {
+      for (const event of handlers) {
+        result.add(event);
+      }
+    }
+    current = Object.getPrototypeOf(current);
+  }
+
+  return Array.from(result);
 }
