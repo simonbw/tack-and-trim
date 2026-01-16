@@ -26,6 +26,7 @@ export class TutorialPopup extends ReactEntity {
   updateStep(step: TutorialStep, stepIndex: number): void {
     this.props = { ...this.props, step, stepIndex };
     this.isExiting = false;
+    this.reactRender();
   }
 
   /** Begin exit animation */
