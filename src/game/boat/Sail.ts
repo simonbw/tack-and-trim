@@ -76,6 +76,7 @@ export class Sail extends BaseEntity implements WindModifier {
   private flowSimulator = new SailFlowSimulator();
   private cachedSegments: SailSegment[] = [];
   private flowComputedFrame: number = -1;
+  private inFlowComputation: boolean = false;
 
   // Reusable AABB for WindModifier
   private readonly aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -250,6 +251,13 @@ export class Sail extends BaseEntity implements WindModifier {
       return this.cachedSegments;
     }
 
+    // Guard against infinite recursion from mutual upwind sail references
+    if (this.inFlowComputation) {
+      throw new Error(
+        "Recursive getFlowStates() call detected on same sail - this would cause an infinite loop",
+      );
+    }
+
     const wind = this.game?.entities.getById("windInfo") as
       | WindInfo
       | undefined;
@@ -257,36 +265,44 @@ export class Sail extends BaseEntity implements WindModifier {
       return [];
     }
 
-    // Get upwind sails and trigger their flow computation first
-    const upwindSails = this.getUpwindSails();
+    try {
+      this.inFlowComputation = true;
 
-    // Build contribution function from upwind sails
-    const getUpwindContribution = (point: V2d): V2d => {
-      let contribution = V(0, 0);
-      for (const sail of upwindSails) {
-        contribution.iadd(sail.getWindContributionAt(point));
-      }
-      return contribution;
-    };
+      // Get upwind sails and trigger their flow computation first
+      const upwindSails = this.getUpwindSails();
 
-    // Get base wind at sail centroid
-    const baseWind = wind.getBaseVelocityAtPoint(this.getCentroid());
+      // Build contribution function from upwind sails
+      const getUpwindContribution = (point: V2d): V2d => {
+        let contribution = V(0, 0);
+        for (const sail of upwindSails) {
+          contribution.iadd(sail.getWindContributionAt(point));
+        }
+        return contribution;
+      };
 
-    // Run flow simulation
-    this.cachedSegments = this.flowSimulator.simulate(
-      this.bodies,
-      this.getHeadPosition(),
-      this.getClewPosition(),
-      baseWind,
-      getUpwindContribution,
-    );
-    this.flowComputedFrame = currentFrame;
+      // Get base wind at sail centroid
+      const baseWind = wind.getBaseVelocityAtPoint(this.getCentroid());
+
+      // Run flow simulation
+      this.cachedSegments = this.flowSimulator.simulate(
+        this.bodies,
+        this.getHeadPosition(),
+        this.getClewPosition(),
+        baseWind,
+        getUpwindContribution,
+      );
+      this.flowComputedFrame = currentFrame;
+    } finally {
+      this.inFlowComputation = false;
+    }
 
     return this.cachedSegments;
   }
 
   /**
    * Get sails that are upwind of this sail and might affect it.
+   * Uses midpoint wind direction to guarantee asymmetry: if A sees B as upwind,
+   * B cannot see A as upwind, preventing infinite recursion.
    */
   private getUpwindSails(): Sail[] {
     const wind = this.game?.entities.getById("windInfo") as
@@ -294,13 +310,18 @@ export class Sail extends BaseEntity implements WindModifier {
       | undefined;
     if (!wind) return [];
 
-    const windDir = wind.getBaseVelocityAtPoint(this.getCentroid()).normalize();
     const myPos = this.getCentroid();
 
-    const allSails = this.game?.entities.getTagged("sail") as Sail[];
+    const allSails = [
+      ...(this.game?.entities.getTagged("sail") ?? []),
+    ] as Sail[];
     return allSails.filter((sail) => {
       if (sail === this) return false;
-      const toOther = sail.getCentroid().sub(myPos);
+      const otherPos = sail.getCentroid();
+      // Use wind at midpoint to ensure both sails agree on direction
+      const midpoint = myPos.add(otherPos).mul(0.5);
+      const windDir = wind.getBaseVelocityAtPoint(midpoint).normalize();
+      const toOther = otherPos.sub(myPos);
       return toOther.dot(windDir) < 0; // Other sail is upwind
     });
   }
