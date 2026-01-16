@@ -5,7 +5,7 @@
 
 import BaseEntity from "../../core/entity/BaseEntity";
 import type { AABB } from "../../core/util/SparseSpatialHash";
-import type { QueryForecast } from "../datatiles/DataTileTypes";
+import type { QueryForecast, WaterQuerier } from "../datatiles/DataTileTypes";
 import type { Boat } from "./Boat";
 
 // Margin around hull AABB for query forecast (ft)
@@ -14,7 +14,7 @@ const QUERY_MARGIN = 2;
 /**
  * WaterQuerier that forecasts water queries for an entire boat.
  */
-export class BoatWaterQuerier extends BaseEntity {
+export class BoatWaterQuerier extends BaseEntity implements WaterQuerier {
   tags = ["waterQuerier"];
 
   // Reusable AABB to avoid allocations
@@ -24,7 +24,7 @@ export class BoatWaterQuerier extends BaseEntity {
     super();
   }
 
-  getQueryForecast(): QueryForecast | null {
+  getWaterQueryForecast(): QueryForecast | null {
     const hull = this.boat.hull;
     if (!hull?.body) return null;
 

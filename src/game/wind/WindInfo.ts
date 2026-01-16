@@ -20,7 +20,7 @@ import { DataTileComputePipeline } from "../datatiles/DataTileComputePipeline";
 import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
 import type {
   DataTileGridConfig,
-  QueryForecast,
+  WindQuerier,
 } from "../datatiles/DataTileTypes";
 import { WindModifier } from "../WindModifier";
 import {
@@ -178,8 +178,8 @@ export class WindInfo extends BaseEntity {
     const queriers = this.game!.entities.getTagged("windQuerier");
     for (const entity of queriers) {
       const forecast = (
-        entity as { getQueryForecast?(): QueryForecast | null }
-      ).getQueryForecast?.();
+        entity as unknown as WindQuerier
+      ).getWindQueryForecast();
       if (forecast) {
         this.tilePipeline.accumulateForecast(forecast);
       }

@@ -6,7 +6,7 @@ import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import type { AABB } from "../core/util/SparseSpatialHash";
 import { V2d } from "../core/Vector";
-import type { QueryForecast } from "./datatiles/DataTileTypes";
+import type { QueryForecast, WaterQuerier } from "./datatiles/DataTileTypes";
 import { WaterInfo } from "./water/WaterInfo";
 
 // Rendering
@@ -22,7 +22,7 @@ const GROW_SPEED = 1.0; // radiuses per second
  * Created when a SprayParticle hits the water.
  * Grows outward and fades over time.
  */
-export class FoamParticle extends BaseEntity {
+export class FoamParticle extends BaseEntity implements WaterQuerier {
   layer = "foamParticles" as const;
   tickLayer = "effects" as const;
   tags = ["waterQuerier"];
@@ -47,7 +47,7 @@ export class FoamParticle extends BaseEntity {
     this.lifespan = rUniform(0, MAX_LIFESPAN);
   }
 
-  getQueryForecast(): QueryForecast {
+  getWaterQueryForecast(): QueryForecast {
     this.aabb.minX = this.pos[0];
     this.aabb.maxX = this.pos[0];
     this.aabb.minY = this.pos[1];

@@ -18,7 +18,7 @@ import { DataTileComputePipeline } from "../datatiles/DataTileComputePipeline";
 import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
 import type {
   DataTileGridConfig,
-  QueryForecast,
+  WaterQuerier,
 } from "../datatiles/DataTileTypes";
 import {
   computeWaveDataAtPoint,
@@ -217,8 +217,8 @@ export class WaterInfo extends BaseEntity {
     const queriers = this.game!.entities.getTagged("waterQuerier");
     for (const entity of queriers) {
       const forecast = (
-        entity as { getQueryForecast?(): QueryForecast | null }
-      ).getQueryForecast?.();
+        entity as unknown as WaterQuerier
+      ).getWaterQueryForecast();
       if (forecast) {
         this.tilePipeline.accumulateForecast(forecast);
       }

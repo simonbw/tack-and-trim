@@ -10,7 +10,7 @@ import {
   flatPlateDrag,
   ForceMagnitudeFn,
 } from "../fluid-dynamics";
-import type { QueryForecast } from "../datatiles/DataTileTypes";
+import type { QueryForecast, WindQuerier } from "../datatiles/DataTileTypes";
 import type { WindInfo } from "../wind/WindInfo";
 
 // Units: feet (ft), lbs
@@ -30,7 +30,7 @@ const TELLTAIL_COLOR = 0xff6600;
 /** No lift for a thin streamer - it just gets pushed by the wind. */
 const noLift: ForceMagnitudeFn = () => 0;
 
-export class TellTail extends BaseEntity {
+export class TellTail extends BaseEntity implements WindQuerier {
   layer = "telltails" as const;
   tags = ["windQuerier"];
   bodies: DynamicBody[];
@@ -127,8 +127,7 @@ export class TellTail extends BaseEntity {
     });
   }
 
-  // Wind querier implementation (duck typed via "windQuerier" tag)
-  getQueryForecast(): QueryForecast | null {
+  getWindQueryForecast(): QueryForecast | null {
     // Compute AABB around tell tail bodies
     let minX = Infinity,
       minY = Infinity;

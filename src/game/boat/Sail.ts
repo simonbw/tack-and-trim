@@ -8,7 +8,7 @@ import { AABB } from "../../core/util/SparseSpatialHash";
 import { last, pairs, range } from "../../core/util/FunctionalUtils";
 import { lerpV2d, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import type { QueryForecast } from "../datatiles/DataTileTypes";
+import type { QueryForecast, WindQuerier } from "../datatiles/DataTileTypes";
 import type { WindInfo } from "../wind/WindInfo";
 import { SEGMENT_INFLUENCE_RADIUS } from "../wind/WindConstants";
 import { WindModifier } from "../WindModifier";
@@ -62,7 +62,7 @@ const DEFAULT_CONFIG: SailConfig = {
   attachTellTail: true,
 };
 
-export class Sail extends BaseEntity implements WindModifier {
+export class Sail extends BaseEntity implements WindModifier, WindQuerier {
   layer = "sails" as const;
   tags = ["windQuerier", "sail", "windModifier"];
   bodies: DynamicBody[];
@@ -461,8 +461,7 @@ export class Sail extends BaseEntity implements WindModifier {
     }
   }
 
-  // Wind querier implementation (duck typed via "windQuerier" tag)
-  getQueryForecast(): QueryForecast | null {
+  getWindQueryForecast(): QueryForecast | null {
     // Don't forecast if sail is lowered
     if (this.hoistAmount <= 0) return null;
 

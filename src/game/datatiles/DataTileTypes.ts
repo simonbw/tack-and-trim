@@ -74,6 +74,22 @@ export interface QueryForecast {
 }
 
 /**
+ * Interface for entities that query wind data.
+ * Entities with the "windQuerier" tag should implement this interface.
+ */
+export interface WindQuerier {
+  getWindQueryForecast(): QueryForecast | null;
+}
+
+/**
+ * Interface for entities that query water data.
+ * Entities with the "waterQuerier" tag should implement this interface.
+ */
+export interface WaterQuerier {
+  getWaterQueryForecast(): QueryForecast | null;
+}
+
+/**
  * Convert grid coordinates to DataTileId.
  */
 export function toDataTileId(gridX: number, gridY: number): DataTileId {
