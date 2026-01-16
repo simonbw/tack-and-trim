@@ -1,12 +1,12 @@
-import type Body from "../../core/physics/body/Body";
-import { clamp } from "../../core/util/MathUtil";
-import { V, V2d } from "../../core/Vector";
+import type Body from "../../../core/physics/body/Body";
+import { clamp } from "../../../core/util/MathUtil";
+import { V, V2d } from "../../../core/Vector";
 import {
   SEGMENT_INFLUENCE_RADIUS,
   TURBULENCE_DECAY,
   TURBULENCE_DETACH_THRESHOLD,
   TURBULENCE_STALL_INJECTION,
-} from "../wind/WindConstants";
+} from "../../wind/WindConstants";
 import { createFlowState, FlowState } from "./FlowState";
 import { calculateCamber, isSailStalled } from "./sail-helpers";
 import type { SailSegment } from "./SailSegment";

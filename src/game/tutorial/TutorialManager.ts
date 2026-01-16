@@ -1,7 +1,7 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Boat } from "../boat/Boat";
-import type { WindInfo } from "../wind/WindInfo";
+import { WindInfo } from "../wind/WindInfo";
 import { TutorialPopup } from "./TutorialPopup";
 import type { TutorialContext } from "./TutorialStep";
 import { tutorialSteps } from "./tutorialSteps";
@@ -27,15 +27,12 @@ export class TutorialManager extends BaseEntity {
   onAfterAdded(): void {
     // Get references to boat and wind
     const boat = this.game!.entities.getById("boat") as Boat | undefined;
-    const windInfo = this.game!.entities.getById("windInfo") as
-      | WindInfo
-      | undefined;
-
-    if (!boat || !windInfo) {
-      console.warn("TutorialManager: Could not find boat or windInfo");
+    if (!boat) {
+      console.warn("TutorialManager: Could not find boat");
       this.destroy();
       return;
     }
+    const windInfo = WindInfo.fromGame(this.game!);
 
     // Initialize context
     const startPos = boat.getPosition().clone();

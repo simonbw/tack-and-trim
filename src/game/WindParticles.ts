@@ -49,14 +49,11 @@ export class WindParticles extends BaseEntity {
     dt: number;
     draw: import("../core/graphics/Draw").Draw;
   }) {
-    const wind = this.game?.entities.getById("windInfo") as
-      | WindInfo
-      | undefined;
-    const viewport = this.game?.camera.getWorldViewport();
-
-    if (!this.game || !wind || !viewport || !this.grid) {
+    if (!this.game || !this.grid) {
       return;
     }
+    const wind = WindInfo.fromGame(this.game);
+    const viewport = this.game.camera.getWorldViewport();
 
     const zoom = this.game.camera.z;
     // Particle radius in world units that appears as PARTICLE_SIZE pixels on screen

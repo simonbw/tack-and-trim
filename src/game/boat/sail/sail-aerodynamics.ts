@@ -1,8 +1,8 @@
-import type DynamicBody from "../../core/physics/body/DynamicBody";
-import { clamp } from "../../core/util/MathUtil";
-import { V } from "../../core/Vector";
-import { RHO_AIR } from "../fluid-dynamics";
-import { SEPARATION_DECAY_RATE } from "../wind/WindConstants";
+import type DynamicBody from "../../../core/physics/body/DynamicBody";
+import { clamp } from "../../../core/util/MathUtil";
+import { V } from "../../../core/Vector";
+import { RHO_AIR } from "../../fluid-dynamics";
+import { SEPARATION_DECAY_RATE } from "../../wind/WindConstants";
 import { getSailLiftCoefficient, STALL_ANGLE } from "./sail-helpers";
 import type { SailSegment } from "./SailSegment";
 

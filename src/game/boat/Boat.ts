@@ -12,7 +12,7 @@ import { findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
 import { Rig } from "./Rig";
 import { Rudder } from "./Rudder";
-import { Sail } from "./Sail";
+import { Sail } from "./sail/Sail";
 import { Sheet } from "./Sheet";
 
 export class Boat extends BaseEntity {

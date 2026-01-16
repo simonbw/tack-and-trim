@@ -1,7 +1,7 @@
 import { DeepPartial, deepMerge } from "../../core/util/ObjectUtils";
 import { V2d } from "../../core/Vector";
 import { StarterDinghy } from "./configs/StarterDinghy";
-import { SailConfig } from "./Sail";
+import { SailConfig } from "./sail";
 import { SheetConfig } from "./Sheet";
 
 // ============================================
@@ -128,7 +128,7 @@ export const DEFAULT_BOAT_CONFIG = StarterDinghy;
  */
 export function createBoatConfig(
   base: BoatConfig,
-  overrides: DeepPartial<BoatConfig>
+  overrides: DeepPartial<BoatConfig>,
 ): BoatConfig {
   return deepMerge(base, overrides);
 }

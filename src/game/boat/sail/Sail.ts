@@ -1,17 +1,17 @@
-import BaseEntity from "../../core/entity/BaseEntity";
-import { on } from "../../core/entity/handler";
-import type Body from "../../core/physics/body/Body";
-import DynamicBody from "../../core/physics/body/DynamicBody";
-import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
-import Particle from "../../core/physics/shapes/Particle";
-import { AABB } from "../../core/util/SparseSpatialHash";
-import { last, pairs, range } from "../../core/util/FunctionalUtils";
-import { lerpV2d, stepToward } from "../../core/util/MathUtil";
-import { V, V2d } from "../../core/Vector";
-import type { QueryForecast, WindQuerier } from "../datatiles/DataTileTypes";
-import type { WindInfo } from "../wind/WindInfo";
-import { SEGMENT_INFLUENCE_RADIUS } from "../wind/WindConstants";
-import { WindModifier } from "../WindModifier";
+import BaseEntity from "../../../core/entity/BaseEntity";
+import { on } from "../../../core/entity/handler";
+import type Body from "../../../core/physics/body/Body";
+import DynamicBody from "../../../core/physics/body/DynamicBody";
+import DistanceConstraint from "../../../core/physics/constraints/DistanceConstraint";
+import Particle from "../../../core/physics/shapes/Particle";
+import { AABB } from "../../../core/util/SparseSpatialHash";
+import { last, pairs, range } from "../../../core/util/FunctionalUtils";
+import { lerpV2d, stepToward } from "../../../core/util/MathUtil";
+import { V, V2d } from "../../../core/Vector";
+import type { QueryForecast, WindQuerier } from "../../datatiles/DataTileTypes";
+import { WindInfo } from "../../wind/WindInfo";
+import { SEGMENT_INFLUENCE_RADIUS } from "../../wind/WindConstants";
+import { WindModifier } from "../../WindModifier";
 import { applySailForces } from "./sail-aerodynamics";
 import { DEFAULT_SAIL_CHORD } from "./sail-helpers";
 import { SailFlowSimulator } from "./SailFlowSimulator";
@@ -258,12 +258,10 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
       );
     }
 
-    const wind = this.game?.entities.getById("windInfo") as
-      | WindInfo
-      | undefined;
-    if (!wind) {
+    if (!this.game) {
       return [];
     }
+    const wind = WindInfo.fromGame(this.game);
 
     try {
       this.inFlowComputation = true;
@@ -305,10 +303,8 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
    * B cannot see A as upwind, preventing infinite recursion.
    */
   private getUpwindSails(): Sail[] {
-    const wind = this.game?.entities.getById("windInfo") as
-      | WindInfo
-      | undefined;
-    if (!wind) return [];
+    if (!this.game) return [];
+    const wind = WindInfo.fromGame(this.game);
 
     const myPos = this.getCentroid();
 
@@ -372,7 +368,7 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
   }
 
   @on("render")
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
+  onRender({ draw }: { draw: import("../../../core/graphics/Draw").Draw }) {
     // Hide sail when fully lowered
     if (this.hoistAmount <= 0) {
       return;

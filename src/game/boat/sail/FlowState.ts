@@ -1,4 +1,4 @@
-import { V, V2d } from "../../core/Vector";
+import { V, V2d } from "../../../core/Vector";
 
 /**
  * Flow state at a single sail segment.

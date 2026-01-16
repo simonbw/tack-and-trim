@@ -1,17 +1,17 @@
-import BaseEntity from "../../core/entity/BaseEntity";
-import { on } from "../../core/entity/handler";
-import DynamicBody from "../../core/physics/body/DynamicBody";
-import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
-import Particle from "../../core/physics/shapes/Particle";
-import { pairs, range } from "../../core/util/FunctionalUtils";
-import { ReadonlyV2d, V2d } from "../../core/Vector";
+import BaseEntity from "../../../core/entity/BaseEntity";
+import { on } from "../../../core/entity/handler";
+import DynamicBody from "../../../core/physics/body/DynamicBody";
+import DistanceConstraint from "../../../core/physics/constraints/DistanceConstraint";
+import Particle from "../../../core/physics/shapes/Particle";
+import { pairs, range } from "../../../core/util/FunctionalUtils";
+import { ReadonlyV2d, V2d } from "../../../core/Vector";
 import {
   applyFluidForces,
   flatPlateDrag,
   ForceMagnitudeFn,
-} from "../fluid-dynamics";
-import type { QueryForecast, WindQuerier } from "../datatiles/DataTileTypes";
-import type { WindInfo } from "../wind/WindInfo";
+} from "../../fluid-dynamics";
+import type { QueryForecast, WindQuerier } from "../../datatiles/DataTileTypes";
+import { WindInfo } from "../../wind/WindInfo";
 
 // Units: feet (ft), lbs
 // TellTail dimensions
@@ -76,10 +76,8 @@ export class TellTail extends BaseEntity implements WindQuerier {
     firstBody.position.set(this.getAttachmentPoint());
     firstBody.velocity.set(this.getAttachmentVelocity());
 
-    const wind = this.game?.entities.getById("windInfo") as
-      | WindInfo
-      | undefined;
-    if (!wind) return;
+    if (!this.game) return;
+    const wind = WindInfo.fromGame(this.game);
 
     const getFluidVelocity = (point: V2d): V2d =>
       wind.getVelocityAtPoint(point);
@@ -109,7 +107,7 @@ export class TellTail extends BaseEntity implements WindQuerier {
   }
 
   @on("render")
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
+  onRender({ draw }: { draw: import("../../../core/graphics/Draw").Draw }) {
     if (this.bodies.length < 2) return;
 
     // Match sail's fade behavior: fade when hoistAmount < 0.4

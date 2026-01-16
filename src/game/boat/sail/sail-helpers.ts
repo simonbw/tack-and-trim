@@ -1,6 +1,6 @@
-import { degToRad } from "../../core/util/MathUtil";
-import { V2d } from "../../core/Vector";
-import { ForceMagnitudeFn, RHO_AIR } from "../fluid-dynamics";
+import { degToRad } from "../../../core/util/MathUtil";
+import { V2d } from "../../../core/Vector";
+import { ForceMagnitudeFn, RHO_AIR } from "../../fluid-dynamics";
 
 // ============================================================================
 // Sail Airfoil Physics

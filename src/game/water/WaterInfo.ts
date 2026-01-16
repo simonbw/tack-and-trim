@@ -104,6 +104,7 @@ export class WaterInfo extends BaseEntity {
 
   /**
    * Get the WaterInfo entity from a game instance.
+   * Throws if not found.
    */
   static fromGame(game: Game): WaterInfo {
     const waterInfo = game.entities.getById("waterInfo");
@@ -111,6 +112,14 @@ export class WaterInfo extends BaseEntity {
       throw new Error("WaterInfo not found in game");
     }
     return waterInfo;
+  }
+
+  /**
+   * Get the WaterInfo entity from a game instance, or undefined if not found.
+   */
+  static maybeFromGame(game: Game): WaterInfo | undefined {
+    const waterInfo = game.entities.getById("waterInfo");
+    return waterInfo instanceof WaterInfo ? waterInfo : undefined;
   }
 
   // Tile pipeline for physics queries (owned by WaterInfo)

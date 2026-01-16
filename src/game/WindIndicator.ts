@@ -67,7 +67,8 @@ export class WindIndicator extends BaseEntity {
   }
 
   private getWind(): WindInfo | undefined {
-    return this.game?.entities.getById("windInfo") as WindInfo | undefined;
+    if (!this.game) return undefined;
+    return WindInfo.fromGame(this.game);
   }
 
   private getBoat(): Boat | undefined {

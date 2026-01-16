@@ -79,9 +79,22 @@ export class WindInfo extends BaseEntity {
 
   /**
    * Get the WindInfo entity from a game instance.
+   * Throws if not found.
    */
-  static fromGame(game: Game): WindInfo | null {
-    return game.entities.getById("windInfo") as WindInfo | null;
+  static fromGame(game: Game): WindInfo {
+    const windInfo = game.entities.getById("windInfo");
+    if (!(windInfo instanceof WindInfo)) {
+      throw new Error("WindInfo not found in game");
+    }
+    return windInfo;
+  }
+
+  /**
+   * Get the WindInfo entity from a game instance, or undefined if not found.
+   */
+  static maybeFromGame(game: Game): WindInfo | undefined {
+    const windInfo = game.entities.getById("windInfo");
+    return windInfo instanceof WindInfo ? windInfo : undefined;
   }
 
   // Base wind velocity - the global wind direction and speed

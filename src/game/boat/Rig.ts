@@ -7,7 +7,7 @@ import Box from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import { RigConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
-import { Sail } from "./Sail";
+import { Sail } from "./sail/Sail";
 
 export class Rig extends BaseEntity {
   layer = "main" as const;
