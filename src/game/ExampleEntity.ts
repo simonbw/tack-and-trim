@@ -8,8 +8,8 @@ import { on } from "../core/entity/handler";
  * Used for testing and as a reference implementation.
  */
 export default class ExampleEntity extends BaseEntity implements Entity {
-  @on("exampleEvent")
-  onExampleEvent({ level, message }: { level: number; message: string }) {
-    console.log("ExampleEntity event received", message);
+  @on("gameStart")
+  onGameStart() {
+    console.log("ExampleEntity: game started");
   }
 }

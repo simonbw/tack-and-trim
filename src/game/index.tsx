@@ -6,19 +6,9 @@ import StatsOverlay, {
   createGraphicsPanel,
 } from "../core/util/stats-overlay";
 import { createSimulationStatsPanel } from "./stats/SimulationStatsPanel";
-import { Boat } from "./boat/Boat";
-import { PlayerBoatController } from "./boat/PlayerBoatController";
-import { Buoy } from "./Buoy";
-import { CameraController } from "./CameraController";
+import { GameController } from "./GameController";
 import { GamePreloader } from "./GamePreloader";
 import { PhysicsValidator } from "./PhysicsValidator";
-import { WaterInfo } from "./water/WaterInfo";
-import { WaterRenderer } from "./water/rendering/WaterRenderer";
-import { WindInfo } from "./wind/WindInfo";
-import { WindVisualization } from "./wind-visualization/WindVisualization";
-import { TutorialManager } from "./tutorial";
-import { WindIndicator } from "./WindIndicator";
-import { WindParticles } from "./WindParticles";
 
 // Do this so we can access the game from the console
 declare global {
@@ -43,6 +33,7 @@ async function main() {
   await preloader.waitTillLoaded();
   preloader.destroy();
 
+  // Persistent entities
   game.addEntity(
     new StatsOverlay([
       createLeanPanel(),
@@ -53,23 +44,9 @@ async function main() {
   );
   game.addEntity(new AutoPauser());
   game.addEntity(new PhysicsValidator());
-  game.addEntity(new WaterInfo());
-  game.addEntity(new WaterRenderer());
-  game.addEntity(new Buoy(200, 0));
-  game.addEntity(new Buoy(-160, 120));
-  game.addEntity(new Buoy(100, -200));
-  game.addEntity(new Buoy(-240, -100));
-  game.addEntity(new WindInfo());
-  game.addEntity(new WindIndicator());
-  game.addEntity(new WindVisualization());
 
-  const boat = game.addEntity(new Boat());
-  game.addEntity(new PlayerBoatController(boat));
-  game.addEntity(new CameraController(boat, game.camera));
-  game.addEntity(new WindParticles());
-
-  // Start the tutorial
-  game.addEntity(new TutorialManager());
+  // GameController handles menu, game state, and spawning gameplay entities
+  game.addEntity(new GameController());
 }
 
 window.addEventListener("load", main);

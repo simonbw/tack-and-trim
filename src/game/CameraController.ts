@@ -17,6 +17,10 @@ export class CameraController extends BaseEntity {
     super();
   }
 
+  setZoomTarget(z: number) {
+    this.zTarget = z;
+  }
+
   @on("tick")
   onTick(dt: GameEventMap["tick"]) {
     const boatPosition = this.boat.getPosition();
