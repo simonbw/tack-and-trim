@@ -83,12 +83,20 @@ src/game/mission/
 
 ```
 src/game/mission/ui/
-├── MissionPreviewPopup.tsx  - Shows when near a mission spot
-├── MissionHUD.tsx           - Active mission objectives display
-├── MissionCompletePopup.tsx - Success/failure screen
+├── MissionPreviewPopup.tsx  - Shows when near a mission spot (screen-space)
+├── MissionCompletePopup.tsx - Success/failure screen (screen-space)
 ├── MissionPreviewPopup.css
-├── MissionHUD.css
 ├── MissionCompletePopup.css
+├── PauseMenu.tsx            - Pause menu with mission info (screen-space)
+├── PauseMenu.css
+```
+
+### In-World UI Entities
+
+```
+src/game/mission/
+├── WorldLabel.ts            - Text label rendered in world space near objects
+├── OffscreenIndicator.ts    - Arrow pointing to off-screen objectives
 ```
 
 ### Config Updates
@@ -439,27 +447,80 @@ Shows when player is near a mission spot:
 │  to prove you're ready for      │
 │  bigger challenges.             │
 │                                 │
-│  [E] Start Mission              │
+│  [F] Start Mission              │
 └─────────────────────────────────┘
 ```
 
-#### 7.2 `src/game/mission/ui/MissionHUD.tsx`
+#### 7.2 `src/game/mission/ui/MissionCompletePopup.tsx`
 
-Active mission overlay:
+Success/failure screens with Retry/Leave options.
+
+#### 7.3 `src/game/mission/ui/PauseMenu.tsx`
+
+Pause menu that appears when pressing `Esc`:
 
 ```
-┌──────────────────────────┐
-│ First Sail        0:42   │
-│ ─────────────────────    │
-│ ☑ Leave the dock         │
-│ → Sail 100 feet          │
-│   Progress: 67/100 ft    │
-└──────────────────────────┘
+┌─────────────────────────────────┐
+│          PAUSED                 │
+│                                 │
+│  [Resume]                       │
+│  [Settings]                     │
+│  [Quit to Menu]                 │
+│                                 │
+│  ─────────────────────────────  │
+│  Current Mission: First Sail    │
+│  Time: 1:23                     │
+│                                 │
+│  [Restart Mission]              │
+│  [End Mission]                  │
+└─────────────────────────────────┘
 ```
 
-#### 7.3 `src/game/mission/ui/MissionCompletePopup.tsx`
+The mission section only appears if a mission is active.
 
-Success/failure screens with Retry/Next/Quit options.
+#### 7.4 `src/game/mission/WorldLabel.ts`
+
+Renders text in world space (not screen space). Used for mission names near spots.
+
+```typescript
+export class WorldLabel extends BaseEntity {
+  layer = "main" as const;
+
+  constructor(
+    private position: V2d,
+    private text: string,
+    private options?: { offset?: V2d; fadeDistance?: number }
+  ) { ... }
+
+  @on("render")
+  onRender({ draw }: { draw: Draw }) {
+    // Render text at world position
+    // Optional: fade based on distance from camera/boat
+  }
+}
+```
+
+#### 7.5 `src/game/mission/OffscreenIndicator.ts`
+
+Shows an arrow at screen edge pointing toward off-screen objectives.
+
+```typescript
+export class OffscreenIndicator extends BaseEntity {
+  layer = "hud" as const;
+
+  constructor(private getTargetPosition: () => V2d | null) { ... }
+
+  @on("render")
+  onRender({ draw }: { draw: Draw }) {
+    const target = this.getTargetPosition();
+    if (!target) return;
+
+    // Check if target is off-screen
+    // If so, render arrow at screen edge pointing toward it
+    // Include distance indicator
+  }
+}
+```
 
 ---
 
@@ -501,15 +562,17 @@ These can be implemented independently:
    ↓
 4. Objective Checkers (ObjectiveChecker.ts, then individual checkers)
    ↓
-5. World Entities (Waypoint.ts, Checkpoint.ts, MissionSpot.ts)
+5. World Entities (Waypoint.ts, WorldLabel.ts, MissionSpot.ts)
    ↓
-6. UI Components (MissionPreviewPopup, MissionHUD, MissionCompletePopup)
+6. Screen-space UI (MissionPreviewPopup, MissionCompletePopup, PauseMenu)
    ↓
 7. Mission Manager (MissionManager.ts) - ties everything together
    ↓
 8. Mission Definitions (missions/*.ts) - requires registry and types
    ↓
 9. GameController Integration - final wiring
+   ↓
+10. Off-screen Indicators (OffscreenIndicator.ts) - polish layer
 ```
 
 ---
@@ -531,11 +594,11 @@ For practical implementation, group into these work chunks:
 
 ### Chunk 3: World Entities
 - Waypoint.ts
-- MissionSpot.ts
+- WorldLabel.ts
+- MissionSpot.ts (with world-space label integration)
 
-### Chunk 4: Core UI
+### Chunk 4: Preview UI
 - MissionPreviewPopup.tsx + CSS
-- MissionHUD.tsx + CSS
 
 ### Chunk 5: Mission Manager
 - MissionManager.ts (core flow)
@@ -545,10 +608,15 @@ For practical implementation, group into these work chunks:
 - GameController.ts integration
 - End-to-end test of full flow
 
-### Chunk 7: Completion Flow
+### Chunk 7: Completion & Pause Flow
 - MissionCompletePopup.tsx + CSS
+- PauseMenu.tsx + CSS (with mission info section)
 - Mission completion/failure handling
-- Restart/quit functionality
+- Restart/quit functionality via pause menu
+
+### Chunk 7.5: Off-screen Indicators
+- OffscreenIndicator.ts
+- Integration with active mission waypoints
 
 ### Chunk 8: Additional Objectives
 - CheckpointObjective.ts
@@ -572,16 +640,17 @@ For practical implementation, group into these work chunks:
 
 ---
 
-## Open Design Decisions
+## Design Decisions
 
-These don't block implementation but should be decided:
+1. **Interaction key**: `F` - Same key as anchor. Thematically consistent ("tying up" at a location).
 
-1. **Interaction key**: `E` is common, but game already uses `F` for anchor. Options: `E`, `Enter`, `Space` (when stopped)
+2. **Mission spot visual**: Buoy with flag - Fits the nautical aesthetic and is distinct from regular buoys.
 
-2. **Mission spot visual**: Glowing beacon? Floating flag? Buoy with flag?
+3. **Tutorial → Mission transition**: Let players discover naturally through exploration. No explicit direction to first mission.
 
-3. **Tutorial → Mission transition**: Auto-show first mission preview after tutorial, or let player discover?
+4. **Pause behavior**: `Esc` pauses the game and shows main pause menu. If a mission is active, the pause menu also shows mission info with options to restart or end the mission.
 
-4. **Pause behavior**: Should `Esc` during a mission pause the game, or open mission menu?
-
-5. **HUD position**: Top-left, top-right, or bottom-left?
+5. **In-mission UI**: Minimal screen-space HUD. Instead:
+   - **World-space labels**: Mission name appears near the mission spot when approaching
+   - **Off-screen indicators**: Arrows pointing toward objective locations that are off-screen
+   - This keeps the sailing experience immersive rather than UI-heavy
