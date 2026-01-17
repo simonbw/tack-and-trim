@@ -45,6 +45,7 @@ export class GameController extends BaseEntity {
 
     // Spawn boat and controls
     const boat = this.game!.addEntity(new Boat());
+    boat.anchor.deploy(); // Start with anchor deployed for tutorial
     this.game!.addEntity(new PlayerBoatController(boat));
 
     // Spawn camera controller with zoom transition
