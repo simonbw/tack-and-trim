@@ -21,6 +21,10 @@ export class CameraController extends BaseEntity {
     this.zTarget = z;
   }
 
+  setTarget(boat: Boat) {
+    this.boat = boat;
+  }
+
   @on("tick")
   onTick(dt: GameEventMap["tick"]) {
     const boatPosition = this.boat.getPosition();

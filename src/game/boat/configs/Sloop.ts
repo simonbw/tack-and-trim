@@ -3,10 +3,10 @@ import { V } from "../../../core/Vector";
 import { BoatConfig } from "../BoatConfig";
 
 /**
- * Starter Dinghy - A typical 16ft sailing dinghy
- * Good all-around boat for learning and casual sailing.
+ * Sloop - A 16ft sailing dinghy with mainsail and jib
+ * More advanced boat with better upwind performance.
  */
-export const StarterDinghy: BoatConfig = {
+export const Sloop: BoatConfig = {
   hull: {
     mass: 350, // lbs - typical 16ft dinghy displacement
     vertices: [

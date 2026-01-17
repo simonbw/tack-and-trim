@@ -1,6 +1,6 @@
 import { DeepPartial, deepMerge } from "../../core/util/ObjectUtils";
 import { V2d } from "../../core/Vector";
-import { StarterDinghy } from "./configs/StarterDinghy";
+import { Sloop } from "./configs/Sloop";
 import { SailConfig } from "./sail";
 import { SheetConfig } from "./Sheet";
 
@@ -108,17 +108,18 @@ export interface BoatConfig {
   readonly rig: RigConfig;
   readonly bowsprit: BowspritConfig;
   readonly anchor: AnchorConfig;
-  readonly jib: JibConfig;
+  readonly jib?: JibConfig;
   readonly mainsheet: MainsheetConfig;
-  readonly jibSheet: JibSheetConfig;
+  readonly jibSheet?: JibSheetConfig;
   readonly rowing: RowingConfig;
 }
 
 // Re-export boat configs
-export { StarterDinghy } from "./configs/StarterDinghy";
+export { StarterBoat } from "./configs/StarterBoat";
+export { Sloop } from "./configs/Sloop";
 
-/** @deprecated Use StarterDinghy instead */
-export const DEFAULT_BOAT_CONFIG = StarterDinghy;
+/** @deprecated Use Sloop instead */
+export const DEFAULT_BOAT_CONFIG = Sloop;
 
 /**
  * Create a boat config with partial overrides from a base config.
