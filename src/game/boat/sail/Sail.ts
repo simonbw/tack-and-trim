@@ -158,6 +158,7 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
         new TellTail(
           () => attachmentBody.position,
           () => attachmentBody.velocity,
+          () => this.hoistAmount,
         ),
       );
     }

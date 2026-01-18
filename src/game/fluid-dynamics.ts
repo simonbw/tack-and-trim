@@ -1,5 +1,6 @@
 import DynamicBody from "../core/physics/body/DynamicBody";
 import Convex from "../core/physics/shapes/Convex";
+import { degToRad } from "../core/util/MathUtil";
 import { V, V2d } from "../core/Vector";
 
 // =============================================================================
@@ -12,8 +13,8 @@ export const RHO_WATER = 1.94; // Seawater at 60°F
 export const RHO_AIR = 0.00238; // Air at sea level, 60°F
 
 // Foil chord (depth) dimensions in feet
-export const RUDDER_CHORD = 0.5; // ft - typical dinghy rudder depth
-export const KEEL_CHORD = 1.0; // ft - centerboard/daggerboard chord
+export const RUDDER_CHORD = 1.5; // ft - typical dinghy rudder depth
+export const KEEL_CHORD = 1.25; // ft - centerboard/daggerboard chord
 
 // =============================================================================
 // Simulation Constants
@@ -43,7 +44,7 @@ export function applyFluidForcesToBody(
   body: DynamicBody,
   getLiftMagnitude: ForceMagnitudeFn,
   getDragMagnitude: ForceMagnitudeFn,
-  getFluidVelocity: FluidVelocityFn = () => V(0, 0),
+  getFluidVelocity: FluidVelocityFn = () => V(0, 0)
 ) {
   for (const shape of body.shapes) {
     if (shape instanceof Convex) {
@@ -56,7 +57,7 @@ export function applyFluidForcesToBody(
           v2,
           getLiftMagnitude,
           getDragMagnitude,
-          getFluidVelocity,
+          getFluidVelocity
         );
       }
     }
@@ -73,7 +74,7 @@ export function applyFluidForces(
   v2: V2d,
   getLiftMagnitude: ForceMagnitudeFn,
   getDragMagnitude: ForceMagnitudeFn,
-  getFluidVelocity: FluidVelocityFn = () => V(0, 0),
+  getFluidVelocity: FluidVelocityFn = () => V(0, 0)
 ) {
   const v1World = body.toWorldFrame(v1);
   const v2World = body.toWorldFrame(v2);
@@ -95,7 +96,7 @@ export function applyFluidForces(
     halfLength,
     getLiftMagnitude,
     getDragMagnitude,
-    getFluidVelocity,
+    getFluidVelocity
   );
   applyFluidForcesAtPoint(
     body,
@@ -105,7 +106,7 @@ export function applyFluidForces(
     halfLength,
     getLiftMagnitude,
     getDragMagnitude,
-    getFluidVelocity,
+    getFluidVelocity
   );
 }
 
@@ -117,12 +118,12 @@ function applyFluidForcesAtPoint(
   edgeLength: number,
   getLiftMagnitude: ForceMagnitudeFn,
   getDragMagnitude: ForceMagnitudeFn,
-  getFluidVelocity: FluidVelocityFn,
+  getFluidVelocity: FluidVelocityFn
 ) {
   // Calculate relative velocity (body velocity minus fluid velocity = apparent flow)
   const r = point.sub(V(body.position));
   const pointVelocity = V(body.velocity).add(
-    r.rotate90ccw().mul(body.angularVelocity),
+    r.rotate90ccw().mul(body.angularVelocity)
   );
   const fluidVelocity = getFluidVelocity(point);
   const relativeVelocity = pointVelocity.sub(fluidVelocity);
@@ -170,7 +171,7 @@ function applyFluidForcesAtPoint(
  */
 export function flatPlateLift(
   chord: number,
-  rho: number = RHO_WATER,
+  rho: number = RHO_WATER
 ): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
     // Flat plate lift coefficient: Cl = 2 * sin(α) * cos(α) = sin(2α)
@@ -190,7 +191,7 @@ export function flatPlateLift(
  */
 export function flatPlateDrag(
   chord: number,
-  rho: number = RHO_WATER,
+  rho: number = RHO_WATER
 ): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
     // Flat plate drag coefficient: Cd = sin(α) (projected area)
@@ -205,7 +206,7 @@ export function flatPlateDrag(
 // Symmetric Foil Model (for keel, rudder - NACA-style symmetric hydrofoils)
 // ============================================================================
 
-const FOIL_STALL_ANGLE = 0.26; // ~15 degrees - typical for symmetric foils
+const FOIL_STALL_ANGLE = degToRad(15); // ~15 degrees - typical for symmetric foils
 
 /**
  * Create a lift magnitude function for symmetric foil behavior.
@@ -216,7 +217,7 @@ const FOIL_STALL_ANGLE = 0.26; // ~15 degrees - typical for symmetric foils
  */
 export function foilLift(
   chord: number,
-  rho: number = RHO_WATER,
+  rho: number = RHO_WATER
 ): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
     // Use the effective angle (0 to 90°) for coefficient calculation
@@ -255,7 +256,7 @@ export function foilLift(
  */
 export function foilDrag(
   chord: number,
-  rho: number = RHO_WATER,
+  rho: number = RHO_WATER
 ): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
     // Use effective angle (0 to 90°) for coefficient calculation
@@ -301,7 +302,7 @@ export function applySkinFriction(
   wettedArea: number,
   frictionCoefficient: number,
   getFluidVelocity: FluidVelocityFn = () => V(0, 0),
-  rho: number = RHO_WATER,
+  rho: number = RHO_WATER
 ) {
   const fluidVelocity = getFluidVelocity(V(body.position));
   const relativeVelocity = V(body.velocity).sub(fluidVelocity);

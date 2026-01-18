@@ -16,16 +16,16 @@ import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
 import { DataTileComputePipeline } from "../datatiles/DataTileComputePipeline";
 import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
-import type {
-  DataTileGridConfig,
-  WaterQuerier,
+import {
+  isWaterQuerier,
+  type DataTileGridConfig,
 } from "../datatiles/DataTileTypes";
 import {
   computeWaveDataAtPoint,
   WaterComputeParams,
 } from "./cpu/WaterComputeCPU";
 import { WakeParticle } from "./WakeParticle";
-import { WaterModifier } from "./WaterModifier";
+import { isWaterModifier, WaterModifier } from "./WaterModifier";
 import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
 import {
   WaterDataTileCompute,
@@ -195,9 +195,10 @@ export class WaterInfo extends BaseEntity {
 
     // Rebuild spatial hash for CPU fallback
     this.spatialHash.clear();
-    const modifiers = this.game!.entities.getTagged("waterModifier");
-    for (const modifier of modifiers) {
-      this.spatialHash.add(modifier as unknown as WaterModifier);
+    for (const entity of this.game!.entities.getTagged("waterModifier")) {
+      if (isWaterModifier(entity)) {
+        this.spatialHash.add(entity);
+      }
     }
   }
 
@@ -223,13 +224,12 @@ export class WaterInfo extends BaseEntity {
 
     this.tilePipeline.resetScores();
 
-    const queriers = this.game!.entities.getTagged("waterQuerier");
-    for (const entity of queriers) {
-      const forecast = (
-        entity as unknown as WaterQuerier
-      ).getWaterQueryForecast();
-      if (forecast) {
-        this.tilePipeline.accumulateForecast(forecast);
+    for (const entity of this.game!.entities.getTagged("waterQuerier")) {
+      if (isWaterQuerier(entity)) {
+        const forecast = entity.getWaterQueryForecast();
+        if (forecast) {
+          this.tilePipeline.accumulateForecast(forecast);
+        }
       }
     }
   }

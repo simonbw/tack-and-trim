@@ -87,13 +87,11 @@ export default abstract class BaseEntity implements Entity {
       while (this.children?.length) {
         this.children[this.children.length - 1].destroy();
       }
-      if (this.parent) {
-        const pChildren = this.parent.children!;
-        const index = pChildren.lastIndexOf(this);
-        if (index < 0) {
-          throw new Error(`Parent doesn't have child`);
+      if (this.parent?.children) {
+        const index = this.parent.children.lastIndexOf(this);
+        if (index >= 0) {
+          this.parent.children.splice(index, 1);
         }
-        pChildren.splice(index, 1);
       }
     }
   }
@@ -104,7 +102,12 @@ export default abstract class BaseEntity implements Entity {
       if (changeParent) {
         // This can lead to weird state where a child is added but its parent isn't, dunno if that's bad
         const oldParent = child.parent;
-        oldParent.children!.splice(oldParent.children!.indexOf(child), 1);
+        if (oldParent.children) {
+          const index = oldParent.children.indexOf(child);
+          if (index >= 0) {
+            oldParent.children.splice(index, 1);
+          }
+        }
       } else {
         throw new Error("Child already has a parent.");
       }

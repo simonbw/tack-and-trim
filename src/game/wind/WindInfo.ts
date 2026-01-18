@@ -18,11 +18,11 @@ import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
 import { DataTileComputePipeline } from "../datatiles/DataTileComputePipeline";
 import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
-import type {
-  DataTileGridConfig,
-  WindQuerier,
+import {
+  isWindQuerier,
+  type DataTileGridConfig,
 } from "../datatiles/DataTileTypes";
-import { WindModifier } from "../WindModifier";
+import { isWindModifier, type WindModifier } from "../WindModifier";
 import {
   computeBaseWindAtPoint,
   WindComputeParams,
@@ -139,9 +139,10 @@ export class WindInfo extends BaseEntity {
 
     // Rebuild spatial hash from all wind modifiers (for CPU fallback)
     this.spatialHash.clear();
-    const modifiers = this.game!.entities.getTagged("windModifier");
-    for (const modifier of modifiers) {
-      this.spatialHash.add(modifier as unknown as WindModifier);
+    for (const entity of this.game!.entities.getTagged("windModifier")) {
+      if (isWindModifier(entity)) {
+        this.spatialHash.add(entity);
+      }
     }
   }
 
@@ -188,13 +189,12 @@ export class WindInfo extends BaseEntity {
 
     this.tilePipeline.resetScores();
 
-    const queriers = this.game!.entities.getTagged("windQuerier");
-    for (const entity of queriers) {
-      const forecast = (
-        entity as unknown as WindQuerier
-      ).getWindQueryForecast();
-      if (forecast) {
-        this.tilePipeline.accumulateForecast(forecast);
+    for (const entity of this.game!.entities.getTagged("windQuerier")) {
+      if (isWindQuerier(entity)) {
+        const forecast = entity.getWindQueryForecast();
+        if (forecast) {
+          this.tilePipeline.accumulateForecast(forecast);
+        }
       }
     }
   }
@@ -316,9 +316,13 @@ export class WindInfo extends BaseEntity {
    * Get all wind modifiers (for visualization).
    */
   getModifiers(): readonly WindModifier[] {
-    return this.game!.entities.getTagged(
-      "windModifier",
-    ) as unknown as readonly WindModifier[];
+    const result: WindModifier[] = [];
+    for (const entity of this.game!.entities.getTagged("windModifier")) {
+      if (isWindModifier(entity)) {
+        result.push(entity);
+      }
+    }
+    return result;
   }
 
   // ==========================================

@@ -1,3 +1,4 @@
+import type Entity from "../../entity/Entity";
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import AABB from "../collision/AABB";
@@ -32,6 +33,8 @@ export default abstract class Shape {
 
   /** The body this shape is attached to, or null. */
   body: Body | null = null;
+  /** The Entity that owns this shape, set by Game.addEntity(). */
+  owner?: Entity;
 
   /** Offset from body center in body-local coordinates. */
   position: V2d;
@@ -102,6 +105,6 @@ export default abstract class Shape {
     to: V2d,
     position: V2d,
     angle: number,
-    skipBackfaces: boolean
+    skipBackfaces: boolean,
   ): ShapeRaycastHit | null;
 }

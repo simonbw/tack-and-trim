@@ -1,4 +1,4 @@
-import type { StatsProvider, StatsSection } from "./StatsProvider";
+import { isStatsProvider, type StatsSection } from "./StatsProvider";
 import { StatsRow } from "./StatsRow";
 import type { StatsPanel, StatsPanelContext } from "./StatsPanel";
 
@@ -128,16 +128,16 @@ function getGraphicsStats(ctx: StatsPanelContext) {
 }
 
 function getCustomSections(ctx: StatsPanelContext): StatsSection[] {
-  const providers = (ctx.game.entities.getTagged("statsProvider") ??
-    []) as unknown as StatsProvider[];
   const sections: StatsSection[] = [];
 
-  for (const provider of providers) {
-    const section = provider.getStatsSection?.();
-    if (section) {
-      sections.push(section);
+  for (const entity of ctx.game.entities.getTagged("statsProvider")) {
+    if (isStatsProvider(entity)) {
+      const section = entity.getStatsSection();
+      if (section) {
+        sections.push(section);
+      }
+      entity.resetStatsCounters?.();
     }
-    provider.resetStatsCounters?.();
   }
 
   return sections;

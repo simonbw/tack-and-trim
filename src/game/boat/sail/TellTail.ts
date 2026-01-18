@@ -37,15 +37,18 @@ export class TellTail extends BaseEntity implements WindQuerier {
   constraints: NonNullable<BaseEntity["constraints"]>;
   getAttachmentPoint: () => ReadonlyV2d;
   getAttachmentVelocity: () => ReadonlyV2d;
+  getHoistAmount: () => number;
 
   constructor(
     getAttachmentPoint: () => ReadonlyV2d,
     getAttachmentVelocity: () => ReadonlyV2d,
+    getHoistAmount: () => number = () => 1,
   ) {
     super();
 
     this.getAttachmentPoint = getAttachmentPoint;
     this.getAttachmentVelocity = getAttachmentVelocity;
+    this.getHoistAmount = getHoistAmount;
     const attachPos = this.getAttachmentPoint();
     const segmentLength = TELLTAIL_LENGTH / (TELLTAIL_NODES - 1);
 
@@ -112,7 +115,7 @@ export class TellTail extends BaseEntity implements WindQuerier {
 
     // Match sail's fade behavior: fade when hoistAmount < 0.4
     const fadeStart = 0.4;
-    const hoistAmount = (this.parent as any)?.hoistAmount ?? 1;
+    const hoistAmount = this.getHoistAmount();
     const alpha =
       hoistAmount >= fadeStart ? 1 : (hoistAmount / fadeStart) ** 0.5;
 

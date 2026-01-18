@@ -20,3 +20,10 @@ export interface StatsProvider {
   /** Optional: Reset any per-frame tracking counters after reading */
   resetStatsCounters?(): void;
 }
+
+/** Type guard for StatsProvider interface. */
+export function isStatsProvider(value: unknown): value is StatsProvider {
+  return (
+    typeof value === "object" && value !== null && "getStatsSection" in value
+  );
+}
