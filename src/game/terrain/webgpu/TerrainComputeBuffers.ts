@@ -79,8 +79,12 @@ export class TerrainComputeBuffers {
     const device = getWebGPU().device;
     const { controlPointsData, landMassData } = buildTerrainGPUData(definition);
 
-    device.queue.writeBuffer(this.controlPointsBuffer, 0, controlPointsData);
-    device.queue.writeBuffer(this.landMassBuffer, 0, landMassData);
+    device.queue.writeBuffer(
+      this.controlPointsBuffer,
+      0,
+      controlPointsData.buffer
+    );
+    device.queue.writeBuffer(this.landMassBuffer, 0, landMassData.buffer);
     this.landMassCount = definition.landMasses.length;
   }
 

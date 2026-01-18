@@ -106,7 +106,7 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
           speed,
           this.config.keelFriction
         );
-        totalForce.isub(velocity.normalize().scale(friction));
+        totalForce.isub(velocity.normalize().mul(friction));
       }
     }
 
@@ -121,7 +121,7 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
         speed,
         this.config.rudderFriction
       );
-      totalForce.isub(velocity.normalize().scale(friction));
+      totalForce.isub(velocity.normalize().mul(friction));
     }
 
     // Check hull grounding (use center of hull)
@@ -135,7 +135,7 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
         speed,
         this.config.hullFriction
       );
-      totalForce.isub(velocity.normalize().scale(friction));
+      totalForce.isub(velocity.normalize().mul(friction));
     }
 
     // Apply grounding force

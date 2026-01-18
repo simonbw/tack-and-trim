@@ -35,6 +35,9 @@ export class WaterRenderer extends BaseEntity {
   private renderMode = 0;
   private initialized = false;
 
+  // Track terrain version to avoid redundant GPU buffer updates
+  private lastTerrainVersion = -1;
+
   constructor() {
     super();
     this.renderPipeline = new WaterRenderPipeline();
@@ -98,27 +101,32 @@ export class WaterRenderer extends BaseEntity {
     let terrainTextureView: GPUTextureView | null = null;
 
     if (terrainInfo) {
-      // Sync terrain definition with render pipeline
-      const landMasses = terrainInfo.getLandMasses();
-      if (landMasses.length > 0) {
-        this.terrainPipeline.setTerrainDefinition({ landMasses: [...landMasses] });
+      // Sync terrain definition with render pipeline ONLY when it changes
+      const currentTerrainVersion = terrainInfo.getVersion();
+      if (currentTerrainVersion !== this.lastTerrainVersion) {
+        const landMasses = terrainInfo.getLandMasses();
+        if (landMasses.length > 0) {
+          this.terrainPipeline.setTerrainDefinition({
+            landMasses: [...landMasses],
+          });
+        }
+        this.lastTerrainVersion = currentTerrainVersion;
       }
 
-      // Update terrain compute
-      this.terrainPipeline.update(
-        {
-          left: expandedViewport.left,
-          top: expandedViewport.top,
-          width: expandedViewport.width,
-          height: expandedViewport.height,
-        },
-        currentTime,
-        gpuProfiler,
-        "terrainCompute"
-      );
-
-      // Get terrain texture if we have terrain data
+      // Update terrain compute (viewport params only - terrain data already synced)
       if (this.terrainPipeline.hasTerrainData()) {
+        this.terrainPipeline.update(
+          {
+            left: expandedViewport.left,
+            top: expandedViewport.top,
+            width: expandedViewport.width,
+            height: expandedViewport.height,
+          },
+          currentTime,
+          gpuProfiler,
+          "terrainCompute"
+        );
+
         terrainTextureView = this.terrainPipeline.getOutputTextureView();
       }
     }

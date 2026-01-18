@@ -88,6 +88,9 @@ export class TerrainInfo extends BaseEntity {
   // Terrain definition (land masses)
   private terrainDefinition: TerrainDefinition;
 
+  // Version number - increments when terrain changes
+  private version: number = 0;
+
   // Shared GPU buffers for terrain data
   private sharedBuffers: TerrainComputeBuffers | null = null;
 
@@ -237,6 +240,7 @@ export class TerrainInfo extends BaseEntity {
   setTerrainDefinition(definition: TerrainDefinition): void {
     this.terrainDefinition = definition;
     this.sharedBuffers?.updateTerrainData(definition);
+    this.version++;
   }
 
   /**
@@ -245,6 +249,7 @@ export class TerrainInfo extends BaseEntity {
   addLandMass(landMass: LandMass): void {
     this.terrainDefinition.landMasses.push(landMass);
     this.sharedBuffers?.updateTerrainData(this.terrainDefinition);
+    this.version++;
   }
 
   /**
@@ -252,6 +257,14 @@ export class TerrainInfo extends BaseEntity {
    */
   getLandMasses(): readonly LandMass[] {
     return this.terrainDefinition.landMasses;
+  }
+
+  /**
+   * Get the terrain definition version.
+   * Increments whenever terrain data changes.
+   */
+  getVersion(): number {
+    return this.version;
   }
 
   // ==========================================

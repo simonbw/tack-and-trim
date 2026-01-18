@@ -40,6 +40,9 @@ export class TerrainRenderPipeline {
 
   private textureSize: number;
 
+  // Track terrain definition version to avoid redundant buffer updates
+  private terrainVersion: number = 0;
+
   constructor(textureSize: number = TERRAIN_TEXTURE_SIZE) {
     this.textureSize = textureSize;
   }
@@ -121,6 +124,12 @@ export class TerrainRenderPipeline {
       return;
     }
 
+    // Early exit if no terrain data - skip GPU compute entirely
+    const landMassCount = this.buffers.getLandMassCount();
+    if (landMassCount === 0) {
+      return;
+    }
+
     const device = getWebGPU().device;
 
     // Update params buffer
@@ -131,7 +140,7 @@ export class TerrainRenderPipeline {
       viewportWidth: viewport.width,
       viewportHeight: viewport.height,
       textureSize: this.textureSize,
-      landMassCount: this.buffers.getLandMassCount(),
+      landMassCount,
     });
 
     // Create command encoder

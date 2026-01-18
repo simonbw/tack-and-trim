@@ -29,6 +29,7 @@ export class GPUProfiler {
     "tileCompute",
     "modifierCompute",
     "windCompute",
+    "terrainCompute",
   ] as const;
   private static readonly QUERY_COUNT = GPUProfiler.SECTIONS.length * 2;
 
