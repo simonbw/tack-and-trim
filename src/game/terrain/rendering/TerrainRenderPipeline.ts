@@ -43,6 +43,10 @@ export class TerrainRenderPipeline {
   // Track terrain definition version to avoid redundant buffer updates
   private terrainVersion: number = 0;
 
+  // Track last computed viewport to avoid redundant compute
+  private lastViewport: TerrainViewport | null = null;
+  private needsCompute = true;
+
   constructor(textureSize: number = TERRAIN_TEXTURE_SIZE) {
     this.textureSize = textureSize;
   }
@@ -92,6 +96,7 @@ export class TerrainRenderPipeline {
    */
   setTerrainDefinition(definition: TerrainDefinition): void {
     this.buffers?.updateTerrainData(definition);
+    this.needsCompute = true; // Terrain changed, need to recompute
   }
 
   /**
@@ -102,6 +107,28 @@ export class TerrainRenderPipeline {
     // TerrainInfo for now. Direct add is not supported without tracking state.
     console.warn(
       "TerrainRenderPipeline.addLandMass: Use setTerrainDefinition instead"
+    );
+  }
+
+  /**
+   * Check if viewport has changed enough to require recompute.
+   * Uses a threshold to avoid recomputing on tiny camera movements.
+   */
+  private viewportChanged(viewport: TerrainViewport): boolean {
+    if (!this.lastViewport) return true;
+
+    // Threshold: recompute if viewport moved by more than 10% of its size
+    const threshold = 0.1;
+    const dx = Math.abs(viewport.left - this.lastViewport.left);
+    const dy = Math.abs(viewport.top - this.lastViewport.top);
+    const dw = Math.abs(viewport.width - this.lastViewport.width);
+    const dh = Math.abs(viewport.height - this.lastViewport.height);
+
+    return (
+      dx > viewport.width * threshold ||
+      dy > viewport.height * threshold ||
+      dw > viewport.width * threshold ||
+      dh > viewport.height * threshold
     );
   }
 
@@ -127,6 +154,11 @@ export class TerrainRenderPipeline {
     // Early exit if no terrain data - skip GPU compute entirely
     const landMassCount = this.buffers.getLandMassCount();
     if (landMassCount === 0) {
+      return;
+    }
+
+    // Skip compute if viewport hasn't changed significantly
+    if (!this.needsCompute && !this.viewportChanged(viewport)) {
       return;
     }
 
@@ -160,6 +192,10 @@ export class TerrainRenderPipeline {
 
     // Submit
     device.queue.submit([commandEncoder.finish()]);
+
+    // Track that we've computed for this viewport
+    this.lastViewport = { ...viewport };
+    this.needsCompute = false;
   }
 
   /**
