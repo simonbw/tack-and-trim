@@ -11,7 +11,5 @@ export {
   calculateCamber,
   getSailLiftCoefficient,
   isSailStalled,
-  sailLift,
-  sailDrag,
 } from "./sail-helpers";
 export { applySailForces } from "./sail-aerodynamics";

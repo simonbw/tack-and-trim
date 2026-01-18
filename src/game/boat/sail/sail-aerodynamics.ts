@@ -34,7 +34,7 @@ export function applySailForces(
   chord: number,
   forceScale: number,
 ): void {
-  const { flow, length, tangent, camber } = segment;
+  const { flow, length, tangent } = segment;
 
   if (flow.speed < 0.01 || length < 0.001) return;
 
@@ -52,7 +52,7 @@ export function applySailForces(
 
   if (flow.attached) {
     // Attached flow - standard thin airfoil
-    const cl = getSailLiftCoefficient(aoa, camber);
+    const cl = getSailLiftCoefficient(aoa);
     const cd = computeDragCoefficient(aoa);
     lift = cl * q * area;
     drag = cd * q * area;
@@ -61,7 +61,7 @@ export function applySailForces(
     const separationFactor = Math.exp(
       -flow.stallDistance * SEPARATION_DECAY_RATE,
     );
-    const cl = getSailLiftCoefficient(aoa, camber) * separationFactor * 0.3;
+    const cl = getSailLiftCoefficient(aoa) * separationFactor * 0.3;
     const cd = computeDragCoefficient(aoa) + 0.5 * (1 - separationFactor);
     lift = cl * q * area;
     drag = cd * q * area;
