@@ -1,10 +1,9 @@
 /**
  * Beginner's Bay - A protected bay for learning to sail.
  *
- * The bay is a horseshoe shape with:
- * - Land surrounding on west, north, and east
- * - Channel exit to the south
- * - Small practice island in the center
+ * The bay is rendered as three separate land masses (shores) that
+ * surround the water. Each shore is a simple convex-ish polygon
+ * that the renderer can handle correctly.
  */
 
 import { V } from "../../../core/Vector";
@@ -14,53 +13,66 @@ import type { LandMass } from "../TerrainInfo";
 const LAND_EXTENT = 600;
 
 /**
- * The main landmass surrounding the bay.
- * This is one continuous polygon that wraps around the bay,
- * creating a horseshoe shape with the opening to the south.
+ * Western shore - extends from southwest to northwest
  */
-export const BaySurroundingLand: LandMass = {
-  id: "bay-surrounding-land",
+export const WesternShore: LandMass = {
+  id: "western-shore",
   coastline: [
-    // Start at the western channel edge, go counter-clockwise around the bay
+    // Inner edge (bay side), from south to north
+    V(-80, -200),
+    V(-120, -140),
+    V(-180, -60),
+    V(-200, 20),
+    V(-180, 100),
+    V(-120, 160),
+    V(-60, 200),
+    // Outer edge (west side)
+    V(-LAND_EXTENT, 200),
+    V(-LAND_EXTENT, -200),
+  ],
+  peakElevation: 10,
+  underwaterSlope: 0.1,
+  baseDepth: -2,
+};
 
-    // Western channel wall (inner edge)
-    V(-80, -180),
-    V(-100, -140),
-
-    // Western shore curves north
-    V(-160, -80),
-    V(-200, 0),
-    V(-180, 80),
-    V(-140, 140),
-
-    // Northern shore (back of bay)
-    V(-80, 180),
-    V(0, 200),
-    V(80, 180),
-
-    // Eastern shore curves south
-    V(140, 140),
-    V(180, 80),
-    V(200, 0),
-    V(160, -80),
-
-    // Eastern channel wall (inner edge)
-    V(100, -140),
-    V(80, -180),
-
-    // Eastern channel wall (outer edge) - goes south then wraps around
-    V(80, -LAND_EXTENT),
-    V(LAND_EXTENT, -LAND_EXTENT),
-    V(LAND_EXTENT, LAND_EXTENT),
-
-    // Northern outer edge
-    V(-LAND_EXTENT, LAND_EXTENT),
-
-    // Western outer edge
-    V(-LAND_EXTENT, -LAND_EXTENT),
-    V(-80, -LAND_EXTENT),
+/**
+ * Northern shore - spans the back of the bay
+ */
+export const NorthernShore: LandMass = {
+  id: "northern-shore",
+  coastline: [
+    // Inner edge (bay side), from west to east
+    V(-60, 200),
+    V(0, 220),
+    V(60, 200),
+    // Outer edge (north side)
+    V(60, LAND_EXTENT),
+    V(-60, LAND_EXTENT),
   ],
   peakElevation: 12,
+  underwaterSlope: 0.1,
+  baseDepth: -2,
+};
+
+/**
+ * Eastern shore - extends from northeast to southeast
+ */
+export const EasternShore: LandMass = {
+  id: "eastern-shore",
+  coastline: [
+    // Inner edge (bay side), from north to south
+    V(60, 200),
+    V(120, 160),
+    V(180, 100),
+    V(200, 20),
+    V(180, -60),
+    V(120, -140),
+    V(80, -200),
+    // Outer edge (east side)
+    V(LAND_EXTENT, -200),
+    V(LAND_EXTENT, 200),
+  ],
+  peakElevation: 10,
   underwaterSlope: 0.1,
   baseDepth: -2,
 };
@@ -71,12 +83,12 @@ export const BaySurroundingLand: LandMass = {
 export const PracticeIsland: LandMass = {
   id: "practice-island",
   coastline: [
-    V(50, -20),
-    V(70, 0),
-    V(65, 30),
-    V(40, 45),
-    V(15, 30),
-    V(20, 0),
+    V(40, 20),
+    V(60, 40),
+    V(55, 70),
+    V(30, 80),
+    V(10, 60),
+    V(20, 30),
   ],
   peakElevation: 5,
   underwaterSlope: 0.25,
@@ -87,11 +99,8 @@ export const PracticeIsland: LandMass = {
  * All land masses that make up the Beginner's Bay area.
  */
 export const BeginnersBayLandMasses: LandMass[] = [
-  BaySurroundingLand,
+  WesternShore,
+  NorthernShore,
+  EasternShore,
   PracticeIsland,
 ];
-
-// Re-export individual pieces for potential customization
-export const WesternShore = BaySurroundingLand;
-export const NorthernShore = BaySurroundingLand;
-export const EasternShore = BaySurroundingLand;
