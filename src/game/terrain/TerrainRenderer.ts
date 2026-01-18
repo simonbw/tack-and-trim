@@ -11,9 +11,8 @@ import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
 import { TerrainInfo } from "./TerrainInfo";
 
-// Sand/beach colors
+// Sand/beach color
 const SAND_COLOR = 0xc2b280; // Sandy tan
-const SAND_DARK = 0xa89860; // Darker sand for variation
 
 /**
  * Renders terrain/land beneath the water.
@@ -33,12 +32,6 @@ export class TerrainRenderer extends BaseEntity {
       // Draw filled polygon with sandy color
       draw.fillPolygon(landMass.coastline, {
         color: SAND_COLOR,
-      });
-
-      // Draw a subtle darker outline for definition
-      draw.strokePolygon(landMass.coastline, {
-        color: SAND_DARK,
-        width: 1,
       });
     }
   }
