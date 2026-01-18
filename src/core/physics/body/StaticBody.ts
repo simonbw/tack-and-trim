@@ -1,10 +1,4 @@
 import { V, V2d } from "../../Vector";
-import {
-  SOLVER_ADD_VELOCITY,
-  SOLVER_INV_INERTIA,
-  SOLVER_INV_MASS,
-  SOLVER_UPDATE_MASS,
-} from "../internal";
 import Body, { BaseBodyOptions } from "./Body";
 
 /** Options for creating a StaticBody. Same as BaseBodyOptions. */
@@ -54,26 +48,9 @@ export default class StaticBody extends Body {
     return 0;
   }
 
-  // Solver-internal getters (hidden from autocomplete via symbols)
-  get [SOLVER_INV_MASS](): number {
-    return 0;
-  }
-
-  get [SOLVER_INV_INERTIA](): number {
-    return 0;
-  }
-
   updateMassProperties(): this {
     // No-op for static bodies
     return this;
-  }
-
-  [SOLVER_UPDATE_MASS](): void {
-    // No-op - invMassSolve is always 0
-  }
-
-  [SOLVER_ADD_VELOCITY](): void {
-    // No-op - static bodies don't get velocity updates from constraints
   }
 
   integrate(_dt: number): void {

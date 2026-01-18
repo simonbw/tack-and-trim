@@ -3,15 +3,6 @@ import { CompatibleVector, V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
 import EventEmitter from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
-import {
-  SOLVER_ADD_VELOCITY,
-  SOLVER_INV_INERTIA,
-  SOLVER_INV_MASS,
-  SOLVER_RESET_VELOCITY,
-  SOLVER_UPDATE_MASS,
-  SOLVER_VLAMBDA,
-  SOLVER_WLAMBDA,
-} from "../internal";
 import type Shape from "../shapes/Shape";
 import type World from "../world/World";
 
@@ -80,11 +71,6 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   /** @internal Force accumulator. */
   protected _force: V2d = V();
 
-  /** @internal Constraint velocity accumulator (linear). */
-  [SOLVER_VLAMBDA]: V2d = V();
-  /** @internal Constraint velocity accumulator (angular). */
-  [SOLVER_WLAMBDA]: number = 0;
-
   /** Current linear velocity. */
   abstract get velocity(): V2d;
   /** Current angular velocity in radians/second. */
@@ -100,12 +86,6 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   /** Current angular force (torque) accumulator. */
   abstract get angularForce(): number;
   abstract set angularForce(value: number);
-
-  // Solver-internal abstract properties (hidden via symbols)
-  abstract get [SOLVER_INV_MASS](): number;
-  abstract get [SOLVER_INV_INERTIA](): number;
-  abstract [SOLVER_UPDATE_MASS](): void;
-  abstract [SOLVER_ADD_VELOCITY](): void;
 
   constructor(options: BaseBodyOptions = {}) {
     super();
@@ -123,12 +103,6 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   // Force getter
   get force(): V2d {
     return this._force;
-  }
-
-  /** Reset constraint velocity accumulators to zero. (Solver internal) */
-  [SOLVER_RESET_VELOCITY](): void {
-    this[SOLVER_VLAMBDA].set(0, 0);
-    this[SOLVER_WLAMBDA] = 0;
   }
 
   /** Recalculate mass and inertia from shapes. */

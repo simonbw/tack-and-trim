@@ -1,10 +1,4 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import {
-  SOLVER_ADD_VELOCITY,
-  SOLVER_INV_INERTIA,
-  SOLVER_INV_MASS,
-  SOLVER_UPDATE_MASS,
-} from "../internal";
 import Body, { BaseBodyOptions } from "./Body";
 
 /** Options for creating a KinematicBody. */
@@ -65,26 +59,9 @@ export default class KinematicBody extends Body {
     return 0;
   }
 
-  // Solver-internal getters (hidden from autocomplete via symbols)
-  get [SOLVER_INV_MASS](): number {
-    return 0;
-  }
-
-  get [SOLVER_INV_INERTIA](): number {
-    return 0;
-  }
-
   updateMassProperties(): this {
     // No-op for kinematic bodies
     return this;
-  }
-
-  [SOLVER_UPDATE_MASS](): void {
-    // Always 0 for kinematic - they push but aren't pushed
-  }
-
-  [SOLVER_ADD_VELOCITY](): void {
-    // No-op - kinematic bodies don't receive constraint velocity
   }
 
   integrate(dt: number): void {

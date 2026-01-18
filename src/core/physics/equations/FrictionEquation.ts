@@ -1,6 +1,7 @@
 import { V, V2d } from "../../Vector";
 import type Body from "../body/Body";
 import type Shape from "../shapes/Shape";
+import type { SolverBodyState } from "../solver/GSSolver";
 import type ContactEquation from "./ContactEquation";
 import Equation from "./Equation";
 
@@ -69,7 +70,12 @@ export default class FrictionEquation extends Equation {
     return this.maxForce;
   }
 
-  computeB(a: number, b: number, h: number): number {
+  computeB(
+    a: number,
+    b: number,
+    h: number,
+    bodyState: Map<Body, SolverBodyState>,
+  ): number {
     const ri = this.contactPointA;
     const rj = this.contactPointB;
     const t = this.t;
@@ -85,7 +91,7 @@ export default class FrictionEquation extends Equation {
     G[5] = rj.crossLength(t);
 
     const GW = this.computeGW();
-    const GiMf = this.computeGiMf();
+    const GiMf = this.computeGiMf(bodyState);
 
     const B = /* - g * a  */ -GW * b - h * GiMf;
 

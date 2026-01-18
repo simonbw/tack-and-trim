@@ -1,12 +1,4 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import {
-  SOLVER_ADD_VELOCITY,
-  SOLVER_INV_INERTIA,
-  SOLVER_INV_MASS,
-  SOLVER_UPDATE_MASS,
-  SOLVER_VLAMBDA,
-  SOLVER_WLAMBDA,
-} from "../internal";
 import Body, { BaseBodyOptions, SleepState } from "./Body";
 import { integrateToTimeOfImpact } from "./ccdUtils";
 import { SleepBehavior, type SleepableBody } from "./SleepBehavior";
@@ -54,8 +46,6 @@ export default class DynamicBody extends Body implements SleepableBody {
   private _invMass: number = 0;
   private _inertia: number = 0;
   private _invInertia: number = 0;
-  private _invMassSolve: number = 0;
-  private _invInertiaSolve: number = 0;
 
   /** If true, body cannot rotate. */
   fixedRotation: boolean;
@@ -147,15 +137,6 @@ export default class DynamicBody extends Body implements SleepableBody {
     return this._invInertia;
   }
 
-  // Solver-internal getters (hidden from autocomplete via symbols)
-  get [SOLVER_INV_MASS](): number {
-    return this._invMassSolve;
-  }
-
-  get [SOLVER_INV_INERTIA](): number {
-    return this._invInertiaSolve;
-  }
-
   /** Current sleep state. */
   get sleepState(): SleepState {
     return this._sleep.sleepState;
@@ -230,19 +211,6 @@ export default class DynamicBody extends Body implements SleepableBody {
     this._invMass = 1 / this._mass;
     this.massMultiplier.set(this.fixedX ? 0 : 1, this.fixedY ? 0 : 1);
     return this;
-  }
-
-  /**
-   * Update solver mass properties based on sleep state. (Solver internal)
-   */
-  [SOLVER_UPDATE_MASS](): void {
-    if (this.isSleeping()) {
-      this._invMassSolve = 0;
-      this._invInertiaSolve = 0;
-    } else {
-      this._invMassSolve = this._invMass;
-      this._invInertiaSolve = this._invInertia;
-    }
   }
 
   /**
@@ -328,11 +296,6 @@ export default class DynamicBody extends Body implements SleepableBody {
     this._force.set(0.0, 0.0);
     this._angularForce = 0.0;
     return this;
-  }
-
-  [SOLVER_ADD_VELOCITY](): void {
-    this._velocity.iadd(this[SOLVER_VLAMBDA]);
-    this._angularVelocity += this[SOLVER_WLAMBDA];
   }
 
   /**
@@ -424,7 +387,7 @@ export default class DynamicBody extends Body implements SleepableBody {
           ccdIterations: this.ccdIterations,
         },
         this.world,
-        dt
+        dt,
       );
 
     if (!ccdApplied) {

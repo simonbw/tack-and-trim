@@ -1,14 +1,11 @@
 import type Body from "../body/Body";
+import type { SolverBodyState } from "../solver/GSSolver";
 import {
   EQ_B,
   EQ_INV_C,
   EQ_LAMBDA,
   EQ_MAX_FORCE_DT,
   EQ_MIN_FORCE_DT,
-  SOLVER_INV_INERTIA,
-  SOLVER_INV_MASS,
-  SOLVER_VLAMBDA,
-  SOLVER_WLAMBDA,
 } from "../internal";
 
 export interface EquationOptions {
@@ -57,7 +54,7 @@ export default class Equation {
     bodyA: Body,
     bodyB: Body,
     minForce = -Number.MAX_VALUE,
-    maxForce = Number.MAX_VALUE
+    maxForce = Number.MAX_VALUE,
   ) {
     this.id = Equation.idCounter++;
     this.minForce = minForce;
@@ -94,7 +91,7 @@ export default class Equation {
     vi: ArrayLike<number>,
     wi: number,
     vj: ArrayLike<number>,
-    wj: number
+    wj: number,
   ): number {
     return (
       G[0] * vi[0] +
@@ -106,10 +103,15 @@ export default class Equation {
     );
   }
 
-  computeB(a: number, b: number, h: number): number {
+  computeB(
+    a: number,
+    b: number,
+    h: number,
+    bodyState: Map<Body, SolverBodyState>,
+  ): number {
     const GW = this.computeGW();
     const Gq = this.computeGq();
-    const GiMf = this.computeGiMf();
+    const GiMf = this.computeGiMf(bodyState);
     return -Gq * a - GW * b - GiMf * h;
   }
 
@@ -135,28 +137,34 @@ export default class Equation {
     return this.gmult(G, vi, wi, vj, wj) + this.relativeVelocity;
   }
 
-  computeGWlambda(): number {
+  computeGWlambda(bodyState: Map<Body, SolverBodyState>): number {
     const G = this.G;
     const bi = this.bodyA;
     const bj = this.bodyB;
-    const vi = bi[SOLVER_VLAMBDA];
-    const vj = bj[SOLVER_VLAMBDA];
-    const wi = bi[SOLVER_WLAMBDA];
-    const wj = bj[SOLVER_WLAMBDA];
-    return this.gmult(G, vi, wi, vj, wj);
+    const stateI = bodyState.get(bi)!;
+    const stateJ = bodyState.get(bj)!;
+    return this.gmult(
+      G,
+      stateI.vlambda,
+      stateI.wlambda,
+      stateJ.vlambda,
+      stateJ.wlambda,
+    );
   }
 
-  computeGiMf(): number {
+  computeGiMf(bodyState: Map<Body, SolverBodyState>): number {
     const bi = this.bodyA;
     const bj = this.bodyB;
     const fi = bi.force;
     const ti = bi.angularForce;
     const fj = bj.force;
     const tj = bj.angularForce;
-    const invMassi = bi[SOLVER_INV_MASS];
-    const invMassj = bj[SOLVER_INV_MASS];
-    const invIi = bi[SOLVER_INV_INERTIA];
-    const invIj = bj[SOLVER_INV_INERTIA];
+    const stateI = bodyState.get(bi)!;
+    const stateJ = bodyState.get(bj)!;
+    const invMassi = stateI.invMassSolve;
+    const invMassj = stateJ.invMassSolve;
+    const invIi = stateI.invInertiaSolve;
+    const invIj = stateJ.invInertiaSolve;
     const G = this.G;
 
     return (
@@ -169,13 +177,15 @@ export default class Equation {
     );
   }
 
-  computeGiMGt(): number {
+  computeGiMGt(bodyState: Map<Body, SolverBodyState>): number {
     const bi = this.bodyA;
     const bj = this.bodyB;
-    const invMassi = bi[SOLVER_INV_MASS];
-    const invMassj = bj[SOLVER_INV_MASS];
-    const invIi = bi[SOLVER_INV_INERTIA];
-    const invIj = bj[SOLVER_INV_INERTIA];
+    const stateI = bodyState.get(bi)!;
+    const stateJ = bodyState.get(bj)!;
+    const invMassi = stateI.invMassSolve;
+    const invMassj = stateJ.invMassSolve;
+    const invIi = stateI.invInertiaSolve;
+    const invIj = stateJ.invInertiaSolve;
     const G = this.G;
 
     return (
@@ -188,27 +198,32 @@ export default class Equation {
     );
   }
 
-  addToWlambda(deltalambda: number): this {
+  addToWlambda(
+    deltalambda: number,
+    bodyState: Map<Body, SolverBodyState>,
+  ): this {
     const bi = this.bodyA;
     const bj = this.bodyB;
-    const invMassi = bi[SOLVER_INV_MASS];
-    const invMassj = bj[SOLVER_INV_MASS];
-    const invIi = bi[SOLVER_INV_INERTIA];
-    const invIj = bj[SOLVER_INV_INERTIA];
+    const stateI = bodyState.get(bi)!;
+    const stateJ = bodyState.get(bj)!;
+    const invMassi = stateI.invMassSolve;
+    const invMassj = stateJ.invMassSolve;
+    const invIi = stateI.invInertiaSolve;
+    const invIj = stateJ.invInertiaSolve;
     const G = this.G;
 
     // v_lambda += inv(M) * delta_lambda * G
-    bi[SOLVER_VLAMBDA][0] += invMassi * G[0] * deltalambda;
-    bi[SOLVER_VLAMBDA][1] += invMassi * G[1] * deltalambda;
-    bi[SOLVER_WLAMBDA] += invIi * G[2] * deltalambda;
+    stateI.vlambda[0] += invMassi * G[0] * deltalambda;
+    stateI.vlambda[1] += invMassi * G[1] * deltalambda;
+    stateI.wlambda += invIi * G[2] * deltalambda;
 
-    bj[SOLVER_VLAMBDA][0] += invMassj * G[3] * deltalambda;
-    bj[SOLVER_VLAMBDA][1] += invMassj * G[4] * deltalambda;
-    bj[SOLVER_WLAMBDA] += invIj * G[5] * deltalambda;
+    stateJ.vlambda[0] += invMassj * G[3] * deltalambda;
+    stateJ.vlambda[1] += invMassj * G[4] * deltalambda;
+    stateJ.wlambda += invIj * G[5] * deltalambda;
     return this;
   }
 
-  computeInvC(eps: number): number {
-    return 1.0 / (this.computeGiMGt() + eps);
+  computeInvC(eps: number, bodyState: Map<Body, SolverBodyState>): number {
+    return 1.0 / (this.computeGiMGt(bodyState) + eps);
   }
 }

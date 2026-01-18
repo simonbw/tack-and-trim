@@ -1,14 +1,33 @@
+import type Body from "../body/Body";
 import DynamicBody from "../body/DynamicBody";
 import type Equation from "../equations/Equation";
 import FrictionEquation from "../equations/FrictionEquation";
-import {
-  SOLVER_ADD_VELOCITY,
-  SOLVER_RESET_VELOCITY,
-  SOLVER_UPDATE_MASS,
-} from "../internal";
+import { V, V2d } from "../../Vector";
 import type { Island } from "../world/Island";
 
 // --- Types ---
+
+/** Ephemeral solver state for a body during constraint resolution. */
+export interface SolverBodyState {
+  /** Linear constraint velocity accumulator */
+  vlambda: V2d;
+  /** Angular constraint velocity accumulator */
+  wlambda: number;
+  /** 0 if sleeping, else body.invMass */
+  invMassSolve: number;
+  /** 0 if sleeping, else body.invInertia */
+  invInertiaSolve: number;
+}
+
+/** Creates initial solver state for a body. */
+function createSolverState(body: Body, isSleeping: boolean): SolverBodyState {
+  return {
+    vlambda: V(),
+    wlambda: 0,
+    invMassSolve: isSleeping ? 0 : body.invMass,
+    invInertiaSolve: isSleeping ? 0 : body.invInertia,
+  };
+}
 
 export interface SolverConfig {
   readonly iterations: number;
@@ -44,7 +63,7 @@ export function solveEquations(
   equations: readonly Equation[],
   dynamicBodies: Iterable<DynamicBody>,
   h: number,
-  config: SolverConfig
+  config: SolverConfig,
 ): SolverResult {
   const {
     iterations,
@@ -70,9 +89,22 @@ export function solveEquations(
   const tolSquared = (tolerance * Neq) ** 2;
   let usedIterations = 0;
 
-  // Update solve mass properties for all dynamic bodies
+  // Create solver state map for all bodies in equations
+  const bodyState = new Map<Body, SolverBodyState>();
+
+  // Initialize state for dynamic bodies
   for (const body of dynamicBodies) {
-    body[SOLVER_UPDATE_MASS]();
+    bodyState.set(body, createSolverState(body, body.isSleeping()));
+  }
+
+  // Ensure all bodies in equations have state (for static/kinematic bodies)
+  for (const eq of equations) {
+    if (!bodyState.has(eq.bodyA)) {
+      bodyState.set(eq.bodyA, createSolverState(eq.bodyA, false));
+    }
+    if (!bodyState.has(eq.bodyB)) {
+      bodyState.set(eq.bodyB, createSolverState(eq.bodyB, false));
+    }
   }
 
   // Allocate fresh arrays
@@ -87,13 +119,8 @@ export function solveEquations(
       eq.timeStep = h;
       eq.update();
     }
-    Bs[i] = eq.computeB(eq.a, eq.b, h);
-    invCs[i] = eq.computeInvC(eq.epsilon);
-  }
-
-  // Reset constraint velocities
-  for (const body of dynamicBodies) {
-    body[SOLVER_RESET_VELOCITY]();
+    Bs[i] = eq.computeB(eq.a, eq.b, h, bodyState);
+    invCs[i] = eq.computeInvC(eq.epsilon, bodyState);
   }
 
   // Optional friction pre-iteration phase
@@ -105,7 +132,8 @@ export function solveEquations(
         invCs,
         lambda,
         useZeroRHS,
-        h
+        h,
+        bodyState,
       );
       usedIterations++;
 
@@ -120,7 +148,15 @@ export function solveEquations(
 
   // Main iteration phase
   for (let iter = 0; iter < iterations; iter++) {
-    const deltaTot = runIteration(equations, Bs, invCs, lambda, useZeroRHS, h);
+    const deltaTot = runIteration(
+      equations,
+      Bs,
+      invCs,
+      lambda,
+      useZeroRHS,
+      h,
+      bodyState,
+    );
     usedIterations++;
 
     if (deltaTot * deltaTot <= tolSquared) {
@@ -128,9 +164,11 @@ export function solveEquations(
     }
   }
 
-  // Apply constraint velocities to bodies
+  // Apply constraint velocities to dynamic bodies
   for (const body of dynamicBodies) {
-    body[SOLVER_ADD_VELOCITY]();
+    const state = bodyState.get(body)!;
+    body.velocity.iadd(state.vlambda);
+    body.angularVelocity += state.wlambda;
   }
 
   // Update equation multipliers
@@ -147,7 +185,7 @@ export function solveEquations(
 export function solveIsland(
   island: Island,
   h: number,
-  config: SolverConfig
+  config: SolverConfig,
 ): SolverResult {
   // Extract dynamic bodies from island
   const dynamicBodies: DynamicBody[] = [];
@@ -161,7 +199,7 @@ export function solveIsland(
     island.equations as Equation[],
     dynamicBodies,
     h,
-    config
+    config,
   );
 }
 
@@ -171,7 +209,7 @@ export function solveIsland(
 function updateMultipliers(
   equations: readonly Equation[],
   lambda: ArrayLike<number>,
-  invDt: number
+  invDt: number,
 ): void {
   for (let i = equations.length - 1; i >= 0; i--) {
     equations[i].multiplier = lambda[i] * invDt;
@@ -185,7 +223,8 @@ function runIteration(
   invCs: Float32Array,
   lambda: Float32Array,
   useZeroRHS: boolean,
-  h: number
+  h: number,
+  bodyState: Map<Body, SolverBodyState>,
 ): number {
   let deltalambdaTot = 0.0;
   const Neq = equations.length;
@@ -200,7 +239,8 @@ function runIteration(
       invCs,
       lambda,
       useZeroRHS,
-      h
+      h,
+      bodyState,
     );
     deltalambdaTot += Math.abs(deltalambda);
   }
@@ -217,12 +257,13 @@ function iterateEquation(
   invCs: ArrayLike<number>,
   lambda: Float32Array,
   useZeroRHS: boolean,
-  dt: number
+  dt: number,
+  bodyState: Map<Body, SolverBodyState>,
 ): number {
   let B = Bs[j];
   const invC = invCs[j];
   const lambdaj = lambda[j];
-  const GWlambda = eq.computeGWlambda();
+  const GWlambda = eq.computeGWlambda(bodyState);
 
   const maxForce = eq.maxForce;
   const minForce = eq.minForce;
@@ -241,7 +282,7 @@ function iterateEquation(
     deltalambda = maxForce * dt - lambdaj;
   }
   lambda[j] += deltalambda;
-  eq.addToWlambda(deltalambda);
+  eq.addToWlambda(deltalambda, bodyState);
 
   return deltalambda;
 }
