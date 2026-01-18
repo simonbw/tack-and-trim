@@ -1,10 +1,13 @@
 import BaseEntity from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
+import { V } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { MainMenu } from "./MainMenu";
+import { createLandMass } from "./terrain/LandMass";
+import { TerrainInfo } from "./terrain/TerrainInfo";
 import { WaterInfo } from "./water/WaterInfo";
 import { WaterRenderer } from "./water/rendering/WaterRenderer";
 import { WindInfo } from "./wind/WindInfo";
@@ -27,6 +30,27 @@ export class GameController extends BaseEntity {
     this.game!.addEntity(new WindInfo());
     this.game!.addEntity(new WindIndicator());
     this.game!.addEntity(new WindVisualization());
+
+    // Spawn terrain with a test island
+    const testIsland = createLandMass(
+      [
+        V(150, -30),
+        V(180, -10),
+        V(190, 30),
+        V(170, 60),
+        V(130, 70),
+        V(100, 50),
+        V(90, 10),
+        V(110, -20),
+      ],
+      {
+        peakHeight: 4,
+        beachWidth: 25,
+        hillFrequency: 0.03,
+        hillAmplitude: 0.2,
+      }
+    );
+    this.game!.addEntity(new TerrainInfo([testIsland]));
 
     // Start with wide camera shot for menu
     this.game!.camera.z = MENU_ZOOM;

@@ -12,6 +12,7 @@ export interface HullConfig {
   readonly mass: number; // lbs
   readonly vertices: V2d[]; // ft, hull shape polygon, counter-clockwise winding
   readonly skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
+  readonly draft: number; // ft below waterline (hull bottom)
   readonly colors: {
     readonly fill: number;
     readonly stroke: number;
@@ -20,16 +21,24 @@ export interface HullConfig {
 
 export interface KeelConfig {
   readonly vertices: V2d[]; // ft, keel shape (usually a line)
+  readonly draft: number; // ft below waterline (tip of keel/centerboard)
   readonly color: number;
 }
 
 export interface RudderConfig {
   readonly position: V2d; // ft from hull center
   readonly length: number; // ft (span of rudder blade)
+  readonly draft: number; // ft below waterline (tip of rudder)
   readonly maxSteerAngle: number; // radians
   readonly steerAdjustSpeed: number; // rad/sec
   readonly steerAdjustSpeedFast: number; // rad/sec
   readonly color: number;
+}
+
+export interface GroundingConfig {
+  readonly keelFriction: number; // lbf per ft penetration per ft/s
+  readonly rudderFriction: number; // lbf per ft penetration per ft/s
+  readonly hullFriction: number; // lbf per ft penetration per ft/s (higher - hull grounding is severe)
 }
 
 // Sail physics properties configurable per-boat (optional, defaults in Sail.ts)
@@ -112,6 +121,7 @@ export interface BoatConfig {
   readonly mainsheet: MainsheetConfig;
   readonly jibSheet: JibSheetConfig;
   readonly rowing: RowingConfig;
+  readonly grounding: GroundingConfig;
 }
 
 // Re-export boat configs

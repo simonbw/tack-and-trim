@@ -2,15 +2,18 @@
  * Water rendering entity.
  *
  * Renders an infinite ocean using WebGPU compute and render shaders.
- * Uses WaterRenderPipeline for unified wave/modifier computation
- * and WaterShader for rendering.
+ * Uses WaterRenderPipeline for unified wave/modifier computation,
+ * TerrainRenderPipeline for terrain height computation,
+ * and WaterShader for combined rendering with depth-based sand/water blending.
  *
- * Note: Physics tile computation is handled by WaterInfo, not here.
+ * Note: Physics tile computation is handled by WaterInfo/TerrainInfo, not here.
  * This entity is purely for rendering.
  */
 
 import BaseEntity from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
+import { TerrainInfo } from "../../terrain/TerrainInfo";
+import { TerrainRenderPipeline } from "../../terrain/rendering/TerrainRenderPipeline";
 import { WaterInfo, type Viewport } from "../WaterInfo";
 import { WaterRenderPipeline } from "./WaterRenderPipeline";
 import { WaterShader } from "./WaterShader";
@@ -20,7 +23,7 @@ const RENDER_VIEWPORT_MARGIN = 0.1;
 
 /**
  * Water renderer entity.
- * Handles only rendering - physics tiles are managed by WaterInfo.
+ * Handles only rendering - physics tiles are managed by WaterInfo/TerrainInfo.
  */
 export class WaterRenderer extends BaseEntity {
   id = "waterRenderer";
@@ -28,12 +31,14 @@ export class WaterRenderer extends BaseEntity {
 
   private waterShader: WaterShader | null = null;
   private renderPipeline: WaterRenderPipeline;
+  private terrainPipeline: TerrainRenderPipeline;
   private renderMode = 0;
   private initialized = false;
 
   constructor() {
     super();
     this.renderPipeline = new WaterRenderPipeline();
+    this.terrainPipeline = new TerrainRenderPipeline();
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -41,6 +46,7 @@ export class WaterRenderer extends BaseEntity {
 
     try {
       await this.renderPipeline.init();
+      await this.terrainPipeline.init();
 
       this.waterShader = new WaterShader();
       await this.waterShader.init();
@@ -81,12 +87,43 @@ export class WaterRenderer extends BaseEntity {
     const renderer = this.game.getRenderer();
     const expandedViewport = this.getExpandedViewport(RENDER_VIEWPORT_MARGIN);
     const gpuProfiler = this.game.renderer.getGpuProfiler();
+    const currentTime = this.game.elapsedUnpausedTime;
 
-    // Update render pipeline (runs unified GPU compute)
+    // Update water render pipeline (runs unified GPU compute)
     const waterInfo = WaterInfo.fromGame(this.game);
     this.renderPipeline.update(expandedViewport, waterInfo, gpuProfiler);
 
-    // Get combined texture view
+    // Update terrain render pipeline if terrain exists
+    const terrainInfo = TerrainInfo.maybeFromGame(this.game);
+    let terrainTextureView: GPUTextureView | null = null;
+
+    if (terrainInfo) {
+      // Sync terrain definition with render pipeline
+      const landMasses = terrainInfo.getLandMasses();
+      if (landMasses.length > 0) {
+        this.terrainPipeline.setTerrainDefinition({ landMasses: [...landMasses] });
+      }
+
+      // Update terrain compute
+      this.terrainPipeline.update(
+        {
+          left: expandedViewport.left,
+          top: expandedViewport.top,
+          width: expandedViewport.width,
+          height: expandedViewport.height,
+        },
+        currentTime,
+        gpuProfiler,
+        "terrainCompute"
+      );
+
+      // Get terrain texture if we have terrain data
+      if (this.terrainPipeline.hasTerrainData()) {
+        terrainTextureView = this.terrainPipeline.getOutputTextureView();
+      }
+    }
+
+    // Get water texture view
     const waterTextureView = this.renderPipeline.getOutputTextureView();
     if (!waterTextureView) return;
 
@@ -97,7 +134,7 @@ export class WaterRenderer extends BaseEntity {
       expandedViewport.left,
       expandedViewport.top,
       expandedViewport.width,
-      expandedViewport.height,
+      expandedViewport.height
     );
     this.waterShader.setRenderMode(this.renderMode);
 
@@ -109,8 +146,8 @@ export class WaterRenderer extends BaseEntity {
     const renderPass = renderer.getCurrentRenderPass();
     if (!renderPass) return;
 
-    // Render water to the main render pass
-    this.waterShader.render(renderPass, waterTextureView);
+    // Render water with optional terrain to the main render pass
+    this.waterShader.render(renderPass, waterTextureView, terrainTextureView);
   }
 
   setRenderMode(mode: number): void {
@@ -127,6 +164,7 @@ export class WaterRenderer extends BaseEntity {
   @on("destroy")
   onDestroy(): void {
     this.renderPipeline.destroy();
+    this.terrainPipeline.destroy();
     this.waterShader?.destroy();
   }
 }
