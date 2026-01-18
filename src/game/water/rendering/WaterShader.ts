@@ -175,9 +175,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let rawHeight = waterData.r;
 
   // Sample terrain data if available
+  // Use textureSampleLevel with LOD 0 to avoid uniform control flow issues
   var terrainHeight: f32 = 0.0;
   if (uniforms.hasTerrainData != 0) {
-    let terrainData = textureSample(terrainDataTexture, waterSampler, dataUV);
+    let terrainData = textureSampleLevel(terrainDataTexture, waterSampler, dataUV, 0.0);
     terrainHeight = terrainData.r * MAX_TERRAIN_HEIGHT;
   }
 
@@ -231,11 +232,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   ));
 
   // If we have terrain, also factor in terrain normal for sand
+  // Use textureSampleLevel with LOD 0 to avoid uniform control flow issues
   if (uniforms.hasTerrainData != 0 && waterDepth < uniforms.shallowThreshold) {
-    let terrainL = textureSample(terrainDataTexture, waterSampler, dataUV + vec2<f32>(-texelSize, 0.0)).r * MAX_TERRAIN_HEIGHT;
-    let terrainR = textureSample(terrainDataTexture, waterSampler, dataUV + vec2<f32>(texelSize, 0.0)).r * MAX_TERRAIN_HEIGHT;
-    let terrainD = textureSample(terrainDataTexture, waterSampler, dataUV + vec2<f32>(0.0, -texelSize)).r * MAX_TERRAIN_HEIGHT;
-    let terrainU = textureSample(terrainDataTexture, waterSampler, dataUV + vec2<f32>(0.0, texelSize)).r * MAX_TERRAIN_HEIGHT;
+    let terrainL = textureSampleLevel(terrainDataTexture, waterSampler, dataUV + vec2<f32>(-texelSize, 0.0), 0.0).r * MAX_TERRAIN_HEIGHT;
+    let terrainR = textureSampleLevel(terrainDataTexture, waterSampler, dataUV + vec2<f32>(texelSize, 0.0), 0.0).r * MAX_TERRAIN_HEIGHT;
+    let terrainD = textureSampleLevel(terrainDataTexture, waterSampler, dataUV + vec2<f32>(0.0, -texelSize), 0.0).r * MAX_TERRAIN_HEIGHT;
+    let terrainU = textureSampleLevel(terrainDataTexture, waterSampler, dataUV + vec2<f32>(0.0, texelSize), 0.0).r * MAX_TERRAIN_HEIGHT;
 
     let terrainNormal = normalize(vec3<f32>(
       (terrainL - terrainR) * 0.5,
