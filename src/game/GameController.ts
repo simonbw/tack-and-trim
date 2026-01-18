@@ -5,6 +5,11 @@ import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { MainMenu } from "./MainMenu";
+import {
+  TerrainInfo,
+  TerrainRenderer,
+  BeginnersBayLandMasses,
+} from "./terrain";
 import { WaterInfo } from "./water/WaterInfo";
 import { WaterRenderer } from "./water/rendering/WaterRenderer";
 import { WindInfo } from "./wind/WindInfo";
@@ -21,6 +26,13 @@ export class GameController extends BaseEntity {
 
   @on("add")
   onAdd() {
+    // Spawn terrain system (must be before water for correct layer order)
+    const terrainInfo = this.game!.addEntity(new TerrainInfo());
+    for (const landMass of BeginnersBayLandMasses) {
+      terrainInfo.addLandMass(landMass);
+    }
+    this.game!.addEntity(new TerrainRenderer());
+
     // Spawn water and wind systems (visible during menu)
     this.game!.addEntity(new WaterInfo());
     this.game!.addEntity(new WaterRenderer());
@@ -37,11 +49,11 @@ export class GameController extends BaseEntity {
 
   @on("gameStart")
   onGameStart() {
-    // Spawn buoys
-    this.game!.addEntity(new Buoy(200, 0));
-    this.game!.addEntity(new Buoy(-160, 120));
-    this.game!.addEntity(new Buoy(100, -200));
-    this.game!.addEntity(new Buoy(-240, -100));
+    // Spawn buoys inside Beginner's Bay
+    this.game!.addEntity(new Buoy(120, 80)); // Northeast area
+    this.game!.addEntity(new Buoy(-100, 100)); // Northwest area
+    this.game!.addEntity(new Buoy(0, -60)); // Near channel entrance
+    this.game!.addEntity(new Buoy(-80, 0)); // West side
 
     // Spawn boat and controls
     const boat = this.game!.addEntity(new Boat());
