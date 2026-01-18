@@ -1,0 +1,155 @@
+.pause-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.pause-menu__backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 10, 20, 0.7);
+  animation: pause-menu-fade-in 0.2s ease-out;
+}
+
+@keyframes pause-menu-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.pause-menu__panel {
+  position: relative;
+  background: rgba(0, 20, 40, 0.95);
+  border: 2px solid rgba(100, 150, 200, 0.5);
+  border-radius: 16px;
+  padding: 32px 48px;
+  min-width: 300px;
+  color: #e0e8f0;
+  font-family: system-ui, -apple-system, sans-serif;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  animation: pause-menu-slide-in 0.25s ease-out;
+}
+
+@keyframes pause-menu-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pause-menu__title {
+  margin: 0 0 24px 0;
+  font-size: 28px;
+  font-weight: 600;
+  text-align: center;
+  color: #4a9eff;
+}
+
+.pause-menu__buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pause-menu__button {
+  padding: 14px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: rgba(100, 100, 100, 0.3);
+  border: 1px solid rgba(150, 150, 150, 0.3);
+  color: #b8c8d8;
+}
+
+.pause-menu__button:hover {
+  background: rgba(120, 120, 120, 0.4);
+  transform: translateY(-2px);
+}
+
+.pause-menu__button--primary {
+  background: linear-gradient(180deg, #4a9eff 0%, #2a7edf 100%);
+  border: none;
+  color: white;
+}
+
+.pause-menu__button--primary:hover {
+  background: linear-gradient(180deg, #5aafff 0%, #3a8eef 100%);
+}
+
+.pause-menu__mission-section {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(100, 150, 200, 0.3);
+}
+
+.pause-menu__mission-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.pause-menu__mission-label {
+  color: #7888a8;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pause-menu__mission-name {
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.pause-menu__mission-time {
+  text-align: center;
+  font-family: monospace;
+  font-size: 16px;
+  color: #e0e8f0;
+  margin-bottom: 16px;
+}
+
+.pause-menu__time-limit {
+  color: #7888a8;
+}
+
+.pause-menu__mission-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.pause-menu__button--mission {
+  flex: 1;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+
+.pause-menu__button--danger {
+  color: #ff8888;
+  border-color: rgba(204, 68, 68, 0.3);
+}
+
+.pause-menu__button--danger:hover {
+  background: rgba(204, 68, 68, 0.2);
+}

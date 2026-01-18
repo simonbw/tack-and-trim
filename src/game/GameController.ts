@@ -5,6 +5,8 @@ import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { MainMenu } from "./MainMenu";
+import { MissionManager } from "./mission/MissionManager";
+import { registerAllMissions } from "./mission/missions";
 import { WaterInfo } from "./water/WaterInfo";
 import { WaterRenderer } from "./water/rendering/WaterRenderer";
 import { WindInfo } from "./wind/WindInfo";
@@ -12,6 +14,9 @@ import { WindVisualization } from "./wind-visualization/WindVisualization";
 import { TutorialManager } from "./tutorial";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
+
+// Register all missions at module load time
+registerAllMissions();
 
 const MENU_ZOOM = 2; // Wide shot for menu
 const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
@@ -59,5 +64,8 @@ export class GameController extends BaseEntity {
 
     // Start the tutorial
     this.game!.addEntity(new TutorialManager());
+
+    // Start the mission system
+    this.game!.addEntity(new MissionManager());
   }
 }
