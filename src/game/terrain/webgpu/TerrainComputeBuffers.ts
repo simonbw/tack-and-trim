@@ -84,7 +84,8 @@ export class TerrainComputeBuffers {
       0,
       controlPointsData.buffer
     );
-    device.queue.writeBuffer(this.landMassBuffer, 0, landMassData.buffer);
+    // landMassData is already an ArrayBuffer (not Float32Array) since it has mixed u32/f32 fields
+    device.queue.writeBuffer(this.landMassBuffer, 0, landMassData);
     this.landMassCount = definition.landMasses.length;
   }
 

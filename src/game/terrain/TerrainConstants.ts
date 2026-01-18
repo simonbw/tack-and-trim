@@ -8,13 +8,13 @@ export const TERRAIN_TILE_SIZE = 64; // ft per tile
 export const TERRAIN_TILE_RESOLUTION = 128; // pixels per tile
 
 // Render texture size (reduced from 512 for performance)
-export const TERRAIN_TEXTURE_SIZE = 256; // For rendering
+export const TERRAIN_TEXTURE_SIZE = 128; // For rendering
 
 // Height normalization
 export const MAX_TERRAIN_HEIGHT = 20; // ft (for GPU normalization)
 
 // Catmull-Rom subdivision (reduced from 16 for performance)
-export const SPLINE_SUBDIVISIONS = 8; // Segments per control point pair
+export const SPLINE_SUBDIVISIONS = 4; // Segments per control point pair
 
 // Default land mass parameters
 export const DEFAULT_PEAK_HEIGHT = 5; // ft

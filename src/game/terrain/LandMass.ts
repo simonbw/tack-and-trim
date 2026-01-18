@@ -69,10 +69,13 @@ export function createLandMass(
 /**
  * Build GPU data arrays from terrain definition.
  * Returns flat arrays ready for upload to GPU buffers.
+ *
+ * IMPORTANT: The WGSL struct has u32 fields for startIndex and pointCount,
+ * so we need to use a DataView to write integers with correct bit patterns.
  */
 export function buildTerrainGPUData(definition: TerrainDefinition): {
   controlPointsData: Float32Array;
-  landMassData: Float32Array;
+  landMassData: ArrayBuffer;
 } {
   // Count total control points
   let totalPoints = 0;
@@ -81,23 +84,30 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   }
 
   const controlPointsData = new Float32Array(totalPoints * 2);
-  const landMassData = new Float32Array(
-    definition.landMasses.length * FLOATS_PER_LANDMASS
+
+  // Use ArrayBuffer + DataView to write mixed u32/f32 data correctly
+  const landMassBuffer = new ArrayBuffer(
+    definition.landMasses.length * FLOATS_PER_LANDMASS * 4
   );
+  const landMassView = new DataView(landMassBuffer);
 
   let pointIndex = 0;
   for (let i = 0; i < definition.landMasses.length; i++) {
     const lm = definition.landMasses[i];
 
-    // Store land mass metadata
-    const base = i * FLOATS_PER_LANDMASS;
-    landMassData[base + 0] = pointIndex;
-    landMassData[base + 1] = lm.controlPoints.length;
-    landMassData[base + 2] = lm.peakHeight;
-    landMassData[base + 3] = lm.beachWidth;
-    landMassData[base + 4] = lm.hillFrequency;
-    landMassData[base + 5] = lm.hillAmplitude;
-    // [6], [7] = padding for alignment
+    // Store land mass metadata - byte offset for each land mass
+    const byteBase = i * FLOATS_PER_LANDMASS * 4;
+
+    // u32 fields (must use setUint32, not float)
+    landMassView.setUint32(byteBase + 0, pointIndex, true); // startIndex
+    landMassView.setUint32(byteBase + 4, lm.controlPoints.length, true); // pointCount
+
+    // f32 fields
+    landMassView.setFloat32(byteBase + 8, lm.peakHeight, true);
+    landMassView.setFloat32(byteBase + 12, lm.beachWidth, true);
+    landMassView.setFloat32(byteBase + 16, lm.hillFrequency, true);
+    landMassView.setFloat32(byteBase + 20, lm.hillAmplitude, true);
+    // byteBase + 24 and + 28 are padding (left as 0)
 
     // Store control points
     for (const pt of lm.controlPoints) {
@@ -107,5 +117,5 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     }
   }
 
-  return { controlPointsData, landMassData };
+  return { controlPointsData, landMassData: landMassBuffer };
 }
