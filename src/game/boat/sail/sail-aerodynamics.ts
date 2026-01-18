@@ -1,10 +1,29 @@
 import type DynamicBody from "../../../core/physics/body/DynamicBody";
-import { clamp } from "../../../core/util/MathUtil";
+import { clamp, degToRad } from "../../../core/util/MathUtil";
 import { V } from "../../../core/Vector";
 import { RHO_AIR } from "../../fluid-dynamics";
 import { SEPARATION_DECAY_RATE } from "../../wind/WindConstants";
-import { getSailLiftCoefficient, STALL_ANGLE } from "./sail-helpers";
 import type { SailSegment } from "./SailSegment";
+
+const STALL_ANGLE = degToRad(15);
+
+/** Calculate the lift coefficient for a sail at a given angle of attack. */
+function getSailLiftCoefficient(angleOfAttack: number): number {
+  const alpha = Math.abs(angleOfAttack);
+  const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
+
+  let cl: number;
+  if (effectiveAlpha < STALL_ANGLE) {
+    cl = 2 * Math.PI * Math.sin(effectiveAlpha);
+  } else {
+    const peak = 2 * Math.PI * Math.sin(STALL_ANGLE);
+    const decay = Math.exp(-3 * (effectiveAlpha - STALL_ANGLE));
+    cl = peak * decay;
+  }
+
+  cl *= Math.sign(Math.cos(angleOfAttack));
+  return cl;
+}
 
 /**
  * Compute drag coefficient for a sail segment.
