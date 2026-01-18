@@ -13,10 +13,12 @@ import { WindInfo } from "../../wind/WindInfo";
 import { SEGMENT_INFLUENCE_RADIUS } from "../../wind/WindConstants";
 import { WindModifier } from "../../WindModifier";
 import { applySailForces } from "./sail-aerodynamics";
-import { DEFAULT_SAIL_CHORD } from "./sail-helpers";
 import { SailFlowSimulator } from "./SailFlowSimulator";
 import type { SailSegment } from "./SailSegment";
 import { TellTail } from "./TellTail";
+
+// Default sail chord (depth from luff to leech) in feet
+const DEFAULT_SAIL_CHORD = 5.0;
 
 // Optional config with defaults
 export interface SailConfig {
@@ -156,6 +158,7 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
         new TellTail(
           () => attachmentBody.position,
           () => attachmentBody.velocity,
+          () => this.hoistAmount,
         ),
       );
     }

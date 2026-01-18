@@ -1,7 +1,7 @@
 import { DeepPartial, deepMerge } from "../../core/util/ObjectUtils";
 import { V2d } from "../../core/Vector";
 import { Sloop } from "./configs/Sloop";
-import { SailConfig } from "./sail";
+import { SailConfig } from "./sail/Sail";
 import { SheetConfig } from "./Sheet";
 
 // ============================================

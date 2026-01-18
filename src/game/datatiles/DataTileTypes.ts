@@ -89,6 +89,24 @@ export interface WaterQuerier {
   getWaterQueryForecast(): QueryForecast | null;
 }
 
+/** Type guard for WindQuerier interface. */
+export function isWindQuerier(value: unknown): value is WindQuerier {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "getWindQueryForecast" in value
+  );
+}
+
+/** Type guard for WaterQuerier interface. */
+export function isWaterQuerier(value: unknown): value is WaterQuerier {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "getWaterQueryForecast" in value
+  );
+}
+
 /**
  * Convert grid coordinates to DataTileId.
  */

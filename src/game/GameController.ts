@@ -78,6 +78,7 @@ export class GameController extends BaseEntity {
   private spawnBoat() {
     const config = BOAT_CONFIGS[this.currentBoatIndex].config;
     this.boat = this.game!.addEntity(new Boat(config));
+    this.boat.anchor.deploy(); // Start with anchor deployed for tutorial
     this.boatController = this.game!.addEntity(
       new PlayerBoatController(this.boat),
     );

@@ -1,10 +1,29 @@
 import type DynamicBody from "../../../core/physics/body/DynamicBody";
-import { clamp } from "../../../core/util/MathUtil";
+import { clamp, degToRad } from "../../../core/util/MathUtil";
 import { V } from "../../../core/Vector";
 import { RHO_AIR } from "../../fluid-dynamics";
 import { SEPARATION_DECAY_RATE } from "../../wind/WindConstants";
-import { getSailLiftCoefficient, STALL_ANGLE } from "./sail-helpers";
 import type { SailSegment } from "./SailSegment";
+
+const STALL_ANGLE = degToRad(15);
+
+/** Calculate the lift coefficient for a sail at a given angle of attack. */
+function getSailLiftCoefficient(angleOfAttack: number): number {
+  const alpha = Math.abs(angleOfAttack);
+  const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
+
+  let cl: number;
+  if (effectiveAlpha < STALL_ANGLE) {
+    cl = 2 * Math.PI * Math.sin(effectiveAlpha);
+  } else {
+    const peak = 2 * Math.PI * Math.sin(STALL_ANGLE);
+    const decay = Math.exp(-3 * (effectiveAlpha - STALL_ANGLE));
+    cl = peak * decay;
+  }
+
+  cl *= Math.sign(Math.cos(angleOfAttack));
+  return cl;
+}
 
 /**
  * Compute drag coefficient for a sail segment.
@@ -34,7 +53,7 @@ export function applySailForces(
   chord: number,
   forceScale: number,
 ): void {
-  const { flow, length, tangent, camber } = segment;
+  const { flow, length, tangent } = segment;
 
   if (flow.speed < 0.01 || length < 0.001) return;
 
@@ -52,7 +71,7 @@ export function applySailForces(
 
   if (flow.attached) {
     // Attached flow - standard thin airfoil
-    const cl = getSailLiftCoefficient(aoa, camber);
+    const cl = getSailLiftCoefficient(aoa);
     const cd = computeDragCoefficient(aoa);
     lift = cl * q * area;
     drag = cd * q * area;
@@ -61,7 +80,7 @@ export function applySailForces(
     const separationFactor = Math.exp(
       -flow.stallDistance * SEPARATION_DECAY_RATE,
     );
-    const cl = getSailLiftCoefficient(aoa, camber) * separationFactor * 0.3;
+    const cl = getSailLiftCoefficient(aoa) * separationFactor * 0.3;
     const cd = computeDragCoefficient(aoa) + 0.5 * (1 - separationFactor);
     lift = cl * q * area;
     drag = cd * q * area;

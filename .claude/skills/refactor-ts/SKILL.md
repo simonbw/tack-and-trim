@@ -5,7 +5,7 @@ description: Guides TypeScript refactoring operations including moving files, mo
 
 # TypeScript Refactoring Skill
 
-This skill guides the use of three TypeScript refactoring tools that automate common code reorganization tasks using ts-morph.
+This skill guides the use of the `refactor-ts` CLI tool for common TypeScript code reorganization tasks.
 
 ## When to Use
 
@@ -16,58 +16,58 @@ This skill guides the use of three TypeScript refactoring tools that automate co
 
 ## Available Operations
 
-### 1. Move File (`npm run move-file`)
+### 1. Move File (`refactor-ts move-file`)
 
 Moves a TypeScript file to a new location and updates all import references.
 
 ```bash
-npm run move-file <source> <destination>
+npx refactor-ts move-file <source> <destination>
 ```
 
 **Example:**
 ```bash
-npm run move-file src/game/Player.ts src/game/entities/Player.ts
+npx refactor-ts move-file src/game/Player.ts src/game/entities/Player.ts
 ```
 
-### 2. Move Symbol (`npm run move-symbol`)
+### 2. Move Symbol (`refactor-ts move-symbol`)
 
 Moves a symbol from one file to another, updating imports and copying dependencies.
 
 ```bash
-npm run move-symbol <sourceFile> <symbolName> <destinationFile>
+npx refactor-ts move-symbol <file> <symbol> <destination>
 ```
 
 **Supported symbols:** classes, functions, variables, interfaces, enums, type aliases
 
 **Example:**
 ```bash
-npm run move-symbol src/game/Player.ts PlayerState src/game/state/PlayerState.ts
+npx refactor-ts move-symbol src/game/Player.ts PlayerState src/game/state/PlayerState.ts
 ```
 
-### 3. Rename Symbol (`npm run rename-symbol`)
+### 3. Rename Symbol (`refactor-ts move-symbol`)
 
-Renames a symbol and updates all references across the codebase.
+Renames a symbol and updates all references across the codebase. This uses the same `move-symbol` command - when the destination is a name rather than a file path, it performs a rename.
 
 ```bash
-npm run rename-symbol <file> <oldName> <newName>
+npx refactor-ts move-symbol <file> <oldName> <newName>
 ```
 
 **Supported symbols:** classes, functions, variables, interfaces, enums, type aliases
 
 **Example:**
 ```bash
-npm run rename-symbol src/game/Player.ts Player GamePlayer
+npx refactor-ts move-symbol src/game/Player.ts Player GamePlayer
 ```
 
 ## Process
 
 1. **Identify the operation type** based on what the user wants to do
 2. **Determine the arguments** needed for the command
-3. **Run the appropriate npm script** with the correct arguments
+3. **Run the appropriate command** with the correct arguments
 4. **Verify the changes** by checking that TypeScript compiles without errors
 
 ## Common Patterns
 
 - **Extracting a class to its own file:** Use `move-symbol` to move the class, which will create the destination file if needed
 - **Reorganizing into subdirectories:** Use `move-file` to relocate files while keeping imports valid
-- **Renaming for consistency:** Use `rename-symbol` to update names throughout the codebase
+- **Renaming for consistency:** Use `move-symbol` with a new name (not a file path) to rename throughout the codebase

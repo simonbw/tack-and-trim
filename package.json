@@ -23,25 +23,8 @@
   "license": "UNLICENSED",
   "homepage": "https://github.com/simonbw/tack-and-trim#readme",
   "dependencies": {
-    "@parcel/macros": "^2.16.3",
-    "@parcel/resolver-glob": "^2.16.3",
-    "@types/http-proxy": "^1.17.17",
-    "@types/node": "^24.0.4",
-    "@types/yargs": "^17.0.32",
-    "camelcase": "^8.0.0",
-    "chokidar": "^4.0.3",
-    "concurrently": "^9.2.0",
-    "glob": "^11.0.3",
-    "http-proxy": "^1.18.1",
-    "parcel": "^2.16.3",
     "preact": "^10.28.2",
-    "prettier": "^3.6.0",
-    "process": "^0.11.10",
-    "simplex-noise": "^4.0.3",
-    "ts-morph": "^27.0.2",
-    "tsx": "^4.20.3",
-    "typescript": "^5.9.3",
-    "yargs": "^18.0.0"
+    "simplex-noise": "^4.0.3"
   },
   "alias": {
     "react": "preact/compat",
@@ -50,13 +33,30 @@
     "react/jsx-runtime": "preact/jsx-runtime"
   },
   "devDependencies": {
+    "@parcel/macros": "^2.16.3",
     "@parcel/reporter-bundle-analyzer": "^2.16.3",
+    "@parcel/resolver-glob": "^2.16.3",
     "@parcel/transformer-typescript-tsc": "^2.16.3",
     "@playwright/test": "^1.57.0",
+    "@types/http-proxy": "^1.17.17",
+    "@types/node": "^24.0.4",
+    "@types/yargs": "^17.0.32",
     "@typescript/native-preview": "^7.0.0-dev.20260109.1",
     "@webgpu/types": "^0.1.68",
     "assert": "^2.1.0",
+    "camelcase": "^8.0.0",
+    "chokidar": "^4.0.3",
+    "concurrently": "^9.2.0",
     "console-browserify": "^1.2.0",
-    "util": "^0.12.5"
+    "glob": "^11.0.3",
+    "http-proxy": "^1.18.1",
+    "parcel": "^2.16.3",
+    "prettier": "^3.6.0",
+    "process": "^0.11.10",
+    "refactor-ts": "github:simonbw/refactor-ts",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3",
+    "util": "^0.12.5",
+    "yargs": "^18.0.0"
   }
 }

@@ -1,15 +1,12 @@
 import { DEFAULT_LAYER, LAYERS, LayerName } from "../config/layers";
 import { TICK_LAYERS, TickLayerName } from "../config/tickLayers";
-import ContactList, {
-  ContactInfo,
-  ContactInfoWithEquations,
-} from "./ContactList";
+import ContactList from "./ContactList";
+import { PhysicsEventMap } from "./physics/events/PhysicsEvents";
 import EntityList from "./EntityList";
 import { V } from "./Vector";
 import Entity, { GameEventMap } from "./entity/Entity";
 import { eventHandlerName } from "./entity/EventHandler";
 import { IoEvents } from "./entity/IoEvents";
-import { WithOwner } from "./entity/WithOwner";
 import { Draw } from "./graphics/Draw";
 import { RenderManager, RenderManagerOptions } from "./graphics/RenderManager";
 import { WebGPUDeviceManager, getWebGPU } from "./graphics/webgpu/WebGPUDevice";
@@ -118,9 +115,9 @@ export default class Game {
     this.ticksPerSecond = ticksPerSecond;
     this.tickDuration = 1.0 / this.ticksPerSecond;
     this.world = world ?? new World();
-    this.world.on("beginContact", this.beginContact as any, null);
-    this.world.on("endContact", this.endContact as any, null);
-    this.world.on("impact", this.impact as any, null);
+    this.world.on("beginContact", this.beginContact, null);
+    this.world.on("endContact", this.endContact, null);
+    this.world.on("impact", this.impact, null);
     this.ground = new StaticBody();
     this.world.bodies.add(this.ground);
     this.contactList = new ContactList();
@@ -220,9 +217,9 @@ export default class Game {
     this.entitiesToRemove.clear();
 
     // Remove physics world event listeners
-    this.world.off("beginContact", this.beginContact as any);
-    this.world.off("endContact", this.endContact as any);
-    this.world.off("impact", this.impact as any);
+    this.world.off("beginContact", this.beginContact);
+    this.world.off("endContact", this.endContact);
+    this.world.off("impact", this.impact);
 
     // Clear physics world
     this.world.clear();
@@ -550,11 +547,11 @@ export default class Game {
 
   // Handle beginning of collision between things.
   // Fired during narrowphase.
-  private beginContact = (contactInfo: ContactInfoWithEquations) => {
-    this.contactList.beginContact(contactInfo);
-    const { shapeA, shapeB, bodyA, bodyB, contactEquations } = contactInfo;
-    const ownerA = shapeA.owner || bodyA.owner;
-    const ownerB = shapeB.owner || bodyB.owner;
+  private beginContact = (event: PhysicsEventMap["beginContact"]) => {
+    this.contactList.beginContact(event);
+    const { shapeA, shapeB, bodyA, bodyB, contactEquations } = event;
+    const ownerA = shapeA.owner ?? bodyA.owner;
+    const ownerB = shapeB.owner ?? bodyB.owner;
 
     // If either owner has been removed from the game, we shouldn't do the contact
     if (ownerA?.game && ownerB?.game) {
@@ -579,11 +576,11 @@ export default class Game {
 
   // Handle end of collision between things.
   // Fired during narrowphase.
-  private endContact = (contactInfo: ContactInfo) => {
-    this.contactList.endContact(contactInfo);
-    const { shapeA, shapeB, bodyA, bodyB } = contactInfo;
-    const ownerA = shapeA.owner || bodyA.owner;
-    const ownerB = shapeB.owner || bodyB.owner;
+  private endContact = (event: PhysicsEventMap["endContact"]) => {
+    this.contactList.endContact(event);
+    const { shapeA, shapeB, bodyA, bodyB } = event;
+    const ownerA = shapeA.owner ?? bodyA.owner;
+    const ownerB = shapeB.owner ?? bodyB.owner;
 
     // If either owner has been removed from the game, we shouldn't do the contact
     if (ownerA?.game && ownerB?.game) {
@@ -606,10 +603,10 @@ export default class Game {
 
   @profile
   private contacts() {
-    for (const contactInfo of this.contactList.getContacts()) {
-      const { shapeA, shapeB, bodyA, bodyB, contactEquations } = contactInfo;
-      const ownerA = shapeA.owner || bodyA.owner;
-      const ownerB = shapeB.owner || bodyB.owner;
+    for (const contact of this.contactList.getContacts()) {
+      const { shapeA, shapeB, bodyA, bodyB, contactEquations } = contact;
+      const ownerA = shapeA.owner ?? bodyA.owner;
+      const ownerB = shapeB.owner ?? bodyB.owner;
       if (ownerA?.onContacting) {
         ownerA.onContacting({
           other: ownerB,
@@ -631,12 +628,9 @@ export default class Game {
 
   // Handle collision between things.
   // Fired after physics step.
-  private impact = (e: {
-    bodyA: Body & WithOwner;
-    bodyB: Body & WithOwner;
-  }) => {
-    const ownerA = e.bodyA.owner;
-    const ownerB = e.bodyB.owner;
+  private impact = (event: PhysicsEventMap["impact"]) => {
+    const ownerA = event.bodyA.owner;
+    const ownerB = event.bodyB.owner;
     // If either owner has been removed from the game, we shouldn't do the contact
     if (ownerA?.game && ownerB?.game) {
       if (ownerA?.onImpact) {

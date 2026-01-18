@@ -34,3 +34,13 @@ export interface WaterModifier {
    */
   getWaterContribution(queryPoint: V2d): Readonly<WaterContribution>;
 }
+
+/** Type guard for WaterModifier interface. */
+export function isWaterModifier(value: unknown): value is WaterModifier {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "getWaterModifierAABB" in value &&
+    "getWaterContribution" in value
+  );
+}

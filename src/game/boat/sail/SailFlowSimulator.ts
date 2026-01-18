@@ -1,5 +1,5 @@
 import type Body from "../../../core/physics/body/Body";
-import { clamp } from "../../../core/util/MathUtil";
+import { clamp, degToRad } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
 import {
   SEGMENT_INFLUENCE_RADIUS,
@@ -8,8 +8,31 @@ import {
   TURBULENCE_STALL_INJECTION,
 } from "../../wind/WindConstants";
 import { createFlowState, FlowState } from "./FlowState";
-import { calculateCamber, isSailStalled } from "./sail-helpers";
 import type { SailSegment } from "./SailSegment";
+
+const STALL_ANGLE = degToRad(15);
+
+/** Calculate camber from three points (prev, current, next). */
+function calculateCamber(prev: V2d, current: V2d, next: V2d): number {
+  const chord = next.sub(prev);
+  const chordLength = chord.magnitude;
+  if (chordLength < 0.001) return 0;
+
+  const chordMidpoint = prev.add(chord.mul(0.5));
+  const deviation = current.sub(chordMidpoint);
+
+  const chordNormal = chord.normalize().rotate90cw();
+  const camberDistance = deviation.dot(chordNormal);
+
+  return camberDistance / chordLength;
+}
+
+/** Check if a sail is stalled at the given angle of attack. */
+function isSailStalled(angleOfAttack: number): boolean {
+  const alpha = Math.abs(angleOfAttack);
+  const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
+  return effectiveAlpha > STALL_ANGLE;
+}
 
 /**
  * Simulates flow state propagation along a sail from luff to leech.

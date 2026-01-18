@@ -1,3 +1,4 @@
+import type Entity from "../../entity/Entity";
 import { CompatibleVector, V, V2d } from "../../Vector";
 import AABB from "../collision/AABB";
 import EventEmitter from "../events/EventEmitter";
@@ -50,6 +51,8 @@ export default abstract class Body extends EventEmitter<PhysicsEventMap> {
   readonly id: number;
   /** The world this body belongs to, or null if not added. */
   world: World | null = null;
+  /** The Entity that owns this body, set by Game.addEntity(). */
+  owner?: Entity;
 
   /** Shapes attached to this body for collision detection. */
   shapes: Shape[] = [];
