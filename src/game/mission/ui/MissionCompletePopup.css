@@ -1,0 +1,180 @@
+.mission-complete {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 20, 40, 0.95);
+  border: 2px solid rgba(100, 150, 200, 0.5);
+  border-radius: 16px;
+  padding: 32px 40px;
+  min-width: 320px;
+  max-width: 420px;
+  color: #e0e8f0;
+  font-family: system-ui, -apple-system, sans-serif;
+  z-index: 1000;
+  animation: mission-complete-appear 0.4s ease-out;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+@keyframes mission-complete-appear {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.mission-complete--exiting {
+  animation: mission-complete-exit 0.3s ease-in forwards;
+}
+
+@keyframes mission-complete-exit {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+}
+
+.mission-complete--success {
+  border-color: rgba(68, 204, 68, 0.5);
+}
+
+.mission-complete--failure {
+  border-color: rgba(204, 68, 68, 0.5);
+}
+
+.mission-complete__header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.mission-complete__icon {
+  font-size: 32px;
+  color: #44cc44;
+}
+
+.mission-complete__icon--fail {
+  color: #cc4444;
+}
+
+.mission-complete__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.mission-complete--success .mission-complete__title {
+  color: #66dd66;
+}
+
+.mission-complete--failure .mission-complete__title {
+  color: #dd6666;
+}
+
+.mission-complete__mission-name {
+  color: #4a9eff;
+  font-size: 18px;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+
+.mission-complete__reason {
+  background: rgba(204, 68, 68, 0.15);
+  border: 1px solid rgba(204, 68, 68, 0.3);
+  color: #ff8888;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.mission-complete__stats {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.mission-complete__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.mission-complete__stat-label {
+  color: #7888a8;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mission-complete__stat-value {
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.mission-complete__new-record {
+  display: inline-block;
+  margin-left: 8px;
+  background: linear-gradient(135deg, #ffcc00, #ff8800);
+  color: #000;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.mission-complete__actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.mission-complete__button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mission-complete__button--retry {
+  background: linear-gradient(180deg, #4a9eff 0%, #2a7edf 100%);
+  color: white;
+}
+
+.mission-complete__button--retry:hover {
+  background: linear-gradient(180deg, #5aafff 0%, #3a8eef 100%);
+  transform: translateY(-2px);
+}
+
+.mission-complete__button--leave {
+  background: rgba(100, 100, 100, 0.3);
+  border: 1px solid rgba(150, 150, 150, 0.3);
+  color: #b8c8d8;
+}
+
+.mission-complete__button--leave:hover {
+  background: rgba(120, 120, 120, 0.4);
+  transform: translateY(-2px);
+}

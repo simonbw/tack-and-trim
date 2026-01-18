@@ -1,5 +1,6 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
+import type { KeyCode } from "../../core/io/Keys";
 import { V, type ReadonlyV2d } from "../../core/Vector";
 import type { Boat } from "../boat/Boat";
 import { WaterInfo } from "../water/WaterInfo";
@@ -12,10 +13,11 @@ import type {
   ActiveMissionState,
   Mission,
   MissionSaveData,
-  ObjectiveState,
 } from "./MissionTypes";
 import { createObjectiveChecker, type ObjectiveChecker } from "./objectives";
+import { MissionCompletePopup } from "./ui/MissionCompletePopup";
 import { MissionPreviewPopup } from "./ui/MissionPreviewPopup";
+import { PauseMenu } from "./ui/PauseMenu";
 import { Waypoint } from "./Waypoint";
 
 /**
@@ -39,6 +41,16 @@ export class MissionManager extends BaseEntity {
   // UI state
   private previewPopup: MissionPreviewPopup | null = null;
   private currentPreviewSpot: MissionSpot | null = null;
+  private pauseMenu: PauseMenu | null = null;
+  private completePopup: MissionCompletePopup | null = null;
+
+  // Track if we need to show completion popup after mission ends
+  private pendingCompletion: {
+    mission: Mission;
+    success: boolean;
+    time: number;
+    failReason?: string;
+  } | null = null;
 
   constructor() {
     super();
@@ -240,15 +252,28 @@ export class MissionManager extends BaseEntity {
     // Check for newly unlocked missions
     this.checkNewUnlocks();
 
-    // Clean up
+    // Store pending completion for popup
+    this.pendingCompletion = {
+      mission: this.activeMissionDef,
+      success: true,
+      time: elapsedTime,
+    };
+
+    // Clean up mission state (but not UI yet)
     this.endMission();
+
+    // Show completion popup
+    this.showCompletionPopup();
   }
 
   /**
    * Fail the current mission.
    */
   private failMission(reason: string): void {
-    if (!this.activeMission) return;
+    if (!this.activeMission || !this.activeMissionDef) return;
+
+    const elapsedTime =
+      (performance.now() - this.activeMission.startTime) / 1000;
 
     this.activeMission.failed = true;
     this.activeMission.failReason = reason;
@@ -259,8 +284,70 @@ export class MissionManager extends BaseEntity {
       reason,
     });
 
-    // Clean up
+    // Store pending completion for popup
+    this.pendingCompletion = {
+      mission: this.activeMissionDef,
+      success: false,
+      time: elapsedTime,
+      failReason: reason,
+    };
+
+    // Clean up mission state (but not UI yet)
     this.endMission();
+
+    // Show completion popup
+    this.showCompletionPopup();
+  }
+
+  /**
+   * Show the mission completion popup.
+   */
+  private showCompletionPopup(): void {
+    if (!this.pendingCompletion) return;
+
+    const { mission, success, time, failReason } = this.pendingCompletion;
+    const bestTime = MissionPersistence.getMissionCompletion(mission.id)?.bestTime;
+
+    // Pause the game while showing popup
+    this.game!.pause();
+
+    // Create popup
+    this.completePopup = this.game!.addEntity(
+      new MissionCompletePopup({
+        mission,
+        success,
+        time,
+        bestTime,
+        failReason,
+      })
+    );
+
+    // Set up callbacks
+    this.completePopup.onRetry = () => {
+      this.hideCompletionPopup();
+      this.game!.unpause();
+      this.startMission(mission.id);
+    };
+
+    this.completePopup.onLeave = () => {
+      this.hideCompletionPopup();
+      this.game!.unpause();
+    };
+
+    // Render immediately
+    this.completePopup.reactRender();
+
+    this.pendingCompletion = null;
+  }
+
+  /**
+   * Hide the completion popup.
+   */
+  private hideCompletionPopup(): void {
+    if (this.completePopup) {
+      this.completePopup.destroy();
+      this.completePopup = null;
+    }
   }
 
   /**
@@ -474,6 +561,88 @@ export class MissionManager extends BaseEntity {
     this.refreshMissionSpots();
   }
 
+  @on("keyDown")
+  onKeyDown(keyCode: KeyCode): void {
+    if (keyCode === "Escape") {
+      this.handleEscape();
+    }
+  }
+
+  /**
+   * Handle Escape key press - toggle pause menu.
+   */
+  private handleEscape(): void {
+    // Don't open pause if completion popup is showing
+    if (this.completePopup) return;
+
+    if (this.game!.paused && this.pauseMenu) {
+      // Unpause
+      this.hidePauseMenu();
+      this.game!.unpause();
+    } else if (!this.game!.paused) {
+      // Pause
+      this.game!.pause();
+      this.showPauseMenu();
+    }
+  }
+
+  /**
+   * Show the pause menu.
+   */
+  private showPauseMenu(): void {
+    this.pauseMenu = this.game!.addEntity(
+      new PauseMenu({
+        activeMission: this.activeMissionDef ?? undefined,
+        elapsedTime: this.activeMission
+          ? (performance.now() - this.activeMission.startTime) / 1000
+          : undefined,
+      })
+    );
+
+    // Set up callbacks
+    this.pauseMenu.onResume = () => {
+      this.hidePauseMenu();
+      this.game!.unpause();
+    };
+
+    this.pauseMenu.onRestartMission = () => {
+      if (this.activeMission) {
+        const missionId = this.activeMission.missionId;
+        this.hidePauseMenu();
+        this.endMission();
+        this.game!.unpause();
+        this.startMission(missionId);
+      }
+    };
+
+    this.pauseMenu.onEndMission = () => {
+      if (this.activeMission) {
+        this.hidePauseMenu();
+        this.quitMission();
+        this.game!.unpause();
+      }
+    };
+
+    this.pauseMenu.onQuitToMenu = () => {
+      // For now, just refresh the page to go back to menu
+      // In a real implementation, you'd dispatch a gameQuit event
+      window.location.reload();
+    };
+
+    // Render immediately
+    this.pauseMenu.reactRender();
+  }
+
+  /**
+   * Hide the pause menu.
+   */
+  private hidePauseMenu(): void {
+    if (this.pauseMenu) {
+      this.pauseMenu.destroy();
+      this.pauseMenu = null;
+    }
+  }
+
   @on("destroy")
   onDestroy(): void {
     // Clean up waypoints
@@ -489,6 +658,14 @@ export class MissionManager extends BaseEntity {
     if (this.previewPopup) {
       this.previewPopup.destroy();
       this.previewPopup = null;
+    }
+    if (this.pauseMenu) {
+      this.pauseMenu.destroy();
+      this.pauseMenu = null;
+    }
+    if (this.completePopup) {
+      this.completePopup.destroy();
+      this.completePopup = null;
     }
   }
 }
