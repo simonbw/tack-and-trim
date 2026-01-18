@@ -3,6 +3,7 @@ import { on } from "../../core/entity/handler";
 import { polarToVec } from "../../core/util/MathUtil";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
+import { GroundingSystem } from "../terrain/GroundingSystem";
 import { Wake } from "../water/Wake";
 import { Anchor } from "./Anchor";
 import { BoatConfig, StarterDinghy } from "./BoatConfig";
@@ -144,6 +145,9 @@ export class Boat extends BaseEntity {
 
     // Create water querier for tile-based GPU water computation
     this.addChild(new BoatWaterQuerier(this));
+
+    // Create grounding physics (slows boat in shallow water)
+    this.addChild(new GroundingSystem(this));
   }
 
   @on("tick")
