@@ -51,10 +51,11 @@ const MAX_TERRAIN_HEIGHT: f32 = ${MAX_TERRAIN_HEIGHT};
 
 // Sample terrain height with bilinear filtering
 // Returns signed height: negative = underwater depth, positive = above water
+// Uses textureSampleLevel to avoid uniform control flow restrictions
 fn sampleTerrain(uv: vec2<f32>) -> f32 {
   let clampedUV = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
-  // Use the same sampler as water for bilinear filtering
-  return textureSample(terrainDataTexture, waterSampler, clampedUV).r;
+  // Use textureSampleLevel with mip level 0 for bilinear filtering without control flow issues
+  return textureSampleLevel(terrainDataTexture, waterSampler, clampedUV, 0.0).r;
 }
 
 // Hash function for procedural noise

@@ -45,10 +45,10 @@ export class TerrainDataTileCompute implements DataTileCompute {
     await this.stateCompute.init();
 
     // Create output texture (owned by this tile compute instance)
-    // r32float - 1 channel for height
+    // rgba16float - matches TerrainStateCompute shader output format
     this.outputTexture = device.createTexture({
       size: { width: this.textureSize, height: this.textureSize },
-      format: "r32float",
+      format: "rgba16float",
       usage:
         GPUTextureUsage.STORAGE_BINDING |
         GPUTextureUsage.TEXTURE_BINDING |
