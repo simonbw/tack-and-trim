@@ -51,7 +51,15 @@ const MAX_TERRAIN_HEIGHT: f32 = ${MAX_TERRAIN_HEIGHT};
 
 // Helper to sample terrain using textureLoad (r32float doesn't support filtering)
 fn sampleTerrain(uv: vec2<f32>) -> f32 {
-  let texCoord = vec2<i32>(clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)) * TERRAIN_TEX_SIZE);
+  // Clamp UV to [0,1], then convert to texel coords
+  // Use TERRAIN_TEX_SIZE - 1 as max to avoid out-of-bounds access
+  let clampedUV = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  let maxCoord = i32(TERRAIN_TEX_SIZE) - 1;
+  let texCoord = clamp(
+    vec2<i32>(clampedUV * TERRAIN_TEX_SIZE),
+    vec2<i32>(0),
+    vec2<i32>(maxCoord)
+  );
   return textureLoad(terrainDataTexture, texCoord, 0).r * MAX_TERRAIN_HEIGHT;
 }
 
@@ -238,9 +246,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     1.0
   ));
 
-  // If we have terrain, also factor in terrain normal for sand
+  // If we have actual terrain nearby, also factor in terrain normal for sand
   // Use textureLoad via helper since r32float doesn't support filtering
-  if (uniforms.hasTerrainData != 0 && waterDepth < uniforms.shallowThreshold) {
+  if (uniforms.hasTerrainData != 0 && terrainHeight > 0.01 && waterDepth < uniforms.shallowThreshold) {
     let terrainL = sampleTerrain(dataUV + vec2<f32>(-texelSize, 0.0));
     let terrainR = sampleTerrain(dataUV + vec2<f32>(texelSize, 0.0));
     let terrainD = sampleTerrain(dataUV + vec2<f32>(0.0, -texelSize));
@@ -264,20 +272,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   }
 
   // Handle terrain-based rendering
-  if (uniforms.hasTerrainData != 0) {
+  // Only apply terrain effects (sand, shallow water) when there's actual terrain (height > 0)
+  if (uniforms.hasTerrainData != 0 && terrainHeight > 0.01) {
     if (waterDepth < 0.0) {
       // Above water - render sand
       let sandColor = renderSand(terrainHeight, normal, worldPos);
       return vec4<f32>(sandColor, 1.0);
     } else if (waterDepth < uniforms.shallowThreshold) {
-      // Shallow water - blend sand and water
+      // Shallow water near terrain - blend sand and water
       let blendFactor = smoothstep(0.0, uniforms.shallowThreshold, waterDepth);
       let sandColor = renderSand(terrainHeight, normal, worldPos);
       let waterColor = renderWater(rawHeight, normal, worldPos, waterDepth);
       let blendedColor = mix(sandColor, waterColor, blendFactor);
       return vec4<f32>(blendedColor, 1.0);
     }
-    // Deep water - fall through to regular water rendering with depth info
+    // Deep water near terrain - fall through to regular water rendering with depth info
   }
 
   // Default: render water (with depth if terrain available)
