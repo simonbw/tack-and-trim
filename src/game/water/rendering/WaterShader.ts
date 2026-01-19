@@ -185,49 +185,31 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let waterData = textureSample(waterDataTexture, waterSampler, dataUV);
   let rawHeight = waterData.r;
 
-  // Sample terrain height if available (bilinear filtered)
+  // Sample terrain height (bilinear filtered)
   // terrainHeight is signed: negative = underwater, 0 = sea level, positive = land
-  var terrainHeight: f32 = -50.0;  // Default to deep water
-  if (uniforms.hasTerrainData != 0) {
-    terrainHeight = sampleTerrain(dataUV);
-  }
+  let terrainHeight = sampleTerrain(dataUV);
 
   // Calculate water depth (water surface height - terrain height)
-  // Water surface is around 0, so depth = -terrainHeight when terrain > 0
-  // For simplicity, we treat rawHeight as relative surface displacement
   let waterSurfaceHeight = (rawHeight - 0.5) * 5.0;  // Denormalize to world units
   let waterDepth = waterSurfaceHeight - terrainHeight;
 
-  // Debug mode: height mapped to blue gradient
+  // Debug mode: show terrain in brown, water in blue
   if (uniforms.renderMode == 1) {
     var debugColor: vec3<f32>;
-    if (uniforms.hasTerrainData != 0) {
-      // Show terrain in brown, water in blue
-      if (waterDepth < 0.0) {
-        // Above water - terrain
-        debugColor = vec3<f32>(0.6, 0.4, 0.2) * (terrainHeight / MAX_TERRAIN_HEIGHT + 0.3);
-      } else {
-        // Underwater
-        let darkBlue = vec3<f32>(0.0, 0.1, 0.3);
-        let lightBlue = vec3<f32>(0.6, 0.85, 1.0);
-        let depthFactor = smoothstep(0.0, 10.0, waterDepth);
-        debugColor = mix(lightBlue, darkBlue, depthFactor);
-      }
+    if (waterDepth < 0.0) {
+      // Above water - terrain
+      debugColor = vec3<f32>(0.6, 0.4, 0.2) * (terrainHeight / MAX_TERRAIN_HEIGHT + 0.3);
     } else {
-      if (rawHeight < 0.02) {
-        debugColor = vec3<f32>(1.0, 0.0, 0.0);  // Red for min clipping
-      } else if (rawHeight > 0.98) {
-        debugColor = vec3<f32>(1.0, 0.0, 0.0);  // Red for max clipping
-      } else {
-        let darkBlue = vec3<f32>(0.0, 0.1, 0.3);
-        let lightBlue = vec3<f32>(0.6, 0.85, 1.0);
-        debugColor = mix(darkBlue, lightBlue, rawHeight);
-      }
+      // Underwater - color by depth
+      let darkBlue = vec3<f32>(0.0, 0.1, 0.3);
+      let lightBlue = vec3<f32>(0.6, 0.85, 1.0);
+      let depthFactor = smoothstep(0.0, 10.0, waterDepth);
+      debugColor = mix(lightBlue, darkBlue, depthFactor);
     }
     return vec4<f32>(debugColor, 1.0);
   }
 
-  // Compute surface normal from height gradients
+  // Compute water surface normal from height gradients
   let texelSize = 1.0 / TEXTURE_SIZE;
   let heightL = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(-texelSize, 0.0)).r;
   let heightR = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(texelSize, 0.0)).r;
@@ -235,57 +217,52 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let heightU = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(0.0, texelSize)).r;
 
   let heightScale = 3.0;
-  var normal = normalize(vec3<f32>(
+  let waterNormal = normalize(vec3<f32>(
     (heightL - heightR) * heightScale,
     (heightD - heightU) * heightScale,
     1.0
   ));
 
-  // If we have actual terrain nearby, also factor in terrain normal for sand
-  if (uniforms.hasTerrainData != 0 && terrainHeight > 0.01 && waterDepth < uniforms.shallowThreshold) {
-    let terrainL = sampleTerrain(dataUV + vec2<f32>(-texelSize, 0.0));
-    let terrainR = sampleTerrain(dataUV + vec2<f32>(texelSize, 0.0));
-    let terrainD = sampleTerrain(dataUV + vec2<f32>(0.0, -texelSize));
-    let terrainU = sampleTerrain(dataUV + vec2<f32>(0.0, texelSize));
+  // Compute terrain surface normal from height gradients
+  let terrainL = sampleTerrain(dataUV + vec2<f32>(-texelSize, 0.0));
+  let terrainR = sampleTerrain(dataUV + vec2<f32>(texelSize, 0.0));
+  let terrainD = sampleTerrain(dataUV + vec2<f32>(0.0, -texelSize));
+  let terrainU = sampleTerrain(dataUV + vec2<f32>(0.0, texelSize));
 
-    let terrainNormal = normalize(vec3<f32>(
-      (terrainL - terrainR) * 0.5,
-      (terrainD - terrainU) * 0.5,
-      1.0
-    ));
+  let terrainNormal = normalize(vec3<f32>(
+    (terrainL - terrainR) * 0.5,
+    (terrainD - terrainU) * 0.5,
+    1.0
+  ));
 
-    // Blend normals based on water depth
-    if (waterDepth < 0.0) {
-      // Fully on land - use terrain normal
-      normal = terrainNormal;
-    } else {
-      // Shallow water - blend
-      let blendFactor = waterDepth / uniforms.shallowThreshold;
-      normal = normalize(mix(terrainNormal, normal, blendFactor));
-    }
+  // Blend normals: use terrain normal on land, water normal in deep water, blend in shallow
+  var normal: vec3<f32>;
+  if (waterDepth < 0.0) {
+    normal = terrainNormal;
+  } else if (waterDepth < uniforms.shallowThreshold) {
+    let blendFactor = waterDepth / uniforms.shallowThreshold;
+    normal = normalize(mix(terrainNormal, waterNormal, blendFactor));
+  } else {
+    normal = waterNormal;
   }
 
-  // Handle terrain-based rendering
-  // Only apply terrain effects (sand, shallow water) when there's actual terrain (height > 0)
-  if (uniforms.hasTerrainData != 0 && terrainHeight > 0.01) {
-    if (waterDepth < 0.0) {
-      // Above water - render sand
-      let sandColor = renderSand(terrainHeight, normal, worldPos);
-      return vec4<f32>(sandColor, 1.0);
-    } else if (waterDepth < uniforms.shallowThreshold) {
-      // Shallow water near terrain - blend sand and water
-      let blendFactor = smoothstep(0.0, uniforms.shallowThreshold, waterDepth);
-      let sandColor = renderSand(terrainHeight, normal, worldPos);
-      let waterColor = renderWater(rawHeight, normal, worldPos, waterDepth);
-      let blendedColor = mix(sandColor, waterColor, blendFactor);
-      return vec4<f32>(blendedColor, 1.0);
-    }
-    // Deep water near terrain - fall through to regular water rendering with depth info
+  // Render based on water depth
+  if (waterDepth < 0.0) {
+    // Above water - render sand
+    let sandColor = renderSand(terrainHeight, normal, worldPos);
+    return vec4<f32>(sandColor, 1.0);
+  } else if (waterDepth < uniforms.shallowThreshold) {
+    // Shallow water - blend sand and water
+    let blendFactor = smoothstep(0.0, uniforms.shallowThreshold, waterDepth);
+    let sandColor = renderSand(terrainHeight, normal, worldPos);
+    let waterColor = renderWater(rawHeight, normal, worldPos, waterDepth);
+    let blendedColor = mix(sandColor, waterColor, blendFactor);
+    return vec4<f32>(blendedColor, 1.0);
+  } else {
+    // Deep water
+    let color = renderWater(rawHeight, normal, worldPos, waterDepth);
+    return vec4<f32>(color, 1.0);
   }
-
-  // Default: render water (with depth if terrain available)
-  let color = renderWater(rawHeight, normal, worldPos, max(waterDepth, 10.0));
-  return vec4<f32>(color, 1.0);
 }
 `;
 
