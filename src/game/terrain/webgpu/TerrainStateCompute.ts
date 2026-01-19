@@ -10,8 +10,9 @@
  * - Smoothstep beach profile
  * - Simplex noise for rolling hills
  *
- * Output format (r32float):
- * - R: Normalized height (height / MAX_TERRAIN_HEIGHT)
+ * Output format (rgba16float):
+ * - R: Signed height in world units (negative = underwater depth, positive = terrain height)
+ * - GBA: Reserved
  */
 
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
@@ -49,7 +50,10 @@ struct LandMassData {
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> controlPoints: array<vec2<f32>>;
 @group(0) @binding(2) var<storage, read> landMasses: array<LandMassData>;
-@group(0) @binding(3) var outputTexture: texture_storage_2d<r32float, write>;
+@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba16float, write>;
+
+// Default water depth when no terrain (deep ocean)
+const DEFAULT_WATER_DEPTH: f32 = -50.0;
 
 // Include simplex 3D noise (use with z=0 for 2D noise)
 ${SIMPLEX_NOISE_3D_WGSL}
@@ -190,21 +194,26 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     params.viewportTop + uv.y * params.viewportHeight
   );
 
-  var maxHeight: f32 = 0.0;
+  // Start with default deep water
+  var terrainHeight: f32 = DEFAULT_WATER_DEPTH;
 
   // Check each land mass
   for (var i: u32 = 0u; i < params.landMassCount; i++) {
     let signedDist = computeSignedDistance(worldPos, i);
     if (signedDist < 0.0) {
-      // Inside this land mass
+      // Inside this land mass - compute positive height above sea level
       let height = computeHeightProfile(worldPos, signedDist, i);
-      maxHeight = max(maxHeight, height);
+      terrainHeight = max(terrainHeight, height);
+    } else {
+      // Outside land mass - compute depth based on distance to shore
+      // Shallow near shore, deeper further out
+      let shoreDepth = -min(signedDist * 0.5, 50.0);
+      terrainHeight = max(terrainHeight, shoreDepth);
     }
   }
 
-  // Normalize to 0-1 and store
-  let normalized = maxHeight / MAX_TERRAIN_HEIGHT;
-  textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(normalized, 0.0, 0.0, 1.0));
+  // Store signed height directly (negative = underwater, positive = above water)
+  textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(terrainHeight, 0.0, 0.0, 1.0));
 }
 `;
 
@@ -252,7 +261,7 @@ export class TerrainStateCompute {
           visibility: GPUShaderStage.COMPUTE,
           storageTexture: {
             access: "write-only",
-            format: "r32float",
+            format: "rgba16float",
             viewDimension: "2d",
           },
         },

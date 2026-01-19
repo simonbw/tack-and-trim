@@ -49,18 +49,12 @@ const TEXTURE_SIZE: f32 = ${WATER_TEXTURE_SIZE}.0;
 const TERRAIN_TEX_SIZE: f32 = ${TERRAIN_TEXTURE_SIZE}.0;
 const MAX_TERRAIN_HEIGHT: f32 = ${MAX_TERRAIN_HEIGHT};
 
-// Helper to sample terrain using textureLoad (r32float doesn't support filtering)
+// Sample terrain height with bilinear filtering
+// Returns signed height: negative = underwater depth, positive = above water
 fn sampleTerrain(uv: vec2<f32>) -> f32 {
-  // Clamp UV to [0,1], then convert to texel coords
-  // Use TERRAIN_TEX_SIZE - 1 as max to avoid out-of-bounds access
   let clampedUV = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
-  let maxCoord = i32(TERRAIN_TEX_SIZE) - 1;
-  let texCoord = clamp(
-    vec2<i32>(clampedUV * TERRAIN_TEX_SIZE),
-    vec2<i32>(0),
-    vec2<i32>(maxCoord)
-  );
-  return textureLoad(terrainDataTexture, texCoord, 0).r * MAX_TERRAIN_HEIGHT;
+  // Use the same sampler as water for bilinear filtering
+  return textureSample(terrainDataTexture, waterSampler, clampedUV).r;
 }
 
 // Hash function for procedural noise
@@ -190,9 +184,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let waterData = textureSample(waterDataTexture, waterSampler, dataUV);
   let rawHeight = waterData.r;
 
-  // Sample terrain data if available
-  // Use textureLoad via helper since r32float doesn't support filtering
-  var terrainHeight: f32 = 0.0;
+  // Sample terrain height if available (bilinear filtered)
+  // terrainHeight is signed: negative = underwater, 0 = sea level, positive = land
+  var terrainHeight: f32 = -50.0;  // Default to deep water
   if (uniforms.hasTerrainData != 0) {
     terrainHeight = sampleTerrain(dataUV);
   }
@@ -247,7 +241,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   ));
 
   // If we have actual terrain nearby, also factor in terrain normal for sand
-  // Use textureLoad via helper since r32float doesn't support filtering
   if (uniforms.hasTerrainData != 0 && terrainHeight > 0.01 && waterDepth < uniforms.shallowThreshold) {
     let terrainL = sampleTerrain(dataUV + vec2<f32>(-texelSize, 0.0));
     let terrainR = sampleTerrain(dataUV + vec2<f32>(texelSize, 0.0));
@@ -352,20 +345,21 @@ export class WaterShader {
       addressModeV: "clamp-to-edge",
     });
 
-    // Create placeholder terrain texture (1x1 black = no terrain)
+    // Create placeholder terrain texture (1x1 deep water = no terrain)
+    // Must match terrain texture format (rgba16float) for filtering
     this.placeholderTerrainTexture = device.createTexture({
       size: { width: 1, height: 1 },
-      format: "r32float",
+      format: "rgba16float",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       label: "Placeholder Terrain Texture",
     });
     this.placeholderTerrainView = this.placeholderTerrainTexture.createView();
 
-    // Write zero to placeholder
+    // Write deep water value (-50) to placeholder
     device.queue.writeTexture(
       { texture: this.placeholderTerrainTexture },
-      new Float32Array([0]),
-      { bytesPerRow: 4 },
+      new Float32Array([-50, 0, 0, 1]),
+      { bytesPerRow: 16 },
       { width: 1, height: 1 }
     );
 
@@ -390,7 +384,7 @@ export class WaterShader {
         {
           binding: 3,
           visibility: GPUShaderStage.FRAGMENT,
-          texture: { sampleType: "unfilterable-float" },
+          texture: { sampleType: "float" },
         },
       ],
       label: "Water Bind Group Layout",
