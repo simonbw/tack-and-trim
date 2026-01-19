@@ -324,10 +324,10 @@ export class WaterShader {
     });
 
     // Create placeholder terrain texture (1x1 deep water = no terrain)
-    // Must match terrain texture format (rgba16float) for filtering
+    // Must match terrain texture format (rgba32float)
     this.placeholderTerrainTexture = device.createTexture({
       size: { width: 1, height: 1 },
-      format: "rgba16float",
+      format: "rgba32float",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       label: "Placeholder Terrain Texture",
     });

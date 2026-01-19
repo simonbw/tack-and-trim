@@ -60,10 +60,10 @@ export class TerrainRenderPipeline {
     this.buffers = new TerrainComputeBuffers();
 
     // Create output texture (owned by this pipeline)
-    // Use rgba16float which supports both storage and filtering
+    // Use rgba32float like water - supports storage, filtering, and direct readback
     this.outputTexture = device.createTexture({
       size: { width: this.textureSize, height: this.textureSize },
-      format: "rgba16float",
+      format: "rgba32float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       label: "Terrain Render Output Texture",
     });

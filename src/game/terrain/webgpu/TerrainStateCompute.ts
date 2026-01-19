@@ -10,7 +10,7 @@
  * - Smoothstep beach profile
  * - Simplex noise for rolling hills
  *
- * Output format (rgba16float):
+ * Output format (rgba32float, same as water):
  * - R: Signed height in world units (negative = underwater depth, positive = terrain height)
  * - GBA: Reserved
  */
@@ -50,7 +50,7 @@ struct LandMassData {
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> controlPoints: array<vec2<f32>>;
 @group(0) @binding(2) var<storage, read> landMasses: array<LandMassData>;
-@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba32float, write>;
 
 // Default water depth when no terrain (deep ocean)
 const DEFAULT_WATER_DEPTH: f32 = -50.0;
@@ -261,7 +261,7 @@ export class TerrainStateCompute {
           visibility: GPUShaderStage.COMPUTE,
           storageTexture: {
             access: "write-only",
-            format: "rgba16float",
+            format: "rgba32float",
             viewDimension: "2d",
           },
         },
