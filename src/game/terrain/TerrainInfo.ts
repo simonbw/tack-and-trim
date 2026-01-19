@@ -47,15 +47,16 @@ const TERRAIN_TILE_CONFIG: DataTileGridConfig = {
 
 /**
  * Terrain readback buffer configuration.
+ * Uses rgba16float format (4 channels, 2 bytes each = 8 bytes per pixel).
+ * Height is stored directly in R channel as signed world units.
  */
 const TERRAIN_READBACK_CONFIG: DataTileReadbackConfig<TerrainSample> = {
-  channelCount: 1,
-  bytesPerPixel: 4, // r32float
+  channelCount: 4, // RGBA
+  bytesPerPixel: 8, // rgba16float = 4 channels * 2 bytes
+  isFloat16: true,
   label: "Terrain",
-  texelToSample: (c) => ({ height: c[0] }),
-  denormalize: (s) => ({
-    height: s.height * MAX_TERRAIN_HEIGHT,
-  }),
+  texelToSample: (c) => ({ height: c[0] }), // Only use R channel
+  denormalize: (s) => ({ height: s.height }), // Already in world units
 };
 
 /**

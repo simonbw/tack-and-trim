@@ -15,16 +15,41 @@ import type { ReadbackViewport } from "./DataTileTypes";
  * Configuration for domain-specific readback behavior.
  */
 export interface DataTileReadbackConfig<TSample> {
-  /** Number of channels per pixel (2 for rg32float, 4 for rgba32float) */
+  /** Number of channels per pixel (2 for rg32float, 4 for rgba16float) */
   channelCount: number;
-  /** Bytes per pixel (8 for rg32float, 16 for rgba32float) */
+  /** Bytes per pixel (8 for rg32float, 8 for rgba16float) */
   bytesPerPixel: number;
   /** Label prefix for GPU resources */
   label: string;
+  /** Whether texture uses float16 format (requires conversion to float32) */
+  isFloat16?: boolean;
   /** Convert raw texel channel data to domain sample type */
   texelToSample(channels: Float32Array): TSample;
   /** Denormalize an interpolated sample to world values */
   denormalize(sample: TSample): TSample;
+}
+
+/**
+ * Convert a 16-bit half-float to 32-bit float.
+ */
+function float16ToFloat32(h: number): number {
+  const sign = (h & 0x8000) >> 15;
+  const exponent = (h & 0x7c00) >> 10;
+  const mantissa = h & 0x03ff;
+
+  if (exponent === 0) {
+    // Subnormal or zero
+    if (mantissa === 0) return sign ? -0 : 0;
+    // Subnormal
+    const f = mantissa / 1024;
+    return (sign ? -1 : 1) * f * Math.pow(2, -14);
+  } else if (exponent === 31) {
+    // Infinity or NaN
+    return mantissa ? NaN : sign ? -Infinity : Infinity;
+  }
+
+  // Normalized
+  return (sign ? -1 : 1) * Math.pow(2, exponent - 15) * (1 + mantissa / 1024);
 }
 
 /**
@@ -191,25 +216,43 @@ export class DataTileReadbackBuffer<TSample> {
 
         // Get the mapped range
         const mappedRange = writeStaging.getMappedRange();
-        const rawData = new Float32Array(mappedRange);
 
-        // Copy float32 data, handling GPU row padding
-        const floatsPerRow = this.textureSize * this.config.channelCount;
-        const paddedFloatsPerRow = this.paddedBytesPerRow / 4; // 4 bytes per float
+        // Handle float16 vs float32 data
+        if (this.config.isFloat16) {
+          // Read as 16-bit integers and convert to float32
+          const rawData = new Uint16Array(mappedRange);
+          const valuesPerRow = this.textureSize * this.config.channelCount;
+          const paddedValuesPerRow = this.paddedBytesPerRow / 2; // 2 bytes per float16
 
-        // Check if rows are contiguous (no padding) - common case
-        if (floatsPerRow === paddedFloatsPerRow) {
-          // Fast path: single bulk copy
-          writeBuffer.set(rawData.subarray(0, writeBuffer.length));
-        } else {
-          // Slow path: copy row by row to handle padding
           for (let y = 0; y < this.textureSize; y++) {
-            const srcOffset = y * paddedFloatsPerRow;
-            const dstOffset = y * floatsPerRow;
-            writeBuffer.set(
-              rawData.subarray(srcOffset, srcOffset + floatsPerRow),
-              dstOffset,
-            );
+            const srcOffset = y * paddedValuesPerRow;
+            const dstOffset = y * valuesPerRow;
+            for (let i = 0; i < valuesPerRow; i++) {
+              writeBuffer[dstOffset + i] = float16ToFloat32(
+                rawData[srcOffset + i],
+              );
+            }
+          }
+        } else {
+          // Read directly as float32
+          const rawData = new Float32Array(mappedRange);
+          const floatsPerRow = this.textureSize * this.config.channelCount;
+          const paddedFloatsPerRow = this.paddedBytesPerRow / 4; // 4 bytes per float
+
+          // Check if rows are contiguous (no padding) - common case
+          if (floatsPerRow === paddedFloatsPerRow) {
+            // Fast path: single bulk copy
+            writeBuffer.set(rawData.subarray(0, writeBuffer.length));
+          } else {
+            // Slow path: copy row by row to handle padding
+            for (let y = 0; y < this.textureSize; y++) {
+              const srcOffset = y * paddedFloatsPerRow;
+              const dstOffset = y * floatsPerRow;
+              writeBuffer.set(
+                rawData.subarray(srcOffset, srcOffset + floatsPerRow),
+                dstOffset,
+              );
+            }
           }
         }
 
