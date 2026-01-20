@@ -159,5 +159,6 @@ Don't try to access their running dev server yourself.
 
 ### Code Style
 
+- Always use named exports, never default exports.
 - Use built-in classes for math operations. For vector math, use `V2d` and utility functions from `src/core/util/MathUtil.ts`.
 - Only use `onAdd()` if you need access to `this.game` during initialization. Otherwise, do all initialization in the constructor.
