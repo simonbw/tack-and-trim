@@ -4,6 +4,7 @@ import type { Boat } from "../boat/Boat";
 import { WindInfo } from "../world-data/wind/WindInfo";
 import { TutorialPopup } from "./TutorialPopup";
 import type { TutorialContext } from "./TutorialStep";
+import { markTutorialCompleted } from "./tutorialStorage";
 import { tutorialSteps } from "./tutorialSteps";
 
 /** Delay before advancing to next step (allows exit animation) */
@@ -108,6 +109,9 @@ export class TutorialManager extends BaseEntity {
 
   private completeTutorial(): void {
     this.isComplete = true;
+
+    // Mark tutorial as completed in localStorage
+    markTutorialCompleted();
 
     // Dispatch tutorial complete event
     this.game!.dispatch("tutorialComplete", {});

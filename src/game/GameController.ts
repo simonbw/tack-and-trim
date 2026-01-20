@@ -12,7 +12,7 @@ import { WaterInfo } from "./world-data/water/WaterInfo";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { WindInfo } from "./world-data/wind/WindInfo";
 import { WindVisualization } from "./wind-visualization/WindVisualization";
-import { TutorialManager } from "./tutorial";
+import { isTutorialCompleted, TutorialManager } from "./tutorial";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
 
@@ -69,7 +69,6 @@ export class GameController extends BaseEntity {
 
     // Spawn boat and controls
     const boat = this.game!.addEntity(new Boat());
-    boat.anchor.deploy(); // Start with anchor deployed for tutorial
     this.game!.addEntity(new PlayerBoatController(boat));
 
     // Spawn camera controller with zoom transition
@@ -81,7 +80,10 @@ export class GameController extends BaseEntity {
     // Spawn wind particles
     this.game!.addEntity(new WindParticles());
 
-    // Start the tutorial
-    this.game!.addEntity(new TutorialManager());
+    // Start the tutorial if not already completed
+    if (!isTutorialCompleted()) {
+      boat.anchor.deploy(); // Start with anchor deployed for tutorial
+      this.game!.addEntity(new TutorialManager());
+    }
   }
 }
