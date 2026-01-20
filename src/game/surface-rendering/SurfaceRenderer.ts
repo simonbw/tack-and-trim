@@ -12,9 +12,9 @@
 
 import BaseEntity from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import { TerrainInfo } from "../terrain/TerrainInfo";
+import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
 import { TerrainRenderPipeline } from "./TerrainRenderPipeline";
-import { WaterInfo, type Viewport } from "../water/WaterInfo";
+import { WaterInfo, type Viewport } from "../world-data/water/WaterInfo";
 import { WaterRenderPipeline } from "./WaterRenderPipeline";
 import { SurfaceShader } from "./SurfaceShader";
 
@@ -124,7 +124,7 @@ export class SurfaceRenderer extends BaseEntity {
           },
           currentTime,
           gpuProfiler,
-          "terrainCompute"
+          "terrainCompute",
         );
 
         terrainTextureView = this.terrainPipeline.getOutputTextureView();
@@ -142,7 +142,7 @@ export class SurfaceRenderer extends BaseEntity {
       expandedViewport.left,
       expandedViewport.top,
       expandedViewport.width,
-      expandedViewport.height
+      expandedViewport.height,
     );
     this.waterShader.setRenderMode(this.renderMode);
 

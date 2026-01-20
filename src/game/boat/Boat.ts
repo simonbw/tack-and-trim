@@ -3,7 +3,7 @@ import { on } from "../../core/entity/handler";
 import { polarToVec } from "../../core/util/MathUtil";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
-import { Wake } from "../water/Wake";
+import { Wake } from "../world-data/water/Wake";
 import { Anchor } from "./Anchor";
 import { BoatConfig, StarterDinghy } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";

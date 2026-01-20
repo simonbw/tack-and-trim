@@ -6,7 +6,7 @@
  */
 
 import { NoiseFunction3D } from "simplex-noise";
-import { V2d } from "../../../core/Vector";
+import { V2d } from "../../../../core/Vector";
 import {
   WIND_ANGLE_VARIATION,
   WIND_NOISE_SPATIAL_SCALE,

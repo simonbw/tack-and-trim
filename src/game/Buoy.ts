@@ -4,7 +4,7 @@ import type { Draw } from "../core/graphics/Draw";
 import DynamicBody from "../core/physics/body/DynamicBody";
 import Circle from "../core/physics/shapes/Circle";
 import { V } from "../core/Vector";
-import { WaterInfo } from "./water/WaterInfo";
+import { WaterInfo } from "./world-data/water/WaterInfo";
 
 // Units: feet (ft), pounds (lbs)
 const BUOY_RADIUS = 2; // ft - typical racing mark buoy

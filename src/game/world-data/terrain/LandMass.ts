@@ -1,4 +1,4 @@
-import { V2d } from "../../core/Vector";
+import { V2d } from "../../../core/Vector";
 import {
   DEFAULT_BEACH_WIDTH,
   DEFAULT_HILL_AMPLITUDE,

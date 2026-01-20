@@ -8,7 +8,7 @@
  * - Find tiles for world-space queries
  */
 
-import type { AABB } from "../../core/util/SparseSpatialHash";
+import type { AABB } from "../../../core/util/SparseSpatialHash";
 import type {
   QueryForecast,
   DataTile,

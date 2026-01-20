@@ -6,7 +6,7 @@ import Convex from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { V, V2d } from "../../core/Vector";
 import { applySkinFriction } from "../fluid-dynamics";
-import { WaterInfo } from "../water/WaterInfo";
+import { WaterInfo } from "../world-data/water/WaterInfo";
 import { HullConfig } from "./BoatConfig";
 
 /**

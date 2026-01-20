@@ -6,7 +6,7 @@ import { invLerp, stepToward, sum } from "../core/util/MathUtil";
 import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
-import { WindInfo } from "./wind/WindInfo";
+import { WindInfo } from "./world-data/wind/WindInfo";
 
 // Configuration (visual/screen-space, not world units)
 const PARTICLE_COUNT = 0; // Target particles per sector

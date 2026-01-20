@@ -10,9 +10,9 @@ import BaseEntity from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { AABB } from "../../core/util/SparseSpatialHash";
 import { V } from "../../core/Vector";
-import type { QueryForecast } from "../datatiles/DataTileTypes";
-import type { TerrainQuerier } from "../terrain/TerrainQuerier";
-import { TerrainInfo } from "../terrain/TerrainInfo";
+import type { QueryForecast } from "../world-data/datatiles/DataTileTypes";
+import type { TerrainQuerier } from "../world-data/terrain/TerrainQuerier";
+import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
 import type { Boat } from "./Boat";
 import type { GroundingConfig } from "./BoatConfig";
 

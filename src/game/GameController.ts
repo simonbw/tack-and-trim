@@ -6,11 +6,11 @@ import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { MainMenu } from "./MainMenu";
-import { createLandMass } from "./terrain/LandMass";
-import { TerrainInfo } from "./terrain/TerrainInfo";
-import { WaterInfo } from "./water/WaterInfo";
+import { createLandMass } from "./world-data/terrain/LandMass";
+import { TerrainInfo } from "./world-data/terrain/TerrainInfo";
+import { WaterInfo } from "./world-data/water/WaterInfo";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
-import { WindInfo } from "./wind/WindInfo";
+import { WindInfo } from "./world-data/wind/WindInfo";
 import { WindVisualization } from "./wind-visualization/WindVisualization";
 import { TutorialManager } from "./tutorial";
 import { WindIndicator } from "./WindIndicator";
@@ -48,7 +48,7 @@ export class GameController extends BaseEntity {
         beachWidth: 25,
         hillFrequency: 0.03,
         hillAmplitude: 0.2,
-      }
+      },
     );
     this.game!.addEntity(new TerrainInfo([testIsland]));
 

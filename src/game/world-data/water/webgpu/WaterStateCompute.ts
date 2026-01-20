@@ -16,8 +16,8 @@
  * and create bind groups using the layout from this class.
  */
 
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { SIMPLEX_NOISE_3D_WGSL } from "../../../core/graphics/webgpu/WGSLSnippets";
+import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
+import { SIMPLEX_NOISE_3D_WGSL } from "../../../../core/graphics/webgpu/WGSLSnippets";
 import {
   NUM_WAVES,
   GERSTNER_STEEPNESS,

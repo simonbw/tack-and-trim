@@ -11,8 +11,8 @@
  * - G: Normalized velocity Y (velocityY / WIND_VELOCITY_SCALE + 0.5)
  */
 
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { SIMPLEX_NOISE_3D_WGSL } from "../../../core/graphics/webgpu/WGSLSnippets";
+import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
+import { SIMPLEX_NOISE_3D_WGSL } from "../../../../core/graphics/webgpu/WGSLSnippets";
 import {
   WIND_ANGLE_VARIATION,
   WIND_NOISE_SPATIAL_SCALE,

@@ -7,7 +7,7 @@
  * - GPU readback viewport tracking
  */
 
-import type { AABB } from "../../core/util/SparseSpatialHash";
+import type { AABB } from "../../../core/util/SparseSpatialHash";
 
 /**
  * Unique identifier for a data tile based on grid coordinates.

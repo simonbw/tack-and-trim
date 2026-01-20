@@ -6,7 +6,7 @@ import { chooseWeighted, rNormal } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { SprayParticle } from "./SprayParticle";
-import { WaterInfo } from "./water/WaterInfo";
+import { WaterInfo } from "./world-data/water/WaterInfo";
 
 // Spawn rate (linear with velocity and edge length)
 const MIN_IMPACT_SPEED = 3; // ft/s - minimum normal velocity to generate spray

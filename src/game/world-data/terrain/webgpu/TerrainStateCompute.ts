@@ -15,8 +15,8 @@
  * - GBA: Reserved
  */
 
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { SIMPLEX_NOISE_3D_WGSL } from "../../../core/graphics/webgpu/WGSLSnippets";
+import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
+import { SIMPLEX_NOISE_3D_WGSL } from "../../../../core/graphics/webgpu/WGSLSnippets";
 import { TERRAIN_CONSTANTS_WGSL } from "../TerrainConstants";
 
 /**

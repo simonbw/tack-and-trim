@@ -8,7 +8,7 @@
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import type { DataTileCompute } from "../../datatiles/DataTileComputePipeline";
 import { WindStateCompute } from "./WindStateCompute";
 

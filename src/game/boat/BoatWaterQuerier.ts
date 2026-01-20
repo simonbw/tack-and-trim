@@ -5,8 +5,8 @@
 
 import BaseEntity from "../../core/entity/BaseEntity";
 import type { AABB } from "../../core/util/SparseSpatialHash";
-import type { QueryForecast } from "../datatiles/DataTileTypes";
-import type { WaterQuerier } from "../water/WaterQuerier";
+import type { QueryForecast } from "../world-data/datatiles/DataTileTypes";
+import type { WaterQuerier } from "../world-data/water/WaterQuerier";
 import type { Boat } from "./Boat";
 
 // Margin around hull AABB for query forecast (ft)

@@ -8,11 +8,11 @@
  * Handles its own lifecycle via @on event handlers.
  */
 
-import BaseEntity from "../../core/entity/BaseEntity";
-import { on } from "../../core/entity/handler";
-import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
-import { profile } from "../../core/util/Profiler";
-import type { V2d } from "../../core/Vector";
+import BaseEntity from "../../../core/entity/BaseEntity";
+import { on } from "../../../core/entity/handler";
+import type { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
+import { profile } from "../../../core/util/Profiler";
+import type { V2d } from "../../../core/Vector";
 import { DataTileManager } from "./DataTileManager";
 import {
   DataTileReadbackBuffer,

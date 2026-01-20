@@ -12,10 +12,10 @@ import {
 } from "../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
-import { LandMass, TerrainDefinition } from "../terrain/LandMass";
-import { TERRAIN_TEXTURE_SIZE } from "../terrain/TerrainConstants";
-import { TerrainComputeBuffers } from "../terrain/webgpu/TerrainComputeBuffers";
-import { TerrainStateCompute } from "../terrain/webgpu/TerrainStateCompute";
+import { LandMass, TerrainDefinition } from "../world-data/terrain/LandMass";
+import { TERRAIN_TEXTURE_SIZE } from "../world-data/terrain/TerrainConstants";
+import { TerrainComputeBuffers } from "../world-data/terrain/webgpu/TerrainComputeBuffers";
+import { TerrainStateCompute } from "../world-data/terrain/webgpu/TerrainStateCompute";
 
 /**
  * Viewport bounds for terrain computation.

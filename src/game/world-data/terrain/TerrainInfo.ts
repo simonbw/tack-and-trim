@@ -7,10 +7,10 @@
  * - CPU fallback for out-of-viewport queries (consistent)
  */
 
-import BaseEntity from "../../core/entity/BaseEntity";
-import { on } from "../../core/entity/handler";
-import Game from "../../core/Game";
-import { V2d } from "../../core/Vector";
+import BaseEntity from "../../../core/entity/BaseEntity";
+import { on } from "../../../core/entity/handler";
+import Game from "../../../core/Game";
+import { V2d } from "../../../core/Vector";
 import {
   DataTileComputePipeline,
   DataTilePipelineConfig,

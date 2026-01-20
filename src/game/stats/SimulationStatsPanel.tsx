@@ -5,8 +5,8 @@ import type {
   StatsPanelContext,
 } from "../../core/util/stats-overlay/StatsPanel";
 import { StatsRow } from "../../core/util/stats-overlay/StatsRow";
-import { WaterInfo } from "../water/WaterInfo";
-import { WindInfo } from "../wind/WindInfo";
+import { WaterInfo } from "../world-data/water/WaterInfo";
+import { WindInfo } from "../world-data/wind/WindInfo";
 
 interface TileSystemStats {
   activeTiles: number;

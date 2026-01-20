@@ -5,10 +5,10 @@
  * Configured via DataTileReadbackConfig for domain-specific sample types.
  */
 
-import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
-import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
-import { asyncProfiler } from "../../core/util/AsyncProfiler";
-import { DoubleBuffer } from "../../core/util/DoubleBuffer";
+import type { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
+import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { asyncProfiler } from "../../../core/util/AsyncProfiler";
+import { DoubleBuffer } from "../../../core/util/DoubleBuffer";
 import type { ReadbackViewport } from "./DataTileTypes";
 
 /**

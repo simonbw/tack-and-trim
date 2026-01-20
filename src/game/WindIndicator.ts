@@ -4,7 +4,7 @@ import type { Draw } from "../core/graphics/Draw";
 import { clamp, lerp } from "../core/util/MathUtil";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
-import { WindInfo } from "./wind/WindInfo";
+import { WindInfo } from "./world-data/wind/WindInfo";
 
 // Units: ft/s for speeds (1 kt ≈ 1.69 ft/s)
 // Visual configuration (pixels)

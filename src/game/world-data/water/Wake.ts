@@ -1,8 +1,8 @@
-import BaseEntity from "../../core/entity/BaseEntity";
-import { on } from "../../core/entity/handler";
-import { clamp, invLerp, lerp } from "../../core/util/MathUtil";
-import { V, V2d } from "../../core/Vector";
-import { Boat } from "../boat/Boat";
+import BaseEntity from "../../../core/entity/BaseEntity";
+import { on } from "../../../core/entity/handler";
+import { clamp, invLerp, lerp } from "../../../core/util/MathUtil";
+import { V, V2d } from "../../../core/Vector";
+import { Boat } from "../../boat/Boat";
 import { WakeParticle, WakeSide } from "./WakeParticle";
 
 // Units: feet (ft), ft/s, seconds

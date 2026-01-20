@@ -1,5 +1,5 @@
-import { AABB } from "../../core/util/SparseSpatialHash";
-import { V2d } from "../../core/Vector";
+import { AABB } from "../../../core/util/SparseSpatialHash";
+import { V2d } from "../../../core/Vector";
 
 /**
  * Combined water contribution result to avoid redundant distance calculations.

@@ -10,8 +10,11 @@
 
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { WebGPUFullscreenQuad } from "../../core/graphics/webgpu/WebGPUFullscreenQuad";
-import { TERRAIN_TEXTURE_SIZE } from "../terrain/TerrainConstants";
-import { WATER_HEIGHT_SCALE, WATER_TEXTURE_SIZE } from "../water/WaterConstants";
+import { TERRAIN_TEXTURE_SIZE } from "../world-data/terrain/TerrainConstants";
+import {
+  WATER_HEIGHT_SCALE,
+  WATER_TEXTURE_SIZE,
+} from "../world-data/water/WaterConstants";
 
 // Terrain constants
 const MAX_TERRAIN_HEIGHT = 20.0;

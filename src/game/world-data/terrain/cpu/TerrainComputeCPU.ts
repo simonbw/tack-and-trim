@@ -1,5 +1,5 @@
 import { createNoise2D, NoiseFunction2D } from "simplex-noise";
-import { V, V2d } from "../../../core/Vector";
+import { V, V2d } from "../../../../core/Vector";
 import { LandMass, TerrainDefinition } from "../LandMass";
 import { SPLINE_SUBDIVISIONS } from "../TerrainConstants";
 

@@ -5,7 +5,7 @@
  * the rendering pipeline and physics tile pipeline.
  */
 
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import { buildWaveDataArray } from "../WaterConstants";
 
 // Constants for modifier computation
