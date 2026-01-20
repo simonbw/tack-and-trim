@@ -5,3 +5,4 @@ dist
 .vercel
 .parcel-cache
 test-results/
+api-docs/
