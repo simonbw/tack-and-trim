@@ -1,8 +1,8 @@
-import BaseEntity from "../core/entity/BaseEntity";
+import { BaseEntity } from "../core/entity/BaseEntity";
 import Entity from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
-import type Body from "../core/physics/body/Body";
-import StaticBody from "../core/physics/body/StaticBody";
+import type { Body } from "../core/physics/body/Body";
+import { StaticBody } from "../core/physics/body/StaticBody";
 
 const MAX_POSITION = 10000;
 const MAX_VELOCITY = 1000;

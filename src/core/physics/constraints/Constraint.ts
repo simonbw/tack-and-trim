@@ -1,6 +1,6 @@
-import type Body from "../body/Body";
-import DynamicBody from "../body/DynamicBody";
-import type Equation from "../equations/Equation";
+import type { Body } from "../body/Body";
+import { DynamicBody } from "../body/DynamicBody";
+import type { Equation } from "../equations/Equation";
 
 /** Options shared by all constraint types. */
 export interface ConstraintOptions {
@@ -14,7 +14,7 @@ export interface ConstraintOptions {
  * Abstract base class for constraints. Constraints maintain geometric relationships
  * between bodies using iterative solving. See DistanceConstraint, RevoluteConstraint, LockConstraint.
  */
-export default abstract class Constraint {
+export abstract class Constraint {
   /** Equations to be solved in this constraint */
   equations: Equation[] = [];
 

@@ -16,6 +16,7 @@ Boat is a parent entity with children that handle specific physics:
 ## Sail Aerodynamics
 
 `SailFlowSimulator` calculates airflow across sail surface. Key concepts:
+
 - Flow attachment/separation based on angle of attack
 - Lift/drag coefficients from flow state
 - TellTails visualize flow for player feedback

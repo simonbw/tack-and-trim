@@ -1,12 +1,12 @@
-import Shape, { ShapeOptions } from "./Shape";
+import { ShapeOptions, Shape } from "./Shape";
 import { V2d } from "../../Vector";
-import AABB from "../collision/AABB";
+import { AABB } from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 
 /**
  * Particle shape class.
  */
-export default class Particle extends Shape {
+export class Particle extends Shape {
   constructor(options: ShapeOptions = {}) {
     super(options);
     this.updateBoundingRadius();
@@ -37,7 +37,7 @@ export default class Particle extends Shape {
     _to: V2d,
     _position: V2d,
     _angle: number,
-    _skipBackfaces: boolean
+    _skipBackfaces: boolean,
   ): ShapeRaycastHit | null {
     return null;
   }

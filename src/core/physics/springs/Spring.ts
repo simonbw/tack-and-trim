@@ -1,5 +1,5 @@
-import type Body from "../body/Body";
-import type DynamicBody from "../body/DynamicBody";
+import type { Body } from "../body/Body";
+import type { DynamicBody } from "../body/DynamicBody";
 
 /** Options shared by all spring types. */
 export interface SpringOptions {
@@ -14,7 +14,7 @@ export interface SpringOptions {
  * At least one body (bodyA) must be dynamic for the spring to have any effect.
  * See LinearSpring, RotationalSpring, RopeSpring for concrete implementations.
  */
-export default abstract class Spring {
+export abstract class Spring {
   /** Spring stiffness (force per unit displacement). */
   stiffness: number;
   /** Damping coefficient. */

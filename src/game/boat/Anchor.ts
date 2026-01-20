@@ -1,8 +1,8 @@
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import DynamicBody from "../../core/physics/body/DynamicBody";
-import DistanceConstraint from "../../core/physics/constraints/DistanceConstraint";
-import Particle from "../../core/physics/shapes/Particle";
+import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import { DistanceConstraint } from "../../core/physics/constraints/DistanceConstraint";
+import { Particle } from "../../core/physics/shapes/Particle";
 import { stepToward } from "../../core/util/MathUtil";
 import { rDirection, rUniform } from "../../core/util/Random";
 import { V, V2d } from "../../core/Vector";

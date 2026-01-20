@@ -3,7 +3,7 @@ import { objectKeys } from "../../util/ObjectUtils";
 /**
  * Stores data keyed by integer pairs.
  */
-export default class TupleMap<T> implements Iterable<T> {
+export class TupleMap<T> implements Iterable<T> {
   data: Record<number, T> = {};
   m = new Map();
 

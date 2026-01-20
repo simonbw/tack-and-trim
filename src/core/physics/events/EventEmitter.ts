@@ -19,7 +19,7 @@ interface ListenerWithContext {
  * Base class for objects that dispatch events.
  * @template EventMap - A map of event type names to their event payloads
  */
-export default class EventEmitter<
+export class EventEmitter<
   EventMap extends Record<string, P2Event> = Record<string, P2Event>,
 > {
   // Type-erased internal storage. Public API ensures we only store/retrieve

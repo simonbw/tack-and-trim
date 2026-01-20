@@ -1,16 +1,16 @@
 import { FilterMultiMap } from "../../util/FilterListMap";
-import Body from "../body/Body";
+import { Body } from "../body/Body";
 import {
   isAwakeDynamicBody,
   isDynamicBody,
   isKinematicBody,
   isStaticBody,
 } from "../body/body-helpers";
-import DynamicBody from "../body/DynamicBody";
-import type World from "./World";
+import { DynamicBody } from "../body/DynamicBody";
+import type { World } from "./World";
 
 /** Manages bodies in the physics world with type-specific sets and deferred removal. */
-export default class BodyManager implements Iterable<Body> {
+export class BodyManager implements Iterable<Body> {
   /** All bodies in the collection. Exposed for direct array access. */
   readonly all = new Set<Body>();
   /** Keeps filtered lists for optimized iteration */

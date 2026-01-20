@@ -3,40 +3,40 @@ export function objectKeys<T extends object>(obj: T): Array<keyof T> {
 }
 
 export function objectEntries<T extends object>(
-  obj: T
+  obj: T,
 ): Array<[keyof T, T[keyof T]]> {
   return Object.entries(obj) as Array<[keyof T, T[keyof T]]>;
 }
 
 export function objectMap<T extends object, U>(
   obj: T,
-  fn: (value: T[keyof T], key: keyof T) => U
+  fn: (value: T[keyof T], key: keyof T) => U,
 ): Record<keyof T, U> {
   return objectKeys(obj).reduce(
     (acc, key) => {
       acc[key] = fn(obj[key], key);
       return acc;
     },
-    {} as Record<keyof T, U>
+    {} as Record<keyof T, U>,
   );
 }
 
 export function pick<T extends object, K extends keyof T>(
   obj: T,
-  keys: K[]
+  keys: K[],
 ): Pick<T, K> {
   return keys.reduce(
     (acc, key) => {
       acc[key] = obj[key];
       return acc;
     },
-    {} as Pick<T, K>
+    {} as Pick<T, K>,
   );
 }
 
 export function grouped<T, K extends string = string>(
   arr: ReadonlyArray<T>,
-  getKey: (item: T) => K
+  getKey: (item: T) => K,
 ): [K, T[]][] {
   return objectEntries(
     arr.reduce(
@@ -48,8 +48,8 @@ export function grouped<T, K extends string = string>(
         acc[key].push(item);
         return acc;
       },
-      {} as Record<K, T[]>
-    )
+      {} as Record<K, T[]>,
+    ),
   );
 }
 
@@ -74,7 +74,7 @@ function isPlainObject(value: unknown): value is object {
  */
 export function deepMerge<T extends object>(
   base: T,
-  overrides: DeepPartial<T>
+  overrides: DeepPartial<T>,
 ): T {
   const result = { ...base };
   for (const key in overrides) {
@@ -83,7 +83,7 @@ export function deepMerge<T extends object>(
       if (isPlainObject(override) && isPlainObject(base[key])) {
         result[key] = deepMerge(
           base[key] as object,
-          override as DeepPartial<object>
+          override as DeepPartial<object>,
         ) as T[typeof key];
       } else {
         result[key] = override as T[typeof key];

@@ -1,13 +1,13 @@
 import { V, V2d } from "../../Vector";
-import AABB from "../collision/AABB";
+import { AABB } from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
-import Shape, { ShapeOptions } from "./Shape";
+import { ShapeOptions, Shape } from "./Shape";
 
 /**
  * Infinite plane shape class.
  * The plane is oriented along the local X axis, with normal pointing in +Y direction.
  */
-export default class Plane extends Shape {
+export class Plane extends Shape {
   constructor(options: ShapeOptions = {}) {
     super(options);
     this.updateBoundingRadius();
@@ -39,7 +39,7 @@ export default class Plane extends Shape {
     to: V2d,
     position: V2d,
     angle: number,
-    _skipBackfaces: boolean
+    _skipBackfaces: boolean,
   ): ShapeRaycastHit | null {
     // World normal of plane (rotated +Y)
     const worldNormal = V(0, 1).irotate(angle);

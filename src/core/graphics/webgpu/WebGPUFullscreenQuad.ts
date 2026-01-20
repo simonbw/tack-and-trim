@@ -16,15 +16,23 @@ export class WebGPUFullscreenQuad {
   // Vertex data: position (x, y) only
   // Two triangles covering clip space
   static readonly VERTICES = new Float32Array([
-    -1.0, -1.0, // bottom-left
-    1.0, -1.0, // bottom-right
-    1.0, 1.0, // top-right
-    -1.0, 1.0, // top-left
+    -1.0,
+    -1.0, // bottom-left
+    1.0,
+    -1.0, // bottom-right
+    1.0,
+    1.0, // top-right
+    -1.0,
+    1.0, // top-left
   ]);
 
   static readonly INDICES = new Uint16Array([
-    0, 1, 2, // first triangle
-    0, 2, 3, // second triangle
+    0,
+    1,
+    2, // first triangle
+    0,
+    2,
+    3, // second triangle
   ]);
 
   constructor() {
@@ -38,7 +46,7 @@ export class WebGPUFullscreenQuad {
       mappedAtCreation: true,
     });
     new Float32Array(this.vertexBuffer.getMappedRange()).set(
-      WebGPUFullscreenQuad.VERTICES
+      WebGPUFullscreenQuad.VERTICES,
     );
     this.vertexBuffer.unmap();
 
@@ -50,7 +58,7 @@ export class WebGPUFullscreenQuad {
       mappedAtCreation: true,
     });
     new Uint16Array(this.indexBuffer.getMappedRange()).set(
-      WebGPUFullscreenQuad.INDICES
+      WebGPUFullscreenQuad.INDICES,
     );
     this.indexBuffer.unmap();
   }

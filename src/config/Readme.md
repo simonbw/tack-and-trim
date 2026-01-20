@@ -66,11 +66,11 @@ Tick layers (`tickLayers.ts`) control the order in which entities are updated ea
 
 ```typescript
 export const TICK_LAYERS = [
-  "input",       // Player input handling - processed earliest
+  "input", // Player input handling - processed earliest
   "environment", // Wind/water systems
-  "main",        // Default layer for most entities
-  "effects",     // Particle effects
-  "camera",      // Camera follows final positions
+  "main", // Default layer for most entities
+  "effects", // Particle effects
+  "camera", // Camera follows final positions
 ] as const;
 ```
 
@@ -127,8 +127,8 @@ Persistence levels (`constants.ts`) determine at what lifecycle stages an entity
 
 ```typescript
 export enum Persistence {
-  Level = 0,     // DEFAULT - cleared at the end of each level
-  Game = 1,      // Cleared at the end of each game
+  Level = 0, // DEFAULT - cleared at the end of each level
+  Game = 1, // Cleared at the end of each game
   Permanent = 2, // Never cleared automatically
 }
 ```
@@ -176,6 +176,7 @@ export const CollisionGroups = makeCollisionGroups([
 ```
 
 The `makeCollisionGroups` helper automatically:
+
 - Assigns a unique bit value to each group
 - Creates `All` (all groups combined) and `None` (no groups) entries
 
@@ -192,6 +193,7 @@ const boatShape = new Circle({
 ```
 
 Two shapes will only collide if **both** of these conditions are true:
+
 - `(shapeA.collisionGroup & shapeB.collisionMask) !== 0`
 - `(shapeB.collisionGroup & shapeA.collisionMask) !== 0`
 
@@ -199,13 +201,13 @@ Two shapes will only collide if **both** of these conditions are true:
 
 ```typescript
 // Collides with everything
-collisionMask: CollisionGroups.All
+collisionMask: CollisionGroups.All;
 
 // Collides with nothing (sensor-only)
-collisionMask: CollisionGroups.None
+collisionMask: CollisionGroups.None;
 
 // Collides with specific groups
-collisionMask: CollisionGroups.Environment | CollisionGroups.Boat
+collisionMask: CollisionGroups.Environment | CollisionGroups.Boat;
 ```
 
 ## Collision Materials

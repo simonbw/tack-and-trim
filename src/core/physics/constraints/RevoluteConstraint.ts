@@ -1,9 +1,9 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import Equation from "../equations/Equation";
-import RotationalLockEquation from "../equations/RotationalLockEquation";
-import RotationalVelocityEquation from "../equations/RotationalVelocityEquation";
-import Constraint, { ConstraintOptions } from "./Constraint";
+import type { Body } from "../body/Body";
+import { Equation } from "../equations/Equation";
+import { RotationalLockEquation } from "../equations/RotationalLockEquation";
+import { RotationalVelocityEquation } from "../equations/RotationalVelocityEquation";
+import { ConstraintOptions, Constraint } from "./Constraint";
 
 /** Options for creating a RevoluteConstraint. */
 export interface RevoluteConstraintOptions extends ConstraintOptions {
@@ -21,7 +21,7 @@ export interface RevoluteConstraintOptions extends ConstraintOptions {
  * Connects two bodies at given offset points, letting them rotate relative
  * to each other around this point.
  */
-export default class RevoluteConstraint extends Constraint {
+export class RevoluteConstraint extends Constraint {
   pivotA: V2d;
   pivotB: V2d;
   maxForce: number;
@@ -59,7 +59,7 @@ export default class RevoluteConstraint extends Constraint {
   constructor(
     bodyA: Body,
     bodyB: Body,
-    options: RevoluteConstraintOptions = {}
+    options: RevoluteConstraintOptions = {},
   ) {
     super(bodyA, bodyB, options);
 

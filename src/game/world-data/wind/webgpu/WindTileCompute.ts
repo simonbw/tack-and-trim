@@ -86,7 +86,7 @@ export class WindTileCompute implements DataTileCompute {
     left: number,
     top: number,
     width: number,
-    height: number
+    height: number,
   ): void {
     if (!this.paramsBuffer || !this.bindGroup) {
       return;

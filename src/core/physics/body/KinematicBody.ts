@@ -1,5 +1,5 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import Body, { BaseBodyOptions } from "./Body";
+import { BaseBodyOptions, Body } from "./Body";
 
 /** Options for creating a KinematicBody. */
 export interface KinematicBodyOptions extends BaseBodyOptions {
@@ -13,7 +13,7 @@ export interface KinematicBodyOptions extends BaseBodyOptions {
  * A kinematic body that can be moved programmatically but doesn't respond to forces.
  * Use for moving platforms, elevators, and other scripted moving objects.
  */
-export default class KinematicBody extends Body {
+export class KinematicBody extends Body {
   // Velocity (can be set programmatically)
   private _velocity: V2d;
   private _angularVelocity: number;

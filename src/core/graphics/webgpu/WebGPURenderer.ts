@@ -211,11 +211,11 @@ export class WebGPURenderer {
 
     // Pre-allocate batch buffers
     this.shapeVertices = new Float32Array(
-      MAX_BATCH_VERTICES * SHAPE_VERTEX_SIZE
+      MAX_BATCH_VERTICES * SHAPE_VERTEX_SIZE,
     );
     this.shapeIndices = new Uint16Array(MAX_BATCH_INDICES);
     this.spriteVertices = new Float32Array(
-      MAX_BATCH_VERTICES * SPRITE_VERTEX_SIZE
+      MAX_BATCH_VERTICES * SPRITE_VERTEX_SIZE,
     );
     this.spriteIndices = new Uint16Array(MAX_BATCH_INDICES);
   }
@@ -514,7 +514,7 @@ export class WebGPURenderer {
   resize(
     width: number,
     height: number,
-    pixelRatio: number = window.devicePixelRatio
+    pixelRatio: number = window.devicePixelRatio,
   ): void {
     this.pixelRatio = pixelRatio;
     const w = Math.floor(width * pixelRatio);
@@ -714,7 +714,7 @@ export class WebGPURenderer {
     // Return the maximum scale from the matrix (a = scaleX, d = scaleY)
     return Math.max(
       Math.abs(this.currentTransform.a),
-      Math.abs(this.currentTransform.d)
+      Math.abs(this.currentTransform.d),
     );
   }
 
@@ -727,7 +727,7 @@ export class WebGPURenderer {
     vertices: [number, number][],
     indices: number[],
     color: number,
-    alpha: number
+    alpha: number,
   ): void {
     // Check if we need to flush
     if (
@@ -793,14 +793,14 @@ export class WebGPURenderer {
     // Upload vertex data
     const vertexData = this.shapeVertices.subarray(
       0,
-      this.shapeVertexCount * SHAPE_VERTEX_SIZE
+      this.shapeVertexCount * SHAPE_VERTEX_SIZE,
     );
     this.device.queue.writeBuffer(
       this.shapeVertexBuffer!,
       0,
       vertexData.buffer,
       vertexData.byteOffset,
-      vertexData.byteLength
+      vertexData.byteLength,
     );
 
     // Upload index data
@@ -813,7 +813,7 @@ export class WebGPURenderer {
       0,
       indexData.buffer,
       indexData.byteOffset,
-      indexData.byteLength
+      indexData.byteLength,
     );
 
     // Draw
@@ -835,7 +835,7 @@ export class WebGPURenderer {
     texture: WebGPUTexture,
     x: number,
     y: number,
-    opts: SpriteOptions = {}
+    opts: SpriteOptions = {},
   ): void {
     // Flush shapes before drawing sprites
     if (this.shapeIndexCount > 0) {
@@ -976,14 +976,14 @@ export class WebGPURenderer {
     // Upload vertex data
     const spriteVertexData = this.spriteVertices.subarray(
       0,
-      this.spriteVertexCount
+      this.spriteVertexCount,
     );
     this.device.queue.writeBuffer(
       this.spriteVertexBuffer!,
       0,
       spriteVertexData.buffer,
       spriteVertexData.byteOffset,
-      spriteVertexData.byteLength
+      spriteVertexData.byteLength,
     );
 
     // Upload index data
@@ -992,14 +992,14 @@ export class WebGPURenderer {
     const paddedSpriteIndexCount = (this.spriteIndexCount + 1) & ~1;
     const spriteIndexData = this.spriteIndices.subarray(
       0,
-      paddedSpriteIndexCount
+      paddedSpriteIndexCount,
     );
     this.device.queue.writeBuffer(
       this.spriteIndexBuffer!,
       0,
       spriteIndexData.buffer,
       spriteIndexData.byteOffset,
-      spriteIndexData.byteLength
+      spriteIndexData.byteLength,
     );
 
     // Draw
@@ -1046,14 +1046,14 @@ export class WebGPURenderer {
   generateTexture(
     draw: (renderer: WebGPURenderer) => void,
     width: number,
-    height: number
+    height: number,
   ): WebGPUTexture {
     // Create render target texture
     const texture = this.textureManager.createRenderTarget(
       width,
       height,
       getWebGPU().preferredFormat,
-      "Generated Texture"
+      "Generated Texture",
     );
 
     // Save current state

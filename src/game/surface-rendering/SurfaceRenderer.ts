@@ -10,7 +10,7 @@
  * This entity is purely for rendering.
  */
 
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
 import { TerrainRenderPipeline } from "./TerrainRenderPipeline";

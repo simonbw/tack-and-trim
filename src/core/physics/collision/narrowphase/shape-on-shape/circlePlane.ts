@@ -1,7 +1,7 @@
 import { V, V2d } from "../../../../Vector";
-import Body from "../../../body/Body";
-import Circle from "../../../shapes/Circle";
-import Plane from "../../../shapes/Plane";
+import { Body } from "../../../body/Body";
+import { Circle } from "../../../shapes/Circle";
+import { Plane } from "../../../shapes/Plane";
 import { CollisionResult, createCollisionResult } from "../../CollisionResult";
 
 const yAxis = V(0, 1);

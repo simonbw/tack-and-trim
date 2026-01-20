@@ -1,6 +1,6 @@
-import type Body from "../body/Body";
-import DynamicBody from "../body/DynamicBody";
-import type Equation from "../equations/Equation";
+import type { Body } from "../body/Body";
+import { DynamicBody } from "../body/DynamicBody";
+import type { Equation } from "../equations/Equation";
 
 /** An island of bodies connected by equations. */
 export interface Island {
@@ -21,7 +21,7 @@ interface Node {
  */
 export function splitIntoIslands(
   bodies: Iterable<Body>,
-  equations: Equation[]
+  equations: Equation[],
 ): Island[] {
   // Create nodes for each body
   const bodyToNode = new Map<Body, Node>();

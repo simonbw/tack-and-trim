@@ -1,5 +1,5 @@
 import type { VNode } from "preact";
-import type Game from "../../Game";
+import type { Game } from "../../Game";
 
 /**
  * Context passed to each panel for rendering and event handling.

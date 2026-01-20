@@ -5,7 +5,7 @@ export type EventHandlerName<T extends string> = `on${Capitalize<T>}`;
 
 /** Converts an event name to the name of the event handler method. */
 export function eventHandlerName<T extends string>(
-  eventName: T
+  eventName: T,
 ): EventHandlerName<T> {
   return `on${eventName.charAt(0).toUpperCase()}${eventName.slice(1)}` as EventHandlerName<T>;
 }

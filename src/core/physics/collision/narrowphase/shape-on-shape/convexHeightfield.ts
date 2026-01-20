@@ -1,8 +1,8 @@
 import { V, V2d } from "../../../../Vector";
-import Body from "../../../body/Body";
-import Convex from "../../../shapes/Convex";
-import Heightfield from "../../../shapes/Heightfield";
-import Shape from "../../../shapes/Shape";
+import { Body } from "../../../body/Body";
+import { Convex } from "../../../shapes/Convex";
+import { Heightfield } from "../../../shapes/Heightfield";
+import { Shape } from "../../../shapes/Shape";
 import { CollisionResult, createCollisionResult } from "../../CollisionResult";
 import { convexConvex } from "./convexConvex";
 

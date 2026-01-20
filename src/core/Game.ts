@@ -1,8 +1,8 @@
 import { DEFAULT_LAYER, LAYERS, LayerName } from "../config/layers";
 import { TICK_LAYERS, TickLayerName } from "../config/tickLayers";
-import ContactList from "./ContactList";
+import { ContactList } from "./ContactList";
 import { PhysicsEventMap } from "./physics/events/PhysicsEvents";
-import EntityList from "./EntityList";
+import { EntityList } from "./EntityList";
 import { V } from "./Vector";
 import Entity, { GameEventMap } from "./entity/Entity";
 import { eventHandlerName } from "./entity/EventHandler";
@@ -12,9 +12,9 @@ import { RenderManager, RenderManagerOptions } from "./graphics/RenderManager";
 import { WebGPUDeviceManager, getWebGPU } from "./graphics/webgpu/WebGPUDevice";
 import { WebGPURenderer } from "./graphics/webgpu/WebGPURenderer";
 import { IOManager } from "./io/IO";
-import type Body from "./physics/body/Body";
-import StaticBody from "./physics/body/StaticBody";
-import World from "./physics/world/World";
+import type { Body } from "./physics/body/Body";
+import { StaticBody } from "./physics/body/StaticBody";
+import { World } from "./physics/world/World";
 import { lerp } from "./util/MathUtil";
 import { profile, profiler } from "./util/Profiler";
 
@@ -25,7 +25,7 @@ interface GameOptions {
 }
 
 /** Top Level control structure */
-export default class Game {
+export class Game {
   /** Keeps track of entities in lots of useful ways */
   readonly entities: EntityList;
   /** Keeps track of entities that are ready to be removed */

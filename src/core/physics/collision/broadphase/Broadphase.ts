@@ -1,6 +1,6 @@
-import type Body from "../../body/Body";
-import type World from "../../world/World";
-import type AABB from "../AABB";
+import type { Body } from "../../body/Body";
+import type { World } from "../../world/World";
+import type { AABB } from "../AABB";
 
 /**
  * Abstract base class for broadphase collision detection.
@@ -8,7 +8,7 @@ import type AABB from "../AABB";
  * reducing the number of expensive narrow-phase checks needed.
  * Implementations: SpatialHashingBroadphase, SAPBroadphase.
  */
-export default abstract class Broadphase {
+export abstract class Broadphase {
   /** @internal Reusable result array for collision pairs. */
   result: [Body, Body][];
   /** The world this broadphase is attached to. */
@@ -29,7 +29,7 @@ export default abstract class Broadphase {
   abstract aabbQuery(
     _world: World,
     _aabb: AABB,
-    _shouldAddBodies?: boolean
+    _shouldAddBodies?: boolean,
   ): Iterable<Body>;
 
   /** Set the world that we are searching for collision pairs in. */

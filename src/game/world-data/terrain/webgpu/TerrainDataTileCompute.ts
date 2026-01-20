@@ -28,7 +28,7 @@ export class TerrainDataTileCompute implements DataTileCompute {
 
   constructor(
     buffers: TerrainComputeBuffers,
-    textureSize: number = TERRAIN_TILE_RESOLUTION
+    textureSize: number = TERRAIN_TILE_RESOLUTION,
   ) {
     this.buffers = buffers;
     this.textureSize = textureSize;
@@ -77,7 +77,7 @@ export class TerrainDataTileCompute implements DataTileCompute {
     left: number,
     top: number,
     width: number,
-    height: number
+    height: number,
   ): void {
     if (!this.bindGroup) {
       return;

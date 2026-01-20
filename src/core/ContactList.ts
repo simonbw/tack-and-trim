@@ -8,7 +8,7 @@ type EndContactEvent = PhysicsEventMap["endContact"];
  * Tracks the beginning and end of collisions to maintain a current list
  * of ongoing contacts for collision handling.
  */
-export default class ContactList {
+export class ContactList {
   private contacts: BeginContactEvent[] = [];
 
   beginContact(event: BeginContactEvent) {

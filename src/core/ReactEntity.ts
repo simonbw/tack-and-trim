@@ -1,5 +1,5 @@
 import { render, VNode } from "preact";
-import BaseEntity from "./entity/BaseEntity";
+import { BaseEntity } from "./entity/BaseEntity";
 import Entity from "./entity/Entity";
 import { on } from "./entity/handler";
 

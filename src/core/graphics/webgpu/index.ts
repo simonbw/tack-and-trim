@@ -8,10 +8,7 @@
  * - Fullscreen effects (WebGPUFullscreenQuad, WebGPURenderTarget)
  */
 
-export {
-  WebGPUDeviceManager,
-  getWebGPU,
-} from "./WebGPUDevice";
+export { WebGPUDeviceManager, getWebGPU } from "./WebGPUDevice";
 
 export {
   WebGPUTextureManager,
@@ -19,10 +16,7 @@ export {
   type TextureOptions,
 } from "./WebGPUTextureManager";
 
-export {
-  WebGPURenderer,
-  type SpriteOptions,
-} from "./WebGPURenderer";
+export { WebGPURenderer, type SpriteOptions } from "./WebGPURenderer";
 
 export { WebGPUFullscreenQuad } from "./WebGPUFullscreenQuad";
 

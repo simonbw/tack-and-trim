@@ -1,13 +1,13 @@
 import { mod } from "../../../util/MathUtil";
-import type Body from "../../body/Body";
+import type { Body } from "../../body/Body";
 import { isDynamicBody, isKinematicBody } from "../../body/body-helpers";
-import DynamicBody from "../../body/DynamicBody";
-import KinematicBody from "../../body/KinematicBody";
-import Particle from "../../shapes/Particle";
-import World from "../../world/World";
-import AABB, { RayLike } from "../AABB";
+import { DynamicBody } from "../../body/DynamicBody";
+import { KinematicBody } from "../../body/KinematicBody";
+import { Particle } from "../../shapes/Particle";
+import { World } from "../../world/World";
+import { RayLike, AABB } from "../AABB";
 import { bodiesCanCollide } from "../CollisionHelpers";
-import Broadphase from "./Broadphase";
+import { Broadphase } from "./Broadphase";
 
 const HUGE_LIMIT = 200;
 const DEFAULT_CELL_SIZE = 6;
@@ -18,7 +18,7 @@ const HUGE: number[] = []; // Sentinel value for huge bodies
  * space into uniform grid cells. Provides efficient collision pair detection
  * by only checking bodies within the same cells.
  */
-export default class SpatialHashingBroadphase extends Broadphase {
+export class SpatialHashingBroadphase extends Broadphase {
   particleBodies: Set<DynamicBody> = new Set();
   dynamicBodies: Set<DynamicBody> = new Set();
   kinematicBodies: Set<KinematicBody> = new Set();
@@ -236,7 +236,7 @@ export default class SpatialHashingBroadphase extends Broadphase {
   aabbQuery(
     _: World,
     aabb: AABB,
-    shouldAddBodies: boolean = true
+    shouldAddBodies: boolean = true,
   ): Iterable<Body> {
     if (shouldAddBodies) {
       this.addExtraBodies();

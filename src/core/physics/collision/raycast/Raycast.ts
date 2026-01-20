@@ -1,7 +1,7 @@
 import { CompatibleVector, V, V2d } from "../../../Vector";
-import type Body from "../../body/Body";
-import type World from "../../world/World";
-import AABB from "../AABB";
+import type { Body } from "../../body/Body";
+import type { World } from "../../world/World";
+import { AABB } from "../AABB";
 import { RaycastHit, RaycastOptions } from "./RaycastHit";
 
 /** Internal ray data for intersection calculations. */
@@ -27,11 +27,11 @@ function getRayAABB(ray: RayData): AABB {
   const aabb = new AABB();
   aabb.lowerBound.set(
     Math.min(ray.from[0], ray.to[0]),
-    Math.min(ray.from[1], ray.to[1])
+    Math.min(ray.from[1], ray.to[1]),
   );
   aabb.upperBound.set(
     Math.max(ray.from[0], ray.to[0]),
-    Math.max(ray.from[1], ray.to[1])
+    Math.max(ray.from[1], ray.to[1]),
   );
   return aabb;
 }
@@ -55,7 +55,7 @@ export function raycast(
   world: World,
   from: CompatibleVector,
   to: CompatibleVector,
-  options?: RaycastOptions
+  options?: RaycastOptions,
 ): RaycastHit | null {
   const ray = createRay(from, to);
   const aabb = getRayAABB(ray);
@@ -112,7 +112,7 @@ export function raycast(
         ray.to,
         worldPosition,
         worldAngle,
-        options?.skipBackfaces ?? false
+        options?.skipBackfaces ?? false,
       );
 
       if (hit && hit.fraction < closestFraction) {
@@ -145,7 +145,7 @@ export function raycastAll(
   world: World,
   from: CompatibleVector,
   to: CompatibleVector,
-  options?: RaycastOptions
+  options?: RaycastOptions,
 ): RaycastHit[] {
   const ray = createRay(from, to);
   const aabb = getRayAABB(ray);
@@ -193,7 +193,7 @@ export function raycastAll(
         ray.to,
         worldPosition,
         worldAngle,
-        options?.skipBackfaces ?? false
+        options?.skipBackfaces ?? false,
       );
 
       if (hit) {

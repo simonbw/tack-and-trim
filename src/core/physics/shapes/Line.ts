@@ -1,6 +1,6 @@
-import Shape, { ShapeOptions } from "./Shape";
+import { ShapeOptions, Shape } from "./Shape";
 import { V, V2d } from "../../Vector";
-import AABB from "../collision/AABB";
+import { AABB } from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 
 export interface LineOptions extends ShapeOptions {
@@ -12,7 +12,7 @@ const points = [V(), V()];
 /**
  * Line shape class. The line shape is along the x direction, and stretches from [-length/2, 0] to [length/2,0].
  */
-export default class Line extends Shape {
+export class Line extends Shape {
   length: number;
 
   constructor(options: LineOptions = {}) {
@@ -48,7 +48,7 @@ export default class Line extends Shape {
     to: V2d,
     position: V2d,
     angle: number,
-    _skipBackfaces: boolean
+    _skipBackfaces: boolean,
   ): ShapeRaycastHit | null {
     // Get start and end of the line in world space
     const halfLen = this.length / 2;

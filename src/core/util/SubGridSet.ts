@@ -6,7 +6,7 @@ import { TilePos } from "./TilePos";
  * unique coordinate positions across multiple SubGrid rectangles.
  * Handles overlapping regions by ensuring each coordinate is only yielded once.
  */
-export default class SubGridSet implements Iterable<TilePos> {
+export class SubGridSet implements Iterable<TilePos> {
   data: SubGrid[] = [];
 
   add(subGrid: SubGrid): void {

@@ -1,6 +1,6 @@
-import Shape, { ShapeOptions } from "./Shape";
+import { ShapeOptions, Shape } from "./Shape";
 import { V, V2d } from "../../Vector";
-import AABB from "../collision/AABB";
+import { AABB } from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 
 /** Options for creating a Capsule. */
@@ -14,7 +14,7 @@ export interface CapsuleOptions extends ShapeOptions {
 const r = V();
 
 /** A capsule shape (rectangle with semicircular end caps). Also called a stadium. */
-export default class Capsule extends Shape {
+export class Capsule extends Shape {
   /** Distance between the two circle centers. */
   length: number;
   /** Radius of the semicircular end caps. */
@@ -56,11 +56,11 @@ export default class Capsule extends Shape {
     const out = new AABB();
     out.upperBound.set(
       Math.max(r[0] + radius, -r[0] + radius),
-      Math.max(r[1] + radius, -r[1] + radius)
+      Math.max(r[1] + radius, -r[1] + radius),
     );
     out.lowerBound.set(
       Math.min(r[0] - radius, -r[0] - radius),
-      Math.min(r[1] - radius, -r[1] - radius)
+      Math.min(r[1] - radius, -r[1] - radius),
     );
 
     out.lowerBound.iadd(position);
@@ -73,7 +73,7 @@ export default class Capsule extends Shape {
     to: V2d,
     position: V2d,
     angle: number,
-    _skipBackfaces: boolean
+    _skipBackfaces: boolean,
   ): ShapeRaycastHit | null {
     let closestHit: ShapeRaycastHit | null = null;
     let closestFraction = Infinity;
@@ -90,9 +90,16 @@ export default class Capsule extends Shape {
       const fraction = V2d.lineSegmentsIntersectionFraction(from, to, l0, l1);
       if (fraction >= 0 && fraction < closestFraction) {
         closestFraction = fraction;
-        const normal = V(0, 1).irotate(angle).imul(i * 2 - 1);
+        const normal = V(0, 1)
+          .irotate(angle)
+          .imul(i * 2 - 1);
         const point = V(from).ilerp(to, fraction);
-        closestHit = { point, normal, distance: rayLength * fraction, fraction };
+        closestHit = {
+          point,
+          normal,
+          distance: rayLength * fraction,
+          fraction,
+        };
       }
     }
 
@@ -103,7 +110,7 @@ export default class Capsule extends Shape {
     for (let i = 0; i < 2; i++) {
       const circleCenter = V(halfLen * (i * 2 - 1), 0).itoGlobalFrame(
         position,
-        angle
+        angle,
       );
 
       const a = Math.pow(to[0] - from[0], 2) + Math.pow(to[1] - from[1], 2);

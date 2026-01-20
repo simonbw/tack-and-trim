@@ -1,4 +1,4 @@
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Boat } from "../boat/Boat";
 import { WindInfo } from "../world-data/wind/WindInfo";

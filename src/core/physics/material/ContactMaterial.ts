@@ -1,5 +1,5 @@
-import Material from "./Material";
-import Equation from "../equations/Equation";
+import { Material } from "./Material";
+import { Equation } from "../equations/Equation";
 
 /** Options for creating a ContactMaterial. */
 export interface ContactMaterialOptions {
@@ -23,7 +23,7 @@ export interface ContactMaterialOptions {
  * Defines collision properties between two materials (friction, restitution, etc.).
  * Add to world.contactMaterials to configure how material pairs interact.
  */
-export default class ContactMaterial {
+export class ContactMaterial {
   /** @internal */
   static idCounter = 0;
 
@@ -53,7 +53,7 @@ export default class ContactMaterial {
   constructor(
     materialA: Material,
     materialB: Material,
-    options: ContactMaterialOptions = {}
+    options: ContactMaterialOptions = {},
   ) {
     if (!(materialA instanceof Material) || !(materialB instanceof Material)) {
       throw new Error("First two arguments must be Material instances.");

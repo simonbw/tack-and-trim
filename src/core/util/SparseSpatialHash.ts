@@ -28,7 +28,7 @@ export class SparseSpatialHash<T> {
    */
   constructor(
     private getAABB: (item: T) => AABB,
-    cellSize: number = DEFAULT_CELL_SIZE
+    cellSize: number = DEFAULT_CELL_SIZE,
   ) {
     this.cellSize = cellSize;
   }

@@ -315,7 +315,7 @@ export class TerrainStateCompute {
   dispatch(
     computePass: GPUComputePassEncoder,
     bindGroup: GPUBindGroup,
-    textureSize: number
+    textureSize: number,
   ): void {
     if (!this.pipeline) {
       console.warn("TerrainStateCompute not initialized");

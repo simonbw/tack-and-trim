@@ -42,7 +42,7 @@ export interface ReadonlyV2d {
 
 export function V(
   x?: number | CompatibleVector | { x: number; y: number },
-  y?: number
+  y?: number,
 ) {
   if (x instanceof V2d) {
     return x.clone();
@@ -432,7 +432,7 @@ export class V2d extends Array implements NumberTuple, ReadonlyV2d {
     p0: CompatibleVector,
     p1: CompatibleVector,
     p2: CompatibleVector,
-    p3: CompatibleVector
+    p3: CompatibleVector,
   ): V2d | null {
     const t = V2d.lineSegmentsIntersectionFraction(p0, p1, p2, p3);
     if (t < 0) return null;
@@ -447,7 +447,7 @@ export class V2d extends Array implements NumberTuple, ReadonlyV2d {
     p0: CompatibleVector,
     p1: CompatibleVector,
     p2: CompatibleVector,
-    p3: CompatibleVector
+    p3: CompatibleVector,
   ): number {
     const s1_x = p1[0] - p0[0];
     const s1_y = p1[1] - p0[1];
@@ -470,7 +470,7 @@ export class V2d extends Array implements NumberTuple, ReadonlyV2d {
   static centroid(
     a: CompatibleVector,
     b: CompatibleVector,
-    c: CompatibleVector
+    c: CompatibleVector,
   ): V2d {
     return new V2d((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3);
   }

@@ -47,7 +47,7 @@ export class WebGPUDeviceManager {
     if (!WebGPUDeviceManager.isAvailable()) {
       throw new Error(
         "WebGPU is not available in this browser. " +
-          "Please use Chrome 113+, Edge 113+, or Firefox Nightly with WebGPU enabled."
+          "Please use Chrome 113+, Edge 113+, or Firefox Nightly with WebGPU enabled.",
       );
     }
 
@@ -58,7 +58,7 @@ export class WebGPUDeviceManager {
 
     if (!this._adapter) {
       throw new Error(
-        "Failed to get WebGPU adapter. Your GPU may not support WebGPU."
+        "Failed to get WebGPU adapter. Your GPU may not support WebGPU.",
       );
     }
 
@@ -167,7 +167,7 @@ export class WebGPUDeviceManager {
   createBufferWithData(
     data: ArrayBufferView,
     usage: GPUBufferUsageFlags,
-    label?: string
+    label?: string,
   ): GPUBuffer {
     const buffer = this.device.createBuffer({
       size: data.byteLength,

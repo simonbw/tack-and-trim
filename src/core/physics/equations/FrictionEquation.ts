@@ -1,14 +1,14 @@
 import { V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import type Shape from "../shapes/Shape";
+import type { Body } from "../body/Body";
+import type { Shape } from "../shapes/Shape";
 import type { SolverBodyState } from "../solver/GSSolver";
-import type ContactEquation from "./ContactEquation";
-import Equation from "./Equation";
+import type { ContactEquation } from "./ContactEquation";
+import { Equation } from "./Equation";
 
 /**
  * Constrains the slipping in a contact along a tangent
  */
-export default class FrictionEquation extends Equation {
+export class FrictionEquation extends Equation {
   /**
    * Relative vector from center of body A to the contact point, world oriented.
    */

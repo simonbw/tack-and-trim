@@ -1,4 +1,4 @@
-import SpatialHashingBroadphase from "../../physics/collision/broadphase/SpatialHashingBroadphase";
+import { SpatialHashingBroadphase } from "../../physics/collision/broadphase/SpatialHashingBroadphase";
 import { asyncProfiler } from "../AsyncProfiler";
 import { profiler } from "../Profiler";
 import { ProfileRow } from "./ProfileRow";
@@ -37,7 +37,7 @@ export function createProfilerPanel(): StatsPanel {
 
       // Find frame total for bar width calculations
       const frameStat = profileStats.find(
-        (s) => s.label === "Game.loop" && s.depth === 0
+        (s) => s.label === "Game.loop" && s.depth === 0,
       );
       const frameTotalMs = frameStat?.msPerFrame ?? 1000 / 120;
 
@@ -60,7 +60,7 @@ export function createProfilerPanel(): StatsPanel {
                   undefined,
                   {
                     maximumFractionDigits: 0,
-                  }
+                  },
                 )
               : "N/A"}
             {" / "}
@@ -69,7 +69,7 @@ export function createProfilerPanel(): StatsPanel {
                   undefined,
                   {
                     maximumFractionDigits: 0,
-                  }
+                  },
                 )
               : "N/A"}
             {" / "}

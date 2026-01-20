@@ -1,4 +1,4 @@
-import BaseEntity from "../core/entity/BaseEntity";
+import { BaseEntity } from "../core/entity/BaseEntity";
 import Entity from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 
@@ -7,7 +7,7 @@ import { on } from "../core/entity/handler";
  * Shows how to extend BaseEntity and implement custom game event responses.
  * Used for testing and as a reference implementation.
  */
-export default class ExampleEntity extends BaseEntity implements Entity {
+export class ExampleEntity extends BaseEntity implements Entity {
   @on("gameStart")
   onGameStart() {
     console.log("ExampleEntity: game started");

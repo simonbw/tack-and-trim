@@ -1,4 +1,4 @@
-import LinearSpring from "./LinearSpring";
+import { LinearSpring } from "./LinearSpring";
 import { V, V2d } from "../../Vector";
 
 // Module-level temp vectors for zero-allocation physics calculations
@@ -16,7 +16,7 @@ const _tmp = V();
  * A spring that only applies force when stretched, not when compressed.
  * Useful for rope/cable physics where slack is allowed.
  */
-export default class RopeSpring extends LinearSpring {
+export class RopeSpring extends LinearSpring {
   applyForce(): this {
     const k = this.stiffness;
     const d = this.damping;

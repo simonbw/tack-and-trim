@@ -1,5 +1,5 @@
 import { LayerName } from "../../config/layers";
-import Game from "../Game";
+import { Game } from "../Game";
 import type { Camera2d } from "../graphics/Camera2d";
 import { Draw } from "../graphics/Draw";
 import { V2d } from "../Vector";

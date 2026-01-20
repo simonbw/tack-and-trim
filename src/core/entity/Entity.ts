@@ -1,8 +1,8 @@
-import Body from "../physics/body/Body";
-import Constraint from "../physics/constraints/Constraint";
-import Spring from "../physics/springs/Spring";
+import { Body } from "../physics/body/Body";
+import { Constraint } from "../physics/constraints/Constraint";
+import { Spring } from "../physics/springs/Spring";
 import { CustomEvents } from "../../config/CustomEvent";
-import Game from "../Game";
+import { Game } from "../Game";
 import { BaseGameEvents } from "./BaseGameEvents";
 import { EventHandler, EventHandlerName } from "./EventHandler";
 import { IoEvents } from "./IoEvents";

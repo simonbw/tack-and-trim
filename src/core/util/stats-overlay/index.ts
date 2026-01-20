@@ -1,5 +1,4 @@
-export { default } from "./StatsOverlay";
-export { default as StatsOverlay } from "./StatsOverlay";
+export { StatsOverlay } from "./StatsOverlay";
 export type { StatsPanel, StatsPanelContext } from "./StatsPanel";
 export { createLeanPanel } from "./LeanPanel";
 export { createProfilerPanel } from "./ProfilerPanel";

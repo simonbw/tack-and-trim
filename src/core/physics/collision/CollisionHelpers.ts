@@ -1,10 +1,14 @@
 import { V, V2d } from "../../Vector";
-import Body from "../body/Body";
-import { isDynamicBody, isKinematicBody, isStaticBody } from "../body/body-helpers";
-import Box from "../shapes/Box";
-import Capsule from "../shapes/Capsule";
-import Convex from "../shapes/Convex";
-import Shape from "../shapes/Shape";
+import { Body } from "../body/Body";
+import {
+  isDynamicBody,
+  isKinematicBody,
+  isStaticBody,
+} from "../body/body-helpers";
+import { Box } from "../shapes/Box";
+import { Capsule } from "../shapes/Capsule";
+import { Convex } from "../shapes/Convex";
+import { Shape } from "../shapes/Shape";
 
 /**
  * Check if a point is inside a convex polygon (world space)
@@ -13,7 +17,7 @@ export function pointInConvex(
   worldPoint: V2d,
   convexShape: Convex,
   convexOffset: V2d,
-  convexAngle: number
+  convexAngle: number,
 ): boolean {
   const localPoint = V(worldPoint).itoLocalFrame(convexOffset, convexAngle);
   return pointInConvexLocal(localPoint, convexShape);
@@ -24,7 +28,7 @@ export function pointInConvex(
  */
 export function pointInConvexLocal(
   localPoint: V2d,
-  convexShape: Convex
+  convexShape: Convex,
 ): boolean {
   const verts = convexShape.vertices;
   const numVerts = verts.length;
@@ -66,7 +70,7 @@ export function findMaxSeparation(
   angle1: number,
   poly2: Convex,
   position2: V2d,
-  angle2: number
+  angle2: number,
 ): number {
   const count1 = poly1.vertices.length;
   const count2 = poly2.vertices.length;
@@ -123,7 +127,7 @@ export function findIncidentEdge(
   edge1: number,
   poly2: Convex,
   position2: V2d,
-  angle2: number
+  angle2: number,
 ): void {
   const normals1 = poly1.axes;
   const count2 = poly2.vertices.length;
@@ -159,7 +163,7 @@ export function clipSegmentToLine(
   vOut: V2d[],
   vIn: V2d[],
   normal: V2d,
-  offset: number
+  offset: number,
 ): number {
   let numOut = 0;
 
@@ -192,7 +196,7 @@ export function clipSegmentToLine(
  */
 export function setCapsuleMiddleRect(
   convexShape: Box,
-  capsuleShape: Capsule
+  capsuleShape: Capsule,
 ): void {
   const capsuleRadius = capsuleShape.radius;
   const halfCapsuleLength = capsuleShape.length * 0.5;

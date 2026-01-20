@@ -1,6 +1,6 @@
-import type Body from "../body/Body";
-import type DynamicBody from "../body/DynamicBody";
-import Spring, { SpringOptions } from "./Spring";
+import type { Body } from "../body/Body";
+import type { DynamicBody } from "../body/DynamicBody";
+import { SpringOptions, Spring } from "./Spring";
 
 /** Options for creating a RotationalSpring. */
 export interface RotationalSpringOptions extends SpringOptions {
@@ -9,11 +9,15 @@ export interface RotationalSpringOptions extends SpringOptions {
 }
 
 /** A spring that applies torque to maintain a target angle between two bodies. */
-export default class RotationalSpring extends Spring {
+export class RotationalSpring extends Spring {
   /** Target angle between the two bodies (no torque applied at this angle). */
   restAngle: number;
 
-  constructor(bodyA: DynamicBody, bodyB: Body, options: RotationalSpringOptions = {}) {
+  constructor(
+    bodyA: DynamicBody,
+    bodyB: Body,
+    options: RotationalSpringOptions = {},
+  ) {
     super(bodyA, bodyB, options);
 
     this.restAngle =

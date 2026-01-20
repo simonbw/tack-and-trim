@@ -1,8 +1,8 @@
-import Box from "../shapes/Box";
-import Circle from "../shapes/Circle";
-import Convex from "../shapes/Convex";
-import Line from "../shapes/Line";
-import Shape from "../shapes/Shape";
+import { Box } from "../shapes/Box";
+import { Circle } from "../shapes/Circle";
+import { Convex } from "../shapes/Convex";
+import { Line } from "../shapes/Line";
+import { Shape } from "../shapes/Shape";
 import { ShapeDef } from "../../EntityDef";
 import { V, V2d } from "../../Vector";
 

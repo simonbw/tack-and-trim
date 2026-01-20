@@ -10,7 +10,10 @@
   min-width: 320px;
   max-width: 420px;
   color: #e0e8f0;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
   z-index: 900;
   animation: tutorial-slide-in 0.3s ease-out;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);

@@ -1,8 +1,8 @@
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
-import DynamicBody from "../../core/physics/body/DynamicBody";
-import Convex from "../../core/physics/shapes/Convex";
+import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import { Convex } from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { V, V2d } from "../../core/Vector";
 import { applySkinFriction } from "../fluid-dynamics";

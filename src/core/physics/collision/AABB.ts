@@ -13,7 +13,7 @@ export interface AABBOptions {
 }
 
 /** Axis aligned bounding box class. */
-export default class AABB {
+export class AABB {
   lowerBound: V2d;
   upperBound: V2d;
 

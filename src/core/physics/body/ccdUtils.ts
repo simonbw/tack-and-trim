@@ -1,7 +1,10 @@
 import { V, V2d } from "../../Vector";
-import type AABB from "../collision/AABB";
-import type { RaycastHit, RaycastOptions } from "../collision/raycast/RaycastHit";
-import type Body from "./Body";
+import type { AABB } from "../collision/AABB";
+import type {
+  RaycastHit,
+  RaycastOptions,
+} from "../collision/raycast/RaycastHit";
+import type { Body } from "./Body";
 
 /** Configuration for CCD integration. */
 export interface CCDConfig {
@@ -47,7 +50,7 @@ export function integrateToTimeOfImpact(
   self: Body,
   config: CCDConfig,
   world: CCDWorldContext,
-  dt: number
+  dt: number,
 ): boolean {
   // Early exit if CCD disabled or velocity below threshold
   if (

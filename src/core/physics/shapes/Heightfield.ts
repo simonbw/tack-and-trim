@@ -1,7 +1,7 @@
 import { V, V2d } from "../../Vector";
-import AABB from "../collision/AABB";
+import { AABB } from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
-import Shape, { ShapeOptions } from "./Shape";
+import { ShapeOptions, Shape } from "./Shape";
 
 export interface HeightfieldOptions extends ShapeOptions {
   heights?: number[];
@@ -14,7 +14,7 @@ export interface HeightfieldOptions extends ShapeOptions {
  * Heightfield shape class.
  * Height data is given as an array of Y values spread out evenly with a distance "elementWidth".
  */
-export default class Heightfield extends Shape {
+export class Heightfield extends Shape {
   heights: number[];
   maxValue: number;
   minValue: number;
@@ -113,7 +113,7 @@ export default class Heightfield extends Shape {
     to: V2d,
     position: V2d,
     angle: number,
-    _skipBackfaces: boolean
+    _skipBackfaces: boolean,
   ): ShapeRaycastHit | null {
     // Transform ray to local space
     const localFrom = V(from).itoLocalFrame(position, angle);
@@ -128,7 +128,7 @@ export default class Heightfield extends Shape {
     const idxStart = Math.max(0, Math.floor(minX / this.elementWidth));
     const idxEnd = Math.min(
       this.heights.length - 2,
-      Math.ceil(maxX / this.elementWidth)
+      Math.ceil(maxX / this.elementWidth),
     );
 
     let closestHit: ShapeRaycastHit | null = null;
@@ -143,7 +143,7 @@ export default class Heightfield extends Shape {
         localFrom,
         localTo,
         segStart,
-        segEnd
+        segEnd,
       );
 
       if (fraction >= 0 && fraction < closestFraction) {
@@ -156,7 +156,12 @@ export default class Heightfield extends Shape {
         normal.irotate(angle);
 
         const point = V(from).ilerp(to, fraction);
-        closestHit = { point, normal, distance: rayLength * fraction, fraction };
+        closestHit = {
+          point,
+          normal,
+          distance: rayLength * fraction,
+          fraction,
+        };
       }
     }
 

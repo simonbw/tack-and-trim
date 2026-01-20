@@ -1,5 +1,5 @@
-import type Body from "../body/Body";
-import Equation from "./Equation";
+import type { Body } from "../body/Body";
+import { Equation } from "./Equation";
 
 export interface AngleLockEquationOptions {
   angle?: number;
@@ -10,7 +10,7 @@ export interface AngleLockEquationOptions {
  * Locks the relative angle between two bodies. The constraint tries to keep
  * the dot product between two vectors, local in each body, to zero.
  */
-export default class AngleLockEquation extends Equation {
+export class AngleLockEquation extends Equation {
   angle: number;
 
   /**
@@ -21,7 +21,7 @@ export default class AngleLockEquation extends Equation {
   constructor(
     bodyA: Body,
     bodyB: Body,
-    options: AngleLockEquationOptions = {}
+    options: AngleLockEquationOptions = {},
   ) {
     super(bodyA, bodyB, -Number.MAX_VALUE, Number.MAX_VALUE);
     this.angle = options.angle || 0;

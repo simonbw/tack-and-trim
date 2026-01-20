@@ -1,9 +1,9 @@
 import { profile, profiler } from "../../util/Profiler";
 import { CompatibleVector } from "../../Vector";
 import { SleepState } from "../body/Body";
-import DynamicBody from "../body/DynamicBody";
-import Broadphase from "../collision/broadphase/Broadphase";
-import SpatialHashingBroadphase from "../collision/broadphase/SpatialHashingBroadphase";
+import { DynamicBody } from "../body/DynamicBody";
+import { Broadphase } from "../collision/broadphase/Broadphase";
+import { SpatialHashingBroadphase } from "../collision/broadphase/SpatialHashingBroadphase";
 import {
   Collision,
   getContactsFromPairs,
@@ -13,9 +13,9 @@ import { raycast, raycastAll } from "../collision/raycast/Raycast";
 import { RaycastHit, RaycastOptions } from "../collision/raycast/RaycastHit";
 import { generateContactEquationsForCollision } from "../collision/response/ContactGenerator";
 import { generateFrictionEquationsForCollision } from "../collision/response/FrictionGenerator";
-import ContactEquation from "../equations/ContactEquation";
-import FrictionEquation from "../equations/FrictionEquation";
-import EventEmitter from "../events/EventEmitter";
+import { ContactEquation } from "../equations/ContactEquation";
+import { FrictionEquation } from "../equations/FrictionEquation";
+import { EventEmitter } from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
 import {
   DEFAULT_SOLVER_CONFIG,
@@ -23,15 +23,16 @@ import {
   solveIsland,
   type SolverConfig,
 } from "../solver/GSSolver";
-import type Spring from "../springs/Spring";
-import BodyManager from "./BodyManager";
-import ConstraintManager from "./ConstraintManager";
-import ContactMaterialManager from "./ContactMaterialManager";
+import type { Spring } from "../springs/Spring";
+import { BodyManager } from "./BodyManager";
+import { ConstraintManager } from "./ConstraintManager";
+import { ContactMaterialManager } from "./ContactMaterialManager";
 import { splitIntoIslands, type Island } from "./Island";
-import OverlapKeeper, {
+import {
   bodyKey,
   type OverlapChanges,
   type ShapeOverlap,
+  OverlapKeeper,
 } from "./OverlapKeeper";
 
 /** Options for creating a World. */
@@ -64,7 +65,7 @@ export enum SleepMode {
  * world.step(1/60);
  * ```
  */
-export default class World extends EventEmitter<PhysicsEventMap> {
+export class World extends EventEmitter<PhysicsEventMap> {
   /** Manages all bodies in the simulation. */
   bodies: BodyManager;
   /** Manages all constraints between bodies. */
@@ -139,7 +140,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     // 4. Update overlap tracking
     const overlapChanges = this.updateOverlapTracking(
       collisions,
-      sensorOverlaps
+      sensorOverlaps,
     );
 
     // 5. Build contact equations to resolve overlaps
@@ -151,17 +152,17 @@ export default class World extends EventEmitter<PhysicsEventMap> {
           collision,
           this.contactMaterials.get(
             collision.shapeA.material,
-            collision.shapeB.material
+            collision.shapeB.material,
           ),
           overlapChanges.newlyOverlappingBodies.has(
-            bodyKey(collision.bodyA, collision.bodyB)
-          )
+            bodyKey(collision.bodyA, collision.bodyB),
+          ),
         ),
       ]);
 
     const contactEquations: ContactEquation[] =
       collisionsWithContactEquations.flatMap(
-        ([, contactEquations]) => contactEquations
+        ([, contactEquations]) => contactEquations,
       );
     profiler.end("World.contactEquations");
 
@@ -174,10 +175,10 @@ export default class World extends EventEmitter<PhysicsEventMap> {
           contactEquations,
           this.contactMaterials.get(
             collision.shapeA.material,
-            collision.shapeB.material
+            collision.shapeB.material,
           ),
-          this.frictionReduction
-        )
+          this.frictionReduction,
+        ),
       );
     profiler.end("World.frictionEquations");
 
@@ -227,7 +228,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
     const disabledBodyKeys = this.constraints.disabledBodyKeys;
 
     const filteredPossibleCollisions = possibleCollisions.filter(
-      ([bodyA, bodyB]) => !disabledBodyKeys.has(bodyKey(bodyA, bodyB))
+      ([bodyA, bodyB]) => !disabledBodyKeys.has(bodyKey(bodyA, bodyB)),
     );
 
     this.emit({ type: "postBroadphase", pairs: filteredPossibleCollisions });
@@ -238,7 +239,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   @profile
   private updateOverlapTracking(
     collisions: Collision[],
-    sensorOverlaps: SensorOverlap[]
+    sensorOverlaps: SensorOverlap[],
   ): OverlapChanges {
     // Build overlap input (without contact equations - they don't exist yet)
     const currentOverlaps: ShapeOverlap[] = [
@@ -301,7 +302,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   @profile
   private emitContactEvents(
     overlapChanges: OverlapChanges,
-    collisionsWithContacts: [Collision, ContactEquation[]][]
+    collisionsWithContacts: [Collision, ContactEquation[]][],
   ): void {
     const { newOverlaps, endedOverlaps } = overlapChanges;
 
@@ -337,7 +338,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   @profile
   private emitPreSolveAndWakeUp(
     contacts: ContactEquation[],
-    friction: FrictionEquation[]
+    friction: FrictionEquation[],
   ): void {
     // Wake up bodies that need it - check all dynamic bodies since sleeping ones may have the flag
     for (const body of this.bodies.dynamic) {
@@ -358,7 +359,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   private solve(
     dt: number,
     contacts: ContactEquation[],
-    friction: FrictionEquation[]
+    friction: FrictionEquation[],
   ): Island[] | undefined {
     // Update constraint equations
     for (const c of this.constraints) {
@@ -390,7 +391,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
         allEquations,
         this.bodies.dynamicAwake,
         dt,
-        this.solverConfig
+        this.solverConfig,
       );
       return undefined;
     }
@@ -448,7 +449,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
       // Sleep islands where all dynamic bodies want to sleep
       for (const island of islands) {
         const allWantToSleep = island.bodies.every(
-          (body) => !(body instanceof DynamicBody) || body.wantsToSleep
+          (body) => !(body instanceof DynamicBody) || body.wantsToSleep,
         );
         if (allWantToSleep) {
           for (const body of island.bodies) {
@@ -496,7 +497,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   raycast(
     from: CompatibleVector,
     to: CompatibleVector,
-    options?: RaycastOptions
+    options?: RaycastOptions,
   ): RaycastHit | null {
     return raycast(this, from, to, options);
   }
@@ -512,7 +513,7 @@ export default class World extends EventEmitter<PhysicsEventMap> {
   raycastAll(
     from: CompatibleVector,
     to: CompatibleVector,
-    options?: RaycastOptions
+    options?: RaycastOptions,
   ): RaycastHit[] {
     return raycastAll(this, from, to, options);
   }

@@ -20,11 +20,11 @@ export function collisionGroupToNames(group: number): CollisionGroupName[] {
 }
 
 export function collisionGroupsToNumber(
-  groups: ReadonlyArray<CollisionGroupName>
+  groups: ReadonlyArray<CollisionGroupName>,
 ): number {
   return groups.reduce<number>(
     (acc, group) => acc | CollisionGroups[group],
-    CollisionGroups.None
+    CollisionGroups.None,
   );
 }
 
@@ -33,19 +33,19 @@ export function collisionGroupsToNumber(
  * mask values and includes 'All' and 'None' groups.
  */
 export function makeCollisionGroups<const T extends readonly string[]>(
-  groupNames: T
+  groupNames: T,
 ): Record<T[number] | "All" | "None", number> {
   const groups: Record<string, number> = {
     None: 0,
   };
-  
+
   for (const name of groupNames) {
     groups[name] = makeCollisionGroup();
   }
-  
+
   groups.All = Object.values(groups)
-    .filter(value => value !== 0)
+    .filter((value) => value !== 0)
     .reduce((acc, group) => acc | group, 0);
-  
+
   return groups as Record<T[number] | "All" | "None", number>;
 }

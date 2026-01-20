@@ -1,7 +1,7 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import AABB from "../collision/AABB";
+import { AABB } from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
-import Shape, { ShapeOptions } from "./Shape";
+import { ShapeOptions, Shape } from "./Shape";
 
 /** Options for creating a Convex polygon. */
 export interface ConvexOptions extends ShapeOptions {
@@ -12,7 +12,7 @@ export interface ConvexOptions extends ShapeOptions {
 }
 
 /** A convex polygon collision shape. Vertices must be in counter-clockwise order. */
-export default class Convex extends Shape {
+export class Convex extends Shape {
   /** Polygon vertices in local coordinates. */
   vertices: V2d[];
   /** Face normal vectors. */
@@ -75,7 +75,7 @@ export default class Convex extends Shape {
 
     if (this.area < 0) {
       throw new Error(
-        "Convex vertices must be given in counter-clockwise winding."
+        "Convex vertices must be given in counter-clockwise winding.",
       );
     }
   }
@@ -108,7 +108,7 @@ export default class Convex extends Shape {
   projectOntoWorldAxis(
     localAxis: V2d,
     shapeOffset: V2d,
-    shapeAngle: number
+    shapeAngle: number,
   ): V2d {
     const result = this.projectOntoLocalAxis(localAxis);
 
@@ -227,7 +227,7 @@ export default class Convex extends Shape {
     to: V2d,
     position: V2d,
     angle: number,
-    _skipBackfaces: boolean
+    _skipBackfaces: boolean,
   ): ShapeRaycastHit | null {
     const vertices = this.vertices;
 
@@ -247,7 +247,7 @@ export default class Convex extends Shape {
         rayStart,
         rayEnd,
         q1,
-        q2
+        q2,
       );
 
       if (fraction >= 0 && fraction < closestFraction) {
@@ -257,7 +257,12 @@ export default class Convex extends Shape {
         normal.irotate(-Math.PI / 2 + angle);
         normal.inormalize();
         const point = V(from).ilerp(to, fraction);
-        closestHit = { point, normal, distance: rayLength * fraction, fraction };
+        closestHit = {
+          point,
+          normal,
+          distance: rayLength * fraction,
+          fraction,
+        };
       }
     }
 

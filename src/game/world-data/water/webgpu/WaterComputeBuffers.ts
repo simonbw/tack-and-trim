@@ -143,7 +143,7 @@ export class WaterComputeBuffers {
         0,
         this.segmentData.buffer,
         0,
-        uploadSize
+        uploadSize,
       );
     }
 

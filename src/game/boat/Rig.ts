@@ -1,9 +1,9 @@
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
-import DynamicBody from "../../core/physics/body/DynamicBody";
-import RevoluteConstraint from "../../core/physics/constraints/RevoluteConstraint";
-import Box from "../../core/physics/shapes/Box";
+import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import { RevoluteConstraint } from "../../core/physics/constraints/RevoluteConstraint";
+import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import { RigConfig } from "./BoatConfig";
 import { Hull } from "./Hull";

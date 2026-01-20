@@ -1,5 +1,5 @@
-import Body from "../../body/Body";
-import Shape from "../../shapes/Shape";
+import { Body } from "../../body/Body";
+import { Shape } from "../../shapes/Shape";
 import { shapesCanCollide } from "../CollisionHelpers";
 import { CollisionContact } from "../CollisionResult";
 import { getShapeCollision } from "./CollisionDetector";
@@ -54,7 +54,7 @@ export function getContactsFromPairs(pairs: [Body, Body][]): {
           shapeB,
           positionB,
           angleB,
-          isSensor // justTest = false, we want full collision data
+          isSensor, // justTest = false, we want full collision data
         );
 
         if (collisionResult) {

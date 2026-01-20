@@ -71,7 +71,7 @@ export class WebGPUTextureManager {
    */
   createSampler(
     filter: FilterMode = "linear",
-    addressMode: AddressMode = "clamp-to-edge"
+    addressMode: AddressMode = "clamp-to-edge",
   ): GPUSampler {
     const key = `${filter}-${addressMode}`;
     let sampler = this.samplers.get(key);
@@ -131,7 +131,7 @@ export class WebGPUTextureManager {
    */
   fromImage(
     image: HTMLImageElement | ImageBitmap,
-    options?: TextureOptions
+    options?: TextureOptions,
   ): WebGPUTexture {
     const device = getWebGPU().device;
 
@@ -153,7 +153,7 @@ export class WebGPUTextureManager {
     device.queue.copyExternalImageToTexture(
       { source: image },
       { texture },
-      { width: image.width, height: image.height }
+      { width: image.width, height: image.height },
     );
 
     const view = texture.createView();
@@ -170,7 +170,10 @@ export class WebGPUTextureManager {
   /**
    * Create a texture from a canvas.
    */
-  fromCanvas(canvas: HTMLCanvasElement, options?: TextureOptions): WebGPUTexture {
+  fromCanvas(
+    canvas: HTMLCanvasElement,
+    options?: TextureOptions,
+  ): WebGPUTexture {
     const device = getWebGPU().device;
 
     const format = options?.format ?? "rgba8unorm";
@@ -191,7 +194,7 @@ export class WebGPUTextureManager {
     device.queue.copyExternalImageToTexture(
       { source: canvas },
       { texture },
-      { width: canvas.width, height: canvas.height }
+      { width: canvas.width, height: canvas.height },
     );
 
     const view = texture.createView();
@@ -211,7 +214,7 @@ export class WebGPUTextureManager {
   createEmpty(
     width: number,
     height: number,
-    options?: TextureOptions
+    options?: TextureOptions,
   ): WebGPUTexture {
     const device = getWebGPU().device;
 
@@ -247,7 +250,7 @@ export class WebGPUTextureManager {
     width: number,
     height: number,
     format: GPUTextureFormat = "rgba16float",
-    label?: string
+    label?: string,
   ): WebGPUTexture {
     const device = getWebGPU().device;
 
@@ -279,7 +282,7 @@ export class WebGPUTextureManager {
     width: number,
     height: number,
     format: GPUTextureFormat = "rgba16float",
-    label?: string
+    label?: string,
   ): WebGPUTexture {
     const device = getWebGPU().device;
 
@@ -311,7 +314,7 @@ export class WebGPUTextureManager {
     data: Uint8Array,
     width: number,
     height: number,
-    options?: TextureOptions
+    options?: TextureOptions,
   ): WebGPUTexture {
     const device = getWebGPU().device;
 
@@ -334,7 +337,7 @@ export class WebGPUTextureManager {
       { texture },
       data.buffer,
       { bytesPerRow: width * 4, rowsPerImage: height },
-      { width, height }
+      { width, height },
     );
 
     const view = texture.createView();
@@ -358,7 +361,7 @@ export class WebGPUTextureManager {
       { texture: tex.texture },
       data.buffer,
       { bytesPerRow: tex.width * 4, rowsPerImage: tex.height },
-      { width: tex.width, height: tex.height }
+      { width: tex.width, height: tex.height },
     );
   }
 
@@ -415,7 +418,7 @@ export class WebGPUTextureManager {
    */
   private async loadImage(
     url: string,
-    options?: TextureOptions
+    options?: TextureOptions,
   ): Promise<WebGPUTexture> {
     const response = await fetch(url);
     const blob = await response.blob();

@@ -1,4 +1,4 @@
-import type Body from "../body/Body";
+import type { Body } from "../body/Body";
 import type { SolverBodyState } from "../solver/GSSolver";
 import {
   EQ_B,
@@ -14,7 +14,7 @@ export interface EquationOptions {
 }
 
 /** Base class for constraint equations. */
-export default class Equation {
+export class Equation {
   static DEFAULT_STIFFNESS = 1e6;
   static DEFAULT_RELAXATION = 4;
 

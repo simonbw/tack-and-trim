@@ -1,5 +1,5 @@
-import ContactEquation from "../../equations/ContactEquation";
-import ContactMaterial from "../../material/ContactMaterial";
+import { ContactEquation } from "../../equations/ContactEquation";
+import { ContactMaterial } from "../../material/ContactMaterial";
 import { Collision } from "../narrowphase/getContactsFromCollisionPairs";
 
 /**
@@ -8,7 +8,7 @@ import { Collision } from "../narrowphase/getContactsFromCollisionPairs";
 export function generateContactEquationsForCollision(
   { bodyA, shapeA, bodyB, shapeB, contacts }: Collision,
   contactMaterial: ContactMaterial,
-  isFirstImpact: boolean
+  isFirstImpact: boolean,
 ): ContactEquation[] {
   // Only enable equations if all parties have collisionResponse enabled
   const enabled =

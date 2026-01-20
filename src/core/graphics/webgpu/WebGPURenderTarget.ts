@@ -37,7 +37,7 @@ export class WebGPURenderTarget {
   constructor(
     width: number,
     height: number,
-    options: RenderTargetOptions = {}
+    options: RenderTargetOptions = {},
   ) {
     const device = getWebGPU().device;
 
@@ -88,9 +88,12 @@ export class WebGPURenderTarget {
   /**
    * Get a render pass descriptor for rendering to this target.
    */
-  getRenderPassDescriptor(
-    clearColor?: { r: number; g: number; b: number; a: number }
-  ): GPURenderPassDescriptor {
+  getRenderPassDescriptor(clearColor?: {
+    r: number;
+    g: number;
+    b: number;
+    a: number;
+  }): GPURenderPassDescriptor {
     const colorAttachment: GPURenderPassColorAttachment = {
       view: this.view,
       loadOp: clearColor ? "clear" : "load",
@@ -122,10 +125,10 @@ export class WebGPURenderTarget {
    */
   beginRenderPass(
     commandEncoder: GPUCommandEncoder,
-    clearColor?: { r: number; g: number; b: number; a: number }
+    clearColor?: { r: number; g: number; b: number; a: number },
   ): GPURenderPassEncoder {
     return commandEncoder.beginRenderPass(
-      this.getRenderPassDescriptor(clearColor)
+      this.getRenderPassDescriptor(clearColor),
     );
   }
 
@@ -154,7 +157,7 @@ export class WebGPURenderTarget {
     commandEncoder.copyTextureToBuffer(
       { texture: this.texture },
       { buffer: stagingBuffer, bytesPerRow: paddedBytesPerRow },
-      { width: this.width, height: this.height }
+      { width: this.width, height: this.height },
     );
     device.queue.submit([commandEncoder.finish()]);
 
@@ -171,7 +174,7 @@ export class WebGPURenderTarget {
       const dstOffset = y * this.width * 4;
       result.set(
         paddedData.subarray(srcOffset, srcOffset + this.width * 4),
-        dstOffset
+        dstOffset,
       );
     }
 
@@ -188,7 +191,7 @@ export class WebGPURenderTarget {
     x: number,
     y: number,
     width: number,
-    height: number
+    height: number,
   ): Promise<Float32Array> {
     const device = getWebGPU().device;
 
@@ -207,7 +210,7 @@ export class WebGPURenderTarget {
     commandEncoder.copyTextureToBuffer(
       { texture: this.texture, origin: { x, y } },
       { buffer: stagingBuffer, bytesPerRow: paddedBytesPerRow },
-      { width, height }
+      { width, height },
     );
     device.queue.submit([commandEncoder.finish()]);
 
@@ -222,7 +225,7 @@ export class WebGPURenderTarget {
       const dstOffset = row * width * 4;
       result.set(
         paddedData.subarray(srcOffset, srcOffset + width * 4),
-        dstOffset
+        dstOffset,
       );
     }
 

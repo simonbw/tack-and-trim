@@ -5,6 +5,7 @@ Spatial data computation using GPU with CPU fallback.
 ## Purpose
 
 Wind and Water need to query spatial data (wind vector at position, water height at position). This system:
+
 1. Renders data to GPU textures covering viewport tiles
 2. Reads back to CPU for game logic queries
 3. Falls back to CPU compute for out-of-viewport queries

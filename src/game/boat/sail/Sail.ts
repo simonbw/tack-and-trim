@@ -1,9 +1,9 @@
-import BaseEntity from "../../../core/entity/BaseEntity";
+import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import type Body from "../../../core/physics/body/Body";
-import DynamicBody from "../../../core/physics/body/DynamicBody";
-import DistanceConstraint from "../../../core/physics/constraints/DistanceConstraint";
-import Particle from "../../../core/physics/shapes/Particle";
+import type { Body } from "../../../core/physics/body/Body";
+import { DynamicBody } from "../../../core/physics/body/DynamicBody";
+import { DistanceConstraint } from "../../../core/physics/constraints/DistanceConstraint";
+import { Particle } from "../../../core/physics/shapes/Particle";
 import { AABB } from "../../../core/util/SparseSpatialHash";
 import { last, pairs, range } from "../../../core/util/FunctionalUtils";
 import { lerpV2d, stepToward } from "../../../core/util/MathUtil";

@@ -1,6 +1,7 @@
-import AutoPauser from "../core/AutoPauser";
-import Game from "../core/Game";
-import StatsOverlay, {
+import { AutoPauser } from "../core/AutoPauser";
+import { Game } from "../core/Game";
+import {
+  StatsOverlay,
   createLeanPanel,
   createProfilerPanel,
   createGraphicsPanel,

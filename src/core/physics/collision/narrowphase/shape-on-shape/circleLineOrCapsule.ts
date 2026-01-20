@@ -1,9 +1,9 @@
 import { V, V2d } from "../../../../Vector";
-import Body from "../../../body/Body";
-import Capsule from "../../../shapes/Capsule";
-import Circle from "../../../shapes/Circle";
-import Line from "../../../shapes/Line";
-import Shape from "../../../shapes/Shape";
+import { Body } from "../../../body/Body";
+import { Capsule } from "../../../shapes/Capsule";
+import { Circle } from "../../../shapes/Circle";
+import { Line } from "../../../shapes/Line";
+import { Shape } from "../../../shapes/Shape";
 import { CollisionResult, createCollisionResult } from "../../CollisionResult";
 
 // Scratch vectors to avoid per-call allocations

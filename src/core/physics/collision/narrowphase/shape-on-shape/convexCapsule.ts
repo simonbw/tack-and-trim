@@ -1,9 +1,9 @@
 import { V, V2d } from "../../../../Vector";
-import Body from "../../../body/Body";
-import Box from "../../../shapes/Box";
-import Capsule from "../../../shapes/Capsule";
-import Convex from "../../../shapes/Convex";
-import Shape from "../../../shapes/Shape";
+import { Body } from "../../../body/Body";
+import { Box } from "../../../shapes/Box";
+import { Capsule } from "../../../shapes/Capsule";
+import { Convex } from "../../../shapes/Convex";
+import { Shape } from "../../../shapes/Shape";
 import { setCapsuleMiddleRect } from "../../CollisionHelpers";
 import { CollisionResult, createCollisionResult } from "../../CollisionResult";
 import { circleConvex } from "./circleConvex";

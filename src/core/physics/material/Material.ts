@@ -2,7 +2,7 @@
  * A material identifier. Used with ContactMaterial to define friction and restitution
  * between pairs of materials. Assign to shapes via shape.material.
  */
-export default class Material {
+export class Material {
   /** @internal */
   static idCounter = 0;
 

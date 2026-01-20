@@ -4,7 +4,7 @@ type Cell = readonly [number, number];
  * Uses nested objects for efficient storage of sparse data, only allocating
  * space for coordinates that actually contain values.
  */
-export default class Grid<T> {
+export class Grid<T> {
   data: { [x: number]: { [y: number]: T } } = {};
 
   set([x, y]: Cell, value: T) {

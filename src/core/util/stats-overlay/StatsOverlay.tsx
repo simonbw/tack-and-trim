@@ -28,7 +28,7 @@ const RENDER_THROTTLE = 3; // Only re-render every N frames
  * ]));
  * ```
  */
-export default class StatsOverlay extends ReactEntity implements Entity {
+export class StatsOverlay extends ReactEntity implements Entity {
   persistenceLevel = 100;
 
   private panels: StatsPanel[];

@@ -1,4 +1,4 @@
-import BaseEntity from "../core/entity/BaseEntity";
+import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { range } from "../core/util/FunctionalUtils";
 import { clamp, lerp, lerpV2d } from "../core/util/MathUtil";

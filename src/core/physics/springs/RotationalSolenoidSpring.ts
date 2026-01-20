@@ -1,10 +1,10 @@
-import RotationalSpring from "./RotationalSpring";
+import { RotationalSpring } from "./RotationalSpring";
 
 /**
  * A rotational spring with non-linear force response.
  * Applies stronger torque at small displacements, tapering off at larger angles.
  */
-export default class RotationalSolenoidSpring extends RotationalSpring {
+export class RotationalSolenoidSpring extends RotationalSpring {
   applyForce(): this {
     const k = this.stiffness * 1000;
     const d = this.damping * 100;

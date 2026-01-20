@@ -1,13 +1,13 @@
 import { angleDelta } from "../../util/MathUtil";
-import type DynamicBody from "../body/DynamicBody";
-import RotationalSpring from "./RotationalSpring";
+import type { DynamicBody } from "../body/DynamicBody";
+import { RotationalSpring } from "./RotationalSpring";
 
 /**
  * A rotational spring that applies corrective torque to maintain a target angle.
  * Useful for stabilizing physics bodies or creating aiming/orientation behaviors
  * with damping to prevent oscillation.
  */
-export default class AimSpring extends RotationalSpring {
+export class AimSpring extends RotationalSpring {
   constructor(bodyA: DynamicBody) {
     super(bodyA, null as any, {
       damping: 1,

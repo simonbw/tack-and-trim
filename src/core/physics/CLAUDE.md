@@ -12,14 +12,17 @@ Custom rigid body physics engine (not a wrapper around another library).
 ## Key Patterns
 
 ### Island Splitting
+
 Connected bodies form "islands" that can sleep together. See `world/Island.ts`.
 
 ### Solver Pipeline
+
 1. Broadphase finds potential pairs
 2. Narrowphase generates ContactEquations
 3. GSSolver iterates to resolve constraints
 
 ### Adding New Collision Types
+
 1. Create shape in `shapes/`
 2. Add narrowphase handler in `collision/narrowphase/shape-on-shape/`
 3. Register in the shape-pair dispatch table

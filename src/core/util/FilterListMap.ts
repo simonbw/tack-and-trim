@@ -1,4 +1,4 @@
-import FilterSet, { Filter } from "./FilterSet";
+import { Filter, FilterSet } from "./FilterSet";
 
 /**
  * A collection that maps filters to sets of items that pass those filters.

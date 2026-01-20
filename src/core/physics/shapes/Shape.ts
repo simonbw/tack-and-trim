@@ -1,9 +1,9 @@
 import type Entity from "../../entity/Entity";
 import { CompatibleVector, V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import AABB from "../collision/AABB";
+import type { Body } from "../body/Body";
+import { AABB } from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
-import type Material from "../material/Material";
+import type { Material } from "../material/Material";
 
 /** Options for creating a Shape. */
 export interface ShapeOptions {
@@ -27,7 +27,7 @@ export interface ShapeOptions {
  * Abstract base class for collision shapes. Attach to a Body using body.addShape().
  * Concrete implementations: Circle, Box, Convex, Capsule, Line, Plane, Particle, Heightfield.
  */
-export default abstract class Shape {
+export abstract class Shape {
   /** @internal */
   static idCounter = 0;
 

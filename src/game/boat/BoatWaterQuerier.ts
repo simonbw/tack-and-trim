@@ -3,7 +3,7 @@
  * Forecasts all water queries for hull, keel, rudder, and spray.
  */
 
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { AABB } from "../../core/util/SparseSpatialHash";
 import type { QueryForecast } from "../world-data/datatiles/DataTileTypes";
 import type { WaterQuerier } from "../world-data/water/WaterQuerier";

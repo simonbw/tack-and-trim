@@ -1,17 +1,17 @@
 import { EntityDef } from "../EntityDef";
-import Game from "../Game";
+import { Game } from "../Game";
 import { V, V2d } from "../Vector";
-import type Body from "../physics/body/Body";
-import DynamicBody from "../physics/body/DynamicBody";
-import Constraint from "../physics/constraints/Constraint";
-import Spring from "../physics/springs/Spring";
+import type { Body } from "../physics/body/Body";
+import { DynamicBody } from "../physics/body/DynamicBody";
+import { Constraint } from "../physics/constraints/Constraint";
+import { Spring } from "../physics/springs/Spring";
 import { shapeFromDef } from "../physics/utils/ShapeUtils";
 import { clamp } from "../util/MathUtil";
 import Entity, { GameEventMap } from "./Entity";
 import { on } from "./handler";
 
 /** Base class for lots of stuff in the game. */
-export default abstract class BaseEntity implements Entity {
+export abstract class BaseEntity implements Entity {
   bodies?: Body[];
   body?: Body;
   children: Entity[] = [];

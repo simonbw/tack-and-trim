@@ -1,6 +1,6 @@
 import { V2d } from "../../../Vector";
-import type Body from "../../body/Body";
-import type Shape from "../../shapes/Shape";
+import type { Body } from "../../body/Body";
+import type { Shape } from "../../shapes/Shape";
 
 /**
  * Result of a shape-level raycast.

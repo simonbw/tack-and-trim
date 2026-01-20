@@ -6,7 +6,7 @@
  * Implements TerrainQuerier to request terrain tiles for efficient lookup.
  */
 
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { AABB } from "../../core/util/SparseSpatialHash";
 import { V } from "../../core/Vector";

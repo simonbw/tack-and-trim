@@ -1,6 +1,6 @@
-import ContactEquation from "../../equations/ContactEquation";
-import FrictionEquation from "../../equations/FrictionEquation";
-import ContactMaterial from "../../material/ContactMaterial";
+import { ContactEquation } from "../../equations/ContactEquation";
+import { FrictionEquation } from "../../equations/FrictionEquation";
+import { ContactMaterial } from "../../material/ContactMaterial";
 import { Collision } from "../narrowphase/getContactsFromCollisionPairs";
 
 /**
@@ -16,21 +16,21 @@ export function generateFrictionEquationsForCollision(
   collision: Collision,
   contactEquations: ReadonlyArray<ContactEquation>,
   contactMaterial: ContactMaterial,
-  frictionReduction: boolean
+  frictionReduction: boolean,
 ): FrictionEquation[] {
   if (frictionReduction && contactEquations.length > 1) {
     return [
       generateAverageFrictionEquationForCollision(
         collision,
         contactEquations,
-        contactMaterial
+        contactMaterial,
       ),
     ];
   } else {
     return generateAllFrictionEquationsForCollision(
       collision,
       contactEquations,
-      contactMaterial
+      contactMaterial,
     );
   }
 }
@@ -38,7 +38,7 @@ export function generateFrictionEquationsForCollision(
 function generateAllFrictionEquationsForCollision(
   collision: Collision,
   contactEquations: ReadonlyArray<ContactEquation>,
-  contactMaterial: ContactMaterial
+  contactMaterial: ContactMaterial,
 ): FrictionEquation[] {
   // Only enable equations if all parties have collisionResponse enabled
   const enabled =
@@ -51,7 +51,7 @@ function generateAllFrictionEquationsForCollision(
     const eq = new FrictionEquation(
       contact.bodyA,
       contact.bodyB,
-      INITIAL_SLIP_FORCE
+      INITIAL_SLIP_FORCE,
     );
     eq.shapeA = contact.shapeA;
     eq.shapeB = contact.shapeB;
@@ -76,12 +76,12 @@ function generateAllFrictionEquationsForCollision(
 function generateAverageFrictionEquationForCollision(
   collision: Collision,
   contactEquations: ReadonlyArray<ContactEquation>,
-  contactMaterial: ContactMaterial
+  contactMaterial: ContactMaterial,
 ): FrictionEquation {
   const eq = new FrictionEquation(
     collision.bodyA,
     collision.bodyB,
-    INITIAL_SLIP_FORCE
+    INITIAL_SLIP_FORCE,
   );
 
   eq.shapeA = collision.shapeA;

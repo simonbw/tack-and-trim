@@ -8,7 +8,7 @@
  * Handles its own lifecycle via @on event handlers.
  */
 
-import BaseEntity from "../../../core/entity/BaseEntity";
+import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import type { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
 import { profile } from "../../../core/util/Profiler";

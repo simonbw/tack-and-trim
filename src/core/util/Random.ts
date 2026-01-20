@@ -103,7 +103,7 @@ export function seededShuffle<T>(a: T[], seed: number): T[] {
  */
 export function chooseWeighted<T>(
   items: readonly T[],
-  getWeight: (item: T) => number
+  getWeight: (item: T) => number,
 ): T {
   if (items.length === 0) throw new Error("No items to choose from");
 

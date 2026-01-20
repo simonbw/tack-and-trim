@@ -1,10 +1,10 @@
 import type Entity from "../../entity/Entity";
 import { CompatibleVector, V, V2d } from "../../Vector";
-import AABB from "../collision/AABB";
-import EventEmitter from "../events/EventEmitter";
+import { AABB } from "../collision/AABB";
+import { EventEmitter } from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
-import type Shape from "../shapes/Shape";
-import type World from "../world/World";
+import type { Shape } from "../shapes/Shape";
+import type { World } from "../world/World";
 
 /** Sleep state for dynamic bodies. */
 export enum SleepState {
@@ -34,7 +34,7 @@ export interface BaseBodyOptions {
  * - {@link StaticBody} - immovable geometry
  * - {@link KinematicBody} - scripted motion
  */
-export default abstract class Body extends EventEmitter<PhysicsEventMap> {
+export abstract class Body extends EventEmitter<PhysicsEventMap> {
   /** @internal */
   static _idCounter = 0;
 

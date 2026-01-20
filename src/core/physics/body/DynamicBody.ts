@@ -1,5 +1,5 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import Body, { BaseBodyOptions, SleepState } from "./Body";
+import { BaseBodyOptions, SleepState, Body } from "./Body";
 import { integrateToTimeOfImpact } from "./ccdUtils";
 import { SleepBehavior, type SleepableBody } from "./SleepBehavior";
 
@@ -37,7 +37,7 @@ export interface DynamicBodyOptions extends BaseBodyOptions {
  * A body that responds to forces and collisions.
  * This is the most common body type for game objects like players, projectiles, and physics props.
  */
-export default class DynamicBody extends Body implements SleepableBody {
+export class DynamicBody extends Body implements SleepableBody {
   private _velocity: V2d = V();
   private _angularVelocity: number = 0;
   private _angularForce: number = 0;

@@ -19,15 +19,15 @@ World
 
 ### Core Concepts
 
-| Concept | Description |
-|---------|-------------|
-| **World** | The simulation container. Call `world.step(dt)` each frame. |
-| **Body** | A rigid body with position, angle, and velocity. Contains one or more shapes. |
-| **Shape** | Collision geometry attached to a body (Circle, Box, Convex, etc.) |
-| **Constraint** | Maintains a relationship between two bodies (distance, hinge, rigid lock) |
-| **Spring** | Applies forces to maintain a relationship (softer than constraints) |
-| **Material** | Identifier for collision properties |
-| **ContactMaterial** | Defines friction/restitution between two materials |
+| Concept             | Description                                                                   |
+| ------------------- | ----------------------------------------------------------------------------- |
+| **World**           | The simulation container. Call `world.step(dt)` each frame.                   |
+| **Body**            | A rigid body with position, angle, and velocity. Contains one or more shapes. |
+| **Shape**           | Collision geometry attached to a body (Circle, Box, Convex, etc.)             |
+| **Constraint**      | Maintains a relationship between two bodies (distance, hinge, rigid lock)     |
+| **Spring**          | Applies forces to maintain a relationship (softer than constraints)           |
+| **Material**        | Identifier for collision properties                                           |
+| **ContactMaterial** | Defines friction/restitution between two materials                            |
 
 ## Body Types
 
@@ -43,14 +43,15 @@ const ball = new DynamicBody({
   mass: 1,
   position: [0, 10],
   velocity: [5, 0],
-  damping: 0.1,           // Linear velocity damping
-  angularDamping: 0.1,    // Angular velocity damping
+  damping: 0.1, // Linear velocity damping
+  angularDamping: 0.1, // Angular velocity damping
 });
 ball.addShape(new Circle({ radius: 0.5 }));
 world.bodies.add(ball);
 ```
 
 Key properties:
+
 - `mass` — Total mass (affects acceleration from forces)
 - `velocity` — Current linear velocity
 - `angularVelocity` — Current rotation speed
@@ -72,6 +73,7 @@ world.bodies.add(ground);
 ```
 
 Static bodies:
+
 - Never move (velocity is always zero)
 - Don't respond to forces or impulses
 - Very efficient (excluded from most calculations)
@@ -92,6 +94,7 @@ platform.velocity.set(2, 0); // Move right at 2 units/sec
 ```
 
 Kinematic bodies:
+
 - Set velocity directly (not computed from forces)
 - Push dynamic bodies but aren't pushed back
 - Good for moving platforms, elevators, crushers
@@ -100,28 +103,28 @@ Kinematic bodies:
 
 Shapes define collision geometry. Each body can have multiple shapes.
 
-| Shape | Description | Key Properties |
-|-------|-------------|----------------|
-| `Circle` | Circular collider | `radius` |
-| `Box` | Axis-aligned rectangle | `width`, `height` |
-| `Convex` | Arbitrary convex polygon | `vertices` (array of points) |
-| `Capsule` | Rectangle with rounded ends | `length`, `radius` |
-| `Line` | Line segment | `length` |
-| `Plane` | Infinite plane | `normal` direction |
-| `Particle` | Point collider | (no size) |
-| `Heightfield` | Terrain data | `heights`, `elementWidth` |
+| Shape         | Description                 | Key Properties               |
+| ------------- | --------------------------- | ---------------------------- |
+| `Circle`      | Circular collider           | `radius`                     |
+| `Box`         | Axis-aligned rectangle      | `width`, `height`            |
+| `Convex`      | Arbitrary convex polygon    | `vertices` (array of points) |
+| `Capsule`     | Rectangle with rounded ends | `length`, `radius`           |
+| `Line`        | Line segment                | `length`                     |
+| `Plane`       | Infinite plane              | `normal` direction           |
+| `Particle`    | Point collider              | (no size)                    |
+| `Heightfield` | Terrain data                | `heights`, `elementWidth`    |
 
 ### Shape Options
 
 ```typescript
 new Circle({
   radius: 1,
-  position: [0, 0.5],      // Offset from body center
-  angle: 0,                 // Local rotation
-  collisionGroup: 0x0001,   // What group this shape belongs to
-  collisionMask: 0xFFFF,    // What groups this shape collides with
-  sensor: false,            // If true, detects overlaps but doesn't collide
-  material: myMaterial,     // For friction/restitution lookup
+  position: [0, 0.5], // Offset from body center
+  angle: 0, // Local rotation
+  collisionGroup: 0x0001, // What group this shape belongs to
+  collisionMask: 0xffff, // What groups this shape collides with
+  sensor: false, // If true, detects overlaps but doesn't collide
+  material: myMaterial, // For friction/restitution lookup
 });
 ```
 
@@ -155,10 +158,10 @@ Maintains a fixed distance between two points.
 import DistanceConstraint from "core/physics/constraints/DistanceConstraint";
 
 const rope = new DistanceConstraint(bodyA, bodyB, {
-  distance: 5,                    // Target distance
-  localAnchorA: [0, 0],          // Attachment point on bodyA
-  localAnchorB: [0, 0],          // Attachment point on bodyB
-  collideConnected: false,        // Should connected bodies collide?
+  distance: 5, // Target distance
+  localAnchorA: [0, 0], // Attachment point on bodyA
+  localAnchorB: [0, 0], // Attachment point on bodyB
+  collideConnected: false, // Should connected bodies collide?
 });
 world.constraints.add(rope);
 ```
@@ -171,7 +174,7 @@ A hinge/pivot joint allowing rotation around a point.
 import RevoluteConstraint from "core/physics/constraints/RevoluteConstraint";
 
 const hinge = new RevoluteConstraint(bodyA, bodyB, {
-  worldPivot: [5, 10],           // Pivot point in world coordinates
+  worldPivot: [5, 10], // Pivot point in world coordinates
   collideConnected: false,
 });
 world.constraints.add(hinge);
@@ -193,8 +196,8 @@ world.constraints.add(weld);
 Constraints can be made softer using stiffness and relaxation:
 
 ```typescript
-constraint.setStiffness(1000);   // Lower = softer (default is very high)
-constraint.setRelaxation(4);     // Higher = more damping
+constraint.setStiffness(1000); // Lower = softer (default is very high)
+constraint.setRelaxation(4); // Higher = more damping
 ```
 
 ## Springs
@@ -211,9 +214,9 @@ Connects two points with a spring force.
 import LinearSpring from "core/physics/springs/LinearSpring";
 
 const spring = new LinearSpring(dynamicBodyA, bodyB, {
-  stiffness: 100,                // Spring constant
-  damping: 5,                    // Damping coefficient
-  restLength: 2,                 // Natural length
+  stiffness: 100, // Spring constant
+  damping: 5, // Damping coefficient
+  restLength: 2, // Natural length
   localAnchorA: [0, 0],
   localAnchorB: [0, 0],
 });
@@ -222,13 +225,13 @@ world.addSpring(spring);
 
 ### Other Spring Types
 
-| Spring | Description |
-|--------|-------------|
-| `RotationalSpring` | Applies torque to maintain relative angle |
-| `DampedRotationalSpring` | Rotational spring with separate damping |
-| `RopeSpring` | Only applies force when stretched (pull-only) |
-| `AimSpring` | Rotates body to face a target direction |
-| `RotationalSolenoidSpring` | Continuous spinning force |
+| Spring                     | Description                                   |
+| -------------------------- | --------------------------------------------- |
+| `RotationalSpring`         | Applies torque to maintain relative angle     |
+| `DampedRotationalSpring`   | Rotational spring with separate damping       |
+| `RopeSpring`               | Only applies force when stretched (pull-only) |
+| `AimSpring`                | Rotates body to face a target direction       |
+| `RotationalSolenoidSpring` | Continuous spinning force                     |
 
 ## Materials
 
@@ -242,11 +245,11 @@ const ice = new Material();
 const rubber = new Material();
 
 const iceOnRubber = new ContactMaterial(ice, rubber, {
-  friction: 0.1,          // Friction coefficient (0 = frictionless)
-  restitution: 0.3,       // Bounciness (0 = no bounce, 1 = perfect bounce)
-  stiffness: 1e7,         // Contact stiffness
-  relaxation: 3,          // Contact damping
-  surfaceVelocity: 0,     // For conveyor belts
+  friction: 0.1, // Friction coefficient (0 = frictionless)
+  restitution: 0.3, // Bounciness (0 = no bounce, 1 = perfect bounce)
+  stiffness: 1e7, // Contact stiffness
+  relaxation: 3, // Contact damping
+  surfaceVelocity: 0, // For conveyor belts
 });
 world.contactMaterials.add(iceOnRubber);
 
@@ -278,15 +281,15 @@ world.on("impact", (event) => {
 
 ### Event Types
 
-| Event | Description |
-|-------|-------------|
-| `beginContact` | Two shapes started overlapping |
-| `endContact` | Two shapes stopped overlapping |
-| `impact` | First contact between shapes (with ContactEquation) |
-| `preSolve` | Before constraint solving (can modify equations) |
-| `postStep` | After step completes |
-| `addBody` / `removeBody` | Body added/removed from world |
-| `sleep` / `wakeup` | Body sleep state changed |
+| Event                    | Description                                         |
+| ------------------------ | --------------------------------------------------- |
+| `beginContact`           | Two shapes started overlapping                      |
+| `endContact`             | Two shapes stopped overlapping                      |
+| `impact`                 | First contact between shapes (with ContactEquation) |
+| `preSolve`               | Before constraint solving (can modify equations)    |
+| `postStep`               | After step completes                                |
+| `addBody` / `removeBody` | Body added/removed from world                       |
+| `sleep` / `wakeup`       | Body sleep state changed                            |
 
 ## Raycasting
 
@@ -295,9 +298,10 @@ Cast rays to find intersections with bodies.
 ```typescript
 // Find closest hit
 const hit = world.raycast([0, 0], [10, 0], {
-  collisionMask: 0xFFFF,        // What to hit
-  skipBackfaces: true,          // Ignore hits from inside shapes
-  filter: (body, shape) => {    // Custom filter function
+  collisionMask: 0xffff, // What to hit
+  skipBackfaces: true, // Ignore hits from inside shapes
+  filter: (body, shape) => {
+    // Custom filter function
     return body !== player;
   },
 });
@@ -345,8 +349,8 @@ world.islandSplit = true;
 
 // Configure per-body
 dynamicBody.allowSleep = true;
-dynamicBody.sleepSpeedLimit = 0.2;  // Speed threshold
-dynamicBody.sleepTimeLimit = 1;     // Seconds idle before sleeping
+dynamicBody.sleepSpeedLimit = 0.2; // Speed threshold
+dynamicBody.sleepTimeLimit = 1; // Seconds idle before sleeping
 
 // Manual control
 body.sleep();
@@ -360,8 +364,8 @@ Prevent fast-moving bodies from tunneling through thin objects.
 ```typescript
 const bullet = new DynamicBody({
   mass: 0.1,
-  ccdSpeedThreshold: 100,  // Enable CCD above this speed
-  ccdIterations: 10,       // Binary search iterations
+  ccdSpeedThreshold: 100, // Enable CCD above this speed
+  ccdIterations: 10, // Binary search iterations
 });
 ```
 
@@ -380,8 +384,8 @@ Tune the constraint solver for stability vs. performance.
 ```typescript
 const world = new World({
   solverConfig: {
-    iterations: 10,        // More = more stable, slower
-    tolerance: 0.0001,     // Convergence threshold
+    iterations: 10, // More = more stable, slower
+    tolerance: 0.0001, // Convergence threshold
   },
 });
 ```

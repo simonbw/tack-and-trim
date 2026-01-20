@@ -1,7 +1,7 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import type DynamicBody from "../body/DynamicBody";
-import Spring, { SpringOptions } from "./Spring";
+import type { Body } from "../body/Body";
+import type { DynamicBody } from "../body/DynamicBody";
+import { SpringOptions, Spring } from "./Spring";
 
 /** Options for creating a LinearSpring. */
 export interface LinearSpringOptions extends SpringOptions {
@@ -18,7 +18,7 @@ export interface LinearSpringOptions extends SpringOptions {
 }
 
 /** A spring connecting two points on two bodies. Applies force based on distance from rest length. */
-export default class LinearSpring extends Spring {
+export class LinearSpring extends Spring {
   /** Anchor point on bodyA in local coordinates. */
   localAnchorA: V2d;
   /** Anchor point on bodyB in local coordinates. */
@@ -26,7 +26,11 @@ export default class LinearSpring extends Spring {
   /** Natural length of the spring (no force applied at this length). */
   restLength: number;
 
-  constructor(bodyA: DynamicBody, bodyB: Body, options: LinearSpringOptions = {}) {
+  constructor(
+    bodyA: DynamicBody,
+    bodyB: Body,
+    options: LinearSpringOptions = {},
+  ) {
     super(bodyA, bodyB, options);
 
     this.localAnchorA = V();

@@ -1,5 +1,5 @@
 import { V, V2d } from "../../Vector";
-import Body, { BaseBodyOptions } from "./Body";
+import { BaseBodyOptions, Body } from "./Body";
 
 /** Options for creating a StaticBody. Same as BaseBodyOptions. */
 export interface StaticBodyOptions extends BaseBodyOptions {}
@@ -11,7 +11,7 @@ const ZERO_VELOCITY = Object.freeze(V(0, 0)) as V2d;
  * A static body that never moves and has infinite mass.
  * Use for ground, walls, and other immovable objects.
  */
-export default class StaticBody extends Body {
+export class StaticBody extends Body {
   constructor(options: StaticBodyOptions = {}) {
     super(options);
   }

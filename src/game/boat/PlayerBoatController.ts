@@ -1,4 +1,4 @@
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { Boat } from "./Boat";

@@ -1,12 +1,12 @@
-import FilterSet from "../../util/FilterSet";
-import type Constraint from "../constraints/Constraint";
+import { FilterSet } from "../../util/FilterSet";
+import type { Constraint } from "../constraints/Constraint";
 import { bodyKey } from "./OverlapKeeper";
 
 /** Manages constraints in the physics world. */
-export default class ConstraintManager implements Iterable<Constraint> {
+export class ConstraintManager implements Iterable<Constraint> {
   private items = new Set<Constraint>();
   private dontCollideConnected = new FilterSet<Constraint, Constraint>(
-    (constraint): constraint is Constraint => !constraint.collideConnected
+    (constraint): constraint is Constraint => !constraint.collideConnected,
   );
   /** Cached body keys for constraints with collideConnected=false */
   private _disabledBodyKeys = new Set<string>();
@@ -25,7 +25,9 @@ export default class ConstraintManager implements Iterable<Constraint> {
     this.items.delete(constraint);
     this.dontCollideConnected.remove(constraint);
     if (!constraint.collideConnected) {
-      this._disabledBodyKeys.delete(bodyKey(constraint.bodyA, constraint.bodyB));
+      this._disabledBodyKeys.delete(
+        bodyKey(constraint.bodyA, constraint.bodyB),
+      );
     }
   }
 

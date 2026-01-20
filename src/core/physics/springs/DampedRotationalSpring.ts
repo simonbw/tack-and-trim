@@ -1,8 +1,8 @@
 import { clamp } from "../../util/MathUtil";
-import type Body from "../body/Body";
-import type DynamicBody from "../body/DynamicBody";
+import type { Body } from "../body/Body";
+import type { DynamicBody } from "../body/DynamicBody";
 import type { RotationalSpringOptions } from "./RotationalSpring";
-import RotationalSpring from "./RotationalSpring";
+import { RotationalSpring } from "./RotationalSpring";
 
 /** Options for creating a DampedRotationalSpring. */
 export interface DampedRotationalSpringOptions extends RotationalSpringOptions {
@@ -11,14 +11,14 @@ export interface DampedRotationalSpringOptions extends RotationalSpringOptions {
 }
 
 /** A rotational spring with velocity-based damping and optional torque clamping. */
-export default class DampedRotationalSpring extends RotationalSpring {
+export class DampedRotationalSpring extends RotationalSpring {
   /** Maximum torque magnitude this spring can apply. */
   maxTorque: number;
 
   constructor(
     bodyA: DynamicBody,
     bodyB: Body,
-    options: DampedRotationalSpringOptions = {}
+    options: DampedRotationalSpringOptions = {},
   ) {
     const { maxTorque, ...baseOptions } = options;
     super(bodyA, bodyB, baseOptions);

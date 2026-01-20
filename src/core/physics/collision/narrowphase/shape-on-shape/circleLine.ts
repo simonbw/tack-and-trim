@@ -1,7 +1,7 @@
 import { V2d } from "../../../../Vector";
-import Body from "../../../body/Body";
-import Circle from "../../../shapes/Circle";
-import Line from "../../../shapes/Line";
+import { Body } from "../../../body/Body";
+import { Circle } from "../../../shapes/Circle";
+import { Line } from "../../../shapes/Line";
 import { CollisionResult } from "../../CollisionResult";
 import { circleLineOrCapsule } from "./circleLineOrCapsule";
 

@@ -1,7 +1,7 @@
-import Body from "./Body";
-import DynamicBody from "./DynamicBody";
-import KinematicBody from "./KinematicBody";
-import StaticBody from "./StaticBody";
+import { Body } from "./Body";
+import { DynamicBody } from "./DynamicBody";
+import { KinematicBody } from "./KinematicBody";
+import { StaticBody } from "./StaticBody";
 
 export const isDynamicBody = (body: Body): body is DynamicBody =>
   body instanceof DynamicBody;

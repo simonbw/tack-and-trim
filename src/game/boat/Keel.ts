@@ -1,4 +1,4 @@
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import { pairs } from "../../core/util/FunctionalUtils";
 import { V, V2d } from "../../core/Vector";

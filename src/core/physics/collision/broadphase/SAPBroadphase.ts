@@ -1,15 +1,15 @@
-import type Body from "../../body/Body";
-import type World from "../../world/World";
-import AABB from "../AABB";
+import type { Body } from "../../body/Body";
+import type { World } from "../../world/World";
+import { AABB } from "../AABB";
 import { bodiesCanCollide } from "../CollisionHelpers";
-import Broadphase from "./Broadphase";
+import { Broadphase } from "./Broadphase";
 
 /**
  * Sweep and Prune (SAP) broadphase algorithm.
  * Sorts bodies along one axis and uses the sorted order to quickly find overlapping pairs.
  * Good for scenes where bodies are spread along one axis.
  */
-export default class SAPBroadphase extends Broadphase {
+export class SAPBroadphase extends Broadphase {
   /** Bodies currently tracked by this broadphase, sorted along the chosen axis. */
   axisList: Body[] = [];
 
@@ -138,7 +138,7 @@ export default class SAPBroadphase extends Broadphase {
   aabbQuery(
     _world: World,
     aabb: AABB,
-    _shouldAddBodies: boolean = true
+    _shouldAddBodies: boolean = true,
   ): Iterable<Body> {
     this.sortList();
 

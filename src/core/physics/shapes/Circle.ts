@@ -1,6 +1,6 @@
-import Shape, { ShapeOptions } from "./Shape";
+import { ShapeOptions, Shape } from "./Shape";
 import { V, V2d } from "../../Vector";
-import AABB from "../collision/AABB";
+import { AABB } from "../collision/AABB";
 import type { ShapeRaycastHit } from "../collision/raycast/RaycastHit";
 
 /** Options for creating a Circle. */
@@ -10,7 +10,7 @@ export interface CircleOptions extends ShapeOptions {
 }
 
 /** A circular collision shape. */
-export default class Circle extends Shape {
+export class Circle extends Shape {
   /** The circle's radius. */
   radius: number;
 
@@ -51,7 +51,7 @@ export default class Circle extends Shape {
     to: V2d,
     position: V2d,
     _angle: number,
-    _skipBackfaces: boolean
+    _skipBackfaces: boolean,
   ): ShapeRaycastHit | null {
     const r = this.radius;
 

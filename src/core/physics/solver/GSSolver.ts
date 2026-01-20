@@ -1,7 +1,7 @@
-import type Body from "../body/Body";
-import DynamicBody from "../body/DynamicBody";
-import type Equation from "../equations/Equation";
-import FrictionEquation from "../equations/FrictionEquation";
+import type { Body } from "../body/Body";
+import { DynamicBody } from "../body/DynamicBody";
+import type { Equation } from "../equations/Equation";
+import { FrictionEquation } from "../equations/FrictionEquation";
 import { V, V2d } from "../../Vector";
 import type { Island } from "../world/Island";
 

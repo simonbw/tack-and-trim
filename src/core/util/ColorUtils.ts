@@ -159,7 +159,7 @@ export function hslToRgb({ h, s, l }: HSL): RGB {
  * https://stackoverflow.com/questions/2353211/hsl-to-rgb-color-conversion
  */
 export function rgbToHsl({ r, g, b }: RGB): HSL {
-  (r /= 255), (g /= 255), (b /= 255);
+  ((r /= 255), (g /= 255), (b /= 255));
   var max = Math.max(r, g, b),
     min = Math.min(r, g, b);
   let h: number;
@@ -204,22 +204,22 @@ export function hsvToRgb({ h, s, v }: HSV): RGB {
   t = v * (1 - (1 - f) * s);
   switch (i % 6) {
     case 0:
-      (r = v), (g = t), (b = p);
+      ((r = v), (g = t), (b = p));
       break;
     case 1:
-      (r = q), (g = v), (b = p);
+      ((r = q), (g = v), (b = p));
       break;
     case 2:
-      (r = p), (g = v), (b = t);
+      ((r = p), (g = v), (b = t));
       break;
     case 3:
-      (r = p), (g = q), (b = v);
+      ((r = p), (g = q), (b = v));
       break;
     case 4:
-      (r = t), (g = p), (b = v);
+      ((r = t), (g = p), (b = v));
       break;
     case 5:
-      (r = v), (g = p), (b = q);
+      ((r = v), (g = p), (b = q));
       break;
     default:
       throw new Error("unreachable");

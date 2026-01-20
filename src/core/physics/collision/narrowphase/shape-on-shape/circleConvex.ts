@@ -1,8 +1,8 @@
 import { V, V2d } from "../../../../Vector";
-import Body from "../../../body/Body";
-import Circle from "../../../shapes/Circle";
-import Convex from "../../../shapes/Convex";
-import Shape from "../../../shapes/Shape";
+import { Body } from "../../../body/Body";
+import { Circle } from "../../../shapes/Circle";
+import { Convex } from "../../../shapes/Convex";
+import { Shape } from "../../../shapes/Shape";
 import { pointInConvexLocal } from "../../CollisionHelpers";
 import { CollisionResult, createCollisionResult } from "../../CollisionResult";
 

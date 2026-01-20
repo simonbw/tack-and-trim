@@ -1,7 +1,7 @@
 const EMPTY_SET: ReadonlySet<never> = new Set();
 
 /** A map of lists. Automatically creates and removes lists as needed. */
-export default class MultiMap<K, V> {
+export class MultiMap<K, V> {
   private map: Map<K, Set<V>>;
 
   constructor() {

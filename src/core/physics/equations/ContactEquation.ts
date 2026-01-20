@@ -1,14 +1,14 @@
 import { V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import type Shape from "../shapes/Shape";
+import type { Body } from "../body/Body";
+import type { Shape } from "../shapes/Shape";
 import type { SolverBodyState } from "../solver/GSSolver";
-import Equation from "./Equation";
+import { Equation } from "./Equation";
 
 /**
  * Non-penetration constraint equation. Tries to make the contactPointA and
  * contactPointB vectors coincide, while keeping the applied force repulsive.
  */
-export default class ContactEquation extends Equation {
+export class ContactEquation extends Equation {
   /**
    * Vector from body i center of mass to the contact point.
    */

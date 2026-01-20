@@ -1,4 +1,4 @@
-import type Body from "../../../core/physics/body/Body";
+import type { Body } from "../../../core/physics/body/Body";
 import { clamp, degToRad } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
 import {

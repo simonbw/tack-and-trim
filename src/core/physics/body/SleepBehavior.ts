@@ -10,7 +10,9 @@ export interface SleepableBody {
   angularVelocity: number;
   angularForce: number;
   readonly force: V2d;
-  readonly world: { bodies: { onSleepStateChanged(body: unknown): void } } | null;
+  readonly world: {
+    bodies: { onSleepStateChanged(body: unknown): void };
+  } | null;
   emit(event: { type: "sleep"; body: unknown }): unknown;
   emit(event: { type: "wakeup"; body: unknown }): unknown;
 }
@@ -115,7 +117,7 @@ export class SleepBehavior {
     body: SleepableBody,
     time: number,
     dontSleep: boolean,
-    dt: number
+    dt: number,
   ): void {
     if (!this._allowSleep || this._sleepState === SleepState.SLEEPING) {
       return;

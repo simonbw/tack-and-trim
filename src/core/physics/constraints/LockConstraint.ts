@@ -1,8 +1,8 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import Equation from "../equations/Equation";
+import type { Body } from "../body/Body";
+import { Equation } from "../equations/Equation";
 import { ConstraintOptions } from "./Constraint";
-import Constraint from "./Constraint";
+import { Constraint } from "./Constraint";
 
 /** Options for creating a LockConstraint. */
 export interface LockConstraintOptions extends ConstraintOptions {
@@ -15,7 +15,7 @@ export interface LockConstraintOptions extends ConstraintOptions {
 }
 
 /** Locks the relative position and rotation between two bodies. */
-export default class LockConstraint extends Constraint {
+export class LockConstraint extends Constraint {
   /** The offset of bodyB in bodyA's frame. */
   localOffsetB: V2d;
 
@@ -111,13 +111,9 @@ export default class LockConstraint extends Constraint {
     const bodyB = this.bodyB;
 
     const l = this.localOffsetB.rotate(bodyA.angle);
-    const r = this.localOffsetB
-      .rotate(bodyB.angle - this.localAngleB)
-      .mul(-1);
+    const r = this.localOffsetB.rotate(bodyB.angle - this.localAngleB).mul(-1);
 
-    const t = r
-      .rotate(Math.PI / 2)
-      .normalize();
+    const t = r.rotate(Math.PI / 2).normalize();
 
     const xAxis = V(1, 0);
     const yAxis = V(0, 1);

@@ -67,7 +67,7 @@ function hash2D(x: number, y: number): number {
 export function computeWaveDataAtPoint(
   x: number,
   y: number,
-  params: WaterComputeParams
+  params: WaterComputeParams,
 ): WaveData {
   const { time, waveAmpModNoise, surfaceNoise } = params;
 
@@ -78,7 +78,7 @@ export function computeWaveDataAtPoint(
     waveAmpModNoise(
       x * WAVE_AMP_MOD_SPATIAL_SCALE,
       y * WAVE_AMP_MOD_SPATIAL_SCALE,
-      ampModTime
+      ampModTime,
     ) *
       WAVE_AMP_MOD_STRENGTH;
 
@@ -120,7 +120,7 @@ export function computeWaveDataAtPoint(
       const toPointX = x - sourceX;
       const toPointY = y - sourceY;
       const distFromSource = Math.sqrt(
-        toPointX * toPointX + toPointY * toPointY
+        toPointX * toPointX + toPointY * toPointY,
       );
 
       // Local wave direction is radial from source
@@ -171,7 +171,7 @@ export function computeWaveDataAtPoint(
       const toPointX = sampleX - sourceX;
       const toPointY = sampleY - sourceY;
       const distFromSource = Math.sqrt(
-        toPointX * toPointX + toPointY * toPointY
+        toPointX * toPointX + toPointY * toPointY,
       );
 
       phase = k * distFromSource - omega * time + phaseOffset;

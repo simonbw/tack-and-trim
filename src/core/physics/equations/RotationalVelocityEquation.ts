@@ -1,11 +1,11 @@
-import type Body from "../body/Body";
+import type { Body } from "../body/Body";
 import type { SolverBodyState } from "../solver/GSSolver";
-import Equation from "./Equation";
+import { Equation } from "./Equation";
 
 /**
  * Syncs rotational velocity of two bodies, or sets a relative velocity (motor).
  */
-export default class RotationalVelocityEquation extends Equation {
+export class RotationalVelocityEquation extends Equation {
   ratio: number = 1;
 
   constructor(bodyA: Body, bodyB: Body) {

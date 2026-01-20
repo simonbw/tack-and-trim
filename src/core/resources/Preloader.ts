@@ -1,8 +1,8 @@
 import type { VNode } from "preact";
 import { SoundName } from "../../../resources/resources";
-import Game from "../Game";
+import { Game } from "../Game";
 import { ReactEntity } from "../ReactEntity";
-import BaseEntity from "../entity/BaseEntity";
+import { BaseEntity } from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
 import { on } from "../entity/handler";
 import { getBiggestSounds, getTotalSoundBytes, loadSound } from "./sounds";
@@ -31,7 +31,7 @@ interface RenderInfo {
  * with progress tracking. Provides real-time loading feedback through
  * React UI components and resolves when all assets are ready.
  */
-export default class ReactPreloader extends BaseEntity implements Entity {
+export class ReactPreloader extends BaseEntity implements Entity {
   private _resolve!: () => void;
   private _promise!: Promise<void>;
 

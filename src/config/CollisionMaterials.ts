@@ -1,5 +1,5 @@
-import ContactMaterial from "../core/physics/material/ContactMaterial";
-import Material from "../core/physics/material/Material";
+import { ContactMaterial } from "../core/physics/material/ContactMaterial";
+import { Material } from "../core/physics/material/Material";
 import { objectEntries } from "../core/util/ObjectUtils";
 
 export const Materials = {
@@ -8,7 +8,7 @@ export const Materials = {
 
 const MaterialToName: { [id: number]: keyof typeof Materials } =
   Object.fromEntries(
-    objectEntries(Materials).map(([name, material]) => [material.id, name])
+    objectEntries(Materials).map(([name, material]) => [material.id, name]),
   );
 
 export function getMaterialName(material: Material): string {

@@ -46,7 +46,7 @@ export function invLerp(a: number, b: number, value: number): number {
 export function lerpV2d(
   a: ArrayLike<number>,
   b: ArrayLike<number>,
-  t: number = 0.5
+  t: number = 0.5,
 ): V2d {
   const x = lerp(a[0], b[0], t);
   const y = lerp(a[1], b[1], t);
@@ -57,7 +57,7 @@ export function lerpOrSnap(
   a: number,
   b: number,
   t: number = 0.5,
-  threshold: number = 0.01
+  threshold: number = 0.01,
 ): number {
   if (Math.abs(b - a) < threshold) {
     return b;

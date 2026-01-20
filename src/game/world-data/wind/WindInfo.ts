@@ -10,9 +10,9 @@
  */
 
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
-import BaseEntity from "../../../core/entity/BaseEntity";
+import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import Game from "../../../core/Game";
+import { Game } from "../../../core/Game";
 import { profile } from "../../../core/util/Profiler";
 import { SparseSpatialHash } from "../../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../../core/Vector";

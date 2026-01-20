@@ -1,6 +1,6 @@
-import Game from "../Game";
+import { Game } from "../Game";
 import { V2d } from "../Vector";
-import BaseEntity from "../entity/BaseEntity";
+import { BaseEntity } from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
 import { PositionalSound } from "./PositionalSound";
 
@@ -9,10 +9,7 @@ function isPositionalSound(e: Entity): e is PositionalSound {
 }
 
 // Like Camera but for audio
-export default class PositionalSoundListener
-  extends BaseEntity
-  implements Entity
-{
+export class PositionalSoundListener extends BaseEntity implements Entity {
   id = "positional_sound_listener";
   persistenceLevel = 100;
 
@@ -29,9 +26,9 @@ export default class PositionalSoundListener
 }
 
 export function getPositionalSoundListener(
-  game?: Game
+  game?: Game,
 ): PositionalSoundListener | undefined {
   return game?.entities.getById(
-    "positional_sound_listener"
+    "positional_sound_listener",
   ) as PositionalSoundListener;
 }

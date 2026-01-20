@@ -4,10 +4,10 @@ import Entity, { GameEventHandler, GameEventName } from "./entity/Entity";
 import { getHandlers } from "./entity/handler";
 import { EntityFilter, hasBody } from "./EntityFilter";
 import { FilterMultiMap } from "./util/FilterListMap";
-import MultiMap from "./util/MultiMap";
+import { MultiMap } from "./util/MultiMap";
 
 /** Keeps track of entities. Has lots of useful indexes. */
-export default class EntityList implements Iterable<Entity> {
+export class EntityList implements Iterable<Entity> {
   /** Maps entity ids to entities */
   private idToEntity = new Map<string, Entity>();
   /** Maps tags to entities */

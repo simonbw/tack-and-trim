@@ -1,4 +1,4 @@
-import BaseEntity from "../core/entity/BaseEntity";
+import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import type { Draw } from "../core/graphics/Draw";
 import { clamp, lerp } from "../core/util/MathUtil";

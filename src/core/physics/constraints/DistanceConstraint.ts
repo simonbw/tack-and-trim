@@ -1,7 +1,7 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import Equation from "../equations/Equation";
-import Constraint, { ConstraintOptions } from "./Constraint";
+import type { Body } from "../body/Body";
+import { Equation } from "../equations/Equation";
+import { ConstraintOptions, Constraint } from "./Constraint";
 
 /** Options for creating a DistanceConstraint. */
 export interface DistanceConstraintOptions extends ConstraintOptions {
@@ -16,7 +16,7 @@ export interface DistanceConstraintOptions extends ConstraintOptions {
 }
 
 /** Constraint that tries to keep the distance between two bodies constant. */
-export default class DistanceConstraint extends Constraint {
+export class DistanceConstraint extends Constraint {
   /** Local anchor in body A. */
   localAnchorA: V2d;
 
@@ -50,7 +50,7 @@ export default class DistanceConstraint extends Constraint {
   constructor(
     bodyA: Body,
     bodyB: Body,
-    options: DistanceConstraintOptions = {}
+    options: DistanceConstraintOptions = {},
   ) {
     super(bodyA, bodyB, options);
 

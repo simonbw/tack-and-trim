@@ -1,6 +1,6 @@
 import { V, V2d } from "../../Vector";
-import type Body from "../body/Body";
-import Equation from "./Equation";
+import type { Body } from "../body/Body";
+import { Equation } from "./Equation";
 
 export interface RotationalLockEquationOptions {
   angle?: number;
@@ -10,13 +10,13 @@ export interface RotationalLockEquationOptions {
  * Locks the relative angle between two bodies. The constraint tries to keep
  * the dot product between two vectors, local in each body, to zero.
  */
-export default class RotationalLockEquation extends Equation {
+export class RotationalLockEquation extends Equation {
   angle: number;
 
   constructor(
     bodyA: Body,
     bodyB: Body,
-    options: RotationalLockEquationOptions = {}
+    options: RotationalLockEquationOptions = {},
   ) {
     super(bodyA, bodyB, -Number.MAX_VALUE, Number.MAX_VALUE);
 

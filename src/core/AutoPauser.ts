@@ -1,9 +1,9 @@
-import BaseEntity from "./entity/BaseEntity";
+import { BaseEntity } from "./entity/BaseEntity";
 import Entity from "./entity/Entity";
 import { on } from "./entity/handler";
 
 /** Pauses and unpauses the game when visibility is lost. */
-export default class AutoPauser extends BaseEntity implements Entity {
+export class AutoPauser extends BaseEntity implements Entity {
   pausable = false;
   persistenceLevel = 100;
 

@@ -1,4 +1,4 @@
-import BaseEntity from "../../core/entity/BaseEntity";
+import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import { stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";

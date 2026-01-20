@@ -1,11 +1,9 @@
-import ContactMaterial from "../material/ContactMaterial";
-import Material from "../material/Material";
-import TupleMap from "../utils/TupleMap";
+import { ContactMaterial } from "../material/ContactMaterial";
+import { Material } from "../material/Material";
+import { TupleMap } from "../utils/TupleMap";
 
 /** Manages contact materials with O(1) lookup by material pair. */
-export default class ContactMaterialManager
-  implements Iterable<ContactMaterial>
-{
+export class ContactMaterialManager implements Iterable<ContactMaterial> {
   readonly defaultMaterial: Material;
   readonly defaultContactMaterial: ContactMaterial;
   private byMaterialPair = new TupleMap<ContactMaterial>();
@@ -14,7 +12,7 @@ export default class ContactMaterialManager
     this.defaultMaterial = defaultMaterial;
     this.defaultContactMaterial = new ContactMaterial(
       defaultMaterial,
-      defaultMaterial
+      defaultMaterial,
     );
   }
 
@@ -31,7 +29,7 @@ export default class ContactMaterialManager
   /** Get a contact material for the given material pair. */
   get(
     materialA: Material = this.defaultMaterial,
-    materialB: Material = this.defaultMaterial
+    materialB: Material = this.defaultMaterial,
   ): ContactMaterial {
     return (
       this.byMaterialPair.get(materialA.id, materialB.id) ??

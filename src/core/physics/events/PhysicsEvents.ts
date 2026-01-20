@@ -1,8 +1,8 @@
-import Body from "../body/Body";
-import type ContactEquation from "../equations/ContactEquation";
-import type FrictionEquation from "../equations/FrictionEquation";
-import Shape from "../shapes/Shape";
-import type Spring from "../springs/Spring";
+import { Body } from "../body/Body";
+import type { ContactEquation } from "../equations/ContactEquation";
+import type { FrictionEquation } from "../equations/FrictionEquation";
+import { Shape } from "../shapes/Shape";
+import type { Spring } from "../springs/Spring";
 
 /**
  * Discriminated union type for all physics events.

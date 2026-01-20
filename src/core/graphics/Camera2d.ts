@@ -1,5 +1,5 @@
 import { ReadonlyV2d, V, V2d } from "../Vector";
-import BaseEntity from "../entity/BaseEntity";
+import { BaseEntity } from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
 import { on } from "../entity/handler";
 import { lerpOrSnap } from "../util/MathUtil";

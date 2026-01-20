@@ -1,6 +1,6 @@
-import type Body from "../body/Body";
-import type ContactEquation from "../equations/ContactEquation";
-import type Shape from "../shapes/Shape";
+import type { Body } from "../body/Body";
+import type { ContactEquation } from "../equations/ContactEquation";
+import type { Shape } from "../shapes/Shape";
 
 /** Input: current frame's overlapping shape pairs with their contact equations */
 export interface ShapeOverlap {
@@ -54,7 +54,7 @@ export function bodyKey(bodyA: Body, bodyB: Body): string {
  * Tracks shape overlaps between frames to detect begin/end contact events.
  * Also tracks body-level overlaps for bodiesAreOverlapping() queries.
  */
-export default class OverlapKeeper {
+export class OverlapKeeper {
   private previousShapeOverlaps = new Map<string, EndedOverlap>();
   private previousBodyOverlaps = new Set<string>();
   private currentBodyOverlaps = new Set<string>();
