@@ -9,11 +9,8 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { AABB } from "../../core/util/SparseSpatialHash";
-import { V, V2d } from "../../core/Vector";
-import type {
-  QueryForecast,
-  TerrainQuerier,
-} from "../datatiles/DataTileTypes";
+import { V } from "../../core/Vector";
+import type { QueryForecast, TerrainQuerier } from "../datatiles/DataTileTypes";
 import { TerrainInfo } from "../terrain/TerrainInfo";
 import type { Boat } from "./Boat";
 import type { GroundingConfig } from "./BoatConfig";
@@ -60,8 +57,8 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
     this.cachedAABB.maxX = bodyAABB.upperBound[0] + QUERY_MARGIN;
     this.cachedAABB.maxY = bodyAABB.upperBound[1] + QUERY_MARGIN;
 
-    // Query count: keel (2 ends) + rudder (1) + hull center (1)
-    const queryCount = 4;
+    // Query count: keel (all vertices) + rudder (1) + hull center (1)
+    const queryCount = this.boat.config.keel.vertices.length + 2;
 
     return {
       aabb: this.cachedAABB,
@@ -98,13 +95,13 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
       // keelDraft below water, they intersect when terrainHeight > -keelDraft
       // Since terrain height is positive (above water) and we're checking if
       // the keel (below water) hits it, penetration = terrainHeight + keelDraft
-      const penetration = terrainHeight - (-this.keelDraft);
+      const penetration = terrainHeight - -this.keelDraft;
 
       if (penetration > 0) {
         const friction = this.computeFriction(
           penetration,
           speed,
-          this.config.keelFriction
+          this.config.keelFriction,
         );
         totalForce.isub(velocity.normalize().mul(friction));
       }
@@ -113,13 +110,13 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
     // Check rudder grounding
     const rudderWorldPos = body.toWorldFrame(this.boat.config.rudder.position);
     const rudderTerrainHeight = terrainInfo.getHeightAtPoint(rudderWorldPos);
-    const rudderPenetration = rudderTerrainHeight - (-this.rudderDraft);
+    const rudderPenetration = rudderTerrainHeight - -this.rudderDraft;
 
     if (rudderPenetration > 0) {
       const friction = this.computeFriction(
         rudderPenetration,
         speed,
-        this.config.rudderFriction
+        this.config.rudderFriction,
       );
       totalForce.isub(velocity.normalize().mul(friction));
     }
@@ -127,13 +124,13 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
     // Check hull grounding (use center of hull)
     const hullCenterPos = body.position;
     const hullTerrainHeight = terrainInfo.getHeightAtPoint(hullCenterPos);
-    const hullPenetration = hullTerrainHeight - (-this.hullDraft);
+    const hullPenetration = hullTerrainHeight - -this.hullDraft;
 
     if (hullPenetration > 0) {
       const friction = this.computeFriction(
         hullPenetration,
         speed,
-        this.config.hullFriction
+        this.config.hullFriction,
       );
       totalForce.isub(velocity.normalize().mul(friction));
     }
@@ -151,7 +148,7 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
   private computeFriction(
     penetration: number,
     speed: number,
-    coefficient: number
+    coefficient: number,
   ): number {
     return coefficient * penetration * speed;
   }

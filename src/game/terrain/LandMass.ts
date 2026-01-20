@@ -11,19 +11,19 @@ import {
  */
 export interface LandMass {
   /** Catmull-Rom control points defining coastline (closed loop) */
-  controlPoints: V2d[];
+  readonly controlPoints: readonly V2d[];
 
   /** Max height above water (ft), e.g., 3-8 ft for sandy islands */
-  peakHeight: number;
+  readonly peakHeight: number;
 
   /** Distance from shore where terrain starts rising (ft), e.g., 15-30 ft */
-  beachWidth: number;
+  readonly beachWidth: number;
 
   /** Noise spatial scale for rolling hills */
-  hillFrequency: number;
+  readonly hillFrequency: number;
 
   /** Height variation as fraction of peakHeight */
-  hillAmplitude: number;
+  readonly hillAmplitude: number;
 }
 
 /**
@@ -55,7 +55,7 @@ export const FLOATS_PER_LANDMASS = 8;
  */
 export function createLandMass(
   controlPoints: V2d[],
-  overrides: Partial<Omit<LandMass, "controlPoints">> = {}
+  overrides: Partial<Omit<LandMass, "controlPoints">> = {},
 ): LandMass {
   return {
     controlPoints,
@@ -87,7 +87,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
 
   // Use ArrayBuffer + DataView to write mixed u32/f32 data correctly
   const landMassBuffer = new ArrayBuffer(
-    definition.landMasses.length * FLOATS_PER_LANDMASS * 4
+    definition.landMasses.length * FLOATS_PER_LANDMASS * 4,
   );
   const landMassView = new DataView(landMassBuffer);
 

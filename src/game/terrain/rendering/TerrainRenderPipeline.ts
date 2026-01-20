@@ -93,12 +93,11 @@ export class TerrainRenderPipeline {
 
   /**
    * Add a land mass to the terrain.
+   * Not supported - use setTerrainDefinition instead.
    */
-  addLandMass(landMass: LandMass): void {
-    // This requires keeping track of land masses, so delegate to external
-    // TerrainInfo for now. Direct add is not supported without tracking state.
-    console.warn(
-      "TerrainRenderPipeline.addLandMass: Use setTerrainDefinition instead"
+  addLandMass(_landMass: LandMass): void {
+    throw new Error(
+      "TerrainRenderPipeline.addLandMass is not supported. Use setTerrainDefinition instead.",
     );
   }
 
@@ -111,7 +110,7 @@ export class TerrainRenderPipeline {
     viewport: TerrainViewport,
     time: number,
     gpuProfiler?: GPUProfiler | null,
-    section: GPUProfileSection = "terrainCompute"
+    section: GPUProfileSection = "terrainCompute",
   ): void {
     if (
       !this.initialized ||

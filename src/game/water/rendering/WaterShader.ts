@@ -11,7 +11,7 @@
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { WebGPUFullscreenQuad } from "../../../core/graphics/webgpu/WebGPUFullscreenQuad";
 import { TERRAIN_TEXTURE_SIZE } from "../../terrain/TerrainConstants";
-import { WATER_TEXTURE_SIZE } from "../WaterConstants";
+import { WATER_HEIGHT_SCALE, WATER_TEXTURE_SIZE } from "../WaterConstants";
 
 // Terrain constants
 const MAX_TERRAIN_HEIGHT = 20.0;
@@ -48,6 +48,7 @@ const PI: f32 = 3.14159265359;
 const TEXTURE_SIZE: f32 = ${WATER_TEXTURE_SIZE}.0;
 const TERRAIN_TEX_SIZE: f32 = ${TERRAIN_TEXTURE_SIZE}.0;
 const MAX_TERRAIN_HEIGHT: f32 = ${MAX_TERRAIN_HEIGHT};
+const WATER_HEIGHT_SCALE: f32 = ${WATER_HEIGHT_SCALE};
 
 // Sample terrain height with bilinear filtering
 // Returns signed height: negative = underwater depth, positive = above water
@@ -190,7 +191,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let terrainHeight = sampleTerrain(dataUV);
 
   // Calculate water depth (water surface height - terrain height)
-  let waterSurfaceHeight = (rawHeight - 0.5) * 5.0;  // Denormalize to world units
+  let waterSurfaceHeight = (rawHeight - 0.5) * WATER_HEIGHT_SCALE;  // Denormalize to world units
   let waterDepth = waterSurfaceHeight - terrainHeight;
 
   // Debug mode: show terrain in brown, water in blue
@@ -289,9 +290,16 @@ export class WaterShader {
   private lastTerrainTexture: GPUTextureView | null = null;
 
   constructor() {
-    // Uniform buffer layout:
-    // mat3x3 (3x vec4 = 48 bytes) + time (4) + renderMode (4) + screenSize (8) +
-    // viewport (16) + colorNoiseStrength (4) + hasTerrainData (4) + shallowThreshold (4) = 92 bytes, round to 96
+    // Uniform buffer layout (96 bytes total for WebGPU 16-byte alignment):
+    // Indices 0-11:  mat3x3 (3x vec4 = 48 bytes, padded columns)
+    // Index 12:      time (f32)
+    // Index 13:      renderMode (i32 as f32)
+    // Index 14-15:   screenWidth, screenHeight (f32)
+    // Index 16-19:   viewport bounds (left, top, width, height) (f32)
+    // Index 20:      colorNoiseStrength (f32)
+    // Index 21:      hasTerrainData (i32 as f32)
+    // Index 22:      shallowThreshold (f32)
+    // Index 23:      unused (padding to 96 bytes)
     this.uniformData = new Float32Array(24); // 96 bytes / 4
 
     // Default values
@@ -338,7 +346,7 @@ export class WaterShader {
       { texture: this.placeholderTerrainTexture },
       new Float32Array([-50, 0, 0, 1]),
       { bytesPerRow: 16 },
-      { width: 1, height: 1 }
+      { width: 1, height: 1 },
     );
 
     // Create bind group layout (with terrain texture)
@@ -439,7 +447,7 @@ export class WaterShader {
     left: number,
     top: number,
     width: number,
-    height: number
+    height: number,
   ): void {
     this.uniformData[16] = left;
     this.uniformData[17] = top;
@@ -465,7 +473,7 @@ export class WaterShader {
   render(
     renderPass: GPURenderPassEncoder,
     waterTextureView: GPUTextureView,
-    terrainTextureView?: GPUTextureView | null
+    terrainTextureView?: GPUTextureView | null,
   ): void {
     if (!this.pipeline || !this.quad || !this.uniformBuffer) {
       return;

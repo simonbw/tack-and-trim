@@ -25,6 +25,7 @@ import {
   WaterComputeParams,
 } from "./cpu/WaterComputeCPU";
 import { WakeParticle } from "./WakeParticle";
+import { WATER_HEIGHT_SCALE, WATER_VELOCITY_SCALE } from "./WaterConstants";
 import { isWaterModifier, WaterModifier } from "./WaterModifier";
 import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
 import {
@@ -88,10 +89,10 @@ const WATER_READBACK_CONFIG: DataTileReadbackConfig<WaterPhysicsData> = {
     velocityY: c[3],
   }),
   denormalize: (s) => ({
-    height: (s.height - 0.5) * 5.0,
-    dhdt: (s.dhdt - 0.5) * 10.0,
-    velocityX: (s.velocityX - 0.5) * 10.0,
-    velocityY: (s.velocityY - 0.5) * 10.0,
+    height: (s.height - 0.5) * WATER_HEIGHT_SCALE,
+    dhdt: (s.dhdt - 0.5) * WATER_VELOCITY_SCALE,
+    velocityX: (s.velocityX - 0.5) * WATER_VELOCITY_SCALE,
+    velocityY: (s.velocityY - 0.5) * WATER_VELOCITY_SCALE,
   }),
 };
 
@@ -283,10 +284,7 @@ export class WaterInfo extends BaseEntity {
   private getStateAtPointGPU(point: V2d): WaterState | null {
     if (!this.tilePipeline) return null;
 
-    const physicsData = this.tilePipeline.sampleAtWorldPoint(
-      point[0],
-      point[1],
-    );
+    const physicsData = this.tilePipeline.sampleAtWorldPoint(point);
     if (physicsData) {
       return {
         velocity: V(physicsData.velocityX, physicsData.velocityY),

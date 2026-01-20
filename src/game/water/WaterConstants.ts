@@ -48,6 +48,12 @@ export const WAVE_COMPONENTS: readonly [
 
 export const NUM_WAVES = WAVE_COMPONENTS.length;
 
+// Normalization scales for water data (world units to [0,1] range)
+// Height: raw range ~[-2.5, 2.5] maps to [0, 1] via (height / 5.0 + 0.5)
+export const WATER_HEIGHT_SCALE = 5.0;
+// Velocity/dh/dt: raw range ~[-5, 5] maps to [0, 1] via (value / 10.0 + 0.5)
+export const WATER_VELOCITY_SCALE = 10.0;
+
 /**
  * Build wave data as a flat Float32Array for GPU uniform upload.
  * Each wave has 8 components.

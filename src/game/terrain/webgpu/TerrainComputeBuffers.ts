@@ -46,8 +46,15 @@ export class TerrainComputeBuffers {
     const device = getWebGPU().device;
 
     // Params uniform buffer (32 bytes)
-    // Layout: time, viewportLeft, viewportTop, viewportWidth, viewportHeight,
-    //         textureSizeX, textureSizeY, landMassCount
+    // Layout (byte offsets):
+    //   0-3:   time (f32)
+    //   4-7:   viewportLeft (f32)
+    //   8-11:  viewportTop (f32)
+    //   12-15: viewportWidth (f32)
+    //   16-19: viewportHeight (f32)
+    //   20-23: textureSizeX (f32)
+    //   24-27: textureSizeY (f32)
+    //   28-31: landMassCount (u32)
     this.paramsBuffer = device.createBuffer({
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -82,7 +89,7 @@ export class TerrainComputeBuffers {
     device.queue.writeBuffer(
       this.controlPointsBuffer,
       0,
-      controlPointsData.buffer
+      controlPointsData.buffer,
     );
     // landMassData is already an ArrayBuffer (not Float32Array) since it has mixed u32/f32 fields
     device.queue.writeBuffer(this.landMassBuffer, 0, landMassData);

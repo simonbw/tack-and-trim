@@ -1,5 +1,5 @@
 import { createNoise2D, NoiseFunction2D } from "simplex-noise";
-import { V2d } from "../../../core/Vector";
+import { V, V2d } from "../../../core/Vector";
 import { LandMass, TerrainDefinition } from "../LandMass";
 import { SPLINE_SUBDIVISIONS } from "../TerrainConstants";
 
@@ -50,7 +50,7 @@ export class TerrainComputeCPU {
   private computeHeightProfile(
     point: V2d,
     signedDist: number,
-    landMass: LandMass
+    landMass: LandMass,
   ): number {
     // signedDist is negative inside (distance from shore inward)
     const distInland = -signedDist;
@@ -62,7 +62,7 @@ export class TerrainComputeCPU {
     // Rolling hills via noise
     const hillNoise = this.hillNoise(
       point.x * landMass.hillFrequency,
-      point.y * landMass.hillFrequency
+      point.y * landMass.hillFrequency,
     );
     const hillVariation = 1 + hillNoise * landMass.hillAmplitude;
 
@@ -73,7 +73,7 @@ export class TerrainComputeCPU {
    * Subdivide Catmull-Rom spline into line segments.
    * Closed loop - last point connects back to first.
    */
-  private subdivideSpline(controlPoints: V2d[]): V2d[] {
+  private subdivideSpline(controlPoints: readonly V2d[]): V2d[] {
     const n = controlPoints.length;
     if (n < 2) return [...controlPoints];
 
@@ -145,8 +145,7 @@ function catmullRomPoint(p0: V2d, p1: V2d, p2: V2d, p3: V2d, t: number): V2d {
       (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
       (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
 
-  // Create a plain object with x,y properties - V constructor will handle it
-  return { x, y } as V2d;
+  return V(x, y);
 }
 
 /**

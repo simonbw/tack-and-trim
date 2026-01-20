@@ -8,6 +8,7 @@
 
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import { profile } from "../../core/util/Profiler";
+import type { V2d } from "../../core/Vector";
 import {
   DataTileReadbackBuffer,
   DataTileReadbackConfig,
@@ -237,8 +238,8 @@ export class DataTileComputePipeline<
    * Sample from the tile at a world point.
    * Returns null if point is not in an active tile.
    */
-  sampleAtWorldPoint(worldX: number, worldY: number): TSample | null {
-    const tile = this.tileManager.findTileForPoint(worldX, worldY);
+  sampleAtWorldPoint(point: V2d): TSample | null {
+    const tile = this.tileManager.findTileForPoint(point.x, point.y);
     if (!tile || tile.bufferIndex < 0) {
       return null;
     }
@@ -246,7 +247,7 @@ export class DataTileComputePipeline<
     const buffer = this.buffers[tile.bufferIndex];
     if (!buffer) return null;
 
-    const result = buffer.sampleAt(worldX, worldY);
+    const result = buffer.sampleAt(point.x, point.y);
     if (result) {
       this.stats.tileHits++;
     }

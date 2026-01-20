@@ -163,7 +163,7 @@ export class TerrainInfo extends BaseEntity {
     >(
       TERRAIN_TILE_CONFIG,
       TERRAIN_READBACK_CONFIG,
-      (resolution) => new TerrainDataTileCompute(buffers, resolution)
+      (resolution) => new TerrainDataTileCompute(buffers, resolution),
     );
     await this.tilePipeline.init();
 
@@ -180,11 +180,14 @@ export class TerrainInfo extends BaseEntity {
     this.tilePipeline.resetScores();
 
     for (const entity of this.game!.entities.getTagged("terrainQuerier")) {
-      if (isTerrainQuerier(entity)) {
-        const forecast = entity.getTerrainQueryForecast();
-        if (forecast) {
-          this.tilePipeline.accumulateForecast(forecast);
-        }
+      if (!isTerrainQuerier(entity)) {
+        throw new Error(
+          `Entity tagged as "terrainQuerier" does not implement TerrainQuerier interface: ${(entity as { id?: string }).id ?? entity}`,
+        );
+      }
+      const forecast = entity.getTerrainQueryForecast();
+      if (forecast) {
+        this.tilePipeline.accumulateForecast(forecast);
       }
     }
   }
@@ -208,10 +211,10 @@ export class TerrainInfo extends BaseEntity {
           viewport.left,
           viewport.top,
           viewport.width,
-          viewport.height
+          viewport.height,
         );
       },
-      gpuProfiler
+      gpuProfiler,
     );
   }
 
@@ -224,7 +227,7 @@ export class TerrainInfo extends BaseEntity {
   getHeightAtPoint(point: V2d): number {
     // Try GPU path if initialized
     if (this.gpuInitialized && this.tilePipeline) {
-      const result = this.tilePipeline.sampleAtWorldPoint(point[0], point[1]);
+      const result = this.tilePipeline.sampleAtWorldPoint(point);
       if (result) {
         return result.height;
       }

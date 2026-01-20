@@ -25,6 +25,8 @@ import {
   WAVE_AMP_MOD_SPATIAL_SCALE,
   WAVE_AMP_MOD_TIME_SCALE,
   WAVE_AMP_MOD_STRENGTH,
+  WATER_HEIGHT_SCALE,
+  WATER_VELOCITY_SCALE,
 } from "../WaterConstants";
 import { MAX_SEGMENTS, FLOATS_PER_SEGMENT } from "./WaterComputeBuffers";
 
@@ -50,6 +52,8 @@ const HEIGHT_SCALE: f32 = ${HEIGHT_SCALE};
 const MAX_SEGMENTS: u32 = ${MAX_SEGMENTS}u;
 const FLOATS_PER_SEGMENT: u32 = ${FLOATS_PER_SEGMENT}u;
 const WATER_VELOCITY_FACTOR: f32 = ${WATER_VELOCITY_FACTOR};
+const WATER_HEIGHT_NORM_SCALE: f32 = ${WATER_HEIGHT_SCALE};
+const WATER_VELOCITY_NORM_SCALE: f32 = ${WATER_VELOCITY_SCALE};
 
 // ============================================================================
 // Uniforms and Bindings
@@ -341,10 +345,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   // Combined output
   let totalHeight = waveHeight + modifierHeight;
-  let normalizedHeight = totalHeight / 5.0 + 0.5;
-  let normalizedDhdt = waveDhdt / 10.0 + 0.5;
-  let normalizedVelX = modifierVelX / 10.0 + 0.5;
-  let normalizedVelY = modifierVelY / 10.0 + 0.5;
+  let normalizedHeight = totalHeight / WATER_HEIGHT_NORM_SCALE + 0.5;
+  let normalizedDhdt = waveDhdt / WATER_VELOCITY_NORM_SCALE + 0.5;
+  let normalizedVelX = modifierVelX / WATER_VELOCITY_NORM_SCALE + 0.5;
+  let normalizedVelY = modifierVelY / WATER_VELOCITY_NORM_SCALE + 0.5;
 
   textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(normalizedHeight, normalizedDhdt, normalizedVelX, normalizedVelY));
 }

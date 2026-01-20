@@ -237,7 +237,7 @@ export class WindInfo extends BaseEntity {
   getVelocityAtPoint(point: V2d): V2d {
     // Try GPU path if initialized
     if (this.gpuInitialized && this.tilePipeline) {
-      const result = this.tilePipeline.sampleAtWorldPoint(point[0], point[1]);
+      const result = this.tilePipeline.sampleAtWorldPoint(point);
       if (result) {
         return V(result.velocityX, result.velocityY);
       }
