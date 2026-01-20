@@ -49,6 +49,14 @@ export function on<K extends GameEventName>(event: K) {
     context.addInitializer(function (this: unknown) {
       const instance = this as object;
 
+      // Validate method name matches expected pattern
+      const expectedName = `on${event.charAt(0).toUpperCase()}${event.slice(1)}`;
+      if (methodName !== expectedName) {
+        throw new Error(
+          `@on("${event}") requires the method to be named "${expectedName}", but found "${methodName}"`,
+        );
+      }
+
       // Find which class in the prototype chain actually owns this method
       let proto = Object.getPrototypeOf(instance);
       while (proto && proto !== Object.prototype) {
