@@ -1,6 +1,6 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import { WindInfo } from "../wind/WindInfo";
+import { WindInfo } from "../world-data/wind/WindInfo";
 import { WindVisualizationMode } from "./WindVisualizationMode";
 import { WorldSpaceWindVisualization } from "./WorldSpaceWindVisualization";
 

@@ -1,6 +1,6 @@
 import { Camera2d, Viewport } from "../../core/graphics/Camera2d";
 import type { Draw } from "../../core/graphics/Draw";
-import type { WindInfo } from "../wind/WindInfo";
+import type { WindInfo } from "../world-data/wind/WindInfo";
 
 export interface WindVisualizationMode {
   /**

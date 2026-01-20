@@ -2,7 +2,7 @@ import { Camera2d, Viewport } from "../../core/graphics/Camera2d";
 import type { Draw } from "../../core/graphics/Draw";
 import { clamp, lerp } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
-import type { WindInfo } from "../wind/WindInfo";
+import type { WindInfo } from "../world-data/wind/WindInfo";
 import { WindVisualizationMode } from "./WindVisualizationMode";
 
 // Grid configuration - adaptive LOD

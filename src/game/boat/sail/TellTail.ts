@@ -10,8 +10,9 @@ import {
   flatPlateDrag,
   ForceMagnitudeFn,
 } from "../../fluid-dynamics";
-import type { QueryForecast, WindQuerier } from "../../datatiles/DataTileTypes";
-import { WindInfo } from "../../wind/WindInfo";
+import type { QueryForecast } from "../../world-data/datatiles/DataTileTypes";
+import type { WindQuerier } from "../../world-data/wind/WindQuerier";
+import { WindInfo } from "../../world-data/wind/WindInfo";
 
 // Units: feet (ft), lbs
 // TellTail dimensions

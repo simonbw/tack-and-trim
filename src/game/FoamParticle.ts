@@ -6,8 +6,9 @@ import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import type { AABB } from "../core/util/SparseSpatialHash";
 import { V2d } from "../core/Vector";
-import type { QueryForecast, WaterQuerier } from "./datatiles/DataTileTypes";
-import { WaterInfo } from "./water/WaterInfo";
+import type { QueryForecast } from "./world-data/datatiles/DataTileTypes";
+import type { WaterQuerier } from "./world-data/water/WaterQuerier";
+import { WaterInfo } from "./world-data/water/WaterInfo";
 
 // Rendering
 const COLOR = 0xffffff;

@@ -29,6 +29,7 @@ export const StarterDinghy: BoatConfig = {
       V(-6.5, 1.3),
     ], // ~16 ft LOA, ~6.6 ft beam
     skinFrictionCoefficient: 0.003, // Typical smooth hull skin friction
+    draft: 0.5, // ft below waterline (hull bottom)
     colors: {
       fill: 0xccaa33,
       stroke: 0x886633,
@@ -37,12 +38,14 @@ export const StarterDinghy: BoatConfig = {
 
   keel: {
     vertices: [V(-5, 0), V(5, 0)], // 10ft span centerboard
+    draft: 3.5, // ft below waterline (centerboard extends 3ft below hull)
     color: 0x665522,
   },
 
   rudder: {
     position: V(-6, 0), // At transom
     length: 2.5, // ft (span of rudder blade)
+    draft: 2.5, // ft below waterline (rudder tip)
     maxSteerAngle: degToRad(35),
     steerAdjustSpeed: 0.8, // rad/sec
     steerAdjustSpeedFast: 2.0, // rad/sec
@@ -125,5 +128,11 @@ export const StarterDinghy: BoatConfig = {
   rowing: {
     duration: 0.6, // seconds
     force: 5000, // lbf
+  },
+
+  grounding: {
+    keelFriction: 500, // lbf per ft penetration per ft/s - centerboard hits first
+    rudderFriction: 300, // lbf per ft penetration per ft/s
+    hullFriction: 2000, // lbf per ft penetration per ft/s - severe when hull grounds
   },
 };

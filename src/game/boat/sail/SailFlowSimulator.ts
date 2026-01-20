@@ -6,7 +6,7 @@ import {
   TURBULENCE_DECAY,
   TURBULENCE_DETACH_THRESHOLD,
   TURBULENCE_STALL_INJECTION,
-} from "../../wind/WindConstants";
+} from "../../world-data/wind/WindConstants";
 import { createFlowState, FlowState } from "./FlowState";
 import type { SailSegment } from "./SailSegment";
 

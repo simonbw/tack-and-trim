@@ -1,5 +1,5 @@
 import type { Boat } from "../boat/Boat";
-import type { WindInfo } from "../wind/WindInfo";
+import type { WindInfo } from "../world-data/wind/WindInfo";
 import type { V2d } from "../../core/Vector";
 
 /** Context passed to step completion checks and callbacks */

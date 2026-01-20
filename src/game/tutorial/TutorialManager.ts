@@ -1,7 +1,7 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Boat } from "../boat/Boat";
-import { WindInfo } from "../wind/WindInfo";
+import { WindInfo } from "../world-data/wind/WindInfo";
 import { TutorialPopup } from "./TutorialPopup";
 import type { TutorialContext } from "./TutorialStep";
 import { tutorialSteps } from "./tutorialSteps";
