@@ -75,6 +75,10 @@ export interface DataTilePipelineConfig<
   getQueryForecasts: () => Iterable<QueryForecast>;
   /** Callback to run domain-specific compute for a tile */
   runCompute: (compute: TCompute, viewport: ReadbackViewport) => void;
+  /** Optional: Return false to skip GPU compute (reuse cached buffer data) */
+  shouldCompute?: (tile: DataTile) => boolean;
+  /** Optional: Called after successful compute to update tracking */
+  onComputed?: (tile: DataTile) => void;
 }
 
 /**
@@ -201,6 +205,12 @@ export class DataTileComputePipeline<
         continue;
       }
 
+      // Check if we should skip compute (domain-specific decision)
+      const shouldCompute = this.pipelineConfig.shouldCompute?.(tile) ?? true;
+      if (!shouldCompute) {
+        continue; // Keep using cached buffer data
+      }
+
       const compute = this.computes[tile.bufferIndex];
       const viewport: ReadbackViewport = {
         left: tile.bounds.minX,
@@ -224,6 +234,9 @@ export class DataTileComputePipeline<
       }
 
       tile.lastComputedTime = time;
+
+      // Notify domain code that compute happened
+      this.pipelineConfig.onComputed?.(tile);
     }
   }
 

@@ -91,6 +91,9 @@ export class TerrainInfo extends BaseEntity {
   // Version number - increments when terrain changes
   private version: number = 0;
 
+  // Track which tiles have been computed for current terrain version
+  private computedTileVersions = new Map<string, number>();
+
   // Shared GPU buffers for terrain data
   private sharedBuffers: TerrainComputeBuffers | null = null;
 
@@ -124,6 +127,14 @@ export class TerrainInfo extends BaseEntity {
         new TerrainDataTileCompute(buffers, resolution),
       getQueryForecasts: () => this.collectForecasts(),
       runCompute: (compute, viewport) => this.runTileCompute(compute, viewport),
+      shouldCompute: (tile) => {
+        // Skip if already computed for current terrain version
+        return this.computedTileVersions.get(tile.id) !== this.version;
+      },
+      onComputed: (tile) => {
+        // Mark this tile as computed for current version
+        this.computedTileVersions.set(tile.id, this.version);
+      },
     };
     this.pipeline = new DataTileComputePipeline(config);
   }
@@ -194,6 +205,7 @@ export class TerrainInfo extends BaseEntity {
     this.terrainDefinition = definition;
     this.sharedBuffers?.updateTerrainData(definition);
     this.version++;
+    this.computedTileVersions.clear(); // Invalidate all cached tiles
   }
 
   /**
@@ -203,6 +215,7 @@ export class TerrainInfo extends BaseEntity {
     this.terrainDefinition.landMasses.push(landMass);
     this.sharedBuffers?.updateTerrainData(this.terrainDefinition);
     this.version++;
+    this.computedTileVersions.clear(); // Invalidate all cached tiles
   }
 
   /**
