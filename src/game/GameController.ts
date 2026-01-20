@@ -9,7 +9,7 @@ import { MainMenu } from "./MainMenu";
 import { createLandMass } from "./terrain/LandMass";
 import { TerrainInfo } from "./terrain/TerrainInfo";
 import { WaterInfo } from "./water/WaterInfo";
-import { WaterRenderer } from "./water/rendering/WaterRenderer";
+import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { WindInfo } from "./wind/WindInfo";
 import { WindVisualization } from "./wind-visualization/WindVisualization";
 import { TutorialManager } from "./tutorial";
@@ -26,7 +26,7 @@ export class GameController extends BaseEntity {
   onAdd() {
     // Spawn water and wind systems (visible during menu)
     this.game!.addEntity(new WaterInfo());
-    this.game!.addEntity(new WaterRenderer());
+    this.game!.addEntity(new SurfaceRenderer());
     this.game!.addEntity(new WindInfo());
     this.game!.addEntity(new WindIndicator());
     this.game!.addEntity(new WindVisualization());

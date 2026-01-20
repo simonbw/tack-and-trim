@@ -12,13 +12,13 @@
 import {
   GPUProfiler,
   GPUProfileSection,
-} from "../../../core/graphics/webgpu/GPUProfiler";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { profile } from "../../../core/util/Profiler";
-import { WATER_TEXTURE_SIZE } from "../WaterConstants";
-import type { Viewport, WaterInfo } from "../WaterInfo";
-import { WaterComputeBuffers } from "../webgpu/WaterComputeBuffers";
-import { WaterStateCompute } from "../webgpu/WaterStateCompute";
+} from "../../core/graphics/webgpu/GPUProfiler";
+import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
+import { profile } from "../../core/util/Profiler";
+import { WATER_TEXTURE_SIZE } from "../water/WaterConstants";
+import type { Viewport, WaterInfo } from "../water/WaterInfo";
+import { WaterComputeBuffers } from "../water/webgpu/WaterComputeBuffers";
+import { WaterStateCompute } from "../water/webgpu/WaterStateCompute";
 
 /**
  * Water rendering compute pipeline using unified shader.

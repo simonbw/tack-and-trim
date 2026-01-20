@@ -10,13 +10,13 @@
  * This entity is purely for rendering.
  */
 
-import BaseEntity from "../../../core/entity/BaseEntity";
-import { on } from "../../../core/entity/handler";
-import { TerrainInfo } from "../../terrain/TerrainInfo";
-import { TerrainRenderPipeline } from "../../terrain/rendering/TerrainRenderPipeline";
-import { WaterInfo, type Viewport } from "../WaterInfo";
+import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
+import { TerrainInfo } from "../terrain/TerrainInfo";
+import { TerrainRenderPipeline } from "./TerrainRenderPipeline";
+import { WaterInfo, type Viewport } from "../water/WaterInfo";
 import { WaterRenderPipeline } from "./WaterRenderPipeline";
-import { WaterShader } from "./WaterShader";
+import { SurfaceShader } from "./SurfaceShader";
 
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
@@ -25,11 +25,11 @@ const RENDER_VIEWPORT_MARGIN = 0.1;
  * Water renderer entity.
  * Handles only rendering - physics tiles are managed by WaterInfo/TerrainInfo.
  */
-export class WaterRenderer extends BaseEntity {
+export class SurfaceRenderer extends BaseEntity {
   id = "waterRenderer";
   layer = "water" as const;
 
-  private waterShader: WaterShader | null = null;
+  private waterShader: SurfaceShader | null = null;
   private renderPipeline: WaterRenderPipeline;
   private terrainPipeline: TerrainRenderPipeline;
   private renderMode = 0;
@@ -51,7 +51,7 @@ export class WaterRenderer extends BaseEntity {
       await this.renderPipeline.init();
       await this.terrainPipeline.init();
 
-      this.waterShader = new WaterShader();
+      this.waterShader = new SurfaceShader();
       await this.waterShader.init();
       this.initialized = true;
     } catch (error) {

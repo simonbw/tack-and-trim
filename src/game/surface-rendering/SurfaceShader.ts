@@ -8,10 +8,10 @@
  * - Fresnel, subsurface scattering, and specular lighting
  */
 
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { WebGPUFullscreenQuad } from "../../../core/graphics/webgpu/WebGPUFullscreenQuad";
-import { TERRAIN_TEXTURE_SIZE } from "../../terrain/TerrainConstants";
-import { WATER_HEIGHT_SCALE, WATER_TEXTURE_SIZE } from "../WaterConstants";
+import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
+import { WebGPUFullscreenQuad } from "../../core/graphics/webgpu/WebGPUFullscreenQuad";
+import { TERRAIN_TEXTURE_SIZE } from "../terrain/TerrainConstants";
+import { WATER_HEIGHT_SCALE, WATER_TEXTURE_SIZE } from "../water/WaterConstants";
 
 // Terrain constants
 const MAX_TERRAIN_HEIGHT = 20.0;
@@ -270,7 +270,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 /**
  * Water surface rendering shader with terrain support.
  */
-export class WaterShader {
+export class SurfaceShader {
   private pipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private uniformBuffer: GPUBuffer | null = null;
