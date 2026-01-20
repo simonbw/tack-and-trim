@@ -9,11 +9,11 @@ import { V, V2d } from "../core/Vector";
 import { WindInfo } from "./world-data/wind/WindInfo";
 
 // Configuration (visual/screen-space, not world units)
-const PARTICLE_COUNT = 0; // Target particles per sector
+const PARTICLE_COUNT = 1000; // Target particles per sector
 const SPAWN_RATE = 500; // particles per second (spawn and despawn)
-const TARGET_ALPHA = 0.8; // Dimensionless opacity
+const TARGET_ALPHA = 0.5; // Dimensionless opacity
 const ALPHA_LERP_SPEED = 0.7; // 1/s - alpha transition speed
-const PARTICLE_SIZE = 1.5; // pixels on screen, regardless of zoom
+const PARTICLE_SIZE = 0.5; // pixels on screen, regardless of zoom
 const COLOR = 0xffffff;
 const PARTICLE_MOVE_SCALE = 0.5; // Dimensionless - fraction of wind speed
 
