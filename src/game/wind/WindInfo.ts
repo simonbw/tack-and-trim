@@ -16,11 +16,15 @@ import Game from "../../core/Game";
 import { profile } from "../../core/util/Profiler";
 import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
-import { DataTileComputePipeline } from "../datatiles/DataTileComputePipeline";
-import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
 import {
-  isWindQuerier,
-  type DataTileGridConfig,
+  DataTileComputePipeline,
+  DataTilePipelineConfig,
+} from "../datatiles/DataTileComputePipeline";
+import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
+import type {
+  DataTileGridConfig,
+  QueryForecast,
+  ReadbackViewport,
 } from "../datatiles/DataTileTypes";
 import { isWindModifier, type WindModifier } from "../WindModifier";
 import {
@@ -29,11 +33,12 @@ import {
 } from "./cpu/WindComputeCPU";
 import { WindTileCompute } from "./webgpu/WindTileCompute";
 import { WIND_VELOCITY_SCALE } from "./WindConstants";
+import { isWindQuerier } from "./WindQuerier";
 
 /**
  * Wind velocity sample type.
  */
-export interface WindVelocity {
+export interface WindPointData {
   velocityX: number;
   velocityY: number;
 }
@@ -59,7 +64,7 @@ const WIND_TILE_CONFIG: DataTileGridConfig = {
 /**
  * Wind readback buffer configuration.
  */
-const WIND_READBACK_CONFIG: DataTileReadbackConfig<WindVelocity> = {
+const WIND_READBACK_CONFIG: DataTileReadbackConfig<WindPointData> = {
   channelCount: 2,
   bytesPerPixel: 8, // rg32float
   label: "Wind",
@@ -100,11 +105,8 @@ export class WindInfo extends BaseEntity {
   // Base wind velocity - the global wind direction and speed
   private baseVelocity: V2d = V(11, 11); // ~15 ft/s (~9 kts), NW breeze
 
-  // Tile pipeline for physics queries (using shared abstraction)
-  private tilePipeline: DataTileComputePipeline<
-    WindVelocity,
-    WindTileCompute
-  > | null = null;
+  // Tile pipeline for physics queries (created in constructor)
+  private pipeline: DataTileComputePipeline<WindPointData, WindTileCompute>;
 
   // CPU fallback noise functions
   private speedNoise: NoiseFunction3D = createNoise3D();
@@ -115,29 +117,33 @@ export class WindInfo extends BaseEntity {
     m.getWindModifierAABB(),
   );
 
-  // Track initialization state
-  private gpuInitialized = false;
+  constructor() {
+    super();
+
+    // Create pipeline with config - pipeline handles its own lifecycle
+    const config: DataTilePipelineConfig<WindPointData, WindTileCompute> = {
+      id: "windTilePipeline",
+      gridConfig: WIND_TILE_CONFIG,
+      readbackConfig: WIND_READBACK_CONFIG,
+      computeFactory: (resolution) => new WindTileCompute(resolution),
+      getQueryForecasts: () => this.collectForecasts(),
+      runCompute: (compute, viewport) => this.runTileCompute(compute, viewport),
+    };
+    this.pipeline = new DataTileComputePipeline(config);
+  }
 
   @on("afterAdded")
   onAfterAdded() {
-    // Initialize GPU resources after entity is fully added
-    this.initGPU().catch(console.error);
+    // Add pipeline as child entity - it handles its own lifecycle
+    this.addChild(this.pipeline);
   }
 
   /**
-   * Complete tile readbacks and rebuild spatial hash.
+   * Rebuild spatial hash for CPU fallback modifier queries.
    */
   @on("tick")
   @profile
   onTick() {
-    // Complete readbacks from previous frame
-    if (this.tilePipeline) {
-      this.tilePipeline.completeReadbacks().catch((error) => {
-        console.warn("Wind tile readback error:", error);
-      });
-    }
-
-    // Rebuild spatial hash from all wind modifiers (for CPU fallback)
     this.spatialHash.clear();
     for (const entity of this.game!.entities.getTagged("windModifier")) {
       if (isWindModifier(entity)) {
@@ -147,86 +153,36 @@ export class WindInfo extends BaseEntity {
   }
 
   /**
-   * Compute tiles after physics.
-   */
-  @on("afterPhysics")
-  @profile
-  onAfterPhysics() {
-    if (!this.tilePipeline || !this.gpuInitialized) return;
-
-    this.collectQueryForecasts();
-    this.computeTiles();
-  }
-
-  /**
-   * Initialize GPU resources.
-   * Call after entity is added and WebGPU is available.
-   */
-  async initGPU(): Promise<void> {
-    if (this.gpuInitialized) return;
-
-    // Initialize tile pipeline with composition pattern
-    // This creates one WindTileCompute per tile slot
-    this.tilePipeline = new DataTileComputePipeline<
-      WindVelocity,
-      WindTileCompute
-    >(
-      WIND_TILE_CONFIG,
-      WIND_READBACK_CONFIG,
-      (resolution) => new WindTileCompute(resolution),
-    );
-    await this.tilePipeline.init();
-
-    this.gpuInitialized = true;
-  }
-
-  /**
    * Collect query forecasts from all windQuerier-tagged entities.
    */
-  @profile
-  private collectQueryForecasts(): void {
-    if (!this.tilePipeline) return;
-
-    this.tilePipeline.resetScores();
-
+  private *collectForecasts(): Iterable<QueryForecast> {
     for (const entity of this.game!.entities.getTagged("windQuerier")) {
-      if (isWindQuerier(entity)) {
-        const forecast = entity.getWindQueryForecast();
-        if (forecast) {
-          this.tilePipeline.accumulateForecast(forecast);
-        }
+      if (!isWindQuerier(entity)) {
+        throw new Error(
+          `Entity tagged as "windQuerier" does not implement WindQuerier interface: ${(entity as { id?: string }).id ?? entity}`,
+        );
+      }
+      const forecast = entity.getWindQueryForecast();
+      if (forecast) {
+        yield forecast;
       }
     }
   }
 
   /**
-   * Select and compute wind tiles for this frame.
+   * Run domain-specific compute for a tile.
    */
-  @profile
-  private computeTiles(): void {
-    if (!this.tilePipeline) return;
-
-    const currentTime = this.game!.elapsedUnpausedTime;
-    const gpuProfiler = this.game?.renderer.getGpuProfiler();
-
-    // Get base wind velocity components
-    const baseWindX = this.baseVelocity.x;
-    const baseWindY = this.baseVelocity.y;
-
-    // Compute tiles using callback pattern for domain-specific compute
-    this.tilePipeline.computeTiles(
-      currentTime,
-      (compute, viewport) => {
-        compute.setBaseWind(baseWindX, baseWindY);
-        compute.runCompute(
-          viewport.time,
-          viewport.left,
-          viewport.top,
-          viewport.width,
-          viewport.height,
-        );
-      },
-      gpuProfiler,
+  private runTileCompute(
+    compute: WindTileCompute,
+    viewport: ReadbackViewport,
+  ): void {
+    compute.setBaseWind(this.baseVelocity.x, this.baseVelocity.y);
+    compute.runCompute(
+      viewport.time,
+      viewport.left,
+      viewport.top,
+      viewport.width,
+      viewport.height,
     );
   }
 
@@ -235,12 +191,10 @@ export class WindInfo extends BaseEntity {
    * Uses GPU tiles when available, falls back to CPU.
    */
   getVelocityAtPoint(point: V2d): V2d {
-    // Try GPU path if initialized
-    if (this.gpuInitialized && this.tilePipeline) {
-      const result = this.tilePipeline.sampleAtWorldPoint(point);
-      if (result) {
-        return V(result.velocityX, result.velocityY);
-      }
+    // Try GPU path
+    const result = this.pipeline.sampleAtWorldPoint(point);
+    if (result) {
+      return V(result.velocityX, result.velocityY);
     }
 
     // CPU fallback: base wind + modifiers
@@ -337,44 +291,28 @@ export class WindInfo extends BaseEntity {
     maxTiles: number;
     tileHits: number;
     cpuFallbacks: number;
-  } | null {
-    if (!this.tilePipeline) return null;
-    return {
-      activeTiles: this.tilePipeline.getActiveTileCount(),
-      maxTiles: this.tilePipeline.getMaxTileCount(),
-      tileHits: this.tilePipeline.stats.tileHits,
-      cpuFallbacks: this.tilePipeline.stats.cpuFallbacks,
-    };
+  } {
+    return this.pipeline.getTileStats();
   }
 
   /**
    * Reset per-frame stats counters.
    */
   resetStatsCounters(): void {
-    this.tilePipeline?.stats.reset();
+    this.pipeline.resetStats();
   }
 
   /**
    * Check if GPU is initialized.
    */
   isGPUInitialized(): boolean {
-    return this.gpuInitialized;
+    return this.pipeline.isInitialized();
   }
 
   /**
    * Get the tile manager.
    */
   getTileManager() {
-    return this.tilePipeline?.getTileManager() ?? null;
-  }
-
-  /**
-   * Clean up GPU resources.
-   */
-  @on("destroy")
-  onDestroy() {
-    this.tilePipeline?.destroy();
-    this.tilePipeline = null;
-    this.gpuInitialized = false;
+    return this.pipeline.getTileManager();
   }
 }

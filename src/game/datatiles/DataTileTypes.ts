@@ -3,7 +3,6 @@
  *
  * This module provides the core abstractions for:
  * - Data tile grid configuration and management
- * - World-space to tile-space coordinate mapping
  * - Query forecasting for demand-based tile scheduling
  * - GPU readback viewport tracking
  */
@@ -71,91 +70,4 @@ export interface QueryForecast {
   aabb: Readonly<AABB>;
   /** Expected number of queries this frame (used for tile scoring) */
   queryCount: number;
-}
-
-/**
- * Interface for entities that query wind data.
- * Entities with the "windQuerier" tag should implement this interface.
- */
-export interface WindQuerier {
-  getWindQueryForecast(): QueryForecast | null;
-}
-
-/**
- * Interface for entities that query water data.
- * Entities with the "waterQuerier" tag should implement this interface.
- */
-export interface WaterQuerier {
-  getWaterQueryForecast(): QueryForecast | null;
-}
-
-/** Type guard for WindQuerier interface. */
-export function isWindQuerier(value: unknown): value is WindQuerier {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "getWindQueryForecast" in value
-  );
-}
-
-/** Type guard for WaterQuerier interface. */
-export function isWaterQuerier(value: unknown): value is WaterQuerier {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "getWaterQueryForecast" in value
-  );
-}
-
-/**
- * Interface for entities that query terrain data.
- * Entities with the "terrainQuerier" tag should implement this interface.
- */
-export interface TerrainQuerier {
-  getTerrainQueryForecast(): QueryForecast | null;
-}
-
-/** Type guard for TerrainQuerier interface. */
-export function isTerrainQuerier(value: unknown): value is TerrainQuerier {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "getTerrainQueryForecast" in value
-  );
-}
-
-/**
- * Convert grid coordinates to DataTileId.
- */
-export function toDataTileId(gridX: number, gridY: number): DataTileId {
-  return `${gridX},${gridY}`;
-}
-
-/**
- * Convert world coordinates to grid coordinates.
- */
-export function worldToTileGrid(
-  worldX: number,
-  worldY: number,
-  tileSize: number,
-): [number, number] {
-  return [Math.floor(worldX / tileSize), Math.floor(worldY / tileSize)];
-}
-
-/**
- * Get the world-space AABB for a tile at given grid coordinates.
- */
-export function getTileBounds(
-  gridX: number,
-  gridY: number,
-  tileSize: number,
-): AABB {
-  const worldX = gridX * tileSize;
-  const worldY = gridY * tileSize;
-  return {
-    minX: worldX,
-    minY: worldY,
-    maxX: worldX + tileSize,
-    maxY: worldY + tileSize,
-  };
 }

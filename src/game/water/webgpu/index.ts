@@ -16,6 +16,6 @@ export {
 } from "./WaterComputeBuffers";
 export {
   WaterDataTileCompute as WaterPhysicsTileCompute,
-  type WaterPhysicsData,
+  type WaterPointData,
 } from "./WaterDataTileCompute";
 export { WATER_STATE_SHADER, WaterStateCompute } from "./WaterStateCompute";

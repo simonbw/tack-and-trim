@@ -6,7 +6,8 @@ import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import type { AABB } from "../core/util/SparseSpatialHash";
 import { V2d } from "../core/Vector";
-import type { QueryForecast, WaterQuerier } from "./datatiles/DataTileTypes";
+import type { QueryForecast } from "./datatiles/DataTileTypes";
+import type { WaterQuerier } from "./water/WaterQuerier";
 import { WaterInfo } from "./water/WaterInfo";
 
 // Rendering

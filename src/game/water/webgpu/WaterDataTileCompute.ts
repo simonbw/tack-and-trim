@@ -19,7 +19,7 @@ import { WaterStateCompute } from "./WaterStateCompute";
 /**
  * Water physics data sample type.
  */
-export interface WaterPhysicsData {
+export interface WaterPointData {
   height: number;
   dhdt: number;
   velocityX: number;
@@ -96,7 +96,7 @@ export class WaterDataTileCompute implements DataTileCompute {
     left: number,
     top: number,
     width: number,
-    height: number
+    height: number,
   ): void {
     if (!this.buffers || !this.bindGroup) {
       return;

@@ -10,28 +10,28 @@
 import BaseEntity from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import Game from "../../core/Game";
-import { profile } from "../../core/util/Profiler";
 import { V2d } from "../../core/Vector";
-import { DataTileComputePipeline } from "../datatiles/DataTileComputePipeline";
-import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
 import {
-  isTerrainQuerier,
-  type DataTileGridConfig,
+  DataTileComputePipeline,
+  DataTilePipelineConfig,
+} from "../datatiles/DataTileComputePipeline";
+import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
+import type {
+  DataTileGridConfig,
+  QueryForecast,
+  ReadbackViewport,
 } from "../datatiles/DataTileTypes";
 import { TerrainComputeCPU } from "./cpu/TerrainComputeCPU";
 import { LandMass, TerrainDefinition } from "./LandMass";
-import {
-  MAX_TERRAIN_HEIGHT,
-  TERRAIN_TILE_RESOLUTION,
-  TERRAIN_TILE_SIZE,
-} from "./TerrainConstants";
+import { TERRAIN_TILE_RESOLUTION, TERRAIN_TILE_SIZE } from "./TerrainConstants";
+import { isTerrainQuerier } from "./TerrainQuerier";
 import { TerrainComputeBuffers } from "./webgpu/TerrainComputeBuffers";
 import { TerrainDataTileCompute } from "./webgpu/TerrainDataTileCompute";
 
 /**
  * Terrain height sample type.
  */
-export interface TerrainSample {
+export interface TerrainPointData {
   height: number;
 }
 
@@ -50,7 +50,7 @@ const TERRAIN_TILE_CONFIG: DataTileGridConfig = {
  * Uses rgba32float format (same as water) - 4 channels, 4 bytes each = 16 bytes per pixel.
  * Height is stored directly in R channel as signed world units.
  */
-const TERRAIN_READBACK_CONFIG: DataTileReadbackConfig<TerrainSample> = {
+const TERRAIN_READBACK_CONFIG: DataTileReadbackConfig<TerrainPointData> = {
   channelCount: 4, // RGBA
   bytesPerPixel: 16, // rgba32float = 4 channels * 4 bytes
   label: "Terrain",
@@ -94,91 +94,53 @@ export class TerrainInfo extends BaseEntity {
   // Shared GPU buffers for terrain data
   private sharedBuffers: TerrainComputeBuffers | null = null;
 
-  // Tile pipeline for terrain queries
-  private tilePipeline: DataTileComputePipeline<
-    TerrainSample,
+  // Tile pipeline for terrain queries (created in constructor)
+  private pipeline: DataTileComputePipeline<
+    TerrainPointData,
     TerrainDataTileCompute
-  > | null = null;
+  >;
 
   // CPU fallback
   private cpuFallback: TerrainComputeCPU;
-
-  // Track initialization state
-  private gpuInitialized = false;
 
   constructor(landMasses: LandMass[] = []) {
     super();
     this.terrainDefinition = { landMasses };
     this.cpuFallback = new TerrainComputeCPU();
+
+    // Create shared buffers (will be initialized with terrain data in onAfterAdded)
+    this.sharedBuffers = new TerrainComputeBuffers();
+
+    // Create pipeline with config - pipeline handles its own lifecycle
+    const buffers = this.sharedBuffers;
+    const config: DataTilePipelineConfig<
+      TerrainPointData,
+      TerrainDataTileCompute
+    > = {
+      id: "terrainTilePipeline",
+      gridConfig: TERRAIN_TILE_CONFIG,
+      readbackConfig: TERRAIN_READBACK_CONFIG,
+      computeFactory: (resolution) =>
+        new TerrainDataTileCompute(buffers, resolution),
+      getQueryForecasts: () => this.collectForecasts(),
+      runCompute: (compute, viewport) => this.runTileCompute(compute, viewport),
+    };
+    this.pipeline = new DataTileComputePipeline(config);
   }
 
   @on("afterAdded")
   onAfterAdded() {
-    // Initialize GPU resources after entity is fully added
-    this.initGPU().catch(console.error);
-  }
+    // Initialize shared buffers with terrain data
+    this.sharedBuffers?.updateTerrainData(this.terrainDefinition);
 
-  /**
-   * Complete tile readbacks.
-   */
-  @on("tick")
-  @profile
-  onTick() {
-    // Complete readbacks from previous frame
-    if (this.tilePipeline) {
-      this.tilePipeline.completeReadbacks().catch((error) => {
-        console.warn("Terrain tile readback error:", error);
-      });
-    }
-  }
-
-  /**
-   * Compute tiles after physics.
-   */
-  @on("afterPhysics")
-  @profile
-  onAfterPhysics() {
-    if (!this.tilePipeline || !this.gpuInitialized) return;
-
-    this.collectQueryForecasts();
-    this.computeTiles();
-  }
-
-  /**
-   * Initialize GPU resources.
-   */
-  async initGPU(): Promise<void> {
-    if (this.gpuInitialized) return;
-
-    // Create shared buffers and upload terrain data
-    this.sharedBuffers = new TerrainComputeBuffers();
-    this.sharedBuffers.updateTerrainData(this.terrainDefinition);
-
-    // Initialize tile pipeline with composition pattern
-    // Pass shared buffers to factory so all tile computes share the same terrain data
-    const buffers = this.sharedBuffers;
-    this.tilePipeline = new DataTileComputePipeline<
-      TerrainSample,
-      TerrainDataTileCompute
-    >(
-      TERRAIN_TILE_CONFIG,
-      TERRAIN_READBACK_CONFIG,
-      (resolution) => new TerrainDataTileCompute(buffers, resolution),
-    );
-    await this.tilePipeline.init();
-
-    this.gpuInitialized = true;
+    // Add pipeline as child entity - it handles its own lifecycle
+    this.addChild(this.pipeline);
   }
 
   /**
    * Collect query forecasts from all terrainQuerier-tagged entities.
    */
-  @profile
-  private collectQueryForecasts(): void {
-    if (!this.tilePipeline) return;
-
-    this.tilePipeline.resetScores();
-
+  private *collectForecasts(): Iterable<QueryForecast> {
     for (const entity of this.game!.entities.getTagged("terrainQuerier")) {
       if (!isTerrainQuerier(entity)) {
         throw new Error(
@@ -187,34 +149,24 @@ export class TerrainInfo extends BaseEntity {
       }
       const forecast = entity.getTerrainQueryForecast();
       if (forecast) {
-        this.tilePipeline.accumulateForecast(forecast);
+        yield forecast;
       }
     }
   }
 
   /**
-   * Select and compute terrain tiles for this frame.
+   * Run domain-specific compute for a tile.
    */
-  @profile
-  private computeTiles(): void {
-    if (!this.tilePipeline) return;
-
-    const currentTime = this.game!.elapsedUnpausedTime;
-    const gpuProfiler = this.game?.renderer.getGpuProfiler();
-
-    // Compute tiles using callback pattern for domain-specific compute
-    this.tilePipeline.computeTiles(
-      currentTime,
-      (compute, viewport) => {
-        compute.runCompute(
-          viewport.time,
-          viewport.left,
-          viewport.top,
-          viewport.width,
-          viewport.height,
-        );
-      },
-      gpuProfiler,
+  private runTileCompute(
+    compute: TerrainDataTileCompute,
+    viewport: ReadbackViewport,
+  ): void {
+    compute.runCompute(
+      viewport.time,
+      viewport.left,
+      viewport.top,
+      viewport.width,
+      viewport.height,
     );
   }
 
@@ -225,12 +177,10 @@ export class TerrainInfo extends BaseEntity {
    * @returns Height in feet above water level (0 for points in water)
    */
   getHeightAtPoint(point: V2d): number {
-    // Try GPU path if initialized
-    if (this.gpuInitialized && this.tilePipeline) {
-      const result = this.tilePipeline.sampleAtWorldPoint(point);
-      if (result) {
-        return result.height;
-      }
+    // Try GPU path
+    const result = this.pipeline.sampleAtWorldPoint(point);
+    if (result) {
+      return result.height;
     }
 
     // CPU fallback
@@ -282,35 +232,29 @@ export class TerrainInfo extends BaseEntity {
     maxTiles: number;
     tileHits: number;
     cpuFallbacks: number;
-  } | null {
-    if (!this.tilePipeline) return null;
-    return {
-      activeTiles: this.tilePipeline.getActiveTileCount(),
-      maxTiles: this.tilePipeline.getMaxTileCount(),
-      tileHits: this.tilePipeline.stats.tileHits,
-      cpuFallbacks: this.tilePipeline.stats.cpuFallbacks,
-    };
+  } {
+    return this.pipeline.getTileStats();
   }
 
   /**
    * Reset per-frame stats counters.
    */
   resetStatsCounters(): void {
-    this.tilePipeline?.stats.reset();
+    this.pipeline.resetStats();
   }
 
   /**
    * Check if GPU is initialized.
    */
   isGPUInitialized(): boolean {
-    return this.gpuInitialized;
+    return this.pipeline.isInitialized();
   }
 
   /**
    * Get the tile manager.
    */
   getTileManager() {
-    return this.tilePipeline?.getTileManager() ?? null;
+    return this.pipeline.getTileManager();
   }
 
   /**
@@ -318,10 +262,7 @@ export class TerrainInfo extends BaseEntity {
    */
   @on("destroy")
   onDestroy() {
-    this.tilePipeline?.destroy();
-    this.tilePipeline = null;
     this.sharedBuffers?.destroy();
     this.sharedBuffers = null;
-    this.gpuInitialized = false;
   }
 }

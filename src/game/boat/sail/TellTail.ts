@@ -10,7 +10,8 @@ import {
   flatPlateDrag,
   ForceMagnitudeFn,
 } from "../../fluid-dynamics";
-import type { QueryForecast, WindQuerier } from "../../datatiles/DataTileTypes";
+import type { QueryForecast } from "../../datatiles/DataTileTypes";
+import type { WindQuerier } from "../../wind/WindQuerier";
 import { WindInfo } from "../../wind/WindInfo";
 
 // Units: feet (ft), lbs

@@ -1,24 +1,28 @@
 /**
- * Generic data tile computation pipeline.
+ * Generic data tile computation pipeline as an Entity.
  *
  * Orchestrates GPU computation and readback for data tiles.
  * Uses factory pattern to create domain-specific compute instances,
  * with one instance per tile slot to avoid texture overwrite issues.
+ *
+ * Handles its own lifecycle via @on event handlers.
  */
 
+import BaseEntity from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import { profile } from "../../core/util/Profiler";
 import type { V2d } from "../../core/Vector";
+import { DataTileManager } from "./DataTileManager";
 import {
   DataTileReadbackBuffer,
   DataTileReadbackConfig,
 } from "./DataTileReadbackBuffer";
-import { DataTileManager } from "./DataTileManager";
 import type {
-  QueryForecast,
-  ReadbackViewport,
   DataTile,
   DataTileGridConfig,
+  QueryForecast,
+  ReadbackViewport,
 } from "./DataTileTypes";
 
 /**
@@ -41,21 +45,40 @@ export type DataTileComputeFactory<TCompute extends DataTileCompute> = (
 ) => TCompute;
 
 /**
- * Statistics for data tile readback operations.
+ * Statistics for data tile operations.
  */
-export interface DataTileReadbackStats {
+export interface DataTileStats {
   /** Number of queries satisfied from tile buffers */
   tileHits: number;
   /** Number of queries that fell back to CPU computation */
   cpuFallbacks: number;
   /** Number of tile readbacks completed this frame */
   readbacksCompleted: number;
-  /** Reset counters to zero */
-  reset(): void;
 }
 
 /**
- * Generic data tile computation pipeline.
+ * Configuration for the data tile compute pipeline.
+ */
+export interface DataTilePipelineConfig<
+  TSample,
+  TCompute extends DataTileCompute,
+> {
+  /** Entity id for the pipeline */
+  id: string;
+  /** Grid configuration (tile size, resolution, etc.) */
+  gridConfig: DataTileGridConfig;
+  /** Readback buffer configuration */
+  readbackConfig: DataTileReadbackConfig<TSample>;
+  /** Factory to create compute instances */
+  computeFactory: DataTileComputeFactory<TCompute>;
+  /** Callback to collect query forecasts from entities */
+  getQueryForecasts: () => Iterable<QueryForecast>;
+  /** Callback to run domain-specific compute for a tile */
+  runCompute: (compute: TCompute, viewport: ReadbackViewport) => void;
+}
+
+/**
+ * Generic data tile computation pipeline as an Entity.
  *
  * Creates one compute instance per tile slot to avoid texture overwrite issues.
  * Manages tile selection, GPU computation, and async readback.
@@ -63,10 +86,10 @@ export interface DataTileReadbackStats {
 export class DataTileComputePipeline<
   TSample,
   TCompute extends DataTileCompute,
-> {
-  private config: DataTileGridConfig;
-  private bufferConfig: DataTileReadbackConfig<TSample>;
-  private computeFactory: DataTileComputeFactory<TCompute>;
+> extends BaseEntity {
+  tickLayer = "environment" as const;
+
+  private pipelineConfig: DataTilePipelineConfig<TSample, TCompute>;
 
   // One compute instance per tile slot
   private computes: TCompute[] = [];
@@ -80,46 +103,56 @@ export class DataTileComputePipeline<
 
   private initialized = false;
 
-  readonly stats: DataTileReadbackStats = {
+  private readonly _stats: DataTileStats = {
     tileHits: 0,
     cpuFallbacks: 0,
     readbacksCompleted: 0,
-    reset() {
-      this.tileHits = 0;
-      this.cpuFallbacks = 0;
-      this.readbacksCompleted = 0;
-    },
   };
 
-  constructor(
-    config: DataTileGridConfig,
-    bufferConfig: DataTileReadbackConfig<TSample>,
-    computeFactory: DataTileComputeFactory<TCompute>,
-  ) {
-    this.config = config;
-    this.bufferConfig = bufferConfig;
-    this.computeFactory = computeFactory;
-    this.tileManager = new DataTileManager(config);
+  constructor(config: DataTilePipelineConfig<TSample, TCompute>) {
+    super();
+    this.id = config.id;
+    this.pipelineConfig = config;
+    this.tileManager = new DataTileManager(config.gridConfig);
   }
 
   /**
-   * Initialize GPU resources.
+   * Get statistics for this pipeline.
    */
-  async init(): Promise<void> {
+  get stats(): Readonly<DataTileStats> {
+    return this._stats;
+  }
+
+  /**
+   * Reset per-frame stats counters.
+   */
+  resetStats(): void {
+    this._stats.tileHits = 0;
+    this._stats.cpuFallbacks = 0;
+    this._stats.readbacksCompleted = 0;
+  }
+
+  /**
+   * Initialize GPU resources after entity is added.
+   */
+  @on("afterAdded")
+  async onAfterAdded(): Promise<void> {
     if (this.initialized) return;
 
+    const { gridConfig, readbackConfig, computeFactory } = this.pipelineConfig;
+
     // Create one compute instance per tile slot
-    for (let i = 0; i < this.config.maxTilesPerFrame; i++) {
-      const compute = this.computeFactory(this.config.tileResolution);
+    for (let i = 0; i < gridConfig.maxTilesPerFrame; i++) {
+      const compute = computeFactory(gridConfig.tileResolution);
       await compute.init();
       this.computes.push(compute);
     }
 
     // Create readback buffers pool
-    for (let i = 0; i < this.config.maxTilesPerFrame; i++) {
+    for (let i = 0; i < gridConfig.maxTilesPerFrame; i++) {
       const buffer = new DataTileReadbackBuffer<TSample>(
-        this.config.tileResolution,
-        this.bufferConfig,
+        gridConfig.tileResolution,
+        readbackConfig,
       );
       await buffer.init();
       this.buffers.push(buffer);
@@ -129,35 +162,35 @@ export class DataTileComputePipeline<
   }
 
   /**
-   * Accumulate a query forecast for tile scoring.
+   * Complete tile readbacks at start of tick.
    */
-  accumulateForecast(forecast: QueryForecast): void {
-    this.tileManager.accumulateScore(forecast);
-  }
-
-  /**
-   * Reset scores for new frame.
-   */
-  resetScores(): void {
-    this.tileManager.resetScores();
-  }
-
-  /**
-   * Compute tiles for this frame.
-   *
-   * @param time Current game time
-   * @param runCompute Callback to run domain-specific compute for each tile
-   * @param gpuProfiler Optional GPU profiler
-   */
-  computeTiles(
-    time: number,
-    runCompute: (compute: TCompute, viewport: ReadbackViewport) => void,
-    gpuProfiler?: GPUProfiler | null,
-  ): void {
+  @on("tick")
+  @profile
+  onTick(): void {
     if (!this.initialized) return;
 
+    // Complete readbacks from previous frame
+    this.completeReadbacks().catch((error) => {
+      console.warn(`${this.id} tile readback error:`, error);
+    });
+  }
+
+  /**
+   * Compute tiles after physics.
+   */
+  @on("afterPhysics")
+  @profile
+  onAfterPhysics(): void {
+    if (!this.initialized) return;
+
+    const time = this.game!.elapsedUnpausedTime;
+    const gpuProfiler = this.game?.renderer.getGpuProfiler();
+
+    // Collect forecasts via callback
+    const forecasts = this.pipelineConfig.getQueryForecasts();
+
     // Select tiles to compute
-    const tiles = this.tileManager.selectTilesToCompute(time);
+    const tiles = this.tileManager.selectTilesFromForecasts(forecasts, time);
 
     // Assign buffers to tiles
     this.assignBuffersToTiles(tiles);
@@ -177,8 +210,8 @@ export class DataTileComputePipeline<
         time,
       };
 
-      // Run domain-specific compute
-      runCompute(compute, viewport);
+      // Run domain-specific compute via callback
+      this.pipelineConfig.runCompute(compute, viewport);
 
       // Initiate readback
       const outputTexture = compute.getOutputTexture();
@@ -213,25 +246,20 @@ export class DataTileComputePipeline<
 
   /**
    * Complete all pending readbacks.
-   * Should be called at the start of the next frame.
    */
-  @profile
-  async completeReadbacks(): Promise<void> {
+  private async completeReadbacks(): Promise<void> {
     // Only process buffers with pending work to avoid async overhead
-    const pending: Promise<boolean>[] = [];
-    for (const buffer of this.buffers) {
-      if (buffer.hasPendingReadback()) {
-        pending.push(buffer.completeReadback());
-      }
-    }
+    const pending = this.buffers
+      .filter((buffer) => buffer.hasPendingReadback())
+      .map((buffer) => buffer.completeReadback());
 
     if (pending.length === 0) {
-      this.stats.readbacksCompleted = 0;
+      this._stats.readbacksCompleted = 0;
       return;
     }
 
     const results = await Promise.all(pending);
-    this.stats.readbacksCompleted = results.filter(Boolean).length;
+    this._stats.readbacksCompleted = results.filter(Boolean).length;
   }
 
   /**
@@ -249,7 +277,7 @@ export class DataTileComputePipeline<
 
     const result = buffer.sampleAt(point.x, point.y);
     if (result) {
-      this.stats.tileHits++;
+      this._stats.tileHits++;
     }
     return result;
   }
@@ -265,7 +293,7 @@ export class DataTileComputePipeline<
    * Get the configuration.
    */
   getConfig(): DataTileGridConfig {
-    return this.config;
+    return this.pipelineConfig.gridConfig;
   }
 
   /**
@@ -286,13 +314,31 @@ export class DataTileComputePipeline<
    * Get max tile count from config.
    */
   getMaxTileCount(): number {
-    return this.config.maxTilesPerFrame;
+    return this.pipelineConfig.gridConfig.maxTilesPerFrame;
   }
 
   /**
-   * Destroy GPU resources.
+   * Get tile statistics for stats panel.
    */
-  destroy(): void {
+  getTileStats(): {
+    activeTiles: number;
+    maxTiles: number;
+    tileHits: number;
+    cpuFallbacks: number;
+  } {
+    return {
+      activeTiles: this.getActiveTileCount(),
+      maxTiles: this.getMaxTileCount(),
+      tileHits: this._stats.tileHits,
+      cpuFallbacks: this._stats.cpuFallbacks,
+    };
+  }
+
+  /**
+   * Clean up GPU resources.
+   */
+  @on("destroy")
+  onDestroy(): void {
     for (const compute of this.computes) {
       compute.destroy();
     }

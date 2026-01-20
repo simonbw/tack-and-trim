@@ -2,48 +2,146 @@
  * Manages the data tile grid and scoring for GPU computation.
  *
  * Responsibilities:
- * - Track data tiles and their scores
- * - Accumulate scores from query forecasts
+ * - Track active tiles and their scores
+ * - Compute scores from query forecasts fresh each frame
  * - Select which tiles to compute each frame
  * - Find tiles for world-space queries
  */
 
-import {
-  getTileBounds,
+import type { AABB } from "../../core/util/SparseSpatialHash";
+import type {
   QueryForecast,
   DataTile,
   DataTileGridConfig,
   DataTileId,
-  toDataTileId,
-  worldToTileGrid,
 } from "./DataTileTypes";
 
 /**
+ * Convert grid coordinates to DataTileId.
+ */
+export function toDataTileId(gridX: number, gridY: number): DataTileId {
+  return `${gridX},${gridY}`;
+}
+
+/**
+ * Convert world coordinates to grid coordinates.
+ */
+export function worldToTileGrid(
+  worldX: number,
+  worldY: number,
+  tileSize: number,
+): [number, number] {
+  return [Math.floor(worldX / tileSize), Math.floor(worldY / tileSize)];
+}
+
+/**
+ * Get the world-space AABB for a tile at given grid coordinates.
+ */
+export function getTileBounds(
+  gridX: number,
+  gridY: number,
+  tileSize: number,
+): AABB {
+  const worldX = gridX * tileSize;
+  const worldY = gridY * tileSize;
+  return {
+    minX: worldX,
+    minY: worldY,
+    maxX: worldX + tileSize,
+    maxY: worldY + tileSize,
+  };
+}
+
+/**
  * Manages the data tile grid and scoring for GPU computation.
+ *
+ * Simplified implementation that computes scores fresh each frame.
+ * Only tracks active tiles (those with buffer assignments).
  */
 export class DataTileManager {
   private config: DataTileGridConfig;
-  private tiles = new Map<DataTileId, DataTile>();
-  private activeTiles: DataTile[] = [];
+
+  // Only track active tiles (those with buffer assignments)
+  private activeTiles = new Map<DataTileId, DataTile>();
+
+  // Temporary map for fresh-each-frame scoring
+  private tileScores = new Map<DataTileId, number>();
 
   constructor(config: DataTileGridConfig) {
     this.config = config;
   }
 
   /**
-   * Reset scores for new frame.
+   * Select tiles from forecasts for this frame.
+   * Computes all tile scores from forecasts in one pass.
+   *
+   * @param forecasts Iterable of query forecasts
+   * @param time Current game time
+   * @returns Selected tiles sorted by score (highest first), limited to maxTilesPerFrame
    */
-  resetScores(): void {
-    for (const tile of this.tiles.values()) {
-      tile.score = 0;
+  selectTilesFromForecasts(
+    forecasts: Iterable<QueryForecast>,
+    _time: number,
+  ): DataTile[] {
+    // Clear previous scores
+    this.tileScores.clear();
+
+    // Accumulate scores from all forecasts
+    for (const forecast of forecasts) {
+      this.accumulateScore(forecast);
     }
+
+    // Build candidate tiles from scores
+    const candidates: DataTile[] = [];
+    for (const [id, score] of this.tileScores) {
+      if (score >= this.config.minScoreThreshold) {
+        // Parse grid coordinates from id
+        const [gridX, gridY] = id.split(",").map(Number);
+
+        // Reuse existing tile if available, otherwise create new one
+        let tile = this.activeTiles.get(id);
+        if (!tile) {
+          tile = {
+            id,
+            gridX,
+            gridY,
+            bounds: getTileBounds(gridX, gridY, this.config.tileSize),
+            score: 0,
+            lastComputedTime: -Infinity,
+            bufferIndex: -1,
+          };
+        }
+        tile.score = score;
+        candidates.push(tile);
+      }
+    }
+
+    // Sort by score descending
+    candidates.sort((a, b) => b.score - a.score);
+
+    // Take top K
+    const selected = candidates.slice(0, this.config.maxTilesPerFrame);
+
+    // Update active tiles map
+    // Clear old buffer assignments
+    for (const tile of this.activeTiles.values()) {
+      tile.bufferIndex = -1;
+    }
+    this.activeTiles.clear();
+
+    // Add selected tiles to active map
+    for (const tile of selected) {
+      this.activeTiles.set(tile.id, tile);
+    }
+
+    return selected;
   }
 
   /**
    * Accumulate scores from a query forecast.
    * Distributes the query count proportionally across overlapping tiles.
    */
-  accumulateScore(forecast: QueryForecast): void {
+  private accumulateScore(forecast: QueryForecast): void {
     const { aabb, queryCount } = forecast;
     if (queryCount <= 0) return;
 
@@ -58,52 +156,11 @@ export class DataTileManager {
 
     for (let gx = minGridX; gx <= maxGridX; gx++) {
       for (let gy = minGridY; gy <= maxGridY; gy++) {
-        const tile = this.getOrCreateTile(gx, gy);
-        tile.score += scorePerTile;
+        const id = toDataTileId(gx, gy);
+        const currentScore = this.tileScores.get(id) ?? 0;
+        this.tileScores.set(id, currentScore + scorePerTile);
       }
     }
-  }
-
-  /**
-   * Select which tiles to compute this frame.
-   * Returns tiles sorted by score (highest first), limited to maxTilesPerFrame.
-   */
-  selectTilesToCompute(_currentTime: number): DataTile[] {
-    // Filter tiles above threshold
-    const candidates = Array.from(this.tiles.values()).filter(
-      (t) => t.score >= this.config.minScoreThreshold,
-    );
-
-    // Sort by score descending
-    candidates.sort((a, b) => b.score - a.score);
-
-    // Take top K
-    this.activeTiles = candidates.slice(0, this.config.maxTilesPerFrame);
-
-    return this.activeTiles;
-  }
-
-  /**
-   * Get or create a tile at grid coordinates.
-   */
-  private getOrCreateTile(gridX: number, gridY: number): DataTile {
-    const id = toDataTileId(gridX, gridY);
-    let tile = this.tiles.get(id);
-
-    if (!tile) {
-      tile = {
-        id,
-        gridX,
-        gridY,
-        bounds: getTileBounds(gridX, gridY, this.config.tileSize),
-        score: 0,
-        lastComputedTime: -Infinity,
-        bufferIndex: -1,
-      };
-      this.tiles.set(id, tile);
-    }
-
-    return tile;
   }
 
   /**
@@ -117,7 +174,7 @@ export class DataTileManager {
       this.config.tileSize,
     );
     const id = toDataTileId(gridX, gridY);
-    const tile = this.tiles.get(id);
+    const tile = this.activeTiles.get(id);
 
     // Only return if tile is active (has a buffer assigned)
     return tile && tile.bufferIndex >= 0 ? tile : null;
@@ -134,7 +191,7 @@ export class DataTileManager {
    * Get active tiles for this frame.
    */
   getActiveTiles(): readonly DataTile[] {
-    return this.activeTiles;
+    return Array.from(this.activeTiles.values());
   }
 
   /**
@@ -145,39 +202,17 @@ export class DataTileManager {
   }
 
   /**
-   * Get the number of tracked tiles.
-   */
-  getTileCount(): number {
-    return this.tiles.size;
-  }
-
-  /**
    * Get the number of active tiles this frame.
    */
   getActiveTileCount(): number {
-    return this.activeTiles.length;
-  }
-
-  /**
-   * Cleanup old unused tiles to prevent memory growth.
-   * Removes tiles that haven't been computed recently and have no buffer assigned.
-   */
-  pruneOldTiles(currentTime: number, maxAge: number = 10): void {
-    for (const [id, tile] of this.tiles) {
-      if (
-        currentTime - tile.lastComputedTime > maxAge &&
-        tile.bufferIndex < 0
-      ) {
-        this.tiles.delete(id);
-      }
-    }
+    return this.activeTiles.size;
   }
 
   /**
    * Clear all tiles and active state.
    */
   clear(): void {
-    this.tiles.clear();
-    this.activeTiles = [];
+    this.activeTiles.clear();
+    this.tileScores.clear();
   }
 }

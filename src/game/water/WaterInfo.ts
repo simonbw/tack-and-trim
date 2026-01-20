@@ -14,11 +14,15 @@ import Game from "../../core/Game";
 import { profile } from "../../core/util/Profiler";
 import { SparseSpatialHash } from "../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../core/Vector";
-import { DataTileComputePipeline } from "../datatiles/DataTileComputePipeline";
-import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
 import {
-  isWaterQuerier,
-  type DataTileGridConfig,
+  DataTileComputePipeline,
+  DataTilePipelineConfig,
+} from "../datatiles/DataTileComputePipeline";
+import type { DataTileReadbackConfig } from "../datatiles/DataTileReadbackBuffer";
+import type {
+  DataTileGridConfig,
+  QueryForecast,
+  ReadbackViewport,
 } from "../datatiles/DataTileTypes";
 import {
   computeWaveDataAtPoint,
@@ -27,11 +31,15 @@ import {
 import { WakeParticle } from "./WakeParticle";
 import { WATER_HEIGHT_SCALE, WATER_VELOCITY_SCALE } from "./WaterConstants";
 import { isWaterModifier, WaterModifier } from "./WaterModifier";
+import { isWaterQuerier } from "./WaterQuerier";
 import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
 import {
   WaterDataTileCompute,
-  type WaterPhysicsData,
+  type WaterPointData,
 } from "./webgpu/WaterDataTileCompute";
+
+// Re-export for external consumers
+export type { WaterPointData };
 
 /**
  * Viewport bounds for water computation.
@@ -78,7 +86,7 @@ const WATER_TILE_CONFIG: DataTileGridConfig = {
 /**
  * Water readback buffer configuration.
  */
-const WATER_READBACK_CONFIG: DataTileReadbackConfig<WaterPhysicsData> = {
+const WATER_READBACK_CONFIG: DataTileReadbackConfig<WaterPointData> = {
   channelCount: 4,
   bytesPerPixel: 16, // rgba32float
   label: "WaterPhysics",
@@ -123,12 +131,11 @@ export class WaterInfo extends BaseEntity {
     return waterInfo instanceof WaterInfo ? waterInfo : undefined;
   }
 
-  // Tile pipeline for physics queries (owned by WaterInfo)
-  private tilePipeline: DataTileComputePipeline<
-    WaterPhysicsData,
+  // Tile pipeline for physics queries (created in constructor)
+  private pipeline: DataTileComputePipeline<
+    WaterPointData,
     WaterDataTileCompute
-  > | null = null;
-  private gpuInitialized = false;
+  >;
 
   // Current simulation
   private baseCurrentVelocity: V2d = V(1.5, 0.5);
@@ -156,44 +163,35 @@ export class WaterInfo extends BaseEntity {
     };
   }
 
+  constructor() {
+    super();
+
+    // Create pipeline with config - pipeline handles its own lifecycle
+    const config: DataTilePipelineConfig<WaterPointData, WaterDataTileCompute> =
+      {
+        id: "waterTilePipeline",
+        gridConfig: WATER_TILE_CONFIG,
+        readbackConfig: WATER_READBACK_CONFIG,
+        computeFactory: (resolution) => new WaterDataTileCompute(resolution),
+        getQueryForecasts: () => this.collectForecasts(),
+        runCompute: (compute, viewport) =>
+          this.runTileCompute(compute, viewport),
+      };
+    this.pipeline = new DataTileComputePipeline(config);
+  }
+
   @on("afterAdded")
   onAfterAdded() {
-    this.initGPU().catch(console.error);
+    // Add pipeline as child entity - it handles its own lifecycle
+    this.addChild(this.pipeline);
   }
 
   /**
-   * Initialize GPU resources.
-   */
-  async initGPU(): Promise<void> {
-    if (this.gpuInitialized) return;
-
-    this.tilePipeline = new DataTileComputePipeline<
-      WaterPhysicsData,
-      WaterDataTileCompute
-    >(
-      WATER_TILE_CONFIG,
-      WATER_READBACK_CONFIG,
-      (resolution) => new WaterDataTileCompute(resolution),
-    );
-    await this.tilePipeline.init();
-
-    this.gpuInitialized = true;
-  }
-
-  /**
-   * Complete pending readbacks from previous frame.
-   * Called at start of tick.
+   * Rebuild spatial hash for CPU fallback and cache segment data.
    */
   @on("tick")
   @profile
   onTick() {
-    // Complete readbacks from previous frame
-    if (this.tilePipeline) {
-      this.tilePipeline.completeReadbacks().catch((error) => {
-        console.warn("Water tile readback error:", error);
-      });
-    }
-
     // Rebuild spatial hash for CPU fallback
     this.spatialHash.clear();
     for (const entity of this.game!.entities.getTagged("waterModifier")) {
@@ -201,52 +199,8 @@ export class WaterInfo extends BaseEntity {
         this.spatialHash.add(entity);
       }
     }
-  }
 
-  /**
-   * Compute tiles after physics.
-   * Called via afterPhysics event.
-   */
-  @on("afterPhysics")
-  @profile
-  onAfterPhysics() {
-    if (!this.tilePipeline || !this.gpuInitialized) return;
-
-    this.collectQueryForecasts();
-    this.computeTiles();
-  }
-
-  /**
-   * Collect query forecasts from all waterQuerier-tagged entities.
-   */
-  @profile
-  private collectQueryForecasts(): void {
-    if (!this.tilePipeline) return;
-
-    this.tilePipeline.resetScores();
-
-    for (const entity of this.game!.entities.getTagged("waterQuerier")) {
-      if (isWaterQuerier(entity)) {
-        const forecast = entity.getWaterQueryForecast();
-        if (forecast) {
-          this.tilePipeline.accumulateForecast(forecast);
-        }
-      }
-    }
-  }
-
-  /**
-   * Compute tiles for this frame.
-   */
-  @profile
-  private computeTiles(): void {
-    if (!this.tilePipeline) return;
-
-    const time = this.game!.elapsedUnpausedTime;
-    const gpuProfiler = this.game?.renderer.getGpuProfiler();
-
-    // Collect segment data for all tiles (using full world bounds approximation)
-    // Each tile will receive the same segment data
+    // Cache segment data for this frame
     const camera = this.game!.camera;
     const worldViewport = camera.getWorldViewport();
     this.cachedSegments = this.collectShaderSegmentData({
@@ -255,21 +209,39 @@ export class WaterInfo extends BaseEntity {
       width: worldViewport.width + WAKE_VIEWPORT_MARGIN * 4,
       height: worldViewport.height + WAKE_VIEWPORT_MARGIN * 4,
     });
+  }
 
-    // Compute tiles with segment data
-    this.tilePipeline.computeTiles(
-      time,
-      (compute, viewport) => {
-        compute.setSegments(this.cachedSegments);
-        compute.runCompute(
-          viewport.time,
-          viewport.left,
-          viewport.top,
-          viewport.width,
-          viewport.height,
+  /**
+   * Collect query forecasts from all waterQuerier-tagged entities.
+   */
+  private *collectForecasts(): Iterable<QueryForecast> {
+    for (const entity of this.game!.entities.getTagged("waterQuerier")) {
+      if (!isWaterQuerier(entity)) {
+        throw new Error(
+          `Entity tagged as "waterQuerier" does not implement WaterQuerier interface: ${(entity as { id?: string }).id ?? entity}`,
         );
-      },
-      gpuProfiler,
+      }
+      const forecast = entity.getWaterQueryForecast();
+      if (forecast) {
+        yield forecast;
+      }
+    }
+  }
+
+  /**
+   * Run domain-specific compute for a tile.
+   */
+  private runTileCompute(
+    compute: WaterDataTileCompute,
+    viewport: ReadbackViewport,
+  ): void {
+    compute.setSegments(this.cachedSegments);
+    compute.runCompute(
+      viewport.time,
+      viewport.left,
+      viewport.top,
+      viewport.width,
+      viewport.height,
     );
   }
 
@@ -282,9 +254,7 @@ export class WaterInfo extends BaseEntity {
   }
 
   private getStateAtPointGPU(point: V2d): WaterState | null {
-    if (!this.tilePipeline) return null;
-
-    const physicsData = this.tilePipeline.sampleAtWorldPoint(point);
+    const physicsData = this.pipeline.sampleAtWorldPoint(point);
     if (physicsData) {
       return {
         velocity: V(physicsData.velocityX, physicsData.velocityY),
@@ -378,30 +348,14 @@ export class WaterInfo extends BaseEntity {
     maxTiles: number;
     tileHits: number;
     cpuFallbacks: number;
-  } | null {
-    if (!this.tilePipeline) return null;
-    return {
-      activeTiles: this.tilePipeline.getActiveTileCount(),
-      maxTiles: this.tilePipeline.getMaxTileCount(),
-      tileHits: this.tilePipeline.stats.tileHits,
-      cpuFallbacks: this.tilePipeline.stats.cpuFallbacks,
-    };
+  } {
+    return this.pipeline.getTileStats();
   }
 
   /**
    * Reset per-frame stats counters.
    */
   resetStatsCounters(): void {
-    this.tilePipeline?.stats.reset();
-  }
-
-  /**
-   * Clean up GPU resources.
-   */
-  @on("destroy")
-  onDestroy() {
-    this.tilePipeline?.destroy();
-    this.tilePipeline = null;
-    this.gpuInitialized = false;
+    this.pipeline.resetStats();
   }
 }
