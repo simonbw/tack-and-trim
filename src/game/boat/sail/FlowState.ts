@@ -13,8 +13,6 @@ export interface FlowState {
   attached: boolean;
   /** Turbulence intensity (0-1), inherited from upstream with decay */
   turbulence: number;
-  /** Pressure coefficient (Cp) */
-  pressure: number;
   /** Distance along sail since stall started (0 = attached) */
   stallDistance: number;
 }
@@ -25,7 +23,6 @@ export const DEFAULT_FLOW_STATE: FlowState = {
   speed: 0,
   attached: true,
   turbulence: 0,
-  pressure: 0,
   stallDistance: 0,
 };
 
@@ -36,7 +33,6 @@ export function createFlowState(): FlowState {
     speed: 0,
     attached: true,
     turbulence: 0,
-    pressure: 0,
     stallDistance: 0,
   };
 }

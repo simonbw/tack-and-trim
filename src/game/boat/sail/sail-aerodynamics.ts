@@ -5,7 +5,7 @@ import { RHO_AIR } from "../../fluid-dynamics";
 import { SEPARATION_DECAY_RATE } from "../../world-data/wind/WindConstants";
 import type { SailSegment } from "./SailSegment";
 
-const STALL_ANGLE = degToRad(15);
+export const STALL_ANGLE = degToRad(15);
 
 /** Calculate the lift coefficient for a sail at a given angle of attack. */
 function getSailLiftCoefficient(angleOfAttack: number): number {

@@ -1,5 +1,5 @@
 import type { Body } from "../../../core/physics/body/Body";
-import { clamp, degToRad } from "../../../core/util/MathUtil";
+import { clamp } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
 import {
   SEGMENT_INFLUENCE_RADIUS,
@@ -8,9 +8,8 @@ import {
   TURBULENCE_STALL_INJECTION,
 } from "../../world-data/wind/WindConstants";
 import { createFlowState, FlowState } from "./FlowState";
+import { STALL_ANGLE } from "./sail-aerodynamics";
 import type { SailSegment } from "./SailSegment";
-
-const STALL_ANGLE = degToRad(15);
 
 /** Calculate camber from three points (prev, current, next). */
 function calculateCamber(prev: V2d, current: V2d, next: V2d): number {
@@ -179,17 +178,11 @@ export class SailFlowSimulator {
       stallDistance = upstream.stallDistance + segment.length;
     }
 
-    // Pressure coefficient
-    const pressure = attached
-      ? -2 * Math.PI * Math.sin(aoa) // Attached: suction on leeward
-      : -0.5; // Separated: reduced suction
-
     return {
       velocity,
       speed,
       attached,
       turbulence,
-      pressure,
       stallDistance,
     };
   }
