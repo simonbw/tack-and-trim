@@ -23,12 +23,14 @@ export {
   WavelengthClass,
   WAVELENGTH_CLASS_COUNT,
   WAVELENGTH_CLASS_VALUES,
-  createWindInfluenceArray,
-  createSwellInfluenceArray,
 } from "./InfluenceFieldTypes";
 
 // Grid data structure
-export { InfluenceFieldGrid, createGridConfig } from "./InfluenceFieldGrid";
+export {
+  InfluenceFieldGrid,
+  createGridConfig,
+  FLOATS_PER_CELL,
+} from "./InfluenceFieldGrid";
 
 // Propagation configuration
 export {
@@ -47,7 +49,7 @@ export {
 // Propagation utilities
 export { TerrainSampler } from "./propagation/TerrainSampler";
 
-// Propagation algorithms
+// Propagation core utilities
 export {
   type PropagationResult,
   getDirectionVector,
@@ -58,29 +60,9 @@ export {
   clamp01,
 } from "./propagation/PropagationCore";
 
-export {
-  type WindPropagationInput,
-  computeWindInfluenceField,
-} from "./propagation/WindInfluencePropagation";
-
-export {
-  type SwellPropagationInput,
-  computeSwellInfluenceField,
-  computeAllSwellInfluenceFields,
-} from "./propagation/SwellInfluencePropagation";
-
-export {
-  type FetchComputationInput,
-  computeFetchMap,
-} from "./propagation/FetchMapComputation";
-
-// Field storage wrappers
-export { WindInfluenceField } from "./WindInfluenceField";
-export {
-  SwellInfluenceField,
-  type SwellInfluenceSample,
-} from "./SwellInfluenceField";
-export { FetchMap } from "./FetchMap";
-
 // Manager entity
-export { InfluenceFieldManager } from "./InfluenceFieldManager";
+export {
+  InfluenceFieldManager,
+  type SwellInfluenceSample,
+  type TaskProgress,
+} from "./InfluenceFieldManager";
