@@ -39,9 +39,18 @@ export class TerrainComputeCPU {
    * Compute signed distance to land mass boundary.
    * Negative = inside, Positive = outside (in water)
    */
-  private computeSignedDistance(point: V2d, landMass: LandMass): number {
+  computeSignedDistance(point: V2d, landMass: LandMass): number {
     const segments = this.subdivideSpline(landMass.controlPoints);
     return this.signedDistanceToPolyline(point, segments);
+  }
+
+  /**
+   * Compute signed distance from a pre-computed polyline.
+   * Used for batch queries where the polyline is cached.
+   * Negative = inside, Positive = outside (in water)
+   */
+  computeSignedDistanceFromPolyline(point: V2d, polyline: V2d[]): number {
+    return this.signedDistanceToPolyline(point, polyline);
   }
 
   /**
@@ -73,7 +82,7 @@ export class TerrainComputeCPU {
    * Subdivide Catmull-Rom spline into line segments.
    * Closed loop - last point connects back to first.
    */
-  private subdivideSpline(controlPoints: readonly V2d[]): V2d[] {
+  subdivideSpline(controlPoints: readonly V2d[]): V2d[] {
     const n = controlPoints.length;
     if (n < 2) return [...controlPoints];
 

@@ -16,18 +16,18 @@ Implement a terrain-aware wind and wave system where:
 
 ## Progress Tracking
 
-**Current Status:** Phase 0 complete
+**Current Status:** Phase 1 complete
 
 **Last Updated:** 2026-01-20
 
-**Next Step:** Phase 1 - Terrain sampling
+**Next Step:** Phase 2 - Propagation algorithms
 
 ### Phase Completion Checklist
 
 | Phase | Status | Commit Point | Description |
 |-------|--------|--------------|-------------|
 | Phase 0 | [x] | `feat: add wind-wave foundation types` | Types, grid, config |
-| Phase 1 | [ ] | `feat: add terrain sampler for propagation` | TerrainSampler + helpers |
+| Phase 1 | [x] | `feat: add terrain sampler for propagation` | TerrainSampler + helpers |
 | Phase 2 | [ ] | `feat: add propagation algorithms` | Wind, swell, fetch propagation |
 | Phase 3 | [ ] | `feat: add influence field storage` | Field classes with sampling |
 | Phase 4 | [ ] | `feat: add influence field manager` | Manager + startup integration |
@@ -331,15 +331,17 @@ src/game/world-data/influence/propagation/
 
 ### Phase 1: Terrain Sampling (Depends on: Phase 0)
 
-**Status:** [ ] Not started
+**Status:** [x] Complete
 
 **Tasks:** (sequential)
-- [ ] Create `src/game/world-data/influence/propagation/TerrainSampler.ts`
+- [x] Create `src/game/world-data/influence/propagation/TerrainSampler.ts`
   - Wraps TerrainInfo for efficient propagation queries
   - Needs: InfluenceFieldTypes, existing TerrainInfo
-- [ ] Add helper methods to `TerrainInfo.ts`
+- [x] Add helper methods to `TerrainInfo.ts`
   - `getShoreDistance(point: V2d): number`
   - Ensure `getHeightAtPoint()` works efficiently for propagation
+- [x] Make `TerrainComputeCPU` methods public for TerrainSampler
+  - `computeSignedDistance()`, `subdivideSpline()`, new `computeSignedDistanceFromPolyline()`
 
 **Checkpoint:** After Phase 1
 - TerrainSampler can query terrain boundaries
@@ -652,6 +654,7 @@ Record significant progress and plan updates here:
 |------|-------|-------|
 | (date) | Plan created | Initial plan based on design docs |
 | 2026-01-20 | Phase 0 complete | Foundation types created: WeatherState, InfluenceFieldTypes, InfluenceFieldGrid, PropagationConfig, index.ts |
+| 2026-01-20 | Phase 1 complete | TerrainSampler created with cached polylines for batch queries. TerrainInfo.getShoreDistance() added. TerrainComputeCPU methods made public. |
 
 ---
 

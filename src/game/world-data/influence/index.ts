@@ -43,3 +43,6 @@ export {
   validatePropagationConfig,
   createPropagationConfig,
 } from "./PropagationConfig";
+
+// Propagation utilities
+export { TerrainSampler } from "./propagation/TerrainSampler";

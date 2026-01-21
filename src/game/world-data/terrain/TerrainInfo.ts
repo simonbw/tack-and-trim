@@ -226,6 +226,22 @@ export class TerrainInfo extends BaseEntity {
   }
 
   /**
+   * Get signed distance from a point to the nearest coastline.
+   * Positive = in water, Negative = on land.
+   */
+  getShoreDistance(point: V2d): number {
+    let minSignedDist = Infinity;
+    for (const landMass of this.terrainDefinition.landMasses) {
+      const signedDist = this.cpuFallback.computeSignedDistance(
+        point,
+        landMass,
+      );
+      minSignedDist = Math.min(minSignedDist, signedDist);
+    }
+    return minSignedDist === Infinity ? 10000 : minSignedDist;
+  }
+
+  /**
    * Get the terrain definition version.
    * Increments whenever terrain data changes.
    */
