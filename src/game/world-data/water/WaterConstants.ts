@@ -48,6 +48,14 @@ export const WAVE_COMPONENTS: readonly [
 
 export const NUM_WAVES = WAVE_COMPONENTS.length;
 
+// Wave classification threshold for terrain influence
+// Waves 0-4 (wavelength > 50 ft) are swell, waves 5-11 are chop
+export const SWELL_WAVE_COUNT = 5;
+
+// Fetch-based wave scaling
+export const MIN_FETCH_FOR_WAVES = 100; // ft - minimum fetch to develop waves
+export const FULL_FETCH_DISTANCE = 5000; // ft - fetch for fully developed waves
+
 // Normalization scales for water data (world units to [0,1] range)
 // Height: raw range ~[-2.5, 2.5] maps to [0, 1] via (height / 5.0 + 0.5)
 export const WATER_HEIGHT_SCALE = 5.0;

@@ -39,6 +39,11 @@ export class WaterDataTileCompute implements DataTileCompute {
   private textureSize: number;
   private currentSegmentCount: number = 0;
 
+  // Terrain influence factors
+  private swellEnergyFactor: number = 1.0;
+  private chopEnergyFactor: number = 1.0;
+  private fetchFactor: number = 1.0;
+
   constructor(textureSize: number = 128) {
     this.textureSize = textureSize;
     this.shader = new WaterStateShader();
@@ -85,6 +90,22 @@ export class WaterDataTileCompute implements DataTileCompute {
   }
 
   /**
+   * Set terrain influence factors for wave computation.
+   * @param swellEnergy 0-1 factor for long swell waves (terrain diffraction)
+   * @param chopEnergy 0-1 factor for short chop waves (terrain shadow)
+   * @param fetchFactor 0-1 factor based on fetch distance
+   */
+  setWaveInfluence(
+    swellEnergy: number,
+    chopEnergy: number,
+    fetchFactor: number,
+  ): void {
+    this.swellEnergyFactor = swellEnergy;
+    this.chopEnergyFactor = chopEnergy;
+    this.fetchFactor = fetchFactor;
+  }
+
+  /**
    * Run the compute shader for a tile viewport.
    */
   runCompute(
@@ -109,6 +130,9 @@ export class WaterDataTileCompute implements DataTileCompute {
       viewportHeight: height,
       textureSize: this.textureSize,
       segmentCount: this.currentSegmentCount,
+      swellEnergyFactor: this.swellEnergyFactor,
+      chopEnergyFactor: this.chopEnergyFactor,
+      fetchFactor: this.fetchFactor,
     });
 
     // Create and submit compute pass

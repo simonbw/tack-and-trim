@@ -98,6 +98,8 @@ export class WaterRenderPipeline {
     const segmentCount = this.buffers.updateSegments(segments);
 
     // Update params buffer
+    // Note: For visual rendering we use full influence (1.0) since terrain
+    // effects are applied separately in the physics tile computation
     this.buffers.updateParams({
       time,
       viewportLeft: viewport.left,
@@ -106,6 +108,9 @@ export class WaterRenderPipeline {
       viewportHeight: viewport.height,
       textureSize: this.textureSize,
       segmentCount,
+      swellEnergyFactor: 1.0,
+      chopEnergyFactor: 1.0,
+      fetchFactor: 1.0,
     });
 
     // Create command encoder

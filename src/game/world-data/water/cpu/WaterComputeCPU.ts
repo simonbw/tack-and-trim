@@ -12,6 +12,7 @@ import { NoiseFunction3D } from "simplex-noise";
 import {
   GERSTNER_STEEPNESS,
   GRAVITY_FT_PER_S2,
+  SWELL_WAVE_COUNT,
   WAVE_AMP_MOD_SPATIAL_SCALE,
   WAVE_AMP_MOD_STRENGTH,
   WAVE_AMP_MOD_TIME_SCALE,
@@ -38,6 +39,12 @@ export interface WaterComputeParams {
   waveAmpModNoise: NoiseFunction3D;
   /** Noise function for surface turbulence */
   surfaceNoise: NoiseFunction3D;
+  /** Terrain influence: 0-1 factor for swell waves */
+  swellEnergyFactor: number;
+  /** Terrain influence: 0-1 factor for chop waves */
+  chopEnergyFactor: number;
+  /** Terrain influence: 0-1 factor based on fetch distance */
+  fetchFactor: number;
 }
 
 /**
@@ -69,7 +76,14 @@ export function computeWaveDataAtPoint(
   y: number,
   params: WaterComputeParams,
 ): WaveData {
-  const { time, waveAmpModNoise, surfaceNoise } = params;
+  const {
+    time,
+    waveAmpModNoise,
+    surfaceNoise,
+    swellEnergyFactor,
+    chopEnergyFactor,
+    fetchFactor,
+  } = params;
 
   // Sample amplitude modulation noise once per point (slow-changing)
   const ampModTime = time * WAVE_AMP_MOD_TIME_SCALE;
@@ -142,16 +156,28 @@ export function computeWaveDataAtPoint(
   let height = 0;
   let dhdt = 0;
 
-  for (const [
-    amplitude,
-    wavelength,
-    direction,
-    phaseOffset,
-    speedMult,
-    sourceDist,
-    sourceOffsetX,
-    sourceOffsetY,
-  ] of WAVE_COMPONENTS) {
+  for (let i = 0; i < numWaves; i++) {
+    const [
+      baseAmplitude,
+      wavelength,
+      direction,
+      phaseOffset,
+      speedMult,
+      sourceDist,
+      sourceOffsetX,
+      sourceOffsetY,
+    ] = WAVE_COMPONENTS[i];
+
+    // Apply terrain influence based on wave type
+    let amplitude: number;
+    if (i < SWELL_WAVE_COUNT) {
+      // Swell waves (0-4): apply swell energy factor
+      amplitude = baseAmplitude * swellEnergyFactor;
+    } else {
+      // Chop waves (5-11): apply chop energy factor * fetch factor
+      amplitude = baseAmplitude * chopEnergyFactor * fetchFactor;
+    }
+
     const baseDx = Math.cos(direction);
     const baseDy = Math.sin(direction);
     const k = (2 * Math.PI) / wavelength;

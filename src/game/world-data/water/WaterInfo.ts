@@ -24,12 +24,19 @@ import type {
   QueryForecast,
   ReadbackViewport,
 } from "../datatiles/DataTileTypes";
+import { InfluenceFieldManager } from "../influence/InfluenceFieldManager";
+import { WindInfo } from "../wind/WindInfo";
 import {
   computeWaveDataAtPoint,
   WaterComputeParams,
 } from "./cpu/WaterComputeCPU";
 import { WakeParticle } from "./WakeParticle";
-import { WATER_HEIGHT_SCALE, WATER_VELOCITY_SCALE } from "./WaterConstants";
+import {
+  FULL_FETCH_DISTANCE,
+  WATER_HEIGHT_SCALE,
+  WATER_VELOCITY_SCALE,
+  WAVE_COMPONENTS,
+} from "./WaterConstants";
 import { isWaterModifier, WaterModifier } from "./WaterModifier";
 import { isWaterQuerier } from "./WaterQuerier";
 import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
@@ -154,12 +161,23 @@ export class WaterInfo extends BaseEntity {
   // Cached segment data for current frame
   private cachedSegments: WakeSegmentData[] = [];
 
+  // Influence field manager for terrain effects
+  private influenceManager: InfluenceFieldManager | null = null;
+
+  // Cached influence values for CPU fallback
+  private cachedSwellEnergyFactor: number = 1.0;
+  private cachedChopEnergyFactor: number = 1.0;
+  private cachedFetchFactor: number = 1.0;
+
   // CPU compute params (cached for fallback computations)
   private get cpuParams(): WaterComputeParams {
     return {
       time: this.game?.elapsedUnpausedTime ?? 0,
       waveAmpModNoise: this.waveAmpModNoise,
       surfaceNoise: this.surfaceNoise,
+      swellEnergyFactor: this.cachedSwellEnergyFactor,
+      chopEnergyFactor: this.cachedChopEnergyFactor,
+      fetchFactor: this.cachedFetchFactor,
     };
   }
 
@@ -184,6 +202,10 @@ export class WaterInfo extends BaseEntity {
   onAfterAdded() {
     // Add pipeline as child entity - it handles its own lifecycle
     this.addChild(this.pipeline);
+
+    // Get reference to influence field manager (if it exists)
+    this.influenceManager =
+      InfluenceFieldManager.maybeFromGame(this.game!) ?? null;
   }
 
   /**
@@ -229,6 +251,31 @@ export class WaterInfo extends BaseEntity {
   }
 
   /**
+   * Get the base swell direction from dominant wave component.
+   * Uses the first (largest) wave component's direction.
+   */
+  private getBaseSwellDirection(): number {
+    return WAVE_COMPONENTS[0][2]; // direction is at index 2
+  }
+
+  /**
+   * Get the current wind direction from WindInfo.
+   */
+  private getWindDirection(): number {
+    const windInfo = WindInfo.maybeFromGame(this.game!);
+    return windInfo ? windInfo.getAngle() : 0;
+  }
+
+  /**
+   * Compute fetch factor from raw fetch distance.
+   * Returns 0-1 scale factor for wave amplitude.
+   */
+  private computeFetchFactor(fetchDistance: number): number {
+    if (fetchDistance <= 0) return 0;
+    return Math.min(1.0, fetchDistance / FULL_FETCH_DISTANCE);
+  }
+
+  /**
    * Run domain-specific compute for a tile.
    */
   private runTileCompute(
@@ -236,6 +283,44 @@ export class WaterInfo extends BaseEntity {
     viewport: ReadbackViewport,
   ): void {
     compute.setSegments(this.cachedSegments);
+
+    // Sample influence at tile center
+    const centerX = viewport.left + viewport.width / 2;
+    const centerY = viewport.top + viewport.height / 2;
+
+    if (this.influenceManager) {
+      const swellDir = this.getBaseSwellDirection();
+      const windDir = this.getWindDirection();
+
+      const swell = this.influenceManager.sampleSwellInfluence(
+        centerX,
+        centerY,
+        swellDir,
+      );
+      const fetchDistance = this.influenceManager.sampleFetch(
+        centerX,
+        centerY,
+        windDir,
+      );
+
+      const swellEnergyFactor = swell.longSwell.energyFactor;
+      const chopEnergyFactor = swell.shortChop.energyFactor;
+      const fetchFactor = this.computeFetchFactor(fetchDistance);
+
+      compute.setWaveInfluence(
+        swellEnergyFactor,
+        chopEnergyFactor,
+        fetchFactor,
+      );
+
+      // Cache for CPU fallback
+      this.cachedSwellEnergyFactor = swellEnergyFactor;
+      this.cachedChopEnergyFactor = chopEnergyFactor;
+      this.cachedFetchFactor = fetchFactor;
+    } else {
+      compute.setWaveInfluence(1.0, 1.0, 1.0); // No terrain effect
+    }
+
     compute.runCompute(
       viewport.time,
       viewport.left,

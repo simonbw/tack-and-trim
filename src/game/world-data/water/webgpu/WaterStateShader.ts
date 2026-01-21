@@ -23,6 +23,7 @@ import {
   WAVE_AMP_MOD_STRENGTH,
   WATER_HEIGHT_SCALE,
   WATER_VELOCITY_SCALE,
+  SWELL_WAVE_COUNT,
 } from "../WaterConstants";
 import { MAX_SEGMENTS, FLOATS_PER_SEGMENT } from "./WaterComputeBuffers";
 
@@ -50,6 +51,7 @@ export class WaterStateShader extends ComputeShader<typeof bindings> {
 // ============================================================================
 const PI: f32 = 3.14159265359;
 const NUM_WAVES: i32 = ${NUM_WAVES};
+const SWELL_WAVE_COUNT: i32 = ${SWELL_WAVE_COUNT};
 const GERSTNER_STEEPNESS: f32 = ${GERSTNER_STEEPNESS};
 const GRAVITY: f32 = ${GRAVITY_FT_PER_S2};
 const WAVE_AMP_MOD_SPATIAL_SCALE: f32 = ${WAVE_AMP_MOD_SPATIAL_SCALE};
@@ -74,6 +76,11 @@ struct Params {
   textureSizeX: f32,
   textureSizeY: f32,
   segmentCount: u32,
+  // Terrain influence factors
+  swellEnergyFactor: f32,  // 0-1, terrain diffraction effect on swell
+  chopEnergyFactor: f32,   // 0-1, terrain shadow effect on chop
+  fetchFactor: f32,        // 0-1, normalized fetch distance
+  _padding: f32,           // Align to 16 bytes
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -165,7 +172,7 @@ fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
 
   for (var i = 0; i < NUM_WAVES; i++) {
     let base = i * 8;
-    let amplitude = waveData[base + 0];
+    var amplitude = waveData[base + 0];
     let wavelength = waveData[base + 1];
     let direction = waveData[base + 2];
     let phaseOffset = waveData[base + 3];
@@ -173,6 +180,15 @@ fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
     let sourceDist = waveData[base + 5];
     let sourceOffsetX = waveData[base + 6];
     let sourceOffsetY = waveData[base + 7];
+
+    // Apply terrain influence based on wave type
+    if (i < SWELL_WAVE_COUNT) {
+      // Swell waves (0-4): apply swell energy factor
+      amplitude *= params.swellEnergyFactor;
+    } else {
+      // Chop waves (5-11): apply chop energy factor * fetch factor
+      amplitude *= params.chopEnergyFactor * params.fetchFactor;
+    }
 
     let baseDx = cos(direction);
     let baseDy = sin(direction);

@@ -41,6 +41,10 @@ export interface WaterComputeParams {
   viewportHeight: number;
   textureSize: number;
   segmentCount: number;
+  // Terrain influence factors
+  swellEnergyFactor: number; // 0-1, terrain diffraction effect on swell
+  chopEnergyFactor: number; // 0-1, terrain shadow effect on chop
+  fetchFactor: number; // 0-1, normalized fetch distance
 }
 
 /**
@@ -70,11 +74,12 @@ export class WaterComputeBuffers {
     new Float32Array(this.waveDataBuffer.getMappedRange()).set(waveData);
     this.waveDataBuffer.unmap();
 
-    // Create params uniform buffer (32 bytes)
+    // Create params uniform buffer (48 bytes)
     // Layout: time, viewportLeft, viewportTop, viewportWidth, viewportHeight,
-    //         textureSizeX, textureSizeY, segmentCount
+    //         textureSizeX, textureSizeY, segmentCount,
+    //         swellEnergyFactor, chopEnergyFactor, fetchFactor, _padding
     this.paramsBuffer = device.createBuffer({
-      size: 32,
+      size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Water Params Buffer",
     });
@@ -94,9 +99,11 @@ export class WaterComputeBuffers {
   updateParams(params: WaterComputeParams): void {
     const device = getWebGPU().device;
 
-    const paramsData = new ArrayBuffer(32);
+    const paramsData = new ArrayBuffer(48);
     const paramsFloats = new Float32Array(paramsData, 0, 7);
     const paramsUints = new Uint32Array(paramsData, 28, 1);
+    // Influence factors start at byte 32 (index 8 in float terms)
+    const influenceFloats = new Float32Array(paramsData, 32, 4);
 
     paramsFloats[0] = params.time;
     paramsFloats[1] = params.viewportLeft;
@@ -106,6 +113,12 @@ export class WaterComputeBuffers {
     paramsFloats[5] = params.textureSize;
     paramsFloats[6] = params.textureSize;
     paramsUints[0] = params.segmentCount;
+
+    // Terrain influence factors
+    influenceFloats[0] = params.swellEnergyFactor;
+    influenceFloats[1] = params.chopEnergyFactor;
+    influenceFloats[2] = params.fetchFactor;
+    influenceFloats[3] = 0; // _padding for alignment
 
     device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
   }
