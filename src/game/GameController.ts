@@ -6,6 +6,7 @@ import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { MainMenu } from "./MainMenu";
+import { InfluenceFieldManager } from "./world-data/influence/InfluenceFieldManager";
 import { createLandMass } from "./world-data/terrain/LandMass";
 import { TerrainInfo } from "./world-data/terrain/TerrainInfo";
 import { WaterInfo } from "./world-data/water/WaterInfo";
@@ -24,14 +25,7 @@ export class GameController extends BaseEntity {
 
   @on("add")
   onAdd() {
-    // Spawn water and wind systems (visible during menu)
-    this.game!.addEntity(new WaterInfo());
-    this.game!.addEntity(new SurfaceRenderer());
-    this.game!.addEntity(new WindInfo());
-    this.game!.addEntity(new WindIndicator());
-    this.game!.addEntity(new WindVisualization());
-
-    // Spawn terrain with a test island
+    // 1. Terrain first (required by InfluenceFieldManager)
     const testIsland = createLandMass(
       [
         V(150, -30),
@@ -51,6 +45,16 @@ export class GameController extends BaseEntity {
       },
     );
     this.game!.addEntity(new TerrainInfo([testIsland]));
+
+    // 2. Influence fields (depends on terrain, used by wind/water)
+    this.game!.addEntity(new InfluenceFieldManager());
+
+    // 3. Wind/Water systems (can query influence fields)
+    this.game!.addEntity(new WaterInfo());
+    this.game!.addEntity(new SurfaceRenderer());
+    this.game!.addEntity(new WindInfo());
+    this.game!.addEntity(new WindIndicator());
+    this.game!.addEntity(new WindVisualization());
 
     // Start with wide camera shot for menu
     this.game!.camera.z = MENU_ZOOM;

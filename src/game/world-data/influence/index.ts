@@ -81,3 +81,6 @@ export {
   type SwellInfluenceSample,
 } from "./SwellInfluenceField";
 export { FetchMap } from "./FetchMap";
+
+// Manager entity
+export { InfluenceFieldManager } from "./InfluenceFieldManager";
