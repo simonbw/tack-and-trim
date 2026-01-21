@@ -1,6 +1,5 @@
 /**
  * Manages loading and caching of WebGPU textures.
- * Provides the same interface as the WebGL TextureManager.
  */
 
 import { getWebGPU } from "./WebGPUDevice";

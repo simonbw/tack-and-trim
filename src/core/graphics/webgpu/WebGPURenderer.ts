@@ -2,7 +2,7 @@
  * Immediate-mode 2D WebGPU renderer.
  * All draw calls are batched and flushed at frame end or on state change.
  *
- * Replicates WebGLRenderer's architecture with:
+ * Architecture:
  * - Two batch types: shapes (untextured) and sprites (textured)
  * - Transform stack with Matrix3
  * - Batched rendering with automatic flushing

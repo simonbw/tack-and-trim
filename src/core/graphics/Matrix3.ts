@@ -2,7 +2,7 @@ import { V, V2d, CompatibleVector } from "../Vector";
 
 /**
  * A 3x3 matrix for 2D affine transformations.
- * Stored in column-major order for WebGL compatibility:
+ * Stored in column-major order for GPU compatibility:
  * [a, b, 0, c, d, 0, tx, ty, 1]
  *
  * Matrix layout:
@@ -263,7 +263,7 @@ export class Matrix3 {
     return V((d * x - c * y) * invDet, (a * y - b * x) * invDet);
   }
 
-  /** Get the underlying array (column-major for WebGL) */
+  /** Get the underlying array (column-major for GPU) */
   toArray(): Float32Array;
   toArray(transpose: boolean): Float32Array;
   toArray(transpose: boolean, out: Float32Array): Float32Array;
@@ -282,7 +282,7 @@ export class Matrix3 {
       result[7] = this.data[5];
       result[8] = this.data[8];
     } else {
-      // Column-major order (default for WebGL)
+      // Column-major order (default for GPU)
       result.set(this.data);
     }
 

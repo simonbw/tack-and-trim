@@ -14,7 +14,7 @@
  *
  * Returns a value in the range [-1, 1].
  *
- * Based on Ashima Arts / Stefan Gustavson implementation.
+ * Adapted from Ashima Arts / Stefan Gustavson GLSL implementation:
  * https://github.com/ashima/webgl-noise
  */
 export const SIMPLEX_NOISE_3D_WGSL = /*wgsl*/ `

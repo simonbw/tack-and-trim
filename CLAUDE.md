@@ -29,7 +29,7 @@ This is a custom 2D game engine built on TypeScript, with three main technology 
 
 ### Technologies
 
-- **Custom WebGL2 Renderer** - Immediate-mode 2D rendering with batched draw calls
+- **Custom WebGPU Renderer** - Immediate-mode 2D rendering with batched draw calls
 - **Parcel** - Zero-config bundler and dev server
 
 ### Entity-Component System
@@ -44,7 +44,7 @@ The engine follows an Entity-based architecture where everything in the game ext
 ### Key Systems
 
 - **Physics**: Simulate rigid bodies with collision detection, springs, and constraints
-- **Rendering**: Custom WebGL2 renderer with `Draw` API for shapes, sprites, and paths
+- **Rendering**: Custom WebGPU renderer with `Draw` API for shapes, sprites, and paths
 - **Input**: Centralized IO manager for keyboard, mouse, and gamepad input
 - **Audio**: Web Audio API integration with positional sound support
 - **Asset Management**: Automatic type generation for resources in `resources/` folder
