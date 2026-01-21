@@ -65,22 +65,6 @@ fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
 `;
 
   readonly fragmentCode = /*wgsl*/ `
-struct Uniforms {
-  cameraMatrix: mat3x3<f32>,
-  time: f32,
-  renderMode: i32,
-  screenWidth: f32,
-  screenHeight: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
-  colorNoiseStrength: f32,
-  hasTerrainData: i32,
-  shallowThreshold: f32,
-}
-
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var waterSampler: sampler;
 @group(0) @binding(2) var waterDataTexture: texture_2d<f32>;
 @group(0) @binding(3) var terrainDataTexture: texture_2d<f32>;

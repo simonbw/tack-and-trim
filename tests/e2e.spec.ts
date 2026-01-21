@@ -1,10 +1,11 @@
 import { test, expect } from "@playwright/test";
 
 test("game starts and runs without errors", async ({ page }) => {
-  const errors: string[] = [];
-  page.on("pageerror", (err) => errors.push(err.message));
+  const issues: string[] = [];
+  page.on("pageerror", (err) => issues.push(err.message));
   page.on("console", (msg) => {
-    if (msg.type() === "error") errors.push(msg.text());
+    if (msg.type() === "error" || msg.type() === "warning")
+      issues.push(msg.text());
   });
 
   await page.goto("http://localhost:1234");
@@ -19,6 +20,6 @@ test("game starts and runs without errors", async ({ page }) => {
   const tickCount = await page.evaluate(() => window.DEBUG.game!.ticknumber);
   expect(tickCount).toBeGreaterThan(0);
 
-  // Verify no errors occurred
-  expect(errors).toHaveLength(0);
+  // Verify no errors or warnings occurred
+  expect(issues).toHaveLength(0);
 });
