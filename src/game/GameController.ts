@@ -26,25 +26,54 @@ export class GameController extends BaseEntity {
   @on("add")
   onAdd() {
     // 1. Terrain first (required by InfluenceFieldManager)
-    const testIsland = createLandMass(
+    // Large island with a sheltered lagoon opening SE (away from NW wind)
+    // Boat spawns at (0, 0) deep inside the lagoon
+    const bayIsland = createLandMass(
       [
-        V(150, -30),
-        V(180, -10),
-        V(190, 30),
-        V(170, 60),
-        V(130, 70),
-        V(100, 50),
-        V(90, 10),
-        V(110, -20),
+        // East headland tip - narrow lagoon entrance (~200 ft gap)
+        V(100, 250),
+
+        // East coast curving north
+        V(500, 100),
+        V(700, -300),
+        V(650, -700),
+        V(450, -1000),
+
+        // North coast
+        V(0, -1150),
+        V(-450, -1000),
+
+        // West coast curving south
+        V(-650, -700),
+        V(-700, -300),
+        V(-500, 100),
+
+        // West headland tip - matches east for narrow entrance
+        V(-100, 250),
+
+        // Lagoon interior - west shore going north into lagoon
+        V(-120, 150),
+        V(-200, -50),
+        V(-280, -250),
+        V(-300, -450),
+
+        // Back of lagoon - deep inside island
+        V(0, -550),
+
+        // Lagoon interior - east shore going south to entrance
+        V(300, -450),
+        V(280, -250),
+        V(200, -50),
+        V(120, 150),
       ],
       {
-        peakHeight: 4,
-        beachWidth: 25,
-        hillFrequency: 0.03,
-        hillAmplitude: 0.2,
+        peakHeight: 8, // Tall island
+        beachWidth: 40, // Wide beach zone
+        hillFrequency: 0.008, // Very gentle rolling hills
+        hillAmplitude: 0.25, // 25% height variation
       },
     );
-    this.game!.addEntity(new TerrainInfo([testIsland]));
+    this.game!.addEntity(new TerrainInfo([bayIsland]));
 
     // 2. Influence fields (depends on terrain, used by wind/water)
     this.game!.addEntity(new InfluenceFieldManager());
@@ -65,11 +94,11 @@ export class GameController extends BaseEntity {
 
   @on("gameStart")
   onGameStart() {
-    // Spawn buoys
-    this.game!.addEntity(new Buoy(200, 0));
-    this.game!.addEntity(new Buoy(-160, 120));
-    this.game!.addEntity(new Buoy(100, -200));
-    this.game!.addEntity(new Buoy(-240, -100));
+    // Spawn buoys in open water around the island
+    this.game!.addEntity(new Buoy(0, 500)); // South of lagoon entrance
+    this.game!.addEntity(new Buoy(600, 400)); // Southeast
+    this.game!.addEntity(new Buoy(-600, 400)); // Southwest
+    this.game!.addEntity(new Buoy(900, -300)); // East of island
 
     // Spawn boat and controls
     const boat = this.game!.addEntity(new Boat());
