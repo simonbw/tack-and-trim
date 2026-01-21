@@ -16,17 +16,17 @@ Implement a terrain-aware wind and wave system where:
 
 ## Progress Tracking
 
-**Current Status:** Not started
+**Current Status:** Phase 0 complete
 
-**Last Updated:** (update this date when making progress)
+**Last Updated:** 2026-01-20
 
-**Next Step:** Phase 0 - Foundation types
+**Next Step:** Phase 1 - Terrain sampling
 
 ### Phase Completion Checklist
 
 | Phase | Status | Commit Point | Description |
 |-------|--------|--------------|-------------|
-| Phase 0 | [ ] | `feat: add wind-wave foundation types` | Types, grid, config |
+| Phase 0 | [x] | `feat: add wind-wave foundation types` | Types, grid, config |
 | Phase 1 | [ ] | `feat: add terrain sampler for propagation` | TerrainSampler + helpers |
 | Phase 2 | [ ] | `feat: add propagation algorithms` | Wind, swell, fetch propagation |
 | Phase 3 | [ ] | `feat: add influence field storage` | Field classes with sampling |
@@ -306,17 +306,19 @@ src/game/world-data/influence/propagation/
 
 ### Phase 0: Foundation (No Dependencies)
 
-**Status:** [ ] Not started
+**Status:** [x] Complete
 
 **Tasks:** (can be done in parallel)
-- [ ] Create `src/game/world-data/weather/WeatherState.ts`
+- [x] Create `src/game/world-data/weather/WeatherState.ts`
   - Interface + default values, no dependencies
-- [ ] Create `src/game/world-data/influence/InfluenceFieldTypes.ts`
+- [x] Create `src/game/world-data/influence/InfluenceFieldTypes.ts`
   - Type definitions only
-- [ ] Create `src/game/world-data/influence/InfluenceFieldGrid.ts`
+- [x] Create `src/game/world-data/influence/InfluenceFieldGrid.ts`
   - Generic grid data structure, pure data
-- [ ] Create `src/game/world-data/influence/PropagationConfig.ts`
+- [x] Create `src/game/world-data/influence/PropagationConfig.ts`
   - Configuration interfaces and defaults
+- [x] Create `src/game/world-data/influence/index.ts`
+  - Barrel export for influence module
 
 **Checkpoint:** After Phase 0
 - New files exist but aren't integrated into game yet
@@ -403,8 +405,8 @@ src/game/world-data/influence/propagation/
   - Orchestrates all propagation at startup
   - Provides unified sampling interface
   - Needs: All influence field classes
-- [ ] Create `src/game/world-data/influence/index.ts`
-  - Export public API
+- [ ] Update `src/game/world-data/influence/index.ts`
+  - Add exports for new field classes and manager (base exports added in Phase 0)
 - [ ] Modify game startup (GameController or equivalent)
   - Initialize InfluenceFieldManager after terrain is defined
   - Log propagation time for profiling
@@ -649,8 +651,7 @@ Record significant progress and plan updates here:
 | Date | Phase | Notes |
 |------|-------|-------|
 | (date) | Plan created | Initial plan based on design docs |
-| | | |
-| | | |
+| 2026-01-20 | Phase 0 complete | Foundation types created: WeatherState, InfluenceFieldTypes, InfluenceFieldGrid, PropagationConfig, index.ts |
 
 ---
 
