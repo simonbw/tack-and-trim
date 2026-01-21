@@ -16,11 +16,11 @@ Implement a terrain-aware wind and wave system where:
 
 ## Progress Tracking
 
-**Current Status:** Phase 6 complete
+**Current Status:** Phase 7 ongoing (tuning as needed)
 
 **Last Updated:** 2026-01-20
 
-**Next Step:** Phase 7 - Polish and tuning
+**Next Step:** Playtest and tune parameters as needed. Phase 8/9 deferred.
 
 ### Phase Completion Checklist
 
@@ -33,9 +33,9 @@ Implement a terrain-aware wind and wave system where:
 | Phase 4 | [x] | `feat: add influence field manager` | Manager + startup integration |
 | Phase 5 | [x] | `feat: terrain-aware wind system` | Wind uses influence fields |
 | Phase 6 | [x] | `feat: terrain-aware wave system` | Waves use influence + fetch |
-| Phase 7 | [ ] | `feat: tune wind-wave parameters` | Polish and optimization |
-| Phase 8 | [ ] | `feat: weather evolution` | Optional - dynamic weather |
-| Phase 9 | [ ] | `feat: terrain-aware currents` | Optional - current field |
+| Phase 7 | [~] | (ongoing) | Tuning as needed during playtesting |
+| Phase 8 | [ ] | `feat: weather evolution` | Deferred - dynamic weather |
+| Phase 9 | [ ] | `feat: terrain-aware currents` | Deferred - current field |
 
 ---
 
@@ -667,6 +667,7 @@ Record significant progress and plan updates here:
 | 2026-01-20 | Phase 4 complete | Created InfluenceFieldManager.ts entity that runs all propagation algorithms at startup and provides sampling interface. Updated GameController.ts to add manager after TerrainInfo but before WaterInfo/WindInfo. Manager computes terrain bounds with padding and runs wind, swell, and fetch propagation. Console logs timing. |
 | 2026-01-20 | Phase 5 complete | WindInfo now uses InfluenceFieldManager to apply terrain effects. Wind shadows visible behind islands, wind accelerates through gaps. Also added lagoon island starter terrain for testing. |
 | 2026-01-20 | Phase 6 complete | WaterInfo now samples swell influence and fetch from InfluenceFieldManager. Waves 0-4 (swell) scaled by swellEnergyFactor, waves 5-11 (chop) scaled by chopEnergyFactor * fetchFactor. GPU shader and CPU fallback both apply terrain influence. Sheltered areas like lagoons have calmer water. |
+| 2026-01-20 | Phase 7 ongoing | Core implementation complete. Phase 7 (tuning) is now ongoing as needed during playtesting. Phase 8/9 deferred. |
 
 ---
 
