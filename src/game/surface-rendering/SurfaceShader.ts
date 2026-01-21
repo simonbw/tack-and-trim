@@ -95,33 +95,7 @@ fn hash21(p: vec2<f32>) -> f32 {
 
 // Render sand/beach surface
 fn renderSand(height: f32, normal: vec3<f32>, worldPos: vec2<f32>) -> vec3<f32> {
-  // Sand colors - wet near water, dry higher up
-  let wetSand = vec3<f32>(0.76, 0.70, 0.50);
-  let drySand = vec3<f32>(0.96, 0.91, 0.76);
-
-  // Blend based on height above water
-  let heightFactor = smoothstep(0.0, 3.0, height);
-  var baseColor = mix(wetSand, drySand, heightFactor);
-
-  // Add sandy texture noise
-  let sandNoise = hash21(worldPos * 5.0) * 0.05;
-  baseColor = baseColor + sandNoise;
-
-  // Add darker grain noise
-  let grainNoise = hash21(worldPos * 20.0) * 0.03 - 0.015;
-  baseColor = baseColor + grainNoise;
-
-  // Fixed midday sun
-  let sunDir = normalize(vec3<f32>(0.3, 0.2, 0.9));
-
-  // Diffuse lighting
-  let diffuse = max(dot(normal, sunDir), 0.0);
-
-  // Combine with ambient
-  let ambient = 0.7;
-  let lit = baseColor * (ambient + diffuse * 0.3);
-
-  return lit;
+  return vec3<f32>(0.87, 0.82, 0.65);  // Flat sand color
 }
 
 // Render water with depth information
