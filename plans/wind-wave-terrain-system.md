@@ -16,11 +16,11 @@ Implement a terrain-aware wind and wave system where:
 
 ## Progress Tracking
 
-**Current Status:** Phase 1 complete
+**Current Status:** Phase 2 complete
 
 **Last Updated:** 2026-01-20
 
-**Next Step:** Phase 2 - Propagation algorithms
+**Next Step:** Phase 3 - Influence field storage
 
 ### Phase Completion Checklist
 
@@ -28,7 +28,7 @@ Implement a terrain-aware wind and wave system where:
 |-------|--------|--------------|-------------|
 | Phase 0 | [x] | `feat: add wind-wave foundation types` | Types, grid, config |
 | Phase 1 | [x] | `feat: add terrain sampler for propagation` | TerrainSampler + helpers |
-| Phase 2 | [ ] | `feat: add propagation algorithms` | Wind, swell, fetch propagation |
+| Phase 2 | [x] | `feat: add propagation algorithms` | Wind, swell, fetch propagation |
 | Phase 3 | [ ] | `feat: add influence field storage` | Field classes with sampling |
 | Phase 4 | [ ] | `feat: add influence field manager` | Manager + startup integration |
 | Phase 5 | [ ] | `feat: terrain-aware wind system` | Wind uses influence fields |
@@ -355,18 +355,25 @@ src/game/world-data/influence/propagation/
 
 ### Phase 2: Propagation Algorithms (Depends on: Phase 1)
 
-**Status:** [ ] Not started
+**Status:** [x] Complete
 
 **Tasks:** (can be done in parallel)
-- [ ] Create `src/game/world-data/influence/WindInfluencePropagation.ts`
-  - Wind propagation algorithm
-  - Needs: TerrainSampler, PropagationConfig, InfluenceFieldGrid
-- [ ] Create `src/game/world-data/influence/SwellInfluencePropagation.ts`
-  - Swell propagation (more diffraction)
-  - Needs: TerrainSampler, PropagationConfig, InfluenceFieldGrid
-- [ ] Create `src/game/world-data/influence/FetchMapComputation.ts`
-  - Ray-marching fetch calculation
-  - Needs: TerrainSampler, InfluenceFieldGrid
+- [x] Create `src/game/world-data/influence/propagation/PropagationCore.ts`
+  - Shared utilities: `getDirectionVector`, `precomputeWaterMask`, `computeFlowWeight`, `isUpwindBoundary`
+  - Needs: TerrainSampler, InfluenceFieldTypes, PropagationConfig
+- [x] Create `src/game/world-data/influence/propagation/WindInfluencePropagation.ts`
+  - Wind propagation algorithm with iterative relaxation
+  - Computes speedFactor, directionOffset, turbulence for 16 directions
+  - Needs: PropagationCore, TerrainSampler, PropagationConfig, InfluenceFieldGrid
+- [x] Create `src/game/world-data/influence/propagation/SwellInfluencePropagation.ts`
+  - Swell propagation (more lateral spread for diffraction)
+  - Tracks arrival direction as waves bend around obstacles
+  - Supports LongSwell and ShortChop wavelength classes
+  - Needs: PropagationCore, TerrainSampler, PropagationConfig, InfluenceFieldGrid
+- [x] Create `src/game/world-data/influence/propagation/FetchMapComputation.ts`
+  - Ray-marching fetch calculation for each direction
+  - Computes distance to upwind land (max 50,000 ft)
+  - Needs: TerrainSampler, PropagationCore, InfluenceFieldGrid
 
 **Checkpoint:** After Phase 2
 - Propagation algorithms exist and can be called
@@ -655,6 +662,7 @@ Record significant progress and plan updates here:
 | (date) | Plan created | Initial plan based on design docs |
 | 2026-01-20 | Phase 0 complete | Foundation types created: WeatherState, InfluenceFieldTypes, InfluenceFieldGrid, PropagationConfig, index.ts |
 | 2026-01-20 | Phase 1 complete | TerrainSampler created with cached polylines for batch queries. TerrainInfo.getShoreDistance() added. TerrainComputeCPU methods made public. |
+| 2026-01-20 | Phase 2 complete | Created 4 propagation files: PropagationCore.ts (shared utilities), WindInfluencePropagation.ts (iterative relaxation with turbulence), SwellInfluencePropagation.ts (higher diffraction, arrival direction tracking), FetchMapComputation.ts (ray-marching). All exported from influence/index.ts. |
 
 ---
 

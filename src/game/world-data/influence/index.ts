@@ -46,3 +46,30 @@ export {
 
 // Propagation utilities
 export { TerrainSampler } from "./propagation/TerrainSampler";
+
+// Propagation algorithms
+export {
+  type PropagationResult,
+  getDirectionVector,
+  precomputeWaterMask,
+  computeFlowWeight,
+  NEIGHBOR_OFFSETS,
+  isUpwindBoundary,
+  clamp01,
+} from "./propagation/PropagationCore";
+
+export {
+  type WindPropagationInput,
+  computeWindInfluenceField,
+} from "./propagation/WindInfluencePropagation";
+
+export {
+  type SwellPropagationInput,
+  computeSwellInfluenceField,
+  computeAllSwellInfluenceFields,
+} from "./propagation/SwellInfluencePropagation";
+
+export {
+  type FetchComputationInput,
+  computeFetchMap,
+} from "./propagation/FetchMapComputation";
