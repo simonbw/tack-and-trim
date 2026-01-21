@@ -73,3 +73,11 @@ export {
   type FetchComputationInput,
   computeFetchMap,
 } from "./propagation/FetchMapComputation";
+
+// Field storage wrappers
+export { WindInfluenceField } from "./WindInfluenceField";
+export {
+  SwellInfluenceField,
+  type SwellInfluenceSample,
+} from "./SwellInfluenceField";
+export { FetchMap } from "./FetchMap";

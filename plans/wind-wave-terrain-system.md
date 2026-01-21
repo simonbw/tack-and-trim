@@ -16,11 +16,11 @@ Implement a terrain-aware wind and wave system where:
 
 ## Progress Tracking
 
-**Current Status:** Phase 2 complete
+**Current Status:** Phase 3 complete
 
 **Last Updated:** 2026-01-20
 
-**Next Step:** Phase 3 - Influence field storage
+**Next Step:** Phase 4 - Influence field manager
 
 ### Phase Completion Checklist
 
@@ -29,7 +29,7 @@ Implement a terrain-aware wind and wave system where:
 | Phase 0 | [x] | `feat: add wind-wave foundation types` | Types, grid, config |
 | Phase 1 | [x] | `feat: add terrain sampler for propagation` | TerrainSampler + helpers |
 | Phase 2 | [x] | `feat: add propagation algorithms` | Wind, swell, fetch propagation |
-| Phase 3 | [ ] | `feat: add influence field storage` | Field classes with sampling |
+| Phase 3 | [x] | `feat: add influence field storage` | Field classes with sampling |
 | Phase 4 | [ ] | `feat: add influence field manager` | Manager + startup integration |
 | Phase 5 | [ ] | `feat: terrain-aware wind system` | Wind uses influence fields |
 | Phase 6 | [ ] | `feat: terrain-aware wave system` | Waves use influence + fetch |
@@ -386,14 +386,14 @@ src/game/world-data/influence/propagation/
 
 ### Phase 3: Influence Field Storage (Depends on: Phase 2)
 
-**Status:** [ ] Not started
+**Status:** [x] Complete
 
 **Tasks:** (can be done in parallel)
-- [ ] Create `src/game/world-data/influence/WindInfluenceField.ts`
+- [x] Create `src/game/world-data/influence/WindInfluenceField.ts`
   - Stores propagation results, provides sampling
-- [ ] Create `src/game/world-data/influence/SwellInfluenceField.ts`
+- [x] Create `src/game/world-data/influence/SwellInfluenceField.ts`
   - Stores propagation results, provides sampling
-- [ ] Create `src/game/world-data/influence/FetchMap.ts`
+- [x] Create `src/game/world-data/influence/FetchMap.ts`
   - Stores fetch results, provides sampling
 
 **Checkpoint:** After Phase 3
@@ -663,6 +663,7 @@ Record significant progress and plan updates here:
 | 2026-01-20 | Phase 0 complete | Foundation types created: WeatherState, InfluenceFieldTypes, InfluenceFieldGrid, PropagationConfig, index.ts |
 | 2026-01-20 | Phase 1 complete | TerrainSampler created with cached polylines for batch queries. TerrainInfo.getShoreDistance() added. TerrainComputeCPU methods made public. |
 | 2026-01-20 | Phase 2 complete | Created 4 propagation files: PropagationCore.ts (shared utilities), WindInfluencePropagation.ts (iterative relaxation with turbulence), SwellInfluencePropagation.ts (higher diffraction, arrival direction tracking), FetchMapComputation.ts (ray-marching). All exported from influence/index.ts. |
+| 2026-01-20 | Phase 3 complete | Created 3 field storage wrappers: WindInfluenceField.ts, SwellInfluenceField.ts (manages both long swell and short chop grids), FetchMap.ts. All provide user-friendly sampling APIs with bilinear interpolation and proper angle handling. Exported from influence/index.ts. |
 
 ---
 
