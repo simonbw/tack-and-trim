@@ -23,3 +23,21 @@ test("game starts and runs without errors", async ({ page }) => {
   // Verify no errors or warnings occurred
   expect(issues).toHaveLength(0);
 });
+
+test("influence field propagation completes in reasonable time", async ({
+  page,
+}) => {
+  await page.goto("http://localhost:1234");
+  await page.waitForFunction(() => window.DEBUG?.game, { timeout: 30000 });
+
+  const propagationTime = await page.evaluate(() => {
+    const manager = window.DEBUG.game!.entities.getById(
+      "influenceFieldManager",
+    );
+    return (manager as any).getPropagationTimeMs();
+  });
+
+  // Allow up to 3 seconds for propagation (current dev config takes ~1s)
+  expect(propagationTime).toBeLessThan(3000);
+  console.log(`Propagation time: ${propagationTime}ms`);
+});

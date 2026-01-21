@@ -58,6 +58,7 @@ export class InfluenceFieldManager extends BaseEntity {
   private windField: WindInfluenceField | null = null;
   private swellField: SwellInfluenceField | null = null;
   private fetchMap: FetchMap | null = null;
+  private propagationTimeMs: number = 0;
 
   /**
    * Get the InfluenceFieldManager entity from a game instance.
@@ -164,6 +165,7 @@ export class InfluenceFieldManager extends BaseEntity {
     this.fetchMap = new FetchMap(fetchGrid);
 
     const elapsed = performance.now() - startTime;
+    this.propagationTimeMs = elapsed;
     console.log(
       `Influence field propagation complete: ${elapsed.toFixed(0)}ms`,
     );
@@ -254,5 +256,13 @@ export class InfluenceFieldManager extends BaseEntity {
    */
   getFetchMap(): FetchMap | null {
     return this.fetchMap;
+  }
+
+  /**
+   * Get the time taken to compute all propagation fields in milliseconds.
+   * Useful for performance monitoring and testing.
+   */
+  getPropagationTimeMs(): number {
+    return this.propagationTimeMs;
   }
 }

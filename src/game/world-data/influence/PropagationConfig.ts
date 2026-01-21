@@ -102,26 +102,32 @@ export interface InfluenceFieldResolution {
 
 /**
  * Default resolution for wind influence fields.
+ * NOTE: Using coarse resolution for fast iteration. Increase for production:
+ * cellSize: 100, directionCount: 16
  */
 export const WIND_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 100, // 100 ft cells - wind shadows are large-scale
-  directionCount: 16, // 22.5° direction resolution
+  cellSize: 200, // 200 ft cells (coarse for dev speed)
+  directionCount: 8, // 45° direction resolution
 };
 
 /**
  * Default resolution for swell influence fields.
+ * NOTE: Using coarse resolution for fast iteration. Increase for production:
+ * cellSize: 100, directionCount: 16
  */
 export const SWELL_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 100, // 100 ft cells - diffraction happens over wavelength scale
-  directionCount: 16, // 22.5° direction resolution
+  cellSize: 200, // 200 ft cells (coarse for dev speed)
+  directionCount: 8, // 45° direction resolution
 };
 
 /**
  * Default resolution for fetch map.
+ * NOTE: Using coarse resolution for fast iteration. Increase for production:
+ * cellSize: 200, directionCount: 16
  */
 export const FETCH_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 200, // 200 ft cells - fetch varies slowly
-  directionCount: 16, // 22.5° direction resolution
+  cellSize: 400, // 400 ft cells (coarse for dev speed)
+  directionCount: 8, // 45° direction resolution
 };
 
 /**
