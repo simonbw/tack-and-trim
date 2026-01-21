@@ -1,5 +1,6 @@
 import type { VNode } from "preact";
 import Entity, { GameEventMap } from "../../entity/Entity";
+import { on } from "../../entity/handler";
 import { ReactEntity } from "../../ReactEntity";
 import { profile } from "../Profiler";
 import "./StatsOverlay.css";
@@ -103,6 +104,7 @@ export class StatsOverlay extends ReactEntity implements Entity {
     }
   }
 
+  @on("keyDown")
   onKeyDown({ key, event }: GameEventMap["keyDown"]) {
     if (key === "Backquote") {
       this.cycleMode(event.shiftKey ? -1 : 1);
