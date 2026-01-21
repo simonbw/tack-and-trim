@@ -26,6 +26,11 @@ export class WindTileCompute implements DataTileCompute {
   private baseWindX: number = 0;
   private baseWindY: number = 0;
 
+  // Terrain influence parameters
+  private influenceSpeedFactor: number = 1.0;
+  private influenceDirectionOffset: number = 0;
+  private influenceTurbulence: number = 0;
+
   constructor(textureSize: number = 256) {
     this.textureSize = textureSize;
     this.shader = new WindStateShader();
@@ -40,9 +45,9 @@ export class WindTileCompute implements DataTileCompute {
     // Initialize shared compute shader
     await this.shader.init();
 
-    // Create params uniform buffer (48 bytes = 12 floats, aligned to 16)
+    // Create params uniform buffer (64 bytes = 16 floats, aligned to 16)
     this.paramsBuffer = device.createBuffer({
-      size: 48, // 12 floats * 4 bytes
+      size: 64, // 16 floats * 4 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Wind Tile Params Buffer",
     });
@@ -75,6 +80,22 @@ export class WindTileCompute implements DataTileCompute {
   }
 
   /**
+   * Set terrain influence parameters for next compute call.
+   * @param speedFactor - Multiplier for wind speed (1.0 = no change)
+   * @param directionOffset - Radians to rotate wind direction
+   * @param turbulence - Extra noise multiplier (0 = no extra turbulence)
+   */
+  setInfluence(
+    speedFactor: number,
+    directionOffset: number,
+    turbulence: number,
+  ): void {
+    this.influenceSpeedFactor = speedFactor;
+    this.influenceDirectionOffset = directionOffset;
+    this.influenceTurbulence = turbulence;
+  }
+
+  /**
    * Run the compute shader for a tile viewport.
    */
   runCompute(
@@ -104,6 +125,10 @@ export class WindTileCompute implements DataTileCompute {
       this.baseWindY,
       0, // padding2
       0, // padding3
+      this.influenceSpeedFactor,
+      this.influenceDirectionOffset,
+      this.influenceTurbulence,
+      0, // padding4
     ]);
     device.queue.writeBuffer(this.paramsBuffer, 0, paramsData.buffer);
 

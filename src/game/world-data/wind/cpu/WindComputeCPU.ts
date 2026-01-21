@@ -36,6 +36,12 @@ export interface WindComputeParams {
   speedNoise: NoiseFunction3D;
   /** Noise function for angle variation */
   angleNoise: NoiseFunction3D;
+  /** Terrain influence speed multiplier (1.0 = no change) */
+  influenceSpeedFactor: number;
+  /** Terrain influence direction offset in radians */
+  influenceDirectionOffset: number;
+  /** Terrain influence turbulence (0 = no extra turbulence) */
+  influenceTurbulence: number;
 }
 
 /**
@@ -54,23 +60,38 @@ export function computeBaseWindAtPoint(
   y: number,
   params: WindComputeParams,
 ): WindVelocityData {
-  const { time, baseVelocity, speedNoise, angleNoise } = params;
+  const {
+    time,
+    baseVelocity,
+    speedNoise,
+    angleNoise,
+    influenceSpeedFactor,
+    influenceDirectionOffset,
+    influenceTurbulence,
+  } = params;
 
   const t = time * WIND_NOISE_TIME_SCALE;
   const sx = x * WIND_NOISE_SPATIAL_SCALE;
   const sy = y * WIND_NOISE_SPATIAL_SCALE;
 
   // Sample noise for speed and angle variation
-  const speedScale = 1 + speedNoise(sx, sy, t) * WIND_SPEED_VARIATION;
-  const angleVariance = angleNoise(sx, sy, t) * WIND_ANGLE_VARIATION;
+  // Apply terrain influence to speed variation (turbulence boosts noise)
+  const turbulenceBoost = 1 + influenceTurbulence * 0.5;
+  const speedScale =
+    (1 + speedNoise(sx, sy, t) * WIND_SPEED_VARIATION * turbulenceBoost) *
+    influenceSpeedFactor;
+
+  // Apply influence direction offset + noise angle
+  const totalAngleOffset =
+    angleNoise(sx, sy, t) * WIND_ANGLE_VARIATION + influenceDirectionOffset;
 
   // Apply speed scale
   const scaledX = baseVelocity[0] * speedScale;
   const scaledY = baseVelocity[1] * speedScale;
 
-  // Rotate by angle variance
-  const cos = Math.cos(angleVariance);
-  const sin = Math.sin(angleVariance);
+  // Rotate by total angle offset
+  const cos = Math.cos(totalAngleOffset);
+  const sin = Math.sin(totalAngleOffset);
   const velocityX = scaledX * cos - scaledY * sin;
   const velocityY = scaledX * sin + scaledY * cos;
 
