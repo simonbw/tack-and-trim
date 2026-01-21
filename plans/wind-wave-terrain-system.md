@@ -16,11 +16,11 @@ Implement a terrain-aware wind and wave system where:
 
 ## Progress Tracking
 
-**Current Status:** Phase 4 complete
+**Current Status:** Phase 5 complete
 
 **Last Updated:** 2026-01-20
 
-**Next Step:** Phase 5 - Wind system updates
+**Next Step:** Phase 6 - Water system updates
 
 ### Phase Completion Checklist
 
@@ -31,7 +31,7 @@ Implement a terrain-aware wind and wave system where:
 | Phase 2 | [x] | `feat: add propagation algorithms` | Wind, swell, fetch propagation |
 | Phase 3 | [x] | `feat: add influence field storage` | Field classes with sampling |
 | Phase 4 | [x] | `feat: add influence field manager` | Manager + startup integration |
-| Phase 5 | [ ] | `feat: terrain-aware wind system` | Wind uses influence fields |
+| Phase 5 | [x] | `feat: terrain-aware wind system` | Wind uses influence fields |
 | Phase 6 | [ ] | `feat: terrain-aware wave system` | Waves use influence + fetch |
 | Phase 7 | [ ] | `feat: tune wind-wave parameters` | Polish and optimization |
 | Phase 8 | [ ] | `feat: weather evolution` | Optional - dynamic weather |
@@ -433,7 +433,7 @@ src/game/world-data/influence/propagation/
 
 ### Phase 5: Wind System Updates (Depends on: Phase 4)
 
-**Status:** [ ] Not started
+**Status:** [x] Complete
 
 **Tasks:** (sequential)
 - [ ] Update `src/game/world-data/wind/WindConstants.ts`
@@ -665,6 +665,7 @@ Record significant progress and plan updates here:
 | 2026-01-20 | Phase 2 complete | Created 4 propagation files: PropagationCore.ts (shared utilities), WindInfluencePropagation.ts (iterative relaxation with turbulence), SwellInfluencePropagation.ts (higher diffraction, arrival direction tracking), FetchMapComputation.ts (ray-marching). All exported from influence/index.ts. |
 | 2026-01-20 | Phase 3 complete | Created 3 field storage wrappers: WindInfluenceField.ts, SwellInfluenceField.ts (manages both long swell and short chop grids), FetchMap.ts. All provide user-friendly sampling APIs with bilinear interpolation and proper angle handling. Exported from influence/index.ts. |
 | 2026-01-20 | Phase 4 complete | Created InfluenceFieldManager.ts entity that runs all propagation algorithms at startup and provides sampling interface. Updated GameController.ts to add manager after TerrainInfo but before WaterInfo/WindInfo. Manager computes terrain bounds with padding and runs wind, swell, and fetch propagation. Console logs timing. |
+| 2026-01-20 | Phase 5 complete | WindInfo now uses InfluenceFieldManager to apply terrain effects. Wind shadows visible behind islands, wind accelerates through gaps. Also added lagoon island starter terrain for testing. |
 
 ---
 
