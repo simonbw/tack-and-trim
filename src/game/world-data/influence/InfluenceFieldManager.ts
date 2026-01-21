@@ -451,7 +451,7 @@ export class InfluenceFieldManager extends BaseEntity {
       directions,
       gridConfig: serializableConfig,
       propagationConfig,
-      waterMask: new Uint8Array(waterMaskUint8),
+      waterMask: waterMaskUint8, // Share reference - workers only read
       sourceAngles: directions.map((dir) => sourceAngles[dir]),
     }));
 
@@ -479,7 +479,7 @@ export class InfluenceFieldManager extends BaseEntity {
         }
         return results[0]; // Return first result (we've already merged into grid)
       },
-      getTransferables: (req) => [req.waterMask.buffer],
+      getTransferables: () => [], // waterMask copied via structured clone (read-only)
       onProgress: (p) => {
         this.windProgress = p;
       },
@@ -547,7 +547,7 @@ export class InfluenceFieldManager extends BaseEntity {
       gridConfig: serializableConfig,
       longSwellConfig,
       shortChopConfig,
-      waterMask: new Uint8Array(waterMaskUint8),
+      waterMask: waterMaskUint8, // Share reference - workers only read
       sourceAngles: directions.map((dir) => sourceAngles[dir]),
     }));
 
@@ -575,7 +575,7 @@ export class InfluenceFieldManager extends BaseEntity {
         }
         return results[0];
       },
-      getTransferables: (req) => [req.waterMask.buffer],
+      getTransferables: () => [], // waterMask copied via structured clone (read-only)
       onProgress: (p) => {
         this.swellProgress = p;
       },
@@ -629,7 +629,7 @@ export class InfluenceFieldManager extends BaseEntity {
       batchId: 0,
       directions,
       gridConfig: serializableConfig,
-      waterMask: new Uint8Array(waterMaskUint8),
+      waterMask: waterMaskUint8, // Share reference - workers only read
       upwindAngles: directions.map((dir) => upwindAngles[dir]),
       maxFetch: DEFAULT_MAX_FETCH,
       stepSize,
@@ -659,7 +659,7 @@ export class InfluenceFieldManager extends BaseEntity {
         }
         return results[0];
       },
-      getTransferables: (req) => [req.waterMask.buffer],
+      getTransferables: () => [], // waterMask copied via structured clone (read-only)
       onProgress: (p) => {
         this.fetchProgress = p;
       },

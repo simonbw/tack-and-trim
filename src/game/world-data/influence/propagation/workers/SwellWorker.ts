@@ -142,6 +142,15 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+/**
+ * Result from computeFlowWeight with weight and normalized direction.
+ */
+interface FlowResult {
+  weight: number;
+  flowDirX: number;
+  flowDirY: number;
+}
+
 function isUpwindBoundary(
   x: number,
   y: number,
@@ -157,6 +166,9 @@ function isUpwindBoundary(
   return false;
 }
 
+// Reusable result object to avoid allocations in hot loop
+const flowResult: FlowResult = { weight: 0, flowDirX: 0, flowDirY: 0 };
+
 function computeFlowWeight(
   neighborX: number,
   neighborY: number,
@@ -165,25 +177,36 @@ function computeFlowWeight(
   sourceDirX: number,
   sourceDirY: number,
   config: SerializablePropagationConfig,
-): number {
+): FlowResult {
   let flowDirX = currentX - neighborX;
   let flowDirY = currentY - neighborY;
 
   const flowMag = Math.sqrt(flowDirX * flowDirX + flowDirY * flowDirY);
-  if (flowMag < 0.0001) return 0;
+  if (flowMag < 0.0001) {
+    flowResult.weight = 0;
+    flowResult.flowDirX = 0;
+    flowResult.flowDirY = 0;
+    return flowResult;
+  }
   flowDirX /= flowMag;
   flowDirY /= flowMag;
 
   const alignment = flowDirX * sourceDirX + flowDirY * sourceDirY;
 
   if (alignment <= 0) {
-    return 0;
+    flowResult.weight = 0;
+    flowResult.flowDirX = 0;
+    flowResult.flowDirY = 0;
+    return flowResult;
   }
 
   const directWeight = alignment * config.directFlowFactor;
   const lateralWeight = (1 - alignment) * config.lateralSpreadFactor;
 
-  return (directWeight + lateralWeight) * config.decayFactor;
+  flowResult.weight = (directWeight + lateralWeight) * config.decayFactor;
+  flowResult.flowDirX = flowDirX;
+  flowResult.flowDirY = flowDirY;
+  return flowResult;
 }
 
 function propagateSwellForDirection(
@@ -206,6 +229,17 @@ function propagateSwellForDirection(
   const nextEnergy = new Float32Array(cellCount);
   const arrivalDirX = new Float32Array(cellCount);
   const arrivalDirY = new Float32Array(cellCount);
+
+  // Pre-compute cell center positions (static, computed once)
+  const cellCentersX = new Float32Array(cellCount);
+  const cellCentersY = new Float32Array(cellCount);
+  for (let y = 0; y < cellsY; y++) {
+    for (let x = 0; x < cellsX; x++) {
+      const idx = y * cellsX + x;
+      cellCentersX[idx] = originX + (x + 0.5) * cellSize;
+      cellCentersY[idx] = originY + (y + 0.5) * cellSize;
+    }
+  }
 
   // Initialize energy
   for (let y = 0; y < cellsY; y++) {
@@ -244,8 +278,9 @@ function propagateSwellForDirection(
         if (isUpwindBoundary(x, y, cellsX, cellsY, sourceDirX, sourceDirY))
           continue;
 
-        const currentPosX = originX + (x + 0.5) * cellSize;
-        const currentPosY = originY + (y + 0.5) * cellSize;
+        // Use pre-computed cell centers
+        const currentPosX = cellCentersX[idx];
+        const currentPosY = cellCentersY[idx];
 
         let totalEnergy = 0;
         let totalWeight = 0;
@@ -261,10 +296,11 @@ function propagateSwellForDirection(
           const neighborIdx = ny * cellsX + nx;
           if (waterMask[neighborIdx] === 0) continue;
 
-          const neighborPosX = originX + (nx + 0.5) * cellSize;
-          const neighborPosY = originY + (ny + 0.5) * cellSize;
+          // Use pre-computed cell centers
+          const neighborPosX = cellCentersX[neighborIdx];
+          const neighborPosY = cellCentersY[neighborIdx];
 
-          const weight = computeFlowWeight(
+          const result = computeFlowWeight(
             neighborPosX,
             neighborPosY,
             currentPosX,
@@ -274,22 +310,14 @@ function propagateSwellForDirection(
             propagationConfig,
           );
 
-          if (weight > 0) {
-            totalWeight += weight;
-            totalEnergy += energy[neighborIdx] * weight;
+          if (result.weight > 0) {
+            totalWeight += result.weight;
+            totalEnergy += energy[neighborIdx] * result.weight;
 
-            const contribution = energy[neighborIdx] * weight;
-            let flowDirX = currentPosX - neighborPosX;
-            let flowDirY = currentPosY - neighborPosY;
-            const flowMag = Math.sqrt(
-              flowDirX * flowDirX + flowDirY * flowDirY,
-            );
-            if (flowMag > 0.0001) {
-              flowDirX /= flowMag;
-              flowDirY /= flowMag;
-              weightedDirX += flowDirX * contribution;
-              weightedDirY += flowDirY * contribution;
-            }
+            const contribution = energy[neighborIdx] * result.weight;
+            // Use pre-computed normalized direction from computeFlowWeight
+            weightedDirX += result.flowDirX * contribution;
+            weightedDirY += result.flowDirY * contribution;
           }
         }
 
