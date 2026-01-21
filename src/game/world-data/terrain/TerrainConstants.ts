@@ -7,8 +7,8 @@
 export const TERRAIN_TILE_SIZE = 64; // ft per tile
 export const TERRAIN_TILE_RESOLUTION = 128; // pixels per tile
 
-// Render texture size (reduced from 512 for performance)
-export const TERRAIN_TEXTURE_SIZE = 128; // For rendering
+// Render texture size
+export const TERRAIN_TEXTURE_SIZE = 512; // For rendering
 
 // Height normalization
 export const MAX_TERRAIN_HEIGHT = 20; // ft (for GPU normalization)
