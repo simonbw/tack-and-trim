@@ -1,23 +1,23 @@
 /**
  * Wind tile compute implementation.
  *
- * Uses the WindStateCompute shader for tile-based wind queries.
+ * Uses the WindStateShader for tile-based wind queries.
  * Each instance owns its output texture and params buffer;
- * the shader pipeline is shared via WindStateCompute.
+ * the shader pipeline is shared via WindStateShader.
  *
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 
 import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import type { DataTileCompute } from "../../datatiles/DataTileComputePipeline";
-import { WindStateCompute } from "./WindStateCompute";
+import { WindStateShader } from "./WindStateShader";
 
 /**
  * Wind tile compute using shared shader infrastructure.
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 export class WindTileCompute implements DataTileCompute {
-  private stateCompute: WindStateCompute;
+  private shader: WindStateShader;
   private paramsBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private outputTexture: GPUTexture | null = null;
@@ -28,7 +28,7 @@ export class WindTileCompute implements DataTileCompute {
 
   constructor(textureSize: number = 256) {
     this.textureSize = textureSize;
-    this.stateCompute = new WindStateCompute();
+    this.shader = new WindStateShader();
   }
 
   /**
@@ -38,7 +38,7 @@ export class WindTileCompute implements DataTileCompute {
     const device = getWebGPU().device;
 
     // Initialize shared compute shader
-    await this.stateCompute.init();
+    await this.shader.init();
 
     // Create params uniform buffer (48 bytes = 12 floats, aligned to 16)
     this.paramsBuffer = device.createBuffer({
@@ -59,14 +59,10 @@ export class WindTileCompute implements DataTileCompute {
       label: "Wind Tile Output Texture",
     });
 
-    // Create bind group using shared layout
-    this.bindGroup = device.createBindGroup({
-      layout: this.stateCompute.getBindGroupLayout(),
-      entries: [
-        { binding: 0, resource: { buffer: this.paramsBuffer } },
-        { binding: 1, resource: this.outputTexture.createView() },
-      ],
-      label: "Wind Tile Bind Group",
+    // Create bind group using type-safe shader method
+    this.bindGroup = this.shader.createBindGroup({
+      params: { buffer: this.paramsBuffer },
+      outputTexture: this.outputTexture.createView(),
     });
   }
 
@@ -120,7 +116,7 @@ export class WindTileCompute implements DataTileCompute {
       label: "Wind Tile Compute Pass",
     });
 
-    this.stateCompute.dispatch(computePass, this.bindGroup, this.textureSize);
+    this.shader.dispatch(computePass, this.bindGroup, this.textureSize);
 
     computePass.end();
 
@@ -140,7 +136,7 @@ export class WindTileCompute implements DataTileCompute {
   destroy(): void {
     this.paramsBuffer?.destroy();
     this.outputTexture?.destroy();
-    this.stateCompute.destroy();
+    this.shader.destroy();
     this.bindGroup = null;
     this.paramsBuffer = null;
   }

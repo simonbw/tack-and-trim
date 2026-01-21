@@ -15,7 +15,7 @@ import { profile } from "../../core/util/Profiler";
 import { LandMass, TerrainDefinition } from "../world-data/terrain/LandMass";
 import { TERRAIN_TEXTURE_SIZE } from "../world-data/terrain/TerrainConstants";
 import { TerrainComputeBuffers } from "../world-data/terrain/webgpu/TerrainComputeBuffers";
-import { TerrainStateCompute } from "../world-data/terrain/webgpu/TerrainStateCompute";
+import { TerrainStateShader } from "../world-data/terrain/webgpu/TerrainStateShader";
 
 /**
  * Viewport bounds for terrain computation.
@@ -31,7 +31,7 @@ export interface TerrainViewport {
  * Terrain rendering compute pipeline.
  */
 export class TerrainRenderPipeline {
-  private stateCompute: TerrainStateCompute | null = null;
+  private shader: TerrainStateShader | null = null;
   private buffers: TerrainComputeBuffers | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private outputTexture: GPUTexture | null = null;
@@ -53,8 +53,8 @@ export class TerrainRenderPipeline {
     const device = getWebGPU().device;
 
     // Initialize shared compute shader
-    this.stateCompute = new TerrainStateCompute();
-    await this.stateCompute.init();
+    this.shader = new TerrainStateShader();
+    await this.shader.init();
 
     // Create shared buffers
     this.buffers = new TerrainComputeBuffers();
@@ -69,16 +69,12 @@ export class TerrainRenderPipeline {
     });
     this.outputTextureView = this.outputTexture.createView();
 
-    // Create bind group using shared layout
-    this.bindGroup = device.createBindGroup({
-      layout: this.stateCompute.getBindGroupLayout(),
-      entries: [
-        { binding: 0, resource: { buffer: this.buffers.paramsBuffer } },
-        { binding: 1, resource: { buffer: this.buffers.controlPointsBuffer } },
-        { binding: 2, resource: { buffer: this.buffers.landMassBuffer } },
-        { binding: 3, resource: this.outputTextureView },
-      ],
-      label: "Terrain Render Bind Group",
+    // Create bind group using type-safe shader method
+    this.bindGroup = this.shader.createBindGroup({
+      params: { buffer: this.buffers.paramsBuffer },
+      controlPoints: { buffer: this.buffers.controlPointsBuffer },
+      landMasses: { buffer: this.buffers.landMassBuffer },
+      outputTexture: this.outputTextureView,
     });
 
     this.initialized = true;
@@ -112,12 +108,7 @@ export class TerrainRenderPipeline {
     gpuProfiler?: GPUProfiler | null,
     section: GPUProfileSection = "terrainCompute",
   ): void {
-    if (
-      !this.initialized ||
-      !this.stateCompute ||
-      !this.buffers ||
-      !this.bindGroup
-    ) {
+    if (!this.initialized || !this.shader || !this.buffers || !this.bindGroup) {
       return;
     }
 
@@ -151,7 +142,7 @@ export class TerrainRenderPipeline {
       timestampWrites: gpuProfiler?.getComputeTimestampWrites(section),
     });
 
-    this.stateCompute.dispatch(computePass, this.bindGroup, this.textureSize);
+    this.shader.dispatch(computePass, this.bindGroup, this.textureSize);
 
     computePass.end();
 
@@ -193,11 +184,11 @@ export class TerrainRenderPipeline {
   destroy(): void {
     this.buffers?.destroy();
     this.outputTexture?.destroy();
-    this.stateCompute?.destroy();
+    this.shader?.destroy();
     this.bindGroup = null;
     this.outputTextureView = null;
     this.buffers = null;
-    this.stateCompute = null;
+    this.shader = null;
     this.initialized = false;
   }
 }

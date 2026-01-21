@@ -1,9 +1,9 @@
 /**
  * Water physics tile compute implementation.
  *
- * Uses the unified WaterStateCompute shader for tile-based physics queries.
+ * Uses the WaterStateShader for tile-based physics queries.
  * Each instance owns its output texture; the shader and buffer management
- * are shared via WaterStateCompute and WaterComputeBuffers.
+ * are shared via WaterStateShader and WaterComputeBuffers.
  *
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
@@ -14,7 +14,7 @@ import {
   WaterComputeBuffers,
   type WakeSegmentData,
 } from "./WaterComputeBuffers";
-import { WaterStateCompute } from "./WaterStateCompute";
+import { WaterStateShader } from "./WaterStateShader";
 
 /**
  * Water physics data sample type.
@@ -31,7 +31,7 @@ export interface WaterPointData {
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 export class WaterDataTileCompute implements DataTileCompute {
-  private stateCompute: WaterStateCompute;
+  private shader: WaterStateShader;
   private buffers: WaterComputeBuffers | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private outputTexture: GPUTexture | null = null;
@@ -41,7 +41,7 @@ export class WaterDataTileCompute implements DataTileCompute {
 
   constructor(textureSize: number = 128) {
     this.textureSize = textureSize;
-    this.stateCompute = new WaterStateCompute();
+    this.shader = new WaterStateShader();
   }
 
   /**
@@ -51,7 +51,7 @@ export class WaterDataTileCompute implements DataTileCompute {
     const device = getWebGPU().device;
 
     // Initialize shared compute shader
-    await this.stateCompute.init();
+    await this.shader.init();
 
     // Create shared buffers
     this.buffers = new WaterComputeBuffers();
@@ -67,16 +67,12 @@ export class WaterDataTileCompute implements DataTileCompute {
       label: "Water Physics Tile Output Texture",
     });
 
-    // Create bind group using shared layout
-    this.bindGroup = device.createBindGroup({
-      layout: this.stateCompute.getBindGroupLayout(),
-      entries: [
-        { binding: 0, resource: { buffer: this.buffers.paramsBuffer } },
-        { binding: 1, resource: { buffer: this.buffers.waveDataBuffer } },
-        { binding: 2, resource: { buffer: this.buffers.segmentsBuffer } },
-        { binding: 3, resource: this.outputTexture.createView() },
-      ],
-      label: "Water Physics Tile Bind Group",
+    // Create bind group using type-safe shader method
+    this.bindGroup = this.shader.createBindGroup({
+      params: { buffer: this.buffers.paramsBuffer },
+      waveData: { buffer: this.buffers.waveDataBuffer },
+      segments: { buffer: this.buffers.segmentsBuffer },
+      outputTexture: this.outputTexture.createView(),
     });
   }
 
@@ -124,7 +120,7 @@ export class WaterDataTileCompute implements DataTileCompute {
       label: "Water Physics Tile Compute Pass",
     });
 
-    this.stateCompute.dispatch(computePass, this.bindGroup, this.textureSize);
+    this.shader.dispatch(computePass, this.bindGroup, this.textureSize);
 
     computePass.end();
 
@@ -144,7 +140,7 @@ export class WaterDataTileCompute implements DataTileCompute {
   destroy(): void {
     this.buffers?.destroy();
     this.outputTexture?.destroy();
-    this.stateCompute.destroy();
+    this.shader.destroy();
     this.bindGroup = null;
     this.buffers = null;
   }

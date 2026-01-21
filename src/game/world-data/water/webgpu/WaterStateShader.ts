@@ -1,7 +1,7 @@
 /**
  * Unified water state compute shader.
  *
- * Single source of truth for water computation combining:
+ * Extends ComputeShader base class to compute water state combining:
  * - Gerstner wave simulation with simplex noise modulation
  * - Wake modifier contributions from boat wakes
  *
@@ -10,13 +10,9 @@
  * - G: dh/dt (rate of height change), normalized
  * - B: Water velocity X (from modifiers), normalized
  * - A: Water velocity Y (from modifiers), normalized
- *
- * This class owns the compute pipeline and bind group layout.
- * Callers (rendering pipeline, physics tiles) own their textures
- * and create bind groups using the layout from this class.
  */
 
-import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
+import { ComputeShader } from "../../../../core/graphics/webgpu/ComputeShader";
 import { SIMPLEX_NOISE_3D_WGSL } from "../../../../core/graphics/webgpu/WGSLSnippets";
 import {
   NUM_WAVES,
@@ -34,10 +30,21 @@ import { MAX_SEGMENTS, FLOATS_PER_SEGMENT } from "./WaterComputeBuffers";
 const HEIGHT_SCALE = 0.5;
 const WATER_VELOCITY_FACTOR = 0.0; // Set to non-zero to enable velocity from wakes
 
+const bindings = {
+  params: { type: "uniform" },
+  waveData: { type: "storage" },
+  segments: { type: "storage" },
+  outputTexture: { type: "storageTexture", format: "rgba32float" },
+} as const;
+
 /**
- * WGSL compute shader for unified water state computation.
+ * Water state compute shader using the ComputeShader base class.
  */
-export const WATER_STATE_SHADER = /*wgsl*/ `
+export class WaterStateShader extends ComputeShader<typeof bindings> {
+  readonly bindings = bindings;
+  readonly workgroupSize = [8, 8] as const;
+
+  readonly code = /*wgsl*/ `
 // ============================================================================
 // Constants
 // ============================================================================
@@ -353,125 +360,4 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(normalizedHeight, normalizedDhdt, normalizedVelX, normalizedVelY));
 }
 `;
-
-/**
- * Unified water state compute shader.
- *
- * This class owns the compute pipeline and provides the bind group layout.
- * Callers create their own bind groups and output textures.
- */
-export class WaterStateCompute {
-  private pipeline: GPUComputePipeline | null = null;
-  private bindGroupLayout: GPUBindGroupLayout | null = null;
-
-  /**
-   * Initialize the compute pipeline.
-   */
-  async init(): Promise<void> {
-    const device = getWebGPU().device;
-
-    const shaderModule = device.createShaderModule({
-      code: WATER_STATE_SHADER,
-      label: "Water State Compute Shader",
-    });
-
-    // Create bind group layout
-    this.bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "uniform" },
-        },
-        {
-          binding: 1,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage" },
-        },
-        {
-          binding: 2,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage" },
-        },
-        {
-          binding: 3,
-          visibility: GPUShaderStage.COMPUTE,
-          storageTexture: {
-            access: "write-only",
-            format: "rgba32float",
-            viewDimension: "2d",
-          },
-        },
-      ],
-      label: "Water State Bind Group Layout",
-    });
-
-    // Create compute pipeline
-    const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout],
-      label: "Water State Pipeline Layout",
-    });
-
-    this.pipeline = device.createComputePipeline({
-      layout: pipelineLayout,
-      compute: {
-        module: shaderModule,
-        entryPoint: "main",
-      },
-      label: "Water State Compute Pipeline",
-    });
-  }
-
-  /**
-   * Get the bind group layout for creating bind groups.
-   */
-  getBindGroupLayout(): GPUBindGroupLayout {
-    if (!this.bindGroupLayout) {
-      throw new Error("WaterStateCompute not initialized");
-    }
-    return this.bindGroupLayout;
-  }
-
-  /**
-   * Get the compute pipeline.
-   */
-  getPipeline(): GPUComputePipeline {
-    if (!this.pipeline) {
-      throw new Error("WaterStateCompute not initialized");
-    }
-    return this.pipeline;
-  }
-
-  /**
-   * Dispatch the compute shader.
-   *
-   * @param computePass - The compute pass to dispatch on
-   * @param bindGroup - Bind group with buffers and output texture
-   * @param textureSize - Size of the output texture
-   */
-  dispatch(
-    computePass: GPUComputePassEncoder,
-    bindGroup: GPUBindGroup,
-    textureSize: number,
-  ): void {
-    if (!this.pipeline) {
-      console.warn("WaterStateCompute not initialized");
-      return;
-    }
-
-    computePass.setPipeline(this.pipeline);
-    computePass.setBindGroup(0, bindGroup);
-
-    const workgroupsX = Math.ceil(textureSize / 8);
-    const workgroupsY = Math.ceil(textureSize / 8);
-    computePass.dispatchWorkgroups(workgroupsX, workgroupsY);
-  }
-
-  /**
-   * Clean up resources.
-   */
-  destroy(): void {
-    this.pipeline = null;
-    this.bindGroupLayout = null;
-  }
 }

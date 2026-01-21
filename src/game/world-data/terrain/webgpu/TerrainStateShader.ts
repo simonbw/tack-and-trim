@@ -1,10 +1,7 @@
 /**
  * Terrain state compute shader.
  *
- * This class owns the compute pipeline and provides the bind group layout.
- * Callers (TerrainDataTileCompute instances) create their own bind groups and output textures.
- *
- * Computes terrain height using:
+ * Extends ComputeShader base class to compute terrain height using:
  * - Catmull-Rom splines for coastline definition
  * - Signed distance field for inside/outside determination
  * - Smoothstep beach profile
@@ -15,14 +12,25 @@
  * - GBA: Reserved
  */
 
-import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
+import { ComputeShader } from "../../../../core/graphics/webgpu/ComputeShader";
 import { SIMPLEX_NOISE_3D_WGSL } from "../../../../core/graphics/webgpu/WGSLSnippets";
 import { TERRAIN_CONSTANTS_WGSL } from "../TerrainConstants";
 
+const bindings = {
+  params: { type: "uniform" },
+  controlPoints: { type: "storage" },
+  landMasses: { type: "storage" },
+  outputTexture: { type: "storageTexture", format: "rgba32float" },
+} as const;
+
 /**
- * WGSL compute shader for terrain height computation.
+ * Terrain state compute shader using the ComputeShader base class.
  */
-export const TERRAIN_STATE_SHADER = /*wgsl*/ `
+export class TerrainStateShader extends ComputeShader<typeof bindings> {
+  readonly bindings = bindings;
+  readonly workgroupSize = [8, 8] as const;
+
+  readonly code = /*wgsl*/ `
 ${TERRAIN_CONSTANTS_WGSL}
 
 struct Params {
@@ -216,125 +224,4 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(terrainHeight, 0.0, 0.0, 1.0));
 }
 `;
-
-/**
- * Terrain state compute shader.
- *
- * This class owns the compute pipeline and provides the bind group layout.
- * Callers create their own bind groups and output textures.
- */
-export class TerrainStateCompute {
-  private pipeline: GPUComputePipeline | null = null;
-  private bindGroupLayout: GPUBindGroupLayout | null = null;
-
-  /**
-   * Initialize the compute pipeline.
-   */
-  async init(): Promise<void> {
-    const device = getWebGPU().device;
-
-    const shaderModule = device.createShaderModule({
-      code: TERRAIN_STATE_SHADER,
-      label: "Terrain State Compute Shader",
-    });
-
-    // Create bind group layout
-    this.bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "uniform" },
-        },
-        {
-          binding: 1,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage" },
-        },
-        {
-          binding: 2,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "read-only-storage" },
-        },
-        {
-          binding: 3,
-          visibility: GPUShaderStage.COMPUTE,
-          storageTexture: {
-            access: "write-only",
-            format: "rgba32float",
-            viewDimension: "2d",
-          },
-        },
-      ],
-      label: "Terrain State Bind Group Layout",
-    });
-
-    // Create compute pipeline
-    const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout],
-      label: "Terrain State Pipeline Layout",
-    });
-
-    this.pipeline = device.createComputePipeline({
-      layout: pipelineLayout,
-      compute: {
-        module: shaderModule,
-        entryPoint: "main",
-      },
-      label: "Terrain State Compute Pipeline",
-    });
-  }
-
-  /**
-   * Get the bind group layout for creating bind groups.
-   */
-  getBindGroupLayout(): GPUBindGroupLayout {
-    if (!this.bindGroupLayout) {
-      throw new Error("TerrainStateCompute not initialized");
-    }
-    return this.bindGroupLayout;
-  }
-
-  /**
-   * Get the compute pipeline.
-   */
-  getPipeline(): GPUComputePipeline {
-    if (!this.pipeline) {
-      throw new Error("TerrainStateCompute not initialized");
-    }
-    return this.pipeline;
-  }
-
-  /**
-   * Dispatch the compute shader.
-   *
-   * @param computePass - The compute pass to dispatch on
-   * @param bindGroup - Bind group with buffers and output texture
-   * @param textureSize - Size of the output texture
-   */
-  dispatch(
-    computePass: GPUComputePassEncoder,
-    bindGroup: GPUBindGroup,
-    textureSize: number,
-  ): void {
-    if (!this.pipeline) {
-      console.warn("TerrainStateCompute not initialized");
-      return;
-    }
-
-    computePass.setPipeline(this.pipeline);
-    computePass.setBindGroup(0, bindGroup);
-
-    const workgroupsX = Math.ceil(textureSize / 8);
-    const workgroupsY = Math.ceil(textureSize / 8);
-    computePass.dispatchWorkgroups(workgroupsX, workgroupsY);
-  }
-
-  /**
-   * Clean up resources.
-   */
-  destroy(): void {
-    this.pipeline = null;
-    this.bindGroupLayout = null;
-  }
 }

@@ -1,7 +1,7 @@
 /**
  * Water rendering compute pipeline.
  *
- * Uses the unified WaterStateCompute shader for rendering.
+ * Uses the WaterStateShader for rendering.
  * Owns a single output texture (rgba32float) containing combined
  * wave + modifier data.
  *
@@ -18,13 +18,13 @@ import { profile } from "../../core/util/Profiler";
 import { WATER_TEXTURE_SIZE } from "../world-data/water/WaterConstants";
 import type { Viewport, WaterInfo } from "../world-data/water/WaterInfo";
 import { WaterComputeBuffers } from "../world-data/water/webgpu/WaterComputeBuffers";
-import { WaterStateCompute } from "../world-data/water/webgpu/WaterStateCompute";
+import { WaterStateShader } from "../world-data/water/webgpu/WaterStateShader";
 
 /**
  * Water rendering compute pipeline using unified shader.
  */
 export class WaterRenderPipeline {
-  private stateCompute: WaterStateCompute | null = null;
+  private shader: WaterStateShader | null = null;
   private buffers: WaterComputeBuffers | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private outputTexture: GPUTexture | null = null;
@@ -46,8 +46,8 @@ export class WaterRenderPipeline {
     const device = getWebGPU().device;
 
     // Initialize shared compute shader
-    this.stateCompute = new WaterStateCompute();
-    await this.stateCompute.init();
+    this.shader = new WaterStateShader();
+    await this.shader.init();
 
     // Create shared buffers
     this.buffers = new WaterComputeBuffers();
@@ -61,16 +61,12 @@ export class WaterRenderPipeline {
     });
     this.outputTextureView = this.outputTexture.createView();
 
-    // Create bind group using shared layout
-    this.bindGroup = device.createBindGroup({
-      layout: this.stateCompute.getBindGroupLayout(),
-      entries: [
-        { binding: 0, resource: { buffer: this.buffers.paramsBuffer } },
-        { binding: 1, resource: { buffer: this.buffers.waveDataBuffer } },
-        { binding: 2, resource: { buffer: this.buffers.segmentsBuffer } },
-        { binding: 3, resource: this.outputTextureView },
-      ],
-      label: "Water Render Bind Group",
+    // Create bind group using type-safe shader method
+    this.bindGroup = this.shader.createBindGroup({
+      params: { buffer: this.buffers.paramsBuffer },
+      waveData: { buffer: this.buffers.waveDataBuffer },
+      segments: { buffer: this.buffers.segmentsBuffer },
+      outputTexture: this.outputTextureView,
     });
 
     this.initialized = true;
@@ -86,12 +82,7 @@ export class WaterRenderPipeline {
     gpuProfiler?: GPUProfiler | null,
     section: GPUProfileSection = "waterCompute",
   ): void {
-    if (
-      !this.initialized ||
-      !this.stateCompute ||
-      !this.buffers ||
-      !this.bindGroup
-    ) {
+    if (!this.initialized || !this.shader || !this.buffers || !this.bindGroup) {
       return;
     }
 
@@ -128,7 +119,7 @@ export class WaterRenderPipeline {
       timestampWrites: gpuProfiler?.getComputeTimestampWrites(section),
     });
 
-    this.stateCompute.dispatch(computePass, this.bindGroup, this.textureSize);
+    this.shader.dispatch(computePass, this.bindGroup, this.textureSize);
 
     computePass.end();
 
@@ -163,11 +154,11 @@ export class WaterRenderPipeline {
   destroy(): void {
     this.buffers?.destroy();
     this.outputTexture?.destroy();
-    this.stateCompute?.destroy();
+    this.shader?.destroy();
     this.bindGroup = null;
     this.outputTextureView = null;
     this.buffers = null;
-    this.stateCompute = null;
+    this.shader = null;
     this.initialized = false;
   }
 }

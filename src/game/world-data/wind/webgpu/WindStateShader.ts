@@ -1,9 +1,7 @@
 /**
  * Wind state compute shader.
  *
- * This class owns the compute pipeline and provides the bind group layout.
- * Callers (WindTileCompute instances) create their own bind groups and output textures.
- *
+ * Extends ComputeShader base class to compute wind velocity field.
  * Implements base wind velocity with simplex noise variation.
  *
  * Output format (rg32float):
@@ -11,7 +9,7 @@
  * - G: Normalized velocity Y (velocityY / WIND_VELOCITY_SCALE + 0.5)
  */
 
-import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
+import { ComputeShader } from "../../../../core/graphics/webgpu/ComputeShader";
 import { SIMPLEX_NOISE_3D_WGSL } from "../../../../core/graphics/webgpu/WGSLSnippets";
 import {
   WIND_ANGLE_VARIATION,
@@ -21,10 +19,19 @@ import {
   WIND_VELOCITY_SCALE,
 } from "../WindConstants";
 
+const bindings = {
+  params: { type: "uniform" },
+  outputTexture: { type: "storageTexture", format: "rg32float" },
+} as const;
+
 /**
- * WGSL compute shader for wind computation.
+ * Wind state compute shader using the ComputeShader base class.
  */
-export const WIND_STATE_SHADER = /*wgsl*/ `
+export class WindStateShader extends ComputeShader<typeof bindings> {
+  readonly bindings = bindings;
+  readonly workgroupSize = [8, 8] as const;
+
+  readonly code = /*wgsl*/ `
 // Constants
 const PI: f32 = 3.14159265359;
 const WIND_NOISE_SPATIAL_SCALE: f32 = ${WIND_NOISE_SPATIAL_SCALE};
@@ -115,115 +122,4 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(normalizedVel.x, normalizedVel.y, 0.0, 0.0));
 }
 `;
-
-/**
- * Wind state compute shader.
- *
- * This class owns the compute pipeline and provides the bind group layout.
- * Callers create their own bind groups and output textures.
- */
-export class WindStateCompute {
-  private pipeline: GPUComputePipeline | null = null;
-  private bindGroupLayout: GPUBindGroupLayout | null = null;
-
-  /**
-   * Initialize the compute pipeline.
-   */
-  async init(): Promise<void> {
-    const device = getWebGPU().device;
-
-    const shaderModule = device.createShaderModule({
-      code: WIND_STATE_SHADER,
-      label: "Wind State Compute Shader",
-    });
-
-    // Create bind group layout
-    this.bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "uniform" },
-        },
-        {
-          binding: 1,
-          visibility: GPUShaderStage.COMPUTE,
-          storageTexture: {
-            access: "write-only",
-            format: "rg32float",
-            viewDimension: "2d",
-          },
-        },
-      ],
-      label: "Wind State Bind Group Layout",
-    });
-
-    // Create compute pipeline
-    const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout],
-      label: "Wind State Pipeline Layout",
-    });
-
-    this.pipeline = device.createComputePipeline({
-      layout: pipelineLayout,
-      compute: {
-        module: shaderModule,
-        entryPoint: "main",
-      },
-      label: "Wind State Compute Pipeline",
-    });
-  }
-
-  /**
-   * Get the bind group layout for creating bind groups.
-   */
-  getBindGroupLayout(): GPUBindGroupLayout {
-    if (!this.bindGroupLayout) {
-      throw new Error("WindStateCompute not initialized");
-    }
-    return this.bindGroupLayout;
-  }
-
-  /**
-   * Get the compute pipeline.
-   */
-  getPipeline(): GPUComputePipeline {
-    if (!this.pipeline) {
-      throw new Error("WindStateCompute not initialized");
-    }
-    return this.pipeline;
-  }
-
-  /**
-   * Dispatch the compute shader.
-   *
-   * @param computePass - The compute pass to dispatch on
-   * @param bindGroup - Bind group with buffers and output texture
-   * @param textureSize - Size of the output texture
-   */
-  dispatch(
-    computePass: GPUComputePassEncoder,
-    bindGroup: GPUBindGroup,
-    textureSize: number,
-  ): void {
-    if (!this.pipeline) {
-      console.warn("WindStateCompute not initialized");
-      return;
-    }
-
-    computePass.setPipeline(this.pipeline);
-    computePass.setBindGroup(0, bindGroup);
-
-    const workgroupsX = Math.ceil(textureSize / 8);
-    const workgroupsY = Math.ceil(textureSize / 8);
-    computePass.dispatchWorkgroups(workgroupsX, workgroupsY);
-  }
-
-  /**
-   * Clean up resources.
-   */
-  destroy(): void {
-    this.pipeline = null;
-    this.bindGroupLayout = null;
-  }
 }
