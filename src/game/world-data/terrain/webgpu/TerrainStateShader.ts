@@ -214,8 +214,8 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
       terrainHeight = max(terrainHeight, height);
     } else {
       // Outside land mass - compute depth based on distance to shore
-      // Shallow near shore, deeper further out
-      let shoreDepth = -min(signedDist * 0.5, 50.0);
+      // Gradual slope: shallow water extends ~10ft from shore
+      let shoreDepth = -min(signedDist * 0.15, 50.0);
       terrainHeight = max(terrainHeight, shoreDepth);
     }
   }
