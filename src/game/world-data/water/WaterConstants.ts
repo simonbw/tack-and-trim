@@ -3,9 +3,6 @@
  * These are used by both TypeScript code and GLSL shaders (via interpolation).
  */
 
-// Texture resolution for water data
-export const WATER_TEXTURE_SIZE = 512;
-
 // Gerstner wave configuration
 export const GERSTNER_STEEPNESS = 0.7;
 export const GRAVITY_FT_PER_S2 = 9.8 * 3.28084; // gravity in ft/s²

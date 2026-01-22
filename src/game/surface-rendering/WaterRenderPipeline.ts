@@ -15,8 +15,8 @@ import {
 } from "../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
-import { WATER_TEXTURE_SIZE } from "../world-data/water/WaterConstants";
 import type { Viewport, WaterInfo } from "../world-data/water/WaterInfo";
+import { WATER_TEXTURE_SIZE } from "./SurfaceRenderer";
 import { WaterComputeBuffers } from "../world-data/water/webgpu/WaterComputeBuffers";
 import { WaterStateShader } from "../world-data/water/webgpu/WaterStateShader";
 

@@ -13,8 +13,8 @@ import {
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
 import { LandMass, TerrainDefinition } from "../world-data/terrain/LandMass";
-import { TERRAIN_TEXTURE_SIZE } from "../world-data/terrain/TerrainConstants";
 import { TerrainComputeBuffers } from "../world-data/terrain/webgpu/TerrainComputeBuffers";
+import { TERRAIN_TEXTURE_SIZE } from "./SurfaceRenderer";
 import { TerrainStateShader } from "../world-data/terrain/webgpu/TerrainStateShader";
 
 /**
