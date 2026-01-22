@@ -277,11 +277,23 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
     let sandColor = renderSand(terrainHeight, normal, worldPos, wetness);
     return vec4<f32>(sandColor, 1.0);
   } else if (waterDepth < uniforms.shallowThreshold) {
-    // Shallow water - blend sand and water
-    let blendFactor = smoothstep(0.0, uniforms.shallowThreshold, waterDepth);
+    // Shallow water - blend sand and water with minimum water visibility
+    let rawBlend = smoothstep(0.0, uniforms.shallowThreshold, waterDepth);
+    let minWaterBlend = 0.35;
+    let blendFactor = mix(minWaterBlend, 1.0, rawBlend);
+
     let sandColor = renderSand(terrainHeight, normal, worldPos, wetness);
     let waterColor = renderWater(rawHeight, normal, worldPos, waterDepth);
-    let blendedColor = mix(sandColor, waterColor, blendFactor);
+    var blendedColor = mix(sandColor, waterColor, blendFactor);
+
+    // Foam at water's edge
+    let foamThreshold = 0.3;
+    let foamIntensity = smoothstep(foamThreshold, 0.0, waterDepth);
+    let foamNoise = hash21(worldPos * 8.0);
+    let foam = foamIntensity * smoothstep(0.3, 0.6, foamNoise);
+    let foamColor = vec3<f32>(0.95, 0.98, 1.0);
+    blendedColor = mix(blendedColor, foamColor, foam * 0.7);
+
     return vec4<f32>(blendedColor, 1.0);
   } else {
     // Deep water
