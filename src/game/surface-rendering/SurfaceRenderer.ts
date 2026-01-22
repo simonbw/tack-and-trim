@@ -12,6 +12,7 @@
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
+import type { Draw } from "../../core/graphics/Draw";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { InfluenceFieldManager } from "../world-data/influence/InfluenceFieldManager";
 import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
@@ -347,8 +348,8 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   @on("render")
-  onRender({ dt }: { dt: number }) {
-    if (!this.game || !this.initialized || !this.shader) return;
+  onRender({ dt, draw }: { dt: number; draw: Draw }) {
+    if (!this.initialized || !this.shader) return;
 
     // Ensure influence textures are configured (needed for per-pixel wave sampling)
     this.tryConfigureInfluenceTextures();
@@ -371,10 +372,10 @@ export class SurfaceRenderer extends BaseEntity {
       // Sync terrain definition with render pipeline ONLY when it changes
       const currentTerrainVersion = terrainInfo.getVersion();
       if (currentTerrainVersion !== this.lastTerrainVersion) {
-        const landMasses = terrainInfo.getLandMasses();
-        if (landMasses.length > 0) {
+        const contours = terrainInfo.getContours();
+        if (contours.length > 0) {
           this.terrainPipeline.setTerrainDefinition({
-            landMasses: [...landMasses],
+            contours: [...contours],
           });
         }
         this.lastTerrainVersion = currentTerrainVersion;
@@ -455,6 +456,47 @@ export class SurfaceRenderer extends BaseEntity {
       terrainTextureView,
       wetnessTextureView,
     );
+
+    // Draw terrain contour lines in debug mode
+    if (this.renderMode === 1 && terrainInfo) {
+      const contours = terrainInfo.getContours();
+      for (const contour of contours) {
+        // First pass: white outline for visibility
+        draw.strokeSmoothPolygon([...contour.controlPoints], {
+          color: 0xffffff,
+          width: contour.height === 0 ? 3 : 2,
+          alpha: 0.9,
+        });
+
+        // Second pass: thinner colored line on top
+        // Color based on height: blue for underwater, brown for above
+        let color: number;
+        if (contour.height === 0) {
+          // Sea level - black center on white
+          color = 0x000000;
+        } else if (contour.height < 0) {
+          // Underwater - blue, darker for deeper
+          const t = Math.min(-contour.height / 50, 1);
+          const r = Math.round(50 * (1 - t));
+          const g = Math.round(100 * (1 - t * 0.5));
+          const b = Math.round(200 + 55 * (1 - t));
+          color = (r << 16) | (g << 8) | b;
+        } else {
+          // Above water - brown/tan, lighter for higher
+          const t = Math.min(contour.height / 20, 1);
+          const r = Math.round(120 + 60 * t);
+          const g = Math.round(80 + 40 * t);
+          const b = Math.round(40 + 20 * t);
+          color = (r << 16) | (g << 8) | b;
+        }
+
+        draw.strokeSmoothPolygon([...contour.controlPoints], {
+          color,
+          width: contour.height === 0 ? 1.5 : 1,
+          alpha: 1,
+        });
+      }
+    }
   }
 
   setRenderMode(mode: number): void {

@@ -35,7 +35,7 @@ export class SurfaceShader extends FullscreenShader<typeof bindings> {
 struct Uniforms {
   cameraMatrix: mat3x3<f32>,
   time: f32,
-  renderMode: i32,
+  renderMode: f32,
   screenWidth: f32,
   screenHeight: f32,
   viewportLeft: f32,
@@ -201,18 +201,23 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   let waterSurfaceHeight = (rawHeight - 0.5) * WATER_HEIGHT_SCALE;  // Denormalize to world units
   let waterDepth = waterSurfaceHeight - terrainHeight;
 
-  // Debug mode: show terrain in brown, water in blue
-  if (uniforms.renderMode == 1) {
+  // Debug mode: Terrain height visualization
+  // Below sea level: dark blue → light blue
+  // Above sea level: dark brown → light brown
+  if (uniforms.renderMode == 1.0) {
     var debugColor: vec3<f32>;
-    if (waterDepth < 0.0) {
-      // Above water - terrain
-      debugColor = vec3<f32>(0.6, 0.4, 0.2) * (terrainHeight / MAX_TERRAIN_HEIGHT + 0.3);
-    } else {
-      // Underwater - color by depth
-      let darkBlue = vec3<f32>(0.0, 0.1, 0.3);
-      let lightBlue = vec3<f32>(0.6, 0.85, 1.0);
-      let depthFactor = smoothstep(0.0, 10.0, waterDepth);
+    if (terrainHeight < 0.0) {
+      // Underwater terrain: dark blue (-50) → light blue (0)
+      let depthFactor = clamp(-terrainHeight / 50.0, 0.0, 1.0);
+      let darkBlue = vec3<f32>(0.0, 0.15, 0.35);
+      let lightBlue = vec3<f32>(0.4, 0.7, 0.9);
       debugColor = mix(lightBlue, darkBlue, depthFactor);
+    } else {
+      // Above water terrain: dark brown (0) → light brown (MAX_TERRAIN_HEIGHT)
+      let heightFactor = clamp(terrainHeight / MAX_TERRAIN_HEIGHT, 0.0, 1.0);
+      let darkBrown = vec3<f32>(0.35, 0.25, 0.1);
+      let lightBrown = vec3<f32>(0.85, 0.75, 0.55);
+      debugColor = mix(darkBrown, lightBrown, heightFactor);
     }
     return vec4<f32>(debugColor, 1.0);
   }
