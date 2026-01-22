@@ -76,7 +76,63 @@ export class GameController extends BaseEntity {
         hillAmplitude: 0.25, // 25% height variation
       },
     );
-    this.game!.addEntity(new TerrainInfo([bayIsland]));
+
+    // Second island to the south - much larger and more dramatic
+    const greatShieldIsland = createLandMass(
+      [
+        // NORTH SIDE - Starting from northwest, going clockwise
+        // Northwest headland
+        V(-800, 800),
+
+        // North bay - moderate indentation
+        V(-600, 900),
+        V(-300, 1000),
+        V(0, 1050),
+        V(300, 1000),
+
+        // Northeast headland
+        V(600, 900),
+        V(800, 800),
+
+        // EAST SIDE - Windward shore
+        V(900, 1200),
+
+        // East bay - small notch
+        V(950, 1700),
+        V(900, 1800),
+        V(950, 1900),
+
+        V(900, 2400),
+
+        // SOUTH SIDE
+        // Southeast headland
+        V(800, 2800),
+        V(600, 2850),
+
+        // South bay - large sheltered anchorage
+        V(300, 2900),
+        V(0, 2950),
+        V(-300, 2900),
+        V(-600, 2850),
+
+        // Southwest headland
+        V(-800, 2800),
+
+        // WEST SIDE - Leeward shore (wind shadow)
+        V(-900, 2400),
+        V(-950, 1800),
+        V(-950, 1200),
+        V(-900, 800),
+      ],
+      {
+        peakHeight: 12,
+        beachWidth: 60,
+        hillFrequency: 0.006,
+        hillAmplitude: 0.3,
+      },
+    );
+
+    this.game!.addEntity(new TerrainInfo([bayIsland, greatShieldIsland]));
 
     // 2. Influence fields (depends on terrain, starts async computation)
     this.game!.addEntity(new InfluenceFieldManager());
@@ -107,6 +163,13 @@ export class GameController extends BaseEntity {
     this.game!.addEntity(new Buoy(600, 400)); // Southeast
     this.game!.addEntity(new Buoy(-600, 400)); // Southwest
     this.game!.addEntity(new Buoy(900, -300)); // East of island
+
+    // Buoys for passage between islands and around southern island
+    this.game!.addEntity(new Buoy(400, 600)); // Passage east
+    this.game!.addEntity(new Buoy(-400, 600)); // Passage west
+    this.game!.addEntity(new Buoy(1100, 1800)); // East side of Great Shield Island
+    this.game!.addEntity(new Buoy(0, 3100)); // South of south bay
+    this.game!.addEntity(new Buoy(-1100, 1800)); // West side of Great Shield Island
 
     // Spawn boat and controls
     const boat = this.game!.addEntity(new Boat());

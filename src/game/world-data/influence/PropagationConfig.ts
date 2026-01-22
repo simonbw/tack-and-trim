@@ -57,7 +57,7 @@ export const WIND_PROPAGATION_CONFIG: PropagationConfig = {
   directFlowFactor: 0.8, // Strongly directional
   lateralSpreadFactor: 0.1, // Limited spreading
   decayFactor: 0.98, // 2% loss per cell
-  maxIterations: 200,
+  maxIterations: 300, // Increased from 200 to handle larger island terrain complexity
   convergenceThreshold: 0.005,
 };
 
@@ -116,7 +116,7 @@ export const WIND_FIELD_RESOLUTION: InfluenceFieldResolution = {
  * cellSize: 100, directionCount: 16
  */
 export const SWELL_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 50, // 50 ft cells (high quality)
+  cellSize: 32, // 32 ft cells (high quality)
   directionCount: 16, // 22.5° direction resolution
 };
 
