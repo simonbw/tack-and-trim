@@ -8,7 +8,6 @@
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 
-import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import type { DataTileCompute } from "../../datatiles/DataTileComputePipeline";
 import { TERRAIN_TILE_RESOLUTION } from "../TerrainConstants";
 import { TerrainComputeBuffers } from "./TerrainComputeBuffers";
@@ -19,6 +18,7 @@ import { TerrainStateShader } from "./TerrainStateShader";
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 export class TerrainDataTileCompute implements DataTileCompute {
+  private device: GPUDevice;
   private shader: TerrainStateShader;
   private buffers: TerrainComputeBuffers;
   private bindGroup: GPUBindGroup | null = null;
@@ -27,9 +27,11 @@ export class TerrainDataTileCompute implements DataTileCompute {
   private textureSize: number;
 
   constructor(
+    device: GPUDevice,
     buffers: TerrainComputeBuffers,
     textureSize: number = TERRAIN_TILE_RESOLUTION,
   ) {
+    this.device = device;
     this.buffers = buffers;
     this.textureSize = textureSize;
     this.shader = new TerrainStateShader();
@@ -39,14 +41,12 @@ export class TerrainDataTileCompute implements DataTileCompute {
    * Initialize WebGPU resources.
    */
   async init(): Promise<void> {
-    const device = getWebGPU().device;
-
     // Initialize shared compute shader
     await this.shader.init();
 
     // Create output texture (owned by this tile compute instance)
     // rgba32float - matches TerrainStateShader output and water format
-    this.outputTexture = device.createTexture({
+    this.outputTexture = this.device.createTexture({
       size: { width: this.textureSize, height: this.textureSize },
       format: "rgba32float",
       usage:
@@ -79,8 +79,6 @@ export class TerrainDataTileCompute implements DataTileCompute {
       return;
     }
 
-    const device = getWebGPU().device;
-
     // Update params buffer
     this.buffers.updateParams({
       time,
@@ -93,7 +91,7 @@ export class TerrainDataTileCompute implements DataTileCompute {
     });
 
     // Create and submit compute pass
-    const commandEncoder = device.createCommandEncoder({
+    const commandEncoder = this.device.createCommandEncoder({
       label: "Terrain Tile Compute Encoder",
     });
 
@@ -105,7 +103,7 @@ export class TerrainDataTileCompute implements DataTileCompute {
 
     computePass.end();
 
-    device.queue.submit([commandEncoder.finish()]);
+    this.device.queue.submit([commandEncoder.finish()]);
   }
 
   /**

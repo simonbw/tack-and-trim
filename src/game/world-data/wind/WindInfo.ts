@@ -125,7 +125,8 @@ export class WindInfo extends BaseEntity {
       id: "windTilePipeline",
       gridConfig: WIND_TILE_CONFIG,
       readbackConfig: WIND_READBACK_CONFIG,
-      computeFactory: (resolution) => new WindTileCompute(resolution),
+      computeFactory: (device, resolution) =>
+        new WindTileCompute(device, resolution),
       getQueryForecasts: () => this.collectForecasts(),
       runCompute: (compute, viewport) => this.runTileCompute(compute, viewport),
     };

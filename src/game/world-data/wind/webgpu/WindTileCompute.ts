@@ -8,7 +8,6 @@
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 
-import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import type { DataTileCompute } from "../../datatiles/DataTileComputePipeline";
 import { WindStateShader } from "./WindStateShader";
 
@@ -17,6 +16,7 @@ import { WindStateShader } from "./WindStateShader";
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 export class WindTileCompute implements DataTileCompute {
+  private device: GPUDevice;
   private shader: WindStateShader;
   private paramsBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
@@ -26,7 +26,8 @@ export class WindTileCompute implements DataTileCompute {
   private baseWindX: number = 0;
   private baseWindY: number = 0;
 
-  constructor(textureSize: number = 256) {
+  constructor(device: GPUDevice, textureSize: number = 256) {
+    this.device = device;
     this.textureSize = textureSize;
     this.shader = new WindStateShader();
   }
@@ -35,13 +36,11 @@ export class WindTileCompute implements DataTileCompute {
    * Initialize WebGPU resources.
    */
   async init(): Promise<void> {
-    const device = getWebGPU().device;
-
     // Initialize shared compute shader
     await this.shader.init();
 
     // Create params uniform buffer (48 bytes = 12 floats, aligned to 16)
-    this.paramsBuffer = device.createBuffer({
+    this.paramsBuffer = this.device.createBuffer({
       size: 48, // 12 floats * 4 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Wind Tile Params Buffer",
@@ -49,7 +48,7 @@ export class WindTileCompute implements DataTileCompute {
 
     // Create output texture (owned by this tile compute instance)
     // rg32float - 2 channels for velocity X and Y
-    this.outputTexture = device.createTexture({
+    this.outputTexture = this.device.createTexture({
       size: { width: this.textureSize, height: this.textureSize },
       format: "rg32float",
       usage:
@@ -88,8 +87,6 @@ export class WindTileCompute implements DataTileCompute {
       return;
     }
 
-    const device = getWebGPU().device;
-
     // Update params buffer
     const paramsData = new Float32Array([
       time,
@@ -105,10 +102,10 @@ export class WindTileCompute implements DataTileCompute {
       0, // padding2
       0, // padding3
     ]);
-    device.queue.writeBuffer(this.paramsBuffer, 0, paramsData.buffer);
+    this.device.queue.writeBuffer(this.paramsBuffer, 0, paramsData.buffer);
 
     // Create and submit compute pass
-    const commandEncoder = device.createCommandEncoder({
+    const commandEncoder = this.device.createCommandEncoder({
       label: "Wind Tile Compute Encoder",
     });
 
@@ -120,7 +117,7 @@ export class WindTileCompute implements DataTileCompute {
 
     computePass.end();
 
-    device.queue.submit([commandEncoder.finish()]);
+    this.device.queue.submit([commandEncoder.finish()]);
   }
 
   /**

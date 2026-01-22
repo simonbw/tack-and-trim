@@ -5,7 +5,6 @@
  * the rendering pipeline and physics tile pipeline.
  */
 
-import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import {
   TerrainDefinition,
   buildTerrainGPUData,
@@ -36,14 +35,15 @@ export interface TerrainComputeParams {
  * to ensure consistent data provision to the GPU shader.
  */
 export class TerrainComputeBuffers {
+  private device: GPUDevice;
   readonly paramsBuffer: GPUBuffer;
   readonly controlPointsBuffer: GPUBuffer;
   readonly landMassBuffer: GPUBuffer;
 
   private landMassCount: number = 0;
 
-  constructor() {
-    const device = getWebGPU().device;
+  constructor(device: GPUDevice) {
+    this.device = device;
 
     // Params uniform buffer (32 bytes)
     // Layout (byte offsets):
@@ -83,16 +83,15 @@ export class TerrainComputeBuffers {
    * Call this when terrain changes (e.g., level loading).
    */
   updateTerrainData(definition: TerrainDefinition): void {
-    const device = getWebGPU().device;
     const { controlPointsData, landMassData } = buildTerrainGPUData(definition);
 
-    device.queue.writeBuffer(
+    this.device.queue.writeBuffer(
       this.controlPointsBuffer,
       0,
       controlPointsData.buffer,
     );
     // landMassData is already an ArrayBuffer (not Float32Array) since it has mixed u32/f32 fields
-    device.queue.writeBuffer(this.landMassBuffer, 0, landMassData);
+    this.device.queue.writeBuffer(this.landMassBuffer, 0, landMassData);
     this.landMassCount = definition.landMasses.length;
   }
 
@@ -100,8 +99,6 @@ export class TerrainComputeBuffers {
    * Update the params buffer with current frame data.
    */
   updateParams(params: TerrainComputeParams): void {
-    const device = getWebGPU().device;
-
     const paramsData = new ArrayBuffer(32);
     const floats = new Float32Array(paramsData, 0, 7);
     const uints = new Uint32Array(paramsData, 28, 1);
@@ -115,7 +112,7 @@ export class TerrainComputeBuffers {
     floats[6] = params.textureSize;
     uints[0] = params.landMassCount;
 
-    device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
+    this.device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
   }
 
   /**

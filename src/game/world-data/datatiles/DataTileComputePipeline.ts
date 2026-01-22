@@ -39,8 +39,10 @@ export interface DataTileCompute {
 
 /**
  * Factory function to create compute instances.
+ * Receives the GPU device from Game for resource creation.
  */
 export type DataTileComputeFactory<TCompute extends DataTileCompute> = (
+  device: GPUDevice,
   resolution: number,
 ) => TCompute;
 
@@ -144,10 +146,11 @@ export class DataTileComputePipeline<
     if (this.initialized) return;
 
     const { gridConfig, readbackConfig, computeFactory } = this.pipelineConfig;
+    const device = this.game!.getWebGPUDevice();
 
     // Create one compute instance per tile slot
     for (let i = 0; i < gridConfig.maxTilesPerFrame; i++) {
-      const compute = computeFactory(gridConfig.tileResolution);
+      const compute = computeFactory(device, gridConfig.tileResolution);
       await compute.init();
       this.computes.push(compute);
     }
@@ -155,6 +158,7 @@ export class DataTileComputePipeline<
     // Create readback buffers pool
     for (let i = 0; i < gridConfig.maxTilesPerFrame; i++) {
       const buffer = new DataTileReadbackBuffer<TSample>(
+        device,
         gridConfig.tileResolution,
         readbackConfig,
       );

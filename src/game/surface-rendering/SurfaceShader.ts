@@ -8,7 +8,6 @@
  * - Fresnel, subsurface scattering, and specular lighting
  */
 
-import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { WaterSurfaceShader } from "./WaterSurfaceShader";
 
 // Shallow water threshold for rendering
@@ -18,6 +17,7 @@ const SHALLOW_WATER_THRESHOLD = 1.5;
  * Water surface rendering shader with terrain support.
  */
 export class SurfaceShader {
+  private device: GPUDevice;
   private shader: WaterSurfaceShader;
   private uniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
@@ -34,7 +34,8 @@ export class SurfaceShader {
   private lastWaterTexture: GPUTextureView | null = null;
   private lastTerrainTexture: GPUTextureView | null = null;
 
-  constructor() {
+  constructor(device: GPUDevice) {
+    this.device = device;
     this.shader = new WaterSurfaceShader();
 
     // Uniform buffer layout (96 bytes total for WebGPU 16-byte alignment):
@@ -55,20 +56,18 @@ export class SurfaceShader {
   }
 
   async init(): Promise<void> {
-    const device = getWebGPU().device;
-
     // Initialize shader
     await this.shader.init();
 
     // Create uniform buffer
-    this.uniformBuffer = device.createBuffer({
+    this.uniformBuffer = this.device.createBuffer({
       size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Water Surface Uniform Buffer",
     });
 
     // Create sampler
-    this.sampler = device.createSampler({
+    this.sampler = this.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
       addressModeU: "clamp-to-edge",
@@ -77,7 +76,7 @@ export class SurfaceShader {
 
     // Create placeholder terrain texture (1x1 deep water = no terrain)
     // Must match terrain texture format (rgba32float)
-    this.placeholderTerrainTexture = device.createTexture({
+    this.placeholderTerrainTexture = this.device.createTexture({
       size: { width: 1, height: 1 },
       format: "rgba32float",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
@@ -86,7 +85,7 @@ export class SurfaceShader {
     this.placeholderTerrainView = this.placeholderTerrainTexture.createView();
 
     // Write deep water value (-50) to placeholder
-    device.queue.writeTexture(
+    this.device.queue.writeTexture(
       { texture: this.placeholderTerrainTexture },
       new Float32Array([-50, 0, 0, 1]),
       { bytesPerRow: 16 },
@@ -165,15 +164,17 @@ export class SurfaceShader {
       return;
     }
 
-    const device = getWebGPU().device;
-
     // Use placeholder if no terrain texture
     const effectiveTerrainView =
       terrainTextureView ?? this.placeholderTerrainView!;
     this.setHasTerrainData(!!terrainTextureView);
 
     // Upload uniforms
-    device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData.buffer);
+    this.device.queue.writeBuffer(
+      this.uniformBuffer,
+      0,
+      this.uniformData.buffer,
+    );
 
     // Recreate bind group if textures changed
     if (

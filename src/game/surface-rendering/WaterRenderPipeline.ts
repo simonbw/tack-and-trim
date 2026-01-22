@@ -13,7 +13,6 @@ import {
   GPUProfiler,
   GPUProfileSection,
 } from "../../core/graphics/webgpu/GPUProfiler";
-import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
 import { WATER_TEXTURE_SIZE } from "../world-data/water/WaterConstants";
 import type { Viewport, WaterInfo } from "../world-data/water/WaterInfo";
@@ -24,6 +23,7 @@ import { WaterStateShader } from "../world-data/water/webgpu/WaterStateShader";
  * Water rendering compute pipeline using unified shader.
  */
 export class WaterRenderPipeline {
+  private device: GPUDevice;
   private shader: WaterStateShader | null = null;
   private buffers: WaterComputeBuffers | null = null;
   private bindGroup: GPUBindGroup | null = null;
@@ -33,7 +33,8 @@ export class WaterRenderPipeline {
 
   private textureSize: number;
 
-  constructor(textureSize: number = WATER_TEXTURE_SIZE) {
+  constructor(device: GPUDevice, textureSize: number = WATER_TEXTURE_SIZE) {
+    this.device = device;
     this.textureSize = textureSize;
   }
 
@@ -43,17 +44,15 @@ export class WaterRenderPipeline {
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    const device = getWebGPU().device;
-
     // Initialize shared compute shader
     this.shader = new WaterStateShader();
     await this.shader.init();
 
     // Create shared buffers
-    this.buffers = new WaterComputeBuffers();
+    this.buffers = new WaterComputeBuffers(this.device);
 
     // Create output texture (owned by this pipeline)
-    this.outputTexture = device.createTexture({
+    this.outputTexture = this.device.createTexture({
       size: { width: this.textureSize, height: this.textureSize },
       format: "rgba32float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
@@ -86,8 +85,6 @@ export class WaterRenderPipeline {
       return;
     }
 
-    const device = getWebGPU().device;
-
     // Get elapsed time
     const game = (waterInfo as { game?: { elapsedUnpausedTime?: number } })
       .game;
@@ -109,7 +106,7 @@ export class WaterRenderPipeline {
     });
 
     // Create command encoder
-    const commandEncoder = device.createCommandEncoder({
+    const commandEncoder = this.device.createCommandEncoder({
       label: "Water Render Compute Encoder",
     });
 
@@ -124,7 +121,7 @@ export class WaterRenderPipeline {
     computePass.end();
 
     // Submit
-    device.queue.submit([commandEncoder.finish()]);
+    this.device.queue.submit([commandEncoder.finish()]);
   }
 
   /**

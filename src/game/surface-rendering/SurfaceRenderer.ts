@@ -30,29 +30,30 @@ export class SurfaceRenderer extends BaseEntity {
   layer = "water" as const;
 
   private waterShader: SurfaceShader | null = null;
-  private renderPipeline: WaterRenderPipeline;
-  private terrainPipeline: TerrainRenderPipeline;
+  private renderPipeline: WaterRenderPipeline | null = null;
+  private terrainPipeline: TerrainRenderPipeline | null = null;
   private renderMode = 0;
   private initialized = false;
 
   // Track terrain version to avoid redundant GPU buffer updates
   private lastTerrainVersion = -1;
 
-  constructor() {
-    super();
-    this.renderPipeline = new WaterRenderPipeline();
-    this.terrainPipeline = new TerrainRenderPipeline();
-  }
-
   private async ensureInitialized(): Promise<void> {
     if (this.initialized || !this.game) return;
 
     try {
+      const device = this.game.getWebGPUDevice();
+
+      // Create and initialize pipelines with device
+      this.renderPipeline = new WaterRenderPipeline(device);
       await this.renderPipeline.init();
+
+      this.terrainPipeline = new TerrainRenderPipeline(device);
       await this.terrainPipeline.init();
 
-      this.waterShader = new SurfaceShader();
+      this.waterShader = new SurfaceShader(device);
       await this.waterShader.init();
+
       this.initialized = true;
     } catch (error) {
       console.error("Failed to initialize WaterRenderer:", error);
@@ -84,7 +85,14 @@ export class SurfaceRenderer extends BaseEntity {
 
   @on("render")
   onRender() {
-    if (!this.game || !this.initialized || !this.waterShader) return;
+    if (
+      !this.game ||
+      !this.initialized ||
+      !this.waterShader ||
+      !this.renderPipeline ||
+      !this.terrainPipeline
+    )
+      return;
 
     const camera = this.game.camera;
     const renderer = this.game.getRenderer();
@@ -171,8 +179,8 @@ export class SurfaceRenderer extends BaseEntity {
 
   @on("destroy")
   onDestroy(): void {
-    this.renderPipeline.destroy();
-    this.terrainPipeline.destroy();
+    this.renderPipeline?.destroy();
+    this.terrainPipeline?.destroy();
     this.waterShader?.destroy();
   }
 }

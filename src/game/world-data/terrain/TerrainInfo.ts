@@ -97,11 +97,11 @@ export class TerrainInfo extends BaseEntity {
   // Shared GPU buffers for terrain data
   private sharedBuffers: TerrainComputeBuffers | null = null;
 
-  // Tile pipeline for terrain queries (created in constructor)
+  // Tile pipeline for terrain queries (created in onAfterAdded)
   private pipeline: DataTileComputePipeline<
     TerrainPointData,
     TerrainDataTileCompute
-  >;
+  > | null = null;
 
   // CPU fallback
   private cpuFallback: TerrainComputeCPU;
@@ -111,8 +111,16 @@ export class TerrainInfo extends BaseEntity {
     this.terrainDefinition = { landMasses };
     this.cpuFallback = new TerrainComputeCPU();
 
-    // Create shared buffers (will be initialized with terrain data in onAfterAdded)
-    this.sharedBuffers = new TerrainComputeBuffers();
+    // sharedBuffers and pipeline are created in onAfterAdded when we have access to game.device
+  }
+
+  @on("afterAdded")
+  onAfterAdded() {
+    const device = this.game!.getWebGPUDevice();
+
+    // Create shared buffers now that we have access to device
+    this.sharedBuffers = new TerrainComputeBuffers(device);
+    this.sharedBuffers.updateTerrainData(this.terrainDefinition);
 
     // Create pipeline with config - pipeline handles its own lifecycle
     const buffers = this.sharedBuffers;
@@ -123,8 +131,8 @@ export class TerrainInfo extends BaseEntity {
       id: "terrainTilePipeline",
       gridConfig: TERRAIN_TILE_CONFIG,
       readbackConfig: TERRAIN_READBACK_CONFIG,
-      computeFactory: (resolution) =>
-        new TerrainDataTileCompute(buffers, resolution),
+      computeFactory: (device, resolution) =>
+        new TerrainDataTileCompute(device, buffers, resolution),
       getQueryForecasts: () => this.collectForecasts(),
       runCompute: (compute, viewport) => this.runTileCompute(compute, viewport),
       shouldCompute: (tile) => {
@@ -137,12 +145,6 @@ export class TerrainInfo extends BaseEntity {
       },
     };
     this.pipeline = new DataTileComputePipeline(config);
-  }
-
-  @on("afterAdded")
-  onAfterAdded() {
-    // Initialize shared buffers with terrain data
-    this.sharedBuffers?.updateTerrainData(this.terrainDefinition);
 
     // Add pipeline as child entity - it handles its own lifecycle
     this.addChild(this.pipeline);
@@ -189,7 +191,7 @@ export class TerrainInfo extends BaseEntity {
    */
   getHeightAtPoint(point: V2d): number {
     // Try GPU path
-    const result = this.pipeline.sampleAtWorldPoint(point);
+    const result = this.pipeline?.sampleAtWorldPoint(point);
     if (result) {
       return result.height;
     }
@@ -246,28 +248,35 @@ export class TerrainInfo extends BaseEntity {
     tileHits: number;
     cpuFallbacks: number;
   } {
-    return this.pipeline.getTileStats();
+    return (
+      this.pipeline?.getTileStats() ?? {
+        activeTiles: 0,
+        maxTiles: 0,
+        tileHits: 0,
+        cpuFallbacks: 0,
+      }
+    );
   }
 
   /**
    * Reset per-frame stats counters.
    */
   resetStatsCounters(): void {
-    this.pipeline.resetStats();
+    this.pipeline?.resetStats();
   }
 
   /**
    * Check if GPU is initialized.
    */
   isGPUInitialized(): boolean {
-    return this.pipeline.isInitialized();
+    return this.pipeline?.isInitialized() ?? false;
   }
 
   /**
    * Get the tile manager.
    */
   getTileManager() {
-    return this.pipeline.getTileManager();
+    return this.pipeline?.getTileManager();
   }
 
   /**

@@ -6,7 +6,6 @@
  */
 
 import type { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { asyncProfiler } from "../../../core/util/AsyncProfiler";
 import { DoubleBuffer } from "../../../core/util/DoubleBuffer";
 import type { ReadbackViewport } from "./DataTileTypes";
@@ -68,6 +67,7 @@ export interface DataTileReadbackStats {
  * Generic GPU readback buffer with double buffering for data tiles.
  */
 export class DataTileReadbackBuffer<TSample> {
+  private device: GPUDevice;
   private textureSize: number;
   private config: DataTileReadbackConfig<TSample>;
 
@@ -98,7 +98,12 @@ export class DataTileReadbackBuffer<TSample> {
     },
   };
 
-  constructor(textureSize: number, config: DataTileReadbackConfig<TSample>) {
+  constructor(
+    device: GPUDevice,
+    textureSize: number,
+    config: DataTileReadbackConfig<TSample>,
+  ) {
+    this.device = device;
     this.textureSize = textureSize;
     this.config = config;
 
@@ -111,7 +116,6 @@ export class DataTileReadbackBuffer<TSample> {
    * Initialize GPU resources.
    */
   async init(): Promise<void> {
-    const device = getWebGPU().device;
     const bufferSize = this.paddedBytesPerRow * this.textureSize;
 
     // Create CPU-side double buffer
@@ -124,12 +128,12 @@ export class DataTileReadbackBuffer<TSample> {
 
     // Create GPU staging double buffer
     this.stagingBuffers = new DoubleBuffer(
-      device.createBuffer({
+      this.device.createBuffer({
         size: bufferSize,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         label: `${this.config.label} Readback Staging A`,
       }),
-      device.createBuffer({
+      this.device.createBuffer({
         size: bufferSize,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         label: `${this.config.label} Readback Staging B`,
@@ -150,11 +154,10 @@ export class DataTileReadbackBuffer<TSample> {
       return;
     }
 
-    const device = getWebGPU().device;
     const writeStaging = this.stagingBuffers.getWrite();
 
     // Copy texture to staging buffer
-    const commandEncoder = device.createCommandEncoder({
+    const commandEncoder = this.device.createCommandEncoder({
       label: `${this.config.label} Readback Copy`,
     });
 
@@ -164,7 +167,7 @@ export class DataTileReadbackBuffer<TSample> {
       { width: this.textureSize, height: this.textureSize },
     );
 
-    device.queue.submit([commandEncoder.finish()]);
+    this.device.queue.submit([commandEncoder.finish()]);
 
     // Store pending viewport
     this.pendingViewport = viewport;

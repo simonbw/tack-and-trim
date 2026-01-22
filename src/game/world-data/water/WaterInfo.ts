@@ -172,7 +172,8 @@ export class WaterInfo extends BaseEntity {
         id: "waterTilePipeline",
         gridConfig: WATER_TILE_CONFIG,
         readbackConfig: WATER_READBACK_CONFIG,
-        computeFactory: (resolution) => new WaterDataTileCompute(resolution),
+        computeFactory: (device, resolution) =>
+          new WaterDataTileCompute(device, resolution),
         getQueryForecasts: () => this.collectForecasts(),
         runCompute: (compute, viewport) =>
           this.runTileCompute(compute, viewport),

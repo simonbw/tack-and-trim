@@ -5,7 +5,6 @@
  * the rendering pipeline and physics tile pipeline.
  */
 
-import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import { buildWaveDataArray } from "../WaterConstants";
 
 // Constants for modifier computation
@@ -50,14 +49,15 @@ export interface WaterComputeParams {
  * to ensure consistent data provision to the GPU shader.
  */
 export class WaterComputeBuffers {
+  private device: GPUDevice;
   readonly waveDataBuffer: GPUBuffer;
   readonly paramsBuffer: GPUBuffer;
   readonly segmentsBuffer: GPUBuffer;
 
   private segmentData: Float32Array;
 
-  constructor() {
-    const device = getWebGPU().device;
+  constructor(device: GPUDevice) {
+    this.device = device;
 
     // Create wave data storage buffer (static, uploaded once)
     const waveData = buildWaveDataArray();
@@ -92,8 +92,6 @@ export class WaterComputeBuffers {
    * Update the params buffer with current frame data.
    */
   updateParams(params: WaterComputeParams): void {
-    const device = getWebGPU().device;
-
     const paramsData = new ArrayBuffer(32);
     const paramsFloats = new Float32Array(paramsData, 0, 7);
     const paramsUints = new Uint32Array(paramsData, 28, 1);
@@ -107,7 +105,7 @@ export class WaterComputeBuffers {
     paramsFloats[6] = params.textureSize;
     paramsUints[0] = params.segmentCount;
 
-    device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
+    this.device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
   }
 
   /**
@@ -115,7 +113,6 @@ export class WaterComputeBuffers {
    * Returns the actual number of segments uploaded.
    */
   updateSegments(segments: WakeSegmentData[]): number {
-    const device = getWebGPU().device;
     const segmentCount = Math.min(segments.length, MAX_SEGMENTS);
 
     for (let i = 0; i < segmentCount; i++) {
@@ -138,7 +135,7 @@ export class WaterComputeBuffers {
     // Only upload the portion we need
     if (segmentCount > 0) {
       const uploadSize = segmentCount * FLOATS_PER_SEGMENT * 4;
-      device.queue.writeBuffer(
+      this.device.queue.writeBuffer(
         this.segmentsBuffer,
         0,
         this.segmentData.buffer,

@@ -10,7 +10,6 @@ import {
   GPUProfiler,
   GPUProfileSection,
 } from "../../core/graphics/webgpu/GPUProfiler";
-import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
 import { LandMass, TerrainDefinition } from "../world-data/terrain/LandMass";
 import { TERRAIN_TEXTURE_SIZE } from "../world-data/terrain/TerrainConstants";
@@ -31,6 +30,7 @@ export interface TerrainViewport {
  * Terrain rendering compute pipeline.
  */
 export class TerrainRenderPipeline {
+  private device: GPUDevice;
   private shader: TerrainStateShader | null = null;
   private buffers: TerrainComputeBuffers | null = null;
   private bindGroup: GPUBindGroup | null = null;
@@ -40,7 +40,8 @@ export class TerrainRenderPipeline {
 
   private textureSize: number;
 
-  constructor(textureSize: number = TERRAIN_TEXTURE_SIZE) {
+  constructor(device: GPUDevice, textureSize: number = TERRAIN_TEXTURE_SIZE) {
+    this.device = device;
     this.textureSize = textureSize;
   }
 
@@ -50,18 +51,16 @@ export class TerrainRenderPipeline {
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    const device = getWebGPU().device;
-
     // Initialize shared compute shader
     this.shader = new TerrainStateShader();
     await this.shader.init();
 
     // Create shared buffers
-    this.buffers = new TerrainComputeBuffers();
+    this.buffers = new TerrainComputeBuffers(this.device);
 
     // Create output texture (owned by this pipeline)
     // Use rgba32float like water - supports storage, filtering, and direct readback
-    this.outputTexture = device.createTexture({
+    this.outputTexture = this.device.createTexture({
       size: { width: this.textureSize, height: this.textureSize },
       format: "rgba32float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
@@ -118,8 +117,6 @@ export class TerrainRenderPipeline {
       return;
     }
 
-    const device = getWebGPU().device;
-
     // Update params buffer with current viewport
     this.buffers.updateParams({
       time,
@@ -132,7 +129,7 @@ export class TerrainRenderPipeline {
     });
 
     // Create command encoder
-    const commandEncoder = device.createCommandEncoder({
+    const commandEncoder = this.device.createCommandEncoder({
       label: "Terrain Render Compute Encoder",
     });
 
@@ -147,7 +144,7 @@ export class TerrainRenderPipeline {
     computePass.end();
 
     // Submit
-    device.queue.submit([commandEncoder.finish()]);
+    this.device.queue.submit([commandEncoder.finish()]);
   }
 
   /**

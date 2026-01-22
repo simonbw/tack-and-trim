@@ -8,7 +8,6 @@
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 
-import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import type { DataTileCompute } from "../../datatiles/DataTileComputePipeline";
 import {
   WaterComputeBuffers,
@@ -31,6 +30,7 @@ export interface WaterPointData {
  * Implements DataTileCompute interface for use with DataTileComputePipeline.
  */
 export class WaterDataTileCompute implements DataTileCompute {
+  private device: GPUDevice;
   private shader: WaterStateShader;
   private buffers: WaterComputeBuffers | null = null;
   private bindGroup: GPUBindGroup | null = null;
@@ -39,7 +39,8 @@ export class WaterDataTileCompute implements DataTileCompute {
   private textureSize: number;
   private currentSegmentCount: number = 0;
 
-  constructor(textureSize: number = 128) {
+  constructor(device: GPUDevice, textureSize: number = 128) {
+    this.device = device;
     this.textureSize = textureSize;
     this.shader = new WaterStateShader();
   }
@@ -48,16 +49,14 @@ export class WaterDataTileCompute implements DataTileCompute {
    * Initialize WebGPU resources.
    */
   async init(): Promise<void> {
-    const device = getWebGPU().device;
-
     // Initialize shared compute shader
     await this.shader.init();
 
     // Create shared buffers
-    this.buffers = new WaterComputeBuffers();
+    this.buffers = new WaterComputeBuffers(this.device);
 
     // Create output texture (owned by this tile compute instance)
-    this.outputTexture = device.createTexture({
+    this.outputTexture = this.device.createTexture({
       size: { width: this.textureSize, height: this.textureSize },
       format: "rgba32float",
       usage:
@@ -98,8 +97,6 @@ export class WaterDataTileCompute implements DataTileCompute {
       return;
     }
 
-    const device = getWebGPU().device;
-
     // Update params buffer
     this.buffers.updateParams({
       time,
@@ -112,7 +109,7 @@ export class WaterDataTileCompute implements DataTileCompute {
     });
 
     // Create and submit compute pass
-    const commandEncoder = device.createCommandEncoder({
+    const commandEncoder = this.device.createCommandEncoder({
       label: "Water Physics Tile Compute Encoder",
     });
 
@@ -124,7 +121,7 @@ export class WaterDataTileCompute implements DataTileCompute {
 
     computePass.end();
 
-    device.queue.submit([commandEncoder.finish()]);
+    this.device.queue.submit([commandEncoder.finish()]);
   }
 
   /**
