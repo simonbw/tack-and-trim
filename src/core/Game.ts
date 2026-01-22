@@ -265,7 +265,7 @@ export class Game {
     }
 
     // If the entity was destroyed during it's onAdd, we shouldn't add it
-    if (!entity.game) {
+    if (!entity.isAdded) {
       return entity;
     }
 
@@ -298,7 +298,7 @@ export class Game {
 
     if (entity.children) {
       for (const child of entity.children) {
-        if (!child.game) {
+        if (!child.isAdded) {
           this.addEntity(child);
         }
       }
