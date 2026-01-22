@@ -84,7 +84,7 @@ export class Anchor extends BaseEntity {
 
   /** Start deploying the anchor */
   deploy(): void {
-    if (this.state !== "stowed" || !this.game) return;
+    if (this.state !== "stowed") return;
 
     // Get world position for anchor drop at bow
     this.anchorPosition = this.getBowWorldPosition();
@@ -137,7 +137,6 @@ export class Anchor extends BaseEntity {
   /** Start retrieving the anchor */
   retrieve(): void {
     if (this.state !== "deployed" && this.state !== "deploying") return;
-    if (!this.game) return;
 
     // Set target to 0 - will animate inward and clean up when done
     this.targetRodeLength = 0;
@@ -146,8 +145,6 @@ export class Anchor extends BaseEntity {
 
   /** Complete the retrieval - remove physics objects */
   private completeRetrieval(): void {
-    if (!this.game) return;
-
     // Remove from physics world
     if (this.rodeConstraint) {
       this.game.world.constraints.remove(this.rodeConstraint);
@@ -178,8 +175,6 @@ export class Anchor extends BaseEntity {
 
   /** Spawn ripple and spray particles at anchor position */
   private spawnSplashEffects(): void {
-    if (!this.game) return;
-
     // Spawn ripple effect
     this.game.addEntity(new AnchorSplashRipple(this.anchorPosition.clone()));
 
@@ -295,7 +290,7 @@ export class Anchor extends BaseEntity {
   @on("destroy")
   onDestroy(): void {
     // Clean up physics objects directly (bypass animation)
-    if (this.game) {
+    if (this.isAdded) {
       if (this.rodeConstraint) {
         this.game.world.constraints.remove(this.rodeConstraint);
       }

@@ -244,7 +244,7 @@ export class InfluenceFieldManager extends BaseEntity {
     const startTime = performance.now();
 
     // Get terrain info
-    const terrain = TerrainInfo.fromGame(this.game!);
+    const terrain = TerrainInfo.fromGame(this.game);
     const landMasses = terrain.getLandMasses();
 
     // Compute bounds from all control points
@@ -405,7 +405,7 @@ export class InfluenceFieldManager extends BaseEntity {
     }
 
     // Dispatch event for visual entities to be added
-    this.game?.dispatch("influenceFieldsReady", {});
+    this.game.dispatch("influenceFieldsReady", {});
   }
 
   /**

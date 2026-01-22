@@ -55,7 +55,7 @@ export class SprayParticle extends BaseEntity {
 
     // Hit water - spawn foam and destroy
     if (this.z <= 0) {
-      this.game!.addEntity(new FoamParticle(this.position, this.size));
+      this.game.addEntity(new FoamParticle(this.position, this.size));
       this.destroy();
       return;
     }

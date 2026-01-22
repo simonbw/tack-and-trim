@@ -183,7 +183,7 @@ export class SurfaceRenderer extends BaseEntity {
   private tryConfigureInfluenceTextures(): boolean {
     if (this.influenceConfigured) return true;
 
-    const influenceManager = InfluenceFieldManager.maybeFromGame(this.game!);
+    const influenceManager = InfluenceFieldManager.maybeFromGame(this.game);
     if (!influenceManager) return false;
 
     const swellTexture = influenceManager.getSwellTexture();
@@ -220,7 +220,7 @@ export class SurfaceRenderer extends BaseEntity {
    * Get viewport expanded by the given margin factor.
    */
   private getExpandedViewport(margin: number): Viewport {
-    const camera = this.game!.camera;
+    const camera = this.game.camera;
     const worldViewport = camera.getWorldViewport();
 
     const marginX = worldViewport.width * margin;

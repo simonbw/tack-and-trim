@@ -39,7 +39,7 @@ export class Buoy extends BaseEntity {
     }
 
     // Apply water velocity as a drag force (pushes buoy with the current/wake)
-    const water = WaterInfo.fromGame(this.game!);
+    const water = WaterInfo.fromGame(this.game);
     const waterState = water.getStateAtPoint(V(x, y));
 
     // Force proportional to difference between water velocity and buoy velocity

@@ -70,7 +70,7 @@ export class Hull extends BaseEntity {
   @on("tick")
   onTick() {
     // Get water velocity function
-    const water = WaterInfo.fromGame(this.game!);
+    const water = WaterInfo.fromGame(this.game);
     const getWaterVelocity = (point: V2d): V2d =>
       water.getStateAtPoint(point).velocity;
 

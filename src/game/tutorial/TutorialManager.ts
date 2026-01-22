@@ -27,13 +27,13 @@ export class TutorialManager extends BaseEntity {
   @on("afterAdded")
   onAfterAdded(): void {
     // Get references to boat and wind
-    const boat = this.game!.entities.getById("boat") as Boat | undefined;
+    const boat = this.game.entities.getById("boat") as Boat | undefined;
     if (!boat) {
       console.warn("TutorialManager: Could not find boat");
       this.destroy();
       return;
     }
-    const windInfo = WindInfo.fromGame(this.game!);
+    const windInfo = WindInfo.fromGame(this.game);
 
     // Initialize context
     const startPos = boat.getPosition().clone();
@@ -76,7 +76,7 @@ export class TutorialManager extends BaseEntity {
 
     // Create or update popup
     if (!this.popup) {
-      this.popup = this.game!.addEntity(
+      this.popup = this.game.addEntity(
         new TutorialPopup({
           step,
           stepIndex: index,
@@ -96,7 +96,7 @@ export class TutorialManager extends BaseEntity {
     const step = tutorialSteps[this.currentStepIndex];
 
     // Dispatch step complete event
-    this.game!.dispatch("tutorialStepComplete", {
+    this.game.dispatch("tutorialStepComplete", {
       stepIndex: this.currentStepIndex,
       stepTitle: step.title,
     });
@@ -114,7 +114,7 @@ export class TutorialManager extends BaseEntity {
     markTutorialCompleted();
 
     // Dispatch tutorial complete event
-    this.game!.dispatch("tutorialComplete", {});
+    this.game.dispatch("tutorialComplete", {});
 
     // Clean up
     if (this.popup) {

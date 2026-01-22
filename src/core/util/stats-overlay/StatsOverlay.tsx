@@ -66,9 +66,9 @@ export class StatsOverlay extends ReactEntity implements Entity {
 
   private getContext(): StatsPanelContext {
     return {
-      game: this.game!,
+      game: this.game,
       fps: Math.ceil(1000 / this.averageDuration),
-      fps2: this.game!.getScreenFps(),
+      fps2: this.game.getScreenFps(),
     };
   }
 

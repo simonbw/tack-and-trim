@@ -152,7 +152,7 @@ export class TerrainInfo extends BaseEntity {
    * Collect query forecasts from all terrainQuerier-tagged entities.
    */
   private *collectForecasts(): Iterable<QueryForecast> {
-    for (const entity of this.game!.entities.getTagged("terrainQuerier")) {
+    for (const entity of this.game.entities.getTagged("terrainQuerier")) {
       if (!isTerrainQuerier(entity)) {
         throw new Error(
           `Entity tagged as "terrainQuerier" does not implement TerrainQuerier interface: ${(entity as { id?: string }).id ?? entity}`,

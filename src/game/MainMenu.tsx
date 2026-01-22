@@ -16,7 +16,7 @@ export class MainMenu extends ReactEntity {
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
     if (key === "Enter" || key === "Space") {
-      this.game!.dispatch("gameStart", {});
+      this.game.dispatch("gameStart", {});
       this.destroy();
     }
   }

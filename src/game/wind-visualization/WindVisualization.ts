@@ -40,7 +40,6 @@ export class WindVisualization extends BaseEntity {
   }
 
   private getWind(): WindInfo | undefined {
-    if (!this.game) return undefined;
     return WindInfo.fromGame(this.game);
   }
 
@@ -54,7 +53,7 @@ export class WindVisualization extends BaseEntity {
     const wind = this.getWind();
     if (!wind) return;
 
-    const camera = this.game!.camera;
+    const camera = this.game.camera;
     const viewport = camera.getWorldViewport();
 
     // Draw dim overlay

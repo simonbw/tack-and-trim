@@ -143,7 +143,7 @@ export class WindInfo extends BaseEntity {
 
     // Get reference to influence field manager (if it exists)
     this.influenceManager =
-      InfluenceFieldManager.maybeFromGame(this.game!) ?? null;
+      InfluenceFieldManager.maybeFromGame(this.game) ?? null;
   }
 
   /**
@@ -153,7 +153,7 @@ export class WindInfo extends BaseEntity {
   @profile
   onTick() {
     this.spatialHash.clear();
-    for (const entity of this.game!.entities.getTagged("windModifier")) {
+    for (const entity of this.game.entities.getTagged("windModifier")) {
       if (isWindModifier(entity)) {
         this.spatialHash.add(entity);
       }
@@ -164,7 +164,7 @@ export class WindInfo extends BaseEntity {
    * Collect query forecasts from all windQuerier-tagged entities.
    */
   private *collectForecasts(): Iterable<QueryForecast> {
-    for (const entity of this.game!.entities.getTagged("windQuerier")) {
+    for (const entity of this.game.entities.getTagged("windQuerier")) {
       if (!isWindQuerier(entity)) {
         throw new Error(
           `Entity tagged as "windQuerier" does not implement WindQuerier interface: ${(entity as { id?: string }).id ?? entity}`,
@@ -268,7 +268,7 @@ export class WindInfo extends BaseEntity {
     }
 
     const params: WindComputeParams = {
-      time: this.game!.elapsedUnpausedTime,
+      time: this.game.elapsedUnpausedTime,
       baseVelocity: this.baseVelocity.clone(),
       speedNoise: this.speedNoise,
       angleNoise: this.angleNoise,
@@ -320,7 +320,7 @@ export class WindInfo extends BaseEntity {
    */
   getModifiers(): readonly WindModifier[] {
     const result: WindModifier[] = [];
-    for (const entity of this.game!.entities.getTagged("windModifier")) {
+    for (const entity of this.game.entities.getTagged("windModifier")) {
       if (isWindModifier(entity)) {
         result.push(entity);
       }

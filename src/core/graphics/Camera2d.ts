@@ -203,7 +203,7 @@ export class Camera2d extends BaseEntity implements Entity {
     const dx = x - this.x;
     const dy = y - this.y;
 
-    const dt = this.game!.averageDt;
+    const dt = this.game.averageDt;
 
     this.vx += (stiffness * dx - damping * (this.vx - vx)) * dt;
     this.vy += (stiffness * dy - damping * (this.vy - vy)) * dt;

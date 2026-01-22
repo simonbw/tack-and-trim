@@ -56,7 +56,7 @@ export class Wake extends BaseEntity {
     if (speed < CONFIG.MIN_SPEED) return;
 
     const boatPos = this.boat.getPosition();
-    const now = this.game?.elapsedUnpausedTime ?? 0;
+    const now = this.game.elapsedUnpausedTime ?? 0;
 
     // Check distance traveled since last spawn
     if (this.lastSpawnPos) {
@@ -120,6 +120,6 @@ export class Wake extends BaseEntity {
       this.rightChainHead = particle;
     }
 
-    this.game?.addEntity(particle);
+    this.game.addEntity(particle);
   }
 }

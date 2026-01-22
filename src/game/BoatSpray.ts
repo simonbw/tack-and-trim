@@ -51,7 +51,7 @@ export class BoatSpray extends BaseEntity {
 
   @on("tick")
   onTick(dt: number): void {
-    const water = WaterInfo.fromGame(this.game!);
+    const water = WaterInfo.fromGame(this.game);
 
     let totalSpawnRate = 0;
     for (const edge of this.edges) {
@@ -103,9 +103,7 @@ export class BoatSpray extends BaseEntity {
     const position = edge.randomPosOnEdge();
     const velocity = edge.apparentVelocity.add(sprayVelocity);
 
-    this.game!.addEntity(
-      new SprayParticle(position, velocity, zVelocity, size),
-    );
+    this.game.addEntity(new SprayParticle(position, velocity, zVelocity, size));
   }
 }
 

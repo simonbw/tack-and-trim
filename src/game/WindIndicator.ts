@@ -67,7 +67,6 @@ export class WindIndicator extends BaseEntity {
   }
 
   private getWind(): WindInfo | undefined {
-    if (!this.game) return undefined;
     return WindInfo.fromGame(this.game);
   }
 
@@ -76,7 +75,7 @@ export class WindIndicator extends BaseEntity {
   }
 
   private getMouseOffset(): V2d {
-    const mousePos = this.game!.io.mousePosition;
+    const mousePos = this.game.io.mousePosition;
     return mousePos.sub(this.indicatorCenter);
   }
 
@@ -105,7 +104,7 @@ export class WindIndicator extends BaseEntity {
     const isHovering = this.isMouseOverIndicator();
 
     // Handle dragging - update wind based on mouse position
-    if (this.isDragging && this.game!.io.lmb) {
+    if (this.isDragging && this.game.io.lmb) {
       const offset = this.getMouseOffset();
       const distance = offset.magnitude;
 

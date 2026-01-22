@@ -195,7 +195,7 @@ export class WaterInfo extends BaseEntity {
 
     // Get reference to influence field manager (if it exists)
     this.influenceManager =
-      InfluenceFieldManager.maybeFromGame(this.game!) ?? null;
+      InfluenceFieldManager.maybeFromGame(this.game) ?? null;
   }
 
   /**
@@ -206,14 +206,14 @@ export class WaterInfo extends BaseEntity {
   onTick() {
     // Rebuild spatial hash for CPU fallback
     this.spatialHash.clear();
-    for (const entity of this.game!.entities.getTagged("waterModifier")) {
+    for (const entity of this.game.entities.getTagged("waterModifier")) {
       if (isWaterModifier(entity)) {
         this.spatialHash.add(entity);
       }
     }
 
     // Cache segment data for this frame
-    const camera = this.game!.camera;
+    const camera = this.game.camera;
     const worldViewport = camera.getWorldViewport();
     this.cachedSegments = this.collectShaderSegmentData({
       left: worldViewport.left - WAKE_VIEWPORT_MARGIN * 2,
@@ -227,7 +227,7 @@ export class WaterInfo extends BaseEntity {
    * Collect query forecasts from all waterQuerier-tagged entities.
    */
   private *collectForecasts(): Iterable<QueryForecast> {
-    for (const entity of this.game!.entities.getTagged("waterQuerier")) {
+    for (const entity of this.game.entities.getTagged("waterQuerier")) {
       if (!isWaterQuerier(entity)) {
         throw new Error(
           `Entity tagged as "waterQuerier" does not implement WaterQuerier interface: ${(entity as { id?: string }).id ?? entity}`,
@@ -252,7 +252,7 @@ export class WaterInfo extends BaseEntity {
    * Get the current wind direction from WindInfo.
    */
   private getWindDirection(): number {
-    const windInfo = WindInfo.maybeFromGame(this.game!);
+    const windInfo = WindInfo.maybeFromGame(this.game);
     return windInfo ? windInfo.getAngle() : 0;
   }
 
@@ -362,7 +362,7 @@ export class WaterInfo extends BaseEntity {
   }
 
   private getStateAtPointCPU(point: V2d): WaterState {
-    const t = (this.game?.elapsedUnpausedTime ?? 0) * CURRENT_TIME_SCALE;
+    const t = (this.game.elapsedUnpausedTime ?? 0) * CURRENT_TIME_SCALE;
 
     const sx = point.x * CURRENT_SPATIAL_SCALE;
     const sy = point.y * CURRENT_SPATIAL_SCALE;
@@ -403,7 +403,7 @@ export class WaterInfo extends BaseEntity {
    * Samples influence fields at that exact location.
    */
   private buildCPUParamsForPoint(point: V2d): WaterComputeParams {
-    const time = this.game?.elapsedUnpausedTime ?? 0;
+    const time = this.game.elapsedUnpausedTime ?? 0;
 
     // Default values (no terrain influence)
     let swellEnergyFactor = 1.0;
@@ -455,7 +455,7 @@ export class WaterInfo extends BaseEntity {
    */
   collectShaderSegmentData(viewport: Viewport): WakeSegmentData[] {
     const segments: WakeSegmentData[] = [];
-    const modifiers = this.game!.entities.getTagged("waterModifier");
+    const modifiers = this.game.entities.getTagged("waterModifier");
 
     const viewportRight = viewport.left + viewport.width;
     const viewportBottom = viewport.top + viewport.height;

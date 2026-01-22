@@ -16,7 +16,7 @@ export abstract class BaseEntity implements Entity {
   body?: Body;
   children: Entity[] = [];
   constraints?: Constraint[];
-  game: Game | undefined = undefined;
+  private _game?: Game;
   parent?: Entity;
   pausable: boolean = true;
   persistenceLevel: number = 0;
@@ -26,6 +26,23 @@ export abstract class BaseEntity implements Entity {
   /** The layer this entity renders on */
   layer?: string;
 
+  get game(): Game {
+    if (!this._game) {
+      throw new Error(
+        `Entity ${this.constructor.name} accessed 'game' before being added`,
+      );
+    }
+    return this._game;
+  }
+
+  set game(value: Game | undefined) {
+    this._game = value;
+  }
+
+  get isAdded(): boolean {
+    return this._game != null;
+  }
+
   constructor(entityDef?: EntityDef) {
     if (entityDef) {
       this.loadFromDef(entityDef);
@@ -33,7 +50,7 @@ export abstract class BaseEntity implements Entity {
   }
 
   loadFromDef(def: EntityDef): void {
-    if (this.game) {
+    if (this._game) {
       throw new Error(
         "Can't load from def after entity has been added to game.",
       );
@@ -77,13 +94,13 @@ export abstract class BaseEntity implements Entity {
   }
 
   get isDestroyed() {
-    return this.game == null;
+    return this._game == null;
   }
 
   // Removes this from the game. You probably shouldn't override this method.
   destroy() {
-    if (this.game) {
-      this.game.removeEntity(this);
+    if (this._game) {
+      this._game.removeEntity(this);
       while (this.children?.length) {
         this.children[this.children.length - 1].destroy();
       }
@@ -116,8 +133,8 @@ export abstract class BaseEntity implements Entity {
     this.children = this.children ?? [];
     this.children.push(child);
 
-    if (this.game && !child.game) {
-      this.game.addEntity(child);
+    if (this._game && !child.isAdded) {
+      this._game.addEntity(child);
     }
     return child;
   }
@@ -218,7 +235,9 @@ export abstract class BaseEntity implements Entity {
     data: GameEventMap[EventName],
     respectPause?: boolean,
   ) {
-    this.game?.dispatch(eventName, data, respectPause);
+    if (this._game) {
+      this._game.dispatch(eventName, data, respectPause);
+    }
   }
 
   // =========================================================================

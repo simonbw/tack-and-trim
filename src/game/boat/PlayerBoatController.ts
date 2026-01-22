@@ -17,7 +17,7 @@ export class PlayerBoatController extends BaseEntity {
 
   @on("tick")
   onTick(dt: GameEventMap["tick"]) {
-    const io = this.game!.io;
+    const io = this.game.io;
 
     // Handle continuous input
     const [steer, sheet] = io.getMovementVector();

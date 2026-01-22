@@ -17,7 +17,7 @@ const MAX_VELOCITY = 1000;
 export class PhysicsValidator extends BaseEntity {
   @on("afterPhysicsStep")
   onAfterPhysicsStep() {
-    for (const body of this.game!.world.bodies) {
+    for (const body of this.game.world.bodies) {
       if (body instanceof StaticBody) continue;
 
       const [x, y] = body.position;

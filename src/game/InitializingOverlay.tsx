@@ -5,7 +5,7 @@ import "./InitializingOverlay.css";
 export class InitializingOverlay extends ReactEntity {
   constructor() {
     super(() => {
-      const manager = InfluenceFieldManager.maybeFromGame(this.game!);
+      const manager = InfluenceFieldManager.maybeFromGame(this.game);
       const progress = manager?.getProgress() ?? {
         wind: 0,
         swell: 0,

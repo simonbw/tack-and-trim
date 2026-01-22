@@ -187,8 +187,8 @@ export class DataTileComputePipeline<
   onAfterPhysics(): void {
     if (!this.initialized) return;
 
-    const time = this.game!.elapsedUnpausedTime;
-    const gpuProfiler = this.game?.renderer.getGpuProfiler();
+    const time = this.game.elapsedUnpausedTime;
+    const gpuProfiler = this.game.renderer.getGpuProfiler();
 
     // Collect forecasts via callback
     const forecasts = this.pipelineConfig.getQueryForecasts();

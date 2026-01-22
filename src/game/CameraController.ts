@@ -28,10 +28,10 @@ export class CameraController extends BaseEntity {
     this.camera.smoothCenter(boatPosition, boatVelocity, 0.25);
     this.camera.smoothZoom(this.zTarget);
 
-    if (this.game?.io.isKeyDown("Minus")) {
+    if (this.game.io.isKeyDown("Minus")) {
       this.zTarget -= this.zTarget * dt * ZOOM_SPEED;
     }
-    if (this.game?.io.isKeyDown("Equal")) {
+    if (this.game.io.isKeyDown("Equal")) {
       this.zTarget += this.zTarget * dt * ZOOM_SPEED;
     }
   }

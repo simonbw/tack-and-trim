@@ -132,62 +132,62 @@ export class GameController extends BaseEntity {
       },
     );
 
-    this.game!.addEntity(new TerrainInfo([bayIsland, greatShieldIsland]));
+    this.game.addEntity(new TerrainInfo([bayIsland, greatShieldIsland]));
 
     // 2. Influence fields (depends on terrain, starts async computation)
-    this.game!.addEntity(new InfluenceFieldManager());
+    this.game.addEntity(new InfluenceFieldManager());
 
     // 3. Wind/Water data systems (no rendering, graceful null handling for influence fields)
-    this.game!.addEntity(new WaterInfo());
-    this.game!.addEntity(new WindInfo());
+    this.game.addEntity(new WaterInfo());
+    this.game.addEntity(new WindInfo());
   }
 
   @on("influenceFieldsReady")
   onInfluenceFieldsReady() {
     // Phase 2: Visual entities (after influence field computation completes)
-    this.game!.addEntity(new SurfaceRenderer());
-    this.game!.addEntity(new WindIndicator());
-    this.game!.addEntity(new WindVisualization());
+    this.game.addEntity(new SurfaceRenderer());
+    this.game.addEntity(new WindIndicator());
+    this.game.addEntity(new WindVisualization());
 
     // Start with wide camera shot for menu
-    this.game!.camera.z = MENU_ZOOM;
+    this.game.camera.z = MENU_ZOOM;
 
     // Spawn main menu
-    this.game!.addEntity(new MainMenu());
+    this.game.addEntity(new MainMenu());
   }
 
   @on("gameStart")
   onGameStart() {
     // Spawn buoys in open water around the island
-    this.game!.addEntity(new Buoy(0, 500)); // South of lagoon entrance
-    this.game!.addEntity(new Buoy(600, 400)); // Southeast
-    this.game!.addEntity(new Buoy(-600, 400)); // Southwest
-    this.game!.addEntity(new Buoy(900, -300)); // East of island
+    this.game.addEntity(new Buoy(0, 500)); // South of lagoon entrance
+    this.game.addEntity(new Buoy(600, 400)); // Southeast
+    this.game.addEntity(new Buoy(-600, 400)); // Southwest
+    this.game.addEntity(new Buoy(900, -300)); // East of island
 
     // Buoys for passage between islands and around southern island
-    this.game!.addEntity(new Buoy(400, 600)); // Passage east
-    this.game!.addEntity(new Buoy(-400, 600)); // Passage west
-    this.game!.addEntity(new Buoy(1100, 1800)); // East side of Great Shield Island
-    this.game!.addEntity(new Buoy(0, 3100)); // South of south bay
-    this.game!.addEntity(new Buoy(-1100, 1800)); // West side of Great Shield Island
+    this.game.addEntity(new Buoy(400, 600)); // Passage east
+    this.game.addEntity(new Buoy(-400, 600)); // Passage west
+    this.game.addEntity(new Buoy(1100, 1800)); // East side of Great Shield Island
+    this.game.addEntity(new Buoy(0, 3100)); // South of south bay
+    this.game.addEntity(new Buoy(-1100, 1800)); // West side of Great Shield Island
 
     // Spawn boat and controls
-    const boat = this.game!.addEntity(new Boat());
-    this.game!.addEntity(new PlayerBoatController(boat));
+    const boat = this.game.addEntity(new Boat());
+    this.game.addEntity(new PlayerBoatController(boat));
 
     // Spawn camera controller with zoom transition
-    const cameraController = this.game!.addEntity(
-      new CameraController(boat, this.game!.camera),
+    const cameraController = this.game.addEntity(
+      new CameraController(boat, this.game.camera),
     );
     cameraController.setZoomTarget(GAMEPLAY_ZOOM);
 
     // Spawn wind particles
-    this.game!.addEntity(new WindParticles());
+    this.game.addEntity(new WindParticles());
 
     // Start the tutorial if not already completed
     if (!isTutorialCompleted()) {
       boat.anchor.deploy(); // Start with anchor deployed for tutorial
-      this.game!.addEntity(new TutorialManager());
+      this.game.addEntity(new TutorialManager());
     }
   }
 }

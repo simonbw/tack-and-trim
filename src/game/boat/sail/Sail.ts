@@ -262,9 +262,6 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
       );
     }
 
-    if (!this.game) {
-      return [];
-    }
     const wind = WindInfo.fromGame(this.game);
 
     try {
@@ -307,13 +304,12 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
    * B cannot see A as upwind, preventing infinite recursion.
    */
   private getUpwindSails(): Sail[] {
-    if (!this.game) return [];
     const wind = WindInfo.fromGame(this.game);
 
     const myPos = this.getCentroid();
 
     const allSails = [
-      ...(this.game?.entities.getTagged("sail") ?? []),
+      ...(this.game.entities.getTagged("sail") ?? []),
     ] as Sail[];
     return allSails.filter((sail) => {
       if (sail === this) return false;
