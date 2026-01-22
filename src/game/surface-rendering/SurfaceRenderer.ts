@@ -17,10 +17,18 @@ import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
 import { TerrainRenderPipeline } from "./TerrainRenderPipeline";
 import { WaterInfo, type Viewport } from "../world-data/water/WaterInfo";
 import { WaterRenderPipeline } from "./WaterRenderPipeline";
+import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 import { SurfaceShader } from "./SurfaceShader";
+
+// Surface rendering texture sizes
+export const WATER_TEXTURE_SIZE = 512;
+export const TERRAIN_TEXTURE_SIZE = 512;
 
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
+
+// Margin for wetness viewport (larger to handle camera movement)
+const WETNESS_VIEWPORT_MARGIN = 0.5;
 
 // Shallow water threshold for rendering
 const SHALLOW_WATER_THRESHOLD = 1.5;
@@ -36,6 +44,7 @@ export class SurfaceRenderer extends BaseEntity {
   private shader: SurfaceShader | null = null;
   private renderPipeline: WaterRenderPipeline;
   private terrainPipeline: TerrainRenderPipeline;
+  private wetnessPipeline: WetnessRenderPipeline;
   private renderMode = 0;
   private initialized = false;
 
@@ -49,7 +58,7 @@ export class SurfaceRenderer extends BaseEntity {
   private placeholderTerrainView: GPUTextureView | null = null;
 
   // Uniform data array
-  // Layout (96 bytes total for WebGPU 16-byte alignment):
+  // Layout (112 bytes total for WebGPU 16-byte alignment):
   // Indices 0-11:  mat3x3 (3x vec4 = 48 bytes, padded columns)
   // Index 12:      time (f32)
   // Index 13:      renderMode (i32 as f32)
@@ -58,18 +67,25 @@ export class SurfaceRenderer extends BaseEntity {
   // Index 20:      colorNoiseStrength (f32)
   // Index 21:      hasTerrainData (i32 as f32)
   // Index 22:      shallowThreshold (f32)
-  // Index 23:      unused (padding to 96 bytes)
-  private uniformData = new Float32Array(24);
+  // Index 23:      padding
+  // Index 24-27:   wetness viewport bounds (left, top, width, height) (f32)
+  private uniformData = new Float32Array(28);
 
   // Cached bind group (recreated when texture changes)
   private bindGroup: GPUBindGroup | null = null;
   private lastWaterTexture: GPUTextureView | null = null;
   private lastTerrainTexture: GPUTextureView | null = null;
+  private lastWetnessTexture: GPUTextureView | null = null;
+
+  // Placeholder wetness texture for when wetness pipeline not ready
+  private placeholderWetnessTexture: GPUTexture | null = null;
+  private placeholderWetnessView: GPUTextureView | null = null;
 
   constructor() {
     super();
     this.renderPipeline = new WaterRenderPipeline();
     this.terrainPipeline = new TerrainRenderPipeline();
+    this.wetnessPipeline = new WetnessRenderPipeline();
 
     // Default uniform values
     this.uniformData[21] = 0; // hasTerrainData
@@ -90,7 +106,7 @@ export class SurfaceRenderer extends BaseEntity {
 
       // Create uniform buffer
       this.uniformBuffer = device.createBuffer({
-        size: 96,
+        size: 112, // 28 floats * 4 bytes
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         label: "Surface Uniform Buffer",
       });
@@ -119,6 +135,26 @@ export class SurfaceRenderer extends BaseEntity {
         { bytesPerRow: 16 },
         { width: 1, height: 1 },
       );
+
+      // Create placeholder wetness texture (1x1, dry = 0)
+      this.placeholderWetnessTexture = device.createTexture({
+        size: { width: 1, height: 1 },
+        format: "r32float",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        label: "Placeholder Wetness Texture",
+      });
+      this.placeholderWetnessView = this.placeholderWetnessTexture.createView();
+
+      // Write dry value (0) to placeholder
+      device.queue.writeTexture(
+        { texture: this.placeholderWetnessTexture },
+        new Float32Array([0]),
+        { bytesPerRow: 4 },
+        { width: 1, height: 1 },
+      );
+
+      // Initialize wetness pipeline
+      await this.wetnessPipeline.init();
 
       this.initialized = true;
     } catch (error) {
@@ -199,6 +235,18 @@ export class SurfaceRenderer extends BaseEntity {
     this.uniformData[21] = hasTerrain ? 1 : 0;
   }
 
+  private setWetnessViewportBounds(
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ): void {
+    this.uniformData[24] = left;
+    this.uniformData[25] = top;
+    this.uniformData[26] = width;
+    this.uniformData[27] = height;
+  }
+
   /**
    * Render the surface using the shader.
    */
@@ -206,6 +254,7 @@ export class SurfaceRenderer extends BaseEntity {
     renderPass: GPURenderPassEncoder,
     waterTextureView: GPUTextureView,
     terrainTextureView: GPUTextureView | null,
+    wetnessTextureView: GPUTextureView | null,
   ): void {
     if (!this.uniformBuffer || !this.sampler || !this.shader) {
       return;
@@ -218,6 +267,10 @@ export class SurfaceRenderer extends BaseEntity {
       terrainTextureView ?? this.placeholderTerrainView!;
     this.setHasTerrainData(!!terrainTextureView);
 
+    // Use placeholder if no wetness texture
+    const effectiveWetnessView =
+      wetnessTextureView ?? this.placeholderWetnessView!;
+
     // Upload uniforms
     device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData.buffer);
 
@@ -225,16 +278,19 @@ export class SurfaceRenderer extends BaseEntity {
     if (
       !this.bindGroup ||
       this.lastWaterTexture !== waterTextureView ||
-      this.lastTerrainTexture !== effectiveTerrainView
+      this.lastTerrainTexture !== effectiveTerrainView ||
+      this.lastWetnessTexture !== effectiveWetnessView
     ) {
       this.bindGroup = this.shader.createBindGroup({
         uniforms: { buffer: this.uniformBuffer },
         waterSampler: this.sampler,
         waterDataTexture: waterTextureView,
         terrainDataTexture: effectiveTerrainView,
+        wetnessTexture: effectiveWetnessView,
       });
       this.lastWaterTexture = waterTextureView;
       this.lastTerrainTexture = effectiveTerrainView;
+      this.lastWetnessTexture = effectiveWetnessView;
     }
 
     // Render using shader
@@ -242,7 +298,7 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   @on("render")
-  onRender() {
+  onRender({ dt }: { dt: number }) {
     if (!this.game || !this.initialized || !this.shader) return;
 
     const camera = this.game.camera;
@@ -294,6 +350,27 @@ export class SurfaceRenderer extends BaseEntity {
     const waterTextureView = this.renderPipeline.getOutputTextureView();
     if (!waterTextureView) return;
 
+    // Update wetness pipeline (needs water and terrain textures)
+    let wetnessTextureView: GPUTextureView | null = null;
+    const wetnessViewport = this.getExpandedViewport(WETNESS_VIEWPORT_MARGIN);
+    if (terrainTextureView) {
+      this.wetnessPipeline.update(
+        wetnessViewport,
+        expandedViewport, // render viewport for sampling water/terrain
+        waterTextureView,
+        terrainTextureView,
+        dt,
+        gpuProfiler,
+        "wetnessCompute",
+      );
+      wetnessTextureView = this.wetnessPipeline.getOutputTextureView();
+    }
+
+    // Get snapped wetness viewport for correct UV mapping in shader
+    // (The pipeline snaps to texel grid to prevent blur from sub-pixel sampling)
+    const snappedWetnessViewport =
+      this.wetnessPipeline.getSnappedViewport() ?? wetnessViewport;
+
     // Update shader uniforms
     this.setTime(this.game.elapsedTime);
     this.setScreenSize(renderer.getWidth(), renderer.getHeight());
@@ -302,6 +379,12 @@ export class SurfaceRenderer extends BaseEntity {
       expandedViewport.top,
       expandedViewport.width,
       expandedViewport.height,
+    );
+    this.setWetnessViewportBounds(
+      snappedWetnessViewport.left,
+      snappedWetnessViewport.top,
+      snappedWetnessViewport.width,
+      snappedWetnessViewport.height,
     );
     this.setRenderModeUniform(this.renderMode);
 
@@ -313,8 +396,13 @@ export class SurfaceRenderer extends BaseEntity {
     const renderPass = renderer.getCurrentRenderPass();
     if (!renderPass) return;
 
-    // Render surface with optional terrain
-    this.renderSurface(renderPass, waterTextureView, terrainTextureView);
+    // Render surface with optional terrain and wetness
+    this.renderSurface(
+      renderPass,
+      waterTextureView,
+      terrainTextureView,
+      wetnessTextureView,
+    );
   }
 
   setRenderMode(mode: number): void {
@@ -332,9 +420,11 @@ export class SurfaceRenderer extends BaseEntity {
   onDestroy(): void {
     this.renderPipeline.destroy();
     this.terrainPipeline.destroy();
+    this.wetnessPipeline.destroy();
     this.shader?.destroy();
     this.uniformBuffer?.destroy();
     this.placeholderTerrainTexture?.destroy();
+    this.placeholderWetnessTexture?.destroy();
     this.bindGroup = null;
   }
 }

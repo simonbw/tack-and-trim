@@ -10,11 +10,8 @@
  */
 
 import { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
-import { TERRAIN_TEXTURE_SIZE } from "../world-data/terrain/TerrainConstants";
-import {
-  WATER_HEIGHT_SCALE,
-  WATER_TEXTURE_SIZE,
-} from "../world-data/water/WaterConstants";
+import { WATER_HEIGHT_SCALE } from "../world-data/water/WaterConstants";
+import { TERRAIN_TEXTURE_SIZE, WATER_TEXTURE_SIZE } from "./SurfaceRenderer";
 
 // Terrain constants
 const MAX_TERRAIN_HEIGHT = 20.0;
@@ -24,6 +21,7 @@ const bindings = {
   waterSampler: { type: "sampler" },
   waterDataTexture: { type: "texture" },
   terrainDataTexture: { type: "texture" },
+  wetnessTexture: { type: "texture" },
 } as const;
 
 /**
@@ -47,6 +45,12 @@ struct Uniforms {
   colorNoiseStrength: f32,
   hasTerrainData: i32,
   shallowThreshold: f32,
+  _padding: f32,
+  // Wetness viewport (larger than render viewport)
+  wetnessViewportLeft: f32,
+  wetnessViewportTop: f32,
+  wetnessViewportWidth: f32,
+  wetnessViewportHeight: f32,
 }
 
 struct VertexOutput {
@@ -70,6 +74,7 @@ fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
 @group(0) @binding(1) var waterSampler: sampler;
 @group(0) @binding(2) var waterDataTexture: texture_2d<f32>;
 @group(0) @binding(3) var terrainDataTexture: texture_2d<f32>;
+@group(0) @binding(4) var wetnessTexture: texture_2d<f32>;
 
 const PI: f32 = 3.14159265359;
 const TEXTURE_SIZE: f32 = ${WATER_TEXTURE_SIZE}.0;
@@ -93,9 +98,18 @@ fn hash21(p: vec2<f32>) -> f32 {
   return fract(q.x * q.y);
 }
 
-// Render sand/beach surface
-fn renderSand(height: f32, normal: vec3<f32>, worldPos: vec2<f32>) -> vec3<f32> {
-  return vec3<f32>(0.87, 0.82, 0.65);  // Flat sand color
+// Render sand/beach surface with wetness
+fn renderSand(height: f32, normal: vec3<f32>, worldPos: vec2<f32>, wetness: f32) -> vec3<f32> {
+  // Dry sand - light beige
+  let drySand = vec3<f32>(0.96, 0.91, 0.76);
+  // Wet sand - darker tan
+  let wetSand = vec3<f32>(0.76, 0.70, 0.50);
+
+  // Non-linear blend: changes quickly at first, then slowly as it dries
+  // pow(wetness, 2.5) means high wetness drops fast visually, low wetness lingers
+  let visualWetness = pow(wetness, 2.5);
+
+  return mix(drySand, wetSand, visualWetness);
 }
 
 // Render water with depth information
@@ -240,15 +254,32 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
     normal = waterNormal;
   }
 
+  // Sample wetness for sand rendering
+  // Convert from render viewport UV to wetness viewport UV (wetness covers larger area)
+  // Note: wetness viewport is snapped to texel grid, ensuring 1:1 texel mapping between frames
+  let wetnessUV = (worldPos - vec2<f32>(uniforms.wetnessViewportLeft, uniforms.wetnessViewportTop)) /
+                  vec2<f32>(uniforms.wetnessViewportWidth, uniforms.wetnessViewportHeight);
+
+  // Apply slight blur to soften sharp wet/dry edges (5-tap cross pattern)
+  let wetnessTexelSize = 1.0 / 2048.0;  // Match WETNESS_TEXTURE_SIZE
+  let clampedUV = clamp(wetnessUV, vec2<f32>(0.0), vec2<f32>(1.0));
+  let wetness = (
+    textureSampleLevel(wetnessTexture, waterSampler, clampedUV, 0.0).r * 0.4 +
+    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(wetnessTexelSize, 0.0), 0.0).r * 0.15 +
+    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(-wetnessTexelSize, 0.0), 0.0).r * 0.15 +
+    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(0.0, wetnessTexelSize), 0.0).r * 0.15 +
+    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(0.0, -wetnessTexelSize), 0.0).r * 0.15
+  );
+
   // Render based on water depth
   if (waterDepth < 0.0) {
-    // Above water - render sand
-    let sandColor = renderSand(terrainHeight, normal, worldPos);
+    // Above water - render sand with wetness
+    let sandColor = renderSand(terrainHeight, normal, worldPos, wetness);
     return vec4<f32>(sandColor, 1.0);
   } else if (waterDepth < uniforms.shallowThreshold) {
     // Shallow water - blend sand and water
     let blendFactor = smoothstep(0.0, uniforms.shallowThreshold, waterDepth);
-    let sandColor = renderSand(terrainHeight, normal, worldPos);
+    let sandColor = renderSand(terrainHeight, normal, worldPos, wetness);
     let waterColor = renderWater(rawHeight, normal, worldPos, waterDepth);
     let blendedColor = mix(sandColor, waterColor, blendFactor);
     return vec4<f32>(blendedColor, 1.0);
