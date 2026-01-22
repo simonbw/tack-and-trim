@@ -12,6 +12,9 @@ import { buildWaveDataArray } from "../WaterConstants";
 export const MAX_SEGMENTS = 256;
 export const FLOATS_PER_SEGMENT = 12;
 
+/** Default max fetch distance for normalization (~15km) */
+export const DEFAULT_MAX_FETCH = 50000;
+
 /**
  * Data for a single wake segment to be sent to GPU.
  */
@@ -41,6 +44,22 @@ export interface WaterComputeParams {
   viewportHeight: number;
   textureSize: number;
   segmentCount: number;
+  // Swell influence grid config
+  swellOriginX: number;
+  swellOriginY: number;
+  swellGridWidth: number;
+  swellGridHeight: number;
+  swellDirectionCount: number;
+  // Fetch influence grid config
+  fetchOriginX: number;
+  fetchOriginY: number;
+  fetchGridWidth: number;
+  fetchGridHeight: number;
+  fetchDirectionCount: number;
+  // Max fetch for normalization
+  maxFetch: number;
+  // Wave source direction (for texture lookup)
+  waveSourceDirection: number;
 }
 
 /**
@@ -70,11 +89,16 @@ export class WaterComputeBuffers {
     new Float32Array(this.waveDataBuffer.getMappedRange()).set(waveData);
     this.waveDataBuffer.unmap();
 
-    // Create params uniform buffer (32 bytes)
-    // Layout: time, viewportLeft, viewportTop, viewportWidth, viewportHeight,
-    //         textureSizeX, textureSizeY, segmentCount
+    // Create params uniform buffer (128 bytes for new layout)
+    // Layout matches Params struct in shader:
+    //   time, viewportLeft, viewportTop, viewportWidth, viewportHeight (20 bytes)
+    //   textureSizeX, textureSizeY, segmentCount (12 bytes)
+    //   swellOriginX, swellOriginY, swellGridWidth, swellGridHeight, swellDirectionCount (20 bytes)
+    //   fetchOriginX, fetchOriginY, fetchGridWidth, fetchGridHeight, fetchDirectionCount (20 bytes)
+    //   maxFetch, waveSourceDirection (8 bytes)
+    //   padding to 128 bytes for alignment
     this.paramsBuffer = device.createBuffer({
-      size: 32,
+      size: 128,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Water Params Buffer",
     });
@@ -94,18 +118,37 @@ export class WaterComputeBuffers {
   updateParams(params: WaterComputeParams): void {
     const device = getWebGPU().device;
 
-    const paramsData = new ArrayBuffer(32);
-    const paramsFloats = new Float32Array(paramsData, 0, 7);
-    const paramsUints = new Uint32Array(paramsData, 28, 1);
+    const paramsData = new ArrayBuffer(128);
+    const floats = new Float32Array(paramsData);
+    const uints = new Uint32Array(paramsData);
 
-    paramsFloats[0] = params.time;
-    paramsFloats[1] = params.viewportLeft;
-    paramsFloats[2] = params.viewportTop;
-    paramsFloats[3] = params.viewportWidth;
-    paramsFloats[4] = params.viewportHeight;
-    paramsFloats[5] = params.textureSize;
-    paramsFloats[6] = params.textureSize;
-    paramsUints[0] = params.segmentCount;
+    // Basic params (0-7)
+    floats[0] = params.time;
+    floats[1] = params.viewportLeft;
+    floats[2] = params.viewportTop;
+    floats[3] = params.viewportWidth;
+    floats[4] = params.viewportHeight;
+    floats[5] = params.textureSize;
+    floats[6] = params.textureSize;
+    uints[7] = params.segmentCount;
+
+    // Swell grid config (8-12)
+    floats[8] = params.swellOriginX;
+    floats[9] = params.swellOriginY;
+    floats[10] = params.swellGridWidth;
+    floats[11] = params.swellGridHeight;
+    floats[12] = params.swellDirectionCount;
+
+    // Fetch grid config (13-17)
+    floats[13] = params.fetchOriginX;
+    floats[14] = params.fetchOriginY;
+    floats[15] = params.fetchGridWidth;
+    floats[16] = params.fetchGridHeight;
+    floats[17] = params.fetchDirectionCount;
+
+    // Max fetch and wave source direction (18-19)
+    floats[18] = params.maxFetch;
+    floats[19] = params.waveSourceDirection;
 
     device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
   }

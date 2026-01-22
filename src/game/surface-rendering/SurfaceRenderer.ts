@@ -13,16 +13,22 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
+import { InfluenceFieldManager } from "../world-data/influence/InfluenceFieldManager";
 import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
-import { TerrainRenderPipeline } from "./TerrainRenderPipeline";
+import { WAVE_COMPONENTS } from "../world-data/water/WaterConstants";
 import { WaterInfo, type Viewport } from "../world-data/water/WaterInfo";
-import { WaterRenderPipeline } from "./WaterRenderPipeline";
-import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 import { SurfaceShader } from "./SurfaceShader";
+import { TerrainRenderPipeline } from "./TerrainRenderPipeline";
+import {
+  WaterRenderPipeline,
+  type RenderInfluenceConfig,
+} from "./WaterRenderPipeline";
+import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
 // Surface rendering texture sizes
 export const WATER_TEXTURE_SIZE = 512;
 export const TERRAIN_TEXTURE_SIZE = 512;
+export const WETNESS_TEXTURE_SIZE = 2048;
 
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
@@ -80,6 +86,9 @@ export class SurfaceRenderer extends BaseEntity {
   // Placeholder wetness texture for when wetness pipeline not ready
   private placeholderWetnessTexture: GPUTexture | null = null;
   private placeholderWetnessView: GPUTextureView | null = null;
+
+  // Track if influence textures have been configured
+  private influenceConfigured = false;
 
   constructor() {
     super();
@@ -165,6 +174,46 @@ export class SurfaceRenderer extends BaseEntity {
   @on("add")
   onAdd() {
     this.ensureInitialized();
+  }
+
+  /**
+   * Try to configure influence textures on the render pipeline.
+   * Returns true if configured, false if not yet available.
+   */
+  private tryConfigureInfluenceTextures(): boolean {
+    if (this.influenceConfigured) return true;
+
+    const influenceManager = InfluenceFieldManager.maybeFromGame(this.game!);
+    if (!influenceManager) return false;
+
+    const swellTexture = influenceManager.getSwellTexture();
+    const fetchTexture = influenceManager.getFetchTexture();
+    const influenceSampler = influenceManager.getInfluenceSampler();
+    const swellGridConfig = influenceManager.getSwellGridConfig();
+    const fetchGridConfig = influenceManager.getFetchGridConfig();
+
+    if (
+      !swellTexture ||
+      !fetchTexture ||
+      !influenceSampler ||
+      !swellGridConfig ||
+      !fetchGridConfig
+    ) {
+      return false;
+    }
+
+    const config: RenderInfluenceConfig = {
+      swellTexture,
+      fetchTexture,
+      influenceSampler,
+      swellGridConfig,
+      fetchGridConfig,
+      waveSourceDirection: WAVE_COMPONENTS[0][2], // First wave's direction
+    };
+
+    this.renderPipeline.setInfluenceTextures(config);
+    this.influenceConfigured = true;
+    return true;
   }
 
   /**
@@ -300,6 +349,9 @@ export class SurfaceRenderer extends BaseEntity {
   @on("render")
   onRender({ dt }: { dt: number }) {
     if (!this.game || !this.initialized || !this.shader) return;
+
+    // Ensure influence textures are configured (needed for per-pixel wave sampling)
+    this.tryConfigureInfluenceTextures();
 
     const camera = this.game.camera;
     const renderer = this.game.getRenderer();

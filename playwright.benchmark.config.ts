@@ -6,9 +6,8 @@ const TEST_PORT = 3456;
 
 export default defineConfig({
   testDir: "./tests",
-  timeout: 60000,
-  // Exclude benchmark tests from normal runs - use `npx playwright test --grep @benchmark` to run them
-  testIgnore: ["**/benchmark.spec.ts"],
+  testMatch: "**/benchmark.spec.ts",
+  timeout: 120000,
   use: {
     headless: true,
     baseURL: `http://localhost:${TEST_PORT}`,

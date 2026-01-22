@@ -20,6 +20,13 @@ export type StorageBinding = {
 };
 
 /**
+ * Binding type for read-write storage buffers.
+ */
+export type StorageRWBinding = {
+  type: "storageRW";
+};
+
+/**
  * Binding type for write-only storage textures.
  */
 export type StorageTextureBinding = {
@@ -33,6 +40,7 @@ export type StorageTextureBinding = {
 export type TextureBinding = {
   type: "texture";
   sampleType?: GPUTextureSampleType;
+  viewDimension?: GPUTextureViewDimension;
 };
 
 /**
@@ -49,6 +57,7 @@ export type SamplerBinding = {
 export type BindingDefinition =
   | UniformBinding
   | StorageBinding
+  | StorageRWBinding
   | StorageTextureBinding
   | TextureBinding
   | SamplerBinding;
@@ -66,13 +75,15 @@ export type BindingResource<T extends BindingDefinition> =
     ? { buffer: GPUBuffer }
     : T extends StorageBinding
       ? { buffer: GPUBuffer }
-      : T extends StorageTextureBinding
-        ? GPUTextureView
-        : T extends TextureBinding
+      : T extends StorageRWBinding
+        ? { buffer: GPUBuffer }
+        : T extends StorageTextureBinding
           ? GPUTextureView
-          : T extends SamplerBinding
-            ? GPUSampler
-            : never;
+          : T extends TextureBinding
+            ? GPUTextureView
+            : T extends SamplerBinding
+              ? GPUSampler
+              : never;
 
 /**
  * Maps a bindings definition to the expected resources object for createBindGroup.
@@ -101,6 +112,9 @@ export function createBindGroupLayoutEntry(
     case "storage":
       entry.buffer = { type: "read-only-storage" };
       break;
+    case "storageRW":
+      entry.buffer = { type: "storage" };
+      break;
     case "storageTexture":
       entry.storageTexture = {
         access: "write-only",
@@ -111,7 +125,7 @@ export function createBindGroupLayoutEntry(
     case "texture":
       entry.texture = {
         sampleType: definition.sampleType ?? "float",
-        viewDimension: "2d",
+        viewDimension: definition.viewDimension ?? "2d",
       };
       break;
     case "sampler":
@@ -149,7 +163,11 @@ export function createBindGroupEntries<T extends BindingsDefinition>(
     const definition = bindings[key];
     const resource = resources[key];
 
-    if (definition.type === "uniform" || definition.type === "storage") {
+    if (
+      definition.type === "uniform" ||
+      definition.type === "storage" ||
+      definition.type === "storageRW"
+    ) {
       return {
         binding: index,
         resource: resource as GPUBufferBinding,

@@ -54,6 +54,11 @@ struct Params {
   baseWindY: f32,
   _padding2: f32,
   _padding3: f32,
+  // Terrain influence parameters
+  influenceSpeedFactor: f32,
+  influenceDirectionOffset: f32,
+  influenceTurbulence: f32,
+  _padding4: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -79,16 +84,21 @@ fn calculateWindVelocity(worldPos: vec2<f32>, time: f32) -> vec2<f32> {
   let speedNoise = simplex3D(vec3<f32>(sx, sy, t));
   let angleNoise = simplex3D(vec3<f32>(sx + 1000.0, sy + 1000.0, t));
 
-  let speedScale = 1.0 + speedNoise * WIND_SPEED_VARIATION;
-  let angleVariance = angleNoise * WIND_ANGLE_VARIATION;
+  // Apply terrain influence to speed variation (turbulence boosts noise)
+  let turbulenceBoost = 1.0 + params.influenceTurbulence * 0.5;
+  var speedScale = 1.0 + speedNoise * WIND_SPEED_VARIATION * turbulenceBoost;
+  speedScale *= params.influenceSpeedFactor; // Apply terrain blocking/acceleration
+
+  // Apply influence direction offset + noise angle
+  let totalAngleOffset = angleNoise * WIND_ANGLE_VARIATION + params.influenceDirectionOffset;
 
   // Apply speed scale to base wind
   let scaledX = params.baseWindX * speedScale;
   let scaledY = params.baseWindY * speedScale;
 
-  // Rotate by angle variance
-  let cosAngle = cos(angleVariance);
-  let sinAngle = sin(angleVariance);
+  // Rotate by total angle offset
+  let cosAngle = cos(totalAngleOffset);
+  let sinAngle = sin(totalAngleOffset);
   let velocityX = scaledX * cosAngle - scaledY * sinAngle;
   let velocityY = scaledX * sinAngle + scaledY * cosAngle;
 

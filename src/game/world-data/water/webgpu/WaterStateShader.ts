@@ -4,6 +4,7 @@
  * Extends ComputeShader base class to compute water state combining:
  * - Gerstner wave simulation with simplex noise modulation
  * - Wake modifier contributions from boat wakes
+ * - Per-pixel terrain influence sampling from 3D textures
  *
  * Output format (rgba32float):
  * - R: Combined height (waves + modifiers), normalized
@@ -23,6 +24,7 @@ import {
   WAVE_AMP_MOD_STRENGTH,
   WATER_HEIGHT_SCALE,
   WATER_VELOCITY_SCALE,
+  SWELL_WAVE_COUNT,
 } from "../WaterConstants";
 import { MAX_SEGMENTS, FLOATS_PER_SEGMENT } from "./WaterComputeBuffers";
 
@@ -35,6 +37,9 @@ const bindings = {
   waveData: { type: "storage" },
   segments: { type: "storage" },
   outputTexture: { type: "storageTexture", format: "rgba32float" },
+  swellTexture: { type: "texture", viewDimension: "3d", sampleType: "float" },
+  fetchTexture: { type: "texture", viewDimension: "3d", sampleType: "float" },
+  influenceSampler: { type: "sampler" },
 } as const;
 
 /**
@@ -49,7 +54,9 @@ export class WaterStateShader extends ComputeShader<typeof bindings> {
 // Constants
 // ============================================================================
 const PI: f32 = 3.14159265359;
+const TWO_PI: f32 = 6.28318530718;
 const NUM_WAVES: i32 = ${NUM_WAVES};
+const SWELL_WAVE_COUNT: i32 = ${SWELL_WAVE_COUNT};
 const GERSTNER_STEEPNESS: f32 = ${GERSTNER_STEEPNESS};
 const GRAVITY: f32 = ${GRAVITY_FT_PER_S2};
 const WAVE_AMP_MOD_SPATIAL_SCALE: f32 = ${WAVE_AMP_MOD_SPATIAL_SCALE};
@@ -74,12 +81,31 @@ struct Params {
   textureSizeX: f32,
   textureSizeY: f32,
   segmentCount: u32,
+  // Swell influence grid config
+  swellOriginX: f32,
+  swellOriginY: f32,
+  swellGridWidth: f32,
+  swellGridHeight: f32,
+  swellDirectionCount: f32,
+  // Fetch influence grid config
+  fetchOriginX: f32,
+  fetchOriginY: f32,
+  fetchGridWidth: f32,
+  fetchGridHeight: f32,
+  fetchDirectionCount: f32,
+  // Max fetch for normalization
+  maxFetch: f32,
+  // Wave source direction (for texture lookup)
+  waveSourceDirection: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> waveData: array<f32>;
 @group(0) @binding(2) var<storage, read> segments: array<f32>;
 @group(0) @binding(3) var outputTexture: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(4) var swellTexture: texture_3d<f32>;
+@group(0) @binding(5) var fetchTexture: texture_3d<f32>;
+@group(0) @binding(6) var influenceSampler: sampler;
 
 // Simplex 3D Noise - for wave amplitude modulation
 ${SIMPLEX_NOISE_3D_WGSL}
@@ -94,12 +120,70 @@ fn hash2D(x: f32, y: f32) -> f32 {
 }
 
 // ============================================================================
-// Section 1: Gerstner Wave Calculation
+// Influence texture sampling
+// ============================================================================
+
+// Sample swell influence texture at world position
+// Returns vec4: R=longEnergy, G=longDirection, B=shortEnergy, A=shortDirection
+fn sampleSwellInfluence(worldPos: vec2<f32>, sourceDirection: f32) -> vec4<f32> {
+  // Convert world position to UV coordinates (0-1)
+  let u = (worldPos.x - params.swellOriginX) / params.swellGridWidth;
+  let v = (worldPos.y - params.swellOriginY) / params.swellGridHeight;
+
+  // Convert direction to W coordinate (0-1)
+  // Normalize direction to [0, 2π) then to [0, 1)
+  var dir = sourceDirection;
+  dir = dir - floor(dir / TWO_PI) * TWO_PI;  // Normalize to [0, 2π)
+  if (dir < 0.0) {
+    dir += TWO_PI;
+  }
+  let w = dir / TWO_PI;
+
+  // Sample with trilinear filtering
+  return textureSampleLevel(swellTexture, influenceSampler, vec3<f32>(u, v, w), 0.0);
+}
+
+// Sample fetch texture at world position
+// Returns fetch distance (R channel), already in ft
+fn sampleFetchInfluence(worldPos: vec2<f32>, sourceDirection: f32) -> f32 {
+  // Convert world position to UV coordinates (0-1)
+  let u = (worldPos.x - params.fetchOriginX) / params.fetchGridWidth;
+  let v = (worldPos.y - params.fetchOriginY) / params.fetchGridHeight;
+
+  // Convert direction to W coordinate (0-1)
+  var dir = sourceDirection;
+  dir = dir - floor(dir / TWO_PI) * TWO_PI;
+  if (dir < 0.0) {
+    dir += TWO_PI;
+  }
+  let w = dir / TWO_PI;
+
+  // Sample fetch distance from R channel
+  let fetch = textureSampleLevel(fetchTexture, influenceSampler, vec3<f32>(u, v, w), 0.0).r;
+  return fetch;
+}
+
+// ============================================================================
+// Section 1: Gerstner Wave Calculation with per-pixel influence
 // ============================================================================
 
 fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
   let x = worldPos.x;
   let y = worldPos.y;
+
+  // Sample influence textures at this pixel
+  let swellInfluence = sampleSwellInfluence(worldPos, params.waveSourceDirection);
+  let longSwellEnergy = swellInfluence.r;
+  let longSwellDirection = swellInfluence.g;
+  let shortChopEnergy = swellInfluence.b;
+  let shortChopDirection = swellInfluence.a;
+
+  let fetchDistance = sampleFetchInfluence(worldPos, params.waveSourceDirection);
+  let normalizedFetch = clamp(fetchDistance / params.maxFetch, 0.0, 1.0);
+
+  // Compute direction offsets from source direction
+  let longSwellDirOffset = longSwellDirection - params.waveSourceDirection;
+  let shortChopDirOffset = shortChopDirection - params.waveSourceDirection;
 
   // Sample amplitude modulation noise once per point
   let ampModTime = time * WAVE_AMP_MOD_TIME_SCALE;
@@ -117,12 +201,19 @@ fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
     let base = i * 8;
     let amplitude = waveData[base + 0];
     let wavelength = waveData[base + 1];
-    let direction = waveData[base + 2];
+    var direction = waveData[base + 2];
     let phaseOffset = waveData[base + 3];
     let speedMult = waveData[base + 4];
     let sourceDist = waveData[base + 5];
     let sourceOffsetX = waveData[base + 6];
     let sourceOffsetY = waveData[base + 7];
+
+    // Apply direction offset from terrain diffraction (per-pixel)
+    if (i < SWELL_WAVE_COUNT) {
+      direction += longSwellDirOffset;
+    } else {
+      direction += shortChopDirOffset;
+    }
 
     let baseDx = cos(direction);
     let baseDy = sin(direction);
@@ -165,14 +256,25 @@ fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
 
   for (var i = 0; i < NUM_WAVES; i++) {
     let base = i * 8;
-    let amplitude = waveData[base + 0];
+    var amplitude = waveData[base + 0];
     let wavelength = waveData[base + 1];
-    let direction = waveData[base + 2];
+    var direction = waveData[base + 2];
     let phaseOffset = waveData[base + 3];
     let speedMult = waveData[base + 4];
     let sourceDist = waveData[base + 5];
     let sourceOffsetX = waveData[base + 6];
     let sourceOffsetY = waveData[base + 7];
+
+    // Apply terrain influence based on wave type (per-pixel)
+    if (i < SWELL_WAVE_COUNT) {
+      // Swell waves: apply long swell energy factor and direction offset
+      amplitude *= longSwellEnergy;
+      direction += longSwellDirOffset;
+    } else {
+      // Chop waves: apply short chop energy factor * fetch factor and direction offset
+      amplitude *= shortChopEnergy * normalizedFetch;
+      direction += shortChopDirOffset;
+    }
 
     let baseDx = cos(direction);
     let baseDy = sin(direction);
@@ -201,16 +303,6 @@ fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
     height += amplitude * ampMod * sinPhase;
     dhdt += -amplitude * ampMod * omega * cosPhase;
   }
-
-  // Add surface turbulence
-  let smoothTurbulence =
-    simplex3D(vec3<f32>(x * 0.15, y * 0.15, time * 0.5)) * 0.03 +
-    simplex3D(vec3<f32>(x * 0.4, y * 0.4, time * 0.8)) * 0.01;
-
-  let timeCell = floor(time * 0.5);
-  let whiteTurbulence = (hash2D(x * 0.5 + timeCell, y * 0.5) - 0.5) * 0.02;
-
-  height += smoothTurbulence + whiteTurbulence;
 
   return vec4<f32>(height, dispX, dispY, dhdt);
 }
@@ -339,7 +431,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     params.viewportTop + uv.y * params.viewportHeight
   );
 
-  // Wave contribution
+  // Wave contribution (now uses per-pixel influence from textures)
   let waveResult = calculateWaves(worldPos, params.time);
   let waveHeight = waveResult.x;
   let waveDhdt = waveResult.w;

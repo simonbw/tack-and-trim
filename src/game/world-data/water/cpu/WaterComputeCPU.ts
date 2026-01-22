@@ -12,6 +12,7 @@ import { NoiseFunction3D } from "simplex-noise";
 import {
   GERSTNER_STEEPNESS,
   GRAVITY_FT_PER_S2,
+  SWELL_WAVE_COUNT,
   WAVE_AMP_MOD_SPATIAL_SCALE,
   WAVE_AMP_MOD_STRENGTH,
   WAVE_AMP_MOD_TIME_SCALE,
@@ -38,6 +39,16 @@ export interface WaterComputeParams {
   waveAmpModNoise: NoiseFunction3D;
   /** Noise function for surface turbulence */
   surfaceNoise: NoiseFunction3D;
+  /** Terrain influence: 0-1 factor for swell waves */
+  swellEnergyFactor: number;
+  /** Terrain influence: 0-1 factor for chop waves */
+  chopEnergyFactor: number;
+  /** Terrain influence: 0-1 factor based on fetch distance */
+  fetchFactor: number;
+  /** Angular offset for swell waves due to diffraction (radians) */
+  swellDirectionOffset: number;
+  /** Angular offset for chop waves due to diffraction (radians) */
+  chopDirectionOffset: number;
 }
 
 /**
@@ -69,7 +80,16 @@ export function computeWaveDataAtPoint(
   y: number,
   params: WaterComputeParams,
 ): WaveData {
-  const { time, waveAmpModNoise, surfaceNoise } = params;
+  const {
+    time,
+    waveAmpModNoise,
+    surfaceNoise,
+    swellEnergyFactor,
+    chopEnergyFactor,
+    fetchFactor,
+    swellDirectionOffset,
+    chopDirectionOffset,
+  } = params;
 
   // Sample amplitude modulation noise once per point (slow-changing)
   const ampModTime = time * WAVE_AMP_MOD_TIME_SCALE;
@@ -87,16 +107,23 @@ export function computeWaveDataAtPoint(
   let dispY = 0;
   const numWaves = WAVE_COMPONENTS.length;
 
-  for (const [
-    amplitude,
-    wavelength,
-    direction,
-    phaseOffset,
-    speedMult,
-    sourceDist,
-    sourceOffsetX,
-    sourceOffsetY,
-  ] of WAVE_COMPONENTS) {
+  for (let i = 0; i < numWaves; i++) {
+    const [
+      amplitude,
+      wavelength,
+      baseDirection,
+      phaseOffset,
+      speedMult,
+      sourceDist,
+      sourceOffsetX,
+      sourceOffsetY,
+    ] = WAVE_COMPONENTS[i];
+
+    // Apply direction offset from terrain diffraction
+    const direction =
+      baseDirection +
+      (i < SWELL_WAVE_COUNT ? swellDirectionOffset : chopDirectionOffset);
+
     const baseDx = Math.cos(direction);
     const baseDy = Math.sin(direction);
     const k = (2 * Math.PI) / wavelength;
@@ -142,16 +169,31 @@ export function computeWaveDataAtPoint(
   let height = 0;
   let dhdt = 0;
 
-  for (const [
-    amplitude,
-    wavelength,
-    direction,
-    phaseOffset,
-    speedMult,
-    sourceDist,
-    sourceOffsetX,
-    sourceOffsetY,
-  ] of WAVE_COMPONENTS) {
+  for (let i = 0; i < numWaves; i++) {
+    const [
+      baseAmplitude,
+      wavelength,
+      baseDirection,
+      phaseOffset,
+      speedMult,
+      sourceDist,
+      sourceOffsetX,
+      sourceOffsetY,
+    ] = WAVE_COMPONENTS[i];
+
+    // Apply terrain influence based on wave type
+    let amplitude: number;
+    let direction: number;
+    if (i < SWELL_WAVE_COUNT) {
+      // Swell waves (0-4): apply swell energy factor and direction offset
+      amplitude = baseAmplitude * swellEnergyFactor;
+      direction = baseDirection + swellDirectionOffset;
+    } else {
+      // Chop waves (5-11): apply chop energy factor * fetch factor and direction offset
+      amplitude = baseAmplitude * chopEnergyFactor * fetchFactor;
+      direction = baseDirection + chopDirectionOffset;
+    }
+
     const baseDx = Math.cos(direction);
     const baseDy = Math.sin(direction);
     const k = (2 * Math.PI) / wavelength;
@@ -188,20 +230,13 @@ export function computeWaveDataAtPoint(
     dhdt += -amplitude * ampMod * omega * cosPhase;
   }
 
-  // Add surface turbulence - small non-periodic noise that breaks up the grid
-  // This represents chaotic micro-variations not captured by the wave model
-  // Mix of smooth noise (for organic feel) and white noise (for randomness)
-  const smoothTurbulence =
-    surfaceNoise(x * 0.15, y * 0.15, time * 0.5) * 0.03 +
-    surfaceNoise(x * 0.4, y * 0.4, time * 0.8) * 0.01;
-
-  // White noise - changes per pixel, animated slowly with time
-  // Use floor(t) to change the noise pattern roughly once per second
-  const timeCell = Math.floor(time * 0.5);
-  const whiteTurbulence = (hash2D(x * 0.5 + timeCell, y * 0.5) - 0.5) * 0.02;
-
-  height += smoothTurbulence + whiteTurbulence;
-  // Note: turbulence contribution to dhdt is negligible and non-physical, so we skip it
+  // Surface turbulence disabled for testing
+  // const smoothTurbulence =
+  //   surfaceNoise(x * 0.15, y * 0.15, time * 0.5) * 0.03 +
+  //   surfaceNoise(x * 0.4, y * 0.4, time * 0.8) * 0.01;
+  // const timeCell = Math.floor(time * 0.5);
+  // const whiteTurbulence = (hash2D(x * 0.5 + timeCell, y * 0.5) - 0.5) * 0.02;
+  // height += smoothTurbulence + whiteTurbulence;
 
   return { height, dhdt };
 }
