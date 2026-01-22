@@ -1,6 +1,9 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
+import { V } from "../../core/Vector";
+import { MooringLine } from "../MooringLine";
+import { MooringPoint, MOORING_RANGE } from "../MooringPoint";
 import { Boat } from "./Boat";
 
 /**
@@ -10,9 +13,52 @@ import { Boat } from "./Boat";
 export class PlayerBoatController extends BaseEntity {
   tickLayer = "input" as const;
   private activeJibSheet: "port" | "starboard" = "port";
+  private activeMooringLine: MooringLine | null = null;
 
   constructor(private boat: Boat) {
     super();
+  }
+
+  /** Find the nearest mooring point within range, if any */
+  private findNearestMooringPoint(): MooringPoint | null {
+    const boatPos = V(this.boat.hull.body.position);
+    let nearest: MooringPoint | null = null;
+    let nearestDistance = MOORING_RANGE;
+
+    for (const entity of this.game!.entities.getTagged("mooringPoint")) {
+      const mooringPoint = entity as MooringPoint;
+      const distance = boatPos.sub(mooringPoint.getPosition()).magnitude;
+      if (distance < nearestDistance) {
+        nearest = mooringPoint;
+        nearestDistance = distance;
+      }
+    }
+
+    return nearest;
+  }
+
+  /** Engage mooring to a mooring point */
+  private engageMooring(mooringPoint: MooringPoint): void {
+    // Don't engage if already moored or anchor is out
+    if (this.activeMooringLine || this.boat.anchor.isDeployed()) {
+      return;
+    }
+
+    this.activeMooringLine = new MooringLine(this.boat, mooringPoint);
+    this.game!.addEntity(this.activeMooringLine);
+  }
+
+  /** Release the current mooring line */
+  private releaseMooring(): void {
+    if (this.activeMooringLine) {
+      this.activeMooringLine.release();
+      this.activeMooringLine = null;
+    }
+  }
+
+  /** Check if currently moored */
+  isMoored(): boolean {
+    return this.activeMooringLine !== null && !this.activeMooringLine.isReleasing();
   }
 
   @on("tick")
@@ -100,9 +146,29 @@ export class PlayerBoatController extends BaseEntity {
       this.boat.toggleSails();
     }
 
-    // Toggle anchor
+    // Toggle anchor or mooring
     if (key === "KeyF") {
-      this.boat.anchor.toggle();
+      // If currently moored, release the mooring line
+      if (this.activeMooringLine) {
+        this.releaseMooring();
+        return;
+      }
+
+      // If anchor is deployed, retrieve it
+      if (this.boat.anchor.isDeployed()) {
+        this.boat.anchor.toggle();
+        return;
+      }
+
+      // Check for nearby mooring point
+      const nearestMooring = this.findNearestMooringPoint();
+      if (nearestMooring) {
+        // Engage mooring to the nearest point
+        this.engageMooring(nearestMooring);
+      } else {
+        // No mooring point nearby, drop anchor instead
+        this.boat.anchor.toggle();
+      }
     }
   }
 }

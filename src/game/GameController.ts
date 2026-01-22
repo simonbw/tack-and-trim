@@ -4,6 +4,7 @@ import { ReactPreloader } from "../core/resources/Preloader";
 import { loadDefaultLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
+import { MooringPoint } from "./MooringPoint";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
@@ -84,6 +85,13 @@ export class GameController extends BaseEntity {
     // The clock
     this.game.addEntity(new TimeOfDayHUD());
     this.game.addEntity(new SpeedReadout());
+
+    // Spawn mooring points (near dock areas and island)
+    this.game.addEntity(new MooringPoint(60, 50)); // Near island shore
+    this.game.addEntity(new MooringPoint(80, 80)); // Near island shore
+    this.game.addEntity(new MooringPoint(-50, -30)); // Near starting area
+    this.game.addEntity(new MooringPoint(-80, 60)); // Open water mooring
+
     // Spawn boat and controls
     const boat = this.game.addEntity(new Boat());
     this.game.addEntity(new PlayerBoatController(boat));
