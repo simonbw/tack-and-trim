@@ -34,8 +34,10 @@ export abstract class ComputeShader<T extends BindingsDefinition> {
   /** Binding definitions. Subclasses must provide this. */
   abstract readonly bindings: T;
 
-  /** Workgroup size [x, y]. Subclasses must provide this. */
-  abstract readonly workgroupSize: readonly [number, number];
+  /** Workgroup size [x, y] or [x, y, z]. Subclasses must provide this. */
+  abstract readonly workgroupSize:
+    | readonly [number, number]
+    | readonly [number, number, number];
 
   /** Label for GPU debugging. Subclasses can override. */
   get label(): string {

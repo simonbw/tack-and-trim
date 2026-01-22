@@ -25,6 +25,7 @@ import type {
   ReadbackViewport,
 } from "../datatiles/DataTileTypes";
 import { InfluenceFieldManager } from "../influence/InfluenceFieldManager";
+import type { InfluenceTextureConfig } from "./webgpu/WaterDataTileCompute";
 import { WindInfo } from "../wind/WindInfo";
 import {
   computeWaveDataAtPoint,
@@ -164,22 +165,11 @@ export class WaterInfo extends BaseEntity {
   // Influence field manager for terrain effects
   private influenceManager: InfluenceFieldManager | null = null;
 
-  // Cached influence values for CPU fallback
-  private cachedSwellEnergyFactor: number = 1.0;
-  private cachedChopEnergyFactor: number = 1.0;
-  private cachedFetchFactor: number = 1.0;
+  // Track which compute instances have influence textures configured
+  private configuredComputes = new WeakSet<WaterDataTileCompute>();
 
-  // CPU compute params (cached for fallback computations)
-  private get cpuParams(): WaterComputeParams {
-    return {
-      time: this.game?.elapsedUnpausedTime ?? 0,
-      waveAmpModNoise: this.waveAmpModNoise,
-      surfaceNoise: this.surfaceNoise,
-      swellEnergyFactor: this.cachedSwellEnergyFactor,
-      chopEnergyFactor: this.cachedChopEnergyFactor,
-      fetchFactor: this.cachedFetchFactor,
-    };
-  }
+  // Cached influence texture config (set once when textures are available)
+  private influenceTextureConfig: InfluenceTextureConfig | null = null;
 
   constructor() {
     super();
@@ -276,51 +266,71 @@ export class WaterInfo extends BaseEntity {
   }
 
   /**
+   * Try to build influence texture config from influence manager.
+   * Returns null if textures aren't available yet.
+   */
+  private tryBuildInfluenceConfig(): InfluenceTextureConfig | null {
+    if (!this.influenceManager) return null;
+
+    const swellTexture = this.influenceManager.getSwellTexture();
+    const fetchTexture = this.influenceManager.getFetchTexture();
+    const influenceSampler = this.influenceManager.getInfluenceSampler();
+    const swellGridConfig = this.influenceManager.getSwellGridConfig();
+    const fetchGridConfig = this.influenceManager.getFetchGridConfig();
+
+    if (
+      !swellTexture ||
+      !fetchTexture ||
+      !influenceSampler ||
+      !swellGridConfig ||
+      !fetchGridConfig
+    ) {
+      return null;
+    }
+
+    return {
+      swellTexture,
+      fetchTexture,
+      influenceSampler,
+      swellGridConfig,
+      fetchGridConfig,
+      waveSourceDirection: this.getBaseSwellDirection(),
+    };
+  }
+
+  /**
+   * Configure influence textures on a compute instance if not already done.
+   */
+  private configureInfluenceTextures(compute: WaterDataTileCompute): void {
+    // Already configured this compute instance?
+    if (this.configuredComputes.has(compute)) return;
+
+    // Try to get/build the config
+    if (!this.influenceTextureConfig) {
+      this.influenceTextureConfig = this.tryBuildInfluenceConfig();
+    }
+
+    // If we have a config, set it on the compute
+    if (this.influenceTextureConfig) {
+      compute.setInfluenceTextures(this.influenceTextureConfig);
+      this.configuredComputes.add(compute);
+    }
+  }
+
+  /**
    * Run domain-specific compute for a tile.
    */
   private runTileCompute(
     compute: WaterDataTileCompute,
     viewport: ReadbackViewport,
   ): void {
+    // Ensure influence textures are configured (per-pixel sampling in shader)
+    this.configureInfluenceTextures(compute);
+
+    // Set wake segments for modifier computation
     compute.setSegments(this.cachedSegments);
 
-    // Sample influence at tile center
-    const centerX = viewport.left + viewport.width / 2;
-    const centerY = viewport.top + viewport.height / 2;
-
-    if (this.influenceManager) {
-      const swellDir = this.getBaseSwellDirection();
-      const windDir = this.getWindDirection();
-
-      const swell = this.influenceManager.sampleSwellInfluence(
-        centerX,
-        centerY,
-        swellDir,
-      );
-      const fetchDistance = this.influenceManager.sampleFetch(
-        centerX,
-        centerY,
-        windDir,
-      );
-
-      const swellEnergyFactor = swell.longSwell.energyFactor;
-      const chopEnergyFactor = swell.shortChop.energyFactor;
-      const fetchFactor = this.computeFetchFactor(fetchDistance);
-
-      compute.setWaveInfluence(
-        swellEnergyFactor,
-        chopEnergyFactor,
-        fetchFactor,
-      );
-
-      // Cache for CPU fallback
-      this.cachedSwellEnergyFactor = swellEnergyFactor;
-      this.cachedChopEnergyFactor = chopEnergyFactor;
-      this.cachedFetchFactor = fetchFactor;
-    } else {
-      compute.setWaveInfluence(1.0, 1.0, 1.0); // No terrain effect
-    }
-
+    // Run the compute (shader does per-pixel influence sampling)
     compute.runCompute(
       viewport.time,
       viewport.left,
@@ -364,8 +374,11 @@ export class WaterInfo extends BaseEntity {
       .mul(speedScale)
       .irotate(angleVariance);
 
+    // Build CPU params with influence sampled at query point
+    const cpuParams = this.buildCPUParamsForPoint(point);
+
     // CPU fallback: waves + modifier queries
-    const waveData = computeWaveDataAtPoint(point[0], point[1], this.cpuParams);
+    const waveData = computeWaveDataAtPoint(point[0], point[1], cpuParams);
 
     let surfaceHeight = waveData.height;
     let surfaceHeightRate = waveData.dhdt;
@@ -382,6 +395,57 @@ export class WaterInfo extends BaseEntity {
       velocity,
       surfaceHeight,
       surfaceHeightRate,
+    };
+  }
+
+  /**
+   * Build CPU compute params for a specific query point.
+   * Samples influence fields at that exact location.
+   */
+  private buildCPUParamsForPoint(point: V2d): WaterComputeParams {
+    const time = this.game?.elapsedUnpausedTime ?? 0;
+
+    // Default values (no terrain influence)
+    let swellEnergyFactor = 1.0;
+    let chopEnergyFactor = 1.0;
+    let fetchFactor = 1.0;
+    let swellDirectionOffset = 0;
+    let chopDirectionOffset = 0;
+
+    // Sample influence at query point if manager is available
+    if (this.influenceManager) {
+      const swellDir = this.getBaseSwellDirection();
+      const windDir = this.getWindDirection();
+
+      const swell = this.influenceManager.sampleSwellInfluence(
+        point.x,
+        point.y,
+        swellDir,
+      );
+      const fetchDistance = this.influenceManager.sampleFetch(
+        point.x,
+        point.y,
+        windDir,
+      );
+
+      swellEnergyFactor = swell.longSwell.energyFactor;
+      chopEnergyFactor = swell.shortChop.energyFactor;
+      fetchFactor = this.computeFetchFactor(fetchDistance);
+
+      // Compute direction offsets from diffraction
+      swellDirectionOffset = swell.longSwell.arrivalDirection - swellDir;
+      chopDirectionOffset = swell.shortChop.arrivalDirection - windDir;
+    }
+
+    return {
+      time,
+      waveAmpModNoise: this.waveAmpModNoise,
+      surfaceNoise: this.surfaceNoise,
+      swellEnergyFactor,
+      chopEnergyFactor,
+      fetchFactor,
+      swellDirectionOffset,
+      chopDirectionOffset,
     };
   }
 

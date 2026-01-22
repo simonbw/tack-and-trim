@@ -9,7 +9,7 @@ import { V, V2d } from "../core/Vector";
 import { WindInfo } from "./world-data/wind/WindInfo";
 
 // Configuration (visual/screen-space, not world units)
-const PARTICLE_COUNT = 1000; // Target particles per sector
+const PARTICLE_COUNT = 0; // Target particles per sector
 const SPAWN_RATE = 500; // particles per second (spawn and despawn)
 const TARGET_ALPHA = 0.5; // Dimensionless opacity
 const ALPHA_LERP_SPEED = 0.7; // 1/s - alpha transition speed

@@ -1,54 +1,73 @@
 /**
- * Generic coarse grid data structure for influence field storage.
+ * Coarse grid data structure for influence field storage.
  *
- * Stores typed data at each cell with support for:
- * - Bilinear interpolation sampling
- * - World-to-grid coordinate conversion
- * - Serialization for potential caching
+ * Stores data as a Float32Array with 4 floats per cell (RGBA format)
+ * for direct GPU texture upload. This enables both CPU sampling and
+ * GPU shader sampling from the same underlying data.
  *
- * Used by WindInfluenceField, SwellInfluenceField, and FetchMap to store
- * pre-computed terrain influence data.
+ * Used by InfluenceFieldManager to store pre-computed terrain influence
+ * data for wind, swell, and fetch fields.
  */
 
 import type { InfluenceGridConfig } from "./InfluenceFieldTypes";
 
+/** Number of floats per grid cell (RGBA format for GPU compatibility) */
+export const FLOATS_PER_CELL = 4;
+
 /**
- * Generic grid for storing influence field data.
+ * Generic grid for storing influence field data in GPU-ready format.
  *
- * @typeParam T - The type of data stored at each grid cell
+ * Data layout (matches 3D texture layout - direction is Z/depth):
+ * For each direction (z = 0 to directionCount-1):
+ *   For each row (y = 0 to cellsY-1):
+ *     For each cell (x = 0 to cellsX-1):
+ *       [float0, float1, float2, float3]  // RGBA channels
+ *
+ * Index calculation:
+ *   offset = ((dirIndex * cellsY + y) * cellsX + x) * 4
  */
-export class InfluenceFieldGrid<T> {
+export class InfluenceFieldGrid {
   /** Grid configuration */
   readonly config: InfluenceGridConfig;
 
-  /** Raw cell data, indexed by [y * cellsX + x] for each direction */
-  private readonly data: T[][];
+  /**
+   * Raw data in GPU-ready layout.
+   * 4 floats per cell (RGBA), organized as 3D texture (x, y, direction).
+   */
+  readonly data: Float32Array;
 
   /**
    * Create a new influence field grid.
    *
    * @param config - Grid configuration
-   * @param createDefault - Factory function to create default cell value
    */
-  constructor(config: InfluenceGridConfig, createDefault: () => T) {
+  constructor(config: InfluenceGridConfig) {
     this.config = config;
 
-    // Initialize data array for each direction
-    this.data = new Array(config.directionCount);
-    const cellCount = config.cellsX * config.cellsY;
-    for (let dir = 0; dir < config.directionCount; dir++) {
-      this.data[dir] = new Array(cellCount);
-      for (let i = 0; i < cellCount; i++) {
-        this.data[dir][i] = createDefault();
-      }
-    }
+    // Allocate data array for all directions and cells
+    const totalFloats =
+      config.directionCount * config.cellsY * config.cellsX * FLOATS_PER_CELL;
+    this.data = new Float32Array(totalFloats);
   }
 
   /**
-   * Get the cell index for a grid coordinate.
+   * Get the byte offset into the data array for a given cell.
+   *
+   * @param gridX - Grid X coordinate
+   * @param gridY - Grid Y coordinate
+   * @param directionIndex - Direction index
+   * @returns Offset in floats (multiply by 4 for byte offset)
    */
-  private getCellIndex(gridX: number, gridY: number): number {
-    return gridY * this.config.cellsX + gridX;
+  private getCellOffset(
+    gridX: number,
+    gridY: number,
+    directionIndex: number,
+  ): number {
+    return (
+      ((directionIndex * this.config.cellsY + gridY) * this.config.cellsX +
+        gridX) *
+      FLOATS_PER_CELL
+    );
   }
 
   /**
@@ -96,14 +115,19 @@ export class InfluenceFieldGrid<T> {
   }
 
   /**
-   * Get the raw cell value at integer grid coordinates for a specific direction.
-   * Does not perform any interpolation.
+   * Get raw cell values at integer grid coordinates.
+   * Returns all 4 RGBA channels.
    *
    * @param gridX - Integer grid X coordinate
    * @param gridY - Integer grid Y coordinate
    * @param directionIndex - Integer direction index
+   * @returns Array of 4 floats [R, G, B, A]
    */
-  getCellDirect(gridX: number, gridY: number, directionIndex: number): T {
+  getCellDirect(
+    gridX: number,
+    gridY: number,
+    directionIndex: number,
+  ): [number, number, number, number] {
     // Clamp to grid bounds
     const x = Math.max(0, Math.min(this.config.cellsX - 1, gridX));
     const y = Math.max(0, Math.min(this.config.cellsY - 1, gridY));
@@ -111,22 +135,29 @@ export class InfluenceFieldGrid<T> {
       ((directionIndex % this.config.directionCount) +
         this.config.directionCount) %
       this.config.directionCount;
-    return this.data[dir][this.getCellIndex(x, y)];
+
+    const offset = this.getCellOffset(x, y, dir);
+    return [
+      this.data[offset],
+      this.data[offset + 1],
+      this.data[offset + 2],
+      this.data[offset + 3],
+    ];
   }
 
   /**
-   * Set the cell value at integer grid coordinates for a specific direction.
+   * Set cell values at integer grid coordinates.
    *
    * @param gridX - Integer grid X coordinate
    * @param gridY - Integer grid Y coordinate
    * @param directionIndex - Integer direction index
-   * @param value - Value to set
+   * @param values - Array of 4 floats [R, G, B, A]
    */
   setCellDirect(
     gridX: number,
     gridY: number,
     directionIndex: number,
-    value: T,
+    values: [number, number, number, number],
   ): void {
     if (gridX < 0 || gridX >= this.config.cellsX) return;
     if (gridY < 0 || gridY >= this.config.cellsY) return;
@@ -134,23 +165,28 @@ export class InfluenceFieldGrid<T> {
       ((directionIndex % this.config.directionCount) +
         this.config.directionCount) %
       this.config.directionCount;
-    this.data[dir][this.getCellIndex(gridX, gridY)] = value;
+
+    const offset = this.getCellOffset(gridX, gridY, dir);
+    this.data[offset] = values[0];
+    this.data[offset + 1] = values[1];
+    this.data[offset + 2] = values[2];
+    this.data[offset + 3] = values[3];
   }
 
   /**
-   * Sample the grid at world coordinates using bilinear interpolation.
+   * Sample the grid at world coordinates using trilinear interpolation.
+   * Interpolates in X, Y, and direction.
    *
    * @param worldX - World X coordinate
    * @param worldY - World Y coordinate
    * @param direction - Direction angle in radians
-   * @param interpolate - Function to interpolate between values
+   * @returns Interpolated RGBA values
    */
   sample(
     worldX: number,
     worldY: number,
     direction: number,
-    interpolate: (a: T, b: T, t: number) => T,
-  ): T {
+  ): [number, number, number, number] {
     const grid = this.worldToGrid(worldX, worldY);
     const dirIdx = this.directionToIndex(direction);
 
@@ -178,35 +214,40 @@ export class InfluenceFieldGrid<T> {
     const v01_d1 = this.getCellDirect(x0, y1, d1);
     const v11_d1 = this.getCellDirect(x1, y1, d1);
 
-    // Bilinear interpolation for direction 0
-    const v0_d0 = interpolate(v00_d0, v10_d0, fx);
-    const v1_d0 = interpolate(v01_d0, v11_d0, fx);
-    const v_d0 = interpolate(v0_d0, v1_d0, fy);
+    // Trilinear interpolation for each channel
+    const result: [number, number, number, number] = [0, 0, 0, 0];
+    for (let c = 0; c < 4; c++) {
+      // Bilinear in XY for direction 0
+      const v0_d0 = v00_d0[c] + (v10_d0[c] - v00_d0[c]) * fx;
+      const v1_d0 = v01_d0[c] + (v11_d0[c] - v01_d0[c]) * fx;
+      const vd0 = v0_d0 + (v1_d0 - v0_d0) * fy;
 
-    // Bilinear interpolation for direction 1
-    const v0_d1 = interpolate(v00_d1, v10_d1, fx);
-    const v1_d1 = interpolate(v01_d1, v11_d1, fx);
-    const v_d1 = interpolate(v0_d1, v1_d1, fy);
+      // Bilinear in XY for direction 1
+      const v0_d1 = v00_d1[c] + (v10_d1[c] - v00_d1[c]) * fx;
+      const v1_d1 = v01_d1[c] + (v11_d1[c] - v01_d1[c]) * fx;
+      const vd1 = v0_d1 + (v1_d1 - v0_d1) * fy;
 
-    // Interpolate between directions
-    return interpolate(v_d0, v_d1, fd);
+      // Interpolate between directions
+      result[c] = vd0 + (vd1 - vd0) * fd;
+    }
+
+    return result;
   }
 
   /**
-   * Sample the grid at world coordinates for a single direction (no direction interpolation).
-   * Useful when you need to query a specific pre-computed direction.
+   * Sample the grid at world coordinates for a single direction.
+   * Uses bilinear interpolation in X and Y only.
    *
    * @param worldX - World X coordinate
    * @param worldY - World Y coordinate
    * @param directionIndex - Integer direction index
-   * @param interpolate - Function to interpolate between values
+   * @returns Interpolated RGBA values
    */
   sampleAtDirection(
     worldX: number,
     worldY: number,
     directionIndex: number,
-    interpolate: (a: T, b: T, t: number) => T,
-  ): T {
+  ): [number, number, number, number] {
     const grid = this.worldToGrid(worldX, worldY);
 
     const x0 = Math.floor(grid.x);
@@ -221,44 +262,14 @@ export class InfluenceFieldGrid<T> {
     const v01 = this.getCellDirect(x0, y1, directionIndex);
     const v11 = this.getCellDirect(x1, y1, directionIndex);
 
-    const v0 = interpolate(v00, v10, fx);
-    const v1 = interpolate(v01, v11, fx);
-    return interpolate(v0, v1, fy);
-  }
-
-  /**
-   * Get the entire data array for a specific direction.
-   * Useful for serialization or bulk operations.
-   *
-   * @param directionIndex - Integer direction index
-   */
-  getDirectionData(directionIndex: number): readonly T[] {
-    const dir =
-      ((directionIndex % this.config.directionCount) +
-        this.config.directionCount) %
-      this.config.directionCount;
-    return this.data[dir];
-  }
-
-  /**
-   * Set the entire data array for a specific direction.
-   * Useful for deserialization or bulk operations.
-   *
-   * @param directionIndex - Integer direction index
-   * @param data - Array of cell values
-   */
-  setDirectionData(directionIndex: number, data: T[]): void {
-    const dir =
-      ((directionIndex % this.config.directionCount) +
-        this.config.directionCount) %
-      this.config.directionCount;
-    const cellCount = this.config.cellsX * this.config.cellsY;
-    if (data.length !== cellCount) {
-      throw new Error(
-        `Data length ${data.length} does not match cell count ${cellCount}`,
-      );
+    const result: [number, number, number, number] = [0, 0, 0, 0];
+    for (let c = 0; c < 4; c++) {
+      const v0 = v00[c] + (v10[c] - v00[c]) * fx;
+      const v1 = v01[c] + (v11[c] - v01[c]) * fx;
+      result[c] = v0 + (v1 - v0) * fy;
     }
-    this.data[dir] = data;
+
+    return result;
   }
 
   /**
@@ -288,22 +299,32 @@ export class InfluenceFieldGrid<T> {
 
   /**
    * Iterate over all cells in the grid for a specific direction.
-   * Calls the callback with grid coordinates and current value.
    *
    * @param directionIndex - Integer direction index
    * @param callback - Function to call for each cell
    */
   forEachCell(
     directionIndex: number,
-    callback: (gridX: number, gridY: number, value: T) => void,
+    callback: (
+      gridX: number,
+      gridY: number,
+      values: [number, number, number, number],
+    ) => void,
   ): void {
     const dir =
       ((directionIndex % this.config.directionCount) +
         this.config.directionCount) %
       this.config.directionCount;
+
     for (let y = 0; y < this.config.cellsY; y++) {
       for (let x = 0; x < this.config.cellsX; x++) {
-        callback(x, y, this.data[dir][this.getCellIndex(x, y)]);
+        const offset = this.getCellOffset(x, y, dir);
+        callback(x, y, [
+          this.data[offset],
+          this.data[offset + 1],
+          this.data[offset + 2],
+          this.data[offset + 3],
+        ]);
       }
     }
   }

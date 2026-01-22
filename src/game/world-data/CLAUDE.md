@@ -69,9 +69,8 @@ Pre-computed fields that capture how terrain affects wind and waves. Computed on
 - **Fetch Map** - Distance wind can blow over open water (affects local wave development)
 
 **Key Components:**
-- **InfluenceFieldManager** (`InfluenceFieldManager.ts`) - Orchestrates async startup computation, provides sampling API
+- **InfluenceFieldManager** (`InfluenceFieldManager.ts`) - Orchestrates async startup computation, provides sampling API, holds grids directly
 - **InfluenceFieldGrid** (`InfluenceFieldGrid.ts`) - 3D grid storing data per (x, y, direction), uses trilinear interpolation
-- **WindInfluenceField** / **SwellInfluenceField** / **FetchMap** - Typed wrappers for specific influence types
 - **propagation/** - Algorithms that ray-march from terrain to compute influence values
 
 **Async Initialization:**
@@ -119,9 +118,6 @@ Global atmospheric and oceanic conditions that drive the wind/wave system:
 | **Influence Field System** | |
 | `influence/InfluenceFieldManager.ts` | Async startup computation, sampling API |
 | `influence/InfluenceFieldGrid.ts` | 3D grid with trilinear interpolation |
-| `influence/WindInfluenceField.ts` | Wind terrain effect sampling |
-| `influence/SwellInfluenceField.ts` | Wave terrain effect sampling |
-| `influence/FetchMap.ts` | Wind fetch distance sampling |
 | `influence/PropagationConfig.ts` | Resolution and algorithm parameters |
 | `influence/propagation/*.ts` | Propagation algorithms (ray-marching) |
 | **Weather** | |

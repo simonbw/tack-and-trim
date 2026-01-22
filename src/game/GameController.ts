@@ -25,6 +25,9 @@ export class GameController extends BaseEntity {
 
   @on("add")
   onAdd() {
+    // Phase 1: Core data entities only (no visuals yet)
+    // Visual entities are added in onInfluenceFieldsReady() after computation completes
+
     // 1. Terrain first (required by InfluenceFieldManager)
     // Large island with a sheltered lagoon opening SE (away from NW wind)
     // Boat spawns at (0, 0) deep inside the lagoon
@@ -75,13 +78,18 @@ export class GameController extends BaseEntity {
     );
     this.game!.addEntity(new TerrainInfo([bayIsland]));
 
-    // 2. Influence fields (depends on terrain, used by wind/water)
+    // 2. Influence fields (depends on terrain, starts async computation)
     this.game!.addEntity(new InfluenceFieldManager());
 
-    // 3. Wind/Water systems (can query influence fields)
+    // 3. Wind/Water data systems (no rendering, graceful null handling for influence fields)
     this.game!.addEntity(new WaterInfo());
-    this.game!.addEntity(new SurfaceRenderer());
     this.game!.addEntity(new WindInfo());
+  }
+
+  @on("influenceFieldsReady")
+  onInfluenceFieldsReady() {
+    // Phase 2: Visual entities (after influence field computation completes)
+    this.game!.addEntity(new SurfaceRenderer());
     this.game!.addEntity(new WindIndicator());
     this.game!.addEntity(new WindVisualization());
 

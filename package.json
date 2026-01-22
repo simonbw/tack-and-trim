@@ -14,6 +14,7 @@
     "prettier": "prettier --write src",
     "generate-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources",
     "test": "playwright test",
+    "benchmark": "playwright test --config playwright.benchmark.config.ts",
     "docs": "typedoc"
   },
   "repository": {

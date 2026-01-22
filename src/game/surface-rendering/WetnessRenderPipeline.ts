@@ -15,14 +15,12 @@ import {
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
 import type { Viewport } from "../world-data/water/WaterInfo";
+import { WETNESS_TEXTURE_SIZE } from "./SurfaceRenderer";
 import {
-  WetnessStateShader,
-  DEFAULT_WETTING_RATE,
   DEFAULT_DRYING_RATE,
+  DEFAULT_WETTING_RATE,
+  WetnessStateShader,
 } from "./WetnessStateShader";
-
-// Wetness texture size (higher = smoother edges, more GPU memory)
-export const WETNESS_TEXTURE_SIZE = 2048;
 
 /**
  * Wetness rendering compute pipeline using ping-pong textures.

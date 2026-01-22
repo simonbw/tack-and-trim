@@ -106,8 +106,8 @@ export interface InfluenceFieldResolution {
  * cellSize: 100, directionCount: 16
  */
 export const WIND_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 200, // 200 ft cells (coarse for dev speed)
-  directionCount: 8, // 45° direction resolution
+  cellSize: 50, // 50 ft cells (high quality)
+  directionCount: 16, // 22.5° direction resolution
 };
 
 /**
@@ -116,8 +116,8 @@ export const WIND_FIELD_RESOLUTION: InfluenceFieldResolution = {
  * cellSize: 100, directionCount: 16
  */
 export const SWELL_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 200, // 200 ft cells (coarse for dev speed)
-  directionCount: 8, // 45° direction resolution
+  cellSize: 50, // 50 ft cells (high quality)
+  directionCount: 16, // 22.5° direction resolution
 };
 
 /**
@@ -126,8 +126,8 @@ export const SWELL_FIELD_RESOLUTION: InfluenceFieldResolution = {
  * cellSize: 200, directionCount: 16
  */
 export const FETCH_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 400, // 400 ft cells (coarse for dev speed)
-  directionCount: 8, // 45° direction resolution
+  cellSize: 100, // 100 ft cells (high quality)
+  directionCount: 16, // 22.5° direction resolution
 };
 
 /**

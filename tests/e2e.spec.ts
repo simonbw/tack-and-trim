@@ -8,7 +8,7 @@ test("game starts and runs without errors", async ({ page }) => {
       issues.push(msg.text());
   });
 
-  await page.goto("http://localhost:1234");
+  await page.goto("/");
 
   // Wait for game to initialize (DEBUG.game exists)
   await page.waitForFunction(() => window.DEBUG?.game, { timeout: 30000 });
@@ -27,7 +27,7 @@ test("game starts and runs without errors", async ({ page }) => {
 test("influence field propagation completes in reasonable time", async ({
   page,
 }) => {
-  await page.goto("http://localhost:1234");
+  await page.goto("/");
   await page.waitForFunction(() => window.DEBUG?.game, { timeout: 30000 });
 
   const propagationTime = await page.evaluate(() => {
