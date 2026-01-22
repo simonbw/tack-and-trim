@@ -1,12 +1,12 @@
 import { V2d } from "../../../../core/Vector";
 import { TerrainComputeCPU } from "../../terrain/cpu/TerrainComputeCPU";
-import { LandMass, TerrainDefinition } from "../../terrain/LandMass";
+import { TerrainContour, TerrainDefinition } from "../../terrain/LandMass";
 
 /**
- * Cached land mass with pre-computed polyline.
+ * Cached contour with pre-computed polyline.
  */
-interface CachedLandMass {
-  landMass: LandMass;
+interface CachedContour {
+  contour: TerrainContour;
   polyline: V2d[];
 }
 
@@ -23,51 +23,69 @@ interface CachedLandMass {
  * Why not use TerrainInfo directly?
  * - TerrainInfo.getShoreDistance() recomputes splines on every call
  * - TerrainSampler caches the subdivision work for batch queries
- * - For 10,000 queries × N land masses, this avoids redundant subdivision
+ * - For 10,000 queries × N contours, this avoids redundant subdivision
  */
 export class TerrainSampler {
   private readonly compute: TerrainComputeCPU;
-  private readonly cachedLandMasses: CachedLandMass[];
+  private readonly cachedContours: CachedContour[];
 
   constructor(definition: TerrainDefinition) {
     this.compute = new TerrainComputeCPU();
 
     // Pre-subdivide splines for efficient repeated queries
-    this.cachedLandMasses = definition.landMasses.map((landMass) => ({
-      landMass,
-      polyline: this.compute.subdivideSpline(landMass.controlPoints),
+    this.cachedContours = definition.contours.map((contour) => ({
+      contour,
+      polyline: this.compute.subdivideSpline(contour.controlPoints),
     }));
   }
 
   /**
-   * Check if a point is on land (inside any land mass).
+   * Check if a point is on land (inside any contour with height >= 0).
    */
   isLand(point: V2d): boolean {
     return this.getShoreDistance(point) < 0;
   }
 
   /**
-   * Check if a point is in water (outside all land masses).
+   * Check if a point is in water (outside all shore contours).
    */
   isWater(point: V2d): boolean {
     return this.getShoreDistance(point) >= 0;
   }
 
   /**
-   * Get signed distance from a point to the nearest coastline.
+   * Get signed distance from a point to the nearest coastline (height=0 contour).
    * Positive = in water, Negative = on land.
    *
    * Uses cached polylines for efficiency during batch queries.
    */
   getShoreDistance(point: V2d): number {
     let minDist = 10000;
-    for (const cached of this.cachedLandMasses) {
-      const dist = this.compute.computeSignedDistanceFromPolyline(
-        point,
-        cached.polyline,
-      );
-      minDist = Math.min(minDist, dist);
+
+    // First try to find shore contours (height = 0)
+    let foundShore = false;
+    for (const cached of this.cachedContours) {
+      if (cached.contour.height === 0) {
+        foundShore = true;
+        const dist = this.compute.computeSignedDistanceFromPolyline(
+          point,
+          cached.polyline,
+        );
+        minDist = Math.min(minDist, dist);
+      }
     }
+
+    // If no shore contours, use all contours
+    if (!foundShore) {
+      for (const cached of this.cachedContours) {
+        const dist = this.compute.computeSignedDistanceFromPolyline(
+          point,
+          cached.polyline,
+        );
+        minDist = Math.min(minDist, dist);
+      }
+    }
+
     return minDist;
   }
 
@@ -80,9 +98,9 @@ export class TerrainSampler {
   }
 
   /**
-   * Get the number of land masses being sampled.
+   * Get the number of contours being sampled.
    */
-  getLandMassCount(): number {
-    return this.cachedLandMasses.length;
+  getContourCount(): number {
+    return this.cachedContours.length;
   }
 }

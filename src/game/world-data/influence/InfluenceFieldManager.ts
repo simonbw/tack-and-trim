@@ -245,7 +245,7 @@ export class InfluenceFieldManager extends BaseEntity {
 
     // Get terrain info
     const terrain = TerrainInfo.fromGame(this.game);
-    const landMasses = terrain.getLandMasses();
+    const terrainDef = terrain.getTerrainDefinition();
 
     // Compute bounds from all control points
     let minX = Infinity,
@@ -253,8 +253,8 @@ export class InfluenceFieldManager extends BaseEntity {
     let minY = Infinity,
       maxY = -Infinity;
 
-    for (const lm of landMasses) {
-      for (const pt of lm.controlPoints) {
+    for (const contour of terrainDef.contours) {
+      for (const pt of contour.controlPoints) {
         minX = Math.min(minX, pt.x);
         maxX = Math.max(maxX, pt.x);
         minY = Math.min(minY, pt.y);
@@ -262,7 +262,7 @@ export class InfluenceFieldManager extends BaseEntity {
       }
     }
 
-    // If no land masses, use a default area
+    // If no contours, use a default area
     if (!Number.isFinite(minX)) {
       minX = -500;
       maxX = 500;
@@ -277,7 +277,7 @@ export class InfluenceFieldManager extends BaseEntity {
     maxY += BOUNDS_PADDING;
 
     // Create terrain sampler for propagation algorithms
-    const sampler = new TerrainSampler({ landMasses: [...landMasses] });
+    const sampler = new TerrainSampler(terrainDef);
 
     // Create grid configs with appropriate resolutions
     const windGridConfig = createGridConfig(

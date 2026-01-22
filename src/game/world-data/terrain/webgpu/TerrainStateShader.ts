@@ -2,12 +2,12 @@
  * Terrain state compute shader.
  *
  * Extends ComputeShader base class to compute terrain height using:
- * - Catmull-Rom splines for coastline definition
+ * - Catmull-Rom splines for contour definition
+ * - Floor/ceiling algorithm for height interpolation
  * - Signed distance field for inside/outside determination
- * - Smoothstep beach profile
  * - Simplex noise for rolling hills
  *
- * Output format (rgba32float, same as water):
+ * Output format (rgba32float):
  * - R: Signed height in world units (negative = underwater depth, positive = terrain height)
  * - GBA: Reserved
  */
@@ -19,7 +19,7 @@ import { TERRAIN_CONSTANTS_WGSL } from "../TerrainConstants";
 const bindings = {
   params: { type: "uniform" },
   controlPoints: { type: "storage" },
-  landMasses: { type: "storage" },
+  contours: { type: "storage" },
   outputTexture: { type: "storageTexture", format: "rgba32float" },
 } as const;
 
@@ -41,27 +41,26 @@ struct Params {
   viewportHeight: f32,
   textureSizeX: f32,
   textureSizeY: f32,
-  landMassCount: u32,
-}
-
-struct LandMassData {
-  startIndex: u32,
-  pointCount: u32,
-  peakHeight: f32,
-  beachWidth: f32,
-  hillFrequency: f32,
-  hillAmplitude: f32,
+  contourCount: u32,
+  defaultDepth: f32,
   _padding1: f32,
   _padding2: f32,
+  _padding3: f32,
+}
+
+struct ContourData {
+  pointStartIndex: u32,
+  pointCount: u32,
+  height: f32,
+  hillFrequency: f32,
+  hillAmplitude: f32,
+  _padding: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> controlPoints: array<vec2<f32>>;
-@group(0) @binding(2) var<storage, read> landMasses: array<LandMassData>;
+@group(0) @binding(2) var<storage, read> contours: array<ContourData>;
 @group(0) @binding(3) var outputTexture: texture_storage_2d<rgba32float, write>;
-
-// Default water depth when no terrain (deep ocean)
-const DEFAULT_WATER_DEPTH: f32 = -50.0;
 
 // Include simplex 3D noise (use with z=0 for 2D noise)
 ${SIMPLEX_NOISE_3D_WGSL}
@@ -107,13 +106,13 @@ fn isLeft(a: vec2<f32>, b: vec2<f32>, p: vec2<f32>) -> f32 {
 }
 
 // ============================================================================
-// Signed distance computation for a land mass
+// Signed distance computation for a contour
 // ============================================================================
 
-fn computeSignedDistance(worldPos: vec2<f32>, lmIndex: u32) -> f32 {
-  let lm = landMasses[lmIndex];
-  let n = lm.pointCount;
-  let start = lm.startIndex;
+fn computeSignedDistance(worldPos: vec2<f32>, contourIndex: u32) -> f32 {
+  let c = contours[contourIndex];
+  let n = c.pointCount;
+  let start = c.pointStartIndex;
 
   var minDist: f32 = 1e10;
   var windingNumber: i32 = 0;
@@ -162,22 +161,92 @@ fn computeSignedDistance(worldPos: vec2<f32>, lmIndex: u32) -> f32 {
 }
 
 // ============================================================================
-// Height profile computation
+// Floor/ceiling height computation
 // ============================================================================
 
-fn computeHeightProfile(worldPos: vec2<f32>, signedDist: f32, lmIndex: u32) -> f32 {
-  let lm = landMasses[lmIndex];
-  let distInland = -signedDist;  // signedDist is negative inside
+// Returns: x = floor index (-1 if none), y = floor signed distance
+//          z = ceiling index (-1 if none), w = ceiling distance
+fn findFloorCeiling(worldPos: vec2<f32>) -> vec4<f32> {
+  var floorIndex: i32 = -1;
+  var floorDist: f32 = 0.0;
+  var ceilingIndex: i32 = -1;
+  var ceilingDist: f32 = 1e10;
 
-  // Beach smoothstep: 0 at shore, 1 at beachWidth inland
-  let beachFactor = smoothstep(0.0, lm.beachWidth, distInland);
-  let baseHeight = beachFactor * lm.peakHeight;
+  // Contours are pre-sorted by height (ascending) in the buffer
+  for (var i: u32 = 0u; i < params.contourCount; i++) {
+    let signedDist = computeSignedDistance(worldPos, i);
 
-  // Rolling hills via noise
-  let hillNoise = simplex2D(worldPos * lm.hillFrequency);
-  let hillVariation = 1.0 + hillNoise * lm.hillAmplitude;
+    if (signedDist < 0.0) {
+      // Point is inside this contour - it becomes the new floor
+      floorIndex = i32(i);
+      floorDist = signedDist;
+    } else {
+      // Point is outside this contour - potential ceiling
+      let floorHeight = select(-1e10, contours[u32(floorIndex)].height, floorIndex >= 0);
+      if (contours[i].height > floorHeight) {
+        // Track the nearest ceiling contour
+        if (signedDist < ceilingDist) {
+          ceilingIndex = i32(i);
+          ceilingDist = signedDist;
+        }
+      }
+    }
+  }
 
-  return baseHeight * hillVariation;
+  return vec4<f32>(f32(floorIndex), floorDist, f32(ceilingIndex), ceilingDist);
+}
+
+fn computeHeight(worldPos: vec2<f32>, fc: vec4<f32>) -> f32 {
+  let floorIndex = i32(fc.x);
+  let floorDist = fc.y;
+  let ceilingIndex = i32(fc.z);
+  let ceilingDist = fc.w;
+
+  // No floor - point is in deep ocean
+  if (floorIndex < 0) {
+    // If there's a ceiling, transition from default depth toward it
+    if (ceilingIndex >= 0) {
+      let ceiling = contours[u32(ceilingIndex)];
+      let transitionDist: f32 = 30.0; // Feet to transition from deep to shallow
+      let t = min(1.0, ceilingDist / transitionDist);
+      // Smoothstep for gradual transition
+      let smoothT = t * t * (3.0 - 2.0 * t);
+      return params.defaultDepth + (ceiling.height - params.defaultDepth) * (1.0 - smoothT);
+    }
+    return params.defaultDepth;
+  }
+
+  let floor = contours[u32(floorIndex)];
+
+  // Have a floor but no ceiling - point is at or above floor height
+  if (ceilingIndex < 0) {
+    // Apply hill noise based on floor contour settings
+    let noise = simplex2D(worldPos * floor.hillFrequency);
+    let hillVariation = noise * floor.hillAmplitude;
+    return floor.height + hillVariation;
+  }
+
+  let ceiling = contours[u32(ceilingIndex)];
+
+  // Have both floor and ceiling - interpolate between them
+  let distInland = -floorDist; // Convert to positive distance inside floor
+  let totalDist = distInland + ceilingDist;
+
+  if (totalDist <= 0.0) {
+    return floor.height;
+  }
+
+  // Linear interpolation factor (0 at floor boundary, 1 at ceiling boundary)
+  let t = distInland / totalDist;
+
+  // Interpolate height
+  let baseHeight = floor.height + t * (ceiling.height - floor.height);
+
+  // Apply hill noise using the ceiling's settings (scaled by transition progress)
+  let noise = simplex2D(worldPos * ceiling.hillFrequency);
+  let hillVariation = noise * ceiling.hillAmplitude * t;
+
+  return baseHeight + hillVariation;
 }
 
 // ============================================================================
@@ -202,23 +271,11 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     params.viewportTop + uv.y * params.viewportHeight
   );
 
-  // Start with default deep water
-  var terrainHeight: f32 = DEFAULT_WATER_DEPTH;
+  // Find floor and ceiling contours
+  let fc = findFloorCeiling(worldPos);
 
-  // Check each land mass
-  for (var i: u32 = 0u; i < params.landMassCount; i++) {
-    let signedDist = computeSignedDistance(worldPos, i);
-    if (signedDist < 0.0) {
-      // Inside this land mass - compute positive height above sea level
-      let height = computeHeightProfile(worldPos, signedDist, i);
-      terrainHeight = max(terrainHeight, height);
-    } else {
-      // Outside land mass - compute depth based on distance to shore
-      // Gradual slope: shallow water extends ~10ft from shore
-      let shoreDepth = -min(signedDist * 0.15, 50.0);
-      terrainHeight = max(terrainHeight, shoreDepth);
-    }
-  }
+  // Compute height from floor/ceiling
+  let terrainHeight = computeHeight(worldPos, fc);
 
   // Store signed height directly (negative = underwater, positive = above water)
   textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(terrainHeight, 0.0, 0.0, 1.0));

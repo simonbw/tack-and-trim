@@ -22,7 +22,7 @@ import type {
   ReadbackViewport,
 } from "../datatiles/DataTileTypes";
 import { TerrainComputeCPU } from "./cpu/TerrainComputeCPU";
-import { LandMass, TerrainDefinition } from "./LandMass";
+import { TerrainContour, TerrainDefinition } from "./LandMass";
 import { TERRAIN_TILE_RESOLUTION, TERRAIN_TILE_SIZE } from "./TerrainConstants";
 import { isTerrainQuerier } from "./TerrainQuerier";
 import { TerrainComputeBuffers } from "./webgpu/TerrainComputeBuffers";
@@ -85,7 +85,7 @@ export class TerrainInfo extends BaseEntity {
     return terrainInfo instanceof TerrainInfo ? terrainInfo : undefined;
   }
 
-  // Terrain definition (land masses)
+  // Terrain definition (contours)
   private terrainDefinition: TerrainDefinition;
 
   // Version number - increments when terrain changes
@@ -106,9 +106,9 @@ export class TerrainInfo extends BaseEntity {
   // CPU fallback
   private cpuFallback: TerrainComputeCPU;
 
-  constructor(landMasses: LandMass[] = []) {
+  constructor(contours: TerrainContour[] = []) {
     super();
-    this.terrainDefinition = { landMasses };
+    this.terrainDefinition = { contours };
     this.cpuFallback = new TerrainComputeCPU();
 
     // Create shared buffers (will be initialized with terrain data in onAfterAdded)
@@ -185,7 +185,7 @@ export class TerrainInfo extends BaseEntity {
    * Get terrain height at a given world position.
    * Uses GPU tiles when available, falls back to CPU.
    *
-   * @returns Height in feet above water level (0 for points in water)
+   * @returns Height in feet (negative = underwater, positive = above water)
    */
   getHeightAtPoint(point: V2d): number {
     // Try GPU path
@@ -209,35 +209,64 @@ export class TerrainInfo extends BaseEntity {
   }
 
   /**
-   * Add a land mass to the terrain.
+   * Add a contour to the terrain.
    */
-  addLandMass(landMass: LandMass): void {
-    this.terrainDefinition.landMasses.push(landMass);
+  addContour(contour: TerrainContour): void {
+    this.terrainDefinition.contours.push(contour);
     this.sharedBuffers?.updateTerrainData(this.terrainDefinition);
     this.version++;
     this.computedTileVersions.clear(); // Invalidate all cached tiles
   }
 
   /**
-   * Get all land masses.
+   * Get all contours.
    */
-  getLandMasses(): readonly LandMass[] {
-    return this.terrainDefinition.landMasses;
+  getContours(): readonly TerrainContour[] {
+    return this.terrainDefinition.contours;
   }
 
   /**
-   * Get signed distance from a point to the nearest coastline.
+   * Get the terrain definition.
+   */
+  getTerrainDefinition(): TerrainDefinition {
+    return this.terrainDefinition;
+  }
+
+  /**
+   * Get signed distance from a point to the nearest coastline (height=0 contour).
    * Positive = in water, Negative = on land.
    */
   getShoreDistance(point: V2d): number {
     let minSignedDist = Infinity;
-    for (const landMass of this.terrainDefinition.landMasses) {
-      const signedDist = this.cpuFallback.computeSignedDistance(
-        point,
-        landMass,
-      );
-      minSignedDist = Math.min(minSignedDist, signedDist);
+
+    // Find all shore contours (height = 0) and compute distance to them
+    for (const contour of this.terrainDefinition.contours) {
+      if (contour.height === 0) {
+        const polyline = this.cpuFallback.subdivideSpline(
+          contour.controlPoints,
+        );
+        const signedDist = this.cpuFallback.computeSignedDistanceFromPolyline(
+          point,
+          polyline,
+        );
+        minSignedDist = Math.min(minSignedDist, signedDist);
+      }
     }
+
+    // If no shore contours, find the nearest contour boundary
+    if (minSignedDist === Infinity) {
+      for (const contour of this.terrainDefinition.contours) {
+        const polyline = this.cpuFallback.subdivideSpline(
+          contour.controlPoints,
+        );
+        const signedDist = this.cpuFallback.computeSignedDistanceFromPolyline(
+          point,
+          polyline,
+        );
+        minSignedDist = Math.min(minSignedDist, signedDist);
+      }
+    }
+
     return minSignedDist === Infinity ? 10000 : minSignedDist;
   }
 

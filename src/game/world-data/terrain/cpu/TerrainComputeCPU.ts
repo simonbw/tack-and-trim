@@ -1,12 +1,35 @@
 import { createNoise2D, NoiseFunction2D } from "simplex-noise";
 import { V, V2d } from "../../../../core/Vector";
-import { LandMass, TerrainDefinition } from "../LandMass";
-import { SPLINE_SUBDIVISIONS } from "../TerrainConstants";
+import { TerrainContour, TerrainDefinition } from "../LandMass";
+import { DEFAULT_DEPTH, SPLINE_SUBDIVISIONS } from "../TerrainConstants";
+
+/**
+ * Cached contour with pre-computed polyline for efficient queries.
+ */
+interface CachedContour {
+  contour: TerrainContour;
+  polyline: V2d[];
+}
+
+/**
+ * Floor/ceiling result for interpolation.
+ */
+interface FloorCeilingResult {
+  floor: CachedContour | null;
+  floorDist: number; // Signed distance to floor contour
+  ceiling: CachedContour | null;
+  ceilingDist: number; // Unsigned distance to ceiling contour
+}
 
 /**
  * CPU implementation of terrain height computation.
- * Used as fallback when GPU tiles aren't available.
- * Math must match GPU implementation exactly.
+ * Uses floor/ceiling algorithm for contour-based terrain.
+ *
+ * Algorithm:
+ * 1. Compute signed distance to all contours
+ * 2. Floor = highest-height contour the point is INSIDE
+ * 3. Ceiling = lowest-height contour the point is OUTSIDE with height > floor
+ * 4. Interpolate between floor and ceiling based on distance ratio
  */
 export class TerrainComputeCPU {
   private hillNoise: NoiseFunction2D;
@@ -17,65 +40,145 @@ export class TerrainComputeCPU {
 
   /**
    * Compute terrain height at a world point.
-   * Returns 0 for points in water, positive for land.
+   * Returns negative for underwater depths, positive for land heights.
    */
   computeHeightAtPoint(point: V2d, definition: TerrainDefinition): number {
-    let maxHeight = 0;
+    const defaultDepth = definition.defaultDepth ?? DEFAULT_DEPTH;
 
-    for (const landMass of definition.landMasses) {
-      const signedDist = this.computeSignedDistance(point, landMass);
+    // Sort contours by height (ascending) for floor/ceiling algorithm
+    const sortedContours = this.getSortedCachedContours(definition);
+
+    // Find floor and ceiling
+    const result = this.findFloorCeiling(point, sortedContours);
+
+    // Compute height based on floor/ceiling
+    return this.computeHeightFromFloorCeiling(point, result, defaultDepth);
+  }
+
+  /**
+   * Get contours sorted by height with pre-computed polylines.
+   */
+  private getSortedCachedContours(
+    definition: TerrainDefinition,
+  ): CachedContour[] {
+    // Sort by height ascending
+    const sorted = [...definition.contours].sort((a, b) => a.height - b.height);
+
+    return sorted.map((contour) => ({
+      contour,
+      polyline: this.subdivideSpline(contour.controlPoints),
+    }));
+  }
+
+  /**
+   * Find the floor and ceiling contours for a point.
+   * Floor = highest contour the point is inside
+   * Ceiling = lowest contour the point is outside, with height > floor height
+   */
+  private findFloorCeiling(
+    point: V2d,
+    sortedContours: CachedContour[],
+  ): FloorCeilingResult {
+    let floor: CachedContour | null = null;
+    let floorDist = 0;
+    let ceiling: CachedContour | null = null;
+    let ceilingDist = Infinity;
+
+    // Contours are sorted by height ascending
+    for (const cached of sortedContours) {
+      const signedDist = this.signedDistanceToPolyline(point, cached.polyline);
 
       if (signedDist < 0) {
-        // Inside land mass
-        const height = this.computeHeightProfile(point, signedDist, landMass);
-        maxHeight = Math.max(maxHeight, height);
+        // Point is inside this contour - it becomes the new floor
+        // (since we iterate ascending, later floors override earlier ones)
+        floor = cached;
+        floorDist = signedDist;
+      } else {
+        // Point is outside this contour
+        // It could be a ceiling candidate if its height > floor height
+        const floorHeight = floor?.contour.height ?? -Infinity;
+        if (cached.contour.height > floorHeight) {
+          // This is a potential ceiling - track the nearest one
+          if (signedDist < ceilingDist) {
+            ceiling = cached;
+            ceilingDist = signedDist;
+          }
+        }
       }
     }
 
-    return maxHeight;
+    return { floor, floorDist, ceiling, ceilingDist };
   }
 
   /**
-   * Compute signed distance to land mass boundary.
-   * Negative = inside, Positive = outside (in water)
+   * Compute height from floor/ceiling using interpolation.
    */
-  computeSignedDistance(point: V2d, landMass: LandMass): number {
-    const segments = this.subdivideSpline(landMass.controlPoints);
-    return this.signedDistanceToPolyline(point, segments);
+  private computeHeightFromFloorCeiling(
+    point: V2d,
+    result: FloorCeilingResult,
+    defaultDepth: number,
+  ): number {
+    const { floor, floorDist, ceiling, ceilingDist } = result;
+
+    // No floor - point is in deep ocean
+    if (!floor) {
+      // If there's a ceiling, transition from default depth toward it
+      if (ceiling) {
+        const transitionDist = 30; // Feet to transition from deep to shallow
+        const t = Math.min(1, ceilingDist / transitionDist);
+        // Smoothstep for gradual transition
+        const smoothT = t * t * (3 - 2 * t);
+        return (
+          defaultDepth + (ceiling.contour.height - defaultDepth) * (1 - smoothT)
+        );
+      }
+      return defaultDepth;
+    }
+
+    // Have a floor but no ceiling - point is at or above floor height
+    if (!ceiling) {
+      // Apply hill noise based on floor contour settings
+      const noise = this.hillNoise(
+        point.x * floor.contour.hillFrequency,
+        point.y * floor.contour.hillFrequency,
+      );
+      const hillVariation = noise * floor.contour.hillAmplitude;
+      return floor.contour.height + hillVariation;
+    }
+
+    // Have both floor and ceiling - interpolate between them
+    const distInland = -floorDist; // Convert to positive distance inside floor
+    const totalDist = distInland + ceilingDist;
+
+    if (totalDist <= 0) {
+      return floor.contour.height;
+    }
+
+    // Linear interpolation factor (0 at floor boundary, 1 at ceiling boundary)
+    const t = distInland / totalDist;
+
+    // Interpolate height
+    const baseHeight =
+      floor.contour.height +
+      t * (ceiling.contour.height - floor.contour.height);
+
+    // Apply hill noise using the ceiling's settings (since we're transitioning toward it)
+    const noise = this.hillNoise(
+      point.x * ceiling.contour.hillFrequency,
+      point.y * ceiling.contour.hillFrequency,
+    );
+    const hillVariation = noise * ceiling.contour.hillAmplitude * t; // Scale noise by transition progress
+
+    return baseHeight + hillVariation;
   }
 
   /**
-   * Compute signed distance from a pre-computed polyline.
-   * Used for batch queries where the polyline is cached.
-   * Negative = inside, Positive = outside (in water)
+   * Compute signed distance from a point to a contour.
+   * Used for batch queries where the polyline is cached externally.
+   * Negative = inside, Positive = outside
    */
   computeSignedDistanceFromPolyline(point: V2d, polyline: V2d[]): number {
     return this.signedDistanceToPolyline(point, polyline);
-  }
-
-  /**
-   * Compute height based on distance from shore.
-   */
-  private computeHeightProfile(
-    point: V2d,
-    signedDist: number,
-    landMass: LandMass,
-  ): number {
-    // signedDist is negative inside (distance from shore inward)
-    const distInland = -signedDist;
-
-    // Beach profile: smoothstep from 0 at shore to 1 at beachWidth
-    const beachFactor = smoothstep(0, landMass.beachWidth, distInland);
-    const baseHeight = beachFactor * landMass.peakHeight;
-
-    // Rolling hills via noise
-    const hillNoise = this.hillNoise(
-      point.x * landMass.hillFrequency,
-      point.y * landMass.hillFrequency,
-    );
-    const hillVariation = 1 + hillNoise * landMass.hillAmplitude;
-
-    return baseHeight * hillVariation;
   }
 
   /**
@@ -155,15 +258,6 @@ function catmullRomPoint(p0: V2d, p1: V2d, p2: V2d, p3: V2d, t: number): V2d {
       (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
 
   return V(x, y);
-}
-
-/**
- * Smoothstep interpolation.
- * Returns 0 when x <= edge0, 1 when x >= edge1, smooth interpolation between.
- */
-function smoothstep(edge0: number, edge1: number, x: number): number {
-  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
-  return t * t * (3 - 2 * t);
 }
 
 /**

@@ -9,12 +9,10 @@ import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import {
   TerrainDefinition,
   buildTerrainGPUData,
-  FLOATS_PER_LANDMASS,
+  validateTerrainDefinition,
+  FLOATS_PER_CONTOUR,
 } from "../LandMass";
-
-// Constants for terrain data limits
-export const MAX_CONTROL_POINTS = 1024;
-export const MAX_LANDMASSES = 32;
+import { MAX_CONTROL_POINTS, MAX_CONTOURS } from "../TerrainConstants";
 
 /**
  * Parameters for terrain compute shader.
@@ -26,7 +24,8 @@ export interface TerrainComputeParams {
   viewportWidth: number;
   viewportHeight: number;
   textureSize: number;
-  landMassCount: number;
+  contourCount: number;
+  defaultDepth: number;
 }
 
 /**
@@ -38,9 +37,10 @@ export interface TerrainComputeParams {
 export class TerrainComputeBuffers {
   readonly paramsBuffer: GPUBuffer;
   readonly controlPointsBuffer: GPUBuffer;
-  readonly landMassBuffer: GPUBuffer;
+  readonly contourBuffer: GPUBuffer;
 
-  private landMassCount: number = 0;
+  private contourCount: number = 0;
+  private defaultDepth: number = -50;
 
   constructor() {
     const device = getWebGPU().device;
@@ -54,9 +54,11 @@ export class TerrainComputeBuffers {
     //   16-19: viewportHeight (f32)
     //   20-23: textureSizeX (f32)
     //   24-27: textureSizeY (f32)
-    //   28-31: landMassCount (u32)
+    //   28-31: contourCount (u32)
+    //   32-35: defaultDepth (f32)
+    //   36-47: padding (for 16-byte alignment)
     this.paramsBuffer = device.createBuffer({
-      size: 32,
+      size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Terrain Params Buffer",
     });
@@ -69,12 +71,12 @@ export class TerrainComputeBuffers {
       label: "Terrain Control Points Buffer",
     });
 
-    // Land mass metadata storage buffer
-    // 8 floats per land mass
-    this.landMassBuffer = device.createBuffer({
-      size: MAX_LANDMASSES * FLOATS_PER_LANDMASS * 4,
+    // Contour metadata storage buffer
+    // 6 floats per contour (24 bytes)
+    this.contourBuffer = device.createBuffer({
+      size: MAX_CONTOURS * FLOATS_PER_CONTOUR * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: "Terrain Land Mass Buffer",
+      label: "Terrain Contour Buffer",
     });
   }
 
@@ -83,17 +85,22 @@ export class TerrainComputeBuffers {
    * Call this when terrain changes (e.g., level loading).
    */
   updateTerrainData(definition: TerrainDefinition): void {
+    // Validate terrain definition and log warnings
+    validateTerrainDefinition(definition);
+
     const device = getWebGPU().device;
-    const { controlPointsData, landMassData } = buildTerrainGPUData(definition);
+    const { controlPointsData, contourData, contourCount, defaultDepth } =
+      buildTerrainGPUData(definition);
 
     device.queue.writeBuffer(
       this.controlPointsBuffer,
       0,
       controlPointsData.buffer,
     );
-    // landMassData is already an ArrayBuffer (not Float32Array) since it has mixed u32/f32 fields
-    device.queue.writeBuffer(this.landMassBuffer, 0, landMassData);
-    this.landMassCount = definition.landMasses.length;
+    // contourData is already an ArrayBuffer (not Float32Array) since it has mixed u32/f32 fields
+    device.queue.writeBuffer(this.contourBuffer, 0, contourData);
+    this.contourCount = contourCount;
+    this.defaultDepth = defaultDepth;
   }
 
   /**
@@ -102,9 +109,10 @@ export class TerrainComputeBuffers {
   updateParams(params: TerrainComputeParams): void {
     const device = getWebGPU().device;
 
-    const paramsData = new ArrayBuffer(32);
-    const floats = new Float32Array(paramsData, 0, 7);
+    const paramsData = new ArrayBuffer(48);
+    const floats = new Float32Array(paramsData, 0, 8);
     const uints = new Uint32Array(paramsData, 28, 1);
+    const floats2 = new Float32Array(paramsData, 32, 1);
 
     floats[0] = params.time;
     floats[1] = params.viewportLeft;
@@ -113,16 +121,24 @@ export class TerrainComputeBuffers {
     floats[4] = params.viewportHeight;
     floats[5] = params.textureSize;
     floats[6] = params.textureSize;
-    uints[0] = params.landMassCount;
+    uints[0] = params.contourCount;
+    floats2[0] = params.defaultDepth;
 
     device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
   }
 
   /**
-   * Get the current land mass count.
+   * Get the current contour count.
    */
-  getLandMassCount(): number {
-    return this.landMassCount;
+  getContourCount(): number {
+    return this.contourCount;
+  }
+
+  /**
+   * Get the default depth.
+   */
+  getDefaultDepth(): number {
+    return this.defaultDepth;
   }
 
   /**
@@ -131,6 +147,6 @@ export class TerrainComputeBuffers {
   destroy(): void {
     this.paramsBuffer.destroy();
     this.controlPointsBuffer.destroy();
-    this.landMassBuffer.destroy();
+    this.contourBuffer.destroy();
   }
 }

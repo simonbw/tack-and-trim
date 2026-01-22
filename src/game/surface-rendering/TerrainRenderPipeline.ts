@@ -12,7 +12,10 @@ import {
 } from "../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
-import { LandMass, TerrainDefinition } from "../world-data/terrain/LandMass";
+import {
+  TerrainContour,
+  TerrainDefinition,
+} from "../world-data/terrain/LandMass";
 import { TerrainComputeBuffers } from "../world-data/terrain/webgpu/TerrainComputeBuffers";
 import { TERRAIN_TEXTURE_SIZE } from "./SurfaceRenderer";
 import { TerrainStateShader } from "../world-data/terrain/webgpu/TerrainStateShader";
@@ -73,7 +76,7 @@ export class TerrainRenderPipeline {
     this.bindGroup = this.shader.createBindGroup({
       params: { buffer: this.buffers.paramsBuffer },
       controlPoints: { buffer: this.buffers.controlPointsBuffer },
-      landMasses: { buffer: this.buffers.landMassBuffer },
+      contours: { buffer: this.buffers.contourBuffer },
       outputTexture: this.outputTextureView,
     });
 
@@ -81,19 +84,19 @@ export class TerrainRenderPipeline {
   }
 
   /**
-   * Update terrain definition (land masses).
+   * Update terrain definition (contours).
    */
   setTerrainDefinition(definition: TerrainDefinition): void {
     this.buffers?.updateTerrainData(definition);
   }
 
   /**
-   * Add a land mass to the terrain.
+   * Add a contour to the terrain.
    * Not supported - use setTerrainDefinition instead.
    */
-  addLandMass(_landMass: LandMass): void {
+  addContour(_contour: TerrainContour): void {
     throw new Error(
-      "TerrainRenderPipeline.addLandMass is not supported. Use setTerrainDefinition instead.",
+      "TerrainRenderPipeline.addContour is not supported. Use setTerrainDefinition instead.",
     );
   }
 
@@ -113,8 +116,8 @@ export class TerrainRenderPipeline {
     }
 
     // Early exit if no terrain data - skip GPU compute entirely
-    const landMassCount = this.buffers.getLandMassCount();
-    if (landMassCount === 0) {
+    const contourCount = this.buffers.getContourCount();
+    if (contourCount === 0) {
       return;
     }
 
@@ -128,7 +131,8 @@ export class TerrainRenderPipeline {
       viewportWidth: viewport.width,
       viewportHeight: viewport.height,
       textureSize: this.textureSize,
-      landMassCount,
+      contourCount,
+      defaultDepth: this.buffers.getDefaultDepth(),
     });
 
     // Create command encoder
@@ -175,7 +179,7 @@ export class TerrainRenderPipeline {
    * Check if terrain data has been loaded.
    */
   hasTerrainData(): boolean {
-    return (this.buffers?.getLandMassCount() ?? 0) > 0;
+    return (this.buffers?.getContourCount() ?? 0) > 0;
   }
 
   /**

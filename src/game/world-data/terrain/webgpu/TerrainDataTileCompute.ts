@@ -60,7 +60,7 @@ export class TerrainDataTileCompute implements DataTileCompute {
     this.bindGroup = this.shader.createBindGroup({
       params: { buffer: this.buffers.paramsBuffer },
       controlPoints: { buffer: this.buffers.controlPointsBuffer },
-      landMasses: { buffer: this.buffers.landMassBuffer },
+      contours: { buffer: this.buffers.contourBuffer },
       outputTexture: this.outputTexture.createView(),
     });
   }
@@ -89,7 +89,8 @@ export class TerrainDataTileCompute implements DataTileCompute {
       viewportWidth: width,
       viewportHeight: height,
       textureSize: this.textureSize,
-      landMassCount: this.buffers.getLandMassCount(),
+      contourCount: this.buffers.getContourCount(),
+      defaultDepth: this.buffers.getDefaultDepth(),
     });
 
     // Create and submit compute pass

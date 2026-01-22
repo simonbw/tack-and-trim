@@ -116,7 +116,7 @@ export const WIND_FIELD_RESOLUTION: InfluenceFieldResolution = {
  * cellSize: 100, directionCount: 16
  */
 export const SWELL_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 32, // 32 ft cells (high quality)
+  cellSize: 16, // 32 ft cells (high quality)
   directionCount: 16, // 22.5° direction resolution
 };
 
