@@ -286,11 +286,11 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
     let waterColor = renderWater(rawHeight, normal, worldPos, waterDepth);
     var blendedColor = mix(sandColor, waterColor, blendFactor);
 
-    // Foam at water's edge
-    let foamThreshold = 0.3;
-    let foamIntensity = smoothstep(foamThreshold, 0.0, waterDepth);
-    let foamNoise = hash21(worldPos * 8.0);
-    let foam = foamIntensity * smoothstep(0.3, 0.6, foamNoise);
+    // Foam at water's edge (sharp line)
+    let foamThreshold = 0.15;
+    let foamIntensity = smoothstep(foamThreshold, 0.02, waterDepth);
+    let foamNoise = hash21(worldPos * 5.0);
+    let foam = foamIntensity * smoothstep(0.15, 0.4, foamNoise);
     let foamColor = vec3<f32>(0.95, 0.98, 1.0);
     blendedColor = mix(blendedColor, foamColor, foam * 0.7);
 
