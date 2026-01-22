@@ -36,7 +36,7 @@ This is a custom 2D game engine built on TypeScript, with three main technology 
 
 The engine follows an Entity-based architecture where everything in the game extends `BaseEntity` and implements the `Entity` interface:
 
-- **Game class** (`src/core/Game.ts:29`) - Top-level controller managing the game loop, entities, physics, rendering, and input
+- **Game class** (`src/core/Game.ts:28`) - Top-level controller managing the game loop, entities, physics, rendering, and input
 - **Entity interface** (`src/core/entity/Entity.ts:27`) - Core interface for all game objects with lifecycle hooks
 - **EntityList** - Manages entity collections with tag-based querying
 - **Event System** - Entities respond to game events like `onTick`, `onRender`, `onAdd`, `onDestroy`

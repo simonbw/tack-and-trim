@@ -51,9 +51,9 @@ There are a few big libraries in it that do the heavy lifting.
 
 The code for this project is written in [TypeScript](https://www.typescriptlang.org/), a superset of JavaScript that adds static type analysis.
 
-### Pixi.js
+### Custom WebGPU Renderer
 
-This game uses a 2d rendering engine called [Pixi.js](https://pixijs.com/).
+This game uses a custom WebGPU-based 2D renderer with immediate-mode rendering and batched draw calls.
 
 ### Physics Engine
 

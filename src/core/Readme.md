@@ -42,16 +42,6 @@ this.body.addShape(shape);
 
 If you want to give an entity multiple bodies, you can use the `bodies` field instead.
 
-### Sprite
-
-If you want an entity to have a visual representation in the world, you can give it a `sprite`.
-
-```TypeScript
-this.sprite = Sprite.from(imageName("favicon"));
-```
-
-_Note: `imageName` is a helper function that limits the string type to only names of images found in our `resources/` folder. It's really handy for autocomplete_
-
 ### Events
 
 Entities respond to game events by implementing handler methods decorated with `@on`.
@@ -63,7 +53,7 @@ import { on } from "./entity/handler";
 
 #### `@on("add")`
 
-Called when added to the game, before dealing with the body, sprite, handlers, or anything else.
+Called when added to the game, before dealing with the body, handlers, or anything else.
 Useful for initializing stuff that you need access to the `game` for.
 
 #### `@on("tick")`
@@ -83,12 +73,14 @@ If you want an entity to do something every frame, put that logic in the `onTick
 #### `@on("render")`
 
 Called on every frame right before the screen is redrawn.
-Useful for logic like updating the position of the sprite.
+Useful for drawing visual representations of entities.
 
 ```TypeScript
   @on("render")
-  onRender({ dt }: { dt: number }) {
-    this.sprite?.position.set(...this.body.position);
+  onRender({ dt, draw }: GameEventMap["render"]) {
+    draw.at({ pos: this.body.position, angle: this.body.angle }, () => {
+      draw.fillCircle(0, 0, this.radius, { color: 0xff4422 });
+    });
   }
 ```
 
@@ -156,11 +148,61 @@ If you try to add an entity to the game with the same `id` as one that is alread
 
 ## Graphics
 
-The rendering system is built on [Pixi.js](https://pixijs.com/) with a layer-based architecture for controlling render order.
+The rendering system is built on a **custom WebGPU renderer** with an immediate-mode `Draw` API and a layer-based architecture for controlling render order.
+
+### Immediate-Mode Rendering
+
+Unlike retained-mode systems (like Pixi.js) where you create sprite objects that persist, this engine uses **immediate-mode rendering**. You draw directly each frame using the `Draw` API in your `@on("render")` handler.
+
+```TypeScript
+@on("render")
+onRender({ draw }: GameEventMap["render"]) {
+  // Draw directly each frame - no sprite objects to manage
+  draw.at({ pos: this.body.position, angle: this.body.angle }, () => {
+    draw.fillCircle(0, 0, this.radius, { color: 0xff4422 });
+    draw.strokePolygon(this.vertices, { color: 0x00ff00, width: 2 });
+  });
+}
+```
+
+### Draw API
+
+The `Draw` class provides methods for rendering shapes, images, and paths:
+
+#### Transform Context
+
+```TypeScript
+// Apply a transform for all drawing operations within the callback
+draw.at({ pos: V(100, 200), angle: Math.PI / 4 }, () => {
+  // All drawing here is relative to (100, 200) rotated 45 degrees
+  draw.fillCircle(0, 0, 10);
+});
+```
+
+#### Shapes
+
+```TypeScript
+// Circles
+draw.fillCircle(x, y, radius, { color: 0xff0000, layerName: "main" });
+draw.strokeCircle(x, y, radius, { color: 0x00ff00, width: 2 });
+
+// Rectangles
+draw.fillRect(x, y, width, height, { color: 0x0000ff });
+draw.strokeRect(x, y, width, height, { color: 0xffff00, width: 1 });
+
+// Polygons (array of V2d vertices)
+draw.fillPolygon(vertices, { color: 0xff00ff });
+draw.strokePolygon(vertices, { color: 0x00ffff, width: 2 });
+
+// Lines
+draw.line(start, end, { color: 0xffffff, width: 1 });
+```
+
+All draw methods accept an optional `layerName` parameter to control render order.
 
 ### Layers
 
-Sprites are organized into **layers** that determine their render order. Layers are defined in `src/config/layers.ts`:
+Drawing operations can specify which **layer** they render in. Layers are defined in `src/config/layers.ts`:
 
 ```TypeScript
 export const LAYERS = {
@@ -173,26 +215,11 @@ export const LAYERS = {
 };
 ```
 
-Sprites in earlier layers render behind sprites in later layers.
-
-### GameSprite
-
-`GameSprite` extends Pixi's Container with a `layerName` property to specify which layer it renders in:
+Earlier layers render behind later layers. Specify the layer in draw calls:
 
 ```TypeScript
-import { loadGameSprite, createGraphics } from "core/entity/GameSprite";
-
-// Load an image as a sprite
-this.sprite = loadGameSprite("boat", "hull", {
-  anchor: [0.5, 0.5],
-  size: [100, 50]
-});
-
-// Create a graphics object for drawing
-this.debugGraphics = createGraphics("debugHud");
+draw.fillCircle(x, y, radius, { color: 0xff0000, layerName: "water" });
 ```
-
-When an entity with a `sprite` property is added to the game, the sprite is automatically added to the renderer. When the entity is destroyed, the sprite is automatically removed.
 
 ### Camera
 
@@ -207,16 +234,6 @@ const worldPos = game.renderer.camera.toWorldCoords(screenPos);
 ```
 
 Layers can have different parallax values. A parallax of `V(0, 0)` means the layer stays fixed to the screen (like a HUD), while `V(1, 1)` moves 1:1 with the camera.
-
-### Helper Functions
-
-```TypeScript
-import { loadGameSprite, createGraphics, createEmptySprite } from "core/entity/GameSprite";
-
-loadGameSprite(imageName, layerName, options)  // Load image as sprite
-createGraphics(layerName)                       // Create Graphics object
-createEmptySprite(layerName)                    // Create empty Container
-```
 
 ## IO
 
