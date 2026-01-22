@@ -251,8 +251,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     }
 
     // Use precomputed normalized flow direction (from neighbor to current cell)
-    let normFlowDirX = NEIGHBOR_NORM_DX[i];
-    let normFlowDirY = NEIGHBOR_NORM_DY[i];
+    // Note: NEIGHBOR_NORM_DX/DY store offsets (neighbor position relative to current),
+    // so we negate to get the direction FROM neighbor TO current cell
+    let normFlowDirX = -NEIGHBOR_NORM_DX[i];
+    let normFlowDirY = -NEIGHBOR_NORM_DY[i];
 
     // How aligned is the flow with the source direction?
     // alignment = 1 when flowing directly with source, -1 when against

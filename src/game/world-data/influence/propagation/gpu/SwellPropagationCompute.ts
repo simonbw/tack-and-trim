@@ -311,7 +311,12 @@ export class SwellPropagationCompute {
     timing.gpuWaitMs = 0;
 
     // Track which buffer has the final result
-    this.lastResultInBufferA = !readFromA;
+    // After the loop, readFromA has been flipped one extra time.
+    // The last iteration wrote to A if readFromA was false (used BtoA),
+    // or to B if readFromA was true (used AtoB).
+    // Since we flip AFTER each iteration, the current readFromA tells us
+    // where the result is: true means last write was to A, false means B.
+    this.lastResultInBufferA = readFromA;
 
     timing.totalComputeMs = performance.now() - computeStart;
     this.lastTiming = timing;
@@ -458,6 +463,7 @@ export class SwellPropagationCompute {
       this.readbackArrivalBuffer.getMappedRange().slice(0),
     );
     this.readbackArrivalBuffer.unmap();
+
     if (this.lastTiming) {
       this.lastTiming.readbackReadMs = performance.now() - t0;
       this.lastTiming.totalReadbackMs = performance.now() - readbackStart;

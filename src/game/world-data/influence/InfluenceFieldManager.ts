@@ -30,16 +30,8 @@ import {
   type SwellInfluence,
   type WindInfluence,
 } from "./InfluenceFieldTypes";
-import {
-  FETCH_FIELD_RESOLUTION,
-  LONG_SWELL_PROPAGATION_CONFIG,
-  SHORT_CHOP_PROPAGATION_CONFIG,
-  SWELL_FIELD_RESOLUTION,
-  WIND_FIELD_RESOLUTION,
-  WIND_PROPAGATION_CONFIG,
-} from "./PropagationConfig";
-import { precomputeWaterMask } from "./propagation/PropagationCore";
 import { SwellPropagationCompute } from "./propagation/gpu/SwellPropagationCompute";
+import { precomputeWaterMask } from "./propagation/PropagationCore";
 import { TerrainSampler } from "./propagation/TerrainSampler";
 import type {
   FetchWorkerResult,
@@ -50,6 +42,14 @@ import type {
   SerializablePropagationConfig,
 } from "./propagation/workers/SwellWorker";
 import type { WindWorkerResult } from "./propagation/workers/WindWorker";
+import {
+  FETCH_FIELD_RESOLUTION,
+  LONG_SWELL_PROPAGATION_CONFIG,
+  SHORT_CHOP_PROPAGATION_CONFIG,
+  SWELL_FIELD_RESOLUTION,
+  WIND_FIELD_RESOLUTION,
+  WIND_PROPAGATION_CONFIG,
+} from "./PropagationConfig";
 
 /**
  * Combined swell influence for both wavelength classes.
