@@ -39,6 +39,7 @@ import {
   WIND_PROPAGATION_CONFIG,
 } from "./PropagationConfig";
 import { precomputeWaterMask } from "./propagation/PropagationCore";
+import { SwellPropagationCompute } from "./propagation/gpu/SwellPropagationCompute";
 import { TerrainSampler } from "./propagation/TerrainSampler";
 import type {
   FetchWorkerResult,
@@ -169,6 +170,9 @@ export class InfluenceFieldManager extends BaseEntity {
   private windTimeMs: number = 0;
   private swellTimeMs: number = 0;
   private fetchTimeMs: number = 0;
+
+  // Track if GPU was used for swell computation
+  private swellUsedGPU: boolean = false;
 
   // GPU textures (created after propagation)
   private swellTexture: GPUTexture | null = null;
@@ -493,9 +497,153 @@ export class InfluenceFieldManager extends BaseEntity {
   }
 
   /**
-   * Compute swell influence field using worker pool.
+   * Check if CPU swell computation is forced via window flag or static property.
+   * Set window.__FORCE_CPU_SWELL = true before page load to force CPU mode.
+   */
+  private static shouldForceCPUSwell(): boolean {
+    return (
+      (typeof window !== "undefined" &&
+        (window as any).__FORCE_CPU_SWELL === true) ||
+      InfluenceFieldManager.FORCE_CPU_SWELL
+    );
+  }
+
+  /**
+   * Set to true to force CPU workers for swell computation even when GPU is available.
+   * Useful for benchmarking and debugging.
+   */
+  static FORCE_CPU_SWELL = false;
+
+  /**
+   * Compute swell influence field using GPU if available, otherwise workers.
    */
   private async computeSwellField(
+    sampler: TerrainSampler,
+    gridConfig: InfluenceGridConfig,
+    startTime: number,
+  ): Promise<InfluenceFieldGrid> {
+    // Try GPU path first if WebGPU is available and not forced to CPU
+    if (
+      getWebGPU().isInitialized &&
+      !InfluenceFieldManager.shouldForceCPUSwell()
+    ) {
+      try {
+        const result = await this.computeSwellFieldGPU(
+          sampler,
+          gridConfig,
+          startTime,
+        );
+        this.swellUsedGPU = true;
+        return result;
+      } catch (error) {
+        console.warn(
+          "[InfluenceFieldManager] GPU swell computation failed, falling back to workers:",
+          error,
+        );
+      }
+    }
+
+    // Fall back to worker pool
+    this.swellUsedGPU = false;
+    return this.computeSwellFieldWorkers(sampler, gridConfig, startTime);
+  }
+
+  /**
+   * Compute swell influence field using GPU compute shaders.
+   *
+   * Uses optimized 3D dispatch to process ALL 32 direction/wavelength
+   * combinations simultaneously, reducing GPU overhead dramatically.
+   */
+  private async computeSwellFieldGPU(
+    sampler: TerrainSampler,
+    gridConfig: InfluenceGridConfig,
+    startTime: number,
+  ): Promise<InfluenceFieldGrid> {
+    const { directionCount, cellsX, cellsY } = gridConfig;
+
+    // Create output grid
+    const grid = new InfluenceFieldGrid(gridConfig);
+
+    // Pre-compute water mask
+    const waterMask = precomputeWaterMask(sampler, gridConfig);
+    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
+
+    // Initialize GPU compute with 3D buffer support
+    const compute = new SwellPropagationCompute();
+    await compute.init({ cellsX, cellsY, directionCount }, waterMaskUint8);
+
+    console.log(
+      `[InfluenceFieldManager] Computing swell field on GPU (${cellsX}x${cellsY}, ${directionCount} directions × 2 wavelengths)`,
+    );
+
+    const cellCount = cellsX * cellsY;
+
+    // ONE call computes all 32 direction/wavelength combinations
+    // Use fewer iterations than CPU since GPU can't early-terminate.
+    // CPU typically converges in 108-165 iterations.
+    const gpuIterations = 150;
+    await compute.computeAll(
+      LONG_SWELL_PROPAGATION_CONFIG,
+      SHORT_CHOP_PROPAGATION_CONFIG,
+      gpuIterations,
+    );
+
+    // ONE readback gets all results
+    const { energy, arrivalDirection } = await compute.readback();
+
+    // Copy results to grid
+    // GPU buffer layout: [slice][y][x] where slice 0-15 = long, 16-31 = short
+    // Grid layout: [dir][y][x][channel] where channel 0-1 = long, 2-3 = short
+    for (let dir = 0; dir < directionCount; dir++) {
+      const longSliceOffset = dir * cellCount;
+      const shortSliceOffset = (dir + directionCount) * cellCount;
+      const gridDirOffset = dir * cellsY * cellsX * 4;
+
+      for (let j = 0; j < cellCount; j++) {
+        const gridIdx = gridDirOffset + j * 4;
+        grid.data[gridIdx + 0] = energy[longSliceOffset + j];
+        grid.data[gridIdx + 1] = arrivalDirection[longSliceOffset + j];
+        grid.data[gridIdx + 2] = energy[shortSliceOffset + j];
+        grid.data[gridIdx + 3] = arrivalDirection[shortSliceOffset + j];
+      }
+    }
+
+    // Log timing breakdown
+    const timing = compute.getTiming();
+    if (timing) {
+      const lines = [
+        `setup: ${timing.setupMs.toFixed(1)}ms`,
+        `init pass: ${timing.initPassMs.toFixed(1)}ms`,
+        `encode iterations: ${timing.encodeIterationsMs.toFixed(1)}ms`,
+        `submit: ${timing.submitMs.toFixed(1)}ms`,
+        `gpu wait: ${timing.gpuWaitMs.toFixed(1)}ms`,
+        `readback copy: ${timing.readbackCopyMs.toFixed(1)}ms`,
+        `readback map: ${timing.readbackMapMs.toFixed(1)}ms`,
+        `readback read: ${timing.readbackReadMs.toFixed(1)}ms`,
+        `TOTAL compute: ${timing.totalComputeMs.toFixed(1)}ms`,
+        `TOTAL readback: ${timing.totalReadbackMs.toFixed(1)}ms`,
+      ];
+      console.log(
+        `[InfluenceFieldManager] GPU swell timing: ${lines.join(" | ")}`,
+      );
+    }
+
+    compute.destroy();
+
+    this.swellTimeMs = performance.now() - startTime;
+    this.swellProgress = 1;
+
+    console.log(
+      `[InfluenceFieldManager] GPU swell field complete: ${this.swellTimeMs.toFixed(0)}ms`,
+    );
+
+    return grid;
+  }
+
+  /**
+   * Compute swell influence field using worker pool.
+   */
+  private async computeSwellFieldWorkers(
     sampler: TerrainSampler,
     gridConfig: InfluenceGridConfig,
     startTime: number,
@@ -944,6 +1092,14 @@ export class InfluenceFieldManager extends BaseEntity {
    */
   getFetchTimeMs(): number {
     return this.fetchTimeMs;
+  }
+
+  /**
+   * Check if GPU was used for swell computation.
+   * Returns true if GPU path was taken, false if workers were used.
+   */
+  didSwellUseGPU(): boolean {
+    return this.swellUsedGPU;
   }
 
   @on("destroy")

@@ -17,6 +17,7 @@ export class WebGPUDeviceManager {
   private _features = {
     float32Filterable: false,
     timestampQuery: false,
+    shaderF16: false,
   };
 
   private constructor() {}
@@ -73,6 +74,11 @@ export class WebGPUDeviceManager {
     if (this._adapter.features.has("timestamp-query")) {
       wantedFeatures.push("timestamp-query");
       this._features.timestampQuery = true;
+    }
+
+    if (this._adapter.features.has("shader-f16")) {
+      wantedFeatures.push("shader-f16");
+      this._features.shaderF16 = true;
     }
 
     // Request device with optional features
