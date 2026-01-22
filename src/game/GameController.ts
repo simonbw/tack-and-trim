@@ -4,6 +4,7 @@ import { V } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
+import { MooringPoint } from "./MooringPoint";
 import { CameraController } from "./CameraController";
 import { MainMenu } from "./MainMenu";
 import { createLandMass } from "./world-data/terrain/LandMass";
@@ -66,6 +67,12 @@ export class GameController extends BaseEntity {
     this.game!.addEntity(new Buoy(-160, 120));
     this.game!.addEntity(new Buoy(100, -200));
     this.game!.addEntity(new Buoy(-240, -100));
+
+    // Spawn mooring points (near dock areas and island)
+    this.game!.addEntity(new MooringPoint(60, 50)); // Near island shore
+    this.game!.addEntity(new MooringPoint(80, 80)); // Near island shore
+    this.game!.addEntity(new MooringPoint(-50, -30)); // Near starting area
+    this.game!.addEntity(new MooringPoint(-80, 60)); // Open water mooring
 
     // Spawn boat and controls
     const boat = this.game!.addEntity(new Boat());
