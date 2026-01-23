@@ -51,14 +51,23 @@ export class MouseManager {
     return this.buttons[button];
   }
 
+  private updatePosition(event: MouseEvent): void {
+    // Note: offsetX/offsetY are relative to target element with Y=0 at top
+    // This matches the screen coordinate system used by the camera
+    const target = event.target as HTMLElement;
+    const height = target.clientHeight;
+    // Flip Y to match the coordinate system expected by the camera
+    this._position = V(event.offsetX, height - event.offsetY);
+  }
+
   private onMouseMove(event: MouseEvent): void {
     this.onInputActivity();
-    this._position = V(event.clientX, event.clientY);
+    this.updatePosition(event);
   }
 
   private onClick(event: MouseEvent): void {
     this.onInputActivity();
-    this._position = V(event.clientX, event.clientY);
+    this.updatePosition(event);
     switch (event.button) {
       case MouseButtons.LEFT:
         this.dispatch("click", undefined as void);
@@ -71,7 +80,7 @@ export class MouseManager {
 
   private onMouseDown(event: MouseEvent): void {
     this.onInputActivity();
-    this._position = V(event.clientX, event.clientY);
+    this.updatePosition(event);
     this.buttons[event.button] = true;
     switch (event.button) {
       case MouseButtons.LEFT:
@@ -85,7 +94,7 @@ export class MouseManager {
 
   private onMouseUp(event: MouseEvent): void {
     this.onInputActivity();
-    this._position = V(event.clientX, event.clientY);
+    this.updatePosition(event);
     this.buttons[event.button] = false;
     switch (event.button) {
       case MouseButtons.LEFT:

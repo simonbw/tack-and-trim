@@ -13,6 +13,16 @@ This file provides guidance to Claude Code when working with this 2D sailing gam
 - **Water** (`water/`) - Gerstner wave simulation with currents and wake effects
 - **Controls** - Steering (A/D), sail trim (W/S for main, Q/E for jib), rowing (Space), anchor (F)
 
+### Terrain Editor (`src/editor/`)
+
+Standalone terrain editor for creating level terrain using contour-based definitions. Access via `src/editor.html`.
+
+- **EditorController** - Main orchestrator managing document state and file I/O
+- **ContourEditor** - Mouse interaction for selecting/moving control points
+- **ContourRenderer** - Visualization of splines and control points
+- **EditorCameraController** - Pan/zoom camera controls
+- **EditorDocument** - State management with undo/redo command pattern
+
 ## Development Commands
 
 - `npm start` - Start development server with asset watching and Parcel dev server

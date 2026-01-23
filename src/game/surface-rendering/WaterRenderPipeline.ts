@@ -6,6 +6,8 @@
  * wave + modifier data.
  *
  * Uses per-pixel influence texture sampling for terrain-aware waves.
+ * When influence textures are not provided, uses placeholder textures
+ * that provide uniform full swell and fetch values.
  */
 
 import {
@@ -22,6 +24,16 @@ import {
   DEFAULT_MAX_FETCH,
 } from "../world-data/water/webgpu/WaterComputeBuffers";
 import { WaterStateShader } from "../world-data/water/webgpu/WaterStateShader";
+
+// Default grid config for fallback influence textures
+const FALLBACK_GRID_CONFIG: InfluenceGridConfig = {
+  originX: -10000,
+  originY: -10000,
+  cellSize: 100,
+  cellsX: 200,
+  cellsY: 200,
+  directionCount: 8,
+};
 
 /**
  * Influence texture configuration for water rendering.
@@ -51,6 +63,12 @@ export class WaterRenderPipeline {
   // Influence texture references
   private influenceConfig: RenderInfluenceConfig | null = null;
 
+  // Fallback influence textures (used when no influence config provided)
+  private fallbackSwellTexture: GPUTexture | null = null;
+  private fallbackFetchTexture: GPUTexture | null = null;
+  private fallbackSampler: GPUSampler | null = null;
+  private fallbackConfig: RenderInfluenceConfig | null = null;
+
   constructor(textureSize: number = WATER_TEXTURE_SIZE) {
     this.textureSize = textureSize;
   }
@@ -79,9 +97,74 @@ export class WaterRenderPipeline {
     });
     this.outputTextureView = this.outputTexture.createView();
 
+    // Create fallback influence textures for when no influence manager is available
+    this.createFallbackInfluenceTextures();
+
     this.initialized = true;
 
-    // Bind group will be created when influence textures are set
+    // Bind group will be created when influence textures are set or when using fallbacks
+  }
+
+  /**
+   * Create fallback influence textures that provide uniform full swell/fetch values.
+   * Used when no InfluenceFieldManager is available (e.g., in the editor).
+   */
+  private createFallbackInfluenceTextures(): void {
+    const device = getWebGPU().device;
+
+    // Create 1x1x1 3D textures with full values
+    // Swell texture: RGBA = (longEnergy=1, longDir=0, shortEnergy=1, shortDir=0)
+    this.fallbackSwellTexture = device.createTexture({
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      format: "rgba32float",
+      dimension: "3d",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      label: "Fallback Swell Texture",
+    });
+
+    // Full swell energy (1.0), no direction offset (0.0)
+    device.queue.writeTexture(
+      { texture: this.fallbackSwellTexture },
+      new Float32Array([1.0, 0.0, 1.0, 0.0]),
+      { bytesPerRow: 16 },
+      { width: 1, height: 1, depthOrArrayLayers: 1 },
+    );
+
+    // Fetch texture: R = max fetch distance
+    this.fallbackFetchTexture = device.createTexture({
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      format: "rgba32float",
+      dimension: "3d",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      label: "Fallback Fetch Texture",
+    });
+
+    // Full fetch distance
+    device.queue.writeTexture(
+      { texture: this.fallbackFetchTexture },
+      new Float32Array([DEFAULT_MAX_FETCH, 0.0, 0.0, 0.0]),
+      { bytesPerRow: 16 },
+      { width: 1, height: 1, depthOrArrayLayers: 1 },
+    );
+
+    // Create sampler for fallback textures
+    this.fallbackSampler = device.createSampler({
+      magFilter: "nearest",
+      minFilter: "nearest",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+      addressModeW: "clamp-to-edge",
+    });
+
+    // Create fallback config
+    this.fallbackConfig = {
+      swellTexture: this.fallbackSwellTexture,
+      fetchTexture: this.fallbackFetchTexture,
+      influenceSampler: this.fallbackSampler,
+      swellGridConfig: FALLBACK_GRID_CONFIG,
+      fetchGridConfig: FALLBACK_GRID_CONFIG,
+      waveSourceDirection: 0,
+    };
   }
 
   /**
@@ -95,16 +178,15 @@ export class WaterRenderPipeline {
 
   /**
    * Rebuild the bind group with current textures.
+   * Uses fallback textures if no influence config is set.
    */
   private rebuildBindGroup(): void {
-    if (
-      !this.shader ||
-      !this.buffers ||
-      !this.outputTextureView ||
-      !this.influenceConfig
-    ) {
+    if (!this.shader || !this.buffers || !this.outputTextureView) {
       return;
     }
+
+    // Use provided config or fallback (fallback is always created in init)
+    const config = this.influenceConfig ?? this.fallbackConfig!;
 
     // Create bind group with all resources
     // Note: 3D textures need explicit dimension in createView()
@@ -113,13 +195,13 @@ export class WaterRenderPipeline {
       waveData: { buffer: this.buffers.waveDataBuffer },
       segments: { buffer: this.buffers.segmentsBuffer },
       outputTexture: this.outputTextureView,
-      swellTexture: this.influenceConfig.swellTexture.createView({
+      swellTexture: config.swellTexture.createView({
         dimension: "3d",
       }),
-      fetchTexture: this.influenceConfig.fetchTexture.createView({
+      fetchTexture: config.fetchTexture.createView({
         dimension: "3d",
       }),
-      influenceSampler: this.influenceConfig.influenceSampler,
+      influenceSampler: config.influenceSampler,
     });
   }
 
@@ -133,15 +215,17 @@ export class WaterRenderPipeline {
     gpuProfiler?: GPUProfiler | null,
     section: GPUProfileSection = "waterCompute",
   ): void {
-    if (
-      !this.initialized ||
-      !this.shader ||
-      !this.buffers ||
-      !this.bindGroup ||
-      !this.influenceConfig
-    ) {
+    // Build bind group with fallback textures if needed
+    if (!this.bindGroup && this.initialized) {
+      this.rebuildBindGroup();
+    }
+
+    if (!this.initialized || !this.shader || !this.buffers || !this.bindGroup) {
       return;
     }
+
+    // Use provided config or fallback (fallback is always created in init)
+    const config = this.influenceConfig ?? this.fallbackConfig!;
 
     const device = getWebGPU().device;
 
@@ -154,8 +238,8 @@ export class WaterRenderPipeline {
     const segments = waterInfo.collectShaderSegmentData(viewport);
     const segmentCount = this.buffers.updateSegments(segments);
 
-    const swellConfig = this.influenceConfig.swellGridConfig;
-    const fetchConfig = this.influenceConfig.fetchGridConfig;
+    const swellConfig = config.swellGridConfig;
+    const fetchConfig = config.fetchGridConfig;
 
     // Update params buffer with grid config for per-pixel influence sampling
     this.buffers.updateParams({
@@ -180,7 +264,7 @@ export class WaterRenderPipeline {
       fetchDirectionCount: fetchConfig.directionCount,
       // Max fetch and wave source direction
       maxFetch: DEFAULT_MAX_FETCH,
-      waveSourceDirection: this.influenceConfig.waveSourceDirection,
+      waveSourceDirection: config.waveSourceDirection,
     });
 
     // Create command encoder
@@ -237,10 +321,16 @@ export class WaterRenderPipeline {
     this.buffers?.destroy();
     this.outputTexture?.destroy();
     this.shader?.destroy();
+    this.fallbackSwellTexture?.destroy();
+    this.fallbackFetchTexture?.destroy();
     this.bindGroup = null;
     this.outputTextureView = null;
     this.buffers = null;
     this.shader = null;
+    this.fallbackSwellTexture = null;
+    this.fallbackFetchTexture = null;
+    this.fallbackSampler = null;
+    this.fallbackConfig = null;
     this.initialized = false;
   }
 }
