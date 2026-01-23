@@ -10,10 +10,49 @@
 
 import { V, V2d } from "../core/Vector";
 import {
+  ContourValidationResult,
+  isSplineInsideSpline,
+  sampleClosedSpline,
+  validateContours,
+} from "../game/world-data/terrain/SplineGeometry";
+import {
   createEmptyEditorDefinition,
   EditorContour,
   EditorTerrainDefinition,
 } from "./io/TerrainFileFormat";
+
+/**
+ * Contour hierarchy based on geometric containment.
+ */
+export interface ContourHierarchy {
+  /** Map from contour index to parent index (-1 if root) */
+  parentMap: Map<number, number>;
+  /** Map from contour index to direct children indices */
+  childrenMap: Map<number, number[]>;
+  /** Indices of root contours (no parent) */
+  roots: number[];
+}
+
+/**
+ * Compute approximate bounding box area of a spline.
+ */
+function computeBoundingBoxArea(points: readonly V2d[]): number {
+  if (points.length === 0) return 0;
+
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+
+  return (maxX - minX) * (maxY - minY);
+}
 
 /**
  * Selection state for the editor.
@@ -60,6 +99,12 @@ export class EditorDocument {
   private redoStack: EditorCommand[] = [];
   private listeners: DocumentChangeListener[] = [];
 
+  /** Cached validation results, invalidated when terrain changes */
+  private validationCache: ContourValidationResult[] | null = null;
+
+  /** Cached hierarchy, invalidated when terrain changes */
+  private hierarchyCache: ContourHierarchy | null = null;
+
   constructor(initialTerrain?: EditorTerrainDefinition) {
     this.terrainDefinition = initialTerrain ?? createEmptyEditorDefinition();
   }
@@ -80,6 +125,9 @@ export class EditorDocument {
   }
 
   private notifyTerrainChanged(): void {
+    // Invalidate caches when terrain changes
+    this.validationCache = null;
+    this.hierarchyCache = null;
     for (const listener of this.listeners) {
       listener.onTerrainChanged();
     }
@@ -123,6 +171,150 @@ export class EditorDocument {
 
   getDefaultDepth(): number {
     return this.terrainDefinition.defaultDepth;
+  }
+
+  /**
+   * Get validation results for all contours.
+   * Results are cached and recomputed when terrain changes.
+   */
+  getValidationResults(): ContourValidationResult[] {
+    if (this.validationCache === null) {
+      const controlPointArrays = this.terrainDefinition.contours.map(
+        (c) => c.controlPoints,
+      );
+      this.validationCache = validateContours(controlPointArrays);
+    }
+    return this.validationCache;
+  }
+
+  /**
+   * Check if a specific contour is valid.
+   */
+  isContourValid(contourIndex: number): boolean {
+    const results = this.getValidationResults();
+    return results[contourIndex]?.isValid ?? true;
+  }
+
+  // ==========================================
+  // Hierarchy computation
+  // ==========================================
+
+  /**
+   * Build and cache the contour hierarchy based on geometric containment.
+   * Parent is the smallest contour that fully contains a child.
+   */
+  buildHierarchy(): ContourHierarchy {
+    if (this.hierarchyCache !== null) {
+      return this.hierarchyCache;
+    }
+
+    const contours = this.terrainDefinition.contours;
+    const n = contours.length;
+
+    const parentMap = new Map<number, number>();
+    const childrenMap = new Map<number, number[]>();
+    const roots: number[] = [];
+
+    // Initialize children map
+    for (let i = 0; i < n; i++) {
+      childrenMap.set(i, []);
+    }
+
+    // Pre-sample all splines and compute their areas for efficiency
+    const sampledSplines: V2d[][] = contours.map((c) =>
+      sampleClosedSpline(c.controlPoints, 8),
+    );
+    const areas: number[] = sampledSplines.map((s) =>
+      computeBoundingBoxArea(s),
+    );
+
+    // For each contour, find the smallest containing contour
+    for (let i = 0; i < n; i++) {
+      let parentIndex = -1;
+      let parentArea = Infinity;
+
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+
+        // Check if contour i is inside contour j
+        if (
+          isSplineInsideSpline(
+            contours[i].controlPoints,
+            contours[j].controlPoints,
+            8,
+          )
+        ) {
+          // Prefer smaller containers
+          if (areas[j] < parentArea) {
+            parentIndex = j;
+            parentArea = areas[j];
+          }
+        }
+      }
+
+      parentMap.set(i, parentIndex);
+
+      if (parentIndex === -1) {
+        roots.push(i);
+      } else {
+        childrenMap.get(parentIndex)!.push(i);
+      }
+    }
+
+    this.hierarchyCache = { parentMap, childrenMap, roots };
+    return this.hierarchyCache;
+  }
+
+  /**
+   * Get the parent contour index, or -1 if root.
+   */
+  getContourParent(index: number): number {
+    const hierarchy = this.buildHierarchy();
+    return hierarchy.parentMap.get(index) ?? -1;
+  }
+
+  /**
+   * Get direct children of a contour.
+   */
+  getContourChildren(index: number): number[] {
+    const hierarchy = this.buildHierarchy();
+    return hierarchy.childrenMap.get(index) ?? [];
+  }
+
+  /**
+   * Get all descendants of a contour (recursively).
+   */
+  getContourDescendants(index: number): number[] {
+    const hierarchy = this.buildHierarchy();
+    const result: number[] = [];
+    const stack = [...(hierarchy.childrenMap.get(index) ?? [])];
+
+    while (stack.length > 0) {
+      const child = stack.pop()!;
+      result.push(child);
+      const grandchildren = hierarchy.childrenMap.get(child) ?? [];
+      stack.push(...grandchildren);
+    }
+
+    return result;
+  }
+
+  /**
+   * Get the depth of a contour in the hierarchy (0 for root).
+   */
+  getContourDepth(index: number): number {
+    const hierarchy = this.buildHierarchy();
+    let depth = 0;
+    let current = index;
+
+    while (true) {
+      const parent = hierarchy.parentMap.get(current);
+      if (parent === undefined || parent === -1) break;
+      depth++;
+      current = parent;
+    }
+
+    return depth;
   }
 
   // ==========================================
@@ -192,6 +384,21 @@ export class EditorDocument {
       this.selection.pointIndices.clear();
       this.notifySelectionChanged();
     }
+  }
+
+  /**
+   * Select a contour and all of its control points.
+   * Used when clicking on a spline without a modifier key.
+   */
+  selectAllPoints(contourIndex: number): void {
+    const contour = this.terrainDefinition.contours[contourIndex];
+    if (!contour) return;
+
+    this.selection.contourIndex = contourIndex;
+    this.selection.pointIndices = new Set(
+      contour.controlPoints.map((_, i) => i),
+    );
+    this.notifySelectionChanged();
   }
 
   isPointSelected(contourIndex: number, pointIndex: number): boolean {
@@ -275,6 +482,47 @@ export class EditorDocument {
       ...contour,
       controlPoints: points,
     };
+    this.setDirty(true);
+    this.notifyTerrainChanged();
+  }
+
+  /**
+   * Move points across multiple contours directly (used during drag).
+   * The positions map uses key format "contourIndex:pointIndex".
+   */
+  moveMultiContourPointsDirect(positions: Map<string, V2d>): void {
+    // Group by contour index
+    const byContour = new Map<number, Map<number, V2d>>();
+
+    for (const [key, pos] of positions) {
+      const [contourStr, pointStr] = key.split(":");
+      const contourIndex = parseInt(contourStr, 10);
+      const pointIndex = parseInt(pointStr, 10);
+
+      if (!byContour.has(contourIndex)) {
+        byContour.set(contourIndex, new Map());
+      }
+      byContour.get(contourIndex)!.set(pointIndex, pos);
+    }
+
+    // Apply changes
+    for (const [contourIndex, pointPositions] of byContour) {
+      const contour = this.terrainDefinition.contours[contourIndex];
+      if (!contour) continue;
+
+      const points = [...contour.controlPoints];
+      for (const [pointIndex, pos] of pointPositions) {
+        if (pointIndex >= 0 && pointIndex < points.length) {
+          points[pointIndex] = V(pos.x, pos.y);
+        }
+      }
+
+      this.terrainDefinition.contours[contourIndex] = {
+        ...contour,
+        controlPoints: points,
+      };
+    }
+
     this.setDirty(true);
     this.notifyTerrainChanged();
   }
@@ -637,5 +885,136 @@ export class SetContourPropertyCommand<K extends keyof EditorContour>
       ...contour,
       [this.property]: this.oldValue,
     };
+  }
+}
+
+/**
+ * Command to paste a contour with an offset.
+ */
+export class PasteContourCommand implements EditorCommand {
+  description = "Paste contour";
+  private pastedContour: EditorContour;
+
+  constructor(
+    private document: EditorDocument,
+    contour: EditorContour,
+    offset: V2d,
+  ) {
+    // Deep clone with offset applied
+    this.pastedContour = {
+      ...contour,
+      name: contour.name ? `${contour.name} copy` : "Contour copy",
+      controlPoints: contour.controlPoints.map((p) =>
+        V(p.x + offset.x, p.y + offset.y),
+      ),
+    };
+  }
+
+  execute(): void {
+    const definition = this.document.getTerrainDefinition();
+    definition.contours.push(this.pastedContour);
+  }
+
+  undo(): void {
+    const definition = this.document.getTerrainDefinition();
+    const index = definition.contours.indexOf(this.pastedContour);
+    if (index >= 0) {
+      definition.contours.splice(index, 1);
+    }
+  }
+
+  /**
+   * Get the index of the pasted contour (after execute).
+   */
+  getPastedIndex(): number {
+    const definition = this.document.getTerrainDefinition();
+    return definition.contours.indexOf(this.pastedContour);
+  }
+}
+
+/**
+ * Point move info for multi-contour moves.
+ */
+export interface MultiContourPointMove {
+  contourIndex: number;
+  pointIndex: number;
+  oldPosition: V2d;
+  newPosition: V2d;
+}
+
+/**
+ * Command to move points across multiple contours (for cascading moves).
+ */
+export class MoveMultiContourPointsCommand implements EditorCommand {
+  description: string;
+
+  constructor(
+    private document: EditorDocument,
+    private pointMoves: MultiContourPointMove[],
+  ) {
+    const contourCount = new Set(pointMoves.map((m) => m.contourIndex)).size;
+    const pointCount = pointMoves.length;
+    if (contourCount === 1) {
+      this.description =
+        pointCount === 1 ? "Move point" : `Move ${pointCount} points`;
+    } else {
+      this.description = `Move ${pointCount} points across ${contourCount} contours`;
+    }
+  }
+
+  execute(): void {
+    const definition = this.document.getTerrainDefinition();
+
+    // Group moves by contour for efficiency
+    const movesByContour = new Map<number, MultiContourPointMove[]>();
+    for (const move of this.pointMoves) {
+      if (!movesByContour.has(move.contourIndex)) {
+        movesByContour.set(move.contourIndex, []);
+      }
+      movesByContour.get(move.contourIndex)!.push(move);
+    }
+
+    for (const [contourIndex, moves] of movesByContour) {
+      const contour = definition.contours[contourIndex];
+      if (!contour) continue;
+
+      const points = [...contour.controlPoints];
+      for (const move of moves) {
+        points[move.pointIndex] = V(move.newPosition.x, move.newPosition.y);
+      }
+
+      definition.contours[contourIndex] = {
+        ...contour,
+        controlPoints: points,
+      };
+    }
+  }
+
+  undo(): void {
+    const definition = this.document.getTerrainDefinition();
+
+    // Group moves by contour for efficiency
+    const movesByContour = new Map<number, MultiContourPointMove[]>();
+    for (const move of this.pointMoves) {
+      if (!movesByContour.has(move.contourIndex)) {
+        movesByContour.set(move.contourIndex, []);
+      }
+      movesByContour.get(move.contourIndex)!.push(move);
+    }
+
+    for (const [contourIndex, moves] of movesByContour) {
+      const contour = definition.contours[contourIndex];
+      if (!contour) continue;
+
+      const points = [...contour.controlPoints];
+      for (const move of moves) {
+        points[move.pointIndex] = V(move.oldPosition.x, move.oldPosition.y);
+      }
+
+      definition.contours[contourIndex] = {
+        ...contour,
+        controlPoints: points,
+      };
+    }
   }
 }

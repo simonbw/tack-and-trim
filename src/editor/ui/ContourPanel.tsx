@@ -4,12 +4,14 @@
  * Side panel showing properties for the selected contour.
  */
 
+import { Fragment } from "preact";
 import {
   DeleteContourCommand,
   EditorDocument,
   SetContourPropertyCommand,
 } from "../EditorDocument";
 import { EditorContour } from "../io/TerrainFileFormat";
+import { ContourValidationResult } from "../../game/world-data/terrain/SplineGeometry";
 import "./EditorStyles.css";
 
 export interface ContourPanelProps {
@@ -50,20 +52,34 @@ function ContourList({
     return <div class="contour-panel-empty">No contours</div>;
   }
 
-  return (
-    <div class="contour-list">
-      {contours.map((contour, index) => (
+  const validationResults = document.getValidationResults();
+  const hierarchy = document.buildHierarchy();
+
+  const renderContourNode = (index: number, depth: number) => {
+    const contour = contours[index];
+    if (!contour) return null;
+
+    const isInvalid = !validationResults[index]?.isValid;
+    const children = hierarchy.childrenMap.get(index) ?? [];
+
+    return (
+      <Fragment key={index}>
         <div
-          key={index}
-          class={`contour-list-item ${selectedIndex === index ? "selected" : ""}`}
+          class={`contour-list-item ${selectedIndex === index ? "selected" : ""} ${isInvalid ? "contour-invalid" : ""}`}
+          style={{ paddingLeft: `${12 + depth * 16}px` }}
           onClick={() => document.selectContour(index)}
         >
           <span
             class="height-swatch"
-            style={{ background: getContourColorHex(contour.height) }}
+            style={{
+              background: isInvalid
+                ? "#cc4444"
+                : getContourColorHex(contour.height),
+            }}
           />
           <span class="contour-list-item-name">
             {contour.name || `Contour ${index + 1}`}
+            {isInvalid && " \u26a0\ufe0f"}
           </span>
           <span class="contour-list-item-height">
             {contour.height === 0
@@ -73,7 +89,44 @@ function ContourList({
                 : `+${contour.height} ft`}
           </span>
         </div>
-      ))}
+        {children.map((childIndex) => renderContourNode(childIndex, depth + 1))}
+      </Fragment>
+    );
+  };
+
+  return (
+    <div class="contour-list">
+      {hierarchy.roots.map((rootIndex) => renderContourNode(rootIndex, 0))}
+    </div>
+  );
+}
+
+function ValidationErrors({
+  validation,
+  document,
+}: {
+  validation: ContourValidationResult;
+  document: EditorDocument;
+}) {
+  const contours = document.getContours();
+
+  return (
+    <div class="contour-validation-errors">
+      <div class="contour-validation-header">Validation Errors</div>
+      {validation.selfIntersections.length > 0 && (
+        <div class="contour-validation-item">
+          {validation.selfIntersections.length} self-intersection
+          {validation.selfIntersections.length > 1 ? "s" : ""}
+        </div>
+      )}
+      {validation.intersectsWithContours.length > 0 && (
+        <div class="contour-validation-item">
+          Intersects with:{" "}
+          {validation.intersectsWithContours
+            .map((i) => contours[i]?.name || `Contour ${i + 1}`)
+            .join(", ")}
+        </div>
+      )}
     </div>
   );
 }
@@ -87,6 +140,9 @@ function ContourProperties({
   contour: EditorContour;
   contourIndex: number;
 }) {
+  const validationResults = document.getValidationResults();
+  const validation = validationResults[contourIndex];
+  const isInvalid = validation && !validation.isValid;
   const handleNameChange = (e: Event) => {
     const value = (e.target as HTMLInputElement).value;
     const command = new SetContourPropertyCommand(
@@ -106,30 +162,6 @@ function ContourProperties({
       contourIndex,
       "height",
       contour.height,
-      value,
-    );
-    document.executeCommand(command);
-  };
-
-  const handleHillFrequencyChange = (e: Event) => {
-    const value = parseFloat((e.target as HTMLInputElement).value) || 0.01;
-    const command = new SetContourPropertyCommand(
-      document,
-      contourIndex,
-      "hillFrequency",
-      contour.hillFrequency,
-      value,
-    );
-    document.executeCommand(command);
-  };
-
-  const handleHillAmplitudeChange = (e: Event) => {
-    const value = parseFloat((e.target as HTMLInputElement).value) || 0;
-    const command = new SetContourPropertyCommand(
-      document,
-      contourIndex,
-      "hillAmplitude",
-      contour.hillAmplitude,
       value,
     );
     document.executeCommand(command);
@@ -178,45 +210,13 @@ function ContourProperties({
       </div>
 
       <div class="contour-panel-row">
-        <div class="contour-panel-row-inline">
-          <label class="contour-panel-label">Hill Frequency</label>
-          <span class="contour-panel-value">
-            {contour.hillFrequency.toFixed(3)}
-          </span>
-        </div>
-        <input
-          type="range"
-          class="contour-panel-slider"
-          min="0.001"
-          max="0.05"
-          step="0.001"
-          value={contour.hillFrequency}
-          onInput={handleHillFrequencyChange}
-        />
-      </div>
-
-      <div class="contour-panel-row">
-        <div class="contour-panel-row-inline">
-          <label class="contour-panel-label">Hill Amplitude</label>
-          <span class="contour-panel-value">
-            {contour.hillAmplitude.toFixed(2)}
-          </span>
-        </div>
-        <input
-          type="range"
-          class="contour-panel-slider"
-          min="0"
-          max="1"
-          step="0.05"
-          value={contour.hillAmplitude}
-          onInput={handleHillAmplitudeChange}
-        />
-      </div>
-
-      <div class="contour-panel-row">
         <label class="contour-panel-label">Points</label>
         <span>{contour.controlPoints.length} control points</span>
       </div>
+
+      {isInvalid && (
+        <ValidationErrors validation={validation} document={document} />
+      )}
 
       <button
         class="editor-btn"

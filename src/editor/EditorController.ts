@@ -15,9 +15,14 @@ import { TerrainInfo } from "../game/world-data/terrain/TerrainInfo";
 import { V } from "../core/Vector";
 import { ContourEditor } from "./ContourEditor";
 import { ContourRenderer } from "./ContourRenderer";
-import { DocumentChangeListener, EditorDocument } from "./EditorDocument";
+import {
+  DocumentChangeListener,
+  EditorDocument,
+  PasteContourCommand,
+} from "./EditorDocument";
 import { EditorCameraController } from "./EditorCameraController";
 import {
+  EditorContour,
   editorDefinitionToFile,
   serializeTerrainFile,
 } from "./io/TerrainFileFormat";
@@ -26,6 +31,7 @@ import { EditorUI } from "./EditorUI";
 import { EditorSurfaceRenderer } from "./EditorSurfaceRenderer";
 import { WaterInfo } from "../game/world-data/water/WaterInfo";
 import { InfluenceFieldManager } from "../game/world-data/influence/InfluenceFieldManager";
+import { computeSplineCentroid } from "../game/world-data/terrain/SplineGeometry";
 
 // File System Access API types (not in lib.dom.d.ts by default)
 declare global {
@@ -125,6 +131,7 @@ export class EditorController
   private isComputingInfluence = false;
   private debugRenderMode = false;
   private fileHandle: FileSystemFileHandle | null = null;
+  private clipboardContour: EditorContour | null = null;
 
   constructor() {
     super();
@@ -513,6 +520,78 @@ export class EditorController
     // Select the new contour
     const newIndex = this.document.getContours().length - 1;
     this.document.selectContour(newIndex);
+  }
+
+  // ==========================================
+  // Clipboard operations
+  // ==========================================
+
+  /**
+   * Copy the selected contour to the clipboard.
+   */
+  copySelectedContour(): boolean {
+    const contour = this.document.getSelectedContour();
+    if (!contour) return false;
+
+    // Deep clone the contour
+    this.clipboardContour = {
+      ...contour,
+      controlPoints: contour.controlPoints.map((p) => V(p.x, p.y)),
+    };
+    return true;
+  }
+
+  /**
+   * Paste the clipboard contour at the camera center.
+   */
+  pasteContour(): boolean {
+    if (!this.clipboardContour) return false;
+
+    const camera = this.game.camera;
+    const cameraCenter = camera.position;
+
+    // Compute centroid of the clipboard contour
+    const centroid = computeSplineCentroid(this.clipboardContour.controlPoints);
+
+    // Offset to place at camera center
+    const offset = V(cameraCenter.x - centroid.x, cameraCenter.y - centroid.y);
+
+    const command = new PasteContourCommand(
+      this.document,
+      this.clipboardContour,
+      offset,
+    );
+    this.document.executeCommand(command);
+
+    // Select the pasted contour
+    const pastedIndex = command.getPastedIndex();
+    if (pastedIndex >= 0) {
+      this.document.selectContour(pastedIndex);
+    }
+
+    return true;
+  }
+
+  /**
+   * Duplicate the selected contour with a small offset.
+   */
+  duplicateSelectedContour(): boolean {
+    const contour = this.document.getSelectedContour();
+    if (!contour) return false;
+
+    // Small offset for duplicate
+    const offset = V(50, 50);
+
+    const command = new PasteContourCommand(this.document, contour, offset);
+    this.document.executeCommand(command);
+
+    // Select the pasted contour
+    const pastedIndex = command.getPastedIndex();
+    if (pastedIndex >= 0) {
+      this.document.selectContour(pastedIndex);
+    }
+
+    return true;
   }
 
   @on("keyDown")

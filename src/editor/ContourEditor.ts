@@ -4,28 +4,35 @@
  * Handles mouse interaction for editing terrain contours:
  * - Click on point: Select it
  * - Drag point: Move it (creates MovePointCommand on release)
- * - Click on spline segment: Insert new point
+ * - Click on spline segment: Select entire contour
+ * - Cmd/Ctrl+click on spline: Insert new point
  * - Click empty space: Deselect
  * - Delete/Backspace: Delete selected points
  * - Shift+click: Multi-select points
- * - Escape: Deselect all
+ * - Escape or Space: Deselect all
  */
 
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { V, V2d } from "../core/Vector";
 import { ContourRenderer } from "./ContourRenderer";
+import { EditorController } from "./EditorController";
 import {
   AddPointCommand,
   DeletePointsCommand,
   EditorDocument,
+  MoveMultiContourPointsCommand,
   MovePointsCommand,
+  MultiContourPointMove,
 } from "./EditorDocument";
 
 interface DragState {
+  /** Primary contour being dragged */
   contourIndex: number;
-  /** Starting positions of all dragged points */
-  startPositions: Map<number, V2d>;
+  /** All contours affected (primary + descendants for cascading) */
+  affectedContours: number[];
+  /** Starting positions of all dragged points: "contourIndex:pointIndex" -> position */
+  startPositions: Map<string, V2d>;
   /** Initial mouse position when drag started */
   startMousePos: V2d;
   /** Whether a significant drag has occurred */
@@ -100,7 +107,7 @@ export class ContourEditor extends BaseEntity {
     const worldPos = this.game.camera.toWorld(io.mousePosition);
     const hoverInfo = this.renderer.getHoverInfo();
 
-    // Check if clicking on a control point
+    // 1. Check if clicking on a control point (highest priority)
     if (hoverInfo?.pointIndex !== null && hoverInfo?.pointIndex !== undefined) {
       this.handlePointClick(
         hoverInfo.contourIndex,
@@ -111,17 +118,41 @@ export class ContourEditor extends BaseEntity {
       return;
     }
 
-    // Check if clicking on a spline segment (insert point)
+    // 2. Check if clicking on a spline segment (before fill, since stroke overlaps fill area)
     if (hoverInfo?.splineSegment) {
-      this.handleSplineClick(
-        hoverInfo.contourIndex,
-        hoverInfo.splineSegment.segmentIndex,
-        hoverInfo.worldPosition,
-      );
+      const hasModifier =
+        io.isKeyDown("MetaLeft") ||
+        io.isKeyDown("MetaRight") ||
+        io.isKeyDown("ControlLeft") ||
+        io.isKeyDown("ControlRight");
+
+      if (hasModifier) {
+        // Cmd/Ctrl+click: insert new point
+        this.handleSplineClick(
+          hoverInfo.contourIndex,
+          hoverInfo.splineSegment.segmentIndex,
+          hoverInfo.worldPosition,
+        );
+      } else {
+        // Plain click: select entire contour (but do NOT start drag)
+        this.document.selectAllPoints(hoverInfo.contourIndex);
+      }
       return;
     }
 
-    // Clicked on empty space - deselect
+    // 3. Check if clicking on fill of SELECTED contour (allows drag-by-fill)
+    const selectedContourIndex = this.document.getSelectedContourIndex();
+    if (selectedContourIndex !== null) {
+      const fillHit = this.renderer.hitTestFill(worldPos);
+      if (fillHit && fillHit.contourIndex === selectedContourIndex) {
+        // Start drag of entire contour
+        this.document.selectAllPoints(selectedContourIndex);
+        this.startDrag(selectedContourIndex, worldPos);
+        return;
+      }
+    }
+
+    // 4. Clicked on empty space - deselect
     this.document.clearSelection();
   }
 
@@ -131,8 +162,6 @@ export class ContourEditor extends BaseEntity {
     worldPos: V2d,
     additive: boolean,
   ): void {
-    const selection = this.document.getSelection();
-
     if (additive) {
       // Toggle selection of this point
       this.document.selectPoint(contourIndex, pointIndex, true);
@@ -176,23 +205,55 @@ export class ContourEditor extends BaseEntity {
     if (!contour) return;
 
     const selection = this.document.getSelection();
-    const startPositions = new Map<number, V2d>();
+    const startPositions = new Map<string, V2d>();
 
-    for (const pointIndex of selection.pointIndices) {
-      const pt = contour.controlPoints[pointIndex];
-      if (pt) {
-        startPositions.set(pointIndex, V(pt.x, pt.y));
+    // Check if we're dragging the whole contour (all points selected)
+    const allPointsSelected =
+      selection.pointIndices.size === contour.controlPoints.length;
+
+    if (allPointsSelected) {
+      // Cascading move: include this contour and all descendants
+      const descendants = this.document.getContourDescendants(contourIndex);
+      const affectedContours = [contourIndex, ...descendants];
+
+      for (const ci of affectedContours) {
+        const c = this.document.getContour(ci);
+        if (!c) continue;
+
+        for (let pi = 0; pi < c.controlPoints.length; pi++) {
+          const pt = c.controlPoints[pi];
+          startPositions.set(`${ci}:${pi}`, V(pt.x, pt.y));
+        }
       }
+
+      if (startPositions.size === 0) return;
+
+      this.dragState = {
+        contourIndex,
+        affectedContours,
+        startPositions,
+        startMousePos: V(mousePos.x, mousePos.y),
+        hasMoved: false,
+      };
+    } else {
+      // Non-cascading: just move selected points of this contour
+      for (const pointIndex of selection.pointIndices) {
+        const pt = contour.controlPoints[pointIndex];
+        if (pt) {
+          startPositions.set(`${contourIndex}:${pointIndex}`, V(pt.x, pt.y));
+        }
+      }
+
+      if (startPositions.size === 0) return;
+
+      this.dragState = {
+        contourIndex,
+        affectedContours: [contourIndex],
+        startPositions,
+        startMousePos: V(mousePos.x, mousePos.y),
+        hasMoved: false,
+      };
     }
-
-    if (startPositions.size === 0) return;
-
-    this.dragState = {
-      contourIndex,
-      startPositions,
-      startMousePos: V(mousePos.x, mousePos.y),
-      hasMoved: false,
-    };
   }
 
   @on("mouseUp")
@@ -200,44 +261,52 @@ export class ContourEditor extends BaseEntity {
     if (!this.dragState) return;
 
     if (this.dragState.hasMoved) {
-      // Create undo command for the move
-      const contour = this.document.getContour(this.dragState.contourIndex);
-      if (contour) {
-        const pointMoves: Array<{
-          index: number;
-          oldPosition: V2d;
-          newPosition: V2d;
-        }> = [];
+      // Build the list of point moves
+      const pointMoves: MultiContourPointMove[] = [];
 
-        for (const [pointIndex, oldPos] of this.dragState.startPositions) {
-          const newPos = contour.controlPoints[pointIndex];
-          if (newPos) {
-            pointMoves.push({
-              index: pointIndex,
-              oldPosition: oldPos,
-              newPosition: V(newPos.x, newPos.y),
-            });
-          }
+      for (const [key, oldPos] of this.dragState.startPositions) {
+        const [contourStr, pointStr] = key.split(":");
+        const contourIndex = parseInt(contourStr, 10);
+        const pointIndex = parseInt(pointStr, 10);
+
+        const contour = this.document.getContour(contourIndex);
+        if (!contour) continue;
+
+        const newPos = contour.controlPoints[pointIndex];
+        if (newPos) {
+          pointMoves.push({
+            contourIndex,
+            pointIndex,
+            oldPosition: oldPos,
+            newPosition: V(newPos.x, newPos.y),
+          });
         }
+      }
 
-        if (pointMoves.length > 0) {
-          // We need to undo the direct move first, then apply via command
-          // Actually, since we did direct moves, we just create the command for undo
-          // The command's execute() won't change anything since positions are already set
+      if (pointMoves.length > 0) {
+        // Reset to start positions
+        this.document.moveMultiContourPointsDirect(
+          this.dragState.startPositions,
+        );
 
-          // Reset to start positions
-          for (const move of pointMoves) {
-            this.document.movePointDirect(
-              this.dragState.contourIndex,
-              move.index,
-              move.oldPosition,
-            );
-          }
-
-          // Now execute the command (which will set final positions and add to undo stack)
+        // Check if single contour or multi-contour
+        if (this.dragState.affectedContours.length === 1) {
+          // Single contour: use MovePointsCommand for better description
+          const singleContourMoves = pointMoves.map((m) => ({
+            index: m.pointIndex,
+            oldPosition: m.oldPosition,
+            newPosition: m.newPosition,
+          }));
           const command = new MovePointsCommand(
             this.document,
             this.dragState.contourIndex,
+            singleContourMoves,
+          );
+          this.document.executeCommand(command);
+        } else {
+          // Multi-contour: use MoveMultiContourPointsCommand
+          const command = new MoveMultiContourPointsCommand(
+            this.document,
             pointMoves,
           );
           this.document.executeCommand(command);
@@ -265,33 +334,39 @@ export class ContourEditor extends BaseEntity {
       this.dragState.hasMoved = true;
     }
 
-    // Update all dragged point positions directly
-    for (const [pointIndex, startPos] of this.dragState.startPositions) {
-      this.document.movePointDirect(
-        this.dragState.contourIndex,
-        pointIndex,
-        V(startPos.x + dx, startPos.y + dy),
-      );
+    // Build new positions map
+    const newPositions = new Map<string, V2d>();
+    for (const [key, startPos] of this.dragState.startPositions) {
+      newPositions.set(key, V(startPos.x + dx, startPos.y + dy));
     }
+
+    // Update all dragged point positions directly
+    this.document.moveMultiContourPointsDirect(newPositions);
   }
 
   @on("keyDown")
   onKeyDown({ key }: { key: string }): void {
+    const io = this.game.io;
+    const meta = io.isKeyDown("MetaLeft") || io.isKeyDown("MetaRight");
+    const ctrl = io.isKeyDown("ControlLeft") || io.isKeyDown("ControlRight");
+    const shift = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
+    const modifier = meta || ctrl;
+
     // Delete selected points
     if (key === "Delete" || key === "Backspace") {
       this.deleteSelectedPoints();
       return;
     }
 
-    // Escape - deselect all
-    if (key === "Escape") {
+    // Escape or Space - deselect all
+    if (key === "Escape" || key === "Space") {
       this.document.clearSelection();
       return;
     }
 
-    // Undo
-    if (key === "KeyZ" && this.game.io.isKeyDown("MetaLeft")) {
-      if (this.game.io.isKeyDown("ShiftLeft")) {
+    // Undo/Redo
+    if (key === "KeyZ" && modifier) {
+      if (shift) {
         this.document.redo();
       } else {
         this.document.undo();
@@ -299,9 +374,24 @@ export class ContourEditor extends BaseEntity {
       return;
     }
 
-    // Redo (Ctrl+Y or Cmd+Shift+Z)
-    if (key === "KeyY" && this.game.io.isKeyDown("MetaLeft")) {
-      this.document.redo();
+    // Copy (Cmd/Ctrl+C)
+    if (key === "KeyC" && modifier) {
+      const controller = EditorController.maybeFromGame(this.game);
+      controller?.copySelectedContour();
+      return;
+    }
+
+    // Paste (Cmd/Ctrl+V)
+    if (key === "KeyV" && modifier) {
+      const controller = EditorController.maybeFromGame(this.game);
+      controller?.pasteContour();
+      return;
+    }
+
+    // Duplicate (Cmd/Ctrl+D)
+    if (key === "KeyD" && modifier) {
+      const controller = EditorController.maybeFromGame(this.game);
+      controller?.duplicateSelectedContour();
       return;
     }
   }
