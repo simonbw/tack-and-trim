@@ -9,6 +9,7 @@
 
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
+import { Game } from "../core/Game";
 import { createContour } from "../game/world-data/terrain/LandMass";
 import { TerrainInfo } from "../game/world-data/terrain/TerrainInfo";
 import { V } from "../core/Vector";
@@ -24,17 +25,106 @@ import { loadDefaultEditorTerrain } from "./io/TerrainLoader";
 import { EditorUI } from "./EditorUI";
 import { EditorSurfaceRenderer } from "./EditorSurfaceRenderer";
 import { WaterInfo } from "../game/world-data/water/WaterInfo";
+import { InfluenceFieldManager } from "../game/world-data/influence/InfluenceFieldManager";
+
+// File System Access API types (not in lib.dom.d.ts by default)
+declare global {
+  interface Window {
+    showSaveFilePicker?: (
+      options?: SaveFilePickerOptions,
+    ) => Promise<FileSystemFileHandle>;
+    showOpenFilePicker?: (
+      options?: OpenFilePickerOptions,
+    ) => Promise<FileSystemFileHandle[]>;
+  }
+
+  interface SaveFilePickerOptions {
+    types?: FilePickerAcceptType[];
+    suggestedName?: string;
+    startIn?: FileSystemHandle | "desktop" | "documents" | "downloads";
+  }
+
+  interface OpenFilePickerOptions {
+    types?: FilePickerAcceptType[];
+    multiple?: boolean;
+    startIn?: FileSystemHandle | "desktop" | "documents" | "downloads";
+  }
+
+  interface FilePickerAcceptType {
+    description?: string;
+    accept: Record<string, string[]>;
+  }
+
+  interface FileSystemFileHandle {
+    requestPermission(options?: {
+      mode?: "read" | "readwrite";
+    }): Promise<"granted" | "denied" | "prompt">;
+  }
+}
+
+// ===========================================
+// IndexedDB helpers for persisting file handle
+// ===========================================
+
+const DB_NAME = "terrain-editor";
+const DB_VERSION = 1;
+const STORE_NAME = "file-handles";
+const FILE_HANDLE_KEY = "lastOpenedFile";
+
+function openDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(STORE_NAME);
+    };
+  });
+}
+
+async function storeFileHandle(handle: FileSystemFileHandle): Promise<void> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.put(handle, FILE_HANDLE_KEY);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve();
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function retrieveFileHandle(): Promise<FileSystemFileHandle | null> {
+  try {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.get(FILE_HANDLE_KEY);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result ?? null);
+      tx.oncomplete = () => db.close();
+    });
+  } catch {
+    return null;
+  }
+}
 
 export class EditorController
   extends BaseEntity
   implements DocumentChangeListener
 {
+  id = "editorController" as const;
   persistenceLevel = 100;
 
   private document: EditorDocument;
   private terrainInfo: TerrainInfo | null = null;
   private cameraController: EditorCameraController | null = null;
   private contourRenderer: ContourRenderer | null = null;
+  private influenceManager: InfluenceFieldManager | null = null;
+  private isComputingInfluence = false;
+  private debugRenderMode = false;
+  private fileHandle: FileSystemFileHandle | null = null;
 
   constructor() {
     super();
@@ -83,6 +173,58 @@ export class EditorController
 
     // Add UI (toolbar and panels)
     this.game.addEntity(new EditorUI(this.document, this));
+
+    // Compute influence fields for initial terrain
+    this.computeInfluenceFields();
+
+    // Try to restore file handle from last session, or prompt to open
+    this.tryRestoreFileHandle();
+  }
+
+  /**
+   * Try to restore the file handle from the last session.
+   * If successful, reload the file. If not, prompt to open a file.
+   */
+  private async tryRestoreFileHandle(): Promise<void> {
+    if (!this.isFileSystemAccessSupported()) return;
+
+    const handle = await retrieveFileHandle();
+    if (handle) {
+      try {
+        // Request permission to access the file again
+        const permission = await handle.requestPermission({
+          mode: "readwrite",
+        });
+        if (permission === "granted") {
+          const file = await handle.getFile();
+          await this.loadFromFile(file);
+          this.fileHandle = handle;
+          return;
+        }
+      } catch (e) {
+        // Permission denied or file no longer exists - fall through to prompt
+        console.log("Could not restore previous file:", e);
+      }
+    }
+
+    // No remembered handle or permission denied - prompt to open
+    this.promptOpenDefaultTerrain();
+  }
+
+  /**
+   * Show a prompt asking if the user wants to open the default terrain file.
+   */
+  private promptOpenDefaultTerrain(): void {
+    // Delay slightly to ensure UI is ready
+    setTimeout(() => {
+      if (
+        confirm(
+          "Open a terrain file to enable saving?\n\nClick OK to select a file, or Cancel to start with a new terrain.",
+        )
+      ) {
+        this.openFileSystem();
+      }
+    }, 200);
   }
 
   // ==========================================
@@ -122,14 +264,19 @@ export class EditorController
 
   /**
    * Convert editor contours to game contours.
+   * In normal mode, filters out invalid contours.
+   * In debug mode, includes all contours.
    */
   private getTerrainContours() {
-    return this.document.getContours().map((c) =>
-      createContour([...c.controlPoints], c.height, {
-        hillFrequency: c.hillFrequency,
-        hillAmplitude: c.hillAmplitude,
-      }),
-    );
+    const contours = this.document.getContours();
+    const validationResults = this.document.getValidationResults();
+
+    return contours
+      .filter(
+        (_, i) =>
+          this.debugRenderMode || validationResults[i]?.isValid !== false,
+      )
+      .map((c) => createContour([...c.controlPoints], c.height));
   }
 
   /**
@@ -137,6 +284,21 @@ export class EditorController
    */
   getDocument(): EditorDocument {
     return this.document;
+  }
+
+  /**
+   * Get whether debug render mode is enabled.
+   */
+  getDebugRenderMode(): boolean {
+    return this.debugRenderMode;
+  }
+
+  /**
+   * Get the EditorController from a Game instance, if present.
+   */
+  static maybeFromGame(game: Game): EditorController | undefined {
+    const controller = game.entities.getById("editorController");
+    return controller instanceof EditorController ? controller : undefined;
   }
 
   // ==========================================
@@ -168,6 +330,115 @@ export class EditorController
   }
 
   /**
+   * Check if File System Access API is available.
+   */
+  isFileSystemAccessSupported(): boolean {
+    return "showSaveFilePicker" in window;
+  }
+
+  /**
+   * Check if we have a file handle for the current document.
+   */
+  hasFileHandle(): boolean {
+    return this.fileHandle !== null;
+  }
+
+  /**
+   * Save to the current file handle, or prompt for Save As if none.
+   */
+  async saveToFileSystem(): Promise<boolean> {
+    if (!this.fileHandle) {
+      return this.saveAsToFileSystem();
+    }
+
+    try {
+      const writable = await this.fileHandle.createWritable();
+      await writable.write(this.saveToJson());
+      await writable.close();
+      this.document.markClean();
+      return true;
+    } catch (e) {
+      console.error("Failed to save:", e);
+      return false;
+    }
+  }
+
+  /**
+   * Prompt user for save location and save.
+   */
+  async saveAsToFileSystem(): Promise<boolean> {
+    try {
+      const options: SaveFilePickerOptions = {
+        types: [
+          {
+            description: "Terrain Files",
+            accept: { "application/json": [".json", ".terrain.json"] },
+          },
+        ],
+        suggestedName: "terrain.json",
+      };
+
+      // Start in the same folder as the current file if we have one
+      if (this.fileHandle) {
+        options.startIn = this.fileHandle;
+      }
+
+      const handle = await window.showSaveFilePicker!(options);
+      this.fileHandle = handle;
+
+      // Remember this file for next session
+      storeFileHandle(handle).catch((e) =>
+        console.warn("Failed to store file handle:", e),
+      );
+
+      return this.saveToFileSystem();
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") {
+        console.error("Save As failed:", e);
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Open file using File System Access API (stores handle for later save).
+   */
+  async openFileSystem(): Promise<boolean> {
+    try {
+      const options: OpenFilePickerOptions = {
+        types: [
+          {
+            description: "Terrain Files",
+            accept: { "application/json": [".json", ".terrain.json"] },
+          },
+        ],
+      };
+
+      // Start in the same folder as the current file if we have one
+      if (this.fileHandle) {
+        options.startIn = this.fileHandle;
+      }
+
+      const [handle] = await window.showOpenFilePicker!(options);
+      const file = await handle.getFile();
+      await this.loadFromFile(file);
+      this.fileHandle = handle;
+
+      // Remember this file for next session
+      storeFileHandle(handle).catch((e) =>
+        console.warn("Failed to store file handle:", e),
+      );
+
+      return true;
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") {
+        console.error("Open failed:", e);
+      }
+      return false;
+    }
+  }
+
+  /**
    * Copy terrain JSON to clipboard.
    */
   async copyToClipboard(): Promise<void> {
@@ -184,6 +455,9 @@ export class EditorController
     const terrain = await loadTerrainFromFile(file);
     this.document.setTerrainDefinition(terrain);
     this.cameraController?.fitToTerrain();
+
+    // Recompute influence fields for the new terrain
+    this.computeInfluenceFields();
   }
 
   /**
@@ -200,10 +474,16 @@ export class EditorController
       }
     }
 
+    // Clear file handle when creating new terrain
+    this.fileHandle = null;
+
     this.document.setTerrainDefinition({
       defaultDepth: -50,
       contours: [],
     });
+
+    // Recompute influence fields (will reset to uniform waves with no terrain)
+    this.computeInfluenceFields();
   }
 
   /**
@@ -218,8 +498,6 @@ export class EditorController
     const newContour = {
       name: `Contour ${this.document.getContours().length + 1}`,
       height: 0,
-      hillFrequency: 0.008,
-      hillAmplitude: 0.25,
       controlPoints: [
         V(center.x - size, center.y - size),
         V(center.x + size, center.y - size),
@@ -242,23 +520,50 @@ export class EditorController
     const io = this.game.io;
     const meta = io.isKeyDown("MetaLeft") || io.isKeyDown("MetaRight");
     const ctrl = io.isKeyDown("ControlLeft") || io.isKeyDown("ControlRight");
+    const shift = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
     const modifier = meta || ctrl;
 
-    // Ctrl/Cmd+S - Save (download)
+    // Ctrl/Cmd+Shift+S - Save As
+    if (key === "KeyS" && modifier && shift) {
+      if (this.isFileSystemAccessSupported()) {
+        this.saveAsToFileSystem();
+      } else {
+        this.downloadJson(); // Fallback
+      }
+      return;
+    }
+
+    // Ctrl/Cmd+S - Save
     if (key === "KeyS" && modifier) {
-      this.downloadJson();
+      if (this.isFileSystemAccessSupported()) {
+        this.saveToFileSystem();
+      } else {
+        this.downloadJson(); // Fallback
+      }
       return;
     }
 
     // Ctrl/Cmd+O - Open file
     if (key === "KeyO" && modifier) {
-      this.promptOpenFile();
+      if (this.isFileSystemAccessSupported()) {
+        this.openFileSystem();
+      } else {
+        this.promptOpenFile(); // Fallback
+      }
       return;
     }
 
     // Ctrl/Cmd+N - New terrain
     if (key === "KeyN" && modifier) {
       this.newTerrain();
+      return;
+    }
+
+    // B - Toggle debug render mode
+    if (key === "KeyB" && !modifier) {
+      this.debugRenderMode = !this.debugRenderMode;
+      // Refresh terrain to apply/remove invalid contour filtering
+      this.onTerrainChanged();
       return;
     }
   }
@@ -279,5 +584,53 @@ export class EditorController
       }
     };
     input.click();
+  }
+
+  // ==========================================
+  // Influence field computation
+  // ==========================================
+
+  /**
+   * Compute influence fields for terrain-aware wave rendering.
+   * Creates the InfluenceFieldManager if first time, otherwise recomputes.
+   */
+  async computeInfluenceFields(): Promise<void> {
+    if (this.isComputingInfluence) return;
+    this.isComputingInfluence = true;
+
+    try {
+      if (!this.influenceManager) {
+        // First time: create and add the manager
+        // The manager will automatically start computing via @on("afterAdded")
+        this.influenceManager = this.game.addEntity(
+          new InfluenceFieldManager(),
+        );
+      } else {
+        // Recompute with updated terrain
+        await this.influenceManager.recompute();
+      }
+    } catch (error) {
+      console.error("Failed to compute influence fields:", error);
+      this.isComputingInfluence = false;
+    }
+  }
+
+  /**
+   * Check if influence computation is in progress.
+   */
+  getIsComputingInfluence(): boolean {
+    return this.isComputingInfluence;
+  }
+
+  /**
+   * Get the InfluenceFieldManager, if created.
+   */
+  getInfluenceManager(): InfluenceFieldManager | null {
+    return this.influenceManager;
+  }
+
+  @on("influenceFieldsReady")
+  onInfluenceFieldsReady(): void {
+    this.isComputingInfluence = false;
   }
 }

@@ -6,6 +6,7 @@
 
 import { EditorDocument } from "../EditorDocument";
 import { EditorController } from "../EditorController";
+import { EditorInfluenceProgress } from "./EditorInfluenceProgress";
 import "./EditorStyles.css";
 
 export interface EditorToolbarProps {
@@ -20,6 +21,8 @@ export function EditorToolbar({
   const isDirty = editorDoc.getIsDirty();
   const canUndo = editorDoc.canUndo();
   const canRedo = editorDoc.canRedo();
+  const isComputingInfluence = controller.getIsComputingInfluence();
+  const influenceManager = controller.getInfluenceManager();
 
   return (
     <div class="editor-toolbar">
@@ -37,20 +40,25 @@ export function EditorToolbar({
         <button
           class="editor-btn"
           onClick={() => {
-            const input = document.createElement("input");
-            input.type = "file";
-            input.accept = ".json,.terrain.json";
-            input.onchange = async () => {
-              const file = input.files?.[0];
-              if (file) {
-                try {
-                  await controller.loadFromFile(file);
-                } catch (error) {
-                  alert(`Failed to load: ${error}`);
+            if (controller.isFileSystemAccessSupported()) {
+              controller.openFileSystem();
+            } else {
+              // Fallback to file input for Safari/Firefox
+              const input = document.createElement("input");
+              input.type = "file";
+              input.accept = ".json,.terrain.json";
+              input.onchange = async () => {
+                const file = input.files?.[0];
+                if (file) {
+                  try {
+                    await controller.loadFromFile(file);
+                  } catch (error) {
+                    alert(`Failed to load: ${error}`);
+                  }
                 }
-              }
-            };
-            input.click();
+              };
+              input.click();
+            }
           }}
           title="Open file (Ctrl+O)"
         >
@@ -58,10 +66,33 @@ export function EditorToolbar({
         </button>
         <button
           class="editor-btn editor-btn-primary"
-          onClick={() => controller.downloadJson()}
-          title="Save file (Ctrl+S)"
+          onClick={() => {
+            if (controller.isFileSystemAccessSupported()) {
+              controller.saveToFileSystem();
+            } else {
+              controller.downloadJson();
+            }
+          }}
+          title={
+            controller.hasFileHandle()
+              ? "Save file (Ctrl+S)"
+              : "Save file (Ctrl+S) - will prompt for location"
+          }
         >
           Save
+        </button>
+        <button
+          class="editor-btn"
+          onClick={() => {
+            if (controller.isFileSystemAccessSupported()) {
+              controller.saveAsToFileSystem();
+            } else {
+              controller.downloadJson();
+            }
+          }}
+          title="Save to new file (Ctrl+Shift+S)"
+        >
+          Save As
         </button>
         <button
           class="editor-btn"
@@ -111,6 +142,21 @@ export function EditorToolbar({
           + Contour
         </button>
       </div>
+
+      <div class="editor-toolbar-group">
+        <button
+          class="editor-btn"
+          onClick={() => controller.computeInfluenceFields()}
+          disabled={isComputingInfluence}
+          title="Compute influence fields for terrain-aware wave rendering"
+        >
+          {isComputingInfluence ? "Computing..." : "Compute Waves"}
+        </button>
+      </div>
+
+      {isComputingInfluence && influenceManager && (
+        <EditorInfluenceProgress manager={influenceManager} />
+      )}
     </div>
   );
 }
