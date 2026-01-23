@@ -31,7 +31,7 @@ Standalone terrain editor for creating level terrain using contour-based definit
 - `npm run tsgo-watch` - Run TypeScript type checking in watch mode
 - `npm run prettier` - Format source code with Prettier
 - `npm run generate-manifest` - Generate asset type definitions from resources folder
-- `npm test` - Run e2e tests (verifies game compiles and runs without errors)
+- `npm test` - Run E2E tests (see `tests/CLAUDE.md` for testing philosophy)
 
 ## Engine Architecture
 

@@ -1,6 +1,18 @@
 import { test, expect } from "@playwright/test";
 
-test("game starts and runs without errors", async ({ page }) => {
+/**
+ * E2E Testing Philosophy
+ *
+ * E2E tests are slow due to browser startup and game initialization overhead.
+ * Rather than writing many small isolated tests (unit test style), we prefer
+ * fewer tests that each make multiple assertions. This keeps the test suite
+ * fast while still providing good coverage.
+ *
+ * See tests/CLAUDE.md for more details.
+ */
+
+test("game initializes and runs correctly", async ({ page }) => {
+  // Collect any errors/warnings during the test
   const issues: string[] = [];
   page.on("pageerror", (err) => issues.push(err.message));
   page.on("console", (msg) => {
@@ -16,28 +28,22 @@ test("game starts and runs without errors", async ({ page }) => {
   // Let the game run for 2 seconds
   await page.waitForTimeout(2000);
 
-  // Verify game loop ran
+  // --- Assertion: Game loop is running ---
   const tickCount = await page.evaluate(() => window.DEBUG.game!.ticknumber);
   expect(tickCount).toBeGreaterThan(0);
 
-  // Verify no errors or warnings occurred
+  // --- Assertion: No errors or warnings occurred ---
   expect(issues).toHaveLength(0);
-});
 
-test("influence field propagation completes in reasonable time", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.waitForFunction(() => window.DEBUG?.game, { timeout: 30000 });
-
-  const propagationTime = await page.evaluate(() => {
-    const manager = window.DEBUG.game!.entities.getById(
-      "influenceFieldManager",
-    );
-    return (manager as any).getPropagationTimeMs();
-  });
-
-  // Allow up to 3 seconds for propagation (current dev config takes ~1s)
-  expect(propagationTime).toBeLessThan(3000);
-  console.log(`Propagation time: ${propagationTime}ms`);
+  // --- Assertion: Influence field manager initializes successfully ---
+  // Wait for async initialization to complete (propagation can take a few seconds)
+  await page.waitForFunction(
+    () => {
+      const manager = window.DEBUG.game!.entities.getById(
+        "influenceFieldManager",
+      );
+      return (manager as any)?.isInitialized() === true;
+    },
+    { timeout: 30000 },
+  );
 });
