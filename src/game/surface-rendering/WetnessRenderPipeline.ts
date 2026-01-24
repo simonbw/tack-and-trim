@@ -15,7 +15,6 @@ import {
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
 import type { Viewport } from "../world-data/water/WaterInfo";
-import { WETNESS_TEXTURE_SIZE } from "./SurfaceRenderer";
 import {
   DEFAULT_DRYING_RATE,
   DEFAULT_WETTING_RATE,
@@ -46,12 +45,13 @@ export class WetnessRenderPipeline {
 
   // Uniform buffer for shader params
   private paramsBuffer: GPUBuffer | null = null;
-  private paramsData = new Float32Array(16); // dt, wettingRate, dryingRate, textureSize, current viewport (4), prev viewport (4), render viewport (4)
+  private paramsData = new Float32Array(20); // dt, wettingRate, dryingRate, textureSizeX, textureSizeY, padding, padding, padding, current viewport (4), prev viewport (4), render viewport (4)
 
   // Sampler for texture sampling
   private sampler: GPUSampler | null = null;
 
-  private textureSize: number;
+  private textureWidth: number;
+  private textureHeight: number;
   private initialized = false;
 
   // Configurable rates
@@ -61,8 +61,9 @@ export class WetnessRenderPipeline {
   // Track the last snapped viewport for returning to caller
   private lastSnappedViewport: Viewport | null = null;
 
-  constructor(textureSize: number = WETNESS_TEXTURE_SIZE) {
-    this.textureSize = textureSize;
+  constructor(textureWidth: number, textureHeight: number) {
+    this.textureWidth = textureWidth;
+    this.textureHeight = textureHeight;
   }
 
   /**
@@ -70,11 +71,13 @@ export class WetnessRenderPipeline {
    * This prevents blur from sub-pixel sampling during reprojection.
    */
   private snapViewportToGrid(viewport: Viewport): Viewport {
-    const texelWorldSize = viewport.width / this.textureSize;
+    // Use separate texel sizes for non-square textures
+    const texelWorldSizeX = viewport.width / this.textureWidth;
+    const texelWorldSizeY = viewport.height / this.textureHeight;
 
     return {
-      left: Math.floor(viewport.left / texelWorldSize) * texelWorldSize,
-      top: Math.floor(viewport.top / texelWorldSize) * texelWorldSize,
+      left: Math.floor(viewport.left / texelWorldSizeX) * texelWorldSizeX,
+      top: Math.floor(viewport.top / texelWorldSizeY) * texelWorldSizeY,
       width: viewport.width,
       height: viewport.height,
     };
@@ -110,7 +113,7 @@ export class WetnessRenderPipeline {
 
     // Create ping-pong textures (r32float for single channel wetness)
     this.wetnessTextureA = device.createTexture({
-      size: { width: this.textureSize, height: this.textureSize },
+      size: { width: this.textureWidth, height: this.textureHeight },
       format: "r32float",
       usage:
         GPUTextureUsage.STORAGE_BINDING |
@@ -121,7 +124,7 @@ export class WetnessRenderPipeline {
     this.wetnessTextureViewA = this.wetnessTextureA.createView();
 
     this.wetnessTextureB = device.createTexture({
-      size: { width: this.textureSize, height: this.textureSize },
+      size: { width: this.textureWidth, height: this.textureHeight },
       format: "r32float",
       usage:
         GPUTextureUsage.STORAGE_BINDING |
@@ -145,15 +148,15 @@ export class WetnessRenderPipeline {
     const device = getWebGPU().device;
 
     // Create a zeroed buffer to clear the textures
-    const clearData = new Float32Array(this.textureSize * this.textureSize);
-    const bytesPerRow = this.textureSize * 4; // 4 bytes per f32
+    const clearData = new Float32Array(this.textureWidth * this.textureHeight);
+    const bytesPerRow = this.textureWidth * 4; // 4 bytes per f32
 
     if (this.wetnessTextureA) {
       device.queue.writeTexture(
         { texture: this.wetnessTextureA },
         clearData,
         { bytesPerRow },
-        { width: this.textureSize, height: this.textureSize },
+        { width: this.textureWidth, height: this.textureHeight },
       );
     }
 
@@ -162,7 +165,7 @@ export class WetnessRenderPipeline {
         { texture: this.wetnessTextureB },
         clearData,
         { bytesPerRow },
-        { width: this.textureSize, height: this.textureSize },
+        { width: this.textureWidth, height: this.textureHeight },
       );
     }
   }
@@ -235,22 +238,24 @@ export class WetnessRenderPipeline {
     this.paramsData[0] = dt;
     this.paramsData[1] = this.wettingRate;
     this.paramsData[2] = this.dryingRate;
-    this.paramsData[3] = this.textureSize;
+    this.paramsData[3] = this.textureWidth;
+    this.paramsData[4] = this.textureHeight;
+    // padding for 16-byte alignment (indices 5, 6, 7 will be used for viewport)
     // Current wetness viewport (snapped to grid)
-    this.paramsData[4] = snappedViewport.left;
-    this.paramsData[5] = snappedViewport.top;
-    this.paramsData[6] = snappedViewport.width;
-    this.paramsData[7] = snappedViewport.height;
+    this.paramsData[5] = snappedViewport.left;
+    this.paramsData[6] = snappedViewport.top;
+    this.paramsData[7] = snappedViewport.width;
+    this.paramsData[8] = snappedViewport.height;
     // Previous wetness viewport
-    this.paramsData[8] = prevViewport.left;
-    this.paramsData[9] = prevViewport.top;
-    this.paramsData[10] = prevViewport.width;
-    this.paramsData[11] = prevViewport.height;
+    this.paramsData[9] = prevViewport.left;
+    this.paramsData[10] = prevViewport.top;
+    this.paramsData[11] = prevViewport.width;
+    this.paramsData[12] = prevViewport.height;
     // Render viewport (for sampling water/terrain textures)
-    this.paramsData[12] = renderViewport.left;
-    this.paramsData[13] = renderViewport.top;
-    this.paramsData[14] = renderViewport.width;
-    this.paramsData[15] = renderViewport.height;
+    this.paramsData[13] = renderViewport.left;
+    this.paramsData[14] = renderViewport.top;
+    this.paramsData[15] = renderViewport.width;
+    this.paramsData[16] = renderViewport.height;
 
     device.queue.writeBuffer(this.paramsBuffer, 0, this.paramsData);
 
@@ -269,7 +274,12 @@ export class WetnessRenderPipeline {
       timestampWrites: gpuProfiler?.getComputeTimestampWrites(section),
     });
 
-    this.shader.dispatch(computePass, bindGroup, this.textureSize);
+    this.shader.dispatch(
+      computePass,
+      bindGroup,
+      this.textureWidth,
+      this.textureHeight,
+    );
 
     computePass.end();
 
@@ -296,10 +306,17 @@ export class WetnessRenderPipeline {
   }
 
   /**
-   * Get the texture size.
+   * Get the texture width.
    */
-  getTextureSize(): number {
-    return this.textureSize;
+  getTextureWidth(): number {
+    return this.textureWidth;
+  }
+
+  /**
+   * Get the texture height.
+   */
+  getTextureHeight(): number {
+    return this.textureHeight;
   }
 
   /**

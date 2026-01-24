@@ -27,7 +27,8 @@ export interface TerrainComputeParams {
   viewportTop: number;
   viewportWidth: number;
   viewportHeight: number;
-  textureSize: number;
+  textureSizeX: number;
+  textureSizeY: number;
   contourCount: number;
   defaultDepth: number;
   maxDepth: number;
@@ -152,8 +153,8 @@ export class TerrainComputeBuffers {
     view.setFloat32(8, params.viewportTop, true);
     view.setFloat32(12, params.viewportWidth, true);
     view.setFloat32(16, params.viewportHeight, true);
-    view.setFloat32(20, params.textureSize, true);
-    view.setFloat32(24, params.textureSize, true);
+    view.setFloat32(20, params.textureSizeX, true);
+    view.setFloat32(24, params.textureSizeY, true);
     view.setUint32(28, params.contourCount, true);
     view.setFloat32(32, params.defaultDepth, true);
     view.setUint32(36, params.maxDepth, true);

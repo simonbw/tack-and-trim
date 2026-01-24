@@ -11,7 +11,6 @@
 
 import { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
 import { WATER_HEIGHT_SCALE } from "../world-data/water/WaterConstants";
-import { TERRAIN_TEXTURE_SIZE, WATER_TEXTURE_SIZE } from "./SurfaceRenderer";
 
 // Terrain constants
 const MAX_TERRAIN_HEIGHT = 20.0;
@@ -45,7 +44,15 @@ struct Uniforms {
   colorNoiseStrength: f32,
   hasTerrainData: i32,
   shallowThreshold: f32,
-  _padding: f32,
+  // Texture dimensions
+  waterTexWidth: f32,
+  waterTexHeight: f32,
+  terrainTexWidth: f32,
+  terrainTexHeight: f32,
+  wetnessTexWidth: f32,
+  wetnessTexHeight: f32,
+  _padding1: f32,
+  _padding2: f32,
   // Wetness viewport (larger than render viewport)
   wetnessViewportLeft: f32,
   wetnessViewportTop: f32,
@@ -77,8 +84,6 @@ fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
 @group(0) @binding(4) var wetnessTexture: texture_2d<f32>;
 
 const PI: f32 = 3.14159265359;
-const TEXTURE_SIZE: f32 = ${WATER_TEXTURE_SIZE}.0;
-const TERRAIN_TEX_SIZE: f32 = ${TERRAIN_TEXTURE_SIZE}.0;
 const MAX_TERRAIN_HEIGHT: f32 = ${MAX_TERRAIN_HEIGHT};
 const WATER_HEIGHT_SCALE: f32 = ${WATER_HEIGHT_SCALE};
 
@@ -223,11 +228,13 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   }
 
   // Compute water surface normal from height gradients
-  let texelSize = 1.0 / TEXTURE_SIZE;
-  let heightL = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(-texelSize, 0.0)).r;
-  let heightR = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(texelSize, 0.0)).r;
-  let heightD = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(0.0, -texelSize)).r;
-  let heightU = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(0.0, texelSize)).r;
+  // Use separate texel sizes for non-square textures
+  let waterTexelSizeX = 1.0 / uniforms.waterTexWidth;
+  let waterTexelSizeY = 1.0 / uniforms.waterTexHeight;
+  let heightL = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(-waterTexelSizeX, 0.0)).r;
+  let heightR = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(waterTexelSizeX, 0.0)).r;
+  let heightD = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(0.0, -waterTexelSizeY)).r;
+  let heightU = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(0.0, waterTexelSizeY)).r;
 
   let heightScale = 3.0;
   let waterNormal = normalize(vec3<f32>(
@@ -237,10 +244,13 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   ));
 
   // Compute terrain surface normal from height gradients
-  let terrainL = sampleTerrain(dataUV + vec2<f32>(-texelSize, 0.0));
-  let terrainR = sampleTerrain(dataUV + vec2<f32>(texelSize, 0.0));
-  let terrainD = sampleTerrain(dataUV + vec2<f32>(0.0, -texelSize));
-  let terrainU = sampleTerrain(dataUV + vec2<f32>(0.0, texelSize));
+  // Use separate texel sizes for non-square textures
+  let terrainTexelSizeX = 1.0 / uniforms.terrainTexWidth;
+  let terrainTexelSizeY = 1.0 / uniforms.terrainTexHeight;
+  let terrainL = sampleTerrain(dataUV + vec2<f32>(-terrainTexelSizeX, 0.0));
+  let terrainR = sampleTerrain(dataUV + vec2<f32>(terrainTexelSizeX, 0.0));
+  let terrainD = sampleTerrain(dataUV + vec2<f32>(0.0, -terrainTexelSizeY));
+  let terrainU = sampleTerrain(dataUV + vec2<f32>(0.0, terrainTexelSizeY));
 
   let terrainNormal = normalize(vec3<f32>(
     (terrainL - terrainR) * 0.5,
@@ -266,14 +276,15 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
                   vec2<f32>(uniforms.wetnessViewportWidth, uniforms.wetnessViewportHeight);
 
   // Apply slight blur to soften sharp wet/dry edges (5-tap cross pattern)
-  let wetnessTexelSize = 1.0 / 2048.0;  // Match WETNESS_TEXTURE_SIZE
+  let wetnessTexelSizeX = 1.0 / uniforms.wetnessTexWidth;
+  let wetnessTexelSizeY = 1.0 / uniforms.wetnessTexHeight;
   let clampedUV = clamp(wetnessUV, vec2<f32>(0.0), vec2<f32>(1.0));
   let wetness = (
     textureSampleLevel(wetnessTexture, waterSampler, clampedUV, 0.0).r * 0.4 +
-    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(wetnessTexelSize, 0.0), 0.0).r * 0.15 +
-    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(-wetnessTexelSize, 0.0), 0.0).r * 0.15 +
-    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(0.0, wetnessTexelSize), 0.0).r * 0.15 +
-    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(0.0, -wetnessTexelSize), 0.0).r * 0.15
+    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(wetnessTexelSizeX, 0.0), 0.0).r * 0.15 +
+    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(-wetnessTexelSizeX, 0.0), 0.0).r * 0.15 +
+    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(0.0, wetnessTexelSizeY), 0.0).r * 0.15 +
+    textureSampleLevel(wetnessTexture, waterSampler, clampedUV + vec2<f32>(0.0, -wetnessTexelSizeY), 0.0).r * 0.15
   );
 
   // Render based on water depth

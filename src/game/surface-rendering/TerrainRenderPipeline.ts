@@ -20,7 +20,6 @@ import {
   buildTerrainGPUData,
 } from "../world-data/terrain/LandMass";
 import { TerrainComputeBuffers } from "../world-data/terrain/webgpu/TerrainComputeBuffers";
-import { TERRAIN_TEXTURE_SIZE } from "./SurfaceRenderer";
 import { TerrainStateShader } from "../world-data/terrain/webgpu/TerrainStateShader";
 
 /**
@@ -50,10 +49,12 @@ export class TerrainRenderPipeline {
   private indexCount: number = 0;
   private currentDefinition: TerrainDefinition | null = null;
 
-  private textureSize: number;
+  private textureWidth: number;
+  private textureHeight: number;
 
-  constructor(textureSize: number = TERRAIN_TEXTURE_SIZE) {
-    this.textureSize = textureSize;
+  constructor(textureWidth: number, textureHeight: number) {
+    this.textureWidth = textureWidth;
+    this.textureHeight = textureHeight;
   }
 
   /**
@@ -73,7 +74,7 @@ export class TerrainRenderPipeline {
 
     // Create output texture (render target)
     this.outputTexture = device.createTexture({
-      size: { width: this.textureSize, height: this.textureSize },
+      size: { width: this.textureWidth, height: this.textureHeight },
       format: "rgba32float",
       usage:
         GPUTextureUsage.RENDER_ATTACHMENT |
@@ -85,7 +86,7 @@ export class TerrainRenderPipeline {
 
     // Create depth texture
     this.depthTexture = device.createTexture({
-      size: { width: this.textureSize, height: this.textureSize },
+      size: { width: this.textureWidth, height: this.textureHeight },
       format: "depth32float",
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
       label: "Terrain Render Depth Texture",
@@ -245,7 +246,8 @@ export class TerrainRenderPipeline {
       viewportTop: viewport.top,
       viewportWidth: viewport.width,
       viewportHeight: viewport.height,
-      textureSize: this.textureSize,
+      textureSizeX: this.textureWidth,
+      textureSizeY: this.textureHeight,
       contourCount: this.buffers.getContourCount(),
       defaultDepth: this.buffers.getDefaultDepth(),
       maxDepth: this.buffers.getMaxDepth(),
@@ -311,10 +313,17 @@ export class TerrainRenderPipeline {
   }
 
   /**
-   * Get the texture size.
+   * Get the texture width.
    */
-  getTextureSize(): number {
-    return this.textureSize;
+  getTextureWidth(): number {
+    return this.textureWidth;
+  }
+
+  /**
+   * Get the texture height.
+   */
+  getTextureHeight(): number {
+    return this.textureHeight;
   }
 
   /**

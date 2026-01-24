@@ -171,7 +171,8 @@ export class WaterDataTileCompute implements DataTileCompute {
       viewportTop: top,
       viewportWidth: width,
       viewportHeight: height,
-      textureSize: this.textureSize,
+      textureSizeX: this.textureSize,
+      textureSizeY: this.textureSize,
       segmentCount: this.currentSegmentCount,
       // Swell grid config
       swellOriginX: swellConfig.originX,

@@ -28,21 +28,21 @@ import {
 } from "./WaterRenderPipeline";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
-// Default surface rendering texture sizes
-export const WATER_TEXTURE_SIZE = 512;
-export const TERRAIN_TEXTURE_SIZE = 512;
-export const WETNESS_TEXTURE_SIZE = 512;
+/** Default texture resolution scale relative to screen (0.5 = half resolution) */
+export const DEFAULT_TEXTURE_SCALE = 0.5;
 
 /**
  * Configuration options for SurfaceRenderer.
  */
 export interface SurfaceRendererConfig {
-  /** Texture size for water rendering (default: 512) */
-  waterTextureSize?: number;
-  /** Texture size for terrain rendering (default: 512) */
-  terrainTextureSize?: number;
-  /** Texture size for wetness tracking (default: 512) */
-  wetnessTextureSize?: number;
+  /** Texture resolution scale relative to screen (default: 0.5) */
+  textureScale?: number;
+  /** Optional separate scale for water texture */
+  waterTextureScale?: number;
+  /** Optional separate scale for terrain texture */
+  terrainTextureScale?: number;
+  /** Optional separate scale for wetness texture */
+  wetnessTextureScale?: number;
 }
 
 // Margin for render viewport expansion
@@ -78,8 +78,16 @@ export class SurfaceRenderer extends BaseEntity {
   private placeholderTerrainTexture: GPUTexture | null = null;
   private placeholderTerrainView: GPUTextureView | null = null;
 
+  // Computed texture dimensions
+  private waterTexWidth = 0;
+  private waterTexHeight = 0;
+  private terrainTexWidth = 0;
+  private terrainTexHeight = 0;
+  private wetnessTexWidth = 0;
+  private wetnessTexHeight = 0;
+
   // Uniform data array
-  // Layout (112 bytes total for WebGPU 16-byte alignment):
+  // Layout (144 bytes total for WebGPU 16-byte alignment):
   // Indices 0-11:  mat3x3 (3x vec4 = 48 bytes, padded columns)
   // Index 12:      time (f32)
   // Index 13:      renderMode (i32 as f32)
@@ -88,9 +96,12 @@ export class SurfaceRenderer extends BaseEntity {
   // Index 20:      colorNoiseStrength (f32)
   // Index 21:      hasTerrainData (i32 as f32)
   // Index 22:      shallowThreshold (f32)
-  // Index 23:      padding
-  // Index 24-27:   wetness viewport bounds (left, top, width, height) (f32)
-  private uniformData = new Float32Array(28);
+  // Index 23-24:   waterTexWidth, waterTexHeight (f32)
+  // Index 25-26:   terrainTexWidth, terrainTexHeight (f32)
+  // Index 27-28:   wetnessTexWidth, wetnessTexHeight (f32)
+  // Index 29-30:   padding
+  // Index 31-34:   wetness viewport bounds (left, top, width, height) (f32)
+  private uniformData = new Float32Array(36);
 
   // Cached bind group (recreated when texture changes)
   private bindGroup: GPUBindGroup | null = null;
@@ -112,23 +123,20 @@ export class SurfaceRenderer extends BaseEntity {
     super();
 
     // Apply defaults to config
+    const defaultScale = config?.textureScale ?? DEFAULT_TEXTURE_SCALE;
     this.config = {
-      waterTextureSize: config?.waterTextureSize ?? WATER_TEXTURE_SIZE,
-      terrainTextureSize: config?.terrainTextureSize ?? TERRAIN_TEXTURE_SIZE,
-      wetnessTextureSize: config?.wetnessTextureSize ?? WETNESS_TEXTURE_SIZE,
+      textureScale: defaultScale,
+      waterTextureScale: config?.waterTextureScale ?? defaultScale,
+      terrainTextureScale: config?.terrainTextureScale ?? defaultScale,
+      wetnessTextureScale: config?.wetnessTextureScale ?? defaultScale,
     };
 
-    this.renderPipeline = new WaterRenderPipeline(this.config.waterTextureSize);
-    this.terrainPipeline = new TerrainRenderPipeline(
-      this.config.terrainTextureSize,
-    );
-    this.wetnessPipeline = new WetnessRenderPipeline(
-      this.config.wetnessTextureSize,
-    );
+    // Pipelines will be created in ensureInitialized after we have screen dimensions
+    this.renderPipeline = null!;
+    this.terrainPipeline = null!;
+    this.wetnessPipeline = null!;
 
-    // Default uniform values
-    this.uniformData[21] = 0; // hasTerrainData
-    this.uniformData[22] = SHALLOW_WATER_THRESHOLD; // shallowThreshold
+    // Default uniform values (indices will be updated after uniform layout is finalized)
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -136,6 +144,44 @@ export class SurfaceRenderer extends BaseEntity {
 
     try {
       const device = getWebGPU().device;
+      const renderer = this.game.renderer;
+
+      // Compute texture dimensions from screen size
+      const screenWidth = renderer.getWidth();
+      const screenHeight = renderer.getHeight();
+
+      this.waterTexWidth = Math.ceil(
+        screenWidth * this.config.waterTextureScale,
+      );
+      this.waterTexHeight = Math.ceil(
+        screenHeight * this.config.waterTextureScale,
+      );
+      this.terrainTexWidth = Math.ceil(
+        screenWidth * this.config.terrainTextureScale,
+      );
+      this.terrainTexHeight = Math.ceil(
+        screenHeight * this.config.terrainTextureScale,
+      );
+      this.wetnessTexWidth = Math.ceil(
+        screenWidth * this.config.wetnessTextureScale,
+      );
+      this.wetnessTexHeight = Math.ceil(
+        screenHeight * this.config.wetnessTextureScale,
+      );
+
+      // Create pipelines with computed dimensions
+      this.renderPipeline = new WaterRenderPipeline(
+        this.waterTexWidth,
+        this.waterTexHeight,
+      );
+      this.terrainPipeline = new TerrainRenderPipeline(
+        this.terrainTexWidth,
+        this.terrainTexHeight,
+      );
+      this.wetnessPipeline = new WetnessRenderPipeline(
+        this.wetnessTexWidth,
+        this.wetnessTexHeight,
+      );
 
       await this.renderPipeline.init();
       await this.terrainPipeline.init();
@@ -145,10 +191,21 @@ export class SurfaceRenderer extends BaseEntity {
 
       // Create uniform buffer
       this.uniformBuffer = device.createBuffer({
-        size: 112, // 28 floats * 4 bytes
+        size: 144, // 36 floats * 4 bytes
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         label: "Surface Uniform Buffer",
       });
+
+      // Set default uniform values
+      this.uniformData[21] = 0; // hasTerrainData
+      this.uniformData[22] = SHALLOW_WATER_THRESHOLD; // shallowThreshold
+      // Set texture dimensions
+      this.uniformData[23] = this.waterTexWidth;
+      this.uniformData[24] = this.waterTexHeight;
+      this.uniformData[25] = this.terrainTexWidth;
+      this.uniformData[26] = this.terrainTexHeight;
+      this.uniformData[27] = this.wetnessTexWidth;
+      this.uniformData[28] = this.wetnessTexHeight;
 
       // Create sampler
       this.sampler = device.createSampler({
@@ -332,10 +389,11 @@ export class SurfaceRenderer extends BaseEntity {
     width: number,
     height: number,
   ): void {
-    this.uniformData[24] = left;
-    this.uniformData[25] = top;
-    this.uniformData[26] = width;
-    this.uniformData[27] = height;
+    // Indices 31-34 for wetness viewport (after texture dimensions at 23-28, padding at 29-30)
+    this.uniformData[31] = left;
+    this.uniformData[32] = top;
+    this.uniformData[33] = width;
+    this.uniformData[34] = height;
   }
 
   /**

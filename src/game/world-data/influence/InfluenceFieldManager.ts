@@ -590,8 +590,8 @@ export class InfluenceFieldManager extends BaseEntity {
     const textureSize = DEPTH_TEXTURE_SIZE;
     const device = getWebGPU().device;
 
-    // Create a dedicated pipeline for depth readback
-    const depthPipeline = new TerrainRenderPipeline(textureSize);
+    // Create a dedicated pipeline for depth readback (square texture)
+    const depthPipeline = new TerrainRenderPipeline(textureSize, textureSize);
     await depthPipeline.init();
     depthPipeline.setTerrainDefinition(terrainDef);
 

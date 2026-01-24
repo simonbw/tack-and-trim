@@ -50,7 +50,8 @@ struct Params {
   wettingRate: f32,
   dryingRate: f32,
   // Texture dimensions
-  textureSize: f32,
+  textureSizeX: f32,
+  textureSizeY: f32,
   // Current wetness viewport (left, top, width, height)
   currentViewportLeft: f32,
   currentViewportTop: f32,
@@ -106,14 +107,15 @@ fn inBounds(uv: vec2<f32>) -> bool {
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
-  let texSize = params.textureSize;
+  let texSizeX = params.textureSizeX;
+  let texSizeY = params.textureSizeY;
 
-  if (f32(globalId.x) >= texSize || f32(globalId.y) >= texSize) {
+  if (f32(globalId.x) >= texSizeX || f32(globalId.y) >= texSizeY) {
     return;
   }
 
   // Convert texel to UV in current viewport
-  let uv = vec2<f32>(f32(globalId.x) + 0.5, f32(globalId.y) + 0.5) / texSize;
+  let uv = vec2<f32>(f32(globalId.x) + 0.5, f32(globalId.y) + 0.5) / vec2<f32>(texSizeX, texSizeY);
 
   // Convert to world position using current wetness viewport
   let worldPos = uvToWorld(

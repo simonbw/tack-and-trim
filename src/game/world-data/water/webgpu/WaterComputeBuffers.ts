@@ -42,7 +42,8 @@ export interface WaterComputeParams {
   viewportTop: number;
   viewportWidth: number;
   viewportHeight: number;
-  textureSize: number;
+  textureSizeX: number;
+  textureSizeY: number;
   segmentCount: number;
   // Swell influence grid config
   swellOriginX: number;
@@ -136,8 +137,8 @@ export class WaterComputeBuffers {
     floats[2] = params.viewportTop;
     floats[3] = params.viewportWidth;
     floats[4] = params.viewportHeight;
-    floats[5] = params.textureSize;
-    floats[6] = params.textureSize;
+    floats[5] = params.textureSizeX;
+    floats[6] = params.textureSizeY;
     uints[7] = params.segmentCount;
 
     // Swell grid config (8-12)

@@ -21,7 +21,6 @@ import type {
   DepthGridConfig,
   InfluenceGridConfig,
 } from "../world-data/influence/InfluenceFieldTypes";
-import { WATER_TEXTURE_SIZE } from "./SurfaceRenderer";
 import type { Viewport, WaterInfo } from "../world-data/water/WaterInfo";
 import {
   WaterComputeBuffers,
@@ -73,7 +72,8 @@ export class WaterRenderPipeline {
   private outputTextureView: GPUTextureView | null = null;
   private initialized = false;
 
-  private textureSize: number;
+  private textureWidth: number;
+  private textureHeight: number;
 
   // Influence texture references
   private influenceConfig: RenderInfluenceConfig | null = null;
@@ -85,8 +85,9 @@ export class WaterRenderPipeline {
   private fallbackSampler: GPUSampler | null = null;
   private fallbackConfig: RenderInfluenceConfig | null = null;
 
-  constructor(textureSize: number = WATER_TEXTURE_SIZE) {
-    this.textureSize = textureSize;
+  constructor(textureWidth: number, textureHeight: number) {
+    this.textureWidth = textureWidth;
+    this.textureHeight = textureHeight;
   }
 
   /**
@@ -106,7 +107,7 @@ export class WaterRenderPipeline {
 
     // Create output texture (owned by this pipeline)
     this.outputTexture = device.createTexture({
-      size: { width: this.textureSize, height: this.textureSize },
+      size: { width: this.textureWidth, height: this.textureHeight },
       format: "rgba32float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       label: "Water Render Output Texture",
@@ -293,7 +294,8 @@ export class WaterRenderPipeline {
       viewportTop: viewport.top,
       viewportWidth: viewport.width,
       viewportHeight: viewport.height,
-      textureSize: this.textureSize,
+      textureSizeX: this.textureWidth,
+      textureSizeY: this.textureHeight,
       segmentCount,
       // Swell grid config
       swellOriginX: swellConfig.originX,
@@ -330,7 +332,12 @@ export class WaterRenderPipeline {
       timestampWrites: gpuProfiler?.getComputeTimestampWrites(section),
     });
 
-    this.shader.dispatch(computePass, this.bindGroup, this.textureSize);
+    this.shader.dispatch(
+      computePass,
+      this.bindGroup,
+      this.textureWidth,
+      this.textureHeight,
+    );
 
     computePass.end();
 
@@ -346,10 +353,17 @@ export class WaterRenderPipeline {
   }
 
   /**
-   * Get the texture size.
+   * Get the texture width.
    */
-  getTextureSize(): number {
-    return this.textureSize;
+  getTextureWidth(): number {
+    return this.textureWidth;
+  }
+
+  /**
+   * Get the texture height.
+   */
+  getTextureHeight(): number {
+    return this.textureHeight;
   }
 
   /**

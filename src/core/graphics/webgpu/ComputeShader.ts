@@ -121,12 +121,14 @@ export abstract class ComputeShader<T extends BindingsDefinition> {
    *
    * @param computePass - The compute pass to dispatch on
    * @param bindGroup - Bind group with resources
-   * @param textureSize - Size of the output texture (assumes square)
+   * @param textureWidth - Width of the output texture
+   * @param textureHeight - Height of the output texture (defaults to width for square textures)
    */
   dispatch(
     computePass: GPUComputePassEncoder,
     bindGroup: GPUBindGroup,
-    textureSize: number,
+    textureWidth: number,
+    textureHeight?: number,
   ): void {
     if (!this.pipeline) {
       console.warn(`${this.label} not initialized`);
@@ -136,8 +138,9 @@ export abstract class ComputeShader<T extends BindingsDefinition> {
     computePass.setPipeline(this.pipeline);
     computePass.setBindGroup(0, bindGroup);
 
-    const workgroupsX = Math.ceil(textureSize / this.workgroupSize[0]);
-    const workgroupsY = Math.ceil(textureSize / this.workgroupSize[1]);
+    const height = textureHeight ?? textureWidth;
+    const workgroupsX = Math.ceil(textureWidth / this.workgroupSize[0]);
+    const workgroupsY = Math.ceil(height / this.workgroupSize[1]);
     computePass.dispatchWorkgroups(workgroupsX, workgroupsY);
   }
 
