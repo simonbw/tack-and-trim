@@ -9,12 +9,11 @@
  */
 
 import { V, V2d } from "../core/Vector";
+import { isSplineInsideSpline, sampleClosedSpline } from "../core/util/Spline";
 import {
   ContourValidationResult,
-  isSplineInsideSpline,
-  sampleClosedSpline,
   validateContours,
-} from "../game/world-data/terrain/SplineGeometry";
+} from "../game/world-data/terrain/ContourValidation";
 import {
   createEmptyEditorDefinition,
   EditorContour,

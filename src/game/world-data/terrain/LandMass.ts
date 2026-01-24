@@ -3,7 +3,7 @@ import {
   checkSplineIntersection,
   checkSplineSelfIntersection,
   isSplineInsideSpline,
-} from "./SplineGeometry";
+} from "../../../core/util/Spline";
 import { DEFAULT_DEPTH } from "./TerrainConstants";
 
 /**

@@ -31,7 +31,7 @@ import { EditorUI } from "./EditorUI";
 import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
 import { WaterInfo } from "../game/world-data/water/WaterInfo";
 import { InfluenceFieldManager } from "../game/world-data/influence/InfluenceFieldManager";
-import { computeSplineCentroid } from "../game/world-data/terrain/SplineGeometry";
+import { computeSplineCentroid } from "../core/util/Spline";
 
 // File System Access API types (not in lib.dom.d.ts by default)
 declare global {
@@ -156,12 +156,10 @@ export class EditorController
     this.game.addEntity(new WaterInfo());
 
     // Add surface renderer (renders water and terrain visuals)
-    // Use smaller texture sizes for the editor
+    // Use a smaller texture scale for the editor (0.25 = quarter resolution)
     this.surfaceRenderer = this.game.addEntity(
       new SurfaceRenderer({
-        waterTextureSize: 256,
-        terrainTextureSize: 256,
-        wetnessTextureSize: 256,
+        textureScale: 0.25,
       }),
     );
 
