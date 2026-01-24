@@ -1,6 +1,11 @@
-import { createNoise2D, NoiseFunction2D } from "simplex-noise";
 import { V, V2d } from "../../../../core/Vector";
-import { TerrainContour, TerrainDefinition } from "../LandMass";
+import {
+  buildContourTree,
+  ContourTree,
+  ContourTreeNode,
+  TerrainContour,
+  TerrainDefinition,
+} from "../LandMass";
 import { DEFAULT_DEPTH, SPLINE_SUBDIVISIONS } from "../TerrainConstants";
 
 /**
@@ -9,167 +14,221 @@ import { DEFAULT_DEPTH, SPLINE_SUBDIVISIONS } from "../TerrainConstants";
 interface CachedContour {
   contour: TerrainContour;
   polyline: V2d[];
+  treeNode: ContourTreeNode;
 }
 
 /**
- * Floor/ceiling result for interpolation.
+ * Cached terrain data for efficient queries.
  */
-interface FloorCeilingResult {
-  floor: CachedContour | null;
-  floorDist: number; // Signed distance to floor contour
-  ceiling: CachedContour | null;
-  ceilingDist: number; // Unsigned distance to ceiling contour
+interface CachedTerrain {
+  sortedContours: CachedContour[];
+  tree: ContourTree;
+  defaultDepth: number;
 }
 
 /**
  * CPU implementation of terrain height computation.
- * Uses floor/ceiling algorithm for contour-based terrain.
+ * Uses tree-based algorithm with inverse-distance weighting (IDW).
  *
  * Algorithm:
- * 1. Compute signed distance to all contours
- * 2. Floor = highest-height contour the point is INSIDE
- * 3. Ceiling = lowest-height contour the point is OUTSIDE with height > floor
- * 4. Interpolate between floor and ceiling based on distance ratio
+ * 1. Build containment tree from contours
+ * 2. Find deepest contour containing the point
+ * 3. If contour has children, use IDW blending based on distances to children
+ * 4. If no children, return contour height directly
  */
 export class TerrainComputeCPU {
-  private hillNoise: NoiseFunction2D;
-
-  constructor() {
-    this.hillNoise = createNoise2D();
-  }
+  private cachedTerrain: CachedTerrain | null = null;
+  private cachedDefinition: TerrainDefinition | null = null;
 
   /**
    * Compute terrain height at a world point.
    * Returns negative for underwater depths, positive for land heights.
    */
   computeHeightAtPoint(point: V2d, definition: TerrainDefinition): number {
-    const defaultDepth = definition.defaultDepth ?? DEFAULT_DEPTH;
+    // Cache terrain data for efficiency
+    const terrain = this.getCachedTerrain(definition);
 
-    // Sort contours by height (ascending) for floor/ceiling algorithm
-    const sortedContours = this.getSortedCachedContours(definition);
+    // Find deepest containing contour
+    const containing = this.findDeepestContainingContour(
+      point,
+      terrain.sortedContours,
+    );
 
-    // Find floor and ceiling
-    const result = this.findFloorCeiling(point, sortedContours);
-
-    // Compute height based on floor/ceiling
-    return this.computeHeightFromFloorCeiling(point, result, defaultDepth);
+    // Compute height using tree-based algorithm
+    return this.computeHeightFromTree(point, containing, terrain);
   }
 
   /**
-   * Get contours sorted by height with pre-computed polylines.
+   * Get cached terrain data, rebuilding if definition changed.
    */
-  private getSortedCachedContours(
-    definition: TerrainDefinition,
-  ): CachedContour[] {
+  private getCachedTerrain(definition: TerrainDefinition): CachedTerrain {
+    if (this.cachedTerrain && this.cachedDefinition === definition) {
+      return this.cachedTerrain;
+    }
+
     // Sort by height ascending
     const sorted = [...definition.contours].sort((a, b) => a.height - b.height);
+    const tree = buildContourTree(sorted);
 
-    return sorted.map((contour) => ({
+    const sortedContours: CachedContour[] = sorted.map((contour, i) => ({
       contour,
       polyline: this.subdivideSpline(contour.controlPoints),
+      treeNode: tree.nodes[i],
     }));
+
+    this.cachedDefinition = definition;
+    this.cachedTerrain = {
+      sortedContours,
+      tree,
+      defaultDepth: definition.defaultDepth ?? DEFAULT_DEPTH,
+    };
+
+    return this.cachedTerrain;
   }
 
   /**
-   * Find the floor and ceiling contours for a point.
-   * Floor = highest contour the point is inside
-   * Ceiling = lowest contour the point is outside, with height > floor height
+   * Find the deepest contour that contains the point.
+   * Uses tree structure: start from roots, descend through children that contain the point.
    */
-  private findFloorCeiling(
+  private findDeepestContainingContour(
     point: V2d,
     sortedContours: CachedContour[],
-  ): FloorCeilingResult {
-    let floor: CachedContour | null = null;
-    let floorDist = 0;
-    let ceiling: CachedContour | null = null;
-    let ceilingDist = Infinity;
+  ): CachedContour | null {
+    let deepest: CachedContour | null = null;
 
-    // Contours are sorted by height ascending
+    // Check all contours - find the deepest one that contains the point
     for (const cached of sortedContours) {
       const signedDist = this.signedDistanceToPolyline(point, cached.polyline);
-
       if (signedDist < 0) {
-        // Point is inside this contour - it becomes the new floor
-        // (since we iterate ascending, later floors override earlier ones)
-        floor = cached;
-        floorDist = signedDist;
-      } else {
-        // Point is outside this contour
-        // It could be a ceiling candidate if its height > floor height
-        const floorHeight = floor?.contour.height ?? -Infinity;
-        if (cached.contour.height > floorHeight) {
-          // This is a potential ceiling - track the nearest one
-          if (signedDist < ceilingDist) {
-            ceiling = cached;
-            ceilingDist = signedDist;
-          }
+        // Point is inside this contour
+        if (!deepest || cached.treeNode.depth > deepest.treeNode.depth) {
+          deepest = cached;
         }
       }
     }
 
-    return { floor, floorDist, ceiling, ceilingDist };
+    return deepest;
   }
 
   /**
-   * Compute height from floor/ceiling using interpolation.
+   * Compute height using tree-based IDW algorithm.
    */
-  private computeHeightFromFloorCeiling(
+  private computeHeightFromTree(
     point: V2d,
-    result: FloorCeilingResult,
-    defaultDepth: number,
+    containing: CachedContour | null,
+    terrain: CachedTerrain,
   ): number {
-    const { floor, floorDist, ceiling, ceilingDist } = result;
+    // Not inside any contour - in the ocean
+    if (!containing) {
+      return this.computeOceanHeight(point, terrain);
+    }
 
-    // No floor - point is in deep ocean
-    if (!floor) {
-      // If there's a ceiling, transition from default depth toward it
-      if (ceiling) {
-        const transitionDist = 30; // Feet to transition from deep to shallow
-        const t = Math.min(1, ceilingDist / transitionDist);
-        // Smoothstep for gradual transition
-        const smoothT = t * t * (3 - 2 * t);
-        return (
-          defaultDepth + (ceiling.contour.height - defaultDepth) * (1 - smoothT)
+    const children = containing.treeNode.children;
+
+    // No children - we're at a leaf, just return height + noise
+    if (children.length === 0) {
+      return this.computeLeafHeight(point, containing);
+    }
+
+    // Has children - use IDW blending
+    return this.computeIDWHeight(point, containing, children, terrain);
+  }
+
+  /**
+   * Compute height in the ocean (outside all contours).
+   * Uses inverse-distance weighting between all root contours.
+   */
+  private computeOceanHeight(point: V2d, terrain: CachedTerrain): number {
+    const minDist = 0.1; // Minimum distance to avoid division by zero
+
+    let weightedSum = 0;
+    let weightSum = 0;
+
+    // Iterate over all root contours and use IDW
+    for (const cached of terrain.sortedContours) {
+      if (cached.treeNode.parentIndex === -1) {
+        // This is a root contour
+        const signedDist = this.signedDistanceToPolyline(
+          point,
+          cached.polyline,
         );
+        // Only consider if we're outside (positive distance)
+        if (signedDist >= 0) {
+          const dist = Math.max(minDist, signedDist);
+          const weight = 1 / dist;
+          weightedSum += cached.contour.height * weight;
+          weightSum += weight;
+        }
       }
-      return defaultDepth;
     }
 
-    // Have a floor but no ceiling - point is at or above floor height
-    if (!ceiling) {
-      // Apply hill noise based on floor contour settings
-      const noise = this.hillNoise(
-        point.x * floor.contour.hillFrequency,
-        point.y * floor.contour.hillFrequency,
-      );
-      const hillVariation = noise * floor.contour.hillAmplitude;
-      return floor.contour.height + hillVariation;
+    // If we have valid weights from root contours, use IDW result
+    if (weightSum > 0) {
+      return weightedSum / weightSum;
     }
 
-    // Have both floor and ceiling - interpolate between them
-    const distInland = -floorDist; // Convert to positive distance inside floor
-    const totalDist = distInland + ceilingDist;
+    // Fallback to default depth if no root contours exist
+    return terrain.defaultDepth;
+  }
 
-    if (totalDist <= 0) {
-      return floor.contour.height;
+  /**
+   * Compute height at a leaf contour (no children).
+   */
+  private computeLeafHeight(_point: V2d, contour: CachedContour): number {
+    return contour.contour.height;
+  }
+
+  /**
+   * Compute height using inverse-distance weighting from children.
+   *
+   * For each child:
+   *   h_i = lerp(parent.height, child.height, smoothstep(dist))
+   * Final = Σ(h_i / dist_i) / Σ(1 / dist_i)
+   *
+   * If far from all children, returns parent height.
+   */
+  private computeIDWHeight(
+    point: V2d,
+    parent: CachedContour,
+    childIndices: number[],
+    terrain: CachedTerrain,
+  ): number {
+    const minDist = 0.1; // Minimum distance to avoid division by zero
+    const transitionDist = 30; // Distance for smoothstep transition
+
+    let weightedSum = 0;
+    let weightSum = 0;
+
+    for (const childIdx of childIndices) {
+      const child = terrain.sortedContours[childIdx];
+      // Signed distance - negative means inside child
+      const signedDist = this.signedDistanceToPolyline(point, child.polyline);
+
+      // Use absolute distance for weighting
+      const dist = Math.max(minDist, Math.abs(signedDist));
+
+      // Smoothstep transition factor (0 = at parent boundary, 1 = at child boundary)
+      const t = Math.max(0, 1 - dist / transitionDist);
+      const smoothT = t * t * (3 - 2 * t);
+
+      // Interpolated height for this child
+      const h_i =
+        parent.contour.height +
+        smoothT * (child.contour.height - parent.contour.height);
+
+      // IDW weight
+      const weight = 1 / dist;
+      weightedSum += h_i * weight;
+      weightSum += weight;
     }
 
-    // Linear interpolation factor (0 at floor boundary, 1 at ceiling boundary)
-    const t = distInland / totalDist;
+    // If we have valid weights, use IDW result
+    if (weightSum > 0) {
+      return weightedSum / weightSum;
+    }
 
-    // Interpolate height
-    const baseHeight =
-      floor.contour.height +
-      t * (ceiling.contour.height - floor.contour.height);
-
-    // Apply hill noise using the ceiling's settings (since we're transitioning toward it)
-    const noise = this.hillNoise(
-      point.x * ceiling.contour.hillFrequency,
-      point.y * ceiling.contour.hillFrequency,
-    );
-    const hillVariation = noise * ceiling.contour.hillAmplitude * t; // Scale noise by transition progress
-
-    return baseHeight + hillVariation;
+    // Fallback to leaf behavior
+    return this.computeLeafHeight(point, parent);
   }
 
   /**

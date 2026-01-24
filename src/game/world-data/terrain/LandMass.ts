@@ -1,9 +1,10 @@
 import { V2d } from "../../../core/Vector";
 import {
-  DEFAULT_DEPTH,
-  DEFAULT_HILL_AMPLITUDE,
-  DEFAULT_HILL_FREQUENCY,
-} from "./TerrainConstants";
+  checkSplineIntersection,
+  checkSplineSelfIntersection,
+  isSplineInsideSpline,
+} from "./SplineGeometry";
+import { DEFAULT_DEPTH } from "./TerrainConstants";
 
 /**
  * A single terrain contour - a closed spline at a specific height.
@@ -16,12 +17,6 @@ export interface TerrainContour {
 
   /** Height of this contour in feet (negative = underwater, positive = above water) */
   readonly height: number;
-
-  /** Noise spatial scale for rolling hills (default: 0.02) */
-  readonly hillFrequency: number;
-
-  /** Height variation from noise (default: 0.3) */
-  readonly hillAmplitude: number;
 }
 
 /**
@@ -34,37 +29,205 @@ export interface TerrainDefinition {
   defaultDepth?: number;
 }
 
+/** Number of 32-bit values per contour in GPU buffer (7 values + 2 padding for 16-byte alignment = 36 bytes) */
+export const FLOATS_PER_CONTOUR = 9;
+
 /**
- * GPU buffer layout for a single contour.
- * Must match the WGSL struct layout.
+ * A node in the contour containment tree.
+ * The tree represents parent-child relationships based on geometric containment.
  */
-export interface ContourGPUData {
-  pointStartIndex: number; // Index into control points buffer
-  pointCount: number; // Number of control points
-  height: number;
-  hillFrequency: number;
-  hillAmplitude: number;
-  // 4 bytes padding for alignment
+export interface ContourTreeNode {
+  /** Index into the contours array */
+  contourIndex: number;
+  /** Index of parent node (-1 if this is a root) */
+  parentIndex: number;
+  /** Depth in the tree (0 = root/directly in ocean) */
+  depth: number;
+  /** Indices of child nodes (contours directly contained by this one) */
+  children: number[];
 }
 
-/** Number of float32 values per contour in GPU buffer (5 values + 1 padding for alignment = 24 bytes) */
-export const FLOATS_PER_CONTOUR = 6;
+/**
+ * Tree structure representing contour containment hierarchy.
+ * Used for efficient height calculation - find deepest containing contour,
+ * then blend with children using inverse-distance weighting.
+ */
+export interface ContourTree {
+  /** Nodes indexed by contour index */
+  nodes: ContourTreeNode[];
+  /** Flat array of all child indices for GPU upload */
+  childrenFlat: number[];
+  /** Maximum depth in the tree */
+  maxDepth: number;
+}
 
 /**
- * Create a terrain contour with default parameters.
+ * Create a terrain contour.
  * Only control points and height are required.
  */
 export function createContour(
   controlPoints: V2d[],
   height: number,
-  overrides: Partial<Omit<TerrainContour, "controlPoints" | "height">> = {},
 ): TerrainContour {
   return {
     controlPoints,
     height,
-    hillFrequency: overrides.hillFrequency ?? DEFAULT_HILL_FREQUENCY,
-    hillAmplitude: overrides.hillAmplitude ?? DEFAULT_HILL_AMPLITUDE,
   };
+}
+
+/**
+ * Working node structure used during tree construction.
+ * Has mutable children array for incremental insertion.
+ */
+interface WorkingTreeNode {
+  contourIndex: number; // -1 for virtual root
+  parentIndex: number;
+  children: WorkingTreeNode[];
+}
+
+/**
+ * Build a containment tree from terrain contours using incremental insertion.
+ *
+ * The tree represents parent-child relationships based on geometric containment:
+ * - A contour is a child of another if it's completely inside it
+ * - A contour's parent is the smallest contour that contains it
+ * - Root contours have no parent (they're directly in the ocean)
+ *
+ * Algorithm: For each contour, insert it into the tree by:
+ * 1. Finding which existing node contains it (recurse into that subtree)
+ * 2. If no child contains it, add it as a direct child of current node
+ * 3. Reparent any existing children that the new contour contains
+ *
+ * This avoids the need for size comparisons - containment alone determines hierarchy.
+ *
+ * @param contours - Array of terrain contours
+ * @returns ContourTree with nodes and flattened children array
+ */
+export function buildContourTree(contours: TerrainContour[]): ContourTree {
+  const n = contours.length;
+
+  if (n === 0) {
+    return { nodes: [], childrenFlat: [], maxDepth: 0 };
+  }
+
+  // Virtual root node (represents "ocean" - contains all root-level contours)
+  const virtualRoot: WorkingTreeNode = {
+    contourIndex: -1,
+    parentIndex: -1,
+    children: [],
+  };
+
+  // Map from contour index to working node for quick lookup
+  const nodeMap = new Map<number, WorkingTreeNode>();
+
+  /**
+   * Recursively insert a new contour into the tree.
+   * @param parent - Current node being examined
+   * @param newIndex - Index of the contour to insert
+   */
+  function insertContour(parent: WorkingTreeNode, newIndex: number): void {
+    const newContour = contours[newIndex];
+
+    // Check if any existing child contains the new contour
+    for (const child of parent.children) {
+      const childContour = contours[child.contourIndex];
+      if (
+        isSplineInsideSpline(
+          newContour.controlPoints,
+          childContour.controlPoints,
+        )
+      ) {
+        // New contour is inside this child - recurse deeper
+        insertContour(child, newIndex);
+        return;
+      }
+    }
+
+    // No child contains newContour, so it becomes a direct child of parent
+    // But first, check if newContour contains any existing children (reparent them)
+    const newNode: WorkingTreeNode = {
+      contourIndex: newIndex,
+      parentIndex: parent.contourIndex,
+      children: [],
+    };
+    nodeMap.set(newIndex, newNode);
+
+    // Find children that should be reparented to the new node
+    const childrenToReparent: WorkingTreeNode[] = [];
+    for (const child of parent.children) {
+      const childContour = contours[child.contourIndex];
+      if (
+        isSplineInsideSpline(
+          childContour.controlPoints,
+          newContour.controlPoints,
+        )
+      ) {
+        childrenToReparent.push(child);
+      }
+    }
+
+    // Reparent contained children to newNode
+    for (const child of childrenToReparent) {
+      // Remove from parent's children
+      const idx = parent.children.indexOf(child);
+      if (idx >= 0) {
+        parent.children.splice(idx, 1);
+      }
+      // Add to new node's children
+      newNode.children.push(child);
+      child.parentIndex = newIndex;
+    }
+
+    // Add newNode as child of parent
+    parent.children.push(newNode);
+  }
+
+  // Insert all contours one by one
+  for (let i = 0; i < n; i++) {
+    insertContour(virtualRoot, i);
+  }
+
+  // Convert working tree to final ContourTreeNode array
+  const nodes: ContourTreeNode[] = contours.map((_, i) => ({
+    contourIndex: i,
+    parentIndex: -1,
+    depth: 0,
+    children: [],
+  }));
+
+  // Copy parent/child relationships from working tree
+  for (let i = 0; i < n; i++) {
+    const workingNode = nodeMap.get(i)!;
+    nodes[i].parentIndex = workingNode.parentIndex;
+    nodes[i].children = workingNode.children.map((c) => c.contourIndex);
+  }
+
+  // Compute depths via BFS from roots
+  const roots = nodes.filter((node) => node.parentIndex === -1);
+  let maxDepth = 0;
+
+  const queue: number[] = roots.map((n) => n.contourIndex);
+  while (queue.length > 0) {
+    const idx = queue.shift()!;
+    const node = nodes[idx];
+    const depth = node.parentIndex >= 0 ? nodes[node.parentIndex].depth + 1 : 0;
+    node.depth = depth;
+    maxDepth = Math.max(maxDepth, depth);
+
+    for (const childIdx of node.children) {
+      queue.push(childIdx);
+    }
+  }
+
+  // Build flat children array for GPU
+  const childrenFlat: number[] = [];
+  for (const node of nodes) {
+    for (const childIdx of node.children) {
+      childrenFlat.push(childIdx);
+    }
+  }
+
+  return { nodes, childrenFlat, maxDepth };
 }
 
 // Track which terrain definitions have been validated to avoid duplicate warnings
@@ -73,8 +236,8 @@ const validatedDefinitions = new WeakSet<TerrainDefinition>();
 /**
  * Validate terrain definition and log warnings for potential issues.
  * Checks for:
- * - Self-intersecting contours (control points that would create crossing spline segments)
- * - Higher-height contours that extend outside lower-height contours
+ * - Self-intersecting contours (spline segments that cross themselves)
+ * - Contours that intersect each other
  *
  * Only validates each definition once to avoid log spam.
  */
@@ -86,105 +249,65 @@ export function validateTerrainDefinition(definition: TerrainDefinition): void {
   const contours = definition.contours;
   if (contours.length === 0) return;
 
-  // Get all shore contours (height = 0)
-  const shoreContours = contours.filter((c) => c.height === 0);
-
-  // Check each peak contour (height > 0)
-  for (const peakContour of contours) {
-    if (peakContour.height <= 0) continue;
-    if (peakContour.controlPoints.length < 3) {
+  // Check each contour for self-intersection
+  for (let i = 0; i < contours.length; i++) {
+    const contour = contours[i];
+    if (contour.controlPoints.length < 3) {
       console.warn(
-        `Terrain contour at height ${peakContour.height} has only ${peakContour.controlPoints.length} control points`,
+        `Terrain contour ${i} at height ${contour.height} has only ${contour.controlPoints.length} control points`,
       );
       continue;
     }
 
-    // Find the shore contour that contains this peak (check centroid)
-    const peakCentroid = computeContourCentroid(peakContour.controlPoints);
-    const parentShore = shoreContours.find((shore) =>
-      isPointInsidePolygon(peakCentroid, shore.controlPoints),
+    const selfIntersections = checkSplineSelfIntersection(
+      contour.controlPoints,
     );
-
-    if (!parentShore) {
-      // Peak centroid isn't inside any shore - this is definitely wrong
+    if (selfIntersections.length > 0) {
+      const first = selfIntersections[0];
       console.warn(
-        `Terrain contour at height ${peakContour.height} centroid (${peakCentroid.x.toFixed(0)}, ${peakCentroid.y.toFixed(0)}) is not inside any shoreline contour.`,
+        `Terrain contour ${i} at height ${contour.height} self-intersects. ` +
+          `Found ${selfIntersections.length} intersection(s). ` +
+          `First at (${first.point.x.toFixed(0)}, ${first.point.y.toFixed(0)}) ` +
+          `between segments ${first.segmentA} and ${first.segmentB}.`,
       );
-      continue;
     }
+  }
 
-    // Sample points from the peak and check they're inside the parent shore
-    const samplePoints = [
-      peakContour.controlPoints[0],
-      peakContour.controlPoints[
-        Math.floor(peakContour.controlPoints.length / 3)
-      ],
-      peakContour.controlPoints[
-        Math.floor((2 * peakContour.controlPoints.length) / 3)
-      ],
-    ];
+  // Check all pairs of contours for intersection
+  for (let i = 0; i < contours.length; i++) {
+    for (let j = i + 1; j < contours.length; j++) {
+      const contourA = contours[i];
+      const contourB = contours[j];
 
-    for (const pt of samplePoints) {
-      if (!isPointInsidePolygon(pt, parentShore.controlPoints)) {
+      if (
+        contourA.controlPoints.length < 3 ||
+        contourB.controlPoints.length < 3
+      ) {
+        continue;
+      }
+
+      const intersections = checkSplineIntersection(
+        contourA.controlPoints,
+        contourB.controlPoints,
+      );
+
+      if (intersections.length > 0) {
+        const first = intersections[0];
         console.warn(
-          `Terrain contour at height ${peakContour.height} may extend outside its shoreline. ` +
-            `Point (${pt.x.toFixed(0)}, ${pt.y.toFixed(0)}) is outside the shore control polygon.`,
+          `Terrain contours ${i} (height ${contourA.height}) and ${j} (height ${contourB.height}) intersect. ` +
+            `Found ${intersections.length} intersection(s). ` +
+            `First at (${first.point.x.toFixed(0)}, ${first.point.y.toFixed(0)}).`,
         );
-        break;
       }
     }
   }
 }
 
 /**
- * Compute the centroid of a contour's control points.
- */
-function computeContourCentroid(points: readonly V2d[]): {
-  x: number;
-  y: number;
-} {
-  let cx = 0,
-    cy = 0;
-  for (const p of points) {
-    cx += p.x;
-    cy += p.y;
-  }
-  return { x: cx / points.length, y: cy / points.length };
-}
-
-/**
- * Simple point-in-polygon test using ray casting.
- * Returns true if point is inside the polygon defined by control points.
- */
-function isPointInsidePolygon(
-  point: { x: number; y: number },
-  polygon: readonly V2d[],
-): boolean {
-  let inside = false;
-  const n = polygon.length;
-
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const xi = polygon[i].x,
-      yi = polygon[i].y;
-    const xj = polygon[j].x,
-      yj = polygon[j].y;
-
-    if (
-      yi > point.y !== yj > point.y &&
-      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi
-    ) {
-      inside = !inside;
-    }
-  }
-
-  return inside;
-}
-
-/**
  * Build GPU data arrays from terrain definition.
  * Returns flat arrays ready for upload to GPU buffers.
  *
- * Contours are sorted by height (ascending) for GPU processing.
+ * Includes tree structure data for hierarchical height computation.
  *
  * IMPORTANT: The WGSL struct has u32 fields for pointStartIndex and pointCount,
  * so we need to use a DataView to write integers with correct bit patterns.
@@ -192,31 +315,54 @@ function isPointInsidePolygon(
 export function buildTerrainGPUData(definition: TerrainDefinition): {
   controlPointsData: Float32Array;
   contourData: ArrayBuffer;
+  childrenData: Uint32Array;
   contourCount: number;
+  maxDepth: number;
   defaultDepth: number;
 } {
-  // Sort contours by height (ascending) for GPU processing
-  const sortedContours = [...definition.contours].sort(
-    (a, b) => a.height - b.height,
-  );
+  const contours = definition.contours;
+
+  // Build containment tree
+  const tree = buildContourTree(contours);
 
   // Count total control points
   let totalPoints = 0;
-  for (const contour of sortedContours) {
+  for (const contour of contours) {
     totalPoints += contour.controlPoints.length;
   }
 
   const controlPointsData = new Float32Array(totalPoints * 2);
 
   // Use ArrayBuffer + DataView to write mixed u32/f32 data correctly
+  // Layout per contour (36 bytes = 9 x 4 bytes):
+  //   0-3:   pointStartIndex (u32)
+  //   4-7:   pointCount (u32)
+  //   8-11:  height (f32)
+  //   12-15: parentIndex (i32, -1 if root)
+  //   16-19: depth (u32)
+  //   20-23: childStartIndex (u32)
+  //   24-27: childCount (u32)
+  //   28-35: padding (for 16-byte struct alignment)
   const contourBuffer = new ArrayBuffer(
-    sortedContours.length * FLOATS_PER_CONTOUR * 4,
+    contours.length * FLOATS_PER_CONTOUR * 4,
   );
   const contourView = new DataView(contourBuffer);
 
+  // Build flat children index array and track start indices
+  const childStartIndices: number[] = [];
+  let childIndex = 0;
+  for (const node of tree.nodes) {
+    childStartIndices.push(childIndex);
+    childIndex += node.children.length;
+  }
+
+  // Create children buffer
+  const childrenData = new Uint32Array(tree.childrenFlat);
+
   let pointIndex = 0;
-  for (let i = 0; i < sortedContours.length; i++) {
-    const contour = sortedContours[i];
+  for (let i = 0; i < contours.length; i++) {
+    const contour = contours[i];
+    const node = tree.nodes[i];
 
     // Store contour metadata - byte offset for each contour
     const byteBase = i * FLOATS_PER_CONTOUR * 4;
@@ -225,11 +371,15 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     contourView.setUint32(byteBase + 0, pointIndex, true); // pointStartIndex
     contourView.setUint32(byteBase + 4, contour.controlPoints.length, true); // pointCount
 
-    // f32 fields
+    // f32 field
     contourView.setFloat32(byteBase + 8, contour.height, true);
-    contourView.setFloat32(byteBase + 12, contour.hillFrequency, true);
-    contourView.setFloat32(byteBase + 16, contour.hillAmplitude, true);
-    // byteBase + 20 is padding (left as 0)
+
+    // Tree structure fields
+    contourView.setInt32(byteBase + 12, node.parentIndex, true); // parentIndex (signed)
+    contourView.setUint32(byteBase + 16, node.depth, true); // depth
+    contourView.setUint32(byteBase + 20, childStartIndices[i], true); // childStartIndex
+    contourView.setUint32(byteBase + 24, node.children.length, true); // childCount
+    // byteBase + 28 and +32 are padding (left as 0)
 
     // Store control points
     for (const pt of contour.controlPoints) {
@@ -242,7 +392,9 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   return {
     controlPointsData,
     contourData: contourBuffer,
-    contourCount: sortedContours.length,
+    childrenData,
+    contourCount: contours.length,
+    maxDepth: tree.maxDepth,
     defaultDepth: definition.defaultDepth ?? DEFAULT_DEPTH,
   };
 }

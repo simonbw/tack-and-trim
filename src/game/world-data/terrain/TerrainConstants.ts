@@ -16,11 +16,10 @@ export const SPLINE_SUBDIVISIONS = 4; // Segments per control point pair
 // Contour limits
 export const MAX_CONTOURS = 128; // Maximum number of contours
 export const MAX_CONTROL_POINTS = 2048; // Maximum total control points across all contours
+export const MAX_CHILDREN = 512; // Maximum total children across all contours (for tree structure)
 
 // Default terrain parameters
 export const DEFAULT_DEPTH = -50; // ft - deep ocean baseline
-export const DEFAULT_HILL_FREQUENCY = 0.02; // noise spatial scale
-export const DEFAULT_HILL_AMPLITUDE = 0.3; // height variation
 
 // Shallow water threshold for rendering
 export const SHALLOW_WATER_THRESHOLD = 1.5; // ft - depth for sand/water blending

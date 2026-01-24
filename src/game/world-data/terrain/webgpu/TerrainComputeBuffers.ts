@@ -12,7 +12,11 @@ import {
   validateTerrainDefinition,
   FLOATS_PER_CONTOUR,
 } from "../LandMass";
-import { MAX_CONTROL_POINTS, MAX_CONTOURS } from "../TerrainConstants";
+import {
+  MAX_CONTROL_POINTS,
+  MAX_CONTOURS,
+  MAX_CHILDREN,
+} from "../TerrainConstants";
 
 /**
  * Parameters for terrain compute shader.
@@ -26,6 +30,7 @@ export interface TerrainComputeParams {
   textureSize: number;
   contourCount: number;
   defaultDepth: number;
+  maxDepth: number;
 }
 
 /**
@@ -38,14 +43,16 @@ export class TerrainComputeBuffers {
   readonly paramsBuffer: GPUBuffer;
   readonly controlPointsBuffer: GPUBuffer;
   readonly contourBuffer: GPUBuffer;
+  readonly childrenBuffer: GPUBuffer;
 
   private contourCount: number = 0;
+  private maxDepth: number = 0;
   private defaultDepth: number = -50;
 
   constructor() {
     const device = getWebGPU().device;
 
-    // Params uniform buffer (32 bytes)
+    // Params uniform buffer (48 bytes)
     // Layout (byte offsets):
     //   0-3:   time (f32)
     //   4-7:   viewportLeft (f32)
@@ -56,7 +63,8 @@ export class TerrainComputeBuffers {
     //   24-27: textureSizeY (f32)
     //   28-31: contourCount (u32)
     //   32-35: defaultDepth (f32)
-    //   36-47: padding (for 16-byte alignment)
+    //   36-39: maxDepth (u32)
+    //   40-47: padding (for 16-byte alignment)
     this.paramsBuffer = device.createBuffer({
       size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -72,11 +80,27 @@ export class TerrainComputeBuffers {
     });
 
     // Contour metadata storage buffer
-    // 6 floats per contour (24 bytes)
+    // 9 values per contour (36 bytes each)
+    // Layout per contour:
+    //   0-3:   pointStartIndex (u32)
+    //   4-7:   pointCount (u32)
+    //   8-11:  height (f32)
+    //   12-15: parentIndex (i32, -1 if root)
+    //   16-19: depth (u32)
+    //   20-23: childStartIndex (u32)
+    //   24-27: childCount (u32)
+    //   28-35: padding (for 16-byte struct alignment)
     this.contourBuffer = device.createBuffer({
       size: MAX_CONTOURS * FLOATS_PER_CONTOUR * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: "Terrain Contour Buffer",
+    });
+
+    // Children indices storage buffer (flat array of u32)
+    this.childrenBuffer = device.createBuffer({
+      size: MAX_CHILDREN * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      label: "Terrain Children Buffer",
     });
   }
 
@@ -89,8 +113,14 @@ export class TerrainComputeBuffers {
     validateTerrainDefinition(definition);
 
     const device = getWebGPU().device;
-    const { controlPointsData, contourData, contourCount, defaultDepth } =
-      buildTerrainGPUData(definition);
+    const {
+      controlPointsData,
+      contourData,
+      childrenData,
+      contourCount,
+      maxDepth,
+      defaultDepth,
+    } = buildTerrainGPUData(definition);
 
     device.queue.writeBuffer(
       this.controlPointsBuffer,
@@ -99,7 +129,12 @@ export class TerrainComputeBuffers {
     );
     // contourData is already an ArrayBuffer (not Float32Array) since it has mixed u32/f32 fields
     device.queue.writeBuffer(this.contourBuffer, 0, contourData);
+    // Upload children indices
+    if (childrenData.length > 0) {
+      device.queue.writeBuffer(this.childrenBuffer, 0, childrenData.buffer);
+    }
     this.contourCount = contourCount;
+    this.maxDepth = maxDepth;
     this.defaultDepth = defaultDepth;
   }
 
@@ -110,19 +145,19 @@ export class TerrainComputeBuffers {
     const device = getWebGPU().device;
 
     const paramsData = new ArrayBuffer(48);
-    const floats = new Float32Array(paramsData, 0, 8);
-    const uints = new Uint32Array(paramsData, 28, 1);
-    const floats2 = new Float32Array(paramsData, 32, 1);
+    const view = new DataView(paramsData);
 
-    floats[0] = params.time;
-    floats[1] = params.viewportLeft;
-    floats[2] = params.viewportTop;
-    floats[3] = params.viewportWidth;
-    floats[4] = params.viewportHeight;
-    floats[5] = params.textureSize;
-    floats[6] = params.textureSize;
-    uints[0] = params.contourCount;
-    floats2[0] = params.defaultDepth;
+    view.setFloat32(0, params.time, true);
+    view.setFloat32(4, params.viewportLeft, true);
+    view.setFloat32(8, params.viewportTop, true);
+    view.setFloat32(12, params.viewportWidth, true);
+    view.setFloat32(16, params.viewportHeight, true);
+    view.setFloat32(20, params.textureSize, true);
+    view.setFloat32(24, params.textureSize, true);
+    view.setUint32(28, params.contourCount, true);
+    view.setFloat32(32, params.defaultDepth, true);
+    view.setUint32(36, params.maxDepth, true);
+    // bytes 40-47 are padding
 
     device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
   }
@@ -132,6 +167,13 @@ export class TerrainComputeBuffers {
    */
   getContourCount(): number {
     return this.contourCount;
+  }
+
+  /**
+   * Get the maximum tree depth.
+   */
+  getMaxDepth(): number {
+    return this.maxDepth;
   }
 
   /**
@@ -148,5 +190,6 @@ export class TerrainComputeBuffers {
     this.paramsBuffer.destroy();
     this.controlPointsBuffer.destroy();
     this.contourBuffer.destroy();
+    this.childrenBuffer.destroy();
   }
 }
