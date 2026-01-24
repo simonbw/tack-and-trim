@@ -14,6 +14,7 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
+import { TimeOfDay } from "../time/TimeOfDay";
 import { InfluenceFieldManager } from "../world-data/influence/InfluenceFieldManager";
 import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
 import { getTerrainHeightColor } from "../world-data/terrain/TerrainColors";
@@ -386,7 +387,12 @@ export class SurfaceRenderer extends BaseEntity {
     const renderer = this.game.getRenderer();
     const expandedViewport = this.getExpandedViewport(RENDER_VIEWPORT_MARGIN);
     const gpuProfiler = this.game.renderer.getGpuProfiler();
-    const currentTime = this.game.elapsedUnpausedTime;
+
+    // Use TimeOfDay as unified time source
+    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const currentTime = timeOfDay
+      ? timeOfDay.getTimeInSeconds()
+      : this.game.elapsedUnpausedTime;
 
     // Update water render pipeline (runs unified GPU compute)
     const waterInfo = WaterInfo.fromGame(this.game);

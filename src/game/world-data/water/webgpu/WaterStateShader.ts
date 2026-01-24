@@ -97,6 +97,8 @@ struct Params {
   maxFetch: f32,
   // Wave source direction (for texture lookup)
   waveSourceDirection: f32,
+  // Tide height offset
+  tideHeight: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -442,8 +444,8 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let modifierVelX = modifierResult.y;
   let modifierVelY = modifierResult.z;
 
-  // Combined output
-  let totalHeight = waveHeight + modifierHeight;
+  // Combined output (waves + modifiers + tide)
+  let totalHeight = waveHeight + modifierHeight + params.tideHeight;
   let normalizedHeight = totalHeight / WATER_HEIGHT_NORM_SCALE + 0.5;
   let normalizedDhdt = waveDhdt / WATER_VELOCITY_NORM_SCALE + 0.5;
   let normalizedVelX = modifierVelX / WATER_VELOCITY_NORM_SCALE + 0.5;

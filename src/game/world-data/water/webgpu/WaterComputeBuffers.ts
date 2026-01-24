@@ -60,6 +60,8 @@ export interface WaterComputeParams {
   maxFetch: number;
   // Wave source direction (for texture lookup)
   waveSourceDirection: number;
+  // Tide height offset
+  tideHeight: number;
 }
 
 /**
@@ -149,6 +151,9 @@ export class WaterComputeBuffers {
     // Max fetch and wave source direction (18-19)
     floats[18] = params.maxFetch;
     floats[19] = params.waveSourceDirection;
+
+    // Tide height (20)
+    floats[20] = params.tideHeight;
 
     device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
   }

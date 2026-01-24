@@ -16,6 +16,7 @@ import {
 } from "../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
+import { TimeOfDay } from "../time/TimeOfDay";
 import type { InfluenceGridConfig } from "../world-data/influence/InfluenceFieldTypes";
 import { WATER_TEXTURE_SIZE } from "./SurfaceRenderer";
 import type { Viewport, WaterInfo } from "../world-data/water/WaterInfo";
@@ -229,10 +230,17 @@ export class WaterRenderPipeline {
 
     const device = getWebGPU().device;
 
-    // Get elapsed time
+    // Get game time from TimeOfDay (unified time source)
     const game = (waterInfo as { game?: { elapsedUnpausedTime?: number } })
       .game;
-    const time = game?.elapsedUnpausedTime ?? 0;
+    const timeOfDay = game
+      ? TimeOfDay.maybeFromGame(
+          game as Parameters<typeof TimeOfDay.maybeFromGame>[0],
+        )
+      : undefined;
+    const time = timeOfDay
+      ? timeOfDay.getTimeInSeconds()
+      : (game?.elapsedUnpausedTime ?? 0);
 
     // Collect segment data from wake particles
     const segments = waterInfo.collectShaderSegmentData(viewport);
@@ -265,6 +273,8 @@ export class WaterRenderPipeline {
       // Max fetch and wave source direction
       maxFetch: DEFAULT_MAX_FETCH,
       waveSourceDirection: config.waveSourceDirection,
+      // Tide height
+      tideHeight: waterInfo.getTideHeight(),
     });
 
     // Create command encoder

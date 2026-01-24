@@ -16,6 +16,7 @@ import { Game } from "../../../core/Game";
 import { profile } from "../../../core/util/Profiler";
 import { SparseSpatialHash } from "../../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../../core/Vector";
+import { TimeOfDay } from "../../time/TimeOfDay";
 import {
   DataTileComputePipeline,
   DataTilePipelineConfig,
@@ -267,8 +268,14 @@ export class WindInfo extends BaseEntity {
       influenceTurbulence = influence.turbulence;
     }
 
+    // Use TimeOfDay as source of truth for game time
+    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const time = timeOfDay
+      ? timeOfDay.getTimeInSeconds()
+      : this.game.elapsedUnpausedTime;
+
     const params: WindComputeParams = {
-      time: this.game.elapsedUnpausedTime,
+      time,
       baseVelocity: this.baseVelocity.clone(),
       speedNoise: this.speedNoise,
       angleNoise: this.angleNoise,

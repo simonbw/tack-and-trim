@@ -52,6 +52,7 @@ export class WaterDataTileCompute implements DataTileCompute {
 
   private textureSize: number;
   private currentSegmentCount: number = 0;
+  private currentTideHeight: number = 0;
 
   // Influence texture references
   private influenceConfig: InfluenceTextureConfig | null = null;
@@ -130,6 +131,13 @@ export class WaterDataTileCompute implements DataTileCompute {
   }
 
   /**
+   * Set tide height for this compute pass.
+   */
+  setTideHeight(tideHeight: number): void {
+    this.currentTideHeight = tideHeight;
+  }
+
+  /**
    * Run the compute shader for a tile viewport.
    */
   runCompute(
@@ -171,6 +179,8 @@ export class WaterDataTileCompute implements DataTileCompute {
       // Max fetch and wave source direction
       maxFetch: DEFAULT_MAX_FETCH,
       waveSourceDirection: this.influenceConfig.waveSourceDirection,
+      // Tide height
+      tideHeight: this.currentTideHeight,
     });
 
     // Create and submit compute pass

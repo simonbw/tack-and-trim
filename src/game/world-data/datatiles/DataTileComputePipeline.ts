@@ -13,6 +13,7 @@ import { on } from "../../../core/entity/handler";
 import type { GPUProfiler } from "../../../core/graphics/webgpu/GPUProfiler";
 import { profile } from "../../../core/util/Profiler";
 import type { V2d } from "../../../core/Vector";
+import { TimeOfDay } from "../../time/TimeOfDay";
 import { DataTileManager } from "./DataTileManager";
 import {
   DataTileReadbackBuffer,
@@ -187,7 +188,11 @@ export class DataTileComputePipeline<
   onAfterPhysics(): void {
     if (!this.initialized) return;
 
-    const time = this.game.elapsedUnpausedTime;
+    // Use TimeOfDay as source of truth for game time, fallback to elapsedUnpausedTime
+    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const time = timeOfDay
+      ? timeOfDay.getTimeInSeconds()
+      : this.game.elapsedUnpausedTime;
     const gpuProfiler = this.game.renderer.getGpuProfiler();
 
     // Collect forecasts via callback

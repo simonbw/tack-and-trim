@@ -7,6 +7,7 @@ import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
 import { MainMenu } from "./MainMenu";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
+import { TimeOfDay } from "./time/TimeOfDay";
 import { isTutorialCompleted, TutorialManager } from "./tutorial";
 import { WindVisualization } from "./wind-visualization/WindVisualization";
 import { WindIndicator } from "./WindIndicator";
@@ -37,7 +38,10 @@ export class GameController extends BaseEntity {
     // 2. Influence fields (depends on terrain, starts async computation)
     this.game.addEntity(new InfluenceFieldManager());
 
-    // 3. Wind/Water data systems (no rendering, graceful null handling for influence fields)
+    // 3. Time system (before water, so tides can query time)
+    this.game.addEntity(new TimeOfDay());
+
+    // 4. Wind/Water data systems (no rendering, graceful null handling for influence fields)
     this.game.addEntity(new WaterInfo());
     this.game.addEntity(new WindInfo());
   }

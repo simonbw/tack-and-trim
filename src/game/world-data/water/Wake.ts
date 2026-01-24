@@ -2,6 +2,7 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import { clamp, invLerp, lerp } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
+import { TimeOfDay } from "../../time/TimeOfDay";
 import { Boat } from "../../boat/Boat";
 import { WakeParticle, WakeSide } from "./WakeParticle";
 
@@ -56,7 +57,10 @@ export class Wake extends BaseEntity {
     if (speed < CONFIG.MIN_SPEED) return;
 
     const boatPos = this.boat.getPosition();
-    const now = this.game.elapsedUnpausedTime ?? 0;
+    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const now = timeOfDay
+      ? timeOfDay.getTimeInSeconds()
+      : (this.game.elapsedUnpausedTime ?? 0);
 
     // Check distance traveled since last spawn
     if (this.lastSpawnPos) {

@@ -14,6 +14,7 @@ import { Game } from "../../../core/Game";
 import { profile } from "../../../core/util/Profiler";
 import { SparseSpatialHash } from "../../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../../core/Vector";
+import { TimeOfDay } from "../../time/TimeOfDay";
 import {
   DataTileComputePipeline,
   DataTilePipelineConfig,
@@ -65,6 +66,10 @@ const CURRENT_SPATIAL_SCALE = 0.002;
 const CURRENT_TIME_SCALE = 0.05;
 const CURRENT_SPEED_VARIATION = 0.4;
 const CURRENT_ANGLE_VARIATION = 0.5;
+
+// Tide configuration
+// Semi-diurnal tide: 2 cycles per day (high at 0h & 12h, low at 6h & 18h)
+const DEFAULT_TIDE_RANGE = 4; // ft total range (±2 ft from mean)
 
 // Margin to expand viewport for wake particle filtering (ft)
 const WAKE_VIEWPORT_MARGIN = 25;
@@ -171,6 +176,9 @@ export class WaterInfo extends BaseEntity {
   // Cached influence texture config (set once when textures are available)
   private influenceTextureConfig: InfluenceTextureConfig | null = null;
 
+  // Current tide height offset (updated each tick from TimeOfDay)
+  private tideHeight: number = 0;
+
   constructor() {
     super();
 
@@ -210,6 +218,15 @@ export class WaterInfo extends BaseEntity {
       if (isWaterModifier(entity)) {
         this.spatialHash.add(entity);
       }
+    }
+
+    // Update tide height from TimeOfDay
+    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    if (timeOfDay) {
+      const hour = timeOfDay.getHour();
+      // Semi-diurnal: 2 cycles per day (high at 0h & 12h, low at 6h & 18h)
+      const tidePhase = (hour / 12) * Math.PI;
+      this.tideHeight = Math.sin(tidePhase) * (DEFAULT_TIDE_RANGE / 2);
     }
 
     // Cache segment data for this frame
@@ -254,6 +271,17 @@ export class WaterInfo extends BaseEntity {
   private getWindDirection(): number {
     const windInfo = WindInfo.maybeFromGame(this.game);
     return windInfo ? windInfo.getAngle() : 0;
+  }
+
+  /**
+   * Get the current game time in seconds from TimeOfDay.
+   * Falls back to elapsedUnpausedTime if TimeOfDay not available.
+   */
+  private getGameTime(): number {
+    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    return timeOfDay
+      ? timeOfDay.getTimeInSeconds()
+      : (this.game.elapsedUnpausedTime ?? 0);
   }
 
   /**
@@ -330,6 +358,9 @@ export class WaterInfo extends BaseEntity {
     // Set wake segments for modifier computation
     compute.setSegments(this.cachedSegments);
 
+    // Set tide height for this compute pass
+    compute.setTideHeight(this.tideHeight);
+
     // Run the compute (shader does per-pixel influence sampling)
     compute.runCompute(
       viewport.time,
@@ -362,7 +393,7 @@ export class WaterInfo extends BaseEntity {
   }
 
   private getStateAtPointCPU(point: V2d): WaterState {
-    const t = (this.game.elapsedUnpausedTime ?? 0) * CURRENT_TIME_SCALE;
+    const t = this.getGameTime() * CURRENT_TIME_SCALE;
 
     const sx = point.x * CURRENT_SPATIAL_SCALE;
     const sy = point.y * CURRENT_SPATIAL_SCALE;
@@ -380,7 +411,8 @@ export class WaterInfo extends BaseEntity {
     // CPU fallback: waves + modifier queries
     const waveData = computeWaveDataAtPoint(point[0], point[1], cpuParams);
 
-    let surfaceHeight = waveData.height;
+    // Add tide height to surface height
+    let surfaceHeight = waveData.height + this.tideHeight;
     let surfaceHeightRate = waveData.dhdt;
 
     for (const modifier of this.spatialHash.queryPoint(point)) {
@@ -403,7 +435,7 @@ export class WaterInfo extends BaseEntity {
    * Samples influence fields at that exact location.
    */
   private buildCPUParamsForPoint(point: V2d): WaterComputeParams {
-    const time = this.game.elapsedUnpausedTime ?? 0;
+    const time = this.getGameTime();
 
     // Default values (no terrain influence)
     let swellEnergyFactor = 1.0;
@@ -487,6 +519,14 @@ export class WaterInfo extends BaseEntity {
     }
 
     return segments.reverse();
+  }
+
+  /**
+   * Get the current tide height offset.
+   * Used by GPU path to add tide to wave height.
+   */
+  getTideHeight(): number {
+    return this.tideHeight;
   }
 
   /**
