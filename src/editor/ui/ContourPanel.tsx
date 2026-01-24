@@ -196,14 +196,23 @@ function ContourProperties({
       <div class="contour-panel-row">
         <div class="contour-panel-row-inline">
           <label class="contour-panel-label">Height (ft)</label>
-          <span class="contour-panel-value">{contour.height}</span>
+          <input
+            type="number"
+            class="contour-panel-height-input"
+            value={contour.height}
+            step="0.1"
+            onBlur={handleHeightChange}
+            onKeyDown={(e) =>
+              e.key === "Enter" && (e.target as HTMLInputElement).blur()
+            }
+          />
         </div>
         <input
           type="range"
           class="contour-panel-slider"
           min="-50"
           max="20"
-          step="1"
+          step="0.1"
           value={contour.height}
           onInput={handleHeightChange}
         />

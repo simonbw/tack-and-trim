@@ -519,6 +519,19 @@ export class InfluenceFieldManager extends BaseEntity {
   }
 
   /**
+   * Defer texture destruction by 2 animation frames to ensure GPU commands complete.
+   * This prevents "Destroyed texture used in a submit" errors.
+   */
+  private deferTextureDestruction(texture: GPUTexture | null): void {
+    if (!texture) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        texture.destroy();
+      });
+    });
+  }
+
+  /**
    * Create GPU 3D textures from influence field grids.
    */
   private createGPUTextures(
@@ -903,9 +916,9 @@ export class InfluenceFieldManager extends BaseEntity {
     this.swellGrid = newSwellGrid;
     this.fetchGrid = newFetchGrid;
 
-    // Destroy old textures after swap
-    oldSwellTexture?.destroy();
-    oldFetchTexture?.destroy();
+    // Defer texture destruction by 2 animation frames to ensure GPU commands complete
+    this.deferTextureDestruction(oldSwellTexture);
+    this.deferTextureDestruction(oldFetchTexture);
 
     // Mark as initialized (in case this is first compute)
     if (!this.initialized) {

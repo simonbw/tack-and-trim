@@ -55,6 +55,12 @@ const HOVER_COLOR = 0x00ffff;
 /** Color for invalid contours (self-intersecting or intersecting others) */
 const INVALID_COLOR = 0xff4444;
 
+/** Axis colors for origin visualization */
+const AXIS_COLOR_X = 0xff4444;
+const AXIS_COLOR_Y = 0x44ff44;
+const AXIS_WIDTH = 1;
+const AXIS_ALPHA = 0.6;
+
 export interface HoverInfo {
   /** Index of hovered contour */
   contourIndex: number;
@@ -210,8 +216,36 @@ export class ContourRenderer extends BaseEntity {
     return null;
   }
 
+  /**
+   * Render origin axes for coordinate reference.
+   */
+  private renderAxes(draw: Draw): void {
+    const camera = this.game.camera;
+    const viewport = camera.getWorldViewport();
+    const zoom = camera.z;
+    const axisWidth = AXIS_WIDTH / zoom;
+
+    // X axis (red)
+    draw.line(viewport.left, 0, viewport.left + viewport.width, 0, {
+      color: AXIS_COLOR_X,
+      width: axisWidth,
+      alpha: AXIS_ALPHA,
+    });
+    // Y axis (green)
+    draw.line(0, viewport.top, 0, viewport.top + viewport.height, {
+      color: AXIS_COLOR_Y,
+      width: axisWidth,
+      alpha: AXIS_ALPHA,
+    });
+    // Origin marker
+    draw.fillCircle(0, 0, 8 / zoom, { color: 0xffffff, alpha: 0.8 });
+  }
+
   @on("render")
   onRender({ draw }: { draw: Draw }): void {
+    // Draw axes first (underneath contours)
+    this.renderAxes(draw);
+
     const contours = this.document.getContours();
     const selection = this.document.getSelection();
     const pointRadius = this.getPointRadius();

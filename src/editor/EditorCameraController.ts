@@ -13,12 +13,12 @@ import { Camera2d } from "../core/graphics/Camera2d";
 import { V, V2d } from "../core/Vector";
 import { EditorTerrainDefinition } from "./io/TerrainFileFormat";
 
-const MIN_ZOOM = 0.1;
+const MIN_ZOOM = 0.02; // Allows 50x zoom out
 const MAX_ZOOM = 50;
 const ZOOM_SPEED = 0.1;
 const PAN_SMOOTHING = 0.15;
 const KEYBOARD_PAN_SPEED = 500; // World units per second at zoom=1
-const KEYBOARD_ZOOM_FACTOR = 1.15;
+const CONTINUOUS_ZOOM_SPEED = 0.75;
 
 export class EditorCameraController extends BaseEntity {
   tickLayer = "camera" as const;
@@ -123,6 +123,16 @@ export class EditorCameraController extends BaseEntity {
       this.camera.x += movement.x * speed;
       this.camera.y += movement.y * speed;
     }
+
+    // Continuous zoom with +/- keys
+    if (io.isKeyDown("Minus") || io.isKeyDown("NumpadSubtract")) {
+      this.targetZoom -= this.targetZoom * dt * CONTINUOUS_ZOOM_SPEED;
+      this.targetZoom = Math.max(MIN_ZOOM, this.targetZoom);
+    }
+    if (io.isKeyDown("Equal") || io.isKeyDown("NumpadAdd")) {
+      this.targetZoom += this.targetZoom * dt * CONTINUOUS_ZOOM_SPEED;
+      this.targetZoom = Math.min(MAX_ZOOM, this.targetZoom);
+    }
   }
 
   @on("mouseDown")
@@ -191,16 +201,6 @@ export class EditorCameraController extends BaseEntity {
   onKeyDown({ key }: { key: string }): void {
     if (key === "Home") {
       this.fitToTerrain();
-    }
-    // Zoom in with = or +
-    if (key === "Equal" || key === "NumpadAdd") {
-      this.targetZoom *= KEYBOARD_ZOOM_FACTOR;
-      this.targetZoom = Math.min(MAX_ZOOM, this.targetZoom);
-    }
-    // Zoom out with - or numpad minus
-    if (key === "Minus" || key === "NumpadSubtract") {
-      this.targetZoom /= KEYBOARD_ZOOM_FACTOR;
-      this.targetZoom = Math.max(MIN_ZOOM, this.targetZoom);
     }
   }
 }
