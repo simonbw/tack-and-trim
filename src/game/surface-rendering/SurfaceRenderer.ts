@@ -206,6 +206,12 @@ export class SurfaceRenderer extends BaseEntity {
     this.ensureInitialized();
   }
 
+  @on("influenceFieldsReady")
+  onInfluenceFieldsReady() {
+    // Reset flag so textures get reconfigured with new influence data
+    this.influenceConfigured = false;
+  }
+
   /**
    * Try to configure influence textures on the render pipeline.
    * Returns true if configured, false if not yet available.
