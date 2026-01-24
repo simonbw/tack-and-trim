@@ -164,15 +164,6 @@ export class InfluenceFieldManager extends BaseEntity {
   private windGrid: InfluenceFieldGrid | null = null;
   private swellGrid: InfluenceFieldGrid | null = null;
   private fetchGrid: InfluenceFieldGrid | null = null;
-  private propagationTimeMs: number = 0;
-
-  // Per-field timing (time from start to completion for each field)
-  private windTimeMs: number = 0;
-  private swellTimeMs: number = 0;
-  private fetchTimeMs: number = 0;
-
-  // Track if GPU was used for swell computation
-  private swellUsedGPU: boolean = false;
 
   // GPU textures (created after propagation)
   private swellTexture: GPUTexture | null = null;
@@ -241,8 +232,6 @@ export class InfluenceFieldManager extends BaseEntity {
    * This keeps the main thread responsive during computation.
    */
   private async computeAsync(): Promise<void> {
-    const startTime = performance.now();
-
     // Get terrain info
     const terrain = TerrainInfo.fromGame(this.game);
     const terrainDef = terrain.getTerrainDefinition();
@@ -345,24 +334,10 @@ export class InfluenceFieldManager extends BaseEntity {
       this.fetchWorkerPool.initialize(),
     ]);
 
-    console.log("[InfluenceFieldManager] Starting parallel computation...");
-
     // Start all three computations in parallel
-    const windPromise = this.computeWindField(
-      sampler,
-      windGridConfig,
-      startTime,
-    );
-    const swellPromise = this.computeSwellField(
-      sampler,
-      swellGridConfig,
-      startTime,
-    );
-    const fetchPromise = this.computeFetchField(
-      sampler,
-      fetchGridConfig,
-      startTime,
-    );
+    const windPromise = this.computeWindField(sampler, windGridConfig);
+    const swellPromise = this.computeSwellField(sampler, swellGridConfig);
+    const fetchPromise = this.computeFetchField(sampler, fetchGridConfig);
 
     // Wait for all to complete
     const [windGrid, swellGrid, fetchGrid] = await Promise.all([
@@ -375,29 +350,17 @@ export class InfluenceFieldManager extends BaseEntity {
     this.swellGrid = swellGrid;
     this.fetchGrid = fetchGrid;
 
-    const propagationTime = performance.now() - startTime;
-    console.log(
-      `[InfluenceFieldManager] All fields computed: ${propagationTime.toFixed(0)}ms`,
-    );
-
     // Create GPU textures
-    const textureStart = performance.now();
-    if (getWebGPU().isInitialized) {
-      this.createGPUTextures(swellGrid, fetchGrid);
-      console.log(
-        `[InfluenceFieldManager] GPU textures: ${(performance.now() - textureStart).toFixed(0)}ms`,
-      );
-    } else {
-      console.log(
-        "[InfluenceFieldManager] WebGPU not available, skipping texture creation",
+    if (!getWebGPU().isInitialized) {
+      throw new Error(
+        "WebGPU is not initialized; cannot create influence field textures",
       );
     }
 
+    this.createGPUTextures(swellGrid, fetchGrid);
+
     // Complete
     this.initialized = true;
-    const totalTime = performance.now() - startTime;
-    this.propagationTimeMs = totalTime;
-    console.log(`[InfluenceFieldManager] Total: ${totalTime.toFixed(0)}ms`);
 
     // Resolve the initialization promise
     if (this.initializationResolve) {
@@ -414,86 +377,12 @@ export class InfluenceFieldManager extends BaseEntity {
   private async computeWindField(
     sampler: TerrainSampler,
     gridConfig: InfluenceGridConfig,
-    startTime: number,
   ): Promise<InfluenceFieldGrid> {
-    const pool = this.windWorkerPool!;
-    const { directionCount, cellsX, cellsY } = gridConfig;
-
-    // Create output grid
-    const grid = new InfluenceFieldGrid(gridConfig);
-
-    // Pre-compute water mask
-    const waterMask = precomputeWaterMask(sampler, gridConfig);
-    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
-
-    // Pre-compute source angles
-    const sourceAngles: number[] = [];
-    for (let dir = 0; dir < directionCount; dir++) {
-      sourceAngles.push((dir / directionCount) * Math.PI * 2);
-    }
-
-    // Distribute directions among workers
-    const directionIndices = Array.from(
-      { length: directionCount },
-      (_, i) => i,
+    return this.computeWindFieldWithPool(
+      this.windWorkerPool!,
+      sampler,
+      gridConfig,
     );
-    const batches = distributeWork(directionIndices, pool.getWorkerCount());
-
-    // Create batch requests
-    const serializableConfig = toSerializableGridConfig(gridConfig);
-    const propagationConfig: SerializablePropagationConfig = {
-      directFlowFactor: WIND_PROPAGATION_CONFIG.directFlowFactor,
-      lateralSpreadFactor: WIND_PROPAGATION_CONFIG.lateralSpreadFactor,
-      decayFactor: WIND_PROPAGATION_CONFIG.decayFactor,
-      maxIterations: WIND_PROPAGATION_CONFIG.maxIterations,
-      convergenceThreshold: WIND_PROPAGATION_CONFIG.convergenceThreshold,
-    };
-
-    const requests: WindWorkerRequest[] = batches.map((directions) => ({
-      type: "compute" as const,
-      batchId: 0, // Will be set by WorkerPool
-      directions,
-      gridConfig: serializableConfig,
-      propagationConfig,
-      waterMask: waterMaskUint8, // Share reference - workers only read
-      sourceAngles: directions.map((dir) => sourceAngles[dir]),
-    }));
-
-    // Run computation
-    const task = pool.run({
-      batches: requests,
-      combineResults: (results) => {
-        // Merge results into grid
-        const cellCount = cellsX * cellsY;
-        for (const result of results) {
-          for (let i = 0; i < result.directions.length; i++) {
-            const dir = result.directions[i];
-            const srcOffset = i * cellCount * 4;
-            const dstDirOffset = dir * cellsY * cellsX * 4;
-
-            for (let j = 0; j < cellCount; j++) {
-              const srcIdx = srcOffset + j * 4;
-              const dstIdx = dstDirOffset + j * 4;
-              grid.data[dstIdx + 0] = result.windData[srcIdx + 0];
-              grid.data[dstIdx + 1] = result.windData[srcIdx + 1];
-              grid.data[dstIdx + 2] = result.windData[srcIdx + 2];
-              grid.data[dstIdx + 3] = result.windData[srcIdx + 3];
-            }
-          }
-        }
-        return results[0]; // Return first result (we've already merged into grid)
-      },
-      getTransferables: () => [], // waterMask copied via structured clone (read-only)
-      onProgress: (p) => {
-        this.windProgress = p;
-      },
-    });
-
-    await task.promise;
-    this.windTimeMs = performance.now() - startTime;
-    this.windProgress = 1;
-
-    return grid;
   }
 
   /**
@@ -520,7 +409,6 @@ export class InfluenceFieldManager extends BaseEntity {
   private async computeSwellField(
     sampler: TerrainSampler,
     gridConfig: InfluenceGridConfig,
-    startTime: number,
   ): Promise<InfluenceFieldGrid> {
     // Try GPU path first if WebGPU is available and not forced to CPU
     if (
@@ -528,13 +416,7 @@ export class InfluenceFieldManager extends BaseEntity {
       !InfluenceFieldManager.shouldForceCPUSwell()
     ) {
       try {
-        const result = await this.computeSwellFieldGPU(
-          sampler,
-          gridConfig,
-          startTime,
-        );
-        this.swellUsedGPU = true;
-        return result;
+        return await this.computeSwellFieldGPU(sampler, gridConfig);
       } catch (error) {
         console.warn(
           "[InfluenceFieldManager] GPU swell computation failed, falling back to workers:",
@@ -544,8 +426,7 @@ export class InfluenceFieldManager extends BaseEntity {
     }
 
     // Fall back to worker pool
-    this.swellUsedGPU = false;
-    return this.computeSwellFieldWorkers(sampler, gridConfig, startTime);
+    return this.computeSwellFieldWorkers(sampler, gridConfig);
   }
 
   /**
@@ -557,7 +438,6 @@ export class InfluenceFieldManager extends BaseEntity {
   private async computeSwellFieldGPU(
     sampler: TerrainSampler,
     gridConfig: InfluenceGridConfig,
-    startTime: number,
   ): Promise<InfluenceFieldGrid> {
     const { directionCount, cellsX, cellsY } = gridConfig;
 
@@ -571,10 +451,6 @@ export class InfluenceFieldManager extends BaseEntity {
     // Initialize GPU compute with 3D buffer support
     const compute = new SwellPropagationCompute();
     await compute.init({ cellsX, cellsY, directionCount }, waterMaskUint8);
-
-    console.log(
-      `[InfluenceFieldManager] Computing swell field on GPU (${cellsX}x${cellsY}, ${directionCount} directions × 2 wavelengths)`,
-    );
 
     const cellCount = cellsX * cellsY;
 
@@ -608,34 +484,8 @@ export class InfluenceFieldManager extends BaseEntity {
       }
     }
 
-    // Log timing breakdown
-    const timing = compute.getTiming();
-    if (timing) {
-      const lines = [
-        `setup: ${timing.setupMs.toFixed(1)}ms`,
-        `init pass: ${timing.initPassMs.toFixed(1)}ms`,
-        `encode iterations: ${timing.encodeIterationsMs.toFixed(1)}ms`,
-        `submit: ${timing.submitMs.toFixed(1)}ms`,
-        `gpu wait: ${timing.gpuWaitMs.toFixed(1)}ms`,
-        `readback copy: ${timing.readbackCopyMs.toFixed(1)}ms`,
-        `readback map: ${timing.readbackMapMs.toFixed(1)}ms`,
-        `readback read: ${timing.readbackReadMs.toFixed(1)}ms`,
-        `TOTAL compute: ${timing.totalComputeMs.toFixed(1)}ms`,
-        `TOTAL readback: ${timing.totalReadbackMs.toFixed(1)}ms`,
-      ];
-      console.log(
-        `[InfluenceFieldManager] GPU swell timing: ${lines.join(" | ")}`,
-      );
-    }
-
     compute.destroy();
-
-    this.swellTimeMs = performance.now() - startTime;
     this.swellProgress = 1;
-
-    console.log(
-      `[InfluenceFieldManager] GPU swell field complete: ${this.swellTimeMs.toFixed(0)}ms`,
-    );
 
     return grid;
   }
@@ -646,94 +496,12 @@ export class InfluenceFieldManager extends BaseEntity {
   private async computeSwellFieldWorkers(
     sampler: TerrainSampler,
     gridConfig: InfluenceGridConfig,
-    startTime: number,
   ): Promise<InfluenceFieldGrid> {
-    const pool = this.swellWorkerPool!;
-    const { directionCount, cellsX, cellsY } = gridConfig;
-
-    // Create output grid
-    const grid = new InfluenceFieldGrid(gridConfig);
-
-    // Pre-compute water mask
-    const waterMask = precomputeWaterMask(sampler, gridConfig);
-    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
-
-    // Pre-compute source angles
-    const sourceAngles: number[] = [];
-    for (let dir = 0; dir < directionCount; dir++) {
-      sourceAngles.push((dir / directionCount) * Math.PI * 2);
-    }
-
-    // Distribute directions among workers
-    const directionIndices = Array.from(
-      { length: directionCount },
-      (_, i) => i,
+    return this.computeSwellFieldWorkersWithPool(
+      this.swellWorkerPool!,
+      sampler,
+      gridConfig,
     );
-    const batches = distributeWork(directionIndices, pool.getWorkerCount());
-
-    // Create batch requests
-    const serializableConfig = toSerializableGridConfig(gridConfig);
-    const longSwellConfig: SerializablePropagationConfig = {
-      directFlowFactor: LONG_SWELL_PROPAGATION_CONFIG.directFlowFactor,
-      lateralSpreadFactor: LONG_SWELL_PROPAGATION_CONFIG.lateralSpreadFactor,
-      decayFactor: LONG_SWELL_PROPAGATION_CONFIG.decayFactor,
-      maxIterations: LONG_SWELL_PROPAGATION_CONFIG.maxIterations,
-      convergenceThreshold: LONG_SWELL_PROPAGATION_CONFIG.convergenceThreshold,
-    };
-    const shortChopConfig: SerializablePropagationConfig = {
-      directFlowFactor: SHORT_CHOP_PROPAGATION_CONFIG.directFlowFactor,
-      lateralSpreadFactor: SHORT_CHOP_PROPAGATION_CONFIG.lateralSpreadFactor,
-      decayFactor: SHORT_CHOP_PROPAGATION_CONFIG.decayFactor,
-      maxIterations: SHORT_CHOP_PROPAGATION_CONFIG.maxIterations,
-      convergenceThreshold: SHORT_CHOP_PROPAGATION_CONFIG.convergenceThreshold,
-    };
-
-    const requests: SwellWorkerRequest[] = batches.map((directions) => ({
-      type: "computeCombined" as const,
-      batchId: 0,
-      directions,
-      gridConfig: serializableConfig,
-      longSwellConfig,
-      shortChopConfig,
-      waterMask: waterMaskUint8, // Share reference - workers only read
-      sourceAngles: directions.map((dir) => sourceAngles[dir]),
-    }));
-
-    // Run computation
-    const task = pool.run({
-      batches: requests,
-      combineResults: (results) => {
-        // Merge results into grid (RGBA = longEnergy, longDir, shortEnergy, shortDir)
-        const cellCount = cellsX * cellsY;
-        for (const result of results) {
-          for (let i = 0; i < result.directions.length; i++) {
-            const dir = result.directions[i];
-            const srcOffset = i * cellCount;
-            const dstDirOffset = dir * cellsY * cellsX * 4;
-
-            for (let j = 0; j < cellCount; j++) {
-              const srcIdx = srcOffset + j;
-              const dstIdx = dstDirOffset + j * 4;
-              grid.data[dstIdx + 0] = result.longEnergy[srcIdx];
-              grid.data[dstIdx + 1] = result.longArrivalDirection[srcIdx];
-              grid.data[dstIdx + 2] = result.shortEnergy[srcIdx];
-              grid.data[dstIdx + 3] = result.shortArrivalDirection[srcIdx];
-            }
-          }
-        }
-        return results[0];
-      },
-      getTransferables: () => [], // waterMask copied via structured clone (read-only)
-      onProgress: (p) => {
-        this.swellProgress = p;
-      },
-    });
-
-    await task.promise;
-    this.swellTimeMs = performance.now() - startTime;
-    this.swellProgress = 1;
-
-    return grid;
   }
 
   /**
@@ -742,82 +510,12 @@ export class InfluenceFieldManager extends BaseEntity {
   private async computeFetchField(
     sampler: TerrainSampler,
     gridConfig: InfluenceGridConfig,
-    startTime: number,
   ): Promise<InfluenceFieldGrid> {
-    const pool = this.fetchWorkerPool!;
-    const { directionCount, cellsX, cellsY } = gridConfig;
-
-    // Create output grid
-    const grid = new InfluenceFieldGrid(gridConfig);
-
-    // Pre-compute water mask
-    const waterMask = precomputeWaterMask(sampler, gridConfig);
-    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
-
-    // Pre-compute upwind angles (opposite of source direction)
-    const upwindAngles: number[] = [];
-    for (let dir = 0; dir < directionCount; dir++) {
-      const sourceAngle = (dir / directionCount) * Math.PI * 2;
-      upwindAngles.push(sourceAngle + Math.PI);
-    }
-
-    // Distribute directions among workers
-    const directionIndices = Array.from(
-      { length: directionCount },
-      (_, i) => i,
+    return this.computeFetchFieldWithPool(
+      this.fetchWorkerPool!,
+      sampler,
+      gridConfig,
     );
-    const batches = distributeWork(directionIndices, pool.getWorkerCount());
-
-    // Create batch requests
-    const serializableConfig = toSerializableGridConfig(gridConfig);
-    const stepSize = gridConfig.cellSize / 2;
-
-    const requests: FetchWorkerRequest[] = batches.map((directions) => ({
-      type: "compute" as const,
-      batchId: 0,
-      directions,
-      gridConfig: serializableConfig,
-      waterMask: waterMaskUint8, // Share reference - workers only read
-      upwindAngles: directions.map((dir) => upwindAngles[dir]),
-      maxFetch: DEFAULT_MAX_FETCH,
-      stepSize,
-    }));
-
-    // Run computation
-    const task = pool.run({
-      batches: requests,
-      combineResults: (results) => {
-        // Merge results into grid
-        const cellCount = cellsX * cellsY;
-        for (const result of results) {
-          for (let i = 0; i < result.directions.length; i++) {
-            const dir = result.directions[i];
-            const srcOffset = i * cellCount * 4;
-            const dstDirOffset = dir * cellsY * cellsX * 4;
-
-            for (let j = 0; j < cellCount; j++) {
-              const srcIdx = srcOffset + j * 4;
-              const dstIdx = dstDirOffset + j * 4;
-              grid.data[dstIdx + 0] = result.fetchData[srcIdx + 0];
-              grid.data[dstIdx + 1] = result.fetchData[srcIdx + 1];
-              grid.data[dstIdx + 2] = result.fetchData[srcIdx + 2];
-              grid.data[dstIdx + 3] = result.fetchData[srcIdx + 3];
-            }
-          }
-        }
-        return results[0];
-      },
-      getTransferables: () => [], // waterMask copied via structured clone (read-only)
-      onProgress: (p) => {
-        this.fetchProgress = p;
-      },
-    });
-
-    await task.promise;
-    this.fetchTimeMs = performance.now() - startTime;
-    this.fetchProgress = 1;
-
-    return grid;
   }
 
   /**
@@ -896,13 +594,6 @@ export class InfluenceFieldManager extends BaseEntity {
       addressModeW: "repeat", // Direction wraps around
       label: "Influence Field Sampler",
     });
-
-    console.log(
-      `[InfluenceFieldManager] Created swell texture: ${swellConfig.cellsX}x${swellConfig.cellsY}x${swellConfig.directionCount}`,
-    );
-    console.log(
-      `[InfluenceFieldManager] Created fetch texture: ${fetchConfig.cellsX}x${fetchConfig.cellsY}x${fetchConfig.directionCount}`,
-    );
   }
 
   /**
@@ -1063,43 +754,458 @@ export class InfluenceFieldManager extends BaseEntity {
   }
 
   /**
-   * Get the time taken to compute all propagation fields in milliseconds.
-   * Useful for performance monitoring and testing.
+   * Recompute influence fields for updated terrain.
+   * Keeps existing data available during computation so rendering continues uninterrupted.
+   * Dispatches "influenceFieldsReady" when complete.
    */
-  getPropagationTimeMs(): number {
-    return this.propagationTimeMs;
+  async recompute(): Promise<void> {
+    // Reset progress
+    this.windProgress = 0;
+    this.swellProgress = 0;
+    this.fetchProgress = 0;
+
+    // Get terrain info (may have changed since last compute)
+    const terrain = TerrainInfo.fromGame(this.game);
+    const terrainDef = terrain.getTerrainDefinition();
+
+    // Compute bounds from all control points
+    let minX = Infinity,
+      maxX = -Infinity;
+    let minY = Infinity,
+      maxY = -Infinity;
+
+    for (const contour of terrainDef.contours) {
+      for (const pt of contour.controlPoints) {
+        minX = Math.min(minX, pt.x);
+        maxX = Math.max(maxX, pt.x);
+        minY = Math.min(minY, pt.y);
+        maxY = Math.max(maxY, pt.y);
+      }
+    }
+
+    // If no contours, use a default area
+    if (!Number.isFinite(minX)) {
+      minX = -500;
+      maxX = 500;
+      minY = -500;
+      maxY = 500;
+    }
+
+    // Add padding for influence to extend beyond terrain
+    minX -= BOUNDS_PADDING;
+    maxX += BOUNDS_PADDING;
+    minY -= BOUNDS_PADDING;
+    maxY += BOUNDS_PADDING;
+
+    // Create terrain sampler for propagation algorithms
+    const sampler = new TerrainSampler(terrainDef);
+
+    // Create grid configs with appropriate resolutions
+    const windGridConfig = createGridConfig(
+      minX,
+      maxX,
+      minY,
+      maxY,
+      WIND_FIELD_RESOLUTION.cellSize,
+      WIND_FIELD_RESOLUTION.directionCount,
+    );
+
+    const swellGridConfig = createGridConfig(
+      minX,
+      maxX,
+      minY,
+      maxY,
+      SWELL_FIELD_RESOLUTION.cellSize,
+      SWELL_FIELD_RESOLUTION.directionCount,
+    );
+
+    const fetchGridConfig = createGridConfig(
+      minX,
+      maxX,
+      minY,
+      maxY,
+      FETCH_FIELD_RESOLUTION.cellSize,
+      FETCH_FIELD_RESOLUTION.directionCount,
+    );
+
+    // Create new worker pools (don't terminate existing ones yet - they might still be in use)
+    const newWindPool = new WorkerPool<WindWorkerRequest, WindWorkerResult>({
+      workerUrl: new URL(
+        "./propagation/workers/WindWorker.ts",
+        import.meta.url,
+      ),
+      label: "WindWorker-recompute",
+    });
+
+    const newSwellPool = new WorkerPool<
+      SwellWorkerRequest,
+      CombinedSwellWorkerResult
+    >({
+      workerUrl: new URL(
+        "./propagation/workers/SwellWorker.ts",
+        import.meta.url,
+      ),
+      label: "SwellWorker-recompute",
+    });
+
+    const newFetchPool = new WorkerPool<FetchWorkerRequest, FetchWorkerResult>({
+      workerUrl: new URL(
+        "./propagation/workers/FetchWorker.ts",
+        import.meta.url,
+      ),
+      label: "FetchWorker-recompute",
+    });
+
+    // Initialize all worker pools in parallel
+    await Promise.all([
+      newWindPool.initialize(),
+      newSwellPool.initialize(),
+      newFetchPool.initialize(),
+    ]);
+
+    // Compute new grids using the new pools (existing data remains valid during computation)
+    const windPromise = this.computeWindFieldWithPool(
+      newWindPool,
+      sampler,
+      windGridConfig,
+    );
+    const swellPromise = this.computeSwellFieldWithPool(
+      newSwellPool,
+      sampler,
+      swellGridConfig,
+    );
+    const fetchPromise = this.computeFetchFieldWithPool(
+      newFetchPool,
+      sampler,
+      fetchGridConfig,
+    );
+
+    const [newWindGrid, newSwellGrid, newFetchGrid] = await Promise.all([
+      windPromise,
+      swellPromise,
+      fetchPromise,
+    ]);
+
+    // Terminate the new worker pools (no longer needed)
+    newWindPool.terminate();
+    newSwellPool.terminate();
+    newFetchPool.terminate();
+
+    // Store references to old textures for cleanup
+    const oldSwellTexture = this.swellTexture;
+    const oldFetchTexture = this.fetchTexture;
+
+    // Create new GPU textures
+    this.createGPUTextures(newSwellGrid, newFetchGrid);
+
+    // Atomically swap grids
+    this.windGrid = newWindGrid;
+    this.swellGrid = newSwellGrid;
+    this.fetchGrid = newFetchGrid;
+
+    // Destroy old textures after swap
+    oldSwellTexture?.destroy();
+    oldFetchTexture?.destroy();
+
+    // Mark as initialized (in case this is first compute)
+    if (!this.initialized) {
+      this.initialized = true;
+      if (this.initializationResolve) {
+        this.initializationResolve();
+      }
+    }
+
+    // Signal completion
+    this.game.dispatch("influenceFieldsReady", {});
   }
 
   /**
-   * Get the time taken to compute wind influence field in milliseconds.
-   * Time is measured from start of all computations to wind completion.
+   * Compute wind influence field using a specific worker pool.
+   * Extracted to allow recompute to use its own pool.
    */
-  getWindTimeMs(): number {
-    return this.windTimeMs;
+  private async computeWindFieldWithPool(
+    pool: WorkerPool<WindWorkerRequest, WindWorkerResult>,
+    sampler: TerrainSampler,
+    gridConfig: InfluenceGridConfig,
+  ): Promise<InfluenceFieldGrid> {
+    const { directionCount, cellsX, cellsY } = gridConfig;
+
+    // Create output grid
+    const grid = new InfluenceFieldGrid(gridConfig);
+
+    // Pre-compute water mask
+    const waterMask = precomputeWaterMask(sampler, gridConfig);
+    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
+
+    // Pre-compute source angles
+    const sourceAngles: number[] = [];
+    for (let dir = 0; dir < directionCount; dir++) {
+      sourceAngles.push((dir / directionCount) * Math.PI * 2);
+    }
+
+    // Distribute directions among workers
+    const directionIndices = Array.from(
+      { length: directionCount },
+      (_, i) => i,
+    );
+    const batches = distributeWork(directionIndices, pool.getWorkerCount());
+
+    // Create batch requests
+    const serializableConfig = toSerializableGridConfig(gridConfig);
+    const propagationConfig: SerializablePropagationConfig = {
+      directFlowFactor: WIND_PROPAGATION_CONFIG.directFlowFactor,
+      lateralSpreadFactor: WIND_PROPAGATION_CONFIG.lateralSpreadFactor,
+      decayFactor: WIND_PROPAGATION_CONFIG.decayFactor,
+      maxIterations: WIND_PROPAGATION_CONFIG.maxIterations,
+      convergenceThreshold: WIND_PROPAGATION_CONFIG.convergenceThreshold,
+    };
+
+    const requests: WindWorkerRequest[] = batches.map((directions) => ({
+      type: "compute" as const,
+      batchId: 0,
+      directions,
+      gridConfig: serializableConfig,
+      propagationConfig,
+      waterMask: waterMaskUint8,
+      sourceAngles: directions.map((dir) => sourceAngles[dir]),
+    }));
+
+    // Run computation
+    const task = pool.run({
+      batches: requests,
+      combineResults: (results) => {
+        const cellCount = cellsX * cellsY;
+        for (const result of results) {
+          for (let i = 0; i < result.directions.length; i++) {
+            const dir = result.directions[i];
+            const srcOffset = i * cellCount * 4;
+            const dstDirOffset = dir * cellsY * cellsX * 4;
+
+            for (let j = 0; j < cellCount; j++) {
+              const srcIdx = srcOffset + j * 4;
+              const dstIdx = dstDirOffset + j * 4;
+              grid.data[dstIdx + 0] = result.windData[srcIdx + 0];
+              grid.data[dstIdx + 1] = result.windData[srcIdx + 1];
+              grid.data[dstIdx + 2] = result.windData[srcIdx + 2];
+              grid.data[dstIdx + 3] = result.windData[srcIdx + 3];
+            }
+          }
+        }
+        return results[0];
+      },
+      getTransferables: () => [],
+      onProgress: (p) => {
+        this.windProgress = p;
+      },
+    });
+
+    await task.promise;
+    this.windProgress = 1;
+
+    return grid;
   }
 
   /**
-   * Get the time taken to compute swell influence field in milliseconds.
-   * Time is measured from start of all computations to swell completion.
+   * Compute swell influence field using a specific worker pool.
+   * Extracted to allow recompute to use its own pool.
    */
-  getSwellTimeMs(): number {
-    return this.swellTimeMs;
+  private async computeSwellFieldWithPool(
+    pool: WorkerPool<SwellWorkerRequest, CombinedSwellWorkerResult>,
+    sampler: TerrainSampler,
+    gridConfig: InfluenceGridConfig,
+  ): Promise<InfluenceFieldGrid> {
+    // Try GPU path first if WebGPU is available and not forced to CPU
+    if (
+      getWebGPU().isInitialized &&
+      !InfluenceFieldManager.shouldForceCPUSwell()
+    ) {
+      try {
+        return await this.computeSwellFieldGPU(sampler, gridConfig);
+      } catch (error) {
+        console.warn(
+          "[InfluenceFieldManager] GPU swell computation failed, falling back to workers:",
+          error,
+        );
+      }
+    }
+
+    // Fall back to worker pool
+    return this.computeSwellFieldWorkersWithPool(pool, sampler, gridConfig);
   }
 
   /**
-   * Get the time taken to compute fetch map in milliseconds.
-   * Time is measured from start of all computations to fetch completion.
+   * Compute swell influence field using a specific worker pool.
    */
-  getFetchTimeMs(): number {
-    return this.fetchTimeMs;
+  private async computeSwellFieldWorkersWithPool(
+    pool: WorkerPool<SwellWorkerRequest, CombinedSwellWorkerResult>,
+    sampler: TerrainSampler,
+    gridConfig: InfluenceGridConfig,
+  ): Promise<InfluenceFieldGrid> {
+    const { directionCount, cellsX, cellsY } = gridConfig;
+
+    // Create output grid
+    const grid = new InfluenceFieldGrid(gridConfig);
+
+    // Pre-compute water mask
+    const waterMask = precomputeWaterMask(sampler, gridConfig);
+    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
+
+    // Pre-compute source angles
+    const sourceAngles: number[] = [];
+    for (let dir = 0; dir < directionCount; dir++) {
+      sourceAngles.push((dir / directionCount) * Math.PI * 2);
+    }
+
+    // Distribute directions among workers
+    const directionIndices = Array.from(
+      { length: directionCount },
+      (_, i) => i,
+    );
+    const batches = distributeWork(directionIndices, pool.getWorkerCount());
+
+    // Create batch requests
+    const serializableConfig = toSerializableGridConfig(gridConfig);
+    const longSwellConfig: SerializablePropagationConfig = {
+      directFlowFactor: LONG_SWELL_PROPAGATION_CONFIG.directFlowFactor,
+      lateralSpreadFactor: LONG_SWELL_PROPAGATION_CONFIG.lateralSpreadFactor,
+      decayFactor: LONG_SWELL_PROPAGATION_CONFIG.decayFactor,
+      maxIterations: LONG_SWELL_PROPAGATION_CONFIG.maxIterations,
+      convergenceThreshold: LONG_SWELL_PROPAGATION_CONFIG.convergenceThreshold,
+    };
+    const shortChopConfig: SerializablePropagationConfig = {
+      directFlowFactor: SHORT_CHOP_PROPAGATION_CONFIG.directFlowFactor,
+      lateralSpreadFactor: SHORT_CHOP_PROPAGATION_CONFIG.lateralSpreadFactor,
+      decayFactor: SHORT_CHOP_PROPAGATION_CONFIG.decayFactor,
+      maxIterations: SHORT_CHOP_PROPAGATION_CONFIG.maxIterations,
+      convergenceThreshold: SHORT_CHOP_PROPAGATION_CONFIG.convergenceThreshold,
+    };
+
+    const requests: SwellWorkerRequest[] = batches.map((directions) => ({
+      type: "computeCombined" as const,
+      batchId: 0,
+      directions,
+      gridConfig: serializableConfig,
+      longSwellConfig,
+      shortChopConfig,
+      waterMask: waterMaskUint8,
+      sourceAngles: directions.map((dir) => sourceAngles[dir]),
+    }));
+
+    // Run computation
+    const task = pool.run({
+      batches: requests,
+      combineResults: (results) => {
+        const cellCount = cellsX * cellsY;
+        for (const result of results) {
+          for (let i = 0; i < result.directions.length; i++) {
+            const dir = result.directions[i];
+            const srcOffset = i * cellCount;
+            const dstDirOffset = dir * cellsY * cellsX * 4;
+
+            for (let j = 0; j < cellCount; j++) {
+              const srcIdx = srcOffset + j;
+              const dstIdx = dstDirOffset + j * 4;
+              grid.data[dstIdx + 0] = result.longEnergy[srcIdx];
+              grid.data[dstIdx + 1] = result.longArrivalDirection[srcIdx];
+              grid.data[dstIdx + 2] = result.shortEnergy[srcIdx];
+              grid.data[dstIdx + 3] = result.shortArrivalDirection[srcIdx];
+            }
+          }
+        }
+        return results[0];
+      },
+      getTransferables: () => [],
+      onProgress: (p) => {
+        this.swellProgress = p;
+      },
+    });
+
+    await task.promise;
+    this.swellProgress = 1;
+
+    return grid;
   }
 
   /**
-   * Check if GPU was used for swell computation.
-   * Returns true if GPU path was taken, false if workers were used.
+   * Compute fetch map using a specific worker pool.
+   * Extracted to allow recompute to use its own pool.
    */
-  didSwellUseGPU(): boolean {
-    return this.swellUsedGPU;
+  private async computeFetchFieldWithPool(
+    pool: WorkerPool<FetchWorkerRequest, FetchWorkerResult>,
+    sampler: TerrainSampler,
+    gridConfig: InfluenceGridConfig,
+  ): Promise<InfluenceFieldGrid> {
+    const { directionCount, cellsX, cellsY } = gridConfig;
+
+    // Create output grid
+    const grid = new InfluenceFieldGrid(gridConfig);
+
+    // Pre-compute water mask
+    const waterMask = precomputeWaterMask(sampler, gridConfig);
+    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
+
+    // Pre-compute upwind angles (opposite of source direction)
+    const upwindAngles: number[] = [];
+    for (let dir = 0; dir < directionCount; dir++) {
+      const sourceAngle = (dir / directionCount) * Math.PI * 2;
+      upwindAngles.push(sourceAngle + Math.PI);
+    }
+
+    // Distribute directions among workers
+    const directionIndices = Array.from(
+      { length: directionCount },
+      (_, i) => i,
+    );
+    const batches = distributeWork(directionIndices, pool.getWorkerCount());
+
+    // Create batch requests
+    const serializableConfig = toSerializableGridConfig(gridConfig);
+    const stepSize = gridConfig.cellSize / 2;
+
+    const requests: FetchWorkerRequest[] = batches.map((directions) => ({
+      type: "compute" as const,
+      batchId: 0,
+      directions,
+      gridConfig: serializableConfig,
+      waterMask: waterMaskUint8,
+      upwindAngles: directions.map((dir) => upwindAngles[dir]),
+      maxFetch: DEFAULT_MAX_FETCH,
+      stepSize,
+    }));
+
+    // Run computation
+    const task = pool.run({
+      batches: requests,
+      combineResults: (results) => {
+        const cellCount = cellsX * cellsY;
+        for (const result of results) {
+          for (let i = 0; i < result.directions.length; i++) {
+            const dir = result.directions[i];
+            const srcOffset = i * cellCount * 4;
+            const dstDirOffset = dir * cellsY * cellsX * 4;
+
+            for (let j = 0; j < cellCount; j++) {
+              const srcIdx = srcOffset + j * 4;
+              const dstIdx = dstDirOffset + j * 4;
+              grid.data[dstIdx + 0] = result.fetchData[srcIdx + 0];
+              grid.data[dstIdx + 1] = result.fetchData[srcIdx + 1];
+              grid.data[dstIdx + 2] = result.fetchData[srcIdx + 2];
+              grid.data[dstIdx + 3] = result.fetchData[srcIdx + 3];
+            }
+          }
+        }
+        return results[0];
+      },
+      getTransferables: () => [],
+      onProgress: (p) => {
+        this.fetchProgress = p;
+      },
+    });
+
+    await task.promise;
+    this.fetchProgress = 1;
+
+    return grid;
   }
 
   @on("destroy")
