@@ -105,13 +105,16 @@ export class ContourEditor extends BaseEntity {
     if (io.isKeyDown("Space")) return;
 
     const worldPos = this.game.camera.toWorld(io.mousePosition);
-    const hoverInfo = this.renderer.getHoverInfo();
+
+    // Always do fresh hit testing on click to avoid stale hover info issues
+    const pointHit = this.renderer.hitTestPoint(worldPos);
+    const splineHit = this.renderer.hitTestSpline(worldPos);
 
     // 1. Check if clicking on a control point (highest priority)
-    if (hoverInfo?.pointIndex !== null && hoverInfo?.pointIndex !== undefined) {
+    if (pointHit) {
       this.handlePointClick(
-        hoverInfo.contourIndex,
-        hoverInfo.pointIndex,
+        pointHit.contourIndex,
+        pointHit.pointIndex,
         worldPos,
         io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight"),
       );
@@ -119,7 +122,7 @@ export class ContourEditor extends BaseEntity {
     }
 
     // 2. Check if clicking on a spline segment (before fill, since stroke overlaps fill area)
-    if (hoverInfo?.splineSegment) {
+    if (splineHit) {
       const hasModifier =
         io.isKeyDown("MetaLeft") ||
         io.isKeyDown("MetaRight") ||
@@ -129,13 +132,13 @@ export class ContourEditor extends BaseEntity {
       if (hasModifier) {
         // Cmd/Ctrl+click: insert new point
         this.handleSplineClick(
-          hoverInfo.contourIndex,
-          hoverInfo.splineSegment.segmentIndex,
-          hoverInfo.worldPosition,
+          splineHit.contourIndex,
+          splineHit.segmentIndex,
+          splineHit.position,
         );
       } else {
         // Plain click: select entire contour (but do NOT start drag)
-        this.document.selectAllPoints(hoverInfo.contourIndex);
+        this.document.selectAllPoints(splineHit.contourIndex);
       }
       return;
     }
@@ -146,8 +149,12 @@ export class ContourEditor extends BaseEntity {
       const fillHit = this.renderer.hitTestFill(worldPos);
       if (fillHit && fillHit.contourIndex === selectedContourIndex) {
         // Start drag of entire contour
-        this.document.selectAllPoints(selectedContourIndex);
-        this.startDrag(selectedContourIndex, worldPos);
+        const contour = this.document.getContour(selectedContourIndex);
+        if (contour) {
+          this.document.selectAllPoints(selectedContourIndex);
+          const allIndices = contour.controlPoints.map((_, i) => i);
+          this.startDrag(selectedContourIndex, worldPos, allIndices);
+        }
         return;
       }
     }
@@ -163,18 +170,13 @@ export class ContourEditor extends BaseEntity {
     additive: boolean,
   ): void {
     if (additive) {
-      // Toggle selection of this point
+      // Shift+click: just toggle selection, no drag
       this.document.selectPoint(contourIndex, pointIndex, true);
     } else {
-      // Check if clicking on already selected point (start drag)
-      if (this.document.isPointSelected(contourIndex, pointIndex)) {
-        // Start dragging all selected points
-        this.startDrag(contourIndex, worldPos);
-      } else {
-        // Select just this point
-        this.document.selectPoint(contourIndex, pointIndex, false);
-        this.startDrag(contourIndex, worldPos);
-      }
+      // Regular click: drag just this one point
+      // Update selection for visual feedback
+      this.document.selectPoint(contourIndex, pointIndex, false);
+      this.startDrag(contourIndex, worldPos, [pointIndex]);
     }
   }
 
@@ -196,22 +198,25 @@ export class ContourEditor extends BaseEntity {
     // Select the new point
     this.document.selectPoint(contourIndex, insertIndex, false);
 
-    // Start dragging immediately
-    this.startDrag(contourIndex, position);
+    // Start dragging immediately (just the new point)
+    this.startDrag(contourIndex, position, [insertIndex]);
   }
 
-  private startDrag(contourIndex: number, mousePos: V2d): void {
+  private startDrag(
+    contourIndex: number,
+    mousePos: V2d,
+    pointIndices: number[],
+  ): void {
     const contour = this.document.getContour(contourIndex);
     if (!contour) return;
 
-    const selection = this.document.getSelection();
     const startPositions = new Map<string, V2d>();
 
-    // Check if we're dragging the whole contour (all points selected)
-    const allPointsSelected =
-      selection.pointIndices.size === contour.controlPoints.length;
+    // Check if we're dragging the whole contour (all points)
+    const allPointsDragged =
+      pointIndices.length === contour.controlPoints.length;
 
-    if (allPointsSelected) {
+    if (allPointsDragged) {
       // Cascading move: include this contour and all descendants
       const descendants = this.document.getContourDescendants(contourIndex);
       const affectedContours = [contourIndex, ...descendants];
@@ -236,8 +241,8 @@ export class ContourEditor extends BaseEntity {
         hasMoved: false,
       };
     } else {
-      // Non-cascading: just move selected points of this contour
-      for (const pointIndex of selection.pointIndices) {
+      // Non-cascading: just move the specified points of this contour
+      for (const pointIndex of pointIndices) {
         const pt = contour.controlPoints[pointIndex];
         if (pt) {
           startPositions.set(`${contourIndex}:${pointIndex}`, V(pt.x, pt.y));
@@ -345,7 +350,15 @@ export class ContourEditor extends BaseEntity {
   }
 
   @on("keyDown")
-  onKeyDown({ key }: { key: string }): void {
+  onKeyDown({ key, event }: { key: string; event?: KeyboardEvent }): void {
+    // Ignore key events when focus is in an input field
+    if (
+      event?.target instanceof HTMLInputElement ||
+      event?.target instanceof HTMLTextAreaElement
+    ) {
+      return;
+    }
+
     const io = this.game.io;
     const meta = io.isKeyDown("MetaLeft") || io.isKeyDown("MetaRight");
     const ctrl = io.isKeyDown("ControlLeft") || io.isKeyDown("ControlRight");

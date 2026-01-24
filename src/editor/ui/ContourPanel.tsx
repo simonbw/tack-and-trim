@@ -182,13 +182,15 @@ function ContourProperties({
         <input
           type="text"
           class="contour-panel-input"
-          value={contour.name || ""}
+          key={`name-${contourIndex}-${contour.name}`}
+          defaultValue={contour.name || ""}
           placeholder={`Contour ${contourIndex + 1}`}
           onBlur={handleNameChange}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               (e.target as HTMLInputElement).blur();
             }
+            e.stopPropagation();
           }}
         />
       </div>
@@ -199,12 +201,16 @@ function ContourProperties({
           <input
             type="number"
             class="contour-panel-height-input"
-            value={contour.height}
+            key={`height-${contourIndex}-${contour.height}`}
+            defaultValue={contour.height}
             step="0.1"
             onBlur={handleHeightChange}
-            onKeyDown={(e) =>
-              e.key === "Enter" && (e.target as HTMLInputElement).blur()
-            }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                (e.target as HTMLInputElement).blur();
+              }
+              e.stopPropagation();
+            }}
           />
         </div>
         <input
