@@ -39,6 +39,17 @@ export interface SerializablePropagationConfig {
 }
 
 /**
+ * Serializable depth grid configuration.
+ */
+export interface SerializableDepthGridConfig {
+  originX: number;
+  originY: number;
+  cellSize: number;
+  cellsX: number;
+  cellsY: number;
+}
+
+/**
  * Request from main thread to compute swell propagation.
  */
 export interface SwellWorkerRequest {
@@ -47,7 +58,8 @@ export interface SwellWorkerRequest {
   directions: number[];
   gridConfig: SerializableGridConfig;
   propagationConfig: SerializablePropagationConfig;
-  waterMask: Uint8Array;
+  depthGrid: Float32Array;
+  depthGridConfig: SerializableDepthGridConfig;
   sourceAngles: number[];
 }
 
@@ -61,7 +73,8 @@ export interface CombinedSwellWorkerRequest {
   gridConfig: SerializableGridConfig;
   longSwellConfig: SerializablePropagationConfig;
   shortChopConfig: SerializablePropagationConfig;
-  waterMask: Uint8Array;
+  depthGrid: Float32Array;
+  depthGridConfig: SerializableDepthGridConfig;
   sourceAngles: number[];
 }
 
@@ -209,10 +222,17 @@ function computeFlowWeight(
   return flowResult;
 }
 
+/**
+ * Check if a cell is land (terrain height >= 0).
+ */
+function isLand(depthGrid: Float32Array, idx: number): boolean {
+  return depthGrid[idx] >= 0;
+}
+
 function propagateSwellForDirection(
   dirIndex: number,
   sourceAngle: number,
-  waterMask: Uint8Array,
+  depthGrid: Float32Array,
   gridConfig: SerializableGridConfig,
   propagationConfig: SerializablePropagationConfig,
   outEnergy: Float32Array,
@@ -245,7 +265,7 @@ function propagateSwellForDirection(
   for (let y = 0; y < cellsY; y++) {
     for (let x = 0; x < cellsX; x++) {
       const idx = y * cellsX + x;
-      if (waterMask[idx] === 0) {
+      if (isLand(depthGrid, idx)) {
         energy[idx] = 0;
       } else if (
         isUpwindBoundary(x, y, cellsX, cellsY, sourceDirX, sourceDirY)
@@ -274,7 +294,7 @@ function propagateSwellForDirection(
       for (let x = 0; x < cellsX; x++) {
         const idx = y * cellsX + x;
 
-        if (waterMask[idx] === 0) continue;
+        if (isLand(depthGrid, idx)) continue;
         if (isUpwindBoundary(x, y, cellsX, cellsY, sourceDirX, sourceDirY))
           continue;
 
@@ -294,7 +314,7 @@ function propagateSwellForDirection(
           if (nx < 0 || nx >= cellsX || ny < 0 || ny >= cellsY) continue;
 
           const neighborIdx = ny * cellsX + nx;
-          if (waterMask[neighborIdx] === 0) continue;
+          if (isLand(depthGrid, neighborIdx)) continue;
 
           // Use pre-computed cell centers
           const neighborPosX = cellCentersX[neighborIdx];
@@ -344,7 +364,7 @@ function propagateSwellForDirection(
       const idx = y * cellsX + x;
       const outIdx = dirOffset + idx;
 
-      if (waterMask[idx] === 0) {
+      if (isLand(depthGrid, idx)) {
         outEnergy[outIdx] = 0;
         outArrivalDirection[outIdx] = sourceAngle;
         continue;
@@ -378,7 +398,7 @@ function propagateSwellForDirection(
 function computeSwellBatch(
   directions: number[],
   sourceAngles: number[],
-  waterMask: Uint8Array,
+  depthGrid: Float32Array,
   gridConfig: SerializableGridConfig,
   propagationConfig: SerializablePropagationConfig,
   onDirectionComplete?: (dirIndex: number, batchProgress: number) => void,
@@ -399,7 +419,7 @@ function computeSwellBatch(
     const result = propagateSwellForDirection(
       localDirIndex,
       sourceAngle,
-      waterMask,
+      depthGrid,
       gridConfig,
       propagationConfig,
       energy,
@@ -421,7 +441,7 @@ function computeSwellBatch(
 function computeCombinedSwellBatch(
   directions: number[],
   sourceAngles: number[],
-  waterMask: Uint8Array,
+  depthGrid: Float32Array,
   gridConfig: SerializableGridConfig,
   longSwellConfig: SerializablePropagationConfig,
   shortChopConfig: SerializablePropagationConfig,
@@ -453,7 +473,7 @@ function computeCombinedSwellBatch(
     const longResult = propagateSwellForDirection(
       localDirIndex,
       sourceAngle,
-      waterMask,
+      depthGrid,
       gridConfig,
       longSwellConfig,
       longEnergy,
@@ -468,7 +488,7 @@ function computeCombinedSwellBatch(
     const shortResult = propagateSwellForDirection(
       localDirIndex,
       sourceAngle,
-      waterMask,
+      depthGrid,
       gridConfig,
       shortChopConfig,
       shortEnergy,
@@ -506,14 +526,14 @@ ctx.onmessage = (event: MessageEvent<SwellWorkerIncomingMessage>) => {
         directions,
         gridConfig,
         propagationConfig,
-        waterMask,
+        depthGrid,
         sourceAngles,
       } = message;
 
       const result = computeSwellBatch(
         directions,
         sourceAngles,
-        waterMask,
+        depthGrid,
         gridConfig,
         propagationConfig,
         (completedDirection, batchProgress) => {
@@ -555,14 +575,14 @@ ctx.onmessage = (event: MessageEvent<SwellWorkerIncomingMessage>) => {
         gridConfig,
         longSwellConfig,
         shortChopConfig,
-        waterMask,
+        depthGrid,
         sourceAngles,
       } = message;
 
       const result = computeCombinedSwellBatch(
         directions,
         sourceAngles,
-        waterMask,
+        depthGrid,
         gridConfig,
         longSwellConfig,
         shortChopConfig,

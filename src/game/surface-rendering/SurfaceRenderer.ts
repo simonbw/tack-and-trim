@@ -224,16 +224,20 @@ export class SurfaceRenderer extends BaseEntity {
 
     const swellTexture = influenceManager.getSwellTexture();
     const fetchTexture = influenceManager.getFetchTexture();
+    const depthTexture = influenceManager.getDepthTexture();
     const influenceSampler = influenceManager.getInfluenceSampler();
     const swellGridConfig = influenceManager.getSwellGridConfig();
     const fetchGridConfig = influenceManager.getFetchGridConfig();
+    const depthGridConfig = influenceManager.getDepthGridConfig();
 
     if (
       !swellTexture ||
       !fetchTexture ||
+      !depthTexture ||
       !influenceSampler ||
       !swellGridConfig ||
-      !fetchGridConfig
+      !fetchGridConfig ||
+      !depthGridConfig
     ) {
       return false;
     }
@@ -241,9 +245,11 @@ export class SurfaceRenderer extends BaseEntity {
     const config: RenderInfluenceConfig = {
       swellTexture,
       fetchTexture,
+      depthTexture,
       influenceSampler,
       swellGridConfig,
       fetchGridConfig,
+      depthGridConfig,
       waveSourceDirection: WAVE_COMPONENTS[0][2], // First wave's direction
     };
 

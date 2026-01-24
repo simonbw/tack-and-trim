@@ -1,14 +1,12 @@
 /**
  * Core utilities shared by wind and swell propagation algorithms.
  *
- * Provides common functions for direction vectors, water masks,
- * and flow weight calculations used by all propagation algorithms.
+ * Provides common functions for direction vectors and flow weight
+ * calculations used by all propagation algorithms.
  */
 
 import { V2d } from "../../../../core/Vector";
-import type { InfluenceGridConfig } from "../InfluenceFieldTypes";
 import type { PropagationConfig } from "../PropagationConfig";
-import { TerrainSampler } from "./TerrainSampler";
 
 /**
  * Result from a propagation computation.
@@ -36,33 +34,6 @@ export function getDirectionVector(
 ): V2d {
   const angle = (directionIndex / directionCount) * Math.PI * 2;
   return V2d.fromPolar(1, angle);
-}
-
-/**
- * Pre-compute a mask indicating which grid cells are water vs land.
- *
- * @param terrain - Terrain sampler for land/water checks
- * @param gridConfig - Grid configuration
- * @returns Boolean array where true = water, indexed by [y * cellsX + x]
- */
-export function precomputeWaterMask(
-  terrain: TerrainSampler,
-  gridConfig: InfluenceGridConfig,
-): boolean[] {
-  const { cellsX, cellsY, cellSize, originX, originY } = gridConfig;
-  const mask = new Array<boolean>(cellsX * cellsY);
-
-  for (let y = 0; y < cellsY; y++) {
-    for (let x = 0; x < cellsX; x++) {
-      // Sample at cell center
-      const worldX = originX + (x + 0.5) * cellSize;
-      const worldY = originY + (y + 0.5) * cellSize;
-      const point = new V2d(worldX, worldY);
-      mask[y * cellsX + x] = terrain.isWater(point);
-    }
-  }
-
-  return mask;
 }
 
 /**

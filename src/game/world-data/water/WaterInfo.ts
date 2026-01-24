@@ -26,6 +26,7 @@ import type {
   ReadbackViewport,
 } from "../datatiles/DataTileTypes";
 import { InfluenceFieldManager } from "../influence/InfluenceFieldManager";
+import { TerrainInfo } from "../terrain/TerrainInfo";
 import type { InfluenceTextureConfig } from "./webgpu/WaterDataTileCompute";
 import { WindInfo } from "../wind/WindInfo";
 import {
@@ -170,6 +171,9 @@ export class WaterInfo extends BaseEntity {
   // Influence field manager for terrain effects
   private influenceManager: InfluenceFieldManager | null = null;
 
+  // Terrain info for depth sampling (CPU fallback)
+  private terrainInfo: TerrainInfo | null = null;
+
   // Track which compute instances have influence textures configured
   private configuredComputes = new WeakSet<WaterDataTileCompute>();
 
@@ -204,6 +208,9 @@ export class WaterInfo extends BaseEntity {
     // Get reference to influence field manager (if it exists)
     this.influenceManager =
       InfluenceFieldManager.maybeFromGame(this.game) ?? null;
+
+    // Get reference to terrain info (for CPU depth sampling)
+    this.terrainInfo = TerrainInfo.maybeFromGame(this.game) ?? null;
   }
 
   /**
@@ -302,16 +309,20 @@ export class WaterInfo extends BaseEntity {
 
     const swellTexture = this.influenceManager.getSwellTexture();
     const fetchTexture = this.influenceManager.getFetchTexture();
+    const depthTexture = this.influenceManager.getDepthTexture();
     const influenceSampler = this.influenceManager.getInfluenceSampler();
     const swellGridConfig = this.influenceManager.getSwellGridConfig();
     const fetchGridConfig = this.influenceManager.getFetchGridConfig();
+    const depthGridConfig = this.influenceManager.getDepthGridConfig();
 
     if (
       !swellTexture ||
       !fetchTexture ||
+      !depthTexture ||
       !influenceSampler ||
       !swellGridConfig ||
-      !fetchGridConfig
+      !fetchGridConfig ||
+      !depthGridConfig
     ) {
       return null;
     }
@@ -319,9 +330,11 @@ export class WaterInfo extends BaseEntity {
     return {
       swellTexture,
       fetchTexture,
+      depthTexture,
       influenceSampler,
       swellGridConfig,
       fetchGridConfig,
+      depthGridConfig,
       waveSourceDirection: this.getBaseSwellDirection(),
     };
   }
@@ -469,6 +482,12 @@ export class WaterInfo extends BaseEntity {
       chopDirectionOffset = swell.shortChop.arrivalDirection - windDir;
     }
 
+    // Sample terrain depth at query point (positive = land, negative = underwater)
+    // Default to deep water (-100) if terrain info is not available
+    const depth = this.terrainInfo
+      ? this.terrainInfo.getHeightAtPoint(point)
+      : -100;
+
     return {
       time,
       waveAmpModNoise: this.waveAmpModNoise,
@@ -478,6 +497,7 @@ export class WaterInfo extends BaseEntity {
       fetchFactor,
       swellDirectionOffset,
       chopDirectionOffset,
+      depth,
     };
   }
 

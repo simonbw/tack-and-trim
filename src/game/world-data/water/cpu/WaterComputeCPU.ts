@@ -49,6 +49,64 @@ export interface WaterComputeParams {
   swellDirectionOffset: number;
   /** Angular offset for chop waves due to diffraction (radians) */
   chopDirectionOffset: number;
+  /** Terrain depth at query point (positive = land, negative = underwater) */
+  depth: number;
+}
+
+// Shoaling constants
+const DEEP_WATER_DEPTH = 50.0; // Reference deep water depth (ft)
+const MIN_DEPTH = 2.0; // Minimum effective depth to prevent infinity
+
+// Damping constants
+const DEEP_THRESHOLD = 10.0; // No damping above this depth (ft)
+const SHALLOW_THRESHOLD = 2.0; // Heavy damping below this depth (ft)
+const MIN_DAMPING = 0.2; // Minimum damping factor in shallows
+
+/**
+ * Compute shoaling factor based on water depth.
+ * Green's Law - waves grow taller as depth decreases.
+ *
+ * @param depth Terrain height (positive = land, negative = underwater)
+ * @returns Shoaling factor (>1 in shallow water, 0 on land)
+ */
+function computeShoalingFactor(depth: number): number {
+  // On land (positive depth), no waves
+  if (depth >= 0) {
+    return 0;
+  }
+
+  const effectiveDepth = Math.max(-depth, MIN_DEPTH);
+  return Math.pow(DEEP_WATER_DEPTH / effectiveDepth, 0.25);
+}
+
+/**
+ * Compute damping factor based on water depth.
+ * Bottom friction attenuates waves in very shallow water.
+ *
+ * @param depth Terrain height (positive = land, negative = underwater)
+ * @returns Damping factor (0-1, lower in shallow water)
+ */
+function computeDampingFactor(depth: number): number {
+  // On land, no waves
+  if (depth >= 0) {
+    return 0;
+  }
+
+  const effectiveDepth = -depth;
+
+  if (effectiveDepth >= DEEP_THRESHOLD) {
+    return 1.0; // No damping in deep water
+  }
+  if (effectiveDepth <= SHALLOW_THRESHOLD) {
+    return MIN_DAMPING; // Heavy damping in very shallow water
+  }
+
+  // Linear interpolation between shallow and deep thresholds
+  return (
+    MIN_DAMPING +
+    ((1.0 - MIN_DAMPING) * (effectiveDepth - SHALLOW_THRESHOLD)) /
+      (DEEP_THRESHOLD - SHALLOW_THRESHOLD)
+  );
 }
 
 /**
@@ -237,6 +295,15 @@ export function computeWaveDataAtPoint(
   // const timeCell = Math.floor(time * 0.5);
   // const whiteTurbulence = (hash2D(x * 0.5 + timeCell, y * 0.5) - 0.5) * 0.02;
   // height += smoothTurbulence + whiteTurbulence;
+
+  // Apply shoaling and damping based on water depth
+  const { depth } = params;
+  const shoalingFactor = computeShoalingFactor(depth);
+  const dampingFactor = computeDampingFactor(depth);
+  const depthModifier = shoalingFactor * dampingFactor;
+
+  height *= depthModifier;
+  dhdt *= depthModifier;
 
   return { height, dhdt };
 }

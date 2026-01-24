@@ -28,6 +28,17 @@ export interface SerializableGridConfig {
 }
 
 /**
+ * Serializable depth grid configuration.
+ */
+export interface SerializableDepthGridConfig {
+  originX: number;
+  originY: number;
+  cellSize: number;
+  cellsX: number;
+  cellsY: number;
+}
+
+/**
  * Request from main thread to compute fetch map.
  */
 export interface FetchWorkerRequest {
@@ -35,7 +46,8 @@ export interface FetchWorkerRequest {
   batchId: number;
   directions: number[];
   gridConfig: SerializableGridConfig;
-  waterMask: Uint8Array;
+  depthGrid: Float32Array;
+  depthGridConfig: SerializableDepthGridConfig;
   upwindAngles: number[];
   maxFetch: number;
   stepSize: number;
@@ -79,10 +91,17 @@ export type FetchWorkerOutgoingMessage =
 // Core Algorithm
 // ============================================================================
 
+/**
+ * Check if a grid cell is land (terrain height >= 0).
+ */
+function isLandCell(depthGrid: Float32Array, idx: number): boolean {
+  return depthGrid[idx] >= 0;
+}
+
 function isLandAt(
   px: number,
   py: number,
-  waterMask: Uint8Array,
+  depthGrid: Float32Array,
   gridConfig: SerializableGridConfig,
 ): boolean {
   const gridX = Math.floor((px - gridConfig.originX) / gridConfig.cellSize);
@@ -97,7 +116,7 @@ function isLandAt(
     return false;
   }
 
-  return waterMask[gridY * gridConfig.cellsX + gridX] === 0;
+  return isLandCell(depthGrid, gridY * gridConfig.cellsX + gridX);
 }
 
 function computeFetchRayMarch(
@@ -105,7 +124,7 @@ function computeFetchRayMarch(
   startY: number,
   upwindDirX: number,
   upwindDirY: number,
-  waterMask: Uint8Array,
+  depthGrid: Float32Array,
   gridConfig: SerializableGridConfig,
   maxFetch: number,
   stepSize: number,
@@ -122,7 +141,7 @@ function computeFetchRayMarch(
     py += stepY;
     distance += stepSize;
 
-    if (isLandAt(px, py, waterMask, gridConfig)) {
+    if (isLandAt(px, py, depthGrid, gridConfig)) {
       return Math.max(0, distance - stepSize);
     }
   }
@@ -133,7 +152,7 @@ function computeFetchRayMarch(
 function computeFetchForDirection(
   dirIndex: number,
   upwindAngle: number,
-  waterMask: Uint8Array,
+  depthGrid: Float32Array,
   gridConfig: SerializableGridConfig,
   maxFetch: number,
   stepSize: number,
@@ -151,7 +170,7 @@ function computeFetchForDirection(
       const idx = y * cellsX + x;
       const outIdx = dirOffset + idx * 4;
 
-      if (waterMask[idx] === 0) {
+      if (isLandCell(depthGrid, idx)) {
         outFetchData[outIdx] = 0;
         outFetchData[outIdx + 1] = 0;
         outFetchData[outIdx + 2] = 0;
@@ -167,7 +186,7 @@ function computeFetchForDirection(
         startY,
         upwindDirX,
         upwindDirY,
-        waterMask,
+        depthGrid,
         gridConfig,
         maxFetch,
         stepSize,
@@ -184,7 +203,7 @@ function computeFetchForDirection(
 function computeFetchBatch(
   directions: number[],
   upwindAngles: number[],
-  waterMask: Uint8Array,
+  depthGrid: Float32Array,
   gridConfig: SerializableGridConfig,
   maxFetch: number,
   stepSize: number,
@@ -203,7 +222,7 @@ function computeFetchBatch(
     computeFetchForDirection(
       localDirIndex,
       upwindAngle,
-      waterMask,
+      depthGrid,
       gridConfig,
       maxFetch,
       stepSize,
@@ -231,7 +250,7 @@ ctx.onmessage = (event: MessageEvent<FetchWorkerRequest>) => {
         batchId,
         directions,
         gridConfig,
-        waterMask,
+        depthGrid,
         upwindAngles,
         maxFetch,
         stepSize,
@@ -240,7 +259,7 @@ ctx.onmessage = (event: MessageEvent<FetchWorkerRequest>) => {
       const result = computeFetchBatch(
         directions,
         upwindAngles,
-        waterMask,
+        depthGrid,
         gridConfig,
         maxFetch,
         stepSize,

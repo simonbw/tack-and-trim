@@ -40,6 +40,7 @@ const bindings = {
   swellTexture: { type: "texture", viewDimension: "3d", sampleType: "float" },
   fetchTexture: { type: "texture", viewDimension: "3d", sampleType: "float" },
   influenceSampler: { type: "sampler" },
+  depthTexture: { type: "texture", viewDimension: "2d", sampleType: "float" },
 } as const;
 
 /**
@@ -99,6 +100,11 @@ struct Params {
   waveSourceDirection: f32,
   // Tide height offset
   tideHeight: f32,
+  // Depth grid config (for shoaling/damping)
+  depthOriginX: f32,
+  depthOriginY: f32,
+  depthGridWidth: f32,
+  depthGridHeight: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -108,6 +114,7 @@ struct Params {
 @group(0) @binding(4) var swellTexture: texture_3d<f32>;
 @group(0) @binding(5) var fetchTexture: texture_3d<f32>;
 @group(0) @binding(6) var influenceSampler: sampler;
+@group(0) @binding(7) var depthTexture: texture_2d<f32>;
 
 // Simplex 3D Noise - for wave amplitude modulation
 ${SIMPLEX_NOISE_3D_WGSL}
@@ -163,6 +170,59 @@ fn sampleFetchInfluence(worldPos: vec2<f32>, sourceDirection: f32) -> f32 {
   // Sample fetch distance from R channel
   let fetch = textureSampleLevel(fetchTexture, influenceSampler, vec3<f32>(u, v, w), 0.0).r;
   return fetch;
+}
+
+// Sample depth at world position (R channel is terrain height)
+// Returns terrain height: positive = land (above water), negative = underwater depth
+fn sampleDepth(worldPos: vec2<f32>) -> f32 {
+  let u = (worldPos.x - params.depthOriginX) / params.depthGridWidth;
+  let v = (worldPos.y - params.depthOriginY) / params.depthGridHeight;
+
+  // Bounds check - outside depth grid is treated as deep water
+  if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) {
+    return -100.0;  // Deep water
+  }
+
+  return textureSampleLevel(depthTexture, influenceSampler, vec2<f32>(u, v), 0.0).r;
+}
+
+// Shoaling: Green's Law - waves grow taller as depth decreases
+// H2/H1 = (h1/h2)^0.25 where h is depth
+fn computeShoalingFactor(depth: f32) -> f32 {
+  let DEEP_WATER_DEPTH: f32 = 50.0;  // Reference deep water depth (ft)
+  let MIN_DEPTH: f32 = 2.0;           // Minimum effective depth to prevent infinity
+
+  // Only apply shoaling in water (negative depth means underwater)
+  if (depth >= 0.0) {
+    return 0.0;  // On land, no waves
+  }
+
+  let effectiveDepth = max(-depth, MIN_DEPTH);
+  return pow(DEEP_WATER_DEPTH / effectiveDepth, 0.25);
+}
+
+// Damping: bottom friction attenuates waves in very shallow water
+fn computeDampingFactor(depth: f32) -> f32 {
+  let DEEP_THRESHOLD: f32 = 10.0;  // No damping above this depth (ft)
+  let SHALLOW_THRESHOLD: f32 = 2.0; // Heavy damping below this depth (ft)
+  let MIN_DAMPING: f32 = 0.2;       // Minimum damping factor in shallows
+
+  // Only apply damping in water
+  if (depth >= 0.0) {
+    return 0.0;  // On land, no waves
+  }
+
+  let effectiveDepth = -depth;
+
+  if (effectiveDepth >= DEEP_THRESHOLD) {
+    return 1.0;  // No damping in deep water
+  }
+  if (effectiveDepth <= SHALLOW_THRESHOLD) {
+    return MIN_DAMPING;  // Heavy damping in very shallow water
+  }
+
+  // Linear interpolation between shallow and deep thresholds
+  return mix(MIN_DAMPING, 1.0, (effectiveDepth - SHALLOW_THRESHOLD) / (DEEP_THRESHOLD - SHALLOW_THRESHOLD));
 }
 
 // ============================================================================
@@ -433,10 +493,28 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     params.viewportTop + uv.y * params.viewportHeight
   );
 
+  // Sample depth for shoaling/damping
+  let depth = sampleDepth(worldPos);
+
+  // On land (positive depth), output zero water state
+  if (depth >= 0.0) {
+    textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(0.5, 0.5, 0.5, 0.5));
+    return;
+  }
+
+  // Compute shoaling and damping factors based on water depth
+  let shoalingFactor = computeShoalingFactor(depth);
+  let dampingFactor = computeDampingFactor(depth);
+  let depthModifier = shoalingFactor * dampingFactor;
+
   // Wave contribution (now uses per-pixel influence from textures)
   let waveResult = calculateWaves(worldPos, params.time);
-  let waveHeight = waveResult.x;
-  let waveDhdt = waveResult.w;
+  var waveHeight = waveResult.x;
+  var waveDhdt = waveResult.w;
+
+  // Apply shoaling/damping to wave height and rate of change
+  waveHeight *= depthModifier;
+  waveDhdt *= depthModifier;
 
   // Modifier contribution (wake effects) - returns (height, velX, velY)
   let modifierResult = calculateModifiers(worldPos.x, worldPos.y);

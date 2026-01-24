@@ -9,7 +9,10 @@
  */
 
 import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
-import type { InfluenceGridConfig } from "../../influence/InfluenceFieldTypes";
+import type {
+  DepthGridConfig,
+  InfluenceGridConfig,
+} from "../../influence/InfluenceFieldTypes";
 import type { DataTileCompute } from "../../datatiles/DataTileComputePipeline";
 import {
   WaterComputeBuffers,
@@ -34,9 +37,11 @@ export interface WaterPointData {
 export interface InfluenceTextureConfig {
   swellTexture: GPUTexture;
   fetchTexture: GPUTexture;
+  depthTexture: GPUTexture;
   influenceSampler: GPUSampler;
   swellGridConfig: InfluenceGridConfig;
   fetchGridConfig: InfluenceGridConfig;
+  depthGridConfig: DepthGridConfig;
   waveSourceDirection: number;
 }
 
@@ -119,6 +124,9 @@ export class WaterDataTileCompute implements DataTileCompute {
         dimension: "3d",
       }),
       influenceSampler: this.influenceConfig.influenceSampler,
+      depthTexture: this.influenceConfig.depthTexture.createView({
+        dimension: "2d",
+      }),
     });
   }
 
@@ -154,6 +162,7 @@ export class WaterDataTileCompute implements DataTileCompute {
     const device = getWebGPU().device;
     const swellConfig = this.influenceConfig.swellGridConfig;
     const fetchConfig = this.influenceConfig.fetchGridConfig;
+    const depthConfig = this.influenceConfig.depthGridConfig;
 
     // Update params buffer with grid config
     this.buffers.updateParams({
@@ -181,6 +190,11 @@ export class WaterDataTileCompute implements DataTileCompute {
       waveSourceDirection: this.influenceConfig.waveSourceDirection,
       // Tide height
       tideHeight: this.currentTideHeight,
+      // Depth grid config
+      depthOriginX: depthConfig.originX,
+      depthOriginY: depthConfig.originY,
+      depthGridWidth: depthConfig.cellsX * depthConfig.cellSize,
+      depthGridHeight: depthConfig.cellsY * depthConfig.cellSize,
     });
 
     // Create and submit compute pass

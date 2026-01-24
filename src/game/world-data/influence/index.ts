@@ -15,6 +15,7 @@
 
 // Types
 export {
+  type DepthGridConfig,
   type InfluenceGridConfig,
   type WindInfluence,
   type SwellInfluence,
@@ -46,14 +47,10 @@ export {
   createPropagationConfig,
 } from "./PropagationConfig";
 
-// Propagation utilities
-export { TerrainSampler } from "./propagation/TerrainSampler";
-
 // Propagation core utilities
 export {
   type PropagationResult,
   getDirectionVector,
-  precomputeWaterMask,
   computeFlowWeight,
   NEIGHBOR_OFFSETS,
   isUpwindBoundary,

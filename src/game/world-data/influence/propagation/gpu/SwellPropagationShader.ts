@@ -23,7 +23,7 @@ import { getWebGPU } from "../../../../../core/graphics/webgpu/WebGPUDevice";
 
 const bindings = {
   params: { type: "uniform" },
-  waterMask: { type: "storage" },
+  depthGrid: { type: "storage" },
   energyIn: { type: "storage" },
   energyOut: { type: "storageRW" },
   arrivalDirOut: { type: "storageRW" },
@@ -134,7 +134,7 @@ struct Params {
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read> waterMask: array<u32>;
+@group(0) @binding(1) var<storage, read> depthGrid: array<f32>;
 @group(0) @binding(2) var<storage, read> energyIn: array<${energyType}>;
 @group(0) @binding(3) var<storage, read_write> energyOut: array<${energyType}>;
 @group(0) @binding(4) var<storage, read_write> arrivalDirOut: array<f32>;
@@ -155,7 +155,8 @@ fn get3DIndex(x: u32, y: u32, sliceIndex: u32) -> u32 {
 
 fn isWater(x: u32, y: u32) -> bool {
   let idx = getCellIndex(x, y);
-  return waterMask[idx] != 0u;
+  // Negative depth = underwater (water cell), positive/zero = land
+  return depthGrid[idx] < 0.0;
 }
 
 fn isUpwindBoundary(x: u32, y: u32, sourceDirX: f32, sourceDirY: f32) -> bool {

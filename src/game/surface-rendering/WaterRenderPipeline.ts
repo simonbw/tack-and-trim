@@ -17,7 +17,10 @@ import {
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
 import { TimeOfDay } from "../time/TimeOfDay";
-import type { InfluenceGridConfig } from "../world-data/influence/InfluenceFieldTypes";
+import type {
+  DepthGridConfig,
+  InfluenceGridConfig,
+} from "../world-data/influence/InfluenceFieldTypes";
 import { WATER_TEXTURE_SIZE } from "./SurfaceRenderer";
 import type { Viewport, WaterInfo } from "../world-data/water/WaterInfo";
 import {
@@ -36,15 +39,26 @@ const FALLBACK_GRID_CONFIG: InfluenceGridConfig = {
   directionCount: 8,
 };
 
+// Default depth grid config for fallback depth texture
+const FALLBACK_DEPTH_CONFIG: DepthGridConfig = {
+  originX: -10000,
+  originY: -10000,
+  cellSize: 100,
+  cellsX: 1,
+  cellsY: 1,
+};
+
 /**
  * Influence texture configuration for water rendering.
  */
 export interface RenderInfluenceConfig {
   swellTexture: GPUTexture;
   fetchTexture: GPUTexture;
+  depthTexture: GPUTexture;
   influenceSampler: GPUSampler;
   swellGridConfig: InfluenceGridConfig;
   fetchGridConfig: InfluenceGridConfig;
+  depthGridConfig: DepthGridConfig;
   waveSourceDirection: number;
 }
 
@@ -67,6 +81,7 @@ export class WaterRenderPipeline {
   // Fallback influence textures (used when no influence config provided)
   private fallbackSwellTexture: GPUTexture | null = null;
   private fallbackFetchTexture: GPUTexture | null = null;
+  private fallbackDepthTexture: GPUTexture | null = null;
   private fallbackSampler: GPUSampler | null = null;
   private fallbackConfig: RenderInfluenceConfig | null = null;
 
@@ -148,6 +163,22 @@ export class WaterRenderPipeline {
       { width: 1, height: 1, depthOrArrayLayers: 1 },
     );
 
+    // Depth texture: R = -100 (deep water) for fallback (no shoaling effect)
+    this.fallbackDepthTexture = device.createTexture({
+      size: { width: 1, height: 1 },
+      format: "r32float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      label: "Fallback Depth Texture",
+    });
+
+    // Deep water (no shoaling)
+    device.queue.writeTexture(
+      { texture: this.fallbackDepthTexture },
+      new Float32Array([-100.0]),
+      { bytesPerRow: 4 },
+      { width: 1, height: 1 },
+    );
+
     // Create sampler for fallback textures
     this.fallbackSampler = device.createSampler({
       magFilter: "nearest",
@@ -161,9 +192,11 @@ export class WaterRenderPipeline {
     this.fallbackConfig = {
       swellTexture: this.fallbackSwellTexture,
       fetchTexture: this.fallbackFetchTexture,
+      depthTexture: this.fallbackDepthTexture,
       influenceSampler: this.fallbackSampler,
       swellGridConfig: FALLBACK_GRID_CONFIG,
       fetchGridConfig: FALLBACK_GRID_CONFIG,
+      depthGridConfig: FALLBACK_DEPTH_CONFIG,
       waveSourceDirection: 0,
     };
   }
@@ -203,6 +236,9 @@ export class WaterRenderPipeline {
         dimension: "3d",
       }),
       influenceSampler: config.influenceSampler,
+      depthTexture: config.depthTexture.createView({
+        dimension: "2d",
+      }),
     });
   }
 
@@ -248,6 +284,7 @@ export class WaterRenderPipeline {
 
     const swellConfig = config.swellGridConfig;
     const fetchConfig = config.fetchGridConfig;
+    const depthConfig = config.depthGridConfig;
 
     // Update params buffer with grid config for per-pixel influence sampling
     this.buffers.updateParams({
@@ -275,6 +312,11 @@ export class WaterRenderPipeline {
       waveSourceDirection: config.waveSourceDirection,
       // Tide height
       tideHeight: waterInfo.getTideHeight(),
+      // Depth grid config
+      depthOriginX: depthConfig.originX,
+      depthOriginY: depthConfig.originY,
+      depthGridWidth: depthConfig.cellsX * depthConfig.cellSize,
+      depthGridHeight: depthConfig.cellsY * depthConfig.cellSize,
     });
 
     // Create command encoder
@@ -333,12 +375,14 @@ export class WaterRenderPipeline {
     this.shader?.destroy();
     this.fallbackSwellTexture?.destroy();
     this.fallbackFetchTexture?.destroy();
+    this.fallbackDepthTexture?.destroy();
     this.bindGroup = null;
     this.outputTextureView = null;
     this.buffers = null;
     this.shader = null;
     this.fallbackSwellTexture = null;
     this.fallbackFetchTexture = null;
+    this.fallbackDepthTexture = null;
     this.fallbackSampler = null;
     this.fallbackConfig = null;
     this.initialized = false;

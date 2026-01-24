@@ -19,6 +19,7 @@
  */
 
 import { getWebGPU } from "../../../../../core/graphics/webgpu/WebGPUDevice";
+import type { DepthGridConfig } from "../../InfluenceFieldTypes";
 import type { PropagationConfig } from "../../PropagationConfig";
 import {
   SwellPropagationShader,
@@ -85,7 +86,7 @@ export class SwellPropagationCompute {
 
   // GPU buffers (sized for all 32 slices)
   private paramsBuffer: GPUBuffer | null = null;
-  private waterMaskBuffer: GPUBuffer | null = null;
+  private depthBuffer: GPUBuffer | null = null;
   private energyBufferA: GPUBuffer | null = null; // Ping buffer
   private energyBufferB: GPUBuffer | null = null; // Pong buffer
   private arrivalDirBuffer: GPUBuffer | null = null;
@@ -102,12 +103,17 @@ export class SwellPropagationCompute {
   private initialized = false;
 
   /**
-   * Initialize the compute system with grid configuration and water mask.
+   * Initialize the compute system with grid configuration and depth grid.
    *
    * @param gridConfig - Grid dimensions including directionCount
-   * @param waterMask - Uint8Array where 0=land, 1=water
+   * @param depthGrid - Float32Array with terrain heights (positive = land, negative = water)
+   * @param depthGridConfig - Depth grid spatial configuration
    */
-  async init(gridConfig: GPUGridConfig, waterMask: Uint8Array): Promise<void> {
+  async init(
+    gridConfig: GPUGridConfig,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
+  ): Promise<void> {
     if (this.initialized) {
       this.destroy();
     }
@@ -136,15 +142,11 @@ export class SwellPropagationCompute {
       label: "Swell Propagation Params",
     });
 
-    // Create water mask buffer (storage, read-only) - use u32 for alignment
-    const waterMaskU32 = new Uint32Array(this.cellCount);
-    for (let i = 0; i < this.cellCount; i++) {
-      waterMaskU32[i] = waterMask[i];
-    }
-    this.waterMaskBuffer = webgpu.createBufferWithData(
-      waterMaskU32,
+    // Create depth buffer (storage, read-only) - Float32Array
+    this.depthBuffer = webgpu.createBufferWithData(
+      depthGrid,
       GPUBufferUsage.STORAGE,
-      "Swell Water Mask",
+      "Swell Depth Grid",
     );
 
     // Create energy ping-pong buffers (storage) - sized for ALL 32 slices
@@ -187,7 +189,7 @@ export class SwellPropagationCompute {
     // A->B: read from A, write to B
     this.bindGroupAtoB = this.shader.createBindGroup({
       params: { buffer: this.paramsBuffer },
-      waterMask: { buffer: this.waterMaskBuffer },
+      depthGrid: { buffer: this.depthBuffer },
       energyIn: { buffer: this.energyBufferA },
       energyOut: { buffer: this.energyBufferB },
       arrivalDirOut: { buffer: this.arrivalDirBuffer },
@@ -196,7 +198,7 @@ export class SwellPropagationCompute {
     // B->A: read from B, write to A
     this.bindGroupBtoA = this.shader.createBindGroup({
       params: { buffer: this.paramsBuffer },
-      waterMask: { buffer: this.waterMaskBuffer },
+      depthGrid: { buffer: this.depthBuffer },
       energyIn: { buffer: this.energyBufferB },
       energyOut: { buffer: this.energyBufferA },
       arrivalDirOut: { buffer: this.arrivalDirBuffer },
@@ -502,7 +504,7 @@ export class SwellPropagationCompute {
    */
   destroy(): void {
     this.paramsBuffer?.destroy();
-    this.waterMaskBuffer?.destroy();
+    this.depthBuffer?.destroy();
     this.energyBufferA?.destroy();
     this.energyBufferB?.destroy();
     this.arrivalDirBuffer?.destroy();
@@ -512,7 +514,7 @@ export class SwellPropagationCompute {
     this.shader?.destroy();
 
     this.paramsBuffer = null;
-    this.waterMaskBuffer = null;
+    this.depthBuffer = null;
     this.energyBufferA = null;
     this.energyBufferB = null;
     this.arrivalDirBuffer = null;

@@ -7,6 +7,29 @@
  */
 
 /**
+ * Configuration for a terrain depth grid.
+ *
+ * Used for land/water detection in propagation algorithms.
+ * Values are terrain heights: positive = above water (land), negative = below water.
+ */
+export interface DepthGridConfig {
+  /** World X coordinate of the grid's minimum corner */
+  originX: number;
+
+  /** World Y coordinate of the grid's minimum corner */
+  originY: number;
+
+  /** Size of each grid cell in ft */
+  cellSize: number;
+
+  /** Number of cells in X direction */
+  cellsX: number;
+
+  /** Number of cells in Y direction */
+  cellsY: number;
+}
+
+/**
  * Configuration for an influence field grid.
  */
 export interface InfluenceGridConfig {

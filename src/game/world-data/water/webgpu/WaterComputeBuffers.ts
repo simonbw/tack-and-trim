@@ -62,6 +62,11 @@ export interface WaterComputeParams {
   waveSourceDirection: number;
   // Tide height offset
   tideHeight: number;
+  // Depth grid config (for shoaling/damping)
+  depthOriginX: number;
+  depthOriginY: number;
+  depthGridWidth: number;
+  depthGridHeight: number;
 }
 
 /**
@@ -91,16 +96,17 @@ export class WaterComputeBuffers {
     new Float32Array(this.waveDataBuffer.getMappedRange()).set(waveData);
     this.waveDataBuffer.unmap();
 
-    // Create params uniform buffer (128 bytes for new layout)
+    // Create params uniform buffer (144 bytes for new layout)
     // Layout matches Params struct in shader:
     //   time, viewportLeft, viewportTop, viewportWidth, viewportHeight (20 bytes)
     //   textureSizeX, textureSizeY, segmentCount (12 bytes)
     //   swellOriginX, swellOriginY, swellGridWidth, swellGridHeight, swellDirectionCount (20 bytes)
     //   fetchOriginX, fetchOriginY, fetchGridWidth, fetchGridHeight, fetchDirectionCount (20 bytes)
-    //   maxFetch, waveSourceDirection (8 bytes)
-    //   padding to 128 bytes for alignment
+    //   maxFetch, waveSourceDirection, tideHeight (12 bytes)
+    //   depthOriginX, depthOriginY, depthGridWidth, depthGridHeight (16 bytes)
+    //   padding to 144 bytes for 16-byte alignment
     this.paramsBuffer = device.createBuffer({
-      size: 128,
+      size: 144,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Water Params Buffer",
     });
@@ -120,7 +126,7 @@ export class WaterComputeBuffers {
   updateParams(params: WaterComputeParams): void {
     const device = getWebGPU().device;
 
-    const paramsData = new ArrayBuffer(128);
+    const paramsData = new ArrayBuffer(144);
     const floats = new Float32Array(paramsData);
     const uints = new Uint32Array(paramsData);
 
@@ -154,6 +160,12 @@ export class WaterComputeBuffers {
 
     // Tide height (20)
     floats[20] = params.tideHeight;
+
+    // Depth grid config (21-24)
+    floats[21] = params.depthOriginX;
+    floats[22] = params.depthOriginY;
+    floats[23] = params.depthGridWidth;
+    floats[24] = params.depthGridHeight;
 
     device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
   }

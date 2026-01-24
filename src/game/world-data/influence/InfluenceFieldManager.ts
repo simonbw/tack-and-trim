@@ -17,6 +17,11 @@ import { on } from "../../../core/entity/handler";
 import { Game } from "../../../core/Game";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { distributeWork, WorkerPool } from "../../../core/workers";
+import {
+  TerrainRenderPipeline,
+  TerrainViewport,
+} from "../../surface-rendering/TerrainRenderPipeline";
+import type { TerrainDefinition } from "../terrain/LandMass";
 import { TerrainInfo } from "../terrain/TerrainInfo";
 import {
   createGridConfig,
@@ -26,13 +31,12 @@ import {
 import {
   DEFAULT_SWELL_INFLUENCE,
   DEFAULT_WIND_INFLUENCE,
+  type DepthGridConfig,
   type InfluenceGridConfig,
   type SwellInfluence,
   type WindInfluence,
 } from "./InfluenceFieldTypes";
 import { SwellPropagationCompute } from "./propagation/gpu/SwellPropagationCompute";
-import { precomputeWaterMask } from "./propagation/PropagationCore";
-import { TerrainSampler } from "./propagation/TerrainSampler";
 import type {
   FetchWorkerResult,
   SerializableGridConfig,
@@ -62,6 +66,9 @@ export interface SwellInfluenceSample {
 /** Padding added around terrain bounds for influence field computation */
 const BOUNDS_PADDING = 2000;
 
+/** Resolution of the depth texture used for land/water detection (pixels) */
+const DEPTH_TEXTURE_SIZE = 256;
+
 /**
  * Progress for individual computation tasks.
  */
@@ -72,14 +79,14 @@ export interface TaskProgress {
 }
 
 /**
- * Convert a boolean water mask to Uint8Array for worker transfer.
+ * Serializable depth grid configuration (for workers).
  */
-function waterMaskToUint8Array(waterMask: boolean[]): Uint8Array {
-  const result = new Uint8Array(waterMask.length);
-  for (let i = 0; i < waterMask.length; i++) {
-    result[i] = waterMask[i] ? 1 : 0;
-  }
-  return result;
+export interface SerializableDepthGridConfig {
+  originX: number;
+  originY: number;
+  cellSize: number;
+  cellsX: number;
+  cellsY: number;
 }
 
 /**
@@ -108,7 +115,8 @@ interface WindWorkerRequest {
   directions: number[];
   gridConfig: SerializableGridConfig;
   propagationConfig: SerializablePropagationConfig;
-  waterMask: Uint8Array;
+  depthGrid: Float32Array;
+  depthGridConfig: SerializableDepthGridConfig;
   sourceAngles: number[];
 }
 
@@ -123,7 +131,8 @@ interface SwellWorkerRequest {
   gridConfig: SerializableGridConfig;
   longSwellConfig: SerializablePropagationConfig;
   shortChopConfig: SerializablePropagationConfig;
-  waterMask: Uint8Array;
+  depthGrid: Float32Array;
+  depthGridConfig: SerializableDepthGridConfig;
   sourceAngles: number[];
 }
 
@@ -136,7 +145,8 @@ interface FetchWorkerRequest {
   batchId: number;
   directions: number[];
   gridConfig: SerializableGridConfig;
-  waterMask: Uint8Array;
+  depthGrid: Float32Array;
+  depthGridConfig: SerializableDepthGridConfig;
   upwindAngles: number[];
   maxFetch: number;
   stepSize: number;
@@ -168,6 +178,7 @@ export class InfluenceFieldManager extends BaseEntity {
   // GPU textures (created after propagation)
   private swellTexture: GPUTexture | null = null;
   private fetchTexture: GPUTexture | null = null;
+  private depthTexture: GPUTexture | null = null;
   private influenceSampler: GPUSampler | null = null;
 
   // Worker pools
@@ -193,6 +204,10 @@ export class InfluenceFieldManager extends BaseEntity {
   private initialized = false;
   private initializationResolve: (() => void) | null = null;
   private initializationPromise: Promise<void>;
+
+  // Depth grid data (for land/water detection in workers)
+  private depthGrid: Float32Array | null = null;
+  private depthGridConfig: DepthGridConfig | null = null;
 
   constructor() {
     super();
@@ -265,8 +280,16 @@ export class InfluenceFieldManager extends BaseEntity {
     minY -= BOUNDS_PADDING;
     maxY += BOUNDS_PADDING;
 
-    // Create terrain sampler for propagation algorithms
-    const sampler = new TerrainSampler(terrainDef);
+    // Generate depth grid using TerrainRenderPipeline (GPU-based, uses same terrain as rendering)
+    const { depthGrid, depthGridConfig } = await this.computeDepthGrid(
+      terrainDef,
+      minX,
+      minY,
+      maxX - minX,
+      maxY - minY,
+    );
+    this.depthGrid = depthGrid;
+    this.depthGridConfig = depthGridConfig;
 
     // Create grid configs with appropriate resolutions
     const windGridConfig = createGridConfig(
@@ -335,9 +358,21 @@ export class InfluenceFieldManager extends BaseEntity {
     ]);
 
     // Start all three computations in parallel
-    const windPromise = this.computeWindField(sampler, windGridConfig);
-    const swellPromise = this.computeSwellField(sampler, swellGridConfig);
-    const fetchPromise = this.computeFetchField(sampler, fetchGridConfig);
+    const windPromise = this.computeWindField(
+      depthGrid,
+      depthGridConfig,
+      windGridConfig,
+    );
+    const swellPromise = this.computeSwellField(
+      depthGrid,
+      depthGridConfig,
+      swellGridConfig,
+    );
+    const fetchPromise = this.computeFetchField(
+      depthGrid,
+      depthGridConfig,
+      fetchGridConfig,
+    );
 
     // Wait for all to complete
     const [windGrid, swellGrid, fetchGrid] = await Promise.all([
@@ -375,12 +410,14 @@ export class InfluenceFieldManager extends BaseEntity {
    * Compute wind influence field using worker pool.
    */
   private async computeWindField(
-    sampler: TerrainSampler,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
     gridConfig: InfluenceGridConfig,
   ): Promise<InfluenceFieldGrid> {
     return this.computeWindFieldWithPool(
       this.windWorkerPool!,
-      sampler,
+      depthGrid,
+      depthGridConfig,
       gridConfig,
     );
   }
@@ -407,7 +444,8 @@ export class InfluenceFieldManager extends BaseEntity {
    * Compute swell influence field using GPU if available, otherwise workers.
    */
   private async computeSwellField(
-    sampler: TerrainSampler,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
     gridConfig: InfluenceGridConfig,
   ): Promise<InfluenceFieldGrid> {
     // Try GPU path first if WebGPU is available and not forced to CPU
@@ -416,7 +454,11 @@ export class InfluenceFieldManager extends BaseEntity {
       !InfluenceFieldManager.shouldForceCPUSwell()
     ) {
       try {
-        return await this.computeSwellFieldGPU(sampler, gridConfig);
+        return await this.computeSwellFieldGPU(
+          depthGrid,
+          depthGridConfig,
+          gridConfig,
+        );
       } catch (error) {
         console.warn(
           "[InfluenceFieldManager] GPU swell computation failed, falling back to workers:",
@@ -426,7 +468,11 @@ export class InfluenceFieldManager extends BaseEntity {
     }
 
     // Fall back to worker pool
-    return this.computeSwellFieldWorkers(sampler, gridConfig);
+    return this.computeSwellFieldWorkers(
+      depthGrid,
+      depthGridConfig,
+      gridConfig,
+    );
   }
 
   /**
@@ -436,7 +482,8 @@ export class InfluenceFieldManager extends BaseEntity {
    * combinations simultaneously, reducing GPU overhead dramatically.
    */
   private async computeSwellFieldGPU(
-    sampler: TerrainSampler,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
     gridConfig: InfluenceGridConfig,
   ): Promise<InfluenceFieldGrid> {
     const { directionCount, cellsX, cellsY } = gridConfig;
@@ -444,13 +491,20 @@ export class InfluenceFieldManager extends BaseEntity {
     // Create output grid
     const grid = new InfluenceFieldGrid(gridConfig);
 
-    // Pre-compute water mask
-    const waterMask = precomputeWaterMask(sampler, gridConfig);
-    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
+    // Resample depth grid to influence grid resolution
+    const resampledDepth = this.resampleDepthGrid(
+      depthGrid,
+      depthGridConfig,
+      gridConfig,
+    );
 
     // Initialize GPU compute with 3D buffer support
     const compute = new SwellPropagationCompute();
-    await compute.init({ cellsX, cellsY, directionCount }, waterMaskUint8);
+    await compute.init(
+      { cellsX, cellsY, directionCount },
+      resampledDepth,
+      depthGridConfig,
+    );
 
     const cellCount = cellsX * cellsY;
 
@@ -494,12 +548,14 @@ export class InfluenceFieldManager extends BaseEntity {
    * Compute swell influence field using worker pool.
    */
   private async computeSwellFieldWorkers(
-    sampler: TerrainSampler,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
     gridConfig: InfluenceGridConfig,
   ): Promise<InfluenceFieldGrid> {
     return this.computeSwellFieldWorkersWithPool(
       this.swellWorkerPool!,
-      sampler,
+      depthGrid,
+      depthGridConfig,
       gridConfig,
     );
   }
@@ -508,14 +564,184 @@ export class InfluenceFieldManager extends BaseEntity {
    * Compute fetch map using worker pool.
    */
   private async computeFetchField(
-    sampler: TerrainSampler,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
     gridConfig: InfluenceGridConfig,
   ): Promise<InfluenceFieldGrid> {
     return this.computeFetchFieldWithPool(
       this.fetchWorkerPool!,
-      sampler,
+      depthGrid,
+      depthGridConfig,
       gridConfig,
     );
+  }
+
+  /**
+   * Compute depth grid using TerrainRenderPipeline.
+   * Returns terrain height as Float32Array (positive = land, negative = water).
+   */
+  private async computeDepthGrid(
+    terrainDef: TerrainDefinition,
+    originX: number,
+    originY: number,
+    width: number,
+    height: number,
+  ): Promise<{ depthGrid: Float32Array; depthGridConfig: DepthGridConfig }> {
+    const textureSize = DEPTH_TEXTURE_SIZE;
+    const device = getWebGPU().device;
+
+    // Create a dedicated pipeline for depth readback
+    const depthPipeline = new TerrainRenderPipeline(textureSize);
+    await depthPipeline.init();
+    depthPipeline.setTerrainDefinition(terrainDef);
+
+    // Render terrain to texture
+    const viewport: TerrainViewport = {
+      left: originX,
+      top: originY,
+      width,
+      height,
+    };
+    depthPipeline.update(viewport, 0);
+
+    // Get the output texture
+    const outputTexture = depthPipeline.getOutputTexture();
+    if (!outputTexture) {
+      depthPipeline.destroy();
+      throw new Error("Failed to get depth texture from TerrainRenderPipeline");
+    }
+
+    // Create staging buffer for readback
+    const bytesPerRow = textureSize * 16; // rgba32float = 16 bytes per pixel
+    const stagingBuffer = device.createBuffer({
+      size: bytesPerRow * textureSize,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      label: "Depth Grid Staging Buffer",
+    });
+
+    // Copy texture to staging buffer
+    const commandEncoder = device.createCommandEncoder({
+      label: "Depth Grid Copy Encoder",
+    });
+    commandEncoder.copyTextureToBuffer(
+      { texture: outputTexture },
+      { buffer: stagingBuffer, bytesPerRow },
+      { width: textureSize, height: textureSize },
+    );
+    device.queue.submit([commandEncoder.finish()]);
+
+    // Read back data
+    await stagingBuffer.mapAsync(GPUMapMode.READ);
+    const mappedData = new Float32Array(
+      stagingBuffer.getMappedRange().slice(0),
+    );
+    stagingBuffer.unmap();
+    stagingBuffer.destroy();
+
+    // Extract R channel (height) from rgba32float data
+    const depthGrid = new Float32Array(textureSize * textureSize);
+    for (let i = 0; i < textureSize * textureSize; i++) {
+      depthGrid[i] = mappedData[i * 4]; // R channel
+    }
+
+    // Cleanup the render pipeline (we've read back the data)
+    depthPipeline.destroy();
+
+    // Create a persistent depth texture for the water shader (r32float)
+    this.depthTexture = device.createTexture({
+      size: { width: textureSize, height: textureSize },
+      format: "r32float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      label: "Depth Grid Texture",
+    });
+
+    // Upload depth data to texture
+    device.queue.writeTexture(
+      { texture: this.depthTexture },
+      depthGrid,
+      { bytesPerRow: textureSize * 4 }, // 4 bytes per r32float
+      { width: textureSize, height: textureSize },
+    );
+
+    const depthGridConfig: DepthGridConfig = {
+      originX,
+      originY,
+      cellSize: width / textureSize,
+      cellsX: textureSize,
+      cellsY: textureSize,
+    };
+
+    return { depthGrid, depthGridConfig };
+  }
+
+  /**
+   * Resample depth grid to match influence grid resolution.
+   * Uses bilinear interpolation for smooth results.
+   */
+  private resampleDepthGrid(
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
+    influenceGridConfig: InfluenceGridConfig,
+  ): Float32Array {
+    const { cellsX, cellsY, cellSize, originX, originY } = influenceGridConfig;
+    const result = new Float32Array(cellsX * cellsY);
+
+    for (let y = 0; y < cellsY; y++) {
+      for (let x = 0; x < cellsX; x++) {
+        // World position at cell center
+        const worldX = originX + (x + 0.5) * cellSize;
+        const worldY = originY + (y + 0.5) * cellSize;
+
+        // Sample from depth grid with bilinear interpolation
+        const depth = this.sampleDepthGridBilinear(
+          depthGrid,
+          depthGridConfig,
+          worldX,
+          worldY,
+        );
+
+        result[y * cellsX + x] = depth;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Sample depth grid with bilinear interpolation.
+   */
+  private sampleDepthGridBilinear(
+    depthGrid: Float32Array,
+    config: DepthGridConfig,
+    worldX: number,
+    worldY: number,
+  ): number {
+    const { originX, originY, cellSize, cellsX, cellsY } = config;
+
+    // Convert to grid coordinates (0 to cellsX-1, 0 to cellsY-1)
+    const gx = (worldX - originX) / cellSize - 0.5;
+    const gy = (worldY - originY) / cellSize - 0.5;
+
+    // Clamp to grid bounds
+    const x0 = Math.max(0, Math.min(cellsX - 2, Math.floor(gx)));
+    const y0 = Math.max(0, Math.min(cellsY - 2, Math.floor(gy)));
+    const x1 = x0 + 1;
+    const y1 = y0 + 1;
+
+    // Interpolation weights
+    const fx = Math.max(0, Math.min(1, gx - x0));
+    const fy = Math.max(0, Math.min(1, gy - y0));
+
+    // Sample four corners
+    const v00 = depthGrid[y0 * cellsX + x0];
+    const v10 = depthGrid[y0 * cellsX + x1];
+    const v01 = depthGrid[y1 * cellsX + x0];
+    const v11 = depthGrid[y1 * cellsX + x1];
+
+    // Bilinear interpolation
+    const v0 = v00 * (1 - fx) + v10 * fx;
+    const v1 = v01 * (1 - fx) + v11 * fx;
+    return v0 * (1 - fy) + v1 * fy;
   }
 
   /**
@@ -767,6 +993,21 @@ export class InfluenceFieldManager extends BaseEntity {
   }
 
   /**
+   * Get the depth GPU texture for shoaling/damping calculations.
+   * Returns null if not yet initialized or WebGPU not available.
+   */
+  getDepthTexture(): GPUTexture | null {
+    return this.depthTexture;
+  }
+
+  /**
+   * Get the depth grid configuration (for UV calculations).
+   */
+  getDepthGridConfig(): DepthGridConfig | null {
+    return this.depthGridConfig;
+  }
+
+  /**
    * Recompute influence fields for updated terrain.
    * Keeps existing data available during computation so rendering continues uninterrupted.
    * Dispatches "influenceFieldsReady" when complete.
@@ -810,8 +1051,16 @@ export class InfluenceFieldManager extends BaseEntity {
     minY -= BOUNDS_PADDING;
     maxY += BOUNDS_PADDING;
 
-    // Create terrain sampler for propagation algorithms
-    const sampler = new TerrainSampler(terrainDef);
+    // Generate depth grid using TerrainRenderPipeline
+    const { depthGrid, depthGridConfig } = await this.computeDepthGrid(
+      terrainDef,
+      minX,
+      minY,
+      maxX - minX,
+      maxY - minY,
+    );
+    this.depthGrid = depthGrid;
+    this.depthGridConfig = depthGridConfig;
 
     // Create grid configs with appropriate resolutions
     const windGridConfig = createGridConfig(
@@ -879,17 +1128,20 @@ export class InfluenceFieldManager extends BaseEntity {
     // Compute new grids using the new pools (existing data remains valid during computation)
     const windPromise = this.computeWindFieldWithPool(
       newWindPool,
-      sampler,
+      depthGrid,
+      depthGridConfig,
       windGridConfig,
     );
     const swellPromise = this.computeSwellFieldWithPool(
       newSwellPool,
-      sampler,
+      depthGrid,
+      depthGridConfig,
       swellGridConfig,
     );
     const fetchPromise = this.computeFetchFieldWithPool(
       newFetchPool,
-      sampler,
+      depthGrid,
+      depthGridConfig,
       fetchGridConfig,
     );
 
@@ -938,7 +1190,8 @@ export class InfluenceFieldManager extends BaseEntity {
    */
   private async computeWindFieldWithPool(
     pool: WorkerPool<WindWorkerRequest, WindWorkerResult>,
-    sampler: TerrainSampler,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
     gridConfig: InfluenceGridConfig,
   ): Promise<InfluenceFieldGrid> {
     const { directionCount, cellsX, cellsY } = gridConfig;
@@ -946,9 +1199,12 @@ export class InfluenceFieldManager extends BaseEntity {
     // Create output grid
     const grid = new InfluenceFieldGrid(gridConfig);
 
-    // Pre-compute water mask
-    const waterMask = precomputeWaterMask(sampler, gridConfig);
-    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
+    // Resample depth grid to influence grid resolution
+    const resampledDepth = this.resampleDepthGrid(
+      depthGrid,
+      depthGridConfig,
+      gridConfig,
+    );
 
     // Pre-compute source angles
     const sourceAngles: number[] = [];
@@ -965,6 +1221,13 @@ export class InfluenceFieldManager extends BaseEntity {
 
     // Create batch requests
     const serializableConfig = toSerializableGridConfig(gridConfig);
+    const serializableDepthConfig: SerializableDepthGridConfig = {
+      originX: gridConfig.originX,
+      originY: gridConfig.originY,
+      cellSize: gridConfig.cellSize,
+      cellsX: gridConfig.cellsX,
+      cellsY: gridConfig.cellsY,
+    };
     const propagationConfig: SerializablePropagationConfig = {
       directFlowFactor: WIND_PROPAGATION_CONFIG.directFlowFactor,
       lateralSpreadFactor: WIND_PROPAGATION_CONFIG.lateralSpreadFactor,
@@ -979,7 +1242,8 @@ export class InfluenceFieldManager extends BaseEntity {
       directions,
       gridConfig: serializableConfig,
       propagationConfig,
-      waterMask: waterMaskUint8,
+      depthGrid: resampledDepth,
+      depthGridConfig: serializableDepthConfig,
       sourceAngles: directions.map((dir) => sourceAngles[dir]),
     }));
 
@@ -1024,7 +1288,8 @@ export class InfluenceFieldManager extends BaseEntity {
    */
   private async computeSwellFieldWithPool(
     pool: WorkerPool<SwellWorkerRequest, CombinedSwellWorkerResult>,
-    sampler: TerrainSampler,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
     gridConfig: InfluenceGridConfig,
   ): Promise<InfluenceFieldGrid> {
     // Try GPU path first if WebGPU is available and not forced to CPU
@@ -1033,7 +1298,11 @@ export class InfluenceFieldManager extends BaseEntity {
       !InfluenceFieldManager.shouldForceCPUSwell()
     ) {
       try {
-        return await this.computeSwellFieldGPU(sampler, gridConfig);
+        return await this.computeSwellFieldGPU(
+          depthGrid,
+          depthGridConfig,
+          gridConfig,
+        );
       } catch (error) {
         console.warn(
           "[InfluenceFieldManager] GPU swell computation failed, falling back to workers:",
@@ -1043,7 +1312,12 @@ export class InfluenceFieldManager extends BaseEntity {
     }
 
     // Fall back to worker pool
-    return this.computeSwellFieldWorkersWithPool(pool, sampler, gridConfig);
+    return this.computeSwellFieldWorkersWithPool(
+      pool,
+      depthGrid,
+      depthGridConfig,
+      gridConfig,
+    );
   }
 
   /**
@@ -1051,7 +1325,8 @@ export class InfluenceFieldManager extends BaseEntity {
    */
   private async computeSwellFieldWorkersWithPool(
     pool: WorkerPool<SwellWorkerRequest, CombinedSwellWorkerResult>,
-    sampler: TerrainSampler,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
     gridConfig: InfluenceGridConfig,
   ): Promise<InfluenceFieldGrid> {
     const { directionCount, cellsX, cellsY } = gridConfig;
@@ -1059,9 +1334,12 @@ export class InfluenceFieldManager extends BaseEntity {
     // Create output grid
     const grid = new InfluenceFieldGrid(gridConfig);
 
-    // Pre-compute water mask
-    const waterMask = precomputeWaterMask(sampler, gridConfig);
-    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
+    // Resample depth grid to influence grid resolution
+    const resampledDepth = this.resampleDepthGrid(
+      depthGrid,
+      depthGridConfig,
+      gridConfig,
+    );
 
     // Pre-compute source angles
     const sourceAngles: number[] = [];
@@ -1078,6 +1356,13 @@ export class InfluenceFieldManager extends BaseEntity {
 
     // Create batch requests
     const serializableConfig = toSerializableGridConfig(gridConfig);
+    const serializableDepthConfig: SerializableDepthGridConfig = {
+      originX: gridConfig.originX,
+      originY: gridConfig.originY,
+      cellSize: gridConfig.cellSize,
+      cellsX: gridConfig.cellsX,
+      cellsY: gridConfig.cellsY,
+    };
     const longSwellConfig: SerializablePropagationConfig = {
       directFlowFactor: LONG_SWELL_PROPAGATION_CONFIG.directFlowFactor,
       lateralSpreadFactor: LONG_SWELL_PROPAGATION_CONFIG.lateralSpreadFactor,
@@ -1100,7 +1385,8 @@ export class InfluenceFieldManager extends BaseEntity {
       gridConfig: serializableConfig,
       longSwellConfig,
       shortChopConfig,
-      waterMask: waterMaskUint8,
+      depthGrid: resampledDepth,
+      depthGridConfig: serializableDepthConfig,
       sourceAngles: directions.map((dir) => sourceAngles[dir]),
     }));
 
@@ -1145,7 +1431,8 @@ export class InfluenceFieldManager extends BaseEntity {
    */
   private async computeFetchFieldWithPool(
     pool: WorkerPool<FetchWorkerRequest, FetchWorkerResult>,
-    sampler: TerrainSampler,
+    depthGrid: Float32Array,
+    depthGridConfig: DepthGridConfig,
     gridConfig: InfluenceGridConfig,
   ): Promise<InfluenceFieldGrid> {
     const { directionCount, cellsX, cellsY } = gridConfig;
@@ -1153,9 +1440,12 @@ export class InfluenceFieldManager extends BaseEntity {
     // Create output grid
     const grid = new InfluenceFieldGrid(gridConfig);
 
-    // Pre-compute water mask
-    const waterMask = precomputeWaterMask(sampler, gridConfig);
-    const waterMaskUint8 = waterMaskToUint8Array(waterMask);
+    // Resample depth grid to influence grid resolution
+    const resampledDepth = this.resampleDepthGrid(
+      depthGrid,
+      depthGridConfig,
+      gridConfig,
+    );
 
     // Pre-compute upwind angles (opposite of source direction)
     const upwindAngles: number[] = [];
@@ -1173,6 +1463,13 @@ export class InfluenceFieldManager extends BaseEntity {
 
     // Create batch requests
     const serializableConfig = toSerializableGridConfig(gridConfig);
+    const serializableDepthConfig: SerializableDepthGridConfig = {
+      originX: gridConfig.originX,
+      originY: gridConfig.originY,
+      cellSize: gridConfig.cellSize,
+      cellsX: gridConfig.cellsX,
+      cellsY: gridConfig.cellsY,
+    };
     const stepSize = gridConfig.cellSize / 2;
 
     const requests: FetchWorkerRequest[] = batches.map((directions) => ({
@@ -1180,7 +1477,8 @@ export class InfluenceFieldManager extends BaseEntity {
       batchId: 0,
       directions,
       gridConfig: serializableConfig,
-      waterMask: waterMaskUint8,
+      depthGrid: resampledDepth,
+      depthGridConfig: serializableDepthConfig,
       upwindAngles: directions.map((dir) => upwindAngles[dir]),
       maxFetch: DEFAULT_MAX_FETCH,
       stepSize,
@@ -1226,8 +1524,10 @@ export class InfluenceFieldManager extends BaseEntity {
     // Clean up GPU resources
     this.swellTexture?.destroy();
     this.fetchTexture?.destroy();
+    this.depthTexture?.destroy();
     this.swellTexture = null;
     this.fetchTexture = null;
+    this.depthTexture = null;
     this.influenceSampler = null;
 
     // Clean up worker pools

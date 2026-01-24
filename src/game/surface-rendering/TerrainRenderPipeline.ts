@@ -304,6 +304,13 @@ export class TerrainRenderPipeline {
   }
 
   /**
+   * Get the output texture for readback operations.
+   */
+  getOutputTexture(): GPUTexture | null {
+    return this.outputTexture;
+  }
+
+  /**
    * Get the texture size.
    */
   getTextureSize(): number {
