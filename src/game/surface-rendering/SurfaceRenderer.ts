@@ -16,6 +16,7 @@ import type { Draw } from "../../core/graphics/Draw";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { InfluenceFieldManager } from "../world-data/influence/InfluenceFieldManager";
 import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
+import { getTerrainHeightColor } from "../world-data/terrain/TerrainColors";
 import { WAVE_COMPONENTS } from "../world-data/water/WaterConstants";
 import { WaterInfo, type Viewport } from "../world-data/water/WaterInfo";
 import { SurfaceShader } from "./SurfaceShader";
@@ -26,10 +27,22 @@ import {
 } from "./WaterRenderPipeline";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
-// Surface rendering texture sizes
+// Default surface rendering texture sizes
 export const WATER_TEXTURE_SIZE = 512;
 export const TERRAIN_TEXTURE_SIZE = 512;
-export const WETNESS_TEXTURE_SIZE = 2048;
+export const WETNESS_TEXTURE_SIZE = 512;
+
+/**
+ * Configuration options for SurfaceRenderer.
+ */
+export interface SurfaceRendererConfig {
+  /** Texture size for water rendering (default: 512) */
+  waterTextureSize?: number;
+  /** Texture size for terrain rendering (default: 512) */
+  terrainTextureSize?: number;
+  /** Texture size for wetness tracking (default: 512) */
+  wetnessTextureSize?: number;
+}
 
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
@@ -91,11 +104,26 @@ export class SurfaceRenderer extends BaseEntity {
   // Track if influence textures have been configured
   private influenceConfigured = false;
 
-  constructor() {
+  // Configuration
+  private config: Required<SurfaceRendererConfig>;
+
+  constructor(config?: SurfaceRendererConfig) {
     super();
-    this.renderPipeline = new WaterRenderPipeline();
-    this.terrainPipeline = new TerrainRenderPipeline();
-    this.wetnessPipeline = new WetnessRenderPipeline();
+
+    // Apply defaults to config
+    this.config = {
+      waterTextureSize: config?.waterTextureSize ?? WATER_TEXTURE_SIZE,
+      terrainTextureSize: config?.terrainTextureSize ?? TERRAIN_TEXTURE_SIZE,
+      wetnessTextureSize: config?.wetnessTextureSize ?? WETNESS_TEXTURE_SIZE,
+    };
+
+    this.renderPipeline = new WaterRenderPipeline(this.config.waterTextureSize);
+    this.terrainPipeline = new TerrainRenderPipeline(
+      this.config.terrainTextureSize,
+    );
+    this.wetnessPipeline = new WetnessRenderPipeline(
+      this.config.wetnessTextureSize,
+    );
 
     // Default uniform values
     this.uniformData[21] = 0; // hasTerrainData
@@ -468,27 +496,12 @@ export class SurfaceRenderer extends BaseEntity {
           alpha: 0.9,
         });
 
-        // Second pass: thinner colored line on top
-        // Color based on height: blue for underwater, brown for above
-        let color: number;
-        if (contour.height === 0) {
-          // Sea level - black center on white
-          color = 0x000000;
-        } else if (contour.height < 0) {
-          // Underwater - blue, darker for deeper
-          const t = Math.min(-contour.height / 50, 1);
-          const r = Math.round(50 * (1 - t));
-          const g = Math.round(100 * (1 - t * 0.5));
-          const b = Math.round(200 + 55 * (1 - t));
-          color = (r << 16) | (g << 8) | b;
-        } else {
-          // Above water - brown/tan, lighter for higher
-          const t = Math.min(contour.height / 20, 1);
-          const r = Math.round(120 + 60 * t);
-          const g = Math.round(80 + 40 * t);
-          const b = Math.round(40 + 20 * t);
-          color = (r << 16) | (g << 8) | b;
-        }
+        // Second pass: thinner colored line on top using shared color function
+        // Sea level (height 0) uses black for contrast on white outline
+        const color =
+          contour.height === 0
+            ? 0x000000
+            : getTerrainHeightColor(contour.height);
 
         draw.strokeSmoothPolygon([...contour.controlPoints], {
           color,
@@ -503,11 +516,8 @@ export class SurfaceRenderer extends BaseEntity {
     this.renderMode = mode;
   }
 
-  @on("keyDown")
-  onKeyDown({ key }: { key: string }): void {
-    if (key === "KeyB") {
-      this.setRenderMode((this.renderMode + 1) % 2);
-    }
+  getRenderMode(): number {
+    return this.renderMode;
   }
 
   @on("destroy")
