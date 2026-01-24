@@ -12,7 +12,7 @@ import { on } from "../core/entity/handler";
 import { Game } from "../core/Game";
 import { createContour } from "../game/world-data/terrain/LandMass";
 import { TerrainInfo } from "../game/world-data/terrain/TerrainInfo";
-import { V } from "../core/Vector";
+import { V, V2d } from "../core/Vector";
 import { ContourEditor } from "./ContourEditor";
 import { ContourRenderer } from "./ContourRenderer";
 import {
@@ -133,6 +133,7 @@ export class EditorController
   private debugRenderMode = false;
   private fileHandle: FileSystemFileHandle | null = null;
   private clipboardContour: EditorContour | null = null;
+  private mouseWorldPosition: V2d | null = null;
 
   constructor() {
     super();
@@ -306,6 +307,21 @@ export class EditorController
    */
   getDebugRenderMode(): boolean {
     return this.debugRenderMode;
+  }
+
+  /**
+   * Get the current mouse position in world coordinates.
+   */
+  getMouseWorldPosition(): V2d | null {
+    return this.mouseWorldPosition;
+  }
+
+  /**
+   * Get the terrain height at the current mouse position.
+   */
+  getTerrainHeightAtMouse(): number | null {
+    if (!this.mouseWorldPosition || !this.terrainInfo) return null;
+    return this.terrainInfo.getHeightAtPoint(this.mouseWorldPosition);
   }
 
   /**
@@ -600,6 +616,13 @@ export class EditorController
     }
 
     return true;
+  }
+
+  @on("render")
+  onRender(): void {
+    // Update mouse world position for status bar
+    const screenPos = this.game.io.mousePosition;
+    this.mouseWorldPosition = this.game.camera.toWorld(screenPos);
   }
 
   @on("keyDown")

@@ -331,3 +331,52 @@
   color: rgba(255, 255, 255, 0.8);
   padding: 2px 0;
 }
+
+/* Status bar */
+.editor-status-bar {
+  position: fixed;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(26, 26, 46, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+  z-index: 99;
+  display: flex;
+  gap: 16px;
+}
+
+.status-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-bar-label {
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.status-bar-value {
+  font-family: monospace;
+  font-size: 12px;
+  min-width: 60px;
+}
+
+.status-bar-label.underwater,
+.status-bar-value.underwater {
+  color: #6699cc;
+}
+
+.status-bar-label.above-water,
+.status-bar-value.above-water {
+  color: #d4a574;
+}
