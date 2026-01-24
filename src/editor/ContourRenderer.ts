@@ -12,7 +12,10 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { Draw } from "../core/graphics/Draw";
-import { V, V2d } from "../core/Vector";
+import { V2d } from "../core/Vector";
+import { catmullRomPoint, sampleClosedSpline } from "../core/util/Spline";
+import { pointInPolygon } from "../core/util/Geometry";
+import { getTerrainHeightColor } from "../game/world-data/terrain/TerrainColors";
 import { EditorDocument } from "./EditorDocument";
 import { EditorContour } from "./io/TerrainFileFormat";
 
@@ -25,11 +28,20 @@ const MIN_POINT_RADIUS = 4;
 /** Maximum point radius at max zoom in */
 const MAX_POINT_RADIUS = 16;
 
-/** Line width for spline curves */
+/** Line width for spline curves (in screen pixels) */
 const SPLINE_WIDTH = 2;
 
-/** Line width for control point connections */
+/** Line width for selected contour (multiplier) */
+const SELECTED_WIDTH_MULTIPLIER = 2.5;
+
+/** Line width for shadow outline (multiplier) */
+const SHADOW_WIDTH_MULTIPLIER = 2;
+
+/** Line width for control point connections (in screen pixels) */
 const CONNECTION_WIDTH = 1;
+
+/** Shadow/outline color for better visibility */
+const SHADOW_COLOR = 0x222222;
 
 /** Alpha for connection lines */
 const CONNECTION_ALPHA = 0.4;
@@ -40,53 +52,8 @@ const SELECTED_COLOR = 0xffff00;
 /** Color for hovered elements */
 const HOVER_COLOR = 0x00ffff;
 
-/**
- * Get contour color based on height.
- */
-function getContourColor(height: number): number {
-  if (height === 0) {
-    // Shore level - green
-    return 0x44aa44;
-  } else if (height < 0) {
-    // Underwater - blue, darker for deeper
-    const t = Math.min(-height / 50, 1);
-    const r = Math.round(50 * (1 - t));
-    const g = Math.round(100 + 50 * (1 - t));
-    const b = Math.round(180 + 75 * (1 - t));
-    return (r << 16) | (g << 8) | b;
-  } else {
-    // Above water - brown/tan, lighter for higher
-    const t = Math.min(height / 20, 1);
-    const r = Math.round(140 + 60 * t);
-    const g = Math.round(100 + 40 * t);
-    const b = Math.round(60 + 20 * t);
-    return (r << 16) | (g << 8) | b;
-  }
-}
-
-/**
- * Evaluate a Catmull-Rom spline point.
- */
-function catmullRomPoint(p0: V2d, p1: V2d, p2: V2d, p3: V2d, t: number): V2d {
-  const t2 = t * t;
-  const t3 = t2 * t;
-
-  const x =
-    0.5 *
-    (2 * p1.x +
-      (-p0.x + p2.x) * t +
-      (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
-      (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
-
-  const y =
-    0.5 *
-    (2 * p1.y +
-      (-p0.y + p2.y) * t +
-      (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-      (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
-
-  return V(x, y);
-}
+/** Color for invalid contours (self-intersecting or intersecting others) */
+const INVALID_COLOR = 0xff4444;
 
 export interface HoverInfo {
   /** Index of hovered contour */
@@ -222,6 +189,27 @@ export class ContourRenderer extends BaseEntity {
     return null;
   }
 
+  /**
+   * Test if a world position is inside the fill area of a contour.
+   * Uses ray casting algorithm on sampled spline points.
+   */
+  hitTestFill(worldPos: V2d): { contourIndex: number } | null {
+    const contours = this.document.getContours();
+
+    for (let ci = 0; ci < contours.length; ci++) {
+      const points = contours[ci].controlPoints;
+      if (points.length < 3) continue;
+
+      // Sample the Catmull-Rom spline to get polygon vertices
+      const sampledPoints = sampleClosedSpline([...points], 8);
+
+      if (pointInPolygon(worldPos, sampledPoints)) {
+        return { contourIndex: ci };
+      }
+    }
+    return null;
+  }
+
   @on("render")
   onRender({ draw }: { draw: Draw }): void {
     const contours = this.document.getContours();
@@ -232,6 +220,7 @@ export class ContourRenderer extends BaseEntity {
     for (let ci = 0; ci < contours.length; ci++) {
       const contour = contours[ci];
       const isContourSelected = selection.contourIndex === ci;
+      const isContourValid = this.document.isContourValid(ci);
 
       this.renderContour(
         draw,
@@ -239,6 +228,7 @@ export class ContourRenderer extends BaseEntity {
         ci,
         pointRadius,
         isContourSelected,
+        isContourValid,
         selection.pointIndices,
       );
     }
@@ -260,25 +250,67 @@ export class ContourRenderer extends BaseEntity {
     contourIndex: number,
     pointRadius: number,
     isContourSelected: boolean,
+    isContourValid: boolean,
     selectedPoints: Set<number>,
   ): void {
     const points = contour.controlPoints;
     if (points.length < 2) return;
 
-    const baseColor = getContourColor(contour.height);
+    const zoom = this.game.camera.z;
+    const baseColor = isContourValid
+      ? getTerrainHeightColor(contour.height)
+      : INVALID_COLOR;
     const splineColor = isContourSelected ? SELECTED_COLOR : baseColor;
+
+    // Calculate zoom-independent line widths
+    const splineWidth = SPLINE_WIDTH / zoom;
+    const connectionWidth = CONNECTION_WIDTH / zoom;
+    const shadowWidth = splineWidth * SHADOW_WIDTH_MULTIPLIER;
+    const selectedWidth = splineWidth * SELECTED_WIDTH_MULTIPLIER;
 
     // Draw smoothed spline
     if (points.length >= 3) {
+      // Pass 0: Fill for selected contour (allows drag-by-fill)
+      if (isContourSelected) {
+        draw.fillSmoothPolygon([...points], {
+          color: splineColor,
+          alpha: 0.15,
+        });
+      }
+
+      // Pass 1: Shadow outline for visibility on terrain
+      draw.strokeSmoothPolygon([...points], {
+        color: SHADOW_COLOR,
+        width: shadowWidth,
+        alpha: 0.6,
+      });
+
+      // Pass 2: Selected glow (if selected)
+      if (isContourSelected) {
+        draw.strokeSmoothPolygon([...points], {
+          color: splineColor,
+          width: selectedWidth,
+          alpha: 0.5,
+        });
+      }
+
+      // Pass 3: Main spline
       draw.strokeSmoothPolygon([...points], {
         color: splineColor,
-        width: SPLINE_WIDTH,
+        width: splineWidth,
         alpha: isContourSelected ? 1.0 : 0.8,
       });
     } else {
       // Just draw a line for 2 points
+      // Shadow
       draw.line(points[0].x, points[0].y, points[1].x, points[1].y, {
-        width: SPLINE_WIDTH,
+        width: shadowWidth,
+        color: SHADOW_COLOR,
+        alpha: 0.6,
+      });
+      // Main line
+      draw.line(points[0].x, points[0].y, points[1].x, points[1].y, {
+        width: isContourSelected ? selectedWidth : splineWidth,
         color: splineColor,
       });
     }
@@ -288,7 +320,7 @@ export class ContourRenderer extends BaseEntity {
       const p1 = points[i];
       const p2 = points[(i + 1) % points.length];
       draw.line(p1.x, p1.y, p2.x, p2.y, {
-        width: CONNECTION_WIDTH,
+        width: connectionWidth,
         color: baseColor,
         alpha: CONNECTION_ALPHA,
       });

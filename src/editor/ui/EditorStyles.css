@@ -269,3 +269,49 @@
   font-family: monospace;
   font-size: 10px;
 }
+
+/* Influence computation progress indicator */
+.editor-influence-progress {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Invalid contour styling */
+.contour-list-item.contour-invalid {
+  background: rgba(200, 60, 60, 0.15);
+}
+
+.contour-list-item.contour-invalid:hover {
+  background: rgba(200, 60, 60, 0.25);
+}
+
+.contour-list-item.contour-invalid.selected {
+  background: rgba(200, 60, 60, 0.35);
+}
+
+/* Validation error display in properties panel */
+.contour-validation-errors {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(200, 60, 60, 0.2);
+  border: 1px solid rgba(200, 60, 60, 0.4);
+  border-radius: 4px;
+}
+
+.contour-validation-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #ff8888;
+  margin-bottom: 6px;
+}
+
+.contour-validation-item {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  padding: 2px 0;
+}

@@ -28,7 +28,7 @@ import {
 } from "./io/TerrainFileFormat";
 import { loadDefaultEditorTerrain } from "./io/TerrainLoader";
 import { EditorUI } from "./EditorUI";
-import { EditorSurfaceRenderer } from "./EditorSurfaceRenderer";
+import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
 import { WaterInfo } from "../game/world-data/water/WaterInfo";
 import { InfluenceFieldManager } from "../game/world-data/influence/InfluenceFieldManager";
 import { computeSplineCentroid } from "../game/world-data/terrain/SplineGeometry";
@@ -127,6 +127,7 @@ export class EditorController
   private terrainInfo: TerrainInfo | null = null;
   private cameraController: EditorCameraController | null = null;
   private contourRenderer: ContourRenderer | null = null;
+  private surfaceRenderer: SurfaceRenderer | null = null;
   private influenceManager: InfluenceFieldManager | null = null;
   private isComputingInfluence = false;
   private debugRenderMode = false;
@@ -154,7 +155,14 @@ export class EditorController
     this.game.addEntity(new WaterInfo());
 
     // Add surface renderer (renders water and terrain visuals)
-    this.game.addEntity(new EditorSurfaceRenderer());
+    // Use smaller texture sizes for the editor
+    this.surfaceRenderer = this.game.addEntity(
+      new SurfaceRenderer({
+        waterTextureSize: 256,
+        terrainTextureSize: 256,
+        wetnessTextureSize: 256,
+      }),
+    );
 
     // Add camera controller
     this.cameraController = this.game.addEntity(
@@ -641,6 +649,8 @@ export class EditorController
     // B - Toggle debug render mode
     if (key === "KeyB" && !modifier) {
       this.debugRenderMode = !this.debugRenderMode;
+      // Update surface renderer debug mode
+      this.surfaceRenderer?.setRenderMode(this.debugRenderMode ? 1 : 0);
       // Refresh terrain to apply/remove invalid contour filtering
       this.onTerrainChanged();
       return;

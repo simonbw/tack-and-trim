@@ -11,11 +11,7 @@ import {
   TerrainContour,
   TerrainDefinition,
 } from "../../game/world-data/terrain/LandMass";
-import {
-  DEFAULT_DEPTH,
-  DEFAULT_HILL_AMPLITUDE,
-  DEFAULT_HILL_FREQUENCY,
-} from "../../game/world-data/terrain/TerrainConstants";
+import { DEFAULT_DEPTH } from "../../game/world-data/terrain/TerrainConstants";
 
 /** Current file format version */
 export const TERRAIN_FILE_VERSION = 1;
@@ -28,10 +24,6 @@ export interface TerrainContourJSON {
   name?: string;
   /** Height in feet (negative = underwater, positive = above) */
   height: number;
-  /** Noise spatial scale for rolling hills */
-  hillFrequency?: number;
-  /** Height variation from noise */
-  hillAmplitude?: number;
   /** Control points as [x, y] arrays */
   controlPoints: [number, number][];
 }
@@ -115,10 +107,7 @@ export function terrainFileToDefinition(
 ): TerrainDefinition {
   const contours: TerrainContour[] = file.contours.map((c) => {
     const controlPoints: V2d[] = c.controlPoints.map(([x, y]) => V(x, y));
-    return createContour(controlPoints, c.height, {
-      hillFrequency: c.hillFrequency,
-      hillAmplitude: c.hillAmplitude,
-    });
+    return createContour(controlPoints, c.height);
   });
 
   return {
@@ -155,8 +144,6 @@ export function terrainFileToEditorDefinition(
       name: c.name,
       controlPoints,
       height: c.height,
-      hillFrequency: c.hillFrequency ?? DEFAULT_HILL_FREQUENCY,
-      hillAmplitude: c.hillAmplitude ?? DEFAULT_HILL_AMPLITUDE,
     };
   });
 
@@ -175,8 +162,6 @@ export function editorDefinitionToFile(
   const contours: TerrainContourJSON[] = definition.contours.map((c) => ({
     name: c.name,
     height: c.height,
-    hillFrequency: c.hillFrequency,
-    hillAmplitude: c.hillAmplitude,
     controlPoints: c.controlPoints.map(
       (pt) => [pt.x, pt.y] as [number, number],
     ),
@@ -198,8 +183,6 @@ export function definitionToTerrainFile(
 ): TerrainFileJSON {
   const contours: TerrainContourJSON[] = definition.contours.map((c) => ({
     height: c.height,
-    hillFrequency: c.hillFrequency,
-    hillAmplitude: c.hillAmplitude,
     controlPoints: c.controlPoints.map(
       (pt) => [pt.x, pt.y] as [number, number],
     ),
