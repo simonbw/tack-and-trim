@@ -1,4 +1,5 @@
 import { clamp } from "../util/MathUtil";
+import { earClipTriangulate } from "../util/Triangulate";
 import { V, V2d } from "../Vector";
 import { Camera2d } from "./Camera2d";
 import { PathBuilder } from "./PathBuilder";
@@ -541,11 +542,11 @@ export class Draw {
     const splineVertices = buildCatmullRomSpline(vertices, true, tension);
     if (splineVertices.length < 3) return;
 
-    // Simple fan triangulation (works for convex-ish shapes)
-    const indices: number[] = [];
-    for (let i = 1; i < splineVertices.length - 1; i++) {
-      indices.push(0, i, i + 1);
-    }
+    // Use ear clipping for proper triangulation of concave polygons
+    const indices = earClipTriangulate(splineVertices);
+
+    // Skip rendering if triangulation failed (self-intersecting or degenerate polygon)
+    if (!indices) return;
 
     this.renderer.submitTriangles(splineVertices, indices, color, alpha);
   }

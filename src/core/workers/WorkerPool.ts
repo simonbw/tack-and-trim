@@ -121,8 +121,6 @@ export class WorkerPool<
     this.initializing = true;
     const { workerUrl, workerCount, initTimeout, label } = this.config;
 
-    console.log(`[${label}] Initializing ${workerCount} workers...`);
-
     const workers: Worker[] = [];
     const readyPromises: Promise<void>[] = [];
 
@@ -157,7 +155,6 @@ export class WorkerPool<
       this.workers = workers;
       this.ready = true;
       this.initializing = false;
-      console.log(`[${label}] ${workers.length} workers ready`);
     });
 
     return this.initPromise;
@@ -173,7 +170,6 @@ export class WorkerPool<
     this.ready = false;
     this.initializing = false;
     this.initPromise = null;
-    console.log(`[${this.config.label}] Workers terminated`);
   }
 
   /**

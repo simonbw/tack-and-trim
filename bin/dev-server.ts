@@ -6,10 +6,17 @@ import { spawn } from "child_process";
 const PROXY_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 1234;
 const PARCEL_PORT = PROXY_PORT + 1;
 
-// Start Parcel on a different port
+// Start Parcel on a different port - serve both game and editor
 const parcel = spawn(
   "npx",
-  ["parcel", "--no-hmr", "--port", String(PARCEL_PORT), "src/index.html"],
+  [
+    "parcel",
+    "--no-hmr",
+    "--port",
+    String(PARCEL_PORT),
+    "src/index.html",
+    "src/editor.html",
+  ],
   {
     stdio: "inherit",
     shell: true,

@@ -16,7 +16,7 @@ const fonts = {
 export type FontName = keyof typeof fonts;
 
 const levels = {
-
+  default: require("./levels/default.terrain.json")
 };
 export type LevelName = keyof typeof levels;
 

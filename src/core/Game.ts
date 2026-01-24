@@ -1,7 +1,6 @@
 import { DEFAULT_LAYER, LAYERS, LayerName } from "../config/layers";
 import { TICK_LAYERS, TickLayerName } from "../config/tickLayers";
 import { ContactList } from "./ContactList";
-import { PhysicsEventMap } from "./physics/events/PhysicsEvents";
 import { EntityList } from "./EntityList";
 import { V } from "./Vector";
 import Entity, { GameEventMap } from "./entity/Entity";
@@ -14,6 +13,7 @@ import { WebGPURenderer } from "./graphics/webgpu/WebGPURenderer";
 import { IOManager } from "./io/IO";
 import type { Body } from "./physics/body/Body";
 import { StaticBody } from "./physics/body/StaticBody";
+import { PhysicsEventMap } from "./physics/events/PhysicsEvents";
 import { World } from "./physics/world/World";
 import { lerp } from "./util/MathUtil";
 import { profile, profiler } from "./util/Profiler";
@@ -142,7 +142,6 @@ export class Game {
     }
     await getWebGPU().init();
     this.webGpuInitialized = true;
-    console.log("WebGPU initialized successfully");
 
     await this.renderer.init(rendererOptions);
     // IO events don't respect pause state
