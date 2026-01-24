@@ -179,13 +179,10 @@ export class TerrainComputeCPU {
   }
 
   /**
-   * Compute height using inverse-distance weighting from children.
+   * Compute height using pure inverse-distance weighting.
    *
-   * For each child:
-   *   h_i = lerp(parent.height, child.height, smoothstep(dist))
-   * Final = Σ(h_i / dist_i) / Σ(1 / dist_i)
-   *
-   * If far from all children, returns parent height.
+   * Parent and all children participate in IDW with 1/dist weights.
+   * This matches the GPU shader implementation for consistent results.
    */
   private computeIDWHeight(
     point: V2d,
@@ -194,41 +191,29 @@ export class TerrainComputeCPU {
     terrain: CachedTerrain,
   ): number {
     const minDist = 0.1; // Minimum distance to avoid division by zero
-    const transitionDist = 30; // Distance for smoothstep transition
 
-    let weightedSum = 0;
-    let weightSum = 0;
+    // Parent participates in IDW based on distance to its own boundary
+    const parentSignedDist = this.signedDistanceToPolyline(
+      point,
+      parent.polyline,
+    );
+    const parentDist = Math.max(minDist, Math.abs(parentSignedDist));
+    const parentWeight = 1 / parentDist;
+    let weightedSum = parent.contour.height * parentWeight;
+    let weightSum = parentWeight;
 
+    // Each child participates with distance-based weight
     for (const childIdx of childIndices) {
       const child = terrain.sortedContours[childIdx];
-      // Signed distance - negative means inside child
       const signedDist = this.signedDistanceToPolyline(point, child.polyline);
-
-      // Use absolute distance for weighting
       const dist = Math.max(minDist, Math.abs(signedDist));
 
-      // Smoothstep transition factor (0 = at parent boundary, 1 = at child boundary)
-      const t = Math.max(0, 1 - dist / transitionDist);
-      const smoothT = t * t * (3 - 2 * t);
-
-      // Interpolated height for this child
-      const h_i =
-        parent.contour.height +
-        smoothT * (child.contour.height - parent.contour.height);
-
-      // IDW weight
       const weight = 1 / dist;
-      weightedSum += h_i * weight;
+      weightedSum += child.contour.height * weight;
       weightSum += weight;
     }
 
-    // If we have valid weights, use IDW result
-    if (weightSum > 0) {
-      return weightedSum / weightSum;
-    }
-
-    // Fallback to leaf behavior
-    return this.computeLeafHeight(point, parent);
+    return weightedSum / weightSum;
   }
 
   /**
