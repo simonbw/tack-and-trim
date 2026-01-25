@@ -47,8 +47,10 @@ import type {
 } from "./propagation/workers/SwellWorker";
 import type { WindWorkerResult } from "./propagation/workers/WindWorker";
 import {
+  DEPTH_FIELD_CELL_SIZE,
   FETCH_FIELD_RESOLUTION,
   LONG_SWELL_PROPAGATION_CONFIG,
+  scaleDecayForCellSize,
   SHORT_CHOP_PROPAGATION_CONFIG,
   SWELL_FIELD_RESOLUTION,
   WIND_FIELD_RESOLUTION,
@@ -65,9 +67,6 @@ export interface SwellInfluenceSample {
 
 /** Padding added around terrain bounds for influence field computation */
 const BOUNDS_PADDING = 2000;
-
-/** Resolution of the depth texture used for land/water detection (pixels) */
-const DEPTH_TEXTURE_SIZE = 256;
 
 /**
  * Progress for individual computation tasks.
@@ -281,6 +280,7 @@ export class InfluenceFieldManager extends BaseEntity {
     maxY += BOUNDS_PADDING;
 
     // Generate depth grid using TerrainRenderPipeline (GPU-based, uses same terrain as rendering)
+    // Texture dimensions are computed from world bounds and DEPTH_FIELD_CELL_SIZE
     const { depthGrid, depthGridConfig } = await this.computeDepthGrid(
       terrainDef,
       minX,
@@ -508,13 +508,23 @@ export class InfluenceFieldManager extends BaseEntity {
 
     const cellCount = cellsX * cellsY;
 
+    // Scale decay factors for actual cell size to ensure consistent decay per unit distance
+    const scaledLongConfig = scaleDecayForCellSize(
+      LONG_SWELL_PROPAGATION_CONFIG,
+      gridConfig.cellSize,
+    );
+    const scaledShortConfig = scaleDecayForCellSize(
+      SHORT_CHOP_PROPAGATION_CONFIG,
+      gridConfig.cellSize,
+    );
+
     // ONE call computes all 32 direction/wavelength combinations
     // Use fewer iterations than CPU since GPU can't early-terminate.
     // CPU typically converges in 108-165 iterations.
     const gpuIterations = 150;
     await compute.computeAll(
-      LONG_SWELL_PROPAGATION_CONFIG,
-      SHORT_CHOP_PROPAGATION_CONFIG,
+      scaledLongConfig,
+      scaledShortConfig,
       gpuIterations,
     );
 
@@ -587,11 +597,15 @@ export class InfluenceFieldManager extends BaseEntity {
     width: number,
     height: number,
   ): Promise<{ depthGrid: Float32Array; depthGridConfig: DepthGridConfig }> {
-    const textureSize = DEPTH_TEXTURE_SIZE;
+    // Compute texture dimensions from cell size and world bounds
+    const cellSize = DEPTH_FIELD_CELL_SIZE;
+    const textureSizeX = Math.ceil(width / cellSize);
+    const textureSizeY = Math.ceil(height / cellSize);
+
     const device = getWebGPU().device;
 
-    // Create a dedicated pipeline for depth readback (square texture)
-    const depthPipeline = new TerrainRenderPipeline(textureSize, textureSize);
+    // Create a dedicated pipeline for depth readback
+    const depthPipeline = new TerrainRenderPipeline(textureSizeX, textureSizeY);
     await depthPipeline.init();
     depthPipeline.setTerrainDefinition(terrainDef);
 
@@ -612,9 +626,11 @@ export class InfluenceFieldManager extends BaseEntity {
     }
 
     // Create staging buffer for readback
-    const bytesPerRow = textureSize * 16; // rgba32float = 16 bytes per pixel
+    // WebGPU requires bytesPerRow to be a multiple of 256
+    const unalignedBytesPerRow = textureSizeX * 16; // rgba32float = 16 bytes per pixel
+    const bytesPerRow = Math.ceil(unalignedBytesPerRow / 256) * 256;
     const stagingBuffer = device.createBuffer({
-      size: bytesPerRow * textureSize,
+      size: bytesPerRow * textureSizeY,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       label: "Depth Grid Staging Buffer",
     });
@@ -626,7 +642,7 @@ export class InfluenceFieldManager extends BaseEntity {
     commandEncoder.copyTextureToBuffer(
       { texture: outputTexture },
       { buffer: stagingBuffer, bytesPerRow },
-      { width: textureSize, height: textureSize },
+      { width: textureSizeX, height: textureSizeY },
     );
     device.queue.submit([commandEncoder.finish()]);
 
@@ -638,10 +654,19 @@ export class InfluenceFieldManager extends BaseEntity {
     stagingBuffer.unmap();
     stagingBuffer.destroy();
 
-    // Extract R channel (height) from rgba32float data
-    const depthGrid = new Float32Array(textureSize * textureSize);
-    for (let i = 0; i < textureSize * textureSize; i++) {
-      depthGrid[i] = mappedData[i * 4]; // R channel
+    // Extract R channel (height) from rgba32float data.
+    // The shader maps world Y = viewportTop to clip Y = +1 (via -clipPos.y),
+    // which renders to texture row 0. So texture row 0 = world Y = originY (minY).
+    // No flip needed - texture layout matches our grid layout.
+    // Account for row padding in the staging buffer.
+    const depthGrid = new Float32Array(textureSizeX * textureSizeY);
+    const floatsPerRow = bytesPerRow / 4; // Padded row width in floats
+    for (let y = 0; y < textureSizeY; y++) {
+      for (let x = 0; x < textureSizeX; x++) {
+        const srcIdx = y * floatsPerRow + x * 4; // Account for row padding
+        const dstIdx = y * textureSizeX + x;
+        depthGrid[dstIdx] = mappedData[srcIdx]; // R channel
+      }
     }
 
     // Cleanup the render pipeline (we've read back the data)
@@ -649,7 +674,7 @@ export class InfluenceFieldManager extends BaseEntity {
 
     // Create a persistent depth texture for the water shader (r32float)
     this.depthTexture = device.createTexture({
-      size: { width: textureSize, height: textureSize },
+      size: { width: textureSizeX, height: textureSizeY },
       format: "r32float",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       label: "Depth Grid Texture",
@@ -659,16 +684,16 @@ export class InfluenceFieldManager extends BaseEntity {
     device.queue.writeTexture(
       { texture: this.depthTexture },
       depthGrid,
-      { bytesPerRow: textureSize * 4 }, // 4 bytes per r32float
-      { width: textureSize, height: textureSize },
+      { bytesPerRow: textureSizeX * 4 }, // 4 bytes per r32float
+      { width: textureSizeX, height: textureSizeY },
     );
 
     const depthGridConfig: DepthGridConfig = {
       originX,
       originY,
-      cellSize: width / textureSize,
-      cellsX: textureSize,
-      cellsY: textureSize,
+      cellSize,
+      cellsX: textureSizeX,
+      cellsY: textureSizeY,
     };
 
     return { depthGrid, depthGridConfig };
@@ -779,6 +804,15 @@ export class InfluenceFieldManager extends BaseEntity {
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       label: "Swell Influence Texture",
     });
+
+    // Log swell texture size
+    const swellTexelCount =
+      swellConfig.cellsX * swellConfig.cellsY * swellConfig.directionCount;
+    const swellBytes = swellTexelCount * 16; // rgba32float = 16 bytes per texel
+    const swellMB = (swellBytes / (1024 * 1024)).toFixed(2);
+    console.log(
+      `[InfluenceFieldManager] Swell texture: ${swellConfig.cellsX}x${swellConfig.cellsY}x${swellConfig.directionCount} (${swellMB} MB)`,
+    );
 
     // Upload swell data
     device.queue.writeTexture(
@@ -1008,6 +1042,13 @@ export class InfluenceFieldManager extends BaseEntity {
   }
 
   /**
+   * Get the depth grid for direct access (e.g., visualization).
+   */
+  getDepthGrid(): Float32Array | null {
+    return this.depthGrid;
+  }
+
+  /**
    * Recompute influence fields for updated terrain.
    * Keeps existing data available during computation so rendering continues uninterrupted.
    * Dispatches "influenceFieldsReady" when complete.
@@ -1052,6 +1093,7 @@ export class InfluenceFieldManager extends BaseEntity {
     maxY += BOUNDS_PADDING;
 
     // Generate depth grid using TerrainRenderPipeline
+    // Texture dimensions are computed from world bounds and DEPTH_FIELD_CELL_SIZE
     const { depthGrid, depthGridConfig } = await this.computeDepthGrid(
       terrainDef,
       minX,
@@ -1228,12 +1270,17 @@ export class InfluenceFieldManager extends BaseEntity {
       cellsX: gridConfig.cellsX,
       cellsY: gridConfig.cellsY,
     };
+    // Scale decay factor for actual cell size
+    const scaledWindConfig = scaleDecayForCellSize(
+      WIND_PROPAGATION_CONFIG,
+      gridConfig.cellSize,
+    );
     const propagationConfig: SerializablePropagationConfig = {
-      directFlowFactor: WIND_PROPAGATION_CONFIG.directFlowFactor,
-      lateralSpreadFactor: WIND_PROPAGATION_CONFIG.lateralSpreadFactor,
-      decayFactor: WIND_PROPAGATION_CONFIG.decayFactor,
-      maxIterations: WIND_PROPAGATION_CONFIG.maxIterations,
-      convergenceThreshold: WIND_PROPAGATION_CONFIG.convergenceThreshold,
+      directFlowFactor: scaledWindConfig.directFlowFactor,
+      lateralSpreadFactor: scaledWindConfig.lateralSpreadFactor,
+      decayFactor: scaledWindConfig.decayFactor,
+      maxIterations: scaledWindConfig.maxIterations,
+      convergenceThreshold: scaledWindConfig.convergenceThreshold,
     };
 
     const requests: WindWorkerRequest[] = batches.map((directions) => ({
@@ -1363,19 +1410,28 @@ export class InfluenceFieldManager extends BaseEntity {
       cellsX: gridConfig.cellsX,
       cellsY: gridConfig.cellsY,
     };
+    // Scale decay factors for actual cell size
+    const scaledLongSwellConfig = scaleDecayForCellSize(
+      LONG_SWELL_PROPAGATION_CONFIG,
+      gridConfig.cellSize,
+    );
+    const scaledShortChopConfig = scaleDecayForCellSize(
+      SHORT_CHOP_PROPAGATION_CONFIG,
+      gridConfig.cellSize,
+    );
     const longSwellConfig: SerializablePropagationConfig = {
-      directFlowFactor: LONG_SWELL_PROPAGATION_CONFIG.directFlowFactor,
-      lateralSpreadFactor: LONG_SWELL_PROPAGATION_CONFIG.lateralSpreadFactor,
-      decayFactor: LONG_SWELL_PROPAGATION_CONFIG.decayFactor,
-      maxIterations: LONG_SWELL_PROPAGATION_CONFIG.maxIterations,
-      convergenceThreshold: LONG_SWELL_PROPAGATION_CONFIG.convergenceThreshold,
+      directFlowFactor: scaledLongSwellConfig.directFlowFactor,
+      lateralSpreadFactor: scaledLongSwellConfig.lateralSpreadFactor,
+      decayFactor: scaledLongSwellConfig.decayFactor,
+      maxIterations: scaledLongSwellConfig.maxIterations,
+      convergenceThreshold: scaledLongSwellConfig.convergenceThreshold,
     };
     const shortChopConfig: SerializablePropagationConfig = {
-      directFlowFactor: SHORT_CHOP_PROPAGATION_CONFIG.directFlowFactor,
-      lateralSpreadFactor: SHORT_CHOP_PROPAGATION_CONFIG.lateralSpreadFactor,
-      decayFactor: SHORT_CHOP_PROPAGATION_CONFIG.decayFactor,
-      maxIterations: SHORT_CHOP_PROPAGATION_CONFIG.maxIterations,
-      convergenceThreshold: SHORT_CHOP_PROPAGATION_CONFIG.convergenceThreshold,
+      directFlowFactor: scaledShortChopConfig.directFlowFactor,
+      lateralSpreadFactor: scaledShortChopConfig.lateralSpreadFactor,
+      decayFactor: scaledShortChopConfig.decayFactor,
+      maxIterations: scaledShortChopConfig.maxIterations,
+      convergenceThreshold: scaledShortChopConfig.convergenceThreshold,
     };
 
     const requests: SwellWorkerRequest[] = batches.map((directions) => ({

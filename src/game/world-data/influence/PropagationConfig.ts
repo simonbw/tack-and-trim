@@ -26,7 +26,9 @@ export interface PropagationConfig {
   lateralSpreadFactor: number;
 
   /**
-   * Energy decay per grid cell traversed.
+   * Energy decay per grid cell traversed at the reference cell size.
+   * This is automatically scaled based on actual cell size to ensure
+   * consistent decay per unit distance regardless of grid resolution.
    * Lower = energy dissipates faster over distance.
    * Range: 0.9 to 1.0, typical: 0.97-0.99
    */
@@ -52,11 +54,14 @@ export interface PropagationConfig {
  *
  * Wind has moderate directional flow with limited spreading.
  * Creates sharp shadows behind large obstacles.
+ *
+ * Note: decayFactor is defined at REFERENCE_CELL_SIZE (100ft) and is
+ * automatically scaled for actual cell size by scaleDecayForCellSize().
  */
 export const WIND_PROPAGATION_CONFIG: PropagationConfig = {
   directFlowFactor: 0.8, // Strongly directional
   lateralSpreadFactor: 0.1, // Limited spreading
-  decayFactor: 0.98, // 2% loss per cell
+  decayFactor: 0.98, // 2% loss per 100ft (at reference cell size)
   maxIterations: 300, // Increased from 200 to handle larger island terrain complexity
   convergenceThreshold: 0.005,
 };
@@ -66,11 +71,14 @@ export const WIND_PROPAGATION_CONFIG: PropagationConfig = {
  *
  * Long waves diffract significantly around obstacles.
  * Creates softer shadows, more energy penetrates into bays.
+ *
+ * Note: decayFactor is defined at REFERENCE_CELL_SIZE (100ft) and is
+ * automatically scaled for actual cell size by scaleDecayForCellSize().
  */
 export const LONG_SWELL_PROPAGATION_CONFIG: PropagationConfig = {
   directFlowFactor: 0.6, // Less directional
   lateralSpreadFactor: 0.3, // Significant spreading (diffraction)
-  decayFactor: 0.985, // 1.5% loss per cell
+  decayFactor: 0.985, // 1.5% loss per 100ft (at reference cell size)
   maxIterations: 200,
   convergenceThreshold: 0.005,
 };
@@ -80,11 +88,14 @@ export const LONG_SWELL_PROPAGATION_CONFIG: PropagationConfig = {
  *
  * Short waves diffract less than long waves.
  * Creates sharper shadows, less penetration into sheltered areas.
+ *
+ * Note: decayFactor is defined at REFERENCE_CELL_SIZE (100ft) and is
+ * automatically scaled for actual cell size by scaleDecayForCellSize().
  */
 export const SHORT_CHOP_PROPAGATION_CONFIG: PropagationConfig = {
   directFlowFactor: 0.75, // More directional than long swell
   lateralSpreadFactor: 0.15, // Less spreading
-  decayFactor: 0.97, // 3% loss per cell
+  decayFactor: 0.97, // 3% loss per 100ft (at reference cell size)
   maxIterations: 200,
   convergenceThreshold: 0.005,
 };
@@ -116,7 +127,7 @@ export const WIND_FIELD_RESOLUTION: InfluenceFieldResolution = {
  * cellSize: 100, directionCount: 16
  */
 export const SWELL_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 50, // 50 ft cells (high quality)
+  cellSize: 100, // 100 ft cells (high quality)
   directionCount: 16, // 22.5° direction resolution
 };
 
@@ -129,6 +140,49 @@ export const FETCH_FIELD_RESOLUTION: InfluenceFieldResolution = {
   cellSize: 100, // 100 ft cells (high quality)
   directionCount: 16, // 22.5° direction resolution
 };
+
+/**
+ * Resolution for the depth/terrain grid used for land/water detection.
+ * This determines the precision of terrain sampling during propagation.
+ * Finer resolution = more accurate coastline detection but more memory.
+ */
+export const DEPTH_FIELD_CELL_SIZE = 50; // 50 ft cells to match swell resolution
+
+/**
+ * Reference cell size (in ft) at which propagation configs are defined.
+ * The decayFactor in each config represents decay per cell at this size.
+ * When using a different cell size, the decay is scaled to maintain
+ * consistent decay per unit distance.
+ */
+export const REFERENCE_CELL_SIZE = 100;
+
+/**
+ * Scale a propagation config's decay factor for a given cell size.
+ *
+ * The decay factor is defined at REFERENCE_CELL_SIZE. When using a different
+ * cell size, we need to adjust decay to maintain the same decay per unit distance.
+ *
+ * Formula: scaledDecay = decayFactor^(actualCellSize / referenceCellSize)
+ *
+ * Examples (with reference=100ft, decayFactor=0.985):
+ * - At 50ft cells: 0.985^0.5 = 0.9925 (less decay per smaller cell)
+ * - At 100ft cells: 0.985^1.0 = 0.985 (unchanged)
+ * - At 200ft cells: 0.985^2.0 = 0.9702 (more decay per larger cell)
+ *
+ * @param config - Original propagation config with decay at reference cell size
+ * @param actualCellSize - The actual cell size being used (in ft)
+ * @returns New config with scaled decay factor
+ */
+export function scaleDecayForCellSize(
+  config: PropagationConfig,
+  actualCellSize: number,
+): PropagationConfig {
+  const scaleFactor = actualCellSize / REFERENCE_CELL_SIZE;
+  return {
+    ...config,
+    decayFactor: Math.pow(config.decayFactor, scaleFactor),
+  };
+}
 
 /**
  * Validate a propagation config.
