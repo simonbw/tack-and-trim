@@ -47,6 +47,7 @@ class ComplexEntity extends BaseEntity implements Entity {
 When using `layers`, the `onRender` callback is called once for each layer, and you can check which layer is being rendered via the `layer` parameter:
 
 ```typescript
+@on("render")
 onRender({ dt, layer, draw }: RenderEventData) {
   if (layer === "water") {
     // Draw water effects
@@ -114,7 +115,10 @@ game.dispatch("exampleEvent", { level: 1, message: "example message" });
 and react to this event by defining a handler on an entity with
 
 ```typescript
+import { on } from "../core/entity/handler";
+
 class ExampleEntity extends BaseEntity implements Entity {
+  @on("exampleEvent")
   onExampleEvent({ level, message }: { level: number; message: string }) {
     console.log("ExampleEntity event received");
   }

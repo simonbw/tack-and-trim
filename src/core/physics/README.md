@@ -453,6 +453,7 @@ class Ball extends BaseEntity implements Entity {
     this.body.addShape(new Circle({ radius: 0.5 }));
   }
 
+  @on("render")
   onRender() {
     // Sync sprite position with physics body
     this.sprite?.position.set(...this.body.position);
