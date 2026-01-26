@@ -1,7 +1,12 @@
 import { IoEventDispatch } from "../entity/IoEvents";
 import { clamp, clampUp } from "../util/MathUtil";
 import { V, V2d } from "../Vector";
-import { ControllerAxis, ControllerButton } from "./Gamepad";
+import {
+  ControllerAxis,
+  ControllerButton,
+  ControllerType,
+  detectControllerType,
+} from "./Gamepad";
 
 /** Configuration options for GamepadManager. */
 export interface GamepadConfig {
@@ -27,6 +32,7 @@ export class GamepadManager {
   private lastButtons: boolean[] = [];
   private intervalId: number;
   private _usingGamepad = false;
+  private wasConnected = false;
 
   private _pollingFrequency: number;
   private _deadzoneMin: number;
@@ -115,9 +121,24 @@ export class GamepadManager {
         }
       }
       this.lastButtons = buttons;
+      this.wasConnected = true;
     } else {
+      if (this.wasConnected && this._usingGamepad) {
+        this.setUsingGamepad(false);
+      }
       this.lastButtons = [];
+      this.wasConnected = false;
     }
+  }
+
+  /**
+   * Returns the detected controller type based on the gamepad ID string.
+   * @returns The controller type, or null if no gamepad is connected
+   */
+  getControllerType(): ControllerType | null {
+    const gamepad = navigator.getGamepads()[0];
+    if (!gamepad) return null;
+    return detectControllerType(gamepad.id);
   }
 
   /**

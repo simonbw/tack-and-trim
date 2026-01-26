@@ -9,7 +9,7 @@ import { MainMenu } from "./MainMenu";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { isTutorialCompleted, TutorialManager } from "./tutorial";
-import { WindVisualization } from "./wind-visualization/WindVisualization";
+import { DebugRenderer } from "./debug-renderer";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
 import { InfluenceFieldManager } from "./world-data/influence/InfluenceFieldManager";
@@ -23,8 +23,6 @@ const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
 export class GameController extends BaseEntity {
   id = "gameController";
   persistenceLevel = 100;
-
-  private surfaceRenderer: SurfaceRenderer | null = null;
 
   @on("add")
   onAdd() {
@@ -49,24 +47,15 @@ export class GameController extends BaseEntity {
   @on("influenceFieldsReady")
   onInfluenceFieldsReady() {
     // Phase 2: Visual entities (after influence field computation completes)
-    this.surfaceRenderer = this.game.addEntity(new SurfaceRenderer());
+    this.game.addEntity(new SurfaceRenderer());
     this.game.addEntity(new WindIndicator());
-    this.game.addEntity(new WindVisualization());
+    this.game.addEntity(new DebugRenderer());
 
     // Start with wide camera shot for menu
     this.game.camera.z = MENU_ZOOM;
 
     // Spawn main menu
     this.game.addEntity(new MainMenu());
-  }
-
-  @on("keyDown")
-  onKeyDown({ key }: { key: string }): void {
-    // Toggle surface render debug mode
-    if (key === "KeyB" && this.surfaceRenderer) {
-      const currentMode = this.surfaceRenderer.getRenderMode();
-      this.surfaceRenderer.setRenderMode((currentMode + 1) % 2);
-    }
   }
 
   @on("gameStart")

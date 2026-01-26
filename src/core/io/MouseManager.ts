@@ -72,6 +72,9 @@ export class MouseManager {
       case MouseButtons.LEFT:
         this.dispatch("click", undefined as void);
         break;
+      case MouseButtons.MIDDLE:
+        this.dispatch("middleClick", undefined as void);
+        break;
       case MouseButtons.RIGHT:
         this.dispatch("rightClick", undefined as void);
         break;
@@ -86,6 +89,9 @@ export class MouseManager {
       case MouseButtons.LEFT:
         this.dispatch("mouseDown", undefined as void);
         break;
+      case MouseButtons.MIDDLE:
+        this.dispatch("middleDown", undefined as void);
+        break;
       case MouseButtons.RIGHT:
         this.dispatch("rightDown", undefined as void);
         break;
@@ -99,6 +105,9 @@ export class MouseManager {
     switch (event.button) {
       case MouseButtons.LEFT:
         this.dispatch("mouseUp", undefined as void);
+        break;
+      case MouseButtons.MIDDLE:
+        this.dispatch("middleUp", undefined as void);
         break;
       case MouseButtons.RIGHT:
         this.dispatch("rightUp", undefined as void);

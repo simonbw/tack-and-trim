@@ -81,11 +81,13 @@ export class StatsOverlay extends ReactEntity implements Entity {
     this.reactRender();
   }
 
+  @on("add")
   onAdd() {
     super.onAdd();
     this.averageDuration = 1 / 60;
   }
 
+  @on("render")
   @profile
   onRender() {
     const now = performance.now();

@@ -1,10 +1,11 @@
 /**
  * Configuration for propagation algorithms.
  *
- * These parameters control how wind and wave energy flows through the
- * terrain grid during pre-computation. Different physical phenomena
- * (wind vs swell) use different configurations to capture their
- * distinct behaviors.
+ * These parameters control how wind energy flows through the
+ * terrain grid during pre-computation.
+ *
+ * Note: Wave physics uses the analytical shadow-based system (WavePhysicsManager),
+ * not grid-based propagation.
  */
 
 /**
@@ -67,40 +68,6 @@ export const WIND_PROPAGATION_CONFIG: PropagationConfig = {
 };
 
 /**
- * Configuration for long swell propagation.
- *
- * Long waves diffract significantly around obstacles.
- * Creates softer shadows, more energy penetrates into bays.
- *
- * Note: decayFactor is defined at REFERENCE_CELL_SIZE (100ft) and is
- * automatically scaled for actual cell size by scaleDecayForCellSize().
- */
-export const LONG_SWELL_PROPAGATION_CONFIG: PropagationConfig = {
-  directFlowFactor: 0.6, // Less directional
-  lateralSpreadFactor: 0.3, // Significant spreading (diffraction)
-  decayFactor: 0.985, // 1.5% loss per 100ft (at reference cell size)
-  maxIterations: 200,
-  convergenceThreshold: 0.005,
-};
-
-/**
- * Configuration for short chop propagation.
- *
- * Short waves diffract less than long waves.
- * Creates sharper shadows, less penetration into sheltered areas.
- *
- * Note: decayFactor is defined at REFERENCE_CELL_SIZE (100ft) and is
- * automatically scaled for actual cell size by scaleDecayForCellSize().
- */
-export const SHORT_CHOP_PROPAGATION_CONFIG: PropagationConfig = {
-  directFlowFactor: 0.75, // More directional than long swell
-  lateralSpreadFactor: 0.15, // Less spreading
-  decayFactor: 0.97, // 3% loss per 100ft (at reference cell size)
-  maxIterations: 200,
-  convergenceThreshold: 0.005,
-};
-
-/**
  * Grid resolution configuration for influence fields.
  */
 export interface InfluenceFieldResolution {
@@ -113,31 +80,9 @@ export interface InfluenceFieldResolution {
 
 /**
  * Default resolution for wind influence fields.
- * NOTE: Using coarse resolution for fast iteration. Increase for production:
- * cellSize: 100, directionCount: 16
  */
 export const WIND_FIELD_RESOLUTION: InfluenceFieldResolution = {
   cellSize: 50, // 50 ft cells (high quality)
-  directionCount: 16, // 22.5° direction resolution
-};
-
-/**
- * Default resolution for swell influence fields.
- * NOTE: Using coarse resolution for fast iteration. Increase for production:
- * cellSize: 100, directionCount: 16
- */
-export const SWELL_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 100, // 100 ft cells (high quality)
-  directionCount: 16, // 22.5° direction resolution
-};
-
-/**
- * Default resolution for fetch map.
- * NOTE: Using coarse resolution for fast iteration. Increase for production:
- * cellSize: 200, directionCount: 16
- */
-export const FETCH_FIELD_RESOLUTION: InfluenceFieldResolution = {
-  cellSize: 100, // 100 ft cells (high quality)
   directionCount: 16, // 22.5° direction resolution
 };
 
@@ -146,7 +91,7 @@ export const FETCH_FIELD_RESOLUTION: InfluenceFieldResolution = {
  * This determines the precision of terrain sampling during propagation.
  * Finer resolution = more accurate coastline detection but more memory.
  */
-export const DEPTH_FIELD_CELL_SIZE = 50; // 50 ft cells to match swell resolution
+export const DEPTH_FIELD_CELL_SIZE = 50; // 50 ft cells
 
 /**
  * Reference cell size (in ft) at which propagation configs are defined.

@@ -22,7 +22,12 @@ import type {
   ReadbackViewport,
 } from "../datatiles/DataTileTypes";
 import { TerrainComputeCPU } from "./cpu/TerrainComputeCPU";
-import { TerrainContour, TerrainDefinition } from "./LandMass";
+import {
+  ensureContourCCW,
+  normalizeTerrainWinding,
+  TerrainContour,
+  TerrainDefinition,
+} from "./LandMass";
 import { TERRAIN_TILE_RESOLUTION, TERRAIN_TILE_SIZE } from "./TerrainConstants";
 import { isTerrainQuerier } from "./TerrainQuerier";
 import { TerrainComputeBuffers } from "./webgpu/TerrainComputeBuffers";
@@ -108,7 +113,8 @@ export class TerrainInfo extends BaseEntity {
 
   constructor(contours: TerrainContour[] = []) {
     super();
-    this.terrainDefinition = { contours };
+    // Normalize contour winding to CCW for consistent wave physics
+    this.terrainDefinition = normalizeTerrainWinding({ contours });
     this.cpuFallback = new TerrainComputeCPU();
 
     // Create shared buffers (will be initialized with terrain data in onAfterAdded)
@@ -172,6 +178,9 @@ export class TerrainInfo extends BaseEntity {
     compute: TerrainDataTileCompute,
     viewport: ReadbackViewport,
   ): void {
+    // Ensure tessellated geometry is up-to-date before computing
+    compute.updateTerrainGeometry(this.terrainDefinition);
+
     compute.runCompute(
       viewport.time,
       viewport.left,
@@ -200,19 +209,23 @@ export class TerrainInfo extends BaseEntity {
 
   /**
    * Update the terrain definition (e.g., for level loading).
+   * Normalizes contour winding to CCW for consistent wave physics.
    */
   setTerrainDefinition(definition: TerrainDefinition): void {
-    this.terrainDefinition = definition;
-    this.sharedBuffers?.updateTerrainData(definition);
+    // Normalize contour winding to CCW for consistent wave physics
+    this.terrainDefinition = normalizeTerrainWinding(definition);
+    this.sharedBuffers?.updateTerrainData(this.terrainDefinition);
     this.version++;
     this.computedTileVersions.clear(); // Invalidate all cached tiles
   }
 
   /**
    * Add a contour to the terrain.
+   * Normalizes contour winding to CCW for consistent wave physics.
    */
   addContour(contour: TerrainContour): void {
-    this.terrainDefinition.contours.push(contour);
+    // Ensure the contour is CCW before adding
+    this.terrainDefinition.contours.push(ensureContourCCW(contour));
     this.sharedBuffers?.updateTerrainData(this.terrainDefinition);
     this.version++;
     this.computedTileVersions.clear(); // Invalidate all cached tiles

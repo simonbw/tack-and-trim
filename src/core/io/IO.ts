@@ -1,7 +1,7 @@
 import { IoEventDispatch } from "../entity/IoEvents";
 import { clamp } from "../util/MathUtil";
 import { V, V2d } from "../Vector";
-import { ControllerAxis, ControllerButton } from "./Gamepad";
+import { ControllerAxis, ControllerButton, ControllerType } from "./Gamepad";
 import { GamepadManager } from "./GamepadManager";
 import { KeyboardManager } from "./KeyboardManager";
 import { KeyCode } from "./Keys";
@@ -92,6 +92,14 @@ export class IOManager {
   /** Returns the value of a gamepad button. */
   getButton(button: ControllerButton): number {
     return this.gamepad.getButton(button);
+  }
+
+  /**
+   * Returns the detected controller type based on the gamepad ID string.
+   * @returns The controller type, or null if no gamepad is connected
+   */
+  getControllerType(): ControllerType | null {
+    return this.gamepad.getControllerType();
   }
 
   // --- Combined Input ---

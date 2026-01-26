@@ -11,6 +11,7 @@
 
 import { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
 import { WATER_HEIGHT_SCALE } from "../world-data/water/WaterConstants";
+import { SurfaceUniforms } from "./SurfaceUniforms";
 
 // Terrain constants
 const MAX_TERRAIN_HEIGHT = 20.0;
@@ -31,34 +32,7 @@ export class SurfaceShader extends FullscreenShader<typeof bindings> {
   readonly bindings = bindings;
 
   readonly vertexCode = /*wgsl*/ `
-struct Uniforms {
-  cameraMatrix: mat3x3<f32>,
-  time: f32,
-  renderMode: f32,
-  screenWidth: f32,
-  screenHeight: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
-  colorNoiseStrength: f32,
-  hasTerrainData: i32,
-  shallowThreshold: f32,
-  // Texture dimensions
-  waterTexWidth: f32,
-  waterTexHeight: f32,
-  terrainTexWidth: f32,
-  terrainTexHeight: f32,
-  wetnessTexWidth: f32,
-  wetnessTexHeight: f32,
-  _padding1: f32,
-  _padding2: f32,
-  // Wetness viewport (larger than render viewport)
-  wetnessViewportLeft: f32,
-  wetnessViewportTop: f32,
-  wetnessViewportWidth: f32,
-  wetnessViewportHeight: f32,
-}
+${SurfaceUniforms.wgsl}
 
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,

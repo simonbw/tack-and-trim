@@ -9,8 +9,10 @@
  */
 
 import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
+import { type UniformInstance } from "../../../../core/graphics/UniformStruct";
 import type { DataTileCompute } from "../../datatiles/DataTileComputePipeline";
 import { WindStateShader } from "./WindStateShader";
+import { WindParams } from "./WindParams";
 
 /**
  * Wind tile compute using shared shader infrastructure.
@@ -19,6 +21,7 @@ import { WindStateShader } from "./WindStateShader";
 export class WindTileCompute implements DataTileCompute {
   private shader: WindStateShader;
   private paramsBuffer: GPUBuffer | null = null;
+  private params: UniformInstance<typeof WindParams.fields> | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private outputTexture: GPUTexture | null = null;
 
@@ -45,12 +48,13 @@ export class WindTileCompute implements DataTileCompute {
     // Initialize shared compute shader
     await this.shader.init();
 
-    // Create params uniform buffer (64 bytes = 16 floats, aligned to 16)
+    // Create params uniform buffer and instance
     this.paramsBuffer = device.createBuffer({
-      size: 64, // 16 floats * 4 bytes
+      size: WindParams.byteSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Wind Tile Params Buffer",
     });
+    this.params = WindParams.create();
 
     // Create output texture (owned by this tile compute instance)
     // rg32float - 2 channels for velocity X and Y
@@ -105,34 +109,31 @@ export class WindTileCompute implements DataTileCompute {
     width: number,
     height: number,
   ): void {
-    if (!this.paramsBuffer || !this.bindGroup) {
+    if (!this.paramsBuffer || !this.bindGroup || !this.params) {
       return;
     }
 
-    const device = getWebGPU().device;
+    // Update params using type-safe setters
+    this.params.set.time(time);
+    this.params.set.viewportLeft(left);
+    this.params.set.viewportTop(top);
+    this.params.set.viewportWidth(width);
+    this.params.set.viewportHeight(height);
+    this.params.set.textureSizeX(this.textureSize);
+    this.params.set.textureSizeY(this.textureSize);
+    this.params.set._padding(0);
+    this.params.set.baseWind([this.baseWindX, this.baseWindY] as const);
+    this.params.set._padding2([0, 0] as const);
+    this.params.set.influenceSpeedFactor(this.influenceSpeedFactor);
+    this.params.set.influenceDirectionOffset(this.influenceDirectionOffset);
+    this.params.set.influenceTurbulence(this.influenceTurbulence);
+    this.params.set._padding4(0);
 
-    // Update params buffer
-    const paramsData = new Float32Array([
-      time,
-      left, // viewportLeft
-      top, // viewportTop
-      width, // viewportWidth
-      height, // viewportHeight
-      this.textureSize, // textureSizeX
-      this.textureSize, // textureSizeY
-      0, // padding
-      this.baseWindX,
-      this.baseWindY,
-      0, // padding2
-      0, // padding3
-      this.influenceSpeedFactor,
-      this.influenceDirectionOffset,
-      this.influenceTurbulence,
-      0, // padding4
-    ]);
-    device.queue.writeBuffer(this.paramsBuffer, 0, paramsData.buffer);
+    // Upload to GPU
+    this.params.uploadTo(this.paramsBuffer);
 
     // Create and submit compute pass
+    const device = getWebGPU().device;
     const commandEncoder = device.createCommandEncoder({
       label: "Wind Tile Compute Encoder",
     });

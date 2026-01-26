@@ -2,6 +2,7 @@
  * Water physics data provider with GPU acceleration.
  *
  * Provides a query interface for water state at any world position.
+ * Uses analytical wave physics with shadow-based diffraction.
  * Supports hybrid GPU/CPU computation:
  * - GPU tiles provide water data (waves + modifiers) for in-viewport queries
  * - CPU fallback for out-of-viewport queries
@@ -11,10 +12,12 @@ import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import { Game } from "../../../core/Game";
+import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../../core/util/Profiler";
 import { SparseSpatialHash } from "../../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../../core/Vector";
 import { TimeOfDay } from "../../time/TimeOfDay";
+import { WavePhysicsManager } from "../../wave-physics/WavePhysicsManager";
 import {
   DataTileComputePipeline,
   DataTilePipelineConfig,
@@ -27,29 +30,33 @@ import type {
 } from "../datatiles/DataTileTypes";
 import { InfluenceFieldManager } from "../influence/InfluenceFieldManager";
 import { TerrainInfo } from "../terrain/TerrainInfo";
-import type { InfluenceTextureConfig } from "./webgpu/WaterDataTileCompute";
-import { WindInfo } from "../wind/WindInfo";
 import {
   computeWaveDataAtPoint,
   WaterComputeParams,
 } from "./cpu/WaterComputeCPU";
 import { WakeParticle } from "./WakeParticle";
 import {
-  FULL_FETCH_DISTANCE,
   WATER_HEIGHT_SCALE,
   WATER_VELOCITY_SCALE,
   WAVE_COMPONENTS,
 } from "./WaterConstants";
 import { isWaterModifier, WaterModifier } from "./WaterModifier";
 import { isWaterQuerier } from "./WaterQuerier";
-import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
 import {
-  WaterDataTileCompute,
-  type WaterPointData,
-} from "./webgpu/WaterDataTileCompute";
+  AnalyticalWaterDataTileCompute,
+  type AnalyticalWaterConfig,
+} from "./webgpu/AnalyticalWaterDataTileCompute";
+import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
 
-// Re-export for external consumers
-export type { WaterPointData };
+/**
+ * Water point data from GPU tiles.
+ */
+export interface WaterPointData {
+  height: number;
+  dhdt: number;
+  velocityX: number;
+  velocityY: number;
+}
 
 /**
  * Viewport bounds for water computation.
@@ -120,6 +127,7 @@ const WATER_READBACK_CONFIG: DataTileReadbackConfig<WaterPointData> = {
 
 /**
  * Water physics data provider.
+ * Uses analytical wave physics with shadow-based diffraction.
  */
 export class WaterInfo extends BaseEntity {
   id = "waterInfo";
@@ -145,11 +153,14 @@ export class WaterInfo extends BaseEntity {
     return waterInfo instanceof WaterInfo ? waterInfo : undefined;
   }
 
-  // Tile pipeline for physics queries (created in constructor)
+  // Tile pipeline for physics queries
   private pipeline: DataTileComputePipeline<
     WaterPointData,
-    WaterDataTileCompute
+    AnalyticalWaterDataTileCompute
   >;
+
+  // Wave physics manager for shadow-based diffraction
+  private wavePhysicsManager: WavePhysicsManager;
 
   // Current simulation
   private baseCurrentVelocity: V2d = V(1.5, 0.5);
@@ -168,17 +179,17 @@ export class WaterInfo extends BaseEntity {
   // Cached segment data for current frame
   private cachedSegments: WakeSegmentData[] = [];
 
-  // Influence field manager for terrain effects
+  // Influence field manager for depth texture
   private influenceManager: InfluenceFieldManager | null = null;
 
   // Terrain info for depth sampling (CPU fallback)
   private terrainInfo: TerrainInfo | null = null;
 
-  // Track which compute instances have influence textures configured
-  private configuredComputes = new WeakSet<WaterDataTileCompute>();
+  // Track which compute instances have been configured
+  private configuredComputes = new WeakSet<AnalyticalWaterDataTileCompute>();
 
-  // Cached influence texture config (set once when textures are available)
-  private influenceTextureConfig: InfluenceTextureConfig | null = null;
+  // Cached analytical config (set once when resources are available)
+  private analyticalConfig: AnalyticalWaterConfig | null = null;
 
   // Current tide height offset (updated each tick from TimeOfDay)
   private tideHeight: number = 0;
@@ -186,17 +197,22 @@ export class WaterInfo extends BaseEntity {
   constructor() {
     super();
 
-    // Create pipeline with config - pipeline handles its own lifecycle
-    const config: DataTilePipelineConfig<WaterPointData, WaterDataTileCompute> =
-      {
-        id: "waterTilePipeline",
-        gridConfig: WATER_TILE_CONFIG,
-        readbackConfig: WATER_READBACK_CONFIG,
-        computeFactory: (resolution) => new WaterDataTileCompute(resolution),
-        getQueryForecasts: () => this.collectForecasts(),
-        runCompute: (compute, viewport) =>
-          this.runTileCompute(compute, viewport),
-      };
+    // Create wave physics manager
+    this.wavePhysicsManager = new WavePhysicsManager();
+
+    // Create analytical pipeline
+    const config: DataTilePipelineConfig<
+      WaterPointData,
+      AnalyticalWaterDataTileCompute
+    > = {
+      id: "waterTilePipeline",
+      gridConfig: WATER_TILE_CONFIG,
+      readbackConfig: WATER_READBACK_CONFIG,
+      computeFactory: (resolution) =>
+        new AnalyticalWaterDataTileCompute(resolution),
+      getQueryForecasts: () => this.collectForecasts(),
+      runCompute: (compute, viewport) => this.runTileCompute(compute, viewport),
+    };
     this.pipeline = new DataTileComputePipeline(config);
   }
 
@@ -205,12 +221,18 @@ export class WaterInfo extends BaseEntity {
     // Add pipeline as child entity - it handles its own lifecycle
     this.addChild(this.pipeline);
 
-    // Get reference to influence field manager (if it exists)
+    // Get reference to terrain info (for CPU depth sampling)
+    this.terrainInfo = TerrainInfo.maybeFromGame(this.game) ?? null;
+
+    // Get reference to influence field manager (needed for depth texture)
     this.influenceManager =
       InfluenceFieldManager.maybeFromGame(this.game) ?? null;
 
-    // Get reference to terrain info (for CPU depth sampling)
-    this.terrainInfo = TerrainInfo.maybeFromGame(this.game) ?? null;
+    // Initialize wave physics manager with terrain
+    if (this.terrainInfo) {
+      const terrainDef = this.terrainInfo.getTerrainDefinition();
+      this.wavePhysicsManager.initialize(terrainDef);
+    }
   }
 
   /**
@@ -273,14 +295,6 @@ export class WaterInfo extends BaseEntity {
   }
 
   /**
-   * Get the current wind direction from WindInfo.
-   */
-  private getWindDirection(): number {
-    const windInfo = WindInfo.maybeFromGame(this.game);
-    return windInfo ? windInfo.getAngle() : 0;
-  }
-
-  /**
    * Get the current game time in seconds from TimeOfDay.
    * Falls back to elapsedUnpausedTime if TimeOfDay not available.
    */
@@ -292,69 +306,58 @@ export class WaterInfo extends BaseEntity {
   }
 
   /**
-   * Compute fetch factor from raw fetch distance.
-   * Returns 0-1 scale factor for wave amplitude.
+   * Try to build analytical config from available resources.
+   * Returns null if resources aren't available yet.
    */
-  private computeFetchFactor(fetchDistance: number): number {
-    if (fetchDistance <= 0) return 0;
-    return Math.min(1.0, fetchDistance / FULL_FETCH_DISTANCE);
-  }
-
-  /**
-   * Try to build influence texture config from influence manager.
-   * Returns null if textures aren't available yet.
-   */
-  private tryBuildInfluenceConfig(): InfluenceTextureConfig | null {
+  private tryBuildAnalyticalConfig(): AnalyticalWaterConfig | null {
     if (!this.influenceManager) return null;
 
-    const swellTexture = this.influenceManager.getSwellTexture();
-    const fetchTexture = this.influenceManager.getFetchTexture();
     const depthTexture = this.influenceManager.getDepthTexture();
-    const influenceSampler = this.influenceManager.getInfluenceSampler();
-    const swellGridConfig = this.influenceManager.getSwellGridConfig();
-    const fetchGridConfig = this.influenceManager.getFetchGridConfig();
     const depthGridConfig = this.influenceManager.getDepthGridConfig();
 
-    if (
-      !swellTexture ||
-      !fetchTexture ||
-      !depthTexture ||
-      !influenceSampler ||
-      !swellGridConfig ||
-      !fetchGridConfig ||
-      !depthGridConfig
-    ) {
+    if (!depthTexture || !depthGridConfig) {
       return null;
     }
 
+    // Create a sampler for depth texture
+    const device = getWebGPU().device;
+    const depthSampler = device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
+
     return {
-      swellTexture,
-      fetchTexture,
       depthTexture,
-      influenceSampler,
-      swellGridConfig,
-      fetchGridConfig,
+      depthSampler,
       depthGridConfig,
       waveSourceDirection: this.getBaseSwellDirection(),
     };
   }
 
   /**
-   * Configure influence textures on a compute instance if not already done.
+   * Configure analytical compute instance if not already done.
    */
-  private configureInfluenceTextures(compute: WaterDataTileCompute): void {
+  private configureCompute(compute: AnalyticalWaterDataTileCompute): void {
     // Already configured this compute instance?
     if (this.configuredComputes.has(compute)) return;
 
     // Try to get/build the config
-    if (!this.influenceTextureConfig) {
-      this.influenceTextureConfig = this.tryBuildInfluenceConfig();
+    if (!this.analyticalConfig) {
+      this.analyticalConfig = this.tryBuildAnalyticalConfig();
     }
 
-    // If we have a config, set it on the compute
-    if (this.influenceTextureConfig) {
-      compute.setInfluenceTextures(this.influenceTextureConfig);
-      this.configuredComputes.add(compute);
+    // If we have a config and shadow resources, set them on the compute
+    if (this.analyticalConfig && this.wavePhysicsManager) {
+      const shadowTextureView = this.wavePhysicsManager.getShadowTextureView();
+      const shadowDataBuffer = this.wavePhysicsManager.getShadowDataBuffer();
+
+      if (shadowTextureView && shadowDataBuffer) {
+        compute.setConfig(this.analyticalConfig);
+        compute.setShadowResources({ shadowTextureView, shadowDataBuffer });
+        this.configuredComputes.add(compute);
+      }
     }
   }
 
@@ -362,11 +365,11 @@ export class WaterInfo extends BaseEntity {
    * Run domain-specific compute for a tile.
    */
   private runTileCompute(
-    compute: WaterDataTileCompute,
+    compute: AnalyticalWaterDataTileCompute,
     viewport: ReadbackViewport,
   ): void {
-    // Ensure influence textures are configured (per-pixel sampling in shader)
-    this.configureInfluenceTextures(compute);
+    // Ensure compute is configured with depth and shadow buffers
+    this.configureCompute(compute);
 
     // Set wake segments for modifier computation
     compute.setSegments(this.cachedSegments);
@@ -374,7 +377,7 @@ export class WaterInfo extends BaseEntity {
     // Set tide height for this compute pass
     compute.setTideHeight(this.tideHeight);
 
-    // Run the compute (shader does per-pixel influence sampling)
+    // Run the compute
     compute.runCompute(
       viewport.time,
       viewport.left,
@@ -418,7 +421,7 @@ export class WaterInfo extends BaseEntity {
       .mul(speedScale)
       .irotate(angleVariance);
 
-    // Build CPU params with influence sampled at query point
+    // Build CPU params for query point
     const cpuParams = this.buildCPUParamsForPoint(point);
 
     // CPU fallback: waves + modifier queries
@@ -445,42 +448,16 @@ export class WaterInfo extends BaseEntity {
 
   /**
    * Build CPU compute params for a specific query point.
-   * Samples influence fields at that exact location.
    */
   private buildCPUParamsForPoint(point: V2d): WaterComputeParams {
     const time = this.getGameTime();
 
-    // Default values (no terrain influence)
-    let swellEnergyFactor = 1.0;
-    let chopEnergyFactor = 1.0;
-    let fetchFactor = 1.0;
-    let swellDirectionOffset = 0;
-    let chopDirectionOffset = 0;
-
-    // Sample influence at query point if manager is available
-    if (this.influenceManager) {
-      const swellDir = this.getBaseSwellDirection();
-      const windDir = this.getWindDirection();
-
-      const swell = this.influenceManager.sampleSwellInfluence(
-        point.x,
-        point.y,
-        swellDir,
-      );
-      const fetchDistance = this.influenceManager.sampleFetch(
-        point.x,
-        point.y,
-        windDir,
-      );
-
-      swellEnergyFactor = swell.longSwell.energyFactor;
-      chopEnergyFactor = swell.shortChop.energyFactor;
-      fetchFactor = this.computeFetchFactor(fetchDistance);
-
-      // Compute direction offsets from diffraction
-      swellDirectionOffset = swell.longSwell.arrivalDirection - swellDir;
-      chopDirectionOffset = swell.shortChop.arrivalDirection - windDir;
-    }
+    // Default values (no terrain influence - use full wave amplitude)
+    const swellEnergyFactor = 1.0;
+    const chopEnergyFactor = 1.0;
+    const fetchFactor = 1.0;
+    const swellDirectionOffset = 0;
+    const chopDirectionOffset = 0;
 
     // Sample terrain depth at query point (positive = land, negative = underwater)
     // Default to deep water (-100) if terrain info is not available
@@ -547,6 +524,13 @@ export class WaterInfo extends BaseEntity {
    */
   getTideHeight(): number {
     return this.tideHeight;
+  }
+
+  /**
+   * Get the WavePhysicsManager for shadow-based diffraction.
+   */
+  getWavePhysicsManager(): WavePhysicsManager {
+    return this.wavePhysicsManager;
   }
 
   /**

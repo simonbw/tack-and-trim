@@ -138,6 +138,7 @@ class MyEntity extends BaseEntity {
     };
   }
 
+  @on("tick")
   onTick() {
     const wind = WindInfo.fromGame(this.game!);
     const velocity = wind.getVelocityAtPoint(this.position);

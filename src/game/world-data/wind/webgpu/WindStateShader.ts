@@ -18,6 +18,7 @@ import {
   WIND_SPEED_VARIATION,
   WIND_VELOCITY_SCALE,
 } from "../WindConstants";
+import { WindParams } from "./WindParams";
 
 const bindings = {
   params: { type: "uniform" },
@@ -40,26 +41,7 @@ const WIND_SPEED_VARIATION: f32 = ${WIND_SPEED_VARIATION};
 const WIND_ANGLE_VARIATION: f32 = ${WIND_ANGLE_VARIATION};
 const WIND_VELOCITY_SCALE: f32 = ${WIND_VELOCITY_SCALE};
 
-struct Params {
-  time: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
-  textureSizeX: f32,
-  textureSizeY: f32,
-  _padding: f32,
-  // Base wind direction and speed
-  baseWindX: f32,
-  baseWindY: f32,
-  _padding2: f32,
-  _padding3: f32,
-  // Terrain influence parameters
-  influenceSpeedFactor: f32,
-  influenceDirectionOffset: f32,
-  influenceTurbulence: f32,
-  _padding4: f32,
-}
+${WindParams.wgsl}
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rg32float, write>;
@@ -93,8 +75,8 @@ fn calculateWindVelocity(worldPos: vec2<f32>, time: f32) -> vec2<f32> {
   let totalAngleOffset = angleNoise * WIND_ANGLE_VARIATION + params.influenceDirectionOffset;
 
   // Apply speed scale to base wind
-  let scaledX = params.baseWindX * speedScale;
-  let scaledY = params.baseWindY * speedScale;
+  let scaledX = params.baseWind.x * speedScale;
+  let scaledY = params.baseWind.y * speedScale;
 
   // Rotate by total angle offset
   let cosAngle = cos(totalAngleOffset);

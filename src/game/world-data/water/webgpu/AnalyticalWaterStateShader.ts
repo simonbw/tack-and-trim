@@ -1,10 +1,14 @@
 /**
- * Unified water state compute shader.
+ * Analytical Water State Compute Shader
  *
- * Extends ComputeShader base class to compute water state combining:
- * - Gerstner wave simulation with simplex noise modulation
- * - Wake modifier contributions from boat wakes
- * - Per-pixel terrain influence sampling from 3D textures
+ * Uses a texture-based shadow system for wave diffraction:
+ * - Shadow texture (r8uint): sampled to determine if pixel is in shadow
+ * - Shadow data uniform: contains silhouette positions for distance calculations
+ *
+ * Key differences from the old approach:
+ * - Uses shadow texture sampling instead of per-pixel polygon iteration
+ * - Simple texture lookup replaces expensive winding number algorithm
+ * - Distance calculations use silhouette points from uniform buffer
  *
  * Output format (rgba32float):
  * - R: Combined height (waves + modifiers), normalized
@@ -27,26 +31,34 @@ import {
   SWELL_WAVE_COUNT,
 } from "../WaterConstants";
 import { MAX_SEGMENTS, FLOATS_PER_SEGMENT } from "./WaterComputeBuffers";
+import { AnalyticalWaterParams } from "./AnalyticalWaterParams";
 
 // Constants for modifier computation
 const HEIGHT_SCALE = 0.5;
-const WATER_VELOCITY_FACTOR = 0.0; // Set to non-zero to enable velocity from wakes
+const WATER_VELOCITY_FACTOR = 0.0;
+
+// Default wavelength for diffraction calculation (feet)
+const SWELL_WAVELENGTH = 200;
+const CHOP_WAVELENGTH = 30;
+
+// Maximum number of shadow polygons in the uniform buffer
+export const MAX_SHADOW_POLYGONS = 8;
 
 const bindings = {
   params: { type: "uniform" },
   waveData: { type: "storage" },
   segments: { type: "storage" },
   outputTexture: { type: "storageTexture", format: "rgba32float" },
-  swellTexture: { type: "texture", viewDimension: "3d", sampleType: "float" },
-  fetchTexture: { type: "texture", viewDimension: "3d", sampleType: "float" },
-  influenceSampler: { type: "sampler" },
   depthTexture: { type: "texture", viewDimension: "2d", sampleType: "float" },
+  depthSampler: { type: "sampler" },
+  shadowTexture: { type: "texture", viewDimension: "2d", sampleType: "uint" },
+  shadowData: { type: "uniform" },
 } as const;
 
 /**
- * Water state compute shader using the ComputeShader base class.
+ * Analytical water state compute shader using shadow texture sampling.
  */
-export class WaterStateShader extends ComputeShader<typeof bindings> {
+export class AnalyticalWaterStateShader extends ComputeShader<typeof bindings> {
   readonly bindings = bindings;
   readonly workgroupSize = [8, 8] as const;
 
@@ -69,111 +81,65 @@ const FLOATS_PER_SEGMENT: u32 = ${FLOATS_PER_SEGMENT}u;
 const WATER_VELOCITY_FACTOR: f32 = ${WATER_VELOCITY_FACTOR};
 const WATER_HEIGHT_NORM_SCALE: f32 = ${WATER_HEIGHT_SCALE};
 const WATER_VELOCITY_NORM_SCALE: f32 = ${WATER_VELOCITY_SCALE};
+const SWELL_WAVELENGTH: f32 = ${SWELL_WAVELENGTH}.0;
+const CHOP_WAVELENGTH: f32 = ${CHOP_WAVELENGTH}.0;
+const MAX_SHADOW_POLYGONS: u32 = ${MAX_SHADOW_POLYGONS}u;
+const ERF_APPROX_COEFF: f32 = 0.7;
 
 // ============================================================================
-// Uniforms and Bindings
+// Structs
 // ============================================================================
-struct Params {
-  time: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
-  textureSizeX: f32,
-  textureSizeY: f32,
-  segmentCount: u32,
-  // Swell influence grid config
-  swellOriginX: f32,
-  swellOriginY: f32,
-  swellGridWidth: f32,
-  swellGridHeight: f32,
-  swellDirectionCount: f32,
-  // Fetch influence grid config
-  fetchOriginX: f32,
-  fetchOriginY: f32,
-  fetchGridWidth: f32,
-  fetchGridHeight: f32,
-  fetchDirectionCount: f32,
-  // Max fetch for normalization
-  maxFetch: f32,
-  // Wave source direction (for texture lookup)
-  waveSourceDirection: f32,
-  // Tide height offset
-  tideHeight: f32,
-  // Depth grid config (for shoaling/damping)
-  depthOriginX: f32,
-  depthOriginY: f32,
-  depthGridWidth: f32,
-  depthGridHeight: f32,
+${AnalyticalWaterParams.wgsl}
+
+// Per-polygon shadow data for Fresnel diffraction calculation
+struct PolygonShadowData {
+  leftSilhouette: vec2<f32>,
+  rightSilhouette: vec2<f32>,
+  obstacleWidth: f32,
+  _padding1: f32,
+  _padding2: f32,
+  _padding3: f32,
 }
 
+// Shadow data uniform with all polygon silhouette info
+struct ShadowData {
+  waveDirection: vec2<f32>,
+  polygonCount: u32,
+  // Shadow texture viewport (matches render viewport)
+  shadowViewportLeft: f32,
+  shadowViewportTop: f32,
+  shadowViewportWidth: f32,
+  shadowViewportHeight: f32,
+  _padding: f32,
+  // Per-polygon data
+  polygons: array<PolygonShadowData, ${MAX_SHADOW_POLYGONS}>,
+}
+
+// Wave modification result
+struct WaveModification {
+  energyFactor: f32,
+  newDirection: vec2<f32>,
+}
+
+// ============================================================================
+// Bindings
+// ============================================================================
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> waveData: array<f32>;
 @group(0) @binding(2) var<storage, read> segments: array<f32>;
 @group(0) @binding(3) var outputTexture: texture_storage_2d<rgba32float, write>;
-@group(0) @binding(4) var swellTexture: texture_3d<f32>;
-@group(0) @binding(5) var fetchTexture: texture_3d<f32>;
-@group(0) @binding(6) var influenceSampler: sampler;
-@group(0) @binding(7) var depthTexture: texture_2d<f32>;
+@group(0) @binding(4) var depthTexture: texture_2d<f32>;
+@group(0) @binding(5) var depthSampler: sampler;
+@group(0) @binding(6) var shadowTexture: texture_2d<u32>;
+@group(0) @binding(7) var<uniform> shadowData: ShadowData;
 
 // Simplex 3D Noise - for wave amplitude modulation
 ${SIMPLEX_NOISE_3D_WGSL}
 
 // ============================================================================
-// Hash function for white noise
+// Depth Sampling
 // ============================================================================
 
-fn hash2D(x: f32, y: f32) -> f32 {
-  let n = sin(x * 127.1 + y * 311.7) * 43758.5453;
-  return fract(n);
-}
-
-// ============================================================================
-// Influence texture sampling
-// ============================================================================
-
-// Sample swell influence texture at world position
-// Returns vec4: R=longEnergy, G=longDirection, B=shortEnergy, A=shortDirection
-fn sampleSwellInfluence(worldPos: vec2<f32>, sourceDirection: f32) -> vec4<f32> {
-  // Convert world position to UV coordinates (0-1)
-  let u = (worldPos.x - params.swellOriginX) / params.swellGridWidth;
-  let v = (worldPos.y - params.swellOriginY) / params.swellGridHeight;
-
-  // Convert direction to W coordinate (0-1)
-  // Normalize direction to [0, 2π) then to [0, 1)
-  var dir = sourceDirection;
-  dir = dir - floor(dir / TWO_PI) * TWO_PI;  // Normalize to [0, 2π)
-  if (dir < 0.0) {
-    dir += TWO_PI;
-  }
-  let w = dir / TWO_PI;
-
-  // Sample with trilinear filtering
-  return textureSampleLevel(swellTexture, influenceSampler, vec3<f32>(u, v, w), 0.0);
-}
-
-// Sample fetch texture at world position
-// Returns fetch distance (R channel), already in ft
-fn sampleFetchInfluence(worldPos: vec2<f32>, sourceDirection: f32) -> f32 {
-  // Convert world position to UV coordinates (0-1)
-  let u = (worldPos.x - params.fetchOriginX) / params.fetchGridWidth;
-  let v = (worldPos.y - params.fetchOriginY) / params.fetchGridHeight;
-
-  // Convert direction to W coordinate (0-1)
-  var dir = sourceDirection;
-  dir = dir - floor(dir / TWO_PI) * TWO_PI;
-  if (dir < 0.0) {
-    dir += TWO_PI;
-  }
-  let w = dir / TWO_PI;
-
-  // Sample fetch distance from R channel
-  let fetch = textureSampleLevel(fetchTexture, influenceSampler, vec3<f32>(u, v, w), 0.0).r;
-  return fetch;
-}
-
-// Sample depth at world position (R channel is terrain height)
-// Returns terrain height: positive = land (above water), negative = underwater depth
 fn sampleDepth(worldPos: vec2<f32>) -> f32 {
   let u = (worldPos.x - params.depthOriginX) / params.depthGridWidth;
   let v = (worldPos.y - params.depthOriginY) / params.depthGridHeight;
@@ -183,69 +149,174 @@ fn sampleDepth(worldPos: vec2<f32>) -> f32 {
     return -100.0;  // Deep water
   }
 
-  return textureSampleLevel(depthTexture, influenceSampler, vec2<f32>(u, v), 0.0).r;
-}
-
-// Shoaling: Green's Law - waves grow taller as depth decreases
-// H2/H1 = (h1/h2)^0.25 where h is depth
-fn computeShoalingFactor(depth: f32) -> f32 {
-  let DEEP_WATER_DEPTH: f32 = 50.0;  // Reference deep water depth (ft)
-  let MIN_DEPTH: f32 = 2.0;           // Minimum effective depth to prevent infinity
-
-  // Only apply shoaling in water (negative depth means underwater)
-  if (depth >= 0.0) {
-    return 0.0;  // On land, no waves
-  }
-
-  let effectiveDepth = max(-depth, MIN_DEPTH);
-  return pow(DEEP_WATER_DEPTH / effectiveDepth, 0.25);
-}
-
-// Damping: bottom friction attenuates waves in very shallow water
-fn computeDampingFactor(depth: f32) -> f32 {
-  let DEEP_THRESHOLD: f32 = 10.0;  // No damping above this depth (ft)
-  let SHALLOW_THRESHOLD: f32 = 2.0; // Heavy damping below this depth (ft)
-  let MIN_DAMPING: f32 = 0.2;       // Minimum damping factor in shallows
-
-  // Only apply damping in water
-  if (depth >= 0.0) {
-    return 0.0;  // On land, no waves
-  }
-
-  let effectiveDepth = -depth;
-
-  if (effectiveDepth >= DEEP_THRESHOLD) {
-    return 1.0;  // No damping in deep water
-  }
-  if (effectiveDepth <= SHALLOW_THRESHOLD) {
-    return MIN_DAMPING;  // Heavy damping in very shallow water
-  }
-
-  // Linear interpolation between shallow and deep thresholds
-  return mix(MIN_DAMPING, 1.0, (effectiveDepth - SHALLOW_THRESHOLD) / (DEEP_THRESHOLD - SHALLOW_THRESHOLD));
+  return textureSampleLevel(depthTexture, depthSampler, vec2<f32>(u, v), 0.0).r;
 }
 
 // ============================================================================
-// Section 1: Gerstner Wave Calculation with per-pixel influence
+// Shadow Texture Sampling
+// ============================================================================
+
+// Sample shadow texture to determine if a point is in shadow
+fn sampleShadowTexture(worldPos: vec2<f32>) -> u32 {
+  // Convert world position to shadow texture UV
+  let u = (worldPos.x - shadowData.shadowViewportLeft) / shadowData.shadowViewportWidth;
+  let v = (worldPos.y - shadowData.shadowViewportTop) / shadowData.shadowViewportHeight;
+
+  // Bounds check - outside shadow texture is not in shadow
+  if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) {
+    return 0u;
+  }
+
+  // Convert UV to texel coordinates
+  let texSize = textureDimensions(shadowTexture);
+  let texCoord = vec2<i32>(vec2<f32>(u, v) * vec2<f32>(texSize));
+
+  // Sample shadow texture (r8uint format)
+  return textureLoad(shadowTexture, texCoord, 0).r;
+}
+
+// ============================================================================
+// Fresnel Diffraction Functions
+// ============================================================================
+
+// Compute Fresnel diffraction energy
+fn computeFresnelEnergy(
+  distanceToShadowBoundary: f32,
+  distanceBehindObstacle: f32,
+  wavelength: f32,
+) -> f32 {
+  let z = max(distanceBehindObstacle, 1.0);
+  let u = distanceToShadowBoundary * sqrt(2.0 / (wavelength * z));
+
+  if (u < -2.0) {
+    return 1.0;  // Fully illuminated
+  } else if (u > 4.0) {
+    return 0.0;  // Deep shadow
+  } else {
+    let t = u * ERF_APPROX_COEFF;
+    let erfApprox = tanh(t * 1.128);
+    return 0.5 * (1.0 - erfApprox);
+  }
+}
+
+// Green's Law shoaling factor
+fn computeShoalingFactor(waterDepth: f32, wavelength: f32) -> f32 {
+  let DEEP_WATER_DEPTH: f32 = 100.0;
+  let MIN_DEPTH: f32 = 2.0;
+  let shallowThreshold = wavelength * 0.5;
+
+  if (waterDepth > shallowThreshold) {
+    return 1.0;
+  }
+
+  let shallowFactor = 1.0 - smoothstep(shallowThreshold * 0.5, shallowThreshold, waterDepth);
+  let effectiveDepth = max(waterDepth, MIN_DEPTH);
+  let greenFactor = pow(DEEP_WATER_DEPTH / effectiveDepth, 0.25);
+  let maxShoaling = 2.0;
+
+  return 1.0 + (min(greenFactor, maxShoaling) - 1.0) * shallowFactor;
+}
+
+// Bottom friction damping factor
+fn computeShallowDamping(waterDepth: f32) -> f32 {
+  let DEEP_THRESHOLD: f32 = 10.0;
+  let SHALLOW_THRESHOLD: f32 = 2.0;
+  let MIN_DAMPING: f32 = 0.2;
+
+  if (waterDepth >= DEEP_THRESHOLD) {
+    return 1.0;
+  }
+  if (waterDepth <= SHALLOW_THRESHOLD) {
+    return MIN_DAMPING;
+  }
+
+  return mix(MIN_DAMPING, 1.0, (waterDepth - SHALLOW_THRESHOLD) / (DEEP_THRESHOLD - SHALLOW_THRESHOLD));
+}
+
+// ============================================================================
+// Wave Modification (Texture-Based Shadow Sampling)
+// ============================================================================
+
+fn getWaveModification(worldPos: vec2<f32>, wavelength: f32) -> WaveModification {
+  var result: WaveModification;
+  result.energyFactor = 1.0;
+  result.newDirection = shadowData.waveDirection;
+
+  // Sample shadow texture
+  let shadowSample = sampleShadowTexture(worldPos);
+
+  // 0 = not in shadow, return full energy
+  if (shadowSample == 0u) {
+    return result;
+  }
+
+  // Get polygon index (shadow value is 1-based, so subtract 1)
+  let polygonIdx = shadowSample - 1u;
+  if (polygonIdx >= shadowData.polygonCount) {
+    return result;  // Invalid polygon index
+  }
+
+  let polygon = shadowData.polygons[polygonIdx];
+  let waveDir = shadowData.waveDirection;
+  let perpRight = vec2<f32>(waveDir.y, -waveDir.x);
+
+  // Compute distances to both shadow boundaries
+  let toPointFromLeft = worldPos - polygon.leftSilhouette;
+  let toPointFromRight = worldPos - polygon.rightSilhouette;
+
+  let distBehindLeft = dot(toPointFromLeft, waveDir);
+  let distBehindRight = dot(toPointFromRight, waveDir);
+  let distToLeftBoundary = abs(dot(toPointFromLeft, perpRight));
+  let distToRightBoundary = abs(dot(toPointFromRight, perpRight));
+
+  // Use the boundary with stronger diffraction contribution (closer boundary)
+  var distToBoundary: f32;
+  var distBehind: f32;
+  var silhouettePoint: vec2<f32>;
+
+  if (distToLeftBoundary < distToRightBoundary) {
+    distToBoundary = distToLeftBoundary;
+    distBehind = distBehindLeft;
+    silhouettePoint = polygon.leftSilhouette;
+  } else {
+    distToBoundary = distToRightBoundary;
+    distBehind = distBehindRight;
+    silhouettePoint = polygon.rightSilhouette;
+  }
+
+  // Compute Fresnel diffraction energy
+  let baseEnergy = computeFresnelEnergy(distToBoundary, max(distBehind, 0.0), wavelength);
+
+  // Shadow recovery: waves gradually return to full strength behind obstacle
+  let recoveryDist = polygon.obstacleWidth * polygon.obstacleWidth / wavelength;
+  let avgDistBehind = (distBehindLeft + distBehindRight) / 2.0;
+  let recoveryFactor = smoothstep(0.5 * recoveryDist, recoveryDist, avgDistBehind);
+
+  result.energyFactor = mix(baseEnergy, 1.0, recoveryFactor);
+
+  // Compute diffracted direction (Huygens principle)
+  let toPoint = worldPos - silhouettePoint;
+  let dist = length(toPoint);
+  if (dist > 1.0) {
+    let diffractedDir = normalize(toPoint);
+    // Blend from diffracted toward original as shadow recovers
+    result.newDirection = normalize(mix(diffractedDir, waveDir, recoveryFactor));
+  }
+
+  return result;
+}
+
+// ============================================================================
+// Gerstner Wave Calculation
 // ============================================================================
 
 fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
   let x = worldPos.x;
   let y = worldPos.y;
 
-  // Sample influence textures at this pixel
-  let swellInfluence = sampleSwellInfluence(worldPos, params.waveSourceDirection);
-  let longSwellEnergy = swellInfluence.r;
-  let longSwellDirection = swellInfluence.g;
-  let shortChopEnergy = swellInfluence.b;
-  let shortChopDirection = swellInfluence.a;
-
-  let fetchDistance = sampleFetchInfluence(worldPos, params.waveSourceDirection);
-  let normalizedFetch = clamp(fetchDistance / params.maxFetch, 0.0, 1.0);
-
-  // Compute direction offsets from source direction
-  let longSwellDirOffset = longSwellDirection - params.waveSourceDirection;
-  let shortChopDirOffset = shortChopDirection - params.waveSourceDirection;
+  // Get wave modification for swell and chop wavelengths
+  let swellMod = getWaveModification(worldPos, SWELL_WAVELENGTH);
+  let chopMod = getWaveModification(worldPos, CHOP_WAVELENGTH);
 
   // Sample amplitude modulation noise once per point
   let ampModTime = time * WAVE_AMP_MOD_TIME_SCALE;
@@ -270,12 +341,17 @@ fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
     let sourceOffsetX = waveData[base + 6];
     let sourceOffsetY = waveData[base + 7];
 
-    // Apply direction offset from terrain diffraction (per-pixel)
+    // Apply direction modification from diffraction
+    var waveMod: WaveModification;
     if (i < SWELL_WAVE_COUNT) {
-      direction += longSwellDirOffset;
+      waveMod = swellMod;
     } else {
-      direction += shortChopDirOffset;
+      waveMod = chopMod;
     }
+
+    let modDir = waveMod.newDirection;
+    let dirOffset = atan2(modDir.y, modDir.x) - params.waveSourceDirection;
+    direction += dirOffset;
 
     let baseDx = cos(direction);
     let baseDy = sin(direction);
@@ -327,16 +403,19 @@ fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
     let sourceOffsetX = waveData[base + 6];
     let sourceOffsetY = waveData[base + 7];
 
-    // Apply terrain influence based on wave type (per-pixel)
+    // Apply wave modification (energy and direction)
+    var waveMod: WaveModification;
     if (i < SWELL_WAVE_COUNT) {
-      // Swell waves: apply long swell energy factor and direction offset
-      amplitude *= longSwellEnergy;
-      direction += longSwellDirOffset;
+      waveMod = swellMod;
+      amplitude *= waveMod.energyFactor;
     } else {
-      // Chop waves: apply short chop energy factor * fetch factor and direction offset
-      amplitude *= shortChopEnergy * normalizedFetch;
-      direction += shortChopDirOffset;
+      waveMod = chopMod;
+      amplitude *= waveMod.energyFactor;
     }
+
+    let modDir = waveMod.newDirection;
+    let dirOffset = atan2(modDir.y, modDir.x) - params.waveSourceDirection;
+    direction += dirOffset;
 
     let baseDx = cos(direction);
     let baseDy = sin(direction);
@@ -370,7 +449,7 @@ fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
 }
 
 // ============================================================================
-// Section 2: Wake Modifier Calculation
+// Wake Modifier Calculation
 // ============================================================================
 
 fn getSegmentContribution(worldX: f32, worldY: f32, segmentIndex: u32) -> vec3<f32> {
@@ -393,7 +472,6 @@ fn getSegmentContribution(worldX: f32, worldY: f32, segmentIndex: u32) -> vec3<f
   let segY = endY - startY;
   let segLenSq = segX * segX + segY * segY;
 
-  // Handle degenerate case (circle)
   if (segLenSq < 0.001) {
     let dx = worldX - startX;
     let dy = worldY - startY;
@@ -409,7 +487,6 @@ fn getSegmentContribution(worldX: f32, worldY: f32, segmentIndex: u32) -> vec3<f
     let waveProfile = cos(t * PI) * (1.0 - t);
     let height = waveProfile * startIntensity * HEIGHT_SCALE;
 
-    // Velocity: linear falloff from center
     let linearFalloff = 1.0 - t;
     let velFalloff = linearFalloff * startIntensity;
     let velX = startVelX * velFalloff * WATER_VELOCITY_FACTOR;
@@ -418,7 +495,6 @@ fn getSegmentContribution(worldX: f32, worldY: f32, segmentIndex: u32) -> vec3<f
     return vec3<f32>(height, velX, velY);
   }
 
-  // Segment contribution - project query point onto segment
   let toQueryX = worldX - startX;
   let toQueryY = worldY - startY;
 
@@ -445,11 +521,9 @@ fn getSegmentContribution(worldX: f32, worldY: f32, segmentIndex: u32) -> vec3<f
   let waveProfile = cos(normalizedDist * PI) * (1.0 - normalizedDist);
   let height = waveProfile * intensity * HEIGHT_SCALE;
 
-  // Interpolate velocity along segment
   let interpVelX = startVelX + t * (endVelX - startVelX);
   let interpVelY = startVelY + t * (endVelY - startVelY);
 
-  // Velocity: linear falloff from ribbon center
   let linearFalloff = 1.0 - normalizedDist;
   let velFalloff = linearFalloff * intensity;
   let velX = interpVelX * velFalloff * WATER_VELOCITY_FACTOR;
@@ -475,7 +549,7 @@ fn calculateModifiers(worldX: f32, worldY: f32) -> vec3<f32> {
 }
 
 // ============================================================================
-// Main: Combine wave and modifier calculations
+// Main
 // ============================================================================
 
 @compute @workgroup_size(8, 8)
@@ -502,27 +576,28 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     return;
   }
 
-  // Compute shoaling and damping factors based on water depth
-  let shoalingFactor = computeShoalingFactor(depth);
-  let dampingFactor = computeDampingFactor(depth);
+  // Compute shoaling and damping factors
+  let waterDepth = -depth;
+  let shoalingFactor = computeShoalingFactor(waterDepth, SWELL_WAVELENGTH);
+  let dampingFactor = computeShallowDamping(waterDepth);
   let depthModifier = shoalingFactor * dampingFactor;
 
-  // Wave contribution (now uses per-pixel influence from textures)
+  // Wave contribution with texture-based shadow sampling
   let waveResult = calculateWaves(worldPos, params.time);
   var waveHeight = waveResult.x;
   var waveDhdt = waveResult.w;
 
-  // Apply shoaling/damping to wave height and rate of change
+  // Apply shoaling/damping
   waveHeight *= depthModifier;
   waveDhdt *= depthModifier;
 
-  // Modifier contribution (wake effects) - returns (height, velX, velY)
+  // Modifier contribution (wake effects)
   let modifierResult = calculateModifiers(worldPos.x, worldPos.y);
   let modifierHeight = modifierResult.x;
   let modifierVelX = modifierResult.y;
   let modifierVelY = modifierResult.z;
 
-  // Combined output (waves + modifiers + tide)
+  // Combined output
   let totalHeight = waveHeight + modifierHeight + params.tideHeight;
   let normalizedHeight = totalHeight / WATER_HEIGHT_NORM_SCALE + 0.5;
   let normalizedDhdt = waveDhdt / WATER_VELOCITY_NORM_SCALE + 0.5;
