@@ -11,6 +11,11 @@
 import { hexToVec3 } from "../../util/ColorUtils";
 import { CompatibleVector } from "../../Vector";
 import { Matrix3 } from "../Matrix3";
+import {
+  defineUniformStruct,
+  mat3x3,
+  type UniformInstance,
+} from "../UniformStruct";
 import { GPUProfiler, GPUProfileSection } from "./GPUProfiler";
 import { getWebGPU } from "./WebGPUDevice";
 import { WebGPUTexture, WebGPUTextureManager } from "./WebGPUTextureManager";
@@ -124,9 +129,12 @@ const SHAPE_VERTEX_SIZE = 12; // position (2) + color (4) + matrix (6)
 const MAX_BATCH_VERTICES = 65536;
 const MAX_BATCH_INDICES = MAX_BATCH_VERTICES * 6;
 
-// Uniform buffer size (padded for alignment)
-// mat3x3 requires 48 bytes (3 x vec3 x 4 bytes, with 16-byte alignment per row)
-const UNIFORM_BUFFER_SIZE = 48;
+// Type-safe uniform buffer definition
+const ViewUniforms = defineUniformStruct("Uniforms", {
+  viewMatrix: mat3x3,
+});
+
+const UNIFORM_BUFFER_SIZE = ViewUniforms.byteSize;
 
 /**
  * Immediate-mode 2D WebGPU renderer.
@@ -188,8 +196,9 @@ export class WebGPURenderer {
   // Pixel ratio for high-DPI displays
   private pixelRatio = 1;
 
-  // Pre-allocated array for matrix uniform uploads
-  private uniformData: Float32Array = new Float32Array(12); // 3x3 matrix with padding
+  // Type-safe uniform instance
+  private viewUniforms: UniformInstance<typeof ViewUniforms.fields> =
+    ViewUniforms.create();
 
   // Pre-allocated Matrix3 for building sprite transforms
   private spriteMatrix: Matrix3 = new Matrix3();
@@ -1019,25 +1028,9 @@ export class WebGPURenderer {
   private uploadViewMatrix(buffer: GPUBuffer): void {
     if (!this.device) return;
 
-    // Pack mat3x3 with proper alignment for WebGPU
-    // Each column is a vec3 with 16-byte alignment
-    const m = this.viewMatrix;
-    this.uniformData[0] = m.a;
-    this.uniformData[1] = m.b;
-    this.uniformData[2] = 0;
-    this.uniformData[3] = 0; // padding
-
-    this.uniformData[4] = m.c;
-    this.uniformData[5] = m.d;
-    this.uniformData[6] = 0;
-    this.uniformData[7] = 0; // padding
-
-    this.uniformData[8] = m.tx;
-    this.uniformData[9] = m.ty;
-    this.uniformData[10] = 1;
-    this.uniformData[11] = 0; // padding
-
-    this.device.queue.writeBuffer(buffer, 0, this.uniformData.buffer);
+    // Use type-safe setter which handles mat3x3 padding automatically
+    this.viewUniforms.set.viewMatrix(this.viewMatrix);
+    this.viewUniforms.uploadTo(buffer);
   }
 
   // ============ Texture Generation ============

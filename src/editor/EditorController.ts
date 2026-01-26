@@ -31,6 +31,7 @@ import { EditorUI } from "./EditorUI";
 import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
 import { WaterInfo } from "../game/world-data/water/WaterInfo";
 import { InfluenceFieldManager } from "../game/world-data/influence/InfluenceFieldManager";
+import { DebugRenderer } from "../game/debug-renderer";
 import { computeSplineCentroid } from "../core/util/Spline";
 
 // File System Access API types (not in lib.dom.d.ts by default)
@@ -742,5 +743,10 @@ export class EditorController
   @on("influenceFieldsReady")
   onInfluenceFieldsReady(): void {
     this.isComputingInfluence = false;
+
+    // Add debug visualization if not already present
+    if (!this.game.entities.getById("debugRenderer")) {
+      this.game.addEntity(new DebugRenderer());
+    }
   }
 }

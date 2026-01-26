@@ -2,7 +2,7 @@
  * Surface rendering entity.
  *
  * Renders the ocean and terrain as a fullscreen effect using WebGPU.
- * Uses WaterRenderPipeline for unified wave/modifier computation,
+ * Uses AnalyticalWaterRenderPipeline for wave computation with shadow-based diffraction,
  * TerrainRenderPipeline for terrain height computation,
  * and SurfaceShader for combined rendering with depth-based sand/water blending.
  *
@@ -13,19 +13,24 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
+import type { Matrix3 } from "../../core/graphics/Matrix3";
+import { type UniformInstance } from "../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { TimeOfDay } from "../time/TimeOfDay";
 import { InfluenceFieldManager } from "../world-data/influence/InfluenceFieldManager";
-import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
 import { getTerrainHeightColor } from "../world-data/terrain/TerrainColors";
+import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
 import { WAVE_COMPONENTS } from "../world-data/water/WaterConstants";
 import { WaterInfo, type Viewport } from "../world-data/water/WaterInfo";
-import { SurfaceShader } from "./SurfaceShader";
-import { TerrainRenderPipeline } from "./TerrainRenderPipeline";
 import {
-  WaterRenderPipeline,
-  type RenderInfluenceConfig,
-} from "./WaterRenderPipeline";
+  AnalyticalWaterRenderPipeline,
+  type AnalyticalRenderConfig,
+} from "./AnalyticalWaterRenderPipeline";
+import { SurfaceShader } from "./SurfaceShader";
+import { SurfaceUniforms } from "./SurfaceUniforms";
+// Re-export for backwards compatibility
+export { SurfaceUniforms } from "./SurfaceUniforms";
+import { TerrainRenderPipeline } from "./TerrainRenderPipeline";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
 /** Default texture resolution scale relative to screen (0.5 = half resolution) */
@@ -63,7 +68,7 @@ export class SurfaceRenderer extends BaseEntity {
   layer = "water" as const;
 
   private shader: SurfaceShader | null = null;
-  private renderPipeline: WaterRenderPipeline;
+  private waterPipeline: AnalyticalWaterRenderPipeline | null = null;
   private terrainPipeline: TerrainRenderPipeline;
   private wetnessPipeline: WetnessRenderPipeline;
   private renderMode = 0;
@@ -86,22 +91,9 @@ export class SurfaceRenderer extends BaseEntity {
   private wetnessTexWidth = 0;
   private wetnessTexHeight = 0;
 
-  // Uniform data array
-  // Layout (144 bytes total for WebGPU 16-byte alignment):
-  // Indices 0-11:  mat3x3 (3x vec4 = 48 bytes, padded columns)
-  // Index 12:      time (f32)
-  // Index 13:      renderMode (i32 as f32)
-  // Index 14-15:   screenWidth, screenHeight (f32)
-  // Index 16-19:   viewport bounds (left, top, width, height) (f32)
-  // Index 20:      colorNoiseStrength (f32)
-  // Index 21:      hasTerrainData (i32 as f32)
-  // Index 22:      shallowThreshold (f32)
-  // Index 23-24:   waterTexWidth, waterTexHeight (f32)
-  // Index 25-26:   terrainTexWidth, terrainTexHeight (f32)
-  // Index 27-28:   wetnessTexWidth, wetnessTexHeight (f32)
-  // Index 29-30:   padding
-  // Index 31-34:   wetness viewport bounds (left, top, width, height) (f32)
-  private uniformData = new Float32Array(36);
+  // Type-safe uniforms instance
+  private uniforms: UniformInstance<typeof SurfaceUniforms.fields> | null =
+    null;
 
   // Cached bind group (recreated when texture changes)
   private bindGroup: GPUBindGroup | null = null;
@@ -132,11 +124,8 @@ export class SurfaceRenderer extends BaseEntity {
     };
 
     // Pipelines will be created in ensureInitialized after we have screen dimensions
-    this.renderPipeline = null!;
     this.terrainPipeline = null!;
     this.wetnessPipeline = null!;
-
-    // Default uniform values (indices will be updated after uniform layout is finalized)
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -150,30 +139,22 @@ export class SurfaceRenderer extends BaseEntity {
       const screenWidth = renderer.getWidth();
       const screenHeight = renderer.getHeight();
 
-      this.waterTexWidth = Math.ceil(
-        screenWidth * this.config.waterTextureScale,
-      );
-      this.waterTexHeight = Math.ceil(
-        screenHeight * this.config.waterTextureScale,
-      );
-      this.terrainTexWidth = Math.ceil(
-        screenWidth * this.config.terrainTextureScale,
-      );
-      this.terrainTexHeight = Math.ceil(
-        screenHeight * this.config.terrainTextureScale,
-      );
-      this.wetnessTexWidth = Math.ceil(
-        screenWidth * this.config.wetnessTextureScale,
-      );
-      this.wetnessTexHeight = Math.ceil(
-        screenHeight * this.config.wetnessTextureScale,
-      );
+      const { waterTextureScale, terrainTextureScale, wetnessTextureScale } =
+        this.config;
+      this.waterTexWidth = Math.ceil(screenWidth * waterTextureScale);
+      this.waterTexHeight = Math.ceil(screenHeight * waterTextureScale);
+      this.terrainTexWidth = Math.ceil(screenWidth * terrainTextureScale);
+      this.terrainTexHeight = Math.ceil(screenHeight * terrainTextureScale);
+      this.wetnessTexWidth = Math.ceil(screenWidth * wetnessTextureScale);
+      this.wetnessTexHeight = Math.ceil(screenHeight * wetnessTextureScale);
 
-      // Create pipelines with computed dimensions
-      this.renderPipeline = new WaterRenderPipeline(
+      // Create water render pipeline
+      this.waterPipeline = new AnalyticalWaterRenderPipeline(
         this.waterTexWidth,
         this.waterTexHeight,
       );
+      await this.waterPipeline.init();
+
       this.terrainPipeline = new TerrainRenderPipeline(
         this.terrainTexWidth,
         this.terrainTexHeight,
@@ -183,29 +164,29 @@ export class SurfaceRenderer extends BaseEntity {
         this.wetnessTexHeight,
       );
 
-      await this.renderPipeline.init();
       await this.terrainPipeline.init();
 
       this.shader = new SurfaceShader();
       await this.shader.init();
 
-      // Create uniform buffer
+      // Create uniform buffer and instance
       this.uniformBuffer = device.createBuffer({
-        size: 144, // 36 floats * 4 bytes
+        size: SurfaceUniforms.byteSize,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         label: "Surface Uniform Buffer",
       });
+      this.uniforms = SurfaceUniforms.create();
 
       // Set default uniform values
-      this.uniformData[21] = 0; // hasTerrainData
-      this.uniformData[22] = SHALLOW_WATER_THRESHOLD; // shallowThreshold
+      this.uniforms.set.hasTerrainData(0);
+      this.uniforms.set.shallowThreshold(SHALLOW_WATER_THRESHOLD);
       // Set texture dimensions
-      this.uniformData[23] = this.waterTexWidth;
-      this.uniformData[24] = this.waterTexHeight;
-      this.uniformData[25] = this.terrainTexWidth;
-      this.uniformData[26] = this.terrainTexHeight;
-      this.uniformData[27] = this.wetnessTexWidth;
-      this.uniformData[28] = this.wetnessTexHeight;
+      this.uniforms.set.waterTexWidth(this.waterTexWidth);
+      this.uniforms.set.waterTexHeight(this.waterTexHeight);
+      this.uniforms.set.terrainTexWidth(this.terrainTexWidth);
+      this.uniforms.set.terrainTexHeight(this.terrainTexHeight);
+      this.uniforms.set.wetnessTexWidth(this.wetnessTexWidth);
+      this.uniforms.set.wetnessTexHeight(this.wetnessTexHeight);
 
       // Create sampler
       this.sampler = device.createSampler({
@@ -270,47 +251,59 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   /**
-   * Try to configure influence textures on the render pipeline.
+   * Try to configure depth texture and shadow buffers on the water pipeline.
    * Returns true if configured, false if not yet available.
    */
-  private tryConfigureInfluenceTextures(): boolean {
+  private tryConfigureWaterPipeline(): boolean {
     if (this.influenceConfigured) return true;
+    if (!this.waterPipeline) return false;
 
-    const influenceManager = InfluenceFieldManager.maybeFromGame(this.game);
-    if (!influenceManager) return false;
+    // Get WaterInfo and its WavePhysicsManager
+    const waterInfo = WaterInfo.maybeFromGame(this.game);
+    if (!waterInfo) return false;
 
-    const swellTexture = influenceManager.getSwellTexture();
-    const fetchTexture = influenceManager.getFetchTexture();
-    const depthTexture = influenceManager.getDepthTexture();
-    const influenceSampler = influenceManager.getInfluenceSampler();
-    const swellGridConfig = influenceManager.getSwellGridConfig();
-    const fetchGridConfig = influenceManager.getFetchGridConfig();
-    const depthGridConfig = influenceManager.getDepthGridConfig();
-
-    if (
-      !swellTexture ||
-      !fetchTexture ||
-      !depthTexture ||
-      !influenceSampler ||
-      !swellGridConfig ||
-      !fetchGridConfig ||
-      !depthGridConfig
-    ) {
+    const wavePhysicsManager = waterInfo.getWavePhysicsManager();
+    if (!wavePhysicsManager || !wavePhysicsManager.isInitialized()) {
       return false;
     }
 
-    const config: RenderInfluenceConfig = {
-      swellTexture,
-      fetchTexture,
+    // Get depth texture from InfluenceFieldManager
+    const influenceManager = InfluenceFieldManager.maybeFromGame(this.game);
+    if (!influenceManager) return false;
+
+    const depthTexture = influenceManager.getDepthTexture();
+    const depthGridConfig = influenceManager.getDepthGridConfig();
+
+    if (!depthTexture || !depthGridConfig) {
+      return false;
+    }
+
+    // Create depth sampler
+    const device = getWebGPU().device;
+    const depthSampler = device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
+
+    // Get shadow texture and data buffer from WavePhysicsManager
+    const shadowTextureView = wavePhysicsManager.getShadowTextureView();
+    const shadowDataBuffer = wavePhysicsManager.getShadowDataBuffer();
+    if (!shadowTextureView || !shadowDataBuffer) {
+      return false;
+    }
+
+    const config: AnalyticalRenderConfig = {
       depthTexture,
-      influenceSampler,
-      swellGridConfig,
-      fetchGridConfig,
+      depthSampler,
       depthGridConfig,
+      shadowTextureView,
+      shadowDataBuffer,
       waveSourceDirection: WAVE_COMPONENTS[0][2], // First wave's direction
     };
 
-    this.renderPipeline.setInfluenceTextures(config);
+    this.waterPipeline.setAnalyticalConfig(config);
     this.influenceConfigured = true;
     return true;
   }
@@ -336,35 +329,26 @@ export class SurfaceRenderer extends BaseEntity {
   /**
    * Set the camera inverse matrix (screen to world).
    */
-  private setCameraMatrix(matrix: Float32Array): void {
-    // Pack mat3x3 with 16-byte alignment per column
-    this.uniformData[0] = matrix[0];
-    this.uniformData[1] = matrix[1];
-    this.uniformData[2] = matrix[2];
-    this.uniformData[3] = 0; // padding
-
-    this.uniformData[4] = matrix[3];
-    this.uniformData[5] = matrix[4];
-    this.uniformData[6] = matrix[5];
-    this.uniformData[7] = 0; // padding
-
-    this.uniformData[8] = matrix[6];
-    this.uniformData[9] = matrix[7];
-    this.uniformData[10] = matrix[8];
-    this.uniformData[11] = 0; // padding
+  private setCameraMatrix(matrix: Matrix3): void {
+    if (!this.uniforms) return;
+    // mat3x3 setter handles column padding automatically
+    this.uniforms.set.cameraMatrix(matrix);
   }
 
   private setTime(time: number): void {
-    this.uniformData[12] = time;
+    if (!this.uniforms) return;
+    this.uniforms.set.time(time);
   }
 
   private setRenderModeUniform(mode: number): void {
-    this.uniformData[13] = mode;
+    if (!this.uniforms) return;
+    this.uniforms.set.renderMode(mode);
   }
 
   private setScreenSize(width: number, height: number): void {
-    this.uniformData[14] = width;
-    this.uniformData[15] = height;
+    if (!this.uniforms) return;
+    this.uniforms.set.screenWidth(width);
+    this.uniforms.set.screenHeight(height);
   }
 
   private setViewportBounds(
@@ -373,14 +357,16 @@ export class SurfaceRenderer extends BaseEntity {
     width: number,
     height: number,
   ): void {
-    this.uniformData[16] = left;
-    this.uniformData[17] = top;
-    this.uniformData[18] = width;
-    this.uniformData[19] = height;
+    if (!this.uniforms) return;
+    this.uniforms.set.viewportLeft(left);
+    this.uniforms.set.viewportTop(top);
+    this.uniforms.set.viewportWidth(width);
+    this.uniforms.set.viewportHeight(height);
   }
 
   private setHasTerrainData(hasTerrain: boolean): void {
-    this.uniformData[21] = hasTerrain ? 1 : 0;
+    if (!this.uniforms) return;
+    this.uniforms.set.hasTerrainData(hasTerrain ? 1 : 0);
   }
 
   private setWetnessViewportBounds(
@@ -389,11 +375,11 @@ export class SurfaceRenderer extends BaseEntity {
     width: number,
     height: number,
   ): void {
-    // Indices 31-34 for wetness viewport (after texture dimensions at 23-28, padding at 29-30)
-    this.uniformData[31] = left;
-    this.uniformData[32] = top;
-    this.uniformData[33] = width;
-    this.uniformData[34] = height;
+    if (!this.uniforms) return;
+    this.uniforms.set.wetnessViewportLeft(left);
+    this.uniforms.set.wetnessViewportTop(top);
+    this.uniforms.set.wetnessViewportWidth(width);
+    this.uniforms.set.wetnessViewportHeight(height);
   }
 
   /**
@@ -405,11 +391,14 @@ export class SurfaceRenderer extends BaseEntity {
     terrainTextureView: GPUTextureView | null,
     wetnessTextureView: GPUTextureView | null,
   ): void {
-    if (!this.uniformBuffer || !this.sampler || !this.shader) {
+    if (
+      !this.uniformBuffer ||
+      !this.sampler ||
+      !this.shader ||
+      !this.uniforms
+    ) {
       return;
     }
-
-    const device = getWebGPU().device;
 
     // Use placeholder if no terrain texture
     const effectiveTerrainView =
@@ -421,7 +410,7 @@ export class SurfaceRenderer extends BaseEntity {
       wetnessTextureView ?? this.placeholderWetnessView!;
 
     // Upload uniforms
-    device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData.buffer);
+    this.uniforms.uploadTo(this.uniformBuffer);
 
     // Recreate bind group if textures changed
     if (
@@ -450,8 +439,8 @@ export class SurfaceRenderer extends BaseEntity {
   onRender({ dt, draw }: { dt: number; draw: Draw }) {
     if (!this.initialized || !this.shader) return;
 
-    // Ensure influence textures are configured (needed for per-pixel wave sampling)
-    this.tryConfigureInfluenceTextures();
+    // Ensure depth texture and shadow buffers are configured
+    this.tryConfigureWaterPipeline();
 
     const camera = this.game.camera;
     const renderer = this.game.getRenderer();
@@ -464,9 +453,18 @@ export class SurfaceRenderer extends BaseEntity {
       ? timeOfDay.getTimeInSeconds()
       : this.game.elapsedUnpausedTime;
 
-    // Update water render pipeline (runs unified GPU compute)
+    // Update water render pipeline
     const waterInfo = WaterInfo.fromGame(this.game);
-    this.renderPipeline.update(expandedViewport, waterInfo, gpuProfiler);
+
+    // Update shadow texture for current viewport (must happen before water update)
+    const wavePhysicsManager = waterInfo.getWavePhysicsManager();
+    if (wavePhysicsManager?.isInitialized()) {
+      wavePhysicsManager.updateShadowTexture(expandedViewport);
+    }
+
+    if (this.waterPipeline) {
+      this.waterPipeline.update(expandedViewport, waterInfo, gpuProfiler);
+    }
 
     // Update terrain render pipeline if terrain exists
     const terrainInfo = TerrainInfo.maybeFromGame(this.game);
@@ -504,7 +502,7 @@ export class SurfaceRenderer extends BaseEntity {
     }
 
     // Get water texture view
-    const waterTextureView = this.renderPipeline.getOutputTextureView();
+    const waterTextureView = this.waterPipeline?.getOutputTextureView();
     if (!waterTextureView) return;
 
     // Update wetness pipeline (needs water and terrain textures)
@@ -547,7 +545,7 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Get inverse camera matrix for screen-to-world transform
     const cameraMatrix = camera.getMatrix().clone().invert();
-    this.setCameraMatrix(cameraMatrix.toArray());
+    this.setCameraMatrix(cameraMatrix);
 
     // Use the main renderer's render pass
     const renderPass = renderer.getCurrentRenderPass();
@@ -598,7 +596,7 @@ export class SurfaceRenderer extends BaseEntity {
 
   @on("destroy")
   onDestroy(): void {
-    this.renderPipeline.destroy();
+    this.waterPipeline?.destroy();
     this.terrainPipeline.destroy();
     this.wetnessPipeline.destroy();
     this.shader?.destroy();

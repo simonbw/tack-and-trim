@@ -3,6 +3,8 @@
  * Provides app-wide access to the GPU adapter and device.
  */
 
+import { setUniformDevice } from "../UniformStruct";
+
 let instance: WebGPUDeviceManager | null = null;
 
 export class WebGPUDeviceManager {
@@ -108,6 +110,9 @@ export class WebGPUDeviceManager {
 
     // Get preferred canvas format
     this._preferredFormat = navigator.gpu.getPreferredCanvasFormat();
+
+    // Initialize uniform struct system with device reference
+    setUniformDevice(this._device);
 
     this._initialized = true;
   }

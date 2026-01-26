@@ -6,7 +6,52 @@
  */
 
 import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
+import {
+  defineUniformStruct,
+  f32,
+  u32,
+  type UniformInstance,
+} from "../../../../core/graphics/UniformStruct";
 import { buildWaveDataArray } from "../WaterConstants";
+
+// Type-safe params buffer definition - single source of truth for shader struct
+export const WaterParams = defineUniformStruct("Params", {
+  // Basic params
+  time: f32,
+  viewportLeft: f32,
+  viewportTop: f32,
+  viewportWidth: f32,
+  viewportHeight: f32,
+  textureSizeX: f32,
+  textureSizeY: f32,
+  segmentCount: u32,
+  // Swell grid config
+  swellOriginX: f32,
+  swellOriginY: f32,
+  swellGridWidth: f32,
+  swellGridHeight: f32,
+  swellDirectionCount: f32,
+  // Fetch grid config
+  fetchOriginX: f32,
+  fetchOriginY: f32,
+  fetchGridWidth: f32,
+  fetchGridHeight: f32,
+  fetchDirectionCount: f32,
+  // Max fetch and wave source direction
+  maxFetch: f32,
+  waveSourceDirection: f32,
+  // Tide height
+  tideHeight: f32,
+  // Depth grid config
+  depthOriginX: f32,
+  depthOriginY: f32,
+  depthGridWidth: f32,
+  depthGridHeight: f32,
+  // Padding to 112 bytes (28 floats) - WGSL rounds up to multiple of max align
+  _padding1: f32,
+  _padding2: f32,
+  _padding3: f32,
+});
 
 // Constants for modifier computation
 export const MAX_SEGMENTS = 256;
@@ -81,6 +126,7 @@ export class WaterComputeBuffers {
   readonly paramsBuffer: GPUBuffer;
   readonly segmentsBuffer: GPUBuffer;
 
+  private params!: UniformInstance<typeof WaterParams.fields>;
   private segmentData: Float32Array;
 
   constructor() {
@@ -97,17 +143,12 @@ export class WaterComputeBuffers {
     new Float32Array(this.waveDataBuffer.getMappedRange()).set(waveData);
     this.waveDataBuffer.unmap();
 
-    // Create params uniform buffer (144 bytes for new layout)
-    // Layout matches Params struct in shader:
-    //   time, viewportLeft, viewportTop, viewportWidth, viewportHeight (20 bytes)
-    //   textureSizeX, textureSizeY, segmentCount (12 bytes)
-    //   swellOriginX, swellOriginY, swellGridWidth, swellGridHeight, swellDirectionCount (20 bytes)
-    //   fetchOriginX, fetchOriginY, fetchGridWidth, fetchGridHeight, fetchDirectionCount (20 bytes)
-    //   maxFetch, waveSourceDirection, tideHeight (12 bytes)
-    //   depthOriginX, depthOriginY, depthGridWidth, depthGridHeight (16 bytes)
-    //   padding to 144 bytes for 16-byte alignment
+    // Create type-safe params instance
+    this.params = WaterParams.create();
+
+    // Create params uniform buffer
     this.paramsBuffer = device.createBuffer({
-      size: 144,
+      size: WaterParams.byteSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Water Params Buffer",
     });
@@ -124,51 +165,51 @@ export class WaterComputeBuffers {
   /**
    * Update the params buffer with current frame data.
    */
-  updateParams(params: WaterComputeParams): void {
-    const device = getWebGPU().device;
+  updateParams(input: WaterComputeParams): void {
+    // Use type-safe setters
+    this.params.set.time(input.time);
+    this.params.set.viewportLeft(input.viewportLeft);
+    this.params.set.viewportTop(input.viewportTop);
+    this.params.set.viewportWidth(input.viewportWidth);
+    this.params.set.viewportHeight(input.viewportHeight);
+    this.params.set.textureSizeX(input.textureSizeX);
+    this.params.set.textureSizeY(input.textureSizeY);
+    this.params.set.segmentCount(input.segmentCount);
 
-    const paramsData = new ArrayBuffer(144);
-    const floats = new Float32Array(paramsData);
-    const uints = new Uint32Array(paramsData);
+    // Swell grid config
+    this.params.set.swellOriginX(input.swellOriginX);
+    this.params.set.swellOriginY(input.swellOriginY);
+    this.params.set.swellGridWidth(input.swellGridWidth);
+    this.params.set.swellGridHeight(input.swellGridHeight);
+    this.params.set.swellDirectionCount(input.swellDirectionCount);
 
-    // Basic params (0-7)
-    floats[0] = params.time;
-    floats[1] = params.viewportLeft;
-    floats[2] = params.viewportTop;
-    floats[3] = params.viewportWidth;
-    floats[4] = params.viewportHeight;
-    floats[5] = params.textureSizeX;
-    floats[6] = params.textureSizeY;
-    uints[7] = params.segmentCount;
+    // Fetch grid config
+    this.params.set.fetchOriginX(input.fetchOriginX);
+    this.params.set.fetchOriginY(input.fetchOriginY);
+    this.params.set.fetchGridWidth(input.fetchGridWidth);
+    this.params.set.fetchGridHeight(input.fetchGridHeight);
+    this.params.set.fetchDirectionCount(input.fetchDirectionCount);
 
-    // Swell grid config (8-12)
-    floats[8] = params.swellOriginX;
-    floats[9] = params.swellOriginY;
-    floats[10] = params.swellGridWidth;
-    floats[11] = params.swellGridHeight;
-    floats[12] = params.swellDirectionCount;
+    // Max fetch and wave source direction
+    this.params.set.maxFetch(input.maxFetch);
+    this.params.set.waveSourceDirection(input.waveSourceDirection);
 
-    // Fetch grid config (13-17)
-    floats[13] = params.fetchOriginX;
-    floats[14] = params.fetchOriginY;
-    floats[15] = params.fetchGridWidth;
-    floats[16] = params.fetchGridHeight;
-    floats[17] = params.fetchDirectionCount;
+    // Tide height
+    this.params.set.tideHeight(input.tideHeight);
 
-    // Max fetch and wave source direction (18-19)
-    floats[18] = params.maxFetch;
-    floats[19] = params.waveSourceDirection;
+    // Depth grid config
+    this.params.set.depthOriginX(input.depthOriginX);
+    this.params.set.depthOriginY(input.depthOriginY);
+    this.params.set.depthGridWidth(input.depthGridWidth);
+    this.params.set.depthGridHeight(input.depthGridHeight);
 
-    // Tide height (20)
-    floats[20] = params.tideHeight;
+    // Padding
+    this.params.set._padding1(0);
+    this.params.set._padding2(0);
+    this.params.set._padding3(0);
 
-    // Depth grid config (21-24)
-    floats[21] = params.depthOriginX;
-    floats[22] = params.depthOriginY;
-    floats[23] = params.depthGridWidth;
-    floats[24] = params.depthGridHeight;
-
-    device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
+    // Upload to GPU
+    this.params.uploadTo(this.paramsBuffer);
   }
 
   /**

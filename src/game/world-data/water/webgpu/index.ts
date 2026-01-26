@@ -1,10 +1,10 @@
 /**
  * WebGPU Water Physics
  *
- * Provides WebGPU-based water physics computation:
- * - WaterStateShader: Unified compute shader for waves + modifiers
+ * Provides WebGPU-based water physics computation using analytical wave physics.
+ * - AnalyticalWaterDataTileCompute: Physics tile compute with shadow-based diffraction
+ * - AnalyticalWaterStateShader: Compute shader for waves + modifiers
  * - WaterComputeBuffers: Shared buffer management
- * - WaterPhysicsTileCompute: Physics tile compute
  *
  * For rendering, see water/rendering/
  */
@@ -14,8 +14,10 @@ export {
   type WakeSegmentData,
   type WaterComputeParams,
 } from "./WaterComputeBuffers";
+
 export {
-  WaterDataTileCompute as WaterPhysicsTileCompute,
-  type WaterPointData,
-} from "./WaterDataTileCompute";
-export { WaterStateShader } from "./WaterStateShader";
+  AnalyticalWaterDataTileCompute,
+  type AnalyticalWaterConfig,
+} from "./AnalyticalWaterDataTileCompute";
+
+export { AnalyticalWaterStateShader } from "./AnalyticalWaterStateShader";

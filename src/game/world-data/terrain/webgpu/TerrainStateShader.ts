@@ -13,6 +13,7 @@
 
 import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import { TERRAIN_CONSTANTS_WGSL } from "../TerrainConstants";
+import { TerrainParams } from "./TerrainComputeBuffers";
 
 /**
  * Terrain render shader using vertex + fragment shaders.
@@ -26,20 +27,7 @@ export class TerrainStateShader {
   private readonly shaderCode = /*wgsl*/ `
 ${TERRAIN_CONSTANTS_WGSL}
 
-struct Params {
-  time: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
-  textureSizeX: f32,
-  textureSizeY: f32,
-  contourCount: u32,
-  defaultDepth: f32,
-  maxDepth: u32,
-  _padding1: f32,
-  _padding2: f32,
-}
+${TerrainParams.wgsl}
 
 struct ContourData {
   pointStartIndex: u32,
@@ -49,8 +37,8 @@ struct ContourData {
   depth: u32,
   childStartIndex: u32,
   childCount: u32,
-  _padding1: u32,
-  _padding2: u32,
+  isCoastline: u32,
+  _padding: u32,
 }
 
 struct VertexInput {

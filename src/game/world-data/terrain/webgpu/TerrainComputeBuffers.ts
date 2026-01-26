@@ -7,6 +7,12 @@
 
 import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import {
+  defineUniformStruct,
+  f32,
+  u32,
+  type UniformInstance,
+} from "../../../../core/graphics/UniformStruct";
+import {
   TerrainDefinition,
   buildTerrainGPUData,
   validateTerrainDefinition,
@@ -17,6 +23,23 @@ import {
   MAX_CONTOURS,
   MAX_CHILDREN,
 } from "../TerrainConstants";
+
+// Type-safe params buffer definition - single source of truth for shader struct
+export const TerrainParams = defineUniformStruct("Params", {
+  time: f32,
+  viewportLeft: f32,
+  viewportTop: f32,
+  viewportWidth: f32,
+  viewportHeight: f32,
+  textureSizeX: f32,
+  textureSizeY: f32,
+  contourCount: u32,
+  defaultDepth: f32,
+  maxDepth: u32,
+  // Padding to 48 bytes (12 floats) for 16-byte alignment
+  _padding1: f32,
+  _padding2: f32,
+});
 
 /**
  * Parameters for terrain compute shader.
@@ -46,6 +69,7 @@ export class TerrainComputeBuffers {
   readonly contourBuffer: GPUBuffer;
   readonly childrenBuffer: GPUBuffer;
 
+  private params!: UniformInstance<typeof TerrainParams.fields>;
   private contourCount: number = 0;
   private maxDepth: number = 0;
   private defaultDepth: number = -50;
@@ -53,21 +77,12 @@ export class TerrainComputeBuffers {
   constructor() {
     const device = getWebGPU().device;
 
-    // Params uniform buffer (48 bytes)
-    // Layout (byte offsets):
-    //   0-3:   time (f32)
-    //   4-7:   viewportLeft (f32)
-    //   8-11:  viewportTop (f32)
-    //   12-15: viewportWidth (f32)
-    //   16-19: viewportHeight (f32)
-    //   20-23: textureSizeX (f32)
-    //   24-27: textureSizeY (f32)
-    //   28-31: contourCount (u32)
-    //   32-35: defaultDepth (f32)
-    //   36-39: maxDepth (u32)
-    //   40-47: padding (for 16-byte alignment)
+    // Create type-safe params instance
+    this.params = TerrainParams.create();
+
+    // Params uniform buffer
     this.paramsBuffer = device.createBuffer({
-      size: 48,
+      size: TerrainParams.byteSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Terrain Params Buffer",
     });
@@ -142,25 +157,23 @@ export class TerrainComputeBuffers {
   /**
    * Update the params buffer with current frame data.
    */
-  updateParams(params: TerrainComputeParams): void {
-    const device = getWebGPU().device;
+  updateParams(input: TerrainComputeParams): void {
+    // Use type-safe setters
+    this.params.set.time(input.time);
+    this.params.set.viewportLeft(input.viewportLeft);
+    this.params.set.viewportTop(input.viewportTop);
+    this.params.set.viewportWidth(input.viewportWidth);
+    this.params.set.viewportHeight(input.viewportHeight);
+    this.params.set.textureSizeX(input.textureSizeX);
+    this.params.set.textureSizeY(input.textureSizeY);
+    this.params.set.contourCount(input.contourCount);
+    this.params.set.defaultDepth(input.defaultDepth);
+    this.params.set.maxDepth(input.maxDepth);
+    this.params.set._padding1(0);
+    this.params.set._padding2(0);
 
-    const paramsData = new ArrayBuffer(48);
-    const view = new DataView(paramsData);
-
-    view.setFloat32(0, params.time, true);
-    view.setFloat32(4, params.viewportLeft, true);
-    view.setFloat32(8, params.viewportTop, true);
-    view.setFloat32(12, params.viewportWidth, true);
-    view.setFloat32(16, params.viewportHeight, true);
-    view.setFloat32(20, params.textureSizeX, true);
-    view.setFloat32(24, params.textureSizeY, true);
-    view.setUint32(28, params.contourCount, true);
-    view.setFloat32(32, params.defaultDepth, true);
-    view.setUint32(36, params.maxDepth, true);
-    // bytes 40-47 are padding
-
-    device.queue.writeBuffer(this.paramsBuffer, 0, paramsData);
+    // Upload to GPU
+    this.params.uploadTo(this.paramsBuffer);
   }
 
   /**

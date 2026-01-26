@@ -1,14 +1,16 @@
 /**
  * Influence Field System
  *
- * Pre-computed fields that capture how terrain affects wind and waves.
+ * Pre-computed fields that capture how terrain affects wind.
  * These are computed once at game startup from terrain data, then sampled
  * at runtime to determine local conditions.
  *
+ * Note: Wave physics uses the analytical shadow-based system (WavePhysicsManager),
+ * not grid-based propagation.
+ *
  * Architecture:
- * - InfluenceFieldGrid: Generic coarse grid for storing per-direction data
  * - PropagationConfig: Parameters controlling energy flow algorithms
- * - Type definitions: WindInfluence, SwellInfluence, etc.
+ * - Type definitions: WindInfluence, etc.
  *
  * See docs/wind-wave-system-design.md for full architecture documentation.
  */
@@ -18,48 +20,24 @@ export {
   type DepthGridConfig,
   type InfluenceGridConfig,
   type WindInfluence,
-  type SwellInfluence,
   DEFAULT_WIND_INFLUENCE,
-  DEFAULT_SWELL_INFLUENCE,
-  WavelengthClass,
-  WAVELENGTH_CLASS_COUNT,
-  WAVELENGTH_CLASS_VALUES,
 } from "./InfluenceFieldTypes";
-
-// Grid data structure
-export {
-  InfluenceFieldGrid,
-  createGridConfig,
-  FLOATS_PER_CELL,
-} from "./InfluenceFieldGrid";
 
 // Propagation configuration
 export {
   type PropagationConfig,
   type InfluenceFieldResolution,
   WIND_PROPAGATION_CONFIG,
-  LONG_SWELL_PROPAGATION_CONFIG,
-  SHORT_CHOP_PROPAGATION_CONFIG,
   WIND_FIELD_RESOLUTION,
-  SWELL_FIELD_RESOLUTION,
-  FETCH_FIELD_RESOLUTION,
+  DEPTH_FIELD_CELL_SIZE,
+  REFERENCE_CELL_SIZE,
   validatePropagationConfig,
   createPropagationConfig,
+  scaleDecayForCellSize,
 } from "./PropagationConfig";
-
-// Propagation core utilities
-export {
-  type PropagationResult,
-  getDirectionVector,
-  computeFlowWeight,
-  NEIGHBOR_OFFSETS,
-  isUpwindBoundary,
-  clamp01,
-} from "./propagation/PropagationCore";
 
 // Manager entity
 export {
   InfluenceFieldManager,
-  type SwellInfluenceSample,
   type TaskProgress,
 } from "./InfluenceFieldManager";

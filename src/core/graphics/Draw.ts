@@ -348,18 +348,16 @@ export class Draw {
     path.close().stroke(color, width, alpha);
   }
 
-  /** Draw a filled polygon */
+  /** Draw a filled polygon (supports concave polygons) */
   fillPolygon(vertices: V2d[], opts?: DrawOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
 
     if (vertices.length < 3) return;
 
-    // Simple fan triangulation (works for convex polygons)
-    const indices: number[] = [];
-    for (let i = 1; i < vertices.length - 1; i++) {
-      indices.push(0, i, i + 1);
-    }
+    // Use ear clipping for correct triangulation of concave polygons
+    const indices = earClipTriangulate(vertices);
+    if (!indices) return; // Triangulation failed (degenerate polygon)
 
     this.renderer.submitTriangles(vertices, indices, color, alpha);
   }

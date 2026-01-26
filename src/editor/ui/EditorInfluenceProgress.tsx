@@ -14,9 +14,7 @@ export function EditorInfluenceProgress({
   manager,
 }: EditorInfluenceProgressProps) {
   const progress = manager.getProgress();
-  const pct = Math.round(
-    ((progress.wind + progress.swell + progress.fetch) / 3) * 100,
-  );
+  const pct = Math.round(progress.wind * 100);
 
   return (
     <div class="editor-influence-progress">

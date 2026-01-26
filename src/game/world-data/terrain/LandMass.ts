@@ -76,6 +76,86 @@ export function createContour(
 }
 
 /**
+ * Compute the signed area of a polygon defined by control points.
+ * Uses the shoelace formula.
+ *
+ * In screen coordinates (Y increases downward):
+ * - Positive area = clockwise winding
+ * - Negative area = counter-clockwise winding
+ *
+ * @param points - Polygon vertices (closed loop assumed)
+ * @returns Signed area (positive = CW, negative = CCW in screen coords)
+ */
+export function computeSignedArea(points: readonly V2d[]): number {
+  if (points.length < 3) return 0;
+
+  let area = 0;
+  const n = points.length;
+
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += points[i].x * points[j].y;
+    area -= points[j].x * points[i].y;
+  }
+
+  return area / 2;
+}
+
+/**
+ * Check if a contour has counter-clockwise winding (in screen coordinates).
+ *
+ * For wave physics, CCW winding means:
+ * - The interior (land) is on the LEFT as you traverse the contour
+ * - The exterior (water) is on the RIGHT
+ *
+ * @param contour - Terrain contour to check
+ * @returns True if the contour has CCW winding
+ */
+export function isContourCCW(contour: TerrainContour): boolean {
+  // In screen coordinates (Y down), negative signed area = CCW
+  return computeSignedArea(contour.controlPoints) < 0;
+}
+
+/**
+ * Ensure a contour has counter-clockwise winding.
+ * Returns the contour unchanged if already CCW, or a new contour with reversed points.
+ *
+ * @param contour - Terrain contour to normalize
+ * @returns Contour with CCW winding
+ */
+export function ensureContourCCW(contour: TerrainContour): TerrainContour {
+  if (isContourCCW(contour)) {
+    return contour;
+  }
+
+  // Reverse the control points to flip winding
+  return {
+    controlPoints: [...contour.controlPoints].reverse(),
+    height: contour.height,
+  };
+}
+
+/**
+ * Normalize all contours in a terrain definition to have CCW winding.
+ * This is important for consistent wave shadow computation.
+ *
+ * @param definition - Terrain definition to normalize
+ * @returns New terrain definition with all contours in CCW winding
+ */
+export function normalizeTerrainWinding(
+  definition: TerrainDefinition,
+): TerrainDefinition {
+  const normalizedContours = definition.contours.map((contour) =>
+    ensureContourCCW(contour),
+  );
+
+  return {
+    contours: normalizedContours,
+    defaultDepth: definition.defaultDepth,
+  };
+}
+
+/**
  * Working node structure used during tree construction.
  * Has mutable children array for incremental insertion.
  */
@@ -316,7 +396,9 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   controlPointsData: Float32Array;
   contourData: ArrayBuffer;
   childrenData: Uint32Array;
+  coastlineIndices: Uint32Array;
   contourCount: number;
+  coastlineCount: number;
   maxDepth: number;
   defaultDepth: number;
 } {
@@ -342,7 +424,8 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   //   16-19: depth (u32)
   //   20-23: childStartIndex (u32)
   //   24-27: childCount (u32)
-  //   28-35: padding (for 16-byte struct alignment)
+  //   28-31: isCoastline (u32, 1 if height == 0)
+  //   32-35: padding (for 16-byte struct alignment)
   const contourBuffer = new ArrayBuffer(
     contours.length * FLOATS_PER_CONTOUR * 4,
   );
@@ -358,6 +441,15 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
 
   // Create children buffer
   const childrenData = new Uint32Array(tree.childrenFlat);
+
+  // Collect coastline indices (height == 0 contours)
+  const coastlineIndicesList: number[] = [];
+  for (let i = 0; i < contours.length; i++) {
+    if (contours[i].height === 0) {
+      coastlineIndicesList.push(i);
+    }
+  }
+  const coastlineIndices = new Uint32Array(coastlineIndicesList);
 
   let pointIndex = 0;
   for (let i = 0; i < contours.length; i++) {
@@ -379,7 +471,8 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     contourView.setUint32(byteBase + 16, node.depth, true); // depth
     contourView.setUint32(byteBase + 20, childStartIndices[i], true); // childStartIndex
     contourView.setUint32(byteBase + 24, node.children.length, true); // childCount
-    // byteBase + 28 and +32 are padding (left as 0)
+    contourView.setUint32(byteBase + 28, contour.height === 0 ? 1 : 0, true); // isCoastline
+    // byteBase + 32 is padding (left as 0)
 
     // Store control points
     for (const pt of contour.controlPoints) {
@@ -393,7 +486,9 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     controlPointsData,
     contourData: contourBuffer,
     childrenData,
+    coastlineIndices,
     contourCount: contours.length,
+    coastlineCount: coastlineIndices.length,
     maxDepth: tree.maxDepth,
     defaultDepth: definition.defaultDepth ?? DEFAULT_DEPTH,
   };
