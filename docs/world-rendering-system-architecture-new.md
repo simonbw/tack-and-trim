@@ -1,94 +1,59 @@
 # World Rendering System Architecture
 
-## Purpose of This Document
-
-This documentation is part of a deliberate refactoring strategy. Over time, the world rendering and data systems accumulated complexity and vestiges of abandoned approaches. Rather than incrementally cleaning up the existing code, we're taking a different approach:
-
-1. **Document thoroughly** - Capture everything the current system does, how it works, and why.
-2. **Delete the existing code** - With the system fully documented and the old code safely preserved in git, we can delete the existing implementation entirely.
-3. **Design fresh** - Using this documentation as a specification, design a cleaner architecture that incorporates lessons learned but without the accumulated cruft.
-4. **Rebuild from scratch** - Implement the new design with consistent patterns and cleaner code.
-
-### Old and New Documents
-
-- `world-rendering-system-architecture-old.md` — describes exactly how the old system works
-- `world-rendering-system-architecture-new.md` — describes how we want the new system to work
-
-**THIS IS THE NEW VERSION.** Reference the old document for implementation details of the current system.
+This document describes the architecture for the world rendering and simulation data systems: how terrain, water, and wind data are computed, queried, and rendered.
 
 ---
 
 # Table of Contents
 
-1. [Design Considerations](#design-considerations)
+1. [Overview & Principles](#overview--principles)
 2. [Architecture Overview](#architecture-overview)
-3. [Query Infrastructure](#query-infrastructure)
+3. [Virtual Texture System](#virtual-texture-system)
 4. [Terrain System](#terrain-system)
 5. [Wave System](#wave-system)
 6. [Wind System](#wind-system)
-7. [Surface Rendering](#surface-rendering)
+7. [Query Infrastructure](#query-infrastructure)
+8. [Surface Rendering](#surface-rendering)
 
 ---
 
-# Design Considerations
+# Overview & Principles
 
-These are lessons learned from the old implementation and key decisions for the new system.
+## GPU-First, No CPU Fallback
 
-## 1. Point-Based Queries Instead of Tiles
+All world data computation happens on the GPU. There are no duplicate CPU implementations to maintain. The query infrastructure ensures all needed points are always computed on GPU, and results are read back asynchronously.
 
-**Problem with tiles**: The current tile system has resolution mismatches with camera zoom. When zoomed in, tile resolution is too low and things look blocky. When zoomed out, we compute hundreds of tiles at higher resolution than needed. We also compute data for regions that may never be queried.
+## Simulation Independent of Camera
 
-**Proposed solution**: Instead of computing rectangular tiles, upload a buffer of specific query points and compute only those. This would:
+Game physics works the same regardless of where the camera is, or whether there's a camera at all. Entities request specific world data points through the query system; the camera only drives the rendering path.
 
-- Eliminate resolution mismatches entirely
-- Never compute data that isn't needed
-- Require maintaining a point → buffer-index mapping
+## Static vs Dynamic Data
 
-**Decision**: Rendering uses separate compute pipelines that write dense 2D textures, not the point query system. Rendering and simulation share shader math, input data, and configuration, but have independent execution paths. See [Surface Rendering](#surface-rendering) for the full design.
+- **Static data** (terrain, wave shadows): Computed once, cached via the VirtualTexture system, invalidated only when modified.
+- **Dynamic data** (water, wind): Computed per-frame or on-demand.
 
-## 2. Static vs Dynamic Data
+## Query What You Need
 
-The new system should distinguish between:
+Entities submit only the specific points they need. No speculative computation of large grids at potentially wrong resolutions.
 
-- **Static data** (terrain): Computed once, cached, invalidated only when modified (for editor or gameplay)
-- **Dynamic data** (water, eventually wind): Computed per-frame or on-demand
+## Rendering is Separate
 
-## 3. Eliminating CPU Fallback Code
+The visual rendering system runs its own dense 2D compute pipelines. It shares shader math and GPU data with simulation but has independent execution. See [Surface Rendering](#surface-rendering).
 
-**Goal**: If we use point-based queries, we can ensure all needed points are always computed on GPU, eliminating the need for CPU fallback entirely. This is a huge win for maintainability—no more keeping CPU and GPU implementations in sync.
+## Coordinate Space Conventions
 
-## 4. Wetness System Simplification
-
-The current wetness system uses ping-pong textures with snapped viewports and reprojection, which caused artifacts when scrolling or zooming. The new system keeps the ping-pong approach (temporal memory is needed for the wet-sand effect) but simplifies it: new screen pixels default to dry instead of attempting gap-filling reprojection, and all render passes share the same render rect to avoid sampling outside valid regions. See [Surface Rendering](#surface-rendering) for details.
-
-## 5. Remove Pre-computed Influence Fields
-
-Decision: Remove the `InfluenceFieldManager` entirely. Wind should be written similarly to the wave system, possibly sharing code. Terrain influence on wind/water should be computed inline, not pre-cached.
-
-## 6. Coordinate Space Conventions
-
-**Problem**: Viewport/rect handling has been error-prone.
-
-**Solution**:
-
-- Use "rect" not "viewport" where appropriate
-- Names must indicate coordinate space: `worldRect`, `screenRect`, `textureRect`
-- Provide helper functions to translate between spaces
-- Most margins should be 1-2 texels, not percentages
-
-## 7. Wave Shadow System
-
-The wave shadow system is working well and should be preserved. Core idea: compute shadow geometry for each island and wave source, use that geometry when determining wave energy at any point.
-
-## 8. Wind System is Placeholder
-
-Current wind is simple simplex noise. Will be redesigned after the water system is solid, using similar patterns and possibly sharing code.
+- Use "rect" not "viewport" where appropriate.
+- Names indicate coordinate space: `worldRect`, `screenRect`, `textureRect`.
+- Helper functions translate between spaces.
+- Margins are expressed in texels (1–2), not percentages.
 
 ---
 
 # Architecture Overview
 
-### Simulation Path
+The system has two parallel execution paths that share data but differ in how they access it.
+
+## Simulation Path
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -118,7 +83,7 @@ Current wind is simple simplex noise. Will be redesigned after the water system 
                 Entity physics tick
 ```
 
-### Rendering Path
+## Rendering Path
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -146,7 +111,7 @@ Current wind is simple simplex noise. Will be redesigned after the water system 
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### Shared Resources
+## Shared Resources
 
 Both paths read from the same GPU resources — no data is duplicated:
 
@@ -167,24 +132,10 @@ Both paths read from the same GPU resources — no data is duplicated:
   (point queries → readback)      (dense textures → screen)
 ```
 
-## Key Principles
-
-1. **Simulation independent of camera**: Game physics should work the same regardless of where the camera is, or if there's no camera at all.
-
-2. **Query what you need**: Don't compute data speculatively. Entities request the specific points they need.
-
-3. **GPU-first, no CPU fallback**: All world data computation happens on GPU. No duplicate CPU implementations to maintain.
-
-4. **Static data is cached**: Terrain computed once and cached. Dynamic data (waves, wind) computed on-demand.
-
-5. **Rendering is separate**: The visual rendering system consumes world data but has its own concerns (resolution, margins, textures).
-
 ## Simulation vs Rendering
 
-The system has two parallel execution paths that share data but differ in how they access it.
-
 **What they share:**
-- **Shader math**: Wave evaluation (Gerstner), depth effects (shoaling, damping), shadow sampling, modifier accumulation — same WGSL functions used by both paths. This is critical: the water a boat feels must match the water the player sees.
+- **Shader math**: Wave evaluation (Gerstner), depth effects (shoaling, damping), shadow sampling, modifier accumulation — same WGSL functions used by both paths. The water a boat feels must match the water the player sees.
 - **GPU resources**: Terrain VirtualTexture tiles, shadow VirtualTexture tiles, wave source parameters, water modifier buffer, time/globals uniform. Single source of truth, bound read-only by both paths.
 - **Configuration**: Level-defined wave sources, wind parameters, terrain data. Loaded once, consumed by both.
 
@@ -199,8 +150,6 @@ The system has two parallel execution paths that share data but differ in how th
 | **Camera dependency** | None — works without a camera | Entirely camera-driven |
 | **Cross-frame state** | None | Wetness ping-pong textures |
 | **Exclusive resources** | Query point/result buffers, staging buffers | Render textures (terrain, water, wetness) |
-
-The simulation path is documented in [Query Infrastructure](#query-infrastructure). The rendering path is documented in [Surface Rendering](#surface-rendering).
 
 ## GPU Resource Ownership
 
@@ -226,6 +175,504 @@ Key points:
 
 ---
 
+# Virtual Texture System
+
+Large static datasets (terrain heights, wave shadow intensity) are too big to keep entirely in memory at full resolution. The VirtualTexture system provides LOD-aware, demand-driven caching for this data.
+
+## Interface
+
+```typescript
+interface VirtualTexture<T> {
+  // Request tiles for a world rect at a given detail level
+  requestTilesForRect(worldRect: Rect, worldUnitsPerPixel: number): void;
+
+  // Get tile data (falls back to coarser LOD if exact tile not ready)
+  getTile(worldX: number, worldY: number, lod: number): TileData<T> | null;
+
+  // Process pending tile computations
+  update(): void;
+
+  // Invalidate all tiles (when terrain modified)
+  invalidate(): void;
+}
+```
+
+## Instances
+
+The `VirtualTexture` abstraction is reused for all large static data:
+
+- `VirtualTexture<TerrainHeight>` — terrain heights
+- `VirtualTexture<ShadowData>` — wave shadow intensity (one per wave source)
+
+Same infrastructure, different compute functions for filling tiles.
+
+One `VirtualTexture<ShadowData>` per wave source keeps each source's shadow data independent, simplifies invalidation (only recompute the source whose geometry changed), and avoids combining semantically different shadow regions into a single texture. The water shader samples each shadow texture separately and combines the results (e.g., multiply shadow intensities).
+
+## Tile Specifications
+
+**Tile size**: 128×128 texels. Small enough for good spatial granularity (only load tiles that are actually visible), large enough to avoid excessive management overhead.
+
+**Tile formats**:
+- Terrain height: `r16float` (f16) — 32KB per tile
+- Shadow data: `rg8unorm` (2×u8, intensity + distance-to-edge) — 32KB per tile
+
+**Memory budget**: 512 tiles per VirtualTexture instance. At 32KB per tile, that's 16MB per instance — modest GPU memory usage. With one terrain VT and a few shadow VTs (one per wave source), total is well under 100MB.
+
+## LOD
+
+Power-of-2 scheme. Each LOD level doubles the world coverage per texel:
+
+| LOD | World units per texel | Tile covers (world) |
+|-----|-----------------------|---------------------|
+| 0   | 0.5 ft               | 64×64 ft            |
+| 1   | 1.0 ft               | 128×128 ft          |
+| 2   | 2.0 ft               | 256×256 ft          |
+| 3   | 4.0 ft               | 512×512 ft          |
+| ... | ...                   | ...                 |
+
+**LOD selection**: Pick the LOD where one texel ≈ one screen pixel:
+```
+lod = floor(log2(worldUnitsPerScreenPixel / baseWorldUnitsPerTexel))
+```
+Clamp to [0, maxLOD]. This ensures we never compute at higher resolution than the screen can show.
+
+**Tile addressing**: Tiles are addressed by (lod, tileX, tileY) where:
+```
+tileX = floor(worldX / tileWorldSize(lod))
+tileY = floor(worldY / tileWorldSize(lod))
+```
+
+## Request Flow (Per Frame)
+
+1. Determine visible world rect from camera
+2. Compute LOD from camera zoom
+3. Find all tile addresses that overlap the visible rect
+4. For each tile: if cached, mark as recently used. If not cached, add to pending queue.
+5. Process pending queue (see compute fill below)
+
+## Fallback Chain
+
+If a tile at the requested LOD isn't ready yet, sample from the nearest coarser LOD that is cached. This means zooming in shows blurry data briefly before sharp tiles stream in — acceptable since terrain and shadows are static and tiles compute fast.
+
+## Eviction
+
+LRU. When a new tile needs a slot and all 512 are occupied, evict the tile with the oldest last-access timestamp. Tiles at coarser LODs could be given eviction priority protection (they're cheap to keep and serve as fallbacks), but this is an optimization to add if needed.
+
+## Compute Fill
+
+One compute dispatch per tile. The dispatch writes a 128×128 output texture given the tile's world-space bounds:
+- **Terrain tiles**: For each texel, compute the world position, walk the containment tree, interpolate height. The containment tree and contour data are uploaded as GPU buffers.
+- **Shadow tiles**: For each texel, compute the world position, test against shadow polygon geometry (uploaded as a GPU buffer), write intensity and distance-to-edge.
+
+Per-frame cap on tile computations (e.g., 4–8 tiles per frame) to avoid stalling. Tiles stream in progressively. Batching multiple tiles into a single dispatch is a future optimization if dispatch overhead becomes measurable.
+
+---
+
+# Terrain System
+
+## Overview
+
+Terrain is static data defined by contours (closed Catmull-Rom splines at specific heights). Being static, it uses the VirtualTexture system for efficient caching and LOD.
+
+## Data Definition
+
+### Contours
+
+Terrain is defined by closed contour loops at specific heights:
+
+```typescript
+interface TerrainContour {
+  controlPoints: readonly V2d[]; // Catmull-Rom spline control points
+  height: number; // Height of this contour (ft)
+}
+
+interface TerrainDefinition {
+  contours: TerrainContour[];
+  defaultDepth: number; // Deep ocean baseline (e.g., -50 ft)
+}
+```
+
+### Containment Tree
+
+Contours form a hierarchy based on which contains which:
+
+```
+Ocean (default depth)
+├─ Island A (height=0, coastline)
+│  └─ Hill (height=10)
+│     └─ Peak (height=20)
+└─ Island B (height=0, coastline)
+```
+
+The tree is built once when terrain is loaded/modified, then used for height queries.
+
+### Height Computation
+
+Given a point, find its height:
+
+1. Find the deepest (most nested) contour containing the point
+2. Use inverse-distance weighting between that contour and its children
+3. Result is interpolated height at that point
+
+### Coastline Extraction
+
+Contours with `height=0` are coastlines. These are passed to the wave shadow system for diffraction calculations.
+
+## Physics Queries
+
+Terrain uses the same point-based query system as water and wind. Water queries that need terrain depth trigger terrain point queries through the standard dependency mechanism (see [Query Infrastructure](#query-infrastructure)).
+
+## Rendering
+
+Rendering needs dense terrain data for the visible area (potentially millions of pixels). This uses the VirtualTexture system:
+
+- LOD based on camera zoom level
+- Lazy tile computation as camera moves
+- Fallback to coarser LOD when fine tiles not yet computed
+- LRU eviction to bound memory
+
+See [Surface Rendering](#surface-rendering) for how the rendering pipeline consumes terrain data.
+
+## Invalidation
+
+When terrain is modified (editor or gameplay):
+
+1. Rebuild the containment tree
+2. Re-extract coastlines (notify wave shadow system)
+3. Clear the virtual texture cache (tiles recompute on demand)
+4. Clear any physics query cache
+
+---
+
+# Wave System
+
+## Overview
+
+Dynamic water simulation using Gerstner waves with shadow-based diffraction around terrain.
+
+## Query Result
+
+```typescript
+interface WaterQueryResult {
+  z: number; // Surface elevation relative to sea level (ft)
+  vx: number; // Surface velocity X (ft/s)
+  vy: number; // Surface velocity Y (ft/s)
+  vz: number; // Surface velocity Z, i.e., dz/dt (ft/s)
+}
+```
+
+## Wave Sources (Level-Defined)
+
+Wave sources are defined per-level in the level file:
+
+```typescript
+interface WaveSource {
+  direction: number; // Radians, direction waves travel FROM
+  baseAmplitude: number; // Base wave height (ft)
+  wavelength: number; // Distance between crests (ft)
+  // ... other parameters
+}
+```
+
+- **Shadow geometry** is computed once when the level loads (depends on direction)
+- **Amplitude/intensity** can modulate at runtime without recomputing shadows
+- Multiple wave sources per level (e.g., swell + chop with different directions)
+
+## Wave Mathematics
+
+Two-pass Gerstner wave computation:
+
+1. **Displacement pass**: Compute horizontal displacement at the query point
+2. **Height pass**: Evaluate wave height at the displaced position (creates trochoid surface)
+
+For each wave source:
+
+```
+phase = dot(waveDirection, position) * k - omega * time
+height += amplitude * sin(phase)
+vz += -amplitude * omega * cos(phase)
+```
+
+Where `k = 2π/wavelength` and `omega = sqrt(g * k)` (deep water dispersion).
+
+## Shadow System
+
+Shadows represent where wave energy is blocked/diffracted by terrain. The system handles concave coastlines (e.g., bays).
+
+### Shadow Geometry (at Level Load)
+
+1. Extract coastlines (height=0 contours) from terrain
+2. For each wave source direction:
+   - Find silhouette points: where coastline tangent is parallel to wave direction
+   - Identify left/right extremal silhouette points
+   - Sample the leeward coastline arc between them
+   - Build shadow polygon: silhouette points + coastline arc + extended boundaries
+
+Shadow polygons may be concave (following the actual coastline shape). This geometry is stored for rasterization.
+
+### Shadow Tiles (VirtualTexture)
+
+Shadows are static, so they use the VirtualTexture system (one instance per wave source):
+
+```typescript
+VirtualTexture<ShadowData>; // One per wave source
+```
+
+- **Tiles computed on demand**: When a region is queried, rasterize shadow polygons into that tile
+- **Cached**: Shadows don't change during gameplay
+- **LOD**: Coarser tiles when zoomed out or for distant queries
+- **Invalidated**: When terrain changes (triggers shadow geometry recomputation)
+
+### Shadow Data
+
+Each shadow texel contains:
+
+- Shadow intensity (0 = full sun, 1 = full shadow)
+- Distance to nearest silhouette edge (for diffraction calculations)
+- Which shadow polygon (if multiple islands)
+
+### Diffraction (Future)
+
+Soft shadow edges based on distance from silhouette, Fresnel diffraction model for realistic wave bending around obstacles, shadow intensity varying with distance into shadow region. The rasterization approach makes these enhancements straightforward to add.
+
+## Depth Effects
+
+Water queries need terrain depth (handled by the query dependency system).
+
+### Shoaling (Green's Law)
+
+Waves grow taller as depth decreases:
+
+```
+shoalingFactor = (referenceDepth / actualDepth)^0.25
+```
+
+### Damping (Bottom Friction)
+
+Waves attenuate in shallow water:
+
+```
+if depth > deepThreshold: damping = 1.0
+if depth < shallowThreshold: damping = minDamping
+else: linear interpolation
+```
+
+Combined: `depthModifier = shoalingFactor * dampingFactor`
+
+## Water Modifiers
+
+A unified system for local water disturbances (wakes, splashes, ripples).
+
+### WaterModifier Interface
+
+```typescript
+interface WaterModifier {
+  // Bounds for fast spatial queries
+  getBounds(): AABB;
+
+  // Data for GPU upload
+  getModifierData(): WaterModifierData;
+}
+
+type WaterModifierData =
+  | { type: "segment"; p1: V2d; p2: V2d; amplitude: number; falloff: number }
+  | { type: "point"; center: V2d; radius: number; amplitude: number }
+  | {
+      type: "ring";
+      center: V2d;
+      radius: number;
+      width: number;
+      amplitude: number;
+    };
+```
+
+### Modifier Types
+
+- **Segment**: Wake particles (line between two points)
+- **Point**: Splash impact, localized disturbance
+- **Ring**: Expanding ripple (radius increases over time)
+
+### Performance (Targeting 10,000+ Modifiers)
+
+- **Buffer management**: Persistent GPU buffer sized for max modifiers (e.g., 16k). Upload only active portion each frame.
+- **Spatial queries**: If iterating all modifiers is too slow, add spatial hash for fast "modifiers near point" queries.
+- **GPU iteration**: Shader iterates through modifier buffer. GPU handles parallel iteration well.
+
+Each effect (wake particle, anchor splash, etc.) is an entity that manages a `WaterModifier`. Modifiers are collected and uploaded before water computation.
+
+### GPU Buffer Layout
+
+Modifiers are stored in a storage buffer as a flat array of fixed-size structs. Each struct is 32 bytes (8 × f32), using a union layout with a type field:
+
+```wgsl
+struct WaterModifier {
+  modifierType: f32,  // 0 = inactive/padding, 1 = segment, 2 = point, 3 = ring, ...
+  // Bounding box for early culling (world space)
+  boundsMinX: f32,
+  boundsMinY: f32,
+  boundsMaxX: f32,
+  boundsMaxY: f32,
+  // Type-specific data (meaning depends on modifierType)
+  param0: f32,
+  param1: f32,
+  param2: f32,
+}
+```
+
+Type-specific field usage:
+
+| Field  | Segment                  | Point     | Ring      |
+|--------|--------------------------|-----------|-----------|
+| param0 | amplitude                | amplitude | amplitude |
+| param1 | falloff                  | radius    | radius    |
+| param2 | (unused)                 | (unused)  | width     |
+
+Segment geometry (p1, p2) is encoded in the bounds fields directly — `boundsMin` = p1, `boundsMax` = p2 — since the segment endpoints define the bounds. Point and ring use center = bounds center.
+
+New modifier types can be added by assigning a new `modifierType` value and defining what `param0`–`param2` mean. If a future type needs more than 3 parameters, the struct can be extended (add `param3`–`param5`, bump to 48 bytes).
+
+### Buffer Management
+
+```typescript
+const MAX_MODIFIERS = 16384;
+const MODIFIER_STRIDE = 32; // bytes
+
+// Persistent GPU buffer, created once
+const modifierBuffer = device.createBuffer({
+  size: MAX_MODIFIERS * MODIFIER_STRIDE,
+  usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+});
+
+// Each frame: collect active modifiers, write to CPU array, upload active portion
+const activeCount = collectModifiers(cpuArray);
+device.queue.writeBuffer(modifierBuffer, 0, cpuArray, 0, activeCount * MODIFIER_STRIDE);
+```
+
+The active count is passed as a uniform so the shader knows where to stop iterating.
+
+### Shader Iteration with Bounds Culling
+
+The shader iterates all active modifiers but skips early if the texel is outside the modifier's bounding box:
+
+```wgsl
+for (var i = 0u; i < activeModifierCount; i++) {
+  let mod = modifiers[i];
+  // Bounds culling — skip if this texel is outside the modifier's AABB
+  if (worldPos.x < mod.boundsMinX || worldPos.x > mod.boundsMaxX ||
+      worldPos.y < mod.boundsMinY || worldPos.y > mod.boundsMaxY) {
+    continue;
+  }
+  // Evaluate modifier contribution based on type
+  switch (u32(mod.modifierType)) {
+    case 1u: { /* segment */ }
+    case 2u: { /* point */ }
+    case 3u: { /* ring */ }
+    default: {}
+  }
+}
+```
+
+This is O(N) iteration with a cheap per-modifier early-out. A spatial hash or grid can be added later if GPU iteration becomes measurably slow.
+
+## Tide
+
+Tide is a pure function of time, constant across space:
+
+```typescript
+function getTideHeight(timeOfDay: number): number {
+  // Sinusoidal based on time, or more complex tidal model
+  return tideRange * sin(timeOfDay * tidalFrequency);
+}
+```
+
+Added to final water height after all other computations.
+
+---
+
+# Wind System
+
+## Overview
+
+Wind uses the same point-based query interface as water, with a simple implementation that supports future complexity (terrain influence, wind shadows, gusts) without requiring it.
+
+## Query Result
+
+```typescript
+interface WindQueryResult {
+  vx: number; // Wind velocity X (ft/s)
+  vy: number; // Wind velocity Y (ft/s)
+}
+```
+
+## Implementation
+
+Wind is base wind plus spatially-varying noise:
+
+```
+wind(point, time) = baseWind + noise(point, time)
+```
+
+Where:
+
+- `baseWind`: Constant vector defined in level file (direction + speed)
+- `noise`: Scrolling 2D simplex noise for natural variation
+
+```typescript
+function computeWind(point: V2d, time: number, baseWind: V2d): WindQueryResult {
+  const noiseScale = 0.01; // Spatial frequency
+  const timeScale = 0.1; // How fast noise scrolls
+  const variation = 0.2; // ±20% variation
+
+  const nx = noise2D(
+    point.x * noiseScale,
+    point.y * noiseScale + time * timeScale,
+  );
+  const ny = noise2D(
+    point.x * noiseScale + 100,
+    point.y * noiseScale + time * timeScale,
+  );
+
+  return {
+    vx: baseWind.x * (1 + nx * variation),
+    vy: baseWind.y * (1 + ny * variation),
+  };
+}
+```
+
+No terrain influence, no wind shadows, no gusts. Just smooth natural variation.
+
+## API
+
+```typescript
+class WindInfo {
+  static fromGame(game: Game): WindInfo;
+
+  getWindAtPoint(point: V2d): WindQueryResult | null;
+  getWindAtPointAsync(point: V2d): Promise<WindQueryResult>;
+
+  // Level-defined base wind
+  getBaseWind(): V2d;
+}
+
+// Persistent query (same pattern as WaterQuery)
+class WindQuery extends BaseEntity {
+  constructor(getPoints: () => V2d[]) { ... }
+}
+```
+
+## Future Direction
+
+When wind needs more complexity:
+
+- **Terrain influence**: Wind blocked/deflected by terrain (similar to wave shadows)
+- **Wind shadows**: `VirtualTexture<WindShadowData>` like wave shadows
+- **Gusts**: Temporal variation beyond smooth noise
+- **Local modifiers**: Sails affecting nearby wind (like water modifiers)
+
+The query interface stays the same — only the implementation changes. Entities don't need to know whether wind is simple noise or a complex simulation.
+
+---
+
 # Query Infrastructure
 
 ## Core Concept
@@ -248,7 +695,7 @@ Frame N+1:
   ...
 ```
 
-### Async Readback Mechanics
+## Async Readback Mechanics
 
 WebGPU doesn't allow mapping a storage buffer directly. Results must be copied to a staging buffer first, then mapped for CPU read.
 
@@ -280,13 +727,13 @@ Frame N:
 
 Steps 1–3 use the staging buffer that was submitted last frame. Steps 8–10 set up the other staging buffer for next frame's readback.
 
-**Blocking behavior**: Step 1 blocks the frame if the GPU hasn't finished the previous frame's compute. In practice this shouldn't happen — the GPU has a full frame to complete the work. If it does block, it means the GPU is behind, and blocking is the correct behavior (we need those results for physics). This is preferable to running physics with stale or missing data.
+**Blocking behavior**: Step 1 blocks the frame if the GPU hasn't finished the previous frame's compute. In practice this shouldn't happen — the GPU has a full frame to complete the work. If it does block, it means the GPU is behind, and blocking is the correct behavior (we need those results for physics).
 
-**First frame**: No previous results exist. Staging buffers are initialized to zeros. Entities get zeroed results (sea level, no velocity), which is a safe default. After one frame, real results are available.
+**First frame**: No previous results exist. Staging buffers are initialized to zeros. Entities get zeroed results (sea level, no velocity) — safe defaults. After one frame, real results are available.
 
 **Buffer sizing**: Staging buffers are sized to match the compute buffer (8192 points × result struct size). Reallocated if the buffer limit changes.
 
-## API Design
+## API
 
 ### Persistent Queries (Common Case)
 
@@ -338,7 +785,7 @@ water.getInfoAtPointAsync(position).then((info) => {
 });
 ```
 
-This is sugar over the persistent query system—it creates a temporary query, waits one frame, returns the result, and cleans up.
+This is sugar over the persistent query system — it creates a temporary query, waits one frame, returns the result, and cleans up.
 
 ## Point → Result Mapping
 
@@ -359,13 +806,13 @@ nextFreeIndex += points.length;
 const result = resultBuffer[query.bufferOffset + localIndex];
 ```
 
-No deduplication — the mapping from entity to buffer range is direct, with no hashing, string keys, or spatial snapping. This is simpler and avoids the cost of building a deduplication map each frame. The buffer budget (8192) is generous relative to expected usage (low thousands), so duplicate points from overlapping queries waste a few slots but aren't a concern. If buffer pressure becomes real later, deduplication can be added as an optimization.
+No deduplication — the mapping from entity to buffer range is direct, with no hashing, string keys, or spatial snapping. The buffer budget (8192) is generous relative to expected usage (low thousands), so duplicate points from overlapping queries waste a few slots but aren't a concern. Deduplication can be added as an optimization if buffer pressure becomes real.
 
 Minimum meaningful spatial resolution is ~0.01 ft — points closer than that can be considered equivalent for any future deduplication or caching.
 
 ## Dependency Ordering
 
-Water and wind computations need terrain data (for depth effects, terrain blocking). This creates a dependency:
+Water and wind computations need terrain data (for depth effects, terrain blocking):
 
 ```
 Terrain queries (no dependencies)
@@ -374,7 +821,7 @@ Water queries (need terrain depth at each point)
 Wind queries (need terrain for blocking)
 ```
 
-**Implementation approach**:
+**Implementation**:
 
 1. When a water query point is registered, automatically register a terrain query at the same location
 2. Compute terrain first → results go to terrain buffer
@@ -430,9 +877,9 @@ Typical expected usage:
 
 8192 gives plenty of headroom for normal gameplay.
 
-## First-Frame Handling
+## First-Frame and Late-Join Handling
 
-On the very first frame of the game, no compute has run yet. Staging buffers are initialized to zeros, so entities receive zeroed results (sea level, no velocity) — safe defaults. After that first frame, blocking readback guarantees results are always available.
+On the first frame, no compute has run yet. Staging buffers are initialized to zeros, so entities receive zeroed results (sea level, no velocity) — safe defaults. After that first frame, blocking readback guarantees results are always available.
 
 When an entity is added mid-game, its query points won't be in the compute buffer until the next frame. The API returns `null` for that one frame:
 
@@ -443,534 +890,6 @@ if (!info) return; // First frame after entity added — skip or use defaults
 
 After one frame, the entity's points are in the system and results are always available.
 
-## Terrain Caching (Special Case)
-
-Terrain queries are dominated by **rendering** (potentially millions of pixels) rather than physics (hundreds of points). This calls for a different approach than water/wind.
-
-**For physics**: Simple point queries, small cache, or just compute on demand. The volume is low enough that this is cheap.
-
-**For rendering**: Virtual texture with LOD—a well-established pattern for large static data:
-
-```typescript
-interface VirtualTexture<T> {
-  // Request tiles for a world rect at a given detail level
-  requestTilesForRect(worldRect: Rect, worldUnitsPerPixel: number): void;
-
-  // Get tile data (falls back to coarser LOD if exact tile not ready)
-  getTile(worldX: number, worldY: number, lod: number): TileData<T> | null;
-
-  // Process pending tile computations
-  update(): void;
-
-  // Invalidate all tiles (when terrain modified)
-  invalidate(): void;
-}
-```
-
-Key properties:
-
-- **LOD selection**: Camera zoom determines which LOD level (coarse when zoomed out, fine when zoomed in)
-- **Lazy computation**: Tiles computed on-demand when first visible
-- **Fallback chain**: If a tile isn't computed yet, use a coarser LOD that is
-- **LRU eviction**: When memory limit hit, evict least-recently-used tiles
-- **Invalidation**: Clear cache when terrain is modified (editor, gameplay)
-
-This keeps memory bounded while supporting both zoomed-out overview and zoomed-in detail views.
-
-The `VirtualTexture` abstraction is reused for all large static data:
-
-- `VirtualTexture<TerrainHeight>` - terrain heights
-- `VirtualTexture<ShadowData>` - wave shadow intensity (one per wave source)
-
-Same infrastructure, different compute functions for filling tiles.
-
-### Implementation Details
-
-**Tile size**: 128×128 texels. Small enough for good spatial granularity (only load tiles that are actually visible), large enough to avoid excessive management overhead.
-
-**Tile formats**:
-- Terrain height: `r16float` (f16) — 32KB per tile
-- Shadow data: `rg8unorm` (2×u8, intensity + distance-to-edge) — 32KB per tile
-
-**Memory budget**: 512 tiles per VirtualTexture instance. At 32KB per tile, that's 16MB per instance — modest GPU memory usage. With one terrain VT and a few shadow VTs (one per wave source), total is well under 100MB.
-
-**LOD levels**: Power-of-2 scheme. Each LOD level doubles the world coverage per texel:
-
-| LOD | World units per texel | Tile covers (world) |
-|-----|-----------------------|---------------------|
-| 0   | 0.5 ft               | 64×64 ft            |
-| 1   | 1.0 ft               | 128×128 ft          |
-| 2   | 2.0 ft               | 256×256 ft          |
-| 3   | 4.0 ft               | 512×512 ft          |
-| ... | ...                   | ...                 |
-
-**LOD selection**: Pick the LOD where one texel ≈ one screen pixel:
-```
-lod = floor(log2(worldUnitsPerScreenPixel / baseWorldUnitsPerTexel))
-```
-Clamp to [0, maxLOD]. This ensures we never compute at higher resolution than the screen can show.
-
-**Tile addressing**: Tiles are addressed by (lod, tileX, tileY) where:
-```
-tileX = floor(worldX / tileWorldSize(lod))
-tileY = floor(worldY / tileWorldSize(lod))
-```
-
-**Request flow each frame**:
-1. Determine visible world rect from camera
-2. Compute LOD from camera zoom
-3. Find all tile addresses that overlap the visible rect
-4. For each tile: if cached, mark as recently used. If not cached, add to pending queue.
-5. Process pending queue (see compute fill below)
-
-**Fallback chain**: If a tile at the requested LOD isn't ready yet, sample from the nearest coarser LOD that is cached. This means zooming in shows blurry data briefly before sharp tiles stream in — acceptable since terrain and shadows are static and tiles compute fast.
-
-**Eviction**: LRU. When a new tile needs a slot and all 512 are occupied, evict the tile with the oldest last-access timestamp. Tiles at coarser LODs could be given eviction priority protection (they're cheap to keep and serve as fallbacks), but this is an optimization to add if needed.
-
-**Compute fill**: One compute dispatch per tile. The dispatch writes a 128×128 output texture given the tile's world-space bounds:
-- **Terrain tiles**: For each texel, compute the world position, walk the containment tree, interpolate height. The containment tree and contour data are uploaded as GPU buffers.
-- **Shadow tiles**: For each texel, compute the world position, test against shadow polygon geometry (uploaded as a GPU buffer), write intensity and distance-to-edge.
-
-Per-frame cap on tile computations (e.g., 4–8 tiles per frame) to avoid stalling. Tiles stream in progressively. Batching multiple tiles into a single dispatch is a future optimization if dispatch overhead becomes measurable.
-
-## Rendering vs Simulation
-
-These are **separate systems** with different needs:
-
-| Aspect         | Simulation             | Rendering               |
-| -------------- | ---------------------- | ----------------------- |
-| Access pattern | Sparse specific points | Dense 2D texture        |
-| Resolution     | Fixed (physics needs)  | Varies with camera zoom |
-| Timing         | 1 frame latency OK     | Must be current frame   |
-| Data flow      | Point queries          | Texture-based compute   |
-
-**Design decision**: Rendering uses its own compute pipelines that output to textures (similar to old system but simpler). Simulation uses point queries. They share:
-
-- The underlying compute shader code (same wave math, etc.)
-- Terrain data (rendering can sample the terrain cache/texture)
-- Configuration (wave parameters, wind settings)
-
-The rendering system is documented in [Surface Rendering](#surface-rendering).
-
----
-
-# Terrain System
-
-## Overview
-
-Terrain is static data defined by contours (closed Catmull-Rom splines at specific heights). Being static, it's a candidate for aggressive caching, but the full map at high resolution is too large to keep entirely in memory.
-
-## Data Definition
-
-### Contours
-
-Terrain is defined by closed contour loops at specific heights:
-
-```typescript
-interface TerrainContour {
-  controlPoints: readonly V2d[]; // Catmull-Rom spline control points
-  height: number; // Height of this contour (ft)
-}
-
-interface TerrainDefinition {
-  contours: TerrainContour[];
-  defaultDepth: number; // Deep ocean baseline (e.g., -50 ft)
-}
-```
-
-### Containment Tree
-
-Contours form a hierarchy based on which contains which:
-
-```
-Ocean (default depth)
-├─ Island A (height=0, coastline)
-│  └─ Hill (height=10)
-│     └─ Peak (height=20)
-└─ Island B (height=0, coastline)
-```
-
-The tree is built once when terrain is loaded/modified, then used for height queries.
-
-### Height Computation
-
-Given a point, find its height:
-
-1. Find the deepest (most nested) contour containing the point
-2. Use inverse-distance weighting between that contour and its children
-3. Result is interpolated height at that point
-
-### Coastline Extraction
-
-Contours with `height=0` are coastlines. These are passed to the wave shadow system for diffraction calculations.
-
-## Physics Queries
-
-Terrain uses the same point-based query system as water and wind. No special treatment—water queries that need terrain depth just trigger terrain point queries through the standard dependency mechanism (see Query Infrastructure).
-
-## Rendering
-
-Rendering needs dense terrain data for the visible area (potentially millions of pixels). This uses the `VirtualTexture` abstraction:
-
-- LOD based on camera zoom level
-- Lazy tile computation as camera moves
-- Fallback to coarser LOD when fine tiles not yet computed
-- LRU eviction to bound memory
-
-See [Surface Rendering](#surface-rendering) for how rendering consumes terrain data.
-
-## Invalidation
-
-When terrain is modified (editor or gameplay):
-
-1. Rebuild the containment tree
-2. Re-extract coastlines (notify wave shadow system)
-3. Clear the virtual texture cache (tiles will recompute on demand)
-4. Clear any physics query cache
-
----
-
-# Wave System
-
-## Overview
-
-Dynamic water simulation using Gerstner waves with shadow-based diffraction around terrain.
-
-## Query Result
-
-```typescript
-interface WaterQueryResult {
-  z: number; // Surface elevation relative to sea level (ft)
-  vx: number; // Surface velocity X (ft/s)
-  vy: number; // Surface velocity Y (ft/s)
-  vz: number; // Surface velocity Z, i.e., dz/dt (ft/s)
-}
-```
-
-## Wave Sources (Level-Defined)
-
-Wave sources are defined per-level in the level file, not as global constants:
-
-```typescript
-interface WaveSource {
-  direction: number; // Radians, direction waves travel FROM
-  baseAmplitude: number; // Base wave height (ft)
-  wavelength: number; // Distance between crests (ft)
-  // ... other parameters
-}
-```
-
-- **Shadow geometry** is computed once when level loads (depends on direction)
-- **Amplitude/intensity** can modulate at runtime without recomputing shadows
-- Multiple wave sources per level (e.g., swell + chop with different directions)
-
-## Wave Mathematics
-
-Two-pass Gerstner wave computation:
-
-1. **Displacement pass**: Compute horizontal displacement at the query point
-2. **Height pass**: Evaluate wave height at the displaced position (creates trochoid surface)
-
-For each wave source:
-
-```
-phase = dot(waveDirection, position) * k - omega * time
-height += amplitude * sin(phase)
-vz += -amplitude * omega * cos(phase)
-```
-
-Where `k = 2π/wavelength` and `omega = sqrt(g * k)` (deep water dispersion).
-
-## Shadow System
-
-Shadows represent where wave energy is blocked/diffracted by terrain. The system correctly handles concave coastlines (e.g., bays).
-
-### Shadow Geometry (at level load)
-
-1. Extract coastlines (height=0 contours) from terrain
-2. For each wave source direction:
-   - Find silhouette points: where coastline tangent is parallel to wave direction
-   - Identify left/right extremal silhouette points
-   - Sample the leeward coastline arc between them
-   - Build shadow polygon: silhouette points + coastline arc + extended boundaries
-
-Shadow polygons may be concave (following the actual coastline shape). This geometry is stored for rasterization.
-
-### Shadow Tiles (VirtualTexture)
-
-Shadows are static (like terrain), so we use the same `VirtualTexture` infrastructure:
-
-```typescript
-VirtualTexture<ShadowData>; // One per wave source
-```
-
-- **Tiles computed on demand**: When a region is queried, rasterize shadow polygons into that tile
-- **Cached**: Shadows don't change during gameplay
-- **LOD**: Coarser tiles when zoomed out or for distant queries
-- **Invalidated**: When terrain changes (triggers shadow geometry recomputation)
-
-This unifies the approach for terrain and shadows—same infrastructure, different data.
-
-**Decision**: One `VirtualTexture<ShadowData>` per wave source. This keeps each source's shadow data independent, simplifies invalidation (only recompute the source whose geometry changed), and avoids combining semantically different shadow regions into a single texture. The water shader samples each shadow texture separately and combines the results (e.g., multiply shadow intensities).
-
-### Shadow Data
-
-Each shadow texel contains:
-
-- Shadow intensity (0 = full sun, 1 = full shadow)
-- Distance to nearest silhouette edge (for diffraction calculations)
-- Which shadow polygon (if multiple islands)
-
-Future: soft shadow edges, proper Fresnel diffraction based on distance and obstacle width.
-
-### Diffraction (Future)
-
-Currently shadows have hard edges. Future improvements:
-
-- Soft shadow edges based on distance from silhouette
-- Fresnel diffraction model for realistic wave bending around obstacles
-- Shadow intensity varying with distance into shadow region
-
-The rasterization approach makes these enhancements easier to implement and iterate on.
-
-## Depth Effects
-
-Water queries need terrain depth (handled by query dependency system).
-
-### Shoaling (Green's Law)
-
-Waves grow taller as depth decreases:
-
-```
-shoalingFactor = (referenceDepth / actualDepth)^0.25
-```
-
-### Damping (Bottom Friction)
-
-Waves attenuate in shallow water:
-
-```
-if depth > deepThreshold: damping = 1.0
-if depth < shallowThreshold: damping = minDamping
-else: linear interpolation
-```
-
-Combined: `depthModifier = shoalingFactor * dampingFactor`
-
-## Water Modifiers (Generalized)
-
-A unified system for local water disturbances (wakes, splashes, ripples).
-
-### WaterModifier Interface
-
-```typescript
-interface WaterModifier {
-  // Bounds for fast spatial queries
-  getBounds(): AABB;
-
-  // Data for GPU upload
-  getModifierData(): WaterModifierData;
-}
-
-type WaterModifierData =
-  | { type: "segment"; p1: V2d; p2: V2d; amplitude: number; falloff: number }
-  | { type: "point"; center: V2d; radius: number; amplitude: number }
-  | {
-      type: "ring";
-      center: V2d;
-      radius: number;
-      width: number;
-      amplitude: number;
-    };
-```
-
-### Modifier Types
-
-- **Segment**: Wake particles (line between two points)
-- **Point**: Splash impact, localized disturbance
-- **Ring**: Expanding ripple (radius increases over time)
-
-### Performance (targeting 10,000+ modifiers)
-
-- **Buffer management**: Persistent GPU buffer sized for max modifiers (e.g., 16k). Upload only active portion each frame.
-- **Spatial queries**: If iterating all modifiers is too slow, add spatial hash for fast "modifiers near point" queries.
-- **GPU iteration**: Shader iterates through modifier buffer. GPU handles parallel iteration well.
-
-Each effect (wake particle, anchor splash, etc.) is an entity that manages a `WaterModifier`. Modifiers are collected and uploaded before water computation.
-
-### GPU Buffer Layout
-
-Modifiers are stored in a storage buffer as a flat array of fixed-size structs. Each struct is 32 bytes (8 × f32), using a union layout with a type field:
-
-```wgsl
-struct WaterModifier {
-  modifierType: f32,  // 0 = inactive/padding, 1 = segment, 2 = point, 3 = ring, ...
-  // Bounding box for early culling (world space)
-  boundsMinX: f32,
-  boundsMinY: f32,
-  boundsMaxX: f32,
-  boundsMaxY: f32,
-  // Type-specific data (meaning depends on modifierType)
-  param0: f32,
-  param1: f32,
-  param2: f32,
-}
-```
-
-Current type-specific field usage:
-
-| Field  | Segment                  | Point     | Ring      |
-|--------|--------------------------|-----------|-----------|
-| param0 | amplitude                | amplitude | amplitude |
-| param1 | falloff                  | radius    | radius    |
-| param2 | (unused)                 | (unused)  | width     |
-
-Segment geometry (p1, p2) is encoded in the bounds fields directly — `boundsMin` = p1, `boundsMax` = p2 — since the segment endpoints define the bounds. Point and ring use center = bounds center.
-
-New modifier types can be added by assigning a new `modifierType` value and defining what `param0`–`param2` mean. If a future type needs more than 3 parameters, the struct can be extended (add `param3`–`param5`, bump to 48 bytes). This is a one-time change to the struct definition, not a per-type change.
-
-### Buffer Management
-
-```typescript
-const MAX_MODIFIERS = 16384;
-const MODIFIER_STRIDE = 32; // bytes
-
-// Persistent GPU buffer, created once
-const modifierBuffer = device.createBuffer({
-  size: MAX_MODIFIERS * MODIFIER_STRIDE,
-  usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-});
-
-// Each frame: collect active modifiers, write to CPU array, upload active portion
-const activeCount = collectModifiers(cpuArray);
-device.queue.writeBuffer(modifierBuffer, 0, cpuArray, 0, activeCount * MODIFIER_STRIDE);
-```
-
-The active count is passed as a uniform so the shader knows where to stop iterating.
-
-### Shader Iteration with Bounds Culling
-
-The shader iterates all active modifiers but skips early if the texel is outside the modifier's bounding box:
-
-```wgsl
-for (var i = 0u; i < activeModifierCount; i++) {
-  let mod = modifiers[i];
-  // Bounds culling — skip if this texel is outside the modifier's AABB
-  if (worldPos.x < mod.boundsMinX || worldPos.x > mod.boundsMaxX ||
-      worldPos.y < mod.boundsMinY || worldPos.y > mod.boundsMaxY) {
-    continue;
-  }
-  // Evaluate modifier contribution based on type
-  switch (u32(mod.modifierType)) {
-    case 1u: { /* segment */ }
-    case 2u: { /* point */ }
-    case 3u: { /* ring */ }
-    default: {}
-  }
-}
-```
-
-This is O(N) iteration with a cheap per-modifier early-out. No spatial acceleration structure for now — if the CPU-side entity overhead doesn't bottleneck us first, and the GPU iteration becomes measurably slow, a spatial hash or grid can be added later.
-
-## Tide
-
-Tide is a pure function of time, constant across space:
-
-```typescript
-function getTideHeight(timeOfDay: number): number {
-  // Sinusoidal based on time, or more complex tidal model
-  return tideRange * sin(timeOfDay * tidalFrequency);
-}
-```
-
-Added to final water height after all other computations.
-
----
-
-# Wind System
-
-## Overview
-
-Wind uses the same point-based query interface as water, but with a deliberately simple implementation for now. The structure supports future complexity (terrain influence, wind shadows, gusts) without requiring it.
-
-## Query Result
-
-```typescript
-interface WindQueryResult {
-  vx: number; // Wind velocity X (ft/s)
-  vy: number; // Wind velocity Y (ft/s)
-}
-```
-
-## Current Implementation (Simple)
-
-For this rebuild, wind is just:
-
-```
-wind(point, time) = baseWind + noise(point, time)
-```
-
-Where:
-
-- `baseWind`: Constant vector defined in level file (direction + speed)
-- `noise`: Scrolling 2D simplex noise for natural variation
-
-```typescript
-function computeWind(point: V2d, time: number, baseWind: V2d): WindQueryResult {
-  const noiseScale = 0.01; // Spatial frequency
-  const timeScale = 0.1; // How fast noise scrolls
-  const variation = 0.2; // ±20% variation
-
-  const nx = noise2D(
-    point.x * noiseScale,
-    point.y * noiseScale + time * timeScale,
-  );
-  const ny = noise2D(
-    point.x * noiseScale + 100,
-    point.y * noiseScale + time * timeScale,
-  );
-
-  return {
-    vx: baseWind.x * (1 + nx * variation),
-    vy: baseWind.y * (1 + ny * variation),
-  };
-}
-```
-
-No terrain influence, no wind shadows, no gusts. Just smooth natural variation.
-
-## API
-
-Same pattern as water:
-
-```typescript
-class WindInfo {
-  static fromGame(game: Game): WindInfo;
-
-  getWindAtPoint(point: V2d): WindQueryResult | null;
-  getWindAtPointAsync(point: V2d): Promise<WindQueryResult>;
-
-  // Level-defined base wind
-  getBaseWind(): V2d;
-}
-
-// Persistent query (same pattern as WaterQuery)
-class WindQuery extends BaseEntity {
-  constructor(getPoints: () => V2d[]) { ... }
-}
-```
-
-## Future Direction
-
-When we're ready to make wind more complex:
-
-- **Terrain influence**: Wind blocked/deflected by terrain (similar to wave shadows)
-- **Wind shadows**: `VirtualTexture<WindShadowData>` like wave shadows
-- **Gusts**: Temporal variation beyond smooth noise
-- **Local modifiers**: Sails affecting nearby wind (like water modifiers)
-
-The query interface stays the same—only the implementation changes. Entities don't need to know whether wind is simple noise or a complex simulation.
-
 ---
 
 # Surface Rendering
@@ -979,13 +898,7 @@ The query interface stays the same—only the implementation changes. Entities d
 
 The visual output pipeline. Composites world data into the final image displayed to the player.
 
-Rendering is **separate from simulation**. The simulation uses sparse point queries with async readback (see [Query Infrastructure](#query-infrastructure)). Rendering uses its own GPU compute pipelines that write dense 2D textures covering the visible area. They share:
-
-- The same shader math (wave evaluation, terrain sampling, etc.)
-- The same input data (wave source parameters, terrain/shadow VirtualTextures, water modifier buffer)
-- The same configuration (level-defined constants)
-
-Rendering never goes through the point query system. It runs its own compute passes each frame.
+Rendering runs its own GPU compute pipelines that write dense 2D textures covering the visible area. It shares the same shader math, input data, and configuration as the simulation path, but never goes through the point query system.
 
 ## Render Rect
 
@@ -1063,8 +976,8 @@ Updates the wetness state using two alternating textures.
 **Ping-pong**: Two wetness textures alternate roles each frame. Frame N reads texture A, writes texture B. Frame N+1 reads texture B, writes texture A. This avoids read-write hazards.
 
 **Key design decisions**:
-- **New pixels default to dry.** When the viewport moves or zooms, texels that map outside the previous texture simply start at 0. No reprojection, no gap-filling. If the terrain is being hit by waves, it'll be wet within one wave cycle. This eliminates the artifacts from the old system's gap-filling logic.
-- **Render rects must be compatible.** The water texture must cover at least the same world rect as the wetness texture (ideally the same rect). The old system had artifacts because the wetness texture sampled water data outside the water texture's valid region. Using the same render rect for both passes prevents this entirely.
+- **New pixels default to dry.** When the viewport moves or zooms, texels that map outside the previous texture simply start at 0. No reprojection, no gap-filling. If the terrain is being hit by waves, it'll be wet within one wave cycle.
+- **All render passes share the same render rect.** The water texture must cover at least the same world rect as the wetness texture. Using the same render rect for all passes prevents sampling outside valid regions.
 - **Decay rate** can vary — sand barely above waterline could stay wet longer than higher terrain. A simple approach: `decayRate = baseRate * clamp(terrainHeight - waterHeight, 0, maxHeight) / maxHeight`.
 
 ### Pass 4: Composite
