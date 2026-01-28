@@ -4,15 +4,13 @@ import { DynamicBody } from "../../../core/physics/body/DynamicBody";
 import { DistanceConstraint } from "../../../core/physics/constraints/DistanceConstraint";
 import { Particle } from "../../../core/physics/shapes/Particle";
 import { pairs, range } from "../../../core/util/FunctionalUtils";
-import { ReadonlyV2d, V2d } from "../../../core/Vector";
+import { ReadonlyV2d, V, V2d } from "../../../core/Vector";
 import {
   applyFluidForces,
   flatPlateDrag,
   ForceMagnitudeFn,
 } from "../../fluid-dynamics";
-import type { QueryForecast } from "../../world-data/datatiles/DataTileTypes";
-import type { WindQuerier } from "../../world-data/wind/WindQuerier";
-import { WindInfo } from "../../world-data/wind/WindInfo";
+import { WorldManager } from "../../world/WorldManager";
 
 // Units: feet (ft), lbs
 // TellTail dimensions
@@ -31,9 +29,8 @@ const TELLTAIL_COLOR = 0xff6600;
 /** No lift for a thin streamer - it just gets pushed by the wind. */
 const noLift: ForceMagnitudeFn = () => 0;
 
-export class TellTail extends BaseEntity implements WindQuerier {
+export class TellTail extends BaseEntity {
   layer = "telltails" as const;
-  tags = ["windQuerier"];
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
   getAttachmentPoint: () => ReadonlyV2d;
@@ -80,10 +77,13 @@ export class TellTail extends BaseEntity implements WindQuerier {
     firstBody.position.set(this.getAttachmentPoint());
     firstBody.velocity.set(this.getAttachmentVelocity());
 
-    const wind = WindInfo.fromGame(this.game);
+    const worldManager = this.game.entities.getById(
+      "world-manager",
+    ) as WorldManager;
+    const baseWind = worldManager?.getBaseWind() ?? V(0, 0);
 
-    const getFluidVelocity = (point: V2d): V2d =>
-      wind.getVelocityAtPoint(point);
+    // Use uniform wind velocity (no spatial variation in stub)
+    const getFluidVelocity = (_point: V2d): V2d => baseWind;
 
     const drag = flatPlateDrag(DRAG_SCALE);
 
@@ -126,33 +126,5 @@ export class TellTail extends BaseEntity implements WindQuerier {
       width: TELLTAIL_WIDTH,
       alpha,
     });
-  }
-
-  getWindQueryForecast(): QueryForecast | null {
-    // Compute AABB around tell tail bodies
-    let minX = Infinity,
-      minY = Infinity;
-    let maxX = -Infinity,
-      maxY = -Infinity;
-
-    for (const body of this.bodies) {
-      const [x, y] = body.position;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-
-    const margin = 1;
-    return {
-      aabb: {
-        minX: minX - margin,
-        minY: minY - margin,
-        maxX: maxX + margin,
-        maxY: maxY + margin,
-      },
-      // ~2 queries per body
-      queryCount: this.bodies.length * 2,
-    };
   }
 }

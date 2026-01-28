@@ -17,7 +17,7 @@ const RETURN_DISTANCE = 30;
  * Check if the boat is pointing generally upwind (within 60 degrees of wind).
  */
 function isPointingUpwind(ctx: TutorialContext): boolean {
-  const windAngle = ctx.windInfo.getAngle();
+  const windAngle = ctx.worldManager.getBaseWind().angle;
   const boatHeading = ctx.boat.hull.body.angle;
   // Boat pointing into wind means boat heading is opposite to wind direction
   const angleDiff = Math.abs(normalizeAngle(boatHeading - windAngle - Math.PI));
@@ -30,7 +30,7 @@ function isPointingUpwind(ctx: TutorialContext): boolean {
  * Starboard tack = wind coming from starboard (right) side
  */
 function getCurrentTack(ctx: TutorialContext): "port" | "starboard" {
-  const windAngle = ctx.windInfo.getAngle();
+  const windAngle = ctx.worldManager.getBaseWind().angle;
   const boatHeading = ctx.boat.hull.body.angle;
   // Wind angle relative to boat heading
   const relativeWind = normalizeAngle(windAngle - boatHeading);

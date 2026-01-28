@@ -6,7 +6,6 @@ import { chooseWeighted, rNormal } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { SprayParticle } from "./SprayParticle";
-import { WaterInfo } from "./world-data/water/WaterInfo";
 
 // Spawn rate (linear with velocity and edge length)
 const MIN_IMPACT_SPEED = 3; // ft/s - minimum normal velocity to generate spray
@@ -51,11 +50,11 @@ export class BoatSpray extends BaseEntity {
 
   @on("tick")
   onTick(dt: number): void {
-    const water = WaterInfo.fromGame(this.game);
-
+    // Stub: No water data available, so no spray effects
+    // Update edges but they'll all have zero spawn rate
     let totalSpawnRate = 0;
     for (const edge of this.edges) {
-      edge.update(water);
+      edge.update();
       totalSpawnRate += edge.spawnRate;
     }
 
@@ -139,7 +138,7 @@ class Edge {
     this.v2 = vertices[(i + 1) % vertices.length];
   }
 
-  update(water: WaterInfo) {
+  update() {
     const hullBody = this.boat.hull.body;
 
     // Transform edge endpoints to world frame
@@ -155,10 +154,8 @@ class Edge {
       .iadd(hullBody.getVelocityAtWorldPoint(this.p2))
       .imul(0.5);
 
-    // Subtract water velocity (sample at midpoint)
-    this._midpoint.set(this.p1).iadd(this.p2).imul(0.5);
-    const waterState = water.getStateAtPoint(this._midpoint);
-    this.apparentVelocity.isub(waterState.velocity);
+    // Stub: Assume still water (no water velocity to subtract)
+    // In full implementation, would subtract water velocity here
 
     // Outward normal
     this.worldNormal.set(this._displacement).irotate90cw().inormalize();
@@ -169,10 +166,8 @@ class Edge {
     if (this.vDotN < MIN_IMPACT_SPEED) {
       this.spawnRate = 0;
     } else {
-      // Wave bonus and weight
-      // TODO: This shouldn't be based on wave speed, but on the relative vertical speed based on the boat at this point and the water's speed
-      this.waveBonus =
-        1 + clamp(waterState.surfaceHeightRate * WAVE_BONUS_SCALE, 0, 1);
+      // Stub: No wave bonus without water data
+      this.waveBonus = 1;
       this.spawnRate =
         this._displacement.magnitude * this.vDotN * this.waveBonus;
     }

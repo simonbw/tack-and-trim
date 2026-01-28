@@ -6,8 +6,8 @@ import { BoatSpray } from "../BoatSpray";
 import { Wake } from "../wake/Wake";
 import { Anchor } from "./Anchor";
 import { BoatConfig, StarterDinghy } from "./BoatConfig";
-import { BoatGrounding } from "./BoatGrounding";
-import { BoatWaterQuerier } from "./BoatWaterQuerier";
+// // import { BoatGrounding } from "./BoatGrounding";
+// import { BoatWaterQuerier } from "./BoatWaterQuerier";
 import { Bowsprit } from "./Bowsprit";
 import { findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
@@ -143,11 +143,11 @@ export class Boat extends BaseEntity {
     this.addChild(new Wake(this, sternPoints.port, sternPoints.starboard));
     this.addChild(new BoatSpray(this));
 
-    // Create water querier for tile-based GPU water computation
-    this.addChild(new BoatWaterQuerier(this));
+    // TODO: Create water querier for tile-based GPU water computation
+    // this.addChild(new BoatWaterQuerier(this));
 
-    // Create terrain querier for grounding physics
-    this.addChild(new BoatGrounding(this));
+    // TODO: Create terrain querier for grounding physics once terrain system exists
+    // this.addChild(new BoatGrounding(this));
   }
 
   @on("tick")

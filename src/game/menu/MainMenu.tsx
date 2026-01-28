@@ -1,6 +1,6 @@
-import { ReactEntity } from "../core/ReactEntity";
-import { on } from "../core/entity/handler";
-import { KeyCode } from "../core/io/Keys";
+import { ReactEntity } from "../../core/ReactEntity";
+import { on } from "../../core/entity/handler";
+import { KeyCode } from "../../core/io/Keys";
 import "./MainMenu.css";
 
 export class MainMenu extends ReactEntity {

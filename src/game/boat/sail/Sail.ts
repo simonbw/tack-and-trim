@@ -4,16 +4,10 @@ import type { Body } from "../../../core/physics/body/Body";
 import { DynamicBody } from "../../../core/physics/body/DynamicBody";
 import { DistanceConstraint } from "../../../core/physics/constraints/DistanceConstraint";
 import { Particle } from "../../../core/physics/shapes/Particle";
-import { AABB } from "../../../core/util/SparseSpatialHash";
 import { last, pairs, range } from "../../../core/util/FunctionalUtils";
 import { lerpV2d, stepToward } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
-// TODO: Re-add imports once new world systems exist
-// import type { QueryForecast } from "../../world-data/datatiles/DataTileTypes";
-// import type { WindQuerier } from "../../world-data/wind/WindQuerier";
-// import { WindInfo } from "../../world-data/wind/WindInfo";
-// import { SEGMENT_INFLUENCE_RADIUS } from "../../world-data/wind/WindConstants";
-// import { WindModifier } from "../../WindModifier";
+import { WorldManager } from "../../world/WorldManager";
 import { applySailForces } from "./sail-aerodynamics";
 import { SailFlowSimulator } from "./SailFlowSimulator";
 import type { SailSegment } from "./SailSegment";
@@ -66,9 +60,9 @@ const DEFAULT_CONFIG: SailConfig = {
   attachTellTail: true,
 };
 
-export class Sail extends BaseEntity implements WindModifier, WindQuerier {
+export class Sail extends BaseEntity {
   layer = "sails" as const;
-  tags = ["windQuerier", "sail", "windModifier"];
+  tags = ["sail"];
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
@@ -81,9 +75,6 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
   private cachedSegments: SailSegment[] = [];
   private flowComputedFrame: number = -1;
   private inFlowComputation: boolean = false;
-
-  // Reusable AABB for WindModifier
-  private readonly aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
   private config: SailParams & SailConfig;
 
@@ -263,7 +254,9 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
       );
     }
 
-    const wind = WindInfo.fromGame(this.game);
+    const worldManager = this.game.entities.getById(
+      "world-manager",
+    ) as WorldManager;
 
     try {
       this.inFlowComputation = true;
@@ -280,8 +273,8 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
         return contribution;
       };
 
-      // Get base wind at sail centroid
-      const baseWind = wind.getBaseVelocityAtPoint(this.getCentroid());
+      // Get base wind (uniform for now, no spatial variation)
+      const baseWind = worldManager?.getBaseWind() ?? V(0, 0);
 
       // Run flow simulation
       this.cachedSegments = this.flowSimulator.simulate(
@@ -305,7 +298,10 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
    * B cannot see A as upwind, preventing infinite recursion.
    */
   private getUpwindSails(): Sail[] {
-    const wind = WindInfo.fromGame(this.game);
+    const worldManager = this.game.entities.getById(
+      "world-manager",
+    ) as WorldManager;
+    const baseWind = worldManager?.getBaseWind() ?? V(0, 0);
 
     const myPos = this.getCentroid();
 
@@ -315,9 +311,8 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
     return allSails.filter((sail) => {
       if (sail === this) return false;
       const otherPos = sail.getCentroid();
-      // Use wind at midpoint to ensure both sails agree on direction
-      const midpoint = myPos.add(otherPos).mul(0.5);
-      const windDir = wind.getBaseVelocityAtPoint(midpoint).normalize();
+      // Use base wind direction (uniform for now)
+      const windDir = baseWind.normalize();
       const toOther = otherPos.sub(myPos);
       return toOther.dot(windDir) < 0; // Other sail is upwind
     });
@@ -347,25 +342,6 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
     const head = this.getHeadPosition();
     const clew = this.getClewPosition();
     return head.add(clew.sub(head).mul(0.33));
-  }
-
-  // WindModifier interface
-
-  getWindModifierAABB(): AABB {
-    const centroid = this.getCentroid();
-    const radius = this.config.windInfluenceRadius + SEGMENT_INFLUENCE_RADIUS;
-    this.aabb.minX = centroid.x - radius;
-    this.aabb.minY = centroid.y - radius;
-    this.aabb.maxX = centroid.x + radius;
-    this.aabb.maxY = centroid.y + radius;
-    return this.aabb;
-  }
-
-  getWindVelocityContribution(queryPoint: V2d): V2d {
-    if (!this.isHoisted()) {
-      return V(0, 0);
-    }
-    return this.getWindContributionAt(queryPoint);
   }
 
   @on("render")
@@ -456,37 +432,5 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
         width: 1,
       });
     }
-  }
-
-  getWindQueryForecast(): QueryForecast | null {
-    // Don't forecast if sail is lowered
-    if (this.hoistAmount <= 0) return null;
-
-    // Compute AABB around all sail bodies
-    let minX = Infinity,
-      minY = Infinity;
-    let maxX = -Infinity,
-      maxY = -Infinity;
-
-    for (const body of this.bodies) {
-      const [x, y] = body.position;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-
-    // Add a margin for edge queries
-    const margin = 2;
-    return {
-      aabb: {
-        minX: minX - margin,
-        minY: minY - margin,
-        maxX: maxX + margin,
-        maxY: maxY + margin,
-      },
-      // ~2 queries per body (prev/next edges)
-      queryCount: this.bodies.length * 2,
-    };
   }
 }

@@ -8,7 +8,6 @@ import {
   foilLift,
   RUDDER_CHORD,
 } from "../fluid-dynamics";
-import { WaterInfo } from "../world-data/water/WaterInfo";
 import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -76,10 +75,8 @@ export class Rudder extends BaseEntity {
     const lift = foilLift(RUDDER_CHORD);
     const drag = foilDrag(RUDDER_CHORD);
 
-    // Get water velocity function
-    const water = WaterInfo.fromGame(this.game);
-    const getWaterVelocity = (point: V2d): V2d =>
-      water.getStateAtPoint(point).velocity;
+    // Assume still water for now (stub implementation)
+    const getWaterVelocity = (_point: V2d): V2d => V(0, 0);
 
     // Apply rudder forces to hull (both directions)
     applyFluidForces(

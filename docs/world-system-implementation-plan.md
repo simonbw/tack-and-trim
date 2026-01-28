@@ -3,7 +3,7 @@
 **Status**: Not Started
 **Current Phase**: None
 **Start Date**: TBD
-**Estimated Duration**: 4-5 weeks (19-26 days)
+**Estimated Duration**: 5-6 weeks (21-28 days)
 
 ---
 
@@ -13,11 +13,29 @@ This is a phased implementation plan for the world rendering and simulation syst
 
 ## Implementation Phases
 
-### ✅ Phase 0: Planning & Documentation
+### ✅ Planning: Documentation & Design
 - [x] Architecture design document
 - [x] Class breakdown document
 - [x] Public API specification
 - [x] Implementation plan
+
+### Phase 0: Stub API & Code Migration
+**Status**: Not Started
+**Estimated Duration**: 1-2 days
+**Details**: [world-system-phase-0.md](./world-system-phase-0.md)
+
+Get the project compiling with stub implementations:
+- [ ] WaterQuery, TerrainQuery, WindQuery stubs
+- [ ] WorldManager and SurfaceRenderer stubs
+- [ ] WaterModifier type definitions
+- [ ] Migrate 12 code usage sites
+- [ ] Remove TODOs from GameController
+- [ ] Update tutorial system
+- [ ] Project compiles and runs
+
+**Demo Goal**: Game runs with graceful degradation (no water/wind data, but doesn't crash)
+
+---
 
 ### Phase 1: Core Infrastructure
 **Status**: Not Started
@@ -125,8 +143,9 @@ Tie everything together and polish the API:
 
 ## Progress Tracking
 
-### Completed Components: 0 / 28
+### Completed Components: 0 / 34
 
+**Phase 0**: 0 / 6 stubs + 0 / 12 migrations
 **Phase 1**: 0 / 5 classes
 **Phase 2**: 0 / 5 classes
 **Phase 3**: 0 / 3 classes
@@ -146,6 +165,7 @@ Tie everything together and polish the API:
 - [ ] Point-in-polygon utilities available
 
 ### Core Implementation
+- [ ] Phase 0: Stub API & Code Migration
 - [ ] Phase 1: Core Infrastructure
 - [ ] Phase 2: Terrain System
 - [ ] Phase 3: Wind System
@@ -208,13 +228,13 @@ Tie everything together and polish the API:
 
 ## Timeline
 
-**Optimistic**: 19 days (3.8 weeks)
-**Realistic**: 23 days (4.6 weeks)
-**Pessimistic**: 26 days (5.2 weeks)
+**Optimistic**: 21 days (4.2 weeks)
+**Realistic**: 25 days (5.0 weeks)
+**Pessimistic**: 28 days (5.6 weeks)
 
 ### Week-by-Week Projection
 
-**Week 1**: Phase 1 + start Phase 2
+**Week 1**: Phase 0 + Phase 1 + start Phase 2
 **Week 2**: Complete Phase 2 + Phase 3
 **Week 3**: Phase 4
 **Week 4**: Phase 5

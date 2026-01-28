@@ -8,7 +8,6 @@ import {
   foilLift,
   KEEL_CHORD,
 } from "../fluid-dynamics";
-import { WaterInfo } from "../world-data/water/WaterInfo";
 import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -34,10 +33,8 @@ export class Keel extends BaseEntity {
     const lift = foilLift(KEEL_CHORD);
     const drag = foilDrag(KEEL_CHORD);
 
-    // Get water velocity function
-    const water = WaterInfo.fromGame(this.game);
-    const getWaterVelocity = (point: V2d): V2d =>
-      water.getStateAtPoint(point).velocity;
+    // Assume still water for now (stub implementation)
+    const getWaterVelocity = (_point: V2d): V2d => V(0, 0);
 
     // Apply keel forces to hull (both directions for symmetry)
     for (const [start, end] of pairs(this.vertices)) {

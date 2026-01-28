@@ -8,7 +8,7 @@ import { rDirection, rUniform } from "../../core/util/Random";
 import { V, V2d } from "../../core/Vector";
 import { VerletRope } from "../rope/VerletRope";
 import { SprayParticle } from "../SprayParticle";
-import { AnchorSplashRipple } from "../world-data/water/AnchorSplashRipple";
+// import { AnchorSplashRipple } from "../world-data/water/AnchorSplashRipple";
 import { AnchorConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -175,8 +175,8 @@ export class Anchor extends BaseEntity {
 
   /** Spawn ripple and spray particles at anchor position */
   private spawnSplashEffects(): void {
-    // Spawn ripple effect
-    this.game.addEntity(new AnchorSplashRipple(this.anchorPosition.clone()));
+    // TODO: Spawn ripple effect once new water system exists
+    // this.game.addEntity(new AnchorSplashRipple(this.anchorPosition.clone()));
 
     // Spawn spray particles radiating outward
     for (let i = 0; i < SPLASH_SPRAY_COUNT; i++) {

@@ -1,7 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Boat } from "../boat/Boat";
-import { WindInfo } from "../world-data/wind/WindInfo";
+import { WorldManager } from "../world/WorldManager";
 import { TutorialPopup } from "./TutorialPopup";
 import type { TutorialContext } from "./TutorialStep";
 import { markTutorialCompleted } from "./tutorialStorage";
@@ -33,13 +33,15 @@ export class TutorialManager extends BaseEntity {
       this.destroy();
       return;
     }
-    const windInfo = WindInfo.fromGame(this.game);
+    const worldManager = this.game.entities.getById(
+      "world-manager",
+    ) as WorldManager;
 
     // Initialize context
     const startPos = boat.getPosition().clone();
     this.context = {
       boat,
-      windInfo,
+      worldManager,
       stepStartPosition: startPos,
       stepStartHeading: boat.hull.body.angle,
       stepStartMainsheetPosition: boat.mainsheet.getSheetPosition(),

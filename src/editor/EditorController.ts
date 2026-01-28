@@ -28,8 +28,8 @@ import {
 } from "./io/TerrainFileFormat";
 import { loadDefaultEditorTerrain } from "./io/TerrainLoader";
 import { EditorUI } from "./EditorUI";
-import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
-import { WaterInfo } from "../game/world-data/water/WaterInfo";
+import { SurfaceRenderer } from "../game/world/rendering/SurfaceRenderer";
+// import { WaterInfo } from "../game/world-data/water/WaterInfo";
 import { InfluenceFieldManager } from "../game/world-data/influence/InfluenceFieldManager";
 import { DebugRenderer } from "../game/debug-renderer";
 import { computeSplineCentroid } from "../core/util/Spline";
@@ -153,8 +153,8 @@ export class EditorController
       new TerrainInfo(this.getTerrainContours()),
     );
 
-    // Add WaterInfo for wave simulation (uses fallback influence - uniform waves)
-    this.game.addEntity(new WaterInfo());
+    // TODO: Add water system once new world system is complete
+    // For now, editor works without water simulation
 
     // Add surface renderer (renders water and terrain visuals)
     // Use a smaller texture scale for the editor (0.25 = quarter resolution)
