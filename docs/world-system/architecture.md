@@ -266,6 +266,15 @@ One compute dispatch per tile. The dispatch writes a 128×128 output texture giv
 
 Per-frame cap on tile computations (e.g., 4–8 tiles per frame) to avoid stalling. Tiles stream in progressively. Batching multiple tiles into a single dispatch is a future optimization if dispatch overhead becomes measurable.
 
+## Error Handling
+
+TODO: Document failure modes and recovery strategies:
+- What if tile compute dispatch fails?
+- What if we run out of tile memory (all 512 slots occupied)?
+- What if texture allocation fails?
+- What if device is lost during compute?
+- Should we retry failed tiles or mark them as permanently failed?
+
 ---
 
 # Terrain System
@@ -865,7 +874,7 @@ Fixed-size buffer for query points, with graceful handling if exceeded:
 
 - **Initial limit**: 8192 points (tune based on profiling)
 - **Debug builds**: Assert if exceeded, so we notice and investigate
-- **Release builds**: Log warning, skip excess points
+- **Release builds**: Log warning with entity ID, skip excess points (FIFO - first registered entities get their points, later entities are truncated)
 
 Typical expected usage:
 
@@ -875,17 +884,34 @@ Typical expected usage:
 
 8192 gives plenty of headroom for normal gameplay.
 
+**Buffer overflow handling**: When total requested points exceeds the buffer limit, log a warning identifying which entity's points were truncated:
+```typescript
+console.warn(`Query buffer overflow: ${totalPoints} points requested, limit ${MAX_POINTS}. Excess points from entity '${entity.id}' skipped.`);
+```
+
+This makes it clear which system is contributing to buffer pressure and needs optimization or budget increase.
+
 ## First-Frame and Late-Join Handling
 
 On the first frame, no compute has run yet. Staging buffers are initialized to zeros, so entities receive zeroed results (sea level, no velocity) — safe defaults. After that first frame, blocking readback guarantees results are always available.
 
-When an entity is added mid-game, its query points won't be in the compute buffer until the next frame. The query's `results` array is empty until the first readback completes:
+When an entity is added mid-game, its query points won't be in the compute buffer until the next frame. The query's `results` array is empty until the first readback completes. Query entities provide a `hasResults()` helper to make this check cleaner:
 
 ```typescript
-if (this.waterQuery.results.length === 0) return; // First frame — skip or use defaults
+if (!this.waterQuery.hasResults()) return; // First frame — skip or use defaults
 ```
 
 After one frame, the entity's points are in the system and results are always available.
+
+## Error Handling
+
+TODO: Document failure modes and recovery strategies:
+- What if GPU compute dispatch fails?
+- What if async readback times out or fails?
+- What if WebGPU device is lost during readback?
+- Should queries fall back to CPU computation (violates GPU-first principle) or return stale/default data?
+- How do we communicate errors back to query entities?
+- Should the system auto-recover by retrying failed dispatches?
 
 ---
 
@@ -1004,3 +1030,24 @@ Render textures are **not** cached across frames (unlike VirtualTexture tiles). 
 - Written fresh each frame (terrain, water) or updated in-place (wetness ping-pong)
 
 The only cross-frame state is the wetness ping-pong pair.
+
+**Implementation note**: The ping-pong texture pattern can use the existing `DoubleBuffer<GPUTexture>` utility from `src/core/util/DoubleBuffer.ts`:
+```typescript
+const wetnessTextures = new DoubleBuffer(textureA, textureB);
+
+// Each frame
+wetnessPass.render({
+  input: wetnessTextures.getRead(),
+  output: wetnessTextures.getWrite(),
+});
+wetnessTextures.swap();
+```
+
+## Error Handling
+
+TODO: Document failure modes and recovery strategies:
+- What if render texture allocation fails (out of GPU memory)?
+- What if compute pass dispatch fails?
+- What if screen resize happens mid-frame?
+- Should we fall back to lower resolution if allocation fails?
+- How do we handle device lost during rendering?

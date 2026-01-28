@@ -34,6 +34,9 @@ class WaterQuery extends BaseEntity {
   /** Results from last frame's GPU compute, 1:1 with points. Empty until first compute completes. */
   readonly results: readonly WaterQueryResult[];
 
+  /** Check if results are available (false on first frame). */
+  hasResults(): boolean;
+
   /** Look up the result for a specific point. Linear scan with equals(). */
   getResultForPoint(point: V2d): WaterQueryResult | undefined;
 
@@ -71,7 +74,7 @@ class Boat extends BaseEntity {
 
   @on("tick")
   onTick() {
-    if (this.waterQuery.results.length === 0) return; // first frame, no data yet
+    if (!this.waterQuery.hasResults()) return; // first frame, no data yet
 
     // Look up by point
     const bowPos = this.localToWorld(this.hull.bowVertex);
@@ -96,7 +99,7 @@ const waterHeight = query.getResultForPoint(spawnPosition)!.z;
 
 ### Notes
 
-- WaterQuery automatically registers terrain queries for its points internally. Water computation depends on terrain depth, so you don't need a separate TerrainQuery for points that already have a WaterQuery.
+- **Implicit terrain dependency**: WaterQuery automatically registers terrain queries for its points internally. Water computation depends on terrain depth (for shoaling and damping calculations), so you don't need a separate TerrainQuery for points that already have a WaterQuery. This happens behind the scenes - each water query point also gets added to the terrain query buffer.
 - `points` and `results` reflect the *previous* frame's `getPoints` call. If your point count changes between frames, be aware of this one-frame offset.
 
 ### WaterModifier
@@ -159,6 +162,9 @@ class TerrainQuery extends BaseEntity {
   /** Results from last frame's GPU compute, 1:1 with points. */
   readonly results: readonly TerrainQueryResult[];
 
+  /** Check if results are available (false on first frame). */
+  hasResults(): boolean;
+
   /** Look up the result for a specific point. Linear scan with equals(). */
   getResultForPoint(point: V2d): TerrainQueryResult | undefined;
 
@@ -192,6 +198,7 @@ class GroundedObject extends BaseEntity {
 
   @on("tick")
   onTick() {
+    if (!this.terrainQuery.hasResults()) return;
     const result = this.terrainQuery.getResultForPoint(this.getPosition());
     if (!result) return;
     // Use result.height for collision, placement, etc.
@@ -228,6 +235,9 @@ class WindQuery extends BaseEntity {
   /** Results from last frame's GPU compute, 1:1 with points. */
   readonly results: readonly WindQueryResult[];
 
+  /** Check if results are available (false on first frame). */
+  hasResults(): boolean;
+
   /** Look up the result for a specific point. Linear scan with equals(). */
   getResultForPoint(point: V2d): WindQueryResult | undefined;
 
@@ -262,6 +272,7 @@ class Sail extends BaseEntity {
 
   @on("tick")
   onTick() {
+    if (!this.windQuery.hasResults()) return;
     const wind = this.windQuery.getResultForPoint(this.getPosition());
     if (!wind) return;
     // Use wind.vx, wind.vy for sail force calculations
@@ -402,9 +413,10 @@ Each frame:
 ## Design Notes
 
 - **One frame of latency**: Query results are always from the previous frame. This is inherent to the async GPU readback design. For 120Hz physics, one frame of latency is imperceptible.
-- **Empty on first frame**: When an entity is first added, its query points haven't been computed yet. `results` is an empty array until the first readback completes.
+- **Empty on first frame**: When an entity is first added, its query points haven't been computed yet. `results` is an empty array until the first readback completes. Use `hasResults()` to check.
 - **No CPU fallback**: All computation is GPU-only. There is no CPU-side wave evaluation or terrain sampling.
-- **WaterQuery auto-registers terrain**: You don't need a separate TerrainQuery if you already have a WaterQuery. The water compute needs terrain depth and handles this internally.
+- **WaterQuery auto-registers terrain**: You don't need a separate TerrainQuery if you already have a WaterQuery. The water compute needs terrain depth and handles this internally. Each water query point implicitly adds a terrain query point.
 - **Modifiers are tag-based**: Entities implementing WaterModifier should use `tags = ["waterModifier"]` so the system can find them. The WorldManager collects them each frame.
 - **Point-based lookup**: `getResultForPoint` uses linear scan with `V2d.equals()`. This is fine for the expected point counts (tens to low hundreds per query).
 - **getResultAndDestroy**: The one-off query pattern creates a real query entity, waits for the first result, resolves with the query itself (so you can use `getResultForPoint`), and destroys it. No special system-level codepath — the query infrastructure only ever deals with query entity instances.
+- **Buffer overflow handling**: The query system has a fixed buffer size (default 8192 points). If exceeded, a warning is logged identifying which entity was truncated, and excess points are skipped (FIFO - first registered entities get their points, later entities lose theirs). This makes buffer pressure visible during development.
