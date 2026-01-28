@@ -1,5 +1,7 @@
-import { BaseEntity } from "../../../core/entity/BaseEntity";
-import { V2d } from "../../../core/Vector";
+import { BaseQuery } from "./BaseQuery";
+import type { V2d } from "../../../core/Vector";
+import type { Game } from "../../../core/Game";
+import type Entity from "../../../core/entity/Entity";
 
 /**
  * Result data from a wind query at a specific point
@@ -14,42 +16,31 @@ export interface WindQueryResult {
 }
 
 /**
- * Entity that queries wind data at multiple points each frame.
- * Stub implementation - returns empty results until real system is implemented.
+ * Type guard for WindQuery entities
  */
-export class WindQuery extends BaseEntity {
-  /** Query points for this frame */
-  public points: V2d[] = [];
+export function isWindQuery(entity: Entity): entity is WindQuery {
+  return entity instanceof WindQuery;
+}
 
-  /** Results corresponding to each point (same length as points array) */
-  public results: WindQueryResult[] = [];
+/**
+ * Entity that queries wind data at multiple points each frame.
+ */
+export class WindQuery extends BaseQuery<WindQueryResult> {
+  // Tag for discovery by WindQueryManager
+  tags = ["windQuery"];
 
   /**
    * @param getPoints Callback that returns the points to query this frame
    */
-  constructor(private getPoints: () => V2d[]) {
-    super();
+  constructor(getPoints: () => V2d[]) {
+    super(getPoints);
   }
 
   /**
-   * Get the result for a specific point (by reference equality)
-   * Returns undefined if point not found in query
+   * Get all WindQuery entities from the game
+   * Used by WindQueryManager for type-safe query collection
    */
-  getResultForPoint(point: V2d): WindQueryResult | undefined {
-    return undefined;
-  }
-
-  /**
-   * Iterate over [point, result] pairs
-   */
-  *[Symbol.iterator](): Iterator<[V2d, WindQueryResult]> {
-    // Stub: return empty iterator
-  }
-
-  /**
-   * Convenience method: query once and destroy
-   */
-  async getResultAndDestroy(): Promise<WindQueryResult[]> {
-    return [];
+  static allFromGame(game: Game): WindQuery[] {
+    return Array.from(game.entities.getTagged("windQuery")).filter(isWindQuery);
   }
 }

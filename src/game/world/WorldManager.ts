@@ -1,5 +1,8 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { V2d } from "../../core/Vector";
+import { TerrainQueryManager } from "./query/TerrainQueryManager";
+import { WaterQueryManager } from "./query/WaterQueryManager";
+import { WindQueryManager } from "./query/WindQueryManager";
 
 /**
  * Minimal level definition for stub implementation
@@ -13,7 +16,7 @@ export interface LevelDefinition {
 
 /**
  * Central manager for the world simulation system.
- * Stub implementation - only provides base wind until real system is implemented.
+ * Manages query infrastructure and world data systems.
  */
 export class WorldManager extends BaseEntity {
   private baseWind: V2d;
@@ -25,6 +28,12 @@ export class WorldManager extends BaseEntity {
     super();
     this.id = "world-manager";
     this.baseWind = levelDef.baseWind;
+
+    // Initialize query managers as child entities
+    // Each manager handles its own query type independently
+    this.game.addEntity(new TerrainQueryManager());
+    this.game.addEntity(new WaterQueryManager());
+    this.game.addEntity(new WindQueryManager());
   }
 
   /**

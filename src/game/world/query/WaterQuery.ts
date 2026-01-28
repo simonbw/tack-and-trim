@@ -1,5 +1,7 @@
-import { BaseEntity } from "../../../core/entity/BaseEntity";
-import { V2d } from "../../../core/Vector";
+import { BaseQuery } from "./BaseQuery";
+import type { V2d } from "../../../core/Vector";
+import type { Game } from "../../../core/Game";
+import type Entity from "../../../core/entity/Entity";
 
 /**
  * Result data from a water query at a specific point
@@ -16,42 +18,33 @@ export interface WaterQueryResult {
 }
 
 /**
- * Entity that queries water data at multiple points each frame.
- * Stub implementation - returns empty results until real system is implemented.
+ * Type guard for WaterQuery entities
  */
-export class WaterQuery extends BaseEntity {
-  /** Query points for this frame */
-  public points: V2d[] = [];
+export function isWaterQuery(entity: Entity): entity is WaterQuery {
+  return entity instanceof WaterQuery;
+}
 
-  /** Results corresponding to each point (same length as points array) */
-  public results: WaterQueryResult[] = [];
+/**
+ * Entity that queries water data at multiple points each frame.
+ */
+export class WaterQuery extends BaseQuery<WaterQueryResult> {
+  // Tag for discovery by WaterQueryManager
+  tags = ["waterQuery"];
 
   /**
    * @param getPoints Callback that returns the points to query this frame
    */
-  constructor(private getPoints: () => V2d[]) {
-    super();
+  constructor(getPoints: () => V2d[]) {
+    super(getPoints);
   }
 
   /**
-   * Get the result for a specific point (by reference equality)
-   * Returns undefined if point not found in query
+   * Get all WaterQuery entities from the game
+   * Used by WaterQueryManager for type-safe query collection
    */
-  getResultForPoint(point: V2d): WaterQueryResult | undefined {
-    return undefined;
-  }
-
-  /**
-   * Iterate over [point, result] pairs
-   */
-  *[Symbol.iterator](): Iterator<[V2d, WaterQueryResult]> {
-    // Stub: return empty iterator
-  }
-
-  /**
-   * Convenience method: query once and destroy
-   */
-  async getResultAndDestroy(): Promise<WaterQueryResult[]> {
-    return [];
+  static allFromGame(game: Game): WaterQuery[] {
+    return Array.from(game.entities.getTagged("waterQuery")).filter(
+      isWaterQuery,
+    );
   }
 }
