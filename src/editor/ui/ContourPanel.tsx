@@ -11,7 +11,7 @@ import {
   SetContourPropertyCommand,
 } from "../EditorDocument";
 import { EditorContour } from "../io/TerrainFileFormat";
-import { ContourValidationResult } from "../../game/world-data/terrain/ContourValidation";
+import { ContourValidationResult } from "../../game/world/terrain/ContourValidation";
 import "./EditorStyles.css";
 
 export interface ContourPanelProps {

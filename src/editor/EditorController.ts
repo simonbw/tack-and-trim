@@ -10,7 +10,7 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { Game } from "../core/Game";
-import { createContour } from "../game/world-data/terrain/LandMass";
+import { createContour } from "../game/world/terrain/TerrainTypes";
 import { TerrainInfo } from "../game/world-data/terrain/TerrainInfo";
 import { V, V2d } from "../core/Vector";
 import { ContourEditor } from "./ContourEditor";
