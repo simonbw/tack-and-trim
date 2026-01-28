@@ -1,4 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
 import { V2d } from "../../core/Vector";
 import { TerrainQueryManager } from "./query/TerrainQueryManager";
 import { WaterQueryManager } from "./query/WaterQueryManager";
@@ -28,7 +29,10 @@ export class WorldManager extends BaseEntity {
     super();
     this.id = "world-manager";
     this.baseWind = levelDef.baseWind;
+  }
 
+  @on("add")
+  onAdd(): void {
     // Initialize query managers as child entities
     // Each manager handles its own query type independently
     this.game.addEntity(new TerrainQueryManager());

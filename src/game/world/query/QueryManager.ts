@@ -39,6 +39,7 @@ export abstract class QueryManager<TResult> extends BaseEntity {
   protected stagingBufferB: GPUBuffer | null = null;
   protected currentStagingBuffer: "A" | "B" = "A";
   protected mappedPromise: Promise<void> | null = null;
+  protected isProcessingMap = false;
 
   protected device: GPUDevice | null = null;
   protected initialized = false;
@@ -81,13 +82,23 @@ export abstract class QueryManager<TResult> extends BaseEntity {
   }
 
   @on("tick")
-  async onTick(_dt: number): Promise<void> {
+  onTick(_dt: number): void {
     if (!this.initialized || !this.device) return;
 
-    // 1. Wait for previous staging buffer
-    if (this.mappedPromise) {
-      await this.mappedPromise;
-      this.readAndDistributeResults();
+    // 1. Set up promise handler if we have a pending map (only once)
+    if (this.mappedPromise && !this.isProcessingMap) {
+      this.isProcessingMap = true;
+      this.mappedPromise
+        .then(() => {
+          this.readAndDistributeResults();
+          this.mappedPromise = null;
+          this.isProcessingMap = false;
+        })
+        .catch((err) => {
+          console.error(`${this.constructor.name}: mapAsync failed:`, err);
+          this.mappedPromise = null;
+          this.isProcessingMap = false;
+        });
     }
 
     // 2. Collect query points
@@ -99,16 +110,19 @@ export abstract class QueryManager<TResult> extends BaseEntity {
     // 4. Dispatch compute (stub in Phase 1)
     this.dispatchCompute(queries.length);
 
-    // 5. Copy to staging
+    // 5. Copy to staging buffer
     const nextBuffer =
       this.currentStagingBuffer === "A"
         ? this.stagingBufferB!
         : this.stagingBufferA!;
     this.copyToStaging(nextBuffer);
 
-    // 6. Swap and start async map
-    this.currentStagingBuffer = this.currentStagingBuffer === "A" ? "B" : "A";
-    this.mappedPromise = nextBuffer.mapAsync(GPUMapMode.READ);
+    // 6. Start async map only if we don't have a pending one
+    // This prevents trying to map a buffer that's already mapped
+    if (!this.mappedPromise) {
+      this.currentStagingBuffer = this.currentStagingBuffer === "A" ? "B" : "A";
+      this.mappedPromise = nextBuffer.mapAsync(GPUMapMode.READ);
+    }
   }
 
   @on("destroy")
@@ -132,7 +146,10 @@ export abstract class QueryManager<TResult> extends BaseEntity {
     this.resultBuffer = this.device.createBuffer({
       label: this.constructor.name + " Result Buffer",
       size: this.maxPoints * layout.stride * Float32Array.BYTES_PER_ELEMENT,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      usage:
+        GPUBufferUsage.STORAGE |
+        GPUBufferUsage.COPY_SRC |
+        GPUBufferUsage.COPY_DST,
     });
 
     // Staging buffers
@@ -224,7 +241,7 @@ export abstract class QueryManager<TResult> extends BaseEntity {
    * Generate stub data for Phase 1
    * Override in subclasses for type-specific defaults
    */
-  protected generateStubData(data: Float32Array, pointCount: number): void {
+  protected generateStubData(data: Float32Array, _pointCount: number): void {
     // Default: fill with zeros
     data.fill(0);
   }
