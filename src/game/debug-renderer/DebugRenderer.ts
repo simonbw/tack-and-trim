@@ -45,7 +45,7 @@ export class DebugRenderer extends BaseEntity {
     // Create all modes
     this.modes = [
       new TerrainHeightsDebugMode(),
-      new DepthGridDebugMode(this.shaderManager),
+      new DepthGridDebugMode(),
       new ShadowZonesDebugMode(),
       new WaveEnergyDebugMode(),
       new WindFieldDebugMode(),

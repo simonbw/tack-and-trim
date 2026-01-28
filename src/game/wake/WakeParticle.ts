@@ -1,9 +1,8 @@
-import { BaseEntity } from "../../../core/entity/BaseEntity";
-import { on } from "../../../core/entity/handler";
-import { AABB } from "../../../core/util/SparseSpatialHash";
-import { V2d } from "../../../core/Vector";
-import { WaterContribution, WaterModifier } from "./WaterModifier";
-import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
+import { BaseEntity } from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
+import { AABB } from "../../core/util/SparseSpatialHash";
+import { V2d } from "../../core/Vector";
+import { WaterContribution, WaterModifier, WakeSegmentData } from "./WakeTypes";
 
 // Units: feet (ft), seconds
 // Wake particle configuration

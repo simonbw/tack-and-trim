@@ -1,21 +1,12 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
-import { loadDefaultTerrain } from "../editor/io/TerrainLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
-import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
-import { MainMenu } from "./MainMenu";
-import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
+import { MainMenu } from "./menu/MainMenu";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { isTutorialCompleted, TutorialManager } from "./tutorial";
 import { DebugRenderer } from "./debug-renderer";
-import { WindIndicator } from "./WindIndicator";
-import { WindParticles } from "./WindParticles";
-import { InfluenceFieldManager } from "./world-data/influence/InfluenceFieldManager";
-import { TerrainInfo } from "./world-data/terrain/TerrainInfo";
-import { WaterInfo } from "./world-data/water/WaterInfo";
-import { WindInfo } from "./world-data/wind/WindInfo";
 
 const MENU_ZOOM = 2; // Wide shot for menu
 const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
@@ -26,29 +17,15 @@ export class GameController extends BaseEntity {
 
   @on("add")
   onAdd() {
-    // Phase 1: Core data entities only (no visuals yet)
-    // Visual entities are added in onInfluenceFieldsReady() after computation completes
+    // TODO: Initialize new world systems (terrain, water, wind)
 
-    // 1. Load terrain from bundled JSON resource
-    const terrainDefinition = loadDefaultTerrain();
-    this.game.addEntity(new TerrainInfo(terrainDefinition.contours));
-
-    // 2. Influence fields (depends on terrain, starts async computation)
-    this.game.addEntity(new InfluenceFieldManager());
-
-    // 3. Time system (before water, so tides can query time)
+    // Time system
     this.game.addEntity(new TimeOfDay());
 
-    // 4. Wind/Water data systems (no rendering, graceful null handling for influence fields)
-    this.game.addEntity(new WaterInfo());
-    this.game.addEntity(new WindInfo());
-  }
+    // TODO: Initialize new world data systems
 
-  @on("influenceFieldsReady")
-  onInfluenceFieldsReady() {
-    // Phase 2: Visual entities (after influence field computation completes)
-    this.game.addEntity(new SurfaceRenderer());
-    this.game.addEntity(new WindIndicator());
+    // TODO: Wait for world systems ready before adding visuals
+    // For now, add visuals immediately
     this.game.addEntity(new DebugRenderer());
 
     // Start with wide camera shot for menu
@@ -60,18 +37,7 @@ export class GameController extends BaseEntity {
 
   @on("gameStart")
   onGameStart() {
-    // Spawn buoys in open water around the island
-    this.game.addEntity(new Buoy(0, 500)); // South of lagoon entrance
-    this.game.addEntity(new Buoy(600, 400)); // Southeast
-    this.game.addEntity(new Buoy(-600, 400)); // Southwest
-    this.game.addEntity(new Buoy(900, -300)); // East of island
-
-    // Buoys for passage between islands and around southern island
-    this.game.addEntity(new Buoy(400, 600)); // Passage east
-    this.game.addEntity(new Buoy(-400, 600)); // Passage west
-    this.game.addEntity(new Buoy(1100, 1800)); // East side of Great Shield Island
-    this.game.addEntity(new Buoy(0, 3100)); // South of south bay
-    this.game.addEntity(new Buoy(-1100, 1800)); // West side of Great Shield Island
+    // TODO: Spawn buoys once new WaterInfo exists
 
     // Spawn boat and controls
     const boat = this.game.addEntity(new Boat());
@@ -83,8 +49,7 @@ export class GameController extends BaseEntity {
     );
     cameraController.setZoomTarget(GAMEPLAY_ZOOM);
 
-    // Spawn wind particles
-    this.game.addEntity(new WindParticles());
+    // TODO: Spawn wind particles once new wind system exists
 
     // Start the tutorial if not already completed
     if (!isTutorialCompleted()) {

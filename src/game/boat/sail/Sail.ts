@@ -8,11 +8,12 @@ import { AABB } from "../../../core/util/SparseSpatialHash";
 import { last, pairs, range } from "../../../core/util/FunctionalUtils";
 import { lerpV2d, stepToward } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
-import type { QueryForecast } from "../../world-data/datatiles/DataTileTypes";
-import type { WindQuerier } from "../../world-data/wind/WindQuerier";
-import { WindInfo } from "../../world-data/wind/WindInfo";
-import { SEGMENT_INFLUENCE_RADIUS } from "../../world-data/wind/WindConstants";
-import { WindModifier } from "../../WindModifier";
+// TODO: Re-add imports once new world systems exist
+// import type { QueryForecast } from "../../world-data/datatiles/DataTileTypes";
+// import type { WindQuerier } from "../../world-data/wind/WindQuerier";
+// import { WindInfo } from "../../world-data/wind/WindInfo";
+// import { SEGMENT_INFLUENCE_RADIUS } from "../../world-data/wind/WindConstants";
+// import { WindModifier } from "../../WindModifier";
 import { applySailForces } from "./sail-aerodynamics";
 import { SailFlowSimulator } from "./SailFlowSimulator";
 import type { SailSegment } from "./SailSegment";
