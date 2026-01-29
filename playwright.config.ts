@@ -1,28 +1,9 @@
 import { defineConfig } from "@playwright/test";
 
-// Use a random port for tests to allow concurrent test runs
-// Never use 1234 (dev server) or 1235 (dev server Parcel)
-// Range: 3000-9999 to avoid common ports
-function getTestPort(): number {
-  // Check if PORT is already set (e.g., by a parent process)
-  if (process.env.TEST_PORT) {
-    return parseInt(process.env.TEST_PORT, 10);
-  }
-
-  // Generate random port in range 3000-9999, avoiding dev server ports
-  const MIN_PORT = 3000;
-  const MAX_PORT = 9999;
-  const DEV_PORTS = [1234, 1235];
-
-  let port: number;
-  do {
-    port = Math.floor(Math.random() * (MAX_PORT - MIN_PORT + 1)) + MIN_PORT;
-  } while (DEV_PORTS.includes(port));
-
-  return port;
-}
-
-const TEST_PORT = getTestPort();
+// Use a fixed port for tests to avoid conflicts with dev server
+// Dev server uses 1234 (with Parcel on 1235)
+// Multiple test workers share a single webServer instance on this port
+const TEST_PORT = 3456;
 
 export default defineConfig({
   testDir: "./tests",

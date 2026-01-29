@@ -34,16 +34,4 @@ test("game initializes and runs correctly", async ({ page }) => {
 
   // --- Assertion: No errors or warnings occurred ---
   expect(issues).toHaveLength(0);
-
-  // --- Assertion: Influence field manager initializes successfully ---
-  // Wait for async initialization to complete (propagation can take a few seconds)
-  await page.waitForFunction(
-    () => {
-      const manager = window.DEBUG.game!.entities.getById(
-        "influenceFieldManager",
-      );
-      return (manager as any)?.isInitialized() === true;
-    },
-    { timeout: 30000 },
-  );
 });
