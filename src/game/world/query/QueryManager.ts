@@ -1,6 +1,7 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { DoubleBuffer } from "../../../core/util/DoubleBuffer";
 import type { BaseQuery } from "./BaseQuery";
 
 /**
@@ -13,6 +14,8 @@ export interface ResultLayout {
   fields: Record<string, number>;
 }
 
+const BYTES_PER_POINT = 2;
+
 /**
  * Generic GPU-accelerated query manager
  *
@@ -21,34 +24,90 @@ export interface ResultLayout {
  *
  * Features:
  * - Type-safe buffer management with named field layouts
- * - Double-buffered staging for non-blocking GPU readback
+ * - Double-buffered readback for non-blocking GPU data access
  * - Automatic query discovery via tags
  * - One-frame latency (results available next frame)
  *
  * @template TResult - The result type (e.g., WaterQueryResult)
  */
 export abstract class QueryManager<TResult> extends BaseEntity {
-  protected maxPoints = 8192;
-
-  // GPU buffers
-  protected pointBuffer: GPUBuffer | null = null;
-  protected resultBuffer: GPUBuffer | null = null;
-
-  // Double-buffered staging
-  protected stagingBufferA: GPUBuffer | null = null;
-  protected stagingBufferB: GPUBuffer | null = null;
-  protected currentStagingBuffer: "A" | "B" = "A";
-  protected mappedPromise: Promise<void> | null = null;
-  protected isProcessingMap = false;
-
-  protected device: GPUDevice | null = null;
-  protected initialized = false;
+  /**
+   * GPU buffer containing input query points (vec2f per point).
+   * Written by CPU, read by GPU compute shader.
+   */
+  private _pointBuffer: GPUBuffer | null = null;
+  protected get pointBuffer(): GPUBuffer {
+    if (!this._pointBuffer) {
+      throw new Error(`${this.constructor.name}: pointBuffer not initialized`);
+    }
+    return this._pointBuffer;
+  }
+  protected set pointBuffer(value: GPUBuffer | null) {
+    this._pointBuffer = value;
+  }
 
   /**
-   * Define the buffer layout for TResult
+   * GPU buffer containing computation results.
+   * Written by GPU compute shader, copied to readback buffer for CPU access.
+   * Cannot be directly read by CPU (STORAGE usage doesn't support mapping).
+   */
+  private _resultBuffer: GPUBuffer | null = null;
+  protected get resultBuffer(): GPUBuffer {
+    if (!this._resultBuffer) {
+      throw new Error(`${this.constructor.name}: resultBuffer not initialized`);
+    }
+    return this._resultBuffer;
+  }
+  protected set resultBuffer(value: GPUBuffer | null) {
+    this._resultBuffer = value;
+  }
+
+  /**
+   * Double-buffered readback buffers for CPU access.
+   * We copy resultBuffer to a readback buffer, then map it asynchronously.
+   * While one readback buffer is mapped (waiting for GPU), we can copy new
+   * results to the other buffer. This creates one frame of latency but
+   * prevents blocking on GPU operations.
+   */
+  private _readbackBuffers: DoubleBuffer<GPUBuffer> | null = null;
+  protected get readbackBuffers(): DoubleBuffer<GPUBuffer> {
+    if (!this._readbackBuffers) {
+      throw new Error(
+        `${this.constructor.name}: readbackBuffers not initialized`,
+      );
+    }
+    return this._readbackBuffers;
+  }
+  protected set readbackBuffers(value: DoubleBuffer<GPUBuffer> | null) {
+    this._readbackBuffers = value;
+  }
+
+  /**
+   * Promise for the currently pending mapAsync operation.
+   * Resolves when GPU has finished copying and buffer is ready to read.
+   */
+  protected mappedPromise: Promise<void> | null = null;
+
+  /**
+   * Flag indicating that mapped results are ready to be read.
+   * Set to true when mapAsync completes, cleared after reading results.
+   */
+  protected hasMappedResults = false;
+
+  /**
+   * Buffer layout for TResult
    * Example: { stride: 4, fields: { height: 0, normalX: 1, normalY: 2, terrainType: 3 } }
    */
-  abstract getResultLayout(): ResultLayout;
+  protected readonly resultLayout: ResultLayout;
+
+  /** Maximum number of query points supported */
+  protected readonly maxPoints: number;
+
+  constructor(resultLayout: ResultLayout, maxPoints: number) {
+    super();
+    this.resultLayout = resultLayout;
+    this.maxPoints = maxPoints;
+  }
 
   /**
    * Get all queries of this type from the game
@@ -70,105 +129,130 @@ export abstract class QueryManager<TResult> extends BaseEntity {
    */
   abstract unpackResult(buffer: Float32Array, offset: number): TResult;
 
+  get pointBufferSize(): number {
+    return this.maxPoints * BYTES_PER_POINT * Float32Array.BYTES_PER_ELEMENT;
+  }
+
+  get resultBufferSize(): number {
+    return (
+      this.maxPoints * this.resultLayout.stride * Float32Array.BYTES_PER_ELEMENT
+    );
+  }
+
   @on("add")
   onAdd(): void {
-    const webgpu = getWebGPU();
-    if (!webgpu) {
-      console.warn(this.constructor.name + ": WebGPU not available");
-      return;
-    }
-    this.device = webgpu.device;
-    this.initializeBuffers();
-  }
+    const device = getWebGPU().device;
 
-  @on("tick")
-  onTick(_dt: number): void {
-    if (!this.initialized || !this.device) return;
-
-    // 1. Set up promise handler if we have a pending map (only once)
-    if (this.mappedPromise && !this.isProcessingMap) {
-      this.isProcessingMap = true;
-      this.mappedPromise
-        .then(() => {
-          this.readAndDistributeResults();
-          this.mappedPromise = null;
-          this.isProcessingMap = false;
-        })
-        .catch((err) => {
-          console.error(`${this.constructor.name}: mapAsync failed:`, err);
-          this.mappedPromise = null;
-          this.isProcessingMap = false;
-        });
-    }
-
-    // 2. Collect query points
-    const { points, queries } = this.collectPoints();
-
-    // 3. Upload to GPU
-    this.uploadPoints(points);
-
-    // 4. Dispatch compute (stub in Phase 1)
-    this.dispatchCompute(queries.length);
-
-    // 5. Copy to staging buffer
-    const nextBuffer =
-      this.currentStagingBuffer === "A"
-        ? this.stagingBufferB!
-        : this.stagingBufferA!;
-    this.copyToStaging(nextBuffer);
-
-    // 6. Start async map only if we don't have a pending one
-    // This prevents trying to map a buffer that's already mapped
-    if (!this.mappedPromise) {
-      this.currentStagingBuffer = this.currentStagingBuffer === "A" ? "B" : "A";
-      this.mappedPromise = nextBuffer.mapAsync(GPUMapMode.READ);
-    }
-  }
-
-  @on("destroy")
-  onDestroy(): void {
-    this.destroyBuffers();
-  }
-
-  protected initializeBuffers(): void {
-    if (!this.device) return;
-
-    const layout = this.getResultLayout();
-
+    // Initialize GPU buffers
     // Point buffer: vec2f per point
-    this.pointBuffer = this.device.createBuffer({
+    this.pointBuffer = device.createBuffer({
       label: this.constructor.name + " Point Buffer",
-      size: this.maxPoints * 2 * Float32Array.BYTES_PER_ELEMENT,
+      size: this.pointBufferSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
     // Result buffer: layout.stride floats per result
-    this.resultBuffer = this.device.createBuffer({
+    this.resultBuffer = device.createBuffer({
       label: this.constructor.name + " Result Buffer",
-      size: this.maxPoints * layout.stride * Float32Array.BYTES_PER_ELEMENT,
+      size: this.resultBufferSize,
       usage:
         GPUBufferUsage.STORAGE |
         GPUBufferUsage.COPY_SRC |
         GPUBufferUsage.COPY_DST,
     });
 
-    // Staging buffers
-    const stagingSize =
-      this.maxPoints * layout.stride * Float32Array.BYTES_PER_ELEMENT;
+    // Readback buffers
+    this.readbackBuffers = new DoubleBuffer(
+      device.createBuffer({
+        label: this.constructor.name + " Readback A",
+        size: this.resultBufferSize,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      }),
+      device.createBuffer({
+        label: this.constructor.name + " Readback B",
+        size: this.resultBufferSize,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      }),
+    );
+  }
 
-    this.stagingBufferA = this.device.createBuffer({
-      label: this.constructor.name + " Staging A",
-      size: stagingSize,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
+  /**
+   * Query pipeline with one-tick latency:
+   *
+   * Tick N onTick (blocking):
+   *   1. Wait for GPU results from tick N-1 to complete
+   *   2. Read and distribute results to queries
+   *
+   * Tick N (entities use query results)
+   *
+   * Tick N afterPhysicsStep:
+   *   1. Collect query points (based on updated entity positions)
+   *   2. Upload to GPU and dispatch compute
+   *   3. Copy results to readback buffer
+   *   4. Start async map (completes before tick N+1)
+   *
+   * The double buffering allows us to start mapping one readback buffer while
+   * copying new results to the other, preventing GPU stalls.
+   */
+  @on("tick")
+  async onTick(_dt: number): Promise<void> {
+    // Wait for GPU results from previous tick
+    if (this.mappedPromise) {
+      await this.mappedPromise;
+    }
 
-    this.stagingBufferB = this.device.createBuffer({
-      label: this.constructor.name + " Staging B",
-      size: stagingSize,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
+    // Read and distribute results if available
+    if (this.hasMappedResults) {
+      this.readAndDistributeResults();
+      this.hasMappedResults = false;
+      console.log(
+        `${this.constructor.name}: Distributed results to ${this.getQueries().length} queries`,
+      );
+    }
+  }
 
-    this.initialized = true;
+  @on("afterPhysicsStep")
+  onAfterPhysicsStep(_dt: number): void {
+    const device = getWebGPU().device;
+
+    // Collect query points based on updated entity positions
+    const { points, queries } = this.collectPoints();
+    const totalPoints = queries.reduce((sum, q) => sum + q.bufferCount, 0);
+
+    console.log(
+      `${this.constructor.name}: Collected ${totalPoints} points from ${queries.length} queries`,
+    );
+
+    // Upload points to GPU
+    device.queue.writeBuffer(
+      this.pointBuffer,
+      0,
+      points.buffer,
+      points.byteOffset,
+      points.byteLength,
+    );
+
+    // Run GPU compute (or generate stub data)
+    this.dispatchCompute(totalPoints);
+
+    // Copy results to readback buffer for CPU access
+    const nextBuffer = this.readbackBuffers.getWrite();
+    this.copyToReadback(nextBuffer);
+
+    // Start async map for next tick's results (if no map is pending)
+    if (!this.mappedPromise) {
+      this.readbackBuffers.swap();
+      this.mappedPromise = nextBuffer
+        .mapAsync(GPUMapMode.READ)
+        .then(() => {
+          this.hasMappedResults = true;
+          this.mappedPromise = null;
+        })
+        .catch((err) => {
+          console.error(`${this.constructor.name}: mapAsync failed:`, err);
+          this.mappedPromise = null;
+        });
+    }
   }
 
   protected collectPoints(): {
@@ -177,103 +261,80 @@ export abstract class QueryManager<TResult> extends BaseEntity {
   } {
     const queries = this.getQueries();
     const points = new Float32Array(this.maxPoints * 2);
-    let offset = 0;
+    let currentPoint = 0;
 
     for (const query of queries) {
       const queryPoints = query.getQueryPoints();
 
-      if (offset + queryPoints.length > this.maxPoints) {
+      if (currentPoint + queryPoints.length > this.maxPoints) {
         console.warn(
-          this.constructor.name +
-            ": Buffer overflow! Skipping " +
-            queryPoints.length +
-            " points.",
+          `${this.constructor.name}: Buffer overflow! Skipping ${queryPoints.length} points.`,
         );
         query.bufferOffset = -1;
         query.bufferCount = 0;
         continue;
       }
 
-      query.bufferOffset = offset;
+      query.bufferOffset = currentPoint;
       query.bufferCount = queryPoints.length;
 
       for (const p of queryPoints) {
-        points[offset * 2] = p.x;
-        points[offset * 2 + 1] = p.y;
-        offset++;
+        const offset = currentPoint * BYTES_PER_POINT;
+        points[offset] = p.x;
+        points[offset + 1] = p.y;
+        currentPoint++;
       }
     }
 
     return { points, queries };
   }
 
-  protected uploadPoints(points: Float32Array): void {
-    if (!this.device || !this.pointBuffer) return;
-    this.device.queue.writeBuffer(
-      this.pointBuffer,
-      0,
-      points.buffer,
-      points.byteOffset,
-      points.byteLength,
-    );
-  }
-
+  /**
+   * Dispatch GPU compute or generate stub data.
+   * Override in subclasses to implement real GPU compute.
+   */
   protected dispatchCompute(pointCount: number): void {
-    // Phase 1: Generate stub data
-    if (!this.device || !this.resultBuffer) return;
-
-    const layout = this.getResultLayout();
-    const data = new Float32Array(this.maxPoints * layout.stride);
-
-    // Fill with stub data - subclasses can override
-    this.generateStubData(data, pointCount);
-
-    this.device.queue.writeBuffer(
+    const device = getWebGPU().device;
+    // Fake compute step - just write zeros
+    const mockData = new Float32Array(
+      pointCount * this.resultLayout.stride,
+    ).fill(0);
+    device.queue.writeBuffer(
       this.resultBuffer,
       0,
-      data.buffer,
-      data.byteOffset,
-      data.byteLength,
+      mockData.buffer,
+      mockData.byteOffset,
+      mockData.byteLength,
     );
   }
 
-  /**
-   * Generate stub data for Phase 1
-   * Override in subclasses for type-specific defaults
-   */
-  protected generateStubData(data: Float32Array, _pointCount: number): void {
-    // Default: fill with zeros
-    data.fill(0);
-  }
+  protected copyToReadback(readbackBuffer: GPUBuffer): void {
+    if (!this.resultBuffer) return;
+    const device = getWebGPU().device;
 
-  protected copyToStaging(stagingBuffer: GPUBuffer): void {
-    if (!this.device || !this.resultBuffer) return;
-
-    const layout = this.getResultLayout();
-    const commandEncoder = this.device.createCommandEncoder({
-      label: this.constructor.name + " Copy to Staging",
+    const layout = this.resultLayout;
+    const commandEncoder = device.createCommandEncoder({
+      label: `${this.constructor.name} Copy to Readback`,
     });
 
     commandEncoder.copyBufferToBuffer(
       this.resultBuffer,
       0,
-      stagingBuffer,
+      readbackBuffer,
       0,
       this.maxPoints * layout.stride * Float32Array.BYTES_PER_ELEMENT,
     );
 
-    this.device.queue.submit([commandEncoder.finish()]);
+    device.queue.submit([commandEncoder.finish()]);
   }
 
   protected readAndDistributeResults(): void {
-    const buffer =
-      this.currentStagingBuffer === "A"
-        ? this.stagingBufferA!
-        : this.stagingBufferB!;
+    if (!this.readbackBuffers) return;
+    const buffer = this.readbackBuffers.getRead();
 
     const data = new Float32Array(buffer.getMappedRange());
     const queries = this.getQueries();
-    const layout = this.getResultLayout();
+    const layout = this.resultLayout;
 
     for (const query of queries) {
       if (query.bufferOffset < 0) continue;
@@ -290,10 +351,13 @@ export abstract class QueryManager<TResult> extends BaseEntity {
     buffer.unmap();
   }
 
-  protected destroyBuffers(): void {
+  @on("destroy")
+  onDestroy(): void {
     this.pointBuffer?.destroy();
     this.resultBuffer?.destroy();
-    this.stagingBufferA?.destroy();
-    this.stagingBufferB?.destroy();
+    if (this.readbackBuffers) {
+      this.readbackBuffers.getRead().destroy();
+      this.readbackBuffers.getWrite().destroy();
+    }
   }
 }

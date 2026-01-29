@@ -2,6 +2,7 @@ import { QueryManager, type ResultLayout } from "./QueryManager";
 import { WindQuery, type WindQueryResult, isWindQuery } from "./WindQuery";
 import type { BaseQuery } from "./BaseQuery";
 import { V } from "../../../core/Vector";
+import { WindSystem } from "../wind/WindSystem";
 
 /**
  * Named constants for wind result buffer layout
@@ -25,8 +26,8 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
   id = "windQueryManager";
   tickLayer = "environment";
 
-  getResultLayout(): ResultLayout {
-    return WindResultLayout;
+  constructor() {
+    super(WindResultLayout, 8192);
   }
 
   getQueries(): BaseQuery<WindQueryResult>[] {
@@ -66,5 +67,24 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
       data[offset + fields.speed] = 5;
       data[offset + fields.direction] = 0;
     }
+  }
+
+  protected dispatchCompute(pointCount: number): void {
+    const windSystem = this.game.entities.getById("windSystem") as
+      | WindSystem
+      | undefined;
+
+    if (!windSystem) {
+      console.warn("WindQueryManager: WindSystem not found, using stub data");
+      super.dispatchCompute(pointCount);
+      return;
+    }
+
+    // Dispatch GPU compute via WindSystem
+    windSystem.computeQueryResults(
+      this.pointBuffer,
+      this.resultBuffer,
+      pointCount,
+    );
   }
 }

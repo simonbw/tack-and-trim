@@ -1,4 +1,4 @@
-import { DEFAULT_LAYER, LAYERS, LayerName } from "../config/layers";
+import { DEFAULT_LAYER, LAYERS } from "../config/layers";
 import { TICK_LAYERS, TickLayerName } from "../config/tickLayers";
 import { ContactList } from "./ContactList";
 import { EntityList } from "./EntityList";
@@ -355,10 +355,9 @@ export class Game {
   private timeToSimulate = 0.0;
   /** The main event loop. Run one frame of the game.  */
   @profile
-  private loop(time: number): void {
+  private async loop(time: number): Promise<void> {
     if (this.destroyed) return;
 
-    this.animationFrameId = window.requestAnimationFrame((t) => this.loop(t));
     this.framenumber += 1;
 
     const lastFrameDuration = (time - this.lastFrameTime) / 1000;
@@ -387,7 +386,7 @@ export class Game {
     while (this.timeToSimulate >= this.tickDuration) {
       this.timeToSimulate -= this.tickDuration;
 
-      this.tick(this.tickDuration);
+      await this.tick(this.tickDuration);
 
       if (!this.paused) {
         const stepDt = this.tickDuration;
@@ -404,6 +403,11 @@ export class Game {
     this.afterPhysics();
 
     this.render(renderDt);
+
+    this.dispatch("frameEnd", undefined);
+
+    // Request next frame at the END to prevent concurrent loops
+    this.animationFrameId = window.requestAnimationFrame((t) => this.loop(t));
   }
 
   /**
@@ -453,25 +457,37 @@ export class Game {
 
   /** Called before physics. */
   @profile
-  private tick(dt: number) {
+  private async tick(dt: number) {
     this.ticknumber += 1;
 
     // Dispatch tick events layer by layer
     for (const layerName of TICK_LAYERS) {
-      profiler.measure(`tick.${layerName}`, () => {
-        this.dispatchTickForLayer(layerName, dt);
+      await profiler.measure(`tick.${layerName}`, async () => {
+        await this.dispatchTickForLayer(layerName, dt);
       });
     }
   }
 
   /** Dispatch tick event to entities on a specific layer */
-  private dispatchTickForLayer(layerName: TickLayerName, dt: number) {
-    const effectivelyPaused = this.paused;
+  private async dispatchTickForLayer(
+    layerName: TickLayerName,
+    dt: number,
+  ): Promise<void> {
+    const promises: Promise<void>[] = [];
 
     for (const entity of this.entities.getTickersOnLayer(layerName)) {
-      if (entity.game && !(effectivelyPaused && !entity.pausable)) {
-        entity.onTick?.(dt);
+      if (entity.game && !(this.paused && !entity.pausable)) {
+        const result = entity.onTick?.(dt);
+        // Only collect actual Promises
+        if (result && result instanceof Promise) {
+          promises.push(result);
+        }
       }
+    }
+
+    // Only await if there were any Promises
+    if (promises.length > 0) {
+      await Promise.all(promises);
     }
   }
 
@@ -522,26 +538,19 @@ export class Game {
       profiler.measure(`layer.${layerName}`, () => {
         // Set the camera transform for this layer
         this.renderer.setLayer(layerName);
+        const renderData = { dt, layer: layerName, draw, camera: draw.camera };
 
         // Dispatch render event for entities on this layer
-        this.dispatchRenderForLayer(layerName, dt, draw);
+        for (const entity of this.entities.getRenderersOnLayer(layerName)) {
+          if (entity.game && !(this.paused && !entity.pausable)) {
+            entity.onRender?.(renderData);
+          }
+        }
       });
     }
 
     // End frame
     this.renderer.endFrame();
-  }
-
-  /** Dispatch render event to entities on a specific layer */
-  private dispatchRenderForLayer(layerName: LayerName, dt: number, draw: Draw) {
-    const effectivelyPaused = this.paused;
-    const renderData = { dt, layer: layerName, draw, camera: draw.camera };
-
-    for (const entity of this.entities.getRenderersOnLayer(layerName)) {
-      if (entity.game && !(effectivelyPaused && !entity.pausable)) {
-        entity.onRender?.(renderData);
-      }
-    }
   }
 
   // Handle beginning of collision between things.

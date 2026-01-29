@@ -17,8 +17,13 @@ import type { V2d } from "../../../core/Vector";
  */
 export abstract class BaseQuery<TResult> extends BaseEntity {
   private getPointsCallback: () => V2d[];
+
+  // Double-buffered: points that match current results
   private _points: V2d[] = [];
   private _results: TResult[] = [];
+
+  // Points submitted for next frame's results
+  private _pendingPoints: V2d[] = [];
 
   // Internal state used by QueryManager
   /** @internal Buffer offset for this query's points */
@@ -33,6 +38,7 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
 
   /**
    * Get the current query points (read-only).
+   * These points correspond to the current results.
    */
   get points(): readonly V2d[] {
     return this._points;
@@ -58,6 +64,7 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
 
   /**
    * Iterator support for iterating over (point, result) pairs.
+   * Points and results are always synchronized via double-buffering.
    *
    * @example
    * for (const [point, result] of query) {
@@ -65,6 +72,7 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
    * }
    */
   *[Symbol.iterator](): Iterator<[V2d, TResult]> {
+    // _points and _results are always in sync (same length)
     for (let i = 0; i < this._points.length; i++) {
       yield [this._points[i], this._results[i]];
     }
@@ -87,18 +95,21 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
 
   /**
    * Internal method called by QueryManager to collect points.
+   * Stores points in pending buffer - they'll become active when results arrive.
    * @internal
    */
   getQueryPoints(): V2d[] {
-    this._points = this.getPointsCallback();
-    return this._points;
+    this._pendingPoints = this.getPointsCallback();
+    return this._pendingPoints;
   }
 
   /**
    * Internal method called by QueryManager to set results.
+   * Swaps pending points into active points so they stay synchronized.
    * @internal
    */
   setResults(results: TResult[]): void {
+    this._points = this._pendingPoints;
     this._results = results;
   }
 }

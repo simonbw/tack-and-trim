@@ -165,13 +165,21 @@ class Profiler {
     }
   }
 
-  /** Measure a function's execution time */
+  /** Measure a function's execution time (supports async functions) */
   measure<T>(label: string, fn: () => T): T {
     this.start(label);
     try {
-      return fn();
-    } finally {
+      const result = fn();
+      // If the result is a Promise, end timing when it resolves
+      if (result instanceof Promise) {
+        return result.finally(() => this.end(label)) as T;
+      }
+      // For sync functions, end timing immediately
       this.end(label);
+      return result;
+    } catch (err) {
+      this.end(label);
+      throw err;
     }
   }
 
