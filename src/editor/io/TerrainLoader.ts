@@ -1,45 +1,45 @@
 /**
- * Terrain loader utility.
+ * Level loader utility.
  *
- * Provides functions for loading terrain from JSON files
+ * Provides functions for loading levels from JSON files
  * that can be used by both the editor and the game.
  */
 
 import { RESOURCES } from "../../../resources/resources";
 import { TerrainDefinition } from "../../game/world/terrain/TerrainTypes";
 import {
-  EditorTerrainDefinition,
+  EditorLevelDefinition,
+  levelFileToEditorDefinition,
   parseTerrainFile,
   terrainFileToDefinition,
-  terrainFileToEditorDefinition,
-  validateTerrainFile,
+  validateLevelFile,
 } from "./TerrainFileFormat";
 
 /**
- * Load the default terrain definition (for game use).
+ * Load the default level definition (for game use).
  * Uses the bundled resource from the asset system.
  */
-export function loadDefaultTerrain(): TerrainDefinition {
-  const file = validateTerrainFile(RESOURCES.levels.default);
+export function loadDefaultLevel(): TerrainDefinition {
+  const file = validateLevelFile(RESOURCES.levels.default);
   return terrainFileToDefinition(file);
 }
 
 /**
- * Load the default terrain definition for editor (preserves names).
+ * Load the default level definition for editor (preserves names).
  * Uses the bundled resource from the asset system.
  */
-export function loadDefaultEditorTerrain(): EditorTerrainDefinition {
-  const file = validateTerrainFile(RESOURCES.levels.default);
-  return terrainFileToEditorDefinition(file);
+export function loadDefaultEditorLevel(): EditorLevelDefinition {
+  const file = validateLevelFile(RESOURCES.levels.default);
+  return levelFileToEditorDefinition(file);
 }
 
 /**
- * Load terrain definition from a File object (for editor file input).
+ * Load level definition from a File object (for editor file input).
  */
-export async function loadTerrainFromFile(
+export async function loadLevelFromFile(
   file: File,
-): Promise<EditorTerrainDefinition> {
+): Promise<EditorLevelDefinition> {
   const json = await file.text();
   const parsed = parseTerrainFile(json);
-  return terrainFileToEditorDefinition(parsed);
+  return levelFileToEditorDefinition(parsed);
 }

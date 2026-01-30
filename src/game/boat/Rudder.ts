@@ -8,6 +8,7 @@ import {
   foilLift,
   RUDDER_CHORD,
 } from "../fluid-dynamics";
+import { WaterQuery } from "../world/query/WaterQuery";
 import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -24,6 +25,7 @@ export class Rudder extends BaseEntity {
   private steerAdjustSpeed: number;
   private steerAdjustSpeedFast: number;
   private color: number;
+  private waterQuery: WaterQuery;
 
   constructor(
     private hull: Hull,
@@ -37,6 +39,11 @@ export class Rudder extends BaseEntity {
     this.steerAdjustSpeed = config.steerAdjustSpeed;
     this.steerAdjustSpeedFast = config.steerAdjustSpeedFast;
     this.color = config.color;
+
+    // Create water query for rudder position
+    this.waterQuery = this.addChild(
+      new WaterQuery(() => [this.hull.body.toWorldFrame(this.position)]),
+    );
   }
 
   /**
@@ -75,8 +82,10 @@ export class Rudder extends BaseEntity {
     const lift = foilLift(RUDDER_CHORD);
     const drag = foilDrag(RUDDER_CHORD);
 
-    // Assume still water for now (stub implementation)
-    const getWaterVelocity = (_point: V2d): V2d => V(0, 0);
+    // Get water velocity from query results (or assume still water if no results yet)
+    const results = this.waterQuery.results;
+    const waterVelocity = results.length > 0 ? results[0].velocity : V(0, 0);
+    const getWaterVelocity = (_point: V2d): V2d => waterVelocity;
 
     // Apply rudder forces to hull (both directions)
     applyFluidForces(

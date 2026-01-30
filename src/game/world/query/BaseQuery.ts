@@ -16,32 +16,18 @@ import type { V2d } from "../../../core/Vector";
  * @template TResult - The result type for this query
  */
 export abstract class BaseQuery<TResult> extends BaseEntity {
-  private getPointsCallback: () => V2d[];
+  private getPointsCallback: () => ReadonlyArray<V2d>;
 
   // Double-buffered: points that match current results
-  private _points: V2d[] = [];
+  private _points: ReadonlyArray<V2d> = [];
   private _results: TResult[] = [];
 
   // Points submitted for next frame's results
-  private _pendingPoints: V2d[] = [];
+  private _pendingPoints: ReadonlyArray<V2d> | undefined;
 
-  // Internal state used by QueryManager
-  /** @internal Buffer offset for this query's points */
-  bufferOffset: number = -1;
-  /** @internal Number of points in the buffer for this query */
-  bufferCount: number = 0;
-
-  constructor(getPoints: () => V2d[]) {
+  constructor(getPoints: () => ReadonlyArray<V2d>) {
     super();
     this.getPointsCallback = getPoints;
-  }
-
-  /**
-   * Get the current query points (read-only).
-   * These points correspond to the current results.
-   */
-  get points(): readonly V2d[] {
-    return this._points;
   }
 
   /**
@@ -89,7 +75,7 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
     // Wait one frame for results to be computed
     await new Promise((resolve) => setTimeout(resolve, 16));
     const results = [...this._results];
-    this.game.removeEntity(this);
+    this.destroy();
     return results;
   }
 
@@ -98,7 +84,7 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
    * Stores points in pending buffer - they'll become active when results arrive.
    * @internal
    */
-  getQueryPoints(): V2d[] {
+  getQueryPoints(): ReadonlyArray<V2d> {
     this._pendingPoints = this.getPointsCallback();
     return this._pendingPoints;
   }
@@ -109,7 +95,8 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
    * @internal
    */
   setResults(results: TResult[]): void {
-    this._points = this._pendingPoints;
+    this._points = this._pendingPoints!;
+    this._pendingPoints = undefined;
     this._results = results;
   }
 }

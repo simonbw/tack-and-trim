@@ -4,12 +4,12 @@ import { V } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { CameraController } from "./CameraController";
+import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { MainMenu } from "./menu/MainMenu";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { isTutorialCompleted, TutorialManager } from "./tutorial";
-import { DebugRenderer } from "./debug-renderer";
-import { WorldManager } from "./world/WorldManager";
 import { SurfaceRenderer } from "./world/rendering/SurfaceRenderer";
+import { WorldManager } from "./world/WorldManager";
 
 const MENU_ZOOM = 2; // Wide shot for menu
 const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom

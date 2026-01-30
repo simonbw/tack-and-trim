@@ -1,9 +1,11 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import { on } from "../../core/entity/handler";
-import { V2d } from "../../core/Vector";
-import { TerrainQueryManager } from "./query/TerrainQueryManager";
-import { WaterQueryManager } from "./query/WaterQueryManager";
-import { WindQueryManager } from "./query/WindQueryManager";
+import { V, V2d } from "../../core/Vector";
+import { TerrainSystem } from "./terrain/TerrainSystem";
+import { WindSystem } from "./wind/WindSystem";
+import type { TerrainDefinition } from "./terrain/TerrainTypes";
+import { TerrainQueryManager } from "./query/TerrainQuery.js";
+import { WindQueryManager } from "./query/WindQuery.js";
+import { WaterQueryManager } from "./query/WaterQuery.js";
 
 /**
  * Minimal level definition for stub implementation
@@ -13,6 +15,35 @@ export interface LevelDefinition {
   baseWind: V2d;
   /** Level name/identifier */
   name?: string;
+  /** Optional terrain definition (if not provided, uses default test terrain) */
+  terrain?: TerrainDefinition;
+}
+
+/**
+ * Create a simple test terrain for Phase 2.
+ * This creates a rectangular island with a hill in the center.
+ */
+function createTestTerrain(): TerrainDefinition {
+  return {
+    defaultDepth: -10, // 10 meters deep water
+    contours: [
+      // Outer coastline (0 meters)
+      {
+        controlPoints: [V(-100, -100), V(100, -100), V(100, 100), V(-100, 100)],
+        height: 0,
+      },
+      // Inner hill (5 meters high)
+      {
+        controlPoints: [V(-30, -30), V(30, -30), V(30, 30), V(-30, 30)],
+        height: 5,
+      },
+      // Peak (10 meters high)
+      {
+        controlPoints: [V(-10, -10), V(10, -10), V(10, 10), V(-10, 10)],
+        height: 10,
+      },
+    ],
+  };
 }
 
 /**
@@ -29,15 +60,18 @@ export class WorldManager extends BaseEntity {
     super();
     this.id = "world-manager";
     this.baseWind = levelDef.baseWind;
-  }
 
-  @on("add")
-  onAdd(): void {
-    // Initialize query managers as child entities
-    // Each manager handles its own query type independently
-    this.game.addEntity(new TerrainQueryManager());
-    this.game.addEntity(new WaterQueryManager());
-    this.game.addEntity(new WindQueryManager());
+    // Create terrain system with provided or default terrain
+    const terrainDef = levelDef.terrain || createTestTerrain();
+    this.addChild(new TerrainSystem(terrainDef));
+
+    // Create wind system
+    this.addChild(new WindSystem(this.baseWind));
+
+    // Add query managers
+    this.addChild(new TerrainQueryManager());
+    this.addChild(new WaterQueryManager());
+    this.addChild(new WindQueryManager());
   }
 
   /**
@@ -58,8 +92,6 @@ export class WorldManager extends BaseEntity {
    * Get base wind as speed and direction
    */
   getBaseWindPolar(): { speed: number; direction: number } {
-    const speed = this.baseWind.magnitude;
-    const direction = Math.atan2(this.baseWind.y, this.baseWind.x);
-    return { speed, direction };
+    return { speed: this.baseWind.magnitude, direction: this.baseWind.angle };
   }
 }

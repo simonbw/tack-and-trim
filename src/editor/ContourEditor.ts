@@ -56,7 +56,7 @@ export class ContourEditor extends BaseEntity {
   onRender(): void {
     // Update hover state
     const io = this.game.io;
-    const worldPos = this.game.camera.toWorld(io.mousePosition);
+    const worldPos = this.game.camera.screenToWorld(io.mousePosition);
 
     // Don't update hover while dragging
     if (this.dragState) {
@@ -104,7 +104,7 @@ export class ContourEditor extends BaseEntity {
     // Ignore if Space is held (panning)
     if (io.isKeyDown("Space")) return;
 
-    const worldPos = this.game.camera.toWorld(io.mousePosition);
+    const worldPos = this.game.camera.screenToWorld(io.mousePosition);
 
     // Always do fresh hit testing on click to avoid stale hover info issues
     const pointHit = this.renderer.hitTestPoint(worldPos);
@@ -327,7 +327,7 @@ export class ContourEditor extends BaseEntity {
     if (!this.dragState) return;
 
     const io = this.game.io;
-    const worldPos = this.game.camera.toWorld(io.mousePosition);
+    const worldPos = this.game.camera.screenToWorld(io.mousePosition);
 
     // Calculate delta from start position
     const dx = worldPos.x - this.dragState.startMousePos.x;

@@ -348,6 +348,15 @@ export class Draw {
     path.close().stroke(color, width, alpha);
   }
 
+  fillTriangle(p1: V2d, p2: V2d, p3: V2d, opts?: DrawOptions): void {
+    this.renderer.submitTriangles(
+      [p1, p2, p3],
+      [0, 1, 2],
+      opts?.color ?? 0xffffff,
+      opts?.alpha ?? 1.0,
+    );
+  }
+
   /** Draw a filled polygon (supports concave polygons) */
   fillPolygon(vertices: V2d[], opts?: DrawOptions): void {
     const color = opts?.color ?? 0xffffff;

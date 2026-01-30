@@ -1,38 +1,34 @@
 /**
  * Main editor controller entity.
  *
- * Orchestrates the terrain editor:
- * - Loads terrain from JSON on startup
+ * Orchestrates the level editor:
+ * - Loads level from JSON on startup
  * - Adds editor entities (ContourEditor, UI panels, camera controller)
- * - Manages document state and terrain visualization
+ * - Manages document state and level visualization
  */
 
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { Game } from "../core/Game";
-import { createContour } from "../game/world/terrain/TerrainTypes";
-import { TerrainInfo } from "../game/world-data/terrain/TerrainInfo";
+import { computeSplineCentroid } from "../core/util/Spline";
 import { V, V2d } from "../core/Vector";
+import { SurfaceRenderer } from "../game/world/rendering/SurfaceRenderer";
+import { createContour } from "../game/world/terrain/TerrainTypes";
 import { ContourEditor } from "./ContourEditor";
 import { ContourRenderer } from "./ContourRenderer";
+import { EditorCameraController } from "./EditorCameraController";
 import {
   DocumentChangeListener,
   EditorDocument,
   PasteContourCommand,
 } from "./EditorDocument";
-import { EditorCameraController } from "./EditorCameraController";
+import { EditorUI } from "./EditorUI";
 import {
   EditorContour,
   editorDefinitionToFile,
   serializeTerrainFile,
 } from "./io/TerrainFileFormat";
-import { loadDefaultEditorTerrain } from "./io/TerrainLoader";
-import { EditorUI } from "./EditorUI";
-import { SurfaceRenderer } from "../game/world/rendering/SurfaceRenderer";
-// import { WaterInfo } from "../game/world-data/water/WaterInfo";
-import { InfluenceFieldManager } from "../game/world-data/influence/InfluenceFieldManager";
-import { DebugRenderer } from "../game/debug-renderer";
-import { computeSplineCentroid } from "../core/util/Spline";
+import { loadDefaultEditorLevel } from "./io/TerrainLoader";
 
 // File System Access API types (not in lib.dom.d.ts by default)
 declare global {
@@ -125,12 +121,9 @@ export class EditorController
   persistenceLevel = 100;
 
   private document: EditorDocument;
-  private terrainInfo: TerrainInfo | null = null;
   private cameraController: EditorCameraController | null = null;
   private contourRenderer: ContourRenderer | null = null;
   private surfaceRenderer: SurfaceRenderer | null = null;
-  private influenceManager: InfluenceFieldManager | null = null;
-  private isComputingInfluence = false;
   private debugRenderMode = false;
   private fileHandle: FileSystemFileHandle | null = null;
   private clipboardContour: EditorContour | null = null;
@@ -144,17 +137,9 @@ export class EditorController
 
   @on("add")
   onAdd(): void {
-    // Load default terrain from bundled resource
-    const terrain = loadDefaultEditorTerrain();
-    this.document.setTerrainDefinition(terrain);
-
-    // Create TerrainInfo for rendering (without InfluenceFieldManager)
-    this.terrainInfo = this.game.addEntity(
-      new TerrainInfo(this.getTerrainContours()),
-    );
-
-    // TODO: Add water system once new world system is complete
-    // For now, editor works without water simulation
+    // Load default level from bundled resource
+    const level = loadDefaultEditorLevel();
+    this.document.setLevelDefinition(level);
 
     // Add surface renderer (renders water and terrain visuals)
     // Use a smaller texture scale for the editor (0.25 = quarter resolution)
@@ -169,10 +154,10 @@ export class EditorController
       new EditorCameraController(this.game.camera),
     );
     this.cameraController.setTerrainDefinition(
-      this.document.getTerrainDefinition(),
+      this.document.getLevelDefinition(),
     );
 
-    // Fit camera to show all terrain
+    // Fit camera to show all level contours
     // Delay to ensure camera is ready
     setTimeout(() => {
       this.cameraController?.fitToTerrain();
@@ -188,9 +173,6 @@ export class EditorController
 
     // Add UI (toolbar and panels)
     this.game.addEntity(new EditorUI(this.document, this));
-
-    // Compute influence fields for initial terrain
-    this.computeInfluenceFields();
 
     // Try to restore file handle from last session, or prompt to open
     this.tryRestoreFileHandle();
@@ -246,19 +228,11 @@ export class EditorController
   // DocumentChangeListener implementation
   // ==========================================
 
-  onTerrainChanged(): void {
-    // Update TerrainInfo with new contours
-    if (this.terrainInfo) {
-      this.terrainInfo.setTerrainDefinition({
-        contours: this.getTerrainContours(),
-        defaultDepth: this.document.getDefaultDepth(),
-      });
-    }
-
+  onLevelChanged(): void {
     // Update camera controller
     if (this.cameraController) {
       this.cameraController.setTerrainDefinition(
-        this.document.getTerrainDefinition(),
+        this.document.getLevelDefinition(),
       );
     }
   }
@@ -269,7 +243,7 @@ export class EditorController
 
   onDirtyChanged(isDirty: boolean): void {
     // Update window title or show save indicator
-    const title = isDirty ? "* Terrain Editor" : "Terrain Editor";
+    const title = isDirty ? "* Level Editor" : "Level Editor";
     document.title = title;
   }
 
@@ -282,7 +256,7 @@ export class EditorController
    * In normal mode, filters out invalid contours.
    * In debug mode, includes all contours.
    */
-  private getTerrainContours() {
+  private getLevelContours() {
     const contours = this.document.getContours();
     const validationResults = this.document.getValidationResults();
 
@@ -316,11 +290,11 @@ export class EditorController
   }
 
   /**
-   * Get the terrain height at the current mouse position.
+   * Get the level height at the current mouse position.
    */
   getTerrainHeightAtMouse(): number | null {
-    if (!this.mouseWorldPosition || !this.terrainInfo) return null;
-    return this.terrainInfo.getHeightAtPoint(this.mouseWorldPosition);
+    // TODO: Implement with TerrainQuery
+    return 0;
   }
 
   /**
@@ -336,17 +310,17 @@ export class EditorController
   // ==========================================
 
   /**
-   * Save terrain to a JSON string.
+   * Save level to a JSON string.
    */
   saveToJson(): string {
-    const file = editorDefinitionToFile(this.document.getTerrainDefinition());
+    const file = editorDefinitionToFile(this.document.getLevelDefinition());
     return serializeTerrainFile(file);
   }
 
   /**
-   * Download terrain as a JSON file.
+   * Download level as a JSON file.
    */
-  downloadJson(filename: string = "terrain.json"): void {
+  downloadJson(filename: string = "level.json"): void {
     const json = this.saveToJson();
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -401,11 +375,11 @@ export class EditorController
       const options: SaveFilePickerOptions = {
         types: [
           {
-            description: "Terrain Files",
-            accept: { "application/json": [".json", ".terrain.json"] },
+            description: "Level Files",
+            accept: { "application/json": [".json", ".level.json"] },
           },
         ],
-        suggestedName: "terrain.json",
+        suggestedName: "level.json",
       };
 
       // Start in the same folder as the current file if we have one
@@ -438,8 +412,8 @@ export class EditorController
       const options: OpenFilePickerOptions = {
         types: [
           {
-            description: "Terrain Files",
-            accept: { "application/json": [".json", ".terrain.json"] },
+            description: "Level Files",
+            accept: { "application/json": [".json", ".level.json"] },
           },
         ],
       };
@@ -469,7 +443,7 @@ export class EditorController
   }
 
   /**
-   * Copy terrain JSON to clipboard.
+   * Copy level JSON to clipboard.
    */
   async copyToClipboard(): Promise<void> {
     const json = this.saveToJson();
@@ -478,42 +452,36 @@ export class EditorController
   }
 
   /**
-   * Load terrain from a File object.
+   * Load level from a File object.
    */
   async loadFromFile(file: File): Promise<void> {
-    const { loadTerrainFromFile } = await import("./io/TerrainLoader");
-    const terrain = await loadTerrainFromFile(file);
-    this.document.setTerrainDefinition(terrain);
+    const { loadLevelFromFile } = await import("./io/TerrainLoader");
+    const level = await loadLevelFromFile(file);
+    this.document.setLevelDefinition(level);
     this.cameraController?.fitToTerrain();
-
-    // Recompute influence fields for the new terrain
-    this.computeInfluenceFields();
   }
 
   /**
-   * Create a new empty terrain.
+   * Create a new empty level.
    */
-  newTerrain(): void {
+  newLevel(): void {
     if (this.document.getIsDirty()) {
       if (
         !confirm(
-          "You have unsaved changes. Are you sure you want to start a new terrain?",
+          "You have unsaved changes. Are you sure you want to start a new level?",
         )
       ) {
         return;
       }
     }
 
-    // Clear file handle when creating new terrain
+    // Clear file handle when creating new level
     this.fileHandle = null;
 
-    this.document.setTerrainDefinition({
+    this.document.setLevelDefinition({
       defaultDepth: -50,
       contours: [],
     });
-
-    // Recompute influence fields (will reset to uniform waves with no terrain)
-    this.computeInfluenceFields();
   }
 
   /**
@@ -621,7 +589,7 @@ export class EditorController
   onRender(): void {
     // Update mouse world position for status bar
     const screenPos = this.game.io.mousePosition;
-    this.mouseWorldPosition = this.game.camera.toWorld(screenPos);
+    this.mouseWorldPosition = this.game.camera.screenToWorld(screenPos);
   }
 
   @on("keyDown")
@@ -664,7 +632,7 @@ export class EditorController
 
     // Ctrl/Cmd+N - New terrain
     if (key === "KeyN" && modifier) {
-      this.newTerrain();
+      this.newLevel();
       return;
     }
 
@@ -673,8 +641,8 @@ export class EditorController
       this.debugRenderMode = !this.debugRenderMode;
       // Update surface renderer debug mode
       this.surfaceRenderer?.setRenderMode(this.debugRenderMode ? 1 : 0);
-      // Refresh terrain to apply/remove invalid contour filtering
-      this.onTerrainChanged();
+      // Refresh level to apply/remove invalid contour filtering
+      this.onLevelChanged();
       return;
     }
   }
@@ -682,71 +650,18 @@ export class EditorController
   private promptOpenFile(): void {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".json,.terrain.json";
+    input.accept = ".json,.level.json";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (file) {
         try {
           await this.loadFromFile(file);
         } catch (error) {
-          console.error("Failed to load terrain file:", error);
-          alert(`Failed to load terrain file: ${error}`);
+          console.error("Failed to load level file:", error);
+          alert(`Failed to load level file: ${error}`);
         }
       }
     };
     input.click();
-  }
-
-  // ==========================================
-  // Influence field computation
-  // ==========================================
-
-  /**
-   * Compute influence fields for terrain-aware wave rendering.
-   * Creates the InfluenceFieldManager if first time, otherwise recomputes.
-   */
-  async computeInfluenceFields(): Promise<void> {
-    if (this.isComputingInfluence) return;
-    this.isComputingInfluence = true;
-
-    try {
-      if (!this.influenceManager) {
-        // First time: create and add the manager
-        // The manager will automatically start computing via @on("afterAdded")
-        this.influenceManager = this.game.addEntity(
-          new InfluenceFieldManager(),
-        );
-      } else {
-        // Recompute with updated terrain
-        await this.influenceManager.recompute();
-      }
-    } catch (error) {
-      console.error("Failed to compute influence fields:", error);
-      this.isComputingInfluence = false;
-    }
-  }
-
-  /**
-   * Check if influence computation is in progress.
-   */
-  getIsComputingInfluence(): boolean {
-    return this.isComputingInfluence;
-  }
-
-  /**
-   * Get the InfluenceFieldManager, if created.
-   */
-  getInfluenceManager(): InfluenceFieldManager | null {
-    return this.influenceManager;
-  }
-
-  @on("influenceFieldsReady")
-  onInfluenceFieldsReady(): void {
-    this.isComputingInfluence = false;
-
-    // Add debug visualization if not already present
-    if (!this.game.entities.getById("debugRenderer")) {
-      this.game.addEntity(new DebugRenderer());
-    }
   }
 }

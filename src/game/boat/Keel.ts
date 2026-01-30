@@ -8,6 +8,7 @@ import {
   foilLift,
   KEEL_CHORD,
 } from "../fluid-dynamics";
+import { WaterQuery } from "../world/query/WaterQuery";
 import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -16,6 +17,7 @@ export class Keel extends BaseEntity {
 
   private vertices: V2d[];
   private color: number;
+  private waterQuery: WaterQuery;
 
   constructor(
     private hull: Hull,
@@ -25,6 +27,13 @@ export class Keel extends BaseEntity {
 
     this.vertices = config.vertices;
     this.color = config.color;
+
+    // Create water query for all keel vertices
+    this.waterQuery = this.addChild(
+      new WaterQuery(() =>
+        this.vertices.map((v) => this.hull.body.toWorldFrame(v)),
+      ),
+    );
   }
 
   @on("tick")
@@ -33,8 +42,19 @@ export class Keel extends BaseEntity {
     const lift = foilLift(KEEL_CHORD);
     const drag = foilDrag(KEEL_CHORD);
 
-    // Assume still water for now (stub implementation)
-    const getWaterVelocity = (_point: V2d): V2d => V(0, 0);
+    // Get water velocity from query results (or assume still water if no results yet)
+    const results = this.waterQuery.results;
+    const getWaterVelocity = (point: V2d): V2d => {
+      // Find the closest query result for this point
+      if (results.length === 0) return V(0, 0);
+
+      // For simplicity, use the average water velocity across all keel points
+      let totalVelocity = V(0, 0);
+      for (const result of results) {
+        totalVelocity.iadd(result.velocity);
+      }
+      return totalVelocity.idiv(results.length);
+    };
 
     // Apply keel forces to hull (both directions for symmetry)
     for (const [start, end] of pairs(this.vertices)) {

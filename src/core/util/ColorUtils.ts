@@ -41,9 +41,7 @@ export function hexToHsv(hex: number) {
 
 // Converts a hex value into r,g,b components in vec3 form for shaders
 export function hexToVec3(hex: number): [number, number, number] {
-  const r = hex >> 16;
-  const g = (hex >> 8) & 0x0000ff;
-  const b = hex & 0x0000ff;
+  const { r, g, b } = hexToRgb(hex);
   return [r / 255.0, g / 255.0, b / 255.0];
 }
 

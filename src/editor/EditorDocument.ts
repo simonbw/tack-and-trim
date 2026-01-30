@@ -17,7 +17,7 @@ import {
 import {
   createEmptyEditorDefinition,
   EditorContour,
-  EditorTerrainDefinition,
+  EditorLevelDefinition,
 } from "./io/TerrainFileFormat";
 
 /**
@@ -79,7 +79,7 @@ export interface EditorCommand {
  * Listeners for document changes.
  */
 export interface DocumentChangeListener {
-  onTerrainChanged(): void;
+  onLevelChanged(): void;
   onSelectionChanged(): void;
   onDirtyChanged(isDirty: boolean): void;
 }
@@ -88,7 +88,7 @@ export interface DocumentChangeListener {
  * Editor document manages the terrain being edited.
  */
 export class EditorDocument {
-  private terrainDefinition: EditorTerrainDefinition;
+  private levelDefinition: EditorLevelDefinition;
   private selection: EditorSelection = {
     contourIndex: null,
     pointIndices: new Set(),
@@ -104,8 +104,8 @@ export class EditorDocument {
   /** Cached hierarchy, invalidated when terrain changes */
   private hierarchyCache: ContourHierarchy | null = null;
 
-  constructor(initialTerrain?: EditorTerrainDefinition) {
-    this.terrainDefinition = initialTerrain ?? createEmptyEditorDefinition();
+  constructor(initialTerrain?: EditorLevelDefinition) {
+    this.levelDefinition = initialTerrain ?? createEmptyEditorDefinition();
   }
 
   // ==========================================
@@ -128,7 +128,7 @@ export class EditorDocument {
     this.validationCache = null;
     this.hierarchyCache = null;
     for (const listener of this.listeners) {
-      listener.onTerrainChanged();
+      listener.onLevelChanged();
     }
   }
 
@@ -148,12 +148,12 @@ export class EditorDocument {
   // Terrain access
   // ==========================================
 
-  getTerrainDefinition(): EditorTerrainDefinition {
-    return this.terrainDefinition;
+  getLevelDefinition(): EditorLevelDefinition {
+    return this.levelDefinition;
   }
 
-  setTerrainDefinition(definition: EditorTerrainDefinition): void {
-    this.terrainDefinition = definition;
+  setLevelDefinition(definition: EditorLevelDefinition): void {
+    this.levelDefinition = definition;
     this.clearSelection();
     this.clearUndoHistory();
     this.setDirty(false);
@@ -161,15 +161,15 @@ export class EditorDocument {
   }
 
   getContours(): readonly EditorContour[] {
-    return this.terrainDefinition.contours;
+    return this.levelDefinition.contours;
   }
 
   getContour(index: number): EditorContour | undefined {
-    return this.terrainDefinition.contours[index];
+    return this.levelDefinition.contours[index];
   }
 
   getDefaultDepth(): number {
-    return this.terrainDefinition.defaultDepth;
+    return this.levelDefinition.defaultDepth;
   }
 
   /**
@@ -178,7 +178,7 @@ export class EditorDocument {
    */
   getValidationResults(): ContourValidationResult[] {
     if (this.validationCache === null) {
-      const controlPointArrays = this.terrainDefinition.contours.map(
+      const controlPointArrays = this.levelDefinition.contours.map(
         (c) => c.controlPoints,
       );
       this.validationCache = validateContours(controlPointArrays);
@@ -207,7 +207,7 @@ export class EditorDocument {
       return this.hierarchyCache;
     }
 
-    const contours = this.terrainDefinition.contours;
+    const contours = this.levelDefinition.contours;
     const n = contours.length;
 
     const parentMap = new Map<number, number>();
@@ -326,7 +326,7 @@ export class EditorDocument {
 
   getSelectedContour(): EditorContour | null {
     if (this.selection.contourIndex === null) return null;
-    return this.terrainDefinition.contours[this.selection.contourIndex] ?? null;
+    return this.levelDefinition.contours[this.selection.contourIndex] ?? null;
   }
 
   getSelectedContourIndex(): number | null {
@@ -390,7 +390,7 @@ export class EditorDocument {
    * Used when clicking on a spline without a modifier key.
    */
   selectAllPoints(contourIndex: number): void {
-    const contour = this.terrainDefinition.contours[contourIndex];
+    const contour = this.levelDefinition.contours[contourIndex];
     if (!contour) return;
 
     this.selection.contourIndex = contourIndex;
@@ -443,14 +443,14 @@ export class EditorDocument {
     pointIndex: number,
     newPosition: V2d,
   ): void {
-    const contour = this.terrainDefinition.contours[contourIndex];
+    const contour = this.levelDefinition.contours[contourIndex];
     if (!contour) return;
 
     const points = [...contour.controlPoints];
     if (pointIndex < 0 || pointIndex >= points.length) return;
 
     points[pointIndex] = V(newPosition.x, newPosition.y);
-    this.terrainDefinition.contours[contourIndex] = {
+    this.levelDefinition.contours[contourIndex] = {
       ...contour,
       controlPoints: points,
     };
@@ -465,8 +465,7 @@ export class EditorDocument {
     if (this.selection.contourIndex === null) return;
     if (this.selection.pointIndices.size === 0) return;
 
-    const contour =
-      this.terrainDefinition.contours[this.selection.contourIndex];
+    const contour = this.levelDefinition.contours[this.selection.contourIndex];
     if (!contour) return;
 
     const points = [...contour.controlPoints];
@@ -477,7 +476,7 @@ export class EditorDocument {
       }
     }
 
-    this.terrainDefinition.contours[this.selection.contourIndex] = {
+    this.levelDefinition.contours[this.selection.contourIndex] = {
       ...contour,
       controlPoints: points,
     };
@@ -506,7 +505,7 @@ export class EditorDocument {
 
     // Apply changes
     for (const [contourIndex, pointPositions] of byContour) {
-      const contour = this.terrainDefinition.contours[contourIndex];
+      const contour = this.levelDefinition.contours[contourIndex];
       if (!contour) continue;
 
       const points = [...contour.controlPoints];
@@ -516,7 +515,7 @@ export class EditorDocument {
         }
       }
 
-      this.terrainDefinition.contours[contourIndex] = {
+      this.levelDefinition.contours[contourIndex] = {
         ...contour,
         controlPoints: points,
       };
@@ -609,7 +608,7 @@ export class MovePointCommand implements EditorCommand {
     const points = [...contour.controlPoints];
     points[this.pointIndex] = V(this.newPosition.x, this.newPosition.y);
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       controlPoints: points,
@@ -623,7 +622,7 @@ export class MovePointCommand implements EditorCommand {
     const points = [...contour.controlPoints];
     points[this.pointIndex] = V(this.oldPosition.x, this.oldPosition.y);
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       controlPoints: points,
@@ -661,7 +660,7 @@ export class MovePointsCommand implements EditorCommand {
       points[move.index] = V(move.newPosition.x, move.newPosition.y);
     }
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       controlPoints: points,
@@ -677,7 +676,7 @@ export class MovePointsCommand implements EditorCommand {
       points[move.index] = V(move.oldPosition.x, move.oldPosition.y);
     }
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       controlPoints: points,
@@ -705,7 +704,7 @@ export class AddPointCommand implements EditorCommand {
     const points = [...contour.controlPoints];
     points.splice(this.insertIndex, 0, V(this.position.x, this.position.y));
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       controlPoints: points,
@@ -719,7 +718,7 @@ export class AddPointCommand implements EditorCommand {
     const points = [...contour.controlPoints];
     points.splice(this.insertIndex, 1);
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       controlPoints: points,
@@ -763,7 +762,7 @@ export class DeletePointsCommand implements EditorCommand {
       points.splice(index, 1);
     }
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       controlPoints: points,
@@ -781,7 +780,7 @@ export class DeletePointsCommand implements EditorCommand {
       points.splice(index, 0, V(position.x, position.y));
     }
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       controlPoints: points,
@@ -802,7 +801,7 @@ export class AddContourCommand implements EditorCommand {
   ) {}
 
   execute(): void {
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     if (this.insertIndex !== undefined) {
       definition.contours.splice(this.insertIndex, 0, this.contour);
     } else {
@@ -811,7 +810,7 @@ export class AddContourCommand implements EditorCommand {
   }
 
   undo(): void {
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     const index = this.insertIndex ?? definition.contours.indexOf(this.contour);
     if (index >= 0) {
       definition.contours.splice(index, 1);
@@ -832,7 +831,7 @@ export class DeleteContourCommand implements EditorCommand {
   ) {}
 
   execute(): void {
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     this.deletedContour = definition.contours[this.contourIndex] ?? null;
     if (this.deletedContour) {
       definition.contours.splice(this.contourIndex, 1);
@@ -841,7 +840,7 @@ export class DeleteContourCommand implements EditorCommand {
 
   undo(): void {
     if (!this.deletedContour) return;
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours.splice(this.contourIndex, 0, this.deletedContour);
   }
 }
@@ -868,7 +867,7 @@ export class SetContourPropertyCommand<K extends keyof EditorContour>
     const contour = this.document.getContour(this.contourIndex);
     if (!contour) return;
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       [this.property]: this.newValue,
@@ -879,7 +878,7 @@ export class SetContourPropertyCommand<K extends keyof EditorContour>
     const contour = this.document.getContour(this.contourIndex);
     if (!contour) return;
 
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours[this.contourIndex] = {
       ...contour,
       [this.property]: this.oldValue,
@@ -910,12 +909,12 @@ export class PasteContourCommand implements EditorCommand {
   }
 
   execute(): void {
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     definition.contours.push(this.pastedContour);
   }
 
   undo(): void {
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     const index = definition.contours.indexOf(this.pastedContour);
     if (index >= 0) {
       definition.contours.splice(index, 1);
@@ -926,7 +925,7 @@ export class PasteContourCommand implements EditorCommand {
    * Get the index of the pasted contour (after execute).
    */
   getPastedIndex(): number {
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
     return definition.contours.indexOf(this.pastedContour);
   }
 }
@@ -962,7 +961,7 @@ export class MoveMultiContourPointsCommand implements EditorCommand {
   }
 
   execute(): void {
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
 
     // Group moves by contour for efficiency
     const movesByContour = new Map<number, MultiContourPointMove[]>();
@@ -990,7 +989,7 @@ export class MoveMultiContourPointsCommand implements EditorCommand {
   }
 
   undo(): void {
-    const definition = this.document.getTerrainDefinition();
+    const definition = this.document.getLevelDefinition();
 
     // Group moves by contour for efficiency
     const movesByContour = new Map<number, MultiContourPointMove[]>();

@@ -6,12 +6,12 @@
  */
 
 import { V, V2d } from "../../core/Vector";
+import { DEFAULT_DEPTH } from "../../game/world/terrain/TerrainConstants";
 import {
   createContour,
   TerrainContour,
   TerrainDefinition,
 } from "../../game/world/terrain/TerrainTypes";
-import { DEFAULT_DEPTH } from "../../game/world-data/terrain/TerrainConstants";
 
 /** Current file format version */
 export const TERRAIN_FILE_VERSION = 1;
@@ -31,7 +31,7 @@ export interface TerrainContourJSON {
 /**
  * JSON schema for terrain files.
  */
-export interface TerrainFileJSON {
+export interface LevelFileJSON {
   /** File format version */
   version: number;
   /** Deep ocean baseline depth in feet */
@@ -44,7 +44,7 @@ export interface TerrainFileJSON {
  * Validate a terrain file JSON object.
  * Throws an error if invalid.
  */
-export function validateTerrainFile(data: unknown): TerrainFileJSON {
+export function validateLevelFile(data: unknown): LevelFileJSON {
   if (!data || typeof data !== "object") {
     throw new Error("Invalid terrain file: expected object");
   }
@@ -96,14 +96,14 @@ export function validateTerrainFile(data: unknown): TerrainFileJSON {
     }
   }
 
-  return file as unknown as TerrainFileJSON;
+  return file as unknown as LevelFileJSON;
 }
 
 /**
  * Convert terrain file JSON to game TerrainDefinition.
  */
 export function terrainFileToDefinition(
-  file: TerrainFileJSON,
+  file: LevelFileJSON,
 ): TerrainDefinition {
   const contours: TerrainContour[] = file.contours.map((c) => {
     const controlPoints: V2d[] = c.controlPoints.map(([x, y]) => V(x, y));
@@ -125,19 +125,19 @@ export interface EditorContour extends TerrainContour {
 }
 
 /**
- * Editor terrain definition that preserves file format metadata.
+ * Editor level definition that preserves file format metadata.
  */
-export interface EditorTerrainDefinition {
+export interface EditorLevelDefinition {
   defaultDepth: number;
   contours: EditorContour[];
 }
 
 /**
- * Convert terrain file JSON to editor terrain definition (preserves names).
+ * Convert level file JSON to editor level definition (preserves names).
  */
-export function terrainFileToEditorDefinition(
-  file: TerrainFileJSON,
-): EditorTerrainDefinition {
+export function levelFileToEditorDefinition(
+  file: LevelFileJSON,
+): EditorLevelDefinition {
   const contours: EditorContour[] = file.contours.map((c) => {
     const controlPoints: V2d[] = c.controlPoints.map(([x, y]) => V(x, y));
     return {
@@ -154,11 +154,11 @@ export function terrainFileToEditorDefinition(
 }
 
 /**
- * Convert editor terrain definition to file JSON for saving.
+ * Convert editor level definition to file JSON for saving.
  */
 export function editorDefinitionToFile(
-  definition: EditorTerrainDefinition,
-): TerrainFileJSON {
+  definition: EditorLevelDefinition,
+): LevelFileJSON {
   const contours: TerrainContourJSON[] = definition.contours.map((c) => ({
     name: c.name,
     height: c.height,
@@ -180,7 +180,7 @@ export function editorDefinitionToFile(
  */
 export function definitionToTerrainFile(
   definition: TerrainDefinition,
-): TerrainFileJSON {
+): LevelFileJSON {
   const contours: TerrainContourJSON[] = definition.contours.map((c) => ({
     height: c.height,
     controlPoints: c.controlPoints.map(
@@ -198,22 +198,22 @@ export function definitionToTerrainFile(
 /**
  * Serialize terrain to JSON string.
  */
-export function serializeTerrainFile(file: TerrainFileJSON): string {
+export function serializeTerrainFile(file: LevelFileJSON): string {
   return JSON.stringify(file, null, 2);
 }
 
 /**
  * Parse JSON string to terrain file.
  */
-export function parseTerrainFile(json: string): TerrainFileJSON {
+export function parseTerrainFile(json: string): LevelFileJSON {
   const data = JSON.parse(json);
-  return validateTerrainFile(data);
+  return validateLevelFile(data);
 }
 
 /**
  * Create an empty terrain file.
  */
-export function createEmptyTerrainFile(): TerrainFileJSON {
+export function createEmptyTerrainFile(): LevelFileJSON {
   return {
     version: TERRAIN_FILE_VERSION,
     defaultDepth: DEFAULT_DEPTH,
@@ -222,9 +222,9 @@ export function createEmptyTerrainFile(): TerrainFileJSON {
 }
 
 /**
- * Create an empty editor terrain definition.
+ * Create an empty editor level definition.
  */
-export function createEmptyEditorDefinition(): EditorTerrainDefinition {
+export function createEmptyEditorDefinition(): EditorLevelDefinition {
   return {
     defaultDepth: DEFAULT_DEPTH,
     contours: [],

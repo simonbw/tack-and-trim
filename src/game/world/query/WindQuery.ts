@@ -1,7 +1,9 @@
-import { BaseQuery } from "./BaseQuery";
-import type { V2d } from "../../../core/Vector";
 import type { Game } from "../../../core/Game";
+import { V, type V2d } from "../../../core/Vector";
 import type Entity from "../../../core/entity/Entity";
+import { WindSystem } from "../wind/WindSystem";
+import { BaseQuery } from "./BaseQuery";
+import { QueryManager, type ResultLayout } from "./QueryManager";
 
 /**
  * Result data from a wind query at a specific point
@@ -42,5 +44,68 @@ export class WindQuery extends BaseQuery<WindQueryResult> {
    */
   static allFromGame(game: Game): WindQuery[] {
     return Array.from(game.entities.getTagged("windQuery")).filter(isWindQuery);
+  }
+}
+
+/**
+ * Named constants for wind result buffer layout
+ */
+const WindResultLayout: ResultLayout = {
+  stride: 4,
+  fields: {
+    velocityX: 0,
+    velocityY: 1,
+    speed: 2,
+    direction: 3,
+  },
+};
+
+/**
+ * Query manager for wind queries.
+ *
+ * Handles GPU-accelerated wind sampling for velocity, speed, and direction.
+ */
+export class WindQueryManager extends QueryManager<WindQueryResult> {
+  id = "windQueryManager";
+  tickLayer = "environment";
+
+  constructor() {
+    super(WindResultLayout, 8192);
+  }
+
+  getQueries(): BaseQuery<WindQueryResult>[] {
+    return WindQuery.allFromGame(this.game);
+  }
+
+  packResult(
+    result: WindQueryResult,
+    buffer: Float32Array,
+    offset: number,
+  ): void {
+    const { fields } = WindResultLayout;
+    buffer[offset + fields.velocityX] = result.velocity.x;
+    buffer[offset + fields.velocityY] = result.velocity.y;
+    buffer[offset + fields.speed] = result.speed;
+    buffer[offset + fields.direction] = result.direction;
+  }
+
+  unpackResult(buffer: Float32Array, offset: number): WindQueryResult {
+    const { fields } = WindResultLayout;
+    return {
+      velocity: V(
+        buffer[offset + fields.velocityX],
+        buffer[offset + fields.velocityY],
+      ),
+      speed: buffer[offset + fields.speed],
+      direction: buffer[offset + fields.direction],
+    };
+  }
+
+  dispatchCompute(pointCount: number): void {
+    WindSystem.fromGame(this.game).computeQueryResults(
+      this.pointBuffer,
+      this.resultBuffer,
+      pointCount,
+    );
   }
 }

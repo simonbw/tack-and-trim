@@ -1,7 +1,7 @@
 /**
  * Editor camera controller.
  *
- * Provides pan and zoom controls for the terrain editor:
+ * Provides pan and zoom controls for the level editor:
  * - Middle-drag or Space+drag: Pan the view
  * - Scroll wheel: Zoom in/out
  * - Home key: Reset to fit all contours
@@ -11,7 +11,7 @@ import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { Camera2d } from "../core/graphics/Camera2d";
 import { V, V2d } from "../core/Vector";
-import { EditorTerrainDefinition } from "./io/TerrainFileFormat";
+import { EditorLevelDefinition } from "./io/TerrainFileFormat";
 
 const MIN_ZOOM = 0.02; // Allows 50x zoom out
 const MAX_ZOOM = 50;
@@ -30,7 +30,7 @@ export class EditorCameraController extends BaseEntity {
   private targetZoom: number;
 
   /** Current terrain definition (for fit-to-view) */
-  private terrainDefinition: EditorTerrainDefinition | null = null;
+  private terrainDefinition: EditorLevelDefinition | null = null;
 
   /** Wheel event handler reference for cleanup */
   private wheelHandler: ((e: WheelEvent) => void) | null = null;
@@ -59,7 +59,7 @@ export class EditorCameraController extends BaseEntity {
     }
   }
 
-  setTerrainDefinition(definition: EditorTerrainDefinition): void {
+  setTerrainDefinition(definition: EditorLevelDefinition): void {
     this.terrainDefinition = definition;
   }
 
@@ -77,7 +77,7 @@ export class EditorCameraController extends BaseEntity {
       return;
     }
 
-    // Find bounding box of all contours
+    // Find bounding box of all terrain contours
     let minX = Infinity;
     let maxX = -Infinity;
     let minY = Infinity;
@@ -159,8 +159,8 @@ export class EditorCameraController extends BaseEntity {
     const mousePos = io.mousePosition;
 
     // Calculate world-space delta
-    const lastWorld = this.camera.toWorld(this.lastMousePos);
-    const currentWorld = this.camera.toWorld(mousePos);
+    const lastWorld = this.camera.screenToWorld(this.lastMousePos);
+    const currentWorld = this.camera.screenToWorld(mousePos);
 
     const deltaX = lastWorld.x - currentWorld.x;
     const deltaY = lastWorld.y - currentWorld.y;
@@ -179,7 +179,7 @@ export class EditorCameraController extends BaseEntity {
     const mousePos = V(io.mousePosition.x, io.mousePosition.y);
 
     // Get world position under mouse before zoom
-    const worldPosBefore = this.camera.toWorld(mousePos);
+    const worldPosBefore = this.camera.screenToWorld(mousePos);
 
     // Adjust zoom
     const zoomDelta = e.deltaY > 0 ? -ZOOM_SPEED : ZOOM_SPEED;
@@ -190,7 +190,7 @@ export class EditorCameraController extends BaseEntity {
     this.camera.z = this.targetZoom;
 
     // Get world position under mouse after zoom
-    const worldPosAfter = this.camera.toWorld(mousePos);
+    const worldPosAfter = this.camera.screenToWorld(mousePos);
 
     // Adjust camera position to keep mouse over same world point
     this.camera.x += worldPosBefore.x - worldPosAfter.x;

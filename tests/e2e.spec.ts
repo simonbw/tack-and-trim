@@ -32,6 +32,13 @@ test("game initializes and runs correctly", async ({ page }) => {
   const tickCount = await page.evaluate(() => window.DEBUG.game!.ticknumber);
   expect(tickCount).toBeGreaterThan(0);
 
+  // --- Assertion: WindSystem initialized ---
+  const windSystemExists = await page.evaluate(() => {
+    const windSystem = window.DEBUG.game!.entities.getById("windSystem");
+    return windSystem !== undefined;
+  });
+  expect(windSystemExists).toBe(true);
+
   // --- Assertion: No errors or warnings occurred ---
   expect(issues).toHaveLength(0);
 });

@@ -4,9 +4,8 @@
  * Top bar with file operations, tools, and undo/redo.
  */
 
-import { EditorDocument } from "../EditorDocument";
 import { EditorController } from "../EditorController";
-import { EditorInfluenceProgress } from "./EditorInfluenceProgress";
+import { EditorDocument } from "../EditorDocument";
 import "./EditorStyles.css";
 
 export interface EditorToolbarProps {
@@ -21,18 +20,16 @@ export function EditorToolbar({
   const isDirty = editorDoc.getIsDirty();
   const canUndo = editorDoc.canUndo();
   const canRedo = editorDoc.canRedo();
-  const isComputingInfluence = controller.getIsComputingInfluence();
-  const influenceManager = controller.getInfluenceManager();
 
   return (
     <div class="editor-toolbar">
-      <span class="editor-toolbar-title">Terrain Editor</span>
+      <span class="editor-toolbar-title">Level Editor</span>
       {isDirty && <span class="editor-toolbar-dirty">*</span>}
 
       <div class="editor-toolbar-group">
         <button
           class="editor-btn"
-          onClick={() => controller.newTerrain()}
+          onClick={() => controller.newLevel()}
           title="New terrain (Ctrl+N)"
         >
           New
@@ -46,7 +43,7 @@ export function EditorToolbar({
               // Fallback to file input for Safari/Firefox
               const input = document.createElement("input");
               input.type = "file";
-              input.accept = ".json,.terrain.json";
+              input.accept = ".json,.level.json";
               input.onchange = async () => {
                 const file = input.files?.[0];
                 if (file) {
@@ -98,7 +95,7 @@ export function EditorToolbar({
           class="editor-btn"
           onClick={async () => {
             await controller.copyToClipboard();
-            alert("Terrain JSON copied to clipboard!");
+            alert("Level JSON copied to clipboard!");
           }}
           title="Copy JSON to clipboard"
         >
@@ -142,21 +139,6 @@ export function EditorToolbar({
           + Contour
         </button>
       </div>
-
-      <div class="editor-toolbar-group">
-        <button
-          class="editor-btn"
-          onClick={() => controller.computeInfluenceFields()}
-          disabled={isComputingInfluence}
-          title="Compute influence fields for terrain-aware wave rendering"
-        >
-          {isComputingInfluence ? "Computing..." : "Compute Waves"}
-        </button>
-      </div>
-
-      {isComputingInfluence && influenceManager && (
-        <EditorInfluenceProgress manager={influenceManager} />
-      )}
     </div>
   );
 }

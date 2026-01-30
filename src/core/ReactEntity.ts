@@ -1,4 +1,4 @@
-import { render, VNode } from "preact";
+import { JSX, render } from "preact";
 import { BaseEntity } from "./entity/BaseEntity";
 import Entity from "./entity/Entity";
 import { on } from "./entity/handler";
@@ -8,7 +8,7 @@ export class ReactEntity extends BaseEntity implements Entity {
   el!: HTMLDivElement;
 
   constructor(
-    public getReactContent: () => VNode,
+    public getReactContent: () => JSX.Element | string | null,
     public autoRender = true,
   ) {
     super();

@@ -39,5 +39,4 @@ Each test should:
 
 ## Running Tests
 
-- `npm test` - Run E2E tests (excludes benchmarks)
-- `npm run benchmark` - Run performance benchmarks (separate config, multiple iterations)
+- `npm test` - Run E2E tests

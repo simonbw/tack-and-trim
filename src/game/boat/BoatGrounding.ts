@@ -3,38 +3,30 @@
  *
  * Applies friction forces when boat components contact terrain.
  * Checks keel (centerboard), rudder, and hull against terrain height.
- * Implements TerrainQuerier to request terrain tiles for efficient lookup.
+ * Uses TerrainQuery for GPU-accelerated terrain lookups.
  */
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import type { AABB } from "../../core/util/SparseSpatialHash";
-import { V } from "../../core/Vector";
-import type { QueryForecast } from "../world-data/datatiles/DataTileTypes";
-import type { TerrainQuerier } from "../world-data/terrain/TerrainQuerier";
-import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
+import { V, V2d } from "../../core/Vector";
+import { TerrainQuery } from "../world/query/TerrainQuery";
 import type { Boat } from "./Boat";
 import type { GroundingConfig } from "./BoatConfig";
-
-// Margin around hull AABB for query forecast (ft)
-const QUERY_MARGIN = 2;
 
 /**
  * Boat grounding physics entity.
  * Applies friction when underwater components contact terrain.
  */
-export class BoatGrounding extends BaseEntity implements TerrainQuerier {
-  tags = ["terrainQuerier"];
+export class BoatGrounding extends BaseEntity {
   tickLayer = "physics" as const;
-
-  // Reusable AABB to avoid allocations
-  private cachedAABB: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
   private readonly boat: Boat;
   private readonly config: GroundingConfig;
   private readonly hullDraft: number;
   private readonly keelDraft: number;
   private readonly rudderDraft: number;
+
+  private terrainQuery: TerrainQuery;
 
   constructor(boat: Boat) {
     super();
@@ -43,36 +35,40 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
     this.hullDraft = boat.config.hull.draft;
     this.keelDraft = boat.config.keel.draft;
     this.rudderDraft = boat.config.rudder.draft;
+
+    // Create terrain query with callback that returns points to check
+    this.terrainQuery = this.addChild(
+      new TerrainQuery(() => this.getQueryPoints()),
+    );
   }
 
-  getTerrainQueryForecast(): QueryForecast | null {
+  /**
+   * Get all points to query for terrain height.
+   * Called each frame by TerrainQuery.
+   */
+  private getQueryPoints(): V2d[] {
     const hull = this.boat.hull;
-    if (!hull?.body) return null;
+    const body = hull.body;
+    if (!body) return [];
 
-    // Get AABB directly from physics body
-    const bodyAABB = hull.body.getAABB();
+    const points: V2d[] = [];
 
-    // Add margin
-    this.cachedAABB.minX = bodyAABB.lowerBound[0] - QUERY_MARGIN;
-    this.cachedAABB.minY = bodyAABB.lowerBound[1] - QUERY_MARGIN;
-    this.cachedAABB.maxX = bodyAABB.upperBound[0] + QUERY_MARGIN;
-    this.cachedAABB.maxY = bodyAABB.upperBound[1] + QUERY_MARGIN;
+    // Add keel vertices
+    for (const localPos of this.boat.config.keel.vertices) {
+      points.push(body.toWorldFrame(localPos));
+    }
 
-    // Query count: keel (all vertices) + rudder (1) + hull center (1)
-    const queryCount = this.boat.config.keel.vertices.length + 2;
+    // Add rudder position
+    points.push(body.toWorldFrame(this.boat.config.rudder.position));
 
-    return {
-      aabb: this.cachedAABB,
-      queryCount,
-    };
+    // Add hull center
+    points.push(body.position);
+
+    return points;
   }
 
   @on("tick")
   onTick() {
-    // Skip if no terrain system
-    const terrainInfo = TerrainInfo.maybeFromGame(this.game);
-    if (!terrainInfo) return;
-
     const hull = this.boat.hull;
     const body = hull.body;
 
@@ -83,19 +79,23 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
     // Skip grounding calculation if not moving
     if (speed < 0.01) return;
 
+    // Get query results (returns empty if no results yet - one frame latency)
+    const results = this.terrainQuery.results;
+    if (results.length === 0) return;
+
     let totalForce = V(0, 0);
 
-    // Check keel grounding
-    const keelVertices = this.boat.config.keel.vertices;
-    for (const localPos of keelVertices) {
-      const worldPos = body.toWorldFrame(localPos);
-      const terrainHeight = terrainInfo.getHeightAtPoint(worldPos);
+    // Results are in the same order as getQueryPoints():
+    // [keel vertices..., rudder, hull center]
+    const keelVertexCount = this.boat.config.keel.vertices.length;
 
-      // Keel penetration: terrain height + keel draft (both are positive)
+    // Check keel grounding
+    for (let i = 0; i < keelVertexCount; i++) {
+      const terrainHeight = results[i].height;
+
+      // Keel penetration: terrain height + keel draft
       // If terrain is above water level by terrainHeight, and keel extends
       // keelDraft below water, they intersect when terrainHeight > -keelDraft
-      // Since terrain height is positive (above water) and we're checking if
-      // the keel (below water) hits it, penetration = terrainHeight + keelDraft
       const penetration = terrainHeight - -this.keelDraft;
 
       if (penetration > 0) {
@@ -109,31 +109,33 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
     }
 
     // Check rudder grounding
-    const rudderWorldPos = body.toWorldFrame(this.boat.config.rudder.position);
-    const rudderTerrainHeight = terrainInfo.getHeightAtPoint(rudderWorldPos);
-    const rudderPenetration = rudderTerrainHeight - -this.rudderDraft;
+    const rudderResult = results[keelVertexCount];
+    if (rudderResult) {
+      const rudderPenetration = rudderResult.height - -this.rudderDraft;
 
-    if (rudderPenetration > 0) {
-      const friction = this.computeFriction(
-        rudderPenetration,
-        speed,
-        this.config.rudderFriction,
-      );
-      totalForce.isub(velocity.normalize().mul(friction));
+      if (rudderPenetration > 0) {
+        const friction = this.computeFriction(
+          rudderPenetration,
+          speed,
+          this.config.rudderFriction,
+        );
+        totalForce.isub(velocity.normalize().mul(friction));
+      }
     }
 
-    // Check hull grounding (use center of hull)
-    const hullCenterPos = body.position;
-    const hullTerrainHeight = terrainInfo.getHeightAtPoint(hullCenterPos);
-    const hullPenetration = hullTerrainHeight - -this.hullDraft;
+    // Check hull grounding
+    const hullResult = results[keelVertexCount + 1];
+    if (hullResult) {
+      const hullPenetration = hullResult.height - -this.hullDraft;
 
-    if (hullPenetration > 0) {
-      const friction = this.computeFriction(
-        hullPenetration,
-        speed,
-        this.config.hullFriction,
-      );
-      totalForce.isub(velocity.normalize().mul(friction));
+      if (hullPenetration > 0) {
+        const friction = this.computeFriction(
+          hullPenetration,
+          speed,
+          this.config.hullFriction,
+        );
+        totalForce.isub(velocity.normalize().mul(friction));
+      }
     }
 
     // Apply grounding force

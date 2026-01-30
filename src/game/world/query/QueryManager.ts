@@ -14,7 +14,7 @@ export interface ResultLayout {
   fields: Record<string, number>;
 }
 
-const BYTES_PER_POINT = 2;
+const STRIDE_PER_POINT = 2;
 
 /**
  * Generic GPU-accelerated query manager
@@ -86,13 +86,16 @@ export abstract class QueryManager<TResult> extends BaseEntity {
    * Promise for the currently pending mapAsync operation.
    * Resolves when GPU has finished copying and buffer is ready to read.
    */
-  protected mappedPromise: Promise<void> | null = null;
+  protected readbackPromise: Promise<void> | null = null;
 
   /**
-   * Flag indicating that mapped results are ready to be read.
-   * Set to true when mapAsync completes, cleared after reading results.
+   * Metadata for each query's position in the GPU buffer.
+   * WeakMap ensures this data is private to QueryManager and auto-cleans up.
    */
-  protected hasMappedResults = false;
+  private queryBufferMetadata = new WeakMap<
+    BaseQuery<TResult>,
+    { offset: number; count: number }
+  >();
 
   /**
    * Buffer layout for TResult
@@ -102,6 +105,18 @@ export abstract class QueryManager<TResult> extends BaseEntity {
 
   /** Maximum number of query points supported */
   protected readonly maxPoints: number;
+
+  /** Size of the point buffer in bytes */
+  get pointBufferSize(): number {
+    return this.maxPoints * STRIDE_PER_POINT * Float32Array.BYTES_PER_ELEMENT;
+  }
+
+  /** Size of the result buffer in bytes */
+  get resultBufferSize(): number {
+    return (
+      this.maxPoints * this.resultLayout.stride * Float32Array.BYTES_PER_ELEMENT
+    );
+  }
 
   constructor(resultLayout: ResultLayout, maxPoints: number) {
     super();
@@ -129,15 +144,11 @@ export abstract class QueryManager<TResult> extends BaseEntity {
    */
   abstract unpackResult(buffer: Float32Array, offset: number): TResult;
 
-  get pointBufferSize(): number {
-    return this.maxPoints * BYTES_PER_POINT * Float32Array.BYTES_PER_ELEMENT;
-  }
-
-  get resultBufferSize(): number {
-    return (
-      this.maxPoints * this.resultLayout.stride * Float32Array.BYTES_PER_ELEMENT
-    );
-  }
+  /**
+   * Dispatch GPU compute or generate stub data.
+   * Override in subclasses to implement real GPU compute.
+   */
+  abstract dispatchCompute(pointCount: number): void;
 
   @on("add")
   onAdd(): void {
@@ -179,9 +190,10 @@ export abstract class QueryManager<TResult> extends BaseEntity {
   /**
    * Query pipeline with one-tick latency:
    *
-   * Tick N onTick (blocking):
-   *   1. Wait for GPU results from tick N-1 to complete
+   * Tick N onTick:
+   *   1. Await GPU map operation from tick N-1
    *   2. Read and distribute results to queries
+   *   3. Clear promise
    *
    * Tick N (entities use query results)
    *
@@ -189,35 +201,49 @@ export abstract class QueryManager<TResult> extends BaseEntity {
    *   1. Collect query points (based on updated entity positions)
    *   2. Upload to GPU and dispatch compute
    *   3. Copy results to readback buffer
-   *   4. Start async map (completes before tick N+1)
+   *   4. Start async map for next tick
    *
-   * The double buffering allows us to start mapping one readback buffer while
-   * copying new results to the other, preventing GPU stalls.
+   * The double buffering allows us to swap buffers while one is mapped,
+   * preventing GPU stalls.
    */
   @on("tick")
-  async onTick(_dt: number): Promise<void> {
-    // Wait for GPU results from previous tick
-    if (this.mappedPromise) {
-      await this.mappedPromise;
-    }
+  async onTick() {
+    // Wait for GPU results from previous tick and distribute them
+    if (this.readbackPromise) {
+      await this.readbackPromise;
+      const readbackBuffer = this.readbackBuffers.getRead();
 
-    // Read and distribute results if available
-    if (this.hasMappedResults) {
-      this.readAndDistributeResults();
-      this.hasMappedResults = false;
-      console.log(
-        `${this.constructor.name}: Distributed results to ${this.getQueries().length} queries`,
-      );
+      const data = new Float32Array(readbackBuffer.getMappedRange());
+      const queries = this.getQueries();
+      const layout = this.resultLayout;
+
+      for (const query of queries) {
+        const metadata = this.queryBufferMetadata.get(query);
+        if (!metadata || metadata.offset < 0) continue; // query was either added this frame or had was skipped due to overflow
+
+        const results: TResult[] = [];
+        for (let i = 0; i < metadata.count; i++) {
+          const pointIndex = metadata.offset + i;
+          const offset = pointIndex * layout.stride;
+          results.push(this.unpackResult(data, offset));
+        }
+        query.setResults(results);
+      }
+
+      readbackBuffer.unmap();
     }
   }
 
   @on("afterPhysicsStep")
-  onAfterPhysicsStep(_dt: number): void {
+  onAfterPhysicsStep(): void {
     const device = getWebGPU().device;
 
     // Collect query points based on updated entity positions
     const { points, queries } = this.collectPoints();
-    const totalPoints = queries.reduce((sum, q) => sum + q.bufferCount, 0);
+    const totalPoints = queries.reduce(
+      (sum, q) => sum + (this.queryBufferMetadata.get(q)?.count ?? 0),
+      0,
+    );
 
     console.log(
       `${this.constructor.name}: Collected ${totalPoints} points from ${queries.length} queries`,
@@ -236,83 +262,7 @@ export abstract class QueryManager<TResult> extends BaseEntity {
     this.dispatchCompute(totalPoints);
 
     // Copy results to readback buffer for CPU access
-    const nextBuffer = this.readbackBuffers.getWrite();
-    this.copyToReadback(nextBuffer);
-
-    // Start async map for next tick's results (if no map is pending)
-    if (!this.mappedPromise) {
-      this.readbackBuffers.swap();
-      this.mappedPromise = nextBuffer
-        .mapAsync(GPUMapMode.READ)
-        .then(() => {
-          this.hasMappedResults = true;
-          this.mappedPromise = null;
-        })
-        .catch((err) => {
-          console.error(`${this.constructor.name}: mapAsync failed:`, err);
-          this.mappedPromise = null;
-        });
-    }
-  }
-
-  protected collectPoints(): {
-    points: Float32Array;
-    queries: BaseQuery<TResult>[];
-  } {
-    const queries = this.getQueries();
-    const points = new Float32Array(this.maxPoints * 2);
-    let currentPoint = 0;
-
-    for (const query of queries) {
-      const queryPoints = query.getQueryPoints();
-
-      if (currentPoint + queryPoints.length > this.maxPoints) {
-        console.warn(
-          `${this.constructor.name}: Buffer overflow! Skipping ${queryPoints.length} points.`,
-        );
-        query.bufferOffset = -1;
-        query.bufferCount = 0;
-        continue;
-      }
-
-      query.bufferOffset = currentPoint;
-      query.bufferCount = queryPoints.length;
-
-      for (const p of queryPoints) {
-        const offset = currentPoint * BYTES_PER_POINT;
-        points[offset] = p.x;
-        points[offset + 1] = p.y;
-        currentPoint++;
-      }
-    }
-
-    return { points, queries };
-  }
-
-  /**
-   * Dispatch GPU compute or generate stub data.
-   * Override in subclasses to implement real GPU compute.
-   */
-  protected dispatchCompute(pointCount: number): void {
-    const device = getWebGPU().device;
-    // Fake compute step - just write zeros
-    const mockData = new Float32Array(
-      pointCount * this.resultLayout.stride,
-    ).fill(0);
-    device.queue.writeBuffer(
-      this.resultBuffer,
-      0,
-      mockData.buffer,
-      mockData.byteOffset,
-      mockData.byteLength,
-    );
-  }
-
-  protected copyToReadback(readbackBuffer: GPUBuffer): void {
-    if (!this.resultBuffer) return;
-    const device = getWebGPU().device;
-
-    const layout = this.resultLayout;
+    const readbackBuffer = this.readbackBuffers.getWrite();
     const commandEncoder = device.createCommandEncoder({
       label: `${this.constructor.name} Copy to Readback`,
     });
@@ -322,33 +272,49 @@ export abstract class QueryManager<TResult> extends BaseEntity {
       0,
       readbackBuffer,
       0,
-      this.maxPoints * layout.stride * Float32Array.BYTES_PER_ELEMENT,
+      this.resultBufferSize,
     );
 
     device.queue.submit([commandEncoder.finish()]);
+
+    // Start async map for next tick's results
+    this.readbackBuffers.swap();
+    this.readbackPromise = readbackBuffer.mapAsync(GPUMapMode.READ);
   }
 
-  protected readAndDistributeResults(): void {
-    if (!this.readbackBuffers) return;
-    const buffer = this.readbackBuffers.getRead();
-
-    const data = new Float32Array(buffer.getMappedRange());
+  protected collectPoints(): {
+    points: Float32Array;
+    queries: BaseQuery<TResult>[];
+  } {
     const queries = this.getQueries();
-    const layout = this.resultLayout;
+    const points = new Float32Array(this.maxPoints * STRIDE_PER_POINT);
+    let currentPoint = 0;
 
     for (const query of queries) {
-      if (query.bufferOffset < 0) continue;
+      const queryPoints = query.getQueryPoints();
 
-      const results: TResult[] = [];
-      for (let i = 0; i < query.bufferCount; i++) {
-        const pointIndex = query.bufferOffset + i;
-        const offset = pointIndex * layout.stride;
-        results.push(this.unpackResult(data, offset));
+      if (currentPoint + queryPoints.length > this.maxPoints) {
+        console.warn(
+          `${this.constructor.name}: Buffer overflow! Skipping query with ${queryPoints.length} points.`,
+        );
+        this.queryBufferMetadata.set(query, { offset: -1, count: 0 });
+        continue;
       }
-      query.setResults(results);
+
+      this.queryBufferMetadata.set(query, {
+        offset: currentPoint,
+        count: queryPoints.length,
+      });
+
+      for (const p of queryPoints) {
+        const offset = currentPoint * STRIDE_PER_POINT;
+        points[offset] = p.x;
+        points[offset + 1] = p.y;
+        currentPoint++;
+      }
     }
 
-    buffer.unmap();
+    return { points, queries };
   }
 
   @on("destroy")

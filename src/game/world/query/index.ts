@@ -4,12 +4,24 @@
 export { BaseQuery } from "./BaseQuery";
 export { QueryManager, type ResultLayout } from "./QueryManager";
 
-export { TerrainType, isValidTerrainType } from "./TerrainType";
-export { TerrainQuery, type TerrainQueryResult, isTerrainQuery } from "./TerrainQuery";
-export { TerrainQueryManager } from "./TerrainQueryManager";
+export { isValidTerrainType, TerrainType } from "../terrain/TerrainType";
+export {
+  isTerrainQuery,
+  TerrainQuery,
+  TerrainQueryManager,
+  type TerrainQueryResult,
+} from "./TerrainQuery";
 
-export { WaterQuery, type WaterQueryResult, isWaterQuery } from "./WaterQuery";
-export { WaterQueryManager } from "./WaterQueryManager";
+export {
+  isWaterQuery,
+  WaterQuery,
+  WaterQueryManager,
+  type WaterQueryResult,
+} from "./WaterQuery";
 
-export { WindQuery, type WindQueryResult, isWindQuery } from "./WindQuery";
-export { WindQueryManager } from "./WindQueryManager";
+export {
+  isWindQuery,
+  WindQuery,
+  WindQueryManager,
+  type WindQueryResult,
+} from "./WindQuery";

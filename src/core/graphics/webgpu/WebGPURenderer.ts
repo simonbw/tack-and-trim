@@ -763,21 +763,10 @@ export class WebGPURenderer {
     // Store untransformed vertices with per-vertex color and model matrix
     for (const v of vertices) {
       const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
-      // Position
-      this.shapeVertices[offset] = v[0];
-      this.shapeVertices[offset + 1] = v[1];
-      // Color
-      this.shapeVertices[offset + 2] = r;
-      this.shapeVertices[offset + 3] = g;
-      this.shapeVertices[offset + 4] = b;
-      this.shapeVertices[offset + 5] = alpha;
-      // Model matrix columns
-      this.shapeVertices[offset + 6] = ma;
-      this.shapeVertices[offset + 7] = mb;
-      this.shapeVertices[offset + 8] = mc;
-      this.shapeVertices[offset + 9] = md;
-      this.shapeVertices[offset + 10] = mtx;
-      this.shapeVertices[offset + 11] = mty;
+      this.shapeVertices.set(
+        [v[0], v[1], r, g, b, alpha, ma, mb, mc, md, mtx, mty],
+        offset,
+      );
       this.shapeVertexCount++;
     }
 

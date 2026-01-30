@@ -1,11 +1,12 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
-import type { Draw } from "../../core/graphics/Draw";
 import { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { Convex } from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { V, V2d } from "../../core/Vector";
 import { applySkinFriction } from "../fluid-dynamics";
+import { WaterQuery } from "../world/query/WaterQuery";
 import { HullConfig } from "./BoatConfig";
 
 /**
@@ -45,6 +46,7 @@ export class Hull extends BaseEntity {
   private fillColor: number;
   private strokeColor: number;
   private tillerConfig?: TillerConfig;
+  private waterQuery: WaterQuery;
 
   constructor(config: HullConfig) {
     super();
@@ -64,12 +66,18 @@ export class Hull extends BaseEntity {
         vertices: [...config.vertices],
       }),
     );
+
+    // Create water query for hull center position
+    this.waterQuery = this.addChild(new WaterQuery(() => [this.body.position]));
   }
 
   @on("tick")
   onTick() {
-    // Assume still water for now (stub implementation)
-    const getWaterVelocity = (_point: V2d): V2d => V(0, 0);
+    // Get water velocity from query results (or assume still water if no results yet)
+    const results = this.waterQuery.results;
+    const waterVelocity = results.length > 0 ? results[0].velocity : V(0, 0);
+
+    const getWaterVelocity = (_point: V2d): V2d => waterVelocity;
 
     applySkinFriction(
       this.body,
@@ -80,7 +88,7 @@ export class Hull extends BaseEntity {
   }
 
   @on("render")
-  onRender({ draw }: { draw: Draw }) {
+  onRender({ draw }: GameEventMap["render"]) {
     const [x, y] = this.body.position;
 
     draw.at({ pos: V(x, y), angle: this.body.angle }, () => {

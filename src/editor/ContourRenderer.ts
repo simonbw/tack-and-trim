@@ -12,10 +12,10 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { Draw } from "../core/graphics/Draw";
-import { V2d } from "../core/Vector";
-import { catmullRomPoint, sampleClosedSpline } from "../core/util/Spline";
 import { pointInPolygon } from "../core/util/Geometry";
-import { getTerrainHeightColor } from "../game/world-data/terrain/TerrainColors";
+import { catmullRomPoint, sampleClosedSpline } from "../core/util/Spline";
+import { V2d } from "../core/Vector";
+import { getTerrainHeightColor } from "../game/world/terrain/TerrainColors";
 import { EditorDocument } from "./EditorDocument";
 import { EditorContour } from "./io/TerrainFileFormat";
 

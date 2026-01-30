@@ -264,8 +264,8 @@ export class Camera2d extends BaseEntity implements Entity {
     }
 
     // Compute viewport - normalize so top < bottom (top = minY, bottom = maxY)
-    const [left, y1] = this.toWorld(V(0, 0));
-    const [right, y2] = this.toWorld(this.getViewportSize());
+    const [left, y1] = this.screenToWorld(V(0, 0));
+    const [right, y2] = this.screenToWorld(this.getViewportSize());
     const top = Math.min(y1, y2);
     const bottom = Math.max(y1, y2);
     const width = right - left;
@@ -277,13 +277,13 @@ export class Camera2d extends BaseEntity implements Entity {
   }
 
   /** Convert screen coordinates to world coordinates */
-  toWorld([x, y]: V2d, parallax = V(1.0, 1.0)): V2d {
+  screenToWorld([x, y]: V2d, parallax = V(1.0, 1.0)): V2d {
     const matrix = this.getMatrix(parallax);
     return matrix.applyInverse(V(x, y));
   }
 
   /** Convert world coordinates to screen coordinates */
-  toScreen([x, y]: V2d, parallax = V(1.0, 1.0)): V2d {
+  worldToScreen([x, y]: V2d, parallax = V(1.0, 1.0)): V2d {
     const matrix = this.getMatrix(parallax);
     return matrix.apply(V(x, y));
   }

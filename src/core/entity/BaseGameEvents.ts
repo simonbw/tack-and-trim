@@ -72,4 +72,6 @@ export type BaseGameEvents = {
   resize: { size: V2d };
   /** Called when the slow motion factor changes */
   slowMoChanged: { slowMo: number };
+  /** Called at the end of each frame */
+  frameEnd: void;
 };

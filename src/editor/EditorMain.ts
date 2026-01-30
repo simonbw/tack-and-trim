@@ -42,7 +42,7 @@ async function main() {
   });
 
   console.log(
-    "%cTerrain Editor Loaded",
+    "%cLevel Editor Loaded",
     "color: #44aa44; font-weight: bold; font-size: 14px",
   );
   console.log("Controls:");
