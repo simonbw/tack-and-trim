@@ -26,16 +26,6 @@ export class WindDebugRenderMode extends DebugRenderMode {
     this.windQuery = this.addChild(new WindQuery(() => this.getQueryPoints()));
   }
 
-  @on("add")
-  onAdd() {
-    console.log("WindFieldDebugMode added");
-  }
-
-  @on("destroy")
-  onDestroy() {
-    console.log("WindFieldDebugMode destroyed");
-  }
-
   /**
    * Main render method - draws the wind field visualization.
    */

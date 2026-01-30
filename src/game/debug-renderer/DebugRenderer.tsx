@@ -13,12 +13,14 @@ import { on } from "../../core/entity/handler";
 import { ReactEntity } from "../../core/ReactEntity";
 import { DebugHUD } from "./DebugHUD";
 import { DebugRenderMode } from "./modes/DebugRenderMode";
+import { WaterDebugRenderMode } from "./modes/WaterDebugRenderMode";
 import { WindDebugRenderMode } from "./modes/WindDebugRenderMode";
 
 export class DebugRenderer extends ReactEntity {
   id = "debugRenderer";
 
   private modeConstructors: Array<() => DebugRenderMode> = [
+    () => new WaterDebugRenderMode(),
     () => new WindDebugRenderMode(),
   ];
   private activeModeIndex = -1; // -1 = off

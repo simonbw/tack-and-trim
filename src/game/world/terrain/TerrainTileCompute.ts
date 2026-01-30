@@ -101,7 +101,11 @@ fn pointInContour(point: vec2f, contourStart: u32, contourCount: u32) -> bool {
   var inside = false;
   let numSamples = contourCount * SAMPLES_PER_SEGMENT;
 
-  for (var i = 0u; i < numSamples; i++) {
+  // SAFETY: Limit total samples to prevent GPU hang
+  // With SAMPLES_PER_SEGMENT=32, this allows ~156 control points max
+  let safeSamples = min(numSamples, 5000u);
+
+  for (var i = 0u; i < safeSamples; i++) {
     let j = (i + 1u) % numSamples;
 
     let t1 = f32(i) / f32(numSamples);
@@ -155,9 +159,17 @@ fn checkContourIterative(point: vec2f, nodeIndex: u32) -> f32 {
   // Start at this node's children and check their descendants too
   if (node.childrenStart >= 0) {
     let childStart = u32(node.childrenStart);
-    let childEnd = childStart + node.childrenCount;
+    let childEnd = min(childStart + node.childrenCount, arrayLength(&contours));
 
-    for (var i = childStart; i < childEnd; i++) {
+    // SAFETY: Limit iterations to prevent GPU hang
+    let maxChildIterations = min(childEnd - childStart, 50u);
+
+    for (var i = childStart; i < childStart + maxChildIterations; i++) {
+      // Bounds check
+      if (i >= arrayLength(&contours)) {
+        break;
+      }
+
       let childNode = contours[i];
 
       // Check if point is in this child
@@ -167,9 +179,17 @@ fn checkContourIterative(point: vec2f, nodeIndex: u32) -> f32 {
         // Check grandchildren (one level deeper)
         if (childNode.childrenStart >= 0) {
           let grandStart = u32(childNode.childrenStart);
-          let grandEnd = grandStart + childNode.childrenCount;
+          let grandEnd = min(grandStart + childNode.childrenCount, arrayLength(&contours));
 
-          for (var j = grandStart; j < grandEnd; j++) {
+          // SAFETY: Limit iterations to prevent GPU hang
+          let maxGrandIterations = min(grandEnd - grandStart, 50u);
+
+          for (var j = grandStart; j < grandStart + maxGrandIterations; j++) {
+            // Bounds check
+            if (j >= arrayLength(&contours)) {
+              break;
+            }
+
             let grandNode = contours[j];
 
             if (pointInContour(point, grandNode.controlPointStart, grandNode.controlPointCount)) {
@@ -198,7 +218,9 @@ fn checkContourIterative(point: vec2f, nodeIndex: u32) -> f32 {
  */
 fn computeHeightAt(point: vec2f, rootCount: u32, defaultDepth: f32) -> f32 {
   // Walk tree from each root
-  for (var i = 0u; i < rootCount; i++) {
+  // SAFETY: Limit root iterations to prevent GPU hang
+  let maxRootIterations = min(rootCount, 50u);
+  for (var i = 0u; i < maxRootIterations; i++) {
     let height = checkContourIterative(point, i);
     if (height > -1e5) {
       return height;

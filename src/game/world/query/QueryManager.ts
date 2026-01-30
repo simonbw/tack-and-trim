@@ -245,10 +245,6 @@ export abstract class QueryManager<TResult> extends BaseEntity {
       0,
     );
 
-    console.log(
-      `${this.constructor.name}: Collected ${totalPoints} points from ${queries.length} queries`,
-    );
-
     // Upload points to GPU
     device.queue.writeBuffer(
       this.pointBuffer,
@@ -300,6 +296,24 @@ export abstract class QueryManager<TResult> extends BaseEntity {
         this.queryBufferMetadata.set(query, { offset: -1, count: 0 });
         continue;
       }
+
+      // TEMPORARY: Removed validation to test if it's causing issues
+      // // Validate all points before packing
+      // let hasInvalidPoint = false;
+      // for (const p of queryPoints) {
+      //   if (!isFinite(p.x) || !isFinite(p.y)) {
+      //     console.error(
+      //       `${this.constructor.name}: Invalid query point (${p.x}, ${p.y}) - skipping entire query`,
+      //     );
+      //     hasInvalidPoint = true;
+      //     break;
+      //   }
+      // }
+
+      // if (hasInvalidPoint) {
+      //   this.queryBufferMetadata.set(query, { offset: -1, count: 0 });
+      //   continue;
+      // }
 
       this.queryBufferMetadata.set(query, {
         offset: currentPoint,

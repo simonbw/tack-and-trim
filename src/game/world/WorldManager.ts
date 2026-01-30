@@ -1,6 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { V, V2d } from "../../core/Vector";
 import { TerrainSystem } from "./terrain/TerrainSystem";
+import { WaterSystem } from "./water/WaterSystem";
 import { WindSystem } from "./wind/WindSystem";
 import type { TerrainDefinition } from "./terrain/TerrainTypes";
 import { TerrainQueryManager } from "./query/TerrainQuery.js";
@@ -67,6 +68,16 @@ export class WorldManager extends BaseEntity {
 
     // Create wind system
     this.addChild(new WindSystem(this.baseWind));
+
+    // Create water system with default wave configuration
+    this.addChild(
+      new WaterSystem({
+        waves: [
+          { direction: 0, amplitude: 0.5, wavelength: 20 }, // Primary wave: 20m wavelength
+          { direction: Math.PI / 4, amplitude: 0.3, wavelength: 15 }, // Secondary wave: 15m wavelength
+        ],
+      }),
+    );
 
     // Add query managers
     this.addChild(new TerrainQueryManager());

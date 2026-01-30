@@ -237,6 +237,14 @@ export class TerrainSystem extends BaseEntity {
       return;
     }
 
+    // CRITICAL: Validate pointCount to prevent GPU hang
+    if (!Number.isInteger(pointCount) || pointCount < 0 || pointCount > 8192) {
+      console.error(
+        `[TerrainSystem] INVALID pointCount=${pointCount}! Aborting dispatch to prevent GPU hang.`,
+      );
+      return;
+    }
+
     const device = getWebGPU().device;
 
     // Create bind group for this query

@@ -1,6 +1,7 @@
 import type { Game } from "../../../core/Game";
 import { V, type V2d } from "../../../core/Vector";
 import type Entity from "../../../core/entity/Entity";
+import { WaterSystem } from "../water/WaterSystem";
 import { BaseQuery } from "./BaseQuery";
 import { QueryManager, type ResultLayout } from "./QueryManager";
 
@@ -113,6 +114,16 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
   }
 
   dispatchCompute(pointCount: number): void {
-    throw new Error("Method not implemented.");
+    const waterSystem = WaterSystem.fromGame(this.game);
+    if (!waterSystem) {
+      console.warn("[WaterQuery] WaterSystem not found in game");
+      return;
+    }
+
+    waterSystem.computeQueryResults(
+      this.pointBuffer!,
+      this.resultBuffer!,
+      pointCount,
+    );
   }
 }
