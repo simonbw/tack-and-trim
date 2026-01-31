@@ -671,12 +671,12 @@ export class WebGPURenderer {
   // ============ Transform Stack ============
 
   /** Save the current transform */
-  save(): void {
+  saveTransform(): void {
     this.transformStack.push(this.currentTransform.clone());
   }
 
   /** Restore the previous transform */
-  restore(): void {
+  restoreTransform(): void {
     const prev = this.transformStack.pop();
     if (prev) {
       this.currentTransform = prev;
@@ -733,8 +733,8 @@ export class WebGPURenderer {
    * Submit triangles to the shape batch for rendering.
    */
   submitTriangles(
-    vertices: [number, number][],
-    indices: number[],
+    vertices: ReadonlyArray<[number, number]>,
+    indices: ReadonlyArray<number>,
     color: number,
     alpha: number,
   ): void {

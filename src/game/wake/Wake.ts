@@ -57,7 +57,7 @@ export class Wake extends BaseEntity {
     if (speed < CONFIG.MIN_SPEED) return;
 
     const boatPos = this.boat.getPosition();
-    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const now = timeOfDay
       ? timeOfDay.getTimeInSeconds()
       : (this.game.elapsedUnpausedTime ?? 0);

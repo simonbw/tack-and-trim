@@ -9,22 +9,25 @@ import { LayerInfo } from "../core/graphics/LayerInfo";
  */
 export const LAYERS = {
   // Rendered first (on the bottom)
+
+  // Water layers
   water: new LayerInfo(),
   waterShader: new LayerInfo({ parallax: V(0, 0) }), // don't move water, shader does the work for us
   wake: new LayerInfo(),
   foamParticles: new LayerInfo(), // Foam on water surface
   sprayParticles: new LayerInfo(), // Spray particles above wake but below hull
+  waterDebug: new LayerInfo(), // Water debug rendering (toggled on/off)
 
+  // Boat layers
   underhull: new LayerInfo(),
   hull: new LayerInfo(),
   main: new LayerInfo(),
   sails: new LayerInfo(),
   telltails: new LayerInfo(),
 
-  windParticles: new LayerInfo(),
-
   // Wind visualization layer (toggled on/off)
-  windViz: new LayerInfo({ alpha: 0 }),
+  windDebug: new LayerInfo(),
+  windParticles: new LayerInfo(),
 
   // Stuff not in the world
   hud: new LayerInfo({ parallax: V(0, 0) }),

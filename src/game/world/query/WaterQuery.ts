@@ -1,4 +1,3 @@
-import type { Game } from "../../../core/Game";
 import { V, type V2d } from "../../../core/Vector";
 import type Entity from "../../../core/entity/Entity";
 import { WaterSystem } from "../water/WaterSystem";
@@ -39,16 +38,6 @@ export class WaterQuery extends BaseQuery<WaterQueryResult> {
   constructor(getPoints: () => V2d[]) {
     super(getPoints);
   }
-
-  /**
-   * Get all WaterQuery entities from the game
-   * Used by WaterQueryManager for type-safe query collection
-   */
-  static allFromGame(game: Game): WaterQuery[] {
-    return Array.from(game.entities.getTagged("waterQuery")).filter(
-      isWaterQuery,
-    );
-  }
 }
 
 /**
@@ -66,6 +55,8 @@ const WaterResultLayout: ResultLayout = {
   },
 };
 
+const MAX_WATER_QUERIES = 2 ** 15;
+
 /**
  * Query manager for water queries.
  *
@@ -76,11 +67,11 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
   tickLayer = "environment";
 
   constructor() {
-    super(WaterResultLayout, 8192);
+    super(WaterResultLayout, MAX_WATER_QUERIES);
   }
 
   getQueries(): BaseQuery<WaterQueryResult>[] {
-    return WaterQuery.allFromGame(this.game);
+    return [...this.game.entities.byConstructor(WaterQuery)];
   }
 
   packResult(
@@ -114,7 +105,7 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
   }
 
   dispatchCompute(pointCount: number): void {
-    const waterSystem = WaterSystem.fromGame(this.game);
+    const waterSystem = this.game.entities.tryGetSingleton(WaterSystem);
     if (!waterSystem) {
       console.warn("[WaterQuery] WaterSystem not found in game");
       return;

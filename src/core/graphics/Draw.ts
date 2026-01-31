@@ -1,7 +1,21 @@
-import { clamp } from "../util/MathUtil";
 import { earClipTriangulate } from "../util/Triangulate";
 import { V, V2d } from "../Vector";
 import { Camera2d } from "./Camera2d";
+import {
+  getCircleArrays,
+  getCircleSegments,
+  getCircleVertices,
+} from "./draw/CircleHelpers";
+import type {
+  CircleOptions,
+  DrawOptions,
+  ImageOptions,
+  LineOptions,
+  SmoothOptions,
+  SplineOptions,
+} from "./draw/DrawOptions";
+import { buildRoundedPolygonVertices } from "./draw/RoundedCorners";
+import { buildCatmullRomSpline } from "./draw/SplineHelpers";
 import { PathBuilder } from "./PathBuilder";
 import { WebGPURenderer } from "./webgpu/WebGPURenderer";
 import { WebGPUTexture } from "./webgpu/WebGPUTextureManager";
@@ -9,224 +23,36 @@ import { WebGPUTexture } from "./webgpu/WebGPUTextureManager";
 // Re-export PathBuilder for convenience
 export { PathBuilder };
 
-const MIN_CIRCLE_SEGMENTS = 4;
-const MAX_CIRCLE_SEGMENTS = 64;
-
-// Number of circle segments based on radius
-function getCircleSegments(radius: number): number {
-  return clamp(
-    Math.floor(radius * 4),
-    MIN_CIRCLE_SEGMENTS,
-    MAX_CIRCLE_SEGMENTS,
-  );
-}
-
-// Cache for pre-computed unit circle vertices
-// Key: segment count, Value: array of [cos(angle), sin(angle)] for each vertex
-const circleCache = new Map<number, { cos: Float32Array; sin: Float32Array }>();
-
-function getCircleVertices(segments: number): {
-  cos: Float32Array;
-  sin: Float32Array;
-} {
-  let cached = circleCache.get(segments);
-  if (!cached) {
-    const cos = new Float32Array(segments + 1);
-    const sin = new Float32Array(segments + 1);
-    for (let i = 0; i <= segments; i++) {
-      const angle = (i / segments) * Math.PI * 2;
-      cos[i] = Math.cos(angle);
-      sin[i] = Math.sin(angle);
-    }
-    cached = { cos, sin };
-    circleCache.set(segments, cached);
-  }
-  return cached;
-}
-
-// Number of segments for a Bézier corner based on offset
-function getCornerSegments(offset: number): number {
-  return clamp(Math.ceil(offset), 4, 12);
-}
-
-/**
- * Build vertices for a rounded polygon using quadratic Bézier corners.
- * Returns the tessellated vertices ready for rendering.
- */
-function buildRoundedPolygonVertices(vertices: V2d[], radius: number): V2d[] {
-  if (vertices.length < 3) return vertices;
-
-  const result: V2d[] = [];
-
-  for (let i = 0; i < vertices.length; i++) {
-    const prev = vertices[(i - 1 + vertices.length) % vertices.length];
-    const curr = vertices[i];
-    const next = vertices[(i + 1) % vertices.length];
-
-    // Edge vectors
-    const toPrev = prev.sub(curr);
-    const toNext = next.sub(curr);
-    const prevLen = toPrev.magnitude;
-    const nextLen = toNext.magnitude;
-
-    // Clamp radius to half the shortest adjacent edge
-    const maxRadius = Math.min(prevLen, nextLen) / 2;
-    const r = Math.min(radius, maxRadius);
-
-    if (r <= 0.001) {
-      // No rounding needed
-      result.push(curr.clone());
-      continue;
-    }
-
-    // Offset points along edges
-    const pStart = curr.add(toPrev.normalize().imul(r));
-    const pEnd = curr.add(toNext.normalize().imul(r));
-
-    // Generate quadratic Bézier curve with curr as control point
-    const segments = getCornerSegments(r);
-    for (let j = 0; j <= segments; j++) {
-      const t = j / segments;
-      const t2 = t * t;
-      const mt = 1 - t;
-      const mt2 = mt * mt;
-
-      // B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2
-      const px = mt2 * pStart.x + 2 * mt * t * curr.x + t2 * pEnd.x;
-      const py = mt2 * pStart.y + 2 * mt * t * curr.y + t2 * pEnd.y;
-      result.push(V(px, py));
-    }
-  }
-
-  return result;
-}
-
-/**
- * Tessellate a Catmull-Rom spline through the given points.
- * @param points Control points the spline passes through
- * @param closed Whether to close the curve back to the start
- * @param tension Curve tightness (0-1, default 0.5)
- * @param segmentsPerSpan Segments per span between control points
- */
-function buildCatmullRomSpline(
-  points: V2d[],
-  closed: boolean,
-  tension: number = 0.5,
-  segmentsPerSpan: number = 8,
-): V2d[] {
-  if (points.length < 2) return points.slice();
-
-  const result: V2d[] = [];
-  const n = points.length;
-
-  // For Catmull-Rom, we need 4 points per segment: P0, P1, P2, P3
-  // The curve is drawn between P1 and P2
-  const segmentCount = closed ? n : n - 1;
-
-  for (let i = 0; i < segmentCount; i++) {
-    // Get the 4 control points for this segment
-    const p0 = points[(i - 1 + n) % n];
-    const p1 = points[i];
-    const p2 = points[(i + 1) % n];
-    const p3 = points[(i + 2) % n];
-
-    // For open splines, handle endpoints specially
-    let actualP0 = p0;
-    let actualP3 = p3;
-    if (!closed) {
-      if (i === 0) {
-        // First segment: extrapolate P0
-        actualP0 = V(2 * p1.x - p2.x, 2 * p1.y - p2.y);
-      }
-      if (i === n - 2) {
-        // Last segment: extrapolate P3
-        actualP3 = V(2 * p2.x - p1.x, 2 * p2.y - p1.y);
-      }
-    }
-
-    // Compute tangents with tension
-    const m1x = tension * (p2.x - actualP0.x);
-    const m1y = tension * (p2.y - actualP0.y);
-    const m2x = tension * (actualP3.x - p1.x);
-    const m2y = tension * (actualP3.y - p1.y);
-
-    // Generate points along this segment
-    for (let j = 0; j < segmentsPerSpan; j++) {
-      const t = j / segmentsPerSpan;
-      const t2 = t * t;
-      const t3 = t2 * t;
-
-      // Hermite basis functions
-      const h00 = 2 * t3 - 3 * t2 + 1;
-      const h10 = t3 - 2 * t2 + t;
-      const h01 = -2 * t3 + 3 * t2;
-      const h11 = t3 - t2;
-
-      const px = h00 * p1.x + h10 * m1x + h01 * p2.x + h11 * m2x;
-      const py = h00 * p1.y + h10 * m1y + h01 * p2.y + h11 * m2y;
-      result.push(V(px, py));
-    }
-  }
-
-  // Add the final point
-  if (closed) {
-    result.push(points[0].clone());
-  } else {
-    result.push(points[n - 1].clone());
-  }
-
-  return result;
-}
-
-/** Options for shape drawing */
-export interface DrawOptions {
-  color?: number; // 0xRRGGBB
-  alpha?: number; // 0-1
-}
-
-/** Options for line drawing */
-export interface LineOptions extends DrawOptions {
-  width?: number;
-}
-
-/** Options for smooth polygon drawing */
-export interface SmoothOptions extends DrawOptions {
-  tension?: number; // 0-1, default 0.5
-}
-
-/** Options for spline drawing */
-export interface SplineOptions extends LineOptions {
-  tension?: number; // 0-1, default 0.5
-}
-
-/** Options for sprite/image drawing */
-export interface ImageOptions {
-  rotation?: number;
-  scaleX?: number;
-  scaleY?: number;
-  alpha?: number;
-  color?: number; // 0xRRGGBB - tint color
-  anchorX?: number; // 0-1, default 0.5
-  anchorY?: number; // 0-1, default 0.5
-}
-
-/** Options for circle drawing */
-export interface CircleOptions extends DrawOptions {
-  /** Number of segments to use. If not specified, calculated from radius. */
-  segments?: number;
-}
+// Re-export option types for convenience
+export type {
+  CircleOptions,
+  DrawOptions,
+  ImageOptions,
+  LineOptions,
+  SmoothOptions,
+  SplineOptions,
+};
 
 /**
  * High-level drawing API passed to entity onRender callbacks.
  * Provides a clean interface for drawing shapes, images, and paths.
  */
 export class Draw {
-  constructor(
-    /** The underlying WebGPU renderer */
-    readonly renderer: WebGPURenderer,
-    /** The camera for coordinate conversions and zoom */
-    readonly camera: Camera2d,
-  ) {}
+  // Reusable arrays for common shapes to avoid allocations
+  private _rectVertices: ReadonlyArray<V2d> = [V(), V(), V(), V()];
+  private _rectIndices: ReadonlyArray<number> = [0, 1, 2, 0, 2, 3];
+  private _triangleIndices: ReadonlyArray<number> = [0, 1, 2];
+  private _lineVertices: ReadonlyArray<V2d> = [V(), V(), V(), V()];
+
+  /** The underlying WebGPU renderer */
+  readonly renderer: WebGPURenderer;
+  /** The camera for coordinate conversions and zoom */
+  readonly camera: Camera2d;
+
+  constructor(renderer: WebGPURenderer, camera: Camera2d) {
+    this.renderer = renderer;
+    this.camera = camera;
+  }
 
   /**
    * Execute draw commands at a specific position, rotation, and scale.
@@ -238,18 +64,10 @@ export class Draw {
    * });
    */
   at(
-    {
-      pos,
-      angle,
-      scale,
-    }: {
-      pos: V2d;
-      angle?: number;
-      scale?: number | V2d;
-    },
+    { pos, angle, scale }: { pos: V2d; angle?: number; scale?: number | V2d },
     draw: () => void,
   ): void {
-    this.renderer.save();
+    this.renderer.saveTransform();
     this.renderer.translate(pos);
 
     if (angle !== undefined) {
@@ -266,7 +84,7 @@ export class Draw {
 
     draw();
 
-    this.renderer.restore();
+    this.renderer.restoreTransform();
   }
 
   /** Draw a filled rectangle */
@@ -280,14 +98,18 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
 
-    const vertices: V2d[] = [
-      V(x, y),
-      V(x + w, y),
-      V(x + w, y + h),
-      V(x, y + h),
-    ];
+    // Reuse vertices array and mutate in-place
+    this._rectVertices[0].set(x, y);
+    this._rectVertices[1].set(x + w, y);
+    this._rectVertices[2].set(x + w, y + h);
+    this._rectVertices[3].set(x, y + h);
 
-    this.renderer.submitTriangles(vertices, [0, 1, 2, 0, 2, 3], color, alpha);
+    this.renderer.submitTriangles(
+      this._rectVertices,
+      this._rectIndices,
+      color,
+      alpha,
+    );
   }
 
   /** Draw a stroked rectangle outline */
@@ -298,8 +120,12 @@ export class Draw {
     h: number,
     opts?: LineOptions,
   ): void {
-    const vertices = [V(x, y), V(x + w, y), V(x + w, y + h), V(x, y + h)];
-    this.strokePolygon(vertices, opts);
+    // Reuse vertices array and mutate in-place
+    this._rectVertices[0].set(x, y);
+    this._rectVertices[1].set(x + w, y);
+    this._rectVertices[2].set(x + w, y + h);
+    this._rectVertices[3].set(x, y + h);
+    this.strokePolygon(this._rectVertices, opts);
   }
 
   /** Draw a filled circle */
@@ -311,17 +137,17 @@ export class Draw {
 
     // Get cached unit circle vertices (no trig needed per-call)
     const cached = getCircleVertices(segments);
+    const { vertices, indices } = getCircleArrays(segments);
 
-    const vertices: V2d[] = [V(x, y)]; // Center
-    const indices: number[] = [];
+    // Update center
+    vertices[0].set(x, y);
 
     // Scale and translate cached unit circle
     for (let i = 0; i <= segments; i++) {
-      vertices.push(V(x + cached.cos[i] * radius, y + cached.sin[i] * radius));
-    }
-
-    for (let i = 1; i <= segments; i++) {
-      indices.push(0, i, i + 1 > segments ? 1 : i + 1);
+      vertices[i + 1].set(
+        x + cached.cos[i] * radius,
+        y + cached.sin[i] * radius,
+      );
     }
 
     this.renderer.submitTriangles(vertices, indices, color, alpha);
@@ -348,17 +174,17 @@ export class Draw {
     path.close().stroke(color, width, alpha);
   }
 
-  fillTriangle(p1: V2d, p2: V2d, p3: V2d, opts?: DrawOptions): void {
+  fillTriangle(vertices: [V2d, V2d, V2d], opts?: DrawOptions): void {
     this.renderer.submitTriangles(
-      [p1, p2, p3],
-      [0, 1, 2],
+      vertices,
+      this._triangleIndices,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1.0,
     );
   }
 
   /** Draw a filled polygon (supports concave polygons) */
-  fillPolygon(vertices: V2d[], opts?: DrawOptions): void {
+  fillPolygon(vertices: readonly V2d[], opts?: DrawOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
 
@@ -372,7 +198,7 @@ export class Draw {
   }
 
   /** Draw a stroked polygon outline */
-  strokePolygon(vertices: V2d[], opts?: LineOptions): void {
+  strokePolygon(vertices: readonly V2d[], opts?: LineOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
     const width = opts?.width ?? 1;
@@ -408,14 +234,18 @@ export class Draw {
     const nx = (-dy / len) * (width / 2);
     const ny = (dx / len) * (width / 2);
 
-    const vertices: V2d[] = [
-      V(x1 + nx, y1 + ny),
-      V(x2 + nx, y2 + ny),
-      V(x2 - nx, y2 - ny),
-      V(x1 - nx, y1 - ny),
-    ];
+    // Reuse vertices array and mutate in-place
+    this._lineVertices[0].set(x1 + nx, y1 + ny);
+    this._lineVertices[1].set(x2 + nx, y2 + ny);
+    this._lineVertices[2].set(x2 - nx, y2 - ny);
+    this._lineVertices[3].set(x1 - nx, y1 - ny);
 
-    this.renderer.submitTriangles(vertices, [0, 1, 2, 0, 2, 3], color, alpha);
+    this.renderer.submitTriangles(
+      this._lineVertices,
+      this._rectIndices,
+      color,
+      alpha,
+    );
   }
 
   /**
@@ -500,7 +330,7 @@ export class Draw {
 
   /** Draw a filled polygon with rounded corners */
   fillRoundedPolygon(
-    vertices: V2d[],
+    vertices: readonly V2d[],
     radius: number,
     opts?: DrawOptions,
   ): void {
@@ -508,7 +338,7 @@ export class Draw {
     const alpha = opts?.alpha ?? 1.0;
 
     const roundedVertices = buildRoundedPolygonVertices(vertices, radius);
-    if (roundedVertices.length < 3) return;
+    if (roundedVertices.length < 3) return; // Not enough vertices to form a polygon
 
     // Simple fan triangulation (works for convex polygons)
     const indices: number[] = [];

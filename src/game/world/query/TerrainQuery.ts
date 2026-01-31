@@ -1,4 +1,3 @@
-import type { Game } from "../../../core/Game";
 import { V, type V2d } from "../../../core/Vector";
 import type Entity from "../../../core/entity/Entity";
 import { TerrainSystem } from "../terrain/TerrainSystem";
@@ -38,16 +37,6 @@ export class TerrainQuery extends BaseQuery<TerrainQueryResult> {
   constructor(getPoints: () => ReadonlyArray<V2d>) {
     super(getPoints);
   }
-
-  /**
-   * Get all TerrainQuery entities from the game
-   * Used by TerrainQueryManager for type-safe query collection
-   */
-  static allFromGame(game: Game): TerrainQuery[] {
-    return Array.from(game.entities.getTagged("terrainQuery")).filter(
-      isTerrainQuery,
-    );
-  }
 }
 
 /**
@@ -63,6 +52,7 @@ const TerrainResultLayout: ResultLayout = {
   },
 };
 
+const MAX_TERRAIN_QUERIES = 2 ** 16;
 /**
  * Query manager for terrain queries.
  *
@@ -73,11 +63,11 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
   tickLayer = "environment";
 
   constructor() {
-    super(TerrainResultLayout, 8192);
+    super(TerrainResultLayout, MAX_TERRAIN_QUERIES);
   }
 
   getQueries(): BaseQuery<TerrainQueryResult>[] {
-    return TerrainQuery.allFromGame(this.game);
+    return [...this.game.entities.byConstructor(TerrainQuery)];
   }
 
   packResult(
@@ -105,10 +95,8 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
   }
 
   dispatchCompute(pointCount: number): void {
-    TerrainSystem.fromGame(this.game).computeQueryResults(
-      this.pointBuffer!,
-      this.resultBuffer!,
-      pointCount,
-    );
+    this.game.entities
+      .getSingleton(TerrainSystem)
+      .computeQueryResults(this.pointBuffer!, this.resultBuffer!, pointCount);
   }
 }

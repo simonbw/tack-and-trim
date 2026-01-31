@@ -8,4 +8,10 @@ export type CustomEvents = {
 
   /** Fired when the entire tutorial is completed */
   tutorialComplete: {};
+
+  /** Fired when a WaveShadow finishes computing shadow geometry */
+  shadowsComputed: { waveIndex: number; polygonCount: number };
+
+  /** Fired when terrain contours are added, removed, or modified */
+  terrainContoursChanged: { contourCount: number };
 };

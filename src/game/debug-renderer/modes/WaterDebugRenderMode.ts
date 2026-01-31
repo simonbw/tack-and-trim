@@ -14,15 +14,21 @@
 import { JSX } from "preact/jsx-runtime";
 import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
+import { colorRange } from "../../../core/util/ColorUtils";
+import { clamp } from "../../../core/util/MathUtil";
 import { V, type V2d } from "../../../core/Vector";
 import { WaterQuery } from "../../world/query/WaterQuery";
 import { DebugRenderMode } from "./DebugRenderMode";
 
-const DOTS_PER_SCREEN_WIDTH = 32;
-const DOT_SIZE = 0.3;
-const NORMAL_ARROW_LENGTH = 1.5;
+const DOTS_PER_SCREEN_WIDTH = 48;
+const DOT_SIZE = 1.5;
+const NORMAL_ARROW_LENGTH = 3.5;
+
+// Precompute color gradient for wave heights
+const COLOR_GRADIENT = colorRange(0x0033aa, 0x00ffff, 256);
 
 export class WaterDebugRenderMode extends DebugRenderMode {
+  layer = "waterDebug";
   private waterQuery: WaterQuery;
 
   constructor() {
@@ -40,26 +46,29 @@ export class WaterDebugRenderMode extends DebugRenderMode {
     const scale = (1.0 / this.game.camera.z) * DOT_SIZE;
     const normalLength = (1.0 / this.game.camera.z) * NORMAL_ARROW_LENGTH;
 
+    const wavePoint = V();
+    const normalEnd = V();
+
     for (const [point, result] of this.waterQuery) {
       // Color based on wave height
       // Height typically ranges from -1 to +1 for these wave amplitudes
       // Map to color: blue (trough) -> cyan -> white (crest)
-      const normalizedHeight = (result.surfaceHeight + 1) / 2; // map [-1, 1] to [0, 1]
-      const brightness = Math.max(0, Math.min(1, normalizedHeight));
+      const normalizedHeight = (result.surfaceHeight + 1) * 0.5; // map [-1, 1] to [0, 1]
 
-      // Interpolate from dark blue (trough) to cyan/white (crest)
-      const color = this.interpolateColor(0x0033aa, 0x00ffff, brightness);
+      // Lookup precomputed color from gradient
+      const colorIndex = clamp(Math.floor(normalizedHeight * 255), 0, 255);
+      const color = COLOR_GRADIENT[colorIndex];
 
       // Draw dot at wave position (offset by surface height)
-      const wavePoint = V(point.x, point.y + result.surfaceHeight);
+      wavePoint.set(point.x, point.y + result.surfaceHeight);
       draw.fillCircle(wavePoint.x, wavePoint.y, scale, { color, alpha: 0.7 });
 
       // Draw surface normal as small arrow (every 4th point for clarity)
-      if (
-        Math.floor(point.x / 10) % 4 === 0 &&
-        Math.floor(point.y / 10) % 4 === 0
-      ) {
-        const normalEnd = wavePoint.add(result.normal.mul(normalLength));
+      // Optimize: use bitwise AND instead of modulo for power-of-2 checks
+      const px = Math.floor(point.x * 0.1); // divide by 10
+      const py = Math.floor(point.y * 0.1);
+      if ((px & 3) === 0 && (py & 3) === 0) {
+        normalEnd.set(wavePoint).iaddScaled(result.normal, normalLength);
         draw.line(wavePoint.x, wavePoint.y, normalEnd.x, normalEnd.y, {
           color: 0xffff00,
           alpha: 0.5,
@@ -93,25 +102,6 @@ export class WaterDebugRenderMode extends DebugRenderMode {
     }
 
     return points;
-  }
-
-  /**
-   * Interpolate between two RGB colors.
-   */
-  private interpolateColor(color1: number, color2: number, t: number): number {
-    const r1 = (color1 >> 16) & 0xff;
-    const g1 = (color1 >> 8) & 0xff;
-    const b1 = color1 & 0xff;
-
-    const r2 = (color2 >> 16) & 0xff;
-    const g2 = (color2 >> 8) & 0xff;
-    const b2 = color2 & 0xff;
-
-    const r = Math.round(r1 + (r2 - r1) * t);
-    const g = Math.round(g1 + (g2 - g1) * t);
-    const b = Math.round(b1 + (b2 - b1) * t);
-
-    return (r << 16) | (g << 8) | b;
   }
 
   getModeName(): JSX.Element | string | null {

@@ -1,4 +1,3 @@
-import type { Game } from "../../../core/Game";
 import { V, type V2d } from "../../../core/Vector";
 import type Entity from "../../../core/entity/Entity";
 import { WindSystem } from "../wind/WindSystem";
@@ -37,14 +36,6 @@ export class WindQuery extends BaseQuery<WindQueryResult> {
   constructor(getPoints: () => V2d[]) {
     super(getPoints);
   }
-
-  /**
-   * Get all WindQuery entities from the game
-   * Used by WindQueryManager for type-safe query collection
-   */
-  static allFromGame(game: Game): WindQuery[] {
-    return Array.from(game.entities.getTagged("windQuery")).filter(isWindQuery);
-  }
 }
 
 /**
@@ -60,6 +51,8 @@ const WindResultLayout: ResultLayout = {
   },
 };
 
+const MAX_WIND_QUERIES = 2 ** 15;
+
 /**
  * Query manager for wind queries.
  *
@@ -70,11 +63,11 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
   tickLayer = "environment";
 
   constructor() {
-    super(WindResultLayout, 8192);
+    super(WindResultLayout, MAX_WIND_QUERIES);
   }
 
   getQueries(): BaseQuery<WindQueryResult>[] {
-    return WindQuery.allFromGame(this.game);
+    return [...this.game.entities.byConstructor(WindQuery)];
   }
 
   packResult(
@@ -102,10 +95,8 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
   }
 
   dispatchCompute(pointCount: number): void {
-    WindSystem.fromGame(this.game).computeQueryResults(
-      this.pointBuffer,
-      this.resultBuffer,
-      pointCount,
-    );
+    this.game.entities
+      .getSingleton(WindSystem)
+      .computeQueryResults(this.pointBuffer, this.resultBuffer, pointCount);
   }
 }

@@ -1,28 +1,40 @@
-# Phase 4: Water System
+# Phase 4.2: Water Shadows & Modifiers
 
 **Status**: Not Started
 **Start Date**: TBD
 **Completion Date**: TBD
-**Estimated Duration**: 5-7 days
-**Depends On**: Phase 1 (Core Infrastructure), Phase 2 (Terrain System)
+**Estimated Duration**: 4-6 days
+**Depends On**: Phase 4.1 (Water System MVP)
 
 ---
 
 ## Goal
 
-Implement the full water simulation with Gerstner waves, shadow-based diffraction, depth effects, modifiers, and tide. This is the most complex subsystem.
+Add advanced features to the MVP water system implemented in Phase 4.1:
+- Wave shadows behind islands (diffraction)
+- Water modifiers (boat wakes, splashes, ripples)
+- Depth-based wave effects (shoaling and damping)
+- Tide simulation
+
+This completes the full water simulation system.
 
 ---
 
 ## Components Checklist
 
-- [ ] `WaveSource.ts` - Wave configuration and math
+Phase 4.1 already implemented:
+- ✅ `WaveSource.ts` - Wave configuration and Gerstner math
+- ✅ `WaterSystem.ts` - Main water entity
+- ✅ `WaterQuery.ts` - Query entity for water data
+- ✅ `WaterComputeShader.ts` - Basic two-pass Gerstner shader
+- ✅ `WaterModifier.ts` - Interface definition (types only)
+
+Phase 4.2 will add:
 - [ ] `WaveShadow.ts` - Shadow geometry and VirtualTexture
 - [ ] `ShadowTileCompute.ts` - Shadow rasterization shader
-- [ ] `WaterModifier.ts` - Interface for disturbances
-- [ ] `WaterModifierBuffer.ts` - GPU buffer management
-- [ ] `WaterSystem.ts` - Main water entity
-- [ ] `WaterQuery.ts` - Query entity for water data
+- [ ] `WaterModifierBuffer.ts` - GPU buffer management for modifiers
+- [ ] Update `WaterComputeShader.ts` - Add shadow sampling and depth effects
+- [ ] Update `WaterQuery.ts` - Add depth and velocity fields
 
 ---
 

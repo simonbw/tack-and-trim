@@ -7,7 +7,6 @@
 
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { Game } from "../../../core/Game";
 import type { BindGroupResources } from "../../../core/graphics/webgpu/ShaderBindings";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { V2d } from "../../../core/Vector";
@@ -41,14 +40,6 @@ export const DEFAULT_WIND_NOISE_CONFIG: WindNoiseConfig = {
  * Follows the established TerrainSystem pattern.
  */
 export class WindSystem extends BaseEntity {
-  static fromGame(game: Game): WindSystem {
-    const maybeWindSystem = game.entities.getById("windSystem");
-    if (!(maybeWindSystem instanceof WindSystem)) {
-      throw new Error("WindSystem not found");
-    }
-    return maybeWindSystem;
-  }
-
   readonly id = "windSystem";
   readonly tickLayer = "environment";
 

@@ -2,9 +2,9 @@
 
 GPU-accelerated world simulation with terrain, water, and wind systems.
 
-**Status**: 64% Complete (4 of 6 phases done)
-**Current Phase**: Phase 4 (Water System)
-**Systems Online**: ✅ Terrain, ✅ Wind, ⚠️ Water (stub), ⚠️ Rendering (stub)
+**Status**: 71% Complete (5 of 7 phases done)
+**Current Phase**: Phase 4.2 (Water Shadows & Modifiers)
+**Systems Online**: ✅ Terrain, ✅ Wind, ✅ Water (MVP), ⚠️ Rendering (stub)
 
 ## Documentation Index
 
@@ -20,7 +20,8 @@ GPU-accelerated world simulation with terrain, water, and wind systems.
 - **[phase-1.md](./phase-1.md)** - ✅ Core Infrastructure (Complete)
 - **[phase-2.md](./phase-2.md)** - ✅ Terrain System (Complete)
 - **[phase-3.md](./phase-3.md)** - ✅ Wind System (Complete)
-- **[phase-4.md](./phase-4.md)** - Water System (Next)
+- **[phase-4-1.md](./phase-4-1.md)** - ✅ Water System MVP (Complete)
+- **[phase-4-2.md](./phase-4-2.md)** - Water Shadows & Modifiers (Next)
 - **[phase-5.md](./phase-5.md)** - Rendering Integration
 - **[phase-6.md](./phase-6.md)** - Optimization & Polish
 

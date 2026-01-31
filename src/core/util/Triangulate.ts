@@ -5,12 +5,12 @@
  * polygons. Works with both convex and concave polygons.
  */
 
-export type Point2D = { x: number; y: number };
+import { ReadonlyV2d } from "../Vector";
 
 /**
  * Compute the signed area of a polygon (positive = CCW, negative = CW).
  */
-export function signedPolygonArea(points: Point2D[]): number {
+export function signedPolygonArea(points: readonly ReadonlyV2d[]): number {
   let area = 0;
   const n = points.length;
   for (let i = 0; i < n; i++) {
@@ -24,7 +24,7 @@ export function signedPolygonArea(points: Point2D[]): number {
 /**
  * Check if point C is to the left of line AB.
  */
-function isLeftOf(a: Point2D, b: Point2D, c: Point2D): boolean {
+function isLeftOf(a: ReadonlyV2d, b: ReadonlyV2d, c: ReadonlyV2d): boolean {
   return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) > 0;
 }
 
@@ -33,10 +33,10 @@ function isLeftOf(a: Point2D, b: Point2D, c: Point2D): boolean {
  * Uses cross product signs - all three must have the same sign for point to be inside.
  */
 function pointStrictlyInTriangle(
-  p: Point2D,
-  a: Point2D,
-  b: Point2D,
-  c: Point2D,
+  p: ReadonlyV2d,
+  a: ReadonlyV2d,
+  b: ReadonlyV2d,
+  c: ReadonlyV2d,
 ): boolean {
   const d1 = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);
   const d2 = (p.x - b.x) * (c.y - b.y) - (p.y - b.y) * (c.x - b.x);
@@ -53,8 +53,8 @@ function pointStrictlyInTriangle(
  * Check if vertex at index i is an ear (can be clipped).
  */
 function isEar(
-  polygon: number[],
-  points: Point2D[],
+  polygon: readonly number[],
+  points: readonly ReadonlyV2d[],
   i: number,
   isCCW: boolean,
 ): boolean {
@@ -99,7 +99,9 @@ function isEar(
  * @param points - Array of polygon vertices in order (CCW or CW)
  * @returns Array of triangle indices (length is multiple of 3), or null if triangulation fails
  */
-export function earClipTriangulate(points: Point2D[]): number[] | null {
+export function earClipTriangulate(
+  points: readonly ReadonlyV2d[],
+): number[] | null {
   const n = points.length;
   if (n < 3) return null;
   if (n === 3) return [0, 1, 2];

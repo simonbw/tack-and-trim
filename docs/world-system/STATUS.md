@@ -1,6 +1,6 @@
 # World System Implementation Status
 
-**Last Updated**: 2026-01-29
+**Last Updated**: 2026-01-30
 
 ## Quick Summary
 
@@ -10,11 +10,12 @@
 | Phase 1: Core Infrastructure | ✅ Complete | 1 day | 2026-01-28 |
 | Phase 2: Terrain System | ✅ Complete | 1 day | 2026-01-28 |
 | Phase 3: Wind System | ✅ Complete | <1 day | 2026-01-28 |
-| Phase 4: Water System | ⚠️ Not Started | TBD | - |
+| Phase 4.1: Water System (MVP) | ✅ Complete | 1 day | 2026-01-30 |
+| Phase 4.2: Water Shadows & Modifiers | ⚠️ Not Started | TBD | - |
 | Phase 5: Surface Rendering | ⚠️ Not Started | TBD | - |
 | Phase 6: Integration & Polish | ⚠️ Not Started | TBD | - |
 
-**Overall Progress**: 64% (4 of 6 phases complete)
+**Overall Progress**: 71% (5 of 7 phases complete)
 
 ## Files Created by Phase
 
@@ -74,6 +75,17 @@ src/game/world/wind/
   └── WindComputeShader.ts (~120 lines)
 ```
 
+### Phase 4.1 (Water System MVP)
+```
+src/game/world/water/
+  ├── WaveSource.ts (~124 lines)
+  ├── WaterSystem.ts (~286 lines)
+  └── WaterComputeShader.ts (~156 lines)
+
+src/game/debug-renderer/modes/
+  └── WaterDebugRenderMode.ts (~120 lines)
+```
+
 ### Modified Files
 ```
 src/game/world/
@@ -127,44 +139,47 @@ src/game/
 - ✅ Deferred tile computation
 - ✅ Shared between systems
 
-### Stubbed Systems
+#### Water Queries (Phase 4.1 Complete)
+- ✅ GPU-accelerated water queries with Gerstner waves
+- ✅ Two-pass wave evaluation (displacement then height)
+- ✅ Surface height and normal computation
+- ✅ Multiple wave sources supported
+- ✅ WaterDebugRenderMode for visualization
+- ⚠️ No wave shadows yet (Phase 4.2)
+- ⚠️ No water modifiers yet (Phase 4.2)
+- ⚠️ No depth-based effects yet (Phase 4.2)
 
-#### Water Queries
-- ⚠️ WaterQuery exists but returns stub data
-- ⚠️ WaterQueryManager exists but not connected to simulation
-- ⚠️ No wave simulation yet
-- ⚠️ No water modifiers yet
+### Stubbed Systems
 
 #### Surface Rendering
 - ⚠️ SurfaceRenderer exists but does nothing
 - ⚠️ No visual rendering of terrain/water yet
 - ⚠️ No wetness simulation yet
 
-## Next Steps (Phase 4: Water System)
+## Next Steps (Phase 4.2: Water Shadows & Modifiers)
 
-Phase 4 will implement the full water simulation:
+Phase 4.2 will add advanced water features to the MVP water system:
 
 ### Components to Implement
-- [ ] WaveSource.ts - Gerstner wave configuration
-- [ ] WaveShadow.ts - Shadow geometry computation
-- [ ] ShadowTileCompute.ts - Shadow VirtualTexture
-- [ ] WaterModifierBuffer.ts - GPU buffer for modifiers
-- [ ] WaterSystem.ts - Main water entity
-- [ ] WaterQueryCompute.ts - Query compute shader
+- [ ] WaveShadow.ts - Shadow geometry computation from coastlines
+- [ ] ShadowTileCompute.ts - Shadow VirtualTexture rasterization
+- [ ] WaterModifierBuffer.ts - GPU buffer for modifiers (wakes, splashes)
+- [ ] Depth-based wave effects - Shoaling and damping in shallow water
+- [ ] Update WaterComputeShader.ts - Add shadow sampling and depth effects
+- [ ] Update WaterQuery.ts - Add depth and velocity fields
 
 ### Key Features
-- Gerstner wave simulation (multiple wave sources)
 - Wave shadows behind islands (diffraction)
 - Water modifiers (boat wakes, splashes, ripples)
-- Depth-based wave amplitude
+- Depth-based wave amplitude (shoaling in shallow, damping near shore)
 - Tide simulation (optional)
 
 ### Complexity
-Phase 4 is the most complex phase due to:
-- Wave shadow geometry computation
-- Multiple interacting wave sources
+Phase 4.2 is complex due to:
+- Wave shadow geometry computation from arbitrary coastlines
+- VirtualTexture integration for shadow tiles
 - Dynamic modifier buffer management
-- Integration with terrain system (coastlines, depth)
+- Integration with terrain system for depth queries
 
 ## Testing Status
 
@@ -188,6 +203,8 @@ None currently. All implemented systems are working as designed.
 - ✅ phase-1.md marked complete
 - ✅ phase-2.md marked complete
 - ✅ phase-3.md marked complete
+- ✅ phase-4-1.md marked complete (NEW: MVP water system)
+- ⚠️ phase-4.md renamed to phase-4-2.md (advanced water features)
 - ✅ architecture.md (already complete)
 - ✅ api.md (already complete)
 - ✅ class-breakdown.md (already complete)

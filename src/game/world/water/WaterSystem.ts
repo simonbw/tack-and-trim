@@ -1,10 +1,12 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import type { Game } from "../../../core/Game";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { BindGroupResources } from "../../../core/graphics/webgpu/ShaderBindings";
+import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { WaterComputeBindings, WaterComputeShader } from "./WaterComputeShader";
+import { WaterModifier } from "./WaterModifier";
+import { WaterModifierBuffer } from "./WaterModifierBuffer";
+import { WaveShadow } from "./WaveShadow";
 import { WaveSource, type WaveSourceConfig } from "./WaveSource";
-import { WaterComputeShader, WaterComputeBindings } from "./WaterComputeShader";
 
 /**
  * Configuration for the water system
@@ -33,10 +35,18 @@ export class WaterSystem extends BaseEntity {
   private time = 0;
   private isInitialized = false;
 
+  // Shadow and modifier systems
+  private waveShadows: WaveShadow[] = [];
+  private modifierBuffer: WaterModifierBuffer | null = null;
+
   // GPU resources
   private computeShader: WaterComputeShader | null = null;
   private waveSourceBuffer: GPUBuffer | null = null;
   private waterParamsBuffer: GPUBuffer | null = null;
+  private terrainHeightBuffer: GPUBuffer | null = null;
+  private modifierParamsBuffer: GPUBuffer | null = null;
+  private shadowSampler: GPUSampler | null = null;
+  private dummyShadowTexture: GPUTexture | null = null;
 
   constructor(config: WaterSystemConfig) {
     super();
@@ -79,15 +89,95 @@ export class WaterSystem extends BaseEntity {
       // Initial params upload
       this.updateWaterParamsBuffer();
 
+      // Create WaveShadow entities (one per wave source)
+      for (let i = 0; i < this.waveSources.length; i++) {
+        const shadow = new WaveShadow(this.waveSources[i], i);
+        this.addChild(shadow);
+        this.waveShadows.push(shadow);
+      }
+
+      // Create water modifier buffer
+      this.modifierBuffer = new WaterModifierBuffer();
+
+      // Create terrain height buffer (8192 points max, same as query limit)
+      const maxPoints = 8192;
+      this.terrainHeightBuffer = device.createBuffer({
+        label: "WaterSystem Terrain Heights",
+        size: maxPoints * Float32Array.BYTES_PER_ELEMENT,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+
+      // Create modifier params uniform buffer
+      // WebGPU requires minimum 32 bytes for uniform buffers
+      this.modifierParamsBuffer = device.createBuffer({
+        label: "WaterSystem Modifier Params",
+        size: 32, // Minimum required by WebGPU for uniform buffers
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      // Create shadow sampler (linear filtering for smooth shadows)
+      this.shadowSampler = device.createSampler({
+        label: "WaterSystem Shadow Sampler",
+        magFilter: "linear",
+        minFilter: "linear",
+        mipmapFilter: "linear",
+      });
+
+      // Create dummy shadow texture (1x1 black) for use until WaveShadows are ready
+      try {
+        this.dummyShadowTexture = device.createTexture({
+          label: "WaterSystem Dummy Shadow",
+          size: {
+            width: 1,
+            height: 1,
+            depthOrArrayLayers: Math.max(this.waveSources.length, 1),
+          },
+          format: "rg32float",
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+
+        // Initialize dummy texture with zeros (no shadow)
+        const dummyData = new Float32Array(2); // rg32float = 2 floats per pixel
+        dummyData[0] = 0.0; // R = 0 (no shadow)
+        dummyData[1] = 1.0; // G = 1 (far from edge)
+        for (let i = 0; i < this.waveSources.length; i++) {
+          device.queue.writeTexture(
+            { texture: this.dummyShadowTexture, origin: [0, 0, i] },
+            dummyData,
+            { bytesPerRow: 8, rowsPerImage: 1 }, // 2 floats × 4 bytes = 8 bytes
+            { width: 1, height: 1, depthOrArrayLayers: 1 },
+          );
+        }
+      } catch (error) {
+        console.error(
+          "[WaterSystem] Failed to create dummy shadow texture:",
+          error,
+        );
+        throw error;
+      }
+
       this.isInitialized = true;
-      console.log(
-        `[WaterSystem] Initialized with ${waveCount} wave sources at time=${this.time.toFixed(2)}s`,
-      );
     } catch (error) {
       console.error("[WaterSystem] Failed to initialize:", error);
       this.isInitialized = false;
       throw error;
     }
+  }
+
+  /**
+   * Handle shadow computation completion
+   */
+  @on("shadowsComputed")
+  onShadowsComputed({
+    waveIndex,
+    polygonCount,
+  }: {
+    waveIndex: number;
+    polygonCount: number;
+  }): void {
+    console.log(
+      `[WaterSystem] Received shadowsComputed event for wave ${waveIndex}: ${polygonCount} polygon(s)`,
+    );
   }
 
   /**
@@ -123,6 +213,21 @@ export class WaterSystem extends BaseEntity {
 
     this.waterParamsBuffer?.destroy();
     this.waterParamsBuffer = null;
+
+    this.terrainHeightBuffer?.destroy();
+    this.terrainHeightBuffer = null;
+
+    this.modifierParamsBuffer?.destroy();
+    this.modifierParamsBuffer = null;
+
+    this.modifierBuffer?.destroy();
+    this.modifierBuffer = null;
+
+    this.dummyShadowTexture?.destroy();
+    this.dummyShadowTexture = null;
+
+    // WaveShadow entities will be destroyed by entity system
+    this.waveShadows = [];
   }
 
   /**
@@ -150,36 +255,60 @@ export class WaterSystem extends BaseEntity {
     if (
       !this.computeShader ||
       !this.waveSourceBuffer ||
-      !this.waterParamsBuffer
+      !this.waterParamsBuffer ||
+      !this.terrainHeightBuffer ||
+      !this.modifierParamsBuffer ||
+      !this.modifierBuffer ||
+      !this.shadowSampler
     ) {
       console.warn("[WaterSystem] GPU resources not initialized");
       return;
     }
 
-    // Validate pointCount to prevent GPU hang
-    if (!Number.isInteger(pointCount) || pointCount < 0 || pointCount > 8192) {
-      console.error(
-        `[WaterSystem] Invalid pointCount=${pointCount}, aborting dispatch`,
-      );
-      return;
-    }
-
     const device = getWebGPU().device;
-    // Update water params before dispatch
+
+    // 1. Query terrain heights for same points
+    this.queryTerrainHeights(pointBuffer, pointCount);
+
+    // 2. Update water modifiers
+    this.updateModifiers();
+
+    // 3. Request shadow tiles (TODO: determine query region from points)
+    // For now, skip tile requests - will be added when needed
+
+    // 4. Update water params before dispatch
     this.updateWaterParamsBuffer();
 
-    // Create bind group
+    // 5. Get shadow textures from WaveShadow entities (or use dummy if not ready)
+    let shadowTexture: GPUTexture = this.dummyShadowTexture!;
+    if (this.waveShadows.length > 0) {
+      const firstShadowTexture = this.waveShadows[0].getShadowTexture();
+      if (firstShadowTexture) {
+        shadowTexture = firstShadowTexture;
+      }
+    }
+
+    const shadowTextureView = shadowTexture.createView({
+      dimension: "2d-array",
+    });
+
+    // 6. Create bind group with all 9 bindings
     const bindGroupResources: BindGroupResources<typeof WaterComputeBindings> =
       {
         queryPoints: { buffer: pointBuffer },
         results: { buffer: resultBuffer },
         waveSources: { buffer: this.waveSourceBuffer },
         waterParams: { buffer: this.waterParamsBuffer },
+        terrainHeights: { buffer: this.terrainHeightBuffer },
+        shadowTextures: shadowTextureView,
+        shadowSampler: this.shadowSampler,
+        modifiers: { buffer: this.modifierBuffer.getBuffer()! },
+        modifierParams: { buffer: this.modifierParamsBuffer },
       };
 
     const bindGroup = this.computeShader.createBindGroup(bindGroupResources);
 
-    // Create command encoder and compute pass
+    // 7. Create command encoder and compute pass
     const commandEncoder = device.createCommandEncoder({
       label: "WaterSystem Query Compute",
     });
@@ -188,13 +317,60 @@ export class WaterSystem extends BaseEntity {
       label: "WaterSystem Compute Pass",
     });
 
-    // Dispatch compute shader
+    // 8. Dispatch compute shader
     this.computeShader.dispatch(computePass, bindGroup, pointCount, 1);
 
     computePass.end();
 
-    // Submit to GPU queue
+    // 9. Submit to GPU queue
     device.queue.submit([commandEncoder.finish()]);
+  }
+
+  /**
+   * Query terrain heights for water query points.
+   * Uploads heights to GPU buffer.
+   */
+  private queryTerrainHeights(
+    _pointBuffer: GPUBuffer,
+    pointCount: number,
+  ): void {
+    if (!this.terrainHeightBuffer) return;
+
+    const device = getWebGPU().device;
+
+    // For MVP, we'll just fill with default deep water (-100m)
+    // TODO: Implement actual terrain queries by reading from pointBuffer
+    // and querying this.game.entities.getSingleton(TerrainSystem).getHeightAt(point)
+    const heights = new Float32Array(pointCount);
+    for (let i = 0; i < pointCount; i++) {
+      heights[i] = -100.0; // Default deep water
+    }
+
+    device.queue.writeBuffer(this.terrainHeightBuffer, 0, heights);
+  }
+
+  /**
+   * Update water modifiers by collecting all WaterModifier entities
+   * and uploading to GPU.
+   */
+  private updateModifiers(): void {
+    if (!this.modifierBuffer || !this.modifierParamsBuffer) return;
+
+    // Collect all water modifiers from game
+    const modifiers = [...this.game.entities.byConstructor(WaterModifier)];
+
+    // Update buffer
+    this.modifierBuffer.update(modifiers);
+
+    // Update uniform with active count
+    const device = getWebGPU().device;
+    const paramsArray = new Uint32Array([
+      this.modifierBuffer.getActiveCount(),
+      0, // padding
+      0, // padding
+      0, // padding
+    ]);
+    device.queue.writeBuffer(this.modifierParamsBuffer, 0, paramsArray);
   }
 
   /**
@@ -247,13 +423,6 @@ export class WaterSystem extends BaseEntity {
     ]);
 
     device.queue.writeBuffer(this.waterParamsBuffer, 0, data);
-  }
-
-  /**
-   * Get WaterSystem from game entities
-   */
-  static fromGame(game: Game): WaterSystem | null {
-    return game.entities.getById("waterSystem") as WaterSystem | null;
   }
 
   /**

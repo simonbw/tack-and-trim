@@ -19,6 +19,7 @@ const TRIANGLE_SIZE = 2.0;
 const TRIANGLES_PER_SCREEN_WIDTH = 32;
 
 export class WindDebugRenderMode extends DebugRenderMode {
+  layer = "windDebug";
   private windQuery: WindQuery;
 
   constructor() {
@@ -33,12 +34,17 @@ export class WindDebugRenderMode extends DebugRenderMode {
   onRender({ draw }: GameEventMap["render"]) {
     const scale = (1.0 / this.game.camera.z) * TRIANGLE_SIZE;
 
+    const n = V();
+    const p1 = V();
+    const p2 = V();
+    const p3 = V();
+
     for (const [point, result] of this.windQuery) {
-      const n = result.velocity.rotate90ccw();
-      const p1 = point.addScaled(result.velocity, scale);
-      const p2 = point.addScaled(n, 0.3 * scale);
-      const p3 = point.addScaled(n, -0.3 * scale);
-      draw.fillTriangle(p1, p2, p3, { alpha: 0.5, color: 0x00ffff });
+      n.set(result.velocity).irotate90ccw();
+      p1.set(point).iaddScaled(result.velocity, scale);
+      p2.set(point).iaddScaled(n, 0.3 * scale);
+      p3.set(point).iaddScaled(n, -0.3 * scale);
+      draw.fillTriangle([p1, p2, p3], { alpha: 0.5, color: 0x00ffff });
     }
   }
 

@@ -8,10 +8,11 @@
  * - [/]: Sub-mode cycling (delegated to active mode)
  */
 
+import "./DebugHUD.css";
+
 import type { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { ReactEntity } from "../../core/ReactEntity";
-import { DebugHUD } from "./DebugHUD";
 import { DebugRenderMode } from "./modes/DebugRenderMode";
 import { WaterDebugRenderMode } from "./modes/WaterDebugRenderMode";
 import { WindDebugRenderMode } from "./modes/WindDebugRenderMode";
@@ -25,11 +26,9 @@ export class DebugRenderer extends ReactEntity {
   ];
   private activeModeIndex = -1; // -1 = off
   private currentMode: DebugRenderMode | null = null;
-  private hud: DebugHUD | null = null;
 
   constructor() {
     super(() => this.renderHud(), true);
-    this.hud = this.addChild(new DebugHUD());
   }
 
   renderHud() {
@@ -37,7 +36,7 @@ export class DebugRenderer extends ReactEntity {
       this.game.io.mousePosition,
     );
     if (this.currentMode) {
-      const modeName = this.currentMode.id;
+      const modeName = this.currentMode.getModeName();
       const modeContent = this.currentMode.getHudInfo();
       const cursorContent = this.currentMode.getCursorInfo();
       return (
@@ -66,6 +65,7 @@ export class DebugRenderer extends ReactEntity {
 
           <div className="debug-hud__cursor">
             {mouseWorldPos.toLocaleString([], { maximumFractionDigits: 1 })}
+            {cursorContent && <span> | {cursorContent}</span>}
           </div>
         </div>
       );
@@ -112,12 +112,6 @@ export class DebugRenderer extends ReactEntity {
       this.currentMode = this.addChild(
         this.modeConstructors[this.activeModeIndex](),
       );
-      if (!this.hud) {
-        this.hud = this.addChild(new DebugHUD());
-      }
-    } else {
-      this.hud?.destroy();
-      this.hud = null;
     }
   }
 }

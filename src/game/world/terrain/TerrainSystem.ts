@@ -7,7 +7,6 @@
  * - Shared GPU buffers for tile and query shaders
  */
 
-import { Game } from "../../../core/Game";
 import type { V2d } from "../../../core/Vector";
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
@@ -41,15 +40,6 @@ interface ContourGPU {
  * tile generation and batch queries (via compute shaders).
  */
 export class TerrainSystem extends BaseEntity {
-  /** Retrieve the TerrainSystem instance from the game */
-  static fromGame(game: Game): TerrainSystem {
-    const maybeTerrainSystem = game.entities.getById("terrainSystem");
-    if (!(maybeTerrainSystem instanceof TerrainSystem)) {
-      throw new Error("TerrainSystem not found");
-    }
-    return maybeTerrainSystem;
-  }
-
   readonly id = "terrainSystem";
   readonly tickLayer = "environment";
 
@@ -57,7 +47,7 @@ export class TerrainSystem extends BaseEntity {
   private definition: TerrainDefinition;
 
   /** CPU-side containment tree for immediate queries */
-  private containmentTree: ContainmentTree | null = null;
+  private containmentTree: ContainmentTree;
 
   // GPU components
   private virtualTexture: VirtualTexture<typeof TerrainTileBindings> | null =
@@ -85,6 +75,12 @@ export class TerrainSystem extends BaseEntity {
   constructor(definition: TerrainDefinition) {
     super();
     this.definition = definition;
+
+    // Build CPU-side containment tree
+    this.containmentTree = new ContainmentTree(
+      this.definition.contours,
+      this.definition.defaultDepth,
+    );
   }
 
   /**
@@ -93,19 +89,6 @@ export class TerrainSystem extends BaseEntity {
    */
   @on("add")
   async onAdd(): Promise<void> {
-    // Build CPU-side containment tree
-    this.containmentTree = new ContainmentTree(
-      this.definition.contours,
-      this.definition.defaultDepth,
-    );
-
-    console.log(
-      `TerrainSystem: Built containment tree with ${this.definition.contours.length} contours`,
-    );
-    console.log(
-      `TerrainSystem: Found ${this.getCoastlines().length} coastline contours`,
-    );
-
     // Initialize GPU resources
     await this.initializeGPU();
   }
@@ -154,9 +137,6 @@ export class TerrainSystem extends BaseEntity {
    * @returns Height/depth value at the point
    */
   getHeightAt(point: V2d): number {
-    if (!this.containmentTree) {
-      return this.definition.defaultDepth;
-    }
     return this.containmentTree.getHeightAt(point);
   }
 
@@ -166,9 +146,6 @@ export class TerrainSystem extends BaseEntity {
    * @returns Array of coastline contours
    */
   getCoastlines(): readonly TerrainContour[] {
-    if (!this.containmentTree) {
-      return [];
-    }
     return this.containmentTree.getCoastlines();
   }
 
@@ -210,6 +187,11 @@ export class TerrainSystem extends BaseEntity {
     // Re-upload to GPU and invalidate tiles
     await this.uploadContoursToGPU();
     this.virtualTexture?.invalidate();
+
+    // Dispatch event for other systems (e.g., WaveShadows) to recompute
+    this.game.dispatch("terrainContoursChanged", {
+      contourCount: definition.contours.length,
+    });
   }
 
   /**
@@ -234,14 +216,6 @@ export class TerrainSystem extends BaseEntity {
 
     // Skip if no points to query (avoids WebGPU warning)
     if (pointCount === 0) {
-      return;
-    }
-
-    // CRITICAL: Validate pointCount to prevent GPU hang
-    if (!Number.isInteger(pointCount) || pointCount < 0 || pointCount > 8192) {
-      console.error(
-        `[TerrainSystem] INVALID pointCount=${pointCount}! Aborting dispatch to prevent GPU hang.`,
-      );
       return;
     }
 
@@ -285,10 +259,6 @@ export class TerrainSystem extends BaseEntity {
    * Initialize GPU resources.
    */
   private async initializeGPU(): Promise<void> {
-    if (!this.containmentTree) {
-      throw new Error("ContainmentTree not initialized");
-    }
-
     // Upload contours to GPU
     await this.uploadContoursToGPU();
 
@@ -318,8 +288,6 @@ export class TerrainSystem extends BaseEntity {
     ) => {
       this.computeTileWithBindings(lod, tileX, tileY);
     };
-
-    console.log("TerrainSystem: GPU resources initialized");
   }
 
   /**
@@ -327,10 +295,6 @@ export class TerrainSystem extends BaseEntity {
    * Flattens the containment tree to GPU-friendly arrays.
    */
   private async uploadContoursToGPU(): Promise<void> {
-    if (!this.containmentTree) {
-      return;
-    }
-
     const device = getWebGPU().device;
 
     // Flatten the tree to GPU-friendly arrays
@@ -398,10 +362,6 @@ export class TerrainSystem extends BaseEntity {
       size: 32, // 8 fields × 4 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-
-    console.log(
-      `TerrainSystem: Uploaded ${contours.length} contours with ${controlPoints.length} control points`,
-    );
   }
 
   /**
@@ -414,10 +374,6 @@ export class TerrainSystem extends BaseEntity {
     contours: ContourGPU[];
     controlPoints: V2d[];
   } {
-    if (!this.containmentTree) {
-      return { contours: [], controlPoints: [] };
-    }
-
     const contours: ContourGPU[] = [];
     const controlPoints: V2d[] = [];
     const roots = this.containmentTree.getRoots();

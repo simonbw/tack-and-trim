@@ -209,10 +209,14 @@ export abstract class QueryManager<TResult> extends BaseEntity {
   @on("tick")
   async onTick() {
     // Wait for GPU results from previous tick and distribute them
-    if (this.readbackPromise) {
-      await this.readbackPromise;
-      const readbackBuffer = this.readbackBuffers.getRead();
+    if (!this.readbackPromise) {
+      return;
+    }
 
+    try {
+      await this.readbackPromise;
+
+      const readbackBuffer = this.readbackBuffers.getRead();
       const data = new Float32Array(readbackBuffer.getMappedRange());
       const queries = this.getQueries();
       const layout = this.resultLayout;
@@ -231,6 +235,13 @@ export abstract class QueryManager<TResult> extends BaseEntity {
       }
 
       readbackBuffer.unmap();
+    } catch (error) {
+      console.warn(
+        `[${this.constructor.name}] Query readback failed (context loss?):`,
+        (error as Error).message,
+      );
+      // Clear promise so we can try again next frame
+      this.readbackPromise = null;
     }
   }
 

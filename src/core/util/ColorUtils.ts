@@ -16,8 +16,8 @@ export function rgbToHex({ r, g, b }: RGB): number {
 export function hexToRgb(hex: number): RGB {
   return {
     r: hex >> 16,
-    g: (hex >> 8) & 0x0000ff,
-    b: hex & 0x0000ff,
+    g: (hex >> 8) & 0xff,
+    b: hex & 0xff,
   };
 }
 
@@ -58,19 +58,22 @@ export function colorRange(from: number, to: number, steps: number): number[] {
 }
 
 /** Component wise lerp between colors */
-export function colorLerp(from: number, to: number, percentTo: number): number {
-  const rgbFrom = hexToRgb(from);
-  const rgbTo = hexToRgb(to);
+export function colorLerp(from: number, to: number, t: number): number {
+  const oneMinusT = 1.0 - t;
 
-  rgbFrom.r = Math.round(rgbFrom.r * (1.0 - percentTo));
-  rgbFrom.g = Math.round(rgbFrom.g * (1.0 - percentTo));
-  rgbFrom.b = Math.round(rgbFrom.b * (1.0 - percentTo));
+  const fromR = from >> 16;
+  const fromG = (from >> 8) & 0xff;
+  const fromB = from & 0xff;
 
-  rgbTo.r = Math.round(rgbTo.r * percentTo);
-  rgbTo.g = Math.round(rgbTo.g * percentTo);
-  rgbTo.b = Math.round(rgbTo.b * percentTo);
+  const toR = to >> 16;
+  const toG = (to >> 8) & 0xff;
+  const toB = to & 0xff;
 
-  return rgbToHex(rgbFrom) + rgbToHex(rgbTo);
+  const r = (fromR * oneMinusT + toR * t) | 0;
+  const g = (fromG * oneMinusT + toG * t) | 0;
+  const b = (fromB * oneMinusT + toB * t) | 0;
+
+  return (r << 16) | (g << 8) | b;
 }
 
 /** Returns a new lighter color */
