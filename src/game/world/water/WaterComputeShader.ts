@@ -13,8 +13,8 @@ export const WaterComputeBindings = {
   waveSources: { type: "storage" },
   /** Uniform parameters: time, waveCount */
   waterParams: { type: "uniform" },
-  /** Terrain heights for depth calculation (f32 array, same length as queryPoints) */
-  terrainHeights: { type: "storage" },
+  /** Terrain query results (stride=4: height, normalX, normalY, terrainType) */
+  terrainResults: { type: "storage" },
   /** Shadow textures (one per wave source, rg8unorm) */
   shadowTextures: { type: "texture", viewDimension: "2d-array" },
   /** Shadow texture sampler (linear filtering) */
@@ -52,7 +52,8 @@ struct WaveSource {
 struct WaterParams {
   time: f32,
   waveCount: f32,
-  _padding: vec2f,
+  tideHeight: f32,
+  _padding: f32,
 }
 
 struct WaterModifier {
@@ -75,7 +76,7 @@ struct ModifierParams {
 @group(0) @binding(1) var<storage, read_write> results: array<f32>;
 @group(0) @binding(2) var<storage, read> waveSources: array<WaveSource>;
 @group(0) @binding(3) var<uniform> waterParams: WaterParams;
-@group(0) @binding(4) var<storage, read> terrainHeights: array<f32>;
+@group(0) @binding(4) var<storage, read> terrainResults: array<f32>;
 @group(0) @binding(5) var shadowTextures: texture_2d_array<f32>;
 @group(0) @binding(6) var shadowSampler: sampler;
 @group(0) @binding(7) var<storage, read> modifiers: array<WaterModifier>;
@@ -236,8 +237,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let point = queryPoints[pointIndex];
   let time = waterParams.time;
 
-  // Get terrain depth (negative terrain height = positive depth)
-  let terrainHeight = terrainHeights[pointIndex];
+  // Get terrain depth from terrain query results (stride=4: height, normalX, normalY, terrainType)
+  let terrainHeight = terrainResults[pointIndex * 4u];
   let depth = max(0.0, -terrainHeight);
 
   // PASS 1: Accumulate horizontal displacement from all waves
@@ -285,6 +286,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   totalZ += modifierHeight;
+
+  // Add tide height
+  totalZ += waterParams.tideHeight;
 
   // Compute surface normal using numerical gradient
   // Normal points "upslope" (toward higher water)

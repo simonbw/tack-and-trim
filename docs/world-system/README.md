@@ -2,9 +2,9 @@
 
 GPU-accelerated world simulation with terrain, water, and wind systems.
 
-**Status**: 71% Complete (5 of 7 phases done)
-**Current Phase**: Phase 4.2 (Water Shadows & Modifiers)
-**Systems Online**: ✅ Terrain, ✅ Wind, ✅ Water (MVP), ⚠️ Rendering (stub)
+**Status**: 86% Complete (6 of 7 phases done)
+**Current Phase**: Phase 5 (Surface Rendering)
+**Systems Online**: ✅ Terrain, ✅ Wind, ✅ Water (Full), ⚠️ Rendering (stub)
 
 ## Documentation Index
 
@@ -21,7 +21,7 @@ GPU-accelerated world simulation with terrain, water, and wind systems.
 - **[phase-2.md](./phase-2.md)** - ✅ Terrain System (Complete)
 - **[phase-3.md](./phase-3.md)** - ✅ Wind System (Complete)
 - **[phase-4-1.md](./phase-4-1.md)** - ✅ Water System MVP (Complete)
-- **[phase-4-2.md](./phase-4-2.md)** - Water Shadows & Modifiers (Next)
+- **[phase-4-2.md](./phase-4-2.md)** - ✅ Water Shadows & Modifiers (Complete)
 - **[phase-5.md](./phase-5.md)** - Rendering Integration
 - **[phase-6.md](./phase-6.md)** - Optimization & Polish
 
@@ -30,9 +30,9 @@ GPU-accelerated world simulation with terrain, water, and wind systems.
 
 ## Quick Start
 
-### Current Status (Phases 0-3 Complete)
+### Current Status (Phases 0-4 Complete)
 
-Phases 0-3 are complete with working terrain and wind systems:
+Phases 0-4 are complete with working terrain, wind, and water systems:
 
 **VirtualTexture System** (`core/graphics/webgpu/virtual-texture/`):
 - ✅ Generic GPU tile streaming with LOD support
@@ -56,6 +56,14 @@ Phases 0-3 are complete with working terrain and wind systems:
 - ✅ WindComputeShader with simplex noise
 - ✅ Spatial and temporal variation
 - ✅ Configurable noise parameters
+
+**Water System** (`game/world/water/`):
+- ✅ Gerstner wave simulation (two-pass)
+- ✅ Wave shadows behind islands (edge-normal geometry)
+- ✅ Water modifiers (wakes, currents, obstacles)
+- ✅ Depth-based effects (shoaling and damping)
+- ✅ Tide simulation (simple sinusoidal)
+- ✅ Async shadow computation in Web Workers
 
 **WorldManager** (`game/world/`):
 - ✅ Orchestrates terrain, water, and wind systems
@@ -88,11 +96,11 @@ for (const [point, result] of query) {
 
 ### Next Steps
 
-**Phase 4** (Water System) will add:
-- Gerstner wave simulation
-- Wave shadows and diffraction
-- Water modifiers (wakes, splashes, ripples)
-- Tide simulation
-- Depth-based wave effects
+**Phase 5** (Surface Rendering) will add:
+- Visual terrain rendering
+- Animated water surface
+- Wetness simulation
+- Lighting and shading
+- Composite rendering pipeline
 
-See [phase-4.md](./phase-4.md) for details.
+See [phase-5.md](./phase-5.md) for details.

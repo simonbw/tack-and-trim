@@ -12,7 +12,7 @@ export const LAYERS = {
 
   // Water layers
   water: new LayerInfo(),
-  waterShader: new LayerInfo({ parallax: V(0, 0) }), // don't move water, shader does the work for us
+  waterShader: new LayerInfo(),
   wake: new LayerInfo(),
   foamParticles: new LayerInfo(), // Foam on water surface
   sprayParticles: new LayerInfo(), // Spray particles above wake but below hull

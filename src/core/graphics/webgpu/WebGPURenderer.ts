@@ -10,6 +10,7 @@
 
 import { hexToVec3 } from "../../util/ColorUtils";
 import { CompatibleVector } from "../../Vector";
+import type { ImageOptions } from "../draw/DrawOptions";
 import { Matrix3 } from "../Matrix3";
 import {
   defineUniformStruct,
@@ -111,17 +112,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   return texColor * in.color;
 }
 `;
-
-/** Options for sprite drawing */
-export interface SpriteOptions {
-  rotation?: number;
-  scaleX?: number;
-  scaleY?: number;
-  alpha?: number;
-  tint?: number; // 0xRRGGBB
-  anchorX?: number; // 0-1, default 0.5
-  anchorY?: number; // 0-1, default 0.5
-}
 
 // Batch vertex size includes per-vertex model matrix (6 floats: a, b, c, d, tx, ty)
 const SPRITE_VERTEX_SIZE = 14; // position (2) + texCoord (2) + color (4) + matrix (6)
@@ -738,6 +728,11 @@ export class WebGPURenderer {
     color: number,
     alpha: number,
   ): void {
+    // Flush sprites before drawing shapes (symmetric with drawImage flushing shapes)
+    if (this.spriteIndexCount > 0) {
+      this.flushSprites();
+    }
+
     // Check if we need to flush
     if (
       this.shapeVertexCount + vertices.length > MAX_BATCH_VERTICES ||
@@ -833,7 +828,7 @@ export class WebGPURenderer {
     texture: WebGPUTexture,
     x: number,
     y: number,
-    opts: SpriteOptions = {},
+    opts: ImageOptions = {},
   ): void {
     // Flush shapes before drawing sprites
     if (this.shapeIndexCount > 0) {
@@ -961,8 +956,9 @@ export class WebGPURenderer {
       !this.currentTexture ||
       !this.currentRenderPass ||
       !this.device
-    )
+    ) {
       return;
+    }
 
     this.drawCallCount++;
     this.triangleCount += this.spriteIndexCount / 3;

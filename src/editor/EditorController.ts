@@ -142,12 +142,7 @@ export class EditorController
     this.document.setLevelDefinition(level);
 
     // Add surface renderer (renders water and terrain visuals)
-    // Use a smaller texture scale for the editor (0.25 = quarter resolution)
-    this.surfaceRenderer = this.game.addEntity(
-      new SurfaceRenderer({
-        textureScale: 0.25,
-      }),
-    );
+    this.surfaceRenderer = this.game.addEntity(new SurfaceRenderer());
 
     // Add camera controller
     this.cameraController = this.game.addEntity(
@@ -639,8 +634,6 @@ export class EditorController
     // B - Toggle debug render mode
     if (key === "KeyB" && !modifier) {
       this.debugRenderMode = !this.debugRenderMode;
-      // Update surface renderer debug mode
-      this.surfaceRenderer?.setRenderMode(this.debugRenderMode ? 1 : 0);
       // Refresh level to apply/remove invalid contour filtering
       this.onLevelChanged();
       return;

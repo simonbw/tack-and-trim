@@ -62,7 +62,7 @@ export interface ShadowComputeRequest extends WorkerRequest {
 
 export interface ShadowComputeResult extends WorkerResult {
   type: "result";
-  shadowVertices: V2d[] | null; // null if no shadow computed
+  shadowPolygons: V2d[][] | null; // Array of shadow polygons, null if no shadows computed
 }
 
 type ShadowMessage = WorkerOutgoingMessage<ShadowComputeResult>;
@@ -193,7 +193,7 @@ function buildShadowPolygons(
 function computeShadowGeometry(
   coastlinePoints: V2d[],
   waveDir: V2d,
-): V2d[] | null {
+): V2d[][] | null {
   if (coastlinePoints.length < 3) {
     return null;
   }
@@ -231,13 +231,11 @@ function computeShadowGeometry(
     return null;
   }
 
-  // For now, return the first shadow polygon
-  // TODO: Support multiple shadow polygons per coastline
   console.log(
-    `[ShadowWorker] Generated ${shadowPolygons.length} shadow polygon(s) with ${shadowPolygons[0].length} vertices`,
+    `[ShadowWorker] Generated ${shadowPolygons.length} shadow polygon(s)`,
   );
 
-  return shadowPolygons[0];
+  return shadowPolygons;
 }
 
 // Worker message handler
@@ -246,7 +244,7 @@ self.addEventListener("message", (event: MessageEvent) => {
 
   if (request.type === "compute") {
     try {
-      const shadowVertices = computeShadowGeometry(
+      const shadowPolygons = computeShadowGeometry(
         request.coastlinePoints,
         request.waveDirection,
       );
@@ -254,7 +252,7 @@ self.addEventListener("message", (event: MessageEvent) => {
       const result: ShadowComputeResult = {
         type: "result",
         batchId: request.batchId,
-        shadowVertices,
+        shadowPolygons,
       };
 
       self.postMessage(result as ShadowMessage);

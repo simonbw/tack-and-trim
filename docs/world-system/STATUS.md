@@ -11,11 +11,11 @@
 | Phase 2: Terrain System | ✅ Complete | 1 day | 2026-01-28 |
 | Phase 3: Wind System | ✅ Complete | <1 day | 2026-01-28 |
 | Phase 4.1: Water System (MVP) | ✅ Complete | 1 day | 2026-01-30 |
-| Phase 4.2: Water Shadows & Modifiers | ⚠️ Not Started | TBD | - |
+| Phase 4.2: Water Shadows & Modifiers | ✅ Complete | 1 day | 2026-01-31 |
 | Phase 5: Surface Rendering | ⚠️ Not Started | TBD | - |
 | Phase 6: Integration & Polish | ⚠️ Not Started | TBD | - |
 
-**Overall Progress**: 71% (5 of 7 phases complete)
+**Overall Progress**: 86% (6 of 7 phases complete)
 
 ## Files Created by Phase
 
@@ -139,15 +139,17 @@ src/game/
 - ✅ Deferred tile computation
 - ✅ Shared between systems
 
-#### Water Queries (Phase 4.1 Complete)
+#### Water Queries (Phases 4.1 & 4.2 Complete)
 - ✅ GPU-accelerated water queries with Gerstner waves
 - ✅ Two-pass wave evaluation (displacement then height)
 - ✅ Surface height and normal computation
 - ✅ Multiple wave sources supported
 - ✅ WaterDebugRenderMode for visualization
-- ⚠️ No wave shadows yet (Phase 4.2)
-- ⚠️ No water modifiers yet (Phase 4.2)
-- ⚠️ No depth-based effects yet (Phase 4.2)
+- ✅ Wave shadows behind islands (edge-normal geometry)
+- ✅ Water modifiers (wakes, currents, obstacles)
+- ✅ Depth-based effects (shoaling and damping)
+- ✅ Tide simulation (simple sinusoidal model)
+- ✅ Async shadow computation in Web Workers
 
 ### Stubbed Systems
 
@@ -156,30 +158,22 @@ src/game/
 - ⚠️ No visual rendering of terrain/water yet
 - ⚠️ No wetness simulation yet
 
-## Next Steps (Phase 4.2: Water Shadows & Modifiers)
+## Next Steps (Phase 5: Surface Rendering)
 
-Phase 4.2 will add advanced water features to the MVP water system:
+Phase 5 will add visual rendering of terrain and water:
 
 ### Components to Implement
-- [ ] WaveShadow.ts - Shadow geometry computation from coastlines
-- [ ] ShadowTileCompute.ts - Shadow VirtualTexture rasterization
-- [ ] WaterModifierBuffer.ts - GPU buffer for modifiers (wakes, splashes)
-- [ ] Depth-based wave effects - Shoaling and damping in shallow water
-- [ ] Update WaterComputeShader.ts - Add shadow sampling and depth effects
-- [ ] Update WaterQuery.ts - Add depth and velocity fields
+- [ ] TerrainRenderPass - Render terrain heights as colors/textures
+- [ ] WaterRenderPass - Render animated water surface
+- [ ] WetnessPass - Simulate wetness spreading on shores
+- [ ] CompositePass - Combine all layers with lighting
+- [ ] SurfaceRenderer - Orchestrate rendering pipeline
 
 ### Key Features
-- Wave shadows behind islands (diffraction)
-- Water modifiers (boat wakes, splashes, ripples)
-- Depth-based wave amplitude (shoaling in shallow, damping near shore)
-- Tide simulation (optional)
-
-### Complexity
-Phase 4.2 is complex due to:
-- Wave shadow geometry computation from arbitrary coastlines
-- VirtualTexture integration for shadow tiles
-- Dynamic modifier buffer management
-- Integration with terrain system for depth queries
+- Visual terrain rendering (heights, normals, types)
+- Animated water surface with reflections
+- Wetness simulation at shorelines
+- Lighting and shading effects
 
 ## Testing Status
 

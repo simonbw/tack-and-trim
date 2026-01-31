@@ -2,6 +2,7 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import type { BindGroupResources } from "../../../core/graphics/webgpu/ShaderBindings";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { TerrainSystem } from "../terrain/TerrainSystem";
 import { WaterComputeBindings, WaterComputeShader } from "./WaterComputeShader";
 import { WaterModifier } from "./WaterModifier";
 import { WaterModifierBuffer } from "./WaterModifierBuffer";
@@ -14,6 +15,13 @@ import { WaveSource, type WaveSourceConfig } from "./WaveSource";
 export interface WaterSystemConfig {
   /** Array of wave source configurations */
   waves: WaveSourceConfig[];
+  /** Tide configuration (optional) */
+  tide?: {
+    /** Tide amplitude in meters */
+    amplitude: number;
+    /** Tide period in seconds */
+    period: number;
+  };
 }
 
 /**
@@ -34,6 +42,8 @@ export class WaterSystem extends BaseEntity {
   private waveSources: WaveSource[];
   private time = 0;
   private isInitialized = false;
+  private tideAmplitude = 0;
+  private tidePeriod = 3600;
 
   // Shadow and modifier systems
   private waveShadows: WaveShadow[] = [];
@@ -43,7 +53,7 @@ export class WaterSystem extends BaseEntity {
   private computeShader: WaterComputeShader | null = null;
   private waveSourceBuffer: GPUBuffer | null = null;
   private waterParamsBuffer: GPUBuffer | null = null;
-  private terrainHeightBuffer: GPUBuffer | null = null;
+  private terrainResultBuffer: GPUBuffer | null = null;
   private modifierParamsBuffer: GPUBuffer | null = null;
   private shadowSampler: GPUSampler | null = null;
   private dummyShadowTexture: GPUTexture | null = null;
@@ -53,6 +63,8 @@ export class WaterSystem extends BaseEntity {
     this.waveSources = config.waves.map(
       (waveConfig) => new WaveSource(waveConfig),
     );
+    this.tideAmplitude = config.tide?.amplitude ?? 0;
+    this.tidePeriod = config.tide?.period ?? 3600; // Default 1 hour
   }
 
   /**
@@ -99,11 +111,11 @@ export class WaterSystem extends BaseEntity {
       // Create water modifier buffer
       this.modifierBuffer = new WaterModifierBuffer();
 
-      // Create terrain height buffer (8192 points max, same as query limit)
+      // Create terrain result buffer (stride=4: height, normalX, normalY, terrainType)
       const maxPoints = 8192;
-      this.terrainHeightBuffer = device.createBuffer({
-        label: "WaterSystem Terrain Heights",
-        size: maxPoints * Float32Array.BYTES_PER_ELEMENT,
+      this.terrainResultBuffer = device.createBuffer({
+        label: "WaterSystem Terrain Results",
+        size: maxPoints * 4 * Float32Array.BYTES_PER_ELEMENT,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
 
@@ -214,8 +226,8 @@ export class WaterSystem extends BaseEntity {
     this.waterParamsBuffer?.destroy();
     this.waterParamsBuffer = null;
 
-    this.terrainHeightBuffer?.destroy();
-    this.terrainHeightBuffer = null;
+    this.terrainResultBuffer?.destroy();
+    this.terrainResultBuffer = null;
 
     this.modifierParamsBuffer?.destroy();
     this.modifierParamsBuffer = null;
@@ -256,7 +268,7 @@ export class WaterSystem extends BaseEntity {
       !this.computeShader ||
       !this.waveSourceBuffer ||
       !this.waterParamsBuffer ||
-      !this.terrainHeightBuffer ||
+      !this.terrainResultBuffer ||
       !this.modifierParamsBuffer ||
       !this.modifierBuffer ||
       !this.shadowSampler
@@ -299,7 +311,7 @@ export class WaterSystem extends BaseEntity {
         results: { buffer: resultBuffer },
         waveSources: { buffer: this.waveSourceBuffer },
         waterParams: { buffer: this.waterParamsBuffer },
-        terrainHeights: { buffer: this.terrainHeightBuffer },
+        terrainResults: { buffer: this.terrainResultBuffer },
         shadowTextures: shadowTextureView,
         shadowSampler: this.shadowSampler,
         modifiers: { buffer: this.modifierBuffer.getBuffer()! },
@@ -328,25 +340,37 @@ export class WaterSystem extends BaseEntity {
 
   /**
    * Query terrain heights for water query points.
-   * Uploads heights to GPU buffer.
+   * Uses TerrainSystem GPU compute to get terrain data.
    */
   private queryTerrainHeights(
-    _pointBuffer: GPUBuffer,
+    pointBuffer: GPUBuffer,
     pointCount: number,
   ): void {
-    if (!this.terrainHeightBuffer) return;
+    if (!this.terrainResultBuffer) return;
 
-    const device = getWebGPU().device;
+    const terrainSystem =
+      this.game.entities.tryGetSingleton<TerrainSystem>(TerrainSystem);
 
-    // For MVP, we'll just fill with default deep water (-100m)
-    // TODO: Implement actual terrain queries by reading from pointBuffer
-    // and querying this.game.entities.getSingleton(TerrainSystem).getHeightAt(point)
-    const heights = new Float32Array(pointCount);
-    for (let i = 0; i < pointCount; i++) {
-      heights[i] = -100.0; // Default deep water
+    if (!terrainSystem) {
+      // No terrain system - fill with default deep water (-100m)
+      const device = getWebGPU().device;
+      const results = new Float32Array(pointCount * 4);
+      for (let i = 0; i < pointCount; i++) {
+        results[i * 4] = -100.0; // height
+        results[i * 4 + 1] = 0.0; // normalX
+        results[i * 4 + 2] = 1.0; // normalY (up)
+        results[i * 4 + 3] = 0.0; // terrainType
+      }
+      device.queue.writeBuffer(this.terrainResultBuffer, 0, results);
+      return;
     }
 
-    device.queue.writeBuffer(this.terrainHeightBuffer, 0, heights);
+    // Use TerrainSystem GPU compute to query heights
+    terrainSystem.computeQueryResults(
+      pointBuffer,
+      this.terrainResultBuffer,
+      pointCount,
+    );
   }
 
   /**
@@ -393,7 +417,7 @@ export class WaterSystem extends BaseEntity {
   }
 
   /**
-   * Update water params buffer with current time and wave count
+   * Update water params buffer with current time, wave count, and tide height
    */
   private updateWaterParamsBuffer(): void {
     if (!this.waterParamsBuffer) return;
@@ -418,11 +442,26 @@ export class WaterSystem extends BaseEntity {
     const data = new Float32Array([
       this.time,
       waveCount, // waveCount as f32
-      0, // padding
+      this.getTideHeight(), // current tide height
       0, // padding
     ]);
 
     device.queue.writeBuffer(this.waterParamsBuffer, 0, data);
+  }
+
+  /**
+   * Get the current tide height using a simple sinusoidal model.
+   *
+   * @returns Tide height in meters (positive = high tide, negative = low tide)
+   */
+  getTideHeight(): number {
+    if (this.tideAmplitude === 0) {
+      return 0;
+    }
+
+    // Simple sinusoidal tide: amplitude * sin(2π * time / period)
+    const phase = (2 * Math.PI * this.time) / this.tidePeriod;
+    return this.tideAmplitude * Math.sin(phase);
   }
 
   /**
@@ -450,5 +489,54 @@ export class WaterSystem extends BaseEntity {
    */
   getTime(): number {
     return this.time;
+  }
+
+  /**
+   * Get wave source GPU buffer for rendering
+   */
+  getWaveSourceBuffer(): GPUBuffer | null {
+    return this.waveSourceBuffer;
+  }
+
+  /**
+   * Get shadow textures from WaveShadow entities for rendering
+   */
+  getShadowTextures(): GPUTexture | null {
+    // Return the first shadow texture if available, otherwise dummy
+    if (this.waveShadows.length > 0) {
+      const shadowTexture = this.waveShadows[0].getShadowTexture();
+      if (shadowTexture) {
+        return shadowTexture;
+      }
+    }
+    return this.dummyShadowTexture;
+  }
+
+  /**
+   * Get water modifier GPU buffer for rendering
+   */
+  getModifierBuffer(): GPUBuffer | null {
+    return this.modifierBuffer?.getBuffer() ?? null;
+  }
+
+  /**
+   * Get water params GPU buffer for rendering
+   */
+  getWaterParamsBuffer(): GPUBuffer | null {
+    return this.waterParamsBuffer;
+  }
+
+  /**
+   * Get modifier params GPU buffer for rendering
+   */
+  getModifierParamsBuffer(): GPUBuffer | null {
+    return this.modifierParamsBuffer;
+  }
+
+  /**
+   * Get shadow sampler for rendering
+   */
+  getShadowSampler(): GPUSampler | null {
+    return this.shadowSampler;
   }
 }

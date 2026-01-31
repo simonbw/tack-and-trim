@@ -148,18 +148,21 @@ export class WaveShadow extends BaseEntity {
         combineResults: (results) => {
           // Build shadow polygons from all worker results
           for (const result of results) {
-            if (result.shadowVertices) {
-              shadowPolygons.push({
-                vertices: result.shadowVertices.map(
-                  (v: { x: number; y: number }) => V(v.x, v.y),
-                ),
-              });
+            if (result.shadowPolygons) {
+              // Each result can contain multiple shadow polygons
+              for (const polygon of result.shadowPolygons) {
+                shadowPolygons.push({
+                  vertices: polygon.map((v: { x: number; y: number }) =>
+                    V(v.x, v.y),
+                  ),
+                });
+              }
             }
           }
 
           // Return first result (doesn't matter, we populated shadowPolygons)
           return (
-            results[0] || { type: "result", batchId: 0, shadowVertices: null }
+            results[0] || { type: "result", batchId: 0, shadowPolygons: null }
           );
         },
       });

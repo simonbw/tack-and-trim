@@ -16,7 +16,7 @@ export {
   type TextureOptions,
 } from "./WebGPUTextureManager";
 
-export { WebGPURenderer, type SpriteOptions } from "./WebGPURenderer";
+export { WebGPURenderer } from "./WebGPURenderer";
 
 export { WebGPUFullscreenQuad } from "./WebGPUFullscreenQuad";
 

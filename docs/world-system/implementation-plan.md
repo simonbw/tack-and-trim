@@ -151,19 +151,21 @@ MVP water system with Gerstner waves:
 ---
 
 ### Phase 4.2: Water Shadows & Modifiers
-**Status**: Not Started
-**Estimated Duration**: 4-6 days
+**Status**: ✅ **COMPLETE**
+**Actual Duration**: 1 day
 **Details**: [phase-4-2.md](./phase-4-2.md)
 
 Advanced water features:
-- [ ] WaveShadow with geometry computation
-- [ ] ShadowTileCompute shader
-- [ ] WaterModifierBuffer
-- [ ] Update WaterComputeShader (shadows + depth)
-- [ ] Depth-based wave effects
-- [ ] Tests and validation
+- [x] WaveShadow with geometry computation (edge-normal algorithm)
+- [x] ShadowTileCompute shader
+- [x] ShadowWorker for async geometry computation
+- [x] WaterModifierBuffer
+- [x] Update WaterComputeShader (shadows + depth + tide)
+- [x] Depth-based wave effects (shoaling and damping)
+- [x] Tide simulation (simple sinusoidal)
+- [x] Tests and validation
 
-**Demo Goal**: Show water shadows behind islands, wake modifiers, depth effects
+**Demo Goal**: ✅ Water shadows behind islands, wake modifiers, depth effects, tide simulation
 
 ---
 

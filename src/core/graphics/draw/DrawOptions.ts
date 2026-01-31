@@ -25,7 +25,7 @@ export interface ImageOptions {
   scaleX?: number;
   scaleY?: number;
   alpha?: number;
-  color?: number; // 0xRRGGBB - tint color
+  tint?: number; // 0xRRGGBB - tint color
   anchorX?: number; // 0-1, default 0.5
   anchorY?: number; // 0-1, default 0.5
 }

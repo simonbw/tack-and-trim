@@ -272,19 +272,7 @@ export class Draw {
     y: number,
     opts?: ImageOptions,
   ): void {
-    // Convert ImageOptions to SpriteOptions (color -> tint)
-    const spriteOpts = opts
-      ? {
-          rotation: opts.rotation,
-          scaleX: opts.scaleX,
-          scaleY: opts.scaleY,
-          alpha: opts.alpha,
-          tint: opts.color,
-          anchorX: opts.anchorX,
-          anchorY: opts.anchorY,
-        }
-      : undefined;
-    this.renderer.drawImage(texture, x, y, spriteOpts);
+    this.renderer.drawImage(texture, x, y, opts);
   }
 
   /**
