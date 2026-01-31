@@ -18,7 +18,7 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: `NODE_OPTIONS="--no-deprecation" PORT=${TEST_PORT} npm run dev-server`,
+    command: `NODE_OPTIONS="--no-deprecation" CI=true PORT=${TEST_PORT} npm run dev-server`,
     url: `http://localhost:${TEST_PORT}`,
     // Always spin up a fresh server for tests
     reuseExistingServer: false,

@@ -18,7 +18,8 @@ const parcel = spawn(
     "src/editor.html",
   ],
   {
-    stdio: "inherit",
+    // Suppress Parcel output in CI to avoid /dev/tty errors
+    stdio: process.env.CI ? "ignore" : "inherit",
     shell: true,
   },
 );
