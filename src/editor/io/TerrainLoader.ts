@@ -9,11 +9,20 @@ import { RESOURCES } from "../../../resources/resources";
 import { TerrainDefinition } from "../../game/world/terrain/TerrainTypes";
 import {
   EditorLevelDefinition,
+  LevelFileJSON,
   levelFileToEditorDefinition,
   parseTerrainFile,
   terrainFileToDefinition,
   validateLevelFile,
 } from "./TerrainFileFormat";
+
+/**
+ * Load the default level file (raw JSON).
+ * Uses the bundled resource from the asset system.
+ */
+export function loadDefaultLevelFile(): LevelFileJSON {
+  return validateLevelFile(RESOURCES.levels.default);
+}
 
 /**
  * Load the default level definition (for game use).

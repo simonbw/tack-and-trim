@@ -1,7 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { V, V2d } from "../../core/Vector";
 import { TerrainSystem } from "./terrain/TerrainSystem";
-import { WaterSystem } from "./water/WaterSystem";
+import { WaterSystem, WaterSystemConfig } from "./water/WaterSystem";
 import { WindSystem } from "./wind/WindSystem";
 import type { TerrainDefinition } from "./terrain/TerrainTypes";
 import { TerrainQueryManager } from "./query/TerrainQuery.js";
@@ -12,12 +12,14 @@ import { WaterQueryManager } from "./query/WaterQuery.js";
  * Minimal level definition for stub implementation
  */
 export interface LevelDefinition {
-  /** Base wind velocity (m/s) */
-  baseWind: V2d;
   /** Level name/identifier */
   name?: string;
   /** Optional terrain definition (if not provided, uses default test terrain) */
   terrain?: TerrainDefinition;
+  /** Base wind velocity (m/s) */
+  baseWind?: V2d;
+  /** Water system configuration */
+  water?: WaterSystemConfig;
 }
 
 /**
@@ -60,7 +62,9 @@ export class WorldManager extends BaseEntity {
   constructor(levelDef: LevelDefinition) {
     super();
     this.id = "world-manager";
-    this.baseWind = levelDef.baseWind;
+
+    // Use baseWind from level definition or default to 5 m/s from west
+    this.baseWind = levelDef.baseWind ?? V(5, 0);
 
     // Create terrain system with provided or default terrain
     const terrainDef = levelDef.terrain || createTestTerrain();
@@ -69,15 +73,14 @@ export class WorldManager extends BaseEntity {
     // Create wind system
     this.addChild(new WindSystem(this.baseWind));
 
-    // Create water system with default wave configuration
-    this.addChild(
-      new WaterSystem({
-        waves: [
-          { direction: 0, amplitude: 0.5, wavelength: 20 }, // Primary wave: 20m wavelength
-          { direction: Math.PI / 4, amplitude: 0.3, wavelength: 15 }, // Secondary wave: 15m wavelength
-        ],
-      }),
-    );
+    // Create water system with config from level definition or defaults
+    const waterConfig: WaterSystemConfig = levelDef.water ?? {
+      waves: [
+        { direction: 0, amplitude: 0.5, wavelength: 20 }, // Primary wave: 20m wavelength
+        { direction: Math.PI / 4, amplitude: 0.3, wavelength: 15 }, // Secondary wave: 15m wavelength
+      ],
+    };
+    this.addChild(new WaterSystem(waterConfig));
 
     // Add query managers
     this.addChild(new TerrainQueryManager());

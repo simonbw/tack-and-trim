@@ -1,6 +1,6 @@
 # World System Implementation Status
 
-**Last Updated**: 2026-01-30
+**Last Updated**: 2026-01-31
 
 ## Quick Summary
 
@@ -12,10 +12,10 @@
 | Phase 3: Wind System | ✅ Complete | <1 day | 2026-01-28 |
 | Phase 4.1: Water System (MVP) | ✅ Complete | 1 day | 2026-01-30 |
 | Phase 4.2: Water Shadows & Modifiers | ✅ Complete | 1 day | 2026-01-31 |
-| Phase 5: Surface Rendering | ⚠️ Not Started | TBD | - |
+| Phase 5: Surface Rendering | 🔄 In Progress | TBD | - |
 | Phase 6: Integration & Polish | ⚠️ Not Started | TBD | - |
 
-**Overall Progress**: 86% (6 of 7 phases complete)
+**Overall Progress**: 88% (Phase 5: 20% complete)
 
 ## Files Created by Phase
 
@@ -111,13 +111,16 @@ src/game/
 
 ### Working Systems
 
-#### Terrain Queries
+#### Terrain System
 - ✅ CPU-side height queries via ContainmentTree
 - ✅ GPU tile generation via TerrainTileCompute
 - ✅ Batch GPU queries via TerrainQueryCompute
 - ✅ Catmull-Rom spline evaluation
 - ✅ Point-in-polygon containment tests
 - ✅ Support for nested contours
+- ✅ **NEW**: Real terrain rendering with VirtualTexture sampling
+- ✅ **NEW**: Indirection table for dynamic tile cache mapping
+- ✅ **NEW**: Graceful fallback to defaultDepth for unloaded tiles
 
 #### Wind Queries
 - ✅ GPU-accelerated wind queries
@@ -151,29 +154,37 @@ src/game/
 - ✅ Tide simulation (simple sinusoidal model)
 - ✅ Async shadow computation in Web Workers
 
-### Stubbed Systems
+### In Progress Systems
 
-#### Surface Rendering
-- ⚠️ SurfaceRenderer exists but does nothing
-- ⚠️ No visual rendering of terrain/water yet
-- ⚠️ No wetness simulation yet
+#### Surface Rendering (Phase 5 - 20% Complete)
+- ✅ TerrainRenderPass - Real VirtualTexture sampling with indirection table
+- ✅ SurfaceRenderer - Tile request integration and render orchestration
+- ⚠️ WaterRenderPass - Not yet implemented
+- ⚠️ WetnessPass - Not yet implemented
+- ⚠️ CompositePass - Not yet implemented
 
-## Next Steps (Phase 5: Surface Rendering)
+## Phase 5 Progress (Surface Rendering - In Progress)
 
-Phase 5 will add visual rendering of terrain and water:
+### Completed (2026-01-31)
+- ✅ **TerrainRenderPass** - Replace mock terrain with real VirtualTexture sampling
+  - Indirection table GPU buffer mapping tile coords to texture array indices
+  - `sampleTerrainHeight()` shader function with fallback to defaultDepth
+  - Expanded RenderParams from 8 to 12 floats for indirection table metadata
+  - Dynamic buffer resizing for indirection table
+  - Fixed TileParams buffer alignment (32→48 bytes for uniform requirements)
+- ✅ **TerrainSystem API Extensions**
+  - `getTileFromCache(lod, tileX, tileY)` for indirection table building
+  - `getDefaultDepth()` for fallback values
+- ✅ **SurfaceRenderer Tile Requests**
+  - Automatic tile requesting before terrain pass rendering
+  - AABB bounds calculation from render rect
+  - LOD 0 tile streaming
 
-### Components to Implement
-- [ ] TerrainRenderPass - Render terrain heights as colors/textures
-- [ ] WaterRenderPass - Render animated water surface
-- [ ] WetnessPass - Simulate wetness spreading on shores
-- [ ] CompositePass - Combine all layers with lighting
-- [ ] SurfaceRenderer - Orchestrate rendering pipeline
-
-### Key Features
-- Visual terrain rendering (heights, normals, types)
-- Animated water surface with reflections
-- Wetness simulation at shorelines
-- Lighting and shading effects
+### Remaining Components
+- [ ] WaterRenderPass - Dense water surface evaluation
+- [ ] WetnessPass - Ping-pong wetness simulation
+- [ ] CompositePass - Final fragment shader with lighting
+- [ ] Full visual rendering integration
 
 ## Testing Status
 
@@ -197,8 +208,10 @@ None currently. All implemented systems are working as designed.
 - ✅ phase-1.md marked complete
 - ✅ phase-2.md marked complete
 - ✅ phase-3.md marked complete
-- ✅ phase-4-1.md marked complete (NEW: MVP water system)
-- ⚠️ phase-4.md renamed to phase-4-2.md (advanced water features)
+- ✅ phase-4-1.md marked complete
+- ✅ phase-4-2.md marked complete (advanced water features)
+- 🔄 phase-5.md in progress (TerrainRenderPass complete)
+- ✅ STATUS.md updated (2026-01-31)
 - ✅ architecture.md (already complete)
 - ✅ api.md (already complete)
 - ✅ class-breakdown.md (already complete)

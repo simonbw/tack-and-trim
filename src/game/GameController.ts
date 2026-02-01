@@ -9,7 +9,9 @@ import { MainMenu } from "./menu/MainMenu";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { isTutorialCompleted, TutorialManager } from "./tutorial";
 import { SurfaceRenderer } from "./world/rendering/SurfaceRenderer";
-import { WorldManager } from "./world/WorldManager";
+import { WorldManager, LevelDefinition } from "./world/WorldManager";
+import { loadDefaultLevelFile } from "../editor/io/TerrainLoader";
+import { terrainFileToDefinition } from "../editor/io/TerrainFileFormat";
 
 const MENU_ZOOM = 2; // Wide shot for menu
 const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
@@ -20,12 +22,25 @@ export class GameController extends BaseEntity {
 
   @on("add")
   onAdd() {
-    // Initialize world manager with default wind
-    this.game.addEntity(
-      new WorldManager({
-        baseWind: V(5, 0), // 5 m/s from the west
-      }),
-    );
+    // Load the default level file
+    const levelFile = loadDefaultLevelFile();
+
+    // Build level definition from file
+    const levelDef: LevelDefinition = {
+      terrain: terrainFileToDefinition(levelFile),
+      baseWind: levelFile.baseWind
+        ? V(levelFile.baseWind.x, levelFile.baseWind.y)
+        : undefined,
+      water: levelFile.water
+        ? {
+            waves: levelFile.water.waves ?? [],
+            tide: levelFile.water.tide,
+          }
+        : undefined,
+    };
+
+    // Initialize world manager with level definition
+    this.game.addEntity(new WorldManager(levelDef));
 
     // Initialize surface renderer
     this.game.addEntity(new SurfaceRenderer());

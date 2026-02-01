@@ -38,6 +38,23 @@ export interface LevelFileJSON {
   defaultDepth?: number;
   /** Array of terrain contours */
   contours: TerrainContourJSON[];
+  /** Base wind velocity (m/s) */
+  baseWind?: {
+    x: number;
+    y: number;
+  };
+  /** Water system configuration */
+  water?: {
+    waves?: Array<{
+      direction: number; // radians (0 = east, π/2 = north)
+      amplitude: number; // meters
+      wavelength: number; // meters
+    }>;
+    tide?: {
+      amplitude: number; // meters
+      period: number; // seconds
+    };
+  };
 }
 
 /**
@@ -96,6 +113,69 @@ export function validateLevelFile(data: unknown): LevelFileJSON {
     }
   }
 
+  // Validate optional baseWind field
+  if (file.baseWind !== undefined) {
+    if (typeof file.baseWind !== "object" || file.baseWind === null) {
+      throw new Error("Invalid terrain file: baseWind must be an object");
+    }
+    const baseWind = file.baseWind as Record<string, unknown>;
+    if (typeof baseWind.x !== "number" || typeof baseWind.y !== "number") {
+      throw new Error(
+        "Invalid terrain file: baseWind must have numeric x and y fields",
+      );
+    }
+  }
+
+  // Validate optional water field
+  if (file.water !== undefined) {
+    if (typeof file.water !== "object" || file.water === null) {
+      throw new Error("Invalid terrain file: water must be an object");
+    }
+    const water = file.water as Record<string, unknown>;
+
+    // Validate optional waves array
+    if (water.waves !== undefined) {
+      if (!Array.isArray(water.waves)) {
+        throw new Error("Invalid terrain file: water.waves must be an array");
+      }
+
+      for (let i = 0; i < water.waves.length; i++) {
+        const wave = water.waves[i];
+        if (typeof wave !== "object" || wave === null) {
+          throw new Error(
+            `Invalid terrain file: water.waves[${i}] must be an object`,
+          );
+        }
+        const waveObj = wave as Record<string, unknown>;
+        if (
+          typeof waveObj.direction !== "number" ||
+          typeof waveObj.amplitude !== "number" ||
+          typeof waveObj.wavelength !== "number"
+        ) {
+          throw new Error(
+            `Invalid terrain file: water.waves[${i}] must have numeric direction, amplitude, and wavelength`,
+          );
+        }
+      }
+    }
+
+    // Validate optional tide
+    if (water.tide !== undefined) {
+      if (typeof water.tide !== "object" || water.tide === null) {
+        throw new Error("Invalid terrain file: water.tide must be an object");
+      }
+      const tide = water.tide as Record<string, unknown>;
+      if (
+        typeof tide.amplitude !== "number" ||
+        typeof tide.period !== "number"
+      ) {
+        throw new Error(
+          "Invalid terrain file: water.tide must have numeric amplitude and period",
+        );
+      }
+    }
+  }
+
   return file as unknown as LevelFileJSON;
 }
 
@@ -130,6 +210,23 @@ export interface EditorContour extends TerrainContour {
 export interface EditorLevelDefinition {
   defaultDepth: number;
   contours: EditorContour[];
+  /** Base wind velocity (m/s) */
+  baseWind?: {
+    x: number;
+    y: number;
+  };
+  /** Water system configuration */
+  water?: {
+    waves?: Array<{
+      direction: number;
+      amplitude: number;
+      wavelength: number;
+    }>;
+    tide?: {
+      amplitude: number;
+      period: number;
+    };
+  };
 }
 
 /**
@@ -150,6 +247,8 @@ export function levelFileToEditorDefinition(
   return {
     defaultDepth: file.defaultDepth ?? DEFAULT_DEPTH,
     contours,
+    baseWind: file.baseWind,
+    water: file.water,
   };
 }
 
@@ -171,6 +270,8 @@ export function editorDefinitionToFile(
     version: TERRAIN_FILE_VERSION,
     defaultDepth: definition.defaultDepth,
     contours,
+    baseWind: definition.baseWind,
+    water: definition.water,
   };
 }
 
@@ -228,5 +329,12 @@ export function createEmptyEditorDefinition(): EditorLevelDefinition {
   return {
     defaultDepth: DEFAULT_DEPTH,
     contours: [],
+    baseWind: { x: 5, y: 0 }, // Default: 5 m/s from the west
+    water: {
+      waves: [
+        { direction: 0, amplitude: 0.5, wavelength: 20 }, // Primary wave
+        { direction: Math.PI / 4, amplitude: 0.3, wavelength: 15 }, // Secondary wave
+      ],
+    },
   };
 }

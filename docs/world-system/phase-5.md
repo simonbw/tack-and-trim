@@ -1,10 +1,32 @@
 # Phase 5: Surface Rendering
 
-**Status**: Not Started
-**Start Date**: TBD
+**Status**: 🔄 In Progress (20% Complete)
+**Start Date**: 2026-01-31
 **Completion Date**: TBD
 **Estimated Duration**: 4-5 days
 **Depends On**: Phase 1-4 (All previous phases)
+
+---
+
+## Progress Summary
+
+### Completed (2026-01-31): TerrainRenderPass
+- ✅ Replaced mock sin/cos test pattern with real VirtualTexture sampling
+- ✅ Implemented indirection table GPU buffer (maps tile coords → texture array indices)
+- ✅ Added `getTileTextureIndex()` and `sampleTerrainHeight()` shader functions
+- ✅ Expanded RenderParams from 8 to 12 floats (added tilesMinX, tilesMinY, tilesPerRow, defaultDepth)
+- ✅ Dynamic indirection buffer resizing as needed
+- ✅ Graceful fallback to defaultDepth when tiles not loaded
+- ✅ Fixed TileParams buffer alignment (32→48 bytes for vec3u alignment)
+- ✅ TerrainSystem.getTileFromCache() and getDefaultDepth() methods
+- ✅ SurfaceRenderer automatic tile requesting before terrain pass
+
+**Key Achievement**: Terrain now renders real contour-based heights instead of test gradients!
+
+### In Progress
+- [ ] WaterRenderPass (dense water surface evaluation)
+- [ ] WetnessPass (ping-pong wetness simulation)
+- [ ] CompositePass (final fragment shader with lighting)
 
 ---
 
@@ -16,11 +38,11 @@ Implement the visual rendering pipeline with four GPU passes that composite terr
 
 ## Components Checklist
 
-- [ ] `TerrainRenderPass.ts` - Sample terrain VT to texture
+- [x] `TerrainRenderPass.ts` - Sample terrain VT to texture ✅ **COMPLETE** (2026-01-31)
 - [ ] `WaterRenderPass.ts` - Evaluate water simulation densely
 - [ ] `WetnessPass.ts` - Ping-pong wetness update
 - [ ] `CompositePass.ts` - Final fragment shader
-- [ ] `SurfaceRenderer.ts` - Orchestrator entity
+- [x] `SurfaceRenderer.ts` - Orchestrator entity (partial - tile requests working) ⚠️ **PARTIAL**
 
 ---
 
@@ -114,14 +136,22 @@ onRender({ dt }: GameEventMap["render"]) {
 }
 ```
 
-### TerrainRenderPass
-- [ ] Extend ComputeShader base class
-- [ ] Bind terrain VirtualTexture array
-- [ ] Bind sampler for VT sampling
-- [ ] Implement render rect → world position calculation
-- [ ] Implement LOD calculation from render rect
-- [ ] Sample terrain VT with fallback to coarser LOD
-- [ ] Output rg16float (height, material)
+### TerrainRenderPass ✅ **COMPLETE**
+- [x] Extend ComputeShader base class
+- [x] Bind terrain VirtualTexture array
+- [x] Bind sampler for VT sampling
+- [x] Bind indirection table storage buffer
+- [x] Implement render rect → world position calculation
+- [x] Implement LOD 0 tile sampling (fixed LOD for now)
+- [x] Sample terrain VT via indirection table mapping
+- [x] Fallback to defaultDepth when tiles not loaded
+- [x] Output rgba16float (height, material, unused, unused)
+
+**Implementation Notes**:
+- Used indirection table approach instead of direct tile addressing
+- Material ID currently stubbed to 0.0 (Phase 6+ feature)
+- Fixed uniform buffer alignment issues (48-byte TileParams)
+- Dynamic indirection buffer resizing for varying render rect sizes
 
 **Shader**:
 ```wgsl
@@ -404,10 +434,58 @@ Full visual rendering:
 
 ---
 
+## Actual Implementation Notes
+
+### TerrainRenderPass Implementation (2026-01-31)
+
+The implemented approach differs from the original plan with an improved architecture:
+
+**Original Plan**: Direct VirtualTexture LOD sampling
+**As Implemented**: Indirection table mapping with dynamic cache support
+
+#### Key Implementation Details
+
+1. **Indirection Table Buffer** (`i32` storage buffer)
+   - Maps (tileX, tileY) coordinates to GPU texture array indices
+   - Built per-frame based on render rect bounds
+   - Dynamically resized as needed (starts at 256 entries, doubles on overflow)
+   - Entries set to -1 when tiles not loaded (for fallback detection)
+
+2. **Shader Functions**
+   ```wgsl
+   fn getTileTextureIndex(tileX: i32, tileY: i32) -> i32
+   fn sampleTerrainHeight(worldX: f32, worldY: f32) -> f32
+   ```
+
+3. **RenderParams Struct** (12 floats, 48 bytes)
+   - Original 7 params + 5 new params for indirection table:
+     - `tilesMinX`, `tilesMinY` - Bounds of visible tile region
+     - `tilesPerRow` - Width of indirection table
+     - `defaultDepth` - Fallback when tile not loaded
+
+4. **TerrainSystem API Extensions**
+   - `getTileFromCache(lod, tileX, tileY): CachedTile | null`
+   - `getDefaultDepth(): number`
+
+5. **Buffer Alignment Fix**
+   - TileParams buffer: 32 → 48 bytes (vec3u requires 16-byte alignment)
+   - Prevents WebGPU validation errors
+
+#### Advantages Over Original Plan
+
+- ✅ Handles dynamic LRU cache eviction gracefully
+- ✅ Works with non-sequential texture array indices
+- ✅ Explicit fallback handling (no undefined behavior)
+- ✅ Scales to varying render rect sizes
+- ✅ Clean separation between cache management and rendering
+
 ## Completion Criteria
 
 Phase 5 is complete when:
-- [ ] All passes implemented and working
+- [x] TerrainRenderPass implemented and working ✅
+- [ ] WaterRenderPass implemented
+- [ ] WetnessPass implemented
+- [ ] CompositePass implemented
 - [ ] Demo shows full visual rendering
 - [ ] 60fps at 1080p
 - [ ] All textures properly allocated/deallocated
