@@ -25,6 +25,10 @@ function getCircleSegments(radius: number): number {
 // Key: segment count, Value: array of [cos(angle), sin(angle)] for each vertex
 const circleCache = new Map<number, { cos: Float32Array; sin: Float32Array }>();
 
+// Object pools for shape primitives - reduces GC pressure
+const circleVertexPool = new Map<number, V2d[]>();
+const circleIndexPool = new Map<number, number[]>();
+
 function getCircleVertices(segments: number): {
   cos: Float32Array;
   sin: Float32Array;
@@ -221,6 +225,14 @@ export interface CircleOptions extends DrawOptions {
  * Provides a clean interface for drawing shapes, images, and paths.
  */
 export class Draw {
+  // Pooled arrays for rectangle primitives
+  private readonly _rectVertices: V2d[] = [V(), V(), V(), V()];
+  private readonly _rectIndices: number[] = [0, 1, 2, 0, 2, 3];
+
+  // Pooled arrays for line primitives
+  private readonly _lineVertices: V2d[] = [V(), V(), V(), V()];
+  private readonly _lineIndices: number[] = [0, 1, 2, 0, 2, 3];
+
   constructor(
     /** The underlying WebGPU renderer */
     readonly renderer: WebGPURenderer,
@@ -280,14 +292,18 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
 
-    const vertices: V2d[] = [
-      V(x, y),
-      V(x + w, y),
-      V(x + w, y + h),
-      V(x, y + h),
-    ];
+    // Reuse pooled arrays - update coordinates in place
+    this._rectVertices[0].set(x, y);
+    this._rectVertices[1].set(x + w, y);
+    this._rectVertices[2].set(x + w, y + h);
+    this._rectVertices[3].set(x, y + h);
 
-    this.renderer.submitTriangles(vertices, [0, 1, 2, 0, 2, 3], color, alpha);
+    this.renderer.submitTriangles(
+      this._rectVertices,
+      this._rectIndices,
+      color,
+      alpha,
+    );
   }
 
   /** Draw a stroked rectangle outline */
@@ -312,16 +328,34 @@ export class Draw {
     // Get cached unit circle vertices (no trig needed per-call)
     const cached = getCircleVertices(segments);
 
-    const vertices: V2d[] = [V(x, y)]; // Center
-    const indices: number[] = [];
+    // Get or create pooled arrays for this segment count
+    let vertices = circleVertexPool.get(segments);
+    let indices = circleIndexPool.get(segments);
 
-    // Scale and translate cached unit circle
-    for (let i = 0; i <= segments; i++) {
-      vertices.push(V(x + cached.cos[i] * radius, y + cached.sin[i] * radius));
+    if (!vertices) {
+      // First time for this segment count - create arrays
+      vertices = [V(0, 0)]; // Center
+      for (let i = 0; i <= segments; i++) {
+        vertices.push(V());
+      }
+      circleVertexPool.set(segments, vertices);
     }
 
-    for (let i = 1; i <= segments; i++) {
-      indices.push(0, i, i + 1 > segments ? 1 : i + 1);
+    if (!indices) {
+      indices = [];
+      for (let i = 1; i <= segments; i++) {
+        indices.push(0, i, i + 1 > segments ? 1 : i + 1);
+      }
+      circleIndexPool.set(segments, indices);
+    }
+
+    // Update pooled vertices with current position and radius
+    vertices[0].set(x, y); // Center
+    for (let i = 0; i <= segments; i++) {
+      vertices[i + 1].set(
+        x + cached.cos[i] * radius,
+        y + cached.sin[i] * radius,
+      );
     }
 
     this.renderer.submitTriangles(vertices, indices, color, alpha);
@@ -399,14 +433,18 @@ export class Draw {
     const nx = (-dy / len) * (width / 2);
     const ny = (dx / len) * (width / 2);
 
-    const vertices: V2d[] = [
-      V(x1 + nx, y1 + ny),
-      V(x2 + nx, y2 + ny),
-      V(x2 - nx, y2 - ny),
-      V(x1 - nx, y1 - ny),
-    ];
+    // Reuse pooled arrays - update coordinates in place
+    this._lineVertices[0].set(x1 + nx, y1 + ny);
+    this._lineVertices[1].set(x2 + nx, y2 + ny);
+    this._lineVertices[2].set(x2 - nx, y2 - ny);
+    this._lineVertices[3].set(x1 - nx, y1 - ny);
 
-    this.renderer.submitTriangles(vertices, [0, 1, 2, 0, 2, 3], color, alpha);
+    this.renderer.submitTriangles(
+      this._lineVertices,
+      this._lineIndices,
+      color,
+      alpha,
+    );
   }
 
   /**

@@ -738,6 +738,11 @@ export class WebGPURenderer {
     color: number,
     alpha: number,
   ): void {
+    // Flush sprites before drawing shapes (maintains layer ordering)
+    if (this.spriteIndexCount > 0) {
+      this.flushSprites();
+    }
+
     // Check if we need to flush
     if (
       this.shapeVertexCount + vertices.length > MAX_BATCH_VERTICES ||
@@ -763,21 +768,10 @@ export class WebGPURenderer {
     // Store untransformed vertices with per-vertex color and model matrix
     for (const v of vertices) {
       const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
-      // Position
-      this.shapeVertices[offset] = v[0];
-      this.shapeVertices[offset + 1] = v[1];
-      // Color
-      this.shapeVertices[offset + 2] = r;
-      this.shapeVertices[offset + 3] = g;
-      this.shapeVertices[offset + 4] = b;
-      this.shapeVertices[offset + 5] = alpha;
-      // Model matrix columns
-      this.shapeVertices[offset + 6] = ma;
-      this.shapeVertices[offset + 7] = mb;
-      this.shapeVertices[offset + 8] = mc;
-      this.shapeVertices[offset + 9] = md;
-      this.shapeVertices[offset + 10] = mtx;
-      this.shapeVertices[offset + 11] = mty;
+      this.shapeVertices.set(
+        [v[0], v[1], r, g, b, alpha, ma, mb, mc, md, mtx, mty],
+        offset,
+      );
       this.shapeVertexCount++;
     }
 
@@ -916,24 +910,25 @@ export class WebGPURenderer {
 
     for (let i = 0; i < 4; i++) {
       const offset = this.spriteVertexCount;
-      // Position
-      this.spriteVertices[offset] = corners[i][0];
-      this.spriteVertices[offset + 1] = corners[i][1];
-      // Texture coordinates
-      this.spriteVertices[offset + 2] = uvs[i][0];
-      this.spriteVertices[offset + 3] = uvs[i][1];
-      // Color/tint
-      this.spriteVertices[offset + 4] = tr;
-      this.spriteVertices[offset + 5] = tg;
-      this.spriteVertices[offset + 6] = tb;
-      this.spriteVertices[offset + 7] = alpha;
-      // Model matrix columns
-      this.spriteVertices[offset + 8] = ma;
-      this.spriteVertices[offset + 9] = mb;
-      this.spriteVertices[offset + 10] = mc;
-      this.spriteVertices[offset + 11] = md;
-      this.spriteVertices[offset + 12] = mtx;
-      this.spriteVertices[offset + 13] = mty;
+      this.spriteVertices.set(
+        [
+          corners[i][0],
+          corners[i][1],
+          uvs[i][0],
+          uvs[i][1],
+          tr,
+          tg,
+          tb,
+          alpha,
+          ma,
+          mb,
+          mc,
+          md,
+          mtx,
+          mty,
+        ],
+        offset,
+      );
       this.spriteVertexCount += SPRITE_VERTEX_SIZE;
     }
 
