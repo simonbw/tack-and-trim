@@ -169,9 +169,16 @@ class Profiler {
   measure<T>(label: string, fn: () => T): T {
     this.start(label);
     try {
-      return fn();
-    } finally {
+      const result = fn();
+      // Detect Promise and attach timing cleanup
+      if (result instanceof Promise) {
+        return result.finally(() => this.end(label)) as T;
+      }
       this.end(label);
+      return result;
+    } catch (err) {
+      this.end(label);
+      throw err;
     }
   }
 

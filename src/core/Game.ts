@@ -355,10 +355,9 @@ export class Game {
   private timeToSimulate = 0.0;
   /** The main event loop. Run one frame of the game.  */
   @profile
-  private loop(time: number): void {
+  private async loop(time: number): Promise<void> {
     if (this.destroyed) return;
 
-    this.animationFrameId = window.requestAnimationFrame((t) => this.loop(t));
     this.framenumber += 1;
 
     const lastFrameDuration = (time - this.lastFrameTime) / 1000;
@@ -387,7 +386,7 @@ export class Game {
     while (this.timeToSimulate >= this.tickDuration) {
       this.timeToSimulate -= this.tickDuration;
 
-      this.tick(this.tickDuration);
+      await this.tick(this.tickDuration);
 
       if (!this.paused) {
         const stepDt = this.tickDuration;
@@ -404,6 +403,9 @@ export class Game {
     this.afterPhysics();
 
     this.render(renderDt);
+
+    // CRITICAL: Request next frame at END to prevent concurrent loops
+    this.animationFrameId = window.requestAnimationFrame((t) => this.loop(t));
   }
 
   /**
@@ -453,25 +455,38 @@ export class Game {
 
   /** Called before physics. */
   @profile
-  private tick(dt: number) {
+  private async tick(dt: number): Promise<void> {
     this.ticknumber += 1;
 
     // Dispatch tick events layer by layer
     for (const layerName of TICK_LAYERS) {
-      profiler.measure(`tick.${layerName}`, () => {
-        this.dispatchTickForLayer(layerName, dt);
-      });
+      await profiler.measure(`tick.${layerName}`, () =>
+        this.dispatchTickForLayer(layerName, dt),
+      );
     }
   }
 
   /** Dispatch tick event to entities on a specific layer */
-  private dispatchTickForLayer(layerName: TickLayerName, dt: number) {
+  private async dispatchTickForLayer(
+    layerName: TickLayerName,
+    dt: number,
+  ): Promise<void> {
     const effectivelyPaused = this.paused;
+    const promises: Promise<void>[] = [];
 
     for (const entity of this.entities.getTickersOnLayer(layerName)) {
       if (entity.game && !(effectivelyPaused && !entity.pausable)) {
-        entity.onTick?.(dt);
+        const result = entity.onTick?.(dt);
+        // Only collect actual Promises
+        if (result && result instanceof Promise) {
+          promises.push(result);
+        }
       }
+    }
+
+    // Only await if there were any Promises
+    if (promises.length > 0) {
+      await Promise.all(promises);
     }
   }
 
