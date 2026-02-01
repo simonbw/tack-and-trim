@@ -1,9 +1,11 @@
+import { V } from "../../../core/Vector";
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Camera2d } from "../../../core/graphics/Camera2d";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { WebGPUTexture } from "../../../core/graphics/webgpu/WebGPUTextureManager";
+import { AABB } from "../../../core/physics/collision/AABB";
 import { TerrainSystem } from "../terrain/TerrainSystem";
 import { WaterSystem } from "../water/WaterSystem";
 import { CompositePass } from "./CompositePass";
@@ -181,6 +183,16 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Pass 1: Render terrain
     if (terrainSystem && this.terrainPass && this.terrainTexture) {
+      // Request tiles for visible region
+      const bounds = new AABB({
+        lowerBound: V(this.currentRect.x, this.currentRect.y),
+        upperBound: V(
+          this.currentRect.x + this.currentRect.width,
+          this.currentRect.y + this.currentRect.height,
+        ),
+      });
+      terrainSystem.requestTilesForRect(bounds, 0); // LOD 0
+
       this.terrainPass.render(
         commandEncoder,
         this.terrainTexture,

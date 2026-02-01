@@ -12,6 +12,7 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import type { BindGroupResources } from "../../../core/graphics/webgpu/ShaderBindings";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import type { CachedTile } from "../../../core/graphics/webgpu/virtual-texture/TileCache";
 import { VirtualTexture } from "../../../core/graphics/webgpu/virtual-texture/VirtualTexture";
 import type { AABB } from "../../../core/physics/collision/AABB";
 import { ContainmentTree, type ContourNode } from "./ContainmentTree";
@@ -167,6 +168,32 @@ export class TerrainSystem extends BaseEntity {
    */
   getTerrainTexture(): GPUTexture | null {
     return this.virtualTexture?.getTextureArray() || null;
+  }
+
+  /**
+   * Get a cached tile by coordinates.
+   * Used by TerrainRenderPass to build the indirection table.
+   *
+   * @param lod - Level of detail
+   * @param tileX - Tile X coordinate
+   * @param tileY - Tile Y coordinate
+   * @returns The cached tile, or null if not available
+   */
+  getTileFromCache(
+    lod: number,
+    tileX: number,
+    tileY: number,
+  ): CachedTile<any> | null {
+    return this.virtualTexture?.getTile(lod, tileX, tileY) ?? null;
+  }
+
+  /**
+   * Get the default depth value for areas with no terrain.
+   *
+   * @returns The default depth from the terrain definition
+   */
+  getDefaultDepth(): number {
+    return this.definition.defaultDepth;
   }
 
   /**
@@ -356,10 +383,11 @@ export class TerrainSystem extends BaseEntity {
 
     // Create tile params buffer (uniform, updated per tile)
     // struct TileParams { u32 lod, i32 tileX, i32 tileY, u32 tileSize, f32 worldTileSize, vec3u padding }
+    // Note: vec3u requires 16-byte alignment, total struct size is 48 bytes
     this.tileParamsBuffer?.destroy();
     this.tileParamsBuffer = device.createBuffer({
       label: "Terrain Tile Params",
-      size: 32, // 8 fields × 4 bytes
+      size: 48, // Uniform buffer alignment requirement
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
@@ -438,14 +466,15 @@ export class TerrainSystem extends BaseEntity {
     const worldTileSize = tileSize * scale;
 
     // Update tile params buffer
-    const tileParamsData = new ArrayBuffer(32);
+    // Note: Buffer is 48 bytes due to uniform alignment (vec3u requires 16-byte alignment)
+    const tileParamsData = new ArrayBuffer(48);
     const tileParamsView = new DataView(tileParamsData);
     tileParamsView.setUint32(0, lod, true);
     tileParamsView.setInt32(4, tileX, true);
     tileParamsView.setInt32(8, tileY, true);
     tileParamsView.setUint32(12, tileSize, true);
     tileParamsView.setFloat32(16, worldTileSize, true);
-    // padding: 12 bytes
+    // Remaining bytes (20-47) are padding, implicitly zero
 
     device.queue.writeBuffer(this.tileParamsBuffer!, 0, tileParamsData);
 
