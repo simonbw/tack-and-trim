@@ -30,7 +30,7 @@ import {
   WATER_VELOCITY_SCALE,
   SWELL_WAVE_COUNT,
 } from "../WaterConstants";
-import { MAX_SEGMENTS, FLOATS_PER_SEGMENT } from "./WaterComputeBuffers";
+import { MAX_MODIFIERS, FLOATS_PER_MODIFIER } from "./WaterComputeBuffers";
 import { AnalyticalWaterParams } from "./AnalyticalWaterParams";
 
 // Constants for modifier computation
@@ -47,7 +47,7 @@ export const MAX_SHADOW_POLYGONS = 8;
 const bindings = {
   params: { type: "uniform" },
   waveData: { type: "storage" },
-  segments: { type: "storage" },
+  modifiers: { type: "storage" },
   outputTexture: { type: "storageTexture", format: "rgba32float" },
   depthTexture: { type: "texture", viewDimension: "2d", sampleType: "float" },
   depthSampler: { type: "sampler" },
@@ -80,9 +80,15 @@ const WAVE_AMP_MOD_SPATIAL_SCALE: f32 = ${WAVE_AMP_MOD_SPATIAL_SCALE};
 const WAVE_AMP_MOD_TIME_SCALE: f32 = ${WAVE_AMP_MOD_TIME_SCALE};
 const WAVE_AMP_MOD_STRENGTH: f32 = ${WAVE_AMP_MOD_STRENGTH};
 const HEIGHT_SCALE: f32 = ${HEIGHT_SCALE};
-const MAX_SEGMENTS: u32 = ${MAX_SEGMENTS}u;
-const FLOATS_PER_SEGMENT: u32 = ${FLOATS_PER_SEGMENT}u;
+const MAX_MODIFIERS: u32 = ${MAX_MODIFIERS}u;
+const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
 const WATER_VELOCITY_FACTOR: f32 = ${WATER_VELOCITY_FACTOR};
+
+// Modifier type discriminators
+const MODIFIER_TYPE_WAKE: u32 = 1u;
+const MODIFIER_TYPE_RIPPLE: u32 = 2u;
+const MODIFIER_TYPE_CURRENT: u32 = 3u;
+const MODIFIER_TYPE_OBSTACLE: u32 = 4u;
 const WATER_HEIGHT_NORM_SCALE: f32 = ${WATER_HEIGHT_SCALE};
 const WATER_VELOCITY_NORM_SCALE: f32 = ${WATER_VELOCITY_SCALE};
 const SWELL_WAVELENGTH: f32 = ${SWELL_WAVELENGTH}.0;
@@ -106,7 +112,7 @@ struct WaveModification {
 // ============================================================================
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> waveData: array<f32>;
-@group(0) @binding(2) var<storage, read> segments: array<f32>;
+@group(0) @binding(2) var<storage, read> modifiers: array<f32>;
 @group(0) @binding(3) var outputTexture: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(4) var depthTexture: texture_2d<f32>;
 @group(0) @binding(5) var depthSampler: sampler;
@@ -354,87 +360,117 @@ fn calculateWaves(worldPos: vec2<f32>, time: f32) -> vec4<f32> {
 }
 
 // ============================================================================
-// Wake Modifier Calculation
+// Water Modifier Calculation
 // ============================================================================
 
-fn getSegmentContribution(worldX: f32, worldY: f32, segmentIndex: u32) -> vec3<f32> {
-  let base = segmentIndex * FLOATS_PER_SEGMENT;
+// Wake modifier - circular falloff from point
+fn computeWakeContribution(worldX: f32, worldY: f32, base: u32) -> vec3<f32> {
+  let intensity = modifiers[base + 5u];
+  let velocityX = modifiers[base + 6u];
+  let velocityY = modifiers[base + 7u];
 
-  let startX = segments[base + 0u];
-  let startY = segments[base + 1u];
-  let endX = segments[base + 2u];
-  let endY = segments[base + 3u];
-  let startRadius = segments[base + 4u];
-  let endRadius = segments[base + 5u];
-  let startIntensity = segments[base + 6u];
-  let endIntensity = segments[base + 7u];
-  let startVelX = segments[base + 8u];
-  let startVelY = segments[base + 9u];
-  let endVelX = segments[base + 10u];
-  let endVelY = segments[base + 11u];
+  // Compute distance to wake center (from bounds center)
+  let minX = modifiers[base + 1u];
+  let minY = modifiers[base + 2u];
+  let maxX = modifiers[base + 3u];
+  let maxY = modifiers[base + 4u];
+  let centerX = (minX + maxX) * 0.5;
+  let centerY = (minY + maxY) * 0.5;
+  let dx = worldX - centerX;
+  let dy = worldY - centerY;
+  let dist = sqrt(dx * dx + dy * dy);
 
-  let segX = endX - startX;
-  let segY = endY - startY;
-  let segLenSq = segX * segX + segY * segY;
+  // Circular falloff
+  let radius = (maxX - minX) * 0.5;
+  let falloff = max(0.0, 1.0 - dist / radius);
 
-  if (segLenSq < 0.001) {
-    let dx = worldX - startX;
-    let dy = worldY - startY;
-    let distSq = dx * dx + dy * dy;
-    let radiusSq = startRadius * startRadius;
+  // Return (height, velocityX, velocityY)
+  return vec3<f32>(
+    intensity * falloff * cos(dist * 0.1),
+    velocityX * falloff,
+    velocityY * falloff
+  );
+}
 
-    if (distSq >= radiusSq) {
-      return vec3<f32>(0.0, 0.0, 0.0);
-    }
+// Ripple modifier - ring-based contribution
+fn computeRippleContribution(worldX: f32, worldY: f32, base: u32) -> vec3<f32> {
+  let radius = modifiers[base + 5u];
+  let intensity = modifiers[base + 6u];
+  let phase = modifiers[base + 7u];
 
-    let dist = sqrt(distSq);
-    let t = dist / startRadius;
-    let waveProfile = cos(t * PI) * (1.0 - t);
-    let height = waveProfile * startIntensity * HEIGHT_SCALE;
+  let minX = modifiers[base + 1u];
+  let minY = modifiers[base + 2u];
+  let maxX = modifiers[base + 3u];
+  let maxY = modifiers[base + 4u];
+  let centerX = (minX + maxX) * 0.5;
+  let centerY = (minY + maxY) * 0.5;
+  let dx = worldX - centerX;
+  let dy = worldY - centerY;
+  let dist = sqrt(dx * dx + dy * dy);
 
-    let linearFalloff = 1.0 - t;
-    let velFalloff = linearFalloff * startIntensity;
-    let velX = startVelX * velFalloff * WATER_VELOCITY_FACTOR;
-    let velY = startVelY * velFalloff * WATER_VELOCITY_FACTOR;
+  // Ring-based falloff (2ft wide ring)
+  let ringWidth = 2.0;
+  let distFromRing = abs(dist - radius);
+  let falloff = max(0.0, 1.0 - distFromRing / ringWidth);
 
-    return vec3<f32>(height, velX, velY);
-  }
+  // Cosine wave profile
+  let height = intensity * falloff * cos(phase);
 
-  let toQueryX = worldX - startX;
-  let toQueryY = worldY - startY;
+  return vec3<f32>(height, 0.0, 0.0);
+}
 
-  let t = clamp((toQueryX * segX + toQueryY * segY) / segLenSq, 0.0, 1.0);
+// Current modifier - directional flow field (future use)
+fn computeCurrentContribution(worldX: f32, worldY: f32, base: u32) -> vec3<f32> {
+  let velocityX = modifiers[base + 5u];
+  let velocityY = modifiers[base + 6u];
+  let fadeDistance = modifiers[base + 7u];
 
-  let closestX = startX + t * segX;
-  let closestY = startY + t * segY;
+  // Simple constant velocity for now
+  return vec3<f32>(0.0, velocityX, velocityY);
+}
 
-  let perpDx = worldX - closestX;
-  let perpDy = worldY - closestY;
-  let perpDistSq = perpDx * perpDx + perpDy * perpDy;
+// Obstacle modifier - dampening zone (future use)
+fn computeObstacleContribution(worldX: f32, worldY: f32, base: u32) -> vec3<f32> {
+  let dampingFactor = modifiers[base + 5u];
 
-  let radius = startRadius + t * (endRadius - startRadius);
-  let radiusSq = radius * radius;
+  // Not implemented yet - return zero contribution
+  return vec3<f32>(0.0, 0.0, 0.0);
+}
 
-  if (perpDistSq >= radiusSq) {
+// Main modifier contribution function with type discrimination
+fn getModifierContribution(worldX: f32, worldY: f32, modifierIndex: u32) -> vec3<f32> {
+  let base = modifierIndex * FLOATS_PER_MODIFIER;
+
+  // Read header
+  let modType = u32(modifiers[base + 0u]);
+  let minX = modifiers[base + 1u];
+  let minY = modifiers[base + 2u];
+  let maxX = modifiers[base + 3u];
+  let maxY = modifiers[base + 4u];
+
+  // Bounds culling (early exit)
+  if (worldX < minX || worldX > maxX || worldY < minY || worldY > maxY) {
     return vec3<f32>(0.0, 0.0, 0.0);
   }
 
-  let perpDist = sqrt(perpDistSq);
-  let normalizedDist = perpDist / radius;
-
-  let intensity = startIntensity + t * (endIntensity - startIntensity);
-  let waveProfile = cos(normalizedDist * PI) * (1.0 - normalizedDist);
-  let height = waveProfile * intensity * HEIGHT_SCALE;
-
-  let interpVelX = startVelX + t * (endVelX - startVelX);
-  let interpVelY = startVelY + t * (endVelY - startVelY);
-
-  let linearFalloff = 1.0 - normalizedDist;
-  let velFalloff = linearFalloff * intensity;
-  let velX = interpVelX * velFalloff * WATER_VELOCITY_FACTOR;
-  let velY = interpVelY * velFalloff * WATER_VELOCITY_FACTOR;
-
-  return vec3<f32>(height, velX, velY);
+  // Type discrimination
+  switch (modType) {
+    case MODIFIER_TYPE_WAKE: {
+      return computeWakeContribution(worldX, worldY, base);
+    }
+    case MODIFIER_TYPE_RIPPLE: {
+      return computeRippleContribution(worldX, worldY, base);
+    }
+    case MODIFIER_TYPE_CURRENT: {
+      return computeCurrentContribution(worldX, worldY, base);
+    }
+    case MODIFIER_TYPE_OBSTACLE: {
+      return computeObstacleContribution(worldX, worldY, base);
+    }
+    default: {
+      return vec3<f32>(0.0, 0.0, 0.0);
+    }
+  }
 }
 
 fn calculateModifiers(worldX: f32, worldY: f32) -> vec3<f32> {
@@ -442,9 +478,9 @@ fn calculateModifiers(worldX: f32, worldY: f32) -> vec3<f32> {
   var totalVelX: f32 = 0.0;
   var totalVelY: f32 = 0.0;
 
-  let segCount = min(params.segmentCount, MAX_SEGMENTS);
-  for (var i: u32 = 0u; i < segCount; i++) {
-    let contrib = getSegmentContribution(worldX, worldY, i);
+  let modifierCount = min(params.modifierCount, MAX_MODIFIERS);
+  for (var i: u32 = 0u; i < modifierCount; i++) {
+    let contrib = getModifierContribution(worldX, worldY, i);
     totalHeight += contrib.x;
     totalVelX += contrib.y;
     totalVelY += contrib.z;

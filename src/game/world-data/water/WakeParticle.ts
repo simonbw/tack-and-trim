@@ -1,9 +1,11 @@
-import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { AABB } from "../../../core/util/SparseSpatialHash";
+import { AABB } from "../../../core/physics/collision/AABB";
 import { V2d } from "../../../core/Vector";
-import { WaterContribution, WaterModifier } from "./WaterModifier";
-import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
+import {
+  GPUWaterModifierData,
+  WaterModifier,
+  WaterModifierType,
+} from "./WaterModifierBase";
 
 // Units: feet (ft), seconds
 // Wake particle configuration
@@ -16,13 +18,6 @@ const VELOCITY_SCALE = 0.8; // Velocity contribution scale (dimensionless)
 const WATER_VELOCITY_FACTOR = 0.0; // Percent that this affects water velocity
 const HEIGHT_SCALE = 0.5; // Max height contribution in ft
 
-// Shared zero contribution to avoid allocations
-const ZERO_CONTRIBUTION: WaterContribution = {
-  velocityX: 0,
-  velocityY: 0,
-  height: 0,
-};
-
 export type WakeSide = "left" | "right";
 
 /**
@@ -31,9 +26,8 @@ export type WakeSide = "left" | "right";
  * Each particle owns the segment from itself to its `next` neighbor.
  * Implements WaterModifier to contribute to water state queries.
  */
-export class WakeParticle extends BaseEntity implements WaterModifier {
+export class WakeParticle extends WaterModifier {
   tickLayer = "effects" as const;
-  tags = ["waterModifier"];
 
   // Chain links for ribbon rendering
   prev: WakeParticle | null = null;
@@ -46,7 +40,7 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
   private position: V2d;
 
   // Reusable AABB to avoid allocations
-  private readonly aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  private readonly aabb: AABB = new AABB();
 
   // Movement velocity (actual position change per second)
   private velX: number;
@@ -59,13 +53,6 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
   private intensity: number;
   private age: number = 0;
   private maxAge: number;
-
-  // Reusable result object to avoid allocations
-  private readonly contribution: WaterContribution = {
-    velocityX: 0,
-    velocityY: 0,
-    height: 0,
-  };
 
   constructor(
     position: V2d,
@@ -147,174 +134,44 @@ export class WakeParticle extends BaseEntity implements WaterModifier {
       const nextRadius = next.getCurrentRadius();
       const maxRadius = Math.max(radius, nextRadius);
 
-      this.aabb.minX = Math.min(this.posX, next.posX) - maxRadius;
-      this.aabb.minY = Math.min(this.posY, next.posY) - maxRadius;
-      this.aabb.maxX = Math.max(this.posX, next.posX) + maxRadius;
-      this.aabb.maxY = Math.max(this.posY, next.posY) + maxRadius;
+      this.aabb.lowerBound.x = Math.min(this.posX, next.posX) - maxRadius;
+      this.aabb.lowerBound.y = Math.min(this.posY, next.posY) - maxRadius;
+      this.aabb.upperBound.x = Math.max(this.posX, next.posX) + maxRadius;
+      this.aabb.upperBound.y = Math.max(this.posY, next.posY) + maxRadius;
     } else {
       // Tail particle - circular cap only
-      this.aabb.minX = this.posX - radius;
-      this.aabb.minY = this.posY - radius;
-      this.aabb.maxX = this.posX + radius;
-      this.aabb.maxY = this.posY + radius;
+      this.aabb.lowerBound.x = this.posX - radius;
+      this.aabb.lowerBound.y = this.posY - radius;
+      this.aabb.upperBound.x = this.posX + radius;
+      this.aabb.upperBound.y = this.posY + radius;
     }
 
     return this.aabb;
   }
 
-  getWaterContribution(queryPoint: V2d): WaterContribution {
-    if (this.hasNextSegment()) {
-      return this.getSegmentContribution(queryPoint);
-    } else {
-      return this.getCircularContribution(queryPoint);
-    }
-  }
-
   /**
-   * Segment-based contribution for particles with a next neighbor.
-   * Calculates distance to the line segment and interpolates properties.
+   * Export modifier data for GPU compute shader.
+   * Returns null if this particle should not contribute (destroyed, too old, etc.)
    */
-  private getSegmentContribution(queryPoint: V2d): WaterContribution {
-    const next = this.next!;
+  getGPUModifierData(): GPUWaterModifierData | null {
+    // Don't contribute if destroyed or past max age
+    if (this.isDestroyed || this.age > this.maxAge) return null;
 
-    // Segment vector from this to next
-    const segX = next.posX - this.posX;
-    const segY = next.posY - this.posY;
-    const segLenSq = segX * segX + segY * segY;
+    const warmup = this.getWarmupMultiplier();
+    const intensity = this.intensity * warmup;
 
-    // Handle degenerate case (particles at same position)
-    if (segLenSq < 0.001) {
-      return this.getCircularContribution(queryPoint);
-    }
+    // Don't contribute if faded out
+    if (intensity < 0.01) return null;
 
-    // Vector from this position to query point
-    const toQueryX = queryPoint.x - this.posX;
-    const toQueryY = queryPoint.y - this.posY;
-
-    // Project query point onto segment (t=0 at this, t=1 at next)
-    const t = Math.max(
-      0,
-      Math.min(1, (toQueryX * segX + toQueryY * segY) / segLenSq),
-    );
-
-    // Closest point on segment
-    const closestX = this.posX + t * segX;
-    const closestY = this.posY + t * segY;
-
-    // Perpendicular distance from query point to segment
-    const perpDx = queryPoint.x - closestX;
-    const perpDy = queryPoint.y - closestY;
-    const perpDistSq = perpDx * perpDx + perpDy * perpDy;
-
-    // Interpolate radius along segment
-    const thisRadius = this.getCurrentRadius();
-    const nextRadius = next.getCurrentRadius();
-    const radius = thisRadius + t * (nextRadius - thisRadius);
-
-    if (perpDistSq >= radius * radius) return ZERO_CONTRIBUTION;
-
-    const perpDist = Math.sqrt(perpDistSq);
-    const normalizedDist = perpDist / radius; // 0 at center, 1 at edge
-
-    // Interpolate intensity along segment, applying warmup fade-in
-    const thisIntensity = this.intensity * this.getWarmupMultiplier();
-    const nextIntensity = next.intensity * next.getWarmupMultiplier();
-    const intensity = thisIntensity + t * (nextIntensity - thisIntensity);
-
-    // Interpolate velocity along segment
-    const velX = this.scaledVelX + t * (next.scaledVelX - this.scaledVelX);
-    const velY = this.scaledVelY + t * (next.scaledVelY - this.scaledVelY);
-
-    // Velocity uses linear falloff from ribbon center
-    const linearFalloff = 1 - normalizedDist;
-    const velFalloff = linearFalloff * intensity;
-    this.contribution.velocityX = velX * velFalloff * WATER_VELOCITY_FACTOR;
-    this.contribution.velocityY = velY * velFalloff * WATER_VELOCITY_FACTOR;
-
-    // Height: cosine wave profile from ribbon center
-    const waveProfile =
-      Math.cos(normalizedDist * Math.PI) * (1 - normalizedDist);
-    this.contribution.height = waveProfile * intensity * HEIGHT_SCALE;
-
-    return this.contribution;
-  }
-
-  /**
-   * Circular contribution for tail particles (no next neighbor).
-   * Uses the original point-based calculation with rounded cap.
-   */
-  private getCircularContribution(queryPoint: V2d): WaterContribution {
-    const radius = this.getCurrentRadius();
-    const radiusSquared = radius * radius;
-
-    const dx = queryPoint.x - this.posX;
-    const dy = queryPoint.y - this.posY;
-    const distSquared = dx * dx + dy * dy;
-
-    if (distSquared >= radiusSquared) return ZERO_CONTRIBUTION;
-
-    const dist = Math.sqrt(distSquared);
-    const t = dist / radius; // 0 at center, 1 at edge
-
-    // Apply warmup fade-in
-    const intensity = this.intensity * this.getWarmupMultiplier();
-
-    // Velocity uses linear falloff
-    const linearFalloff = 1 - t;
-    const velFalloff = linearFalloff * intensity;
-    this.contribution.velocityX = this.scaledVelX * velFalloff;
-    this.contribution.velocityY = this.scaledVelY * velFalloff;
-
-    // Height: cosine wave profile
-    const waveProfile = Math.cos(t * Math.PI) * (1 - t);
-    this.contribution.height = waveProfile * intensity * HEIGHT_SCALE;
-
-    return this.contribution;
-  }
-
-  /**
-   * Export segment data for GPU compute shader.
-   * Returns null if this particle should not contribute (destroyed, etc.)
-   * For tail particles (no next), returns a degenerate segment (start == end).
-   */
-  getGPUSegmentData(): WakeSegmentData | null {
-    if (this.isDestroyed) return null;
-
-    const startRadius = this.getCurrentRadius();
-    const startIntensity = this.intensity * this.getWarmupMultiplier();
-
-    if (this.hasNextSegment()) {
-      const next = this.next!;
-      return {
-        startX: this.posX,
-        startY: this.posY,
-        endX: next.posX,
-        endY: next.posY,
-        startRadius: startRadius,
-        endRadius: next.getCurrentRadius(),
-        startIntensity: startIntensity,
-        endIntensity: next.intensity * next.getWarmupMultiplier(),
-        startVelX: this.scaledVelX,
-        startVelY: this.scaledVelY,
-        endVelX: next.scaledVelX,
-        endVelY: next.scaledVelY,
-      };
-    } else {
-      // Tail particle - degenerate segment (circle)
-      return {
-        startX: this.posX,
-        startY: this.posY,
-        endX: this.posX,
-        endY: this.posY,
-        startRadius: startRadius,
-        endRadius: startRadius,
-        startIntensity: startIntensity,
-        endIntensity: startIntensity,
-        startVelX: this.scaledVelX,
-        startVelY: this.scaledVelY,
-        endVelX: this.scaledVelX,
-        endVelY: this.scaledVelY,
-      };
-    }
+    return {
+      type: WaterModifierType.Wake,
+      bounds: this.getWaterModifierAABB(),
+      data: {
+        type: WaterModifierType.Wake,
+        intensity: intensity * HEIGHT_SCALE,
+        velocityX: this.scaledVelX * WATER_VELOCITY_FACTOR,
+        velocityY: this.scaledVelY * WATER_VELOCITY_FACTOR,
+      },
+    };
   }
 }

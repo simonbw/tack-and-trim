@@ -11,7 +11,6 @@
 
 export {
   WaterComputeBuffers,
-  type WakeSegmentData,
   type WaterComputeParams,
 } from "./WaterComputeBuffers";
 

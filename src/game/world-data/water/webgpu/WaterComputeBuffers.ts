@@ -13,6 +13,8 @@ import {
   type UniformInstance,
 } from "../../../../core/graphics/UniformStruct";
 import { buildWaveDataArray } from "../WaterConstants";
+import type { GPUWaterModifierData } from "../WaterModifierBase";
+import { WaterModifierType } from "../WaterModifierBase";
 
 // Type-safe params buffer definition - single source of truth for shader struct
 export const WaterParams = defineUniformStruct("Params", {
@@ -24,7 +26,7 @@ export const WaterParams = defineUniformStruct("Params", {
   viewportHeight: f32,
   textureSizeX: f32,
   textureSizeY: f32,
-  segmentCount: u32,
+  modifierCount: u32,
   // Swell grid config
   swellOriginX: f32,
   swellOriginY: f32,
@@ -54,29 +56,11 @@ export const WaterParams = defineUniformStruct("Params", {
 });
 
 // Constants for modifier computation
-export const MAX_SEGMENTS = 256;
-export const FLOATS_PER_SEGMENT = 12;
+export const MAX_MODIFIERS = 16384;
+export const FLOATS_PER_MODIFIER = 8;
 
 /** Default max fetch distance for normalization (~15km) */
 export const DEFAULT_MAX_FETCH = 50000;
-
-/**
- * Data for a single wake segment to be sent to GPU.
- */
-export interface WakeSegmentData {
-  startX: number;
-  startY: number;
-  endX: number;
-  endY: number;
-  startRadius: number;
-  endRadius: number;
-  startIntensity: number;
-  endIntensity: number;
-  startVelX: number;
-  startVelY: number;
-  endVelX: number;
-  endVelY: number;
-}
 
 /**
  * Parameters for water compute shader.
@@ -89,7 +73,7 @@ export interface WaterComputeParams {
   viewportHeight: number;
   textureSizeX: number;
   textureSizeY: number;
-  segmentCount: number;
+  modifierCount: number;
   // Swell influence grid config
   swellOriginX: number;
   swellOriginY: number;
@@ -124,10 +108,10 @@ export interface WaterComputeParams {
 export class WaterComputeBuffers {
   readonly waveDataBuffer: GPUBuffer;
   readonly paramsBuffer: GPUBuffer;
-  readonly segmentsBuffer: GPUBuffer;
+  readonly modifiersBuffer: GPUBuffer;
 
   private params!: UniformInstance<typeof WaterParams.fields>;
-  private segmentData: Float32Array;
+  private modifierData: Float32Array;
 
   constructor() {
     const device = getWebGPU().device;
@@ -153,12 +137,12 @@ export class WaterComputeBuffers {
       label: "Water Params Buffer",
     });
 
-    // Create segments storage buffer
-    this.segmentData = new Float32Array(MAX_SEGMENTS * FLOATS_PER_SEGMENT);
-    this.segmentsBuffer = device.createBuffer({
-      size: this.segmentData.byteLength,
+    // Create modifiers storage buffer
+    this.modifierData = new Float32Array(MAX_MODIFIERS * FLOATS_PER_MODIFIER);
+    this.modifiersBuffer = device.createBuffer({
+      size: this.modifierData.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: "Water Segments Buffer",
+      label: "Water Modifiers Buffer",
     });
   }
 
@@ -174,7 +158,7 @@ export class WaterComputeBuffers {
     this.params.set.viewportHeight(input.viewportHeight);
     this.params.set.textureSizeX(input.textureSizeX);
     this.params.set.textureSizeY(input.textureSizeY);
-    this.params.set.segmentCount(input.segmentCount);
+    this.params.set.modifierCount(input.modifierCount);
 
     // Swell grid config
     this.params.set.swellOriginX(input.swellOriginX);
@@ -213,43 +197,62 @@ export class WaterComputeBuffers {
   }
 
   /**
-   * Update the segments buffer with wake segment data.
-   * Returns the actual number of segments uploaded.
+   * Update the modifiers buffer with water modifier data.
+   * Returns the actual number of modifiers uploaded.
    */
-  updateSegments(segments: WakeSegmentData[]): number {
+  updateModifiers(modifiers: GPUWaterModifierData[]): number {
     const device = getWebGPU().device;
-    const segmentCount = Math.min(segments.length, MAX_SEGMENTS);
+    const modifierCount = Math.min(modifiers.length, MAX_MODIFIERS);
 
-    for (let i = 0; i < segmentCount; i++) {
-      const seg = segments[i];
-      const base = i * FLOATS_PER_SEGMENT;
-      this.segmentData[base + 0] = seg.startX;
-      this.segmentData[base + 1] = seg.startY;
-      this.segmentData[base + 2] = seg.endX;
-      this.segmentData[base + 3] = seg.endY;
-      this.segmentData[base + 4] = seg.startRadius;
-      this.segmentData[base + 5] = seg.endRadius;
-      this.segmentData[base + 6] = seg.startIntensity;
-      this.segmentData[base + 7] = seg.endIntensity;
-      this.segmentData[base + 8] = seg.startVelX;
-      this.segmentData[base + 9] = seg.startVelY;
-      this.segmentData[base + 10] = seg.endVelX;
-      this.segmentData[base + 11] = seg.endVelY;
+    for (let i = 0; i < modifierCount; i++) {
+      const mod = modifiers[i];
+      const base = i * FLOATS_PER_MODIFIER;
+
+      // Header: type + bounds (AABB)
+      this.modifierData[base + 0] = mod.type;
+      this.modifierData[base + 1] = mod.bounds.lowerBound.x;
+      this.modifierData[base + 2] = mod.bounds.lowerBound.y;
+      this.modifierData[base + 3] = mod.bounds.upperBound.x;
+      this.modifierData[base + 4] = mod.bounds.upperBound.y;
+
+      // Pack type-specific data into [5-7]
+      switch (mod.data.type) {
+        case WaterModifierType.Wake:
+          this.modifierData[base + 5] = mod.data.intensity;
+          this.modifierData[base + 6] = mod.data.velocityX;
+          this.modifierData[base + 7] = mod.data.velocityY;
+          break;
+        case WaterModifierType.Ripple:
+          this.modifierData[base + 5] = mod.data.radius;
+          this.modifierData[base + 6] = mod.data.intensity;
+          this.modifierData[base + 7] = mod.data.phase;
+          break;
+        case WaterModifierType.Current:
+          this.modifierData[base + 5] = mod.data.velocityX;
+          this.modifierData[base + 6] = mod.data.velocityY;
+          this.modifierData[base + 7] = mod.data.fadeDistance;
+          break;
+        case WaterModifierType.Obstacle:
+          this.modifierData[base + 5] = mod.data.dampingFactor;
+          this.modifierData[base + 6] = mod.data.padding1;
+          this.modifierData[base + 7] = mod.data.padding2;
+          break;
+      }
     }
 
     // Only upload the portion we need
-    if (segmentCount > 0) {
-      const uploadSize = segmentCount * FLOATS_PER_SEGMENT * 4;
+    if (modifierCount > 0) {
+      const uploadSize = modifierCount * FLOATS_PER_MODIFIER * 4;
       device.queue.writeBuffer(
-        this.segmentsBuffer,
+        this.modifiersBuffer,
         0,
-        this.segmentData.buffer,
+        this.modifierData.buffer,
         0,
         uploadSize,
       );
     }
 
-    return segmentCount;
+    return modifierCount;
   }
 
   /**
@@ -258,6 +261,6 @@ export class WaterComputeBuffers {
   destroy(): void {
     this.waveDataBuffer.destroy();
     this.paramsBuffer.destroy();
-    this.segmentsBuffer.destroy();
+    this.modifiersBuffer.destroy();
   }
 }

@@ -172,7 +172,7 @@ export class AnalyticalWaterRenderPipeline {
     this.bindGroup = this.shader.createBindGroup({
       params: { buffer: this.buffers.paramsBuffer },
       waveData: { buffer: this.buffers.waveDataBuffer },
-      segments: { buffer: this.buffers.segmentsBuffer },
+      modifiers: { buffer: this.buffers.modifiersBuffer },
       outputTexture: this.outputTextureView,
       depthTexture: config.depthTexture.createView({ dimension: "2d" }),
       depthSampler: config.depthSampler,
@@ -220,9 +220,9 @@ export class AnalyticalWaterRenderPipeline {
       ? timeOfDay.getTimeInSeconds()
       : (game?.elapsedUnpausedTime ?? 0);
 
-    // Collect segment data from wake particles
-    const segments = waterInfo.collectShaderSegmentData(viewport);
-    const segmentCount = this.buffers.updateSegments(segments);
+    // Collect modifier data from water modifiers
+    const modifiers = (waterInfo as any).cachedModifiers || [];
+    const modifierCount = this.buffers.updateModifiers(modifiers);
 
     const depthConfig = config.depthGridConfig;
 
@@ -235,7 +235,7 @@ export class AnalyticalWaterRenderPipeline {
     paramsData[4] = viewport.height;
     paramsData[5] = this.textureWidth;
     paramsData[6] = this.textureHeight;
-    new DataView(paramsData.buffer).setUint32(7 * 4, segmentCount, true);
+    new DataView(paramsData.buffer).setUint32(7 * 4, modifierCount, true);
     paramsData[8] = depthConfig.originX;
     paramsData[9] = depthConfig.originY;
     paramsData[10] = depthConfig.cellsX * depthConfig.cellSize;

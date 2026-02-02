@@ -14,7 +14,6 @@ import { on } from "../../../core/entity/handler";
 import { Game } from "../../../core/Game";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../../core/util/Profiler";
-import { SparseSpatialHash } from "../../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../../core/Vector";
 import { TimeOfDay } from "../../time/TimeOfDay";
 import { WavePhysicsManager } from "../../wave-physics/WavePhysicsManager";
@@ -34,19 +33,18 @@ import {
   computeWaveDataAtPoint,
   WaterComputeParams,
 } from "./cpu/WaterComputeCPU";
-import { WakeParticle } from "./WakeParticle";
 import {
   WATER_HEIGHT_SCALE,
   WATER_VELOCITY_SCALE,
   WAVE_COMPONENTS,
 } from "./WaterConstants";
-import { isWaterModifier, WaterModifier } from "./WaterModifier";
+import { WaterModifier } from "./WaterModifierBase";
 import { isWaterQuerier } from "./WaterQuerier";
 import {
   AnalyticalWaterDataTileCompute,
   type AnalyticalWaterConfig,
 } from "./webgpu/AnalyticalWaterDataTileCompute";
-import type { WakeSegmentData } from "./webgpu/WaterComputeBuffers";
+import type { GPUWaterModifierData } from "./WaterModifierBase";
 
 /**
  * Water point data from GPU tiles.
@@ -171,13 +169,8 @@ export class WaterInfo extends BaseEntity {
   private waveAmpModNoise: NoiseFunction3D = createNoise3D();
   private surfaceNoise: NoiseFunction3D = createNoise3D();
 
-  // Spatial hash for CPU fallback modifier queries
-  private spatialHash = new SparseSpatialHash<WaterModifier>((m) =>
-    m.getWaterModifierAABB(),
-  );
-
-  // Cached segment data for current frame
-  private cachedSegments: WakeSegmentData[] = [];
+  // Cached modifier data for current frame
+  private cachedModifiers: GPUWaterModifierData[] = [];
 
   // Influence field manager for depth texture
   private influenceManager: InfluenceFieldManager | null = null;
@@ -236,19 +229,11 @@ export class WaterInfo extends BaseEntity {
   }
 
   /**
-   * Rebuild spatial hash for CPU fallback and cache segment data.
+   * Cache modifier data for current frame.
    */
   @on("tick")
   @profile
   onTick() {
-    // Rebuild spatial hash for CPU fallback
-    this.spatialHash.clear();
-    for (const entity of this.game.entities.getTagged("waterModifier")) {
-      if (isWaterModifier(entity)) {
-        this.spatialHash.add(entity);
-      }
-    }
-
     // Update tide height from TimeOfDay
     const timeOfDay = TimeOfDay.maybeFromGame(this.game);
     if (timeOfDay) {
@@ -258,15 +243,8 @@ export class WaterInfo extends BaseEntity {
       this.tideHeight = Math.sin(tidePhase) * (DEFAULT_TIDE_RANGE / 2);
     }
 
-    // Cache segment data for this frame
-    const camera = this.game.camera;
-    const worldViewport = camera.getWorldViewport();
-    this.cachedSegments = this.collectShaderSegmentData({
-      left: worldViewport.left - WAKE_VIEWPORT_MARGIN * 2,
-      top: worldViewport.top - WAKE_VIEWPORT_MARGIN * 2,
-      width: worldViewport.width + WAKE_VIEWPORT_MARGIN * 4,
-      height: worldViewport.height + WAKE_VIEWPORT_MARGIN * 4,
-    });
+    // Cache modifier data for this frame
+    this.cachedModifiers = this.collectModifierData();
   }
 
   /**
@@ -380,8 +358,8 @@ export class WaterInfo extends BaseEntity {
     // Ensure compute is configured with depth and shadow buffers
     this.configureCompute(compute);
 
-    // Set wake segments for modifier computation
-    compute.setSegments(this.cachedSegments);
+    // Set water modifiers for modifier computation
+    compute.setModifiers(this.cachedModifiers);
 
     // Set tide height for this compute pass
     compute.setTideHeight(this.tideHeight);
@@ -437,16 +415,10 @@ export class WaterInfo extends BaseEntity {
     const waveData = computeWaveDataAtPoint(point[0], point[1], cpuParams);
 
     // Add tide height to surface height
-    let surfaceHeight = waveData.height + this.tideHeight;
-    let surfaceHeightRate = waveData.dhdt;
-
-    for (const modifier of this.spatialHash.queryPoint(point)) {
-      const contrib = modifier.getWaterContribution(point);
-      velocity.x += contrib.velocityX;
-      velocity.y += contrib.velocityY;
-      surfaceHeight += contrib.height;
-      surfaceHeightRate += contrib.heightRate ?? 0;
-    }
+    // Note: CPU fallback no longer includes water modifiers (wake, ripples).
+    // Modifiers are GPU-only now. Queries outside data tiles will only get base wave physics.
+    const surfaceHeight = waveData.height + this.tideHeight;
+    const surfaceHeightRate = waveData.dhdt;
 
     return {
       velocity,
@@ -488,43 +460,22 @@ export class WaterInfo extends BaseEntity {
   }
 
   /**
-   * Collect wake segment data for GPU compute shader.
-   * Filters to particles that intersect the viewport.
+   * Collect water modifier data for GPU compute shader.
+   * Gathers all active modifiers (wakes, ripples, etc.) from waterModifier-tagged entities.
    */
-  collectShaderSegmentData(viewport: Viewport): WakeSegmentData[] {
-    const segments: WakeSegmentData[] = [];
-    const modifiers = this.game.entities.getTagged("waterModifier");
+  private collectModifierData(): GPUWaterModifierData[] {
+    const modifiers: GPUWaterModifierData[] = [];
 
-    const viewportRight = viewport.left + viewport.width;
-    const viewportBottom = viewport.top + viewport.height;
-    const expandedMinX =
-      Math.min(viewport.left, viewportRight) - WAKE_VIEWPORT_MARGIN;
-    const expandedMaxX =
-      Math.max(viewport.left, viewportRight) + WAKE_VIEWPORT_MARGIN;
-    const expandedMinY =
-      Math.min(viewport.top, viewportBottom) - WAKE_VIEWPORT_MARGIN;
-    const expandedMaxY =
-      Math.max(viewport.top, viewportBottom) + WAKE_VIEWPORT_MARGIN;
-
-    for (const entity of modifiers) {
-      if (entity instanceof WakeParticle) {
-        const aabb = entity.getWaterModifierAABB();
-
-        if (
-          aabb.maxX >= expandedMinX &&
-          aabb.minX <= expandedMaxX &&
-          aabb.maxY >= expandedMinY &&
-          aabb.minY <= expandedMaxY
-        ) {
-          const segmentData = entity.getGPUSegmentData();
-          if (segmentData) {
-            segments.push(segmentData);
-          }
+    for (const entity of this.game.entities.getTagged("waterModifier")) {
+      if (entity instanceof WaterModifier) {
+        const data = entity.getGPUModifierData();
+        if (data !== null) {
+          modifiers.push(data);
         }
       }
     }
 
-    return segments.reverse();
+    return modifiers;
   }
 
   /**

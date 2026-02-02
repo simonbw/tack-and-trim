@@ -13,10 +13,8 @@ import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import type { UniformInstance } from "../../../../core/graphics/UniformStruct";
 import type { DepthGridConfig } from "../../influence/InfluenceFieldTypes";
 import type { DataTileCompute } from "../../datatiles/DataTileComputePipeline";
-import {
-  WaterComputeBuffers,
-  type WakeSegmentData,
-} from "./WaterComputeBuffers";
+import type { GPUWaterModifierData } from "../WaterModifierBase";
+import { WaterComputeBuffers } from "./WaterComputeBuffers";
 import { AnalyticalWaterStateShader } from "./AnalyticalWaterStateShader";
 import { AnalyticalWaterParams } from "./AnalyticalWaterParams";
 
@@ -61,7 +59,7 @@ export class AnalyticalWaterDataTileCompute implements DataTileCompute {
   private outputTexture: GPUTexture | null = null;
 
   private textureSize: number;
-  private currentSegmentCount: number = 0;
+  private currentModifierCount: number = 0;
   private currentTideHeight: number = 0;
 
   // Configuration
@@ -139,7 +137,7 @@ export class AnalyticalWaterDataTileCompute implements DataTileCompute {
     this.bindGroup = this.shader.createBindGroup({
       params: { buffer: this.paramsBuffer },
       waveData: { buffer: this.buffers.waveDataBuffer },
-      segments: { buffer: this.buffers.segmentsBuffer },
+      modifiers: { buffer: this.buffers.modifiersBuffer },
       outputTexture: this.outputTexture.createView(),
       depthTexture: this.config.depthTexture.createView({ dimension: "2d" }),
       depthSampler: this.config.depthSampler,
@@ -149,11 +147,11 @@ export class AnalyticalWaterDataTileCompute implements DataTileCompute {
   }
 
   /**
-   * Set wake segment data for modifier computation.
+   * Set water modifier data for modifier computation.
    */
-  setSegments(segments: WakeSegmentData[]): void {
+  setModifiers(modifiers: GPUWaterModifierData[]): void {
     if (!this.buffers) return;
-    this.currentSegmentCount = this.buffers.updateSegments(segments);
+    this.currentModifierCount = this.buffers.updateModifiers(modifiers);
   }
 
   /**
@@ -194,7 +192,7 @@ export class AnalyticalWaterDataTileCompute implements DataTileCompute {
     this.params.set.viewportHeight(height);
     this.params.set.textureSizeX(this.textureSize);
     this.params.set.textureSizeY(this.textureSize);
-    this.params.set.segmentCount(this.currentSegmentCount);
+    this.params.set.modifierCount(this.currentModifierCount);
     this.params.set.depthOriginX(depthConfig.originX);
     this.params.set.depthOriginY(depthConfig.originY);
     this.params.set.depthGridWidth(depthConfig.cellsX * depthConfig.cellSize);

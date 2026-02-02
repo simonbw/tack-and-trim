@@ -1,8 +1,11 @@
-import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { AABB } from "../../../core/util/SparseSpatialHash";
+import { AABB } from "../../../core/physics/collision/AABB";
 import { V2d } from "../../../core/Vector";
-import { WaterContribution, WaterModifier } from "./WaterModifier";
+import {
+  GPUWaterModifierData,
+  WaterModifier,
+  WaterModifierType,
+} from "./WaterModifierBase";
 
 // Configuration
 const MAX_AGE = 2.0; // Lifespan in seconds
@@ -13,32 +16,18 @@ const HEIGHT_SCALE = 0.8; // Peak wave height in ft
 const DECAY_RATE = 2.0; // Intensity decay rate (1/s)
 const RING_WIDTH = 2.0; // Width of the ripple ring in ft
 
-// Shared zero contribution to avoid allocations
-const ZERO_CONTRIBUTION: WaterContribution = {
-  velocityX: 0,
-  velocityY: 0,
-  height: 0,
-};
-
 /**
  * A circular ripple effect that expands outward from a splash point.
- * Implements WaterModifier to affect water surface height.
+ * Extends WaterModifier to affect water surface height via GPU compute.
  */
-export class AnchorSplashRipple extends BaseEntity implements WaterModifier {
-  tags = ["waterModifier"];
-
+export class AnchorSplashRipple extends WaterModifier {
   private posX: number;
   private posY: number;
   private intensity: number = 1.0;
   private age: number = 0;
 
-  // Reusable objects to avoid allocations
-  private readonly aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-  private readonly contribution: WaterContribution = {
-    velocityX: 0,
-    velocityY: 0,
-    height: 0,
-  };
+  // Reusable AABB to avoid allocations
+  private readonly aabb: AABB = new AABB();
 
   constructor(position: V2d) {
     super();
@@ -70,44 +59,35 @@ export class AnchorSplashRipple extends BaseEntity implements WaterModifier {
 
   getWaterModifierAABB(): AABB {
     const radius = this.getCurrentRadius() + RING_WIDTH;
-    this.aabb.minX = this.posX - radius;
-    this.aabb.minY = this.posY - radius;
-    this.aabb.maxX = this.posX + radius;
-    this.aabb.maxY = this.posY + radius;
+    this.aabb.lowerBound.x = this.posX - radius;
+    this.aabb.lowerBound.y = this.posY - radius;
+    this.aabb.upperBound.x = this.posX + radius;
+    this.aabb.upperBound.y = this.posY + radius;
     return this.aabb;
   }
 
-  getWaterContribution(queryPoint: V2d): Readonly<WaterContribution> {
-    const ringRadius = this.getCurrentRadius();
-    const maxDist = ringRadius + RING_WIDTH;
+  /**
+   * Export modifier data for GPU compute shader.
+   * Returns null if this ripple should not contribute (destroyed, too old, etc.)
+   */
+  getGPUModifierData(): GPUWaterModifierData | null {
+    // Don't contribute if destroyed or past max age
+    if (this.isDestroyed || this.age >= MAX_AGE) return null;
 
-    const dx = queryPoint.x - this.posX;
-    const dy = queryPoint.y - this.posY;
-    const distSquared = dx * dx + dy * dy;
-
-    // Quick rejection if too far
-    if (distSquared > maxDist * maxDist) return ZERO_CONTRIBUTION;
-
-    const dist = Math.sqrt(distSquared);
-
-    // Distance from the expanding ring edge
-    const distFromRing = Math.abs(dist - ringRadius);
-
-    // Outside ring influence
-    if (distFromRing > RING_WIDTH) return ZERO_CONTRIBUTION;
-
-    // Apply warmup fade-in
     const intensity = this.intensity * this.getWarmupMultiplier();
 
-    // Wave profile within ring - cosine creates smooth wave shape
-    const ringT = distFromRing / RING_WIDTH; // 0 at ring edge, 1 at ring boundary
-    const waveProfile = Math.cos(ringT * Math.PI * 0.5); // Smooth falloff
+    // Don't contribute if faded out
+    if (intensity < 0.01) return null;
 
-    // Height contribution - positive for crest
-    this.contribution.height = waveProfile * intensity * HEIGHT_SCALE;
-    this.contribution.velocityX = 0;
-    this.contribution.velocityY = 0;
-
-    return this.contribution;
+    return {
+      type: WaterModifierType.Ripple,
+      bounds: this.getWaterModifierAABB(),
+      data: {
+        type: WaterModifierType.Ripple,
+        radius: this.getCurrentRadius(),
+        intensity: intensity * HEIGHT_SCALE,
+        phase: (this.age / MAX_AGE) * Math.PI * 2,
+      },
+    };
   }
 }

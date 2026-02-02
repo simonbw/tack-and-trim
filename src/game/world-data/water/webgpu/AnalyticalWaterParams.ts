@@ -22,7 +22,7 @@ export const AnalyticalWaterParams = defineUniformStruct("Params", {
   viewportHeight: f32,
   textureSizeX: f32,
   textureSizeY: f32,
-  segmentCount: u32,
+  modifierCount: u32,
   // Depth grid config
   depthOriginX: f32,
   depthOriginY: f32,
