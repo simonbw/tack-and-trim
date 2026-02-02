@@ -51,8 +51,12 @@ const bindings = {
   outputTexture: { type: "storageTexture", format: "rgba32float" },
   depthTexture: { type: "texture", viewDimension: "2d", sampleType: "float" },
   depthSampler: { type: "sampler" },
-  shadowTexture: { type: "texture", viewDimension: "2d", sampleType: "uint" },
-  shadowData: { type: "uniform" },
+  shadowTexture: {
+    type: "texture",
+    viewDimension: "2d",
+    sampleType: "float",
+  },
+  shadowSampler: { type: "sampler" },
 } as const;
 
 /**
@@ -91,30 +95,6 @@ const ERF_APPROX_COEFF: f32 = 0.7;
 // ============================================================================
 ${AnalyticalWaterParams.wgsl}
 
-// Per-polygon shadow data for Fresnel diffraction calculation
-struct PolygonShadowData {
-  leftSilhouette: vec2<f32>,
-  rightSilhouette: vec2<f32>,
-  obstacleWidth: f32,
-  _padding1: f32,
-  _padding2: f32,
-  _padding3: f32,
-}
-
-// Shadow data uniform with all polygon silhouette info
-struct ShadowData {
-  waveDirection: vec2<f32>,
-  polygonCount: u32,
-  // Shadow texture viewport (matches render viewport)
-  shadowViewportLeft: f32,
-  shadowViewportTop: f32,
-  shadowViewportWidth: f32,
-  shadowViewportHeight: f32,
-  _padding: f32,
-  // Per-polygon data
-  polygons: array<PolygonShadowData, ${MAX_SHADOW_POLYGONS}>,
-}
-
 // Wave modification result
 struct WaveModification {
   energyFactor: f32,
@@ -130,8 +110,8 @@ struct WaveModification {
 @group(0) @binding(3) var outputTexture: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(4) var depthTexture: texture_2d<f32>;
 @group(0) @binding(5) var depthSampler: sampler;
-@group(0) @binding(6) var shadowTexture: texture_2d<u32>;
-@group(0) @binding(7) var<uniform> shadowData: ShadowData;
+@group(0) @binding(6) var shadowTexture: texture_2d<f32>;
+@group(0) @binding(7) var shadowSampler: sampler;
 
 // Simplex 3D Noise - for wave amplitude modulation
 ${SIMPLEX_NOISE_3D_WGSL}
@@ -156,48 +136,23 @@ fn sampleDepth(worldPos: vec2<f32>) -> f32 {
 // Shadow Texture Sampling
 // ============================================================================
 
-// Sample shadow texture to determine if a point is in shadow
-fn sampleShadowTexture(worldPos: vec2<f32>) -> u32 {
-  // Convert world position to shadow texture UV
-  let u = (worldPos.x - shadowData.shadowViewportLeft) / shadowData.shadowViewportWidth;
-  let v = (worldPos.y - shadowData.shadowViewportTop) / shadowData.shadowViewportHeight;
+// Sample shadow attenuation texture
+// Returns vec2<f32> with R=swell attenuation, G=chop attenuation
+// Values range from 0.0 (full shadow) to 1.0 (full energy)
+fn sampleShadowTexture(worldPos: vec2<f32>) -> vec2<f32> {
+  // Convert world position to shadow texture UV (viewport matches params viewport)
+  let u = (worldPos.x - params.viewportLeft) / params.viewportWidth;
+  let v = (worldPos.y - params.viewportTop) / params.viewportHeight;
 
-  // Bounds check - outside shadow texture is not in shadow
-  if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) {
-    return 0u;
-  }
+  // Sample shadow attenuation texture (rg16float format)
+  // Use linear filtering for smooth transitions
+  let attenuation = textureSampleLevel(shadowTexture, shadowSampler, vec2<f32>(u, v), 0.0);
 
-  // Convert UV to texel coordinates
-  let texSize = textureDimensions(shadowTexture);
-  let texCoord = vec2<i32>(vec2<f32>(u, v) * vec2<f32>(texSize));
-
-  // Sample shadow texture (r8uint format)
-  return textureLoad(shadowTexture, texCoord, 0).r;
+  return attenuation.rg;
 }
 
-// ============================================================================
-// Fresnel Diffraction Functions
-// ============================================================================
-
-// Compute Fresnel diffraction energy
-fn computeFresnelEnergy(
-  distanceToShadowBoundary: f32,
-  distanceBehindObstacle: f32,
-  wavelength: f32,
-) -> f32 {
-  let z = max(distanceBehindObstacle, 1.0);
-  let u = distanceToShadowBoundary * sqrt(2.0 / (wavelength * z));
-
-  if (u < -2.0) {
-    return 1.0;  // Fully illuminated
-  } else if (u > 4.0) {
-    return 0.0;  // Deep shadow
-  } else {
-    let t = u * ERF_APPROX_COEFF;
-    let erfApprox = tanh(t * 1.128);
-    return 0.5 * (1.0 - erfApprox);
-  }
-}
+// Fresnel diffraction is now pre-computed in the shadow texture
+// No runtime computation needed!
 
 // Green's Law shoaling factor
 fn computeShoalingFactor(waterDepth: f32, wavelength: f32) -> f32 {
@@ -234,73 +189,23 @@ fn computeShallowDamping(waterDepth: f32) -> f32 {
 }
 
 // ============================================================================
-// Wave Modification (Texture-Based Shadow Sampling)
+// Wave Modification (Pre-computed Shadow Sampling)
 // ============================================================================
 
 fn getWaveModification(worldPos: vec2<f32>, wavelength: f32) -> WaveModification {
   var result: WaveModification;
-  result.energyFactor = 1.0;
-  result.newDirection = shadowData.waveDirection;
+  result.newDirection = vec2<f32>(cos(params.waveSourceDirection), sin(params.waveSourceDirection));
 
-  // Sample shadow texture
-  let shadowSample = sampleShadowTexture(worldPos);
+  // Sample pre-computed shadow attenuation
+  let attenuation = sampleShadowTexture(worldPos);
 
-  // 0 = not in shadow, return full energy
-  if (shadowSample == 0u) {
-    return result;
-  }
-
-  // Get polygon index (shadow value is 1-based, so subtract 1)
-  let polygonIdx = shadowSample - 1u;
-  if (polygonIdx >= shadowData.polygonCount) {
-    return result;  // Invalid polygon index
-  }
-
-  let polygon = shadowData.polygons[polygonIdx];
-  let waveDir = shadowData.waveDirection;
-  let perpRight = vec2<f32>(waveDir.y, -waveDir.x);
-
-  // Compute distances to both shadow boundaries
-  let toPointFromLeft = worldPos - polygon.leftSilhouette;
-  let toPointFromRight = worldPos - polygon.rightSilhouette;
-
-  let distBehindLeft = dot(toPointFromLeft, waveDir);
-  let distBehindRight = dot(toPointFromRight, waveDir);
-  let distToLeftBoundary = abs(dot(toPointFromLeft, perpRight));
-  let distToRightBoundary = abs(dot(toPointFromRight, perpRight));
-
-  // Use the boundary with stronger diffraction contribution (closer boundary)
-  var distToBoundary: f32;
-  var distBehind: f32;
-  var silhouettePoint: vec2<f32>;
-
-  if (distToLeftBoundary < distToRightBoundary) {
-    distToBoundary = distToLeftBoundary;
-    distBehind = distBehindLeft;
-    silhouettePoint = polygon.leftSilhouette;
+  // Pick the right wavelength channel
+  // R channel = swell (long wavelength)
+  // G channel = chop (short wavelength)
+  if (wavelength > 100.0) {
+    result.energyFactor = attenuation.r;
   } else {
-    distToBoundary = distToRightBoundary;
-    distBehind = distBehindRight;
-    silhouettePoint = polygon.rightSilhouette;
-  }
-
-  // Compute Fresnel diffraction energy
-  let baseEnergy = computeFresnelEnergy(distToBoundary, max(distBehind, 0.0), wavelength);
-
-  // Shadow recovery: waves gradually return to full strength behind obstacle
-  let recoveryDist = polygon.obstacleWidth * polygon.obstacleWidth / wavelength;
-  let avgDistBehind = (distBehindLeft + distBehindRight) / 2.0;
-  let recoveryFactor = smoothstep(0.5 * recoveryDist, recoveryDist, avgDistBehind);
-
-  result.energyFactor = mix(baseEnergy, 1.0, recoveryFactor);
-
-  // Compute diffracted direction (Huygens principle)
-  let toPoint = worldPos - silhouettePoint;
-  let dist = length(toPoint);
-  if (dist > 1.0) {
-    let diffractedDir = normalize(toPoint);
-    // Blend from diffracted toward original as shadow recovers
-    result.newDirection = normalize(mix(diffractedDir, waveDir, recoveryFactor));
+    result.energyFactor = attenuation.g;
   }
 
   return result;

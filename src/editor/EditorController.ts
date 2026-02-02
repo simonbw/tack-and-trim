@@ -668,15 +668,7 @@ export class EditorController
       return;
     }
 
-    // B - Toggle debug render mode
-    if (key === "KeyB" && !modifier) {
-      this.debugRenderMode = !this.debugRenderMode;
-      // Update surface renderer debug mode
-      this.surfaceRenderer?.setRenderMode(this.debugRenderMode ? 1 : 0);
-      // Refresh terrain to apply/remove invalid contour filtering
-      this.onTerrainChanged();
-      return;
-    }
+    // B key removed - debug render mode functionality removed from SurfaceRenderer
   }
 
   private promptOpenFile(): void {

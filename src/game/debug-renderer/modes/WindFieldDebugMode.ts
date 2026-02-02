@@ -4,9 +4,11 @@
  * Shows wind triangles and modifier areas, reusing WorldSpaceWindVisualization.
  */
 
-import type { DebugRenderMode, DebugRenderContext } from "../DebugRenderMode";
+import type { GameEventMap } from "../../../core/entity/Entity";
+import { on } from "../../../core/entity/handler";
 import { WindInfo } from "../../world-data/wind/WindInfo";
 import { WorldSpaceWindVisualization } from "../../wind-visualization/WorldSpaceWindVisualization";
+import { DebugRenderMode } from "./DebugRenderMode";
 
 // Dim overlay
 const DIM_COLOR = 0x000000;
@@ -31,21 +33,20 @@ function radiansToCompass(radians: number): string {
   return directions[index];
 }
 
-export class WindFieldDebugMode implements DebugRenderMode {
-  id = "windField";
-  name = "Wind Field";
-
+export class WindFieldDebugMode extends DebugRenderMode {
+  layer = "windViz" as const;
   private worldSpaceViz = new WorldSpaceWindVisualization();
 
-  render(ctx: DebugRenderContext): void {
-    const wind = WindInfo.maybeFromGame(ctx.game);
+  @on("render")
+  onRender({ draw }: GameEventMap["render"]): void {
+    const wind = WindInfo.maybeFromGame(this.game);
     if (!wind) return;
 
-    const camera = ctx.game.camera;
+    const camera = this.game.camera;
     const viewport = camera.getWorldViewport();
 
     // Draw dim overlay
-    ctx.draw.fillRect(
+    draw.fillRect(
       viewport.left,
       viewport.top,
       viewport.width,
@@ -59,7 +60,7 @@ export class WindFieldDebugMode implements DebugRenderMode {
     // Draw modifier areas
     for (const modifier of wind.getModifiers()) {
       const aabb = modifier.getWindModifierAABB();
-      ctx.draw.fillRect(
+      draw.fillRect(
         aabb.minX,
         aabb.minY,
         aabb.maxX - aabb.minX,
@@ -72,16 +73,21 @@ export class WindFieldDebugMode implements DebugRenderMode {
     }
 
     // Delegate to world-space wind visualization
-    this.worldSpaceViz.draw(wind, viewport, camera, ctx.draw);
+    this.worldSpaceViz.draw(wind, viewport, camera, draw);
   }
 
-  getCursorInfo(ctx: DebugRenderContext): string | null {
-    if (!ctx.cursorWorldPos) return null;
+  getModeName(): string {
+    return "Wind Field";
+  }
 
-    const wind = WindInfo.maybeFromGame(ctx.game);
+  getCursorInfo(): string | null {
+    const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
+    if (!mouseWorldPos) return null;
+
+    const wind = WindInfo.maybeFromGame(this.game);
     if (!wind) return null;
 
-    const velocity = wind.getVelocityAtPoint(ctx.cursorWorldPos);
+    const velocity = wind.getVelocityAtPoint(mouseWorldPos);
     const speed = velocity.magnitude;
     const direction = velocity.angle;
 

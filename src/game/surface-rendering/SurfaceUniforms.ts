@@ -18,9 +18,9 @@ export const SurfaceUniforms = defineUniformStruct("Uniforms", {
   cameraMatrix: mat3x3,
   // Basic uniforms
   time: f32,
-  renderMode: f32, // shader uses f32 for this
   screenWidth: f32,
   screenHeight: f32,
+  _padding0: f32,
   viewportLeft: f32,
   viewportTop: f32,
   viewportWidth: f32,

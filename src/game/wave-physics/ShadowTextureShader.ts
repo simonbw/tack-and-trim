@@ -1,17 +1,21 @@
 /**
  * Shadow Texture Shader
  *
- * Simple vertex/fragment shader for rendering shadow polygons to a texture.
+ * Renders shadow polygons with pre-computed Fresnel diffraction to a texture.
  * - Vertex shader: transforms polygon vertices from world space to clip space
- * - Fragment shader: outputs polygon index as r8uint
+ * - Fragment shader: computes wave energy attenuation for each pixel
  *
- * This shader is used by ShadowTextureRenderer to create a binary shadow mask
- * where each pixel contains either 0 (not in shadow) or a polygon index (1+).
+ * This shader computes the diffraction pattern once and stores the result.
+ * The water shader then samples this pre-computed attenuation.
+ *
+ * Output format: rg16float
+ * - R channel: Swell wave attenuation (0.0 = full shadow, 1.0 = full energy)
+ * - G channel: Chop wave attenuation
  */
 
 /**
  * WGSL vertex shader code.
- * Transforms world-space polygon vertices to clip space based on viewport.
+ * Transforms world-space polygon vertices to clip space and passes world position through.
  */
 export const SHADOW_TEXTURE_VERTEX_SHADER = /*wgsl*/ `
 struct Uniforms {
@@ -22,6 +26,25 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var<storage, read> shadowData: ShadowData;
+
+// Per-polygon shadow data for Fresnel diffraction calculation
+struct PolygonShadowData {
+  leftSilhouette: vec2<f32>,
+  rightSilhouette: vec2<f32>,
+  obstacleWidth: f32,
+  _padding1: f32,
+  _padding2: f32,
+  _padding3: f32,
+}
+
+// Shadow data storage buffer
+struct ShadowData {
+  waveDirection: vec2<f32>,
+  polygonCount: u32,
+  _padding: u32,
+  polygons: array<PolygonShadowData>,
+}
 
 struct VertexInput {
   @location(0) position: vec2<f32>,
@@ -30,7 +53,8 @@ struct VertexInput {
 
 struct VertexOutput {
   @builtin(position) clipPosition: vec4<f32>,
-  @location(0) @interpolate(flat) polygonIndex: u32,
+  @location(0) worldPosition: vec2<f32>,
+  @location(1) @interpolate(flat) polygonIndex: u32,
 }
 
 @vertex
@@ -43,11 +67,11 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
   // Convert to clip space (-1 to 1)
   // Flip Y so texture is right-side-up relative to world coordinates
-  // (WebGPU clip Y=-1 is top, but we want low worldY at texture bottom)
   let clipX = normalizedX * 2.0 - 1.0;
   let clipY = 1.0 - normalizedY * 2.0;
 
   output.clipPosition = vec4<f32>(clipX, clipY, 0.0, 1.0);
+  output.worldPosition = input.position;
   output.polygonIndex = input.polygonIndex;
 
   return output;
@@ -56,17 +80,74 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 /**
  * WGSL fragment shader code.
- * Outputs the polygon index as an unsigned integer.
+ * Computes Fresnel diffraction energy attenuation for both swell and chop wavelengths.
  */
 export const SHADOW_TEXTURE_FRAGMENT_SHADER = /*wgsl*/ `
+const SWELL_WAVELENGTH: f32 = 200.0;
+const CHOP_WAVELENGTH: f32 = 30.0;
+const ERF_APPROX_COEFF: f32 = 0.7;
+
 struct FragmentInput {
-  @location(0) @interpolate(flat) polygonIndex: u32,
+  @location(0) worldPosition: vec2<f32>,
+  @location(1) @interpolate(flat) polygonIndex: u32,
+}
+
+// Compute Fresnel diffraction energy attenuation
+fn computeFresnelEnergy(
+  distanceToShadowBoundary: f32,
+  distanceBehindObstacle: f32,
+  wavelength: f32,
+) -> f32 {
+  let z = max(distanceBehindObstacle, 1.0);
+  let u = distanceToShadowBoundary * sqrt(2.0 / (wavelength * z));
+
+  if (u > 4.0) {
+    return 0.0;  // Deep shadow
+  } else {
+    let t = u * ERF_APPROX_COEFF;
+    let erfApprox = tanh(t * 1.128);
+    return 0.5 * (1.0 - erfApprox);
+  }
 }
 
 @fragment
-fn fs_main(input: FragmentInput) -> @location(0) u32 {
-  // Output polygon index + 1 (so 0 means "not in shadow")
-  return input.polygonIndex + 1u;
+fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
+  // Get polygon diffraction parameters
+  let polygon = shadowData.polygons[input.polygonIndex];
+  let waveDir = shadowData.waveDirection;
+  let perpRight = vec2<f32>(waveDir.y, -waveDir.x);
+
+  // Compute distances to both shadow boundaries
+  let toLeft = input.worldPosition - polygon.leftSilhouette;
+  let toRight = input.worldPosition - polygon.rightSilhouette;
+
+  let distToLeft = abs(dot(toLeft, perpRight));
+  let distToRight = abs(dot(toRight, perpRight));
+  let distBehindLeft = dot(toLeft, waveDir);
+  let distBehindRight = dot(toRight, waveDir);
+
+  // Use closer boundary for diffraction calculation
+  let distToBoundary = min(distToLeft, distToRight);
+  let distBehind = max((distBehindLeft + distBehindRight) * 0.5, 0.0);
+
+  // Compute Fresnel diffraction for both wavelength classes
+  let swellBase = computeFresnelEnergy(distToBoundary, distBehind, SWELL_WAVELENGTH);
+  let chopBase = computeFresnelEnergy(distToBoundary, distBehind, CHOP_WAVELENGTH);
+
+  // Shadow recovery: waves gradually return to full strength far behind obstacle
+  let swellRecoveryDist = polygon.obstacleWidth * polygon.obstacleWidth / SWELL_WAVELENGTH;
+  let chopRecoveryDist = polygon.obstacleWidth * polygon.obstacleWidth / CHOP_WAVELENGTH;
+
+  let swellRecovery = smoothstep(0.5 * swellRecoveryDist, swellRecoveryDist, distBehind);
+  let chopRecovery = smoothstep(0.5 * chopRecoveryDist, chopRecoveryDist, distBehind);
+
+  // Mix toward full energy at recovery distance
+  let swellAttenuation = mix(swellBase, 1.0, swellRecovery);
+  let chopAttenuation = mix(chopBase, 1.0, chopRecovery);
+
+  // Output energy attenuation factors
+  // R = swell, G = chop, BA unused
+  return vec4<f32>(swellAttenuation, chopAttenuation, 0.0, 1.0);
 }
 `;
 

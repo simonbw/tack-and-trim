@@ -18,7 +18,6 @@ import {
   type ShadowPolygonRenderData,
 } from "./ShadowGeometry";
 import { ShadowTextureRenderer } from "./ShadowTextureRenderer";
-import { computeAllSilhouettePoints } from "./SilhouetteComputation";
 import { MAX_SHADOW_POLYGONS } from "../world-data/water/webgpu/AnalyticalWaterStateShader";
 
 /** Shadow data buffer byte size: header (32 bytes) + polygons (MAX * 32 bytes each) */
@@ -46,9 +45,9 @@ export class WavePhysicsManager {
   /** Whether the manager has been initialized with terrain */
   private initialized = false;
 
-  /** Shadow texture dimensions */
-  private shadowTextureWidth = 256;
-  private shadowTextureHeight = 256;
+  /** Shadow texture dimensions - increase for better diffraction detail */
+  private shadowTextureWidth = 512;
+  private shadowTextureHeight = 512;
 
   constructor() {
     // Get the wave direction from WAVE_COMPONENTS (all waves share the same direction)
@@ -75,16 +74,10 @@ export class WavePhysicsManager {
       contourIndex: c.contourIndex,
     }));
 
-    // Find silhouette points using world-space wave direction
-    // (silhouette computation is purely geometric - finds where tangent is parallel to wave)
-    const silhouettePoints = computeAllSilhouettePoints(
-      coastlineData,
-      this.waveDirection,
-    );
-
-    // Build render-ready shadow polygons
+    // Build render-ready shadow polygons using edge-normal classification
+    // (no longer needs silhouette points - classifies edges directly)
     this.shadowPolygons = buildShadowPolygonsForRendering(
-      silhouettePoints,
+      [], // silhouettePoints parameter is deprecated
       coastlineData,
       this.waveDirection,
     );
@@ -96,11 +89,11 @@ export class WavePhysicsManager {
     );
     await this.shadowRenderer.init();
 
-    // Create shadow data uniform buffer
+    // Create shadow data storage buffer
     this.shadowDataBuffer = device.createBuffer({
       size: SHADOW_DATA_BUFFER_SIZE,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: "Shadow Data Uniform Buffer",
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      label: "Shadow Data Storage Buffer",
     });
 
     this.initialized = true;
@@ -124,11 +117,16 @@ export class WavePhysicsManager {
       return;
     }
 
-    // Render shadow polygons to texture (uses pre-computed polygon.vertices)
-    this.shadowRenderer.render(viewport, this.shadowPolygons);
-
     // Update shadow data uniform buffer
     this.updateShadowDataBuffer(viewport);
+
+    // Render shadow polygons to texture (uses pre-computed polygon.vertices)
+    // Pass shadow data buffer so shader can compute diffraction
+    this.shadowRenderer.render(
+      viewport,
+      this.shadowPolygons,
+      this.shadowDataBuffer,
+    );
   }
 
   /**

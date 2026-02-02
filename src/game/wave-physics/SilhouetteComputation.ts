@@ -1,6 +1,10 @@
 /**
  * Silhouette Computation
  *
+ * @deprecated This module is no longer used by the shadow system.
+ * Shadow polygons are now computed using edge-normal classification
+ * instead of silhouette points. See ShadowGeometry.ts for the new implementation.
+ *
  * Finds silhouette points on coastline splines for a given wave direction.
  * Silhouette points are where the spline tangent is parallel to the wave direction,
  * i.e., where cross(tangent, waveDir) = 0.
@@ -36,6 +40,7 @@ export interface SilhouettePoint {
 /**
  * Compute silhouette points for a single coastline contour.
  *
+ * @deprecated Use edge-normal classification in ShadowGeometry.ts instead.
  * @param contour - The coastline contour
  * @param contourIndex - Index of this contour in the terrain definition
  * @param waveDir - Normalized wave direction vector (direction waves are traveling)
@@ -138,6 +143,7 @@ export function computeSilhouettePoints(
 /**
  * Compute all silhouette points for all coastlines.
  *
+ * @deprecated Use edge-normal classification in ShadowGeometry.ts instead.
  * @param coastlines - Array of coastline contours with their indices
  * @param waveDir - Normalized wave direction vector
  * @returns Array of all silhouette points, sorted by contour index
@@ -219,6 +225,8 @@ function solveQuadratic(a: number, b: number, c: number): number[] {
 /**
  * Group silhouette points by contour and order them along the contour perimeter.
  * This is useful for building shadow polygons.
+ *
+ * @deprecated Use edge-normal classification in ShadowGeometry.ts instead.
  */
 export function groupSilhouettePointsByContour(
   points: SilhouettePoint[],

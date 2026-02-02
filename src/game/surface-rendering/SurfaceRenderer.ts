@@ -18,7 +18,6 @@ import { type UniformInstance } from "../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { TimeOfDay } from "../time/TimeOfDay";
 import { InfluenceFieldManager } from "../world-data/influence/InfluenceFieldManager";
-import { getTerrainHeightColor } from "../world-data/terrain/TerrainColors";
 import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
 import { WAVE_COMPONENTS } from "../world-data/water/WaterConstants";
 import { WaterInfo, type Viewport } from "../world-data/water/WaterInfo";
@@ -71,7 +70,6 @@ export class SurfaceRenderer extends BaseEntity {
   private waterPipeline: AnalyticalWaterRenderPipeline | null = null;
   private terrainPipeline: TerrainRenderPipeline;
   private wetnessPipeline: WetnessRenderPipeline;
-  private renderMode = 0;
   private initialized = false;
 
   // Track terrain version to avoid redundant GPU buffer updates
@@ -287,24 +285,37 @@ export class SurfaceRenderer extends BaseEntity {
       addressModeV: "clamp-to-edge",
     });
 
-    // Get shadow texture and data buffer from WavePhysicsManager
+    // Get shadow texture from WavePhysicsManager
     const shadowTextureView = wavePhysicsManager.getShadowTextureView();
-    const shadowDataBuffer = wavePhysicsManager.getShadowDataBuffer();
-    if (!shadowTextureView || !shadowDataBuffer) {
+    if (!shadowTextureView) {
+      console.warn(
+        "[SurfaceRenderer] No shadow texture view from WavePhysicsManager",
+      );
       return false;
     }
+
+    // Create shadow texture sampler
+    const shadowSampler = device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
 
     const config: AnalyticalRenderConfig = {
       depthTexture,
       depthSampler,
       depthGridConfig,
       shadowTextureView,
-      shadowDataBuffer,
+      shadowSampler,
       waveSourceDirection: WAVE_COMPONENTS[0][2], // First wave's direction
     };
 
     this.waterPipeline.setAnalyticalConfig(config);
     this.influenceConfigured = true;
+    console.log(
+      "[SurfaceRenderer] Analytical water pipeline configured with shadow texture",
+    );
     return true;
   }
 
@@ -338,11 +349,6 @@ export class SurfaceRenderer extends BaseEntity {
   private setTime(time: number): void {
     if (!this.uniforms) return;
     this.uniforms.set.time(time);
-  }
-
-  private setRenderModeUniform(mode: number): void {
-    if (!this.uniforms) return;
-    this.uniforms.set.renderMode(mode);
   }
 
   private setScreenSize(width: number, height: number): void {
@@ -541,7 +547,6 @@ export class SurfaceRenderer extends BaseEntity {
       snappedWetnessViewport.width,
       snappedWetnessViewport.height,
     );
-    this.setRenderModeUniform(this.renderMode);
 
     // Get inverse camera matrix for screen-to-world transform
     const cameraMatrix = camera.getMatrix().clone().invert();
@@ -558,40 +563,6 @@ export class SurfaceRenderer extends BaseEntity {
       terrainTextureView,
       wetnessTextureView,
     );
-
-    // Draw terrain contour lines in debug mode
-    if (this.renderMode === 1 && terrainInfo) {
-      const contours = terrainInfo.getContours();
-      for (const contour of contours) {
-        // First pass: white outline for visibility
-        draw.strokeSmoothPolygon([...contour.controlPoints], {
-          color: 0xffffff,
-          width: contour.height === 0 ? 3 : 2,
-          alpha: 0.9,
-        });
-
-        // Second pass: thinner colored line on top using shared color function
-        // Sea level (height 0) uses black for contrast on white outline
-        const color =
-          contour.height === 0
-            ? 0x000000
-            : getTerrainHeightColor(contour.height);
-
-        draw.strokeSmoothPolygon([...contour.controlPoints], {
-          color,
-          width: contour.height === 0 ? 1.5 : 1,
-          alpha: 1,
-        });
-      }
-    }
-  }
-
-  setRenderMode(mode: number): void {
-    this.renderMode = mode;
-  }
-
-  getRenderMode(): number {
-    return this.renderMode;
   }
 
   @on("destroy")

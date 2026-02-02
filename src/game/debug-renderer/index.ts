@@ -1,2 +1,2 @@
 export { DebugRenderer } from "./DebugRenderer";
-export type { DebugRenderMode, DebugRenderContext } from "./DebugRenderMode";
+export { DebugRenderMode } from "./modes/DebugRenderMode";

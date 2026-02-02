@@ -12,13 +12,14 @@
  */
 
 import { V, V2d } from "../../core/Vector";
-import { catmullRomPoint } from "../../core/util/Spline";
+import { catmullRomPoint, sampleClosedSpline } from "../../core/util/Spline";
 import type { TerrainContour } from "../world-data/terrain/LandMass";
 import type { AABB } from "./CoastlineManager";
 import {
-  type SilhouettePoint,
   groupSilhouettePointsByContour,
+  type SilhouettePoint,
 } from "./SilhouetteComputation";
+import { MAX_SHADOW_POLYGONS } from "../world-data/water/webgpu/AnalyticalWaterStateShader";
 
 /**
  * Simplified shadow polygon data for GPU rendering and uniform buffers.
@@ -100,6 +101,12 @@ const SHADOW_EXTEND_DISTANCE = 50000;
 
 /** Number of coastline sample points per shadow polygon */
 export const COASTLINE_POLYGON_SAMPLES = 32;
+
+/** Epsilon for floating point comparisons */
+const EPSILON = 1e-6;
+
+/** Minimum obstacle width to create a shadow (2 feet) */
+const MIN_OBSTACLE_WIDTH = 2.0;
 
 /**
  * Sample a point on the spline at the given parameter value.
@@ -237,6 +244,296 @@ function sampleLeewardCoastlineArc(
   const goBackward = backwardDot > forwardDot;
 
   return sampleArc(contour, rightParam, leftParam, goBackward);
+}
+
+/**
+ * Shadow region - a contiguous run of shadow-casting edges.
+ */
+interface ShadowRegion {
+  /** First shadow-casting vertex index */
+  startIndex: number;
+  /** Last shadow-casting vertex index */
+  endIndex: number;
+  /** Number of edges in this region */
+  edgeCount: number;
+}
+
+/**
+ * Classify each edge in a polygon as lit or shadow-casting based on wave direction.
+ * An edge casts a shadow if its outward normal points in the wave direction.
+ *
+ * @param polygon - Closed polygon vertices (CCW winding)
+ * @param waveDir - Normalized wave direction
+ * @returns Boolean array where true = shadow-casting edge
+ */
+function classifyEdges(polygon: V2d[], waveDir: V2d): boolean[] {
+  const result: boolean[] = [];
+
+  for (let i = 0; i < polygon.length; i++) {
+    const p1 = polygon[i];
+    const p2 = polygon[(i + 1) % polygon.length];
+
+    // Compute edge vector
+    const edge = p2.sub(p1);
+
+    // Compute outward normal (90° clockwise rotation for CCW polygon)
+    const normal = V(edge.y, -edge.x);
+
+    // Edge casts shadow if normal points with wave direction (away from wave source)
+    const isShadowCasting = normal.dot(waveDir) > EPSILON;
+    result.push(isShadowCasting);
+  }
+
+  return result;
+}
+
+/**
+ * Find contiguous runs of shadow-casting edges in the edge classification array.
+ *
+ * @param isShadowEdge - Boolean array from classifyEdges()
+ * @returns Array of shadow regions
+ */
+function findShadowRegions(isShadowEdge: boolean[]): ShadowRegion[] {
+  if (isShadowEdge.length < 2) return [];
+
+  const regions: ShadowRegion[] = [];
+  let inRegion = false;
+  let startIndex = -1;
+  let edgeCount = 0;
+
+  // First pass: find all regions not including wraparound
+  for (let i = 0; i < isShadowEdge.length; i++) {
+    if (isShadowEdge[i]) {
+      if (!inRegion) {
+        // Start new region
+        startIndex = i;
+        edgeCount = 1;
+        inRegion = true;
+      } else {
+        // Continue region
+        edgeCount++;
+      }
+    } else {
+      if (inRegion) {
+        // End region
+        regions.push({
+          startIndex,
+          endIndex: i, // endIndex is the first vertex of the last edge
+          edgeCount,
+        });
+        inRegion = false;
+      }
+    }
+  }
+
+  // Handle case where region extends to end of array
+  if (inRegion) {
+    // Check for wraparound - if first edge is also shadow-casting
+    if (isShadowEdge[0]) {
+      // Find where the region at the start ends
+      let wrapEndIndex = 0;
+      let wrapEdgeCount = 0;
+      for (let i = 0; i < isShadowEdge.length; i++) {
+        if (isShadowEdge[i]) {
+          wrapEndIndex = i;
+          wrapEdgeCount++;
+        } else {
+          break;
+        }
+      }
+
+      // Merge wraparound region
+      regions.push({
+        startIndex,
+        endIndex: wrapEndIndex,
+        edgeCount: edgeCount + wrapEdgeCount,
+      });
+    } else {
+      // No wraparound, just close the region
+      regions.push({
+        startIndex,
+        endIndex: isShadowEdge.length - 1,
+        edgeCount,
+      });
+    }
+  } else if (isShadowEdge[0]) {
+    // There's a region at the start that wasn't part of a wraparound
+    // (this happens when there's a gap before the last region)
+    let endIndex = 0;
+    let edgeCount = 0;
+    for (let i = 0; i < isShadowEdge.length; i++) {
+      if (isShadowEdge[i]) {
+        endIndex = i;
+        edgeCount++;
+      } else {
+        break;
+      }
+    }
+    regions.push({
+      startIndex: 0,
+      endIndex,
+      edgeCount,
+    });
+  }
+
+  return regions;
+}
+
+/**
+ * Compute obstacle width for a shadow region.
+ *
+ * @param region - Shadow region
+ * @param polygon - Polygon vertices
+ * @param waveDir - Wave direction
+ * @returns Obstacle width (perpendicular span)
+ */
+function computeRegionObstacleWidth(
+  region: ShadowRegion,
+  polygon: V2d[],
+  waveDir: V2d,
+): number {
+  const leftSilhouette = polygon[region.endIndex];
+  const rightSilhouette = polygon[region.startIndex];
+
+  // Perpendicular axis (90° clockwise from wave)
+  const perpRight = V(waveDir.y, -waveDir.x);
+
+  const leftProj = leftSilhouette.dot(perpRight);
+  const rightProj = rightSilhouette.dot(perpRight);
+
+  return Math.abs(rightProj - leftProj);
+}
+
+/**
+ * Resample vertices from a polygon between two indices to exactly targetCount points.
+ *
+ * @param polygon - Source polygon
+ * @param startIndex - Start index (inclusive)
+ * @param endIndex - End index (inclusive)
+ * @param targetCount - Number of output points
+ * @returns Resampled points
+ */
+function resampleArc(
+  polygon: V2d[],
+  startIndex: number,
+  endIndex: number,
+  targetCount: number,
+): V2d[] {
+  // Extract arc vertices (handle wraparound)
+  const arcVertices: V2d[] = [];
+  let idx = startIndex;
+  while (true) {
+    arcVertices.push(polygon[idx]);
+    if (idx === endIndex) break;
+    idx = (idx + 1) % polygon.length;
+  }
+
+  if (arcVertices.length <= 1) {
+    // Degenerate arc
+    return Array(targetCount).fill(arcVertices[0] || V(0, 0));
+  }
+
+  // Compute cumulative arc lengths
+  const arcLengths = [0];
+  for (let i = 1; i < arcVertices.length; i++) {
+    const dist = arcVertices[i].sub(arcVertices[i - 1]).magnitude;
+    arcLengths.push(arcLengths[i - 1] + dist);
+  }
+
+  const totalLength = arcLengths[arcLengths.length - 1];
+  if (totalLength < EPSILON) {
+    // Zero-length arc
+    return Array(targetCount).fill(arcVertices[0]);
+  }
+
+  // Resample to targetCount points
+  const result: V2d[] = [];
+  for (let i = 0; i < targetCount; i++) {
+    const fraction = i / (targetCount - 1);
+    const targetLength = fraction * totalLength;
+
+    // Find segment containing this length
+    let segIdx = 0;
+    for (let j = 1; j < arcLengths.length; j++) {
+      if (arcLengths[j] >= targetLength) {
+        segIdx = j - 1;
+        break;
+      }
+    }
+
+    // Interpolate within segment
+    const segStart = arcLengths[segIdx];
+    const segEnd = arcLengths[segIdx + 1];
+    const segFraction =
+      segEnd > segStart ? (targetLength - segStart) / (segEnd - segStart) : 0;
+
+    const p1 = arcVertices[segIdx];
+    const p2 = arcVertices[segIdx + 1];
+    result.push(
+      V(p1.x + (p2.x - p1.x) * segFraction, p1.y + (p2.y - p1.y) * segFraction),
+    );
+  }
+
+  return result;
+}
+
+/**
+ * Build a shadow polygon from a shadow region.
+ *
+ * @param region - Shadow region
+ * @param polygon - Polygon vertices
+ * @param waveDir - Wave direction
+ * @param contourIndex - Source contour index
+ * @param polygonIndex - Global polygon index
+ * @returns Shadow polygon render data
+ */
+function buildShadowPolygonFromRegion(
+  region: ShadowRegion,
+  polygon: V2d[],
+  waveDir: V2d,
+  contourIndex: number,
+  polygonIndex: number,
+): ShadowPolygonRenderData {
+  // Extract silhouette points (right = start, left = end by convention)
+  const rightSilhouette = polygon[region.startIndex];
+  const leftSilhouette = polygon[region.endIndex];
+
+  // Resample coastline arc to exactly 32 points
+  const coastlineVertices = resampleArc(
+    polygon,
+    region.startIndex,
+    region.endIndex,
+    COASTLINE_POLYGON_SAMPLES,
+  );
+
+  // Compute obstacle width
+  const perpRight = V(waveDir.y, -waveDir.x);
+  const leftProj = leftSilhouette.dot(perpRight);
+  const rightProj = rightSilhouette.dot(perpRight);
+  const obstacleWidth = Math.abs(rightProj - leftProj);
+
+  // Build polygon vertices (CCW order)
+  const extendedLeft = leftSilhouette.add(waveDir.mul(SHADOW_EXTEND_DISTANCE));
+  const extendedRight = rightSilhouette.add(
+    waveDir.mul(SHADOW_EXTEND_DISTANCE),
+  );
+
+  const vertices: V2d[] = [
+    rightSilhouette,
+    ...coastlineVertices.slice(1), // Skip first (same as rightSilhouette)
+    extendedLeft,
+    extendedRight,
+  ];
+
+  return {
+    vertices,
+    coastlineVertices,
+    polygonIndex,
+    leftSilhouette,
+    rightSilhouette,
+    obstacleWidth,
+    contourIndex,
+  };
 }
 
 /**
@@ -491,7 +788,10 @@ export function distanceBehindSilhouette(
  * 1. Rasterized to a shadow texture (using vertices)
  * 2. Used for distance calculations in the shader (using silhouette points)
  *
- * @param silhouettePoints - All silhouette points for this wave direction
+ * Uses edge-normal classification to find multiple shadow regions per island.
+ * Each contiguous run of shadow-casting edges creates a separate shadow polygon.
+ *
+ * @param silhouettePoints - DEPRECATED - no longer used
  * @param contours - Array of coastline contours
  * @param waveDir - Normalized wave direction in world space
  * @returns Array of render-ready shadow polygon data
@@ -501,85 +801,44 @@ export function buildShadowPolygonsForRendering(
   contours: { contour: TerrainContour; contourIndex: number }[],
   waveDir: V2d,
 ): ShadowPolygonRenderData[] {
-  const polygons: ShadowPolygonRenderData[] = [];
+  const allPolygons: ShadowPolygonRenderData[] = [];
 
-  // Group silhouette points by contour
-  const pointsByContour = groupSilhouettePointsByContour(silhouettePoints);
-
-  // Build contour lookup map
-  const contourMap = new Map<number, TerrainContour>();
   for (const { contour, contourIndex } of contours) {
-    contourMap.set(contourIndex, contour);
-  }
+    // Sample contour to dense polygon
+    const polygon = sampleClosedSpline(contour.controlPoints, 32);
 
-  // For each contour, find the extremal silhouette points to create ONE shadow
-  let polygonIndex = 0;
-  for (const [contourIndex, points] of pointsByContour) {
-    const contour = contourMap.get(contourIndex);
-    if (!contour || points.length < 2) continue;
+    if (polygon.length < 3) continue;
 
-    // Find the leftmost and rightmost silhouette points perpendicular to wave direction
-    let leftPoint: SilhouettePoint | null = null;
-    let rightPoint: SilhouettePoint | null = null;
-    let minRotatedX = Infinity;
-    let maxRotatedX = -Infinity;
+    // Classify edges as lit or shadow-casting
+    const isShadowEdge = classifyEdges(polygon, waveDir);
 
-    for (const point of points) {
-      const rotatedX =
-        point.position.x * waveDir.y - point.position.y * waveDir.x;
+    // Find contiguous shadow regions
+    const regions = findShadowRegions(isShadowEdge);
 
-      if (rotatedX < minRotatedX) {
-        minRotatedX = rotatedX;
-        leftPoint = point;
-      }
-      if (rotatedX > maxRotatedX) {
-        maxRotatedX = rotatedX;
-        rightPoint = point;
-      }
+    if (regions.length === 0) continue;
+
+    // Build shadow polygons, skipping tiny regions
+    for (const region of regions) {
+      // Check width before building polygon
+      const width = computeRegionObstacleWidth(region, polygon, waveDir);
+      if (width < MIN_OBSTACLE_WIDTH) continue;
+
+      const shadowPolygon = buildShadowPolygonFromRegion(
+        region,
+        polygon,
+        waveDir,
+        contourIndex,
+        allPolygons.length,
+      );
+      allPolygons.push(shadowPolygon);
+
+      // Stop if we've hit the global limit
+      if (allPolygons.length >= MAX_SHADOW_POLYGONS) break;
     }
 
-    if (!leftPoint || !rightPoint || leftPoint === rightPoint) continue;
-
-    // Compute obstacle width (perpendicular span of the island)
-    const obstacleWidth = maxRotatedX - minRotatedX;
-
-    // Sample coastline points along the leeward arc (shadow-facing side)
-    // coastlineVertices goes from rightPoint to leftPoint
-    const coastlineVertices = sampleLeewardCoastlineArc(
-      contour,
-      rightPoint,
-      leftPoint,
-      waveDir,
-    );
-
-    // Build the complete polygon vertices for rasterization (CCW winding)
-    // Order: rightSilhouette -> coastline (right to left) -> extendedLeft -> extendedRight
-    const extendedLeft = leftPoint.position.add(
-      waveDir.mul(SHADOW_EXTEND_DISTANCE),
-    );
-    const extendedRight = rightPoint.position.add(
-      waveDir.mul(SHADOW_EXTEND_DISTANCE),
-    );
-
-    const vertices: V2d[] = [
-      rightPoint.position,
-      ...coastlineVertices.slice(1), // Skip first (same as rightPoint), include all to leftPoint
-      extendedLeft,
-      extendedRight,
-    ];
-
-    polygons.push({
-      vertices,
-      coastlineVertices,
-      polygonIndex,
-      leftSilhouette: leftPoint.position,
-      rightSilhouette: rightPoint.position,
-      obstacleWidth,
-      contourIndex,
-    });
-
-    polygonIndex++;
+    // Early exit if we've hit the limit
+    if (allPolygons.length >= MAX_SHADOW_POLYGONS) break;
   }
 
-  return polygons;
+  return allPolygons;
 }

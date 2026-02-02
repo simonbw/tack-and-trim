@@ -37,6 +37,7 @@ export class ShadowTextureRenderer {
   private renderPipeline: GPURenderPipeline | null = null;
   private vertexBuffer: GPUBuffer | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private shadowDataBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
 
@@ -60,13 +61,14 @@ export class ShadowTextureRenderer {
 
     const device = getWebGPU().device;
 
-    // Create shadow mask texture (r8uint format)
+    // Create shadow attenuation texture (rg16float format)
+    // R = swell wave attenuation, G = chop wave attenuation
     this.texture = device.createTexture({
       size: { width: this.textureWidth, height: this.textureHeight },
-      format: "r8uint",
+      format: "rg16float",
       usage:
         GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-      label: "Shadow Mask Texture",
+      label: "Shadow Attenuation Texture",
     });
     this.textureView = this.texture.createView();
 
@@ -92,20 +94,13 @@ export class ShadowTextureRenderer {
           visibility: GPUShaderStage.VERTEX,
           buffer: { type: "uniform" },
         },
-      ],
-      label: "Shadow Texture Bind Group Layout",
-    });
-
-    // Create bind group
-    this.bindGroup = device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [
         {
-          binding: 0,
-          resource: { buffer: this.uniformBuffer },
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: "read-only-storage" },
         },
       ],
-      label: "Shadow Texture Bind Group",
+      label: "Shadow Texture Bind Group Layout",
     });
 
     // Create shader module
@@ -151,7 +146,19 @@ export class ShadowTextureRenderer {
         entryPoint: "fs_main",
         targets: [
           {
-            format: "r8uint",
+            format: "rg16float",
+            blend: {
+              color: {
+                operation: "min",
+                srcFactor: "one",
+                dstFactor: "one",
+              },
+              alpha: {
+                operation: "min",
+                srcFactor: "one",
+                dstFactor: "one",
+              },
+            },
           },
         ],
       },
@@ -170,14 +177,19 @@ export class ShadowTextureRenderer {
    *
    * @param viewport - The viewport to render shadows for
    * @param polygons - Shadow polygon data from WavePhysicsManager (pre-computed vertices)
+   * @param shadowDataBuffer - GPU buffer containing shadow polygon parameters
    */
-  render(viewport: Viewport, polygons: ShadowPolygonRenderData[]): void {
+  render(
+    viewport: Viewport,
+    polygons: ShadowPolygonRenderData[],
+    shadowDataBuffer: GPUBuffer,
+  ): void {
     if (
       !this.initialized ||
       !this.renderPipeline ||
       !this.vertexBuffer ||
       !this.uniformBuffer ||
-      !this.bindGroup ||
+      !this.bindGroupLayout ||
       !this.texture ||
       !this.textureView
     ) {
@@ -185,6 +197,31 @@ export class ShadowTextureRenderer {
     }
 
     const device = getWebGPU().device;
+
+    // Update shadow data buffer reference if changed
+    if (this.shadowDataBuffer !== shadowDataBuffer) {
+      this.shadowDataBuffer = shadowDataBuffer;
+
+      // Recreate bind group with new shadow data buffer
+      this.bindGroup = device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries: [
+          {
+            binding: 0,
+            resource: { buffer: this.uniformBuffer },
+          },
+          {
+            binding: 1,
+            resource: { buffer: this.shadowDataBuffer },
+          },
+        ],
+        label: "Shadow Texture Bind Group",
+      });
+    }
+
+    if (!this.bindGroup) {
+      return;
+    }
 
     // Update uniform buffer with viewport
     const uniformData = new Float32Array([
@@ -223,14 +260,14 @@ export class ShadowTextureRenderer {
       label: "Shadow Texture Render Encoder",
     });
 
-    // Begin render pass that clears to 0 and renders shadow polygons
+    // Begin render pass that clears to full energy (1.0) and renders shadow polygons
     const renderPass = commandEncoder.beginRenderPass({
       colorAttachments: [
         {
           view: this.textureView,
           loadOp: "clear",
           storeOp: "store",
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          clearValue: { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
         },
       ],
       label: "Shadow Texture Render Pass",
@@ -277,10 +314,10 @@ export class ShadowTextureRenderer {
         const v0 = polyVerts[indices[i]];
         const v1 = polyVerts[indices[i + 1]];
         const v2 = polyVerts[indices[i + 2]];
-        // Store polygon index + 1 so that 0 means "no shadow"
-        vertices.push(v0.x, v0.y, polygonIndex + 1);
-        vertices.push(v1.x, v1.y, polygonIndex + 1);
-        vertices.push(v2.x, v2.y, polygonIndex + 1);
+        // Store polygon index directly (used to index into shadow data buffer)
+        vertices.push(v0.x, v0.y, polygonIndex);
+        vertices.push(v1.x, v1.y, polygonIndex);
+        vertices.push(v2.x, v2.y, polygonIndex);
       }
     }
 
@@ -288,7 +325,7 @@ export class ShadowTextureRenderer {
   }
 
   /**
-   * Clear the shadow texture to 0 (no shadows).
+   * Clear the shadow texture to full energy (no shadows).
    */
   private clearTexture(): void {
     if (!this.texture || !this.textureView || !this.renderPipeline) {
@@ -306,7 +343,7 @@ export class ShadowTextureRenderer {
           view: this.textureView,
           loadOp: "clear",
           storeOp: "store",
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          clearValue: { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
         },
       ],
       label: "Shadow Texture Clear Pass",

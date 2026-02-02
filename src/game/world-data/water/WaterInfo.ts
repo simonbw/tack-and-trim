@@ -351,11 +351,20 @@ export class WaterInfo extends BaseEntity {
     // If we have a config and shadow resources, set them on the compute
     if (this.analyticalConfig && this.wavePhysicsManager) {
       const shadowTextureView = this.wavePhysicsManager.getShadowTextureView();
-      const shadowDataBuffer = this.wavePhysicsManager.getShadowDataBuffer();
 
-      if (shadowTextureView && shadowDataBuffer) {
+      if (shadowTextureView) {
+        // Create sampler for shadow attenuation texture
+        const device = getWebGPU().device;
+        const shadowSampler = device.createSampler({
+          magFilter: "linear",
+          minFilter: "linear",
+          addressModeU: "clamp-to-edge",
+          addressModeV: "clamp-to-edge",
+          label: "Shadow Texture Sampler",
+        });
+
         compute.setConfig(this.analyticalConfig);
-        compute.setShadowResources({ shadowTextureView, shadowDataBuffer });
+        compute.setShadowResources({ shadowTextureView, shadowSampler });
         this.configuredComputes.add(compute);
       }
     }

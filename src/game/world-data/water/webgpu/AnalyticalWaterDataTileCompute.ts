@@ -45,7 +45,7 @@ export interface AnalyticalWaterConfig {
  */
 export interface ShadowResources {
   shadowTextureView: GPUTextureView;
-  shadowDataBuffer: GPUBuffer;
+  shadowSampler: GPUSampler;
 }
 
 /**
@@ -135,7 +135,7 @@ export class AnalyticalWaterDataTileCompute implements DataTileCompute {
       return;
     }
 
-    // Create bind group with shadow texture and data buffer
+    // Create bind group with shadow texture and sampler
     this.bindGroup = this.shader.createBindGroup({
       params: { buffer: this.paramsBuffer },
       waveData: { buffer: this.buffers.waveDataBuffer },
@@ -144,7 +144,7 @@ export class AnalyticalWaterDataTileCompute implements DataTileCompute {
       depthTexture: this.config.depthTexture.createView({ dimension: "2d" }),
       depthSampler: this.config.depthSampler,
       shadowTexture: this.shadowResources.shadowTextureView,
-      shadowData: { buffer: this.shadowResources.shadowDataBuffer },
+      shadowSampler: this.shadowResources.shadowSampler,
     });
   }
 
