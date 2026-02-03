@@ -16,6 +16,7 @@ import { InfluenceFieldManager } from "./world-data/influence/InfluenceFieldMana
 import { TerrainInfo } from "./world-data/terrain/TerrainInfo";
 import { WaterInfo } from "./world-data/water/WaterInfo";
 import { WindInfo } from "./world-data/wind/WindInfo";
+import { TerrainResources } from "./world/terrain/TerrainResources";
 
 const MENU_ZOOM = 2; // Wide shot for menu
 const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
@@ -32,6 +33,7 @@ export class GameController extends BaseEntity {
     // 1. Load terrain from bundled JSON resource
     const terrainDefinition = loadDefaultTerrain();
     this.game.addEntity(new TerrainInfo(terrainDefinition.contours));
+    this.game.addEntity(new TerrainResources(terrainDefinition));
 
     // 2. Influence fields (depends on terrain, starts async computation)
     this.game.addEntity(new InfluenceFieldManager());

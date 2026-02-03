@@ -3,8 +3,10 @@ import type Entity from "../../../core/entity/Entity";
 import { BaseQuery } from "./BaseQuery";
 import { QueryManager, type ResultLayout } from "./QueryManager";
 import { TerrainQueryShader } from "../terrain/TerrainQueryShader";
+import { TerrainResources } from "../terrain/TerrainResources";
 import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { DEFAULT_DEPTH } from "../../world-data/terrain/TerrainConstants";
 
 /**
  * Terrain type enum (placeholder until real TerrainType is available)
@@ -89,7 +91,7 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
     const device = getWebGPU().device;
     this.uniformBuffer = device.createBuffer({
       label: "Terrain Query Uniform Buffer",
-      size: 8, // pointCount (u32) + padding (f32) = 8 bytes
+      size: 16, // pointCount (u32) + contourCount (u32) + defaultDepth (f32) + padding (f32) = 16 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
@@ -130,17 +132,25 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
 
     const device = getWebGPU().device;
 
-    // Update uniform buffer
-    const uniformData = new Float32Array(2);
-    uniformData[0] = pointCount;
-    uniformData[1] = 0; // padding
+    // Get terrain resources
+    const terrainResources = this.game.entities.getSingleton(TerrainResources);
+
+    // Update uniform buffer with query parameters
+    const uniformData = new Float32Array(4);
+    uniformData[0] = pointCount; // u32 pointCount
+    uniformData[1] = terrainResources.getContourCount(); // u32 contourCount
+    uniformData[2] = DEFAULT_DEPTH; // f32 defaultDepth
+    uniformData[3] = 0; // f32 padding
     device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
 
-    // Create bind group
+    // Create bind group with terrain buffers
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
+      controlPoints: { buffer: terrainResources.controlPointsBuffer },
+      contours: { buffer: terrainResources.contourBuffer },
+      children: { buffer: terrainResources.childrenBuffer },
     });
 
     // Dispatch compute shader

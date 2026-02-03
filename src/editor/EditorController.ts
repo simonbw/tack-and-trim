@@ -12,6 +12,7 @@ import { on } from "../core/entity/handler";
 import { Game } from "../core/Game";
 import { createContour } from "../game/world-data/terrain/LandMass";
 import { TerrainInfo } from "../game/world-data/terrain/TerrainInfo";
+import { TerrainResources } from "../game/world/terrain/TerrainResources";
 import { V, V2d } from "../core/Vector";
 import { ContourEditor } from "./ContourEditor";
 import { ContourRenderer } from "./ContourRenderer";
@@ -151,6 +152,11 @@ export class EditorController
     // Create TerrainInfo for rendering (without InfluenceFieldManager)
     this.terrainInfo = this.game.addEntity(
       new TerrainInfo(this.getTerrainContours()),
+    );
+
+    // Create TerrainResources for GPU queries
+    this.game.addEntity(
+      new TerrainResources(this.document.getTerrainDefinition()),
     );
 
     // Add WaterInfo for wave simulation (uses fallback influence - uniform waves)
