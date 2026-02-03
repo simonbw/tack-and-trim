@@ -17,7 +17,6 @@ import type { Matrix3 } from "../../core/graphics/Matrix3";
 import { type UniformInstance } from "../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { TimeOfDay } from "../time/TimeOfDay";
-import { InfluenceFieldManager } from "../world-data/influence/InfluenceFieldManager";
 import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
 import { WAVE_COMPONENTS } from "../world-data/water/WaterConstants";
 import { WaterInfo, type Viewport } from "../world-data/water/WaterInfo";
@@ -103,8 +102,8 @@ export class SurfaceRenderer extends BaseEntity {
   private placeholderWetnessTexture: GPUTexture | null = null;
   private placeholderWetnessView: GPUTextureView | null = null;
 
-  // Track if influence textures have been configured
-  private influenceConfigured = false;
+  // Track if water pipeline has been configured with shadow resources
+  private waterPipelineConfigured = false;
 
   // Configuration
   private config: Required<SurfaceRendererConfig>;
@@ -242,18 +241,12 @@ export class SurfaceRenderer extends BaseEntity {
     this.ensureInitialized();
   }
 
-  @on("influenceFieldsReady")
-  onInfluenceFieldsReady() {
-    // Reset flag so textures get reconfigured with new influence data
-    this.influenceConfigured = false;
-  }
-
   /**
-   * Try to configure depth texture and shadow buffers on the water pipeline.
+   * Try to configure shadow resources on the water pipeline.
    * Returns true if configured, false if not yet available.
    */
   private tryConfigureWaterPipeline(): boolean {
-    if (this.influenceConfigured) return true;
+    if (this.waterPipelineConfigured) return true;
     if (!this.waterPipeline) return false;
 
     // Get WaterInfo and its WavePhysicsManager
@@ -265,36 +258,13 @@ export class SurfaceRenderer extends BaseEntity {
       return false;
     }
 
-    // Get depth texture from InfluenceFieldManager
-    const influenceManager = this.game.entities.tryGetSingleton(
-      InfluenceFieldManager,
-    );
-    if (!influenceManager) return false;
-
-    const depthTexture = influenceManager.getDepthTexture();
-    const depthGridConfig = influenceManager.getDepthGridConfig();
-
-    if (!depthTexture || !depthGridConfig) {
-      return false;
-    }
-
-    // Create depth sampler
-    const device = getWebGPU().device;
-    const depthSampler = device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-    });
-
     // Get shadow texture from WavePhysicsManager
     const shadowTextureView = wavePhysicsManager.getShadowTextureView();
     if (!shadowTextureView) {
-      console.warn(
-        "[SurfaceRenderer] No shadow texture view from WavePhysicsManager",
-      );
       return false;
     }
+
+    const device = getWebGPU().device;
 
     // Create shadow texture sampler
     const shadowSampler = device.createSampler({
@@ -305,19 +275,13 @@ export class SurfaceRenderer extends BaseEntity {
     });
 
     const config: AnalyticalRenderConfig = {
-      depthTexture,
-      depthSampler,
-      depthGridConfig,
       shadowTextureView,
       shadowSampler,
       waveSourceDirection: WAVE_COMPONENTS[0][2], // First wave's direction
     };
 
     this.waterPipeline.setAnalyticalConfig(config);
-    this.influenceConfigured = true;
-    console.log(
-      "[SurfaceRenderer] Analytical water pipeline configured with shadow texture",
-    );
+    this.waterPipelineConfigured = true;
     return true;
   }
 

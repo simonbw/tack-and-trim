@@ -4,6 +4,14 @@
  * These constants contain WGSL code that can be interpolated into shader strings
  * using template literals. This allows sharing common functions between shaders
  * while keeping them in a single source of truth.
+ *
+ * @deprecated This pattern is being replaced by the shader module system.
+ * See src/game/world/shaders/ for the new module-based approach.
+ *
+ * Migration:
+ * - SIMPLEX_NOISE_3D_WGSL → import { simplexNoise3DModule } from 'src/game/world/shaders/noise.wgsl'
+ * - Use modules in ComputeShader/FullscreenShader via `protected modules = [...]`
+ * - See src/game/world/shaders/README.md for full documentation
  */
 
 /**

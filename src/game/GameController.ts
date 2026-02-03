@@ -12,7 +12,6 @@ import { isTutorialCompleted, TutorialManager } from "./tutorial";
 import { DebugRenderer } from "./debug-renderer";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
-import { InfluenceFieldManager } from "./world-data/influence/InfluenceFieldManager";
 import { TerrainInfo } from "./world-data/terrain/TerrainInfo";
 import { WaterInfo } from "./world-data/water/WaterInfo";
 import { WindInfo } from "./world-data/wind/WindInfo";
@@ -27,28 +26,19 @@ export class GameController extends BaseEntity {
 
   @on("add")
   onAdd() {
-    // Phase 1: Core data entities only (no visuals yet)
-    // Visual entities are added in onInfluenceFieldsReady() after computation completes
-
     // 1. Load terrain from bundled JSON resource
     const terrainDefinition = loadDefaultTerrain();
     this.game.addEntity(new TerrainInfo(terrainDefinition.contours));
     this.game.addEntity(new TerrainResources(terrainDefinition));
 
-    // 2. Influence fields (depends on terrain, starts async computation)
-    this.game.addEntity(new InfluenceFieldManager());
-
-    // 3. Time system (before water, so tides can query time)
+    // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
 
-    // 4. Wind/Water data systems (no rendering, graceful null handling for influence fields)
+    // 3. Wind/Water data systems
     this.game.addEntity(new WaterInfo());
     this.game.addEntity(new WindInfo());
-  }
 
-  @on("influenceFieldsReady")
-  onInfluenceFieldsReady() {
-    // Phase 2: Visual entities (after influence field computation completes)
+    // 4. Visual entities
     this.game.addEntity(new SurfaceRenderer());
     this.game.addEntity(new WindIndicator());
     this.game.addEntity(new DebugRenderer());

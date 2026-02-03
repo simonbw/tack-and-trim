@@ -11,11 +11,11 @@ The surface rendering system combines multiple GPU compute pipelines and a fulls
 │                              INITIALIZATION (Startup)                           │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│  TerrainInfo                    InfluenceFieldManager                          │
-│      │                                  │                                       │
-│      │ contours                         │ depth grid                            │
-│      ▼                                  ▼                                       │
-│  WavePhysicsManager ◄──────────────────────                                    │
+│  TerrainInfo                                                                    │
+│      │                                                                          │
+│      │ contours                                                                 │
+│      ▼                                                                          │
+│  WavePhysicsManager                                                             │
 │      │                                                                          │
 │      ├─► CoastlineManager (finds height=0 contours)                            │
 │      ├─► SilhouetteComputation (finds edge points per wave direction)          │

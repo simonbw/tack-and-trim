@@ -2,12 +2,11 @@
  * Analytical Water Rendering Pipeline
  *
  * Uses the AnalyticalWaterStateShader with texture-based shadow system
- * for wave diffraction instead of grid-based influence textures.
+ * for wave diffraction.
  *
  * Key features:
  * - Shadow texture sampling instead of per-pixel polygon iteration
  * - Shadow data uniform buffer with silhouette positions
- * - Still uses 2D depth texture for shoaling/damping
  */
 
 import {
@@ -17,28 +16,14 @@ import {
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
 import { TimeOfDay } from "../time/TimeOfDay";
-import type { DepthGridConfig } from "../world-data/influence/InfluenceFieldTypes";
 import type { Viewport, WaterInfo } from "../world-data/water/WaterInfo";
 import { WaterComputeBuffers } from "../world-data/water/webgpu/WaterComputeBuffers";
 import { AnalyticalWaterStateShader } from "../world-data/water/webgpu/AnalyticalWaterStateShader";
-import { WAVE_COMPONENTS } from "../world-data/water/WaterConstants";
-
-// Default depth grid config for fallback
-const FALLBACK_DEPTH_CONFIG: DepthGridConfig = {
-  originX: -10000,
-  originY: -10000,
-  cellSize: 100,
-  cellsX: 1,
-  cellsY: 1,
-};
 
 /**
- * Analytical water configuration (depth texture + shadow texture/sampler).
+ * Analytical water configuration (shadow texture/sampler).
  */
 export interface AnalyticalRenderConfig {
-  depthTexture: GPUTexture;
-  depthSampler: GPUSampler;
-  depthGridConfig: DepthGridConfig;
   shadowTextureView: GPUTextureView;
   shadowSampler: GPUSampler;
   waveSourceDirection: number;
@@ -58,12 +43,10 @@ export class AnalyticalWaterRenderPipeline {
   private textureWidth: number;
   private textureHeight: number;
 
-  // Analytical config (depth + shadow texture)
+  // Analytical config (shadow texture)
   private analyticalConfig: AnalyticalRenderConfig | null = null;
 
-  // Fallback resources for when no config provided
-  private fallbackDepthTexture: GPUTexture | null = null;
-  private fallbackDepthSampler: GPUSampler | null = null;
+  // Fallback shadow texture for when no config provided
   private fallbackShadowTexture: GPUTexture | null = null;
   private fallbackShadowSampler: GPUSampler | null = null;
 
@@ -96,28 +79,6 @@ export class AnalyticalWaterRenderPipeline {
     });
     this.outputTextureView = this.outputTexture.createView();
 
-    // Create fallback depth texture (deep water, no shoaling)
-    this.fallbackDepthTexture = device.createTexture({
-      size: { width: 1, height: 1 },
-      format: "r32float",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-      label: "Fallback Depth Texture",
-    });
-
-    device.queue.writeTexture(
-      { texture: this.fallbackDepthTexture },
-      new Float32Array([-100.0]), // Deep water
-      { bytesPerRow: 4 },
-      { width: 1, height: 1 },
-    );
-
-    this.fallbackDepthSampler = device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-    });
-
     // Create fallback shadow texture (no shadows)
     this.fallbackShadowTexture = device.createTexture({
       size: { width: 1, height: 1 },
@@ -146,7 +107,7 @@ export class AnalyticalWaterRenderPipeline {
   }
 
   /**
-   * Set analytical configuration (depth texture + shadow texture/buffer).
+   * Set analytical configuration (shadow texture/buffer).
    */
   setAnalyticalConfig(config: AnalyticalRenderConfig): void {
     this.analyticalConfig = config;
@@ -168,14 +129,12 @@ export class AnalyticalWaterRenderPipeline {
 
     const config = this.analyticalConfig;
 
-    // Create bind group with shadow texture and data buffer
+    // Create bind group with shadow texture
     this.bindGroup = this.shader.createBindGroup({
       params: { buffer: this.buffers.paramsBuffer },
       waveData: { buffer: this.buffers.waveDataBuffer },
       modifiers: { buffer: this.buffers.modifiersBuffer },
       outputTexture: this.outputTextureView,
-      depthTexture: config.depthTexture.createView({ dimension: "2d" }),
-      depthSampler: config.depthSampler,
       shadowTexture: config.shadowTextureView,
       shadowSampler: config.shadowSampler,
     });
@@ -228,10 +187,8 @@ export class AnalyticalWaterRenderPipeline {
     const modifiers = (waterInfo as any).cachedModifiers || [];
     const modifierCount = this.buffers.updateModifiers(modifiers);
 
-    const depthConfig = config.depthGridConfig;
-
-    // Update params buffer (analytical format)
-    const paramsData = new Float32Array(16);
+    // Update params buffer (analytical format - 12 floats = 48 bytes)
+    const paramsData = new Float32Array(12);
     paramsData[0] = time;
     paramsData[1] = viewport.left;
     paramsData[2] = viewport.top;
@@ -240,14 +197,10 @@ export class AnalyticalWaterRenderPipeline {
     paramsData[5] = this.textureWidth;
     paramsData[6] = this.textureHeight;
     new DataView(paramsData.buffer).setUint32(7 * 4, modifierCount, true);
-    paramsData[8] = depthConfig.originX;
-    paramsData[9] = depthConfig.originY;
-    paramsData[10] = depthConfig.cellsX * depthConfig.cellSize;
-    paramsData[11] = depthConfig.cellsY * depthConfig.cellSize;
-    paramsData[12] = config.waveSourceDirection;
-    paramsData[13] = waterInfo.getTideHeight();
-    paramsData[14] = 0; // padding
-    paramsData[15] = 0; // padding
+    paramsData[8] = config.waveSourceDirection;
+    paramsData[9] = waterInfo.getTideHeight();
+    paramsData[10] = 0; // padding
+    paramsData[11] = 0; // padding (extra for alignment)
 
     device.queue.writeBuffer(this.buffers.paramsBuffer, 0, paramsData);
 
@@ -317,14 +270,11 @@ export class AnalyticalWaterRenderPipeline {
     this.buffers?.destroy();
     this.outputTexture?.destroy();
     this.shader?.destroy();
-    this.fallbackDepthTexture?.destroy();
     this.fallbackShadowTexture?.destroy();
     this.bindGroup = null;
     this.outputTextureView = null;
     this.buffers = null;
     this.shader = null;
-    this.fallbackDepthTexture = null;
-    this.fallbackDepthSampler = null;
     this.fallbackShadowTexture = null;
     this.fallbackShadowSampler = null;
     this.analyticalConfig = null;

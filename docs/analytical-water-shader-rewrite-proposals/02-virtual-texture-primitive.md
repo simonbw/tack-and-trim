@@ -1,5 +1,7 @@
 # VirtualTexture Primitive Proposal
 
+**Status**: DEFERRED
+
 ## Summary
 
 Add a generic GPU-accelerated tile streaming system with LOD support to core engine infrastructure. Replaces purpose-specific tile systems with a reusable, type-safe primitive.
@@ -7,6 +9,7 @@ Add a generic GPU-accelerated tile streaming system with LOD support to core eng
 ## What is VirtualTexture?
 
 A tile-based caching system for large static datasets that:
+
 - Divides world space into 128×128 pixel tiles at multiple LOD levels
 - Stores cached tiles in a GPU texture array
 - Implements LRU eviction when cache is full
@@ -16,6 +19,7 @@ A tile-based caching system for large static datasets that:
 ## Current System (main branch)
 
 No equivalent generic infrastructure. Terrain and other systems either:
+
 - Compute on-demand with no caching
 - Use purpose-specific tile implementations
 - Lack LOD support
@@ -27,11 +31,11 @@ Generic infrastructure in `core/graphics/webgpu/virtual-texture/`:
 ```typescript
 class VirtualTexture<B extends BindingsDefinition> {
   constructor(config: {
-    tileSize: number;           // 128 for now
-    maxTiles: number;           // Cache size (256-512)
+    tileSize: number; // 128 for now
+    maxTiles: number; // Cache size (256-512)
     tileCompute: TileCompute<B>; // Shader for generating tiles
-    format: GPUTextureFormat;   // r32float, rg32float, etc.
-  })
+    format: GPUTextureFormat; // r32float, rg32float, etc.
+  });
 }
 ```
 
@@ -53,22 +57,27 @@ class VirtualTexture<B extends BindingsDefinition> {
 ## Migration Path
 
 ### Phase 1: Add Core Infrastructure
+
 Copy from analytical-water-shader-rewrite:
+
 - `src/core/graphics/webgpu/virtual-texture/VirtualTexture.ts`
 - `src/core/graphics/webgpu/virtual-texture/TileCache.ts`
 - `src/core/graphics/webgpu/virtual-texture/TileCompute.ts`
 
 ### Phase 2: Migrate Terrain System
+
 - Implement `TerrainTileCompute` shader
 - Replace current terrain computation with VirtualTexture
 - Add to `TerrainSystem`
 
 ### Phase 3: Migrate Wave Shadows
+
 - Implement `ShadowTileCompute` shader
 - Add VirtualTexture to `WaveShadow` entities
 - One VirtualTexture per wave direction
 
 ### Phase 4: Optimize and Extend
+
 - Profile tile computation costs
 - Tune cache sizes per use case
 - Consider additional use cases (normal maps, etc.)
@@ -86,7 +95,7 @@ class TerrainSystem {
       tileSize: 128,
       maxTiles: 256,
       tileCompute: new TerrainTileCompute(),
-      format: "r32float",  // Single channel: height
+      format: "r32float", // Single channel: height
     });
   }
 
@@ -100,6 +109,7 @@ class TerrainSystem {
 ```
 
 ### Performance Characteristics
+
 - **Tile size**: 128×128 = 16,384 pixels
 - **Workgroup size**: 8×8 = 64 threads
 - **Max cache**: 256-512 tiles = 4-8 MB (for r32float)
@@ -125,11 +135,13 @@ Consider this a foundational primitive that will enable future features beyond t
 ## File References
 
 **New Files:**
+
 - `src/core/graphics/webgpu/virtual-texture/VirtualTexture.ts`
 - `src/core/graphics/webgpu/virtual-texture/TileCache.ts`
 - `src/core/graphics/webgpu/virtual-texture/TileCompute.ts`
 
 **Example Usage:**
+
 - `src/game/world/terrain/TerrainSystem.ts`
 - `src/game/world/terrain/TerrainTileCompute.ts`
 - `src/game/world/water/WaveShadow.ts`

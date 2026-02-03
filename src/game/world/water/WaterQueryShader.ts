@@ -11,9 +11,9 @@
 import { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader";
 
 const bindings = {
-  params: { type: "uniform" },
-  pointBuffer: { type: "storage" },
-  resultBuffer: { type: "storageRW" },
+  params: { type: "uniform", wgslType: "Params" },
+  pointBuffer: { type: "storage", wgslType: "array<vec2<f32>>" },
+  resultBuffer: { type: "storageRW", wgslType: "array<WaterQueryResult>" },
 } as const;
 
 /**
@@ -34,10 +34,6 @@ struct Params {
   time: f32,
 }
 
-@group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read> pointBuffer: array<vec2<f32>>;
-@group(0) @binding(2) var<storage, read_write> resultBuffer: array<WaterQueryResult>;
-
 // Result structure (matches WaterQueryResult interface)
 // stride = 6 floats
 struct WaterQueryResult {
@@ -48,6 +44,8 @@ struct WaterQueryResult {
   normalY: f32,
   depth: f32,
 }
+
+${this.buildWGSLBindings()}
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {

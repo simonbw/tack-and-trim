@@ -21,8 +21,8 @@ const SWELL_WAVELENGTH = 200.0; // feet
 const CHOP_WAVELENGTH = 30.0; // feet
 
 const bindings = {
-  uniforms: { type: "uniform" },
-  shadowData: { type: "storage" },
+  uniforms: { type: "uniform", wgslType: "Uniforms" },
+  shadowData: { type: "storage", wgslType: "ShadowData" },
 } as const;
 
 /**
@@ -59,9 +59,6 @@ struct Uniforms {
   viewportHeight: f32,
 }
 
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<storage, read> shadowData: ShadowData;
-
 // Per-polygon shadow data for Fresnel diffraction calculation
 struct PolygonShadowData {
   leftSilhouette: vec2<f32>,
@@ -79,6 +76,8 @@ struct ShadowData {
   _padding: u32,
   polygons: array<PolygonShadowData>,
 }
+
+${this.buildWGSLBindings()}
 
 struct VertexInput {
   @location(0) position: vec2<f32>,

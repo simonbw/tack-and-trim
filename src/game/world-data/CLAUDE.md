@@ -4,15 +4,14 @@ Spatial data computation using GPU with CPU fallback for game physics queries.
 
 ## Purpose
 
-Game systems (boat physics, particles, etc.) need to query spatial data like wind velocity, water state, and terrain height at world positions. This directory provides data providers and pre-computed influence fields:
+Game systems (boat physics, particles, etc.) need to query spatial data like wind velocity, water state, and terrain height at world positions. This directory provides data providers:
 
 **Real-Time Data Providers:**
 - **WindInfo** (`wind/`) - Wind direction and speed field with noise-based variation
 - **WaterInfo** (`water/`) - Wave height, surface velocity, and currents with wake modifiers
 - **TerrainInfo** (`terrain/`) - Land height from procedural island definitions
 
-**Pre-Computed at Startup:**
-- **InfluenceFieldManager** (`influence/`) - Terrain effects on wind and waves
+**Global State:**
 - **WeatherState** (`weather/`) - Global atmospheric and oceanic conditions
 
 ## Architecture
@@ -24,12 +23,12 @@ Game systems (boat physics, particles, etc.) need to query spatial data like win
 └─────────────┘               │ TerrainInfo     │
                               └────────┬────────┘
                                        │
-         ┌─────────────────┬───────────┼───────────┬─────────────────┐
-         ▼                 ▼           ▼           ▼                 ▼
-   ┌───────────┐    ┌──────────┐  ┌───────────┐  ┌───────────┐  ┌────────────┐
-   │ Influence │    │ GPU Tile │  │ GPU Tile  │  │ CPU       │  │ Weather    │
-   │ Fields    │    │ (cached) │  │ (compute) │  │ Fallback  │  │ State      │
-   └───────────┘    └──────────┘  └───────────┘  └───────────┘  └────────────┘
+              ┌────────────────────────┼────────────────────────┐
+              ▼                        ▼                        ▼
+        ┌──────────┐            ┌───────────┐            ┌────────────┐
+        │ GPU Tile │            │ CPU       │            │ Weather    │
+        │ (cached) │            │ Fallback  │            │ State      │
+        └──────────┘            └───────────┘            └────────────┘
 ```
 
 ### Query Forecasting
@@ -59,41 +58,6 @@ Each tile covers a world-space region and is rendered to a GPU texture. The text
 
 The CPU fallback uses the same algorithms but without GPU parallelism. This ensures consistent results regardless of camera position.
 
-### Influence Field System (`influence/`)
-
-Pre-computed fields that capture how terrain affects wind and waves. Computed once at game startup, then sampled at runtime.
-
-**Three Field Types:**
-- **Wind Influence** - How terrain blocks and deflects wind (speedFactor, directionOffset, turbulence)
-- **Swell Influence** - How terrain affects wave propagation via diffraction (attenuation factors per wavelength class)
-- **Fetch Map** - Distance wind can blow over open water (affects local wave development)
-
-**Key Components:**
-- **InfluenceFieldManager** (`InfluenceFieldManager.ts`) - Orchestrates async startup computation, provides sampling API, holds grids directly
-- **InfluenceFieldGrid** (`InfluenceFieldGrid.ts`) - 3D grid storing data per (x, y, direction), uses trilinear interpolation
-- **propagation/** - Algorithms that ray-march from terrain to compute influence values
-
-**Async Initialization:**
-```typescript
-// Listen for completion
-@on("influenceFieldsReady")
-onInfluenceFieldsReady() {
-  // Safe to add visual entities that depend on influence data
-}
-
-// Or await directly
-const manager = game.entities.getSingleton(InfluenceFieldManager);
-await manager.waitForInitialization();
-```
-
-**Sampling:**
-```typescript
-const manager = game.entities.getSingleton(InfluenceFieldManager);
-const windInfluence = manager.sampleWindInfluence(x, y, windDirection);
-const swellInfluence = manager.sampleSwellInfluence(x, y, swellDirection);
-const fetch = manager.sampleFetch(x, y, windDirection);
-```
-
 ### Weather System (`weather/`)
 
 Global atmospheric and oceanic conditions that drive the wind/wave system:
@@ -115,11 +79,6 @@ Global atmospheric and oceanic conditions that drive the wind/wave system:
 | `datatiles/DataTileManager.ts` | Tile scoring and selection |
 | `*/webgpu/*Compute.ts` | Domain-specific GPU compute shaders |
 | `*/cpu/*ComputeCPU.ts` | CPU fallback implementations |
-| **Influence Field System** | |
-| `influence/InfluenceFieldManager.ts` | Async startup computation, sampling API |
-| `influence/InfluenceFieldGrid.ts` | 3D grid with trilinear interpolation |
-| `influence/PropagationConfig.ts` | Resolution and algorithm parameters |
-| `influence/propagation/*.ts` | Propagation algorithms (ray-marching) |
 | **Weather** | |
 | `weather/WeatherState.ts` | Global weather state types and defaults |
 

@@ -12,12 +12,16 @@
 import { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
 import { WATER_HEIGHT_SCALE } from "../world-data/water/WaterConstants";
 import { SurfaceUniforms } from "./SurfaceUniforms";
+import { hashModule } from "../world/shaders/math.wgsl";
+import { waterLightingModule } from "../world/shaders/lighting.wgsl";
+import { sandRenderingModule } from "../world/shaders/sand-rendering.wgsl";
+import { normalComputationModule } from "../world/shaders/normal-computation.wgsl";
 
 // Terrain constants
 const MAX_TERRAIN_HEIGHT = 20.0;
 
 const bindings = {
-  uniforms: { type: "uniform" },
+  uniforms: { type: "uniform", wgslType: "Uniforms" },
   waterSampler: { type: "sampler" },
   waterDataTexture: { type: "texture" },
   terrainDataTexture: { type: "texture" },
@@ -31,7 +35,15 @@ const bindings = {
 export class SurfaceShader extends FullscreenShader<typeof bindings> {
   readonly bindings = bindings;
 
-  readonly vertexCode = /*wgsl*/ `
+  protected vertexModules = [];
+  protected fragmentModules = [
+    hashModule,
+    waterLightingModule,
+    sandRenderingModule,
+    normalComputationModule,
+  ];
+
+  protected vertexMainCode = /*wgsl*/ `
 ${SurfaceUniforms.wgsl}
 
 struct VertexOutput {
@@ -39,7 +51,7 @@ struct VertexOutput {
   @location(0) clipPosition: vec2<f32>,
 }
 
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+${this.buildWGSLBindings()}
 
 @vertex
 fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
@@ -50,14 +62,9 @@ fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
 }
 `;
 
-  readonly fragmentCode = /*wgsl*/ `
-// Note: Uniforms struct and uniforms binding declared in vertex code
-@group(0) @binding(1) var waterSampler: sampler;
-@group(0) @binding(2) var waterDataTexture: texture_2d<f32>;
-@group(0) @binding(3) var terrainDataTexture: texture_2d<f32>;
-@group(0) @binding(4) var wetnessTexture: texture_2d<f32>;
+  protected fragmentMainCode = /*wgsl*/ `
+// Note: Bindings declared in vertex code
 
-const PI: f32 = 3.14159265359;
 const MAX_TERRAIN_HEIGHT: f32 = ${MAX_TERRAIN_HEIGHT};
 const WATER_HEIGHT_SCALE: f32 = ${WATER_HEIGHT_SCALE};
 
@@ -70,79 +77,13 @@ fn sampleTerrain(uv: vec2<f32>) -> f32 {
   return textureSampleLevel(terrainDataTexture, waterSampler, clampedUV, 0.0).r;
 }
 
-// Hash function for procedural noise
-fn hash21(p: vec2<f32>) -> f32 {
-  var q = fract(p * vec2<f32>(234.34, 435.345));
-  q = q + dot(q, q + 34.23);
-  return fract(q.x * q.y);
-}
-
-// Render sand/beach surface with wetness
-fn renderSand(height: f32, normal: vec3<f32>, worldPos: vec2<f32>, wetness: f32) -> vec3<f32> {
-  // Dry sand - light beige
-  let drySand = vec3<f32>(0.96, 0.91, 0.76);
-  // Wet sand - darker tan
-  let wetSand = vec3<f32>(0.76, 0.70, 0.50);
-
-  // Non-linear blend: changes quickly at first, then slowly as it dries
-  // pow(wetness, 2.5) means high wetness drops fast visually, low wetness lingers
-  let visualWetness = pow(wetness, 2.5);
-
-  return mix(drySand, wetSand, visualWetness);
-}
-
-// Render water with depth information
+// Render water with depth information (calls waterLightingModule)
 fn renderWater(rawHeight: f32, normal: vec3<f32>, worldPos: vec2<f32>, waterDepth: f32) -> vec3<f32> {
-  // Fixed midday sun
-  let sunDir = normalize(vec3<f32>(0.3, 0.2, 0.9));
-
-  // Water colors - vary by depth
-  let shallowWater = vec3<f32>(0.15, 0.55, 0.65);  // Light blue-green
-  let deepWater = vec3<f32>(0.08, 0.32, 0.52);     // Darker blue
-  let scatterColor = vec3<f32>(0.1, 0.45, 0.55);
-
-  // Depth-based color (deeper = darker/more blue)
-  let depthFactor = smoothstep(0.0, 10.0, waterDepth);
-  var baseColor = mix(shallowWater, deepWater, depthFactor);
-
-  // Slope-based color variation
-  let sunFacing = dot(normal.xy, sunDir.xy);
-  let slopeShift = mix(vec3<f32>(-0.02, -0.01, 0.02), vec3<f32>(0.02, 0.03, -0.01), sunFacing * 0.5 + 0.5);
-  baseColor = baseColor + slopeShift * 0.08;
-
-  // Troughs are darker
-  let troughDarken = (1.0 - rawHeight) * 0.12;
-  baseColor = baseColor * (1.0 - troughDarken);
-
-  // Sun and sky colors
-  let sunColor = vec3<f32>(1.0, 0.95, 0.85);
-  let skyColor = vec3<f32>(0.5, 0.7, 0.95);
-
   // View direction (looking straight down)
   let viewDir = vec3<f32>(0.0, 0.0, 1.0);
 
-  // Fresnel effect
-  let facing = dot(normal, viewDir);
-  let fresnel = pow(1.0 - facing, 4.0) * 0.15;
-
-  // Subsurface scattering
-  let scatter = max(dot(normal, sunDir), 0.0) * (0.5 + 0.5 * rawHeight);
-  let subsurface = scatterColor * scatter * 0.1;
-
-  // Diffuse lighting
-  let diffuse = max(dot(normal, sunDir), 0.0);
-
-  // Specular
-  let reflectDir = reflect(-sunDir, normal);
-  let specular = pow(max(dot(viewDir, reflectDir), 0.0), 64.0);
-
-  // Combine lighting
-  let ambient = baseColor * 0.75;
-  let diffuseLight = baseColor * sunColor * diffuse * 0.15;
-  let skyReflection = skyColor * fresnel * 0.1;
-  let specularLight = sunColor * specular * 0.08;
-
-  var color = ambient + subsurface + diffuseLight + skyReflection + specularLight;
+  // Use water lighting module
+  var color = renderWaterLighting(normal, viewDir, rawHeight, waterDepth);
 
   // Add high-frequency noise
   let fineNoise = hash21(worldPos * 2.0) * 0.02 - 0.01;
@@ -184,22 +125,21 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   // Use separate texel sizes for non-square textures
   let waterTexelSizeX = 1.0 / uniforms.waterTexWidth;
   let waterTexelSizeY = 1.0 / uniforms.waterTexHeight;
-  let heightL = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(-waterTexelSizeX, 0.0)).r;
-  let heightR = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(waterTexelSizeX, 0.0)).r;
-  let heightD = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(0.0, -waterTexelSizeY)).r;
-  let heightU = textureSample(waterDataTexture, waterSampler, dataUV + vec2<f32>(0.0, waterTexelSizeY)).r;
-
-  let heightScale = 3.0;
-  let waterNormal = normalize(vec3<f32>(
-    (heightL - heightR) * heightScale,
-    (heightD - heightU) * heightScale,
-    1.0
-  ));
+  let waterNormal = computeNormalFromHeightField(
+    dataUV,
+    waterTexelSizeX,
+    waterTexelSizeY,
+    waterDataTexture,
+    waterSampler,
+    3.0
+  );
 
   // Compute terrain surface normal from height gradients
   // Use separate texel sizes for non-square textures
   let terrainTexelSizeX = 1.0 / uniforms.terrainTexWidth;
   let terrainTexelSizeY = 1.0 / uniforms.terrainTexHeight;
+
+  // Manual terrain normal computation (can't use module due to sampleTerrain wrapper)
   let terrainL = sampleTerrain(dataUV + vec2<f32>(-terrainTexelSizeX, 0.0));
   let terrainR = sampleTerrain(dataUV + vec2<f32>(terrainTexelSizeX, 0.0));
   let terrainD = sampleTerrain(dataUV + vec2<f32>(0.0, -terrainTexelSizeY));

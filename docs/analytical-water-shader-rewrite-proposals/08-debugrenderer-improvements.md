@@ -1,5 +1,7 @@
 # DebugRenderer System Improvements Proposal
 
+**Status**: ✅ COMPLETED
+
 ## Summary
 
 Modernize debug visualization system by treating modes as proper entities rather than plain objects. Eliminates custom lifecycle management and GPU shader orchestration in favor of entity-based patterns.
@@ -7,6 +9,7 @@ Modernize debug visualization system by treating modes as proper entities rather
 ## Current System (main branch)
 
 **Architecture**: Interface-based modes with custom lifecycle
+
 ```typescript
 interface DebugRenderMode {
   id: string;
@@ -19,6 +22,7 @@ interface DebugRenderMode {
 ```
 
 **Components**:
+
 - `DebugRenderer.ts` - Entity + orchestration
 - `DebugRenderMode.ts` - Interface definition
 - `DebugShaderManager.ts` - GPU shader orchestration (289 lines)
@@ -28,15 +32,21 @@ interface DebugRenderMode {
 ## Proposed System (from analytical-water-shader-rewrite)
 
 **Architecture**: Modes as entity subclasses
+
 ```typescript
 abstract class DebugRenderMode extends BaseEntity {
   abstract getModeName(): JSX.Element | string | null;
-  getHudInfo(): JSX.Element | string | null { return null; }
-  getCursorInfo(): JSX.Element | string | null { return null; }
+  getHudInfo(): JSX.Element | string | null {
+    return null;
+  }
+  getCursorInfo(): JSX.Element | string | null {
+    return null;
+  }
 }
 ```
 
 **Components**:
+
 - `DebugRenderer.tsx` - Unified entity + UI (121 lines)
 - `DebugRenderMode.ts` - Base class (16 lines)
 - Concrete modes (e.g., `WindDebugRenderMode.ts`)
@@ -47,6 +57,7 @@ abstract class DebugRenderMode extends BaseEntity {
 ### 1. Modes as Child Entities
 
 **Before**: Plain objects with manual lifecycle
+
 ```typescript
 private modes: DebugRenderMode[] = [...];
 private cycleMode(direction: 1 | -1): void {
@@ -56,6 +67,7 @@ private cycleMode(direction: 1 | -1): void {
 ```
 
 **After**: Parent-child entity pattern
+
 ```typescript
 private currentMode: DebugRenderMode | null = null;
 setActiveMode(index: number): void {
@@ -71,17 +83,19 @@ setActiveMode(index: number): void {
 ### 2. Elimination of Context Objects
 
 **Before**: Complex context passed everywhere
+
 ```typescript
 interface DebugRenderContext {
   game: Game;
   draw: Draw;
-  viewport: { left, top, width, height };
+  viewport: { left; top; width; height };
   cursorWorldPos: V2d | null;
 }
 mode.render(ctx);
 ```
 
 **After**: Direct access via entity inheritance
+
 ```typescript
 class WindDebugRenderMode extends DebugRenderMode {
   @on("render")
@@ -95,6 +109,7 @@ class WindDebugRenderMode extends DebugRenderMode {
 ### 3. React Integration Simplification
 
 **Before**: Separate HUD entity with state sync
+
 ```typescript
 private hud: DebugHUD | null = null;
 private updateHUD(): void {
@@ -106,6 +121,7 @@ private updateHUD(): void {
 ```
 
 **After**: DebugRenderer itself extends ReactEntity
+
 ```typescript
 class DebugRenderer extends ReactEntity {
   constructor() {
@@ -123,11 +139,13 @@ class DebugRenderer extends ReactEntity {
 ### 4. GPU Shader Management Removed
 
 **Removed**: `DebugShaderManager.ts` (289 lines)
+
 - Fullscreen shader for visualization overlays
 - Uniform buffer management
 - Bind group handling
 
 **Why**: New approach uses:
+
 - Entity-based rendering via `@on("render")` handlers
 - Existing query systems (`WindQuery`, `WaterQuery`)
 - Immediate-mode `Draw` API
@@ -136,15 +154,14 @@ class DebugRenderer extends ReactEntity {
 ### 5. Query System Integration
 
 **New Pattern**:
+
 ```typescript
 class WindDebugRenderMode extends DebugRenderMode {
   private windQuery: WindQuery;
 
   constructor() {
     super();
-    this.windQuery = this.addChild(
-      new WindQuery(() => this.getQueryPoints())
-    );
+    this.windQuery = this.addChild(new WindQuery(() => this.getQueryPoints()));
   }
 
   @on("render")
@@ -161,36 +178,43 @@ Leverages GPU-based query system with automatic lifecycle.
 ## Benefits
 
 ### 1. Architectural Consistency
+
 - Modes are proper entities following established patterns
 - Uses same parent-child pattern as rest of game
 - Aligns with engine's entity-component architecture
 
 ### 2. Reduced Complexity
+
 - **-413 net lines of code** (632 deleted, 219 added)
 - Removed files: DebugShaderManager, DebugHUD, interface definition
 - Simpler mental model
 
 ### 3. Automatic Resource Management
+
 - Parent-child relationships handle cleanup
 - No manual `destroy()` callbacks needed
 - Child entities (queries) cleaned up automatically
 
 ### 4. Better Encapsulation
+
 - Modes own their child entities
 - Direct access to game systems via inheritance
 - Each mode is self-contained
 
 ### 5. Improved Testability
+
 - Modes are concrete classes
 - Can be instantiated and tested independently
 - Standard entity lifecycle
 
 ### 6. Modern React Integration
+
 - Single ReactEntity instead of separate HUD
 - Direct JSX rendering in mode classes
 - Type-safe props via methods
 
 ### 7. Leverages New GPU Systems
+
 - Uses WindQuery/WaterQuery from new world system
 - GPU compute in specialized query managers
 - Debug modes just consume results
@@ -198,27 +222,32 @@ Leverages GPU-based query system with automatic lifecycle.
 ## Migration Path
 
 ### Phase 1: Add Base Class
+
 1. Create `DebugRenderMode` abstract class extending `BaseEntity`
 2. Define interface: `getModeName()`, `getHudInfo()`, `getCursorInfo()`
 
 ### Phase 2: Convert DebugRenderer
+
 1. Make `DebugRenderer` extend `ReactEntity`
 2. Add `renderHud()` method for UI
 3. Update mode management to use parent-child pattern
 4. Remove context object creation
 
 ### Phase 3: Implement Concrete Modes
+
 1. Create `WindDebugRenderMode` with WindQuery integration
 2. Create `WaterDebugRenderMode` with WaterQuery integration
 3. Use `@on("render")` decorators
 
 ### Phase 4: Remove Old System
+
 1. Delete `DebugShaderManager.ts`
 2. Delete `DebugHUD.tsx` separate entity
 3. Delete old mode interface
 4. Remove context object types
 
 ### Phase 5: Testing
+
 1. Verify mode cycling works
 2. Test query integration
 3. Validate UI rendering
@@ -227,6 +256,7 @@ Leverages GPU-based query system with automatic lifecycle.
 ## Code Organization Comparison
 
 **Before**:
+
 ```
 debug-renderer/
 ├── DebugRenderer.ts (203 lines)
@@ -237,6 +267,7 @@ debug-renderer/
 ```
 
 **After**:
+
 ```
 debug-renderer/
 ├── DebugRenderer.tsx (121 lines - unified)
@@ -256,9 +287,7 @@ export class WindDebugRenderMode extends DebugRenderMode {
 
   constructor() {
     super();
-    this.windQuery = this.addChild(
-      new WindQuery(() => this.getQueryPoints())
-    );
+    this.windQuery = this.addChild(new WindQuery(() => this.getQueryPoints()));
   }
 
   @on("render")
@@ -267,7 +296,7 @@ export class WindDebugRenderMode extends DebugRenderMode {
       // Draw wind visualization
       draw.fillTriangle([p1, p2, p3], {
         alpha: 0.5,
-        color: 0x00ffff
+        color: 0x00ffff,
       });
     }
   }
@@ -277,7 +306,9 @@ export class WindDebugRenderMode extends DebugRenderMode {
     // Generate grid of sample points
   }
 
-  getModeName(): string { return "Wind"; }
+  getModeName(): string {
+    return "Wind";
+  }
 }
 ```
 
@@ -300,12 +331,14 @@ This is a textbook example of "making illegal states unrepresentable" through be
 ## File References
 
 **New Implementation:**
+
 - `src/game/debug-renderer/DebugRenderer.tsx`
 - `src/game/debug-renderer/modes/DebugRenderMode.ts`
 - `src/game/debug-renderer/modes/WindDebugRenderMode.ts`
 - `src/game/debug-renderer/modes/WaterDebugRenderMode.ts`
 
 **To Remove:**
+
 - `src/game/debug-renderer/DebugShaderManager.ts`
 - `src/game/debug-renderer/DebugHUD.tsx`
 - Old `src/game/debug-renderer/DebugRenderMode.ts` interface

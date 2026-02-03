@@ -11,7 +11,6 @@
 
 import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
 import type { UniformInstance } from "../../../../core/graphics/UniformStruct";
-import type { DepthGridConfig } from "../../influence/InfluenceFieldTypes";
 import type { DataTileCompute } from "../../datatiles/DataTileComputePipeline";
 import type { GPUWaterModifierData } from "../WaterModifierBase";
 import { WaterComputeBuffers } from "./WaterComputeBuffers";
@@ -32,9 +31,6 @@ export interface WaterPointData {
  * Configuration for analytical water compute.
  */
 export interface AnalyticalWaterConfig {
-  depthTexture: GPUTexture;
-  depthSampler: GPUSampler;
-  depthGridConfig: DepthGridConfig;
   waveSourceDirection: number;
 }
 
@@ -139,8 +135,6 @@ export class AnalyticalWaterDataTileCompute implements DataTileCompute {
       waveData: { buffer: this.buffers.waveDataBuffer },
       modifiers: { buffer: this.buffers.modifiersBuffer },
       outputTexture: this.outputTexture.createView(),
-      depthTexture: this.config.depthTexture.createView({ dimension: "2d" }),
-      depthSampler: this.config.depthSampler,
       shadowTexture: this.shadowResources.shadowTextureView,
       shadowSampler: this.shadowResources.shadowSampler,
     });
@@ -182,7 +176,6 @@ export class AnalyticalWaterDataTileCompute implements DataTileCompute {
     }
 
     const device = getWebGPU().device;
-    const depthConfig = this.config.depthGridConfig;
 
     // Update params buffer using type-safe setters
     this.params.set.time(time);
@@ -193,14 +186,9 @@ export class AnalyticalWaterDataTileCompute implements DataTileCompute {
     this.params.set.textureSizeX(this.textureSize);
     this.params.set.textureSizeY(this.textureSize);
     this.params.set.modifierCount(this.currentModifierCount);
-    this.params.set.depthOriginX(depthConfig.originX);
-    this.params.set.depthOriginY(depthConfig.originY);
-    this.params.set.depthGridWidth(depthConfig.cellsX * depthConfig.cellSize);
-    this.params.set.depthGridHeight(depthConfig.cellsY * depthConfig.cellSize);
     this.params.set.waveSourceDirection(this.config.waveSourceDirection);
     this.params.set.tideHeight(this.currentTideHeight);
     this.params.set._padding1(0);
-    this.params.set._padding2(0);
 
     // Upload to GPU
     this.params.uploadTo(this.paramsBuffer);

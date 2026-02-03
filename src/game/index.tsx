@@ -9,9 +9,7 @@ import {
 import { createSimulationStatsPanel } from "./stats/SimulationStatsPanel";
 import { GameController } from "./GameController";
 import { GamePreloader } from "./GamePreloader";
-import { InitializingOverlay } from "./InitializingOverlay";
 import { PhysicsValidator } from "./PhysicsValidator";
-import { InfluenceFieldManager } from "./world-data/influence/InfluenceFieldManager";
 
 // Do this so we can access the game from the console
 declare global {
@@ -36,9 +34,6 @@ async function main() {
   await preloader.waitTillLoaded();
   preloader.destroy();
 
-  // Show initializing overlay while terrain effects are computed
-  const initOverlay = game.addEntity(new InitializingOverlay());
-
   // Persistent entities
   game.addEntity(
     new StatsOverlay([
@@ -52,15 +47,7 @@ async function main() {
   game.addEntity(new PhysicsValidator());
 
   // GameController handles menu, game state, and spawning gameplay entities
-  // This triggers InfluenceFieldManager initialization
   game.addEntity(new GameController());
-
-  // Wait for terrain computation to complete
-  const influenceManager = game.entities.getSingleton(InfluenceFieldManager);
-  await influenceManager.waitForInitialization();
-
-  // Remove overlay once initialization is complete
-  initOverlay.destroy();
 }
 
 window.addEventListener("load", main);

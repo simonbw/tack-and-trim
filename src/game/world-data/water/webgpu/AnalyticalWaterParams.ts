@@ -23,16 +23,10 @@ export const AnalyticalWaterParams = defineUniformStruct("Params", {
   textureSizeX: f32,
   textureSizeY: f32,
   modifierCount: u32,
-  // Depth grid config
-  depthOriginX: f32,
-  depthOriginY: f32,
-  depthGridWidth: f32,
-  depthGridHeight: f32,
   // Wave source direction
   waveSourceDirection: f32,
   // Tide height offset
   tideHeight: f32,
-  // Padding to 64 bytes (16 floats)
+  // Padding to 48 bytes (12 floats)
   _padding1: f32,
-  _padding2: f32,
 });

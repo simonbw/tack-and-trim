@@ -30,7 +30,6 @@ import { loadDefaultEditorTerrain } from "./io/TerrainLoader";
 import { EditorUI } from "./EditorUI";
 import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
 import { WaterInfo } from "../game/world-data/water/WaterInfo";
-import { InfluenceFieldManager } from "../game/world-data/influence/InfluenceFieldManager";
 import { DebugRenderer } from "../game/debug-renderer";
 import { computeSplineCentroid } from "../core/util/Spline";
 
@@ -128,9 +127,6 @@ export class EditorController
   private terrainInfo: TerrainInfo | null = null;
   private cameraController: EditorCameraController | null = null;
   private contourRenderer: ContourRenderer | null = null;
-  private surfaceRenderer: SurfaceRenderer | null = null;
-  private influenceManager: InfluenceFieldManager | null = null;
-  private isComputingInfluence = false;
   private debugRenderMode = false;
   private fileHandle: FileSystemFileHandle | null = null;
   private clipboardContour: EditorContour | null = null;
@@ -158,16 +154,19 @@ export class EditorController
       new TerrainResources(this.document.getTerrainDefinition()),
     );
 
-    // Add WaterInfo for wave simulation (uses fallback influence - uniform waves)
+    // Add WaterInfo for wave simulation (uniform waves, no terrain influence)
     this.game.addEntity(new WaterInfo());
 
     // Add surface renderer (renders water and terrain visuals)
     // Use a smaller texture scale for the editor (0.25 = quarter resolution)
-    this.surfaceRenderer = this.game.addEntity(
+    this.game.addEntity(
       new SurfaceRenderer({
         textureScale: 0.25,
       }),
     );
+
+    // Add debug visualization
+    this.game.addEntity(new DebugRenderer());
 
     // Add camera controller
     this.cameraController = this.game.addEntity(
@@ -193,9 +192,6 @@ export class EditorController
 
     // Add UI (toolbar and panels)
     this.game.addEntity(new EditorUI(this.document, this));
-
-    // Compute influence fields for initial terrain
-    this.computeInfluenceFields();
 
     // Try to restore file handle from last session, or prompt to open
     this.tryRestoreFileHandle();
@@ -482,9 +478,6 @@ export class EditorController
     const terrain = await loadTerrainFromFile(file);
     this.document.setTerrainDefinition(terrain);
     this.cameraController?.fitToTerrain();
-
-    // Recompute influence fields for the new terrain
-    this.computeInfluenceFields();
   }
 
   /**
@@ -508,9 +501,6 @@ export class EditorController
       defaultDepth: -50,
       contours: [],
     });
-
-    // Recompute influence fields (will reset to uniform waves with no terrain)
-    this.computeInfluenceFields();
   }
 
   /**
@@ -684,58 +674,5 @@ export class EditorController
       }
     };
     input.click();
-  }
-
-  // ==========================================
-  // Influence field computation
-  // ==========================================
-
-  /**
-   * Compute influence fields for terrain-aware wave rendering.
-   * Creates the InfluenceFieldManager if first time, otherwise recomputes.
-   */
-  async computeInfluenceFields(): Promise<void> {
-    if (this.isComputingInfluence) return;
-    this.isComputingInfluence = true;
-
-    try {
-      if (!this.influenceManager) {
-        // First time: create and add the manager
-        // The manager will automatically start computing via @on("afterAdded")
-        this.influenceManager = this.game.addEntity(
-          new InfluenceFieldManager(),
-        );
-      } else {
-        // Recompute with updated terrain
-        await this.influenceManager.recompute();
-      }
-    } catch (error) {
-      console.error("Failed to compute influence fields:", error);
-      this.isComputingInfluence = false;
-    }
-  }
-
-  /**
-   * Check if influence computation is in progress.
-   */
-  getIsComputingInfluence(): boolean {
-    return this.isComputingInfluence;
-  }
-
-  /**
-   * Get the InfluenceFieldManager, if created.
-   */
-  getInfluenceManager(): InfluenceFieldManager | null {
-    return this.influenceManager;
-  }
-
-  @on("influenceFieldsReady")
-  onInfluenceFieldsReady(): void {
-    this.isComputingInfluence = false;
-
-    // Add debug visualization if not already present
-    if (!this.game.entities.getById("debugRenderer")) {
-      this.game.addEntity(new DebugRenderer());
-    }
   }
 }

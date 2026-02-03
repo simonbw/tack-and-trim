@@ -2,7 +2,7 @@
  * Base class for compute shaders.
  *
  * Handles GPU pipeline boilerplate so subclasses just declare:
- * - `code`: WGSL shader code
+ * - `code`: WGSL shader code (or use modules + mainCode)
  * - `bindings`: typed binding definitions
  * - `workgroupSize`: workgroup dimensions
  *
@@ -12,14 +12,18 @@
  * - Pipeline layout and compute pipeline creation
  * - Type-safe bind group creation
  * - Workgroup dispatch math
+ *
+ * Module Support:
+ * - Set `modules` to compose reusable WGSL code
+ * - Set `mainCode` for compute entry point when using modules
+ * - Or use `code` directly for backwards compatibility
  */
 
 import { getWebGPU } from "./WebGPUDevice";
+import { Shader } from "./Shader";
 import {
   type BindingsDefinition,
-  type BindGroupResources,
   createBindGroupLayoutEntries,
-  createBindGroupEntries,
 } from "./ShaderBindings";
 
 /**
@@ -27,12 +31,14 @@ import {
  *
  * @template T - The bindings definition type for type-safe bind group creation
  */
-export abstract class ComputeShader<T extends BindingsDefinition> {
-  /** WGSL shader code. Subclasses must provide this. */
-  abstract readonly code: string;
+export abstract class ComputeShader<
+  T extends BindingsDefinition,
+> extends Shader<T> {
+  /** WGSL shader code. Optional when using modules. */
+  code?: string;
 
-  /** Binding definitions. Subclasses must provide this. */
-  abstract readonly bindings: T;
+  /** Main compute code when using modules. */
+  protected mainCode?: string;
 
   /** Workgroup size [x, y] or [x, y, z]. Subclasses must provide this. */
   abstract readonly workgroupSize:
@@ -45,7 +51,21 @@ export abstract class ComputeShader<T extends BindingsDefinition> {
   }
 
   private pipeline: GPUComputePipeline | null = null;
-  private bindGroupLayout: GPUBindGroupLayout | null = null;
+
+  /**
+   * Get shader code from either direct code or modules.
+   */
+  protected getShaderCode(): string {
+    if (this.code) {
+      return this.code;
+    }
+    if (this.modules && this.mainCode) {
+      return this.buildCode(this.mainCode);
+    }
+    throw new Error(
+      `${this.label}: Must provide either 'code' or 'modules' + 'mainCode'`,
+    );
+  }
 
   /**
    * Initialize the compute pipeline.
@@ -54,8 +74,12 @@ export abstract class ComputeShader<T extends BindingsDefinition> {
   async init(): Promise<void> {
     const device = getWebGPU().device;
 
+    // Build complete shader with math constants once at the top
+    const completeShaderCode =
+      this.getMathConstants() + "\n\n" + this.getShaderCode();
+
     const shaderModule = device.createShaderModule({
-      code: this.code,
+      code: completeShaderCode,
       label: `${this.label} Shader Module`,
     });
 
@@ -84,16 +108,6 @@ export abstract class ComputeShader<T extends BindingsDefinition> {
   }
 
   /**
-   * Get the bind group layout for creating bind groups.
-   */
-  getBindGroupLayout(): GPUBindGroupLayout {
-    if (!this.bindGroupLayout) {
-      throw new Error(`${this.label} not initialized`);
-    }
-    return this.bindGroupLayout;
-  }
-
-  /**
    * Get the compute pipeline.
    */
   getPipeline(): GPUComputePipeline {
@@ -101,19 +115,6 @@ export abstract class ComputeShader<T extends BindingsDefinition> {
       throw new Error(`${this.label} not initialized`);
     }
     return this.pipeline;
-  }
-
-  /**
-   * Create a bind group with type-safe named parameters.
-   */
-  createBindGroup(resources: BindGroupResources<T>): GPUBindGroup {
-    const device = getWebGPU().device;
-
-    return device.createBindGroup({
-      layout: this.getBindGroupLayout(),
-      entries: createBindGroupEntries(this.bindings, resources),
-      label: `${this.label} Bind Group`,
-    });
   }
 
   /**

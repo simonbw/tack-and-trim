@@ -26,7 +26,6 @@ import type {
   QueryForecast,
   ReadbackViewport,
 } from "../datatiles/DataTileTypes";
-import { InfluenceFieldManager } from "../influence/InfluenceFieldManager";
 import { TerrainInfo } from "../terrain/TerrainInfo";
 import {
   computeWaveDataAtPoint,
@@ -75,9 +74,6 @@ const CURRENT_ANGLE_VARIATION = 0.5;
 // Tide configuration
 // Semi-diurnal tide: 2 cycles per day (high at 0h & 12h, low at 6h & 18h)
 const DEFAULT_TIDE_RANGE = 4; // ft total range (±2 ft from mean)
-
-// Margin to expand viewport for wake particle filtering (ft)
-const WAKE_VIEWPORT_MARGIN = 25;
 
 /**
  * Water state at a given point in the world.
@@ -151,9 +147,6 @@ export class WaterInfo extends BaseEntity {
   // Cached modifier data for current frame
   private cachedModifiers: GPUWaterModifierData[] = [];
 
-  // Influence field manager for depth texture
-  private influenceManager: InfluenceFieldManager | null = null;
-
   // Terrain info for depth sampling (CPU fallback)
   private terrainInfo: TerrainInfo | null = null;
 
@@ -195,10 +188,6 @@ export class WaterInfo extends BaseEntity {
 
     // Get reference to terrain info (for CPU depth sampling)
     this.terrainInfo = this.game.entities.tryGetSingleton(TerrainInfo) ?? null;
-
-    // Get reference to influence field manager (needed for depth texture)
-    this.influenceManager =
-      this.game.entities.tryGetSingleton(InfluenceFieldManager) ?? null;
 
     // Initialize wave physics manager with terrain
     if (this.terrainInfo) {
@@ -244,14 +233,6 @@ export class WaterInfo extends BaseEntity {
   }
 
   /**
-   * Get the base swell direction from dominant wave component.
-   * Uses the first (largest) wave component's direction.
-   */
-  private getBaseSwellDirection(): number {
-    return WAVE_COMPONENTS[0][2]; // direction is at index 2
-  }
-
-  /**
    * Get the current game time in seconds from TimeOfDay.
    * Falls back to elapsedUnpausedTime if TimeOfDay not available.
    */
@@ -263,34 +244,12 @@ export class WaterInfo extends BaseEntity {
   }
 
   /**
-   * Try to build analytical config from available resources.
-   * Returns null if resources aren't available yet.
+   * Build analytical config for water compute.
    */
-  private tryBuildAnalyticalConfig(): AnalyticalWaterConfig | null {
-    if (!this.influenceManager) return null;
-
-    const depthTexture = this.influenceManager.getDepthTexture();
-    const depthGridConfig = this.influenceManager.getDepthGridConfig();
-
-    if (!depthTexture || !depthGridConfig) {
-      return null;
-    }
-
-    // Create a sampler for depth texture
-    const device = getWebGPU().device;
-    const depthSampler = device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-    });
-
-    return {
-      depthTexture,
-      depthSampler,
-      depthGridConfig,
-      waveSourceDirection: this.getBaseSwellDirection(),
-    };
+  private tryBuildAnalyticalConfig(): AnalyticalWaterConfig {
+    // Use the first wave component's direction as the wave source direction
+    const waveSourceDirection = WAVE_COMPONENTS[0][2];
+    return { waveSourceDirection };
   }
 
   /**
@@ -300,31 +259,28 @@ export class WaterInfo extends BaseEntity {
     // Already configured this compute instance?
     if (this.configuredComputes.has(compute)) return;
 
-    // Try to get/build the config
+    // Build the config if needed
     if (!this.analyticalConfig) {
       this.analyticalConfig = this.tryBuildAnalyticalConfig();
     }
 
-    // If we have a config and shadow resources, set them on the compute
-    if (this.analyticalConfig && this.wavePhysicsManager) {
-      const shadowTextureView = this.wavePhysicsManager.getShadowTextureView();
+    // Check if shadow resources are available
+    const shadowTextureView = this.wavePhysicsManager.getShadowTextureView();
+    if (!shadowTextureView) return;
 
-      if (shadowTextureView) {
-        // Create sampler for shadow attenuation texture
-        const device = getWebGPU().device;
-        const shadowSampler = device.createSampler({
-          magFilter: "linear",
-          minFilter: "linear",
-          addressModeU: "clamp-to-edge",
-          addressModeV: "clamp-to-edge",
-          label: "Shadow Texture Sampler",
-        });
+    // Create sampler for shadow attenuation texture
+    const device = getWebGPU().device;
+    const shadowSampler = device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+      label: "Shadow Texture Sampler",
+    });
 
-        compute.setConfig(this.analyticalConfig);
-        compute.setShadowResources({ shadowTextureView, shadowSampler });
-        this.configuredComputes.add(compute);
-      }
-    }
+    compute.setConfig(this.analyticalConfig);
+    compute.setShadowResources({ shadowTextureView, shadowSampler });
+    this.configuredComputes.add(compute);
   }
 
   /**

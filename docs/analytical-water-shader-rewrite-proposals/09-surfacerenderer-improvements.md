@@ -7,6 +7,7 @@ Replace monolithic surface shader with modular, self-contained rendering passes.
 ## Current System (main branch)
 
 **Architecture**: Monolithic approach
+
 - 3 compute pipelines → 1 combined fragment shader
 - `WaterRenderPipeline` → `waterTexture`
 - `TerrainRenderPipeline` → `terrainTexture`
@@ -15,6 +16,7 @@ Replace monolithic surface shader with modular, self-contained rendering passes.
 - All lighting/shading in one ~600 line WGSL shader
 
 **Issues**:
+
 - Tight coupling between rendering stages
 - Difficult to test individual passes
 - Lighting model embedded in monolithic shader
@@ -23,6 +25,7 @@ Replace monolithic surface shader with modular, self-contained rendering passes.
 ## Proposed System (from analytical-water-shader-rewrite)
 
 **Architecture**: Modular passes
+
 - 4 distinct, self-contained passes with clear responsibilities
 - Each pass extends engine base classes
 - Offscreen compositing for better pipeline control
@@ -30,10 +33,11 @@ Replace monolithic surface shader with modular, self-contained rendering passes.
 
 ### Four Rendering Passes
 
-1. **TerrainRenderPass** - VirtualTexture sampling
-   - Input: Indirection table, terrain VirtualTexture
+1. **TerrainRenderPass** - Terrain height computation
+   - Input: Terrain contours, spline data
    - Output: `terrainTexture` (rgba16float: height, materialId)
    - GPU storage: 50% memory savings vs rgba32float
+   - Note: Uses same GPU compute approach as current system, just modularized
 
 2. **WaterRenderPass** - Gerstner wave evaluation
    - Input: Wave sources, shadow textures, modifiers
@@ -55,12 +59,14 @@ Replace monolithic surface shader with modular, self-contained rendering passes.
 ### 1. Distinct Pass Boundaries
 
 **Old**: Everything in `SurfaceShader.ts`
+
 - Wave physics + terrain sampling + wetness + lighting all mixed
 - ~600 lines of WGSL
 - Difficult to modify one aspect without affecting others
 
 **New**: Clear responsibilities
-- **Terrain**: "Sample height from VirtualTexture"
+
+- **Terrain**: "Compute height from contour splines"
 - **Water**: "Evaluate Gerstner waves with shadows"
 - **Wetness**: "Reproject and decay wetness"
 - **Composite**: "Blend everything with lighting"
@@ -69,10 +75,12 @@ Replace monolithic surface shader with modular, self-contained rendering passes.
 ### 2. Better Base Class Usage
 
 **Old**: Custom pipeline classes
+
 - Reinvent shader binding, dispatch, lifecycle
 - No type safety for bindings
 
 **New**: Extends engine classes
+
 ```typescript
 class TerrainRenderPass extends ComputeShader<TerrainBindings> {
   // Type-safe bindings, automatic dispatch, standard lifecycle
@@ -86,10 +94,12 @@ class CompositePass extends FullscreenShader<CompositeBindings> {
 ### 3. Offscreen Compositing
 
 **Old**: Direct render to screen
+
 - Composite shader runs in main render pass
 - Less control over pipeline
 
 **New**: Offscreen → blit
+
 - CompositePass renders to offscreen texture
 - SurfaceRenderer blits to screen with `draw.image()`
 - Runs on `"waterShader"` layer (no parallax)
@@ -97,29 +107,32 @@ class CompositePass extends FullscreenShader<CompositeBindings> {
 
 ### 4. Texture Format Optimization
 
-| Texture | Old Format | New Format | Savings |
-|---------|-----------|------------|---------|
-| Water | rgba32float | rgba16float | 50% |
-| Terrain | rgba32float | rgba16float | 50% |
-| Wetness | r32float | r32float | 0% |
-| Composite | N/A | rgba8unorm | New |
+| Texture   | Old Format  | New Format  | Savings |
+| --------- | ----------- | ----------- | ------- |
+| Water     | rgba32float | rgba16float | 50%     |
+| Terrain   | rgba32float | rgba16float | 50%     |
+| Wetness   | r32float    | r32float    | 0%      |
+| Composite | N/A         | rgba8unorm  | New     |
 
 **Memory impact**: Significant reduction for high-res rendering
 
-### 5. VirtualTexture Integration
+### 5. Modular Terrain Computation
 
-**Old**: Terrain uses contour-based GPU compute
-- No VirtualTexture system (different generation)
+**Old**: Terrain computation embedded in monolithic shader
 
-**New**: TerrainRenderPass uses VirtualTexture
-- Indirection table maps tile coordinates → texture array
-- LOD support built-in (currently fixed to LOD 0)
-- Automatic tile requesting via `TerrainSystem`
-- Graceful fallback to `defaultDepth`
+- Mixed with other rendering concerns
+
+**New**: TerrainRenderPass isolates terrain logic
+
+- Same contour-based GPU compute approach
+- Self-contained pass with clear inputs/outputs
+- Easier to maintain and optimize independently
+- Future migration path to VirtualTexture system when ready
 
 ### 6. Separation of Concerns
 
 **Old Architecture**:
+
 ```
 SurfaceRenderer.ts (600+ lines)
 ├── Pipeline management
@@ -133,6 +146,7 @@ SurfaceRenderer.ts (600+ lines)
 ```
 
 **New Architecture**:
+
 ```
 SurfaceRenderer.ts (435 lines)
 ├── Pass orchestration ONLY
@@ -149,38 +163,46 @@ SurfaceRenderer.ts (435 lines)
 ## Benefits
 
 ### 1. Cleaner Pass Boundaries
+
 Each pass has single, well-defined responsibility. Easy to understand data flow: Terrain → Water → Wetness → Composite.
 
 ### 2. Better Code Reuse
+
 - Extends engine base classes
 - Uses standard binding system
 - Inherits profiling, error handling, lifecycle
 
 ### 3. Improved Memory Efficiency
+
 - 50% reduction with rgba16float
 - Offscreen composite texture only allocated once
 - Better texture format matching
 
 ### 4. Easier to Maintain
+
 - Pass implementations are focused and readable
 - Adding effects means modifying one pass
 - Changing lighting only touches CompositePass
 - WGSL shaders are focused (~150-250 lines each)
 
 ### 5. Better Performance Potential
+
 - Clear GPU pipeline barriers
 - Compute passes can run asynchronously
 - Profiling can identify bottlenecks per-pass
 - Texture formats optimized for bandwidth
 
 ### 6. Flexibility for Future Features
+
 Easy to add new passes:
+
 - `ReflectionPass` for screen-space reflections
 - `FoamPass` for advanced foam simulation
 - `MaterialPass` for terrain materials
 - Can swap passes at runtime for debug modes
 
 ### 7. Testability and Debuggability
+
 - Each pass independently testable
 - Can render individual passes to inspect
 - Clear data dependencies
@@ -190,42 +212,49 @@ Easy to add new passes:
 ## Migration Path
 
 ### Phase 1: Create Pass Classes
+
 1. Implement `TerrainRenderPass` extending ComputeShader
 2. Implement `WaterRenderPass` extending ComputeShader
 3. Implement `WetnessPass` extending ComputeShader
 4. Implement `CompositePass` extending FullscreenShader
 
 ### Phase 2: Update SurfaceRenderer
+
 1. Simplify to orchestration role
 2. Create offscreen composite texture
 3. Implement pass lifecycle (init, render, destroy)
 4. Add blit to screen in onRender
 
 ### Phase 3: Migrate Shaders
+
 1. Extract terrain logic to TerrainRenderPass WGSL
 2. Extract water logic to WaterRenderPass WGSL
 3. Extract wetness logic to WetnessPass WGSL
 4. Extract lighting to CompositePass WGSL
 
 ### Phase 4: Optimize Formats
+
 1. Change water/terrain textures to rgba16float
 2. Verify visual quality
 3. Measure memory savings
 
 ### Phase 5: Remove Old System
+
 1. Delete old pipeline classes
 2. Delete monolithic SurfaceShader
 3. Clean up unused uniform code
 
 ### Phase 6: Testing
+
 1. Verify visual correctness
 2. Profile per-pass performance
 3. Test debug visualization
-4. Validate VirtualTexture integration
+4. Validate terrain computation accuracy
 
 ## Code Organization
 
 **Old Structure**:
+
 ```
 surface-rendering/
 ├── SurfaceRenderer.ts (~600 lines)
@@ -237,10 +266,11 @@ surface-rendering/
 ```
 
 **New Structure**:
+
 ```
 world/rendering/
 ├── SurfaceRenderer.ts (~435 lines - orchestrator)
-├── TerrainRenderPass.ts (VirtualTexture sampling)
+├── TerrainRenderPass.ts (contour-based GPU compute)
 ├── WaterRenderPass.ts (Gerstner waves + shadows)
 ├── WetnessPass.ts (reprojection + decay)
 └── CompositePass.ts (lighting + blending)
@@ -249,15 +279,18 @@ world/rendering/
 ## Performance Impact
 
 **Memory**:
+
 - 50% reduction for water/terrain textures
 - Additional offscreen composite texture (negligible)
 
 **GPU**:
+
 - Clear pipeline barriers enable better scheduling
 - Profiling can identify bottlenecks
 - Texture format optimization reduces bandwidth
 
 **Maintainability**:
+
 - Focused shaders easier to optimize
 - Can profile individual passes
 - Easier to experiment with optimizations
@@ -284,6 +317,7 @@ This is how modern GPU rendering pipelines should be structured.
 ## File References
 
 **New Implementation:**
+
 - `src/game/world/rendering/SurfaceRenderer.ts`
 - `src/game/world/rendering/TerrainRenderPass.ts`
 - `src/game/world/rendering/WaterRenderPass.ts`
@@ -291,4 +325,5 @@ This is how modern GPU rendering pipelines should be structured.
 - `src/game/world/rendering/CompositePass.ts`
 
 **To Remove:**
+
 - `src/game/surface-rendering/` (entire old folder)

@@ -2,8 +2,8 @@
  * Base class for fullscreen render shaders.
  *
  * Handles GPU pipeline boilerplate so subclasses just declare:
- * - `vertexCode`: WGSL vertex shader code
- * - `fragmentCode`: WGSL fragment shader code
+ * - `vertexCode`: WGSL vertex shader code (or use vertexModules + vertexMainCode)
+ * - `fragmentCode`: WGSL fragment shader code (or use fragmentModules + fragmentMainCode)
  * - `bindings`: typed binding definitions
  * - Optional: `getBlendState()` override for custom blending
  *
@@ -13,15 +13,20 @@
  * - Pipeline layout and render pipeline creation
  * - Fullscreen quad vertex buffer layout
  * - Type-safe bind group creation
+ *
+ * Module Support:
+ * - Set `vertexModules` and `vertexMainCode` to compose vertex shader
+ * - Set `fragmentModules` and `fragmentMainCode` to compose fragment shader
+ * - Or use `vertexCode` and `fragmentCode` directly for backwards compatibility
  */
 
 import { getWebGPU } from "./WebGPUDevice";
 import { WebGPUFullscreenQuad } from "./WebGPUFullscreenQuad";
+import { Shader } from "./Shader";
+import type { ShaderModule } from "./ShaderModule";
 import {
   type BindingsDefinition,
-  type BindGroupResources,
   createBindGroupLayoutEntries,
-  createBindGroupEntries,
 } from "./ShaderBindings";
 
 /**
@@ -29,15 +34,26 @@ import {
  *
  * @template T - The bindings definition type for type-safe bind group creation
  */
-export abstract class FullscreenShader<T extends BindingsDefinition> {
-  /** WGSL vertex shader code. Subclasses must provide this. */
-  abstract readonly vertexCode: string;
+export abstract class FullscreenShader<
+  T extends BindingsDefinition,
+> extends Shader<T> {
+  /** WGSL vertex shader code. Optional when using modules. */
+  vertexCode?: string;
 
-  /** WGSL fragment shader code. Subclasses must provide this. */
-  abstract readonly fragmentCode: string;
+  /** WGSL fragment shader code. Optional when using modules. */
+  fragmentCode?: string;
 
-  /** Binding definitions. Subclasses must provide this. */
-  abstract readonly bindings: T;
+  /** Vertex shader modules. */
+  protected vertexModules?: ShaderModule[];
+
+  /** Fragment shader modules. */
+  protected fragmentModules?: ShaderModule[];
+
+  /** Main vertex code when using modules. */
+  protected vertexMainCode?: string;
+
+  /** Main fragment code when using modules. */
+  protected fragmentMainCode?: string;
 
   /** Label for GPU debugging. Subclasses can override. */
   get label(): string {
@@ -45,8 +61,84 @@ export abstract class FullscreenShader<T extends BindingsDefinition> {
   }
 
   private pipeline: GPURenderPipeline | null = null;
-  private bindGroupLayout: GPUBindGroupLayout | null = null;
   private quad: WebGPUFullscreenQuad | null = null;
+
+  /**
+   * Override to combine vertex and fragment modules.
+   */
+  protected collectModules(): ShaderModule[] {
+    const allModules = [
+      ...(this.vertexModules ?? []),
+      ...(this.fragmentModules ?? []),
+    ];
+
+    if (allModules.length === 0) return [];
+
+    const seen = new Set<ShaderModule>();
+    const ordered: ShaderModule[] = [];
+
+    function collect(module: ShaderModule) {
+      if (seen.has(module)) return;
+      seen.add(module);
+
+      for (const dep of module.dependencies ?? []) {
+        collect(dep);
+      }
+
+      ordered.push(module);
+    }
+
+    for (const module of allModules) {
+      collect(module);
+    }
+
+    return ordered;
+  }
+
+  /**
+   * Get vertex shader code (just the main code, without modules).
+   */
+  protected getVertexMainCodeOnly(): string {
+    if (this.vertexCode) {
+      return this.vertexCode;
+    }
+    if (this.vertexMainCode) {
+      return this.vertexMainCode;
+    }
+    throw new Error(
+      `${this.label}: Must provide either 'vertexCode' or 'vertexMainCode'`,
+    );
+  }
+
+  /**
+   * Get fragment shader code (just the main code, without modules).
+   */
+  protected getFragmentMainCodeOnly(): string {
+    if (this.fragmentCode) {
+      return this.fragmentCode;
+    }
+    if (this.fragmentMainCode) {
+      return this.fragmentMainCode;
+    }
+    throw new Error(
+      `${this.label}: Must provide either 'fragmentCode' or 'fragmentMainCode'`,
+    );
+  }
+
+  /**
+   * Build all module code once (combining vertex and fragment modules).
+   */
+  protected buildAllModuleCode(): string {
+    const modules = this.collectModules();
+    const parts: string[] = [];
+
+    // Add all module code
+    for (const module of modules) {
+      parts.push(module.code);
+    }
+
+    return parts.join("\n\n");
+  }
 
   /**
    * Get the blend state for this shader. Override to customize.
@@ -70,8 +162,22 @@ export abstract class FullscreenShader<T extends BindingsDefinition> {
   async init(): Promise<void> {
     const device = getWebGPU().device;
 
+    // Build complete shader:
+    // 1. Math constants (once)
+    // 2. All modules (vertex + fragment, deduplicated, once)
+    // 3. Vertex main code
+    // 4. Fragment main code
+    const completeShaderCode =
+      this.getMathConstants() +
+      "\n\n" +
+      this.buildAllModuleCode() +
+      "\n\n" +
+      this.getVertexMainCodeOnly() +
+      "\n\n" +
+      this.getFragmentMainCodeOnly();
+
     const shaderModule = device.createShaderModule({
-      code: this.vertexCode + "\n" + this.fragmentCode,
+      code: completeShaderCode,
       label: `${this.label} Shader Module`,
     });
 
@@ -120,16 +226,6 @@ export abstract class FullscreenShader<T extends BindingsDefinition> {
   }
 
   /**
-   * Get the bind group layout for creating bind groups.
-   */
-  getBindGroupLayout(): GPUBindGroupLayout {
-    if (!this.bindGroupLayout) {
-      throw new Error(`${this.label} not initialized`);
-    }
-    return this.bindGroupLayout;
-  }
-
-  /**
    * Get the render pipeline.
    */
   getPipeline(): GPURenderPipeline {
@@ -137,19 +233,6 @@ export abstract class FullscreenShader<T extends BindingsDefinition> {
       throw new Error(`${this.label} not initialized`);
     }
     return this.pipeline;
-  }
-
-  /**
-   * Create a bind group with type-safe named parameters.
-   */
-  createBindGroup(resources: BindGroupResources<T>): GPUBindGroup {
-    const device = getWebGPU().device;
-
-    return device.createBindGroup({
-      layout: this.getBindGroupLayout(),
-      entries: createBindGroupEntries(this.bindings, resources),
-      label: `${this.label} Bind Group`,
-    });
   }
 
   /**

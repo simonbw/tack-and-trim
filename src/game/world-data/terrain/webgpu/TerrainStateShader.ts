@@ -12,8 +12,16 @@
  */
 
 import { getWebGPU } from "../../../../core/graphics/webgpu/WebGPUDevice";
-import { TERRAIN_CONSTANTS_WGSL } from "../TerrainConstants";
+import { generateWGSLBindings } from "../../../../core/graphics/webgpu/ShaderBindings";
+import { SPLINE_SUBDIVISIONS } from "../TerrainConstants";
 import { TerrainParams } from "./TerrainComputeBuffers";
+import {
+  terrainStructuresModule,
+  catmullRomModule,
+  distanceModule,
+  idwModule,
+  terrainHeightCoreModule,
+} from "../../../world/shaders/terrain.wgsl";
 
 /**
  * Terrain render shader using vertex + fragment shaders.
@@ -24,22 +32,55 @@ export class TerrainStateShader {
   private oceanPipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
 
-  private readonly shaderCode = /*wgsl*/ `
-${TERRAIN_CONSTANTS_WGSL}
+  private buildShaderCode(): string {
+    // Collect modules manually (Option A - manual composition)
+    const modules = [
+      terrainStructuresModule,
+      catmullRomModule,
+      distanceModule,
+      idwModule,
+      terrainHeightCoreModule,
+    ];
 
+    // Build code from modules
+    const moduleCodes = modules.map((m) => m.code).join("\n\n");
+
+    // Define bindings with wgslType
+    const bindings = {
+      params: { type: "uniform", wgslType: "Params" },
+      controlPoints: { type: "storage", wgslType: "array<vec2<f32>>" },
+      contours: { type: "storage", wgslType: "array<ContourData>" },
+      children: { type: "storage", wgslType: "array<u32>" },
+    } as const;
+
+    // Generate WGSL bindings
+    const bindingsWGSL = generateWGSLBindings(bindings, 0);
+
+    // Build complete shader code
+    return /*wgsl*/ `
+// ============================================================================
+// Fundamental math constants (always included)
+// ============================================================================
+const PI: f32 = 3.14159265359;
+const TWO_PI: f32 = 6.28318530718;
+const HALF_PI: f32 = 1.57079632679;
+
+// ============================================================================
+// Terrain Constants
+// ============================================================================
+const SPLINE_SUBDIVISIONS: u32 = ${SPLINE_SUBDIVISIONS}u;
+
+// ============================================================================
+// Terrain Modules
+// ============================================================================
+${moduleCodes}
+
+// ============================================================================
+// Params and Bindings
+// ============================================================================
 ${TerrainParams.wgsl}
 
-struct ContourData {
-  pointStartIndex: u32,
-  pointCount: u32,
-  height: f32,
-  parentIndex: i32,
-  depth: u32,
-  childStartIndex: u32,
-  childCount: u32,
-  isCoastline: u32,
-  _padding: u32,
-}
+// ContourData struct is provided by terrainStructuresModule
 
 struct VertexInput {
   @location(0) position: vec2<f32>,
@@ -52,89 +93,21 @@ struct VertexOutput {
   @location(1) @interpolate(flat) contourIndex: u32,
 }
 
-@group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read> controlPoints: array<vec2<f32>>;
-@group(0) @binding(2) var<storage, read> contours: array<ContourData>;
-@group(0) @binding(3) var<storage, read> children: array<u32>;
+${bindingsWGSL}
 
 // ============================================================================
-// Catmull-Rom spline evaluation (for distance computation in fragment shader)
+// Wrapper for module function
 // ============================================================================
 
-fn catmullRomPoint(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32) -> vec2<f32> {
-  let t2 = t * t;
-  let t3 = t2 * t;
-  return 0.5 * (
-    2.0 * p1 +
-    (-p0 + p2) * t +
-    (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 +
-    (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+// Compute signed distance to a contour (wrapper for module function)
+fn computeSignedDistanceWrapper(worldPos: vec2<f32>, contourIndex: u32) -> f32 {
+  return computeSignedDistance(
+    worldPos,
+    contourIndex,
+    &controlPoints,
+    &contours,
+    SPLINE_SUBDIVISIONS
   );
-}
-
-// ============================================================================
-// Distance functions
-// ============================================================================
-
-fn pointToSegmentDistance(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
-  let ab = b - a;
-  let lengthSq = dot(ab, ab);
-  if (lengthSq == 0.0) {
-    return length(p - a);
-  }
-  let t = clamp(dot(p - a, ab) / lengthSq, 0.0, 1.0);
-  let nearest = a + t * ab;
-  return length(p - nearest);
-}
-
-fn isLeft(a: vec2<f32>, b: vec2<f32>, p: vec2<f32>) -> f32 {
-  return (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
-}
-
-// Compute signed distance to a contour
-fn computeSignedDistance(worldPos: vec2<f32>, contourIndex: u32) -> f32 {
-  let c = contours[contourIndex];
-  let n = c.pointCount;
-  let start = c.pointStartIndex;
-
-  var minDist: f32 = 1e10;
-  var windingNumber: i32 = 0;
-
-  for (var i: u32 = 0u; i < n; i++) {
-    let i0 = (i + n - 1u) % n;
-    let i1 = i;
-    let i2 = (i + 1u) % n;
-    let i3 = (i + 2u) % n;
-
-    let p0 = controlPoints[start + i0];
-    let p1 = controlPoints[start + i1];
-    let p2 = controlPoints[start + i2];
-    let p3 = controlPoints[start + i3];
-
-    for (var j: u32 = 0u; j < SPLINE_SUBDIVISIONS; j++) {
-      let t0 = f32(j) / f32(SPLINE_SUBDIVISIONS);
-      let t1 = f32(j + 1u) / f32(SPLINE_SUBDIVISIONS);
-
-      let a = catmullRomPoint(p0, p1, p2, p3, t0);
-      let b = catmullRomPoint(p0, p1, p2, p3, t1);
-
-      let dist = pointToSegmentDistance(worldPos, a, b);
-      minDist = min(minDist, dist);
-
-      if (a.y <= worldPos.y) {
-        if (b.y > worldPos.y && isLeft(a, b, worldPos) > 0.0) {
-          windingNumber += 1;
-        }
-      } else {
-        if (b.y <= worldPos.y && isLeft(a, b, worldPos) < 0.0) {
-          windingNumber -= 1;
-        }
-      }
-    }
-  }
-
-  let inside = windingNumber != 0;
-  return select(minDist, -minDist, inside);
 }
 
 // ============================================================================
@@ -187,7 +160,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let minDist: f32 = 0.1;
 
   // Parent participates in IDW based on distance to its own boundary
-  let parentSignedDist = computeSignedDistance(worldPos, contourIndex);
+  let parentSignedDist = computeSignedDistanceWrapper(worldPos, contourIndex);
   let parentDist = max(minDist, abs(parentSignedDist));
   let parentWeight = 1.0 / parentDist;
   var weightedSum = contour.height * parentWeight;
@@ -199,7 +172,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
     let child = contours[childIdx];
 
     // Compute signed distance to child
-    let signedDist = computeSignedDistance(worldPos, childIdx);
+    let signedDist = computeSignedDistanceWrapper(worldPos, childIdx);
     let dist = max(minDist, abs(signedDist));
 
     // IDW weight
@@ -262,7 +235,7 @@ fn oceanFragmentMain(input: OceanVertexOutput) -> @location(0) vec4<f32> {
     // Root contours have parentIndex == -1
     if (contour.parentIndex == -1) {
       // Compute signed distance to this root contour
-      let signedDist = computeSignedDistance(input.worldPos, i);
+      let signedDist = computeSignedDistanceWrapper(input.worldPos, i);
       // Only consider if we're outside (positive distance)
       if (signedDist >= 0.0) {
         let dist = max(minDist, signedDist);
@@ -281,9 +254,11 @@ fn oceanFragmentMain(input: OceanVertexOutput) -> @location(0) vec4<f32> {
   return vec4<f32>(params.defaultDepth, 0.0, 0.0, 1.0);
 }
 `;
+  }
 
   async init(): Promise<void> {
     const device = getWebGPU().device;
+    const shaderCode = this.buildShaderCode();
 
     // Create bind group layout
     this.bindGroupLayout = device.createBindGroupLayout({
@@ -314,7 +289,7 @@ fn oceanFragmentMain(input: OceanVertexOutput) -> @location(0) vec4<f32> {
 
     const shaderModule = device.createShaderModule({
       label: "Terrain State Shader",
-      code: this.shaderCode,
+      code: shaderCode,
     });
 
     const pipelineLayout = device.createPipelineLayout({

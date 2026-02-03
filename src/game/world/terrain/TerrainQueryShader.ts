@@ -16,12 +16,12 @@ import {
 import { SPLINE_SUBDIVISIONS } from "../../world-data/terrain/TerrainConstants";
 
 const bindings = {
-  params: { type: "uniform" },
-  pointBuffer: { type: "storage" },
-  resultBuffer: { type: "storageRW" },
-  controlPoints: { type: "storage" },
-  contours: { type: "storage" },
-  children: { type: "storage" },
+  params: { type: "uniform", wgslType: "Params" },
+  pointBuffer: { type: "storage", wgslType: "array<vec2<f32>>" },
+  resultBuffer: { type: "storageRW", wgslType: "array<TerrainQueryResult>" },
+  controlPoints: { type: "storage", wgslType: "array<vec2<f32>>" },
+  contours: { type: "storage", wgslType: "array<ContourData>" },
+  children: { type: "storage", wgslType: "array<u32>" },
 } as const;
 
 /**
@@ -43,13 +43,6 @@ struct Params {
   _padding: f32,
 }
 
-@group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read> pointBuffer: array<vec2<f32>>;
-@group(0) @binding(2) var<storage, read_write> resultBuffer: array<TerrainQueryResult>;
-@group(0) @binding(3) var<storage, read> controlPoints: array<vec2<f32>>;
-@group(0) @binding(4) var<storage, read> contours: array<ContourData>;
-@group(0) @binding(5) var<storage, read> children: array<u32>;
-
 // Result structure (matches TerrainQueryResult interface)
 // stride = 4 floats
 struct TerrainQueryResult {
@@ -58,6 +51,8 @@ struct TerrainQueryResult {
   normalY: f32,
   terrainType: f32,
 }
+
+${this.buildWGSLBindings()}
 
 const SPLINE_SUBDIVISIONS: u32 = ${SPLINE_SUBDIVISIONS}u;
 const MIN_DISTANCE: f32 = 0.1; // Min distance for IDW weighting

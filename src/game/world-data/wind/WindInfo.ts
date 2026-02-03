@@ -26,7 +26,6 @@ import type {
   QueryForecast,
   ReadbackViewport,
 } from "../datatiles/DataTileTypes";
-import { InfluenceFieldManager } from "../influence/InfluenceFieldManager";
 import { isWindModifier, type WindModifier } from "../../WindModifier";
 import {
   computeBaseWindAtPoint,
@@ -98,9 +97,6 @@ export class WindInfo extends BaseEntity {
     m.getWindModifierAABB(),
   );
 
-  // Influence field manager for terrain effects
-  private influenceManager: InfluenceFieldManager | null = null;
-
   constructor() {
     super();
 
@@ -120,10 +116,6 @@ export class WindInfo extends BaseEntity {
   onAfterAdded() {
     // Add pipeline as child entity - it handles its own lifecycle
     this.addChild(this.pipeline);
-
-    // Get reference to influence field manager (if it exists)
-    this.influenceManager =
-      this.game.entities.tryGetSingleton(InfluenceFieldManager) ?? null;
   }
 
   /**
@@ -166,25 +158,8 @@ export class WindInfo extends BaseEntity {
   ): void {
     compute.setBaseWind(this.baseVelocity.x, this.baseVelocity.y);
 
-    // Sample influence at tile center
-    const centerX = viewport.left + viewport.width / 2;
-    const centerY = viewport.top + viewport.height / 2;
-    const windDirection = Math.atan2(this.baseVelocity.y, this.baseVelocity.x);
-
-    if (this.influenceManager) {
-      const influence = this.influenceManager.sampleWindInfluence(
-        centerX,
-        centerY,
-        windDirection,
-      );
-      compute.setInfluence(
-        influence.speedFactor,
-        influence.directionOffset,
-        influence.turbulence,
-      );
-    } else {
-      compute.setInfluence(1.0, 0, 0); // No terrain effect
-    }
+    // Use uniform wind (no terrain influence)
+    compute.setInfluence(1.0, 0, 0);
 
     compute.runCompute(
       viewport.time,
@@ -230,37 +205,21 @@ export class WindInfo extends BaseEntity {
    * CPU fallback for base wind computation.
    */
   private computeCPUBaseWind(point: V2d): V2d {
-    // Sample influence at query point
-    const windDirection = Math.atan2(this.baseVelocity.y, this.baseVelocity.x);
-    let influenceSpeedFactor = 1.0;
-    let influenceDirectionOffset = 0;
-    let influenceTurbulence = 0;
-
-    if (this.influenceManager) {
-      const influence = this.influenceManager.sampleWindInfluence(
-        point[0],
-        point[1],
-        windDirection,
-      );
-      influenceSpeedFactor = influence.speedFactor;
-      influenceDirectionOffset = influence.directionOffset;
-      influenceTurbulence = influence.turbulence;
-    }
-
     // Use TimeOfDay as source of truth for game time
     const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const time = timeOfDay
       ? timeOfDay.getTimeInSeconds()
       : this.game.elapsedUnpausedTime;
 
+    // Use uniform wind (no terrain influence)
     const params: WindComputeParams = {
       time,
       baseVelocity: this.baseVelocity.clone(),
       speedNoise: this.speedNoise,
       angleNoise: this.angleNoise,
-      influenceSpeedFactor,
-      influenceDirectionOffset,
-      influenceTurbulence,
+      influenceSpeedFactor: 1.0,
+      influenceDirectionOffset: 0,
+      influenceTurbulence: 0,
     };
 
     const result = computeBaseWindAtPoint(point[0], point[1], params);
