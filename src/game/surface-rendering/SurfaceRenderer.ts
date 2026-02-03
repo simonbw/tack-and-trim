@@ -257,7 +257,7 @@ export class SurfaceRenderer extends BaseEntity {
     if (!this.waterPipeline) return false;
 
     // Get WaterInfo and its WavePhysicsManager
-    const waterInfo = WaterInfo.maybeFromGame(this.game);
+    const waterInfo = this.game.entities.tryGetSingleton(WaterInfo);
     if (!waterInfo) return false;
 
     const wavePhysicsManager = waterInfo.getWavePhysicsManager();
@@ -266,7 +266,9 @@ export class SurfaceRenderer extends BaseEntity {
     }
 
     // Get depth texture from InfluenceFieldManager
-    const influenceManager = InfluenceFieldManager.maybeFromGame(this.game);
+    const influenceManager = this.game.entities.tryGetSingleton(
+      InfluenceFieldManager,
+    );
     if (!influenceManager) return false;
 
     const depthTexture = influenceManager.getDepthTexture();
@@ -454,13 +456,13 @@ export class SurfaceRenderer extends BaseEntity {
     const gpuProfiler = this.game.renderer.getGpuProfiler();
 
     // Use TimeOfDay as unified time source
-    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const currentTime = timeOfDay
       ? timeOfDay.getTimeInSeconds()
       : this.game.elapsedUnpausedTime;
 
     // Update water render pipeline
-    const waterInfo = WaterInfo.fromGame(this.game);
+    const waterInfo = this.game.entities.getSingleton(WaterInfo);
 
     // Update shadow texture for current viewport (must happen before water update)
     const wavePhysicsManager = waterInfo.getWavePhysicsManager();
@@ -473,7 +475,7 @@ export class SurfaceRenderer extends BaseEntity {
     }
 
     // Update terrain render pipeline if terrain exists
-    const terrainInfo = TerrainInfo.maybeFromGame(this.game);
+    const terrainInfo = this.game.entities.tryGetSingleton(TerrainInfo);
     let terrainTextureView: GPUTextureView | null = null;
 
     if (terrainInfo) {

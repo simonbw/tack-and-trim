@@ -209,13 +209,17 @@ export class AnalyticalWaterRenderPipeline {
     const device = getWebGPU().device;
 
     // Get game time from TimeOfDay
-    const game = (waterInfo as { game?: { elapsedUnpausedTime?: number } })
-      .game;
-    const timeOfDay = game
-      ? TimeOfDay.maybeFromGame(
-          game as Parameters<typeof TimeOfDay.maybeFromGame>[0],
-        )
-      : undefined;
+    const game = (
+      waterInfo as {
+        game?: {
+          entities?: {
+            tryGetSingleton?: (cls: typeof TimeOfDay) => TimeOfDay | undefined;
+          };
+          elapsedUnpausedTime?: number;
+        };
+      }
+    ).game;
+    const timeOfDay = game?.entities?.tryGetSingleton?.(TimeOfDay);
     const time = timeOfDay
       ? timeOfDay.getTimeInSeconds()
       : (game?.elapsedUnpausedTime ?? 0);

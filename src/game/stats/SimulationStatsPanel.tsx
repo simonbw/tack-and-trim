@@ -102,7 +102,7 @@ function renderSystemSection(
 }
 
 function getWaterStats(ctx: StatsPanelContext): TileSystemStats | null {
-  const waterInfo = WaterInfo.maybeFromGame(ctx.game);
+  const waterInfo = ctx.game.entities.tryGetSingleton(WaterInfo);
   if (!waterInfo) return null;
 
   const tileStats = waterInfo.getTileStats();
@@ -141,7 +141,7 @@ function getWaterStats(ctx: StatsPanelContext): TileSystemStats | null {
 }
 
 function getWindStats(ctx: StatsPanelContext): TileSystemStats | null {
-  const windInfo = WindInfo.maybeFromGame(ctx.game);
+  const windInfo = ctx.game.entities.tryGetSingleton(WindInfo);
   if (!windInfo) return null;
 
   const tileStats = windInfo.getTileStats();

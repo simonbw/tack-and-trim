@@ -52,7 +52,7 @@ export class WindParticles extends BaseEntity {
     if (!this.game || !this.grid) {
       return;
     }
-    const wind = WindInfo.fromGame(this.game);
+    const wind = this.game.entities.getSingleton(WindInfo);
     const viewport = this.game.camera.getWorldViewport();
 
     const zoom = this.game.camera.z;

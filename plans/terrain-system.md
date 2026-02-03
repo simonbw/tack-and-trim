@@ -804,15 +804,8 @@ export class TerrainInfo extends BaseEntity {
     this.cpuFallback = new TerrainComputeCPU();
   }
 
-  static fromGame(game: Game): TerrainInfo {
-    const terrain = game.entities.getById("terrainInfo");
-    if (!terrain) throw new Error("TerrainInfo not found in game");
-    return terrain as TerrainInfo;
-  }
-
-  static maybeFromGame(game: Game): TerrainInfo | undefined {
-    return game.entities.getById("terrainInfo") as TerrainInfo | undefined;
-  }
+  // Access via game.entities.getSingleton(TerrainInfo)
+  // or game.entities.tryGetSingleton(TerrainInfo) for optional access
 
   @on("afterAdded")
   async initGPU(): Promise<void> {
@@ -1080,10 +1073,10 @@ export class BoatGrounding extends BaseEntity {
 
   @on("tick")
   onTick(dt: number): void {
-    const terrain = TerrainInfo.maybeFromGame(this.game!);
+    const terrain = this.game!.entities.tryGetSingleton(TerrainInfo);
     if (!terrain) return;  // No terrain system, skip grounding
 
-    const water = WaterInfo.fromGame(this.game!);
+    const water = this.game!.entities.getSingleton(WaterInfo);
 
     // Check keel grounding (most likely to ground first)
     const keelTip = this.getKeelTipPosition();

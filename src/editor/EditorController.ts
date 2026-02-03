@@ -9,7 +9,6 @@
 
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
-import { Game } from "../core/Game";
 import { createContour } from "../game/world-data/terrain/LandMass";
 import { TerrainInfo } from "../game/world-data/terrain/TerrainInfo";
 import { TerrainResources } from "../game/world/terrain/TerrainResources";
@@ -327,14 +326,6 @@ export class EditorController
   getTerrainHeightAtMouse(): number | null {
     if (!this.mouseWorldPosition || !this.terrainInfo) return null;
     return this.terrainInfo.getHeightAtPoint(this.mouseWorldPosition);
-  }
-
-  /**
-   * Get the EditorController from a Game instance, if present.
-   */
-  static maybeFromGame(game: Game): EditorController | undefined {
-    const controller = game.entities.getById("editorController");
-    return controller instanceof EditorController ? controller : undefined;
   }
 
   // ==========================================

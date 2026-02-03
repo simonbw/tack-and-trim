@@ -14,7 +14,6 @@
 
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { Game } from "../../../core/Game";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { distributeWork, WorkerPool } from "../../../core/workers";
 import {
@@ -223,7 +222,7 @@ class WindInfluenceGrid {
  *
  * Usage:
  * ```typescript
- * const manager = InfluenceFieldManager.fromGame(game);
+ * const manager = game.entities.getSingleton(InfluenceFieldManager);
  * const windInfluence = manager.sampleWindInfluence(x, y, windDirection);
  * ```
  */
@@ -262,26 +261,6 @@ export class InfluenceFieldManager extends BaseEntity {
     });
   }
 
-  /**
-   * Get the InfluenceFieldManager entity from a game instance.
-   * Throws if not found.
-   */
-  static fromGame(game: Game): InfluenceFieldManager {
-    const manager = game.entities.getById("influenceFieldManager");
-    if (!(manager instanceof InfluenceFieldManager)) {
-      throw new Error("InfluenceFieldManager not found in game");
-    }
-    return manager;
-  }
-
-  /**
-   * Get the InfluenceFieldManager entity from a game instance, or undefined if not found.
-   */
-  static maybeFromGame(game: Game): InfluenceFieldManager | undefined {
-    const manager = game.entities.getById("influenceFieldManager");
-    return manager instanceof InfluenceFieldManager ? manager : undefined;
-  }
-
   @on("afterAdded")
   onAfterAdded() {
     // Start async initialization (doesn't block the main thread)
@@ -294,7 +273,7 @@ export class InfluenceFieldManager extends BaseEntity {
    */
   private async computeAsync(): Promise<void> {
     // Get terrain info
-    const terrain = TerrainInfo.fromGame(this.game);
+    const terrain = this.game.entities.getSingleton(TerrainInfo);
     const terrainDef = terrain.getTerrainDefinition();
 
     // Compute bounds from all control points
@@ -634,7 +613,7 @@ export class InfluenceFieldManager extends BaseEntity {
   async recompute(): Promise<void> {
     this.windProgress = 0;
 
-    const terrain = TerrainInfo.fromGame(this.game);
+    const terrain = this.game.entities.getSingleton(TerrainInfo);
     const terrainDef = terrain.getTerrainDefinition();
 
     let minX = Infinity,

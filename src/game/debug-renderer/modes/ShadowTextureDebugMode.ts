@@ -28,7 +28,7 @@ export class ShadowTextureDebugMode extends DebugRenderMode {
 
   @on("render")
   onRender({ draw }: GameEventMap["render"]): void {
-    const waterInfo = WaterInfo.maybeFromGame(this.game);
+    const waterInfo = this.game.entities.tryGetSingleton(WaterInfo);
     const wavePhysicsManager = waterInfo?.getWavePhysicsManager();
 
     if (!wavePhysicsManager || !wavePhysicsManager.isInitialized()) {

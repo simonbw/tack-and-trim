@@ -12,7 +12,6 @@
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { Game } from "../../../core/Game";
 import { profile } from "../../../core/util/Profiler";
 import { SparseSpatialHash } from "../../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../../core/Vector";
@@ -84,26 +83,6 @@ export class WindInfo extends BaseEntity {
   id = "windInfo";
   tickLayer = "environment" as const;
 
-  /**
-   * Get the WindInfo entity from a game instance.
-   * Throws if not found.
-   */
-  static fromGame(game: Game): WindInfo {
-    const windInfo = game.entities.getById("windInfo");
-    if (!(windInfo instanceof WindInfo)) {
-      throw new Error("WindInfo not found in game");
-    }
-    return windInfo;
-  }
-
-  /**
-   * Get the WindInfo entity from a game instance, or undefined if not found.
-   */
-  static maybeFromGame(game: Game): WindInfo | undefined {
-    const windInfo = game.entities.getById("windInfo");
-    return windInfo instanceof WindInfo ? windInfo : undefined;
-  }
-
   // Base wind velocity - the global wind direction and speed
   private baseVelocity: V2d = V(11, 11); // ~15 ft/s (~9 kts), NW breeze
 
@@ -144,7 +123,7 @@ export class WindInfo extends BaseEntity {
 
     // Get reference to influence field manager (if it exists)
     this.influenceManager =
-      InfluenceFieldManager.maybeFromGame(this.game) ?? null;
+      this.game.entities.tryGetSingleton(InfluenceFieldManager) ?? null;
   }
 
   /**
@@ -269,7 +248,7 @@ export class WindInfo extends BaseEntity {
     }
 
     // Use TimeOfDay as source of truth for game time
-    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const time = timeOfDay
       ? timeOfDay.getTimeInSeconds()
       : this.game.elapsedUnpausedTime;

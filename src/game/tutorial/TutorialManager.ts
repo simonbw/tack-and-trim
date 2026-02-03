@@ -33,7 +33,7 @@ export class TutorialManager extends BaseEntity {
       this.destroy();
       return;
     }
-    const windInfo = WindInfo.fromGame(this.game);
+    const windInfo = this.game.entities.getSingleton(WindInfo);
 
     // Initialize context
     const startPos = boat.getPosition().clone();

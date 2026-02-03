@@ -65,7 +65,7 @@ export class FoamParticle extends BaseEntity implements WaterQuerier {
     }
 
     // Move foam based on water surface velocity
-    const waterInfo = WaterInfo.fromGame(this.game);
+    const waterInfo = this.game.entities.getSingleton(WaterInfo);
     const state = waterInfo.getStateAtPoint(this.pos);
     this.pos.iaddScaled(state.velocity, dt);
   }

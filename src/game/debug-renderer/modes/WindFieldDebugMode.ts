@@ -39,7 +39,7 @@ export class WindFieldDebugMode extends DebugRenderMode {
 
   @on("render")
   onRender({ draw }: GameEventMap["render"]): void {
-    const wind = WindInfo.maybeFromGame(this.game);
+    const wind = this.game.entities.tryGetSingleton(WindInfo);
     if (!wind) return;
 
     const camera = this.game.camera;
@@ -84,7 +84,7 @@ export class WindFieldDebugMode extends DebugRenderMode {
     const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
     if (!mouseWorldPos) return null;
 
-    const wind = WindInfo.maybeFromGame(this.game);
+    const wind = this.game.entities.tryGetSingleton(WindInfo);
     if (!wind) return null;
 
     const velocity = wind.getVelocityAtPoint(mouseWorldPos);

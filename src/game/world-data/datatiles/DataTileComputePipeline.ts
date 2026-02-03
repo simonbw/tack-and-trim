@@ -189,7 +189,7 @@ export class DataTileComputePipeline<
     if (!this.initialized) return;
 
     // Use TimeOfDay as source of truth for game time, fallback to elapsedUnpausedTime
-    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const time = timeOfDay
       ? timeOfDay.getTimeInSeconds()
       : this.game.elapsedUnpausedTime;

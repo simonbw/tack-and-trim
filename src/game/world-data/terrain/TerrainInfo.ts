@@ -9,7 +9,6 @@
 
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { Game } from "../../../core/Game";
 import { V2d } from "../../../core/Vector";
 import {
   DataTileComputePipeline,
@@ -69,26 +68,6 @@ const TERRAIN_READBACK_CONFIG: DataTileReadbackConfig<TerrainPointData> = {
 export class TerrainInfo extends BaseEntity {
   id = "terrainInfo";
   tickLayer = "environment" as const;
-
-  /**
-   * Get the TerrainInfo entity from a game instance.
-   * Throws if not found.
-   */
-  static fromGame(game: Game): TerrainInfo {
-    const terrainInfo = game.entities.getById("terrainInfo");
-    if (!(terrainInfo instanceof TerrainInfo)) {
-      throw new Error("TerrainInfo not found in game");
-    }
-    return terrainInfo;
-  }
-
-  /**
-   * Get the TerrainInfo entity from a game instance, or undefined if not found.
-   */
-  static maybeFromGame(game: Game): TerrainInfo | undefined {
-    const terrainInfo = game.entities.getById("terrainInfo");
-    return terrainInfo instanceof TerrainInfo ? terrainInfo : undefined;
-  }
 
   // Terrain definition (contours)
   private terrainDefinition: TerrainDefinition;

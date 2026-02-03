@@ -35,7 +35,7 @@ export class Keel extends BaseEntity {
     const drag = foilDrag(KEEL_CHORD);
 
     // Get water velocity function
-    const water = WaterInfo.fromGame(this.game);
+    const water = this.game.entities.getSingleton(WaterInfo);
     const getWaterVelocity = (point: V2d): V2d =>
       water.getStateAtPoint(point).velocity;
 

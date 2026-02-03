@@ -308,8 +308,8 @@ export class BoatGrounding extends BaseEntity {
 
   @on("tick")
   onTick(dt: number) {
-    const terrain = TerrainInfo.fromGame(this.game!);
-    const water = WaterInfo.fromGame(this.game!);
+    const terrain = this.game!.entities.getSingleton(TerrainInfo);
+    const water = this.game!.entities.getSingleton(WaterInfo);
 
     // Check keel grounding (most common)
     this.applyGroundingForce(
@@ -340,8 +340,8 @@ export class BoatGrounding extends BaseEntity {
     draft: number,
     frictionCoeff: number,
   ) {
-    const terrain = TerrainInfo.fromGame(this.game!);
-    const water = WaterInfo.fromGame(this.game!);
+    const terrain = this.game!.entities.getSingleton(TerrainInfo);
+    const water = this.game!.entities.getSingleton(WaterInfo);
 
     const waterState = water.getStateAtPoint(worldPoint);
     const terrainHeight = terrain.getHeightAtPoint(worldPoint);

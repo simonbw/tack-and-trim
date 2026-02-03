@@ -56,7 +56,7 @@ async function main() {
   game.addEntity(new GameController());
 
   // Wait for terrain computation to complete
-  const influenceManager = InfluenceFieldManager.fromGame(game);
+  const influenceManager = game.entities.getSingleton(InfluenceFieldManager);
   await influenceManager.waitForInitialization();
 
   // Remove overlay once initialization is complete

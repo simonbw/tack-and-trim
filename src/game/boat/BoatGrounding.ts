@@ -70,7 +70,7 @@ export class BoatGrounding extends BaseEntity implements TerrainQuerier {
   @on("tick")
   onTick() {
     // Skip if no terrain system
-    const terrainInfo = TerrainInfo.maybeFromGame(this.game);
+    const terrainInfo = this.game.entities.tryGetSingleton(TerrainInfo);
     if (!terrainInfo) return;
 
     const hull = this.boat.hull;

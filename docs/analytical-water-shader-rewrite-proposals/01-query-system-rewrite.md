@@ -50,7 +50,7 @@ class Boat {
   tags = ["waterQuerier"];
   getWaterQueryForecast() { return {...}; }
   onTick() {
-    const waterInfo = WaterInfo.fromGame(this.game);
+    const waterInfo = this.game.entities.getSingleton(WaterInfo);
     const state = waterInfo.getStateAtPoint(position);
   }
 }

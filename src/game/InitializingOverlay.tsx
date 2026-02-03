@@ -5,7 +5,7 @@ import "./InitializingOverlay.css";
 export class InitializingOverlay extends ReactEntity {
   constructor() {
     super(() => {
-      const manager = InfluenceFieldManager.maybeFromGame(this.game);
+      const manager = this.game.entities.tryGetSingleton(InfluenceFieldManager);
       const progress = manager?.getProgress() ?? { wind: 0 };
 
       // Wind is now the only computation

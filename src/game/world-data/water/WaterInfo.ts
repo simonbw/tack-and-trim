@@ -11,7 +11,6 @@
 import { createNoise3D, NoiseFunction3D } from "simplex-noise";
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { Game } from "../../../core/Game";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../../core/util/Profiler";
 import { V, V2d } from "../../../core/Vector";
@@ -131,26 +130,6 @@ export class WaterInfo extends BaseEntity {
   id = "waterInfo";
   tickLayer = "environment" as const;
 
-  /**
-   * Get the WaterInfo entity from a game instance.
-   * Throws if not found.
-   */
-  static fromGame(game: Game): WaterInfo {
-    const waterInfo = game.entities.getById("waterInfo");
-    if (!(waterInfo instanceof WaterInfo)) {
-      throw new Error("WaterInfo not found in game");
-    }
-    return waterInfo;
-  }
-
-  /**
-   * Get the WaterInfo entity from a game instance, or undefined if not found.
-   */
-  static maybeFromGame(game: Game): WaterInfo | undefined {
-    const waterInfo = game.entities.getById("waterInfo");
-    return waterInfo instanceof WaterInfo ? waterInfo : undefined;
-  }
-
   // Tile pipeline for physics queries
   private pipeline: DataTileComputePipeline<
     WaterPointData,
@@ -215,11 +194,11 @@ export class WaterInfo extends BaseEntity {
     this.addChild(this.pipeline);
 
     // Get reference to terrain info (for CPU depth sampling)
-    this.terrainInfo = TerrainInfo.maybeFromGame(this.game) ?? null;
+    this.terrainInfo = this.game.entities.tryGetSingleton(TerrainInfo) ?? null;
 
     // Get reference to influence field manager (needed for depth texture)
     this.influenceManager =
-      InfluenceFieldManager.maybeFromGame(this.game) ?? null;
+      this.game.entities.tryGetSingleton(InfluenceFieldManager) ?? null;
 
     // Initialize wave physics manager with terrain
     if (this.terrainInfo) {
@@ -235,7 +214,7 @@ export class WaterInfo extends BaseEntity {
   @profile
   onTick() {
     // Update tide height from TimeOfDay
-    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     if (timeOfDay) {
       const hour = timeOfDay.getHour();
       // Semi-diurnal: 2 cycles per day (high at 0h & 12h, low at 6h & 18h)
@@ -277,7 +256,7 @@ export class WaterInfo extends BaseEntity {
    * Falls back to elapsedUnpausedTime if TimeOfDay not available.
    */
   private getGameTime(): number {
-    const timeOfDay = TimeOfDay.maybeFromGame(this.game);
+    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     return timeOfDay
       ? timeOfDay.getTimeInSeconds()
       : (this.game.elapsedUnpausedTime ?? 0);

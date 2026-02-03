@@ -80,7 +80,7 @@ export class TellTail extends BaseEntity implements WindQuerier {
     firstBody.position.set(this.getAttachmentPoint());
     firstBody.velocity.set(this.getAttachmentVelocity());
 
-    const wind = WindInfo.fromGame(this.game);
+    const wind = this.game.entities.getSingleton(WindInfo);
 
     const getFluidVelocity = (point: V2d): V2d =>
       wind.getVelocityAtPoint(point);

@@ -51,7 +51,7 @@ export class BoatSpray extends BaseEntity {
 
   @on("tick")
   onTick(dt: number): void {
-    const water = WaterInfo.fromGame(this.game);
+    const water = this.game.entities.getSingleton(WaterInfo);
 
     let totalSpawnRate = 0;
     for (const edge of this.edges) {

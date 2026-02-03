@@ -82,13 +82,13 @@ onInfluenceFieldsReady() {
 }
 
 // Or await directly
-const manager = InfluenceFieldManager.fromGame(game);
+const manager = game.entities.getSingleton(InfluenceFieldManager);
 await manager.waitForInitialization();
 ```
 
 **Sampling:**
 ```typescript
-const manager = InfluenceFieldManager.fromGame(game);
+const manager = game.entities.getSingleton(InfluenceFieldManager);
 const windInfluence = manager.sampleWindInfluence(x, y, windDirection);
 const swellInfluence = manager.sampleSwellInfluence(x, y, swellDirection);
 const fetch = manager.sampleFetch(x, y, windDirection);
@@ -140,7 +140,7 @@ class MyEntity extends BaseEntity {
 
   @on("tick")
   onTick() {
-    const wind = WindInfo.fromGame(this.game!);
+    const wind = this.game!.entities.getSingleton(WindInfo);
     const velocity = wind.getVelocityAtPoint(this.position);
   }
 }

@@ -262,7 +262,7 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
       );
     }
 
-    const wind = WindInfo.fromGame(this.game);
+    const wind = this.game.entities.getSingleton(WindInfo);
 
     try {
       this.inFlowComputation = true;
@@ -304,7 +304,7 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
    * B cannot see A as upwind, preventing infinite recursion.
    */
   private getUpwindSails(): Sail[] {
-    const wind = WindInfo.fromGame(this.game);
+    const wind = this.game.entities.getSingleton(WindInfo);
 
     const myPos = this.getCentroid();
 

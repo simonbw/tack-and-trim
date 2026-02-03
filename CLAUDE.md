@@ -136,6 +136,7 @@ onLevelStarted({ level }: GameEventMap["levelStarted"]) {
 - Use `tags` array on entities for categorization
 - Query with `game.entities.getTagged("tagName")`
 - Use unique `id` for single entities: `game.entities.getById("entityId")`
+- For singleton entities (one instance per game), use `game.entities.getSingleton(ClassName)` or `game.entities.tryGetSingleton(ClassName)` for optional access
 
 ### Profiler
 
