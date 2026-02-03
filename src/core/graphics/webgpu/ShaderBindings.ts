@@ -252,7 +252,16 @@ export function generateWGSLBindings(
                 : viewDim === "3d"
                   ? "texture_3d"
                   : "texture_2d";
-        const wgslType = `${texType}<${sampleType}>`;
+        // Map GPUTextureSampleType to WGSL type
+        const wgslSampleType =
+          sampleType === "float" || sampleType === "unfilterable-float"
+            ? "f32"
+            : sampleType === "sint"
+              ? "i32"
+              : sampleType === "uint"
+                ? "u32"
+                : "f32"; // depth also uses f32
+        const wgslType = `${texType}<${wgslSampleType}>`;
         declaration = `var ${name}: ${wgslType}`;
         break;
       }
