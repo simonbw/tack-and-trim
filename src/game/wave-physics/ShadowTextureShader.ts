@@ -13,11 +13,45 @@
  * - G channel: Chop wave attenuation
  */
 
+import { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
+import { fresnelDiffractionModule } from "../world/shaders/fresnel-diffraction.wgsl";
+
+// Wavelength constants for swell and chop waves
+const SWELL_WAVELENGTH = 200.0; // feet
+const CHOP_WAVELENGTH = 30.0; // feet
+
+const bindings = {
+  uniforms: { type: "uniform" },
+  shadowData: { type: "storage" },
+} as const;
+
 /**
- * WGSL vertex shader code.
- * Transforms world-space polygon vertices to clip space and passes world position through.
+ * Shadow texture shader for rendering wave diffraction patterns.
+ * Uses FullscreenShader base class with custom vertex/fragment WGSL code.
  */
-export const SHADOW_TEXTURE_VERTEX_SHADER = /*wgsl*/ `
+export class ShadowTextureShader extends FullscreenShader<typeof bindings> {
+  readonly bindings = bindings;
+
+  protected vertexModules = [];
+  protected fragmentModules = [fresnelDiffractionModule];
+
+  /**
+   * Get the complete shader code for manual pipeline creation.
+   * Used by ShadowTextureRenderer which needs custom vertex buffer layout.
+   */
+  getShaderCode(): string {
+    return (
+      this.getMathConstants() +
+      "\n\n" +
+      this.buildAllModuleCode() +
+      "\n\n" +
+      this.vertexMainCode +
+      "\n\n" +
+      this.fragmentMainCode
+    );
+  }
+
+  protected vertexMainCode = /*wgsl*/ `
 struct Uniforms {
   viewportLeft: f32,
   viewportTop: f32,
@@ -78,36 +112,13 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 }
 `;
 
-/**
- * WGSL fragment shader code.
- * Computes Fresnel diffraction energy attenuation for both swell and chop wavelengths.
- */
-export const SHADOW_TEXTURE_FRAGMENT_SHADER = /*wgsl*/ `
-const SWELL_WAVELENGTH: f32 = 200.0;
-const CHOP_WAVELENGTH: f32 = 30.0;
-const ERF_APPROX_COEFF: f32 = 0.7;
+  protected fragmentMainCode = /*wgsl*/ `
+const SWELL_WAVELENGTH: f32 = ${SWELL_WAVELENGTH};
+const CHOP_WAVELENGTH: f32 = ${CHOP_WAVELENGTH};
 
 struct FragmentInput {
   @location(0) worldPosition: vec2<f32>,
   @location(1) @interpolate(flat) polygonIndex: u32,
-}
-
-// Compute Fresnel diffraction energy attenuation
-fn computeFresnelEnergy(
-  distanceToShadowBoundary: f32,
-  distanceBehindObstacle: f32,
-  wavelength: f32,
-) -> f32 {
-  let z = max(distanceBehindObstacle, 1.0);
-  let u = distanceToShadowBoundary * sqrt(2.0 / (wavelength * z));
-
-  if (u > 4.0) {
-    return 0.0;  // Deep shadow
-  } else {
-    let t = u * ERF_APPROX_COEFF;
-    let erfApprox = tanh(t * 1.128);
-    return 0.5 * (1.0 - erfApprox);
-  }
 }
 
 @fragment
@@ -150,9 +161,4 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
   return vec4<f32>(swellAttenuation, chopAttenuation, 0.0, 1.0);
 }
 `;
-
-/**
- * Combined shader code for the render pipeline.
- */
-export const SHADOW_TEXTURE_SHADER_CODE =
-  SHADOW_TEXTURE_VERTEX_SHADER + "\n" + SHADOW_TEXTURE_FRAGMENT_SHADER;
+}

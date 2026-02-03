@@ -13,7 +13,7 @@
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { earClipTriangulate } from "../../core/util/Triangulate";
 import type { Viewport } from "../world-data/water/WaterInfo";
-import { SHADOW_TEXTURE_SHADER_CODE } from "./ShadowTextureShader";
+import { ShadowTextureShader } from "./ShadowTextureShader";
 import type { ShadowPolygonRenderData } from "./ShadowGeometry";
 
 /** Maximum number of shadow polygons we can render */
@@ -48,9 +48,13 @@ export class ShadowTextureRenderer {
   // Current vertex count for this frame
   private vertexCount = 0;
 
+  // Shader instance for code generation
+  private shader: ShadowTextureShader;
+
   constructor(textureWidth: number, textureHeight: number) {
     this.textureWidth = textureWidth;
     this.textureHeight = textureHeight;
+    this.shader = new ShadowTextureShader();
   }
 
   /**
@@ -105,7 +109,7 @@ export class ShadowTextureRenderer {
 
     // Create shader module
     const shaderModule = device.createShaderModule({
-      code: SHADOW_TEXTURE_SHADER_CODE,
+      code: this.shader.getShaderCode(),
       label: "Shadow Texture Shader Module",
     });
 
