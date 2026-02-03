@@ -1,0 +1,102 @@
+import { BaseEntity } from "../../../core/entity/BaseEntity";
+import type { V2d } from "../../../core/Vector";
+
+/**
+ * Abstract base class for world queries.
+ *
+ * Queries provide a declarative API for sampling world data (terrain, water, wind)
+ * at arbitrary points. The QueryManager handles the GPU infrastructure.
+ *
+ * Features:
+ * - Dynamic point collection via callback
+ * - Iterator support for iterating over (point, result) pairs
+ * - Result lookup by point
+ * - Automatic discovery via tags (no manual registration needed)
+ *
+ * @template TResult - The result type for this query
+ */
+export abstract class BaseQuery<TResult> extends BaseEntity {
+  private getPointsCallback: () => ReadonlyArray<V2d>;
+
+  // Double-buffered: points that match current results
+  private _points: ReadonlyArray<V2d> = [];
+  private _results: TResult[] = [];
+
+  // Points submitted for next frame's results
+  private _pendingPoints: ReadonlyArray<V2d> | undefined;
+
+  constructor(getPoints: () => ReadonlyArray<V2d>) {
+    super();
+    this.getPointsCallback = getPoints;
+  }
+
+  /**
+   * Get the current results (read-only).
+   */
+  get results(): readonly TResult[] {
+    return this._results;
+  }
+
+  /**
+   * Get the result for a specific point.
+   *
+   * @param point The query point to look up
+   * @returns The result for that point, or undefined if not found
+   */
+  getResultForPoint(point: V2d): TResult | undefined {
+    const index = this._points.findIndex((p) => p.equals(point));
+    return index >= 0 ? this._results[index] : undefined;
+  }
+
+  /**
+   * Iterator support for iterating over (point, result) pairs.
+   * Points and results are always synchronized via double-buffering.
+   *
+   * @example
+   * for (const [point, result] of query) {
+   *   console.log(`Point ${point} has result ${result}`);
+   * }
+   */
+  *[Symbol.iterator](): Iterator<[V2d, TResult]> {
+    // _points and _results are always in sync (same length)
+    for (let i = 0; i < this._points.length; i++) {
+      yield [this._points[i], this._results[i]];
+    }
+  }
+
+  /**
+   * Wait for results and then destroy the query.
+   *
+   * Useful for one-shot queries:
+   * @example
+   * const results = await new TerrainQuery(() => [V(0, 0)]).getResultAndDestroy();
+   */
+  async getResultAndDestroy(): Promise<TResult[]> {
+    // Wait one frame for results to be computed
+    await new Promise((resolve) => setTimeout(resolve, 16));
+    const results = [...this._results];
+    this.destroy();
+    return results;
+  }
+
+  /**
+   * Internal method called by QueryManager to collect points.
+   * Stores points in pending buffer - they'll become active when results arrive.
+   * @internal
+   */
+  getQueryPoints(): ReadonlyArray<V2d> {
+    this._pendingPoints = this.getPointsCallback();
+    return this._pendingPoints;
+  }
+
+  /**
+   * Internal method called by QueryManager to set results.
+   * Swaps pending points into active points so they stay synchronized.
+   * @internal
+   */
+  setResults(results: TResult[]): void {
+    this._points = this._pendingPoints!;
+    this._pendingPoints = undefined;
+    this._results = results;
+  }
+}
