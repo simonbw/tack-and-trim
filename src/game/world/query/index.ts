@@ -10,18 +10,18 @@ export {
   TerrainQueryManager,
   type TerrainQueryResult,
   TerrainType,
-} from "./TerrainQuery";
+} from "../terrain/TerrainQuery";
 
 export {
   isWaterQuery,
   WaterQuery,
   WaterQueryManager,
   type WaterQueryResult,
-} from "./WaterQuery";
+} from "../water/WaterQuery";
 
 export {
   isWindQuery,
   WindQuery,
   WindQueryManager,
   type WindQueryResult,
-} from "./WindQuery";
+} from "../wind/WindQuery";

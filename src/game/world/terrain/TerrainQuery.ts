@@ -1,9 +1,9 @@
 import { V, type V2d } from "../../../core/Vector";
 import type Entity from "../../../core/entity/Entity";
-import { BaseQuery } from "./BaseQuery";
-import { QueryManager, type ResultLayout } from "./QueryManager";
-import { TerrainQueryShader } from "../terrain/TerrainQueryShader";
-import { TerrainResources } from "../terrain/TerrainResources";
+import { BaseQuery } from "../query/BaseQuery";
+import { QueryManager, type ResultLayout } from "../query/QueryManager";
+import { TerrainQueryShader } from "./TerrainQueryShader";
+import { TerrainResources } from "./TerrainResources";
 import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { DEFAULT_DEPTH } from "../../world-data/terrain/TerrainConstants";
@@ -130,18 +130,26 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
       return;
     }
 
+    // Skip dispatch if no points to query
+    if (pointCount === 0) {
+      return;
+    }
+
     const device = getWebGPU().device;
 
     // Get terrain resources
     const terrainResources = this.game.entities.getSingleton(TerrainResources);
 
     // Update uniform buffer with query parameters
-    const uniformData = new Float32Array(4);
-    uniformData[0] = pointCount; // u32 pointCount
-    uniformData[1] = terrainResources.getContourCount(); // u32 contourCount
-    uniformData[2] = DEFAULT_DEPTH; // f32 defaultDepth
-    uniformData[3] = 0; // f32 padding
-    device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+    // Use ArrayBuffer with typed views for mixed u32/f32 data
+    const uniformBuffer = new ArrayBuffer(16);
+    const u32View = new Uint32Array(uniformBuffer);
+    const f32View = new Float32Array(uniformBuffer);
+    u32View[0] = pointCount; // u32 pointCount
+    u32View[1] = terrainResources.getContourCount(); // u32 contourCount
+    f32View[2] = DEFAULT_DEPTH; // f32 defaultDepth
+    f32View[3] = 0; // f32 padding
+    device.queue.writeBuffer(this.uniformBuffer, 0, uniformBuffer);
 
     // Create bind group with terrain buffers
     const bindGroup = this.queryShader.createBindGroup({

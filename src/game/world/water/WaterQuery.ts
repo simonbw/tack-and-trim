@@ -1,10 +1,15 @@
 import { V, type V2d } from "../../../core/Vector";
 import type Entity from "../../../core/entity/Entity";
-import { BaseQuery } from "./BaseQuery";
-import { QueryManager, type ResultLayout } from "./QueryManager";
-import { WaterQueryShader } from "../water/WaterQueryShader";
+import { BaseQuery } from "../query/BaseQuery";
+import { QueryManager, type ResultLayout } from "../query/QueryManager";
+import { WaterQueryShader } from "./WaterQueryShader";
 import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { WaterInfo } from "../../world-data/water/WaterInfo";
+import {
+  buildWaveDataArray,
+  WAVE_COMPONENTS,
+} from "../../world-data/water/WaterConstants";
 
 /**
  * Result data from a water query at a specific point
@@ -70,6 +75,7 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
 
   private queryShader: WaterQueryShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private waveDataBuffer: GPUBuffer | null = null;
 
   constructor() {
     super(WaterResultLayout, MAX_WATER_QUERIES);
@@ -86,11 +92,23 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
 
     // Create uniform buffer for query parameters
     const device = getWebGPU().device;
+    // pointCount (u32=4) + time (f32=4) + tideHeight (f32=4) + waveSourceDirection (f32=4) = 16 bytes
     this.uniformBuffer = device.createBuffer({
       label: "Water Query Uniform Buffer",
-      size: 8, // pointCount (u32) + time (f32) = 8 bytes
+      size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+
+    // Create wave data buffer
+    const waveData = buildWaveDataArray();
+    this.waveDataBuffer = device.createBuffer({
+      label: "Water Query Wave Data Buffer",
+      size: waveData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+    new Float32Array(this.waveDataBuffer.getMappedRange()).set(waveData);
+    this.waveDataBuffer.unmap();
   }
 
   getQueries(): BaseQuery<WaterQueryResult>[] {
@@ -128,22 +146,33 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
   }
 
   dispatchCompute(pointCount: number): void {
-    if (!this.queryShader || !this.uniformBuffer) {
+    if (!this.queryShader || !this.uniformBuffer || !this.waveDataBuffer) {
       console.warn("[WaterQuery] Shader not initialized");
       return;
     }
 
     const device = getWebGPU().device;
 
-    // Update uniform buffer with query parameters
-    const uniformData = new Float32Array(2);
-    uniformData[0] = pointCount;
-    uniformData[1] = performance.now() / 1000; // time in seconds
-    device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+    // Get water info for tide and wave direction
+    const waterInfo = this.game.entities.getSingleton(WaterInfo);
+    const tideHeight = waterInfo.getTideHeight();
+    const waveSourceDirection = WAVE_COMPONENTS[0][2]; // First wave's direction
 
-    // Create bind group
+    // Update uniform buffer
+    // Use ArrayBuffer with typed views for mixed u32/f32 data
+    const uniformBuffer = new ArrayBuffer(16);
+    const u32View = new Uint32Array(uniformBuffer);
+    const f32View = new Float32Array(uniformBuffer);
+    u32View[0] = pointCount; // u32 pointCount
+    f32View[1] = performance.now() / 1000; // f32 time
+    f32View[2] = tideHeight; // f32 tideHeight
+    f32View[3] = waveSourceDirection; // f32 waveSourceDirection
+    device.queue.writeBuffer(this.uniformBuffer, 0, uniformBuffer);
+
+    // Create bind group with wave data
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
+      waveData: { buffer: this.waveDataBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
     });
@@ -158,5 +187,11 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
     this.queryShader.dispatch(computePass, bindGroup, pointCount, 1);
     computePass.end();
     device.queue.submit([commandEncoder.finish()]);
+  }
+
+  @on("destroy")
+  onDestroy(): void {
+    this.waveDataBuffer?.destroy();
+    this.uniformBuffer?.destroy();
   }
 }
