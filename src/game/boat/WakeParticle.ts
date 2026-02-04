@@ -1,11 +1,11 @@
-import { on } from "../../../core/entity/handler";
-import { AABB } from "../../../core/physics/collision/AABB";
-import { V2d } from "../../../core/Vector";
+import { on } from "../../core/entity/handler";
+import { AABB } from "../../core/physics/collision/AABB";
+import { V2d } from "../../core/Vector";
 import {
   GPUWaterModifierData,
   WaterModifier,
   WaterModifierType,
-} from "./WaterModifierBase";
+} from "../world/water/WaterModifierBase";
 
 // Units: feet (ft), seconds
 // Wake particle configuration

@@ -15,7 +15,7 @@
 
 import { V, V2d } from "../../core/Vector";
 import { catmullRomPoint, catmullRomTangent } from "../../core/util/Spline";
-import type { TerrainContour } from "../world-data/terrain/LandMass";
+import type { TerrainContour } from "../world/terrain/LandMass";
 
 /**
  * A silhouette point on a coastline.

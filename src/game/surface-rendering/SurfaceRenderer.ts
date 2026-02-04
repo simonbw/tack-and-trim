@@ -1,13 +1,16 @@
 /**
  * Surface rendering entity.
  *
- * Renders the ocean and terrain as a fullscreen effect using WebGPU.
- * Uses AnalyticalWaterRenderPipeline for wave computation with shadow-based diffraction,
- * TerrainRenderPipeline for terrain height computation,
- * and SurfaceShader for combined rendering with depth-based sand/water blending.
+ * Renders the ocean and terrain as a unified fullscreen effect using WebGPU.
+ * Computes water and terrain heights directly per-pixel in the fragment shader,
+ * eliminating the need for intermediate compute textures.
  *
- * Note: Physics tile computation is handled by WaterInfo/TerrainInfo, not here.
- * This entity is purely for rendering.
+ * Binds directly to resource buffers:
+ * - WaterResources: wave data and modifiers
+ * - TerrainResources: contour data for height computation
+ * - WavePhysicsResources: shadow texture for wave diffraction
+ *
+ * Note: Wetness is temporarily disabled for Phase 1.
  */
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
@@ -15,114 +18,86 @@ import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
 import type { Matrix3 } from "../../core/graphics/Matrix3";
 import { type UniformInstance } from "../../core/graphics/UniformStruct";
+import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { TimeOfDay } from "../time/TimeOfDay";
-import { TerrainInfo } from "../world-data/terrain/TerrainInfo";
-import { WAVE_COMPONENTS } from "../world-data/water/WaterConstants";
-import { WaterInfo, type Viewport } from "../world-data/water/WaterInfo";
 import {
-  AnalyticalWaterRenderPipeline,
-  type AnalyticalRenderConfig,
-} from "./AnalyticalWaterRenderPipeline";
-import { SurfaceShader } from "./SurfaceShader";
-import { SurfaceUniforms } from "./SurfaceUniforms";
+  WavePhysicsResources,
+  type Viewport,
+} from "../wave-physics/WavePhysicsResources";
+import { TerrainResources } from "../world/terrain/TerrainResources";
+import { WaterResources } from "../world/water/WaterResources";
+import {
+  GERSTNER_STEEPNESS,
+  NUM_WAVES,
+  SWELL_WAVE_COUNT,
+  WAVE_AMP_MOD_SPATIAL_SCALE,
+  WAVE_AMP_MOD_STRENGTH,
+  WAVE_AMP_MOD_TIME_SCALE,
+  WAVE_COMPONENTS,
+} from "../world/water/WaterConstants";
+import {
+  DEFAULT_DEPTH,
+  SPLINE_SUBDIVISIONS,
+} from "../world/terrain/TerrainConstants";
+import { createUnifiedSurfaceShader } from "./UnifiedSurfaceShader";
+import { UnifiedSurfaceUniforms } from "./UnifiedSurfaceUniforms";
+
 // Re-export for backwards compatibility
-export { SurfaceUniforms } from "./SurfaceUniforms";
-import { TerrainRenderPipeline } from "./TerrainRenderPipeline";
-import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
-
-/** Default texture resolution scale relative to screen (0.5 = half resolution) */
-export const DEFAULT_TEXTURE_SCALE = 0.5;
-
-/**
- * Configuration options for SurfaceRenderer.
- */
-export interface SurfaceRendererConfig {
-  /** Texture resolution scale relative to screen (default: 0.5) */
-  textureScale?: number;
-  /** Optional separate scale for water texture */
-  waterTextureScale?: number;
-  /** Optional separate scale for terrain texture */
-  terrainTextureScale?: number;
-  /** Optional separate scale for wetness texture */
-  wetnessTextureScale?: number;
-}
+export { UnifiedSurfaceUniforms as SurfaceUniforms } from "./UnifiedSurfaceUniforms";
 
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
-
-// Margin for wetness viewport (larger to handle camera movement)
-const WETNESS_VIEWPORT_MARGIN = 0.5;
 
 // Shallow water threshold for rendering
 const SHALLOW_WATER_THRESHOLD = 1.5;
 
 /**
  * Surface renderer entity.
- * Handles only rendering - physics tiles are managed by WaterInfo/TerrainInfo.
+ * Handles only rendering - physics tiles are managed by WaterInfo/TerrainResources.
  */
 export class SurfaceRenderer extends BaseEntity {
   id = "waterRenderer";
   layer = "water" as const;
 
-  private shader: SurfaceShader | null = null;
-  private waterPipeline: AnalyticalWaterRenderPipeline | null = null;
-  private terrainPipeline: TerrainRenderPipeline;
-  private wetnessPipeline: WetnessRenderPipeline;
+  private shader: FullscreenShader | null = null;
   private initialized = false;
 
-  // Track terrain version to avoid redundant GPU buffer updates
+  // Track terrain version to avoid redundant bind group recreation
   private lastTerrainVersion = -1;
 
   // GPU resources for shader uniforms
   private uniformBuffer: GPUBuffer | null = null;
-  private sampler: GPUSampler | null = null;
-  private placeholderTerrainTexture: GPUTexture | null = null;
-  private placeholderTerrainView: GPUTextureView | null = null;
+  private shadowSampler: GPUSampler | null = null;
 
-  // Computed texture dimensions
-  private waterTexWidth = 0;
-  private waterTexHeight = 0;
-  private terrainTexWidth = 0;
-  private terrainTexHeight = 0;
-  private wetnessTexWidth = 0;
-  private wetnessTexHeight = 0;
+  // Placeholder shadow texture for when wave physics not ready
+  private placeholderShadowTexture: GPUTexture | null = null;
+  private placeholderShadowView: GPUTextureView | null = null;
+
+  // Placeholder buffers for when resources aren't available
+  private placeholderWaveDataBuffer: GPUBuffer | null = null;
+  private placeholderModifiersBuffer: GPUBuffer | null = null;
+  private placeholderControlPointsBuffer: GPUBuffer | null = null;
+  private placeholderContoursBuffer: GPUBuffer | null = null;
+  private placeholderChildrenBuffer: GPUBuffer | null = null;
 
   // Type-safe uniforms instance
-  private uniforms: UniformInstance<typeof SurfaceUniforms.fields> | null =
-    null;
+  private uniforms: UniformInstance<
+    typeof UnifiedSurfaceUniforms.fields
+  > | null = null;
 
-  // Cached bind group (recreated when texture changes)
+  // Cached bind group (recreated when resources change)
   private bindGroup: GPUBindGroup | null = null;
-  private lastWaterTexture: GPUTextureView | null = null;
-  private lastTerrainTexture: GPUTextureView | null = null;
-  private lastWetnessTexture: GPUTextureView | null = null;
 
-  // Placeholder wetness texture for when wetness pipeline not ready
-  private placeholderWetnessTexture: GPUTexture | null = null;
-  private placeholderWetnessView: GPUTextureView | null = null;
+  // Track last resources to detect changes
+  private lastShadowView: GPUTextureView | null = null;
+  private lastWaveDataBuffer: GPUBuffer | null = null;
+  private lastModifiersBuffer: GPUBuffer | null = null;
+  private lastControlPointsBuffer: GPUBuffer | null = null;
+  private lastContoursBuffer: GPUBuffer | null = null;
 
-  // Track if water pipeline has been configured with shadow resources
-  private waterPipelineConfigured = false;
-
-  // Configuration
-  private config: Required<SurfaceRendererConfig>;
-
-  constructor(config?: SurfaceRendererConfig) {
+  constructor() {
     super();
-
-    // Apply defaults to config
-    const defaultScale = config?.textureScale ?? DEFAULT_TEXTURE_SCALE;
-    this.config = {
-      textureScale: defaultScale,
-      waterTextureScale: config?.waterTextureScale ?? defaultScale,
-      terrainTextureScale: config?.terrainTextureScale ?? defaultScale,
-      wetnessTextureScale: config?.wetnessTextureScale ?? defaultScale,
-    };
-
-    // Pipelines will be created in ensureInitialized after we have screen dimensions
-    this.terrainPipeline = null!;
-    this.wetnessPipeline = null!;
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -130,105 +105,91 @@ export class SurfaceRenderer extends BaseEntity {
 
     try {
       const device = getWebGPU().device;
-      const renderer = this.game.renderer;
 
-      // Compute texture dimensions from screen size
-      const screenWidth = renderer.getWidth();
-      const screenHeight = renderer.getHeight();
-
-      const { waterTextureScale, terrainTextureScale, wetnessTextureScale } =
-        this.config;
-      this.waterTexWidth = Math.ceil(screenWidth * waterTextureScale);
-      this.waterTexHeight = Math.ceil(screenHeight * waterTextureScale);
-      this.terrainTexWidth = Math.ceil(screenWidth * terrainTextureScale);
-      this.terrainTexHeight = Math.ceil(screenHeight * terrainTextureScale);
-      this.wetnessTexWidth = Math.ceil(screenWidth * wetnessTextureScale);
-      this.wetnessTexHeight = Math.ceil(screenHeight * wetnessTextureScale);
-
-      // Create water render pipeline
-      this.waterPipeline = new AnalyticalWaterRenderPipeline(
-        this.waterTexWidth,
-        this.waterTexHeight,
-      );
-      await this.waterPipeline.init();
-
-      this.terrainPipeline = new TerrainRenderPipeline(
-        this.terrainTexWidth,
-        this.terrainTexHeight,
-      );
-      this.wetnessPipeline = new WetnessRenderPipeline(
-        this.wetnessTexWidth,
-        this.wetnessTexHeight,
-      );
-
-      await this.terrainPipeline.init();
-
-      this.shader = new SurfaceShader();
+      // Create unified surface shader
+      this.shader = createUnifiedSurfaceShader();
       await this.shader.init();
 
       // Create uniform buffer and instance
       this.uniformBuffer = device.createBuffer({
-        size: SurfaceUniforms.byteSize,
+        size: UnifiedSurfaceUniforms.byteSize,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        label: "Surface Uniform Buffer",
+        label: "Unified Surface Uniform Buffer",
       });
-      this.uniforms = SurfaceUniforms.create();
+      this.uniforms = UnifiedSurfaceUniforms.create();
 
       // Set default uniform values
       this.uniforms.set.hasTerrainData(0);
       this.uniforms.set.shallowThreshold(SHALLOW_WATER_THRESHOLD);
-      // Set texture dimensions
-      this.uniforms.set.waterTexWidth(this.waterTexWidth);
-      this.uniforms.set.waterTexHeight(this.waterTexHeight);
-      this.uniforms.set.terrainTexWidth(this.terrainTexWidth);
-      this.uniforms.set.terrainTexHeight(this.terrainTexHeight);
-      this.uniforms.set.wetnessTexWidth(this.wetnessTexWidth);
-      this.uniforms.set.wetnessTexHeight(this.wetnessTexHeight);
+      this.uniforms.set.numWaves(NUM_WAVES);
+      this.uniforms.set.swellWaveCount(SWELL_WAVE_COUNT);
+      this.uniforms.set.gerstnerSteepness(GERSTNER_STEEPNESS);
+      this.uniforms.set.ampModSpatialScale(WAVE_AMP_MOD_SPATIAL_SCALE);
+      this.uniforms.set.ampModTimeScale(WAVE_AMP_MOD_TIME_SCALE);
+      this.uniforms.set.ampModStrength(WAVE_AMP_MOD_STRENGTH);
+      this.uniforms.set.splineSubdivisions(SPLINE_SUBDIVISIONS);
+      this.uniforms.set.defaultDepth(DEFAULT_DEPTH);
+      this.uniforms.set.waveSourceDirection(WAVE_COMPONENTS[0][2]);
 
-      // Create sampler
-      this.sampler = device.createSampler({
+      // Create shadow sampler
+      this.shadowSampler = device.createSampler({
         magFilter: "linear",
         minFilter: "linear",
         addressModeU: "clamp-to-edge",
         addressModeV: "clamp-to-edge",
       });
 
-      // Create placeholder terrain texture (1x1 deep water = no terrain)
-      this.placeholderTerrainTexture = device.createTexture({
+      // Create placeholder shadow texture (rg16float format, no shadows = full energy)
+      this.placeholderShadowTexture = device.createTexture({
         size: { width: 1, height: 1 },
-        format: "rgba32float",
+        format: "rg16float",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-        label: "Placeholder Terrain Texture",
+        label: "Placeholder Shadow Texture",
       });
-      this.placeholderTerrainView = this.placeholderTerrainTexture.createView();
+      this.placeholderShadowView = this.placeholderShadowTexture.createView();
 
-      // Write deep water value (-50) to placeholder
+      // Write full energy (1.0, 1.0) to placeholder
+      const shadowData = new Uint16Array([
+        0x3c00,
+        0x3c00, // 1.0 in float16 for R and G channels
+      ]);
       device.queue.writeTexture(
-        { texture: this.placeholderTerrainTexture },
-        new Float32Array([-50, 0, 0, 1]),
-        { bytesPerRow: 16 },
-        { width: 1, height: 1 },
-      );
-
-      // Create placeholder wetness texture (1x1, dry = 0)
-      this.placeholderWetnessTexture = device.createTexture({
-        size: { width: 1, height: 1 },
-        format: "r32float",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-        label: "Placeholder Wetness Texture",
-      });
-      this.placeholderWetnessView = this.placeholderWetnessTexture.createView();
-
-      // Write dry value (0) to placeholder
-      device.queue.writeTexture(
-        { texture: this.placeholderWetnessTexture },
-        new Float32Array([0]),
+        { texture: this.placeholderShadowTexture },
+        shadowData,
         { bytesPerRow: 4 },
         { width: 1, height: 1 },
       );
 
-      // Initialize wetness pipeline
-      await this.wetnessPipeline.init();
+      // Create placeholder buffers for when resources aren't available
+      this.placeholderWaveDataBuffer = device.createBuffer({
+        size: 64, // Minimum size for storage buffer
+        usage: GPUBufferUsage.STORAGE,
+        label: "Placeholder Wave Data Buffer",
+      });
+
+      this.placeholderModifiersBuffer = device.createBuffer({
+        size: 64,
+        usage: GPUBufferUsage.STORAGE,
+        label: "Placeholder Modifiers Buffer",
+      });
+
+      this.placeholderControlPointsBuffer = device.createBuffer({
+        size: 64,
+        usage: GPUBufferUsage.STORAGE,
+        label: "Placeholder Control Points Buffer",
+      });
+
+      this.placeholderContoursBuffer = device.createBuffer({
+        size: 64,
+        usage: GPUBufferUsage.STORAGE,
+        label: "Placeholder Contours Buffer",
+      });
+
+      this.placeholderChildrenBuffer = device.createBuffer({
+        size: 64,
+        usage: GPUBufferUsage.STORAGE,
+        label: "Placeholder Children Buffer",
+      });
 
       this.initialized = true;
     } catch (error) {
@@ -239,50 +200,6 @@ export class SurfaceRenderer extends BaseEntity {
   @on("add")
   onAdd() {
     this.ensureInitialized();
-  }
-
-  /**
-   * Try to configure shadow resources on the water pipeline.
-   * Returns true if configured, false if not yet available.
-   */
-  private tryConfigureWaterPipeline(): boolean {
-    if (this.waterPipelineConfigured) return true;
-    if (!this.waterPipeline) return false;
-
-    // Get WaterInfo and its WavePhysicsManager
-    const waterInfo = this.game.entities.tryGetSingleton(WaterInfo);
-    if (!waterInfo) return false;
-
-    const wavePhysicsManager = waterInfo.getWavePhysicsManager();
-    if (!wavePhysicsManager || !wavePhysicsManager.isInitialized()) {
-      return false;
-    }
-
-    // Get shadow texture from WavePhysicsManager
-    const shadowTextureView = wavePhysicsManager.getShadowTextureView();
-    if (!shadowTextureView) {
-      return false;
-    }
-
-    const device = getWebGPU().device;
-
-    // Create shadow texture sampler
-    const shadowSampler = device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-    });
-
-    const config: AnalyticalRenderConfig = {
-      shadowTextureView,
-      shadowSampler,
-      waveSourceDirection: WAVE_COMPONENTS[0][2], // First wave's direction
-    };
-
-    this.waterPipeline.setAnalyticalConfig(config);
-    this.waterPipelineConfigured = true;
-    return true;
   }
 
   /**
@@ -308,116 +225,117 @@ export class SurfaceRenderer extends BaseEntity {
    */
   private setCameraMatrix(matrix: Matrix3): void {
     if (!this.uniforms) return;
-    // mat3x3 setter handles column padding automatically
     this.uniforms.set.cameraMatrix(matrix);
   }
 
-  private setTime(time: number): void {
-    if (!this.uniforms) return;
-    this.uniforms.set.time(time);
-  }
-
-  private setScreenSize(width: number, height: number): void {
-    if (!this.uniforms) return;
-    this.uniforms.set.screenWidth(width);
-    this.uniforms.set.screenHeight(height);
-  }
-
-  private setViewportBounds(
-    left: number,
-    top: number,
-    width: number,
-    height: number,
+  /**
+   * Update uniforms for the current frame.
+   */
+  private updateUniforms(
+    viewport: Viewport,
+    currentTime: number,
+    waterResources: WaterResources | undefined,
+    terrainResources: TerrainResources | undefined,
   ): void {
     if (!this.uniforms) return;
-    this.uniforms.set.viewportLeft(left);
-    this.uniforms.set.viewportTop(top);
-    this.uniforms.set.viewportWidth(width);
-    this.uniforms.set.viewportHeight(height);
-  }
 
-  private setHasTerrainData(hasTerrain: boolean): void {
-    if (!this.uniforms) return;
-    this.uniforms.set.hasTerrainData(hasTerrain ? 1 : 0);
-  }
+    const renderer = this.game.getRenderer();
 
-  private setWetnessViewportBounds(
-    left: number,
-    top: number,
-    width: number,
-    height: number,
-  ): void {
-    if (!this.uniforms) return;
-    this.uniforms.set.wetnessViewportLeft(left);
-    this.uniforms.set.wetnessViewportTop(top);
-    this.uniforms.set.wetnessViewportWidth(width);
-    this.uniforms.set.wetnessViewportHeight(height);
+    // Screen and viewport
+    this.uniforms.set.screenWidth(renderer.getWidth());
+    this.uniforms.set.screenHeight(renderer.getHeight());
+    this.uniforms.set.viewportLeft(viewport.left);
+    this.uniforms.set.viewportTop(viewport.top);
+    this.uniforms.set.viewportWidth(viewport.width);
+    this.uniforms.set.viewportHeight(viewport.height);
+    this.uniforms.set.time(currentTime);
+
+    // Water parameters
+    if (waterResources) {
+      this.uniforms.set.tideHeight(waterResources.getTideHeight());
+      this.uniforms.set.modifierCount(waterResources.getModifierCount());
+      this.uniforms.set.waveSourceDirection(
+        waterResources.getAnalyticalConfig().waveSourceDirection,
+      );
+    } else {
+      this.uniforms.set.tideHeight(0);
+      this.uniforms.set.modifierCount(0);
+    }
+
+    // Terrain parameters
+    if (terrainResources) {
+      this.uniforms.set.hasTerrainData(1);
+      this.uniforms.set.contourCount(terrainResources.getContourCount());
+    } else {
+      this.uniforms.set.hasTerrainData(0);
+      this.uniforms.set.contourCount(0);
+    }
   }
 
   /**
-   * Render the surface using the shader.
+   * Recreate bind group if resources have changed.
    */
-  private renderSurface(
-    renderPass: GPURenderPassEncoder,
-    waterTextureView: GPUTextureView,
-    terrainTextureView: GPUTextureView | null,
-    wetnessTextureView: GPUTextureView | null,
+  private ensureBindGroup(
+    waterResources: WaterResources | undefined,
+    terrainResources: TerrainResources | undefined,
+    shadowTextureView: GPUTextureView,
   ): void {
-    if (
-      !this.uniformBuffer ||
-      !this.sampler ||
-      !this.shader ||
-      !this.uniforms
-    ) {
-      return;
-    }
+    if (!this.shader || !this.uniformBuffer || !this.shadowSampler) return;
 
-    // Use placeholder if no terrain texture
-    const effectiveTerrainView =
-      terrainTextureView ?? this.placeholderTerrainView!;
-    this.setHasTerrainData(!!terrainTextureView);
+    // Get actual buffers or use placeholders
+    const waveDataBuffer =
+      waterResources?.waveDataBuffer ?? this.placeholderWaveDataBuffer!;
+    const modifiersBuffer =
+      waterResources?.modifiersBuffer ?? this.placeholderModifiersBuffer!;
+    const controlPointsBuffer =
+      terrainResources?.controlPointsBuffer ??
+      this.placeholderControlPointsBuffer!;
+    const contoursBuffer =
+      terrainResources?.contourBuffer ?? this.placeholderContoursBuffer!;
+    const childrenBuffer =
+      terrainResources?.childrenBuffer ?? this.placeholderChildrenBuffer!;
 
-    // Use placeholder if no wetness texture
-    const effectiveWetnessView =
-      wetnessTextureView ?? this.placeholderWetnessView!;
-
-    // Upload uniforms
-    this.uniforms.uploadTo(this.uniformBuffer);
-
-    // Recreate bind group if textures changed
-    if (
+    // Check if we need to recreate the bind group
+    const terrainVersion = terrainResources?.getVersion() ?? -1;
+    const needsRebuild =
       !this.bindGroup ||
-      this.lastWaterTexture !== waterTextureView ||
-      this.lastTerrainTexture !== effectiveTerrainView ||
-      this.lastWetnessTexture !== effectiveWetnessView
-    ) {
-      this.bindGroup = this.shader.createBindGroup({
-        uniforms: { buffer: this.uniformBuffer },
-        waterSampler: this.sampler,
-        waterDataTexture: waterTextureView,
-        terrainDataTexture: effectiveTerrainView,
-        wetnessTexture: effectiveWetnessView,
-      });
-      this.lastWaterTexture = waterTextureView;
-      this.lastTerrainTexture = effectiveTerrainView;
-      this.lastWetnessTexture = effectiveWetnessView;
-    }
+      this.lastShadowView !== shadowTextureView ||
+      this.lastWaveDataBuffer !== waveDataBuffer ||
+      this.lastModifiersBuffer !== modifiersBuffer ||
+      this.lastControlPointsBuffer !== controlPointsBuffer ||
+      this.lastContoursBuffer !== contoursBuffer ||
+      this.lastTerrainVersion !== terrainVersion;
 
-    // Render using shader
-    this.shader.render(renderPass, this.bindGroup);
+    if (!needsRebuild) return;
+
+    // Create new bind group
+    this.bindGroup = this.shader.createBindGroup({
+      uniforms: { buffer: this.uniformBuffer },
+      waveData: { buffer: waveDataBuffer },
+      modifiers: { buffer: modifiersBuffer },
+      controlPoints: { buffer: controlPointsBuffer },
+      contours: { buffer: contoursBuffer },
+      children: { buffer: childrenBuffer },
+      shadowTexture: shadowTextureView,
+      shadowSampler: this.shadowSampler,
+    });
+
+    // Update tracking
+    this.lastShadowView = shadowTextureView;
+    this.lastWaveDataBuffer = waveDataBuffer;
+    this.lastModifiersBuffer = modifiersBuffer;
+    this.lastControlPointsBuffer = controlPointsBuffer;
+    this.lastContoursBuffer = contoursBuffer;
+    this.lastTerrainVersion = terrainVersion;
   }
 
   @on("render")
-  onRender({ dt, draw }: { dt: number; draw: Draw }) {
-    if (!this.initialized || !this.shader) return;
-
-    // Ensure depth texture and shadow buffers are configured
-    this.tryConfigureWaterPipeline();
+  onRender(_event: { dt: number; draw: Draw }) {
+    if (!this.initialized || !this.shader || !this.uniforms) return;
 
     const camera = this.game.camera;
     const renderer = this.game.getRenderer();
     const expandedViewport = this.getExpandedViewport(RENDER_VIEWPORT_MARGIN);
-    const gpuProfiler = this.game.renderer.getGpuProfiler();
 
     // Use TimeOfDay as unified time source
     const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
@@ -425,121 +343,64 @@ export class SurfaceRenderer extends BaseEntity {
       ? timeOfDay.getTimeInSeconds()
       : this.game.elapsedUnpausedTime;
 
-    // Update water render pipeline
-    const waterInfo = this.game.entities.getSingleton(WaterInfo);
+    // Get resources
+    const wavePhysicsResources =
+      this.game.entities.tryGetSingleton(WavePhysicsResources);
+    const waterResources = this.game.entities.tryGetSingleton(WaterResources);
+    const terrainResources =
+      this.game.entities.tryGetSingleton(TerrainResources);
 
-    // Update shadow texture for current viewport (must happen before water update)
-    const wavePhysicsManager = waterInfo.getWavePhysicsManager();
-    if (wavePhysicsManager?.isInitialized()) {
-      wavePhysicsManager.updateShadowTexture(expandedViewport);
-    }
-
-    if (this.waterPipeline) {
-      this.waterPipeline.update(expandedViewport, waterInfo, gpuProfiler);
-    }
-
-    // Update terrain render pipeline if terrain exists
-    const terrainInfo = this.game.entities.tryGetSingleton(TerrainInfo);
-    let terrainTextureView: GPUTextureView | null = null;
-
-    if (terrainInfo) {
-      // Sync terrain definition with render pipeline ONLY when it changes
-      const currentTerrainVersion = terrainInfo.getVersion();
-      if (currentTerrainVersion !== this.lastTerrainVersion) {
-        const contours = terrainInfo.getContours();
-        if (contours.length > 0) {
-          this.terrainPipeline.setTerrainDefinition({
-            contours: [...contours],
-          });
-        }
-        this.lastTerrainVersion = currentTerrainVersion;
-      }
-
-      // Update terrain compute (viewport params only - terrain data already synced)
-      if (this.terrainPipeline.hasTerrainData()) {
-        this.terrainPipeline.update(
-          {
-            left: expandedViewport.left,
-            top: expandedViewport.top,
-            width: expandedViewport.width,
-            height: expandedViewport.height,
-          },
-          currentTime,
-          gpuProfiler,
-          "terrainCompute",
-        );
-
-        terrainTextureView = this.terrainPipeline.getOutputTextureView();
-      }
-    }
-
-    // Get water texture view
-    const waterTextureView = this.waterPipeline?.getOutputTextureView();
-    if (!waterTextureView) return;
-
-    // Update wetness pipeline (needs water and terrain textures)
-    let wetnessTextureView: GPUTextureView | null = null;
-    const wetnessViewport = this.getExpandedViewport(WETNESS_VIEWPORT_MARGIN);
-    if (terrainTextureView) {
-      this.wetnessPipeline.update(
-        wetnessViewport,
-        expandedViewport, // render viewport for sampling water/terrain
-        waterTextureView,
-        terrainTextureView,
-        dt,
-        gpuProfiler,
-        "wetnessCompute",
+    // Update shadow texture for current viewport (must happen before rendering)
+    // Use GPU profiling for shadow compute timing
+    const gpuProfiler = renderer.getGpuProfiler();
+    if (wavePhysicsResources?.isInitialized()) {
+      wavePhysicsResources.updateShadowTexture(
+        expandedViewport,
+        gpuProfiler?.getTimestampWrites("shadowCompute"),
       );
-      wetnessTextureView = this.wetnessPipeline.getOutputTextureView();
     }
 
-    // Get snapped wetness viewport for correct UV mapping in shader
-    // (The pipeline snaps to texel grid to prevent blur from sub-pixel sampling)
-    const snappedWetnessViewport =
-      this.wetnessPipeline.getSnappedViewport() ?? wetnessViewport;
+    // Get shadow texture view (use placeholder if not available)
+    const shadowTextureView =
+      wavePhysicsResources?.getShadowTextureView() ??
+      this.placeholderShadowView!;
 
-    // Update shader uniforms
-    this.setTime(this.game.elapsedTime);
-    this.setScreenSize(renderer.getWidth(), renderer.getHeight());
-    this.setViewportBounds(
-      expandedViewport.left,
-      expandedViewport.top,
-      expandedViewport.width,
-      expandedViewport.height,
-    );
-    this.setWetnessViewportBounds(
-      snappedWetnessViewport.left,
-      snappedWetnessViewport.top,
-      snappedWetnessViewport.width,
-      snappedWetnessViewport.height,
+    // Update uniforms
+    this.updateUniforms(
+      expandedViewport,
+      currentTime,
+      waterResources,
+      terrainResources,
     );
 
     // Get inverse camera matrix for screen-to-world transform
     const cameraMatrix = camera.getMatrix().clone().invert();
     this.setCameraMatrix(cameraMatrix);
 
+    // Upload uniforms
+    this.uniforms.uploadTo(this.uniformBuffer!);
+
+    // Ensure bind group is up to date
+    this.ensureBindGroup(waterResources, terrainResources, shadowTextureView);
+
     // Use the main renderer's render pass
     const renderPass = renderer.getCurrentRenderPass();
-    if (!renderPass) return;
+    if (!renderPass || !this.bindGroup) return;
 
-    // Render surface with optional terrain and wetness
-    this.renderSurface(
-      renderPass,
-      waterTextureView,
-      terrainTextureView,
-      wetnessTextureView,
-    );
+    // Render the unified surface shader
+    this.shader.render(renderPass, this.bindGroup);
   }
 
   @on("destroy")
   onDestroy(): void {
-    this.waterPipeline?.destroy();
-    this.terrainPipeline.destroy();
-    this.wetnessPipeline.destroy();
     this.shader?.destroy();
     this.uniformBuffer?.destroy();
-    this.placeholderTerrainTexture?.destroy();
-    this.placeholderWetnessTexture?.destroy();
+    this.placeholderShadowTexture?.destroy();
+    this.placeholderWaveDataBuffer?.destroy();
+    this.placeholderModifiersBuffer?.destroy();
+    this.placeholderControlPointsBuffer?.destroy();
+    this.placeholderContoursBuffer?.destroy();
+    this.placeholderChildrenBuffer?.destroy();
     this.bindGroup = null;
   }
 }

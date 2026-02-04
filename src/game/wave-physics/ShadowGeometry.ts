@@ -13,13 +13,13 @@
 
 import { V, V2d } from "../../core/Vector";
 import { catmullRomPoint, sampleClosedSpline } from "../../core/util/Spline";
-import type { TerrainContour } from "../world-data/terrain/LandMass";
+import type { TerrainContour } from "../world/terrain/LandMass";
 import type { AABB } from "./CoastlineManager";
 import {
   groupSilhouettePointsByContour,
   type SilhouettePoint,
 } from "./SilhouetteComputation";
-import { MAX_SHADOW_POLYGONS } from "../world-data/water/webgpu/AnalyticalWaterStateShader";
+import { MAX_SHADOW_POLYGONS } from "./WavePhysicsManager";
 
 /**
  * Simplified shadow polygon data for GPU rendering and uniform buffers.

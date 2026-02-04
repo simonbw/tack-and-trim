@@ -10,8 +10,8 @@ import {
   createContour,
   TerrainContour,
   TerrainDefinition,
-} from "../../game/world-data/terrain/LandMass";
-import { DEFAULT_DEPTH } from "../../game/world-data/terrain/TerrainConstants";
+} from "../../game/world/terrain/LandMass";
+import { DEFAULT_DEPTH } from "../../game/world/terrain/TerrainConstants";
 
 /** Current file format version */
 export const TERRAIN_FILE_VERSION = 1;

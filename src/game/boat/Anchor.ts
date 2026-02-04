@@ -8,7 +8,7 @@ import { rDirection, rUniform } from "../../core/util/Random";
 import { V, V2d } from "../../core/Vector";
 import { VerletRope } from "../rope/VerletRope";
 import { SprayParticle } from "../SprayParticle";
-import { AnchorSplashRipple } from "../world-data/water/AnchorSplashRipple";
+import { AnchorSplashRipple } from "./AnchorSplashRipple";
 import { AnchorConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 

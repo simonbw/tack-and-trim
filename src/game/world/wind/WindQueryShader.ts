@@ -2,36 +2,42 @@
  * Wind Query Compute Shader
  *
  * Samples wind data (velocity, speed, direction) at arbitrary query points.
- * Uses the same modular shader code as the wind state shader.
+ * Uses wind shader modules for consistent computation with rendering.
  *
  * Input:  pointBuffer (storage) - array of vec2<f32> query points
  * Output: resultBuffer (storage) - array of WindQueryResult structs
  */
 
-import { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader";
+import {
+  ComputeShader,
+  type ComputeShaderConfig,
+} from "../../../core/graphics/webgpu/ComputeShader";
+import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
+import {
+  WIND_ANGLE_VARIATION,
+  WIND_NOISE_SPATIAL_SCALE,
+  WIND_NOISE_TIME_SCALE,
+  WIND_SPEED_VARIATION,
+} from "./WindConstants";
+import { windQueryComputeModule } from "../shaders/wind.wgsl";
 
-const bindings = {
-  params: { type: "uniform", wgslType: "Params" },
-  pointBuffer: { type: "storage", wgslType: "array<vec2<f32>>" },
-  resultBuffer: { type: "storageRW", wgslType: "array<WindQueryResult>" },
-} as const;
+const WORKGROUP_SIZE = [64, 1, 1] as const;
 
 /**
- * Wind query compute shader.
- * Computes wind state at provided query points.
- *
- * TODO: Integrate full wind computation using wind shader modules.
- * For now, returns placeholder data to get the infrastructure working.
+ * Module containing Params and result structs, plus bindings.
  */
-export class WindQueryShader extends ComputeShader<typeof bindings> {
-  readonly bindings = bindings;
-  readonly workgroupSize = [64, 1, 1] as const;
-
-  protected mainCode = /*wgsl*/ `
+const windQueryParamsModule: ShaderModule = {
+  preamble: /*wgsl*/ `
 // Query parameters
 struct Params {
   pointCount: u32,
   time: f32,
+  baseWindX: f32,
+  baseWindY: f32,
+  influenceSpeedFactor: f32,
+  influenceDirectionOffset: f32,
+  influenceTurbulence: f32,
+  _padding: f32,
 }
 
 // Result structure (matches WindQueryResult interface)
@@ -42,10 +48,28 @@ struct WindQueryResult {
   speed: f32,
   direction: f32,
 }
+  `,
+  bindings: {
+    params: { type: "uniform", wgslType: "Params" },
+    pointBuffer: { type: "storage", wgslType: "array<vec2<f32>>" },
+    resultBuffer: { type: "storageRW", wgslType: "array<WindQueryResult>" },
+  },
+  code: "",
+};
 
-${this.buildWGSLBindings()}
+/**
+ * Module containing the compute entry point.
+ */
+const windQueryMainModule: ShaderModule = {
+  dependencies: [windQueryComputeModule, windQueryParamsModule],
+  code: /*wgsl*/ `
+// Wind constants
+const WIND_NOISE_SPATIAL_SCALE: f32 = ${WIND_NOISE_SPATIAL_SCALE};
+const WIND_NOISE_TIME_SCALE: f32 = ${WIND_NOISE_TIME_SCALE};
+const WIND_SPEED_VARIATION: f32 = ${WIND_SPEED_VARIATION};
+const WIND_ANGLE_VARIATION: f32 = ${WIND_ANGLE_VARIATION};
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(${WORKGROUP_SIZE[0]})
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let index = globalId.x;
 
@@ -55,18 +79,43 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   let queryPoint = pointBuffer[index];
 
-  // TODO: Compute actual wind state using wind modules
-  // For now, return simple placeholder data
-  var result: WindQueryResult;
-  let windX = cos(queryPoint.x * 0.001 + params.time * 0.1);
-  let windY = sin(queryPoint.y * 0.001 + params.time * 0.1);
+  // Compute wind using shared module
+  let windResult = computeWindAtPoint(
+    queryPoint,
+    params.time,
+    vec2<f32>(params.baseWindX, params.baseWindY),
+    params.influenceSpeedFactor,
+    params.influenceDirectionOffset,
+    params.influenceTurbulence,
+    WIND_NOISE_SPATIAL_SCALE,
+    WIND_NOISE_TIME_SCALE,
+    WIND_SPEED_VARIATION,
+    WIND_ANGLE_VARIATION
+  );
 
-  result.velocityX = windX * 10.0; // 10 m/s placeholder
-  result.velocityY = windY * 10.0;
-  result.speed = sqrt(windX * windX + windY * windY) * 10.0;
-  result.direction = atan2(windY, windX);
+  var result: WindQueryResult;
+  result.velocityX = windResult.velocity.x;
+  result.velocityY = windResult.velocity.y;
+  result.speed = windResult.speed;
+  result.direction = windResult.direction;
 
   resultBuffer[index] = result;
 }
-`;
+  `,
+};
+
+/**
+ * Configuration for the wind query shader.
+ */
+export const windQueryShaderConfig: ComputeShaderConfig = {
+  modules: [windQueryMainModule],
+  workgroupSize: WORKGROUP_SIZE,
+  label: "WindQueryShader",
+};
+
+/**
+ * Create a wind query compute shader instance.
+ */
+export function createWindQueryShader(): ComputeShader {
+  return new ComputeShader(windQueryShaderConfig);
 }

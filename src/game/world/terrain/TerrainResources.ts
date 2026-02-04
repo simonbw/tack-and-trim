@@ -3,27 +3,30 @@
  *
  * Owns and manages GPU buffers for terrain contour data.
  * Provides read-only access to buffers for query shaders and render pipelines.
+ * Also stores the terrain definition and tracks version changes.
  */
 
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import {
+  type TerrainContour,
   type TerrainDefinition,
   buildTerrainGPUData,
   FLOATS_PER_CONTOUR,
-} from "../../world-data/terrain/LandMass";
+  normalizeTerrainWinding,
+} from "./LandMass";
 import {
   MAX_CHILDREN,
   MAX_CONTOURS,
   MAX_CONTROL_POINTS,
-} from "../../world-data/terrain/TerrainConstants";
+} from "./TerrainConstants";
 
 /**
  * Manages GPU resources for terrain data.
  *
- * Simple resource provider that owns GPU buffers and provides access to them.
- * Does not do any computation itself.
+ * Resource provider that owns GPU buffers and provides access to them.
+ * Also stores the terrain definition for CPU access and tracks version changes.
  */
 export class TerrainResources extends BaseEntity {
   id = "terrainResources";
@@ -33,10 +36,19 @@ export class TerrainResources extends BaseEntity {
   readonly contourBuffer: GPUBuffer;
   readonly childrenBuffer: GPUBuffer;
 
+  // Terrain definition (normalized to CCW winding)
+  private terrainDefinition: TerrainDefinition;
+
+  // Version number - increments when terrain changes
+  private version: number = 0;
+
   private contourCount: number = 0;
 
   constructor(terrainDefinition: TerrainDefinition) {
     super();
+
+    // Normalize contour winding to CCW for consistent wave physics
+    this.terrainDefinition = normalizeTerrainWinding(terrainDefinition);
 
     const device = getWebGPU().device;
 
@@ -60,7 +72,7 @@ export class TerrainResources extends BaseEntity {
     });
 
     // Upload initial terrain data
-    this.updateTerrainData(terrainDefinition);
+    this.uploadTerrainData(this.terrainDefinition);
   }
 
   @on("destroy")
@@ -71,9 +83,10 @@ export class TerrainResources extends BaseEntity {
   }
 
   /**
-   * Update terrain data (e.g., when loading a new level).
+   * Upload terrain data to GPU buffers.
+   * @internal
    */
-  updateTerrainData(definition: TerrainDefinition): void {
+  private uploadTerrainData(definition: TerrainDefinition): void {
     const device = getWebGPU().device;
     const { controlPointsData, contourData, childrenData, contourCount } =
       buildTerrainGPUData(definition);
@@ -96,5 +109,37 @@ export class TerrainResources extends BaseEntity {
    */
   getContourCount(): number {
     return this.contourCount;
+  }
+
+  /**
+   * Get all contours (read-only).
+   */
+  getContours(): readonly TerrainContour[] {
+    return this.terrainDefinition.contours;
+  }
+
+  /**
+   * Get the full terrain definition.
+   */
+  getTerrainDefinition(): TerrainDefinition {
+    return this.terrainDefinition;
+  }
+
+  /**
+   * Update the terrain definition (e.g., for level loading or editor changes).
+   * Normalizes contour winding to CCW for consistent wave physics.
+   */
+  setTerrainDefinition(definition: TerrainDefinition): void {
+    this.terrainDefinition = normalizeTerrainWinding(definition);
+    this.uploadTerrainData(this.terrainDefinition);
+    this.version++;
+  }
+
+  /**
+   * Get the terrain definition version.
+   * Increments whenever terrain data changes.
+   */
+  getVersion(): number {
+    return this.version;
   }
 }

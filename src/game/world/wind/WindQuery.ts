@@ -1,11 +1,11 @@
+import type { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader";
 import { V, type V2d } from "../../../core/Vector";
-import type Entity from "../../../core/entity/Entity";
-import { BaseQuery } from "../query/BaseQuery";
-import { QueryManager, type ResultLayout } from "../query/QueryManager";
-import { WindQueryShader } from "./WindQueryShader";
 import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { WindInfo } from "../../world-data/wind/WindInfo";
+import { BaseQuery } from "../query/BaseQuery";
+import { QueryManager, type ResultLayout } from "../query/QueryManager";
+import { WindResources } from "./WindResources";
+import { createWindQueryShader } from "./WindQueryShader";
 
 /**
  * Result data from a wind query at a specific point
@@ -17,13 +17,6 @@ export interface WindQueryResult {
   speed: number;
   /** Wind direction in radians (derived from velocity) */
   direction: number;
-}
-
-/**
- * Type guard for WindQuery entities
- */
-export function isWindQuery(entity: Entity): entity is WindQuery {
-  return entity instanceof WindQuery;
 }
 
 /**
@@ -65,12 +58,12 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
   id = "windQueryManager";
   tickLayer = "environment";
 
-  private queryShader: WindQueryShader | null = null;
+  private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
 
   constructor() {
     super(WindResultLayout, MAX_WIND_QUERIES);
-    this.queryShader = new WindQueryShader();
+    this.queryShader = createWindQueryShader();
   }
 
   @on("add")
@@ -115,6 +108,11 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
   }
 
   dispatchCompute(pointCount: number): void {
+    // Skip if no points to query
+    if (pointCount === 0) {
+      return;
+    }
+
     if (!this.queryShader || !this.uniformBuffer) {
       console.warn("[WindQuery] Shader not initialized");
       return;
@@ -122,9 +120,9 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
 
     const device = getWebGPU().device;
 
-    // Get wind parameters from WindInfo
-    const windInfo = this.game.entities.getSingleton(WindInfo);
-    const baseWind = windInfo.getBaseVelocity();
+    // Get wind parameters from WindResources
+    const windResources = this.game.entities.getSingleton(WindResources);
+    const baseWind = windResources.getBaseVelocity();
 
     // Update uniform buffer with wind parameters
     // Use ArrayBuffer with typed views for mixed u32/f32 data
@@ -148,12 +146,14 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
       resultBuffer: { buffer: this.resultBuffer },
     });
 
-    // Dispatch compute shader
+    // Dispatch compute shader with GPU profiling
+    const gpuProfiler = this.game.getRenderer().getGpuProfiler();
     const commandEncoder = device.createCommandEncoder({
       label: "Wind Query Compute",
     });
     const computePass = commandEncoder.beginComputePass({
       label: "Wind Query Compute Pass",
+      timestampWrites: gpuProfiler?.getComputeTimestampWrites("windQuery"),
     });
     this.queryShader.dispatch(computePass, bindGroup, pointCount, 1);
     computePass.end();

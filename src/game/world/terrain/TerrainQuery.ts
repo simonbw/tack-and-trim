@@ -1,12 +1,12 @@
+import type { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader";
 import { V, type V2d } from "../../../core/Vector";
-import type Entity from "../../../core/entity/Entity";
-import { BaseQuery } from "../query/BaseQuery";
-import { QueryManager, type ResultLayout } from "../query/QueryManager";
-import { TerrainQueryShader } from "./TerrainQueryShader";
-import { TerrainResources } from "./TerrainResources";
 import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { DEFAULT_DEPTH } from "../../world-data/terrain/TerrainConstants";
+import { DEFAULT_DEPTH } from "./TerrainConstants";
+import { BaseQuery } from "../query/BaseQuery";
+import { QueryManager, type ResultLayout } from "../query/QueryManager";
+import { createTerrainQueryShader } from "./TerrainQueryShader";
+import { TerrainResources } from "./TerrainResources";
 
 /**
  * Terrain type enum (placeholder until real TerrainType is available)
@@ -28,13 +28,6 @@ export interface TerrainQueryResult {
   normal: V2d;
   /** Terrain type identifier */
   terrainType: TerrainType;
-}
-
-/**
- * Type guard for TerrainQuery entities
- */
-export function isTerrainQuery(entity: Entity): entity is TerrainQuery {
-  return entity instanceof TerrainQuery;
 }
 
 /**
@@ -75,12 +68,12 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
   id = "terrainQueryManager";
   tickLayer = "environment";
 
-  private queryShader: TerrainQueryShader | null = null;
+  private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
 
   constructor() {
     super(TerrainResultLayout, MAX_TERRAIN_QUERIES);
-    this.queryShader = new TerrainQueryShader();
+    this.queryShader = createTerrainQueryShader();
   }
 
   @on("add")
@@ -161,12 +154,14 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
       children: { buffer: terrainResources.childrenBuffer },
     });
 
-    // Dispatch compute shader
+    // Dispatch compute shader with GPU profiling
+    const gpuProfiler = this.game.getRenderer().getGpuProfiler();
     const commandEncoder = device.createCommandEncoder({
       label: "Terrain Query Compute",
     });
     const computePass = commandEncoder.beginComputePass({
       label: "Terrain Query Compute Pass",
+      timestampWrites: gpuProfiler?.getComputeTimestampWrites("terrainQuery"),
     });
     this.queryShader.dispatch(computePass, bindGroup, pointCount, 1);
     computePass.end();

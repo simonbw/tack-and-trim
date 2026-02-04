@@ -9,16 +9,18 @@
 
 import { V, V2d } from "../../core/Vector";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
-import { WAVE_COMPONENTS } from "../world-data/water/WaterConstants";
-import type { Viewport } from "../world-data/water/WaterInfo";
-import type { TerrainDefinition } from "../world-data/terrain/LandMass";
+import { WAVE_COMPONENTS } from "../world/water/WaterConstants";
+import type { Viewport } from "./WavePhysicsResources";
+import type { TerrainDefinition } from "../world/terrain/LandMass";
 import { CoastlineManager } from "./CoastlineManager";
 import {
   buildShadowPolygonsForRendering,
   type ShadowPolygonRenderData,
 } from "./ShadowGeometry";
 import { ShadowTextureRenderer } from "./ShadowTextureRenderer";
-import { MAX_SHADOW_POLYGONS } from "../world-data/water/webgpu/AnalyticalWaterStateShader";
+
+/** Maximum number of shadow polygons for wave diffraction */
+export const MAX_SHADOW_POLYGONS = 8;
 
 /** Shadow data buffer byte size: header (32 bytes) + polygons (MAX * 32 bytes each) */
 const SHADOW_DATA_BUFFER_SIZE = 32 + MAX_SHADOW_POLYGONS * 32;
@@ -111,8 +113,12 @@ export class WavePhysicsManager {
    * Must be called each frame before water shader runs.
    *
    * @param viewport - Current render viewport
+   * @param timestampWrites - Optional GPU timestamp writes for profiling
    */
-  updateShadowTexture(viewport: Viewport): void {
+  updateShadowTexture(
+    viewport: Viewport,
+    timestampWrites?: GPURenderPassTimestampWrites,
+  ): void {
     if (!this.initialized || !this.shadowRenderer || !this.shadowDataBuffer) {
       return;
     }
@@ -126,6 +132,7 @@ export class WavePhysicsManager {
       viewport,
       this.shadowPolygons,
       this.shadowDataBuffer,
+      timestampWrites,
     );
   }
 

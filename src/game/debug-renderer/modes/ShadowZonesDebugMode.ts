@@ -8,8 +8,8 @@
 import type { V2d } from "../../../core/Vector";
 import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
-import { WaterInfo } from "../../world-data/water/WaterInfo";
-import { WAVE_COMPONENTS } from "../../world-data/water/WaterConstants";
+import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
+import { WAVE_COMPONENTS } from "../../world/water/WaterConstants";
 import type { ShadowPolygonRenderData } from "../../wave-physics/ShadowGeometry";
 import { DebugRenderMode } from "./DebugRenderMode";
 
@@ -35,8 +35,9 @@ export class ShadowZonesDebugMode extends DebugRenderMode {
 
   @on("render")
   onRender({ draw }: GameEventMap["render"]): void {
-    const waterInfo = this.game.entities.tryGetSingleton(WaterInfo);
-    const wavePhysicsManager = waterInfo?.getWavePhysicsManager();
+    const wavePhysicsResources =
+      this.game.entities.tryGetSingleton(WavePhysicsResources);
+    const wavePhysicsManager = wavePhysicsResources?.getWavePhysicsManager();
 
     if (!wavePhysicsManager || !wavePhysicsManager.isInitialized()) return;
 

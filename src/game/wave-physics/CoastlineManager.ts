@@ -13,7 +13,7 @@ import { sampleClosedSpline } from "../../core/util/Spline";
 import type {
   TerrainContour,
   TerrainDefinition,
-} from "../world-data/terrain/LandMass";
+} from "../world/terrain/LandMass";
 
 /**
  * Axis-aligned bounding box.
