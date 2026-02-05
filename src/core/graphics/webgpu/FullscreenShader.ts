@@ -1,23 +1,14 @@
 /**
- * Base class for fullscreen render shaders.
+ * Fullscreen render shader built from composable modules.
  *
- * Handles GPU pipeline boilerplate so subclasses just declare:
- * - `vertexCode`: WGSL vertex shader code (or use vertexModules + vertexMainCode)
- * - `fragmentCode`: WGSL fragment shader code (or use fragmentModules + fragmentMainCode)
- * - `bindings`: typed binding definitions
- * - Optional: `getBlendState()` override for custom blending
+ * Create a fullscreen shader by providing:
+ * - `modules`: array of shader modules (last one typically contains vs_main and fs_main)
+ * - Optional: `blendState`, `targetFormat`, `label`
  *
- * The base class handles:
- * - Shader module creation
- * - Bind group layout creation (from binding definitions)
- * - Pipeline layout and render pipeline creation
- * - Fullscreen quad vertex buffer layout
- * - Type-safe bind group creation
- *
- * Module Support:
- * - Set `vertexModules` and `vertexMainCode` to compose vertex shader
- * - Set `fragmentModules` and `fragmentMainCode` to compose fragment shader
- * - Or use `vertexCode` and `fragmentCode` directly for backwards compatibility
+ * The shader automatically:
+ * - Resolves module dependencies
+ * - Merges bindings from all modules
+ * - Builds code in correct order: preambles → bindings → code
  */
 
 import { getWebGPU } from "./WebGPUDevice";
@@ -30,129 +21,57 @@ import {
 } from "./ShaderBindings";
 
 /**
- * Abstract base class for fullscreen render shaders.
- *
- * @template T - The bindings definition type for type-safe bind group creation
+ * Configuration for creating a fullscreen shader.
  */
-export abstract class FullscreenShader<
-  T extends BindingsDefinition,
-> extends Shader<T> {
-  /** WGSL vertex shader code. Optional when using modules. */
-  vertexCode?: string;
+export interface FullscreenShaderConfig {
+  /** Shader modules to compose (last one typically contains entry points) */
+  modules: ShaderModule[];
 
-  /** WGSL fragment shader code. Optional when using modules. */
-  fragmentCode?: string;
+  /** Blend state for alpha blending (undefined = opaque) */
+  blendState?: GPUBlendState;
 
-  /** Vertex shader modules. */
-  protected vertexModules?: ShaderModule[];
+  /** Render target format (defaults to preferred format) */
+  targetFormat?: GPUTextureFormat;
 
-  /** Fragment shader modules. */
-  protected fragmentModules?: ShaderModule[];
+  /** Label for GPU debugging (optional) */
+  label?: string;
+}
 
-  /** Main vertex code when using modules. */
-  protected vertexMainCode?: string;
-
-  /** Main fragment code when using modules. */
-  protected fragmentMainCode?: string;
-
-  /** Label for GPU debugging. Subclasses can override. */
-  get label(): string {
-    return this.constructor.name;
-  }
+/**
+ * Fullscreen shader built from composable modules.
+ */
+export class FullscreenShader extends Shader<BindingsDefinition> {
+  private readonly _label: string;
+  private readonly blendState?: GPUBlendState;
+  private readonly targetFormat?: GPUTextureFormat;
 
   private pipeline: GPURenderPipeline | null = null;
   private quad: WebGPUFullscreenQuad | null = null;
 
-  /**
-   * Override to combine vertex and fragment modules.
-   */
-  protected collectModules(): ShaderModule[] {
-    const allModules = [
-      ...(this.vertexModules ?? []),
-      ...(this.fragmentModules ?? []),
-    ];
+  constructor(config: FullscreenShaderConfig) {
+    super();
+    this.modules = config.modules;
+    this._label = config.label ?? "FullscreenShader";
+    this.blendState = config.blendState;
+    this.targetFormat = config.targetFormat;
+  }
 
-    if (allModules.length === 0) return [];
-
-    const seen = new Set<ShaderModule>();
-    const ordered: ShaderModule[] = [];
-
-    function collect(module: ShaderModule) {
-      if (seen.has(module)) return;
-      seen.add(module);
-
-      for (const dep of module.dependencies ?? []) {
-        collect(dep);
-      }
-
-      ordered.push(module);
-    }
-
-    for (const module of allModules) {
-      collect(module);
-    }
-
-    return ordered;
+  get label(): string {
+    return this._label;
   }
 
   /**
-   * Get vertex shader code (just the main code, without modules).
+   * Bindings merged from all modules.
    */
-  protected getVertexMainCodeOnly(): string {
-    if (this.vertexCode) {
-      return this.vertexCode;
-    }
-    if (this.vertexMainCode) {
-      return this.vertexMainCode;
-    }
-    throw new Error(
-      `${this.label}: Must provide either 'vertexCode' or 'vertexMainCode'`,
-    );
+  get bindings(): BindingsDefinition {
+    return this.buildBindings();
   }
 
   /**
-   * Get fragment shader code (just the main code, without modules).
+   * Get the render target format.
    */
-  protected getFragmentMainCodeOnly(): string {
-    if (this.fragmentCode) {
-      return this.fragmentCode;
-    }
-    if (this.fragmentMainCode) {
-      return this.fragmentMainCode;
-    }
-    throw new Error(
-      `${this.label}: Must provide either 'fragmentCode' or 'fragmentMainCode'`,
-    );
-  }
-
-  /**
-   * Build all module code once (combining vertex and fragment modules).
-   */
-  protected buildAllModuleCode(): string {
-    const modules = this.collectModules();
-    const parts: string[] = [];
-
-    // Add all module code
-    for (const module of modules) {
-      parts.push(module.code);
-    }
-
-    return parts.join("\n\n");
-  }
-
-  /**
-   * Get the blend state for this shader. Override to customize.
-   * Returns undefined for opaque (no blending).
-   */
-  protected getBlendState(): GPUBlendState | undefined {
-    return undefined;
-  }
-
-  /**
-   * Get the render target format. Override if using a custom format.
-   */
-  protected getTargetFormat(): GPUTextureFormat {
-    return getWebGPU().preferredFormat;
+  getTargetFormat(): GPUTextureFormat {
+    return this.targetFormat ?? getWebGPU().preferredFormat;
   }
 
   /**
@@ -162,26 +81,16 @@ export abstract class FullscreenShader<
   async init(): Promise<void> {
     const device = getWebGPU().device;
 
-    // Build complete shader:
-    // 1. Math constants (once)
-    // 2. All modules (vertex + fragment, deduplicated, once)
-    // 3. Vertex main code
-    // 4. Fragment main code
+    // Build complete shader with math constants at the top
     const completeShaderCode =
-      this.getMathConstants() +
-      "\n\n" +
-      this.buildAllModuleCode() +
-      "\n\n" +
-      this.getVertexMainCodeOnly() +
-      "\n\n" +
-      this.getFragmentMainCodeOnly();
+      this.getMathConstants() + "\n\n" + this.buildCode();
 
     const shaderModule = device.createShaderModule({
       code: completeShaderCode,
       label: `${this.label} Shader Module`,
     });
 
-    // Create bind group layout from binding definitions
+    // Create bind group layout from merged bindings
     // Use both VERTEX and FRAGMENT visibility for flexibility
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: createBindGroupLayoutEntries(
@@ -196,8 +105,6 @@ export abstract class FullscreenShader<
       label: `${this.label} Pipeline Layout`,
     });
 
-    const blendState = this.getBlendState();
-
     this.pipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: {
@@ -211,7 +118,7 @@ export abstract class FullscreenShader<
         targets: [
           {
             format: this.getTargetFormat(),
-            blend: blendState,
+            blend: this.blendState,
           },
         ],
       },

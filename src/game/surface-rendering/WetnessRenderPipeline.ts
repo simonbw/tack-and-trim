@@ -8,24 +8,21 @@
  * Uses reprojection to maintain wetness state as the camera moves.
  */
 
-import {
-  GPUProfiler,
-  GPUProfileSection,
-} from "../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
-import type { Viewport } from "../world-data/water/WaterInfo";
+import type { Viewport } from "../wave-physics/WavePhysicsResources";
+import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import {
+  createWetnessStateShader,
   DEFAULT_DRYING_RATE,
   DEFAULT_WETTING_RATE,
-  WetnessStateShader,
 } from "./WetnessStateShader";
 
 /**
  * Wetness rendering compute pipeline using ping-pong textures.
  */
 export class WetnessRenderPipeline {
-  private shader: WetnessStateShader | null = null;
+  private shader: ComputeShader | null = null;
 
   // Ping-pong textures for persistent state
   private wetnessTextureA: GPUTexture | null = null;
@@ -92,7 +89,7 @@ export class WetnessRenderPipeline {
     const device = getWebGPU().device;
 
     // Initialize compute shader
-    this.shader = new WetnessStateShader();
+    this.shader = createWetnessStateShader();
     await this.shader.init();
 
     // Create params buffer
@@ -212,8 +209,6 @@ export class WetnessRenderPipeline {
     waterTextureView: GPUTextureView,
     terrainTextureView: GPUTextureView,
     dt: number,
-    gpuProfiler?: GPUProfiler | null,
-    section: GPUProfileSection = "wetnessCompute",
   ): void {
     if (!this.initialized || !this.shader || !this.paramsBuffer) {
       return;
@@ -268,10 +263,9 @@ export class WetnessRenderPipeline {
       label: "Wetness Render Compute Encoder",
     });
 
-    // Begin compute pass with optional timestamp writes
+    // Begin compute pass (no GPU profiling for Phase 1)
     const computePass = commandEncoder.beginComputePass({
       label: "Wetness Render Compute Pass",
-      timestampWrites: gpuProfiler?.getComputeTimestampWrites(section),
     });
 
     this.shader.dispatch(

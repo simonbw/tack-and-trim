@@ -2,9 +2,11 @@ import { V2d } from "../../../core/Vector";
 import {
   checkSplineIntersection,
   checkSplineSelfIntersection,
+  computeSplineBoundingBox,
   isSplineInsideSpline,
+  sampleClosedSpline,
 } from "../../../core/util/Spline";
-import { DEFAULT_DEPTH } from "./TerrainConstants";
+import { DEFAULT_DEPTH, SAMPLES_PER_SEGMENT } from "./TerrainConstants";
 
 /**
  * A single terrain contour - a closed spline at a specific height.
@@ -29,8 +31,8 @@ export interface TerrainDefinition {
   defaultDepth?: number;
 }
 
-/** Number of 32-bit values per contour in GPU buffer (7 values + 2 padding for 16-byte alignment = 36 bytes) */
-export const FLOATS_PER_CONTOUR = 9;
+/** Number of 32-bit values per contour in GPU buffer (12 values + 1 padding for 16-byte alignment = 52 bytes) */
+export const FLOATS_PER_CONTOUR = 13;
 
 /**
  * A node in the contour containment tree.
@@ -387,13 +389,19 @@ export function validateTerrainDefinition(definition: TerrainDefinition): void {
  * Build GPU data arrays from terrain definition.
  * Returns flat arrays ready for upload to GPU buffers.
  *
- * Includes tree structure data for hierarchical height computation.
+ * Pre-samples Catmull-Rom splines on the CPU at high resolution (SAMPLES_PER_SEGMENT
+ * samples per control point segment). This produces smooth polygon vertices that
+ * the GPU can iterate directly without needing to evaluate splines.
+ *
+ * Contours are reordered in DFS pre-order for efficient GPU traversal. Each contour
+ * has a skipCount indicating how many contours are in its subtree, allowing the GPU
+ * to skip entire subtrees when a point is outside a contour.
  *
  * IMPORTANT: The WGSL struct has u32 fields for pointStartIndex and pointCount,
  * so we need to use a DataView to write integers with correct bit patterns.
  */
 export function buildTerrainGPUData(definition: TerrainDefinition): {
-  controlPointsData: Float32Array;
+  vertexData: Float32Array;
   contourData: ArrayBuffer;
   childrenData: Uint32Array;
   coastlineIndices: Uint32Array;
@@ -404,86 +412,165 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
 } {
   const contours = definition.contours;
 
+  if (contours.length === 0) {
+    return {
+      vertexData: new Float32Array(0),
+      contourData: new ArrayBuffer(0),
+      childrenData: new Uint32Array(0),
+      coastlineIndices: new Uint32Array(0),
+      contourCount: 0,
+      coastlineCount: 0,
+      maxDepth: 0,
+      defaultDepth: definition.defaultDepth ?? DEFAULT_DEPTH,
+    };
+  }
+
   // Build containment tree
   const tree = buildContourTree(contours);
 
-  // Count total control points
-  let totalPoints = 0;
-  for (const contour of contours) {
-    totalPoints += contour.controlPoints.length;
+  // Compute DFS ordering and skip counts
+  // dfsOrder[i] = original contour index at DFS position i
+  // originalToDfs[originalIndex] = DFS position
+  // skipCounts[dfsPosition] = number of descendants (subtree size)
+  const dfsOrder: number[] = [];
+  const originalToDfs = new Map<number, number>();
+  const skipCounts: number[] = new Array(contours.length).fill(0);
+
+  // DFS traversal to build ordering and compute skip counts
+  function dfsVisit(originalIndex: number): number {
+    const dfsIndex = dfsOrder.length;
+    dfsOrder.push(originalIndex);
+    originalToDfs.set(originalIndex, dfsIndex);
+
+    // Visit children and accumulate subtree size
+    const node = tree.nodes[originalIndex];
+    let subtreeSize = 0;
+    for (const childOriginalIndex of node.children) {
+      subtreeSize += 1 + dfsVisit(childOriginalIndex);
+    }
+
+    // Store skip count at the correct DFS index (not push, since we're in post-order here)
+    skipCounts[dfsIndex] = subtreeSize;
+    return subtreeSize;
   }
 
-  const controlPointsData = new Float32Array(totalPoints * 2);
+  // Start DFS from root nodes (those with parentIndex === -1)
+  for (let i = 0; i < tree.nodes.length; i++) {
+    if (tree.nodes[i].parentIndex === -1) {
+      dfsVisit(i);
+    }
+  }
+
+  // Pre-sample all contours' splines into dense vertex arrays
+  const sampledContours: V2d[][] = contours.map((contour) =>
+    sampleClosedSpline(contour.controlPoints, SAMPLES_PER_SEGMENT),
+  );
+
+  // Count total vertices after sampling
+  let totalVertices = 0;
+  for (const vertices of sampledContours) {
+    totalVertices += vertices.length;
+  }
+
+  const vertexData = new Float32Array(totalVertices * 2);
 
   // Use ArrayBuffer + DataView to write mixed u32/f32 data correctly
-  // Layout per contour (36 bytes = 9 x 4 bytes):
-  //   0-3:   pointStartIndex (u32)
-  //   4-7:   pointCount (u32)
+  // Layout per contour (52 bytes = 13 x 4 bytes):
+  //   0-3:   pointStartIndex (u32) - refers to pre-sampled vertices
+  //   4-7:   pointCount (u32) - refers to pre-sampled vertices
   //   8-11:  height (f32)
-  //   12-15: parentIndex (i32, -1 if root)
+  //   12-15: parentIndex (i32, -1 if root) - in DFS indices
   //   16-19: depth (u32)
   //   20-23: childStartIndex (u32)
   //   24-27: childCount (u32)
   //   28-31: isCoastline (u32, 1 if height == 0)
-  //   32-35: padding (for 16-byte struct alignment)
+  //   32-35: bboxMinX (f32)
+  //   36-39: bboxMinY (f32)
+  //   40-43: bboxMaxX (f32)
+  //   44-47: bboxMaxY (f32)
+  //   48-51: skipCount (u32) - number of contours in subtree
   const contourBuffer = new ArrayBuffer(
     contours.length * FLOATS_PER_CONTOUR * 4,
   );
   const contourView = new DataView(contourBuffer);
 
-  // Build flat children index array and track start indices
+  // Build flat children index array in DFS order
+  // childStartIndices[dfsIndex] = start index in children buffer
   const childStartIndices: number[] = [];
-  let childIndex = 0;
-  for (const node of tree.nodes) {
-    childStartIndices.push(childIndex);
-    childIndex += node.children.length;
+  const childrenFlat: number[] = [];
+  for (let dfsIndex = 0; dfsIndex < dfsOrder.length; dfsIndex++) {
+    const originalIndex = dfsOrder[dfsIndex];
+    const node = tree.nodes[originalIndex];
+    childStartIndices.push(childrenFlat.length);
+    // Store children as DFS indices
+    for (const childOriginalIndex of node.children) {
+      childrenFlat.push(originalToDfs.get(childOriginalIndex)!);
+    }
   }
+  const childrenData = new Uint32Array(childrenFlat);
 
-  // Create children buffer
-  const childrenData = new Uint32Array(tree.childrenFlat);
-
-  // Collect coastline indices (height == 0 contours)
+  // Collect coastline indices (height == 0 contours) in DFS order
   const coastlineIndicesList: number[] = [];
-  for (let i = 0; i < contours.length; i++) {
-    if (contours[i].height === 0) {
-      coastlineIndicesList.push(i);
+  for (let dfsIndex = 0; dfsIndex < dfsOrder.length; dfsIndex++) {
+    const originalIndex = dfsOrder[dfsIndex];
+    if (contours[originalIndex].height === 0) {
+      coastlineIndicesList.push(dfsIndex);
     }
   }
   const coastlineIndices = new Uint32Array(coastlineIndicesList);
 
-  let pointIndex = 0;
-  for (let i = 0; i < contours.length; i++) {
-    const contour = contours[i];
-    const node = tree.nodes[i];
+  // Write contour data in DFS order
+  let vertexIndex = 0;
+  for (let dfsIndex = 0; dfsIndex < dfsOrder.length; dfsIndex++) {
+    const originalIndex = dfsOrder[dfsIndex];
+    const contour = contours[originalIndex];
+    const node = tree.nodes[originalIndex];
+    const vertices = sampledContours[originalIndex];
 
     // Store contour metadata - byte offset for each contour
-    const byteBase = i * FLOATS_PER_CONTOUR * 4;
+    const byteBase = dfsIndex * FLOATS_PER_CONTOUR * 4;
 
     // u32 fields (must use setUint32, not float)
-    contourView.setUint32(byteBase + 0, pointIndex, true); // pointStartIndex
-    contourView.setUint32(byteBase + 4, contour.controlPoints.length, true); // pointCount
+    contourView.setUint32(byteBase + 0, vertexIndex, true); // pointStartIndex
+    contourView.setUint32(byteBase + 4, vertices.length, true); // pointCount
 
     // f32 field
     contourView.setFloat32(byteBase + 8, contour.height, true);
 
-    // Tree structure fields
-    contourView.setInt32(byteBase + 12, node.parentIndex, true); // parentIndex (signed)
+    // Tree structure fields - parentIndex in DFS indices
+    const parentDfsIndex =
+      node.parentIndex === -1 ? -1 : originalToDfs.get(node.parentIndex)!;
+    contourView.setInt32(byteBase + 12, parentDfsIndex, true); // parentIndex (signed)
     contourView.setUint32(byteBase + 16, node.depth, true); // depth
-    contourView.setUint32(byteBase + 20, childStartIndices[i], true); // childStartIndex
+    contourView.setUint32(byteBase + 20, childStartIndices[dfsIndex], true); // childStartIndex
     contourView.setUint32(byteBase + 24, node.children.length, true); // childCount
     contourView.setUint32(byteBase + 28, contour.height === 0 ? 1 : 0, true); // isCoastline
-    // byteBase + 32 is padding (left as 0)
 
-    // Store control points
-    for (const pt of contour.controlPoints) {
-      controlPointsData[pointIndex * 2 + 0] = pt.x;
-      controlPointsData[pointIndex * 2 + 1] = pt.y;
-      pointIndex++;
+    // Compute bounding box from pre-sampled vertices
+    const bbox = computeSplineBoundingBox(
+      contour.controlPoints,
+      SAMPLES_PER_SEGMENT,
+    );
+    if (bbox) {
+      contourView.setFloat32(byteBase + 32, bbox.minX, true); // bboxMinX
+      contourView.setFloat32(byteBase + 36, bbox.minY, true); // bboxMinY
+      contourView.setFloat32(byteBase + 40, bbox.maxX, true); // bboxMaxX
+      contourView.setFloat32(byteBase + 44, bbox.maxY, true); // bboxMaxY
+    }
+
+    // Skip count for DFS traversal
+    contourView.setUint32(byteBase + 48, skipCounts[dfsIndex], true); // skipCount
+
+    // Store pre-sampled vertices
+    for (const pt of vertices) {
+      vertexData[vertexIndex * 2 + 0] = pt.x;
+      vertexData[vertexIndex * 2 + 1] = pt.y;
+      vertexIndex++;
     }
   }
 
   return {
-    controlPointsData,
+    vertexData,
     contourData: contourBuffer,
     childrenData,
     coastlineIndices,

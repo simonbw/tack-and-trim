@@ -8,7 +8,7 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
  * Fresnel effect calculation module.
  * Provides computeFresnel for view-dependent reflectance.
  */
-export const fresnelModule: ShaderModule = {
+export const fn_computeFresnel: ShaderModule = {
   code: /*wgsl*/ `
     // Compute Fresnel effect (Schlick approximation)
     // facing: dot product of normal and view direction (0 = perpendicular, 1 = head-on)
@@ -23,7 +23,7 @@ export const fresnelModule: ShaderModule = {
  * Specular lighting calculation module.
  * Provides computeSpecular for mirror-like reflections.
  */
-export const specularModule: ShaderModule = {
+export const fn_computeSpecular: ShaderModule = {
   code: /*wgsl*/ `
     // Compute Phong specular reflection
     // viewDir: direction from surface to viewer
@@ -41,7 +41,7 @@ export const specularModule: ShaderModule = {
  * Diffuse lighting calculation module.
  * Provides computeDiffuse for matte surface lighting.
  */
-export const diffuseModule: ShaderModule = {
+export const fn_computeDiffuse: ShaderModule = {
   code: /*wgsl*/ `
     // Compute Lambertian diffuse lighting
     // normal: surface normal
@@ -56,7 +56,7 @@ export const diffuseModule: ShaderModule = {
  * Complete water lighting module combining all lighting effects.
  * Provides renderWaterLighting for full water surface shading.
  */
-export const waterLightingModule: ShaderModule = {
+export const fn_renderWaterLighting: ShaderModule = {
   code: /*wgsl*/ `
     // Compute complete water lighting
     // normal: water surface normal
@@ -121,5 +121,5 @@ export const waterLightingModule: ShaderModule = {
       return ambient + subsurface + diffuseLight + skyReflection + specularLight;
     }
   `,
-  dependencies: [fresnelModule, specularModule, diffuseModule],
+  dependencies: [fn_computeFresnel, fn_computeSpecular, fn_computeDiffuse],
 };

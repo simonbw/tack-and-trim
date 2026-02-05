@@ -5,7 +5,7 @@
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 
 /**
- * Simplex 3D noise module.
+ * Simplex 3D noise function.
  *
  * Provides simplex3D(v: vec3<f32>) -> f32
  * Returns a value in the range [-1, 1].
@@ -13,22 +13,22 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
  * Adapted from Ashima Arts / Stefan Gustavson GLSL implementation:
  * https://github.com/ashima/webgl-noise
  */
-export const simplexNoise3DModule: ShaderModule = {
+export const fn_simplex3D: ShaderModule = {
   code: /*wgsl*/ `
-    // Helper functions for simplex3D (prefixed to avoid conflicts)
-    fn simplex3D_mod289_vec3(x: vec3<f32>) -> vec3<f32> {
+    // Internal helper functions for simplex3D
+    fn _simplex3D_mod289_vec3(x: vec3<f32>) -> vec3<f32> {
       return x - floor(x * (1.0 / 289.0)) * 289.0;
     }
 
-    fn simplex3D_mod289_vec4(x: vec4<f32>) -> vec4<f32> {
+    fn _simplex3D_mod289_vec4(x: vec4<f32>) -> vec4<f32> {
       return x - floor(x * (1.0 / 289.0)) * 289.0;
     }
 
-    fn simplex3D_permute(x: vec4<f32>) -> vec4<f32> {
-      return simplex3D_mod289_vec4(((x * 34.0) + 10.0) * x);
+    fn _simplex3D_permute(x: vec4<f32>) -> vec4<f32> {
+      return _simplex3D_mod289_vec4(((x * 34.0) + 10.0) * x);
     }
 
-    fn simplex3D_taylorInvSqrt(r: vec4<f32>) -> vec4<f32> {
+    fn _simplex3D_taylorInvSqrt(r: vec4<f32>) -> vec4<f32> {
       return 1.79284291400159 - 0.85373472095314 * r;
     }
 
@@ -51,8 +51,8 @@ export const simplexNoise3DModule: ShaderModule = {
       let x3 = x0 - D.yyy;
 
       // Permutations
-      i = simplex3D_mod289_vec3(i);
-      let p = simplex3D_permute(simplex3D_permute(simplex3D_permute(
+      i = _simplex3D_mod289_vec3(i);
+      let p = _simplex3D_permute(_simplex3D_permute(_simplex3D_permute(
           i.z + vec4<f32>(0.0, i1.z, i2.z, 1.0))
         + i.y + vec4<f32>(0.0, i1.y, i2.y, 1.0))
         + i.x + vec4<f32>(0.0, i1.x, i2.x, 1.0));
@@ -86,7 +86,7 @@ export const simplexNoise3DModule: ShaderModule = {
       var p3 = vec3<f32>(a1.zw, h.w);
 
       // Normalise gradients
-      let norm = simplex3D_taylorInvSqrt(vec4<f32>(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
+      let norm = _simplex3D_taylorInvSqrt(vec4<f32>(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
       p0 = p0 * norm.x;
       p1 = p1 * norm.y;
       p2 = p2 * norm.z;

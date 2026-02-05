@@ -13,7 +13,7 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
  * shadow and illuminated regions. Uses the Fresnel parameter to determine
  * how much wave energy diffracts into the shadow zone.
  */
-export const fresnelDiffractionModule: ShaderModule = {
+export const fn_computeFresnelEnergy: ShaderModule = {
   code: /*wgsl*/ `
     // Compute wave energy attenuation from Fresnel diffraction
     // distanceToShadowBoundary: perpendicular distance to shadow edge (feet)

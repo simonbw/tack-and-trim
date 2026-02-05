@@ -153,7 +153,7 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
     });
     const computePass = commandEncoder.beginComputePass({
       label: "Wind Query Compute Pass",
-      timestampWrites: gpuProfiler?.getComputeTimestampWrites("windQuery"),
+      timestampWrites: gpuProfiler?.getComputeTimestampWrites("query.wind"),
     });
     this.queryShader.dispatch(computePass, bindGroup, pointCount, 1);
     computePass.end();

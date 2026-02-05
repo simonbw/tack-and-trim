@@ -19,7 +19,7 @@ import {
   WIND_NOISE_TIME_SCALE,
   WIND_SPEED_VARIATION,
 } from "./WindConstants";
-import { windQueryComputeModule } from "../shaders/wind.wgsl";
+import { fn_computeWindAtPoint } from "../shaders/wind.wgsl";
 
 const WORKGROUP_SIZE = [64, 1, 1] as const;
 
@@ -61,7 +61,7 @@ struct WindQueryResult {
  * Module containing the compute entry point.
  */
 const windQueryMainModule: ShaderModule = {
-  dependencies: [windQueryComputeModule, windQueryParamsModule],
+  dependencies: [fn_computeWindAtPoint, windQueryParamsModule],
   code: /*wgsl*/ `
 // Wind constants
 const WIND_NOISE_SPATIAL_SCALE: f32 = ${WIND_NOISE_SPATIAL_SCALE};

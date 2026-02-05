@@ -1,13 +1,13 @@
 import type { Boat } from "../boat/Boat";
-import type { WindInfo } from "../world-data/wind/WindInfo";
+import type { WindResources } from "../world/wind/WindResources";
 import type { V2d } from "../../core/Vector";
 
 /** Context passed to step completion checks and callbacks */
 export interface TutorialContext {
   /** The player's boat */
   boat: Boat;
-  /** Wind information for detecting upwind/downwind */
-  windInfo: WindInfo;
+  /** Wind resources for getting base wind direction */
+  windResources: WindResources;
   /** Boat position when the current step started */
   stepStartPosition: V2d;
   /** Boat heading (radians) when the current step started */

@@ -13,10 +13,10 @@ import {
   type ComputeShaderConfig,
 } from "../../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-import { SPLINE_SUBDIVISIONS } from "./TerrainConstants";
 import {
-  terrainHeightComputeModule,
-  terrainStructuresModule,
+  fn_computeTerrainHeight,
+  fn_computeTerrainNormal,
+  struct_ContourData,
 } from "../shaders/terrain.wgsl";
 
 const WORKGROUP_SIZE = [64, 1, 1] as const;
@@ -47,7 +47,7 @@ struct TerrainQueryResult {
     params: { type: "uniform", wgslType: "Params" },
     pointBuffer: { type: "storage", wgslType: "array<vec2<f32>>" },
     resultBuffer: { type: "storageRW", wgslType: "array<TerrainQueryResult>" },
-    controlPoints: { type: "storage", wgslType: "array<vec2<f32>>" },
+    vertices: { type: "storage", wgslType: "array<vec2<f32>>" },
     contours: { type: "storage", wgslType: "array<ContourData>" },
     children: { type: "storage", wgslType: "array<u32>" },
   },
@@ -59,13 +59,12 @@ struct TerrainQueryResult {
  */
 const terrainQueryMainModule: ShaderModule = {
   dependencies: [
-    terrainStructuresModule,
-    terrainHeightComputeModule,
+    struct_ContourData,
+    fn_computeTerrainHeight,
+    fn_computeTerrainNormal,
     terrainQueryParamsModule,
   ],
   code: /*wgsl*/ `
-const SPLINE_SUBDIVISIONS: u32 = ${SPLINE_SUBDIVISIONS}u;
-
 @compute @workgroup_size(${WORKGROUP_SIZE[0]})
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let index = globalId.x;
@@ -77,22 +76,21 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let queryPoint = pointBuffer[index];
 
   var result: TerrainQueryResult;
+  // Vertices are pre-sampled from Catmull-Rom splines on the CPU
   result.height = computeTerrainHeight(
     queryPoint,
-    &controlPoints,
+    &vertices,
     &contours,
     params.contourCount,
-    SPLINE_SUBDIVISIONS,
     params.defaultDepth
   );
 
   // Compute normal
   let normal = computeTerrainNormal(
     queryPoint,
-    &controlPoints,
+    &vertices,
     &contours,
     params.contourCount,
-    SPLINE_SUBDIVISIONS,
     params.defaultDepth
   );
   result.normalX = normal.x;

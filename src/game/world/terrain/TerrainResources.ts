@@ -16,11 +16,7 @@ import {
   FLOATS_PER_CONTOUR,
   normalizeTerrainWinding,
 } from "./LandMass";
-import {
-  MAX_CHILDREN,
-  MAX_CONTOURS,
-  MAX_CONTROL_POINTS,
-} from "./TerrainConstants";
+import { MAX_CHILDREN, MAX_CONTOURS, MAX_VERTICES } from "./TerrainConstants";
 
 /**
  * Manages GPU resources for terrain data.
@@ -32,7 +28,7 @@ export class TerrainResources extends BaseEntity {
   id = "terrainResources";
 
   // GPU buffers
-  readonly controlPointsBuffer: GPUBuffer;
+  readonly vertexBuffer: GPUBuffer;
   readonly contourBuffer: GPUBuffer;
   readonly childrenBuffer: GPUBuffer;
 
@@ -53,10 +49,10 @@ export class TerrainResources extends BaseEntity {
     const device = getWebGPU().device;
 
     // Create GPU buffers
-    this.controlPointsBuffer = device.createBuffer({
-      size: MAX_CONTROL_POINTS * 2 * 4, // vec2<f32> per point
+    this.vertexBuffer = device.createBuffer({
+      size: MAX_VERTICES * 2 * 4, // vec2<f32> per pre-sampled vertex
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: "Terrain Control Points Buffer",
+      label: "Terrain Vertex Buffer",
     });
 
     this.contourBuffer = device.createBuffer({
@@ -77,7 +73,7 @@ export class TerrainResources extends BaseEntity {
 
   @on("destroy")
   onDestroy(): void {
-    this.controlPointsBuffer.destroy();
+    this.vertexBuffer.destroy();
     this.contourBuffer.destroy();
     this.childrenBuffer.destroy();
   }
@@ -88,14 +84,10 @@ export class TerrainResources extends BaseEntity {
    */
   private uploadTerrainData(definition: TerrainDefinition): void {
     const device = getWebGPU().device;
-    const { controlPointsData, contourData, childrenData, contourCount } =
+    const { vertexData, contourData, childrenData, contourCount } =
       buildTerrainGPUData(definition);
 
-    device.queue.writeBuffer(
-      this.controlPointsBuffer,
-      0,
-      controlPointsData.buffer,
-    );
+    device.queue.writeBuffer(this.vertexBuffer, 0, vertexData.buffer);
     device.queue.writeBuffer(this.contourBuffer, 0, contourData);
     if (childrenData.length > 0) {
       device.queue.writeBuffer(this.childrenBuffer, 0, childrenData.buffer);

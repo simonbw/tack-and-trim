@@ -15,7 +15,11 @@ import {
 } from "../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
 import { WATER_HEIGHT_SCALE } from "../world/water/WaterConstants";
-import { viewportModule } from "../world/shaders/coordinates.wgsl";
+import {
+  fn_uvInBounds,
+  fn_uvToWorld,
+  fn_worldToUV,
+} from "../world/shaders/coordinates.wgsl";
 
 // Wetness rates (configurable defaults)
 const DEFAULT_WETTING_RATE = 4.0; // Reach full wet in ~0.25 seconds
@@ -69,7 +73,12 @@ struct Params {
  * Module containing the compute entry point.
  */
 const wetnessMainModule: ShaderModule = {
-  dependencies: [viewportModule, wetnessParamsModule],
+  dependencies: [
+    fn_uvToWorld,
+    fn_worldToUV,
+    fn_uvInBounds,
+    wetnessParamsModule,
+  ],
   code: /*wgsl*/ `
 // Constants
 const WATER_HEIGHT_SCALE: f32 = ${WATER_HEIGHT_SCALE};

@@ -4,7 +4,7 @@ import type { Draw } from "../core/graphics/Draw";
 import { DynamicBody } from "../core/physics/body/DynamicBody";
 import { Circle } from "../core/physics/shapes/Circle";
 import { V } from "../core/Vector";
-import { WaterInfo } from "./world-data/water/WaterInfo";
+import { WaterQuery } from "./world/water/WaterQuery";
 
 // Units: feet (ft), pounds (lbs)
 const BUOY_RADIUS = 2; // ft - typical racing mark buoy
@@ -18,6 +18,11 @@ export class Buoy extends BaseEntity {
   layer = "main" as const;
   body: DynamicBody;
   private currentScale: number = 1;
+
+  // Water query for buoy position
+  private waterQuery = this.addChild(
+    new WaterQuery(() => [V(this.body.position)]),
+  );
 
   constructor(x: number, y: number) {
     super();
@@ -38,12 +43,13 @@ export class Buoy extends BaseEntity {
       this.body.applyForce(V(0, buoyancyForce));
     }
 
-    // Apply water velocity as a drag force (pushes buoy with the current/wake)
-    const water = this.game.entities.getSingleton(WaterInfo);
-    const waterState = water.getStateAtPoint(V(x, y));
+    // Get water state from previous frame's query (1-frame latency)
+    const result = this.waterQuery.results[0];
+    const waterVelocity = result?.velocity ?? V(0, 0);
+    const surfaceHeight = result?.surfaceHeight ?? 0;
 
     // Force proportional to difference between water velocity and buoy velocity
-    const relativeVelocity = waterState.velocity.sub(V(this.body.velocity));
+    const relativeVelocity = waterVelocity.sub(V(this.body.velocity));
     this.body.applyForce(relativeVelocity.mul(WATER_DRAG));
 
     // Damping to prevent wild oscillation
@@ -52,7 +58,7 @@ export class Buoy extends BaseEntity {
     this.body.angularVelocity *= WATER_DAMPING;
 
     // Update scale based on water surface height (simulates bobbing up/down)
-    this.currentScale = 1 + waterState.surfaceHeight * HEIGHT_SCALE_FACTOR;
+    this.currentScale = 1 + surfaceHeight * HEIGHT_SCALE_FACTOR;
   }
 
   @on("render")

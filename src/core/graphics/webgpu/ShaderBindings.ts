@@ -240,28 +240,11 @@ export function generateWGSLBindings(
       }
 
       case "texture": {
-        const viewDim = definition.viewDimension ?? "2d";
+        const viewDimension = definition.viewDimension ?? "2d";
         const sampleType = definition.sampleType ?? "float";
-        const texType =
-          viewDim === "2d"
-            ? "texture_2d"
-            : viewDim === "2d-array"
-              ? "texture_2d_array"
-              : viewDim === "cube"
-                ? "texture_cube"
-                : viewDim === "3d"
-                  ? "texture_3d"
-                  : "texture_2d";
-        // Map GPUTextureSampleType to WGSL type
-        const wgslSampleType =
-          sampleType === "float" || sampleType === "unfilterable-float"
-            ? "f32"
-            : sampleType === "sint"
-              ? "i32"
-              : sampleType === "uint"
-                ? "u32"
-                : "f32"; // depth also uses f32
-        const wgslType = `${texType}<${wgslSampleType}>`;
+        const textureType = viewDimensionToTextureType[viewDimension];
+        const wgslSampleType = sampleTypeToWgslType[sampleType];
+        const wgslType = `${textureType}<${wgslSampleType}>`;
         declaration = `var ${name}: ${wgslType}`;
         break;
       }
@@ -276,3 +259,20 @@ export function generateWGSLBindings(
 
   return lines.join("\n");
 }
+
+const viewDimensionToTextureType: Record<GPUTextureViewDimension, string> = {
+  "1d": "texture_1d",
+  "2d": "texture_2d",
+  "2d-array": "texture_2d_array",
+  cube: "texture_cube",
+  "cube-array": "texture_cube_array",
+  "3d": "texture_3d",
+};
+
+const sampleTypeToWgslType: Record<GPUTextureSampleType, string> = {
+  float: "f32",
+  "unfilterable-float": "f32",
+  sint: "i32",
+  uint: "u32",
+  depth: "f32",
+};

@@ -1,21 +1,26 @@
 /**
  * Base class for shaders with module composition support.
  *
- * Provides shared functionality for:
- * - Module collection and deduplication
- * - Code building from modules
- * - Binding merging from modules
- * - Bind group layout and bind group creation
+ * Shaders are built from composable modules. Each module can provide:
+ * - preamble: struct definitions (before bindings)
+ * - bindings: GPU resource bindings
+ * - code: functions, constants, entry points (after bindings)
+ *
+ * The shader automatically:
+ * - Resolves module dependencies in correct order
+ * - Deduplicates shared dependencies
+ * - Merges bindings from all modules
+ * - Builds code in correct order: preambles → bindings → code
  */
 
-import { getWebGPU } from "./WebGPUDevice";
-import type { ShaderModule, MergeModuleBindings } from "./ShaderModule";
 import {
-  type BindingsDefinition,
   type BindGroupResources,
+  type BindingsDefinition,
   createBindGroupEntries,
   generateWGSLBindings,
 } from "./ShaderBindings";
+import type { MergeModuleBindings, ShaderModule } from "./ShaderModule";
+import { getWebGPU } from "./WebGPUDevice";
 
 /**
  * Abstract base class for all shaders.
@@ -53,57 +58,56 @@ export abstract class Shader<T extends BindingsDefinition> {
     const ordered: ShaderModule[] = [];
 
     function collect(module: ShaderModule) {
-      if (seen.has(module)) return; // Deduplicate
-      seen.add(module);
-
-      // Collect dependencies first (depth-first)
-      for (const dep of module.dependencies ?? []) {
-        collect(dep);
+      if (!seen.has(module)) {
+        seen.add(module);
+        // Collect dependencies first (depth-first)
+        module.dependencies?.forEach(collect);
+        // Add module after dependencies
+        ordered.push(module);
       }
-
-      ordered.push(module);
     }
 
-    for (const module of this.modules) {
-      collect(module);
-    }
+    this.modules.forEach(collect);
 
     return ordered;
   }
 
   /**
-   * Get the standard math constants that should be included once per shader.
-   * @returns WGSL code for fundamental math constants
+   * Get the standard math and physics constants that should be included once per shader.
+   * @returns WGSL code for fundamental constants
    */
   protected getMathConstants(): string {
     return /*wgsl*/ `
-// Fundamental math constants (included automatically)
+// Fundamental constants (included automatically)
 const PI: f32 = 3.14159265359;
 const TWO_PI: f32 = 6.28318530718;
 const HALF_PI: f32 = 1.57079632679;
+const GRAVITY: f32 = 32.174; // ft/s^2
     `;
   }
 
   /**
-   * Build WGSL code from collected modules and additional code.
-   * Modules are concatenated in dependency order, followed by additional code.
+   * Build complete WGSL code from modules.
+   * Order: preambles → auto-generated bindings → code
    *
-   * @param additionalCode - Additional code to append (e.g., main functions)
-   * @returns Complete WGSL shader code (without math constants - those should be added once by the shader class)
+   * @returns Complete WGSL shader code (without math constants - those are added by the shader class)
    */
-  protected buildCode(...additionalCode: string[]): string {
+  protected buildCode(): string {
     const modules = this.collectModules();
-    const parts: string[] = [];
 
-    // Add all module code
-    for (const module of modules) {
-      parts.push(module.code);
-    }
+    // 1. Collect preambles (structs needed by bindings)
+    const preambles = modules
+      .filter((m) => m.preamble)
+      .map((m) => m.preamble)
+      .join("\n\n");
 
-    // Add additional code
-    parts.push(...additionalCode);
+    // 2. Auto-generate binding declarations
+    const bindingsWgsl = this.buildBindingsWgsl();
 
-    return parts.join("\n\n");
+    // 3. Collect module code (functions, constants, entry points)
+    const code = modules.map((m) => m.code).join("\n\n");
+
+    return [preambles, bindingsWgsl, code].filter(Boolean).join("\n\n");
   }
 
   /**
@@ -187,9 +191,9 @@ const HALF_PI: f32 = 1.57079632679;
    * @returns WGSL code declaring the bindings
    *
    * @example
-   * const wgsl = this.buildWGSLBindings();
+   * const wgsl = this.buildBindingsWgsl();
    */
-  protected buildWGSLBindings(group: number = 0): string {
+  protected buildBindingsWgsl(group: number = 0): string {
     return generateWGSLBindings(this.bindings, group);
   }
 }

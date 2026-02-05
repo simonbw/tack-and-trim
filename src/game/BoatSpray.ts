@@ -1,12 +1,12 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { range } from "../core/util/FunctionalUtils";
-import { clamp, lerp, lerpV2d } from "../core/util/MathUtil";
+import { lerp, lerpV2d } from "../core/util/MathUtil";
 import { chooseWeighted, rNormal } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { SprayParticle } from "./SprayParticle";
-import { WaterInfo } from "./world-data/water/WaterInfo";
+import { WaterQuery, WaterQueryResult } from "./world/water/WaterQuery";
 
 // Spawn rate (linear with velocity and edge length)
 const MIN_IMPACT_SPEED = 3; // ft/s - minimum normal velocity to generate spray
@@ -21,9 +21,6 @@ const SIZE_VELOCITY_SCALE = 0.001; // ft per ft/s - size increase per speed incr
 const SPRAY_SPEED_SCALE = 0.5; // additional ft/s per ft/s of vNormal
 const BASE_VZ = 2; // ft/s - base vertical velocity
 const VZ_VELOCITY_SCALE = 0.5; // additional vz per ft/s of impact
-
-// Wave interaction
-const WAVE_BONUS_SCALE = 0.3; // How much dh/dt affects spray intensity
 
 /**
  * Spawns spray particles from a boat's hull based on physics.
@@ -41,21 +38,50 @@ export class BoatSpray extends BaseEntity {
   private edges: Edge[];
   private spawnAccumulator = 0;
 
+  // Water query for all edge midpoints
+  private waterQuery = this.addChild(
+    new WaterQuery(() => this.getQueryPoints()),
+  );
+
   constructor(private boat: Boat) {
     super();
     const numEdges = boat.config.hull.vertices.length;
 
-    const vertices = boat.config.hull.vertices;
     this.edges = range(numEdges).map((i) => new Edge(boat, i));
+  }
+
+  /**
+   * Get query points in world space for all edge midpoints.
+   */
+  private getQueryPoints(): V2d[] {
+    const hullBody = this.boat.hull.body;
+    const vertices = this.boat.config.hull.vertices;
+    const points: V2d[] = [];
+
+    for (let i = 0; i < vertices.length; i++) {
+      const v1 = vertices[i];
+      const v2 = vertices[(i + 1) % vertices.length];
+
+      // Transform vertices to world space and compute midpoint
+      const p1 = hullBody.toWorldFrame(v1);
+      const p2 = hullBody.toWorldFrame(v2);
+      const midpoint = p1.add(p2).imul(0.5);
+      points.push(midpoint);
+    }
+
+    return points;
   }
 
   @on("tick")
   onTick(dt: number): void {
-    const water = this.game.entities.getSingleton(WaterInfo);
+    // Get water query results (one per edge midpoint)
+    const results = this.waterQuery.results;
 
     let totalSpawnRate = 0;
-    for (const edge of this.edges) {
-      edge.update(water);
+    for (let i = 0; i < this.edges.length; i++) {
+      const edge = this.edges[i];
+      const waterResult = results[i] ?? null;
+      edge.update(waterResult);
       totalSpawnRate += edge.spawnRate;
     }
 
@@ -139,7 +165,11 @@ class Edge {
     this.v2 = vertices[(i + 1) % vertices.length];
   }
 
-  update(water: WaterInfo) {
+  /**
+   * Update edge state using water query result.
+   * @param waterResult Water query result at edge midpoint, or null if not available
+   */
+  update(waterResult: WaterQueryResult | null) {
     const hullBody = this.boat.hull.body;
 
     // Transform edge endpoints to world frame
@@ -155,10 +185,9 @@ class Edge {
       .iadd(hullBody.getVelocityAtWorldPoint(this.p2))
       .imul(0.5);
 
-    // Subtract water velocity (sample at midpoint)
-    this._midpoint.set(this.p1).iadd(this.p2).imul(0.5);
-    const waterState = water.getStateAtPoint(this._midpoint);
-    this.apparentVelocity.isub(waterState.velocity);
+    // Subtract water velocity (from query result)
+    const waterVelocity = waterResult?.velocity ?? V(0, 0);
+    this.apparentVelocity.isub(waterVelocity);
 
     // Outward normal
     this.worldNormal.set(this._displacement).irotate90cw().inormalize();
@@ -169,10 +198,10 @@ class Edge {
     if (this.vDotN < MIN_IMPACT_SPEED) {
       this.spawnRate = 0;
     } else {
-      // Wave bonus and weight
-      // TODO: This shouldn't be based on wave speed, but on the relative vertical speed based on the boat at this point and the water's speed
-      this.waveBonus =
-        1 + clamp(waterState.surfaceHeightRate * WAVE_BONUS_SCALE, 0, 1);
+      // Wave bonus based on surface height rate
+      // Note: WaterQuery doesn't provide surfaceHeightRate, so we use a fixed bonus
+      // TODO: Add surfaceHeightRate to WaterQueryResult if needed
+      this.waveBonus = 1.0;
       this.spawnRate =
         this._displacement.magnitude * this.vDotN * this.waveBonus;
     }

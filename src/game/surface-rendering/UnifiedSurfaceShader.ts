@@ -9,11 +9,11 @@
  * - terrainHeightComputeModule for terrain height
  * - waterLightingModule for water surface lighting
  * - sandRenderingModule for sand/beach rendering
- * - modifierCompositionModule for water modifiers (wakes, etc.)
+ * - fn_calculateModifiers for water modifiers (wakes, etc.)
  *
  * Binds directly to:
  * - WaterResources (waveDataBuffer, modifiersBuffer)
- * - TerrainResources (controlPointsBuffer, contourBuffer, childrenBuffer)
+ * - TerrainResources (vertexBuffer, contourBuffer, childrenBuffer)
  * - WavePhysicsResources (shadowTexture for diffraction)
  */
 
@@ -35,24 +35,19 @@ import {
   FLOATS_PER_MODIFIER,
   MAX_MODIFIERS,
 } from "../world/water/WaterResources";
+import { DEFAULT_DEPTH } from "../world/terrain/TerrainConstants";
+import { fn_renderWaterLighting } from "../world/shaders/lighting.wgsl";
+import { fn_hash21 } from "../world/shaders/math.wgsl";
+import { fn_renderSand } from "../world/shaders/sand-rendering.wgsl";
+import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import {
-  SPLINE_SUBDIVISIONS,
-  DEFAULT_DEPTH,
-} from "../world/terrain/TerrainConstants";
-import { waterLightingModule } from "../world/shaders/lighting.wgsl";
-import { hashModule } from "../world/shaders/math.wgsl";
-import { sandRenderingModule } from "../world/shaders/sand-rendering.wgsl";
-import { simplexNoise3DModule } from "../world/shaders/noise.wgsl";
-import {
-  gerstnerWaveModule,
-  waveModificationStructModule,
+  fn_calculateGerstnerWaves,
+  struct_WaveModification,
 } from "../world/shaders/gerstner-wave.wgsl";
-import { modifierCompositionModule } from "../world/shaders/water-modifiers.wgsl";
+import { fn_calculateModifiers } from "../world/shaders/water-modifiers.wgsl";
 import {
-  terrainStructuresModule,
-  terrainHeightCoreModule,
-  catmullRomModule,
-  distanceModule,
+  struct_ContourData,
+  fn_computeSignedDistance,
 } from "../world/shaders/terrain.wgsl";
 import { UnifiedSurfaceUniforms } from "./UnifiedSurfaceUniforms";
 
@@ -74,7 +69,7 @@ const unifiedSurfaceBindingsModule: ShaderModule = {
     modifiers: { type: "storage", wgslType: "array<f32>" },
 
     // Terrain resources (from TerrainResources)
-    controlPoints: { type: "storage", wgslType: "array<vec2<f32>>" },
+    vertices: { type: "storage", wgslType: "array<vec2<f32>>" },
     contours: { type: "storage", wgslType: "array<ContourData>" },
     children: { type: "storage", wgslType: "array<u32>" },
 
@@ -94,17 +89,15 @@ const unifiedSurfaceBindingsModule: ShaderModule = {
  */
 const unifiedSurfaceMainModule: ShaderModule = {
   dependencies: [
-    hashModule,
-    simplexNoise3DModule,
-    waveModificationStructModule,
-    gerstnerWaveModule,
-    modifierCompositionModule,
-    terrainStructuresModule,
-    catmullRomModule,
-    distanceModule,
-    terrainHeightCoreModule,
-    waterLightingModule,
-    sandRenderingModule,
+    fn_hash21,
+    fn_simplex3D,
+    struct_WaveModification,
+    fn_calculateGerstnerWaves,
+    fn_calculateModifiers,
+    struct_ContourData,
+    fn_computeSignedDistance,
+    fn_renderWaterLighting,
+    fn_renderSand,
     unifiedSurfaceBindingsModule,
   ],
   code: /*wgsl*/ `
@@ -122,7 +115,6 @@ const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
 const WATER_HEIGHT_SCALE: f32 = ${WATER_HEIGHT_SCALE};
 const SWELL_WAVELENGTH: f32 = ${SWELL_WAVELENGTH}.0;
 const CHOP_WAVELENGTH: f32 = ${CHOP_WAVELENGTH}.0;
-const SPLINE_SUBDIVISIONS: u32 = ${SPLINE_SUBDIVISIONS}u;
 const DEFAULT_DEPTH: f32 = ${DEFAULT_DEPTH}.0;
 
 // ============================================================================
@@ -218,7 +210,7 @@ fn calculateWaterHeight(worldPos: vec2<f32>) -> vec4<f32> {
 }
 
 // ============================================================================
-// Terrain Height Calculation (wrapper for terrainHeightCoreModule)
+// Terrain Height Calculation (wrapper for fn_computeSignedDistance)
 // ============================================================================
 
 fn getTerrainHeight(worldPos: vec2<f32>) -> f32 {
@@ -230,13 +222,13 @@ fn getTerrainHeight(worldPos: vec2<f32>) -> f32 {
   var deepestDepth: u32 = 0u;
 
   // Find the deepest contour containing the point
+  // Vertices are pre-sampled from Catmull-Rom splines on the CPU
   for (var i: u32 = 0u; i < uniforms.contourCount; i++) {
     let signedDist = computeSignedDistance(
       worldPos,
       i,
-      &controlPoints,
-      &contours,
-      SPLINE_SUBDIVISIONS
+      &vertices,
+      &contours
     );
 
     // Inside this contour (negative signed distance)

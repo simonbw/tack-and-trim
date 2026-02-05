@@ -12,8 +12,8 @@
 
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { earClipTriangulate } from "../../core/util/Triangulate";
-import type { Viewport } from "../world-data/water/WaterInfo";
-import { ShadowTextureShader } from "./ShadowTextureShader";
+import type { Viewport } from "./WavePhysicsResources";
+import { getShadowTextureShaderCode } from "./ShadowTextureShader";
 import type { ShadowPolygonRenderData } from "./ShadowGeometry";
 
 /** Maximum number of shadow polygons we can render */
@@ -48,13 +48,9 @@ export class ShadowTextureRenderer {
   // Current vertex count for this frame
   private vertexCount = 0;
 
-  // Shader instance for code generation
-  private shader: ShadowTextureShader;
-
   constructor(textureWidth: number, textureHeight: number) {
     this.textureWidth = textureWidth;
     this.textureHeight = textureHeight;
-    this.shader = new ShadowTextureShader();
   }
 
   /**
@@ -109,7 +105,7 @@ export class ShadowTextureRenderer {
 
     // Create shader module
     const shaderModule = device.createShaderModule({
-      code: this.shader.getShaderCode(),
+      code: getShadowTextureShaderCode(),
       label: "Shadow Texture Shader Module",
     });
 
@@ -182,11 +178,13 @@ export class ShadowTextureRenderer {
    * @param viewport - The viewport to render shadows for
    * @param polygons - Shadow polygon data from WavePhysicsManager (pre-computed vertices)
    * @param shadowDataBuffer - GPU buffer containing shadow polygon parameters
+   * @param timestampWrites - Optional GPU timestamp writes for profiling
    */
   render(
     viewport: Viewport,
     polygons: ShadowPolygonRenderData[],
     shadowDataBuffer: GPUBuffer,
+    timestampWrites?: GPURenderPassTimestampWrites,
   ): void {
     if (
       !this.initialized ||
@@ -274,6 +272,7 @@ export class ShadowTextureRenderer {
           clearValue: { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
         },
       ],
+      timestampWrites,
       label: "Shadow Texture Render Pass",
     });
 

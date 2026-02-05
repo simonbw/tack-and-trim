@@ -3,10 +3,10 @@
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-import { simplexNoise3DModule } from "./noise.wgsl";
+import { fn_simplex3D } from "./noise.wgsl";
 
 /**
- * Wind velocity calculation module.
+ * Wind velocity calculation function.
  * Computes wind velocity with noise-based variation and terrain influence.
  *
  * Requires parameters:
@@ -15,7 +15,7 @@ import { simplexNoise3DModule } from "./noise.wgsl";
  * - influenceDirectionOffset: f32 - terrain direction offset (radians)
  * - influenceTurbulence: f32 - terrain-induced turbulence factor
  */
-export const windVelocityModule: ShaderModule = {
+export const fn_calculateWindVelocity: ShaderModule = {
   code: /*wgsl*/ `
     // Calculate wind velocity at a world position with noise variation
     // worldPos: position in world coordinates
@@ -73,5 +73,68 @@ export const windVelocityModule: ShaderModule = {
       return vec2<f32>(velocityX, velocityY);
     }
   `,
-  dependencies: [simplexNoise3DModule],
+  dependencies: [fn_simplex3D],
+};
+
+/**
+ * Wind query result structure.
+ */
+export const struct_WindResult: ShaderModule = {
+  code: /*wgsl*/ `
+    // Wind query result structure
+    struct WindResult {
+      velocity: vec2<f32>,
+      speed: f32,
+      direction: f32,
+    }
+  `,
+  dependencies: [],
+};
+
+/**
+ * Wind query computation function.
+ * Provides high-level wind query function that returns velocity, speed, and direction.
+ */
+export const fn_computeWindAtPoint: ShaderModule = {
+  code: /*wgsl*/ `
+    // Compute wind state at a world position
+    // Returns velocity, speed, and direction
+    fn computeWindAtPoint(
+      worldPos: vec2<f32>,
+      time: f32,
+      baseWind: vec2<f32>,
+      influenceSpeedFactor: f32,
+      influenceDirectionOffset: f32,
+      influenceTurbulence: f32,
+      noiseSpatialScale: f32,
+      noiseTimeScale: f32,
+      speedVariation: f32,
+      angleVariation: f32
+    ) -> WindResult {
+      // Calculate velocity using wind module
+      let velocity = calculateWindVelocity(
+        worldPos,
+        time,
+        baseWind,
+        influenceSpeedFactor,
+        influenceDirectionOffset,
+        influenceTurbulence,
+        noiseSpatialScale,
+        noiseTimeScale,
+        speedVariation,
+        angleVariation
+      );
+
+      // Compute speed and direction from velocity
+      let speed = length(velocity);
+      let direction = atan2(velocity.y, velocity.x);
+
+      var result: WindResult;
+      result.velocity = velocity;
+      result.speed = speed;
+      result.direction = direction;
+      return result;
+    }
+  `,
+  dependencies: [struct_WindResult, fn_calculateWindVelocity],
 };

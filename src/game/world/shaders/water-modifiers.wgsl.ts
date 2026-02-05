@@ -9,7 +9,7 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
  * Wake modifier module.
  * Circular falloff from a moving point source.
  */
-export const wakeModifierModule: ShaderModule = {
+export const fn_computeWakeContribution: ShaderModule = {
   code: /*wgsl*/ `
     // Compute wake contribution at a world position
     // worldX, worldY: query position (feet)
@@ -55,7 +55,7 @@ export const wakeModifierModule: ShaderModule = {
  * Ripple modifier module.
  * Expanding ring with cosine wave profile.
  */
-export const rippleModifierModule: ShaderModule = {
+export const fn_computeRippleContribution: ShaderModule = {
   code: /*wgsl*/ `
     // Compute ripple contribution at a world position
     // worldX, worldY: query position (feet)
@@ -99,7 +99,7 @@ export const rippleModifierModule: ShaderModule = {
  * Current modifier module.
  * Directional flow field (future use).
  */
-export const currentModifierModule: ShaderModule = {
+export const fn_computeCurrentContribution: ShaderModule = {
   code: /*wgsl*/ `
     // Compute current contribution at a world position
     // worldX, worldY: query position (feet)
@@ -126,7 +126,7 @@ export const currentModifierModule: ShaderModule = {
  * Obstacle modifier module.
  * Dampening zone (future use).
  */
-export const obstacleModifierModule: ShaderModule = {
+export const fn_computeObstacleContribution: ShaderModule = {
   code: /*wgsl*/ `
     // Compute obstacle contribution at a world position
     // worldX, worldY: query position (feet)
@@ -148,17 +148,24 @@ export const obstacleModifierModule: ShaderModule = {
 };
 
 /**
- * Modifier composition module.
- * Combines all modifier types using type discrimination.
+ * Modifier type constants.
+ * Type discriminators for different modifier kinds.
  */
-export const modifierCompositionModule: ShaderModule = {
+export const const_MODIFIER_TYPES: ShaderModule = {
   code: /*wgsl*/ `
     // Modifier type discriminators
     const MODIFIER_TYPE_WAKE: u32 = 1u;
     const MODIFIER_TYPE_RIPPLE: u32 = 2u;
     const MODIFIER_TYPE_CURRENT: u32 = 3u;
     const MODIFIER_TYPE_OBSTACLE: u32 = 4u;
+  `,
+};
 
+/**
+ * Get contribution from a single modifier with type discrimination.
+ */
+export const fn_getModifierContribution: ShaderModule = {
+  code: /*wgsl*/ `
     // Get contribution from a single modifier with type discrimination
     // worldX, worldY: query position (feet)
     // modifierIndex: modifier index
@@ -205,7 +212,21 @@ export const modifierCompositionModule: ShaderModule = {
         }
       }
     }
+  `,
+  dependencies: [
+    const_MODIFIER_TYPES,
+    fn_computeWakeContribution,
+    fn_computeRippleContribution,
+    fn_computeCurrentContribution,
+    fn_computeObstacleContribution,
+  ],
+};
 
+/**
+ * Calculate combined modifier contributions.
+ */
+export const fn_calculateModifiers: ShaderModule = {
+  code: /*wgsl*/ `
     // Calculate combined modifier contributions
     // worldX, worldY: query position (feet)
     // modifierCount: number of active modifiers
@@ -236,10 +257,5 @@ export const modifierCompositionModule: ShaderModule = {
       return vec3<f32>(totalHeight, totalVelX, totalVelY);
     }
   `,
-  dependencies: [
-    wakeModifierModule,
-    rippleModifierModule,
-    currentModifierModule,
-    obstacleModifierModule,
-  ],
+  dependencies: [fn_getModifierContribution],
 };

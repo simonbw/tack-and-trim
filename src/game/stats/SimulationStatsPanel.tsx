@@ -5,22 +5,19 @@ import type {
   StatsPanelContext,
 } from "../../core/util/stats-overlay/StatsPanel";
 import { StatsRow } from "../../core/util/stats-overlay/StatsRow";
-import { WaterInfo } from "../world-data/water/WaterInfo";
-import { WindInfo } from "../world-data/wind/WindInfo";
+import { WaterResources } from "../world/water/WaterResources";
+import { WavePhysicsResources } from "../wave-physics/WavePhysicsResources";
 
-interface TileSystemStats {
-  activeTiles: number;
-  maxTiles: number;
-  tileHits: number;
-  totalQueries: number;
-  tileHitPercent: number;
-  gpuTimeMs: number;
+interface WaterSystemStats {
+  modifierCount: number;
+  tideHeight: number;
+  shadowsInitialized: boolean;
   cpuTickMs: number;
-  cpuAfterPhysicsMs: number;
 }
 
 /**
- * Creates a simulation stats panel showing water and wind tile computation stats.
+ * Creates a simulation stats panel showing water system stats.
+ * Displays modifier count, tide height, and performance metrics.
  */
 export function createSimulationStatsPanel(): StatsPanel {
   return {
@@ -28,7 +25,6 @@ export function createSimulationStatsPanel(): StatsPanel {
 
     render: (ctx) => {
       const waterStats = getWaterStats(ctx);
-      const windStats = getWindStats(ctx);
 
       return (
         <>
@@ -36,22 +32,18 @@ export function createSimulationStatsPanel(): StatsPanel {
             <span>Simulation</span>
           </div>
 
-          {renderSystemSection("Water", waterStats)}
-          {renderSystemSection("Wind", windStats)}
+          {renderWaterSection(waterStats)}
         </>
       );
     },
   };
 }
 
-function renderSystemSection(
-  name: string,
-  stats: TileSystemStats | null,
-): VNode {
+function renderWaterSection(stats: WaterSystemStats | null): VNode {
   if (!stats) {
     return (
       <div className="stats-overlay__section">
-        <div className="stats-overlay__section-title">{name}</div>
+        <div className="stats-overlay__section-title">Water</div>
         <div className="stats-overlay__grid">
           <StatsRow label="Status" value="Not initialized" color="muted" />
         </div>
@@ -59,129 +51,59 @@ function renderSystemSection(
     );
   }
 
-  const isMaxedOut = stats.activeTiles >= stats.maxTiles;
-
   return (
     <div className="stats-overlay__section">
-      <div className="stats-overlay__section-title">{name}</div>
+      <div className="stats-overlay__section-title">Water</div>
       <div className="stats-overlay__grid">
         <StatsRow
-          label="Active Tiles"
-          value={`${stats.activeTiles} / (${stats.maxTiles})`}
-          color={isMaxedOut ? "error" : undefined}
+          label="Modifiers"
+          value={`${stats.modifierCount}`}
+          color={stats.modifierCount > 1000 ? "warning" : undefined}
         />
         <StatsRow
-          label="Tile Hits"
-          value={`${stats.tileHitPercent.toFixed(0)}% (${stats.tileHits}/${stats.totalQueries})`}
-          color={
-            stats.tileHitPercent > 90
-              ? "success"
-              : stats.tileHitPercent > 50
-                ? "warning"
-                : "error"
-          }
+          label="Tide Height"
+          value={`${stats.tideHeight.toFixed(2)} ft`}
         />
         <StatsRow
-          label="GPU Time"
-          value={`${stats.gpuTimeMs.toFixed(2)}ms`}
-          color={stats.gpuTimeMs > 2 ? "warning" : undefined}
+          label="Shadows"
+          value={stats.shadowsInitialized ? "Ready" : "Initializing"}
+          color={stats.shadowsInitialized ? "success" : "warning"}
         />
         <StatsRow
           label="CPU onTick"
           value={`${stats.cpuTickMs.toFixed(2)}ms`}
           color={stats.cpuTickMs > 1 ? "warning" : undefined}
         />
-        <StatsRow
-          label="CPU onAfterPhysics"
-          value={`${stats.cpuAfterPhysicsMs.toFixed(2)}ms`}
-          color={stats.cpuAfterPhysicsMs > 1 ? "warning" : undefined}
-        />
       </div>
     </div>
   );
 }
 
-function getWaterStats(ctx: StatsPanelContext): TileSystemStats | null {
-  const waterInfo = ctx.game.entities.tryGetSingleton(WaterInfo);
-  if (!waterInfo) return null;
+function getWaterStats(ctx: StatsPanelContext): WaterSystemStats | null {
+  const waterResources = ctx.game.entities.tryGetSingleton(WaterResources);
+  if (!waterResources) return null;
 
-  const tileStats = waterInfo.getTileStats();
-  if (!tileStats) return null;
+  const wavePhysicsResources =
+    ctx.game.entities.tryGetSingleton(WavePhysicsResources);
 
-  const totalQueries = tileStats.tileHits + tileStats.cpuFallbacks;
-  const tileHitPercent =
-    totalQueries > 0 ? (tileStats.tileHits / totalQueries) * 100 : 0;
-
-  const gpuTimeMs = ctx.game.renderer.getGpuMs("tileCompute");
   const profilerStats = profiler.getStats();
   const cpuTickMs = findProfilerMsByShortLabel(
     profilerStats,
     "onTick",
-    "WaterInfo",
+    "WaterResources",
   );
-  const cpuAfterPhysicsMs = findProfilerMsByShortLabel(
-    profilerStats,
-    "onAfterPhysics",
-    "WaterInfo",
-  );
-
-  // Reset counters after reading
-  waterInfo.resetStatsCounters();
 
   return {
-    activeTiles: tileStats.activeTiles,
-    maxTiles: tileStats.maxTiles,
-    tileHits: tileStats.tileHits,
-    totalQueries,
-    tileHitPercent,
-    gpuTimeMs,
+    modifierCount: waterResources.getModifierCount(),
+    tideHeight: waterResources.getTideHeight(),
+    shadowsInitialized: wavePhysicsResources?.isInitialized() ?? false,
     cpuTickMs,
-    cpuAfterPhysicsMs,
-  };
-}
-
-function getWindStats(ctx: StatsPanelContext): TileSystemStats | null {
-  const windInfo = ctx.game.entities.tryGetSingleton(WindInfo);
-  if (!windInfo) return null;
-
-  const tileStats = windInfo.getTileStats();
-  if (!tileStats) return null;
-
-  const totalQueries = tileStats.tileHits + tileStats.cpuFallbacks;
-  const tileHitPercent =
-    totalQueries > 0 ? (tileStats.tileHits / totalQueries) * 100 : 0;
-
-  const gpuTimeMs = ctx.game.renderer.getGpuMs("windCompute");
-  const profilerStats = profiler.getStats();
-  const cpuTickMs = findProfilerMsByShortLabel(
-    profilerStats,
-    "onTick",
-    "WindInfo",
-  );
-  const cpuAfterPhysicsMs = findProfilerMsByShortLabel(
-    profilerStats,
-    "onAfterPhysics",
-    "WindInfo",
-  );
-
-  // Reset counters after reading
-  windInfo.resetStatsCounters();
-
-  return {
-    activeTiles: tileStats.activeTiles,
-    maxTiles: tileStats.maxTiles,
-    tileHits: tileStats.tileHits,
-    totalQueries,
-    tileHitPercent,
-    gpuTimeMs,
-    cpuTickMs,
-    cpuAfterPhysicsMs,
   };
 }
 
 /**
  * Find profiler entry by short label (method name) and class name in the full path.
- * Profiler paths look like "Game.loop > tick > WaterInfo.onTick"
+ * Profiler paths look like "Game.loop > tick > WaterResources.onTick"
  */
 function findProfilerMsByShortLabel(
   stats: ProfileStats[],

@@ -4,11 +4,8 @@ import { on } from "../core/entity/handler";
 import { clamp, lerp } from "../core/util/MathUtil";
 import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
-import type { AABB } from "../core/util/SparseSpatialHash";
-import { V2d } from "../core/Vector";
-import type { QueryForecast } from "./world-data/datatiles/DataTileTypes";
-import type { WaterQuerier } from "./world-data/water/WaterQuerier";
-import { WaterInfo } from "./world-data/water/WaterInfo";
+import { V, V2d } from "../core/Vector";
+import { WaterQuery } from "./world/water/WaterQuery";
 
 // Rendering
 const COLOR = 0xffffff;
@@ -23,37 +20,28 @@ const GROW_SPEED = 1.0; // radiuses per second
  * Created when a SprayParticle hits the water.
  * Grows outward and fades over time.
  */
-export class FoamParticle extends BaseEntity implements WaterQuerier {
+export class FoamParticle extends BaseEntity {
   layer = "foamParticles" as const;
   tickLayer = "effects" as const;
-  tags = ["waterQuerier"];
 
   private pos: V2d;
   private size: number;
   private age = 0;
   private lifespan = MAX_LIFESPAN;
 
+  // Water query for foam particle position
+  private waterQuery = this.addChild(new WaterQuery(() => [V(this.pos)]));
+
   /**
    * Create a new foam particle.
    * @param pos World position (x, y)
    * @param size Initial size (radius) in ft
    */
-  // Reusable AABB to avoid allocations
-  private aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-
   constructor(pos: V2d, size: number) {
     super();
     this.pos = pos;
     this.size = size;
     this.lifespan = rUniform(0, MAX_LIFESPAN);
-  }
-
-  getWaterQueryForecast(): QueryForecast {
-    this.aabb.minX = this.pos[0];
-    this.aabb.maxX = this.pos[0];
-    this.aabb.minY = this.pos[1];
-    this.aabb.maxY = this.pos[1];
-    return { aabb: this.aabb, queryCount: 1 };
   }
 
   @on("tick")
@@ -64,10 +52,12 @@ export class FoamParticle extends BaseEntity implements WaterQuerier {
       return;
     }
 
-    // Move foam based on water surface velocity
-    const waterInfo = this.game.entities.getSingleton(WaterInfo);
-    const state = waterInfo.getStateAtPoint(this.pos);
-    this.pos.iaddScaled(state.velocity, dt);
+    // Move foam based on water surface velocity (from previous frame's query)
+    const velocity =
+      this.waterQuery.results.length > 0
+        ? this.waterQuery.results[0].velocity
+        : V(0, 0);
+    this.pos.iaddScaled(velocity, dt);
   }
 
   @on("render")

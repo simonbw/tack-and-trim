@@ -149,7 +149,7 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
       params: { buffer: this.uniformBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
-      controlPoints: { buffer: terrainResources.controlPointsBuffer },
+      vertices: { buffer: terrainResources.vertexBuffer },
       contours: { buffer: terrainResources.contourBuffer },
       children: { buffer: terrainResources.childrenBuffer },
     });
@@ -161,7 +161,7 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
     });
     const computePass = commandEncoder.beginComputePass({
       label: "Terrain Query Compute Pass",
-      timestampWrites: gpuProfiler?.getComputeTimestampWrites("terrainQuery"),
+      timestampWrites: gpuProfiler?.getComputeTimestampWrites("query.terrain"),
     });
     this.queryShader.dispatch(computePass, bindGroup, pointCount, 1);
     computePass.end();

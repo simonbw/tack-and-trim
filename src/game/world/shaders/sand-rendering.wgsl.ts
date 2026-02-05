@@ -8,7 +8,7 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
  * Sand rendering module with wetness support.
  * Renders beach/sand surfaces with dry/wet color transitions.
  */
-export const sandRenderingModule: ShaderModule = {
+export const fn_renderSand: ShaderModule = {
   code: /*wgsl*/ `
     // Render sand surface with wetness
     // height: terrain height (world units)

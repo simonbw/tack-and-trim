@@ -1,22 +1,14 @@
 /**
- * Base class for compute shaders.
+ * Compute shader built from composable modules.
  *
- * Handles GPU pipeline boilerplate so subclasses just declare:
- * - `code`: WGSL shader code (or use modules + mainCode)
- * - `bindings`: typed binding definitions
- * - `workgroupSize`: workgroup dimensions
+ * Create a compute shader by providing:
+ * - `modules`: array of shader modules (last one typically contains entry point)
+ * - `workgroupSize`: workgroup dimensions for dispatch
  *
- * The base class handles:
- * - Shader module creation
- * - Bind group layout creation (from binding definitions)
- * - Pipeline layout and compute pipeline creation
- * - Type-safe bind group creation
- * - Workgroup dispatch math
- *
- * Module Support:
- * - Set `modules` to compose reusable WGSL code
- * - Set `mainCode` for compute entry point when using modules
- * - Or use `code` directly for backwards compatibility
+ * The shader automatically:
+ * - Resolves module dependencies
+ * - Merges bindings from all modules
+ * - Builds code in correct order: preambles → bindings → code
  */
 
 import { getWebGPU } from "./WebGPUDevice";
@@ -25,46 +17,49 @@ import {
   type BindingsDefinition,
   createBindGroupLayoutEntries,
 } from "./ShaderBindings";
+import type { ShaderModule } from "./ShaderModule";
 
 /**
- * Abstract base class for compute shaders.
- *
- * @template T - The bindings definition type for type-safe bind group creation
+ * Configuration for creating a compute shader.
  */
-export abstract class ComputeShader<
-  T extends BindingsDefinition,
-> extends Shader<T> {
-  /** WGSL shader code. Optional when using modules. */
-  code?: string;
+export interface ComputeShaderConfig {
+  /** Shader modules to compose (last one typically contains entry point) */
+  modules: ShaderModule[];
 
-  /** Main compute code when using modules. */
-  protected mainCode?: string;
+  /** Workgroup size [x, y] or [x, y, z] for dispatch calculations */
+  workgroupSize: readonly [number, number] | readonly [number, number, number];
 
-  /** Workgroup size [x, y] or [x, y, z]. Subclasses must provide this. */
-  abstract readonly workgroupSize:
+  /** Label for GPU debugging (optional) */
+  label?: string;
+}
+
+/**
+ * Compute shader built from composable modules.
+ */
+export class ComputeShader extends Shader<BindingsDefinition> {
+  readonly workgroupSize:
     | readonly [number, number]
     | readonly [number, number, number];
 
-  /** Label for GPU debugging. Subclasses can override. */
-  get label(): string {
-    return this.constructor.name;
-  }
-
+  private readonly _label: string;
   private pipeline: GPUComputePipeline | null = null;
 
+  constructor(config: ComputeShaderConfig) {
+    super();
+    this.modules = config.modules;
+    this.workgroupSize = config.workgroupSize;
+    this._label = config.label ?? "ComputeShader";
+  }
+
+  get label(): string {
+    return this._label;
+  }
+
   /**
-   * Get shader code from either direct code or modules.
+   * Bindings merged from all modules.
    */
-  protected getShaderCode(): string {
-    if (this.code) {
-      return this.code;
-    }
-    if (this.modules && this.mainCode) {
-      return this.buildCode(this.mainCode);
-    }
-    throw new Error(
-      `${this.label}: Must provide either 'code' or 'modules' + 'mainCode'`,
-    );
+  get bindings(): BindingsDefinition {
+    return this.buildBindings();
   }
 
   /**
@@ -74,16 +69,16 @@ export abstract class ComputeShader<
   async init(): Promise<void> {
     const device = getWebGPU().device;
 
-    // Build complete shader with math constants once at the top
+    // Build complete shader with math constants at the top
     const completeShaderCode =
-      this.getMathConstants() + "\n\n" + this.getShaderCode();
+      this.getMathConstants() + "\n\n" + this.buildCode();
 
     const shaderModule = device.createShaderModule({
       code: completeShaderCode,
       label: `${this.label} Shader Module`,
     });
 
-    // Create bind group layout from binding definitions
+    // Create bind group layout from merged bindings
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: createBindGroupLayoutEntries(
         this.bindings,

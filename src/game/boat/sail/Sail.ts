@@ -8,11 +8,8 @@ import { AABB } from "../../../core/util/SparseSpatialHash";
 import { last, pairs, range } from "../../../core/util/FunctionalUtils";
 import { lerpV2d, stepToward } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
-import type { QueryForecast } from "../../world-data/datatiles/DataTileTypes";
-import type { WindQuerier } from "../../world-data/wind/WindQuerier";
-import { WindInfo } from "../../world-data/wind/WindInfo";
-import { SEGMENT_INFLUENCE_RADIUS } from "../../world-data/wind/WindConstants";
 import { WindModifier } from "../../WindModifier";
+import { WindQuery } from "../../world/wind/WindQuery";
 import { applySailForces } from "./sail-aerodynamics";
 import { SailFlowSimulator } from "./SailFlowSimulator";
 import type { SailSegment } from "./SailSegment";
@@ -65,9 +62,12 @@ const DEFAULT_CONFIG: SailConfig = {
   attachTellTail: true,
 };
 
-export class Sail extends BaseEntity implements WindModifier, WindQuerier {
+// Influence radius for wind modifier AABB calculation
+const SEGMENT_INFLUENCE_RADIUS = 10;
+
+export class Sail extends BaseEntity implements WindModifier {
   layer = "sails" as const;
-  tags = ["windQuerier", "sail", "windModifier"];
+  tags = ["sail", "windModifier"];
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
@@ -80,6 +80,9 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
   private cachedSegments: SailSegment[] = [];
   private flowComputedFrame: number = -1;
   private inFlowComputation: boolean = false;
+
+  // Wind query for flow computation
+  private windQuery: WindQuery;
 
   // Reusable AABB for WindModifier
   private readonly aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -163,6 +166,34 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
         ),
       );
     }
+
+    // Wind query for flow computation - queries centroid and midpoints to other sails
+    this.windQuery = this.addChild(
+      new WindQuery(() => this.getWindQueryPoints()),
+    );
+  }
+
+  /**
+   * Get points to query for wind data: centroid + midpoints to other sails.
+   */
+  private getWindQueryPoints(): V2d[] {
+    if (this.hoistAmount <= 0) return [];
+
+    const myPos = this.getCentroid();
+    const points = [myPos];
+
+    // Add midpoints to other sails for upwind/downwind determination
+    const allSails = this.game
+      ? ([...this.game.entities.getTagged("sail")] as Sail[])
+      : [];
+    for (const sail of allSails) {
+      if (sail === this) continue;
+      const otherPos = sail.getCentroid();
+      const midpoint = myPos.add(otherPos).mul(0.5);
+      points.push(midpoint);
+    }
+
+    return points;
   }
 
   /** Get head body (first particle) */
@@ -262,7 +293,10 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
       );
     }
 
-    const wind = this.game.entities.getSingleton(WindInfo);
+    // Need wind query results (1-frame latency)
+    if (this.windQuery.results.length === 0) {
+      return this.cachedSegments;
+    }
 
     try {
       this.inFlowComputation = true;
@@ -279,8 +313,8 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
         return contribution;
       };
 
-      // Get base wind at sail centroid
-      const baseWind = wind.getBaseVelocityAtPoint(this.getCentroid());
+      // Get base wind at sail centroid (first query result)
+      const baseWind = this.windQuery.results[0].velocity;
 
       // Run flow simulation
       this.cachedSegments = this.flowSimulator.simulate(
@@ -304,19 +338,34 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
    * B cannot see A as upwind, preventing infinite recursion.
    */
   private getUpwindSails(): Sail[] {
-    const wind = this.game.entities.getSingleton(WindInfo);
-
     const myPos = this.getCentroid();
 
     const allSails = [
       ...(this.game.entities.getTagged("sail") ?? []),
     ] as Sail[];
+
+    // Build map of sail -> result index for midpoint wind queries
+    // Results are: [centroid, midpoint_to_sail_0, midpoint_to_sail_1, ...]
+    const otherSails = allSails.filter((s) => s !== this);
+    const sailToResultIndex = new Map<Sail, number>();
+    for (let i = 0; i < otherSails.length; i++) {
+      sailToResultIndex.set(otherSails[i], i + 1); // +1 because centroid is at index 0
+    }
+
     return allSails.filter((sail) => {
       if (sail === this) return false;
+
+      const resultIndex = sailToResultIndex.get(sail);
+      if (
+        resultIndex === undefined ||
+        resultIndex >= this.windQuery.results.length
+      ) {
+        return false; // No wind data available yet
+      }
+
       const otherPos = sail.getCentroid();
       // Use wind at midpoint to ensure both sails agree on direction
-      const midpoint = myPos.add(otherPos).mul(0.5);
-      const windDir = wind.getBaseVelocityAtPoint(midpoint).normalize();
+      const windDir = this.windQuery.results[resultIndex].velocity.normalize();
       const toOther = otherPos.sub(myPos);
       return toOther.dot(windDir) < 0; // Other sail is upwind
     });
@@ -455,37 +504,5 @@ export class Sail extends BaseEntity implements WindModifier, WindQuerier {
         width: 1,
       });
     }
-  }
-
-  getWindQueryForecast(): QueryForecast | null {
-    // Don't forecast if sail is lowered
-    if (this.hoistAmount <= 0) return null;
-
-    // Compute AABB around all sail bodies
-    let minX = Infinity,
-      minY = Infinity;
-    let maxX = -Infinity,
-      maxY = -Infinity;
-
-    for (const body of this.bodies) {
-      const [x, y] = body.position;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-
-    // Add a margin for edge queries
-    const margin = 2;
-    return {
-      aabb: {
-        minX: minX - margin,
-        minY: minY - margin,
-        maxX: maxX + margin,
-        maxY: maxY + margin,
-      },
-      // ~2 queries per body (prev/next edges)
-      queryCount: this.bodies.length * 2,
-    };
   }
 }

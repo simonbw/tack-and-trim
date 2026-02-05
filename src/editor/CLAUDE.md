@@ -51,7 +51,7 @@ Main orchestrator entity:
 - Loads default terrain on startup
 - Adds child entities (camera, renderer, editor UI)
 - Handles file operations (save JSON, load file, new terrain)
-- Listens to document changes to update TerrainInfo
+- Listens to document changes to update TerrainResources
 
 ### ContourEditor
 Mouse interaction handler:

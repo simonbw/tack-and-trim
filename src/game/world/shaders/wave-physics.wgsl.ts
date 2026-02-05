@@ -1,27 +1,21 @@
 /**
  * Wave physics shader modules.
  * Physical formulas for water wave behavior.
+ *
+ * Note: GRAVITY and PI constants are automatically included
+ * by the base Shader class via getMathConstants(). No need to import them.
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 
 /**
- * Wave physics constants module.
- */
-export const wavePhysicsConstantsModule: ShaderModule = {
-  code: /*wgsl*/ `
-    const GRAVITY: f32 = 32.174; // ft/s^2
-  `,
-};
-
-/**
- * Green's Law shoaling module.
- * Provides computeShoalingFactor for wave amplitude change in shallow water.
+ * Green's Law shoaling function.
+ * Computes wave amplitude change in shallow water.
  *
  * Based on Green's Law which states that wave amplitude increases as depth decreases
  * to conserve energy flux.
  */
-export const shoalingModule: ShaderModule = {
+export const fn_computeShoalingFactor: ShaderModule = {
   code: /*wgsl*/ `
     // Green's Law shoaling factor
     // Computes wave amplitude amplification in shallow water
@@ -46,12 +40,12 @@ export const shoalingModule: ShaderModule = {
 };
 
 /**
- * Shallow water damping module.
- * Provides computeShallowDamping for bottom friction effects.
+ * Shallow water damping function.
+ * Computes bottom friction effects on waves.
  *
  * Waves lose energy due to bottom friction in shallow water.
  */
-export const shallowDampingModule: ShaderModule = {
+export const fn_computeShallowDamping: ShaderModule = {
   code: /*wgsl*/ `
     // Bottom friction damping factor
     // Computes wave energy loss in shallow water
@@ -74,10 +68,11 @@ export const shallowDampingModule: ShaderModule = {
 };
 
 /**
- * Wave dispersion relation module.
- * Provides wave frequency calculation from wavelength (deep water approximation).
+ * Wave frequency calculation function.
+ * Computes angular frequency from wavelength (deep water approximation).
+ * omega = sqrt(g * k) where k = 2*PI/wavelength
  */
-export const waveDispersionModule: ShaderModule = {
+export const fn_computeWaveFrequency: ShaderModule = {
   code: /*wgsl*/ `
     // Compute wave angular frequency from wavelength (deep water)
     // omega = sqrt(g * k) where k = 2*PI/wavelength
@@ -85,11 +80,18 @@ export const waveDispersionModule: ShaderModule = {
       let k = (2.0 * PI) / wavelength;
       return sqrt(GRAVITY * k);
     }
+  `,
+};
 
+/**
+ * Wave number calculation function.
+ * Computes wave number from wavelength.
+ */
+export const fn_computeWaveNumber: ShaderModule = {
+  code: /*wgsl*/ `
     // Compute wave number from wavelength
     fn computeWaveNumber(wavelength: f32) -> f32 {
       return (2.0 * PI) / wavelength;
     }
   `,
-  dependencies: [wavePhysicsConstantsModule],
 };

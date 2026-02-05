@@ -9,9 +9,12 @@
 
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
-import { createContour } from "../game/world-data/terrain/LandMass";
-import { TerrainInfo } from "../game/world-data/terrain/TerrainInfo";
+import { createContour } from "../game/world/terrain/LandMass";
 import { TerrainResources } from "../game/world/terrain/TerrainResources";
+import {
+  TerrainQuery,
+  TerrainQueryManager,
+} from "../game/world/terrain/TerrainQuery";
 import { V, V2d } from "../core/Vector";
 import { ContourEditor } from "./ContourEditor";
 import { ContourRenderer } from "./ContourRenderer";
@@ -29,7 +32,9 @@ import {
 import { loadDefaultEditorTerrain } from "./io/TerrainLoader";
 import { EditorUI } from "./EditorUI";
 import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
-import { WaterInfo } from "../game/world-data/water/WaterInfo";
+import { WavePhysicsResources } from "../game/wave-physics/WavePhysicsResources";
+import { WaterResources } from "../game/world/water/WaterResources";
+import { WaterQueryManager } from "../game/world/water/WaterQuery";
 import { DebugRenderer } from "../game/debug-renderer";
 import { computeSplineCentroid } from "../core/util/Spline";
 
@@ -124,7 +129,7 @@ export class EditorController
   persistenceLevel = 100;
 
   private document: EditorDocument;
-  private terrainInfo: TerrainInfo | null = null;
+  private terrainResources: TerrainResources | null = null;
   private cameraController: EditorCameraController | null = null;
   private contourRenderer: ContourRenderer | null = null;
   private debugRenderMode = false;
@@ -132,10 +137,23 @@ export class EditorController
   private clipboardContour: EditorContour | null = null;
   private mouseWorldPosition: V2d | null = null;
 
+  // Terrain query for cursor height display (uses 1-frame latency GPU query)
+  private terrainQuery = this.addChild(
+    new TerrainQuery(() => this.getTerrainQueryPoints()),
+  );
+
   constructor() {
     super();
     this.document = new EditorDocument();
     this.document.addListener(this);
+  }
+
+  /**
+   * Get points to query for terrain height (just the cursor position).
+   */
+  private getTerrainQueryPoints(): V2d[] {
+    if (!this.mouseWorldPosition) return [];
+    return [this.mouseWorldPosition];
   }
 
   @on("add")
@@ -144,26 +162,23 @@ export class EditorController
     const terrain = loadDefaultEditorTerrain();
     this.document.setTerrainDefinition(terrain);
 
-    // Create TerrainInfo for rendering (without InfluenceFieldManager)
-    this.terrainInfo = this.game.addEntity(
-      new TerrainInfo(this.getTerrainContours()),
-    );
-
-    // Create TerrainResources for GPU queries
-    this.game.addEntity(
+    // Create TerrainResources for GPU buffers and terrain data storage
+    this.terrainResources = this.game.addEntity(
       new TerrainResources(this.document.getTerrainDefinition()),
     );
 
-    // Add WaterInfo for wave simulation (uniform waves, no terrain influence)
-    this.game.addEntity(new WaterInfo());
+    // Create TerrainQueryManager for GPU-accelerated terrain queries
+    this.game.addEntity(new TerrainQueryManager());
+
+    // Add wave physics for shadow-based diffraction
+    this.game.addEntity(new WavePhysicsResources());
+
+    // Add water system (tide, modifiers, GPU buffers)
+    this.game.addEntity(new WaterResources());
+    this.game.addEntity(new WaterQueryManager());
 
     // Add surface renderer (renders water and terrain visuals)
-    // Use a smaller texture scale for the editor (0.25 = quarter resolution)
-    this.game.addEntity(
-      new SurfaceRenderer({
-        textureScale: 0.25,
-      }),
-    );
+    this.game.addEntity(new SurfaceRenderer());
 
     // Add debug visualization
     this.game.addEntity(new DebugRenderer());
@@ -248,9 +263,9 @@ export class EditorController
   // ==========================================
 
   onTerrainChanged(): void {
-    // Update TerrainInfo with new contours
-    if (this.terrainInfo) {
-      this.terrainInfo.setTerrainDefinition({
+    // Update TerrainResources with new contours
+    if (this.terrainResources) {
+      this.terrainResources.setTerrainDefinition({
         contours: this.getTerrainContours(),
         defaultDepth: this.document.getDefaultDepth(),
       });
@@ -318,10 +333,13 @@ export class EditorController
 
   /**
    * Get the terrain height at the current mouse position.
+   * Uses GPU terrain query with 1-frame latency.
    */
   getTerrainHeightAtMouse(): number | null {
-    if (!this.mouseWorldPosition || !this.terrainInfo) return null;
-    return this.terrainInfo.getHeightAtPoint(this.mouseWorldPosition);
+    if (!this.mouseWorldPosition) return null;
+    // Get result from GPU query (1-frame latency)
+    if (this.terrainQuery.results.length === 0) return null;
+    return this.terrainQuery.results[0].height;
   }
 
   // ==========================================

@@ -2,6 +2,7 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { DoubleBuffer } from "../../../core/util/DoubleBuffer";
+import { profile, profileAsync } from "../../../core/util/Profiler";
 import type { BaseQuery } from "./BaseQuery";
 
 /**
@@ -207,6 +208,7 @@ export abstract class QueryManager<TResult> extends BaseEntity {
    * preventing GPU stalls.
    */
   @on("tick")
+  @profileAsync
   async onTick() {
     // Wait for GPU results from previous tick and distribute them
     if (!this.readbackPromise) {
@@ -289,6 +291,7 @@ export abstract class QueryManager<TResult> extends BaseEntity {
     this.readbackPromise = readbackBuffer.mapAsync(GPUMapMode.READ);
   }
 
+  @profile
   protected collectPoints(): {
     points: Float32Array;
     queries: BaseQuery<TResult>[];

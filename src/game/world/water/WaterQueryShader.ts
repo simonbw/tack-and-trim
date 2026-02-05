@@ -22,8 +22,8 @@ import {
   WAVE_AMP_MOD_STRENGTH,
   WAVE_AMP_MOD_TIME_SCALE,
 } from "./WaterConstants";
-import { modifierCompositionModule } from "../shaders/water-modifiers.wgsl";
-import { waterQueryComputeModule } from "../shaders/water.wgsl";
+import { fn_calculateModifiers } from "../shaders/water-modifiers.wgsl";
+import { fn_computeWaterAtPoint } from "../shaders/water.wgsl";
 import { FLOATS_PER_MODIFIER, MAX_MODIFIERS } from "./WaterResources";
 
 const WORKGROUP_SIZE = [64, 1, 1] as const;
@@ -68,8 +68,8 @@ struct WaterQueryResult {
  */
 const waterQueryMainModule: ShaderModule = {
   dependencies: [
-    waterQueryComputeModule,
-    modifierCompositionModule,
+    fn_computeWaterAtPoint,
+    fn_calculateModifiers,
     waterQueryParamsModule,
   ],
   code: /*wgsl*/ `

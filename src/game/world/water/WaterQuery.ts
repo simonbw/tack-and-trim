@@ -178,7 +178,7 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
     });
     const computePass = commandEncoder.beginComputePass({
       label: "Water Query Compute Pass",
-      timestampWrites: gpuProfiler?.getComputeTimestampWrites("waterQuery"),
+      timestampWrites: gpuProfiler?.getComputeTimestampWrites("query.water"),
     });
     this.queryShader.dispatch(computePass, bindGroup, pointCount, 1);
     computePass.end();

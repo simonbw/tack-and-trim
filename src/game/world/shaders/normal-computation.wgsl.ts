@@ -8,7 +8,7 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
  * Normal computation module for height field surfaces.
  * Computes surface normals from height texture gradients.
  */
-export const normalComputationModule: ShaderModule = {
+export const fn_computeNormalFromHeightField: ShaderModule = {
   code: /*wgsl*/ `
     // Compute surface normal from height field gradients
     // uv: texture coordinates

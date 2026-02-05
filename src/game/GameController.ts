@@ -10,12 +10,15 @@ import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { isTutorialCompleted, TutorialManager } from "./tutorial";
 import { DebugRenderer } from "./debug-renderer";
+import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
-import { TerrainInfo } from "./world-data/terrain/TerrainInfo";
-import { WaterInfo } from "./world-data/water/WaterInfo";
-import { WindInfo } from "./world-data/wind/WindInfo";
 import { TerrainResources } from "./world/terrain/TerrainResources";
+import { TerrainQueryManager } from "./world/terrain/TerrainQuery";
+import { WaterResources } from "./world/water/WaterResources";
+import { WaterQueryManager } from "./world/water/WaterQuery";
+import { WindResources } from "./world/wind/WindResources";
+import { WindQueryManager } from "./world/wind/WindQuery";
 
 const MENU_ZOOM = 2; // Wide shot for menu
 const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
@@ -28,17 +31,24 @@ export class GameController extends BaseEntity {
   onAdd() {
     // 1. Load terrain from bundled JSON resource
     const terrainDefinition = loadDefaultTerrain();
-    this.game.addEntity(new TerrainInfo(terrainDefinition.contours));
     this.game.addEntity(new TerrainResources(terrainDefinition));
+    this.game.addEntity(new TerrainQueryManager());
 
     // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
 
-    // 3. Wind/Water data systems
-    this.game.addEntity(new WaterInfo());
-    this.game.addEntity(new WindInfo());
+    // 3. Wave physics (needs terrain for shadow computation)
+    this.game.addEntity(new WavePhysicsResources());
 
-    // 4. Visual entities
+    // 4. Water data system (tide, modifiers, GPU buffers)
+    this.game.addEntity(new WaterResources());
+    this.game.addEntity(new WaterQueryManager());
+
+    // 5. Wind data systems
+    this.game.addEntity(new WindResources());
+    this.game.addEntity(new WindQueryManager());
+
+    // 6. Visual entities
     this.game.addEntity(new SurfaceRenderer());
     this.game.addEntity(new WindIndicator());
     this.game.addEntity(new DebugRenderer());

@@ -13,45 +13,22 @@
  * - G channel: Chop wave attenuation
  */
 
-import { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
-import { fresnelDiffractionModule } from "../world/shaders/fresnel-diffraction.wgsl";
+import {
+  FullscreenShader,
+  type FullscreenShaderConfig,
+} from "../../core/graphics/webgpu/FullscreenShader";
+import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
+import { fn_computeFresnelEnergy } from "../world/shaders/fresnel-diffraction.wgsl";
 
 // Wavelength constants for swell and chop waves
 const SWELL_WAVELENGTH = 200.0; // feet
 const CHOP_WAVELENGTH = 30.0; // feet
 
-const bindings = {
-  uniforms: { type: "uniform", wgslType: "Uniforms" },
-  shadowData: { type: "storage", wgslType: "ShadowData" },
-} as const;
-
 /**
- * Shadow texture shader for rendering wave diffraction patterns.
- * Uses FullscreenShader base class with custom vertex/fragment WGSL code.
+ * Module containing structs and bindings for shadow texture shader.
  */
-export class ShadowTextureShader extends FullscreenShader<typeof bindings> {
-  readonly bindings = bindings;
-
-  protected vertexModules = [];
-  protected fragmentModules = [fresnelDiffractionModule];
-
-  /**
-   * Get the complete shader code for manual pipeline creation.
-   * Used by ShadowTextureRenderer which needs custom vertex buffer layout.
-   */
-  getShaderCode(): string {
-    return (
-      this.getMathConstants() +
-      "\n\n" +
-      this.buildAllModuleCode() +
-      "\n\n" +
-      this.vertexMainCode +
-      "\n\n" +
-      this.fragmentMainCode
-    );
-  }
-
-  protected vertexMainCode = /*wgsl*/ `
+const shadowBindingsModule: ShaderModule = {
+  preamble: /*wgsl*/ `
 struct Uniforms {
   viewportLeft: f32,
   viewportTop: f32,
@@ -76,8 +53,22 @@ struct ShadowData {
   _padding: u32,
   polygons: array<PolygonShadowData>,
 }
+  `,
+  bindings: {
+    uniforms: { type: "uniform", wgslType: "Uniforms" },
+    shadowData: { type: "storage", wgslType: "ShadowData" },
+  },
+  code: "",
+};
 
-${this.buildWGSLBindings()}
+/**
+ * Module containing the vertex and fragment entry points.
+ */
+const shadowMainModule: ShaderModule = {
+  dependencies: [fn_computeFresnelEnergy, shadowBindingsModule],
+  code: /*wgsl*/ `
+const SWELL_WAVELENGTH: f32 = ${SWELL_WAVELENGTH};
+const CHOP_WAVELENGTH: f32 = ${CHOP_WAVELENGTH};
 
 struct VertexInput {
   @location(0) position: vec2<f32>,
@@ -109,11 +100,6 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
   return output;
 }
-`;
-
-  protected fragmentMainCode = /*wgsl*/ `
-const SWELL_WAVELENGTH: f32 = ${SWELL_WAVELENGTH};
-const CHOP_WAVELENGTH: f32 = ${CHOP_WAVELENGTH};
 
 struct FragmentInput {
   @location(0) worldPosition: vec2<f32>,
@@ -159,5 +145,31 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
   // R = swell, G = chop, BA unused
   return vec4<f32>(swellAttenuation, chopAttenuation, 0.0, 1.0);
 }
-`;
+  `,
+};
+
+/**
+ * Configuration for the shadow texture shader.
+ */
+export const shadowTextureShaderConfig: FullscreenShaderConfig = {
+  modules: [shadowMainModule],
+  label: "ShadowTextureShader",
+};
+
+/**
+ * Create a shadow texture shader instance.
+ */
+export function createShadowTextureShader(): FullscreenShader {
+  return new FullscreenShader(shadowTextureShaderConfig);
+}
+
+/**
+ * Get the shader code for manual pipeline creation.
+ * Used by ShadowTextureRenderer which needs custom vertex buffer layout.
+ */
+export function getShadowTextureShaderCode(): string {
+  const shader = createShadowTextureShader();
+  // Access protected method via casting - this is intentional for this use case
+  const shaderAny = shader as any;
+  return shaderAny.getMathConstants() + "\n\n" + shaderAny.buildCode();
 }

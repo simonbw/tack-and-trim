@@ -1,22 +1,20 @@
 /**
  * Wind Field debug mode.
  *
- * Shows wind triangles and modifier areas, reusing WorldSpaceWindVisualization.
+ * Shows wind triangles reusing WorldSpaceWindVisualization.
+ * Uses WindQuery for GPU-accelerated wind sampling.
  */
 
 import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
-import { WindInfo } from "../../world-data/wind/WindInfo";
+import type { V2d } from "../../../core/Vector";
+import { WindQuery } from "../../world/wind/WindQuery";
 import { WorldSpaceWindVisualization } from "../../wind-visualization/WorldSpaceWindVisualization";
 import { DebugRenderMode } from "./DebugRenderMode";
 
 // Dim overlay
 const DIM_COLOR = 0x000000;
 const DIM_ALPHA = 0.4;
-
-// Modifier area styling
-const MODIFIER_FILL_COLOR = 0xffaa44;
-const MODIFIER_FILL_ALPHA = 0.15;
 
 // Convert radians to compass direction
 function radiansToCompass(radians: number): string {
@@ -36,12 +34,38 @@ function radiansToCompass(radians: number): string {
 export class WindFieldDebugMode extends DebugRenderMode {
   layer = "windViz" as const;
   private worldSpaceViz = new WorldSpaceWindVisualization();
+  private windQuery: WindQuery;
+
+  // Cache the query points so we can use them when drawing
+  private cachedQueryPoints: V2d[] = [];
+
+  constructor() {
+    super();
+
+    // Wind query for grid + cursor positions
+    this.windQuery = this.addChild(
+      new WindQuery(() => this.getWindQueryPoints()),
+    );
+  }
+
+  private getWindQueryPoints(): V2d[] {
+    if (!this.game) return [];
+
+    const viewport = this.game.camera.getWorldViewport();
+    const gridPoints = this.worldSpaceViz.getQueryPoints(viewport);
+
+    // Add cursor position as last point for cursor info
+    const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
+    if (mouseWorldPos) {
+      gridPoints.push(mouseWorldPos);
+    }
+
+    this.cachedQueryPoints = gridPoints;
+    return gridPoints;
+  }
 
   @on("render")
   onRender({ draw }: GameEventMap["render"]): void {
-    const wind = this.game.entities.tryGetSingleton(WindInfo);
-    if (!wind) return;
-
     const camera = this.game.camera;
     const viewport = camera.getWorldViewport();
 
@@ -57,23 +81,17 @@ export class WindFieldDebugMode extends DebugRenderMode {
       },
     );
 
-    // Draw modifier areas
-    for (const modifier of wind.getModifiers()) {
-      const aabb = modifier.getWindModifierAABB();
-      draw.fillRect(
-        aabb.minX,
-        aabb.minY,
-        aabb.maxX - aabb.minX,
-        aabb.maxY - aabb.minY,
-        {
-          color: MODIFIER_FILL_COLOR,
-          alpha: MODIFIER_FILL_ALPHA,
-        },
-      );
-    }
+    // Draw wind visualization using query results
+    if (
+      this.windQuery.results.length > 0 &&
+      this.cachedQueryPoints.length > 0
+    ) {
+      // Grid points are all but the last one (cursor)
+      const gridPoints = this.cachedQueryPoints.slice(0, -1);
+      const gridResults = this.windQuery.results.slice(0, -1);
 
-    // Delegate to world-space wind visualization
-    this.worldSpaceViz.draw(wind, viewport, camera, draw);
+      this.worldSpaceViz.draw(gridResults, gridPoints, viewport, camera, draw);
+    }
   }
 
   getModeName(): string {
@@ -84,12 +102,13 @@ export class WindFieldDebugMode extends DebugRenderMode {
     const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
     if (!mouseWorldPos) return null;
 
-    const wind = this.game.entities.tryGetSingleton(WindInfo);
-    if (!wind) return null;
+    // Cursor wind is the last result (we add it as last query point)
+    if (this.windQuery.results.length === 0) return null;
 
-    const velocity = wind.getVelocityAtPoint(mouseWorldPos);
-    const speed = velocity.magnitude;
-    const direction = velocity.angle;
+    const cursorResult =
+      this.windQuery.results[this.windQuery.results.length - 1];
+    const speed = cursorResult.speed;
+    const direction = cursorResult.direction;
 
     const compass = radiansToCompass(direction);
     return `Wind: ${speed.toFixed(0)} ft/s ${compass}`;

@@ -4,7 +4,7 @@ import type { Draw } from "../core/graphics/Draw";
 import { clamp, lerp } from "../core/util/MathUtil";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
-import { WindInfo } from "./world-data/wind/WindInfo";
+import { WindResources } from "./world/wind/WindResources";
 
 // Units: ft/s for speeds (1 kt ≈ 1.69 ft/s)
 // Visual configuration (pixels)
@@ -66,8 +66,8 @@ export class WindIndicator extends BaseEntity {
     this.indicatorCenter = V(this.screenSize.x - MARGIN_RIGHT, MARGIN_TOP);
   }
 
-  private getWind(): WindInfo | undefined {
-    return this.game.entities.tryGetSingleton(WindInfo);
+  private getWind(): WindResources | undefined {
+    return this.game.entities.tryGetSingleton(WindResources);
   }
 
   private getBoat(): Boat | undefined {
@@ -125,7 +125,11 @@ export class WindIndicator extends BaseEntity {
     this.drawIndicator(draw, wind, isHovering);
   }
 
-  private drawIndicator(draw: Draw, wind: WindInfo, isHovering: boolean): void {
+  private drawIndicator(
+    draw: Draw,
+    wind: WindResources,
+    isHovering: boolean,
+  ): void {
     // Determine color based on state
     let arrowColor = ARROW_COLOR;
     if (this.isDragging) {

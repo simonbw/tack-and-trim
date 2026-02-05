@@ -5,62 +5,78 @@
  * DO NOT IMPORT THIS IN PRODUCTION CODE - IT'S JUST FOR TESTING.
  */
 
-import { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader";
-import { queryPointsModule } from "./common.wgsl";
-import { waterDataModule } from "./water.wgsl";
+import {
+  ComputeShader,
+  type ComputeShaderConfig,
+} from "../../../core/graphics/webgpu/ComputeShader";
+import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
+import { struct_QueryPoint } from "./common.wgsl";
+import { fn_calculateWaterData } from "./water.wgsl";
 
-// Test bindings combining module bindings with additional ones
-const testBindings = {
-  // queryPoints from queryPointsModule
-  queryPoints: { type: "storage", wgslType: "array<QueryPoint>" },
-  // terrainContours and controlPoints from terrainHeightModule (via waterDataModule dependency)
-  terrainContours: { type: "storage", wgslType: "array<ContourData>" },
-  controlPoints: { type: "storage", wgslType: "array<vec2<f32>>" },
-  // waveSources and waterParams from waterDataModule
-  waveSources: { type: "storage", wgslType: "array<WaveSource>" },
-  waterParams: { type: "uniform", wgslType: "WaterParams" },
-  // Additional binding for output
-  results: { type: "storageRW", wgslType: "array<Result>" },
-} as const;
+const WORKGROUP_SIZE = [64, 1] as const;
 
 /**
- * Test compute shader using the module system.
- * Demonstrates:
- * - Module composition
- * - Dependency resolution (waterDataModule depends on terrainHeightModule)
- * - Binding merging
+ * Module containing test-specific structs and bindings.
  */
-export class TestModuleSystemShader extends ComputeShader<typeof testBindings> {
-  // Use modules instead of direct code
-  protected modules = [queryPointsModule, waterDataModule];
+const testBindingsModule: ShaderModule = {
+  preamble: /*wgsl*/ `
+struct Result {
+  waterData: vec4<f32>,
+}
+  `,
+  bindings: {
+    // queryPoints from queryPointsModule
+    queryPoints: { type: "storage", wgslType: "array<QueryPoint>" },
+    // terrainContours and controlPoints from terrainHeightModule (via waterDataModule dependency)
+    terrainContours: { type: "storage", wgslType: "array<ContourData>" },
+    controlPoints: { type: "storage", wgslType: "array<vec2<f32>>" },
+    // waveSources and waterParams from waterDataModule
+    waveSources: { type: "storage", wgslType: "array<WaveSource>" },
+    waterParams: { type: "uniform", wgslType: "WaterParams" },
+    // Additional binding for output
+    results: { type: "storageRW", wgslType: "array<Result>" },
+  },
+  code: "",
+};
 
-  // Main compute code that uses functions from modules
-  protected mainCode = /*wgsl*/ `
-    struct Result {
-      waterData: vec4<f32>,
-    }
+/**
+ * Module containing the test compute entry point.
+ */
+const testMainModule: ShaderModule = {
+  dependencies: [struct_QueryPoint, fn_calculateWaterData, testBindingsModule],
+  code: /*wgsl*/ `
+@compute @workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]})
+fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
+  let idx = globalId.x;
+  if (idx >= arrayLength(&queryPoints)) {
+    return;
+  }
 
-    ${this.buildWGSLBindings()}
+  // Use QueryPoint from queryPointsModule
+  let queryPoint = queryPoints[idx];
 
-    @compute @workgroup_size(64, 1)
-    fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
-      let idx = globalId.x;
-      if (idx >= arrayLength(&queryPoints)) {
-        return;
-      }
+  // Use calculateWaterData from waterDataModule
+  // (which internally uses calculateTerrainHeight from terrainHeightModule)
+  let waterData = calculateWaterData(queryPoint.pos);
 
-      // Use QueryPoint from queryPointsModule
-      let queryPoint = queryPoints[idx];
+  // Store result
+  results[idx].waterData = waterData;
+}
+  `,
+};
 
-      // Use calculateWaterData from waterDataModule
-      // (which internally uses calculateTerrainHeight from terrainHeightModule)
-      let waterData = calculateWaterData(queryPoint.pos);
+/**
+ * Configuration for the test module system shader.
+ */
+export const testModuleSystemShaderConfig: ComputeShaderConfig = {
+  modules: [testMainModule],
+  workgroupSize: WORKGROUP_SIZE,
+  label: "TestModuleSystemShader",
+};
 
-      // Store result
-      results[idx].waterData = waterData;
-    }
-  `;
-
-  readonly bindings = testBindings;
-  readonly workgroupSize = [64, 1] as const;
+/**
+ * Create a test module system compute shader instance.
+ */
+export function createTestModuleSystemShader(): ComputeShader {
+  return new ComputeShader(testModuleSystemShaderConfig);
 }

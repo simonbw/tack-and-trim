@@ -1,43 +1,85 @@
 # Surface Rendering
 
-Renders the ocean and terrain as a fullscreen effect using WebGPU.
+Renders the ocean and terrain using a multi-pass WebGPU pipeline.
 
 ## Architecture
 
-Two GPU compute pipelines generate per-pixel height data, then a fullscreen
-render shader composites them with lighting and effects.
+The surface renderer uses three GPU passes for flexibility and profiling:
 
 ```
-┌─────────────────────┐     ┌─────────────────────┐
-│ WaterRenderPipeline │     │TerrainRenderPipeline│
-│ (wave heights)      │     │ (terrain heights)   │
-└─────────┬───────────┘     └──────────┬──────────┘
-          │ texture                    │ texture
-          └───────────┬────────────────┘
-                      ▼
-              ┌───────────────┐
-              │ SurfaceShader │
-              │ (fullscreen   │
-              │  render)      │
-              └───────────────┘
+┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────┐
+│ WaterResources  │  │ TerrainResources │  │ WavePhysicsResources│
+│ (wave data,     │  │ (contour data)   │  │ (shadow texture)    │
+│  modifiers)     │  │                  │  │                     │
+└────────┬────────┘  └────────┬─────────┘  └──────────┬──────────┘
+         │                    │                       │
+         ▼                    ▼                       │
+┌─────────────────┐  ┌─────────────────┐              │
+│ Pass 1: Water   │  │ Pass 2: Terrain │              │
+│ Height Compute  │  │ Height Compute  │              │
+│ (r32float tex)  │  │ (r32float tex)  │              │
+└────────┬────────┘  └────────┬────────┘              │
+         │                    │                       │
+         └──────────┬─────────┴───────────────────────┘
+                    ▼
+         ┌─────────────────────┐
+         │ Pass 3: Surface     │
+         │ Composite (fragment)│
+         │ Normals + lighting  │
+         └─────────────────────┘
 ```
 
 ## Files
 
-- **SurfaceRenderer.ts** - Entity that orchestrates the pipelines and manages
-  render state (uniforms, bind groups). Runs every frame.
-- **WaterRenderPipeline.ts** - GPU compute pipeline for water heights.
-  Outputs rgba32float texture with wave + modifier data.
-- **TerrainRenderPipeline.ts** - GPU compute pipeline for terrain heights.
-  Outputs rgba32float texture with signed terrain elevation.
-- **SurfaceShader.ts** - FullscreenShader subclass containing WGSL code.
-  Renders water with fresnel/specular/subsurface scattering, terrain with
-  sand texturing, and blends them based on water depth.
+### Shaders
+- **WaterHeightShader.ts** - Compute shader for Gerstner waves + modifiers
+- **TerrainHeightShader.ts** - Compute shader for contour-based terrain height
+- **SurfaceCompositeShader.ts** - Fragment shader for normals + lighting
+
+### Uniforms
+- **WaterHeightUniforms.ts** - Params for water height pass
+- **TerrainHeightUniforms.ts** - Params for terrain height pass
+- **SurfaceCompositeUniforms.ts** - Params for composite pass
+
+### Core
+- **SurfaceRenderer.ts** - Entity that orchestrates the three passes
+
+### Legacy (kept for reference)
+- **UnifiedSurfaceShader.ts** - Single-pass version (not used)
+- **UnifiedSurfaceUniforms.ts** - Uniforms for single-pass (not used)
+
+### Other
+- **WetnessRenderPipeline.ts** - Sand wetness tracking (disabled for now)
+- **WetnessStateShader.ts** - Compute shader for wetness
 
 ## Render Flow
 
-1. SurfaceRenderer.onRender() is called each frame
-2. WaterRenderPipeline.update() runs GPU compute → water texture
-3. TerrainRenderPipeline.update() runs GPU compute → terrain texture
-4. Uniforms uploaded (camera, time, viewport)
-5. SurfaceShader.render() draws fullscreen quad sampling both textures
+1. **Shadow Texture Update** - WavePhysicsResources renders shadow polygons
+2. **Pass 1: Water Height** - Compute Gerstner waves + modifiers → r32float texture
+3. **Pass 2: Terrain Height** - Compute contour heights → r32float texture
+4. **Pass 3: Surface Composite** - Read height textures, compute normals via finite differences, render with lighting
+
+## GPU Profiling
+
+Each pass has its own GPU timestamp query section:
+- `waterHeight` - Water height compute pass
+- `terrainHeight` - Terrain height compute pass
+- `shadowCompute` - Shadow texture render pass
+- `render` - Main render pass (includes composite)
+
+View timings in the Graphics panel of the stats overlay.
+
+## Benefits of Multi-Pass
+
+1. **Per-pass GPU timing** - Identify which computation is expensive
+2. **Future: Lower resolution** - Compute heights at 1/4 res, upsample
+3. **Future: Temporal caching** - Cache terrain height when camera static
+4. **Future: Different update rates** - Update water every frame, terrain less often
+
+## Key Features
+
+- **No recomputation for normals** - Normals computed from height textures via finite differences (cheap texture samples vs expensive height recomputation)
+- **Direct resource binding** - Uses existing GPU buffers from resource managers
+- **Shadow-based diffraction** - Samples WavePhysicsResources shadow texture
+- **Gerstner waves** - Analytical wave computation with tide and modifiers
+- **Contour-based terrain** - Catmull-Rom splines with signed distance computation

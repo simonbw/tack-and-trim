@@ -10,7 +10,7 @@
 
 import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
-import { WaterInfo } from "../../world-data/water/WaterInfo";
+import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
 import { DebugRenderMode } from "./DebugRenderMode";
 
 // Visualization colors
@@ -28,8 +28,9 @@ export class ShadowTextureDebugMode extends DebugRenderMode {
 
   @on("render")
   onRender({ draw }: GameEventMap["render"]): void {
-    const waterInfo = this.game.entities.tryGetSingleton(WaterInfo);
-    const wavePhysicsManager = waterInfo?.getWavePhysicsManager();
+    const wavePhysicsResources =
+      this.game.entities.tryGetSingleton(WavePhysicsResources);
+    const wavePhysicsManager = wavePhysicsResources?.getWavePhysicsManager();
 
     if (!wavePhysicsManager || !wavePhysicsManager.isInitialized()) {
       return;

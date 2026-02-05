@@ -4,13 +4,12 @@
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-import { wavePhysicsConstantsModule } from "./wave-physics.wgsl";
 
 /**
  * Wave modification structure.
  * Returned by wave modification functions (diffraction, etc.).
  */
-export const waveModificationStructModule: ShaderModule = {
+export const struct_WaveModification: ShaderModule = {
   code: /*wgsl*/ `
     // Wave modification result
     struct WaveModification {
@@ -21,11 +20,12 @@ export const waveModificationStructModule: ShaderModule = {
 };
 
 /**
- * Gerstner wave calculation module.
+ * Gerstner wave calculation function.
  * Two-pass algorithm: first pass computes horizontal displacement,
  * second pass computes height and velocity at displaced position.
  */
-export const gerstnerWaveModule: ShaderModule = {
+export const fn_calculateGerstnerWaves: ShaderModule = {
+  dependencies: [struct_WaveModification],
   code: /*wgsl*/ `
     // Calculate Gerstner waves with modification support
     // worldPos: world position (feet)
@@ -179,5 +179,4 @@ export const gerstnerWaveModule: ShaderModule = {
       return vec4<f32>(height, dispX, dispY, dhdt);
     }
   `,
-  dependencies: [wavePhysicsConstantsModule, waveModificationStructModule],
 };

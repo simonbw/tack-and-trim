@@ -5,7 +5,8 @@ import { generateWGSLBindings } from "./ShaderBindings";
  * A reusable WGSL code module that can be composed into shaders.
  *
  * Modules can declare:
- * - WGSL code (functions, structs, constants)
+ * - Preamble (structs needed by bindings - included before binding declarations)
+ * - WGSL code (functions, constants, entry points)
  * - GPU bindings they require
  * - Dependencies on other modules
  *
@@ -13,9 +14,13 @@ import { generateWGSLBindings } from "./ShaderBindings";
  * - Resolves dependencies in correct order
  * - Deduplicates shared dependencies
  * - Merges bindings from all modules
+ * - Orders code correctly: preambles → bindings → code
  */
 export interface ShaderModule {
-  /** WGSL code for this module */
+  /** WGSL preamble (structs needed by bindings). Included before binding declarations. */
+  preamble?: string;
+
+  /** WGSL code for this module (functions, constants, entry points) */
   code: string;
 
   /** Bindings this module requires */

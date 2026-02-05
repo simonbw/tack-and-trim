@@ -430,3 +430,46 @@ export function computeSplineCentroid(
 
   return V(cx / samples.length, cy / samples.length);
 }
+
+/**
+ * Axis-aligned bounding box.
+ */
+export interface AABB {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/**
+ * Compute the axis-aligned bounding box of a closed spline.
+ * Uses tessellation to capture the actual curve bounds, not just control points.
+ *
+ * @param controlPoints - Control points defining the spline
+ * @param samplesPerSegment - Sampling density (default 16)
+ * @returns The bounding box, or null if there are no points
+ */
+export function computeSplineBoundingBox(
+  controlPoints: readonly V2d[],
+  samplesPerSegment: number = DEFAULT_SAMPLES_PER_SEGMENT,
+): AABB | null {
+  const samples = sampleClosedSpline(controlPoints, samplesPerSegment);
+
+  if (samples.length === 0) {
+    return null;
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const p of samples) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+
+  return { minX, minY, maxX, maxY };
+}
