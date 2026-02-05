@@ -14,6 +14,11 @@ import {
 } from "../../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import {
+  defineUniformStruct,
+  f32,
+  u32,
+} from "../../../core/graphics/UniformStruct";
+import {
   WIND_ANGLE_VARIATION,
   WIND_NOISE_SPATIAL_SCALE,
   WIND_NOISE_TIME_SCALE,
@@ -22,6 +27,20 @@ import {
 import { fn_computeWindAtPoint } from "../shaders/wind.wgsl";
 
 const WORKGROUP_SIZE = [64, 1, 1] as const;
+
+/**
+ * Uniform struct for wind query parameters.
+ */
+export const WindQueryUniforms = defineUniformStruct("Params", {
+  pointCount: u32,
+  time: f32,
+  baseWindX: f32,
+  baseWindY: f32,
+  influenceSpeedFactor: f32,
+  influenceDirectionOffset: f32,
+  influenceTurbulence: f32,
+  _padding: f32,
+});
 
 /**
  * Module containing Params and result structs, plus bindings.

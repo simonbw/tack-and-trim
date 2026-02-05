@@ -5,7 +5,7 @@ import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { BaseQuery } from "../query/BaseQuery";
 import { QueryManager, type ResultLayout } from "../query/QueryManager";
 import { WindResources } from "./WindResources";
-import { createWindQueryShader } from "./WindQueryShader";
+import { createWindQueryShader, WindQueryUniforms } from "./WindQueryShader";
 
 /**
  * Result data from a wind query at a specific point
@@ -60,6 +60,7 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
 
   private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private uniforms = WindQueryUniforms.create();
 
   constructor() {
     super(WindResultLayout, MAX_WIND_QUERIES);
@@ -74,7 +75,7 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
     const device = getWebGPU().device;
     this.uniformBuffer = device.createBuffer({
       label: "Wind Query Uniform Buffer",
-      size: 32, // 8 floats = 32 bytes (pointCount, time, baseWind, influence factors)
+      size: WindQueryUniforms.byteSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
@@ -125,19 +126,15 @@ export class WindQueryManager extends QueryManager<WindQueryResult> {
     const baseWind = windResources.getBaseVelocity();
 
     // Update uniform buffer with wind parameters
-    // Use ArrayBuffer with typed views for mixed u32/f32 data
-    const uniformBuffer = new ArrayBuffer(32);
-    const u32View = new Uint32Array(uniformBuffer);
-    const f32View = new Float32Array(uniformBuffer);
-    u32View[0] = pointCount; // u32 pointCount
-    f32View[1] = performance.now() / 1000; // f32 time
-    f32View[2] = baseWind.x; // f32 baseWindX
-    f32View[3] = baseWind.y; // f32 baseWindY
-    f32View[4] = 1.0; // f32 influenceSpeedFactor (no terrain influence)
-    f32View[5] = 0.0; // f32 influenceDirectionOffset (no terrain influence)
-    f32View[6] = 0.0; // f32 influenceTurbulence (no terrain influence)
-    f32View[7] = 0.0; // f32 _padding
-    device.queue.writeBuffer(this.uniformBuffer, 0, uniformBuffer);
+    this.uniforms.set.pointCount(pointCount);
+    this.uniforms.set.time(performance.now() / 1000);
+    this.uniforms.set.baseWindX(baseWind.x);
+    this.uniforms.set.baseWindY(baseWind.y);
+    this.uniforms.set.influenceSpeedFactor(1.0);
+    this.uniforms.set.influenceDirectionOffset(0.0);
+    this.uniforms.set.influenceTurbulence(0.0);
+    this.uniforms.set._padding(0.0);
+    this.uniforms.uploadTo(this.uniformBuffer);
 
     // Create bind group
     const bindGroup = this.queryShader.createBindGroup({

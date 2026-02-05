@@ -14,12 +14,27 @@ import {
 } from "../../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import {
+  defineUniformStruct,
+  f32,
+  u32,
+} from "../../../core/graphics/UniformStruct";
+import {
   fn_computeTerrainHeight,
   fn_computeTerrainNormal,
   struct_ContourData,
 } from "../shaders/terrain.wgsl";
 
 const WORKGROUP_SIZE = [64, 1, 1] as const;
+
+/**
+ * Uniform struct for terrain query parameters.
+ */
+export const TerrainQueryUniforms = defineUniformStruct("Params", {
+  pointCount: u32,
+  contourCount: u32,
+  defaultDepth: f32,
+  _padding: f32,
+});
 
 /**
  * Module containing Params and result structs, plus bindings.

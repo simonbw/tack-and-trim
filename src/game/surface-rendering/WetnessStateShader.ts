@@ -14,6 +14,7 @@ import {
   type ComputeShaderConfig,
 } from "../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
+import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
 import { WATER_HEIGHT_SCALE } from "../world/water/WaterConstants";
 import {
   fn_uvInBounds,
@@ -26,6 +27,29 @@ const DEFAULT_WETTING_RATE = 4.0; // Reach full wet in ~0.25 seconds
 const DEFAULT_DRYING_RATE = 0.15; // Dry in ~6-7 seconds
 
 const WORKGROUP_SIZE = [8, 8] as const;
+
+/**
+ * Uniform struct for wetness state parameters.
+ */
+export const WetnessUniforms = defineUniformStruct("Params", {
+  dt: f32,
+  wettingRate: f32,
+  dryingRate: f32,
+  textureSizeX: f32,
+  textureSizeY: f32,
+  currentViewportLeft: f32,
+  currentViewportTop: f32,
+  currentViewportWidth: f32,
+  currentViewportHeight: f32,
+  prevViewportLeft: f32,
+  prevViewportTop: f32,
+  prevViewportWidth: f32,
+  prevViewportHeight: f32,
+  renderViewportLeft: f32,
+  renderViewportTop: f32,
+  renderViewportWidth: f32,
+  renderViewportHeight: f32,
+});
 
 /**
  * Module containing Params struct and bindings.

@@ -18,11 +18,22 @@ import {
   type FullscreenShaderConfig,
 } from "../../core/graphics/webgpu/FullscreenShader";
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
+import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
 import { fn_computeFresnelEnergy } from "../world/shaders/fresnel-diffraction.wgsl";
 
 // Wavelength constants for swell and chop waves
 const SWELL_WAVELENGTH = 200.0; // feet
 const CHOP_WAVELENGTH = 30.0; // feet
+
+/**
+ * Uniform struct for shadow texture viewport parameters.
+ */
+export const ShadowTextureUniforms = defineUniformStruct("Uniforms", {
+  viewportLeft: f32,
+  viewportTop: f32,
+  viewportWidth: f32,
+  viewportHeight: f32,
+});
 
 /**
  * Module containing structs and bindings for shadow texture shader.

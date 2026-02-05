@@ -15,6 +15,11 @@ import {
 } from "../../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import {
+  defineUniformStruct,
+  f32,
+  u32,
+} from "../../../core/graphics/UniformStruct";
+import {
   GERSTNER_STEEPNESS,
   NUM_WAVES,
   SWELL_WAVE_COUNT,
@@ -27,6 +32,18 @@ import { fn_computeWaterAtPoint } from "../shaders/water.wgsl";
 import { FLOATS_PER_MODIFIER, MAX_MODIFIERS } from "./WaterResources";
 
 const WORKGROUP_SIZE = [64, 1, 1] as const;
+
+/**
+ * Uniform struct for water query parameters.
+ */
+export const WaterQueryUniforms = defineUniformStruct("Params", {
+  pointCount: u32,
+  time: f32,
+  tideHeight: f32,
+  waveSourceDirection: f32,
+  modifierCount: u32,
+  _padding: f32,
+});
 
 /**
  * Module containing Params and result structs, plus bindings.

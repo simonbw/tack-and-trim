@@ -5,7 +5,10 @@ import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { DEFAULT_DEPTH } from "./TerrainConstants";
 import { BaseQuery } from "../query/BaseQuery";
 import { QueryManager, type ResultLayout } from "../query/QueryManager";
-import { createTerrainQueryShader } from "./TerrainQueryShader";
+import {
+  createTerrainQueryShader,
+  TerrainQueryUniforms,
+} from "./TerrainQueryShader";
 import { TerrainResources } from "./TerrainResources";
 
 /**
@@ -70,6 +73,7 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
 
   private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private uniforms = TerrainQueryUniforms.create();
 
   constructor() {
     super(TerrainResultLayout, MAX_TERRAIN_QUERIES);
@@ -84,7 +88,7 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
     const device = getWebGPU().device;
     this.uniformBuffer = device.createBuffer({
       label: "Terrain Query Uniform Buffer",
-      size: 16, // pointCount (u32) + contourCount (u32) + defaultDepth (f32) + padding (f32) = 16 bytes
+      size: TerrainQueryUniforms.byteSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
@@ -134,15 +138,11 @@ export class TerrainQueryManager extends QueryManager<TerrainQueryResult> {
     const terrainResources = this.game.entities.getSingleton(TerrainResources);
 
     // Update uniform buffer with query parameters
-    // Use ArrayBuffer with typed views for mixed u32/f32 data
-    const uniformBuffer = new ArrayBuffer(16);
-    const u32View = new Uint32Array(uniformBuffer);
-    const f32View = new Float32Array(uniformBuffer);
-    u32View[0] = pointCount; // u32 pointCount
-    u32View[1] = terrainResources.getContourCount(); // u32 contourCount
-    f32View[2] = DEFAULT_DEPTH; // f32 defaultDepth
-    f32View[3] = 0; // f32 padding
-    device.queue.writeBuffer(this.uniformBuffer, 0, uniformBuffer);
+    this.uniforms.set.pointCount(pointCount);
+    this.uniforms.set.contourCount(terrainResources.getContourCount());
+    this.uniforms.set.defaultDepth(DEFAULT_DEPTH);
+    this.uniforms.set._padding(0);
+    this.uniforms.uploadTo(this.uniformBuffer);
 
     // Create bind group with terrain buffers
     const bindGroup = this.queryShader.createBindGroup({

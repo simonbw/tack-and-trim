@@ -13,7 +13,10 @@
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { earClipTriangulate } from "../../core/util/Triangulate";
 import type { Viewport } from "./WavePhysicsResources";
-import { getShadowTextureShaderCode } from "./ShadowTextureShader";
+import {
+  getShadowTextureShaderCode,
+  ShadowTextureUniforms,
+} from "./ShadowTextureShader";
 import type { ShadowPolygonRenderData } from "./ShadowGeometry";
 
 /** Maximum number of shadow polygons we can render */
@@ -40,6 +43,7 @@ export class ShadowTextureRenderer {
   private shadowDataBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
+  private uniforms = ShadowTextureUniforms.create();
 
   private textureWidth: number;
   private textureHeight: number;
@@ -81,7 +85,7 @@ export class ShadowTextureRenderer {
 
     // Create uniform buffer for viewport params
     this.uniformBuffer = device.createBuffer({
-      size: 16, // 4 floats: left, top, width, height
+      size: ShadowTextureUniforms.byteSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Shadow Texture Uniform Buffer",
     });
@@ -226,13 +230,11 @@ export class ShadowTextureRenderer {
     }
 
     // Update uniform buffer with viewport
-    const uniformData = new Float32Array([
-      viewport.left,
-      viewport.top,
-      viewport.width,
-      viewport.height,
-    ]);
-    device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+    this.uniforms.set.viewportLeft(viewport.left);
+    this.uniforms.set.viewportTop(viewport.top);
+    this.uniforms.set.viewportWidth(viewport.width);
+    this.uniforms.set.viewportHeight(viewport.height);
+    this.uniforms.uploadTo(this.uniformBuffer);
 
     // Build vertex data for all polygons (uses pre-computed polygon.vertices)
     const vertices = this.buildVertexData(polygons);

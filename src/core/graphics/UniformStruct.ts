@@ -156,7 +156,7 @@ interface ComputedField {
   name: string;
   type: FieldType;
   byteOffset: number;
-  floatOffset: number;
+  offset: number;
 }
 
 // ============ Uniform Instance ============
@@ -222,7 +222,7 @@ function computeFieldLayouts<T extends Record<string, FieldType>>(
       name,
       type,
       byteOffset: currentOffset,
-      floatOffset: currentOffset / 4,
+      offset: currentOffset / 4,
     });
 
     currentOffset += type.size;
@@ -280,39 +280,39 @@ function createSetters<T extends Record<string, FieldType>>(
   const uintView = new Uint32Array(data.buffer);
 
   for (const field of fields) {
-    const { name, type, floatOffset } = field;
+    const { name, type, offset } = field;
     const brand = type._brand;
 
     if (brand === "f32") {
       setters[name] = (value: number) => {
-        data[floatOffset] = value;
+        data[offset] = value;
       };
     } else if (brand === "i32") {
       setters[name] = (value: number) => {
-        intView[floatOffset] = value;
+        intView[offset] = value;
       };
     } else if (brand === "u32") {
       setters[name] = (value: number) => {
-        uintView[floatOffset] = value;
+        uintView[offset] = value;
       };
     } else if (brand === "vec2") {
       setters[name] = (value: readonly [number, number]) => {
-        data[floatOffset] = value[0];
-        data[floatOffset + 1] = value[1];
+        data[offset] = value[0];
+        data[offset + 1] = value[1];
       };
     } else if (brand === "vec3") {
       setters[name] = (value: readonly [number, number, number]) => {
-        data[floatOffset] = value[0];
-        data[floatOffset + 1] = value[1];
-        data[floatOffset + 2] = value[2];
+        data[offset] = value[0];
+        data[offset + 1] = value[1];
+        data[offset + 2] = value[2];
         // Note: vec3 uses 12 bytes but offset 3 is padding
       };
     } else if (brand === "vec4") {
       setters[name] = (value: readonly [number, number, number, number]) => {
-        data[floatOffset] = value[0];
-        data[floatOffset + 1] = value[1];
-        data[floatOffset + 2] = value[2];
-        data[floatOffset + 3] = value[3];
+        data[offset] = value[0];
+        data[offset + 1] = value[1];
+        data[offset + 2] = value[2];
+        data[offset + 3] = value[3];
       };
     } else if (brand === "mat3x3") {
       setters[name] = (value: Matrix3 | Float32Array) => {
@@ -321,26 +321,26 @@ function createSetters<T extends Record<string, FieldType>>(
           // Matrix3 object - convert to padded format
           const arr = value.toArray();
           // Column 0
-          data[floatOffset] = arr[0]; // a
-          data[floatOffset + 1] = arr[1]; // b
-          data[floatOffset + 2] = arr[2]; // 0 (from 2D matrix)
-          data[floatOffset + 3] = 0; // padding
+          data[offset] = arr[0]; // a
+          data[offset + 1] = arr[1]; // b
+          data[offset + 2] = arr[2]; // 0 (from 2D matrix)
+          data[offset + 3] = 0; // padding
 
           // Column 1
-          data[floatOffset + 4] = arr[3]; // c
-          data[floatOffset + 5] = arr[4]; // d
-          data[floatOffset + 6] = arr[5]; // 0
-          data[floatOffset + 7] = 0; // padding
+          data[offset + 4] = arr[3]; // c
+          data[offset + 5] = arr[4]; // d
+          data[offset + 6] = arr[5]; // 0
+          data[offset + 7] = 0; // padding
 
           // Column 2
-          data[floatOffset + 8] = arr[6]; // tx
-          data[floatOffset + 9] = arr[7]; // ty
-          data[floatOffset + 10] = arr[8]; // 1
-          data[floatOffset + 11] = 0; // padding
+          data[offset + 8] = arr[6]; // tx
+          data[offset + 9] = arr[7]; // ty
+          data[offset + 10] = arr[8]; // 1
+          data[offset + 11] = 0; // padding
         } else {
           // Already a Float32Array in the correct padded format
           for (let i = 0; i < 12; i++) {
-            data[floatOffset + i] = value[i];
+            data[offset + i] = value[i];
           }
         }
       };

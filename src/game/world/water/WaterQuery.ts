@@ -4,7 +4,7 @@ import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { BaseQuery } from "../query/BaseQuery";
 import { QueryManager, type ResultLayout } from "../query/QueryManager";
-import { createWaterQueryShader } from "./WaterQueryShader";
+import { createWaterQueryShader, WaterQueryUniforms } from "./WaterQueryShader";
 import { WaterResources } from "./WaterResources";
 
 /**
@@ -65,6 +65,7 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
 
   private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private uniforms = WaterQueryUniforms.create();
 
   constructor() {
     super(WaterResultLayout, MAX_WATER_QUERIES);
@@ -79,12 +80,11 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
     // Initialize shader
     await this.queryShader!.init();
 
-    // Create uniform buffer for query parameters (24 bytes)
-    // pointCount (u32=4) + time (f32=4) + tideHeight (f32=4) + waveSourceDirection (f32=4) + modifierCount (u32=4) + _padding (f32=4)
+    // Create uniform buffer for query parameters
     const device = getWebGPU().device;
     this.uniformBuffer = device.createBuffer({
       label: "Water Query Uniform Buffer",
-      size: 24,
+      size: WaterQueryUniforms.byteSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
@@ -149,18 +149,14 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
       waterResources.getAnalyticalConfig().waveSourceDirection;
     const modifierCount = waterResources.getModifierCount();
 
-    // Update uniform buffer (24 bytes)
-    // Use ArrayBuffer with typed views for mixed u32/f32 data
-    const uniformBuffer = new ArrayBuffer(24);
-    const u32View = new Uint32Array(uniformBuffer);
-    const f32View = new Float32Array(uniformBuffer);
-    u32View[0] = pointCount; // u32 pointCount
-    f32View[1] = performance.now() / 1000; // f32 time
-    f32View[2] = tideHeight; // f32 tideHeight
-    f32View[3] = waveSourceDirection; // f32 waveSourceDirection
-    u32View[4] = modifierCount; // u32 modifierCount
-    f32View[5] = 0; // f32 _padding
-    device.queue.writeBuffer(this.uniformBuffer, 0, uniformBuffer);
+    // Update uniform buffer
+    this.uniforms.set.pointCount(pointCount);
+    this.uniforms.set.time(performance.now() / 1000);
+    this.uniforms.set.tideHeight(tideHeight);
+    this.uniforms.set.waveSourceDirection(waveSourceDirection);
+    this.uniforms.set.modifierCount(modifierCount);
+    this.uniforms.set._padding(0);
+    this.uniforms.uploadTo(this.uniformBuffer);
 
     // Create bind group with shared buffers from WaterResources
     const bindGroup = this.queryShader.createBindGroup({
