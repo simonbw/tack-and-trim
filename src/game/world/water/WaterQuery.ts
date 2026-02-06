@@ -4,6 +4,7 @@ import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { BaseQuery } from "../query/BaseQuery";
 import { QueryManager, type ResultLayout } from "../query/QueryManager";
+import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
 import { createWaterQueryShader, WaterQueryUniforms } from "./WaterQueryShader";
 import { WaterResources } from "./WaterResources";
 
@@ -65,6 +66,8 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
 
   private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private placeholderShadowDataBuffer: GPUBuffer | null = null;
+  private placeholderShadowVerticesBuffer: GPUBuffer | null = null;
   private uniforms = WaterQueryUniforms.create();
 
   constructor() {
@@ -86,6 +89,38 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
       label: "Water Query Uniform Buffer",
       size: WaterQueryUniforms.byteSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // Create placeholder shadow data buffer (empty - no polygons)
+    // Layout: 32 bytes header with polygonCount = 0
+    this.placeholderShadowDataBuffer = device.createBuffer({
+      size: 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      label: "Water Query Placeholder Shadow Data Buffer",
+    });
+    const placeholderData = new Float32Array([
+      1.0,
+      0.0, // waveDirection
+      0, // polygonCount (will be overwritten)
+      0,
+      0,
+      0,
+      0, // viewport
+      0, // padding
+    ]);
+    const placeholderUint = new Uint32Array(placeholderData.buffer);
+    placeholderUint[2] = 0; // Set polygonCount to 0
+    device.queue.writeBuffer(
+      this.placeholderShadowDataBuffer,
+      0,
+      placeholderData,
+    );
+
+    // Create placeholder shadow vertices buffer (empty - just needs to exist)
+    this.placeholderShadowVerticesBuffer = device.createBuffer({
+      size: 8, // Minimum size: one vec2<f32>
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      label: "Water Query Placeholder Shadow Vertices Buffer",
     });
   }
 
@@ -141,6 +176,16 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
       return;
     }
 
+    // Get WavePhysicsResources for shadow data
+    const wavePhysicsResources =
+      this.game.entities.tryGetSingleton(WavePhysicsResources);
+    const shadowDataBuffer =
+      wavePhysicsResources?.getShadowDataBuffer() ??
+      this.placeholderShadowDataBuffer!;
+    const shadowVerticesBuffer =
+      wavePhysicsResources?.getShadowVerticesBuffer() ??
+      this.placeholderShadowVerticesBuffer!;
+
     const device = getWebGPU().device;
 
     // Get data from WaterResources
@@ -158,11 +203,13 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
     this.uniforms.set._padding(0);
     this.uniforms.uploadTo(this.uniformBuffer);
 
-    // Create bind group with shared buffers from WaterResources
+    // Create bind group with shared buffers
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
       waveData: { buffer: waterResources.waveDataBuffer },
       modifiers: { buffer: waterResources.modifiersBuffer },
+      shadowData: { buffer: shadowDataBuffer },
+      shadowVertices: { buffer: shadowVerticesBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
     });
@@ -184,5 +231,7 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
   @on("destroy")
   onDestroy(): void {
     this.uniformBuffer?.destroy();
+    this.placeholderShadowDataBuffer?.destroy();
+    this.placeholderShadowVerticesBuffer?.destroy();
   }
 }

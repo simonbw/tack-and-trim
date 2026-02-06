@@ -84,12 +84,14 @@ export class SurfaceRenderer extends BaseEntity {
   private lastTextureWidth = 0;
   private lastTextureHeight = 0;
   private lastShadowDataBuffer: GPUBuffer | null = null;
+  private lastShadowVerticesBuffer: GPUBuffer | null = null;
   private lastWaveDataBuffer: GPUBuffer | null = null;
   private lastModifiersBuffer: GPUBuffer | null = null;
   private lastTerrainAtlasView: GPUTextureView | null = null;
 
-  // Placeholder shadow data buffer (for when wave physics isn't ready)
+  // Placeholder shadow buffers (for when wave physics isn't ready)
   private placeholderShadowDataBuffer: GPUBuffer | null = null;
+  private placeholderShadowVerticesBuffer: GPUBuffer | null = null;
 
   constructor() {
     super();
@@ -170,6 +172,13 @@ export class SurfaceRenderer extends BaseEntity {
         0,
         placeholderData,
       );
+
+      // Create placeholder shadow vertices buffer (empty - just needs to exist)
+      this.placeholderShadowVerticesBuffer = device.createBuffer({
+        size: 8, // Minimum size: one vec2<f32>
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        label: "Placeholder Shadow Vertices Buffer",
+      });
 
       this.initialized = true;
     } catch (error) {
@@ -299,6 +308,7 @@ export class SurfaceRenderer extends BaseEntity {
   private ensureBindGroups(
     waterResources: WaterResources,
     shadowDataBuffer: GPUBuffer,
+    shadowVerticesBuffer: GPUBuffer,
     terrainAtlasView: GPUTextureView,
   ): void {
     const waveDataBuffer = waterResources.waveDataBuffer;
@@ -308,6 +318,7 @@ export class SurfaceRenderer extends BaseEntity {
       !this.waterHeightBindGroup ||
       !this.compositeBindGroup ||
       this.lastShadowDataBuffer !== shadowDataBuffer ||
+      this.lastShadowVerticesBuffer !== shadowVerticesBuffer ||
       this.lastWaveDataBuffer !== waveDataBuffer ||
       this.lastModifiersBuffer !== modifiersBuffer ||
       this.lastTerrainAtlasView !== terrainAtlasView;
@@ -325,6 +336,7 @@ export class SurfaceRenderer extends BaseEntity {
         waveData: { buffer: waveDataBuffer },
         modifiers: { buffer: modifiersBuffer },
         shadowData: { buffer: shadowDataBuffer },
+        shadowVertices: { buffer: shadowVerticesBuffer },
         outputTexture: this.waterHeightView,
       });
     }
@@ -346,6 +358,7 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Update tracking
     this.lastShadowDataBuffer = shadowDataBuffer;
+    this.lastShadowVerticesBuffer = shadowVerticesBuffer;
     this.lastWaveDataBuffer = waveDataBuffer;
     this.lastModifiersBuffer = modifiersBuffer;
     this.lastTerrainAtlasView = terrainAtlasView;
@@ -376,10 +389,13 @@ export class SurfaceRenderer extends BaseEntity {
     const waterResources = this.game.entities.getSingleton(WaterResources);
     const terrainResources = this.game.entities.getSingleton(TerrainResources);
 
-    // Get shadow data buffer for analytical wave attenuation
+    // Get shadow buffers for analytical wave attenuation
     const shadowDataBuffer =
       wavePhysicsResources?.getShadowDataBuffer() ??
       this.placeholderShadowDataBuffer!;
+    const shadowVerticesBuffer =
+      wavePhysicsResources?.getShadowVerticesBuffer() ??
+      this.placeholderShadowVerticesBuffer!;
 
     // Ensure intermediate textures
     this.ensureTextures(width, height);
@@ -434,7 +450,12 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeUniforms?.uploadTo(this.compositeUniformBuffer!);
 
     // Ensure bind groups
-    this.ensureBindGroups(waterResources, shadowDataBuffer, terrainAtlasView);
+    this.ensureBindGroups(
+      waterResources,
+      shadowDataBuffer,
+      shadowVerticesBuffer,
+      terrainAtlasView,
+    );
 
     // === Pass 1: Water Height Compute ===
     if (this.waterHeightShader && this.waterHeightBindGroup) {
@@ -499,5 +520,6 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterHeightUniformBuffer?.destroy();
     this.compositeUniformBuffer?.destroy();
     this.placeholderShadowDataBuffer?.destroy();
+    this.placeholderShadowVerticesBuffer?.destroy();
   }
 }

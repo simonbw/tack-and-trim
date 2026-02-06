@@ -10,44 +10,13 @@
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
+import {
+  fn_pointLeftOfSegment,
+  fn_pointToLineSegmentDistanceSq,
+} from "./polygon.wgsl";
 
-// =============================================================================
-// Distance Utilities
-// =============================================================================
-
-/**
- * Compute SQUARED minimum distance from point p to line segment [a, b].
- * Returns distance squared to avoid expensive sqrt in inner loops.
- * Caller should sqrt the final result if actual distance is needed.
- */
-export const fn_pointToLineSegmentDistanceSq: ShaderModule = {
-  code: /*wgsl*/ `
-    fn pointToLineSegmentDistanceSq(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
-      let ab = b - a;
-      let lengthSq = dot(ab, ab);
-      if (lengthSq == 0.0) {
-        let diff = p - a;
-        return dot(diff, diff);
-      }
-      let t = clamp(dot(p - a, ab) / lengthSq, 0.0, 1.0);
-      let nearest = a + t * ab;
-      let diff = p - nearest;
-      return dot(diff, diff);
-    }
-  `,
-};
-
-/**
- * Test if point p is left of line segment [a, b] (for winding number algorithm).
- * Returns positive if left, negative if right, zero if collinear.
- */
-export const fn_pointLeftOfSegment: ShaderModule = {
-  code: /*wgsl*/ `
-    fn pointLeftOfSegment(a: vec2<f32>, b: vec2<f32>, p: vec2<f32>) -> f32 {
-      return (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
-    }
-  `,
-};
+// Re-export for backwards compatibility
+export { fn_pointLeftOfSegment, fn_pointToLineSegmentDistanceSq };
 
 // =============================================================================
 // IDW (Inverse Distance Weighting) Interpolation

@@ -1,14 +1,12 @@
 /**
  * Wave Physics Resources
  *
- * Singleton entity that owns and manages the WavePhysicsManager for shadow-based
- * wave diffraction. This centralizes wave physics resource management separate
- * from the tile-based query system.
+ * Singleton entity that owns and manages the WavePhysicsManager for analytical
+ * wave diffraction. This centralizes wave physics resource management.
  *
  * Responsibilities:
  * - Initialize WavePhysicsManager with terrain data
- * - Provide access to shadow texture and wave physics manager
- * - Update shadow texture each render frame
+ * - Provide access to shadow data buffer for analytical Fresnel diffraction
  */
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
@@ -17,7 +15,7 @@ import { TerrainResources } from "../world/terrain/TerrainResources";
 import { WavePhysicsManager } from "./WavePhysicsManager";
 
 /**
- * Viewport bounds for wave physics computation.
+ * Viewport bounds (kept for backwards compatibility, no longer used for shadows).
  */
 export interface Viewport {
   left: number;
@@ -61,13 +59,6 @@ export class WavePhysicsResources extends BaseEntity {
   }
 
   /**
-   * Get the shadow texture view for binding in shaders.
-   */
-  getShadowTextureView(): GPUTextureView | null {
-    return this.wavePhysicsManager.getShadowTextureView();
-  }
-
-  /**
    * Get the shadow data buffer for binding in shaders.
    */
   getShadowDataBuffer(): GPUBuffer | null {
@@ -75,19 +66,10 @@ export class WavePhysicsResources extends BaseEntity {
   }
 
   /**
-   * Update the shadow texture for the given viewport.
-   * Should be called each render frame before water shaders run.
-   *
-   * @param viewport - The viewport to render shadows for
-   * @param timestampWrites - Optional GPU timestamp writes for profiling
+   * Get the shadow vertices buffer for binding in shaders.
    */
-  updateShadowTexture(
-    viewport: Viewport,
-    timestampWrites?: GPURenderPassTimestampWrites,
-  ): void {
-    if (this.wavePhysicsManager.isInitialized()) {
-      this.wavePhysicsManager.updateShadowTexture(viewport, timestampWrites);
-    }
+  getShadowVerticesBuffer(): GPUBuffer | null {
+    return this.wavePhysicsManager.getShadowVerticesBuffer();
   }
 
   /**
