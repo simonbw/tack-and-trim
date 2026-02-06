@@ -1,30 +1,36 @@
-import type { VNode } from "preact";
-import { profiler, type ProfileStats } from "../../core/util/Profiler";
 import type {
   StatsPanel,
   StatsPanelContext,
 } from "../../core/util/stats-overlay/StatsPanel";
 import { StatsRow } from "../../core/util/stats-overlay/StatsRow";
-import { WaterResources } from "../world/water/WaterResources";
-import { WavePhysicsResources } from "../wave-physics/WavePhysicsResources";
+import { SurfaceRenderer } from "../surface-rendering/SurfaceRenderer";
+import { WaterQuery } from "../world/water/WaterQuery";
+import { TerrainQuery } from "../world/terrain/TerrainQuery";
+import { WindQuery } from "../world/wind/WindQuery";
 
-interface WaterSystemStats {
-  modifierCount: number;
-  tideHeight: number;
-  shadowsInitialized: boolean;
-  cpuTickMs: number;
+interface QueryStats {
+  waterQueries: number;
+  terrainQueries: number;
+  windQueries: number;
+}
+
+interface TerrainCacheStats {
+  cachedTiles: number;
+  readyTiles: number;
+  currentLOD: number;
+  worldUnitsPerTile: number;
 }
 
 /**
- * Creates a simulation stats panel showing water system stats.
- * Displays modifier count, tide height, and performance metrics.
+ * Creates a simulation stats panel showing query counts.
  */
 export function createSimulationStatsPanel(): StatsPanel {
   return {
     id: "simulation",
 
     render: (ctx) => {
-      const waterStats = getWaterStats(ctx);
+      const stats = getQueryStats(ctx);
+      const terrainCache = getTerrainCacheStats(ctx);
 
       return (
         <>
@@ -32,89 +38,48 @@ export function createSimulationStatsPanel(): StatsPanel {
             <span>Simulation</span>
           </div>
 
-          {renderWaterSection(waterStats)}
+          <div className="stats-overlay__section">
+            <div className="stats-overlay__section-title">Queries</div>
+            <div className="stats-overlay__grid">
+              <StatsRow label="Water" value={`${stats.waterQueries}`} />
+              <StatsRow label="Terrain" value={`${stats.terrainQueries}`} />
+              <StatsRow label="Wind" value={`${stats.windQueries}`} />
+            </div>
+          </div>
+
+          {terrainCache && (
+            <div className="stats-overlay__section">
+              <div className="stats-overlay__section-title">Terrain Cache</div>
+              <div className="stats-overlay__grid">
+                <StatsRow
+                  label="LOD"
+                  value={`${terrainCache.currentLOD} (${terrainCache.worldUnitsPerTile}u/tile)`}
+                />
+                <StatsRow
+                  label="Tiles"
+                  value={`${terrainCache.readyTiles}/${terrainCache.cachedTiles}`}
+                />
+              </div>
+            </div>
+          )}
         </>
       );
     },
   };
 }
 
-function renderWaterSection(stats: WaterSystemStats | null): VNode {
-  if (!stats) {
-    return (
-      <div className="stats-overlay__section">
-        <div className="stats-overlay__section-title">Water</div>
-        <div className="stats-overlay__grid">
-          <StatsRow label="Status" value="Not initialized" color="muted" />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="stats-overlay__section">
-      <div className="stats-overlay__section-title">Water</div>
-      <div className="stats-overlay__grid">
-        <StatsRow
-          label="Modifiers"
-          value={`${stats.modifierCount}`}
-          color={stats.modifierCount > 1000 ? "warning" : undefined}
-        />
-        <StatsRow
-          label="Tide Height"
-          value={`${stats.tideHeight.toFixed(2)} ft`}
-        />
-        <StatsRow
-          label="Shadows"
-          value={stats.shadowsInitialized ? "Ready" : "Initializing"}
-          color={stats.shadowsInitialized ? "success" : "warning"}
-        />
-        <StatsRow
-          label="CPU onTick"
-          value={`${stats.cpuTickMs.toFixed(2)}ms`}
-          color={stats.cpuTickMs > 1 ? "warning" : undefined}
-        />
-      </div>
-    </div>
-  );
-}
-
-function getWaterStats(ctx: StatsPanelContext): WaterSystemStats | null {
-  const waterResources = ctx.game.entities.tryGetSingleton(WaterResources);
-  if (!waterResources) return null;
-
-  const wavePhysicsResources =
-    ctx.game.entities.tryGetSingleton(WavePhysicsResources);
-
-  const profilerStats = profiler.getStats();
-  const cpuTickMs = findProfilerMsByShortLabel(
-    profilerStats,
-    "onTick",
-    "WaterResources",
-  );
-
+function getQueryStats(ctx: StatsPanelContext): QueryStats {
   return {
-    modifierCount: waterResources.getModifierCount(),
-    tideHeight: waterResources.getTideHeight(),
-    shadowsInitialized: wavePhysicsResources?.isInitialized() ?? false,
-    cpuTickMs,
+    waterQueries: ctx.game.entities.byConstructor(WaterQuery).size,
+    terrainQueries: ctx.game.entities.byConstructor(TerrainQuery).size,
+    windQueries: ctx.game.entities.byConstructor(WindQuery).size,
   };
 }
 
-/**
- * Find profiler entry by short label (method name) and class name in the full path.
- * Profiler paths look like "Game.loop > tick > WaterResources.onTick"
- */
-function findProfilerMsByShortLabel(
-  stats: ProfileStats[],
-  methodName: string,
-  className: string,
-): number {
-  const fullMethodName = `${className}.${methodName}`;
-  return (
-    stats.find(
-      (s) =>
-        s.shortLabel === fullMethodName || s.label.endsWith(fullMethodName),
-    )?.msPerFrame ?? 0
-  );
+function getTerrainCacheStats(
+  ctx: StatsPanelContext,
+): TerrainCacheStats | null {
+  const surfaceRenderer = ctx.game.entities.tryGetSingleton(SurfaceRenderer);
+  if (!surfaceRenderer) return null;
+  return surfaceRenderer.getTerrainTileCacheStats();
 }

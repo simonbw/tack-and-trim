@@ -26,13 +26,11 @@ import {
 } from "../wave-physics/WavePhysicsResources";
 import { TerrainResources } from "../world/terrain/TerrainResources";
 import { WaterResources } from "../world/water/WaterResources";
-import { WAVE_COMPONENTS } from "../world/water/WaterConstants";
 import { createWaterHeightShader } from "./WaterHeightShader";
-import { createTerrainHeightShader } from "./TerrainHeightShader";
 import { createSurfaceCompositeShader } from "./SurfaceCompositeShader";
 import { WaterHeightUniforms } from "./WaterHeightUniforms";
-import { TerrainHeightUniforms } from "./TerrainHeightUniforms";
 import { SurfaceCompositeUniforms } from "./SurfaceCompositeUniforms";
+import { LODTerrainTileCache } from "./LODTerrainTileCache";
 
 // Re-export for backwards compatibility
 export { SurfaceCompositeUniforms as SurfaceUniforms } from "./SurfaceCompositeUniforms";
@@ -54,26 +52,22 @@ export class SurfaceRenderer extends BaseEntity {
 
   // Shaders for each pass
   private waterHeightShader: ComputeShader | null = null;
-  private terrainHeightShader: ComputeShader | null = null;
   private compositeShader: FullscreenShader | null = null;
+
+  // LOD terrain tile cache (multiple LOD levels for extreme zoom ranges)
+  private terrainTileCache: LODTerrainTileCache | null = null;
 
   // Intermediate textures
   private waterHeightTexture: GPUTexture | null = null;
   private waterHeightView: GPUTextureView | null = null;
-  private terrainHeightTexture: GPUTexture | null = null;
-  private terrainHeightView: GPUTextureView | null = null;
 
   // Uniform buffers
   private waterHeightUniformBuffer: GPUBuffer | null = null;
-  private terrainHeightUniformBuffer: GPUBuffer | null = null;
   private compositeUniformBuffer: GPUBuffer | null = null;
 
   // Uniform instances
   private waterHeightUniforms: UniformInstance<
     typeof WaterHeightUniforms.fields
-  > | null = null;
-  private terrainHeightUniforms: UniformInstance<
-    typeof TerrainHeightUniforms.fields
   > | null = null;
   private compositeUniforms: UniformInstance<
     typeof SurfaceCompositeUniforms.fields
@@ -81,31 +75,21 @@ export class SurfaceRenderer extends BaseEntity {
 
   // Samplers
   private heightSampler: GPUSampler | null = null;
-  private shadowSampler: GPUSampler | null = null;
-
-  // Placeholder resources
-  private placeholderShadowTexture: GPUTexture | null = null;
-  private placeholderShadowView: GPUTextureView | null = null;
-  private placeholderWaveDataBuffer: GPUBuffer | null = null;
-  private placeholderModifiersBuffer: GPUBuffer | null = null;
-  private placeholderVertexBuffer: GPUBuffer | null = null;
-  private placeholderContoursBuffer: GPUBuffer | null = null;
-  private placeholderChildrenBuffer: GPUBuffer | null = null;
 
   // Bind groups (recreated when resources change)
   private waterHeightBindGroup: GPUBindGroup | null = null;
-  private terrainHeightBindGroup: GPUBindGroup | null = null;
   private compositeBindGroup: GPUBindGroup | null = null;
 
   // Track last resources
   private lastTextureWidth = 0;
   private lastTextureHeight = 0;
-  private lastTerrainVersion = -1;
-  private lastShadowView: GPUTextureView | null = null;
+  private lastShadowDataBuffer: GPUBuffer | null = null;
   private lastWaveDataBuffer: GPUBuffer | null = null;
   private lastModifiersBuffer: GPUBuffer | null = null;
-  private lastVertexBuffer: GPUBuffer | null = null;
-  private lastContoursBuffer: GPUBuffer | null = null;
+  private lastTerrainAtlasView: GPUTextureView | null = null;
+
+  // Placeholder shadow data buffer (for when wave physics isn't ready)
+  private placeholderShadowDataBuffer: GPUBuffer | null = null;
 
   constructor() {
     super();
@@ -119,13 +103,16 @@ export class SurfaceRenderer extends BaseEntity {
 
       // Create shaders
       this.waterHeightShader = createWaterHeightShader();
-      this.terrainHeightShader = createTerrainHeightShader();
       this.compositeShader = createSurfaceCompositeShader();
+
+      // Create LOD terrain tile cache (multiple LOD levels for extreme zoom ranges)
+      // Supports zoom range 0.02 to 1.0+ by using progressively larger world units per tile
+      this.terrainTileCache = new LODTerrainTileCache();
 
       await Promise.all([
         this.waterHeightShader.init(),
-        this.terrainHeightShader.init(),
         this.compositeShader.init(),
+        this.terrainTileCache.init(),
       ]);
 
       // Create uniform buffers
@@ -133,11 +120,6 @@ export class SurfaceRenderer extends BaseEntity {
         size: WaterHeightUniforms.byteSize,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         label: "Water Height Uniform Buffer",
-      });
-      this.terrainHeightUniformBuffer = device.createBuffer({
-        size: TerrainHeightUniforms.byteSize,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        label: "Terrain Height Uniform Buffer",
       });
       this.compositeUniformBuffer = device.createBuffer({
         size: SurfaceCompositeUniforms.byteSize,
@@ -147,7 +129,6 @@ export class SurfaceRenderer extends BaseEntity {
 
       // Create uniform instances
       this.waterHeightUniforms = WaterHeightUniforms.create();
-      this.terrainHeightUniforms = TerrainHeightUniforms.create();
       this.compositeUniforms = SurfaceCompositeUniforms.create();
 
       // Set default composite values
@@ -163,58 +144,32 @@ export class SurfaceRenderer extends BaseEntity {
         label: "Height Texture Sampler",
       });
 
-      this.shadowSampler = device.createSampler({
-        magFilter: "linear",
-        minFilter: "linear",
-        addressModeU: "clamp-to-edge",
-        addressModeV: "clamp-to-edge",
-        label: "Shadow Texture Sampler",
+      // Create placeholder shadow data buffer (empty - no polygons)
+      // Layout: waveDirection (vec2), polygonCount (u32), viewport (4 f32), padding (f32)
+      // = 32 bytes header with polygonCount = 0
+      this.placeholderShadowDataBuffer = device.createBuffer({
+        size: 32,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        label: "Placeholder Shadow Data Buffer",
       });
-
-      // Create placeholder shadow texture
-      this.placeholderShadowTexture = device.createTexture({
-        size: { width: 1, height: 1 },
-        format: "rg16float",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-        label: "Placeholder Shadow Texture",
-      });
-      this.placeholderShadowView = this.placeholderShadowTexture.createView();
-
-      // Write full energy (1.0, 1.0) to placeholder
-      const shadowData = new Uint16Array([0x3c00, 0x3c00]);
-      device.queue.writeTexture(
-        { texture: this.placeholderShadowTexture },
-        shadowData,
-        { bytesPerRow: 4 },
-        { width: 1, height: 1 },
+      // Initialize with zero polygon count
+      const placeholderData = new Float32Array([
+        1.0,
+        0.0, // waveDirection
+        0, // polygonCount (as float, will be reinterpreted)
+        0,
+        0,
+        0,
+        0, // viewport
+        0, // padding
+      ]);
+      const placeholderUint = new Uint32Array(placeholderData.buffer);
+      placeholderUint[2] = 0; // Set polygonCount to 0
+      device.queue.writeBuffer(
+        this.placeholderShadowDataBuffer,
+        0,
+        placeholderData,
       );
-
-      // Create placeholder buffers
-      this.placeholderWaveDataBuffer = device.createBuffer({
-        size: 64,
-        usage: GPUBufferUsage.STORAGE,
-        label: "Placeholder Wave Data Buffer",
-      });
-      this.placeholderModifiersBuffer = device.createBuffer({
-        size: 64,
-        usage: GPUBufferUsage.STORAGE,
-        label: "Placeholder Modifiers Buffer",
-      });
-      this.placeholderVertexBuffer = device.createBuffer({
-        size: 64,
-        usage: GPUBufferUsage.STORAGE,
-        label: "Placeholder Control Points Buffer",
-      });
-      this.placeholderContoursBuffer = device.createBuffer({
-        size: 64,
-        usage: GPUBufferUsage.STORAGE,
-        label: "Placeholder Contours Buffer",
-      });
-      this.placeholderChildrenBuffer = device.createBuffer({
-        size: 64,
-        usage: GPUBufferUsage.STORAGE,
-        label: "Placeholder Children Buffer",
-      });
 
       this.initialized = true;
     } catch (error) {
@@ -239,7 +194,6 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Destroy old textures
     this.waterHeightTexture?.destroy();
-    this.terrainHeightTexture?.destroy();
 
     // Create water height texture
     this.waterHeightTexture = device.createTexture({
@@ -250,21 +204,11 @@ export class SurfaceRenderer extends BaseEntity {
     });
     this.waterHeightView = this.waterHeightTexture.createView();
 
-    // Create terrain height texture
-    this.terrainHeightTexture = device.createTexture({
-      size: { width, height },
-      format: "r32float",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-      label: "Terrain Height Texture",
-    });
-    this.terrainHeightView = this.terrainHeightTexture.createView();
-
     this.lastTextureWidth = width;
     this.lastTextureHeight = height;
 
     // Force bind group recreation
     this.waterHeightBindGroup = null;
-    this.terrainHeightBindGroup = null;
     this.compositeBindGroup = null;
   }
 
@@ -294,7 +238,7 @@ export class SurfaceRenderer extends BaseEntity {
     currentTime: number,
     width: number,
     height: number,
-    waterResources: WaterResources | undefined,
+    waterResources: WaterResources,
   ): void {
     if (!this.waterHeightUniforms) return;
 
@@ -305,41 +249,12 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterHeightUniforms.set.viewportWidth(viewport.width);
     this.waterHeightUniforms.set.viewportHeight(viewport.height);
     this.waterHeightUniforms.set.time(currentTime);
-
-    if (waterResources) {
-      this.waterHeightUniforms.set.tideHeight(waterResources.getTideHeight());
-      this.waterHeightUniforms.set.modifierCount(
-        waterResources.getModifierCount(),
-      );
-      this.waterHeightUniforms.set.waveSourceDirection(
-        waterResources.getAnalyticalConfig().waveSourceDirection,
-      );
-    } else {
-      this.waterHeightUniforms.set.tideHeight(0);
-      this.waterHeightUniforms.set.modifierCount(0);
-      this.waterHeightUniforms.set.waveSourceDirection(WAVE_COMPONENTS[0][2]);
-    }
-  }
-
-  /**
-   * Update uniforms for terrain height pass.
-   */
-  private updateTerrainHeightUniforms(
-    viewport: Viewport,
-    width: number,
-    height: number,
-    terrainResources: TerrainResources | undefined,
-  ): void {
-    if (!this.terrainHeightUniforms) return;
-
-    this.terrainHeightUniforms.set.screenWidth(width);
-    this.terrainHeightUniforms.set.screenHeight(height);
-    this.terrainHeightUniforms.set.viewportLeft(viewport.left);
-    this.terrainHeightUniforms.set.viewportTop(viewport.top);
-    this.terrainHeightUniforms.set.viewportWidth(viewport.width);
-    this.terrainHeightUniforms.set.viewportHeight(viewport.height);
-    this.terrainHeightUniforms.set.contourCount(
-      terrainResources?.getContourCount() ?? 0,
+    this.waterHeightUniforms.set.tideHeight(waterResources.getTideHeight());
+    this.waterHeightUniforms.set.modifierCount(
+      waterResources.getModifierCount(),
+    );
+    this.waterHeightUniforms.set.waveSourceDirection(
+      waterResources.getAnalyticalConfig().waveSourceDirection,
     );
   }
 
@@ -352,10 +267,10 @@ export class SurfaceRenderer extends BaseEntity {
     width: number,
     height: number,
     cameraMatrix: Matrix3,
-    waterResources: WaterResources | undefined,
-    terrainResources: TerrainResources | undefined,
+    waterResources: WaterResources,
+    terrainResources: TerrainResources,
   ): void {
-    if (!this.compositeUniforms) return;
+    if (!this.compositeUniforms || !this.terrainTileCache) return;
 
     this.compositeUniforms.set.cameraMatrix(cameraMatrix);
     this.compositeUniforms.set.screenWidth(width);
@@ -365,45 +280,41 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeUniforms.set.viewportWidth(viewport.width);
     this.compositeUniforms.set.viewportHeight(viewport.height);
     this.compositeUniforms.set.time(currentTime);
-    this.compositeUniforms.set.tideHeight(waterResources?.getTideHeight() ?? 0);
+    this.compositeUniforms.set.tideHeight(waterResources.getTideHeight());
     this.compositeUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
+
+    // Set terrain tile atlas parameters
+    const atlasInfo = this.terrainTileCache.getAtlasInfo();
+    this.compositeUniforms.set.atlasTileSize(atlasInfo.tileSize);
+    this.compositeUniforms.set.atlasTilesX(atlasInfo.tilesX);
+    this.compositeUniforms.set.atlasTilesY(atlasInfo.tilesY);
+    this.compositeUniforms.set.atlasWorldUnitsPerTile(
+      atlasInfo.worldUnitsPerTile,
+    );
   }
 
   /**
    * Ensure bind groups are up to date.
    */
   private ensureBindGroups(
-    waterResources: WaterResources | undefined,
-    terrainResources: TerrainResources | undefined,
-    shadowTextureView: GPUTextureView,
+    waterResources: WaterResources,
+    shadowDataBuffer: GPUBuffer,
+    terrainAtlasView: GPUTextureView,
   ): void {
-    // Get actual buffers or use placeholders
-    const waveDataBuffer =
-      waterResources?.waveDataBuffer ?? this.placeholderWaveDataBuffer!;
-    const modifiersBuffer =
-      waterResources?.modifiersBuffer ?? this.placeholderModifiersBuffer!;
-    const vertexBuffer =
-      terrainResources?.vertexBuffer ?? this.placeholderVertexBuffer!;
-    const contoursBuffer =
-      terrainResources?.contourBuffer ?? this.placeholderContoursBuffer!;
-    const childrenBuffer =
-      terrainResources?.childrenBuffer ?? this.placeholderChildrenBuffer!;
+    const waveDataBuffer = waterResources.waveDataBuffer;
+    const modifiersBuffer = waterResources.modifiersBuffer;
 
-    const terrainVersion = terrainResources?.getVersion() ?? -1;
     const needsRebuild =
       !this.waterHeightBindGroup ||
-      !this.terrainHeightBindGroup ||
       !this.compositeBindGroup ||
-      this.lastShadowView !== shadowTextureView ||
+      this.lastShadowDataBuffer !== shadowDataBuffer ||
       this.lastWaveDataBuffer !== waveDataBuffer ||
       this.lastModifiersBuffer !== modifiersBuffer ||
-      this.lastVertexBuffer !== vertexBuffer ||
-      this.lastContoursBuffer !== contoursBuffer ||
-      this.lastTerrainVersion !== terrainVersion;
+      this.lastTerrainAtlasView !== terrainAtlasView;
 
     if (!needsRebuild) return;
 
-    // Water height bind group
+    // Water height bind group (includes shadow data for analytical attenuation)
     if (
       this.waterHeightShader &&
       this.waterHeightUniformBuffer &&
@@ -413,56 +324,36 @@ export class SurfaceRenderer extends BaseEntity {
         params: { buffer: this.waterHeightUniformBuffer },
         waveData: { buffer: waveDataBuffer },
         modifiers: { buffer: modifiersBuffer },
+        shadowData: { buffer: shadowDataBuffer },
         outputTexture: this.waterHeightView,
       });
     }
 
-    // Terrain height bind group
-    if (
-      this.terrainHeightShader &&
-      this.terrainHeightUniformBuffer &&
-      this.terrainHeightView
-    ) {
-      this.terrainHeightBindGroup = this.terrainHeightShader.createBindGroup({
-        params: { buffer: this.terrainHeightUniformBuffer },
-        vertices: { buffer: vertexBuffer },
-        contours: { buffer: contoursBuffer },
-        children: { buffer: childrenBuffer },
-        outputTexture: this.terrainHeightView,
-      });
-    }
-
-    // Composite bind group
+    // Composite bind group (uses terrain tile atlas)
     if (
       this.compositeShader &&
       this.compositeUniformBuffer &&
       this.waterHeightView &&
-      this.terrainHeightView &&
-      this.heightSampler &&
-      this.shadowSampler
+      this.heightSampler
     ) {
       this.compositeBindGroup = this.compositeShader.createBindGroup({
         params: { buffer: this.compositeUniformBuffer },
         waterHeightTexture: this.waterHeightView,
-        terrainHeightTexture: this.terrainHeightView,
-        shadowTexture: shadowTextureView,
+        terrainTileAtlas: terrainAtlasView,
         heightSampler: this.heightSampler,
-        shadowSampler: this.shadowSampler,
       });
     }
 
     // Update tracking
-    this.lastShadowView = shadowTextureView;
+    this.lastShadowDataBuffer = shadowDataBuffer;
     this.lastWaveDataBuffer = waveDataBuffer;
     this.lastModifiersBuffer = modifiersBuffer;
-    this.lastVertexBuffer = vertexBuffer;
-    this.lastContoursBuffer = contoursBuffer;
-    this.lastTerrainVersion = terrainVersion;
+    this.lastTerrainAtlasView = terrainAtlasView;
   }
 
   @on("render")
   onRender(_event: { dt: number; draw: Draw }) {
-    if (!this.initialized) return;
+    if (!this.initialized || !this.terrainTileCache) return;
 
     const camera = this.game.camera;
     const renderer = this.game.getRenderer();
@@ -479,30 +370,46 @@ export class SurfaceRenderer extends BaseEntity {
       ? timeOfDay.getTimeInSeconds()
       : this.game.elapsedUnpausedTime;
 
-    // Get resources
+    // Get resources (these are required - will throw if missing)
     const wavePhysicsResources =
       this.game.entities.tryGetSingleton(WavePhysicsResources);
-    const waterResources = this.game.entities.tryGetSingleton(WaterResources);
-    const terrainResources =
-      this.game.entities.tryGetSingleton(TerrainResources);
+    const waterResources = this.game.entities.getSingleton(WaterResources);
+    const terrainResources = this.game.entities.getSingleton(TerrainResources);
 
-    // Update shadow texture
-    if (wavePhysicsResources?.isInitialized()) {
-      wavePhysicsResources.updateShadowTexture(
-        expandedViewport,
-        gpuProfiler?.getTimestampWrites("surface.shadow"),
-      );
-    }
-
-    const shadowTextureView =
-      wavePhysicsResources?.getShadowTextureView() ??
-      this.placeholderShadowView!;
+    // Get shadow data buffer for analytical wave attenuation
+    const shadowDataBuffer =
+      wavePhysicsResources?.getShadowDataBuffer() ??
+      this.placeholderShadowDataBuffer!;
 
     // Ensure intermediate textures
     this.ensureTextures(width, height);
 
     // Get camera matrix
     const cameraMatrix = camera.getMatrix().clone().invert();
+
+    // === Terrain Tile Cache Update ===
+    // Check for terrain changes and invalidate if needed
+    this.terrainTileCache.checkInvalidation(terrainResources);
+
+    // Update tile cache and get tiles that need rendering
+    // Pass camera.z (zoom level) for LOD selection
+    const tileRequests = this.terrainTileCache.update(
+      expandedViewport,
+      camera.z,
+      terrainResources,
+    );
+
+    // Render any missing tiles
+    if (tileRequests.length > 0) {
+      this.terrainTileCache.renderTiles(
+        tileRequests,
+        terrainResources,
+        gpuProfiler ?? undefined,
+      );
+    }
+
+    // Get terrain atlas view for composite shader
+    const terrainAtlasView = this.terrainTileCache.getAtlasView();
 
     // Update all uniforms
     this.updateWaterHeightUniforms(
@@ -511,12 +418,6 @@ export class SurfaceRenderer extends BaseEntity {
       width,
       height,
       waterResources,
-    );
-    this.updateTerrainHeightUniforms(
-      expandedViewport,
-      width,
-      height,
-      terrainResources,
     );
     this.updateCompositeUniforms(
       expandedViewport,
@@ -530,11 +431,10 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Upload uniforms
     this.waterHeightUniforms?.uploadTo(this.waterHeightUniformBuffer!);
-    this.terrainHeightUniforms?.uploadTo(this.terrainHeightUniformBuffer!);
     this.compositeUniforms?.uploadTo(this.compositeUniformBuffer!);
 
     // Ensure bind groups
-    this.ensureBindGroups(waterResources, terrainResources, shadowTextureView);
+    this.ensureBindGroups(waterResources, shadowDataBuffer, terrainAtlasView);
 
     // === Pass 1: Water Height Compute ===
     if (this.waterHeightShader && this.waterHeightBindGroup) {
@@ -556,26 +456,6 @@ export class SurfaceRenderer extends BaseEntity {
       device.queue.submit([commandEncoder.finish()]);
     }
 
-    // === Pass 2: Terrain Height Compute ===
-    if (this.terrainHeightShader && this.terrainHeightBindGroup) {
-      const commandEncoder = device.createCommandEncoder({
-        label: "Terrain Height Compute",
-      });
-      const computePass = commandEncoder.beginComputePass({
-        label: "Terrain Height Compute Pass",
-        timestampWrites:
-          gpuProfiler?.getComputeTimestampWrites("surface.terrain"),
-      });
-      this.terrainHeightShader.dispatch(
-        computePass,
-        this.terrainHeightBindGroup,
-        width,
-        height,
-      );
-      computePass.end();
-      device.queue.submit([commandEncoder.finish()]);
-    }
-
     // === Pass 3: Surface Composite ===
     const renderPass = renderer.getCurrentRenderPass();
     if (renderPass && this.compositeShader && this.compositeBindGroup) {
@@ -584,28 +464,40 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   /**
-   * Get the terrain height texture view for debug visualization.
-   * Returns null if not initialized or textures not created yet.
+   * Get the terrain tile atlas view for debug visualization.
+   * Returns null if not initialized.
    */
   getTerrainHeightTextureView(): GPUTextureView | null {
-    return this.terrainHeightView;
+    return this.terrainTileCache?.getAtlasView() ?? null;
+  }
+
+  /**
+   * Get terrain tile cache stats for debugging.
+   */
+  getTerrainTileCacheStats(): {
+    cachedTiles: number;
+    readyTiles: number;
+    currentLOD: number;
+    worldUnitsPerTile: number;
+  } | null {
+    if (!this.terrainTileCache) return null;
+    const lodConfig = this.terrainTileCache.getCurrentLODConfig();
+    return {
+      cachedTiles: this.terrainTileCache.getCachedTileCount(),
+      readyTiles: this.terrainTileCache.getReadyTileCount(),
+      currentLOD: this.terrainTileCache.getCurrentLOD(),
+      worldUnitsPerTile: lodConfig.worldUnitsPerTile,
+    };
   }
 
   @on("destroy")
   onDestroy(): void {
     this.waterHeightShader?.destroy();
-    this.terrainHeightShader?.destroy();
     this.compositeShader?.destroy();
+    this.terrainTileCache?.destroy();
     this.waterHeightTexture?.destroy();
-    this.terrainHeightTexture?.destroy();
     this.waterHeightUniformBuffer?.destroy();
-    this.terrainHeightUniformBuffer?.destroy();
     this.compositeUniformBuffer?.destroy();
-    this.placeholderShadowTexture?.destroy();
-    this.placeholderWaveDataBuffer?.destroy();
-    this.placeholderModifiersBuffer?.destroy();
-    this.placeholderVertexBuffer?.destroy();
-    this.placeholderContoursBuffer?.destroy();
-    this.placeholderChildrenBuffer?.destroy();
+    this.placeholderShadowDataBuffer?.destroy();
   }
 }
