@@ -6,6 +6,7 @@ import {
   defineUniformStruct,
   f32,
   i32,
+  u32,
   mat3x3,
 } from "../../core/graphics/UniformStruct";
 
@@ -32,7 +33,9 @@ export const SurfaceCompositeUniforms = defineUniformStruct("Params", {
   shallowThreshold: f32,
   hasTerrainData: i32,
 
-  // Padding for 16-byte alignment
-  _padding0: f32,
-  _padding1: f32,
+  // Terrain tile atlas parameters
+  atlasTileSize: u32,
+  atlasTilesX: u32,
+  atlasTilesY: u32,
+  atlasWorldUnitsPerTile: f32,
 });

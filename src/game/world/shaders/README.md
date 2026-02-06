@@ -6,13 +6,14 @@ This directory contains reusable WGSL shader modules that can be composed into c
 
 **One export per module, with names matching what they export:**
 
-| Prefix | Type | Example |
-|--------|------|---------|
-| `fn_` | Functions | `fn_computeFresnel`, `fn_simplex3D` |
-| `struct_` | Structs | `struct_ContourData`, `struct_WindResult` |
-| `const_` | Constants | `const_GRAVITY`, `const_MODIFIER_TYPES` |
+| Prefix    | Type      | Example                                   |
+| --------- | --------- | ----------------------------------------- |
+| `fn_`     | Functions | `fn_computeFresnel`, `fn_simplex3D`       |
+| `struct_` | Structs   | `struct_ContourData`, `struct_WindResult` |
+| `const_`  | Constants | `const_GRAVITY`, `const_MODIFIER_TYPES`   |
 
 **Private helpers** use `_` prefix in WGSL code and stay bundled with their main function:
+
 ```wgsl
 fn _simplex3D_permute(...) { ... }  // Private helper
 fn simplex3D(...) { ... }           // Public function
@@ -26,12 +27,12 @@ Each module is defined in a `.wgsl.ts` file and exports exactly one thing:
 
 ```typescript
 export const fn_computeFresnel: ShaderModule = {
-  code: /*wgsl*/`
+  code: /*wgsl*/ `
     fn computeFresnel(facing: f32, power: f32) -> f32 {
       return pow(1.0 - facing, power);
     }
   `,
-  dependencies: [],  // Other modules this depends on
+  dependencies: [], // Other modules this depends on
 };
 ```
 
@@ -40,6 +41,7 @@ export const fn_computeFresnel: ShaderModule = {
 ### Automatic Constants
 
 The following constants are automatically included in all shaders via `getMathConstants()`:
+
 - `PI` (3.14159...)
 - `TWO_PI` (6.28318...)
 - `HALF_PI` (1.57079...)
@@ -50,15 +52,18 @@ No need to import or depend on these - they're always available.
 ### Core Utilities
 
 #### `noise.wgsl.ts`
+
 - **fn_simplex3D** - 3D simplex noise
   - `simplex3D(v: vec3<f32>) -> f32` - Returns [-1, 1]
   - Private helpers: `_simplex3D_mod289_vec3`, `_simplex3D_permute`, etc.
 
 #### `math.wgsl.ts`
+
 - **fn_hash21** - Hash function for procedural noise
   - `hash21(p: vec2<f32>) -> f32` - 2D → 1D hash
 
 #### `coordinates.wgsl.ts`
+
 - **fn_uvToWorld** - Convert UV (0-1) to world coordinates
 - **fn_worldToUV** - Convert world to UV coordinates
 - **fn_uvInBounds** - Check if UV is in valid range (0-1)
@@ -66,6 +71,7 @@ No need to import or depend on these - they're always available.
 ### Lighting
 
 #### `lighting.wgsl.ts`
+
 - **fn_computeFresnel** - Fresnel effect (Schlick approximation)
 - **fn_computeSpecular** - Phong specular reflection
 - **fn_computeDiffuse** - Lambertian diffuse lighting
@@ -75,22 +81,26 @@ No need to import or depend on these - they're always available.
 ### Physics
 
 #### `wave-physics.wgsl.ts`
+
 - **fn_computeShoalingFactor** - Green's Law wave shoaling
 - **fn_computeShallowDamping** - Bottom friction damping
 - **fn_computeWaveFrequency** - Wave angular frequency from wavelength
 - **fn_computeWaveNumber** - Wave number from wavelength
 
 #### `gerstner-wave.wgsl.ts`
+
 - **struct_WaveModification** - Wave modification result (energy, direction)
 - **fn_calculateGerstnerWaves** - Analytical Gerstner wave computation
   - Dependencies: `struct_WaveModification`
 
 #### `fresnel-diffraction.wgsl.ts`
+
 - **fn_computeFresnelEnergy** - Wave energy attenuation from Fresnel diffraction
 
 ### Terrain
 
 #### `terrain.wgsl.ts`
+
 - **fn_pointToLineSegmentDistanceSq** - Squared distance from point to segment
 - **fn_pointLeftOfSegment** - Winding number test
 - **fn_computeIDWWeight** - Inverse distance weighting weight
@@ -110,6 +120,7 @@ No need to import or depend on these - they're always available.
 ### Wind
 
 #### `wind.wgsl.ts`
+
 - **fn_calculateWindVelocity** - Wind velocity with noise variation
   - Dependencies: `fn_simplex3D`
 - **struct_WindResult** - Wind query result (velocity, speed, direction)
@@ -119,6 +130,7 @@ No need to import or depend on these - they're always available.
 ### Water
 
 #### `water.wgsl.ts`
+
 - **struct_WaveSource** - Wave source data (placeholder)
 - **struct_WaterParams** - Water parameters (placeholder)
 - **fn_calculateWaterData** - Water surface data (placeholder)
@@ -131,6 +143,7 @@ No need to import or depend on these - they're always available.
   - Dependencies: `struct_WaterResult`, `fn_simplex3D`, `fn_computeWaterHeightAtPoint`, `fn_computeWaterNormal`
 
 #### `water-modifiers.wgsl.ts`
+
 - **fn_computeWakeContribution** - Wake modifier
 - **fn_computeRippleContribution** - Ripple modifier
 - **fn_computeCurrentContribution** - Current modifier
@@ -144,14 +157,17 @@ No need to import or depend on these - they're always available.
 ### Rendering
 
 #### `normal-computation.wgsl.ts`
+
 - **fn_computeNormalFromHeightField** - Normal from height texture gradients
 
 #### `sand-rendering.wgsl.ts`
+
 - **fn_renderSand** - Sand surface with wetness
 
 ### Common
 
 #### `common.wgsl.ts`
+
 - **struct_QueryPoint** - Query point structure for GPU queries
 
 ## Usage Example
@@ -161,7 +177,7 @@ import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import { fn_uvToWorld } from "../world/shaders/coordinates.wgsl";
 
 const myModule: ShaderModule = {
-  code: /*wgsl*/`
+  code: /*wgsl*/ `
     fn myFunction(uv: vec2<f32>) -> f32 {
       let worldPos = uvToWorld(uv, ...);  // From fn_uvToWorld
       let noise = simplex3D(vec3(worldPos, 0.0));  // From fn_simplex3D
@@ -185,4 +201,5 @@ Dependencies are automatically resolved - if `fn_simplex3D` has its own dependen
 ## Testing
 
 Test shaders using the module system:
+
 - `src/game/world/shaders/test-module-system.ts` - Demonstrates composition and dependency resolution

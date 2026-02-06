@@ -32,23 +32,28 @@ The surface renderer uses three GPU passes for flexibility and profiling:
 ## Files
 
 ### Shaders
+
 - **WaterHeightShader.ts** - Compute shader for Gerstner waves + modifiers
 - **TerrainHeightShader.ts** - Compute shader for contour-based terrain height
 - **SurfaceCompositeShader.ts** - Fragment shader for normals + lighting
 
 ### Uniforms
+
 - **WaterHeightUniforms.ts** - Params for water height pass
 - **TerrainHeightUniforms.ts** - Params for terrain height pass
 - **SurfaceCompositeUniforms.ts** - Params for composite pass
 
 ### Core
+
 - **SurfaceRenderer.ts** - Entity that orchestrates the three passes
 
 ### Legacy (kept for reference)
+
 - **UnifiedSurfaceShader.ts** - Single-pass version (not used)
 - **UnifiedSurfaceUniforms.ts** - Uniforms for single-pass (not used)
 
 ### Other
+
 - **WetnessRenderPipeline.ts** - Sand wetness tracking (disabled for now)
 - **WetnessStateShader.ts** - Compute shader for wetness
 
@@ -62,6 +67,7 @@ The surface renderer uses three GPU passes for flexibility and profiling:
 ## GPU Profiling
 
 Each pass has its own GPU timestamp query section:
+
 - `waterHeight` - Water height compute pass
 - `terrainHeight` - Terrain height compute pass
 - `shadowCompute` - Shadow texture render pass

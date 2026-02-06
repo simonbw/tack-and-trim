@@ -215,10 +215,13 @@ export abstract class QueryManager<TResult> extends BaseEntity {
       return;
     }
 
+    const readbackBuffer = this.readbackBuffers.getRead();
+    let mappedSuccessfully = false;
+
     try {
       await this.readbackPromise;
+      mappedSuccessfully = true;
 
-      const readbackBuffer = this.readbackBuffers.getRead();
       const data = new Float32Array(readbackBuffer.getMappedRange());
       const queries = this.getQueries();
       const layout = this.resultLayout;
@@ -235,14 +238,20 @@ export abstract class QueryManager<TResult> extends BaseEntity {
         }
         query.setResults(results);
       }
-
-      readbackBuffer.unmap();
     } catch (error) {
       console.warn(
         `[${this.constructor.name}] Query readback failed (context loss?):`,
         (error as Error).message,
       );
-      // Clear promise so we can try again next frame
+    } finally {
+      // Always unmap the buffer if mapping succeeded, even if processing failed
+      if (mappedSuccessfully) {
+        try {
+          readbackBuffer.unmap();
+        } catch {
+          // Buffer might already be unmapped, ignore
+        }
+      }
       this.readbackPromise = null;
     }
   }

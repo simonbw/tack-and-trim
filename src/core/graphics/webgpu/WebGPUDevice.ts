@@ -83,13 +83,16 @@ export class WebGPUDeviceManager {
       this._features.shaderF16 = true;
     }
 
-    // Request device with optional features
+    // Request device with optional features and higher limits
     this._device = await this._adapter.requestDevice({
       requiredFeatures: wantedFeatures,
       requiredLimits: {
         maxStorageBufferBindingSize:
           this._adapter.limits.maxStorageBufferBindingSize,
         maxBufferSize: this._adapter.limits.maxBufferSize,
+        // Request higher storage buffer limit (default is 8, we need 9+ for combined water/terrain queries)
+        maxStorageBuffersPerShaderStage:
+          this._adapter.limits.maxStorageBuffersPerShaderStage,
       },
     });
 

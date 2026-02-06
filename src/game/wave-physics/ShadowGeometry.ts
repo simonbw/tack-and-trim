@@ -1,14 +1,13 @@
 /**
  * Shadow Geometry
  *
- * Builds shadow regions from silhouette points. Each shadow region is defined by:
+ * Builds shadow regions from terrain contours. Each shadow region is defined by:
  * - Two boundary lines extending from silhouette points in the wave direction
  * - The coastline segment between those points (the "obstacle")
  * - The obstacle width (distance between silhouette points)
  *
- * Shadow polygons are used for:
- * 1. Rasterization to a shadow texture (ShadowTextureRenderer)
- * 2. Per-pixel distance calculations in the wave shader
+ * Shadow polygon data is used for analytical Fresnel diffraction computation
+ * in the water height and query shaders.
  */
 
 import { V, V2d } from "../../core/Vector";
@@ -22,23 +21,22 @@ import {
 import { MAX_SHADOW_POLYGONS } from "./WavePhysicsManager";
 
 /**
- * Simplified shadow polygon data for GPU rendering and uniform buffers.
+ * Shadow polygon data for analytical Fresnel diffraction.
  *
- * This is the primary data structure for the texture-based shadow system.
- * It contains everything needed to:
- * 1. Render the polygon to the shadow texture (vertices, polygonIndex)
- * 2. Compute Fresnel diffraction distances in the shader (silhouette points, obstacleWidth)
+ * Contains the data needed for per-pixel wave shadow computation:
+ * - Silhouette points define the shadow boundary lines
+ * - Obstacle width is used for recovery distance calculation
  */
 export interface ShadowPolygonRenderData {
-  /** Polygon vertices in world space (for rasterization) */
+  /** Polygon vertices in world space (for debug visualization) */
   vertices: V2d[];
-  /** Coastline vertices from right to left silhouette (for rasterization) */
+  /** Coastline vertices from right to left silhouette (for debug visualization) */
   coastlineVertices: V2d[];
-  /** Index of this polygon (for identification in shader) */
+  /** Index of this polygon */
   polygonIndex: number;
-  /** Left silhouette point (for distance calculations) */
+  /** Left silhouette point (for Fresnel diffraction calculation) */
   leftSilhouette: V2d;
-  /** Right silhouette point (for distance calculations) */
+  /** Right silhouette point (for Fresnel diffraction calculation) */
   rightSilhouette: V2d;
   /** Distance between silhouette points (perpendicular to wave direction) */
   obstacleWidth: number;

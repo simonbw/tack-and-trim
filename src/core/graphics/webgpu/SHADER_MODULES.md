@@ -5,6 +5,7 @@ A composable shader module system for sharing WGSL code across shaders.
 ## Overview
 
 The shader module system allows you to:
+
 - Write WGSL functions once and import them in multiple shaders
 - Automatically resolve dependencies between modules
 - Merge bindings from all modules
@@ -15,16 +16,18 @@ The shader module system allows you to:
 ### Core Types
 
 **ShaderModule** (`ShaderModule.ts`):
+
 ```typescript
 interface ShaderModule {
-  code: string;                    // WGSL source code
-  bindings?: BindingsDefinition;   // Required GPU bindings
-  dependencies?: ShaderModule[];   // Other modules this depends on
+  code: string; // WGSL source code
+  bindings?: BindingsDefinition; // Required GPU bindings
+  dependencies?: ShaderModule[]; // Other modules this depends on
 }
 ```
 
 **Shader** (`Shader.ts`):
 Base class providing:
+
 - Module collection with deduplication
 - Code building from modules
 - Binding merging
@@ -32,6 +35,7 @@ Base class providing:
 
 **ComputeShader** and **FullscreenShader**:
 Extended to support both:
+
 - Direct code (backwards compatible)
 - Module-based composition (new feature)
 
@@ -44,7 +48,7 @@ Create reusable WGSL code as TypeScript modules. Bindings include their WGSL typ
 ```typescript
 // terrain.wgsl.ts
 export const terrainHeightModule: ShaderModule = {
-  code: /*wgsl*/`
+  code: /*wgsl*/ `
     fn calculateTerrainHeight(worldPos: vec2<f32>) -> f32 {
       // ... terrain calculation ...
       return height;
@@ -52,14 +56,14 @@ export const terrainHeightModule: ShaderModule = {
   `,
   bindings: {
     terrainContours: {
-      type: 'storage',
-      wgslType: 'array<ContourData>',
+      type: "storage",
+      wgslType: "array<ContourData>",
     },
     controlPoints: {
-      type: 'storage',
-      wgslType: 'array<vec2<f32>>',
+      type: "storage",
+      wgslType: "array<vec2<f32>>",
     },
-  }
+  },
 };
 ```
 
@@ -69,10 +73,10 @@ Modules can depend on other modules:
 
 ```typescript
 // water.wgsl.ts
-import { terrainHeightModule } from './terrain.wgsl';
+import { terrainHeightModule } from "./terrain.wgsl";
 
 export const waterDataModule: ShaderModule = {
-  code: /*wgsl*/`
+  code: /*wgsl*/ `
     fn calculateWaterData(worldPos: vec2<f32>) -> vec4<f32> {
       let terrainH = calculateTerrainHeight(worldPos);  // From dependency
       // ... water calculation using terrain height ...
@@ -81,24 +85,25 @@ export const waterDataModule: ShaderModule = {
   `,
   bindings: {
     waveSources: {
-      type: 'storage',
-      wgslType: 'array<WaveSource>',
+      type: "storage",
+      wgslType: "array<WaveSource>",
     },
     waterParams: {
-      type: 'uniform',
-      wgslType: 'WaterParams',
+      type: "uniform",
+      wgslType: "WaterParams",
     },
   },
-  dependencies: [terrainHeightModule]  // Automatic inclusion
+  dependencies: [terrainHeightModule], // Automatic inclusion
 };
 ```
 
 ### Using Modules in Compute Shaders
 
 **Recommended approach with type helpers**:
+
 ```typescript
-import { type BindingsFromModules } from './ShaderModule';
-import { waterDataModule } from './water.wgsl';
+import { type BindingsFromModules } from "./ShaderModule";
+import { waterDataModule } from "./water.wgsl";
 
 class MyComputeShader extends ComputeShader<typeof MyComputeShader.BINDINGS> {
   // Define modules as const for type inference
@@ -106,13 +111,13 @@ class MyComputeShader extends ComputeShader<typeof MyComputeShader.BINDINGS> {
 
   // Use helper to merge bindings (automatically typed!)
   static readonly BINDINGS = Shader.mergeBindings(MyComputeShader.MODULES, {
-    results: { type: 'storageRW', wgslType: 'array<f32>' }
+    results: { type: "storageRW", wgslType: "array<f32>" },
   });
 
   readonly bindings = MyComputeShader.BINDINGS;
   protected modules = MyComputeShader.MODULES;
 
-  protected mainCode = /*wgsl*/`
+  protected mainCode = /*wgsl*/ `
     ${this.buildWGSLBindings()}  // Auto-generates all bindings
 
     @compute @workgroup_size(64, 1)
@@ -127,9 +132,10 @@ class MyComputeShader extends ComputeShader<typeof MyComputeShader.BINDINGS> {
 ```
 
 **Old direct-code approach (still works)**:
+
 ```typescript
 class MyComputeShader extends ComputeShader<typeof MyBindings> {
-  readonly code = /*wgsl*/`
+  readonly code = /*wgsl*/ `
     // All WGSL code here
     @compute @workgroup_size(64, 1)
     fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
@@ -147,20 +153,20 @@ class MyComputeShader extends ComputeShader<typeof MyBindings> {
 Fullscreen shaders can have separate modules for vertex and fragment:
 
 ```typescript
-import { waterDataModule } from './water.wgsl';
+import { waterDataModule } from "./water.wgsl";
 
 class MyFullscreenShader extends FullscreenShader<typeof MyBindings> {
-  protected vertexModules = [];  // No modules needed for simple vertex
+  protected vertexModules = []; // No modules needed for simple vertex
   protected fragmentModules = [waterDataModule];
 
-  protected vertexMainCode = /*wgsl*/`
+  protected vertexMainCode = /*wgsl*/ `
     @vertex
     fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
       // ... vertex shader ...
     }
   `;
 
-  protected fragmentMainCode = /*wgsl*/`
+  protected fragmentMainCode = /*wgsl*/ `
     @fragment
     fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
       let data = calculateWaterData(pos);  // From module
@@ -169,7 +175,7 @@ class MyFullscreenShader extends FullscreenShader<typeof MyBindings> {
   `;
 
   readonly bindings = {
-    ...this.buildBindings(),  // From modules
+    ...this.buildBindings(), // From modules
     // Additional bindings
   } as const;
 }
@@ -213,7 +219,7 @@ class MyShader extends ComputeShader<typeof MyShader.BINDINGS> {
 
   readonly bindings = MyShader.BINDINGS;
 
-  protected mainCode = /*wgsl*/`
+  protected mainCode = /*wgsl*/ `
     // Struct definitions
     struct Params {
       size: u32,
@@ -233,6 +239,7 @@ class MyShader extends ComputeShader<typeof MyShader.BINDINGS> {
 ```
 
 This generates:
+
 ```wgsl
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> inputData: array<f32>;
@@ -244,18 +251,18 @@ This generates:
 When using modules, their bindings are automatically included:
 
 ```typescript
-import { queryPointsModule } from './common.wgsl';
+import { queryPointsModule } from "./common.wgsl";
 
 class MyShader extends ComputeShader<typeof MyShader.BINDINGS> {
   static readonly BINDINGS = {
-    ...queryPointsModule.bindings,  // Module bindings
+    ...queryPointsModule.bindings, // Module bindings
     results: { type: "storageRW", wgslType: "array<f32>" },
   } as const;
 
   readonly bindings = MyShader.BINDINGS;
   protected modules = [queryPointsModule];
 
-  protected mainCode = /*wgsl*/`
+  protected mainCode = /*wgsl*/ `
     // One call generates ALL bindings (module + shader)
     ${this.buildWGSLBindings()}
 
@@ -283,6 +290,7 @@ See `SHADER_BINDINGS_EXAMPLE.md` for more details.
 ### Naming Conventions
 
 Avoid binding name conflicts between modules:
+
 - Prefix bindings with module name: `waterParams`, `terrainContours`
 - Use descriptive names: `waveSources` not `sources`
 
@@ -305,12 +313,14 @@ src/game/world/shaders/
 ### Backwards Compatibility
 
 All existing shaders continue to work without changes:
+
 - ComputeShader: Use `code` property
 - FullscreenShader: Use `vertexCode` and `fragmentCode` properties
 
 ## Example Modules
 
 See `src/game/world/shaders/` for examples:
+
 - `common.wgsl.ts` - Query point structure
 - `terrain.wgsl.ts` - Terrain height calculation
 - `water.wgsl.ts` - Water data calculation with terrain dependency

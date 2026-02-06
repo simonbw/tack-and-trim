@@ -7,8 +7,7 @@
  *
  * Inputs:
  * - Water height texture (r32float)
- * - Terrain height texture (r32float)
- * - Shadow texture (rg16float)
+ * - Terrain tile atlas (r32float)
  *
  * Output:
  * - Final surface color with lighting
@@ -49,8 +48,12 @@ struct Params {
   tideHeight: f32,
   shallowThreshold: f32,
   hasTerrainData: i32,
-  _padding0: f32,
-  _padding1: f32,
+
+  // Terrain tile atlas parameters
+  atlasTileSize: u32,
+  atlasTilesX: u32,
+  atlasTilesY: u32,
+  atlasWorldUnitsPerTile: f32,
 }
 
 const SHALLOW_WATER_THRESHOLD: f32 = ${SHALLOW_WATER_THRESHOLD};
@@ -62,18 +65,12 @@ const SHALLOW_WATER_THRESHOLD: f32 = ${SHALLOW_WATER_THRESHOLD};
       viewDimension: "2d",
       sampleType: "unfilterable-float",
     },
-    terrainHeightTexture: {
+    terrainTileAtlas: {
       type: "texture",
       viewDimension: "2d",
       sampleType: "unfilterable-float",
     },
-    shadowTexture: {
-      type: "texture",
-      viewDimension: "2d",
-      sampleType: "float",
-    },
     heightSampler: { type: "sampler", samplerType: "non-filtering" },
-    shadowSampler: { type: "sampler" },
   },
   code: "",
 };
@@ -111,24 +108,19 @@ const surfaceCompositeFragmentModule: ShaderModule = {
     fn_renderSand,
   ],
   code: /*wgsl*/ `
-// Get camera matrix from packed vec4s
-fn getCameraMatrix() -> mat3x3<f32> {
-  return mat3x3<f32>(
-    params.cameraMatrix0.xyz,
-    params.cameraMatrix1.xyz,
-    params.cameraMatrix2.xyz
-  );
-}
-
-// Convert clip position to world position using camera matrix
+// Convert clip position to world position using viewport parameters
+// This matches how the water height shader computes world positions
 fn clipToWorld(clipPos: vec2<f32>) -> vec2<f32> {
-  // Convert clip space (-1,1) to screen coords (0, screenSize)
-  let screenPos = (clipPos * 0.5 + 0.5) * vec2<f32>(params.screenWidth, params.screenHeight);
+  // Convert clip space (-1,1) to UV space (0,1)
+  // Flip Y to match screen coordinates (clip Y=1 is top, screen Y=0 is top)
+  let uvX = clipPos.x * 0.5 + 0.5;
+  let uvY = -clipPos.y * 0.5 + 0.5;
 
-  // Transform screen position to world position using camera matrix
-  let cameraMatrix = getCameraMatrix();
-  let worldPosH = cameraMatrix * vec3<f32>(screenPos, 1.0);
-  return worldPosH.xy;
+  // Map UV to world coordinates using viewport
+  return vec2<f32>(
+    params.viewportLeft + uvX * params.viewportWidth,
+    params.viewportTop + uvY * params.viewportHeight
+  );
 }
 
 // Convert world position to UV for height texture sampling
@@ -149,13 +141,41 @@ fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
   return textureLoad(waterHeightTexture, texCoord, 0).r;
 }
 
+// Sample terrain height from tile atlas
 fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
-  let uv = worldToHeightUV(worldPos);
-  let texCoord = vec2<i32>(
-    i32(uv.x * params.screenWidth),
-    i32(uv.y * params.screenHeight)
-  );
-  return textureLoad(terrainHeightTexture, texCoord, 0).r;
+  // Convert world position to tile coordinates
+  let worldUnitsPerTile = params.atlasWorldUnitsPerTile;
+  let tileSize = params.atlasTileSize;
+
+  // Calculate which tile this world position is in
+  let tileX = floor(worldPos.x / worldUnitsPerTile);
+  let tileY = floor(worldPos.y / worldUnitsPerTile);
+
+  // Calculate position within the tile (0-1)
+  // Clamp to [0, 1) to handle floating point precision at boundaries
+  let localX = clamp((worldPos.x - tileX * worldUnitsPerTile) / worldUnitsPerTile, 0.0, 0.999999);
+  let localY = clamp((worldPos.y - tileY * worldUnitsPerTile) / worldUnitsPerTile, 0.0, 0.999999);
+
+  // Calculate atlas slot from tile coordinates using modulo for wrapping
+  // This gives us the slot that would contain this tile if it's cached
+  let slotX = i32(tileX) % i32(params.atlasTilesX);
+  let slotY = i32(tileY) % i32(params.atlasTilesY);
+
+  // Handle negative coordinates (WGSL % can return negative values)
+  let wrappedSlotX = u32(select(slotX, slotX + i32(params.atlasTilesX), slotX < 0));
+  let wrappedSlotY = u32(select(slotY, slotY + i32(params.atlasTilesY), slotY < 0));
+
+  // Calculate pixel coordinates within the tile, then offset to atlas position
+  // Use the same mapping as the tile shader: pixel i -> world (i/tileSize)
+  // So world -> pixel is: localX * tileSize, clamped to valid pixel range
+  let pixelInTileX = min(u32(localX * f32(tileSize)), tileSize - 1u);
+  let pixelInTileY = min(u32(localY * f32(tileSize)), tileSize - 1u);
+
+  let atlasPixelX = wrappedSlotX * tileSize + pixelInTileX;
+  let atlasPixelY = wrappedSlotY * tileSize + pixelInTileY;
+
+  let texCoord = vec2<i32>(i32(atlasPixelX), i32(atlasPixelY));
+  return textureLoad(terrainTileAtlas, texCoord, 0).r;
 }
 
 // Compute normal from height texture via finite differences
@@ -187,12 +207,6 @@ fn computeTerrainNormal(worldPos: vec2<f32>) -> vec3<f32> {
   return normalize(vec3<f32>(-dx, -dy, 1.0));
 }
 
-// Sample shadow texture (returns swell and chop attenuation)
-fn sampleShadow(worldPos: vec2<f32>) -> vec2<f32> {
-  let uv = worldToHeightUV(worldPos);
-  return textureSample(shadowTexture, shadowSampler, uv).rg;
-}
-
 // Get view direction for 2D top-down view (looking down at water)
 fn getViewDir() -> vec3<f32> {
   return vec3<f32>(0.0, 0.0, 1.0);
@@ -216,9 +230,6 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
 
   // Calculate water depth
   let waterDepth = waterHeight - terrainHeight;
-
-  // Sample shadow for visual effects
-  let shadow = sampleShadow(worldPos);
 
   // Compute normals from height textures
   let waterNormal = computeWaterNormal(worldPos);
