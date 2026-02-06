@@ -2,13 +2,14 @@
  * Surface rendering entity - Multi-pass version.
  *
  * Renders the ocean and terrain using three GPU passes:
- * 1. Water Height (compute) - Gerstner waves + modifiers
- * 2. Terrain Height (compute) - Contour-based height
+ * 1. Terrain Screen (compute) - Sample tile atlas → screen-space terrain height
+ * 2. Water Height (compute) - Gerstner waves + modifiers (uses terrain height for refraction/shoaling)
  * 3. Surface Composite (fragment) - Normals + lighting
  *
  * This separation enables:
  * - Per-pass GPU timing for performance diagnosis
  * - Future optimizations (lower resolution, caching, etc.)
+ * - Terrain height available to water height shader for refraction and shoaling
  */
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
@@ -28,8 +29,10 @@ import { TerrainResources } from "../world/terrain/TerrainResources";
 import { WaterResources } from "../world/water/WaterResources";
 import { createWaterHeightShader } from "./WaterHeightShader";
 import { createSurfaceCompositeShader } from "./SurfaceCompositeShader";
+import { createTerrainScreenShader } from "./TerrainScreenShader";
 import { WaterHeightUniforms } from "./WaterHeightUniforms";
 import { SurfaceCompositeUniforms } from "./SurfaceCompositeUniforms";
+import { TerrainScreenUniforms } from "./TerrainScreenUniforms";
 import { LODTerrainTileCache } from "./LODTerrainTileCache";
 
 // Re-export for backwards compatibility
@@ -51,6 +54,7 @@ export class SurfaceRenderer extends BaseEntity {
   private initialized = false;
 
   // Shaders for each pass
+  private terrainScreenShader: ComputeShader | null = null;
   private waterHeightShader: ComputeShader | null = null;
   private compositeShader: FullscreenShader | null = null;
 
@@ -58,14 +62,20 @@ export class SurfaceRenderer extends BaseEntity {
   private terrainTileCache: LODTerrainTileCache | null = null;
 
   // Intermediate textures
+  private terrainHeightTexture: GPUTexture | null = null;
+  private terrainHeightView: GPUTextureView | null = null;
   private waterHeightTexture: GPUTexture | null = null;
   private waterHeightView: GPUTextureView | null = null;
 
   // Uniform buffers
+  private terrainScreenUniformBuffer: GPUBuffer | null = null;
   private waterHeightUniformBuffer: GPUBuffer | null = null;
   private compositeUniformBuffer: GPUBuffer | null = null;
 
   // Uniform instances
+  private terrainScreenUniforms: UniformInstance<
+    typeof TerrainScreenUniforms.fields
+  > | null = null;
   private waterHeightUniforms: UniformInstance<
     typeof WaterHeightUniforms.fields
   > | null = null;
@@ -77,6 +87,7 @@ export class SurfaceRenderer extends BaseEntity {
   private heightSampler: GPUSampler | null = null;
 
   // Bind groups (recreated when resources change)
+  private terrainScreenBindGroup: GPUBindGroup | null = null;
   private waterHeightBindGroup: GPUBindGroup | null = null;
   private compositeBindGroup: GPUBindGroup | null = null;
 
@@ -104,6 +115,7 @@ export class SurfaceRenderer extends BaseEntity {
       const device = getWebGPU().device;
 
       // Create shaders
+      this.terrainScreenShader = createTerrainScreenShader();
       this.waterHeightShader = createWaterHeightShader();
       this.compositeShader = createSurfaceCompositeShader();
 
@@ -112,12 +124,18 @@ export class SurfaceRenderer extends BaseEntity {
       this.terrainTileCache = new LODTerrainTileCache();
 
       await Promise.all([
+        this.terrainScreenShader.init(),
         this.waterHeightShader.init(),
         this.compositeShader.init(),
         this.terrainTileCache.init(),
       ]);
 
       // Create uniform buffers
+      this.terrainScreenUniformBuffer = device.createBuffer({
+        size: TerrainScreenUniforms.byteSize,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: "Terrain Screen Uniform Buffer",
+      });
       this.waterHeightUniformBuffer = device.createBuffer({
         size: WaterHeightUniforms.byteSize,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -130,6 +148,7 @@ export class SurfaceRenderer extends BaseEntity {
       });
 
       // Create uniform instances
+      this.terrainScreenUniforms = TerrainScreenUniforms.create();
       this.waterHeightUniforms = WaterHeightUniforms.create();
       this.compositeUniforms = SurfaceCompositeUniforms.create();
 
@@ -202,7 +221,17 @@ export class SurfaceRenderer extends BaseEntity {
     const device = getWebGPU().device;
 
     // Destroy old textures
+    this.terrainHeightTexture?.destroy();
     this.waterHeightTexture?.destroy();
+
+    // Create terrain height texture (screen-space, sampled from tile atlas)
+    this.terrainHeightTexture = device.createTexture({
+      size: { width, height },
+      format: "r32float",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      label: "Terrain Height Texture",
+    });
+    this.terrainHeightView = this.terrainHeightTexture.createView();
 
     // Create water height texture
     this.waterHeightTexture = device.createTexture({
@@ -217,6 +246,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.lastTextureHeight = height;
 
     // Force bind group recreation
+    this.terrainScreenBindGroup = null;
     this.waterHeightBindGroup = null;
     this.compositeBindGroup = null;
   }
@@ -237,6 +267,33 @@ export class SurfaceRenderer extends BaseEntity {
       width: worldViewport.width + marginX * 2,
       height: worldViewport.height + marginY * 2,
     };
+  }
+
+  /**
+   * Update uniforms for terrain screen pass.
+   */
+  private updateTerrainScreenUniforms(
+    viewport: Viewport,
+    width: number,
+    height: number,
+  ): void {
+    if (!this.terrainScreenUniforms || !this.terrainTileCache) return;
+
+    this.terrainScreenUniforms.set.screenWidth(width);
+    this.terrainScreenUniforms.set.screenHeight(height);
+    this.terrainScreenUniforms.set.viewportLeft(viewport.left);
+    this.terrainScreenUniforms.set.viewportTop(viewport.top);
+    this.terrainScreenUniforms.set.viewportWidth(viewport.width);
+    this.terrainScreenUniforms.set.viewportHeight(viewport.height);
+
+    // Set terrain tile atlas parameters
+    const atlasInfo = this.terrainTileCache.getAtlasInfo();
+    this.terrainScreenUniforms.set.atlasTileSize(atlasInfo.tileSize);
+    this.terrainScreenUniforms.set.atlasTilesX(atlasInfo.tilesX);
+    this.terrainScreenUniforms.set.atlasTilesY(atlasInfo.tilesY);
+    this.terrainScreenUniforms.set.atlasWorldUnitsPerTile(
+      atlasInfo.worldUnitsPerTile,
+    );
   }
 
   /**
@@ -264,6 +321,10 @@ export class SurfaceRenderer extends BaseEntity {
     );
     this.waterHeightUniforms.set.waveSourceDirection(
       waterResources.getAnalyticalConfig().waveSourceDirection,
+    );
+    this.waterHeightUniforms.set.numWaves(waterResources.getNumWaves());
+    this.waterHeightUniforms.set.swellWaveCount(
+      waterResources.getSwellWaveCount(),
     );
   }
 
@@ -315,6 +376,7 @@ export class SurfaceRenderer extends BaseEntity {
     const modifiersBuffer = waterResources.modifiersBuffer;
 
     const needsRebuild =
+      !this.terrainScreenBindGroup ||
       !this.waterHeightBindGroup ||
       !this.compositeBindGroup ||
       this.lastShadowDataBuffer !== shadowDataBuffer ||
@@ -325,11 +387,25 @@ export class SurfaceRenderer extends BaseEntity {
 
     if (!needsRebuild) return;
 
-    // Water height bind group (includes shadow data for analytical attenuation)
+    // Terrain screen bind group (samples atlas → screen-space texture)
+    if (
+      this.terrainScreenShader &&
+      this.terrainScreenUniformBuffer &&
+      this.terrainHeightView
+    ) {
+      this.terrainScreenBindGroup = this.terrainScreenShader.createBindGroup({
+        params: { buffer: this.terrainScreenUniformBuffer },
+        terrainTileAtlas: terrainAtlasView,
+        outputTexture: this.terrainHeightView,
+      });
+    }
+
+    // Water height bind group (includes shadow data and terrain height texture)
     if (
       this.waterHeightShader &&
       this.waterHeightUniformBuffer &&
-      this.waterHeightView
+      this.waterHeightView &&
+      this.terrainHeightView
     ) {
       this.waterHeightBindGroup = this.waterHeightShader.createBindGroup({
         params: { buffer: this.waterHeightUniformBuffer },
@@ -337,6 +413,7 @@ export class SurfaceRenderer extends BaseEntity {
         modifiers: { buffer: modifiersBuffer },
         shadowData: { buffer: shadowDataBuffer },
         shadowVertices: { buffer: shadowVerticesBuffer },
+        terrainHeightTexture: this.terrainHeightView,
         outputTexture: this.waterHeightView,
       });
     }
@@ -428,6 +505,7 @@ export class SurfaceRenderer extends BaseEntity {
     const terrainAtlasView = this.terrainTileCache.getAtlasView();
 
     // Update all uniforms
+    this.updateTerrainScreenUniforms(expandedViewport, width, height);
     this.updateWaterHeightUniforms(
       expandedViewport,
       currentTime,
@@ -446,6 +524,7 @@ export class SurfaceRenderer extends BaseEntity {
     );
 
     // Upload uniforms
+    this.terrainScreenUniforms?.uploadTo(this.terrainScreenUniformBuffer!);
     this.waterHeightUniforms?.uploadTo(this.waterHeightUniformBuffer!);
     this.compositeUniforms?.uploadTo(this.compositeUniformBuffer!);
 
@@ -457,7 +536,28 @@ export class SurfaceRenderer extends BaseEntity {
       terrainAtlasView,
     );
 
-    // === Pass 1: Water Height Compute ===
+    // === Pass 1: Terrain Screen Compute ===
+    // Sample terrain atlas to screen-space texture for water height shader
+    if (this.terrainScreenShader && this.terrainScreenBindGroup) {
+      const commandEncoder = device.createCommandEncoder({
+        label: "Terrain Screen Compute",
+      });
+      const computePass = commandEncoder.beginComputePass({
+        label: "Terrain Screen Compute Pass",
+        timestampWrites:
+          gpuProfiler?.getComputeTimestampWrites("surface.terrain"),
+      });
+      this.terrainScreenShader.dispatch(
+        computePass,
+        this.terrainScreenBindGroup,
+        width,
+        height,
+      );
+      computePass.end();
+      device.queue.submit([commandEncoder.finish()]);
+    }
+
+    // === Pass 2: Water Height Compute ===
     if (this.waterHeightShader && this.waterHeightBindGroup) {
       const commandEncoder = device.createCommandEncoder({
         label: "Water Height Compute",
@@ -477,7 +577,7 @@ export class SurfaceRenderer extends BaseEntity {
       device.queue.submit([commandEncoder.finish()]);
     }
 
-    // === Pass 3: Surface Composite ===
+    // === Pass 3: Surface Composite (fragment) ===
     const renderPass = renderer.getCurrentRenderPass();
     if (renderPass && this.compositeShader && this.compositeBindGroup) {
       this.compositeShader.render(renderPass, this.compositeBindGroup);
@@ -513,10 +613,13 @@ export class SurfaceRenderer extends BaseEntity {
 
   @on("destroy")
   onDestroy(): void {
+    this.terrainScreenShader?.destroy();
     this.waterHeightShader?.destroy();
     this.compositeShader?.destroy();
     this.terrainTileCache?.destroy();
+    this.terrainHeightTexture?.destroy();
     this.waterHeightTexture?.destroy();
+    this.terrainScreenUniformBuffer?.destroy();
     this.waterHeightUniformBuffer?.destroy();
     this.compositeUniformBuffer?.destroy();
     this.placeholderShadowDataBuffer?.destroy();

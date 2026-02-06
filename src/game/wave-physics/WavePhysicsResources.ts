@@ -12,6 +12,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import { TerrainResources } from "../world/terrain/TerrainResources";
+import { DEFAULT_WAVE_CONFIG, WaveConfig } from "../world/water/WaveSource";
 import { WavePhysicsManager } from "./WavePhysicsManager";
 
 /**
@@ -33,9 +34,10 @@ export class WavePhysicsResources extends BaseEntity {
   private wavePhysicsManager: WavePhysicsManager;
   private terrainResources: TerrainResources | null = null;
 
-  constructor() {
+  constructor(waveConfig?: WaveConfig) {
     super();
-    this.wavePhysicsManager = new WavePhysicsManager();
+    const config = waveConfig ?? DEFAULT_WAVE_CONFIG;
+    this.wavePhysicsManager = new WavePhysicsManager(config.primaryDirection);
   }
 
   @on("afterAdded")

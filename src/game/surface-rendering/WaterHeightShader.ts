@@ -23,10 +23,10 @@ import {
   fn_computeShadowAttenuation,
   struct_ShadowData,
 } from "../world/shaders/shadow-attenuation.wgsl";
+import { fn_computeWaveTerrainFactor } from "../world/shaders/wave-terrain.wgsl";
 import {
   GERSTNER_STEEPNESS,
-  NUM_WAVES,
-  SWELL_WAVE_COUNT,
+  MAX_WAVES,
   WAVE_AMP_MOD_SPATIAL_SCALE,
   WAVE_AMP_MOD_STRENGTH,
   WAVE_AMP_MOD_TIME_SCALE,
@@ -56,13 +56,14 @@ struct Params {
   tideHeight: f32,
   waveSourceDirection: f32,
   modifierCount: u32,
+  numWaves: u32,
+  swellWaveCount: u32,
   _padding0: u32,
   _padding1: u32,
 }
 
 // Wave computation constants
-const NUM_WAVES: i32 = ${NUM_WAVES};
-const SWELL_WAVE_COUNT: i32 = ${SWELL_WAVE_COUNT};
+const MAX_WAVES: i32 = ${MAX_WAVES};
 const GERSTNER_STEEPNESS: f32 = ${GERSTNER_STEEPNESS};
 const WAVE_AMP_MOD_SPATIAL_SCALE: f32 = ${WAVE_AMP_MOD_SPATIAL_SCALE};
 const WAVE_AMP_MOD_TIME_SCALE: f32 = ${WAVE_AMP_MOD_TIME_SCALE};
@@ -71,6 +72,8 @@ const WAVE_AMP_MOD_STRENGTH: f32 = ${WAVE_AMP_MOD_STRENGTH};
 // Modifier constants
 const MAX_MODIFIERS: u32 = ${MAX_MODIFIERS}u;
 const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
+
+// Note: SWELL_WAVELENGTH and CHOP_WAVELENGTH are provided by shadow-attenuation.wgsl
 `,
   bindings: {
     params: { type: "uniform", wgslType: "Params" },
@@ -78,6 +81,11 @@ const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
     modifiers: { type: "storage", wgslType: "array<f32>" },
     shadowData: { type: "storage", wgslType: "ShadowData" },
     shadowVertices: { type: "storage", wgslType: "array<vec2<f32>>" },
+    terrainHeightTexture: {
+      type: "texture",
+      viewDimension: "2d",
+      sampleType: "unfilterable-float",
+    },
     outputTexture: { type: "storageTexture", format: "r32float" },
   },
   code: "",
@@ -95,6 +103,7 @@ const waterHeightComputeModule: ShaderModule = {
     fn_calculateGerstnerWaves,
     fn_calculateModifiers,
     fn_computeShadowAttenuation,
+    fn_computeWaveTerrainFactor,
   ],
   code: /*wgsl*/ `
 // Convert pixel coordinates to world position
@@ -109,6 +118,11 @@ fn pixelToWorld(pixel: vec2<u32>) -> vec2<f32> {
   );
 }
 
+// Sample terrain height from screen-space texture
+fn sampleTerrainHeight(pixel: vec2<u32>) -> f32 {
+  return textureLoad(terrainHeightTexture, vec2<i32>(pixel), 0).r;
+}
+
 // Get wave modification from analytical shadow attenuation
 fn getWaveModification(worldPos: vec2<f32>) -> vec2<f32> {
   // Compute shadow attenuation at this position
@@ -118,19 +132,25 @@ fn getWaveModification(worldPos: vec2<f32>) -> vec2<f32> {
   return vec2<f32>(shadowAtten.swellEnergy, shadowAtten.chopEnergy);
 }
 
-// Calculate water height at a point
-fn calculateWaterHeight(worldPos: vec2<f32>) -> f32 {
+// Calculate water height at a point with terrain interaction
+fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32) -> f32 {
   // Get shadow attenuation for swell and chop
   let shadowEnergy = getWaveModification(worldPos);
 
-  // Build wave modifications with shadow-attenuated energy
+  // Compute terrain interaction (shoaling + damping) for each wave class
+  // Shoaling makes waves taller in shallow water, damping kills them near shore
+  let swellTerrainFactor = computeWaveTerrainFactor(depth, SWELL_WAVELENGTH);
+  let chopTerrainFactor = computeWaveTerrainFactor(depth, CHOP_WAVELENGTH);
+
+  // Build wave modifications with combined energy factors
+  // shadow attenuation * terrain interaction (shoaling/damping)
   var swellMod: WaveModification;
   swellMod.newDirection = vec2<f32>(cos(params.waveSourceDirection), sin(params.waveSourceDirection));
-  swellMod.energyFactor = shadowEnergy.x;
+  swellMod.energyFactor = shadowEnergy.x * swellTerrainFactor;
 
   var chopMod: WaveModification;
   chopMod.newDirection = vec2<f32>(cos(params.waveSourceDirection), sin(params.waveSourceDirection));
-  chopMod.energyFactor = shadowEnergy.y;
+  chopMod.energyFactor = shadowEnergy.y * chopTerrainFactor;
 
   // Sample amplitude modulation noise
   let ampModTime = params.time * WAVE_AMP_MOD_TIME_SCALE;
@@ -145,8 +165,8 @@ fn calculateWaterHeight(worldPos: vec2<f32>) -> f32 {
     worldPos,
     params.time,
     &waveData,
-    NUM_WAVES,
-    SWELL_WAVE_COUNT,
+    i32(params.numWaves),
+    i32(params.swellWaveCount),
     GERSTNER_STEEPNESS,
     swellMod,
     chopMod,
@@ -178,7 +198,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   let worldPos = pixelToWorld(pixel);
-  let height = calculateWaterHeight(worldPos);
+
+  // Sample terrain height and compute depth for terrain interaction
+  let terrainHeight = sampleTerrainHeight(pixel);
+  let waterLevel = params.tideHeight; // Mean water level
+  let depth = waterLevel - terrainHeight;
+
+  // Calculate water height with shoaling/damping based on depth
+  let height = calculateWaterHeight(worldPos, depth);
 
   // Write to output texture
   textureStore(outputTexture, pixel, vec4<f32>(height, 0.0, 0.0, 0.0));

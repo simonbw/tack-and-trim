@@ -9,7 +9,7 @@ import type { V2d } from "../../../core/Vector";
 import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
-import { WAVE_COMPONENTS } from "../../world/water/WaterConstants";
+import { WaterResources } from "../../world/water/WaterResources";
 import type { ShadowPolygonRenderData } from "../../wave-physics/ShadowGeometry";
 import { DebugRenderMode } from "./DebugRenderMode";
 
@@ -115,15 +115,16 @@ export class ShadowZonesDebugMode extends DebugRenderMode {
 
   @on("keyDown")
   onKeyDown({ key }: GameEventMap["keyDown"]): void {
+    const waterResources = this.game.entities.tryGetSingleton(WaterResources);
+    const numWaves = waterResources?.getNumWaves() ?? 1;
+
     if (key === "BracketLeft") {
       // [ key - previous wave
       this.waveComponentIndex =
-        (this.waveComponentIndex - 1 + WAVE_COMPONENTS.length) %
-        WAVE_COMPONENTS.length;
+        (this.waveComponentIndex - 1 + numWaves) % numWaves;
     } else if (key === "BracketRight") {
       // ] key - next wave
-      this.waveComponentIndex =
-        (this.waveComponentIndex + 1) % WAVE_COMPONENTS.length;
+      this.waveComponentIndex = (this.waveComponentIndex + 1) % numWaves;
     }
   }
 
@@ -132,9 +133,15 @@ export class ShadowZonesDebugMode extends DebugRenderMode {
   }
 
   getHudInfo(): string | null {
-    const wave = WAVE_COMPONENTS[this.waveComponentIndex];
-    const wavelength = wave[1];
-    const direction = wave[2];
+    const waterResources = this.game.entities.tryGetSingleton(WaterResources);
+    if (!waterResources) return "No water resources";
+
+    const waveConfig = waterResources.getWaveConfig();
+    const source = waveConfig.sources[this.waveComponentIndex];
+    if (!source) return `Wave ${this.waveComponentIndex}: not found`;
+
+    const wavelength = source.wavelength;
+    const direction = source.direction;
     const dirDeg = ((direction * 180) / Math.PI).toFixed(0);
     return `Wave ${this.waveComponentIndex}: λ=${wavelength}ft, dir=${dirDeg}°`;
   }

@@ -7,6 +7,8 @@ import { QueryManager, type ResultLayout } from "../query/QueryManager";
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
 import { createWaterQueryShader, WaterQueryUniforms } from "./WaterQueryShader";
 import { WaterResources } from "./WaterResources";
+import { TerrainResources } from "../terrain/TerrainResources";
+import { DEFAULT_DEPTH } from "../terrain/TerrainConstants";
 
 /**
  * Result data from a water query at a specific point
@@ -186,6 +188,14 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
       wavePhysicsResources?.getShadowVerticesBuffer() ??
       this.placeholderShadowVerticesBuffer!;
 
+    // Get TerrainResources for analytical terrain height computation
+    const terrainResources =
+      this.game.entities.tryGetSingleton(TerrainResources);
+    if (!terrainResources) {
+      console.warn("[WaterQuery] TerrainResources not found");
+      return;
+    }
+
     const device = getWebGPU().device;
 
     // Get data from WaterResources
@@ -200,16 +210,25 @@ export class WaterQueryManager extends QueryManager<WaterQueryResult> {
     this.uniforms.set.tideHeight(tideHeight);
     this.uniforms.set.waveSourceDirection(waveSourceDirection);
     this.uniforms.set.modifierCount(modifierCount);
-    this.uniforms.set._padding(0);
+    this.uniforms.set.contourCount(terrainResources.getContourCount());
+    this.uniforms.set.defaultDepth(DEFAULT_DEPTH);
+    this.uniforms.set.numWaves(waterResources.getNumWaves());
+    this.uniforms.set.swellWaveCount(waterResources.getSwellWaveCount());
+    this.uniforms.set._padding0(0);
+    this.uniforms.set._padding1(0);
+    this.uniforms.set._padding2(0);
     this.uniforms.uploadTo(this.uniformBuffer);
 
-    // Create bind group with shared buffers
+    // Create bind group with shared buffers (including terrain for depth computation)
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
       waveData: { buffer: waterResources.waveDataBuffer },
       modifiers: { buffer: waterResources.modifiersBuffer },
       shadowData: { buffer: shadowDataBuffer },
       shadowVertices: { buffer: shadowVerticesBuffer },
+      vertices: { buffer: terrainResources.vertexBuffer },
+      contours: { buffer: terrainResources.contourBuffer },
+      children: { buffer: terrainResources.childrenBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
     });

@@ -24,8 +24,7 @@ import {
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
 import {
   GERSTNER_STEEPNESS,
-  NUM_WAVES,
-  SWELL_WAVE_COUNT,
+  MAX_WAVES,
   WATER_HEIGHT_SCALE,
   WAVE_AMP_MOD_SPATIAL_SCALE,
   WAVE_AMP_MOD_STRENGTH,
@@ -103,9 +102,11 @@ const unifiedSurfaceMainModule: ShaderModule = {
   code: /*wgsl*/ `
 // ============================================================================
 // Constants
+// NOTE: This shader is legacy and not currently used. Wave counts are hardcoded.
 // ============================================================================
-const NUM_WAVES: i32 = ${NUM_WAVES};
-const SWELL_WAVE_COUNT: i32 = ${SWELL_WAVE_COUNT};
+const MAX_WAVES: i32 = ${MAX_WAVES};
+const NUM_WAVES: i32 = 2; // Legacy: hardcoded for unused shader
+const SWELL_WAVE_COUNT: i32 = 1; // Legacy: hardcoded for unused shader
 const GERSTNER_STEEPNESS: f32 = ${GERSTNER_STEEPNESS};
 const WAVE_AMP_MOD_SPATIAL_SCALE: f32 = ${WAVE_AMP_MOD_SPATIAL_SCALE};
 const WAVE_AMP_MOD_TIME_SCALE: f32 = ${WAVE_AMP_MOD_TIME_SCALE};

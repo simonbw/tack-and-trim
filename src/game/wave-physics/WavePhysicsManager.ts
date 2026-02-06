@@ -8,7 +8,6 @@
 
 import { V, V2d } from "../../core/Vector";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
-import { WAVE_COMPONENTS } from "../world/water/WaterConstants";
 import type { TerrainDefinition } from "../world/terrain/LandMass";
 import { CoastlineManager } from "./CoastlineManager";
 import {
@@ -54,10 +53,12 @@ export class WavePhysicsManager {
   /** Whether the manager has been initialized with terrain */
   private initialized = false;
 
-  constructor() {
-    // Get the wave direction from WAVE_COMPONENTS (all waves share the same direction)
-    const angle = WAVE_COMPONENTS[0][2]; // direction is at index 2
-    this.waveDirection = V(Math.cos(angle), Math.sin(angle));
+  /**
+   * Create a WavePhysicsManager with a specified wave direction.
+   * @param waveDirection - Wave direction angle in radians (default 0.8 rad ≈ 45°)
+   */
+  constructor(waveDirection: number = 0.8) {
+    this.waveDirection = V(Math.cos(waveDirection), Math.sin(waveDirection));
   }
 
   /**

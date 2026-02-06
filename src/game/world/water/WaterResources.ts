@@ -16,9 +16,10 @@ import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../../core/util/Profiler";
 import { TimeOfDay } from "../../time/TimeOfDay";
 import {
-  buildWaveDataArray,
-  WAVE_COMPONENTS,
-} from "./WaterConstants";
+  buildWaveDataFromSources,
+  DEFAULT_WAVE_CONFIG,
+  WaveConfig,
+} from "./WaveSource";
 import {
   type GPUWaterModifierData,
   WaterModifier,
@@ -57,6 +58,9 @@ export class WaterResources extends BaseEntity {
   readonly waveDataBuffer: GPUBuffer;
   readonly modifiersBuffer: GPUBuffer;
 
+  // Wave configuration
+  private readonly waveConfig: WaveConfig;
+
   // CPU-side modifier data array for packing before upload
   private modifierData: Float32Array;
 
@@ -72,13 +76,16 @@ export class WaterResources extends BaseEntity {
   // Analytical config (wave source direction)
   private analyticalConfig: AnalyticalWaterConfig;
 
-  constructor() {
+  constructor(waveConfig?: WaveConfig) {
     super();
+
+    // Use provided config or defaults
+    this.waveConfig = waveConfig ?? DEFAULT_WAVE_CONFIG;
 
     const device = getWebGPU().device;
 
     // Create wave data storage buffer (static, uploaded once)
-    const waveData = buildWaveDataArray();
+    const waveData = buildWaveDataFromSources(this.waveConfig.sources);
     this.waveDataBuffer = device.createBuffer({
       size: waveData.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -96,9 +103,9 @@ export class WaterResources extends BaseEntity {
       label: "Water Modifiers Buffer (Shared)",
     });
 
-    // Initialize analytical config from wave constants
+    // Initialize analytical config from wave config
     this.analyticalConfig = {
-      waveSourceDirection: WAVE_COMPONENTS[0][2],
+      waveSourceDirection: this.waveConfig.primaryDirection,
     };
   }
 
@@ -155,6 +162,12 @@ export class WaterResources extends BaseEntity {
   private updateModifiers(modifiers: GPUWaterModifierData[]): number {
     const device = getWebGPU().device;
     const modifierCount = Math.min(modifiers.length, MAX_MODIFIERS);
+
+    if (modifiers.length > MAX_MODIFIERS) {
+      console.warn(
+        `Water modifiers (${modifiers.length}) exceeds MAX_MODIFIERS (${MAX_MODIFIERS}), truncating`,
+      );
+    }
 
     for (let i = 0; i < modifierCount; i++) {
       const mod = modifiers[i];
@@ -227,6 +240,34 @@ export class WaterResources extends BaseEntity {
    */
   getModifierCount(): number {
     return this.modifierCount;
+  }
+
+  /**
+   * Get the number of wave sources.
+   */
+  getNumWaves(): number {
+    return this.waveConfig.sources.length;
+  }
+
+  /**
+   * Get the number of swell waves (vs chop).
+   */
+  getSwellWaveCount(): number {
+    return this.waveConfig.swellCount;
+  }
+
+  /**
+   * Get the primary wave direction for shadow computation.
+   */
+  getPrimaryWaveDirection(): number {
+    return this.waveConfig.primaryDirection;
+  }
+
+  /**
+   * Get the wave configuration.
+   */
+  getWaveConfig(): WaveConfig {
+    return this.waveConfig;
   }
 
   /**

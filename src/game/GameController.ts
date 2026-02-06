@@ -1,6 +1,6 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
-import { loadDefaultTerrain } from "../editor/io/TerrainLoader";
+import { loadDefaultLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
@@ -29,19 +29,19 @@ export class GameController extends BaseEntity {
 
   @on("add")
   onAdd() {
-    // 1. Load terrain from bundled JSON resource
-    const terrainDefinition = loadDefaultTerrain();
-    this.game.addEntity(new TerrainResources(terrainDefinition));
+    // 1. Load level data (terrain + waves) from bundled JSON resource
+    const { terrain, waves } = loadDefaultLevel();
+    this.game.addEntity(new TerrainResources(terrain));
     this.game.addEntity(new TerrainQueryManager());
 
     // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
 
-    // 3. Wave physics (needs terrain for shadow computation)
-    this.game.addEntity(new WavePhysicsResources());
+    // 3. Wave physics (needs terrain for shadow computation, uses wave direction)
+    this.game.addEntity(new WavePhysicsResources(waves));
 
-    // 4. Water data system (tide, modifiers, GPU buffers)
-    this.game.addEntity(new WaterResources());
+    // 4. Water data system (tide, modifiers, GPU buffers, wave sources)
+    this.game.addEntity(new WaterResources(waves));
     this.game.addEntity(new WaterQueryManager());
 
     // 5. Wind data systems

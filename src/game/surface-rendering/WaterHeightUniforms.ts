@@ -28,6 +28,10 @@ export const WaterHeightUniforms = defineUniformStruct("Params", {
   waveSourceDirection: f32,
   modifierCount: u32,
 
+  // Wave configuration (from level data)
+  numWaves: u32,
+  swellWaveCount: u32,
+
   // Padding for 16-byte alignment
   _padding0: u32,
   _padding1: u32,
