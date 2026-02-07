@@ -1,9 +1,8 @@
 #!/usr/bin/env tsx
-import { countTokens } from "@anthropic-ai/tokenizer";
+import Anthropic from "@anthropic-ai/sdk";
 import { glob } from "glob";
 import { readFileSync } from "fs";
-import { Worker } from "worker_threads";
-import { cpus } from "os";
+import { join } from "path";
 
 const FILE_PATTERNS: Record<string, string[]> = {
   TypeScript: ["src/**/*.ts", "src/**/*.tsx", "bin/**/*.ts"],
@@ -14,103 +13,90 @@ const FILE_PATTERNS: Record<string, string[]> = {
   WGSL: ["src/**/*.wgsl"],
 };
 
-// Worker code as a string (runs in vanilla Node)
-const workerCode = `
-const { parentPort, workerData } = require('worker_threads');
-const { readFileSync } = require('fs');
-const { countTokens } = require('@anthropic-ai/tokenizer');
-
-const files = workerData;
-let tokens = 0;
-let chars = 0;
-
-for (const file of files) {
+// Read API key from file or environment
+function getApiKey(): string {
+  const keyFilePath = join(process.cwd(), ".anthropic_api_key");
   try {
-    const content = readFileSync(file, 'utf-8');
-    chars += content.length;
-    tokens += countTokens(content);
-  } catch {}
-}
-
-parentPort.postMessage({ tokens, chars });
-`;
-
-// Main thread code
-const NUM_WORKERS = Math.max(1, cpus().length - 1);
-
-function clearLine() {
-  process.stdout.write("\r\x1b[K");
-}
-
-function chunkArray<T>(array: T[], chunks: number): T[][] {
-  const result: T[][] = [];
-  const chunkSize = Math.ceil(array.length / chunks);
-  for (let i = 0; i < array.length; i += chunkSize) {
-    result.push(array.slice(i, i + chunkSize));
+    return readFileSync(keyFilePath, "utf-8").trim();
+  } catch {
+    return process.env.ANTHROPIC_API_KEY || "";
   }
-  return result;
 }
 
-async function countTokensParallel(
+// Initialize Anthropic client
+const client = new Anthropic({
+  apiKey: getApiKey(),
+});
+
+// Sleep helper for rate limiting
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function countTokensForFiles(
   files: string[],
   type: string,
 ): Promise<{ tokens: number; chars: number }> {
   if (files.length === 0) return { tokens: 0, chars: 0 };
 
-  // For small file counts, just run single-threaded
-  if (files.length < NUM_WORKERS * 2) {
-    let tokens = 0;
-    let chars = 0;
-    for (let i = 0; i < files.length; i++) {
-      process.stdout.write(
-        `\r\x1b[K${type}: ${i + 1}/${files.length} files...`,
-      );
-      try {
-        const content = readFileSync(files[i], "utf-8");
-        chars += content.length;
-        tokens += countTokens(content);
-      } catch {
-        // Skip
-      }
+  process.stdout.write(`${type}: reading ${files.length} files...`);
+
+  // Read all files and concatenate content
+  const contents: string[] = [];
+  let totalChars = 0;
+
+  for (const file of files) {
+    try {
+      const content = readFileSync(file, "utf-8");
+      contents.push(content);
+      totalChars += content.length;
+    } catch {
+      // Skip files that can't be read
     }
-    return { tokens, chars };
   }
 
-  // Split files across workers
-  const chunks = chunkArray(files, NUM_WORKERS);
+  if (contents.length === 0) return { tokens: 0, chars: totalChars };
 
-  process.stdout.write(
-    `${type}: processing ${files.length} files across ${chunks.length} workers...`,
-  );
+  // Bundle all content together with separators
+  const bundledContent = contents.join("\n\n---\n\n");
 
-  const results = await Promise.all(
-    chunks.map(
-      (chunk) =>
-        new Promise<{ tokens: number; chars: number }>((resolve, reject) => {
-          const worker = new Worker(workerCode, {
-            workerData: chunk,
-            eval: true,
-          });
-          worker.on("message", resolve);
-          worker.on("error", reject);
-          worker.on("exit", (code) => {
-            if (code !== 0)
-              reject(new Error(`Worker exited with code ${code}`));
-          });
-        }),
-    ),
-  );
+  process.stdout.write(`\r\x1b[K${type}: counting tokens via API...`);
 
-  return results.reduce(
-    (acc, r) => ({ tokens: acc.tokens + r.tokens, chars: acc.chars + r.chars }),
-    { tokens: 0, chars: 0 },
-  );
+  try {
+    // Use Anthropic API to count tokens (beta endpoint)
+    const result = await client.beta.messages.countTokens({
+      model: "claude-sonnet-4-5-20250929",
+      messages: [
+        {
+          role: "user",
+          content: bundledContent,
+        },
+      ],
+    });
+
+    // Add a small delay to respect rate limits
+    await sleep(500);
+
+    return { tokens: result.input_tokens, chars: totalChars };
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error(`\nError counting tokens for ${type}:`, error.message);
+    }
+    return { tokens: 0, chars: totalChars };
+  }
 }
 
 async function main() {
-  console.log(
-    `Counting tokens using Anthropic's tokenizer (${NUM_WORKERS} workers)...\n`,
-  );
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    console.error("Error: API key not found.\n");
+    console.error(
+      "Please either set ANTHROPIC_API_KEY environment variable or create a .anthropic_api_key file",
+    );
+    process.exit(1);
+  }
+
+  console.log(`Counting tokens using Anthropic's API...\n`);
 
   const results: Array<{
     type: string;
@@ -126,8 +112,8 @@ async function main() {
     const files = await glob(patterns, { nodir: true });
 
     if (files.length > 0) {
-      const { tokens, chars } = await countTokensParallel(files, type);
-      clearLine();
+      const { tokens, chars } = await countTokensForFiles(files, type);
+      process.stdout.write("\r\x1b[K");
       console.log(
         `${type}: ${tokens.toLocaleString()} tokens (${files.length} files)`,
       );

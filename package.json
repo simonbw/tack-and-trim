@@ -36,7 +36,7 @@
     "react/jsx-runtime": "preact/jsx-runtime"
   },
   "devDependencies": {
-    "@anthropic-ai/tokenizer": "^0.0.4",
+    "@anthropic-ai/sdk": "^0.32.1",
     "@parcel/macros": "^2.16.3",
     "@parcel/reporter-bundle-analyzer": "^2.16.3",
     "@parcel/resolver-glob": "^2.16.3",
