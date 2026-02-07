@@ -345,6 +345,9 @@ class Profiler {
 
 export const profiler = new Profiler();
 
+// Expose profiler globally for debugging
+(window as any).profiler = profiler;
+
 /**
  * Method decorator for easy profiling.
  *

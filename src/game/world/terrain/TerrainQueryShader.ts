@@ -9,15 +9,15 @@
  */
 
 import {
-  ComputeShader,
-  type ComputeShaderConfig,
-} from "../../../core/graphics/webgpu/ComputeShader";
-import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-import {
   defineUniformStruct,
   f32,
   u32,
 } from "../../../core/graphics/UniformStruct";
+import {
+  ComputeShader,
+  type ComputeShaderConfig,
+} from "../../../core/graphics/webgpu/ComputeShader";
+import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import {
   fn_computeTerrainHeight,
   fn_computeTerrainNormal,

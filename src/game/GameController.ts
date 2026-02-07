@@ -1,24 +1,29 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
+import { range } from "../core/util/FunctionalUtils";
+import { V } from "../core/Vector";
 import { loadDefaultLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
+import { DebugRenderer } from "./debug-renderer";
 import { MainMenu } from "./MainMenu";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { isTutorialCompleted, TutorialManager } from "./tutorial";
-import { DebugRenderer } from "./debug-renderer";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
+import { TerrainQuery } from "./world/terrain/TerrainQuery";
+import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
 import { TerrainResources } from "./world/terrain/TerrainResources";
-import { TerrainQueryManager } from "./world/terrain/TerrainQuery";
+import { WaterQuery } from "./world/water/WaterQuery";
+import { WaterQueryManager } from "./world/water/WaterQueryManager";
 import { WaterResources } from "./world/water/WaterResources";
-import { WaterQueryManager } from "./world/water/WaterQuery";
+import { WindQuery } from "./world/wind/WindQuery";
+import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
-import { WindQueryManager } from "./world/wind/WindQuery";
 
 const MENU_ZOOM = 2; // Wide shot for menu
 const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
@@ -93,5 +98,11 @@ export class GameController extends BaseEntity {
       boat.anchor.deploy(); // Start with anchor deployed for tutorial
       this.game.addEntity(new TutorialManager());
     }
+
+    // TODO: Remove this after testing
+    const waterQueryPoints = range(16_000).map((i) => V(0, i));
+    this.game.addEntity(new WaterQuery(() => waterQueryPoints));
+    this.game.addEntity(new WindQuery(() => waterQueryPoints));
+    this.game.addEntity(new TerrainQuery(() => waterQueryPoints));
   }
 }

@@ -9,7 +9,6 @@
  */
 
 import { V2d } from "../../core/Vector";
-import { sampleClosedSpline } from "../../core/util/Spline";
 import type {
   TerrainContour,
   TerrainDefinition,
@@ -57,7 +56,7 @@ export class CoastlineManager {
 
       // Coastlines are defined as height=0 contours
       if (contour.height === 0) {
-        const bounds = this.computeBounds(contour.controlPoints);
+        const bounds = this.computeBounds(contour.sampledPolygon);
         this.coastlines.push({
           contourIndex: i,
           contour,
@@ -69,23 +68,19 @@ export class CoastlineManager {
   }
 
   /**
-   * Compute the bounding box of a spline defined by control points.
-   * Uses the sampled spline points for accuracy.
+   * Compute the bounding box from pre-sampled polygon points.
    */
-  private computeBounds(controlPoints: readonly V2d[]): AABB {
-    if (controlPoints.length === 0) {
+  private computeBounds(sampledPolygon: readonly V2d[]): AABB {
+    if (sampledPolygon.length === 0) {
       return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
     }
-
-    // Sample the spline to get accurate bounds
-    const sampledPoints = sampleClosedSpline(controlPoints, 8);
 
     let minX = Infinity;
     let maxX = -Infinity;
     let minY = Infinity;
     let maxY = -Infinity;
 
-    for (const pt of sampledPoints) {
+    for (const pt of sampledPolygon) {
       minX = Math.min(minX, pt.x);
       maxX = Math.max(maxX, pt.x);
       minY = Math.min(minY, pt.y);

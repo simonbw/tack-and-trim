@@ -4,13 +4,16 @@ import type {
 } from "../../core/util/stats-overlay/StatsPanel";
 import { StatsRow } from "../../core/util/stats-overlay/StatsRow";
 import { SurfaceRenderer } from "../surface-rendering/SurfaceRenderer";
-import { WaterQuery } from "../world/water/WaterQuery";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
+import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
 
 interface QueryStats {
+  waterPoints: number;
   waterQueries: number;
+  terrainPoints: number;
   terrainQueries: number;
+  windPoints: number;
   windQueries: number;
 }
 
@@ -41,9 +44,18 @@ export function createSimulationStatsPanel(): StatsPanel {
           <div className="stats-overlay__section">
             <div className="stats-overlay__section-title">Queries</div>
             <div className="stats-overlay__grid">
-              <StatsRow label="Water" value={`${stats.waterQueries}`} />
-              <StatsRow label="Terrain" value={`${stats.terrainQueries}`} />
-              <StatsRow label="Wind" value={`${stats.windQueries}`} />
+              <StatsRow
+                label="Water"
+                value={`${stats.waterPoints.toLocaleString()} (${stats.waterQueries})`}
+              />
+              <StatsRow
+                label="Terrain"
+                value={`${stats.terrainPoints.toLocaleString()} (${stats.terrainQueries})`}
+              />
+              <StatsRow
+                label="Wind"
+                value={`${stats.windPoints.toLocaleString()} (${stats.windQueries})`}
+              />
             </div>
           </div>
 
@@ -69,10 +81,17 @@ export function createSimulationStatsPanel(): StatsPanel {
 }
 
 function getQueryStats(ctx: StatsPanelContext): QueryStats {
+  const waterQueries = [...ctx.game.entities.byConstructor(WaterQuery)];
+  const terrainQueries = [...ctx.game.entities.byConstructor(TerrainQuery)];
+  const windQueries = [...ctx.game.entities.byConstructor(WindQuery)];
+
   return {
-    waterQueries: ctx.game.entities.byConstructor(WaterQuery).size,
-    terrainQueries: ctx.game.entities.byConstructor(TerrainQuery).size,
-    windQueries: ctx.game.entities.byConstructor(WindQuery).size,
+    waterPoints: waterQueries.reduce((sum, q) => sum + q.results.length, 0),
+    waterQueries: waterQueries.length,
+    terrainPoints: terrainQueries.reduce((sum, q) => sum + q.results.length, 0),
+    terrainQueries: terrainQueries.length,
+    windPoints: windQueries.reduce((sum, q) => sum + q.results.length, 0),
+    windQueries: windQueries.length,
   };
 }
 

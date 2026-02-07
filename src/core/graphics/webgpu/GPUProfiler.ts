@@ -31,6 +31,7 @@ export class GPUProfiler {
     "query.water",
     "query.wind",
     "query.terrain",
+    "query.copy",
   ] as const;
   private static readonly QUERY_COUNT = GPUProfiler.SECTIONS.length * 2;
 

@@ -16,15 +16,15 @@ import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../../core/util/Profiler";
 import { TimeOfDay } from "../../time/TimeOfDay";
 import {
-  buildWaveDataFromSources,
-  DEFAULT_WAVE_CONFIG,
-  WaveConfig,
-} from "./WaveSource";
-import {
   type GPUWaterModifierData,
   WaterModifier,
   WaterModifierType,
 } from "./WaterModifierBase";
+import {
+  buildWaveDataFromSources,
+  DEFAULT_WAVE_CONFIG,
+  WaveConfig,
+} from "./WaveSource";
 
 /** Maximum number of modifiers that can be processed per frame */
 export const MAX_MODIFIERS = 16384;
@@ -52,7 +52,7 @@ export interface AnalyticalWaterConfig {
  */
 export class WaterResources extends BaseEntity {
   id = "waterResources";
-  tickLayer = "environment" as const;
+  tickLayer = "query" as const;
 
   // GPU buffers
   readonly waveDataBuffer: GPUBuffer;

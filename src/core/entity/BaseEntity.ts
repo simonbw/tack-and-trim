@@ -1,3 +1,5 @@
+import { LayerName } from "../../config/layers";
+import { TickLayerName } from "../../config/tickLayers";
 import { EntityDef } from "../EntityDef";
 import { Game } from "../Game";
 import { V, V2d } from "../Vector";
@@ -24,7 +26,8 @@ export abstract class BaseEntity implements Entity {
   id?: string;
   tags: string[] = [];
   /** The layer this entity renders on */
-  layer?: string;
+  layer?: LayerName;
+  tickLayer?: TickLayerName;
 
   get game(): Game {
     if (!this._game) {

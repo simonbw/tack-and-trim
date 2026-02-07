@@ -9,21 +9,36 @@ import type { V2d } from "../../../core/Vector";
  *
  * Features:
  * - Dynamic point collection via callback
- * - Iterator support for iterating over (point, result) pairs
- * - Result lookup by point
+ * - Zero-allocation result access via buffer-backed view objects
  * - Automatic discovery via tags (no manual registration needed)
  *
- * @template TResult - The result type for this query
+ * @template TView - The result view type for this query (e.g., WaterResultView)
  */
-export abstract class BaseQuery<TResult> extends BaseEntity {
+export abstract class BaseQuery<TView> extends BaseEntity {
   private getPointsCallback: () => ReadonlyArray<V2d>;
 
   // Double-buffered: points that match current results
   private _points: ReadonlyArray<V2d> = [];
-  private _results: TResult[] = [];
 
   // Points submitted for next frame's results
   private _pendingPoints: ReadonlyArray<V2d> | undefined;
+
+  /**
+   * Float32Array view into the QueryManager's shared data buffer.
+   * Contains only this query's result data, starting at offset 0.
+   * Updated each frame by QueryManager.
+   * @internal
+   */
+  _data: Float32Array = new Float32Array(0);
+
+  private _resultCount: number = 0;
+
+  // Cached results array for backward compatibility with .results accessor
+  private _resultsCache: TView[] | null = null;
+  private _resultsCacheCount: number = -1;
+
+  /** Number of floats per result entry. Defined by each query type. */
+  abstract readonly stride: number;
 
   constructor(getPoints: () => ReadonlyArray<V2d>) {
     super();
@@ -31,10 +46,39 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
   }
 
   /**
-   * Get the current results (read-only).
+   * Get a result view at the given index. Zero-allocation after warmup.
+   * The view reads directly from the GPU result buffer.
    */
-  get results(): readonly TResult[] {
-    return this._results;
+  abstract get(index: number): TView;
+
+  /** Number of results currently available. */
+  get length(): number {
+    return this._resultCount;
+  }
+
+  /**
+   * Get results as an array (backward compatibility).
+   * Prefer using get(i) + length for hot paths.
+   */
+  get results(): readonly TView[] {
+    if (!this._resultsCache || this._resultsCacheCount !== this._resultCount) {
+      if (!this._resultsCache) {
+        this._resultsCache = [];
+      }
+      this._resultsCache.length = this._resultCount;
+      for (let i = 0; i < this._resultCount; i++) {
+        this._resultsCache[i] = this.get(i);
+      }
+      this._resultsCacheCount = this._resultCount;
+    }
+    return this._resultsCache;
+  }
+
+  /**
+   * Get the current query points (synchronized with results).
+   */
+  get points(): ReadonlyArray<V2d> {
+    return this._points;
   }
 
   /**
@@ -43,24 +87,22 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
    * @param point The query point to look up
    * @returns The result for that point, or undefined if not found
    */
-  getResultForPoint(point: V2d): TResult | undefined {
+  getResultForPoint(point: V2d): TView | undefined {
     const index = this._points.findIndex((p) => p.equals(point));
-    return index >= 0 ? this._results[index] : undefined;
+    return index >= 0 ? this.get(index) : undefined;
   }
 
   /**
    * Iterator support for iterating over (point, result) pairs.
-   * Points and results are always synchronized via double-buffering.
    *
    * @example
    * for (const [point, result] of query) {
    *   console.log(`Point ${point} has result ${result}`);
    * }
    */
-  *[Symbol.iterator](): Iterator<[V2d, TResult]> {
-    // _points and _results are always in sync (same length)
-    for (let i = 0; i < this._points.length; i++) {
-      yield [this._points[i], this._results[i]];
+  *[Symbol.iterator](): Iterator<[V2d, TView]> {
+    for (let i = 0; i < this._resultCount; i++) {
+      yield [this._points[i], this.get(i)];
     }
   }
 
@@ -71,10 +113,13 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
    * @example
    * const results = await new TerrainQuery(() => [V(0, 0)]).getResultAndDestroy();
    */
-  async getResultAndDestroy(): Promise<TResult[]> {
+  async getResultAndDestroy(): Promise<TView[]> {
     // Wait one frame for results to be computed
     await new Promise((resolve) => setTimeout(resolve, 16));
-    const results = [...this._results];
+    const results: TView[] = [];
+    for (let i = 0; i < this._resultCount; i++) {
+      results.push(this.get(i));
+    }
     this.destroy();
     return results;
   }
@@ -90,13 +135,28 @@ export abstract class BaseQuery<TResult> extends BaseEntity {
   }
 
   /**
-   * Internal method called by QueryManager to set results.
-   * Swaps pending points into active points so they stay synchronized.
+   * Internal method called by QueryManager to deliver result data.
+   * Creates a zero-copy Float32Array view into the manager's shared buffer.
    * @internal
    */
-  setResults(results: TResult[]): void {
+  receiveData(
+    managerBuffer: Float32Array,
+    floatOffset: number,
+    count: number,
+  ): void {
+    // Create a zero-copy view into the manager's buffer for this query's slice
+    const floatLength = count * this.stride;
+    this._data = new Float32Array(
+      managerBuffer.buffer,
+      managerBuffer.byteOffset + floatOffset * Float32Array.BYTES_PER_ELEMENT,
+      floatLength,
+    );
+
+    this._resultCount = count;
+    this._resultsCacheCount = -1; // invalidate results cache
+
+    // Swap pending points into active
     this._points = this._pendingPoints!;
     this._pendingPoints = undefined;
-    this._results = results;
   }
 }

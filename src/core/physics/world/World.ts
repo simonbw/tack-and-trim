@@ -30,9 +30,9 @@ import { ContactMaterialManager } from "./ContactMaterialManager";
 import { splitIntoIslands, type Island } from "./Island";
 import {
   bodyKey,
+  OverlapKeeper,
   type OverlapChanges,
   type ShapeOverlap,
-  OverlapKeeper,
 } from "./OverlapKeeper";
 
 /** Options for creating a World. */
@@ -133,9 +133,10 @@ export class World extends EventEmitter<PhysicsEventMap> {
     const pairsToCheck = this.doBroadphase();
 
     // 3. Narrowphase - get actual collisions
-    profiler.start("World.narrowphase");
-    const { collisions, sensorOverlaps } = getContactsFromPairs(pairsToCheck);
-    profiler.end("World.narrowphase");
+    const { collisions, sensorOverlaps } = profiler.measure(
+      "World.narrowphase",
+      () => getContactsFromPairs(pairsToCheck),
+    );
 
     // 4. Update overlap tracking
     const overlapChanges = this.updateOverlapTracking(

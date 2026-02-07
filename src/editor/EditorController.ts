@@ -11,10 +11,8 @@ import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { createContour } from "../game/world/terrain/LandMass";
 import { TerrainResources } from "../game/world/terrain/TerrainResources";
-import {
-  TerrainQuery,
-  TerrainQueryManager,
-} from "../game/world/terrain/TerrainQuery";
+import { TerrainQuery } from "../game/world/terrain/TerrainQuery";
+import { TerrainQueryManager } from "../game/world/terrain/TerrainQueryManager";
 import { V, V2d } from "../core/Vector";
 import { ContourEditor } from "./ContourEditor";
 import { ContourRenderer } from "./ContourRenderer";
@@ -27,6 +25,7 @@ import { EditorCameraController } from "./EditorCameraController";
 import {
   EditorContour,
   editorDefinitionToFile,
+  editorDefinitionToGameDefinition,
   serializeTerrainFile,
 } from "./io/TerrainFileFormat";
 import { loadDefaultEditorTerrain } from "./io/TerrainLoader";
@@ -34,7 +33,7 @@ import { EditorUI } from "./EditorUI";
 import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
 import { WavePhysicsResources } from "../game/wave-physics/WavePhysicsResources";
 import { WaterResources } from "../game/world/water/WaterResources";
-import { WaterQueryManager } from "../game/world/water/WaterQuery";
+import { WaterQueryManager } from "../game/world/water/WaterQueryManager";
 import { DebugRenderer } from "../game/debug-renderer";
 import { computeSplineCentroid } from "../core/util/Spline";
 
@@ -163,8 +162,11 @@ export class EditorController
     this.document.setTerrainDefinition(terrain);
 
     // Create TerrainResources for GPU buffers and terrain data storage
+    // Convert editor definition to game definition (performs spline sampling)
     this.terrainResources = this.game.addEntity(
-      new TerrainResources(this.document.getTerrainDefinition()),
+      new TerrainResources(
+        editorDefinitionToGameDefinition(this.document.getTerrainDefinition()),
+      ),
     );
 
     // Create TerrainQueryManager for GPU-accelerated terrain queries

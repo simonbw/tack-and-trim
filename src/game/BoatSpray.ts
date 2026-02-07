@@ -6,7 +6,8 @@ import { chooseWeighted, rNormal } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { SprayParticle } from "./SprayParticle";
-import { WaterQuery, WaterQueryResult } from "./world/water/WaterQuery";
+import { WaterQuery } from "./world/water/WaterQuery";
+import { WaterResultView } from "./world/water/WaterQueryResult";
 
 // Spawn rate (linear with velocity and edge length)
 const MIN_IMPACT_SPEED = 3; // ft/s - minimum normal velocity to generate spray
@@ -169,7 +170,7 @@ class Edge {
    * Update edge state using water query result.
    * @param waterResult Water query result at edge midpoint, or null if not available
    */
-  update(waterResult: WaterQueryResult | null) {
+  update(waterResult: WaterResultView | null) {
     const hullBody = this.boat.hull.body;
 
     // Transform edge endpoints to world frame

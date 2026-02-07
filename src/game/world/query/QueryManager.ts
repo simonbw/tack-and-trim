@@ -2,7 +2,7 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { DoubleBuffer } from "../../../core/util/DoubleBuffer";
-import { profile, profileAsync } from "../../../core/util/Profiler";
+import { profile, profileAsync, profiler } from "../../../core/util/Profiler";
 import type { BaseQuery } from "./BaseQuery";
 
 /**
@@ -18,7 +18,7 @@ export interface ResultLayout {
 const STRIDE_PER_POINT = 2;
 
 /**
- * Generic GPU-accelerated query manager
+ * GPU-accelerated query manager base class.
  *
  * Manages GPU buffers and computation for a specific query type.
  * Each concrete implementation handles one data source (terrain, water, wind).
@@ -28,10 +28,9 @@ const STRIDE_PER_POINT = 2;
  * - Double-buffered readback for non-blocking GPU data access
  * - Automatic query discovery via tags
  * - One-frame latency (results available next frame)
- *
- * @template TResult - The result type (e.g., WaterQueryResult)
+ * - Zero-allocation result delivery via buffer-backed views
  */
-export abstract class QueryManager<TResult> extends BaseEntity {
+export abstract class QueryManager extends BaseEntity {
   /**
    * GPU buffer containing input query points (vec2f per point).
    * Written by CPU, read by GPU compute shader.
@@ -90,16 +89,35 @@ export abstract class QueryManager<TResult> extends BaseEntity {
   protected readbackPromise: Promise<void> | null = null;
 
   /**
+   * Number of bytes in the pending readback operation.
+   * Used for partial buffer mapping to avoid slow paths for large buffers.
+   */
+  private pendingReadbackBytes: number = 0;
+
+  /**
+   * Reusable Float32Array for collecting query points.
+   * Avoids allocating a new array every frame.
+   */
+  private pointsArray: Float32Array | null = null;
+
+  /**
+   * Persistent CPU-side buffer for result data.
+   * Mapped GPU data is copied here immediately, then the GPU buffer is unmapped.
+   * Query views reference slices of this buffer.
+   */
+  private dataBuffer: Float32Array | null = null;
+
+  /**
    * Metadata for each query's position in the GPU buffer.
    * WeakMap ensures this data is private to QueryManager and auto-cleans up.
    */
   private queryBufferMetadata = new WeakMap<
-    BaseQuery<TResult>,
+    BaseQuery<unknown>,
     { offset: number; count: number }
   >();
 
   /**
-   * Buffer layout for TResult
+   * Buffer layout for results.
    * Example: { stride: 4, fields: { height: 0, normalX: 1, normalY: 2, terrainType: 3 } }
    */
   protected readonly resultLayout: ResultLayout;
@@ -126,30 +144,20 @@ export abstract class QueryManager<TResult> extends BaseEntity {
   }
 
   /**
-   * Get all queries of this type from the game
-   * Uses tags and type guards for type-safe collection
+   * Get all queries of this type from the game.
    */
-  abstract getQueries(): BaseQuery<TResult>[];
+  abstract getQueries(): BaseQuery<unknown>[];
 
   /**
-   * Pack a TResult into a Float32Array at the given offset
+   * Dispatch GPU compute shader.
+   *
+   * @param pointCount Number of points to process
+   * @param commandEncoder Command encoder to record compute pass to (caller will submit)
    */
-  abstract packResult(
-    result: TResult,
-    buffer: Float32Array,
-    offset: number,
+  abstract dispatchCompute(
+    pointCount: number,
+    commandEncoder: GPUCommandEncoder,
   ): void;
-
-  /**
-   * Unpack a TResult from a Float32Array at the given offset
-   */
-  abstract unpackResult(buffer: Float32Array, offset: number): TResult;
-
-  /**
-   * Dispatch GPU compute or generate stub data.
-   * Override in subclasses to implement real GPU compute.
-   */
-  abstract dispatchCompute(pointCount: number): void;
 
   @on("add")
   onAdd(): void {
@@ -167,10 +175,7 @@ export abstract class QueryManager<TResult> extends BaseEntity {
     this.resultBuffer = device.createBuffer({
       label: this.constructor.name + " Result Buffer",
       size: this.resultBufferSize,
-      usage:
-        GPUBufferUsage.STORAGE |
-        GPUBufferUsage.COPY_SRC |
-        GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
     // Readback buffers
@@ -193,19 +198,16 @@ export abstract class QueryManager<TResult> extends BaseEntity {
    *
    * Tick N onTick:
    *   1. Await GPU map operation from tick N-1
-   *   2. Read and distribute results to queries
-   *   3. Clear promise
+   *   2. Copy mapped data to persistent CPU buffer, unmap immediately
+   *   3. Distribute buffer slices to queries (zero-copy views)
    *
-   * Tick N (entities use query results)
+   * Tick N (entities use query results via buffer-backed views)
    *
    * Tick N afterPhysicsStep:
    *   1. Collect query points (based on updated entity positions)
    *   2. Upload to GPU and dispatch compute
    *   3. Copy results to readback buffer
    *   4. Start async map for next tick
-   *
-   * The double buffering allows us to swap buffers while one is mapped,
-   * preventing GPU stalls.
    */
   @on("tick")
   @profileAsync
@@ -217,26 +219,47 @@ export abstract class QueryManager<TResult> extends BaseEntity {
 
     const readbackBuffer = this.readbackBuffers.getRead();
     let mappedSuccessfully = false;
+    const prefix = this.constructor.name;
 
     try {
+      const awaitStart = performance.now();
       await this.readbackPromise;
+      profiler.recordElapsed(
+        `${prefix}.awaitMapAsync`,
+        performance.now() - awaitStart,
+      );
       mappedSuccessfully = true;
 
-      const data = new Float32Array(readbackBuffer.getMappedRange());
-      const queries = this.getQueries();
-      const layout = this.resultLayout;
+      // Create temporary view over mapped GPU memory
+      const mappedView = new Float32Array(
+        readbackBuffer.getMappedRange(0, this.pendingReadbackBytes),
+      );
 
+      // Copy to persistent CPU buffer
+      const floatCount =
+        this.pendingReadbackBytes / Float32Array.BYTES_PER_ELEMENT;
+      if (!this.dataBuffer || this.dataBuffer.length < floatCount) {
+        this.dataBuffer = new Float32Array(
+          this.maxPoints * this.resultLayout.stride,
+        );
+      }
+      this.dataBuffer.set(mappedView);
+
+      // Unmap ASAP to free GPU buffer for next frame's copy
+      readbackBuffer.unmap();
+      mappedSuccessfully = false; // Already unmapped, skip finally unmap
+
+      // Distribute results to queries via zero-copy Float32Array views
+      const queries = this.getQueries();
+      const stride = this.resultLayout.stride;
       for (const query of queries) {
         const metadata = this.queryBufferMetadata.get(query);
-        if (!metadata || metadata.offset < 0) continue; // query was either added this frame or had was skipped due to overflow
-
-        const results: TResult[] = [];
-        for (let i = 0; i < metadata.count; i++) {
-          const pointIndex = metadata.offset + i;
-          const offset = pointIndex * layout.stride;
-          results.push(this.unpackResult(data, offset));
-        }
-        query.setResults(results);
+        if (!metadata || metadata.offset < 0) continue;
+        query.receiveData(
+          this.dataBuffer,
+          metadata.offset * stride,
+          metadata.count,
+        );
       }
     } catch (error) {
       console.warn(
@@ -244,7 +267,7 @@ export abstract class QueryManager<TResult> extends BaseEntity {
         (error as Error).message,
       );
     } finally {
-      // Always unmap the buffer if mapping succeeded, even if processing failed
+      // Unmap if mapping succeeded but we didn't get to the unmap above
       if (mappedSuccessfully) {
         try {
           readbackBuffer.unmap();
@@ -257,56 +280,87 @@ export abstract class QueryManager<TResult> extends BaseEntity {
   }
 
   @on("afterPhysicsStep")
+  @profile
   onAfterPhysicsStep(): void {
     const device = getWebGPU().device;
 
     // Collect query points based on updated entity positions
-    const { points, queries } = this.collectPoints();
-    const totalPoints = queries.reduce(
-      (sum, q) => sum + (this.queryBufferMetadata.get(q)?.count ?? 0),
-      0,
-    );
+    const { points, pointCount } = this.collectPoints();
 
-    // Upload points to GPU
+    // Skip GPU work entirely if there are no query points
+    if (pointCount === 0) {
+      return;
+    }
+
+    // Upload only the points we actually have
+    const pointBytesNeeded =
+      pointCount * STRIDE_PER_POINT * Float32Array.BYTES_PER_ELEMENT;
     device.queue.writeBuffer(
       this.pointBuffer,
       0,
       points.buffer,
       points.byteOffset,
-      points.byteLength,
+      pointBytesNeeded,
     );
 
-    // Run GPU compute (or generate stub data)
-    this.dispatchCompute(totalPoints);
-
-    // Copy results to readback buffer for CPU access
-    const readbackBuffer = this.readbackBuffers.getWrite();
+    // Single command encoder for both compute and copy
     const commandEncoder = device.createCommandEncoder({
-      label: `${this.constructor.name} Copy to Readback`,
+      label: `${this.constructor.name} Compute + Copy`,
     });
+
+    // Run GPU compute (records to command encoder)
+    this.dispatchCompute(pointCount, commandEncoder);
+
+    // Copy results to readback buffer
+    const resultBytesNeeded =
+      pointCount * this.resultLayout.stride * Float32Array.BYTES_PER_ELEMENT;
+    const readbackBuffer = this.readbackBuffers.getWrite();
+
+    // GPU timestamp: start of copy
+    const gpuProfiler = this.game.getRenderer().getGpuProfiler();
+    gpuProfiler?.writeTimestamp("query.copy", "start", commandEncoder);
 
     commandEncoder.copyBufferToBuffer(
       this.resultBuffer,
       0,
       readbackBuffer,
       0,
-      this.resultBufferSize,
+      resultBytesNeeded,
     );
 
+    // GPU timestamp: end of copy
+    gpuProfiler?.writeTimestamp("query.copy", "end", commandEncoder);
+
+    // Single submit for compute + copy
     device.queue.submit([commandEncoder.finish()]);
 
     // Start async map for next tick's results
+    // Use partial mapping to avoid slow path for large buffers (>~125KB threshold)
     this.readbackBuffers.swap();
-    this.readbackPromise = readbackBuffer.mapAsync(GPUMapMode.READ);
+    this.pendingReadbackBytes = resultBytesNeeded;
+    this.readbackPromise = readbackBuffer.mapAsync(
+      GPUMapMode.READ,
+      0,
+      resultBytesNeeded,
+    );
   }
 
   @profile
   protected collectPoints(): {
     points: Float32Array;
-    queries: BaseQuery<TResult>[];
+    queries: BaseQuery<unknown>[];
+    pointCount: number;
   } {
     const queries = this.getQueries();
-    const points = new Float32Array(this.maxPoints * STRIDE_PER_POINT);
+
+    // Reuse or create points array
+    if (
+      !this.pointsArray ||
+      this.pointsArray.length < this.maxPoints * STRIDE_PER_POINT
+    ) {
+      this.pointsArray = new Float32Array(this.maxPoints * STRIDE_PER_POINT);
+    }
+    const points = this.pointsArray;
     let currentPoint = 0;
 
     for (const query of queries) {
@@ -319,24 +373,6 @@ export abstract class QueryManager<TResult> extends BaseEntity {
         this.queryBufferMetadata.set(query, { offset: -1, count: 0 });
         continue;
       }
-
-      // TEMPORARY: Removed validation to test if it's causing issues
-      // // Validate all points before packing
-      // let hasInvalidPoint = false;
-      // for (const p of queryPoints) {
-      //   if (!isFinite(p.x) || !isFinite(p.y)) {
-      //     console.error(
-      //       `${this.constructor.name}: Invalid query point (${p.x}, ${p.y}) - skipping entire query`,
-      //     );
-      //     hasInvalidPoint = true;
-      //     break;
-      //   }
-      // }
-
-      // if (hasInvalidPoint) {
-      //   this.queryBufferMetadata.set(query, { offset: -1, count: 0 });
-      //   continue;
-      // }
 
       this.queryBufferMetadata.set(query, {
         offset: currentPoint,
@@ -351,7 +387,7 @@ export abstract class QueryManager<TResult> extends BaseEntity {
       }
     }
 
-    return { points, queries };
+    return { points, queries, pointCount: currentPoint };
   }
 
   @on("destroy")

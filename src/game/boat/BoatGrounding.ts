@@ -18,8 +18,6 @@ import type { GroundingConfig } from "./BoatConfig";
  * Applies friction when underwater components contact terrain.
  */
 export class BoatGrounding extends BaseEntity {
-  tickLayer = "physics" as const;
-
   private readonly boat: Boat;
   private readonly config: GroundingConfig;
   private readonly hullDraft: number;

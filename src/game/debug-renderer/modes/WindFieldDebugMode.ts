@@ -8,8 +8,8 @@
 import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { V2d } from "../../../core/Vector";
-import { WindQuery } from "../../world/wind/WindQuery";
 import { WorldSpaceWindVisualization } from "../../wind-visualization/WorldSpaceWindVisualization";
+import { WindQuery } from "../../world/wind/WindQuery";
 import { DebugRenderMode } from "./DebugRenderMode";
 
 // Dim overlay

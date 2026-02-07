@@ -2,7 +2,6 @@ import { V2d } from "../../../core/Vector";
 import {
   checkSplineIntersection,
   checkSplineSelfIntersection,
-  computeSplineBoundingBox,
   isSplineInsideSpline,
   sampleClosedSpline,
 } from "../../../core/util/Spline";
@@ -19,6 +18,9 @@ export interface TerrainContour {
 
   /** Height of this contour in feet (negative = underwater, positive = above water) */
   readonly height: number;
+
+  /** Pre-sampled polygon from Catmull-Rom spline (SAMPLES_PER_SEGMENT samples per segment) */
+  readonly sampledPolygon: readonly V2d[];
 }
 
 /**
@@ -65,7 +67,7 @@ export interface ContourTree {
 
 /**
  * Create a terrain contour.
- * Only control points and height are required.
+ * Samples the Catmull-Rom spline at creation time for consistent polygon representation.
  */
 export function createContour(
   controlPoints: V2d[],
@@ -74,6 +76,7 @@ export function createContour(
   return {
     controlPoints,
     height,
+    sampledPolygon: sampleClosedSpline(controlPoints, SAMPLES_PER_SEGMENT),
   };
 }
 
@@ -130,10 +133,11 @@ export function ensureContourCCW(contour: TerrainContour): TerrainContour {
     return contour;
   }
 
-  // Reverse the control points to flip winding
+  // Reverse both control points and sampled polygon to flip winding
   return {
     controlPoints: [...contour.controlPoints].reverse(),
     height: contour.height,
+    sampledPolygon: [...contour.sampledPolygon].reverse(),
   };
 }
 
@@ -461,10 +465,8 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     }
   }
 
-  // Pre-sample all contours' splines into dense vertex arrays
-  const sampledContours: V2d[][] = contours.map((contour) =>
-    sampleClosedSpline(contour.controlPoints, SAMPLES_PER_SEGMENT),
-  );
+  // Use pre-sampled polygons from contours
+  const sampledContours = contours.map((contour) => contour.sampledPolygon);
 
   // Count total vertices after sampling
   let totalVertices = 0;
@@ -547,15 +549,21 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     contourView.setUint32(byteBase + 28, contour.height === 0 ? 1 : 0, true); // isCoastline
 
     // Compute bounding box from pre-sampled vertices
-    const bbox = computeSplineBoundingBox(
-      contour.controlPoints,
-      SAMPLES_PER_SEGMENT,
-    );
-    if (bbox) {
-      contourView.setFloat32(byteBase + 32, bbox.minX, true); // bboxMinX
-      contourView.setFloat32(byteBase + 36, bbox.minY, true); // bboxMinY
-      contourView.setFloat32(byteBase + 40, bbox.maxX, true); // bboxMaxX
-      contourView.setFloat32(byteBase + 44, bbox.maxY, true); // bboxMaxY
+    if (vertices.length > 0) {
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity;
+      for (const pt of vertices) {
+        minX = Math.min(minX, pt.x);
+        maxX = Math.max(maxX, pt.x);
+        minY = Math.min(minY, pt.y);
+        maxY = Math.max(maxY, pt.y);
+      }
+      contourView.setFloat32(byteBase + 32, minX, true); // bboxMinX
+      contourView.setFloat32(byteBase + 36, minY, true); // bboxMinY
+      contourView.setFloat32(byteBase + 40, maxX, true); // bboxMaxX
+      contourView.setFloat32(byteBase + 44, maxY, true); // bboxMaxY
     }
 
     // Skip count for DFS traversal

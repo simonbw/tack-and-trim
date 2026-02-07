@@ -11,15 +11,30 @@
  */
 
 import {
+  defineUniformStruct,
+  f32,
+  u32,
+} from "../../../core/graphics/UniformStruct";
+import {
   ComputeShader,
   type ComputeShaderConfig,
 } from "../../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import {
-  defineUniformStruct,
-  f32,
-  u32,
-} from "../../../core/graphics/UniformStruct";
+  fn_calculateGerstnerWaves,
+  struct_WaveModification,
+} from "../shaders/gerstner-wave.wgsl";
+import { fn_simplex3D } from "../shaders/noise.wgsl";
+import {
+  fn_computeShadowAttenuation,
+  struct_ShadowData,
+} from "../shaders/shadow-attenuation.wgsl";
+import {
+  fn_computeTerrainHeight,
+  struct_ContourData,
+} from "../shaders/terrain.wgsl";
+import { fn_calculateModifiers } from "../shaders/water-modifiers.wgsl";
+import { fn_computeWaveTerrainFactor } from "../shaders/wave-terrain.wgsl";
 import {
   GERSTNER_STEEPNESS,
   MAX_WAVES,
@@ -27,21 +42,6 @@ import {
   WAVE_AMP_MOD_STRENGTH,
   WAVE_AMP_MOD_TIME_SCALE,
 } from "./WaterConstants";
-import { fn_calculateModifiers } from "../shaders/water-modifiers.wgsl";
-import {
-  fn_computeShadowAttenuation,
-  struct_ShadowData,
-} from "../shaders/shadow-attenuation.wgsl";
-import {
-  fn_calculateGerstnerWaves,
-  struct_WaveModification,
-} from "../shaders/gerstner-wave.wgsl";
-import { fn_simplex3D } from "../shaders/noise.wgsl";
-import {
-  fn_computeTerrainHeight,
-  struct_ContourData,
-} from "../shaders/terrain.wgsl";
-import { fn_computeWaveTerrainFactor } from "../shaders/wave-terrain.wgsl";
 import { FLOATS_PER_MODIFIER, MAX_MODIFIERS } from "./WaterResources";
 
 const WORKGROUP_SIZE = [64, 1, 1] as const;

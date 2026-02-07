@@ -2,7 +2,7 @@ import { Camera2d, Viewport } from "../../core/graphics/Camera2d";
 import type { Draw } from "../../core/graphics/Draw";
 import { clamp, lerp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import type { WindQueryResult } from "../world/wind/WindQuery";
+import type { WindResultView } from "../world/wind/WindQueryResult";
 import { WindVisualizationMode } from "./WindVisualizationMode";
 
 // Grid configuration - adaptive LOD
@@ -65,7 +65,7 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
    * Draw the visualization using pre-queried wind results.
    */
   draw(
-    results: WindQueryResult[],
+    results: WindResultView[],
     points: V2d[],
     viewport: Viewport,
     camera: Camera2d,
@@ -117,7 +117,7 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
   }
 
   private drawTriangle(
-    result: WindQueryResult,
+    result: WindResultView,
     x: number,
     y: number,
     maxSize: number,

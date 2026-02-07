@@ -11,7 +11,7 @@
  */
 
 import { V, V2d } from "../../core/Vector";
-import { catmullRomPoint, sampleClosedSpline } from "../../core/util/Spline";
+import { catmullRomPoint } from "../../core/util/Spline";
 import type { TerrainContour } from "../world/terrain/LandMass";
 import type { AABB } from "./CoastlineManager";
 import {
@@ -264,7 +264,7 @@ interface ShadowRegion {
  * @param waveDir - Normalized wave direction
  * @returns Boolean array where true = shadow-casting edge
  */
-function classifyEdges(polygon: V2d[], waveDir: V2d): boolean[] {
+function classifyEdges(polygon: readonly V2d[], waveDir: V2d): boolean[] {
   const result: boolean[] = [];
 
   for (let i = 0; i < polygon.length; i++) {
@@ -387,7 +387,7 @@ function findShadowRegions(isShadowEdge: boolean[]): ShadowRegion[] {
  */
 function computeRegionObstacleWidth(
   region: ShadowRegion,
-  polygon: V2d[],
+  polygon: readonly V2d[],
   waveDir: V2d,
 ): number {
   const leftSilhouette = polygon[region.endIndex];
@@ -412,7 +412,7 @@ function computeRegionObstacleWidth(
  * @returns Resampled points
  */
 function resampleArc(
-  polygon: V2d[],
+  polygon: readonly V2d[],
   startIndex: number,
   endIndex: number,
   targetCount: number,
@@ -487,7 +487,7 @@ function resampleArc(
  */
 function buildShadowPolygonFromRegion(
   region: ShadowRegion,
-  polygon: V2d[],
+  polygon: readonly V2d[],
   waveDir: V2d,
   contourIndex: number,
   polygonIndex: number,
@@ -802,8 +802,8 @@ export function buildShadowPolygonsForRendering(
   const allPolygons: ShadowPolygonRenderData[] = [];
 
   for (const { contour, contourIndex } of contours) {
-    // Sample contour to dense polygon
-    const polygon = sampleClosedSpline(contour.controlPoints, 32);
+    // Use pre-sampled polygon from contour
+    const polygon = contour.sampledPolygon;
 
     if (polygon.length < 3) continue;
 

@@ -117,10 +117,15 @@ export function terrainFileToDefinition(
 }
 
 /**
- * Extended contour data that includes the optional name from the file format.
- * Used by the editor to preserve names through edit operations.
+ * Editor contour data - separate from TerrainContour to avoid requiring
+ * pre-sampled polygons during editing. Sampling happens on export to game format.
  */
-export interface EditorContour extends TerrainContour {
+export interface EditorContour {
+  /** Catmull-Rom control points defining the contour (closed loop) */
+  readonly controlPoints: readonly V2d[];
+  /** Height of this contour in feet (negative = underwater, positive = above water) */
+  readonly height: number;
+  /** Optional human-readable name for the contour */
   name?: string;
 }
 
@@ -150,6 +155,23 @@ export function terrainFileToEditorDefinition(
   return {
     defaultDepth: file.defaultDepth ?? DEFAULT_DEPTH,
     contours,
+  };
+}
+
+/**
+ * Convert editor terrain definition to game TerrainDefinition.
+ * This performs spline sampling to create the sampledPolygon for each contour.
+ */
+export function editorDefinitionToGameDefinition(
+  definition: EditorTerrainDefinition,
+): TerrainDefinition {
+  const contours: TerrainContour[] = definition.contours.map((c) =>
+    createContour([...c.controlPoints], c.height),
+  );
+
+  return {
+    contours,
+    defaultDepth: definition.defaultDepth,
   };
 }
 

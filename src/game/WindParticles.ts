@@ -6,7 +6,8 @@ import { invLerp, stepToward, sum } from "../core/util/MathUtil";
 import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
-import { WindQuery, type WindQueryResult } from "./world/wind/WindQuery";
+import { WindQuery } from "./world/wind/WindQuery";
+import { type WindResultView } from "./world/wind/WindQueryResult";
 
 // Configuration (visual/screen-space, not world units)
 const PARTICLE_COUNT = 0; // Target particles per sector
@@ -135,7 +136,7 @@ class WindParticle {
   }
 
   /** Update particle state using wind query result */
-  update(dt: number, windResult: WindQueryResult | null) {
+  update(dt: number, windResult: WindResultView | null) {
     if (windResult) {
       this.pos.iadd(windResult.velocity.mul(dt * PARTICLE_MOVE_SCALE));
     }
