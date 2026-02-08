@@ -16,7 +16,10 @@ import { fn_calculateGerstnerWaves } from "../world/shaders/gerstner-wave.wgsl";
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import { fn_calculateModifiers } from "../world/shaders/water-modifiers.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
-import { fn_computeShadowEnergyForWave } from "../world/shaders/shadow-attenuation.wgsl";
+import {
+  fn_computeShadowEnergyForWave,
+  fn_computeDiffractedWaves,
+} from "../world/shaders/shadow-attenuation.wgsl";
 import { fn_computeWaveTerrainFactor } from "../world/shaders/wave-terrain.wgsl";
 import {
   GERSTNER_STEEPNESS,
@@ -92,6 +95,7 @@ const waterHeightComputeModule: ShaderModule = {
     fn_calculateGerstnerWaves,
     fn_calculateModifiers,
     fn_computeShadowEnergyForWave,
+    fn_computeDiffractedWaves,
     fn_computeWaveTerrainFactor,
   ],
   code: /*wgsl*/ `
@@ -142,6 +146,12 @@ fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32) -> f32 {
     ampMod,
   );
 
+  // Add diffracted wave contributions (curved waves from silhouette edges)
+  let diffracted = computeDiffractedWaves(
+    worldPos, &packedShadow, &waveData,
+    u32(params.numWaves), params.time, ampMod, depth
+  );
+
   // Calculate modifier contributions (wakes, etc.)
   let modifierResult = calculateModifiers(
     worldPos.x,
@@ -152,8 +162,8 @@ fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32) -> f32 {
     FLOATS_PER_MODIFIER
   );
 
-  // Combined height = waves + modifiers + tide
-  return waveResult.x + modifierResult.x + params.tideHeight;
+  // Combined height = waves + diffracted + modifiers + tide
+  return waveResult.x + diffracted + modifierResult.x + params.tideHeight;
 }
 
 @compute @workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]})

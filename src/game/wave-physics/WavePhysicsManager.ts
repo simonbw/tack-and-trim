@@ -228,6 +228,16 @@ export class WavePhysicsManager {
           maxY = Math.max(maxY, vertex.y);
         }
 
+        // Expand AABB perpendicular to wave direction for diffraction penumbra
+        const wavelength = this.waveSources[w].wavelength;
+        const diffractionMargin = wavelength * 3;
+        const perpX = Math.abs(set.direction.y);
+        const perpY = Math.abs(set.direction.x);
+        minX -= perpX * diffractionMargin;
+        maxX += perpX * diffractionMargin;
+        minY -= perpY * diffractionMargin;
+        maxY += perpY * diffractionMargin;
+
         // Write polygon metadata
         floatView[base + 0] = polygon.leftSilhouette.x;
         floatView[base + 1] = polygon.leftSilhouette.y;

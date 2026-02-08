@@ -22,7 +22,10 @@ import {
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { fn_calculateGerstnerWaves } from "../shaders/gerstner-wave.wgsl";
 import { fn_simplex3D } from "../shaders/noise.wgsl";
-import { fn_computeShadowEnergyForWave } from "../shaders/shadow-attenuation.wgsl";
+import {
+  fn_computeShadowEnergyForWave,
+  fn_computeDiffractedWaves,
+} from "../shaders/shadow-attenuation.wgsl";
 import {
   fn_computeTerrainHeight,
   struct_ContourData,
@@ -112,6 +115,7 @@ const waterQueryMainModule: ShaderModule = {
     fn_calculateGerstnerWaves,
     fn_calculateModifiers,
     fn_computeShadowEnergyForWave,
+    fn_computeDiffractedWaves,
     fn_computeTerrainHeight,
     fn_computeWaveTerrainFactor,
   ],
@@ -152,7 +156,13 @@ fn computeHeightAtPoint(worldPos: vec2<f32>, ampMod: f32, depth: f32) -> f32 {
     ampMod,
   );
 
-  return waveResult.x + params.tideHeight;
+  // Add diffracted wave contributions (curved waves from silhouette edges)
+  let diffracted = computeDiffractedWaves(
+    worldPos, &packedShadow, &waveData,
+    u32(params.numWaves), params.time, ampMod, depth
+  );
+
+  return waveResult.x + diffracted + params.tideHeight;
 }
 
 // Compute normal using finite differences
