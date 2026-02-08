@@ -97,6 +97,12 @@ No need to import or depend on these - they're always available.
 
 - **fn_computeFresnelEnergy** - Wave energy attenuation from Fresnel diffraction
 
+#### `shadow-attenuation.wgsl.ts`
+
+- **struct_ShadowData** - Shadow data structures (`PolygonShadowData`, `ShadowAttenuation`)
+- **fn_computeShadowAttenuation** - Combined shadow attenuation from all polygons
+  - Dependencies: `fn_computeFresnelEnergy`, `fn_getShadowWaveDirection`, `fn_getShadowPolygonCount`, `fn_getShadowPolygon`, `fn_isInsideShadowPolygon`
+
 ### Terrain
 
 #### `terrain.wgsl.ts`
@@ -107,15 +113,38 @@ No need to import or depend on these - they're always available.
 - **fn_blendIDW** - Blend values using IDW
 - **struct_ContourData** - Contour data structure
 - **fn_isInsideContour** - Fast containment test (winding number only)
-  - Dependencies: `fn_pointLeftOfSegment`, `struct_ContourData`
+  - Dependencies: `fn_pointLeftOfSegment`, `struct_ContourData`, `fn_getContourData`, `fn_getTerrainVertex`
 - **fn_computeDistanceToBoundary** - Minimum distance to contour boundary
-  - Dependencies: `fn_pointToLineSegmentDistanceSq`, `struct_ContourData`
+  - Dependencies: `fn_pointToLineSegmentDistanceSq`, `struct_ContourData`, `fn_getContourData`, `fn_getTerrainVertex`
 - **fn_computeSignedDistance** - Signed distance to contour
   - Dependencies: `fn_isInsideContour`, `fn_computeDistanceToBoundary`
 - **fn_computeTerrainHeight** - Terrain height using IDW interpolation
-  - Dependencies: `fn_isInsideContour`, `fn_computeDistanceToBoundary`
+  - Dependencies: `fn_isInsideContour`, `fn_computeDistanceToBoundary`, `fn_getContourData`, `fn_getTerrainChild`
 - **fn_computeTerrainNormal** - Terrain normal via finite differences
   - Dependencies: `fn_computeTerrainHeight`
+
+#### `terrain-packed.wgsl.ts`
+
+Accessor functions for reading terrain data from a single packed `array<u32>` buffer.
+
+- **fn_getTerrainVertex** - Read a vertex (vec2<f32>) from the packed buffer
+- **fn_getContourData** - Read a ContourData struct from the packed buffer
+  - Dependencies: `struct_ContourData`
+- **fn_getTerrainChild** - Read a child contour index from the packed buffer
+
+### Shadow
+
+#### `shadow-packed.wgsl.ts`
+
+Accessor functions for reading shadow data from a single packed `array<u32>` buffer.
+
+- **fn_getShadowWaveDirection** - Read wave direction from packed shadow buffer
+- **fn_getShadowPolygonCount** - Read polygon count from packed shadow buffer
+- **fn_getShadowPolygon** - Read a PolygonShadowData struct from packed buffer
+  - Dependencies: `struct_ShadowData`
+- **fn_getShadowVertex** - Read a shadow vertex from packed buffer
+- **fn_isInsideShadowPolygon** - Winding number test using packed vertex data
+  - Dependencies: `fn_pointLeftOfSegment`, `fn_getShadowVertex`
 
 ### Wind
 
