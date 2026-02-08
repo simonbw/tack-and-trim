@@ -151,16 +151,18 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
 
-    const tip = V(tipX * cos + x, tipX * sin + y);
-    const wingUp = V(
-      backX * cos - wingY * sin + x,
-      backX * sin + wingY * cos + y,
-    );
-    const wingDown = V(
-      backX * cos + wingY * sin + x,
-      backX * sin - wingY * cos + y,
-    );
+    const tipX_final = tipX * cos + x;
+    const tipY_final = tipX * sin + y;
+    const wingUpX_final = backX * cos - wingY * sin + x;
+    const wingUpY_final = backX * sin + wingY * cos + y;
+    const wingDownX_final = backX * cos + wingY * sin + x;
+    const wingDownY_final = backX * sin - wingY * cos + y;
 
-    draw.fillPolygon([tip, wingUp, wingDown], { color, alpha });
+    draw.fillTriangle(
+      { x: tipX_final, y: tipY_final },
+      { x: wingUpX_final, y: wingUpY_final },
+      { x: wingDownX_final, y: wingDownY_final },
+      { color, alpha },
+    );
   }
 }

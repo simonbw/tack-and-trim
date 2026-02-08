@@ -233,6 +233,10 @@ export class Draw {
   private readonly _lineVertices: V2d[] = [V(), V(), V(), V()];
   private readonly _lineIndices: number[] = [0, 1, 2, 0, 2, 3];
 
+  // Pooled arrays for triangle primitives
+  private readonly _triangleVertices: V2d[] = [V(), V(), V()];
+  private readonly _triangleIndices: number[] = [0, 1, 2];
+
   constructor(
     /** The underlying WebGPU renderer */
     readonly renderer: WebGPURenderer,
@@ -394,6 +398,29 @@ export class Draw {
     if (!indices) return; // Triangulation failed (degenerate polygon)
 
     this.renderer.submitTriangles(vertices, indices, color, alpha);
+  }
+
+  /** Draw a filled triangle (pooled for zero allocation) */
+  fillTriangle(
+    v1: V2d | { x: number; y: number },
+    v2: V2d | { x: number; y: number },
+    v3: V2d | { x: number; y: number },
+    opts?: DrawOptions,
+  ): void {
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1.0;
+
+    // Reuse pooled arrays - update coordinates in place
+    this._triangleVertices[0].set(v1.x, v1.y);
+    this._triangleVertices[1].set(v2.x, v2.y);
+    this._triangleVertices[2].set(v3.x, v3.y);
+
+    this.renderer.submitTriangles(
+      this._triangleVertices,
+      this._triangleIndices,
+      color,
+      alpha,
+    );
   }
 
   /** Draw a stroked polygon outline */
