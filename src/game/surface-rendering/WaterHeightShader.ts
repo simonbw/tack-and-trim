@@ -16,11 +16,9 @@ import { fn_calculateGerstnerWaves } from "../world/shaders/gerstner-wave.wgsl";
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import { fn_calculateModifiers } from "../world/shaders/water-modifiers.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
-import {
-  fn_computeShadowEnergyForWave,
-  fn_computeDiffractedWaves,
-} from "../world/shaders/shadow-attenuation.wgsl";
+import { fn_computeShadowForWave } from "../world/shaders/shadow-attenuation.wgsl";
 import { fn_computeWaveTerrainFactor } from "../world/shaders/wave-terrain.wgsl";
+import { fn_computeRefractionOffset } from "../world/shaders/wave-physics.wgsl";
 import {
   GERSTNER_STEEPNESS,
   MAX_WAVES,
@@ -94,9 +92,9 @@ const waterHeightComputeModule: ShaderModule = {
     fn_simplex3D,
     fn_calculateGerstnerWaves,
     fn_calculateModifiers,
-    fn_computeShadowEnergyForWave,
-    fn_computeDiffractedWaves,
+    fn_computeShadowForWave,
     fn_computeWaveTerrainFactor,
+    fn_computeRefractionOffset,
   ],
   code: /*wgsl*/ `
 // Convert pixel coordinates to world position
@@ -116,15 +114,59 @@ fn sampleTerrainHeight(pixel: vec2<u32>) -> f32 {
   return textureLoad(terrainHeightTexture, vec2<i32>(pixel), 0).r;
 }
 
-// Calculate water height at a point with per-wave shadow and terrain interaction
-fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32) -> f32 {
-  // Compute per-wave energy factors (shadow + terrain interaction)
+// Depth gradient sample offset (in pixels)
+const DEPTH_GRADIENT_OFFSET_PX: i32 = 5;
+
+// Compute depth gradient using finite differences on terrain texture
+fn computeDepthGradient(pixel: vec2<u32>, terrainHeight: f32) -> vec2<f32> {
+  // Sample nearby terrain heights
+  let hx = textureLoad(
+    terrainHeightTexture,
+    vec2<i32>(i32(pixel.x) + DEPTH_GRADIENT_OFFSET_PX, i32(pixel.y)),
+    0
+  ).r;
+  let hy = textureLoad(
+    terrainHeightTexture,
+    vec2<i32>(i32(pixel.x), i32(pixel.y) + DEPTH_GRADIENT_OFFSET_PX),
+    0
+  ).r;
+
+  // Convert pixel offset to world space offset
+  let worldOffsetX = (params.viewportWidth / params.screenWidth) * f32(DEPTH_GRADIENT_OFFSET_PX);
+  let worldOffsetY = (params.viewportHeight / params.screenHeight) * f32(DEPTH_GRADIENT_OFFSET_PX);
+
+  // Depth gradient = -terrain height gradient
+  let dx = -(hx - terrainHeight) / worldOffsetX;
+  let dy = -(hy - terrainHeight) / worldOffsetY;
+
+  return vec2<f32>(dx, dy);
+}
+
+// Calculate water height at a point with per-wave shadow, terrain, and refraction
+fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32, depthGradient: vec2<f32>) -> f32 {
+  // Compute per-wave energy factors and direction offsets (shadow + terrain + refraction)
   var energyFactors: array<f32, MAX_WAVE_SOURCES>;
+  var directionOffsets: array<f32, MAX_WAVE_SOURCES>;
   for (var i = 0u; i < u32(params.numWaves); i++) {
+    let waveDirection = waveData[i * 8u + 2u];
     let wavelength = waveData[i * 8u + 1u];
-    let shadowEnergy = computeShadowEnergyForWave(worldPos, &packedShadow, i, wavelength);
+
+    // Shadow attenuation and diffraction
+    let shadow = computeShadowForWave(worldPos, &packedShadow, i, wavelength);
+
+    // Terrain interaction (shoaling + damping)
     let terrainFactor = computeWaveTerrainFactor(depth, wavelength);
-    energyFactors[i] = shadowEnergy * terrainFactor;
+
+    // Refraction (direction bending due to depth changes)
+    let refractionOffset = computeRefractionOffset(
+      waveDirection,
+      wavelength,
+      depth,
+      depthGradient
+    );
+
+    energyFactors[i] = shadow.energy * terrainFactor;
+    directionOffsets[i] = shadow.directionOffset + refractionOffset;
   }
 
   // Sample amplitude modulation noise
@@ -135,7 +177,7 @@ fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32) -> f32 {
     ampModTime
   )) * WAVE_AMP_MOD_STRENGTH;
 
-  // Calculate Gerstner waves with per-wave energy factors
+  // Calculate Gerstner waves with per-wave energy factors and direction bending
   let waveResult = calculateGerstnerWaves(
     worldPos,
     params.time,
@@ -143,13 +185,8 @@ fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32) -> f32 {
     i32(params.numWaves),
     GERSTNER_STEEPNESS,
     energyFactors,
+    directionOffsets,
     ampMod,
-  );
-
-  // Add diffracted wave contributions (curved waves from silhouette edges)
-  let diffracted = computeDiffractedWaves(
-    worldPos, &packedShadow, &waveData,
-    u32(params.numWaves), params.time, ampMod, depth
   );
 
   // Calculate modifier contributions (wakes, etc.)
@@ -162,8 +199,8 @@ fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32) -> f32 {
     FLOATS_PER_MODIFIER
   );
 
-  // Combined height = waves + diffracted + modifiers + tide
-  return waveResult.x + diffracted + modifierResult.x + params.tideHeight;
+  // Combined height = waves + modifiers + tide
+  return waveResult.x + modifierResult.x + params.tideHeight;
 }
 
 @compute @workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]})
@@ -182,8 +219,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let waterLevel = params.tideHeight; // Mean water level
   let depth = waterLevel - terrainHeight;
 
-  // Calculate water height with shoaling/damping based on depth
-  let height = calculateWaterHeight(worldPos, depth);
+  // Compute depth gradient for refraction
+  let depthGradient = computeDepthGradient(pixel, terrainHeight);
+
+  // Calculate water height with shoaling/damping/refraction based on depth
+  let height = calculateWaterHeight(worldPos, depth, depthGradient);
 
   // Write to output texture
   textureStore(outputTexture, pixel, vec4<f32>(height, 0.0, 0.0, 0.0));

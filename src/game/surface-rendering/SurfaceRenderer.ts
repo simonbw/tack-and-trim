@@ -34,6 +34,7 @@ import { WaterHeightUniforms } from "./WaterHeightUniforms";
 import { SurfaceCompositeUniforms } from "./SurfaceCompositeUniforms";
 import { TerrainScreenUniforms } from "./TerrainScreenUniforms";
 import { LODTerrainTileCache } from "./LODTerrainTileCache";
+import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
 // Re-export for backwards compatibility
 export { SurfaceCompositeUniforms as SurfaceUniforms } from "./SurfaceCompositeUniforms";
@@ -60,6 +61,9 @@ export class SurfaceRenderer extends BaseEntity {
 
   // LOD terrain tile cache (multiple LOD levels for extreme zoom ranges)
   private terrainTileCache: LODTerrainTileCache | null = null;
+
+  // Wetness render pipeline (tracks sand wetness over time)
+  private wetnessPipeline: WetnessRenderPipeline | null = null;
 
   // Intermediate textures
   private terrainHeightTexture: GPUTexture | null = null;
@@ -121,11 +125,16 @@ export class SurfaceRenderer extends BaseEntity {
       // Supports zoom range 0.02 to 1.0+ by using progressively larger world units per tile
       this.terrainTileCache = new LODTerrainTileCache();
 
+      // Create wetness render pipeline (will be sized when textures are created)
+      // Using placeholder size - will be recreated when ensureTextures is called
+      this.wetnessPipeline = new WetnessRenderPipeline(1, 1);
+
       await Promise.all([
         this.terrainScreenShader.init(),
         this.waterHeightShader.init(),
         this.compositeShader.init(),
         this.terrainTileCache.init(),
+        this.wetnessPipeline.init(),
       ]);
 
       // Create uniform buffers
@@ -203,6 +212,9 @@ export class SurfaceRenderer extends BaseEntity {
     this.terrainHeightTexture?.destroy();
     this.waterHeightTexture?.destroy();
 
+    // Destroy old wetness pipeline (will be recreated with new size)
+    this.wetnessPipeline?.destroy();
+
     // Create terrain height texture (screen-space, sampled from tile atlas)
     this.terrainHeightTexture = device.createTexture({
       size: { width, height },
@@ -220,6 +232,10 @@ export class SurfaceRenderer extends BaseEntity {
       label: "Water Height Texture",
     });
     this.waterHeightView = this.waterHeightTexture.createView();
+
+    // Recreate wetness pipeline with new texture size
+    this.wetnessPipeline = new WetnessRenderPipeline(width, height);
+    this.wetnessPipeline.init();
 
     this.lastTextureWidth = width;
     this.lastTextureHeight = height;
@@ -388,17 +404,20 @@ export class SurfaceRenderer extends BaseEntity {
       });
     }
 
-    // Composite bind group (uses terrain tile atlas)
+    // Composite bind group (uses terrain tile atlas and wetness texture)
+    const wetnessTextureView = this.wetnessPipeline?.getOutputTextureView();
     if (
       this.compositeShader &&
       this.compositeUniformBuffer &&
       this.waterHeightView &&
-      this.heightSampler
+      this.heightSampler &&
+      wetnessTextureView
     ) {
       this.compositeBindGroup = this.compositeShader.createBindGroup({
         params: { buffer: this.compositeUniformBuffer },
         waterHeightTexture: this.waterHeightView,
         terrainTileAtlas: terrainAtlasView,
+        wetnessTexture: wetnessTextureView,
         heightSampler: this.heightSampler,
       });
     }
@@ -411,7 +430,7 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   @on("render")
-  onRender(_event: { dt: number; draw: Draw }) {
+  onRender(event: { dt: number; draw: Draw }) {
     if (!this.initialized || !this.terrainTileCache) return;
 
     const camera = this.game.camera;
@@ -538,6 +557,23 @@ export class SurfaceRenderer extends BaseEntity {
       device.queue.submit([commandEncoder.finish()]);
     }
 
+    // === Wetness Update Pass ===
+    if (
+      this.wetnessPipeline &&
+      this.wetnessPipeline.isInitialized() &&
+      this.waterHeightView &&
+      this.terrainHeightView
+    ) {
+      // Use same viewport for wetness as for rendering
+      this.wetnessPipeline.update(
+        expandedViewport,
+        expandedViewport,
+        this.waterHeightView,
+        this.terrainHeightView,
+        event.dt,
+      );
+    }
+
     // === Pass 3: Surface Composite (fragment) ===
     const renderPass = renderer.getCurrentRenderPass();
     if (renderPass && this.compositeShader && this.compositeBindGroup) {
@@ -586,6 +622,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterHeightShader?.destroy();
     this.compositeShader?.destroy();
     this.terrainTileCache?.destroy();
+    this.wetnessPipeline?.destroy();
     this.terrainHeightTexture?.destroy();
     this.waterHeightTexture?.destroy();
     this.terrainScreenUniformBuffer?.destroy();

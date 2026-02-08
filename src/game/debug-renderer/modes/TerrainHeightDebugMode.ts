@@ -13,17 +13,18 @@
 import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import {
-  FullscreenShader,
-  type FullscreenShaderConfig,
-} from "../../../core/graphics/webgpu/FullscreenShader";
-import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import {
   defineUniformStruct,
   f32,
   mat3x3,
   type UniformInstance,
 } from "../../../core/graphics/UniformStruct";
+import {
+  FullscreenShader,
+  type FullscreenShaderConfig,
+} from "../../../core/graphics/webgpu/FullscreenShader";
+import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
+import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { radToDeg } from "../../../core/util/MathUtil";
 import { SurfaceRenderer } from "../../surface-rendering/SurfaceRenderer";
 import { TerrainQuery } from "../../world/terrain/TerrainQuery";
 import { TerrainResources } from "../../world/terrain/TerrainResources";
@@ -326,7 +327,6 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
 
     const result = this.terrainQuery.get(0);
     const height = result.height;
-
-    return `Terrain Height: ${height.toFixed(1)} ft`;
+    return `Terrain Height: ${height.toFixed(1)} ft, Slope: ${radToDeg(result.normal.angle).toFixed(1)}°`;
   }
 }

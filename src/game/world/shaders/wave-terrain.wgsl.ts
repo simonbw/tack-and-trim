@@ -51,17 +51,24 @@ export const fn_computeShoalingFactor: ShaderModule = {
  * This represents wave breaking and bottom friction. Without damping,
  * shoaling would cause infinite wave heights at the shoreline.
  *
- * Returns a multiplier 0-1, approaching 0 as depth approaches 0.
+ * Waves are allowed to extend slightly above the terrain (negative depth)
+ * to create a natural swash zone where waves wash up and down the shore.
+ *
+ * Returns a multiplier 0-1, approaching 0 as depth decreases.
  */
 export const fn_computeDampingFactor: ShaderModule = {
   code: /*wgsl*/ `
     fn computeDampingFactor(depth: f32, wavelength: f32) -> f32 {
-      // Damping threshold - waves start breaking when depth < wavelength/10
-      // (roughly when wave height approaches depth)
-      let dampingThreshold = wavelength * 0.1;
+      // Damping threshold - waves start breaking when depth < wavelength/20
+      let dampingThreshold = wavelength * 0.05;
 
-      // Smooth falloff from full energy to zero
-      return smoothstep(0.0, dampingThreshold, depth);
+      // Allow waves to extend into negative depth (above terrain).
+      // The swash zone lets wave crests wash up onto the shore.
+      let swashDepth = wavelength * 0.015;
+
+      // Smooth falloff from full energy to zero, centered so it
+      // reaches zero at -swashDepth rather than at depth=0
+      return smoothstep(-swashDepth, dampingThreshold, depth);
     }
   `,
 };
@@ -81,15 +88,16 @@ export const fn_computeWaveTerrainFactor: ShaderModule = {
   dependencies: [fn_computeShoalingFactor, fn_computeDampingFactor],
   code: /*wgsl*/ `
     fn computeWaveTerrainFactor(depth: f32, wavelength: f32) -> f32 {
-      // Handle invalid depth (NaN or negative = land)
-      if (depth <= 0.0 || depth != depth) { // depth != depth checks for NaN
+      // Handle NaN
+      if (depth != depth) {
         return 0.0;
       }
 
-      let shoaling = computeShoalingFactor(depth, wavelength);
+      // Damping handles negative depth gracefully (swash zone),
+      // so we only need shoaling for positive depth
+      let shoaling = select(1.0, computeShoalingFactor(depth, wavelength), depth > 0.0);
       let damping = computeDampingFactor(depth, wavelength);
 
-      // Combined factor: shoaling grows waves, damping kills them near shore
       return shoaling * damping;
     }
   `,

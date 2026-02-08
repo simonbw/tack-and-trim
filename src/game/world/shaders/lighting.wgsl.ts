@@ -3,6 +3,7 @@
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
+import { fn_SCENE_LIGHTING } from "./scene-lighting.wgsl";
 
 /**
  * Fresnel effect calculation module.
@@ -63,23 +64,23 @@ export const fn_renderWaterLighting: ShaderModule = {
     // viewDir: direction from surface to viewer
     // rawHeight: normalized wave height (0-1)
     // waterDepth: depth of water in world units
+    // time: time in seconds since midnight (for sun position/color)
     fn renderWaterLighting(
       normal: vec3<f32>,
       viewDir: vec3<f32>,
       rawHeight: f32,
-      waterDepth: f32
+      waterDepth: f32,
+      time: f32
     ) -> vec3<f32> {
-      // Fixed midday sun
-      let sunDir = normalize(vec3<f32>(0.3, 0.2, 0.9));
+      // Calculate sun direction and colors from time of day
+      let sunDir = getSunDirection(time);
+      let sunColor = getSunColor(time);
+      let skyColor = getSkyColor(time);
 
       // Water colors - vary by depth
       let shallowWater = vec3<f32>(0.15, 0.55, 0.65);  // Light blue-green
       let deepWater = vec3<f32>(0.08, 0.32, 0.52);     // Darker blue
       let scatterColor = vec3<f32>(0.1, 0.45, 0.55);
-
-      // Sun and sky colors
-      let sunColor = vec3<f32>(1.0, 0.95, 0.85);
-      let skyColor = vec3<f32>(0.5, 0.7, 0.95);
 
       // Depth-based color (deeper = darker/more blue)
       let depthFactor = smoothstep(0.0, 10.0, waterDepth);
@@ -121,5 +122,10 @@ export const fn_renderWaterLighting: ShaderModule = {
       return ambient + subsurface + diffuseLight + skyReflection + specularLight;
     }
   `,
-  dependencies: [fn_computeFresnel, fn_computeSpecular, fn_computeDiffuse],
+  dependencies: [
+    fn_SCENE_LIGHTING,
+    fn_computeFresnel,
+    fn_computeSpecular,
+    fn_computeDiffuse,
+  ],
 };

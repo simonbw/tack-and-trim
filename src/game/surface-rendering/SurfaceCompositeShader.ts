@@ -70,6 +70,11 @@ const SHALLOW_WATER_THRESHOLD: f32 = ${SHALLOW_WATER_THRESHOLD};
       viewDimension: "2d",
       sampleType: "unfilterable-float",
     },
+    wetnessTexture: {
+      type: "texture",
+      viewDimension: "2d",
+      sampleType: "unfilterable-float",
+    },
     heightSampler: { type: "sampler", samplerType: "non-filtering" },
   },
   code: "",
@@ -139,6 +144,16 @@ fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
     i32(uv.y * params.screenHeight)
   );
   return textureLoad(waterHeightTexture, texCoord, 0).r;
+}
+
+// Sample wetness texture at world position
+fn sampleWetness(worldPos: vec2<f32>) -> f32 {
+  let uv = worldToHeightUV(worldPos);
+  let texCoord = vec2<i32>(
+    i32(uv.x * params.screenWidth),
+    i32(uv.y * params.screenHeight)
+  );
+  return textureLoad(wetnessTexture, texCoord, 0).r;
 }
 
 // Sample terrain height from tile atlas
@@ -217,16 +232,17 @@ fn computeWaterColorAtPoint(normal: vec3<f32>, waterHeight: f32, waterDepth: f32
   let viewDir = getViewDir();
   // Use water height normalized to 0-1 range (approximate based on typical wave heights)
   let rawHeight = saturate((waterHeight + 2.0) / 4.0);
-  return renderWaterLighting(normal, viewDir, rawHeight, waterDepth);
+  return renderWaterLighting(normal, viewDir, rawHeight, waterDepth, params.time);
 }
 
 @fragment
 fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   let worldPos = clipToWorld(clipPosition);
 
-  // Sample heights from textures
+  // Sample heights and wetness from textures
   let waterHeight = sampleWaterHeight(worldPos);
   let terrainHeight = sampleTerrainHeight(worldPos);
+  let wetness = sampleWetness(worldPos);
 
   // Calculate water depth
   let waterDepth = waterHeight - terrainHeight;
@@ -243,15 +259,33 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   }
 
   if (waterDepth < 0.0) {
-    // Above water - render as sand/terrain
-    let color = renderSand(terrainHeight, terrainNormal, worldPos, 0.0);
+    // Above water - render as sand/terrain with tracked wetness
+    let color = renderSand(terrainHeight, terrainNormal, worldPos, wetness, params.time);
     return vec4<f32>(color, 1.0);
   } else if (waterDepth < params.shallowThreshold) {
-    // Shallow water - blend between sand and water
-    let blendFactor = waterDepth / params.shallowThreshold;
-    let sandColor = renderSand(terrainHeight, terrainNormal, worldPos, waterDepth);
+    // Shallow water - blend between sand and water with sharp transition
+    // Use power curve for sharper edge while maintaining some gradual depth visibility
+    let normalizedDepth = waterDepth / params.shallowThreshold;
+    let blendFactor = pow(normalizedDepth, 0.4); // Sharp at edge, gradual deeper
+
+    // For underwater sand, use max of tracked wetness and water depth
+    let underwaterWetness = max(wetness, waterDepth);
+    let sandColor = renderSand(terrainHeight, terrainNormal, worldPos, underwaterWetness, params.time);
     let waterColor = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth);
-    return vec4<f32>(mix(sandColor, waterColor, blendFactor), 1.0);
+    var finalColor = mix(sandColor, waterColor, blendFactor);
+
+    // Add foam at the water's edge
+    let foamThreshold = 0.2; // Foam appears in first 0.2 units of water depth
+    if (waterDepth < foamThreshold) {
+      // Foam intensity: strong at edge (depth=0), fades out at foamThreshold
+      let foamIntensity = (1.0 - (waterDepth / foamThreshold)) * 0.7;
+
+      // Blend foam into the color
+      let foamColor = vec3<f32>(0.95, 0.98, 1.0);
+      finalColor = mix(finalColor, foamColor, foamIntensity);
+    }
+
+    return vec4<f32>(finalColor, 1.0);
   } else {
     // Deep water
     let color = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth);

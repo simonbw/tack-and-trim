@@ -24,6 +24,7 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
     // numWaves: number of waves
     // steepness: Gerstner steepness factor
     // energyFactors: per-wave energy multiplier (0.0 = blocked, 1.0 = full)
+    // directionOffsets: per-wave direction offset in radians (from shadow bending)
     // ampMod: amplitude modulation factor (from noise)
     // Returns vec4<f32>(height, dispX, dispY, dhdt)
     fn calculateGerstnerWaves(
@@ -33,6 +34,7 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
       numWaves: i32,
       steepness: f32,
       energyFactors: array<f32, MAX_WAVE_SOURCES>,
+      directionOffsets: array<f32, MAX_WAVE_SOURCES>,
       ampMod: f32,
     ) -> vec4<f32> {
       let x = worldPos.x;
@@ -53,8 +55,6 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
         let sourceOffsetX = waveData[base + 6];
         let sourceOffsetY = waveData[base + 7];
 
-        let baseDx = cos(direction);
-        let baseDy = sin(direction);
         let k = TWO_PI / wavelength;
         let omega = sqrt(GRAVITY * k) * speedMult;
 
@@ -64,13 +64,16 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
 
         // Plane wave or point source?
         if (sourceDist > 1e9) {
-          // Plane wave
-          dx = baseDx;
-          dy = baseDy;
+          // Plane wave - apply direction offset for shadow bending
+          let bentDirection = direction + directionOffsets[i];
+          dx = cos(bentDirection);
+          dy = sin(bentDirection);
           let projected = x * dx + y * dy;
           phase = k * projected - omega * time + phaseOffset;
         } else {
-          // Point source
+          // Point source - direction from geometry, no offset
+          let baseDx = cos(direction);
+          let baseDy = sin(direction);
           let sourceX = -baseDx * sourceDist + sourceOffsetX;
           let sourceY = -baseDy * sourceDist + sourceOffsetY;
 
@@ -109,17 +112,22 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
         // Apply per-wave energy factor
         amplitude *= energyFactors[i];
 
-        let baseDx = cos(direction);
-        let baseDy = sin(direction);
         let k = TWO_PI / wavelength;
         let omega = sqrt(GRAVITY * k) * speedMult;
 
         var phase: f32;
 
         if (sourceDist > 1e9) {
-          let projected = sampleX * baseDx + sampleY * baseDy;
+          // Plane wave - apply direction offset for shadow bending
+          let bentDirection = direction + directionOffsets[i];
+          let bentDx = cos(bentDirection);
+          let bentDy = sin(bentDirection);
+          let projected = sampleX * bentDx + sampleY * bentDy;
           phase = k * projected - omega * time + phaseOffset;
         } else {
+          // Point source - direction from geometry, no offset
+          let baseDx = cos(direction);
+          let baseDy = sin(direction);
           let sourceX = -baseDx * sourceDist + sourceOffsetX;
           let sourceY = -baseDy * sourceDist + sourceOffsetY;
 
