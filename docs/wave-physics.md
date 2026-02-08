@@ -1,142 +1,14 @@
-# Wind & Wave Physics Reference
+# Wave Physics Reference
 
 ## Overview
 
-This document explains the real-world physics of wind and waves that we're modeling in Tack & Trim. Understanding these phenomena helps inform which effects matter for gameplay and how to approximate them computationally.
-
-The goal is a sailing experience where the ocean feels alive and varied - where different locations have distinct character based on geography, and where weather creates meaningful tactical decisions.
+This document explains the real-world physics of ocean waves that we're modeling in Tack & Trim. Understanding these phenomena helps inform which effects matter for gameplay and how to approximate them computationally.
 
 ---
 
-## Part 1: Wind Physics
+## Part 1: Wave Physics
 
-### 1.1 What Is Wind?
-
-Wind is bulk air movement driven by pressure differentials in the atmosphere. For our purposes, we care about:
-
-- **Prevailing wind**: The dominant wind direction and strength for a region/time
-- **Local modifications**: How terrain affects wind near the surface
-- **Temporal variation**: Gusts, shifts, and weather changes
-
-### 1.2 How Terrain Affects Wind
-
-#### Blocking (Wind Shadow)
-
-Land masses block wind flow. The **lee side** (downwind side) of an island or landmass experiences significantly reduced wind.
-
-```
-Wind direction: →
-
-        ████████
-       ██      ██
-      ██ Island ██
-       ██      ██        ←── Wind shadow zone
-        ████████             (reduced wind)
-            ╲
-             ╲
-              ╲  Shadow extends 5-20x the obstacle height
-               ╲ (depends on atmospheric stability)
-```
-
-Key factors:
-
-- Shadow length depends on obstacle height and atmospheric stability
-- Shadow isn't a hard cutoff - wind gradually recovers downwind
-- Turbulence is elevated in the shadow zone (gusty, variable direction)
-
-#### Acceleration (Venturi Effect / Gap Winds)
-
-Wind accelerates when forced through constrictions:
-
-```
-Wind direction: →
-
-    ████████████████████
-                          ══════════►  Accelerated flow
-    ████████████████████             (can be 1.5-2x base speed)
-         Gap/Channel
-```
-
-This happens in:
-
-- Narrow straits between islands
-- Mountain passes
-- Gaps between buildings (less relevant for our game)
-
-The acceleration factor depends on the constriction ratio.
-
-#### Deflection
-
-Wind bends around large obstacles. A headland or peninsula causes wind to curve:
-
-```
-Wind direction: →
-                    ↗
-                  ↗
-    ████████    ↗
-   ██      ██ →
-  ██ Point  ██
-   ██      ██ →
-    ████████    ↘
-                  ↘
-                    ↘
-```
-
-#### Turbulence
-
-The lee side of obstacles generates **turbulence** - chaotic, rapidly varying wind:
-
-- Vortices shed from edges
-- Variable direction and speed
-- Makes sailing unpredictable and difficult
-
-Turbulence intensity scales with:
-
-- Wind speed
-- Obstacle size
-- Distance downwind (decays over distance)
-
-### 1.3 Wind Over Water: Fetch
-
-**Fetch** is the distance wind has blown over open water. It determines how much energy the wind has transferred to the water surface.
-
-```
-         ←────── Fetch = 500m ──────→
-
-    █████                                Wind direction: →
-    █████
-    █████
-    █████ Land    [Short fetch zone]     [Long fetch zone]
-    █████          Small waves            Larger waves
-    █████
-    █████
-```
-
-Short fetch = less developed waves (smaller, steeper, more chaotic)
-Long fetch = more developed waves (larger, rounder, more organized)
-
-### 1.4 Temporal Variation
-
-Wind changes over multiple timescales:
-
-| Timescale | Phenomenon       | Cause                     |
-| --------- | ---------------- | ------------------------- |
-| Seconds   | Gusts            | Turbulent eddies          |
-| Minutes   | Lulls and puffs  | Larger atmospheric mixing |
-| Hours     | Wind shifts      | Weather system movement   |
-| Days      | Weather patterns | Fronts, pressure systems  |
-
-For gameplay, the most important are:
-
-- **Gusts**: Brief increases in wind speed (seconds)
-- **Shifts**: Changes in wind direction (minutes to hours)
-- **Weather changes**: Major changes in conditions (hours)
-
----
-
-## Part 2: Wave Physics
-
-### 2.1 Types of Ocean Waves
+### 1.1 Types of Ocean Waves
 
 #### Wind Waves (Sea)
 
@@ -186,7 +58,7 @@ Follows local wind              Any direction
 
 In practice, the sea surface is usually a **combination** of wind waves and swell superimposed.
 
-### 2.2 Wave Spectrum
+### 1.2 Wave Spectrum
 
 Real ocean waves aren't single sinusoids - they're a sum of many wave components with different:
 
@@ -220,7 +92,7 @@ For our game, we don't need to implement these exactly - just understand that:
 2. Peak frequency shifts lower (longer waves) with more fetch
 3. Total energy increases with wind speed and fetch
 
-### 2.3 How Terrain Affects Waves
+### 1.3 How Terrain Affects Waves
 
 #### Blocking
 
@@ -239,8 +111,6 @@ Swell direction: →
               ╲
                ╲
 ```
-
-This is similar to wind blocking but more complete - waves don't "blow over" land.
 
 #### Diffraction
 
@@ -381,7 +251,7 @@ Reflectivity depends on shore steepness:
 - Gradual sandy beach: low reflection, high absorption
 - Vertical seawall: high reflection
 
-### 2.4 Wave Breaking (Brief Note)
+### 1.4 Wave Breaking (Brief Note)
 
 When wave steepness exceeds a threshold, waves break. This happens when:
 
@@ -399,7 +269,7 @@ Breaking creates:
 
 **For our initial implementation, we're not modeling breaking waves.** This could be added later as a visual/physics enhancement.
 
-### 2.5 Combining Wind Waves and Swell
+### 1.5 Combining Wind Waves and Swell
 
 Real sea states combine multiple wave populations:
 
@@ -416,75 +286,9 @@ The sea surface is the superposition of all these.
 
 ---
 
-## Part 3: Wind-Wave Relationship
+## Part 2: Currents
 
-### 3.1 How Wind Generates Waves
-
-Wind transfers energy to water through:
-
-1. **Pressure fluctuations**: Turbulent eddies create pressure variation
-2. **Shear stress**: Friction between moving air and water surface
-3. **Form drag**: Wind pushes on existing wave faces
-
-Energy transfer is most efficient when:
-
-- Wind speed matches wave phase speed (resonance)
-- Waves are young and steep
-
-### 3.2 Wave Development Stages
-
-As wind blows over water, waves develop through stages:
-
-```
-Stage           Description                     Appearance
-──────────────────────────────────────────────────────────────
-Ripples         Initial capillary waves         Cat's paws on surface
-Young sea       Short, steep wind waves         Chaotic whitecaps
-Developing      Waves growing, spectrum filling Building seas
-Fully developed Equilibrium with wind           Maximum wave heights
-Decay/Swell     Wind stops, waves organize      Long, gentle rollers
-```
-
-Time to full development:
-
-- 10 knot wind: ~10 hours, ~100 km fetch
-- 20 knot wind: ~20 hours, ~300 km fetch
-- 30 knot wind: ~30 hours, ~600 km fetch
-
-### 3.3 Fetch-Limited vs Duration-Limited
-
-**Fetch-limited**: Wind has blown far enough, but not enough fetch distance
-
-- Common near upwind shores
-- Smaller waves than wind speed would suggest
-
-**Duration-limited**: Enough fetch, but wind hasn't blown long enough
-
-- Common after wind shifts
-- Waves still building
-
-**Fully developed**: Both sufficient fetch and duration
-
-- Maximum waves for that wind speed
-- Open ocean in steady conditions
-
-### 3.4 Implications for Gameplay
-
-Different locations will have different wave character:
-
-| Location                     | Fetch      | Expected Waves                             |
-| ---------------------------- | ---------- | ------------------------------------------ |
-| Open ocean                   | Unlimited  | Fully developed - large, organized         |
-| Lee shore (wind offshore)    | Short      | Small, choppy                              |
-| Weather shore (wind onshore) | Long       | Large, can be confused near shore          |
-| Narrow bay                   | Very short | Minimal wind waves, maybe diffracted swell |
-| Channel                      | Medium     | Can be rough if wind aligned               |
-
----
-
-## Part 4: Currents
-
-### 4.1 Types of Currents
+### 2.1 Types of Currents
 
 #### Tidal Currents
 
@@ -523,7 +327,7 @@ Water flows from areas of higher water level to lower. Near coasts:
 - Wave setup near beaches creates offshore return flow
 - Longshore currents parallel to beach
 
-### 4.2 Current Effects on Waves
+### 2.2 Current Effects on Waves
 
 Currents modify wave behavior:
 
@@ -543,7 +347,7 @@ Currents modify wave behavior:
 - Waves bend (refraction)
 - Direction shifts
 
-### 4.3 Current Effects on Sailing
+### 2.3 Current Effects on Sailing
 
 For boats:
 
@@ -554,28 +358,24 @@ For boats:
 
 ---
 
-## Part 5: Summary - What to Simulate
+## Part 3: Summary - What to Simulate
 
 ### High Priority (Core Experience)
 
-| Phenomenon                     | Why It Matters                               |
-| ------------------------------ | -------------------------------------------- |
-| Wind blocking                  | Tactical use of wind shadows                 |
-| Wind acceleration through gaps | Channel sailing dynamics                     |
-| Swell blocking                 | Sheltered anchorages feel different          |
-| Diffraction                    | Bays have character, not just "no waves"     |
-| Fetch-limited wind waves       | Coastal areas feel different from open ocean |
-| Basic shoaling                 | Waves change character near shore            |
+| Phenomenon               | Why It Matters                               |
+| ------------------------ | -------------------------------------------- |
+| Swell blocking           | Sheltered anchorages feel different          |
+| Diffraction              | Bays have character, not just "no waves"     |
+| Fetch-limited wind waves | Coastal areas feel different from open ocean |
+| Basic shoaling           | Waves change character near shore            |
 
 ### Medium Priority (Enhanced Realism)
 
-| Phenomenon             | Why It Matters                             |
-| ---------------------- | ------------------------------------------ |
-| Wind turbulence in lee | Makes wind shadows feel realistic          |
-| Refraction             | Waves align with shore, focus on headlands |
-| Tidal currents         | Time-varying tactical element              |
-| Wind-driven currents   | Affects boat speed calculations            |
-| Damping near shore     | Shallow areas are calmer                   |
+| Phenomenon         | Why It Matters                             |
+| ------------------ | ------------------------------------------ |
+| Refraction         | Waves align with shore, focus on headlands |
+| Tidal currents     | Time-varying tactical element              |
+| Damping near shore | Shallow areas are calmer                   |
 
 ### Lower Priority (Future Enhancement)
 
@@ -588,12 +388,12 @@ For boats:
 
 ---
 
-## Part 6: Simplifications We're Making
+## Part 4: Simplifications We're Making
 
 ### Acceptable Simplifications
 
 1. **2D propagation**: We ignore vertical wave orbital motion - just surface height and direction
-2. **Steady-state terrain effects**: Pre-compute how terrain affects wind/waves, don't simulate fluid dynamics
+2. **Steady-state terrain effects**: Pre-compute how terrain affects waves, don't simulate fluid dynamics
 3. **Linear superposition**: Just add wave components - ignore nonlinear wave-wave interaction
 4. **Instant fetch response**: Wind waves adjust immediately to local fetch (skip duration-limited development)
 5. **Simplified diffraction**: Approximate spreading rather than solving wave equation
@@ -605,8 +405,7 @@ For boats:
 2. **Fetch dependence**: Local geography affects wind wave development
 3. **Diffraction through gaps**: Key to making bays feel sheltered but alive
 4. **Shoaling**: Waves change near shore
-5. **Wind-terrain interaction**: Shadows, acceleration, turbulence
-6. **Spatial variation**: No two places have identical wave/wind conditions
+5. **Spatial variation**: No two places have identical wave conditions
 
 ---
 
@@ -615,8 +414,6 @@ For boats:
 | Term             | Definition                                         |
 | ---------------- | -------------------------------------------------- |
 | Fetch            | Distance wind has blown over open water            |
-| Lee              | Downwind side (sheltered from wind)                |
-| Windward         | Upwind side (facing the wind)                      |
 | Swell            | Long-wavelength waves from distant storms          |
 | Sea              | Locally wind-generated waves                       |
 | Shoaling         | Wave transformation in shallow water               |
