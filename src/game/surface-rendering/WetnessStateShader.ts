@@ -15,7 +15,6 @@ import {
 } from "../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
 import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
-import { WATER_HEIGHT_SCALE } from "../world/water/WaterConstants";
 import {
   fn_uvInBounds,
   fn_uvToWorld,
@@ -105,7 +104,6 @@ const wetnessMainModule: ShaderModule = {
   ],
   code: /*wgsl*/ `
 // Constants
-const WATER_HEIGHT_SCALE: f32 = ${WATER_HEIGHT_SCALE};
 const DEFAULT_WETTING_RATE: f32 = ${DEFAULT_WETTING_RATE};
 const DEFAULT_DRYING_RATE: f32 = ${DEFAULT_DRYING_RATE};
 
@@ -154,7 +152,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let terrainData = textureSampleLevel(terrainTexture, textureSampler, renderUV, 0.0);
 
   // Compute water depth
-  let waterSurfaceHeight = (waterData.r - 0.5) * WATER_HEIGHT_SCALE;
+  let waterSurfaceHeight = waterData.r;
   let terrainHeight = terrainData.r;
   let waterDepth = waterSurfaceHeight - terrainHeight;
 
