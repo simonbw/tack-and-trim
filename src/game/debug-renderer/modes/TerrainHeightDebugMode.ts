@@ -25,6 +25,7 @@ import {
   type UniformInstance,
 } from "../../../core/graphics/UniformStruct";
 import { SurfaceRenderer } from "../../surface-rendering/SurfaceRenderer";
+import { TerrainQuery } from "../../world/terrain/TerrainQuery";
 import { TerrainResources } from "../../world/terrain/TerrainResources";
 import { DebugRenderMode } from "./DebugRenderMode";
 
@@ -168,6 +169,27 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
   private placeholderTexture: GPUTexture | null = null;
   private placeholderTextureView: GPUTextureView | null = null;
 
+  // Terrain query for cursor position
+  private terrainQuery: TerrainQuery;
+
+  constructor() {
+    super();
+
+    // Query terrain at cursor position
+    this.terrainQuery = this.addChild(
+      new TerrainQuery(() => this.getCursorQueryPoint()),
+    );
+  }
+
+  private getCursorQueryPoint() {
+    if (!this.game) return [];
+
+    const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
+    if (!mouseWorldPos) return [];
+
+    return [mouseWorldPos];
+  }
+
   @on("add")
   async onAdd() {
     await this.ensureInitialized();
@@ -296,6 +318,15 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
   }
 
   getCursorInfo(): string | null {
-    return null;
+    const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
+    if (!mouseWorldPos) return null;
+
+    // Get terrain height at cursor from query
+    if (this.terrainQuery.length === 0) return null;
+
+    const result = this.terrainQuery.get(0);
+    const height = result.height;
+
+    return `Terrain Height: ${height.toFixed(1)} ft`;
   }
 }
