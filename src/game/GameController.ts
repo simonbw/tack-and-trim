@@ -24,6 +24,7 @@ import { WaterResources } from "./world/water/WaterResources";
 import { WindQuery } from "./world/wind/WindQuery";
 import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
+import { TimeOfDayHUD } from "./TimeOfDayHUD";
 
 const MENU_ZOOM = 2; // Wide shot for menu
 const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
@@ -41,6 +42,7 @@ export class GameController extends BaseEntity {
 
     // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
+    this.game.addEntity(new TimeOfDayHUD());
 
     // 3. Wave physics (needs terrain for shadow computation, uses wave direction)
     this.game.addEntity(new WavePhysicsResources(waves));

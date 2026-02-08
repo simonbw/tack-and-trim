@@ -61,7 +61,11 @@ export class TimeOfDay extends BaseEntity {
    */
   @on("tick")
   onTick(dt: number) {
-    this.timeInSeconds += dt * this.timeScale;
+    if (this.game.io.isKeyDown("KeyT")) {
+      this.timeInSeconds += dt * this.timeScale * 5000;
+    } else {
+      this.timeInSeconds += dt * this.timeScale;
+    }
 
     // Wrap at 24 hours
     while (this.timeInSeconds >= SECONDS_PER_DAY) {
