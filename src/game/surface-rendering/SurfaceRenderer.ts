@@ -163,19 +163,15 @@ export class SurfaceRenderer extends BaseEntity {
         label: "Height Texture Sampler",
       });
 
-      // Create placeholder packed shadow buffer (empty - no polygons)
-      // Layout: waveDirection, polygonCount=0, verticesOffset=8, padding
+      // Create placeholder packed shadow buffer (empty - no wave sources)
+      // Layout: 16 u32 global header with numWaveSources = 0
       this.placeholderPackedShadowBuffer = device.createBuffer({
-        size: 32,
+        size: 64,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         label: "Placeholder Packed Shadow Buffer",
       });
-      const placeholderData = new Uint32Array(8);
-      const placeholderFloat = new Float32Array(placeholderData.buffer);
-      placeholderFloat[0] = 1.0; // waveDirection.x
-      placeholderFloat[1] = 0.0; // waveDirection.y
-      placeholderData[2] = 0; // polygonCount = 0
-      placeholderData[3] = 8; // verticesOffset
+      const placeholderData = new Uint32Array(16);
+      placeholderData[0] = 0; // numWaveSources = 0
       device.queue.writeBuffer(
         this.placeholderPackedShadowBuffer,
         0,
@@ -302,13 +298,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterHeightUniforms.set.modifierCount(
       waterResources.getModifierCount(),
     );
-    this.waterHeightUniforms.set.waveSourceDirection(
-      waterResources.getAnalyticalConfig().waveSourceDirection,
-    );
     this.waterHeightUniforms.set.numWaves(waterResources.getNumWaves());
-    this.waterHeightUniforms.set.swellWaveCount(
-      waterResources.getSwellWaveCount(),
-    );
   }
 
   /**
@@ -556,10 +546,18 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   /**
-   * Get the terrain tile atlas view for debug visualization.
+   * Get the screen-space terrain height texture (output of Pass 1).
    * Returns null if not initialized.
    */
   getTerrainHeightTextureView(): GPUTextureView | null {
+    return this.terrainHeightView;
+  }
+
+  /**
+   * Get the terrain tile atlas view for debug visualization.
+   * Returns null if not initialized.
+   */
+  getTerrainAtlasView(): GPUTextureView | null {
     return this.terrainTileCache?.getAtlasView() ?? null;
   }
 
