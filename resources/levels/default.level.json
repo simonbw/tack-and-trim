@@ -2,8 +2,6 @@
   "version": 1,
   "defaultDepth": -50,
   "waves": {
-    "primaryDirection": 0.8,
-    "swellCount": 1,
     "sources": [
       {
         "amplitude": 0.4,

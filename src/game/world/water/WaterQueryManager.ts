@@ -49,19 +49,15 @@ export class WaterQueryManager extends QueryManager {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Create placeholder packed shadow buffer (empty - no polygons)
-    // Layout: 32 bytes header with polygonCount = 0, verticesOffset = 8
+    // Create placeholder packed shadow buffer (empty - no wave sources)
+    // Layout: 16 u32 global header with numWaveSources = 0
     this.placeholderPackedShadowBuffer = device.createBuffer({
-      size: 32,
+      size: 64,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: "Water Query Placeholder Packed Shadow Buffer",
     });
-    const placeholderData = new Uint32Array(8);
-    const placeholderFloat = new Float32Array(placeholderData.buffer);
-    placeholderFloat[0] = 1.0; // waveDirection.x
-    placeholderFloat[1] = 0.0; // waveDirection.y
-    placeholderData[2] = 0; // polygonCount = 0
-    placeholderData[3] = 8; // verticesOffset (right after header)
+    const placeholderData = new Uint32Array(16);
+    placeholderData[0] = 0; // numWaveSources = 0
     device.queue.writeBuffer(
       this.placeholderPackedShadowBuffer,
       0,
@@ -108,23 +104,21 @@ export class WaterQueryManager extends QueryManager {
 
     // Get data from WaterResources
     const tideHeight = waterResources.getTideHeight();
-    const waveSourceDirection =
-      waterResources.getAnalyticalConfig().waveSourceDirection;
     const modifierCount = waterResources.getModifierCount();
 
     // Update uniform buffer
     this.uniforms.set.pointCount(pointCount);
     this.uniforms.set.time(performance.now() / 1000);
     this.uniforms.set.tideHeight(tideHeight);
-    this.uniforms.set.waveSourceDirection(waveSourceDirection);
     this.uniforms.set.modifierCount(modifierCount);
     this.uniforms.set.contourCount(terrainResources.getContourCount());
     this.uniforms.set.defaultDepth(DEFAULT_DEPTH);
     this.uniforms.set.numWaves(waterResources.getNumWaves());
-    this.uniforms.set.swellWaveCount(waterResources.getSwellWaveCount());
     this.uniforms.set._padding0(0);
     this.uniforms.set._padding1(0);
     this.uniforms.set._padding2(0);
+    this.uniforms.set._padding3(0);
+    this.uniforms.set._padding4(0);
     this.uniforms.uploadTo(this.uniformBuffer);
 
     // Create bind group with shared buffers (including packed terrain/shadow)

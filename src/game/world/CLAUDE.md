@@ -138,7 +138,7 @@ The most complex subsystem. The compute shader combines:
 - **Finite-difference normals** (3 height samples)
 - **Amplitude modulation** via simplex noise for natural variation
 
-Waves are classified as "swell" or "chop" and receive separate energy modifications from shadows and terrain. Shadow polygon data is packed into a single `array<u32>` buffer (`packedShadowBuffer`) with a header `[waveDir.x, waveDir.y, polygonCount, verticesOffset, ...]` followed by polygon metadata then vertex data. Accessor functions in `shaders/shadow-packed.wgsl.ts` (`getShadowWaveDirection`, `getShadowPolygon`, `isInsideShadowPolygon`) read from this buffer. `WaterResources` also computes tide height from `TimeOfDay` (semi-diurnal cosine, +/-2ft).
+Each wave source gets its own shadow attenuation based on its direction and wavelength -- there is no swell/chop classification. Shadow polygon data is packed into a single `array<u32>` buffer (`packedShadowBuffer`) with a 16 u32 global header `[numWaveSources, waveSetOffset[0..7], ...]` followed by per-wave polygon sets. Each wave set has its own header `[waveDir.x, waveDir.y, polygonCount, verticesOffset, ...]`, polygon metadata, then vertex data. Accessor functions in `shaders/shadow-packed.wgsl.ts` (`getShadowNumWaves`, `getShadowWaveSetOffset`, `getShadowWaveDirAt`, `getShadowPolygon`, `isInsideShadowPolygon`) read from this buffer. `WaterResources` also computes tide height from `TimeOfDay` (semi-diurnal cosine, +/-2ft).
 
 ### Wind
 
@@ -154,6 +154,6 @@ The simplest subsystem. Base wind velocity is modulated per-point by simplex noi
 
 - **Packed storage buffers**. Terrain and shadow data each use a single `array<u32>` buffer instead of multiple typed buffers. This reduces the per-shader storage buffer count (the water query shader went from 10 to 5 bindings), eliminating the need for a `maxStorageBuffersPerShaderStage` device limit override. Accessor functions in `terrain-packed.wgsl.ts` and `shadow-packed.wgsl.ts` handle reading via `bitcast<f32>()`.
 
-- **Placeholder packed shadow buffer**. `WaterQueryManager` creates an empty packed shadow buffer (with `polygonCount = 0` and `verticesOffset = 8`) if `WavePhysicsResources` isn't present, so the shader always has valid bindings even without wave physics.
+- **Placeholder packed shadow buffer**. `WaterQueryManager` creates an empty packed shadow buffer (16 u32 global header with `numWaveSources = 0`) if `WavePhysicsResources` isn't present, so the shader always has valid bindings even without wave physics.
 
 - **tickLayer = "query"**. All managers and resources in this system use this tick layer to ensure correct ordering relative to other game systems.

@@ -36,9 +36,9 @@ export const UnifiedSurfaceUniforms = defineUniformStruct("Uniforms", {
 
   // Water wave parameters - 16 bytes (4 values)
   numWaves: i32,
-  swellWaveCount: i32,
   modifierCount: u32,
-  waveSourceDirection: f32,
+  _paddingWave0: i32,
+  _paddingWave1: f32,
 
   // Terrain parameters - 16 bytes (4 values)
   contourCount: u32,

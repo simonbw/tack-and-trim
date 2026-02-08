@@ -4,10 +4,7 @@
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { fn_simplex3D } from "./noise.wgsl";
-import {
-  struct_WaveModification,
-  fn_calculateGerstnerWaves,
-} from "./gerstner-wave.wgsl";
+import { fn_calculateGerstnerWaves } from "./gerstner-wave.wgsl";
 
 /**
  * Wave source structure definition.
@@ -94,44 +91,37 @@ export const struct_WaterResult: ShaderModule = {
 
 /**
  * Helper function to compute water height at a point (without normal).
+ * Uses all-1.0 energy factors (no shadow attenuation).
  */
 export const fn_computeWaterHeightAtPoint: ShaderModule = {
   code: /*wgsl*/ `
-    // Helper: compute water height at a point (without normal)
+    // Helper: compute water height at a point (without normal or shadows)
     fn computeWaterHeightAtPoint(
       worldPos: vec2<f32>,
       time: f32,
       waveData: ptr<storage, array<f32>, read>,
       numWaves: i32,
-      swellWaveCount: i32,
       steepness: f32,
       ampMod: f32,
-      waveSourceDirection: f32
     ) -> vec4<f32> {
-      // No diffraction for queries - use full energy
-      var swellMod: WaveModification;
-      swellMod.energyFactor = 1.0;
-      swellMod.newDirection = vec2<f32>(cos(waveSourceDirection), sin(waveSourceDirection));
-
-      var chopMod: WaveModification;
-      chopMod.energyFactor = 1.0;
-      chopMod.newDirection = vec2<f32>(cos(waveSourceDirection), sin(waveSourceDirection));
+      // No shadow/terrain attenuation - use full energy for all waves
+      var energyFactors: array<f32, MAX_WAVE_SOURCES>;
+      for (var i = 0; i < numWaves; i++) {
+        energyFactors[i] = 1.0;
+      }
 
       return calculateGerstnerWaves(
         worldPos,
         time,
         waveData,
         numWaves,
-        swellWaveCount,
         steepness,
-        swellMod,
-        chopMod,
+        energyFactors,
         ampMod,
-        waveSourceDirection
       );
     }
   `,
-  dependencies: [struct_WaveModification, fn_calculateGerstnerWaves],
+  dependencies: [fn_calculateGerstnerWaves],
 };
 
 /**
@@ -145,12 +135,10 @@ export const fn_computeWaterNormal: ShaderModule = {
       time: f32,
       waveData: ptr<storage, array<f32>, read>,
       numWaves: i32,
-      swellWaveCount: i32,
       steepness: f32,
       ampModSpatialScale: f32,
       ampModTimeScale: f32,
       ampModStrength: f32,
-      waveSourceDirection: f32
     ) -> vec2<f32> {
       const SAMPLE_OFFSET: f32 = 1.0;
 
@@ -181,10 +169,8 @@ export const fn_computeWaterNormal: ShaderModule = {
         time,
         waveData,
         numWaves,
-        swellWaveCount,
         steepness,
         ampMod0,
-        waveSourceDirection
       ).x;
 
       let hx = computeWaterHeightAtPoint(
@@ -192,10 +178,8 @@ export const fn_computeWaterNormal: ShaderModule = {
         time,
         waveData,
         numWaves,
-        swellWaveCount,
         steepness,
         ampModX,
-        waveSourceDirection
       ).x;
 
       let hy = computeWaterHeightAtPoint(
@@ -203,10 +187,8 @@ export const fn_computeWaterNormal: ShaderModule = {
         time,
         waveData,
         numWaves,
-        swellWaveCount,
         steepness,
         ampModY,
-        waveSourceDirection
       ).x;
 
       // Compute gradient
@@ -232,12 +214,10 @@ export const fn_computeWaterAtPoint: ShaderModule = {
       tideHeight: f32,
       waveData: ptr<storage, array<f32>, read>,
       numWaves: i32,
-      swellWaveCount: i32,
       steepness: f32,
       ampModSpatialScale: f32,
       ampModTimeScale: f32,
       ampModStrength: f32,
-      waveSourceDirection: f32
     ) -> WaterResult {
       // Sample amplitude modulation noise
       let ampModTime = time * ampModTimeScale;
@@ -253,10 +233,8 @@ export const fn_computeWaterAtPoint: ShaderModule = {
         time,
         waveData,
         numWaves,
-        swellWaveCount,
         steepness,
         ampMod,
-        waveSourceDirection
       );
 
       // Compute normal
@@ -265,12 +243,10 @@ export const fn_computeWaterAtPoint: ShaderModule = {
         time,
         waveData,
         numWaves,
-        swellWaveCount,
         steepness,
         ampModSpatialScale,
         ampModTimeScale,
         ampModStrength,
-        waveSourceDirection
       );
 
       var result: WaterResult;

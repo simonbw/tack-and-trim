@@ -4,52 +4,36 @@
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-
-/**
- * Wave modification structure.
- * Returned by wave modification functions (diffraction, etc.).
- */
-export const struct_WaveModification: ShaderModule = {
-  code: /*wgsl*/ `
-    // Wave modification result
-    struct WaveModification {
-      energyFactor: f32,      // Amplitude multiplier (0.0 = blocked, 1.0 = full energy)
-      newDirection: vec2<f32>, // Modified wave direction (unit vector)
-    }
-  `,
-};
+import { const_MAX_WAVE_SOURCES } from "./shadow-attenuation.wgsl";
 
 /**
  * Gerstner wave calculation function.
  * Two-pass algorithm: first pass computes horizontal displacement,
  * second pass computes height and velocity at displaced position.
+ *
+ * Each wave gets its own energy factor from the energyFactors array,
+ * which combines shadow attenuation and terrain interaction.
  */
 export const fn_calculateGerstnerWaves: ShaderModule = {
-  dependencies: [struct_WaveModification],
+  dependencies: [const_MAX_WAVE_SOURCES],
   code: /*wgsl*/ `
-    // Calculate Gerstner waves with modification support
+    // Calculate Gerstner waves with per-wave energy factors
     // worldPos: world position (feet)
     // time: simulation time (seconds)
     // waveData: wave parameters (storage buffer, 8 floats per wave)
     // numWaves: number of waves
-    // swellWaveCount: number of swell waves (rest are chop)
     // steepness: Gerstner steepness factor
-    // swellMod: modification for swell waves (energy, direction)
-    // chopMod: modification for chop waves (energy, direction)
+    // energyFactors: per-wave energy multiplier (0.0 = blocked, 1.0 = full)
     // ampMod: amplitude modulation factor (from noise)
-    // waveSourceDirection: base wave source direction (radians)
     // Returns vec4<f32>(height, dispX, dispY, dhdt)
     fn calculateGerstnerWaves(
       worldPos: vec2<f32>,
       time: f32,
       waveData: ptr<storage, array<f32>, read>,
       numWaves: i32,
-      swellWaveCount: i32,
       steepness: f32,
-      swellMod: WaveModification,
-      chopMod: WaveModification,
+      energyFactors: array<f32, MAX_WAVE_SOURCES>,
       ampMod: f32,
-      waveSourceDirection: f32
     ) -> vec4<f32> {
       let x = worldPos.x;
       let y = worldPos.y;
@@ -62,24 +46,12 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
         let base = i * 8;
         let amplitude = waveData[base + 0];
         let wavelength = waveData[base + 1];
-        var direction = waveData[base + 2];
+        let direction = waveData[base + 2];
         let phaseOffset = waveData[base + 3];
         let speedMult = waveData[base + 4];
         let sourceDist = waveData[base + 5];
         let sourceOffsetX = waveData[base + 6];
         let sourceOffsetY = waveData[base + 7];
-
-        // Apply direction modification from diffraction
-        var waveMod: WaveModification;
-        if (i < swellWaveCount) {
-          waveMod = swellMod;
-        } else {
-          waveMod = chopMod;
-        }
-
-        let modDir = waveMod.newDirection;
-        let dirOffset = atan2(modDir.y, modDir.x) - waveSourceDirection;
-        direction += dirOffset;
 
         let baseDx = cos(direction);
         let baseDy = sin(direction);
@@ -127,26 +99,15 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
         let base = i * 8;
         var amplitude = waveData[base + 0];
         let wavelength = waveData[base + 1];
-        var direction = waveData[base + 2];
+        let direction = waveData[base + 2];
         let phaseOffset = waveData[base + 3];
         let speedMult = waveData[base + 4];
         let sourceDist = waveData[base + 5];
         let sourceOffsetX = waveData[base + 6];
         let sourceOffsetY = waveData[base + 7];
 
-        // Apply wave modification (energy and direction)
-        var waveMod: WaveModification;
-        if (i < swellWaveCount) {
-          waveMod = swellMod;
-          amplitude *= waveMod.energyFactor;
-        } else {
-          waveMod = chopMod;
-          amplitude *= waveMod.energyFactor;
-        }
-
-        let modDir = waveMod.newDirection;
-        let dirOffset = atan2(modDir.y, modDir.x) - waveSourceDirection;
-        direction += dirOffset;
+        // Apply per-wave energy factor
+        amplitude *= energyFactors[i];
 
         let baseDx = cos(direction);
         let baseDy = sin(direction);

@@ -39,10 +39,7 @@ import { fn_renderWaterLighting } from "../world/shaders/lighting.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
 import { fn_renderSand } from "../world/shaders/sand-rendering.wgsl";
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
-import {
-  fn_calculateGerstnerWaves,
-  struct_WaveModification,
-} from "../world/shaders/gerstner-wave.wgsl";
+import { fn_calculateGerstnerWaves } from "../world/shaders/gerstner-wave.wgsl";
 import { fn_calculateModifiers } from "../world/shaders/water-modifiers.wgsl";
 import {
   struct_ContourData,
@@ -50,10 +47,6 @@ import {
 } from "../world/shaders/terrain.wgsl";
 import { fn_getContourData } from "../world/shaders/terrain-packed.wgsl";
 import { UnifiedSurfaceUniforms } from "./UnifiedSurfaceUniforms";
-
-// Default wavelengths for diffraction calculation
-const SWELL_WAVELENGTH = 200;
-const CHOP_WAVELENGTH = 30;
 
 /**
  * Module containing Uniforms struct and resource bindings.
@@ -89,7 +82,6 @@ const unifiedSurfaceMainModule: ShaderModule = {
   dependencies: [
     fn_hash21,
     fn_simplex3D,
-    struct_WaveModification,
     fn_calculateGerstnerWaves,
     fn_calculateModifiers,
     struct_ContourData,
@@ -106,7 +98,6 @@ const unifiedSurfaceMainModule: ShaderModule = {
 // ============================================================================
 const MAX_WAVES: i32 = ${MAX_WAVES};
 const NUM_WAVES: i32 = 2; // Legacy: hardcoded for unused shader
-const SWELL_WAVE_COUNT: i32 = 1; // Legacy: hardcoded for unused shader
 const GERSTNER_STEEPNESS: f32 = ${GERSTNER_STEEPNESS};
 const WAVE_AMP_MOD_SPATIAL_SCALE: f32 = ${WAVE_AMP_MOD_SPATIAL_SCALE};
 const WAVE_AMP_MOD_TIME_SCALE: f32 = ${WAVE_AMP_MOD_TIME_SCALE};
@@ -114,8 +105,6 @@ const WAVE_AMP_MOD_STRENGTH: f32 = ${WAVE_AMP_MOD_STRENGTH};
 const MAX_MODIFIERS: u32 = ${MAX_MODIFIERS}u;
 const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
 const WATER_HEIGHT_SCALE: f32 = ${WATER_HEIGHT_SCALE};
-const SWELL_WAVELENGTH: f32 = ${SWELL_WAVELENGTH}.0;
-const CHOP_WAVELENGTH: f32 = ${CHOP_WAVELENGTH}.0;
 const DEFAULT_DEPTH: f32 = ${DEFAULT_DEPTH}.0;
 
 // ============================================================================
@@ -139,37 +128,16 @@ fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
 // Shadow Texture Sampling (for wave diffraction)
 // ============================================================================
 
-fn sampleShadowTexture(worldPos: vec2<f32>) -> vec2<f32> {
-  let u = (worldPos.x - uniforms.viewportLeft) / uniforms.viewportWidth;
-  let v = (worldPos.y - uniforms.viewportTop) / uniforms.viewportHeight;
-  let attenuation = textureSampleLevel(shadowTexture, shadowSampler, vec2<f32>(u, v), 0.0);
-  return attenuation.rg;
-}
-
-fn getWaveModification(worldPos: vec2<f32>, wavelength: f32) -> WaveModification {
-  var result: WaveModification;
-  result.newDirection = vec2<f32>(cos(uniforms.waveSourceDirection), sin(uniforms.waveSourceDirection));
-
-  let attenuation = sampleShadowTexture(worldPos);
-
-  // R channel = swell (long wavelength), G channel = chop (short wavelength)
-  if (wavelength > 100.0) {
-    result.energyFactor = attenuation.r;
-  } else {
-    result.energyFactor = attenuation.g;
-  }
-
-  return result;
-}
-
 // ============================================================================
 // Water Height Calculation
 // ============================================================================
 
 fn calculateWaterHeight(worldPos: vec2<f32>) -> vec4<f32> {
-  // Get wave modification for swell and chop wavelengths
-  let swellMod = getWaveModification(worldPos, SWELL_WAVELENGTH);
-  let chopMod = getWaveModification(worldPos, CHOP_WAVELENGTH);
+  // Legacy shader: use all-1.0 energy factors (no shadow attenuation)
+  var energyFactors: array<f32, MAX_WAVE_SOURCES>;
+  for (var i = 0; i < NUM_WAVES; i++) {
+    energyFactors[i] = 1.0;
+  }
 
   // Sample amplitude modulation noise
   let ampModTime = uniforms.time * WAVE_AMP_MOD_TIME_SCALE;
@@ -185,12 +153,9 @@ fn calculateWaterHeight(worldPos: vec2<f32>) -> vec4<f32> {
     uniforms.time,
     &waveData,
     NUM_WAVES,
-    SWELL_WAVE_COUNT,
     GERSTNER_STEEPNESS,
-    swellMod,
-    chopMod,
+    energyFactors,
     ampMod,
-    uniforms.waveSourceDirection
   );
 
   // Calculate modifier contributions (wakes, etc.)

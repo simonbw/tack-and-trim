@@ -37,7 +37,7 @@ export class WavePhysicsResources extends BaseEntity {
   constructor(waveConfig?: WaveConfig) {
     super();
     const config = waveConfig ?? DEFAULT_WAVE_CONFIG;
-    this.wavePhysicsManager = new WavePhysicsManager(config.primaryDirection);
+    this.wavePhysicsManager = new WavePhysicsManager(config.sources);
   }
 
   @on("afterAdded")

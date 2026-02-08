@@ -37,13 +37,6 @@ export const FLOATS_PER_MODIFIER = 8;
 const DEFAULT_TIDE_RANGE = 4; // ft total range (±2 ft from mean)
 
 /**
- * Analytical water configuration for wave source direction.
- */
-export interface AnalyticalWaterConfig {
-  waveSourceDirection: number;
-}
-
-/**
  * Manages GPU resources for water data.
  *
  * Resource provider that owns GPU buffers and provides access to them.
@@ -73,9 +66,6 @@ export class WaterResources extends BaseEntity {
   // Cached modifier data for current frame (for render pipeline access)
   private cachedModifiers: GPUWaterModifierData[] = [];
 
-  // Analytical config (wave source direction)
-  private analyticalConfig: AnalyticalWaterConfig;
-
   constructor(waveConfig?: WaveConfig) {
     super();
 
@@ -102,11 +92,6 @@ export class WaterResources extends BaseEntity {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: "Water Modifiers Buffer (Shared)",
     });
-
-    // Initialize analytical config from wave config
-    this.analyticalConfig = {
-      waveSourceDirection: this.waveConfig.primaryDirection,
-    };
   }
 
   /**
@@ -250,31 +235,10 @@ export class WaterResources extends BaseEntity {
   }
 
   /**
-   * Get the number of swell waves (vs chop).
-   */
-  getSwellWaveCount(): number {
-    return this.waveConfig.swellCount;
-  }
-
-  /**
-   * Get the primary wave direction for shadow computation.
-   */
-  getPrimaryWaveDirection(): number {
-    return this.waveConfig.primaryDirection;
-  }
-
-  /**
    * Get the wave configuration.
    */
   getWaveConfig(): WaveConfig {
     return this.waveConfig;
-  }
-
-  /**
-   * Get the analytical water configuration.
-   */
-  getAnalyticalConfig(): AnalyticalWaterConfig {
-    return this.analyticalConfig;
   }
 
   /**

@@ -47,10 +47,6 @@ export interface WaveSourceJSON {
  * JSON representation of wave configuration in the file format.
  */
 export interface WaveConfigJSON {
-  /** Primary wave direction for shadow computation (radians) */
-  primaryDirection: number;
-  /** Number of waves classified as "swell" (rest are "chop") */
-  swellCount: number;
   /** Array of wave source configurations */
   sources: WaveSourceJSON[];
 }
@@ -146,16 +142,6 @@ export function validateLevelFile(data: unknown): LevelFileJSON {
 
     const waves = file.waves as Record<string, unknown>;
 
-    if (typeof waves.primaryDirection !== "number") {
-      throw new Error(
-        "Invalid level file: waves.primaryDirection must be a number",
-      );
-    }
-
-    if (typeof waves.swellCount !== "number") {
-      throw new Error("Invalid level file: waves.swellCount must be a number");
-    }
-
     if (!Array.isArray(waves.sources)) {
       throw new Error("Invalid level file: waves.sources must be an array");
     }
@@ -209,11 +195,10 @@ function waveSourceJSONToWaveSource(json: WaveSourceJSON): WaveSource {
 
 /**
  * Convert wave config JSON to game WaveConfig.
+ * Ignores legacy fields (primaryDirection, swellCount) if present.
  */
 export function waveConfigJSONToWaveConfig(json: WaveConfigJSON): WaveConfig {
   return {
-    primaryDirection: json.primaryDirection,
-    swellCount: json.swellCount,
     sources: json.sources.map(waveSourceJSONToWaveSource),
   };
 }
@@ -269,8 +254,6 @@ export function levelFileToLevelData(file: LevelFileJSON): LevelData {
  */
 export function waveConfigToJSON(config: WaveConfig): WaveConfigJSON {
   return {
-    primaryDirection: config.primaryDirection,
-    swellCount: config.swellCount,
     sources: config.sources.map((source) => ({
       amplitude: source.amplitude,
       wavelength: source.wavelength,

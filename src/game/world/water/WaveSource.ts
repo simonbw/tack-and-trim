@@ -32,10 +32,6 @@ export interface WaveSource {
  * Configuration for wave sources in a level.
  */
 export interface WaveConfig {
-  /** Primary wave direction for shadow computation (radians) */
-  primaryDirection: number;
-  /** Number of waves classified as "swell" (rest are "chop") */
-  swellCount: number;
   /** Array of wave source configurations */
   sources: WaveSource[];
 }
@@ -73,8 +69,6 @@ export const DEFAULT_WAVE_SOURCES: WaveSource[] = [
  * Default wave configuration.
  */
 export const DEFAULT_WAVE_CONFIG: WaveConfig = {
-  primaryDirection: 0.8,
-  swellCount: 1,
   sources: DEFAULT_WAVE_SOURCES,
 };
 

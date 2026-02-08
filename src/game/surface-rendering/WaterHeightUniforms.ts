@@ -25,14 +25,14 @@ export const WaterHeightUniforms = defineUniformStruct("Params", {
   // Time and water params
   time: f32,
   tideHeight: f32,
-  waveSourceDirection: f32,
   modifierCount: u32,
 
   // Wave configuration (from level data)
   numWaves: u32,
-  swellWaveCount: u32,
 
   // Padding for 16-byte alignment
   _padding0: u32,
   _padding1: u32,
+  _padding2: u32,
+  _padding3: u32,
 });

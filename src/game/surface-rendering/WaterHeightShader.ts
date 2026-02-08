@@ -12,14 +12,11 @@ import {
   type ComputeShaderConfig,
 } from "../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
-import {
-  fn_calculateGerstnerWaves,
-  struct_WaveModification,
-} from "../world/shaders/gerstner-wave.wgsl";
+import { fn_calculateGerstnerWaves } from "../world/shaders/gerstner-wave.wgsl";
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import { fn_calculateModifiers } from "../world/shaders/water-modifiers.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
-import { fn_computeShadowAttenuation } from "../world/shaders/shadow-attenuation.wgsl";
+import { fn_computeShadowEnergyForWave } from "../world/shaders/shadow-attenuation.wgsl";
 import { fn_computeWaveTerrainFactor } from "../world/shaders/wave-terrain.wgsl";
 import {
   GERSTNER_STEEPNESS,
@@ -50,12 +47,12 @@ struct Params {
   viewportHeight: f32,
   time: f32,
   tideHeight: f32,
-  waveSourceDirection: f32,
   modifierCount: u32,
   numWaves: u32,
-  swellWaveCount: u32,
   _padding0: u32,
   _padding1: u32,
+  _padding2: u32,
+  _padding3: u32,
 }
 
 // Wave computation constants
@@ -68,8 +65,6 @@ const WAVE_AMP_MOD_STRENGTH: f32 = ${WAVE_AMP_MOD_STRENGTH};
 // Modifier constants
 const MAX_MODIFIERS: u32 = ${MAX_MODIFIERS}u;
 const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
-
-// Note: SWELL_WAVELENGTH and CHOP_WAVELENGTH are provided by shadow-attenuation.wgsl
 `,
   bindings: {
     params: { type: "uniform", wgslType: "Params" },
@@ -94,10 +89,9 @@ const waterHeightComputeModule: ShaderModule = {
     waterHeightParamsModule,
     fn_hash21,
     fn_simplex3D,
-    struct_WaveModification,
     fn_calculateGerstnerWaves,
     fn_calculateModifiers,
-    fn_computeShadowAttenuation,
+    fn_computeShadowEnergyForWave,
     fn_computeWaveTerrainFactor,
   ],
   code: /*wgsl*/ `
@@ -118,34 +112,16 @@ fn sampleTerrainHeight(pixel: vec2<u32>) -> f32 {
   return textureLoad(terrainHeightTexture, vec2<i32>(pixel), 0).r;
 }
 
-// Get wave modification from analytical shadow attenuation
-fn getWaveModification(worldPos: vec2<f32>) -> vec2<f32> {
-  // Compute shadow attenuation at this position
-  let shadowAtten = computeShadowAttenuation(worldPos, &packedShadow);
-
-  // Return swell and chop energy factors
-  return vec2<f32>(shadowAtten.swellEnergy, shadowAtten.chopEnergy);
-}
-
-// Calculate water height at a point with terrain interaction
+// Calculate water height at a point with per-wave shadow and terrain interaction
 fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32) -> f32 {
-  // Get shadow attenuation for swell and chop
-  let shadowEnergy = getWaveModification(worldPos);
-
-  // Compute terrain interaction (shoaling + damping) for each wave class
-  // Shoaling makes waves taller in shallow water, damping kills them near shore
-  let swellTerrainFactor = computeWaveTerrainFactor(depth, SWELL_WAVELENGTH);
-  let chopTerrainFactor = computeWaveTerrainFactor(depth, CHOP_WAVELENGTH);
-
-  // Build wave modifications with combined energy factors
-  // shadow attenuation * terrain interaction (shoaling/damping)
-  var swellMod: WaveModification;
-  swellMod.newDirection = vec2<f32>(cos(params.waveSourceDirection), sin(params.waveSourceDirection));
-  swellMod.energyFactor = shadowEnergy.x * swellTerrainFactor;
-
-  var chopMod: WaveModification;
-  chopMod.newDirection = vec2<f32>(cos(params.waveSourceDirection), sin(params.waveSourceDirection));
-  chopMod.energyFactor = shadowEnergy.y * chopTerrainFactor;
+  // Compute per-wave energy factors (shadow + terrain interaction)
+  var energyFactors: array<f32, MAX_WAVE_SOURCES>;
+  for (var i = 0u; i < u32(params.numWaves); i++) {
+    let wavelength = waveData[i * 8u + 1u];
+    let shadowEnergy = computeShadowEnergyForWave(worldPos, &packedShadow, i, wavelength);
+    let terrainFactor = computeWaveTerrainFactor(depth, wavelength);
+    energyFactors[i] = shadowEnergy * terrainFactor;
+  }
 
   // Sample amplitude modulation noise
   let ampModTime = params.time * WAVE_AMP_MOD_TIME_SCALE;
@@ -155,18 +131,15 @@ fn calculateWaterHeight(worldPos: vec2<f32>, depth: f32) -> f32 {
     ampModTime
   )) * WAVE_AMP_MOD_STRENGTH;
 
-  // Calculate Gerstner waves with shadow-attenuated energy
+  // Calculate Gerstner waves with per-wave energy factors
   let waveResult = calculateGerstnerWaves(
     worldPos,
     params.time,
     &waveData,
     i32(params.numWaves),
-    i32(params.swellWaveCount),
     GERSTNER_STEEPNESS,
-    swellMod,
-    chopMod,
+    energyFactors,
     ampMod,
-    params.waveSourceDirection
   );
 
   // Calculate modifier contributions (wakes, etc.)
