@@ -70,14 +70,12 @@ export class TerrainQueryManager extends QueryManager {
     this.uniforms.set._padding(0);
     this.uniforms.uploadTo(this.uniformBuffer);
 
-    // Create bind group with terrain buffers
+    // Create bind group with packed terrain buffer
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
-      vertices: { buffer: terrainResources.vertexBuffer },
-      contours: { buffer: terrainResources.contourBuffer },
-      children: { buffer: terrainResources.childrenBuffer },
+      packedTerrain: { buffer: terrainResources.packedTerrainBuffer },
     });
 
     // Dispatch compute shader with GPU profiling

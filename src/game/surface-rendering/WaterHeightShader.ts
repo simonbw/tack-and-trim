@@ -19,10 +19,7 @@ import {
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import { fn_calculateModifiers } from "../world/shaders/water-modifiers.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
-import {
-  fn_computeShadowAttenuation,
-  struct_ShadowData,
-} from "../world/shaders/shadow-attenuation.wgsl";
+import { fn_computeShadowAttenuation } from "../world/shaders/shadow-attenuation.wgsl";
 import { fn_computeWaveTerrainFactor } from "../world/shaders/wave-terrain.wgsl";
 import {
   GERSTNER_STEEPNESS,
@@ -42,7 +39,6 @@ const WORKGROUP_SIZE = [8, 8] as const;
  * Params module with uniforms and bindings for water height computation.
  */
 const waterHeightParamsModule: ShaderModule = {
-  dependencies: [struct_ShadowData],
   preamble: /*wgsl*/ `
 // Water height computation parameters
 struct Params {
@@ -79,8 +75,7 @@ const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
     params: { type: "uniform", wgslType: "Params" },
     waveData: { type: "storage", wgslType: "array<f32>" },
     modifiers: { type: "storage", wgslType: "array<f32>" },
-    shadowData: { type: "storage", wgslType: "ShadowData" },
-    shadowVertices: { type: "storage", wgslType: "array<vec2<f32>>" },
+    packedShadow: { type: "storage", wgslType: "array<u32>" },
     terrainHeightTexture: {
       type: "texture",
       viewDimension: "2d",
@@ -126,7 +121,7 @@ fn sampleTerrainHeight(pixel: vec2<u32>) -> f32 {
 // Get wave modification from analytical shadow attenuation
 fn getWaveModification(worldPos: vec2<f32>) -> vec2<f32> {
   // Compute shadow attenuation at this position
-  let shadowAtten = computeShadowAttenuation(worldPos, &shadowData, &shadowVertices);
+  let shadowAtten = computeShadowAttenuation(worldPos, &packedShadow);
 
   // Return swell and chop energy factors
   return vec2<f32>(shadowAtten.swellEnergy, shadowAtten.chopEnergy);

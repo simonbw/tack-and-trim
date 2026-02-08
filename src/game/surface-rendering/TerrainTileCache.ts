@@ -81,9 +81,7 @@ export class TerrainTileCache {
   private lastTerrainVersion = -1;
   private initialized = false;
   private bindGroup: GPUBindGroup | null = null;
-  private lastVertexBuffer: GPUBuffer | null = null;
-  private lastContourBuffer: GPUBuffer | null = null;
-  private lastChildrenBuffer: GPUBuffer | null = null;
+  private lastPackedTerrainBuffer: GPUBuffer | null = null;
 
   // Current frame's visible tiles
   private visibleTiles: VisibleTile[] = [];
@@ -399,28 +397,19 @@ export class TerrainTileCache {
    * Ensure the bind group is up to date.
    */
   private ensureBindGroup(terrainResources: TerrainResources): void {
-    const vertexBuffer = terrainResources.vertexBuffer;
-    const contourBuffer = terrainResources.contourBuffer;
-    const childrenBuffer = terrainResources.childrenBuffer;
+    const packedTerrainBuffer = terrainResources.packedTerrainBuffer;
 
     const needsRebuild =
-      !this.bindGroup ||
-      this.lastVertexBuffer !== vertexBuffer ||
-      this.lastContourBuffer !== contourBuffer ||
-      this.lastChildrenBuffer !== childrenBuffer;
+      !this.bindGroup || this.lastPackedTerrainBuffer !== packedTerrainBuffer;
 
     if (!needsRebuild) return;
 
     this.bindGroup = this.shader.createBindGroup({
       params: { buffer: this.uniformBuffer },
-      vertices: { buffer: vertexBuffer },
-      contours: { buffer: contourBuffer },
-      children: { buffer: childrenBuffer },
+      packedTerrain: { buffer: packedTerrainBuffer },
       atlasTexture: this.atlas.view,
     });
 
-    this.lastVertexBuffer = vertexBuffer;
-    this.lastContourBuffer = contourBuffer;
-    this.lastChildrenBuffer = childrenBuffer;
+    this.lastPackedTerrainBuffer = packedTerrainBuffer;
   }
 }

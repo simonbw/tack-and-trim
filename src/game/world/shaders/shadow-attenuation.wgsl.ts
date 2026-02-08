@@ -8,45 +8,18 @@
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { fn_computeFresnelEnergy } from "./fresnel-diffraction.wgsl";
-import { fn_isInsidePolygon } from "./polygon.wgsl";
 import { MAX_SHADOW_POLYGONS } from "../../wave-physics/WavePhysicsManager";
+import {
+  struct_PolygonShadowData,
+  fn_getShadowWaveDirection,
+  fn_getShadowPolygonCount,
+  fn_getShadowPolygon,
+  fn_isInsideShadowPolygon,
+} from "./shadow-packed.wgsl";
 
 // Wavelength constants for swell and chop waves
 const SWELL_WAVELENGTH = 200.0; // feet
 const CHOP_WAVELENGTH = 30.0; // feet
-
-/**
- * Shadow data struct definitions.
- * Must match the buffer layout in WavePhysicsManager.updateShadowBuffers().
- */
-export const struct_ShadowData: ShaderModule = {
-  preamble: /*wgsl*/ `
-// Per-polygon shadow data for Fresnel diffraction calculation
-struct PolygonShadowData {
-  leftSilhouette: vec2<f32>,
-  rightSilhouette: vec2<f32>,
-  obstacleWidth: f32,
-  vertexStartIndex: u32,
-  vertexCount: u32,
-  _padding1: f32,
-  bboxMin: vec2<f32>,
-  bboxMax: vec2<f32>,
-}
-
-// Shadow data buffer layout (matches WavePhysicsManager buffer)
-struct ShadowData {
-  waveDirection: vec2<f32>,
-  polygonCount: u32,
-  _unused1: f32,
-  _unused2: f32,
-  _unused3: f32,
-  _unused4: f32,
-  _padding: f32,
-  polygons: array<PolygonShadowData>,
-}
-`,
-  code: "",
-};
 
 /**
  * Result of shadow attenuation computation.
@@ -72,10 +45,13 @@ struct ShadowAttenuation {
  */
 export const fn_computeShadowAttenuation: ShaderModule = {
   dependencies: [
-    struct_ShadowData,
+    struct_PolygonShadowData,
     struct_ShadowAttenuation,
     fn_computeFresnelEnergy,
-    fn_isInsidePolygon,
+    fn_getShadowWaveDirection,
+    fn_getShadowPolygonCount,
+    fn_getShadowPolygon,
+    fn_isInsideShadowPolygon,
   ],
   code: /*wgsl*/ `
 const MAX_SHADOW_POLYGONS: u32 = ${MAX_SHADOW_POLYGONS}u;
@@ -124,19 +100,18 @@ fn computePolygonAttenuation(
 // Compute combined shadow attenuation from all polygons
 fn computeShadowAttenuation(
   worldPos: vec2<f32>,
-  shadowData: ptr<storage, ShadowData, read>,
-  shadowVertices: ptr<storage, array<vec2<f32>>, read>,
+  packedShadow: ptr<storage, array<u32>, read>,
 ) -> ShadowAttenuation {
   var result: ShadowAttenuation;
   result.swellEnergy = 1.0;
   result.chopEnergy = 1.0;
 
-  let waveDir = (*shadowData).waveDirection;
-  let polygonCount = min((*shadowData).polygonCount, MAX_SHADOW_POLYGONS);
+  let waveDir = getShadowWaveDirection(packedShadow);
+  let polygonCount = min(getShadowPolygonCount(packedShadow), MAX_SHADOW_POLYGONS);
 
   // Loop through all shadow polygons
   for (var i: u32 = 0u; i < polygonCount; i = i + 1u) {
-    let polygon = (*shadowData).polygons[i];
+    let polygon = getShadowPolygon(packedShadow, i);
 
     // Early AABB rejection
     if (worldPos.x < polygon.bboxMin.x || worldPos.x > polygon.bboxMax.x ||
@@ -145,7 +120,7 @@ fn computeShadowAttenuation(
     }
 
     // Check if point is inside this shadow polygon using winding number algorithm
-    if (isInsidePolygon(worldPos, shadowVertices, polygon.vertexStartIndex, polygon.vertexCount)) {
+    if (isInsideShadowPolygon(worldPos, packedShadow, polygon.vertexStartIndex, polygon.vertexCount)) {
       // Compute attenuation for this polygon
       let polygonAtten = computePolygonAttenuation(worldPos, polygon, waveDir);
 

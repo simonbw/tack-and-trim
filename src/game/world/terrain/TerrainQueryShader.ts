@@ -62,9 +62,7 @@ struct TerrainQueryResult {
     params: { type: "uniform", wgslType: "Params" },
     pointBuffer: { type: "storage", wgslType: "array<vec2<f32>>" },
     resultBuffer: { type: "storageRW", wgslType: "array<TerrainQueryResult>" },
-    vertices: { type: "storage", wgslType: "array<vec2<f32>>" },
-    contours: { type: "storage", wgslType: "array<ContourData>" },
-    children: { type: "storage", wgslType: "array<u32>" },
+    packedTerrain: { type: "storage", wgslType: "array<u32>" },
   },
   code: "",
 };
@@ -94,8 +92,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   // Vertices are pre-sampled from Catmull-Rom splines on the CPU
   result.height = computeTerrainHeight(
     queryPoint,
-    &vertices,
-    &contours,
+    &packedTerrain,
     params.contourCount,
     params.defaultDepth
   );
@@ -103,8 +100,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   // Compute normal
   let normal = computeTerrainNormal(
     queryPoint,
-    &vertices,
-    &contours,
+    &packedTerrain,
     params.contourCount,
     params.defaultDepth
   );

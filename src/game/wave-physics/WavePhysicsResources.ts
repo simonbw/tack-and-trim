@@ -61,17 +61,11 @@ export class WavePhysicsResources extends BaseEntity {
   }
 
   /**
-   * Get the shadow data buffer for binding in shaders.
+   * Get the packed shadow buffer for binding in shaders.
+   * Contains both shadow data and vertices in a single `array<u32>` buffer.
    */
-  getShadowDataBuffer(): GPUBuffer | null {
-    return this.wavePhysicsManager.getShadowDataBuffer();
-  }
-
-  /**
-   * Get the shadow vertices buffer for binding in shaders.
-   */
-  getShadowVerticesBuffer(): GPUBuffer | null {
-    return this.wavePhysicsManager.getShadowVerticesBuffer();
+  getPackedShadowBuffer(): GPUBuffer | null {
+    return this.wavePhysicsManager.getPackedShadowBuffer();
   }
 
   /**

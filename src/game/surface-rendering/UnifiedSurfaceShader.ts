@@ -48,6 +48,7 @@ import {
   struct_ContourData,
   fn_computeSignedDistance,
 } from "../world/shaders/terrain.wgsl";
+import { fn_getContourData } from "../world/shaders/terrain-packed.wgsl";
 import { UnifiedSurfaceUniforms } from "./UnifiedSurfaceUniforms";
 
 // Default wavelengths for diffraction calculation
@@ -67,10 +68,8 @@ const unifiedSurfaceBindingsModule: ShaderModule = {
     waveData: { type: "storage", wgslType: "array<f32>" },
     modifiers: { type: "storage", wgslType: "array<f32>" },
 
-    // Terrain resources (from TerrainResources)
-    vertices: { type: "storage", wgslType: "array<vec2<f32>>" },
-    contours: { type: "storage", wgslType: "array<ContourData>" },
-    children: { type: "storage", wgslType: "array<u32>" },
+    // Terrain resources (from TerrainResources) - packed into single buffer
+    packedTerrain: { type: "storage", wgslType: "array<u32>" },
 
     // Shadow texture (from WavePhysicsResources)
     shadowTexture: {
@@ -95,6 +94,7 @@ const unifiedSurfaceMainModule: ShaderModule = {
     fn_calculateModifiers,
     struct_ContourData,
     fn_computeSignedDistance,
+    fn_getContourData,
     fn_renderWaterLighting,
     fn_renderSand,
     unifiedSurfaceBindingsModule,
@@ -228,13 +228,12 @@ fn getTerrainHeight(worldPos: vec2<f32>) -> f32 {
     let signedDist = computeSignedDistance(
       worldPos,
       i,
-      &vertices,
-      &contours
+      &packedTerrain
     );
 
     // Inside this contour (negative signed distance)
     if (signedDist < 0.0) {
-      let contour = contours[i];
+      let contour = getContourData(&packedTerrain, i);
       // Update if this is deeper than current deepest
       if (contour.depth >= deepestDepth) {
         deepestDepth = contour.depth;

@@ -90,9 +90,6 @@ export class WebGPUDeviceManager {
         maxStorageBufferBindingSize:
           this._adapter.limits.maxStorageBufferBindingSize,
         maxBufferSize: this._adapter.limits.maxBufferSize,
-        // Request higher storage buffer limit (default is 8, we need 9+ for combined water/terrain queries)
-        maxStorageBuffersPerShaderStage:
-          this._adapter.limits.maxStorageBuffersPerShaderStage,
       },
     });
 

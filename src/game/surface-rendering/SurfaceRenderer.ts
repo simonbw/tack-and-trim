@@ -94,15 +94,13 @@ export class SurfaceRenderer extends BaseEntity {
   // Track last resources
   private lastTextureWidth = 0;
   private lastTextureHeight = 0;
-  private lastShadowDataBuffer: GPUBuffer | null = null;
-  private lastShadowVerticesBuffer: GPUBuffer | null = null;
+  private lastPackedShadowBuffer: GPUBuffer | null = null;
   private lastWaveDataBuffer: GPUBuffer | null = null;
   private lastModifiersBuffer: GPUBuffer | null = null;
   private lastTerrainAtlasView: GPUTextureView | null = null;
 
-  // Placeholder shadow buffers (for when wave physics isn't ready)
-  private placeholderShadowDataBuffer: GPUBuffer | null = null;
-  private placeholderShadowVerticesBuffer: GPUBuffer | null = null;
+  // Placeholder packed shadow buffer (for when wave physics isn't ready)
+  private placeholderPackedShadowBuffer: GPUBuffer | null = null;
 
   constructor() {
     super();
@@ -165,39 +163,24 @@ export class SurfaceRenderer extends BaseEntity {
         label: "Height Texture Sampler",
       });
 
-      // Create placeholder shadow data buffer (empty - no polygons)
-      // Layout: waveDirection (vec2), polygonCount (u32), viewport (4 f32), padding (f32)
-      // = 32 bytes header with polygonCount = 0
-      this.placeholderShadowDataBuffer = device.createBuffer({
+      // Create placeholder packed shadow buffer (empty - no polygons)
+      // Layout: waveDirection, polygonCount=0, verticesOffset=8, padding
+      this.placeholderPackedShadowBuffer = device.createBuffer({
         size: 32,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        label: "Placeholder Shadow Data Buffer",
+        label: "Placeholder Packed Shadow Buffer",
       });
-      // Initialize with zero polygon count
-      const placeholderData = new Float32Array([
-        1.0,
-        0.0, // waveDirection
-        0, // polygonCount (as float, will be reinterpreted)
-        0,
-        0,
-        0,
-        0, // viewport
-        0, // padding
-      ]);
-      const placeholderUint = new Uint32Array(placeholderData.buffer);
-      placeholderUint[2] = 0; // Set polygonCount to 0
+      const placeholderData = new Uint32Array(8);
+      const placeholderFloat = new Float32Array(placeholderData.buffer);
+      placeholderFloat[0] = 1.0; // waveDirection.x
+      placeholderFloat[1] = 0.0; // waveDirection.y
+      placeholderData[2] = 0; // polygonCount = 0
+      placeholderData[3] = 8; // verticesOffset
       device.queue.writeBuffer(
-        this.placeholderShadowDataBuffer,
+        this.placeholderPackedShadowBuffer,
         0,
         placeholderData,
       );
-
-      // Create placeholder shadow vertices buffer (empty - just needs to exist)
-      this.placeholderShadowVerticesBuffer = device.createBuffer({
-        size: 8, // Minimum size: one vec2<f32>
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        label: "Placeholder Shadow Vertices Buffer",
-      });
 
       this.initialized = true;
     } catch (error) {
@@ -368,8 +351,7 @@ export class SurfaceRenderer extends BaseEntity {
    */
   private ensureBindGroups(
     waterResources: WaterResources,
-    shadowDataBuffer: GPUBuffer,
-    shadowVerticesBuffer: GPUBuffer,
+    packedShadowBuffer: GPUBuffer,
     terrainAtlasView: GPUTextureView,
   ): void {
     const waveDataBuffer = waterResources.waveDataBuffer;
@@ -379,8 +361,7 @@ export class SurfaceRenderer extends BaseEntity {
       !this.terrainScreenBindGroup ||
       !this.waterHeightBindGroup ||
       !this.compositeBindGroup ||
-      this.lastShadowDataBuffer !== shadowDataBuffer ||
-      this.lastShadowVerticesBuffer !== shadowVerticesBuffer ||
+      this.lastPackedShadowBuffer !== packedShadowBuffer ||
       this.lastWaveDataBuffer !== waveDataBuffer ||
       this.lastModifiersBuffer !== modifiersBuffer ||
       this.lastTerrainAtlasView !== terrainAtlasView;
@@ -400,7 +381,7 @@ export class SurfaceRenderer extends BaseEntity {
       });
     }
 
-    // Water height bind group (includes shadow data and terrain height texture)
+    // Water height bind group (includes packed shadow data and terrain height texture)
     if (
       this.waterHeightShader &&
       this.waterHeightUniformBuffer &&
@@ -411,8 +392,7 @@ export class SurfaceRenderer extends BaseEntity {
         params: { buffer: this.waterHeightUniformBuffer },
         waveData: { buffer: waveDataBuffer },
         modifiers: { buffer: modifiersBuffer },
-        shadowData: { buffer: shadowDataBuffer },
-        shadowVertices: { buffer: shadowVerticesBuffer },
+        packedShadow: { buffer: packedShadowBuffer },
         terrainHeightTexture: this.terrainHeightView,
         outputTexture: this.waterHeightView,
       });
@@ -434,8 +414,7 @@ export class SurfaceRenderer extends BaseEntity {
     }
 
     // Update tracking
-    this.lastShadowDataBuffer = shadowDataBuffer;
-    this.lastShadowVerticesBuffer = shadowVerticesBuffer;
+    this.lastPackedShadowBuffer = packedShadowBuffer;
     this.lastWaveDataBuffer = waveDataBuffer;
     this.lastModifiersBuffer = modifiersBuffer;
     this.lastTerrainAtlasView = terrainAtlasView;
@@ -466,13 +445,10 @@ export class SurfaceRenderer extends BaseEntity {
     const waterResources = this.game.entities.getSingleton(WaterResources);
     const terrainResources = this.game.entities.getSingleton(TerrainResources);
 
-    // Get shadow buffers for analytical wave attenuation
-    const shadowDataBuffer =
-      wavePhysicsResources?.getShadowDataBuffer() ??
-      this.placeholderShadowDataBuffer!;
-    const shadowVerticesBuffer =
-      wavePhysicsResources?.getShadowVerticesBuffer() ??
-      this.placeholderShadowVerticesBuffer!;
+    // Get packed shadow buffer for analytical wave attenuation
+    const packedShadowBuffer =
+      wavePhysicsResources?.getPackedShadowBuffer() ??
+      this.placeholderPackedShadowBuffer!;
 
     // Ensure intermediate textures
     this.ensureTextures(width, height);
@@ -529,12 +505,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeUniforms?.uploadTo(this.compositeUniformBuffer!);
 
     // Ensure bind groups
-    this.ensureBindGroups(
-      waterResources,
-      shadowDataBuffer,
-      shadowVerticesBuffer,
-      terrainAtlasView,
-    );
+    this.ensureBindGroups(waterResources, packedShadowBuffer, terrainAtlasView);
 
     // === Pass 1: Terrain Screen Compute ===
     // Sample terrain atlas to screen-space texture for water height shader
@@ -622,7 +593,6 @@ export class SurfaceRenderer extends BaseEntity {
     this.terrainScreenUniformBuffer?.destroy();
     this.waterHeightUniformBuffer?.destroy();
     this.compositeUniformBuffer?.destroy();
-    this.placeholderShadowDataBuffer?.destroy();
-    this.placeholderShadowVerticesBuffer?.destroy();
+    this.placeholderPackedShadowBuffer?.destroy();
   }
 }

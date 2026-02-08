@@ -25,8 +25,7 @@ export class WaterQueryManager extends QueryManager {
 
   private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
-  private placeholderShadowDataBuffer: GPUBuffer | null = null;
-  private placeholderShadowVerticesBuffer: GPUBuffer | null = null;
+  private placeholderPackedShadowBuffer: GPUBuffer | null = null;
   private uniforms = WaterQueryUniforms.create();
 
   constructor() {
@@ -50,37 +49,24 @@ export class WaterQueryManager extends QueryManager {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Create placeholder shadow data buffer (empty - no polygons)
-    // Layout: 32 bytes header with polygonCount = 0
-    this.placeholderShadowDataBuffer = device.createBuffer({
+    // Create placeholder packed shadow buffer (empty - no polygons)
+    // Layout: 32 bytes header with polygonCount = 0, verticesOffset = 8
+    this.placeholderPackedShadowBuffer = device.createBuffer({
       size: 32,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: "Water Query Placeholder Shadow Data Buffer",
+      label: "Water Query Placeholder Packed Shadow Buffer",
     });
-    const placeholderData = new Float32Array([
-      1.0,
-      0.0, // waveDirection
-      0, // polygonCount (will be overwritten)
-      0,
-      0,
-      0,
-      0, // viewport
-      0, // padding
-    ]);
-    const placeholderUint = new Uint32Array(placeholderData.buffer);
-    placeholderUint[2] = 0; // Set polygonCount to 0
+    const placeholderData = new Uint32Array(8);
+    const placeholderFloat = new Float32Array(placeholderData.buffer);
+    placeholderFloat[0] = 1.0; // waveDirection.x
+    placeholderFloat[1] = 0.0; // waveDirection.y
+    placeholderData[2] = 0; // polygonCount = 0
+    placeholderData[3] = 8; // verticesOffset (right after header)
     device.queue.writeBuffer(
-      this.placeholderShadowDataBuffer,
+      this.placeholderPackedShadowBuffer,
       0,
       placeholderData,
     );
-
-    // Create placeholder shadow vertices buffer (empty - just needs to exist)
-    this.placeholderShadowVerticesBuffer = device.createBuffer({
-      size: 8, // Minimum size: one vec2<f32>
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: "Water Query Placeholder Shadow Vertices Buffer",
-    });
   }
 
   getQueries(): BaseQuery<unknown>[] {
@@ -105,15 +91,12 @@ export class WaterQueryManager extends QueryManager {
       return;
     }
 
-    // Get WavePhysicsResources for shadow data
+    // Get WavePhysicsResources for packed shadow data
     const wavePhysicsResources =
       this.game.entities.tryGetSingleton(WavePhysicsResources);
-    const shadowDataBuffer =
-      wavePhysicsResources?.getShadowDataBuffer() ??
-      this.placeholderShadowDataBuffer!;
-    const shadowVerticesBuffer =
-      wavePhysicsResources?.getShadowVerticesBuffer() ??
-      this.placeholderShadowVerticesBuffer!;
+    const packedShadowBuffer =
+      wavePhysicsResources?.getPackedShadowBuffer() ??
+      this.placeholderPackedShadowBuffer!;
 
     // Get TerrainResources for analytical terrain height computation
     const terrainResources =
@@ -144,16 +127,13 @@ export class WaterQueryManager extends QueryManager {
     this.uniforms.set._padding2(0);
     this.uniforms.uploadTo(this.uniformBuffer);
 
-    // Create bind group with shared buffers (including terrain for depth computation)
+    // Create bind group with shared buffers (including packed terrain/shadow)
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
       waveData: { buffer: waterResources.waveDataBuffer },
       modifiers: { buffer: waterResources.modifiersBuffer },
-      shadowData: { buffer: shadowDataBuffer },
-      shadowVertices: { buffer: shadowVerticesBuffer },
-      vertices: { buffer: terrainResources.vertexBuffer },
-      contours: { buffer: terrainResources.contourBuffer },
-      children: { buffer: terrainResources.childrenBuffer },
+      packedShadow: { buffer: packedShadowBuffer },
+      packedTerrain: { buffer: terrainResources.packedTerrainBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
     });
@@ -171,7 +151,6 @@ export class WaterQueryManager extends QueryManager {
   @on("destroy")
   onDestroy(): void {
     this.uniformBuffer?.destroy();
-    this.placeholderShadowDataBuffer?.destroy();
-    this.placeholderShadowVerticesBuffer?.destroy();
+    this.placeholderPackedShadowBuffer?.destroy();
   }
 }

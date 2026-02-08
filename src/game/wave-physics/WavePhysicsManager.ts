@@ -25,11 +25,15 @@ export const MAX_VERTICES_PER_POLYGON = 34;
 export const MAX_SHADOW_VERTICES =
   MAX_SHADOW_POLYGONS * MAX_VERTICES_PER_POLYGON;
 
-/** Shadow data buffer byte size: header (32 bytes) + polygons (MAX * 48 bytes each) */
-const SHADOW_DATA_BUFFER_SIZE = 32 + MAX_SHADOW_POLYGONS * 48;
+/** Shadow data section size in floats: header (8 floats) + polygons (MAX * 12 floats each) */
+const SHADOW_DATA_FLOATS = 8 + MAX_SHADOW_POLYGONS * 12;
 
-/** Shadow vertices buffer byte size: 2 floats (x, y) per vertex */
-const SHADOW_VERTICES_BUFFER_SIZE = MAX_SHADOW_VERTICES * 2 * 4;
+/** Shadow vertices section size in floats: 2 floats (x, y) per vertex */
+const SHADOW_VERTICES_FLOATS = MAX_SHADOW_VERTICES * 2;
+
+/** Total packed shadow buffer size in bytes */
+const PACKED_SHADOW_BUFFER_SIZE =
+  (SHADOW_DATA_FLOATS + SHADOW_VERTICES_FLOATS) * 4;
 
 /**
  * Manages analytical wave physics for terrain-wave interaction.
@@ -38,11 +42,8 @@ const SHADOW_VERTICES_BUFFER_SIZE = MAX_SHADOW_VERTICES * 2 * 4;
 export class WavePhysicsManager {
   private coastlineManager = new CoastlineManager();
 
-  /** Shadow data buffer for polygon metadata */
-  private shadowDataBuffer: GPUBuffer | null = null;
-
-  /** Shadow vertices buffer for polygon geometry */
-  private shadowVerticesBuffer: GPUBuffer | null = null;
+  /** Packed shadow buffer containing both shadow data and vertices */
+  private packedShadowBuffer: GPUBuffer | null = null;
 
   /** Shadow polygons for analytical diffraction */
   private shadowPolygons: ShadowPolygonRenderData[] = [];
@@ -87,18 +88,11 @@ export class WavePhysicsManager {
       this.waveDirection,
     );
 
-    // Create shadow data storage buffer
-    this.shadowDataBuffer = device.createBuffer({
-      size: SHADOW_DATA_BUFFER_SIZE,
+    // Create packed shadow buffer (data + vertices in one buffer)
+    this.packedShadowBuffer = device.createBuffer({
+      size: PACKED_SHADOW_BUFFER_SIZE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: "Shadow Data Storage Buffer",
-    });
-
-    // Create shadow vertices storage buffer
-    this.shadowVerticesBuffer = device.createBuffer({
-      size: SHADOW_VERTICES_BUFFER_SIZE,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: "Shadow Vertices Storage Buffer",
+      label: "Packed Shadow Buffer",
     });
 
     // Write initial shadow data
@@ -115,58 +109,42 @@ export class WavePhysicsManager {
   }
 
   /**
-   * Update the shadow buffers with polygon data.
+   * Update the packed shadow buffer with polygon data.
    * Called once during initialization (shadow geometry is static).
+   *
+   * Packed layout (all u32, floats via bitcast):
+   * ```
+   * [0] waveDir.x (f32)
+   * [1] waveDir.y (f32)
+   * [2] polygonCount (u32)
+   * [3] verticesOffset (u32) - element index where vertex data starts
+   * [4..7] unused/padding
+   * [8..] polygons array (12 floats each)
+   * [verticesOffset..] vertices (2 floats each, x/y pairs)
+   * ```
    */
   private updateShadowBuffers(): void {
-    if (!this.shadowDataBuffer || !this.shadowVerticesBuffer) return;
+    if (!this.packedShadowBuffer) return;
 
     const device = getWebGPU().device;
 
-    // =========================================================================
-    // Shadow Data Buffer Layout:
-    // =========================================================================
-    // offset 0:  waveDirection (vec2<f32>)
-    // offset 8:  polygonCount (u32)
-    // offset 12: unused (f32) - kept for struct alignment
-    // offset 16: unused (f32)
-    // offset 20: unused (f32)
-    // offset 24: unused (f32)
-    // offset 28: padding (f32)
-    // offset 32: polygons array start
-    //
-    // Per-polygon data (48 bytes = 12 floats each):
-    // offset 0:  leftSilhouette (vec2<f32>)
-    // offset 8:  rightSilhouette (vec2<f32>)
-    // offset 16: obstacleWidth (f32)
-    // offset 20: vertexStartIndex (u32)
-    // offset 24: vertexCount (u32)
-    // offset 28: padding (f32)
-    // offset 32: bboxMin (vec2<f32>)
-    // offset 40: bboxMax (vec2<f32>)
-
-    const data = new ArrayBuffer(SHADOW_DATA_BUFFER_SIZE);
+    const totalFloats = SHADOW_DATA_FLOATS + SHADOW_VERTICES_FLOATS;
+    const data = new ArrayBuffer(totalFloats * 4);
     const floatView = new Float32Array(data);
     const uintView = new Uint32Array(data);
+
+    // Vertices start after the shadow data section
+    const verticesOffset = SHADOW_DATA_FLOATS;
 
     // Header
     floatView[0] = this.waveDirection.x;
     floatView[1] = this.waveDirection.y;
     uintView[2] = Math.min(this.shadowPolygons.length, MAX_SHADOW_POLYGONS);
-    floatView[3] = 0; // unused
+    uintView[3] = verticesOffset; // verticesOffset (repurposed from _unused1)
     floatView[4] = 0; // unused
     floatView[5] = 0; // unused
     floatView[6] = 0; // unused
     floatView[7] = 0; // padding
-
-    // =========================================================================
-    // Shadow Vertices Buffer Layout:
-    // =========================================================================
-    // Flat array of vec2<f32> vertices for all polygons.
-    // Each polygon's vertices are stored contiguously.
-
-    const verticesData = new ArrayBuffer(SHADOW_VERTICES_BUFFER_SIZE);
-    const verticesView = new Float32Array(verticesData);
 
     let currentVertexIndex = 0;
     const polygonOffset = 8; // floats before polygon array in data buffer
@@ -205,16 +183,15 @@ export class WavePhysicsManager {
       floatView[base + 10] = maxX; // bboxMax.x
       floatView[base + 11] = maxY; // bboxMax.y
 
-      // Write polygon vertices
+      // Write polygon vertices into the vertices section
       for (const vertex of polygon.vertices) {
-        verticesView[currentVertexIndex * 2] = vertex.x;
-        verticesView[currentVertexIndex * 2 + 1] = vertex.y;
+        floatView[verticesOffset + currentVertexIndex * 2] = vertex.x;
+        floatView[verticesOffset + currentVertexIndex * 2 + 1] = vertex.y;
         currentVertexIndex++;
       }
     }
 
-    device.queue.writeBuffer(this.shadowDataBuffer, 0, data);
-    device.queue.writeBuffer(this.shadowVerticesBuffer, 0, verticesData);
+    device.queue.writeBuffer(this.packedShadowBuffer, 0, data);
 
     console.log(
       `[WavePhysicsManager] Uploaded ${currentVertexIndex} vertices for ${Math.min(this.shadowPolygons.length, MAX_SHADOW_POLYGONS)} shadow polygons`,
@@ -222,17 +199,11 @@ export class WavePhysicsManager {
   }
 
   /**
-   * Get the shadow data buffer for binding in shaders.
+   * Get the packed shadow buffer for binding in shaders.
+   * Contains both shadow data and vertices in a single `array<u32>` buffer.
    */
-  getShadowDataBuffer(): GPUBuffer | null {
-    return this.shadowDataBuffer;
-  }
-
-  /**
-   * Get the shadow vertices buffer for binding in shaders.
-   */
-  getShadowVerticesBuffer(): GPUBuffer | null {
-    return this.shadowVerticesBuffer;
+  getPackedShadowBuffer(): GPUBuffer | null {
+    return this.packedShadowBuffer;
   }
 
   /**
@@ -283,10 +254,8 @@ export class WavePhysicsManager {
    * Clean up GPU resources.
    */
   destroy(): void {
-    this.shadowDataBuffer?.destroy();
-    this.shadowDataBuffer = null;
-    this.shadowVerticesBuffer?.destroy();
-    this.shadowVerticesBuffer = null;
+    this.packedShadowBuffer?.destroy();
+    this.packedShadowBuffer = null;
     this.coastlineManager.clear();
     this.shadowPolygons = [];
     this.initialized = false;

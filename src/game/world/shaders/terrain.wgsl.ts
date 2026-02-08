@@ -14,9 +14,19 @@ import {
   fn_pointLeftOfSegment,
   fn_pointToLineSegmentDistanceSq,
 } from "./polygon.wgsl";
+import {
+  struct_ContourData,
+  fn_getTerrainVertex,
+  fn_getContourData,
+  fn_getTerrainChild,
+} from "./terrain-packed.wgsl";
 
 // Re-export for backwards compatibility
-export { fn_pointLeftOfSegment, fn_pointToLineSegmentDistanceSq };
+export {
+  fn_pointLeftOfSegment,
+  fn_pointToLineSegmentDistanceSq,
+  struct_ContourData,
+};
 
 // =============================================================================
 // IDW (Inverse Distance Weighting) Interpolation
@@ -48,33 +58,6 @@ export const fn_blendIDW: ShaderModule = {
 };
 
 // =============================================================================
-// Terrain Data Structures
-// =============================================================================
-
-/**
- * Contour data structure for terrain height computation.
- */
-export const struct_ContourData: ShaderModule = {
-  code: /*wgsl*/ `
-    struct ContourData {
-      pointStartIndex: u32,
-      pointCount: u32,
-      height: f32,
-      parentIndex: i32,
-      depth: u32,
-      childStartIndex: u32,
-      childCount: u32,
-      isCoastline: u32,
-      bboxMinX: f32,
-      bboxMinY: f32,
-      bboxMaxX: f32,
-      bboxMaxY: f32,
-      skipCount: u32,  // Number of contours in subtree (for DFS skip traversal)
-    }
-  `,
-};
-
-// =============================================================================
 // Terrain Height Core Functions
 // =============================================================================
 
@@ -92,10 +75,9 @@ export const fn_isInsideContour: ShaderModule = {
     fn isInsideContour(
       worldPos: vec2<f32>,
       contourIndex: u32,
-      vertices: ptr<storage, array<vec2<f32>>, read>,
-      contours: ptr<storage, array<ContourData>, read>
+      packedTerrain: ptr<storage, array<u32>, read>
     ) -> bool {
-      let c = (*contours)[contourIndex];
+      let c = getContourData(packedTerrain, contourIndex);
 
       // Early bbox check
       if (worldPos.x < c.bboxMinX || worldPos.x > c.bboxMaxX ||
@@ -110,8 +92,8 @@ export const fn_isInsideContour: ShaderModule = {
 
       // Iterate over pre-sampled polygon edges - winding test only
       for (var i: u32 = 0u; i < n; i++) {
-        let a = (*vertices)[start + i];
-        let b = (*vertices)[start + ((i + 1u) % n)];
+        let a = getTerrainVertex(packedTerrain, start + i);
+        let b = getTerrainVertex(packedTerrain, start + ((i + 1u) % n));
 
         // Winding number calculation (no distance computation)
         if (a.y <= worldPos.y) {
@@ -128,7 +110,12 @@ export const fn_isInsideContour: ShaderModule = {
       return windingNumber != 0;
     }
   `,
-  dependencies: [fn_pointLeftOfSegment, struct_ContourData],
+  dependencies: [
+    fn_pointLeftOfSegment,
+    struct_ContourData,
+    fn_getContourData,
+    fn_getTerrainVertex,
+  ],
 };
 
 /**
@@ -143,10 +130,9 @@ export const fn_computeDistanceToBoundary: ShaderModule = {
     fn computeDistanceToBoundary(
       worldPos: vec2<f32>,
       contourIndex: u32,
-      vertices: ptr<storage, array<vec2<f32>>, read>,
-      contours: ptr<storage, array<ContourData>, read>
+      packedTerrain: ptr<storage, array<u32>, read>
     ) -> f32 {
-      let c = (*contours)[contourIndex];
+      let c = getContourData(packedTerrain, contourIndex);
       let n = c.pointCount;
       let start = c.pointStartIndex;
 
@@ -155,8 +141,8 @@ export const fn_computeDistanceToBoundary: ShaderModule = {
 
       // Iterate over pre-sampled polygon edges - distance only
       for (var i: u32 = 0u; i < n; i++) {
-        let a = (*vertices)[start + i];
-        let b = (*vertices)[start + ((i + 1u) % n)];
+        let a = getTerrainVertex(packedTerrain, start + i);
+        let b = getTerrainVertex(packedTerrain, start + ((i + 1u) % n));
 
         let distSq = pointToLineSegmentDistanceSq(worldPos, a, b);
         minDistSq = min(minDistSq, distSq);
@@ -165,7 +151,12 @@ export const fn_computeDistanceToBoundary: ShaderModule = {
       return sqrt(minDistSq);
     }
   `,
-  dependencies: [fn_pointToLineSegmentDistanceSq, struct_ContourData],
+  dependencies: [
+    fn_pointToLineSegmentDistanceSq,
+    struct_ContourData,
+    fn_getContourData,
+    fn_getTerrainVertex,
+  ],
 };
 
 /**
@@ -179,11 +170,10 @@ export const fn_computeSignedDistance: ShaderModule = {
     fn computeSignedDistance(
       worldPos: vec2<f32>,
       contourIndex: u32,
-      vertices: ptr<storage, array<vec2<f32>>, read>,
-      contours: ptr<storage, array<ContourData>, read>
+      packedTerrain: ptr<storage, array<u32>, read>
     ) -> f32 {
-      let inside = isInsideContour(worldPos, contourIndex, vertices, contours);
-      let dist = computeDistanceToBoundary(worldPos, contourIndex, vertices, contours);
+      let inside = isInsideContour(worldPos, contourIndex, packedTerrain);
+      let dist = computeDistanceToBoundary(worldPos, contourIndex, packedTerrain);
       return select(dist, -dist, inside);
     }
   `,
@@ -219,8 +209,7 @@ export const fn_computeTerrainHeight: ShaderModule = {
 
     fn computeTerrainHeight(
       worldPos: vec2<f32>,
-      vertices: ptr<storage, array<vec2<f32>>, read>,
-      contours: ptr<storage, array<ContourData>, read>,
+      packedTerrain: ptr<storage, array<u32>, read>,
       contourCount: u32,
       defaultDepth: f32
     ) -> f32 {
@@ -235,14 +224,13 @@ export const fn_computeTerrainHeight: ShaderModule = {
       var lastToCheck: u32 = contourCount;
 
       while (i < lastToCheck) {
-        let contour = (*contours)[i];
+        let contour = getContourData(packedTerrain, i);
 
         // Fast containment test - includes bbox check, winding number only, no distance
         if (isInsideContour(
           worldPos,
           i,
-          vertices,
-          contours
+          packedTerrain
         )) {
           // Update if this is deeper than current deepest
           if (contour.depth >= deepestDepth) {
@@ -265,7 +253,7 @@ export const fn_computeTerrainHeight: ShaderModule = {
         return defaultDepth;
       }
 
-      let parent = (*contours)[u32(deepestIndex)];
+      let parent = getContourData(packedTerrain, u32(deepestIndex));
 
       // Phase 3: If the parent has no children, return its height directly
       // (no IDW blending needed, so skip distance calculation entirely)
@@ -278,24 +266,22 @@ export const fn_computeTerrainHeight: ShaderModule = {
       let distToParent = computeDistanceToBoundary(
         worldPos,
         u32(deepestIndex),
-        vertices,
-        contours
+        packedTerrain
       );
       let parentWeight = 1.0 / max(distToParent, _IDW_MIN_DIST);
       var totalWeight = parentWeight;
       var weightedSum = parent.height * parentWeight;
 
       for (var c: u32 = 0u; c < parent.childCount; c++) {
-        let childIndex = children[parent.childStartIndex + c];
-        let child = (*contours)[childIndex];
+        let childIndex = getTerrainChild(packedTerrain, parent.childStartIndex + c);
+        let child = getContourData(packedTerrain, childIndex);
 
         // Compute distance to this child's boundary
         // We know we're outside the child (since parent is deepest), so distance is positive
         let distToChild = computeDistanceToBoundary(
           worldPos,
           childIndex,
-          vertices,
-          contours
+          packedTerrain
         );
 
         let childWeight = 1.0 / max(distToChild, _IDW_MIN_DIST);
@@ -306,7 +292,12 @@ export const fn_computeTerrainHeight: ShaderModule = {
       return weightedSum / totalWeight;
     }
   `,
-  dependencies: [fn_isInsideContour, fn_computeDistanceToBoundary],
+  dependencies: [
+    fn_isInsideContour,
+    fn_computeDistanceToBoundary,
+    fn_getContourData,
+    fn_getTerrainChild,
+  ],
 };
 
 /**
@@ -318,15 +309,14 @@ export const fn_computeTerrainNormal: ShaderModule = {
   code: /*wgsl*/ `
     fn computeTerrainNormal(
       worldPos: vec2<f32>,
-      vertices: ptr<storage, array<vec2<f32>>, read>,
-      contours: ptr<storage, array<ContourData>, read>,
+      packedTerrain: ptr<storage, array<u32>, read>,
       contourCount: u32,
       defaultDepth: f32
     ) -> vec2<f32> {
       let h = 1.0; // Sample offset
-      let hCenter = computeTerrainHeight(worldPos, vertices, contours, contourCount, defaultDepth);
-      let hRight = computeTerrainHeight(worldPos + vec2<f32>(h, 0.0), vertices, contours, contourCount, defaultDepth);
-      let hUp = computeTerrainHeight(worldPos + vec2<f32>(0.0, h), vertices, contours, contourCount, defaultDepth);
+      let hCenter = computeTerrainHeight(worldPos, packedTerrain, contourCount, defaultDepth);
+      let hRight = computeTerrainHeight(worldPos + vec2<f32>(h, 0.0), packedTerrain, contourCount, defaultDepth);
+      let hUp = computeTerrainHeight(worldPos + vec2<f32>(0.0, h), packedTerrain, contourCount, defaultDepth);
 
       let dx = hRight - hCenter;
       let dy = hUp - hCenter;

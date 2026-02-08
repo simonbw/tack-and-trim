@@ -42,9 +42,7 @@ const DEFAULT_DEPTH: f32 = ${DEFAULT_DEPTH}.0;
 `,
   bindings: {
     params: { type: "uniform", wgslType: "Params" },
-    vertices: { type: "storage", wgslType: "array<vec2<f32>>" },
-    contours: { type: "storage", wgslType: "array<ContourData>" },
-    children: { type: "storage", wgslType: "array<u32>" },
+    packedTerrain: { type: "storage", wgslType: "array<u32>" },
     outputTexture: { type: "storageTexture", format: "r32float" },
   },
   code: "",
@@ -87,8 +85,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   // Vertices are pre-sampled from Catmull-Rom splines on the CPU
   let terrainHeight = computeTerrainHeight(
     worldPos,
-    &vertices,
-    &contours,
+    &packedTerrain,
     params.contourCount,
     DEFAULT_DEPTH
   );

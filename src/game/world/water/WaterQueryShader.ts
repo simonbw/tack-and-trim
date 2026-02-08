@@ -25,10 +25,7 @@ import {
   struct_WaveModification,
 } from "../shaders/gerstner-wave.wgsl";
 import { fn_simplex3D } from "../shaders/noise.wgsl";
-import {
-  fn_computeShadowAttenuation,
-  struct_ShadowData,
-} from "../shaders/shadow-attenuation.wgsl";
+import { fn_computeShadowAttenuation } from "../shaders/shadow-attenuation.wgsl";
 import {
   fn_computeTerrainHeight,
   struct_ContourData,
@@ -68,7 +65,7 @@ export const WaterQueryUniforms = defineUniformStruct("Params", {
  * Module containing Params and result structs, plus bindings.
  */
 const waterQueryParamsModule: ShaderModule = {
-  dependencies: [struct_ShadowData, struct_ContourData],
+  dependencies: [struct_ContourData],
   preamble: /*wgsl*/ `
 // Query parameters (48 bytes)
 struct Params {
@@ -100,13 +97,8 @@ struct WaterQueryResult {
     params: { type: "uniform", wgslType: "Params" },
     waveData: { type: "storage", wgslType: "array<f32>" },
     modifiers: { type: "storage", wgslType: "array<f32>" },
-    shadowData: { type: "storage", wgslType: "ShadowData" },
-    shadowVertices: { type: "storage", wgslType: "array<vec2<f32>>" },
-    // Terrain data for analytical depth computation
-    // Names must match what terrain.wgsl module expects (children is used as global)
-    vertices: { type: "storage", wgslType: "array<vec2<f32>>" },
-    contours: { type: "storage", wgslType: "array<ContourData>" },
-    children: { type: "storage", wgslType: "array<u32>" },
+    packedShadow: { type: "storage", wgslType: "array<u32>" },
+    packedTerrain: { type: "storage", wgslType: "array<u32>" },
     pointBuffer: { type: "storage", wgslType: "array<vec2<f32>>" },
     resultBuffer: { type: "storageRW", wgslType: "array<WaterQueryResult>" },
   },
@@ -147,7 +139,7 @@ const NORMAL_SAMPLE_OFFSET: f32 = 1.0;
 // Compute height at a point with shadow attenuation and terrain interaction
 fn computeHeightAtPoint(worldPos: vec2<f32>, ampMod: f32, depth: f32) -> f32 {
   // Compute shadow attenuation
-  let shadowAtten = computeShadowAttenuation(worldPos, &shadowData, &shadowVertices);
+  let shadowAtten = computeShadowAttenuation(worldPos, &packedShadow);
 
   // Compute terrain interaction (shoaling + damping) for each wave class
   let swellTerrainFactor = computeWaveTerrainFactor(depth, SWELL_WAVELENGTH);
@@ -211,8 +203,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   // Compute terrain height FIRST for depth-dependent wave calculations
   let terrainHeight = computeTerrainHeight(
     queryPoint,
-    &vertices,
-    &contours,
+    &packedTerrain,
     params.contourCount,
     params.defaultDepth
   );
