@@ -1,8 +1,9 @@
+import { CustomEvents } from "../../config/CustomEvent";
+import { LayerName } from "../../config/layers";
+import { Game } from "../Game";
 import { Body } from "../physics/body/Body";
 import { Constraint } from "../physics/constraints/Constraint";
 import { Spring } from "../physics/springs/Spring";
-import { CustomEvents } from "../../config/CustomEvent";
-import { Game } from "../Game";
 import { BaseGameEvents } from "./BaseGameEvents";
 import { EventHandler, EventHandlerName } from "./EventHandler";
 import { IoEvents } from "./IoEvents";
@@ -77,14 +78,14 @@ export default interface Entity extends EventHandler<GameEventMap> {
    * For single-layer entities, use this property.
    * For multi-layer entities, use `layers` instead.
    */
-  readonly layer?: string;
+  readonly layer?: LayerName;
 
   /**
    * Multiple layers this entity renders on.
    * The onRender callback will be called once for each layer.
    * Use `layer` for single-layer entities.
    */
-  readonly layers?: readonly string[];
+  readonly layers?: readonly LayerName[];
 
   // Note: onRender is defined via EventHandler<GameEventMap>
   // It receives a RenderEventData object: { dt, layer, draw }

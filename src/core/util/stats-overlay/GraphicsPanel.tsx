@@ -2,12 +2,55 @@ import { isStatsProvider, type StatsSection } from "./StatsProvider";
 import { StatsRow } from "./StatsRow";
 import type { StatsPanel, StatsPanelContext } from "./StatsPanel";
 
-/** Convert camelCase GPU section names to Title Case labels */
-function formatGpuSectionName(key: string): string {
+/** Convert camelCase to Title Case: "waterQuery" → "Water Query" */
+function formatCamelCase(key: string): string {
   return key
     .replace(/([A-Z])/g, " $1")
     .replace(/^./, (s) => s.toUpperCase())
     .trim();
+}
+
+interface GpuSectionGroup {
+  prefix: string;
+  items: Array<{ key: string; label: string; value: number }>;
+  total: number;
+}
+
+/** Group GPU sections by prefix (before the dot) and sort by time */
+function groupAndSortGpuSections(
+  sections: Record<string, number>,
+): GpuSectionGroup[] {
+  const groups = new Map<string, GpuSectionGroup>();
+
+  for (const [key, value] of Object.entries(sections)) {
+    const dotIndex = key.indexOf(".");
+    const prefix = dotIndex >= 0 ? key.substring(0, dotIndex) : key;
+    const suffix = dotIndex >= 0 ? key.substring(dotIndex + 1) : "";
+
+    if (!groups.has(prefix)) {
+      groups.set(prefix, { prefix, items: [], total: 0 });
+    }
+
+    const group = groups.get(prefix)!;
+    group.items.push({
+      key,
+      label: suffix || formatCamelCase(prefix),
+      value,
+    });
+    group.total += value;
+  }
+
+  // Sort groups by total time (high to low)
+  const sortedGroups = Array.from(groups.values()).sort(
+    (a, b) => b.total - a.total,
+  );
+
+  // Sort items within each group by time (high to low)
+  for (const group of sortedGroups) {
+    group.items.sort((a, b) => b.value - a.value);
+  }
+
+  return sortedGroups;
 }
 
 /**
@@ -40,16 +83,33 @@ export function createGraphicsPanel(): StatsPanel {
                     value={`${gfx.gpuAvgMs.toFixed(2)}ms (${gpuPercent}%)`}
                     color={gpuColor}
                   />
-                  {gfx.gpuSections &&
-                    Object.entries(gfx.gpuSections).map(([key, value]) => (
-                      <StatsRow
-                        key={key}
-                        label={formatGpuSectionName(key)}
-                        value={`${value.toFixed(2)}ms`}
-                        indent
-                        color="muted"
-                      />
-                    ))}
+                  {gfx.gpuSectionGroups.map((group) => (
+                    <div key={group.prefix}>
+                      {/* Group header for multi-item groups */}
+                      {group.items.length > 1 && (
+                        <StatsRow
+                          label={formatCamelCase(group.prefix)}
+                          value={`${group.total.toFixed(2)}ms`}
+                          indent={1}
+                          color="muted"
+                        />
+                      )}
+                      {/* Items within group */}
+                      {group.items.map((item) => (
+                        <StatsRow
+                          key={item.key}
+                          label={
+                            group.items.length > 1
+                              ? `.${item.label}`
+                              : formatCamelCase(item.key)
+                          }
+                          value={`${item.value.toFixed(2)}ms`}
+                          indent={group.items.length > 1 ? 2 : 1}
+                          color="muted"
+                        />
+                      ))}
+                    </div>
+                  ))}
                 </>
               ) : (
                 <StatsRow label="GPU Time" value="not supported" color="dim" />
@@ -123,7 +183,7 @@ function getGraphicsStats(ctx: StatsPanelContext) {
     pixelRatio: rendererStats?.pixelRatio ?? 1,
     gpuTimerSupported,
     gpuAvgMs: gpuMs,
-    gpuSections: gpuAllMs,
+    gpuSectionGroups: gpuAllMs ? groupAndSortGpuSections(gpuAllMs) : [],
   };
 }
 

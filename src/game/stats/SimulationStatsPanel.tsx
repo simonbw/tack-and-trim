@@ -1,34 +1,39 @@
-import type { VNode } from "preact";
-import { profiler, type ProfileStats } from "../../core/util/Profiler";
 import type {
   StatsPanel,
   StatsPanelContext,
 } from "../../core/util/stats-overlay/StatsPanel";
 import { StatsRow } from "../../core/util/stats-overlay/StatsRow";
-import { WaterInfo } from "../world-data/water/WaterInfo";
-import { WindInfo } from "../world-data/wind/WindInfo";
+import { SurfaceRenderer } from "../surface-rendering/SurfaceRenderer";
+import { TerrainQuery } from "../world/terrain/TerrainQuery";
+import { WaterQuery } from "../world/water/WaterQuery";
+import { WindQuery } from "../world/wind/WindQuery";
 
-interface TileSystemStats {
-  activeTiles: number;
-  maxTiles: number;
-  tileHits: number;
-  totalQueries: number;
-  tileHitPercent: number;
-  gpuTimeMs: number;
-  cpuTickMs: number;
-  cpuAfterPhysicsMs: number;
+interface QueryStats {
+  waterPoints: number;
+  waterQueries: number;
+  terrainPoints: number;
+  terrainQueries: number;
+  windPoints: number;
+  windQueries: number;
+}
+
+interface TerrainCacheStats {
+  cachedTiles: number;
+  readyTiles: number;
+  currentLOD: number;
+  worldUnitsPerTile: number;
 }
 
 /**
- * Creates a simulation stats panel showing water and wind tile computation stats.
+ * Creates a simulation stats panel showing query counts.
  */
 export function createSimulationStatsPanel(): StatsPanel {
   return {
     id: "simulation",
 
     render: (ctx) => {
-      const waterStats = getWaterStats(ctx);
-      const windStats = getWindStats(ctx);
+      const stats = getQueryStats(ctx);
+      const terrainCache = getTerrainCacheStats(ctx);
 
       return (
         <>
@@ -36,163 +41,64 @@ export function createSimulationStatsPanel(): StatsPanel {
             <span>Simulation</span>
           </div>
 
-          {renderSystemSection("Water", waterStats)}
-          {renderSystemSection("Wind", windStats)}
+          <div className="stats-overlay__section">
+            <div className="stats-overlay__section-title">Queries</div>
+            <div className="stats-overlay__grid">
+              <StatsRow
+                label="Water"
+                value={`${stats.waterPoints.toLocaleString()} (${stats.waterQueries})`}
+              />
+              <StatsRow
+                label="Terrain"
+                value={`${stats.terrainPoints.toLocaleString()} (${stats.terrainQueries})`}
+              />
+              <StatsRow
+                label="Wind"
+                value={`${stats.windPoints.toLocaleString()} (${stats.windQueries})`}
+              />
+            </div>
+          </div>
+
+          {terrainCache && (
+            <div className="stats-overlay__section">
+              <div className="stats-overlay__section-title">Terrain Cache</div>
+              <div className="stats-overlay__grid">
+                <StatsRow
+                  label="LOD"
+                  value={`${terrainCache.currentLOD} (${terrainCache.worldUnitsPerTile}u/tile)`}
+                />
+                <StatsRow
+                  label="Tiles"
+                  value={`${terrainCache.readyTiles}/${terrainCache.cachedTiles}`}
+                />
+              </div>
+            </div>
+          )}
         </>
       );
     },
   };
 }
 
-function renderSystemSection(
-  name: string,
-  stats: TileSystemStats | null,
-): VNode {
-  if (!stats) {
-    return (
-      <div className="stats-overlay__section">
-        <div className="stats-overlay__section-title">{name}</div>
-        <div className="stats-overlay__grid">
-          <StatsRow label="Status" value="Not initialized" color="muted" />
-        </div>
-      </div>
-    );
-  }
-
-  const isMaxedOut = stats.activeTiles >= stats.maxTiles;
-
-  return (
-    <div className="stats-overlay__section">
-      <div className="stats-overlay__section-title">{name}</div>
-      <div className="stats-overlay__grid">
-        <StatsRow
-          label="Active Tiles"
-          value={`${stats.activeTiles} / (${stats.maxTiles})`}
-          color={isMaxedOut ? "error" : undefined}
-        />
-        <StatsRow
-          label="Tile Hits"
-          value={`${stats.tileHitPercent.toFixed(0)}% (${stats.tileHits}/${stats.totalQueries})`}
-          color={
-            stats.tileHitPercent > 90
-              ? "success"
-              : stats.tileHitPercent > 50
-                ? "warning"
-                : "error"
-          }
-        />
-        <StatsRow
-          label="GPU Time"
-          value={`${stats.gpuTimeMs.toFixed(2)}ms`}
-          color={stats.gpuTimeMs > 2 ? "warning" : undefined}
-        />
-        <StatsRow
-          label="CPU onTick"
-          value={`${stats.cpuTickMs.toFixed(2)}ms`}
-          color={stats.cpuTickMs > 1 ? "warning" : undefined}
-        />
-        <StatsRow
-          label="CPU onAfterPhysics"
-          value={`${stats.cpuAfterPhysicsMs.toFixed(2)}ms`}
-          color={stats.cpuAfterPhysicsMs > 1 ? "warning" : undefined}
-        />
-      </div>
-    </div>
-  );
-}
-
-function getWaterStats(ctx: StatsPanelContext): TileSystemStats | null {
-  const waterInfo = WaterInfo.maybeFromGame(ctx.game);
-  if (!waterInfo) return null;
-
-  const tileStats = waterInfo.getTileStats();
-  if (!tileStats) return null;
-
-  const totalQueries = tileStats.tileHits + tileStats.cpuFallbacks;
-  const tileHitPercent =
-    totalQueries > 0 ? (tileStats.tileHits / totalQueries) * 100 : 0;
-
-  const gpuTimeMs = ctx.game.renderer.getGpuMs("tileCompute");
-  const profilerStats = profiler.getStats();
-  const cpuTickMs = findProfilerMsByShortLabel(
-    profilerStats,
-    "onTick",
-    "WaterInfo",
-  );
-  const cpuAfterPhysicsMs = findProfilerMsByShortLabel(
-    profilerStats,
-    "onAfterPhysics",
-    "WaterInfo",
-  );
-
-  // Reset counters after reading
-  waterInfo.resetStatsCounters();
+function getQueryStats(ctx: StatsPanelContext): QueryStats {
+  const waterQueries = [...ctx.game.entities.byConstructor(WaterQuery)];
+  const terrainQueries = [...ctx.game.entities.byConstructor(TerrainQuery)];
+  const windQueries = [...ctx.game.entities.byConstructor(WindQuery)];
 
   return {
-    activeTiles: tileStats.activeTiles,
-    maxTiles: tileStats.maxTiles,
-    tileHits: tileStats.tileHits,
-    totalQueries,
-    tileHitPercent,
-    gpuTimeMs,
-    cpuTickMs,
-    cpuAfterPhysicsMs,
+    waterPoints: waterQueries.reduce((sum, q) => sum + q.results.length, 0),
+    waterQueries: waterQueries.length,
+    terrainPoints: terrainQueries.reduce((sum, q) => sum + q.results.length, 0),
+    terrainQueries: terrainQueries.length,
+    windPoints: windQueries.reduce((sum, q) => sum + q.results.length, 0),
+    windQueries: windQueries.length,
   };
 }
 
-function getWindStats(ctx: StatsPanelContext): TileSystemStats | null {
-  const windInfo = WindInfo.maybeFromGame(ctx.game);
-  if (!windInfo) return null;
-
-  const tileStats = windInfo.getTileStats();
-  if (!tileStats) return null;
-
-  const totalQueries = tileStats.tileHits + tileStats.cpuFallbacks;
-  const tileHitPercent =
-    totalQueries > 0 ? (tileStats.tileHits / totalQueries) * 100 : 0;
-
-  const gpuTimeMs = ctx.game.renderer.getGpuMs("windCompute");
-  const profilerStats = profiler.getStats();
-  const cpuTickMs = findProfilerMsByShortLabel(
-    profilerStats,
-    "onTick",
-    "WindInfo",
-  );
-  const cpuAfterPhysicsMs = findProfilerMsByShortLabel(
-    profilerStats,
-    "onAfterPhysics",
-    "WindInfo",
-  );
-
-  // Reset counters after reading
-  windInfo.resetStatsCounters();
-
-  return {
-    activeTiles: tileStats.activeTiles,
-    maxTiles: tileStats.maxTiles,
-    tileHits: tileStats.tileHits,
-    totalQueries,
-    tileHitPercent,
-    gpuTimeMs,
-    cpuTickMs,
-    cpuAfterPhysicsMs,
-  };
-}
-
-/**
- * Find profiler entry by short label (method name) and class name in the full path.
- * Profiler paths look like "Game.loop > tick > WaterInfo.onTick"
- */
-function findProfilerMsByShortLabel(
-  stats: ProfileStats[],
-  methodName: string,
-  className: string,
-): number {
-  const fullMethodName = `${className}.${methodName}`;
-  return (
-    stats.find(
-      (s) =>
-        s.shortLabel === fullMethodName || s.label.endsWith(fullMethodName),
-    )?.msPerFrame ?? 0
-  );
+function getTerrainCacheStats(
+  ctx: StatsPanelContext,
+): TerrainCacheStats | null {
+  const surfaceRenderer = ctx.game.entities.tryGetSingleton(SurfaceRenderer);
+  if (!surfaceRenderer) return null;
+  return surfaceRenderer.getTerrainTileCacheStats();
 }

@@ -8,7 +8,7 @@ import {
   foilLift,
   KEEL_CHORD,
 } from "../fluid-dynamics";
-import { WaterInfo } from "../world-data/water/WaterInfo";
+import { WaterQuery } from "../world/water/WaterQuery";
 import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -17,6 +17,14 @@ export class Keel extends BaseEntity {
 
   private vertices: V2d[];
   private color: number;
+
+  // Water query for keel vertices (transforms to world space for query)
+  private waterQuery = this.addChild(
+    new WaterQuery(() => this.getQueryPoints()),
+  );
+
+  // Cached water velocities indexed by world position key
+  private velocityCache = new Map<string, V2d>();
 
   constructor(
     private hull: Hull,
@@ -28,16 +36,39 @@ export class Keel extends BaseEntity {
     this.color = config.color;
   }
 
+  /**
+   * Get query points in world space for all keel vertices.
+   */
+  private getQueryPoints(): V2d[] {
+    const points: V2d[] = [];
+    for (const v of this.vertices) {
+      points.push(this.hull.body.toWorldFrame(v));
+    }
+    return points;
+  }
+
   @on("tick")
   onTick() {
+    // Build velocity cache from query results
+    this.velocityCache.clear();
+    const queryPoints = this.getQueryPoints();
+    for (let i = 0; i < this.waterQuery.results.length; i++) {
+      const point = queryPoints[i];
+      if (point) {
+        const key = `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+        this.velocityCache.set(key, this.waterQuery.results[i].velocity);
+      }
+    }
+
     // Use proper foil physics with real chord dimension
     const lift = foilLift(KEEL_CHORD);
     const drag = foilDrag(KEEL_CHORD);
 
-    // Get water velocity function
-    const water = WaterInfo.fromGame(this.game);
-    const getWaterVelocity = (point: V2d): V2d =>
-      water.getStateAtPoint(point).velocity;
+    // Get water velocity from cache or default to zero
+    const getWaterVelocity = (point: V2d): V2d => {
+      const key = `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+      return this.velocityCache.get(key) ?? V(0, 0);
+    };
 
     // Apply keel forces to hull (both directions for symmetry)
     for (const [start, end] of pairs(this.vertices)) {

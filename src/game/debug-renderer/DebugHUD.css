@@ -1,0 +1,75 @@
+.debug-hud {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 160px;
+  color: #e0e8f0;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 13px;
+  z-index: 800;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.debug-hud--hidden {
+  display: none;
+}
+
+.debug-hud__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.debug-hud__nav-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.debug-hud__nav-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.debug-hud__mode {
+  color: #4a9eff;
+  font-weight: 600;
+}
+
+.debug-hud__submode {
+  color: #ffaa44;
+  font-size: 12px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.debug-hud__cursor {
+  color: #88ddaa;
+  font-size: 12px;
+  font-family: monospace;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  white-space: pre-line;
+  line-height: 1.4;
+}

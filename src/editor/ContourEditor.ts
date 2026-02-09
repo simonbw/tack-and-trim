@@ -389,21 +389,21 @@ export class ContourEditor extends BaseEntity {
 
     // Copy (Cmd/Ctrl+C)
     if (key === "KeyC" && modifier) {
-      const controller = EditorController.maybeFromGame(this.game);
+      const controller = this.game.entities.tryGetSingleton(EditorController);
       controller?.copySelectedContour();
       return;
     }
 
     // Paste (Cmd/Ctrl+V)
     if (key === "KeyV" && modifier) {
-      const controller = EditorController.maybeFromGame(this.game);
+      const controller = this.game.entities.tryGetSingleton(EditorController);
       controller?.pasteContour();
       return;
     }
 
     // Duplicate (Cmd/Ctrl+D)
     if (key === "KeyD" && modifier) {
-      const controller = EditorController.maybeFromGame(this.game);
+      const controller = this.game.entities.tryGetSingleton(EditorController);
       controller?.duplicateSelectedContour();
       return;
     }

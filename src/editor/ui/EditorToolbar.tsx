@@ -6,7 +6,6 @@
 
 import { EditorDocument } from "../EditorDocument";
 import { EditorController } from "../EditorController";
-import { EditorInfluenceProgress } from "./EditorInfluenceProgress";
 import "./EditorStyles.css";
 
 export interface EditorToolbarProps {
@@ -21,8 +20,6 @@ export function EditorToolbar({
   const isDirty = editorDoc.getIsDirty();
   const canUndo = editorDoc.canUndo();
   const canRedo = editorDoc.canRedo();
-  const isComputingInfluence = controller.getIsComputingInfluence();
-  const influenceManager = controller.getInfluenceManager();
 
   return (
     <div class="editor-toolbar">
@@ -142,21 +139,6 @@ export function EditorToolbar({
           + Contour
         </button>
       </div>
-
-      <div class="editor-toolbar-group">
-        <button
-          class="editor-btn"
-          onClick={() => controller.computeInfluenceFields()}
-          disabled={isComputingInfluence}
-          title="Compute influence fields for terrain-aware wave rendering"
-        >
-          {isComputingInfluence ? "Computing..." : "Compute Waves"}
-        </button>
-      </div>
-
-      {isComputingInfluence && influenceManager && (
-        <EditorInfluenceProgress manager={influenceManager} />
-      )}
     </div>
   );
 }

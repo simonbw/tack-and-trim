@@ -15,6 +15,12 @@ export type IoEvents = {
   rightDown: void;
   /** Called when the right mouse button is released anywhere. */
   rightUp: void;
+  /** Called when the mouse is middle clicked anywhere. */
+  middleClick: void;
+  /** Called when the middle mouse button is pressed anywhere. */
+  middleDown: void;
+  /** Called when the middle mouse button is released anywhere. */
+  middleUp: void;
   /** called when a keyboard key is pressed. */
   keyDown: { key: KeyCode; event: KeyboardEvent };
   /** called when a keyboard key is released. */

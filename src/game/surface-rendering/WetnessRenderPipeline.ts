@@ -8,24 +8,22 @@
  * Uses reprojection to maintain wetness state as the camera moves.
  */
 
-import {
-  GPUProfiler,
-  GPUProfileSection,
-} from "../../core/graphics/webgpu/GPUProfiler";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { profile } from "../../core/util/Profiler";
-import type { Viewport } from "../world-data/water/WaterInfo";
+import type { Viewport } from "../wave-physics/WavePhysicsResources";
+import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import {
+  createWetnessStateShader,
   DEFAULT_DRYING_RATE,
   DEFAULT_WETTING_RATE,
-  WetnessStateShader,
+  WetnessUniforms,
 } from "./WetnessStateShader";
 
 /**
  * Wetness rendering compute pipeline using ping-pong textures.
  */
 export class WetnessRenderPipeline {
-  private shader: WetnessStateShader | null = null;
+  private shader: ComputeShader | null = null;
 
   // Ping-pong textures for persistent state
   private wetnessTextureA: GPUTexture | null = null;
@@ -45,7 +43,7 @@ export class WetnessRenderPipeline {
 
   // Uniform buffer for shader params
   private paramsBuffer: GPUBuffer | null = null;
-  private paramsData = new Float32Array(20); // dt, wettingRate, dryingRate, textureSizeX, textureSizeY, padding, padding, padding, current viewport (4), prev viewport (4), render viewport (4)
+  private uniforms = WetnessUniforms.create();
 
   // Sampler for texture sampling
   private sampler: GPUSampler | null = null;
@@ -92,12 +90,12 @@ export class WetnessRenderPipeline {
     const device = getWebGPU().device;
 
     // Initialize compute shader
-    this.shader = new WetnessStateShader();
+    this.shader = createWetnessStateShader();
     await this.shader.init();
 
     // Create params buffer
     this.paramsBuffer = device.createBuffer({
-      size: this.paramsData.byteLength,
+      size: WetnessUniforms.byteSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "Wetness Params Buffer",
     });
@@ -212,8 +210,6 @@ export class WetnessRenderPipeline {
     waterTextureView: GPUTextureView,
     terrainTextureView: GPUTextureView,
     dt: number,
-    gpuProfiler?: GPUProfiler | null,
-    section: GPUProfileSection = "wetnessCompute",
   ): void {
     if (!this.initialized || !this.shader || !this.paramsBuffer) {
       return;
@@ -235,29 +231,28 @@ export class WetnessRenderPipeline {
     const prevViewport = this.prevViewport ?? snappedViewport;
 
     // Update params buffer
-    this.paramsData[0] = dt;
-    this.paramsData[1] = this.wettingRate;
-    this.paramsData[2] = this.dryingRate;
-    this.paramsData[3] = this.textureWidth;
-    this.paramsData[4] = this.textureHeight;
-    // padding for 16-byte alignment (indices 5, 6, 7 will be used for viewport)
+    this.uniforms.set.dt(dt);
+    this.uniforms.set.wettingRate(this.wettingRate);
+    this.uniforms.set.dryingRate(this.dryingRate);
+    this.uniforms.set.textureSizeX(this.textureWidth);
+    this.uniforms.set.textureSizeY(this.textureHeight);
     // Current wetness viewport (snapped to grid)
-    this.paramsData[5] = snappedViewport.left;
-    this.paramsData[6] = snappedViewport.top;
-    this.paramsData[7] = snappedViewport.width;
-    this.paramsData[8] = snappedViewport.height;
+    this.uniforms.set.currentViewportLeft(snappedViewport.left);
+    this.uniforms.set.currentViewportTop(snappedViewport.top);
+    this.uniforms.set.currentViewportWidth(snappedViewport.width);
+    this.uniforms.set.currentViewportHeight(snappedViewport.height);
     // Previous wetness viewport
-    this.paramsData[9] = prevViewport.left;
-    this.paramsData[10] = prevViewport.top;
-    this.paramsData[11] = prevViewport.width;
-    this.paramsData[12] = prevViewport.height;
+    this.uniforms.set.prevViewportLeft(prevViewport.left);
+    this.uniforms.set.prevViewportTop(prevViewport.top);
+    this.uniforms.set.prevViewportWidth(prevViewport.width);
+    this.uniforms.set.prevViewportHeight(prevViewport.height);
     // Render viewport (for sampling water/terrain textures)
-    this.paramsData[13] = renderViewport.left;
-    this.paramsData[14] = renderViewport.top;
-    this.paramsData[15] = renderViewport.width;
-    this.paramsData[16] = renderViewport.height;
+    this.uniforms.set.renderViewportLeft(renderViewport.left);
+    this.uniforms.set.renderViewportTop(renderViewport.top);
+    this.uniforms.set.renderViewportWidth(renderViewport.width);
+    this.uniforms.set.renderViewportHeight(renderViewport.height);
 
-    device.queue.writeBuffer(this.paramsBuffer, 0, this.paramsData);
+    this.uniforms.uploadTo(this.paramsBuffer);
 
     // Select bind group based on current read texture
     const bindGroup =
@@ -268,10 +263,9 @@ export class WetnessRenderPipeline {
       label: "Wetness Render Compute Encoder",
     });
 
-    // Begin compute pass with optional timestamp writes
+    // Begin compute pass (no GPU profiling for Phase 1)
     const computePass = commandEncoder.beginComputePass({
       label: "Wetness Render Compute Pass",
-      timestampWrites: gpuProfiler?.getComputeTimestampWrites(section),
     });
 
     this.shader.dispatch(

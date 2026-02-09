@@ -13,7 +13,9 @@ export function eventHandlerName<T extends string>(
 export type EventHandler<EventMap> = {
   [K in keyof EventMap as EventHandlerName<
     string & K
-  >]?: EventMap[K] extends void ? () => void : (eventData: EventMap[K]) => void;
+  >]?: EventMap[K] extends void
+    ? () => void | Promise<void>
+    : (eventData: EventMap[K]) => void | Promise<void>;
 };
 
 /** Converts an event handler method name to the name of the event it handles. */

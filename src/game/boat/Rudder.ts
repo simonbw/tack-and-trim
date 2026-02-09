@@ -8,7 +8,7 @@ import {
   foilLift,
   RUDDER_CHORD,
 } from "../fluid-dynamics";
-import { WaterInfo } from "../world-data/water/WaterInfo";
+import { WaterQuery } from "../world/water/WaterQuery";
 import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -26,6 +26,14 @@ export class Rudder extends BaseEntity {
   private steerAdjustSpeedFast: number;
   private color: number;
 
+  // Water query for rudder endpoints (transforms to world space for query)
+  private waterQuery = this.addChild(
+    new WaterQuery(() => this.getQueryPoints()),
+  );
+
+  // Cached water velocities indexed by world position key
+  private velocityCache = new Map<string, V2d>();
+
   constructor(
     private hull: Hull,
     config: RudderConfig,
@@ -38,6 +46,23 @@ export class Rudder extends BaseEntity {
     this.steerAdjustSpeed = config.steerAdjustSpeed;
     this.steerAdjustSpeedFast = config.steerAdjustSpeedFast;
     this.color = config.color;
+  }
+
+  /**
+   * Get query points in world space for rudder pivot and end.
+   */
+  private getQueryPoints(): V2d[] {
+    // Calculate rudder end position based on steering angle
+    const rudderOffset = V(-this.length, 0).irotate(
+      -this.steer * this.maxSteerAngle,
+    );
+    const rudderEnd = this.position.add(rudderOffset);
+
+    // Transform both points to world space
+    return [
+      this.hull.body.toWorldFrame(this.position),
+      this.hull.body.toWorldFrame(rudderEnd),
+    ];
   }
 
   /**
@@ -66,6 +91,17 @@ export class Rudder extends BaseEntity {
       this.steer = stepToward(this.steer, target, speed * dt);
     }
 
+    // Build velocity cache from query results
+    this.velocityCache.clear();
+    const queryPoints = this.getQueryPoints();
+    for (let i = 0; i < this.waterQuery.results.length; i++) {
+      const point = queryPoints[i];
+      if (point) {
+        const key = `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+        this.velocityCache.set(key, this.waterQuery.results[i].velocity);
+      }
+    }
+
     // Calculate rudder end position based on steering angle
     const rudderOffset = V(-this.length, 0).irotate(
       -this.steer * this.maxSteerAngle,
@@ -76,10 +112,11 @@ export class Rudder extends BaseEntity {
     const lift = foilLift(RUDDER_CHORD);
     const drag = foilDrag(RUDDER_CHORD);
 
-    // Get water velocity function
-    const water = WaterInfo.fromGame(this.game);
-    const getWaterVelocity = (point: V2d): V2d =>
-      water.getStateAtPoint(point).velocity;
+    // Get water velocity from cache or default to zero
+    const getWaterVelocity = (point: V2d): V2d => {
+      const key = `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+      return this.velocityCache.get(key) ?? V(0, 0);
+    };
 
     // Apply rudder forces to hull (both directions)
     applyFluidForces(

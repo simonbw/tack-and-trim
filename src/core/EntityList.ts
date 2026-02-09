@@ -6,6 +6,11 @@ import { EntityFilter, hasBody } from "./EntityFilter";
 import { FilterMultiMap } from "./util/FilterListMap";
 import { MultiMap } from "./util/MultiMap";
 
+/** Constructor type for entity classes (supports both concrete and abstract classes) */
+export type Constructor<T = Entity> =
+  | (new (...args: any[]) => T)
+  | (abstract new (...args: any[]) => T);
+
 /** Keeps track of entities. Has lots of useful indexes. */
 export class EntityList implements Iterable<Entity> {
   /** Maps entity ids to entities */
@@ -20,6 +25,8 @@ export class EntityList implements Iterable<Entity> {
   private renderLayerEntities = new MultiMap<string, Entity>();
   /** Maps tick layers to entities that tick on them */
   private tickLayerEntities = new MultiMap<string, Entity>();
+  /** Maps constructors to entities of that type */
+  private constructorMap = new MultiMap<Constructor<Entity>, Entity>();
   /** All entities */
   all = new Set<Entity>();
 
@@ -65,6 +72,9 @@ export class EntityList implements Iterable<Entity> {
       }
     }
 
+    // Index by constructor for type-based queries
+    this.constructorMap.add(entity.constructor as Constructor<Entity>, entity);
+
     if (entity.id) {
       if (this.idToEntity.has(entity.id)) {
         throw new Error(`entities with duplicate ids: ${entity.id}`);
@@ -106,6 +116,12 @@ export class EntityList implements Iterable<Entity> {
     for (const eventName of getHandlers(entity)) {
       this.handlers.remove(eventName, entity);
     }
+
+    // Remove from constructor index
+    this.constructorMap.remove(
+      entity.constructor as Constructor<Entity>,
+      entity,
+    );
 
     if (entity.id) {
       this.idToEntity.delete(entity.id);
@@ -186,6 +202,55 @@ export class EntityList implements Iterable<Entity> {
   /** Get all entities that tick on a specific layer. */
   getTickersOnLayer(layer: string): Iterable<Entity> {
     return this.tickLayerEntities.get(layer);
+  }
+
+  /**
+   * Get all entities of a specific type.
+   * @param constructor The entity class constructor
+   * @returns A readonly set of all entities of that type
+   */
+  byConstructor<T extends Entity>(constructor: Constructor<T>): ReadonlySet<T> {
+    return this.constructorMap.get(constructor) as ReadonlySet<T>;
+  }
+
+  /**
+   * Get the single entity of a specific type.
+   * Throws if zero or multiple instances are found.
+   * @param constructor The entity class constructor
+   * @returns The single entity of that type
+   */
+  getSingleton<T extends Entity>(constructor: Constructor<T>): T {
+    const instances = this.byConstructor(constructor);
+    if (instances.size === 0) {
+      throw new Error(`No instance of ${constructor.name} found`);
+    }
+    if (instances.size > 1) {
+      throw new Error(
+        `Multiple instances of ${constructor.name} found (expected singleton)`,
+      );
+    }
+    return [...instances][0];
+  }
+
+  /**
+   * Try to get the single entity of a specific type.
+   * Returns undefined if not found, throws if multiple instances are found.
+   * @param constructor The entity class constructor
+   * @returns The single entity of that type, or undefined if not found
+   */
+  tryGetSingleton<T extends Entity>(
+    constructor: Constructor<T>,
+  ): T | undefined {
+    const instances = this.byConstructor(constructor);
+    if (instances.size === 0) {
+      return undefined;
+    }
+    if (instances.size > 1) {
+      throw new Error(
+        `Multiple instances of ${constructor.name} found (expected singleton)`,
+      );
+    }
+    return [...instances][0];
   }
 
   /** Iterate through all the entities. */

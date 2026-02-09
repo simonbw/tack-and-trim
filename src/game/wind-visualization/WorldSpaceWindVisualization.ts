@@ -1,8 +1,8 @@
 import { Camera2d, Viewport } from "../../core/graphics/Camera2d";
 import type { Draw } from "../../core/graphics/Draw";
 import { clamp, lerp } from "../../core/util/MathUtil";
-import { V } from "../../core/Vector";
-import type { WindInfo } from "../world-data/wind/WindInfo";
+import { V, V2d } from "../../core/Vector";
+import type { WindResultView } from "../world/wind/WindQueryResult";
 import { WindVisualizationMode } from "./WindVisualizationMode";
 
 // Grid configuration - adaptive LOD
@@ -18,7 +18,6 @@ const MAX_WIND_SPEED = 200;
 
 // Colors
 const TRIANGLE_COLOR = 0x88ccff;
-const TRIANGLE_MODIFIED_COLOR = 0xffcc88;
 const CALM_WIND_COLOR = 0x666666;
 
 /**
@@ -27,11 +26,12 @@ const CALM_WIND_COLOR = 0x666666;
  * Triangle size scales inversely with zoom to stay constant on screen.
  */
 export class WorldSpaceWindVisualization implements WindVisualizationMode {
-  draw(wind: WindInfo, viewport: Viewport, camera: Camera2d, draw: Draw): void {
+  /**
+   * Get the grid points that need wind queries for a given viewport.
+   */
+  getQueryPoints(viewport: Viewport): V2d[] {
+    const points: V2d[] = [];
     const { left, right, top, bottom } = viewport;
-
-    // Triangle size scales inversely with zoom to stay constant on screen
-    const triangleSize = WORLD_TRIANGLE_SIZE / camera.z;
 
     // Calculate continuous LOD value based on viewport size
     const viewportSize = Math.max(right - left, bottom - top);
@@ -53,15 +53,49 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
         const alpha = this.getLODAlpha(triangleLOD, lodValue);
 
         if (alpha > 0.01) {
-          this.drawTriangle(
-            wind,
-            x,
-            y,
-            triangleSize,
-            alpha * TRIANGLE_ALPHA,
-            draw,
-          );
+          points.push(V(x, y));
         }
+      }
+    }
+
+    return points;
+  }
+
+  /**
+   * Draw the visualization using pre-queried wind results.
+   */
+  draw(
+    results: WindResultView[],
+    points: V2d[],
+    viewport: Viewport,
+    camera: Camera2d,
+    draw: Draw,
+  ): void {
+    const { left, right, top, bottom } = viewport;
+
+    // Triangle size scales inversely with zoom to stay constant on screen
+    const triangleSize = WORLD_TRIANGLE_SIZE / camera.z;
+
+    // Calculate continuous LOD value based on viewport size
+    const viewportSize = Math.max(right - left, bottom - top);
+    const lodValue = Math.log2(viewportSize / BASE_VIEWPORT_SIZE);
+
+    for (let i = 0; i < points.length && i < results.length; i++) {
+      const point = points[i];
+      const result = results[i];
+
+      const triangleLOD = this.getTriangleLOD(point.x, point.y);
+      const alpha = this.getLODAlpha(triangleLOD, lodValue);
+
+      if (alpha > 0.01) {
+        this.drawTriangle(
+          result,
+          point.x,
+          point.y,
+          triangleSize,
+          alpha * TRIANGLE_ALPHA,
+          draw,
+        );
       }
     }
   }
@@ -83,18 +117,15 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
   }
 
   private drawTriangle(
-    wind: WindInfo,
+    result: WindResultView,
     x: number,
     y: number,
     maxSize: number,
     alpha: number,
     draw: Draw,
   ): void {
-    const point = V(x, y);
-    const velocity = wind.getVelocityAtPoint(point);
-    const baseVelocity = wind.getBaseVelocityAtPoint(point);
-    const speed = velocity.magnitude;
-    const angle = velocity.angle;
+    const speed = result.speed;
+    const angle = result.direction;
 
     // Draw a small circle for calm/zero wind
     if (speed < 1) {
@@ -102,7 +133,6 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
       return;
     }
 
-    const isModified = !velocity.equals(baseVelocity);
     const speedRatio = clamp(
       (speed - MIN_WIND_SPEED) / (MAX_WIND_SPEED - MIN_WIND_SPEED),
       0,
@@ -110,7 +140,7 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
     );
 
     const size = lerp(maxSize * 0.3, maxSize, speedRatio);
-    const color = isModified ? TRIANGLE_MODIFIED_COLOR : TRIANGLE_COLOR;
+    const color = TRIANGLE_COLOR;
 
     // Triangle vertices (pointing right, centered at origin)
     const tipX = size * 0.6;
@@ -121,16 +151,18 @@ export class WorldSpaceWindVisualization implements WindVisualizationMode {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
 
-    const tip = V(tipX * cos + x, tipX * sin + y);
-    const wingUp = V(
-      backX * cos - wingY * sin + x,
-      backX * sin + wingY * cos + y,
-    );
-    const wingDown = V(
-      backX * cos + wingY * sin + x,
-      backX * sin - wingY * cos + y,
-    );
+    const tipX_final = tipX * cos + x;
+    const tipY_final = tipX * sin + y;
+    const wingUpX_final = backX * cos - wingY * sin + x;
+    const wingUpY_final = backX * sin + wingY * cos + y;
+    const wingDownX_final = backX * cos + wingY * sin + x;
+    const wingDownY_final = backX * sin - wingY * cos + y;
 
-    draw.fillPolygon([tip, wingUp, wingDown], { color, alpha });
+    draw.fillTriangle(
+      { x: tipX_final, y: tipY_final },
+      { x: wingUpX_final, y: wingUpY_final },
+      { x: wingDownX_final, y: wingDownY_final },
+      { color, alpha },
+    );
   }
 }

@@ -10,7 +10,6 @@
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import { Game } from "../../core/Game";
 
 /** Seconds in a day */
 const SECONDS_PER_DAY = 86400;
@@ -43,26 +42,6 @@ export class TimeOfDay extends BaseEntity {
   id = "timeOfDay";
   tickLayer = "environment" as const;
 
-  /**
-   * Get the TimeOfDay entity from a game instance.
-   * Throws if not found.
-   */
-  static fromGame(game: Game): TimeOfDay {
-    const timeOfDay = game.entities.getById("timeOfDay");
-    if (!(timeOfDay instanceof TimeOfDay)) {
-      throw new Error("TimeOfDay not found in game");
-    }
-    return timeOfDay;
-  }
-
-  /**
-   * Get the TimeOfDay entity from a game instance, or undefined if not found.
-   */
-  static maybeFromGame(game: Game): TimeOfDay | undefined {
-    const timeOfDay = game.entities.getById("timeOfDay");
-    return timeOfDay instanceof TimeOfDay ? timeOfDay : undefined;
-  }
-
   /** Current time in seconds since midnight (0-86400) */
   private timeInSeconds: number;
 
@@ -82,7 +61,11 @@ export class TimeOfDay extends BaseEntity {
    */
   @on("tick")
   onTick(dt: number) {
-    this.timeInSeconds += dt * this.timeScale;
+    if (this.game.io.isKeyDown("KeyT")) {
+      this.timeInSeconds += dt * this.timeScale * 5000;
+    } else {
+      this.timeInSeconds += dt * this.timeScale;
+    }
 
     // Wrap at 24 hours
     while (this.timeInSeconds >= SECONDS_PER_DAY) {

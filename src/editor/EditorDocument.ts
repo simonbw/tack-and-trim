@@ -13,7 +13,7 @@ import { isSplineInsideSpline, sampleClosedSpline } from "../core/util/Spline";
 import {
   ContourValidationResult,
   validateContours,
-} from "../game/world-data/terrain/ContourValidation";
+} from "../game/world/terrain/ContourValidation";
 import {
   createEmptyEditorDefinition,
   EditorContour,

@@ -2,7 +2,7 @@ import type { DynamicBody } from "../../../core/physics/body/DynamicBody";
 import { clamp, degToRad } from "../../../core/util/MathUtil";
 import { V } from "../../../core/Vector";
 import { RHO_AIR } from "../../fluid-dynamics";
-import { SEPARATION_DECAY_RATE } from "../../world-data/wind/WindConstants";
+import { SEPARATION_DECAY_RATE } from "../../world/wind/WindConstants";
 import type { SailSegment } from "./SailSegment";
 
 export const STALL_ANGLE = degToRad(15);

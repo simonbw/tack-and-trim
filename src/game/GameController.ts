@@ -1,21 +1,30 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
-import { loadDefaultTerrain } from "../editor/io/TerrainLoader";
+import { range } from "../core/util/FunctionalUtils";
+import { V } from "../core/Vector";
+import { loadDefaultLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { Buoy } from "./Buoy";
 import { CameraController } from "./CameraController";
+import { DebugRenderer } from "./debug-renderer";
 import { MainMenu } from "./MainMenu";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { isTutorialCompleted, TutorialManager } from "./tutorial";
-import { WindVisualization } from "./wind-visualization/WindVisualization";
+import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
-import { InfluenceFieldManager } from "./world-data/influence/InfluenceFieldManager";
-import { TerrainInfo } from "./world-data/terrain/TerrainInfo";
-import { WaterInfo } from "./world-data/water/WaterInfo";
-import { WindInfo } from "./world-data/wind/WindInfo";
+import { TerrainQuery } from "./world/terrain/TerrainQuery";
+import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
+import { TerrainResources } from "./world/terrain/TerrainResources";
+import { WaterQuery } from "./world/water/WaterQuery";
+import { WaterQueryManager } from "./world/water/WaterQueryManager";
+import { WaterResources } from "./world/water/WaterResources";
+import { WindQuery } from "./world/wind/WindQuery";
+import { WindQueryManager } from "./world/wind/WindQueryManager";
+import { WindResources } from "./world/wind/WindResources";
+import { TimeOfDayHUD } from "./TimeOfDayHUD";
 
 const MENU_ZOOM = 2; // Wide shot for menu
 const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
@@ -24,49 +33,38 @@ export class GameController extends BaseEntity {
   id = "gameController";
   persistenceLevel = 100;
 
-  private surfaceRenderer: SurfaceRenderer | null = null;
-
   @on("add")
   onAdd() {
-    // Phase 1: Core data entities only (no visuals yet)
-    // Visual entities are added in onInfluenceFieldsReady() after computation completes
+    // 1. Load level data (terrain + waves) from bundled JSON resource
+    const { terrain, waves } = loadDefaultLevel();
+    this.game.addEntity(new TerrainResources(terrain));
+    this.game.addEntity(new TerrainQueryManager());
 
-    // 1. Load terrain from bundled JSON resource
-    const terrainDefinition = loadDefaultTerrain();
-    this.game.addEntity(new TerrainInfo(terrainDefinition.contours));
-
-    // 2. Influence fields (depends on terrain, starts async computation)
-    this.game.addEntity(new InfluenceFieldManager());
-
-    // 3. Time system (before water, so tides can query time)
+    // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
+    this.game.addEntity(new TimeOfDayHUD());
 
-    // 4. Wind/Water data systems (no rendering, graceful null handling for influence fields)
-    this.game.addEntity(new WaterInfo());
-    this.game.addEntity(new WindInfo());
-  }
+    // 3. Wave physics (needs terrain for shadow computation, uses wave direction)
+    this.game.addEntity(new WavePhysicsResources(waves));
 
-  @on("influenceFieldsReady")
-  onInfluenceFieldsReady() {
-    // Phase 2: Visual entities (after influence field computation completes)
-    this.surfaceRenderer = this.game.addEntity(new SurfaceRenderer());
+    // 4. Water data system (tide, modifiers, GPU buffers, wave sources)
+    this.game.addEntity(new WaterResources(waves));
+    this.game.addEntity(new WaterQueryManager());
+
+    // 5. Wind data systems
+    this.game.addEntity(new WindResources());
+    this.game.addEntity(new WindQueryManager());
+
+    // 6. Visual entities
+    this.game.addEntity(new SurfaceRenderer());
     this.game.addEntity(new WindIndicator());
-    this.game.addEntity(new WindVisualization());
+    this.game.addEntity(new DebugRenderer());
 
     // Start with wide camera shot for menu
     this.game.camera.z = MENU_ZOOM;
 
     // Spawn main menu
     this.game.addEntity(new MainMenu());
-  }
-
-  @on("keyDown")
-  onKeyDown({ key }: { key: string }): void {
-    // Toggle surface render debug mode
-    if (key === "KeyB" && this.surfaceRenderer) {
-      const currentMode = this.surfaceRenderer.getRenderMode();
-      this.surfaceRenderer.setRenderMode((currentMode + 1) % 2);
-    }
   }
 
   @on("gameStart")
@@ -102,5 +100,11 @@ export class GameController extends BaseEntity {
       boat.anchor.deploy(); // Start with anchor deployed for tutorial
       this.game.addEntity(new TutorialManager());
     }
+
+    // TODO: Remove this after testing
+    const waterQueryPoints = range(16_000).map((i) => V(0, i));
+    this.game.addEntity(new WaterQuery(() => waterQueryPoints));
+    this.game.addEntity(new WindQuery(() => waterQueryPoints));
+    this.game.addEntity(new TerrainQuery(() => waterQueryPoints));
   }
 }

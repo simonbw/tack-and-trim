@@ -9,40 +9,52 @@
  * - R: Wetness value (0 = dry, 1 = fully wet)
  */
 
-import { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
-import { WATER_HEIGHT_SCALE } from "../world-data/water/WaterConstants";
+import {
+  ComputeShader,
+  type ComputeShaderConfig,
+} from "../../core/graphics/webgpu/ComputeShader";
+import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
+import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
+import {
+  fn_uvInBounds,
+  fn_uvToWorld,
+  fn_worldToUV,
+} from "../world/shaders/coordinates.wgsl";
 
 // Wetness rates (configurable defaults)
 const DEFAULT_WETTING_RATE = 4.0; // Reach full wet in ~0.25 seconds
 const DEFAULT_DRYING_RATE = 0.15; // Dry in ~6-7 seconds
 
-const bindings = {
-  params: { type: "uniform" },
-  prevWetnessTexture: { type: "texture" },
-  waterTexture: { type: "texture" },
-  terrainTexture: { type: "texture" },
-  textureSampler: { type: "sampler" },
-  outputTexture: { type: "storageTexture", format: "r32float" },
-} as const;
+const WORKGROUP_SIZE = [8, 8] as const;
 
 /**
- * Wetness state compute shader using the ComputeShader base class.
+ * Uniform struct for wetness state parameters.
  */
-export class WetnessStateShader extends ComputeShader<typeof bindings> {
-  readonly bindings = bindings;
-  readonly workgroupSize = [8, 8] as const;
+export const WetnessUniforms = defineUniformStruct("Params", {
+  dt: f32,
+  wettingRate: f32,
+  dryingRate: f32,
+  textureSizeX: f32,
+  textureSizeY: f32,
+  currentViewportLeft: f32,
+  currentViewportTop: f32,
+  currentViewportWidth: f32,
+  currentViewportHeight: f32,
+  prevViewportLeft: f32,
+  prevViewportTop: f32,
+  prevViewportWidth: f32,
+  prevViewportHeight: f32,
+  renderViewportLeft: f32,
+  renderViewportTop: f32,
+  renderViewportWidth: f32,
+  renderViewportHeight: f32,
+});
 
-  readonly code = /*wgsl*/ `
-// ============================================================================
-// Constants
-// ============================================================================
-const WATER_HEIGHT_SCALE: f32 = ${WATER_HEIGHT_SCALE};
-const DEFAULT_WETTING_RATE: f32 = ${DEFAULT_WETTING_RATE};
-const DEFAULT_DRYING_RATE: f32 = ${DEFAULT_DRYING_RATE};
-
-// ============================================================================
-// Uniforms and Bindings
-// ============================================================================
+/**
+ * Module containing Params struct and bindings.
+ */
+const wetnessParamsModule: ShaderModule = {
+  preamble: /*wgsl*/ `
 struct Params {
   // Delta time
   dt: f32,
@@ -68,44 +80,34 @@ struct Params {
   renderViewportWidth: f32,
   renderViewportHeight: f32,
 }
+  `,
+  bindings: {
+    params: { type: "uniform", wgslType: "Params" },
+    prevWetnessTexture: { type: "texture" },
+    waterTexture: { type: "texture" },
+    terrainTexture: { type: "texture" },
+    textureSampler: { type: "sampler" },
+    outputTexture: { type: "storageTexture", format: "r32float" },
+  },
+  code: "",
+};
 
-@group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var prevWetnessTexture: texture_2d<f32>;
-@group(0) @binding(2) var waterTexture: texture_2d<f32>;
-@group(0) @binding(3) var terrainTexture: texture_2d<f32>;
-@group(0) @binding(4) var textureSampler: sampler;
-@group(0) @binding(5) var outputTexture: texture_storage_2d<r32float, write>;
+/**
+ * Module containing the compute entry point.
+ */
+const wetnessMainModule: ShaderModule = {
+  dependencies: [
+    fn_uvToWorld,
+    fn_worldToUV,
+    fn_uvInBounds,
+    wetnessParamsModule,
+  ],
+  code: /*wgsl*/ `
+// Constants
+const DEFAULT_WETTING_RATE: f32 = ${DEFAULT_WETTING_RATE};
+const DEFAULT_DRYING_RATE: f32 = ${DEFAULT_DRYING_RATE};
 
-// ============================================================================
-// Coordinate conversion functions
-// ============================================================================
-
-// Convert UV (0-1) to world position using viewport
-fn uvToWorld(uv: vec2<f32>, viewportLeft: f32, viewportTop: f32, viewportWidth: f32, viewportHeight: f32) -> vec2<f32> {
-  return vec2<f32>(
-    viewportLeft + uv.x * viewportWidth,
-    viewportTop + uv.y * viewportHeight
-  );
-}
-
-// Convert world position to UV (0-1) using viewport
-fn worldToUV(worldPos: vec2<f32>, viewportLeft: f32, viewportTop: f32, viewportWidth: f32, viewportHeight: f32) -> vec2<f32> {
-  return vec2<f32>(
-    (worldPos.x - viewportLeft) / viewportWidth,
-    (worldPos.y - viewportTop) / viewportHeight
-  );
-}
-
-// Check if UV is within valid bounds (with small margin for sampling)
-fn inBounds(uv: vec2<f32>) -> bool {
-  return uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0;
-}
-
-// ============================================================================
-// Main
-// ============================================================================
-
-@compute @workgroup_size(8, 8)
+@compute @workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]})
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let texSizeX = params.textureSizeX;
   let texSizeY = params.textureSizeY;
@@ -117,7 +119,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   // Convert texel to UV in current viewport
   let uv = vec2<f32>(f32(globalId.x) + 0.5, f32(globalId.y) + 0.5) / vec2<f32>(texSizeX, texSizeY);
 
-  // Convert to world position using current wetness viewport
+  // Convert to world position using current wetness viewport (from module)
   let worldPos = uvToWorld(
     uv,
     params.currentViewportLeft,
@@ -126,7 +128,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     params.currentViewportHeight
   );
 
-  // Convert world position to UV in previous wetness viewport for reprojection
+  // Convert world position to UV in previous wetness viewport for reprojection (from module)
   let prevUV = worldToUV(
     worldPos,
     params.prevViewportLeft,
@@ -135,7 +137,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     params.prevViewportHeight
   );
 
-  // Convert world position to UV in render viewport for sampling water/terrain
+  // Convert world position to UV in render viewport for sampling water/terrain (from module)
   // (water and terrain textures use a different viewport than wetness)
   let renderUV = worldToUV(
     worldPos,
@@ -150,13 +152,13 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let terrainData = textureSampleLevel(terrainTexture, textureSampler, renderUV, 0.0);
 
   // Compute water depth
-  let waterSurfaceHeight = (waterData.r - 0.5) * WATER_HEIGHT_SCALE;
+  let waterSurfaceHeight = waterData.r;
   let terrainHeight = terrainData.r;
   let waterDepth = waterSurfaceHeight - terrainHeight;
 
   // Get previous wetness with reprojection
   var prevWetness: f32;
-  if (inBounds(prevUV)) {
+  if (uvInBounds(prevUV)) { // uvInBounds from module
     // Sample from previous frame at the reprojected UV
     prevWetness = textureSampleLevel(prevWetnessTexture, textureSampler, prevUV, 0.0).r;
   } else {
@@ -181,8 +183,24 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   // Write output (sharpening applied in display shader, not here)
   textureStore(outputTexture, vec2<i32>(globalId.xy), vec4<f32>(newWetness, 0.0, 0.0, 1.0));
 }
-`;
+  `,
+};
+
+/**
+ * Configuration for the wetness state shader.
+ */
+export const wetnessStateShaderConfig: ComputeShaderConfig = {
+  modules: [wetnessMainModule],
+  workgroupSize: WORKGROUP_SIZE,
+  label: "WetnessStateShader",
+};
+
+/**
+ * Create a wetness state compute shader instance.
+ */
+export function createWetnessStateShader(): ComputeShader {
+  return new ComputeShader(wetnessStateShaderConfig);
 }
 
 // Export constants for use in pipeline
-export { DEFAULT_WETTING_RATE, DEFAULT_DRYING_RATE };
+export { DEFAULT_DRYING_RATE, DEFAULT_WETTING_RATE };

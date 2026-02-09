@@ -1,8 +1,8 @@
 /**
  * GPU profiler using WebGPU timestamp queries for accurate GPU timing.
  *
- * Supports multiple named sections (render, waterCompute, readback) with
- * independent timing for each. Uses double-buffered read buffers to avoid
+ * Supports multiple named sections (render, surface.water, surface.terrain, etc.)
+ * with independent timing for each. Uses double-buffered read buffers to avoid
  * mapping conflicts since mapAsync is asynchronous.
  */
 
@@ -25,12 +25,13 @@ export class GPUProfiler {
   // Section definitions
   private static readonly SECTIONS = [
     "render",
-    "waterCompute",
-    "tileCompute",
-    "modifierCompute",
-    "windCompute",
-    "terrainCompute",
-    "wetnessCompute",
+    "surface.water",
+    "surface.terrain",
+    "surface.shadow",
+    "query.water",
+    "query.wind",
+    "query.terrain",
+    "query.copy",
   ] as const;
   private static readonly QUERY_COUNT = GPUProfiler.SECTIONS.length * 2;
 

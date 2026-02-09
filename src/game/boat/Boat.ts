@@ -3,11 +3,10 @@ import { on } from "../../core/entity/handler";
 import { polarToVec } from "../../core/util/MathUtil";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
-import { Wake } from "../world-data/water/Wake";
+import { Wake } from "./Wake";
 import { Anchor } from "./Anchor";
 import { BoatConfig, StarterDinghy } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
-import { BoatWaterQuerier } from "./BoatWaterQuerier";
 import { Bowsprit } from "./Bowsprit";
 import { findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
@@ -142,9 +141,6 @@ export class Boat extends BaseEntity {
     const sternPoints = findSternPoints(config.hull.vertices);
     this.addChild(new Wake(this, sternPoints.port, sternPoints.starboard));
     this.addChild(new BoatSpray(this));
-
-    // Create water querier for tile-based GPU water computation
-    this.addChild(new BoatWaterQuerier(this));
 
     // Create terrain querier for grounding physics
     this.addChild(new BoatGrounding(this));

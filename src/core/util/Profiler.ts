@@ -169,9 +169,17 @@ class Profiler {
   measure<T>(label: string, fn: () => T): T {
     this.start(label);
     try {
-      return fn();
-    } finally {
+      const result = fn();
+      // Detect Promise and attach timing cleanup
+      if (result instanceof Promise) {
+        return result.finally(() => this.end(label)) as T;
+      } else {
+        this.end(label);
+        return result;
+      }
+    } catch (err) {
       this.end(label);
+      throw err;
     }
   }
 
@@ -181,6 +189,20 @@ class Profiler {
     const entryKey = this.getEntryKey(label);
     const entry = this.getOrCreate(entryKey);
     entry.frameCalls += amount;
+  }
+
+  /**
+   * Record an elapsed time atomically (start + end in one call).
+   * Safe for parallel async operations since it doesn't span an async gap.
+   * The entry will be nested under the current stack context.
+   */
+  recordElapsed(label: string, elapsedMs: number): void {
+    if (!this.enabled) return;
+    const entryKey = this.getEntryKey(label);
+    const entry = this.getOrCreate(entryKey);
+    entry.frameCalls++;
+    entry.frameMs += elapsedMs;
+    entry.maxMs = Math.max(entry.maxMs, elapsedMs);
   }
 
   /** Log a formatted report to console */
@@ -323,6 +345,9 @@ class Profiler {
 
 export const profiler = new Profiler();
 
+// Expose profiler globally for debugging
+(window as any).profiler = profiler;
+
 /**
  * Method decorator for easy profiling.
  *
@@ -345,5 +370,38 @@ export function profile<T extends (...args: any[]) => any>(
     return profiler.measure(`${className}.${methodName}`, () => {
       return target.call(this, ...args);
     });
+  } as T;
+}
+
+/**
+ * Method decorator for profiling async methods.
+ *
+ * Unlike @profile, this decorator records timing atomically after the
+ * async operation completes, making it safe for parallel async operations
+ * (e.g., multiple entities with async onTick running via Promise.all).
+ *
+ * Usage:
+ *   class MyClass {
+ *     @profileAsync
+ *     async myAsyncMethod() { ... }
+ *   }
+ *
+ * This will automatically profile as "MyClass.myAsyncMethod"
+ */
+export function profileAsync<T extends (...args: any[]) => Promise<any>>(
+  target: T,
+  context: ClassMethodDecoratorContext,
+): T {
+  const methodName = String(context.name);
+
+  return async function (this: any, ...args: Parameters<T>): Promise<any> {
+    const className = this.constructor.name;
+    const label = `${className}.${methodName}`;
+    const start = performance.now();
+    try {
+      return await target.call(this, ...args);
+    } finally {
+      profiler.recordElapsed(label, performance.now() - start);
+    }
   } as T;
 }

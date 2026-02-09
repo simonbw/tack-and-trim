@@ -6,7 +6,7 @@
  */
 
 import { RESOURCES } from "../../../resources/resources";
-import { TerrainDefinition } from "../../game/world-data/terrain/LandMass";
+import { TerrainDefinition } from "../../game/world/terrain/LandMass";
 import {
   EditorTerrainDefinition,
   parseTerrainFile,

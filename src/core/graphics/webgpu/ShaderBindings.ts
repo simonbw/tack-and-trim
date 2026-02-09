@@ -10,6 +10,8 @@
  */
 export type UniformBinding = {
   type: "uniform";
+  /** WGSL type for the binding (e.g., "Params", "MyStruct") */
+  wgslType: string;
 };
 
 /**
@@ -17,6 +19,8 @@ export type UniformBinding = {
  */
 export type StorageBinding = {
   type: "storage";
+  /** WGSL type for the binding (e.g., "array<QueryPoint>", "array<f32>") */
+  wgslType: string;
 };
 
 /**
@@ -24,6 +28,8 @@ export type StorageBinding = {
  */
 export type StorageRWBinding = {
   type: "storageRW";
+  /** WGSL type for the binding (e.g., "array<f32>", "array<vec4<f32>>") */
+  wgslType: string;
 };
 
 /**
@@ -180,3 +186,93 @@ export function createBindGroupEntries<T extends BindingsDefinition>(
     }
   });
 }
+
+/**
+ * Generates WGSL binding declarations from a bindings definition.
+ *
+ * This ensures the WGSL and TypeScript binding definitions are always in sync.
+ *
+ * @param bindings - The bindings definition
+ * @param group - Group number (default: 0)
+ * @returns WGSL code declaring the bindings
+ *
+ * @example
+ * const bindings = {
+ *   params: { type: "uniform", wgslType: "Params" },
+ *   data: { type: "storage", wgslType: "array<f32>" },
+ *   outputTex: { type: "storageTexture", format: "rgba32float" },
+ * } as const;
+ *
+ * const wgsl = generateWGSLBindings(bindings, 0);
+ * // Output:
+ * // @group(0) @binding(0) var<uniform> params: Params;
+ * // @group(0) @binding(1) var<storage, read> data: array<f32>;
+ * // @group(0) @binding(2) var outputTex: texture_storage_2d<rgba32float, write>;
+ */
+export function generateWGSLBindings(
+  bindings: BindingsDefinition,
+  group: number = 0,
+): string {
+  const keys = Object.keys(bindings);
+
+  const lines = keys.map((name, index) => {
+    const definition = bindings[name];
+
+    let declaration: string;
+
+    switch (definition.type) {
+      case "uniform":
+        declaration = `var<uniform> ${name}: ${definition.wgslType}`;
+        break;
+
+      case "storage":
+        declaration = `var<storage, read> ${name}: ${definition.wgslType}`;
+        break;
+
+      case "storageRW":
+        declaration = `var<storage, read_write> ${name}: ${definition.wgslType}`;
+        break;
+
+      case "storageTexture": {
+        const format = definition.format;
+        declaration = `var ${name}: texture_storage_2d<${format}, write>`;
+        break;
+      }
+
+      case "texture": {
+        const viewDimension = definition.viewDimension ?? "2d";
+        const sampleType = definition.sampleType ?? "float";
+        const textureType = viewDimensionToTextureType[viewDimension];
+        const wgslSampleType = sampleTypeToWgslType[sampleType];
+        const wgslType = `${textureType}<${wgslSampleType}>`;
+        declaration = `var ${name}: ${wgslType}`;
+        break;
+      }
+
+      case "sampler":
+        declaration = `var ${name}: sampler`;
+        break;
+    }
+
+    return `@group(${group}) @binding(${index}) ${declaration};`;
+  });
+
+  return lines.join("\n");
+}
+
+const viewDimensionToTextureType: Record<GPUTextureViewDimension, string> = {
+  "1d": "texture_1d",
+  "2d": "texture_2d",
+  "2d-array": "texture_2d_array",
+  cube: "texture_cube",
+  "cube-array": "texture_cube_array",
+  "3d": "texture_3d",
+};
+
+const sampleTypeToWgslType: Record<GPUTextureSampleType, string> = {
+  float: "f32",
+  "unfilterable-float": "f32",
+  sint: "i32",
+  uint: "u32",
+  depth: "f32",
+};

@@ -11,6 +11,7 @@ This file provides guidance to Claude Code when working with this 2D sailing gam
 - **Boat** (`boat/`) - Hull, keel, rudder, mainsail, jib, and rigging with physics-based sail simulation
 - **Wind** (`Wind.ts`, `WindParticles.ts`) - Global wind field with procedural variation using simplex noise
 - **Water** (`water/`) - Gerstner wave simulation with currents and wake effects
+- **World** (`world/`) - GPU-accelerated world state queries (terrain height, water surface, wind velocity) via WebGPU compute shaders with double-buffered readback and zero-allocation results. See [`src/game/world/CLAUDE.md`](src/game/world/CLAUDE.md) for architecture details.
 - **Controls** - Steering (A/D), sail trim (W/S for main, Q/E for jib), rowing (Space), anchor (F)
 
 ### Terrain Editor (`src/editor/`)
@@ -28,7 +29,6 @@ Standalone terrain editor for creating level terrain using contour-based definit
 - `npm start` - Start development server with asset watching and Parcel dev server
 - `npm run build` - Build production version using Parcel
 - `npm run tsgo` - Run TypeScript type checking (no emit)
-- `npm run tsgo-watch` - Run TypeScript type checking in watch mode
 - `npm run prettier` - Format source code with Prettier
 - `npm run generate-manifest` - Generate asset type definitions from resources folder
 - `npm test` - Run E2E tests (see `tests/CLAUDE.md` for testing philosophy)
@@ -136,6 +136,7 @@ onLevelStarted({ level }: GameEventMap["levelStarted"]) {
 - Use `tags` array on entities for categorization
 - Query with `game.entities.getTagged("tagName")`
 - Use unique `id` for single entities: `game.entities.getById("entityId")`
+- For singleton entities (one instance per game), use `game.entities.getSingleton(ClassName)` or `game.entities.tryGetSingleton(ClassName)` for optional access
 
 ### Profiler
 

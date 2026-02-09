@@ -9,9 +9,10 @@
 
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
-import { Game } from "../core/Game";
-import { createContour } from "../game/world-data/terrain/LandMass";
-import { TerrainInfo } from "../game/world-data/terrain/TerrainInfo";
+import { createContour } from "../game/world/terrain/LandMass";
+import { TerrainResources } from "../game/world/terrain/TerrainResources";
+import { TerrainQuery } from "../game/world/terrain/TerrainQuery";
+import { TerrainQueryManager } from "../game/world/terrain/TerrainQueryManager";
 import { V, V2d } from "../core/Vector";
 import { ContourEditor } from "./ContourEditor";
 import { ContourRenderer } from "./ContourRenderer";
@@ -24,13 +25,16 @@ import { EditorCameraController } from "./EditorCameraController";
 import {
   EditorContour,
   editorDefinitionToFile,
+  editorDefinitionToGameDefinition,
   serializeTerrainFile,
 } from "./io/TerrainFileFormat";
 import { loadDefaultEditorTerrain } from "./io/TerrainLoader";
 import { EditorUI } from "./EditorUI";
 import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
-import { WaterInfo } from "../game/world-data/water/WaterInfo";
-import { InfluenceFieldManager } from "../game/world-data/influence/InfluenceFieldManager";
+import { WavePhysicsResources } from "../game/wave-physics/WavePhysicsResources";
+import { WaterResources } from "../game/world/water/WaterResources";
+import { WaterQueryManager } from "../game/world/water/WaterQueryManager";
+import { DebugRenderer } from "../game/debug-renderer";
 import { computeSplineCentroid } from "../core/util/Spline";
 
 // File System Access API types (not in lib.dom.d.ts by default)
@@ -124,21 +128,31 @@ export class EditorController
   persistenceLevel = 100;
 
   private document: EditorDocument;
-  private terrainInfo: TerrainInfo | null = null;
+  private terrainResources: TerrainResources | null = null;
   private cameraController: EditorCameraController | null = null;
   private contourRenderer: ContourRenderer | null = null;
-  private surfaceRenderer: SurfaceRenderer | null = null;
-  private influenceManager: InfluenceFieldManager | null = null;
-  private isComputingInfluence = false;
   private debugRenderMode = false;
   private fileHandle: FileSystemFileHandle | null = null;
   private clipboardContour: EditorContour | null = null;
   private mouseWorldPosition: V2d | null = null;
 
+  // Terrain query for cursor height display (uses 1-frame latency GPU query)
+  private terrainQuery = this.addChild(
+    new TerrainQuery(() => this.getTerrainQueryPoints()),
+  );
+
   constructor() {
     super();
     this.document = new EditorDocument();
     this.document.addListener(this);
+  }
+
+  /**
+   * Get points to query for terrain height (just the cursor position).
+   */
+  private getTerrainQueryPoints(): V2d[] {
+    if (!this.mouseWorldPosition) return [];
+    return [this.mouseWorldPosition];
   }
 
   @on("add")
@@ -147,21 +161,29 @@ export class EditorController
     const terrain = loadDefaultEditorTerrain();
     this.document.setTerrainDefinition(terrain);
 
-    // Create TerrainInfo for rendering (without InfluenceFieldManager)
-    this.terrainInfo = this.game.addEntity(
-      new TerrainInfo(this.getTerrainContours()),
+    // Create TerrainResources for GPU buffers and terrain data storage
+    // Convert editor definition to game definition (performs spline sampling)
+    this.terrainResources = this.game.addEntity(
+      new TerrainResources(
+        editorDefinitionToGameDefinition(this.document.getTerrainDefinition()),
+      ),
     );
 
-    // Add WaterInfo for wave simulation (uses fallback influence - uniform waves)
-    this.game.addEntity(new WaterInfo());
+    // Create TerrainQueryManager for GPU-accelerated terrain queries
+    this.game.addEntity(new TerrainQueryManager());
+
+    // Add wave physics for shadow-based diffraction
+    this.game.addEntity(new WavePhysicsResources());
+
+    // Add water system (tide, modifiers, GPU buffers)
+    this.game.addEntity(new WaterResources());
+    this.game.addEntity(new WaterQueryManager());
 
     // Add surface renderer (renders water and terrain visuals)
-    // Use a smaller texture scale for the editor (0.25 = quarter resolution)
-    this.surfaceRenderer = this.game.addEntity(
-      new SurfaceRenderer({
-        textureScale: 0.25,
-      }),
-    );
+    this.game.addEntity(new SurfaceRenderer());
+
+    // Add debug visualization
+    this.game.addEntity(new DebugRenderer());
 
     // Add camera controller
     this.cameraController = this.game.addEntity(
@@ -187,9 +209,6 @@ export class EditorController
 
     // Add UI (toolbar and panels)
     this.game.addEntity(new EditorUI(this.document, this));
-
-    // Compute influence fields for initial terrain
-    this.computeInfluenceFields();
 
     // Try to restore file handle from last session, or prompt to open
     this.tryRestoreFileHandle();
@@ -246,9 +265,9 @@ export class EditorController
   // ==========================================
 
   onTerrainChanged(): void {
-    // Update TerrainInfo with new contours
-    if (this.terrainInfo) {
-      this.terrainInfo.setTerrainDefinition({
+    // Update TerrainResources with new contours
+    if (this.terrainResources) {
+      this.terrainResources.setTerrainDefinition({
         contours: this.getTerrainContours(),
         defaultDepth: this.document.getDefaultDepth(),
       });
@@ -316,18 +335,13 @@ export class EditorController
 
   /**
    * Get the terrain height at the current mouse position.
+   * Uses GPU terrain query with 1-frame latency.
    */
   getTerrainHeightAtMouse(): number | null {
-    if (!this.mouseWorldPosition || !this.terrainInfo) return null;
-    return this.terrainInfo.getHeightAtPoint(this.mouseWorldPosition);
-  }
-
-  /**
-   * Get the EditorController from a Game instance, if present.
-   */
-  static maybeFromGame(game: Game): EditorController | undefined {
-    const controller = game.entities.getById("editorController");
-    return controller instanceof EditorController ? controller : undefined;
+    if (!this.mouseWorldPosition) return null;
+    // Get result from GPU query (1-frame latency)
+    if (this.terrainQuery.results.length === 0) return null;
+    return this.terrainQuery.results[0].height;
   }
 
   // ==========================================
@@ -484,9 +498,6 @@ export class EditorController
     const terrain = await loadTerrainFromFile(file);
     this.document.setTerrainDefinition(terrain);
     this.cameraController?.fitToTerrain();
-
-    // Recompute influence fields for the new terrain
-    this.computeInfluenceFields();
   }
 
   /**
@@ -510,9 +521,6 @@ export class EditorController
       defaultDepth: -50,
       contours: [],
     });
-
-    // Recompute influence fields (will reset to uniform waves with no terrain)
-    this.computeInfluenceFields();
   }
 
   /**
@@ -667,15 +675,7 @@ export class EditorController
       return;
     }
 
-    // B - Toggle debug render mode
-    if (key === "KeyB" && !modifier) {
-      this.debugRenderMode = !this.debugRenderMode;
-      // Update surface renderer debug mode
-      this.surfaceRenderer?.setRenderMode(this.debugRenderMode ? 1 : 0);
-      // Refresh terrain to apply/remove invalid contour filtering
-      this.onTerrainChanged();
-      return;
-    }
+    // B key removed - debug render mode functionality removed from SurfaceRenderer
   }
 
   private promptOpenFile(): void {
@@ -694,53 +694,5 @@ export class EditorController
       }
     };
     input.click();
-  }
-
-  // ==========================================
-  // Influence field computation
-  // ==========================================
-
-  /**
-   * Compute influence fields for terrain-aware wave rendering.
-   * Creates the InfluenceFieldManager if first time, otherwise recomputes.
-   */
-  async computeInfluenceFields(): Promise<void> {
-    if (this.isComputingInfluence) return;
-    this.isComputingInfluence = true;
-
-    try {
-      if (!this.influenceManager) {
-        // First time: create and add the manager
-        // The manager will automatically start computing via @on("afterAdded")
-        this.influenceManager = this.game.addEntity(
-          new InfluenceFieldManager(),
-        );
-      } else {
-        // Recompute with updated terrain
-        await this.influenceManager.recompute();
-      }
-    } catch (error) {
-      console.error("Failed to compute influence fields:", error);
-      this.isComputingInfluence = false;
-    }
-  }
-
-  /**
-   * Check if influence computation is in progress.
-   */
-  getIsComputingInfluence(): boolean {
-    return this.isComputingInfluence;
-  }
-
-  /**
-   * Get the InfluenceFieldManager, if created.
-   */
-  getInfluenceManager(): InfluenceFieldManager | null {
-    return this.influenceManager;
-  }
-
-  @on("influenceFieldsReady")
-  onInfluenceFieldsReady(): void {
-    this.isComputingInfluence = false;
   }
 }

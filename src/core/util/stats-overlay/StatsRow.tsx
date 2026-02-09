@@ -2,17 +2,21 @@ export interface StatsRowProps {
   label: string;
   value: string | number;
   color?: "warning" | "error" | "success" | "muted" | "dim";
-  indent?: boolean;
+  indent?: boolean | number;
 }
 
 export const StatsRow = ({ label, value, color, indent }: StatsRowProps) => {
-  const rowClass = indent ? "stats-row stats-row--indent" : "stats-row";
+  // Support both boolean and numeric indent levels
+  const indentLevel = indent === true ? 1 : indent || 0;
+  const indentStyle =
+    indentLevel > 0 ? { paddingLeft: `${indentLevel * 12}px` } : undefined;
+
   const valueClass = color
     ? `stats-row__value stats-row__value--${color}`
     : "stats-row__value";
 
   return (
-    <div className={rowClass}>
+    <div className="stats-row" style={indentStyle}>
       <span className="stats-row__label">{label}</span>
       <span className={valueClass}>{value}</span>
     </div>

@@ -6,7 +6,7 @@ import { Convex } from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { V, V2d } from "../../core/Vector";
 import { applySkinFriction } from "../fluid-dynamics";
-import { WaterInfo } from "../world-data/water/WaterInfo";
+import { WaterQuery } from "../world/water/WaterQuery";
 import { HullConfig } from "./BoatConfig";
 
 /**
@@ -47,6 +47,11 @@ export class Hull extends BaseEntity {
   private strokeColor: number;
   private tillerConfig?: TillerConfig;
 
+  // Water query for skin friction calculation (samples at body position)
+  private waterQuery = this.addChild(
+    new WaterQuery(() => [V(this.body.position)]),
+  );
+
   constructor(config: HullConfig) {
     super();
 
@@ -69,10 +74,16 @@ export class Hull extends BaseEntity {
 
   @on("tick")
   onTick() {
-    // Get water velocity function
-    const water = WaterInfo.fromGame(this.game);
-    const getWaterVelocity = (point: V2d): V2d =>
-      water.getStateAtPoint(point).velocity;
+    // Use water velocity from previous frame's query (1-frame latency)
+    // Results may be empty on first frame
+    const waterVelocity =
+      this.waterQuery.results.length > 0
+        ? this.waterQuery.results[0].velocity
+        : V(0, 0);
+
+    // Provide constant velocity function for skin friction
+    // (skin friction samples at body center, which is what we query)
+    const getWaterVelocity = (): V2d => waterVelocity;
 
     applySkinFriction(
       this.body,

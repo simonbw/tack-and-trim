@@ -5,7 +5,8 @@
  */
 export const TICK_LAYERS = [
   "input", // Player input handling - processed earliest
-  "environment", // Wind/water systems - kicks off GPU work early
+  "environment", // Wind/water/terrain resources and stuff
+  "query", // Wind/water/terrain query systems - kicks off GPU work early
   "main", // Default layer for most entities
   "effects", // Particle effects (spray, foam, wake)
   "camera", // Camera follows final positions

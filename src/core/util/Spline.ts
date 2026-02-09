@@ -48,6 +48,51 @@ export function catmullRomPoint(
   return V(x, y);
 }
 
+/**
+ * Evaluate the tangent (first derivative) of a Catmull-Rom spline at parameter t.
+ *
+ * The tangent is the derivative of the position formula:
+ * tangent(t) = 0.5 * ((-p0 + p2) + 2*(2p0 - 5p1 + 4p2 - p3)*t + 3*(-p0 + 3p1 - 3p2 + p3)*t²)
+ *
+ * @param p0 - Control point before segment start
+ * @param p1 - Segment start point
+ * @param p2 - Segment end point
+ * @param p3 - Control point after segment end
+ * @param t - Parameter along segment (0-1)
+ * @returns Tangent vector (not normalized) at parameter t
+ */
+export function catmullRomTangent(
+  p0: V2d,
+  p1: V2d,
+  p2: V2d,
+  p3: V2d,
+  t: number,
+): V2d {
+  const t2 = t * t;
+
+  // Coefficients for the derivative
+  // d/dt[2*p1] = 0
+  // d/dt[(-p0 + p2) * t] = (-p0 + p2)
+  // d/dt[(2*p0 - 5*p1 + 4*p2 - p3) * t²] = 2 * (2*p0 - 5*p1 + 4*p2 - p3) * t
+  // d/dt[(-p0 + 3*p1 - 3*p2 + p3) * t³] = 3 * (-p0 + 3*p1 - 3*p2 + p3) * t²
+
+  const x =
+    0.5 *
+    (-p0.x +
+      p2.x +
+      2 * (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t +
+      3 * (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t2);
+
+  const y =
+    0.5 *
+    (-p0.y +
+      p2.y +
+      2 * (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t +
+      3 * (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t2);
+
+  return V(x, y);
+}
+
 /** Default number of samples per spline segment */
 const DEFAULT_SAMPLES_PER_SEGMENT = 16;
 
@@ -384,4 +429,47 @@ export function computeSplineCentroid(
   }
 
   return V(cx / samples.length, cy / samples.length);
+}
+
+/**
+ * Axis-aligned bounding box.
+ */
+export interface AABB {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/**
+ * Compute the axis-aligned bounding box of a closed spline.
+ * Uses tessellation to capture the actual curve bounds, not just control points.
+ *
+ * @param controlPoints - Control points defining the spline
+ * @param samplesPerSegment - Sampling density (default 16)
+ * @returns The bounding box, or null if there are no points
+ */
+export function computeSplineBoundingBox(
+  controlPoints: readonly V2d[],
+  samplesPerSegment: number = DEFAULT_SAMPLES_PER_SEGMENT,
+): AABB | null {
+  const samples = sampleClosedSpline(controlPoints, samplesPerSegment);
+
+  if (samples.length === 0) {
+    return null;
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const p of samples) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+
+  return { minX, minY, maxX, maxY };
 }

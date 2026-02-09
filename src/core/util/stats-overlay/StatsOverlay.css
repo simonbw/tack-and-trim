@@ -6,7 +6,7 @@
   font-family: monospace;
   font-size: 11px;
   color: white;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.7);
   padding: 8px;
   min-width: 32em;
   display: flex;
@@ -42,7 +42,7 @@
 
 .stats-overlay__hint {
   font-size: 10px;
-  color: #888;
+  color: #999;
 }
 
 .stats-overlay__grid {
@@ -88,11 +88,11 @@
 }
 
 .stats-row__value--muted {
-  color: #888;
+  color: #aaa;
 }
 
 .stats-row__value--dim {
-  color: #666;
+  color: #999;
 }
 
 /* Profile rows with bar visualization */

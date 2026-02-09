@@ -6,7 +6,8 @@ import { invLerp, stepToward, sum } from "../core/util/MathUtil";
 import { profile } from "../core/util/Profiler";
 import { rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
-import { WindInfo } from "./world-data/wind/WindInfo";
+import { WindQuery } from "./world/wind/WindQuery";
+import { type WindResultView } from "./world/wind/WindQueryResult";
 
 // Configuration (visual/screen-space, not world units)
 const PARTICLE_COUNT = 0; // Target particles per sector
@@ -31,8 +32,23 @@ export class WindParticles extends BaseEntity {
   private grid: ParticleGrid | null = null;
   targetParticleCount = PARTICLE_COUNT;
 
+  // Wind query for all particle positions
+  private windQuery: WindQuery;
+
   constructor() {
     super();
+
+    // Wind query for particle positions
+    this.windQuery = this.addChild(
+      new WindQuery(() => this.getWindQueryPoints()),
+    );
+  }
+
+  /**
+   * Get points to query for wind data at each particle position.
+   */
+  private getWindQueryPoints(): V2d[] {
+    return this.particles.map((p) => p.pos.clone());
   }
 
   @on("add")
@@ -52,7 +68,6 @@ export class WindParticles extends BaseEntity {
     if (!this.game || !this.grid) {
       return;
     }
-    const wind = WindInfo.fromGame(this.game);
     const viewport = this.game.camera.getWorldViewport();
 
     const zoom = this.game.camera.z;
@@ -86,9 +101,15 @@ export class WindParticles extends BaseEntity {
     this.grid.placeOutOfBoundsParticles(viewport);
     this.grid.rebalance(viewport);
 
+    // Get wind query results (may have 1-frame latency for new particles)
+    const windResults = this.windQuery.results;
+
     // Update and draw particles
-    for (const p of this.particles) {
-      p.update(dt, wind);
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i];
+      // Use wind result if available, otherwise skip movement
+      const windResult = i < windResults.length ? windResults[i] : null;
+      p.update(dt, windResult);
       draw.fillCircle(p.pos.x, p.pos.y, radius, {
         color: COLOR,
         alpha: p.alpha,
@@ -114,10 +135,11 @@ class WindParticle {
     this.pos.set(newPos);
   }
 
-  /** Update particle state */
-  update(dt: number, wind: WindInfo) {
-    const velocity = wind.getVelocityAtPoint(this.pos);
-    this.pos.iadd(velocity.imul(dt * PARTICLE_MOVE_SCALE));
+  /** Update particle state using wind query result */
+  update(dt: number, windResult: WindResultView | null) {
+    if (windResult) {
+      this.pos.iadd(windResult.velocity.mul(dt * PARTICLE_MOVE_SCALE));
+    }
 
     this.alpha = stepToward(this.alpha, TARGET_ALPHA, ALPHA_LERP_SPEED * dt);
   }
