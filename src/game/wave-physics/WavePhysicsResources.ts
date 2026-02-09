@@ -11,8 +11,10 @@
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
+import { DEFAULT_DEPTH } from "../world/terrain/TerrainConstants";
 import { TerrainResources } from "../world/terrain/TerrainResources";
 import { DEFAULT_WAVE_CONFIG, WaveConfig } from "../world/water/WaveSource";
+import { WaterResources } from "../world/water/WaterResources";
 import { WavePhysicsManager } from "./WavePhysicsManager";
 
 /**
@@ -49,7 +51,16 @@ export class WavePhysicsResources extends BaseEntity {
     // Initialize wave physics manager with terrain
     if (this.terrainResources) {
       const terrainDef = this.terrainResources.getTerrainDefinition();
-      this.wavePhysicsManager.initialize(terrainDef);
+      const waterResources = this.game.entities.tryGetSingleton(WaterResources);
+      const tideHeight = waterResources?.getTideHeight() ?? 0;
+
+      this.wavePhysicsManager.initialize(
+        terrainDef,
+        this.terrainResources.packedTerrainBuffer,
+        this.terrainResources.getContourCount(),
+        terrainDef.defaultDepth ?? DEFAULT_DEPTH,
+        tideHeight,
+      );
     }
   }
 

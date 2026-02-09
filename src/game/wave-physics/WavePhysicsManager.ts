@@ -16,6 +16,8 @@ import {
   buildShadowPolygonsForRendering,
   type ShadowPolygonRenderData,
 } from "./ShadowGeometry";
+import type { WavefrontMesh } from "./WavefrontMesh";
+import { WavefrontMeshBuilder } from "./WavefrontMeshBuilder";
 
 /** Maximum number of wave sources for shadow computation */
 export const MAX_WAVE_SOURCES = 8;
@@ -85,6 +87,12 @@ export class WavePhysicsManager {
   /** Per-wave shadow polygon sets */
   private wavePolygonSets: WavePolygonSet[] = [];
 
+  /** Wavefront meshes (one per wave source) */
+  private meshes: WavefrontMesh[] = [];
+
+  /** Builder for wavefront meshes */
+  private meshBuilder = new WavefrontMeshBuilder();
+
   /** Whether the manager has been initialized with terrain */
   private initialized = false;
 
@@ -96,9 +104,21 @@ export class WavePhysicsManager {
 
   /**
    * Initialize the wave physics manager with terrain data.
-   * Computes shadow geometry for each wave source direction.
+   * Computes shadow geometry and wavefront meshes for each wave source.
+   *
+   * @param terrainDef - Terrain definition for coastline extraction
+   * @param packedTerrainBuffer - GPU buffer with packed terrain data (for wavefront mesh GPU compute)
+   * @param contourCount - Number of terrain contours
+   * @param defaultDepth - Default terrain depth
+   * @param tideHeight - Current tide height
    */
-  async initialize(terrainDef: TerrainDefinition): Promise<void> {
+  async initialize(
+    terrainDef: TerrainDefinition,
+    packedTerrainBuffer?: GPUBuffer,
+    contourCount?: number,
+    defaultDepth?: number,
+    tideHeight?: number,
+  ): Promise<void> {
     const device = getWebGPU().device;
 
     // Initialize coastline manager
@@ -131,10 +151,32 @@ export class WavePhysicsManager {
     // Write shadow data
     this.updateShadowBuffers();
 
+    // Build wavefront meshes if terrain GPU data is available
+    if (
+      packedTerrainBuffer &&
+      contourCount !== undefined &&
+      defaultDepth !== undefined &&
+      tideHeight !== undefined
+    ) {
+      const coastlineBounds = this.coastlineManager.getCombinedBounds();
+      this.meshes = [];
+      for (let i = 0; i < numSources; i++) {
+        const mesh = await this.meshBuilder.build(
+          this.waveSources[i],
+          packedTerrainBuffer,
+          contourCount,
+          defaultDepth,
+          tideHeight,
+          coastlineBounds,
+        );
+        this.meshes.push(mesh);
+      }
+    }
+
     this.initialized = true;
     console.log(
       `[WavePhysicsManager] Initialized with ${coastlines.length} coastlines, ` +
-        `${numSources} wave sources`,
+        `${numSources} wave sources, ${this.meshes.length} wavefront meshes`,
     );
     for (let i = 0; i < this.wavePolygonSets.length; i++) {
       const set = this.wavePolygonSets[i];
@@ -323,11 +365,37 @@ export class WavePhysicsManager {
   }
 
   /**
-   * Recompute shadow geometry for updated terrain.
+   * Get all wavefront meshes.
    */
-  async recompute(terrainDef: TerrainDefinition): Promise<void> {
+  getMeshes(): readonly WavefrontMesh[] {
+    return this.meshes;
+  }
+
+  /**
+   * Get wavefront mesh for a specific wave source index.
+   */
+  getMeshForWave(index: number): WavefrontMesh | undefined {
+    return this.meshes[index];
+  }
+
+  /**
+   * Recompute shadow geometry and wavefront meshes for updated terrain.
+   */
+  async recompute(
+    terrainDef: TerrainDefinition,
+    packedTerrainBuffer?: GPUBuffer,
+    contourCount?: number,
+    defaultDepth?: number,
+    tideHeight?: number,
+  ): Promise<void> {
     this.destroy();
-    await this.initialize(terrainDef);
+    await this.initialize(
+      terrainDef,
+      packedTerrainBuffer,
+      contourCount,
+      defaultDepth,
+      tideHeight,
+    );
   }
 
   /**
@@ -336,6 +404,10 @@ export class WavePhysicsManager {
   destroy(): void {
     this.packedShadowBuffer?.destroy();
     this.packedShadowBuffer = null;
+    for (const mesh of this.meshes) {
+      mesh.destroy();
+    }
+    this.meshes = [];
     this.coastlineManager.clear();
     this.wavePolygonSets = [];
     this.initialized = false;
