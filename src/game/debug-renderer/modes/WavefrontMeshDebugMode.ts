@@ -2,156 +2,256 @@
  * Wavefront Mesh debug mode.
  *
  * Visualizes the wavefront marching mesh for wave-terrain interaction.
- * Draws wavefront lines colored by amplitude factor, with direction
- * arrows and terminated vertex markers.
+ * Renders mesh triangles directly on GPU using a custom render pipeline,
+ * with colors mapped from amplitude factor:
+ *   red (blocked) → yellow → green (open ocean) → cyan (convergence)
  *
  * Use [ and ] to cycle through wave sources.
  */
 
 import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
+import {
+  defineUniformStruct,
+  f32,
+  mat3x3,
+  type UniformInstance,
+} from "../../../core/graphics/UniformStruct";
+import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
 import { WaterResources } from "../../world/water/WaterResources";
-import { VERTEX_FLOATS } from "../../wave-physics/WavefrontMesh";
 import { DebugRenderMode } from "./DebugRenderMode";
 
-// Dim overlay
-const DIM_COLOR = 0x000000;
-const DIM_ALPHA = 0.4;
+const WavefrontDebugUniforms = defineUniformStruct("WavefrontDebugParams", {
+  cameraMatrix: mat3x3,
+  screenWidth: f32,
+  screenHeight: f32,
+  alpha: f32,
+});
 
-// Draw every Nth wavefront step
-const STEP_SKIP = 4;
+const SHADER_CODE = /*wgsl*/ `
+struct WavefrontDebugParams {
+  cameraMatrix0: vec4<f32>,
+  cameraMatrix1: vec4<f32>,
+  cameraMatrix2: vec4<f32>,
+  screenWidth: f32,
+  screenHeight: f32,
+  alpha: f32,
+}
 
-// Draw direction arrows every Nth vertex
-const ARROW_VERTEX_SKIP = 8;
-const ARROW_LENGTH = 8;
-const ARROW_COLOR = 0xffffff;
-const ARROW_ALPHA = 0.6;
+@group(0) @binding(0) var<uniform> params: WavefrontDebugParams;
 
-// Terminated vertex markers
-const TERMINATED_COLOR = 0xff0000;
-const TERMINATED_RADIUS = 2;
+struct VertexInput {
+  @location(0) position: vec2<f32>,
+  @location(1) amplitude: f32,
+  @location(2) dirOffset: f32,
+  @location(3) phaseOffset: f32,
+}
 
-// Wavefront line settings
-const LINE_ALPHA = 0.9;
-const LINE_WIDTH = 1.5;
+struct VertexOutput {
+  @builtin(position) position: vec4<f32>,
+  @location(0) amplitude: f32,
+}
 
-/** Map amplitude factor [0, 1+] to a color */
-function amplitudeToColor(amp: number): number {
-  if (amp <= 0.0) return 0xff0000; // red - blocked
+fn getCameraMatrix() -> mat3x3<f32> {
+  return mat3x3<f32>(
+    params.cameraMatrix0.xyz,
+    params.cameraMatrix1.xyz,
+    params.cameraMatrix2.xyz
+  );
+}
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+  let cameraMatrix = getCameraMatrix();
+  let pixelPos = cameraMatrix * vec3<f32>(in.position, 1.0);
+  let clipX = pixelPos.x * 2.0 / params.screenWidth - 1.0;
+  let clipY = pixelPos.y * 2.0 / params.screenHeight - 1.0;
+
+  var out: VertexOutput;
+  out.position = vec4<f32>(clipX, clipY, 0.0, 1.0);
+  out.amplitude = in.amplitude;
+  return out;
+}
+
+fn amplitudeToColor(amp: f32) -> vec3<f32> {
+  if (amp <= 0.0) { return vec3<f32>(0.3, 0.0, 0.0); }
   if (amp <= 0.5) {
-    // red -> yellow
-    const t = amp / 0.5;
-    const r = 0xff;
-    const g = Math.round(0xff * t);
-    return (r << 16) | (g << 8);
+    let t = amp / 0.5;
+    return vec3<f32>(1.0, t, 0.0);
   }
   if (amp <= 1.0) {
-    // yellow -> green
-    const t = (amp - 0.5) / 0.5;
-    const r = Math.round(0xff * (1 - t));
-    const g = 0xff;
-    return (r << 16) | (g << 8);
+    let t = (amp - 0.5) / 0.5;
+    return vec3<f32>(1.0 - t, 1.0, 0.0);
   }
-  // green -> cyan (convergence > 1.0)
-  const t = Math.min((amp - 1.0) / 0.5, 1.0);
-  const g = 0xff;
-  const b = Math.round(0xff * t);
-  return (g << 8) | b;
+  let t = min((amp - 1.0) / 0.5, 1.0);
+  return vec3<f32>(0.0, 1.0, t);
 }
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+  let color = amplitudeToColor(in.amplitude);
+  return vec4<f32>(color, params.alpha);
+}
+`;
 
 export class WavefrontMeshDebugMode extends DebugRenderMode {
   layer = "windViz" as const;
   private selectedWaveIndex = -1; // -1 = show all
 
+  private pipeline: GPURenderPipeline | null = null;
+  private bindGroupLayout: GPUBindGroupLayout | null = null;
+  private uniformBuffer: GPUBuffer | null = null;
+  private uniforms: UniformInstance<
+    typeof WavefrontDebugUniforms.fields
+  > | null = null;
+  private bindGroup: GPUBindGroup | null = null;
+  private initialized = false;
+
+  @on("add")
+  async onAdd() {
+    await this.initPipeline();
+  }
+
+  private async initPipeline(): Promise<void> {
+    if (this.initialized) return;
+
+    const device = getWebGPU().device;
+
+    const shaderModule = device.createShaderModule({
+      code: SHADER_CODE,
+      label: "Wavefront Debug Shader",
+    });
+
+    this.bindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" },
+        },
+      ],
+      label: "Wavefront Debug Bind Group Layout",
+    });
+
+    const pipelineLayout = device.createPipelineLayout({
+      bindGroupLayouts: [this.bindGroupLayout],
+      label: "Wavefront Debug Pipeline Layout",
+    });
+
+    this.pipeline = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: {
+        module: shaderModule,
+        entryPoint: "vs_main",
+        buffers: [
+          {
+            arrayStride: 20, // 5 floats × 4 bytes
+            attributes: [
+              { format: "float32x2", offset: 0, shaderLocation: 0 }, // position
+              { format: "float32", offset: 8, shaderLocation: 1 }, // amplitude
+              { format: "float32", offset: 12, shaderLocation: 2 }, // dirOffset
+              { format: "float32", offset: 16, shaderLocation: 3 }, // phaseOffset
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: shaderModule,
+        entryPoint: "fs_main",
+        targets: [
+          {
+            format: getWebGPU().preferredFormat,
+            blend: {
+              color: {
+                srcFactor: "src-alpha",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+              alpha: {
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+            },
+          },
+        ],
+      },
+      primitive: {
+        topology: "triangle-list",
+      },
+      label: "Wavefront Debug Pipeline",
+    });
+
+    this.uniformBuffer = device.createBuffer({
+      size: WavefrontDebugUniforms.byteSize,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label: "Wavefront Debug Uniforms",
+    });
+
+    this.uniforms = WavefrontDebugUniforms.create();
+
+    this.bindGroup = device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [
+        {
+          binding: 0,
+          resource: { buffer: this.uniformBuffer },
+        },
+      ],
+      label: "Wavefront Debug Bind Group",
+    });
+
+    this.initialized = true;
+  }
+
   @on("render")
-  onRender({ draw }: GameEventMap["render"]): void {
+  onRender(_event: GameEventMap["render"]): void {
+    if (
+      !this.initialized ||
+      !this.pipeline ||
+      !this.bindGroup ||
+      !this.uniformBuffer ||
+      !this.uniforms
+    )
+      return;
+
     const wavePhysicsResources =
       this.game.entities.tryGetSingleton(WavePhysicsResources);
     const wavePhysicsManager = wavePhysicsResources?.getWavePhysicsManager();
 
     if (!wavePhysicsManager || !wavePhysicsManager.isInitialized()) return;
 
-    // Draw dim overlay
-    const viewport = this.game.camera.getWorldViewport();
-    draw.fillRect(
-      viewport.left,
-      viewport.top,
-      viewport.width,
-      viewport.height,
-      { color: DIM_COLOR, alpha: DIM_ALPHA },
-    );
-
     const meshes = wavePhysicsManager.getMeshes();
+    if (meshes.length === 0) return;
+
+    const renderer = this.game.getRenderer();
+    const renderPass = renderer.getCurrentRenderPass();
+    if (!renderPass) return;
+
+    // Camera world→pixel matrix (set by setLayer for windViz)
+    const cameraMatrix = renderer.getTransform();
+    const width = renderer.getWidth();
+    const height = renderer.getHeight();
+
+    this.uniforms.set.cameraMatrix(cameraMatrix);
+    this.uniforms.set.screenWidth(width);
+    this.uniforms.set.screenHeight(height);
+    this.uniforms.set.alpha(0.7);
+    this.uniforms.uploadTo(this.uniformBuffer);
+
+    renderPass.setPipeline(this.pipeline);
+    renderPass.setBindGroup(0, this.bindGroup);
 
     for (let w = 0; w < meshes.length; w++) {
       if (this.selectedWaveIndex >= 0 && this.selectedWaveIndex !== w) continue;
 
       const mesh = meshes[w];
-      const data = mesh.cpuVertexData;
-      const vc = mesh.vertexCount;
-      const ns = mesh.numSteps;
+      const indexCount = (mesh.numSteps - 1) * (mesh.vertexCount - 1) * 6;
 
-      // Draw wavefront lines (every Nth step)
-      for (let step = 0; step < ns; step += STEP_SKIP) {
-        const stepBase = step * vc * VERTEX_FLOATS;
-
-        for (let v = 0; v < vc - 1; v++) {
-          const i0 = stepBase + v * VERTEX_FLOATS;
-          const i1 = stepBase + (v + 1) * VERTEX_FLOATS;
-
-          const x0 = data[i0 + 0];
-          const y0 = data[i0 + 1];
-          const amp0 = data[i0 + 2];
-          const x1 = data[i1 + 0];
-          const y1 = data[i1 + 1];
-          const amp1 = data[i1 + 2];
-
-          // Skip if both vertices are terminated
-          if (amp0 <= 0 && amp1 <= 0) continue;
-
-          const avgAmp = (amp0 + amp1) / 2;
-          const color = amplitudeToColor(avgAmp);
-
-          draw.line(x0, y0, x1, y1, {
-            color,
-            alpha: LINE_ALPHA,
-            width: LINE_WIDTH,
-          });
-        }
-      }
-
-      // Draw terminated vertices and direction arrows
-      for (let step = 0; step < ns; step += STEP_SKIP) {
-        const stepBase = step * vc * VERTEX_FLOATS;
-
-        for (let v = 0; v < vc; v++) {
-          const idx = stepBase + v * VERTEX_FLOATS;
-          const x = data[idx + 0];
-          const y = data[idx + 1];
-          const amp = data[idx + 2];
-          const dirOffset = data[idx + 3];
-
-          if (amp <= 0) {
-            // Terminated vertex marker
-            draw.fillCircle(x, y, TERMINATED_RADIUS, {
-              color: TERMINATED_COLOR,
-              alpha: 0.8,
-            });
-          } else if (v % ARROW_VERTEX_SKIP === 0) {
-            // Direction arrow
-            const baseAngle = Math.atan2(mesh.waveDirY, mesh.waveDirX);
-            const angle = baseAngle + dirOffset;
-            const dx = Math.cos(angle) * ARROW_LENGTH;
-            const dy = Math.sin(angle) * ARROW_LENGTH;
-            draw.line(x, y, x + dx, y + dy, {
-              color: ARROW_COLOR,
-              alpha: ARROW_ALPHA,
-              width: 1,
-            });
-          }
-        }
-      }
+      renderPass.setVertexBuffer(0, mesh.vertexBuffer);
+      renderPass.setIndexBuffer(mesh.indexBuffer, "uint32");
+      renderPass.drawIndexed(indexCount);
     }
   }
 
@@ -171,6 +271,11 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
           ? -1
           : this.selectedWaveIndex + 1;
     }
+  }
+
+  @on("destroy")
+  onDestroy(): void {
+    this.uniformBuffer?.destroy();
   }
 
   getModeName(): string {
