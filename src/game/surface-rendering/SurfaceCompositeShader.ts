@@ -54,6 +54,12 @@ struct Params {
   atlasTilesX: u32,
   atlasTilesY: u32,
   atlasWorldUnitsPerTile: f32,
+
+  // Camera viewport (non-expanded) for correct clip-to-world mapping
+  cameraLeft: f32,
+  cameraTop: f32,
+  cameraWidth: f32,
+  cameraHeight: f32,
 }
 
 const SHALLOW_WATER_THRESHOLD: f32 = ${SHALLOW_WATER_THRESHOLD};
@@ -113,18 +119,20 @@ const surfaceCompositeFragmentModule: ShaderModule = {
     fn_renderSand,
   ],
   code: /*wgsl*/ `
-// Convert clip position to world position using viewport parameters
-// This matches how the water height shader computes world positions
+// Convert clip position to world position using the camera viewport.
+// Uses the non-expanded camera viewport so that screen pixels map to the
+// same world positions as the camera matrix used by all other rendering
+// (game objects, debug overlays, etc.).
 fn clipToWorld(clipPos: vec2<f32>) -> vec2<f32> {
   // Convert clip space (-1,1) to UV space (0,1)
   // Flip Y to match screen coordinates (clip Y=1 is top, screen Y=0 is top)
   let uvX = clipPos.x * 0.5 + 0.5;
   let uvY = -clipPos.y * 0.5 + 0.5;
 
-  // Map UV to world coordinates using viewport
+  // Map UV to world coordinates using the camera viewport (not expanded)
   return vec2<f32>(
-    params.viewportLeft + uvX * params.viewportWidth,
-    params.viewportTop + uvY * params.viewportHeight
+    params.cameraLeft + uvX * params.cameraWidth,
+    params.cameraTop + uvY * params.cameraHeight
   );
 }
 

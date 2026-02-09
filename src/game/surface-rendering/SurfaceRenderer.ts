@@ -321,7 +321,8 @@ export class SurfaceRenderer extends BaseEntity {
    * Update uniforms for composite pass.
    */
   private updateCompositeUniforms(
-    viewport: Viewport,
+    expandedViewport: Viewport,
+    cameraViewport: Viewport,
     currentTime: number,
     width: number,
     height: number,
@@ -334,10 +335,11 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeUniforms.set.cameraMatrix(cameraMatrix);
     this.compositeUniforms.set.screenWidth(width);
     this.compositeUniforms.set.screenHeight(height);
-    this.compositeUniforms.set.viewportLeft(viewport.left);
-    this.compositeUniforms.set.viewportTop(viewport.top);
-    this.compositeUniforms.set.viewportWidth(viewport.width);
-    this.compositeUniforms.set.viewportHeight(viewport.height);
+    // Expanded viewport for height texture UV lookups
+    this.compositeUniforms.set.viewportLeft(expandedViewport.left);
+    this.compositeUniforms.set.viewportTop(expandedViewport.top);
+    this.compositeUniforms.set.viewportWidth(expandedViewport.width);
+    this.compositeUniforms.set.viewportHeight(expandedViewport.height);
     this.compositeUniforms.set.time(currentTime);
     this.compositeUniforms.set.tideHeight(waterResources.getTideHeight());
     this.compositeUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
@@ -350,6 +352,12 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeUniforms.set.atlasWorldUnitsPerTile(
       atlasInfo.worldUnitsPerTile,
     );
+
+    // Camera viewport for clip-to-world mapping (matches camera matrix)
+    this.compositeUniforms.set.cameraLeft(cameraViewport.left);
+    this.compositeUniforms.set.cameraTop(cameraViewport.top);
+    this.compositeUniforms.set.cameraWidth(cameraViewport.width);
+    this.compositeUniforms.set.cameraHeight(cameraViewport.height);
   }
 
   /**
@@ -498,8 +506,11 @@ export class SurfaceRenderer extends BaseEntity {
       height,
       waterResources,
     );
+    // Get the camera viewport (non-expanded) for correct clip-to-world mapping
+    const cameraViewport = camera.getWorldViewport();
     this.updateCompositeUniforms(
       expandedViewport,
+      cameraViewport,
       currentTime,
       width,
       height,
