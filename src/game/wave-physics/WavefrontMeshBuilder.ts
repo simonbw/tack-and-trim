@@ -20,11 +20,11 @@
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import type { WaveSource } from "../world/water/WaveSource";
 import type { AABB } from "./CoastlineManager";
-import { WavefrontMesh, VERTEX_FLOATS } from "./WavefrontMesh";
 import {
   createWavefrontMarchShader,
   MarchParams,
 } from "./WavefrontMarchShader";
+import { VERTEX_FLOATS, WavefrontMesh } from "./WavefrontMesh";
 
 /** Number of floats per march state entry (dirX, dirY, terminated, accPhase, pad) */
 const STATE_FLOATS = 5;
@@ -63,8 +63,8 @@ export class WavefrontMeshBuilder {
     const perpDirX = -waveDirY;
     const perpDirY = waveDirX;
     const wavelength = waveSource.wavelength;
-    const vertexSpacing = wavelength / 4;
-    const baseStepSize = wavelength / 4;
+    const vertexSpacing = 2; // wavelength / 4;
+    const baseStepSize = wavelength / 8;
 
     // Compute deep water speed for adaptive stepping
     const g = 32.174; // ft/s^2
