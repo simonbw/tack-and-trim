@@ -23,7 +23,7 @@ import {
   buildTerrainGPUData,
   normalizeTerrainWinding,
 } from "../src/game/world/terrain/LandMass";
-import { buildCpuLagrangianMesh } from "../src/game/wave-physics/mesh-building/builders/cpuLagrangianBuilder";
+import { buildCpuLagrangianMesh } from "../src/game/wave-physics/mesh-building/builders/cpu-lagrangian";
 import { buildGridEulerianMesh } from "../src/game/wave-physics/mesh-building/builders/gridEulerianBuilder";
 import { buildTerrainEulerianMesh } from "../src/game/wave-physics/mesh-building/builders/terrainEulerianBuilder";
 import type {

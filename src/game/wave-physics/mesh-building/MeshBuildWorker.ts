@@ -6,7 +6,7 @@
  * with transferable buffers for zero-copy transfer.
  */
 
-import { buildCpuLagrangianMesh } from "./builders/cpuLagrangianBuilder";
+import { buildCpuLagrangianMesh } from "./builders/cpu-lagrangian";
 import { buildGridEulerianMesh } from "./builders/gridEulerianBuilder";
 
 import { buildTerrainEulerianMesh } from "./builders/terrainEulerianBuilder";
