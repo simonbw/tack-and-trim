@@ -4,9 +4,10 @@
  * Visualizes the wavefront marching mesh for wave-terrain interaction.
  * Renders mesh triangles directly on GPU using a custom render pipeline,
  * with colors mapped from amplitude factor:
- *   red (blocked) → yellow → green (open ocean) → cyan (convergence)
+ *   red (blocked) -> yellow -> green (open ocean) -> cyan (convergence)
  *
  * Use [ and ] to cycle through wave sources.
+ * Use { and } to cycle through active builder type (affects game systems).
  */
 
 import type { GameEventMap } from "../../../core/entity/Entity";
@@ -18,6 +19,10 @@ import {
   type UniformInstance,
 } from "../../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import {
+  VERTEX_FLOATS,
+  type WavefrontMesh,
+} from "../../wave-physics/WavefrontMesh";
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
 import { WaterResources } from "../../world/water/WaterResources";
 import { DebugRenderMode } from "./DebugRenderMode";
@@ -44,13 +49,13 @@ struct WavefrontDebugParams {
 struct VertexInput {
   @location(0) position: vec2<f32>,
   @location(1) amplitude: f32,
-  @location(2) dirOffset: f32,
-  @location(3) phaseOffset: f32,
+  @location(2) barycentric: vec2<f32>,
 }
 
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) amplitude: f32,
+  @location(1) barycentric: vec2<f32>,
 }
 
 fn getCameraMatrix() -> mat3x3<f32> {
@@ -71,6 +76,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   var out: VertexOutput;
   out.position = vec4<f32>(clipX, clipY, 0.0, 1.0);
   out.amplitude = in.amplitude;
+  out.barycentric = in.barycentric;
   return out;
 }
 
@@ -90,10 +96,32 @@ fn amplitudeToColor(amp: f32) -> vec3<f32> {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  let color = amplitudeToColor(in.amplitude);
+  // Reconstruct full barycentric coordinates
+  let bary = vec3<f32>(in.barycentric, 1.0 - in.barycentric.x - in.barycentric.y);
+
+  // Distance to nearest edge in screen-space
+  let minBary = min(bary.x, min(bary.y, bary.z));
+  let fw = fwidth(minBary);
+  let edge = smoothstep(0.0, fw * 1.5, minBary);
+
+  let fillColor = amplitudeToColor(in.amplitude);
+  let edgeColor = vec3<f32>(0.0, 0.0, 0.0);
+  let color = mix(edgeColor, fillColor, edge);
   return vec4<f32>(color, params.alpha);
 }
 `;
+
+/** Barycentric coords for each vertex position within a triangle */
+const BARY_COORDS = [
+  [1, 0], // vertex 0: (1, 0) -> third = 0
+  [0, 1], // vertex 1: (0, 1) -> third = 0
+  [0, 0], // vertex 2: (0, 0) -> third = 1
+];
+
+interface WireframeBuffer {
+  buffer: GPUBuffer;
+  vertexCount: number;
+}
 
 export class WavefrontMeshDebugMode extends DebugRenderMode {
   layer = "windViz" as const;
@@ -107,6 +135,9 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
   > | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private initialized = false;
+
+  /** Cached wireframe buffers keyed by source mesh */
+  private wireframeCache = new Map<WavefrontMesh, WireframeBuffer>();
 
   @on("add")
   async onAdd() {
@@ -146,12 +177,11 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
         entryPoint: "vs_main",
         buffers: [
           {
-            arrayStride: 20, // 5 floats × 4 bytes
+            arrayStride: 20, // 5 floats x 4 bytes
             attributes: [
               { format: "float32x2", offset: 0, shaderLocation: 0 }, // position
               { format: "float32", offset: 8, shaderLocation: 1 }, // amplitude
-              { format: "float32", offset: 12, shaderLocation: 2 }, // dirOffset
-              { format: "float32", offset: 16, shaderLocation: 3 }, // phaseOffset
+              { format: "float32x2", offset: 12, shaderLocation: 2 }, // barycentric
             ],
           },
         ],
@@ -222,14 +252,24 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
 
     if (!wavePhysicsManager || !wavePhysicsManager.isInitialized()) return;
 
-    const meshes = wavePhysicsManager.getMeshes();
+    const meshes = wavePhysicsManager.getActiveMeshes();
     if (meshes.length === 0) return;
+
+    const device = getWebGPU().device;
+
+    // Evict wireframe buffers for meshes that no longer exist
+    for (const [mesh, cached] of this.wireframeCache) {
+      if (!meshes.includes(mesh)) {
+        cached.buffer.destroy();
+        this.wireframeCache.delete(mesh);
+      }
+    }
 
     const renderer = this.game.getRenderer();
     const renderPass = renderer.getCurrentRenderPass();
     if (!renderPass) return;
 
-    // Camera world→pixel matrix (set by setLayer for windViz)
+    // Camera world->pixel matrix (set by setLayer for windViz)
     const cameraMatrix = renderer.getTransform();
     const width = renderer.getWidth();
     const height = renderer.getHeight();
@@ -246,36 +286,99 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     for (let w = 0; w < meshes.length; w++) {
       if (this.selectedWaveIndex >= 0 && this.selectedWaveIndex !== w) continue;
 
-      const mesh = meshes[w];
-      const indexCount = (mesh.numSteps - 1) * (mesh.vertexCount - 1) * 6;
-
-      renderPass.setVertexBuffer(0, mesh.vertexBuffer);
-      renderPass.setIndexBuffer(mesh.indexBuffer, "uint32");
-      renderPass.drawIndexed(indexCount);
+      const wireframe = this.getWireframeBuffer(meshes[w], device);
+      renderPass.setVertexBuffer(0, wireframe.buffer);
+      renderPass.draw(wireframe.vertexCount);
     }
   }
 
-  @on("keyDown")
-  onKeyDown({ key }: GameEventMap["keyDown"]): void {
-    const waterResources = this.game.entities.tryGetSingleton(WaterResources);
-    const numWaves = waterResources?.getNumWaves() ?? 1;
+  /** Build or retrieve a non-indexed vertex buffer with barycentric coordinates. */
+  private getWireframeBuffer(
+    mesh: WavefrontMesh,
+    device: GPUDevice,
+  ): WireframeBuffer {
+    const cached = this.wireframeCache.get(mesh);
+    if (cached) return cached;
 
-    if (key === "BracketLeft") {
-      this.selectedWaveIndex =
-        this.selectedWaveIndex <= -1
-          ? numWaves - 1
-          : this.selectedWaveIndex - 1;
-    } else if (key === "BracketRight") {
-      this.selectedWaveIndex =
-        this.selectedWaveIndex >= numWaves - 1
-          ? -1
-          : this.selectedWaveIndex + 1;
+    const { cpuVertexData, cpuIndexData, indexCount } = mesh;
+    const floatsPerVertex = 5; // posX, posY, amplitude, baryU, baryV
+    const expanded = new Float32Array(indexCount * floatsPerVertex);
+
+    for (let i = 0; i < indexCount; i++) {
+      const srcBase = cpuIndexData[i] * VERTEX_FLOATS;
+      const dstBase = i * floatsPerVertex;
+      const bary = BARY_COORDS[i % 3];
+
+      expanded[dstBase] = cpuVertexData[srcBase]; // posX
+      expanded[dstBase + 1] = cpuVertexData[srcBase + 1]; // posY
+      expanded[dstBase + 2] = cpuVertexData[srcBase + 2]; // amplitude
+      expanded[dstBase + 3] = bary[0]; // baryU
+      expanded[dstBase + 4] = bary[1]; // baryV
     }
+
+    const buffer = device.createBuffer({
+      size: expanded.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      label: "Wavefront Debug Wireframe",
+    });
+    device.queue.writeBuffer(buffer, 0, expanded);
+
+    const entry: WireframeBuffer = { buffer, vertexCount: indexCount };
+    this.wireframeCache.set(mesh, entry);
+    return entry;
+  }
+
+  @on("keyDown")
+  onKeyDown({ key, event }: GameEventMap["keyDown"]): void {
+    if (key === "BracketLeft" || key === "BracketRight") {
+      if (event.shiftKey) {
+        // Shift+[ = { / Shift+] = } — cycle builder types
+        this.cycleBuilderType(key === "BracketRight");
+      } else {
+        // [ ] — cycle wave sources
+        const waterResources =
+          this.game.entities.tryGetSingleton(WaterResources);
+        const numWaves = waterResources?.getNumWaves() ?? 1;
+
+        if (key === "BracketLeft") {
+          this.selectedWaveIndex =
+            this.selectedWaveIndex <= -1
+              ? numWaves - 1
+              : this.selectedWaveIndex - 1;
+        } else {
+          this.selectedWaveIndex =
+            this.selectedWaveIndex >= numWaves - 1
+              ? -1
+              : this.selectedWaveIndex + 1;
+        }
+      }
+    }
+  }
+
+  private cycleBuilderType(forward: boolean): void {
+    const wavePhysicsResources =
+      this.game.entities.tryGetSingleton(WavePhysicsResources);
+    const wavePhysicsManager = wavePhysicsResources?.getWavePhysicsManager();
+    if (!wavePhysicsManager) return;
+
+    const availableTypes = wavePhysicsManager.getActiveBuilderTypes();
+    if (availableTypes.length <= 1) return;
+
+    const currentType = wavePhysicsManager.getActiveBuilderType();
+    const currentIdx = availableTypes.indexOf(currentType);
+    const nextIdx = forward
+      ? (currentIdx + 1) % availableTypes.length
+      : (currentIdx - 1 + availableTypes.length) % availableTypes.length;
+    wavePhysicsManager.setActiveBuilderType(availableTypes[nextIdx]);
   }
 
   @on("destroy")
   onDestroy(): void {
     this.uniformBuffer?.destroy();
+    for (const cached of this.wireframeCache.values()) {
+      cached.buffer.destroy();
+    }
+    this.wireframeCache.clear();
   }
 
   getModeName(): string {
@@ -288,24 +391,28 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     const wavePhysicsManager = wavePhysicsResources?.getWavePhysicsManager();
     if (!wavePhysicsManager) return "No wave physics";
 
-    const meshes = wavePhysicsManager.getMeshes();
-    if (meshes.length === 0) return "No wavefront meshes";
+    const builderType = wavePhysicsManager.getActiveBuilderType();
+    const meshes = wavePhysicsManager.getActiveMeshes();
+    if (meshes.length === 0) return `[${builderType}] No wavefront meshes`;
 
     if (this.selectedWaveIndex < 0) {
-      return `All waves (${meshes.length} meshes) [/] to cycle`;
+      const totalVerts = meshes.reduce((s, m) => s + m.vertexCount, 0);
+      return (
+        `[${builderType}] All waves (${meshes.length} meshes, ` +
+        `${(totalVerts / 1000).toFixed(1)}k verts) [/] wave {/} builder`
+      );
     }
 
     const mesh = meshes[this.selectedWaveIndex];
-    if (!mesh) return `Wave ${this.selectedWaveIndex}: not found`;
+    if (!mesh)
+      return `[${builderType}] Wave ${this.selectedWaveIndex}: not found`;
 
-    const dirDeg = (
-      (Math.atan2(mesh.waveDirY, mesh.waveDirX) * 180) /
-      Math.PI
-    ).toFixed(0);
+    const dirDeg = ((mesh.waveDirection * 180) / Math.PI).toFixed(0);
     return (
-      `Wave ${this.selectedWaveIndex}: ` +
-      `${mesh.vertexCount} verts x ${mesh.numSteps} steps, ` +
-      `\u03BB=${mesh.wavelength}ft, dir=${dirDeg}\u00B0`
+      `[${builderType}] Wave ${this.selectedWaveIndex}: ` +
+      `${(mesh.vertexCount / 1000).toFixed(1)}k verts, ` +
+      `\u03BB=${mesh.wavelength}ft, dir=${dirDeg}\u00B0, ` +
+      `build ${mesh.buildTimeMs.toFixed(0)}ms`
     );
   }
 }
