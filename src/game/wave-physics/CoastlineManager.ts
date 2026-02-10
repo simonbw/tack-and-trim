@@ -42,6 +42,7 @@ export interface CoastlineInfo {
 export class CoastlineManager {
   private coastlines: CoastlineInfo[] = [];
   private coastlineIndices: number[] = [];
+  private allTerrainBounds: AABB | null = null;
 
   /**
    * Initialize the coastline manager from a terrain definition.
@@ -50,13 +51,30 @@ export class CoastlineManager {
   initialize(terrainDef: TerrainDefinition): void {
     this.coastlines = [];
     this.coastlineIndices = [];
+    this.allTerrainBounds = null;
+
+    // Compute bounds covering ALL contours (for mesh builder domain)
+    let allMinX = Infinity;
+    let allMaxX = -Infinity;
+    let allMinY = Infinity;
+    let allMaxY = -Infinity;
+    let hasAnyContour = false;
 
     for (let i = 0; i < terrainDef.contours.length; i++) {
       const contour = terrainDef.contours[i];
+      const bounds = this.computeBounds(contour.sampledPolygon);
+
+      // Track all-terrain bounds
+      if (contour.sampledPolygon.length > 0) {
+        allMinX = Math.min(allMinX, bounds.minX);
+        allMaxX = Math.max(allMaxX, bounds.maxX);
+        allMinY = Math.min(allMinY, bounds.minY);
+        allMaxY = Math.max(allMaxY, bounds.maxY);
+        hasAnyContour = true;
+      }
 
       // Coastlines are defined as height=0 contours
       if (contour.height === 0) {
-        const bounds = this.computeBounds(contour.sampledPolygon);
         this.coastlines.push({
           contourIndex: i,
           contour,
@@ -64,6 +82,15 @@ export class CoastlineManager {
         });
         this.coastlineIndices.push(i);
       }
+    }
+
+    if (hasAnyContour) {
+      this.allTerrainBounds = {
+        minX: allMinX,
+        maxX: allMaxX,
+        minY: allMinY,
+        maxY: allMaxY,
+      };
     }
   }
 
@@ -138,6 +165,15 @@ export class CoastlineManager {
   }
 
   /**
+   * Get the bounding box covering ALL terrain contours (not just coastlines).
+   * Terrain affects waves at all depths (shoaling starts at depth < wavelength/2),
+   * so mesh builders need the full terrain extent.
+   */
+  getAllTerrainBounds(): AABB | null {
+    return this.allTerrainBounds;
+  }
+
+  /**
    * Get the combined bounding box of all coastlines.
    */
   getCombinedBounds(): AABB | null {
@@ -166,5 +202,6 @@ export class CoastlineManager {
   clear(): void {
     this.coastlines = [];
     this.coastlineIndices = [];
+    this.allTerrainBounds = null;
   }
 }

@@ -98,16 +98,6 @@ No need to import or depend on these - they're always available.
 
 - **fn_calculateGerstnerWaves** - Analytical Gerstner wave computation (accepts per-wave energy factors)
 
-#### `fresnel-diffraction.wgsl.ts`
-
-- **fn_computeFresnelEnergy** - Wave energy attenuation from Fresnel diffraction
-
-#### `shadow-attenuation.wgsl.ts`
-
-- **struct_ShadowData** - Shadow data structures (`PolygonShadowData`)
-- **fn_computeShadowEnergyForWave** - Per-wave shadow energy attenuation using that wave's direction and wavelength
-  - Dependencies: `fn_computeFresnelEnergy`, `fn_getShadowNumWaves`, `fn_getShadowWaveSetOffset`, `fn_getShadowWaveDirAt`, `fn_getShadowPolygonCountAt`, `fn_getShadowVerticesOffsetAt`, `fn_getShadowPolygon`, `fn_isInsideShadowPolygon`
-
 ### Terrain
 
 #### `terrain.wgsl.ts`
@@ -136,23 +126,6 @@ Accessor functions for reading terrain data from a single packed `array<u32>` bu
 - **fn_getContourData** - Read a ContourData struct from the packed buffer
   - Dependencies: `struct_ContourData`
 - **fn_getTerrainChild** - Read a child contour index from the packed buffer
-
-### Shadow
-
-#### `shadow-packed.wgsl.ts`
-
-Accessor functions for reading per-wave-source shadow data from a single packed `array<u32>` buffer. The buffer has a global header with wave source count and per-wave-set offsets, then per-wave polygon sets each with their own direction, polygon count, and vertex data.
-
-- **fn_getShadowNumWaves** - Read number of wave sources from packed shadow buffer
-- **fn_getShadowWaveSetOffset** - Read the offset to a wave source's polygon set
-- **fn_getShadowWaveDirAt** - Read wave direction for a specific wave source
-- **fn_getShadowPolygonCountAt** - Read polygon count for a specific wave source
-- **fn_getShadowVerticesOffsetAt** - Read vertices offset for a specific wave source
-- **fn_getShadowPolygon** - Read a PolygonShadowData struct from packed buffer (parameterized by set base offset)
-  - Dependencies: `struct_ShadowData`
-- **fn_getShadowVertex** - Read a shadow vertex from packed buffer (parameterized by vertices offset)
-- **fn_isInsideShadowPolygon** - Winding number test using packed vertex data
-  - Dependencies: `fn_pointLeftOfSegment`, `fn_getShadowVertex`
 
 ### Wind
 

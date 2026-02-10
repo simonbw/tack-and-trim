@@ -28,8 +28,8 @@ import {
 // Constants
 // =============================================================================
 
-/** Floats per output vertex: [x, y, amplitude, dirOffset, phaseOffset] */
-const VERTEX_FLOATS = 5;
+/** Floats per output vertex: [x, y, amplitude, dirOffset, phaseOffset, blendWeight] */
+const VERTEX_FLOATS = 6;
 
 /** Finite-difference delta for depth gradient computation */
 const GRADIENT_DELTA = 2.0;
@@ -38,10 +38,10 @@ const GRADIENT_DELTA = 2.0;
 const MAX_CONVERGENCE = 2.0;
 
 /** Maximum recursive insertion depth */
-const MAX_INSERT_DEPTH = 3;
+const MAX_INSERT_DEPTH = 0;
 
 /** Maximum vertices allowed on a single wavefront to prevent OOM */
-const MAX_WAVEFRONT_VERTICES = 4000;
+const MAX_WAVEFRONT_VERTICES = 200;
 
 /** Log interval: log wavefront stats every N steps */
 const LOG_INTERVAL = 50;
@@ -82,6 +82,8 @@ interface MarchVertex {
   t: number;
   /** Cached terrain height at (x, y) to avoid recomputation next step */
   terrainH: number;
+  /** Blend weight for edge fade-out (0 at domain boundary, 1 interior) */
+  blendWeight: number;
 }
 
 // =============================================================================
@@ -102,16 +104,16 @@ export function buildCpuLagrangianMesh(
   const deepSpeed = computeWaveSpeed(wavelength, wavelength); // depth >= wavelength/2
 
   // Step size
-  const baseStepSize = wavelength / 8;
+  const baseStepSize = wavelength / 2;
 
   // Vertex spacing along wavefront
-  const vertexSpacing = wavelength / 4;
-  const maxSpacing = wavelength / 2;
+  const vertexSpacing = wavelength;
+  const maxSpacing = wavelength * 2;
 
   // Simulation bounds
   let minX: number, maxX: number, minY: number, maxY: number;
   if (coastlineBounds) {
-    const margin = wavelength * 3;
+    const margin = Math.max(2000, wavelength * 3);
     minX = coastlineBounds.minX - margin;
     maxX = coastlineBounds.maxX + margin;
     minY = coastlineBounds.minY - margin;
@@ -186,6 +188,7 @@ export function buildCpuLagrangianMesh(
       state: onLand ? VertexState.ON_LAND : VertexState.ACTIVE,
       t,
       terrainH,
+      blendWeight: 1.0,
     });
   }
 
@@ -369,6 +372,7 @@ export function buildCpuLagrangianMesh(
         state: newState,
         t: pv.t,
         terrainH: newTerrainH,
+        blendWeight: 1.0,
       });
     }
 
@@ -444,6 +448,21 @@ export function buildCpuLagrangianMesh(
       `${indexCount / 3} triangles, final wavefront=${currentWavefront.length}`,
   );
 
+  // Set blendWeight=0 for boundary vertices so the mesh fades to open-ocean defaults
+  for (let vi = 0; vi < vertexCount; vi++) {
+    const base = vi * VERTEX_FLOATS;
+    const vx = vertices[base + 0];
+    const vy = vertices[base + 1];
+    if (
+      vx - minX < vertexSpacing ||
+      maxX - vx < vertexSpacing ||
+      vy - minY < vertexSpacing ||
+      maxY - vy < vertexSpacing
+    ) {
+      vertices[base + 5] = 0.0; // blendWeight
+    }
+  }
+
   // Return trimmed buffers
   return {
     vertices: vertices.slice(0, vertexCount * VERTEX_FLOATS),
@@ -464,6 +483,7 @@ export function buildCpuLagrangianMesh(
     vertices[base + 2] = v.amplitude;
     vertices[base + 3] = v.directionOffset;
     vertices[base + 4] = v.phaseOffset;
+    vertices[base + 5] = v.blendWeight;
     vertexCount++;
   }
 
@@ -779,6 +799,7 @@ function insertPass(
             state: mState,
             t: mt,
             terrainH,
+            blendWeight: 1.0,
           });
           inserted = true;
         }

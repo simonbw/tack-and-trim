@@ -17,10 +17,8 @@ export const WAVE_AMP_MOD_STRENGTH = 0; // Disabled for testing
 export const MAX_WAVES = 16;
 
 // Representative wavelengths for terrain interaction (shoaling/damping)
-// Note: The actual WGSL constants are defined in shadow-attenuation.wgsl.ts
-// These TypeScript constants are for reference/documentation
 export const SWELL_WAVELENGTH = 200; // ft
-export const CHOP_WAVELENGTH = 30; // ft (matches shadow-attenuation.wgsl.ts)
+export const CHOP_WAVELENGTH = 30; // ft
 
 // Fetch-based wave scaling (not currently used)
 export const MIN_FETCH_FOR_WAVES = 100; // ft - minimum fetch to develop waves

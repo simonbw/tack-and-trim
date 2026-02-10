@@ -63,6 +63,8 @@ export class Game {
   readonly ticksPerSecond: number;
   /** Number of seconds to simulate per tick */
   readonly tickDuration: number;
+  /** Maximum allowed ticks per frame. */
+  readonly maxTicksPerFrame = 5;
 
   /** ID of the current animation frame request, used for cancellation */
   private animationFrameId: number = 0;
@@ -374,7 +376,7 @@ export class Game {
       );
     }
 
-    const renderDt = 1.0 / this.getScreenFps();
+    const renderDt = 1.0 / 120.0; // TODO: Remove this hardcoding eventually  //1.0 / this.getScreenFps();
     this.elapsedTime += renderDt;
     if (!this.paused) {
       this.elapsedUnpausedTime += renderDt;
@@ -382,7 +384,10 @@ export class Game {
 
     this.slowTick(renderDt * this.slowMo);
 
-    this.timeToSimulate += renderDt * this.slowMo;
+    this.timeToSimulate = Math.min(
+      this.timeToSimulate + renderDt * this.slowMo,
+      this.tickDuration * this.maxTicksPerFrame,
+    );
     while (this.timeToSimulate >= this.tickDuration) {
       this.timeToSimulate -= this.tickDuration;
 

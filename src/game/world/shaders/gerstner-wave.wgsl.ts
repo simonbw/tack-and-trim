@@ -4,7 +4,7 @@
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-import { const_MAX_WAVE_SOURCES } from "./shadow-attenuation.wgsl";
+import { const_MAX_WAVE_SOURCES } from "./wave-constants.wgsl";
 
 /**
  * Gerstner wave calculation function.
@@ -12,7 +12,8 @@ import { const_MAX_WAVE_SOURCES } from "./shadow-attenuation.wgsl";
  * second pass computes height and velocity at displaced position.
  *
  * Each wave gets its own energy factor from the energyFactors array,
- * which combines shadow attenuation and terrain interaction.
+ * which combines wavefront mesh terrain interaction.
+ * Phase corrections allow wavefront mesh-based phase adjustments per wave.
  */
 export const fn_calculateGerstnerWaves: ShaderModule = {
   dependencies: [const_MAX_WAVE_SOURCES],
@@ -24,7 +25,8 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
     // numWaves: number of waves
     // steepness: Gerstner steepness factor
     // energyFactors: per-wave energy multiplier (0.0 = blocked, 1.0 = full)
-    // directionOffsets: per-wave direction offset in radians (from shadow bending)
+    // directionOffsets: per-wave direction offset in radians (from direction bending)
+    // phaseCorrections: per-wave phase correction in radians (from wavefront mesh)
     // ampMod: amplitude modulation factor (from noise)
     // Returns vec4<f32>(height, dispX, dispY, dhdt)
     fn calculateGerstnerWaves(
@@ -35,6 +37,7 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
       steepness: f32,
       energyFactors: array<f32, MAX_WAVE_SOURCES>,
       directionOffsets: array<f32, MAX_WAVE_SOURCES>,
+      phaseCorrections: array<f32, MAX_WAVE_SOURCES>,
       ampMod: f32,
     ) -> vec4<f32> {
       let x = worldPos.x;
@@ -64,12 +67,12 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
 
         // Plane wave or point source?
         if (sourceDist > 1e9) {
-          // Plane wave - apply direction offset for shadow bending
+          // Plane wave - apply direction offset for direction bending
           let bentDirection = direction + directionOffsets[i];
           dx = cos(bentDirection);
           dy = sin(bentDirection);
           let projected = x * dx + y * dy;
-          phase = k * projected - omega * time + phaseOffset;
+          phase = k * projected - omega * time + phaseOffset + phaseCorrections[i];
         } else {
           // Point source - direction from geometry, no offset
           let baseDx = cos(direction);
@@ -83,7 +86,7 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
 
           dx = toPointX / distFromSource;
           dy = toPointY / distFromSource;
-          phase = k * distFromSource - omega * time + phaseOffset;
+          phase = k * distFromSource - omega * time + phaseOffset + phaseCorrections[i];
         }
 
         let Q = steepness / (k * amplitude * f32(numWaves));
@@ -118,12 +121,12 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
         var phase: f32;
 
         if (sourceDist > 1e9) {
-          // Plane wave - apply direction offset for shadow bending
+          // Plane wave - apply direction offset for direction bending
           let bentDirection = direction + directionOffsets[i];
           let bentDx = cos(bentDirection);
           let bentDy = sin(bentDirection);
           let projected = sampleX * bentDx + sampleY * bentDy;
-          phase = k * projected - omega * time + phaseOffset;
+          phase = k * projected - omega * time + phaseOffset + phaseCorrections[i];
         } else {
           // Point source - direction from geometry, no offset
           let baseDx = cos(direction);
@@ -135,7 +138,7 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
           let toPointY = sampleY - sourceY;
           let distFromSource = sqrt(toPointX * toPointX + toPointY * toPointY);
 
-          phase = k * distFromSource - omega * time + phaseOffset;
+          phase = k * distFromSource - omega * time + phaseOffset + phaseCorrections[i];
         }
 
         let sinPhase = sin(phase);

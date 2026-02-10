@@ -12,7 +12,6 @@ import type { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { ReactEntity } from "../../core/ReactEntity";
 import { DebugRenderMode } from "./modes/DebugRenderMode";
-import { ShadowZonesDebugMode } from "./modes/ShadowZonesDebugMode";
 import { TerrainHeightDebugMode } from "./modes/TerrainHeightDebugMode";
 import { WavefrontMeshDebugMode } from "./modes/WavefrontMeshDebugMode";
 import { WindFieldDebugMode } from "./modes/WindFieldDebugMode";
@@ -22,7 +21,6 @@ export class DebugRenderer extends ReactEntity {
   id = "debugRenderer";
 
   private modeConstructors: Array<() => DebugRenderMode> = [
-    () => new ShadowZonesDebugMode(),
     () => new WavefrontMeshDebugMode(),
     () => new TerrainHeightDebugMode(),
     () => new WindFieldDebugMode(),

@@ -6,8 +6,8 @@
  * this texture to get per-wave amplitude, direction offset, and phase correction
  * instead of computing shadow/refraction/terrain-factor per pixel.
  *
- * Fragment output: vec4(amplitudeFactor, directionOffset, phaseOffset, 0.0)
- * Clear color: (1.0, 0.0, 0.0, 0.0) = open ocean defaults
+ * Fragment output: vec4(amplitudeFactor, directionOffset, phaseOffset, blendWeight)
+ * Clear color: (1.0, 0.0, 0.0, 0.0) = open ocean defaults (blendWeight=0 means ignore mesh)
  */
 
 import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
@@ -37,6 +37,7 @@ struct VertexInput {
   @location(1) amplitudeFactor: f32,
   @location(2) directionOffset: f32,
   @location(3) phaseOffset: f32,
+  @location(4) blendWeight: f32,
 }
 
 struct VertexOutput {
@@ -44,6 +45,7 @@ struct VertexOutput {
   @location(0) amplitudeFactor: f32,
   @location(1) directionOffset: f32,
   @location(2) phaseOffset: f32,
+  @location(3) blendWeight: f32,
 }
 
 @vertex
@@ -57,12 +59,13 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   out.amplitudeFactor = in.amplitudeFactor;
   out.directionOffset = in.directionOffset;
   out.phaseOffset = in.phaseOffset;
+  out.blendWeight = in.blendWeight;
   return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  return vec4<f32>(in.amplitudeFactor, in.directionOffset, in.phaseOffset, 0.0);
+  return vec4<f32>(in.amplitudeFactor, in.directionOffset, in.phaseOffset, in.blendWeight);
 }
 `;
 
@@ -110,12 +113,13 @@ export class WavefrontRasterizer {
         entryPoint: "vs_main",
         buffers: [
           {
-            arrayStride: 20, // 5 floats x 4 bytes
+            arrayStride: 24, // 6 floats x 4 bytes
             attributes: [
               { format: "float32x2", offset: 0, shaderLocation: 0 }, // position
               { format: "float32", offset: 8, shaderLocation: 1 }, // amplitudeFactor
               { format: "float32", offset: 12, shaderLocation: 2 }, // directionOffset
               { format: "float32", offset: 16, shaderLocation: 3 }, // phaseOffset
+              { format: "float32", offset: 20, shaderLocation: 4 }, // blendWeight
             ],
           },
         ],
