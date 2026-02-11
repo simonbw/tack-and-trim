@@ -3,11 +3,11 @@
  *
  * Visualizes the wavefront marching mesh for wave-terrain interaction.
  * Renders mesh triangles directly on GPU using a custom render pipeline,
- * with colors mapped from amplitude factor:
- *   red (blocked) -> yellow -> green (open ocean) -> cyan (convergence)
+ * with colors mapped from a selectable vertex attribute.
  *
  * Use [ and ] to cycle through wave sources.
  * Use { and } to cycle through active builder type (affects game systems).
+ * Use V to cycle through color modes (amplitude, phase, direction, blend weight).
  */
 
 import type { GameEventMap } from "../../../core/entity/Entity";
@@ -32,6 +32,7 @@ const WavefrontDebugUniforms = defineUniformStruct("WavefrontDebugParams", {
   screenWidth: f32,
   screenHeight: f32,
   alpha: f32,
+  colorMode: f32,
 });
 
 const SHADER_CODE = /*wgsl*/ `
@@ -42,6 +43,7 @@ struct WavefrontDebugParams {
   screenWidth: f32,
   screenHeight: f32,
   alpha: f32,
+  colorMode: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: WavefrontDebugParams;
@@ -49,13 +51,19 @@ struct WavefrontDebugParams {
 struct VertexInput {
   @location(0) position: vec2<f32>,
   @location(1) amplitude: f32,
-  @location(2) barycentric: vec2<f32>,
+  @location(2) directionOffset: f32,
+  @location(3) phaseOffset: f32,
+  @location(4) blendWeight: f32,
+  @location(5) barycentric: vec2<f32>,
 }
 
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) amplitude: f32,
-  @location(1) barycentric: vec2<f32>,
+  @location(1) directionOffset: f32,
+  @location(2) phaseOffset: f32,
+  @location(3) blendWeight: f32,
+  @location(4) barycentric: vec2<f32>,
 }
 
 fn getCameraMatrix() -> mat3x3<f32> {
@@ -76,10 +84,14 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   var out: VertexOutput;
   out.position = vec4<f32>(clipX, clipY, 0.0, 1.0);
   out.amplitude = in.amplitude;
+  out.directionOffset = in.directionOffset;
+  out.phaseOffset = in.phaseOffset;
+  out.blendWeight = in.blendWeight;
   out.barycentric = in.barycentric;
   return out;
 }
 
+// Mode 0: Amplitude — red (blocked) -> yellow -> green (open) -> cyan (convergence)
 fn amplitudeToColor(amp: f32) -> vec3<f32> {
   if (amp <= 0.0) { return vec3<f32>(0.3, 0.0, 0.0); }
   if (amp <= 0.5) {
@@ -94,6 +106,33 @@ fn amplitudeToColor(amp: f32) -> vec3<f32> {
   return vec3<f32>(0.0, 1.0, t);
 }
 
+// Mode 1: Phase offset — cyclic rainbow
+fn phaseToColor(phase: f32) -> vec3<f32> {
+  // Normalize phase to [0,1) using fract so it wraps cyclically
+  let t = fract(phase / 6.283185);
+  // HSV-style hue wheel
+  let r = abs(t * 6.0 - 3.0) - 1.0;
+  let g = 2.0 - abs(t * 6.0 - 2.0);
+  let b = 2.0 - abs(t * 6.0 - 4.0);
+  return saturate(vec3<f32>(r, g, b));
+}
+
+// Mode 2: Direction offset — blue (negative) -> white (zero) -> red (positive)
+fn directionToColor(dir: f32) -> vec3<f32> {
+  // Map to [-1, 1] range, clamped at +/- 0.5 radians (~30 degrees)
+  let t = clamp(dir / 0.5, -1.0, 1.0);
+  if (t < 0.0) {
+    return mix(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.2, 0.4, 1.0), -t);
+  }
+  return mix(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.2, 0.2), t);
+}
+
+// Mode 3: Blend weight — black (0) -> white (1)
+fn blendWeightToColor(w: f32) -> vec3<f32> {
+  let c = clamp(w, 0.0, 1.0);
+  return vec3<f32>(c, c, c);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   // Reconstruct full barycentric coordinates
@@ -104,7 +143,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let fw = fwidth(minBary);
   let edge = smoothstep(0.0, fw * 1.5, minBary);
 
-  let fillColor = amplitudeToColor(in.amplitude);
+  let mode = u32(params.colorMode);
+  var fillColor: vec3<f32>;
+  switch (mode) {
+    case 1u: { fillColor = phaseToColor(in.phaseOffset); }
+    case 2u: { fillColor = directionToColor(in.directionOffset); }
+    case 3u: { fillColor = blendWeightToColor(in.blendWeight); }
+    default: { fillColor = amplitudeToColor(in.amplitude); }
+  }
+
   let edgeColor = vec3<f32>(0.0, 0.0, 0.0);
   let color = mix(edgeColor, fillColor, edge);
   return vec4<f32>(color, params.alpha);
@@ -123,9 +170,12 @@ interface WireframeBuffer {
   vertexCount: number;
 }
 
+const COLOR_MODE_NAMES = ["Amplitude", "Phase", "Direction", "Blend Weight"];
+
 export class WavefrontMeshDebugMode extends DebugRenderMode {
   layer = "windViz" as const;
   private selectedWaveIndex = -1; // -1 = show all
+  private colorMode = 0;
 
   private pipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
@@ -177,11 +227,14 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
         entryPoint: "vs_main",
         buffers: [
           {
-            arrayStride: 20, // 5 floats x 4 bytes
+            arrayStride: 32, // 8 floats x 4 bytes
             attributes: [
               { format: "float32x2", offset: 0, shaderLocation: 0 }, // position
               { format: "float32", offset: 8, shaderLocation: 1 }, // amplitude
-              { format: "float32x2", offset: 12, shaderLocation: 2 }, // barycentric
+              { format: "float32", offset: 12, shaderLocation: 2 }, // directionOffset
+              { format: "float32", offset: 16, shaderLocation: 3 }, // phaseOffset
+              { format: "float32", offset: 20, shaderLocation: 4 }, // blendWeight
+              { format: "float32x2", offset: 24, shaderLocation: 5 }, // barycentric
             ],
           },
         ],
@@ -277,7 +330,8 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     this.uniforms.set.cameraMatrix(cameraMatrix);
     this.uniforms.set.screenWidth(width);
     this.uniforms.set.screenHeight(height);
-    this.uniforms.set.alpha(0.7);
+    this.uniforms.set.alpha(0.5);
+    this.uniforms.set.colorMode(this.colorMode);
     this.uniforms.uploadTo(this.uniformBuffer);
 
     renderPass.setPipeline(this.pipeline);
@@ -301,7 +355,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     if (cached) return cached;
 
     const { cpuVertexData, cpuIndexData, indexCount } = mesh;
-    const floatsPerVertex = 5; // posX, posY, amplitude, baryU, baryV
+    const floatsPerVertex = 8; // posX, posY, amplitude, dirOffset, phaseOffset, blendWeight, baryU, baryV
     const expanded = new Float32Array(indexCount * floatsPerVertex);
 
     for (let i = 0; i < indexCount; i++) {
@@ -312,8 +366,11 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
       expanded[dstBase] = cpuVertexData[srcBase]; // posX
       expanded[dstBase + 1] = cpuVertexData[srcBase + 1]; // posY
       expanded[dstBase + 2] = cpuVertexData[srcBase + 2]; // amplitude
-      expanded[dstBase + 3] = bary[0]; // baryU
-      expanded[dstBase + 4] = bary[1]; // baryV
+      expanded[dstBase + 3] = cpuVertexData[srcBase + 3]; // directionOffset
+      expanded[dstBase + 4] = cpuVertexData[srcBase + 4]; // phaseOffset
+      expanded[dstBase + 5] = cpuVertexData[srcBase + 5]; // blendWeight
+      expanded[dstBase + 6] = bary[0]; // baryU
+      expanded[dstBase + 7] = bary[1]; // baryV
     }
 
     const buffer = device.createBuffer({
@@ -352,6 +409,8 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
               : this.selectedWaveIndex + 1;
         }
       }
+    } else if (key === "KeyV") {
+      this.colorMode = (this.colorMode + 1) % COLOR_MODE_NAMES.length;
     }
   }
 
@@ -395,11 +454,13 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     const meshes = wavePhysicsManager.getActiveMeshes();
     if (meshes.length === 0) return `[${builderType}] No wavefront meshes`;
 
+    const modeName = COLOR_MODE_NAMES[this.colorMode];
+
     if (this.selectedWaveIndex < 0) {
       const totalVerts = meshes.reduce((s, m) => s + m.vertexCount, 0);
       return (
-        `[${builderType}] All waves (${meshes.length} meshes, ` +
-        `${(totalVerts / 1000).toFixed(1)}k verts) [/] wave {/} builder`
+        `[${builderType}] ${modeName} | All waves (${meshes.length} meshes, ` +
+        `${(totalVerts / 1000).toFixed(1)}k verts) [/] wave {/} builder V mode`
       );
     }
 
@@ -409,7 +470,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
 
     const dirDeg = ((mesh.waveDirection * 180) / Math.PI).toFixed(0);
     return (
-      `[${builderType}] Wave ${this.selectedWaveIndex}: ` +
+      `[${builderType}] ${modeName} | Wave ${this.selectedWaveIndex}: ` +
       `${(mesh.vertexCount / 1000).toFixed(1)}k verts, ` +
       `\u03BB=${mesh.wavelength}ft, dir=${dirDeg}\u00B0, ` +
       `build ${mesh.buildTimeMs.toFixed(0)}ms`
