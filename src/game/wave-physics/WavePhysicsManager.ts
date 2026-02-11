@@ -10,11 +10,11 @@
 import type { TerrainDefinition } from "../world/terrain/LandMass";
 import type { WaveSource } from "../world/water/WaveSource";
 import { CoastlineManager } from "./CoastlineManager";
-import type { WavefrontMesh } from "./WavefrontMesh";
 import {
   buildPackedMeshBuffer,
   createPlaceholderPackedMeshBuffer,
 } from "./MeshPacking";
+import type { WavefrontMesh } from "./WavefrontMesh";
 import { WavefrontRasterizer } from "./WavefrontRasterizer";
 import {
   MeshBuildCoordinator,
@@ -104,10 +104,6 @@ export class WavePhysicsManager {
     this.rebuildPackedMeshBuffer();
 
     this.initialized = true;
-    console.log(
-      `[WavePhysicsManager] Initialized with ${coastlines.length} coastlines, ` +
-        `${this.waveSources.length} wave sources, ${this.getTotalMeshCount()} wavefront meshes`,
-    );
   }
 
   /**
@@ -203,7 +199,6 @@ export class WavePhysicsManager {
     if (this.activeBuilderType === type) return;
     this.activeBuilderType = type;
     this.rebuildPackedMeshBuffer();
-    console.log(`[WavePhysicsManager] Switched to builder type: ${type}`);
   }
 
   /**

@@ -43,8 +43,15 @@ const TERRAIN_DECAY_RATE = 1.0;
 /** Merge points closer than this fraction of vertex spacing */
 const MERGE_RATIO = 0.3;
 
-/** Split (insert interpolated midpoint) when gap exceeds this multiple of vertex spacing */
-const SPLIT_RATIO = 5.0;
+/**
+ * Split ratio for original rays (largest t-gap). Split offspring with smaller
+ * t-gaps get a progressively larger threshold (BASE × initialDeltaT / deltaT),
+ * which damps cascade splitting.
+ */
+const BASE_SPLIT_RATIO = 1.5;
+
+/** Upper bound on the effective split ratio for deeply-nested split offspring. */
+const MAX_SPLIT_RATIO = 16.0;
 
 /** Maximum number of midpoints to insert per segment per refinement pass */
 const MAX_SPLITS_PER_SEGMENT = 50;
@@ -137,11 +144,12 @@ export function generateInitialWavefront(
 function refineWavefront(
   wavefront: WavePoint[],
   vertexSpacing: number,
+  initialDeltaT: number,
+  stats: { splits: number; merges: number },
 ): WavePoint[] {
   if (wavefront.length <= 1) return wavefront;
 
   const minDistSq = (vertexSpacing * MERGE_RATIO) ** 2;
-  const maxDistSq = (vertexSpacing * SPLIT_RATIO) ** 2;
   const canSplit = wavefront.length < MAX_SEGMENT_POINTS;
 
   const result: WavePoint[] = [wavefront[0]];
@@ -156,8 +164,17 @@ function refineWavefront(
 
     if (distSq < minDistSq) {
       // Too close — skip this point
+      stats.merges++;
       continue;
     }
+
+    // t-aware split threshold: original rays (large t-gap) split eagerly at
+    // BASE_SPLIT_RATIO. Split offspring (smaller t-gap) require progressively
+    // larger physical gaps, damping cascade splitting.
+    const deltaT = Math.abs(curr.t - prev.t);
+    const tScale = deltaT > 1e-12 ? initialDeltaT / deltaT : MAX_SPLIT_RATIO;
+    const effectiveRatio = Math.min(MAX_SPLIT_RATIO, BASE_SPLIT_RATIO * tScale);
+    const maxDistSq = (vertexSpacing * effectiveRatio) ** 2;
 
     // Split: insert interpolated midpoint when gap is too large.
     // Skip if either endpoint has low energy — midpoints placed on dying rays
@@ -189,6 +206,7 @@ function refineWavefront(
         amplitude: 0,
       });
       splitCount++;
+      stats.splits++;
     }
 
     result.push(curr);
@@ -223,12 +241,15 @@ export function marchWavefronts(
   bounds: WaveBounds,
   terrain: TerrainDataForWorker,
   wavelength: number,
-): Wavefront[] {
+): { wavefronts: Wavefront[]; splits: number; merges: number } {
   const perpDx = -waveDy;
   const perpDy = waveDx;
   const wavefronts: Wavefront[] = [[firstWavefront]];
   const k = (2 * Math.PI) / wavelength;
   const gradientDelta = wavelength * 0.125;
+  const stats = { splits: 0, merges: 0 };
+  const initialDeltaT =
+    firstWavefront.length > 1 ? firstWavefront[1].t - firstWavefront[0].t : 1;
 
   function advanceRay(point: WavePoint): WavePoint | null {
     // Water depth and march speed at current position
@@ -364,12 +385,21 @@ export function marchWavefronts(
         if (p) {
           currentSegment.push(p);
         } else if (currentSegment.length > 0) {
-          nextStep.push(refineWavefront(currentSegment, vertexSpacing));
+          nextStep.push(
+            refineWavefront(
+              currentSegment,
+              vertexSpacing,
+              initialDeltaT,
+              stats,
+            ),
+          );
           currentSegment = [];
         }
       }
       if (currentSegment.length > 0) {
-        nextStep.push(refineWavefront(currentSegment, vertexSpacing));
+        nextStep.push(
+          refineWavefront(currentSegment, vertexSpacing, initialDeltaT, stats),
+        );
       }
     }
 
@@ -377,7 +407,7 @@ export function marchWavefronts(
     wavefronts.push(nextStep);
   }
 
-  return wavefronts;
+  return { wavefronts, splits: stats.splits, merges: stats.merges };
 }
 
 /**

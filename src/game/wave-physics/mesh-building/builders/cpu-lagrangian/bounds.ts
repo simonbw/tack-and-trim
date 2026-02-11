@@ -54,7 +54,7 @@ export function computeBounds(
     return { minProj: -500, maxProj: 500, minPerp: -500, maxPerp: 500 };
   }
 
-  const margin = Math.max(2000, wavelength * 3);
+  const margin = Math.max(2000, wavelength * 20);
   return {
     minProj: minProj - margin,
     maxProj: maxProj + margin,

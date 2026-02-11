@@ -89,7 +89,6 @@ export class MeshBuildCoordinator {
 
     await Promise.all(readyPromises);
     this.ready = true;
-    console.log(`[MeshBuildCoordinator] ${this.workers.length} workers ready`);
   }
 
   /**
@@ -166,19 +165,6 @@ export class MeshBuildCoordinator {
       meshSets.get(pending.builderType)!.push(mesh);
     }
 
-    // Log summary
-    for (const [type, meshes] of meshSets) {
-      if (meshes.length > 0) {
-        const totalVerts = meshes.reduce((s, m) => s + m.vertexCount, 0);
-        const totalTime = meshes.reduce((s, m) => s + m.buildTimeMs, 0);
-        console.log(
-          `[MeshBuildCoordinator] ${type}: ${meshes.length} meshes, ` +
-            `${totalVerts.toLocaleString()} total verts, ` +
-            `${totalTime.toFixed(0)}ms total build time`,
-        );
-      }
-    }
-
     return meshSets;
   }
 
@@ -210,7 +196,6 @@ export class MeshBuildCoordinator {
     for (const pending of pendingBuilds) {
       const worker = this.workers[0];
       const label = `${pending.builderType} wave ${pending.waveSourceIndex}`;
-      console.log(`[MeshBuildCoordinator] Starting ${label}...`);
       const startTime = performance.now();
 
       try {
@@ -222,9 +207,6 @@ export class MeshBuildCoordinator {
           tideHeight,
         );
         const elapsed = performance.now() - startTime;
-        console.log(
-          `[MeshBuildCoordinator] Finished ${label}: ${result.meshData.vertexCount.toLocaleString()} verts, ${elapsed.toLocaleString(undefined, { maximumFractionDigits: 0 })}ms`,
-        );
         results.push({ pending, result });
       } catch (err) {
         const elapsed = performance.now() - startTime;

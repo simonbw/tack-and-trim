@@ -25,6 +25,7 @@ import type {
   WavefrontMeshData,
 } from "../../MeshBuildTypes";
 import { computeBounds } from "./bounds";
+import { decimateWavefronts } from "./decimation";
 import {
   computeAmplitudes,
   generateInitialWavefront,
@@ -46,14 +47,16 @@ export function buildCpuLagrangianMesh(
   const waveDx = Math.cos(baseDir);
   const waveDy = Math.sin(baseDir);
 
+  let t0 = performance.now();
   const bounds = computeBounds(terrain, wavelength, waveDx, waveDy);
+  let t1 = performance.now();
   const firstWavefront = generateInitialWavefront(
     bounds,
     vertexSpacing,
     waveDx,
     waveDy,
   );
-  const wavefronts = marchWavefronts(
+  const { wavefronts, splits, merges } = marchWavefronts(
     firstWavefront,
     waveDx,
     waveDy,
@@ -63,6 +66,7 @@ export function buildCpuLagrangianMesh(
     terrain,
     wavelength,
   );
+  let t2 = performance.now();
   const initialDeltaT = 1 / (firstWavefront.length - 1);
   computeAmplitudes(
     wavefronts,
@@ -71,5 +75,44 @@ export function buildCpuLagrangianMesh(
     vertexSpacing,
     initialDeltaT,
   );
-  return buildMeshData(wavefronts, wavelength, waveDx, waveDy, bounds);
+  let t3 = performance.now();
+  const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
+    return prev + curr.reduce((sum, segment) => sum + segment.length, 0);
+  }, 0);
+  const decimated = decimateWavefronts(wavefronts, wavelength, waveDx, waveDy);
+  let t4 = performance.now();
+  const mesh = buildMeshData(
+    decimated.wavefronts,
+    wavelength,
+    waveDx,
+    waveDy,
+    bounds,
+    decimated.stepIndices,
+  );
+  let t5 = performance.now();
+
+  const decimationPercent = 100 * (1 - mesh.vertexCount / totalMarchedVerts);
+
+  const n = (s: number, digits: number = 0) =>
+    s.toLocaleString(undefined, { maximumFractionDigits: digits });
+  console.log(
+    [
+      `[cpu-lagrangian]`,
+      `build`,
+      `  splits: ${n(splits)}`,
+      `  merges: ${n(merges)}`,
+      `  simplification: ${n(totalMarchedVerts)} verts -> ${n(mesh.vertexCount)} verts (${n(decimationPercent, 0)}% reduction)`,
+      `final`,
+      `  verts: ${n(mesh.vertexCount)}`,
+      `  tris: ${n(mesh.indexCount / 3)}`,
+      `timing`,
+      `  bounds ${n(t1 - t0, 1)}ms`,
+      `  march ${n(t2 - t1, 1)}ms`,
+      `  amplitudes ${n(t3 - t2, 1)}ms`,
+      `  decimate ${n(t4 - t3, 1)}ms`,
+      `  mesh ${n(t5 - t4, 1)}ms`,
+    ].join("\n"),
+  );
+
+  return mesh;
 }
