@@ -30,9 +30,9 @@
  *    - divergence: ray spacing factor (energy spreads as rays diverge)
  */
 
-import type { TerrainDataForWorker } from "../../MeshBuildTypes";
 import { computeTerrainHeight } from "../../../cpu/terrainHeight";
-import type { Wavefront, WaveBounds, WavePoint } from "./types";
+import type { TerrainDataForWorker } from "../../MeshBuildTypes";
+import type { WaveBounds, Wavefront, WavePoint } from "./types";
 
 /** Energy fraction below which a point is considered dead */
 const MIN_ENERGY = 0.01;
@@ -42,6 +42,18 @@ const TERRAIN_DECAY_RATE = 1.0;
 
 /** Merge points closer than this fraction of vertex spacing */
 const MERGE_RATIO = 0.3;
+
+/** Split (insert interpolated midpoint) when gap exceeds this multiple of vertex spacing */
+const SPLIT_RATIO = 5.0;
+
+/** Maximum number of midpoints to insert per segment per refinement pass */
+const MAX_SPLITS_PER_SEGMENT = 50;
+
+/** Hard cap on total points in a single segment — no splitting beyond this */
+const MAX_SEGMENT_POINTS = 500;
+
+/** Minimum energy for both endpoints to allow splitting between them */
+const MIN_SPLIT_ENERGY = 0.1;
 
 /** Maximum angular change per step (radians), prevents wild rotation */
 const MAX_TURN_PER_STEP = Math.PI / 4;
@@ -119,7 +131,8 @@ export function generateInitialWavefront(
 }
 
 /**
- * Merge points that have bunched up, in a single pass that builds a new array.
+ * Merge points that have bunched up and split points that have diverged,
+ * in a single pass that builds a new array.
  */
 function refineWavefront(
   wavefront: WavePoint[],
@@ -128,8 +141,11 @@ function refineWavefront(
   if (wavefront.length <= 1) return wavefront;
 
   const minDistSq = (vertexSpacing * MERGE_RATIO) ** 2;
+  const maxDistSq = (vertexSpacing * SPLIT_RATIO) ** 2;
+  const canSplit = wavefront.length < MAX_SEGMENT_POINTS;
 
   const result: WavePoint[] = [wavefront[0]];
+  let splitCount = 0;
 
   for (let i = 1; i < wavefront.length; i++) {
     const prev = result[result.length - 1];
@@ -143,9 +159,50 @@ function refineWavefront(
       continue;
     }
 
-    // TODO: splitting (insert interpolated points when gap > maxDist)
+    // Split: insert interpolated midpoint when gap is too large.
+    // Skip if either endpoint has low energy — midpoints placed on dying rays
+    // (e.g. over terrain) tend to diverge and cause runaway splitting.
+    if (
+      canSplit &&
+      distSq > maxDistSq &&
+      splitCount < MAX_SPLITS_PER_SEGMENT &&
+      prev.energy >= MIN_SPLIT_ENERGY &&
+      curr.energy >= MIN_SPLIT_ENERGY
+    ) {
+      // Average direction, then normalize
+      let midDirX = prev.dirX + curr.dirX;
+      let midDirY = prev.dirY + curr.dirY;
+      const len = Math.sqrt(midDirX * midDirX + midDirY * midDirY);
+      if (len > 0) {
+        midDirX /= len;
+        midDirY /= len;
+      }
+
+      result.push({
+        x: (prev.x + curr.x) / 2,
+        y: (prev.y + curr.y) / 2,
+        t: (prev.t + curr.t) / 2,
+        dirX: midDirX,
+        dirY: midDirY,
+        energy: (prev.energy + curr.energy) / 2,
+        broken: prev.broken || curr.broken,
+        amplitude: 0,
+      });
+      splitCount++;
+    }
 
     result.push(curr);
+  }
+
+  if (!canSplit) {
+    console.warn(
+      `[cpu-lagrangian] Segment has ${wavefront.length} points (max ${MAX_SEGMENT_POINTS}), splitting disabled.`,
+    );
+  } else if (splitCount >= MAX_SPLITS_PER_SEGMENT) {
+    console.warn(
+      `[cpu-lagrangian] Split limit reached (${MAX_SPLITS_PER_SEGMENT} per segment). ` +
+        `Rays may be diverging excessively.`,
+    );
   }
 
   return result;
@@ -328,16 +385,19 @@ export function marchWavefronts(
  * Combines three independent factors:
  * - energy:     surviving fraction after dissipative losses (from marching)
  * - shoaling:   depth-based amplification (waves get taller in shallow water)
- * - divergence: sqrt(initialSpacing / currentSpacing), energy spreads as rays
- *               diverge and concentrates as they converge
+ * - divergence: ratio of expected spacing (from t) to actual physical spacing,
+ *               so that split midpoints don't get artificially amplified
  */
 export function computeAmplitudes(
   wavefronts: Wavefront[],
   terrain: TerrainDataForWorker,
   wavelength: number,
   vertexSpacing: number,
+  initialDeltaT: number,
 ): void {
   const k = (2 * Math.PI) / wavelength;
+  // Physical spacing per unit t in the initial wavefront
+  const spacingPerT = vertexSpacing / initialDeltaT;
 
   for (const step of wavefronts) {
     for (const wf of step) {
@@ -352,27 +412,37 @@ export function computeAmplitudes(
             ? Math.min(computeShoalingFactor(depth, k), MAX_AMPLIFICATION)
             : 1.0;
 
-        // Divergence from spacing between adjacent rays (within segment only)
+        // Divergence from spacing between adjacent rays (within segment only).
+        // Use the t-gap to compute expected initial spacing so that split
+        // midpoints use the correct reference (half the original spacing).
         let localSpacing: number;
+        let deltaT: number;
         if (wf.length <= 1) {
           localSpacing = vertexSpacing;
+          deltaT = initialDeltaT;
         } else if (i === 0) {
           const next = wf[i + 1];
           localSpacing = Math.sqrt((p.x - next.x) ** 2 + (p.y - next.y) ** 2);
+          deltaT = next.t - p.t;
         } else if (i === wf.length - 1) {
           const prev = wf[i - 1];
           localSpacing = Math.sqrt((p.x - prev.x) ** 2 + (p.y - prev.y) ** 2);
+          deltaT = p.t - prev.t;
         } else {
           const prev = wf[i - 1];
           const next = wf[i + 1];
           const dPrev = Math.sqrt((p.x - prev.x) ** 2 + (p.y - prev.y) ** 2);
           const dNext = Math.sqrt((p.x - next.x) ** 2 + (p.y - next.y) ** 2);
           localSpacing = (dPrev + dNext) / 2;
+          deltaT = (next.t - prev.t) / 2;
         }
+
+        // Expected initial spacing for this t-gap
+        const expectedSpacing = deltaT * spacingPerT;
 
         const divergence = Math.min(
           MAX_AMPLIFICATION,
-          Math.sqrt(vertexSpacing / localSpacing),
+          Math.sqrt(expectedSpacing / localSpacing),
         );
 
         p.amplitude = p.energy * shoaling * divergence;

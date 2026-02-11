@@ -63,6 +63,13 @@ export function buildCpuLagrangianMesh(
     terrain,
     wavelength,
   );
-  computeAmplitudes(wavefronts, terrain, wavelength, vertexSpacing);
+  const initialDeltaT = 1 / (firstWavefront.length - 1);
+  computeAmplitudes(
+    wavefronts,
+    terrain,
+    wavelength,
+    vertexSpacing,
+    initialDeltaT,
+  );
   return buildMeshData(wavefronts, wavelength, waveDx, waveDy, bounds);
 }
