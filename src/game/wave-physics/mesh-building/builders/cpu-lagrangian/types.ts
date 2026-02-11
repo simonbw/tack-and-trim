@@ -6,6 +6,15 @@ export interface WavePoint {
   y: number;
   /** Parametric position along the wavefront [0..1], used for triangulation */
   t: number;
+  /** Ray propagation direction (unit vector), updated each step via Snell's law */
+  dirX: number;
+  dirY: number;
+  /** Surviving energy fraction [0, 1], only decreases (terrain attenuation, breaking) */
+  energy: number;
+  /** Whether this ray has broken (sticky — once true, stays true) */
+  broken: boolean;
+  /** Final amplitude factor = energy * shoaling, written to mesh vertices */
+  amplitude: number;
 }
 
 /** Bounding box aligned to the wave propagation direction */
@@ -15,3 +24,9 @@ export interface WaveBounds {
   minPerp: number; // wave-left edge
   maxPerp: number; // wave-right edge
 }
+
+/** A contiguous run of connected wave points */
+export type WavefrontSegment = WavePoint[];
+
+/** A wavefront step: one or more disconnected segments (split by dead rays) */
+export type Wavefront = WavefrontSegment[];

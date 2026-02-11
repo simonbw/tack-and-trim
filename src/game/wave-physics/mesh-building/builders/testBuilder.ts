@@ -91,5 +91,6 @@ export function buildTestMesh(
     indices,
     vertexCount,
     indexCount,
+    coverageQuad: null,
   };
 }

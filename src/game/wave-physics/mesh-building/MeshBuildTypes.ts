@@ -28,6 +28,8 @@ export interface WavefrontMeshData {
   vertexCount: number;
   /** Number of active indices */
   indexCount: number;
+  /** World-space oriented quad corners for shadow/open-ocean distinction (4 corners, CW or CCW) */
+  coverageQuad: CoverageQuad | null;
 }
 
 /**
@@ -54,6 +56,18 @@ export interface MeshBuildBounds {
   minY: number;
   maxX: number;
   maxY: number;
+}
+
+/** 4 corners of an oriented bounding quad in world space (for rasterizer coverage) */
+export interface CoverageQuad {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  x3: number;
+  y3: number;
 }
 
 /** What a worker receives */

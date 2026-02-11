@@ -81,6 +81,9 @@ export class WavefrontRasterizer {
   private uniforms = RasterizerUniforms.create();
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private coverageQuadVertexBuffer: GPUBuffer | null = null;
+  private coverageQuadIndexBuffer: GPUBuffer | null = null;
+  private coverageQuadVertices = new Float32Array(4 * 6);
   private initialized = false;
 
   async init(): Promise<void> {
@@ -171,6 +174,20 @@ export class WavefrontRasterizer {
       label: "Wavefront Rasterizer Bind Group",
     });
 
+    // Coverage quad buffers for shadow zone marking
+    this.coverageQuadVertexBuffer = device.createBuffer({
+      size: 4 * 6 * 4, // 4 vertices × 6 floats × 4 bytes
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      label: "Coverage Quad Vertex Buffer",
+    });
+    const quadIndices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+    this.coverageQuadIndexBuffer = device.createBuffer({
+      size: quadIndices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      label: "Coverage Quad Index Buffer",
+    });
+    device.queue.writeBuffer(this.coverageQuadIndexBuffer, 0, quadIndices);
+
     this.initialized = true;
   }
 
@@ -230,6 +247,55 @@ export class WavefrontRasterizer {
 
       renderPass.setPipeline(this.pipeline);
       renderPass.setBindGroup(0, this.bindGroup);
+
+      // Draw coverage quad first: fills bounding area with zero-phasor, coverage=1.
+      // Areas inside the bounds but without mesh triangles become shadow zones.
+      // Areas outside the bounds remain at coverage=0 (open ocean).
+      // Uses the oriented bounding box (not AABB) to match the wave-aligned mesh bounds.
+      if (
+        mesh.coverageQuad &&
+        this.coverageQuadVertexBuffer &&
+        this.coverageQuadIndexBuffer
+      ) {
+        const q = mesh.coverageQuad;
+        const v = this.coverageQuadVertices;
+        // 4 vertices × 6 floats: [posX, posY, ampFactor, dirOffset, phaseOffset, blendWeight]
+        // ampFactor=0 → phasors (0,0), coverage=1 from fragment shader
+        v[0] = q.x0;
+        v[1] = q.y0;
+        v[2] = 0;
+        v[3] = 0;
+        v[4] = 0;
+        v[5] = 0;
+        v[6] = q.x1;
+        v[7] = q.y1;
+        v[8] = 0;
+        v[9] = 0;
+        v[10] = 0;
+        v[11] = 0;
+        v[12] = q.x2;
+        v[13] = q.y2;
+        v[14] = 0;
+        v[15] = 0;
+        v[16] = 0;
+        v[17] = 0;
+        v[18] = q.x3;
+        v[19] = q.y3;
+        v[20] = 0;
+        v[21] = 0;
+        v[22] = 0;
+        v[23] = 0;
+        getWebGPU().device.queue.writeBuffer(
+          this.coverageQuadVertexBuffer,
+          0,
+          v,
+        );
+        renderPass.setVertexBuffer(0, this.coverageQuadVertexBuffer);
+        renderPass.setIndexBuffer(this.coverageQuadIndexBuffer, "uint32");
+        renderPass.drawIndexed(6);
+      }
+
+      // Draw mesh triangles on top — additive blending accumulates phasors
       renderPass.setVertexBuffer(0, mesh.vertexBuffer);
       renderPass.setIndexBuffer(mesh.indexBuffer, "uint32");
       renderPass.drawIndexed(mesh.indexCount);
@@ -263,7 +329,11 @@ export class WavefrontRasterizer {
 
   destroy(): void {
     this.uniformBuffer?.destroy();
+    this.coverageQuadVertexBuffer?.destroy();
+    this.coverageQuadIndexBuffer?.destroy();
     this.uniformBuffer = null;
+    this.coverageQuadVertexBuffer = null;
+    this.coverageQuadIndexBuffer = null;
     this.pipeline = null;
     this.bindGroup = null;
     this.bindGroupLayout = null;

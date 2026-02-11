@@ -10,6 +10,7 @@
  * Use V to cycle through color modes (amplitude, phase, direction, blend weight).
  */
 
+import { type JSX } from "preact";
 import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import {
@@ -19,6 +20,7 @@ import {
   type UniformInstance,
 } from "../../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { profiler } from "../../../core/util/Profiler";
 import {
   VERTEX_FLOATS,
   type WavefrontMesh,
@@ -33,9 +35,16 @@ const WavefrontDebugUniforms = defineUniformStruct("WavefrontDebugParams", {
   screenHeight: f32,
   alpha: f32,
   colorMode: f32,
+  waveDirection: f32,
+  wavelength: f32,
+  time: f32,
+  phaseRange: f32,
 });
 
 const SHADER_CODE = /*wgsl*/ `
+const GRAVITY = 32.174;
+const TWO_PI = 6.283185;
+
 struct WavefrontDebugParams {
   cameraMatrix0: vec4<f32>,
   cameraMatrix1: vec4<f32>,
@@ -44,6 +53,10 @@ struct WavefrontDebugParams {
   screenHeight: f32,
   alpha: f32,
   colorMode: f32,
+  waveDirection: f32,
+  wavelength: f32,
+  time: f32,
+  phaseRange: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: WavefrontDebugParams;
@@ -64,6 +77,7 @@ struct VertexOutput {
   @location(2) phaseOffset: f32,
   @location(3) blendWeight: f32,
   @location(4) barycentric: vec2<f32>,
+  @location(5) worldPos: vec2<f32>,
 }
 
 fn getCameraMatrix() -> mat3x3<f32> {
@@ -88,6 +102,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   out.phaseOffset = in.phaseOffset;
   out.blendWeight = in.blendWeight;
   out.barycentric = in.barycentric;
+  out.worldPos = in.position;
   return out;
 }
 
@@ -108,29 +123,29 @@ fn amplitudeToColor(amp: f32) -> vec3<f32> {
 
 // Mode 1: Phase offset — cyclic rainbow
 fn phaseToColor(phase: f32) -> vec3<f32> {
-  // Normalize phase to [0,1) using fract so it wraps cyclically
-  let t = fract(phase / 6.283185);
-  // HSV-style hue wheel
+  let t = fract(phase / TWO_PI);
   let r = abs(t * 6.0 - 3.0) - 1.0;
   let g = 2.0 - abs(t * 6.0 - 2.0);
   let b = 2.0 - abs(t * 6.0 - 4.0);
   return saturate(vec3<f32>(r, g, b));
 }
 
-// Mode 2: Direction offset — blue (negative) -> white (zero) -> red (positive)
-fn directionToColor(dir: f32) -> vec3<f32> {
-  // Map to [-1, 1] range, clamped at +/- 0.5 radians (~30 degrees)
-  let t = clamp(dir / 0.5, -1.0, 1.0);
-  if (t < 0.0) {
-    return mix(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.2, 0.4, 1.0), -t);
-  }
-  return mix(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.2, 0.2), t);
-}
+// Mode 2: Single animated wavefront band sweeping across the mesh
+fn wavefrontBand(worldPos: vec2<f32>, phaseOffset: f32) -> f32 {
+  let k = TWO_PI / params.wavelength;
+  let omega = sqrt(GRAVITY * k);
+  let dirUnit = vec2<f32>(cos(params.waveDirection), sin(params.waveDirection));
+  let totalPhase = k * dot(worldPos, dirUnit) + phaseOffset;
 
-// Mode 3: Blend weight — black (0) -> white (1)
-fn blendWeightToColor(w: f32) -> vec3<f32> {
-  let c = clamp(w, 0.0, 1.0);
-  return vec3<f32>(c, c, c);
+  // Wrap (totalPhase - omega*time*speedMult) into [0, phaseRange) for a single band
+  let diff = totalPhase - omega * params.time * 20.0;
+  let range = params.phaseRange;
+  let wrapped = diff - floor(diff / range) * range;
+
+  // Highlight near wrapped ≈ 0 (with wrapping at range boundary)
+  let distToBand = min(wrapped, range - wrapped);
+  let bandWidth = range * 0.003;
+  return step(distToBand, bandWidth);
 }
 
 @fragment
@@ -144,11 +159,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let edge = smoothstep(0.0, fw * 1.5, minBary);
 
   let mode = u32(params.colorMode);
+
+  // Wavefront mode: transparent background, band alpha varies with amplitude
+  if (mode == 2u) {
+    let band = wavefrontBand(in.worldPos, in.phaseOffset);
+    if (band < 0.5) { discard; }
+    let amp = clamp(in.amplitude, 0.0, 1.5);
+    let a = mix(0.15, 1.0, amp);
+    return vec4<f32>(0.2, 0.7, 1.0, a);
+  }
+
   var fillColor: vec3<f32>;
   switch (mode) {
     case 1u: { fillColor = phaseToColor(in.phaseOffset); }
-    case 2u: { fillColor = directionToColor(in.directionOffset); }
-    case 3u: { fillColor = blendWeightToColor(in.blendWeight); }
     default: { fillColor = amplitudeToColor(in.amplitude); }
   }
 
@@ -168,14 +191,17 @@ const BARY_COORDS = [
 interface WireframeBuffer {
   buffer: GPUBuffer;
   vertexCount: number;
+  /** Range of totalPhase values across the mesh, for single-band wrapping */
+  totalPhaseRange: number;
 }
 
-const COLOR_MODE_NAMES = ["Amplitude", "Phase", "Direction", "Blend Weight"];
+const COLOR_MODE_NAMES = ["Amplitude", "Phase", "Wavefront"];
 
 export class WavefrontMeshDebugMode extends DebugRenderMode {
   layer = "windViz" as const;
   private selectedWaveIndex = -1; // -1 = show all
   private colorMode = 0;
+  private waveTimeOffset = 0;
 
   private pipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
@@ -330,9 +356,9 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     this.uniforms.set.cameraMatrix(cameraMatrix);
     this.uniforms.set.screenWidth(width);
     this.uniforms.set.screenHeight(height);
-    this.uniforms.set.alpha(0.5);
+    this.uniforms.set.alpha(0.7);
     this.uniforms.set.colorMode(this.colorMode);
-    this.uniforms.uploadTo(this.uniformBuffer);
+    this.uniforms.set.time(this.game.elapsedTime - this.waveTimeOffset);
 
     renderPass.setPipeline(this.pipeline);
     renderPass.setBindGroup(0, this.bindGroup);
@@ -340,7 +366,12 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     for (let w = 0; w < meshes.length; w++) {
       if (this.selectedWaveIndex >= 0 && this.selectedWaveIndex !== w) continue;
 
-      const wireframe = this.getWireframeBuffer(meshes[w], device);
+      const mesh = meshes[w];
+      const wireframe = this.getWireframeBuffer(mesh, device);
+      this.uniforms.set.waveDirection(mesh.waveDirection);
+      this.uniforms.set.wavelength(mesh.wavelength);
+      this.uniforms.set.phaseRange(wireframe.totalPhaseRange);
+      this.uniforms.uploadTo(this.uniformBuffer);
       renderPass.setVertexBuffer(0, wireframe.buffer);
       renderPass.draw(wireframe.vertexCount);
     }
@@ -358,19 +389,34 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     const floatsPerVertex = 8; // posX, posY, amplitude, dirOffset, phaseOffset, blendWeight, baryU, baryV
     const expanded = new Float32Array(indexCount * floatsPerVertex);
 
+    // Compute totalPhase range for single-band wavefront mode
+    const k = (2 * Math.PI) / mesh.wavelength;
+    const dirCos = Math.cos(mesh.waveDirection);
+    const dirSin = Math.sin(mesh.waveDirection);
+    let minPhase = Infinity;
+    let maxPhase = -Infinity;
+
     for (let i = 0; i < indexCount; i++) {
       const srcBase = cpuIndexData[i] * VERTEX_FLOATS;
       const dstBase = i * floatsPerVertex;
       const bary = BARY_COORDS[i % 3];
 
-      expanded[dstBase] = cpuVertexData[srcBase]; // posX
-      expanded[dstBase + 1] = cpuVertexData[srcBase + 1]; // posY
+      const px = cpuVertexData[srcBase];
+      const py = cpuVertexData[srcBase + 1];
+      const phaseOffset = cpuVertexData[srcBase + 4];
+
+      expanded[dstBase] = px;
+      expanded[dstBase + 1] = py;
       expanded[dstBase + 2] = cpuVertexData[srcBase + 2]; // amplitude
       expanded[dstBase + 3] = cpuVertexData[srcBase + 3]; // directionOffset
-      expanded[dstBase + 4] = cpuVertexData[srcBase + 4]; // phaseOffset
+      expanded[dstBase + 4] = phaseOffset;
       expanded[dstBase + 5] = cpuVertexData[srcBase + 5]; // blendWeight
       expanded[dstBase + 6] = bary[0]; // baryU
       expanded[dstBase + 7] = bary[1]; // baryV
+
+      const totalPhase = k * (px * dirCos + py * dirSin) + phaseOffset;
+      minPhase = Math.min(minPhase, totalPhase);
+      maxPhase = Math.max(maxPhase, totalPhase);
     }
 
     const buffer = device.createBuffer({
@@ -380,7 +426,12 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     });
     device.queue.writeBuffer(buffer, 0, expanded);
 
-    const entry: WireframeBuffer = { buffer, vertexCount: indexCount };
+    const totalPhaseRange = maxPhase - minPhase;
+    const entry: WireframeBuffer = {
+      buffer,
+      vertexCount: indexCount,
+      totalPhaseRange,
+    };
     this.wireframeCache.set(mesh, entry);
     return entry;
   }
@@ -388,29 +439,14 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
   @on("keyDown")
   onKeyDown({ key, event }: GameEventMap["keyDown"]): void {
     if (key === "BracketLeft" || key === "BracketRight") {
+      const dir = key === "BracketRight" ? 1 : -1;
       if (event.shiftKey) {
-        // Shift+[ = { / Shift+] = } — cycle builder types
-        this.cycleBuilderType(key === "BracketRight");
+        this.cycleBuilderType(dir === 1);
       } else {
-        // [ ] — cycle wave sources
-        const waterResources =
-          this.game.entities.tryGetSingleton(WaterResources);
-        const numWaves = waterResources?.getNumWaves() ?? 1;
-
-        if (key === "BracketLeft") {
-          this.selectedWaveIndex =
-            this.selectedWaveIndex <= -1
-              ? numWaves - 1
-              : this.selectedWaveIndex - 1;
-        } else {
-          this.selectedWaveIndex =
-            this.selectedWaveIndex >= numWaves - 1
-              ? -1
-              : this.selectedWaveIndex + 1;
-        }
+        this.cycleWaveIndex(dir);
       }
     } else if (key === "KeyV") {
-      this.colorMode = (this.colorMode + 1) % COLOR_MODE_NAMES.length;
+      this.cycleColorMode(event.shiftKey ? -1 : 1);
     }
   }
 
@@ -444,7 +480,21 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     return "Wavefront Mesh";
   }
 
-  getHudInfo(): string | null {
+  private cycleColorMode(direction: 1 | -1): void {
+    const n = COLOR_MODE_NAMES.length;
+    this.colorMode = (this.colorMode + direction + n) % n;
+  }
+
+  private cycleWaveIndex(direction: 1 | -1): void {
+    const waterResources = this.game.entities.tryGetSingleton(WaterResources);
+    const numWaves = waterResources?.getNumWaves() ?? 1;
+    // Range: -1 (all) through numWaves-1
+    const total = numWaves + 1;
+    this.selectedWaveIndex =
+      ((this.selectedWaveIndex + 1 + direction + total) % total) - 1;
+  }
+
+  getHudInfo(): JSX.Element | string | null {
     const wavePhysicsResources =
       this.game.entities.tryGetSingleton(WavePhysicsResources);
     const wavePhysicsManager = wavePhysicsResources?.getWavePhysicsManager();
@@ -452,28 +502,145 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
 
     const builderType = wavePhysicsManager.getActiveBuilderType();
     const meshes = wavePhysicsManager.getActiveMeshes();
-    if (meshes.length === 0) return `[${builderType}] No wavefront meshes`;
 
-    const modeName = COLOR_MODE_NAMES[this.colorMode];
+    const chipStyle = {
+      cursor: "pointer",
+      padding: "1px 6px",
+      borderRadius: "3px",
+      background: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.2)",
+    };
 
-    if (this.selectedWaveIndex < 0) {
-      const totalVerts = meshes.reduce((s, m) => s + m.vertexCount, 0);
-      return (
-        `[${builderType}] ${modeName} | All waves (${meshes.length} meshes, ` +
-        `${(totalVerts / 1000).toFixed(1)}k verts) [/] wave {/} builder V mode`
-      );
+    const labelStyle = {
+      color: "#888",
+      fontSize: "11px",
+    };
+
+    const dimStyle = { color: "#aaa", fontSize: "11px" };
+    const monoStyle = { fontFamily: "monospace", fontSize: "11px" };
+
+    const waveLabel =
+      this.selectedWaveIndex < 0
+        ? `All (${meshes.length})`
+        : `${this.selectedWaveIndex + 1} / ${meshes.length}`;
+
+    const mesh =
+      this.selectedWaveIndex >= 0 ? meshes[this.selectedWaveIndex] : undefined;
+
+    const totalVerts =
+      this.selectedWaveIndex < 0
+        ? meshes.reduce((s, m) => s + m.vertexCount, 0)
+        : (mesh?.vertexCount ?? 0);
+
+    // GPU timing
+    const gpuProfiler = this.game.getRenderer().getGpuProfiler();
+    const gpu = gpuProfiler?.getAllMs();
+
+    // CPU timing — find wave-related profiler entries
+    const cpuStats = profiler.getStats();
+    const cpuEntries: Array<{ label: string; ms: number }> = [];
+    for (const stat of cpuStats) {
+      if (
+        stat.msPerFrame > 0.01 &&
+        (stat.label.includes("wave") ||
+          stat.label.includes("Wave") ||
+          stat.label.includes("mesh") ||
+          stat.label.includes("Mesh") ||
+          stat.label.includes("rasteriz") ||
+          stat.label.includes("Rasteriz") ||
+          stat.label.includes("coastline") ||
+          stat.label.includes("Coastline"))
+      ) {
+        cpuEntries.push({ label: stat.shortLabel, ms: stat.msPerFrame });
+      }
     }
 
-    const mesh = meshes[this.selectedWaveIndex];
-    if (!mesh)
-      return `[${builderType}] Wave ${this.selectedWaveIndex}: not found`;
+    const fmtMs = (ms: number) => ms.toFixed(2);
 
-    const dirDeg = ((mesh.waveDirection * 180) / Math.PI).toFixed(0);
     return (
-      `[${builderType}] ${modeName} | Wave ${this.selectedWaveIndex}: ` +
-      `${(mesh.vertexCount / 1000).toFixed(1)}k verts, ` +
-      `\u03BB=${mesh.wavelength}ft, dir=${dirDeg}\u00B0, ` +
-      `build ${mesh.buildTimeMs.toFixed(0)}ms`
+      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          <span>
+            <span style={labelStyle}>Color </span>
+            <span
+              style={chipStyle}
+              onClick={() => this.cycleColorMode(1)}
+              title="Click to cycle (V / Shift+V)"
+            >
+              {COLOR_MODE_NAMES[this.colorMode]}
+            </span>
+          </span>
+          <span>
+            <span style={labelStyle}>Wave </span>
+            <span
+              style={chipStyle}
+              onClick={() => this.cycleWaveIndex(1)}
+              title="Click to cycle ([ / ])"
+            >
+              {waveLabel}
+            </span>
+          </span>
+          <span>
+            <span style={labelStyle}>Builder </span>
+            <span
+              style={chipStyle}
+              onClick={() => this.cycleBuilderType(true)}
+              title="Click to cycle ({ / })"
+            >
+              {builderType}
+            </span>
+          </span>
+          {this.colorMode === COLOR_MODE_NAMES.indexOf("Wavefront") && (
+            <span
+              style={chipStyle}
+              onClick={() => {
+                this.waveTimeOffset = this.game.elapsedTime;
+              }}
+              title="Reset wavefront animation"
+            >
+              Reset
+            </span>
+          )}
+        </div>
+
+        <div style={dimStyle}>
+          {mesh ? (
+            <span>
+              {(mesh.vertexCount / 1000).toFixed(1)}k verts {"\u03BB"}=
+              {mesh.wavelength}ft dir=
+              {((mesh.waveDirection * 180) / Math.PI).toFixed(0)}&deg; build=
+              {mesh.buildTimeMs.toFixed(0)}ms
+            </span>
+          ) : (
+            <span>{(totalVerts / 1000).toFixed(1)}k verts total</span>
+          )}
+        </div>
+
+        {gpu && (
+          <div style={monoStyle}>
+            <div style={labelStyle}>GPU</div>
+            <div>
+              surface.water {fmtMs(gpu["surface.water"])}ms &nbsp;
+              surface.terrain {fmtMs(gpu["surface.terrain"])}ms
+            </div>
+            <div>
+              query.water {fmtMs(gpu["query.water"])}ms &nbsp; query.copy{" "}
+              {fmtMs(gpu["query.copy"])}ms
+            </div>
+          </div>
+        )}
+
+        {cpuEntries.length > 0 && (
+          <div style={monoStyle}>
+            <div style={labelStyle}>CPU</div>
+            {cpuEntries.map((e) => (
+              <div key={e.label}>
+                {e.label} {fmtMs(e.ms)}ms
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     );
   }
 }

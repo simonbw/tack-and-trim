@@ -122,8 +122,14 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> f32 {
     let coverage = waveField.b;
 
     if (coverage > 0.0) {
-      energyFactors[i] = sqrt(pc * pc + ps * ps);
-      phaseCorrections[i] = atan2(ps, pc);
+      let mag = sqrt(pc * pc + ps * ps);
+      energyFactors[i] = mag;
+      // Avoid atan2(0, 0) which is undefined on GPU — can produce NaN
+      if (mag > 0.001) {
+        phaseCorrections[i] = atan2(ps, pc);
+      } else {
+        phaseCorrections[i] = 0.0;
+      }
     } else {
       energyFactors[i] = 1.0;
       phaseCorrections[i] = 0.0;

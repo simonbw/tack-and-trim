@@ -13,7 +13,7 @@ import { on } from "../../core/entity/handler";
 import { ReactEntity } from "../../core/ReactEntity";
 import { DebugRenderMode } from "./modes/DebugRenderMode";
 import { TerrainHeightDebugMode } from "./modes/TerrainHeightDebugMode";
-import { WavefrontMeshDebugMode } from "./modes/WavefrontMeshDebugMode";
+import { WavefrontMeshDebugMode } from "./modes/WavefrontMeshDebugMode.js";
 import { WindFieldDebugMode } from "./modes/WindFieldDebugMode";
 import "./DebugHUD.css";
 

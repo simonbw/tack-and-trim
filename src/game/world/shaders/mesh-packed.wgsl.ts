@@ -291,11 +291,8 @@ fn lookupMeshForWave(
     }
   }
 
-  // If no containing triangle found, use open ocean defaults
-  if (!result.found) {
-    result.phasorCos = 1.0;
-    result.phasorSin = 0.0;
-  }
+  // Inside grid but no containing triangle: this is a shadow zone (zero amplitude).
+  // Points outside the grid already returned open ocean defaults above.
 
   return result;
 }

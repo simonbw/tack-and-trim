@@ -1173,6 +1173,7 @@ export function buildTerrainEulerianMesh(
       indices: new Uint32Array(0),
       vertexCount: 0,
       indexCount: 0,
+      coverageQuad: null,
     };
   }
 
@@ -1187,6 +1188,7 @@ export function buildTerrainEulerianMesh(
       indices: new Uint32Array(0),
       vertexCount: 0,
       indexCount: 0,
+      coverageQuad: null,
     };
   }
 
@@ -1253,5 +1255,6 @@ export function buildTerrainEulerianMesh(
     indices,
     vertexCount,
     indexCount,
+    coverageQuad: null,
   };
 }

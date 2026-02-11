@@ -1184,7 +1184,7 @@ function triangulateCells(
     indices[i] = triangles[i];
   }
 
-  return { vertices, indices, vertexCount, indexCount };
+  return { vertices, indices, vertexCount, indexCount, coverageQuad: null };
 }
 
 /**

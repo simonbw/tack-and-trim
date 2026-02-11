@@ -15,8 +15,11 @@
  * [5] blendWeight (f32): 0=use open ocean defaults, 1=use mesh values
  */
 
-import type { WavefrontMeshData } from "./mesh-building/MeshBuildTypes";
-import type { MeshBuilderType } from "./mesh-building/MeshBuildTypes";
+import type {
+  CoverageQuad,
+  MeshBuilderType,
+  WavefrontMeshData,
+} from "./mesh-building/MeshBuildTypes";
 import type { WaveSource } from "../world/water/WaveSource";
 
 /** Number of floats per mesh vertex */
@@ -50,6 +53,9 @@ export class WavefrontMesh {
   /** Time taken to build this mesh in milliseconds */
   buildTimeMs: number;
 
+  /** Oriented bounding quad (4 world-space corners) for shadow/open-ocean distinction */
+  coverageQuad: CoverageQuad | null;
+
   constructor(params: {
     vertexBuffer: GPUBuffer;
     indexBuffer: GPUBuffer;
@@ -61,6 +67,7 @@ export class WavefrontMesh {
     waveDirection: number;
     builderType: MeshBuilderType;
     buildTimeMs: number;
+    coverageQuad: CoverageQuad | null;
   }) {
     this.vertexBuffer = params.vertexBuffer;
     this.indexBuffer = params.indexBuffer;
@@ -72,6 +79,7 @@ export class WavefrontMesh {
     this.waveDirection = params.waveDirection;
     this.builderType = params.builderType;
     this.buildTimeMs = params.buildTimeMs;
+    this.coverageQuad = params.coverageQuad;
   }
 
   /**
@@ -116,6 +124,7 @@ export class WavefrontMesh {
       waveDirection: waveSource.direction,
       builderType,
       buildTimeMs,
+      coverageQuad: data.coverageQuad,
     });
   }
 
