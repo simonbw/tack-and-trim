@@ -10,10 +10,7 @@
 import type { WaveSource } from "../../world/water/WaveSource";
 
 /** Builder type identifier */
-export type MeshBuilderType =
-  | "cpu-lagrangian"
-  | "terrain-eulerian"
-  | "grid-eulerian";
+export type MeshBuilderType = "cpu-lagrangian";
 
 /**
  * CPU-only mesh data — what workers produce and transfer back.

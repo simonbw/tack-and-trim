@@ -39,11 +39,7 @@ export class WavePhysicsManager {
   private meshCoordinator = new MeshBuildCoordinator();
 
   /** Active builder types to build meshes for */
-  private activeBuilderTypes: MeshBuilderType[] = [
-    "cpu-lagrangian",
-    "grid-eulerian",
-    "terrain-eulerian",
-  ];
+  private activeBuilderTypes: MeshBuilderType[] = ["cpu-lagrangian"];
 
   /** Currently selected builder type for rendering/queries */
   private activeBuilderType: MeshBuilderType = "cpu-lagrangian";

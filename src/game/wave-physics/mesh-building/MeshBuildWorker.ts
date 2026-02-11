@@ -7,9 +7,6 @@
  */
 
 import { buildCpuLagrangianMesh } from "./builders/cpu-lagrangian";
-import { buildGridEulerianMesh } from "./builders/gridEulerianBuilder";
-
-import { buildTerrainEulerianMesh } from "./builders/terrainEulerianBuilder";
 import type {
   MeshBuildRequest,
   MeshBuildResult,
@@ -35,37 +32,12 @@ workerSelf.onmessage = (event: MessageEvent<MeshBuildRequest>) => {
   try {
     let meshData;
 
-    switch (request.builderType) {
-      case "grid-eulerian":
-        meshData = buildGridEulerianMesh(
-          request.waveSource,
-          request.coastlineBounds,
-          request.terrain,
-          request.tideHeight,
-        );
-        break;
-
-      case "terrain-eulerian":
-        meshData = buildTerrainEulerianMesh(
-          request.waveSource,
-          request.coastlineBounds,
-          request.terrain,
-          request.tideHeight,
-        );
-        break;
-
-      case "cpu-lagrangian":
-        meshData = buildCpuLagrangianMesh(
-          request.waveSource,
-          request.coastlineBounds,
-          request.terrain,
-          request.tideHeight,
-        );
-        break;
-
-      default:
-        throw new Error(`Unknown builder type: ${request.builderType}`);
-    }
+    meshData = buildCpuLagrangianMesh(
+      request.waveSource,
+      request.coastlineBounds,
+      request.terrain,
+      request.tideHeight,
+    );
 
     const buildTimeMs = performance.now() - startTime;
 

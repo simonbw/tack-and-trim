@@ -24,8 +24,6 @@ import {
   normalizeTerrainWinding,
 } from "../src/game/world/terrain/LandMass";
 import { buildCpuLagrangianMesh } from "../src/game/wave-physics/mesh-building/builders/cpu-lagrangian";
-import { buildGridEulerianMesh } from "../src/game/wave-physics/mesh-building/builders/gridEulerianBuilder";
-import { buildTerrainEulerianMesh } from "../src/game/wave-physics/mesh-building/builders/terrainEulerianBuilder";
 import type {
   MeshBuildBounds,
   MeshBuilderType,
@@ -47,15 +45,9 @@ type BuilderFn = (
 
 const builders: Record<MeshBuilderType, BuilderFn> = {
   "cpu-lagrangian": buildCpuLagrangianMesh,
-  "grid-eulerian": buildGridEulerianMesh,
-  "terrain-eulerian": buildTerrainEulerianMesh,
 };
 
-const allBuilderTypes: MeshBuilderType[] = [
-  "cpu-lagrangian",
-  "grid-eulerian",
-  "terrain-eulerian",
-];
+const allBuilderTypes: MeshBuilderType[] = ["cpu-lagrangian"];
 
 // ---------------------------------------------------------------------------
 // Parse CLI args
