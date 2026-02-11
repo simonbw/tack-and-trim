@@ -6,8 +6,9 @@
  * this texture to get per-wave amplitude, direction offset, and phase correction
  * instead of computing shadow/refraction/terrain-factor per pixel.
  *
- * Fragment output: vec4(amplitudeFactor, directionOffset, phaseOffset, blendWeight)
- * Clear color: (1.0, 0.0, 0.0, 0.0) = open ocean defaults (blendWeight=0 means ignore mesh)
+ * Fragment output: vec4(phasorCos, phasorSin, coverage, 0)
+ * Clear color: (0, 0, 0, 0) = zero phasors (no mesh coverage)
+ * Additive blending accumulates phasor contributions from overlapping triangles.
  */
 
 import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
@@ -65,7 +66,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  return vec4<f32>(in.amplitudeFactor, in.directionOffset, in.phaseOffset, in.blendWeight);
+  let pc = in.amplitudeFactor * cos(in.phaseOffset);
+  let ps = in.amplitudeFactor * sin(in.phaseOffset);
+  return vec4<f32>(pc, ps, 1.0, 0.0);
 }
 `;
 
@@ -130,6 +133,18 @@ export class WavefrontRasterizer {
         targets: [
           {
             format: "rgba16float",
+            blend: {
+              color: {
+                srcFactor: "one",
+                dstFactor: "one",
+                operation: "add",
+              },
+              alpha: {
+                srcFactor: "one",
+                dstFactor: "one",
+                operation: "add",
+              },
+            },
           },
         ],
       },
@@ -205,7 +220,7 @@ export class WavefrontRasterizer {
         colorAttachments: [
           {
             view: layerView,
-            clearValue: { r: 1.0, g: 0.0, b: 0.0, a: 0.0 }, // open ocean defaults
+            clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }, // open ocean defaults
             loadOp: "clear",
             storeOp: "store",
           },
@@ -235,7 +250,7 @@ export class WavefrontRasterizer {
         colorAttachments: [
           {
             view: layerView,
-            clearValue: { r: 1.0, g: 0.0, b: 0.0, a: 0.0 },
+            clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 0.0 },
             loadOp: "clear",
             storeOp: "store",
           },

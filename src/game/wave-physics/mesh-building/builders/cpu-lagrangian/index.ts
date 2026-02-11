@@ -46,6 +46,8 @@ export function buildCpuLagrangianMesh(
     waveDy,
     stepSize,
     bounds,
+    terrain,
+    wavelength,
   );
-  return buildMeshData(wavefronts);
+  return buildMeshData(wavefronts, wavelength, waveDx, waveDy);
 }

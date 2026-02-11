@@ -117,10 +117,18 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> f32 {
 
   for (var i = 0u; i < u32(params.numWaves); i++) {
     let waveField = textureSampleLevel(waveFieldTexture, waveFieldSampler, uv, i32(i), 0.0);
-    let bw = waveField.a; // blendWeight: 0=open ocean defaults, 1=use mesh values
-    energyFactors[i] = mix(1.0, waveField.r, bw);
-    directionOffsets[i] = mix(0.0, waveField.g, bw);
-    phaseCorrections[i] = mix(0.0, waveField.b, bw);
+    let pc = waveField.r;
+    let ps = waveField.g;
+    let coverage = waveField.b;
+
+    if (coverage > 0.0) {
+      energyFactors[i] = sqrt(pc * pc + ps * ps);
+      phaseCorrections[i] = atan2(ps, pc);
+    } else {
+      energyFactors[i] = 1.0;
+      phaseCorrections[i] = 0.0;
+    }
+    directionOffsets[i] = 0.0;
   }
 
   // Sample amplitude modulation noise

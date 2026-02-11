@@ -3,16 +3,26 @@ import type { WavePoint } from "./types";
 import { VERTEX_FLOATS } from "./types";
 
 /** Convert a list of wavefronts into triangulated mesh data. */
-export function buildMeshData(wavefronts: WavePoint[][]): WavefrontMeshData {
+export function buildMeshData(
+  wavefronts: WavePoint[][],
+  wavelength: number,
+  waveDx: number,
+  waveDy: number,
+): WavefrontMeshData {
   const vertices: number[] = [];
   const indices: number[] = [];
   const wavefrontOffsets: number[] = [];
+  const k = (2 * Math.PI) / wavelength;
 
-  for (const wf of wavefronts) {
+  for (let wi = 0; wi < wavefronts.length; wi++) {
+    const wf = wavefronts[wi];
     wavefrontOffsets.push(vertices.length / VERTEX_FLOATS);
+    const phase = wi * Math.PI;
     for (const p of wf) {
+      // Actual phase from marching minus expected phase from base direction
+      const phaseOffset = phase - k * (p.x * waveDx + p.y * waveDy);
       // [x, y, amplitude, dirOffset, phaseOffset, blendWeight]
-      vertices.push(p.x, p.y, 1.0, 0, 0, 1.0);
+      vertices.push(p.x, p.y, 1.0, 0, phaseOffset, 1.0);
     }
   }
 

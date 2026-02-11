@@ -44,14 +44,13 @@ struct MeshHeader {
 
 /**
  * Result of looking up mesh data at a world position.
+ * Uses phasor decomposition to accumulate contributions from all overlapping triangles.
  */
 export const struct_MeshLookupResult: ShaderModule = {
   preamble: /*wgsl*/ `
 struct MeshLookupResult {
-  amplitudeFactor: f32,
-  directionOffset: f32,
-  phaseOffset: f32,
-  blendWeight: f32,
+  phasorCos: f32,
+  phasorSin: f32,
   found: bool,
 }
 `,
@@ -205,8 +204,10 @@ fn barycentric(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>, c: vec2<f32>) -> vec3<f
  * Look up mesh data for a specific wave at a world position.
  * Uses spatial grid for efficient triangle search, then barycentric interpolation.
  *
- * Returns MeshLookupResult with amplitudeFactor, directionOffset, phaseOffset.
- * If no containing triangle is found, returns defaults (1.0, 0.0, 0.0) = open ocean.
+ * Accumulates phasor contributions from ALL containing triangles (supports
+ * self-overlapping meshes for interference). Returns phasorCos/phasorSin which
+ * encode effective amplitude and phase. If no triangle is found, returns
+ * open ocean defaults (phasorCos=1, phasorSin=0 → amplitude=1, phase=0).
  */
 export const fn_lookupMeshForWave: ShaderModule = {
   dependencies: [
@@ -228,19 +229,19 @@ fn lookupMeshForWave(
   waveIndex: u32,
 ) -> MeshLookupResult {
   var result: MeshLookupResult;
-  result.amplitudeFactor = 1.0;
-  result.directionOffset = 0.0;
-  result.phaseOffset = 0.0;
-  result.blendWeight = 0.0;
+  result.phasorCos = 0.0;
+  result.phasorSin = 0.0;
   result.found = false;
 
   let numWaves = getMeshNumWaves(packed);
   if (waveIndex >= numWaves) {
+    result.phasorCos = 1.0;
     return result;
   }
 
   let header = getMeshHeader(packed, waveIndex);
   if (header.triangleCount == 0u) {
+    result.phasorCos = 1.0;
     return result;
   }
 
@@ -253,6 +254,7 @@ fn lookupMeshForWave(
 
   // Out of grid bounds → open ocean
   if (col < 0 || col >= i32(header.gridCols) || row < 0 || row >= i32(header.gridRows)) {
+    result.phasorCos = 1.0;
     return result;
   }
 
@@ -261,7 +263,7 @@ fn lookupMeshForWave(
   let triListOffset = cell.x;
   let triListCount = cell.y;
 
-  // Iterate triangles in this cell
+  // Iterate ALL triangles in this cell, accumulating phasor contributions
   for (var t = 0u; t < triListCount; t++) {
     let triIndex = getMeshGridTriIndex(packed, triListOffset + t);
     let tri = getMeshTriangle(packed, header.indexOffset, triIndex);
@@ -281,13 +283,18 @@ fn lookupMeshForWave(
       // Barycentric interpolation of attributes
       let interp = attribA * bary.x + attribB * bary.y + attribC * bary.z;
 
-      result.amplitudeFactor = interp.x;
-      result.directionOffset = interp.y;
-      result.phaseOffset = interp.z;
-      result.blendWeight = interp.w;
+      let amp = interp.x;   // amplitudeFactor
+      let phase = interp.z; // phaseOffset
+      result.phasorCos += amp * cos(phase);
+      result.phasorSin += amp * sin(phase);
       result.found = true;
-      return result;
     }
+  }
+
+  // If no containing triangle found, use open ocean defaults
+  if (!result.found) {
+    result.phasorCos = 1.0;
+    result.phasorSin = 0.0;
   }
 
   return result;

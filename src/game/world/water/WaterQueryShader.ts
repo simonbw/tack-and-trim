@@ -138,9 +138,11 @@ fn computeHeightAtPoint(
   var phaseCorrections: array<f32, MAX_WAVE_SOURCES>;
   for (var i = 0u; i < u32(params.numWaves); i++) {
     let meshResult = lookupMeshForWave(worldPos, &packedMesh, i);
-    energyFactors[i] = mix(1.0, meshResult.amplitudeFactor, meshResult.blendWeight);
-    directionOffsets[i] = mix(0.0, meshResult.directionOffset, meshResult.blendWeight);
-    phaseCorrections[i] = mix(0.0, meshResult.phaseOffset, meshResult.blendWeight);
+    let pc = meshResult.phasorCos;
+    let ps = meshResult.phasorSin;
+    energyFactors[i] = sqrt(pc * pc + ps * ps);
+    directionOffsets[i] = 0.0;
+    phaseCorrections[i] = atan2(ps, pc);
   }
 
   // Calculate Gerstner waves with per-wave energy factors, direction bending, and phase corrections
