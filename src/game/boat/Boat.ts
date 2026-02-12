@@ -3,7 +3,6 @@ import { on } from "../../core/entity/handler";
 import { polarToVec } from "../../core/util/MathUtil";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
-import { Wake } from "./Wake";
 import { Anchor } from "./Anchor";
 import { BoatConfig, StarterDinghy } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
@@ -14,6 +13,7 @@ import { Rig } from "./Rig";
 import { Rudder } from "./Rudder";
 import { Sail } from "./sail/Sail";
 import { Sheet } from "./Sheet";
+import { Wake } from "./Wake";
 
 export class Boat extends BaseEntity {
   id = "boat";
