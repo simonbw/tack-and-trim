@@ -6,7 +6,7 @@
  * with transferable buffers for zero-copy transfer.
  */
 
-import { buildCpuLagrangianMesh } from "./builders/cpu-lagrangian";
+import { buildMarchingMesh } from "./marchingBuilder";
 import type {
   MeshBuildRequest,
   MeshBuildResult,
@@ -30,9 +30,7 @@ workerSelf.onmessage = (event: MessageEvent<MeshBuildRequest>) => {
   const startTime = performance.now();
 
   try {
-    let meshData;
-
-    meshData = buildCpuLagrangianMesh(
+    const meshData = buildMarchingMesh(
       request.waveSource,
       request.coastlineBounds,
       request.terrain,

@@ -2,14 +2,13 @@
  * Wave Physics Manager
  *
  * Manages analytical wave physics computation:
- * - Manages coastline data for terrain-wave interaction
+ * - Computes terrain bounds for mesh building domain
  * - Coordinates worker-based wavefront mesh building
  * - Provides packed mesh data buffer for GPU shaders
  */
 
 import type { TerrainDefinition } from "../world/terrain/LandMass";
 import type { WaveSource } from "../world/water/WaveSource";
-import { CoastlineManager } from "./CoastlineManager";
 import {
   buildPackedMeshBuffer,
   createPlaceholderPackedMeshBuffer,
@@ -20,18 +19,46 @@ import {
   MeshBuildCoordinator,
   type TerrainGPUData,
 } from "./mesh-building/MeshBuildCoordinator";
-import type { MeshBuilderType } from "./mesh-building/MeshBuildTypes";
+import type {
+  MeshBuildBounds,
+  MeshBuilderType,
+} from "./mesh-building/MeshBuildTypes";
 
 /** Maximum number of wave sources for mesh computation */
 export const MAX_WAVE_SOURCES = 8;
+
+/**
+ * Compute axis-aligned bounding box covering all terrain contours.
+ * Iterates sampled polygon vertices to find the full terrain extent.
+ */
+function computeTerrainBounds(
+  terrainDef: TerrainDefinition,
+): MeshBuildBounds | null {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let hasAnyContour = false;
+
+  for (const contour of terrainDef.contours) {
+    for (const pt of contour.sampledPolygon) {
+      minX = Math.min(minX, pt.x);
+      maxX = Math.max(maxX, pt.x);
+      minY = Math.min(minY, pt.y);
+      maxY = Math.max(maxY, pt.y);
+      hasAnyContour = true;
+    }
+  }
+
+  if (!hasAnyContour) return null;
+  return { minX, maxX, minY, maxY };
+}
 
 /**
  * Manages analytical wave physics for terrain-wave interaction.
  * Builds wavefront meshes for per-wave energy, direction, and phase correction.
  */
 export class WavePhysicsManager {
-  private coastlineManager = new CoastlineManager();
-
   /** Wavefront meshes organized by builder type */
   private meshSets = new Map<MeshBuilderType, WavefrontMesh[]>();
 
@@ -39,10 +66,10 @@ export class WavePhysicsManager {
   private meshCoordinator = new MeshBuildCoordinator();
 
   /** Active builder types to build meshes for */
-  private activeBuilderTypes: MeshBuilderType[] = ["cpu-lagrangian"];
+  private activeBuilderTypes: MeshBuilderType[] = ["marching"];
 
   /** Currently selected builder type for rendering/queries */
-  private activeBuilderType: MeshBuilderType = "cpu-lagrangian";
+  private activeBuilderType: MeshBuilderType = "marching";
 
   /** Packed mesh buffer for query shader lookup */
   private packedMeshBuffer: GPUBuffer | null = null;
@@ -63,7 +90,7 @@ export class WavePhysicsManager {
    * Initialize the wave physics manager with terrain data.
    * Computes wavefront meshes for each wave source.
    *
-   * @param terrainDef - Terrain definition for coastline extraction
+   * @param terrainDef - Terrain definition for terrain bounds extraction
    * @param terrainGPUData - Raw typed arrays from buildTerrainGPUData() (for worker mesh builds)
    * @param tideHeight - Current tide height
    */
@@ -72,25 +99,19 @@ export class WavePhysicsManager {
     terrainGPUData?: TerrainGPUData,
     tideHeight?: number,
   ): Promise<void> {
-    // Initialize coastline manager
-    this.coastlineManager.initialize(terrainDef);
-
-    // Get coastline contours
-    const coastlines = this.coastlineManager.getCoastlines();
-
     // Initialize rasterizer
     await this.rasterizer.init();
 
     // Build wavefront meshes via workers if terrain data is available
     if (terrainGPUData && tideHeight !== undefined) {
-      const coastlineBounds = this.coastlineManager.getAllTerrainBounds();
+      const terrainBounds = computeTerrainBounds(terrainDef);
 
       try {
         await this.meshCoordinator.initialize();
         this.meshSets = await this.meshCoordinator.buildMeshes(
           this.waveSources,
           terrainGPUData,
-          coastlineBounds,
+          terrainBounds,
           tideHeight,
           this.activeBuilderTypes,
         );
@@ -104,13 +125,6 @@ export class WavePhysicsManager {
     this.rebuildPackedMeshBuffer();
 
     this.initialized = true;
-  }
-
-  /**
-   * Get the coastline manager.
-   */
-  getCoastlineManager(): CoastlineManager {
-    return this.coastlineManager;
   }
 
   /**
@@ -158,17 +172,6 @@ export class WavePhysicsManager {
     builderType?: MeshBuilderType,
   ): WavefrontMesh | undefined {
     return this.getMeshes(builderType)[index];
-  }
-
-  /**
-   * Get total mesh count across all builder types.
-   */
-  private getTotalMeshCount(): number {
-    let count = 0;
-    for (const meshes of this.meshSets.values()) {
-      count += meshes.length;
-    }
-    return count;
   }
 
   /**
@@ -251,18 +254,6 @@ export class WavePhysicsManager {
       }
     }
     this.meshSets = new Map();
-    this.coastlineManager.clear();
     this.initialized = false;
-  }
-
-  /**
-   * Get statistics for debugging.
-   */
-  getStats(): {
-    coastlineCount: number;
-  } {
-    return {
-      coastlineCount: this.coastlineManager.getCoastlineCount(),
-    };
   }
 }

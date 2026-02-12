@@ -1,7 +1,7 @@
 /**
  * Unit tests for CPU terrain height computation.
  *
- * Run with: npx tsx --test src/game/wave-physics/cpu/terrainHeight.test.ts
+ * Run with: npx tsx --test src/game/wave-physics/mesh-building/terrainHeight.test.ts
  */
 
 import { describe, it } from "node:test";
@@ -11,7 +11,7 @@ import {
   isInsideContour,
   computeDistanceToBoundary,
 } from "./terrainHeight";
-import type { TerrainDataForWorker } from "../mesh-building/MeshBuildTypes";
+import type { TerrainDataForWorker } from "./MeshBuildTypes";
 
 // =============================================================================
 // Test fixture helpers

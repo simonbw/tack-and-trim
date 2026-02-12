@@ -10,7 +10,7 @@
 import type { WaveSource } from "../../world/water/WaveSource";
 
 /** Builder type identifier */
-export type MeshBuilderType = "cpu-lagrangian";
+export type MeshBuilderType = "marching";
 
 /**
  * CPU-only mesh data — what workers produce and transfer back.
@@ -47,7 +47,7 @@ export interface TerrainDataForWorker {
   defaultDepth: number;
 }
 
-/** Axis-aligned bounding box (matching CoastlineManager.AABB) */
+/** Axis-aligned bounding box for mesh build domain */
 export interface MeshBuildBounds {
   minX: number;
   minY: number;

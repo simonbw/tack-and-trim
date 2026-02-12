@@ -12,7 +12,7 @@
  * nearest surviving (kept) neighbours only.
  */
 
-import type { Wavefront, WavefrontSegment } from "./types";
+import type { Wavefront, WavefrontSegment } from "./marchingTypes";
 
 /** Default decimation tolerance — controls the quality/density trade-off. */
 export const DEFAULT_DECIMATION_TOLERANCE = 0.01;

@@ -1,13 +1,25 @@
-import type { TerrainDataForWorker } from "../../MeshBuildTypes";
-import type { WaveBounds } from "./types";
+import type { TerrainDataForWorker } from "./MeshBuildTypes";
+import type { WaveBounds } from "./marchingTypes";
 
 /** Number of 32-bit values per contour (must match LandMass.FLOATS_PER_CONTOUR) */
 const FLOATS_PER_CONTOUR = 13;
+
+/** Margin in wavelengths for each side of the domain */
+const UPWAVE_MARGIN = 10;
+const DOWNWAVE_MARGIN = 80;
+const CROSSWAVE_MARGIN = 40;
+
+/** Absolute minimum margin in feet */
+const MIN_MARGIN = 2000;
 
 /**
  * Compute a wave-aligned bounding box from root terrain contours.
  * Projects root contour bounding boxes onto the wave direction to find
  * the upwave, downwave, wave-left, and wave-right extents.
+ *
+ * Margins are asymmetric: small upwave (waves arrive from there), large
+ * downwave (refraction, diffraction, and shadows develop there), medium
+ * crosswave (lateral spreading).
  */
 export function computeBounds(
   terrain: TerrainDataForWorker,
@@ -54,11 +66,13 @@ export function computeBounds(
     return { minProj: -500, maxProj: 500, minPerp: -500, maxPerp: 500 };
   }
 
-  const margin = Math.max(2000, wavelength * 20);
+  const upwave = Math.max(MIN_MARGIN, wavelength * UPWAVE_MARGIN);
+  const downwave = Math.max(MIN_MARGIN, wavelength * DOWNWAVE_MARGIN);
+  const crosswave = Math.max(MIN_MARGIN, wavelength * CROSSWAVE_MARGIN);
   return {
-    minProj: minProj - margin,
-    maxProj: maxProj + margin,
-    minPerp: minPerp - margin,
-    maxPerp: maxPerp + margin,
+    minProj: minProj - upwave,
+    maxProj: maxProj + downwave,
+    minPerp: minPerp - crosswave,
+    maxPerp: maxPerp + crosswave,
   };
 }

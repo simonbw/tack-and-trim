@@ -5,7 +5,7 @@
  * Usage:
  *   npx tsx bin/benchmark-mesh-build.ts              # 5 iterations, all builders
  *   npx tsx bin/benchmark-mesh-build.ts -n 10
- *   npx tsx bin/benchmark-mesh-build.ts -b cpu-lagrangian   # single builder
+ *   npx tsx bin/benchmark-mesh-build.ts -b marching         # single builder
  *   npx tsx bin/benchmark-mesh-build.ts -w 1         # benchmark second wave source
  *
  * Loads the default level terrain data and runs each builder on the main thread,
@@ -23,7 +23,7 @@ import {
   buildTerrainGPUData,
   normalizeTerrainWinding,
 } from "../src/game/world/terrain/LandMass";
-import { buildCpuLagrangianMesh } from "../src/game/wave-physics/mesh-building/builders/cpu-lagrangian";
+import { buildMarchingMesh } from "../src/game/wave-physics/mesh-building/marchingBuilder";
 import type {
   MeshBuildBounds,
   MeshBuilderType,
@@ -44,10 +44,10 @@ type BuilderFn = (
 ) => WavefrontMeshData;
 
 const builders: Record<MeshBuilderType, BuilderFn> = {
-  "cpu-lagrangian": buildCpuLagrangianMesh,
+  marching: buildMarchingMesh,
 };
 
-const allBuilderTypes: MeshBuilderType[] = ["cpu-lagrangian"];
+const allBuilderTypes: MeshBuilderType[] = ["marching"];
 
 // ---------------------------------------------------------------------------
 // Parse CLI args

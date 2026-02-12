@@ -1,5 +1,5 @@
 /**
- * CPU Lagrangian wavefront marching mesh builder.
+ * Wavefront marching mesh builder.
  *
  * Traces independent wave rays from the upwave edge of the simulation domain.
  * Each ray carries its own propagation direction, which is updated at each step
@@ -18,22 +18,26 @@
  * No engine imports — safe for use in web workers.
  */
 
-import type { WaveSource } from "../../../../world/water/WaveSource";
+const VERTEX_SPACING = 50; // feet per vertex
+const STEP_SIZE = 0.5; // step size in wavelengths
+
+import type { WaveSource } from "../../world/water/WaveSource";
 import type {
   MeshBuildBounds,
   TerrainDataForWorker,
   WavefrontMeshData,
-} from "../../MeshBuildTypes";
-import { computeBounds } from "./bounds";
+} from "./MeshBuildTypes";
+import { computeBounds } from "./marchingBounds";
 import { decimateWavefronts } from "./decimation";
 import {
+  applyDiffraction,
   computeAmplitudes,
   generateInitialWavefront,
   marchWavefronts,
 } from "./marching";
 import { buildMeshData } from "./meshOutput";
 
-export function buildCpuLagrangianMesh(
+export function buildMarchingMesh(
   waveSource: WaveSource,
   _coastlineBounds: MeshBuildBounds | null,
   terrain: TerrainDataForWorker,
@@ -41,8 +45,8 @@ export function buildCpuLagrangianMesh(
 ): WavefrontMeshData {
   const wavelength = waveSource.wavelength;
   const baseDir = waveSource.direction;
-  const stepSize = wavelength / 2;
-  const vertexSpacing = wavelength / 4;
+  const stepSize = STEP_SIZE * waveSource.wavelength;
+  const vertexSpacing = VERTEX_SPACING;
 
   const waveDx = Math.cos(baseDir);
   const waveDy = Math.sin(baseDir);
@@ -75,6 +79,13 @@ export function buildCpuLagrangianMesh(
     vertexSpacing,
     initialDeltaT,
   );
+  applyDiffraction(
+    wavefronts,
+    wavelength,
+    vertexSpacing,
+    stepSize,
+    initialDeltaT,
+  );
   let t3 = performance.now();
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
     return prev + curr.reduce((sum, segment) => sum + segment.length, 0);
@@ -97,7 +108,7 @@ export function buildCpuLagrangianMesh(
     s.toLocaleString(undefined, { maximumFractionDigits: digits });
   console.log(
     [
-      `[cpu-lagrangian]`,
+      `[marching]`,
       `build`,
       `  splits: ${n(splits)}`,
       `  merges: ${n(merges)}`,

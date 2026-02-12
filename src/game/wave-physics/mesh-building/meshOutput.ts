@@ -1,6 +1,6 @@
-import type { WavefrontMeshData } from "../../MeshBuildTypes";
-import type { Wavefront, WaveBounds, WavePoint } from "./types";
-import { VERTEX_FLOATS } from "./types";
+import type { WavefrontMeshData } from "./MeshBuildTypes";
+import type { Wavefront, WaveBounds, WavePoint } from "./marchingTypes";
+import { VERTEX_FLOATS } from "./marchingTypes";
 
 /**
  * Convert wavefront steps (each containing one or more disconnected segments)

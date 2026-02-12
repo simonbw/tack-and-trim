@@ -10,7 +10,6 @@
 
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { WaveSource } from "../../world/water/WaveSource";
-import type { AABB } from "../CoastlineManager";
 import { WavefrontMesh } from "../WavefrontMesh";
 import type {
   MeshBuildBounds,
@@ -99,7 +98,7 @@ export class MeshBuildCoordinator {
   async buildMeshes(
     waveSources: WaveSource[],
     terrainGPUData: TerrainGPUData,
-    coastlineBounds: AABB | null,
+    coastlineBounds: MeshBuildBounds | null,
     tideHeight: number,
     builderTypes: MeshBuilderType[],
   ): Promise<Map<MeshBuilderType, WavefrontMesh[]>> {
@@ -108,16 +107,6 @@ export class MeshBuildCoordinator {
     }
 
     const device = getWebGPU().device;
-
-    // Convert coastline bounds
-    const bounds: MeshBuildBounds | null = coastlineBounds
-      ? {
-          minX: coastlineBounds.minX,
-          minY: coastlineBounds.minY,
-          maxX: coastlineBounds.maxX,
-          maxY: coastlineBounds.maxY,
-        }
-      : null;
 
     // Build all requests: one per (waveSource, builderType) pair
     interface PendingBuild {
@@ -143,7 +132,7 @@ export class MeshBuildCoordinator {
     const results = await this.executeBuildBatch(
       pendingBuilds,
       terrainGPUData,
-      bounds,
+      coastlineBounds,
       tideHeight,
     );
 

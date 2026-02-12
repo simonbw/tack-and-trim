@@ -9,19 +9,19 @@
  * 2. Each point is an independent ray. At each step, the ray:
  *    a. Computes the local wave speed from the water depth (dispersion relation)
  *    b. Computes the depth gradient via finite differences on the terrain
- *    c. Rotates its direction via Snell's law: dθ/ds = -(1/c) * ∂c/∂n
- *       where ∂c/∂n is the speed gradient perpendicular to the ray
+ *    c. Rotates its direction via Snell's law: d\u03b8/ds = -(1/c) * \u2202c/\u2202n
+ *       where \u2202c/\u2202n is the speed gradient perpendicular to the ray
  *    d. Advances by stepSize * speedFactor in its (updated) direction
  *
  *    Rays do NOT influence each other's direction. The wavefront is purely a
- *    bookkeeping structure for triangulation — not a physics input.
+ *    bookkeeping structure for triangulation \u2014 not a physics input.
  *
  * 3. After each step, a refinement pass merges points that have bunched up
  *    (ray convergence near caustics) to keep the mesh well-conditioned.
  *
  * 4. Energy tracking: rays passing over terrain lose energy exponentially
  *    based on the terrain height above water. This is the only thing tracked
- *    during marching — amplitude is computed in a separate pass afterward.
+ *    during marching \u2014 amplitude is computed in a separate pass afterward.
  *
  * 5. Amplitude computation (separate pass after marching):
  *    amplitude = energy * shoaling * divergence
@@ -30,12 +30,12 @@
  *    - divergence: ray spacing factor (energy spreads as rays diverge)
  */
 
-import { computeTerrainHeight } from "../../../cpu/terrainHeight";
-import type { TerrainDataForWorker } from "../../MeshBuildTypes";
-import type { WaveBounds, Wavefront, WavePoint } from "./types";
+import { computeTerrainHeight } from "./terrainHeight";
+import type { TerrainDataForWorker } from "./MeshBuildTypes";
+import type { WaveBounds, Wavefront, WavePoint } from "./marchingTypes";
 
 /** Energy fraction below which a point is considered dead */
-const MIN_ENERGY = 0.01;
+const MIN_ENERGY = 0.005;
 
 /** Rate of energy decay when wave passes over terrain */
 const TERRAIN_DECAY_RATE = 1.0;
@@ -45,7 +45,7 @@ const MERGE_RATIO = 0.3;
 
 /**
  * Split ratio for original rays (largest t-gap). Split offspring with smaller
- * t-gaps get a progressively larger threshold (BASE × initialDeltaT / deltaT),
+ * t-gaps get a progressively larger threshold (BASE \u00d7 initialDeltaT / deltaT),
  * which damps cascade splitting.
  */
 const BASE_SPLIT_RATIO = 1.5;
@@ -54,16 +54,23 @@ const BASE_SPLIT_RATIO = 1.5;
 const MAX_SPLIT_RATIO = 16.0;
 
 /** Maximum number of midpoints to insert per segment per refinement pass */
-const MAX_SPLITS_PER_SEGMENT = 50;
+const MAX_SPLITS_PER_SEGMENT = 100;
 
-/** Hard cap on total points in a single segment — no splitting beyond this */
-const MAX_SEGMENT_POINTS = 500;
+/** Hard cap on total points in a single segment \u2014 no splitting beyond this */
+const MAX_SEGMENT_POINTS = 1000;
 
 /** Minimum energy for both endpoints to allow splitting between them */
 const MIN_SPLIT_ENERGY = 0.1;
 
 /** Maximum angular change per step (radians), prevents wild rotation */
 const MAX_TURN_PER_STEP = Math.PI / 4;
+
+/** Stability limit for explicit diffusion scheme */
+const MAX_DIFFUSION_D = 0.45;
+
+/** Number of diffusion iterations per march step. Higher = stronger diffraction.
+ *  1 is physically motivated; crank up for testing. */
+const DIFFRACTION_ITERATIONS = 10;
 
 /** Minimum march speed as fraction of deep water speed */
 const MIN_SPEED_FACTOR = 0.25;
@@ -86,7 +93,7 @@ function normalizedSpeed(depth: number, k: number): number {
 /**
  * Shoaling coefficient K_s for a given depth and wavenumber.
  * In shallow water waves slow down and get taller (K_s > 1).
- * In deep water K_s ≈ 1 (no effect).
+ * In deep water K_s \u2248 1 (no effect).
  */
 function computeShoalingFactor(depth: number, k: number): number {
   const kh = k * depth;
@@ -163,7 +170,7 @@ function refineWavefront(
     const distSq = dx * dx + dy * dy;
 
     if (distSq < minDistSq) {
-      // Too close — skip this point
+      // Too close \u2014 skip this point
       stats.merges++;
       continue;
     }
@@ -177,7 +184,7 @@ function refineWavefront(
     const maxDistSq = (vertexSpacing * effectiveRatio) ** 2;
 
     // Split: insert interpolated midpoint when gap is too large.
-    // Skip if either endpoint has low energy — midpoints placed on dying rays
+    // Skip if either endpoint has low energy \u2014 midpoints placed on dying rays
     // (e.g. over terrain) tend to diverge and cause runaway splitting.
     if (
       canSplit &&
@@ -214,16 +221,85 @@ function refineWavefront(
 
   if (!canSplit) {
     console.warn(
-      `[cpu-lagrangian] Segment has ${wavefront.length} points (max ${MAX_SEGMENT_POINTS}), splitting disabled.`,
+      `[marching] Segment has ${wavefront.length} points (max ${MAX_SEGMENT_POINTS}), splitting disabled.`,
     );
   } else if (splitCount >= MAX_SPLITS_PER_SEGMENT) {
     console.warn(
-      `[cpu-lagrangian] Split limit reached (${MAX_SPLITS_PER_SEGMENT} per segment). ` +
+      `[marching] Split limit reached (${MAX_SPLITS_PER_SEGMENT} per segment). ` +
         `Rays may be diverging excessively.`,
     );
   }
 
   return result;
+}
+
+/**
+ * Lateral amplitude diffusion along a wavefront segment (diffraction).
+ *
+ * Boundary conditions:
+ * - Domain edges (t \u2248 0 or t \u2248 1): open ocean, ghost amplitude = 1.0
+ * - Shadow edges (segment broke due to dead rays): ghost amplitude = 0 (fade out)
+ */
+function diffuseSegment(
+  segment: WavePoint[],
+  D: number,
+  initialDeltaT: number,
+): void {
+  const n = segment.length;
+  if (n <= 1) return;
+
+  // Domain-edge detection: rays near t=0 or t=1 border open ocean
+  const edgeThreshold = initialDeltaT * 0.5;
+  const leftIsDomainEdge = segment[0].t < edgeThreshold;
+  const rightIsDomainEdge = segment[n - 1].t > 1 - edgeThreshold;
+
+  const old = new Float64Array(n);
+
+  for (let iter = 0; iter < DIFFRACTION_ITERATIONS; iter++) {
+    for (let i = 0; i < n; i++) old[i] = segment[i].amplitude;
+
+    for (let i = 0; i < n; i++) {
+      // Domain edges: open ocean (amplitude = 1.0)
+      // Shadow edges: zero (amplitude fades out toward shadow)
+      const left = i > 0 ? old[i - 1] : leftIsDomainEdge ? 1.0 : 0;
+      const right = i < n - 1 ? old[i + 1] : rightIsDomainEdge ? 1.0 : 0;
+
+      segment[i].amplitude = Math.max(
+        0,
+        old[i] + D * (left - 2 * old[i] + right),
+      );
+    }
+  }
+}
+
+/**
+ * Post-march lateral diffusion of amplitude across wavefronts (diffraction).
+ *
+ * Runs after computeAmplitudes. At each wavefront step, amplitude is smoothed
+ * laterally via the parabolic approximation: \u2202A/\u2202s = (1/2k) \u00b7 \u2202\u00b2A/\u2202n\u00b2.
+ *
+ * This must run post-march rather than during marching, because during marching
+ * terrain attenuation acts as an energy sink \u2014 lateral diffusion would feed
+ * energy toward terrain where it gets absorbed, making shadows grow rather
+ * than shrink.
+ */
+export function applyDiffraction(
+  wavefronts: Wavefront[],
+  wavelength: number,
+  vertexSpacing: number,
+  stepSize: number,
+  initialDeltaT: number,
+): void {
+  const k = (2 * Math.PI) / wavelength;
+
+  // D = \u0394s / (2k \u00b7 \u0394n\u00b2) \u2014 longer wavelengths (smaller k) diffract more
+  const D = Math.min(MAX_DIFFUSION_D, stepSize / (2 * k * vertexSpacing ** 2));
+
+  for (const step of wavefronts) {
+    for (const segment of step) {
+      diffuseSegment(segment, D, initialDeltaT);
+    }
+  }
 }
 
 /**
@@ -252,6 +328,10 @@ export function marchWavefronts(
     firstWavefront.length > 1 ? firstWavefront[1].t - firstWavefront[0].t : 1;
 
   function advanceRay(point: WavePoint): WavePoint | null {
+    // Stop marching from a dead ray \u2014 the previous point (with low energy)
+    // was kept as the final vertex so the mesh fades out smoothly.
+    if (point.energy < MIN_ENERGY) return null;
+
     // Water depth and march speed at current position
     const terrainH = computeTerrainHeight(point.x, point.y, terrain);
     const currentDepth = Math.max(0, -terrainH);
@@ -265,7 +345,7 @@ export function marchWavefronts(
     let dirY = point.dirY;
 
     // Apply Snell's law refraction when underwater.
-    // On terrain, skip — there's no meaningful depth gradient to refract from.
+    // On terrain, skip \u2014 there's no meaningful depth gradient to refract from.
     if (currentDepth > 0) {
       // Speed gradient via central finite differences
       const sRight = normalizedSpeed(
@@ -303,7 +383,7 @@ export function marchWavefronts(
       // Component of speed gradient perpendicular to ray direction
       const dcPerp = -dcdx * dirY + dcdy * dirX;
 
-      // Snell's law: dθ = -(1/c) * ∂c/∂n * ds
+      // Snell's law: d\u03b8 = -(1/c) * \u2202c/\u2202n * ds
       const dTheta = Math.max(
         -MAX_TURN_PER_STEP,
         Math.min(MAX_TURN_PER_STEP, -(1 / currentSpeed) * dcPerp * localStep),
@@ -359,8 +439,6 @@ export function marchWavefronts(
     if (broken) {
       energy *= Math.exp(-BREAKING_DECAY_RATE * normalizedStep);
     }
-
-    if (energy < MIN_ENERGY) return null;
 
     return {
       x: nx,
