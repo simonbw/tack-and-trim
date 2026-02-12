@@ -1,8 +1,8 @@
 /**
  * Water Height Compute Shader
  *
- * Computes water surface height at each pixel using Gerstner waves and modifiers.
- * Output is a single-channel r32float texture containing world-space water height.
+ * Computes water surface height and breaking intensity at each pixel using Gerstner
+ * waves and modifiers. Output is a two-channel rg32float texture (R=height, G=breaking).
  *
  * This is the first pass of the multi-pass surface rendering pipeline.
  */
@@ -74,7 +74,7 @@ const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
       sampleType: "float",
     },
     waveFieldSampler: { type: "sampler" },
-    outputTexture: { type: "storageTexture", format: "r32float" },
+    outputTexture: { type: "storageTexture", format: "rg32float" },
   },
   code: "",
 };
@@ -103,8 +103,8 @@ fn pixelToWorld(pixel: vec2<u32>) -> vec2<f32> {
   );
 }
 
-// Calculate water height at a point using wave field texture
-fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> f32 {
+// Calculate water height and breaking intensity at a point using wave field texture
+fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
   // Sample wave field texture for per-wave energy, direction offset, and phase correction
   var energyFactors: array<f32, MAX_WAVE_SOURCES>;
   var directionOffsets: array<f32, MAX_WAVE_SOURCES>;
@@ -115,11 +115,16 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> f32 {
     (f32(pixel.y) + 0.5) / params.screenHeight
   );
 
+  var maxBreaking = 0.0;
+
   for (var i = 0u; i < u32(params.numWaves); i++) {
     let waveField = textureSampleLevel(waveFieldTexture, waveFieldSampler, uv, i32(i), 0.0);
     let pc = waveField.r;
     let ps = waveField.g;
     let coverage = waveField.b;
+    let breaking = waveField.a;
+
+    maxBreaking = max(maxBreaking, breaking);
 
     if (coverage > 0.0) {
       let mag = sqrt(pc * pc + ps * ps);
@@ -169,7 +174,8 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> f32 {
   );
 
   // Combined height = waves + modifiers + tide
-  return waveResult.x + modifierResult.x + params.tideHeight;
+  let height = waveResult.x + modifierResult.x + params.tideHeight;
+  return vec2<f32>(height, maxBreaking);
 }
 
 @compute @workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]})
@@ -183,11 +189,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let worldPos = pixelToWorld(pixel);
 
-  // Calculate water height using wave field texture
-  let height = calculateWaterHeight(worldPos, pixel);
+  // Calculate water height and breaking intensity using wave field texture
+  let result = calculateWaterHeight(worldPos, pixel);
 
-  // Write to output texture
-  textureStore(outputTexture, pixel, vec4<f32>(height, 0.0, 0.0, 0.0));
+  // Write to output texture (R = height, G = breaking intensity)
+  textureStore(outputTexture, pixel, vec4<f32>(result.x, result.y, 0.0, 0.0));
 }
 `,
 };

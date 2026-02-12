@@ -225,7 +225,7 @@ export class SurfaceRenderer extends BaseEntity {
     // Create water height texture
     this.waterHeightTexture = device.createTexture({
       size: { width, height },
-      format: "r32float",
+      format: "rg32float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       label: "Water Height Texture",
     });

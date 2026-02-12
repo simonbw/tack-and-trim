@@ -11,8 +11,8 @@ export interface WavePoint {
   dirY: number;
   /** Surviving energy fraction [0, 1], only decreases (terrain attenuation, breaking) */
   energy: number;
-  /** Whether this ray has broken (sticky — once true, stays true) */
-  broken: boolean;
+  /** Breaking intensity [0, 1] — ramps up as depth falls below breaking threshold, never decreases */
+  broken: number;
   /** Final amplitude factor = energy * shoaling, written to mesh vertices */
   amplitude: number;
 }

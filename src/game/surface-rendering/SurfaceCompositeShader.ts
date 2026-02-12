@@ -6,7 +6,7 @@
  * and renders water/terrain with full lighting.
  *
  * Inputs:
- * - Water height texture (r32float)
+ * - Water height texture (rg32float: R=height, G=breaking)
  * - Terrain tile atlas (r32float)
  *
  * Output:
@@ -144,14 +144,19 @@ fn worldToHeightUV(worldPos: vec2<f32>) -> vec2<f32> {
   );
 }
 
-// Sample height texture at world position
-fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
+// Sample water height and breaking intensity at world position
+fn sampleWaterData(worldPos: vec2<f32>) -> vec2<f32> {
   let uv = worldToHeightUV(worldPos);
   let texCoord = vec2<i32>(
     i32(uv.x * params.screenWidth),
     i32(uv.y * params.screenHeight)
   );
-  return textureLoad(waterHeightTexture, texCoord, 0).r;
+  return textureLoad(waterHeightTexture, texCoord, 0).rg;
+}
+
+// Sample height texture at world position
+fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
+  return sampleWaterData(worldPos).r;
 }
 
 // Sample wetness texture at world position
@@ -247,8 +252,10 @@ fn computeWaterColorAtPoint(normal: vec3<f32>, waterHeight: f32, waterDepth: f32
 fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   let worldPos = clipToWorld(clipPosition);
 
-  // Sample heights and wetness from textures
-  let waterHeight = sampleWaterHeight(worldPos);
+  // Sample heights, breaking, and wetness from textures
+  let waterData = sampleWaterData(worldPos);
+  let waterHeight = waterData.x;
+  let breaking = waterData.y;
   let terrainHeight = sampleTerrainHeight(worldPos);
   let wetness = sampleWetness(worldPos);
 
@@ -260,9 +267,26 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   let terrainNormal = computeTerrainNormal(worldPos);
 
   // Render based on depth
+  let foamColor = vec3<f32>(0.95, 0.98, 1.0);
+
+  // Breaking foam: only on wave crests, with noise for natural texture
+  var breakingFoam = 0.0;
+  if (breaking > 0.0) {
+    // Wave excursion above mean level — positive at crests, negative at troughs
+    let waveExcursion = waterHeight - params.tideHeight;
+    let peakFactor = smoothstep(-0.05, 0.3, waveExcursion);
+
+    // Noise for natural foam breakup
+    let foamNoise = simplex3D(vec3<f32>(worldPos * 0.8, params.time * 0.5));
+    let foamVariation = saturate(foamNoise * 0.4 + 0.6);
+
+    breakingFoam = breaking * peakFactor * foamVariation * 0.85;
+  }
+
   if (params.hasTerrainData == 0) {
     // No terrain data - render as deep water
-    let color = computeWaterColorAtPoint(waterNormal, waterHeight, 100.0);
+    var color = computeWaterColorAtPoint(waterNormal, waterHeight, 100.0);
+    color = mix(color, foamColor, breakingFoam);
     return vec4<f32>(color, 1.0);
   }
 
@@ -287,16 +311,17 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
     if (waterDepth < foamThreshold) {
       // Foam intensity: strong at edge (depth=0), fades out at foamThreshold
       let foamIntensity = (1.0 - (waterDepth / foamThreshold)) * 0.7;
-
-      // Blend foam into the color
-      let foamColor = vec3<f32>(0.95, 0.98, 1.0);
       finalColor = mix(finalColor, foamColor, foamIntensity);
     }
+
+    // Breaking wave foam on crests
+    finalColor = mix(finalColor, foamColor, breakingFoam);
 
     return vec4<f32>(finalColor, 1.0);
   } else {
     // Deep water
-    let color = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth);
+    var color = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth);
+    color = mix(color, foamColor, breakingFoam);
     return vec4<f32>(color, 1.0);
   }
 }

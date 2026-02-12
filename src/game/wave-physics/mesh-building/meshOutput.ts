@@ -24,11 +24,22 @@ export function buildMeshData(
     const step = wavefronts[wi];
     const stepOffsets: number[] = [];
     const phase = (stepIndices ? stepIndices[wi] : wi) * Math.PI;
+    const isBoundaryStep = wi === 0 || wi === wavefronts.length - 1;
     for (const segment of step) {
       stepOffsets.push(vertices.length / VERTEX_FLOATS);
-      for (const p of segment) {
+      for (let pi = 0; pi < segment.length; pi++) {
+        const p = segment[pi];
         const phaseOffset = phase - k * (p.x * waveDx + p.y * waveDy);
-        vertices.push(p.x, p.y, p.amplitude, 0, phaseOffset, 1.0);
+        const isBoundary =
+          isBoundaryStep || pi === 0 || pi === segment.length - 1;
+        vertices.push(
+          p.x,
+          p.y,
+          p.amplitude,
+          p.broken,
+          phaseOffset,
+          isBoundary ? 0.0 : 1.0,
+        );
       }
     }
     segmentOffsets.push(stepOffsets);
