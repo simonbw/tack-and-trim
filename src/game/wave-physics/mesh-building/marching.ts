@@ -30,9 +30,9 @@
  *    - divergence: ray spacing factor (energy spreads as rays diverge)
  */
 
-import { computeTerrainHeight } from "./terrainHeight";
 import type { TerrainDataForWorker } from "./MeshBuildTypes";
 import type { WaveBounds, Wavefront, WavePoint } from "./marchingTypes";
+import { computeTerrainHeight } from "./terrainHeight";
 
 /** Energy fraction below which a point is considered dead */
 const MIN_ENERGY = 0.005;
@@ -44,11 +44,25 @@ const TERRAIN_DECAY_RATE = 1.0;
 const MERGE_RATIO = 0.3;
 
 /**
- * Split ratio for original rays (largest t-gap). Split offspring with smaller
- * t-gaps get a progressively larger threshold (BASE \u00d7 initialDeltaT / deltaT),
- * which damps cascade splitting.
+ * Split threshold for original (level-0) rays: two original rays will split
+ * when their distance exceeds vertexSpacing \u00d7 BASE_SPLIT_RATIO.
  */
-const BASE_SPLIT_RATIO = 1.5;
+const BASE_SPLIT_RATIO = 1.75;
+
+/**
+ * Per-level escalation of the split threshold. Each split halves the t-gap
+ * between rays, creating a new "split level". At level n, the threshold is
+ * BASE_SPLIT_RATIO \u00d7 SPLIT_ESCALATION^n \u00d7 vertexSpacing. For example:
+ *   level 0 (original rays): 1.5  \u00d7 vertexSpacing
+ *   level 1 (first split):   2.25 \u00d7 vertexSpacing  (\u00d71.5)
+ *   level 2 (second split):  3.38 \u00d7 vertexSpacing  (\u00d71.5)
+ * This damps cascade splitting \u2014 deeper offspring need proportionally larger
+ * gaps before they'll split again.
+ */
+const SPLIT_ESCALATION = 1.6;
+
+/** Precomputed exponent: tScale^SPLIT_ESCALATION_EXP = SPLIT_ESCALATION^depth */
+const SPLIT_ESCALATION_EXP = Math.log2(SPLIT_ESCALATION);
 
 /** Upper bound on the effective split ratio for deeply-nested split offspring. */
 const MAX_SPLIT_RATIO = 16.0;
@@ -57,7 +71,7 @@ const MAX_SPLIT_RATIO = 16.0;
 const MAX_SPLITS_PER_SEGMENT = 100;
 
 /** Hard cap on total points in a single segment \u2014 no splitting beyond this */
-const MAX_SEGMENT_POINTS = 1000;
+const MAX_SEGMENT_POINTS = 5000;
 
 /** Minimum energy for both endpoints to allow splitting between them */
 const MIN_SPLIT_ENERGY = 0.1;
@@ -66,7 +80,7 @@ const MIN_SPLIT_ENERGY = 0.1;
 const MAX_TURN_PER_STEP = Math.PI / 4;
 
 /** Stability limit for explicit diffusion scheme */
-const MAX_DIFFUSION_D = 0.45;
+const MAX_DIFFUSION_D = 0.5;
 
 /** Number of diffusion iterations per march step. Higher = stronger diffraction.
  *  1 is physically motivated; crank up for testing. */
@@ -137,7 +151,7 @@ export function generateInitialWavefront(
       dirX: waveDx,
       dirY: waveDy,
       energy: 1.0,
-      broken: false,
+      broken: 0,
       amplitude: 0,
     });
   }
@@ -175,12 +189,15 @@ function refineWavefront(
       continue;
     }
 
-    // t-aware split threshold: original rays (large t-gap) split eagerly at
-    // BASE_SPLIT_RATIO. Split offspring (smaller t-gap) require progressively
-    // larger physical gaps, damping cascade splitting.
+    // Split depth from t-gap: each split halves deltaT, so depth = log2(tScale).
+    // Threshold escalates by SPLIT_ESCALATION per depth level.
     const deltaT = Math.abs(curr.t - prev.t);
     const tScale = deltaT > 1e-12 ? initialDeltaT / deltaT : MAX_SPLIT_RATIO;
-    const effectiveRatio = Math.min(MAX_SPLIT_RATIO, BASE_SPLIT_RATIO * tScale);
+    const escalation = Math.pow(tScale, SPLIT_ESCALATION_EXP);
+    const effectiveRatio = Math.min(
+      MAX_SPLIT_RATIO,
+      BASE_SPLIT_RATIO * escalation,
+    );
     const maxDistSq = (vertexSpacing * effectiveRatio) ** 2;
 
     // Split: insert interpolated midpoint when gap is too large.
@@ -209,7 +226,7 @@ function refineWavefront(
         dirX: midDirX,
         dirY: midDirY,
         energy: (prev.energy + curr.energy) / 2,
-        broken: prev.broken || curr.broken,
+        broken: Math.max(prev.broken, curr.broken),
         amplitude: 0,
       });
       splitCount++;
@@ -426,17 +443,14 @@ export function marchWavefronts(
       );
     }
 
-    // Breaking: triggered in shallow water, sticky once set
-    if (
-      !broken &&
-      newDepth > 0 &&
-      newDepth < BREAKING_DEPTH_RATIO * wavelength
-    ) {
-      broken = true;
+    // Breaking: ramps up as depth falls below threshold, never decreases
+    const breakingDepth = BREAKING_DEPTH_RATIO * wavelength;
+    if (newDepth > 0 && newDepth < breakingDepth) {
+      broken = Math.max(broken, 1.0 - newDepth / breakingDepth);
     }
 
     // Broken waves continuously lose energy
-    if (broken) {
+    if (broken > 0) {
       energy *= Math.exp(-BREAKING_DECAY_RATE * normalizedStep);
     }
 
