@@ -25,16 +25,22 @@ function lerpScalar(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+// Performance tracking
+let sampleStepAtTCalls = 0;
+let canRemoveRowsBetweenCalls = 0;
+let canRemoveVerticesBetweenCalls = 0;
+
 /**
  * Sample a wavefront step at a given t-value by finding the segment that
  * covers that t and linearly interpolating between the bracketing vertices.
  * Returns null if t falls in a gap between segments.
  */
 function sampleStepAtT(
-  step: Wavefront,
+  wavefront: readonly WavefrontSegment[],
   t: number,
 ): { x: number; y: number; amplitude: number } | null {
-  for (const segment of step) {
+  sampleStepAtTCalls++;
+  for (const segment of wavefront) {
     if (segment.length === 0) continue;
     const tMin = segment[0].t;
     const tMax = segment[segment.length - 1].t;
@@ -50,19 +56,28 @@ function sampleStepAtT(
       return { x: p.x, y: p.y, amplitude: p.amplitude };
     }
 
-    for (let i = 0; i < segment.length - 1; i++) {
-      if (segment[i].t <= t && segment[i + 1].t >= t) {
-        const span = segment[i + 1].t - segment[i].t;
-        const f = span > 0 ? (t - segment[i].t) / span : 0;
-        const a = segment[i];
-        const b = segment[i + 1];
-        return {
-          x: lerpScalar(a.x, b.x, f),
-          y: lerpScalar(a.y, b.y, f),
-          amplitude: lerpScalar(a.amplitude, b.amplitude, f),
-        };
+    // Binary search for the bracketing vertices (segment is sorted by t)
+    let left = 0;
+    let right = segment.length - 1;
+    while (left < right - 1) {
+      const mid = Math.floor((left + right) / 2);
+      if (segment[mid].t <= t) {
+        left = mid;
+      } else {
+        right = mid;
       }
     }
+
+    // left and right now bracket t
+    const a = segment[left];
+    const b = segment[right];
+    const span = b.t - a.t;
+    const f = span > 0 ? (t - a.t) / span : 0;
+    return {
+      x: lerpScalar(a.x, b.x, f),
+      y: lerpScalar(a.y, b.y, f),
+      amplitude: lerpScalar(a.amplitude, b.amplitude, f),
+    };
   }
   return null;
 }
@@ -78,7 +93,7 @@ function sampleStepAtT(
  * reference — no intermediate (potentially removed) rows participate.
  */
 function canRemoveRowsBetween(
-  wavefronts: Wavefront[],
+  wavefronts: readonly Wavefront[],
   anchorIdx: number,
   endpointIdx: number,
   k: number,
@@ -87,10 +102,22 @@ function canRemoveRowsBetween(
   posTolSq: number,
   ampTol: number,
   phaseTol: number,
+  phasePerStep: number,
 ): boolean {
-  const anchor = wavefronts[anchorIdx];
-  const endpoint = wavefronts[endpointIdx];
+  canRemoveRowsBetweenCalls++;
+  const anchor: Wavefront = wavefronts[anchorIdx];
+  const endpoint: Wavefront = wavefronts[endpointIdx];
   const span = endpointIdx - anchorIdx;
+
+  // Cache samples from anchor and endpoint rows to avoid repeated linear searches
+  const anchorCache = new Map<
+    number,
+    { x: number; y: number; amplitude: number }
+  >();
+  const endpointCache = new Map<
+    number,
+    { x: number; y: number; amplitude: number }
+  >();
 
   for (let ri = anchorIdx + 1; ri < endpointIdx; ri++) {
     const row = wavefronts[ri];
@@ -98,11 +125,22 @@ function canRemoveRowsBetween(
 
     for (const segment of row) {
       for (const point of segment) {
-        const fromAnchor = sampleStepAtT(anchor, point.t);
-        const fromEndpoint = sampleStepAtT(endpoint, point.t);
+        // Try cache first, then compute and cache if needed
+        let fromAnchor = anchorCache.get(point.t);
+        if (!fromAnchor) {
+          const sample = sampleStepAtT(anchor, point.t);
+          if (!sample) return false; // Can't interpolate
+          fromAnchor = sample;
+          anchorCache.set(point.t, fromAnchor);
+        }
 
-        // Can't interpolate — conservatively keep the row.
-        if (!fromAnchor || !fromEndpoint) return false;
+        let fromEndpoint = endpointCache.get(point.t);
+        if (!fromEndpoint) {
+          const sample = sampleStepAtT(endpoint, point.t);
+          if (!sample) return false; // Can't interpolate
+          fromEndpoint = sample;
+          endpointCache.set(point.t, fromEndpoint);
+        }
 
         // Position error
         const ix = lerpScalar(fromAnchor.x, fromEndpoint.x, fraction);
@@ -120,14 +158,14 @@ function canRemoveRowsBetween(
         if (Math.abs(point.amplitude - iAmp) > ampTol) return false;
 
         // Phase-offset error.
-        // phaseOffset = stepIndex * π − k * dot(position, waveDir)
+        // phaseOffset = stepIndex * phasePerStep − k * dot(position, waveDir)
         const actualPhase =
-          ri * Math.PI - k * (point.x * waveDx + point.y * waveDy);
+          ri * phasePerStep - k * (point.x * waveDx + point.y * waveDy);
         const anchorPhase =
-          anchorIdx * Math.PI -
+          anchorIdx * phasePerStep -
           k * (fromAnchor.x * waveDx + fromAnchor.y * waveDy);
         const endpointPhase =
-          endpointIdx * Math.PI -
+          endpointIdx * phasePerStep -
           k * (fromEndpoint.x * waveDx + fromEndpoint.y * waveDy);
         const iPhase = lerpScalar(anchorPhase, endpointPhase, fraction);
         if (Math.abs(actualPhase - iPhase) > phaseTol) return false;
@@ -148,13 +186,14 @@ function canRemoveRowsBetween(
  * First and last rows are always kept.
  */
 function decimateRows(
-  wavefronts: Wavefront[],
+  wavefronts: readonly Wavefront[],
   k: number,
   waveDx: number,
   waveDy: number,
   posTolSq: number,
   ampTol: number,
   phaseTol: number,
+  phasePerStep: number,
 ): { wavefronts: Wavefront[]; stepIndices: number[] } {
   const N = wavefronts.length;
   if (N <= 2) {
@@ -179,6 +218,7 @@ function decimateRows(
       posTolSq,
       ampTol,
       phaseTol,
+      phasePerStep,
     );
 
     if (removable) {
@@ -224,6 +264,7 @@ function canRemoveVerticesBetween(
   posTolSq: number,
   ampTol: number,
 ): boolean {
+  canRemoveVerticesBetweenCalls++;
   const a = segment[anchorIdx];
   const b = segment[endpointIdx];
   const tSpan = b.t - a.t;
@@ -307,21 +348,32 @@ export function decimateWavefronts(
   waveDx: number,
   waveDy: number,
   tolerance: number = DEFAULT_DECIMATION_TOLERANCE,
+  phasePerStep?: number,
 ): {
   wavefronts: Wavefront[];
   stepIndices: number[];
   removedRows: number;
   removedVertices: number;
 } {
+  const t0 = performance.now();
+
+  // Reset counters
+  sampleStepAtTCalls = 0;
+  canRemoveRowsBetweenCalls = 0;
+  canRemoveVerticesBetweenCalls = 0;
+
   const k = (2 * Math.PI) / wavelength;
+  const resolvedPhasePerStep = phasePerStep ?? Math.PI;
   const posTolSq = (tolerance * wavelength) ** 2;
   const ampTol = tolerance;
   const phaseTol = tolerance * Math.PI;
 
   const verticesBefore = countVertices(wavefronts);
+  const rowsBefore = wavefronts.length;
 
   // Phase 1: remove entire wavefront rows that are well-interpolated
   // by their surviving neighbours.
+  const t1 = performance.now();
   const { wavefronts: rowDecimated, stepIndices } = decimateRows(
     wavefronts,
     k,
@@ -330,14 +382,38 @@ export function decimateWavefronts(
     posTolSq,
     ampTol,
     phaseTol,
+    resolvedPhasePerStep,
   );
+  const t2 = performance.now();
+  const rowDecimationTime = t2 - t1;
+  const rowDecimationCalls = canRemoveRowsBetweenCalls;
+  const sampleCallsPhase1 = sampleStepAtTCalls;
+
+  // Reset for phase 2
+  sampleStepAtTCalls = 0;
 
   // Phase 2: thin out vertices within each surviving row.
-  const result = rowDecimated.map((step) =>
-    step.map((segment) => decimateSegment(segment, posTolSq, ampTol)),
-  );
+  let totalSegments = 0;
+  const result = rowDecimated.map((step) => {
+    totalSegments += step.length;
+    return step.map((segment) => decimateSegment(segment, posTolSq, ampTol));
+  });
+  const t3 = performance.now();
+  const vertexDecimationTime = t3 - t2;
+  const vertexDecimationCalls = canRemoveVerticesBetweenCalls;
+  const sampleCallsPhase2 = sampleStepAtTCalls;
 
   const verticesAfter = countVertices(result);
+  const totalTime = t3 - t0;
+
+  // Single consolidated log
+  console.log(
+    `Decimation stats: ${totalTime.toFixed(1)}ms total\n` +
+      `  Input: ${rowsBefore} rows, ${verticesBefore} vertices\n` +
+      `  Output: ${rowDecimated.length} rows (-${rowsBefore - rowDecimated.length}), ${verticesAfter} vertices (-${verticesBefore - verticesAfter})\n` +
+      `  Row decimation: ${rowDecimationTime.toFixed(1)}ms, ${rowDecimationCalls} canRemoveRowsBetween calls, ${sampleCallsPhase1} sampleStepAtT calls\n` +
+      `  Vertex decimation: ${vertexDecimationTime.toFixed(1)}ms, ${totalSegments} segments, ${vertexDecimationCalls} canRemoveVerticesBetween calls, ${sampleCallsPhase2} sampleStepAtT calls`,
+  );
 
   return {
     wavefronts: result,
