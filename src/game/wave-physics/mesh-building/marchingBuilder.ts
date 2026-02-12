@@ -19,7 +19,7 @@
  */
 
 const VERTEX_SPACING = 20; // feet per vertex
-const STEP_SIZE = 0.5; // step size in wavelengths
+const STEP_SIZE = 10; // feet per step (deep water)
 
 import type { WaveSource } from "../../world/water/WaveSource";
 import type {
@@ -45,7 +45,9 @@ export function buildMarchingMesh(
 ): WavefrontMeshData {
   const wavelength = waveSource.wavelength;
   const baseDir = waveSource.direction;
-  const stepSize = STEP_SIZE * waveSource.wavelength;
+  const stepSize = STEP_SIZE;
+  const k = (2 * Math.PI) / wavelength;
+  const phasePerStep = k * stepSize;
   const vertexSpacing = VERTEX_SPACING;
 
   const waveDx = Math.cos(baseDir);
@@ -90,7 +92,14 @@ export function buildMarchingMesh(
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
     return prev + curr.reduce((sum, segment) => sum + segment.length, 0);
   }, 0);
-  const decimated = decimateWavefronts(wavefronts, wavelength, waveDx, waveDy);
+  const decimated = decimateWavefronts(
+    wavefronts,
+    wavelength,
+    waveDx,
+    waveDy,
+    undefined,
+    phasePerStep,
+  );
   let t4 = performance.now();
   const mesh = buildMeshData(
     decimated.wavefronts,
@@ -99,6 +108,7 @@ export function buildMarchingMesh(
     waveDy,
     bounds,
     decimated.stepIndices,
+    phasePerStep,
   );
   let t5 = performance.now();
 

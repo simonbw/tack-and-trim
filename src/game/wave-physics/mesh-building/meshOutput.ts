@@ -14,16 +14,18 @@ export function buildMeshData(
   waveDy: number,
   bounds: WaveBounds,
   stepIndices?: number[],
+  phasePerStep?: number,
 ): WavefrontMeshData {
   const vertices: number[] = [];
   const indices: number[] = [];
   const segmentOffsets: number[][] = [];
   const k = (2 * Math.PI) / wavelength;
+  const resolvedPhasePerStep = phasePerStep ?? Math.PI;
 
   for (let wi = 0; wi < wavefronts.length; wi++) {
     const step = wavefronts[wi];
     const stepOffsets: number[] = [];
-    const phase = (stepIndices ? stepIndices[wi] : wi) * Math.PI;
+    const phase = (stepIndices ? stepIndices[wi] : wi) * resolvedPhasePerStep;
     const isBoundaryStep = wi === 0 || wi === wavefronts.length - 1;
     for (const segment of step) {
       stepOffsets.push(vertices.length / VERTEX_FLOATS);
