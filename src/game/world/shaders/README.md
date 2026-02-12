@@ -85,6 +85,14 @@ No need to import or depend on these - they're always available.
 - **fn_renderWaterLighting** - Complete water surface shading
   - Dependencies: `fn_SCENE_LIGHTING`, `fn_computeFresnel`, `fn_computeSpecular`, `fn_computeDiffuse`
 
+### Geometry
+
+#### `polygon.wgsl.ts`
+
+- **fn_pointLeftOfSegment** - Winding number test (cross product sign)
+- **fn_pointInPolygon** - Winding number containment test for arbitrary polygons
+- **fn_pointToLineSegmentDistanceSq** - Squared distance from point to line segment
+
 ### Physics
 
 #### `wave-physics.wgsl.ts`
@@ -94,9 +102,28 @@ No need to import or depend on these - they're always available.
 - **fn_computeWaveFrequency** - Wave angular frequency from wavelength
 - **fn_computeWaveNumber** - Wave number from wavelength
 
+#### `wave-terrain.wgsl.ts`
+
+- **fn_computeShoalingFactor** - Green's Law wave shoaling (wave-terrain interaction version)
+- **fn_computeShallowDamping** - Bottom friction damping
+
+#### `wave-constants.wgsl.ts`
+
+- **const_MAX_WAVE_SOURCES** - Maximum wave source count (shared between CPU and GPU)
+
 #### `gerstner-wave.wgsl.ts`
 
-- **fn_calculateGerstnerWaves** - Analytical Gerstner wave computation (accepts per-wave energy factors)
+- **fn_calculateGerstnerWaves** - Analytical Gerstner wave computation (accepts per-wave energy factors, phase corrections)
+
+#### `mesh-packed.wgsl.ts`
+
+Accessor functions for reading wavefront mesh data from a single packed `array<u32>` buffer.
+
+- **struct_MeshHeader** - Per-wave mesh metadata struct
+- **fn_getMeshHeader** - Read mesh header for a wave source
+- **fn_getMeshVertexPos** - Read vertex position from packed buffer
+- **fn_lookupMeshForWave** - Full mesh lookup with spatial grid + barycentric interpolation
+  - Dependencies: `struct_MeshHeader`, `fn_getMeshHeader`, `fn_getMeshVertexPos`
 
 ### Terrain
 
