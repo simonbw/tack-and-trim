@@ -180,14 +180,14 @@ export class Camera2d extends BaseEntity implements Entity {
   }
 
   /** Center the camera on a position */
-  center([x, y]: V2d) {
+  center([x, y]: ReadonlyV2d) {
     this.setPosition(x, y);
   }
 
   /** Move the camera toward being centered on a position, with a target velocity */
   smoothCenter(
-    [x, y]: V2d,
-    [vx, vy]: V2d = V([0, 0]),
+    [x, y]: ReadonlyV2d,
+    [vx, vy]: ReadonlyV2d = V([0, 0]),
     stiffness: number = 1.0,
     damping: number = 1.0,
   ) {
@@ -209,7 +209,7 @@ export class Camera2d extends BaseEntity implements Entity {
     this.vy += (stiffness * dy - damping * (this.vy - vy)) * dt;
   }
 
-  smoothSetVelocity([vx, vy]: V2d, stiffness: number = 0.9) {
+  smoothSetVelocity([vx, vy]: ReadonlyV2d, stiffness: number = 0.9) {
     if (!this.isValidVelocity(vx) || !this.isValidVelocity(vy)) {
       console.warn(
         "Camera2d.smoothSetVelocity: Invalid velocity rejected:",
@@ -277,21 +277,23 @@ export class Camera2d extends BaseEntity implements Entity {
   }
 
   /** Convert screen coordinates to world coordinates */
-  toWorld([x, y]: V2d, parallax = V(1.0, 1.0)): V2d {
+  toWorld([x, y]: ReadonlyV2d, parallax = V(1.0, 1.0)): V2d {
     const matrix = this.getMatrix(parallax);
     return matrix.applyInverse(V(x, y));
   }
 
   /** Convert world coordinates to screen coordinates */
-  toScreen([x, y]: V2d, parallax = V(1.0, 1.0)): V2d {
+  toScreen([x, y]: ReadonlyV2d, parallax = V(1.0, 1.0)): V2d {
     const matrix = this.getMatrix(parallax);
     return matrix.apply(V(x, y));
   }
 
   /** Creates a transformation matrix to go from world space to screen space. */
   getMatrix(
+    /** Parallax factors for X and Y axes */
     [px, py]: [number, number] = [1, 1],
-    [ax, ay]: V2d = V(0, 0),
+    /** Anchor point for transformations */
+    [ax, ay]: [number, number] = [0, 0],
   ): Matrix3 {
     // Special case: parallax (0,0) means screen-space rendering (HUD)
     // Flip Y to convert from screen coords (Y-down) to match clip space (Y-up)
