@@ -20,7 +20,6 @@ import {
   type UniformInstance,
 } from "../../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import { profiler } from "../../../core/util/Profiler";
 import {
   VERTEX_FLOATS,
   type WavefrontMesh,
@@ -64,7 +63,7 @@ struct WavefrontDebugParams {
 struct VertexInput {
   @location(0) position: vec2<f32>,
   @location(1) amplitude: f32,
-  @location(2) directionOffset: f32,
+  @location(2) breakingIntensity: f32,
   @location(3) phaseOffset: f32,
   @location(4) blendWeight: f32,
   @location(5) barycentric: vec2<f32>,
@@ -73,7 +72,7 @@ struct VertexInput {
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) amplitude: f32,
-  @location(1) directionOffset: f32,
+  @location(1) breakingIntensity: f32,
   @location(2) phaseOffset: f32,
   @location(3) blendWeight: f32,
   @location(4) barycentric: vec2<f32>,
@@ -98,7 +97,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   var out: VertexOutput;
   out.position = vec4<f32>(clipX, clipY, 0.0, 1.0);
   out.amplitude = in.amplitude;
-  out.directionOffset = in.directionOffset;
+  out.breakingIntensity = in.breakingIntensity;
   out.phaseOffset = in.phaseOffset;
   out.blendWeight = in.blendWeight;
   out.barycentric = in.barycentric;
@@ -257,7 +256,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
             attributes: [
               { format: "float32x2", offset: 0, shaderLocation: 0 }, // position
               { format: "float32", offset: 8, shaderLocation: 1 }, // amplitude
-              { format: "float32", offset: 12, shaderLocation: 2 }, // directionOffset
+              { format: "float32", offset: 12, shaderLocation: 2 }, // breakingIntensity
               { format: "float32", offset: 16, shaderLocation: 3 }, // phaseOffset
               { format: "float32", offset: 20, shaderLocation: 4 }, // blendWeight
               { format: "float32x2", offset: 24, shaderLocation: 5 }, // barycentric
@@ -356,7 +355,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     this.uniforms.set.cameraMatrix(cameraMatrix);
     this.uniforms.set.screenWidth(width);
     this.uniforms.set.screenHeight(height);
-    this.uniforms.set.alpha(0.7);
+    this.uniforms.set.alpha(0.3);
     this.uniforms.set.colorMode(this.colorMode);
     this.uniforms.set.time(this.game.elapsedTime - this.waveTimeOffset);
 
@@ -386,7 +385,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     if (cached) return cached;
 
     const { cpuVertexData, cpuIndexData, indexCount } = mesh;
-    const floatsPerVertex = 8; // posX, posY, amplitude, dirOffset, phaseOffset, blendWeight, baryU, baryV
+    const floatsPerVertex = 8; // posX, posY, amplitude, breakingIntensity, phaseOffset, blendWeight, baryU, baryV
     const expanded = new Float32Array(indexCount * floatsPerVertex);
 
     // Compute totalPhase range for single-band wavefront mode
@@ -399,20 +398,15 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     for (let i = 0; i < indexCount; i++) {
       const srcBase = cpuIndexData[i] * VERTEX_FLOATS;
       const dstBase = i * floatsPerVertex;
-      const bary = BARY_COORDS[i % 3];
+      const bary = BARY_COORDS[i % BARY_COORDS.length];
 
-      const px = cpuVertexData[srcBase];
-      const py = cpuVertexData[srcBase + 1];
-      const phaseOffset = cpuVertexData[srcBase + 4];
+      const vertex = cpuVertexData.slice(srcBase, srcBase + VERTEX_FLOATS);
+      expanded.set(vertex, dstBase);
+      expanded.set(bary, dstBase + VERTEX_FLOATS);
 
-      expanded[dstBase] = px;
-      expanded[dstBase + 1] = py;
-      expanded[dstBase + 2] = cpuVertexData[srcBase + 2]; // amplitude
-      expanded[dstBase + 3] = cpuVertexData[srcBase + 3]; // directionOffset
-      expanded[dstBase + 4] = phaseOffset;
-      expanded[dstBase + 5] = cpuVertexData[srcBase + 5]; // blendWeight
-      expanded[dstBase + 6] = bary[0]; // baryU
-      expanded[dstBase + 7] = bary[1]; // baryV
+      const px = vertex[0];
+      const py = vertex[1];
+      const phaseOffset = vertex[4];
 
       const totalPhase = k * (px * dirCos + py * dirSin) + phaseOffset;
       minPhase = Math.min(minPhase, totalPhase);
@@ -532,29 +526,6 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
         ? meshes.reduce((s, m) => s + m.vertexCount, 0)
         : (mesh?.vertexCount ?? 0);
 
-    // GPU timing
-    const gpuProfiler = this.game.getRenderer().getGpuProfiler();
-    const gpu = gpuProfiler?.getAllMs();
-
-    // CPU timing — find wave-related profiler entries
-    const cpuStats = profiler.getStats();
-    const cpuEntries: Array<{ label: string; ms: number }> = [];
-    for (const stat of cpuStats) {
-      if (
-        stat.msPerFrame > 0.01 &&
-        (stat.label.includes("wave") ||
-          stat.label.includes("Wave") ||
-          stat.label.includes("mesh") ||
-          stat.label.includes("Mesh") ||
-          stat.label.includes("rasteriz") ||
-          stat.label.includes("Rasteriz") ||
-          stat.label.includes("coastline") ||
-          stat.label.includes("Coastline"))
-      ) {
-        cpuEntries.push({ label: stat.shortLabel, ms: stat.msPerFrame });
-      }
-    }
-
     const fmtMs = (ms: number) => ms.toFixed(2);
 
     return (
@@ -615,31 +586,6 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
             <span>{(totalVerts / 1000).toFixed(1)}k verts total</span>
           )}
         </div>
-
-        {gpu && (
-          <div style={monoStyle}>
-            <div style={labelStyle}>GPU</div>
-            <div>
-              surface.water {fmtMs(gpu["surface.water"])}ms &nbsp;
-              surface.terrain {fmtMs(gpu["surface.terrain"])}ms
-            </div>
-            <div>
-              query.water {fmtMs(gpu["query.water"])}ms &nbsp; query.copy{" "}
-              {fmtMs(gpu["query.copy"])}ms
-            </div>
-          </div>
-        )}
-
-        {cpuEntries.length > 0 && (
-          <div style={monoStyle}>
-            <div style={labelStyle}>CPU</div>
-            {cpuEntries.map((e) => (
-              <div key={e.label}>
-                {e.label} {fmtMs(e.ms)}ms
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     );
   }

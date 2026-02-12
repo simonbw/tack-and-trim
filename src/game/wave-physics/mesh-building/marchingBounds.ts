@@ -7,7 +7,7 @@ const FLOATS_PER_CONTOUR = 13;
 /** Margin in wavelengths for each side of the domain */
 const UPWAVE_MARGIN = 10;
 const DOWNWAVE_MARGIN = 80;
-const CROSSWAVE_MARGIN = 40;
+const CROSSWAVE_MARGIN = 20;
 
 /** Absolute minimum margin in feet */
 const MIN_MARGIN = 2000;

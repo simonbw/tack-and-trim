@@ -18,7 +18,7 @@
  * No engine imports — safe for use in web workers.
  */
 
-const VERTEX_SPACING = 50; // feet per vertex
+const VERTEX_SPACING = 20; // feet per vertex
 const STEP_SIZE = 0.5; // step size in wavelengths
 
 import type { WaveSource } from "../../world/water/WaveSource";
@@ -27,7 +27,6 @@ import type {
   TerrainDataForWorker,
   WavefrontMeshData,
 } from "./MeshBuildTypes";
-import { computeBounds } from "./marchingBounds";
 import { decimateWavefronts } from "./decimation";
 import {
   applyDiffraction,
@@ -35,6 +34,7 @@ import {
   generateInitialWavefront,
   marchWavefronts,
 } from "./marching";
+import { computeBounds } from "./marchingBounds";
 import { buildMeshData } from "./meshOutput";
 
 export function buildMarchingMesh(
@@ -116,7 +116,7 @@ export function buildMarchingMesh(
       `final`,
       `  verts: ${n(mesh.vertexCount)}`,
       `  tris: ${n(mesh.indexCount / 3)}`,
-      `timing`,
+      `timing — ${n(t5 - t0, 1)}ms total`,
       `  bounds ${n(t1 - t0, 1)}ms`,
       `  march ${n(t2 - t1, 1)}ms`,
       `  amplitudes ${n(t3 - t2, 1)}ms`,

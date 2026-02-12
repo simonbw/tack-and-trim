@@ -11,11 +11,11 @@
 import type { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { ReactEntity } from "../../core/ReactEntity";
+import "./DebugHUD.css";
 import { DebugRenderMode } from "./modes/DebugRenderMode";
 import { TerrainHeightDebugMode } from "./modes/TerrainHeightDebugMode";
 import { WavefrontMeshDebugMode } from "./modes/WavefrontMeshDebugMode.js";
 import { WindFieldDebugMode } from "./modes/WindFieldDebugMode";
-import "./DebugHUD.css";
 
 export class DebugRenderer extends ReactEntity {
   id = "debugRenderer";
@@ -66,6 +66,7 @@ export class DebugRenderer extends ReactEntity {
         {modeContent && <div className="debug-hud__submode">{modeContent}</div>}
 
         <div className="debug-hud__cursor">
+          <span>Cursor</span>
           {mouseWorldPos.toLocaleString([], { maximumFractionDigits: 1 })}
           {cursorContent && "\n"}
           {cursorContent}
