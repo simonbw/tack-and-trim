@@ -16,6 +16,7 @@ import { StaticBody } from "./physics/body/StaticBody";
 import { PhysicsEventMap } from "./physics/events/PhysicsEvents";
 import { World } from "./physics/world/World";
 import { lerp } from "./util/MathUtil";
+import { asyncProfiler } from "./util/AsyncProfiler";
 import { profile, profiler } from "./util/Profiler";
 
 interface GameOptions {
@@ -144,6 +145,8 @@ export class Game {
     }
     await getWebGPU().init();
     this.webGpuInitialized = true;
+
+    profiler.registerScope("Game.loop", () => asyncProfiler.endFrame());
 
     await this.renderer.init(rendererOptions);
     // IO events don't respect pause state

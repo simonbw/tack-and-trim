@@ -30,7 +30,11 @@ export function createProfilerPanel(): StatsPanel {
     id: "profiler",
 
     render: (ctx) => {
-      const profileStats = profiler.getTopStats(TOP_N_PROFILES, TOP_N_CHILDREN);
+      const profileStats = profiler.getTopStats(
+        TOP_N_PROFILES,
+        TOP_N_CHILDREN,
+        "Game.loop",
+      );
       const basicStats = getBasicStats(ctx);
       const asyncStats = asyncProfiler.getStats();
       const totalAsyncMs = asyncProfiler.getTotalCallbackMs();
