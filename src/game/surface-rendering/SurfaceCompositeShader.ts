@@ -169,8 +169,9 @@ fn sampleWetness(worldPos: vec2<f32>) -> f32 {
   return textureLoad(wetnessTexture, texCoord, 0).r;
 }
 
-// Sample terrain height from tile atlas
-fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
+// Manual bilinear interpolation for terrain height sampling
+// Since r32float is unfilterable, we implement bilinear filtering manually
+fn sampleTerrainHeightBilinear(worldPos: vec2<f32>) -> f32 {
   // Convert world position to tile coordinates
   let worldUnitsPerTile = params.atlasWorldUnitsPerTile;
   let tileSize = params.atlasTileSize;
@@ -179,13 +180,11 @@ fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
   let tileX = floor(worldPos.x / worldUnitsPerTile);
   let tileY = floor(worldPos.y / worldUnitsPerTile);
 
-  // Calculate position within the tile (0-1)
-  // Clamp to [0, 1) to handle floating point precision at boundaries
-  let localX = clamp((worldPos.x - tileX * worldUnitsPerTile) / worldUnitsPerTile, 0.0, 0.999999);
-  let localY = clamp((worldPos.y - tileY * worldUnitsPerTile) / worldUnitsPerTile, 0.0, 0.999999);
+  // Calculate position within the tile (0-1), in pixel coordinates
+  let localX = (worldPos.x - tileX * worldUnitsPerTile) / worldUnitsPerTile * f32(tileSize);
+  let localY = (worldPos.y - tileY * worldUnitsPerTile) / worldUnitsPerTile * f32(tileSize);
 
   // Calculate atlas slot from tile coordinates using modulo for wrapping
-  // This gives us the slot that would contain this tile if it's cached
   let slotX = i32(tileX) % i32(params.atlasTilesX);
   let slotY = i32(tileY) % i32(params.atlasTilesY);
 
@@ -193,17 +192,37 @@ fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
   let wrappedSlotX = u32(select(slotX, slotX + i32(params.atlasTilesX), slotX < 0));
   let wrappedSlotY = u32(select(slotY, slotY + i32(params.atlasTilesY), slotY < 0));
 
-  // Calculate pixel coordinates within the tile, then offset to atlas position
-  // Use the same mapping as the tile shader: pixel i -> world (i/tileSize)
-  // So world -> pixel is: localX * tileSize, clamped to valid pixel range
-  let pixelInTileX = min(u32(localX * f32(tileSize)), tileSize - 1u);
-  let pixelInTileY = min(u32(localY * f32(tileSize)), tileSize - 1u);
+  // Get the four surrounding pixels for bilinear interpolation
+  let px = floor(localX - 0.5); // Pixel centers are at 0.5, 1.5, 2.5, etc.
+  let py = floor(localY - 0.5);
+  let fx = localX - 0.5 - px; // Fractional part
+  let fy = localY - 0.5 - py;
 
-  let atlasPixelX = wrappedSlotX * tileSize + pixelInTileX;
-  let atlasPixelY = wrappedSlotY * tileSize + pixelInTileY;
+  // Clamp to valid pixel range within tile
+  let px0 = u32(clamp(px, 0.0, f32(tileSize - 1)));
+  let py0 = u32(clamp(py, 0.0, f32(tileSize - 1)));
+  let px1 = u32(clamp(px + 1.0, 0.0, f32(tileSize - 1)));
+  let py1 = u32(clamp(py + 1.0, 0.0, f32(tileSize - 1)));
 
-  let texCoord = vec2<i32>(i32(atlasPixelX), i32(atlasPixelY));
-  return textureLoad(terrainTileAtlas, texCoord, 0).r;
+  // Calculate atlas pixel coordinates
+  let baseX = wrappedSlotX * tileSize;
+  let baseY = wrappedSlotY * tileSize;
+
+  // Sample the four corners
+  let h00 = textureLoad(terrainTileAtlas, vec2<i32>(i32(baseX + px0), i32(baseY + py0)), 0).r;
+  let h10 = textureLoad(terrainTileAtlas, vec2<i32>(i32(baseX + px1), i32(baseY + py0)), 0).r;
+  let h01 = textureLoad(terrainTileAtlas, vec2<i32>(i32(baseX + px0), i32(baseY + py1)), 0).r;
+  let h11 = textureLoad(terrainTileAtlas, vec2<i32>(i32(baseX + px1), i32(baseY + py1)), 0).r;
+
+  // Bilinear interpolation
+  let h0 = mix(h00, h10, fx);
+  let h1 = mix(h01, h11, fx);
+  return mix(h0, h1, fy);
+}
+
+// Sample terrain height from tile atlas using bilinear filtering
+fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
+  return sampleTerrainHeightBilinear(worldPos);
 }
 
 // Compute normal from height texture via finite differences
