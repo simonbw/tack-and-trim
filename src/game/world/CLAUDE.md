@@ -132,13 +132,12 @@ All terrain GPU data is packed into a single `array<u32>` buffer (`packedTerrain
 
 The most complex subsystem. The compute shader combines:
 - **Gerstner waves** (two-pass: horizontal displacement, then height at displaced position)
-- **Shadow attenuation** behind land masses (Fresnel diffraction model)
-- **Wave-terrain interaction** (shoaling via Green's Law + shallow damping)
+- **Wavefront mesh terrain interaction** (per-wave energy, direction bending, and phase corrections via packed mesh buffer)
 - **Water modifiers** (wakes, ripples, currents, obstacles) collected from tagged entities each tick
 - **Finite-difference normals** (3 height samples)
 - **Amplitude modulation** via simplex noise for natural variation
 
-Each wave source gets its own shadow attenuation based on its direction and wavelength -- there is no swell/chop classification. Shadow polygon data is packed into a single `array<u32>` buffer (`packedShadowBuffer`) with a 16 u32 global header `[numWaveSources, waveSetOffset[0..7], ...]` followed by per-wave polygon sets. Each wave set has its own header `[waveDir.x, waveDir.y, polygonCount, verticesOffset, ...]`, polygon metadata, then vertex data. Accessor functions in `shaders/shadow-packed.wgsl.ts` (`getShadowNumWaves`, `getShadowWaveSetOffset`, `getShadowWaveDirAt`, `getShadowPolygon`, `isInsideShadowPolygon`) read from this buffer. `WaterResources` also computes tide height from `TimeOfDay` (semi-diurnal cosine, +/-2ft).
+Each wave source gets its own energy attenuation, direction bending, and phase correction from the wavefront mesh system. Mesh data is packed into a single `array<u32>` buffer (`packedMeshBuffer`) with a global header followed by per-wave mesh data including vertices, indices, and spatial grid. Accessor functions in `shaders/mesh-packed.wgsl.ts` (`lookupMeshForWave` with barycentric interpolation) read from this buffer. `WaterResources` also computes tide height from `TimeOfDay` (semi-diurnal cosine, +/-2ft).
 
 ### Wind
 
@@ -152,8 +151,8 @@ The simplest subsystem. Base wind velocity is modulated per-point by simplex noi
 
 - **Partial buffer mapping**. `mapAsync` is called with explicit byte ranges to avoid a WebGPU slow path triggered by large buffer maps (~125KB threshold).
 
-- **Packed storage buffers**. Terrain and shadow data each use a single `array<u32>` buffer instead of multiple typed buffers. This reduces the per-shader storage buffer count (the water query shader went from 10 to 5 bindings), eliminating the need for a `maxStorageBuffersPerShaderStage` device limit override. Accessor functions in `terrain-packed.wgsl.ts` and `shadow-packed.wgsl.ts` handle reading via `bitcast<f32>()`.
+- **Packed storage buffers**. Terrain and mesh data each use a single `array<u32>` buffer instead of multiple typed buffers. This reduces the per-shader storage buffer count, eliminating the need for a `maxStorageBuffersPerShaderStage` device limit override. Accessor functions in `terrain-packed.wgsl.ts` and `mesh-packed.wgsl.ts` handle reading via `bitcast<f32>()`.
 
-- **Placeholder packed shadow buffer**. `WaterQueryManager` creates an empty packed shadow buffer (16 u32 global header with `numWaveSources = 0`) if `WavePhysicsResources` isn't present, so the shader always has valid bindings even without wave physics.
+- **Placeholder packed mesh buffer**. `WaterQueryManager` creates an empty packed mesh buffer if `WavePhysicsResources` isn't present, so the shader always has valid bindings even without wave physics.
 
 - **tickLayer = "query"**. All managers and resources in this system use this tick layer to ensure correct ordering relative to other game systems.

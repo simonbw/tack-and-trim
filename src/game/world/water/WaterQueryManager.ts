@@ -1,6 +1,7 @@
 import { on } from "../../../core/entity/handler";
 import type { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+import { createPlaceholderPackedMeshBuffer } from "../../wave-physics/MeshPacking";
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
 import { BaseQuery } from "../query/BaseQuery";
 import { QueryManager } from "../query/QueryManager";
@@ -25,7 +26,7 @@ export class WaterQueryManager extends QueryManager {
 
   private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
-  private placeholderPackedShadowBuffer: GPUBuffer | null = null;
+  private placeholderPackedMeshBuffer: GPUBuffer | null = null;
   private uniforms = WaterQueryUniforms.create();
 
   constructor() {
@@ -49,20 +50,8 @@ export class WaterQueryManager extends QueryManager {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Create placeholder packed shadow buffer (empty - no wave sources)
-    // Layout: 16 u32 global header with numWaveSources = 0
-    this.placeholderPackedShadowBuffer = device.createBuffer({
-      size: 64,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: "Water Query Placeholder Packed Shadow Buffer",
-    });
-    const placeholderData = new Uint32Array(16);
-    placeholderData[0] = 0; // numWaveSources = 0
-    device.queue.writeBuffer(
-      this.placeholderPackedShadowBuffer,
-      0,
-      placeholderData,
-    );
+    // Create placeholder packed mesh buffer (empty - no wave sources)
+    this.placeholderPackedMeshBuffer = createPlaceholderPackedMeshBuffer();
   }
 
   getQueries(): BaseQuery<unknown>[] {
@@ -87,12 +76,12 @@ export class WaterQueryManager extends QueryManager {
       return;
     }
 
-    // Get WavePhysicsResources for packed shadow data
+    // Get WavePhysicsResources for packed mesh data
     const wavePhysicsResources =
       this.game.entities.tryGetSingleton(WavePhysicsResources);
-    const packedShadowBuffer =
-      wavePhysicsResources?.getPackedShadowBuffer() ??
-      this.placeholderPackedShadowBuffer!;
+    const packedMeshBuffer =
+      wavePhysicsResources?.getPackedMeshBuffer() ??
+      this.placeholderPackedMeshBuffer!;
 
     // Get TerrainResources for analytical terrain height computation
     const terrainResources =
@@ -121,12 +110,12 @@ export class WaterQueryManager extends QueryManager {
     this.uniforms.set._padding4(0);
     this.uniforms.uploadTo(this.uniformBuffer);
 
-    // Create bind group with shared buffers (including packed terrain/shadow)
+    // Create bind group with shared buffers (including packed terrain/mesh)
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
       waveData: { buffer: waterResources.waveDataBuffer },
       modifiers: { buffer: waterResources.modifiersBuffer },
-      packedShadow: { buffer: packedShadowBuffer },
+      packedMesh: { buffer: packedMeshBuffer },
       packedTerrain: { buffer: terrainResources.packedTerrainBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
@@ -145,6 +134,6 @@ export class WaterQueryManager extends QueryManager {
   @on("destroy")
   onDestroy(): void {
     this.uniformBuffer?.destroy();
-    this.placeholderPackedShadowBuffer?.destroy();
+    this.placeholderPackedMeshBuffer?.destroy();
   }
 }

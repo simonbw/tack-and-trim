@@ -8,10 +8,11 @@
         "wavelength": 200,
         "direction": 0.8
       },
+
       {
-        "amplitude": 0.15,
-        "wavelength": 20,
-        "direction": 0.8
+        "amplitude": 0.4,
+        "wavelength": 50,
+        "direction": 0.5
       }
     ]
   },

@@ -2,21 +2,25 @@
  * Wave Physics Resources
  *
  * Singleton entity that owns and manages the WavePhysicsManager for analytical
- * wave diffraction. This centralizes wave physics resource management.
+ * wave-terrain interaction via wavefront meshes.
  *
  * Responsibilities:
  * - Initialize WavePhysicsManager with terrain data
- * - Provide access to shadow data buffer for analytical Fresnel diffraction
+ * - Provide access to packed mesh buffer for GPU shaders
  */
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
+import type { MeshBuilderType } from "./mesh-building/MeshBuildTypes";
 import { TerrainResources } from "../world/terrain/TerrainResources";
 import { DEFAULT_WAVE_CONFIG, WaveConfig } from "../world/water/WaveSource";
+import { WaterResources } from "../world/water/WaterResources";
 import { WavePhysicsManager } from "./WavePhysicsManager";
+import type { WavefrontMesh } from "./WavefrontMesh";
+import type { WavefrontRasterizer } from "./WavefrontRasterizer";
 
 /**
- * Viewport bounds (kept for backwards compatibility, no longer used for shadows).
+ * Viewport bounds for rendering.
  */
 export interface Viewport {
   left: number;
@@ -49,7 +53,26 @@ export class WavePhysicsResources extends BaseEntity {
     // Initialize wave physics manager with terrain
     if (this.terrainResources) {
       const terrainDef = this.terrainResources.getTerrainDefinition();
-      this.wavePhysicsManager.initialize(terrainDef);
+      const waterResources = this.game.entities.tryGetSingleton(WaterResources);
+      const tideHeight = waterResources?.getTideHeight() ?? 0;
+
+      // Get raw terrain GPU data for worker-based mesh building
+      const terrainGPUData = this.terrainResources.getTerrainGPUData();
+
+      this.wavePhysicsManager.initialize(
+        terrainDef,
+        terrainGPUData
+          ? {
+              vertexData: terrainGPUData.vertexData,
+              contourData: terrainGPUData.contourData,
+              childrenData: terrainGPUData.childrenData,
+              contourCount: terrainGPUData.contourCount,
+              defaultDepth:
+                terrainDef.defaultDepth ?? terrainGPUData.defaultDepth,
+            }
+          : undefined,
+        tideHeight,
+      );
     }
   }
 
@@ -61,11 +84,38 @@ export class WavePhysicsResources extends BaseEntity {
   }
 
   /**
-   * Get the packed shadow buffer for binding in shaders.
-   * Contains both shadow data and vertices in a single `array<u32>` buffer.
+   * Get the packed mesh buffer for binding in query shaders.
    */
-  getPackedShadowBuffer(): GPUBuffer | null {
-    return this.wavePhysicsManager.getPackedShadowBuffer();
+  getPackedMeshBuffer(): GPUBuffer | null {
+    return this.wavePhysicsManager.getPackedMeshBuffer();
+  }
+
+  /**
+   * Get the rasterizer for rendering meshes to screen-space texture.
+   */
+  getRasterizer(): WavefrontRasterizer {
+    return this.wavePhysicsManager.getRasterizer();
+  }
+
+  /**
+   * Get the active meshes (for the currently selected builder type).
+   */
+  getActiveMeshes(): readonly WavefrontMesh[] {
+    return this.wavePhysicsManager.getActiveMeshes();
+  }
+
+  /**
+   * Get the currently active builder type.
+   */
+  getActiveBuilderType(): MeshBuilderType {
+    return this.wavePhysicsManager.getActiveBuilderType();
+  }
+
+  /**
+   * Switch the active builder type and rebuild resources.
+   */
+  switchBuilderType(type: MeshBuilderType): void {
+    this.wavePhysicsManager.setActiveBuilderType(type);
   }
 
   /**

@@ -99,3 +99,26 @@ export const fn_simplex3D: ShaderModule = {
     }
   `,
 };
+
+/**
+ * 4-octave fractal noise built on simplex3D.
+ *
+ * Provides fractalNoise3D(pos: vec3<f32>) -> f32
+ * Returns a value in approximately [-1, 1].
+ */
+export const fn_fractalNoise3D: ShaderModule = {
+  dependencies: [fn_simplex3D],
+  code: /*wgsl*/ `
+    fn fractalNoise3D(pos: vec3<f32>) -> f32 {
+      var n = 0.0;
+      var amp = 0.5;
+      var p = pos;
+      for (var i = 0; i < 4; i++) {
+        n += amp * simplex3D(p);
+        p *= 2.0;
+        amp *= 0.5;
+      }
+      return n;
+    }
+  `,
+};

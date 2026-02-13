@@ -1,7 +1,7 @@
 import { lerp } from "./util/MathUtil";
 
 type CompatibleTuple = [number, number] | Float32Array;
-export type CompatibleVector = V2d | CompatibleTuple | ReadonlyV2d;
+export type CompatibleVector = CompatibleTuple | ReadonlyV2d;
 
 /** Immutable interface for V2d that exposes only read-only properties and non-mutating methods. */
 export interface ReadonlyV2d {
@@ -12,6 +12,7 @@ export interface ReadonlyV2d {
   readonly magnitude: number;
   readonly angle: number;
   readonly squaredMagnitude: number;
+  [Symbol.iterator](): IterableIterator<number>;
 
   add(other: CompatibleTuple): V2d;
   addScaled(other: CompatibleTuple, scale: number): V2d;

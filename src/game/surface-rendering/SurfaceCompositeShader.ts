@@ -6,7 +6,7 @@
  * and renders water/terrain with full lighting.
  *
  * Inputs:
- * - Water height texture (r32float)
+ * - Water height texture (rg32float: R=height, G=breaking)
  * - Terrain tile atlas (r32float)
  *
  * Output:
@@ -21,7 +21,7 @@ import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
 import { fn_renderWaterLighting } from "../world/shaders/lighting.wgsl";
 import { fn_renderSand } from "../world/shaders/sand-rendering.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
-import { fn_simplex3D } from "../world/shaders/noise.wgsl";
+import { fn_fractalNoise3D, fn_simplex3D } from "../world/shaders/noise.wgsl";
 
 // Shallow water threshold for rendering
 const SHALLOW_WATER_THRESHOLD = 1.5;
@@ -54,6 +54,12 @@ struct Params {
   atlasTilesX: u32,
   atlasTilesY: u32,
   atlasWorldUnitsPerTile: f32,
+
+  // Camera viewport (non-expanded) for correct clip-to-world mapping
+  cameraLeft: f32,
+  cameraTop: f32,
+  cameraWidth: f32,
+  cameraHeight: f32,
 }
 
 const SHALLOW_WATER_THRESHOLD: f32 = ${SHALLOW_WATER_THRESHOLD};
@@ -109,22 +115,25 @@ const surfaceCompositeFragmentModule: ShaderModule = {
     surfaceCompositeParamsModule,
     fn_hash21,
     fn_simplex3D,
+    fn_fractalNoise3D,
     fn_renderWaterLighting,
     fn_renderSand,
   ],
   code: /*wgsl*/ `
-// Convert clip position to world position using viewport parameters
-// This matches how the water height shader computes world positions
+// Convert clip position to world position using the camera viewport.
+// Uses the non-expanded camera viewport so that screen pixels map to the
+// same world positions as the camera matrix used by all other rendering
+// (game objects, debug overlays, etc.).
 fn clipToWorld(clipPos: vec2<f32>) -> vec2<f32> {
   // Convert clip space (-1,1) to UV space (0,1)
   // Flip Y to match screen coordinates (clip Y=1 is top, screen Y=0 is top)
   let uvX = clipPos.x * 0.5 + 0.5;
   let uvY = -clipPos.y * 0.5 + 0.5;
 
-  // Map UV to world coordinates using viewport
+  // Map UV to world coordinates using the camera viewport (not expanded)
   return vec2<f32>(
-    params.viewportLeft + uvX * params.viewportWidth,
-    params.viewportTop + uvY * params.viewportHeight
+    params.cameraLeft + uvX * params.cameraWidth,
+    params.cameraTop + uvY * params.cameraHeight
   );
 }
 
@@ -136,14 +145,19 @@ fn worldToHeightUV(worldPos: vec2<f32>) -> vec2<f32> {
   );
 }
 
-// Sample height texture at world position
-fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
+// Sample water height and breaking intensity at world position
+fn sampleWaterData(worldPos: vec2<f32>) -> vec2<f32> {
   let uv = worldToHeightUV(worldPos);
   let texCoord = vec2<i32>(
     i32(uv.x * params.screenWidth),
     i32(uv.y * params.screenHeight)
   );
-  return textureLoad(waterHeightTexture, texCoord, 0).r;
+  return textureLoad(waterHeightTexture, texCoord, 0).rg;
+}
+
+// Sample height texture at world position
+fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
+  return sampleWaterData(worldPos).r;
 }
 
 // Sample wetness texture at world position
@@ -156,8 +170,9 @@ fn sampleWetness(worldPos: vec2<f32>) -> f32 {
   return textureLoad(wetnessTexture, texCoord, 0).r;
 }
 
-// Sample terrain height from tile atlas
-fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
+// Manual bilinear interpolation for terrain height sampling
+// Since r32float is unfilterable, we implement bilinear filtering manually
+fn sampleTerrainHeightBilinear(worldPos: vec2<f32>) -> f32 {
   // Convert world position to tile coordinates
   let worldUnitsPerTile = params.atlasWorldUnitsPerTile;
   let tileSize = params.atlasTileSize;
@@ -166,13 +181,11 @@ fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
   let tileX = floor(worldPos.x / worldUnitsPerTile);
   let tileY = floor(worldPos.y / worldUnitsPerTile);
 
-  // Calculate position within the tile (0-1)
-  // Clamp to [0, 1) to handle floating point precision at boundaries
-  let localX = clamp((worldPos.x - tileX * worldUnitsPerTile) / worldUnitsPerTile, 0.0, 0.999999);
-  let localY = clamp((worldPos.y - tileY * worldUnitsPerTile) / worldUnitsPerTile, 0.0, 0.999999);
+  // Calculate position within the tile (0-1), in pixel coordinates
+  let localX = (worldPos.x - tileX * worldUnitsPerTile) / worldUnitsPerTile * f32(tileSize);
+  let localY = (worldPos.y - tileY * worldUnitsPerTile) / worldUnitsPerTile * f32(tileSize);
 
   // Calculate atlas slot from tile coordinates using modulo for wrapping
-  // This gives us the slot that would contain this tile if it's cached
   let slotX = i32(tileX) % i32(params.atlasTilesX);
   let slotY = i32(tileY) % i32(params.atlasTilesY);
 
@@ -180,17 +193,37 @@ fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
   let wrappedSlotX = u32(select(slotX, slotX + i32(params.atlasTilesX), slotX < 0));
   let wrappedSlotY = u32(select(slotY, slotY + i32(params.atlasTilesY), slotY < 0));
 
-  // Calculate pixel coordinates within the tile, then offset to atlas position
-  // Use the same mapping as the tile shader: pixel i -> world (i/tileSize)
-  // So world -> pixel is: localX * tileSize, clamped to valid pixel range
-  let pixelInTileX = min(u32(localX * f32(tileSize)), tileSize - 1u);
-  let pixelInTileY = min(u32(localY * f32(tileSize)), tileSize - 1u);
+  // Get the four surrounding pixels for bilinear interpolation
+  let px = floor(localX - 0.5); // Pixel centers are at 0.5, 1.5, 2.5, etc.
+  let py = floor(localY - 0.5);
+  let fx = localX - 0.5 - px; // Fractional part
+  let fy = localY - 0.5 - py;
 
-  let atlasPixelX = wrappedSlotX * tileSize + pixelInTileX;
-  let atlasPixelY = wrappedSlotY * tileSize + pixelInTileY;
+  // Clamp to valid pixel range within tile
+  let px0 = u32(clamp(px, 0.0, f32(tileSize - 1)));
+  let py0 = u32(clamp(py, 0.0, f32(tileSize - 1)));
+  let px1 = u32(clamp(px + 1.0, 0.0, f32(tileSize - 1)));
+  let py1 = u32(clamp(py + 1.0, 0.0, f32(tileSize - 1)));
 
-  let texCoord = vec2<i32>(i32(atlasPixelX), i32(atlasPixelY));
-  return textureLoad(terrainTileAtlas, texCoord, 0).r;
+  // Calculate atlas pixel coordinates
+  let baseX = wrappedSlotX * tileSize;
+  let baseY = wrappedSlotY * tileSize;
+
+  // Sample the four corners
+  let h00 = textureLoad(terrainTileAtlas, vec2<i32>(i32(baseX + px0), i32(baseY + py0)), 0).r;
+  let h10 = textureLoad(terrainTileAtlas, vec2<i32>(i32(baseX + px1), i32(baseY + py0)), 0).r;
+  let h01 = textureLoad(terrainTileAtlas, vec2<i32>(i32(baseX + px0), i32(baseY + py1)), 0).r;
+  let h11 = textureLoad(terrainTileAtlas, vec2<i32>(i32(baseX + px1), i32(baseY + py1)), 0).r;
+
+  // Bilinear interpolation
+  let h0 = mix(h00, h10, fx);
+  let h1 = mix(h01, h11, fx);
+  return mix(h0, h1, fy);
+}
+
+// Sample terrain height from tile atlas using bilinear filtering
+fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
+  return sampleTerrainHeightBilinear(worldPos);
 }
 
 // Compute normal from height texture via finite differences
@@ -239,8 +272,10 @@ fn computeWaterColorAtPoint(normal: vec3<f32>, waterHeight: f32, waterDepth: f32
 fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   let worldPos = clipToWorld(clipPosition);
 
-  // Sample heights and wetness from textures
-  let waterHeight = sampleWaterHeight(worldPos);
+  // Sample heights, breaking, and wetness from textures
+  let waterData = sampleWaterData(worldPos);
+  let waterHeight = waterData.x;
+  let breaking = waterData.y;
   let terrainHeight = sampleTerrainHeight(worldPos);
   let wetness = sampleWetness(worldPos);
 
@@ -252,9 +287,29 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   let terrainNormal = computeTerrainNormal(worldPos);
 
   // Render based on depth
+  let foamColor = vec3<f32>(0.95, 0.98, 1.0);
+
+  // Breaking foam: fractal noise for natural, streaky foam in breaking zones
+  var breakingFoam = 0.0;
+  if (breaking > 0.0) {
+    // Fractal noise for multi-scale foam texture
+    let foamNoise = fractalNoise3D(vec3<f32>(
+      worldPos.x * 0.5,
+      worldPos.y * 0.5,
+      params.time * 0.4
+    ));
+
+    // Threshold-based foam: more breaking = lower threshold = more foam coverage
+    let foamThreshold = 1.0 - breaking * 0.8;
+    let foamAmount = smoothstep(foamThreshold - 0.15, foamThreshold, foamNoise);
+
+    breakingFoam = foamAmount * breaking;
+  }
+
   if (params.hasTerrainData == 0) {
     // No terrain data - render as deep water
-    let color = computeWaterColorAtPoint(waterNormal, waterHeight, 100.0);
+    var color = computeWaterColorAtPoint(waterNormal, waterHeight, 100.0);
+    color = mix(color, foamColor, breakingFoam);
     return vec4<f32>(color, 1.0);
   }
 
@@ -279,16 +334,17 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
     if (waterDepth < foamThreshold) {
       // Foam intensity: strong at edge (depth=0), fades out at foamThreshold
       let foamIntensity = (1.0 - (waterDepth / foamThreshold)) * 0.7;
-
-      // Blend foam into the color
-      let foamColor = vec3<f32>(0.95, 0.98, 1.0);
       finalColor = mix(finalColor, foamColor, foamIntensity);
     }
+
+    // Breaking wave foam on crests
+    finalColor = mix(finalColor, foamColor, breakingFoam);
 
     return vec4<f32>(finalColor, 1.0);
   } else {
     // Deep water
-    let color = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth);
+    var color = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth);
+    color = mix(color, foamColor, breakingFoam);
     return vec4<f32>(color, 1.0);
   }
 }
