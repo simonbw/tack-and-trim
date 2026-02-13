@@ -16,8 +16,9 @@
  *   [+2]  indexOffset        [+3]  triangleCount
  *   [+4]  gridOffset         [+5]  gridCols
  *   [+6]  gridRows           [+7]  gridMinX (f32)
- *   [+8]  gridMinY (f32)     [+9]  gridCellSize (f32)
- *   [+10..15] padding
+ *   [+8]  gridMinY (f32)     [+9]  gridCellWidth (f32)
+ *   [+10] gridCellHeight (f32) [+11] gridCosA (f32)
+ *   [+12] gridSinA (f32)     [+13..15] padding
  *
  * VERTEX DATA (6 f32-as-u32 per vertex, all sources concatenated)
  * INDEX DATA (3 u32 per triangle, all sources concatenated)
@@ -32,7 +33,7 @@ import type { WavefrontMesh } from "./WavefrontMesh";
 
 const GLOBAL_HEADER_U32S = 16;
 const MESH_HEADER_U32S = 16;
-const GRID_DIM = 64;
+const MAX_GRID_DIM = 1024;
 
 /** Float bits → u32 for buffer packing */
 const f32Buf = new Float32Array(1);
@@ -48,33 +49,44 @@ interface MeshGridData {
   /** Grid dimensions */
   cols: number;
   rows: number;
-  /** Grid AABB */
+  /** Grid AABB in rotated (wave-aligned) space */
   minX: number;
   minY: number;
-  /** Cell size in world units */
-  cellSize: number;
+  /** Cell dimensions in world units (rectangular, matching triangle aspect ratio) */
+  cellWidth: number;
+  cellHeight: number;
+  /** Rotation from world space to grid space (cos/sin of wave direction) */
+  cosA: number;
+  sinA: number;
 }
 
 /**
  * Build a spatial grid index for a single mesh.
+ * The grid is built in wave-aligned (rotated) space for tighter packing.
  */
 function buildSpatialGrid(mesh: WavefrontMesh): MeshGridData {
   const verts = mesh.cpuVertexData;
   const indices = mesh.cpuIndexData;
   const triCount = mesh.indexCount / 3;
 
-  // Compute AABB from vertices
+  // Rotation to wave-aligned space
+  const cosA = Math.cos(mesh.waveDirection);
+  const sinA = Math.sin(mesh.waveDirection);
+
+  // Compute AABB in rotated space
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
   for (let v = 0; v < mesh.vertexCount; v++) {
-    const x = verts[v * VERTEX_FLOATS];
-    const y = verts[v * VERTEX_FLOATS + 1];
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x);
-    maxY = Math.max(maxY, y);
+    const wx = verts[v * VERTEX_FLOATS];
+    const wy = verts[v * VERTEX_FLOATS + 1];
+    const rx = wx * cosA + wy * sinA;
+    const ry = -wx * sinA + wy * cosA;
+    minX = Math.min(minX, rx);
+    minY = Math.min(minY, ry);
+    maxX = Math.max(maxX, rx);
+    maxY = Math.max(maxY, ry);
   }
 
   // Add margin
@@ -86,42 +98,161 @@ function buildSpatialGrid(mesh: WavefrontMesh): MeshGridData {
 
   const width = maxX - minX;
   const height = maxY - minY;
-  const cellSize = Math.max(width, height) / GRID_DIM;
-  const cols = Math.ceil(width / cellSize) || 1;
-  const rows = Math.ceil(height / cellSize) || 1;
 
-  // Build cell → triangle mappings
+  // Compute average triangle x/y extents for aspect ratio
+  let totalXExtent = 0;
+  let totalYExtent = 0;
+  for (let t = 0; t < triCount; t++) {
+    const i0 = indices[t * 3];
+    const i1 = indices[t * 3 + 1];
+    const i2 = indices[t * 3 + 2];
+    const rx0 =
+      verts[i0 * VERTEX_FLOATS] * cosA + verts[i0 * VERTEX_FLOATS + 1] * sinA;
+    const ry0 =
+      -verts[i0 * VERTEX_FLOATS] * sinA + verts[i0 * VERTEX_FLOATS + 1] * cosA;
+    const rx1 =
+      verts[i1 * VERTEX_FLOATS] * cosA + verts[i1 * VERTEX_FLOATS + 1] * sinA;
+    const ry1 =
+      -verts[i1 * VERTEX_FLOATS] * sinA + verts[i1 * VERTEX_FLOATS + 1] * cosA;
+    const rx2 =
+      verts[i2 * VERTEX_FLOATS] * cosA + verts[i2 * VERTEX_FLOATS + 1] * sinA;
+    const ry2 =
+      -verts[i2 * VERTEX_FLOATS] * sinA + verts[i2 * VERTEX_FLOATS + 1] * cosA;
+    totalXExtent += Math.max(rx0, rx1, rx2) - Math.min(rx0, rx1, rx2);
+    totalYExtent += Math.max(ry0, ry1, ry2) - Math.min(ry0, ry1, ry2);
+  }
+  const avgXExtent = totalXExtent / triCount;
+  const avgYExtent = totalYExtent / triCount;
+
+  // Rectangular cells sized to triangle density with matching aspect ratio.
+  // Dividing area by 4 halves the linear cell dimensions for finer resolution.
+  const meshArea = width * height;
+  const targetCellArea = meshArea / triCount / 4;
+  const aspect = avgXExtent / Math.max(avgYExtent, 1e-10);
+  let cellWidth = Math.sqrt(targetCellArea * aspect);
+  let cellHeight = Math.sqrt(targetCellArea / aspect);
+
+  // Clamp each dimension to MAX_GRID_DIM independently
+  cellWidth = Math.max(cellWidth, width / MAX_GRID_DIM);
+  cellHeight = Math.max(cellHeight, height / MAX_GRID_DIM);
+  const cols = Math.max(1, Math.ceil(width / cellWidth));
+  const rows = Math.max(1, Math.ceil(height / cellHeight));
+
+  // Build cell → triangle mappings using rotated coordinates
   const cellTriLists: number[][] = [];
   for (let i = 0; i < cols * rows; i++) {
     cellTriLists.push([]);
   }
+
+  const invCellWidth = 1 / cellWidth;
+  const invCellHeight = 1 / cellHeight;
 
   for (let t = 0; t < triCount; t++) {
     const i0 = indices[t * 3];
     const i1 = indices[t * 3 + 1];
     const i2 = indices[t * 3 + 2];
 
-    const x0 = verts[i0 * VERTEX_FLOATS];
-    const y0 = verts[i0 * VERTEX_FLOATS + 1];
-    const x1 = verts[i1 * VERTEX_FLOATS];
-    const y1 = verts[i1 * VERTEX_FLOATS + 1];
-    const x2 = verts[i2 * VERTEX_FLOATS];
-    const y2 = verts[i2 * VERTEX_FLOATS + 1];
+    // Rotated vertices — sort by y (ascending) for scanline rasterization
+    let sx0 =
+      verts[i0 * VERTEX_FLOATS] * cosA + verts[i0 * VERTEX_FLOATS + 1] * sinA;
+    let sy0 =
+      -verts[i0 * VERTEX_FLOATS] * sinA + verts[i0 * VERTEX_FLOATS + 1] * cosA;
+    let sx1 =
+      verts[i1 * VERTEX_FLOATS] * cosA + verts[i1 * VERTEX_FLOATS + 1] * sinA;
+    let sy1 =
+      -verts[i1 * VERTEX_FLOATS] * sinA + verts[i1 * VERTEX_FLOATS + 1] * cosA;
+    let sx2 =
+      verts[i2 * VERTEX_FLOATS] * cosA + verts[i2 * VERTEX_FLOATS + 1] * sinA;
+    let sy2 =
+      -verts[i2 * VERTEX_FLOATS] * sinA + verts[i2 * VERTEX_FLOATS + 1] * cosA;
 
-    // Triangle AABB
-    const tMinX = Math.min(x0, x1, x2);
-    const tMinY = Math.min(y0, y1, y2);
-    const tMaxX = Math.max(x0, x1, x2);
-    const tMaxY = Math.max(y0, y1, y2);
+    // Sort by y: sy0 <= sy1 <= sy2
+    let tmp: number;
+    if (sy0 > sy1) {
+      tmp = sx0;
+      sx0 = sx1;
+      sx1 = tmp;
+      tmp = sy0;
+      sy0 = sy1;
+      sy1 = tmp;
+    }
+    if (sy1 > sy2) {
+      tmp = sx1;
+      sx1 = sx2;
+      sx2 = tmp;
+      tmp = sy1;
+      sy1 = sy2;
+      sy2 = tmp;
+    }
+    if (sy0 > sy1) {
+      tmp = sx0;
+      sx0 = sx1;
+      sx1 = tmp;
+      tmp = sy0;
+      sy0 = sy1;
+      sy1 = tmp;
+    }
 
-    // Grid cell range
-    const c0 = Math.max(0, Math.floor((tMinX - minX) / cellSize));
-    const c1 = Math.min(cols - 1, Math.floor((tMaxX - minX) / cellSize));
-    const r0 = Math.max(0, Math.floor((tMinY - minY) / cellSize));
-    const r1 = Math.min(rows - 1, Math.floor((tMaxY - minY) / cellSize));
+    // Skip degenerate triangles
+    const dy02 = sy2 - sy0;
+    if (dy02 < 1e-10) continue;
 
-    for (let r = r0; r <= r1; r++) {
-      for (let c = c0; c <= c1; c++) {
+    const dy01 = sy1 - sy0;
+    const dy12 = sy2 - sy1;
+    const dx02 = sx2 - sx0;
+    const dx01 = sx1 - sx0;
+    const dx12 = sx2 - sx1;
+    const invDy02 = 1 / dy02;
+    const invDy01 = dy01 > 1e-10 ? 1 / dy01 : 0;
+    const invDy12 = dy12 > 1e-10 ? 1 / dy12 : 0;
+
+    // Scanline: for each grid row the triangle spans, compute the x range
+    const rStart = Math.max(0, Math.floor((sy0 - minY) * invCellHeight));
+    const rEnd = Math.min(rows - 1, Math.floor((sy2 - minY) * invCellHeight));
+
+    for (let r = rStart; r <= rEnd; r++) {
+      const yTop = minY + r * cellHeight;
+      const yBot = yTop + cellHeight;
+      const yLo = Math.max(yTop, sy0);
+      const yHi = Math.min(yBot, sy2);
+
+      // x along the long edge (v0→v2) at yLo and yHi
+      let xMin = sx0 + (yLo - sy0) * invDy02 * dx02;
+      let xMax = xMin;
+      const xLong_hi = sx0 + (yHi - sy0) * invDy02 * dx02;
+      if (xLong_hi < xMin) xMin = xLong_hi;
+      if (xLong_hi > xMax) xMax = xLong_hi;
+
+      // x along the short edge(s)
+      if (yLo < sy1 && invDy01 !== 0) {
+        const xShort = sx0 + (yLo - sy0) * invDy01 * dx01;
+        if (xShort < xMin) xMin = xShort;
+        if (xShort > xMax) xMax = xShort;
+        const yEnd = Math.min(yHi, sy1);
+        const xShortEnd = sx0 + (yEnd - sy0) * invDy01 * dx01;
+        if (xShortEnd < xMin) xMin = xShortEnd;
+        if (xShortEnd > xMax) xMax = xShortEnd;
+      }
+      if (yHi > sy1 && invDy12 !== 0) {
+        const yStart = Math.max(yLo, sy1);
+        const xShort = sx1 + (yStart - sy1) * invDy12 * dx12;
+        if (xShort < xMin) xMin = xShort;
+        if (xShort > xMax) xMax = xShort;
+        const xShortEnd = sx1 + (yHi - sy1) * invDy12 * dx12;
+        if (xShortEnd < xMin) xMin = xShortEnd;
+        if (xShortEnd > xMax) xMax = xShortEnd;
+      }
+
+      // Include v1 if it falls in this row
+      if (sy1 >= yTop && sy1 <= yBot) {
+        if (sx1 < xMin) xMin = sx1;
+        if (sx1 > xMax) xMax = sx1;
+      }
+
+      const cStart = Math.max(0, Math.floor((xMin - minX) * invCellWidth));
+      const cEnd = Math.min(cols - 1, Math.floor((xMax - minX) * invCellWidth));
+
+      for (let c = cStart; c <= cEnd; c++) {
         cellTriLists[r * cols + c].push(t);
       }
     }
@@ -130,7 +261,19 @@ function buildSpatialGrid(mesh: WavefrontMesh): MeshGridData {
   // Convert to Uint32Arrays
   const cells = cellTriLists.map((list) => new Uint32Array(list));
 
-  return { cells, cols, rows, minX, minY, cellSize };
+  const grid = {
+    cells,
+    cols,
+    rows,
+    minX,
+    minY,
+    cellWidth,
+    cellHeight,
+    cosA,
+    sinA,
+  };
+  logGridStats(mesh, grid);
+  return grid;
 }
 
 /**
@@ -216,7 +359,10 @@ export function buildPackedMeshBuffer(
     u32View[headerOffset + 6] = grid.rows;
     u32View[headerOffset + 7] = floatToU32(grid.minX);
     u32View[headerOffset + 8] = floatToU32(grid.minY);
-    u32View[headerOffset + 9] = floatToU32(grid.cellSize);
+    u32View[headerOffset + 9] = floatToU32(grid.cellWidth);
+    u32View[headerOffset + 10] = floatToU32(grid.cellHeight);
+    u32View[headerOffset + 11] = floatToU32(grid.cosA);
+    u32View[headerOffset + 12] = floatToU32(grid.sinA);
 
     // Write vertex data (6 floats per vertex, stored as u32 via shared buffer)
     for (let v = 0; v < mesh.vertexCount * VERTEX_FLOATS; v++) {
@@ -250,6 +396,15 @@ export function buildPackedMeshBuffer(
     u32View[1 + i] = 0;
   }
 
+  logBufferStats(
+    numWaves,
+    totalU32s,
+    totalVertexU32s,
+    totalIndexU32s,
+    totalGridHeaderU32s,
+    totalGridListU32s,
+  );
+
   // Create GPU buffer
   const buffer = device.createBuffer({
     size: Math.max(data.byteLength, 64), // min 64 bytes
@@ -259,6 +414,123 @@ export function buildPackedMeshBuffer(
   device.queue.writeBuffer(buffer, 0, data);
 
   return buffer;
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic logging
+// ---------------------------------------------------------------------------
+
+function logGridStats(mesh: WavefrontMesh, grid: MeshGridData): void {
+  const { cells, cols, rows, minX, minY, cellWidth, cellHeight, cosA, sinA } =
+    grid;
+  const triCount = mesh.indexCount / 3;
+  const verts = mesh.cpuVertexData;
+  const indices = mesh.cpuIndexData;
+  const totalCells = cols * rows;
+
+  // Basic cell stats
+  let totalRefs = 0;
+  let maxTrisInCell = 0;
+  let nonEmptyCells = 0;
+  for (const cell of cells) {
+    totalRefs += cell.length;
+    if (cell.length > 0) nonEmptyCells++;
+    maxTrisInCell = Math.max(maxTrisInCell, cell.length);
+  }
+  const avgPerCell = nonEmptyCells > 0 ? totalRefs / nonEmptyCells : 0;
+
+  // Histogram of per-cell triangle counts
+  const buckets = [0, 5, 10, 20, 50, 100, Infinity] as const;
+  const histogram = new Map<number, number>();
+  for (const cell of cells) {
+    const bucket = buckets.find((b) => cell.length <= b) ?? Infinity;
+    histogram.set(bucket, (histogram.get(bucket) ?? 0) + 1);
+  }
+
+  // Measure actual point-in-triangle overlap by sampling each cell's center
+  let maxActualOverlap = 0;
+  let totalActualOverlap = 0;
+  let sampledCells = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = cells[r * cols + c];
+      if (cell.length === 0) continue;
+
+      // Cell center in rotated space → world space
+      const cxRot = minX + (c + 0.5) * cellWidth;
+      const cyRot = minY + (r + 0.5) * cellHeight;
+      const px = cxRot * cosA - cyRot * sinA;
+      const py = cxRot * sinA + cyRot * cosA;
+
+      let actual = 0;
+      for (let ti = 0; ti < cell.length; ti++) {
+        const t = cell[ti];
+        const ax = verts[indices[t * 3] * VERTEX_FLOATS];
+        const ay = verts[indices[t * 3] * VERTEX_FLOATS + 1];
+        const bx = verts[indices[t * 3 + 1] * VERTEX_FLOATS];
+        const by = verts[indices[t * 3 + 1] * VERTEX_FLOATS + 1];
+        const cx = verts[indices[t * 3 + 2] * VERTEX_FLOATS];
+        const cy = verts[indices[t * 3 + 2] * VERTEX_FLOATS + 1];
+
+        const v0x = bx - ax,
+          v0y = by - ay;
+        const v1x = cx - ax,
+          v1y = cy - ay;
+        const v2x = px - ax,
+          v2y = py - ay;
+        const d00 = v0x * v0x + v0y * v0y;
+        const d01 = v0x * v1x + v0y * v1y;
+        const d11 = v1x * v1x + v1y * v1y;
+        const d20 = v2x * v0x + v2y * v0y;
+        const d21 = v2x * v1x + v2y * v1y;
+        const denom = d00 * d11 - d01 * d01;
+        if (Math.abs(denom) < 1e-10) continue;
+        const inv = 1 / denom;
+        const u = (d11 * d20 - d01 * d21) * inv;
+        const w = (d00 * d21 - d01 * d20) * inv;
+        if (u >= -0.001 && w >= -0.001 && 1 - u - w >= -0.001) {
+          actual++;
+        }
+      }
+      maxActualOverlap = Math.max(maxActualOverlap, actual);
+      totalActualOverlap += actual;
+      sampledCells++;
+    }
+  }
+  const avgActualOverlap =
+    sampledCells > 0 ? totalActualOverlap / sampledCells : 0;
+
+  const gridMemoryKB = ((totalCells * 2 + totalRefs) * 4) / 1024;
+
+  console.log(
+    `[MeshPacking] Spatial grid for wave ${mesh.vertexCount} verts, ${triCount} tris:` +
+      `\n  Grid: ${cols}×${rows} = ${totalCells} cells, cellSize=${cellWidth.toFixed(1)}×${cellHeight.toFixed(1)}` +
+      `\n  Non-empty cells: ${nonEmptyCells}/${totalCells} (${((nonEmptyCells / totalCells) * 100).toFixed(0)}%)` +
+      `\n  Triangle refs: ${totalRefs} (${(totalRefs / triCount).toFixed(1)}× expansion from ${triCount} tris)` +
+      `\n  Per non-empty cell: avg=${avgPerCell.toFixed(1)}, max=${maxTrisInCell}` +
+      `\n  Actual overlap (cell center sample): avg=${avgActualOverlap.toFixed(1)}, max=${maxActualOverlap}` +
+      `\n  Histogram: ${[...histogram.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([k, v]) => `≤${k === Infinity ? "∞" : k}:${v}`)
+        .join(", ")}` +
+      `\n  Grid memory: ${gridMemoryKB.toFixed(1)} KB`,
+  );
+}
+
+function logBufferStats(
+  numWaves: number,
+  totalU32s: number,
+  vertexU32s: number,
+  indexU32s: number,
+  gridHeaderU32s: number,
+  gridListU32s: number,
+): void {
+  const pct = (n: number) => ((n / totalU32s) * 100).toFixed(0);
+  console.log(
+    `[MeshPacking] Packed mesh buffer: ${numWaves} wave(s), ${((totalU32s * 4) / 1024).toFixed(1)} KB` +
+      `\n  Vertices: ${pct(vertexU32s)}%, Indices: ${pct(indexU32s)}%` +
+      `\n  Grid headers: ${pct(gridHeaderU32s)}%, Grid lists: ${pct(gridListU32s)}%`,
+  );
 }
 
 /**

@@ -70,20 +70,25 @@ Global header (16 u32s):
 
 Per-wave mesh (at meshOffset[i]):
   Mesh header (16 u32s):
-    [vertexCount, indexCount, vertexDataOffset, indexDataOffset,
-     gridMinX, gridMinY, gridMaxX, gridMaxY,
-     gridCellSize, gridCols, gridRows, gridDataOffset,
-     coverageQuad (4 packed values)]
+    [vertexOffset, vertexCount, indexOffset, triangleCount,
+     gridOffset, gridCols, gridRows, gridMinX(f32),
+     gridMinY(f32), gridCellWidth(f32), gridCellHeight(f32),
+     gridCosA(f32), gridSinA(f32), padding...]
 
   Vertex data (6 f32 per vertex):
     [x, y, amplitude, broken, phaseOffset, interior]
 
-  Index data (u32 per index):
-    Triangle indices
+  Index data (3 u32 per triangle):
+    Triangle vertex indices
 
-  Spatial grid (u32 per cell):
-    Encoded [startIndex | (count << 16)] for triangle lookup
+  Grid cell headers (2 u32 per cell):
+    [triListOffset, triListCount]
+
+  Grid triangle lists (u32 per entry):
+    Triangle indices referenced by each cell
 ```
+
+The spatial grid is built in **wave-aligned (rotated) space** for tighter packing. Grid cells are rectangular, sized to match triangle density and aspect ratio. Triangles are inserted via scanline rasterization (not AABB) for minimal false positives. The GPU shader rotates query points into grid space using `gridCosA`/`gridSinA` before cell lookup.
 
 Accessor functions in `world/shaders/mesh-packed.wgsl.ts`: `lookupMeshForWave` with spatial grid + barycentric interpolation.
 

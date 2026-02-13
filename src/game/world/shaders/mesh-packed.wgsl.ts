@@ -13,8 +13,9 @@
  *   [+2]  indexOffset        [+3]  triangleCount
  *   [+4]  gridOffset         [+5]  gridCols
  *   [+6]  gridRows           [+7]  gridMinX (f32)
- *   [+8]  gridMinY (f32)     [+9]  gridCellSize (f32)
- *   [+10..15] padding
+ *   [+8]  gridMinY (f32)     [+9]  gridCellWidth (f32)
+ *   [+10] gridCellHeight (f32) [+11] gridCosA (f32)
+ *   [+12] gridSinA (f32)     [+13..15] padding
  *
  * All float values are stored as u32 and recovered via bitcast<f32>().
  */
@@ -36,7 +37,10 @@ struct MeshHeader {
   gridRows: u32,
   gridMinX: f32,
   gridMinY: f32,
-  gridCellSize: f32,
+  gridCellWidth: f32,
+  gridCellHeight: f32,
+  gridCosA: f32,
+  gridSinA: f32,
 }
 `,
   code: "",
@@ -86,7 +90,10 @@ fn getMeshHeader(packed: ptr<storage, array<u32>, read>, waveIndex: u32) -> Mesh
   h.gridRows = (*packed)[headerOffset + 6u];
   h.gridMinX = bitcast<f32>((*packed)[headerOffset + 7u]);
   h.gridMinY = bitcast<f32>((*packed)[headerOffset + 8u]);
-  h.gridCellSize = bitcast<f32>((*packed)[headerOffset + 9u]);
+  h.gridCellWidth = bitcast<f32>((*packed)[headerOffset + 9u]);
+  h.gridCellHeight = bitcast<f32>((*packed)[headerOffset + 10u]);
+  h.gridCosA = bitcast<f32>((*packed)[headerOffset + 11u]);
+  h.gridSinA = bitcast<f32>((*packed)[headerOffset + 12u]);
   return h;
 }
 `,
@@ -245,9 +252,13 @@ fn lookupMeshForWave(
     return result;
   }
 
-  // Map world position to grid cell
-  let gx = (worldPos.x - header.gridMinX) / header.gridCellSize;
-  let gy = (worldPos.y - header.gridMinY) / header.gridCellSize;
+  // Rotate world position into wave-aligned grid space
+  let rx = worldPos.x * header.gridCosA + worldPos.y * header.gridSinA;
+  let ry = -worldPos.x * header.gridSinA + worldPos.y * header.gridCosA;
+
+  // Map rotated position to grid cell
+  let gx = (rx - header.gridMinX) / header.gridCellWidth;
+  let gy = (ry - header.gridMinY) / header.gridCellHeight;
 
   let col = i32(floor(gx));
   let row = i32(floor(gy));
