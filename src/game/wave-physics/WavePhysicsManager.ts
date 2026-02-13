@@ -105,20 +105,14 @@ export class WavePhysicsManager {
     // Build wavefront meshes via workers if terrain data is available
     if (terrainGPUData && tideHeight !== undefined) {
       const terrainBounds = computeTerrainBounds(terrainDef);
-
-      try {
-        await this.meshCoordinator.initialize();
-        this.meshSets = await this.meshCoordinator.buildMeshes(
-          this.waveSources,
-          terrainGPUData,
-          terrainBounds,
-          tideHeight,
-          this.activeBuilderTypes,
-        );
-      } catch (err) {
-        console.error("[WavePhysicsManager] Mesh build failed:", err);
-        this.meshSets = new Map();
-      }
+      await this.meshCoordinator.initialize();
+      this.meshSets = await this.meshCoordinator.buildMeshes(
+        this.waveSources,
+        terrainGPUData,
+        terrainBounds,
+        tideHeight,
+        this.activeBuilderTypes,
+      );
     }
 
     // Build packed mesh buffer for query shader
