@@ -16,7 +16,7 @@ export class PlayerBoatController extends BaseEntity {
   }
 
   @on("tick")
-  onTick(dt: GameEventMap["tick"]) {
+  onTick({ dt }: GameEventMap["tick"]) {
     const io = this.game.io;
 
     // Handle continuous input

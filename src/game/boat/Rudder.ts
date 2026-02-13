@@ -1,4 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
@@ -80,7 +81,7 @@ export class Rudder extends BaseEntity {
   }
 
   @on("tick")
-  onTick(dt: number) {
+  onTick({ dt }: GameEventMap["tick"]) {
     // Update steering position based on input
     if (this.steerInput !== 0) {
       const target = this.steerInput < 0 ? -1 : 1;

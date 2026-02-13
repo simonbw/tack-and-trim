@@ -1,4 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { Body } from "../../core/physics/body/Body";
 import { DistanceConstraint } from "../../core/physics/constraints/DistanceConstraint";
@@ -154,7 +155,7 @@ export class Sheet extends BaseEntity {
   }
 
   @on("tick")
-  onTick(dt: number): void {
+  onTick({ dt }: GameEventMap["tick"]): void {
     const anchorA = this.getAnchorAWorld();
     const anchorB = this.getAnchorBWorld();
     this.visualRope.update(anchorA, anchorB, dt);

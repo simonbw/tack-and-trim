@@ -1,4 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { DistanceConstraint } from "../../core/physics/constraints/DistanceConstraint";
@@ -203,7 +204,7 @@ export class Anchor extends BaseEntity {
   }
 
   @on("tick")
-  onTick(dt: number): void {
+  onTick({ dt }: GameEventMap["tick"]): void {
     if (this.state === "stowed") return;
 
     // Animate rope length toward target
