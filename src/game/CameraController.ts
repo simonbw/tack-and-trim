@@ -7,7 +7,7 @@ import { Boat } from "./boat/Boat";
 
 const ZOOM_SPEED = 0.75;
 const PAN_SPEED = 1000; // Pixels per second
-const STIFFNESS = 2.0; // How quickly the camera moves to follow the boat. Higher is snappier but can be more jarring.
+const STIFFNESS = 4.0; // How quickly the camera moves to follow the boat. Higher is snappier but can be more jarring.
 
 export class CameraController extends BaseEntity {
   tickLayer = "camera" as const;

@@ -21,7 +21,7 @@ import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
 import { fn_renderWaterLighting } from "../world/shaders/lighting.wgsl";
 import { fn_renderSand } from "../world/shaders/sand-rendering.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
-import { fn_simplex3D } from "../world/shaders/noise.wgsl";
+import { fn_fractalNoise3D, fn_simplex3D } from "../world/shaders/noise.wgsl";
 
 // Shallow water threshold for rendering
 const SHALLOW_WATER_THRESHOLD = 1.5;
@@ -115,6 +115,7 @@ const surfaceCompositeFragmentModule: ShaderModule = {
     surfaceCompositeParamsModule,
     fn_hash21,
     fn_simplex3D,
+    fn_fractalNoise3D,
     fn_renderWaterLighting,
     fn_renderSand,
   ],
@@ -288,18 +289,21 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   // Render based on depth
   let foamColor = vec3<f32>(0.95, 0.98, 1.0);
 
-  // Breaking foam: only on wave crests, with noise for natural texture
+  // Breaking foam: fractal noise for natural, streaky foam in breaking zones
   var breakingFoam = 0.0;
   if (breaking > 0.0) {
-    // Wave excursion above mean level — positive at crests, negative at troughs
-    let waveExcursion = waterHeight - params.tideHeight;
-    let peakFactor = smoothstep(-0.05, 0.3, waveExcursion);
+    // Fractal noise for multi-scale foam texture
+    let foamNoise = fractalNoise3D(vec3<f32>(
+      worldPos.x * 0.5,
+      worldPos.y * 0.5,
+      params.time * 0.4
+    ));
 
-    // Noise for natural foam breakup
-    let foamNoise = simplex3D(vec3<f32>(worldPos * 0.8, params.time * 0.5));
-    let foamVariation = saturate(foamNoise * 0.4 + 0.6);
+    // Threshold-based foam: more breaking = lower threshold = more foam coverage
+    let foamThreshold = 1.0 - breaking * 0.8;
+    let foamAmount = smoothstep(foamThreshold - 0.15, foamThreshold, foamNoise);
 
-    breakingFoam = breaking * peakFactor * foamVariation * 0.85;
+    breakingFoam = foamAmount * breaking;
   }
 
   if (params.hasTerrainData == 0) {

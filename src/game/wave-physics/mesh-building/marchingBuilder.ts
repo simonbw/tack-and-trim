@@ -113,6 +113,11 @@ export function buildMarchingMesh(
   let t5 = performance.now();
 
   const decimationPercent = 100 * (1 - mesh.vertexCount / totalMarchedVerts);
+  const totalBytes = mesh.vertices.byteLength + mesh.indices.byteLength;
+  const memStr =
+    totalBytes >= 1024 * 1024
+      ? `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`
+      : `${(totalBytes / 1024).toFixed(1)} KB`;
 
   const n = (s: number, digits: number = 0) =>
     s.toLocaleString(undefined, { maximumFractionDigits: digits });
@@ -126,6 +131,7 @@ export function buildMarchingMesh(
       `final`,
       `  verts: ${n(mesh.vertexCount)}`,
       `  tris: ${n(mesh.indexCount / 3)}`,
+      `  buffer: ${memStr}`,
       `timing — ${n(t5 - t0, 1)}ms total`,
       `  bounds ${n(t1 - t0, 1)}ms`,
       `  march ${n(t2 - t1, 1)}ms`,

@@ -64,7 +64,7 @@ export const fn_computeDampingFactor: ShaderModule = {
 
       // Allow waves to extend into negative depth (above terrain).
       // The swash zone lets wave crests wash up onto the shore.
-      let swashDepth = wavelength * 0.015;
+      let swashDepth = wavelength * 0.05;
 
       // Smooth falloff from full energy to zero, centered so it
       // reaches zero at -swashDepth rather than at depth=0

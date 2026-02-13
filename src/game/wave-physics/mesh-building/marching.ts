@@ -38,7 +38,7 @@ import { computeTerrainHeight } from "./terrainHeight";
 const MIN_ENERGY = 0.005;
 
 /** Rate of energy decay when wave passes over terrain */
-const TERRAIN_DECAY_RATE = 1.0;
+const TERRAIN_DECAY_RATE = 0.5;
 
 /** Merge points closer than this fraction of vertex spacing */
 const MERGE_RATIO = 0.3;
@@ -96,7 +96,7 @@ const MAX_AMPLIFICATION = 2.0;
 const BREAKING_DEPTH_RATIO = 0.07;
 
 /** Energy decay rate per normalized step once a wave has broken */
-const BREAKING_DECAY_RATE = 2.0;
+const BREAKING_DECAY_RATE = 1.2;
 
 /** Normalized wave speed (c/c_deep) from water depth. Returns 0 for dry land. */
 function normalizedSpeed(depth: number, k: number): number {

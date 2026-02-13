@@ -60,6 +60,12 @@ const WAVE_AMP_MOD_SPATIAL_SCALE: f32 = ${WAVE_AMP_MOD_SPATIAL_SCALE};
 const WAVE_AMP_MOD_TIME_SCALE: f32 = ${WAVE_AMP_MOD_TIME_SCALE};
 const WAVE_AMP_MOD_STRENGTH: f32 = ${WAVE_AMP_MOD_STRENGTH};
 
+// Breaking zone turbulence
+const BREAK_PHASE_NOISE_STRENGTH: f32 = 0.8;
+const BREAK_AMP_NOISE_STRENGTH: f32 = 0.15;
+const BREAK_NOISE_SPATIAL_SCALE: f32 = 0.3;
+const BREAK_NOISE_TIME_SCALE: f32 = 1.2;
+
 // Modifier constants
 const MAX_MODIFIERS: u32 = ${MAX_MODIFIERS}u;
 const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
@@ -134,6 +140,24 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
         phaseCorrections[i] = atan2(ps, pc);
       } else {
         phaseCorrections[i] = 0.0;
+      }
+
+      // Breaking zone turbulence: add per-wave-source noise for chaotic breaking
+      if (breaking > 0.0) {
+        let waveSeed = f32(i) * 17.31;
+        let breakPhaseNoise = simplex3D(vec3<f32>(
+          worldPos.x * BREAK_NOISE_SPATIAL_SCALE,
+          worldPos.y * BREAK_NOISE_SPATIAL_SCALE,
+          params.time * BREAK_NOISE_TIME_SCALE + waveSeed
+        ));
+        phaseCorrections[i] += breaking * breakPhaseNoise * BREAK_PHASE_NOISE_STRENGTH;
+
+        let breakAmpNoise = simplex3D(vec3<f32>(
+          worldPos.x * BREAK_NOISE_SPATIAL_SCALE * 1.7 + 100.0,
+          worldPos.y * BREAK_NOISE_SPATIAL_SCALE * 1.7 + 100.0,
+          params.time * BREAK_NOISE_TIME_SCALE * 0.8 + waveSeed + 50.0
+        ));
+        energyFactors[i] *= 1.0 + breaking * breakAmpNoise * BREAK_AMP_NOISE_STRENGTH;
       }
     } else {
       energyFactors[i] = 1.0;

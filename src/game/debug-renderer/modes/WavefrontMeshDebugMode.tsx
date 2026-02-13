@@ -511,7 +511,6 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     };
 
     const dimStyle = { color: "#aaa", fontSize: "11px" };
-    const monoStyle = { fontFamily: "monospace", fontSize: "11px" };
 
     const waveLabel =
       this.selectedWaveIndex < 0
@@ -530,9 +529,15 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+          }}
+        >
           <span>
-            <span style={labelStyle}>Color </span>
+            <span style={labelStyle}>Mode</span>
             <span
               style={chipStyle}
               onClick={() => this.cycleColorMode(1)}
@@ -540,9 +545,20 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
             >
               {COLOR_MODE_NAMES[this.colorMode]}
             </span>
+            {this.colorMode === COLOR_MODE_NAMES.indexOf("Wavefront") && (
+              <span
+                style={chipStyle}
+                onClick={() => {
+                  this.waveTimeOffset = this.game.elapsedTime;
+                }}
+                title="Reset wavefront animation"
+              >
+                Reset Wavefront
+              </span>
+            )}
           </span>
           <span>
-            <span style={labelStyle}>Wave </span>
+            <span style={labelStyle}>Wave</span>
             <span
               style={chipStyle}
               onClick={() => this.cycleWaveIndex(1)}
@@ -551,27 +567,6 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
               {waveLabel}
             </span>
           </span>
-          <span>
-            <span style={labelStyle}>Builder </span>
-            <span
-              style={chipStyle}
-              onClick={() => this.cycleBuilderType(true)}
-              title="Click to cycle ({ / })"
-            >
-              {builderType}
-            </span>
-          </span>
-          {this.colorMode === COLOR_MODE_NAMES.indexOf("Wavefront") && (
-            <span
-              style={chipStyle}
-              onClick={() => {
-                this.waveTimeOffset = this.game.elapsedTime;
-              }}
-              title="Reset wavefront animation"
-            >
-              Reset
-            </span>
-          )}
         </div>
 
         <div style={dimStyle}>
