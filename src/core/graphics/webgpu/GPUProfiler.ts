@@ -27,11 +27,11 @@ export class GPUProfiler {
     "render",
     "surface.water",
     "surface.terrain",
-    "surface.shadow",
+    "surface.rasterize",
+    "surface.wetness",
     "query.water",
     "query.wind",
     "query.terrain",
-    "query.copy",
   ] as const;
   private static readonly QUERY_COUNT = GPUProfiler.SECTIONS.length * 2;
 
@@ -104,6 +104,40 @@ export class GPUProfiler {
   }
 
   /**
+   * Get timestampWrites that only records the beginning-of-pass timestamp.
+   * Use with getTimestampWritesEnd on another pass to span timing across
+   * multiple render passes on the same command encoder.
+   */
+  getTimestampWritesBegin(
+    section: GPUProfileSection,
+  ): GPURenderPassTimestampWrites | undefined {
+    if (!this.enabled) return undefined;
+    const data = this.sections.get(section);
+    if (!data) return undefined;
+    return {
+      querySet: this.querySet,
+      beginningOfPassWriteIndex: data.queryStartIndex,
+    };
+  }
+
+  /**
+   * Get timestampWrites that only records the end-of-pass timestamp.
+   * Use with getTimestampWritesBegin on another pass to span timing across
+   * multiple render passes on the same command encoder.
+   */
+  getTimestampWritesEnd(
+    section: GPUProfileSection,
+  ): GPURenderPassTimestampWrites | undefined {
+    if (!this.enabled) return undefined;
+    const data = this.sections.get(section);
+    if (!data) return undefined;
+    return {
+      querySet: this.querySet,
+      endOfPassWriteIndex: data.queryEndIndex,
+    };
+  }
+
+  /**
    * Get timestampWrites config for a compute pass.
    * Returns undefined if profiling is disabled.
    */
@@ -118,29 +152,6 @@ export class GPUProfiler {
       beginningOfPassWriteIndex: data.queryStartIndex,
       endOfPassWriteIndex: data.queryEndIndex,
     };
-  }
-
-  /**
-   * Write a timestamp for non-pass operations (like buffer copies).
-   * @param section The section to write timestamp for
-   * @param point "start" or "end"
-   * @param encoder The command encoder to write the timestamp on
-   */
-  writeTimestamp(
-    section: GPUProfileSection,
-    point: "start" | "end",
-    encoder: GPUCommandEncoder,
-  ): void {
-    if (!this.enabled) return;
-    const data = this.sections.get(section);
-    if (!data) return;
-
-    // writeTimestamp may not be available in all WebGPU implementations
-    const writeTimestampFn = (encoder as any).writeTimestamp;
-    if (typeof writeTimestampFn !== "function") return;
-
-    const index = point === "start" ? data.queryStartIndex : data.queryEndIndex;
-    writeTimestampFn.call(encoder, this.querySet, index);
   }
 
   /**

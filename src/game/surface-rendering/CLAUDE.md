@@ -95,11 +95,10 @@ The surface renderer uses a multi-pass pipeline: terrain tile caching, screen-sp
 
 Each pass has its own GPU timestamp query section:
 
-- `terrain.tile` - Terrain tile rendering
-- `terrain.screen` - Terrain screen compute
-- `waveField.rasterize` - Wave field rasterization
-- `waterHeight` - Water height compute
-- `wetness` - Wetness update
+- `surface.terrain` - Terrain tile rendering + terrain screen compute
+- `surface.rasterize` - Wave field rasterization
+- `surface.water` - Water height compute
+- `surface.wetness` - Wetness update
 - `render` - Main render pass (composite)
 
 View timings in the Graphics panel of the stats overlay.

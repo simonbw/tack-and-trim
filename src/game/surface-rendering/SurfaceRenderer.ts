@@ -567,6 +567,7 @@ export class SurfaceRenderer extends BaseEntity {
         activeMeshes,
         expandedViewport,
         this.waveFieldTexture,
+        gpuProfiler,
       );
       device.queue.submit([commandEncoder.finish()]);
     }
@@ -605,6 +606,7 @@ export class SurfaceRenderer extends BaseEntity {
         this.waterHeightView,
         this.terrainHeightView,
         event.dt,
+        gpuProfiler,
       );
     }
 

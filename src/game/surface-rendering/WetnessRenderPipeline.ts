@@ -9,6 +9,7 @@
  */
 
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
+import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import { profile } from "../../core/util/Profiler";
 import type { Viewport } from "../wave-physics/WavePhysicsResources";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
@@ -210,6 +211,7 @@ export class WetnessRenderPipeline {
     waterTextureView: GPUTextureView,
     terrainTextureView: GPUTextureView,
     dt: number,
+    gpuProfiler?: GPUProfiler | null,
   ): void {
     if (!this.initialized || !this.shader || !this.paramsBuffer) {
       return;
@@ -263,9 +265,10 @@ export class WetnessRenderPipeline {
       label: "Wetness Render Compute Encoder",
     });
 
-    // Begin compute pass (no GPU profiling for Phase 1)
     const computePass = commandEncoder.beginComputePass({
       label: "Wetness Render Compute Pass",
+      timestampWrites:
+        gpuProfiler?.getComputeTimestampWrites("surface.wetness"),
     });
 
     this.shader.dispatch(

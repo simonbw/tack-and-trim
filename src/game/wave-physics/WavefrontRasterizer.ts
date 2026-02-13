@@ -14,6 +14,7 @@
 
 import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
+import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import type { Viewport } from "./WavePhysicsResources";
 import type { WavefrontMesh } from "./WavefrontMesh";
 
@@ -207,6 +208,7 @@ export class WavefrontRasterizer {
     meshes: readonly WavefrontMesh[],
     viewport: Viewport,
     texture: GPUTexture,
+    gpuProfiler?: GPUProfiler | null,
   ): void {
     if (
       !this.initialized ||
@@ -223,10 +225,32 @@ export class WavefrontRasterizer {
     this.uniforms.set.viewportHeight(viewport.height);
     this.uniforms.uploadTo(this.uniformBuffer);
 
+    // Find first and last non-empty mesh indices for GPU profiling
+    let firstMeshIdx = -1;
+    let lastMeshIdx = -1;
+    for (let i = 0; i < meshes.length; i++) {
+      if (meshes[i].indexCount > 0) {
+        if (firstMeshIdx === -1) firstMeshIdx = i;
+        lastMeshIdx = i;
+      }
+    }
+
     // Render each wave source to its layer
     for (let i = 0; i < meshes.length; i++) {
       const mesh = meshes[i];
       if (mesh.indexCount === 0) continue;
+
+      // Attach begin timestamp to first pass, end timestamp to last pass
+      let timestampWrites: GPURenderPassTimestampWrites | undefined;
+      if (i === firstMeshIdx && i === lastMeshIdx) {
+        timestampWrites = gpuProfiler?.getTimestampWrites("surface.rasterize");
+      } else if (i === firstMeshIdx) {
+        timestampWrites =
+          gpuProfiler?.getTimestampWritesBegin("surface.rasterize");
+      } else if (i === lastMeshIdx) {
+        timestampWrites =
+          gpuProfiler?.getTimestampWritesEnd("surface.rasterize");
+      }
 
       const layerView = texture.createView({
         dimension: "2d",
@@ -244,6 +268,7 @@ export class WavefrontRasterizer {
             storeOp: "store",
           },
         ],
+        timestampWrites,
         label: `Wavefront Rasterize Wave ${i}`,
       });
 
