@@ -145,8 +145,23 @@ function clipToRange(
 }
 
 /**
+ * Score a triangle based on geometric quality. Lower score = better quality.
+ * Uses sum of squared edge lengths to prefer compact triangles.
+ */
+function scoreTriangle(a: WavePoint, b: WavePoint, c: WavePoint): number {
+  const dx1 = b.x - a.x;
+  const dy1 = b.y - a.y;
+  const dx2 = c.x - b.x;
+  const dy2 = c.y - b.y;
+  const dx3 = a.x - c.x;
+  const dy3 = a.y - c.y;
+  return dx1 * dx1 + dy1 * dy1 + dx2 * dx2 + dy2 * dy2 + dx3 * dx3 + dy3 * dy3;
+}
+
+/**
  * Triangulate between clipped ranges of two segments, sweeping over
  * parametric t values. Handles segments with different vertex counts.
+ * Uses geometric quality scoring to avoid skinny triangles.
  */
 function triangulateClipped(
   prevWF: WavePoint[],
@@ -163,17 +178,34 @@ function triangulateClipped(
   let j = nStart;
   while (i < pEnd || j < nEnd) {
     if (i >= pEnd) {
+      // Only next row has vertices left
       indices.push(prevBase + i, nextBase + j, nextBase + j + 1);
       j++;
     } else if (j >= nEnd) {
-      indices.push(prevBase + i, prevBase + i + 1, nextBase + j);
-      i++;
-    } else if (prevWF[i + 1].t < nextWF[j + 1].t) {
+      // Only prev row has vertices left
       indices.push(prevBase + i, prevBase + i + 1, nextBase + j);
       i++;
     } else {
-      indices.push(prevBase + i, nextBase + j, nextBase + j + 1);
-      j++;
+      // Both rows have vertices - choose based on triangle quality
+      const curr = prevWF[i];
+      const nextPrev = prevWF[i + 1];
+      const nextNext = nextWF[j + 1];
+      const currNext = nextWF[j];
+
+      // Option A: advance i (use next vertex from prev row)
+      const scoreA = scoreTriangle(curr, nextPrev, currNext);
+      // Option B: advance j (use next vertex from next row)
+      const scoreB = scoreTriangle(curr, currNext, nextNext);
+
+      if (scoreA < scoreB) {
+        // Option A is better quality
+        indices.push(prevBase + i, prevBase + i + 1, nextBase + j);
+        i++;
+      } else {
+        // Option B is better quality
+        indices.push(prevBase + i, nextBase + j, nextBase + j + 1);
+        j++;
+      }
     }
   }
 }
