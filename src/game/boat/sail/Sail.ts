@@ -1,4 +1,5 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
+import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Body } from "../../../core/physics/body/Body";
 import { DynamicBody } from "../../../core/physics/body/DynamicBody";
@@ -13,6 +14,7 @@ import { WindQuery } from "../../world/wind/WindQuery";
 import { applySailForces } from "./sail-aerodynamics";
 import { SailFlowSimulator } from "./SailFlowSimulator";
 import type { SailSegment } from "./SailSegment";
+import { SailSoundGenerator } from "./SailSoundGenerator";
 import { TellTail } from "./TellTail";
 
 // Default sail chord (depth from luff to leech) in feet
@@ -171,6 +173,9 @@ export class Sail extends BaseEntity implements WindModifier {
     this.windQuery = this.addChild(
       new WindQuery(() => this.getWindQueryPoints()),
     );
+
+    // Sound synthesis driven by flow simulation
+    this.addChild(new SailSoundGenerator(this));
   }
 
   /**
@@ -246,7 +251,7 @@ export class Sail extends BaseEntity implements WindModifier {
   }
 
   @on("tick")
-  onTick(dt: number) {
+  onTick({ dt }: GameEventMap["tick"]) {
     const { hoistSpeed, getForceScale } = this.config;
 
     // Animate hoist amount toward target

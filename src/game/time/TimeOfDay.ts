@@ -9,6 +9,7 @@
  */
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 
 /** Seconds in a day */
@@ -60,7 +61,7 @@ export class TimeOfDay extends BaseEntity {
    * Advance time each tick.
    */
   @on("tick")
-  onTick(dt: number) {
+  onTick({ dt }: GameEventMap["tick"]) {
     if (this.game.io.isKeyDown("KeyT")) {
       this.timeInSeconds += dt * this.timeScale * 5000;
     } else {

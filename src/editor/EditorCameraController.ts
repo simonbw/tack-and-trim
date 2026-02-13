@@ -8,6 +8,7 @@
  */
 
 import { BaseEntity } from "../core/entity/BaseEntity";
+import { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 import { Camera2d } from "../core/graphics/Camera2d";
 import { V, V2d } from "../core/Vector";
@@ -110,7 +111,7 @@ export class EditorCameraController extends BaseEntity {
   }
 
   @on("tick")
-  onTick(dt: number): void {
+  onTick({ dt }: GameEventMap["tick"]): void {
     // Smooth zoom
     this.camera.smoothZoom(this.targetZoom, PAN_SMOOTHING);
 

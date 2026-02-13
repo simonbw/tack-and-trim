@@ -1,3 +1,4 @@
+import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { AABB } from "../../core/physics/collision/AABB";
 import { V2d } from "../../core/Vector";
@@ -36,7 +37,7 @@ export class AnchorSplashRipple extends WaterModifier {
   }
 
   @on("tick")
-  onTick(dt: number): void {
+  onTick({ dt }: GameEventMap["tick"]): void {
     this.age += dt;
 
     // Decay intensity over time

@@ -254,7 +254,7 @@ export abstract class BaseEntity implements Entity {
   onAfterPhysics?(): void;
   onAfterPhysicsStep?(step: number): void;
   onRender?(data: GameEventMap["render"]): void;
-  onTick?(dt: number): void;
+  onTick?(data: GameEventMap["tick"]): void;
   onSlowTick?(dt: number): void;
   onPause?(): void;
   onUnpause?(): void;
@@ -300,7 +300,7 @@ class Timer extends BaseEntity implements Entity {
   }
 
   @on("tick")
-  onTick(dt: number) {
+  onTick({ dt }: GameEventMap["tick"]) {
     this.timeRemaining -= dt;
     const t = clamp(1.0 - this.timeRemaining / this.delay);
     this.duringEffect?.(dt, t);

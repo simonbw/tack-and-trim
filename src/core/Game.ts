@@ -353,6 +353,9 @@ export class Game {
   }
 
   private timeToSimulate = 0.0;
+  /** Audio time at the end of the last frame's tick loop */
+  private lastAudioTime: number = 0;
+
   /** The main event loop. Run one frame of the game.  */
   @profile
   private async loop(time: number): Promise<void> {
@@ -383,10 +386,19 @@ export class Game {
     this.slowTick(renderDt * this.slowMo);
 
     this.timeToSimulate += renderDt * this.slowMo;
+
+    // Distribute real audio time evenly across this frame's ticks
+    const audioNow = this.audio.currentTime;
+    const tickCount = Math.floor(this.timeToSimulate / this.tickDuration);
+    const audioTimeStep =
+      tickCount > 0 ? (audioNow - this.lastAudioTime) / tickCount : 0;
+    let tickAudioTime = this.lastAudioTime;
+
     while (this.timeToSimulate >= this.tickDuration) {
       this.timeToSimulate -= this.tickDuration;
+      tickAudioTime += audioTimeStep;
 
-      await this.tick(this.tickDuration);
+      await this.tick(this.tickDuration, tickAudioTime);
 
       if (!this.paused) {
         const stepDt = this.tickDuration;
@@ -399,6 +411,8 @@ export class Game {
         this.contacts();
       }
     }
+
+    this.lastAudioTime = audioNow;
 
     this.afterPhysics();
 
@@ -455,13 +469,15 @@ export class Game {
 
   /** Called before physics. */
   @profile
-  private async tick(dt: number): Promise<void> {
+  private async tick(dt: number, audioTime: number): Promise<void> {
     this.ticknumber += 1;
+
+    const tickData: GameEventMap["tick"] = { dt, audioTime };
 
     // Dispatch tick events layer by layer
     for (const layerName of TICK_LAYERS) {
       await profiler.measure(`tick.${layerName}`, () =>
-        this.dispatchTickForLayer(layerName, dt),
+        this.dispatchTickForLayer(layerName, tickData),
       );
     }
   }
@@ -469,14 +485,14 @@ export class Game {
   /** Dispatch tick event to entities on a specific layer */
   private async dispatchTickForLayer(
     layerName: TickLayerName,
-    dt: number,
+    tickData: GameEventMap["tick"],
   ): Promise<void> {
     const effectivelyPaused = this.paused;
     const promises: Promise<void>[] = [];
 
     for (const entity of this.entities.getTickersOnLayer(layerName)) {
       if (entity.game && !(effectivelyPaused && !entity.pausable)) {
-        const result = entity.onTick?.(dt);
+        const result = entity.onTick?.(tickData);
         // Only collect actual Promises
         if (result && result instanceof Promise) {
           promises.push(result);

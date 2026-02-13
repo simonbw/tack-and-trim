@@ -22,7 +22,7 @@ export class CameraController extends BaseEntity {
   }
 
   @on("tick")
-  onTick(dt: GameEventMap["tick"]) {
+  onTick({ dt }: GameEventMap["tick"]) {
     const boatPosition = this.boat.getPosition();
     const boatVelocity = V(this.boat.getVelocity()); // Convert ReadonlyV2d to V2d
     this.camera.smoothCenter(boatPosition, boatVelocity, 0.25);

@@ -1,4 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import type { Boat } from "../boat/Boat";
 import { WindResources } from "../world/wind/WindResources";
@@ -127,7 +128,7 @@ export class TutorialManager extends BaseEntity {
   }
 
   @on("tick")
-  onTick(dt: number): void {
+  onTick({ dt }: GameEventMap["tick"]): void {
     if (this.isComplete || !this.context) return;
 
     // Handle transition timer

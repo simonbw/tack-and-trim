@@ -1,4 +1,5 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
+import { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 import { range } from "../core/util/FunctionalUtils";
 import { lerp, lerpV2d } from "../core/util/MathUtil";
@@ -74,7 +75,7 @@ export class BoatSpray extends BaseEntity {
   }
 
   @on("tick")
-  onTick(dt: number): void {
+  onTick({ dt }: GameEventMap["tick"]): void {
     // Get water query results (one per edge midpoint)
     const results = this.waterQuery.results;
 

@@ -45,7 +45,7 @@ export class FoamParticle extends BaseEntity {
   }
 
   @on("tick")
-  onTick(dt: number): void {
+  onTick({ dt }: GameEventMap["tick"]): void {
     this.age += dt;
     if (this.age >= this.lifespan) {
       this.destroy();

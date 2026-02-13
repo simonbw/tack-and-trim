@@ -50,7 +50,7 @@ export class Wake extends BaseEntity {
   }
 
   @on("tick")
-  onTick(_dt: number) {
+  onTick() {
     const velocity = this.boat.getVelocity();
     const speed = velocity.magnitude;
 

@@ -59,7 +59,7 @@ export type BaseGameEvents = {
     camera: Camera2d;
   };
   /** Called during the update tick */
-  tick: number;
+  tick: { dt: number; audioTime: number };
   /** Called less frequently */
   slowTick: number;
   /** Called when the game is paused */

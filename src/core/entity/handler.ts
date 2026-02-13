@@ -3,7 +3,7 @@
  *
  * Usage:
  *   @on("tick")
- *   onTick(dt: number) { ... }
+ *   onTick({ dt }: GameEventMap["tick"]) { ... }
  */
 
 import type { GameEventMap, GameEventName } from "./Entity";
@@ -27,8 +27,8 @@ const processedHandlers = new WeakMap<object, Set<GameEventName>>();
  * @example
  * class MyEntity extends BaseEntity {
  *   @on("tick")
- *   onTick(dt: number) {
- *     // dt is type-checked to be number
+ *   onTick({ dt }: GameEventMap["tick"]) {
+ *     // Parameters are type-checked against GameEventMap
  *   }
  *
  *   @on("render")
