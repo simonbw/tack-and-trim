@@ -1,4 +1,3 @@
-import { asyncProfiler } from "./AsyncProfiler";
 import { lerp } from "./MathUtil";
 
 interface ProfileEntry {
@@ -52,12 +51,16 @@ class Profiler {
   private readonly separator = " > ";
   private readonly maxStackDepth = 10;
 
+  // Scope system - registered top-level labels that trigger per-frame processing
+  private scopes = new Map<string, { onEnd?: () => void }>();
+
   // Smoothing factor (higher = smoother, slower to respond)
   private readonly smoothing = 0.975;
 
   // Stats caching - invalidated each frame
   private cachedStats: ProfileStats[] | null = null;
-  private cachedStatsParams: { maxChildren?: number } | null = null;
+  private cachedStatsParams: { maxChildren?: number; scope?: string } | null =
+    null;
 
   /** Get the current stack as a path string (cached) */
   private getCurrentPath(): string {
@@ -84,8 +87,14 @@ class Profiler {
     return fullPath;
   }
 
+  /** Register a label as a scope root. When end() fires for this label at stack depth 0,
+   *  only entries nested under it get EMA-smoothed and reset. */
+  registerScope(label: string, onEnd?: () => void): void {
+    this.scopes.set(label, { onEnd });
+  }
+
   /** Start timing a labeled section */
-  start(label: string): void {
+  start(label: string, options?: { scope?: boolean }): void {
     if (!this.enabled) return;
     if (this.stack.length >= this.maxStackDepth) {
       console.warn(
@@ -97,6 +106,11 @@ class Profiler {
     const entry = this.getOrCreate(entryKey);
     entry.startTime = performance.now();
     this.stack.push(label);
+
+    // Inline scope registration
+    if (options?.scope && !this.scopes.has(entryKey)) {
+      this.scopes.set(entryKey, {});
+    }
   }
 
   /** End timing a labeled section. Optionally pass explicit elapsed time. */
@@ -131,38 +145,43 @@ class Profiler {
     entry.maxMs = Math.max(entry.maxMs, elapsed);
     entry.startTime = undefined;
 
-    // Trigger frame end processing when the root "Game.loop" label ends
-    if (this.stack.length === 0 && label === "Game.loop") {
-      this.endFrame();
+    // Trigger scope processing when a registered scope label ends at root
+    if (this.stack.length === 0 && this.scopes.has(label)) {
+      this.processScope(label);
     }
   }
 
-  /** Process end of frame - update smoothed values and reset accumulators */
-  private endFrame(): void {
-    // Invalidate stats cache
+  /** Process end of a scope - update smoothed values and reset accumulators for entries under this scope */
+  private processScope(scopeLabel: string): void {
     this.cachedStats = null;
     this.cachedStatsParams = null;
 
-    // Also end the async profiler's frame
-    asyncProfiler.endFrame();
-
-    for (const entry of this.entries.values()) {
-      // Update smoothed values with exponential moving average
-      entry.smoothedCallsPerFrame = lerp(
-        entry.frameCalls,
-        entry.smoothedCallsPerFrame,
-        this.smoothing,
-      );
-      entry.smoothedMsPerFrame = lerp(
-        entry.frameMs,
-        entry.smoothedMsPerFrame,
-        this.smoothing,
-      );
-
-      // Reset frame accumulators
-      entry.frameCalls = 0;
-      entry.frameMs = 0;
+    const prefix = scopeLabel + this.separator;
+    for (const [key, entry] of this.entries) {
+      if (key === scopeLabel || key.startsWith(prefix)) {
+        entry.smoothedCallsPerFrame = this.smoothedUpdate(
+          entry.frameCalls,
+          entry.smoothedCallsPerFrame,
+        );
+        entry.smoothedMsPerFrame = this.smoothedUpdate(
+          entry.frameMs,
+          entry.smoothedMsPerFrame,
+        );
+        entry.frameCalls = 0;
+        entry.frameMs = 0;
+      }
     }
+
+    // Fire scope callback
+    this.scopes.get(scopeLabel)?.onEnd?.();
+  }
+
+  /** EMA update with cold-start fix: initialize directly on first sample */
+  private smoothedUpdate(raw: number, smoothed: number): number {
+    if (smoothed === 0 && raw > 0) {
+      return raw;
+    }
+    return lerp(raw, smoothed, this.smoothing);
   }
 
   /** Measure a function's execution time */
@@ -249,13 +268,22 @@ class Profiler {
    * Get all stats sorted hierarchically.
    * Optimized to O(n log n) by building parent-child map in a single pass.
    * @param maxChildrenPerParent If specified, limits the number of children shown per parent
+   * @param scope If specified, only return entries under this scope label
    */
-  getStats(maxChildrenPerParent?: number): ProfileStats[] {
+  getStats(maxChildrenPerParent?: number, scope?: string): ProfileStats[] {
     // Build parent-child map in a single pass (O(n))
     const childrenMap = new Map<string, ProfileStats[]>();
     const msLookup = new Map<string, number>();
 
+    // When scoped, only include entries that belong to the scope
+    const scopePrefix = scope ? scope + this.separator : undefined;
+
     for (const [label, entry] of this.entries) {
+      // Filter to scope if specified
+      if (scope && label !== scope && !label.startsWith(scopePrefix!)) {
+        continue;
+      }
+
       const segments = label.split(this.separator);
       const stat: ProfileStats = {
         label,
@@ -307,23 +335,46 @@ class Profiler {
       return result;
     };
 
-    return buildSortedList("");
+    const children = buildSortedList(scope ?? "");
+
+    // When scoped, prepend the scope's own entry as the root
+    if (scope) {
+      const scopeEntry = this.entries.get(scope);
+      if (scopeEntry) {
+        const segments = scope.split(this.separator);
+        children.unshift({
+          label: scope,
+          shortLabel: segments[segments.length - 1],
+          depth: segments.length - 1,
+          callsPerFrame: scopeEntry.smoothedCallsPerFrame,
+          msPerFrame: scopeEntry.smoothedMsPerFrame,
+          maxMs: scopeEntry.maxMs,
+        });
+      }
+    }
+
+    return children;
   }
 
   /** Get top N stats by total time (cached within frame) */
-  getTopStats(n: number, maxChildrenPerParent?: number): ProfileStats[] {
+  getTopStats(
+    n: number,
+    maxChildrenPerParent?: number,
+    scope?: string,
+  ): ProfileStats[] {
     // Check cache
     if (
       this.cachedStats &&
-      this.cachedStatsParams?.maxChildren === maxChildrenPerParent
+      this.cachedStatsParams?.maxChildren === maxChildrenPerParent &&
+      this.cachedStatsParams?.scope === scope
     ) {
       return this.cachedStats.slice(0, n);
     }
 
     // Compute and cache
-    const stats = this.getStats(maxChildrenPerParent);
+    const stats = this.getStats(maxChildrenPerParent, scope);
     this.cachedStats = stats;
-    this.cachedStatsParams = { maxChildren: maxChildrenPerParent };
+    this.cachedStatsParams = { maxChildren: maxChildrenPerParent, scope };
     return stats.slice(0, n);
   }
 

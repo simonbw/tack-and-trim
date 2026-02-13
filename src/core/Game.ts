@@ -16,6 +16,7 @@ import { StaticBody } from "./physics/body/StaticBody";
 import { PhysicsEventMap } from "./physics/events/PhysicsEvents";
 import { World } from "./physics/world/World";
 import { lerp } from "./util/MathUtil";
+import { asyncProfiler } from "./util/AsyncProfiler";
 import { profile, profiler } from "./util/Profiler";
 
 interface GameOptions {
@@ -63,6 +64,8 @@ export class Game {
   readonly ticksPerSecond: number;
   /** Number of seconds to simulate per tick */
   readonly tickDuration: number;
+  /** Maximum allowed ticks per frame. */
+  readonly maxTicksPerFrame = 5;
 
   /** ID of the current animation frame request, used for cancellation */
   private animationFrameId: number = 0;
@@ -142,6 +145,8 @@ export class Game {
     }
     await getWebGPU().init();
     this.webGpuInitialized = true;
+
+    profiler.registerScope("Game.loop", () => asyncProfiler.endFrame());
 
     await this.renderer.init(rendererOptions);
     // IO events don't respect pause state
@@ -374,7 +379,7 @@ export class Game {
       );
     }
 
-    const renderDt = 1.0 / this.getScreenFps();
+    const renderDt = 1.0 / 120.0; // TODO: Remove this hardcoding eventually  //1.0 / this.getScreenFps();
     this.elapsedTime += renderDt;
     if (!this.paused) {
       this.elapsedUnpausedTime += renderDt;
@@ -382,7 +387,10 @@ export class Game {
 
     this.slowTick(renderDt * this.slowMo);
 
-    this.timeToSimulate += renderDt * this.slowMo;
+    this.timeToSimulate = Math.min(
+      this.timeToSimulate + renderDt * this.slowMo,
+      this.tickDuration * this.maxTicksPerFrame,
+    );
     while (this.timeToSimulate >= this.tickDuration) {
       this.timeToSimulate -= this.tickDuration;
 

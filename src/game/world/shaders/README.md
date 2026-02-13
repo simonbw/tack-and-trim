@@ -85,6 +85,14 @@ No need to import or depend on these - they're always available.
 - **fn_renderWaterLighting** - Complete water surface shading
   - Dependencies: `fn_SCENE_LIGHTING`, `fn_computeFresnel`, `fn_computeSpecular`, `fn_computeDiffuse`
 
+### Geometry
+
+#### `polygon.wgsl.ts`
+
+- **fn_pointLeftOfSegment** - Winding number test (cross product sign)
+- **fn_pointInPolygon** - Winding number containment test for arbitrary polygons
+- **fn_pointToLineSegmentDistanceSq** - Squared distance from point to line segment
+
 ### Physics
 
 #### `wave-physics.wgsl.ts`
@@ -94,19 +102,28 @@ No need to import or depend on these - they're always available.
 - **fn_computeWaveFrequency** - Wave angular frequency from wavelength
 - **fn_computeWaveNumber** - Wave number from wavelength
 
+#### `wave-terrain.wgsl.ts`
+
+- **fn_computeShoalingFactor** - Green's Law wave shoaling (wave-terrain interaction version)
+- **fn_computeShallowDamping** - Bottom friction damping
+
+#### `wave-constants.wgsl.ts`
+
+- **const_MAX_WAVE_SOURCES** - Maximum wave source count (shared between CPU and GPU)
+
 #### `gerstner-wave.wgsl.ts`
 
-- **fn_calculateGerstnerWaves** - Analytical Gerstner wave computation (accepts per-wave energy factors)
+- **fn_calculateGerstnerWaves** - Analytical Gerstner wave computation (accepts per-wave energy factors, phase corrections)
 
-#### `fresnel-diffraction.wgsl.ts`
+#### `mesh-packed.wgsl.ts`
 
-- **fn_computeFresnelEnergy** - Wave energy attenuation from Fresnel diffraction
+Accessor functions for reading wavefront mesh data from a single packed `array<u32>` buffer.
 
-#### `shadow-attenuation.wgsl.ts`
-
-- **struct_ShadowData** - Shadow data structures (`PolygonShadowData`)
-- **fn_computeShadowEnergyForWave** - Per-wave shadow energy attenuation using that wave's direction and wavelength
-  - Dependencies: `fn_computeFresnelEnergy`, `fn_getShadowNumWaves`, `fn_getShadowWaveSetOffset`, `fn_getShadowWaveDirAt`, `fn_getShadowPolygonCountAt`, `fn_getShadowVerticesOffsetAt`, `fn_getShadowPolygon`, `fn_isInsideShadowPolygon`
+- **struct_MeshHeader** - Per-wave mesh metadata struct
+- **fn_getMeshHeader** - Read mesh header for a wave source
+- **fn_getMeshVertexPos** - Read vertex position from packed buffer
+- **fn_lookupMeshForWave** - Full mesh lookup with spatial grid + barycentric interpolation
+  - Dependencies: `struct_MeshHeader`, `fn_getMeshHeader`, `fn_getMeshVertexPos`
 
 ### Terrain
 
@@ -136,23 +153,6 @@ Accessor functions for reading terrain data from a single packed `array<u32>` bu
 - **fn_getContourData** - Read a ContourData struct from the packed buffer
   - Dependencies: `struct_ContourData`
 - **fn_getTerrainChild** - Read a child contour index from the packed buffer
-
-### Shadow
-
-#### `shadow-packed.wgsl.ts`
-
-Accessor functions for reading per-wave-source shadow data from a single packed `array<u32>` buffer. The buffer has a global header with wave source count and per-wave-set offsets, then per-wave polygon sets each with their own direction, polygon count, and vertex data.
-
-- **fn_getShadowNumWaves** - Read number of wave sources from packed shadow buffer
-- **fn_getShadowWaveSetOffset** - Read the offset to a wave source's polygon set
-- **fn_getShadowWaveDirAt** - Read wave direction for a specific wave source
-- **fn_getShadowPolygonCountAt** - Read polygon count for a specific wave source
-- **fn_getShadowVerticesOffsetAt** - Read vertices offset for a specific wave source
-- **fn_getShadowPolygon** - Read a PolygonShadowData struct from packed buffer (parameterized by set base offset)
-  - Dependencies: `struct_ShadowData`
-- **fn_getShadowVertex** - Read a shadow vertex from packed buffer (parameterized by vertices offset)
-- **fn_isInsideShadowPolygon** - Winding number test using packed vertex data
-  - Dependencies: `fn_pointLeftOfSegment`, `fn_getShadowVertex`
 
 ### Wind
 

@@ -21,7 +21,7 @@ export const SurfaceCompositeUniforms = defineUniformStruct("Params", {
   screenWidth: f32,
   screenHeight: f32,
 
-  // Viewport bounds in world space
+  // Expanded viewport bounds in world space (for height texture UV lookups)
   viewportLeft: f32,
   viewportTop: f32,
   viewportWidth: f32,
@@ -38,4 +38,10 @@ export const SurfaceCompositeUniforms = defineUniformStruct("Params", {
   atlasTilesX: u32,
   atlasTilesY: u32,
   atlasWorldUnitsPerTile: f32,
+
+  // Camera viewport bounds in world space (for clip-to-world mapping)
+  cameraLeft: f32,
+  cameraTop: f32,
+  cameraWidth: f32,
+  cameraHeight: f32,
 });

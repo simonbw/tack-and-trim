@@ -316,10 +316,6 @@ export abstract class QueryManager extends BaseEntity {
       pointCount * this.resultLayout.stride * Float32Array.BYTES_PER_ELEMENT;
     const readbackBuffer = this.readbackBuffers.getWrite();
 
-    // GPU timestamp: start of copy
-    const gpuProfiler = this.game.getRenderer().getGpuProfiler();
-    gpuProfiler?.writeTimestamp("query.copy", "start", commandEncoder);
-
     commandEncoder.copyBufferToBuffer(
       this.resultBuffer,
       0,
@@ -327,9 +323,6 @@ export abstract class QueryManager extends BaseEntity {
       0,
       resultBytesNeeded,
     );
-
-    // GPU timestamp: end of copy
-    gpuProfiler?.writeTimestamp("query.copy", "end", commandEncoder);
 
     // Single submit for compute + copy
     device.queue.submit([commandEncoder.finish()]);

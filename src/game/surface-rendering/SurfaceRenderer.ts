@@ -20,6 +20,7 @@ import { type UniformInstance } from "../../core/graphics/UniformStruct";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
+import { MAX_WAVE_SOURCES } from "../wave-physics/WavePhysicsManager";
 import { TimeOfDay } from "../time/TimeOfDay";
 import {
   WavePhysicsResources,
@@ -71,6 +72,11 @@ export class SurfaceRenderer extends BaseEntity {
   private waterHeightTexture: GPUTexture | null = null;
   private waterHeightView: GPUTextureView | null = null;
 
+  // Wave field texture array (rgba16float, one layer per wave source)
+  private waveFieldTexture: GPUTexture | null = null;
+  private waveFieldTextureView: GPUTextureView | null = null;
+  private waveFieldSampler: GPUSampler | null = null;
+
   // Uniform buffers
   private terrainScreenUniformBuffer: GPUBuffer | null = null;
   private waterHeightUniformBuffer: GPUBuffer | null = null;
@@ -98,13 +104,10 @@ export class SurfaceRenderer extends BaseEntity {
   // Track last resources
   private lastTextureWidth = 0;
   private lastTextureHeight = 0;
-  private lastPackedShadowBuffer: GPUBuffer | null = null;
   private lastWaveDataBuffer: GPUBuffer | null = null;
   private lastModifiersBuffer: GPUBuffer | null = null;
   private lastTerrainAtlasView: GPUTextureView | null = null;
-
-  // Placeholder packed shadow buffer (for when wave physics isn't ready)
-  private placeholderPackedShadowBuffer: GPUBuffer | null = null;
+  private lastWaveFieldTextureView: GPUTextureView | null = null;
 
   constructor() {
     super();
@@ -172,20 +175,14 @@ export class SurfaceRenderer extends BaseEntity {
         label: "Height Texture Sampler",
       });
 
-      // Create placeholder packed shadow buffer (empty - no wave sources)
-      // Layout: 16 u32 global header with numWaveSources = 0
-      this.placeholderPackedShadowBuffer = device.createBuffer({
-        size: 64,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        label: "Placeholder Packed Shadow Buffer",
+      // Create wave field sampler (linear filtering for smooth interpolation)
+      this.waveFieldSampler = device.createSampler({
+        magFilter: "linear",
+        minFilter: "linear",
+        addressModeU: "clamp-to-edge",
+        addressModeV: "clamp-to-edge",
+        label: "Wave Field Sampler",
       });
-      const placeholderData = new Uint32Array(16);
-      placeholderData[0] = 0; // numWaveSources = 0
-      device.queue.writeBuffer(
-        this.placeholderPackedShadowBuffer,
-        0,
-        placeholderData,
-      );
 
       this.initialized = true;
     } catch (error) {
@@ -211,6 +208,7 @@ export class SurfaceRenderer extends BaseEntity {
     // Destroy old textures
     this.terrainHeightTexture?.destroy();
     this.waterHeightTexture?.destroy();
+    this.waveFieldTexture?.destroy();
 
     // Destroy old wetness pipeline (will be recreated with new size)
     this.wetnessPipeline?.destroy();
@@ -227,11 +225,24 @@ export class SurfaceRenderer extends BaseEntity {
     // Create water height texture
     this.waterHeightTexture = device.createTexture({
       size: { width, height },
-      format: "r32float",
+      format: "rg32float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       label: "Water Height Texture",
     });
     this.waterHeightView = this.waterHeightTexture.createView();
+
+    // Create wave field texture array (one layer per wave source)
+    this.waveFieldTexture = device.createTexture({
+      size: { width, height, depthOrArrayLayers: MAX_WAVE_SOURCES },
+      format: "rgba16float",
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      label: "Wave Field Texture",
+    });
+    this.waveFieldTextureView = this.waveFieldTexture.createView({
+      dimension: "2d-array",
+      label: "Wave Field Texture View",
+    });
 
     // Recreate wetness pipeline with new texture size
     this.wetnessPipeline = new WetnessRenderPipeline(width, height);
@@ -321,7 +332,8 @@ export class SurfaceRenderer extends BaseEntity {
    * Update uniforms for composite pass.
    */
   private updateCompositeUniforms(
-    viewport: Viewport,
+    expandedViewport: Viewport,
+    cameraViewport: Viewport,
     currentTime: number,
     width: number,
     height: number,
@@ -334,10 +346,11 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeUniforms.set.cameraMatrix(cameraMatrix);
     this.compositeUniforms.set.screenWidth(width);
     this.compositeUniforms.set.screenHeight(height);
-    this.compositeUniforms.set.viewportLeft(viewport.left);
-    this.compositeUniforms.set.viewportTop(viewport.top);
-    this.compositeUniforms.set.viewportWidth(viewport.width);
-    this.compositeUniforms.set.viewportHeight(viewport.height);
+    // Expanded viewport for height texture UV lookups
+    this.compositeUniforms.set.viewportLeft(expandedViewport.left);
+    this.compositeUniforms.set.viewportTop(expandedViewport.top);
+    this.compositeUniforms.set.viewportWidth(expandedViewport.width);
+    this.compositeUniforms.set.viewportHeight(expandedViewport.height);
     this.compositeUniforms.set.time(currentTime);
     this.compositeUniforms.set.tideHeight(waterResources.getTideHeight());
     this.compositeUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
@@ -350,6 +363,12 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeUniforms.set.atlasWorldUnitsPerTile(
       atlasInfo.worldUnitsPerTile,
     );
+
+    // Camera viewport for clip-to-world mapping (matches camera matrix)
+    this.compositeUniforms.set.cameraLeft(cameraViewport.left);
+    this.compositeUniforms.set.cameraTop(cameraViewport.top);
+    this.compositeUniforms.set.cameraWidth(cameraViewport.width);
+    this.compositeUniforms.set.cameraHeight(cameraViewport.height);
   }
 
   /**
@@ -357,7 +376,6 @@ export class SurfaceRenderer extends BaseEntity {
    */
   private ensureBindGroups(
     waterResources: WaterResources,
-    packedShadowBuffer: GPUBuffer,
     terrainAtlasView: GPUTextureView,
   ): void {
     const waveDataBuffer = waterResources.waveDataBuffer;
@@ -367,10 +385,10 @@ export class SurfaceRenderer extends BaseEntity {
       !this.terrainScreenBindGroup ||
       !this.waterHeightBindGroup ||
       !this.compositeBindGroup ||
-      this.lastPackedShadowBuffer !== packedShadowBuffer ||
       this.lastWaveDataBuffer !== waveDataBuffer ||
       this.lastModifiersBuffer !== modifiersBuffer ||
-      this.lastTerrainAtlasView !== terrainAtlasView;
+      this.lastTerrainAtlasView !== terrainAtlasView ||
+      this.lastWaveFieldTextureView !== this.waveFieldTextureView;
 
     if (!needsRebuild) return;
 
@@ -387,19 +405,20 @@ export class SurfaceRenderer extends BaseEntity {
       });
     }
 
-    // Water height bind group (includes packed shadow data and terrain height texture)
+    // Water height bind group (uses wave field texture instead of shadow/terrain)
     if (
       this.waterHeightShader &&
       this.waterHeightUniformBuffer &&
       this.waterHeightView &&
-      this.terrainHeightView
+      this.waveFieldTextureView &&
+      this.waveFieldSampler
     ) {
       this.waterHeightBindGroup = this.waterHeightShader.createBindGroup({
         params: { buffer: this.waterHeightUniformBuffer },
         waveData: { buffer: waveDataBuffer },
         modifiers: { buffer: modifiersBuffer },
-        packedShadow: { buffer: packedShadowBuffer },
-        terrainHeightTexture: this.terrainHeightView,
+        waveFieldTexture: this.waveFieldTextureView,
+        waveFieldSampler: this.waveFieldSampler,
         outputTexture: this.waterHeightView,
       });
     }
@@ -423,10 +442,10 @@ export class SurfaceRenderer extends BaseEntity {
     }
 
     // Update tracking
-    this.lastPackedShadowBuffer = packedShadowBuffer;
     this.lastWaveDataBuffer = waveDataBuffer;
     this.lastModifiersBuffer = modifiersBuffer;
     this.lastTerrainAtlasView = terrainAtlasView;
+    this.lastWaveFieldTextureView = this.waveFieldTextureView;
   }
 
   @on("render")
@@ -453,11 +472,6 @@ export class SurfaceRenderer extends BaseEntity {
       this.game.entities.tryGetSingleton(WavePhysicsResources);
     const waterResources = this.game.entities.getSingleton(WaterResources);
     const terrainResources = this.game.entities.getSingleton(TerrainResources);
-
-    // Get packed shadow buffer for analytical wave attenuation
-    const packedShadowBuffer =
-      wavePhysicsResources?.getPackedShadowBuffer() ??
-      this.placeholderPackedShadowBuffer!;
 
     // Ensure intermediate textures
     this.ensureTextures(width, height);
@@ -498,8 +512,11 @@ export class SurfaceRenderer extends BaseEntity {
       height,
       waterResources,
     );
+    // Get the camera viewport (non-expanded) for correct clip-to-world mapping
+    const cameraViewport = camera.getWorldViewport();
     this.updateCompositeUniforms(
       expandedViewport,
+      cameraViewport,
       currentTime,
       width,
       height,
@@ -514,7 +531,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeUniforms?.uploadTo(this.compositeUniformBuffer!);
 
     // Ensure bind groups
-    this.ensureBindGroups(waterResources, packedShadowBuffer, terrainAtlasView);
+    this.ensureBindGroups(waterResources, terrainAtlasView);
 
     // === Pass 1: Terrain Screen Compute ===
     // Sample terrain atlas to screen-space texture for water height shader
@@ -534,6 +551,24 @@ export class SurfaceRenderer extends BaseEntity {
         height,
       );
       computePass.end();
+      device.queue.submit([commandEncoder.finish()]);
+    }
+
+    // === Pass 1.5: Wave Field Rasterization ===
+    // Rasterize wavefront meshes to screen-space texture array
+    if (this.waveFieldTexture && wavePhysicsResources) {
+      const rasterizer = wavePhysicsResources.getRasterizer();
+      const activeMeshes = wavePhysicsResources.getActiveMeshes();
+      const commandEncoder = device.createCommandEncoder({
+        label: "Wave Field Rasterization",
+      });
+      rasterizer.render(
+        commandEncoder,
+        activeMeshes,
+        expandedViewport,
+        this.waveFieldTexture,
+        gpuProfiler,
+      );
       device.queue.submit([commandEncoder.finish()]);
     }
 
@@ -571,6 +606,7 @@ export class SurfaceRenderer extends BaseEntity {
         this.waterHeightView,
         this.terrainHeightView,
         event.dt,
+        gpuProfiler,
       );
     }
 
@@ -625,9 +661,9 @@ export class SurfaceRenderer extends BaseEntity {
     this.wetnessPipeline?.destroy();
     this.terrainHeightTexture?.destroy();
     this.waterHeightTexture?.destroy();
+    this.waveFieldTexture?.destroy();
     this.terrainScreenUniformBuffer?.destroy();
     this.waterHeightUniformBuffer?.destroy();
     this.compositeUniformBuffer?.destroy();
-    this.placeholderPackedShadowBuffer?.destroy();
   }
 }

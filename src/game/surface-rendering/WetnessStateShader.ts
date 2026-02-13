@@ -9,12 +9,12 @@
  * - R: Wetness value (0 = dry, 1 = fully wet)
  */
 
+import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
 import {
   ComputeShader,
   type ComputeShaderConfig,
 } from "../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
-import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
 import {
   fn_uvInBounds,
   fn_uvToWorld,
@@ -22,8 +22,8 @@ import {
 } from "../world/shaders/coordinates.wgsl";
 
 // Wetness rates (configurable defaults)
-const DEFAULT_WETTING_RATE = 4.0; // Reach full wet in ~0.25 seconds
-const DEFAULT_DRYING_RATE = 0.15; // Dry in ~6-7 seconds
+const DEFAULT_WETTING_RATE = 5.0; // Reach full wet in ~0.25 seconds
+const DEFAULT_DRYING_RATE = 0.05; // Reach fully dry in ~20 seconds
 
 const WORKGROUP_SIZE = [8, 8] as const;
 

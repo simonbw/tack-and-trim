@@ -93,10 +93,10 @@ export const fn_renderWaterLighting: ShaderModule = {
         vec3<f32>(0.02, 0.03, -0.01),
         sunFacing * 0.5 + 0.5
       );
-      baseColor = baseColor + slopeShift * 0.08;
+      baseColor = baseColor + slopeShift * 0.15;
 
       // Troughs are darker
-      let troughDarken = (1.0 - rawHeight) * 0.12;
+      let troughDarken = (1.0 - rawHeight) * 0.2;
       baseColor = baseColor * (1.0 - troughDarken);
 
       // Fresnel effect
@@ -114,10 +114,10 @@ export const fn_renderWaterLighting: ShaderModule = {
       let specular = computeSpecular(viewDir, normal, sunDir, 64.0);
 
       // Combine lighting
-      let ambient = baseColor * 0.75;
-      let diffuseLight = baseColor * sunColor * diffuse * 0.15;
-      let skyReflection = skyColor * fresnel * 0.1;
-      let specularLight = sunColor * specular * 0.08;
+      let ambient = baseColor * 0.65;
+      let diffuseLight = baseColor * sunColor * diffuse * 0.3;
+      let skyReflection = skyColor * fresnel * 0.12;
+      let specularLight = sunColor * specular * 0.15;
 
       return ambient + subsurface + diffuseLight + skyReflection + specularLight;
     }
