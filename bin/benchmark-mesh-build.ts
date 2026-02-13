@@ -24,10 +24,10 @@ import {
   normalizeTerrainWinding,
 } from "../src/game/world/terrain/LandMass";
 import { buildMarchingMesh } from "../src/game/wave-physics/mesh-building/marchingBuilder";
+import type { TerrainCPUData } from "../src/game/world/terrain/TerrainCPUData";
 import type {
   MeshBuildBounds,
   MeshBuilderType,
-  TerrainDataForWorker,
   WavefrontMeshData,
 } from "../src/game/wave-physics/mesh-building/MeshBuildTypes";
 import type { WaveSource } from "../src/game/world/water/WaveSource";
@@ -39,7 +39,7 @@ import type { WaveSource } from "../src/game/world/water/WaveSource";
 type BuilderFn = (
   waveSource: WaveSource,
   coastlineBounds: MeshBuildBounds | null,
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
   tideHeight: number,
 ) => WavefrontMeshData;
 
@@ -120,7 +120,7 @@ const waveSource = waveConfig.sources[waveIndex];
 // Build terrain GPU data (same as what the game does)
 const terrainGPUData = buildTerrainGPUData(terrainDef);
 
-const terrain: TerrainDataForWorker = {
+const terrain: TerrainCPUData = {
   vertexData: terrainGPUData.vertexData,
   contourData: terrainGPUData.contourData,
   childrenData: terrainGPUData.childrenData,

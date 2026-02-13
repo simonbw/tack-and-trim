@@ -1,7 +1,7 @@
 /**
  * Unit tests for CPU terrain height computation.
  *
- * Run with: npx tsx --test src/game/wave-physics/mesh-building/terrainHeight.test.ts
+ * Run with: npx tsx --test src/game/world/terrain/terrainHeightCPU.test.ts
  */
 
 import { describe, it } from "node:test";
@@ -10,8 +10,8 @@ import {
   computeTerrainHeight,
   isInsideContour,
   computeDistanceToBoundary,
-} from "./terrainHeight";
-import type { TerrainDataForWorker } from "./MeshBuildTypes";
+} from "./terrainHeightCPU";
+import type { TerrainCPUData } from "./TerrainCPUData";
 
 // =============================================================================
 // Test fixture helpers
@@ -32,13 +32,13 @@ interface TestContour {
 const FLOATS_PER_CONTOUR = 13;
 
 /**
- * Build a TerrainDataForWorker from simple contour definitions.
+ * Build a TerrainCPUData from simple contour definitions.
  * Contours must be provided in DFS pre-order (parents before children).
  */
 function buildTestTerrain(
   contours: TestContour[],
   defaultDepth: number,
-): TerrainDataForWorker {
+): TerrainCPUData {
   // Count total vertices
   let totalVertices = 0;
   for (const c of contours) {

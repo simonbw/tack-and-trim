@@ -1,16 +1,16 @@
 /**
- * CPU port of terrain height computation.
+ * CPU port of terrain height computation (terrain.wgsl.ts).
  *
- * Pure TypeScript functions ported 1:1 from the WGSL shaders:
+ * Pure TypeScript implementation of the GPU terrain height shader, for use
+ * in web workers and tests where GPU shaders are unavailable. Ported 1:1 from:
  * - polygon.wgsl.ts: pointLeftOfSegment, pointToLineSegmentDistanceSq
  * - terrain-packed.wgsl.ts: ContourData accessors
  * - terrain.wgsl.ts: isInsideContour, computeDistanceToBoundary, computeTerrainHeight
  *
- * Reads from TerrainDataForWorker using DataView for mixed u32/f32 contour fields.
  * No engine imports — safe for use in web workers.
  */
 
-import type { TerrainDataForWorker } from "./MeshBuildTypes";
+import type { TerrainCPUData } from "./TerrainCPUData";
 
 /** Number of 32-bit values per contour (must match LandMass.FLOATS_PER_CONTOUR) */
 const FLOATS_PER_CONTOUR = 13;
@@ -47,7 +47,7 @@ const parsedContourCache = new WeakMap<ArrayBuffer, ParsedContour[]>();
  * Get or create pre-parsed contour data for the given terrain.
  * Parses the packed contourData ArrayBuffer once, then reuses on subsequent calls.
  */
-function getParsedContours(terrain: TerrainDataForWorker): ParsedContour[] {
+function getParsedContours(terrain: TerrainCPUData): ParsedContour[] {
   let parsed = parsedContourCache.get(terrain.contourData);
   if (parsed) return parsed;
 
@@ -141,7 +141,7 @@ export function isInsideContour(
   x: number,
   y: number,
   contourIndex: number,
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
 ): boolean {
   const contours = getParsedContours(terrain);
   return isInsideContourFast(x, y, contours[contourIndex], terrain.vertexData);
@@ -209,7 +209,7 @@ export function computeDistanceToBoundary(
   x: number,
   y: number,
   contourIndex: number,
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
 ): number {
   const contours = getParsedContours(terrain);
   return computeDistanceToBoundaryFast(
@@ -287,7 +287,7 @@ function computeDistanceToBoundaryFast(
 export function computeTerrainHeight(
   x: number,
   y: number,
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
 ): number {
   const contourCount = terrain.contourCount;
   const defaultDepth = terrain.defaultDepth;

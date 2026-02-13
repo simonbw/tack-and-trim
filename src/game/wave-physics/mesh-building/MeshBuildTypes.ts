@@ -8,6 +8,7 @@
  */
 
 import type { WaveSource } from "../../world/water/WaveSource";
+import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 
 /** Builder type identifier */
 export type MeshBuilderType = "marching";
@@ -27,24 +28,6 @@ export interface WavefrontMeshData {
   indexCount: number;
   /** World-space oriented quad corners for shadow/open-ocean distinction (4 corners, CW or CCW) */
   coverageQuad: CoverageQuad | null;
-}
-
-/**
- * Terrain data serialized for worker transfer.
- * Mirrors the packed terrain buffer layout but without the 3-element header,
- * since workers access it via typed array views instead of GPU accessors.
- */
-export interface TerrainDataForWorker {
-  /** Pre-sampled polygon vertices (2 floats per vertex) */
-  vertexData: Float32Array;
-  /** Contour metadata (13 u32 per contour, mixed u32/f32 types) */
-  contourData: ArrayBuffer;
-  /** Children indices */
-  childrenData: Uint32Array;
-  /** Number of contours */
-  contourCount: number;
-  /** Default ocean floor depth */
-  defaultDepth: number;
 }
 
 /** Axis-aligned bounding box for mesh build domain */
@@ -73,7 +56,7 @@ export interface MeshBuildRequest {
   requestId: number;
   builderType: MeshBuilderType;
   waveSource: WaveSource;
-  terrain: TerrainDataForWorker;
+  terrain: TerrainCPUData;
   coastlineBounds: MeshBuildBounds | null;
   tideHeight: number;
 }

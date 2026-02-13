@@ -1,4 +1,4 @@
-import type { TerrainDataForWorker } from "./MeshBuildTypes";
+import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 import type { WaveBounds } from "./marchingTypes";
 
 /** Number of 32-bit values per contour (must match LandMass.FLOATS_PER_CONTOUR) */
@@ -22,7 +22,7 @@ const MIN_MARGIN = 2000;
  * crosswave (lateral spreading).
  */
 export function computeBounds(
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
   wavelength: number,
   waveDx: number,
   waveDy: number,

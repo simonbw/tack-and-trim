@@ -22,11 +22,8 @@ const VERTEX_SPACING = 20; // feet per vertex
 const STEP_SIZE = 10; // feet per step (deep water)
 
 import type { WaveSource } from "../../world/water/WaveSource";
-import type {
-  MeshBuildBounds,
-  TerrainDataForWorker,
-  WavefrontMeshData,
-} from "./MeshBuildTypes";
+import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
+import type { MeshBuildBounds, WavefrontMeshData } from "./MeshBuildTypes";
 import { decimateWavefronts } from "./decimation";
 import {
   applyDiffraction,
@@ -40,7 +37,7 @@ import { buildMeshData } from "./meshOutput";
 export function buildMarchingMesh(
   waveSource: WaveSource,
   _coastlineBounds: MeshBuildBounds | null,
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
   _tideHeight: number,
 ): WavefrontMeshData {
   const wavelength = waveSource.wavelength;

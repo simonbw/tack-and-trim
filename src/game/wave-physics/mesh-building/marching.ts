@@ -30,9 +30,9 @@
  *    - divergence: ray spacing factor (energy spreads as rays diverge)
  */
 
-import type { TerrainDataForWorker } from "./MeshBuildTypes";
+import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 import type { WaveBounds, Wavefront, WavePoint } from "./marchingTypes";
-import { computeTerrainHeight } from "./terrainHeight";
+import { computeTerrainHeight } from "../../world/terrain/terrainHeightCPU";
 
 /** Energy fraction below which a point is considered dead */
 const MIN_ENERGY = 0.005;
@@ -332,7 +332,7 @@ export function marchWavefronts(
   stepSize: number,
   vertexSpacing: number,
   bounds: WaveBounds,
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
   wavelength: number,
 ): { wavefronts: Wavefront[]; splits: number; merges: number } {
   const perpDx = -waveDy;
@@ -512,7 +512,7 @@ export function marchWavefronts(
  */
 export function computeAmplitudes(
   wavefronts: Wavefront[],
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
   wavelength: number,
   vertexSpacing: number,
   initialDeltaT: number,

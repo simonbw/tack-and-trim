@@ -11,23 +11,14 @@
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { WaveSource } from "../../world/water/WaveSource";
 import { WavefrontMesh } from "../WavefrontMesh";
+import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 import type {
   MeshBuildBounds,
   MeshBuilderType,
   MeshBuildRequest,
   MeshBuildResult,
-  TerrainDataForWorker,
   WorkerOutMessage,
 } from "./MeshBuildTypes";
-
-/** Return type of buildTerrainGPUData() */
-export interface TerrainGPUData {
-  vertexData: Float32Array;
-  contourData: ArrayBuffer;
-  childrenData: Uint32Array;
-  contourCount: number;
-  defaultDepth: number;
-}
 
 /** Maximum number of concurrent workers */
 const MAX_WORKERS = 4;
@@ -97,7 +88,7 @@ export class MeshBuildCoordinator {
    */
   async buildMeshes(
     waveSources: WaveSource[],
-    terrainGPUData: TerrainGPUData,
+    terrainGPUData: TerrainCPUData,
     coastlineBounds: MeshBuildBounds | null,
     tideHeight: number,
     builderTypes: MeshBuilderType[],
@@ -167,7 +158,7 @@ export class MeshBuildCoordinator {
       builderType: MeshBuilderType;
       requestId: number;
     }[],
-    terrainGPUData: TerrainGPUData,
+    terrainGPUData: TerrainCPUData,
     bounds: MeshBuildBounds | null,
     tideHeight: number,
   ): Promise<
@@ -219,13 +210,13 @@ export class MeshBuildCoordinator {
       builderType: MeshBuilderType;
       requestId: number;
     },
-    terrainGPUData: TerrainGPUData,
+    terrainGPUData: TerrainCPUData,
     bounds: MeshBuildBounds | null,
     tideHeight: number,
   ): Promise<MeshBuildResult> {
     return new Promise((resolve, reject) => {
       // Clone typed arrays since they'll be transferred
-      const terrainForWorker: TerrainDataForWorker = {
+      const terrainForWorker: TerrainCPUData = {
         vertexData: new Float32Array(terrainGPUData.vertexData),
         contourData: terrainGPUData.contourData.slice(0),
         childrenData: new Uint32Array(terrainGPUData.childrenData),
