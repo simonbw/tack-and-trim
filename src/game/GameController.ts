@@ -13,6 +13,7 @@ import { isTutorialCompleted, TutorialManager } from "./tutorial";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
+import { WindSoundGenerator } from "./WindSoundGenerator";
 import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
 import { TerrainResources } from "./world/terrain/TerrainResources";
 import { WaterQueryManager } from "./world/water/WaterQueryManager";
@@ -74,8 +75,9 @@ export class GameController extends BaseEntity {
     );
     cameraController.setZoomTarget(GAMEPLAY_ZOOM);
 
-    // Spawn wind particles
+    // Spawn wind particles and sound
     this.game.addEntity(new WindParticles());
+    this.game.addEntity(new WindSoundGenerator());
 
     // Start the tutorial if not already completed
     if (!isTutorialCompleted()) {
