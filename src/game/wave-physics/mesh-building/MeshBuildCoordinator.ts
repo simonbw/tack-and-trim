@@ -25,6 +25,10 @@ const MAX_WORKERS = 4;
 
 /** Worker initialization timeout in ms */
 const INIT_TIMEOUT = 5000;
+/** Timeout for baseline marching mesh builds in ms */
+const MARCHING_TIMEOUT_MS = 30000;
+/** Timeout for experimental post-tri builds in ms */
+const POST_TRI_TIMEOUT_MS = 120000;
 
 /**
  * Coordinates mesh building across web workers.
@@ -145,6 +149,10 @@ export class MeshBuildCoordinator {
       pendingBuilds.map(async (pending) => {
         const label = `${pending.builderType} wave ${pending.waveSourceIndex}`;
         const startTime = performance.now();
+        const timeoutMs =
+          pending.builderType === "marching_posttri"
+            ? POST_TRI_TIMEOUT_MS
+            : MARCHING_TIMEOUT_MS;
 
         try {
           const result = await this.pool.submitRequest(pending.request, {
@@ -153,7 +161,7 @@ export class MeshBuildCoordinator {
               pending.request.terrain.contourData,
               pending.request.terrain.childrenData.buffer,
             ],
-            timeoutMs: 30000,
+            timeoutMs,
           });
           results.push({ pending, result });
         } catch (err) {

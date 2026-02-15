@@ -24,6 +24,7 @@ import {
   normalizeTerrainWinding,
 } from "../src/game/world/terrain/LandMass";
 import { buildMarchingMesh } from "../src/game/wave-physics/mesh-building/marchingBuilder";
+import { buildMarchingPostTriMesh } from "../src/game/wave-physics/mesh-building/marchingPostTriBuilder";
 import type { TerrainCPUData } from "../src/game/world/terrain/TerrainCPUData";
 import type {
   MeshBuildBounds,
@@ -45,9 +46,10 @@ type BuilderFn = (
 
 const builders: Record<MeshBuilderType, BuilderFn> = {
   marching: buildMarchingMesh,
+  marching_posttri: buildMarchingPostTriMesh,
 };
 
-const allBuilderTypes: MeshBuilderType[] = ["marching"];
+const allBuilderTypes: MeshBuilderType[] = ["marching", "marching_posttri"];
 
 // ---------------------------------------------------------------------------
 // Parse CLI args

@@ -7,8 +7,10 @@
  */
 
 import { buildMarchingMesh } from "./marchingBuilder";
+import { buildMarchingPostTriMesh } from "./marchingPostTriBuilder";
 import type {
   MeshBuildRequest,
+  WavefrontMeshData,
   MeshBuildResult,
   MeshBuildError,
   WorkerOutMessage,
@@ -30,12 +32,24 @@ workerSelf.onmessage = (event: MessageEvent<MeshBuildRequest>) => {
   const startTime = performance.now();
 
   try {
-    const meshData = buildMarchingMesh(
-      request.waveSource,
-      request.coastlineBounds,
-      request.terrain,
-      request.tideHeight,
-    );
+    let meshData: WavefrontMeshData;
+    if (request.builderType === "marching") {
+      meshData = buildMarchingMesh(
+        request.waveSource,
+        request.coastlineBounds,
+        request.terrain,
+        request.tideHeight,
+      );
+    } else if (request.builderType === "marching_posttri") {
+      meshData = buildMarchingPostTriMesh(
+        request.waveSource,
+        request.coastlineBounds,
+        request.terrain,
+        request.tideHeight,
+      );
+    } else {
+      throw new Error(`Unknown mesh builder type: ${request.builderType}`);
+    }
 
     const buildTimeMs = performance.now() - startTime;
 

@@ -11,7 +11,7 @@ import type { WaveSource } from "../../world/water/WaveSource";
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 
 /** Builder type identifier */
-export type MeshBuilderType = "marching";
+export type MeshBuilderType = "marching" | "marching_posttri";
 
 /**
  * CPU-only mesh data — what workers produce and transfer back.
