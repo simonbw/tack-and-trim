@@ -27,7 +27,7 @@ function lerpScalar(a: number, b: number, t: number): number {
 
 // Performance tracking
 let sampleStepAtTCalls = 0;
-let canRemoveRowsBetweenCalls = 0;
+let rowDecimationEvaluationCalls = 0;
 let canRemoveVerticesBetweenCalls = 0;
 
 /**
@@ -86,14 +86,98 @@ function sampleStepAtT(
 // Row decimation
 // ---------------------------------------------------------------------------
 
+type RowSample = { x: number; y: number; amplitude: number; phase: number };
+
+type RowCandidate = {
+  rowIdx: number;
+  prevIdx: number;
+  nextIdx: number;
+  score: number;
+};
+
+class RowCandidateHeap {
+  private readonly data: RowCandidate[] = [];
+
+  get size(): number {
+    return this.data.length;
+  }
+
+  push(candidate: RowCandidate): void {
+    this.data.push(candidate);
+    this.bubbleUp(this.data.length - 1);
+  }
+
+  pop(): RowCandidate | undefined {
+    if (this.data.length === 0) return undefined;
+    const top = this.data[0];
+    const tail = this.data.pop();
+    if (!tail) return top;
+    if (this.data.length > 0) {
+      this.data[0] = tail;
+      this.bubbleDown(0);
+    }
+    return top;
+  }
+
+  private bubbleUp(index: number): void {
+    while (index > 0) {
+      const parent = (index - 1) >> 1;
+      if (this.isHigherPriority(this.data[parent], this.data[index])) break;
+      [this.data[parent], this.data[index]] = [
+        this.data[index],
+        this.data[parent],
+      ];
+      index = parent;
+    }
+  }
+
+  private bubbleDown(index: number): void {
+    const size = this.data.length;
+    while (true) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      let best = index;
+
+      if (
+        left < size &&
+        this.isHigherPriority(this.data[left], this.data[best])
+      ) {
+        best = left;
+      }
+      if (
+        right < size &&
+        this.isHigherPriority(this.data[right], this.data[best])
+      ) {
+        best = right;
+      }
+      if (best === index) break;
+      [this.data[index], this.data[best]] = [this.data[best], this.data[index]];
+      index = best;
+    }
+  }
+
+  private isHigherPriority(a: RowCandidate, b: RowCandidate): boolean {
+    if (a.score !== b.score) return a.score < b.score;
+    return a.rowIdx < b.rowIdx;
+  }
+}
+
+function normalizedError(error: number, tolerance: number): number {
+  if (tolerance <= 0) return error === 0 ? 0 : Number.POSITIVE_INFINITY;
+  return error / tolerance;
+}
+
 /**
- * Check whether ALL wavefront rows strictly between anchorIdx and endpointIdx
- * are well-approximated by linear interpolation between the anchor and
- * endpoint rows. Only the anchor and endpoint (both kept) are used as
- * reference — no intermediate (potentially removed) rows participate.
+ * Evaluate whether a single interior row can be removed by interpolating from
+ * its current kept neighbours.
+ *
+ * Returns:
+ * - removable: whether the row is within all tolerances
+ * - score: max normalised error (0 best, 1 at threshold), used for ranking
  */
-function canRemoveRowsBetween(
+function evaluateRowRemoval(
   wavefronts: readonly Wavefront[],
+  rowIdx: number,
   anchorIdx: number,
   endpointIdx: number,
   k: number,
@@ -103,87 +187,95 @@ function canRemoveRowsBetween(
   ampTol: number,
   phaseTol: number,
   phasePerStep: number,
-): boolean {
-  canRemoveRowsBetweenCalls++;
+): { removable: boolean; score: number } {
+  rowDecimationEvaluationCalls++;
+  const row: Wavefront = wavefronts[rowIdx];
   const anchor: Wavefront = wavefronts[anchorIdx];
   const endpoint: Wavefront = wavefronts[endpointIdx];
   const span = endpointIdx - anchorIdx;
+  if (span <= 1) return { removable: false, score: Number.POSITIVE_INFINITY };
+  const fraction = (rowIdx - anchorIdx) / span;
+  const rowPhaseBase = rowIdx * phasePerStep;
+  const anchorPhaseBase = anchorIdx * phasePerStep;
+  const endpointPhaseBase = endpointIdx * phasePerStep;
+  let maxError = 0;
 
-  // Cache samples from anchor and endpoint rows to avoid repeated linear searches
-  const anchorCache = new Map<
-    number,
-    { x: number; y: number; amplitude: number }
-  >();
-  const endpointCache = new Map<
-    number,
-    { x: number; y: number; amplitude: number }
-  >();
+  // Cache samples from anchor and endpoint rows to avoid repeated linear
+  // searches for repeated t-values.
+  const anchorCache = new Map<number, RowSample>();
+  const endpointCache = new Map<number, RowSample>();
 
-  for (let ri = anchorIdx + 1; ri < endpointIdx; ri++) {
-    const row = wavefronts[ri];
-    const fraction = (ri - anchorIdx) / span;
-
-    for (const segment of row) {
-      for (const point of segment) {
-        // Try cache first, then compute and cache if needed
-        let fromAnchor = anchorCache.get(point.t);
-        if (!fromAnchor) {
-          const sample = sampleStepAtT(anchor, point.t);
-          if (!sample) return false; // Can't interpolate
-          fromAnchor = sample;
-          anchorCache.set(point.t, fromAnchor);
-        }
-
-        let fromEndpoint = endpointCache.get(point.t);
-        if (!fromEndpoint) {
-          const sample = sampleStepAtT(endpoint, point.t);
-          if (!sample) return false; // Can't interpolate
-          fromEndpoint = sample;
-          endpointCache.set(point.t, fromEndpoint);
-        }
-
-        // Position error
-        const ix = lerpScalar(fromAnchor.x, fromEndpoint.x, fraction);
-        const iy = lerpScalar(fromAnchor.y, fromEndpoint.y, fraction);
-        const dx = point.x - ix;
-        const dy = point.y - iy;
-        if (dx * dx + dy * dy > posTolSq) return false;
-
-        // Amplitude error
-        const iAmp = lerpScalar(
-          fromAnchor.amplitude,
-          fromEndpoint.amplitude,
-          fraction,
-        );
-        if (Math.abs(point.amplitude - iAmp) > ampTol) return false;
-
-        // Phase-offset error.
-        // phaseOffset = stepIndex * phasePerStep − k * dot(position, waveDir)
-        const actualPhase =
-          ri * phasePerStep - k * (point.x * waveDx + point.y * waveDy);
-        const anchorPhase =
-          anchorIdx * phasePerStep -
-          k * (fromAnchor.x * waveDx + fromAnchor.y * waveDy);
-        const endpointPhase =
-          endpointIdx * phasePerStep -
-          k * (fromEndpoint.x * waveDx + fromEndpoint.y * waveDy);
-        const iPhase = lerpScalar(anchorPhase, endpointPhase, fraction);
-        if (Math.abs(actualPhase - iPhase) > phaseTol) return false;
+  for (const segment of row) {
+    for (const point of segment) {
+      // Try cache first, then compute and cache if needed.
+      let fromAnchor = anchorCache.get(point.t);
+      if (!fromAnchor) {
+        const sample = sampleStepAtT(anchor, point.t);
+        if (!sample) return { removable: false, score: Number.POSITIVE_INFINITY };
+        fromAnchor = {
+          ...sample,
+          phase: anchorPhaseBase - k * (sample.x * waveDx + sample.y * waveDy),
+        };
+        anchorCache.set(point.t, fromAnchor);
       }
+
+      let fromEndpoint = endpointCache.get(point.t);
+      if (!fromEndpoint) {
+        const sample = sampleStepAtT(endpoint, point.t);
+        if (!sample) return { removable: false, score: Number.POSITIVE_INFINITY };
+        fromEndpoint = {
+          ...sample,
+          phase: endpointPhaseBase - k * (sample.x * waveDx + sample.y * waveDy),
+        };
+        endpointCache.set(point.t, fromEndpoint);
+      }
+
+      // Position error.
+      const ix = lerpScalar(fromAnchor.x, fromEndpoint.x, fraction);
+      const iy = lerpScalar(fromAnchor.y, fromEndpoint.y, fraction);
+      const dx = point.x - ix;
+      const dy = point.y - iy;
+      const posErrSq = dx * dx + dy * dy;
+      const posScore = normalizedError(posErrSq, posTolSq);
+      if (posScore > 1) {
+        return { removable: false, score: Number.POSITIVE_INFINITY };
+      }
+      if (posScore > maxError) maxError = posScore;
+
+      // Amplitude error.
+      const iAmp = lerpScalar(
+        fromAnchor.amplitude,
+        fromEndpoint.amplitude,
+        fraction,
+      );
+      const ampErr = Math.abs(point.amplitude - iAmp);
+      const ampScore = normalizedError(ampErr, ampTol);
+      if (ampScore > 1) {
+        return { removable: false, score: Number.POSITIVE_INFINITY };
+      }
+      if (ampScore > maxError) maxError = ampScore;
+
+      // Phase-offset error.
+      // phaseOffset = stepIndex * phasePerStep − k * dot(position, waveDir)
+      const actualPhase = rowPhaseBase - k * (point.x * waveDx + point.y * waveDy);
+      const iPhase = lerpScalar(fromAnchor.phase, fromEndpoint.phase, fraction);
+      const phaseErr = Math.abs(actualPhase - iPhase);
+      const phaseScore = normalizedError(phaseErr, phaseTol);
+      if (phaseScore > 1) {
+        return { removable: false, score: Number.POSITIVE_INFINITY };
+      }
+      if (phaseScore > maxError) maxError = phaseScore;
     }
   }
-  return true;
+  return { removable: true, score: maxError };
 }
 
 /**
- * Greedy forward scan that removes entire wavefront rows.
+ * Iteratively remove one interior row at a time.
  *
- * Maintains an "anchor" (last kept row). For each subsequent row, checks
- * whether ALL rows between the anchor and the next probe can be removed.
- * If so, extends the removal span. If not, the row just before the failing
- * probe becomes the new anchor.
- *
- * First and last rows are always kept.
+ * Candidate rows are scored by max normalised interpolation error versus
+ * their current neighbours. We repeatedly remove the lowest-error removable
+ * row, then only re-evaluate its adjacent neighbours.
  */
 function decimateRows(
   wavefronts: readonly Wavefront[],
@@ -203,15 +295,30 @@ function decimateRows(
     };
   }
 
-  const kept: number[] = [0];
-  let anchor = 0;
-  let endpoint = 2; // minimum span: one candidate row between anchor and endpoint
+  const prev = new Int32Array(N);
+  const next = new Int32Array(N);
+  const active = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    prev[i] = i - 1;
+    next[i] = i + 1;
+    active[i] = 1;
+  }
+  next[N - 1] = -1;
 
-  while (endpoint <= N - 1) {
-    const removable = canRemoveRowsBetween(
+  const heap = new RowCandidateHeap();
+
+  const enqueueIfRemovable = (rowIdx: number): void => {
+    if (rowIdx <= 0 || rowIdx >= N - 1) return;
+    if (active[rowIdx] === 0) return;
+    const prevIdx = prev[rowIdx];
+    const nextIdx = next[rowIdx];
+    if (prevIdx < 0 || nextIdx < 0) return;
+
+    const evalResult = evaluateRowRemoval(
       wavefronts,
-      anchor,
-      endpoint,
+      rowIdx,
+      prevIdx,
+      nextIdx,
       k,
       waveDx,
       waveDy,
@@ -220,26 +327,43 @@ function decimateRows(
       phaseTol,
       phasePerStep,
     );
+    if (!evalResult.removable) return;
 
-    if (removable) {
-      if (endpoint === N - 1) {
-        // Reached the end — keep it and stop.
-        kept.push(endpoint);
-        break;
-      }
-      // Try extending the span further.
-      endpoint++;
-    } else {
-      // The row just before the failing probe must be kept.
-      kept.push(endpoint - 1);
-      anchor = endpoint - 1;
-      endpoint = anchor + 2;
-    }
+    heap.push({
+      rowIdx,
+      prevIdx,
+      nextIdx,
+      score: evalResult.score,
+    });
+  };
+
+  for (let rowIdx = 1; rowIdx < N - 1; rowIdx++) {
+    enqueueIfRemovable(rowIdx);
   }
 
-  // Ensure the last row is always kept.
-  if (kept[kept.length - 1] !== N - 1) {
-    kept.push(N - 1);
+  while (heap.size > 0) {
+    const candidate = heap.pop();
+    if (!candidate) break;
+
+    const { rowIdx, prevIdx, nextIdx } = candidate;
+    if (active[rowIdx] === 0) continue; // already removed by another collapse
+    if (prev[rowIdx] !== prevIdx || next[rowIdx] !== nextIdx) continue; // stale
+
+    // Remove this row from the active linked list.
+    active[rowIdx] = 0;
+    next[prevIdx] = nextIdx;
+    prev[nextIdx] = prevIdx;
+
+    // Only adjacent rows are affected by this removal.
+    enqueueIfRemovable(prevIdx);
+    enqueueIfRemovable(nextIdx);
+  }
+
+  const kept: number[] = [];
+  let idx = 0;
+  while (idx !== -1) {
+    kept.push(idx);
+    idx = next[idx];
   }
 
   return {
@@ -359,7 +483,7 @@ export function decimateWavefronts(
 
   // Reset counters
   sampleStepAtTCalls = 0;
-  canRemoveRowsBetweenCalls = 0;
+  rowDecimationEvaluationCalls = 0;
   canRemoveVerticesBetweenCalls = 0;
 
   const k = (2 * Math.PI) / wavelength;
@@ -386,7 +510,7 @@ export function decimateWavefronts(
   );
   const t2 = performance.now();
   const rowDecimationTime = t2 - t1;
-  const rowDecimationCalls = canRemoveRowsBetweenCalls;
+  const rowDecimationCalls = rowDecimationEvaluationCalls;
   const sampleCallsPhase1 = sampleStepAtTCalls;
 
   // Reset for phase 2
@@ -411,7 +535,7 @@ export function decimateWavefronts(
     `Decimation stats: ${totalTime.toFixed(1)}ms total\n` +
       `  Input: ${rowsBefore} rows, ${verticesBefore} vertices\n` +
       `  Output: ${rowDecimated.length} rows (-${rowsBefore - rowDecimated.length}), ${verticesAfter} vertices (-${verticesBefore - verticesAfter})\n` +
-      `  Row decimation: ${rowDecimationTime.toFixed(1)}ms, ${rowDecimationCalls} canRemoveRowsBetween calls, ${sampleCallsPhase1} sampleStepAtT calls\n` +
+      `  Row decimation: ${rowDecimationTime.toFixed(1)}ms, ${rowDecimationCalls} row evaluations, ${sampleCallsPhase1} sampleStepAtT calls\n` +
       `  Vertex decimation: ${vertexDecimationTime.toFixed(1)}ms, ${totalSegments} segments, ${vertexDecimationCalls} canRemoveVerticesBetween calls, ${sampleCallsPhase2} sampleStepAtT calls`,
   );
 

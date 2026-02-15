@@ -71,13 +71,7 @@ export function buildMarchingMesh(
   );
   let t2 = performance.now();
   const initialDeltaT = 1 / (firstWavefront.length - 1);
-  computeAmplitudes(
-    wavefronts,
-    terrain,
-    wavelength,
-    vertexSpacing,
-    initialDeltaT,
-  );
+  computeAmplitudes(wavefronts, wavelength, vertexSpacing, initialDeltaT);
   applyDiffraction(
     wavefronts,
     wavelength,

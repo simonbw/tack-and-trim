@@ -152,6 +152,7 @@ export function generateInitialWavefront(
       dirY: waveDy,
       energy: 1.0,
       broken: 0,
+      depth: 0,
       amplitude: 0,
     });
   }
@@ -227,6 +228,7 @@ function refineWavefront(
         dirY: midDirY,
         energy: (prev.energy + curr.energy) / 2,
         broken: Math.max(prev.broken, curr.broken),
+        depth: (prev.depth + curr.depth) / 2,
         amplitude: 0,
       });
       splitCount++;
@@ -462,6 +464,7 @@ export function marchWavefronts(
       dirY,
       energy,
       broken,
+      depth: Math.max(0, newDepth),
       amplitude: 0,
     };
   }
@@ -512,7 +515,6 @@ export function marchWavefronts(
  */
 export function computeAmplitudes(
   wavefronts: Wavefront[],
-  terrain: TerrainCPUData,
   wavelength: number,
   vertexSpacing: number,
   initialDeltaT: number,
@@ -526,12 +528,10 @@ export function computeAmplitudes(
       for (let i = 0; i < wf.length; i++) {
         const p = wf[i];
 
-        // Shoaling from local depth
-        const terrainH = computeTerrainHeight(p.x, p.y, terrain);
-        const depth = Math.max(0, -terrainH);
+        // Shoaling from local depth (cached during marching)
         const shoaling =
-          depth > 0
-            ? Math.min(computeShoalingFactor(depth, k), MAX_AMPLIFICATION)
+          p.depth > 0
+            ? Math.min(computeShoalingFactor(p.depth, k), MAX_AMPLIFICATION)
             : 1.0;
 
         // Divergence from spacing between adjacent rays (within segment only).
