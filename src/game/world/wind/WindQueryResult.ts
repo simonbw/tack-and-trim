@@ -1,5 +1,5 @@
 import { V, type V2d } from "../../../core/Vector";
-import type { ResultLayout } from "../query";
+import type { ResultLayout } from "../query/QueryManager";
 
 /**
  * Named constants for wind result buffer layout

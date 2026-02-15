@@ -1,11 +1,9 @@
 import { AutoPauser } from "../core/AutoPauser";
 import { Game } from "../core/Game";
-import {
-  StatsOverlay,
-  createLeanPanel,
-  createProfilerPanel,
-  createGraphicsPanel,
-} from "../core/util/stats-overlay";
+import { createGraphicsPanel } from "../core/util/stats-overlay/GraphicsPanel";
+import { createLeanPanel } from "../core/util/stats-overlay/LeanPanel";
+import { createProfilerPanel } from "../core/util/stats-overlay/ProfilerPanel";
+import { StatsOverlay } from "../core/util/stats-overlay/StatsOverlay";
 import { createSimulationStatsPanel } from "./stats/SimulationStatsPanel";
 import { GameController } from "./GameController";
 import { GamePreloader } from "./GamePreloader";

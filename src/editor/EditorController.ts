@@ -34,7 +34,7 @@ import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
 import { WavePhysicsResources } from "../game/wave-physics/WavePhysicsResources";
 import { WaterResources } from "../game/world/water/WaterResources";
 import { WaterQueryManager } from "../game/world/water/WaterQueryManager";
-import { DebugRenderer } from "../game/debug-renderer";
+import { DebugRenderer } from "../game/debug-renderer/DebugRenderer";
 import { computeSplineCentroid } from "../core/util/Spline";
 
 // File System Access API types (not in lib.dom.d.ts by default)

@@ -8,7 +8,7 @@
  * - Creates GPU resources from CPU mesh data
  */
 
-import { WorkerPool } from "../../../core/workers";
+import { WorkerPool } from "../../../core/workers/WorkerPool";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { WaveSource } from "../../world/water/WaveSource";
 import { WavefrontMesh } from "../WavefrontMesh";
