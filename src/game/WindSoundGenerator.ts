@@ -18,7 +18,7 @@ const MIN_FREQUENCY = 200; // Light breeze - low rumble
 const MAX_FREQUENCY = 1200; // Strong wind - more hiss
 
 // Volume
-const MAX_GAIN = 0.15;
+const MAX_GAIN = 0.08;
 
 /**
  * Generates ambient wind sound driven by the local wind speed.
@@ -85,7 +85,7 @@ export class WindSoundGenerator extends BaseEntity {
 
     // Map to audio parameters
     const frequency = lerp(MIN_FREQUENCY, MAX_FREQUENCY, t);
-    const gain = t * t * MAX_GAIN; // Quadratic curve - quiet at low speeds
+    const gain = t * t * t * MAX_GAIN; // Cubic curve - gentle ramp
 
     // Schedule smooth parameter transitions
     this.lowpass.frequency.setTargetAtTime(frequency, audioTime, SMOOTHING);
