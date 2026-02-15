@@ -2,6 +2,7 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import { Game } from "../../../core/Game";
+import type { Body } from "../../../core/physics/body/Body";
 import { createNoiseBuffer } from "../../../core/sound/NoiseBuffer";
 import { clamp, lerp } from "../../../core/util/MathUtil";
 import type { Sail } from "./Sail";
@@ -17,17 +18,22 @@ const MAX_FREQUENCY = 800; // Small luff at leading edge - higher
 const MIN_Q = 1; // Wide/noisy (chaotic flogging)
 const MAX_Q = 8; // Narrower (clean flutter)
 
+// Spike/decay envelope parameters
+const ENERGY_DECAY = 0.88; // Per-tick multiplier (~7ms half-life at 120Hz)
+const ENERGY_INJECTION = 0.15; // How much energy each snap event adds
+const ENERGY_GAIN_SCALE = 0.5; // Scale factor from energy to gain
+
 /**
  * Generates synthesized sail luffing/flapping sound driven by the sail's
  * flow simulation state and particle physics.
  *
+ * Uses a spike/decay energy model: tracks lateral acceleration of sail
+ * particles to detect direction reversals (flap events), which inject
+ * energy into a decaying envelope. This produces discrete flap sounds
+ * rather than a continuous drone.
+ *
  * Node graph:
  *   noiseSource → bandpass → flutterGain → outputGain → masterGain
- *
- * - bandpass frequency: inversely proportional to stall fraction (more sail = deeper)
- * - bandpass Q: inversely proportional to turbulence (more turbulent = wider)
- * - flutterGain: driven by lateral particle velocity variance * wind energy
- * - outputGain: scales with hoist amount
  */
 export class SailSoundGenerator extends BaseEntity {
   tickLayer = "effects" as const;
@@ -36,6 +42,11 @@ export class SailSoundGenerator extends BaseEntity {
   private bandpass!: BiquadFilterNode;
   private flutterGain!: GainNode;
   private outputGain!: GainNode;
+
+  // Previous tick's lateral velocities for acceleration detection
+  private prevLateralVelocities: number[] = [];
+  // Decaying energy envelope driven by flap events
+  private energy: number = 0;
 
   constructor(private sail: Sail) {
     super();
@@ -71,6 +82,9 @@ export class SailSoundGenerator extends BaseEntity {
     this.bandpass.connect(this.flutterGain);
     this.flutterGain.connect(this.outputGain);
     this.outputGain.connect(game.masterGain);
+
+    // Initialize previous velocities array
+    this.prevLateralVelocities = new Array(this.sail.getBodies().length).fill(0);
   }
 
   @on("tick")
@@ -94,23 +108,37 @@ export class SailSoundGenerator extends BaseEntity {
     const stallFraction = detachedCount / segmentCount;
     const avgWindSpeed = windSpeedSum / segmentCount;
 
-    // Compute lateral velocity variance from sail particles.
-    // This measures how much the cloth is actually oscillating side-to-side.
+    // Compute lateral accelerations to detect flap events.
+    // A flap is a direction reversal: the cloth swings one way, hits tension,
+    // and snaps back. This shows up as a spike in lateral acceleration.
     const bodies = this.sail.getBodies();
     const head = this.sail.getHeadPosition();
     const clew = this.sail.getClewPosition();
     const chord = clew.sub(head);
     const chordLen = chord.magnitude;
 
-    let lateralVariance = 0;
+    let snapEnergy = 0;
     if (chordLen > 0.001 && bodies.length > 0) {
       const chordNormal = chord.normalize().rotate90cw();
-      for (const body of bodies) {
-        const lateralSpeed = Math.abs(body.velocity.dot(chordNormal));
-        lateralVariance += lateralSpeed * lateralSpeed;
+
+      for (let i = 0; i < bodies.length; i++) {
+        const body: Body = bodies[i];
+        const lateralVelocity = body.velocity.dot(chordNormal);
+        const prevVelocity = this.prevLateralVelocities[i] ?? 0;
+
+        // Lateral acceleration magnitude (velocity change since last tick)
+        const acceleration = Math.abs(lateralVelocity - prevVelocity);
+        snapEnergy += acceleration;
+
+        this.prevLateralVelocities[i] = lateralVelocity;
       }
-      lateralVariance /= bodies.length;
     }
+
+    // Scale snap energy by wind speed -- more wind = louder snaps
+    snapEnergy *= avgWindSpeed;
+
+    // Update decaying energy envelope
+    this.energy = this.energy * ENERGY_DECAY + snapEnergy * ENERGY_INJECTION;
 
     // Map simulation state to audio parameters
 
@@ -120,13 +148,8 @@ export class SailSoundGenerator extends BaseEntity {
     // Bandpass Q: more turbulence = wider (lower Q)
     const q = lerp(MAX_Q, MIN_Q, clamp(avgTurbulence));
 
-    // Flutter gain: particle motion * wind energy
-    // sqrt(variance) gives RMS lateral velocity; scale by wind speed for energy
-    const flutterLevel = clamp(
-      Math.sqrt(lateralVariance) * avgWindSpeed * 0.02,
-      0,
-      1,
-    );
+    // Flutter gain: driven by the spike/decay energy envelope
+    const flutterLevel = clamp(this.energy * ENERGY_GAIN_SCALE, 0, 1);
 
     // Output gain: silent when sail is lowered
     const outputLevel = this.sail.hoistAmount;
