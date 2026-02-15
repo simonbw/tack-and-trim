@@ -1,24 +1,21 @@
 /**
  * Worker Pool System
  *
- * Generic infrastructure for parallel computation using Web Workers.
- * Provides a WorkerPool class that handles worker lifecycle, task distribution,
- * progress reporting, and result aggregation.
+ * Generic request/response infrastructure for computation using Web Workers.
  */
 
 export {
   WorkerPool,
-  distributeWork,
   type WorkerPoolConfig,
-  type WorkerRunOptions,
-  type WorkerTask,
+  type SubmitRequestOptions,
+  type SubmitManyOptions,
+  type SubmitManySuccess,
+  type SubmitManyFailure,
+  type SubmitManyResult,
 } from "./WorkerPool";
 
 export {
-  type WorkerRequest,
-  type WorkerProgress,
-  type WorkerResult,
-  type WorkerError,
-  type WorkerReady,
-  type WorkerOutgoingMessage,
+  type WorkerRequestMessage,
+  type WorkerRequestResult,
+  type WorkerRequestError,
 } from "./WorkerTypes";

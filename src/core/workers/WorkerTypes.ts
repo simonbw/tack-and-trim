@@ -1,57 +1,28 @@
 /**
- * Generic types for the WorkerPool system.
- *
- * These types define the message protocol between the main thread
- * and worker threads for parallel computation.
+ * Generic types for request/response worker pools.
  */
 
 /**
- * Base interface for all worker requests.
- * Concrete request types should extend this.
+ * Base request shape for request-oriented worker pools.
  */
-export interface WorkerRequest {
-  type: "compute";
-  batchId: number;
+export interface WorkerRequestMessage {
+  type: string;
+  requestId: number;
 }
 
 /**
- * Progress update from worker to main thread.
+ * Base success result shape for request-oriented worker pools.
  */
-export interface WorkerProgress {
-  type: "progress";
-  batchId: number;
-}
-
-/**
- * Base interface for worker results.
- * Concrete result types should extend this.
- */
-export interface WorkerResult {
+export interface WorkerRequestResult {
   type: "result";
-  batchId: number;
+  requestId: number;
 }
 
 /**
- * Error message from worker to main thread.
+ * Base error result shape for request-oriented worker pools.
  */
-export interface WorkerError {
+export interface WorkerRequestError {
   type: "error";
-  batchId: number;
+  requestId: number;
   message: string;
 }
-
-/**
- * Ready signal sent by worker after initialization.
- */
-export interface WorkerReady {
-  type: "ready";
-}
-
-/**
- * All possible outgoing message types from a worker.
- */
-export type WorkerOutgoingMessage<TResult extends WorkerResult> =
-  | WorkerProgress
-  | TResult
-  | WorkerError
-  | WorkerReady;

@@ -1,31 +1,8 @@
-/**
- * Generic Worker Pool
- *
- * Manages a pool of Web Workers for parallel computation.
- * Provides automatic batching, progress reporting, and result aggregation.
- *
- * Usage:
- * ```typescript
- * const pool = new WorkerPool<MyRequest, MyResult>({
- *   workerUrl: new URL('./MyWorker.ts', import.meta.url),
- *   label: 'MyWorker',
- * });
- *
- * await pool.initialize();
- *
- * const task = pool.run({
- *   batches: [request1, request2, ...],
- *   combineResults: (results) => mergedResult,
- *   getTransferables: (req) => [req.data.buffer],
- *   onProgress: (p) => console.log(`Progress: ${p * 100}%`),
- * });
- *
- * const result = await task.promise;
- * ```
- */
-
 import { clamp } from "../util/MathUtil";
-import type { WorkerError, WorkerProgress, WorkerResult } from "./WorkerTypes";
+import type {
+  WorkerRequestError,
+  WorkerRequestResult,
+} from "./WorkerTypes";
 
 /**
  * Configuration for creating a WorkerPool.
@@ -33,65 +10,87 @@ import type { WorkerError, WorkerProgress, WorkerResult } from "./WorkerTypes";
 export interface WorkerPoolConfig {
   /** URL to the worker script */
   workerUrl: URL;
-  /** Label for logging (e.g., "WindWorker") */
+  /** Label for logging and errors */
   label: string;
   /** Number of workers to create (default: auto-detect based on hardware) */
   workerCount?: number;
   /** Timeout for worker initialization in ms (default: 5000) */
-  initTimeout?: number;
+  initTimeoutMs?: number;
+  /** Default timeout for each request in ms (default: 30000) */
+  defaultRequestTimeoutMs?: number;
 }
 
 /**
- * Options for running a parallel computation.
+ * Options for a single submitted request.
  */
-export interface WorkerRunOptions<TRequest, TResult> {
-  /** Array of batch requests, one per worker */
-  batches: TRequest[];
-  /** Function to combine results from all workers into final result */
-  combineResults: (results: TResult[]) => TResult;
-  /** Optional function to get transferable objects from a request */
-  getTransferables?: (request: TRequest) => Transferable[];
-  /** Optional progress callback (0-1) */
-  onProgress?: (progress: number) => void;
+export interface SubmitRequestOptions {
+  /** Transferable objects to send alongside the request */
+  transferables?: Transferable[];
+  /** Timeout override in ms */
+  timeoutMs?: number;
 }
 
 /**
- * Handle returned from WorkerPool.run() for tracking a computation task.
+ * Options for submitting multiple requests.
  */
-export interface WorkerTask<TResult> {
-  /** Current progress from 0 to 1 */
-  progress: number;
-  /** Promise that resolves with the combined result */
-  promise: Promise<TResult>;
+export interface SubmitManyOptions<TRequest> {
+  /** Continue processing other requests if one fails */
+  continueOnError?: boolean;
+  /** Timeout override in ms for every request */
+  timeoutMs?: number;
+  /** Optional transferable resolver for each request */
+  getTransferables?: (
+    request: TRequest,
+    index: number,
+  ) => Transferable[] | undefined;
+}
+
+export interface SubmitManySuccess<TRequest, TResult> {
+  request: TRequest;
+  response: TResult;
+}
+
+export interface SubmitManyFailure<TRequest> {
+  request: TRequest;
+  error: Error;
+}
+
+export interface SubmitManyResult<TRequest, TResult> {
+  successes: Array<SubmitManySuccess<TRequest, TResult>>;
+  failures: Array<SubmitManyFailure<TRequest>>;
+}
+
+interface PendingRequest<TRequest, TResult> {
+  request: TRequest;
+  transferables: Transferable[];
+  timeoutMs: number;
+  resolve: (result: TResult) => void;
+  reject: (error: Error) => void;
 }
 
 /**
- * Get the recommended number of workers based on hardware concurrency.
- * Uses (cores - 1) to leave one core for the main thread,
- * clamped to [2, 8] for reasonable bounds.
+ * Get a recommended worker count based on hardware concurrency.
  */
 function getRecommendedWorkerCount(): number {
   const cores = navigator.hardwareConcurrency || 4;
-  return clamp(cores - 1, 2, 8);
+  return clamp(cores - 1, 1, 8);
 }
 
 /**
- * Generic pool of Web Workers for parallel computation.
+ * Request-oriented worker pool.
  *
- * Features:
- * - Automatic worker count detection based on hardware
- * - Worker initialization with ready signal
- * - Batch distribution across workers
- * - Progress reporting aggregation
- * - Transferable object support for zero-copy
- * - Error handling with worker-specific context
+ * - Caller submits individual requests and awaits individual responses.
+ * - Pool manages queueing and worker load balancing internally.
  */
 export class WorkerPool<
-  TRequest extends { type: string; batchId: number },
-  TResult extends WorkerResult,
+  TRequest extends { type: string; requestId: number },
+  TResult extends WorkerRequestResult,
 > {
   private config: Required<WorkerPoolConfig>;
   private workers: Worker[] = [];
+  private inFlightByWorker = new Map<number, PendingRequest<TRequest, TResult>>();
+  private timeoutByRequestId = new Map<number, ReturnType<typeof setTimeout>>();
+  private pendingQueue: PendingRequest<TRequest, TResult>[] = [];
   private ready = false;
   private initializing = false;
   private initPromise: Promise<void> | null = null;
@@ -99,16 +98,12 @@ export class WorkerPool<
   constructor(config: WorkerPoolConfig) {
     this.config = {
       workerCount: config.workerCount ?? getRecommendedWorkerCount(),
-      initTimeout: config.initTimeout ?? 5000,
+      initTimeoutMs: config.initTimeoutMs ?? 5000,
+      defaultRequestTimeoutMs: config.defaultRequestTimeoutMs ?? 30000,
       ...config,
     };
   }
 
-  /**
-   * Initialize the worker pool.
-   * Creates workers and waits for all to signal ready.
-   * Safe to call multiple times - will return existing promise if already initializing.
-   */
   async initialize(): Promise<void> {
     if (this.ready) {
       return;
@@ -119,184 +114,314 @@ export class WorkerPool<
     }
 
     this.initializing = true;
-    const { workerUrl, workerCount, initTimeout, label } = this.config;
-
-    const workers: Worker[] = [];
-    const readyPromises: Promise<void>[] = [];
-
-    for (let i = 0; i < workerCount; i++) {
-      const worker = new Worker(workerUrl, { type: "module" });
-
-      const readyPromise = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error(`${label} worker ${i} timed out during init`));
-        }, initTimeout);
-
-        const handler = (event: MessageEvent) => {
-          if (event.data?.type === "ready") {
-            clearTimeout(timeout);
-            worker.removeEventListener("message", handler);
-            resolve();
-          }
-        };
-
-        worker.addEventListener("message", handler);
-        worker.addEventListener("error", (e) => {
-          clearTimeout(timeout);
-          reject(new Error(`${label} worker ${i} error: ${e.message}`));
-        });
-      });
-
-      workers.push(worker);
-      readyPromises.push(readyPromise);
-    }
-
-    this.initPromise = Promise.all(readyPromises).then(() => {
-      this.workers = workers;
-      this.ready = true;
+    this.initPromise = this.initializeWorkers().catch((error) => {
       this.initializing = false;
+      this.initPromise = null;
+      this.ready = false;
+      throw error;
     });
-
     return this.initPromise;
   }
 
-  /**
-   * Terminate all workers in the pool.
-   * Frees resources. Pool cannot be used after termination.
-   */
   terminate(): void {
-    this.workers.forEach((worker) => worker.terminate());
+    for (const timer of this.timeoutByRequestId.values()) {
+      clearTimeout(timer);
+    }
+    this.timeoutByRequestId.clear();
+
+    for (const [workerIndex, pending] of this.inFlightByWorker.entries()) {
+      pending.reject(
+        new Error(
+          `${this.config.label} worker ${workerIndex} terminated while request ${pending.request.requestId} was in flight`,
+        ),
+      );
+    }
+    this.inFlightByWorker.clear();
+
+    for (const pending of this.pendingQueue) {
+      pending.reject(
+        new Error(
+          `${this.config.label} terminated before request ${pending.request.requestId} could be processed`,
+        ),
+      );
+    }
+    this.pendingQueue = [];
+
+    for (const worker of this.workers) {
+      worker.terminate();
+    }
     this.workers = [];
     this.ready = false;
     this.initializing = false;
     this.initPromise = null;
   }
 
-  /**
-   * Check if the worker pool is ready for computation.
-   */
   isReady(): boolean {
     return this.ready && this.workers.length > 0;
   }
 
-  /**
-   * Get the number of workers in the pool.
-   */
   getWorkerCount(): number {
     return this.workers.length;
   }
 
-  /**
-   * Run a parallel computation across all workers.
-   *
-   * @param options - Configuration for the computation
-   * @returns Task handle with progress property and promise
-   */
-  run(options: WorkerRunOptions<TRequest, TResult>): WorkerTask<TResult> {
-    const task: WorkerTask<TResult> = {
-      progress: 0,
-      promise: null!,
-    };
-
-    task.promise = this.runAsync(options, (p) => {
-      task.progress = p;
-    });
-
-    return task;
-  }
-
-  /**
-   * Internal async implementation of run().
-   */
-  private async runAsync(
-    options: WorkerRunOptions<TRequest, TResult>,
-    setProgress: (progress: number) => void,
+  async submitRequest(
+    request: TRequest,
+    options?: SubmitRequestOptions,
   ): Promise<TResult> {
-    // Ensure workers are ready
     if (!this.isReady()) {
       await this.initialize();
     }
 
-    const { batches, combineResults, getTransferables, onProgress } = options;
-    const batchId = Date.now();
+    const transferables = options?.transferables ?? [];
+    const timeoutMs = options?.timeoutMs ?? this.config.defaultRequestTimeoutMs;
 
-    // Track progress across all batches
-    const batchCount = batches.length;
-    const batchProgress = new Array<number>(batchCount).fill(0);
+    return new Promise<TResult>((resolve, reject) => {
+      this.pendingQueue.push({
+        request,
+        transferables,
+        timeoutMs,
+        resolve,
+        reject,
+      });
+      this.dispatchPendingRequests();
+    });
+  }
 
-    const updateProgress = () => {
-      const total = batchProgress.reduce((sum, p) => sum + p, 0) / batchCount;
-      setProgress(total);
-      onProgress?.(total);
-    };
+  async submitMany(
+    requests: TRequest[],
+    options?: SubmitManyOptions<TRequest>,
+  ): Promise<SubmitManyResult<TRequest, TResult>> {
+    const continueOnError = options?.continueOnError ?? false;
+    const getTransferables = options?.getTransferables;
 
-    // Create promises for each batch
-    const resultPromises = batches.map((batch, index) => {
-      if (index >= this.workers.length) {
-        // More batches than workers shouldn't happen if caller uses distributeWork()
-        // but handle it gracefully
-        return Promise.resolve(null as TResult | null);
+    if (!continueOnError) {
+      const responses = await Promise.all(
+        requests.map((request, index) =>
+          this.submitRequest(request, {
+            timeoutMs: options?.timeoutMs,
+            transferables: getTransferables?.(request, index),
+          }),
+        ),
+      );
+      return {
+        successes: requests.map((request, index) => ({
+          request,
+          response: responses[index],
+        })),
+        failures: [],
+      };
+    }
+
+    const settled = await Promise.all(
+      requests.map(async (request, index) => {
+        try {
+          const response = await this.submitRequest(request, {
+            timeoutMs: options?.timeoutMs,
+            transferables: getTransferables?.(request, index),
+          });
+          return { request, response, error: null as Error | null };
+        } catch (error) {
+          const requestError =
+            error instanceof Error ? error : new Error(String(error));
+          return { request, response: null as TResult | null, error: requestError };
+        }
+      }),
+    );
+
+    const successes: Array<SubmitManySuccess<TRequest, TResult>> = [];
+    const failures: Array<SubmitManyFailure<TRequest>> = [];
+
+    for (const entry of settled) {
+      if (entry.error) {
+        failures.push({ request: entry.request, error: entry.error });
+      } else if (entry.response) {
+        successes.push({ request: entry.request, response: entry.response });
       }
+    }
 
-      const worker = this.workers[index];
+    return { successes, failures };
+  }
 
-      return new Promise<TResult>((resolve, reject) => {
-        const messageHandler = (
-          event: MessageEvent<WorkerProgress | TResult | WorkerError>,
-        ) => {
-          const msg = event.data;
-          if ("batchId" in msg && msg.batchId !== batchId) return;
+  private async initializeWorkers(): Promise<void> {
+    const { workerUrl, workerCount, initTimeoutMs, label } = this.config;
+    const workers: Worker[] = [];
+    const readyPromises: Promise<void>[] = [];
 
-          if (msg.type === "progress") {
-            batchProgress[index] =
-              (msg as WorkerProgress & { batchProgress?: number })
-                .batchProgress ?? batchProgress[index] + 0.1;
-            updateProgress();
-          } else if (msg.type === "result") {
-            batchProgress[index] = 1;
-            updateProgress();
-            worker.removeEventListener("message", messageHandler);
-            resolve(msg as TResult);
-          } else if (msg.type === "error") {
-            worker.removeEventListener("message", messageHandler);
-            reject(new Error((msg as WorkerError).message));
+    for (let i = 0; i < workerCount; i++) {
+      const worker = new Worker(workerUrl, { type: "module" });
+      workers.push(worker);
+
+      const readyPromise = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`${label} worker ${i} timed out during init`));
+        }, initTimeoutMs);
+
+        const readyHandler = (event: MessageEvent<unknown>) => {
+          const data = event.data as { type?: string };
+          if (data?.type === "ready") {
+            clearTimeout(timeout);
+            worker.removeEventListener("message", readyHandler);
+            worker.removeEventListener("error", initErrorHandler);
+            resolve();
           }
         };
 
-        worker.addEventListener("message", messageHandler);
+        const initErrorHandler = (event: ErrorEvent) => {
+          clearTimeout(timeout);
+          worker.removeEventListener("message", readyHandler);
+          worker.removeEventListener("error", initErrorHandler);
+          reject(new Error(`${label} worker ${i} error: ${event.message}`));
+        };
 
-        // Add batchId to the request
-        const request = { ...batch, batchId };
-
-        // Get transferables if provided
-        const transferables = getTransferables?.(batch) ?? [];
-
-        worker.postMessage(request, transferables);
+        worker.addEventListener("message", readyHandler);
+        worker.addEventListener("error", initErrorHandler);
       });
-    });
 
-    // Wait for all results
-    const allResults = await Promise.all(resultPromises);
-    const results = allResults.filter((r) => r !== null) as TResult[];
+      readyPromises.push(readyPromise);
+    }
 
-    // Combine results
-    return combineResults(results);
+    try {
+      await Promise.all(readyPromises);
+    } catch (error) {
+      for (const worker of workers) {
+        worker.terminate();
+      }
+      throw error;
+    }
+
+    this.workers = workers;
+    this.ready = true;
+    this.initializing = false;
+
+    for (let i = 0; i < this.workers.length; i++) {
+      const worker = this.workers[i];
+      worker.addEventListener("message", (event) => {
+        this.onWorkerMessage(i, event);
+      });
+      worker.addEventListener("error", (event) => {
+        this.onWorkerError(i, event);
+      });
+    }
+
+    this.dispatchPendingRequests();
   }
-}
 
-/**
- * Distribute items evenly among workers.
- *
- * @param items - Array of items to distribute
- * @param workerCount - Number of workers
- * @returns Array of arrays, one per worker, containing assigned items
- */
-export function distributeWork<T>(items: T[], workerCount: number): T[][] {
-  const batches: T[][] = Array.from({ length: workerCount }, () => []);
+  private dispatchPendingRequests(): void {
+    if (!this.isReady()) {
+      return;
+    }
 
-  for (let i = 0; i < items.length; i++) {
-    batches[i % workerCount].push(items[i]);
+    for (let i = 0; i < this.workers.length; i++) {
+      if (this.inFlightByWorker.has(i)) {
+        continue;
+      }
+
+      const pending = this.pendingQueue.shift();
+      if (!pending) {
+        break;
+      }
+
+      this.inFlightByWorker.set(i, pending);
+      const timeout = setTimeout(() => {
+        this.onRequestTimeout(i, pending.request.requestId);
+      }, pending.timeoutMs);
+      this.timeoutByRequestId.set(pending.request.requestId, timeout);
+
+      try {
+        this.workers[i].postMessage(pending.request, pending.transferables);
+      } catch (error) {
+        this.clearInFlight(i, pending.request.requestId);
+        pending.reject(
+          new Error(
+            `${this.config.label} worker ${i} failed to post request ${pending.request.requestId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        );
+        this.dispatchPendingRequests();
+      }
+    }
   }
 
-  return batches;
+  private onWorkerMessage(workerIndex: number, event: MessageEvent<unknown>): void {
+    const data = event.data as
+      | { type?: string; requestId?: number; message?: string }
+      | undefined;
+    if (!data) {
+      return;
+    }
+
+    if (data.type === "ready") {
+      return;
+    }
+
+    if (typeof data.requestId !== "number") {
+      return;
+    }
+
+    const pending = this.inFlightByWorker.get(workerIndex);
+    if (!pending || pending.request.requestId !== data.requestId) {
+      return;
+    }
+
+    if (data.type === "result") {
+      this.clearInFlight(workerIndex, data.requestId);
+      pending.resolve(data as TResult);
+      this.dispatchPendingRequests();
+      return;
+    }
+
+    if (data.type === "error") {
+      const message =
+        (data as WorkerRequestError).message || "Worker reported an error";
+      this.clearInFlight(workerIndex, data.requestId);
+      pending.reject(
+        new Error(
+          `${this.config.label} worker ${workerIndex} request ${data.requestId} failed: ${message}`,
+        ),
+      );
+      this.dispatchPendingRequests();
+    }
+  }
+
+  private onWorkerError(workerIndex: number, event: ErrorEvent): void {
+    const pending = this.inFlightByWorker.get(workerIndex);
+    if (!pending) {
+      return;
+    }
+
+    const requestId = pending.request.requestId;
+    this.clearInFlight(workerIndex, requestId);
+    pending.reject(
+      new Error(
+        `${this.config.label} worker ${workerIndex} crashed while processing request ${requestId}: ${event.message}`,
+      ),
+    );
+    this.dispatchPendingRequests();
+  }
+
+  private onRequestTimeout(workerIndex: number, requestId: number): void {
+    const pending = this.inFlightByWorker.get(workerIndex);
+    if (!pending || pending.request.requestId !== requestId) {
+      return;
+    }
+
+    this.clearInFlight(workerIndex, requestId);
+    pending.reject(
+      new Error(
+        `${this.config.label} worker ${workerIndex} timed out processing request ${requestId}`,
+      ),
+    );
+    this.dispatchPendingRequests();
+  }
+
+  private clearInFlight(workerIndex: number, requestId: number): void {
+    this.inFlightByWorker.delete(workerIndex);
+
+    const timeout = this.timeoutByRequestId.get(requestId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.timeoutByRequestId.delete(requestId);
+    }
+  }
 }

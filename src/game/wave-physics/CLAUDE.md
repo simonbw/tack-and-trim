@@ -51,6 +51,7 @@ Wavefront mesh system for terrain-wave interaction. Builds triangle meshes that 
 Mesh building runs in a **web worker** to avoid blocking the main thread.
 
 - **MeshBuildCoordinator.ts** - Main-thread coordinator. Sends terrain data + wave sources to worker, receives built meshes. Manages worker lifecycle and pending build promises.
+- Uses `core/workers/WorkerPool` for generic worker lifecycle, queueing, and request/response scheduling.
 - **MeshBuildWorker.ts** - Web worker entry point. Receives terrain data and wave source params, runs marching + decimation + mesh output, posts results back.
 - **marchingBuilder.ts** - High-level builder. For each wave source: computes bounds, runs marching, decimates, builds mesh output.
 - **marching.ts** - Core marching algorithm. Steps rays from upwave to downwave through terrain. At each step along each ray: samples terrain height, computes depth, applies shoaling (Green's Law), determines breaking state, and tracks direction via refraction.
