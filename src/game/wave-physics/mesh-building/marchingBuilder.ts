@@ -21,6 +21,13 @@
 const VERTEX_SPACING = 20; // feet per vertex
 const STEP_SIZE = 10; // feet per step (deep water)
 
+/**
+ * Which decimation strategy to use:
+ * - "pre": old two-phase pre-triangulation decimation (row + vertex)
+ * - "post": new single-pass post-triangulation vertex decimation
+ */
+export type DecimationStrategy = "pre" | "post";
+
 import type { WaveSource } from "../../world/water/WaveSource";
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 import type { MeshBuildBounds, WavefrontMeshData } from "./MeshBuildTypes";
@@ -32,6 +39,7 @@ import {
   marchWavefronts,
 } from "./marching";
 import { computeBounds } from "./marchingBounds";
+import { decimateMesh } from "./meshDecimation";
 import { buildMeshData } from "./meshOutput";
 
 export function buildMarchingMesh(
@@ -39,6 +47,7 @@ export function buildMarchingMesh(
   _coastlineBounds: MeshBuildBounds | null,
   terrain: TerrainCPUData,
   _tideHeight: number,
+  decimationStrategy: DecimationStrategy = "post",
 ): WavefrontMeshData {
   const wavelength = waveSource.wavelength;
   const baseDir = waveSource.direction;
@@ -83,25 +92,51 @@ export function buildMarchingMesh(
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
     return prev + curr.reduce((sum, segment) => sum + segment.length, 0);
   }, 0);
-  const decimated = decimateWavefronts(
-    wavefronts,
-    wavelength,
-    waveDx,
-    waveDy,
-    undefined,
-    phasePerStep,
-  );
-  let t4 = performance.now();
-  const mesh = buildMeshData(
-    decimated.wavefronts,
-    wavelength,
-    waveDx,
-    waveDy,
-    bounds,
-    decimated.stepIndices,
-    phasePerStep,
-  );
-  let t5 = performance.now();
+
+  let mesh: WavefrontMeshData;
+  let t4: number;
+  let t5: number;
+  let decimateLabel: string;
+
+  if (decimationStrategy === "pre") {
+    // Old path: decimate wavefronts → triangulate
+    const decimated = decimateWavefronts(
+      wavefronts,
+      wavelength,
+      waveDx,
+      waveDy,
+      undefined,
+      phasePerStep,
+    );
+    t4 = performance.now();
+    mesh = buildMeshData(
+      decimated.wavefronts,
+      wavelength,
+      waveDx,
+      waveDy,
+      bounds,
+      decimated.stepIndices,
+      phasePerStep,
+    );
+    t5 = performance.now();
+    decimateLabel = "decimate(pre)";
+  } else {
+    // New path: triangulate undecimated → post-triangulation decimation
+    const stepIndices = Array.from({ length: wavefronts.length }, (_, i) => i);
+    const rawMesh = buildMeshData(
+      wavefronts,
+      wavelength,
+      waveDx,
+      waveDy,
+      bounds,
+      stepIndices,
+      phasePerStep,
+    );
+    t4 = performance.now();
+    mesh = decimateMesh(rawMesh);
+    t5 = performance.now();
+    decimateLabel = "decimate(post)";
+  }
 
   const decimationPercent = 100 * (1 - mesh.vertexCount / totalMarchedVerts);
   const totalBytes = mesh.vertices.byteLength + mesh.indices.byteLength;
@@ -114,7 +149,7 @@ export function buildMarchingMesh(
     s.toLocaleString(undefined, { maximumFractionDigits: digits });
   console.log(
     [
-      `[marching]`,
+      `[marching] (${decimationStrategy})`,
       `build`,
       `  splits: ${n(splits)}`,
       `  merges: ${n(merges)}`,
@@ -127,8 +162,12 @@ export function buildMarchingMesh(
       `  bounds ${n(t1 - t0, 1)}ms`,
       `  march ${n(t2 - t1, 1)}ms`,
       `  amplitudes ${n(t3 - t2, 1)}ms`,
-      `  decimate ${n(t4 - t3, 1)}ms`,
-      `  mesh ${n(t5 - t4, 1)}ms`,
+      decimationStrategy === "pre"
+        ? `  ${decimateLabel} ${n(t4 - t3, 1)}ms`
+        : `  mesh ${n(t4 - t3, 1)}ms`,
+      decimationStrategy === "pre"
+        ? `  mesh ${n(t5 - t4, 1)}ms`
+        : `  ${decimateLabel} ${n(t5 - t4, 1)}ms`,
     ].join("\n"),
   );
 

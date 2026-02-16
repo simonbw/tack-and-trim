@@ -43,11 +43,15 @@ type BuilderFn = (
   tideHeight: number,
 ) => WavefrontMeshData;
 
-const builders: Record<MeshBuilderType, BuilderFn> = {
+type ExtendedBuilderType = MeshBuilderType | "marching-pre" | "marching-post";
+
+const builders: Record<ExtendedBuilderType, BuilderFn> = {
   marching: buildMarchingMesh,
+  "marching-pre": (ws, b, t, th) => buildMarchingMesh(ws, b, t, th, "pre"),
+  "marching-post": (ws, b, t, th) => buildMarchingMesh(ws, b, t, th, "post"),
 };
 
-const allBuilderTypes: MeshBuilderType[] = ["marching"];
+const allBuilderTypes: ExtendedBuilderType[] = ["marching"];
 
 // ---------------------------------------------------------------------------
 // Parse CLI args
@@ -60,20 +64,20 @@ let levelPath = path.resolve(
   __dirname,
   "../resources/levels/default.level.json",
 );
-let selectedBuilders: MeshBuilderType[] | null = null;
+let selectedBuilders: ExtendedBuilderType[] | null = null;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--iterations" || args[i] === "-n") {
-    iterations = parseInt(args[++i], 10);
+    iterations = parseInt(args[++i], 10) || 5;
   } else if (args[i] === "--wave" || args[i] === "-w") {
-    waveIndex = parseInt(args[++i], 10);
+    waveIndex = parseInt(args[++i], 10) || 0;
   } else if (args[i] === "--level" || args[i] === "-l") {
     levelPath = path.resolve(args[++i]);
   } else if (args[i] === "--builder" || args[i] === "-b") {
-    const name = args[++i] as MeshBuilderType;
+    const name = args[++i] as ExtendedBuilderType;
     if (!builders[name]) {
       console.error(
-        `Unknown builder: ${name}. Available: ${allBuilderTypes.join(", ")}`,
+        `Unknown builder: ${name}. Available: ${Object.keys(builders).join(", ")}`,
       );
       process.exit(1);
     }
