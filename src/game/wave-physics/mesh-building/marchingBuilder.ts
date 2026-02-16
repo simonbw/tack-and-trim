@@ -25,20 +25,34 @@ import type { WaveSource } from "../../world/water/WaveSource";
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 import type { MeshBuildBounds, WavefrontMeshData } from "./MeshBuildTypes";
 import { decimateWavefronts } from "./decimation";
-import {
-  applyDiffraction,
-  computeAmplitudes,
-  generateInitialWavefront,
-  marchWavefronts,
-} from "./marching";
+import { generateInitialWavefront, marchWavefronts } from "./marching";
 import { computeBounds } from "./marchingBounds";
-import { buildMeshData } from "./meshOutput";
+import { buildMeshData, countMeshTopology } from "./meshOutput";
+
+export interface MeshBuildProfile {
+  totalMs: number;
+  stageMs: {
+    bounds: number;
+    march: number;
+    amplitude: number;
+    diffraction: number;
+    decimate: number;
+    mesh: number;
+  };
+  decimationCounts: {
+    verticesBefore: number;
+    verticesAfter: number;
+    trianglesBefore: number;
+    trianglesAfter: number;
+  };
+}
 
 export function buildMarchingMesh(
   waveSource: WaveSource,
   _coastlineBounds: MeshBuildBounds | null,
   terrain: TerrainCPUData,
   _tideHeight: number,
+  profile?: MeshBuildProfile,
 ): WavefrontMeshData {
   const wavelength = waveSource.wavelength;
   const baseDir = waveSource.direction;
@@ -59,33 +73,18 @@ export function buildMarchingMesh(
     waveDx,
     waveDy,
   );
-  const { wavefronts, splits, merges } = marchWavefronts(
-    firstWavefront,
-    waveDx,
-    waveDy,
-    stepSize,
-    vertexSpacing,
-    bounds,
-    terrain,
-    wavelength,
-  );
+  const { wavefronts, splits, merges, amplitudeMs, diffractionMs } =
+    marchWavefronts(
+      firstWavefront,
+      waveDx,
+      waveDy,
+      stepSize,
+      vertexSpacing,
+      bounds,
+      terrain,
+      wavelength,
+    );
   let t2 = performance.now();
-  const initialDeltaT = 1 / (firstWavefront.length - 1);
-  computeAmplitudes(
-    wavefronts,
-    terrain,
-    wavelength,
-    vertexSpacing,
-    initialDeltaT,
-  );
-  applyDiffraction(
-    wavefronts,
-    wavelength,
-    vertexSpacing,
-    stepSize,
-    initialDeltaT,
-  );
-  let t3 = performance.now();
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
     return prev + curr.reduce((sum, segment) => sum + segment.length, 0);
   }, 0);
@@ -97,7 +96,7 @@ export function buildMarchingMesh(
     undefined,
     phasePerStep,
   );
-  let t4 = performance.now();
+  let t3 = performance.now();
   const mesh = buildMeshData(
     decimated.wavefronts,
     wavelength,
@@ -107,7 +106,16 @@ export function buildMarchingMesh(
     decimated.stepIndices,
     phasePerStep,
   );
-  let t5 = performance.now();
+  let t4 = performance.now();
+  const totalMs = t4 - t0;
+  const stageMs = {
+    bounds: t1 - t0,
+    march: Math.max(0, t2 - t1 - amplitudeMs - diffractionMs),
+    amplitude: amplitudeMs,
+    diffraction: diffractionMs,
+    decimate: t3 - t2,
+    mesh: t4 - t3,
+  };
 
   const decimationPercent = 100 * (1 - mesh.vertexCount / totalMarchedVerts);
   const totalBytes = mesh.vertices.byteLength + mesh.indices.byteLength;
@@ -118,25 +126,38 @@ export function buildMarchingMesh(
 
   const n = (s: number, digits: number = 0) =>
     s.toLocaleString(undefined, { maximumFractionDigits: digits });
-  console.log(
-    [
-      `[marching]`,
-      `build`,
-      `  splits: ${n(splits)}`,
-      `  merges: ${n(merges)}`,
-      `  simplification: ${n(totalMarchedVerts)} verts -> ${n(mesh.vertexCount)} verts (${n(decimationPercent, 0)}% reduction)`,
-      `final`,
-      `  verts: ${n(mesh.vertexCount)}`,
-      `  tris: ${n(mesh.indexCount / 3)}`,
-      `  buffer: ${memStr}`,
-      `timing — ${n(t5 - t0, 1)}ms total`,
-      `  bounds ${n(t1 - t0, 1)}ms`,
-      `  march ${n(t2 - t1, 1)}ms`,
-      `  amplitudes ${n(t3 - t2, 1)}ms`,
-      `  decimate ${n(t4 - t3, 1)}ms`,
-      `  mesh ${n(t5 - t4, 1)}ms`,
-    ].join("\n"),
-  );
+  if (profile) {
+    const preDecimationTopology = countMeshTopology(wavefronts);
+    profile.totalMs = totalMs;
+    profile.stageMs = stageMs;
+    profile.decimationCounts = {
+      verticesBefore: preDecimationTopology.vertexCount,
+      verticesAfter: mesh.vertexCount,
+      trianglesBefore: preDecimationTopology.triangleCount,
+      trianglesAfter: mesh.indexCount / 3,
+    };
+  } else {
+    console.log(
+      [
+        `[marching]`,
+        `build`,
+        `  splits: ${n(splits)}`,
+        `  merges: ${n(merges)}`,
+        `  simplification: ${n(totalMarchedVerts)} verts -> ${n(mesh.vertexCount)} verts (${n(decimationPercent, 0)}% reduction)`,
+        `final`,
+        `  verts: ${n(mesh.vertexCount)}`,
+        `  tris: ${n(mesh.indexCount / 3)}`,
+        `  buffer: ${memStr}`,
+        `timing — ${n(totalMs, 1)}ms total`,
+        `  bounds ${n(stageMs.bounds, 1)}ms`,
+        `  march ${n(stageMs.march, 1)}ms`,
+        `  amplitude ${n(stageMs.amplitude, 1)}ms`,
+        `  diffraction ${n(stageMs.diffraction, 1)}ms`,
+        `  decimate ${n(stageMs.decimate, 1)}ms`,
+        `  mesh ${n(stageMs.mesh, 1)}ms`,
+      ].join("\n"),
+    );
+  }
 
   return mesh;
 }

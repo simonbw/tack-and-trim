@@ -3,7 +3,7 @@
  * CLI benchmark for wavefront mesh builders.
  *
  * Usage:
- *   npx tsx bin/benchmark-mesh-build.ts              # 5 iterations, all builders
+ *   npx tsx bin/benchmark-mesh-build.ts              # 1 iteration, all builders
  *   npx tsx bin/benchmark-mesh-build.ts -n 10
  *   npx tsx bin/benchmark-mesh-build.ts -b marching         # single builder
  *   npx tsx bin/benchmark-mesh-build.ts -w 1         # benchmark second wave source
@@ -23,7 +23,10 @@ import {
   buildTerrainGPUData,
   normalizeTerrainWinding,
 } from "../src/game/world/terrain/LandMass";
-import { buildMarchingMesh } from "../src/game/wave-physics/mesh-building/marchingBuilder";
+import {
+  buildMarchingMesh,
+  type MeshBuildProfile,
+} from "../src/game/wave-physics/mesh-building/marchingBuilder";
 import type { TerrainCPUData } from "../src/game/world/terrain/TerrainCPUData";
 import type {
   MeshBuildBounds,
@@ -41,6 +44,7 @@ type BuilderFn = (
   coastlineBounds: MeshBuildBounds | null,
   terrain: TerrainCPUData,
   tideHeight: number,
+  profile?: MeshBuildProfile,
 ) => WavefrontMeshData;
 
 const builders: Record<MeshBuilderType, BuilderFn> = {
@@ -54,8 +58,8 @@ const allBuilderTypes: MeshBuilderType[] = ["marching"];
 // ---------------------------------------------------------------------------
 
 const args = process.argv.slice(2);
-let iterations = 5;
-let waveIndex = 0;
+let iterations = 1;
+let selectedWaveIndex: number | null = null;
 let levelPath = path.resolve(
   __dirname,
   "../resources/levels/default.level.json",
@@ -66,7 +70,7 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === "--iterations" || args[i] === "-n") {
     iterations = parseInt(args[++i], 10);
   } else if (args[i] === "--wave" || args[i] === "-w") {
-    waveIndex = parseInt(args[++i], 10);
+    selectedWaveIndex = parseInt(args[++i], 10);
   } else if (args[i] === "--level" || args[i] === "-l") {
     levelPath = path.resolve(args[++i]);
   } else if (args[i] === "--builder" || args[i] === "-b") {
@@ -83,8 +87,8 @@ for (let i = 0; i < args.length; i++) {
     console.log(`Usage: npx tsx bin/benchmark-mesh-build.ts [options]
 
 Options:
-  -n, --iterations <N>     Number of iterations (default: 5)
-  -w, --wave <index>       Wave source index to benchmark (default: 0)
+  -n, --iterations <N>     Number of iterations (default: 1)
+  -w, --wave <index>       Wave source index to benchmark (default: all)
   -b, --builder <name>     Builder to benchmark (repeatable; default: all)
                            Options: ${allBuilderTypes.join(", ")}
   -l, --level <path>       Level file path (default: resources/levels/default.level.json)
@@ -108,14 +112,19 @@ const terrainDef = normalizeTerrainWinding(
 );
 const waveConfig = levelFileToWaveConfig(levelFile);
 
-if (waveIndex >= waveConfig.sources.length) {
+if (
+  selectedWaveIndex !== null &&
+  (selectedWaveIndex < 0 || selectedWaveIndex >= waveConfig.sources.length)
+) {
   console.error(
-    `Wave index ${waveIndex} out of range (${waveConfig.sources.length} sources available)`,
+    `Wave index ${selectedWaveIndex} out of range (${waveConfig.sources.length} sources available)`,
   );
   process.exit(1);
 }
-
-const waveSource = waveConfig.sources[waveIndex];
+const waveIndices =
+  selectedWaveIndex === null
+    ? waveConfig.sources.map((_, i) => i)
+    : [selectedWaveIndex];
 
 // Build terrain GPU data (same as what the game does)
 const terrainGPUData = buildTerrainGPUData(terrainDef);
@@ -152,12 +161,7 @@ for (const contour of terrainDef.contours) {
 // ---------------------------------------------------------------------------
 
 console.log(
-  `\nWave ${waveIndex}: λ=${waveSource.wavelength}ft, ` +
-    `dir=${((waveSource.direction * 180) / Math.PI).toFixed(1)}°, ` +
-    `amp=${waveSource.amplitude}ft`,
-);
-console.log(
-  `Terrain: ${terrain.contourCount} contours, ` +
+  `\nTerrain: ${terrain.contourCount} contours, ` +
     `${terrain.vertexData.length / 2} vertices`,
 );
 if (bounds) {
@@ -167,55 +171,168 @@ if (bounds) {
   );
 }
 console.log(
-  `Builders: ${builderTypes.join(", ")}  (${iterations} iterations each)\n`,
+  `Builders: ${builderTypes.join(", ")}  (${iterations} iterations each)`,
+);
+console.log(
+  `Waves: ${
+    selectedWaveIndex === null
+      ? `${waveIndices.length} (all)`
+      : `${selectedWaveIndex}`
+  }\n`,
 );
 
 // ---------------------------------------------------------------------------
 // Run benchmarks
 // ---------------------------------------------------------------------------
 
-// Suppress console.log from builders during benchmarking
-const originalLog = console.log;
-const originalWarn = console.warn;
+for (const waveIndex of waveIndices) {
+  const waveSource = waveConfig.sources[waveIndex];
+  console.log(
+    `Wave ${waveIndex}: λ=${waveSource.wavelength}ft, ` +
+      `dir=${((waveSource.direction * 180) / Math.PI).toFixed(1)}°, ` +
+      `amp=${waveSource.amplitude}ft`,
+  );
 
-for (const builderType of builderTypes) {
-  const buildFn = builders[builderType];
-  const timesMs: number[] = [];
-  let lastVertexCount = 0;
-  let lastIndexCount = 0;
+  for (const builderType of builderTypes) {
+    const stageOrder = [
+      "bounds",
+      "march",
+      "amplitude",
+      "diffraction",
+      "decimate",
+      "mesh",
+    ] as const;
+    const buildFn = builders[builderType];
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const timesMs: number[] = [];
+    const stageTimesMs = {
+      bounds: [] as number[],
+      march: [] as number[],
+      amplitude: [] as number[],
+      diffraction: [] as number[],
+      decimate: [] as number[],
+      mesh: [] as number[],
+    };
+    let lastDecimationCounts: MeshBuildProfile["decimationCounts"] | null = null;
 
-  originalLog(`${builderType}`);
+    console.log(`  ${builderType}`);
 
-  for (let i = 0; i < iterations; i++) {
-    console.log = () => {};
-    console.warn = () => {};
+    for (let i = 0; i < iterations; i++) {
+      const profile: MeshBuildProfile = {
+        totalMs: 0,
+        stageMs: {
+          bounds: 0,
+          march: 0,
+          amplitude: 0,
+          diffraction: 0,
+          decimate: 0,
+          mesh: 0,
+        },
+        decimationCounts: {
+          verticesBefore: 0,
+          verticesAfter: 0,
+          trianglesBefore: 0,
+          trianglesAfter: 0,
+        },
+      };
+      console.log = () => {};
+      console.warn = () => {};
+      buildFn(waveSource, bounds, terrain, tideHeight, profile);
+      console.log = originalLog;
+      console.warn = originalWarn;
+      const elapsed = profile.totalMs;
 
-    const start = performance.now();
-    const result = buildFn(waveSource, bounds, terrain, tideHeight);
-    const elapsed = performance.now() - start;
+      timesMs.push(elapsed);
+      stageTimesMs.bounds.push(profile.stageMs.bounds);
+      stageTimesMs.march.push(profile.stageMs.march);
+      stageTimesMs.amplitude.push(profile.stageMs.amplitude);
+      stageTimesMs.diffraction.push(profile.stageMs.diffraction);
+      stageTimesMs.decimate.push(profile.stageMs.decimate);
+      stageTimesMs.mesh.push(profile.stageMs.mesh);
+      lastDecimationCounts = profile.decimationCounts;
 
-    console.log = originalLog;
-    console.warn = originalWarn;
+      const formatStageRows = (
+        rows: { label: string; ms: number }[],
+        indent: string = "      ",
+      ) => {
+        const labelWidth = Math.max(...rows.map((r) => r.label.length));
+        const msStrings = rows.map((r) => `${r.ms.toFixed(1)}ms`);
+        const msWidth = Math.max(...msStrings.map((s) => s.length));
+        rows.forEach((row, idx) => {
+          console.log(
+            `${indent}${row.label.padEnd(labelWidth)} : ${msStrings[idx].padStart(msWidth)}`,
+          );
+        });
+      };
 
-    timesMs.push(elapsed);
-    lastVertexCount = result.vertexCount;
-    lastIndexCount = result.indexCount;
+      console.log(`    Run ${i + 1}`);
+      formatStageRows([
+        { label: "total", ms: elapsed },
+        ...stageOrder.map((stage) => ({ label: stage, ms: profile.stageMs[stage] })),
+      ]);
+    }
 
-    process.stdout.write(`  Run ${i + 1}: ${elapsed.toFixed(1)}ms\n`);
+    const summarize = (values: number[]) => {
+      const sorted = [...values].sort((a, b) => a - b);
+      return {
+        minMs: sorted[0],
+        maxMs: sorted[sorted.length - 1],
+        medianMs: sorted[Math.floor(sorted.length / 2)],
+        meanMs: values.reduce((a, b) => a + b, 0) / values.length,
+      };
+    };
+    if (iterations > 1) {
+      const summaryRows: {
+        part: string;
+        min: string;
+        median: string;
+        mean: string;
+        max: string;
+      }[] = [];
+      const total = summarize(timesMs);
+      summaryRows.push({
+        part: "total",
+        min: `${total.minMs.toFixed(1)}ms`,
+        median: `${total.medianMs.toFixed(1)}ms`,
+        mean: `${total.meanMs.toFixed(1)}ms`,
+        max: `${total.maxMs.toFixed(1)}ms`,
+      });
+      for (const stage of stageOrder) {
+        const stats = summarize(stageTimesMs[stage]);
+        summaryRows.push({
+          part: stage,
+          min: `${stats.minMs.toFixed(1)}ms`,
+          median: `${stats.medianMs.toFixed(1)}ms`,
+          mean: `${stats.meanMs.toFixed(1)}ms`,
+          max: `${stats.maxMs.toFixed(1)}ms`,
+        });
+      }
+      console.log("    Summary");
+      console.table(summaryRows);
+    }
+    if (lastDecimationCounts) {
+      const verticesRemoved =
+        lastDecimationCounts.verticesBefore - lastDecimationCounts.verticesAfter;
+      const trianglesRemoved =
+        lastDecimationCounts.trianglesBefore - lastDecimationCounts.trianglesAfter;
+      const verticesRemovedPct =
+        lastDecimationCounts.verticesBefore > 0
+          ? (100 * verticesRemoved) / lastDecimationCounts.verticesBefore
+          : 0;
+      const trianglesRemovedPct =
+        lastDecimationCounts.trianglesBefore > 0
+          ? (100 * trianglesRemoved) / lastDecimationCounts.trianglesBefore
+          : 0;
+
+      console.log("    Mesh counts");
+      console.log(
+        `      vertices : ${lastDecimationCounts.verticesBefore.toLocaleString()} -> ${lastDecimationCounts.verticesAfter.toLocaleString()} (${verticesRemovedPct.toFixed(1)}% decimated)`,
+      );
+      console.log(
+        `      triangles: ${lastDecimationCounts.trianglesBefore.toLocaleString()} -> ${lastDecimationCounts.trianglesAfter.toLocaleString()} (${trianglesRemovedPct.toFixed(1)}% decimated)`,
+      );
+    }
+    console.log("");
   }
-
-  const sorted = [...timesMs].sort((a, b) => a - b);
-  const minMs = sorted[0];
-  const maxMs = sorted[sorted.length - 1];
-  const medianMs = sorted[Math.floor(sorted.length / 2)];
-  const meanMs = timesMs.reduce((a, b) => a + b, 0) / timesMs.length;
-
-  console.log(
-    `  => min=${minMs.toFixed(1)}  median=${medianMs.toFixed(1)}  ` +
-      `mean=${meanMs.toFixed(1)}  max=${maxMs.toFixed(1)}ms`,
-  );
-  console.log(
-    `     ${lastVertexCount.toLocaleString()} vertices, ` +
-      `${(lastIndexCount / 3).toLocaleString()} triangles\n`,
-  );
 }
