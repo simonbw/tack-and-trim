@@ -2,13 +2,13 @@
  * Runtime tuning panel UI.
  *
  * Renders a floating panel with sliders for all registered tunable values.
- * Toggle visibility with the backtick (`) key.
+ * Toggle visibility with the backslash (\) key.
  */
 
 import type { GameEventMap } from "../entity/Entity";
 import { on } from "../entity/handler";
 import { ReactEntity } from "../ReactEntity";
-import { tunableRegistry, TunableEntry } from "./TunableRegistry";
+import { TunableEntry, tunableRegistry } from "./TunableRegistry";
 import "./TuningPanel.css";
 
 export class TuningPanel extends ReactEntity {
@@ -25,7 +25,7 @@ export class TuningPanel extends ReactEntity {
 
   @on("keyDown")
   onKeyDown({ key }: GameEventMap["keyDown"]) {
-    if (key === "Backquote") {
+    if (key === "Backslash") {
       this.visible = !this.visible;
     }
   }
