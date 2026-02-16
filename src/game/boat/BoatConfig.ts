@@ -127,9 +127,6 @@ export interface BoatConfig {
 // Re-export boat configs
 export { StarterDinghy } from "./configs/StarterDinghy";
 
-/** @deprecated Use StarterDinghy instead */
-export const DEFAULT_BOAT_CONFIG = StarterDinghy;
-
 /**
  * Create a boat config with partial overrides from a base config.
  * @param base The base config to start from

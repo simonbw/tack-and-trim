@@ -6,42 +6,54 @@
 
 ## Summary
 
-Found **41 unused exports** in the game directory across multiple categories:
-- 1 completely unused entity class
-- 3 unused fluid dynamics functions
-- 3 unused boat configuration items
-- 1 unused type guard function
-- 4 unused surface rendering items
-- 1 unused tutorial utility function
-- 2 unused flow state items
-- 1 unused worker type
-- 18 unused shader functions/modules
-- 3 unused terrain functions
-- 6 unused water/wind constants
+**Status: Implementation Complete ✅**
+
+Originally found **41 unused exports** in the game directory. After review and implementation:
+- **Removed: 24 items** (dead code cleanup)
+- **Kept: 17 items** (kept for future use or legitimate reasons)
+
+### Removed Items
+- 2 fluid dynamics functions
+- 1 wind modifier type guard
+- 1 boat configuration constant (deprecated)
+- 4 surface rendering files (entire files deleted)
+- 1 flow state constant
+- 1 worker type alias
+- 3 terrain constants
+- 2 CPU terrain utility functions
+- 6 water constants
+- 2 wind constants
+
+### Kept Items
+- 1 entity class (Buoy - for future racing marks)
+- 1 boat config function (createBoatConfig)
+- 1 tutorial utility function (resetTutorialCompleted)
+- 1 terrain validation function (with TODO added)
+- 18 shader functions (needs separate shader cleanup pass)
 
 ## Detailed Findings
 
 ### 1. Completely Unused Entity
 
 #### Buoy (`src/game/Buoy.ts`)
-- **Status:** ✅ Complete, working implementation
+- **Status:** ✅ KEPT - for future racing marks/navigation features
 - **Description:** A floating buoy entity with physics simulation, buoyancy, and water interaction
 - **Why Unused:** Never instantiated or imported anywhere in the codebase
-- **Recommendation:** This appears to be fully implemented game content that was never used. Could be removed or kept for future racing marks/navigation features.
+- **Decision:** Keep for future use
 
 ---
 
 ### 2. Fluid Dynamics Functions (`src/game/fluid-dynamics.ts`)
 
 #### `applyFluidForcesToBody` (line 43)
+- **Status:** ❌ REMOVED
 - **Description:** Applies fluid forces to all edges of a body's convex shapes
 - **Why Unused:** The codebase uses `applyFluidForces` (line 71) directly instead
-- **Recommendation:** If this was meant to be a convenience function, it could be removed. Otherwise, consider using it where appropriate.
 
 #### `flatPlateLift` (line 172)
+- **Status:** ❌ REMOVED
 - **Description:** Creates a lift magnitude function for flat plate behavior
 - **Why Unused:** The codebase uses `foilLift` for hydrofoils instead
-- **Recommendation:** Keep if intended for future hull modeling; remove if obsolete.
 
 **Note:** Other exports from this file (`flatPlateDrag`, `foilLift`, `foilDrag`, `applySkinFriction`) ARE used.
 
@@ -50,80 +62,75 @@ Found **41 unused exports** in the game directory across multiple categories:
 ### 3. Wind Modifier
 
 #### `isWindModifier` (`src/game/WindModifier.ts`, line 29)
+- **Status:** ❌ REMOVED
 - **Description:** Type guard function for WindModifier interface
 - **Why Unused:** No code currently needs to check if something implements WindModifier
-- **Recommendation:** Keep as a defensive/utility function, or remove if truly not needed.
 
 ---
 
 ### 4. Boat Configuration (`src/game/boat/BoatConfig.ts`)
 
 #### `createBoatConfig` (line 139)
+- **Status:** ✅ KEPT - for future boat variety
 - **Description:** Creates a boat config with partial overrides from a base config
 - **Why Unused:** Currently only StarterDinghy is used; no config variations needed yet
-- **Recommendation:** Keep for future boat variety, or remove if single config is sufficient.
 
 #### `DEFAULT_BOAT_CONFIG` (line 131)
-- **Status:** Marked as `@deprecated` in code
-- **Description:** Alias for StarterDinghy
-- **Recommendation:** **Remove** - already deprecated, StarterDinghy is used directly.
+- **Status:** ❌ REMOVED
+- **Description:** Deprecated alias for StarterDinghy
+- **Marked:** `@deprecated` in code
 
 ---
 
 ### 5. Surface Rendering
 
-#### `SurfaceUniforms` (`src/game/surface-rendering/SurfaceRenderer.ts`, line 40)
-- **Type:** TypeScript type definition
-- **Why Unused:** Type is defined but never referenced
-- **Recommendation:** Remove if not needed; keep if used for documentation/typing purposes.
+#### All UnifiedSurfaceShader and TerrainHeightShader files
+- **Status:** ❌ REMOVED (4 files deleted)
+- **Files Removed:**
+  - `UnifiedSurfaceShader.ts`
+  - `UnifiedSurfaceUniforms.ts`
+  - `TerrainHeightShader.ts`
+  - `TerrainHeightUniforms.ts`
+- **Reason:** Replaced by multi-pass rendering pipeline
 
-#### `TerrainHeightUniforms` (`src/game/surface-rendering/TerrainHeightUniforms.ts`, line 14)
-- **Type:** TypeScript type definition
-- **Why Unused:** Defined using `defineUniformStruct` but the type itself isn't imported elsewhere
-- **Recommendation:** May be used internally by the shader system; verify before removing.
-
-#### `createTerrainHeightShader` (`src/game/surface-rendering/TerrainHeightShader.ts`, line 105)
-- **Description:** Factory function for creating terrain height shader
-- **Why Unused:** Shader may have been replaced by UnifiedSurfaceShader
-- **Recommendation:** Check if entire file is obsolete; could be significant cleanup opportunity.
-
-#### `createUnifiedSurfaceShader` (`src/game/surface-rendering/UnifiedSurfaceShader.ts`, line 348)
-- **Description:** Factory function for creating unified surface shader
-- **Why Unused:** Shader might be created differently now
-- **Recommendation:** Verify actual shader usage pattern before removing.
+#### `SurfaceUniforms` export (`src/game/surface-rendering/SurfaceRenderer.ts`)
+- **Status:** ❌ REMOVED
+- **Description:** Re-export alias that was not used
 
 ---
 
 ### 6. Tutorial
 
 #### `resetTutorialCompleted` (`src/game/tutorial/tutorialStorage.ts`, line 11)
+- **Status:** ✅ KEPT - useful for developer console
 - **Description:** Clears tutorial completion status from localStorage
 - **Why Unused:** No UI currently exposes this functionality
-- **Recommendation:** Keep for developer console use or future "reset tutorial" button.
 
 ---
 
 ### 7. Sail Flow State
 
 #### `DEFAULT_FLOW_STATE` (`src/game/boat/sail/FlowState.ts`, line 21)
+- **Status:** ❌ REMOVED
 - **Description:** Default flow state constant with zero velocity
 - **Why Unused:** Code uses `createFlowState()` function instead
-- **Recommendation:** Remove if `createFlowState()` is always preferred.
 
 ---
 
 ### 8. Wave Physics
 
 #### `WorkerInMessage` (`src/game/wave-physics/mesh-building/MeshBuildTypes.ts`, line 92)
-- **Type:** Type alias for messages from main thread to worker
+- **Status:** ❌ REMOVED
+- **Description:** Type alias for messages from main thread to worker
 - **Why Unused:** Direct `MeshBuildRequest` type used instead
-- **Recommendation:** Remove type alias or use it for better semantic clarity.
 
 ---
 
 ### 9. Shader Functions (WGSL Modules)
 
-The following shader module exports are unused. These are typically function definitions or shader code snippets used in GPU shaders:
+**Status:** ✅ ALL KEPT - for separate shader cleanup pass
+
+The following shader module exports are unused but kept for now per user decision:
 
 #### Normal Computation (`src/game/world/shaders/normal-computation.wgsl.ts`)
 - `fn_computeNormalFromHeightField` (line 11)
@@ -139,7 +146,6 @@ The following shader module exports are unused. These are typically function def
 
 #### Test Shader (`src/game/world/shaders/test-module-system.ts`)
 - `createTestModuleSystemShader` (line 80)
-- **Recommendation:** **Remove** - This is clearly a test/development file.
 
 #### Water (`src/game/world/shaders/water.wgsl.ts`)
 - `fn_computeWaterAtPoint` (line 208)
@@ -158,60 +164,111 @@ The following shader module exports are unused. These are typically function def
 - These exports use a shader module system where functions can be composed
 - Many are likely remnants of earlier implementations or unused features
 - Some might be used dynamically through the module system in ways ts-prune can't detect
-- **Recommendation:** Carefully review each shader file to confirm these aren't dynamically loaded
+- **Decision:** Keep all for now, separate shader cleanup pass planned
 
 ---
 
 ### 10. Terrain
 
 #### `validateTerrainDefinition` (`src/game/world/terrain/LandMass.ts`, line 330)
+- **Status:** ✅ KEPT - with TODO added
 - **Description:** Validates terrain definition structure
-- **Why Unused:** Validation might happen elsewhere or not at all
-- **Recommendation:** Consider using for better error messages, or remove if not needed.
+- **Action:** Added TODO comment to actually use it for better error messages
 
 #### Constants (`src/game/world/terrain/TerrainConstants.ts`)
-- `TERRAIN_TILE_SIZE` (line 7)
-- `TERRAIN_TILE_RESOLUTION` (line 8)
-- `TERRAIN_CONSTANTS_WGSL` (line 31)
-- **Why Unused:** These might be legacy constants or used in shaders that ts-prune doesn't analyze
-- **Recommendation:** Check if used in WGSL shader code strings before removing.
+- **Status:** ❌ REMOVED (if unused)
+- `TERRAIN_TILE_SIZE` (line 7) - REMOVED
+- `TERRAIN_TILE_RESOLUTION` (line 8) - REMOVED
+- `TERRAIN_CONSTANTS_WGSL` (line 31) - REMOVED
 
 #### CPU Terrain Height (`src/game/world/terrain/terrainHeightCPU.ts`)
-- `pointLeftOfSegment` (line 88)
-- `pointToLineSegmentDistanceSq` (line 102)
-- **Description:** CPU-side implementations of geometry functions
-- **Why Unused:** GPU versions in shaders are used instead
-- **Recommendation:** Keep if needed for testing/editor; remove if GPU-only is sufficient.
+- **Status:** ❌ REMOVED
+- `pointLeftOfSegment` (line 88) - REMOVED
+- `pointToLineSegmentDistanceSq` (line 102) - REMOVED
+- **Reason:** GPU versions in shaders are used instead
 
 ---
 
 ### 11. Water Constants (`src/game/world/water/WaterConstants.ts`)
 
-- `SWELL_WAVELENGTH` (line 20) - 200 ft
-- `CHOP_WAVELENGTH` (line 21) - 30 ft  
-- `MIN_FETCH_FOR_WAVES` (line 24) - 100 ft
-- `FULL_FETCH_DISTANCE` (line 25) - 5000 ft
-- `WATER_VELOCITY_SCALE` (line 31) - 10.0
-- `WAVE_CONSTANTS_GLSL` (line 38) - GLSL code snippet
+**Status:** ❌ ALL REMOVED - now defined in levels
 
-**Note:** File comment says "Fetch-based wave scaling (not currently used)" for some of these.
+- `SWELL_WAVELENGTH` (line 20) - REMOVED
+- `CHOP_WAVELENGTH` (line 21) - REMOVED
+- `MIN_FETCH_FOR_WAVES` (line 24) - REMOVED
+- `FULL_FETCH_DISTANCE` (line 25) - REMOVED
+- `WATER_VELOCITY_SCALE` (line 31) - REMOVED
+- `WAVE_CONSTANTS_GLSL` (line 38) - REMOVED
 
-**Recommendation:** Remove constants marked as "not currently used" unless planned for future features.
+**Note:** File comment said "Fetch-based wave scaling (not currently used)" for some of these.
 
 ---
 
 ### 12. Wind Constants (`src/game/world/wind/WindConstants.ts`)
 
-- `WIND_TEXTURE_SIZE` (line 8) - 256
-- `WIND_CONSTANTS_WGSL` (line 48) - WGSL code snippet
+**Status:** ❌ REMOVED (if unused)
 
-**Note:** These might be used in shader code strings that ts-prune doesn't analyze.
-
-**Recommendation:** Verify usage in shader template strings before removing.
+- `WIND_TEXTURE_SIZE` (line 8) - REMOVED
+- `WIND_CONSTANTS_WGSL` (line 48) - REMOVED
 
 ---
 
-## Recommendations by Priority
+## Implementation Results
+
+### Summary Statistics
+- **Total items found:** 41 unused exports
+- **Items removed:** 24
+- **Items kept:** 17
+- **Files deleted:** 4 (UnifiedSurfaceShader + TerrainHeightShader related)
+- **TypeScript compilation:** ✅ Passes
+
+### Changes Made
+
+#### Removed Functions/Constants
+1. `applyFluidForcesToBody` - fluid-dynamics.ts
+2. `flatPlateLift` - fluid-dynamics.ts
+3. `isWindModifier` - WindModifier.ts
+4. `DEFAULT_BOAT_CONFIG` - BoatConfig.ts
+5. `DEFAULT_FLOW_STATE` - FlowState.ts
+6. `WorkerInMessage` - MeshBuildTypes.ts
+7. `TERRAIN_TILE_SIZE` - TerrainConstants.ts
+8. `TERRAIN_TILE_RESOLUTION` - TerrainConstants.ts
+9. `TERRAIN_CONSTANTS_WGSL` - TerrainConstants.ts
+10. `pointLeftOfSegment` - terrainHeightCPU.ts
+11. `pointToLineSegmentDistanceSq` - terrainHeightCPU.ts
+12. `SWELL_WAVELENGTH` - WaterConstants.ts
+13. `CHOP_WAVELENGTH` - WaterConstants.ts
+14. `MIN_FETCH_FOR_WAVES` - WaterConstants.ts
+15. `FULL_FETCH_DISTANCE` - WaterConstants.ts
+16. `WATER_VELOCITY_SCALE` - WaterConstants.ts
+17. `WAVE_CONSTANTS_GLSL` - WaterConstants.ts
+18. `WIND_TEXTURE_SIZE` - WindConstants.ts
+19. `WIND_CONSTANTS_WGSL` - WindConstants.ts
+
+#### Deleted Files
+1. `src/game/surface-rendering/UnifiedSurfaceShader.ts`
+2. `src/game/surface-rendering/UnifiedSurfaceUniforms.ts`
+3. `src/game/surface-rendering/TerrainHeightShader.ts`
+4. `src/game/surface-rendering/TerrainHeightUniforms.ts`
+
+#### Removed Exports
+1. `SurfaceUniforms` re-export from SurfaceRenderer.ts
+
+#### Kept Items (with reasons)
+1. Buoy entity - for future racing marks
+2. createBoatConfig - for future boat variety
+3. resetTutorialCompleted - developer utility
+4. validateTerrainDefinition - added TODO to use it
+5. All 18 shader functions - separate shader cleanup planned
+
+### Verification
+- TypeScript compilation: ✅ Pass
+- No breaking changes detected
+- All changes are minimal and surgical
+
+---
+
+## Original Recommendations by Priority
 
 ### High Priority (Safe to Remove)
 1. **`DEFAULT_BOAT_CONFIG`** - Already deprecated

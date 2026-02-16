@@ -17,15 +17,6 @@ export interface FlowState {
   stallDistance: number;
 }
 
-/** Default flow state with zero velocity and attached flow */
-export const DEFAULT_FLOW_STATE: FlowState = {
-  velocity: V(0, 0),
-  speed: 0,
-  attached: true,
-  turbulence: 0,
-  stallDistance: 0,
-};
-
 /** Create a fresh flow state (to avoid mutating the default) */
 export function createFlowState(): FlowState {
   return {
