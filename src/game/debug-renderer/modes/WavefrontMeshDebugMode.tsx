@@ -7,7 +7,7 @@
  *
  * Use [ and ] to cycle through wave sources.
  * Use { and } to cycle through active builder type (affects game systems).
- * Use V to cycle through color modes (amplitude, phase, direction, blend weight).
+ * Use V to cycle through color modes (amplitude, phase, wavefront).
  */
 
 import { type JSX } from "preact";
@@ -25,7 +25,6 @@ import {
   type WavefrontMesh,
 } from "../../wave-physics/WavefrontMesh";
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
-import { WaterResources } from "../../world/water/WaterResources";
 import { DebugRenderMode } from "./DebugRenderMode";
 
 const WavefrontDebugUniforms = defineUniformStruct("WavefrontDebugParams", {
@@ -198,7 +197,7 @@ const COLOR_MODE_NAMES = ["Amplitude", "Phase", "Wavefront"];
 
 export class WavefrontMeshDebugMode extends DebugRenderMode {
   layer = "windViz" as const;
-  private selectedWaveIndex = -1; // -1 = show all
+  private selectedWaveIndex = 0;
   private colorMode = 0;
   private waveTimeOffset = 0;
 
@@ -362,18 +361,15 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     renderPass.setPipeline(this.pipeline);
     renderPass.setBindGroup(0, this.bindGroup);
 
-    for (let w = 0; w < meshes.length; w++) {
-      if (this.selectedWaveIndex >= 0 && this.selectedWaveIndex !== w) continue;
-
-      const mesh = meshes[w];
-      const wireframe = this.getWireframeBuffer(mesh, device);
-      this.uniforms.set.waveDirection(mesh.waveDirection);
-      this.uniforms.set.wavelength(mesh.wavelength);
-      this.uniforms.set.phaseRange(wireframe.totalPhaseRange);
-      this.uniforms.uploadTo(this.uniformBuffer);
-      renderPass.setVertexBuffer(0, wireframe.buffer);
-      renderPass.draw(wireframe.vertexCount);
-    }
+    const selectedWaveIndex = this.normalizeSelectedWaveIndex(meshes.length);
+    const mesh = meshes[selectedWaveIndex];
+    const wireframe = this.getWireframeBuffer(mesh, device);
+    this.uniforms.set.waveDirection(mesh.waveDirection);
+    this.uniforms.set.wavelength(mesh.wavelength);
+    this.uniforms.set.phaseRange(wireframe.totalPhaseRange);
+    this.uniforms.uploadTo(this.uniformBuffer);
+    renderPass.setVertexBuffer(0, wireframe.buffer);
+    renderPass.draw(wireframe.vertexCount);
   }
 
   /** Build or retrieve a non-indexed vertex buffer with barycentric coordinates. */
@@ -479,13 +475,21 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     this.colorMode = (this.colorMode + direction + n) % n;
   }
 
-  private cycleWaveIndex(direction: 1 | -1): void {
-    const waterResources = this.game.entities.tryGetSingleton(WaterResources);
-    const numWaves = waterResources?.getNumWaves() ?? 1;
-    // Range: -1 (all) through numWaves-1
-    const total = numWaves + 1;
+  private normalizeSelectedWaveIndex(numWaves: number): number {
     this.selectedWaveIndex =
-      ((this.selectedWaveIndex + 1 + direction + total) % total) - 1;
+      ((this.selectedWaveIndex % numWaves) + numWaves) % numWaves;
+    return this.selectedWaveIndex;
+  }
+
+  private cycleWaveIndex(direction: 1 | -1): void {
+    const wavePhysicsResources =
+      this.game.entities.tryGetSingleton(WavePhysicsResources);
+    const wavePhysicsManager = wavePhysicsResources?.getWavePhysicsManager();
+    const numWaves = wavePhysicsManager?.getActiveMeshes().length ?? 0;
+    if (numWaves === 0) return;
+    this.selectedWaveIndex =
+      (this.normalizeSelectedWaveIndex(numWaves) + direction + numWaves) %
+      numWaves;
   }
 
   getHudInfo(): JSX.Element | string | null {
@@ -496,6 +500,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
 
     const builderType = wavePhysicsManager.getActiveBuilderType();
     const meshes = wavePhysicsManager.getActiveMeshes();
+    if (meshes.length === 0) return "No active wave meshes";
 
     const chipStyle = {
       cursor: "pointer",
@@ -512,20 +517,9 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
 
     const dimStyle = { color: "#aaa", fontSize: "11px" };
 
-    const waveLabel =
-      this.selectedWaveIndex < 0
-        ? `All (${meshes.length})`
-        : `${this.selectedWaveIndex + 1} / ${meshes.length}`;
-
-    const mesh =
-      this.selectedWaveIndex >= 0 ? meshes[this.selectedWaveIndex] : undefined;
-
-    const totalVerts =
-      this.selectedWaveIndex < 0
-        ? meshes.reduce((s, m) => s + m.vertexCount, 0)
-        : (mesh?.vertexCount ?? 0);
-
-    const fmtMs = (ms: number) => ms.toFixed(2);
+    const selectedWaveIndex = this.normalizeSelectedWaveIndex(meshes.length);
+    const waveLabel = `${selectedWaveIndex + 1} / ${meshes.length}`;
+    const mesh = meshes[selectedWaveIndex];
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
@@ -570,16 +564,12 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
         </div>
 
         <div style={dimStyle}>
-          {mesh ? (
-            <span>
-              {(mesh.vertexCount / 1000).toFixed(1)}k verts {"\u03BB"}=
-              {mesh.wavelength}ft dir=
-              {((mesh.waveDirection * 180) / Math.PI).toFixed(0)}&deg; build=
-              {mesh.buildTimeMs.toFixed(0)}ms
-            </span>
-          ) : (
-            <span>{(totalVerts / 1000).toFixed(1)}k verts total</span>
-          )}
+          <span>
+            {(mesh.vertexCount / 1000).toFixed(1)}k verts {"\u03BB"}=
+            {mesh.wavelength}ft dir=
+            {((mesh.waveDirection * 180) / Math.PI).toFixed(0)}&deg; build=
+            {mesh.buildTimeMs.toFixed(0)}ms
+          </span>
         </div>
       </div>
     );
