@@ -1,6 +1,6 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+
 import { DoubleBuffer } from "../../../core/util/DoubleBuffer";
 import { profile, profileAsync, profiler } from "../../../core/util/Profiler";
 import type { BaseQuery } from "./BaseQuery";
@@ -161,7 +161,7 @@ export abstract class QueryManager extends BaseEntity {
 
   @on("add")
   onAdd(): void {
-    const device = getWebGPU().device;
+    const device = this.game.getWebGPUDevice();
 
     // Initialize GPU buffers
     // Point buffer: vec2f per point
@@ -282,7 +282,7 @@ export abstract class QueryManager extends BaseEntity {
   @on("afterPhysicsStep")
   @profile
   onAfterPhysicsStep(): void {
-    const device = getWebGPU().device;
+    const device = this.game.getWebGPUDevice();
 
     // Collect query points based on updated entity positions
     const { points, pointCount } = this.collectPoints();

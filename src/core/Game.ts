@@ -167,12 +167,20 @@ export class Game {
     return this.webGpuInitialized;
   }
 
-  /** Get the WebGPU device manager (throws if not initialized) */
-  getWebGPUDevice(): WebGPUDeviceManager {
+  /** Get the WebGPU device (throws if not initialized) */
+  getWebGPUDevice(): GPUDevice {
     if (!this.webGpuInitialized) {
       throw new Error("WebGPU is not initialized");
     }
-    return getWebGPU();
+    return getWebGPU().device;
+  }
+
+  /** Get the preferred texture format for canvases (throws if not initialized) */
+  getWebGPUPreferredFormat(): GPUTextureFormat {
+    if (!this.webGpuInitialized) {
+      throw new Error("WebGPU is not initialized");
+    }
+    return getWebGPU().preferredFormat;
   }
 
   /** See pause() and unpause(). */

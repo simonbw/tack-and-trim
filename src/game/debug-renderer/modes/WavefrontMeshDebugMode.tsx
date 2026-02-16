@@ -19,7 +19,6 @@ import {
   mat3x3,
   type UniformInstance,
 } from "../../../core/graphics/UniformStruct";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import {
   VERTEX_FLOATS,
   type WavefrontMesh,
@@ -221,7 +220,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
   private async initPipeline(): Promise<void> {
     if (this.initialized) return;
 
-    const device = getWebGPU().device;
+    const device = this.game.getWebGPUDevice();
 
     const shaderModule = device.createShaderModule({
       code: SHADER_CODE,
@@ -268,7 +267,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
         entryPoint: "fs_main",
         targets: [
           {
-            format: getWebGPU().preferredFormat,
+            format: this.game.getWebGPUPreferredFormat(),
             blend: {
               color: {
                 srcFactor: "src-alpha",
@@ -332,7 +331,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     const meshes = wavePhysicsManager.getActiveMeshes();
     if (meshes.length === 0) return;
 
-    const device = getWebGPU().device;
+    const device = this.game.getWebGPUDevice();
 
     // Evict wireframe buffers for meshes that no longer exist
     for (const [mesh, cached] of this.wireframeCache) {

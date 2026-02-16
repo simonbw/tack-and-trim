@@ -20,7 +20,6 @@ import {
   type TileRequest,
 } from "../../core/graphics/VirtualTextureCache";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
-import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import type { Viewport } from "../wave-physics/WavePhysicsResources";
 import type { TerrainResources } from "../world/terrain/TerrainResources";
 import { createTerrainTileShader } from "./TerrainTileShader";
@@ -70,6 +69,7 @@ const DEFAULT_WORLD_UNITS_PER_TILE = 64;
  * Terrain tile cache using virtual texturing.
  */
 export class TerrainTileCache {
+  private device: GPUDevice;
   private readonly tileSize: number;
   private readonly worldUnitsPerTile: number;
   private readonly cache: VirtualTextureCache;
@@ -86,8 +86,8 @@ export class TerrainTileCache {
   // Current frame's visible tiles
   private visibleTiles: VisibleTile[] = [];
 
-  constructor(config: TerrainTileCacheConfig = {}) {
-    const device = getWebGPU().device;
+  constructor(device: GPUDevice, config: TerrainTileCacheConfig = {}) {
+    this.device = device;
 
     this.tileSize = config.tileSize ?? DEFAULT_TILE_SIZE;
     const maxTiles = config.maxTiles ?? DEFAULT_MAX_TILES;
@@ -183,7 +183,7 @@ export class TerrainTileCache {
   ): void {
     if (!this.initialized || requests.length === 0) return;
 
-    const device = getWebGPU().device;
+    const device = this.device;
 
     // Ensure bind group is up to date
     this.ensureBindGroup(terrainResources);

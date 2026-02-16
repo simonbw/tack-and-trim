@@ -1,6 +1,6 @@
 import { on } from "../../../core/entity/handler";
 import type { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+
 import { createPlaceholderPackedMeshBuffer } from "../../wave-physics/MeshPacking";
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
 import { BaseQuery } from "../query/BaseQuery";
@@ -43,7 +43,7 @@ export class WaterQueryManager extends QueryManager {
     await this.queryShader!.init();
 
     // Create uniform buffer for query parameters
-    const device = getWebGPU().device;
+    const device = this.game.getWebGPUDevice();
     this.uniformBuffer = device.createBuffer({
       label: "Water Query Uniform Buffer",
       size: WaterQueryUniforms.byteSize,
@@ -51,7 +51,7 @@ export class WaterQueryManager extends QueryManager {
     });
 
     // Create placeholder packed mesh buffer (empty - no wave sources)
-    this.placeholderPackedMeshBuffer = createPlaceholderPackedMeshBuffer();
+    this.placeholderPackedMeshBuffer = createPlaceholderPackedMeshBuffer(this.game.getWebGPUDevice());
   }
 
   getQueries(): BaseQuery<unknown>[] {

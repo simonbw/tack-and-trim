@@ -8,7 +8,6 @@
  * Uses reprojection to maintain wetness state as the camera moves.
  */
 
-import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import { profile } from "../../core/util/Profiler";
 import type { Viewport } from "../wave-physics/WavePhysicsResources";
@@ -60,7 +59,7 @@ export class WetnessRenderPipeline {
   // Track the last snapped viewport for returning to caller
   private lastSnappedViewport: Viewport | null = null;
 
-  constructor(textureWidth: number, textureHeight: number) {
+  constructor(private device: GPUDevice, textureWidth: number, textureHeight: number) {
     this.textureWidth = textureWidth;
     this.textureHeight = textureHeight;
   }
@@ -88,7 +87,7 @@ export class WetnessRenderPipeline {
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    const device = getWebGPU().device;
+    const device = this.device;
 
     // Initialize compute shader
     this.shader = createWetnessStateShader();
@@ -144,7 +143,7 @@ export class WetnessRenderPipeline {
    * Clear wetness textures to initial state (dry).
    */
   private clearTextures(): void {
-    const device = getWebGPU().device;
+    const device = this.device;
 
     // Create a zeroed buffer to clear the textures
     const clearData = new Float32Array(this.textureWidth * this.textureHeight);
@@ -217,7 +216,7 @@ export class WetnessRenderPipeline {
       return;
     }
 
-    const device = getWebGPU().device;
+    const device = this.device;
 
     // Snap wetness viewport to texel grid for 1:1 texel mapping between frames
     const snappedViewport = this.snapViewportToGrid(wetnessViewport);

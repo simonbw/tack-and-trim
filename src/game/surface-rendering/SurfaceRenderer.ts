@@ -19,7 +19,6 @@ import type { Matrix3 } from "../../core/graphics/Matrix3";
 import { type UniformInstance } from "../../core/graphics/UniformStruct";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
-import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { MAX_WAVE_SOURCES } from "../wave-physics/WavePhysicsManager";
 import { TimeOfDay } from "../time/TimeOfDay";
 import {
@@ -117,7 +116,7 @@ export class SurfaceRenderer extends BaseEntity {
     if (this.initialized || !this.game) return;
 
     try {
-      const device = getWebGPU().device;
+      const device = this.game.getWebGPUDevice();
 
       // Create shaders
       this.terrainScreenShader = createTerrainScreenShader();
@@ -126,11 +125,11 @@ export class SurfaceRenderer extends BaseEntity {
 
       // Create LOD terrain tile cache (multiple LOD levels for extreme zoom ranges)
       // Supports zoom range 0.02 to 1.0+ by using progressively larger world units per tile
-      this.terrainTileCache = new LODTerrainTileCache();
+      this.terrainTileCache = new LODTerrainTileCache(device);
 
       // Create wetness render pipeline (will be sized when textures are created)
       // Using placeholder size - will be recreated when ensureTextures is called
-      this.wetnessPipeline = new WetnessRenderPipeline(1, 1);
+      this.wetnessPipeline = new WetnessRenderPipeline(device, 1, 1);
 
       await Promise.all([
         this.terrainScreenShader.init(),
@@ -203,7 +202,7 @@ export class SurfaceRenderer extends BaseEntity {
       return;
     }
 
-    const device = getWebGPU().device;
+    const device = this.game.getWebGPUDevice();
 
     // Destroy old textures
     this.terrainHeightTexture?.destroy();
@@ -245,7 +244,7 @@ export class SurfaceRenderer extends BaseEntity {
     });
 
     // Recreate wetness pipeline with new texture size
-    this.wetnessPipeline = new WetnessRenderPipeline(width, height);
+    this.wetnessPipeline = new WetnessRenderPipeline(device, width, height);
     this.wetnessPipeline.init();
 
     this.lastTextureWidth = width;
@@ -455,7 +454,7 @@ export class SurfaceRenderer extends BaseEntity {
     const camera = this.game.camera;
     const renderer = this.game.getRenderer();
     const gpuProfiler = renderer.getGpuProfiler();
-    const device = getWebGPU().device;
+    const device = this.game.getWebGPUDevice();
 
     const width = renderer.getWidth();
     const height = renderer.getHeight();
@@ -558,18 +557,20 @@ export class SurfaceRenderer extends BaseEntity {
     // Rasterize wavefront meshes to screen-space texture array
     if (this.waveFieldTexture && wavePhysicsResources) {
       const rasterizer = wavePhysicsResources.getRasterizer();
-      const activeMeshes = wavePhysicsResources.getActiveMeshes();
-      const commandEncoder = device.createCommandEncoder({
-        label: "Wave Field Rasterization",
-      });
-      rasterizer.render(
-        commandEncoder,
-        activeMeshes,
-        expandedViewport,
-        this.waveFieldTexture,
-        gpuProfiler,
-      );
-      device.queue.submit([commandEncoder.finish()]);
+      if (rasterizer) {
+        const activeMeshes = wavePhysicsResources.getActiveMeshes();
+        const commandEncoder = device.createCommandEncoder({
+          label: "Wave Field Rasterization",
+        });
+        rasterizer.render(
+          commandEncoder,
+          activeMeshes,
+          expandedViewport,
+          this.waveFieldTexture,
+          gpuProfiler,
+        );
+        device.queue.submit([commandEncoder.finish()]);
+      }
     }
 
     // === Pass 2: Water Height Compute ===

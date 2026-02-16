@@ -9,7 +9,6 @@
  */
 
 import { WorkerPool } from "../../../core/workers/WorkerPool";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { WaveSource } from "../../world/water/WaveSource";
 import { WavefrontMesh } from "../WavefrontMesh";
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
@@ -30,10 +29,12 @@ const INIT_TIMEOUT = 5000;
  * Coordinates mesh building across web workers.
  */
 export class MeshBuildCoordinator {
+  private device: GPUDevice;
   private pool: WorkerPool<MeshBuildRequest, MeshBuildResult>;
   private nextRequestId = 0;
 
-  constructor() {
+  constructor(device: GPUDevice) {
+    this.device = device;
     const cores = navigator.hardwareConcurrency || 4;
     const workerCount = Math.min(Math.max(cores - 1, 1), MAX_WORKERS);
 
@@ -70,7 +71,7 @@ export class MeshBuildCoordinator {
       await this.initialize();
     }
 
-    const device = getWebGPU().device;
+    const device = this.device;
 
     // Build all requests: one per (waveSource, builderType) pair
     interface PendingBuild {

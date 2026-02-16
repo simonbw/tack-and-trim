@@ -61,7 +61,7 @@ export class WavePhysicsManager {
   private meshSets = new Map<MeshBuilderType, WavefrontMesh[]>();
 
   /** Coordinator for worker-based mesh building */
-  private meshCoordinator = new MeshBuildCoordinator();
+  private meshCoordinator: MeshBuildCoordinator;
 
   /** Active builder types to build meshes for */
   private activeBuilderTypes: MeshBuilderType[] = ["marching"];
@@ -73,16 +73,25 @@ export class WavePhysicsManager {
   private packedMeshBuffer: GPUBuffer | null = null;
 
   /** Rasterizer for rendering meshes to screen-space texture */
-  private rasterizer = new WavefrontRasterizer();
+  private rasterizer: WavefrontRasterizer;
 
   /** Whether the manager has been initialized with terrain */
   private initialized = false;
 
+  private device: GPUDevice;
+  private waveSources: WaveSource[];
+
   /**
    * Create a WavePhysicsManager.
+   * @param device - GPU device for creating GPU resources
    * @param waveSources - Wave source configurations
    */
-  constructor(private waveSources: WaveSource[] = []) {}
+  constructor(device: GPUDevice, waveSources: WaveSource[] = []) {
+    this.device = device;
+    this.waveSources = waveSources;
+    this.meshCoordinator = new MeshBuildCoordinator(this.device);
+    this.rasterizer = new WavefrontRasterizer(this.device);
+  }
 
   /**
    * Initialize the wave physics manager with terrain data.
@@ -210,9 +219,9 @@ export class WavePhysicsManager {
     this.packedMeshBuffer?.destroy();
     const meshes = this.getActiveMeshes();
     if (meshes.length > 0) {
-      this.packedMeshBuffer = buildPackedMeshBuffer(meshes);
+      this.packedMeshBuffer = buildPackedMeshBuffer(this.device, meshes);
     } else {
-      this.packedMeshBuffer = createPlaceholderPackedMeshBuffer();
+      this.packedMeshBuffer = createPlaceholderPackedMeshBuffer(this.device);
     }
   }
 
