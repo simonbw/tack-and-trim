@@ -79,6 +79,31 @@ export function buildMeshData(
 }
 
 /**
+ * Count mesh topology for a set of wavefronts without allocating vertex/index buffers.
+ */
+export function countMeshTopology(wavefronts: Wavefront[]): {
+  vertexCount: number;
+  triangleCount: number;
+} {
+  let vertexCount = 0;
+  for (const step of wavefronts) {
+    for (const segment of step) {
+      vertexCount += segment.length;
+    }
+  }
+
+  let triangleCount = 0;
+  for (let wi = 0; wi < wavefronts.length - 1; wi++) {
+    triangleCount += countTrianglesBetweenSteps(
+      wavefronts[wi],
+      wavefronts[wi + 1],
+    );
+  }
+
+  return { vertexCount, triangleCount };
+}
+
+/**
  * Match segments between two adjacent wavefront steps by t-range overlap
  * and triangulate each matching pair.
  */
@@ -123,6 +148,41 @@ function triangulateBetweenSteps(
       );
     }
   }
+}
+
+function countTrianglesBetweenSteps(
+  prevStep: Wavefront,
+  nextStep: Wavefront,
+): number {
+  let triangles = 0;
+
+  for (let pi = 0; pi < prevStep.length; pi++) {
+    const prevSeg = prevStep[pi];
+    if (prevSeg.length === 0) continue;
+    const prevMinT = prevSeg[0].t;
+    const prevMaxT = prevSeg[prevSeg.length - 1].t;
+
+    for (let ni = 0; ni < nextStep.length; ni++) {
+      const nextSeg = nextStep[ni];
+      if (nextSeg.length === 0) continue;
+      const nextMinT = nextSeg[0].t;
+      const nextMaxT = nextSeg[nextSeg.length - 1].t;
+
+      if (nextMinT > prevMaxT || nextMaxT < prevMinT) continue;
+
+      const overlapMin = Math.max(prevMinT, nextMinT);
+      const overlapMax = Math.min(prevMaxT, nextMaxT);
+      const [pStart, pEnd] = clipToRange(prevSeg, overlapMin, overlapMax);
+      const [nStart, nEnd] = clipToRange(nextSeg, overlapMin, overlapMax);
+
+      if (pEnd < pStart || nEnd < nStart) continue;
+
+      // Each loop step emits exactly one triangle while advancing one side.
+      triangles += pEnd - pStart + (nEnd - nStart);
+    }
+  }
+
+  return triangles;
 }
 
 /**

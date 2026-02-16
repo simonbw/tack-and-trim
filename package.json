@@ -15,6 +15,7 @@
     "generate-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources",
     "test": "playwright test",
     "benchmark": "playwright test --config playwright.benchmark.config.ts",
+    "benchmark-mesh-build": "tsx ./bin/benchmark-mesh-build.ts",
     "docs": "typedoc",
     "count-tokens": "tsx ./bin/count-tokens.ts"
   },
