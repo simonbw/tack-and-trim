@@ -8,6 +8,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   computeTerrainHeight,
+  computeTerrainHeightAndGradient,
   isInsideContour,
   computeDistanceToBoundary,
 } from "./terrainHeightCPU";
@@ -457,5 +458,40 @@ describe("computeTerrainHeight", () => {
       }
       assert.ok(count > 10000, `Ran ${count} queries`);
     });
+  });
+});
+
+describe("computeTerrainHeightAndGradient", () => {
+  const terrain = buildTestTerrain(
+    [
+      {
+        polygon: square(0, 0, 100),
+        height: 0,
+        parentIndex: -1,
+        children: [],
+      },
+    ],
+    -50,
+  );
+
+  it("returns height and near-zero gradient in flat interior", () => {
+    const sample = computeTerrainHeightAndGradient(0, 0, terrain);
+    assert.equal(sample.height, 0);
+    assert.ok(Math.abs(sample.gradientX) < 1e-6, `gradX=${sample.gradientX}`);
+    assert.ok(Math.abs(sample.gradientY) < 1e-6, `gradY=${sample.gradientY}`);
+  });
+
+  it("reuses provided output object", () => {
+    const out = { height: 123, gradientX: 123, gradientY: 123 };
+    const sample = computeTerrainHeightAndGradient(0, 0, terrain, out);
+    assert.equal(sample, out);
+    assert.equal(sample.height, 0);
+    assert.ok(Math.abs(sample.gradientX) < 1e-6, `gradX=${sample.gradientX}`);
+    assert.ok(Math.abs(sample.gradientY) < 1e-6, `gradY=${sample.gradientY}`);
+  });
+
+  it("matches height-only query", () => {
+    const p = computeTerrainHeightAndGradient(55, 0, terrain);
+    assert.equal(p.height, computeTerrainHeight(55, 0, terrain));
   });
 });

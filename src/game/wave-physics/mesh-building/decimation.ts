@@ -26,6 +26,7 @@ function lerpScalar(a: number, b: number, t: number): number {
 }
 
 // Performance tracking
+const LOG_DECIMATION_STATS = false;
 let sampleStepAtTCalls = 0;
 let rowDecimationEvaluationCalls = 0;
 let canRemoveVerticesBetweenCalls = 0;
@@ -35,11 +36,14 @@ let canRemoveVerticesBetweenCalls = 0;
  * covers that t and linearly interpolating between the bracketing vertices.
  * Returns null if t falls in a gap between segments.
  */
+type StepSample = { x: number; y: number; amplitude: number };
+
 function sampleStepAtT(
   wavefront: readonly WavefrontSegment[],
   t: number,
-): { x: number; y: number; amplitude: number } | null {
-  sampleStepAtTCalls++;
+  out: StepSample,
+): boolean {
+  if (LOG_DECIMATION_STATS) sampleStepAtTCalls++;
   for (const segment of wavefront) {
     if (segment.length === 0) continue;
     const tMin = segment[0].t;
@@ -49,11 +53,17 @@ function sampleStepAtT(
     // Clamp to segment endpoints
     if (t <= tMin) {
       const p = segment[0];
-      return { x: p.x, y: p.y, amplitude: p.amplitude };
+      out.x = p.x;
+      out.y = p.y;
+      out.amplitude = p.amplitude;
+      return true;
     }
     if (t >= tMax) {
       const p = segment[segment.length - 1];
-      return { x: p.x, y: p.y, amplitude: p.amplitude };
+      out.x = p.x;
+      out.y = p.y;
+      out.amplitude = p.amplitude;
+      return true;
     }
 
     // Binary search for the bracketing vertices (segment is sorted by t)
@@ -73,20 +83,17 @@ function sampleStepAtT(
     const b = segment[right];
     const span = b.t - a.t;
     const f = span > 0 ? (t - a.t) / span : 0;
-    return {
-      x: lerpScalar(a.x, b.x, f),
-      y: lerpScalar(a.y, b.y, f),
-      amplitude: lerpScalar(a.amplitude, b.amplitude, f),
-    };
+    out.x = lerpScalar(a.x, b.x, f);
+    out.y = lerpScalar(a.y, b.y, f);
+    out.amplitude = lerpScalar(a.amplitude, b.amplitude, f);
+    return true;
   }
-  return null;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
 // Row decimation
 // ---------------------------------------------------------------------------
-
-type RowSample = { x: number; y: number; amplitude: number; phase: number };
 
 type RowCandidate = {
   rowIdx: number;
@@ -188,7 +195,7 @@ function evaluateRowRemoval(
   phaseTol: number,
   phasePerStep: number,
 ): { removable: boolean; score: number } {
-  rowDecimationEvaluationCalls++;
+  if (LOG_DECIMATION_STATS) rowDecimationEvaluationCalls++;
   const row: Wavefront = wavefronts[rowIdx];
   const anchor: Wavefront = wavefronts[anchorIdx];
   const endpoint: Wavefront = wavefronts[endpointIdx];
@@ -199,40 +206,22 @@ function evaluateRowRemoval(
   const anchorPhaseBase = anchorIdx * phasePerStep;
   const endpointPhaseBase = endpointIdx * phasePerStep;
   let maxError = 0;
-
-  // Cache samples from anchor and endpoint rows to avoid repeated linear
-  // searches for repeated t-values.
-  const anchorCache = new Map<number, RowSample>();
-  const endpointCache = new Map<number, RowSample>();
+  const anchorSample: StepSample = { x: 0, y: 0, amplitude: 0 };
+  const endpointSample: StepSample = { x: 0, y: 0, amplitude: 0 };
 
   for (const segment of row) {
     for (const point of segment) {
-      // Try cache first, then compute and cache if needed.
-      let fromAnchor = anchorCache.get(point.t);
-      if (!fromAnchor) {
-        const sample = sampleStepAtT(anchor, point.t);
-        if (!sample) return { removable: false, score: Number.POSITIVE_INFINITY };
-        fromAnchor = {
-          ...sample,
-          phase: anchorPhaseBase - k * (sample.x * waveDx + sample.y * waveDy),
-        };
-        anchorCache.set(point.t, fromAnchor);
+      if (!sampleStepAtT(anchor, point.t, anchorSample)) {
+        return { removable: false, score: Number.POSITIVE_INFINITY };
       }
 
-      let fromEndpoint = endpointCache.get(point.t);
-      if (!fromEndpoint) {
-        const sample = sampleStepAtT(endpoint, point.t);
-        if (!sample) return { removable: false, score: Number.POSITIVE_INFINITY };
-        fromEndpoint = {
-          ...sample,
-          phase: endpointPhaseBase - k * (sample.x * waveDx + sample.y * waveDy),
-        };
-        endpointCache.set(point.t, fromEndpoint);
+      if (!sampleStepAtT(endpoint, point.t, endpointSample)) {
+        return { removable: false, score: Number.POSITIVE_INFINITY };
       }
 
       // Position error.
-      const ix = lerpScalar(fromAnchor.x, fromEndpoint.x, fraction);
-      const iy = lerpScalar(fromAnchor.y, fromEndpoint.y, fraction);
+      const ix = lerpScalar(anchorSample.x, endpointSample.x, fraction);
+      const iy = lerpScalar(anchorSample.y, endpointSample.y, fraction);
       const dx = point.x - ix;
       const dy = point.y - iy;
       const posErrSq = dx * dx + dy * dy;
@@ -244,8 +233,8 @@ function evaluateRowRemoval(
 
       // Amplitude error.
       const iAmp = lerpScalar(
-        fromAnchor.amplitude,
-        fromEndpoint.amplitude,
+        anchorSample.amplitude,
+        endpointSample.amplitude,
         fraction,
       );
       const ampErr = Math.abs(point.amplitude - iAmp);
@@ -258,7 +247,12 @@ function evaluateRowRemoval(
       // Phase-offset error.
       // phaseOffset = stepIndex * phasePerStep − k * dot(position, waveDir)
       const actualPhase = rowPhaseBase - k * (point.x * waveDx + point.y * waveDy);
-      const iPhase = lerpScalar(fromAnchor.phase, fromEndpoint.phase, fraction);
+      const anchorPhase =
+        anchorPhaseBase - k * (anchorSample.x * waveDx + anchorSample.y * waveDy);
+      const endpointPhase =
+        endpointPhaseBase -
+        k * (endpointSample.x * waveDx + endpointSample.y * waveDy);
+      const iPhase = lerpScalar(anchorPhase, endpointPhase, fraction);
       const phaseErr = Math.abs(actualPhase - iPhase);
       const phaseScore = normalizedError(phaseErr, phaseTol);
       if (phaseScore > 1) {
@@ -388,7 +382,7 @@ function canRemoveVerticesBetween(
   posTolSq: number,
   ampTol: number,
 ): boolean {
-  canRemoveVerticesBetweenCalls++;
+  if (LOG_DECIMATION_STATS) canRemoveVerticesBetweenCalls++;
   const a = segment[anchorIdx];
   const b = segment[endpointIdx];
   const tSpan = b.t - a.t;
@@ -481,10 +475,11 @@ export function decimateWavefronts(
 } {
   const t0 = performance.now();
 
-  // Reset counters
-  sampleStepAtTCalls = 0;
-  rowDecimationEvaluationCalls = 0;
-  canRemoveVerticesBetweenCalls = 0;
+  if (LOG_DECIMATION_STATS) {
+    sampleStepAtTCalls = 0;
+    rowDecimationEvaluationCalls = 0;
+    canRemoveVerticesBetweenCalls = 0;
+  }
 
   const k = (2 * Math.PI) / wavelength;
   const resolvedPhasePerStep = phasePerStep ?? Math.PI;
@@ -514,7 +509,9 @@ export function decimateWavefronts(
   const sampleCallsPhase1 = sampleStepAtTCalls;
 
   // Reset for phase 2
-  sampleStepAtTCalls = 0;
+  if (LOG_DECIMATION_STATS) {
+    sampleStepAtTCalls = 0;
+  }
 
   // Phase 2: thin out vertices within each surviving row.
   let totalSegments = 0;
@@ -530,14 +527,16 @@ export function decimateWavefronts(
   const verticesAfter = countVertices(result);
   const totalTime = t3 - t0;
 
-  // Single consolidated log
-  console.log(
-    `Decimation stats: ${totalTime.toFixed(1)}ms total\n` +
-      `  Input: ${rowsBefore} rows, ${verticesBefore} vertices\n` +
-      `  Output: ${rowDecimated.length} rows (-${rowsBefore - rowDecimated.length}), ${verticesAfter} vertices (-${verticesBefore - verticesAfter})\n` +
-      `  Row decimation: ${rowDecimationTime.toFixed(1)}ms, ${rowDecimationCalls} row evaluations, ${sampleCallsPhase1} sampleStepAtT calls\n` +
-      `  Vertex decimation: ${vertexDecimationTime.toFixed(1)}ms, ${totalSegments} segments, ${vertexDecimationCalls} canRemoveVerticesBetween calls, ${sampleCallsPhase2} sampleStepAtT calls`,
-  );
+  if (LOG_DECIMATION_STATS) {
+    // Single consolidated log
+    console.log(
+      `Decimation stats: ${totalTime.toFixed(1)}ms total\n` +
+        `  Input: ${rowsBefore} rows, ${verticesBefore} vertices\n` +
+        `  Output: ${rowDecimated.length} rows (-${rowsBefore - rowDecimated.length}), ${verticesAfter} vertices (-${verticesBefore - verticesAfter})\n` +
+        `  Row decimation: ${rowDecimationTime.toFixed(1)}ms, ${rowDecimationCalls} row evaluations, ${sampleCallsPhase1} sampleStepAtT calls\n` +
+        `  Vertex decimation: ${vertexDecimationTime.toFixed(1)}ms, ${totalSegments} segments, ${vertexDecimationCalls} canRemoveVerticesBetween calls, ${sampleCallsPhase2} sampleStepAtT calls`,
+    );
+  }
 
   return {
     wavefronts: result,

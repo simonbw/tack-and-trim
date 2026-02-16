@@ -32,7 +32,11 @@
 
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 import type { WaveBounds, Wavefront, WavePoint } from "./marchingTypes";
-import { computeTerrainHeight } from "../../world/terrain/terrainHeightCPU";
+import {
+  computeTerrainHeight,
+  computeTerrainHeightAndGradient,
+  type TerrainHeightGradient,
+} from "../../world/terrain/terrainHeightCPU";
 
 /** Energy fraction below which a point is considered dead */
 const MIN_ENERGY = 0.005;
@@ -263,16 +267,20 @@ function diffuseSegment(
   segment: WavePoint[],
   D: number,
   initialDeltaT: number,
-): void {
+  scratch: Float64Array<ArrayBufferLike>,
+): Float64Array<ArrayBufferLike> {
   const n = segment.length;
-  if (n <= 1) return;
+  if (n <= 1) return scratch;
 
   // Domain-edge detection: rays near t=0 or t=1 border open ocean
   const edgeThreshold = initialDeltaT * 0.5;
   const leftIsDomainEdge = segment[0].t < edgeThreshold;
   const rightIsDomainEdge = segment[n - 1].t > 1 - edgeThreshold;
 
-  const old = new Float64Array(n);
+  let old = scratch;
+  if (old.length < n) {
+    old = new Float64Array(n);
+  }
 
   for (let iter = 0; iter < DIFFRACTION_ITERATIONS; iter++) {
     for (let i = 0; i < n; i++) old[i] = segment[i].amplitude;
@@ -289,6 +297,8 @@ function diffuseSegment(
       );
     }
   }
+
+  return old;
 }
 
 /**
@@ -313,10 +323,11 @@ export function applyDiffraction(
 
   // D = \u0394s / (2k \u00b7 \u0394n\u00b2) \u2014 longer wavelengths (smaller k) diffract more
   const D = Math.min(MAX_DIFFUSION_D, stepSize / (2 * k * vertexSpacing ** 2));
+  let scratch: Float64Array<ArrayBufferLike> = new Float64Array(0);
 
   for (const step of wavefronts) {
     for (const segment of step) {
-      diffuseSegment(segment, D, initialDeltaT);
+      scratch = diffuseSegment(segment, D, initialDeltaT, scratch);
     }
   }
 }
@@ -341,7 +352,11 @@ export function marchWavefronts(
   const perpDy = waveDx;
   const wavefronts: Wavefront[] = [[firstWavefront]];
   const k = (2 * Math.PI) / wavelength;
-  const gradientDelta = wavelength * 0.125;
+  const terrainGradientSample: TerrainHeightGradient = {
+    height: 0,
+    gradientX: 0,
+    gradientY: 0,
+  };
   const stats = { splits: 0, merges: 0 };
   const initialDeltaT =
     firstWavefront.length > 1 ? firstWavefront[1].t - firstWavefront[0].t : 1;
@@ -351,13 +366,16 @@ export function marchWavefronts(
     // was kept as the final vertex so the mesh fades out smoothly.
     if (point.energy < MIN_ENERGY) return null;
 
-    // Water depth and march speed at current position
-    const terrainH = computeTerrainHeight(point.x, point.y, terrain);
+    // Water depth and local terrain gradient at current position
+    const terrainH = computeTerrainHeightAndGradient(
+      point.x,
+      point.y,
+      terrain,
+      terrainGradientSample,
+    ).height;
     const currentDepth = Math.max(0, -terrainH);
-    const currentSpeed = Math.max(
-      MIN_SPEED_FACTOR,
-      normalizedSpeed(currentDepth, k),
-    );
+    const baseSpeed = normalizedSpeed(currentDepth, k);
+    const currentSpeed = Math.max(MIN_SPEED_FACTOR, baseSpeed);
     const localStep = stepSize * currentSpeed;
 
     let dirX = point.dirX;
@@ -366,38 +384,14 @@ export function marchWavefronts(
     // Apply Snell's law refraction when underwater.
     // On terrain, skip \u2014 there's no meaningful depth gradient to refract from.
     if (currentDepth > 0) {
-      // Speed gradient via central finite differences
-      const sRight = normalizedSpeed(
-        Math.max(
-          0,
-          -computeTerrainHeight(point.x + gradientDelta, point.y, terrain),
-        ),
-        k,
-      );
-      const sLeft = normalizedSpeed(
-        Math.max(
-          0,
-          -computeTerrainHeight(point.x - gradientDelta, point.y, terrain),
-        ),
-        k,
-      );
-      const sUp = normalizedSpeed(
-        Math.max(
-          0,
-          -computeTerrainHeight(point.x, point.y + gradientDelta, terrain),
-        ),
-        k,
-      );
-      const sDown = normalizedSpeed(
-        Math.max(
-          0,
-          -computeTerrainHeight(point.x, point.y - gradientDelta, terrain),
-        ),
-        k,
-      );
-
-      const dcdx = (sRight - sLeft) / (2 * gradientDelta);
-      const dcdy = (sUp - sDown) / (2 * gradientDelta);
+      // c(depth) = sqrt(tanh(k*depth)), depth = -height.
+      // dc/dx = (dc/ddepth) * ddepth/dx = -(dc/ddepth) * dheight/dx
+      const tanhKd = baseSpeed * baseSpeed;
+      const sech2Kd = 1 - tanhKd * tanhKd;
+      const dcDDepth =
+        baseSpeed > 1e-6 ? (k * sech2Kd) / (2 * baseSpeed) : 0;
+      const dcdx = -dcDDepth * terrainGradientSample.gradientX;
+      const dcdy = -dcDDepth * terrainGradientSample.gradientY;
 
       // Component of speed gradient perpendicular to ray direction
       const dcPerp = -dcdx * dirY + dcdy * dirX;

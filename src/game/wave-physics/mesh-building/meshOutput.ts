@@ -16,11 +16,15 @@ export function buildMeshData(
   stepIndices?: number[],
   phasePerStep?: number,
 ): WavefrontMeshData {
-  const vertices: number[] = [];
-  const indices: number[] = [];
-  const segmentOffsets: number[][] = [];
+  const topology = countMeshTopology(wavefronts);
+  const vertices = new Float32Array(topology.vertexCount * VERTEX_FLOATS);
+  const indices = new Uint32Array(topology.triangleCount * 3);
   const k = (2 * Math.PI) / wavelength;
   const resolvedPhasePerStep = phasePerStep ?? Math.PI;
+  let vertexOffset = 0;
+  let indexOffset = 0;
+  let prevStep: Wavefront | null = null;
+  let prevStepOffsets: number[] | null = null;
 
   for (let wi = 0; wi < wavefronts.length; wi++) {
     const step = wavefronts[wi];
@@ -28,33 +32,32 @@ export function buildMeshData(
     const phase = (stepIndices ? stepIndices[wi] : wi) * resolvedPhasePerStep;
     const isBoundaryStep = wi === 0 || wi === wavefronts.length - 1;
     for (const segment of step) {
-      stepOffsets.push(vertices.length / VERTEX_FLOATS);
+      stepOffsets.push(vertexOffset / VERTEX_FLOATS);
       for (let pi = 0; pi < segment.length; pi++) {
         const p = segment[pi];
         const phaseOffset = phase - k * (p.x * waveDx + p.y * waveDy);
         const isBoundary =
           isBoundaryStep || pi === 0 || pi === segment.length - 1;
-        vertices.push(
-          p.x,
-          p.y,
-          p.amplitude,
-          p.broken,
-          phaseOffset,
-          isBoundary ? 0.0 : 1.0,
-        );
+        vertices[vertexOffset++] = p.x;
+        vertices[vertexOffset++] = p.y;
+        vertices[vertexOffset++] = p.amplitude;
+        vertices[vertexOffset++] = p.broken;
+        vertices[vertexOffset++] = phaseOffset;
+        vertices[vertexOffset++] = isBoundary ? 0.0 : 1.0;
       }
     }
-    segmentOffsets.push(stepOffsets);
-  }
-
-  for (let wi = 0; wi < wavefronts.length - 1; wi++) {
-    triangulateBetweenSteps(
-      wavefronts[wi],
-      wavefronts[wi + 1],
-      segmentOffsets[wi],
-      segmentOffsets[wi + 1],
-      indices,
-    );
+    if (prevStep && prevStepOffsets) {
+      indexOffset = triangulateBetweenSteps(
+        prevStep,
+        step,
+        prevStepOffsets,
+        stepOffsets,
+        indices,
+        indexOffset,
+      );
+    }
+    prevStep = step;
+    prevStepOffsets = stepOffsets;
   }
 
   // Compute 4 corners of the wave-aligned oriented bounding box in world space
@@ -68,12 +71,15 @@ export function buildMeshData(
   const [x1, y1] = toWorld(bounds.maxProj, bounds.minPerp);
   const [x2, y2] = toWorld(bounds.maxProj, bounds.maxPerp);
   const [x3, y3] = toWorld(bounds.minProj, bounds.maxPerp);
+  const finalVertexCount = vertexOffset / VERTEX_FLOATS;
+  const finalIndices =
+    indexOffset === indices.length ? indices : indices.subarray(0, indexOffset);
 
   return {
-    vertices: new Float32Array(vertices),
-    indices: new Uint32Array(indices),
-    vertexCount: vertices.length / VERTEX_FLOATS,
-    indexCount: indices.length,
+    vertices,
+    indices: finalIndices,
+    vertexCount: finalVertexCount,
+    indexCount: indexOffset,
     coverageQuad: { x0, y0, x1, y1, x2, y2, x3, y3 },
   };
 }
@@ -112,8 +118,9 @@ function triangulateBetweenSteps(
   nextStep: Wavefront,
   prevOffsets: number[],
   nextOffsets: number[],
-  indices: number[],
-): void {
+  indices: Uint32Array,
+  indexOffset: number,
+): number {
   for (let pi = 0; pi < prevStep.length; pi++) {
     const prevSeg = prevStep[pi];
     if (prevSeg.length === 0) continue;
@@ -135,7 +142,7 @@ function triangulateBetweenSteps(
 
       if (pEnd < pStart || nEnd < nStart) continue;
 
-      triangulateClipped(
+      indexOffset = triangulateClipped(
         prevSeg,
         nextSeg,
         prevOffsets[pi],
@@ -145,9 +152,11 @@ function triangulateBetweenSteps(
         nStart,
         nEnd,
         indices,
+        indexOffset,
       );
     }
   }
+  return indexOffset;
 }
 
 function countTrianglesBetweenSteps(
@@ -232,18 +241,23 @@ function triangulateClipped(
   pEnd: number,
   nStart: number,
   nEnd: number,
-  indices: number[],
-): void {
+  indices: Uint32Array,
+  indexOffset: number,
+): number {
   let i = pStart;
   let j = nStart;
   while (i < pEnd || j < nEnd) {
     if (i >= pEnd) {
       // Only next row has vertices left
-      indices.push(prevBase + i, nextBase + j, nextBase + j + 1);
+      indices[indexOffset++] = prevBase + i;
+      indices[indexOffset++] = nextBase + j;
+      indices[indexOffset++] = nextBase + j + 1;
       j++;
     } else if (j >= nEnd) {
       // Only prev row has vertices left
-      indices.push(prevBase + i, prevBase + i + 1, nextBase + j);
+      indices[indexOffset++] = prevBase + i;
+      indices[indexOffset++] = prevBase + i + 1;
+      indices[indexOffset++] = nextBase + j;
       i++;
     } else {
       // Both rows have vertices - choose based on triangle quality
@@ -259,13 +273,18 @@ function triangulateClipped(
 
       if (scoreA < scoreB) {
         // Option A is better quality
-        indices.push(prevBase + i, prevBase + i + 1, nextBase + j);
+        indices[indexOffset++] = prevBase + i;
+        indices[indexOffset++] = prevBase + i + 1;
+        indices[indexOffset++] = nextBase + j;
         i++;
       } else {
         // Option B is better quality
-        indices.push(prevBase + i, nextBase + j, nextBase + j + 1);
+        indices[indexOffset++] = prevBase + i;
+        indices[indexOffset++] = nextBase + j;
+        indices[indexOffset++] = nextBase + j + 1;
         j++;
       }
     }
   }
+  return indexOffset;
 }
