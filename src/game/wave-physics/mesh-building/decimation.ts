@@ -45,47 +45,50 @@ function sampleStepAtT(
 ): boolean {
   if (LOG_DECIMATION_STATS) sampleStepAtTCalls++;
   for (const segment of wavefront) {
-    if (segment.length === 0) continue;
-    const tMin = segment[0].t;
-    const tMax = segment[segment.length - 1].t;
+    const segT = segment.t;
+    const len = segT.length;
+    if (len === 0) continue;
+
+    const tMin = segT[0];
+    const tMax = segT[len - 1];
     if (t < tMin - 1e-9 || t > tMax + 1e-9) continue;
+
+    const segX = segment.x;
+    const segY = segment.y;
+    const segAmp = segment.amplitude;
 
     // Clamp to segment endpoints
     if (t <= tMin) {
-      const p = segment[0];
-      out.x = p.x;
-      out.y = p.y;
-      out.amplitude = p.amplitude;
+      out.x = segX[0];
+      out.y = segY[0];
+      out.amplitude = segAmp[0];
       return true;
     }
     if (t >= tMax) {
-      const p = segment[segment.length - 1];
-      out.x = p.x;
-      out.y = p.y;
-      out.amplitude = p.amplitude;
+      const idx = len - 1;
+      out.x = segX[idx];
+      out.y = segY[idx];
+      out.amplitude = segAmp[idx];
       return true;
     }
 
     // Binary search for the bracketing vertices (segment is sorted by t)
     let left = 0;
-    let right = segment.length - 1;
+    let right = len - 1;
     while (left < right - 1) {
       const mid = Math.floor((left + right) / 2);
-      if (segment[mid].t <= t) {
+      if (segT[mid] <= t) {
         left = mid;
       } else {
         right = mid;
       }
     }
 
-    // left and right now bracket t
-    const a = segment[left];
-    const b = segment[right];
-    const span = b.t - a.t;
-    const f = span > 0 ? (t - a.t) / span : 0;
-    out.x = lerpScalar(a.x, b.x, f);
-    out.y = lerpScalar(a.y, b.y, f);
-    out.amplitude = lerpScalar(a.amplitude, b.amplitude, f);
+    const span = segT[right] - segT[left];
+    const f = span > 0 ? (t - segT[left]) / span : 0;
+    out.x = lerpScalar(segX[left], segX[right], f);
+    out.y = lerpScalar(segY[left], segY[right], f);
+    out.amplitude = lerpScalar(segAmp[left], segAmp[right], f);
     return true;
   }
   return false;
@@ -201,29 +204,38 @@ function evaluateRowRemoval(
   const endpoint: Wavefront = wavefronts[endpointIdx];
   const span = endpointIdx - anchorIdx;
   if (span <= 1) return { removable: false, score: Number.POSITIVE_INFINITY };
+
   const fraction = (rowIdx - anchorIdx) / span;
   const rowPhaseBase = rowIdx * phasePerStep;
   const anchorPhaseBase = anchorIdx * phasePerStep;
   const endpointPhaseBase = endpointIdx * phasePerStep;
+
   let maxError = 0;
   const anchorSample: StepSample = { x: 0, y: 0, amplitude: 0 };
   const endpointSample: StepSample = { x: 0, y: 0, amplitude: 0 };
 
   for (const segment of row) {
-    for (const point of segment) {
-      if (!sampleStepAtT(anchor, point.t, anchorSample)) {
+    const segX = segment.x;
+    const segY = segment.y;
+    const segT = segment.t;
+    const segAmp = segment.amplitude;
+
+    for (let i = 0; i < segT.length; i++) {
+      const pointT = segT[i];
+
+      if (!sampleStepAtT(anchor, pointT, anchorSample)) {
         return { removable: false, score: Number.POSITIVE_INFINITY };
       }
 
-      if (!sampleStepAtT(endpoint, point.t, endpointSample)) {
+      if (!sampleStepAtT(endpoint, pointT, endpointSample)) {
         return { removable: false, score: Number.POSITIVE_INFINITY };
       }
 
       // Position error.
       const ix = lerpScalar(anchorSample.x, endpointSample.x, fraction);
       const iy = lerpScalar(anchorSample.y, endpointSample.y, fraction);
-      const dx = point.x - ix;
-      const dy = point.y - iy;
+      const dx = segX[i] - ix;
+      const dy = segY[i] - iy;
       const posErrSq = dx * dx + dy * dy;
       const posScore = normalizedError(posErrSq, posTolSq);
       if (posScore > 1) {
@@ -237,7 +249,7 @@ function evaluateRowRemoval(
         endpointSample.amplitude,
         fraction,
       );
-      const ampErr = Math.abs(point.amplitude - iAmp);
+      const ampErr = Math.abs(segAmp[i] - iAmp);
       const ampScore = normalizedError(ampErr, ampTol);
       if (ampScore > 1) {
         return { removable: false, score: Number.POSITIVE_INFINITY };
@@ -246,9 +258,11 @@ function evaluateRowRemoval(
 
       // Phase-offset error.
       // phaseOffset = stepIndex * phasePerStep − k * dot(position, waveDir)
-      const actualPhase = rowPhaseBase - k * (point.x * waveDx + point.y * waveDy);
+      const actualPhase =
+        rowPhaseBase - k * (segX[i] * waveDx + segY[i] * waveDy);
       const anchorPhase =
-        anchorPhaseBase - k * (anchorSample.x * waveDx + anchorSample.y * waveDy);
+        anchorPhaseBase -
+        k * (anchorSample.x * waveDx + anchorSample.y * waveDy);
       const endpointPhase =
         endpointPhaseBase -
         k * (endpointSample.x * waveDx + endpointSample.y * waveDy);
@@ -261,6 +275,7 @@ function evaluateRowRemoval(
       if (phaseScore > maxError) maxError = phaseScore;
     }
   }
+
   return { removable: true, score: maxError };
 }
 
@@ -304,6 +319,7 @@ function decimateRows(
   const enqueueIfRemovable = (rowIdx: number): void => {
     if (rowIdx <= 0 || rowIdx >= N - 1) return;
     if (active[rowIdx] === 0) return;
+
     const prevIdx = prev[rowIdx];
     const nextIdx = next[rowIdx];
     if (prevIdx < 0 || nextIdx < 0) return;
@@ -340,8 +356,8 @@ function decimateRows(
     if (!candidate) break;
 
     const { rowIdx, prevIdx, nextIdx } = candidate;
-    if (active[rowIdx] === 0) continue; // already removed by another collapse
-    if (prev[rowIdx] !== prevIdx || next[rowIdx] !== nextIdx) continue; // stale
+    if (active[rowIdx] === 0) continue;
+    if (prev[rowIdx] !== prevIdx || next[rowIdx] !== nextIdx) continue;
 
     // Remove this row from the active linked list.
     active[rowIdx] = 0;
@@ -383,24 +399,87 @@ function canRemoveVerticesBetween(
   ampTol: number,
 ): boolean {
   if (LOG_DECIMATION_STATS) canRemoveVerticesBetweenCalls++;
-  const a = segment[anchorIdx];
-  const b = segment[endpointIdx];
-  const tSpan = b.t - a.t;
+
+  const t = segment.t;
+  const x = segment.x;
+  const y = segment.y;
+  const amplitude = segment.amplitude;
+
+  const aT = t[anchorIdx];
+  const bT = t[endpointIdx];
+  const tSpan = bT - aT;
+
+  const ax = x[anchorIdx];
+  const ay = y[anchorIdx];
+  const bx = x[endpointIdx];
+  const by = y[endpointIdx];
+
+  const aAmp = amplitude[anchorIdx];
+  const bAmp = amplitude[endpointIdx];
 
   for (let i = anchorIdx + 1; i < endpointIdx; i++) {
-    const p = segment[i];
-    const f = tSpan > 0 ? (p.t - a.t) / tSpan : 0;
+    const f = tSpan > 0 ? (t[i] - aT) / tSpan : 0;
 
-    const ix = lerpScalar(a.x, b.x, f);
-    const iy = lerpScalar(a.y, b.y, f);
-    const dx = p.x - ix;
-    const dy = p.y - iy;
+    const ix = lerpScalar(ax, bx, f);
+    const iy = lerpScalar(ay, by, f);
+    const dx = x[i] - ix;
+    const dy = y[i] - iy;
     if (dx * dx + dy * dy > posTolSq) return false;
 
-    const iAmp = lerpScalar(a.amplitude, b.amplitude, f);
-    if (Math.abs(p.amplitude - iAmp) > ampTol) return false;
+    const iAmp = lerpScalar(aAmp, bAmp, f);
+    if (Math.abs(amplitude[i] - iAmp) > ampTol) return false;
   }
+
   return true;
+}
+
+function copyKeptIndices(
+  source: number[],
+  kept: number[],
+  out: number[],
+): void {
+  for (let i = 0; i < kept.length; i++) {
+    out[i] = source[kept[i]];
+  }
+}
+
+function buildSegmentFromKept(
+  segment: WavefrontSegment,
+  kept: number[],
+): WavefrontSegment {
+  const n = kept.length;
+
+  const outX = new Array<number>(n);
+  const outY = new Array<number>(n);
+  const outT = new Array<number>(n);
+  const outDirX = new Array<number>(n);
+  const outDirY = new Array<number>(n);
+  const outEnergy = new Array<number>(n);
+  const outBroken = new Array<number>(n);
+  const outDepth = new Array<number>(n);
+  const outAmplitude = new Array<number>(n);
+
+  copyKeptIndices(segment.x, kept, outX);
+  copyKeptIndices(segment.y, kept, outY);
+  copyKeptIndices(segment.t, kept, outT);
+  copyKeptIndices(segment.dirX, kept, outDirX);
+  copyKeptIndices(segment.dirY, kept, outDirY);
+  copyKeptIndices(segment.energy, kept, outEnergy);
+  copyKeptIndices(segment.broken, kept, outBroken);
+  copyKeptIndices(segment.depth, kept, outDepth);
+  copyKeptIndices(segment.amplitude, kept, outAmplitude);
+
+  return {
+    x: outX,
+    y: outY,
+    t: outT,
+    dirX: outDirX,
+    dirY: outDirY,
+    energy: outEnergy,
+    broken: outBroken,
+    depth: outDepth,
+    amplitude: outAmplitude,
+  };
 }
 
 /**
@@ -412,13 +491,14 @@ function decimateSegment(
   posTolSq: number,
   ampTol: number,
 ): WavefrontSegment {
-  if (segment.length <= 2) return segment;
+  const len = segment.t.length;
+  if (len <= 2) return segment;
 
   const kept: number[] = [0];
   let anchor = 0;
   let endpoint = 2;
 
-  while (endpoint <= segment.length - 1) {
+  while (endpoint <= len - 1) {
     const removable = canRemoveVerticesBetween(
       segment,
       anchor,
@@ -428,7 +508,7 @@ function decimateSegment(
     );
 
     if (removable) {
-      if (endpoint === segment.length - 1) {
+      if (endpoint === len - 1) {
         kept.push(endpoint);
         break;
       }
@@ -440,11 +520,12 @@ function decimateSegment(
     }
   }
 
-  if (kept[kept.length - 1] !== segment.length - 1) {
-    kept.push(segment.length - 1);
+  if (kept[kept.length - 1] !== len - 1) {
+    kept.push(len - 1);
   }
 
-  return kept.map((i) => segment[i]);
+  if (kept.length === len) return segment;
+  return buildSegmentFromKept(segment, kept);
 }
 
 // ---------------------------------------------------------------------------
@@ -550,7 +631,7 @@ function countVertices(wavefronts: Wavefront[]): number {
   let count = 0;
   for (const step of wavefronts) {
     for (const segment of step) {
-      count += segment.length;
+      count += segment.t.length;
     }
   }
   return count;

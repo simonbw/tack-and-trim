@@ -86,7 +86,7 @@ export function buildMarchingMesh(
     );
   let t2 = performance.now();
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
-    return prev + curr.reduce((sum, segment) => sum + segment.length, 0);
+    return prev + curr.reduce((sum, segment) => sum + segment.t.length, 0);
   }, 0);
   const decimated = decimateWavefronts(
     wavefronts,
