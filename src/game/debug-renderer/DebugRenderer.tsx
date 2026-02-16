@@ -42,6 +42,12 @@ export class DebugRenderer extends ReactEntity {
     const modeName = this.currentMode.getModeName();
     const modeContent = this.currentMode.getHudInfo();
     const cursorContent = this.currentMode.getCursorInfo();
+    const cursorX = mouseWorldPos.x.toFixed(1);
+    const cursorY = mouseWorldPos.y.toFixed(1);
+    const cursorContentLines =
+      typeof cursorContent === "string"
+        ? cursorContent.split("\n").filter((line) => line.length > 0)
+        : null;
 
     return (
       <div className="debug-hud">
@@ -66,10 +72,32 @@ export class DebugRenderer extends ReactEntity {
         {modeContent && <div className="debug-hud__submode">{modeContent}</div>}
 
         <div className="debug-hud__cursor">
-          <span>Cursor</span>
-          {mouseWorldPos.toLocaleString([], { maximumFractionDigits: 1 })}
-          {cursorContent && "\n"}
-          {cursorContent}
+          <div className="debug-hud__section-title">Position</div>
+          <div className="debug-hud__cursor-pos">
+            <span className="debug-hud__cursor-kv">
+              <span className="debug-hud__cursor-key">x</span>
+              <span>{cursorX} ft</span>
+            </span>
+            <span className="debug-hud__cursor-kv">
+              <span className="debug-hud__cursor-key">y</span>
+              <span>{cursorY} ft</span>
+            </span>
+          </div>
+          <div className="debug-hud__cursor-units">world-space feet</div>
+          {cursorContent && (
+            <div className="debug-hud__cursor-extra">
+              <div className="debug-hud__section-title debug-hud__section-title--nested">
+                Sample
+              </div>
+              {cursorContentLines
+                ? cursorContentLines.map((line, idx) => (
+                    <div className="debug-hud__cursor-line" key={idx}>
+                      {line}
+                    </div>
+                  ))
+                : cursorContent}
+            </div>
+          )}
         </div>
       </div>
     );

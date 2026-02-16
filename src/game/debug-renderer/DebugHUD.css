@@ -70,6 +70,48 @@
   margin-bottom: 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  white-space: pre-line;
   line-height: 1.4;
+}
+
+.debug-hud__section-title {
+  color: #9bb7cc;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+.debug-hud__section-title--nested {
+  margin-bottom: 2px;
+}
+
+.debug-hud__cursor-pos {
+  display: flex;
+  gap: 10px;
+  color: #d7e7f4;
+}
+
+.debug-hud__cursor-kv {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.debug-hud__cursor-key {
+  color: #7f95a7;
+  text-transform: uppercase;
+}
+
+.debug-hud__cursor-units {
+  color: #8fa3b7;
+  font-size: 10px;
+}
+
+.debug-hud__cursor-extra {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.debug-hud__cursor-line {
+  color: #9ecbb4;
 }

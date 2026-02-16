@@ -23,6 +23,8 @@ import {
   VERTEX_FLOATS,
   type WavefrontMesh,
 } from "../../wave-physics/WavefrontMesh";
+import { TerrainQuery } from "../../world/terrain/TerrainQuery";
+import { WaterQuery } from "../../world/water/WaterQuery";
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
 import { DebugRenderMode } from "./DebugRenderMode";
 
@@ -61,7 +63,7 @@ struct WavefrontDebugParams {
 struct VertexInput {
   @location(0) position: vec2<f32>,
   @location(1) amplitude: f32,
-  @location(2) breakingIntensity: f32,
+  @location(2) turbulence: f32,
   @location(3) phaseOffset: f32,
   @location(4) blendWeight: f32,
   @location(5) barycentric: vec2<f32>,
@@ -70,7 +72,7 @@ struct VertexInput {
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) amplitude: f32,
-  @location(1) breakingIntensity: f32,
+  @location(1) turbulence: f32,
   @location(2) phaseOffset: f32,
   @location(3) blendWeight: f32,
   @location(4) barycentric: vec2<f32>,
@@ -95,7 +97,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   var out: VertexOutput;
   out.position = vec4<f32>(clipX, clipY, 0.0, 1.0);
   out.amplitude = in.amplitude;
-  out.breakingIntensity = in.breakingIntensity;
+  out.turbulence = in.turbulence;
   out.phaseOffset = in.phaseOffset;
   out.blendWeight = in.blendWeight;
   out.barycentric = in.barycentric;
@@ -192,6 +194,25 @@ interface WireframeBuffer {
   totalPhaseRange: number;
 }
 
+interface CursorTriangleSample {
+  amplitude: number;
+  turbulence: number;
+  phaseOffset: number;
+  blendWeight: number;
+}
+
+interface CursorMeshSample {
+  insideCoverageQuad: boolean;
+  hitCount: number;
+  phasorCos: number;
+  phasorSin: number;
+  maxTurbulence: number;
+  firstHit: CursorTriangleSample | null;
+}
+
+const BARY_INSIDE_EPS = 0.001;
+const DEGENERATE_TRIANGLE_EPS = 1e-10;
+
 const COLOR_MODE_NAMES = ["Amplitude", "Phase", "Wavefront"];
 
 export class WavefrontMeshDebugMode extends DebugRenderMode {
@@ -199,6 +220,9 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
   private selectedWaveIndex = 0;
   private colorMode = 0;
   private waveTimeOffset = 0;
+
+  private terrainQuery: TerrainQuery;
+  private waterQuery: WaterQuery;
 
   private pipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
@@ -211,6 +235,23 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
 
   /** Cached wireframe buffers keyed by source mesh */
   private wireframeCache = new Map<WavefrontMesh, WireframeBuffer>();
+
+  constructor() {
+    super();
+    this.terrainQuery = this.addChild(
+      new TerrainQuery(() => this.getCursorQueryPoint()),
+    );
+    this.waterQuery = this.addChild(
+      new WaterQuery(() => this.getCursorQueryPoint()),
+    );
+  }
+
+  private getCursorQueryPoint() {
+    if (!this.game) return [];
+    const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
+    if (!mouseWorldPos) return [];
+    return [mouseWorldPos];
+  }
 
   @on("add")
   async onAdd() {
@@ -254,7 +295,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
             attributes: [
               { format: "float32x2", offset: 0, shaderLocation: 0 }, // position
               { format: "float32", offset: 8, shaderLocation: 1 }, // amplitude
-              { format: "float32", offset: 12, shaderLocation: 2 }, // breakingIntensity
+              { format: "float32", offset: 12, shaderLocation: 2 }, // turbulence
               { format: "float32", offset: 16, shaderLocation: 3 }, // phaseOffset
               { format: "float32", offset: 20, shaderLocation: 4 }, // blendWeight
               { format: "float32x2", offset: 24, shaderLocation: 5 }, // barycentric
@@ -380,7 +421,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     if (cached) return cached;
 
     const { cpuVertexData, cpuIndexData, indexCount } = mesh;
-    const floatsPerVertex = 8; // posX, posY, amplitude, breakingIntensity, phaseOffset, blendWeight, baryU, baryV
+    const floatsPerVertex = 8; // posX, posY, amplitude, turbulence, phaseOffset, blendWeight, baryU, baryV
     const expanded = new Float32Array(indexCount * floatsPerVertex);
 
     // Compute totalPhase range for single-band wavefront mode
@@ -423,6 +464,144 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     };
     this.wireframeCache.set(mesh, entry);
     return entry;
+  }
+
+  private computeBarycentric(
+    px: number,
+    py: number,
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+    cx: number,
+    cy: number,
+  ): [number, number, number] | null {
+    const v0x = bx - ax;
+    const v0y = by - ay;
+    const v1x = cx - ax;
+    const v1y = cy - ay;
+    const v2x = px - ax;
+    const v2y = py - ay;
+
+    const d00 = v0x * v0x + v0y * v0y;
+    const d01 = v0x * v1x + v0y * v1y;
+    const d11 = v1x * v1x + v1y * v1y;
+    const d20 = v2x * v0x + v2y * v0y;
+    const d21 = v2x * v1x + v2y * v1y;
+
+    const denom = d00 * d11 - d01 * d01;
+    if (Math.abs(denom) < DEGENERATE_TRIANGLE_EPS) {
+      return null;
+    }
+
+    const invDenom = 1 / denom;
+    const v = (d11 * d20 - d01 * d21) * invDenom;
+    const w = (d00 * d21 - d01 * d20) * invDenom;
+    const u = 1 - v - w;
+    return [u, v, w];
+  }
+
+  private isPointInTriangle(
+    px: number,
+    py: number,
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+    cx: number,
+    cy: number,
+  ): boolean {
+    const bary = this.computeBarycentric(px, py, ax, ay, bx, by, cx, cy);
+    if (!bary) return false;
+    return (
+      bary[0] >= -BARY_INSIDE_EPS &&
+      bary[1] >= -BARY_INSIDE_EPS &&
+      bary[2] >= -BARY_INSIDE_EPS
+    );
+  }
+
+  private isInsideCoverageQuad(mesh: WavefrontMesh, px: number, py: number) {
+    const q = mesh.coverageQuad;
+    if (!q) return false;
+    return (
+      this.isPointInTriangle(px, py, q.x0, q.y0, q.x1, q.y1, q.x2, q.y2) ||
+      this.isPointInTriangle(px, py, q.x0, q.y0, q.x2, q.y2, q.x3, q.y3)
+    );
+  }
+
+  private sampleMeshAtPoint(
+    mesh: WavefrontMesh,
+    px: number,
+    py: number,
+  ): CursorMeshSample {
+    const { cpuVertexData, cpuIndexData, indexCount } = mesh;
+
+    let hitCount = 0;
+    let phasorCos = 0;
+    let phasorSin = 0;
+    let maxTurbulence = 0;
+    let firstHit: CursorTriangleSample | null = null;
+
+    for (let i = 0; i < indexCount; i += 3) {
+      const ia = cpuIndexData[i] * VERTEX_FLOATS;
+      const ib = cpuIndexData[i + 1] * VERTEX_FLOATS;
+      const ic = cpuIndexData[i + 2] * VERTEX_FLOATS;
+
+      const ax = cpuVertexData[ia];
+      const ay = cpuVertexData[ia + 1];
+      const bx = cpuVertexData[ib];
+      const by = cpuVertexData[ib + 1];
+      const cx = cpuVertexData[ic];
+      const cy = cpuVertexData[ic + 1];
+
+      const bary = this.computeBarycentric(px, py, ax, ay, bx, by, cx, cy);
+      if (!bary) continue;
+
+      const [u, v, w] = bary;
+      if (u < -BARY_INSIDE_EPS || v < -BARY_INSIDE_EPS || w < -BARY_INSIDE_EPS)
+        continue;
+
+      const amplitude =
+        cpuVertexData[ia + 2] * u +
+        cpuVertexData[ib + 2] * v +
+        cpuVertexData[ic + 2] * w;
+      const turbulence =
+        cpuVertexData[ia + 3] * u +
+        cpuVertexData[ib + 3] * v +
+        cpuVertexData[ic + 3] * w;
+      const phaseOffset =
+        cpuVertexData[ia + 4] * u +
+        cpuVertexData[ib + 4] * v +
+        cpuVertexData[ic + 4] * w;
+      const blendWeight =
+        cpuVertexData[ia + 5] * u +
+        cpuVertexData[ib + 5] * v +
+        cpuVertexData[ic + 5] * w;
+
+      const weightedAmp = amplitude * blendWeight;
+      phasorCos += weightedAmp * Math.cos(phaseOffset);
+      phasorSin += weightedAmp * Math.sin(phaseOffset);
+      maxTurbulence = Math.max(maxTurbulence, turbulence * blendWeight);
+      hitCount++;
+
+      if (!firstHit) {
+        firstHit = {
+          amplitude,
+          turbulence,
+          phaseOffset,
+          blendWeight,
+        };
+      }
+    }
+
+    return {
+      insideCoverageQuad: this.isInsideCoverageQuad(mesh, px, py),
+      hitCount,
+      phasorCos,
+      phasorSin,
+      maxTurbulence,
+      firstHit,
+    };
   }
 
   @on("keyDown")
@@ -514,6 +693,13 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
       fontSize: "11px",
     };
 
+    const controlLineStyle = {
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      flexWrap: "wrap" as const,
+    };
+
     const dimStyle = { color: "#aaa", fontSize: "11px" };
 
     const selectedWaveIndex = this.normalizeSelectedWaveIndex(meshes.length);
@@ -529,7 +715,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
             gap: "12px",
           }}
         >
-          <span>
+          <span style={controlLineStyle}>
             <span style={labelStyle}>Mode</span>
             <span
               style={chipStyle}
@@ -550,7 +736,7 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
               </span>
             )}
           </span>
-          <span>
+          <span style={controlLineStyle}>
             <span style={labelStyle}>Wave</span>
             <span
               style={chipStyle}
@@ -570,6 +756,123 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
             {mesh.buildTimeMs.toFixed(0)}ms
           </span>
         </div>
+      </div>
+    );
+  }
+
+  getCursorInfo(): JSX.Element | string | null {
+    const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
+    if (!mouseWorldPos) return null;
+
+    const terrainHeight =
+      this.terrainQuery.length > 0 ? this.terrainQuery.get(0).height : null;
+    const waterHeight =
+      this.waterQuery.length > 0 ? this.waterQuery.get(0).surfaceHeight : null;
+
+    const wavePhysicsResources =
+      this.game.entities.tryGetSingleton(WavePhysicsResources);
+    const wavePhysicsManager = wavePhysicsResources?.getWavePhysicsManager();
+
+    const rowStyle = {
+      display: "flex",
+      gap: "8px",
+      alignItems: "baseline",
+      flexWrap: "wrap" as const,
+    };
+    const labelStyle = { color: "#8fa3b8", fontSize: "11px" };
+    const valueStyle = { color: "#d9e6f2", fontSize: "11px" };
+    const dimStyle = { color: "#9db1c5", fontSize: "11px" };
+    const heightStyle = { color: "#b9cbdd", fontSize: "11px" };
+
+    const heightRow = (
+      <span style={rowStyle}>
+        <span style={labelStyle}>terrain</span>
+        <span style={heightStyle}>
+          {terrainHeight === null ? "--" : terrainHeight.toFixed(2)} ft
+        </span>
+        <span style={labelStyle}>water</span>
+        <span style={heightStyle}>
+          {waterHeight === null ? "--" : waterHeight.toFixed(2)} ft
+        </span>
+      </span>
+    );
+
+    if (!wavePhysicsManager) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          <span style={labelStyle}>Wave Mesh</span>
+          <span style={valueStyle}>No wave physics</span>
+          {heightRow}
+        </div>
+      );
+    }
+
+    const meshes = wavePhysicsManager.getActiveMeshes();
+    if (meshes.length === 0) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          <span style={labelStyle}>Wave Mesh</span>
+          <span style={valueStyle}>No active wave meshes</span>
+          {heightRow}
+        </div>
+      );
+    }
+
+    const selectedWaveIndex = this.normalizeSelectedWaveIndex(meshes.length);
+    const mesh = meshes[selectedWaveIndex];
+    const sample = this.sampleMeshAtPoint(
+      mesh,
+      mouseWorldPos.x,
+      mouseWorldPos.y,
+    );
+
+    if (sample.hitCount === 0) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          <span style={labelStyle}>Wave Mesh</span>
+          <span style={valueStyle}>
+            {sample.insideCoverageQuad
+              ? "Shadow zone (coverage=1, no triangle)"
+              : "No mesh coverage at cursor"}
+          </span>
+          {sample.insideCoverageQuad && (
+            <span style={dimStyle}>pc=0.00 ps=0.00 amp=0.00 turb=0.00</span>
+          )}
+          {heightRow}
+        </div>
+      );
+    }
+
+    const amplitude = Math.hypot(sample.phasorCos, sample.phasorSin);
+    const phase =
+      amplitude > 0.001 ? Math.atan2(sample.phasorSin, sample.phasorCos) : 0;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+        <span style={rowStyle}>
+          <span style={labelStyle}>Wave Mesh</span>
+          <span style={valueStyle}>
+            {sample.hitCount} tri hit{sample.hitCount === 1 ? "" : "s"}
+          </span>
+        </span>
+        <span style={rowStyle}>
+          <span style={labelStyle}>amp</span>
+          <span style={valueStyle}>{amplitude.toFixed(2)}</span>
+          <span style={labelStyle}>phase</span>
+          <span style={valueStyle}>{phase.toFixed(2)}</span>
+          <span style={labelStyle}>turb</span>
+          <span style={valueStyle}>{sample.maxTurbulence.toFixed(2)}</span>
+        </span>
+        {heightRow}
+        <span style={dimStyle}>
+          pc={sample.phasorCos.toFixed(2)} ps={sample.phasorSin.toFixed(2)}
+        </span>
+        {sample.firstHit && (
+          <span style={dimStyle}>
+            tri amp={sample.firstHit.amplitude.toFixed(2)} phase=
+            {sample.firstHit.phaseOffset.toFixed(2)} blend=
+            {sample.firstHit.blendWeight.toFixed(2)}
+          </span>
+        )}
       </div>
     );
   }
