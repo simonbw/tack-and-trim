@@ -13,7 +13,6 @@
  */
 
 import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
-import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import type { Viewport } from "./WavePhysicsResources";
 import type { WavefrontMesh } from "./WavefrontMesh";
@@ -79,6 +78,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
  * Rasterizes wavefront meshes to a screen-space texture array.
  */
 export class WavefrontRasterizer {
+  private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private uniforms = RasterizerUniforms.create();
@@ -89,10 +89,14 @@ export class WavefrontRasterizer {
   private coverageQuadVertices = new Float32Array(4 * 6);
   private initialized = false;
 
+  constructor(device: GPUDevice) {
+    this.device = device;
+  }
+
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    const device = getWebGPU().device;
+    const device = this.device;
 
     const shaderModule = device.createShaderModule({
       code: SHADER_CODE,
@@ -312,7 +316,7 @@ export class WavefrontRasterizer {
         v[21] = 0;
         v[22] = 0;
         v[23] = 0;
-        getWebGPU().device.queue.writeBuffer(
+        this.device.queue.writeBuffer(
           this.coverageQuadVertexBuffer,
           0,
           v,

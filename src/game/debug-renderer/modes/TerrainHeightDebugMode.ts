@@ -23,7 +23,6 @@ import {
   type FullscreenShaderConfig,
 } from "../../../core/graphics/webgpu/FullscreenShader";
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import { radToDeg } from "../../../core/util/MathUtil";
 import { SurfaceRenderer } from "../../surface-rendering/SurfaceRenderer";
 import { TerrainQuery } from "../../world/terrain/TerrainQuery";
@@ -199,7 +198,7 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
 
-    const device = getWebGPU().device;
+    const device = this.game.getWebGPUDevice();
 
     // Create shader
     this.shader = new FullscreenShader(terrainHeightDebugShaderConfig);

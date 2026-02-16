@@ -26,7 +26,6 @@
  * GRID TRIANGLE LISTS (u32 triangle indices, variable length per cell)
  */
 
-import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import { MAX_WAVE_SOURCES } from "./WavePhysicsManager";
 import { VERTEX_FLOATS } from "./WavefrontMesh";
 import type { WavefrontMesh } from "./WavefrontMesh";
@@ -281,9 +280,9 @@ function buildSpatialGrid(mesh: WavefrontMesh): MeshGridData {
  * Returns null if no meshes are provided.
  */
 export function buildPackedMeshBuffer(
+  device: GPUDevice,
   meshes: readonly WavefrontMesh[],
 ): GPUBuffer {
-  const device = getWebGPU().device;
   const numWaves = Math.min(meshes.length, MAX_WAVE_SOURCES);
 
   // Build spatial grids for each mesh
@@ -536,8 +535,7 @@ function logBufferStats(
 /**
  * Create a placeholder packed mesh buffer with numWaveSources = 0.
  */
-export function createPlaceholderPackedMeshBuffer(): GPUBuffer {
-  const device = getWebGPU().device;
+export function createPlaceholderPackedMeshBuffer(device: GPUDevice): GPUBuffer {
   const buffer = device.createBuffer({
     size: 64,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,

@@ -70,6 +70,7 @@ const DEFAULT_LOD_CONFIGS: LODConfig[] = [
  * values and selects the appropriate one based on camera zoom.
  */
 export class LODTerrainTileCache {
+  private device: GPUDevice;
   private readonly lodConfigs: LODConfig[];
   private readonly caches: TerrainTileCache[];
   private readonly hysteresis: number;
@@ -78,15 +79,17 @@ export class LODTerrainTileCache {
   private initialized = false;
 
   constructor(
+    device: GPUDevice,
     config: LODTerrainTileCacheConfig = { lodConfigs: DEFAULT_LOD_CONFIGS },
   ) {
+    this.device = device;
     this.lodConfigs = config.lodConfigs;
     this.hysteresis = config.hysteresis ?? 0.05;
 
     // Create a TerrainTileCache for each LOD level
     this.caches = this.lodConfigs.map(
       (lodConfig) =>
-        new TerrainTileCache({
+        new TerrainTileCache(device, {
           worldUnitsPerTile: lodConfig.worldUnitsPerTile,
           maxTiles: lodConfig.maxTiles,
         }),

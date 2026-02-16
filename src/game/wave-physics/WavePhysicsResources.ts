@@ -35,17 +35,21 @@ export interface Viewport {
 export class WavePhysicsResources extends BaseEntity {
   id = "wavePhysicsResources";
 
-  private wavePhysicsManager: WavePhysicsManager;
+  private waveConfig: WaveConfig;
+  private wavePhysicsManager: WavePhysicsManager | null = null;
   private terrainResources: TerrainResources | null = null;
 
   constructor(waveConfig?: WaveConfig) {
     super();
-    const config = waveConfig ?? DEFAULT_WAVE_CONFIG;
-    this.wavePhysicsManager = new WavePhysicsManager(config.sources);
+    this.waveConfig = waveConfig ?? DEFAULT_WAVE_CONFIG;
   }
 
   @on("afterAdded")
   onAfterAdded() {
+    // Create the wave physics manager now that we have access to the game/device
+    const device = this.game.getWebGPUDevice();
+    this.wavePhysicsManager = new WavePhysicsManager(device, this.waveConfig.sources);
+
     // Get terrain resources for wave physics initialization
     this.terrainResources =
       this.game.entities.tryGetSingleton(TerrainResources) ?? null;
@@ -79,7 +83,7 @@ export class WavePhysicsResources extends BaseEntity {
   /**
    * Get the WavePhysicsManager instance.
    */
-  getWavePhysicsManager(): WavePhysicsManager {
+  getWavePhysicsManager(): WavePhysicsManager | null {
     return this.wavePhysicsManager;
   }
 
@@ -87,46 +91,46 @@ export class WavePhysicsResources extends BaseEntity {
    * Get the packed mesh buffer for binding in query shaders.
    */
   getPackedMeshBuffer(): GPUBuffer | null {
-    return this.wavePhysicsManager.getPackedMeshBuffer();
+    return this.wavePhysicsManager?.getPackedMeshBuffer() ?? null;
   }
 
   /**
    * Get the rasterizer for rendering meshes to screen-space texture.
    */
-  getRasterizer(): WavefrontRasterizer {
-    return this.wavePhysicsManager.getRasterizer();
+  getRasterizer(): WavefrontRasterizer | null {
+    return this.wavePhysicsManager?.getRasterizer() ?? null;
   }
 
   /**
    * Get the active meshes (for the currently selected builder type).
    */
   getActiveMeshes(): readonly WavefrontMesh[] {
-    return this.wavePhysicsManager.getActiveMeshes();
+    return this.wavePhysicsManager?.getActiveMeshes() ?? [];
   }
 
   /**
    * Get the currently active builder type.
    */
   getActiveBuilderType(): MeshBuilderType {
-    return this.wavePhysicsManager.getActiveBuilderType();
+    return this.wavePhysicsManager?.getActiveBuilderType() ?? "marching";
   }
 
   /**
    * Switch the active builder type and rebuild resources.
    */
   switchBuilderType(type: MeshBuilderType): void {
-    this.wavePhysicsManager.setActiveBuilderType(type);
+    this.wavePhysicsManager?.setActiveBuilderType(type);
   }
 
   /**
    * Check if wave physics is initialized and ready.
    */
   isInitialized(): boolean {
-    return this.wavePhysicsManager.isInitialized();
+    return this.wavePhysicsManager?.isInitialized() ?? false;
   }
 
   @on("destroy")
   onDestroy(): void {
-    this.wavePhysicsManager.destroy();
+    this.wavePhysicsManager?.destroy();
   }
 }

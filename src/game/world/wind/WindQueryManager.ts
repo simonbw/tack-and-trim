@@ -1,6 +1,6 @@
 import { on } from "../../../core/entity/handler";
 import type { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+
 import { BaseQuery } from "../query/BaseQuery";
 import { QueryManager } from "../query/QueryManager";
 import { WindQuery } from "./WindQuery";
@@ -33,7 +33,7 @@ export class WindQueryManager extends QueryManager {
     super.onAdd();
     await this.queryShader!.init();
 
-    const device = getWebGPU().device;
+    const device = this.game.getWebGPUDevice();
     this.uniformBuffer = device.createBuffer({
       label: "Wind Query Uniform Buffer",
       size: WindQueryUniforms.byteSize,

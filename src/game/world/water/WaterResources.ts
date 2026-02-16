@@ -12,7 +12,7 @@
 
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
+
 import { profile } from "../../../core/util/Profiler";
 import { TimeOfDay } from "../../time/TimeOfDay";
 import {
@@ -47,6 +47,9 @@ export class WaterResources extends BaseEntity {
   id = "waterResources";
   tickLayer = "query" as const;
 
+  // GPU device reference (passed in constructor since this.game isn't available yet)
+  private device: GPUDevice;
+
   // GPU buffers
   readonly waveDataBuffer: GPUBuffer;
   readonly modifiersBuffer: GPUBuffer;
@@ -66,13 +69,12 @@ export class WaterResources extends BaseEntity {
   // Cached modifier data for current frame (for render pipeline access)
   private cachedModifiers: GPUWaterModifierData[] = [];
 
-  constructor(waveConfig?: WaveConfig) {
+  constructor(device: GPUDevice, waveConfig?: WaveConfig) {
     super();
+    this.device = device;
 
     // Use provided config or defaults
     this.waveConfig = waveConfig ?? DEFAULT_WAVE_CONFIG;
-
-    const device = getWebGPU().device;
 
     // Create wave data storage buffer (static, uploaded once)
     const waveData = buildWaveDataFromSources(this.waveConfig.sources);
@@ -145,7 +147,7 @@ export class WaterResources extends BaseEntity {
    * Returns the actual number of modifiers uploaded.
    */
   private updateModifiers(modifiers: GPUWaterModifierData[]): number {
-    const device = getWebGPU().device;
+    const device = this.device;
     const modifierCount = Math.min(modifiers.length, MAX_MODIFIERS);
 
     if (modifiers.length > MAX_MODIFIERS) {
