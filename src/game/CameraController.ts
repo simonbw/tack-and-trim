@@ -5,9 +5,12 @@ import { Camera2d } from "../core/graphics/Camera2d";
 import { V } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 
-const ZOOM_SPEED = 0.75;
-const PAN_SPEED = 1000; // Pixels per second
-const STIFFNESS = 4.0; // How quickly the camera moves to follow the boat. Higher is snappier but can be more jarring.
+//#tunable { min: 0.1, max: 3 }
+let ZOOM_SPEED: number = 0.75;
+//#tunable { min: 100, max: 5000 }
+let PAN_SPEED: number = 1000;
+//#tunable { min: 0.5, max: 20 }
+let STIFFNESS: number = 4.0;
 
 export class CameraController extends BaseEntity {
   tickLayer = "camera" as const;

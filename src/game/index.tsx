@@ -1,5 +1,7 @@
+import "../core/tuning/TunableRegistry"; // Initialize tunable registry early
 import { AutoPauser } from "../core/AutoPauser";
 import { Game } from "../core/Game";
+import { TuningPanel } from "../core/tuning/TuningPanel";
 import { createGraphicsPanel } from "../core/util/stats-overlay/GraphicsPanel";
 import { createLeanPanel } from "../core/util/stats-overlay/LeanPanel";
 import { createProfilerPanel } from "../core/util/stats-overlay/ProfilerPanel";
@@ -43,6 +45,7 @@ async function main() {
   );
   game.addEntity(new AutoPauser());
   game.addEntity(new PhysicsValidator());
+  game.addEntity(new TuningPanel());
 
   // GameController handles menu, game state, and spawning gameplay entities
   game.addEntity(new GameController());
