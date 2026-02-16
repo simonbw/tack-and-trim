@@ -8,6 +8,7 @@
  */
 
 import type { TerrainDefinition } from "../world/terrain/LandMass";
+import type { TerrainCPUData } from "../world/terrain/TerrainCPUData";
 import type { WaveSource } from "../world/water/WaveSource";
 import {
   buildPackedMeshBuffer,
@@ -15,10 +16,7 @@ import {
 } from "./MeshPacking";
 import type { WavefrontMesh } from "./WavefrontMesh";
 import { WavefrontRasterizer } from "./WavefrontRasterizer";
-import {
-  MeshBuildCoordinator,
-  type TerrainGPUData,
-} from "./mesh-building/MeshBuildCoordinator";
+import { MeshBuildCoordinator } from "./mesh-building/MeshBuildCoordinator";
 import type {
   MeshBuildBounds,
   MeshBuilderType,
@@ -91,12 +89,12 @@ export class WavePhysicsManager {
    * Computes wavefront meshes for each wave source.
    *
    * @param terrainDef - Terrain definition for terrain bounds extraction
-   * @param terrainGPUData - Raw typed arrays from buildTerrainGPUData() (for worker mesh builds)
+   * @param terrainGPUData - Raw typed arrays from buildTerrainCPUData() (for worker mesh builds)
    * @param tideHeight - Current tide height
    */
   async initialize(
     terrainDef: TerrainDefinition,
-    terrainGPUData?: TerrainGPUData,
+    terrainGPUData?: TerrainCPUData,
     tideHeight?: number,
   ): Promise<void> {
     // Initialize rasterizer
@@ -223,7 +221,7 @@ export class WavePhysicsManager {
    */
   async recompute(
     terrainDef: TerrainDefinition,
-    terrainGPUData?: TerrainGPUData,
+    terrainGPUData?: TerrainCPUData,
     tideHeight?: number,
   ): Promise<void> {
     this.destroyResources();

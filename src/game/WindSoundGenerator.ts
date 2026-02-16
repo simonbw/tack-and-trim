@@ -72,11 +72,21 @@ export class WindSoundGenerator extends BaseEntity {
 
   @on("tick")
   onTick({ audioTime }: GameEventMap["tick"]) {
-    // Wind query results have one-frame latency; skip if not ready
+    // Wind query results have one-frame latency; skip until data is available.
+    if (this.windQuery.length === 0) return;
+
     const wind = this.windQuery.get(0);
-    if (!wind._data) return;
 
     const speed = wind.speed;
+    if (!Number.isFinite(speed)) {
+      this.lowpass.frequency.setTargetAtTime(
+        MIN_FREQUENCY,
+        audioTime,
+        SMOOTHING,
+      );
+      this.outputGain.gain.setTargetAtTime(0, audioTime, SMOOTHING);
+      return;
+    }
 
     // Normalize wind speed to 0-1 range
     const t = clamp(

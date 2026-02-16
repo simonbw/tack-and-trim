@@ -1,0 +1,238 @@
+.tuning-panel {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 8px 0;
+  min-width: 280px;
+  max-width: 340px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  color: #e0e8f0;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 12px;
+  z-index: 900;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.tuning-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.tuning-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tuning-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.tuning-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 4px;
+}
+
+.tuning-panel__title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #4a9eff;
+}
+
+.tuning-panel__reset-all {
+  background: none;
+  border: 1px solid rgba(255, 100, 100, 0.3);
+  border-radius: 4px;
+  color: #ff8888;
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.tuning-panel__reset-all:hover {
+  background: rgba(255, 100, 100, 0.15);
+  color: #ffaaaa;
+}
+
+/* Group */
+.tuning-group {
+  margin-bottom: 2px;
+}
+
+.tuning-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.tuning-group__header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tuning-group__label {
+  font-weight: 600;
+  font-size: 11px;
+  color: #88bbee;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tuning-group__chevron {
+  font-size: 9px;
+  color: #667;
+  transition: transform 0.15s;
+}
+
+.tuning-group__chevron--open {
+  transform: rotate(90deg);
+}
+
+.tuning-group__reset {
+  background: none;
+  border: none;
+  color: #667;
+  font-size: 10px;
+  padding: 0 4px;
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.tuning-group__header:hover .tuning-group__reset {
+  visibility: visible;
+}
+
+.tuning-group__reset:hover {
+  color: #ff8888;
+}
+
+.tuning-group__entries {
+  padding: 2px 0;
+}
+
+/* Entry */
+.tuning-entry {
+  padding: 3px 12px 3px 16px;
+}
+
+.tuning-entry__top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.tuning-entry__name {
+  font-size: 11px;
+  color: #aabbcc;
+  flex-shrink: 0;
+}
+
+.tuning-entry__value-input {
+  width: 60px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  color: #e0e8f0;
+  font-size: 11px;
+  font-family: monospace;
+  padding: 1px 4px;
+  text-align: right;
+}
+
+.tuning-entry__value-input:focus {
+  outline: none;
+  border-color: #4a9eff;
+}
+
+.tuning-entry__value-input--modified {
+  color: #ffcc44;
+}
+
+.tuning-entry__reset {
+  background: none;
+  border: none;
+  color: transparent;
+  font-size: 11px;
+  padding: 0 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+.tuning-entry__reset--visible {
+  color: #667;
+}
+
+.tuning-entry__reset:hover {
+  color: #ff8888;
+}
+
+.tuning-entry__slider-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tuning-entry__slider {
+  flex: 1;
+  height: 3px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  outline: none;
+}
+
+.tuning-entry__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4a9eff;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.tuning-entry__slider::-webkit-slider-thumb:hover {
+  background: #6ab4ff;
+}
+
+.tuning-entry__slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4a9eff;
+  cursor: pointer;
+  border: none;
+}
+
+/* Hidden state */
+.tuning-panel--hidden {
+  display: none;
+}
+
+.tuning-panel__empty {
+  padding: 12px 16px;
+  color: #667;
+  font-style: italic;
+  font-size: 11px;
+}

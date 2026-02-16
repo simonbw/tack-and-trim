@@ -1,0 +1,8 @@
+{
+  "name": "parcel-transformer-tunables",
+  "version": "0.1.0",
+  "main": "index.mjs",
+  "engines": {
+    "parcel": "2.x"
+  }
+}

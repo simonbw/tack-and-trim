@@ -1,5 +1,5 @@
 import type { V2d } from "../../../core/Vector";
-import { BaseQuery } from "../query";
+import { BaseQuery } from "../query/BaseQuery";
 import { WindResultLayout, WindResultView } from "./WindQueryResult";
 
 /**

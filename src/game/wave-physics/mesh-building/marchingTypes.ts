@@ -13,6 +13,8 @@ export interface WavePoint {
   energy: number;
   /** Breaking intensity [0, 1] — ramps up as depth falls below breaking threshold, never decreases */
   broken: number;
+  /** Water depth at this point (max(0, -terrainHeight)), cached from marching to avoid redundant terrain queries */
+  depth: number;
   /** Final amplitude factor = energy * shoaling, written to mesh vertices */
   amplitude: number;
 }

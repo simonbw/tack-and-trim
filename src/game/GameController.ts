@@ -4,12 +4,13 @@ import { loadDefaultLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { CameraController } from "./CameraController";
-import { DebugRenderer } from "./debug-renderer";
+import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { MainMenu } from "./MainMenu";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { TimeOfDayHUD } from "./TimeOfDayHUD";
-import { isTutorialCompleted, TutorialManager } from "./tutorial";
+import { TutorialManager } from "./tutorial/TutorialManager";
+import { isTutorialCompleted } from "./tutorial/tutorialStorage";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
@@ -21,8 +22,10 @@ import { WaterResources } from "./world/water/WaterResources";
 import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
 
-const MENU_ZOOM = 2; // Wide shot for menu
-const GAMEPLAY_ZOOM = 5; // Normal gameplay zoom
+//#tunable("Camera") { min: 0.5, max: 10 }
+let MENU_ZOOM: number = 2;
+//#tunable("Camera") { min: 1, max: 20 }
+let GAMEPLAY_ZOOM: number = 5;
 
 export class GameController extends BaseEntity {
   id = "gameController";

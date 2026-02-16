@@ -1,16 +1,16 @@
 /**
- * CPU port of terrain height computation.
+ * CPU port of terrain height computation (terrain.wgsl.ts).
  *
- * Pure TypeScript functions ported 1:1 from the WGSL shaders:
+ * Pure TypeScript implementation of the GPU terrain height shader, for use
+ * in web workers and tests where GPU shaders are unavailable. Ported 1:1 from:
  * - polygon.wgsl.ts: pointLeftOfSegment, pointToLineSegmentDistanceSq
  * - terrain-packed.wgsl.ts: ContourData accessors
  * - terrain.wgsl.ts: isInsideContour, computeDistanceToBoundary, computeTerrainHeight
  *
- * Reads from TerrainDataForWorker using DataView for mixed u32/f32 contour fields.
  * No engine imports — safe for use in web workers.
  */
 
-import type { TerrainDataForWorker } from "./MeshBuildTypes";
+import type { TerrainCPUData } from "./TerrainCPUData";
 
 /** Number of 32-bit values per contour (must match LandMass.FLOATS_PER_CONTOUR) */
 const FLOATS_PER_CONTOUR = 13;
@@ -47,7 +47,7 @@ const parsedContourCache = new WeakMap<ArrayBuffer, ParsedContour[]>();
  * Get or create pre-parsed contour data for the given terrain.
  * Parses the packed contourData ArrayBuffer once, then reuses on subsequent calls.
  */
-function getParsedContours(terrain: TerrainDataForWorker): ParsedContour[] {
+function getParsedContours(terrain: TerrainCPUData): ParsedContour[] {
   let parsed = parsedContourCache.get(terrain.contourData);
   if (parsed) return parsed;
 
@@ -141,7 +141,7 @@ export function isInsideContour(
   x: number,
   y: number,
   contourIndex: number,
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
 ): boolean {
   const contours = getParsedContours(terrain);
   return isInsideContourFast(x, y, contours[contourIndex], terrain.vertexData);
@@ -209,7 +209,7 @@ export function computeDistanceToBoundary(
   x: number,
   y: number,
   contourIndex: number,
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
 ): number {
   const contours = getParsedContours(terrain);
   return computeDistanceToBoundaryFast(
@@ -275,6 +275,85 @@ function computeDistanceToBoundaryFast(
   return Math.sqrt(minDistSq);
 }
 
+interface BoundaryDistanceGradient {
+  distance: number;
+  gradientX: number;
+  gradientY: number;
+}
+
+function computeDistanceToBoundaryWithGradientFast(
+  x: number,
+  y: number,
+  c: ParsedContour,
+  vertexData: Float32Array,
+  out: BoundaryDistanceGradient,
+): BoundaryDistanceGradient {
+  const n = c.pointCount;
+  const start = c.pointStartIndex;
+  let minDistSq = 1e20;
+  let bestDx = 0;
+  let bestDy = 0;
+
+  let prevBase = (start + n - 1) * 2;
+  let ax = vertexData[prevBase];
+  let ay = vertexData[prevBase + 1];
+
+  for (let i = 0; i < n; i++) {
+    const curBase = (start + i) * 2;
+    const bx = vertexData[curBase];
+    const by = vertexData[curBase + 1];
+
+    const abx = bx - ax;
+    const aby = by - ay;
+    const lengthSq = abx * abx + aby * aby;
+
+    let dx: number;
+    let dy: number;
+    let distSq: number;
+    if (lengthSq === 0) {
+      dx = x - ax;
+      dy = y - ay;
+      distSq = dx * dx + dy * dy;
+    } else {
+      let t = ((x - ax) * abx + (y - ay) * aby) / lengthSq;
+      if (t < 0) t = 0;
+      else if (t > 1) t = 1;
+      const nearestX = ax + t * abx;
+      const nearestY = ay + t * aby;
+      dx = x - nearestX;
+      dy = y - nearestY;
+      distSq = dx * dx + dy * dy;
+    }
+
+    if (distSq < minDistSq) {
+      minDistSq = distSq;
+      bestDx = dx;
+      bestDy = dy;
+    }
+
+    ax = bx;
+    ay = by;
+  }
+
+  const distance = Math.sqrt(minDistSq);
+  out.distance = distance;
+  if (distance > 1e-9) {
+    const invDist = 1 / distance;
+    out.gradientX = bestDx * invDist;
+    out.gradientY = bestDy * invDist;
+  } else {
+    out.gradientX = 0;
+    out.gradientY = 0;
+  }
+  return out;
+}
+
+export interface TerrainHeightGradient {
+  height: number;
+  gradientX: number;
+  gradientY: number;
+}
+
 /**
  * Compute terrain height at a world point using IDW interpolation.
  *
@@ -287,7 +366,7 @@ function computeDistanceToBoundaryFast(
 export function computeTerrainHeight(
   x: number,
   y: number,
-  terrain: TerrainDataForWorker,
+  terrain: TerrainCPUData,
 ): number {
   const contourCount = terrain.contourCount;
   const defaultDepth = terrain.defaultDepth;
@@ -345,4 +424,118 @@ export function computeTerrainHeight(
   }
 
   return weightedSum / totalWeight;
+}
+/**
+ * Compute terrain height and gradient in one pass.
+ *
+ * Gradient is the spatial derivative of the same IDW-interpolated height field.
+ */
+export function computeTerrainHeightAndGradient(
+  x: number,
+  y: number,
+  terrain: TerrainCPUData,
+  out?: TerrainHeightGradient,
+): TerrainHeightGradient {
+  const contourCount = terrain.contourCount;
+  const defaultDepth = terrain.defaultDepth;
+  const contours = getParsedContours(terrain);
+  const vertexData = terrain.vertexData;
+  const result = out ?? { height: 0, gradientX: 0, gradientY: 0 };
+
+  let deepestIndex = -1;
+  let deepestDepth = 0;
+  let i = 0;
+  let lastToCheck = contourCount;
+
+  while (i < lastToCheck) {
+    const contour = contours[i];
+
+    if (isInsideContourFast(x, y, contour, vertexData)) {
+      if (contour.depth >= deepestDepth) {
+        deepestDepth = contour.depth;
+        deepestIndex = i;
+      }
+      lastToCheck = i + contour.skipCount + 1;
+      i += 1;
+    } else {
+      i += contour.skipCount + 1;
+    }
+  }
+
+  if (deepestIndex < 0) {
+    result.height = defaultDepth;
+    result.gradientX = 0;
+    result.gradientY = 0;
+    return result;
+  }
+
+  const parent = contours[deepestIndex];
+  if (parent.childCount === 0) {
+    result.height = parent.height;
+    result.gradientX = 0;
+    result.gradientY = 0;
+    return result;
+  }
+
+  const boundarySample: BoundaryDistanceGradient = {
+    distance: 0,
+    gradientX: 0,
+    gradientY: 0,
+  };
+  let weightSum = 0;
+  let weightedHeightSum = 0;
+  let gradWeightSumX = 0;
+  let gradWeightSumY = 0;
+  let gradWeightedHeightSumX = 0;
+  let gradWeightedHeightSumY = 0;
+
+  const accumulateTerm = (height: number, contour: ParsedContour): void => {
+    computeDistanceToBoundaryWithGradientFast(
+      x,
+      y,
+      contour,
+      vertexData,
+      boundarySample,
+    );
+
+    let weight: number;
+    let gradWeightX = 0;
+    let gradWeightY = 0;
+    const distance = boundarySample.distance;
+    if (distance <= IDW_MIN_DIST) {
+      weight = 1 / IDW_MIN_DIST;
+    } else {
+      const invDist = 1 / distance;
+      weight = invDist;
+      const scale = -invDist * invDist;
+      gradWeightX = scale * boundarySample.gradientX;
+      gradWeightY = scale * boundarySample.gradientY;
+    }
+
+    weightSum += weight;
+    weightedHeightSum += height * weight;
+    gradWeightSumX += gradWeightX;
+    gradWeightSumY += gradWeightY;
+    gradWeightedHeightSumX += height * gradWeightX;
+    gradWeightedHeightSumY += height * gradWeightY;
+  };
+
+  accumulateTerm(parent.height, parent);
+  for (let c = 0; c < parent.childCount; c++) {
+    const childIndex = terrain.childrenData[parent.childStartIndex + c];
+    const child = contours[childIndex];
+    accumulateTerm(child.height, child);
+  }
+
+  const invWeightSum = 1 / weightSum;
+  const height = weightedHeightSum * invWeightSum;
+  const invWeightSumSq = invWeightSum * invWeightSum;
+  result.height = height;
+  result.gradientX =
+    (gradWeightedHeightSumX * weightSum - weightedHeightSum * gradWeightSumX) *
+    invWeightSumSq;
+  result.gradientY =
+    (gradWeightedHeightSumY * weightSum - weightedHeightSum * gradWeightSumY) *
+    invWeightSumSq;
+  return result;
 }
