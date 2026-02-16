@@ -1,5 +1,4 @@
-import type { WavefrontMeshData } from "./MeshBuildTypes";
-import type { Wavefront, WaveBounds, WavePoint } from "./marchingTypes";
+import type { Wavefront, WaveBounds, WavefrontSegment } from "./marchingTypes";
 import { VERTEX_FLOATS } from "./marchingTypes";
 
 /**
@@ -15,7 +14,7 @@ export function buildMeshData(
   bounds: WaveBounds,
   stepIndices?: number[],
   phasePerStep?: number,
-): WavefrontMeshData {
+) {
   const topology = countMeshTopology(wavefronts);
   const vertices = new Float32Array(topology.vertexCount * VERTEX_FLOATS);
   const indices = new Uint32Array(topology.triangleCount * 3);
@@ -31,21 +30,30 @@ export function buildMeshData(
     const stepOffsets: number[] = [];
     const phase = (stepIndices ? stepIndices[wi] : wi) * resolvedPhasePerStep;
     const isBoundaryStep = wi === 0 || wi === wavefronts.length - 1;
+
     for (const segment of step) {
+      const segX = segment.x;
+      const segY = segment.y;
+      const segAmp = segment.amplitude;
+      const segBroken = segment.broken;
+      const len = segX.length;
+
       stepOffsets.push(vertexOffset / VERTEX_FLOATS);
-      for (let pi = 0; pi < segment.length; pi++) {
-        const p = segment[pi];
-        const phaseOffset = phase - k * (p.x * waveDx + p.y * waveDy);
-        const isBoundary =
-          isBoundaryStep || pi === 0 || pi === segment.length - 1;
-        vertices[vertexOffset++] = p.x;
-        vertices[vertexOffset++] = p.y;
-        vertices[vertexOffset++] = p.amplitude;
-        vertices[vertexOffset++] = p.broken;
+      for (let pi = 0; pi < len; pi++) {
+        const x = segX[pi];
+        const y = segY[pi];
+        const phaseOffset = phase - k * (x * waveDx + y * waveDy);
+        const isBoundary = isBoundaryStep || pi === 0 || pi === len - 1;
+
+        vertices[vertexOffset++] = x;
+        vertices[vertexOffset++] = y;
+        vertices[vertexOffset++] = segAmp[pi];
+        vertices[vertexOffset++] = segBroken[pi];
         vertices[vertexOffset++] = phaseOffset;
         vertices[vertexOffset++] = isBoundary ? 0.0 : 1.0;
       }
     }
+
     if (prevStep && prevStepOffsets) {
       indexOffset = triangulateBetweenSteps(
         prevStep,
@@ -56,6 +64,7 @@ export function buildMeshData(
         indexOffset,
       );
     }
+
     prevStep = step;
     prevStepOffsets = stepOffsets;
   }
@@ -94,7 +103,7 @@ export function countMeshTopology(wavefronts: Wavefront[]): {
   let vertexCount = 0;
   for (const step of wavefronts) {
     for (const segment of step) {
-      vertexCount += segment.length;
+      vertexCount += segment.t.length;
     }
   }
 
@@ -123,15 +132,21 @@ function triangulateBetweenSteps(
 ): number {
   for (let pi = 0; pi < prevStep.length; pi++) {
     const prevSeg = prevStep[pi];
-    if (prevSeg.length === 0) continue;
-    const prevMinT = prevSeg[0].t;
-    const prevMaxT = prevSeg[prevSeg.length - 1].t;
+    const prevT = prevSeg.t;
+    const prevLen = prevT.length;
+    if (prevLen === 0) continue;
+
+    const prevMinT = prevT[0];
+    const prevMaxT = prevT[prevLen - 1];
 
     for (let ni = 0; ni < nextStep.length; ni++) {
       const nextSeg = nextStep[ni];
-      if (nextSeg.length === 0) continue;
-      const nextMinT = nextSeg[0].t;
-      const nextMaxT = nextSeg[nextSeg.length - 1].t;
+      const nextT = nextSeg.t;
+      const nextLen = nextT.length;
+      if (nextLen === 0) continue;
+
+      const nextMinT = nextT[0];
+      const nextMaxT = nextT[nextLen - 1];
 
       if (nextMinT > prevMaxT || nextMaxT < prevMinT) continue;
 
@@ -156,6 +171,7 @@ function triangulateBetweenSteps(
       );
     }
   }
+
   return indexOffset;
 }
 
@@ -167,15 +183,21 @@ function countTrianglesBetweenSteps(
 
   for (let pi = 0; pi < prevStep.length; pi++) {
     const prevSeg = prevStep[pi];
-    if (prevSeg.length === 0) continue;
-    const prevMinT = prevSeg[0].t;
-    const prevMaxT = prevSeg[prevSeg.length - 1].t;
+    const prevT = prevSeg.t;
+    const prevLen = prevT.length;
+    if (prevLen === 0) continue;
+
+    const prevMinT = prevT[0];
+    const prevMaxT = prevT[prevLen - 1];
 
     for (let ni = 0; ni < nextStep.length; ni++) {
       const nextSeg = nextStep[ni];
-      if (nextSeg.length === 0) continue;
-      const nextMinT = nextSeg[0].t;
-      const nextMaxT = nextSeg[nextSeg.length - 1].t;
+      const nextT = nextSeg.t;
+      const nextLen = nextT.length;
+      if (nextLen === 0) continue;
+
+      const nextMinT = nextT[0];
+      const nextMaxT = nextT[nextLen - 1];
 
       if (nextMinT > prevMaxT || nextMaxT < prevMinT) continue;
 
@@ -199,17 +221,20 @@ function countTrianglesBetweenSteps(
  * plus one point of padding on each side for edge triangle coverage.
  */
 function clipToRange(
-  seg: WavePoint[],
+  seg: WavefrontSegment,
   minT: number,
   maxT: number,
 ): [number, number] {
+  const t = seg.t;
+  const len = t.length;
+
   let start = 0;
-  while (start < seg.length && seg[start].t < minT) start++;
-  let end = seg.length - 1;
-  while (end >= 0 && seg[end].t > maxT) end--;
+  while (start < len && t[start] < minT) start++;
+  let end = len - 1;
+  while (end >= 0 && t[end] > maxT) end--;
   if (start > end) return [start, end];
   if (start > 0) start--;
-  if (end < seg.length - 1) end++;
+  if (end < len - 1) end++;
   return [start, end];
 }
 
@@ -217,13 +242,20 @@ function clipToRange(
  * Score a triangle based on geometric quality. Lower score = better quality.
  * Uses sum of squared edge lengths to prefer compact triangles.
  */
-function scoreTriangle(a: WavePoint, b: WavePoint, c: WavePoint): number {
-  const dx1 = b.x - a.x;
-  const dy1 = b.y - a.y;
-  const dx2 = c.x - b.x;
-  const dy2 = c.y - b.y;
-  const dx3 = a.x - c.x;
-  const dy3 = a.y - c.y;
+function scoreTriangle(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+): number {
+  const dx1 = bx - ax;
+  const dy1 = by - ay;
+  const dx2 = cx - bx;
+  const dy2 = cy - by;
+  const dx3 = ax - cx;
+  const dy3 = ay - cy;
   return dx1 * dx1 + dy1 * dy1 + dx2 * dx2 + dy2 * dy2 + dx3 * dx3 + dy3 * dy3;
 }
 
@@ -233,8 +265,8 @@ function scoreTriangle(a: WavePoint, b: WavePoint, c: WavePoint): number {
  * Uses geometric quality scoring to avoid skinny triangles.
  */
 function triangulateClipped(
-  prevWF: WavePoint[],
-  nextWF: WavePoint[],
+  prevWF: WavefrontSegment,
+  nextWF: WavefrontSegment,
   prevBase: number,
   nextBase: number,
   pStart: number,
@@ -244,6 +276,11 @@ function triangulateClipped(
   indices: Uint32Array,
   indexOffset: number,
 ): number {
+  const prevX = prevWF.x;
+  const prevY = prevWF.y;
+  const nextX = nextWF.x;
+  const nextY = nextWF.y;
+
   let i = pStart;
   let j = nStart;
   while (i < pEnd || j < nEnd) {
@@ -261,24 +298,35 @@ function triangulateClipped(
       i++;
     } else {
       // Both rows have vertices - choose based on triangle quality
-      const curr = prevWF[i];
-      const nextPrev = prevWF[i + 1];
-      const nextNext = nextWF[j + 1];
-      const currNext = nextWF[j];
+      const currX = prevX[i];
+      const currY = prevY[i];
 
       // Option A: advance i (use next vertex from prev row)
-      const scoreA = scoreTriangle(curr, nextPrev, currNext);
+      const scoreA = scoreTriangle(
+        currX,
+        currY,
+        prevX[i + 1],
+        prevY[i + 1],
+        nextX[j],
+        nextY[j],
+      );
+
       // Option B: advance j (use next vertex from next row)
-      const scoreB = scoreTriangle(curr, currNext, nextNext);
+      const scoreB = scoreTriangle(
+        currX,
+        currY,
+        nextX[j],
+        nextY[j],
+        nextX[j + 1],
+        nextY[j + 1],
+      );
 
       if (scoreA < scoreB) {
-        // Option A is better quality
         indices[indexOffset++] = prevBase + i;
         indices[indexOffset++] = prevBase + i + 1;
         indices[indexOffset++] = nextBase + j;
         i++;
       } else {
-        // Option B is better quality
         indices[indexOffset++] = prevBase + i;
         indices[indexOffset++] = nextBase + j;
         indices[indexOffset++] = nextBase + j + 1;
@@ -286,5 +334,6 @@ function triangulateClipped(
       }
     }
   }
+
   return indexOffset;
 }
