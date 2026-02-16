@@ -335,8 +335,8 @@ export function applyDiffraction(
 /**
  * March wavefronts step-by-step until all rays leave the domain or die.
  * Each ray advances independently, turning via Snell's law based on the
- * local depth gradient. Only energy (dissipative losses) is tracked here;
- * amplitude is computed in a separate pass afterward.
+ * local depth gradient. Amplitude and diffraction are applied row-by-row
+ * as rows are produced.
  */
 export function marchWavefronts(
   firstWavefront: WavePoint[],
@@ -347,7 +347,13 @@ export function marchWavefronts(
   bounds: WaveBounds,
   terrain: TerrainCPUData,
   wavelength: number,
-): { wavefronts: Wavefront[]; splits: number; merges: number } {
+): {
+  wavefronts: Wavefront[];
+  splits: number;
+  merges: number;
+  amplitudeMs: number;
+  diffractionMs: number;
+} {
   const perpDx = -waveDy;
   const perpDy = waveDx;
   const wavefronts: Wavefront[] = [[firstWavefront]];
@@ -360,6 +366,23 @@ export function marchWavefronts(
   const stats = { splits: 0, merges: 0 };
   const initialDeltaT =
     firstWavefront.length > 1 ? firstWavefront[1].t - firstWavefront[0].t : 1;
+  const singleStep: Wavefront[] = [];
+  let amplitudeMs = 0;
+  let diffractionMs = 0;
+
+  const postProcessStep = (step: Wavefront): void => {
+    singleStep[0] = step;
+    const tA = performance.now();
+    computeAmplitudes(singleStep, wavelength, vertexSpacing, initialDeltaT);
+    const tB = performance.now();
+    applyDiffraction(singleStep, wavelength, vertexSpacing, stepSize, initialDeltaT);
+    const tC = performance.now();
+    amplitudeMs += tB - tA;
+    diffractionMs += tC - tB;
+  };
+
+  // Keep boundary-row behavior consistent with full-pass post-processing.
+  postProcessStep(wavefronts[0]);
 
   function advanceRay(point: WavePoint): WavePoint | null {
     // Stop marching from a dead ray \u2014 the previous point (with low energy)
@@ -493,10 +516,17 @@ export function marchWavefronts(
     }
 
     if (nextStep.length === 0) break;
+    postProcessStep(nextStep);
     wavefronts.push(nextStep);
   }
 
-  return { wavefronts, splits: stats.splits, merges: stats.merges };
+  return {
+    wavefronts,
+    splits: stats.splits,
+    merges: stats.merges,
+    amplitudeMs,
+    diffractionMs,
+  };
 }
 
 /**

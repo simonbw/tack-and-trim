@@ -25,12 +25,7 @@ import type { WaveSource } from "../../world/water/WaveSource";
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 import type { MeshBuildBounds, WavefrontMeshData } from "./MeshBuildTypes";
 import { decimateWavefronts } from "./decimation";
-import {
-  applyDiffraction,
-  computeAmplitudes,
-  generateInitialWavefront,
-  marchWavefronts,
-} from "./marching";
+import { generateInitialWavefront, marchWavefronts } from "./marching";
 import { computeBounds } from "./marchingBounds";
 import { buildMeshData, countMeshTopology } from "./meshOutput";
 
@@ -78,28 +73,18 @@ export function buildMarchingMesh(
     waveDx,
     waveDy,
   );
-  const { wavefronts, splits, merges } = marchWavefronts(
-    firstWavefront,
-    waveDx,
-    waveDy,
-    stepSize,
-    vertexSpacing,
-    bounds,
-    terrain,
-    wavelength,
-  );
+  const { wavefronts, splits, merges, amplitudeMs, diffractionMs } =
+    marchWavefronts(
+      firstWavefront,
+      waveDx,
+      waveDy,
+      stepSize,
+      vertexSpacing,
+      bounds,
+      terrain,
+      wavelength,
+    );
   let t2 = performance.now();
-  const initialDeltaT = 1 / (firstWavefront.length - 1);
-  computeAmplitudes(wavefronts, wavelength, vertexSpacing, initialDeltaT);
-  let t2a = performance.now();
-  applyDiffraction(
-    wavefronts,
-    wavelength,
-    vertexSpacing,
-    stepSize,
-    initialDeltaT,
-  );
-  let t2b = performance.now();
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
     return prev + curr.reduce((sum, segment) => sum + segment.length, 0);
   }, 0);
@@ -125,10 +110,10 @@ export function buildMarchingMesh(
   const totalMs = t4 - t0;
   const stageMs = {
     bounds: t1 - t0,
-    march: t2 - t1,
-    amplitude: t2a - t2,
-    diffraction: t2b - t2a,
-    decimate: t3 - t2b,
+    march: Math.max(0, t2 - t1 - amplitudeMs - diffractionMs),
+    amplitude: amplitudeMs,
+    diffraction: diffractionMs,
+    decimate: t3 - t2,
     mesh: t4 - t3,
   };
 
