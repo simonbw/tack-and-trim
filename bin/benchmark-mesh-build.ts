@@ -182,7 +182,8 @@ for (const builderType of builderTypes) {
   const stageOrder = [
     "bounds",
     "march",
-    "amplitudes",
+    "amplitude",
+    "diffraction",
     "decimate",
     "mesh",
   ] as const;
@@ -193,7 +194,8 @@ for (const builderType of builderTypes) {
   const stageTimesMs = {
     bounds: [] as number[],
     march: [] as number[],
-    amplitudes: [] as number[],
+    amplitude: [] as number[],
+    diffraction: [] as number[],
     decimate: [] as number[],
     mesh: [] as number[],
   };
@@ -207,7 +209,8 @@ for (const builderType of builderTypes) {
       stageMs: {
         bounds: 0,
         march: 0,
-        amplitudes: 0,
+        amplitude: 0,
+        diffraction: 0,
         decimate: 0,
         mesh: 0,
       },
@@ -228,7 +231,8 @@ for (const builderType of builderTypes) {
     timesMs.push(elapsed);
     stageTimesMs.bounds.push(profile.stageMs.bounds);
     stageTimesMs.march.push(profile.stageMs.march);
-    stageTimesMs.amplitudes.push(profile.stageMs.amplitudes);
+    stageTimesMs.amplitude.push(profile.stageMs.amplitude);
+    stageTimesMs.diffraction.push(profile.stageMs.diffraction);
     stageTimesMs.decimate.push(profile.stageMs.decimate);
     stageTimesMs.mesh.push(profile.stageMs.mesh);
     lastDecimationCounts = profile.decimationCounts;

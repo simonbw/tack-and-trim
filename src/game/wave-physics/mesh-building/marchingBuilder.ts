@@ -39,7 +39,8 @@ export interface MeshBuildProfile {
   stageMs: {
     bounds: number;
     march: number;
-    amplitudes: number;
+    amplitude: number;
+    diffraction: number;
     decimate: number;
     mesh: number;
   };
@@ -90,6 +91,7 @@ export function buildMarchingMesh(
   let t2 = performance.now();
   const initialDeltaT = 1 / (firstWavefront.length - 1);
   computeAmplitudes(wavefronts, wavelength, vertexSpacing, initialDeltaT);
+  let t2a = performance.now();
   applyDiffraction(
     wavefronts,
     wavelength,
@@ -97,7 +99,7 @@ export function buildMarchingMesh(
     stepSize,
     initialDeltaT,
   );
-  let t3 = performance.now();
+  let t2b = performance.now();
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
     return prev + curr.reduce((sum, segment) => sum + segment.length, 0);
   }, 0);
@@ -109,7 +111,7 @@ export function buildMarchingMesh(
     undefined,
     phasePerStep,
   );
-  let t4 = performance.now();
+  let t3 = performance.now();
   const mesh = buildMeshData(
     decimated.wavefronts,
     wavelength,
@@ -119,14 +121,15 @@ export function buildMarchingMesh(
     decimated.stepIndices,
     phasePerStep,
   );
-  let t5 = performance.now();
-  const totalMs = t5 - t0;
+  let t4 = performance.now();
+  const totalMs = t4 - t0;
   const stageMs = {
     bounds: t1 - t0,
     march: t2 - t1,
-    amplitudes: t3 - t2,
-    decimate: t4 - t3,
-    mesh: t5 - t4,
+    amplitude: t2a - t2,
+    diffraction: t2b - t2a,
+    decimate: t3 - t2b,
+    mesh: t4 - t3,
   };
 
   const decimationPercent = 100 * (1 - mesh.vertexCount / totalMarchedVerts);
@@ -163,7 +166,8 @@ export function buildMarchingMesh(
         `timing — ${n(totalMs, 1)}ms total`,
         `  bounds ${n(stageMs.bounds, 1)}ms`,
         `  march ${n(stageMs.march, 1)}ms`,
-        `  amplitudes ${n(stageMs.amplitudes, 1)}ms`,
+        `  amplitude ${n(stageMs.amplitude, 1)}ms`,
+        `  diffraction ${n(stageMs.diffraction, 1)}ms`,
         `  decimate ${n(stageMs.decimate, 1)}ms`,
         `  mesh ${n(stageMs.mesh, 1)}ms`,
       ].join("\n"),
