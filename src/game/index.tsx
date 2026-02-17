@@ -32,7 +32,6 @@ async function main() {
 
   const preloader = game.addEntity(GamePreloader);
   await preloader.waitTillLoaded();
-  preloader.destroy();
 
   // Persistent entities
   game.addEntity(

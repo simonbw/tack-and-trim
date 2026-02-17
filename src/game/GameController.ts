@@ -1,10 +1,12 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
+import { ReactPreloader } from "../core/resources/Preloader";
 import { loadDefaultLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
+import { GameInitializingScreen } from "./GameInitializingScreen";
 import { MainMenu } from "./MainMenu";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
@@ -34,6 +36,13 @@ export class GameController extends BaseEntity {
 
   @on("add")
   async onAdd() {
+    const initScreen = this.game.addEntity(new GameInitializingScreen());
+
+    // Switch from asset preloader UI to game-initialization UI.
+    for (const preloader of [...this.game.entities.byConstructor(ReactPreloader)]) {
+      preloader.destroy();
+    }
+
     // 1. Load level data (terrain + waves) from bundled JSON resource
     const { terrain, waves } = loadDefaultLevel();
     this.game.addEntity(new TerrainResources(terrain));
@@ -67,6 +76,7 @@ export class GameController extends BaseEntity {
     // Release rendering and show menu together
     surfaceRenderer.setEnabled(true);
     this.game.addEntity(new MainMenu());
+    initScreen.destroy();
   }
 
   @on("gameStart")
