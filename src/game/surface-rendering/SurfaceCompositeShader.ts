@@ -260,12 +260,32 @@ fn getViewDir() -> vec3<f32> {
   return vec3<f32>(0.0, 0.0, 1.0);
 }
 
+// Subtle caustic-like texture to give the water visual detail for motion perception.
+// Two layers of simplex noise at different scales, slowly animated, blended together.
+fn waterCausticPattern(worldPos: vec2<f32>) -> f32 {
+  let t = params.time * 0.15;
+  // Two octaves at different scales and speeds for organic feel
+  let n1 = simplex3D(vec3<f32>(worldPos * 0.8, t));
+  let n2 = simplex3D(vec3<f32>(worldPos * 1.6 + 5.0, t * 1.7));
+  // Combine and shape: abs gives caustic-like bright lines
+  let combined = abs(n1 + n2 * 0.5) * 0.667;
+  // Sharpen to get bright caustic lines on a darker base
+  return smoothstep(0.3, 0.7, combined);
+}
+
 // Compute water color using water lighting
-fn computeWaterColorAtPoint(normal: vec3<f32>, waterHeight: f32, waterDepth: f32) -> vec3<f32> {
+fn computeWaterColorAtPoint(normal: vec3<f32>, waterHeight: f32, waterDepth: f32, worldPos: vec2<f32>) -> vec3<f32> {
   let viewDir = getViewDir();
   // Use water height normalized to 0-1 range (approximate based on typical wave heights)
   let rawHeight = saturate((waterHeight + 2.0) / 4.0);
-  return renderWaterLighting(normal, viewDir, rawHeight, waterDepth, params.time);
+  var color = renderWaterLighting(normal, viewDir, rawHeight, waterDepth, params.time);
+
+  // Apply subtle caustic texture - fades in with depth so shallow water stays clean
+  let caustic = waterCausticPattern(worldPos);
+  let causticStrength = smoothstep(0.5, 3.0, waterDepth) * 0.03;
+  color = color + caustic * causticStrength;
+
+  return color;
 }
 
 @fragment
@@ -308,7 +328,7 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
 
   if (params.hasTerrainData == 0) {
     // No terrain data - render as deep water
-    var color = computeWaterColorAtPoint(waterNormal, waterHeight, 100.0);
+    var color = computeWaterColorAtPoint(waterNormal, waterHeight, 100.0, worldPos);
     color = mix(color, foamColor, turbulenceFoam);
     return vec4<f32>(color, 1.0);
   }
@@ -326,7 +346,7 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
     // For underwater sand, use max of tracked wetness and water depth
     let underwaterWetness = max(wetness, waterDepth);
     let sandColor = renderSand(terrainHeight, terrainNormal, worldPos, underwaterWetness, params.time);
-    let waterColor = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth);
+    let waterColor = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth, worldPos);
     var finalColor = mix(sandColor, waterColor, blendFactor);
 
     // Add foam at the water's edge
@@ -343,7 +363,7 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(finalColor, 1.0);
   } else {
     // Deep water
-    var color = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth);
+    var color = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth, worldPos);
     color = mix(color, foamColor, turbulenceFoam);
     return vec4<f32>(color, 1.0);
   }
