@@ -9,7 +9,7 @@ import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Camera2d, Viewport } from "../../../core/graphics/Camera2d";
 import type { Draw } from "../../../core/graphics/Draw";
-import { clamp, lerp } from "../../../core/util/MathUtil";
+import { clamp } from "../../../core/util/MathUtil";
 import { V, type V2d } from "../../../core/Vector";
 import { WindQuery } from "../../world/wind/WindQuery";
 import type { WindResultView } from "../../world/wind/WindQueryResult";
@@ -28,8 +28,8 @@ const BASE_VIEWPORT_SIZE = 400;
 
 // Triangle rendering
 const TRIANGLE_ALPHA = 0.7;
-const MIN_WIND_SPEED = 10;
-const MAX_WIND_SPEED = 200;
+const SPEED_TO_LENGTH = 0.05;
+const TRIANGLE_WIDTH = 0.3;
 
 // Colors
 const TRIANGLE_COLOR = 0x88ccff;
@@ -56,6 +56,9 @@ export class WindFieldDebugMode extends DebugRenderMode {
 
   // Cache the query points so we can use them when drawing
   private cachedQueryPoints: V2d[] = [];
+  private triTip = V(0, 0);
+  private triWingUp = V(0, 0);
+  private triWingDown = V(0, 0);
 
   constructor() {
     super();
@@ -180,41 +183,34 @@ export class WindFieldDebugMode extends DebugRenderMode {
 
     // Draw a small circle for calm/zero wind.
     if (speed < 1) {
-      draw.fillCircle(x, y, maxSize * 0.15, { color: CALM_WIND_COLOR, alpha });
+      draw.fillCircle(x, y, maxSize * TRIANGLE_WIDTH * 0.5, {
+        color: CALM_WIND_COLOR,
+        alpha,
+      });
       return;
     }
 
-    const speedRatio = clamp(
-      (speed - MIN_WIND_SPEED) / (MAX_WIND_SPEED - MIN_WIND_SPEED),
-      0,
-      1,
-    );
+    const length = speed * SPEED_TO_LENGTH * maxSize;
+    const halfWidth = maxSize * TRIANGLE_WIDTH * 0.5;
 
-    const size = lerp(maxSize * 0.3, maxSize, speedRatio);
-    const color = TRIANGLE_COLOR;
+    // Build triangle in local space, rotate, and translate to position.
+    this.triTip
+      .set(length * 0.6, 0)
+      .irotate(angle)
+      .iadd([x, y]);
+    this.triWingUp
+      .set(-length * 0.4, halfWidth)
+      .irotate(angle)
+      .iadd([x, y]);
+    this.triWingDown
+      .set(-length * 0.4, -halfWidth)
+      .irotate(angle)
+      .iadd([x, y]);
 
-    // Triangle vertices (pointing right, centered at origin).
-    const tipX = size * 0.6;
-    const backX = -size * 0.4;
-    const wingY = size * 0.35;
-
-    // Rotate and translate vertices.
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-
-    const tipXFinal = tipX * cos + x;
-    const tipYFinal = tipX * sin + y;
-    const wingUpXFinal = backX * cos - wingY * sin + x;
-    const wingUpYFinal = backX * sin + wingY * cos + y;
-    const wingDownXFinal = backX * cos + wingY * sin + x;
-    const wingDownYFinal = backX * sin - wingY * cos + y;
-
-    draw.fillTriangle(
-      { x: tipXFinal, y: tipYFinal },
-      { x: wingUpXFinal, y: wingUpYFinal },
-      { x: wingDownXFinal, y: wingDownYFinal },
-      { color, alpha },
-    );
+    draw.fillTriangle(this.triTip, this.triWingUp, this.triWingDown, {
+      color: TRIANGLE_COLOR,
+      alpha,
+    });
   }
 
   @on("render")
