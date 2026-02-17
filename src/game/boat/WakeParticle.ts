@@ -15,8 +15,6 @@ const WARMUP_TIME = 0.3; // Seconds before particle affects physics
 const BASE_RADIUS = 6; // Starting influence radius in ft
 const MAX_RADIUS = 22; // Radius at end of life in ft
 const DECAY_RATE = 1.3; // Intensity decay rate (1/s, dimensionless)
-const VELOCITY_SCALE = 0.8; // Velocity contribution scale (dimensionless)
-const WATER_VELOCITY_FACTOR = 0.0; // Percent that this affects water velocity
 const HEIGHT_SCALE = 0.6; // Max height contribution in ft
 
 export type WakeSide = "left" | "right";
@@ -47,9 +45,6 @@ export class WakeParticle extends WaterModifier {
   private velX: number;
   private velY: number;
 
-  // Pre-scaled velocity for water contribution (already multiplied by VELOCITY_SCALE)
-  private scaledVelX: number;
-
   private intensity: number;
   private age: number = 0;
   private maxAge: number;
@@ -69,7 +64,6 @@ export class WakeParticle extends WaterModifier {
     // Store velocity for both movement and water contribution
     this.velX = velocity.x;
     this.velY = velocity.y;
-    this.scaledVelX = velocity.x * VELOCITY_SCALE;
     this.intensity = intensity;
     this.maxAge = maxAge;
   }
@@ -162,14 +156,24 @@ export class WakeParticle extends WaterModifier {
     // Don't contribute if faded out
     if (intensity < 0.01) return null;
 
+    const hasNext = this.hasNextSegment();
+    const next = this.next;
+    const radiusA = this.getCurrentRadius();
+    const radiusB = hasNext ? next!.getCurrentRadius() : radiusA;
+
     return {
       type: WaterModifierType.Wake,
       bounds: this.getWaterModifierAABB(),
       data: {
         type: WaterModifierType.Wake,
         intensity: intensity * HEIGHT_SCALE,
-        velocityX: this.scaledVelX * WATER_VELOCITY_FACTOR,
-        velocityY: intensity, // Raw intensity (0-1) for turbulence/foam
+        posAX: this.posX,
+        posAY: this.posY,
+        posBX: hasNext ? next!.posX : this.posX,
+        posBY: hasNext ? next!.posY : this.posY,
+        radiusA,
+        radiusB,
+        rawIntensity: intensity, // Raw intensity (0-1) for turbulence/foam
       },
     };
   }

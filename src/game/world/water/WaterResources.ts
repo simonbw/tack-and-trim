@@ -30,8 +30,31 @@ import {
 /** Maximum number of modifiers that can be processed per frame */
 export const MAX_MODIFIERS = 16384;
 
-/** Number of floats per modifier in the GPU buffer */
-export const FLOATS_PER_MODIFIER = 8;
+/**
+ * Number of floats per modifier in the GPU buffer.
+ *
+ * Buffer layout per modifier (14 floats):
+ *   [0]  type          u32 modifier type discriminator (WaterModifierType enum)
+ *   [1]  minX          AABB lower bound X (ft) — used for bounds culling
+ *   [2]  minY          AABB lower bound Y (ft)
+ *   [3]  maxX          AABB upper bound X (ft)
+ *   [4]  maxY          AABB upper bound Y (ft)
+ *   [5..13]            type-specific data (see below)
+ *
+ * Wake (capsule segment between two linked WakeParticles):
+ *   [5]  intensity     height-scaled wave amplitude (ft)
+ *   [6]  posAX         segment start X (ft) — this particle's position
+ *   [7]  posAY         segment start Y (ft)
+ *   [8]  posBX         segment end X (ft) — next particle's position, or same as A if tail
+ *   [9]  posBY         segment end Y (ft)
+ *   [10] radiusA       influence radius at segment start (ft)
+ *   [11] radiusB       influence radius at segment end (ft)
+ *   [12] rawIntensity  unscaled intensity (0-1) for foam/turbulence
+ *   [13] (padding)
+ *
+ * Ripple / Current / Obstacle use only [5..7], leaving [8..13] as zero.
+ */
+export const FLOATS_PER_MODIFIER = 14;
 
 // Tide configuration
 // Semi-diurnal tide: 2 cycles per day (high at 0h & 12h, low at 6h & 18h)
@@ -166,12 +189,18 @@ export class WaterResources extends BaseEntity {
       this.modifierData[base + 3] = mod.bounds.upperBound.x;
       this.modifierData[base + 4] = mod.bounds.upperBound.y;
 
-      // Pack type-specific data into [5-7]
+      // Pack type-specific data (see FLOATS_PER_MODIFIER comment for layout)
       switch (mod.data.type) {
         case WaterModifierType.Wake:
           this.modifierData[base + 5] = mod.data.intensity;
-          this.modifierData[base + 6] = mod.data.velocityX;
-          this.modifierData[base + 7] = mod.data.velocityY;
+          this.modifierData[base + 6] = mod.data.posAX;
+          this.modifierData[base + 7] = mod.data.posAY;
+          this.modifierData[base + 8] = mod.data.posBX;
+          this.modifierData[base + 9] = mod.data.posBY;
+          this.modifierData[base + 10] = mod.data.radiusA;
+          this.modifierData[base + 11] = mod.data.radiusB;
+          this.modifierData[base + 12] = mod.data.rawIntensity;
+          this.modifierData[base + 13] = 0; // padding
           break;
         case WaterModifierType.Ripple:
           this.modifierData[base + 5] = mod.data.radius;

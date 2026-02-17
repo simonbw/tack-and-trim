@@ -35,7 +35,9 @@ export abstract class WaterModifier extends BaseEntity {
  * Each modifier exports:
  * - type: Enum discriminator for shader switching
  * - bounds: AABB for GPU culling
- * - data: Type-specific parameters (3 floats)
+ * - data: Type-specific parameters (packed into GPU buffer slots [5..13])
+ *
+ * See FLOATS_PER_MODIFIER in WaterResources.ts for the full GPU buffer layout.
  */
 export type GPUWaterModifierData = {
   type: WaterModifierType;
@@ -56,7 +58,8 @@ export enum WaterModifierType {
 
 /**
  * Type-specific data for each modifier type.
- * Each variant has exactly 3 floats to maintain consistent buffer layout.
+ * Wake uses 8 data floats (capsule segment); other types use 3 floats.
+ * All are packed into a fixed-stride buffer (see FLOATS_PER_MODIFIER).
  */
 export type WaterModifierTypeData =
   | WakeModifierData
@@ -65,14 +68,22 @@ export type WaterModifierTypeData =
   | ObstacleModifierData;
 
 /**
- * Wake modifier - circular falloff from moving point.
- * Used by WakeParticle for boat wake trails.
+ * Wake modifier — tapered capsule along a segment between two linked WakeParticles.
+ * The shader computes point-to-segment distance for an elongated falloff shape.
+ * Tail particles (no next neighbor) set posB = posA, degenerating to a circle.
+ *
+ * GPU buffer slots [5..12] — see FLOATS_PER_MODIFIER in WaterResources.ts.
  */
 export type WakeModifierData = {
   type: WaterModifierType.Wake;
-  intensity: number; // Height amplitude (0-1 range typical)
-  velocityX: number; // Water velocity X component
-  velocityY: number; // Water velocity Y component
+  intensity: number; // [5] Height-scaled wave amplitude (ft)
+  posAX: number; // [6] Segment start X — this particle's position (ft)
+  posAY: number; // [7] Segment start Y (ft)
+  posBX: number; // [8] Segment end X — next particle's position (ft)
+  posBY: number; // [9] Segment end Y (ft)
+  radiusA: number; // [10] Influence radius at start (ft), expands with age
+  radiusB: number; // [11] Influence radius at end (ft)
+  rawIntensity: number; // [12] Unscaled intensity (0-1) for foam/turbulence
 };
 
 /**

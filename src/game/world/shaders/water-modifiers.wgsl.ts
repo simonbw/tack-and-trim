@@ -7,52 +7,74 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 
 /**
  * Wake modifier module.
- * Circular falloff from a moving point source.
+ * Tapered capsule SDF along a segment between two linked wake particles.
+ * Computes point-to-segment distance for elongated wake trail shapes.
+ *
+ * Buffer layout at `base`:
+ *   [5]  intensity     height-scaled wave amplitude (ft)
+ *   [6]  posAX         segment start X (ft)
+ *   [7]  posAY         segment start Y (ft)
+ *   [8]  posBX         segment end X (ft)
+ *   [9]  posBY         segment end Y (ft)
+ *   [10] radiusA       influence radius at start (ft)
+ *   [11] radiusB       influence radius at end (ft)
+ *   [12] rawIntensity  unscaled intensity (0-1) for foam/turbulence
  */
 export const fn_computeWakeContribution: ShaderModule = {
   code: /*wgsl*/ `
-    // Compute wake contribution at a world position
-    // worldX, worldY: query position (feet)
-    // base: start index in modifiers buffer
-    // modifiers: modifier data storage buffer
-    // Returns vec4<f32>(height, velocityX, velocityY, turbulence)
+    // Compute wake contribution using capsule SDF (point-to-segment distance).
+    // Returns vec4<f32>(height, 0, 0, turbulence)
     fn computeWakeContribution(
       worldX: f32,
       worldY: f32,
       base: u32,
       modifiers: ptr<storage, array<f32>, read>
     ) -> vec4<f32> {
-      let intensity = modifiers[base + 5u];
-      let velocityX = modifiers[base + 6u];
-      let velocityY = modifiers[base + 7u];
+      // Read wake-specific data (slots 5-12, see WakeModifierData)
+      let intensity = modifiers[base + 5u];    // height-scaled amplitude (ft)
+      let posAX = modifiers[base + 6u];        // segment start X (ft)
+      let posAY = modifiers[base + 7u];        // segment start Y (ft)
+      let posBX = modifiers[base + 8u];        // segment end X (ft)
+      let posBY = modifiers[base + 9u];        // segment end Y (ft)
+      let radiusA = modifiers[base + 10u];     // influence radius at start (ft)
+      let radiusB = modifiers[base + 11u];     // influence radius at end (ft)
+      let rawIntensity = modifiers[base + 12u]; // unscaled intensity for foam
 
-      // Compute distance to wake center (from bounds center)
-      let minX = modifiers[base + 1u];
-      let minY = modifiers[base + 2u];
-      let maxX = modifiers[base + 3u];
-      let maxY = modifiers[base + 4u];
-      let centerX = (minX + maxX) * 0.5;
-      let centerY = (minY + maxY) * 0.5;
-      let dx = worldX - centerX;
-      let dy = worldY - centerY;
+      // Point-to-segment distance (capsule SDF)
+      let abX = posBX - posAX;
+      let abY = posBY - posAY;
+      let abLenSq = abX * abX + abY * abY;
+
+      // Project query point onto segment, clamp t to [0,1]
+      var t: f32 = 0.0;
+      if (abLenSq > 0.001) {
+        t = clamp(((worldX - posAX) * abX + (worldY - posAY) * abY) / abLenSq, 0.0, 1.0);
+      }
+
+      // Closest point on segment
+      let closestX = posAX + t * abX;
+      let closestY = posAY + t * abY;
+      let dx = worldX - closestX;
+      let dy = worldY - closestY;
       let dist = sqrt(dx * dx + dy * dy);
 
-      // Circular falloff with smooth edge
-      let radius = (maxX - minX) * 0.5;
+      // Tapered radius: interpolate between radiusA and radiusB
+      let radius = mix(radiusA, radiusB, t);
+
+      // Smooth falloff from segment
       let falloff = smoothstep(radius, radius * 0.3, dist);
 
-      // Ripple pattern: multiple rings spreading outward
+      // Ripple pattern: multiple rings spreading outward from segment
       let ripple = cos(dist * 0.8) * 0.7 + cos(dist * 1.6) * 0.3;
 
-      // Turbulence for foam: raw intensity (slot 7) decays with particle age
-      let rawIntensity = modifiers[base + 7u];
+      // Turbulence for foam
       let wakeTurbulence = rawIntensity * falloff * falloff;
 
       // Return (height, velocityX, velocityY, turbulence)
       return vec4<f32>(
         intensity * falloff * ripple,
-        velocityX * falloff,
-        velocityY * falloff,
+        0.0,
+        0.0,
         wakeTurbulence
       );
     }
