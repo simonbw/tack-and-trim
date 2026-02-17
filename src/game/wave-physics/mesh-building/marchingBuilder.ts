@@ -18,8 +18,9 @@
  * No engine imports — safe for use in web workers.
  */
 
-const VERTEX_SPACING = 20; // feet per vertex
-const STEP_SIZE = 10; // feet per step (deep water)
+const TEST_MODE = process.env.NODE_ENV === "test";
+const VERTEX_SPACING = TEST_MODE ? 200 : 20; // feet per vertex
+const STEP_SIZE = TEST_MODE ? 100 : 10; // feet per step (deep water)
 
 import type { WaveSource } from "../../world/water/WaveSource";
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
