@@ -6,7 +6,7 @@
  * this texture to get per-wave amplitude, direction offset, and phase correction
  * instead of computing shadow/refraction/terrain-factor per pixel.
  *
- * Fragment output: vec4(phasorCos, phasorSin, coverage, breakingIntensity)
+ * Fragment output: vec4(phasorCos, phasorSin, coverage, turbulence)
  * Clear color: (0, 0, 0, 0) = zero phasors (no mesh coverage)
  * Additive blending accumulates phasor contributions from overlapping triangles.
  * Alpha channel uses max blending to preserve peak breaking intensity.
@@ -37,7 +37,7 @@ struct RasterizerParams {
 struct VertexInput {
   @location(0) position: vec2<f32>,
   @location(1) amplitudeFactor: f32,
-  @location(2) breakingIntensity: f32,
+  @location(2) turbulence: f32,
   @location(3) phaseOffset: f32,
   @location(4) blendWeight: f32,
 }
@@ -45,7 +45,7 @@ struct VertexInput {
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) amplitudeFactor: f32,
-  @location(1) breakingIntensity: f32,
+  @location(1) turbulence: f32,
   @location(2) phaseOffset: f32,
   @location(3) blendWeight: f32,
 }
@@ -59,7 +59,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   var out: VertexOutput;
   out.position = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
   out.amplitudeFactor = in.amplitudeFactor;
-  out.breakingIntensity = in.breakingIntensity;
+  out.turbulence = in.turbulence;
   out.phaseOffset = in.phaseOffset;
   out.blendWeight = in.blendWeight;
   return out;
@@ -70,7 +70,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let w = in.blendWeight;
   let pc = in.amplitudeFactor * cos(in.phaseOffset) * w;
   let ps = in.amplitudeFactor * sin(in.phaseOffset) * w;
-  return vec4<f32>(pc, ps, 1.0, in.breakingIntensity * w);
+  return vec4<f32>(pc, ps, 1.0, in.turbulence * w);
 }
 `;
 
@@ -130,7 +130,7 @@ export class WavefrontRasterizer {
             attributes: [
               { format: "float32x2", offset: 0, shaderLocation: 0 }, // position
               { format: "float32", offset: 8, shaderLocation: 1 }, // amplitudeFactor
-              { format: "float32", offset: 12, shaderLocation: 2 }, // breakingIntensity
+              { format: "float32", offset: 12, shaderLocation: 2 }, // turbulence
               { format: "float32", offset: 16, shaderLocation: 3 }, // phaseOffset
               { format: "float32", offset: 20, shaderLocation: 4 }, // blendWeight
             ],
@@ -290,7 +290,7 @@ export class WavefrontRasterizer {
       ) {
         const q = mesh.coverageQuad;
         const v = this.coverageQuadVertices;
-        // 4 vertices × 6 floats: [posX, posY, ampFactor, breakingIntensity, phaseOffset, blendWeight]
+        // 4 vertices × 6 floats: [posX, posY, ampFactor, turbulence, phaseOffset, blendWeight]
         // ampFactor=0 → phasors (0,0), coverage=1 from fragment shader
         v[0] = q.x0;
         v[1] = q.y0;
@@ -316,11 +316,7 @@ export class WavefrontRasterizer {
         v[21] = 0;
         v[22] = 0;
         v[23] = 0;
-        this.device.queue.writeBuffer(
-          this.coverageQuadVertexBuffer,
-          0,
-          v,
-        );
+        this.device.queue.writeBuffer(this.coverageQuadVertexBuffer, 0, v);
         renderPass.setVertexBuffer(0, this.coverageQuadVertexBuffer);
         renderPass.setIndexBuffer(this.coverageQuadIndexBuffer, "uint32");
         renderPass.drawIndexed(6);

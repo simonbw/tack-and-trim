@@ -15,8 +15,8 @@ export interface WavefrontSegment {
   dirY: number[];
   /** Surviving energy fraction [0, 1], only decreases (terrain attenuation, breaking) */
   energy: number[];
-  /** Breaking intensity [0, 1] — ramps up as depth falls below breaking threshold, never decreases */
-  broken: number[];
+  /** Turbulent energy [0, 1] — instantaneous energy dissipated by breaking at this point */
+  turbulence: number[];
   /** Water depth at this point (max(0, -terrainHeight)), cached from marching */
   depth: number[];
   /** Final amplitude factor = energy * shoaling * divergence */

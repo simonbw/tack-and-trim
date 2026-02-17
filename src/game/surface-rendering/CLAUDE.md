@@ -61,8 +61,8 @@ The surface renderer uses a multi-pass pipeline: terrain tile caching, screen-sp
 ### Screen-Space Passes
 
 - **TerrainScreenShader.ts** - Compute shader that samples the tile atlas to produce a screen-space terrain height texture (r32float).
-- **WaterHeightShader.ts** - Compute shader for Gerstner waves + modifiers. Samples the wave field texture for per-wave energy factors, phase corrections, and breaking intensity.
-- **SurfaceCompositeShader.ts** - Fragment shader that reads height textures, computes normals via finite differences, and renders with lighting. Handles water/terrain blending, foam, sand wetness, and breaking waves.
+- **WaterHeightShader.ts** - Compute shader for Gerstner waves + modifiers. Samples the wave field texture for per-wave energy factors, phase corrections, and turbulence.
+- **SurfaceCompositeShader.ts** - Fragment shader that reads height textures, computes normals via finite differences, and renders with lighting. Handles water/terrain blending, foam, sand wetness, and turbulence-driven foam.
 
 ### Uniforms
 
@@ -86,8 +86,8 @@ The surface renderer uses a multi-pass pipeline: terrain tile caching, screen-sp
 
 1. **Terrain tile cache update** - LODTerrainTileCache selects LOD, renders any missing tiles to atlas
 2. **Pass 1: Terrain Screen** - Sample tile atlas → screen-space r32float terrain height texture
-3. **Wavefront Rasterization** - WavePhysicsResources rasterizes wavefront meshes → rgba16float texture array (one layer per wave source, encoding phase correction, coverage, and breaking)
-4. **Pass 2: Water Height** - Compute Gerstner waves using wave field texture for per-wave energy/phase/breaking → rg32float texture (height + breaking intensity)
+3. **Wavefront Rasterization** - WavePhysicsResources rasterizes wavefront meshes → rgba16float texture array (one layer per wave source, encoding phase correction, coverage, and turbulence)
+4. **Pass 2: Water Height** - Compute Gerstner waves using wave field texture for per-wave energy/phase/turbulence → rg32float texture (height + turbulence)
 5. **Wetness Update** - Update sand wetness via ping-pong compute (optional)
 6. **Pass 3: Surface Composite** - Read height textures, compute normals via finite differences, render with lighting
 

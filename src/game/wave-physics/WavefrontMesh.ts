@@ -10,7 +10,7 @@
  * [0] positionX (f32)
  * [1] positionY (f32)
  * [2] amplitudeFactor (f32): 0=blocked, 1=open ocean
- * [3] breakingIntensity (f32): 0=not breaking, 1=breaking
+ * [3] turbulence (f32): instantaneous energy dissipated by breaking
  * [4] phaseOffset (f32): accumulated phase correction
  * [5] blendWeight (f32): 0=use open ocean defaults, 1=use mesh values
  */

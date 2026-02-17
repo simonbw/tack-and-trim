@@ -30,19 +30,31 @@
  *    - divergence: ray spacing factor (energy spreads as rays diverge)
  */
 
+import { DEFAULT_DEPTH } from "../../world/terrain/TerrainConstants";
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
-import type { WaveBounds, Wavefront, WavefrontSegment } from "./marchingTypes";
 import {
   computeTerrainHeight,
   computeTerrainHeightAndGradient,
   type TerrainHeightGradient,
 } from "../../world/terrain/terrainHeightCPU";
+import type { WaveBounds, Wavefront, WavefrontSegment } from "./marchingTypes";
 
 /** Energy fraction below which a point is considered dead */
-const MIN_ENERGY = 0.005;
+const MIN_ENERGY = 0.03;
 
-/** Rate of energy decay when wave passes over terrain */
-const TERRAIN_DECAY_RATE = 0.5;
+/** Bottom friction rate — energy dissipated by seabed interaction.
+ *  Scaled by exp(-k*depth): negligible in deep water, strong in shallow water,
+ *  and very aggressive over land (depth < 0 makes the exponent grow). */
+const BOTTOM_FRICTION_RATE = 0.3;
+
+/** Depth at which the ocean floor is considered open ocean — no bottom friction.
+ *  Matches the absolute value of DEFAULT_DEPTH from TerrainConstants. */
+const OPEN_OCEAN_DEPTH = -DEFAULT_DEPTH;
+
+/** Max energy ratio between adjacent rays before splitting the segment.
+ *  Prevents low-energy land-crawling rays from being triangulated against
+ *  healthy ocean rays, which creates enormous skinny triangles. */
+const MAX_ENERGY_RATIO = 5;
 
 /** Merge points closer than this fraction of vertex spacing */
 const MERGE_RATIO = 0.3;
@@ -51,19 +63,19 @@ const MERGE_RATIO = 0.3;
  * Split threshold for original (level-0) rays: two original rays will split
  * when their distance exceeds vertexSpacing × BASE_SPLIT_RATIO.
  */
-const BASE_SPLIT_RATIO = 1.75;
+const BASE_SPLIT_RATIO = 1.5;
 
 /**
  * Per-level escalation of the split threshold. Each split halves the t-gap
  * between rays, creating a new "split level". At level n, the threshold is
  * BASE_SPLIT_RATIO × SPLIT_ESCALATION^n × vertexSpacing. For example:
- *   level 0 (original rays): 1.5  × vertexSpacing
- *   level 1 (first split):   2.25 × vertexSpacing  (×1.5)
- *   level 2 (second split):  3.38 × vertexSpacing  (×1.5)
+ *   level 0 (original rays): 1.75 × vertexSpacing
+ *   level 1 (first split):   2.625 × vertexSpacing  (×1.5)
+ *   level 2 (second split):  3.9375 × vertexSpacing  (×1.5)
  * This damps cascade splitting — deeper offspring need proportionally larger
  * gaps before they'll split again.
  */
-const SPLIT_ESCALATION = 1.6;
+const SPLIT_ESCALATION = 1.25;
 
 /** Precomputed exponent: tScale^SPLIT_ESCALATION_EXP = SPLIT_ESCALATION^depth */
 const SPLIT_ESCALATION_EXP = Math.log2(SPLIT_ESCALATION);
@@ -81,7 +93,7 @@ const MAX_SEGMENT_POINTS = 5000;
 const MIN_SPLIT_ENERGY = 0.1;
 
 /** Maximum angular change per step (radians), prevents wild rotation */
-const MAX_TURN_PER_STEP = Math.PI / 4;
+const MAX_TURN_PER_STEP = Math.PI / 8;
 
 /** Stability limit for explicit diffusion scheme */
 const MAX_DIFFUSION_D = 0.5;
@@ -102,6 +114,13 @@ const BREAKING_DEPTH_RATIO = 0.07;
 /** Energy decay rate per normalized step once a wave has broken */
 const BREAKING_DECAY_RATE = 1.2;
 
+/** Energy dissipation from sharp refraction — proportional to |dTheta| per step.
+ *  Captures nonlinear dissipation when wavefronts curve sharply. */
+const REFRACTION_DISSIPATION = 1.0;
+
+/** Scale factor for instantaneous turbulence to keep foam visible */
+const TURBULENCE_SCALE = 8.0;
+
 function createEmptySegment(): WavefrontSegment {
   return {
     x: [],
@@ -110,7 +129,7 @@ function createEmptySegment(): WavefrontSegment {
     dirX: [],
     dirY: [],
     energy: [],
-    broken: [],
+    turbulence: [],
     depth: [],
     amplitude: [],
   };
@@ -165,7 +184,7 @@ export function generateInitialWavefront(
   const dirX = new Array<number>(numVertices);
   const dirY = new Array<number>(numVertices);
   const energy = new Array<number>(numVertices);
-  const broken = new Array<number>(numVertices);
+  const turbulence = new Array<number>(numVertices);
   const depth = new Array<number>(numVertices);
   const amplitude = new Array<number>(numVertices);
 
@@ -178,12 +197,12 @@ export function generateInitialWavefront(
     dirX[i] = waveDx;
     dirY[i] = waveDy;
     energy[i] = 1.0;
-    broken[i] = 0;
+    turbulence[i] = 0;
     depth[i] = 0;
     amplitude[i] = 0;
   }
 
-  return { x, y, t, dirX, dirY, energy, broken, depth, amplitude };
+  return { x, y, t, dirX, dirY, energy, turbulence, depth, amplitude };
 }
 
 /**
@@ -205,7 +224,7 @@ function refineWavefront(
   const srcDirX = wavefront.dirX;
   const srcDirY = wavefront.dirY;
   const srcEnergy = wavefront.energy;
-  const srcBroken = wavefront.broken;
+  const srcTurbulence = wavefront.turbulence;
   const srcDepth = wavefront.depth;
 
   const minDistSq = (vertexSpacing * MERGE_RATIO) ** 2;
@@ -218,7 +237,7 @@ function refineWavefront(
   const outDirX = result.dirX;
   const outDirY = result.dirY;
   const outEnergy = result.energy;
-  const outBroken = result.broken;
+  const outTurbulence = result.turbulence;
   const outDepth = result.depth;
   const outAmplitude = result.amplitude;
 
@@ -228,7 +247,7 @@ function refineWavefront(
   outDirX.push(srcDirX[0]);
   outDirY.push(srcDirY[0]);
   outEnergy.push(srcEnergy[0]);
-  outBroken.push(srcBroken[0]);
+  outTurbulence.push(srcTurbulence[0]);
   outDepth.push(srcDepth[0]);
   outAmplitude.push(0);
 
@@ -242,7 +261,7 @@ function refineWavefront(
     const prevDirX = outDirX[prevIdx];
     const prevDirY = outDirY[prevIdx];
     const prevEnergy = outEnergy[prevIdx];
-    const prevBroken = outBroken[prevIdx];
+    const prevTurbulence = outTurbulence[prevIdx];
     const prevDepth = outDepth[prevIdx];
 
     const currX = srcX[i];
@@ -251,7 +270,7 @@ function refineWavefront(
     const currDirX = srcDirX[i];
     const currDirY = srcDirY[i];
     const currEnergy = srcEnergy[i];
-    const currBroken = srcBroken[i];
+    const currTurbulence = srcTurbulence[i];
     const currDepth = srcDepth[i];
 
     const dx = currX - prevX;
@@ -298,7 +317,7 @@ function refineWavefront(
       outDirX.push(midDirX);
       outDirY.push(midDirY);
       outEnergy.push((prevEnergy + currEnergy) / 2);
-      outBroken.push(Math.max(prevBroken, currBroken));
+      outTurbulence.push((prevTurbulence + currTurbulence) / 2);
       outDepth.push((prevDepth + currDepth) / 2);
       outAmplitude.push(0);
 
@@ -312,7 +331,7 @@ function refineWavefront(
     outDirX.push(currDirX);
     outDirY.push(currDirY);
     outEnergy.push(currEnergy);
-    outBroken.push(currBroken);
+    outTurbulence.push(currTurbulence);
     outDepth.push(currDepth);
     outAmplitude.push(0);
   }
@@ -424,6 +443,8 @@ export function marchWavefronts(
   merges: number;
   amplitudeMs: number;
   diffractionMs: number;
+  turnClampCount: number;
+  totalRefractions: number;
 } {
   const perpDx = -waveDy;
   const perpDy = waveDx;
@@ -435,6 +456,8 @@ export function marchWavefronts(
     gradientY: 0,
   };
   const stats = { splits: 0, merges: 0 };
+  let turnClampCount = 0;
+  let totalRefractions = 0;
   const initialDeltaT =
     firstWavefront.t.length > 1 ? firstWavefront.t[1] - firstWavefront.t[0] : 1;
   const singleStep: Wavefront[] = [];
@@ -478,7 +501,7 @@ export function marchWavefronts(
       const srcDirX = segment.dirX;
       const srcDirY = segment.dirY;
       const srcEnergy = segment.energy;
-      const srcBroken = segment.broken;
+      const srcTurbulence = segment.turbulence;
       const srcLen = srcX.length;
 
       let currentSegment = createEmptySegment();
@@ -488,7 +511,7 @@ export function marchWavefronts(
       let outDirX = currentSegment.dirX;
       let outDirY = currentSegment.dirY;
       let outEnergy = currentSegment.energy;
-      let outBroken = currentSegment.broken;
+      let outTurbulence = currentSegment.turbulence;
       let outDepth = currentSegment.depth;
       let outAmplitude = currentSegment.amplitude;
 
@@ -504,7 +527,7 @@ export function marchWavefronts(
         outDirX = currentSegment.dirX;
         outDirY = currentSegment.dirY;
         outEnergy = currentSegment.energy;
-        outBroken = currentSegment.broken;
+        outTurbulence = currentSegment.turbulence;
         outDepth = currentSegment.depth;
         outAmplitude = currentSegment.amplitude;
       };
@@ -534,6 +557,7 @@ export function marchWavefronts(
 
         let dirX = srcDirX[i];
         let dirY = srcDirY[i];
+        let absDTheta = 0;
 
         // Apply Snell's law refraction when underwater.
         // On terrain, skip — there's no meaningful depth gradient to refract from.
@@ -551,13 +575,16 @@ export function marchWavefronts(
           const dcPerp = -dcdx * dirY + dcdy * dirX;
 
           // Snell's law: dθ = -(1/c) * ∂c/∂n * ds
+          const rawDTheta = -(1 / currentSpeed) * dcPerp * localStep;
           const dTheta = Math.max(
             -MAX_TURN_PER_STEP,
-            Math.min(
-              MAX_TURN_PER_STEP,
-              -(1 / currentSpeed) * dcPerp * localStep,
-            ),
+            Math.min(MAX_TURN_PER_STEP, rawDTheta),
           );
+          absDTheta = Math.abs(dTheta);
+          totalRefractions++;
+          if (Math.abs(rawDTheta) > MAX_TURN_PER_STEP) {
+            turnClampCount++;
+          }
 
           const cosD = Math.cos(dTheta);
           const sinD = Math.sin(dTheta);
@@ -590,24 +617,42 @@ export function marchWavefronts(
         const normalizedStep = localStep / wavelength;
 
         let energy = startEnergy;
-        let broken = srcBroken[i];
 
-        if (newDepth <= 0) {
-          // Over terrain: exponential decay based on terrain height
-          const terrainAboveWater = -newDepth;
-          energy *= Math.exp(
-            -terrainAboveWater * k * TERRAIN_DECAY_RATE * normalizedStep,
-          );
+        // Refraction dissipation: sharp direction changes lose energy.
+        // Captures nonlinear dissipation from high wavefront curvature.
+        if (absDTheta > 0) {
+          energy *= Math.exp(-REFRACTION_DISSIPATION * absDTheta);
         }
 
-        // Breaking: ramps up as depth falls below threshold, never decreases
-        if (newDepth > 0 && newDepth < breakingDepth) {
-          broken = Math.max(broken, 1.0 - newDepth / breakingDepth);
-        }
+        // Bottom friction + breaking: unified energy dissipation.
+        // exp(-k*depth) is the natural scaling:
+        //   deep water (kd >> 1): negligible
+        //   shallow water: increasing friction
+        //   on land (depth < 0): exp grows, very aggressive decay
+        // Skip at max ocean depth — open ocean floor has no seabed interaction.
+        const energyBeforeDissipation = energy;
+        if (newDepth < OPEN_OCEAN_DEPTH) {
+          const frictionDecay =
+            BOTTOM_FRICTION_RATE * Math.exp(-k * newDepth) * normalizedStep;
+          energy *= Math.exp(-frictionDecay);
 
-        // Broken waves continuously lose energy
-        if (broken > 0) {
-          energy *= Math.exp(-BREAKING_DECAY_RATE * normalizedStep);
+          // Breaking: additional strong decay in very shallow water
+          if (newDepth > 0 && newDepth < breakingDepth) {
+            energy *= Math.exp(-BREAKING_DECAY_RATE * normalizedStep);
+          }
+        }
+        const turbulence =
+          (energyBeforeDissipation - energy) * TURBULENCE_SCALE;
+
+        // Split segment when energy contrast with previous ray is too extreme.
+        // This prevents low-energy land rays from triangulating against healthy ocean rays.
+        if (outEnergy.length > 0) {
+          const prevEnergy = outEnergy[outEnergy.length - 1];
+          const ratio =
+            energy > prevEnergy ? energy / prevEnergy : prevEnergy / energy;
+          if (ratio > MAX_ENERGY_RATIO) {
+            flushCurrentSegment();
+          }
         }
 
         outX.push(nx);
@@ -616,7 +661,7 @@ export function marchWavefronts(
         outDirX.push(dirX);
         outDirY.push(dirY);
         outEnergy.push(energy);
-        outBroken.push(broken);
+        outTurbulence.push(turbulence);
         outDepth.push(Math.max(0, newDepth));
         outAmplitude.push(0);
       }
@@ -639,6 +684,8 @@ export function marchWavefronts(
     merges: stats.merges,
     amplitudeMs,
     diffractionMs,
+    turnClampCount,
+    totalRefractions,
   };
 }
 

@@ -35,7 +35,7 @@ export function buildMeshData(
       const segX = segment.x;
       const segY = segment.y;
       const segAmp = segment.amplitude;
-      const segBroken = segment.broken;
+      const segTurbulence = segment.turbulence;
       const len = segX.length;
 
       stepOffsets.push(vertexOffset / VERTEX_FLOATS);
@@ -48,7 +48,7 @@ export function buildMeshData(
         vertices[vertexOffset++] = x;
         vertices[vertexOffset++] = y;
         vertices[vertexOffset++] = segAmp[pi];
-        vertices[vertexOffset++] = segBroken[pi];
+        vertices[vertexOffset++] = segTurbulence[pi];
         vertices[vertexOffset++] = phaseOffset;
         vertices[vertexOffset++] = isBoundary ? 0.0 : 1.0;
       }

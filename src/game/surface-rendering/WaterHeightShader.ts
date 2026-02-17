@@ -1,8 +1,8 @@
 /**
  * Water Height Compute Shader
  *
- * Computes water surface height and breaking intensity at each pixel using Gerstner
- * waves and modifiers. Output is a two-channel rg32float texture (R=height, G=breaking).
+ * Computes water surface height and turbulence at each pixel using Gerstner
+ * waves and modifiers. Output is a two-channel rg32float texture (R=height, G=turbulence).
  *
  * This is the first pass of the multi-pass surface rendering pipeline.
  */
@@ -109,7 +109,7 @@ fn pixelToWorld(pixel: vec2<u32>) -> vec2<f32> {
   );
 }
 
-// Calculate water height and breaking intensity at a point using wave field texture
+// Calculate water height and turbulence at a point using wave field texture
 fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
   // Sample wave field texture for per-wave energy, direction offset, and phase correction
   var energyFactors: array<f32, MAX_WAVE_SOURCES>;
@@ -121,16 +121,16 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
     (f32(pixel.y) + 0.5) / params.screenHeight
   );
 
-  var maxBreaking = 0.0;
+  var maxTurbulence = 0.0;
 
   for (var i = 0u; i < u32(params.numWaves); i++) {
     let waveField = textureSampleLevel(waveFieldTexture, waveFieldSampler, uv, i32(i), 0.0);
     let pc = waveField.r;
     let ps = waveField.g;
     let coverage = waveField.b;
-    let breaking = waveField.a;
+    let turbulence = waveField.a;
 
-    maxBreaking = max(maxBreaking, breaking);
+    maxTurbulence = max(maxTurbulence, turbulence);
 
     if (coverage > 0.0) {
       let mag = sqrt(pc * pc + ps * ps);
@@ -143,21 +143,21 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
       }
 
       // Breaking zone turbulence: add per-wave-source noise for chaotic breaking
-      if (breaking > 0.0) {
+      if (turbulence > 0.0) {
         let waveSeed = f32(i) * 17.31;
         let breakPhaseNoise = simplex3D(vec3<f32>(
           worldPos.x * BREAK_NOISE_SPATIAL_SCALE,
           worldPos.y * BREAK_NOISE_SPATIAL_SCALE,
           params.time * BREAK_NOISE_TIME_SCALE + waveSeed
         ));
-        phaseCorrections[i] += breaking * breakPhaseNoise * BREAK_PHASE_NOISE_STRENGTH;
+        phaseCorrections[i] += turbulence * breakPhaseNoise * BREAK_PHASE_NOISE_STRENGTH;
 
         let breakAmpNoise = simplex3D(vec3<f32>(
           worldPos.x * BREAK_NOISE_SPATIAL_SCALE * 1.7 + 100.0,
           worldPos.y * BREAK_NOISE_SPATIAL_SCALE * 1.7 + 100.0,
           params.time * BREAK_NOISE_TIME_SCALE * 0.8 + waveSeed + 50.0
         ));
-        energyFactors[i] *= 1.0 + breaking * breakAmpNoise * BREAK_AMP_NOISE_STRENGTH;
+        energyFactors[i] *= 1.0 + turbulence * breakAmpNoise * BREAK_AMP_NOISE_STRENGTH;
       }
     } else {
       energyFactors[i] = 1.0;
@@ -199,7 +199,7 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
 
   // Combined height = waves + modifiers + tide
   let height = waveResult.x + modifierResult.x + params.tideHeight;
-  return vec2<f32>(height, maxBreaking);
+  return vec2<f32>(height, maxTurbulence);
 }
 
 @compute @workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]})
@@ -213,10 +213,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let worldPos = pixelToWorld(pixel);
 
-  // Calculate water height and breaking intensity using wave field texture
+  // Calculate water height and turbulence using wave field texture
   let result = calculateWaterHeight(worldPos, pixel);
 
-  // Write to output texture (R = height, G = breaking intensity)
+  // Write to output texture (R = height, G = turbulence)
   textureStore(outputTexture, pixel, vec4<f32>(result.x, result.y, 0.0, 0.0));
 }
 `,

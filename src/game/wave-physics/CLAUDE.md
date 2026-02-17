@@ -55,7 +55,7 @@ Mesh building runs in a **web worker** to avoid blocking the main thread.
 - **MeshBuildWorker.ts** - Web worker entry point. Receives terrain data and wave source params, runs marching + decimation + mesh output, posts results back.
 - **marchingBuilder.ts** - High-level builder. For each wave source: computes bounds, runs marching, decimates, builds mesh output.
 - **marching.ts** - Core marching algorithm. Steps rays from upwave to downwave through terrain. At each step along each ray: samples terrain height, computes depth, applies shoaling (Green's Law), determines breaking state, and tracks direction via refraction.
-- **marchingTypes.ts** - Type definitions: `WavePoint` (x, y, t, amplitude, broken), `Wavefront` (array of segments), `WaveBounds`, `MarchConfig`. `VERTEX_FLOATS = 6` (x, y, amplitude, broken, phaseOffset, interior).
+- **marchingTypes.ts** - Type definitions: `WavePoint` (x, y, t, amplitude, turbulence), `Wavefront` (array of segments), `WaveBounds`, `MarchConfig`. `VERTEX_FLOATS = 6` (x, y, amplitude, turbulence, phaseOffset, interior).
 - **marchingBounds.ts** - Computes wave-aligned bounding box from root terrain contours. Asymmetric margins: small upwave (10 wavelengths), large downwave (80), medium crosswave (20).
 - **decimation.ts** - Reduces vertex count by removing points that don't contribute significantly to the mesh shape. Uses perpendicular distance threshold with caching and binary search.
 - **meshOutput.ts** - Converts wavefront steps into triangulated mesh data. Matches segments between adjacent steps by t-range overlap, then triangulates using a t-value sweep.
@@ -77,7 +77,7 @@ Per-wave mesh (at meshOffset[i]):
      gridCosA(f32), gridSinA(f32), padding...]
 
   Vertex data (6 f32 per vertex):
-    [x, y, amplitude, broken, phaseOffset, interior]
+    [x, y, amplitude, turbulence, phaseOffset, interior]
 
   Index data (3 u32 per triangle):
     Triangle vertex indices
@@ -99,7 +99,7 @@ The rasterizer outputs to an rgba16float 2D texture array:
 - **R**: Phase correction cos component
 - **G**: Phase correction sin component
 - **B**: Wave coverage (0 = no mesh data at this pixel)
-- **A**: Breaking intensity (0-1)
+- **A**: Turbulence (0-1)
 
 Consumed by both `SurfaceRenderer` (water height compute) and `WaterQueryShader` (CPU query pipeline).
 

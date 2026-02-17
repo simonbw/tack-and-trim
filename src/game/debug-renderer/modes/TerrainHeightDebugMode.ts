@@ -25,6 +25,10 @@ import {
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { radToDeg } from "../../../core/util/MathUtil";
 import { SurfaceRenderer } from "../../surface-rendering/SurfaceRenderer";
+import {
+  DEFAULT_DEPTH,
+  MAX_TERRAIN_HEIGHT,
+} from "../../world/terrain/TerrainConstants";
 import { TerrainQuery } from "../../world/terrain/TerrainQuery";
 import { TerrainResources } from "../../world/terrain/TerrainResources";
 import { DebugRenderMode } from "./DebugRenderMode";
@@ -129,8 +133,8 @@ fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
 
 // Map height to grayscale (linear from dark to light)
 fn heightToColor(height: f32) -> vec3<f32> {
-  // Map height range [-50, 20] to [0.1, 0.9] grayscale
-  let t = clamp((height + 50.0) / 70.0, 0.0, 1.0);
+  // Map height range [${DEFAULT_DEPTH}, ${MAX_TERRAIN_HEIGHT}] to [0.1, 0.9] grayscale
+  let t = clamp((height - ${DEFAULT_DEPTH}.0) / ${MAX_TERRAIN_HEIGHT - DEFAULT_DEPTH}.0, 0.0, 1.0);
   let gray = mix(0.1, 0.9, t);
   return vec3<f32>(gray, gray, gray);
 }
@@ -243,8 +247,8 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
     });
     this.placeholderTextureView = this.placeholderTexture.createView();
 
-    // Write default depth value (-50)
-    const data = new Float32Array([-50]);
+    // Write default depth value
+    const data = new Float32Array([DEFAULT_DEPTH]);
     device.queue.writeTexture(
       { texture: this.placeholderTexture },
       data,
@@ -334,7 +338,7 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
     const terrainResources =
       this.game.entities.tryGetSingleton(TerrainResources);
     const contourCount = terrainResources?.getContourCount() ?? 0;
-    return `Contours: ${contourCount}\nDark=deep (-50ft), Light=high (+20ft)\nCursor: slope angle + grade + downhill direction`;
+    return `Contours: ${contourCount}\nDark=deep (${DEFAULT_DEPTH}ft), Light=high (+${MAX_TERRAIN_HEIGHT}ft)\nCursor: slope angle + grade + downhill direction`;
   }
 
   getCursorInfo(): string | null {
@@ -348,7 +352,9 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
     const height = result.height;
     const normal = result.normal;
     const horizontalComponent = Math.hypot(normal.x, normal.y);
-    const nz = Math.sqrt(Math.max(0, 1 - horizontalComponent * horizontalComponent));
+    const nz = Math.sqrt(
+      Math.max(0, 1 - horizontalComponent * horizontalComponent),
+    );
 
     // Slope steepness:
     // - angle from horizontal (degrees)

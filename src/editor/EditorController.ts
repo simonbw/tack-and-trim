@@ -10,6 +10,7 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { createContour } from "../game/world/terrain/LandMass";
+import { DEFAULT_DEPTH } from "../game/world/terrain/TerrainConstants";
 import { TerrainResources } from "../game/world/terrain/TerrainResources";
 import { TerrainQuery } from "../game/world/terrain/TerrainQuery";
 import { TerrainQueryManager } from "../game/world/terrain/TerrainQueryManager";
@@ -519,7 +520,7 @@ export class EditorController
     this.fileHandle = null;
 
     this.document.setTerrainDefinition({
-      defaultDepth: -50,
+      defaultDepth: DEFAULT_DEPTH,
       contours: [],
     });
   }

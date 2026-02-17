@@ -455,7 +455,7 @@ function buildSegmentFromKept(
   const outDirX = new Array<number>(n);
   const outDirY = new Array<number>(n);
   const outEnergy = new Array<number>(n);
-  const outBroken = new Array<number>(n);
+  const outTurbulence = new Array<number>(n);
   const outDepth = new Array<number>(n);
   const outAmplitude = new Array<number>(n);
 
@@ -465,7 +465,7 @@ function buildSegmentFromKept(
   copyKeptIndices(segment.dirX, kept, outDirX);
   copyKeptIndices(segment.dirY, kept, outDirY);
   copyKeptIndices(segment.energy, kept, outEnergy);
-  copyKeptIndices(segment.broken, kept, outBroken);
+  copyKeptIndices(segment.turbulence, kept, outTurbulence);
   copyKeptIndices(segment.depth, kept, outDepth);
   copyKeptIndices(segment.amplitude, kept, outAmplitude);
 
@@ -476,7 +476,7 @@ function buildSegmentFromKept(
     dirX: outDirX,
     dirY: outDirY,
     energy: outEnergy,
-    broken: outBroken,
+    turbulence: outTurbulence,
     depth: outDepth,
     amplitude: outAmplitude,
   };

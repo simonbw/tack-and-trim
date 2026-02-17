@@ -6,7 +6,7 @@
  * and renders water/terrain with full lighting.
  *
  * Inputs:
- * - Water height texture (rg32float: R=height, G=breaking)
+ * - Water height texture (rg32float: R=height, G=turbulence)
  * - Terrain tile atlas (r32float)
  *
  * Output:
@@ -145,7 +145,7 @@ fn worldToHeightUV(worldPos: vec2<f32>) -> vec2<f32> {
   );
 }
 
-// Sample water height and breaking intensity at world position
+// Sample water height and turbulence at world position
 fn sampleWaterData(worldPos: vec2<f32>) -> vec2<f32> {
   let uv = worldToHeightUV(worldPos);
   let texCoord = vec2<i32>(
@@ -272,10 +272,10 @@ fn computeWaterColorAtPoint(normal: vec3<f32>, waterHeight: f32, waterDepth: f32
 fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   let worldPos = clipToWorld(clipPosition);
 
-  // Sample heights, breaking, and wetness from textures
+  // Sample heights, turbulence, and wetness from textures
   let waterData = sampleWaterData(worldPos);
   let waterHeight = waterData.x;
-  let breaking = waterData.y;
+  let turbulence = waterData.y;
   let terrainHeight = sampleTerrainHeight(worldPos);
   let wetness = sampleWetness(worldPos);
 
@@ -290,8 +290,8 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   let foamColor = vec3<f32>(0.95, 0.98, 1.0);
 
   // Breaking foam: fractal noise for natural, streaky foam in breaking zones
-  var breakingFoam = 0.0;
-  if (breaking > 0.0) {
+  var turbulenceFoam = 0.0;
+  if (turbulence > 0.0) {
     // Fractal noise for multi-scale foam texture
     let foamNoise = fractalNoise3D(vec3<f32>(
       worldPos.x * 0.5,
@@ -300,16 +300,16 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
     ));
 
     // Threshold-based foam: more breaking = lower threshold = more foam coverage
-    let foamThreshold = 1.0 - breaking * 0.8;
+    let foamThreshold = 1.0 - turbulence * 0.8;
     let foamAmount = smoothstep(foamThreshold - 0.15, foamThreshold, foamNoise);
 
-    breakingFoam = foamAmount * breaking;
+    turbulenceFoam = foamAmount * turbulence;
   }
 
   if (params.hasTerrainData == 0) {
     // No terrain data - render as deep water
     var color = computeWaterColorAtPoint(waterNormal, waterHeight, 100.0);
-    color = mix(color, foamColor, breakingFoam);
+    color = mix(color, foamColor, turbulenceFoam);
     return vec4<f32>(color, 1.0);
   }
 
@@ -338,13 +338,13 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
     }
 
     // Breaking wave foam on crests
-    finalColor = mix(finalColor, foamColor, breakingFoam);
+    finalColor = mix(finalColor, foamColor, turbulenceFoam);
 
     return vec4<f32>(finalColor, 1.0);
   } else {
     // Deep water
     var color = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth);
-    color = mix(color, foamColor, breakingFoam);
+    color = mix(color, foamColor, turbulenceFoam);
     return vec4<f32>(color, 1.0);
   }
 }

@@ -29,7 +29,7 @@ export interface TerrainContour {
  */
 export interface TerrainDefinition {
   contours: TerrainContour[];
-  /** Deep ocean baseline depth in feet (default: -50) */
+  /** Deep ocean baseline depth in feet (default: DEFAULT_DEPTH) */
   defaultDepth?: number;
 }
 

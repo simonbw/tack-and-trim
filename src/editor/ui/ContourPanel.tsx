@@ -12,6 +12,7 @@ import {
 } from "../EditorDocument";
 import { EditorContour } from "../io/TerrainFileFormat";
 import { ContourValidationResult } from "../../game/world/terrain/ContourValidation";
+import { DEFAULT_DEPTH } from "../../game/world/terrain/TerrainConstants";
 import "./EditorStyles.css";
 
 export interface ContourPanelProps {
@@ -25,7 +26,7 @@ function getContourColorHex(height: number): string {
   if (height === 0) {
     return "#44aa44";
   } else if (height < 0) {
-    const t = Math.min(-height / 50, 1);
+    const t = Math.min(-height / -DEFAULT_DEPTH, 1);
     const r = Math.round(50 * (1 - t));
     const g = Math.round(100 + 50 * (1 - t));
     const b = Math.round(180 + 75 * (1 - t));
@@ -216,7 +217,7 @@ function ContourProperties({
         <input
           type="range"
           class="contour-panel-slider"
-          min="-50"
+          min={DEFAULT_DEPTH}
           max="20"
           step="0.1"
           value={contour.height}

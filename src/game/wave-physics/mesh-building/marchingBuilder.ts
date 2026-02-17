@@ -73,17 +73,24 @@ export function buildMarchingMesh(
     waveDx,
     waveDy,
   );
-  const { wavefronts, splits, merges, amplitudeMs, diffractionMs } =
-    marchWavefronts(
-      firstWavefront,
-      waveDx,
-      waveDy,
-      stepSize,
-      vertexSpacing,
-      bounds,
-      terrain,
-      wavelength,
-    );
+  const {
+    wavefronts,
+    splits,
+    merges,
+    amplitudeMs,
+    diffractionMs,
+    turnClampCount,
+    totalRefractions,
+  } = marchWavefronts(
+    firstWavefront,
+    waveDx,
+    waveDy,
+    stepSize,
+    vertexSpacing,
+    bounds,
+    terrain,
+    wavelength,
+  );
   let t2 = performance.now();
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
     return prev + curr.reduce((sum, segment) => sum + segment.t.length, 0);
@@ -143,6 +150,7 @@ export function buildMarchingMesh(
         `build`,
         `  splits: ${n(splits)}`,
         `  merges: ${n(merges)}`,
+        `  refraction clamps: ${n(turnClampCount)} / ${n(totalRefractions)} (${totalRefractions > 0 ? n((100 * turnClampCount) / totalRefractions, 1) : 0}%)`,
         `  simplification: ${n(totalMarchedVerts)} verts -> ${n(mesh.vertexCount)} verts (${n(decimationPercent, 0)}% reduction)`,
         `final`,
         `  verts: ${n(mesh.vertexCount)}`,
