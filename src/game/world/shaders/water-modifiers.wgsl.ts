@@ -15,13 +15,13 @@ export const fn_computeWakeContribution: ShaderModule = {
     // worldX, worldY: query position (feet)
     // base: start index in modifiers buffer
     // modifiers: modifier data storage buffer
-    // Returns vec3<f32>(height, velocityX, velocityY)
+    // Returns vec4<f32>(height, velocityX, velocityY, turbulence)
     fn computeWakeContribution(
       worldX: f32,
       worldY: f32,
       base: u32,
       modifiers: ptr<storage, array<f32>, read>
-    ) -> vec3<f32> {
+    ) -> vec4<f32> {
       let intensity = modifiers[base + 5u];
       let velocityX = modifiers[base + 6u];
       let velocityY = modifiers[base + 7u];
@@ -37,15 +37,23 @@ export const fn_computeWakeContribution: ShaderModule = {
       let dy = worldY - centerY;
       let dist = sqrt(dx * dx + dy * dy);
 
-      // Circular falloff
+      // Circular falloff with smooth edge
       let radius = (maxX - minX) * 0.5;
-      let falloff = max(0.0, 1.0 - dist / radius);
+      let falloff = smoothstep(radius, radius * 0.3, dist);
 
-      // Return (height, velocityX, velocityY)
-      return vec3<f32>(
-        intensity * falloff * cos(dist * 0.1),
+      // Ripple pattern: multiple rings spreading outward
+      let ripple = cos(dist * 0.8) * 0.7 + cos(dist * 1.6) * 0.3;
+
+      // Turbulence for foam: raw intensity (slot 7) decays with particle age
+      let rawIntensity = modifiers[base + 7u];
+      let wakeTurbulence = rawIntensity * falloff * falloff;
+
+      // Return (height, velocityX, velocityY, turbulence)
+      return vec4<f32>(
+        intensity * falloff * ripple,
         velocityX * falloff,
-        velocityY * falloff
+        velocityY * falloff,
+        wakeTurbulence
       );
     }
   `,
@@ -61,13 +69,13 @@ export const fn_computeRippleContribution: ShaderModule = {
     // worldX, worldY: query position (feet)
     // base: start index in modifiers buffer
     // modifiers: modifier data storage buffer
-    // Returns vec3<f32>(height, velocityX, velocityY)
+    // Returns vec4<f32>(height, velocityX, velocityY, turbulence)
     fn computeRippleContribution(
       worldX: f32,
       worldY: f32,
       base: u32,
       modifiers: ptr<storage, array<f32>, read>
-    ) -> vec3<f32> {
+    ) -> vec4<f32> {
       let radius = modifiers[base + 5u];
       let intensity = modifiers[base + 6u];
       let phase = modifiers[base + 7u];
@@ -90,7 +98,7 @@ export const fn_computeRippleContribution: ShaderModule = {
       // Cosine wave profile
       let height = intensity * falloff * cos(phase);
 
-      return vec3<f32>(height, 0.0, 0.0);
+      return vec4<f32>(height, 0.0, 0.0, 0.0);
     }
   `,
 };
@@ -105,19 +113,19 @@ export const fn_computeCurrentContribution: ShaderModule = {
     // worldX, worldY: query position (feet)
     // base: start index in modifiers buffer
     // modifiers: modifier data storage buffer
-    // Returns vec3<f32>(height, velocityX, velocityY)
+    // Returns vec4<f32>(height, velocityX, velocityY, turbulence)
     fn computeCurrentContribution(
       worldX: f32,
       worldY: f32,
       base: u32,
       modifiers: ptr<storage, array<f32>, read>
-    ) -> vec3<f32> {
+    ) -> vec4<f32> {
       let velocityX = modifiers[base + 5u];
       let velocityY = modifiers[base + 6u];
       let fadeDistance = modifiers[base + 7u];
 
       // Simple constant velocity for now
-      return vec3<f32>(0.0, velocityX, velocityY);
+      return vec4<f32>(0.0, velocityX, velocityY, 0.0);
     }
   `,
 };
@@ -132,17 +140,17 @@ export const fn_computeObstacleContribution: ShaderModule = {
     // worldX, worldY: query position (feet)
     // base: start index in modifiers buffer
     // modifiers: modifier data storage buffer
-    // Returns vec3<f32>(height, velocityX, velocityY)
+    // Returns vec4<f32>(height, velocityX, velocityY, turbulence)
     fn computeObstacleContribution(
       worldX: f32,
       worldY: f32,
       base: u32,
       modifiers: ptr<storage, array<f32>, read>
-    ) -> vec3<f32> {
+    ) -> vec4<f32> {
       let dampingFactor = modifiers[base + 5u];
 
       // Not implemented yet - return zero contribution
-      return vec3<f32>(0.0, 0.0, 0.0);
+      return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
   `,
 };
@@ -171,14 +179,14 @@ export const fn_getModifierContribution: ShaderModule = {
     // modifierIndex: modifier index
     // modifiers: modifier data storage buffer
     // floatsPerModifier: number of floats per modifier
-    // Returns vec3<f32>(height, velocityX, velocityY)
+    // Returns vec4<f32>(height, velocityX, velocityY, turbulence)
     fn getModifierContribution(
       worldX: f32,
       worldY: f32,
       modifierIndex: u32,
       modifiers: ptr<storage, array<f32>, read>,
       floatsPerModifier: u32
-    ) -> vec3<f32> {
+    ) -> vec4<f32> {
       let base = modifierIndex * floatsPerModifier;
 
       // Read header
@@ -190,7 +198,7 @@ export const fn_getModifierContribution: ShaderModule = {
 
       // Bounds culling (early exit)
       if (worldX < minX || worldX > maxX || worldY < minY || worldY > maxY) {
-        return vec3<f32>(0.0, 0.0, 0.0);
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
       }
 
       // Type discrimination
@@ -208,7 +216,7 @@ export const fn_getModifierContribution: ShaderModule = {
           return computeObstacleContribution(worldX, worldY, base, modifiers);
         }
         default: {
-          return vec3<f32>(0.0, 0.0, 0.0);
+          return vec4<f32>(0.0, 0.0, 0.0, 0.0);
         }
       }
     }
@@ -233,7 +241,7 @@ export const fn_calculateModifiers: ShaderModule = {
     // maxModifiers: maximum modifiers to check
     // modifiers: modifier data storage buffer
     // floatsPerModifier: number of floats per modifier
-    // Returns vec3<f32>(totalHeight, totalVelX, totalVelY)
+    // Returns vec4<f32>(totalHeight, totalVelX, totalVelY, maxTurbulence)
     fn calculateModifiers(
       worldX: f32,
       worldY: f32,
@@ -241,10 +249,11 @@ export const fn_calculateModifiers: ShaderModule = {
       maxModifiers: u32,
       modifiers: ptr<storage, array<f32>, read>,
       floatsPerModifier: u32
-    ) -> vec3<f32> {
+    ) -> vec4<f32> {
       var totalHeight: f32 = 0.0;
       var totalVelX: f32 = 0.0;
       var totalVelY: f32 = 0.0;
+      var maxTurb: f32 = 0.0;
 
       let count = min(modifierCount, maxModifiers);
       for (var i: u32 = 0u; i < count; i++) {
@@ -252,9 +261,10 @@ export const fn_calculateModifiers: ShaderModule = {
         totalHeight += contrib.x;
         totalVelX += contrib.y;
         totalVelY += contrib.z;
+        maxTurb = max(maxTurb, contrib.w);
       }
 
-      return vec3<f32>(totalHeight, totalVelX, totalVelY);
+      return vec4<f32>(totalHeight, totalVelX, totalVelY, maxTurb);
     }
   `,
   dependencies: [fn_getModifierContribution],

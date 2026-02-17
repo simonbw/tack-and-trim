@@ -309,21 +309,21 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   // Render based on depth
   let foamColor = vec3<f32>(0.95, 0.98, 1.0);
 
-  // Breaking foam: fractal noise for natural, streaky foam in breaking zones
+  // Foam from turbulence (wave breaking + wake)
   var turbulenceFoam = 0.0;
   if (turbulence > 0.0) {
-    // Fractal noise for multi-scale foam texture
+    // Fractal noise for natural, streaky foam texture
     let foamNoise = fractalNoise3D(vec3<f32>(
       worldPos.x * 0.5,
       worldPos.y * 0.5,
       params.time * 0.4
     ));
 
-    // Threshold-based foam: more breaking = lower threshold = more foam coverage
-    let foamThreshold = 1.0 - turbulence * 0.8;
-    let foamAmount = smoothstep(foamThreshold - 0.15, foamThreshold, foamNoise);
+    // Threshold-based foam: more turbulence = lower threshold = more foam coverage
+    let foamThreshold = 1.0 - turbulence;
+    let foamAmount = smoothstep(foamThreshold - 0.2, foamThreshold, foamNoise);
 
-    turbulenceFoam = foamAmount * turbulence;
+    turbulenceFoam = foamAmount * saturate(turbulence);
   }
 
   if (params.hasTerrainData == 0) {

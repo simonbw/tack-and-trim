@@ -12,12 +12,12 @@ import {
 // Wake particle configuration
 const DEFAULT_MAX_AGE = 4.0; // Default lifespan in seconds
 const WARMUP_TIME = 0.3; // Seconds before particle affects physics
-const BASE_RADIUS = 5; // Starting influence radius in ft
-const MAX_RADIUS = 20; // Radius at end of life in ft
-const DECAY_RATE = 1.5; // Intensity decay rate (1/s, dimensionless)
+const BASE_RADIUS = 6; // Starting influence radius in ft
+const MAX_RADIUS = 22; // Radius at end of life in ft
+const DECAY_RATE = 1.3; // Intensity decay rate (1/s, dimensionless)
 const VELOCITY_SCALE = 0.8; // Velocity contribution scale (dimensionless)
 const WATER_VELOCITY_FACTOR = 0.0; // Percent that this affects water velocity
-const HEIGHT_SCALE = 0.5; // Max height contribution in ft
+const HEIGHT_SCALE = 0.6; // Max height contribution in ft
 
 export type WakeSide = "left" | "right";
 
@@ -49,7 +49,6 @@ export class WakeParticle extends WaterModifier {
 
   // Pre-scaled velocity for water contribution (already multiplied by VELOCITY_SCALE)
   private scaledVelX: number;
-  private scaledVelY: number;
 
   private intensity: number;
   private age: number = 0;
@@ -71,7 +70,6 @@ export class WakeParticle extends WaterModifier {
     this.velX = velocity.x;
     this.velY = velocity.y;
     this.scaledVelX = velocity.x * VELOCITY_SCALE;
-    this.scaledVelY = velocity.y * VELOCITY_SCALE;
     this.intensity = intensity;
     this.maxAge = maxAge;
   }
@@ -171,7 +169,7 @@ export class WakeParticle extends WaterModifier {
         type: WaterModifierType.Wake,
         intensity: intensity * HEIGHT_SCALE,
         velocityX: this.scaledVelX * WATER_VELOCITY_FACTOR,
-        velocityY: this.scaledVelY * WATER_VELOCITY_FACTOR,
+        velocityY: intensity, // Raw intensity (0-1) for turbulence/foam
       },
     };
   }

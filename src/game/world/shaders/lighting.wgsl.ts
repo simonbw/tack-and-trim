@@ -89,14 +89,14 @@ export const fn_renderWaterLighting: ShaderModule = {
       // Slope-based color variation
       let sunFacing = dot(normal.xy, sunDir.xy);
       let slopeShift = mix(
-        vec3<f32>(-0.02, -0.01, 0.02),
-        vec3<f32>(0.02, 0.03, -0.01),
+        vec3<f32>(-0.03, -0.02, 0.03),
+        vec3<f32>(0.03, 0.04, -0.02),
         sunFacing * 0.5 + 0.5
       );
-      baseColor = baseColor + slopeShift * 0.15;
+      baseColor = baseColor + slopeShift * 0.3;
 
       // Troughs are darker
-      let troughDarken = (1.0 - rawHeight) * 0.2;
+      let troughDarken = (1.0 - rawHeight) * 0.35;
       baseColor = baseColor * (1.0 - troughDarken);
 
       // Fresnel effect

@@ -199,7 +199,9 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
 
   // Combined height = waves + modifiers + tide
   let height = waveResult.x + modifierResult.x + params.tideHeight;
-  return vec2<f32>(height, maxTurbulence);
+  // Combine wave breaking turbulence with modifier turbulence (e.g. wake foam)
+  let totalTurbulence = max(maxTurbulence, modifierResult.w);
+  return vec2<f32>(height, totalTurbulence);
 }
 
 @compute @workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]})
