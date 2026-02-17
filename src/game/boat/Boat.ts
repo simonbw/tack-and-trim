@@ -4,7 +4,7 @@ import { polarToVec } from "../../core/util/MathUtil";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
 import { Anchor } from "./Anchor";
-import { BoatConfig, StarterDinghy } from "./BoatConfig";
+import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
 import { Bowsprit } from "./Bowsprit";
 import { findSternPoints, Hull } from "./Hull";
@@ -23,18 +23,16 @@ export class Boat extends BaseEntity {
   rudder: Rudder;
   rig: Rig;
   bowsprit: Bowsprit;
-  jib: Sail;
+  jib: Sail | null = null;
   anchor: Anchor;
   mainsheet: Sheet;
-  portJibSheet: Sheet;
-  starboardJibSheet: Sheet;
+  portJibSheet: Sheet | null = null;
+  starboardJibSheet: Sheet | null = null;
 
   readonly config: BoatConfig;
 
   // Derived positions (computed from config)
   private bowspritTipPosition: V2d;
-  private jibHeadPosition: V2d;
-  private jibTackPosition: V2d;
 
   getPosition(): V2d {
     return this.hull.body.position;
@@ -48,7 +46,7 @@ export class Boat extends BaseEntity {
     return this.hull.body.toWorldFrame.bind(this.hull.body);
   }
 
-  constructor(config: BoatConfig = StarterDinghy) {
+  constructor(config: BoatConfig = StarterBoat) {
     super();
 
     this.config = config;
@@ -58,9 +56,6 @@ export class Boat extends BaseEntity {
       config.bowsprit.size.x,
       0,
     ]);
-    this.jibHeadPosition = config.rig.mastPosition;
-    this.jibTackPosition = this.bowspritTipPosition;
-
     // Create hull first - everything attaches to it
     this.hull = this.addChild(new Hull(config.hull));
 
@@ -89,50 +84,56 @@ export class Boat extends BaseEntity {
       ),
     );
 
-    // Compute initial clew position for jib
-    const tack = this.toWorldFrame(this.jibTackPosition);
-    const head = this.toWorldFrame(this.jibHeadPosition);
-    const footDir = tack.sub(head).irotate90cw().inormalize();
-    const initialClewPosition = tack
-      .addScaled(footDir, 5)
-      .iadd(V(-1.5, 0).irotate(this.hull.body.angle));
+    // Create jib and jib sheets if configured
+    if (config.jib && config.jibSheet) {
+      const jibTackPosition = this.bowspritTipPosition;
+      const jibHeadPosition = config.rig.mastPosition;
 
-    // Create jib sail
-    this.jib = this.addChild(
-      new Sail({
-        ...config.jib,
-        getHeadPosition: () => this.toWorldFrame(this.jibTackPosition),
-        initialClewPosition,
-        headConstraint: {
-          body: this.hull.body,
-          localAnchor: this.jibTackPosition,
-        },
-        sailShape: "triangle",
-        extraPoints: () => [this.toWorldFrame(this.jibHeadPosition)],
-      }),
-    );
+      // Compute initial clew position for jib
+      const tack = this.toWorldFrame(jibTackPosition);
+      const head = this.toWorldFrame(jibHeadPosition);
+      const footDir = tack.sub(head).irotate90cw().inormalize();
+      const initialClewPosition = tack
+        .addScaled(footDir, 5)
+        .iadd(V(-1.5, 0).irotate(this.hull.body.angle));
 
-    // Create jib sheets (clew to hull, port and starboard)
-    const { portAttachPoint, starboardAttachPoint, ...jibSheetConfig } =
-      config.jibSheet;
-    const clewBody = this.jib.getClew();
+      // Create jib sail
+      this.jib = this.addChild(
+        new Sail({
+          ...config.jib,
+          getHeadPosition: () => this.toWorldFrame(jibTackPosition),
+          initialClewPosition,
+          headConstraint: {
+            body: this.hull.body,
+            localAnchor: jibTackPosition,
+          },
+          sailShape: "triangle",
+          extraPoints: () => [this.toWorldFrame(jibHeadPosition)],
+        }),
+      );
 
-    this.portJibSheet = this.addChild(
-      new Sheet(
-        clewBody,
-        V(0, 0),
-        this.hull.body,
-        portAttachPoint,
-        jibSheetConfig,
-      ),
-    );
+      // Create jib sheets (clew to hull, port and starboard)
+      const { portAttachPoint, starboardAttachPoint, ...jibSheetConfig } =
+        config.jibSheet;
+      const clewBody = this.jib.getClew();
 
-    this.starboardJibSheet = this.addChild(
-      new Sheet(clewBody, V(0, 0), this.hull.body, starboardAttachPoint, {
-        ...jibSheetConfig,
-      }),
-    );
-    this.starboardJibSheet.release();
+      this.portJibSheet = this.addChild(
+        new Sheet(
+          clewBody,
+          V(0, 0),
+          this.hull.body,
+          portAttachPoint,
+          jibSheetConfig,
+        ),
+      );
+
+      this.starboardJibSheet = this.addChild(
+        new Sheet(clewBody, V(0, 0), this.hull.body, starboardAttachPoint, {
+          ...jibSheetConfig,
+        }),
+      );
+      this.starboardJibSheet.release();
+    }
 
     // Create anchor
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
@@ -149,9 +150,11 @@ export class Boat extends BaseEntity {
   @on("tick")
   onTick(): void {
     // Fade jib sheets based on jib hoist amount
-    const jibOpacity = this.jib.getHoistAmount();
-    this.portJibSheet.setOpacity(jibOpacity);
-    this.starboardJibSheet.setOpacity(jibOpacity);
+    if (this.jib && this.portJibSheet && this.starboardJibSheet) {
+      const jibOpacity = this.jib.getHoistAmount();
+      this.portJibSheet.setOpacity(jibOpacity);
+      this.starboardJibSheet.setOpacity(jibOpacity);
+    }
   }
 
   /** Row the boat forward */
@@ -167,6 +170,6 @@ export class Boat extends BaseEntity {
   toggleSails(): void {
     const newState = !this.rig.sail.isHoisted();
     this.rig.sail.setHoisted(newState);
-    this.jib.setHoisted(newState);
+    this.jib?.setHoisted(newState);
   }
 }

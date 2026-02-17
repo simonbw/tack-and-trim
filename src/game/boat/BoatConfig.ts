@@ -117,15 +117,16 @@ export interface BoatConfig {
   readonly rig: RigConfig;
   readonly bowsprit: BowspritConfig;
   readonly anchor: AnchorConfig;
-  readonly jib: JibConfig;
+  readonly jib?: JibConfig;
   readonly mainsheet: MainsheetConfig;
-  readonly jibSheet: JibSheetConfig;
+  readonly jibSheet?: JibSheetConfig;
   readonly rowing: RowingConfig;
   readonly grounding: GroundingConfig;
 }
 
 // Re-export boat configs
 export { StarterDinghy } from "./configs/StarterDinghy";
+export { StarterBoat } from "./configs/StarterBoat";
 
 /**
  * Create a boat config with partial overrides from a base config.
