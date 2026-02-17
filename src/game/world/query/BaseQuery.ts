@@ -129,7 +129,7 @@ export abstract class BaseQuery<TView> extends BaseEntity {
    * Stores points in pending buffer - they'll become active when results arrive.
    * @internal
    */
-  getQueryPoints(): ReadonlyArray<V2d> {
+  getQueryPoints(): ReadonlyArray<{ readonly x: number; readonly y: number }> {
     this._pendingPoints = this.getPointsCallback();
     return this._pendingPoints;
   }

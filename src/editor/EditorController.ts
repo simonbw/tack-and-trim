@@ -166,7 +166,6 @@ export class EditorController
     // Convert editor definition to game definition (performs spline sampling)
     this.terrainResources = this.game.addEntity(
       new TerrainResources(
-        this.game.getWebGPUDevice(),
         editorDefinitionToGameDefinition(this.document.getTerrainDefinition()),
       ),
     );
@@ -178,7 +177,7 @@ export class EditorController
     this.game.addEntity(new WavePhysicsResources());
 
     // Add water system (tide, modifiers, GPU buffers)
-    this.game.addEntity(new WaterResources(this.game.getWebGPUDevice()));
+    this.game.addEntity(new WaterResources());
     this.game.addEntity(new WaterQueryManager());
 
     // Add surface renderer (renders water and terrain visuals)
