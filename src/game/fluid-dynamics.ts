@@ -39,31 +39,6 @@ type ForceMagnitudeParams = Parameters<ForceMagnitudeFn>[0];
 // Core Functions
 // ============================================================================
 
-/** Apply fluid forces to all edges of a body's convex shapes. */
-export function applyFluidForcesToBody(
-  body: DynamicBody,
-  getLiftMagnitude: ForceMagnitudeFn,
-  getDragMagnitude: ForceMagnitudeFn,
-  getFluidVelocity: FluidVelocityFn = () => V(0, 0),
-) {
-  for (const shape of body.shapes) {
-    if (shape instanceof Convex) {
-      for (let i = 0; i < shape.vertices.length; i++) {
-        const v1 = V(shape.vertices[i]);
-        const v2 = V(shape.vertices[(i + 1) % shape.vertices.length]);
-        applyFluidForces(
-          body,
-          v1,
-          v2,
-          getLiftMagnitude,
-          getDragMagnitude,
-          getFluidVelocity,
-        );
-      }
-    }
-  }
-}
-
 /**
  * Apply fluid forces to a single edge.
  * The edge is defined by two points in body-local coordinates.
@@ -161,26 +136,6 @@ function applyFluidForcesAtPoint(
 // ============================================================================
 // Flat Plate Model (for hull edges)
 // ============================================================================
-
-/**
- * Create a lift magnitude function for flat plate behavior.
- * Lift peaks at 45° angle of attack.
- * Uses proper fluid dynamics: F = 0.5 * ρ * v² * Cl * A
- * @param chord - The depth/thickness of the plate in feet
- * @param rho - Fluid density in slugs/ft³ (default: water)
- */
-export function flatPlateLift(
-  chord: number,
-  rho: number = RHO_WATER,
-): ForceMagnitudeFn {
-  return ({ angleOfAttack, speed, edgeLength }) => {
-    // Flat plate lift coefficient: Cl = 2 * sin(α) * cos(α) = sin(2α)
-    const cl = Math.sin(angleOfAttack) * Math.cos(angleOfAttack) * 2;
-    const area = edgeLength * chord;
-    const dynamicPressure = 0.5 * rho * speed * speed;
-    return cl * dynamicPressure * area;
-  };
-}
 
 /**
  * Create a drag magnitude function for flat plate behavior.

@@ -24,13 +24,3 @@ export interface WindModifier {
    */
   getWindVelocityContribution(queryPoint: V2d): V2d;
 }
-
-/** Type guard for WindModifier interface. */
-export function isWindModifier(value: unknown): value is WindModifier {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "getWindModifierAABB" in value &&
-    "getWindVelocityContribution" in value
-  );
-}

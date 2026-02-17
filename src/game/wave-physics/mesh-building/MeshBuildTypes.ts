@@ -87,6 +87,3 @@ export type WorkerOutMessage =
   | MeshBuildReady
   | MeshBuildResult
   | MeshBuildError;
-
-/** Messages from main thread to worker */
-export type WorkerInMessage = MeshBuildRequest;

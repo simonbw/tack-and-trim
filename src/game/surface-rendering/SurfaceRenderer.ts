@@ -36,9 +36,6 @@ import { TerrainScreenUniforms } from "./TerrainScreenUniforms";
 import { LODTerrainTileCache } from "./LODTerrainTileCache";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
-// Re-export for backwards compatibility
-export { SurfaceCompositeUniforms as SurfaceUniforms } from "./SurfaceCompositeUniforms";
-
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
 
