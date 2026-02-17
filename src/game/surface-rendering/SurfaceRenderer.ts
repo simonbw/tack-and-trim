@@ -50,6 +50,7 @@ export class SurfaceRenderer extends BaseEntity {
   layer = "water" as const;
 
   private initialized = false;
+  private enabled = false;
 
   // Shaders for each pass
   private terrainScreenShader: ComputeShader | null = null;
@@ -186,9 +187,25 @@ export class SurfaceRenderer extends BaseEntity {
     }
   }
 
+  private initPromise: Promise<void> | null = null;
+
   @on("add")
   onAdd() {
-    this.ensureInitialized();
+    this.initPromise = this.ensureInitialized();
+  }
+
+  /**
+   * Returns a promise that resolves when shader compilation is complete.
+   */
+  whenReady(): Promise<void> {
+    return this.initPromise ?? Promise.resolve();
+  }
+
+  /**
+   * Allow rendering to begin. Called by GameController once all systems are ready.
+   */
+  setEnabled(value: boolean): void {
+    this.enabled = value;
   }
 
   /**
@@ -446,7 +463,7 @@ export class SurfaceRenderer extends BaseEntity {
 
   @on("render")
   onRender(event: { dt: number; draw: Draw }) {
-    if (!this.initialized || !this.terrainTileCache) return;
+    if (!this.initialized || !this.terrainTileCache || !this.enabled) return;
 
     const camera = this.game.camera;
     const renderer = this.game.getRenderer();

@@ -32,7 +32,7 @@ export class GameController extends BaseEntity {
   persistenceLevel = 100;
 
   @on("add")
-  onAdd() {
+  async onAdd() {
     // 1. Load level data (terrain + waves) from bundled JSON resource
     const { terrain, waves } = loadDefaultLevel();
     this.game.addEntity(new TerrainResources(terrain));
@@ -42,7 +42,7 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new TimeOfDay());
 
     // 3. Wave physics (needs terrain for shadow computation, uses wave direction)
-    this.game.addEntity(new WavePhysicsResources(waves));
+    const wavePhysics = this.game.addEntity(new WavePhysicsResources(waves));
 
     // 4. Water data system (tide, modifiers, GPU buffers, wave sources)
     this.game.addEntity(new WaterResources(waves));
@@ -53,14 +53,18 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new WindQueryManager());
 
     // 6. Visual entities
-    this.game.addEntity(new SurfaceRenderer());
+    const surfaceRenderer = this.game.addEntity(new SurfaceRenderer());
     this.game.addEntity(new WindIndicator());
     this.game.addEntity(new DebugRenderer());
 
     // Start with wide camera shot for menu
     this.game.camera.z = MENU_ZOOM;
 
-    // Spawn main menu
+    // Wait for critical systems before showing menu
+    await Promise.all([surfaceRenderer.whenReady(), wavePhysics.whenReady()]);
+
+    // Release rendering and show menu together
+    surfaceRenderer.setEnabled(true);
     this.game.addEntity(new MainMenu());
   }
 

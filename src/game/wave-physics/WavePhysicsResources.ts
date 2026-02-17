@@ -38,6 +38,7 @@ export class WavePhysicsResources extends BaseEntity {
   private waveConfig: WaveConfig;
   private wavePhysicsManager: WavePhysicsManager | null = null;
   private terrainResources: TerrainResources | null = null;
+  private initPromise: Promise<void> | null = null;
 
   constructor(waveConfig?: WaveConfig) {
     super();
@@ -48,7 +49,10 @@ export class WavePhysicsResources extends BaseEntity {
   onAfterAdded() {
     // Create the wave physics manager now that we have access to the game/device
     const device = this.game.getWebGPUDevice();
-    this.wavePhysicsManager = new WavePhysicsManager(device, this.waveConfig.sources);
+    this.wavePhysicsManager = new WavePhysicsManager(
+      device,
+      this.waveConfig.sources,
+    );
 
     // Get terrain resources for wave physics initialization
     this.terrainResources =
@@ -63,7 +67,7 @@ export class WavePhysicsResources extends BaseEntity {
       // Get raw terrain GPU data for worker-based mesh building
       const terrainGPUData = this.terrainResources.getTerrainGPUData();
 
-      this.wavePhysicsManager.initialize(
+      this.initPromise = this.wavePhysicsManager.initialize(
         terrainDef,
         terrainGPUData
           ? {
@@ -78,6 +82,13 @@ export class WavePhysicsResources extends BaseEntity {
         tideHeight,
       );
     }
+  }
+
+  /**
+   * Returns a promise that resolves when wave mesh building is complete.
+   */
+  whenReady(): Promise<void> {
+    return this.initPromise ?? Promise.resolve();
   }
 
   /**
