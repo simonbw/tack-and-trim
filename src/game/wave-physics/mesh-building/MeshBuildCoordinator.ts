@@ -17,7 +17,9 @@ import type {
   MeshBuilderType,
   MeshBuildRequest,
   MeshBuildResult,
+  WavefrontMeshData,
 } from "./MeshBuildTypes";
+import { computeCacheKey, loadFromCache, saveToCache } from "./MeshCache";
 
 /** Maximum number of concurrent workers */
 const MAX_WORKERS = 4;
@@ -67,11 +69,26 @@ export class MeshBuildCoordinator {
     tideHeight: number,
     builderTypes: MeshBuilderType[],
   ): Promise<Map<MeshBuilderType, WavefrontMesh[]>> {
+    const device = this.device;
+
+    // Check cache first
+    const cacheKey = computeCacheKey(
+      waveSources,
+      terrainGPUData,
+      coastlineBounds,
+      tideHeight,
+      builderTypes,
+    );
+
+    const cached = loadFromCache(cacheKey, builderTypes);
+    if (cached) {
+      console.log("[MeshBuildCoordinator] Cache hit — skipping worker build");
+      return this.meshDataToMeshes(cached, waveSources, builderTypes, device);
+    }
+
     if (!this.pool.isReady()) {
       await this.initialize();
     }
-
-    const device = this.device;
 
     // Build all requests: one per (waveSource, builderType) pair
     interface PendingBuild {
@@ -104,24 +121,54 @@ export class MeshBuildCoordinator {
 
     const results = await this.executeBuildBatch(pendingBuilds);
 
-    // Organize results by builder type and create GPU resources
+    // Collect raw mesh data for caching
+    const meshDataSets = new Map<MeshBuilderType, WavefrontMeshData[]>();
+    for (const builderType of builderTypes) {
+      meshDataSets.set(builderType, []);
+    }
+    for (const { pending, result } of results) {
+      meshDataSets.get(pending.builderType)!.push(result.meshData);
+    }
+
+    // Save to cache
+    saveToCache(cacheKey, meshDataSets);
+    console.log("[MeshBuildCoordinator] Cache miss — saved build results");
+
+    // Create GPU resources
+    return this.meshDataToMeshes(
+      meshDataSets,
+      waveSources,
+      builderTypes,
+      device,
+    );
+  }
+
+  /**
+   * Convert raw mesh data maps into WavefrontMesh instances with GPU resources.
+   */
+  private meshDataToMeshes(
+    meshDataSets: Map<MeshBuilderType, WavefrontMeshData[]>,
+    waveSources: WaveSource[],
+    builderTypes: MeshBuilderType[],
+    device: GPUDevice,
+  ): Map<MeshBuilderType, WavefrontMesh[]> {
     const meshSets = new Map<MeshBuilderType, WavefrontMesh[]>();
     for (const builderType of builderTypes) {
-      meshSets.set(builderType, []);
+      const dataList = meshDataSets.get(builderType)!;
+      const meshes: WavefrontMesh[] = [];
+      for (let i = 0; i < dataList.length; i++) {
+        meshes.push(
+          WavefrontMesh.fromMeshData(
+            dataList[i],
+            waveSources[i],
+            builderType,
+            0, // buildTimeMs unknown for cached
+            device,
+          ),
+        );
+      }
+      meshSets.set(builderType, meshes);
     }
-
-    for (const { pending, result } of results) {
-      const mesh = WavefrontMesh.fromMeshData(
-        result.meshData,
-        pending.waveSource,
-        pending.builderType,
-        result.buildTimeMs,
-        device,
-      );
-
-      meshSets.get(pending.builderType)!.push(mesh);
-    }
-
     return meshSets;
   }
 
@@ -136,7 +183,9 @@ export class MeshBuildCoordinator {
       builderType: MeshBuilderType;
       request: MeshBuildRequest;
     }[],
-  ): Promise<{ pending: (typeof pendingBuilds)[0]; result: MeshBuildResult }[]> {
+  ): Promise<
+    { pending: (typeof pendingBuilds)[0]; result: MeshBuildResult }[]
+  > {
     const results: {
       pending: (typeof pendingBuilds)[0];
       result: MeshBuildResult;
