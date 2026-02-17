@@ -52,6 +52,15 @@ export class FoamParticle extends BaseEntity {
       return;
     }
 
+    // destroy if on land
+    if (
+      this.waterQuery.results.length > 0 &&
+      this.waterQuery.results[0].depth <= 0
+    ) {
+      this.destroy();
+      return;
+    }
+
     // Move foam based on water surface velocity (from previous frame's query)
     const velocity =
       this.waterQuery.results.length > 0

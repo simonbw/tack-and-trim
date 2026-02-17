@@ -16,7 +16,7 @@ import type {
 } from "./MeshBuildTypes";
 
 /** Bump this when mesh building logic changes to invalidate old caches */
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 const KEY_PREFIX = `wavemesh-v${CACHE_VERSION}-`;
 
