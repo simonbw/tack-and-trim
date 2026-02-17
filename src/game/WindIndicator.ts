@@ -165,7 +165,7 @@ export class WindIndicator extends BaseEntity {
     // Draw wind arrow
     this.drawArrow(draw, windAngle, arrowLength, arrowColor);
 
-    // Draw velocity arrow
+    // Draw velocity arrow and speed readout
     const boat = this.getBoat();
     if (boat) {
       const velocity = boat.getVelocity();

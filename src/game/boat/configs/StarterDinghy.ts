@@ -8,7 +8,7 @@ import { BoatConfig } from "../BoatConfig";
  */
 export const StarterDinghy: BoatConfig = {
   hull: {
-    mass: 350, // lbs - typical 16ft dinghy displacement
+    mass: 200, // lbs
     vertices: [
       // Stern (transom)
       V(-6.5, -1.3),
@@ -63,10 +63,10 @@ export const StarterDinghy: BoatConfig = {
     },
     mainsail: {
       nodeCount: 32,
-      nodeMass: 0.04, // lbs per particle
-      slackFactor: 1.01, // 1% slack
-      liftScale: 2.0,
-      dragScale: 2.0,
+      nodeMass: 0.7, // heavier for better force transfer through constraints
+      slackFactor: 1.005, // 0.5% slack
+      liftScale: 5.0,
+      dragScale: 5.0,
       billowInner: 0.8,
       billowOuter: 2.4,
       windInfluenceRadius: 15, // ft
@@ -93,10 +93,10 @@ export const StarterDinghy: BoatConfig = {
 
   jib: {
     nodeCount: 32,
-    nodeMass: 0.04, // lbs per particle
-    slackFactor: 1.01,
-    liftScale: 2.0,
-    dragScale: 2.0,
+    nodeMass: 0.5, // heavier for better force transfer through constraints
+    slackFactor: 1.005,
+    liftScale: 5.0,
+    dragScale: 5.0,
     billowOuter: 1.5,
     windInfluenceRadius: 15, // ft
     hoistSpeed: 0.4,

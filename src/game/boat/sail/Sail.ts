@@ -50,10 +50,10 @@ export interface SailParams {
 
 const DEFAULT_CONFIG: SailConfig = {
   nodeCount: 32,
-  nodeMass: 0.04, // lbs per particle
+  nodeMass: 1.0, // lbs per particle - heavier for better force transfer through constraints
   slackFactor: 1.01, // 1% slack in sail constraints
-  liftScale: 2.0,
-  dragScale: 2.0,
+  liftScale: 1.0,
+  dragScale: 1.0,
   sailShape: "boom",
   billowInner: 0.8, // Billow scale at boom
   billowOuter: 2.4, // Billow scale at leech
@@ -276,7 +276,14 @@ export class Sail extends BaseEntity implements WindModifier {
       const segmentIndex = Math.min(i, segments.length - 1);
       const segment = segments[segmentIndex];
 
-      applySailForces(this.bodies[i], segment, DEFAULT_SAIL_CHORD, forceScale);
+      applySailForces(
+        this.bodies[i],
+        segment,
+        DEFAULT_SAIL_CHORD,
+        forceScale,
+        this.config.liftScale,
+        this.config.dragScale,
+      );
     }
   }
 

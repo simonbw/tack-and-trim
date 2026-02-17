@@ -5,6 +5,12 @@ import { RHO_AIR } from "../../fluid-dynamics";
 import { SEPARATION_DECAY_RATE } from "../../world/wind/WindConstants";
 import type { SailSegment } from "./SailSegment";
 
+// The physics engine uses mass in "lbs" but F=ma with gravity=32.174 ft/s²,
+// meaning it effectively treats mass as slugs. Aerodynamic formulas with
+// RHO_AIR in slugs/ft³ produce force in lbf, so we multiply by g to convert
+// lbf to the engine's force units (slug·ft/s²).
+const LBF_TO_ENGINE = 32.174;
+
 export const STALL_ANGLE = degToRad(15);
 
 /** Calculate the lift coefficient for a sail at a given angle of attack. */
@@ -42,6 +48,8 @@ function computeDragCoefficient(aoa: number): number {
 
 /**
  * Apply aerodynamic forces to a sail particle based on its segment's flow state.
+ * Forces propagate to the hull naturally through constraints.
+ *
  * @param body - The dynamic body to apply forces to
  * @param segment - Sail segment with geometry and flow state
  * @param chord - Sail chord length in ft
@@ -52,17 +60,26 @@ export function applySailForces(
   segment: SailSegment,
   chord: number,
   forceScale: number,
+  liftScale: number,
+  dragScale: number,
 ): void {
   const { flow, length, tangent } = segment;
 
   if (flow.speed < 0.01 || length < 0.001) return;
 
+  // Compute apparent wind (flow relative to sail particle)
+  const bodyVel = V(body.velocity);
+  const apparentWind = flow.velocity.sub(bodyVel);
+  const apparentSpeed = apparentWind.magnitude;
+
+  if (apparentSpeed < 0.01) return;
+
   // Dynamic pressure: q = 0.5 * ρ * v²
-  const q = 0.5 * RHO_AIR * flow.speed * flow.speed;
+  const q = 0.5 * RHO_AIR * apparentSpeed * apparentSpeed;
   const area = length * chord * forceScale;
 
-  // Compute angle of attack
-  const flowDir = flow.velocity.normalize();
+  // Compute angle of attack from apparent wind
+  const flowDir = apparentWind.normalize();
   const dotProduct = clamp(flowDir.dot(tangent), -1, 1);
   const aoa = Math.acos(dotProduct);
 
@@ -89,16 +106,17 @@ export function applySailForces(
     if (flow.turbulence > 0.1) {
       const buffet = flow.turbulence * 0.2 * q * area;
       const buffetDir = V(Math.random() - 0.5, Math.random() - 0.5).normalize();
-      body.applyForce(buffetDir.mul(buffet));
+      body.applyForce(buffetDir.mul(buffet * LBF_TO_ENGINE));
     }
   }
 
-  // Apply lift (perpendicular to flow) and drag (opposing flow)
-  // Lift direction depends on which side of the flow the sail is
+  // Lift (perpendicular to flow) and drag (along flow)
+  // Use cross product of flow direction and tangent to determine lift side
   const liftDir = flowDir.rotate90cw();
-  const liftSign = Math.sign(Math.sin(aoa));
-  const liftForce = liftDir.mul(lift * liftSign);
-  const dragForce = flowDir.mul(-drag);
+  const cross = flowDir.x * tangent.y - flowDir.y * tangent.x;
+  const liftSign = Math.sign(cross);
+  const liftForce = liftDir.mul(lift * liftSign * LBF_TO_ENGINE * liftScale);
+  const dragForce = flowDir.mul(drag * LBF_TO_ENGINE * dragScale);
 
   const totalForce = liftForce.add(dragForce);
   body.applyForce(totalForce);

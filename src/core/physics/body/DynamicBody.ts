@@ -83,8 +83,8 @@ export class DynamicBody extends Body implements SleepableBody {
     this.fixedX = options.fixedX ?? false;
     this.fixedY = options.fixedY ?? false;
 
-    this.damping = options.damping ?? 0.1;
-    this.angularDamping = options.angularDamping ?? 0.1;
+    this.damping = options.damping ?? 0;
+    this.angularDamping = options.angularDamping ?? 0;
 
     this._sleep = new SleepBehavior({
       allowSleep: options.allowSleep ?? true,

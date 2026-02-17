@@ -63,10 +63,10 @@ export const StarterBoat: BoatConfig = {
     },
     mainsail: {
       nodeCount: 28,
-      nodeMass: 0.035,
-      slackFactor: 1.01,
-      liftScale: 1.8,
-      dragScale: 1.8,
+      nodeMass: 0.8, // heavier for better force transfer through constraints
+      slackFactor: 1.005,
+      liftScale: 5.0,
+      dragScale: 5.0,
       billowInner: 0.7,
       billowOuter: 2.2,
       windInfluenceRadius: 12, // ft
