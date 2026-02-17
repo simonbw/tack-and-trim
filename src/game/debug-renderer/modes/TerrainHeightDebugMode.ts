@@ -151,6 +151,26 @@ const terrainHeightDebugShaderConfig: FullscreenShaderConfig = {
   label: "TerrainHeightDebugShader",
 };
 
+// Convert radians to compass direction
+function radiansToCompass(radians: number): string {
+  // Normalize to 0-2π
+  const normalized = ((radians % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  // Convert to degrees (0° = East, with +Y=down so positive angles rotate clockwise on screen)
+  const degrees = (normalized * 180) / Math.PI;
+  // Convert to compass bearing (0° = North, clockwise)
+  const compassDeg = (degrees + 90) % 360;
+
+  const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const index = Math.round(compassDeg / 45) % 8;
+  return directions[index];
+}
+
+function radiansToCompassBearingDeg(radians: number): number {
+  const normalized = ((radians % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const degrees = (normalized * 180) / Math.PI;
+  return (degrees + 90) % 360;
+}
+
 export class TerrainHeightDebugMode extends DebugRenderMode {
   layer = "windViz" as const;
 
@@ -314,7 +334,7 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
     const terrainResources =
       this.game.entities.tryGetSingleton(TerrainResources);
     const contourCount = terrainResources?.getContourCount() ?? 0;
-    return `Contours: ${contourCount}\nDark=deep (-50ft), Light=high (+20ft)`;
+    return `Contours: ${contourCount}\nDark=deep (-50ft), Light=high (+20ft)\nCursor: slope angle + grade + downhill direction`;
   }
 
   getCursorInfo(): string | null {
@@ -326,6 +346,28 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
 
     const result = this.terrainQuery.get(0);
     const height = result.height;
-    return `Terrain Height: ${height.toFixed(1)} ft, Slope: ${radToDeg(result.normal.angle).toFixed(1)}°`;
+    const normal = result.normal;
+    const horizontalComponent = Math.hypot(normal.x, normal.y);
+    const nz = Math.sqrt(Math.max(0, 1 - horizontalComponent * horizontalComponent));
+
+    // Slope steepness:
+    // - angle from horizontal (degrees)
+    // - grade as vertical feet gained/lost per 100 horizontal feet
+    const slopeAngleDeg = radToDeg(Math.atan2(horizontalComponent, nz));
+    const gradePercent =
+      nz > 1e-5 ? (horizontalComponent / nz) * 100 : Number.POSITIVE_INFINITY;
+    const gradeText = Number.isFinite(gradePercent)
+      ? `${gradePercent.toFixed(1)}% grade`
+      : "~vertical";
+
+    if (horizontalComponent < 1e-4) {
+      return `Terrain Height: ${height.toFixed(1)} ft\nSteepness: ${slopeAngleDeg.toFixed(1)}° (${gradeText})\nDownhill: Flat`;
+    }
+
+    const downhillAngle = Math.atan2(normal.y, normal.x);
+    const downhillCompass = radiansToCompass(downhillAngle);
+    const downhillBearingDeg = radiansToCompassBearingDeg(downhillAngle);
+
+    return `Terrain Height: ${height.toFixed(1)} ft\nSteepness: ${slopeAngleDeg.toFixed(1)}° (${gradeText})\nDownhill: ${downhillCompass} (${downhillBearingDeg.toFixed(0)}°)`;
   }
 }
