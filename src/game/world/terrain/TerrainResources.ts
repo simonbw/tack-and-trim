@@ -7,6 +7,7 @@
  */
 
 import { BaseEntity } from "../../../core/entity/BaseEntity";
+import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 
 import {
@@ -45,11 +46,8 @@ const PACKED_TERRAIN_SIZE =
 export class TerrainResources extends BaseEntity {
   id = "terrainResources";
 
-  // GPU device reference (passed in constructor since this.game isn't available yet)
-  private device: GPUDevice;
-
   // Single packed GPU buffer for all terrain data
-  readonly packedTerrainBuffer: GPUBuffer;
+  packedTerrainBuffer!: GPUBuffer;
 
   // Terrain definition (normalized to CCW winding)
   private terrainDefinition: TerrainDefinition;
@@ -62,15 +60,17 @@ export class TerrainResources extends BaseEntity {
   // Cached result from buildTerrainGPUData() for CPU access (e.g., worker serialization)
   private terrainGPUData: ReturnType<typeof buildTerrainGPUData> | null = null;
 
-  constructor(device: GPUDevice, terrainDefinition: TerrainDefinition) {
+  constructor(terrainDefinition: TerrainDefinition) {
     super();
-    this.device = device;
 
     // Normalize contour winding to CCW for consistent wave physics
     this.terrainDefinition = normalizeTerrainWinding(terrainDefinition);
+  }
 
+  @on("add")
+  onAdd({ game }: GameEventMap["add"]): void {
     // Create single packed GPU buffer
-    this.packedTerrainBuffer = this.device.createBuffer({
+    this.packedTerrainBuffer = game.getWebGPUDevice().createBuffer({
       size: PACKED_TERRAIN_SIZE * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: "Packed Terrain Buffer",
@@ -99,7 +99,7 @@ export class TerrainResources extends BaseEntity {
    * @internal
    */
   private uploadTerrainData(definition: TerrainDefinition): void {
-    const device = this.device;
+    const device = this.game.getWebGPUDevice();
     const gpuData = buildTerrainGPUData(definition);
     this.terrainGPUData = gpuData;
     const { vertexData, contourData, childrenData, contourCount } = gpuData;

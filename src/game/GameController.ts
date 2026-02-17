@@ -35,7 +35,7 @@ export class GameController extends BaseEntity {
   onAdd() {
     // 1. Load level data (terrain + waves) from bundled JSON resource
     const { terrain, waves } = loadDefaultLevel();
-    this.game.addEntity(new TerrainResources(this.game.getWebGPUDevice(), terrain));
+    this.game.addEntity(new TerrainResources(terrain));
     this.game.addEntity(new TerrainQueryManager());
 
     // 2. Time system (before water, so tides can query time)
@@ -45,7 +45,7 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new WavePhysicsResources(waves));
 
     // 4. Water data system (tide, modifiers, GPU buffers, wave sources)
-    this.game.addEntity(new WaterResources(this.game.getWebGPUDevice(), waves));
+    this.game.addEntity(new WaterResources(waves));
     this.game.addEntity(new WaterQueryManager());
 
     // 5. Wind data systems

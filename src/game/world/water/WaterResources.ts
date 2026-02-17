@@ -11,6 +11,7 @@
  */
 
 import { BaseEntity } from "../../../core/entity/BaseEntity";
+import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 
 import { profile } from "../../../core/util/Profiler";
@@ -47,18 +48,15 @@ export class WaterResources extends BaseEntity {
   id = "waterResources";
   tickLayer = "query" as const;
 
-  // GPU device reference (passed in constructor since this.game isn't available yet)
-  private device: GPUDevice;
-
   // GPU buffers
-  readonly waveDataBuffer: GPUBuffer;
-  readonly modifiersBuffer: GPUBuffer;
+  waveDataBuffer!: GPUBuffer;
+  modifiersBuffer!: GPUBuffer;
 
   // Wave configuration
-  private readonly waveConfig: WaveConfig;
+  private waveConfig: WaveConfig;
 
   // CPU-side modifier data array for packing before upload
-  private modifierData: Float32Array;
+  private modifierData!: Float32Array;
 
   // Current modifier count (updated each frame)
   private modifierCount: number = 0;
@@ -69,13 +67,14 @@ export class WaterResources extends BaseEntity {
   // Cached modifier data for current frame (for render pipeline access)
   private cachedModifiers: GPUWaterModifierData[] = [];
 
-  constructor(device: GPUDevice, waveConfig?: WaveConfig) {
+  constructor(waveConfig?: WaveConfig) {
     super();
-    this.device = device;
-
-    // Use provided config or defaults
     this.waveConfig = waveConfig ?? DEFAULT_WAVE_CONFIG;
+  }
 
+  @on("add")
+  onAdd({ game }: GameEventMap["add"]): void {
+    const device = game.getWebGPUDevice();
     // Create wave data storage buffer (static, uploaded once)
     const waveData = buildWaveDataFromSources(this.waveConfig.sources);
     this.waveDataBuffer = device.createBuffer({
@@ -147,7 +146,7 @@ export class WaterResources extends BaseEntity {
    * Returns the actual number of modifiers uploaded.
    */
   private updateModifiers(modifiers: GPUWaterModifierData[]): number {
-    const device = this.device;
+    const device = this.game.getWebGPUDevice();
     const modifierCount = Math.min(modifiers.length, MAX_MODIFIERS);
 
     if (modifiers.length > MAX_MODIFIERS) {
