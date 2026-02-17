@@ -80,54 +80,6 @@ function getParsedContours(terrain: TerrainCPUData): ParsedContour[] {
 // Polygon utility functions (from polygon.wgsl.ts)
 // =============================================================================
 
-/**
- * Test if point p is left of line segment [a, b].
- * Returns positive if left, negative if right, zero if collinear.
- * (Cross product of (b - a) and (p - a))
- */
-export function pointLeftOfSegment(
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  px: number,
-  py: number,
-): number {
-  return (bx - ax) * (py - ay) - (px - ax) * (by - ay);
-}
-
-/**
- * Compute squared distance from point p to line segment [a, b].
- */
-export function pointToLineSegmentDistanceSq(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-): number {
-  const abx = bx - ax;
-  const aby = by - ay;
-  const lengthSq = abx * abx + aby * aby;
-
-  if (lengthSq === 0) {
-    const dx = px - ax;
-    const dy = py - ay;
-    return dx * dx + dy * dy;
-  }
-
-  const t = Math.max(
-    0,
-    Math.min(1, ((px - ax) * abx + (py - ay) * aby) / lengthSq),
-  );
-  const nearestX = ax + t * abx;
-  const nearestY = ay + t * aby;
-  const dx = px - nearestX;
-  const dy = py - nearestY;
-  return dx * dx + dy * dy;
-}
-
 // =============================================================================
 // Terrain height core functions (from terrain.wgsl.ts)
 // =============================================================================

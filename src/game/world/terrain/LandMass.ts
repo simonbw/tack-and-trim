@@ -326,6 +326,9 @@ const validatedDefinitions = new WeakSet<TerrainDefinition>();
  * - Contours that intersect each other
  *
  * Only validates each definition once to avoid log spam.
+ * 
+ * TODO: Actually call this function when loading terrain definitions to provide
+ * better error messages during development.
  */
 export function validateTerrainDefinition(definition: TerrainDefinition): void {
   // Skip if already validated
