@@ -33,6 +33,7 @@ import type { WavefrontMesh } from "./WavefrontMesh";
 const GLOBAL_HEADER_U32S = 16;
 const MESH_HEADER_U32S = 16;
 const MAX_GRID_DIM = 1024;
+const ENABLE_MESH_PACKING_LOGS = false;
 
 /** Float bits → u32 for buffer packing */
 const f32Buf = new Float32Array(1);
@@ -271,7 +272,9 @@ function buildSpatialGrid(mesh: WavefrontMesh): MeshGridData {
     cosA,
     sinA,
   };
-  logGridStats(mesh, grid);
+  if (ENABLE_MESH_PACKING_LOGS) {
+    logGridStats(mesh, grid);
+  }
   return grid;
 }
 
@@ -395,14 +398,16 @@ export function buildPackedMeshBuffer(
     u32View[1 + i] = 0;
   }
 
-  logBufferStats(
-    numWaves,
-    totalU32s,
-    totalVertexU32s,
-    totalIndexU32s,
-    totalGridHeaderU32s,
-    totalGridListU32s,
-  );
+  if (ENABLE_MESH_PACKING_LOGS) {
+    logBufferStats(
+      numWaves,
+      totalU32s,
+      totalVertexU32s,
+      totalIndexU32s,
+      totalGridHeaderU32s,
+      totalGridListU32s,
+    );
+  }
 
   // Create GPU buffer
   const buffer = device.createBuffer({
