@@ -10,9 +10,9 @@ import { on } from "../../../core/entity/handler";
 import type { Camera2d, Viewport } from "../../../core/graphics/Camera2d";
 import type { Draw } from "../../../core/graphics/Draw";
 import { clamp } from "../../../core/util/MathUtil";
+import { profile } from "../../../core/util/Profiler";
 import { V, type V2d } from "../../../core/Vector";
 import { WindQuery } from "../../world/wind/WindQuery";
-import type { WindResultView } from "../../world/wind/WindQueryResult";
 import { DebugRenderMode } from "./DebugRenderMode";
 
 // Dim overlay
@@ -54,8 +54,10 @@ export class WindFieldDebugMode extends DebugRenderMode {
   layer = "windViz" as const;
   private windQuery: WindQuery;
 
-  // Cache the query points so we can use them when drawing
-  private cachedQueryPoints: V2d[] = [];
+  // Pre-allocated point pool for zero-allocation point generation
+  private pointPool: V2d[] = [];
+  private queryPointsResult: V2d[] = [];
+  private pointCount = 0;
   private triTip = V(0, 0);
   private triWingUp = V(0, 0);
   private triWingDown = V(0, 0);
@@ -69,99 +71,120 @@ export class WindFieldDebugMode extends DebugRenderMode {
     );
   }
 
+  private allocPoint(x: number, y: number): V2d {
+    let p: V2d;
+    if (this.pointCount < this.pointPool.length) {
+      p = this.pointPool[this.pointCount].set(x, y);
+    } else {
+      p = V(x, y);
+      this.pointPool.push(p);
+    }
+    this.queryPointsResult[this.pointCount] = p;
+    this.pointCount++;
+    return p;
+  }
+
+  @profile
   private getWindQueryPoints(): V2d[] {
     if (!this.game) return [];
 
+    this.pointCount = 0;
+
     const viewport = this.game.camera.getWorldViewport();
-    const gridPoints = this.getGridQueryPoints(viewport);
+    this.updateGridQueryPoints(viewport);
 
     // Add cursor position as last point for cursor info
     const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
     if (mouseWorldPos) {
-      gridPoints.push(mouseWorldPos);
+      this.allocPoint(mouseWorldPos.x, mouseWorldPos.y);
     }
 
-    this.cachedQueryPoints = gridPoints;
-    return gridPoints;
+    this.queryPointsResult.length = this.pointCount;
+    return this.queryPointsResult;
   }
 
-  private getGridQueryPoints(viewport: Viewport): V2d[] {
-    const points: V2d[] = [];
+  private updateGridQueryPoints(viewport: Viewport): void {
     const { left, right, top, bottom } = viewport;
 
     // Calculate continuous LOD value based on viewport size.
     const viewportSize = Math.max(right - left, bottom - top);
     const lodValue = Math.log2(viewportSize / BASE_VIEWPORT_SIZE);
 
-    // Determine the coarsest LOD level we need to iterate at.
+    // Single grid at finest visible spacing, consistent spatial order.
     const minVisibleLOD = clamp(Math.floor(lodValue), MIN_LOD, MAX_LOD);
-    const iterSpacing = BASE_SPACING * Math.pow(2, minVisibleLOD);
+    const spacing = BASE_SPACING * Math.pow(2, minVisibleLOD);
 
-    // Grid anchored to world origin (0,0).
-    const startX = Math.floor(left / iterSpacing) * iterSpacing;
-    const startY = Math.floor(top / iterSpacing) * iterSpacing;
-    const endX = right + iterSpacing;
-    const endY = bottom + iterSpacing;
+    const startX = Math.floor(left / spacing) * spacing;
+    const startY = Math.floor(top / spacing) * spacing;
+    const endX = right + spacing;
+    const endY = bottom + spacing;
 
-    for (let x = startX; x <= endX; x += iterSpacing) {
-      for (let y = startY; y <= endY; y += iterSpacing) {
-        const triangleLOD = this.getTriangleLOD(x, y);
-        const alpha = this.getLODAlpha(triangleLOD, lodValue);
-
-        if (alpha > 0.01) {
-          points.push(V(x, y));
+    for (let x = startX; x <= endX; x += spacing) {
+      for (let y = startY; y <= endY; y += spacing) {
+        const lod = this.getPointLOD(x, y, spacing, minVisibleLOD);
+        if (this.getLODAlpha(lod, lodValue) > 0.01) {
+          this.allocPoint(x, y);
         }
       }
     }
+  }
 
-    return points;
+  private getPointLOD(
+    x: number,
+    y: number,
+    spacing: number,
+    minVisibleLOD: number,
+  ): number {
+    const ix = Math.round(x / spacing);
+    const iy = Math.round(y / spacing);
+    const lodX =
+      ix === 0
+        ? MAX_LOD
+        : Math.min(31 - Math.clz32(ix & -ix) + minVisibleLOD, MAX_LOD);
+    const lodY =
+      iy === 0
+        ? MAX_LOD
+        : Math.min(31 - Math.clz32(iy & -iy) + minVisibleLOD, MAX_LOD);
+    return Math.min(lodX, lodY);
   }
 
   private drawGrid(
-    results: WindResultView[],
-    points: V2d[],
+    query: WindQuery,
+    points: ReadonlyArray<V2d>,
     viewport: Viewport,
     camera: Camera2d,
     draw: Draw,
   ): void {
-    const { left, right, top, bottom } = viewport;
-
-    // Triangle size scales inversely with zoom to stay constant on screen.
     const triangleSize = WORLD_TRIANGLE_SIZE / camera.z;
 
-    // Calculate continuous LOD value based on viewport size.
+    // Recompute LOD alpha from current viewport for smooth zoom transitions.
+    const { left, right, top, bottom } = viewport;
     const viewportSize = Math.max(right - left, bottom - top);
     const lodValue = Math.log2(viewportSize / BASE_VIEWPORT_SIZE);
+    const minVisibleLOD = clamp(Math.floor(lodValue), MIN_LOD, MAX_LOD);
+    const spacing = BASE_SPACING * Math.pow(2, minVisibleLOD);
 
-    for (let i = 0; i < points.length && i < results.length; i++) {
-      const point = points[i];
-      const result = results[i];
+    // Skip the last point (cursor) — grid points only.
+    const count = Math.min(query.length, points.length) - 1;
+    for (let i = 0; i < count; i++) {
+      const lod = this.getPointLOD(
+        points[i].x,
+        points[i].y,
+        spacing,
+        minVisibleLOD,
+      );
+      const alpha = this.getLODAlpha(lod, lodValue);
+      if (alpha <= 0.01) continue;
 
-      const triangleLOD = this.getTriangleLOD(point.x, point.y);
-      const alpha = this.getLODAlpha(triangleLOD, lodValue);
-
-      if (alpha > 0.01) {
-        this.drawTriangle(
-          result,
-          point.x,
-          point.y,
-          triangleSize,
-          alpha * TRIANGLE_ALPHA,
-          draw,
-        );
-      }
+      this.drawTriangle(
+        query.get(i),
+        points[i].x,
+        points[i].y,
+        triangleSize,
+        alpha * TRIANGLE_ALPHA,
+        draw,
+      );
     }
-  }
-
-  private getTriangleLOD(x: number, y: number): number {
-    for (let lod = MAX_LOD; lod >= MIN_LOD; lod--) {
-      const spacing = BASE_SPACING * Math.pow(2, lod);
-      if (x % spacing === 0 && y % spacing === 0) {
-        return lod;
-      }
-    }
-
-    return MIN_LOD;
   }
 
   private getLODAlpha(triangleLOD: number, lodValue: number): number {
@@ -171,7 +194,7 @@ export class WindFieldDebugMode extends DebugRenderMode {
   }
 
   private drawTriangle(
-    result: WindResultView,
+    result: { speed: number; direction: number },
     x: number,
     y: number,
     maxSize: number,
@@ -230,16 +253,12 @@ export class WindFieldDebugMode extends DebugRenderMode {
       },
     );
 
-    // Draw wind visualization using query results
-    if (
-      this.windQuery.results.length > 0 &&
-      this.cachedQueryPoints.length > 0
-    ) {
-      // Grid points are all but the last one (cursor)
-      const gridPoints = this.cachedQueryPoints.slice(0, -1);
-      const gridResults = this.windQuery.results.slice(0, -1);
-
-      this.drawGrid(gridResults, gridPoints, viewport, camera, draw);
+    // Draw wind visualization using query results.
+    // Use the query's synced points (not our current-frame pool) so points
+    // and results stay aligned despite the one-frame readback latency.
+    const queryPoints = this.windQuery.points;
+    if (this.windQuery.length > 0 && queryPoints.length > 0) {
+      this.drawGrid(this.windQuery, queryPoints, viewport, camera, draw);
     }
   }
 
@@ -249,17 +268,11 @@ export class WindFieldDebugMode extends DebugRenderMode {
 
   getCursorInfo(): string | null {
     const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
-    if (!mouseWorldPos) return null;
+    if (!mouseWorldPos || this.windQuery.length === 0) return null;
 
     // Cursor wind is the last result (we add it as last query point)
-    if (this.windQuery.results.length === 0) return null;
-
-    const cursorResult =
-      this.windQuery.results[this.windQuery.results.length - 1];
-    const speed = cursorResult.speed;
-    const direction = cursorResult.direction;
-
-    const compass = radiansToCompass(direction);
-    return `Wind: ${speed.toFixed(0)} ft/s ${compass}`;
+    const cursorResult = this.windQuery.get(this.windQuery.length - 1);
+    const compass = radiansToCompass(cursorResult.direction);
+    return `Wind: ${cursorResult.speed.toFixed(0)} ft/s ${compass}`;
   }
 }
