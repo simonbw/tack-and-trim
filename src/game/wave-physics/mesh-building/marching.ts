@@ -121,6 +121,17 @@ const REFRACTION_DISSIPATION = 1.0;
 /** Scale factor for instantaneous turbulence to keep foam visible */
 const TURBULENCE_SCALE = 8.0;
 
+/** Along-ray turbulence decay rate per wavelength traveled.
+ *  Higher = faster decay. At 2.0, turbulence halves every ~0.35 wavelengths. */
+const TURBULENCE_DECAY_RATE = 2.0;
+
+/** Number of lateral diffusion iterations for crosswave turbulence blur */
+const TURBULENCE_DIFFUSION_ITERATIONS = 3;
+
+/** Diffusion coefficient for crosswave turbulence blur.
+ *  Must be <= 0.5 for stability. Lower = gentler spread. */
+const TURBULENCE_DIFFUSION_D = 0.3;
+
 function createEmptySegment(): WavefrontSegment {
   return {
     x: [],
@@ -392,6 +403,48 @@ function diffuseSegment(
 }
 
 /**
+ * Lateral diffusion of turbulence across a wavefront segment.
+ * Spreads foam sideways from breaking zones. Boundary conditions are 0
+ * at both edges (foam doesn't leak out of segments).
+ */
+function diffuseTurbulenceSegment(
+  segment: WavefrontSegment,
+  scratch: Float64Array<ArrayBufferLike>,
+): Float64Array<ArrayBufferLike> {
+  const turbulence = segment.turbulence;
+  const n = turbulence.length;
+  if (n <= 2) return scratch;
+
+  let old = scratch;
+  if (old.length < n) {
+    old = new Float64Array(n);
+  }
+
+  const D = TURBULENCE_DIFFUSION_D;
+  for (let iter = 0; iter < TURBULENCE_DIFFUSION_ITERATIONS; iter++) {
+    for (let i = 0; i < n; i++) old[i] = turbulence[i];
+
+    for (let i = 0; i < n; i++) {
+      const left = i > 0 ? old[i - 1] : 0;
+      const right = i < n - 1 ? old[i + 1] : 0;
+      turbulence[i] = Math.max(0, old[i] + D * (left - 2 * old[i] + right));
+    }
+  }
+
+  return old;
+}
+
+/**
+ * Apply crosswave turbulence diffusion to a wavefront step.
+ */
+function diffuseTurbulence(step: Wavefront): void {
+  let scratch: Float64Array<ArrayBufferLike> = new Float64Array(0);
+  for (const segment of step) {
+    scratch = diffuseTurbulenceSegment(segment, scratch);
+  }
+}
+
+/**
  * Post-march lateral diffusion of amplitude across wavefronts (diffraction).
  *
  * Runs after computeAmplitudes. At each wavefront step, amplitude is smoothed
@@ -482,6 +535,7 @@ export function marchWavefronts(
       stepSize,
       initialDeltaT,
     );
+    diffuseTurbulence(step);
     const tC = performance.now();
     amplitudeMs += tB - tA;
     diffractionMs += tC - tB;
@@ -641,8 +695,14 @@ export function marchWavefronts(
             energy *= Math.exp(-BREAKING_DECAY_RATE * normalizedStep);
           }
         }
-        const turbulence =
+        // Carry forward previous step's turbulence with phase-based decay,
+        // then add new local dissipation
+        const prevTurbulence = srcTurbulence[i];
+        const carryOver =
+          prevTurbulence * Math.exp(-TURBULENCE_DECAY_RATE * normalizedStep);
+        const localTurbulence =
           (energyBeforeDissipation - energy) * TURBULENCE_SCALE;
+        const turbulence = carryOver + localTurbulence;
 
         // Split segment when energy contrast with previous ray is too extreme.
         // This prevents low-energy land rays from triangulating against healthy ocean rays.

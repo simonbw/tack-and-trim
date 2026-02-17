@@ -36,7 +36,12 @@ let canRemoveVerticesBetweenCalls = 0;
  * covers that t and linearly interpolating between the bracketing vertices.
  * Returns null if t falls in a gap between segments.
  */
-type StepSample = { x: number; y: number; amplitude: number };
+type StepSample = {
+  x: number;
+  y: number;
+  amplitude: number;
+  turbulence: number;
+};
 
 function sampleStepAtT(
   wavefront: readonly WavefrontSegment[],
@@ -56,12 +61,14 @@ function sampleStepAtT(
     const segX = segment.x;
     const segY = segment.y;
     const segAmp = segment.amplitude;
+    const segTurb = segment.turbulence;
 
     // Clamp to segment endpoints
     if (t <= tMin) {
       out.x = segX[0];
       out.y = segY[0];
       out.amplitude = segAmp[0];
+      out.turbulence = segTurb[0];
       return true;
     }
     if (t >= tMax) {
@@ -69,6 +76,7 @@ function sampleStepAtT(
       out.x = segX[idx];
       out.y = segY[idx];
       out.amplitude = segAmp[idx];
+      out.turbulence = segTurb[idx];
       return true;
     }
 
@@ -89,6 +97,7 @@ function sampleStepAtT(
     out.x = lerpScalar(segX[left], segX[right], f);
     out.y = lerpScalar(segY[left], segY[right], f);
     out.amplitude = lerpScalar(segAmp[left], segAmp[right], f);
+    out.turbulence = lerpScalar(segTurb[left], segTurb[right], f);
     return true;
   }
   return false;
@@ -211,14 +220,20 @@ function evaluateRowRemoval(
   const endpointPhaseBase = endpointIdx * phasePerStep;
 
   let maxError = 0;
-  const anchorSample: StepSample = { x: 0, y: 0, amplitude: 0 };
-  const endpointSample: StepSample = { x: 0, y: 0, amplitude: 0 };
+  const anchorSample: StepSample = { x: 0, y: 0, amplitude: 0, turbulence: 0 };
+  const endpointSample: StepSample = {
+    x: 0,
+    y: 0,
+    amplitude: 0,
+    turbulence: 0,
+  };
 
   for (const segment of row) {
     const segX = segment.x;
     const segY = segment.y;
     const segT = segment.t;
     const segAmp = segment.amplitude;
+    const segTurb = segment.turbulence;
 
     for (let i = 0; i < segT.length; i++) {
       const pointT = segT[i];
@@ -255,6 +270,19 @@ function evaluateRowRemoval(
         return { removable: false, score: Number.POSITIVE_INFINITY };
       }
       if (ampScore > maxError) maxError = ampScore;
+
+      // Turbulence error.
+      const iTurb = lerpScalar(
+        anchorSample.turbulence,
+        endpointSample.turbulence,
+        fraction,
+      );
+      const turbErr = Math.abs(segTurb[i] - iTurb);
+      const turbScore = normalizedError(turbErr, ampTol);
+      if (turbScore > 1) {
+        return { removable: false, score: Number.POSITIVE_INFINITY };
+      }
+      if (turbScore > maxError) maxError = turbScore;
 
       // Phase-offset error.
       // phaseOffset = stepIndex * phasePerStep − k * dot(position, waveDir)
@@ -404,6 +432,7 @@ function canRemoveVerticesBetween(
   const x = segment.x;
   const y = segment.y;
   const amplitude = segment.amplitude;
+  const turbulence = segment.turbulence;
 
   const aT = t[anchorIdx];
   const bT = t[endpointIdx];
@@ -417,6 +446,9 @@ function canRemoveVerticesBetween(
   const aAmp = amplitude[anchorIdx];
   const bAmp = amplitude[endpointIdx];
 
+  const aTurb = turbulence[anchorIdx];
+  const bTurb = turbulence[endpointIdx];
+
   for (let i = anchorIdx + 1; i < endpointIdx; i++) {
     const f = tSpan > 0 ? (t[i] - aT) / tSpan : 0;
 
@@ -428,6 +460,9 @@ function canRemoveVerticesBetween(
 
     const iAmp = lerpScalar(aAmp, bAmp, f);
     if (Math.abs(amplitude[i] - iAmp) > ampTol) return false;
+
+    const iTurb = lerpScalar(aTurb, bTurb, f);
+    if (Math.abs(turbulence[i] - iTurb) > ampTol) return false;
   }
 
   return true;
