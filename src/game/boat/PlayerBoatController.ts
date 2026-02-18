@@ -87,15 +87,14 @@ export class PlayerBoatController extends BaseEntity {
       const jibDt = shiftHeld ? dt : dt * 0.5;
       activeSheet.adjust(trimInput, jibDt);
     }
+
+    if (io.isKeyDown("Space")) {
+      this.boat.row();
+    }
   }
 
   @on("keyDown")
   onKeyDown({ key }: GameEventMap["keyDown"]) {
-    // Row the boat
-    if (key === "Space") {
-      this.boat.row();
-    }
-
     // Toggle sails hoisted/lowered
     if (key === "KeyR") {
       this.boat.toggleSails();
