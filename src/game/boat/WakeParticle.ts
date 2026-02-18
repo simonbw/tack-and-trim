@@ -1,6 +1,7 @@
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { AABB } from "../../core/physics/collision/AABB";
+import { rNormal } from "../../core/util/Random";
 import { V2d } from "../../core/Vector";
 import {
   GPUWaterModifierData,
@@ -8,172 +9,144 @@ import {
   WaterModifierType,
 } from "../world/water/WaterModifierBase";
 
-// Units: feet (ft), seconds
-// Wake particle configuration
-const DEFAULT_MAX_AGE = 4.0; // Default lifespan in seconds
-const WARMUP_TIME = 0.3; // Seconds before particle affects physics
-const BASE_RADIUS = 6; // Starting influence radius in ft
-const MAX_RADIUS = 22; // Radius at end of life in ft
-const DECAY_RATE = 1.3; // Intensity decay rate (1/s, dimensionless)
-const HEIGHT_SCALE = 0.6; // Max height contribution in ft
+// Physical constants
+const GRAVITY = 32.174; // ft/s^2
+// Hull speed Froude number: Fr where hull wavelength (2πv²/g) equals waterline length.
+const HULL_SPEED_FROUDE = 1 / Math.sqrt(2 * Math.PI);
 
-export type WakeSide = "left" | "right";
+// How much of the boat's displacement energy goes into wake wave height.
+const WAVE_HEIGHT_SCALE = 0.25; // dimensionless, tweak for visual strength
+
+// Ring pulse width — how sharp the ring is in the radial direction.
+const RING_WIDTH = 1.5; // ft
+
+// Expansion speed: ring expands at half boat speed (hull wavelength group velocity).
+// This gives the correct Kelvin wake V-angle.
+const GROUP_SPEED_FRACTION = 0.5;
+
+const MIN_VISIBLE_AMPLITUDE = 0.001; // ft — destroy when peak amplitude drops below this
+
+// Viscous damping time constant.
+const DAMPING_TIME = 1.0; // seconds — e-folding time for amplitude decay
 
 /**
- * A wake particle entity that represents a disturbance in the water.
- * Particles form linked chains (ribbons) on each side of the wake.
- * Each particle owns the segment from itself to its `next` neighbor.
- * Implements WaterModifier to contribute to water state queries.
+ * A wake particle that acts as a point-source expanding ring pulse.
+ *
+ * Each particle is spawned at the boat's stern and expands outward as a ring.
+ * All physics (amplitude, spreading, damping) is computed on the CPU.
+ * The GPU receives only: position, ring radius, ring width, amplitude, turbulence.
  */
 export class WakeParticle extends WaterModifier {
   tickLayer = "effects" as const;
 
-  // Chain links for ribbon rendering
-  prev: WakeParticle | null = null;
-  next: WakeParticle | null = null;
-  readonly side: WakeSide;
-
-  // Position stored as separate numbers to avoid method call overhead
   private posX: number;
   private posY: number;
-  private position: V2d;
 
-  // Reusable AABB to avoid allocations
   private readonly aabb: AABB = new AABB();
 
-  // Movement velocity (actual position change per second)
-  private velX: number;
-  private velY: number;
-
-  private intensity: number;
   private age: number = 0;
   private maxAge: number;
+  private readonly groupSpeed: number;
+  private readonly initialAmplitude: number; // ft — wave height at 1 ft from source
+  private readonly turbulence: number; // 0-1 foam/whitecap intensity
 
   constructor(
     position: V2d,
-    velocity: V2d,
-    side: WakeSide,
-    intensity: number = 1,
-    maxAge: number = DEFAULT_MAX_AGE,
+    speed: number,
+    waterlineLength: number,
+    beam: number,
+    spawnSpacing: number,
+    amplitudeScale: number = 1,
   ) {
     super();
-    this.side = side;
     this.posX = position.x;
     this.posY = position.y;
-    this.position = position.clone();
-    // Store velocity for both movement and water contribution
-    this.velX = velocity.x;
-    this.velY = velocity.y;
-    this.intensity = intensity;
-    this.maxAge = maxAge;
+
+    // Ring expansion speed: half boat speed (group velocity of hull wavelength).
+    // Add some random variation so rings don't all expand at exactly the same rate.
+    this.groupSpeed = speed * GROUP_SPEED_FRACTION * rNormal(1.0, 0.1);
+
+    // Froude number: dimensionless speed relative to hull length.
+    const froudeNumber = speed / Math.sqrt(GRAVITY * waterlineLength);
+
+    // Wave-making energy: grows as Fr² below hull speed, then saturates smoothly.
+    const froudeFactor = Math.tanh(froudeNumber / HULL_SPEED_FROUDE);
+    const totalWakeAmplitude =
+      WAVE_HEIGHT_SCALE * beam * froudeFactor * froudeFactor;
+
+    // Per-particle amplitude: scaled by spawn spacing relative to ring width.
+    // When many particles overlap within one ring width, they reconstruct
+    // the total amplitude. sqrt(ds / ringWidth) normalizes for overlap count.
+    this.initialAmplitude =
+      totalWakeAmplitude *
+      Math.sqrt(spawnSpacing / RING_WIDTH) *
+      amplitudeScale;
+
+    // Turbulence (foam) scales with wave-making energy
+    this.turbulence = froudeFactor * froudeFactor;
+
+    // Max age: when peak amplitude drops below visible threshold.
+    // Peak amplitude at ring front: A₀/sqrt(r) * exp(-t/τ), where r = groupSpeed*t.
+    // Use damping alone for conservative estimate.
+    this.maxAge =
+      this.initialAmplitude > MIN_VISIBLE_AMPLITUDE
+        ? DAMPING_TIME * Math.log(this.initialAmplitude / MIN_VISIBLE_AMPLITUDE)
+        : 0;
   }
 
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]): void {
     this.age += dt;
 
-    // Move outward based on velocity
-    this.posX += this.velX * dt;
-    this.posY += this.velY * dt;
-    this.position.x = this.posX;
-    this.position.y = this.posY;
-
-    // Decay intensity over time
-    this.intensity *= 1 - DECAY_RATE * dt;
-
-    // Self-destruct when faded or too old
-    if (this.age >= this.maxAge || this.intensity < 0.01) {
+    if (this.age >= this.maxAge) {
       this.destroy();
     }
   }
 
-  @on("destroy")
-  onDestroy(): void {
-    // Unlink from chain
-    if (this.prev) {
-      this.prev.next = null;
-    }
-    if (this.next) {
-      this.next.prev = null;
-    }
-  }
-
-  /** Check if we have a valid next particle to form a segment with */
-  private hasNextSegment(): boolean {
-    return this.next !== null && !this.next.isDestroyed;
-  }
-
   // WaterModifier implementation
 
-  /** Get the current influence radius based on age */
-  getCurrentRadius(): number {
-    // Radius expands from BASE_RADIUS to MAX_RADIUS over lifetime
-    const ageFraction = Math.min(1, this.age / this.maxAge);
-    return BASE_RADIUS + (MAX_RADIUS - BASE_RADIUS) * ageFraction;
+  private getRingRadius(): number {
+    return this.groupSpeed * this.age;
   }
 
-  /** Get intensity multiplier that fades in during warmup */
-  getWarmupMultiplier(): number {
-    if (this.age >= WARMUP_TIME) return 1;
-    return this.age / WARMUP_TIME;
+  private getOuterRadius(): number {
+    return this.getRingRadius() + RING_WIDTH * 3;
   }
 
   getWaterModifierAABB(): AABB {
-    const radius = this.getCurrentRadius();
-
-    if (this.hasNextSegment()) {
-      // Bounding box covers capsule from this position to next position
-      const next = this.next!;
-      const nextRadius = next.getCurrentRadius();
-      const maxRadius = Math.max(radius, nextRadius);
-
-      this.aabb.lowerBound.x = Math.min(this.posX, next.posX) - maxRadius;
-      this.aabb.lowerBound.y = Math.min(this.posY, next.posY) - maxRadius;
-      this.aabb.upperBound.x = Math.max(this.posX, next.posX) + maxRadius;
-      this.aabb.upperBound.y = Math.max(this.posY, next.posY) + maxRadius;
-    } else {
-      // Tail particle - circular cap only
-      this.aabb.lowerBound.x = this.posX - radius;
-      this.aabb.lowerBound.y = this.posY - radius;
-      this.aabb.upperBound.x = this.posX + radius;
-      this.aabb.upperBound.y = this.posY + radius;
-    }
-
+    const radius = this.getOuterRadius();
+    this.aabb.lowerBound.x = this.posX - radius;
+    this.aabb.lowerBound.y = this.posY - radius;
+    this.aabb.upperBound.x = this.posX + radius;
+    this.aabb.upperBound.y = this.posY + radius;
     return this.aabb;
   }
 
-  /**
-   * Export modifier data for GPU compute shader.
-   * Returns null if this particle should not contribute (destroyed, too old, etc.)
-   */
   getGPUModifierData(): GPUWaterModifierData | null {
-    // Don't contribute if destroyed or past max age
-    if (this.isDestroyed || this.age > this.maxAge) return null;
+    if (this.isDestroyed) return null;
 
-    const warmup = this.getWarmupMultiplier();
-    const intensity = this.intensity * warmup;
+    const ringRadius = this.getRingRadius();
 
-    // Don't contribute if faded out
-    if (intensity < 0.01) return null;
+    // Viscous damping
+    const damping = Math.exp(-this.age / DAMPING_TIME);
 
-    const hasNext = this.hasNextSegment();
-    const next = this.next;
-    const radiusA = this.getCurrentRadius();
-    const radiusB = hasNext ? next!.getCurrentRadius() : radiusA;
+    // Geometric spreading: 1/sqrt(r) for 2D circular waves
+    const spreading = ringRadius > 1 ? 1 / Math.sqrt(ringRadius) : 1;
+
+    // Final amplitude at the ring, fully computed on CPU
+    const amplitude = this.initialAmplitude * damping * spreading;
 
     return {
       type: WaterModifierType.Wake,
       bounds: this.getWaterModifierAABB(),
       data: {
         type: WaterModifierType.Wake,
-        intensity: intensity * HEIGHT_SCALE,
-        posAX: this.posX,
-        posAY: this.posY,
-        posBX: hasNext ? next!.posX : this.posX,
-        posBY: hasNext ? next!.posY : this.posY,
-        radiusA,
-        radiusB,
-        rawIntensity: intensity, // Raw intensity (0-1) for turbulence/foam
+        posX: this.posX,
+        posY: this.posY,
+        ringRadius,
+        ringWidth: RING_WIDTH,
+        amplitude,
+        turbulence: this.turbulence * damping * spreading,
       },
     };
   }

@@ -41,16 +41,14 @@ export const MAX_MODIFIERS = 16384;
  *   [4]  maxY          AABB upper bound Y (ft)
  *   [5..13]            type-specific data (see below)
  *
- * Wake (capsule segment between two linked WakeParticles):
- *   [5]  intensity     height-scaled wave amplitude (ft)
- *   [6]  posAX         segment start X (ft) — this particle's position
- *   [7]  posAY         segment start Y (ft)
- *   [8]  posBX         segment end X (ft) — next particle's position, or same as A if tail
- *   [9]  posBY         segment end Y (ft)
- *   [10] radiusA       influence radius at segment start (ft)
- *   [11] radiusB       influence radius at segment end (ft)
- *   [12] rawIntensity  unscaled intensity (0-1) for foam/turbulence
- *   [13] (padding)
+ * Wake (expanding ring pulse):
+ *   [5]  posX          source position X (ft)
+ *   [6]  posY          source position Y (ft)
+ *   [7]  ringRadius    distance from center to ring peak (ft)
+ *   [8]  ringWidth     Gaussian width of ring pulse (ft)
+ *   [9]  amplitude     pre-computed height at ring (ft)
+ *   [10] turbulence    pre-computed turbulence (0-1)
+ *   [11..13] (padding)
  *
  * Ripple / Current / Obstacle use only [5..7], leaving [8..13] as zero.
  */
@@ -192,14 +190,14 @@ export class WaterResources extends BaseEntity {
       // Pack type-specific data (see FLOATS_PER_MODIFIER comment for layout)
       switch (mod.data.type) {
         case WaterModifierType.Wake:
-          this.modifierData[base + 5] = mod.data.intensity;
-          this.modifierData[base + 6] = mod.data.posAX;
-          this.modifierData[base + 7] = mod.data.posAY;
-          this.modifierData[base + 8] = mod.data.posBX;
-          this.modifierData[base + 9] = mod.data.posBY;
-          this.modifierData[base + 10] = mod.data.radiusA;
-          this.modifierData[base + 11] = mod.data.radiusB;
-          this.modifierData[base + 12] = mod.data.rawIntensity;
+          this.modifierData[base + 5] = mod.data.posX;
+          this.modifierData[base + 6] = mod.data.posY;
+          this.modifierData[base + 7] = mod.data.ringRadius;
+          this.modifierData[base + 8] = mod.data.ringWidth;
+          this.modifierData[base + 9] = mod.data.amplitude;
+          this.modifierData[base + 10] = mod.data.turbulence;
+          this.modifierData[base + 11] = 0; // padding
+          this.modifierData[base + 12] = 0; // padding
           this.modifierData[base + 13] = 0; // padding
           break;
         case WaterModifierType.Ripple:
