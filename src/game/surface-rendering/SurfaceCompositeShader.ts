@@ -312,18 +312,21 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   // Foam from turbulence (wave breaking + wake)
   var turbulenceFoam = 0.0;
   if (turbulence > 0.0) {
-    // Fractal noise for natural, streaky foam texture
+    // Fractal noise for natural, streaky foam texture, remapped to [0, 1]
     let foamNoise = fractalNoise3D(vec3<f32>(
       worldPos.x * 0.5,
       worldPos.y * 0.5,
       params.time * 0.4
-    ));
+    )) * 0.5 + 0.5;
 
-    // Threshold-based foam: more turbulence = lower threshold = more foam coverage
-    let foamThreshold = 1.0 - turbulence;
-    let foamAmount = smoothstep(foamThreshold - 0.2, foamThreshold, foamNoise);
-
-    turbulenceFoam = foamAmount * saturate(turbulence);
+    // Amplify turbulence so small values (e.g. wake) still produce visible foam.
+    // foamCoverage controls both how much of the noise field becomes foam and
+    // the final brightness — avoiding the double-penalty of using turbulence twice.
+    // Exponential curve: approaches but never reaches max coverage as turbulence increases.
+    // Multiply by 0.7 so even extreme turbulence tops out at 70% foam density.
+    let foamCoverage = (1.0 - exp(-turbulence * 1.0)) * 0.7;
+    let foamThreshold = 1.0 - foamCoverage;
+    turbulenceFoam = smoothstep(foamThreshold - 0.15, foamThreshold, foamNoise) * foamCoverage;
   }
 
   if (params.hasTerrainData == 0) {
