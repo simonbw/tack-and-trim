@@ -142,7 +142,9 @@ fn computeHeightAtPoint(
     let ps = meshResult.phasorSin;
     energyFactors[i] = sqrt(pc * pc + ps * ps);
     directionOffsets[i] = 0.0;
-    phaseCorrections[i] = atan2(ps, pc);
+    // Guard against atan2(0,0): WGSL spec leaves it undefined, some GPUs return NaN.
+    // When the phasor is zero (full shadow) the phase correction is irrelevant anyway.
+    phaseCorrections[i] = select(atan2(ps, pc), 0.0, pc == 0.0 && ps == 0.0);
   }
 
   // Calculate Gerstner waves with per-wave energy factors, direction bending, and phase corrections
