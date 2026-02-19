@@ -16,6 +16,7 @@ const fonts = {
 export type FontName = keyof typeof fonts;
 
 const levels = {
+  sanJuanIslands: require("./levels/san-juan-islands.level.json"),
   default: require("./levels/default.level.json")
 };
 export type LevelName = keyof typeof levels;
@@ -26,7 +27,7 @@ const entityDefs = {
 export type EntityDefName = keyof typeof entityDefs;
 
 const jsonBlobs = {
-
+  sanJuanIslands: require("./terrain/san-juan-islands.terrain.json")
 };
 
 export const RESOURCES = { sounds, images, fonts, levels, entityDefs, jsonBlobs };
