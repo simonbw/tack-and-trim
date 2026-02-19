@@ -27,6 +27,7 @@ import {
 } from "../wave-physics/WavePhysicsResources";
 import { TerrainResources } from "../world/terrain/TerrainResources";
 import { WaterResources } from "../world/water/WaterResources";
+import { ModifierRasterizer } from "./ModifierRasterizer";
 import { createWaterHeightShader } from "./WaterHeightShader";
 import { createSurfaceCompositeShader } from "./SurfaceCompositeShader";
 import { createTerrainScreenShader } from "./TerrainScreenShader";
@@ -38,6 +39,9 @@ import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
+
+// Modifier texture resolution scale (fraction of screen resolution)
+const MODIFIER_RESOLUTION_SCALE = 0.25;
 
 // Shallow water threshold for rendering
 const SHALLOW_WATER_THRESHOLD = 1.5;
@@ -62,6 +66,12 @@ export class SurfaceRenderer extends BaseEntity {
 
   // Wetness render pipeline (tracks sand wetness over time)
   private wetnessPipeline: WetnessRenderPipeline | null = null;
+
+  // Modifier rasterizer (wakes, ripples → screen-space texture)
+  private modifierRasterizer: ModifierRasterizer | null = null;
+  private modifierTexture: GPUTexture | null = null;
+  private modifierTextureView: GPUTextureView | null = null;
+  private modifierSampler: GPUSampler | null = null;
 
   // Intermediate textures
   private terrainHeightTexture: GPUTexture | null = null;
@@ -102,7 +112,6 @@ export class SurfaceRenderer extends BaseEntity {
   private lastTextureWidth = 0;
   private lastTextureHeight = 0;
   private lastWaveDataBuffer: GPUBuffer | null = null;
-  private lastModifiersBuffer: GPUBuffer | null = null;
   private lastTerrainAtlasView: GPUTextureView | null = null;
   private lastWaveFieldTextureView: GPUTextureView | null = null;
 
@@ -129,12 +138,16 @@ export class SurfaceRenderer extends BaseEntity {
       // Using placeholder size - will be recreated when ensureTextures is called
       this.wetnessPipeline = new WetnessRenderPipeline(device, 1, 1);
 
+      // Create modifier rasterizer
+      this.modifierRasterizer = new ModifierRasterizer(device);
+
       await Promise.all([
         this.terrainScreenShader.init(),
         this.waterHeightShader.init(),
         this.compositeShader.init(),
         this.terrainTileCache.init(),
         this.wetnessPipeline.init(),
+        this.modifierRasterizer.init(),
       ]);
 
       // Create uniform buffers
@@ -181,6 +194,15 @@ export class SurfaceRenderer extends BaseEntity {
         label: "Wave Field Sampler",
       });
 
+      // Create modifier sampler (linear filtering, clamp-to-edge)
+      this.modifierSampler = device.createSampler({
+        magFilter: "linear",
+        minFilter: "linear",
+        addressModeU: "clamp-to-edge",
+        addressModeV: "clamp-to-edge",
+        label: "Modifier Sampler",
+      });
+
       this.initialized = true;
     } catch (error) {
       console.error("Failed to initialize SurfaceRenderer:", error);
@@ -222,6 +244,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.terrainHeightTexture?.destroy();
     this.waterHeightTexture?.destroy();
     this.waveFieldTexture?.destroy();
+    this.modifierTexture?.destroy();
 
     // Destroy old wetness pipeline (will be recreated with new size)
     this.wetnessPipeline?.destroy();
@@ -255,6 +278,20 @@ export class SurfaceRenderer extends BaseEntity {
     this.waveFieldTextureView = this.waveFieldTexture.createView({
       dimension: "2d-array",
       label: "Wave Field Texture View",
+    });
+
+    // Create modifier texture at reduced resolution (wakes are low-frequency)
+    const modW = Math.max(1, Math.round(width * MODIFIER_RESOLUTION_SCALE));
+    const modH = Math.max(1, Math.round(height * MODIFIER_RESOLUTION_SCALE));
+    this.modifierTexture = device.createTexture({
+      size: { width: modW, height: modH },
+      format: "rgba16float",
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      label: "Modifier Texture",
+    });
+    this.modifierTextureView = this.modifierTexture.createView({
+      label: "Modifier Texture View",
     });
 
     // Recreate wetness pipeline with new texture size
@@ -335,9 +372,6 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterHeightUniforms.set.viewportHeight(viewport.height);
     this.waterHeightUniforms.set.time(currentTime);
     this.waterHeightUniforms.set.tideHeight(waterResources.getTideHeight());
-    this.waterHeightUniforms.set.modifierCount(
-      waterResources.getModifierCount(),
-    );
     this.waterHeightUniforms.set.numWaves(waterResources.getNumWaves());
   }
 
@@ -392,14 +426,12 @@ export class SurfaceRenderer extends BaseEntity {
     terrainAtlasView: GPUTextureView,
   ): void {
     const waveDataBuffer = waterResources.waveDataBuffer;
-    const modifiersBuffer = waterResources.modifiersBuffer;
 
     const needsRebuild =
       !this.terrainScreenBindGroup ||
       !this.waterHeightBindGroup ||
       !this.compositeBindGroup ||
       this.lastWaveDataBuffer !== waveDataBuffer ||
-      this.lastModifiersBuffer !== modifiersBuffer ||
       this.lastTerrainAtlasView !== terrainAtlasView ||
       this.lastWaveFieldTextureView !== this.waveFieldTextureView;
 
@@ -418,18 +450,21 @@ export class SurfaceRenderer extends BaseEntity {
       });
     }
 
-    // Water height bind group (uses wave field texture instead of shadow/terrain)
+    // Water height bind group (uses wave field + modifier textures)
     if (
       this.waterHeightShader &&
       this.waterHeightUniformBuffer &&
       this.waterHeightView &&
       this.waveFieldTextureView &&
-      this.waveFieldSampler
+      this.waveFieldSampler &&
+      this.modifierTextureView &&
+      this.modifierSampler
     ) {
       this.waterHeightBindGroup = this.waterHeightShader.createBindGroup({
         params: { buffer: this.waterHeightUniformBuffer },
         waveData: { buffer: waveDataBuffer },
-        modifiers: { buffer: modifiersBuffer },
+        modifierTexture: this.modifierTextureView,
+        modifierSampler: this.modifierSampler,
         waveFieldTexture: this.waveFieldTextureView,
         waveFieldSampler: this.waveFieldSampler,
         outputTexture: this.waterHeightView,
@@ -456,7 +491,6 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Update tracking
     this.lastWaveDataBuffer = waveDataBuffer;
-    this.lastModifiersBuffer = modifiersBuffer;
     this.lastTerrainAtlasView = terrainAtlasView;
     this.lastWaveFieldTextureView = this.waveFieldTextureView;
   }
@@ -587,6 +621,23 @@ export class SurfaceRenderer extends BaseEntity {
       }
     }
 
+    // === Pass 1.75: Modifier Rasterization ===
+    // Rasterize wake/ripple contributions to screen-space texture
+    if (this.modifierRasterizer && this.modifierTexture) {
+      const commandEncoder = device.createCommandEncoder({
+        label: "Modifier Rasterization",
+      });
+      this.modifierRasterizer.render(
+        commandEncoder,
+        waterResources.modifiersBuffer,
+        waterResources.getModifierCount(),
+        expandedViewport,
+        this.modifierTexture,
+        gpuProfiler,
+      );
+      device.queue.submit([commandEncoder.finish()]);
+    }
+
     // === Pass 2: Water Height Compute ===
     if (this.waterHeightShader && this.waterHeightBindGroup) {
       const commandEncoder = device.createCommandEncoder({
@@ -674,9 +725,11 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeShader?.destroy();
     this.terrainTileCache?.destroy();
     this.wetnessPipeline?.destroy();
+    this.modifierRasterizer?.destroy();
     this.terrainHeightTexture?.destroy();
     this.waterHeightTexture?.destroy();
     this.waveFieldTexture?.destroy();
+    this.modifierTexture?.destroy();
     this.terrainScreenUniformBuffer?.destroy();
     this.waterHeightUniformBuffer?.destroy();
     this.compositeUniformBuffer?.destroy();

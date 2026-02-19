@@ -25,7 +25,7 @@ export const WaterHeightUniforms = defineUniformStruct("Params", {
   // Time and water params
   time: f32,
   tideHeight: f32,
-  modifierCount: u32,
+  _paddingMC: u32,
 
   // Wave configuration (from level data)
   numWaves: u32,
