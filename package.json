@@ -17,7 +17,9 @@
     "benchmark": "playwright test --config playwright.benchmark.config.ts",
     "benchmark-mesh-build": "tsx ./bin/benchmark-mesh-build.ts",
     "docs": "typedoc",
-    "count-tokens": "tsx ./bin/count-tokens.ts"
+    "count-tokens": "tsx ./bin/count-tokens.ts",
+    "download-terrain": "tsx bin/import-terrain/download.ts",
+    "process-terrain": "tsx bin/import-terrain/process.ts"
   },
   "repository": {
     "type": "git",
@@ -53,6 +55,7 @@
     "chokidar": "^4.0.3",
     "concurrently": "^9.2.0",
     "console-browserify": "^1.2.0",
+    "geotiff": "^3.0.3",
     "glob": "^11.0.3",
     "http-proxy": "^1.18.1",
     "parcel": "^2.16.3",

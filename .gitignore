@@ -7,3 +7,4 @@ dist
 test-results/
 api-docs/
 .anthropic_api_key
+data/
