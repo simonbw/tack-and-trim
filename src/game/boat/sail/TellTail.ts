@@ -9,6 +9,7 @@ import {
   applyFluidForces,
   flatPlateDrag,
   ForceMagnitudeFn,
+  RHO_AIR,
 } from "../../fluid-dynamics";
 import { WindQuery } from "../../world/wind/WindQuery";
 
@@ -20,7 +21,7 @@ const TELLTAIL_LENGTH = 2; // ft - total streamer length
 const SLACK_FACTOR = 1.02; // Dimensionless constraint slack
 
 // Drag parameters
-const DRAG_SCALE = 0.5; // Dimensionless drag coefficient
+const DRAG_SCALE = 2.0; // Dimensionless drag coefficient
 
 // Rendering
 const TELLTAIL_WIDTH = 0.3; // ft - visual ribbon width
@@ -99,7 +100,7 @@ export class TellTail extends BaseEntity {
     // Need wind query results (1-frame latency)
     if (this.windQuery.results.length === 0) return;
 
-    const drag = flatPlateDrag(DRAG_SCALE);
+    const drag = flatPlateDrag(DRAG_SCALE, RHO_AIR);
 
     // Apply wind forces to all particles except the first (which is fixed to sail)
     for (let i = 1; i < this.bodies.length; i++) {
