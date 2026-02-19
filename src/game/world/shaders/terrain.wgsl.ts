@@ -181,6 +181,97 @@ export const fn_computeSignedDistance: ShaderModule = {
 };
 
 // =============================================================================
+// Distance with Gradient
+// =============================================================================
+
+/**
+ * Result of distance-to-boundary computation with gradient.
+ * The gradient is the unit direction from the nearest boundary point to the query point.
+ */
+export const struct_BoundaryDistanceGradient: ShaderModule = {
+  code: /*wgsl*/ `
+    struct BoundaryDistanceGradient {
+      distance: f32,
+      gradientX: f32,
+      gradientY: f32,
+    }
+  `,
+};
+
+/**
+ * Compute minimum distance to contour boundary AND the gradient direction.
+ * The gradient is the unit vector from the nearest boundary point to the query point,
+ * which is the spatial derivative of the distance field.
+ *
+ * Dependencies: struct_ContourData, struct_BoundaryDistanceGradient
+ */
+export const fn_computeDistanceToBoundaryWithGradient: ShaderModule = {
+  code: /*wgsl*/ `
+    fn computeDistanceToBoundaryWithGradient(
+      worldPos: vec2<f32>,
+      contourIndex: u32,
+      packedTerrain: ptr<storage, array<u32>, read>
+    ) -> BoundaryDistanceGradient {
+      let c = getContourData(packedTerrain, contourIndex);
+      let n = c.pointCount;
+      let start = c.pointStartIndex;
+
+      var minDistSq: f32 = 1e20;
+      var bestDx: f32 = 0.0;
+      var bestDy: f32 = 0.0;
+
+      for (var i: u32 = 0u; i < n; i++) {
+        let a = getTerrainVertex(packedTerrain, start + i);
+        let b = getTerrainVertex(packedTerrain, start + ((i + 1u) % n));
+
+        let ab = b - a;
+        let lengthSq = dot(ab, ab);
+
+        var dx: f32;
+        var dy: f32;
+        var distSq: f32;
+        if (lengthSq == 0.0) {
+          dx = worldPos.x - a.x;
+          dy = worldPos.y - a.y;
+          distSq = dx * dx + dy * dy;
+        } else {
+          let t = clamp(dot(worldPos - a, ab) / lengthSq, 0.0, 1.0);
+          let nearest = a + t * ab;
+          dx = worldPos.x - nearest.x;
+          dy = worldPos.y - nearest.y;
+          distSq = dx * dx + dy * dy;
+        }
+
+        if (distSq < minDistSq) {
+          minDistSq = distSq;
+          bestDx = dx;
+          bestDy = dy;
+        }
+      }
+
+      var result: BoundaryDistanceGradient;
+      let distance = sqrt(minDistSq);
+      result.distance = distance;
+      if (distance > 1e-9) {
+        let invDist = 1.0 / distance;
+        result.gradientX = bestDx * invDist;
+        result.gradientY = bestDy * invDist;
+      } else {
+        result.gradientX = 0.0;
+        result.gradientY = 0.0;
+      }
+      return result;
+    }
+  `,
+  dependencies: [
+    struct_BoundaryDistanceGradient,
+    struct_ContourData,
+    fn_getContourData,
+    fn_getTerrainVertex,
+  ],
+};
+
+// =============================================================================
 // Terrain Height Compute Functions
 // =============================================================================
 
@@ -295,6 +386,155 @@ export const fn_computeTerrainHeight: ShaderModule = {
   dependencies: [
     fn_isInsideContour,
     fn_computeDistanceToBoundary,
+    fn_getContourData,
+    fn_getTerrainChild,
+  ],
+};
+
+/**
+ * Compute terrain height AND gradient in a single pass.
+ *
+ * Instead of finite-difference normals (which require 3 extra computeTerrainHeight calls),
+ * this analytically differentiates the IDW interpolation formula using the quotient rule:
+ *   h = Σ(hᵢ·wᵢ) / Σ(wᵢ)  where wᵢ = 1/dᵢ
+ *   ∇h = (∇(Σhᵢwᵢ)·Σwᵢ - Σhᵢwᵢ·∇(Σwᵢ)) / (Σwᵢ)²
+ *
+ * The gradient of each weight w=1/d is ∇w = -1/d² · ∇d, where ∇d is the unit direction
+ * to the nearest boundary edge (computed alongside distance at no extra traversal cost).
+ *
+ * Result: same quality gradient with 1 terrain traversal instead of 4.
+ *
+ * Dependencies: fn_isInsideContour, fn_computeDistanceToBoundaryWithGradient
+ */
+export const fn_computeTerrainHeightAndGradient: ShaderModule = {
+  code: /*wgsl*/ `
+    struct TerrainHeightAndGradient {
+      height: f32,
+      gradientX: f32,
+      gradientY: f32,
+    }
+
+    fn computeTerrainHeightAndGradient(
+      worldPos: vec2<f32>,
+      packedTerrain: ptr<storage, array<u32>, read>,
+      contourCount: u32,
+      defaultDepth: f32
+    ) -> TerrainHeightAndGradient {
+      var result: TerrainHeightAndGradient;
+
+      // Phase 1: Find the deepest containing contour using DFS skip traversal
+      var deepestIndex: i32 = -1;
+      var deepestDepth: u32 = 0u;
+
+      var i: u32 = 0u;
+      var lastToCheck: u32 = contourCount;
+
+      while (i < lastToCheck) {
+        let contour = getContourData(packedTerrain, i);
+
+        if (isInsideContour(worldPos, i, packedTerrain)) {
+          if (contour.depth >= deepestDepth) {
+            deepestDepth = contour.depth;
+            deepestIndex = i32(i);
+          }
+          lastToCheck = i + contour.skipCount + 1u;
+          i += 1u;
+        } else {
+          i += contour.skipCount + 1u;
+        }
+      }
+
+      // Phase 2: If not inside any contour, return default depth with zero gradient
+      if (deepestIndex < 0) {
+        result.height = defaultDepth;
+        result.gradientX = 0.0;
+        result.gradientY = 0.0;
+        return result;
+      }
+
+      let parent = getContourData(packedTerrain, u32(deepestIndex));
+
+      // Phase 3: If the parent has no children, height is constant — zero gradient
+      if (parent.childCount == 0u) {
+        result.height = parent.height;
+        result.gradientX = 0.0;
+        result.gradientY = 0.0;
+        return result;
+      }
+
+      // Phase 4: IDW interpolation with analytical gradient
+      // We accumulate: weightSum, weightedHeightSum, and their gradients
+      var weightSum: f32 = 0.0;
+      var weightedHeightSum: f32 = 0.0;
+      var gradWeightSumX: f32 = 0.0;
+      var gradWeightSumY: f32 = 0.0;
+      var gradWeightedHeightSumX: f32 = 0.0;
+      var gradWeightedHeightSumY: f32 = 0.0;
+
+      // Parent contribution
+      let parentBdg = computeDistanceToBoundaryWithGradient(
+        worldPos, u32(deepestIndex), packedTerrain
+      );
+      var weight: f32;
+      var gradWeightX: f32 = 0.0;
+      var gradWeightY: f32 = 0.0;
+      if (parentBdg.distance <= _IDW_MIN_DIST) {
+        weight = 1.0 / _IDW_MIN_DIST;
+      } else {
+        let invDist = 1.0 / parentBdg.distance;
+        weight = invDist;
+        let scale = -invDist * invDist;
+        gradWeightX = scale * parentBdg.gradientX;
+        gradWeightY = scale * parentBdg.gradientY;
+      }
+      weightSum += weight;
+      weightedHeightSum += parent.height * weight;
+      gradWeightSumX += gradWeightX;
+      gradWeightSumY += gradWeightY;
+      gradWeightedHeightSumX += parent.height * gradWeightX;
+      gradWeightedHeightSumY += parent.height * gradWeightY;
+
+      // Children contributions
+      for (var c: u32 = 0u; c < parent.childCount; c++) {
+        let childIndex = getTerrainChild(packedTerrain, parent.childStartIndex + c);
+        let child = getContourData(packedTerrain, childIndex);
+
+        let childBdg = computeDistanceToBoundaryWithGradient(
+          worldPos, childIndex, packedTerrain
+        );
+
+        var cWeight: f32;
+        var cGradWeightX: f32 = 0.0;
+        var cGradWeightY: f32 = 0.0;
+        if (childBdg.distance <= _IDW_MIN_DIST) {
+          cWeight = 1.0 / _IDW_MIN_DIST;
+        } else {
+          let cInvDist = 1.0 / childBdg.distance;
+          cWeight = cInvDist;
+          let cScale = -cInvDist * cInvDist;
+          cGradWeightX = cScale * childBdg.gradientX;
+          cGradWeightY = cScale * childBdg.gradientY;
+        }
+        weightSum += cWeight;
+        weightedHeightSum += child.height * cWeight;
+        gradWeightSumX += cGradWeightX;
+        gradWeightSumY += cGradWeightY;
+        gradWeightedHeightSumX += child.height * cGradWeightX;
+        gradWeightedHeightSumY += child.height * cGradWeightY;
+      }
+
+      // Quotient rule: ∇(f/g) = (∇f·g - f·∇g) / g²
+      let invWeightSum = 1.0 / weightSum;
+      let invWeightSumSq = invWeightSum * invWeightSum;
+      result.height = weightedHeightSum * invWeightSum;
+      result.gradientX = (gradWeightedHeightSumX * weightSum - weightedHeightSum * gradWeightSumX) * invWeightSumSq;
+      result.gradientY = (gradWeightedHeightSumY * weightSum - weightedHeightSum * gradWeightSumY) * invWeightSumSq;
+      return result;
+    }
+  `,
+  dependencies: [
+    fn_isInsideContour,
+    fn_computeDistanceToBoundaryWithGradient,
     fn_getContourData,
     fn_getTerrainChild,
   ],
