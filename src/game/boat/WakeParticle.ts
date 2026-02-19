@@ -27,7 +27,7 @@ const GROUP_SPEED_FRACTION = 0.5;
 const MIN_VISIBLE_AMPLITUDE = 0.001; // ft — destroy when peak amplitude drops below this
 
 // Viscous damping time constant.
-const DAMPING_TIME = 1.0; // seconds — e-folding time for amplitude decay
+const DAMPING_TIME = 0.75; // seconds — e-folding time for amplitude decay
 
 /**
  * A wake particle that acts as a point-source expanding ring pulse.
