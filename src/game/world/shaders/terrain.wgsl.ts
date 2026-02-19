@@ -414,6 +414,8 @@ export const fn_computeTerrainHeightAndGradient: ShaderModule = {
       gradientY: f32,
     }
 
+    const _IDW_MIN_DIST: f32 = 0.1;
+
     fn computeTerrainHeightAndGradient(
       worldPos: vec2<f32>,
       packedTerrain: ptr<storage, array<u32>, read>,
