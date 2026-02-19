@@ -2,12 +2,13 @@
  * Water Modifier Rasterizer
  *
  * Rasterizes water modifier contributions (wakes, ripples, etc.) to a
- * screen-space rgba16float texture using instanced quads.
+ * screen-space rgba16float texture using instanced annular polygons.
  *
- * Each modifier gets a screen-aligned quad covering its AABB. The fragment
- * shader computes the type-specific contribution. Additive blending
- * accumulates height (R channel); max blending preserves peak turbulence
- * (A channel).
+ * Each modifier gets an 8-segment annular polygon covering only the ring
+ * band where the contribution is significant, avoiding wasted fragments in
+ * the AABB corners and empty ring interior. The fragment shader computes
+ * the type-specific contribution. Additive blending accumulates height
+ * (R channel); max blending preserves peak turbulence (A channel).
  *
  * Output: vec4(height, 0, 0, turbulence)
  * Clear color: (0, 0, 0, 0) = no modifier contribution
@@ -47,6 +48,13 @@ struct ModifierParams {
 @group(0) @binding(0) var<uniform> params: ModifierParams;
 @group(0) @binding(1) var<storage, read> modifiers: array<f32>;
 
+// 8-segment annular polygon: 8 segments × 6 vertices = 48 vertices per instance
+const RING_SEGMENTS: u32 = 8u;
+const VERTS_PER_INSTANCE: u32 = 48u; // RING_SEGMENTS * 6
+const TWO_PI: f32 = 6.283185307;
+// Expand outer radius so inscribed polygon fully covers the circle: 1/cos(π/8)
+const POLYGON_COVERAGE: f32 = 1.0824;
+
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) worldPos: vec2<f32>,
@@ -58,24 +66,70 @@ fn vs_main(
   @builtin(vertex_index) vertexIndex: u32,
   @builtin(instance_index) instanceIndex: u32,
 ) -> VertexOutput {
-  // Procedural quad: 6 vertices → 2 triangles
-  // Vertex order: 0,1,2, 2,1,3 → bottom-left, top-left, bottom-right, top-right
-  let quadX = array<f32, 6>(0.0, 0.0, 1.0, 1.0, 0.0, 1.0);
-  let quadY = array<f32, 6>(1.0, 0.0, 1.0, 1.0, 0.0, 0.0);
-
-  let qx = quadX[vertexIndex];
-  let qy = quadY[vertexIndex];
-
-  // Read AABB from modifier buffer
   let base = instanceIndex * params.floatsPerModifier;
+  let modType = u32(modifiers[base + 0u]);
+
   let minX = modifiers[base + 1u];
   let minY = modifiers[base + 2u];
   let maxX = modifiers[base + 3u];
   let maxY = modifiers[base + 4u];
 
-  // Interpolate world position within AABB
-  let worldX = minX + qx * (maxX - minX);
-  let worldY = minY + qy * (maxY - minY);
+  // Compute center and inner/outer radii based on modifier type
+  var centerX: f32;
+  var centerY: f32;
+  var innerR: f32;
+  var outerR: f32;
+
+  if (modType == 1u) {
+    // Wake: ring centered on source position
+    centerX = modifiers[base + 5u];
+    centerY = modifiers[base + 6u];
+    let ringRadius = modifiers[base + 7u];
+    let ringWidth = modifiers[base + 8u];
+    innerR = max(0.0, ringRadius - 3.0 * ringWidth);
+    outerR = ringRadius + 3.0 * ringWidth;
+  } else if (modType == 2u) {
+    // Ripple: ring centered on AABB center
+    centerX = (minX + maxX) * 0.5;
+    centerY = (minY + maxY) * 0.5;
+    let radius = modifiers[base + 5u];
+    innerR = max(0.0, radius - 2.0);
+    outerR = radius + 2.0;
+  } else {
+    // Fallback: filled circle from AABB
+    centerX = (minX + maxX) * 0.5;
+    centerY = (minY + maxY) * 0.5;
+    innerR = 0.0;
+    outerR = max(maxX - minX, maxY - minY) * 0.5;
+  }
+
+  // Expand outer radius so polygon edges fully cover the circle
+  outerR *= POLYGON_COVERAGE;
+
+  // Generate annular polygon vertex
+  // Each segment has 6 vertices forming 2 triangles (inner/outer ring band)
+  let segment = vertexIndex / 6u;
+  let local = vertexIndex % 6u;
+
+  let angle0 = f32(segment) * TWO_PI / f32(RING_SEGMENTS);
+  let angle1 = f32(segment + 1u) * TWO_PI / f32(RING_SEGMENTS);
+
+  // 6 vertices per segment: 2 triangles forming a trapezoid
+  //   Tri 1: (inner,a0), (outer,a0), (inner,a1)
+  //   Tri 2: (inner,a1), (outer,a0), (outer,a1)
+  var r: f32;
+  var angle: f32;
+  switch (local) {
+    case 0u: { r = innerR; angle = angle0; }
+    case 1u: { r = outerR; angle = angle0; }
+    case 2u: { r = innerR; angle = angle1; }
+    case 3u: { r = innerR; angle = angle1; }
+    case 4u: { r = outerR; angle = angle0; }
+    default: { r = outerR; angle = angle1; }
+  }
+
+  let worldX = centerX + r * cos(angle);
+  let worldY = centerY + r * sin(angle);
 
   // World → NDC
   let ndcX = 2.0 * (worldX - params.viewportLeft) / params.viewportWidth - 1.0;
@@ -313,7 +367,7 @@ export class ModifierRasterizer {
     renderPass.setBindGroup(0, this.bindGroup);
 
     if (modifierCount > 0) {
-      renderPass.draw(6, modifierCount);
+      renderPass.draw(48, modifierCount); // RING_SEGMENTS * 6
     }
 
     renderPass.end();
