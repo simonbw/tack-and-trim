@@ -54,7 +54,7 @@ export const StarterDinghy: BoatConfig = {
 
   rig: {
     mastPosition: V(3, 0), // ~35-40% from bow
-    boomLength: 7, // ft
+    boomLength: 1, // ft
     boomWidth: 0.5, // ft (~6 inches)
     boomMass: 15, // lbs
     colors: {
