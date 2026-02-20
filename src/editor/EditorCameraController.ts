@@ -12,7 +12,7 @@ import { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 import { Camera2d } from "../core/graphics/Camera2d";
 import { V, V2d } from "../core/Vector";
-import { EditorTerrainDefinition } from "./io/TerrainFileFormat";
+import { EditorTerrainDefinition } from "./io/LevelFileFormat";
 
 const MIN_ZOOM = 0.02; // Allows 50x zoom out
 const MAX_ZOOM = 50;

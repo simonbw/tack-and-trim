@@ -18,6 +18,66 @@ import {
   DEFAULT_WAVE_CONFIG,
 } from "../../game/world/water/WaveSource";
 
+// ==========================================
+// Editor types
+// ==========================================
+
+/**
+ * Editor contour data - separate from TerrainContour to avoid requiring
+ * pre-sampled polygons during editing. Sampling happens on export to game format.
+ */
+export interface EditorContour {
+  /** Catmull-Rom control points defining the contour (closed loop) */
+  readonly controlPoints: readonly V2d[];
+  /** Height of this contour in feet (negative = underwater, positive = above water) */
+  readonly height: number;
+  /** Optional human-readable name for the contour */
+  name?: string;
+}
+
+/**
+ * Editor terrain definition that preserves file format metadata.
+ */
+export interface EditorTerrainDefinition {
+  defaultDepth: number;
+  contours: EditorContour[];
+}
+
+/**
+ * Editor level definition: terrain plus optional wave config.
+ */
+export interface EditorLevelDefinition {
+  terrain: EditorTerrainDefinition;
+  waveConfig: WaveConfig | undefined;
+}
+
+/**
+ * Create an empty editor terrain definition.
+ */
+export function createEmptyEditorDefinition(): EditorTerrainDefinition {
+  return {
+    defaultDepth: DEFAULT_DEPTH,
+    contours: [],
+  };
+}
+
+/**
+ * Convert editor terrain definition to game TerrainDefinition.
+ * This performs spline sampling to create the sampledPolygon for each contour.
+ */
+export function editorDefinitionToGameDefinition(
+  definition: EditorTerrainDefinition,
+): TerrainDefinition {
+  const contours: TerrainContour[] = definition.contours.map((c) =>
+    createContour([...c.controlPoints], c.height),
+  );
+
+  return {
+    contours,
+    defaultDepth: definition.defaultDepth,
+  };
+}
+
 /** Current file format version */
 export const LEVEL_FILE_VERSION = 1;
 
@@ -278,4 +338,65 @@ export function waveConfigToJSON(config: WaveConfig): WaveConfigJSON {
 export function parseLevelFile(json: string): LevelFileJSON {
   const data = JSON.parse(json);
   return validateLevelFile(data);
+}
+
+// ==========================================
+// Editor conversion functions
+// ==========================================
+
+/**
+ * Convert level file JSON to editor level definition (preserves names and waves).
+ */
+export function levelFileToEditorDefinition(
+  file: LevelFileJSON,
+): EditorLevelDefinition {
+  const contours: EditorContour[] = file.contours.map((c) => {
+    const controlPoints: V2d[] = c.controlPoints.map(([x, y]) => V(x, y));
+    return {
+      name: c.name,
+      controlPoints,
+      height: c.height,
+    };
+  });
+
+  return {
+    terrain: {
+      defaultDepth: file.defaultDepth ?? DEFAULT_DEPTH,
+      contours,
+    },
+    waveConfig: file.waves ? waveConfigJSONToWaveConfig(file.waves) : undefined,
+  };
+}
+
+/**
+ * Convert editor level definition to level file JSON for saving.
+ */
+export function editorDefinitionToLevelFile(
+  definition: EditorLevelDefinition,
+): LevelFileJSON {
+  const contours: TerrainContourJSON[] = definition.terrain.contours.map(
+    (c) => ({
+      name: c.name,
+      height: c.height,
+      controlPoints: c.controlPoints.map(
+        (pt) => [pt.x, pt.y] as [number, number],
+      ),
+    }),
+  );
+
+  return {
+    version: LEVEL_FILE_VERSION,
+    defaultDepth: definition.terrain.defaultDepth,
+    ...(definition.waveConfig && {
+      waves: waveConfigToJSON(definition.waveConfig),
+    }),
+    contours,
+  };
+}
+
+/**
+ * Serialize level file to JSON string.
+ */
+export function serializeLevelFile(file: LevelFileJSON): string {
+  return JSON.stringify(file, null, 2);
 }

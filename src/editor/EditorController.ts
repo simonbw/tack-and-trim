@@ -25,11 +25,11 @@ import {
 import { EditorCameraController } from "./EditorCameraController";
 import {
   EditorContour,
-  editorDefinitionToFile,
   editorDefinitionToGameDefinition,
-  serializeTerrainFile,
-} from "./io/TerrainFileFormat";
-import { loadDefaultEditorTerrain } from "./io/TerrainLoader";
+  editorDefinitionToLevelFile,
+  serializeLevelFile,
+} from "./io/LevelFileFormat";
+import { loadDefaultEditorLevel } from "./io/LevelLoader";
 import { EditorUI } from "./EditorUI";
 import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
 import { WavePhysicsResources } from "../game/wave-physics/WavePhysicsResources";
@@ -158,9 +158,9 @@ export class EditorController
 
   @on("add")
   onAdd(): void {
-    // Load default terrain from bundled resource
-    const terrain = loadDefaultEditorTerrain();
-    this.document.setTerrainDefinition(terrain);
+    // Load default level from bundled resource
+    const level = loadDefaultEditorLevel();
+    this.document.setLevelDefinition(level);
 
     // Create TerrainResources for GPU buffers and terrain data storage
     // Convert editor definition to game definition (performs spline sampling)
@@ -353,14 +353,16 @@ export class EditorController
    * Save terrain to a JSON string.
    */
   saveToJson(): string {
-    const file = editorDefinitionToFile(this.document.getTerrainDefinition());
-    return serializeTerrainFile(file);
+    const file = editorDefinitionToLevelFile(
+      this.document.getLevelDefinition(),
+    );
+    return serializeLevelFile(file);
   }
 
   /**
    * Download terrain as a JSON file.
    */
-  downloadJson(filename: string = "terrain.json"): void {
+  downloadJson(filename: string = "default.level.json"): void {
     const json = this.saveToJson();
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -415,11 +417,11 @@ export class EditorController
       const options: SaveFilePickerOptions = {
         types: [
           {
-            description: "Terrain Files",
-            accept: { "application/json": [".json", ".terrain.json"] },
+            description: "Level Files",
+            accept: { "application/json": [".json", ".level.json"] },
           },
         ],
-        suggestedName: "terrain.json",
+        suggestedName: "default.level.json",
       };
 
       // Start in the same folder as the current file if we have one
@@ -452,8 +454,8 @@ export class EditorController
       const options: OpenFilePickerOptions = {
         types: [
           {
-            description: "Terrain Files",
-            accept: { "application/json": [".json", ".terrain.json"] },
+            description: "Level Files",
+            accept: { "application/json": [".json", ".level.json"] },
           },
         ],
       };
@@ -495,9 +497,9 @@ export class EditorController
    * Load terrain from a File object.
    */
   async loadFromFile(file: File): Promise<void> {
-    const { loadTerrainFromFile } = await import("./io/TerrainLoader");
-    const terrain = await loadTerrainFromFile(file);
-    this.document.setTerrainDefinition(terrain);
+    const { loadLevelFromFile } = await import("./io/LevelLoader");
+    const level = await loadLevelFromFile(file);
+    this.document.setLevelDefinition(level);
     this.cameraController?.fitToTerrain();
   }
 
@@ -682,7 +684,7 @@ export class EditorController
   private promptOpenFile(): void {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".json,.terrain.json";
+    input.accept = ".json,.level.json";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (file) {
