@@ -6,63 +6,13 @@ import { Readable } from "stream";
 import path from "path";
 import {
   bboxIntersects,
+  normalizeDatasetPath,
   parseTileCoverageFromName,
-  REGION_PRESETS,
-  resolveBbox,
 } from "./lib/geo-utils";
+import { resolveRegion, loadRegionConfig, tilesDir } from "./lib/region";
 
 const BASE_URL =
   "https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/";
-
-interface DownloadArgs {
-  region?: string;
-  bbox?: string;
-  datasetPath?: string;
-  outDir: string;
-}
-
-function printHelp(): void {
-  console.log(`Usage: tsx bin/import-terrain/download.ts [options]
-
-Options:
-  --region <name>         Region preset (${Object.keys(REGION_PRESETS).join(", ")})
-  --bbox <minLat,minLon,maxLat,maxLon>
-                          Custom bbox if region is not provided
-  --dataset-path <path>   Dataset subfolder (default from region, else wash_juandefuca/)
-  --out-dir <dir>         Cache root directory (default: data/terrain-cache)
-  -h, --help              Show help
-`);
-}
-
-function parseArgs(argv: string[]): DownloadArgs {
-  const args: DownloadArgs = { outDir: "data/terrain-cache" };
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-
-    if (arg === "--region") {
-      args.region = argv[++i];
-    } else if (arg === "--bbox") {
-      args.bbox = argv[++i];
-    } else if (arg === "--dataset-path") {
-      args.datasetPath = argv[++i];
-    } else if (arg === "--out-dir") {
-      args.outDir = argv[++i];
-    } else if (arg === "-h" || arg === "--help") {
-      printHelp();
-      process.exit(0);
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  return args;
-}
-
-function normalizeDatasetPath(datasetPath: string): string {
-  const normalized = datasetPath.trim().replace(/^\/+/, "");
-  return normalized.endsWith("/") ? normalized : `${normalized}/`;
-}
 
 function parseDirectoryLinks(html: string): string[] {
   const links: string[] = [];
@@ -84,7 +34,9 @@ async function listTiffUrls(datasetPath: string): Promise<string[]> {
   const url = new URL(datasetPath, BASE_URL).toString();
   const res = await fetch(url);
   if (!res.ok) {
-    throw new Error(`Failed to list dataset directory ${url}: HTTP ${res.status}`);
+    throw new Error(
+      `Failed to list dataset directory ${url}: HTTP ${res.status}`,
+    );
   }
 
   const html = await res.text();
@@ -95,7 +47,10 @@ async function listTiffUrls(datasetPath: string): Promise<string[]> {
     .map((href) => new URL(href, url).toString());
 }
 
-async function downloadFile(url: string, destinationPath: string): Promise<void> {
+async function downloadFile(
+  url: string,
+  destinationPath: string,
+): Promise<void> {
   const res = await fetch(url);
   if (!res.ok || !res.body) {
     throw new Error(`Failed to download ${url}: HTTP ${res.status}`);
@@ -106,13 +61,13 @@ async function downloadFile(url: string, destinationPath: string): Promise<void>
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  const { bbox, region } = resolveBbox(args.region, args.bbox);
+  const slug = resolveRegion(process.argv.slice(2));
+  const config = loadRegionConfig(slug);
+  const bbox = config.bbox;
+  const datasetPath = normalizeDatasetPath(config.datasetPath);
+  const outDir = tilesDir(slug);
 
-  const datasetPath = normalizeDatasetPath(
-    args.datasetPath ?? region?.datasetPath ?? "wash_juandefuca/",
-  );
-
+  console.log(`Region: ${config.name}`);
   console.log(`Dataset: ${datasetPath}`);
   console.log(
     `BBOX: ${bbox.minLat.toFixed(4)},${bbox.minLon.toFixed(4)} → ${bbox.maxLat.toFixed(4)},${bbox.maxLon.toFixed(4)}`,
@@ -134,12 +89,11 @@ async function main(): Promise<void> {
 
   if (selectedTiffUrls.length === 0) {
     throw new Error(
-      "No matching tiles found for the target bbox. Try a different --dataset-path or broader bbox.",
+      "No matching tiles found for the target bbox. Check the datasetPath in region.json.",
     );
   }
 
-  const cacheDir = path.resolve(args.outDir, datasetPath.replace(/\/+$/, ""));
-  mkdirSync(cacheDir, { recursive: true });
+  mkdirSync(outDir, { recursive: true });
 
   console.log(`Found ${selectedTiffUrls.length} matching tiles`);
 
@@ -149,7 +103,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < selectedTiffUrls.length; i++) {
     const tiffUrl = selectedTiffUrls[i];
     const filename = path.basename(new URL(tiffUrl).pathname);
-    const destinationPath = path.join(cacheDir, filename);
+    const destinationPath = path.join(outDir, filename);
 
     if (existsSync(destinationPath)) {
       skipped++;
@@ -163,7 +117,7 @@ async function main(): Promise<void> {
   }
 
   console.log(`Done. Downloaded: ${downloaded}, skipped: ${skipped}`);
-  console.log(`Cache: ${cacheDir}`);
+  console.log(`Tiles: ${outDir}`);
 }
 
 main().catch((error) => {

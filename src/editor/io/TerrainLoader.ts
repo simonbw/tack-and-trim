@@ -20,7 +20,7 @@ import {
  * Uses the bundled resource from the asset system.
  */
 export function loadDefaultTerrain(): TerrainDefinition {
-  const file = validateTerrainFile(RESOURCES.levels.default);
+  const file = validateTerrainFile(RESOURCES.levels.vendoviIsland);
   return terrainFileToDefinition(file);
 }
 
@@ -29,7 +29,7 @@ export function loadDefaultTerrain(): TerrainDefinition {
  * Uses the bundled resource from the asset system.
  */
 export function loadDefaultEditorTerrain(): EditorTerrainDefinition {
-  const file = validateTerrainFile(RESOURCES.levels.default);
+  const file = validateTerrainFile(RESOURCES.levels.vendoviIsland);
   return terrainFileToEditorDefinition(file);
 }
 

@@ -16,6 +16,7 @@ const fonts = {
 export type FontName = keyof typeof fonts;
 
 const levels = {
+  vendoviIsland: require("./levels/vendovi-island.level.json"),
   default: require("./levels/default.level.json")
 };
 export type LevelName = keyof typeof levels;

@@ -76,8 +76,41 @@ export function createContour(
   return {
     controlPoints,
     height,
-    sampledPolygon: sampleClosedSpline(controlPoints, SAMPLES_PER_SEGMENT),
+    sampledPolygon: sampleClosedSpline(
+      controlPoints,
+      adaptiveSamplesPerSegment(controlPoints),
+    ),
   };
+}
+
+/**
+ * Choose samples-per-segment based on average segment length.
+ * Hand-drawn contours have few, widely-spaced control points and need many
+ * interpolation samples for smooth curves. Imported contours have dense points
+ * that are already close together and need minimal interpolation.
+ */
+function adaptiveSamplesPerSegment(controlPoints: V2d[]): number {
+  const n = controlPoints.length;
+  if (n < 3) return 1;
+
+  let totalLength = 0;
+  for (let i = 0; i < n; i++) {
+    const a = controlPoints[i];
+    const b = controlPoints[(i + 1) % n];
+    totalLength += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+
+  const avgSegmentLength = totalLength / n;
+
+  // Target roughly one sample per SAMPLES_PER_SEGMENT feet of segment length,
+  // clamped to [1, SAMPLES_PER_SEGMENT]
+  return Math.max(
+    1,
+    Math.min(
+      SAMPLES_PER_SEGMENT,
+      Math.round(avgSegmentLength / SAMPLES_PER_SEGMENT),
+    ),
+  );
 }
 
 /**
@@ -326,7 +359,7 @@ const validatedDefinitions = new WeakSet<TerrainDefinition>();
  * - Contours that intersect each other
  *
  * Only validates each definition once to avoid log spam.
- * 
+ *
  * TODO: Actually call this function when loading terrain definitions to provide
  * better error messages during development.
  */

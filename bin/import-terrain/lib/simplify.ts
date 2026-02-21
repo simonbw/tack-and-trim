@@ -1,6 +1,10 @@
 export type Point = [number, number];
 
-function perpendicularDistance(point: Point, lineStart: Point, lineEnd: Point): number {
+function perpendicularDistance(
+  point: Point,
+  lineStart: Point,
+  lineEnd: Point,
+): number {
   const [x, y] = point;
   const [x1, y1] = lineStart;
   const [x2, y2] = lineEnd;
@@ -56,7 +60,10 @@ export function simplifyPolyline(points: Point[], tolerance: number): Point[] {
   return rdp(points, tolerance);
 }
 
-export function simplifyClosedRing(points: Point[], tolerance: number): Point[] {
+export function simplifyClosedRing(
+  points: Point[],
+  tolerance: number,
+): Point[] {
   if (points.length < 4 || tolerance <= 0) {
     return points.slice();
   }
@@ -84,6 +91,16 @@ export function simplifyClosedRing(points: Point[], tolerance: number): Point[] 
 
   const simplifiedRing = simplifiedOpen.slice(0, -1);
   return simplifiedRing.length >= 3 ? simplifiedRing : points.slice();
+}
+
+export function signedArea(points: Point[]): number {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    area += a[0] * b[1] - b[0] * a[1];
+  }
+  return area * 0.5;
 }
 
 export function ringPerimeter(points: Point[]): number {

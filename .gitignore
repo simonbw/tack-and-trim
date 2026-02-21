@@ -8,3 +8,5 @@ test-results/
 api-docs/
 .anthropic_api_key
 data/
+assets/terrain/*/tiles/
+assets/terrain/*/cache/

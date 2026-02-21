@@ -5,27 +5,8 @@ export interface BoundingBox {
   maxLon: number;
 }
 
-export interface RegionPreset {
-  name: string;
-  datasetPath: string;
-  bbox: BoundingBox;
-}
-
 export const FEET_PER_METER = 3.280839895013123;
 const EARTH_RADIUS_METERS = 6_378_137;
-
-export const REGION_PRESETS: Record<string, RegionPreset> = {
-  "san-juan-islands": {
-    name: "San Juan Islands",
-    datasetPath: "wash_juandefuca/",
-    bbox: {
-      minLat: 48.4,
-      minLon: -123.35,
-      maxLat: 48.75,
-      maxLon: -122.75,
-    },
-  },
-};
 
 export function metersToFeet(meters: number): number {
   return meters * FEET_PER_METER;
@@ -63,64 +44,27 @@ export function latLonToFeet(
   const dLonRad = ((lon - centerLon) * Math.PI) / 180;
 
   const yMeters = dLatRad * EARTH_RADIUS_METERS;
-  const xMeters = dLonRad * EARTH_RADIUS_METERS * Math.cos((latRad + centerLatRad) * 0.5);
+  const xMeters =
+    dLonRad * EARTH_RADIUS_METERS * Math.cos((latRad + centerLatRad) * 0.5);
 
   return [metersToFeet(xMeters), metersToFeet(yMeters)];
 }
 
-export function parseBboxArg(raw: string): BoundingBox {
-  const values = raw
-    .split(",")
-    .map((v) => Number(v.trim()))
-    .filter((v) => Number.isFinite(v));
-
-  if (values.length !== 4) {
-    throw new Error(
-      `Invalid --bbox value: "${raw}". Expected "minLat,minLon,maxLat,maxLon"`,
-    );
-  }
-
-  return normalizeBbox({
-    minLat: values[0],
-    minLon: values[1],
-    maxLat: values[2],
-    maxLon: values[3],
-  });
-}
-
-export function resolveBbox(
-  regionName: string | undefined,
-  bboxArg: string | undefined,
-): { bbox: BoundingBox; region: RegionPreset | null } {
-  if (regionName && bboxArg) {
-    throw new Error("Provide either --region or --bbox, not both");
-  }
-
-  if (!regionName && !bboxArg) {
-    throw new Error("Provide one of --region or --bbox");
-  }
-
-  if (regionName) {
-    const region = REGION_PRESETS[regionName];
-    if (!region) {
-      const valid = Object.keys(REGION_PRESETS)
-        .sort()
-        .join(", ");
-      throw new Error(`Unknown region "${regionName}". Valid regions: ${valid}`);
-    }
-    return { bbox: normalizeBbox(region.bbox), region };
-  }
-
-  return { bbox: parseBboxArg(bboxArg!), region: null };
+export function normalizeDatasetPath(datasetPath: string): string {
+  const normalized = datasetPath.trim().replace(/^\/+/, "");
+  return normalized.endsWith("/") ? normalized : `${normalized}/`;
 }
 
 export function bboxIntersects(a: BoundingBox, b: BoundingBox): boolean {
-  return !(a.maxLat <= b.minLat || a.minLat >= b.maxLat || a.maxLon <= b.minLon || a.minLon >= b.maxLon);
+  return !(
+    a.maxLat <= b.minLat ||
+    a.minLat >= b.maxLat ||
+    a.maxLon <= b.minLon ||
+    a.minLon >= b.maxLon
+  );
 }
 
-export function parseTileCoverageFromName(
-  name: string,
-): BoundingBox | null {
+export function parseTileCoverageFromName(name: string): BoundingBox | null {
   const match = /_([ns])(\d{1,2})x(\d{2})_([ew])(\d{1,3})x(\d{2})_/i.exec(name);
   if (!match) {
     return null;

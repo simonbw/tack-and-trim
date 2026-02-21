@@ -17,7 +17,9 @@
     "benchmark": "playwright test --config playwright.benchmark.config.ts",
     "benchmark-mesh-build": "tsx ./bin/benchmark-mesh-build.ts",
     "download-terrain": "tsx ./bin/import-terrain/download.ts",
-    "process-terrain": "tsx ./bin/import-terrain/process.ts",
+    "build-terrain-grid": "tsx ./bin/import-terrain/build-grid.ts",
+    "extract-terrain-contours": "tsx ./bin/import-terrain/extract-contours.ts",
+    "import-terrain": "tsx ./bin/import-terrain/run-all.ts",
     "docs": "typedoc",
     "count-tokens": "tsx ./bin/count-tokens.ts"
   },
