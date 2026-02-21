@@ -27,6 +27,8 @@ import {
   buildMarchingMesh,
   type MeshBuildProfile,
 } from "../src/game/wave-physics/mesh-building/marchingBuilder";
+import { computeBounds } from "../src/game/wave-physics/mesh-building/marchingBounds";
+import { generateInitialWavefront } from "../src/game/wave-physics/mesh-building/marching";
 import type { TerrainCPUData } from "../src/game/world/terrain/TerrainCPUData";
 import type {
   MeshBuildBounds,
@@ -105,11 +107,24 @@ const builderTypes = selectedBuilders ?? allBuilderTypes;
 // ---------------------------------------------------------------------------
 
 console.log(`Loading level: ${levelPath}`);
+let timer = performance.now();
 const levelJson = fs.readFileSync(levelPath, "utf-8");
+console.log(`  Read file: ${(performance.now() - timer).toFixed(0)}ms`);
+
+timer = performance.now();
 const levelFile = parseLevelFile(levelJson);
+console.log(
+  `  Parse JSON: ${(performance.now() - timer).toFixed(0)}ms (${levelFile.contours?.length ?? 0} contours)`,
+);
+
+timer = performance.now();
 const terrainDef = normalizeTerrainWinding(
   levelFileToTerrainDefinition(levelFile),
 );
+console.log(
+  `  Terrain definition + winding: ${(performance.now() - timer).toFixed(0)}ms`,
+);
+
 const waveConfig = levelFileToWaveConfig(levelFile);
 
 if (
@@ -127,7 +142,11 @@ const waveIndices =
     : [selectedWaveIndex];
 
 // Build terrain GPU data (same as what the game does)
+timer = performance.now();
 const terrainGPUData = buildTerrainGPUData(terrainDef);
+console.log(
+  `  Build terrain GPU data: ${(performance.now() - timer).toFixed(0)}ms`,
+);
 
 const terrain: TerrainCPUData = {
   vertexData: terrainGPUData.vertexData,
@@ -193,6 +212,34 @@ for (const waveIndex of waveIndices) {
       `amp=${waveSource.amplitude}ft`,
   );
 
+  // Print domain stats before starting the (potentially slow) build
+  {
+    const waveDx = Math.cos(waveSource.direction);
+    const waveDy = Math.sin(waveSource.direction);
+    const waveBounds = computeBounds(
+      terrain,
+      waveSource.wavelength,
+      waveDx,
+      waveDy,
+    );
+    const initWavefront = generateInitialWavefront(
+      waveBounds,
+      20,
+      waveDx,
+      waveDy,
+    );
+    const domainLen = waveBounds.maxProj - waveBounds.minProj;
+    const domainWid = waveBounds.maxPerp - waveBounds.minPerp;
+    const estSteps = Math.ceil(domainLen / 10);
+    const numRays = initWavefront.t.length;
+    const fmt = (v: number) =>
+      v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    console.log(`  domain: ${fmt(domainLen)}ft × ${fmt(domainWid)}ft`);
+    console.log(
+      `  rays: ${fmt(numRays)}, estimated steps: ${fmt(estSteps)}, ray×step: ${fmt(numRays * estSteps)}`,
+    );
+  }
+
   for (const builderType of builderTypes) {
     const stageOrder = [
       "bounds",
@@ -214,13 +261,21 @@ for (const waveIndex of waveIndices) {
       decimate: [] as number[],
       mesh: [] as number[],
     };
-    let lastDecimationCounts: MeshBuildProfile["decimationCounts"] | null = null;
+    let lastDecimationCounts: MeshBuildProfile["decimationCounts"] | null =
+      null;
 
     console.log(`  ${builderType}`);
 
     for (let i = 0; i < iterations; i++) {
       const profile: MeshBuildProfile = {
         totalMs: 0,
+        domain: {
+          numRays: 0,
+          domainLength: 0,
+          domainWidth: 0,
+          estimatedSteps: 0,
+          actualSteps: 0,
+        },
         stageMs: {
           bounds: 0,
           march: 0,
@@ -267,9 +322,24 @@ for (const waveIndex of waveIndices) {
       };
 
       console.log(`    Run ${i + 1}`);
+      if (i === 0) {
+        const d = profile.domain;
+        const fmt = (v: number) =>
+          v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+        console.log(
+          `      domain: ${fmt(d.domainLength)}ft × ${fmt(d.domainWidth)}ft`,
+        );
+        console.log(
+          `      rays: ${fmt(d.numRays)}, estimated steps: ${fmt(d.estimatedSteps)}, ray×step: ${fmt(d.numRays * d.estimatedSteps)}`,
+        );
+        console.log(`      actual wavefront steps: ${fmt(d.actualSteps)}`);
+      }
       formatStageRows([
         { label: "total", ms: elapsed },
-        ...stageOrder.map((stage) => ({ label: stage, ms: profile.stageMs[stage] })),
+        ...stageOrder.map((stage) => ({
+          label: stage,
+          ms: profile.stageMs[stage],
+        })),
       ]);
     }
 
@@ -313,9 +383,11 @@ for (const waveIndex of waveIndices) {
     }
     if (lastDecimationCounts) {
       const verticesRemoved =
-        lastDecimationCounts.verticesBefore - lastDecimationCounts.verticesAfter;
+        lastDecimationCounts.verticesBefore -
+        lastDecimationCounts.verticesAfter;
       const trianglesRemoved =
-        lastDecimationCounts.trianglesBefore - lastDecimationCounts.trianglesAfter;
+        lastDecimationCounts.trianglesBefore -
+        lastDecimationCounts.trianglesAfter;
       const verticesRemovedPct =
         lastDecimationCounts.verticesBefore > 0
           ? (100 * verticesRemoved) / lastDecimationCounts.verticesBefore

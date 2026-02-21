@@ -22,8 +22,8 @@ const TEST_MODE = process.env.NODE_ENV === "test";
 const VERTEX_SPACING = TEST_MODE ? 200 : 20; // feet per vertex
 const STEP_SIZE = TEST_MODE ? 100 : 10; // feet per step (deep water)
 
-import type { WaveSource } from "../../world/water/WaveSource";
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
+import type { WaveSource } from "../../world/water/WaveSource";
 import type { MeshBuildBounds, WavefrontMeshData } from "./MeshBuildTypes";
 import { decimateWavefronts } from "./decimation";
 import { generateInitialWavefront, marchWavefronts } from "./marching";
@@ -32,6 +32,13 @@ import { buildMeshData, countMeshTopology } from "./meshOutput";
 
 export interface MeshBuildProfile {
   totalMs: number;
+  domain: {
+    numRays: number;
+    domainLength: number;
+    domainWidth: number;
+    estimatedSteps: number;
+    actualSteps: number;
+  };
   stageMs: {
     bounds: number;
     march: number;
@@ -74,6 +81,31 @@ export function buildMarchingMesh(
     waveDx,
     waveDy,
   );
+  const numRays = firstWavefront.t.length;
+  const domainLength = bounds.maxProj - bounds.minProj;
+  const domainWidth = bounds.maxPerp - bounds.minPerp;
+  const estimatedSteps = Math.ceil(domainLength / stepSize);
+  if (profile) {
+    profile.domain = {
+      numRays,
+      domainLength,
+      domainWidth,
+      estimatedSteps,
+      actualSteps: 0,
+    };
+  } else {
+    const nEarly = (s: number, digits: number = 0) =>
+      s.toLocaleString(undefined, { maximumFractionDigits: digits });
+    console.log(
+      [
+        `[marching] domain`,
+        `  rays: ${nEarly(numRays)}`,
+        `  domain: ${nEarly(domainLength, 0)}ft × ${nEarly(domainWidth, 0)}ft`,
+        `  estimated steps: ${nEarly(estimatedSteps)} (step size: ${stepSize}ft)`,
+        `  ray×step estimate: ${nEarly(numRays * estimatedSteps)}`,
+      ].join("\n"),
+    );
+  }
   const {
     wavefronts,
     splits,
@@ -137,6 +169,7 @@ export function buildMarchingMesh(
   if (profile) {
     const preDecimationTopology = countMeshTopology(wavefronts);
     profile.totalMs = totalMs;
+    profile.domain.actualSteps = wavefronts.length;
     profile.stageMs = stageMs;
     profile.decimationCounts = {
       verticesBefore: preDecimationTopology.vertexCount,
@@ -148,6 +181,7 @@ export function buildMarchingMesh(
     console.log(
       [
         `[marching]`,
+        `  actual wavefront steps: ${n(wavefronts.length)}`,
         `build`,
         `  splits: ${n(splits)}`,
         `  merges: ${n(merges)}`,
