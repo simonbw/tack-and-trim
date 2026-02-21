@@ -1,4 +1,5 @@
 import { V2d } from "../../../core/Vector";
+import { pointInPolygon } from "../../../core/util/Geometry";
 import {
   checkSplineIntersection,
   checkSplineSelfIntersection,
@@ -6,6 +7,59 @@ import {
   sampleClosedSpline,
 } from "../../../core/util/Spline";
 import { DEFAULT_DEPTH, SAMPLES_PER_SEGMENT } from "./TerrainConstants";
+
+interface BBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+function computeBBox(points: readonly V2d[]): BBox {
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/** True if inner bbox is fully contained within outer bbox */
+function bboxContains(outer: BBox, inner: BBox): boolean {
+  return (
+    inner.minX >= outer.minX &&
+    inner.maxX <= outer.maxX &&
+    inner.minY >= outer.minY &&
+    inner.maxY <= outer.maxY
+  );
+}
+
+/**
+ * Fast containment check using precomputed bboxes and sampled polygons.
+ * Avoids expensive spline resampling and intersection tests.
+ */
+function isContourInsideContour(
+  inner: TerrainContour,
+  innerBBox: BBox,
+  outer: TerrainContour,
+  outerBBox: BBox,
+): boolean {
+  // Quick rejection: inner bbox must fit inside outer bbox
+  if (!bboxContains(outerBBox, innerBBox)) return false;
+
+  // Check if a point from the inner contour is inside the outer polygon.
+  // Since we already know the bboxes are nested, if one point is inside
+  // and the contours don't intersect, the whole inner contour is inside.
+  const testPoint = inner.sampledPolygon[0];
+  return (
+    testPoint !== undefined && pointInPolygon(testPoint, outer.sampledPolygon)
+  );
+}
 
 /**
  * A single terrain contour - a closed spline at a specific height.
@@ -229,6 +283,9 @@ export function buildContourTree(contours: TerrainContour[]): ContourTree {
     return { nodes: [], childrenFlat: [], maxDepth: 0 };
   }
 
+  // Precompute bounding boxes for fast containment rejection
+  const bboxes: BBox[] = contours.map((c) => computeBBox(c.sampledPolygon));
+
   // Virtual root node (represents "ocean" - contains all root-level contours)
   const virtualRoot: WorkingTreeNode = {
     contourIndex: -1,
@@ -246,14 +303,16 @@ export function buildContourTree(contours: TerrainContour[]): ContourTree {
    */
   function insertContour(parent: WorkingTreeNode, newIndex: number): void {
     const newContour = contours[newIndex];
+    const newBBox = bboxes[newIndex];
 
     // Check if any existing child contains the new contour
     for (const child of parent.children) {
-      const childContour = contours[child.contourIndex];
       if (
-        isSplineInsideSpline(
-          newContour.controlPoints,
-          childContour.controlPoints,
+        isContourInsideContour(
+          newContour,
+          newBBox,
+          contours[child.contourIndex],
+          bboxes[child.contourIndex],
         )
       ) {
         // New contour is inside this child - recurse deeper
@@ -274,11 +333,12 @@ export function buildContourTree(contours: TerrainContour[]): ContourTree {
     // Find children that should be reparented to the new node
     const childrenToReparent: WorkingTreeNode[] = [];
     for (const child of parent.children) {
-      const childContour = contours[child.contourIndex];
       if (
-        isSplineInsideSpline(
-          childContour.controlPoints,
-          newContour.controlPoints,
+        isContourInsideContour(
+          contours[child.contourIndex],
+          bboxes[child.contourIndex],
+          newContour,
+          newBBox,
         )
       ) {
         childrenToReparent.push(child);
