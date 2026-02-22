@@ -99,41 +99,199 @@ function segmentsIntersect(
   return t > eps && t < 1 - eps && u > eps && u < 1 - eps;
 }
 
-function findPolygonIntersection(
-  a: LightContour,
-  b: LightContour,
-): { x: number; y: number } | null {
-  const ptsA = a.points;
-  const ptsB = b.points;
-  const nA = a.numPoints;
-  const nB = b.numPoints;
+/**
+ * Find all overlap errors using a spatial grid. Instead of testing every
+ * segment pair O(nA*nB) per contour pair, we insert all segments into a
+ * uniform grid and only test pairs that share a cell.
+ */
+function findOverlapsWithGrid(
+  contours: LightContour[],
+  bboxes: BBox[],
+  maxErrors: number,
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  const n = contours.length;
+  if (n === 0) return errors;
 
-  for (let i = 0; i < nA; i++) {
-    const i2 = (i + 1) % nA;
-    const ax1 = ptsA[i * 2],
-      ay1 = ptsA[i * 2 + 1];
-    const ax2 = ptsA[i2 * 2],
-      ay2 = ptsA[i2 * 2 + 1];
+  // Global bbox
+  let gMinX = Infinity,
+    gMinY = Infinity,
+    gMaxX = -Infinity,
+    gMaxY = -Infinity;
+  for (const bb of bboxes) {
+    if (bb.minX < gMinX) gMinX = bb.minX;
+    if (bb.minY < gMinY) gMinY = bb.minY;
+    if (bb.maxX > gMaxX) gMaxX = bb.maxX;
+    if (bb.maxY > gMaxY) gMaxY = bb.maxY;
+  }
 
-    for (let j = 0; j < nB; j++) {
-      const j2 = (j + 1) % nB;
-      if (
-        segmentsIntersect(
-          ax1,
-          ay1,
-          ax2,
-          ay2,
-          ptsB[j * 2],
-          ptsB[j * 2 + 1],
-          ptsB[j2 * 2],
-          ptsB[j2 * 2 + 1],
-        )
-      ) {
-        return { x: (ax1 + ax2) / 2, y: (ay1 + ay2) / 2 };
+  // Total segments
+  let totalSegs = 0;
+  for (const c of contours) totalSegs += c.numPoints;
+
+  // Cell size: target ~8 segments per cell, minimum 50ft
+  const area = (gMaxX - gMinX) * (gMaxY - gMinY);
+  const cellSize = Math.max(Math.sqrt(area / (totalSegs / 8)), 50);
+  const cols = Math.ceil((gMaxX - gMinX) / cellSize) + 1;
+  const rows = Math.ceil((gMaxY - gMinY) / cellSize) + 1;
+  const numCells = cols * rows;
+
+  // First pass: count segments per cell
+  const cellCounts = new Uint32Array(numCells);
+
+  for (let ci = 0; ci < n; ci++) {
+    const c = contours[ci];
+    const pts = c.points;
+    const np = c.numPoints;
+    for (let si = 0; si < np; si++) {
+      const si2 = (si + 1) % np;
+      const x1 = pts[si * 2],
+        y1 = pts[si * 2 + 1];
+      const x2 = pts[si2 * 2],
+        y2 = pts[si2 * 2 + 1];
+
+      const minCx = Math.max(
+        0,
+        Math.floor((Math.min(x1, x2) - gMinX) / cellSize),
+      );
+      const maxCx = Math.min(
+        cols - 1,
+        Math.floor((Math.max(x1, x2) - gMinX) / cellSize),
+      );
+      const minCy = Math.max(
+        0,
+        Math.floor((Math.min(y1, y2) - gMinY) / cellSize),
+      );
+      const maxCy = Math.min(
+        rows - 1,
+        Math.floor((Math.max(y1, y2) - gMinY) / cellSize),
+      );
+
+      for (let cy = minCy; cy <= maxCy; cy++) {
+        for (let cx = minCx; cx <= maxCx; cx++) {
+          cellCounts[cy * cols + cx]++;
+        }
       }
     }
   }
-  return null;
+
+  // Compute offsets (prefix sum)
+  const cellOffsets = new Uint32Array(numCells + 1);
+  for (let i = 0; i < numCells; i++) {
+    cellOffsets[i + 1] = cellOffsets[i] + cellCounts[i];
+  }
+  const totalEntries = cellOffsets[numCells];
+
+  // Second pass: fill entries. Pack contourIdx and segIdx into one uint32.
+  // contourIdx in upper 12 bits, segIdx in lower 20 bits (supports up to
+  // 4096 contours and 1M segments per contour).
+  const entries = new Uint32Array(totalEntries);
+  const fillIdx = new Uint32Array(numCells);
+
+  for (let ci = 0; ci < n; ci++) {
+    const c = contours[ci];
+    const pts = c.points;
+    const np = c.numPoints;
+    for (let si = 0; si < np; si++) {
+      const si2 = (si + 1) % np;
+      const x1 = pts[si * 2],
+        y1 = pts[si * 2 + 1];
+      const x2 = pts[si2 * 2],
+        y2 = pts[si2 * 2 + 1];
+
+      const minCx = Math.max(
+        0,
+        Math.floor((Math.min(x1, x2) - gMinX) / cellSize),
+      );
+      const maxCx = Math.min(
+        cols - 1,
+        Math.floor((Math.max(x1, x2) - gMinX) / cellSize),
+      );
+      const minCy = Math.max(
+        0,
+        Math.floor((Math.min(y1, y2) - gMinY) / cellSize),
+      );
+      const maxCy = Math.min(
+        rows - 1,
+        Math.floor((Math.max(y1, y2) - gMinY) / cellSize),
+      );
+
+      const packed = (ci << 20) | si;
+      for (let cy = minCy; cy <= maxCy; cy++) {
+        for (let cx = minCx; cx <= maxCx; cx++) {
+          const cellKey = cy * cols + cx;
+          entries[cellOffsets[cellKey] + fillIdx[cellKey]] = packed;
+          fillIdx[cellKey]++;
+        }
+      }
+    }
+  }
+
+  // Check each cell for intersections between different-height contours.
+  // Track reported contour pairs with a numeric Set to avoid duplicates.
+  const reported = new Set<number>();
+
+  for (let cell = 0; cell < numCells && errors.length < maxErrors; cell++) {
+    const start = cellOffsets[cell];
+    const end = cellOffsets[cell + 1];
+    if (end - start < 2) continue;
+
+    for (let i = start; i < end && errors.length < maxErrors; i++) {
+      const packedA = entries[i];
+      const ciA = packedA >>> 20;
+      const hA = contours[ciA].height;
+
+      for (let j = i + 1; j < end; j++) {
+        const packedB = entries[j];
+        const ciB = packedB >>> 20;
+        if (ciA === ciB) continue;
+        if (contours[ciB].height === hA) continue;
+
+        // Deduplicate: encode pair as single number (ciA < ciB)
+        const lo = ciA < ciB ? ciA : ciB;
+        const hi = ciA < ciB ? ciB : ciA;
+        const pairKey = lo * n + hi;
+        if (reported.has(pairKey)) continue;
+
+        const siA = packedA & 0xfffff;
+        const siB = packedB & 0xfffff;
+        const ptsA = contours[ciA].points;
+        const ptsB = contours[ciB].points;
+        const nA = contours[ciA].numPoints;
+        const nB = contours[ciB].numPoints;
+        const siA2 = (siA + 1) % nA;
+        const siB2 = (siB + 1) % nB;
+
+        if (
+          segmentsIntersect(
+            ptsA[siA * 2],
+            ptsA[siA * 2 + 1],
+            ptsA[siA2 * 2],
+            ptsA[siA2 * 2 + 1],
+            ptsB[siB * 2],
+            ptsB[siB * 2 + 1],
+            ptsB[siB2 * 2],
+            ptsB[siB2 * 2 + 1],
+          )
+        ) {
+          reported.add(pairKey);
+          const ax1 = ptsA[siA * 2],
+            ay1 = ptsA[siA * 2 + 1];
+          const ax2 = ptsA[siA2 * 2],
+            ay2 = ptsA[siA2 * 2 + 1];
+          errors.push({
+            type: "overlap",
+            message:
+              `Contour ${ciA} (h=${hA}ft) and contour ${ciB} (h=${contours[ciB].height}ft) ` +
+              `intersect near (${((ax1 + ax2) / 2).toFixed(0)}, ${((ay1 + ay2) / 2).toFixed(0)})`,
+          });
+          if (errors.length >= maxErrors) break;
+        }
+      }
+    }
+  }
+
+  return errors;
 }
 
 function pointInPolygon(
@@ -335,57 +493,17 @@ export function validateLevelFile(levelPath: string): ValidationResult {
   const bboxes = contours.map(computeBBox);
 
   // -------------------------------------------------------------------------
-  // Check 1: No contours at different heights overlap
+  // Check 1: No contours at different heights overlap (spatial grid)
   // -------------------------------------------------------------------------
-  const byHeight = new Map<number, number[]>();
-  for (let i = 0; i < contours.length; i++) {
-    const h = contours[i].height;
-    if (!byHeight.has(h)) byHeight.set(h, []);
-    byHeight.get(h)!.push(i);
-  }
-
-  const heights = [...byHeight.keys()].sort((a, b) => a - b);
-  let overlapCount = 0;
   const maxOverlapReports = 10;
+  const overlapErrors = findOverlapsWithGrid(
+    contours,
+    bboxes,
+    maxOverlapReports,
+  );
+  errors.push(...overlapErrors);
 
-  for (
-    let hi = 0;
-    hi < heights.length && overlapCount < maxOverlapReports;
-    hi++
-  ) {
-    for (
-      let hj = hi + 1;
-      hj < heights.length && overlapCount < maxOverlapReports;
-      hj++
-    ) {
-      const indicesA = byHeight.get(heights[hi])!;
-      const indicesB = byHeight.get(heights[hj])!;
-
-      for (const ia of indicesA) {
-        if (overlapCount >= maxOverlapReports) break;
-        for (const ib of indicesB) {
-          if (overlapCount >= maxOverlapReports) break;
-          if (!bboxOverlaps(bboxes[ia], bboxes[ib])) continue;
-
-          const intersection = findPolygonIntersection(
-            contours[ia],
-            contours[ib],
-          );
-          if (intersection) {
-            overlapCount++;
-            errors.push({
-              type: "overlap",
-              message:
-                `Contour ${ia} (h=${contours[ia].height}ft) and contour ${ib} (h=${contours[ib].height}ft) ` +
-                `intersect near (${intersection.x.toFixed(0)}, ${intersection.y.toFixed(0)})`,
-            });
-          }
-        }
-      }
-    }
-  }
-
-  if (overlapCount >= maxOverlapReports) {
+  if (overlapErrors.length >= maxOverlapReports) {
     warnings.push(
       `Stopped checking after ${maxOverlapReports} overlap errors (there may be more)`,
     );
