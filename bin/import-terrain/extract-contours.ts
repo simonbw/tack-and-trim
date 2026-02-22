@@ -1,22 +1,19 @@
 #!/usr/bin/env tsx
 
-import { mkdirSync, createWriteStream } from "fs";
+import { existsSync, mkdirSync, createWriteStream } from "fs";
 import path from "path";
-import { bboxCenter } from "./lib/geo-utils";
-import {
-  resolveRegion,
-  loadRegionConfig,
-  tilesDir,
-  gridCacheDir,
-} from "./lib/region";
-import { listLocalTiles, gridCacheKey, loadGridCache } from "./lib/grid-cache";
+import { fromFile } from "geotiff";
+import { validateLevelFile } from "./validate-level";
+import { metersToFeet, bboxCenter } from "./lib/geo-utils";
+import { resolveRegion, loadRegionConfig, gridCacheDir } from "./lib/region";
+import type { ScalarGrid } from "./lib/marching-squares";
 import { buildClosedRings } from "./lib/marching-squares";
 import { ContourWorkerPool } from "./lib/worker-pool";
 import { DEFAULT_DEPTH } from "../../src/game/world/terrain/TerrainConstants";
 
 interface TerrainContourJson {
   height: number;
-  controlPoints: [number, number][];
+  polygon: [number, number][];
 }
 
 function quantizeLevels(min: number, max: number, interval: number): number[] {
@@ -31,34 +28,131 @@ function quantizeLevels(min: number, max: number, interval: number): number[] {
   return levels;
 }
 
+/**
+ * Load the merged GeoTIFF and convert to a ScalarGrid in feet.
+ * Also fills nodata cells: single-row gaps are interpolated from neighbors,
+ * remaining nodata is filled with DEFAULT_DEPTH.
+ */
+async function loadMergedGrid(mergedPath: string): Promise<{
+  grid: ScalarGrid;
+  minFeet: number;
+  maxFeet: number;
+  lonStep: number;
+  latStep: number;
+}> {
+  const tiff = await fromFile(mergedPath);
+  const image = await tiff.getImage();
+
+  const width = image.getWidth();
+  const height = image.getHeight();
+  const [minLon, minLat, maxLon, maxLat] = image.getBoundingBox();
+  const lonStep = (maxLon - minLon) / width;
+  const latStep = (maxLat - minLat) / height;
+
+  const noDataRaw = image.getGDALNoData();
+  const noDataValue =
+    noDataRaw === null || noDataRaw === undefined ? null : Number(noDataRaw);
+
+  const raster = (await image.readRasters({
+    samples: [0],
+    interleave: true,
+  })) as Float32Array | Float64Array | Int16Array | Int32Array;
+
+  // Convert to feet and build nodata mask
+  const values = new Float64Array(width * height);
+  const nodataMask = new Uint8Array(width * height);
+
+  for (let i = 0; i < values.length; i++) {
+    const v = Number(raster[i]);
+    if (
+      !Number.isFinite(v) ||
+      (noDataValue !== null && Math.abs(v - noDataValue) < 1e-6)
+    ) {
+      nodataMask[i] = 1;
+      values[i] = 0;
+    } else {
+      values[i] = metersToFeet(v);
+      nodataMask[i] = 0;
+    }
+  }
+
+  // Interpolate single-row nodata gaps (tile-seam artifacts)
+  let seamFills = 0;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (nodataMask[i] === 0) continue;
+      const above = (y - 1) * width + x;
+      const below = (y + 1) * width + x;
+      if (nodataMask[above] === 0 && nodataMask[below] === 0) {
+        values[i] = (values[above] + values[below]) / 2;
+        nodataMask[i] = 0;
+        seamFills++;
+      }
+    }
+  }
+  if (seamFills > 0) {
+    console.log(
+      `Interpolated ${seamFills.toLocaleString()} tile-seam nodata cells`,
+    );
+  }
+
+  // Fill remaining nodata with DEFAULT_DEPTH
+  let depthFills = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (nodataMask[i] !== 0) {
+      values[i] = DEFAULT_DEPTH;
+      nodataMask[i] = 0;
+      depthFills++;
+    }
+  }
+  if (depthFills > 0) {
+    console.log(
+      `Filled ${depthFills.toLocaleString()} remaining nodata cells with ${DEFAULT_DEPTH}ft`,
+    );
+  }
+
+  // Compute elevation range
+  let minFeet = Infinity;
+  let maxFeet = -Infinity;
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] < minFeet) minFeet = values[i];
+    if (values[i] > maxFeet) maxFeet = values[i];
+  }
+
+  return {
+    grid: { width, height, values },
+    minFeet,
+    maxFeet,
+    lonStep,
+    latStep,
+  };
+}
+
 async function main(): Promise<void> {
   const slug = resolveRegion(process.argv.slice(2));
   const config = loadRegionConfig(slug);
   const bbox = config.bbox;
-  const tiles = tilesDir(slug);
   const cache = gridCacheDir(slug);
 
-  const localTilePaths = listLocalTiles(tiles, bbox);
-  if (localTilePaths.length === 0) {
+  const mergedPath = path.join(cache, "merged.tif");
+  if (!existsSync(mergedPath)) {
     throw new Error(
-      `No matching GeoTIFF files in ${tiles}. Run download step first.`,
+      `No merged grid found at ${mergedPath}. Run build-grid step first.`,
     );
   }
 
-  const cacheKey = gridCacheKey(bbox, localTilePaths);
-  const gridResult = loadGridCache(cache, cacheKey);
-
-  if (!gridResult) {
-    throw new Error(
-      `No cached grid found in ${cache}. Run build-grid step first.`,
-    );
-  }
-
-  const { grid, minFeet, maxFeet, lonStep, latStep } = gridResult;
+  let timer = performance.now();
+  const { grid, minFeet, maxFeet, lonStep, latStep } =
+    await loadMergedGrid(mergedPath);
+  console.log(`Load grid: ${(performance.now() - timer).toFixed(0)}ms`);
 
   console.log(`Region: ${config.name}`);
   console.log(
     `Grid: ${grid.width}x${grid.height}, elevation range ${minFeet.toFixed(1)}ft to ${maxFeet.toFixed(1)}ft`,
+  );
+  console.log(
+    `Settings: interval ${config.interval}ft, simplify ${config.simplify}ft, scale ${config.scale}, minPerimeter ${config.minPerimeter}ft, minPoints ${config.minPoints}`,
   );
 
   // Skip contours at or below defaultDepth — the game treats that as uniform deep ocean
@@ -66,7 +160,7 @@ async function main(): Promise<void> {
   const levels = quantizeLevels(clampedMin, maxFeet, config.interval);
   const center = bboxCenter(bbox);
 
-  let timer = performance.now();
+  timer = performance.now();
   const pool = ContourWorkerPool.create(grid);
   console.log(
     `Worker pool: ${pool.workerCount} workers  (${(performance.now() - timer).toFixed(0)}ms)`,
@@ -118,13 +212,18 @@ async function main(): Promise<void> {
     totalRingsSimplifyMs += ringsSimplifyMs;
     totalRings += ringCount;
 
+    const levelPoints = levelContours.reduce(
+      (sum, c) => sum + c.polygon.length,
+      0,
+    );
     console.log(
-      `[${li + 1}/${levels.length}] ${levelFeet}ft: ${ringCount} rings → ${levelContours.length} kept  (march ${marchMs.toFixed(0)}ms, rings+simplify ${ringsSimplifyMs.toFixed(0)}ms)`,
+      `[${li + 1}/${levels.length}] ${levelFeet}ft: ${ringCount} rings → ${levelContours.length} kept (${levelPoints.toLocaleString()} pts)  (march ${marchMs.toFixed(0)}ms, rings+simplify ${ringsSimplifyMs.toFixed(0)}ms)`,
     );
   }
 
+  const totalPoints = contours.reduce((sum, c) => sum + c.polygon.length, 0);
   console.log(
-    `\nTotals: ${totalRings} rings → ${contours.length} contours  (march ${totalMarchMs.toFixed(0)}ms, rings+simplify ${totalRingsSimplifyMs.toFixed(0)}ms)`,
+    `\nTotals: ${totalRings} rings → ${contours.length} contours (${totalPoints.toLocaleString()} pts)  (march ${totalMarchMs.toFixed(0)}ms, rings+simplify ${totalRingsSimplifyMs.toFixed(0)}ms)`,
   );
 
   await pool.shutdown();
@@ -151,8 +250,27 @@ async function main(): Promise<void> {
   });
 
   console.log(
-    `Wrote ${contours.length} contours to ${outputPath}  (write ${(performance.now() - timer).toFixed(0)}ms)`,
+    `Wrote ${contours.length} contours (${totalPoints.toLocaleString()} pts) to ${outputPath}  (write ${(performance.now() - timer).toFixed(0)}ms)`,
   );
+
+  // Validate the output
+  console.log("\nValidating output...");
+  const validation = validateLevelFile(outputPath);
+  console.log(
+    `  ${validation.contourCount} contours, ${validation.rootCount} roots, max depth ${validation.maxDepth}`,
+  );
+  for (const w of validation.warnings) {
+    console.log(`  WARNING: ${w}`);
+  }
+  if (validation.errors.length === 0) {
+    console.log("  PASS: No errors found");
+  } else {
+    console.log(`  FAIL: ${validation.errors.length} error(s):`);
+    for (const e of validation.errors) {
+      console.log(`    [${e.type}] ${e.message}`);
+    }
+    process.exit(1);
+  }
 }
 
 main().catch((error) => {

@@ -62,18 +62,26 @@ function isContourInsideContour(
 }
 
 /**
- * A single terrain contour - a closed spline at a specific height.
+ * A single terrain contour - a closed spline or polygon at a specific height.
  * Contours define elevation levels. The system determines nesting from geometry,
  * allowing flexible configurations like two islands sharing one shelf.
+ *
+ * - "spline" contours: controlPoints are Catmull-Rom spline control points,
+ *   sampledPolygon is the spline sampled at high resolution.
+ * - "polygon" contours: controlPoints and sampledPolygon are the same array
+ *   of polygon vertices (no spline interpolation).
  */
 export interface TerrainContour {
-  /** Catmull-Rom control points defining the contour (closed loop) */
+  /** Whether this contour is a spline (Catmull-Rom) or a polygon (direct vertices) */
+  readonly type: "spline" | "polygon";
+
+  /** Catmull-Rom control points (spline) or polygon vertices (polygon) */
   readonly controlPoints: readonly V2d[];
 
   /** Height of this contour in feet (negative = underwater, positive = above water) */
   readonly height: number;
 
-  /** Pre-sampled polygon from Catmull-Rom spline (SAMPLES_PER_SEGMENT samples per segment) */
+  /** Pre-sampled polygon from Catmull-Rom spline, or the polygon vertices directly */
   readonly sampledPolygon: readonly V2d[];
 }
 
@@ -128,12 +136,29 @@ export function createContour(
   height: number,
 ): TerrainContour {
   return {
+    type: "spline",
     controlPoints,
     height,
     sampledPolygon: sampleClosedSpline(
       controlPoints,
       adaptiveSamplesPerSegment(controlPoints),
     ),
+  };
+}
+
+/**
+ * Create a polygon terrain contour (no spline interpolation).
+ * The points are used directly as both controlPoints and sampledPolygon.
+ */
+export function createPolygonContour(
+  points: V2d[],
+  height: number,
+): TerrainContour {
+  return {
+    type: "polygon",
+    controlPoints: points,
+    height,
+    sampledPolygon: points,
   };
 }
 
@@ -220,8 +245,21 @@ export function ensureContourCCW(contour: TerrainContour): TerrainContour {
     return contour;
   }
 
+  // For polygon contours, controlPoints and sampledPolygon are the same array,
+  // so share the reversed array between both fields.
+  if (contour.type === "polygon") {
+    const reversed = [...contour.controlPoints].reverse();
+    return {
+      type: "polygon",
+      controlPoints: reversed,
+      height: contour.height,
+      sampledPolygon: reversed,
+    };
+  }
+
   // Reverse both control points and sampled polygon to flip winding
   return {
+    type: "spline",
     controlPoints: [...contour.controlPoints].reverse(),
     height: contour.height,
     sampledPolygon: [...contour.sampledPolygon].reverse(),
@@ -431,9 +469,12 @@ export function validateTerrainDefinition(definition: TerrainDefinition): void {
   const contours = definition.contours;
   if (contours.length === 0) return;
 
-  // Check each contour for self-intersection
+  // Check each contour for self-intersection (spline contours only —
+  // polygon contours are validated by the offline validator instead)
   for (let i = 0; i < contours.length; i++) {
     const contour = contours[i];
+    if (contour.type === "polygon") continue;
+
     if (contour.controlPoints.length < 3) {
       console.warn(
         `Terrain contour ${i} at height ${contour.height} has only ${contour.controlPoints.length} control points`,
@@ -455,11 +496,13 @@ export function validateTerrainDefinition(definition: TerrainDefinition): void {
     }
   }
 
-  // Check all pairs of contours for intersection
+  // Check all pairs of contours for intersection (spline contours only)
   for (let i = 0; i < contours.length; i++) {
     for (let j = i + 1; j < contours.length; j++) {
       const contourA = contours[i];
       const contourB = contours[j];
+
+      if (contourA.type === "polygon" || contourB.type === "polygon") continue;
 
       if (
         contourA.controlPoints.length < 3 ||

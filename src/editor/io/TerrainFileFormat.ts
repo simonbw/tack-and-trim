@@ -8,6 +8,7 @@
 import { V, V2d } from "../../core/Vector";
 import {
   createContour,
+  createPolygonContour,
   TerrainContour,
   TerrainDefinition,
 } from "../../game/world/terrain/LandMass";
@@ -18,15 +19,27 @@ export const TERRAIN_FILE_VERSION = 1;
 
 /**
  * JSON representation of a contour in the file format.
+ * A contour has either `controlPoints` (spline) or `polygon` (direct vertices), not both.
  */
-export interface TerrainContourJSON {
-  /** Optional human-readable name for the contour */
-  name?: string;
-  /** Height in feet (negative = underwater, positive = above) */
-  height: number;
-  /** Control points as [x, y] arrays */
-  controlPoints: [number, number][];
-}
+export type TerrainContourJSON =
+  | {
+      /** Optional human-readable name for the contour */
+      name?: string;
+      /** Height in feet (negative = underwater, positive = above) */
+      height: number;
+      /** Catmull-Rom spline control points as [x, y] arrays */
+      controlPoints: [number, number][];
+      polygon?: undefined;
+    }
+  | {
+      /** Optional human-readable name for the contour */
+      name?: string;
+      /** Height in feet (negative = underwater, positive = above) */
+      height: number;
+      /** Polygon vertices as [x, y] arrays (used directly, no spline interpolation) */
+      polygon: [number, number][];
+      controlPoints?: undefined;
+    };
 
 /**
  * JSON schema for terrain files.
@@ -75,22 +88,26 @@ export function validateTerrainFile(data: unknown): TerrainFileJSON {
       throw new Error(`Invalid terrain file: contour ${i} missing height`);
     }
 
-    if (!Array.isArray(contour.controlPoints)) {
+    const points: unknown[] | undefined =
+      contour.polygon ?? contour.controlPoints;
+    const pointsKey = contour.polygon ? "polygon" : "controlPoints";
+
+    if (!Array.isArray(points)) {
       throw new Error(
-        `Invalid terrain file: contour ${i} controlPoints must be an array`,
+        `Invalid terrain file: contour ${i} must have controlPoints or polygon array`,
       );
     }
 
-    for (let j = 0; j < contour.controlPoints.length; j++) {
-      const pt = contour.controlPoints[j];
+    for (let j = 0; j < points.length; j++) {
+      const pt = points[j];
       if (!Array.isArray(pt) || pt.length !== 2) {
         throw new Error(
-          `Invalid terrain file: contour ${i} point ${j} must be [x, y]`,
+          `Invalid terrain file: contour ${i} ${pointsKey}[${j}] must be [x, y]`,
         );
       }
       if (typeof pt[0] !== "number" || typeof pt[1] !== "number") {
         throw new Error(
-          `Invalid terrain file: contour ${i} point ${j} coordinates must be numbers`,
+          `Invalid terrain file: contour ${i} ${pointsKey}[${j}] coordinates must be numbers`,
         );
       }
     }
@@ -106,7 +123,11 @@ export function terrainFileToDefinition(
   file: TerrainFileJSON,
 ): TerrainDefinition {
   const contours: TerrainContour[] = file.contours.map((c) => {
-    const controlPoints: V2d[] = c.controlPoints.map(([x, y]) => V(x, y));
+    if (c.polygon) {
+      const points: V2d[] = c.polygon.map(([x, y]) => V(x, y));
+      return createPolygonContour(points, c.height);
+    }
+    const controlPoints: V2d[] = c.controlPoints!.map(([x, y]) => V(x, y));
     return createContour(controlPoints, c.height);
   });
 
@@ -144,7 +165,8 @@ export function terrainFileToEditorDefinition(
   file: TerrainFileJSON,
 ): EditorTerrainDefinition {
   const contours: EditorContour[] = file.contours.map((c) => {
-    const controlPoints: V2d[] = c.controlPoints.map(([x, y]) => V(x, y));
+    const pts = c.polygon ?? c.controlPoints!;
+    const controlPoints: V2d[] = pts.map(([x, y]) => V(x, y));
     return {
       name: c.name,
       controlPoints,
@@ -203,12 +225,13 @@ export function editorDefinitionToFile(
 export function definitionToTerrainFile(
   definition: TerrainDefinition,
 ): TerrainFileJSON {
-  const contours: TerrainContourJSON[] = definition.contours.map((c) => ({
-    height: c.height,
-    controlPoints: c.controlPoints.map(
-      (pt) => [pt.x, pt.y] as [number, number],
-    ),
-  }));
+  const contours: TerrainContourJSON[] = definition.contours.map((c) => {
+    const pts = c.controlPoints.map((pt) => [pt.x, pt.y] as [number, number]);
+    if (c.type === "polygon") {
+      return { height: c.height, polygon: pts };
+    }
+    return { height: c.height, controlPoints: pts };
+  });
 
   return {
     version: TERRAIN_FILE_VERSION,

@@ -6,7 +6,7 @@ import type { ScalarGrid, BlockIndex, MarchSegments } from "./marching-squares";
 
 interface TerrainContourJson {
   height: number;
-  controlPoints: [number, number][];
+  polygon: [number, number][];
 }
 
 export interface SimplifyConfig {

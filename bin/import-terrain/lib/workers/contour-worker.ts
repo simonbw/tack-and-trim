@@ -364,7 +364,14 @@ function marchCell(
       interpRight();
       interpBottom();
       interpLeft();
-      const cv = (vTL + vTR + vBR + vBL) * 0.25;
+      // Asymptotic decider: use the bilinear saddle value instead of center
+      // average. This ensures contours at different levels resolve the saddle
+      // consistently, preventing crossings within the same cell.
+      const denom5 = vTL - vTR + vBR - vBL;
+      const cv =
+        Math.abs(denom5) < 1e-12
+          ? (vTL + vTR + vBR + vBL) * 0.25
+          : (vTL * vBR - vTR * vBL) / denom5;
       if (cv >= level) {
         push(topPx!, topPy!, topEdge!, leftPx!, leftPy!, leftEdge!);
         push(rightPx!, rightPy!, rightEdge!, bottomPx!, bottomPy!, bottomEdge!);
@@ -391,8 +398,12 @@ function marchCell(
       interpRight();
       interpBottom();
       interpLeft();
-      const cv = (vTL + vTR + vBR + vBL) * 0.25;
-      if (cv >= level) {
+      const denom10 = vTL - vTR + vBR - vBL;
+      const cv2 =
+        Math.abs(denom10) < 1e-12
+          ? (vTL + vTR + vBR + vBL) * 0.25
+          : (vTL * vBR - vTR * vBL) / denom10;
+      if (cv2 >= level) {
         push(topPx!, topPy!, topEdge!, rightPx!, rightPy!, rightEdge!);
         push(leftPx!, leftPy!, leftEdge!, bottomPx!, bottomPy!, bottomEdge!);
       } else {
@@ -412,7 +423,7 @@ function handleSetSimplifyConfig(msg: SetSimplifyConfigMsg): void {
 
 interface ContourResult {
   height: number;
-  controlPoints: [number, number][];
+  polygon: [number, number][];
 }
 
 function simplifyOneRing(
@@ -447,7 +458,7 @@ function simplifyOneRing(
 
   return {
     height: Number(levelFeet.toFixed(3)),
-    controlPoints: scaled.map(
+    polygon: scaled.map(
       ([x, y]) =>
         [Number(x.toFixed(3)), Number(y.toFixed(3))] as [number, number],
     ),
