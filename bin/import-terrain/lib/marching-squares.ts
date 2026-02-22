@@ -80,6 +80,7 @@ export function* buildClosedRings(
     let prev = -1;
     let curr = startEdge;
 
+    let closed = false;
     for (;;) {
       visited.add(curr);
       const ci = coordIdx.get(curr)!;
@@ -88,14 +89,21 @@ export function* buildClosedRings(
       const neighbors = adj.get(curr)!;
       const next = neighbors[0] !== prev ? neighbors[0] : neighbors[1];
 
-      if (next === undefined || next === startEdge) break;
+      if (next === startEdge) {
+        closed = true;
+        break;
+      }
+      if (next === undefined) break;
 
       prev = curr;
       curr = next;
     }
 
+    // Only yield properly closed rings. Open paths (e.g. contour lines that
+    // reach the grid boundary or a nodata gap) would produce a false closing
+    // segment cutting across the interior, causing overlap errors.
     const numPoints = scratch.length / 2;
-    if (numPoints >= 3) {
+    if (closed && numPoints >= 3) {
       // Check winding (signed area from flat coords)
       let area = 0;
       for (let i = 0; i < numPoints; i++) {

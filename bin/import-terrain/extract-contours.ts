@@ -112,7 +112,19 @@ async function loadMergedGrid(mergedPath: string): Promise<{
     );
   }
 
-  // Compute elevation range
+  // Pad grid with a 1-cell border of DEFAULT_DEPTH so contours that reach the
+  // original grid boundary can continue through the padding and close properly.
+  const padW = width + 2;
+  const padH = height + 2;
+  const padded = new Float64Array(padW * padH);
+  padded.fill(DEFAULT_DEPTH);
+  for (let y = 0; y < height; y++) {
+    const srcOff = y * width;
+    const dstOff = (y + 1) * padW + 1;
+    padded.set(values.subarray(srcOff, srcOff + width), dstOff);
+  }
+
+  // Compute elevation range (from original data, not padding)
   let minFeet = Infinity;
   let maxFeet = -Infinity;
   for (let i = 0; i < values.length; i++) {
@@ -121,7 +133,7 @@ async function loadMergedGrid(mergedPath: string): Promise<{
   }
 
   return {
-    grid: { width, height, values },
+    grid: { width: padW, height: padH, values: padded },
     minFeet,
     maxFeet,
     lonStep,
@@ -175,8 +187,8 @@ async function main(): Promise<void> {
   await pool.setSimplifyConfig({
     centerLat: center.lat,
     centerLon: center.lon,
-    bboxMinLon: bbox.minLon,
-    bboxMaxLat: bbox.maxLat,
+    bboxMinLon: bbox.minLon - lonStep, // adjust for 1-cell padding
+    bboxMaxLat: bbox.maxLat + latStep, // adjust for 1-cell padding
     lonStep,
     latStep,
     simplifyFeet: config.simplify,
