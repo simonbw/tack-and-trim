@@ -1,11 +1,4 @@
 import { parentPort, workerData } from "worker_threads";
-import { latLonToFeet } from "../geo-utils";
-import {
-  simplifyClosedRing,
-  ringPerimeter,
-  signedArea,
-  type Point,
-} from "../simplify";
 
 const BLOCK_SIZE = 64;
 
@@ -30,9 +23,6 @@ const numH = (gridWidth - 1) * gridHeight;
 let storedBlockMin: Float64Array | null = null;
 let storedBlockMax: Float64Array | null = null;
 
-// Simplify config stored once, reused across simplify calls
-let simplifyConfig: SimplifyConfig | null = null;
-
 interface BlockIndexMsg {
   type: "blockIndex";
   blockCols: number;
@@ -55,41 +45,11 @@ interface MarchMsg {
   blockRowEnd: number;
 }
 
-interface SimplifyConfig {
-  centerLat: number;
-  centerLon: number;
-  bboxMinLon: number;
-  bboxMaxLat: number;
-  lonStep: number;
-  latStep: number;
-  simplifyFeet: number;
-  minPerimeterFeet: number;
-  minPoints: number;
-  scale: number;
-  flipY: boolean;
-}
-
-interface SetSimplifyConfigMsg extends SimplifyConfig {
-  type: "setSimplifyConfig";
-}
-
-interface SimplifyMsg {
-  type: "simplify";
-  rings: Float64Array[];
-  levelFeet: number;
-}
-
 interface ExitMsg {
   type: "exit";
 }
 
-type WorkerMsg =
-  | BlockIndexMsg
-  | SetBlockIndexMsg
-  | MarchMsg
-  | SetSimplifyConfigMsg
-  | SimplifyMsg
-  | ExitMsg;
+type WorkerMsg = BlockIndexMsg | SetBlockIndexMsg | MarchMsg | ExitMsg;
 
 function handleBlockIndex(msg: BlockIndexMsg): void {
   const { blockCols, blockRowStart, blockRowEnd } = msg;
@@ -415,66 +375,6 @@ function marchCell(
   }
 }
 
-function handleSetSimplifyConfig(msg: SetSimplifyConfigMsg): void {
-  const { type: _, ...config } = msg;
-  simplifyConfig = config;
-  parentPort!.postMessage({ type: "setSimplifyConfig" });
-}
-
-interface ContourResult {
-  height: number;
-  polygon: [number, number][];
-}
-
-function simplifyOneRing(
-  coords: Float64Array,
-  levelFeet: number,
-): ContourResult | null {
-  const cfg = simplifyConfig!;
-  const numPoints = coords.length / 2;
-
-  // Convert grid coords → feet
-  const feetPoints: Point[] = new Array(numPoints);
-  for (let i = 0; i < numPoints; i++) {
-    const gx = coords[i * 2];
-    const gy = coords[i * 2 + 1];
-    const lon = cfg.bboxMinLon + gx * cfg.lonStep;
-    const lat = cfg.bboxMaxLat - gy * cfg.latStep;
-    const [xFeet, yFeet] = latLonToFeet(lat, lon, cfg.centerLat, cfg.centerLon);
-    feetPoints[i] = [xFeet, cfg.flipY ? -yFeet : yFeet];
-  }
-
-  const simplified = simplifyClosedRing(feetPoints, cfg.simplifyFeet);
-  if (simplified.length < cfg.minPoints) return null;
-
-  const perimeter = ringPerimeter(simplified);
-  if (perimeter < cfg.minPerimeterFeet) return null;
-
-  const scaled: Point[] = simplified.map(([x, y]) => [
-    x / cfg.scale,
-    y / cfg.scale,
-  ]);
-  if (signedArea(scaled) < 0) scaled.reverse();
-
-  return {
-    height: Number(levelFeet.toFixed(3)),
-    polygon: scaled.map(
-      ([x, y]) =>
-        [Number(x.toFixed(3)), Number(y.toFixed(3))] as [number, number],
-    ),
-  };
-}
-
-function handleSimplify(msg: SimplifyMsg): void {
-  const { rings, levelFeet } = msg;
-  const results: ContourResult[] = [];
-  for (const ring of rings) {
-    const result = simplifyOneRing(ring, levelFeet);
-    if (result) results.push(result);
-  }
-  parentPort!.postMessage({ type: "simplify", results });
-}
-
 parentPort!.on("message", (msg: WorkerMsg) => {
   switch (msg.type) {
     case "blockIndex":
@@ -485,12 +385,6 @@ parentPort!.on("message", (msg: WorkerMsg) => {
       break;
     case "march":
       handleMarch(msg);
-      break;
-    case "setSimplifyConfig":
-      handleSetSimplifyConfig(msg);
-      break;
-    case "simplify":
-      handleSimplify(msg);
       break;
     case "exit":
       process.exit(0);

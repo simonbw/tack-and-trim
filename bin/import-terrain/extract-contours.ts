@@ -4,16 +4,26 @@ import { existsSync, mkdirSync, createWriteStream } from "fs";
 import path from "path";
 import { fromFile } from "geotiff";
 import { validateLevelFile } from "./validate-level";
-import { metersToFeet, bboxCenter } from "./lib/geo-utils";
+import { latLonToFeet, metersToFeet, bboxCenter } from "./lib/geo-utils";
 import { resolveRegion, loadRegionConfig, gridCacheDir } from "./lib/region";
 import type { ScalarGrid } from "./lib/marching-squares";
 import { buildClosedRings } from "./lib/marching-squares";
 import { ContourWorkerPool } from "./lib/worker-pool";
+import { ringPerimeter, signedArea, type Point } from "./lib/simplify";
+import { createSegmentIndex } from "./lib/segment-index";
+import { constrainedSimplifyClosedRing } from "./lib/constrained-simplify";
 import { DEFAULT_DEPTH } from "../../src/game/world/terrain/TerrainConstants";
 
 interface TerrainContourJson {
   height: number;
   polygon: [number, number][];
+}
+
+/** Collected ring in feet coordinates, before simplification. */
+interface RawRing {
+  height: number;
+  points: Point[];
+  bbox: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
 function quantizeLevels(min: number, max: number, interval: number): number[] {
@@ -141,6 +151,97 @@ async function loadMergedGrid(mergedPath: string): Promise<{
   };
 }
 
+// ---------------------------------------------------------------------------
+// Containment tree (point-in-polygon based, same algorithm as validate-level)
+// ---------------------------------------------------------------------------
+
+function pointInPolygon(px: number, py: number, poly: Point[]): boolean {
+  const n = poly.length;
+  if (n < 3) return false;
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+interface ContourNode {
+  ringIndex: number;
+  children: ContourNode[];
+}
+
+function buildContainmentTree(rings: RawRing[]): ContourNode[] {
+  const virtualChildren: ContourNode[] = [];
+
+  function bboxContains(
+    outer: RawRing["bbox"],
+    inner: RawRing["bbox"],
+  ): boolean {
+    return (
+      outer.minX <= inner.minX &&
+      outer.maxX >= inner.maxX &&
+      outer.minY <= inner.minY &&
+      outer.maxY >= inner.maxY
+    );
+  }
+
+  function isInside(innerIdx: number, outerIdx: number): boolean {
+    if (!bboxContains(rings[outerIdx].bbox, rings[innerIdx].bbox)) return false;
+    const innerPt = rings[innerIdx].points[0];
+    return pointInPolygon(innerPt[0], innerPt[1], rings[outerIdx].points);
+  }
+
+  function insertContour(parent: ContourNode | null, newIndex: number): void {
+    const children = parent ? parent.children : virtualChildren;
+
+    for (const child of children) {
+      if (isInside(newIndex, child.ringIndex)) {
+        insertContour(child, newIndex);
+        return;
+      }
+    }
+
+    const newNode: ContourNode = { ringIndex: newIndex, children: [] };
+
+    const toReparent: ContourNode[] = [];
+    for (const child of children) {
+      if (isInside(child.ringIndex, newIndex)) {
+        toReparent.push(child);
+      }
+    }
+    for (const child of toReparent) {
+      const idx = children.indexOf(child);
+      if (idx >= 0) children.splice(idx, 1);
+      newNode.children.push(child);
+    }
+    children.push(newNode);
+  }
+
+  for (let i = 0; i < rings.length; i++) {
+    insertContour(null, i);
+  }
+
+  return virtualChildren;
+}
+
+/** BFS order from tree roots (outside-in). */
+function bfsOrder(roots: ContourNode[]): number[] {
+  const order: number[] = [];
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const node = queue.shift()!;
+    order.push(node.ringIndex);
+    for (const child of node.children) {
+      queue.push(child);
+    }
+  }
+  return order;
+}
+
 async function main(): Promise<void> {
   const slug = resolveRegion(process.argv.slice(2));
   const config = loadRegionConfig(slug);
@@ -172,6 +273,10 @@ async function main(): Promise<void> {
   const levels = quantizeLevels(clampedMin, maxFeet, config.interval);
   const center = bboxCenter(bbox);
 
+  // Geo conversion parameters (extracted from what was previously SimplifyConfig)
+  const bboxMinLon = bbox.minLon - lonStep; // adjust for 1-cell padding
+  const bboxMaxLat = bbox.maxLat + latStep; // adjust for 1-cell padding
+
   timer = performance.now();
   const pool = ContourWorkerPool.create(grid);
   console.log(
@@ -184,24 +289,14 @@ async function main(): Promise<void> {
     `Block index: ${blocks.blockCols}x${blocks.blockRows} blocks  (${(performance.now() - timer).toFixed(0)}ms)`,
   );
 
-  await pool.setSimplifyConfig({
-    centerLat: center.lat,
-    centerLon: center.lon,
-    bboxMinLon: bbox.minLon - lonStep, // adjust for 1-cell padding
-    bboxMaxLat: bbox.maxLat + latStep, // adjust for 1-cell padding
-    lonStep,
-    latStep,
-    simplifyFeet: config.simplify,
-    minPerimeterFeet: config.minPerimeter,
-    minPoints: config.minPoints,
-    scale: config.scale,
-    flipY: config.flipY,
-  });
+  // =========================================================================
+  // Phase 1: March all levels with workers, convert to feet, pre-filter
+  // =========================================================================
 
-  const contours: TerrainContourJson[] = [];
+  const allRings: RawRing[] = [];
   let totalMarchMs = 0;
-  let totalRingsSimplifyMs = 0;
-  let totalRings = 0;
+  let totalRingsMs = 0;
+  let totalRawRings = 0;
 
   for (let li = 0; li < levels.length; li++) {
     const levelFeet = levels[li];
@@ -211,34 +306,145 @@ async function main(): Promise<void> {
     const marchMs = performance.now() - timer;
     totalMarchMs += marchMs;
 
-    // Ring assembly and simplification overlap: the generator yields rings
-    // one at a time, and workers pull them as they become available.
     timer = performance.now();
     const rings = buildClosedRings(segments);
-    const { contours: levelContours, ringCount } = await pool.simplifyRings(
-      rings,
-      levelFeet,
-    );
-    contours.push(...levelContours);
-    const ringsSimplifyMs = performance.now() - timer;
-    totalRingsSimplifyMs += ringsSimplifyMs;
-    totalRings += ringCount;
+    let ringCount = 0;
+    let keptCount = 0;
 
-    const levelPoints = levelContours.reduce(
-      (sum, c) => sum + c.polygon.length,
-      0,
-    );
+    for (const ringCoords of rings) {
+      ringCount++;
+      const numPoints = ringCoords.length / 2;
+
+      // Convert grid coords → feet
+      const feetPoints: Point[] = new Array(numPoints);
+      let bMinX = Infinity,
+        bMinY = Infinity,
+        bMaxX = -Infinity,
+        bMaxY = -Infinity;
+
+      for (let i = 0; i < numPoints; i++) {
+        const gx = ringCoords[i * 2];
+        const gy = ringCoords[i * 2 + 1];
+        const lon = bboxMinLon + gx * lonStep;
+        const lat = bboxMaxLat - gy * latStep;
+        const [xFeet, yFeet] = latLonToFeet(lat, lon, center.lat, center.lon);
+        const fx = xFeet;
+        const fy = config.flipY ? -yFeet : yFeet;
+        feetPoints[i] = [fx, fy];
+        if (fx < bMinX) bMinX = fx;
+        if (fx > bMaxX) bMaxX = fx;
+        if (fy < bMinY) bMinY = fy;
+        if (fy > bMaxY) bMaxY = fy;
+      }
+
+      // Pre-filter: discard tiny rings before simplification
+      const perimeter = ringPerimeter(feetPoints);
+      if (perimeter < config.minPerimeter) continue;
+      if (feetPoints.length < config.minPoints) continue;
+
+      allRings.push({
+        height: levelFeet,
+        points: feetPoints,
+        bbox: { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY },
+      });
+      keptCount++;
+    }
+
+    const ringsMs = performance.now() - timer;
+    totalRingsMs += ringsMs;
+    totalRawRings += ringCount;
+
     console.log(
-      `[${li + 1}/${levels.length}] ${levelFeet}ft: ${ringCount} rings → ${levelContours.length} kept (${levelPoints.toLocaleString()} pts)  (march ${marchMs.toFixed(0)}ms, rings+simplify ${ringsSimplifyMs.toFixed(0)}ms)`,
+      `[${li + 1}/${levels.length}] ${levelFeet}ft: ${ringCount} rings → ${keptCount} kept  (march ${marchMs.toFixed(0)}ms, convert ${ringsMs.toFixed(0)}ms)`,
     );
   }
 
-  const totalPoints = contours.reduce((sum, c) => sum + c.polygon.length, 0);
+  await pool.shutdown();
+
   console.log(
-    `\nTotals: ${totalRings} rings → ${contours.length} contours (${totalPoints.toLocaleString()} pts)  (march ${totalMarchMs.toFixed(0)}ms, rings+simplify ${totalRingsSimplifyMs.toFixed(0)}ms)`,
+    `\nPhase 1: ${totalRawRings} raw rings → ${allRings.length} pre-filtered  (march ${totalMarchMs.toFixed(0)}ms, convert ${totalRingsMs.toFixed(0)}ms)`,
   );
 
-  await pool.shutdown();
+  // =========================================================================
+  // Phase 2: Containment tree → BFS order → constrained simplification
+  // =========================================================================
+
+  timer = performance.now();
+  const treeRoots = buildContainmentTree(allRings);
+  const order = bfsOrder(treeRoots);
+  const treeMs = performance.now() - timer;
+  console.log(
+    `Containment tree: ${treeRoots.length} roots, BFS order computed  (${treeMs.toFixed(0)}ms)`,
+  );
+
+  // Global bbox for segment index
+  let gMinX = Infinity,
+    gMinY = Infinity,
+    gMaxX = -Infinity,
+    gMaxY = -Infinity;
+  for (const ring of allRings) {
+    if (ring.bbox.minX < gMinX) gMinX = ring.bbox.minX;
+    if (ring.bbox.minY < gMinY) gMinY = ring.bbox.minY;
+    if (ring.bbox.maxX > gMaxX) gMaxX = ring.bbox.maxX;
+    if (ring.bbox.maxY > gMaxY) gMaxY = ring.bbox.maxY;
+  }
+
+  // Cell size: target ~8 segments per cell, minimum 50ft
+  let totalPoints = 0;
+  for (const ring of allRings) totalPoints += ring.points.length;
+  const area = (gMaxX - gMinX) * (gMaxY - gMinY);
+  const cellSize = Math.max(Math.sqrt(area / (totalPoints / 8)), 50);
+
+  const segIndex = createSegmentIndex(gMinX, gMinY, gMaxX, gMaxY, cellSize);
+
+  // Pre-populate the index with all unsimplified rings so that outer contour
+  // simplification is constrained against inner contours (and vice versa).
+  for (let i = 0; i < allRings.length; i++) {
+    segIndex.addContourSegments(i, allRings[i].points);
+  }
+
+  timer = performance.now();
+  const contours: TerrainContourJson[] = [];
+  let constrainedKept = 0;
+
+  for (const ringIdx of order) {
+    const ring = allRings[ringIdx];
+
+    const simplified = constrainedSimplifyClosedRing(
+      ring.points,
+      config.simplify,
+      ringIdx,
+      segIndex,
+    );
+
+    if (simplified.length < config.minPoints) continue;
+
+    // Replace unsimplified segments with finalized simplified ones
+    segIndex.removeContourSegments(ringIdx);
+    segIndex.addContourSegments(ringIdx, simplified);
+
+    // Scale to game units, ensure CCW winding
+    const scaled: Point[] = simplified.map(([x, y]) => [
+      x / config.scale,
+      y / config.scale,
+    ]);
+    if (signedArea(scaled) < 0) scaled.reverse();
+
+    contours.push({
+      height: Number(ring.height.toFixed(3)),
+      polygon: scaled.map(
+        ([x, y]) =>
+          [Number(x.toFixed(3)), Number(y.toFixed(3))] as [number, number],
+      ),
+    });
+    constrainedKept++;
+  }
+
+  const simplifyMs = performance.now() - timer;
+  const finalPoints = contours.reduce((sum, c) => sum + c.polygon.length, 0);
+  console.log(
+    `Phase 2: ${allRings.length} → ${constrainedKept} contours (${finalPoints.toLocaleString()} pts)  (simplify ${simplifyMs.toFixed(0)}ms)`,
+  );
 
   contours.sort((a, b) => a.height - b.height);
 
@@ -262,7 +468,7 @@ async function main(): Promise<void> {
   });
 
   console.log(
-    `Wrote ${contours.length} contours (${totalPoints.toLocaleString()} pts) to ${outputPath}  (write ${(performance.now() - timer).toFixed(0)}ms)`,
+    `Wrote ${contours.length} contours (${finalPoints.toLocaleString()} pts) to ${outputPath}  (write ${(performance.now() - timer).toFixed(0)}ms)`,
   );
 
   // Validate the output

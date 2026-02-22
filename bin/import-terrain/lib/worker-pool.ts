@@ -4,25 +4,6 @@ import { fileURLToPath } from "url";
 import path from "path";
 import type { ScalarGrid, BlockIndex, MarchSegments } from "./marching-squares";
 
-interface TerrainContourJson {
-  height: number;
-  polygon: [number, number][];
-}
-
-export interface SimplifyConfig {
-  centerLat: number;
-  centerLon: number;
-  bboxMinLon: number;
-  bboxMaxLat: number;
-  lonStep: number;
-  latStep: number;
-  simplifyFeet: number;
-  minPerimeterFeet: number;
-  minPoints: number;
-  scale: number;
-  flipY: boolean;
-}
-
 function toSharedBuffer(source: ArrayBufferLike): SharedArrayBuffer {
   const shared = new SharedArrayBuffer(source.byteLength);
   new Uint8Array(shared).set(new Uint8Array(source));
@@ -197,80 +178,6 @@ export class ContourWorkerPool {
     }
 
     return { segAx, segAy, segBx, segBy, segAEdge, segBEdge };
-  }
-
-  async setSimplifyConfig(config: SimplifyConfig): Promise<void> {
-    const promises: Promise<void>[] = [];
-    for (let w = 0; w < this.workers.length; w++) {
-      promises.push(
-        this.sendAndReceive(w, {
-          type: "setSimplifyConfig",
-          ...config,
-        }).then(() => {}),
-      );
-    }
-    await Promise.all(promises);
-  }
-
-  /**
-   * Streams rings from a generator to workers for simplification.
-   * Each worker pulls the next ring when it finishes its current one,
-   * naturally load-balancing across workers.
-   */
-  /**
-   * Streams rings from a generator to workers for simplification.
-   * Pulls rings in batches (by point count threshold) to amortize
-   * microtask scheduling overhead, while still overlapping ring
-   * assembly with worker simplification.
-   */
-  async simplifyRings(
-    rings: Generator<Float64Array>,
-    levelFeet: number,
-  ): Promise<{ contours: TerrainContourJson[]; ringCount: number }> {
-    const { workers } = this;
-    const contours: TerrainContourJson[] = [];
-    let ringCount = 0;
-    let done = false;
-
-    const POINT_THRESHOLD = 2000;
-
-    const pullBatch = (): Float64Array[] => {
-      const batch: Float64Array[] = [];
-      let totalPoints = 0;
-      while (!done) {
-        const next = rings.next();
-        if (next.done) {
-          done = true;
-          break;
-        }
-        ringCount++;
-        batch.push(next.value);
-        totalPoints += next.value.length / 2;
-        if (totalPoints >= POINT_THRESHOLD) break;
-      }
-      return batch;
-    };
-
-    // Pull-based: each worker pulls a batch, sends it, waits for results, repeats
-    const workerLoop = (w: number): Promise<void> => {
-      const batch = pullBatch();
-      if (batch.length === 0) return Promise.resolve();
-
-      const transferList = batch.map((r) => r.buffer as ArrayBuffer);
-      return this.sendAndReceive(
-        w,
-        { type: "simplify", rings: batch, levelFeet },
-        transferList,
-      ).then((msg) => {
-        for (const r of msg.results as TerrainContourJson[]) {
-          contours.push(r);
-        }
-        return workerLoop(w);
-      });
-    };
-
-    await Promise.all(workers.map((_, w) => workerLoop(w)));
-    return { contours, ringCount };
   }
 
   async shutdown(): Promise<void> {
