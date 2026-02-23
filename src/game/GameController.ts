@@ -1,6 +1,7 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { ReactPreloader } from "../core/resources/Preloader";
+import { RESOURCES } from "../../resources/resources";
 import { loadDefaultLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
@@ -14,6 +15,8 @@ import { SpeedReadout } from "./SpeedReadout";
 import { TimeOfDayHUD } from "./TimeOfDayHUD";
 import { TutorialManager } from "./tutorial/TutorialManager";
 import { isTutorialCompleted } from "./tutorial/tutorialStorage";
+import type { WavefrontMeshData } from "./wave-physics/mesh-building/MeshBuildTypes";
+import { loadWavemeshFromUrl } from "./wave-physics/mesh-building/WavemeshLoader";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
@@ -39,7 +42,9 @@ export class GameController extends BaseEntity {
     const initScreen = this.game.addEntity(new GameInitializingScreen());
 
     // Switch from asset preloader UI to game-initialization UI.
-    for (const preloader of [...this.game.entities.byConstructor(ReactPreloader)]) {
+    for (const preloader of [
+      ...this.game.entities.byConstructor(ReactPreloader),
+    ]) {
       preloader.destroy();
     }
 
@@ -52,7 +57,28 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new TimeOfDay());
 
     // 3. Wave physics (needs terrain for shadow computation, uses wave direction)
-    const wavePhysics = this.game.addEntity(new WavePhysicsResources(waves));
+    // Try to load prebuilt wave mesh data from .wavemesh binary
+    let prebuiltMeshData: WavefrontMeshData[] | undefined;
+    const wavemeshUrl =
+      RESOURCES.wavemeshes[
+        "vendoviIsland" as keyof typeof RESOURCES.wavemeshes
+      ];
+    if (wavemeshUrl) {
+      try {
+        prebuiltMeshData = await loadWavemeshFromUrl(wavemeshUrl);
+        console.log(
+          `[GameController] Loaded prebuilt wavemesh (${prebuiltMeshData.length} meshes)`,
+        );
+      } catch (e) {
+        console.warn(
+          "[GameController] Failed to load wavemesh, falling back to runtime build:",
+          e,
+        );
+      }
+    }
+    const wavePhysics = this.game.addEntity(
+      new WavePhysicsResources(waves, prebuiltMeshData),
+    );
 
     // 4. Water data system (tide, modifiers, GPU buffers, wave sources)
     this.game.addEntity(new WaterResources(waves));

@@ -16,6 +16,7 @@
     "test": "playwright test",
     "benchmark": "playwright test --config playwright.benchmark.config.ts",
     "benchmark-mesh-build": "tsx ./bin/benchmark-mesh-build.ts",
+    "build-wavemesh": "tsx ./bin/build-wavemesh.ts",
     "download-terrain": "tsx ./bin/import-terrain/download.ts",
     "build-terrain-grid": "tsx ./bin/import-terrain/build-grid.ts",
     "extract-terrain-contours": "tsx ./bin/import-terrain/extract-contours.ts",

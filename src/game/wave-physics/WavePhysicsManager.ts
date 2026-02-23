@@ -14,12 +14,13 @@ import {
   buildPackedMeshBuffer,
   createPlaceholderPackedMeshBuffer,
 } from "./MeshPacking";
-import type { WavefrontMesh } from "./WavefrontMesh";
+import { WavefrontMesh } from "./WavefrontMesh";
 import { WavefrontRasterizer } from "./WavefrontRasterizer";
 import { MeshBuildCoordinator } from "./mesh-building/MeshBuildCoordinator";
 import type {
   MeshBuildBounds,
   MeshBuilderType,
+  WavefrontMeshData,
 } from "./mesh-building/MeshBuildTypes";
 
 /** Maximum number of wave sources for mesh computation */
@@ -100,17 +101,34 @@ export class WavePhysicsManager {
    * @param terrainDef - Terrain definition for terrain bounds extraction
    * @param terrainGPUData - Raw typed arrays from buildTerrainCPUData() (for worker mesh builds)
    * @param tideHeight - Current tide height
+   * @param prebuiltMeshData - Optional prebuilt mesh data from .wavemesh file (skips worker build)
    */
   async initialize(
     terrainDef: TerrainDefinition,
     terrainGPUData?: TerrainCPUData,
     tideHeight?: number,
+    prebuiltMeshData?: WavefrontMeshData[],
   ): Promise<void> {
     // Initialize rasterizer
     await this.rasterizer.init();
 
-    // Build wavefront meshes via workers if terrain data is available
-    if (terrainGPUData && tideHeight !== undefined) {
+    if (prebuiltMeshData) {
+      // Use prebuilt mesh data — skip worker-based build entirely
+      const meshes = prebuiltMeshData.map((data, i) =>
+        WavefrontMesh.fromMeshData(
+          data,
+          this.waveSources[i],
+          "marching",
+          0,
+          this.device,
+        ),
+      );
+      this.meshSets.set("marching", meshes);
+      console.log(
+        `[WavePhysics] Using prebuilt mesh data (${meshes.length} meshes)`,
+      );
+    } else if (terrainGPUData && tideHeight !== undefined) {
+      // Build wavefront meshes via workers
       const terrainBounds = computeTerrainBounds(terrainDef);
       await this.meshCoordinator.initialize();
       this.meshSets = await this.meshCoordinator.buildMeshes(

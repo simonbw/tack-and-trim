@@ -11,7 +11,10 @@
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import type { MeshBuilderType } from "./mesh-building/MeshBuildTypes";
+import type {
+  MeshBuilderType,
+  WavefrontMeshData,
+} from "./mesh-building/MeshBuildTypes";
 import { TerrainResources } from "../world/terrain/TerrainResources";
 import { DEFAULT_WAVE_CONFIG, WaveConfig } from "../world/water/WaveSource";
 import { WaterResources } from "../world/water/WaterResources";
@@ -36,13 +39,15 @@ export class WavePhysicsResources extends BaseEntity {
   id = "wavePhysicsResources";
 
   private waveConfig: WaveConfig;
+  private prebuiltMeshData: WavefrontMeshData[] | undefined;
   private wavePhysicsManager: WavePhysicsManager | null = null;
   private terrainResources: TerrainResources | null = null;
   private initPromise: Promise<void> | null = null;
 
-  constructor(waveConfig?: WaveConfig) {
+  constructor(waveConfig?: WaveConfig, prebuiltMeshData?: WavefrontMeshData[]) {
     super();
     this.waveConfig = waveConfig ?? DEFAULT_WAVE_CONFIG;
+    this.prebuiltMeshData = prebuiltMeshData;
   }
 
   @on("afterAdded")
@@ -80,6 +85,7 @@ export class WavePhysicsResources extends BaseEntity {
             }
           : undefined,
         tideHeight,
+        this.prebuiltMeshData,
       );
     }
   }

@@ -6,6 +6,8 @@ const sounds = {
 export type SoundName = keyof typeof sounds;
 
 const images = {
+  vendoviIsland: require("url:./levels/vendovi-island.svg"),
+  default: require("url:./levels/default.svg"),
   favicon: require("url:./images/favicon.png")
 };
 export type ImageName = keyof typeof images;
@@ -30,4 +32,10 @@ const jsonBlobs = {
 
 };
 
-export const RESOURCES = { sounds, images, fonts, levels, entityDefs, jsonBlobs };
+const wavemeshes = {
+  vendoviIsland: require("url:./levels/vendovi-island.wavemesh"),
+  default: require("url:./levels/default.wavemesh")
+};
+export type WavemeshName = keyof typeof wavemeshes;
+
+export const RESOURCES = { sounds, images, fonts, levels, entityDefs, jsonBlobs, wavemeshes };

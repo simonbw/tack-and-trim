@@ -103,7 +103,7 @@ export class WavefrontMesh {
         GPUBufferUsage.COPY_DST,
       label: `Wavefront Mesh Vertices (${builderType})`,
     });
-    device.queue.writeBuffer(vertexBuffer, 0, data.vertices.buffer);
+    device.queue.writeBuffer(vertexBuffer, 0, data.vertices);
 
     // Create GPU index buffer
     const indexBuffer = device.createBuffer({
@@ -111,7 +111,7 @@ export class WavefrontMesh {
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       label: `Wavefront Mesh Index Buffer (${builderType})`,
     });
-    device.queue.writeBuffer(indexBuffer, 0, data.indices.buffer);
+    device.queue.writeBuffer(indexBuffer, 0, data.indices);
 
     return new WavefrontMesh({
       vertexBuffer,
