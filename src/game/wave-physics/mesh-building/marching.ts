@@ -37,7 +37,12 @@ import {
   computeTerrainHeightAndGradient,
   type TerrainHeightGradient,
 } from "../../world/terrain/terrainHeightCPU";
-import type { WaveBounds, Wavefront, WavefrontSegment } from "./marchingTypes";
+import type {
+  MutableWavefrontSegment,
+  WaveBounds,
+  Wavefront,
+  WavefrontSegment,
+} from "./marchingTypes";
 
 /** Energy fraction below which a point is considered dead */
 const MIN_ENERGY = 0.03;
@@ -132,7 +137,10 @@ const TURBULENCE_DIFFUSION_ITERATIONS = 3;
  *  Must be <= 0.5 for stability. Lower = gentler spread. */
 const TURBULENCE_DIFFUSION_D = 0.3;
 
-function createEmptySegment(): WavefrontSegment {
+/** Throttle "splitting disabled" warning to once per build */
+let warnedSplitDisabled = false;
+
+function createEmptySegment(): MutableWavefrontSegment {
   return {
     x: [],
     y: [],
@@ -221,11 +229,11 @@ export function generateInitialWavefront(
  * in a single pass that builds a new segment.
  */
 function refineWavefront(
-  wavefront: WavefrontSegment,
+  wavefront: MutableWavefrontSegment,
   vertexSpacing: number,
   initialDeltaT: number,
   stats: { splits: number; merges: number },
-): WavefrontSegment {
+): MutableWavefrontSegment {
   const srcX = wavefront.x;
   const srcLen = srcX.length;
   if (srcLen <= 1) return wavefront;
@@ -347,7 +355,8 @@ function refineWavefront(
     outAmplitude.push(0);
   }
 
-  if (!canSplit) {
+  if (!canSplit && !warnedSplitDisabled) {
+    warnedSplitDisabled = true;
     console.warn(
       `[marching] Segment has ${srcLen} points (max ${MAX_SEGMENT_POINTS}), splitting disabled.`,
     );
@@ -476,6 +485,37 @@ export function applyDiffraction(
 }
 
 /**
+ * Compact a fully post-processed wavefront step to reduce memory.
+ * 1. Converts the 5 mesh-output fields (x, y, t, amplitude, turbulence)
+ *    from number[] to Float32Array (halves per-element storage)
+ * 2. Strips the 4 marching-only fields (dirX, dirY, energy, depth) since
+ *    they are no longer needed after marching has moved past this step.
+ *
+ * This reduces per-step memory by ~78% (5/9 fields kept × 4/8 bytes each).
+ * Full vertex decimation is deferred to the post-march pass.
+ */
+function compactStep(step: Wavefront, compactMs: { value: number }): void {
+  const t0 = performance.now();
+  for (let i = 0; i < step.length; i++) {
+    const segment = step[i];
+
+    // Convert kept fields to Float32Array and strip marching-only fields
+    step[i] = {
+      x: new Float32Array(segment.x),
+      y: new Float32Array(segment.y),
+      t: new Float32Array(segment.t),
+      dirX: [],
+      dirY: [],
+      energy: [],
+      turbulence: new Float32Array(segment.turbulence),
+      depth: [],
+      amplitude: new Float32Array(segment.amplitude),
+    };
+  }
+  compactMs.value += performance.now() - t0;
+}
+
+/**
  * March wavefronts step-by-step until all rays leave the domain or die.
  * Each ray advances independently, turning via Snell's law based on the
  * local depth gradient. Amplitude and diffraction are applied row-by-row
@@ -496,9 +536,11 @@ export function marchWavefronts(
   merges: number;
   amplitudeMs: number;
   diffractionMs: number;
+  compactMs: number;
   turnClampCount: number;
   totalRefractions: number;
 } {
+  warnedSplitDisabled = false;
   const perpDx = -waveDy;
   const perpDy = waveDx;
   const wavefronts: Wavefront[] = [[firstWavefront]];
@@ -516,6 +558,7 @@ export function marchWavefronts(
   const singleStep: Wavefront[] = [];
   let amplitudeMs = 0;
   let diffractionMs = 0;
+  const compactMs = { value: 0 };
 
   const minProj = bounds.minProj;
   const maxProj = bounds.maxProj;
@@ -540,6 +583,15 @@ export function marchWavefronts(
     amplitudeMs += tB - tA;
     diffractionMs += tC - tB;
   };
+
+  // Progress logging — use time-based interval so first report comes quickly
+  const estimatedSteps = Math.ceil(
+    (bounds.maxProj - bounds.minProj) / stepSize,
+  );
+  let stepCount = 0;
+  let marchStartTime = performance.now();
+  let nextProgressTime = marchStartTime + 2000; // first report after 2s
+  let totalRaySteps = 0;
 
   // Keep boundary-row behavior consistent with full-pass post-processing.
   postProcessStep(wavefronts[0]);
@@ -734,8 +786,47 @@ export function marchWavefronts(
     }
 
     if (nextStep.length === 0) break;
+
+    // Count rays in this step
+    let stepRays = 0;
+    for (const seg of nextStep) {
+      stepRays += seg.x.length;
+    }
+    totalRaySteps += stepRays;
+    stepCount++;
+
+    // Time-based progress logging — report every 5s
+    const now = performance.now();
+    if (now >= nextProgressTime) {
+      const elapsed = now - marchStartTime;
+      const pct = Math.min(100, (stepCount / estimatedSteps) * 100);
+      const raysPerSec = elapsed > 0 ? (totalRaySteps / elapsed) * 1000 : 0;
+      const segments = nextStep.length;
+      const fmt = (v: number) =>
+        v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+      console.log(
+        `  [march] step ${fmt(stepCount)}/${fmt(estimatedSteps)} (${pct.toFixed(0)}%) ` +
+          `${(elapsed / 1000).toFixed(1)}s elapsed, ${fmt(totalRaySteps)} total ray steps, ` +
+          `${fmt(stepRays)} rays (${segments} seg), ${fmt(raysPerSec)} rays/s`,
+      );
+      nextProgressTime = now + 5000;
+    }
+
     postProcessStep(nextStep);
     wavefronts.push(nextStep);
+
+    // Compact the second-to-last step — it's fully post-processed and no
+    // longer needed as a marching source. The latest step (nextStep) must
+    // keep its full data since it's the source for the next march iteration.
+    if (wavefronts.length >= 3) {
+      compactStep(wavefronts[wavefronts.length - 2], compactMs);
+    }
+  }
+
+  // Compact the first step (initial wavefront) and the final step
+  if (wavefronts.length >= 2) {
+    compactStep(wavefronts[0], compactMs);
+    compactStep(wavefronts[wavefronts.length - 1], compactMs);
   }
 
   return {
@@ -744,6 +835,7 @@ export function marchWavefronts(
     merges: stats.merges,
     amplitudeMs,
     diffractionMs,
+    compactMs: compactMs.value,
     turnClampCount,
     totalRefractions,
   };

@@ -246,6 +246,7 @@ for (const waveIndex of waveIndices) {
       "march",
       "amplitude",
       "diffraction",
+      "compact",
       "decimate",
       "mesh",
     ] as const;
@@ -258,6 +259,7 @@ for (const waveIndex of waveIndices) {
       march: [] as number[],
       amplitude: [] as number[],
       diffraction: [] as number[],
+      compact: [] as number[],
       decimate: [] as number[],
       mesh: [] as number[],
     };
@@ -281,6 +283,7 @@ for (const waveIndex of waveIndices) {
           march: 0,
           amplitude: 0,
           diffraction: 0,
+          compact: 0,
           decimate: 0,
           mesh: 0,
         },
@@ -291,11 +294,8 @@ for (const waveIndex of waveIndices) {
           trianglesAfter: 0,
         },
       };
-      console.log = () => {};
-      console.warn = () => {};
+      // Don't suppress console output — progress logging is useful for long builds
       buildFn(waveSource, bounds, terrain, tideHeight, profile);
-      console.log = originalLog;
-      console.warn = originalWarn;
       const elapsed = profile.totalMs;
 
       timesMs.push(elapsed);
@@ -303,6 +303,7 @@ for (const waveIndex of waveIndices) {
       stageTimesMs.march.push(profile.stageMs.march);
       stageTimesMs.amplitude.push(profile.stageMs.amplitude);
       stageTimesMs.diffraction.push(profile.stageMs.diffraction);
+      stageTimesMs.compact.push(profile.stageMs.compact);
       stageTimesMs.decimate.push(profile.stageMs.decimate);
       stageTimesMs.mesh.push(profile.stageMs.mesh);
       lastDecimationCounts = profile.decimationCounts;

@@ -469,7 +469,7 @@ function canRemoveVerticesBetween(
 }
 
 function copyKeptIndices(
-  source: number[],
+  source: number[] | Float32Array,
   kept: number[],
   out: number[],
 ): void {
@@ -487,22 +487,29 @@ function buildSegmentFromKept(
   const outX = new Array<number>(n);
   const outY = new Array<number>(n);
   const outT = new Array<number>(n);
-  const outDirX = new Array<number>(n);
-  const outDirY = new Array<number>(n);
-  const outEnergy = new Array<number>(n);
   const outTurbulence = new Array<number>(n);
-  const outDepth = new Array<number>(n);
   const outAmplitude = new Array<number>(n);
 
   copyKeptIndices(segment.x, kept, outX);
   copyKeptIndices(segment.y, kept, outY);
   copyKeptIndices(segment.t, kept, outT);
-  copyKeptIndices(segment.dirX, kept, outDirX);
-  copyKeptIndices(segment.dirY, kept, outDirY);
-  copyKeptIndices(segment.energy, kept, outEnergy);
   copyKeptIndices(segment.turbulence, kept, outTurbulence);
-  copyKeptIndices(segment.depth, kept, outDepth);
   copyKeptIndices(segment.amplitude, kept, outAmplitude);
+
+  // Marching-only fields may be stripped (empty) after online compaction.
+  // Only copy them if they have data.
+  const hasMarchingFields = segment.dirX.length > 0;
+  const outDirX = hasMarchingFields ? new Array<number>(n) : [];
+  const outDirY = hasMarchingFields ? new Array<number>(n) : [];
+  const outEnergy = hasMarchingFields ? new Array<number>(n) : [];
+  const outDepth = hasMarchingFields ? new Array<number>(n) : [];
+
+  if (hasMarchingFields) {
+    copyKeptIndices(segment.dirX, kept, outDirX);
+    copyKeptIndices(segment.dirY, kept, outDirY);
+    copyKeptIndices(segment.energy, kept, outEnergy);
+    copyKeptIndices(segment.depth, kept, outDepth);
+  }
 
   return {
     x: outX,
@@ -521,7 +528,7 @@ function buildSegmentFromKept(
  * Remove redundant interior vertices from a single segment using the same
  * greedy forward scan. First and last vertices are always kept.
  */
-function decimateSegment(
+export function decimateSegment(
   segment: WavefrontSegment,
   posTolSq: number,
   ampTol: number,

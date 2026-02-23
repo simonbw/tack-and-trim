@@ -44,6 +44,7 @@ export interface MeshBuildProfile {
     march: number;
     amplitude: number;
     diffraction: number;
+    compact: number;
     decimate: number;
     mesh: number;
   };
@@ -112,6 +113,7 @@ export function buildMarchingMesh(
     merges,
     amplitudeMs,
     diffractionMs,
+    compactMs,
     turnClampCount,
     totalRefractions,
   } = marchWavefronts(
@@ -150,9 +152,10 @@ export function buildMarchingMesh(
   const totalMs = t4 - t0;
   const stageMs = {
     bounds: t1 - t0,
-    march: Math.max(0, t2 - t1 - amplitudeMs - diffractionMs),
+    march: Math.max(0, t2 - t1 - amplitudeMs - diffractionMs - compactMs),
     amplitude: amplitudeMs,
     diffraction: diffractionMs,
+    compact: compactMs,
     decimate: t3 - t2,
     mesh: t4 - t3,
   };
@@ -196,6 +199,7 @@ export function buildMarchingMesh(
         `  march ${n(stageMs.march, 1)}ms`,
         `  amplitude ${n(stageMs.amplitude, 1)}ms`,
         `  diffraction ${n(stageMs.diffraction, 1)}ms`,
+        `  compact ${n(stageMs.compact, 1)}ms`,
         `  decimate ${n(stageMs.decimate, 1)}ms`,
         `  mesh ${n(stageMs.mesh, 1)}ms`,
       ].join("\n"),
