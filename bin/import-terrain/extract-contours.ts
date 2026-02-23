@@ -268,8 +268,8 @@ async function main(): Promise<void> {
     `Settings: interval ${config.interval}ft, simplify ${config.simplify}ft, scale ${config.scale}, minPerimeter ${config.minPerimeter}ft, minPoints ${config.minPoints}`,
   );
 
-  // Skip contours at or below defaultDepth — the game treats that as uniform deep ocean
-  const clampedMin = Math.max(minFeet, DEFAULT_DEPTH + config.interval);
+  // Skip contours below defaultDepth — the game treats that as uniform deep ocean
+  const clampedMin = Math.max(minFeet, DEFAULT_DEPTH);
   const levels = quantizeLevels(clampedMin, maxFeet, config.interval);
   const center = bboxCenter(bbox);
 
