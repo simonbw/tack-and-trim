@@ -19,6 +19,7 @@
     "download-terrain": "tsx ./bin/import-terrain/download.ts",
     "build-terrain-grid": "tsx ./bin/import-terrain/build-grid.ts",
     "extract-terrain-contours": "tsx ./bin/import-terrain/extract-contours.ts",
+    "validate-level": "tsx ./bin/import-terrain/validate-level.ts",
     "import-terrain": "tsx ./bin/import-terrain/run-all.ts",
     "docs": "typedoc",
     "count-tokens": "tsx ./bin/count-tokens.ts"
