@@ -2,8 +2,8 @@
  * Browser-side loader for prebuilt .wavemesh binary files.
  */
 
-import type { WavefrontMeshData } from "./MeshBuildTypes";
-import { parseWavemeshBuffer } from "./WavemeshFile";
+import type { WavefrontMeshData } from "../../pipeline/mesh-building/MeshBuildTypes";
+import { parseWavemeshBuffer } from "../../pipeline/mesh-building/WavemeshFile";
 
 /**
  * Fetch and parse a .wavemesh file from a URL.

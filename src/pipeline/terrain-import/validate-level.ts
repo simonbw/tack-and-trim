@@ -13,15 +13,15 @@
  * for large unsimplified terrain with hundreds of thousands of points).
  *
  * Usage:
- *   npx tsx bin/import-terrain/validate-level.ts <path-to-level.json>
- *   npx tsx bin/import-terrain/validate-level.ts --region <name>
+ *   npx tsx src/pipeline/terrain-import/validate-level.ts <path-to-level.json>
+ *   npx tsx src/pipeline/terrain-import/validate-level.ts --region <name>
  *
  * Can also be called programmatically via validateLevelFile().
  */
 
 import { readFileSync } from "fs";
 import path from "path";
-import { DEFAULT_DEPTH } from "../../src/game/world/terrain/TerrainConstants";
+import { DEFAULT_DEPTH } from "../../game/world/terrain/TerrainConstants";
 
 // ---------------------------------------------------------------------------
 // Lightweight contour representation (no V2d, no spline sampling)
@@ -577,8 +577,8 @@ function main(): void {
       break;
     } else if (args[i] === "-h" || args[i] === "--help") {
       console.log(`Usage:
-  npx tsx bin/import-terrain/validate-level.ts <path-to-level.json>
-  npx tsx bin/import-terrain/validate-level.ts --region <name>`);
+  npx tsx src/pipeline/terrain-import/validate-level.ts <path-to-level.json>
+  npx tsx src/pipeline/terrain-import/validate-level.ts --region <name>`);
       process.exit(0);
     } else if (!args[i].startsWith("-")) {
       levelPath = path.resolve(args[i]);

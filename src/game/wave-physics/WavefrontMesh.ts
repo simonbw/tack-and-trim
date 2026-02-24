@@ -19,7 +19,7 @@ import type {
   CoverageQuad,
   MeshBuilderType,
   WavefrontMeshData,
-} from "./mesh-building/MeshBuildTypes";
+} from "../../pipeline/mesh-building/MeshBuildTypes";
 import type { WaveSource } from "../world/water/WaveSource";
 
 /** Number of floats per mesh vertex */

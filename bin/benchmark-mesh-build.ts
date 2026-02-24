@@ -26,15 +26,15 @@ import {
 import {
   buildMarchingMesh,
   type MeshBuildProfile,
-} from "../src/game/wave-physics/mesh-building/marchingBuilder";
-import { computeBounds } from "../src/game/wave-physics/mesh-building/marchingBounds";
-import { generateInitialWavefront } from "../src/game/wave-physics/mesh-building/marching";
+} from "../src/pipeline/mesh-building/marchingBuilder";
+import { computeBounds } from "../src/pipeline/mesh-building/marchingBounds";
+import { generateInitialWavefront } from "../src/pipeline/mesh-building/marching";
 import type { TerrainCPUData } from "../src/game/world/terrain/TerrainCPUData";
 import type {
   MeshBuildBounds,
   MeshBuilderType,
   WavefrontMeshData,
-} from "../src/game/wave-physics/mesh-building/MeshBuildTypes";
+} from "../src/pipeline/mesh-building/MeshBuildTypes";
 import type { WaveSource } from "../src/game/world/water/WaveSource";
 
 // ---------------------------------------------------------------------------

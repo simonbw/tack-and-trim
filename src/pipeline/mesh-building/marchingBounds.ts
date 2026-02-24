@@ -1,4 +1,4 @@
-import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
+import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
 import type { WaveBounds } from "./marchingTypes";
 
 /** Number of 32-bit values per contour (must match LandMass.FLOATS_PER_CONTOUR) */

@@ -15,7 +15,7 @@ const steps = [
   { name: "extract-contours", script: "extract-contours.ts" },
   {
     name: "build-wavemesh",
-    script: "../build-wavemesh.ts",
+    script: "../../../bin/build-wavemesh.ts",
     args: `--level ${levelPath}`,
   },
 ];

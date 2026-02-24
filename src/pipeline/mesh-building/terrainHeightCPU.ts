@@ -10,7 +10,7 @@
  * No engine imports — safe for use in web workers.
  */
 
-import type { TerrainCPUData } from "./TerrainCPUData";
+import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
 
 /** Number of 32-bit values per contour (must match LandMass.FLOATS_PER_CONTOUR) */
 const FLOATS_PER_CONTOUR = 13;

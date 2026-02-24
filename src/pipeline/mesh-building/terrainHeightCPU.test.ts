@@ -1,7 +1,7 @@
 /**
  * Unit tests for CPU terrain height computation.
  *
- * Run with: npx tsx --test src/game/world/terrain/terrainHeightCPU.test.ts
+ * Run with: npx tsx --test src/pipeline/mesh-building/terrainHeightCPU.test.ts
  */
 
 import { describe, it } from "node:test";
@@ -12,7 +12,7 @@ import {
   isInsideContour,
   computeDistanceToBoundary,
 } from "./terrainHeightCPU";
-import type { TerrainCPUData } from "./TerrainCPUData";
+import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
 
 // =============================================================================
 // Test fixture helpers

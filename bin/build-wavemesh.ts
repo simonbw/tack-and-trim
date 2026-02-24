@@ -20,16 +20,16 @@ import {
   buildTerrainGPUData,
   normalizeTerrainWinding,
 } from "../src/game/world/terrain/LandMass";
-import { buildMarchingMesh } from "../src/game/wave-physics/mesh-building/marchingBuilder";
+import { buildMarchingMesh } from "../src/pipeline/mesh-building/marchingBuilder";
 import type { TerrainCPUData } from "../src/game/world/terrain/TerrainCPUData";
 import type {
   MeshBuildBounds,
   WavefrontMeshData,
-} from "../src/game/wave-physics/mesh-building/MeshBuildTypes";
+} from "../src/pipeline/mesh-building/MeshBuildTypes";
 import {
   buildWavemeshBuffer,
   computeInputHash,
-} from "../src/game/wave-physics/mesh-building/WavemeshFile";
+} from "../src/pipeline/mesh-building/WavemeshFile";
 
 // ---------------------------------------------------------------------------
 // Parse CLI args

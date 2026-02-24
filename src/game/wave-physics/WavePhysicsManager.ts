@@ -17,7 +17,7 @@ import { WavefrontRasterizer } from "./WavefrontRasterizer";
 import type {
   MeshBuilderType,
   WavefrontMeshData,
-} from "./mesh-building/MeshBuildTypes";
+} from "../../pipeline/mesh-building/MeshBuildTypes";
 
 /** Maximum number of wave sources for mesh computation */
 export const MAX_WAVE_SOURCES = 8;

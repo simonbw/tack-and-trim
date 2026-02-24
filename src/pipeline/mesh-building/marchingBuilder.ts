@@ -22,8 +22,8 @@ const TEST_MODE = process.env.NODE_ENV === "test";
 const VERTEX_SPACING = TEST_MODE ? 200 : 20; // feet per vertex
 const STEP_SIZE = TEST_MODE ? 100 : 10; // feet per step (deep water)
 
-import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
-import type { WaveSource } from "../../world/water/WaveSource";
+import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
+import type { WaveSource } from "../../game/world/water/WaveSource";
 import type { MeshBuildBounds, WavefrontMeshData } from "./MeshBuildTypes";
 import { decimateWavefronts } from "./decimation";
 import { generateInitialWavefront, marchWavefronts } from "./marching";

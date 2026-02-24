@@ -30,12 +30,12 @@
  *    - divergence: ray spacing factor (energy spreads as rays diverge)
  */
 
-import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
+import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
 import {
   computeTerrainHeight,
   computeTerrainHeightAndGradient,
   type TerrainHeightGradient,
-} from "../../world/terrain/terrainHeightCPU";
+} from "./terrainHeightCPU";
 import type {
   MutableWavefrontSegment,
   WaveBounds,

@@ -15,7 +15,7 @@ import { TimeOfDay } from "./time/TimeOfDay";
 import { TimeOfDayHUD } from "./TimeOfDayHUD";
 import { TutorialManager } from "./tutorial/TutorialManager";
 import { isTutorialCompleted } from "./tutorial/tutorialStorage";
-import { loadWavemeshFromUrl } from "./wave-physics/mesh-building/WavemeshLoader";
+import { loadWavemeshFromUrl } from "./wave-physics/WavemeshLoader";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";

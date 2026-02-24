@@ -12,7 +12,7 @@ import { ContourWorkerPool } from "./lib/worker-pool";
 import { ringPerimeter, signedArea, type Point } from "./lib/simplify";
 import { createSegmentIndex } from "./lib/segment-index";
 import { constrainedSimplifyClosedRing } from "./lib/constrained-simplify";
-import { DEFAULT_DEPTH } from "../../src/game/world/terrain/TerrainConstants";
+import { DEFAULT_DEPTH } from "../../game/world/terrain/TerrainConstants";
 
 interface TerrainContourJson {
   height: number;

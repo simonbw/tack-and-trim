@@ -14,7 +14,7 @@ import { on } from "../../core/entity/handler";
 import type {
   MeshBuilderType,
   WavefrontMeshData,
-} from "./mesh-building/MeshBuildTypes";
+} from "../../pipeline/mesh-building/MeshBuildTypes";
 import { DEFAULT_WAVE_CONFIG, WaveConfig } from "../world/water/WaveSource";
 import { WavePhysicsManager } from "./WavePhysicsManager";
 import type { WavefrontMesh } from "./WavefrontMesh";
