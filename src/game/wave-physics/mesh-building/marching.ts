@@ -30,7 +30,6 @@
  *    - divergence: ray spacing factor (energy spreads as rays diverge)
  */
 
-import { DEFAULT_DEPTH } from "../../world/terrain/TerrainConstants";
 import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 import {
   computeTerrainHeight,
@@ -51,10 +50,6 @@ const MIN_ENERGY = 0.03;
  *  Scaled by exp(-k*depth): negligible in deep water, strong in shallow water,
  *  and very aggressive over land (depth < 0 makes the exponent grow). */
 const BOTTOM_FRICTION_RATE = 0.3;
-
-/** Depth at which the ocean floor is considered open ocean — no bottom friction.
- *  Matches the absolute value of DEFAULT_DEPTH from TerrainConstants. */
-const OPEN_OCEAN_DEPTH = -DEFAULT_DEPTH;
 
 /** Max energy ratio between adjacent rays before splitting the segment.
  *  Prevents low-energy land-crawling rays from being triangulated against
@@ -737,13 +732,13 @@ export function marchWavefronts(
         //   on land (depth < 0): exp grows, very aggressive decay
         // Skip at max ocean depth — open ocean floor has no seabed interaction.
         const energyBeforeDissipation = energy;
-        if (newDepth < OPEN_OCEAN_DEPTH) {
+        if (newDepth < wavelength) {
           const frictionDecay =
             BOTTOM_FRICTION_RATE * Math.exp(-k * newDepth) * normalizedStep;
           energy *= Math.exp(-frictionDecay);
 
           // Breaking: additional strong decay in very shallow water
-          if (newDepth > 0 && newDepth < breakingDepth) {
+          if (newDepth < breakingDepth) {
             energy *= Math.exp(-BREAKING_DECAY_RATE * normalizedStep);
           }
         }
