@@ -7,8 +7,6 @@
  * - Provides packed mesh data buffer for GPU shaders
  */
 
-import type { TerrainDefinition } from "../world/terrain/LandMass";
-import type { TerrainCPUData } from "../world/terrain/TerrainCPUData";
 import type { WaveSource } from "../world/water/WaveSource";
 import {
   buildPackedMeshBuffer,
@@ -16,9 +14,7 @@ import {
 } from "./MeshPacking";
 import { WavefrontMesh } from "./WavefrontMesh";
 import { WavefrontRasterizer } from "./WavefrontRasterizer";
-import { MeshBuildCoordinator } from "./mesh-building/MeshBuildCoordinator";
 import type {
-  MeshBuildBounds,
   MeshBuilderType,
   WavefrontMeshData,
 } from "./mesh-building/MeshBuildTypes";
@@ -27,45 +23,12 @@ import type {
 export const MAX_WAVE_SOURCES = 8;
 
 /**
- * Compute axis-aligned bounding box covering all terrain contours.
- * Iterates sampled polygon vertices to find the full terrain extent.
- */
-function computeTerrainBounds(
-  terrainDef: TerrainDefinition,
-): MeshBuildBounds | null {
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  let hasAnyContour = false;
-
-  for (const contour of terrainDef.contours) {
-    for (const pt of contour.sampledPolygon) {
-      minX = Math.min(minX, pt.x);
-      maxX = Math.max(maxX, pt.x);
-      minY = Math.min(minY, pt.y);
-      maxY = Math.max(maxY, pt.y);
-      hasAnyContour = true;
-    }
-  }
-
-  if (!hasAnyContour) return null;
-  return { minX, maxX, minY, maxY };
-}
-
-/**
  * Manages analytical wave physics for terrain-wave interaction.
  * Builds wavefront meshes for per-wave energy, direction, and phase correction.
  */
 export class WavePhysicsManager {
   /** Wavefront meshes organized by builder type */
   private meshSets = new Map<MeshBuilderType, WavefrontMesh[]>();
-
-  /** Coordinator for worker-based mesh building */
-  private meshCoordinator: MeshBuildCoordinator;
-
-  /** Active builder types to build meshes for */
-  private activeBuilderTypes: MeshBuilderType[] = ["marching"];
 
   /** Currently selected builder type for rendering/queries */
   private activeBuilderType: MeshBuilderType = "marching";
@@ -90,30 +53,19 @@ export class WavePhysicsManager {
   constructor(device: GPUDevice, waveSources: WaveSource[] = []) {
     this.device = device;
     this.waveSources = waveSources;
-    this.meshCoordinator = new MeshBuildCoordinator(this.device);
     this.rasterizer = new WavefrontRasterizer(this.device);
   }
 
   /**
-   * Initialize the wave physics manager with terrain data.
-   * Computes wavefront meshes for each wave source.
+   * Initialize the wave physics manager with prebuilt mesh data.
    *
-   * @param terrainDef - Terrain definition for terrain bounds extraction
-   * @param terrainGPUData - Raw typed arrays from buildTerrainCPUData() (for worker mesh builds)
-   * @param tideHeight - Current tide height
-   * @param prebuiltMeshData - Optional prebuilt mesh data from .wavemesh file (skips worker build)
+   * @param prebuiltMeshData - Prebuilt mesh data from .wavemesh file (one per wave source)
    */
-  async initialize(
-    terrainDef: TerrainDefinition,
-    terrainGPUData?: TerrainCPUData,
-    tideHeight?: number,
-    prebuiltMeshData?: WavefrontMeshData[],
-  ): Promise<void> {
+  async initialize(prebuiltMeshData?: WavefrontMeshData[]): Promise<void> {
     // Initialize rasterizer
     await this.rasterizer.init();
 
     if (prebuiltMeshData) {
-      // Use prebuilt mesh data — skip worker-based build entirely
       const meshes = prebuiltMeshData.map((data, i) =>
         WavefrontMesh.fromMeshData(
           data,
@@ -125,18 +77,11 @@ export class WavePhysicsManager {
       );
       this.meshSets.set("marching", meshes);
       console.log(
-        `[WavePhysics] Using prebuilt mesh data (${meshes.length} meshes)`,
+        `[WavePhysics] Loaded prebuilt mesh data (${meshes.length} meshes)`,
       );
-    } else if (terrainGPUData && tideHeight !== undefined) {
-      // Build wavefront meshes via workers
-      const terrainBounds = computeTerrainBounds(terrainDef);
-      await this.meshCoordinator.initialize();
-      this.meshSets = await this.meshCoordinator.buildMeshes(
-        this.waveSources,
-        terrainGPUData,
-        terrainBounds,
-        tideHeight,
-        this.activeBuilderTypes,
+    } else {
+      console.warn(
+        "[WavePhysics] No prebuilt mesh data provided — wave physics will be inactive",
       );
     }
 
@@ -244,23 +189,10 @@ export class WavePhysicsManager {
   }
 
   /**
-   * Recompute wavefront meshes for updated terrain.
-   */
-  async recompute(
-    terrainDef: TerrainDefinition,
-    terrainGPUData?: TerrainCPUData,
-    tideHeight?: number,
-  ): Promise<void> {
-    this.destroyResources();
-    await this.initialize(terrainDef, terrainGPUData, tideHeight);
-  }
-
-  /**
    * Clean up GPU resources.
    */
   destroy(): void {
     this.destroyResources();
-    this.meshCoordinator.terminate();
     this.rasterizer.destroy();
   }
 

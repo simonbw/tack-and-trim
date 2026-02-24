@@ -15,9 +15,7 @@ import type {
   MeshBuilderType,
   WavefrontMeshData,
 } from "./mesh-building/MeshBuildTypes";
-import { TerrainResources } from "../world/terrain/TerrainResources";
 import { DEFAULT_WAVE_CONFIG, WaveConfig } from "../world/water/WaveSource";
-import { WaterResources } from "../world/water/WaterResources";
 import { WavePhysicsManager } from "./WavePhysicsManager";
 import type { WavefrontMesh } from "./WavefrontMesh";
 import type { WavefrontRasterizer } from "./WavefrontRasterizer";
@@ -41,7 +39,6 @@ export class WavePhysicsResources extends BaseEntity {
   private waveConfig: WaveConfig;
   private prebuiltMeshData: WavefrontMeshData[] | undefined;
   private wavePhysicsManager: WavePhysicsManager | null = null;
-  private terrainResources: TerrainResources | null = null;
   private initPromise: Promise<void> | null = null;
 
   constructor(waveConfig?: WaveConfig, prebuiltMeshData?: WavefrontMeshData[]) {
@@ -52,42 +49,15 @@ export class WavePhysicsResources extends BaseEntity {
 
   @on("afterAdded")
   onAfterAdded() {
-    // Create the wave physics manager now that we have access to the game/device
     const device = this.game.getWebGPUDevice();
     this.wavePhysicsManager = new WavePhysicsManager(
       device,
       this.waveConfig.sources,
     );
 
-    // Get terrain resources for wave physics initialization
-    this.terrainResources =
-      this.game.entities.tryGetSingleton(TerrainResources) ?? null;
-
-    // Initialize wave physics manager with terrain
-    if (this.terrainResources) {
-      const terrainDef = this.terrainResources.getTerrainDefinition();
-      const waterResources = this.game.entities.tryGetSingleton(WaterResources);
-      const tideHeight = waterResources?.getTideHeight() ?? 0;
-
-      // Get raw terrain GPU data for worker-based mesh building
-      const terrainGPUData = this.terrainResources.getTerrainGPUData();
-
-      this.initPromise = this.wavePhysicsManager.initialize(
-        terrainDef,
-        terrainGPUData
-          ? {
-              vertexData: terrainGPUData.vertexData,
-              contourData: terrainGPUData.contourData,
-              childrenData: terrainGPUData.childrenData,
-              contourCount: terrainGPUData.contourCount,
-              defaultDepth:
-                terrainDef.defaultDepth ?? terrainGPUData.defaultDepth,
-            }
-          : undefined,
-        tideHeight,
-        this.prebuiltMeshData,
-      );
-    }
+    this.initPromise = this.wavePhysicsManager.initialize(
+      this.prebuiltMeshData,
+    );
   }
 
   /**

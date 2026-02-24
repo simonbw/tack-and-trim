@@ -1,21 +1,15 @@
 /**
  * Shared types for the mesh building system.
  *
- * These types flow between the main thread and web workers:
- * - Main thread serializes terrain + wave data into worker requests
- * - Workers produce WavefrontMeshData (CPU-only, no GPU resources)
- * - Main thread creates GPU buffers from the mesh data
+ * These types describe wavefront mesh data produced by the offline
+ * build-wavemesh tool and loaded at runtime from .wavemesh binary files.
  */
-
-import type { WaveSource } from "../../world/water/WaveSource";
-import type { TerrainCPUData } from "../../world/terrain/TerrainCPUData";
 
 /** Builder type identifier */
 export type MeshBuilderType = "marching";
 
 /**
- * CPU-only mesh data — what workers produce and transfer back.
- * Contains raw vertex/index arrays ready for GPU upload.
+ * CPU-only mesh data — raw vertex/index arrays ready for GPU upload.
  */
 export interface WavefrontMeshData {
   /** 6 floats per vertex: [x, y, amplitude, dirOffset, phaseOffset, blendWeight] */
@@ -49,41 +43,3 @@ export interface CoverageQuad {
   x3: number;
   y3: number;
 }
-
-/** What a worker receives */
-export interface MeshBuildRequest {
-  type: "build";
-  requestId: number;
-  builderType: MeshBuilderType;
-  waveSource: WaveSource;
-  terrain: TerrainCPUData;
-  coastlineBounds: MeshBuildBounds | null;
-  tideHeight: number;
-}
-
-/** What a worker returns on success */
-export interface MeshBuildResult {
-  type: "result";
-  requestId: number;
-  builderType: MeshBuilderType;
-  meshData: WavefrontMeshData;
-  buildTimeMs: number;
-}
-
-/** Worker ready signal */
-export interface MeshBuildReady {
-  type: "ready";
-}
-
-/** Worker error signal */
-export interface MeshBuildError {
-  type: "error";
-  requestId: number;
-  message: string;
-}
-
-/** Messages from worker to main thread */
-export type WorkerOutMessage =
-  | MeshBuildReady
-  | MeshBuildResult
-  | MeshBuildError;

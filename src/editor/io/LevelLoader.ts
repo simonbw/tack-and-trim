@@ -22,7 +22,7 @@ import {
  * Uses the bundled resource from the asset system.
  */
 export function loadDefaultLevel(): LevelData {
-  const file = validateLevelFile(RESOURCES.levels.vendoviIsland);
+  const file = validateLevelFile(RESOURCES.levels.default);
   return levelFileToLevelData(file);
 }
 
@@ -31,7 +31,7 @@ export function loadDefaultLevel(): LevelData {
  * Uses the bundled resource from the asset system.
  */
 export function loadDefaultTerrain(): TerrainDefinition {
-  const file = validateLevelFile(RESOURCES.levels.vendoviIsland);
+  const file = validateLevelFile(RESOURCES.levels.default);
   return levelFileToTerrainDefinition(file);
 }
 
@@ -40,7 +40,7 @@ export function loadDefaultTerrain(): TerrainDefinition {
  * Uses the bundled resource from the asset system.
  */
 export function loadDefaultWaveConfig(): WaveConfig {
-  const file = validateLevelFile(RESOURCES.levels.vendoviIsland);
+  const file = validateLevelFile(RESOURCES.levels.default);
   return levelFileToWaveConfig(file);
 }
 

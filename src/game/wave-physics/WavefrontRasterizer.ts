@@ -13,6 +13,7 @@
  */
 
 import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
+import { validateShaderModuleCompilation } from "../../core/graphics/webgpu/WebGPUDevice";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import type { Viewport } from "./WavePhysicsResources";
 import type { WavefrontMesh } from "./WavefrontMesh";
@@ -102,6 +103,11 @@ export class WavefrontRasterizer {
       code: SHADER_CODE,
       label: "Wavefront Rasterizer Shader",
     });
+    await validateShaderModuleCompilation(
+      shaderModule,
+      SHADER_CODE,
+      "Wavefront Rasterizer Shader",
+    );
 
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: [

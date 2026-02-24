@@ -57,9 +57,6 @@ export class TerrainResources extends BaseEntity {
 
   private contourCount: number = 0;
 
-  // Cached result from buildTerrainGPUData() for CPU access (e.g., worker serialization)
-  private terrainGPUData: ReturnType<typeof buildTerrainGPUData> | null = null;
-
   constructor(terrainDefinition: TerrainDefinition) {
     super();
 
@@ -101,7 +98,6 @@ export class TerrainResources extends BaseEntity {
   private uploadTerrainData(definition: TerrainDefinition): void {
     const device = this.game.getWebGPUDevice();
     const gpuData = buildTerrainGPUData(definition);
-    this.terrainGPUData = gpuData;
     const { vertexData, contourData, childrenData, contourCount } = gpuData;
 
     const packed = new Uint32Array(PACKED_TERRAIN_SIZE);
@@ -169,14 +165,6 @@ export class TerrainResources extends BaseEntity {
     this.terrainDefinition = normalizeTerrainWinding(definition);
     this.uploadTerrainData(this.terrainDefinition);
     this.version++;
-  }
-
-  /**
-   * Get the raw terrain GPU data for CPU-side access (e.g., mesh builder workers).
-   * Returns the cached result from buildTerrainGPUData().
-   */
-  getTerrainGPUData(): ReturnType<typeof buildTerrainGPUData> | null {
-    return this.terrainGPUData;
   }
 
   /**
