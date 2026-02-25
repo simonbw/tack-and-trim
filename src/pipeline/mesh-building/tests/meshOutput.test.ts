@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildMeshData, countMeshTopology } from "../meshOutput";
+import {
+  buildMeshData,
+  buildMeshDataFromTracks,
+  countMeshTopology,
+  countMeshTopologyFromTracks,
+} from "../meshOutput";
+import { createIndexedPhaseModel } from "../phaseModel";
 import type { WaveBounds, Wavefront } from "../marchingTypes";
 import { VERTEX_FLOATS } from "../marchingTypes";
+import { buildSegmentTracks } from "../segmentTracks";
 
 function makeTwoRowWavefronts(): Wavefront[] {
   return [
     [
       {
+        sourceStepIndex: 0,
         x: [0, 1, 2],
         y: [0, 0, 0],
         t: [0, 0.5, 1],
@@ -22,6 +30,7 @@ function makeTwoRowWavefronts(): Wavefront[] {
     ],
     [
       {
+        sourceStepIndex: 1,
         x: [0, 1, 2],
         y: [1, 1, 1],
         t: [0, 0.5, 1],
@@ -73,14 +82,14 @@ describe("meshOutput", () => {
     const wavelength = 20;
     const k = (2 * Math.PI) / wavelength;
     const phasePerStep = 0.7;
+    const phaseModel = createIndexedPhaseModel([10, 20], phasePerStep);
     const mesh = buildMeshData(
       wavefronts,
       wavelength,
       1,
       0,
       bounds,
-      [10, 20],
-      phasePerStep,
+      phaseModel,
     );
 
     const phaseOffsetIndex = 4;
@@ -103,5 +112,139 @@ describe("meshOutput", () => {
       x3: 0,
       y3: 2,
     });
+  });
+
+  it("applies source step offset in phase model (skirt rebasing)", () => {
+    const wavefronts = makeTwoRowWavefronts();
+    const bounds: WaveBounds = {
+      minProj: 0,
+      maxProj: 10,
+      minPerp: -2,
+      maxPerp: 2,
+    };
+    const wavelength = 20;
+    const k = (2 * Math.PI) / wavelength;
+    const phasePerStep = 0.5;
+    const phaseModel = createIndexedPhaseModel([5, 7], phasePerStep, -2);
+    const mesh = buildMeshData(wavefronts, wavelength, 1, 0, bounds, phaseModel);
+
+    const phaseOffsetIndex = 4;
+    const firstVertexPhase = mesh.vertices[phaseOffsetIndex];
+    const expectedFirstPhase = 3 * phasePerStep - k * 0;
+    assert.ok(Math.abs(firstVertexPhase - expectedFirstPhase) < 1e-6);
+
+    const secondRowFirstVertex = 3 * VERTEX_FLOATS;
+    const secondRowPhase = mesh.vertices[secondRowFirstVertex + phaseOffsetIndex];
+    const expectedSecondRowPhase = 5 * phasePerStep - k * 0;
+    assert.ok(Math.abs(secondRowPhase - expectedSecondRowPhase) < 1e-6);
+  });
+
+  it("matches row-based topology/counts on a simple linear track", () => {
+    const wavefronts: Wavefront[] = [
+      [makeTwoRowWavefronts()[0][0]],
+      [makeTwoRowWavefronts()[1][0]],
+      [
+        {
+          sourceStepIndex: 2,
+          x: [0, 1, 2],
+          y: [2, 2, 2],
+          t: [0, 0.5, 1],
+          dirX: [],
+          dirY: [],
+          energy: [],
+          turbulence: [0, 0, 0],
+          depth: [],
+          amplitude: [1, 1, 1],
+          blend: [1, 1, 1],
+        },
+      ],
+    ];
+    const bounds: WaveBounds = {
+      minProj: 0,
+      maxProj: 10,
+      minPerp: -2,
+      maxPerp: 2,
+    };
+    const tracks = buildSegmentTracks(wavefronts).tracks;
+    const rowTopology = countMeshTopology(wavefronts);
+    const trackTopology = countMeshTopologyFromTracks(tracks);
+    const rowMesh = buildMeshData(wavefronts, 100, 1, 0, bounds);
+    const trackMesh = buildMeshDataFromTracks(tracks, 100, 1, 0, bounds, Math.PI);
+
+    assert.deepEqual(trackTopology, rowTopology);
+    assert.equal(trackMesh.vertexCount, rowMesh.vertexCount);
+    assert.equal(trackMesh.indexCount, rowMesh.indexCount);
+  });
+
+  it("triangulates across skipped intermediate rows in a track", () => {
+    const wavefronts: Wavefront[] = [
+      [
+        {
+          sourceStepIndex: 0,
+          x: [0, 1, 2],
+          y: [0, 0, 0],
+          t: [0, 0.5, 1],
+          dirX: [],
+          dirY: [],
+          energy: [],
+          turbulence: [0, 0, 0],
+          depth: [],
+          amplitude: [1, 1, 1],
+          blend: [1, 1, 1],
+        },
+      ],
+      [
+        {
+          sourceStepIndex: 1,
+          x: [0, 1, 2],
+          y: [1, 1, 1],
+          t: [0, 0.5, 1],
+          dirX: [],
+          dirY: [],
+          energy: [],
+          turbulence: [0, 0, 0],
+          depth: [],
+          amplitude: [1, 1, 1],
+          blend: [1, 1, 1],
+        },
+      ],
+      [
+        {
+          sourceStepIndex: 2,
+          x: [0, 1, 2],
+          y: [2, 2, 2],
+          t: [0, 0.5, 1],
+          dirX: [],
+          dirY: [],
+          energy: [],
+          turbulence: [0, 0, 0],
+          depth: [],
+          amplitude: [1, 1, 1],
+          blend: [1, 1, 1],
+        },
+      ],
+    ];
+    const tracksResult = buildSegmentTracks(wavefronts);
+    tracksResult.tracks[0].snapshots.splice(1, 1); // keep step 0 -> 2
+
+    const bounds: WaveBounds = {
+      minProj: 0,
+      maxProj: 10,
+      minPerp: -2,
+      maxPerp: 2,
+    };
+    const mesh = buildMeshDataFromTracks(
+      tracksResult.tracks,
+      100,
+      1,
+      0,
+      bounds,
+      Math.PI,
+    );
+
+    assert.ok(mesh.indexCount > 0);
+    for (let i = 0; i < mesh.indexCount; i++) {
+      assert.ok(mesh.indices[i] < mesh.vertexCount);
+    }
   });
 });

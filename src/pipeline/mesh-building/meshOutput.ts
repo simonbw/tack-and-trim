@@ -1,5 +1,7 @@
 import type { Wavefront, WaveBounds, WavefrontSegment } from "./marchingTypes";
 import { VERTEX_FLOATS } from "./marchingTypes";
+import { createIdentityPhaseModel, type PhaseModel } from "./phaseModel";
+import type { SegmentTrack } from "./segmentTracks";
 import { assertWavefrontInvariants } from "./wavefrontContracts";
 
 /**
@@ -13,8 +15,7 @@ export function buildMeshData(
   waveDx: number,
   waveDy: number,
   bounds: WaveBounds,
-  stepIndices?: number[],
-  phasePerStep?: number,
+  phaseModel: PhaseModel = createIdentityPhaseModel(),
 ) {
   for (let i = 0; i < wavefronts.length; i++) {
     assertWavefrontInvariants(wavefronts[i], `buildMeshData input row=${i}`);
@@ -23,7 +24,6 @@ export function buildMeshData(
   const vertices = new Float32Array(topology.vertexCount * VERTEX_FLOATS);
   const indices = new Uint32Array(topology.triangleCount * 3);
   const k = (2 * Math.PI) / wavelength;
-  const resolvedPhasePerStep = phasePerStep ?? Math.PI;
   let vertexOffset = 0;
   let indexOffset = 0;
   let prevStep: Wavefront | null = null;
@@ -32,7 +32,7 @@ export function buildMeshData(
   for (let wi = 0; wi < wavefronts.length; wi++) {
     const step = wavefronts[wi];
     const stepOffsets: number[] = [];
-    const phase = (stepIndices ? stepIndices[wi] : wi) * resolvedPhasePerStep;
+    const phase = phaseModel.sourceStepAtRow(wi) * phaseModel.phasePerStep;
     for (const segment of step) {
       const segX = segment.x;
       const segY = segment.y;
@@ -72,16 +72,7 @@ export function buildMeshData(
   }
 
   // Compute 4 corners of the wave-aligned oriented bounding box in world space
-  const perpDx = -waveDy;
-  const perpDy = waveDx;
-  const toWorld = (proj: number, perp: number): [number, number] => [
-    proj * waveDx + perp * perpDx,
-    proj * waveDy + perp * perpDy,
-  ];
-  const [x0, y0] = toWorld(bounds.minProj, bounds.minPerp);
-  const [x1, y1] = toWorld(bounds.maxProj, bounds.minPerp);
-  const [x2, y2] = toWorld(bounds.maxProj, bounds.maxPerp);
-  const [x3, y3] = toWorld(bounds.minProj, bounds.maxPerp);
+  const coverageQuad = computeCoverageQuad(bounds, waveDx, waveDy);
   const finalVertexCount = vertexOffset / VERTEX_FLOATS;
   const finalIndices =
     indexOffset === indices.length ? indices : indices.subarray(0, indexOffset);
@@ -91,7 +82,89 @@ export function buildMeshData(
     indices: finalIndices,
     vertexCount: finalVertexCount,
     indexCount: indexOffset,
-    coverageQuad: { x0, y0, x1, y1, x2, y2, x3, y3 },
+    coverageQuad,
+  };
+}
+
+export function buildMeshDataFromTracks(
+  tracks: SegmentTrack[],
+  wavelength: number,
+  waveDx: number,
+  waveDy: number,
+  bounds: WaveBounds,
+  phasePerStep: number,
+) {
+  const topology = countMeshTopologyFromTracks(tracks);
+  const vertices = new Float32Array(topology.vertexCount * VERTEX_FLOATS);
+  const indices = new Uint32Array(topology.triangleCount * 3);
+  const k = (2 * Math.PI) / wavelength;
+
+  const baseBySegment = new WeakMap<WavefrontSegment, number>();
+  let vertexOffset = 0;
+  let indexOffset = 0;
+
+  const ensureSegmentVertices = (segment: WavefrontSegment): number => {
+    const existingBase = baseBySegment.get(segment);
+    if (existingBase !== undefined) {
+      return existingBase;
+    }
+
+    const base = vertexOffset / VERTEX_FLOATS;
+    baseBySegment.set(segment, base);
+
+    const segX = segment.x;
+    const segY = segment.y;
+    const segAmp = segment.amplitude;
+    const segTurbulence = segment.turbulence;
+    const segBlend = segment.blend;
+    const phaseBase = segment.sourceStepIndex * phasePerStep;
+    for (let pi = 0; pi < segX.length; pi++) {
+      const x = segX[pi];
+      const y = segY[pi];
+      const phaseOffset = phaseBase - k * (x * waveDx + y * waveDy);
+
+      vertices[vertexOffset++] = x;
+      vertices[vertexOffset++] = y;
+      vertices[vertexOffset++] = segAmp[pi];
+      vertices[vertexOffset++] = segTurbulence[pi];
+      vertices[vertexOffset++] = phaseOffset;
+      vertices[vertexOffset++] = segBlend[pi];
+    }
+
+    return base;
+  };
+
+  for (const track of tracks) {
+    for (let si = 0; si < track.snapshots.length - 1; si++) {
+      const prevSegment = track.snapshots[si].segment;
+      const nextSegment = track.snapshots[si + 1].segment;
+      assertWavefrontInvariants([prevSegment], "buildMeshDataFromTracks prev");
+      assertWavefrontInvariants([nextSegment], "buildMeshDataFromTracks next");
+
+      const prevBase = ensureSegmentVertices(prevSegment);
+      const nextBase = ensureSegmentVertices(nextSegment);
+      indexOffset = triangulateSegmentPair(
+        prevSegment,
+        nextSegment,
+        prevBase,
+        nextBase,
+        indices,
+        indexOffset,
+      );
+    }
+  }
+
+  const coverageQuad = computeCoverageQuad(bounds, waveDx, waveDy);
+  const finalVertexCount = vertexOffset / VERTEX_FLOATS;
+  const finalIndices =
+    indexOffset === indices.length ? indices : indices.subarray(0, indexOffset);
+
+  return {
+    vertices,
+    indices: finalIndices,
+    vertexCount: finalVertexCount,
+    indexCount: indexOffset,
+    coverageQuad,
   };
 }
 
@@ -126,6 +199,34 @@ export function countMeshTopology(wavefronts: Wavefront[]): {
   return { vertexCount, triangleCount };
 }
 
+export function countMeshTopologyFromTracks(tracks: SegmentTrack[]): {
+  vertexCount: number;
+  triangleCount: number;
+} {
+  const uniqueSegments = new Set<WavefrontSegment>();
+  let triangleCount = 0;
+
+  for (const track of tracks) {
+    for (const snapshot of track.snapshots) {
+      assertWavefrontInvariants([snapshot.segment], "countMeshTopologyFromTracks");
+      uniqueSegments.add(snapshot.segment);
+    }
+    for (let si = 0; si < track.snapshots.length - 1; si++) {
+      triangleCount += countTrianglesBetweenSegments(
+        track.snapshots[si].segment,
+        track.snapshots[si + 1].segment,
+      );
+    }
+  }
+
+  let vertexCount = 0;
+  for (const segment of uniqueSegments) {
+    vertexCount += segment.t.length;
+  }
+
+  return { vertexCount, triangleCount };
+}
+
 /**
  * Match segments between two adjacent wavefront steps by t-range overlap
  * and triangulate each matching pair.
@@ -140,40 +241,17 @@ function triangulateBetweenSteps(
 ): number {
   for (let pi = 0; pi < prevStep.length; pi++) {
     const prevSeg = prevStep[pi];
-    const prevT = prevSeg.t;
-    const prevLen = prevT.length;
-    if (prevLen === 0) continue;
-
-    const prevMinT = prevT[0];
-    const prevMaxT = prevT[prevLen - 1];
+    if (prevSeg.t.length === 0) continue;
 
     for (let ni = 0; ni < nextStep.length; ni++) {
       const nextSeg = nextStep[ni];
-      const nextT = nextSeg.t;
-      const nextLen = nextT.length;
-      if (nextLen === 0) continue;
+      if (nextSeg.t.length === 0) continue;
 
-      const nextMinT = nextT[0];
-      const nextMaxT = nextT[nextLen - 1];
-
-      if (nextMinT > prevMaxT || nextMaxT < prevMinT) continue;
-
-      const overlapMin = Math.max(prevMinT, nextMinT);
-      const overlapMax = Math.min(prevMaxT, nextMaxT);
-      const [pStart, pEnd] = clipToRange(prevSeg, overlapMin, overlapMax);
-      const [nStart, nEnd] = clipToRange(nextSeg, overlapMin, overlapMax);
-
-      if (pEnd < pStart || nEnd < nStart) continue;
-
-      indexOffset = triangulateClipped(
+      indexOffset = triangulateSegmentPair(
         prevSeg,
         nextSeg,
         prevOffsets[pi],
         nextOffsets[ni],
-        pStart,
-        pEnd,
-        nStart,
-        nEnd,
         indices,
         indexOffset,
       );
@@ -191,37 +269,99 @@ function countTrianglesBetweenSteps(
 
   for (let pi = 0; pi < prevStep.length; pi++) {
     const prevSeg = prevStep[pi];
-    const prevT = prevSeg.t;
-    const prevLen = prevT.length;
-    if (prevLen === 0) continue;
-
-    const prevMinT = prevT[0];
-    const prevMaxT = prevT[prevLen - 1];
+    if (prevSeg.t.length === 0) continue;
 
     for (let ni = 0; ni < nextStep.length; ni++) {
       const nextSeg = nextStep[ni];
-      const nextT = nextSeg.t;
-      const nextLen = nextT.length;
-      if (nextLen === 0) continue;
-
-      const nextMinT = nextT[0];
-      const nextMaxT = nextT[nextLen - 1];
-
-      if (nextMinT > prevMaxT || nextMaxT < prevMinT) continue;
-
-      const overlapMin = Math.max(prevMinT, nextMinT);
-      const overlapMax = Math.min(prevMaxT, nextMaxT);
-      const [pStart, pEnd] = clipToRange(prevSeg, overlapMin, overlapMax);
-      const [nStart, nEnd] = clipToRange(nextSeg, overlapMin, overlapMax);
-
-      if (pEnd < pStart || nEnd < nStart) continue;
-
-      // Each loop step emits exactly one triangle while advancing one side.
-      triangles += pEnd - pStart + (nEnd - nStart);
+      if (nextSeg.t.length === 0) continue;
+      triangles += countTrianglesBetweenSegments(prevSeg, nextSeg);
     }
   }
 
   return triangles;
+}
+
+function triangulateSegmentPair(
+  prevSeg: WavefrontSegment,
+  nextSeg: WavefrontSegment,
+  prevBase: number,
+  nextBase: number,
+  indices: Uint32Array,
+  indexOffset: number,
+): number {
+  const prevT = prevSeg.t;
+  const prevLen = prevT.length;
+  if (prevLen === 0) return indexOffset;
+
+  const nextT = nextSeg.t;
+  const nextLen = nextT.length;
+  if (nextLen === 0) return indexOffset;
+
+  const prevMinT = prevT[0];
+  const prevMaxT = prevT[prevLen - 1];
+  const nextMinT = nextT[0];
+  const nextMaxT = nextT[nextLen - 1];
+
+  if (nextMinT > prevMaxT || nextMaxT < prevMinT) return indexOffset;
+
+  const overlapMin = Math.max(prevMinT, nextMinT);
+  const overlapMax = Math.min(prevMaxT, nextMaxT);
+  const [pStart, pEnd] = clipToRange(prevSeg, overlapMin, overlapMax);
+  const [nStart, nEnd] = clipToRange(nextSeg, overlapMin, overlapMax);
+  if (pEnd < pStart || nEnd < nStart) return indexOffset;
+
+  return triangulateClipped(
+    prevSeg,
+    nextSeg,
+    prevBase,
+    nextBase,
+    pStart,
+    pEnd,
+    nStart,
+    nEnd,
+    indices,
+    indexOffset,
+  );
+}
+
+function countTrianglesBetweenSegments(
+  prevSeg: WavefrontSegment,
+  nextSeg: WavefrontSegment,
+): number {
+  const prevT = prevSeg.t;
+  const prevLen = prevT.length;
+  if (prevLen === 0) return 0;
+
+  const nextT = nextSeg.t;
+  const nextLen = nextT.length;
+  if (nextLen === 0) return 0;
+
+  const prevMinT = prevT[0];
+  const prevMaxT = prevT[prevLen - 1];
+  const nextMinT = nextT[0];
+  const nextMaxT = nextT[nextLen - 1];
+  if (nextMinT > prevMaxT || nextMaxT < prevMinT) return 0;
+
+  const overlapMin = Math.max(prevMinT, nextMinT);
+  const overlapMax = Math.min(prevMaxT, nextMaxT);
+  const [pStart, pEnd] = clipToRange(prevSeg, overlapMin, overlapMax);
+  const [nStart, nEnd] = clipToRange(nextSeg, overlapMin, overlapMax);
+  if (pEnd < pStart || nEnd < nStart) return 0;
+  return pEnd - pStart + (nEnd - nStart);
+}
+
+function computeCoverageQuad(bounds: WaveBounds, waveDx: number, waveDy: number) {
+  const perpDx = -waveDy;
+  const perpDy = waveDx;
+  const toWorld = (proj: number, perp: number): [number, number] => [
+    proj * waveDx + perp * perpDx,
+    proj * waveDy + perp * perpDy,
+  ];
+  const [x0, y0] = toWorld(bounds.minProj, bounds.minPerp);
+  const [x1, y1] = toWorld(bounds.maxProj, bounds.minPerp);
+  const [x2, y2] = toWorld(bounds.maxProj, bounds.maxPerp);
+  const [x3, y3] = toWorld(bounds.minProj, bounds.maxPerp);
+  return { x0, y0, x1, y1, x2, y2, x3, y3 };
 }
 
 /**

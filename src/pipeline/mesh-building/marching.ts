@@ -138,7 +138,19 @@ export function generateInitialWavefront(
   amplitude[last] = 0;
   blend[last] = 1.0;
 
-  return { x, y, t, dirX, dirY, energy, turbulence, depth, amplitude, blend };
+  return {
+    sourceStepIndex: 0,
+    x,
+    y,
+    t,
+    dirX,
+    dirY,
+    energy,
+    turbulence,
+    depth,
+    amplitude,
+    blend,
+  };
 }
 
 
@@ -159,6 +171,7 @@ function compactStep(step: Wavefront, compactMs: { value: number }): void {
 
     // Convert kept fields to Float32Array and strip marching-only fields
     step[i] = {
+      sourceStepIndex: segment.sourceStepIndex,
       x: new Float32Array(segment.x),
       y: new Float32Array(segment.y),
       t: new Float32Array(segment.t),
@@ -274,6 +287,7 @@ export function marchWavefronts(
   for (;;) {
     const prevStep = wavefronts[wavefronts.length - 1] as MarchingWavefront;
     const nextStep: MarchingWavefront = [];
+    const nextSourceStepIndex = wavefronts.length;
 
     for (const segment of prevStep) {
       const srcX = segment.x;
@@ -285,7 +299,7 @@ export function marchWavefronts(
       const srcTurbulence = segment.turbulence;
       const srcLen = srcX.length;
 
-      let currentSegment = createEmptySegment();
+      let currentSegment = createEmptySegment(nextSourceStepIndex);
       let outX = currentSegment.x;
       let outY = currentSegment.y;
       let outT = currentSegment.t;
@@ -308,7 +322,7 @@ export function marchWavefronts(
             config.refinement,
           ),
         );
-        currentSegment = createEmptySegment();
+        currentSegment = createEmptySegment(nextSourceStepIndex);
         outX = currentSegment.x;
         outY = currentSegment.y;
         outT = currentSegment.t;
@@ -522,7 +536,7 @@ export function addSkirtRows(
   const template = wavefronts[0][0];
   const n = template.t.length;
 
-  const makeSkirtRow = (projOffset: number): Wavefront => {
+  const makeSkirtRow = (projOffset: number, sourceStepIndex: number): Wavefront => {
     const x = new Float32Array(n);
     const y = new Float32Array(n);
     const t = new Float32Array(template.t);
@@ -540,6 +554,7 @@ export function addSkirtRows(
 
     return [
       {
+        sourceStepIndex,
         x,
         y,
         t,
@@ -556,8 +571,11 @@ export function addSkirtRows(
 
   // Prepend rows moving upwave from the first step
   const prependRows: Wavefront[] = [];
+  const firstSourceStepIndex = wavefronts[0][0].sourceStepIndex;
   for (let i = numSkirtRows; i >= 1; i--) {
-    prependRows.push(makeSkirtRow(-i * stepSize));
+    prependRows.push(
+      makeSkirtRow(-i * stepSize, firstSourceStepIndex - i),
+    );
   }
 
   // Append rows moving downwave from the last step.
@@ -566,8 +584,11 @@ export function addSkirtRows(
   // real step's segments may have fragmented.
   const lastStepOffset = (wavefronts.length - 1) * stepSize;
   const appendRows: Wavefront[] = [];
+  const lastSourceStepIndex = wavefronts[wavefronts.length - 1][0].sourceStepIndex;
   for (let i = 1; i <= numSkirtRows; i++) {
-    appendRows.push(makeSkirtRow(lastStepOffset + i * stepSize));
+    appendRows.push(
+      makeSkirtRow(lastStepOffset + i * stepSize, lastSourceStepIndex + i),
+    );
   }
 
   return {

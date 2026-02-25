@@ -355,12 +355,12 @@ function decimateRows(
   ampTol: number,
   phaseTol: number,
   phasePerStep: number,
-): { wavefronts: Wavefront[]; stepIndices: number[] } {
+): { wavefronts: Wavefront[]; sourceRowIndices: number[] } {
   const N = wavefronts.length;
   if (N <= 2) {
     return {
       wavefronts: wavefronts.slice(),
-      stepIndices: Array.from({ length: N }, (_, i) => i),
+      sourceRowIndices: Array.from({ length: N }, (_, i) => i),
     };
   }
 
@@ -438,7 +438,7 @@ function decimateRows(
 
   return {
     wavefronts: kept.map((i) => wavefronts[i]),
-    stepIndices: kept,
+    sourceRowIndices: kept,
   };
 }
 
@@ -547,6 +547,7 @@ function buildSegmentFromKept(
     copyKeptIndices(segment.energy, kept, outEnergy);
     copyKeptIndices(segment.depth, kept, outDepth);
     return {
+      sourceStepIndex: segment.sourceStepIndex,
       x: outX,
       y: outY,
       t: outT,
@@ -561,6 +562,7 @@ function buildSegmentFromKept(
   }
 
   return {
+    sourceStepIndex: segment.sourceStepIndex,
     x: outX,
     y: outY,
     t: outT,
@@ -622,8 +624,8 @@ export function decimateSegment(
 
 /**
  * Decimate wavefronts by removing redundant rows and redundant vertices
- * within rows. Returns the simplified wavefronts plus the original step
- * indices (needed by buildMeshData for correct phase computation).
+ * within rows. Returns the simplified wavefronts plus source-row mapping
+ * (needed for phase computation after decimation).
  *
  * @param tolerance  Normalised error budget. Position tolerance is
  *   `tolerance × wavelength`, amplitude tolerance is `tolerance`, and phase
@@ -638,6 +640,8 @@ export function decimateWavefronts(
   phasePerStep?: number,
 ): {
   wavefronts: Wavefront[];
+  sourceRowIndices: number[];
+  /** @deprecated Use sourceRowIndices */
   stepIndices: number[];
   removedRows: number;
   removedVertices: number;
@@ -665,7 +669,7 @@ export function decimateWavefronts(
   // Phase 1: remove entire wavefront rows that are well-interpolated
   // by their surviving neighbours.
   const t1 = performance.now();
-  const { wavefronts: rowDecimated, stepIndices } = decimateRows(
+  const { wavefronts: rowDecimated, sourceRowIndices } = decimateRows(
     wavefronts,
     k,
     waveDx,
@@ -715,7 +719,8 @@ export function decimateWavefronts(
 
   return {
     wavefronts: result,
-    stepIndices,
+    sourceRowIndices,
+    stepIndices: sourceRowIndices,
     removedRows: wavefronts.length - rowDecimated.length,
     removedVertices: verticesBefore - verticesAfter,
   };

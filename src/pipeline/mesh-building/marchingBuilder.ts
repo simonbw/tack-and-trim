@@ -23,19 +23,18 @@ const TEST_MODE = process.env.NODE_ENV === "test";
 import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
 import type { WaveSource } from "../../game/world/water/WaveSource";
 import type { MeshBuildBounds, WavefrontMeshData } from "./MeshBuildTypes";
-import { decimateWavefronts } from "./decimation";
 import {
   DEFAULT_MESH_BUILD_CONFIG,
   resolveMeshBuildConfig,
   TEST_MESH_BUILD_CONFIG,
 } from "./meshBuildConfig";
 import {
-  addSkirtRows,
   generateInitialWavefront,
   marchWavefronts,
 } from "./marching";
 import { computeBounds } from "./marchingBounds";
-import { buildMeshData } from "./meshOutput";
+import { buildMeshDataFromTracks } from "./meshOutput";
+import { decimateWavefrontTracks } from "./segmentDecimation";
 
 const BASE_CONFIG = TEST_MODE ? TEST_MESH_BUILD_CONFIG : DEFAULT_MESH_BUILD_CONFIG;
 const RESOLVED_CONFIG = resolveMeshBuildConfig(BASE_CONFIG);
@@ -115,17 +114,8 @@ export function buildMarchingMesh(
     return prev + curr.reduce((sum, segment) => sum + segment.t.length, 0);
   }, 0);
 
-  // Add skirt rows to extend mesh beyond domain boundaries
-  const skirtResult = addSkirtRows(
+  const decimated = decimateWavefrontTracks(
     wavefronts,
-    waveDx,
-    waveDy,
-    stepSize,
-    config.bounds.skirtDistanceFt,
-  );
-
-  const decimated = decimateWavefronts(
-    skirtResult.wavefronts,
     wavelength,
     waveDx,
     waveDy,
@@ -134,18 +124,12 @@ export function buildMarchingMesh(
   );
   let t3 = performance.now();
 
-  // Adjust step indices to account for prepended skirt rows
-  const adjustedStepIndices = decimated.stepIndices.map(
-    (i) => i - skirtResult.prependedRows,
-  );
-
-  const mesh = buildMeshData(
-    decimated.wavefronts,
+  const mesh = buildMeshDataFromTracks(
+    decimated.tracks,
     wavelength,
     waveDx,
     waveDy,
     bounds,
-    adjustedStepIndices,
     phasePerStep,
   );
   let t4 = performance.now();

@@ -9,6 +9,7 @@ function makeSegment(stepIndex: number): WavefrontSegment {
   const x2 = x0 + 10;
   const y = 0;
   return {
+    sourceStepIndex: stepIndex,
     x: [x0, x1, x2],
     y: [y, y, y],
     t: [0, 0.5, 1],
@@ -43,6 +44,7 @@ describe("decimateWavefronts", () => {
       phasePerStep,
     );
 
+    assert.deepEqual(result.sourceRowIndices, [0, 4]);
     assert.deepEqual(result.stepIndices, [0, 4]);
     assert.equal(result.wavefronts.length, 2);
     assert.equal(result.removedRows, 3);
@@ -52,7 +54,7 @@ describe("decimateWavefronts", () => {
   it("keeps first and last rows even at high tolerance", () => {
     const wavefronts = makeLinearWavefronts(3);
     const result = decimateWavefronts(wavefronts, 100, 1, 0, 1.0);
-    assert.deepEqual(result.stepIndices, [0, 2]);
+    assert.deepEqual(result.sourceRowIndices, [0, 2]);
     assert.equal(result.wavefronts.length, 2);
   });
 });

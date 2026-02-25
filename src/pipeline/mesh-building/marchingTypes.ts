@@ -7,6 +7,8 @@ export type SegmentArray = number[] | Float32Array;
  * Fields needed by downstream output stages (decimation, triangulation, serialization).
  */
 export interface OutputWavefrontSegment {
+  /** Source march step index this segment snapshot came from. */
+  sourceStepIndex: number;
   x: SegmentArray;
   y: SegmentArray;
   /** Parametric position along the wavefront [0..1], used for triangulation */
@@ -48,6 +50,7 @@ export interface WaveBounds {
  * when we need .push() on every field. Assignable to WavefrontSegment.
  */
 export interface MutableWavefrontSegment {
+  sourceStepIndex: number;
   x: number[];
   y: number[];
   t: number[];
