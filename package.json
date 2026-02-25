@@ -15,7 +15,6 @@
     "generate-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources",
     "test": "playwright test",
     "benchmark": "playwright test --config playwright.benchmark.config.ts",
-    "benchmark-mesh-build": "tsx ./bin/benchmark-mesh-build.ts",
     "build-wavemesh": "tsx ./bin/build-wavemesh.ts",
     "download-terrain": "tsx ./src/pipeline/terrain-import/download.ts",
     "build-terrain-grid": "tsx ./src/pipeline/terrain-import/build-grid.ts",

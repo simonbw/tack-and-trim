@@ -26,42 +26,19 @@ import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
 import type { WaveSource } from "../../game/world/water/WaveSource";
 import type { MeshBuildBounds, WavefrontMeshData } from "./MeshBuildTypes";
 import { decimateWavefronts } from "./decimation";
-import { generateInitialWavefront, marchWavefronts } from "./marching";
+import {
+  addSkirtRows,
+  generateInitialWavefront,
+  marchWavefronts,
+} from "./marching";
 import { computeBounds } from "./marchingBounds";
-import { buildMeshData, countMeshTopology } from "./meshOutput";
-
-export interface MeshBuildProfile {
-  totalMs: number;
-  domain: {
-    numRays: number;
-    domainLength: number;
-    domainWidth: number;
-    estimatedSteps: number;
-    actualSteps: number;
-  };
-  stageMs: {
-    bounds: number;
-    march: number;
-    amplitude: number;
-    diffraction: number;
-    compact: number;
-    decimate: number;
-    mesh: number;
-  };
-  decimationCounts: {
-    verticesBefore: number;
-    verticesAfter: number;
-    trianglesBefore: number;
-    trianglesAfter: number;
-  };
-}
+import { buildMeshData } from "./meshOutput";
 
 export function buildMarchingMesh(
   waveSource: WaveSource,
   _coastlineBounds: MeshBuildBounds | null,
   terrain: TerrainCPUData,
   _tideHeight: number,
-  profile?: MeshBuildProfile,
 ): WavefrontMeshData {
   const wavelength = waveSource.wavelength;
   const baseDir = waveSource.direction;
@@ -81,32 +58,23 @@ export function buildMarchingMesh(
     vertexSpacing,
     waveDx,
     waveDy,
+    wavelength,
   );
   const numRays = firstWavefront.t.length;
   const domainLength = bounds.maxProj - bounds.minProj;
   const domainWidth = bounds.maxPerp - bounds.minPerp;
   const estimatedSteps = Math.ceil(domainLength / stepSize);
-  if (profile) {
-    profile.domain = {
-      numRays,
-      domainLength,
-      domainWidth,
-      estimatedSteps,
-      actualSteps: 0,
-    };
-  } else {
-    const nEarly = (s: number, digits: number = 0) =>
-      s.toLocaleString(undefined, { maximumFractionDigits: digits });
-    console.log(
-      [
-        `[marching] domain`,
-        `  rays: ${nEarly(numRays)}`,
-        `  domain: ${nEarly(domainLength, 0)}ft × ${nEarly(domainWidth, 0)}ft`,
-        `  estimated steps: ${nEarly(estimatedSteps)} (step size: ${stepSize}ft)`,
-        `  ray×step estimate: ${nEarly(numRays * estimatedSteps)}`,
-      ].join("\n"),
-    );
-  }
+  const nEarly = (s: number, digits: number = 0) =>
+    s.toLocaleString(undefined, { maximumFractionDigits: digits });
+  console.log(
+    [
+      `[marching] domain`,
+      `  rays: ${nEarly(numRays)}`,
+      `  domain: ${nEarly(domainLength, 0)}ft × ${nEarly(domainWidth, 0)}ft`,
+      `  estimated steps: ${nEarly(estimatedSteps)} (step size: ${stepSize}ft)`,
+      `  ray×step estimate: ${nEarly(numRays * estimatedSteps)}`,
+    ].join("\n"),
+  );
   const {
     wavefronts,
     splits,
@@ -130,8 +98,12 @@ export function buildMarchingMesh(
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
     return prev + curr.reduce((sum, segment) => sum + segment.t.length, 0);
   }, 0);
+
+  // Add skirt rows to extend mesh beyond domain boundaries
+  const skirtResult = addSkirtRows(wavefronts, waveDx, waveDy, stepSize);
+
   const decimated = decimateWavefronts(
-    wavefronts,
+    skirtResult.wavefronts,
     wavelength,
     waveDx,
     waveDy,
@@ -139,13 +111,19 @@ export function buildMarchingMesh(
     phasePerStep,
   );
   let t3 = performance.now();
+
+  // Adjust step indices to account for prepended skirt rows
+  const adjustedStepIndices = decimated.stepIndices.map(
+    (i) => i - skirtResult.prependedRows,
+  );
+
   const mesh = buildMeshData(
     decimated.wavefronts,
     wavelength,
     waveDx,
     waveDy,
     bounds,
-    decimated.stepIndices,
+    adjustedStepIndices,
     phasePerStep,
   );
   let t4 = performance.now();
@@ -169,42 +147,29 @@ export function buildMarchingMesh(
 
   const n = (s: number, digits: number = 0) =>
     s.toLocaleString(undefined, { maximumFractionDigits: digits });
-  if (profile) {
-    const preDecimationTopology = countMeshTopology(wavefronts);
-    profile.totalMs = totalMs;
-    profile.domain.actualSteps = wavefronts.length;
-    profile.stageMs = stageMs;
-    profile.decimationCounts = {
-      verticesBefore: preDecimationTopology.vertexCount,
-      verticesAfter: mesh.vertexCount,
-      trianglesBefore: preDecimationTopology.triangleCount,
-      trianglesAfter: mesh.indexCount / 3,
-    };
-  } else {
-    console.log(
-      [
-        `[marching]`,
-        `  actual wavefront steps: ${n(wavefronts.length)}`,
-        `build`,
-        `  splits: ${n(splits)}`,
-        `  merges: ${n(merges)}`,
-        `  refraction clamps: ${n(turnClampCount)} / ${n(totalRefractions)} (${totalRefractions > 0 ? n((100 * turnClampCount) / totalRefractions, 1) : 0}%)`,
-        `  simplification: ${n(totalMarchedVerts)} verts -> ${n(mesh.vertexCount)} verts (${n(decimationPercent, 0)}% reduction)`,
-        `final`,
-        `  verts: ${n(mesh.vertexCount)}`,
-        `  tris: ${n(mesh.indexCount / 3)}`,
-        `  buffer: ${memStr}`,
-        `timing — ${n(totalMs, 1)}ms total`,
-        `  bounds ${n(stageMs.bounds, 1)}ms`,
-        `  march ${n(stageMs.march, 1)}ms`,
-        `  amplitude ${n(stageMs.amplitude, 1)}ms`,
-        `  diffraction ${n(stageMs.diffraction, 1)}ms`,
-        `  compact ${n(stageMs.compact, 1)}ms`,
-        `  decimate ${n(stageMs.decimate, 1)}ms`,
-        `  mesh ${n(stageMs.mesh, 1)}ms`,
-      ].join("\n"),
-    );
-  }
+  console.log(
+    [
+      `[marching]`,
+      `  actual wavefront steps: ${n(wavefronts.length)}`,
+      `build`,
+      `  splits: ${n(splits)}`,
+      `  merges: ${n(merges)}`,
+      `  refraction clamps: ${n(turnClampCount)} / ${n(totalRefractions)} (${totalRefractions > 0 ? n((100 * turnClampCount) / totalRefractions, 1) : 0}%)`,
+      `  simplification: ${n(totalMarchedVerts)} verts -> ${n(mesh.vertexCount)} verts (${n(decimationPercent, 0)}% reduction)`,
+      `final`,
+      `  verts: ${n(mesh.vertexCount)}`,
+      `  tris: ${n(mesh.indexCount / 3)}`,
+      `  buffer: ${memStr}`,
+      `timing — ${n(totalMs, 1)}ms total`,
+      `  bounds ${n(stageMs.bounds, 1)}ms`,
+      `  march ${n(stageMs.march, 1)}ms`,
+      `  amplitude ${n(stageMs.amplitude, 1)}ms`,
+      `  diffraction ${n(stageMs.diffraction, 1)}ms`,
+      `  compact ${n(stageMs.compact, 1)}ms`,
+      `  decimate ${n(stageMs.decimate, 1)}ms`,
+      `  mesh ${n(stageMs.mesh, 1)}ms`,
+    ].join("\n"),
+  );
 
   return mesh;
 }
