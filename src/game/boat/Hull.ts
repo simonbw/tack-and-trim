@@ -10,6 +10,18 @@ import { WaterQuery } from "../world/water/WaterQuery";
 import { HullConfig } from "./BoatConfig";
 
 /**
+ * Find the bow (foremost) point from hull geometry.
+ * Returns the vertex with the maximum x value.
+ */
+export function findBowPoint(vertices: V2d[]): V2d {
+  let best = vertices[0];
+  for (const v of vertices) {
+    if (v.x > best.x) best = v;
+  }
+  return best;
+}
+
+/**
  * Find the stern (aftmost) port and starboard vertices from hull geometry.
  * Finds the two vertices with the minimum x values (furthest aft).
  */

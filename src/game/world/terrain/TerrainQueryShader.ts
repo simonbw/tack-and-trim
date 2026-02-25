@@ -19,8 +19,7 @@ import {
 } from "../../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import {
-  fn_computeTerrainHeight,
-  fn_computeTerrainNormal,
+  fn_computeTerrainHeightAndGradient,
   struct_ContourData,
 } from "../shaders/terrain.wgsl";
 
@@ -73,8 +72,7 @@ struct TerrainQueryResult {
 const terrainQueryMainModule: ShaderModule = {
   dependencies: [
     struct_ContourData,
-    fn_computeTerrainHeight,
-    fn_computeTerrainNormal,
+    fn_computeTerrainHeightAndGradient,
     terrainQueryParamsModule,
   ],
   code: /*wgsl*/ `
@@ -88,24 +86,27 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   let queryPoint = pointBuffer[index];
 
-  var result: TerrainQueryResult;
-  // Vertices are pre-sampled from Catmull-Rom splines on the CPU
-  result.height = computeTerrainHeight(
+  // Compute height and gradient analytically in a single terrain traversal
+  let hg = computeTerrainHeightAndGradient(
     queryPoint,
     &packedTerrain,
     params.contourCount,
     params.defaultDepth
   );
 
-  // Compute normal
-  let normal = computeTerrainNormal(
-    queryPoint,
-    &packedTerrain,
-    params.contourCount,
-    params.defaultDepth
-  );
-  result.normalX = normal.x;
-  result.normalY = normal.y;
+  var result: TerrainQueryResult;
+  result.height = hg.height;
+
+  // Convert gradient to normal (same convention as finite-difference version)
+  let horizontalLen = sqrt(hg.gradientX * hg.gradientX + hg.gradientY * hg.gradientY);
+  if (horizontalLen > 1e-9) {
+    let normal3d = normalize(vec3<f32>(-hg.gradientX, -hg.gradientY, 1.0));
+    result.normalX = normal3d.x;
+    result.normalY = normal3d.y;
+  } else {
+    result.normalX = 0.0;
+    result.normalY = 0.0;
+  }
 
   // Terrain type: 0 = water (negative height), 1+ = land
   result.terrainType = select(0.0, 1.0, result.height >= 0.0);

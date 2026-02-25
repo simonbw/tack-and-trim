@@ -14,7 +14,6 @@ import {
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
 import { fn_calculateGerstnerWaves } from "../world/shaders/gerstner-wave.wgsl";
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
-import { fn_calculateModifiers } from "../world/shaders/water-modifiers.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
 import {
   GERSTNER_STEEPNESS,
@@ -23,10 +22,6 @@ import {
   WAVE_AMP_MOD_STRENGTH,
   WAVE_AMP_MOD_TIME_SCALE,
 } from "../world/water/WaterConstants";
-import {
-  FLOATS_PER_MODIFIER,
-  MAX_MODIFIERS,
-} from "../world/water/WaterResources";
 
 const WORKGROUP_SIZE = [8, 8] as const;
 
@@ -45,7 +40,7 @@ struct Params {
   viewportHeight: f32,
   time: f32,
   tideHeight: f32,
-  modifierCount: u32,
+  _paddingMC: u32,
   numWaves: u32,
   _padding0: u32,
   _padding1: u32,
@@ -66,14 +61,16 @@ const BREAK_AMP_NOISE_STRENGTH: f32 = 0.15;
 const BREAK_NOISE_SPATIAL_SCALE: f32 = 0.3;
 const BREAK_NOISE_TIME_SCALE: f32 = 1.2;
 
-// Modifier constants
-const MAX_MODIFIERS: u32 = ${MAX_MODIFIERS}u;
-const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
 `,
   bindings: {
     params: { type: "uniform", wgslType: "Params" },
     waveData: { type: "storage", wgslType: "array<f32>" },
-    modifiers: { type: "storage", wgslType: "array<f32>" },
+    modifierTexture: {
+      type: "texture",
+      viewDimension: "2d",
+      sampleType: "float",
+    },
+    modifierSampler: { type: "sampler" },
     waveFieldTexture: {
       type: "texture",
       viewDimension: "2d-array",
@@ -94,7 +91,6 @@ const waterHeightComputeModule: ShaderModule = {
     fn_hash21,
     fn_simplex3D,
     fn_calculateGerstnerWaves,
-    fn_calculateModifiers,
   ],
   code: /*wgsl*/ `
 // Convert pixel coordinates to world position
@@ -187,20 +183,15 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
     ampMod,
   );
 
-  // Calculate modifier contributions (wakes, etc.)
-  let modifierResult = calculateModifiers(
-    worldPos.x,
-    worldPos.y,
-    params.modifierCount,
-    MAX_MODIFIERS,
-    &modifiers,
-    FLOATS_PER_MODIFIER
-  );
+  // Sample modifier texture (rasterized in a prior pass)
+  let modifierSample = textureSampleLevel(modifierTexture, modifierSampler, uv, 0.0);
+  let modifierHeight = modifierSample.r;
+  let modifierTurbulence = modifierSample.a;
 
   // Combined height = waves + modifiers + tide
-  let height = waveResult.x + modifierResult.x + params.tideHeight;
+  let height = waveResult.x + modifierHeight + params.tideHeight;
   // Combine wave breaking turbulence with modifier turbulence (e.g. wake foam)
-  let totalTurbulence = max(maxTurbulence, modifierResult.w);
+  let totalTurbulence = max(maxTurbulence, modifierTurbulence);
   return vec2<f32>(height, totalTurbulence);
 }
 

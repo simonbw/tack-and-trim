@@ -101,21 +101,33 @@ Renders water and terrain surfaces for visual context.
 
 ## File Format
 
-Terrain is stored as JSON (see `io/TerrainFileFormat.ts`):
+Levels are stored as JSON (see `io/LevelFileFormat.ts`):
 
 ```typescript
 {
   version: 1,
   defaultDepth: -50,
+  waves: {
+    sources: [{
+      amplitude: 0.5,
+      wavelength: 60,
+      direction: 1.2,
+      phaseOffset: 0,     // optional
+      speedMult: 1.0,     // optional
+      sourceDist: 1e10,   // optional
+      sourceOffsetX: 0,   // optional
+      sourceOffsetY: 0    // optional
+    }]
+  },
   contours: [{
     name: "Island Shore",
     height: 0,
-    hillFrequency: 0.008,
-    hillAmplitude: 0.25,
     controlPoints: [[x, y], ...]
   }]
 }
 ```
+
+The editor preserves the `waves` section through load/save cycles but does not yet provide UI for editing wave configuration.
 
 ## Controls
 

@@ -7,22 +7,20 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 
 /**
  * Wake modifier module.
- * Tapered capsule SDF along a segment between two linked wake particles.
- * Computes point-to-segment distance for elongated wake trail shapes.
+ * Expanding ring pulse — all physics pre-computed on CPU.
+ * GPU just draws a Gaussian ring at the given radius with given amplitude.
  *
  * Buffer layout at `base`:
- *   [5]  intensity     height-scaled wave amplitude (ft)
- *   [6]  posAX         segment start X (ft)
- *   [7]  posAY         segment start Y (ft)
- *   [8]  posBX         segment end X (ft)
- *   [9]  posBY         segment end Y (ft)
- *   [10] radiusA       influence radius at start (ft)
- *   [11] radiusB       influence radius at end (ft)
- *   [12] rawIntensity  unscaled intensity (0-1) for foam/turbulence
+ *   [5]  posX        source position X (ft)
+ *   [6]  posY        source position Y (ft)
+ *   [7]  ringRadius  distance from center to ring peak (ft)
+ *   [8]  ringWidth   Gaussian width of ring pulse (ft)
+ *   [9]  amplitude   pre-computed height at ring (ft)
+ *   [10] turbulence  pre-computed turbulence (0-1)
  */
 export const fn_computeWakeContribution: ShaderModule = {
   code: /*wgsl*/ `
-    // Compute wake contribution using capsule SDF (point-to-segment distance).
+    // Compute wake contribution as a Gaussian ring pulse.
     // Returns vec4<f32>(height, 0, 0, turbulence)
     fn computeWakeContribution(
       worldX: f32,
@@ -30,53 +28,24 @@ export const fn_computeWakeContribution: ShaderModule = {
       base: u32,
       modifiers: ptr<storage, array<f32>, read>
     ) -> vec4<f32> {
-      // Read wake-specific data (slots 5-12, see WakeModifierData)
-      let intensity = modifiers[base + 5u];    // height-scaled amplitude (ft)
-      let posAX = modifiers[base + 6u];        // segment start X (ft)
-      let posAY = modifiers[base + 7u];        // segment start Y (ft)
-      let posBX = modifiers[base + 8u];        // segment end X (ft)
-      let posBY = modifiers[base + 9u];        // segment end Y (ft)
-      let radiusA = modifiers[base + 10u];     // influence radius at start (ft)
-      let radiusB = modifiers[base + 11u];     // influence radius at end (ft)
-      let rawIntensity = modifiers[base + 12u]; // unscaled intensity for foam
+      let srcX = modifiers[base + 5u];
+      let srcY = modifiers[base + 6u];
+      let ringRadius = modifiers[base + 7u];
+      let ringWidth = modifiers[base + 8u];
+      let amplitude = modifiers[base + 9u];
+      let turbulence = modifiers[base + 10u];
 
-      // Point-to-segment distance (capsule SDF)
-      let abX = posBX - posAX;
-      let abY = posBY - posAY;
-      let abLenSq = abX * abX + abY * abY;
-
-      // Project query point onto segment, clamp t to [0,1]
-      var t: f32 = 0.0;
-      if (abLenSq > 0.001) {
-        t = clamp(((worldX - posAX) * abX + (worldY - posAY) * abY) / abLenSq, 0.0, 1.0);
-      }
-
-      // Closest point on segment
-      let closestX = posAX + t * abX;
-      let closestY = posAY + t * abY;
-      let dx = worldX - closestX;
-      let dy = worldY - closestY;
+      let dx = worldX - srcX;
+      let dy = worldY - srcY;
       let dist = sqrt(dx * dx + dy * dy);
 
-      // Tapered radius: interpolate between radiusA and radiusB
-      let radius = mix(radiusA, radiusB, t);
+      // Distance from the ring center
+      let distFromRing = dist - ringRadius;
 
-      // Smooth falloff from segment
-      let falloff = smoothstep(radius, radius * 0.3, dist);
+      // Gaussian ring profile
+      let ring = exp(-(distFromRing * distFromRing) / (ringWidth * ringWidth));
 
-      // Ripple pattern: multiple rings spreading outward from segment
-      let ripple = cos(dist * 0.8) * 0.7 + cos(dist * 1.6) * 0.3;
-
-      // Turbulence for foam
-      let wakeTurbulence = rawIntensity * falloff * falloff;
-
-      // Return (height, velocityX, velocityY, turbulence)
-      return vec4<f32>(
-        intensity * falloff * ripple,
-        0.0,
-        0.0,
-        wakeTurbulence
-      );
+      return vec4<f32>(amplitude * ring, 0.0, 0.0, turbulence * ring);
     }
   `,
 };

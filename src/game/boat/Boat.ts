@@ -7,7 +7,7 @@ import { Anchor } from "./Anchor";
 import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
 import { Bowsprit } from "./Bowsprit";
-import { findSternPoints, Hull } from "./Hull";
+import { findBowPoint, findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
 import { Rig } from "./Rig";
 import { Rudder } from "./Rudder";
@@ -138,9 +138,12 @@ export class Boat extends BaseEntity {
     // Create anchor
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
 
-    // Create wake and spray effects
+    // Create wake effects — bow wave (dominant) and stern wave (weaker)
+    const bowPoint = findBowPoint(config.hull.vertices);
     const sternPoints = findSternPoints(config.hull.vertices);
-    this.addChild(new Wake(this, sternPoints.port, sternPoints.starboard));
+    const sternCenter = sternPoints.port.add(sternPoints.starboard).imul(0.5);
+    this.addChild(new Wake(this, bowPoint, 1.0));
+    this.addChild(new Wake(this, sternCenter, 0.4));
     this.addChild(new BoatSpray(this));
 
     // Create terrain querier for grounding physics
@@ -159,11 +162,9 @@ export class Boat extends BaseEntity {
 
   /** Row the boat forward */
   row(): void {
-    this.wait(this.config.rowing.duration, (dt, t) => {
-      this.hull.body.applyForce(
-        polarToVec(this.hull.body.angle, this.config.rowing.force),
-      );
-    });
+    this.hull.body.applyForce(
+      polarToVec(this.hull.body.angle, this.config.rowing.force),
+    );
   }
 
   /** Toggle sails hoisted/lowered */

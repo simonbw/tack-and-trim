@@ -10,7 +10,7 @@ import {
   EditorDocument,
   SetContourPropertyCommand,
 } from "../EditorDocument";
-import { EditorContour } from "../io/TerrainFileFormat";
+import { EditorContour } from "../io/LevelFileFormat";
 import { ContourValidationResult } from "../../game/world/terrain/ContourValidation";
 import { DEFAULT_DEPTH } from "../../game/world/terrain/TerrainConstants";
 import "./EditorStyles.css";

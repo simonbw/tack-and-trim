@@ -54,7 +54,7 @@ export const StarterBoat: BoatConfig = {
 
   rig: {
     mastPosition: V(2.5, 0), // ~35-40% from bow
-    boomLength: 6, // ft (shorter boom)
+    boomLength: 8, // ft (shorter boom)
     boomWidth: 0.45, // ft
     boomMass: 12, // lbs
     colors: {

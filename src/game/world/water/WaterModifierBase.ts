@@ -58,7 +58,7 @@ export enum WaterModifierType {
 
 /**
  * Type-specific data for each modifier type.
- * Wake uses 8 data floats (capsule segment); other types use 3 floats.
+ * Wake uses 7 data floats (point source); other types use 3 floats.
  * All are packed into a fixed-stride buffer (see FLOATS_PER_MODIFIER).
  */
 export type WaterModifierTypeData =
@@ -68,22 +68,20 @@ export type WaterModifierTypeData =
   | ObstacleModifierData;
 
 /**
- * Wake modifier — tapered capsule along a segment between two linked WakeParticles.
- * The shader computes point-to-segment distance for an elongated falloff shape.
- * Tail particles (no next neighbor) set posB = posA, degenerating to a circle.
+ * Wake modifier — expanding ring pulse.
+ * All physics (amplitude, spreading, damping) computed on CPU.
+ * GPU just draws a Gaussian ring at the given radius.
  *
- * GPU buffer slots [5..12] — see FLOATS_PER_MODIFIER in WaterResources.ts.
+ * GPU buffer slots [5..10] — see FLOATS_PER_MODIFIER in WaterResources.ts.
  */
 export type WakeModifierData = {
   type: WaterModifierType.Wake;
-  intensity: number; // [5] Height-scaled wave amplitude (ft)
-  posAX: number; // [6] Segment start X — this particle's position (ft)
-  posAY: number; // [7] Segment start Y (ft)
-  posBX: number; // [8] Segment end X — next particle's position (ft)
-  posBY: number; // [9] Segment end Y (ft)
-  radiusA: number; // [10] Influence radius at start (ft), expands with age
-  radiusB: number; // [11] Influence radius at end (ft)
-  rawIntensity: number; // [12] Unscaled intensity (0-1) for foam/turbulence
+  posX: number; // [5] Source position X (ft)
+  posY: number; // [6] Source position Y (ft)
+  ringRadius: number; // [7] Distance from center to ring peak (ft)
+  ringWidth: number; // [8] Gaussian width of ring pulse (ft)
+  amplitude: number; // [9] Pre-computed height at ring (ft)
+  turbulence: number; // [10] Pre-computed turbulence at ring (0-1)
 };
 
 /**
