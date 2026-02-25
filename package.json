@@ -14,6 +14,7 @@
     "prettier": "prettier --write src",
     "generate-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources",
     "test": "playwright test",
+    "test:mesh-building": "tsx --test src/pipeline/mesh-building/tests/*.test.ts",
     "benchmark": "playwright test --config playwright.benchmark.config.ts",
     "build-wavemesh": "tsx ./bin/build-wavemesh.ts",
     "download-terrain": "tsx ./src/pipeline/terrain-import/download.ts",
