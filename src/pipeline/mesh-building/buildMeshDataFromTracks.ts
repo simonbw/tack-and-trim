@@ -1,90 +1,7 @@
-import type { Wavefront, WaveBounds, WavefrontSegment } from "./marchingTypes";
+import type { WaveBounds, WavefrontSegment } from "./marchingTypes";
 import { VERTEX_FLOATS } from "./marchingTypes";
-import { createIdentityPhaseModel, type PhaseModel } from "./phaseModel";
-import type { SegmentTrack } from "./segmentTracks";
+import type { SegmentTrack } from "./buildSegmentTracks";
 import { assertWavefrontInvariants } from "./wavefrontContracts";
-
-/**
- * Convert wavefront steps (each containing one or more disconnected segments)
- * into triangulated mesh data. Only segments with overlapping t-ranges between
- * adjacent steps are connected by triangles.
- */
-export function buildMeshData(
-  wavefronts: Wavefront[],
-  wavelength: number,
-  waveDx: number,
-  waveDy: number,
-  bounds: WaveBounds,
-  phaseModel: PhaseModel = createIdentityPhaseModel(),
-) {
-  for (let i = 0; i < wavefronts.length; i++) {
-    assertWavefrontInvariants(wavefronts[i], `buildMeshData input row=${i}`);
-  }
-  const topology = countMeshTopology(wavefronts);
-  const vertices = new Float32Array(topology.vertexCount * VERTEX_FLOATS);
-  const indices = new Uint32Array(topology.triangleCount * 3);
-  const k = (2 * Math.PI) / wavelength;
-  let vertexOffset = 0;
-  let indexOffset = 0;
-  let prevStep: Wavefront | null = null;
-  let prevStepOffsets: number[] | null = null;
-
-  for (let wi = 0; wi < wavefronts.length; wi++) {
-    const step = wavefronts[wi];
-    const stepOffsets: number[] = [];
-    const phase = phaseModel.sourceStepAtRow(wi) * phaseModel.phasePerStep;
-    for (const segment of step) {
-      const segX = segment.x;
-      const segY = segment.y;
-      const segAmp = segment.amplitude;
-      const segTurbulence = segment.turbulence;
-      const segBlend = segment.blend;
-      const len = segX.length;
-
-      stepOffsets.push(vertexOffset / VERTEX_FLOATS);
-      for (let pi = 0; pi < len; pi++) {
-        const x = segX[pi];
-        const y = segY[pi];
-        const phaseOffset = phase - k * (x * waveDx + y * waveDy);
-
-        vertices[vertexOffset++] = x;
-        vertices[vertexOffset++] = y;
-        vertices[vertexOffset++] = segAmp[pi];
-        vertices[vertexOffset++] = segTurbulence[pi];
-        vertices[vertexOffset++] = phaseOffset;
-        vertices[vertexOffset++] = segBlend[pi];
-      }
-    }
-
-    if (prevStep && prevStepOffsets) {
-      indexOffset = triangulateBetweenSteps(
-        prevStep,
-        step,
-        prevStepOffsets,
-        stepOffsets,
-        indices,
-        indexOffset,
-      );
-    }
-
-    prevStep = step;
-    prevStepOffsets = stepOffsets;
-  }
-
-  // Compute 4 corners of the wave-aligned oriented bounding box in world space
-  const coverageQuad = computeCoverageQuad(bounds, waveDx, waveDy);
-  const finalVertexCount = vertexOffset / VERTEX_FLOATS;
-  const finalIndices =
-    indexOffset === indices.length ? indices : indices.subarray(0, indexOffset);
-
-  return {
-    vertices,
-    indices: finalIndices,
-    vertexCount: finalVertexCount,
-    indexCount: indexOffset,
-    coverageQuad,
-  };
-}
 
 export function buildMeshDataFromTracks(
   tracks: SegmentTrack[],
@@ -168,37 +85,6 @@ export function buildMeshDataFromTracks(
   };
 }
 
-/**
- * Count mesh topology for a set of wavefronts without allocating vertex/index buffers.
- */
-export function countMeshTopology(wavefronts: Wavefront[]): {
-  vertexCount: number;
-  triangleCount: number;
-} {
-  for (let i = 0; i < wavefronts.length; i++) {
-    assertWavefrontInvariants(
-      wavefronts[i],
-      `countMeshTopology input row=${i}`,
-    );
-  }
-  let vertexCount = 0;
-  for (const step of wavefronts) {
-    for (const segment of step) {
-      vertexCount += segment.t.length;
-    }
-  }
-
-  let triangleCount = 0;
-  for (let wi = 0; wi < wavefronts.length - 1; wi++) {
-    triangleCount += countTrianglesBetweenSteps(
-      wavefronts[wi],
-      wavefronts[wi + 1],
-    );
-  }
-
-  return { vertexCount, triangleCount };
-}
-
 export function countMeshTopologyFromTracks(tracks: SegmentTrack[]): {
   vertexCount: number;
   triangleCount: number;
@@ -225,60 +111,6 @@ export function countMeshTopologyFromTracks(tracks: SegmentTrack[]): {
   }
 
   return { vertexCount, triangleCount };
-}
-
-/**
- * Match segments between two adjacent wavefront steps by t-range overlap
- * and triangulate each matching pair.
- */
-function triangulateBetweenSteps(
-  prevStep: Wavefront,
-  nextStep: Wavefront,
-  prevOffsets: number[],
-  nextOffsets: number[],
-  indices: Uint32Array,
-  indexOffset: number,
-): number {
-  for (let pi = 0; pi < prevStep.length; pi++) {
-    const prevSeg = prevStep[pi];
-    if (prevSeg.t.length === 0) continue;
-
-    for (let ni = 0; ni < nextStep.length; ni++) {
-      const nextSeg = nextStep[ni];
-      if (nextSeg.t.length === 0) continue;
-
-      indexOffset = triangulateSegmentPair(
-        prevSeg,
-        nextSeg,
-        prevOffsets[pi],
-        nextOffsets[ni],
-        indices,
-        indexOffset,
-      );
-    }
-  }
-
-  return indexOffset;
-}
-
-function countTrianglesBetweenSteps(
-  prevStep: Wavefront,
-  nextStep: Wavefront,
-): number {
-  let triangles = 0;
-
-  for (let pi = 0; pi < prevStep.length; pi++) {
-    const prevSeg = prevStep[pi];
-    if (prevSeg.t.length === 0) continue;
-
-    for (let ni = 0; ni < nextStep.length; ni++) {
-      const nextSeg = nextStep[ni];
-      if (nextSeg.t.length === 0) continue;
-      triangles += countTrianglesBetweenSegments(prevSeg, nextSeg);
-    }
-  }
-
-  return triangles;
 }
 
 function triangulateSegmentPair(
@@ -433,23 +265,19 @@ function triangulateClipped(
   let j = nStart;
   while (i < pEnd || j < nEnd) {
     if (i >= pEnd) {
-      // Only next row has vertices left
       indices[indexOffset++] = prevBase + i;
       indices[indexOffset++] = nextBase + j;
       indices[indexOffset++] = nextBase + j + 1;
       j++;
     } else if (j >= nEnd) {
-      // Only prev row has vertices left
       indices[indexOffset++] = prevBase + i;
       indices[indexOffset++] = prevBase + i + 1;
       indices[indexOffset++] = nextBase + j;
       i++;
     } else {
-      // Both rows have vertices - choose based on triangle quality
       const currX = prevX[i];
       const currY = prevY[i];
 
-      // Option A: advance i (use next vertex from prev row)
       const scoreA = scoreTriangle(
         currX,
         currY,
@@ -459,7 +287,6 @@ function triangulateClipped(
         nextY[j],
       );
 
-      // Option B: advance j (use next vertex from next row)
       const scoreB = scoreTriangle(
         currX,
         currY,

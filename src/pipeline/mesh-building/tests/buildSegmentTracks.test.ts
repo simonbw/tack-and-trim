@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Wavefront, WavefrontSegment } from "../marchingTypes";
-import { buildSegmentTracks } from "../segmentTracks";
+import { buildSegmentTracks } from "../buildSegmentTracks";
 
 function makeSegment(
   sourceStepIndex: number,

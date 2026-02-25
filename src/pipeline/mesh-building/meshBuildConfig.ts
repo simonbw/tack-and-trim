@@ -9,7 +9,6 @@ export interface MeshBuildBoundsConfig {
   crosswaveMarginWavelengths: number;
   minMarginFt: number;
   fallbackHalfExtentFt: number;
-  skirtDistanceFt: number;
 }
 
 export interface MeshBuildRefinementConfig {
@@ -67,7 +66,6 @@ export const DEFAULT_MESH_BUILD_CONFIG: MeshBuildConfig = {
     crosswaveMarginWavelengths: 20,
     minMarginFt: 2000,
     fallbackHalfExtentFt: 500,
-    skirtDistanceFt: 10_000,
   },
   refinement: {
     minEnergy: 0.03,
@@ -145,10 +143,6 @@ const CONFIG_OVERRIDE_DEFS: ConfigOverrideDef[] = [
   {
     env: "MESH_BUILD_BOUNDS_FALLBACK_HALF_EXTENT_FT",
     apply: (cfg, value) => (cfg.bounds.fallbackHalfExtentFt = value),
-  },
-  {
-    env: "MESH_BUILD_BOUNDS_SKIRT_DISTANCE_FT",
-    apply: (cfg, value) => (cfg.bounds.skirtDistanceFt = value),
   },
   {
     env: "MESH_BUILD_REFINEMENT_MIN_ENERGY",

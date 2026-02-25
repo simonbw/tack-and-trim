@@ -20,7 +20,7 @@ import {
   buildTerrainGPUData,
   normalizeTerrainWinding,
 } from "../src/game/world/terrain/LandMass";
-import { buildMarchingMesh } from "../src/pipeline/mesh-building/marchingBuilder";
+import { buildMarchingMesh } from "../src/pipeline/mesh-building/buildMarchingMesh";
 import type { TerrainCPUData } from "../src/game/world/terrain/TerrainCPUData";
 import type {
   MeshBuildBounds,

@@ -32,9 +32,9 @@ import {
   generateInitialWavefront,
   marchWavefronts,
 } from "./marching";
-import { computeBounds } from "./marchingBounds";
-import { buildMeshDataFromTracks } from "./meshOutput";
-import { decimateWavefrontTracks } from "./segmentDecimation";
+import { computeBounds } from "./computeBounds";
+import { buildMeshDataFromTracks } from "./buildMeshDataFromTracks";
+import { decimateWavefrontTracks } from "./decimateWavefrontTracks";
 
 const BASE_CONFIG = TEST_MODE ? TEST_MESH_BUILD_CONFIG : DEFAULT_MESH_BUILD_CONFIG;
 const RESOLVED_CONFIG = resolveMeshBuildConfig(BASE_CONFIG);
@@ -72,7 +72,6 @@ export function buildMarchingMesh(
     waveDx,
     waveDy,
     wavelength,
-    config.bounds.skirtDistanceFt,
   );
   const numRays = firstWavefront.t.length;
   const domainLength = bounds.maxProj - bounds.minProj;

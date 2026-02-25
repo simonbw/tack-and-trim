@@ -1,6 +1,6 @@
-import { decimateSegment, DEFAULT_DECIMATION_TOLERANCE } from "./decimation";
+import { decimateSegment, DEFAULT_DECIMATION_TOLERANCE } from "./decimateSegment";
 import type { Wavefront, WavefrontSegment } from "./marchingTypes";
-import { buildSegmentTracks, type SegmentTrack } from "./segmentTracks";
+import { buildSegmentTracks, type SegmentTrack } from "./buildSegmentTracks";
 
 type SegmentSample = {
   x: number;
@@ -227,7 +227,7 @@ export interface TrackDecimationResult {
 }
 
 /**
- * Decimate per segment-track on core marched rows (pre-skirt).
+ * Decimate per segment-track on marched rows.
  *
  * This intentionally does not enforce row-adjacent connectivity constraints.
  * Current row-adjacent triangulation cannot consume the output safely in all

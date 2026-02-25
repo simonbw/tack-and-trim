@@ -67,12 +67,10 @@ export function generateInitialWavefront(
   waveDx: number,
   waveDy: number,
   wavelength: number,
-  skirtDistance: number = DEFAULT_MESH_BUILD_CONFIG.bounds.skirtDistanceFt,
 ): WavefrontSegment {
   const perpDx = -waveDy;
   const perpDy = waveDx;
   const wavefrontWidth = bounds.maxPerp - bounds.minPerp;
-  const skirtDist = skirtDistance;
 
   // Interior rays span the domain; sentinels extend beyond
   const numInterior = Math.max(
@@ -93,8 +91,8 @@ export function generateInitialWavefront(
   const amplitude = new Array<number>(numVertices);
   const blend = new Array<number>(numVertices);
 
-  // Left sentinel (beyond minPerp)
-  const leftPerpPos = bounds.minPerp - skirtDist;
+  // Left sentinel at minPerp
+  const leftPerpPos = bounds.minPerp;
   x[0] = bounds.minProj * waveDx + leftPerpPos * perpDx;
   y[0] = bounds.minProj * waveDy + leftPerpPos * perpDy;
   t[0] = 0;
@@ -124,8 +122,8 @@ export function generateInitialWavefront(
     blend[idx] = 1.0;
   }
 
-  // Right sentinel (beyond maxPerp)
-  const rightPerpPos = bounds.maxPerp + skirtDist;
+  // Right sentinel at maxPerp
+  const rightPerpPos = bounds.maxPerp;
   const last = numVertices - 1;
   x[last] = bounds.minProj * waveDx + rightPerpPos * perpDx;
   y[last] = bounds.minProj * waveDy + rightPerpPos * perpDy;
@@ -503,96 +501,5 @@ export function marchWavefronts(
     compactMs: compactMs.value,
     turnClampCount,
     totalRefractions,
-  };
-}
-
-/**
- * Add skirt rows before the first and after the last wavefront step.
- * Skirt rows are open-ocean wavefronts that extend the mesh beyond the
- * simulation domain, eliminating visible boundaries. Each skirt row is
- * a single continuous segment spanning the full lateral extent (sentinel
- * to sentinel) with amplitude=1, turbulence=0.
- *
- * The initial wavefront (first step) is always a single segment with
- * sentinels at t=0 and t=1, so we use its t/lateral positions as the
- * template for all skirt rows.
- *
- * Returns the modified wavefronts array and the number of prepended rows
- * (needed to adjust step indices for phase computation).
- */
-export function addSkirtRows(
-  wavefronts: Wavefront[],
-  waveDx: number,
-  waveDy: number,
-  stepSize: number,
-  skirtDistance: number = DEFAULT_MESH_BUILD_CONFIG.bounds.skirtDistanceFt,
-): { wavefronts: Wavefront[]; prependedRows: number } {
-  const skirtDist = skirtDistance;
-  const numSkirtRows = Math.ceil(skirtDist / stepSize);
-  if (wavefronts.length === 0) return { wavefronts, prependedRows: 0 };
-
-  // Use the initial wavefront as template — it's always a single continuous
-  // segment spanning sentinel-to-sentinel.
-  const template = wavefronts[0][0];
-  const n = template.t.length;
-
-  const makeSkirtRow = (projOffset: number, sourceStepIndex: number): Wavefront => {
-    const x = new Float32Array(n);
-    const y = new Float32Array(n);
-    const t = new Float32Array(template.t);
-    const amplitude = new Float32Array(n);
-    const turbulence = new Float32Array(n);
-    const blend = new Float32Array(n);
-
-    for (let i = 0; i < n; i++) {
-      // Shift along wave direction from the template's positions
-      x[i] = (template.x[i] as number) + projOffset * waveDx;
-      y[i] = (template.y[i] as number) + projOffset * waveDy;
-      amplitude[i] = 1.0;
-      blend[i] = 1.0;
-    }
-
-    return [
-      {
-        sourceStepIndex,
-        x,
-        y,
-        t,
-        dirX: [],
-        dirY: [],
-        energy: [],
-        turbulence,
-        depth: [],
-        amplitude,
-        blend,
-      },
-    ];
-  };
-
-  // Prepend rows moving upwave from the first step
-  const prependRows: Wavefront[] = [];
-  const firstSourceStepIndex = wavefronts[0][0].sourceStepIndex;
-  for (let i = numSkirtRows; i >= 1; i--) {
-    prependRows.push(
-      makeSkirtRow(-i * stepSize, firstSourceStepIndex - i),
-    );
-  }
-
-  // Append rows moving downwave from the last step.
-  // These also use the initial wavefront's lateral positions (straight lines
-  // from sentinels), so they span the full width regardless of how the last
-  // real step's segments may have fragmented.
-  const lastStepOffset = (wavefronts.length - 1) * stepSize;
-  const appendRows: Wavefront[] = [];
-  const lastSourceStepIndex = wavefronts[wavefronts.length - 1][0].sourceStepIndex;
-  for (let i = 1; i <= numSkirtRows; i++) {
-    appendRows.push(
-      makeSkirtRow(lastStepOffset + i * stepSize, lastSourceStepIndex + i),
-    );
-  }
-
-  return {
-    wavefronts: [...prependRows, ...wavefronts, ...appendRows],
-    prependedRows: prependRows.length,
   };
 }
