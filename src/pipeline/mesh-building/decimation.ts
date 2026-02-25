@@ -41,6 +41,7 @@ type StepSample = {
   y: number;
   amplitude: number;
   turbulence: number;
+  blend: number;
 };
 
 function sampleStepAtT(
@@ -62,6 +63,7 @@ function sampleStepAtT(
     const segY = segment.y;
     const segAmp = segment.amplitude;
     const segTurb = segment.turbulence;
+    const segBlend = segment.blend;
 
     // Clamp to segment endpoints
     if (t <= tMin) {
@@ -69,6 +71,7 @@ function sampleStepAtT(
       out.y = segY[0];
       out.amplitude = segAmp[0];
       out.turbulence = segTurb[0];
+      out.blend = segBlend[0];
       return true;
     }
     if (t >= tMax) {
@@ -77,6 +80,7 @@ function sampleStepAtT(
       out.y = segY[idx];
       out.amplitude = segAmp[idx];
       out.turbulence = segTurb[idx];
+      out.blend = segBlend[idx];
       return true;
     }
 
@@ -98,6 +102,7 @@ function sampleStepAtT(
     out.y = lerpScalar(segY[left], segY[right], f);
     out.amplitude = lerpScalar(segAmp[left], segAmp[right], f);
     out.turbulence = lerpScalar(segTurb[left], segTurb[right], f);
+    out.blend = lerpScalar(segBlend[left], segBlend[right], f);
     return true;
   }
   return false;
@@ -220,12 +225,19 @@ function evaluateRowRemoval(
   const endpointPhaseBase = endpointIdx * phasePerStep;
 
   let maxError = 0;
-  const anchorSample: StepSample = { x: 0, y: 0, amplitude: 0, turbulence: 0 };
+  const anchorSample: StepSample = {
+    x: 0,
+    y: 0,
+    amplitude: 0,
+    turbulence: 0,
+    blend: 0,
+  };
   const endpointSample: StepSample = {
     x: 0,
     y: 0,
     amplitude: 0,
     turbulence: 0,
+    blend: 0,
   };
 
   for (const segment of row) {
@@ -234,6 +246,7 @@ function evaluateRowRemoval(
     const segT = segment.t;
     const segAmp = segment.amplitude;
     const segTurb = segment.turbulence;
+    const segBlend = segment.blend;
 
     for (let i = 0; i < segT.length; i++) {
       const pointT = segT[i];
@@ -283,6 +296,19 @@ function evaluateRowRemoval(
         return { removable: false, score: Number.POSITIVE_INFINITY };
       }
       if (turbScore > maxError) maxError = turbScore;
+
+      // Blend error.
+      const iBlend = lerpScalar(
+        anchorSample.blend,
+        endpointSample.blend,
+        fraction,
+      );
+      const blendErr = Math.abs(segBlend[i] - iBlend);
+      const blendScore = normalizedError(blendErr, ampTol);
+      if (blendScore > 1) {
+        return { removable: false, score: Number.POSITIVE_INFINITY };
+      }
+      if (blendScore > maxError) maxError = blendScore;
 
       // Phase-offset error.
       // phaseOffset = stepIndex * phasePerStep − k * dot(position, waveDir)
@@ -433,6 +459,7 @@ function canRemoveVerticesBetween(
   const y = segment.y;
   const amplitude = segment.amplitude;
   const turbulence = segment.turbulence;
+  const blend = segment.blend;
 
   const aT = t[anchorIdx];
   const bT = t[endpointIdx];
@@ -449,6 +476,9 @@ function canRemoveVerticesBetween(
   const aTurb = turbulence[anchorIdx];
   const bTurb = turbulence[endpointIdx];
 
+  const aBlend = blend[anchorIdx];
+  const bBlend = blend[endpointIdx];
+
   for (let i = anchorIdx + 1; i < endpointIdx; i++) {
     const f = tSpan > 0 ? (t[i] - aT) / tSpan : 0;
 
@@ -463,6 +493,9 @@ function canRemoveVerticesBetween(
 
     const iTurb = lerpScalar(aTurb, bTurb, f);
     if (Math.abs(turbulence[i] - iTurb) > ampTol) return false;
+
+    const iBlend = lerpScalar(aBlend, bBlend, f);
+    if (Math.abs(blend[i] - iBlend) > ampTol) return false;
   }
 
   return true;
@@ -489,12 +522,14 @@ function buildSegmentFromKept(
   const outT = new Array<number>(n);
   const outTurbulence = new Array<number>(n);
   const outAmplitude = new Array<number>(n);
+  const outBlend = new Array<number>(n);
 
   copyKeptIndices(segment.x, kept, outX);
   copyKeptIndices(segment.y, kept, outY);
   copyKeptIndices(segment.t, kept, outT);
   copyKeptIndices(segment.turbulence, kept, outTurbulence);
   copyKeptIndices(segment.amplitude, kept, outAmplitude);
+  copyKeptIndices(segment.blend, kept, outBlend);
 
   // Marching-only fields may be stripped (empty) after online compaction.
   // Only copy them if they have data.
@@ -521,6 +556,7 @@ function buildSegmentFromKept(
     turbulence: outTurbulence,
     depth: outDepth,
     amplitude: outAmplitude,
+    blend: outBlend,
   };
 }
 

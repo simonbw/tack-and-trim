@@ -31,17 +31,17 @@
  */
 
 import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
-import {
-  computeTerrainHeight,
-  computeTerrainHeightAndGradient,
-  type TerrainHeightGradient,
-} from "./terrainHeightCPU";
 import type {
   MutableWavefrontSegment,
   WaveBounds,
   Wavefront,
   WavefrontSegment,
 } from "./marchingTypes";
+import {
+  computeTerrainHeight,
+  computeTerrainHeightAndGradient,
+  type TerrainHeightGradient,
+} from "./terrainHeightCPU";
 
 /** Energy fraction below which a point is considered dead */
 const MIN_ENERGY = 0.03;
@@ -49,7 +49,7 @@ const MIN_ENERGY = 0.03;
 /** Bottom friction rate — energy dissipated by seabed interaction.
  *  Scaled by exp(-k*depth): negligible in deep water, strong in shallow water,
  *  and very aggressive over land (depth < 0 makes the exponent grow). */
-const BOTTOM_FRICTION_RATE = 0.3;
+const BOTTOM_FRICTION_RATE = 0.0;
 
 /** Max energy ratio between adjacent rays before splitting the segment.
  *  Prevents low-energy land-crawling rays from being triangulated against
@@ -93,14 +93,14 @@ const MAX_SEGMENT_POINTS = 5000;
 const MIN_SPLIT_ENERGY = 0.1;
 
 /** Maximum angular change per step (radians), prevents wild rotation */
-const MAX_TURN_PER_STEP = Math.PI / 8;
+const MAX_TURN_PER_STEP = 0; //Math.PI / 8;
 
 /** Stability limit for explicit diffusion scheme */
 const MAX_DIFFUSION_D = 0.5;
 
 /** Number of diffusion iterations per march step. Higher = stronger diffraction.
  *  1 is physically motivated; crank up for testing. */
-const DIFFRACTION_ITERATIONS = 10;
+const DIFFRACTION_ITERATIONS = 0;
 
 /** Minimum march speed as fraction of deep water speed */
 const MIN_SPEED_FACTOR = 0.25;
@@ -116,7 +116,7 @@ const BREAKING_DECAY_RATE = 1.2;
 
 /** Energy dissipation from sharp refraction — proportional to |dTheta| per step.
  *  Captures nonlinear dissipation when wavefronts curve sharply. */
-const REFRACTION_DISSIPATION = 1.0;
+const REFRACTION_DISSIPATION = 0.0;
 
 /** Scale factor for instantaneous turbulence to keep foam visible */
 const TURBULENCE_SCALE = 8.0;
@@ -146,6 +146,7 @@ function createEmptySegment(): MutableWavefrontSegment {
     turbulence: [],
     depth: [],
     amplitude: [],
+    blend: [],
   };
 }
 
@@ -201,6 +202,7 @@ export function generateInitialWavefront(
   const turbulence = new Array<number>(numVertices);
   const depth = new Array<number>(numVertices);
   const amplitude = new Array<number>(numVertices);
+  const blend = new Array<number>(numVertices);
 
   for (let i = 0; i < numVertices; i++) {
     const ti = i / (numVertices - 1);
@@ -214,9 +216,10 @@ export function generateInitialWavefront(
     turbulence[i] = 0;
     depth[i] = 0;
     amplitude[i] = 0;
+    blend[i] = 0; // Initial wavefront is at the upwave boundary (distToUpwave=0)
   }
 
-  return { x, y, t, dirX, dirY, energy, turbulence, depth, amplitude };
+  return { x, y, t, dirX, dirY, energy, turbulence, depth, amplitude, blend };
 }
 
 /**
@@ -240,6 +243,7 @@ function refineWavefront(
   const srcEnergy = wavefront.energy;
   const srcTurbulence = wavefront.turbulence;
   const srcDepth = wavefront.depth;
+  const srcBlend = wavefront.blend;
 
   const minDistSq = (vertexSpacing * MERGE_RATIO) ** 2;
   const canSplit = srcLen < MAX_SEGMENT_POINTS;
@@ -254,6 +258,7 @@ function refineWavefront(
   const outTurbulence = result.turbulence;
   const outDepth = result.depth;
   const outAmplitude = result.amplitude;
+  const outBlend = result.blend;
 
   outX.push(srcX[0]);
   outY.push(srcY[0]);
@@ -264,6 +269,7 @@ function refineWavefront(
   outTurbulence.push(srcTurbulence[0]);
   outDepth.push(srcDepth[0]);
   outAmplitude.push(0);
+  outBlend.push(srcBlend[0]);
 
   let splitCount = 0;
 
@@ -277,6 +283,7 @@ function refineWavefront(
     const prevEnergy = outEnergy[prevIdx];
     const prevTurbulence = outTurbulence[prevIdx];
     const prevDepth = outDepth[prevIdx];
+    const prevBlend = outBlend[prevIdx];
 
     const currX = srcX[i];
     const currY = srcY[i];
@@ -286,12 +293,20 @@ function refineWavefront(
     const currEnergy = srcEnergy[i];
     const currTurbulence = srcTurbulence[i];
     const currDepth = srcDepth[i];
+    const currBlend = srcBlend[i];
 
     const dx = currX - prevX;
     const dy = currY - prevY;
     const distSq = dx * dx + dy * dy;
 
-    if (distSq < minDistSq) {
+    // Never merge sentinel rays (t=0 or t=1)
+    if (
+      distSq < minDistSq &&
+      prevT !== 0 &&
+      prevT !== 1 &&
+      currT !== 0 &&
+      currT !== 1
+    ) {
       stats.merges++;
       continue;
     }
@@ -310,12 +325,17 @@ function refineWavefront(
     // Split: insert interpolated midpoint when gap is too large.
     // Skip if either endpoint has low energy — midpoints placed on dying rays
     // (e.g. over terrain) tend to diverge and cause runaway splitting.
+    // Never split across a sentinel boundary
+    const prevIsSentinel = prevT === 0 || prevT === 1;
+    const currIsSentinel = currT === 0 || currT === 1;
     if (
       canSplit &&
       distSq > maxDistSq &&
       splitCount < MAX_SPLITS_PER_SEGMENT &&
       prevEnergy >= MIN_SPLIT_ENERGY &&
-      currEnergy >= MIN_SPLIT_ENERGY
+      currEnergy >= MIN_SPLIT_ENERGY &&
+      !prevIsSentinel &&
+      !currIsSentinel
     ) {
       let midDirX = prevDirX + currDirX;
       let midDirY = prevDirY + currDirY;
@@ -334,6 +354,7 @@ function refineWavefront(
       outTurbulence.push((prevTurbulence + currTurbulence) / 2);
       outDepth.push((prevDepth + currDepth) / 2);
       outAmplitude.push(0);
+      outBlend.push((prevBlend + currBlend) / 2);
 
       splitCount++;
       stats.splits++;
@@ -348,6 +369,7 @@ function refineWavefront(
     outTurbulence.push(currTurbulence);
     outDepth.push(currDepth);
     outAmplitude.push(0);
+    outBlend.push(currBlend);
   }
 
   if (!canSplit && !warnedSplitDisabled) {
@@ -505,6 +527,7 @@ function compactStep(step: Wavefront, compactMs: { value: number }): void {
       turbulence: new Float32Array(segment.turbulence),
       depth: [],
       amplitude: new Float32Array(segment.amplitude),
+      blend: new Float32Array(segment.blend),
     };
   }
   compactMs.value += performance.now() - t0;
@@ -615,6 +638,7 @@ export function marchWavefronts(
       let outTurbulence = currentSegment.turbulence;
       let outDepth = currentSegment.depth;
       let outAmplitude = currentSegment.amplitude;
+      let outBlend = currentSegment.blend;
 
       const flushCurrentSegment = (): void => {
         if (outX.length === 0) return;
@@ -631,18 +655,48 @@ export function marchWavefronts(
         outTurbulence = currentSegment.turbulence;
         outDepth = currentSegment.depth;
         outAmplitude = currentSegment.amplitude;
+        outBlend = currentSegment.blend;
       };
 
       for (let i = 0; i < srcLen; i++) {
         const startEnergy = srcEnergy[i];
-        if (startEnergy < MIN_ENERGY) {
+        const px = srcX[i];
+        const py = srcY[i];
+        const pt = srcT[i];
+        const isSentinel = pt === 0 || pt === 1;
+
+        // Non-sentinel dead rays flush the segment
+        if (!isSentinel && startEnergy < MIN_ENERGY) {
           flushCurrentSegment();
           continue;
         }
 
-        const px = srcX[i];
-        const py = srcY[i];
-        const pt = srcT[i];
+        if (isSentinel) {
+          // Sentinel rays advance straight at full speed, no terrain interaction
+          const nx = px + waveDx * stepSize;
+          const ny = py + waveDy * stepSize;
+
+          // OOB check on downwave edge only (sentinels are at lateral boundary by definition)
+          const proj = nx * waveDx + ny * waveDy;
+          if (proj < minProj || proj > maxProj) {
+            flushCurrentSegment();
+            continue;
+          }
+
+          outX.push(nx);
+          outY.push(ny);
+          outT.push(pt);
+          outDirX.push(waveDx);
+          outDirY.push(waveDy);
+          outEnergy.push(1.0);
+          outTurbulence.push(0);
+          outDepth.push(wavelength);
+          outAmplitude.push(0);
+          outBlend.push(1.0);
+          continue;
+        }
+
+        // --- Normal (non-sentinel) ray processing ---
 
         // Water depth and local terrain gradient at current position
         const terrainH = computeTerrainHeightAndGradient(
@@ -751,6 +805,15 @@ export function marchWavefronts(
           (energyBeforeDissipation - energy) * TURBULENCE_SCALE;
         const turbulence = carryOver + localTurbulence;
 
+        // Proximity-based blend: ramp from 0 at edges to 1 one wavelength in
+        const distToLateralEdge = Math.min(perp - minPerp, maxPerp - perp);
+        const distToDownwave = maxProj - proj;
+        const distToUpwave = proj - minProj;
+        const blend =
+          Math.min(Math.min(distToLateralEdge, distToDownwave), distToUpwave) /
+          wavelength;
+        const clampedBlend = Math.max(0, Math.min(1, blend));
+
         // Split segment when energy contrast with previous ray is too extreme.
         // This prevents low-energy land rays from triangulating against healthy ocean rays.
         if (outEnergy.length > 0) {
@@ -771,6 +834,7 @@ export function marchWavefronts(
         outTurbulence.push(turbulence);
         outDepth.push(Math.max(0, newDepth));
         outAmplitude.push(0);
+        outBlend.push(clampedBlend);
       }
 
       if (outX.length > 0) {
@@ -866,6 +930,12 @@ export function computeAmplitudes(
       if (n === 0) continue;
 
       for (let i = 0; i < n; i++) {
+        // Sentinel rays at domain edges always have amplitude 1.0
+        if (t[i] === 0 || t[i] === 1) {
+          amplitude[i] = 1.0;
+          continue;
+        }
+
         const pDepth = depth[i];
         const shoaling =
           pDepth > 0

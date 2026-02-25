@@ -29,13 +29,12 @@ export function buildMeshData(
     const step = wavefronts[wi];
     const stepOffsets: number[] = [];
     const phase = (stepIndices ? stepIndices[wi] : wi) * resolvedPhasePerStep;
-    const isBoundaryStep = wi === 0 || wi === wavefronts.length - 1;
-
     for (const segment of step) {
       const segX = segment.x;
       const segY = segment.y;
       const segAmp = segment.amplitude;
       const segTurbulence = segment.turbulence;
+      const segBlend = segment.blend;
       const len = segX.length;
 
       stepOffsets.push(vertexOffset / VERTEX_FLOATS);
@@ -43,14 +42,13 @@ export function buildMeshData(
         const x = segX[pi];
         const y = segY[pi];
         const phaseOffset = phase - k * (x * waveDx + y * waveDy);
-        const isBoundary = isBoundaryStep || pi === 0 || pi === len - 1;
 
         vertices[vertexOffset++] = x;
         vertices[vertexOffset++] = y;
         vertices[vertexOffset++] = segAmp[pi];
         vertices[vertexOffset++] = segTurbulence[pi];
         vertices[vertexOffset++] = phaseOffset;
-        vertices[vertexOffset++] = isBoundary ? 0.0 : 1.0;
+        vertices[vertexOffset++] = segBlend[pi];
       }
     }
 

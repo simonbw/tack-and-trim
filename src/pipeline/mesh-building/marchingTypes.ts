@@ -21,6 +21,8 @@ export interface WavefrontSegment {
   depth: number[];
   /** Final amplitude factor = energy * shoaling * divergence */
   amplitude: number[] | Float32Array;
+  /** Blend weight [0..1] for boundary fading — 0 at mesh edges, 1 in interior */
+  blend: number[] | Float32Array;
 }
 
 /** Bounding box aligned to the wave propagation direction */
@@ -45,6 +47,7 @@ export interface MutableWavefrontSegment {
   turbulence: number[];
   depth: number[];
   amplitude: number[];
+  blend: number[];
 }
 
 /** A wavefront step: one or more disconnected segments (split by dead rays) */

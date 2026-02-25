@@ -275,6 +275,9 @@ fn lookupMeshForWave(
   let triListCount = cell.y;
 
   // Iterate ALL triangles in this cell, accumulating phasor contributions
+  var meshCos = 0.0;
+  var meshSin = 0.0;
+  var maxBlend = 0.0;
   for (var t = 0u; t < triListCount; t++) {
     let triIndex = getMeshGridTriIndex(packed, triListOffset + t);
     let tri = getMeshTriangle(packed, header.indexOffset, triIndex);
@@ -295,13 +298,21 @@ fn lookupMeshForWave(
       let interp = attribA * bary.x + attribB * bary.y + attribC * bary.z;
 
       let amp = interp.x;   // amplitudeFactor
+      let w = interp.w;     // blendWeight
       let phase = interp.z; // phaseOffset
-      result.phasorCos += amp * cos(phase);
-      result.phasorSin += amp * sin(phase);
+      meshCos += amp * cos(phase);
+      meshSin += amp * sin(phase);
+      maxBlend = max(maxBlend, w);
       result.found = true;
     }
   }
 
+  // Blend between mesh phasor and open ocean (1, 0) based on blend weight.
+  // At w=1 (interior): use mesh result fully. At w=0 (boundary): use open ocean.
+  if (result.found) {
+    result.phasorCos = mix(1.0, meshCos, maxBlend);
+    result.phasorSin = mix(0.0, meshSin, maxBlend);
+  }
   // Inside grid but no containing triangle: this is a shadow zone (zero amplitude).
   // Points outside the grid already returned open ocean defaults above.
 
