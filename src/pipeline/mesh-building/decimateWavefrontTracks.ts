@@ -1,6 +1,7 @@
 import { decimateSegment, DEFAULT_DECIMATION_TOLERANCE } from "./decimateSegment";
 import type { Wavefront, WavefrontSegment } from "./marchingTypes";
 import { buildSegmentTracks, type SegmentTrack } from "./buildSegmentTracks";
+import { lerp } from "../../core/util/MathUtil";
 
 type SegmentSample = {
   x: number;
@@ -9,10 +10,6 @@ type SegmentSample = {
   turbulence: number;
   blend: number;
 };
-
-function lerpScalar(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
 
 function normalizedError(error: number, tolerance: number): number {
   if (tolerance <= 0) return error === 0 ? 0 : Number.POSITIVE_INFINITY;
@@ -69,11 +66,11 @@ function sampleSegmentAtT(
 
   const span = segT[right] - segT[left];
   const f = span > 0 ? (t - segT[left]) / span : 0;
-  out.x = lerpScalar(segX[left], segX[right], f);
-  out.y = lerpScalar(segY[left], segY[right], f);
-  out.amplitude = lerpScalar(segAmp[left], segAmp[right], f);
-  out.turbulence = lerpScalar(segTurb[left], segTurb[right], f);
-  out.blend = lerpScalar(segBlend[left], segBlend[right], f);
+  out.x = lerp(segX[left], segX[right], f);
+  out.y = lerp(segY[left], segY[right], f);
+  out.amplitude = lerp(segAmp[left], segAmp[right], f);
+  out.turbulence = lerp(segTurb[left], segTurb[right], f);
+  out.blend = lerp(segBlend[left], segBlend[right], f);
   return true;
 }
 
@@ -128,23 +125,23 @@ function evaluateTrackSnapshotRemoval(
     if (!sampleSegmentAtT(anchor, pointT, anchorSample)) return false;
     if (!sampleSegmentAtT(endpoint, pointT, endpointSample)) return false;
 
-    const ix = lerpScalar(anchorSample.x, endpointSample.x, fraction);
-    const iy = lerpScalar(anchorSample.y, endpointSample.y, fraction);
+    const ix = lerp(anchorSample.x, endpointSample.x, fraction);
+    const iy = lerp(anchorSample.y, endpointSample.y, fraction);
     const dx = segX[i] - ix;
     const dy = segY[i] - iy;
     if (normalizedError(dx * dx + dy * dy, posTolSq) > 1) return false;
 
-    const iAmp = lerpScalar(anchorSample.amplitude, endpointSample.amplitude, fraction);
+    const iAmp = lerp(anchorSample.amplitude, endpointSample.amplitude, fraction);
     if (normalizedError(Math.abs(segAmp[i] - iAmp), ampTol) > 1) return false;
 
-    const iTurb = lerpScalar(
+    const iTurb = lerp(
       anchorSample.turbulence,
       endpointSample.turbulence,
       fraction,
     );
     if (normalizedError(Math.abs(segTurb[i] - iTurb), ampTol) > 1) return false;
 
-    const iBlend = lerpScalar(anchorSample.blend, endpointSample.blend, fraction);
+    const iBlend = lerp(anchorSample.blend, endpointSample.blend, fraction);
     if (normalizedError(Math.abs(segBlend[i] - iBlend), ampTol) > 1) return false;
 
     const actualPhase = rowPhaseBase - k * (segX[i] * waveDx + segY[i] * waveDy);
@@ -152,7 +149,7 @@ function evaluateTrackSnapshotRemoval(
       anchorPhaseBase - k * (anchorSample.x * waveDx + anchorSample.y * waveDy);
     const endpointPhase =
       endpointPhaseBase - k * (endpointSample.x * waveDx + endpointSample.y * waveDy);
-    const iPhase = lerpScalar(anchorPhase, endpointPhase, fraction);
+    const iPhase = lerp(anchorPhase, endpointPhase, fraction);
     if (normalizedError(Math.abs(actualPhase - iPhase), phaseTol) > 1) return false;
   }
 

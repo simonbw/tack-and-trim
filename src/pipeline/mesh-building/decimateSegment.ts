@@ -1,14 +1,11 @@
-import { DEFAULT_MESH_BUILD_CONFIG } from "./meshBuildConfig";
 import type { WavefrontSegment } from "./marchingTypes";
+import { DEFAULT_MESH_BUILD_CONFIG } from "./meshBuildConfig";
 import { hasMarchingFields } from "./wavefrontContracts";
+import { lerp } from "../../core/util/MathUtil";
 
 /** Default decimation tolerance — controls the quality/density trade-off. */
 export const DEFAULT_DECIMATION_TOLERANCE =
   DEFAULT_MESH_BUILD_CONFIG.decimation.tolerance;
-
-function lerpScalar(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
 
 /**
  * Check whether all vertices strictly between anchorIdx and endpointIdx in a
@@ -50,19 +47,19 @@ function canRemoveVerticesBetween(
   for (let i = anchorIdx + 1; i < endpointIdx; i++) {
     const f = tSpan > 0 ? (t[i] - aT) / tSpan : 0;
 
-    const ix = lerpScalar(ax, bx, f);
-    const iy = lerpScalar(ay, by, f);
+    const ix = lerp(ax, bx, f);
+    const iy = lerp(ay, by, f);
     const dx = x[i] - ix;
     const dy = y[i] - iy;
     if (dx * dx + dy * dy > posTolSq) return false;
 
-    const iAmp = lerpScalar(aAmp, bAmp, f);
+    const iAmp = lerp(aAmp, bAmp, f);
     if (Math.abs(amplitude[i] - iAmp) > ampTol) return false;
 
-    const iTurb = lerpScalar(aTurb, bTurb, f);
+    const iTurb = lerp(aTurb, bTurb, f);
     if (Math.abs(turbulence[i] - iTurb) > ampTol) return false;
 
-    const iBlend = lerpScalar(aBlend, bBlend, f);
+    const iBlend = lerp(aBlend, bBlend, f);
     if (Math.abs(blend[i] - iBlend) > ampTol) return false;
   }
 
