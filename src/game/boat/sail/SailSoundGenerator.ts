@@ -4,6 +4,7 @@ import { on } from "../../../core/entity/handler";
 import { Game } from "../../../core/Game";
 import type { Body } from "../../../core/physics/body/Body";
 import { clamp } from "../../../core/util/MathUtil";
+import { rInteger, rUniform } from "../../../core/util/Random";
 import type { Sail } from "./Sail";
 
 // Flap buffer synthesis
@@ -73,7 +74,7 @@ export class SailSoundGenerator extends BaseEntity {
     for (let i = 0; i < length; i++) {
       const t = i / sampleRate;
       const envelope = Math.exp(-t * FLAP_DECAY_RATE);
-      data[i] = (Math.random() * 2 - 1) * envelope;
+      data[i] = rUniform(-1, 1) * envelope;
     }
 
     return buffer;
@@ -133,14 +134,11 @@ export class SailSoundGenerator extends BaseEntity {
   }
 
   private playFlap(time: number, intensity: number) {
-    const buffer =
-      this.flapBuffers[Math.floor(Math.random() * this.flapBuffers.length)];
+    const buffer = this.flapBuffers[rInteger(0, this.flapBuffers.length)];
 
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
-    source.playbackRate.value =
-      MIN_PLAYBACK_RATE +
-      Math.random() * (MAX_PLAYBACK_RATE - MIN_PLAYBACK_RATE);
+    source.playbackRate.value = rUniform(MIN_PLAYBACK_RATE, MAX_PLAYBACK_RATE);
 
     const gain = this.audioContext.createGain();
     gain.gain.value = intensity * BASE_GAIN;

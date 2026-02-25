@@ -4,6 +4,7 @@
  * Provides consistent height-based coloring for terrain visualization
  * in both the editor and game debug modes.
  */
+import { rgbToHex } from "../../../core/util/ColorUtils";
 
 /**
  * Get terrain color based on height.
@@ -25,13 +26,13 @@ export function getTerrainHeightColor(height: number): number {
     const r = Math.round(50 * (1 - t));
     const g = Math.round(100 + 50 * (1 - t));
     const b = Math.round(180 + 75 * (1 - t));
-    return (r << 16) | (g << 8) | b;
+    return rgbToHex({ r, g, b });
   } else {
     // Above water - brown/tan, lighter for higher
     const t = Math.min(height / 20, 1);
     const r = Math.round(140 + 60 * t);
     const g = Math.round(100 + 40 * t);
     const b = Math.round(60 + 20 * t);
-    return (r << 16) | (g << 8) | b;
+    return rgbToHex({ r, g, b });
   }
 }

@@ -1,5 +1,6 @@
 import type { DynamicBody } from "../../../core/physics/body/DynamicBody";
 import { clamp, degToRad } from "../../../core/util/MathUtil";
+import { rUniform } from "../../../core/util/Random";
 import { V } from "../../../core/Vector";
 import { RHO_AIR } from "../../fluid-dynamics";
 import { SEPARATION_DECAY_RATE } from "../../world/wind/WindConstants";
@@ -105,7 +106,7 @@ export function applySailForces(
     // Turbulent buffeting
     if (flow.turbulence > 0.1) {
       const buffet = flow.turbulence * 0.2 * q * area;
-      const buffetDir = V(Math.random() - 0.5, Math.random() - 0.5).normalize();
+      const buffetDir = V(rUniform(-0.5, 0.5), rUniform(-0.5, 0.5)).normalize();
       body.applyForce(buffetDir.mul(buffet * LBF_TO_ENGINE));
     }
   }
