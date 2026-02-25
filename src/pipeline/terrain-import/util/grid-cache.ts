@@ -14,7 +14,7 @@ import {
   parseTileCoverageFromName,
   type BoundingBox,
 } from "./geo-utils";
-import type { ScalarGrid } from "./marching-squares";
+import type { ScalarGrid } from "../worker/marching-squares";
 
 export interface TileMetadata {
   filePath: string;

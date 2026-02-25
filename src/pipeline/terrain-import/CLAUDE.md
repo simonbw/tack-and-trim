@@ -54,8 +54,12 @@ Loads the cached grid, runs marching squares to extract iso-contour rings, simpl
 - `build-grid.ts` - Step 2: merges tiles into an elevation grid with binary cache
 - `extract-contours.ts` - Step 3: marching squares → simplified contours → `.level.json`
 - `run-all.ts` - Convenience script that runs all three steps
-- `lib/region.ts` - Region discovery and config loading
-- `lib/grid-cache.ts` - Grid binary cache format (save/load) and tile metadata
-- `lib/geo-utils.ts` - Geographic math (projections, bbox ops, unit conversion)
-- `lib/marching-squares.ts` - Marching squares contour extraction from a scalar grid
-- `lib/simplify.ts` - Ramer-Douglas-Peucker line simplification for closed rings
+- `util/region.ts` - Region discovery and config loading
+- `util/grid-cache.ts` - Grid binary cache format (save/load) and tile metadata
+- `util/geo-utils.ts` - Geographic math (projections, bbox ops, unit conversion)
+- `util/simplify.ts` - Ramer-Douglas-Peucker line simplification for closed rings
+- `util/constrained-simplify.ts` - RDP variant that avoids crossing existing contours
+- `util/segment-index.ts` - Spatial grid for fast segment intersection queries
+- `worker/marching-squares.ts` - Marching squares types, ring tracer, and block index
+- `worker/worker-pool.ts` - Distributes marching squares work across worker threads
+- `worker/contour-worker.ts` - Worker thread: block index + marching squares algorithm

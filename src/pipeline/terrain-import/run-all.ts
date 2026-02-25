@@ -2,7 +2,7 @@
 
 import { execSync } from "child_process";
 import path from "path";
-import { loadRegionConfig, resolveRegion } from "./lib/region";
+import { loadRegionConfig, resolveRegion } from "./util/region";
 
 const slug = resolveRegion(process.argv.slice(2));
 const regionConfig = loadRegionConfig(slug);

@@ -8,8 +8,8 @@ import {
   bboxIntersects,
   normalizeDatasetPath,
   parseTileCoverageFromName,
-} from "./lib/geo-utils";
-import { resolveRegion, loadRegionConfig, tilesDir } from "./lib/region";
+} from "./util/geo-utils";
+import { resolveRegion, loadRegionConfig, tilesDir } from "./util/region";
 
 const BASE_URL =
   "https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/";

@@ -42,7 +42,7 @@ export class ContourWorkerPool {
 
     const workerPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "workers/contour-worker.ts",
+      "contour-worker.ts",
     );
 
     const workers: Worker[] = [];

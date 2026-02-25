@@ -18,8 +18,8 @@ import {
   loadRegionConfig,
   tilesDir,
   gridCacheDir,
-} from "./lib/region";
-import { listLocalTiles } from "./lib/grid-cache";
+} from "./util/region";
+import { listLocalTiles } from "./util/grid-cache";
 
 function main(): void {
   const slug = resolveRegion(process.argv.slice(2));

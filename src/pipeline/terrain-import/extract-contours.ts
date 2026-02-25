@@ -4,14 +4,14 @@ import { existsSync, mkdirSync, createWriteStream } from "fs";
 import path from "path";
 import { fromFile } from "geotiff";
 import { validateLevelFile } from "./validate-level";
-import { latLonToFeet, metersToFeet, bboxCenter } from "./lib/geo-utils";
-import { resolveRegion, loadRegionConfig, gridCacheDir } from "./lib/region";
-import type { ScalarGrid } from "./lib/marching-squares";
-import { buildClosedRings } from "./lib/marching-squares";
-import { ContourWorkerPool } from "./lib/worker-pool";
-import { ringPerimeter, signedArea, type Point } from "./lib/simplify";
-import { createSegmentIndex } from "./lib/segment-index";
-import { constrainedSimplifyClosedRing } from "./lib/constrained-simplify";
+import { latLonToFeet, metersToFeet, bboxCenter } from "./util/geo-utils";
+import { resolveRegion, loadRegionConfig, gridCacheDir } from "./util/region";
+import type { ScalarGrid } from "./worker/marching-squares";
+import { buildClosedRings } from "./worker/marching-squares";
+import { ContourWorkerPool } from "./worker/worker-pool";
+import { ringPerimeter, signedArea, type Point } from "./util/simplify";
+import { createSegmentIndex } from "./util/segment-index";
+import { constrainedSimplifyClosedRing } from "./util/constrained-simplify";
 import { DEFAULT_DEPTH } from "../../game/world/terrain/TerrainConstants";
 
 interface TerrainContourJson {
