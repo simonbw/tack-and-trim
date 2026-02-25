@@ -51,6 +51,10 @@ Options:
   -l, --level <path>    Level file path (repeatable; default: all levels in resources/levels/)
   -o, --output <path>   Output .wavemesh path (only valid with single --level)
   -h, --help            Show this help
+
+Config overrides:
+  Set MESH_BUILD_* environment variables (for example:
+  MESH_BUILD_VERTEX_SPACING_FT=30 MESH_BUILD_STEP_SIZE_FT=15)
 `);
     process.exit(0);
   }

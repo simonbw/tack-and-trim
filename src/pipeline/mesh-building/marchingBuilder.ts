@@ -19,13 +19,16 @@
  */
 
 const TEST_MODE = process.env.NODE_ENV === "test";
-const VERTEX_SPACING = TEST_MODE ? 200 : 20; // feet per vertex
-const STEP_SIZE = TEST_MODE ? 100 : 10; // feet per step (deep water)
 
 import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
 import type { WaveSource } from "../../game/world/water/WaveSource";
 import type { MeshBuildBounds, WavefrontMeshData } from "./MeshBuildTypes";
 import { decimateWavefronts } from "./decimation";
+import {
+  DEFAULT_MESH_BUILD_CONFIG,
+  resolveMeshBuildConfig,
+  TEST_MESH_BUILD_CONFIG,
+} from "./meshBuildConfig";
 import {
   addSkirtRows,
   generateInitialWavefront,
@@ -34,24 +37,35 @@ import {
 import { computeBounds } from "./marchingBounds";
 import { buildMeshData } from "./meshOutput";
 
+const BASE_CONFIG = TEST_MODE ? TEST_MESH_BUILD_CONFIG : DEFAULT_MESH_BUILD_CONFIG;
+const RESOLVED_CONFIG = resolveMeshBuildConfig(BASE_CONFIG);
+let loggedConfigOverrides = false;
+
 export function buildMarchingMesh(
   waveSource: WaveSource,
   _coastlineBounds: MeshBuildBounds | null,
   terrain: TerrainCPUData,
   _tideHeight: number,
 ): WavefrontMeshData {
+  const config = RESOLVED_CONFIG.config;
+  if (!loggedConfigOverrides && RESOLVED_CONFIG.overrides.length > 0) {
+    loggedConfigOverrides = true;
+    console.log(
+      `[marching] mesh config overrides:\n  ${RESOLVED_CONFIG.overrides.join("\n  ")}`,
+    );
+  }
   const wavelength = waveSource.wavelength;
   const baseDir = waveSource.direction;
-  const stepSize = STEP_SIZE;
+  const stepSize = config.resolution.stepSizeFt;
   const k = (2 * Math.PI) / wavelength;
   const phasePerStep = k * stepSize;
-  const vertexSpacing = VERTEX_SPACING;
+  const vertexSpacing = config.resolution.vertexSpacingFt;
 
   const waveDx = Math.cos(baseDir);
   const waveDy = Math.sin(baseDir);
 
   let t0 = performance.now();
-  const bounds = computeBounds(terrain, wavelength, waveDx, waveDy);
+  const bounds = computeBounds(terrain, wavelength, waveDx, waveDy, config.bounds);
   let t1 = performance.now();
   const firstWavefront = generateInitialWavefront(
     bounds,
@@ -59,6 +73,7 @@ export function buildMarchingMesh(
     waveDx,
     waveDy,
     wavelength,
+    config.bounds.skirtDistanceFt,
   );
   const numRays = firstWavefront.t.length;
   const domainLength = bounds.maxProj - bounds.minProj;
@@ -93,6 +108,7 @@ export function buildMarchingMesh(
     bounds,
     terrain,
     wavelength,
+    config,
   );
   let t2 = performance.now();
   const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
@@ -100,14 +116,20 @@ export function buildMarchingMesh(
   }, 0);
 
   // Add skirt rows to extend mesh beyond domain boundaries
-  const skirtResult = addSkirtRows(wavefronts, waveDx, waveDy, stepSize);
+  const skirtResult = addSkirtRows(
+    wavefronts,
+    waveDx,
+    waveDy,
+    stepSize,
+    config.bounds.skirtDistanceFt,
+  );
 
   const decimated = decimateWavefronts(
     skirtResult.wavefronts,
     wavelength,
     waveDx,
     waveDy,
-    undefined,
+    config.decimation.tolerance,
     phasePerStep,
   );
   let t3 = performance.now();

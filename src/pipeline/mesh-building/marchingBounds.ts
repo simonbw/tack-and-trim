@@ -1,16 +1,10 @@
 import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
+import type { MeshBuildBoundsConfig } from "./meshBuildConfig";
+import { DEFAULT_MESH_BUILD_CONFIG } from "./meshBuildConfig";
 import type { WaveBounds } from "./marchingTypes";
 
 /** Number of 32-bit values per contour (must match LandMass.FLOATS_PER_CONTOUR) */
 const FLOATS_PER_CONTOUR = 13;
-
-/** Margin in wavelengths for each side of the domain */
-const UPWAVE_MARGIN = 10;
-const DOWNWAVE_MARGIN = 80;
-const CROSSWAVE_MARGIN = 20;
-
-/** Absolute minimum margin in feet */
-const MIN_MARGIN = 2000;
 
 /**
  * Compute a wave-aligned bounding box from root terrain contours.
@@ -26,6 +20,7 @@ export function computeBounds(
   wavelength: number,
   waveDx: number,
   waveDy: number,
+  config: MeshBuildBoundsConfig = DEFAULT_MESH_BUILD_CONFIG.bounds,
 ): WaveBounds {
   const perpDx = -waveDy;
   const perpDy = waveDx;
@@ -63,12 +58,27 @@ export function computeBounds(
   }
 
   if (minProj === Infinity) {
-    return { minProj: -500, maxProj: 500, minPerp: -500, maxPerp: 500 };
+    const halfExtent = config.fallbackHalfExtentFt;
+    return {
+      minProj: -halfExtent,
+      maxProj: halfExtent,
+      minPerp: -halfExtent,
+      maxPerp: halfExtent,
+    };
   }
 
-  const upwave = Math.max(MIN_MARGIN, wavelength * UPWAVE_MARGIN);
-  const downwave = Math.max(MIN_MARGIN, wavelength * DOWNWAVE_MARGIN);
-  const crosswave = Math.max(MIN_MARGIN, wavelength * CROSSWAVE_MARGIN);
+  const upwave = Math.max(
+    config.minMarginFt,
+    wavelength * config.upwaveMarginWavelengths,
+  );
+  const downwave = Math.max(
+    config.minMarginFt,
+    wavelength * config.downwaveMarginWavelengths,
+  );
+  const crosswave = Math.max(
+    config.minMarginFt,
+    wavelength * config.crosswaveMarginWavelengths,
+  );
   return {
     minProj: minProj - upwave,
     maxProj: maxProj + downwave,

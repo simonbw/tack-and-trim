@@ -12,10 +12,16 @@
  * nearest surviving (kept) neighbours only.
  */
 
+import { DEFAULT_MESH_BUILD_CONFIG } from "./meshBuildConfig";
 import type { Wavefront, WavefrontSegment } from "./marchingTypes";
+import {
+  assertWavefrontInvariants,
+  hasMarchingFields,
+} from "./wavefrontContracts";
 
 /** Default decimation tolerance — controls the quality/density trade-off. */
-export const DEFAULT_DECIMATION_TOLERANCE = 0.02;
+export const DEFAULT_DECIMATION_TOLERANCE =
+  DEFAULT_MESH_BUILD_CONFIG.decimation.tolerance;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -531,30 +537,34 @@ function buildSegmentFromKept(
   copyKeptIndices(segment.amplitude, kept, outAmplitude);
   copyKeptIndices(segment.blend, kept, outBlend);
 
-  // Marching-only fields may be stripped (empty) after online compaction.
-  // Only copy them if they have data.
-  const hasMarchingFields = segment.dirX.length > 0;
-  const outDirX = hasMarchingFields ? new Array<number>(n) : [];
-  const outDirY = hasMarchingFields ? new Array<number>(n) : [];
-  const outEnergy = hasMarchingFields ? new Array<number>(n) : [];
-  const outDepth = hasMarchingFields ? new Array<number>(n) : [];
-
-  if (hasMarchingFields) {
+  if (hasMarchingFields(segment)) {
+    const outDirX = new Array<number>(n);
+    const outDirY = new Array<number>(n);
+    const outEnergy = new Array<number>(n);
+    const outDepth = new Array<number>(n);
     copyKeptIndices(segment.dirX, kept, outDirX);
     copyKeptIndices(segment.dirY, kept, outDirY);
     copyKeptIndices(segment.energy, kept, outEnergy);
     copyKeptIndices(segment.depth, kept, outDepth);
+    return {
+      x: outX,
+      y: outY,
+      t: outT,
+      dirX: outDirX,
+      dirY: outDirY,
+      energy: outEnergy,
+      turbulence: outTurbulence,
+      depth: outDepth,
+      amplitude: outAmplitude,
+      blend: outBlend,
+    };
   }
 
   return {
     x: outX,
     y: outY,
     t: outT,
-    dirX: outDirX,
-    dirY: outDirY,
-    energy: outEnergy,
     turbulence: outTurbulence,
-    depth: outDepth,
     amplitude: outAmplitude,
     blend: outBlend,
   };
@@ -632,6 +642,9 @@ export function decimateWavefronts(
   removedRows: number;
   removedVertices: number;
 } {
+  for (let i = 0; i < wavefronts.length; i++) {
+    assertWavefrontInvariants(wavefronts[i], `decimateWavefronts input row=${i}`);
+  }
   const t0 = performance.now();
 
   if (LOG_DECIMATION_STATS) {
@@ -678,6 +691,9 @@ export function decimateWavefronts(
     totalSegments += step.length;
     return step.map((segment) => decimateSegment(segment, posTolSq, ampTol));
   });
+  for (let i = 0; i < result.length; i++) {
+    assertWavefrontInvariants(result[i], `decimateWavefronts result row=${i}`);
+  }
   const t3 = performance.now();
   const vertexDecimationTime = t3 - t2;
   const vertexDecimationCalls = canRemoveVerticesBetweenCalls;

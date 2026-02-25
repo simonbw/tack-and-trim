@@ -1,5 +1,6 @@
 import type { Wavefront, WaveBounds, WavefrontSegment } from "./marchingTypes";
 import { VERTEX_FLOATS } from "./marchingTypes";
+import { assertWavefrontInvariants } from "./wavefrontContracts";
 
 /**
  * Convert wavefront steps (each containing one or more disconnected segments)
@@ -15,6 +16,9 @@ export function buildMeshData(
   stepIndices?: number[],
   phasePerStep?: number,
 ) {
+  for (let i = 0; i < wavefronts.length; i++) {
+    assertWavefrontInvariants(wavefronts[i], `buildMeshData input row=${i}`);
+  }
   const topology = countMeshTopology(wavefronts);
   const vertices = new Float32Array(topology.vertexCount * VERTEX_FLOATS);
   const indices = new Uint32Array(topology.triangleCount * 3);
@@ -98,6 +102,12 @@ export function countMeshTopology(wavefronts: Wavefront[]): {
   vertexCount: number;
   triangleCount: number;
 } {
+  for (let i = 0; i < wavefronts.length; i++) {
+    assertWavefrontInvariants(
+      wavefronts[i],
+      `countMeshTopology input row=${i}`,
+    );
+  }
   let vertexCount = 0;
   for (const step of wavefronts) {
     for (const segment of step) {
