@@ -13,7 +13,9 @@ export function hasMarchingFields(
     !("dirX" in segment) ||
     !("dirY" in segment) ||
     !("energy" in segment) ||
-    !("depth" in segment)
+    !("depth" in segment) ||
+    !("terrainGradX" in segment) ||
+    !("terrainGradY" in segment)
   ) {
     return false;
   }
@@ -22,7 +24,9 @@ export function hasMarchingFields(
     segment.dirX.length === len &&
     segment.dirY.length === len &&
     segment.energy.length === len &&
-    segment.depth.length === len
+    segment.depth.length === len &&
+    segment.terrainGradX.length === len &&
+    segment.terrainGradY.length === len
   );
 }
 
@@ -54,6 +58,8 @@ export function assertSegmentAlignedLengths(
       ["dirY", segment.dirY],
       ["energy", segment.energy],
       ["depth", segment.depth],
+      ["terrainGradX", segment.terrainGradX],
+      ["terrainGradY", segment.terrainGradY],
     ];
     for (const [field, arr] of marchingFields) {
       if (arr.length !== len) {

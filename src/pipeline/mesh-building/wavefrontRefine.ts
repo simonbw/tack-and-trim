@@ -31,6 +31,8 @@ export function createEmptySegment(
     energy: [],
     turbulence: [],
     depth: [],
+    terrainGradX: [],
+    terrainGradY: [],
     amplitude: [],
     blend: [],
   };
@@ -58,6 +60,8 @@ export function refineWavefront(
   const srcEnergy = wavefront.energy;
   const srcTurbulence = wavefront.turbulence;
   const srcDepth = wavefront.depth;
+  const srcTerrainGradX = wavefront.terrainGradX;
+  const srcTerrainGradY = wavefront.terrainGradY;
   const srcBlend = wavefront.blend;
 
   const minDistSq = (vertexSpacing * config.mergeRatio) ** 2;
@@ -77,6 +81,8 @@ export function refineWavefront(
   const outEnergy = result.energy;
   const outTurbulence = result.turbulence;
   const outDepth = result.depth;
+  const outTerrainGradX = result.terrainGradX;
+  const outTerrainGradY = result.terrainGradY;
   const outAmplitude = result.amplitude;
   const outBlend = result.blend;
 
@@ -88,6 +94,8 @@ export function refineWavefront(
   outEnergy.push(srcEnergy[0]);
   outTurbulence.push(srcTurbulence[0]);
   outDepth.push(srcDepth[0]);
+  outTerrainGradX.push(srcTerrainGradX[0]);
+  outTerrainGradY.push(srcTerrainGradY[0]);
   outAmplitude.push(0);
   outBlend.push(srcBlend[0]);
 
@@ -103,6 +111,8 @@ export function refineWavefront(
     const prevEnergy = outEnergy[prevIdx];
     const prevTurbulence = outTurbulence[prevIdx];
     const prevDepth = outDepth[prevIdx];
+    const prevTerrainGradX = outTerrainGradX[prevIdx];
+    const prevTerrainGradY = outTerrainGradY[prevIdx];
     const prevBlend = outBlend[prevIdx];
 
     const currX = srcX[i];
@@ -113,6 +123,8 @@ export function refineWavefront(
     const currEnergy = srcEnergy[i];
     const currTurbulence = srcTurbulence[i];
     const currDepth = srcDepth[i];
+    const currTerrainGradX = srcTerrainGradX[i];
+    const currTerrainGradY = srcTerrainGradY[i];
     const currBlend = srcBlend[i];
 
     const dx = currX - prevX;
@@ -174,6 +186,8 @@ export function refineWavefront(
       outEnergy.push((prevEnergy + currEnergy) / 2);
       outTurbulence.push((prevTurbulence + currTurbulence) / 2);
       outDepth.push((prevDepth + currDepth) / 2);
+      outTerrainGradX.push((prevTerrainGradX + currTerrainGradX) / 2);
+      outTerrainGradY.push((prevTerrainGradY + currTerrainGradY) / 2);
       outAmplitude.push(0);
       outBlend.push((prevBlend + currBlend) / 2);
 
@@ -189,6 +203,8 @@ export function refineWavefront(
     outEnergy.push(currEnergy);
     outTurbulence.push(currTurbulence);
     outDepth.push(currDepth);
+    outTerrainGradX.push(currTerrainGradX);
+    outTerrainGradY.push(currTerrainGradY);
     outAmplitude.push(0);
     outBlend.push(currBlend);
   }

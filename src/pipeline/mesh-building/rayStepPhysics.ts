@@ -1,7 +1,6 @@
 import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
 import type { MeshBuildPhysicsConfig } from "./meshBuildConfig";
 import {
-  computeTerrainHeight,
   computeTerrainHeightAndGradient,
   type TerrainHeightGradient,
 } from "./terrainHeightCPU";
@@ -55,6 +54,9 @@ export interface AdvanceInteriorRayInput {
   physics: MeshBuildPhysicsConfig;
   terrain: TerrainCPUData;
   terrainGradientSample: TerrainHeightGradient;
+  currentDepth: number;
+  currentGradientX: number;
+  currentGradientY: number;
 }
 
 export interface AdvanceInteriorRayResult {
@@ -65,6 +67,8 @@ export interface AdvanceInteriorRayResult {
   energy: number;
   turbulence: number;
   depth: number;
+  terrainGradX: number;
+  terrainGradY: number;
   refracted: boolean;
   turnClamped: boolean;
 }
@@ -72,13 +76,24 @@ export interface AdvanceInteriorRayResult {
 export function advanceInteriorRay(
   input: AdvanceInteriorRayInput,
 ): AdvanceInteriorRayResult | null {
-  const terrainH = computeTerrainHeightAndGradient(
-    input.px,
-    input.py,
-    input.terrain,
-    input.terrainGradientSample,
-  ).height;
-  const currentDepth = Math.max(0, -terrainH);
+  let currentDepth = input.currentDepth;
+  let gradX = input.currentGradientX;
+  let gradY = input.currentGradientY;
+  if (
+    !Number.isFinite(currentDepth) ||
+    !Number.isFinite(gradX) ||
+    !Number.isFinite(gradY)
+  ) {
+    const terrainH = computeTerrainHeightAndGradient(
+      input.px,
+      input.py,
+      input.terrain,
+      input.terrainGradientSample,
+    ).height;
+    currentDepth = Math.max(0, -terrainH);
+    gradX = input.terrainGradientSample.gradientX;
+    gradY = input.terrainGradientSample.gradientY;
+  }
   const baseSpeed = normalizedSpeed(currentDepth, input.k);
   const currentSpeed = Math.max(input.physics.minSpeedFactor, baseSpeed);
   const localStep = input.stepSize * currentSpeed;
@@ -97,8 +112,8 @@ export function advanceInteriorRay(
     const tanhKd = baseSpeed * baseSpeed;
     const sech2Kd = 1 - tanhKd * tanhKd;
     const dcDDepth = baseSpeed > 1e-6 ? (input.k * sech2Kd) / (2 * baseSpeed) : 0;
-    const dcdx = -dcDDepth * input.terrainGradientSample.gradientX;
-    const dcdy = -dcDDepth * input.terrainGradientSample.gradientY;
+    const dcdx = -dcDDepth * gradX;
+    const dcdy = -dcDDepth * gradY;
 
     // Component of speed gradient perpendicular to ray direction
     const dcPerp = -dcdx * dirY + dcdy * dirX;
@@ -138,7 +153,12 @@ export function advanceInteriorRay(
   }
 
   // Update energy (dissipative losses only)
-  const newTerrainH = computeTerrainHeight(nx, ny, input.terrain);
+  const newTerrainH = computeTerrainHeightAndGradient(
+    nx,
+    ny,
+    input.terrain,
+    input.terrainGradientSample,
+  ).height;
   const newDepth = -newTerrainH;
   const normalizedStep = localStep / input.wavelength;
 
@@ -182,6 +202,8 @@ export function advanceInteriorRay(
     energy,
     turbulence,
     depth: Math.max(0, newDepth),
+    terrainGradX: input.terrainGradientSample.gradientX,
+    terrainGradY: input.terrainGradientSample.gradientY,
     refracted,
     turnClamped,
   };

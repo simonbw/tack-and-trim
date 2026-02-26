@@ -104,6 +104,8 @@ export function generateInitialWavefront(
   const energy = new Array<number>(numVertices);
   const turbulence = new Array<number>(numVertices);
   const depth = new Array<number>(numVertices);
+  const terrainGradX = new Array<number>(numVertices);
+  const terrainGradY = new Array<number>(numVertices);
   const amplitude = new Array<number>(numVertices);
   const blend = new Array<number>(numVertices);
 
@@ -117,6 +119,8 @@ export function generateInitialWavefront(
   energy[0] = 1.0;
   turbulence[0] = 0;
   depth[0] = wavelength;
+  terrainGradX[0] = 0;
+  terrainGradY[0] = 0;
   amplitude[0] = 0;
   blend[0] = 1.0;
 
@@ -134,6 +138,9 @@ export function generateInitialWavefront(
     energy[idx] = 1.0;
     turbulence[idx] = 0;
     depth[idx] = 0;
+    // Force one terrain sample on each interior ray's first step.
+    terrainGradX[idx] = Number.NaN;
+    terrainGradY[idx] = Number.NaN;
     amplitude[idx] = 0;
     blend[idx] = 1.0;
   }
@@ -149,6 +156,8 @@ export function generateInitialWavefront(
   energy[last] = 1.0;
   turbulence[last] = 0;
   depth[last] = wavelength;
+  terrainGradX[last] = 0;
+  terrainGradY[last] = 0;
   amplitude[last] = 0;
   blend[last] = 1.0;
 
@@ -164,6 +173,8 @@ export function generateInitialWavefront(
     energy,
     turbulence,
     depth,
+    terrainGradX,
+    terrainGradY,
     amplitude,
     blend,
   };
@@ -174,7 +185,7 @@ export function generateInitialWavefront(
  * Compact a fully post-processed wavefront step to reduce memory.
  * 1. Converts the 5 mesh-output fields (x, y, t, amplitude, turbulence)
  *    from number[] to Float32Array (halves per-element storage)
- * 2. Replaces the 4 marching-only fields (dirX, dirY, energy, depth) with
+ * 2. Replaces marching-only fields (dirX, dirY, energy, depth, terrainGradX, terrainGradY) with
  *    empty arrays, so compacted steps no longer carry marching payload data.
  *
  * This reduces per-step memory by ~78% (5/9 fields kept × 4/8 bytes each).
@@ -197,6 +208,8 @@ export function compactStep(step: Wavefront, compactMs: { value: number }): void
     marchingSegment.dirY = [];
     marchingSegment.energy = [];
     marchingSegment.depth = [];
+    marchingSegment.terrainGradX = [];
+    marchingSegment.terrainGradY = [];
   }
   compactMs.value += performance.now() - t0;
 }
@@ -253,6 +266,9 @@ export function advanceTrackSegmentStep(params: {
   const srcDirY = segment.dirY;
   const srcEnergy = segment.energy;
   const srcTurbulence = segment.turbulence;
+  const srcDepth = segment.depth;
+  const srcTerrainGradX = segment.terrainGradX;
+  const srcTerrainGradY = segment.terrainGradY;
   const srcLen = srcX.length;
 
   const producedSegments: MarchingWavefront = [];
@@ -268,6 +284,8 @@ export function advanceTrackSegmentStep(params: {
   let outEnergy = currentSegment.energy;
   let outTurbulence = currentSegment.turbulence;
   let outDepth = currentSegment.depth;
+  let outTerrainGradX = currentSegment.terrainGradX;
+  let outTerrainGradY = currentSegment.terrainGradY;
   let outAmplitude = currentSegment.amplitude;
   let outBlend = currentSegment.blend;
 
@@ -291,6 +309,8 @@ export function advanceTrackSegmentStep(params: {
     outEnergy = currentSegment.energy;
     outTurbulence = currentSegment.turbulence;
     outDepth = currentSegment.depth;
+    outTerrainGradX = currentSegment.terrainGradX;
+    outTerrainGradY = currentSegment.terrainGradY;
     outAmplitude = currentSegment.amplitude;
     outBlend = currentSegment.blend;
   };
@@ -330,6 +350,8 @@ export function advanceTrackSegmentStep(params: {
       outEnergy.push(1.0);
       outTurbulence.push(0);
       outDepth.push(wavelength);
+      outTerrainGradX.push(0);
+      outTerrainGradY.push(0);
       outAmplitude.push(0);
       outBlend.push(1.0);
       continue;
@@ -357,6 +379,9 @@ export function advanceTrackSegmentStep(params: {
       physics: config.physics,
       terrain,
       terrainGradientSample,
+      currentDepth: srcDepth[i],
+      currentGradientX: srcTerrainGradX[i],
+      currentGradientY: srcTerrainGradY[i],
     });
     if (!interior) {
       flushCurrentSegment();
@@ -389,6 +414,8 @@ export function advanceTrackSegmentStep(params: {
     outEnergy.push(interior.energy);
     outTurbulence.push(interior.turbulence);
     outDepth.push(interior.depth);
+    outTerrainGradX.push(interior.terrainGradX);
+    outTerrainGradY.push(interior.terrainGradY);
     outAmplitude.push(0);
     outBlend.push(1.0);
   }

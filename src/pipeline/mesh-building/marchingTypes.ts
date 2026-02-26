@@ -37,6 +37,9 @@ export interface MarchingWavefrontSegment extends OutputWavefrontSegment {
   energy: number[];
   /** Water depth at this point (max(0, -terrainHeight)), cached from marching */
   depth: number[];
+  /** Cached terrain-height gradient at this point for next-step refraction reuse */
+  terrainGradX: number[];
+  terrainGradY: number[];
 }
 
 export type WavefrontSegment = MarchingWavefrontSegment | OutputWavefrontSegment;
@@ -65,6 +68,8 @@ export interface MutableWavefrontSegment {
   energy: number[];
   turbulence: number[];
   depth: number[];
+  terrainGradX: number[];
+  terrainGradY: number[];
   amplitude: number[];
   blend: number[];
 }
