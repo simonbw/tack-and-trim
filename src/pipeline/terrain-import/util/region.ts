@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, existsSync } from "fs";
 import path from "path";
+import { createInterface } from "readline/promises";
 import type { BoundingBox } from "./geo-utils";
 
 export interface RegionConfig {
@@ -15,7 +16,7 @@ export interface RegionConfig {
   output: string;
 }
 
-const ASSETS_ROOT = path.resolve(__dirname, "../../../assets/terrain");
+const ASSETS_ROOT = path.resolve(__dirname, "../../../../assets/terrain");
 
 export function regionDir(slug: string): string {
   return path.join(ASSETS_ROOT, slug);
@@ -51,7 +52,52 @@ export function listRegions(): string[] {
     .sort();
 }
 
-export function resolveRegion(argv: string[]): string {
+async function promptForRegion(regions: string[]): Promise<string> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      `Multiple regions available. Specify --region <name>: ${regions.join(", ")}`,
+    );
+  }
+
+  console.log("Available regions:");
+  for (let i = 0; i < regions.length; i++) {
+    console.log(`  ${i + 1}. ${regions[i]}`);
+  }
+
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    while (true) {
+      const answer = (
+        await rl.question(`Select a region [1-${regions.length}] or name: `)
+      ).trim();
+
+      if (answer.length === 0) {
+        continue;
+      }
+
+      const byIndex = Number.parseInt(answer, 10);
+      if (Number.isInteger(byIndex) && byIndex >= 1 && byIndex <= regions.length) {
+        return regions[byIndex - 1];
+      }
+
+      if (regions.includes(answer)) {
+        return answer;
+      }
+
+      console.log(
+        `Invalid selection "${answer}". Choose 1-${regions.length} or one of: ${regions.join(", ")}`,
+      );
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+export async function resolveRegion(argv: string[]): Promise<string> {
   let slug: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
@@ -90,7 +136,5 @@ Region configs are stored in assets/terrain/<name>/region.json`);
     );
   }
 
-  throw new Error(
-    `Multiple regions available. Specify --region <name>: ${regions.join(", ")}`,
-  );
+  return promptForRegion(regions);
 }

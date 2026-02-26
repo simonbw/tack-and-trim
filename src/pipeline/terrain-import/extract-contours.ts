@@ -243,7 +243,7 @@ function bfsOrder(roots: ContourNode[]): number[] {
 }
 
 async function main(): Promise<void> {
-  const slug = resolveRegion(process.argv.slice(2));
+  const slug = await resolveRegion(process.argv.slice(2));
   const config = loadRegionConfig(slug);
   const bbox = config.bbox;
   const cache = gridCacheDir(slug);

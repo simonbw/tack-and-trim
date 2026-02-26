@@ -21,8 +21,8 @@ import {
 } from "./util/region";
 import { listLocalTiles } from "./util/grid-cache";
 
-function main(): void {
-  const slug = resolveRegion(process.argv.slice(2));
+async function main(): Promise<void> {
+  const slug = await resolveRegion(process.argv.slice(2));
   const config = loadRegionConfig(slug);
   const bbox = config.bbox;
   const tiles = tilesDir(slug);
@@ -70,4 +70,7 @@ function main(): void {
   console.log(`Merged grid: ${outputPath}  (${elapsed.toFixed(0)}ms)`);
 }
 
-main();
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});

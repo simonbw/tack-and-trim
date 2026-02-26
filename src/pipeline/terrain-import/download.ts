@@ -61,7 +61,7 @@ async function downloadFile(
 }
 
 async function main(): Promise<void> {
-  const slug = resolveRegion(process.argv.slice(2));
+  const slug = await resolveRegion(process.argv.slice(2));
   const config = loadRegionConfig(slug);
   const bbox = config.bbox;
   const datasetPath = normalizeDatasetPath(config.datasetPath);
