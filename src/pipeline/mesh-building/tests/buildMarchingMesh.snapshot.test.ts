@@ -21,7 +21,7 @@ function hashView(view: { buffer: ArrayBufferLike; byteOffset: number; byteLengt
 }
 
 describe("buildMarchingMesh snapshot", () => {
-  it("matches expected open-ocean mesh snapshot", () => {
+  it("matches expected open-ocean mesh snapshot", async () => {
     const waveSource: WaveSource = {
       wavelength: 120,
       direction: Math.PI / 3,
@@ -32,7 +32,7 @@ describe("buildMarchingMesh snapshot", () => {
     };
     const terrain = buildOpenOceanTerrain();
 
-    const mesh = buildMarchingMesh(waveSource, null, terrain, 0);
+    const mesh = await buildMarchingMesh(waveSource, null, terrain, 0);
     const vertexHash = hashView(mesh.vertices);
     const indexHash = hashView(mesh.indices);
 

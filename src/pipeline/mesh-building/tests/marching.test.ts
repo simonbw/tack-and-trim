@@ -47,7 +47,7 @@ function assertSegmentInvariants(segment: WavefrontSegment): void {
 }
 
 describe("marchWavefronts invariants", () => {
-  it("preserves sentinel endpoints and monotonic t in open ocean", () => {
+  it("preserves sentinel endpoints and monotonic t in open ocean", async () => {
     const bounds: WaveBounds = {
       minProj: 0,
       maxProj: 120,
@@ -68,7 +68,7 @@ describe("marchWavefronts invariants", () => {
       waveDy,
       wavelength,
     );
-    const result = marchWavefronts(
+    const result = await marchWavefronts(
       first,
       waveDx,
       waveDy,

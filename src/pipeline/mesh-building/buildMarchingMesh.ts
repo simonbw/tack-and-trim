@@ -39,12 +39,12 @@ const BASE_CONFIG = TEST_MODE ? TEST_MESH_BUILD_CONFIG : DEFAULT_MESH_BUILD_CONF
 const RESOLVED_CONFIG = resolveMeshBuildConfig(BASE_CONFIG);
 let loggedConfigOverrides = false;
 
-export function buildMarchingMesh(
+export async function buildMarchingMesh(
   waveSource: WaveSource,
   _coastlineBounds: MeshBuildBounds | null,
   terrain: TerrainCPUData,
   _tideHeight: number,
-): WavefrontMeshData {
+): Promise<WavefrontMeshData> {
   const config = RESOLVED_CONFIG.config;
   if (!loggedConfigOverrides && RESOLVED_CONFIG.overrides.length > 0) {
     loggedConfigOverrides = true;
@@ -99,7 +99,7 @@ export function buildMarchingMesh(
     compactMs,
     turnClampCount,
     totalRefractions,
-  } = marchWavefronts(
+  } = await marchWavefronts(
     firstWavefront,
     waveDx,
     waveDy,

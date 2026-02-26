@@ -75,110 +75,117 @@ if (outputPath && levelPaths.length > 1) {
 // Build each level
 // ---------------------------------------------------------------------------
 
-for (const levelPath of levelPaths) {
-  const levelName = path.basename(levelPath, ".level.json");
-  const wavemeshPath =
-    outputPath ?? levelPath.replace(/\.level\.json$/, ".wavemesh");
+async function main(): Promise<void> {
+  for (const levelPath of levelPaths) {
+    const levelName = path.basename(levelPath, ".level.json");
+    const wavemeshPath =
+      outputPath ?? levelPath.replace(/\.level\.json$/, ".wavemesh");
 
-  console.log(`\n=== ${levelName} ===`);
-  console.log(`  Level: ${levelPath}`);
+    console.log(`\n=== ${levelName} ===`);
+    console.log(`  Level: ${levelPath}`);
 
-  // Load and parse level
-  let timer = performance.now();
-  const levelJson = fs.readFileSync(levelPath, "utf-8");
-  const levelFile = parseLevelFile(levelJson);
-  const terrainDef = normalizeTerrainWinding(
-    levelFileToTerrainDefinition(levelFile),
-  );
-  const waveConfig = levelFileToWaveConfig(levelFile);
-  console.log(
-    `  Parsed level: ${(performance.now() - timer).toFixed(0)}ms (${terrainDef.contours.length} contours, ${waveConfig.sources.length} wave sources)`,
-  );
+    // Load and parse level
+    let timer = performance.now();
+    const levelJson = fs.readFileSync(levelPath, "utf-8");
+    const levelFile = parseLevelFile(levelJson);
+    const terrainDef = normalizeTerrainWinding(
+      levelFileToTerrainDefinition(levelFile),
+    );
+    const waveConfig = levelFileToWaveConfig(levelFile);
+    console.log(
+      `  Parsed level: ${(performance.now() - timer).toFixed(0)}ms (${terrainDef.contours.length} contours, ${waveConfig.sources.length} wave sources)`,
+    );
 
-  if (waveConfig.sources.length === 0) {
-    console.log("  No wave sources — skipping");
-    continue;
-  }
+    if (waveConfig.sources.length === 0) {
+      console.log("  No wave sources — skipping");
+      continue;
+    }
 
-  // Build terrain CPU data
-  timer = performance.now();
-  const terrainGPUData = buildTerrainGPUData(terrainDef);
-  const terrain: TerrainCPUData = {
-    vertexData: terrainGPUData.vertexData,
-    contourData: terrainGPUData.contourData,
-    childrenData: terrainGPUData.childrenData,
-    contourCount: terrainGPUData.contourCount,
-    defaultDepth: terrainDef.defaultDepth ?? terrainGPUData.defaultDepth,
-  };
-  console.log(
-    `  Built terrain data: ${(performance.now() - timer).toFixed(0)}ms`,
-  );
+    // Build terrain CPU data
+    timer = performance.now();
+    const terrainGPUData = buildTerrainGPUData(terrainDef);
+    const terrain: TerrainCPUData = {
+      vertexData: terrainGPUData.vertexData,
+      contourData: terrainGPUData.contourData,
+      childrenData: terrainGPUData.childrenData,
+      contourCount: terrainGPUData.contourCount,
+      defaultDepth: terrainDef.defaultDepth ?? terrainGPUData.defaultDepth,
+    };
+    console.log(
+      `  Built terrain data: ${(performance.now() - timer).toFixed(0)}ms`,
+    );
 
-  // Compute coastline bounds
-  let coastlineBounds: MeshBuildBounds | null = null;
-  for (const contour of terrainDef.contours) {
-    if (contour.height === 0) {
-      for (const pt of contour.sampledPolygon) {
-        if (!coastlineBounds) {
-          coastlineBounds = {
-            minX: pt.x,
-            maxX: pt.x,
-            minY: pt.y,
-            maxY: pt.y,
-          };
-        } else {
-          coastlineBounds.minX = Math.min(coastlineBounds.minX, pt.x);
-          coastlineBounds.maxX = Math.max(coastlineBounds.maxX, pt.x);
-          coastlineBounds.minY = Math.min(coastlineBounds.minY, pt.y);
-          coastlineBounds.maxY = Math.max(coastlineBounds.maxY, pt.y);
+    // Compute coastline bounds
+    let coastlineBounds: MeshBuildBounds | null = null;
+    for (const contour of terrainDef.contours) {
+      if (contour.height === 0) {
+        for (const pt of contour.sampledPolygon) {
+          if (!coastlineBounds) {
+            coastlineBounds = {
+              minX: pt.x,
+              maxX: pt.x,
+              minY: pt.y,
+              maxY: pt.y,
+            };
+          } else {
+            coastlineBounds.minX = Math.min(coastlineBounds.minX, pt.x);
+            coastlineBounds.maxX = Math.max(coastlineBounds.maxX, pt.x);
+            coastlineBounds.minY = Math.min(coastlineBounds.minY, pt.y);
+            coastlineBounds.maxY = Math.max(coastlineBounds.maxY, pt.y);
+          }
         }
       }
     }
-  }
 
-  const tideHeight = 0;
+    const tideHeight = 0;
 
-  // Compute input hash
-  const inputHash = computeInputHash(waveConfig.sources, terrain, tideHeight);
-  console.log(
-    `  Input hash: 0x${inputHash[0].toString(16).padStart(8, "0")}${inputHash[1].toString(16).padStart(8, "0")}`,
-  );
+    // Compute input hash
+    const inputHash = computeInputHash(waveConfig.sources, terrain, tideHeight);
+    console.log(
+      `  Input hash: 0x${inputHash[0].toString(16).padStart(8, "0")}${inputHash[1].toString(16).padStart(8, "0")}`,
+    );
 
-  // Build meshes for all wave sources
-  const meshes: WavefrontMeshData[] = [];
-  const totalTimer = performance.now();
+    // Build meshes for all wave sources
+    const meshes: WavefrontMeshData[] = [];
+    const totalTimer = performance.now();
 
-  for (let i = 0; i < waveConfig.sources.length; i++) {
-    const waveSource = waveConfig.sources[i];
+    for (let i = 0; i < waveConfig.sources.length; i++) {
+      const waveSource = waveConfig.sources[i];
+      timer = performance.now();
+      console.log(
+        `  Wave ${i}: λ=${waveSource.wavelength}ft, dir=${((waveSource.direction * 180) / Math.PI).toFixed(1)}°`,
+      );
+
+      const meshData = await buildMarchingMesh(
+        waveSource,
+        coastlineBounds,
+        terrain,
+        tideHeight,
+      );
+
+      const elapsed = performance.now() - timer;
+      console.log(
+        `    Built in ${elapsed.toFixed(0)}ms — ${meshData.vertexCount.toLocaleString()} vertices, ${(meshData.indexCount / 3).toLocaleString()} triangles`,
+      );
+      meshes.push(meshData);
+    }
+
+    const totalBuildTime = performance.now() - totalTimer;
+    console.log(`  Total build time: ${totalBuildTime.toFixed(0)}ms`);
+
+    // Write binary file
     timer = performance.now();
+    const buffer = buildWavemeshBuffer(meshes, inputHash);
+    fs.writeFileSync(wavemeshPath, Buffer.from(buffer));
     console.log(
-      `  Wave ${i}: λ=${waveSource.wavelength}ft, dir=${((waveSource.direction * 180) / Math.PI).toFixed(1)}°`,
+      `  Wrote ${wavemeshPath} (${(buffer.byteLength / 1024).toFixed(1)} KB) in ${(performance.now() - timer).toFixed(0)}ms`,
     );
-
-    const meshData = buildMarchingMesh(
-      waveSource,
-      coastlineBounds,
-      terrain,
-      tideHeight,
-    );
-
-    const elapsed = performance.now() - timer;
-    console.log(
-      `    Built in ${elapsed.toFixed(0)}ms — ${meshData.vertexCount.toLocaleString()} vertices, ${(meshData.indexCount / 3).toLocaleString()} triangles`,
-    );
-    meshes.push(meshData);
   }
 
-  const totalBuildTime = performance.now() - totalTimer;
-  console.log(`  Total build time: ${totalBuildTime.toFixed(0)}ms`);
-
-  // Write binary file
-  timer = performance.now();
-  const buffer = buildWavemeshBuffer(meshes, inputHash);
-  fs.writeFileSync(wavemeshPath, Buffer.from(buffer));
-  console.log(
-    `  Wrote ${wavemeshPath} (${(buffer.byteLength / 1024).toFixed(1)} KB) in ${(performance.now() - timer).toFixed(0)}ms`,
-  );
+  console.log("\nDone.");
 }
 
-console.log("\nDone.");
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

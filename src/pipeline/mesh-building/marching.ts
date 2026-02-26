@@ -419,7 +419,7 @@ function advanceTrackSegmentStep(params: {
  * local depth gradient. Amplitude and diffraction are applied step-by-step
  * as new steps are produced.
  */
-export function marchWavefronts(
+export async function marchWavefronts(
   firstWavefront: WavefrontSegment,
   waveDx: number,
   waveDy: number,
