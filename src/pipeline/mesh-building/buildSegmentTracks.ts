@@ -1,18 +1,5 @@
-import type { Wavefront, WavefrontSegment } from "./marchingTypes";
-
-export interface SegmentTrackSnapshot {
-  rowIndex: number;
-  segmentIndex: number;
-  sourceStepIndex: number;
-  segment: WavefrontSegment;
-}
-
-export interface SegmentTrack {
-  trackId: number;
-  parentTrackId: number | null;
-  childTrackIds: number[];
-  snapshots: SegmentTrackSnapshot[];
-}
+import type { Wavefront } from "./marchingTypes";
+import type { SegmentTrack } from "./segmentTracks";
 
 export interface BuildSegmentTracksResult {
   tracks: SegmentTrack[];
@@ -21,6 +8,10 @@ export interface BuildSegmentTracksResult {
   mergeCount: number;
 }
 
+/**
+ * Test/helper path that reconstructs tracks from row-ordered wavefronts.
+ * Runtime marching code builds tracks directly in `marchWavefronts`.
+ */
 export function buildSegmentTracks(
   wavefronts: readonly Wavefront[],
 ): BuildSegmentTracksResult {

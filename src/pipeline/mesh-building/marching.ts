@@ -56,7 +56,7 @@ import {
   resetRefineWarnings,
 } from "./wavefrontRefine";
 import { assertWavefrontInvariants } from "./wavefrontContracts";
-import type { SegmentTrack } from "./buildSegmentTracks";
+import type { SegmentTrack } from "./segmentTracks";
 
 interface ActiveTrackState {
   trackId: number;

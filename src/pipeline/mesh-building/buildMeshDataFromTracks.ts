@@ -1,6 +1,6 @@
 import type { WaveBounds, WavefrontSegment } from "./marchingTypes";
 import { VERTEX_FLOATS } from "./marchingTypes";
-import type { SegmentTrack } from "./buildSegmentTracks";
+import type { SegmentTrack } from "./segmentTracks";
 import { assertWavefrontInvariants } from "./wavefrontContracts";
 
 export function buildMeshDataFromTracks(

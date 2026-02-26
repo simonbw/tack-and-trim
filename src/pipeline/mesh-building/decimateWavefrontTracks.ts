@@ -1,6 +1,6 @@
 import { decimateSegment, DEFAULT_DECIMATION_TOLERANCE } from "./decimateSegment";
 import type { Wavefront, WavefrontSegment } from "./marchingTypes";
-import type { SegmentTrack } from "./buildSegmentTracks";
+import type { SegmentTrack } from "./segmentTracks";
 import { lerp } from "../../core/util/MathUtil";
 
 type SegmentSample = {
