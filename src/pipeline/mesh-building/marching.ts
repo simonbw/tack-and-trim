@@ -176,23 +176,19 @@ function compactStep(step: Wavefront, compactMs: { value: number }): void {
   const t0 = performance.now();
   for (let i = 0; i < step.length; i++) {
     const segment = step[i];
+    const marchingSegment = segment as MarchingWavefrontSegment;
 
-    // Convert kept fields to Float32Array and strip marching-only fields
-    step[i] = {
-      trackId: segment.trackId,
-      parentTrackId: segment.parentTrackId,
-      sourceStepIndex: segment.sourceStepIndex,
-      x: new Float32Array(segment.x),
-      y: new Float32Array(segment.y),
-      t: new Float32Array(segment.t),
-      dirX: [],
-      dirY: [],
-      energy: [],
-      turbulence: new Float32Array(segment.turbulence),
-      depth: [],
-      amplitude: new Float32Array(segment.amplitude),
-      blend: new Float32Array(segment.blend),
-    };
+    // Compact in place so all snapshot references observe reduced payload.
+    segment.x = new Float32Array(segment.x);
+    segment.y = new Float32Array(segment.y);
+    segment.t = new Float32Array(segment.t);
+    segment.turbulence = new Float32Array(segment.turbulence);
+    segment.amplitude = new Float32Array(segment.amplitude);
+    segment.blend = new Float32Array(segment.blend);
+    marchingSegment.dirX = [];
+    marchingSegment.dirY = [];
+    marchingSegment.energy = [];
+    marchingSegment.depth = [];
   }
   compactMs.value += performance.now() - t0;
 }
@@ -229,7 +225,9 @@ export function marchWavefronts(
   const perpDx = -waveDy;
   const perpDy = waveDx;
   const includeWavefronts = options?.includeWavefronts ?? false;
-  const wavefronts: Wavefront[] = [[firstWavefront]];
+  const wavefronts: Wavefront[] = includeWavefronts ? [[firstWavefront]] : [];
+  let currentStep: MarchingWavefront = [firstWavefront as MarchingWavefrontSegment];
+  let currentStepIndex = 0;
   let nextTrackId = firstWavefront.trackId + 1;
   let activeTracks: ActiveTrackState[] = [
     {
@@ -317,10 +315,10 @@ export function marchWavefronts(
   let totalRaySteps = 0;
 
   // Keep boundary-row behavior consistent with full-pass post-processing.
-  postProcessStep(wavefronts[0] as MarchingWavefront);
+  postProcessStep(currentStep);
 
   for (;;) {
-    const nextSourceStepIndex = wavefronts.length;
+    const nextSourceStepIndex = currentStepIndex + 1;
     const nextActiveTracks: ActiveTrackState[] = [];
 
     for (const track of activeTracks) {
@@ -571,22 +569,19 @@ export function marchWavefronts(
     }
 
     postProcessStep(nextStep);
-    wavefronts.push(nextStep);
+    if (includeWavefronts) {
+      wavefronts.push(nextStep);
+    }
     activeTracks = nextActiveTracks;
 
-    // Compact the second-to-last step — it's fully post-processed and no
-    // longer needed as a marching source. The latest step (nextStep) must
-    // keep its full data since it's the source for the next march iteration.
-    if (wavefronts.length >= 3) {
-      compactStep(wavefronts[wavefronts.length - 2], compactMs);
-    }
+    // Previous step is no longer needed as a marching source.
+    compactStep(currentStep, compactMs);
+    currentStep = nextStep;
+    currentStepIndex = nextSourceStepIndex;
   }
 
-  // Compact the first step (initial wavefront) and the final step
-  if (wavefronts.length >= 2) {
-    compactStep(wavefronts[0], compactMs);
-    compactStep(wavefronts[wavefronts.length - 1], compactMs);
-  }
+  // Compact the terminal step.
+  compactStep(currentStep, compactMs);
   const tracks = Array.from(trackMap.values()).sort((a, b) => a.trackId - b.trackId);
   for (const track of tracks) {
     track.childTrackIds = Array.from(new Set(track.childTrackIds)).sort(
