@@ -226,10 +226,8 @@ export function marchWavefronts(
   const perpDy = waveDx;
   const includeWavefronts = options?.includeWavefronts ?? false;
   const wavefronts: Wavefront[] = includeWavefronts ? [[firstWavefront]] : [];
-  let currentStep: MarchingWavefront = [firstWavefront as MarchingWavefrontSegment];
-  let currentStepIndex = 0;
   let nextTrackId = firstWavefront.trackId + 1;
-  let activeTracks: ActiveTrackState[] = [
+  const workQueue: ActiveTrackState[] = [
     {
       trackId: firstWavefront.trackId,
       parentTrackId: firstWavefront.parentTrackId,
@@ -309,20 +307,22 @@ export function marchWavefronts(
   const estimatedSteps = Math.ceil(
     (bounds.maxProj - bounds.minProj) / stepSize,
   );
-  let stepCount = 0;
+  let furthestStepIndex = 0;
+  let marchedStepCount = 0;
   let marchStartTime = performance.now();
   let nextProgressTime = marchStartTime + 2000; // first report after 2s
   let totalRaySteps = 0;
 
   // Keep boundary-row behavior consistent with full-pass post-processing.
-  postProcessStep(currentStep);
+  postProcessStep([firstWavefront as MarchingWavefrontSegment]);
 
-  for (;;) {
-    const nextSourceStepIndex = currentStepIndex + 1;
-    const nextActiveTracks: ActiveTrackState[] = [];
+  while (workQueue.length > 0) {
+    const track = workQueue.shift();
+    if (!track) break;
 
-    for (const track of activeTracks) {
-      const segment = track.segment;
+    let segment = track.segment;
+    for (;;) {
+      const nextSourceStepIndex = segment.sourceStepIndex + 1;
       const srcX = segment.x;
       const srcY = segment.y;
       const srcT = segment.t;
@@ -490,98 +490,102 @@ export function marchWavefronts(
         );
       }
 
+      if (producedSegments.length === 0) {
+        compactStep([segment], compactMs);
+        break;
+      }
+
       if (producedSegments.length === 1) {
         producedSegments[0].trackId = track.trackId;
         producedSegments[0].parentTrackId = track.parentTrackId;
-        nextActiveTracks.push({
-          trackId: producedSegments[0].trackId,
-          parentTrackId: producedSegments[0].parentTrackId,
-          segment: producedSegments[0],
-        });
-      } else if (producedSegments.length > 1) {
+      } else {
         const parent = trackMap.get(track.trackId);
-        if (parent) {
-          for (let childIdx = 0; childIdx < producedSegments.length; childIdx++) {
-            parent.childTrackIds.push(nextTrackId + childIdx);
-          }
-        }
         for (const child of producedSegments) {
           child.trackId = nextTrackId++;
           child.parentTrackId = track.trackId;
-          nextActiveTracks.push({
-            trackId: child.trackId,
-            parentTrackId: child.parentTrackId,
-            segment: child,
-          });
+          parent?.childTrackIds.push(child.trackId);
         }
       }
-    }
 
-    if (nextActiveTracks.length === 0) break;
-    nextActiveTracks.sort((a, b) => a.trackId - b.trackId);
-    const nextStep: MarchingWavefront = nextActiveTracks.map(
-      (nextTrack) => nextTrack.segment,
-    );
-    assertWavefrontInvariants(nextStep, "marchWavefronts nextStep");
-    for (let segmentIndex = 0; segmentIndex < nextStep.length; segmentIndex++) {
-      const nextSegment = nextStep[segmentIndex];
-      let trackState = trackMap.get(nextSegment.trackId);
-      if (!trackState) {
-        trackState = {
-          trackId: nextSegment.trackId,
-          parentTrackId: nextSegment.parentTrackId,
-          childTrackIds: [],
-          snapshots: [],
-        };
-        trackMap.set(nextSegment.trackId, trackState);
+      assertWavefrontInvariants(producedSegments, "marchWavefronts nextStep");
+      postProcessStep(producedSegments);
+      if (includeWavefronts) {
+        wavefronts.push(producedSegments);
       }
-      trackState.snapshots.push({
-        stepIndex: nextSourceStepIndex,
-        segmentIndex,
-        sourceStepIndex: nextSegment.sourceStepIndex,
-        segment: nextSegment,
-      });
-    }
 
-    // Count rays in this step
-    let stepRays = 0;
-    for (const seg of nextStep) {
-      stepRays += seg.x.length;
-    }
-    totalRaySteps += stepRays;
-    stepCount++;
+      // Count rays in this step
+      let stepRays = 0;
+      for (const seg of producedSegments) {
+        stepRays += seg.x.length;
+      }
+      totalRaySteps += stepRays;
+      marchedStepCount++;
+      furthestStepIndex = Math.max(furthestStepIndex, nextSourceStepIndex);
 
-    // Time-based progress logging — report every 5s
-    const now = performance.now();
-    if (now >= nextProgressTime) {
-      const elapsed = now - marchStartTime;
-      const pct = Math.min(100, (stepCount / estimatedSteps) * 100);
-      const raysPerSec = elapsed > 0 ? (totalRaySteps / elapsed) * 1000 : 0;
-      const segments = nextStep.length;
-      const fmt = (v: number) =>
-        v.toLocaleString(undefined, { maximumFractionDigits: 0 });
-      console.log(
-        `  [march] step ${fmt(stepCount)}/${fmt(estimatedSteps)} (${pct.toFixed(0)}%) ` +
-          `${(elapsed / 1000).toFixed(1)}s elapsed, ${fmt(totalRaySteps)} total ray steps, ` +
-          `${fmt(stepRays)} rays (${segments} seg), ${fmt(raysPerSec)} rays/s`,
-      );
-      nextProgressTime = now + 5000;
-    }
+      // Time-based progress logging — report every 5s
+      const now = performance.now();
+      if (now >= nextProgressTime) {
+        const elapsed = now - marchStartTime;
+        const pct = Math.min(100, (furthestStepIndex / estimatedSteps) * 100);
+        const raysPerSec = elapsed > 0 ? (totalRaySteps / elapsed) * 1000 : 0;
+        const segments = producedSegments.length;
+        const fmt = (v: number) =>
+          v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+        console.log(
+          `  [march] step ${fmt(furthestStepIndex)}/${fmt(estimatedSteps)} (${pct.toFixed(0)}%) ` +
+            `${(elapsed / 1000).toFixed(1)}s elapsed, ${fmt(totalRaySteps)} total ray steps, ` +
+            `${fmt(stepRays)} rays (${segments} seg), ${fmt(raysPerSec)} rays/s`,
+        );
+        nextProgressTime = now + 5000;
+      }
 
-    postProcessStep(nextStep);
-    if (includeWavefronts) {
-      wavefronts.push(nextStep);
-    }
-    activeTracks = nextActiveTracks;
+      if (producedSegments.length === 1) {
+        const nextSegment = producedSegments[0];
+        const trackState = trackMap.get(track.trackId);
+        if (!trackState) {
+          throw new Error(
+            `[marchWavefronts] missing track ${track.trackId} while appending step`,
+          );
+        }
+        trackState.snapshots.push({
+          stepIndex: nextSourceStepIndex,
+          segmentIndex: 0,
+          sourceStepIndex: nextSegment.sourceStepIndex,
+          segment: nextSegment,
+        });
 
-    // Previous step is no longer needed as a marching source.
-    compactStep(currentStep, compactMs);
-    currentStep = nextStep;
-    currentStepIndex = nextSourceStepIndex;
+        compactStep([segment], compactMs);
+        segment = nextSegment;
+        continue;
+      }
+
+      for (let childIdx = 0; childIdx < producedSegments.length; childIdx++) {
+        const child = producedSegments[childIdx];
+        trackMap.set(child.trackId, {
+          trackId: child.trackId,
+          parentTrackId: child.parentTrackId,
+          childTrackIds: [],
+          snapshots: [
+            {
+              stepIndex: nextSourceStepIndex,
+              segmentIndex: childIdx,
+              sourceStepIndex: child.sourceStepIndex,
+              segment: child,
+            },
+          ],
+        });
+        workQueue.push({
+          trackId: child.trackId,
+          parentTrackId: child.parentTrackId,
+          segment: child,
+        });
+      }
+
+      compactStep([segment], compactMs);
+      break;
+    }
   }
 
-  // Compact the terminal step.
-  compactStep(currentStep, compactMs);
   const tracks = Array.from(trackMap.values()).sort((a, b) => a.trackId - b.trackId);
   for (const track of tracks) {
     track.childTrackIds = Array.from(new Set(track.childTrackIds)).sort(
