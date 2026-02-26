@@ -690,12 +690,33 @@ export async function marchWavefronts(
       });
     };
 
+    let completedJobs = 0;
+    let totalSpawnedChildren = 0;
+    let maxQueueLength = trackJobs.length;
+    let maxActiveWorkers = 0;
+    let queueSamples = 0;
+    let queueSampleSum = 0;
+    let activeSamples = 0;
+    let activeSampleSum = 0;
+    let maxJobMs = 0;
+    let minJobMs = Number.POSITIVE_INFINITY;
+    let totalJobMs = 0;
+    const inFlightStartedAt = new Map<number, number>();
+
     try {
       while (trackJobs.length > 0 || inFlight.length > 0) {
+        maxQueueLength = Math.max(maxQueueLength, trackJobs.length);
+        maxActiveWorkers = Math.max(maxActiveWorkers, inFlight.length);
+        queueSamples++;
+        queueSampleSum += trackJobs.length;
+        activeSamples++;
+        activeSampleSum += inFlight.length;
+
         while (idleWorkerIds.length > 0 && trackJobs.length > 0) {
           const workerId = idleWorkerIds.pop();
           const job = trackJobs.shift();
           if (workerId === undefined || !job) break;
+          inFlightStartedAt.set(job.trackId, performance.now());
           inFlight.push({
             workerId,
             promise: runJob(workerId, job),
@@ -713,6 +734,15 @@ export async function marchWavefronts(
         const finished = inFlight.splice(raced.idx, 1)[0];
         idleWorkerIds.push(finished.workerId);
         const result = raced.result;
+        const startedAt = inFlightStartedAt.get(finished.job.trackId);
+        if (startedAt !== undefined) {
+          inFlightStartedAt.delete(finished.job.trackId);
+          const jobMs = performance.now() - startedAt;
+          totalJobMs += jobMs;
+          maxJobMs = Math.max(maxJobMs, jobMs);
+          minJobMs = Math.min(minJobMs, jobMs);
+        }
+        completedJobs++;
 
         marchedVerticesBeforeDecimation += result.marchedVerticesBeforeDecimation;
         removedSegmentSnapshots += result.removedSegmentSnapshots;
@@ -730,6 +760,7 @@ export async function marchWavefronts(
 
         const parentTrack = result.track;
         parentTrack.childTrackIds = [];
+        totalSpawnedChildren += result.childSeeds.length;
         for (const childSeed of result.childSeeds) {
           const childTrackId = nextTrackId++;
           parentTrack.childTrackIds.push(childTrackId);
@@ -749,13 +780,22 @@ export async function marchWavefronts(
           const elapsed = now - marchStartTime;
           const depthPct = Math.min(100, (furthestStepIndex / estimatedSteps) * 100);
           const raysPerSec = elapsed > 0 ? (totalRaySteps / elapsed) * 1000 : 0;
+          const avgQueue = queueSamples > 0 ? queueSampleSum / queueSamples : 0;
+          const avgActive = activeSamples > 0 ? activeSampleSum / activeSamples : 0;
+          const utilizationPct =
+            workerCount > 0 ? (100 * avgActive) / workerCount : 0;
+          const avgJobMs = completedJobs > 0 ? totalJobMs / completedJobs : 0;
           const fmt = (v: number) =>
             v.toLocaleString(undefined, { maximumFractionDigits: 0 });
           console.log(
             `  [march] depth ${fmt(furthestStepIndex)}/${fmt(estimatedSteps)} (${depthPct.toFixed(0)}%), ` +
               `processed ${fmt(marchedStepCount)} track-steps, queue ${fmt(trackJobs.length)} ` +
               `active ${fmt(inFlight.length)} | ${(elapsed / 1000).toFixed(1)}s elapsed, ` +
-              `${fmt(totalRaySteps)} total ray steps, ${fmt(raysPerSec)} rays/s`,
+              `${fmt(totalRaySteps)} total ray steps, ${fmt(raysPerSec)} rays/s ` +
+              `| util ${utilizationPct.toFixed(0)}% avgActive ${avgActive.toFixed(2)} ` +
+              `avgQueue ${avgQueue.toFixed(2)} maxActive ${fmt(maxActiveWorkers)} maxQueue ${fmt(maxQueueLength)} ` +
+              `jobs ${fmt(completedJobs)} children ${fmt(totalSpawnedChildren)} ` +
+              `jobMs avg=${avgJobMs.toFixed(1)} min=${(Number.isFinite(minJobMs) ? minJobMs : 0).toFixed(1)} max=${maxJobMs.toFixed(1)}`,
           );
           nextProgressTime = now + 5000;
         }
