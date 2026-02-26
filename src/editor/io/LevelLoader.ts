@@ -6,13 +6,11 @@
  */
 
 import { RESOURCES } from "../../../resources/resources";
-import { TerrainDefinition } from "../../game/world/terrain/LandMass";
-import { WaveConfig } from "../../game/world/water/WaveSource";
 import {
+  EditorLevelDefinition,
   LevelData,
+  levelFileToEditorDefinition,
   levelFileToLevelData,
-  levelFileToTerrainDefinition,
-  levelFileToWaveConfig,
   parseLevelFile,
   validateLevelFile,
 } from "./LevelFileFormat";
@@ -27,28 +25,21 @@ export function loadDefaultLevel(): LevelData {
 }
 
 /**
- * Load only the terrain definition from the default level (for backward compatibility).
+ * Load the default level for editor (preserves names and wave config).
  * Uses the bundled resource from the asset system.
  */
-export function loadDefaultTerrain(): TerrainDefinition {
+export function loadDefaultEditorLevel(): EditorLevelDefinition {
   const file = validateLevelFile(RESOURCES.levels.default);
-  return levelFileToTerrainDefinition(file);
-}
-
-/**
- * Load only the wave config from the default level.
- * Uses the bundled resource from the asset system.
- */
-export function loadDefaultWaveConfig(): WaveConfig {
-  const file = validateLevelFile(RESOURCES.levels.default);
-  return levelFileToWaveConfig(file);
+  return levelFileToEditorDefinition(file);
 }
 
 /**
  * Load level data from a File object (for editor file input).
  */
-export async function loadLevelFromFile(file: File): Promise<LevelData> {
+export async function loadLevelFromFile(
+  file: File,
+): Promise<EditorLevelDefinition> {
   const json = await file.text();
   const parsed = parseLevelFile(json);
-  return levelFileToLevelData(parsed);
+  return levelFileToEditorDefinition(parsed);
 }

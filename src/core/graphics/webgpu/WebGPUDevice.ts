@@ -7,6 +7,48 @@ import { setUniformDevice } from "../UniformStruct";
 
 let instance: WebGPUDeviceManager | null = null;
 
+function formatWGSLCompilationMessages(
+  code: string,
+  messages: readonly GPUCompilationMessage[],
+): string {
+  const lines = code.split(/\r?\n/);
+  return messages
+    .map((message) => {
+      const lineNum = message.lineNum ?? 0;
+      const linePos = message.linePos ?? 0;
+      const sourceLine = lineNum > 0 ? lines[lineNum - 1] ?? "" : "";
+      const location =
+        lineNum > 0 ? `:${lineNum}:${Math.max(0, linePos) + 1}` : "";
+      const snippet = sourceLine ? `\n  ${sourceLine}` : "";
+      return `- [${message.type}]${location} ${message.message}${snippet}`;
+    })
+    .join("\n");
+}
+
+export async function validateShaderModuleCompilation(
+  shaderModule: GPUShaderModule,
+  code: string,
+  label?: string,
+): Promise<void> {
+  const info = await shaderModule.getCompilationInfo();
+  if (info.messages.length === 0) return;
+
+  const prefix = label ? `[${label}]` : "[Shader]";
+  const warnings = info.messages.filter((message) => message.type === "warning");
+  if (warnings.length > 0) {
+    console.warn(
+      `${prefix} WGSL compilation warnings:\n${formatWGSLCompilationMessages(code, warnings)}`,
+    );
+  }
+
+  const errors = info.messages.filter((message) => message.type === "error");
+  if (errors.length > 0) {
+    throw new Error(
+      `${prefix} WGSL compilation failed:\n${formatWGSLCompilationMessages(code, errors)}`,
+    );
+  }
+}
+
 export class WebGPUDeviceManager {
   private _adapter: GPUAdapter | null = null;
   private _device: GPUDevice | null = null;
@@ -163,6 +205,18 @@ export class WebGPUDeviceManager {
       code,
       label,
     });
+  }
+
+  /**
+   * Create a shader module and fail fast on WGSL compilation errors.
+   */
+  async createShaderModuleChecked(
+    code: string,
+    label?: string,
+  ): Promise<GPUShaderModule> {
+    const shaderModule = this.createShaderModule(code, label);
+    await validateShaderModuleCompilation(shaderModule, code, label);
+    return shaderModule;
   }
 
   /**

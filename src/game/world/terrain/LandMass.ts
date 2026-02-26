@@ -1,4 +1,5 @@
 import { V2d } from "../../../core/Vector";
+import { pointInPolygon } from "../../../core/util/Geometry";
 import {
   checkSplineIntersection,
   checkSplineSelfIntersection,
@@ -7,19 +8,80 @@ import {
 } from "../../../core/util/Spline";
 import { DEFAULT_DEPTH, SAMPLES_PER_SEGMENT } from "./TerrainConstants";
 
+interface BBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+function computeBBox(points: readonly V2d[]): BBox {
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/** True if inner bbox is fully contained within outer bbox */
+function bboxContains(outer: BBox, inner: BBox): boolean {
+  return (
+    inner.minX >= outer.minX &&
+    inner.maxX <= outer.maxX &&
+    inner.minY >= outer.minY &&
+    inner.maxY <= outer.maxY
+  );
+}
+
 /**
- * A single terrain contour - a closed spline at a specific height.
+ * Fast containment check using precomputed bboxes and sampled polygons.
+ * Avoids expensive spline resampling and intersection tests.
+ */
+function isContourInsideContour(
+  inner: TerrainContour,
+  innerBBox: BBox,
+  outer: TerrainContour,
+  outerBBox: BBox,
+): boolean {
+  // Quick rejection: inner bbox must fit inside outer bbox
+  if (!bboxContains(outerBBox, innerBBox)) return false;
+
+  // Check if a point from the inner contour is inside the outer polygon.
+  // Since we already know the bboxes are nested, if one point is inside
+  // and the contours don't intersect, the whole inner contour is inside.
+  const testPoint = inner.sampledPolygon[0];
+  return (
+    testPoint !== undefined && pointInPolygon(testPoint, outer.sampledPolygon)
+  );
+}
+
+/**
+ * A single terrain contour - a closed spline or polygon at a specific height.
  * Contours define elevation levels. The system determines nesting from geometry,
  * allowing flexible configurations like two islands sharing one shelf.
+ *
+ * - "spline" contours: controlPoints are Catmull-Rom spline control points,
+ *   sampledPolygon is the spline sampled at high resolution.
+ * - "polygon" contours: controlPoints and sampledPolygon are the same array
+ *   of polygon vertices (no spline interpolation).
  */
 export interface TerrainContour {
-  /** Catmull-Rom control points defining the contour (closed loop) */
+  /** Whether this contour is a spline (Catmull-Rom) or a polygon (direct vertices) */
+  readonly type: "spline" | "polygon";
+
+  /** Catmull-Rom control points (spline) or polygon vertices (polygon) */
   readonly controlPoints: readonly V2d[];
 
   /** Height of this contour in feet (negative = underwater, positive = above water) */
   readonly height: number;
 
-  /** Pre-sampled polygon from Catmull-Rom spline (SAMPLES_PER_SEGMENT samples per segment) */
+  /** Pre-sampled polygon from Catmull-Rom spline, or the polygon vertices directly */
   readonly sampledPolygon: readonly V2d[];
 }
 
@@ -74,10 +136,60 @@ export function createContour(
   height: number,
 ): TerrainContour {
   return {
+    type: "spline",
     controlPoints,
     height,
-    sampledPolygon: sampleClosedSpline(controlPoints, SAMPLES_PER_SEGMENT),
+    sampledPolygon: sampleClosedSpline(
+      controlPoints,
+      adaptiveSamplesPerSegment(controlPoints),
+    ),
   };
+}
+
+/**
+ * Create a polygon terrain contour (no spline interpolation).
+ * The points are used directly as both controlPoints and sampledPolygon.
+ */
+export function createPolygonContour(
+  points: V2d[],
+  height: number,
+): TerrainContour {
+  return {
+    type: "polygon",
+    controlPoints: points,
+    height,
+    sampledPolygon: points,
+  };
+}
+
+/**
+ * Choose samples-per-segment based on average segment length.
+ * Hand-drawn contours have few, widely-spaced control points and need many
+ * interpolation samples for smooth curves. Imported contours have dense points
+ * that are already close together and need minimal interpolation.
+ */
+function adaptiveSamplesPerSegment(controlPoints: V2d[]): number {
+  const n = controlPoints.length;
+  if (n < 3) return 1;
+
+  let totalLength = 0;
+  for (let i = 0; i < n; i++) {
+    const a = controlPoints[i];
+    const b = controlPoints[(i + 1) % n];
+    totalLength += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+
+  const avgSegmentLength = totalLength / n;
+
+  // Target roughly one sample per SAMPLES_PER_SEGMENT feet of segment length,
+  // clamped to [1, SAMPLES_PER_SEGMENT]
+  return Math.max(
+    1,
+    Math.min(
+      SAMPLES_PER_SEGMENT,
+      Math.round(avgSegmentLength / SAMPLES_PER_SEGMENT),
+    ),
+  );
 }
 
 /**
@@ -133,8 +245,21 @@ export function ensureContourCCW(contour: TerrainContour): TerrainContour {
     return contour;
   }
 
+  // For polygon contours, controlPoints and sampledPolygon are the same array,
+  // so share the reversed array between both fields.
+  if (contour.type === "polygon") {
+    const reversed = [...contour.controlPoints].reverse();
+    return {
+      type: "polygon",
+      controlPoints: reversed,
+      height: contour.height,
+      sampledPolygon: reversed,
+    };
+  }
+
   // Reverse both control points and sampled polygon to flip winding
   return {
+    type: "spline",
     controlPoints: [...contour.controlPoints].reverse(),
     height: contour.height,
     sampledPolygon: [...contour.sampledPolygon].reverse(),
@@ -196,6 +321,9 @@ export function buildContourTree(contours: TerrainContour[]): ContourTree {
     return { nodes: [], childrenFlat: [], maxDepth: 0 };
   }
 
+  // Precompute bounding boxes for fast containment rejection
+  const bboxes: BBox[] = contours.map((c) => computeBBox(c.sampledPolygon));
+
   // Virtual root node (represents "ocean" - contains all root-level contours)
   const virtualRoot: WorkingTreeNode = {
     contourIndex: -1,
@@ -213,14 +341,16 @@ export function buildContourTree(contours: TerrainContour[]): ContourTree {
    */
   function insertContour(parent: WorkingTreeNode, newIndex: number): void {
     const newContour = contours[newIndex];
+    const newBBox = bboxes[newIndex];
 
     // Check if any existing child contains the new contour
     for (const child of parent.children) {
-      const childContour = contours[child.contourIndex];
       if (
-        isSplineInsideSpline(
-          newContour.controlPoints,
-          childContour.controlPoints,
+        isContourInsideContour(
+          newContour,
+          newBBox,
+          contours[child.contourIndex],
+          bboxes[child.contourIndex],
         )
       ) {
         // New contour is inside this child - recurse deeper
@@ -241,11 +371,12 @@ export function buildContourTree(contours: TerrainContour[]): ContourTree {
     // Find children that should be reparented to the new node
     const childrenToReparent: WorkingTreeNode[] = [];
     for (const child of parent.children) {
-      const childContour = contours[child.contourIndex];
       if (
-        isSplineInsideSpline(
-          childContour.controlPoints,
-          newContour.controlPoints,
+        isContourInsideContour(
+          contours[child.contourIndex],
+          bboxes[child.contourIndex],
+          newContour,
+          newBBox,
         )
       ) {
         childrenToReparent.push(child);
@@ -326,7 +457,7 @@ const validatedDefinitions = new WeakSet<TerrainDefinition>();
  * - Contours that intersect each other
  *
  * Only validates each definition once to avoid log spam.
- * 
+ *
  * TODO: Actually call this function when loading terrain definitions to provide
  * better error messages during development.
  */
@@ -338,9 +469,12 @@ export function validateTerrainDefinition(definition: TerrainDefinition): void {
   const contours = definition.contours;
   if (contours.length === 0) return;
 
-  // Check each contour for self-intersection
+  // Check each contour for self-intersection (spline contours only —
+  // polygon contours are validated by the offline validator instead)
   for (let i = 0; i < contours.length; i++) {
     const contour = contours[i];
+    if (contour.type === "polygon") continue;
+
     if (contour.controlPoints.length < 3) {
       console.warn(
         `Terrain contour ${i} at height ${contour.height} has only ${contour.controlPoints.length} control points`,
@@ -362,11 +496,13 @@ export function validateTerrainDefinition(definition: TerrainDefinition): void {
     }
   }
 
-  // Check all pairs of contours for intersection
+  // Check all pairs of contours for intersection (spline contours only)
   for (let i = 0; i < contours.length; i++) {
     for (let j = i + 1; j < contours.length; j++) {
       const contourA = contours[i];
       const contourB = contours[j];
+
+      if (contourA.type === "polygon" || contourB.type === "polygon") continue;
 
       if (
         contourA.controlPoints.length < 3 ||

@@ -6,11 +6,19 @@ import { WebGPURenderer } from "./webgpu/WebGPURenderer";
  * Stores path state internally and converts to triangles on fill/stroke.
  */
 export class PathBuilder {
+  private static warningKeys = new Set<string>();
+
   private points: V2d[] = [];
   private pathStarted = false;
   private closed = false;
 
   constructor(private renderer: WebGPURenderer) {}
+
+  private warnOnce(key: string, message: string): void {
+    if (PathBuilder.warningKeys.has(key)) return;
+    PathBuilder.warningKeys.add(key);
+    console.warn(message);
+  }
 
   /** Move to a point without drawing */
   moveTo(x: number, y: number): this {
@@ -22,6 +30,10 @@ export class PathBuilder {
   /** Draw a line to a point */
   lineTo(x: number, y: number): this {
     if (!this.pathStarted) {
+      this.warnOnce(
+        "lineTo-implicit-moveTo",
+        "PathBuilder.lineTo called before moveTo; starting path at the line endpoint.",
+      );
       this.moveTo(x, y);
     } else {
       this.points.push(V(x, y));
@@ -32,6 +44,10 @@ export class PathBuilder {
   /** Draw a quadratic Bézier curve */
   quadraticTo(cpx: number, cpy: number, x: number, y: number): this {
     if (!this.pathStarted || this.points.length === 0) {
+      this.warnOnce(
+        "quadraticTo-implicit-start",
+        "PathBuilder.quadraticTo called before moveTo; starting path at control point.",
+      );
       this.moveTo(cpx, cpy);
       this.lineTo(x, y);
       return this;
@@ -67,6 +83,10 @@ export class PathBuilder {
     y: number,
   ): this {
     if (!this.pathStarted || this.points.length === 0) {
+      this.warnOnce(
+        "cubicTo-implicit-start",
+        "PathBuilder.cubicTo called before moveTo; starting path at first control point.",
+      );
       this.moveTo(cp1x, cp1y);
       this.lineTo(x, y);
       return this;
@@ -154,7 +174,13 @@ export class PathBuilder {
    * Each iteration doubles the number of points and smooths corners.
    */
   smooth(iterations: number = 2): this {
-    if (this.points.length < 3) return this;
+    if (this.points.length < 3) {
+      this.warnOnce(
+        "smooth-too-few-points",
+        "PathBuilder.smooth skipped because path has fewer than 3 points.",
+      );
+      return this;
+    }
 
     for (let iter = 0; iter < iterations; iter++) {
       const newPoints: V2d[] = [];
@@ -195,7 +221,13 @@ export class PathBuilder {
 
   /** Fill the path with a color */
   fill(color: number, alpha: number = 1): void {
-    if (this.points.length < 3) return;
+    if (this.points.length < 3) {
+      this.warnOnce(
+        "fill-too-few-points",
+        "PathBuilder.fill skipped because path has fewer than 3 points.",
+      );
+      return;
+    }
 
     // Simple fan triangulation (works for convex polygons)
     const indices: number[] = [];
@@ -209,7 +241,13 @@ export class PathBuilder {
   /** Stroke the path outline */
   stroke(color: number, width: number = 1, alpha: number = 1): void {
     let points = this.points;
-    if (points.length < 2) return;
+    if (points.length < 2) {
+      this.warnOnce(
+        "stroke-too-few-points",
+        "PathBuilder.stroke skipped because path has fewer than 2 points.",
+      );
+      return;
+    }
 
     // For closed paths, we need to handle the wrap-around at start/end
     let shouldClose = this.closed && points.length >= 3;

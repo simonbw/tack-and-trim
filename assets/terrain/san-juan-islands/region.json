@@ -1,0 +1,17 @@
+{
+  "name": "San Juan Islands",
+  "datasetPath": "wash_bellingham/",
+  "bbox": {
+    "minLat": 48.4,
+    "minLon": -123.35,
+    "maxLat": 48.75,
+    "maxLon": -122.75
+  },
+  "interval": 200,
+  "simplify": 200,
+  "scale": 1,
+  "minPerimeter": 3000,
+  "minPoints": 4,
+  "flipY": true,
+  "output": "resources/levels/san-juan-islands.level.json"
+}

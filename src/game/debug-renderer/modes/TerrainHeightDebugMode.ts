@@ -25,10 +25,10 @@ import {
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { radToDeg } from "../../../core/util/MathUtil";
 import { SurfaceRenderer } from "../../surface-rendering/SurfaceRenderer";
-import {
-  DEFAULT_DEPTH,
-  MAX_TERRAIN_HEIGHT,
-} from "../../world/terrain/TerrainConstants";
+import { DEFAULT_DEPTH } from "../../world/terrain/TerrainConstants";
+
+/** Max terrain height for debug visualization gradient (ft) */
+const MAX_TERRAIN_HEIGHT = 500;
 import { TerrainQuery } from "../../world/terrain/TerrainQuery";
 import { TerrainResources } from "../../world/terrain/TerrainResources";
 import { DebugRenderMode } from "./DebugRenderMode";
