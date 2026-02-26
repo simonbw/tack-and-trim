@@ -204,6 +204,7 @@ function runTrackJob(req: TrackJobRequest): TrackJobResult {
 
     for (let i = 0; i < producedSegments.length; i++) {
       const child = producedSegments[i];
+      child.trackId = req.trackId;
       child.parentTrackId = req.trackId;
       postProcessStep([child]);
       childSeeds.push({ segmentIndex: i, segment: child });

@@ -545,17 +545,15 @@ export async function marchWavefronts(
   // Keep boundary-row behavior consistent with full-pass post-processing.
   postProcessStep([firstWavefront as MarchingWavefrontSegment]);
 
-  const requestedWorkers = Number.parseInt(
-    process.env.MESH_BUILD_WORKERS ?? "1",
-    10,
-  );
-  const useParallelWorkers =
-    !includeWavefronts &&
-    Number.isFinite(requestedWorkers) &&
-    requestedWorkers > 1 &&
-    process.release?.name === "node";
+  const requestedWorkersRaw = process.env.MESH_BUILD_WORKERS;
+  const requestedWorkers =
+    requestedWorkersRaw === undefined
+      ? null
+      : Number.parseInt(requestedWorkersRaw, 10);
+  const canUseWorkers =
+    !includeWavefronts && process.release?.name === "node";
 
-  if (useParallelWorkers) {
+  if (canUseWorkers) {
     marchedVerticesBeforeDecimation = 0;
     const [{ Worker }, { cpus }, { fileURLToPath }, path] = await Promise.all([
       import("node:worker_threads"),
@@ -563,7 +561,19 @@ export async function marchWavefronts(
       import("node:url"),
       import("node:path"),
     ]);
-    const workerCount = Math.max(1, Math.min(requestedWorkers, cpus().length));
+    const availableCores = cpus().length;
+    const desiredWorkers =
+      requestedWorkers === null || !Number.isFinite(requestedWorkers)
+        ? availableCores
+        : requestedWorkers;
+    const workerCount = Math.max(1, Math.min(desiredWorkers, availableCores));
+    console.log(
+      `[marching] workers ${workerCount}/${availableCores} (MESH_BUILD_WORKERS=${requestedWorkersRaw ?? "auto"})`,
+    );
+    if (workerCount <= 1) {
+      // Fall back to in-process execution when no parallelism is possible.
+      marchedVerticesBeforeDecimation = firstWavefront.t.length;
+    } else {
     const WORKER_EXEC_ARGV = ["--require", "tsx/cjs"];
     const workerPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
@@ -781,6 +791,7 @@ export async function marchWavefronts(
       turnClampCount,
       totalRefractions,
     };
+    }
   }
 
   const finalizeTrack = (trackId: number): void => {
