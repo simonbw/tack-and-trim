@@ -65,6 +65,13 @@ interface ActiveTrackState {
   segment: MarchingWavefrontSegment;
 }
 
+interface AdvanceTrackSegmentStepResult {
+  nextSourceStepIndex: number;
+  producedSegments: MarchingWavefront;
+  refractedCount: number;
+  turnClampedCount: number;
+}
+
 /**
  * Generate the initial wavefront: a line of evenly-spaced points along the
  * upwave edge of the domain, perpendicular to the wave direction.
@@ -194,6 +201,218 @@ function compactStep(step: Wavefront, compactMs: { value: number }): void {
   compactMs.value += performance.now() - t0;
 }
 
+function advanceTrackSegmentStep(params: {
+  track: ActiveTrackState;
+  segment: MarchingWavefrontSegment;
+  waveDx: number;
+  waveDy: number;
+  perpDx: number;
+  perpDy: number;
+  stepSize: number;
+  vertexSpacing: number;
+  minProj: number;
+  maxProj: number;
+  minPerp: number;
+  maxPerp: number;
+  wavelength: number;
+  k: number;
+  breakingDepth: number;
+  initialDeltaT: number;
+  terrain: TerrainCPUData;
+  terrainGradientSample: TerrainHeightGradient;
+  config: MeshBuildConfig;
+  stats: { splits: number; merges: number };
+}): AdvanceTrackSegmentStepResult {
+  const {
+    track,
+    segment,
+    waveDx,
+    waveDy,
+    perpDx,
+    perpDy,
+    stepSize,
+    vertexSpacing,
+    minProj,
+    maxProj,
+    minPerp,
+    maxPerp,
+    wavelength,
+    k,
+    breakingDepth,
+    initialDeltaT,
+    terrain,
+    terrainGradientSample,
+    config,
+    stats,
+  } = params;
+  const nextSourceStepIndex = segment.sourceStepIndex + 1;
+  const srcX = segment.x;
+  const srcY = segment.y;
+  const srcT = segment.t;
+  const srcDirX = segment.dirX;
+  const srcDirY = segment.dirY;
+  const srcEnergy = segment.energy;
+  const srcTurbulence = segment.turbulence;
+  const srcLen = srcX.length;
+
+  const producedSegments: MarchingWavefront = [];
+  let refractedCount = 0;
+  let turnClampedCount = 0;
+
+  let currentSegment = createEmptySegment(-1, track.trackId, nextSourceStepIndex);
+  let outX = currentSegment.x;
+  let outY = currentSegment.y;
+  let outT = currentSegment.t;
+  let outDirX = currentSegment.dirX;
+  let outDirY = currentSegment.dirY;
+  let outEnergy = currentSegment.energy;
+  let outTurbulence = currentSegment.turbulence;
+  let outDepth = currentSegment.depth;
+  let outAmplitude = currentSegment.amplitude;
+  let outBlend = currentSegment.blend;
+
+  const flushCurrentSegment = (): void => {
+    if (outX.length === 0) return;
+    producedSegments.push(
+      refineWavefront(
+        currentSegment,
+        vertexSpacing,
+        initialDeltaT,
+        stats,
+        config.refinement,
+      ),
+    );
+    currentSegment = createEmptySegment(-1, track.trackId, nextSourceStepIndex);
+    outX = currentSegment.x;
+    outY = currentSegment.y;
+    outT = currentSegment.t;
+    outDirX = currentSegment.dirX;
+    outDirY = currentSegment.dirY;
+    outEnergy = currentSegment.energy;
+    outTurbulence = currentSegment.turbulence;
+    outDepth = currentSegment.depth;
+    outAmplitude = currentSegment.amplitude;
+    outBlend = currentSegment.blend;
+  };
+
+  for (let i = 0; i < srcLen; i++) {
+    const startEnergy = srcEnergy[i];
+    const px = srcX[i];
+    const py = srcY[i];
+    const pt = srcT[i];
+    const isSentinel = pt === 0 || pt === 1;
+
+    if (!isSentinel && startEnergy < config.refinement.minEnergy) {
+      flushCurrentSegment();
+      continue;
+    }
+
+    if (isSentinel) {
+      const sentinel = advanceSentinelRay(
+        px,
+        py,
+        waveDx,
+        waveDy,
+        stepSize,
+        minProj,
+        maxProj,
+      );
+      if (!sentinel) {
+        flushCurrentSegment();
+        continue;
+      }
+
+      outX.push(sentinel.nx);
+      outY.push(sentinel.ny);
+      outT.push(pt);
+      outDirX.push(waveDx);
+      outDirY.push(waveDy);
+      outEnergy.push(1.0);
+      outTurbulence.push(0);
+      outDepth.push(wavelength);
+      outAmplitude.push(0);
+      outBlend.push(1.0);
+      continue;
+    }
+
+    const interior = advanceInteriorRay({
+      px,
+      py,
+      startEnergy,
+      prevTurbulence: srcTurbulence[i],
+      baseDirX: srcDirX[i],
+      baseDirY: srcDirY[i],
+      waveDx,
+      waveDy,
+      perpDx,
+      perpDy,
+      minProj,
+      maxProj,
+      minPerp,
+      maxPerp,
+      stepSize,
+      wavelength,
+      k,
+      breakingDepth,
+      physics: config.physics,
+      terrain,
+      terrainGradientSample,
+    });
+    if (!interior) {
+      flushCurrentSegment();
+      continue;
+    }
+
+    if (interior.refracted) {
+      refractedCount++;
+    }
+    if (interior.turnClamped) {
+      turnClampedCount++;
+    }
+
+    if (outEnergy.length > 0) {
+      const prevEnergy = outEnergy[outEnergy.length - 1];
+      const ratio =
+        interior.energy > prevEnergy
+          ? interior.energy / prevEnergy
+          : prevEnergy / interior.energy;
+      if (ratio > config.refinement.maxEnergyRatio) {
+        flushCurrentSegment();
+      }
+    }
+
+    outX.push(interior.nx);
+    outY.push(interior.ny);
+    outT.push(pt);
+    outDirX.push(interior.dirX);
+    outDirY.push(interior.dirY);
+    outEnergy.push(interior.energy);
+    outTurbulence.push(interior.turbulence);
+    outDepth.push(interior.depth);
+    outAmplitude.push(0);
+    outBlend.push(1.0);
+  }
+
+  if (outX.length > 0) {
+    producedSegments.push(
+      refineWavefront(
+        currentSegment,
+        vertexSpacing,
+        initialDeltaT,
+        stats,
+        config.refinement,
+      ),
+    );
+  }
+
+  return {
+    nextSourceStepIndex,
+    producedSegments,
+    refractedCount,
+    turnClampedCount,
+  };
+}
+
 /**
  * March wavefronts step-by-step until all rays leave the domain or die.
  * Each ray advances independently, turning via Snell's law based on the
@@ -310,7 +529,9 @@ export function marchWavefronts(
     diffractionMs += tC - tB;
   };
 
-  // Progress logging — use time-based interval so first report comes quickly
+  // Progress logging for track-queued marching.
+  // `furthestStepIndex` is depth reached along any track, while
+  // `marchedStepCount` is total processed track steps across all branches.
   const estimatedSteps = Math.ceil(
     (bounds.maxProj - bounds.minProj) / stepSize,
   );
@@ -346,173 +567,35 @@ export function marchWavefronts(
 
     let segment = track.segment;
     for (;;) {
-      const nextSourceStepIndex = segment.sourceStepIndex + 1;
-      const srcX = segment.x;
-      const srcY = segment.y;
-      const srcT = segment.t;
-      const srcDirX = segment.dirX;
-      const srcDirY = segment.dirY;
-      const srcEnergy = segment.energy;
-      const srcTurbulence = segment.turbulence;
-      const srcLen = srcX.length;
-
-      const producedSegments: MarchingWavefront = [];
-      let currentSegment = createEmptySegment(
-        -1,
-        track.trackId,
+      const {
         nextSourceStepIndex,
-      );
-      let outX = currentSegment.x;
-      let outY = currentSegment.y;
-      let outT = currentSegment.t;
-      let outDirX = currentSegment.dirX;
-      let outDirY = currentSegment.dirY;
-      let outEnergy = currentSegment.energy;
-      let outTurbulence = currentSegment.turbulence;
-      let outDepth = currentSegment.depth;
-      let outAmplitude = currentSegment.amplitude;
-      let outBlend = currentSegment.blend;
-
-      const flushCurrentSegment = (): void => {
-        if (outX.length === 0) return;
-        producedSegments.push(
-          refineWavefront(
-            currentSegment,
-            vertexSpacing,
-            initialDeltaT,
-            stats,
-            config.refinement,
-          ),
-        );
-        currentSegment = createEmptySegment(
-          -1,
-          track.trackId,
-          nextSourceStepIndex,
-        );
-        outX = currentSegment.x;
-        outY = currentSegment.y;
-        outT = currentSegment.t;
-        outDirX = currentSegment.dirX;
-        outDirY = currentSegment.dirY;
-        outEnergy = currentSegment.energy;
-        outTurbulence = currentSegment.turbulence;
-        outDepth = currentSegment.depth;
-        outAmplitude = currentSegment.amplitude;
-        outBlend = currentSegment.blend;
-      };
-
-      for (let i = 0; i < srcLen; i++) {
-        const startEnergy = srcEnergy[i];
-        const px = srcX[i];
-        const py = srcY[i];
-        const pt = srcT[i];
-        const isSentinel = pt === 0 || pt === 1;
-
-        // Non-sentinel dead rays flush the segment
-        if (!isSentinel && startEnergy < config.refinement.minEnergy) {
-          flushCurrentSegment();
-          continue;
-        }
-
-        if (isSentinel) {
-          const sentinel = advanceSentinelRay(
-            px,
-            py,
-            waveDx,
-            waveDy,
-            stepSize,
-            minProj,
-            maxProj,
-          );
-          if (!sentinel) {
-            flushCurrentSegment();
-            continue;
-          }
-
-          outX.push(sentinel.nx);
-          outY.push(sentinel.ny);
-          outT.push(pt);
-          outDirX.push(waveDx);
-          outDirY.push(waveDy);
-          outEnergy.push(1.0);
-          outTurbulence.push(0);
-          outDepth.push(wavelength);
-          outAmplitude.push(0);
-          outBlend.push(1.0);
-          continue;
-        }
-
-        const interior = advanceInteriorRay({
-          px,
-          py,
-          startEnergy,
-          prevTurbulence: srcTurbulence[i],
-          baseDirX: srcDirX[i],
-          baseDirY: srcDirY[i],
-          waveDx,
-          waveDy,
-          perpDx,
-          perpDy,
-          minProj,
-          maxProj,
-          minPerp,
-          maxPerp,
-          stepSize,
-          wavelength,
-          k,
-          breakingDepth,
-          physics: config.physics,
-          terrain,
-          terrainGradientSample,
-        });
-        if (!interior) {
-          flushCurrentSegment();
-          continue;
-        }
-
-        if (interior.refracted) {
-          totalRefractions++;
-        }
-        if (interior.turnClamped) {
-          turnClampCount++;
-        }
-
-        // Split segment when energy contrast with previous ray is too extreme.
-        // This prevents low-energy land rays from triangulating against healthy ocean rays.
-        if (outEnergy.length > 0) {
-          const prevEnergy = outEnergy[outEnergy.length - 1];
-          const ratio =
-            interior.energy > prevEnergy
-              ? interior.energy / prevEnergy
-              : prevEnergy / interior.energy;
-          if (ratio > config.refinement.maxEnergyRatio) {
-            flushCurrentSegment();
-          }
-        }
-
-        outX.push(interior.nx);
-        outY.push(interior.ny);
-        outT.push(pt);
-        outDirX.push(interior.dirX);
-        outDirY.push(interior.dirY);
-        outEnergy.push(interior.energy);
-        outTurbulence.push(interior.turbulence);
-        outDepth.push(interior.depth);
-        outAmplitude.push(0);
-        outBlend.push(1.0);
-      }
-
-      if (outX.length > 0) {
-        producedSegments.push(
-          refineWavefront(
-            currentSegment,
-            vertexSpacing,
-            initialDeltaT,
-            stats,
-            config.refinement,
-          ),
-        );
-      }
+        producedSegments,
+        refractedCount,
+        turnClampedCount: stepTurnClampedCount,
+      } = advanceTrackSegmentStep({
+        track,
+        segment,
+        waveDx,
+        waveDy,
+        perpDx,
+        perpDy,
+        stepSize,
+        vertexSpacing,
+        minProj,
+        maxProj,
+        minPerp,
+        maxPerp,
+        wavelength,
+        k,
+        breakingDepth,
+        initialDeltaT,
+        terrain,
+        terrainGradientSample,
+        config,
+        stats,
+      });
+      totalRefractions += refractedCount;
+      turnClampCount += stepTurnClampedCount;
 
       if (producedSegments.length === 0) {
         compactStep([segment], compactMs);
@@ -551,14 +634,15 @@ export function marchWavefronts(
       const now = performance.now();
       if (now >= nextProgressTime) {
         const elapsed = now - marchStartTime;
-        const pct = Math.min(100, (furthestStepIndex / estimatedSteps) * 100);
+        const depthPct = Math.min(100, (furthestStepIndex / estimatedSteps) * 100);
         const raysPerSec = elapsed > 0 ? (totalRaySteps / elapsed) * 1000 : 0;
         const segments = producedSegments.length;
         const fmt = (v: number) =>
           v.toLocaleString(undefined, { maximumFractionDigits: 0 });
         console.log(
-          `  [march] step ${fmt(furthestStepIndex)}/${fmt(estimatedSteps)} (${pct.toFixed(0)}%) ` +
-            `${(elapsed / 1000).toFixed(1)}s elapsed, ${fmt(totalRaySteps)} total ray steps, ` +
+          `  [march] depth ${fmt(furthestStepIndex)}/${fmt(estimatedSteps)} (${depthPct.toFixed(0)}%), ` +
+            `processed ${fmt(marchedStepCount)} track-steps, queue ${fmt(workQueue.length)} ` +
+            `| ${(elapsed / 1000).toFixed(1)}s elapsed, ${fmt(totalRaySteps)} total ray steps, ` +
             `${fmt(stepRays)} rays (${segments} seg), ${fmt(raysPerSec)} rays/s`,
         );
         nextProgressTime = now + 5000;
