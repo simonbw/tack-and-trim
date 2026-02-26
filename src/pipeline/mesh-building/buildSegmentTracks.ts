@@ -3,13 +3,13 @@ import type { SegmentTrack } from "./segmentTracks";
 
 export interface BuildSegmentTracksResult {
   tracks: SegmentTrack[];
-  trackIdByRowSegment: number[][];
+  trackIdByStepSegment: number[][];
   splitCount: number;
   mergeCount: number;
 }
 
 /**
- * Test/helper path that reconstructs tracks from row-ordered wavefronts.
+ * Test/helper path that reconstructs tracks from step-ordered wavefronts.
  * Runtime marching code builds tracks directly in `marchWavefronts`.
  */
 export function buildSegmentTracks(
@@ -18,24 +18,24 @@ export function buildSegmentTracks(
   if (wavefronts.length === 0) {
     return {
       tracks: [],
-      trackIdByRowSegment: [],
+      trackIdByStepSegment: [],
       splitCount: 0,
       mergeCount: 0,
     };
   }
 
-  const trackIdByRowSegment: number[][] = new Array(wavefronts.length);
+  const trackIdByStepSegment: number[][] = new Array(wavefronts.length);
   const trackMap = new Map<number, SegmentTrack>();
 
-  for (let rowIndex = 0; rowIndex < wavefronts.length; rowIndex++) {
-    const row = wavefronts[rowIndex];
-    const rowTrackIds = new Array<number>(row.length);
-    trackIdByRowSegment[rowIndex] = rowTrackIds;
+  for (let stepIndex = 0; stepIndex < wavefronts.length; stepIndex++) {
+    const step = wavefronts[stepIndex];
+    const stepTrackIds = new Array<number>(step.length);
+    trackIdByStepSegment[stepIndex] = stepTrackIds;
 
-    for (let segmentIndex = 0; segmentIndex < row.length; segmentIndex++) {
-      const segment = row[segmentIndex];
+    for (let segmentIndex = 0; segmentIndex < step.length; segmentIndex++) {
+      const segment = step[segmentIndex];
       const trackId = segment.trackId;
-      rowTrackIds[segmentIndex] = trackId;
+      stepTrackIds[segmentIndex] = trackId;
 
       let track = trackMap.get(trackId);
       if (!track) {
@@ -49,7 +49,7 @@ export function buildSegmentTracks(
       }
 
       track.snapshots.push({
-        rowIndex,
+        stepIndex,
         segmentIndex,
         sourceStepIndex: segment.sourceStepIndex,
         segment,
@@ -65,7 +65,7 @@ export function buildSegmentTracks(
       if (a.sourceStepIndex !== b.sourceStepIndex) {
         return a.sourceStepIndex - b.sourceStepIndex;
       }
-      return a.rowIndex - b.rowIndex;
+      return a.stepIndex - b.stepIndex;
     });
 
     if (track.parentTrackId !== null) {
@@ -86,7 +86,7 @@ export function buildSegmentTracks(
 
   return {
     tracks,
-    trackIdByRowSegment,
+    trackIdByStepSegment,
     splitCount,
     mergeCount: 0,
   };

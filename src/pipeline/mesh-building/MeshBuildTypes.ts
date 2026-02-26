@@ -12,7 +12,7 @@ export type MeshBuilderType = "marching";
  * CPU-only mesh data — raw vertex/index arrays ready for GPU upload.
  */
 export interface WavefrontMeshData {
-  /** 6 floats per vertex: [x, y, amplitude, dirOffset, phaseOffset, blendWeight] */
+  /** 6 floats per vertex: [x, y, amplitude, turbulence, phaseOffset, blendWeight] */
   vertices: Float32Array;
   /** Triangle indices */
   indices: Uint32Array;

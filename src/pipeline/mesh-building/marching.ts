@@ -166,8 +166,8 @@ export function generateInitialWavefront(
  * Compact a fully post-processed wavefront step to reduce memory.
  * 1. Converts the 5 mesh-output fields (x, y, t, amplitude, turbulence)
  *    from number[] to Float32Array (halves per-element storage)
- * 2. Strips the 4 marching-only fields (dirX, dirY, energy, depth) since
- *    they are no longer needed after marching has moved past this step.
+ * 2. Replaces the 4 marching-only fields (dirX, dirY, energy, depth) with
+ *    empty arrays, so compacted steps no longer carry marching payload data.
  *
  * This reduces per-step memory by ~78% (5/9 fields kept × 4/8 bytes each).
  * Full vertex decimation is deferred to the post-march pass.
@@ -200,8 +200,8 @@ function compactStep(step: Wavefront, compactMs: { value: number }): void {
 /**
  * March wavefronts step-by-step until all rays leave the domain or die.
  * Each ray advances independently, turning via Snell's law based on the
- * local depth gradient. Amplitude and diffraction are applied row-by-row
- * as rows are produced.
+ * local depth gradient. Amplitude and diffraction are applied step-by-step
+ * as new steps are produced.
  */
 export function marchWavefronts(
   firstWavefront: WavefrontSegment,
@@ -245,7 +245,7 @@ export function marchWavefronts(
     childTrackIds: [],
     snapshots: [
       {
-        rowIndex: 0,
+        stepIndex: 0,
         segmentIndex: 0,
         sourceStepIndex: firstWavefront.sourceStepIndex,
         segment: firstWavefront,
@@ -538,7 +538,7 @@ export function marchWavefronts(
         trackMap.set(nextSegment.trackId, trackState);
       }
       trackState.snapshots.push({
-        rowIndex: nextSourceStepIndex,
+        stepIndex: nextSourceStepIndex,
         segmentIndex,
         sourceStepIndex: nextSegment.sourceStepIndex,
         segment: nextSegment,

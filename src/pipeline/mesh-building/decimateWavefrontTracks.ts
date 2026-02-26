@@ -94,7 +94,7 @@ function evaluateTrackSnapshotRemoval(
   if (span <= 1) return false;
 
   const fraction = (snapshotIndex - anchorSnapshotIndex) / span;
-  const rowPhaseBase = snapshot.sourceStepIndex * phasePerStep;
+  const stepPhaseBase = snapshot.sourceStepIndex * phasePerStep;
   const anchorPhaseBase = anchor.sourceStepIndex * phasePerStep;
   const endpointPhaseBase = endpoint.sourceStepIndex * phasePerStep;
 
@@ -144,7 +144,7 @@ function evaluateTrackSnapshotRemoval(
     const iBlend = lerp(anchorSample.blend, endpointSample.blend, fraction);
     if (normalizedError(Math.abs(segBlend[i] - iBlend), ampTol) > 1) return false;
 
-    const actualPhase = rowPhaseBase - k * (segX[i] * waveDx + segY[i] * waveDy);
+    const actualPhase = stepPhaseBase - k * (segX[i] * waveDx + segY[i] * waveDy);
     const anchorPhase =
       anchorPhaseBase - k * (anchorSample.x * waveDx + anchorSample.y * waveDy);
     const endpointPhase =
@@ -224,14 +224,14 @@ function countVerticesInTracks(tracks: readonly SegmentTrack[]): number {
   return count;
 }
 
-function countRowsInTracks(tracks: readonly SegmentTrack[]): number {
-  const rowSet = new Set<number>();
+function countStepsInTracks(tracks: readonly SegmentTrack[]): number {
+  const stepSet = new Set<number>();
   for (const track of tracks) {
     for (const snapshot of track.snapshots) {
-      rowSet.add(snapshot.rowIndex);
+      stepSet.add(snapshot.stepIndex);
     }
   }
-  return rowSet.size;
+  return stepSet.size;
 }
 
 export interface TrackDecimationResult {
@@ -239,16 +239,16 @@ export interface TrackDecimationResult {
   wavefronts: Wavefront[];
   keptSourceStepIndices: number[];
   removedSegmentSnapshots: number;
-  removedRows: number;
+  removedSteps: number;
   removedVertices: number;
 }
 
 /**
- * Decimate per segment-track on marched rows.
+ * Decimate per segment-track on marched steps.
  *
- * This intentionally does not enforce row-adjacent connectivity constraints.
- * Current row-adjacent triangulation cannot consume the output safely in all
- * cases where tracks keep different source-step sets.
+ * Decimation runs independently per track timeline, so different tracks may
+ * retain different source-step sets. Track-based triangulation stitches only
+ * where segment overlap exists (timeline neighbors and split boundaries).
  */
 export function decimateWavefrontTracks(
   tracks: SegmentTrack[],
@@ -264,7 +264,7 @@ export function decimateWavefrontTracks(
       wavefronts: [],
       keptSourceStepIndices: [],
       removedSegmentSnapshots: 0,
-      removedRows: 0,
+      removedSteps: 0,
       removedVertices: 0,
     };
   }
@@ -274,7 +274,7 @@ export function decimateWavefrontTracks(
   const ampTol = tolerance;
   const phaseTol = tolerance * Math.PI;
   const verticesBefore = countVerticesInTracks(tracks);
-  const rowsBefore = countRowsInTracks(tracks);
+  const stepsBefore = countStepsInTracks(tracks);
 
   const decimatedTrackMap = new Map<number, SegmentTrack>();
   for (const track of tracks) {
@@ -285,7 +285,7 @@ export function decimateWavefrontTracks(
       snapshots: [],
     });
   }
-  const rowBuckets = new Map<number, Array<{ segmentIndex: number; segment: WavefrontSegment }>>();
+  const stepBuckets = new Map<number, Array<{ segmentIndex: number; segment: WavefrontSegment }>>();
   let removedSegmentSnapshots = 0;
 
   for (const track of tracks) {
@@ -311,25 +311,25 @@ export function decimateWavefrontTracks(
 
       const decimatedSegment = decimateSegment(snapshot.segment, posTolSq, ampTol);
       outTrack.snapshots.push({
-        rowIndex: snapshot.rowIndex,
+        stepIndex: snapshot.stepIndex,
         segmentIndex: snapshot.segmentIndex,
         sourceStepIndex: snapshot.sourceStepIndex,
         segment: decimatedSegment,
       });
-      const row = rowBuckets.get(snapshot.rowIndex);
-      if (row) {
-        row.push({ segmentIndex: snapshot.segmentIndex, segment: decimatedSegment });
+      const step = stepBuckets.get(snapshot.stepIndex);
+      if (step) {
+        step.push({ segmentIndex: snapshot.segmentIndex, segment: decimatedSegment });
       } else {
-        rowBuckets.set(snapshot.rowIndex, [
+        stepBuckets.set(snapshot.stepIndex, [
           { segmentIndex: snapshot.segmentIndex, segment: decimatedSegment },
         ]);
       }
     }
   }
 
-  const keptRowIndices = Array.from(rowBuckets.keys()).sort((a, b) => a - b);
-  const resultRows: Wavefront[] = keptRowIndices.map((rowIndex) => {
-    const entries = rowBuckets.get(rowIndex) ?? [];
+  const keptStepIndices = Array.from(stepBuckets.keys()).sort((a, b) => a - b);
+  const resultRows: Wavefront[] = keptStepIndices.map((stepIndex) => {
+    const entries = stepBuckets.get(stepIndex) ?? [];
     entries.sort((a, b) => a.segmentIndex - b.segmentIndex);
     return entries.map((entry) => entry.segment);
   });
@@ -345,7 +345,7 @@ export function decimateWavefrontTracks(
     wavefronts: resultRows,
     keptSourceStepIndices,
     removedSegmentSnapshots,
-    removedRows: rowsBefore - resultRows.length,
+    removedSteps: stepsBefore - resultRows.length,
     removedVertices: verticesBefore - verticesAfter,
   };
 }

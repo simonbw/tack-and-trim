@@ -1,4 +1,4 @@
-/** Floats per output vertex: [x, y, amplitude, dirOffset, phaseOffset, blendWeight] */
+/** Floats per output vertex: [x, y, amplitude, turbulence, phaseOffset, blendWeight] */
 export const VERTEX_FLOATS = 6;
 
 export type SegmentArray = number[] | Float32Array;
@@ -72,8 +72,8 @@ export interface MutableWavefrontSegment {
 /** A wavefront step: one or more disconnected segments (split by dead rays) */
 export type Wavefront<T extends WavefrontSegment = WavefrontSegment> = T[];
 
-/** Wavefront row while marching state is still present. */
+/** Wavefront step while marching state is still present. */
 export type MarchingWavefront = Wavefront<MarchingWavefrontSegment>;
 
-/** Wavefront row containing output-only fields. */
+/** Wavefront step containing output-only fields. */
 export type OutputWavefront = Wavefront<OutputWavefrontSegment>;

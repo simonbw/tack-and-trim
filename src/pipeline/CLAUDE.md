@@ -109,7 +109,7 @@ Ray-traces wave propagation over terrain to build pre-computed wavefront meshes.
 | `decimateSegment.ts`  | Segment vertex decimator (`decimateSegment`) used by track decimation                                                                                                                                                                                                                                   |
 | `decimateWavefrontTracks.ts` | Track-based decimation (`decimateWavefrontTracks`) across segment lineage                                                                                                                                                                                                                        |
 | `segmentTracks.ts` | Shared segment-track lineage types (`SegmentTrack`, `SegmentTrackSnapshot`) used by marching, decimation, and triangulation                                                                                                                                                                             |
-| `buildSegmentTracks.ts` | Test/helper utility to reconstruct tracks from row-ordered wavefront fixtures (`buildSegmentTracks`)                                                                                                                                                                                                  |
+| `buildSegmentTracks.ts` | Test/helper utility to reconstruct tracks from step-ordered wavefront fixtures (`buildSegmentTracks`)                                                                                                                                                                                                 |
 | `buildMeshDataFromTracks.ts` | `buildMeshDataFromTracks()` — triangulates along track snapshots, emits vertex/index arrays, computes coverage quad                                                                                                                                                                               |
 | `terrainHeightCPU.ts` | CPU port of the GPU terrain shader: DFS contour tree traversal, winding-number containment, IDW boundary blending, spatial gradient for Snell's law                                                                                                                                                    |
 | `MeshBuildTypes.ts`   | Core types: `WavefrontMeshData`, `MeshBuildBounds`, `CoverageQuad`                                                                                                                                                                                                                                     |
@@ -120,7 +120,7 @@ Ray-traces wave propagation over terrain to build pre-computed wavefront meshes.
 
 - `VERTEX_SPACING = 20 ft` — cross-wave ray spacing
 - `STEP_SIZE = 10 ft` — along-wave march step
-- `DECIMATION_TOLERANCE = 0.02` — max interpolation error for removing rows/vertices
+- `DECIMATION_TOLERANCE = 0.02` — max interpolation error for removing steps/vertices
 
 ### Vertex Layout (6 floats)
 

@@ -2,10 +2,10 @@ import type { WavefrontSegment } from "./marchingTypes";
 
 /**
  * A segment snapshot at a specific march step.
- * `rowIndex` is the position in the original wavefront step array.
+ * `stepIndex` is the position in the original wavefront step array.
  */
 export interface SegmentTrackSnapshot {
-  rowIndex: number;
+  stepIndex: number;
   segmentIndex: number;
   sourceStepIndex: number;
   segment: WavefrontSegment;
@@ -21,4 +21,3 @@ export interface SegmentTrack {
   childTrackIds: number[];
   snapshots: SegmentTrackSnapshot[];
 }
-
