@@ -12,16 +12,20 @@ const FLAP_DECAY_RATE = 50; // Exponential decay speed (higher = snappier)
 
 // Detection: only count a particle if it reversed direction AND
 // its per-tick lateral acceleration exceeds this threshold.
-const ACCEL_THRESHOLD = 3;
+const ACCEL_THRESHOLD = 1;
 // Sum of qualifying accelerations must exceed this to fire a flap sound.
-const TRIGGER_THRESHOLD = 15;
+const TRIGGER_THRESHOLD = 5;
 // Minimum time (seconds) between flap sounds.
-const MIN_FLAP_INTERVAL = 0.025;
+const MIN_FLAP_INTERVAL = 0.015;
 
 // Playback variation
-const BASE_GAIN = 0.4;
+const BASE_GAIN = 0.5;
 const MIN_PLAYBACK_RATE = 0.7;
 const MAX_PLAYBACK_RATE = 1.4;
+
+// Intensity mapping: snap magnitudes in this range map to 0-1 intensity
+const INTENSITY_MIN_SNAP = 5; // At trigger threshold, intensity ≈ 0
+const INTENSITY_MAX_SNAP = 80; // Big snaps saturate at 1
 
 /**
  * Generates sail luffing/flapping sounds by detecting direction reversals
@@ -59,9 +63,9 @@ export class SailSoundGenerator extends BaseEntity {
     this.outputGain.connect(game.masterGain);
 
     // Initialize previous velocities
-    this.prevLateralVelocities = new Array(
-      this.sail.getBodies().length,
-    ).fill(0);
+    this.prevLateralVelocities = new Array(this.sail.getBodies().length).fill(
+      0,
+    );
   }
 
   private createFlapBuffer(duration: number): AudioBuffer {
@@ -122,11 +126,11 @@ export class SailSoundGenerator extends BaseEntity {
       snapMagnitude > TRIGGER_THRESHOLD &&
       audioTime - this.lastFlapTime > MIN_FLAP_INTERVAL
     ) {
-      const intensity = clamp(
-        snapMagnitude / (TRIGGER_THRESHOLD * 4),
-        0.2,
-        1,
+      const t = clamp(
+        (snapMagnitude - INTENSITY_MIN_SNAP) /
+          (INTENSITY_MAX_SNAP - INTENSITY_MIN_SNAP),
       );
+      const intensity = t * t; // Quadratic: quiet snaps are very quiet, big snaps are loud
       this.playFlap(audioTime, intensity);
       this.lastFlapTime = audioTime;
     }
