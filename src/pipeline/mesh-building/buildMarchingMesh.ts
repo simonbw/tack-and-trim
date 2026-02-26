@@ -34,7 +34,6 @@ import {
 } from "./marching";
 import { computeBounds } from "./computeBounds";
 import { buildMeshDataFromTracks } from "./buildMeshDataFromTracks";
-import { decimateWavefrontTracks } from "./decimateWavefrontTracks";
 
 const BASE_CONFIG = TEST_MODE ? TEST_MESH_BUILD_CONFIG : DEFAULT_MESH_BUILD_CONFIG;
 const RESOLVED_CONFIG = resolveMeshBuildConfig(BASE_CONFIG);
@@ -90,6 +89,9 @@ export function buildMarchingMesh(
   );
   const {
     tracks,
+    marchedVerticesBeforeDecimation,
+    removedSegmentSnapshots,
+    removedVertices,
     splits,
     merges,
     amplitudeMs,
@@ -109,43 +111,28 @@ export function buildMarchingMesh(
     config,
   );
   let t2 = performance.now();
-  const totalMarchedVerts = tracks.reduce((trackSum, track) => {
-    return (
-      trackSum +
-      track.snapshots.reduce((segSum, snapshot) => segSum + snapshot.segment.t.length, 0)
-    );
-  }, 0);
-
-  const decimated = decimateWavefrontTracks(
-    tracks,
-    wavelength,
-    waveDx,
-    waveDy,
-    config.decimation.tolerance,
-    phasePerStep,
-  );
-  let t3 = performance.now();
 
   const mesh = buildMeshDataFromTracks(
-    decimated.tracks,
+    tracks,
     wavelength,
     waveDx,
     waveDy,
     bounds,
     phasePerStep,
   );
-  let t4 = performance.now();
-  const totalMs = t4 - t0;
+  let t3 = performance.now();
+  const totalMs = t3 - t0;
   const stageMs = {
     bounds: t1 - t0,
     march: Math.max(0, t2 - t1 - amplitudeMs - diffractionMs - compactMs),
     amplitude: amplitudeMs,
     diffraction: diffractionMs,
     compact: compactMs,
-    decimate: t3 - t2,
-    mesh: t4 - t3,
+    decimate: 0,
+    mesh: t3 - t2,
   };
 
+  const totalMarchedVerts = Math.max(1, marchedVerticesBeforeDecimation);
   const decimationPercent = 100 * (1 - mesh.vertexCount / totalMarchedVerts);
   const marchedStepCount =
     tracks.reduce((maxStep, track) => {
@@ -171,6 +158,7 @@ export function buildMarchingMesh(
       `  merges: ${n(merges)}`,
       `  refraction clamps: ${n(turnClampCount)} / ${n(totalRefractions)} (${totalRefractions > 0 ? n((100 * turnClampCount) / totalRefractions, 1) : 0}%)`,
       `  simplification: ${n(totalMarchedVerts)} verts -> ${n(mesh.vertexCount)} verts (${n(decimationPercent, 0)}% reduction)`,
+      `  decimation removed: ${n(removedVertices)} verts, ${n(removedSegmentSnapshots)} snapshots`,
       `final`,
       `  verts: ${n(mesh.vertexCount)}`,
       `  tris: ${n(mesh.indexCount / 3)}`,

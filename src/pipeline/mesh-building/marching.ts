@@ -57,6 +57,7 @@ import {
 } from "./wavefrontRefine";
 import { assertWavefrontInvariants } from "./wavefrontContracts";
 import type { SegmentTrack } from "./segmentTracks";
+import { decimateTrackSnapshots } from "./decimateWavefrontTracks";
 
 interface ActiveTrackState {
   trackId: number;
@@ -213,6 +214,9 @@ export function marchWavefronts(
 ): {
   tracks: SegmentTrack[];
   wavefronts?: Wavefront[];
+  marchedVerticesBeforeDecimation: number;
+  removedSegmentSnapshots: number;
+  removedVertices: number;
   splits: number;
   merges: number;
   amplitudeMs: number;
@@ -257,6 +261,9 @@ export function marchWavefronts(
   const stats = { splits: 0, merges: 0 };
   let turnClampCount = 0;
   let totalRefractions = 0;
+  let marchedVerticesBeforeDecimation = firstWavefront.t.length;
+  let removedSegmentSnapshots = 0;
+  let removedVertices = 0;
   // Use t-spacing between interior rays (skip sentinel at index 0).
   // Interior rays start at index 1; their spacing is t[2]-t[1].
   const initialDeltaT =
@@ -312,9 +319,26 @@ export function marchWavefronts(
   let marchStartTime = performance.now();
   let nextProgressTime = marchStartTime + 2000; // first report after 2s
   let totalRaySteps = 0;
+  const phasePerStep = k * stepSize;
 
   // Keep boundary-row behavior consistent with full-pass post-processing.
   postProcessStep([firstWavefront as MarchingWavefrontSegment]);
+
+  const finalizeTrack = (trackId: number): void => {
+    const trackState = trackMap.get(trackId);
+    if (!trackState) return;
+    const decimated = decimateTrackSnapshots(
+      trackState,
+      wavelength,
+      waveDx,
+      waveDy,
+      config.decimation.tolerance,
+      phasePerStep,
+    );
+    removedSegmentSnapshots += decimated.removedSegmentSnapshots;
+    removedVertices += decimated.removedVertices;
+    trackMap.set(trackId, decimated.track);
+  };
 
   while (workQueue.length > 0) {
     const track = workQueue.shift();
@@ -492,6 +516,7 @@ export function marchWavefronts(
 
       if (producedSegments.length === 0) {
         compactStep([segment], compactMs);
+        finalizeTrack(track.trackId);
         break;
       }
 
@@ -553,6 +578,7 @@ export function marchWavefronts(
           sourceStepIndex: nextSegment.sourceStepIndex,
           segment: nextSegment,
         });
+        marchedVerticesBeforeDecimation += nextSegment.t.length;
 
         compactStep([segment], compactMs);
         segment = nextSegment;
@@ -574,6 +600,7 @@ export function marchWavefronts(
             },
           ],
         });
+        marchedVerticesBeforeDecimation += child.t.length;
         workQueue.push({
           trackId: child.trackId,
           parentTrackId: child.parentTrackId,
@@ -582,6 +609,7 @@ export function marchWavefronts(
       }
 
       compactStep([segment], compactMs);
+      finalizeTrack(track.trackId);
       break;
     }
   }
@@ -602,6 +630,9 @@ export function marchWavefronts(
   return {
     tracks,
     wavefronts: includeWavefronts ? wavefronts : undefined,
+    marchedVerticesBeforeDecimation,
+    removedSegmentSnapshots,
+    removedVertices,
     splits: stats.splits,
     merges: stats.merges,
     amplitudeMs,

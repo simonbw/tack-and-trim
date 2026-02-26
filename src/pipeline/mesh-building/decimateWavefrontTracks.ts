@@ -214,7 +214,7 @@ function countVerticesInRows(wavefronts: readonly Wavefront[]): number {
   return count;
 }
 
-function countVerticesInTracks(tracks: readonly SegmentTrack[]): number {
+export function countVerticesInTracks(tracks: readonly SegmentTrack[]): number {
   let count = 0;
   for (const track of tracks) {
     for (const snapshot of track.snapshots) {
@@ -224,7 +224,7 @@ function countVerticesInTracks(tracks: readonly SegmentTrack[]): number {
   return count;
 }
 
-function countStepsInTracks(tracks: readonly SegmentTrack[]): number {
+export function countStepsInTracks(tracks: readonly SegmentTrack[]): number {
   const stepSet = new Set<number>();
   for (const track of tracks) {
     for (const snapshot of track.snapshots) {
@@ -234,6 +234,37 @@ function countStepsInTracks(tracks: readonly SegmentTrack[]): number {
   return stepSet.size;
 }
 
+export function buildRowsFromDecimatedTracks(tracks: readonly SegmentTrack[]): {
+  wavefronts: Wavefront[];
+  keptSourceStepIndices: number[];
+} {
+  const stepBuckets = new Map<
+    number,
+    Array<{ segmentIndex: number; segment: WavefrontSegment }>
+  >();
+  for (const track of tracks) {
+    for (const snapshot of track.snapshots) {
+      const step = stepBuckets.get(snapshot.stepIndex);
+      if (step) {
+        step.push({ segmentIndex: snapshot.segmentIndex, segment: snapshot.segment });
+      } else {
+        stepBuckets.set(snapshot.stepIndex, [
+          { segmentIndex: snapshot.segmentIndex, segment: snapshot.segment },
+        ]);
+      }
+    }
+  }
+
+  const keptStepIndices = Array.from(stepBuckets.keys()).sort((a, b) => a - b);
+  const wavefronts: Wavefront[] = keptStepIndices.map((stepIndex) => {
+    const entries = stepBuckets.get(stepIndex) ?? [];
+    entries.sort((a, b) => a.segmentIndex - b.segmentIndex);
+    return entries.map((entry) => entry.segment);
+  });
+  const keptSourceStepIndices = wavefronts.map((row) => row[0].sourceStepIndex);
+  return { wavefronts, keptSourceStepIndices };
+}
+
 export interface TrackDecimationResult {
   tracks: SegmentTrack[];
   wavefronts: Wavefront[];
@@ -241,6 +272,77 @@ export interface TrackDecimationResult {
   removedSegmentSnapshots: number;
   removedSteps: number;
   removedVertices: number;
+}
+
+export interface SingleTrackDecimationResult {
+  track: SegmentTrack;
+  removedSegmentSnapshots: number;
+  removedVertices: number;
+}
+
+export function decimateTrackSnapshots(
+  track: SegmentTrack,
+  wavelength: number,
+  waveDx: number,
+  waveDy: number,
+  tolerance: number = DEFAULT_DECIMATION_TOLERANCE,
+  phasePerStep: number = Math.PI,
+): SingleTrackDecimationResult {
+  const k = (2 * Math.PI) / wavelength;
+  const posTolSq = (tolerance * wavelength) ** 2;
+  const ampTol = tolerance;
+  const phaseTol = tolerance * Math.PI;
+
+  let verticesBefore = 0;
+  for (const snapshot of track.snapshots) {
+    verticesBefore += snapshot.segment.t.length;
+  }
+
+  const keepMask = keepSnapshotMaskForTrack(
+    track,
+    k,
+    waveDx,
+    waveDy,
+    posTolSq,
+    ampTol,
+    phaseTol,
+    phasePerStep,
+  );
+
+  const decimated: SegmentTrack = {
+    trackId: track.trackId,
+    parentTrackId: track.parentTrackId,
+    childTrackIds: [...track.childTrackIds],
+    snapshots: [],
+  };
+  let removedSegmentSnapshots = 0;
+
+  for (let i = 0; i < track.snapshots.length; i++) {
+    const snapshot = track.snapshots[i];
+    if (!keepMask[i]) {
+      removedSegmentSnapshots++;
+      continue;
+    }
+
+    const decimatedSegment = decimateSegment(snapshot.segment, posTolSq, ampTol);
+    decimated.snapshots.push({
+      stepIndex: snapshot.stepIndex,
+      segmentIndex: snapshot.segmentIndex,
+      sourceStepIndex: snapshot.sourceStepIndex,
+      segment: decimatedSegment,
+    });
+  }
+
+  let verticesAfter = 0;
+  for (const snapshot of decimated.snapshots) {
+    verticesAfter += snapshot.segment.t.length;
+  }
+
+  return {
+    track: decimated,
+    removedSegmentSnapshots,
+    removedVertices: verticesBefore - verticesAfter,
+  };
 }
 
 /**
@@ -269,79 +371,33 @@ export function decimateWavefrontTracks(
     };
   }
 
-  const k = (2 * Math.PI) / wavelength;
-  const posTolSq = (tolerance * wavelength) ** 2;
-  const ampTol = tolerance;
-  const phaseTol = tolerance * Math.PI;
   const verticesBefore = countVerticesInTracks(tracks);
   const stepsBefore = countStepsInTracks(tracks);
 
-  const decimatedTrackMap = new Map<number, SegmentTrack>();
-  for (const track of tracks) {
-    decimatedTrackMap.set(track.trackId, {
-      trackId: track.trackId,
-      parentTrackId: track.parentTrackId,
-      childTrackIds: [...track.childTrackIds],
-      snapshots: [],
-    });
-  }
-  const stepBuckets = new Map<number, Array<{ segmentIndex: number; segment: WavefrontSegment }>>();
+  const decimatedTracks: SegmentTrack[] = [];
   let removedSegmentSnapshots = 0;
 
   for (const track of tracks) {
-    const outTrack = decimatedTrackMap.get(track.trackId);
-    if (!outTrack) continue;
-    const keepMask = keepSnapshotMaskForTrack(
+    const decimated = decimateTrackSnapshots(
       track,
-      k,
+      wavelength,
       waveDx,
       waveDy,
-      posTolSq,
-      ampTol,
-      phaseTol,
+      tolerance,
       phasePerStep,
     );
-
-    for (let i = 0; i < track.snapshots.length; i++) {
-      const snapshot = track.snapshots[i];
-      if (!keepMask[i]) {
-        removedSegmentSnapshots++;
-        continue;
-      }
-
-      const decimatedSegment = decimateSegment(snapshot.segment, posTolSq, ampTol);
-      outTrack.snapshots.push({
-        stepIndex: snapshot.stepIndex,
-        segmentIndex: snapshot.segmentIndex,
-        sourceStepIndex: snapshot.sourceStepIndex,
-        segment: decimatedSegment,
-      });
-      const step = stepBuckets.get(snapshot.stepIndex);
-      if (step) {
-        step.push({ segmentIndex: snapshot.segmentIndex, segment: decimatedSegment });
-      } else {
-        stepBuckets.set(snapshot.stepIndex, [
-          { segmentIndex: snapshot.segmentIndex, segment: decimatedSegment },
-        ]);
-      }
+    removedSegmentSnapshots += decimated.removedSegmentSnapshots;
+    if (decimated.track.snapshots.length > 0) {
+      decimatedTracks.push(decimated.track);
     }
   }
 
-  const keptStepIndices = Array.from(stepBuckets.keys()).sort((a, b) => a - b);
-  const resultRows: Wavefront[] = keptStepIndices.map((stepIndex) => {
-    const entries = stepBuckets.get(stepIndex) ?? [];
-    entries.sort((a, b) => a.segmentIndex - b.segmentIndex);
-    return entries.map((entry) => entry.segment);
-  });
-
-  const keptSourceStepIndices = resultRows.map((row) => row[0].sourceStepIndex);
+  const { wavefronts: resultRows, keptSourceStepIndices } =
+    buildRowsFromDecimatedTracks(decimatedTracks);
   const verticesAfter = countVerticesInRows(resultRows);
-  const nonEmptyTracks = Array.from(decimatedTrackMap.values()).filter(
-    (track) => track.snapshots.length > 0,
-  );
 
   return {
-    tracks: nonEmptyTracks,
+    tracks: decimatedTracks,
     wavefronts: resultRows,
     keptSourceStepIndices,
     removedSegmentSnapshots,
