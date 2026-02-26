@@ -56,6 +56,7 @@ import {
   resetRefineWarnings,
 } from "./wavefrontRefine";
 import { assertWavefrontInvariants } from "./wavefrontContracts";
+import type { SegmentTrack } from "./buildSegmentTracks";
 
 interface ActiveTrackState {
   trackId: number;
@@ -212,8 +213,10 @@ export function marchWavefronts(
   terrain: TerrainCPUData,
   wavelength: number,
   config: MeshBuildConfig = DEFAULT_MESH_BUILD_CONFIG,
+  options?: { includeWavefronts?: boolean },
 ): {
-  wavefronts: Wavefront[];
+  tracks: SegmentTrack[];
+  wavefronts?: Wavefront[];
   splits: number;
   merges: number;
   amplitudeMs: number;
@@ -225,6 +228,7 @@ export function marchWavefronts(
   resetRefineWarnings();
   const perpDx = -waveDy;
   const perpDy = waveDx;
+  const includeWavefronts = options?.includeWavefronts ?? false;
   const wavefronts: Wavefront[] = [[firstWavefront]];
   let nextTrackId = firstWavefront.trackId + 1;
   let activeTracks: ActiveTrackState[] = [
@@ -234,6 +238,20 @@ export function marchWavefronts(
       segment: firstWavefront as MarchingWavefrontSegment,
     },
   ];
+  const trackMap = new Map<number, SegmentTrack>();
+  trackMap.set(firstWavefront.trackId, {
+    trackId: firstWavefront.trackId,
+    parentTrackId: firstWavefront.parentTrackId,
+    childTrackIds: [],
+    snapshots: [
+      {
+        rowIndex: 0,
+        segmentIndex: 0,
+        sourceStepIndex: firstWavefront.sourceStepIndex,
+        segment: firstWavefront,
+      },
+    ],
+  });
   const k = (2 * Math.PI) / wavelength;
   const terrainGradientSample: TerrainHeightGradient = {
     height: 0,
@@ -483,6 +501,12 @@ export function marchWavefronts(
           segment: producedSegments[0],
         });
       } else if (producedSegments.length > 1) {
+        const parent = trackMap.get(track.trackId);
+        if (parent) {
+          for (let childIdx = 0; childIdx < producedSegments.length; childIdx++) {
+            parent.childTrackIds.push(nextTrackId + childIdx);
+          }
+        }
         for (const child of producedSegments) {
           child.trackId = nextTrackId++;
           child.parentTrackId = track.trackId;
@@ -496,10 +520,30 @@ export function marchWavefronts(
     }
 
     if (nextActiveTracks.length === 0) break;
+    nextActiveTracks.sort((a, b) => a.trackId - b.trackId);
     const nextStep: MarchingWavefront = nextActiveTracks.map(
       (nextTrack) => nextTrack.segment,
     );
     assertWavefrontInvariants(nextStep, "marchWavefronts nextStep");
+    for (let segmentIndex = 0; segmentIndex < nextStep.length; segmentIndex++) {
+      const nextSegment = nextStep[segmentIndex];
+      let trackState = trackMap.get(nextSegment.trackId);
+      if (!trackState) {
+        trackState = {
+          trackId: nextSegment.trackId,
+          parentTrackId: nextSegment.parentTrackId,
+          childTrackIds: [],
+          snapshots: [],
+        };
+        trackMap.set(nextSegment.trackId, trackState);
+      }
+      trackState.snapshots.push({
+        rowIndex: nextSourceStepIndex,
+        segmentIndex,
+        sourceStepIndex: nextSegment.sourceStepIndex,
+        segment: nextSegment,
+      });
+    }
 
     // Count rays in this step
     let stepRays = 0;
@@ -543,9 +587,22 @@ export function marchWavefronts(
     compactStep(wavefronts[0], compactMs);
     compactStep(wavefronts[wavefronts.length - 1], compactMs);
   }
+  const tracks = Array.from(trackMap.values()).sort((a, b) => a.trackId - b.trackId);
+  for (const track of tracks) {
+    track.childTrackIds = Array.from(new Set(track.childTrackIds)).sort(
+      (a, b) => a - b,
+    );
+    track.snapshots.sort((a, b) => {
+      if (a.sourceStepIndex !== b.sourceStepIndex) {
+        return a.sourceStepIndex - b.sourceStepIndex;
+      }
+      return a.segmentIndex - b.segmentIndex;
+    });
+  }
 
   return {
-    wavefronts,
+    tracks,
+    wavefronts: includeWavefronts ? wavefronts : undefined,
     splits: stats.splits,
     merges: stats.merges,
     amplitudeMs,

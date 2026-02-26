@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Wavefront, WavefrontSegment } from "../marchingTypes";
 import { decimateWavefrontTracks } from "../decimateWavefrontTracks";
+import { buildSegmentTracks } from "../buildSegmentTracks";
 
 function makeSegment(
   trackId: number,
@@ -44,7 +45,7 @@ describe("decimateWavefrontTracks", () => {
     const k = (2 * Math.PI) / wavelength;
     const phasePerStep = k * 10;
     const result = decimateWavefrontTracks(
-      wavefronts,
+      buildSegmentTracks(wavefronts).tracks,
       wavelength,
       1,
       0,
@@ -85,7 +86,7 @@ describe("decimateWavefrontTracks", () => {
     const k = (2 * Math.PI) / wavelength;
     const phasePerStep = k * 10;
     const result = decimateWavefrontTracks(
-      wavefronts,
+      buildSegmentTracks(wavefronts).tracks,
       wavelength,
       1,
       0,

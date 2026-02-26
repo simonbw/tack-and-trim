@@ -89,7 +89,7 @@ export function buildMarchingMesh(
     ].join("\n"),
   );
   const {
-    wavefronts,
+    tracks,
     splits,
     merges,
     amplitudeMs,
@@ -109,12 +109,15 @@ export function buildMarchingMesh(
     config,
   );
   let t2 = performance.now();
-  const totalMarchedVerts = wavefronts.reduce((prev, curr) => {
-    return prev + curr.reduce((sum, segment) => sum + segment.t.length, 0);
+  const totalMarchedVerts = tracks.reduce((trackSum, track) => {
+    return (
+      trackSum +
+      track.snapshots.reduce((segSum, snapshot) => segSum + snapshot.segment.t.length, 0)
+    );
   }, 0);
 
   const decimated = decimateWavefrontTracks(
-    wavefronts,
+    tracks,
     wavelength,
     waveDx,
     waveDy,
@@ -144,6 +147,13 @@ export function buildMarchingMesh(
   };
 
   const decimationPercent = 100 * (1 - mesh.vertexCount / totalMarchedVerts);
+  const marchedStepCount =
+    tracks.reduce((maxStep, track) => {
+      if (track.snapshots.length === 0) return maxStep;
+      const trackLastStep =
+        track.snapshots[track.snapshots.length - 1].sourceStepIndex + 1;
+      return Math.max(maxStep, trackLastStep);
+    }, 0);
   const totalBytes = mesh.vertices.byteLength + mesh.indices.byteLength;
   const memStr =
     totalBytes >= 1024 * 1024
@@ -155,7 +165,7 @@ export function buildMarchingMesh(
   console.log(
     [
       `[marching]`,
-      `  actual wavefront steps: ${n(wavefronts.length)}`,
+      `  actual wavefront steps: ${n(marchedStepCount)}`,
       `build`,
       `  splits: ${n(splits)}`,
       `  merges: ${n(merges)}`,

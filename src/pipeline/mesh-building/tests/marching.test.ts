@@ -77,8 +77,10 @@ describe("marchWavefronts invariants", () => {
       bounds,
       terrain,
       wavelength,
+      undefined,
+      { includeWavefronts: true },
     );
-
+    assert.ok(result.wavefronts);
     assert.ok(result.wavefronts.length > 0);
 
     for (const step of result.wavefronts) {

@@ -1,6 +1,6 @@
 import { decimateSegment, DEFAULT_DECIMATION_TOLERANCE } from "./decimateSegment";
 import type { Wavefront, WavefrontSegment } from "./marchingTypes";
-import { buildSegmentTracks, type SegmentTrack } from "./buildSegmentTracks";
+import type { SegmentTrack } from "./buildSegmentTracks";
 import { lerp } from "../../core/util/MathUtil";
 
 type SegmentSample = {
@@ -204,7 +204,7 @@ function keepSnapshotMaskForTrack(
   return keep;
 }
 
-function countVertices(wavefronts: readonly Wavefront[]): number {
+function countVerticesInRows(wavefronts: readonly Wavefront[]): number {
   let count = 0;
   for (const step of wavefronts) {
     for (const segment of step) {
@@ -212,6 +212,26 @@ function countVertices(wavefronts: readonly Wavefront[]): number {
     }
   }
   return count;
+}
+
+function countVerticesInTracks(tracks: readonly SegmentTrack[]): number {
+  let count = 0;
+  for (const track of tracks) {
+    for (const snapshot of track.snapshots) {
+      count += snapshot.segment.t.length;
+    }
+  }
+  return count;
+}
+
+function countRowsInTracks(tracks: readonly SegmentTrack[]): number {
+  const rowSet = new Set<number>();
+  for (const track of tracks) {
+    for (const snapshot of track.snapshots) {
+      rowSet.add(snapshot.rowIndex);
+    }
+  }
+  return rowSet.size;
 }
 
 export interface TrackDecimationResult {
@@ -231,14 +251,14 @@ export interface TrackDecimationResult {
  * cases where tracks keep different source-step sets.
  */
 export function decimateWavefrontTracks(
-  wavefronts: Wavefront[],
+  tracks: SegmentTrack[],
   wavelength: number,
   waveDx: number,
   waveDy: number,
   tolerance: number = DEFAULT_DECIMATION_TOLERANCE,
   phasePerStep: number = Math.PI,
 ): TrackDecimationResult {
-  if (wavefronts.length === 0) {
+  if (tracks.length === 0) {
     return {
       tracks: [],
       wavefronts: [],
@@ -253,11 +273,11 @@ export function decimateWavefrontTracks(
   const posTolSq = (tolerance * wavelength) ** 2;
   const ampTol = tolerance;
   const phaseTol = tolerance * Math.PI;
-  const verticesBefore = countVertices(wavefronts);
+  const verticesBefore = countVerticesInTracks(tracks);
+  const rowsBefore = countRowsInTracks(tracks);
 
-  const tracksResult = buildSegmentTracks(wavefronts);
   const decimatedTrackMap = new Map<number, SegmentTrack>();
-  for (const track of tracksResult.tracks) {
+  for (const track of tracks) {
     decimatedTrackMap.set(track.trackId, {
       trackId: track.trackId,
       parentTrackId: track.parentTrackId,
@@ -268,7 +288,7 @@ export function decimateWavefrontTracks(
   const rowBuckets = new Map<number, Array<{ segmentIndex: number; segment: WavefrontSegment }>>();
   let removedSegmentSnapshots = 0;
 
-  for (const track of tracksResult.tracks) {
+  for (const track of tracks) {
     const outTrack = decimatedTrackMap.get(track.trackId);
     if (!outTrack) continue;
     const keepMask = keepSnapshotMaskForTrack(
@@ -315,7 +335,7 @@ export function decimateWavefrontTracks(
   });
 
   const keptSourceStepIndices = resultRows.map((row) => row[0].sourceStepIndex);
-  const verticesAfter = countVertices(resultRows);
+  const verticesAfter = countVerticesInRows(resultRows);
   const nonEmptyTracks = Array.from(decimatedTrackMap.values()).filter(
     (track) => track.snapshots.length > 0,
   );
@@ -325,7 +345,7 @@ export function decimateWavefrontTracks(
     wavefronts: resultRows,
     keptSourceStepIndices,
     removedSegmentSnapshots,
-    removedRows: wavefronts.length - resultRows.length,
+    removedRows: rowsBefore - resultRows.length,
     removedVertices: verticesBefore - verticesAfter,
   };
 }
