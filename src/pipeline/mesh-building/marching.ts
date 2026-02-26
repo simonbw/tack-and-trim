@@ -632,7 +632,6 @@ export async function marchWavefronts(
       type: "trackResult";
       jobId: number;
       track: SegmentTrack;
-      childSeeds: Array<{ segmentIndex: number; segment: MarchingWavefrontSegment }>;
       marchedVerticesBeforeDecimation: number;
       removedSegmentSnapshots: number;
       removedVertices: number;
@@ -646,6 +645,12 @@ export async function marchWavefronts(
       furthestStepIndex: number;
       marchedStepCount: number;
       totalRaySteps: number;
+    };
+    type TrackChildrenNotice = {
+      type: "trackChildren";
+      jobId: number;
+      parentTrackId: number;
+      childSeeds: Array<{ segmentIndex: number; segment: MarchingWavefrontSegment }>;
     };
 
     const trackJobs: TrackJob[] = [
@@ -665,31 +670,7 @@ export async function marchWavefronts(
       promise: Promise<TrackJobResult>;
       job: TrackJob;
     }> = [];
-
-    const runJob = (workerId: number, job: TrackJob): Promise<TrackJobResult> => {
-      const worker = workers[workerId];
-      return new Promise((resolve, reject) => {
-        const onMessage = (msg: TrackJobResult) => {
-          worker.off("error", onError);
-          resolve(msg);
-        };
-        const onError = (err: Error) => {
-          worker.off("message", onMessage);
-          reject(err);
-        };
-        worker.once("message", onMessage);
-        worker.once("error", onError);
-        worker.postMessage({
-          type: "runTrack",
-          jobId: nextJobId++,
-          trackId: job.trackId,
-          parentTrackId: job.parentTrackId,
-          initialSegmentIndex: job.initialSegmentIndex,
-          seedSegment: job.seedSegment,
-        });
-      });
-    };
-
+    const childTrackIdsByParent = new Map<number, number[]>();
     let completedJobs = 0;
     let totalSpawnedChildren = 0;
     let maxQueueLength = trackJobs.length;
@@ -702,6 +683,56 @@ export async function marchWavefronts(
     let minJobMs = Number.POSITIVE_INFINITY;
     let totalJobMs = 0;
     const inFlightStartedAt = new Map<number, number>();
+
+    const handleChildSeeds = (
+      parentTrackId: number,
+      childSeeds: Array<{ segmentIndex: number; segment: MarchingWavefrontSegment }>,
+    ): void => {
+      const childTrackIds: number[] = [];
+      for (const childSeed of childSeeds) {
+        const childTrackId = nextTrackId++;
+        childTrackIds.push(childTrackId);
+        childSeed.segment.trackId = childTrackId;
+        childSeed.segment.parentTrackId = parentTrackId;
+        trackJobs.push({
+          trackId: childTrackId,
+          parentTrackId,
+          initialSegmentIndex: childSeed.segmentIndex,
+          seedSegment: childSeed.segment,
+        });
+      }
+      childTrackIdsByParent.set(parentTrackId, childTrackIds);
+      totalSpawnedChildren += childTrackIds.length;
+    };
+
+    const runJob = (workerId: number, job: TrackJob): Promise<TrackJobResult> => {
+      const worker = workers[workerId];
+      return new Promise((resolve, reject) => {
+        const onMessage = (msg: TrackJobResult | TrackChildrenNotice) => {
+          if (msg.type === "trackChildren") {
+            handleChildSeeds(msg.parentTrackId, msg.childSeeds);
+            return;
+          }
+          worker.off("error", onError);
+          worker.off("message", onMessage);
+          resolve(msg);
+        };
+        const onError = (err: Error) => {
+          worker.off("message", onMessage);
+          reject(err);
+        };
+        worker.on("message", onMessage);
+        worker.once("error", onError);
+        worker.postMessage({
+          type: "runTrack",
+          jobId: nextJobId++,
+          trackId: job.trackId,
+          parentTrackId: job.parentTrackId,
+          initialSegmentIndex: job.initialSegmentIndex,
+          seedSegment: job.seedSegment,
+        });
+      });
+    };
 
     try {
       while (trackJobs.length > 0 || inFlight.length > 0) {
@@ -759,20 +790,9 @@ export async function marchWavefronts(
         totalRaySteps += result.totalRaySteps;
 
         const parentTrack = result.track;
-        parentTrack.childTrackIds = [];
-        totalSpawnedChildren += result.childSeeds.length;
-        for (const childSeed of result.childSeeds) {
-          const childTrackId = nextTrackId++;
-          parentTrack.childTrackIds.push(childTrackId);
-          childSeed.segment.trackId = childTrackId;
-          childSeed.segment.parentTrackId = parentTrack.trackId;
-          trackJobs.push({
-            trackId: childTrackId,
-            parentTrackId: parentTrack.trackId,
-            initialSegmentIndex: childSeed.segmentIndex,
-            seedSegment: childSeed.segment,
-          });
-        }
+        parentTrack.childTrackIds =
+          childTrackIdsByParent.get(parentTrack.trackId) ?? [];
+        childTrackIdsByParent.delete(parentTrack.trackId);
         trackMap.set(parentTrack.trackId, parentTrack);
 
         const now = performance.now();

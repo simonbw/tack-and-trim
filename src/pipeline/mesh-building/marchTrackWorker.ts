@@ -50,7 +50,6 @@ interface TrackJobResult {
   type: "trackResult";
   jobId: number;
   track: SegmentTrack;
-  childSeeds: ChildSeed[];
   marchedVerticesBeforeDecimation: number;
   removedSegmentSnapshots: number;
   removedVertices: number;
@@ -64,6 +63,13 @@ interface TrackJobResult {
   furthestStepIndex: number;
   marchedStepCount: number;
   totalRaySteps: number;
+}
+
+interface TrackChildrenNotice {
+  type: "trackChildren";
+  jobId: number;
+  parentTrackId: number;
+  childSeeds: ChildSeed[];
 }
 
 const init = workerData as WorkerInitData;
@@ -140,7 +146,7 @@ function runTrackJob(req: TrackJobRequest): TrackJobResult {
   };
 
   let segment = req.seedSegment;
-  let childSeeds: ChildSeed[] = [];
+  let childSeedsSent = false;
   for (;;) {
     const {
       nextSourceStepIndex,
@@ -202,6 +208,7 @@ function runTrackJob(req: TrackJobRequest): TrackJobResult {
       continue;
     }
 
+    const childSeeds: ChildSeed[] = [];
     for (let i = 0; i < producedSegments.length; i++) {
       const child = producedSegments[i];
       child.trackId = req.trackId;
@@ -210,6 +217,16 @@ function runTrackJob(req: TrackJobRequest): TrackJobResult {
       childSeeds.push({ segmentIndex: i, segment: child });
       marchedVerticesBeforeDecimation += child.t.length;
       totalRaySteps += child.x.length;
+    }
+    if (!childSeedsSent) {
+      const childrenMsg: TrackChildrenNotice = {
+        type: "trackChildren",
+        jobId: req.jobId,
+        parentTrackId: req.trackId,
+        childSeeds,
+      };
+      parentPort?.postMessage(childrenMsg);
+      childSeedsSent = true;
     }
     furthestStepIndex = Math.max(furthestStepIndex, nextSourceStepIndex);
     marchedStepCount++;
@@ -230,7 +247,6 @@ function runTrackJob(req: TrackJobRequest): TrackJobResult {
     type: "trackResult",
     jobId: req.jobId,
     track: decimated.track,
-    childSeeds,
     marchedVerticesBeforeDecimation,
     removedSegmentSnapshots: decimated.removedSegmentSnapshots,
     removedVertices: decimated.removedVertices,
