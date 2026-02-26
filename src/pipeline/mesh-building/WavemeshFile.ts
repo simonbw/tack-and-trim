@@ -210,17 +210,17 @@ export function computeInputHash(
   }>,
   terrain: {
     vertexData: Float32Array;
-    contourData: ArrayBuffer;
+    contourData: ArrayBufferLike;
     childrenData: Uint32Array;
     contourCount: number;
     defaultDepth: number;
   },
   tideHeight: number,
 ): InputHash {
-  const parts: ArrayBuffer[] = [
-    terrain.vertexData.buffer as ArrayBuffer,
-    terrain.contourData as ArrayBuffer,
-    terrain.childrenData.buffer as ArrayBuffer,
+  const parts: ArrayBufferLike[] = [
+    terrain.vertexData.buffer,
+    terrain.contourData,
+    terrain.childrenData.buffer,
     numberToBuffer(terrain.contourCount),
     numberToBuffer(terrain.defaultDepth),
     numberToBuffer(tideHeight),
@@ -240,7 +240,7 @@ export function computeInputHash(
 }
 
 /** FNV-1a 32-bit hash */
-function fnv1a32(parts: ArrayBuffer[], offsetBasis: number): number {
+function fnv1a32(parts: ArrayBufferLike[], offsetBasis: number): number {
   let h = offsetBasis;
   for (const buf of parts) {
     const bytes = new Uint8Array(buf);

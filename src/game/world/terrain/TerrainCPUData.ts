@@ -13,7 +13,7 @@ export interface TerrainCPUData {
   /** Pre-sampled polygon vertices (2 floats per vertex) */
   vertexData: Float32Array;
   /** Contour metadata (13 u32 per contour, mixed u32/f32 types) */
-  contourData: ArrayBuffer;
+  contourData: ArrayBufferLike;
   /** Children indices */
   childrenData: Uint32Array;
   /** Number of contours */

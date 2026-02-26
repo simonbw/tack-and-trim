@@ -457,7 +457,7 @@ export async function marchWavefronts(
   wavelength: number,
   config: MeshBuildConfig = DEFAULT_MESH_BUILD_CONFIG,
   options?: { includeWavefronts?: boolean },
-): {
+): Promise<{
   tracks: SegmentTrack[];
   wavefronts?: Wavefront[];
   marchedVerticesBeforeDecimation: number;
@@ -470,7 +470,7 @@ export async function marchWavefronts(
   compactMs: number;
   turnClampCount: number;
   totalRefractions: number;
-} {
+}> {
   resetRefineWarnings();
   const perpDx = -waveDy;
   const perpDy = waveDx;
