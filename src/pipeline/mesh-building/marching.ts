@@ -180,7 +180,7 @@ export function generateInitialWavefront(
  * This reduces per-step memory by ~78% (5/9 fields kept × 4/8 bytes each).
  * Full vertex decimation is deferred to the post-march pass.
  */
-function compactStep(step: Wavefront, compactMs: { value: number }): void {
+export function compactStep(step: Wavefront, compactMs: { value: number }): void {
   const t0 = performance.now();
   for (let i = 0; i < step.length; i++) {
     const segment = step[i];
@@ -201,7 +201,7 @@ function compactStep(step: Wavefront, compactMs: { value: number }): void {
   compactMs.value += performance.now() - t0;
 }
 
-function advanceTrackSegmentStep(params: {
+export function advanceTrackSegmentStep(params: {
   track: ActiveTrackState;
   segment: MarchingWavefrontSegment;
   waveDx: number;
@@ -544,6 +544,244 @@ export async function marchWavefronts(
 
   // Keep boundary-row behavior consistent with full-pass post-processing.
   postProcessStep([firstWavefront as MarchingWavefrontSegment]);
+
+  const requestedWorkers = Number.parseInt(
+    process.env.MESH_BUILD_WORKERS ?? "1",
+    10,
+  );
+  const useParallelWorkers =
+    !includeWavefronts &&
+    Number.isFinite(requestedWorkers) &&
+    requestedWorkers > 1 &&
+    process.release?.name === "node";
+
+  if (useParallelWorkers) {
+    marchedVerticesBeforeDecimation = 0;
+    const [{ Worker }, { cpus }, { fileURLToPath }, path] = await Promise.all([
+      import("node:worker_threads"),
+      import("node:os"),
+      import("node:url"),
+      import("node:path"),
+    ]);
+    const workerCount = Math.max(1, Math.min(requestedWorkers, cpus().length));
+    const WORKER_EXEC_ARGV = ["--require", "tsx/cjs"];
+    const workerPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "marchTrackWorker.ts",
+    );
+
+    const toShared = (buffer: ArrayBufferLike, byteOffset = 0, byteLength?: number) => {
+      const len = byteLength ?? buffer.byteLength;
+      const shared = new SharedArrayBuffer(len);
+      new Uint8Array(shared).set(new Uint8Array(buffer, byteOffset, len));
+      return shared;
+    };
+
+    const vertexDataBuffer = toShared(
+      terrain.vertexData.buffer,
+      terrain.vertexData.byteOffset,
+      terrain.vertexData.byteLength,
+    );
+    const contourDataBuffer = toShared(terrain.contourData);
+    const childrenDataBuffer = toShared(
+      terrain.childrenData.buffer,
+      terrain.childrenData.byteOffset,
+      terrain.childrenData.byteLength,
+    );
+
+    const workers = Array.from({ length: workerCount }, () => {
+      return new Worker(workerPath, {
+        execArgv: WORKER_EXEC_ARGV,
+        workerData: {
+          vertexDataBuffer,
+          contourDataBuffer,
+          childrenDataBuffer,
+          contourCount: terrain.contourCount,
+          defaultDepth: terrain.defaultDepth,
+          waveDx,
+          waveDy,
+          stepSize,
+          vertexSpacing,
+          bounds: { minProj, maxProj, minPerp, maxPerp },
+          wavelength,
+          config,
+          initialDeltaT,
+          phasePerStep,
+        },
+      });
+    });
+
+    type TrackJob = {
+      trackId: number;
+      parentTrackId: number | null;
+      initialSegmentIndex: number;
+      seedSegment: MarchingWavefrontSegment;
+    };
+
+    type TrackJobResult = {
+      type: "trackResult";
+      jobId: number;
+      track: SegmentTrack;
+      childSeeds: Array<{ segmentIndex: number; segment: MarchingWavefrontSegment }>;
+      marchedVerticesBeforeDecimation: number;
+      removedSegmentSnapshots: number;
+      removedVertices: number;
+      splits: number;
+      merges: number;
+      amplitudeMs: number;
+      diffractionMs: number;
+      compactMs: number;
+      turnClampCount: number;
+      totalRefractions: number;
+      furthestStepIndex: number;
+      marchedStepCount: number;
+      totalRaySteps: number;
+    };
+
+    const trackJobs: TrackJob[] = [
+      {
+        trackId: firstWavefront.trackId,
+        parentTrackId: firstWavefront.parentTrackId,
+        initialSegmentIndex: 0,
+        seedSegment: firstWavefront as MarchingWavefrontSegment,
+      },
+    ];
+    trackMap.clear();
+
+    let nextJobId = 1;
+    const idleWorkerIds = workers.map((_, i) => i);
+    const inFlight: Array<{
+      workerId: number;
+      promise: Promise<TrackJobResult>;
+      job: TrackJob;
+    }> = [];
+
+    const runJob = (workerId: number, job: TrackJob): Promise<TrackJobResult> => {
+      const worker = workers[workerId];
+      return new Promise((resolve, reject) => {
+        const onMessage = (msg: TrackJobResult) => {
+          worker.off("error", onError);
+          resolve(msg);
+        };
+        const onError = (err: Error) => {
+          worker.off("message", onMessage);
+          reject(err);
+        };
+        worker.once("message", onMessage);
+        worker.once("error", onError);
+        worker.postMessage({
+          type: "runTrack",
+          jobId: nextJobId++,
+          trackId: job.trackId,
+          parentTrackId: job.parentTrackId,
+          initialSegmentIndex: job.initialSegmentIndex,
+          seedSegment: job.seedSegment,
+        });
+      });
+    };
+
+    try {
+      while (trackJobs.length > 0 || inFlight.length > 0) {
+        while (idleWorkerIds.length > 0 && trackJobs.length > 0) {
+          const workerId = idleWorkerIds.pop();
+          const job = trackJobs.shift();
+          if (workerId === undefined || !job) break;
+          inFlight.push({
+            workerId,
+            promise: runJob(workerId, job),
+            job,
+          });
+        }
+
+        if (inFlight.length === 0) break;
+
+        const raced = await Promise.race(
+          inFlight.map((entry, idx) =>
+            entry.promise.then((result) => ({ idx, result })),
+          ),
+        );
+        const finished = inFlight.splice(raced.idx, 1)[0];
+        idleWorkerIds.push(finished.workerId);
+        const result = raced.result;
+
+        marchedVerticesBeforeDecimation += result.marchedVerticesBeforeDecimation;
+        removedSegmentSnapshots += result.removedSegmentSnapshots;
+        removedVertices += result.removedVertices;
+        stats.splits += result.splits;
+        stats.merges += result.merges;
+        amplitudeMs += result.amplitudeMs;
+        diffractionMs += result.diffractionMs;
+        compactMs.value += result.compactMs;
+        turnClampCount += result.turnClampCount;
+        totalRefractions += result.totalRefractions;
+        furthestStepIndex = Math.max(furthestStepIndex, result.furthestStepIndex);
+        marchedStepCount += result.marchedStepCount;
+        totalRaySteps += result.totalRaySteps;
+
+        const parentTrack = result.track;
+        parentTrack.childTrackIds = [];
+        for (const childSeed of result.childSeeds) {
+          const childTrackId = nextTrackId++;
+          parentTrack.childTrackIds.push(childTrackId);
+          childSeed.segment.trackId = childTrackId;
+          childSeed.segment.parentTrackId = parentTrack.trackId;
+          trackJobs.push({
+            trackId: childTrackId,
+            parentTrackId: parentTrack.trackId,
+            initialSegmentIndex: childSeed.segmentIndex,
+            seedSegment: childSeed.segment,
+          });
+        }
+        trackMap.set(parentTrack.trackId, parentTrack);
+
+        const now = performance.now();
+        if (now >= nextProgressTime) {
+          const elapsed = now - marchStartTime;
+          const depthPct = Math.min(100, (furthestStepIndex / estimatedSteps) * 100);
+          const raysPerSec = elapsed > 0 ? (totalRaySteps / elapsed) * 1000 : 0;
+          const fmt = (v: number) =>
+            v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+          console.log(
+            `  [march] depth ${fmt(furthestStepIndex)}/${fmt(estimatedSteps)} (${depthPct.toFixed(0)}%), ` +
+              `processed ${fmt(marchedStepCount)} track-steps, queue ${fmt(trackJobs.length)} ` +
+              `active ${fmt(inFlight.length)} | ${(elapsed / 1000).toFixed(1)}s elapsed, ` +
+              `${fmt(totalRaySteps)} total ray steps, ${fmt(raysPerSec)} rays/s`,
+          );
+          nextProgressTime = now + 5000;
+        }
+      }
+    } finally {
+      await Promise.allSettled(workers.map((w) => w.terminate()));
+    }
+
+    const tracks = Array.from(trackMap.values()).sort((a, b) => a.trackId - b.trackId);
+    for (const track of tracks) {
+      track.childTrackIds = Array.from(new Set(track.childTrackIds)).sort(
+        (a, b) => a - b,
+      );
+      track.snapshots.sort((a, b) => {
+        if (a.sourceStepIndex !== b.sourceStepIndex) {
+          return a.sourceStepIndex - b.sourceStepIndex;
+        }
+        return a.segmentIndex - b.segmentIndex;
+      });
+    }
+
+    return {
+      tracks,
+      wavefronts: undefined,
+      marchedVerticesBeforeDecimation,
+      removedSegmentSnapshots,
+      removedVertices,
+      splits: stats.splits,
+      merges: stats.merges,
+      amplitudeMs,
+      diffractionMs,
+      compactMs: compactMs.value,
+      turnClampCount,
+      totalRefractions,
+    };
+  }
 
   const finalizeTrack = (trackId: number): void => {
     const trackState = trackMap.get(trackId);
