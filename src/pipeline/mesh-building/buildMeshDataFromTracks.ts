@@ -17,6 +17,10 @@ export function buildMeshDataFromTracks(
   const k = (2 * Math.PI) / wavelength;
 
   const baseBySegment = new WeakMap<WavefrontSegment, number>();
+  const trackById = new Map<number, SegmentTrack>();
+  for (const track of tracks) {
+    trackById.set(track.trackId, track);
+  }
   let vertexOffset = 0;
   let indexOffset = 0;
 
@@ -70,6 +74,38 @@ export function buildMeshDataFromTracks(
       );
     }
   }
+  for (const parentTrack of tracks) {
+    const parentLastSnapshot =
+      parentTrack.snapshots[parentTrack.snapshots.length - 1] ?? null;
+    if (!parentLastSnapshot) continue;
+    for (const childTrackId of parentTrack.childTrackIds) {
+      const childTrack = trackById.get(childTrackId);
+      const childFirstSnapshot = childTrack?.snapshots[0] ?? null;
+      if (!childFirstSnapshot) continue;
+
+      const parentSegment = parentLastSnapshot.segment;
+      const childSegment = childFirstSnapshot.segment;
+      assertWavefrontInvariants(
+        [parentSegment],
+        "buildMeshDataFromTracks split parent",
+      );
+      assertWavefrontInvariants(
+        [childSegment],
+        "buildMeshDataFromTracks split child",
+      );
+
+      const parentBase = ensureSegmentVertices(parentSegment);
+      const childBase = ensureSegmentVertices(childSegment);
+      indexOffset = triangulateSegmentPair(
+        parentSegment,
+        childSegment,
+        parentBase,
+        childBase,
+        indices,
+        indexOffset,
+      );
+    }
+  }
 
   const coverageQuad = computeCoverageQuad(bounds, waveDx, waveDy);
   const finalVertexCount = vertexOffset / VERTEX_FLOATS;
@@ -91,8 +127,10 @@ export function countMeshTopologyFromTracks(tracks: SegmentTrack[]): {
 } {
   const uniqueSegments = new Set<WavefrontSegment>();
   let triangleCount = 0;
+  const trackById = new Map<number, SegmentTrack>();
 
   for (const track of tracks) {
+    trackById.set(track.trackId, track);
     for (const snapshot of track.snapshots) {
       assertWavefrontInvariants([snapshot.segment], "countMeshTopologyFromTracks");
       uniqueSegments.add(snapshot.segment);
@@ -101,6 +139,21 @@ export function countMeshTopologyFromTracks(tracks: SegmentTrack[]): {
       triangleCount += countTrianglesBetweenSegments(
         track.snapshots[si].segment,
         track.snapshots[si + 1].segment,
+      );
+    }
+  }
+  for (const parentTrack of tracks) {
+    const parentLastSnapshot =
+      parentTrack.snapshots[parentTrack.snapshots.length - 1] ?? null;
+    if (!parentLastSnapshot) continue;
+
+    for (const childTrackId of parentTrack.childTrackIds) {
+      const childTrack = trackById.get(childTrackId);
+      const childFirstSnapshot = childTrack?.snapshots[0] ?? null;
+      if (!childFirstSnapshot) continue;
+      triangleCount += countTrianglesBetweenSegments(
+        parentLastSnapshot.segment,
+        childFirstSnapshot.segment,
       );
     }
   }

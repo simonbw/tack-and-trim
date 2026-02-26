@@ -192,4 +192,75 @@ describe("meshOutput", () => {
       assert.ok(mesh.indices[i] < mesh.vertexCount);
     }
   });
+
+  it("stitches split boundaries between parent and child tracks", () => {
+    const wavefronts: Wavefront[] = [
+      [
+        {
+          trackId: 0,
+          parentTrackId: null,
+          sourceStepIndex: 0,
+          x: [0, 1, 2, 3, 4],
+          y: [0, 0, 0, 0, 0],
+          t: [0, 0.25, 0.5, 0.75, 1],
+          dirX: [],
+          dirY: [],
+          energy: [],
+          turbulence: [0, 0, 0, 0, 0],
+          depth: [],
+          amplitude: [1, 1, 1, 1, 1],
+          blend: [1, 1, 1, 1, 1],
+        },
+      ],
+      [
+        {
+          trackId: 1,
+          parentTrackId: 0,
+          sourceStepIndex: 1,
+          x: [0, 0.5, 1, 1.5, 2],
+          y: [1, 1, 1, 1, 1],
+          t: [0, 0.125, 0.25, 0.375, 0.5],
+          dirX: [],
+          dirY: [],
+          energy: [],
+          turbulence: [0, 0, 0, 0, 0],
+          depth: [],
+          amplitude: [1, 1, 1, 1, 1],
+          blend: [1, 1, 1, 1, 1],
+        },
+        {
+          trackId: 2,
+          parentTrackId: 0,
+          sourceStepIndex: 1,
+          x: [2, 2.5, 3, 3.5, 4],
+          y: [1, 1, 1, 1, 1],
+          t: [0.5, 0.625, 0.75, 0.875, 1],
+          dirX: [],
+          dirY: [],
+          energy: [],
+          turbulence: [0, 0, 0, 0, 0],
+          depth: [],
+          amplitude: [1, 1, 1, 1, 1],
+          blend: [1, 1, 1, 1, 1],
+        },
+      ],
+    ];
+    const tracks = buildSegmentTracks(wavefronts).tracks;
+    const bounds: WaveBounds = {
+      minProj: 0,
+      maxProj: 10,
+      minPerp: -2,
+      maxPerp: 2,
+    };
+
+    const mesh = buildMeshDataFromTracks(tracks, 100, 1, 0, bounds, Math.PI);
+    const topology = countMeshTopologyFromTracks(tracks);
+
+    assert.ok(topology.triangleCount > 0);
+    assert.equal(mesh.indexCount / 3, topology.triangleCount);
+    assert.ok(mesh.indexCount > 0);
+    for (let i = 0; i < mesh.indexCount; i++) {
+      assert.ok(mesh.indices[i] < mesh.vertexCount);
+    }
+  });
 });
