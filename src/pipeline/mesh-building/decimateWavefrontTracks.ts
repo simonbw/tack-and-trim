@@ -256,17 +256,21 @@ export function decimateWavefrontTracks(
   const verticesBefore = countVertices(wavefronts);
 
   const tracksResult = buildSegmentTracks(wavefronts);
-  const decimatedTracks: SegmentTrack[] = tracksResult.tracks.map((track) => ({
-    trackId: track.trackId,
-    parentTrackId: track.parentTrackId,
-    childTrackIds: [...track.childTrackIds],
-    snapshots: [],
-  }));
+  const decimatedTrackMap = new Map<number, SegmentTrack>();
+  for (const track of tracksResult.tracks) {
+    decimatedTrackMap.set(track.trackId, {
+      trackId: track.trackId,
+      parentTrackId: track.parentTrackId,
+      childTrackIds: [...track.childTrackIds],
+      snapshots: [],
+    });
+  }
   const rowBuckets = new Map<number, Array<{ segmentIndex: number; segment: WavefrontSegment }>>();
   let removedSegmentSnapshots = 0;
 
   for (const track of tracksResult.tracks) {
-    const outTrack = decimatedTracks[track.trackId];
+    const outTrack = decimatedTrackMap.get(track.trackId);
+    if (!outTrack) continue;
     const keepMask = keepSnapshotMaskForTrack(
       track,
       k,
@@ -312,7 +316,9 @@ export function decimateWavefrontTracks(
 
   const keptSourceStepIndices = resultRows.map((row) => row[0].sourceStepIndex);
   const verticesAfter = countVertices(resultRows);
-  const nonEmptyTracks = decimatedTracks.filter((track) => track.snapshots.length > 0);
+  const nonEmptyTracks = Array.from(decimatedTrackMap.values()).filter(
+    (track) => track.snapshots.length > 0,
+  );
 
   return {
     tracks: nonEmptyTracks,

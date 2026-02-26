@@ -33,6 +33,7 @@
 import type { TerrainCPUData } from "../../game/world/terrain/TerrainCPUData";
 import type {
   MarchingWavefront,
+  MarchingWavefrontSegment,
   WaveBounds,
   Wavefront,
   WavefrontSegment,
@@ -55,6 +56,12 @@ import {
   resetRefineWarnings,
 } from "./wavefrontRefine";
 import { assertWavefrontInvariants } from "./wavefrontContracts";
+
+interface ActiveTrackState {
+  trackId: number;
+  parentTrackId: number | null;
+  segment: MarchingWavefrontSegment;
+}
 
 /**
  * Generate the initial wavefront: a line of evenly-spaced points along the
@@ -137,6 +144,8 @@ export function generateInitialWavefront(
   blend[last] = 1.0;
 
   return {
+    trackId: 0,
+    parentTrackId: null,
     sourceStepIndex: 0,
     x,
     y,
@@ -169,6 +178,8 @@ function compactStep(step: Wavefront, compactMs: { value: number }): void {
 
     // Convert kept fields to Float32Array and strip marching-only fields
     step[i] = {
+      trackId: segment.trackId,
+      parentTrackId: segment.parentTrackId,
       sourceStepIndex: segment.sourceStepIndex,
       x: new Float32Array(segment.x),
       y: new Float32Array(segment.y),
@@ -215,6 +226,14 @@ export function marchWavefronts(
   const perpDx = -waveDy;
   const perpDy = waveDx;
   const wavefronts: Wavefront[] = [[firstWavefront]];
+  let nextTrackId = firstWavefront.trackId + 1;
+  let activeTracks: ActiveTrackState[] = [
+    {
+      trackId: firstWavefront.trackId,
+      parentTrackId: firstWavefront.parentTrackId,
+      segment: firstWavefront as MarchingWavefrontSegment,
+    },
+  ];
   const k = (2 * Math.PI) / wavelength;
   const terrainGradientSample: TerrainHeightGradient = {
     height: 0,
@@ -283,11 +302,11 @@ export function marchWavefronts(
   postProcessStep(wavefronts[0] as MarchingWavefront);
 
   for (;;) {
-    const prevStep = wavefronts[wavefronts.length - 1] as MarchingWavefront;
-    const nextStep: MarchingWavefront = [];
     const nextSourceStepIndex = wavefronts.length;
+    const nextActiveTracks: ActiveTrackState[] = [];
 
-    for (const segment of prevStep) {
+    for (const track of activeTracks) {
+      const segment = track.segment;
       const srcX = segment.x;
       const srcY = segment.y;
       const srcT = segment.t;
@@ -297,7 +316,12 @@ export function marchWavefronts(
       const srcTurbulence = segment.turbulence;
       const srcLen = srcX.length;
 
-      let currentSegment = createEmptySegment(nextSourceStepIndex);
+      const producedSegments: MarchingWavefront = [];
+      let currentSegment = createEmptySegment(
+        -1,
+        track.trackId,
+        nextSourceStepIndex,
+      );
       let outX = currentSegment.x;
       let outY = currentSegment.y;
       let outT = currentSegment.t;
@@ -311,7 +335,7 @@ export function marchWavefronts(
 
       const flushCurrentSegment = (): void => {
         if (outX.length === 0) return;
-        nextStep.push(
+        producedSegments.push(
           refineWavefront(
             currentSegment,
             vertexSpacing,
@@ -320,7 +344,11 @@ export function marchWavefronts(
             config.refinement,
           ),
         );
-        currentSegment = createEmptySegment(nextSourceStepIndex);
+        currentSegment = createEmptySegment(
+          -1,
+          track.trackId,
+          nextSourceStepIndex,
+        );
         outX = currentSegment.x;
         outY = currentSegment.y;
         outT = currentSegment.t;
@@ -435,7 +463,7 @@ export function marchWavefronts(
       }
 
       if (outX.length > 0) {
-        nextStep.push(
+        producedSegments.push(
           refineWavefront(
             currentSegment,
             vertexSpacing,
@@ -445,9 +473,32 @@ export function marchWavefronts(
           ),
         );
       }
+
+      if (producedSegments.length === 1) {
+        producedSegments[0].trackId = track.trackId;
+        producedSegments[0].parentTrackId = track.parentTrackId;
+        nextActiveTracks.push({
+          trackId: producedSegments[0].trackId,
+          parentTrackId: producedSegments[0].parentTrackId,
+          segment: producedSegments[0],
+        });
+      } else if (producedSegments.length > 1) {
+        for (const child of producedSegments) {
+          child.trackId = nextTrackId++;
+          child.parentTrackId = track.trackId;
+          nextActiveTracks.push({
+            trackId: child.trackId,
+            parentTrackId: child.parentTrackId,
+            segment: child,
+          });
+        }
+      }
     }
 
-    if (nextStep.length === 0) break;
+    if (nextActiveTracks.length === 0) break;
+    const nextStep: MarchingWavefront = nextActiveTracks.map(
+      (nextTrack) => nextTrack.segment,
+    );
     assertWavefrontInvariants(nextStep, "marchWavefronts nextStep");
 
     // Count rays in this step
@@ -477,6 +528,7 @@ export function marchWavefronts(
 
     postProcessStep(nextStep);
     wavefronts.push(nextStep);
+    activeTracks = nextActiveTracks;
 
     // Compact the second-to-last step — it's fully post-processed and no
     // longer needed as a marching source. The latest step (nextStep) must

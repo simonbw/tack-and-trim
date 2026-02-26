@@ -4,6 +4,8 @@ import type { Wavefront, WavefrontSegment } from "../marchingTypes";
 import { decimateWavefrontTracks } from "../decimateWavefrontTracks";
 
 function makeSegment(
+  trackId: number,
+  parentTrackId: number | null,
   sourceStepIndex: number,
   xOffset: number,
   minT: number,
@@ -12,6 +14,8 @@ function makeSegment(
 ): WavefrontSegment {
   const tMid = (minT + maxT) / 2;
   return {
+    trackId,
+    parentTrackId,
     sourceStepIndex,
     x: [xOffset, xOffset + 1, xOffset + 2],
     y: [yValue, yValue, yValue],
@@ -29,11 +33,11 @@ function makeSegment(
 describe("decimateWavefrontTracks", () => {
   it("removes middle snapshots on a linear single track", () => {
     const wavefronts: Wavefront[] = [
-      [makeSegment(0, 0, 0, 1)],
-      [makeSegment(1, 10, 0, 1)],
-      [makeSegment(2, 20, 0, 1)],
-      [makeSegment(3, 30, 0, 1)],
-      [makeSegment(4, 40, 0, 1)],
+      [makeSegment(0, null, 0, 0, 0, 1)],
+      [makeSegment(0, null, 1, 10, 0, 1)],
+      [makeSegment(0, null, 2, 20, 0, 1)],
+      [makeSegment(0, null, 3, 30, 0, 1)],
+      [makeSegment(0, null, 4, 40, 0, 1)],
     ];
 
     const wavelength = 100;
@@ -55,11 +59,26 @@ describe("decimateWavefrontTracks", () => {
 
   it("can keep different source-step sets per track", () => {
     const wavefronts: Wavefront[] = [
-      [makeSegment(0, 0, 0, 0.5), makeSegment(0, 0, 0.5, 1)],
-      [makeSegment(1, 10, 0, 0.5), makeSegment(1, 2, 0.5, 1, 5)],
-      [makeSegment(2, 20, 0, 0.5), makeSegment(2, 4, 0.5, 1, 0)],
-      [makeSegment(3, 30, 0, 0.5), makeSegment(3, 6, 0.5, 1, 5)],
-      [makeSegment(4, 40, 0, 0.5), makeSegment(4, 8, 0.5, 1)],
+      [
+        makeSegment(0, null, 0, 0, 0, 0.5),
+        makeSegment(1, null, 0, 0, 0.5, 1),
+      ],
+      [
+        makeSegment(0, null, 1, 10, 0, 0.5),
+        makeSegment(1, null, 1, 2, 0.5, 1, 5),
+      ],
+      [
+        makeSegment(0, null, 2, 20, 0, 0.5),
+        makeSegment(1, null, 2, 4, 0.5, 1, 0),
+      ],
+      [
+        makeSegment(0, null, 3, 30, 0, 0.5),
+        makeSegment(1, null, 3, 6, 0.5, 1, 5),
+      ],
+      [
+        makeSegment(0, null, 4, 40, 0, 0.5),
+        makeSegment(1, null, 4, 8, 0.5, 1),
+      ],
     ];
 
     const wavelength = 100;

@@ -88,6 +88,7 @@ describe("marchWavefronts invariants", () => {
 
       for (const segment of step) {
         assertSegmentInvariants(segment);
+        assert.ok(segment.trackId >= 0, "expected non-negative trackId");
         if (segment.t.length > 0 && segment.t[0] === 0) {
           sawLeftSentinel = true;
         }
@@ -101,6 +102,16 @@ describe("marchWavefronts invariants", () => {
 
       assert.ok(sawLeftSentinel, "expected a t=0 sentinel in step");
       assert.ok(sawRightSentinel, "expected a t=1 sentinel in step");
+    }
+
+    // In this simple open-ocean case, marching should stay as one segment
+    // and preserve track identity across steps.
+    const singleTrackSteps = result.wavefronts.filter((step) => step.length === 1);
+    if (singleTrackSteps.length > 1) {
+      const rootTrackId = singleTrackSteps[0][0].trackId;
+      for (let i = 1; i < singleTrackSteps.length; i++) {
+        assert.equal(singleTrackSteps[i][0].trackId, rootTrackId);
+      }
     }
   });
 });

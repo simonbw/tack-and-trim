@@ -11,6 +11,8 @@ function makeRows(): Wavefront[] {
   return [
     [
       {
+        trackId: 0,
+        parentTrackId: null,
         sourceStepIndex: 0,
         x: [0, 1, 2],
         y: [0, 0, 0],
@@ -26,6 +28,8 @@ function makeRows(): Wavefront[] {
     ],
     [
       {
+        trackId: 0,
+        parentTrackId: null,
         sourceStepIndex: 1,
         x: [0, 1, 2],
         y: [1, 1, 1],
@@ -115,6 +119,8 @@ describe("meshOutput", () => {
     const wavefronts: Wavefront[] = [
       [
         {
+          trackId: 0,
+          parentTrackId: null,
           sourceStepIndex: 0,
           x: [0, 1, 2],
           y: [0, 0, 0],
@@ -130,6 +136,8 @@ describe("meshOutput", () => {
       ],
       [
         {
+          trackId: 0,
+          parentTrackId: null,
           sourceStepIndex: 1,
           x: [0, 1, 2],
           y: [1, 1, 1],
@@ -145,6 +153,8 @@ describe("meshOutput", () => {
       ],
       [
         {
+          trackId: 0,
+          parentTrackId: null,
           sourceStepIndex: 2,
           x: [0, 1, 2],
           y: [2, 2, 2],

@@ -4,12 +4,16 @@ import type { Wavefront, WavefrontSegment } from "../marchingTypes";
 import { buildSegmentTracks } from "../buildSegmentTracks";
 
 function makeSegment(
+  trackId: number,
+  parentTrackId: number | null,
   sourceStepIndex: number,
   minT: number,
   maxT: number,
 ): WavefrontSegment {
   const midT = (minT + maxT) / 2;
   return {
+    trackId,
+    parentTrackId,
     sourceStepIndex,
     x: [0, 1, 2],
     y: [0, 0, 0],
@@ -25,11 +29,11 @@ function makeSegment(
 }
 
 describe("buildSegmentTracks", () => {
-  it("keeps a single linear segment in one track", () => {
+  it("groups snapshots by trackId", () => {
     const rows: Wavefront[] = [
-      [makeSegment(10, 0, 1)],
-      [makeSegment(11, 0, 1)],
-      [makeSegment(12, 0, 1)],
+      [makeSegment(10, null, 10, 0, 1)],
+      [makeSegment(10, null, 11, 0, 1)],
+      [makeSegment(10, null, 12, 0, 1)],
     ];
 
     const result = buildSegmentTracks(rows);
@@ -43,36 +47,20 @@ describe("buildSegmentTracks", () => {
     );
   });
 
-  it("creates child tracks when one segment splits into multiple", () => {
+  it("links child tracks through parentTrackId", () => {
     const rows: Wavefront[] = [
-      [makeSegment(0, 0, 1)],
-      [makeSegment(1, 0, 0.5), makeSegment(1, 0.5, 1)],
+      [makeSegment(0, null, 0, 0, 1)],
+      [makeSegment(1, 0, 1, 0, 0.5), makeSegment(2, 0, 1, 0.5, 1)],
     ];
 
     const result = buildSegmentTracks(rows);
 
-    assert.equal(result.tracks.length, 2);
+    assert.equal(result.tracks.length, 3);
     assert.equal(result.splitCount, 1);
     assert.equal(result.mergeCount, 0);
 
-    const root = result.tracks.find((t) => t.parentTrackId === null);
+    const root = result.tracks.find((t) => t.trackId === 0);
     assert.ok(root);
-    assert.equal(root.childTrackIds.length, 1);
-    assert.deepEqual(
-      root.snapshots.map((s) => s.rowIndex),
-      [0, 1],
-    );
-  });
-
-  it("counts merge events when a segment overlaps multiple parent tracks", () => {
-    const rows: Wavefront[] = [
-      [makeSegment(0, 0, 0.6), makeSegment(0, 0.4, 1)],
-      [makeSegment(1, 0.2, 0.8)],
-    ];
-
-    const result = buildSegmentTracks(rows);
-
-    assert.ok(result.mergeCount > 0);
+    assert.deepEqual(root.childTrackIds, [1, 2]);
   });
 });
-

@@ -106,6 +106,8 @@ function buildSegmentFromKept(
     copyKeptIndices(segment.energy, kept, outEnergy);
     copyKeptIndices(segment.depth, kept, outDepth);
     return {
+      trackId: segment.trackId,
+      parentTrackId: segment.parentTrackId,
       sourceStepIndex: segment.sourceStepIndex,
       x: outX,
       y: outY,
@@ -121,6 +123,8 @@ function buildSegmentFromKept(
   }
 
   return {
+    trackId: segment.trackId,
+    parentTrackId: segment.parentTrackId,
     sourceStepIndex: segment.sourceStepIndex,
     x: outX,
     y: outY,

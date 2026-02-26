@@ -5,6 +5,8 @@ import type { WavefrontSegment } from "../marchingTypes";
 
 function makeSegment(xs: number[]): WavefrontSegment {
   return {
+    trackId: 0,
+    parentTrackId: null,
     sourceStepIndex: 0,
     x: xs,
     y: xs.map(() => 0),

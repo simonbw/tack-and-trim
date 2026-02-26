@@ -7,6 +7,10 @@ export type SegmentArray = number[] | Float32Array;
  * Fields needed by downstream output stages (decimation, triangulation, serialization).
  */
 export interface OutputWavefrontSegment {
+  /** Stable lineage id for this segment track across march steps. */
+  trackId: number;
+  /** Parent track when this track was born from a split, otherwise null. */
+  parentTrackId: number | null;
   /** Source march step index this segment snapshot came from. */
   sourceStepIndex: number;
   x: SegmentArray;
@@ -50,6 +54,8 @@ export interface WaveBounds {
  * when we need .push() on every field. Assignable to WavefrontSegment.
  */
 export interface MutableWavefrontSegment {
+  trackId: number;
+  parentTrackId: number | null;
   sourceStepIndex: number;
   x: number[];
   y: number[];

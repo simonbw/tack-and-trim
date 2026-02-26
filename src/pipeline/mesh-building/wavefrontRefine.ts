@@ -15,9 +15,13 @@ export function resetRefineWarnings(): void {
 }
 
 export function createEmptySegment(
+  trackId: number = -1,
+  parentTrackId: number | null = null,
   sourceStepIndex: number = 0,
 ): MutableWavefrontSegment {
   return {
+    trackId,
+    parentTrackId,
     sourceStepIndex,
     x: [],
     y: [],
@@ -60,7 +64,11 @@ export function refineWavefront(
   const canSplit = srcLen < config.maxSegmentPoints;
   const splitEscalationExp = Math.log2(config.splitEscalation);
 
-  const result = createEmptySegment(wavefront.sourceStepIndex);
+  const result = createEmptySegment(
+    wavefront.trackId,
+    wavefront.parentTrackId,
+    wavefront.sourceStepIndex,
+  );
   const outX = result.x;
   const outY = result.y;
   const outT = result.t;

@@ -80,6 +80,26 @@ export function assertSegmentMonotonicT(
   }
 }
 
+export function assertSegmentLineage(
+  segment: WavefrontSegment,
+  context: string,
+): void {
+  if (!CHECK_INVARIANTS) return;
+  if (!Number.isInteger(segment.trackId) || segment.trackId < 0) {
+    throw new Error(
+      `[wavefront] ${context}: invalid trackId=${segment.trackId}`,
+    );
+  }
+  if (
+    segment.parentTrackId !== null &&
+    (!Number.isInteger(segment.parentTrackId) || segment.parentTrackId < 0)
+  ) {
+    throw new Error(
+      `[wavefront] ${context}: invalid parentTrackId=${segment.parentTrackId}`,
+    );
+  }
+}
+
 export function assertWavefrontInvariants(
   wavefront: Wavefront,
   context: string,
@@ -90,5 +110,6 @@ export function assertWavefrontInvariants(
     const segContext = `${context} segment=${i}`;
     assertSegmentAlignedLengths(segment, segContext);
     assertSegmentMonotonicT(segment, segContext);
+    assertSegmentLineage(segment, segContext);
   }
 }
