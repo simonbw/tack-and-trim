@@ -28,6 +28,26 @@ export const StarterBoat: BoatConfig = {
       V(-5.1, 1.95),
       V(-5.5, 1.1),
     ], // ~12 ft LOA, ~5.6 ft beam
+    waterlineVertices: [
+      // Narrower shape at the waterline (below gunwales/flare)
+      // Stern (transom)
+      V(-5.3, -0.85),
+      V(-4.9, -1.5),
+      // Starboard side
+      V(-2.1, -2.2),
+      V(1.7, -2.2),
+      V(4.5, -1.7),
+      V(6.6, -0.85),
+      // Bow
+      V(7.5, 0),
+      // Port side
+      V(6.6, 0.85),
+      V(4.5, 1.7),
+      V(1.7, 2.2),
+      V(-2.1, 2.2),
+      V(-4.9, 1.5),
+      V(-5.3, 0.85),
+    ], // ~12.8 ft WLL, ~4.4 ft waterline beam
     skinFrictionCoefficient: 0.003,
     draft: 0.4, // ft below waterline
     colors: {

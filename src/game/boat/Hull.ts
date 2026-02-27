@@ -67,7 +67,8 @@ export class Hull extends BaseEntity {
   constructor(config: HullConfig) {
     super();
 
-    this.hullArea = polygonArea(config.vertices);
+    // Use waterline vertices for wetted area (skin friction), fall back to hull vertices
+    this.hullArea = polygonArea(config.waterlineVertices ?? config.vertices);
     this.skinFrictionCoefficient = config.skinFrictionCoefficient;
     this.vertices = config.vertices;
     this.fillColor = config.colors.fill;

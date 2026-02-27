@@ -10,7 +10,8 @@ import { SheetConfig } from "./Sheet";
 
 export interface HullConfig {
   readonly mass: number; // lbs
-  readonly vertices: V2d[]; // ft, hull shape polygon, counter-clockwise winding
+  readonly vertices: V2d[]; // ft, hull shape polygon, counter-clockwise winding (visual/collision)
+  readonly waterlineVertices?: V2d[]; // ft, narrower shape at the waterline (water interaction)
   readonly skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
   readonly draft: number; // ft below waterline (hull bottom)
   readonly colors: {
