@@ -14,13 +14,21 @@ const EDGE_GRID_THRESHOLD: usize = 32;
 /// Target number of grid cells per axis (actual count clamped to edge count).
 const EDGE_GRID_RESOLUTION: usize = 16;
 
-/// Spatial grid that indexes contour edges into 2D cells.
+/// Cell containment flag for the rasterized inside/outside grid.
+const CELL_OUTSIDE: u8 = 0;
+const CELL_INSIDE: u8 = 1;
+const CELL_BOUNDARY: u8 = 2;
+
+/// Spatial grid that indexes contour edges into 2D cells and caches
+/// inside/outside containment for O(1) point-in-contour tests.
 /// Built once per contour during `parse_contours`, reused for all queries.
 pub struct EdgeGrid {
     /// Flattened cell storage: `cell_starts[cell]..cell_starts[cell+1]` gives
     /// the range of edge indices in `edge_indices` belonging to that cell.
     cell_starts: Vec<u32>,
     edge_indices: Vec<u16>,
+    /// Per-cell containment: CELL_OUTSIDE, CELL_INSIDE, or CELL_BOUNDARY.
+    cell_flags: Vec<u8>,
     cols: usize,
     rows: usize,
     inv_cell_w: f64,
@@ -122,7 +130,45 @@ impl EdgeGrid {
             }
         }
 
-        EdgeGrid { cell_starts, edge_indices, cols, rows, inv_cell_w, inv_cell_h, min_x, min_y }
+        // Build containment flags: cells with edges are Boundary,
+        // cells without edges get a single winding-number sample at the center.
+        let cell_w = w / cols as f64;
+        let cell_h = h / rows as f64;
+        let mut cell_flags = vec![CELL_OUTSIDE; num_cells];
+        for cell in 0..num_cells {
+            let edge_count = cell_starts[cell + 1] - cell_starts[cell];
+            if edge_count > 0 {
+                cell_flags[cell] = CELL_BOUNDARY;
+            } else {
+                let col = cell % cols;
+                let row = cell / cols;
+                let cx = min_x + (col as f64 + 0.5) * cell_w;
+                let cy = min_y + (row as f64 + 0.5) * cell_h;
+                if winding_number_test(cx, cy, c.point_count, c.point_start * 2, vd) {
+                    cell_flags[cell] = CELL_INSIDE;
+                }
+            }
+        }
+
+        EdgeGrid { cell_starts, edge_indices, cell_flags, cols, rows, inv_cell_w, inv_cell_h, min_x, min_y }
+    }
+
+    /// Fast containment check. Returns `Some(true)` if definitely inside,
+    /// `Some(false)` if definitely outside, `None` if on a boundary cell
+    /// (caller must fall back to full winding number test).
+    #[inline]
+    fn contains(&self, px: f64, py: f64) -> Option<bool> {
+        let ci = ((px - self.min_x) * self.inv_cell_w).floor() as isize;
+        let ri = ((py - self.min_y) * self.inv_cell_h).floor() as isize;
+        if ci < 0 || ri < 0 || ci >= self.cols as isize || ri >= self.rows as isize {
+            return Some(false);
+        }
+        let cell = ri as usize * self.cols + ci as usize;
+        match self.cell_flags[cell] {
+            CELL_INSIDE => Some(true),
+            CELL_OUTSIDE => Some(false),
+            _ => None, // CELL_BOUNDARY — need full winding test
+        }
     }
 
     /// Return an iterator of edge indices in cells within `radius` of `(px, py)`.
@@ -254,18 +300,13 @@ pub fn parse_contours(terrain: &TerrainCPUData) -> Vec<ParsedContour> {
     contours
 }
 
-/// Winding number test for point-in-contour.
-fn is_inside_contour(
-    px: f64, py: f64,
-    contour: &ParsedContour,
-    vertex_data: &[f32],
-) -> bool {
-    let n = contour.point_count;
-    if n < 3 { return false; }
-    let start = contour.point_start * 2;
+/// Raw winding number test — checks if a point is inside a polygon defined
+/// by `point_count` vertices starting at `start` in `vertex_data`.
+fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, vertex_data: &[f32]) -> bool {
+    if point_count < 3 { return false; }
     let mut winding: i32 = 0;
-    for i in 0..n {
-        let j = (i + 1) % n;
+    for i in 0..point_count {
+        let j = (i + 1) % point_count;
         let xi = vertex_data[start + i * 2] as f64;
         let yi = vertex_data[start + i * 2 + 1] as f64;
         let xj = vertex_data[start + j * 2] as f64;
@@ -281,6 +322,24 @@ fn is_inside_contour(
         }
     }
     winding != 0
+}
+
+/// Point-in-contour test. Uses the edge grid's rasterized containment flags
+/// for O(1) lookups when available, falling back to full winding number test
+/// only for boundary cells or small contours without a grid.
+fn is_inside_contour(
+    px: f64, py: f64,
+    contour: &ParsedContour,
+    vertex_data: &[f32],
+) -> bool {
+    // Try grid-accelerated containment first
+    if let Some(grid) = &contour.edge_grid {
+        if let Some(inside) = grid.contains(px, py) {
+            return inside;
+        }
+        // Boundary cell — fall through to full winding test
+    }
+    winding_number_test(px, py, contour.point_count, contour.point_start * 2, vertex_data)
 }
 
 /// Compute terrain height at (px, py) using contour tree DFS with skip counts.
