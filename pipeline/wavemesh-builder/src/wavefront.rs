@@ -66,16 +66,21 @@ pub struct WavefrontSegment {
 impl WavefrontSegment {
     /// Create an empty segment with the given track lineage info.
     pub fn new(track_id: i32, parent_track_id: Option<i32>, source_step_index: usize) -> Self {
+        Self::with_capacity(track_id, parent_track_id, source_step_index, 0)
+    }
+
+    /// Create a segment pre-allocated for `cap` rays.
+    pub fn with_capacity(track_id: i32, parent_track_id: Option<i32>, source_step_index: usize, cap: usize) -> Self {
         WavefrontSegment {
             track_id,
             parent_track_id,
             source_step_index,
-            x: vec![], y: vec![], t: vec![],
-            dir_x: vec![], dir_y: vec![],
-            energy: vec![], turbulence: vec![],
-            depth: vec![],
-            terrain_grad_x: vec![], terrain_grad_y: vec![],
-            amplitude: vec![], blend: vec![],
+            x: Vec::with_capacity(cap), y: Vec::with_capacity(cap), t: Vec::with_capacity(cap),
+            dir_x: Vec::with_capacity(cap), dir_y: Vec::with_capacity(cap),
+            energy: Vec::with_capacity(cap), turbulence: Vec::with_capacity(cap),
+            depth: Vec::with_capacity(cap),
+            terrain_grad_x: Vec::with_capacity(cap), terrain_grad_y: Vec::with_capacity(cap),
+            amplitude: Vec::with_capacity(cap), blend: Vec::with_capacity(cap),
         }
     }
 

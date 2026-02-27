@@ -36,7 +36,7 @@ fn can_remove_vertices_between(
 }
 
 fn build_segment_from_kept(seg: &WavefrontSegment, kept: &[usize]) -> WavefrontSegment {
-    let mut out = WavefrontSegment::new(seg.track_id, seg.parent_track_id, seg.source_step_index);
+    let mut out = WavefrontSegment::with_capacity(seg.track_id, seg.parent_track_id, seg.source_step_index, kept.len());
     for &idx in kept {
         out.push(
             seg.x[idx], seg.y[idx], seg.t[idx],

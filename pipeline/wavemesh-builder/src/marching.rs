@@ -25,7 +25,7 @@ pub fn generate_initial_wavefront(
     let num_interior = num_interior.max(3);
     let num_vertices = num_interior + 2;
 
-    let mut wf = WavefrontSegment::new(0, None, 0);
+    let mut wf = WavefrontSegment::with_capacity(0, None, 0, num_vertices);
 
     // Left sentinel
     let left_perp = bounds.min_perp;
@@ -81,13 +81,13 @@ fn advance_track_segment_step(
     let mut refracted_count = 0u64;
     let mut turn_clamped_count = 0u64;
 
-    let mut current = WavefrontSegment::new(-1, parent_track_id, next_source_step);
+    let mut current = WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len);
 
     let mut flush = |current: &mut WavefrontSegment, produced: &mut Vec<WavefrontSegment>| {
         if current.len() == 0 { return; }
         let refined = refine_wavefront(current, wp.vertex_spacing, wp.initial_delta_t, stats, &config.refinement);
         produced.push(refined);
-        *current = WavefrontSegment::new(-1, parent_track_id, next_source_step);
+        *current = WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len);
     };
 
     for i in 0..src_len {

@@ -25,7 +25,8 @@ pub fn refine_wavefront(
     let can_split = src_len < config.max_segment_points;
     let split_escalation_exp = config.split_escalation.ln() / 2.0_f64.ln();
 
-    let mut result = WavefrontSegment::new(wf.track_id, wf.parent_track_id, wf.source_step_index);
+    // Pre-allocate for roughly the same size — splits/merges make it vary slightly
+    let mut result = WavefrontSegment::with_capacity(wf.track_id, wf.parent_track_id, wf.source_step_index, src_len + src_len / 4);
 
     // Push first point
     result.push(
