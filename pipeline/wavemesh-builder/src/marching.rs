@@ -4,6 +4,8 @@
 
 use std::time::Instant;
 
+use rayon::prelude::*;
+
 use crate::config::MeshBuildConfig;
 use crate::decimate::decimate_track_snapshots;
 use crate::level::TerrainCPUData;
@@ -63,6 +65,24 @@ pub fn generate_initial_wavefront(
 
 // ── Single track step ────────────────────────────────────────────────────────
 
+/// Result of advancing a single ray one step. Computed in parallel, then
+/// assembled sequentially to handle splits and refinement.
+enum RayStepOutcome {
+    /// Ray died (out of bounds) or energy too low — triggers a segment break.
+    Gap,
+    /// Ray advanced successfully.
+    Advanced {
+        nx: f64, ny: f64, t: f64,
+        dir_x: f64, dir_y: f64,
+        energy: f64, turbulence: f64, depth: f64,
+        terrain_grad_x: f64, terrain_grad_y: f64,
+        blend: f64,
+        is_sentinel: bool,
+        refracted: bool,
+        turn_clamped: bool,
+    },
+}
+
 #[allow(clippy::too_many_arguments)]
 fn advance_track_segment_step(
     segment: &WavefrontSegment,
@@ -77,6 +97,59 @@ fn advance_track_segment_step(
 ) -> (usize, Vec<WavefrontSegment>, u64, u64) {
     let next_source_step = segment.source_step_index + 1;
     let src_len = segment.len();
+
+    // ── Pass 1: advance all rays in parallel ────────────────────────────────
+    let outcomes: Vec<RayStepOutcome> = (0..src_len)
+        .into_par_iter()
+        .map(|i| {
+            let energy = segment.energy[i];
+            let px = segment.x[i];
+            let py = segment.y[i];
+            let pt = segment.t[i];
+            let is_sentinel = pt == 0.0 || pt == 1.0;
+
+            if !is_sentinel && energy < config.refinement.min_energy {
+                return RayStepOutcome::Gap;
+            }
+
+            if is_sentinel {
+                return match advance_sentinel_ray(px, py, wp, bounds) {
+                    Some(sr) => RayStepOutcome::Advanced {
+                        nx: sr.nx, ny: sr.ny, t: pt,
+                        dir_x: wp.wave_dx, dir_y: wp.wave_dy,
+                        energy: 1.0, turbulence: 0.0, depth: wp.wavelength,
+                        terrain_grad_x: 0.0, terrain_grad_y: 0.0,
+                        blend: 1.0, is_sentinel: true,
+                        refracted: false, turn_clamped: false,
+                    },
+                    None => RayStepOutcome::Gap,
+                };
+            }
+
+            let ray = RayState {
+                x: px, y: py, energy,
+                turbulence: segment.turbulence[i],
+                dir_x: segment.dir_x[i], dir_y: segment.dir_y[i],
+                depth: segment.depth[i],
+                terrain_grad_x: segment.terrain_grad_x[i],
+                terrain_grad_y: segment.terrain_grad_y[i],
+            };
+
+            match advance_interior_ray(&ray, wp, bounds, breaking_depth, &config.physics, terrain, contours) {
+                Some(ir) => RayStepOutcome::Advanced {
+                    nx: ir.nx, ny: ir.ny, t: pt,
+                    dir_x: ir.dir_x, dir_y: ir.dir_y,
+                    energy: ir.energy, turbulence: ir.turbulence, depth: ir.depth,
+                    terrain_grad_x: ir.terrain_grad_x, terrain_grad_y: ir.terrain_grad_y,
+                    blend: 1.0, is_sentinel: false,
+                    refracted: ir.refracted, turn_clamped: ir.turn_clamped,
+                },
+                None => RayStepOutcome::Gap,
+            }
+        })
+        .collect();
+
+    // ── Pass 2: sequential assembly with split/flush logic ──────────────────
     let mut produced: Vec<WavefrontSegment> = Vec::new();
     let mut refracted_count = 0u64;
     let mut turn_clamped_count = 0u64;
@@ -90,68 +163,37 @@ fn advance_track_segment_step(
         *current = WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len);
     };
 
-    for i in 0..src_len {
-        let energy = segment.energy[i];
-        let px = segment.x[i];
-        let py = segment.y[i];
-        let pt = segment.t[i];
-        let is_sentinel = pt == 0.0 || pt == 1.0;
-
-        if !is_sentinel && energy < config.refinement.min_energy {
-            flush(&mut current, &mut produced);
-            continue;
-        }
-
-        if is_sentinel {
-            if let Some(sr) = advance_sentinel_ray(px, py, wp, bounds) {
-                current.push(sr.nx, sr.ny, pt, wp.wave_dx, wp.wave_dy, 1.0, 0.0, wp.wavelength, 0.0, 0.0, 0.0, 1.0);
-            } else {
+    for outcome in &outcomes {
+        match outcome {
+            RayStepOutcome::Gap => {
                 flush(&mut current, &mut produced);
             }
-            continue;
-        }
+            RayStepOutcome::Advanced {
+                nx, ny, t, dir_x, dir_y, energy, turbulence, depth,
+                terrain_grad_x, terrain_grad_y, blend, is_sentinel,
+                refracted, turn_clamped,
+            } => {
+                if *refracted { refracted_count += 1; }
+                if *turn_clamped { turn_clamped_count += 1; }
 
-        let ray = RayState {
-            x: px,
-            y: py,
-            energy,
-            turbulence: segment.turbulence[i],
-            dir_x: segment.dir_x[i],
-            dir_y: segment.dir_y[i],
-            depth: segment.depth[i],
-            terrain_grad_x: segment.terrain_grad_x[i],
-            terrain_grad_y: segment.terrain_grad_y[i],
-        };
+                // Energy ratio check → segment break (skip for sentinels)
+                if !is_sentinel && !current.energy.is_empty() {
+                    let prev_e = *current.energy.last().unwrap();
+                    let ratio = if *energy > prev_e { energy / prev_e } else { prev_e / energy };
+                    if ratio > config.refinement.max_energy_ratio {
+                        flush(&mut current, &mut produced);
+                    }
+                }
 
-        let result = advance_interior_ray(
-            &ray, wp, bounds, breaking_depth,
-            &config.physics, terrain, contours,
-        );
-
-        let ir = match result {
-            Some(r) => r,
-            None => { flush(&mut current, &mut produced); continue; }
-        };
-
-        if ir.refracted { refracted_count += 1; }
-        if ir.turn_clamped { turn_clamped_count += 1; }
-
-        // Energy ratio check → segment break
-        if !current.energy.is_empty() {
-            let prev_e = *current.energy.last().unwrap();
-            let ratio = if ir.energy > prev_e { ir.energy / prev_e } else { prev_e / ir.energy };
-            if ratio > config.refinement.max_energy_ratio {
-                flush(&mut current, &mut produced);
+                current.push(
+                    *nx, *ny, *t,
+                    *dir_x, *dir_y,
+                    *energy, *turbulence, *depth,
+                    *terrain_grad_x, *terrain_grad_y,
+                    0.0, *blend,
+                );
             }
         }
-
-        current.push(
-            ir.nx, ir.ny, pt,
-            ir.dir_x, ir.dir_y,
-            ir.energy, ir.turbulence, ir.depth,
-            ir.terrain_grad_x, ir.terrain_grad_y,
-            0.0, 1.0,
-        );
     }
 
     if current.len() > 0 {
@@ -367,7 +409,8 @@ pub struct MarchResult {
     pub total_refractions: u64,
 }
 
-/// March all wavefronts using a concurrent work-queue with dedicated threads.
+/// March all wavefronts using rayon::scope for track-level parallelism
+/// and rayon par_iter for ray-level parallelism within each step.
 pub fn march_wavefronts(
     first_wavefront: WavefrontSegment,
     wp: &WaveParams,
@@ -376,7 +419,7 @@ pub fn march_wavefronts(
     config: &MeshBuildConfig,
 ) -> MarchResult {
     use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
-    use std::sync::{Arc, Condvar, Mutex};
+    use std::sync::Mutex;
 
     let contours = parse_contours(terrain);
 
@@ -389,42 +432,6 @@ pub fn march_wavefronts(
         1.0
     };
 
-    let start = Instant::now();
-
-    struct SharedState {
-        next_track_id: AtomicI32,
-        seeds: Mutex<Vec<WavefrontSegment>>,
-        condvar: Condvar,
-        in_flight: AtomicU64,
-        done: Mutex<bool>,
-        all_tracks: Mutex<Vec<SegmentTrack>>,
-        total_splits: AtomicU64,
-        total_merges: AtomicU64,
-        total_refractions: AtomicU64,
-        turn_clamp_count: AtomicU64,
-        marched_verts: AtomicU64,
-        removed_snapshots: AtomicU64,
-        removed_vertices: AtomicU64,
-        tracks_done: AtomicU64,
-    }
-
-    let shared = Arc::new(SharedState {
-        next_track_id: AtomicI32::new(first_wavefront.track_id + 1),
-        seeds: Mutex::new(vec![first_wavefront]),
-        condvar: Condvar::new(),
-        in_flight: AtomicU64::new(1),
-        done: Mutex::new(false),
-        all_tracks: Mutex::new(Vec::new()),
-        total_splits: AtomicU64::new(0),
-        total_merges: AtomicU64::new(0),
-        total_refractions: AtomicU64::new(0),
-        turn_clamp_count: AtomicU64::new(0),
-        marched_verts: AtomicU64::new(0),
-        removed_snapshots: AtomicU64::new(0),
-        removed_vertices: AtomicU64::new(0),
-        tracks_done: AtomicU64::new(0),
-    });
-
     let num_threads = std::env::var("WAVEMESH_THREADS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -434,131 +441,107 @@ pub fn march_wavefronts(
                 .unwrap_or(4);
             cpus.min(8)
         });
-    eprintln!("    [march] using {num_threads} threads");
+    eprintln!("    [march] using {num_threads} rayon threads");
 
-    // Use Arc for immutable shared data so threads (which must be 'static) can access it.
-    let contours = Arc::new(contours);
-    let terrain = Arc::new(terrain.clone());
-    let bounds = Arc::new(*bounds);
-    let config = Arc::new(config.clone());
-    let wp = Arc::new(wp);
+    // Configure rayon's global thread pool (only takes effect on first call)
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global();
 
-    let stack_size = 64 * 1024 * 1024; // 64 MB stacks to avoid overflow on large maps
-    let mut handles = Vec::new();
+    let start = Instant::now();
 
-    for _ in 0..num_threads {
-        let shared = shared.clone();
-        let contours = contours.clone();
-        let terrain = terrain.clone();
-        let bounds = bounds.clone();
-        let config = config.clone();
-        let wp = wp.clone();
+    let next_track_id = AtomicI32::new(first_wavefront.track_id + 1);
+    let all_tracks: Mutex<Vec<SegmentTrack>> = Mutex::new(Vec::new());
+    let total_splits = AtomicU64::new(0);
+    let total_merges = AtomicU64::new(0);
+    let total_refractions = AtomicU64::new(0);
+    let turn_clamp_count = AtomicU64::new(0);
+    let marched_verts = AtomicU64::new(0);
+    let removed_snapshots = AtomicU64::new(0);
+    let removed_vertices = AtomicU64::new(0);
+    let tracks_done = AtomicU64::new(0);
 
-        let handle = std::thread::Builder::new()
-            .stack_size(stack_size)
-            .spawn(move || {
-                loop {
-                    let seed = {
-                        let mut seeds = shared.seeds.lock().unwrap();
-                        loop {
-                            if let Some(s) = seeds.pop() {
-                                break Some(s);
-                            }
-                            if *shared.done.lock().unwrap() {
-                                break None;
-                            }
-                            seeds = shared.condvar.wait_timeout(
-                                seeds, std::time::Duration::from_millis(10)
-                            ).unwrap().0;
-                            if *shared.done.lock().unwrap() {
-                                break None;
-                            }
-                        }
-                    };
+    // Process a single track end-to-end: march all steps (with par_iter on rays),
+    // spawn child tracks on split, then decimate.
+    fn process_track<'scope>(
+        s: &rayon::Scope<'scope>,
+        mut seed: WavefrontSegment,
+        wp: &'scope WaveParams,
+        bounds: &'scope WaveBounds,
+        terrain: &'scope TerrainCPUData,
+        contours: &'scope [ParsedContour],
+        config: &'scope MeshBuildConfig,
+        next_track_id: &'scope AtomicI32,
+        all_tracks: &'scope Mutex<Vec<SegmentTrack>>,
+        total_splits: &'scope AtomicU64,
+        total_merges: &'scope AtomicU64,
+        total_refractions: &'scope AtomicU64,
+        turn_clamp_count: &'scope AtomicU64,
+        marched_verts: &'scope AtomicU64,
+        removed_snapshots: &'scope AtomicU64,
+        removed_vertices: &'scope AtomicU64,
+        tracks_done: &'scope AtomicU64,
+        start: &'scope Instant,
+    ) {
+        if seed.track_id < 0 {
+            seed.track_id = next_track_id.fetch_add(1, Ordering::Relaxed);
+        }
 
-                    let mut seed = match seed {
-                        Some(s) => s,
-                        None => return,
-                    };
+        let (track, child_seeds, stats, refractions, clamped, verts) =
+            march_single_track(seed, wp, bounds, terrain, contours, config);
 
-                    if seed.track_id < 0 {
-                        seed.track_id = shared.next_track_id.fetch_add(1, Ordering::Relaxed);
-                    }
+        total_splits.fetch_add(stats.splits, Ordering::Relaxed);
+        total_merges.fetch_add(stats.merges, Ordering::Relaxed);
+        total_refractions.fetch_add(refractions, Ordering::Relaxed);
+        turn_clamp_count.fetch_add(clamped, Ordering::Relaxed);
+        marched_verts.fetch_add(verts, Ordering::Relaxed);
 
-                    let (track, child_seeds, stats, refractions, clamped, verts) =
-                        march_single_track(
-                            seed, &wp, &bounds, &terrain, &contours, &config,
-                        );
+        // Assign IDs and spawn child tracks immediately
+        let child_ids: Vec<i32> = child_seeds
+            .iter()
+            .map(|_| next_track_id.fetch_add(1, Ordering::Relaxed))
+            .collect();
 
-                    shared.total_splits.fetch_add(stats.splits, Ordering::Relaxed);
-                    shared.total_merges.fetch_add(stats.merges, Ordering::Relaxed);
-                    shared.total_refractions.fetch_add(refractions, Ordering::Relaxed);
-                    shared.turn_clamp_count.fetch_add(clamped, Ordering::Relaxed);
-                    shared.marched_verts.fetch_add(verts, Ordering::Relaxed);
+        for (mut child, &id) in child_seeds.into_iter().zip(child_ids.iter()) {
+            child.track_id = id;
+            s.spawn(move |s| {
+                process_track(
+                    s, child, wp, bounds, terrain, contours, config,
+                    next_track_id, all_tracks,
+                    total_splits, total_merges, total_refractions, turn_clamp_count,
+                    marched_verts, removed_snapshots, removed_vertices, tracks_done, start,
+                );
+            });
+        }
 
-                    let child_ids: Vec<i32> = child_seeds
-                        .iter()
-                        .map(|_| shared.next_track_id.fetch_add(1, Ordering::Relaxed))
-                        .collect();
+        let mut final_track = track;
+        final_track.child_track_ids = child_ids;
 
-                    let mut final_track = track;
-                    final_track.child_track_ids = child_ids.clone();
+        // Decimate while children are already running on other threads
+        let dec = decimate_track_snapshots(&final_track, wp, config.decimation.tolerance);
+        removed_snapshots.fetch_add(dec.removed_snapshots, Ordering::Relaxed);
+        removed_vertices.fetch_add(dec.removed_vertices, Ordering::Relaxed);
 
-                    let dec = decimate_track_snapshots(
-                        &final_track, &wp,
-                        config.decimation.tolerance,
-                    );
-                    shared.removed_snapshots.fetch_add(dec.removed_snapshots, Ordering::Relaxed);
-                    shared.removed_vertices.fetch_add(dec.removed_vertices, Ordering::Relaxed);
-
-                    shared.all_tracks.lock().unwrap().push(dec.track);
-                    let done = shared.tracks_done.fetch_add(1, Ordering::Relaxed) + 1;
-                    if done % 500 == 0 {
-                        eprintln!("    [march] {} tracks done ({:.1}s)",
-                            done, start.elapsed().as_secs_f64());
-                    }
-
-                    let num_children = child_seeds.len() as u64;
-                    if num_children > 0 {
-                        shared.in_flight.fetch_add(num_children, Ordering::Release);
-                        let mut seeds = shared.seeds.lock().unwrap();
-                        for (mut child, &id) in child_seeds.into_iter().zip(child_ids.iter()) {
-                            child.track_id = id;
-                            seeds.push(child);
-                        }
-                        drop(seeds);
-                        shared.condvar.notify_all();
-                    }
-
-                    let remaining = shared.in_flight.fetch_sub(1, Ordering::AcqRel) - 1;
-                    if remaining == 0 {
-                        *shared.done.lock().unwrap() = true;
-                        shared.condvar.notify_all();
-                    }
-                }
-            })
-            .expect("failed to spawn thread");
-        handles.push(handle);
+        all_tracks.lock().unwrap().push(dec.track);
+        let done = tracks_done.fetch_add(1, Ordering::Relaxed) + 1;
+        if done % 500 == 0 {
+            eprintln!("    [march] {} tracks done ({:.1}s)",
+                done, start.elapsed().as_secs_f64());
+        }
     }
 
-    for h in handles {
-        h.join().expect("worker thread panicked");
-    }
+    rayon::scope(|s| {
+        s.spawn(|s| {
+            process_track(
+                s, first_wavefront, &wp, bounds, terrain, &contours, config,
+                &next_track_id, &all_tracks,
+                &total_splits, &total_merges, &total_refractions, &turn_clamp_count,
+                &marched_verts, &removed_snapshots, &removed_vertices, &tracks_done, &start,
+            );
+        });
+    }); // blocks until all tracks (including children) are done
 
-    let final_marched_verts = shared.marched_verts.load(std::sync::atomic::Ordering::Relaxed);
-    let final_removed_snapshots = shared.removed_snapshots.load(std::sync::atomic::Ordering::Relaxed);
-    let final_removed_vertices = shared.removed_vertices.load(std::sync::atomic::Ordering::Relaxed);
-    let final_splits = shared.total_splits.load(std::sync::atomic::Ordering::Relaxed);
-    let final_merges = shared.total_merges.load(std::sync::atomic::Ordering::Relaxed);
-    let final_turn_clamp = shared.turn_clamp_count.load(std::sync::atomic::Ordering::Relaxed);
-    let final_refractions = shared.total_refractions.load(std::sync::atomic::Ordering::Relaxed);
-
-    let mut tracks = Arc::try_unwrap(shared)
-        .ok()
-        .expect("all threads should have joined")
-        .all_tracks
-        .into_inner()
-        .unwrap();
+    let mut tracks = all_tracks.into_inner().unwrap();
     tracks.sort_by_key(|t| t.track_id);
 
     let total_elapsed = start.elapsed();
@@ -570,12 +553,12 @@ pub fn march_wavefronts(
 
     MarchResult {
         tracks,
-        marched_vertices_before_decimation: final_marched_verts,
-        removed_snapshots: final_removed_snapshots,
-        removed_vertices: final_removed_vertices,
-        splits: final_splits,
-        merges: final_merges,
-        turn_clamp_count: final_turn_clamp,
-        total_refractions: final_refractions,
+        marched_vertices_before_decimation: marched_verts.into_inner(),
+        removed_snapshots: removed_snapshots.into_inner(),
+        removed_vertices: removed_vertices.into_inner(),
+        splits: total_splits.into_inner(),
+        merges: total_merges.into_inner(),
+        turn_clamp_count: turn_clamp_count.into_inner(),
+        total_refractions: total_refractions.into_inner(),
     }
 }
