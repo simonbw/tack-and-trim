@@ -432,7 +432,7 @@ pub fn march_wavefronts(
             let cpus = std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(4);
-            cpus.min(4)
+            cpus.min(8)
         });
     eprintln!("    [march] using {num_threads} threads");
 
