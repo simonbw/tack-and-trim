@@ -1,8 +1,9 @@
-/// CPU terrain height queries — contour tree DFS, winding number, IDW.
-/// Mirrors terrainHeightCPU.ts.
+//! CPU terrain height queries — contour tree DFS, winding number, IDW.
+//! Mirrors terrainHeightCPU.ts.
 
 use crate::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
 
+/// A contour parsed from the binary contour data buffer.
 pub struct ParsedContour {
     pub point_start: usize,
     pub point_count: usize,
@@ -17,6 +18,7 @@ pub struct ParsedContour {
     pub bbox_max_y: f32,
 }
 
+/// Extract all contour metadata from the binary contour data buffer.
 pub fn parse_contours(terrain: &TerrainCPUData) -> Vec<ParsedContour> {
     let n = terrain.contour_count;
     let cd = &terrain.contour_data;
@@ -175,13 +177,14 @@ fn point_to_segment_dist(px: f64, py: f64, ax: f64, ay: f64, bx: f64, by: f64) -
     (ex * ex + ey * ey).sqrt()
 }
 
-/// Compute terrain height and gradient at (px, py).
+/// Terrain height and finite-difference gradient at a point.
 pub struct TerrainHeightGradient {
     pub height: f64,
     pub gradient_x: f64,
     pub gradient_y: f64,
 }
 
+/// Compute terrain height and gradient at (px, py) using finite differences.
 pub fn compute_terrain_height_and_gradient(
     px: f64, py: f64,
     terrain: &TerrainCPUData,

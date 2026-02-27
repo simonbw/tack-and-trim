@@ -1,8 +1,11 @@
-/// Post-processing — amplitude, diffraction, turbulence diffusion.
-/// Mirrors wavefrontPost.ts.
+//! Post-processing — amplitude, diffraction, turbulence diffusion.
+//! Mirrors wavefrontPost.ts.
+//!
+//! Note: these functions are currently unused — the same logic is inlined in
+//! `marching.rs::post_process_segments`. They are kept for reference and testing.
 
 use crate::config::MeshBuildPostConfig;
-use crate::wavefront::WavefrontSegment;
+use crate::wavefront::{WaveParams, WavefrontSegment};
 
 fn compute_shoaling_factor(depth: f64, k: f64) -> f64 {
     let kh = k * depth;
@@ -12,16 +15,14 @@ fn compute_shoaling_factor(depth: f64, k: f64) -> f64 {
     1.0 / (2.0 * n * kh.tanh()).sqrt()
 }
 
-/// Compute amplitude for every point in a set of wavefront segments.
+/// Compute amplitude for every point in a set of wavefront segments using
+/// shoaling factor and divergence-based scaling.
 pub fn compute_amplitudes(
     segments: &mut [WavefrontSegment],
-    wavelength: f64,
-    vertex_spacing: f64,
-    initial_delta_t: f64,
+    wp: &WaveParams,
     config: &MeshBuildPostConfig,
 ) {
-    let k = std::f64::consts::TAU / wavelength;
-    let spacing_per_t = vertex_spacing / initial_delta_t;
+    let spacing_per_t = wp.vertex_spacing / wp.initial_delta_t;
 
     for wf in segments.iter_mut() {
         let n = wf.len();
@@ -35,13 +36,13 @@ pub fn compute_amplitudes(
 
             let p_depth = wf.depth[i];
             let shoaling = if p_depth > 0.0 {
-                compute_shoaling_factor(p_depth, k).min(config.max_amplification)
+                compute_shoaling_factor(p_depth, wp.k).min(config.max_amplification)
             } else {
                 1.0
             };
 
             let (local_spacing, delta_t) = if n <= 1 {
-                (vertex_spacing, initial_delta_t)
+                (wp.vertex_spacing, wp.initial_delta_t)
             } else if i == 0 {
                 let dx = wf.x[0] - wf.x[1];
                 let dy = wf.y[0] - wf.y[1];
@@ -68,24 +69,20 @@ pub fn compute_amplitudes(
     }
 }
 
-/// Lateral diffusion of amplitude across a wavefront segment (diffraction).
+/// Lateral diffusion of amplitude across wavefront segments (diffraction).
 pub fn apply_diffraction(
     segments: &mut [WavefrontSegment],
-    wavelength: f64,
-    vertex_spacing: f64,
-    step_size: f64,
-    initial_delta_t: f64,
+    wp: &WaveParams,
     config: &MeshBuildPostConfig,
 ) {
-    let k = std::f64::consts::TAU / wavelength;
-    let d = (step_size / (2.0 * k * vertex_spacing * vertex_spacing)).min(config.max_diffusion_d);
+    let d = (wp.step_size / (2.0 * wp.k * wp.vertex_spacing * wp.vertex_spacing)).min(config.max_diffusion_d);
     let mut scratch = Vec::new();
 
     for seg in segments.iter_mut() {
         let n = seg.len();
         if n <= 1 { continue; }
 
-        let edge_threshold = initial_delta_t * 0.5;
+        let edge_threshold = wp.initial_delta_t * 0.5;
         let left_is_edge = seg.t[0] < edge_threshold;
         let right_is_edge = seg.t[n - 1] > 1.0 - edge_threshold;
 
@@ -103,7 +100,7 @@ pub fn apply_diffraction(
     }
 }
 
-/// Lateral diffusion of turbulence across a wavefront segment.
+/// Lateral diffusion of turbulence across wavefront segments.
 pub fn diffuse_turbulence_step(
     segments: &mut [WavefrontSegment],
     config: &MeshBuildPostConfig,

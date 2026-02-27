@@ -1,11 +1,13 @@
-/// All configuration for the wave-mesh builder, mirroring meshBuildConfig.ts.
+//! All configuration for the wave-mesh builder, mirroring meshBuildConfig.ts.
 
+/// Resolution settings controlling march step size and output vertex density.
 #[derive(Clone, Debug)]
 pub struct MeshBuildResolutionConfig {
     pub step_size_ft: f64,
     pub vertex_spacing_ft: f64,
 }
 
+/// Bounds computation: wavelength-relative margins around terrain contours.
 #[derive(Clone, Debug)]
 pub struct MeshBuildBoundsConfig {
     pub upwave_margin_wavelengths: f64,
@@ -15,6 +17,7 @@ pub struct MeshBuildBoundsConfig {
     pub fallback_half_extent_ft: f64,
 }
 
+/// Physics parameters for ray refraction and energy dissipation.
 #[derive(Clone, Debug)]
 pub struct MeshBuildPhysicsConfig {
     pub min_speed_factor: f64,
@@ -27,6 +30,7 @@ pub struct MeshBuildPhysicsConfig {
     pub turbulence_scale: f64,
 }
 
+/// Wavefront refinement: split/merge thresholds and limits.
 #[derive(Clone, Debug)]
 pub struct MeshBuildRefinementConfig {
     pub merge_ratio: f64,
@@ -40,6 +44,7 @@ pub struct MeshBuildRefinementConfig {
     pub min_split_energy: f64,
 }
 
+/// Post-processing: amplitude amplification, diffraction, and turbulence diffusion.
 #[derive(Clone, Debug)]
 pub struct MeshBuildPostConfig {
     pub max_amplification: f64,
@@ -49,11 +54,13 @@ pub struct MeshBuildPostConfig {
     pub turbulence_diffusion_d: f64,
 }
 
+/// Decimation tolerance for track and segment simplification.
 #[derive(Clone, Debug)]
 pub struct MeshBuildDecimationConfig {
     pub tolerance: f64,
 }
 
+/// Top-level configuration aggregating all pipeline stages.
 #[derive(Clone, Debug)]
 pub struct MeshBuildConfig {
     pub resolution: MeshBuildResolutionConfig,
@@ -74,6 +81,7 @@ macro_rules! env_override {
     };
 }
 
+/// Build the default configuration, with optional environment variable overrides.
 pub fn resolve_config() -> MeshBuildConfig {
     let mut config = MeshBuildConfig {
         resolution: MeshBuildResolutionConfig {

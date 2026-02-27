@@ -1,7 +1,47 @@
-/// Data structures for wavefront segments, tracks, and mesh output.
-/// Mirrors marchingTypes.ts, segmentTracks.ts, MeshBuildTypes.ts.
+//! Data structures for wavefront segments, tracks, and mesh output.
+//! Mirrors marchingTypes.ts, segmentTracks.ts, MeshBuildTypes.ts.
 
+use crate::config::MeshBuildConfig;
+use crate::level::WaveSource;
+
+/// Number of f32 values per vertex in the output mesh buffer.
 pub const VERTEX_FLOATS: usize = 6;
+
+/// Precomputed wave propagation parameters derived from a single wave source.
+#[derive(Clone, Debug)]
+pub struct WaveParams {
+    pub wave_dx: f64,
+    pub wave_dy: f64,
+    pub perp_dx: f64,
+    pub perp_dy: f64,
+    pub wavelength: f64,
+    pub k: f64,
+    pub step_size: f64,
+    pub vertex_spacing: f64,
+    pub phase_per_step: f64,
+    pub initial_delta_t: f64,
+}
+
+impl WaveParams {
+    /// Construct from a wave source and build config. `initial_delta_t` is set
+    /// to 0.0 here and must be updated after the first wavefront is generated.
+    pub fn from_source(ws: &WaveSource, config: &MeshBuildConfig) -> Self {
+        let k = std::f64::consts::TAU / ws.wavelength;
+        let step_size = config.resolution.step_size_ft;
+        WaveParams {
+            wave_dx: ws.direction.cos(),
+            wave_dy: ws.direction.sin(),
+            perp_dx: -ws.direction.sin(),
+            perp_dy: ws.direction.cos(),
+            wavelength: ws.wavelength,
+            k,
+            step_size,
+            vertex_spacing: config.resolution.vertex_spacing_ft,
+            phase_per_step: k * step_size,
+            initial_delta_t: 0.0,
+        }
+    }
+}
 
 /// Struct-of-arrays wavefront segment (SoA layout).
 #[derive(Clone)]
@@ -24,6 +64,7 @@ pub struct WavefrontSegment {
 }
 
 impl WavefrontSegment {
+    /// Create an empty segment with the given track lineage info.
     pub fn new(track_id: i32, parent_track_id: Option<i32>, source_step_index: usize) -> Self {
         WavefrontSegment {
             track_id,
@@ -38,8 +79,11 @@ impl WavefrontSegment {
         }
     }
 
+    /// Number of rays in this segment.
     pub fn len(&self) -> usize { self.x.len() }
 
+    /// Append a ray with all per-vertex fields.
+    #[allow(clippy::too_many_arguments)]
     pub fn push(
         &mut self, x: f64, y: f64, t: f64,
         dir_x: f64, dir_y: f64,
@@ -98,6 +142,7 @@ pub struct WavefrontMeshData {
     pub coverage_quad: CoverageQuad,
 }
 
+/// World-space quad covering a wave source's mesh extent.
 #[derive(Clone, Debug, Default)]
 pub struct CoverageQuad {
     pub x0: f64, pub y0: f64,

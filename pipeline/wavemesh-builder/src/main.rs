@@ -14,8 +14,11 @@ mod wavefront;
 mod wavemesh_file;
 
 use std::time::Instant;
+
+use anyhow::{bail, Context};
 use clap::Parser;
 
+/// CLI for the wavemesh-builder binary.
 #[derive(Parser)]
 #[command(name = "wavemesh-builder")]
 struct Cli {
@@ -28,13 +31,13 @@ struct Cli {
     output: Option<String>,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config = config::resolve_config();
 
     let level_paths: Vec<String> = if cli.level.is_empty() {
         glob::glob("resources/levels/*.level.json")
-            .expect("Failed to glob")
+            .context("invalid glob pattern")?
             .filter_map(|p| p.ok().map(|p| p.to_string_lossy().to_string()))
             .collect()
     } else {
@@ -43,8 +46,7 @@ fn main() {
 
     if let Some(ref _output) = cli.output {
         if level_paths.len() > 1 {
-            eprintln!("--output can only be used with a single --level");
-            std::process::exit(1);
+            bail!("--output can only be used with a single --level");
         }
     }
 
@@ -57,30 +59,33 @@ fn main() {
             level_path.replace(".level.json", ".wavemesh")
         });
 
-        eprintln!("\n=== {} ===", level_name);
-        eprintln!("  Level: {}", level_path);
+        eprintln!("\n=== {level_name} ===");
+        eprintln!("  Level: {level_path}");
 
-        process_level(level_path, &wavemesh_path, &config);
+        process_level(level_path, &wavemesh_path, &config)?;
     }
 
     eprintln!("\nDone.");
+    Ok(())
 }
 
-fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBuildConfig) {
+fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBuildConfig) -> anyhow::Result<()> {
     let t0 = Instant::now();
-    let json_str = std::fs::read_to_string(level_path).expect("Failed to read level file");
-    let level_file = level::parse_level_file(&json_str);
+    let json_str = std::fs::read_to_string(level_path)
+        .with_context(|| format!("failed to read level file: {level_path}"))?;
+    let level_file = level::parse_level_file(&json_str)
+        .with_context(|| format!("failed to parse level JSON: {level_path}"))?;
 
     let wave_sources: Vec<level::WaveSource> = level_file.waves.as_ref()
         .map(|w| w.sources.iter().map(level::WaveSource::from).collect())
-        .unwrap_or_else(|| level::default_wave_sources());
+        .unwrap_or_else(level::default_wave_sources);
 
     eprintln!("  Parsed level: {}ms ({} contours, {} wave sources)",
         t0.elapsed().as_millis(), level_file.contours.len(), wave_sources.len());
 
     if wave_sources.is_empty() {
         eprintln!("  No wave sources — skipping");
-        return;
+        return Ok(());
     }
 
     let t1 = Instant::now();
@@ -113,9 +118,11 @@ fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBui
 
     let t_write = Instant::now();
     let buffer = wavemesh_file::build_wavemesh_buffer(&meshes, input_hash);
-    std::fs::write(wavemesh_path, &buffer).expect("Failed to write wavemesh file");
+    std::fs::write(wavemesh_path, &buffer)
+        .with_context(|| format!("failed to write wavemesh file: {wavemesh_path}"))?;
     eprintln!("  Wrote {} ({:.1} KB) in {}ms",
         wavemesh_path, buffer.len() as f64 / 1024.0, t_write.elapsed().as_millis());
+    Ok(())
 }
 
 fn build_wave_mesh(
@@ -123,37 +130,24 @@ fn build_wave_mesh(
     terrain: &level::TerrainCPUData,
     config: &config::MeshBuildConfig,
 ) -> wavefront::WavefrontMeshData {
-    let wavelength = ws.wavelength;
-    let step_size = config.resolution.step_size_ft;
-    let vertex_spacing = config.resolution.vertex_spacing_ft;
-    let k = std::f64::consts::TAU / wavelength;
-    let phase_per_step = k * step_size;
+    let wave_params = wavefront::WaveParams::from_source(ws, config);
 
-    let wave_dx = ws.direction.cos();
-    let wave_dy = ws.direction.sin();
-
-    let wave_bounds = bounds::compute_bounds(terrain, wavelength, wave_dx, wave_dy, &config.bounds);
-    let first_wf = marching::generate_initial_wavefront(
-        &wave_bounds, vertex_spacing, wave_dx, wave_dy, wavelength,
-    );
+    let wave_bounds = bounds::compute_bounds(terrain, &wave_params, &config.bounds);
+    let first_wf = marching::generate_initial_wavefront(&wave_bounds, &wave_params);
 
     let num_rays = first_wf.len();
     let domain_length = wave_bounds.max_proj - wave_bounds.min_proj;
     let domain_width = wave_bounds.max_perp - wave_bounds.min_perp;
-    let estimated_steps = (domain_length / step_size).ceil() as usize;
+    let estimated_steps = (domain_length / wave_params.step_size).ceil() as usize;
     eprintln!("    [marching] domain — rays: {}, {}ft × {}ft, ~{} steps",
         num_rays, domain_length as i64, domain_width as i64, estimated_steps);
 
     let march_result = marching::march_wavefronts(
-        first_wf, wave_dx, wave_dy,
-        step_size, vertex_spacing,
-        &wave_bounds, terrain, wavelength, config,
+        first_wf, &wave_params, &wave_bounds, terrain, config,
     );
 
     let mesh = triangulate::build_mesh_data_from_tracks(
-        &march_result.tracks,
-        wavelength, wave_dx, wave_dy,
-        &wave_bounds, phase_per_step,
+        &march_result.tracks, &wave_params, &wave_bounds,
     );
 
     eprintln!("    splits: {}, merges: {}, verts: {} → {} ({:.0}% reduction)",

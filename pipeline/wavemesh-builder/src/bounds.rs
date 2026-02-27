@@ -1,19 +1,17 @@
-/// Wave-aligned bounding box computation from root terrain contours.
-/// Mirrors computeBounds.ts.
+//! Wave-aligned bounding box computation from root terrain contours.
+//! Mirrors computeBounds.ts.
 
 use crate::config::MeshBuildBoundsConfig;
 use crate::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
-use crate::wavefront::WaveBounds;
+use crate::wavefront::{WaveBounds, WaveParams};
 
+/// Compute a wave-aligned bounding box from root terrain contours, with
+/// wavelength-scaled margins for upwave, downwave, and crosswave directions.
 pub fn compute_bounds(
     terrain: &TerrainCPUData,
-    wavelength: f64,
-    wave_dx: f64,
-    wave_dy: f64,
+    wp: &WaveParams,
     config: &MeshBuildBoundsConfig,
 ) -> WaveBounds {
-    let perp_dx = -wave_dy;
-    let perp_dy = wave_dx;
     let cd = &terrain.contour_data;
 
     let mut min_proj = f64::INFINITY;
@@ -36,8 +34,8 @@ pub fn compute_bounds(
             (b_min_x, b_min_y), (b_max_x, b_min_y),
             (b_max_x, b_max_y), (b_min_x, b_max_y),
         ] {
-            let proj = cx * wave_dx + cy * wave_dy;
-            let perp = cx * perp_dx + cy * perp_dy;
+            let proj = cx * wp.wave_dx + cy * wp.wave_dy;
+            let perp = cx * wp.perp_dx + cy * wp.perp_dy;
             if proj < min_proj { min_proj = proj; }
             if proj > max_proj { max_proj = proj; }
             if perp < min_perp { min_perp = perp; }
@@ -50,9 +48,9 @@ pub fn compute_bounds(
         return WaveBounds { min_proj: -half, max_proj: half, min_perp: -half, max_perp: half };
     }
 
-    let upwave = (wavelength * config.upwave_margin_wavelengths).max(config.min_margin_ft);
-    let downwave = (wavelength * config.downwave_margin_wavelengths).max(config.min_margin_ft);
-    let crosswave = (wavelength * config.crosswave_margin_wavelengths).max(config.min_margin_ft);
+    let upwave = (wp.wavelength * config.upwave_margin_wavelengths).max(config.min_margin_ft);
+    let downwave = (wp.wavelength * config.downwave_margin_wavelengths).max(config.min_margin_ft);
+    let crosswave = (wp.wavelength * config.crosswave_margin_wavelengths).max(config.min_margin_ft);
 
     WaveBounds {
         min_proj: min_proj - upwave,

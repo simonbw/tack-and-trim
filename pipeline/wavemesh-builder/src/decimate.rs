@@ -1,7 +1,7 @@
-/// Segment and track-level decimation.
-/// Mirrors decimateSegment.ts and decimateWavefrontTracks.ts.
+//! Segment and track-level decimation.
+//! Mirrors decimateSegment.ts and decimateWavefrontTracks.ts.
 
-use crate::wavefront::{SegmentTrack, SegmentTrackSnapshot, WavefrontSegment};
+use crate::wavefront::{SegmentTrack, SegmentTrackSnapshot, WaveParams, WavefrontSegment};
 
 fn lerp(a: f64, b: f64, f: f64) -> f64 { a + (b - a) * f }
 
@@ -54,6 +54,8 @@ fn build_segment_from_kept(seg: &WavefrontSegment, kept: &[usize]) -> WavefrontS
     out
 }
 
+/// Decimate a single segment by removing vertices whose linear interpolation
+/// stays within position and amplitude tolerances.
 pub fn decimate_segment(seg: &WavefrontSegment, pos_tol_sq: f64, amp_tol: f64) -> WavefrontSegment {
     let len = seg.len();
     if len <= 2 { return seg.clone(); }
@@ -62,7 +64,7 @@ pub fn decimate_segment(seg: &WavefrontSegment, pos_tol_sq: f64, amp_tol: f64) -
     let mut anchor = 0;
     let mut endpoint = 2;
 
-    while endpoint <= len - 1 {
+    while endpoint < len {
         if can_remove_vertices_between(seg, anchor, endpoint, pos_tol_sq, amp_tol) {
             if endpoint == len - 1 {
                 kept.push(endpoint);
@@ -135,6 +137,7 @@ fn normalized_error(error: f64, tolerance: f64) -> f64 {
     error / tolerance
 }
 
+#[allow(clippy::too_many_arguments)]
 fn evaluate_snapshot_removal(
     track: &SegmentTrack,
     snapshot_idx: usize,
@@ -185,6 +188,7 @@ fn evaluate_snapshot_removal(
     true
 }
 
+#[allow(clippy::too_many_arguments)]
 fn keep_mask_for_track(
     track: &SegmentTrack,
     k: f64, wave_dx: f64, wave_dy: f64,
@@ -201,7 +205,7 @@ fn keep_mask_for_track(
     let mut anchor = 0;
     let mut endpoint = 2;
 
-    while endpoint <= len - 1 {
+    while endpoint < len {
         let removable = evaluate_snapshot_removal(
             track, endpoint - 1, anchor, endpoint,
             k, wave_dx, wave_dy, pos_tol_sq, amp_tol, phase_tol, phase_per_step,
@@ -218,21 +222,22 @@ fn keep_mask_for_track(
     keep
 }
 
+/// Result of decimating a single segment track.
 pub struct SingleTrackDecimationResult {
     pub track: SegmentTrack,
     pub removed_snapshots: u64,
     pub removed_vertices: u64,
 }
 
+/// Decimate a track by removing snapshots and vertices that can be linearly
+/// interpolated within the given tolerance.
 pub fn decimate_track_snapshots(
     track: &SegmentTrack,
-    wavelength: f64,
-    wave_dx: f64, wave_dy: f64,
+    wp: &WaveParams,
     tolerance: f64,
-    phase_per_step: f64,
 ) -> SingleTrackDecimationResult {
-    let k = std::f64::consts::TAU / wavelength;
-    let pos_tol_sq = (tolerance * wavelength).powi(2);
+    let k = wp.k;
+    let pos_tol_sq = (tolerance * wp.wavelength).powi(2);
     let amp_tol = tolerance;
     let phase_tol = tolerance * std::f64::consts::PI;
 
@@ -242,8 +247,8 @@ pub fn decimate_track_snapshots(
     }
 
     let keep_mask = keep_mask_for_track(
-        track, k, wave_dx, wave_dy,
-        pos_tol_sq, amp_tol, phase_tol, phase_per_step,
+        track, k, wp.wave_dx, wp.wave_dy,
+        pos_tol_sq, amp_tol, phase_tol, wp.phase_per_step,
     );
 
     let mut decimated = SegmentTrack {

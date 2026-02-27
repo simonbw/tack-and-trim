@@ -1,18 +1,16 @@
-/// Mesh triangulation from segment tracks.
-/// Mirrors buildMeshDataFromTracks.ts.
+//! Mesh triangulation from segment tracks.
+//! Mirrors buildMeshDataFromTracks.ts.
 
 use std::collections::HashMap;
-use crate::wavefront::{CoverageQuad, SegmentTrack, WaveBounds, WavefrontMeshData, WavefrontSegment, VERTEX_FLOATS};
+use crate::wavefront::{CoverageQuad, SegmentTrack, WaveBounds, WavefrontMeshData, WavefrontSegment, WaveParams, VERTEX_FLOATS};
 
+/// Triangulate all segment tracks into a single mesh with vertex and index buffers.
 pub fn build_mesh_data_from_tracks(
     tracks: &[SegmentTrack],
-    wavelength: f64,
-    wave_dx: f64,
-    wave_dy: f64,
+    wp: &WaveParams,
     bounds: &WaveBounds,
-    phase_per_step: f64,
 ) -> WavefrontMeshData {
-    let k = std::f64::consts::TAU / wavelength;
+    let k = wp.k;
     let topo = count_mesh_topology(tracks);
 
     let mut vertices = vec![0.0f32; topo.vertex_count * VERTEX_FLOATS];
@@ -36,11 +34,11 @@ pub fn build_mesh_data_from_tracks(
         let base = *vertex_offset / VERTEX_FLOATS;
         base_by_segment.insert(ptr, base);
 
-        let phase_base = seg.source_step_index as f64 * phase_per_step;
+        let phase_base = seg.source_step_index as f64 * wp.phase_per_step;
         for pi in 0..seg.len() {
             let x = seg.x[pi];
             let y = seg.y[pi];
-            let phase_offset = phase_base - k * (x * wave_dx + y * wave_dy);
+            let phase_offset = phase_base - k * (x * wp.wave_dx + y * wp.wave_dy);
             vertices[*vertex_offset] = x as f32; *vertex_offset += 1;
             vertices[*vertex_offset] = y as f32; *vertex_offset += 1;
             vertices[*vertex_offset] = seg.amplitude[pi] as f32; *vertex_offset += 1;
@@ -79,7 +77,7 @@ pub fn build_mesh_data_from_tracks(
         }
     }
 
-    let coverage_quad = compute_coverage_quad(bounds, wave_dx, wave_dy);
+    let coverage_quad = compute_coverage_quad(bounds, wp.wave_dx, wp.wave_dy);
     let final_vertex_count = vertex_offset / VERTEX_FLOATS;
 
     indices.truncate(index_offset);
@@ -215,7 +213,7 @@ fn clip_to_range(seg: &WavefrontSegment, min_t: f64, max_t: f64) -> (usize, usiz
     let mut end = len - 1;
     while end > 0 && t[end] > max_t { end -= 1; }
     if start > end { return (start, end); }
-    if start > 0 { start -= 1; }
+    start = start.saturating_sub(1);
     if end < len - 1 { end += 1; }
     (start, end)
 }

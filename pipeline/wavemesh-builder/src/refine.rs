@@ -1,14 +1,16 @@
-/// Wavefront refinement — split/merge pass.
-/// Mirrors wavefrontRefine.ts.
+//! Wavefront refinement — split/merge pass.
+//! Mirrors wavefrontRefine.ts.
 
 use crate::config::MeshBuildRefinementConfig;
 use crate::wavefront::WavefrontSegment;
 
+/// Counters for split and merge operations during wavefront refinement.
 pub struct RefineStats {
     pub splits: u64,
     pub merges: u64,
 }
 
+/// Single pass of merge/split refinement on a wavefront segment.
 pub fn refine_wavefront(
     wf: &WavefrontSegment,
     vertex_spacing: f64,

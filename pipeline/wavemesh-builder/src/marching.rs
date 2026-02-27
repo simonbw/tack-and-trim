@@ -1,31 +1,27 @@
-/// Wavefront marching — initial wavefront generation, per-track marching,
-/// and parallel orchestration via concurrent work queue.
-/// Mirrors marching.ts.
+//! Wavefront marching — initial wavefront generation, per-track marching,
+//! and parallel orchestration via concurrent work queue.
+//! Mirrors marching.ts.
 
 use std::time::Instant;
 
 use crate::config::MeshBuildConfig;
 use crate::decimate::decimate_track_snapshots;
 use crate::level::TerrainCPUData;
-use crate::physics::{advance_interior_ray, advance_sentinel_ray};
-// post-processing functions are inlined in post_process_segments below
+use crate::physics::{advance_interior_ray, advance_sentinel_ray, RayState};
 use crate::refine::{refine_wavefront, RefineStats};
 use crate::terrain::{parse_contours, ParsedContour};
-use crate::wavefront::{SegmentTrack, SegmentTrackSnapshot, WaveBounds, WavefrontSegment};
+use crate::wavefront::{SegmentTrack, SegmentTrackSnapshot, WaveBounds, WaveParams, WavefrontSegment};
 
 // ── Initial wavefront ────────────────────────────────────────────────────────
 
+/// Generate the initial wavefront with left/right sentinels and evenly-spaced
+/// interior rays spanning the perpendicular extent of the wave bounds.
 pub fn generate_initial_wavefront(
     bounds: &WaveBounds,
-    vertex_spacing: f64,
-    wave_dx: f64,
-    wave_dy: f64,
-    wavelength: f64,
+    wp: &WaveParams,
 ) -> WavefrontSegment {
-    let perp_dx = -wave_dy;
-    let perp_dy = wave_dx;
     let width = bounds.max_perp - bounds.min_perp;
-    let num_interior = (width / vertex_spacing).ceil() as usize + 1;
+    let num_interior = (width / wp.vertex_spacing).ceil() as usize + 1;
     let num_interior = num_interior.max(3);
     let num_vertices = num_interior + 2;
 
@@ -34,10 +30,10 @@ pub fn generate_initial_wavefront(
     // Left sentinel
     let left_perp = bounds.min_perp;
     wf.push(
-        bounds.min_proj * wave_dx + left_perp * perp_dx,
-        bounds.min_proj * wave_dy + left_perp * perp_dy,
-        0.0, wave_dx, wave_dy,
-        1.0, 0.0, wavelength, 0.0, 0.0, 0.0, 1.0,
+        bounds.min_proj * wp.wave_dx + left_perp * wp.perp_dx,
+        bounds.min_proj * wp.wave_dy + left_perp * wp.perp_dy,
+        0.0, wp.wave_dx, wp.wave_dy,
+        1.0, 0.0, wp.wavelength, 0.0, 0.0, 0.0, 1.0,
     );
 
     // Interior rays
@@ -45,9 +41,9 @@ pub fn generate_initial_wavefront(
         let ti = (i + 1) as f64 / (num_interior + 1) as f64;
         let perp_pos = bounds.min_perp + (i as f64 / (num_interior - 1) as f64) * width;
         wf.push(
-            bounds.min_proj * wave_dx + perp_pos * perp_dx,
-            bounds.min_proj * wave_dy + perp_pos * perp_dy,
-            ti, wave_dx, wave_dy,
+            bounds.min_proj * wp.wave_dx + perp_pos * wp.perp_dx,
+            bounds.min_proj * wp.wave_dy + perp_pos * wp.perp_dy,
+            ti, wp.wave_dx, wp.wave_dy,
             1.0, 0.0, 0.0, f64::NAN, f64::NAN, 0.0, 1.0,
         );
     }
@@ -55,10 +51,10 @@ pub fn generate_initial_wavefront(
     // Right sentinel
     let right_perp = bounds.max_perp;
     wf.push(
-        bounds.min_proj * wave_dx + right_perp * perp_dx,
-        bounds.min_proj * wave_dy + right_perp * perp_dy,
-        1.0, wave_dx, wave_dy,
-        1.0, 0.0, wavelength, 0.0, 0.0, 0.0, 1.0,
+        bounds.min_proj * wp.wave_dx + right_perp * wp.perp_dx,
+        bounds.min_proj * wp.wave_dy + right_perp * wp.perp_dy,
+        1.0, wp.wave_dx, wp.wave_dy,
+        1.0, 0.0, wp.wavelength, 0.0, 0.0, 0.0, 1.0,
     );
 
     assert_eq!(wf.len(), num_vertices);
@@ -67,16 +63,13 @@ pub fn generate_initial_wavefront(
 
 // ── Single track step ────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn advance_track_segment_step(
     segment: &WavefrontSegment,
     parent_track_id: Option<i32>,
-    wave_dx: f64, wave_dy: f64,
-    perp_dx: f64, perp_dy: f64,
-    step_size: f64, vertex_spacing: f64,
-    min_proj: f64, max_proj: f64,
-    min_perp: f64, max_perp: f64,
-    wavelength: f64, k: f64, breaking_depth: f64,
-    initial_delta_t: f64,
+    wp: &WaveParams,
+    bounds: &WaveBounds,
+    breaking_depth: f64,
     terrain: &TerrainCPUData,
     contours: &[ParsedContour],
     config: &MeshBuildConfig,
@@ -92,7 +85,7 @@ fn advance_track_segment_step(
 
     let mut flush = |current: &mut WavefrontSegment, produced: &mut Vec<WavefrontSegment>| {
         if current.len() == 0 { return; }
-        let refined = refine_wavefront(current, vertex_spacing, initial_delta_t, stats, &config.refinement);
+        let refined = refine_wavefront(current, wp.vertex_spacing, wp.initial_delta_t, stats, &config.refinement);
         produced.push(refined);
         *current = WavefrontSegment::new(-1, parent_track_id, next_source_step);
     };
@@ -110,22 +103,29 @@ fn advance_track_segment_step(
         }
 
         if is_sentinel {
-            if let Some(sr) = advance_sentinel_ray(px, py, wave_dx, wave_dy, step_size, min_proj, max_proj) {
-                current.push(sr.nx, sr.ny, pt, wave_dx, wave_dy, 1.0, 0.0, wavelength, 0.0, 0.0, 0.0, 1.0);
+            if let Some(sr) = advance_sentinel_ray(px, py, wp, bounds) {
+                current.push(sr.nx, sr.ny, pt, wp.wave_dx, wp.wave_dy, 1.0, 0.0, wp.wavelength, 0.0, 0.0, 0.0, 1.0);
             } else {
                 flush(&mut current, &mut produced);
             }
             continue;
         }
 
+        let ray = RayState {
+            x: px,
+            y: py,
+            energy,
+            turbulence: segment.turbulence[i],
+            dir_x: segment.dir_x[i],
+            dir_y: segment.dir_y[i],
+            depth: segment.depth[i],
+            terrain_grad_x: segment.terrain_grad_x[i],
+            terrain_grad_y: segment.terrain_grad_y[i],
+        };
+
         let result = advance_interior_ray(
-            px, py, energy, segment.turbulence[i],
-            segment.dir_x[i], segment.dir_y[i],
-            wave_dx, wave_dy, perp_dx, perp_dy,
-            min_proj, max_proj, min_perp, max_perp,
-            step_size, wavelength, k, breaking_depth,
+            &ray, wp, bounds, breaking_depth,
             &config.physics, terrain, contours,
-            segment.depth[i], segment.terrain_grad_x[i], segment.terrain_grad_y[i],
         );
 
         let ir = match result {
@@ -137,7 +137,7 @@ fn advance_track_segment_step(
         if ir.turn_clamped { turn_clamped_count += 1; }
 
         // Energy ratio check → segment break
-        if current.energy.len() > 0 {
+        if !current.energy.is_empty() {
             let prev_e = *current.energy.last().unwrap();
             let ratio = if ir.energy > prev_e { ir.energy / prev_e } else { prev_e / ir.energy };
             if ratio > config.refinement.max_energy_ratio {
@@ -155,7 +155,7 @@ fn advance_track_segment_step(
     }
 
     if current.len() > 0 {
-        let refined = refine_wavefront(&current, vertex_spacing, initial_delta_t, stats, &config.refinement);
+        let refined = refine_wavefront(&current, wp.vertex_spacing, wp.initial_delta_t, stats, &config.refinement);
         produced.push(refined);
     }
 
@@ -175,20 +175,13 @@ type TrackResult = (
 
 fn march_single_track(
     seed: WavefrontSegment,
-    wave_dx: f64, wave_dy: f64,
-    step_size: f64, vertex_spacing: f64,
+    wp: &WaveParams,
     bounds: &WaveBounds,
     terrain: &TerrainCPUData,
     contours: &[ParsedContour],
-    wavelength: f64,
     config: &MeshBuildConfig,
-    initial_delta_t: f64,
-    _phase_per_step: f64,
 ) -> TrackResult {
-    let perp_dx = -wave_dy;
-    let perp_dy = wave_dx;
-    let k = std::f64::consts::TAU / wavelength;
-    let breaking_depth = config.physics.breaking_depth_ratio * wavelength;
+    let breaking_depth = config.physics.breaking_depth_ratio * wp.wavelength;
 
     let mut stats = RefineStats { splits: 0, merges: 0 };
     let mut total_refractions = 0u64;
@@ -210,7 +203,7 @@ fn march_single_track(
     let mut segment = seed;
 
     // Post-process seed segment
-    post_process_segments(&mut [&mut segment], wavelength, vertex_spacing, step_size, initial_delta_t, &config.post);
+    post_process_segments(&mut [&mut segment], wp, &config.post);
     // Copy back to track
     track.snapshots[0].segment = segment.clone();
 
@@ -219,10 +212,7 @@ fn march_single_track(
     loop {
         let (next_step, produced, refractions, clamps) = advance_track_segment_step(
             &segment, segment.parent_track_id,
-            wave_dx, wave_dy, perp_dx, perp_dy,
-            step_size, vertex_spacing,
-            bounds.min_proj, bounds.max_proj, bounds.min_perp, bounds.max_perp,
-            wavelength, k, breaking_depth, initial_delta_t,
+            wp, bounds, breaking_depth,
             terrain, contours, config, &mut stats,
         );
         total_refractions += refractions;
@@ -238,7 +228,7 @@ fn march_single_track(
             next_seg.parent_track_id = track.parent_track_id;
 
             // Post-process
-            post_process_segments(&mut [&mut next_seg], wavelength, vertex_spacing, step_size, initial_delta_t, &config.post);
+            post_process_segments(&mut [&mut next_seg], wp, &config.post);
 
             marched_verts += next_seg.len() as u64;
             track.snapshots.push(SegmentTrackSnapshot {
@@ -256,7 +246,7 @@ fn march_single_track(
         // Post-process all children as a wavefront step
         {
             let mut refs: Vec<&mut WavefrontSegment> = children.iter_mut().collect();
-            post_process_segments(&mut refs, wavelength, vertex_spacing, step_size, initial_delta_t, &config.post);
+            post_process_segments(&mut refs, wp, &config.post);
         }
 
         for child in children {
@@ -271,22 +261,10 @@ fn march_single_track(
 
 fn post_process_segments(
     segments: &mut [&mut WavefrontSegment],
-    wavelength: f64,
-    vertex_spacing: f64,
-    step_size: f64,
-    initial_delta_t: f64,
+    wp: &WaveParams,
     config: &crate::config::MeshBuildPostConfig,
 ) {
-    // We need &mut [WavefrontSegment] but we have &mut [&mut WavefrontSegment].
-    // Collect into temp vec, process, copy back.
-    // Actually, let's just work with indices.
-    // The simplest approach: temporarily swap out the segments.
-    // Even simpler: just call the functions that modify in-place.
-
-    // compute_amplitudes expects &mut [WavefrontSegment]
-    // Let's just do it manually for each segment.
-    let k = std::f64::consts::TAU / wavelength;
-    let spacing_per_t = vertex_spacing / initial_delta_t;
+    let spacing_per_t = wp.vertex_spacing / wp.initial_delta_t;
 
     for seg in segments.iter_mut() {
         let n = seg.len();
@@ -299,7 +277,7 @@ fn post_process_segments(
             }
 
             let p_depth = seg.depth[i];
-            let kh = k * p_depth;
+            let kh = wp.k * p_depth;
             let shoaling = if p_depth > 0.0 {
                 let s = if kh > 10.0 { 1.0 } else {
                     let sinh2kh = (2.0 * kh).sinh();
@@ -310,7 +288,7 @@ fn post_process_segments(
             } else { 1.0 };
 
             let (local_spacing, delta_t) = if n <= 1 {
-                (vertex_spacing, initial_delta_t)
+                (wp.vertex_spacing, wp.initial_delta_t)
             } else if i == 0 {
                 let dx = seg.x[0] - seg.x[1];
                 let dy = seg.y[0] - seg.y[1];
@@ -337,14 +315,14 @@ fn post_process_segments(
     }
 
     // Diffraction
-    let d = (step_size / (2.0 * k * vertex_spacing * vertex_spacing)).min(config.max_diffusion_d);
+    let d = (wp.step_size / (2.0 * wp.k * wp.vertex_spacing * wp.vertex_spacing)).min(config.max_diffusion_d);
     let mut scratch = Vec::new();
 
     for seg in segments.iter_mut() {
         let n = seg.len();
         if n <= 1 { continue; }
 
-        let edge_threshold = initial_delta_t * 0.5;
+        let edge_threshold = wp.initial_delta_t * 0.5;
         let left_is_edge = seg.t[0] < edge_threshold;
         let right_is_edge = seg.t[n - 1] > 1.0 - edge_threshold;
 
@@ -377,6 +355,7 @@ fn post_process_segments(
 
 // ── Parallel march orchestration ─────────────────────────────────────────────
 
+/// Aggregated results from marching all wavefronts for a single wave source.
 pub struct MarchResult {
     pub tracks: Vec<SegmentTrack>,
     pub marched_vertices_before_decimation: u64,
@@ -391,23 +370,18 @@ pub struct MarchResult {
 /// March all wavefronts using a concurrent work-queue with dedicated threads.
 pub fn march_wavefronts(
     first_wavefront: WavefrontSegment,
-    wave_dx: f64,
-    wave_dy: f64,
-    step_size: f64,
-    vertex_spacing: f64,
+    wp: &WaveParams,
     bounds: &WaveBounds,
     terrain: &TerrainCPUData,
-    wavelength: f64,
     config: &MeshBuildConfig,
 ) -> MarchResult {
     use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
 
     let contours = parse_contours(terrain);
-    let k = std::f64::consts::TAU / wavelength;
-    let phase_per_step = k * step_size;
 
-    let initial_delta_t = if first_wavefront.len() > 2 {
+    let mut wp = wp.clone();
+    wp.initial_delta_t = if first_wavefront.len() > 2 {
         first_wavefront.t[2] - first_wavefront.t[1]
     } else if first_wavefront.len() > 1 {
         first_wavefront.t[1] - first_wavefront.t[0]
@@ -460,13 +434,14 @@ pub fn march_wavefronts(
                 .unwrap_or(4);
             cpus.min(4)
         });
-    eprintln!("    [march] using {} threads", num_threads);
+    eprintln!("    [march] using {num_threads} threads");
 
     // Use Arc for immutable shared data so threads (which must be 'static) can access it.
     let contours = Arc::new(contours);
     let terrain = Arc::new(terrain.clone());
     let bounds = Arc::new(*bounds);
     let config = Arc::new(config.clone());
+    let wp = Arc::new(wp);
 
     let stack_size = 64 * 1024 * 1024; // 64 MB stacks to avoid overflow on large maps
     let mut handles = Vec::new();
@@ -477,6 +452,7 @@ pub fn march_wavefronts(
         let terrain = terrain.clone();
         let bounds = bounds.clone();
         let config = config.clone();
+        let wp = wp.clone();
 
         let handle = std::thread::Builder::new()
             .stack_size(stack_size)
@@ -511,11 +487,7 @@ pub fn march_wavefronts(
 
                     let (track, child_seeds, stats, refractions, clamped, verts) =
                         march_single_track(
-                            seed, wave_dx, wave_dy,
-                            step_size, vertex_spacing,
-                            &bounds, &terrain, &contours,
-                            wavelength, &config,
-                            initial_delta_t, phase_per_step,
+                            seed, &wp, &bounds, &terrain, &contours, &config,
                         );
 
                     shared.total_splits.fetch_add(stats.splits, Ordering::Relaxed);
@@ -533,8 +505,8 @@ pub fn march_wavefronts(
                     final_track.child_track_ids = child_ids.clone();
 
                     let dec = decimate_track_snapshots(
-                        &final_track, wavelength, wave_dx, wave_dy,
-                        config.decimation.tolerance, phase_per_step,
+                        &final_track, &wp,
+                        config.decimation.tolerance,
                     );
                     shared.removed_snapshots.fetch_add(dec.removed_snapshots, Ordering::Relaxed);
                     shared.removed_vertices.fetch_add(dec.removed_vertices, Ordering::Relaxed);

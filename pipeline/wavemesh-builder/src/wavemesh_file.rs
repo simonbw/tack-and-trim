@@ -1,5 +1,8 @@
-/// Binary .wavemesh output format and FNV-1a input hashing.
-/// Mirrors WavemeshFile.ts.
+//! Binary .wavemesh output format and FNV-1a input hashing.
+//!
+//! The canonical format specification (with byte-level layout) lives in the
+//! TypeScript implementation: `src/pipeline/mesh-building/WavemeshFile.ts`.
+//! See also `src/pipeline/CLAUDE.md` for a summary.
 
 use crate::level::{TerrainCPUData, WaveSource};
 use crate::wavefront::WavefrontMeshData;
@@ -10,6 +13,7 @@ const HEADER_BYTES: usize = 32;
 const ENTRY_BYTES: usize = 16;
 const COVERAGE_BYTES: usize = 36;
 
+/// Serialize wave mesh data into the binary `.wavemesh` format.
 pub fn build_wavemesh_buffer(meshes: &[WavefrontMeshData], input_hash: [u32; 2]) -> Vec<u8> {
     let wave_count = meshes.len();
     let mut data_size = 0usize;
@@ -87,6 +91,8 @@ fn fnv1a_32(parts: &[&[u8]], offset_basis: u32) -> u32 {
 
 fn f64_bytes(v: f64) -> [u8; 8] { v.to_le_bytes() }
 
+/// Compute a 64-bit FNV-1a hash of all terrain data and wave source parameters
+/// for cache invalidation. Returns `[hash_lo, hash_hi]`.
 pub fn compute_input_hash(
     wave_sources: &[WaveSource],
     terrain: &TerrainCPUData,

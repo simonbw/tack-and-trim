@@ -1,10 +1,11 @@
-/// JSON level file parsing, Catmull-Rom spline sampling, contour tree building,
-/// and terrain CPU data construction. Mirrors LevelFileFormat.ts + LandMass.ts.
+//! JSON level file parsing, Catmull-Rom spline sampling, contour tree building,
+//! and terrain CPU data construction. Mirrors LevelFileFormat.ts + LandMass.ts.
 
 use serde::Deserialize;
 
 // ── JSON types ───────────────────────────────────────────────────────────────
 
+/// Top-level JSON structure for a `.level.json` file.
 #[derive(Deserialize, Debug)]
 pub struct LevelFileJSON {
     #[allow(dead_code)]
@@ -15,11 +16,13 @@ pub struct LevelFileJSON {
     pub contours: Vec<TerrainContourJSON>,
 }
 
+/// Optional wave configuration section in a level file.
 #[derive(Deserialize, Debug)]
 pub struct WaveConfigJSON {
     pub sources: Vec<WaveSourceJSON>,
 }
 
+/// JSON representation of a single wave source.
 #[derive(Deserialize, Debug, Clone)]
 pub struct WaveSourceJSON {
     pub amplitude: f64,
@@ -39,6 +42,7 @@ pub struct WaveSourceJSON {
 fn default_speed_mult() -> f64 { 1.0 }
 fn default_source_dist() -> f64 { 1e10 }
 
+/// JSON representation of a terrain contour (island, shoal, etc.).
 #[derive(Deserialize, Debug)]
 pub struct TerrainContourJSON {
     pub height: f64,
@@ -49,6 +53,7 @@ pub struct TerrainContourJSON {
 
 // ── WaveSource ───────────────────────────────────────────────────────────────
 
+/// Resolved wave source parameters used during mesh building.
 #[derive(Clone, Debug)]
 pub struct WaveSource {
     pub amplitude: f64,
@@ -99,8 +104,10 @@ pub fn default_wave_sources() -> Vec<WaveSource> {
 
 const DEFAULT_DEPTH: f64 = -300.0;
 const SAMPLES_PER_SEGMENT: usize = 16;
+/// Number of 32-bit values per contour in the binary contour data buffer.
 pub const FLOATS_PER_CONTOUR: usize = 13;
 
+/// CPU-side terrain data matching the GPU packed buffer layout.
 #[derive(Clone)]
 pub struct TerrainCPUData {
     pub vertex_data: Vec<f32>,
@@ -172,7 +179,7 @@ fn signed_area(points: &[[f64; 2]]) -> f64 {
     area / 2.0
 }
 
-fn ensure_ccw(points: &mut Vec<[f64; 2]>) {
+fn ensure_ccw(points: &mut [[f64; 2]]) {
     if signed_area(points) > 0.0 {
         points.reverse();
     }
@@ -339,10 +346,13 @@ fn find_deepest_container(
 
 // ── Build terrain data ───────────────────────────────────────────────────────
 
-pub fn parse_level_file(json_str: &str) -> LevelFileJSON {
-    serde_json::from_str(json_str).expect("Failed to parse level JSON")
+/// Parse a level JSON string into a `LevelFileJSON`.
+pub fn parse_level_file(json_str: &str) -> anyhow::Result<LevelFileJSON> {
+    Ok(serde_json::from_str(json_str)?)
 }
 
+/// Build the binary terrain CPU data from a parsed level file, including contour
+/// tree construction, DFS ordering, and flat vertex/children buffers.
 pub fn build_terrain_data(level: &LevelFileJSON) -> TerrainCPUData {
     let def_depth = level.default_depth.unwrap_or(DEFAULT_DEPTH);
     let contours = &level.contours;
@@ -421,8 +431,7 @@ pub fn build_terrain_data(level: &LevelFileJSON) -> TerrainCPUData {
     // Build flat children in DFS order
     let mut child_starts = Vec::with_capacity(n);
     let mut children_flat: Vec<u32> = Vec::new();
-    for dfs_idx in 0..n {
-        let orig = dfs_order[dfs_idx];
+    for &orig in dfs_order.iter().take(n) {
         child_starts.push(children_flat.len());
         for &child_orig in &tree.nodes[orig].children {
             children_flat.push(original_to_dfs[child_orig] as u32);
@@ -431,8 +440,7 @@ pub fn build_terrain_data(level: &LevelFileJSON) -> TerrainCPUData {
 
     let mut vertex_index: usize = 0;
 
-    for dfs_idx in 0..n {
-        let orig = dfs_order[dfs_idx];
+    for (dfs_idx, &orig) in dfs_order.iter().enumerate().take(n) {
         let vertices = &sampled[orig];
         let height = contours[orig].height;
         let depth = tree.nodes[orig].depth;
