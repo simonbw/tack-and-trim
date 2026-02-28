@@ -22,15 +22,7 @@ cargo install samply
 
 ### Collecting a profile
 
-1. Enable debug symbols in the release build (needed for function names in the profile):
-
-```toml
-# pipeline/wavemesh-builder/Cargo.toml
-[profile.release]
-debug = true  # add this temporarily
-```
-
-2. Rebuild and profile:
+Debug symbols are always enabled in the release build (`debug = true` in Cargo.toml) so profilers can resolve function names. This has no runtime cost.
 
 ```sh
 cargo build --release --manifest-path pipeline/wavemesh-builder/Cargo.toml
@@ -39,18 +31,32 @@ samply record ./pipeline/wavemesh-builder/target/release/wavemesh-builder
 
 This runs the full build under the profiler and opens the Firefox Profiler UI in your browser. The flame graph and call tree tabs show where time is spent; the timeline shows per-thread activity.
 
-3. To save a profile for later analysis without opening the browser:
+To save a profile for later analysis without opening the browser:
 
 ```sh
 samply record --save-only -o /tmp/wavemesh-profile.json ./pipeline/wavemesh-builder/target/release/wavemesh-builder
 samply load /tmp/wavemesh-profile.json  # open it later
 ```
 
-4. Remember to remove `debug = true` from Cargo.toml when done.
+### Quick summary with `profile.py`
 
-### Quick text-based profiling with macOS `sample`
+The `profile.py` script captures a macOS `sample` profile during the san-juan-islands build and prints a summary with per-thread utilization and categorized time breakdown:
 
-For a text-based profile (no GUI needed), use macOS's built-in `sample` command:
+```sh
+# Capture and analyze in one step (requires debug = true in Cargo.toml):
+python3 pipeline/wavemesh-builder/profile.py
+
+# Or analyze an existing sample file:
+python3 pipeline/wavemesh-builder/profile.py /tmp/wavemesh-sample.txt
+```
+
+The script categorizes terrain time into containment (bbox/winding number) vs IDW distance (nearest-edge search), and reports per-thread idle time broken down by cause (sleeping, spinning, mutex contention).
+
+Note: the terrain sub-categories use source line number ranges that may need updating if `terrain.rs` is significantly restructured. See `TERRAIN_CONTAINMENT_LINES` and `TERRAIN_IDW_LINES` in the script.
+
+### Raw profiling with macOS `sample`
+
+For a raw text-based profile (no GUI needed), use macOS's built-in `sample` command:
 
 ```sh
 # Start the build in the background
@@ -66,9 +72,3 @@ sample $PID 30 -f /tmp/wavemesh-sample.txt
 # - Per-thread breakdown showing idle vs working time
 # - "Total number in stack" summary at the bottom
 ```
-
-### What to look for
-
-- **Thread utilization**: Each worker thread's samples split between `_pthread_cond_wait` (idle, waiting for work) and actual computation. Poor utilization means uneven work distribution.
-- **Hot functions**: `compute_terrain_height_and_gradient`, `min_dist_with_gradient_grid`, `winding_number_test`, `refine_wavefront`, `post_process_segments` are the key ones.
-- **Allocation overhead**: `grow_one` / `realloc` / `_platform_memmove` samples indicate Vec resizing — fix with `with_capacity`.
