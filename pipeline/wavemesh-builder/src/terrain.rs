@@ -4,6 +4,100 @@
 use crate::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
 
 // ---------------------------------------------------------------------------
+// Containment grid — O(1) point-in-contour for all contours
+// ---------------------------------------------------------------------------
+
+/// Lightweight grid that caches inside/outside containment flags.
+/// Built for every contour (including small ones) to avoid winding number tests.
+pub struct ContainmentGrid {
+    cell_flags: Vec<u8>,
+    inv_cell_w: f64,
+    inv_cell_h: f64,
+    min_x: f64,
+    min_y: f64,
+}
+
+const CONTAINMENT_GRID_SIZE: usize = 16;
+
+impl ContainmentGrid {
+    fn empty() -> Self {
+        ContainmentGrid { cell_flags: Vec::new(), inv_cell_w: 0.0, inv_cell_h: 0.0, min_x: 0.0, min_y: 0.0 }
+    }
+
+    fn build(c: &ParsedContour, vd: &[f32]) -> Self {
+        let min_x = c.bbox_min_x as f64;
+        let min_y = c.bbox_min_y as f64;
+        let max_x = c.bbox_max_x as f64;
+        let max_y = c.bbox_max_y as f64;
+        let cols = CONTAINMENT_GRID_SIZE;
+        let rows = CONTAINMENT_GRID_SIZE;
+
+        let w = (max_x - min_x).max(1e-9);
+        let h = (max_y - min_y).max(1e-9);
+        let inv_cell_w = cols as f64 / w;
+        let inv_cell_h = rows as f64 / h;
+        let cell_w = w / cols as f64;
+        let cell_h = h / rows as f64;
+        let num_cells = cols * rows;
+        let start = c.point_start * 2;
+        let n = c.point_count;
+
+        // Mark cells that contain edges as BOUNDARY
+        let mut cell_flags = vec![CELL_OUTSIDE; num_cells];
+        for i in 0..n {
+            let j = (i + 1) % n;
+            let ax = vd[start + i * 2] as f64;
+            let ay = vd[start + i * 2 + 1] as f64;
+            let bx = vd[start + j * 2] as f64;
+            let by = vd[start + j * 2 + 1] as f64;
+
+            let c0 = ((ax.min(bx) - min_x) * inv_cell_w).floor().max(0.0) as usize;
+            let c1 = ((ax.max(bx) - min_x) * inv_cell_w).floor().min((cols - 1) as f64) as usize;
+            let r0 = ((ay.min(by) - min_y) * inv_cell_h).floor().max(0.0) as usize;
+            let r1 = ((ay.max(by) - min_y) * inv_cell_h).floor().min((rows - 1) as f64) as usize;
+
+            for r in r0..=r1 {
+                for cc in c0..=c1 {
+                    cell_flags[r * cols + cc] = CELL_BOUNDARY;
+                }
+            }
+        }
+
+        // Test center of non-boundary cells
+        for cell in 0..num_cells {
+            if cell_flags[cell] != CELL_BOUNDARY {
+                let col = cell % cols;
+                let row = cell / cols;
+                let cx = min_x + (col as f64 + 0.5) * cell_w;
+                let cy = min_y + (row as f64 + 0.5) * cell_h;
+                if winding_number_test(cx, cy, n, start, vd) {
+                    cell_flags[cell] = CELL_INSIDE;
+                }
+            }
+        }
+
+        ContainmentGrid { cell_flags, inv_cell_w, inv_cell_h, min_x, min_y }
+    }
+
+    /// Returns `Some(true)` if definitely inside, `Some(false)` if definitely
+    /// outside, `None` if on a boundary cell (caller must do full winding test).
+    #[inline]
+    fn contains(&self, px: f64, py: f64) -> Option<bool> {
+        let ci = ((px - self.min_x) * self.inv_cell_w).floor() as isize;
+        let ri = ((py - self.min_y) * self.inv_cell_h).floor() as isize;
+        if ci < 0 || ri < 0 || ci >= CONTAINMENT_GRID_SIZE as isize || ri >= CONTAINMENT_GRID_SIZE as isize {
+            return Some(false);
+        }
+        let cell = ri as usize * CONTAINMENT_GRID_SIZE + ci as usize;
+        match self.cell_flags[cell] {
+            CELL_INSIDE => Some(true),
+            CELL_OUTSIDE => Some(false),
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Edge spatial grid — accelerates nearest-edge queries for large contours
 // ---------------------------------------------------------------------------
 
@@ -19,16 +113,13 @@ const CELL_OUTSIDE: u8 = 0;
 const CELL_INSIDE: u8 = 1;
 const CELL_BOUNDARY: u8 = 2;
 
-/// Spatial grid that indexes contour edges into 2D cells and caches
-/// inside/outside containment for O(1) point-in-contour tests.
-/// Built once per contour during `parse_contours`, reused for all queries.
+/// Spatial grid that indexes contour edges into 2D cells for fast
+/// nearest-edge queries. Built for large contours only.
 pub struct EdgeGrid {
     /// Flattened cell storage: `cell_starts[cell]..cell_starts[cell+1]` gives
     /// the range of edge indices in `edge_indices` belonging to that cell.
     cell_starts: Vec<u32>,
     edge_indices: Vec<u16>,
-    /// Per-cell containment: CELL_OUTSIDE, CELL_INSIDE, or CELL_BOUNDARY.
-    cell_flags: Vec<u8>,
     cols: usize,
     rows: usize,
     inv_cell_w: f64,
@@ -130,45 +221,7 @@ impl EdgeGrid {
             }
         }
 
-        // Build containment flags: cells with edges are Boundary,
-        // cells without edges get a single winding-number sample at the center.
-        let cell_w = w / cols as f64;
-        let cell_h = h / rows as f64;
-        let mut cell_flags = vec![CELL_OUTSIDE; num_cells];
-        for cell in 0..num_cells {
-            let edge_count = cell_starts[cell + 1] - cell_starts[cell];
-            if edge_count > 0 {
-                cell_flags[cell] = CELL_BOUNDARY;
-            } else {
-                let col = cell % cols;
-                let row = cell / cols;
-                let cx = min_x + (col as f64 + 0.5) * cell_w;
-                let cy = min_y + (row as f64 + 0.5) * cell_h;
-                if winding_number_test(cx, cy, c.point_count, c.point_start * 2, vd) {
-                    cell_flags[cell] = CELL_INSIDE;
-                }
-            }
-        }
-
-        EdgeGrid { cell_starts, edge_indices, cell_flags, cols, rows, inv_cell_w, inv_cell_h, min_x, min_y }
-    }
-
-    /// Fast containment check. Returns `Some(true)` if definitely inside,
-    /// `Some(false)` if definitely outside, `None` if on a boundary cell
-    /// (caller must fall back to full winding number test).
-    #[inline]
-    fn contains(&self, px: f64, py: f64) -> Option<bool> {
-        let ci = ((px - self.min_x) * self.inv_cell_w).floor() as isize;
-        let ri = ((py - self.min_y) * self.inv_cell_h).floor() as isize;
-        if ci < 0 || ri < 0 || ci >= self.cols as isize || ri >= self.rows as isize {
-            return Some(false);
-        }
-        let cell = ri as usize * self.cols + ci as usize;
-        match self.cell_flags[cell] {
-            CELL_INSIDE => Some(true),
-            CELL_OUTSIDE => Some(false),
-            _ => None, // CELL_BOUNDARY — need full winding test
-        }
+        EdgeGrid { cell_starts, edge_indices, cols, rows, inv_cell_w, inv_cell_h, min_x, min_y }
     }
 
     /// Return an iterator of edge indices in cells within `radius` of `(px, py)`.
@@ -267,6 +320,8 @@ pub struct ParsedContour {
     pub bbox_max_y: f32,
     /// Spatial grid for fast nearest-edge queries. `None` for small contours.
     pub edge_grid: Option<EdgeGrid>,
+    /// Containment grid for O(1) point-in-contour tests. Built for all contours.
+    pub containment_grid: ContainmentGrid,
 }
 
 /// Extract all contour metadata from the binary contour data buffer.
@@ -278,9 +333,11 @@ pub fn parse_contours(terrain: &TerrainCPUData) -> Vec<ParsedContour> {
     for i in 0..n {
         let base = i * FLOATS_PER_CONTOUR * 4;
         let b = &cd[base..base + FLOATS_PER_CONTOUR * 4];
+        let point_start = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
+        let point_count = u32::from_le_bytes([b[4], b[5], b[6], b[7]]) as usize;
         let mut c = ParsedContour {
-            point_start: u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize,
-            point_count: u32::from_le_bytes([b[4], b[5], b[6], b[7]]) as usize,
+            point_start,
+            point_count,
             height: f32::from_le_bytes([b[8], b[9], b[10], b[11]]),
             depth: u32::from_le_bytes([b[16], b[17], b[18], b[19]]),
             skip_count: u32::from_le_bytes([b[48], b[49], b[50], b[51]]),
@@ -291,8 +348,10 @@ pub fn parse_contours(terrain: &TerrainCPUData) -> Vec<ParsedContour> {
             bbox_max_x: f32::from_le_bytes([b[40], b[41], b[42], b[43]]),
             bbox_max_y: f32::from_le_bytes([b[44], b[45], b[46], b[47]]),
             edge_grid: None,
+            containment_grid: ContainmentGrid::empty(),
         };
-        if c.point_count >= EDGE_GRID_THRESHOLD {
+        c.containment_grid = ContainmentGrid::build(&c, vd);
+        if point_count >= EDGE_GRID_THRESHOLD {
             c.edge_grid = Some(EdgeGrid::build(&c, vd));
         }
         contours.push(c);
@@ -324,21 +383,17 @@ fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, verte
     winding != 0
 }
 
-/// Point-in-contour test. Uses the edge grid's rasterized containment flags
-/// for O(1) lookups when available, falling back to full winding number test
-/// only for boundary cells or small contours without a grid.
+/// Point-in-contour test. Uses the containment grid for O(1) lookups,
+/// falling back to full winding number test only for boundary cells.
 fn is_inside_contour(
     px: f64, py: f64,
     contour: &ParsedContour,
     vertex_data: &[f32],
 ) -> bool {
-    // Try grid-accelerated containment first
-    if let Some(grid) = &contour.edge_grid {
-        if let Some(inside) = grid.contains(px, py) {
-            return inside;
-        }
-        // Boundary cell — fall through to full winding test
+    if let Some(inside) = contour.containment_grid.contains(px, py) {
+        return inside;
     }
+    // Boundary cell — full winding test
     winding_number_test(px, py, contour.point_count, contour.point_start * 2, vertex_data)
 }
 
