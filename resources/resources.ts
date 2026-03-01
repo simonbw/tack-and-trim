@@ -19,7 +19,10 @@ export type FontName = keyof typeof fonts;
 
 const levels = {
   vendoviIsland: require("./levels/vendovi-island.level.json"),
-  default: require("./levels/default.level.json")
+  sanJuanIslands: require("./levels/san-juan-islands.level.json"),
+  islesOfScilly: require("./levels/isles-of-scilly.level.json"),
+  default: require("./levels/default.level.json"),
+  apostleIslands: require("./levels/apostle-islands.level.json")
 };
 export type LevelName = keyof typeof levels;
 
@@ -34,7 +37,10 @@ const jsonBlobs = {
 
 const wavemeshes = {
   vendoviIsland: require("url:./levels/vendovi-island.wavemesh"),
-  default: require("url:./levels/default.wavemesh")
+  sanJuanIslands: require("url:./levels/san-juan-islands.wavemesh"),
+  islesOfScilly: require("url:./levels/isles-of-scilly.wavemesh"),
+  default: require("url:./levels/default.wavemesh"),
+  apostleIslands: require("url:./levels/apostle-islands.wavemesh")
 };
 export type WavemeshName = keyof typeof wavemeshes;
 
