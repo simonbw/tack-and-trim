@@ -10,5 +10,4 @@ api-docs/
 data/
 assets/terrain/*/tiles/
 assets/terrain/*/cache/
-*.wavemesh
 *.wavemesh.d.ts
