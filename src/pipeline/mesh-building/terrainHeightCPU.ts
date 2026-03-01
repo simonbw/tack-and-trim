@@ -40,8 +40,8 @@ interface ParsedContour {
   bboxMaxY: number;
 }
 
-/** Cache pre-parsed contour data keyed by the underlying ArrayBuffer */
-const parsedContourCache = new WeakMap<ArrayBuffer, ParsedContour[]>();
+/** Cache pre-parsed contour data keyed by the underlying buffer */
+const parsedContourCache = new WeakMap<ArrayBufferLike, ParsedContour[]>();
 
 /**
  * Get or create pre-parsed contour data for the given terrain.

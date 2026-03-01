@@ -26,6 +26,8 @@ describe("buildMarchingMesh snapshot", () => {
       wavelength: 120,
       direction: Math.PI / 3,
       amplitude: 1,
+      phaseOffset: 0,
+      speedMult: 1,
       sourceDist: 0,
       sourceOffsetX: 0,
       sourceOffsetY: 0,

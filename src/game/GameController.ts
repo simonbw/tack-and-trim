@@ -1,8 +1,8 @@
-import { RESOURCES } from "../../resources/resources";
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { ReactPreloader } from "../core/resources/Preloader";
-import { loadDefaultLevel } from "../editor/io/LevelLoader";
+import { LevelName } from "../../resources/resources";
+import { loadLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { CameraController } from "./CameraController";
@@ -15,7 +15,6 @@ import { TimeOfDay } from "./time/TimeOfDay";
 import { TimeOfDayHUD } from "./TimeOfDayHUD";
 import { TutorialManager } from "./tutorial/TutorialManager";
 import { isTutorialCompleted } from "./tutorial/tutorialStorage";
-import { loadWavemeshFromUrl } from "./wave-physics/WavemeshLoader";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
@@ -37,44 +36,36 @@ export class GameController extends BaseEntity {
   persistenceLevel = 100;
 
   @on("add")
-  async onAdd() {
-    const initScreen = this.game.addEntity(new GameInitializingScreen());
-
-    // Switch from asset preloader UI to game-initialization UI.
+  onAdd() {
+    // Switch from asset preloader UI to main menu
     for (const preloader of [
       ...this.game.entities.byConstructor(ReactPreloader),
     ]) {
       preloader.destroy();
     }
 
-    // 1. Load level data (terrain + waves) from bundled JSON resource
-    const { terrain, waves } = loadDefaultLevel();
+    // Start with wide camera shot for menu
+    this.game.camera.z = MENU_ZOOM;
+
+    // Show level select menu (no level loading yet)
+    this.game.addEntity(new MainMenu());
+  }
+
+  @on("levelSelected")
+  async onLevelSelected({ levelName }: { levelName: LevelName }) {
+    const initScreen = this.game.addEntity(new GameInitializingScreen());
+
+    // 1. Load level data (terrain + waves + wavemesh)
+    const { terrain, waves, wavemeshData } = await loadLevel(levelName);
     this.game.addEntity(new TerrainResources(terrain));
     this.game.addEntity(new TerrainQueryManager());
 
     // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
 
-    // 3. Wave physics — load prebuilt wave mesh from .wavemesh binary
-    let prebuiltMeshData;
-    const wavemeshUrl =
-      RESOURCES.wavemeshes["default" as keyof typeof RESOURCES.wavemeshes];
-    if (wavemeshUrl) {
-      try {
-        prebuiltMeshData = await loadWavemeshFromUrl(wavemeshUrl);
-        console.log(
-          `[GameController] Loaded prebuilt wavemesh (${prebuiltMeshData.length} meshes)`,
-        );
-      } catch (e) {
-        console.error("[GameController] Failed to load wavemesh:", e);
-      }
-    } else {
-      console.error(
-        "[GameController] No wavemesh resource found — run 'npm run build-wavemesh' to generate it",
-      );
-    }
+    // 3. Wave physics
     const wavePhysics = this.game.addEntity(
-      new WavePhysicsResources(waves, prebuiltMeshData),
+      new WavePhysicsResources(waves, wavemeshData),
     );
 
     // 4. Water data system (tide, modifiers, GPU buffers, wave sources)
@@ -90,16 +81,13 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new WindIndicator());
     this.game.addEntity(new DebugRenderer());
 
-    // Start with wide camera shot for menu
-    this.game.camera.z = MENU_ZOOM;
-
-    // Wait for critical systems before showing menu
+    // Wait for critical systems before starting gameplay
     await Promise.all([surfaceRenderer.whenReady(), wavePhysics.whenReady()]);
 
-    // Release rendering and show menu together
+    // Release rendering and start the game
     surfaceRenderer.setEnabled(true);
-    this.game.addEntity(new MainMenu());
     initScreen.destroy();
+    this.game.dispatch("gameStart", {});
   }
 
   @on("gameStart")

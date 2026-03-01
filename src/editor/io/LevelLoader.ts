@@ -1,11 +1,13 @@
 /**
  * Level loader utility.
  *
- * Provides functions for loading level data (terrain + waves) from JSON files
- * that can be used by both the editor and the game.
+ * Provides functions for loading level data (terrain + waves + wavemesh) from
+ * bundled resources. Used by both the editor and the game.
  */
 
-import { RESOURCES } from "../../../resources/resources";
+import type { WavefrontMeshData } from "../../pipeline/mesh-building/MeshBuildTypes";
+import { loadWavemeshFromUrl } from "../../game/wave-physics/WavemeshLoader";
+import { RESOURCES, LevelName } from "../../../resources/resources";
 import {
   EditorLevelDefinition,
   LevelData,
@@ -16,12 +18,44 @@ import {
 } from "./LevelFileFormat";
 
 /**
- * Load the default level data (terrain + waves).
- * Uses the bundled resource from the asset system.
+ * Everything needed to initialize a level at runtime: terrain, wave config,
+ * and prebuilt wavemesh data.
  */
-export function loadDefaultLevel(): LevelData {
-  const file = validateLevelFile(RESOURCES.levels.default);
-  return levelFileToLevelData(file);
+export interface LoadedLevel extends LevelData {
+  wavemeshData: WavefrontMeshData[] | undefined;
+}
+
+/**
+ * Load a level by name, including its terrain, wave config, and prebuilt
+ * wavemesh binary. The wavemesh is fetched asynchronously; if it fails or
+ * is missing, `wavemeshData` will be undefined.
+ */
+export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
+  const file = validateLevelFile(RESOURCES.levels[levelName]);
+  const levelData = levelFileToLevelData(file);
+
+  let wavemeshData: WavefrontMeshData[] | undefined;
+  const wavemeshUrl =
+    RESOURCES.wavemeshes[levelName as keyof typeof RESOURCES.wavemeshes];
+  if (wavemeshUrl) {
+    try {
+      wavemeshData = await loadWavemeshFromUrl(wavemeshUrl);
+      console.log(
+        `[LevelLoader] Loaded prebuilt wavemesh for "${levelName}" (${wavemeshData.length} meshes)`,
+      );
+    } catch (e) {
+      console.error(
+        `[LevelLoader] Failed to load wavemesh for "${levelName}":`,
+        e,
+      );
+    }
+  } else {
+    console.warn(
+      `[LevelLoader] No wavemesh found for "${levelName}" — run 'npm run build-wavemesh' to generate it`,
+    );
+  }
+
+  return { ...levelData, wavemeshData };
 }
 
 /**

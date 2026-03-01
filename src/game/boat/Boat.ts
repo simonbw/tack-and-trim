@@ -6,6 +6,7 @@ import { BoatSpray } from "../BoatSpray";
 import { Anchor } from "./Anchor";
 import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
+import { BoatSoundGenerator } from "./BoatSoundGenerator";
 import { Bowsprit } from "./Bowsprit";
 import { findBowPoint, findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
@@ -148,6 +149,9 @@ export class Boat extends BaseEntity {
 
     // Create terrain querier for grounding physics
     this.addChild(new BoatGrounding(this));
+
+    // Boat sound effects (sheet snaps, boom slams)
+    this.addChild(new BoatSoundGenerator(this));
   }
 
   @on("tick")

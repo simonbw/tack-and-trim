@@ -23,22 +23,56 @@
   font-size: 5rem;
   font-weight: bold;
   letter-spacing: 0.15em;
-  margin-bottom: 2rem;
+  margin-bottom: 0.5rem;
   text-transform: uppercase;
 }
 
-.main-menu__prompt {
-  font-size: 1.5rem;
+.main-menu__subtitle {
+  font-size: 1.2rem;
   letter-spacing: 0.1em;
-  animation: pulse 2s ease-in-out infinite;
+  opacity: 0.6;
+  margin-bottom: 2rem;
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 1;
-  }
+.main-menu__levels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 300px;
+}
+
+.main-menu__card {
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 1rem 2rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.3rem;
+  color: #e8e4d9;
+  text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.6);
+  letter-spacing: 0.05em;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.15s;
+  text-align: center;
+}
+
+.main-menu__card:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: scale(1.02);
+}
+
+.main-menu__card--selected {
+  background: rgba(180, 160, 120, 0.2);
+  border-color: rgba(220, 200, 150, 0.5);
+  box-shadow: 0 0 12px rgba(180, 160, 120, 0.15);
+}
+
+.main-menu__card--selected:hover {
+  background: rgba(180, 160, 120, 0.3);
+  border-color: rgba(220, 200, 150, 0.6);
 }
