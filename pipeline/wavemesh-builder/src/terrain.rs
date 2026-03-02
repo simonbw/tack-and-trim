@@ -2,6 +2,7 @@
 //! Mirrors terrainHeightCPU.ts.
 
 use crate::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
+use crate::humanize::int;
 
 // ---------------------------------------------------------------------------
 // Containment grid — O(1) point-in-contour for all contours
@@ -803,7 +804,10 @@ fn build_contour_lookup_grid(
         .count();
     eprintln!(
         "    [lookup grid] {}x{} cells, {} total candidates, {} cells with candidates",
-        cols, rows, total_candidates, cells_with_candidates,
+        int(cols),
+        int(rows),
+        int(total_candidates),
+        int(cells_with_candidates),
     );
 
     ContourLookupGrid {
@@ -923,9 +927,13 @@ pub fn parse_contours(terrain: &TerrainCPUData) -> (Vec<ParsedContour>, ContourL
     let lookup_grid = build_contour_lookup_grid(&contours, vd, terrain.default_depth);
     let lookup_ms = t_lookup.elapsed().as_secs_f64() * 1000.0;
 
-    eprintln!("    [terrain] {} contours, {} vertices", n, total_vertices);
+    eprintln!(
+        "    [terrain] {} contours, {} vertices",
+        int(n),
+        int(total_vertices)
+    );
     eprintln!("      contour grids: {:.0}ms", contour_grids_ms);
-    eprintln!("      IDW grids ({}): {:.0}ms", idw_count, idw_ms);
+    eprintln!("      IDW grids ({}): {:.0}ms", int(idw_count), idw_ms);
     eprintln!("      lookup grid: {:.0}ms", lookup_ms);
 
     (contours, lookup_grid)

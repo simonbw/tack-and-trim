@@ -8,6 +8,7 @@ use rayon::prelude::*;
 
 use crate::config::MeshBuildConfig;
 use crate::decimate::decimate_track_snapshots;
+use crate::humanize::int;
 use crate::level::TerrainCPUData;
 use crate::physics::{advance_interior_ray, advance_sentinel_ray, RayState};
 use crate::refine::{refine_wavefront, RefineStats};
@@ -528,8 +529,11 @@ pub fn march_wavefronts(
         all_tracks.lock().unwrap().push(dec.track);
         let done = tracks_done.fetch_add(1, Ordering::Relaxed) + 1;
         if done % 500 == 0 {
-            eprintln!("    [march] {} tracks done ({:.1}s)",
-                done, start.elapsed().as_secs_f64());
+            eprintln!(
+                "    [march] {} tracks done ({:.1}s)",
+                int(done),
+                start.elapsed().as_secs_f64()
+            );
         }
     }
 
@@ -550,7 +554,7 @@ pub fn march_wavefronts(
     let total_elapsed = start.elapsed();
     eprintln!(
         "    [marching] complete — {} tracks, {:.1}s total",
-        tracks.len(),
+        int(tracks.len()),
         total_elapsed.as_secs_f64(),
     );
 

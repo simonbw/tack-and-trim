@@ -3,6 +3,7 @@
 mod bounds;
 mod config;
 mod decimate;
+mod humanize;
 mod level;
 mod marching;
 mod physics;
@@ -17,6 +18,7 @@ use std::time::Instant;
 
 use anyhow::{bail, Context};
 use clap::Parser;
+use humanize::int;
 
 use terrain::{ContourLookupGrid, ParsedContour};
 
@@ -82,8 +84,12 @@ fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBui
         .map(|w| w.sources.iter().map(level::WaveSource::from).collect())
         .unwrap_or_else(level::default_wave_sources);
 
-    eprintln!("  Parsed level: {}ms ({} contours, {} wave sources)",
-        t0.elapsed().as_millis(), level_file.contours.len(), wave_sources.len());
+    eprintln!(
+        "  Parsed level: {}ms ({} contours, {} wave sources)",
+        t0.elapsed().as_millis(),
+        int(level_file.contours.len()),
+        int(wave_sources.len())
+    );
 
     if wave_sources.is_empty() {
         eprintln!("  No wave sources — skipping");
@@ -109,10 +115,12 @@ fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBui
 
         let mesh = build_wave_mesh(ws, &terrain, &contours, &lookup_grid, config);
         let elapsed = wave_timer.elapsed();
-        eprintln!("    Built in {:.0}ms — {} vertices, {} triangles",
+        eprintln!(
+            "    Built in {:.0}ms — {} vertices, {} triangles",
             elapsed.as_secs_f64() * 1000.0,
-            mesh.vertex_count,
-            mesh.index_count / 3);
+            int(mesh.vertex_count),
+            int(mesh.index_count / 3)
+        );
         meshes.push(mesh);
     }
 
@@ -144,8 +152,13 @@ fn build_wave_mesh(
     let domain_length = wave_bounds.max_proj - wave_bounds.min_proj;
     let domain_width = wave_bounds.max_perp - wave_bounds.min_perp;
     let estimated_steps = (domain_length / wave_params.step_size).ceil() as usize;
-    eprintln!("    [marching] domain — rays: {}, {}ft × {}ft, ~{} steps",
-        num_rays, domain_length as i64, domain_width as i64, estimated_steps);
+    eprintln!(
+        "    [marching] domain — rays: {}, {}ft × {}ft, ~{} steps",
+        int(num_rays),
+        int(domain_length as i64),
+        int(domain_width as i64),
+        int(estimated_steps)
+    );
 
     let march_result = marching::march_wavefronts(
         first_wf, &wave_params, &wave_bounds, terrain, contours, lookup_grid, config,
@@ -155,11 +168,19 @@ fn build_wave_mesh(
         &march_result.tracks, &wave_params, &wave_bounds,
     );
 
-    eprintln!("    splits: {}, merges: {}, verts: {} → {} ({:.0}% reduction)",
-        march_result.splits, march_result.merges,
-        march_result.marched_vertices_before_decimation,
-        mesh.vertex_count,
-        100.0 * (1.0 - mesh.vertex_count as f64 / march_result.marched_vertices_before_decimation.max(1) as f64));
+    eprintln!(
+        "    splits: {}, merges: {}, verts: {} → {} ({:.0}% reduction)",
+        int(march_result.splits),
+        int(march_result.merges),
+        int(march_result.marched_vertices_before_decimation),
+        int(mesh.vertex_count),
+        100.0
+            * (1.0
+                - mesh.vertex_count as f64
+                    / march_result
+                        .marched_vertices_before_decimation
+                        .max(1) as f64)
+    );
 
     mesh
 }
