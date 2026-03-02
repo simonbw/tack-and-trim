@@ -3,9 +3,16 @@ import path from "path";
 import { createInterface } from "readline/promises";
 import type { BoundingBox } from "./geo-utils";
 
+export type DataSourceConfig =
+  | { type: "cudem"; datasetPath: string }
+  | { type: "usace-s3"; baseUrl: string; statePrefix: string; urlList: string }
+  | { type: "emodnet-wcs"; coverageId: string };
+
 export interface RegionConfig {
   name: string;
-  datasetPath: string;
+  /** @deprecated Use dataSource instead. Kept for backward compat. */
+  datasetPath?: string;
+  dataSource?: DataSourceConfig;
   bbox: BoundingBox;
   interval: number;
   simplify: number;
@@ -14,6 +21,16 @@ export interface RegionConfig {
   minPoints: number;
   flipY: boolean;
   output: string;
+}
+
+export function resolveDataSource(config: RegionConfig): DataSourceConfig {
+  if (config.dataSource) return config.dataSource;
+  if (config.datasetPath) {
+    return { type: "cudem", datasetPath: config.datasetPath };
+  }
+  throw new Error(
+    `Region "${config.name}" must have either dataSource or datasetPath`,
+  );
 }
 
 const ASSETS_ROOT = path.resolve(__dirname, "../../../../assets/terrain");
@@ -80,7 +97,11 @@ async function promptForRegion(regions: string[]): Promise<string> {
       }
 
       const byIndex = Number.parseInt(answer, 10);
-      if (Number.isInteger(byIndex) && byIndex >= 1 && byIndex <= regions.length) {
+      if (
+        Number.isInteger(byIndex) &&
+        byIndex >= 1 &&
+        byIndex <= regions.length
+      ) {
         return regions[byIndex - 1];
       }
 

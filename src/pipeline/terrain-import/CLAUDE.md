@@ -44,9 +44,42 @@ Loads the cached grid, runs marching squares to extract iso-contour rings, simpl
 
 ## Adding a new region
 
-1. Create `assets/terrain/<name>/region.json` with the region config (see `san-juan-islands/region.json` for an example)
-2. The `datasetPath` must match a directory under `https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/`
+1. Create `assets/terrain/<name>/region.json` with the region config
+2. Configure the data source (see below)
 3. Run `npm run import-terrain -- --region <name>`
+
+### Data sources
+
+Each region specifies where to download elevation tiles via a `dataSource` field in `region.json`. Two source types are supported:
+
+**NOAA CUDEM** (U.S. ocean coastlines, ~3m resolution):
+```json
+{
+  "dataSource": { "type": "cudem", "datasetPath": "wash_bellingham/" }
+}
+```
+The `datasetPath` must match a directory under `https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/`. Tiles are filtered by bbox using the CUDEM filename convention. For backward compatibility, a top-level `datasetPath` field (without `dataSource`) is also accepted.
+
+**USACE S3** (e.g. Lake Superior DEM, ~1m resolution):
+```json
+{
+  "dataSource": {
+    "type": "usace-s3",
+    "baseUrl": "https://noaa-nos-coastal-lidar-pds.s3.us-east-1.amazonaws.com/dem/USACE_Superior_DEM_2019_9185/",
+    "statePrefix": "wi/",
+    "urlList": "urllist9185.txt"
+  }
+}
+```
+Downloads all tiles matching the state prefix from the S3 bucket's URL list file. Spatial clipping is handled by `gdalwarp` in the build-grid step.
+
+**EMODnet WCS** (European seas bathymetry, ~115m resolution):
+```json
+{
+  "dataSource": { "type": "emodnet-wcs", "coverageId": "emodnet__mean" }
+}
+```
+Downloads a single GeoTIFF via a WCS GetCoverage request from `https://ows.emodnet-bathymetry.eu/wcs`, cropped to the region bbox. Covers all European sea areas. The `coverageId` is typically `emodnet__mean` for the latest composite bathymetry.
 
 ## File structure
 

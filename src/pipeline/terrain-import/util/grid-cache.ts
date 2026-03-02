@@ -45,7 +45,9 @@ export function listLocalTiles(
     .filter((name) => /\.tif$/i.test(name))
     .filter((name) => {
       const coverage = parseTileCoverageFromName(name);
-      return coverage ? bboxIntersects(coverage, targetBbox) : false;
+      // If we can parse coverage from the filename, filter by bbox.
+      // Otherwise include the tile — gdalwarp -te handles clipping.
+      return coverage ? bboxIntersects(coverage, targetBbox) : true;
     })
     .map((name) => path.join(tilesDir, name))
     .sort();

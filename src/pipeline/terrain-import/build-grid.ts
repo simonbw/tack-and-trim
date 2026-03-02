@@ -58,6 +58,7 @@ async function main(): Promise<void> {
   const tileArgs = localTilePaths.map((p) => `"${p}"`).join(" ");
   const cmd = [
     "gdalwarp",
+    "-t_srs EPSG:4326",
     `-te ${bbox.minLon} ${bbox.minLat} ${bbox.maxLon} ${bbox.maxLat}`,
     "-overwrite",
     tileArgs,
