@@ -18,6 +18,8 @@ use std::time::Instant;
 use anyhow::{bail, Context};
 use clap::Parser;
 
+use terrain::{ContourLookupGrid, ParsedContour};
+
 /// CLI for the wavemesh-builder binary.
 #[derive(Parser)]
 #[command(name = "wavemesh-builder")]
@@ -90,6 +92,7 @@ fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBui
 
     let t1 = Instant::now();
     let terrain = level::build_terrain_data(&level_file);
+    let (contours, lookup_grid) = terrain::parse_contours(&terrain);
     eprintln!("  Built terrain data: {}ms", t1.elapsed().as_millis());
 
     let tide_height = 0.0;
@@ -104,7 +107,7 @@ fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBui
         let dir_deg = ws.direction * 180.0 / std::f64::consts::PI;
         eprintln!("  Wave {}: λ={}ft, dir={:.1}°", i, ws.wavelength, dir_deg);
 
-        let mesh = build_wave_mesh(ws, &terrain, config);
+        let mesh = build_wave_mesh(ws, &terrain, &contours, &lookup_grid, config);
         let elapsed = wave_timer.elapsed();
         eprintln!("    Built in {:.0}ms — {} vertices, {} triangles",
             elapsed.as_secs_f64() * 1000.0,
@@ -128,6 +131,8 @@ fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBui
 fn build_wave_mesh(
     ws: &level::WaveSource,
     terrain: &level::TerrainCPUData,
+    contours: &[ParsedContour],
+    lookup_grid: &ContourLookupGrid,
     config: &config::MeshBuildConfig,
 ) -> wavefront::WavefrontMeshData {
     let wave_params = wavefront::WaveParams::from_source(ws, config);
@@ -143,7 +148,7 @@ fn build_wave_mesh(
         num_rays, domain_length as i64, domain_width as i64, estimated_steps);
 
     let march_result = marching::march_wavefronts(
-        first_wf, &wave_params, &wave_bounds, terrain, config,
+        first_wf, &wave_params, &wave_bounds, terrain, contours, lookup_grid, config,
     );
 
     let mesh = triangulate::build_mesh_data_from_tracks(

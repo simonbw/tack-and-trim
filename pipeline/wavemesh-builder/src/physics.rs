@@ -3,7 +3,7 @@
 
 use crate::config::MeshBuildPhysicsConfig;
 use crate::level::TerrainCPUData;
-use crate::terrain::{compute_terrain_height_and_gradient, ParsedContour};
+use crate::terrain::{compute_terrain_height_and_gradient, ContourLookupGrid, ParsedContour};
 use crate::wavefront::{WaveBounds, WaveParams};
 
 /// Current state of a ray being advanced through the wave field.
@@ -67,13 +67,14 @@ pub fn advance_interior_ray(
     physics: &MeshBuildPhysicsConfig,
     terrain: &TerrainCPUData,
     contours: &[ParsedContour],
+    lookup_grid: &ContourLookupGrid,
 ) -> Option<InteriorRayResult> {
     let mut depth = ray.depth;
     let mut grad_x = ray.terrain_grad_x;
     let mut grad_y = ray.terrain_grad_y;
 
     if !depth.is_finite() || !grad_x.is_finite() || !grad_y.is_finite() {
-        let thg = compute_terrain_height_and_gradient(ray.x, ray.y, terrain, contours);
+        let thg = compute_terrain_height_and_gradient(ray.x, ray.y, terrain, contours, lookup_grid);
         depth = (-thg.height).max(0.0);
         grad_x = thg.gradient_x;
         grad_y = thg.gradient_y;
@@ -118,7 +119,7 @@ pub fn advance_interior_ray(
         return None;
     }
 
-    let new_thg = compute_terrain_height_and_gradient(nx, ny, terrain, contours);
+    let new_thg = compute_terrain_height_and_gradient(nx, ny, terrain, contours, lookup_grid);
     let new_depth = -new_thg.height;
     let normalized_step = local_step / wp.wavelength;
 

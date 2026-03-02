@@ -11,7 +11,7 @@ use crate::decimate::decimate_track_snapshots;
 use crate::level::TerrainCPUData;
 use crate::physics::{advance_interior_ray, advance_sentinel_ray, RayState};
 use crate::refine::{refine_wavefront, RefineStats};
-use crate::terrain::{parse_contours, ParsedContour};
+use crate::terrain::{ContourLookupGrid, ParsedContour};
 use crate::wavefront::{SegmentTrack, SegmentTrackSnapshot, WaveBounds, WaveParams, WavefrontSegment};
 
 // ── Initial wavefront ────────────────────────────────────────────────────────
@@ -92,6 +92,7 @@ fn advance_track_segment_step(
     breaking_depth: f64,
     terrain: &TerrainCPUData,
     contours: &[ParsedContour],
+    lookup_grid: &ContourLookupGrid,
     config: &MeshBuildConfig,
     stats: &mut RefineStats,
 ) -> (usize, Vec<WavefrontSegment>, u64, u64) {
@@ -135,7 +136,7 @@ fn advance_track_segment_step(
                 terrain_grad_y: segment.terrain_grad_y[i],
             };
 
-            match advance_interior_ray(&ray, wp, bounds, breaking_depth, &config.physics, terrain, contours) {
+            match advance_interior_ray(&ray, wp, bounds, breaking_depth, &config.physics, terrain, contours, lookup_grid) {
                 Some(ir) => RayStepOutcome::Advanced {
                     nx: ir.nx, ny: ir.ny, t: pt,
                     dir_x: ir.dir_x, dir_y: ir.dir_y,
@@ -221,6 +222,7 @@ fn march_single_track(
     bounds: &WaveBounds,
     terrain: &TerrainCPUData,
     contours: &[ParsedContour],
+    lookup_grid: &ContourLookupGrid,
     config: &MeshBuildConfig,
 ) -> TrackResult {
     let breaking_depth = config.physics.breaking_depth_ratio * wp.wavelength;
@@ -255,7 +257,7 @@ fn march_single_track(
         let (next_step, produced, refractions, clamps) = advance_track_segment_step(
             &segment, segment.parent_track_id,
             wp, bounds, breaking_depth,
-            terrain, contours, config, &mut stats,
+            terrain, contours, lookup_grid, config, &mut stats,
         );
         total_refractions += refractions;
         total_clamps += clamps;
@@ -416,12 +418,12 @@ pub fn march_wavefronts(
     wp: &WaveParams,
     bounds: &WaveBounds,
     terrain: &TerrainCPUData,
+    contours: &[ParsedContour],
+    lookup_grid: &ContourLookupGrid,
     config: &MeshBuildConfig,
 ) -> MarchResult {
     use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
     use std::sync::Mutex;
-
-    let contours = parse_contours(terrain);
 
     let mut wp = wp.clone();
     wp.initial_delta_t = if first_wavefront.len() > 2 {
@@ -470,6 +472,7 @@ pub fn march_wavefronts(
         bounds: &'scope WaveBounds,
         terrain: &'scope TerrainCPUData,
         contours: &'scope [ParsedContour],
+        lookup_grid: &'scope ContourLookupGrid,
         config: &'scope MeshBuildConfig,
         next_track_id: &'scope AtomicI32,
         all_tracks: &'scope Mutex<Vec<SegmentTrack>>,
@@ -488,7 +491,7 @@ pub fn march_wavefronts(
         }
 
         let (track, child_seeds, stats, refractions, clamped, verts) =
-            march_single_track(seed, wp, bounds, terrain, contours, config);
+            march_single_track(seed, wp, bounds, terrain, contours, lookup_grid, config);
 
         total_splits.fetch_add(stats.splits, Ordering::Relaxed);
         total_merges.fetch_add(stats.merges, Ordering::Relaxed);
@@ -506,7 +509,7 @@ pub fn march_wavefronts(
             child.track_id = id;
             s.spawn(move |s| {
                 process_track(
-                    s, child, wp, bounds, terrain, contours, config,
+                    s, child, wp, bounds, terrain, contours, lookup_grid, config,
                     next_track_id, all_tracks,
                     total_splits, total_merges, total_refractions, turn_clamp_count,
                     marched_verts, removed_snapshots, removed_vertices, tracks_done, start,
@@ -533,7 +536,7 @@ pub fn march_wavefronts(
     rayon::scope(|s| {
         s.spawn(|s| {
             process_track(
-                s, first_wavefront, &wp, bounds, terrain, &contours, config,
+                s, first_wavefront, &wp, bounds, terrain, contours, lookup_grid, config,
                 &next_track_id, &all_tracks,
                 &total_splits, &total_merges, &total_refractions, &turn_clamp_count,
                 &marched_verts, &removed_snapshots, &removed_vertices, &tracks_done, &start,

@@ -49,11 +49,11 @@ SKIP_PATTERNS = [
 
 # Line ranges in terrain.rs for sub-categorization.
 # These are approximate and shift when the file is edited — update as needed.
-# Phase 1 (containment DFS): lines 884-906
-# Phase 2/3 (early return): lines 908-926
-# Phase 4 (IDW): lines 928-988
-TERRAIN_CONTAINMENT_LINES = range(884, 907)
-TERRAIN_IDW_LINES = range(928, 989)
+# Phase 1 (containment lookup): lines 1397-1406
+# Phase 2/3 (early return): lines 1407-1426
+# Phase 4 (IDW via idw_from_grid): lines 1427-1582
+TERRAIN_CONTAINMENT_LINES = range(1397, 1407)
+TERRAIN_IDW_LINES = range(1427, 1583)
 
 
 def parse_entry(func_line: str) -> dict:
@@ -97,9 +97,13 @@ def categorize_entry(count: int, func_line: str, entry: dict) -> str | None:
             return "idw_distance"
         return "terrain_other"
 
+    # IDW grid function is a separate symbol from compute_terrain_height_and_gradient
+    if "idw_from_grid" in name and source_file == "terrain.rs":
+        return "idw_distance"
+
     # Explicit function-name matches
     rules = [
-        ("containment", ["is_inside_contour", "winding_number_test", "ContainmentGrid"]),
+        ("containment", ["is_inside_contour", "winding_number_test", "ContainmentGrid", "ContourLookupGrid"]),
         ("idw_distance", [
             "min_dist_to_contour_with_gradient", "min_dist_with_gradient_grid",
             "min_dist_with_gradient_linear", "point_to_segment_dx_dy",
