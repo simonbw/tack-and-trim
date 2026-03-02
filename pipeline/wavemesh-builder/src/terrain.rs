@@ -17,7 +17,7 @@ pub struct ContainmentGrid {
     min_y: f64,
 }
 
-const CONTAINMENT_GRID_SIZE: usize = 16;
+const CONTAINMENT_GRID_SIZE: usize = 64;
 
 impl ContainmentGrid {
     fn empty() -> Self {
