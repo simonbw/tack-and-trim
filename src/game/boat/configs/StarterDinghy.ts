@@ -28,6 +28,26 @@ export const StarterDinghy: BoatConfig = {
       V(-6, 2.3),
       V(-6.5, 1.3),
     ], // ~16 ft LOA, ~6.6 ft beam
+    waterlineVertices: [
+      // Narrower shape at the waterline (below gunwales/flare)
+      // Stern (transom)
+      V(-6.3, -1.0),
+      V(-5.8, -1.8),
+      // Starboard side
+      V(-2.5, -2.6),
+      V(2, -2.6),
+      V(5.3, -2.0),
+      V(7.8, -1.0),
+      // Bow
+      V(8.8, 0),
+      // Port side
+      V(7.8, 1.0),
+      V(5.3, 2.0),
+      V(2, 2.6),
+      V(-2.5, 2.6),
+      V(-5.8, 1.8),
+      V(-6.3, 1.0),
+    ], // ~15.1 ft WLL, ~5.2 ft waterline beam
     skinFrictionCoefficient: 0.003, // Typical smooth hull skin friction
     draft: 0.5, // ft below waterline (hull bottom)
     colors: {

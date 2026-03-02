@@ -25,8 +25,8 @@ export class Wake extends BaseEntity {
     this.spawnLocal = spawnLocal;
     this.amplitudeScale = amplitudeScale;
 
-    // Derive hull dimensions from vertices
-    const verts = boat.config.hull.vertices;
+    // Derive hull dimensions from waterline vertices (where hull meets water)
+    const verts = boat.config.hull.waterlineVertices ?? boat.config.hull.vertices;
     let minX = Infinity,
       maxX = -Infinity,
       minY = Infinity,

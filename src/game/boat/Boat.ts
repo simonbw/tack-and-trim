@@ -140,8 +140,10 @@ export class Boat extends BaseEntity {
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
 
     // Create wake effects — bow wave (dominant) and stern wave (weaker)
-    const bowPoint = findBowPoint(config.hull.vertices);
-    const sternPoints = findSternPoints(config.hull.vertices);
+    // Use waterline vertices for wake spawn points (where hull meets water)
+    const waterlineVerts = config.hull.waterlineVertices ?? config.hull.vertices;
+    const bowPoint = findBowPoint(waterlineVerts);
+    const sternPoints = findSternPoints(waterlineVerts);
     const sternCenter = sternPoints.port.add(sternPoints.starboard).imul(0.5);
     this.addChild(new Wake(this, bowPoint, 1.0));
     this.addChild(new Wake(this, sternCenter, 0.4));
