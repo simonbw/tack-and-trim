@@ -518,9 +518,13 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Compute clip-to-world matrix: maps clip space (-1,1) directly to world space.
     // Composed as: screenToWorld * clipToScreen
+    // Note: clipToScreen does NOT flip Y here. The old UV-based clipToWorld used
+    // uvY = -clipY*0.5+0.5, which combined with the viewport bounds produced a
+    // mapping equivalent to clip(-1,-1)→screen(0,0). The camera inverse already
+    // handles the world Y-up ↔ screen Y-down conversion.
     const clipToScreen = new Matrix3();
     clipToScreen.translate(width / 2, height / 2);
-    clipToScreen.scale(width / 2, -height / 2);
+    clipToScreen.scale(width / 2, height / 2);
     const clipToWorldMatrix = camera.getMatrix().clone().invert();
     clipToWorldMatrix.multiply(clipToScreen);
 
