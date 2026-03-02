@@ -49,11 +49,11 @@ SKIP_PATTERNS = [
 
 # Line ranges in terrain.rs for sub-categorization.
 # These are approximate and shift when the file is edited — update as needed.
-# Phase 1 (containment DFS): lines 791-813
-# Phase 2/3 (early return): lines 815-833
-# Phase 4 (IDW): lines 835-895
-TERRAIN_CONTAINMENT_LINES = range(791, 814)
-TERRAIN_IDW_LINES = range(835, 896)
+# Phase 1 (containment DFS): lines 884-906
+# Phase 2/3 (early return): lines 908-926
+# Phase 4 (IDW): lines 928-988
+TERRAIN_CONTAINMENT_LINES = range(884, 907)
+TERRAIN_IDW_LINES = range(928, 989)
 
 
 def parse_entry(func_line: str) -> dict:

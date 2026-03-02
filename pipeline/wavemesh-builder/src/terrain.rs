@@ -361,6 +361,99 @@ pub fn parse_contours(terrain: &TerrainCPUData) -> Vec<ParsedContour> {
 
 /// Raw winding number test — checks if a point is inside a polygon defined
 /// by `point_count` vertices starting at `start` in `vertex_data`.
+/// On aarch64, processes 4 edges at a time using NEON f32x4 intrinsics.
+#[cfg(target_arch = "aarch64")]
+fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, vertex_data: &[f32]) -> bool {
+    use std::arch::aarch64::*;
+
+    if point_count < 3 { return false; }
+
+    let n = point_count;
+    let px32 = px as f32;
+    let py32 = py as f32;
+    let mut winding: i32 = 0;
+
+    // SIMD: process 4 consecutive edges at a time.
+    // Edge i uses vertex[i] as start and vertex[i+1] as end.
+    let simd_end = if n >= 5 { (n - 1) & !3 } else { 0 };
+
+    if simd_end > 0 {
+        unsafe {
+            let vpy = vdupq_n_f32(py32);
+            let vpx = vdupq_n_f32(px32);
+            let vzero = vdupq_n_f32(0.0);
+
+            let base = vertex_data.as_ptr().add(start);
+            let mut i = 0;
+
+            while i < simd_end {
+                // Load 4 start vertices (vertex[i..i+3])
+                let a_pair = vld2q_f32(base.add(i * 2));
+                let xi = a_pair.0;
+                let yi = a_pair.1;
+
+                // Load 4 end vertices (vertex[i+1..i+4])
+                let b_pair = vld2q_f32(base.add(i * 2 + 2));
+                let xj = b_pair.0;
+                let yj = b_pair.1;
+
+                // cross = (xj - xi) * (py - yi) - (px - xi) * (yj - yi)
+                let xj_xi = vsubq_f32(xj, xi);
+                let py_yi = vsubq_f32(vpy, yi);
+                let px_xi = vsubq_f32(vpx, xi);
+                let yj_yi = vsubq_f32(yj, yi);
+                let cross = vsubq_f32(vmulq_f32(xj_xi, py_yi), vmulq_f32(px_xi, yj_yi));
+
+                // Upward crossing: yi <= py && yj > py && cross > 0 → winding += 1
+                let yi_le_py = vcleq_f32(yi, vpy);  // yi <= py
+                let yj_gt_py = vcgtq_f32(yj, vpy);  // yj > py
+                let cross_gt_0 = vcgtq_f32(cross, vzero);
+                let up = vandq_u32(vandq_u32(yi_le_py, yj_gt_py), cross_gt_0);
+
+                // Downward crossing: yi > py && yj <= py && cross < 0 → winding -= 1
+                let yi_gt_py = vcgtq_f32(yi, vpy);  // yi > py
+                let yj_le_py = vcleq_f32(yj, vpy);  // yj <= py
+                let cross_lt_0 = vcltq_f32(cross, vzero);
+                let down = vandq_u32(vandq_u32(yi_gt_py, yj_le_py), cross_lt_0);
+
+                // Count set bits: each lane is 0xFFFFFFFF (true) or 0 (false)
+                // Reinterpret as i32: true = -1, false = 0
+                // Sum up: up contributes +1 per lane, down contributes -1 per lane
+                let up_i32 = vreinterpretq_s32_u32(up);
+                let down_i32 = vreinterpretq_s32_u32(down);
+                // up mask is -1 for match, so negate to get +1
+                let delta = vsubq_s32(down_i32, up_i32);
+                // Horizontal sum
+                winding += vaddvq_s32(delta);
+
+                i += 4;
+            }
+        }
+    }
+
+    // Scalar remainder: edges from simd_end through n-1 (including wrap-around)
+    for edge_i in simd_end..n {
+        let b_idx = if edge_i + 1 < n { edge_i + 1 } else { 0 };
+        let xi = vertex_data[start + edge_i * 2];
+        let yi = vertex_data[start + edge_i * 2 + 1];
+        let xj = vertex_data[start + b_idx * 2];
+        let yj = vertex_data[start + b_idx * 2 + 1];
+        if yi <= py32 {
+            if yj > py32 {
+                let cross = (xj - xi) * (py32 - yi) - (px32 - xi) * (yj - yi);
+                if cross > 0.0 { winding += 1; }
+            }
+        } else if yj <= py32 {
+            let cross = (xj - xi) * (py32 - yi) - (px32 - xi) * (yj - yi);
+            if cross < 0.0 { winding -= 1; }
+        }
+    }
+
+    winding != 0
+}
+
+/// Raw winding number test — scalar fallback for non-aarch64.
+#[cfg(not(target_arch = "aarch64"))]
 fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, vertex_data: &[f32]) -> bool {
     if point_count < 3 { return false; }
     let mut winding: i32 = 0;
