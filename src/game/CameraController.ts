@@ -45,7 +45,10 @@ export class CameraController extends BaseEntity {
     this.camera.smoothZoom(this.zTarget);
 
     // Smoothly rotate camera to match boat heading (or back to 0)
-    const targetAngle = this.rotateWithBoat ? -this.boat.hull.getAngle() : 0;
+    // π/2 - boatAngle makes the boat's forward direction point UP on screen
+    const targetAngle = this.rotateWithBoat
+      ? Math.PI / 2 - this.boat.hull.getAngle()
+      : 0;
     // Use shortest-path rotation via angle normalization
     const angleDiff = normalizeAngle(targetAngle - this.camera.angle);
     this.camera.angle = lerpOrSnap(
