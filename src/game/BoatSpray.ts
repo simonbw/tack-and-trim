@@ -3,7 +3,7 @@ import { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 import { range } from "../core/util/FunctionalUtils";
 import { lerp, lerpV2d } from "../core/util/MathUtil";
-import { chooseWeighted, rNormal } from "../core/util/Random";
+import { chooseWeighted, rNormal, rUniform } from "../core/util/Random";
 import { V, V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
 import { SprayParticle } from "./SprayParticle";
@@ -108,7 +108,7 @@ export class BoatSpray extends BaseEntity {
     // Spray velocity: relative velocity plus outward spray
 
     // The additional velocity beyond just velocity at the point
-    const spraySpeed = lerp(0, edge.vDotN * SPRAY_SPEED_SCALE, Math.random());
+    const spraySpeed = lerp(0, edge.vDotN * SPRAY_SPEED_SCALE, rUniform());
 
     // Reflect the apparent velocity off the edge (like a billiard ball).
     // reflection = v - 2(v · n)n, but we want the outward bounce, so we negate it:
@@ -121,12 +121,12 @@ export class BoatSpray extends BaseEntity {
 
     // Size increases with impact velocity
     const maxSize = MIN_SIZE + edge.vDotN * SIZE_VELOCITY_SCALE;
-    const size = lerp(MIN_SIZE, maxSize, Math.random());
+    const size = lerp(MIN_SIZE, maxSize, rUniform());
 
     // Vertical velocity increases with impact velocity
     const minZVelocity = BASE_VZ;
     const maxZVelocity = BASE_VZ + edge.vDotN * VZ_VELOCITY_SCALE;
-    const zVelocity = lerp(minZVelocity, maxZVelocity, Math.random());
+    const zVelocity = lerp(minZVelocity, maxZVelocity, rUniform());
 
     const position = edge.randomPosOnEdge();
     const velocity = edge.apparentVelocity.add(sprayVelocity);
@@ -210,6 +210,6 @@ class Edge {
   }
 
   randomPosOnEdge() {
-    return lerpV2d(this.p1, this.p2, Math.random());
+    return lerpV2d(this.p1, this.p2, rUniform());
   }
 }

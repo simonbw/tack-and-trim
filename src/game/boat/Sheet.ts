@@ -3,7 +3,7 @@ import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { Body } from "../../core/physics/body/Body";
 import { DistanceConstraint } from "../../core/physics/constraints/DistanceConstraint";
-import { lerp, stepToward } from "../../core/util/MathUtil";
+import { clamp, lerp, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { VerletRope } from "../rope/VerletRope";
 
@@ -116,7 +116,7 @@ export class Sheet extends BaseEntity {
    * @param position 0 = full in, 1 = full out
    */
   setPosition(position: number): void {
-    this.position = Math.max(0, Math.min(1, position));
+    this.position = clamp(position, 0, 1);
     this.syncConstraintAndRope();
   }
 
@@ -136,7 +136,7 @@ export class Sheet extends BaseEntity {
 
   /** Set the visual opacity of the sheet (0 = invisible, 1 = fully visible) */
   setOpacity(opacity: number): void {
-    this.opacity = Math.max(0, Math.min(1, opacity));
+    this.opacity = clamp(opacity, 0, 1);
   }
 
   /** Check if sheet is fully eased out (at max length) */
