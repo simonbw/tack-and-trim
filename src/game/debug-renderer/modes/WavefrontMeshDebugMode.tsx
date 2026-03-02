@@ -19,6 +19,7 @@ import {
   mat3x3,
   type UniformInstance,
 } from "../../../core/graphics/UniformStruct";
+import { validateShaderModuleCompilation } from "../../../core/graphics/webgpu/WebGPUDevice";
 import {
   VERTEX_FLOATS,
   type WavefrontMesh,
@@ -267,6 +268,11 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
       code: SHADER_CODE,
       label: "Wavefront Debug Shader",
     });
+    await validateShaderModuleCompilation(
+      shaderModule,
+      SHADER_CODE,
+      "Wavefront Debug Shader",
+    );
 
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: [

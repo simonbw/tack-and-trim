@@ -1,0 +1,17 @@
+{
+  "name": "Vendovi Island",
+  "datasetPath": "wash_bellingham/",
+  "bbox": {
+    "minLat": 48.603606,
+    "minLon": -122.617323,
+    "maxLat": 48.617294,
+    "maxLon": -122.595673
+  },
+  "interval": 100,
+  "simplify": 100,
+  "scale": 1,
+  "minPerimeter": 1500,
+  "minPoints": 4,
+  "flipY": true,
+  "output": "resources/levels/vendovi-island.level.json"
+}

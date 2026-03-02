@@ -6,13 +6,16 @@
  * this texture to get per-wave amplitude, direction offset, and phase correction
  * instead of computing shadow/refraction/terrain-factor per pixel.
  *
- * Fragment output: vec4(phasorCos, phasorSin, coverage, turbulence)
- * Clear color: (0, 0, 0, 0) = zero phasors (no mesh coverage)
- * Additive blending accumulates phasor contributions from overlapping triangles.
+ * Fragment output: vec4(phasorCos, phasorSin, 0, turbulence)
+ * Clear color: (0, 0, 0, 0) = shadow zone (zero amplitude)
+ * Skirt geometry extends the mesh far beyond the domain, so uncovered pixels
+ * are always shadow zones behind terrain, never open ocean.
+ * RGB channels use additive blending to accumulate phasor contributions.
  * Alpha channel uses max blending to preserve peak breaking intensity.
  */
 
 import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
+import { validateShaderModuleCompilation } from "../../core/graphics/webgpu/WebGPUDevice";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import type { Viewport } from "./WavePhysicsResources";
 import type { WavefrontMesh } from "./WavefrontMesh";
@@ -67,10 +70,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  let w = in.blendWeight;
-  let pc = in.amplitudeFactor * cos(in.phaseOffset) * w;
-  let ps = in.amplitudeFactor * sin(in.phaseOffset) * w;
-  return vec4<f32>(pc, ps, 1.0, in.turbulence * w);
+  let pc = in.amplitudeFactor * cos(in.phaseOffset);
+  let ps = in.amplitudeFactor * sin(in.phaseOffset);
+  return vec4<f32>(pc, ps, 0.0, in.turbulence);
 }
 `;
 
@@ -102,6 +104,11 @@ export class WavefrontRasterizer {
       code: SHADER_CODE,
       label: "Wavefront Rasterizer Shader",
     });
+    await validateShaderModuleCompilation(
+      shaderModule,
+      SHADER_CODE,
+      "Wavefront Rasterizer Shader",
+    );
 
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: [
@@ -279,50 +286,9 @@ export class WavefrontRasterizer {
       renderPass.setPipeline(this.pipeline);
       renderPass.setBindGroup(0, this.bindGroup);
 
-      // Draw coverage quad first: fills bounding area with zero-phasor, coverage=1.
-      // Areas inside the bounds but without mesh triangles become shadow zones.
-      // Areas outside the bounds remain at coverage=0 (open ocean).
-      // Uses the oriented bounding box (not AABB) to match the wave-aligned mesh bounds.
-      if (
-        mesh.coverageQuad &&
-        this.coverageQuadVertexBuffer &&
-        this.coverageQuadIndexBuffer
-      ) {
-        const q = mesh.coverageQuad;
-        const v = this.coverageQuadVertices;
-        // 4 vertices × 6 floats: [posX, posY, ampFactor, turbulence, phaseOffset, blendWeight]
-        // ampFactor=0 → phasors (0,0), coverage=1 from fragment shader
-        v[0] = q.x0;
-        v[1] = q.y0;
-        v[2] = 0;
-        v[3] = 0;
-        v[4] = 0;
-        v[5] = 0;
-        v[6] = q.x1;
-        v[7] = q.y1;
-        v[8] = 0;
-        v[9] = 0;
-        v[10] = 0;
-        v[11] = 0;
-        v[12] = q.x2;
-        v[13] = q.y2;
-        v[14] = 0;
-        v[15] = 0;
-        v[16] = 0;
-        v[17] = 0;
-        v[18] = q.x3;
-        v[19] = q.y3;
-        v[20] = 0;
-        v[21] = 0;
-        v[22] = 0;
-        v[23] = 0;
-        this.device.queue.writeBuffer(this.coverageQuadVertexBuffer, 0, v);
-        renderPass.setVertexBuffer(0, this.coverageQuadVertexBuffer);
-        renderPass.setIndexBuffer(this.coverageQuadIndexBuffer, "uint32");
-        renderPass.drawIndexed(6);
-      }
-
-      // Draw mesh triangles on top — additive blending accumulates phasors
+      // Draw mesh triangles — additive blending accumulates phasors.
+      // Skirt geometry extends beyond the domain, so uncovered pixels (clear
+      // color 0,0,0,0) are either shadow zones or unreachable far-field.
       renderPass.setVertexBuffer(0, mesh.vertexBuffer);
       renderPass.setIndexBuffer(mesh.indexBuffer, "uint32");
       renderPass.drawIndexed(mesh.indexCount);

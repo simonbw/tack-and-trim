@@ -11,12 +11,20 @@ import { V, V2d, CompatibleVector } from "../Vector";
  * | 0  0  1  |
  */
 export class Matrix3 {
+  private static warningKeys = new Set<string>();
+
   /** Internal storage in column-major order */
   private data: Float32Array;
 
   constructor() {
     this.data = new Float32Array(9);
     this.identity();
+  }
+
+  private static warnOnce(key: string, message: string): void {
+    if (Matrix3.warningKeys.has(key)) return;
+    Matrix3.warningKeys.add(key);
+    console.warn(message);
   }
 
   /** Create an identity matrix */
@@ -212,7 +220,10 @@ export class Matrix3 {
 
     const det = a * d - b * c;
     if (det === 0) {
-      // Matrix is not invertible, reset to identity
+      Matrix3.warnOnce(
+        "invert-singular",
+        "Matrix3.invert encountered a singular matrix; resetting to identity.",
+      );
       return this.identity();
     }
 
@@ -253,6 +264,10 @@ export class Matrix3 {
 
     const det = a * d - b * c;
     if (det === 0) {
+      Matrix3.warnOnce(
+        "applyInverse-singular",
+        "Matrix3.applyInverse encountered a singular matrix; returning (0, 0).",
+      );
       return V(0, 0);
     }
 

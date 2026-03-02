@@ -67,16 +67,17 @@ export class ComputeShader extends Shader<BindingsDefinition> {
    * Must be called before dispatch.
    */
   async init(): Promise<void> {
-    const device = getWebGPU().device;
+    const gpu = getWebGPU();
+    const device = gpu.device;
 
     // Build complete shader with math constants at the top
     const completeShaderCode =
       this.getMathConstants() + "\n\n" + this.buildCode();
 
-    const shaderModule = device.createShaderModule({
-      code: completeShaderCode,
-      label: `${this.label} Shader Module`,
-    });
+    const shaderModule = await gpu.createShaderModuleChecked(
+      completeShaderCode,
+      `${this.label} Shader Module`,
+    );
 
     // Create bind group layout from merged bindings
     this.bindGroupLayout = device.createBindGroupLayout({

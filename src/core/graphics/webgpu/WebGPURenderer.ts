@@ -140,6 +140,8 @@ const UNIFORM_BUFFER_SIZE = ViewUniforms.byteSize;
  * Immediate-mode 2D WebGPU renderer.
  */
 export class WebGPURenderer {
+  private static warningKeys = new Set<string>();
+
   readonly canvas: HTMLCanvasElement;
   readonly textureManager: WebGPUTextureManager;
 
@@ -229,6 +231,12 @@ export class WebGPURenderer {
     this.spriteIndices = new Uint16Array(MAX_BATCH_INDICES);
   }
 
+  private warnOnce(key: string, message: string): void {
+    if (WebGPURenderer.warningKeys.has(key)) return;
+    WebGPURenderer.warningKeys.add(key);
+    console.warn(message);
+  }
+
   /**
    * Initialize WebGPU resources.
    * Must be called after WebGPUDevice.init().
@@ -272,13 +280,14 @@ export class WebGPURenderer {
   private async createShapePipeline(): Promise<void> {
     if (!this.device) return;
 
+    const gpu = getWebGPU();
     const device = this.device;
 
     // Create shader module
-    const shaderModule = device.createShaderModule({
-      code: shapeShaderSource,
-      label: "Shape Shader",
-    });
+    const shaderModule = await gpu.createShaderModuleChecked(
+      shapeShaderSource,
+      "Shape Shader",
+    );
 
     // Create uniform buffer
     this.shapeUniformBuffer = device.createBuffer({
@@ -381,13 +390,14 @@ export class WebGPURenderer {
   private async createSpritePipeline(): Promise<void> {
     if (!this.device) return;
 
+    const gpu = getWebGPU();
     const device = this.device;
 
     // Create shader module
-    const shaderModule = device.createShaderModule({
-      code: spriteShaderSource,
-      label: "Sprite Shader",
-    });
+    const shaderModule = await gpu.createShaderModuleChecked(
+      spriteShaderSource,
+      "Sprite Shader",
+    );
 
     // Create uniform buffer
     this.spriteUniformBuffer = device.createBuffer({
@@ -681,6 +691,10 @@ export class WebGPURenderer {
     if (prev) {
       this.currentTransform = prev;
     } else {
+      this.warnOnce(
+        "restore-stack-underflow",
+        "WebGPURenderer.restore called with an empty transform stack; resetting to identity.",
+      );
       this.currentTransform.identity();
     }
   }

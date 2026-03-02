@@ -1,5 +1,10 @@
+import type { LevelName } from "../../resources/resources";
+
 /** Global event types that can be dispatched by the Game and listened to by entities. */
 export type CustomEvents = {
+  /** Fired when player selects a level from the main menu */
+  levelSelected: { levelName: LevelName };
+
   /** Fired when player starts the game from main menu */
   gameStart: {};
 

@@ -8,6 +8,7 @@
 import { V, V2d } from "../../core/Vector";
 import {
   createContour,
+  createPolygonContour,
   TerrainContour,
   TerrainDefinition,
 } from "../../game/world/terrain/LandMass";
@@ -17,6 +18,66 @@ import {
   WaveSource,
   DEFAULT_WAVE_CONFIG,
 } from "../../game/world/water/WaveSource";
+
+// ==========================================
+// Editor types
+// ==========================================
+
+/**
+ * Editor contour data - separate from TerrainContour to avoid requiring
+ * pre-sampled polygons during editing. Sampling happens on export to game format.
+ */
+export interface EditorContour {
+  /** Catmull-Rom control points defining the contour (closed loop) */
+  readonly controlPoints: readonly V2d[];
+  /** Height of this contour in feet (negative = underwater, positive = above water) */
+  readonly height: number;
+  /** Optional human-readable name for the contour */
+  name?: string;
+}
+
+/**
+ * Editor terrain definition that preserves file format metadata.
+ */
+export interface EditorTerrainDefinition {
+  defaultDepth: number;
+  contours: EditorContour[];
+}
+
+/**
+ * Editor level definition: terrain plus optional wave config.
+ */
+export interface EditorLevelDefinition {
+  terrain: EditorTerrainDefinition;
+  waveConfig: WaveConfig | undefined;
+}
+
+/**
+ * Create an empty editor terrain definition.
+ */
+export function createEmptyEditorDefinition(): EditorTerrainDefinition {
+  return {
+    defaultDepth: DEFAULT_DEPTH,
+    contours: [],
+  };
+}
+
+/**
+ * Convert editor terrain definition to game TerrainDefinition.
+ * This performs spline sampling to create the sampledPolygon for each contour.
+ */
+export function editorDefinitionToGameDefinition(
+  definition: EditorTerrainDefinition,
+): TerrainDefinition {
+  const contours: TerrainContour[] = definition.contours.map((c) =>
+    createContour([...c.controlPoints], c.height),
+  );
+
+  return {
+    contours,
+    defaultDepth: definition.defaultDepth,
+  };
+}
 
 /** Current file format version */
 export const LEVEL_FILE_VERSION = 1;
@@ -53,15 +114,27 @@ export interface WaveConfigJSON {
 
 /**
  * JSON representation of a contour in the file format.
+ * A contour has either `controlPoints` (spline) or `polygon` (direct vertices), not both.
  */
-export interface TerrainContourJSON {
-  /** Optional human-readable name for the contour */
-  name?: string;
-  /** Height in feet (negative = underwater, positive = above) */
-  height: number;
-  /** Control points as [x, y] arrays */
-  controlPoints: [number, number][];
-}
+export type TerrainContourJSON =
+  | {
+      /** Optional human-readable name for the contour */
+      name?: string;
+      /** Height in feet (negative = underwater, positive = above) */
+      height: number;
+      /** Catmull-Rom spline control points as [x, y] arrays */
+      controlPoints: [number, number][];
+      polygon?: undefined;
+    }
+  | {
+      /** Optional human-readable name for the contour */
+      name?: string;
+      /** Height in feet (negative = underwater, positive = above) */
+      height: number;
+      /** Polygon vertices as [x, y] arrays (used directly, no spline interpolation) */
+      polygon: [number, number][];
+      controlPoints?: undefined;
+    };
 
 /**
  * JSON schema for level files.
@@ -113,22 +186,26 @@ export function validateLevelFile(data: unknown): LevelFileJSON {
       throw new Error(`Invalid level file: contour ${i} missing height`);
     }
 
-    if (!Array.isArray(contour.controlPoints)) {
+    const points: unknown[] | undefined =
+      contour.polygon ?? contour.controlPoints;
+    const pointsKey = contour.polygon ? "polygon" : "controlPoints";
+
+    if (!Array.isArray(points)) {
       throw new Error(
-        `Invalid level file: contour ${i} controlPoints must be an array`,
+        `Invalid level file: contour ${i} must have controlPoints or polygon array`,
       );
     }
 
-    for (let j = 0; j < contour.controlPoints.length; j++) {
-      const pt = contour.controlPoints[j];
+    for (let j = 0; j < points.length; j++) {
+      const pt = points[j];
       if (!Array.isArray(pt) || pt.length !== 2) {
         throw new Error(
-          `Invalid level file: contour ${i} point ${j} must be [x, y]`,
+          `Invalid level file: contour ${i} ${pointsKey}[${j}] must be [x, y]`,
         );
       }
       if (typeof pt[0] !== "number" || typeof pt[1] !== "number") {
         throw new Error(
-          `Invalid level file: contour ${i} point ${j} coordinates must be numbers`,
+          `Invalid level file: contour ${i} ${pointsKey}[${j}] coordinates must be numbers`,
         );
       }
     }
@@ -210,7 +287,11 @@ export function levelFileToTerrainDefinition(
   file: LevelFileJSON,
 ): TerrainDefinition {
   const contours: TerrainContour[] = file.contours.map((c) => {
-    const controlPoints: V2d[] = c.controlPoints.map(([x, y]) => V(x, y));
+    if (c.polygon) {
+      const points: V2d[] = c.polygon.map(([x, y]) => V(x, y));
+      return createPolygonContour(points, c.height);
+    }
+    const controlPoints: V2d[] = c.controlPoints!.map(([x, y]) => V(x, y));
     return createContour(controlPoints, c.height);
   });
 
@@ -278,4 +359,66 @@ export function waveConfigToJSON(config: WaveConfig): WaveConfigJSON {
 export function parseLevelFile(json: string): LevelFileJSON {
   const data = JSON.parse(json);
   return validateLevelFile(data);
+}
+
+// ==========================================
+// Editor conversion functions
+// ==========================================
+
+/**
+ * Convert level file JSON to editor level definition (preserves names and waves).
+ */
+export function levelFileToEditorDefinition(
+  file: LevelFileJSON,
+): EditorLevelDefinition {
+  const contours: EditorContour[] = file.contours.map((c) => {
+    const points = c.polygon ?? c.controlPoints;
+    const controlPoints: V2d[] = points.map(([x, y]) => V(x, y));
+    return {
+      name: c.name,
+      controlPoints,
+      height: c.height,
+    };
+  });
+
+  return {
+    terrain: {
+      defaultDepth: file.defaultDepth ?? DEFAULT_DEPTH,
+      contours,
+    },
+    waveConfig: file.waves ? waveConfigJSONToWaveConfig(file.waves) : undefined,
+  };
+}
+
+/**
+ * Convert editor level definition to level file JSON for saving.
+ */
+export function editorDefinitionToLevelFile(
+  definition: EditorLevelDefinition,
+): LevelFileJSON {
+  const contours: TerrainContourJSON[] = definition.terrain.contours.map(
+    (c) => ({
+      name: c.name,
+      height: c.height,
+      controlPoints: c.controlPoints.map(
+        (pt) => [pt.x, pt.y] as [number, number],
+      ),
+    }),
+  );
+
+  return {
+    version: LEVEL_FILE_VERSION,
+    defaultDepth: definition.terrain.defaultDepth,
+    ...(definition.waveConfig && {
+      waves: waveConfigToJSON(definition.waveConfig),
+    }),
+    contours,
+  };
+}
+
+/**
+ * Serialize level file to JSON string.
+ */
+export function serializeLevelFile(file: LevelFileJSON): string {
+  return JSON.stringify(file, null, 2);
 }

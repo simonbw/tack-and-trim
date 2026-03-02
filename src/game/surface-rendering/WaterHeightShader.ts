@@ -120,44 +120,41 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
   var maxTurbulence = 0.0;
 
   for (var i = 0u; i < u32(params.numWaves); i++) {
+    // Wave field texture: (phasorCos, phasorSin, unused, turbulence)
+    // Uncovered pixels are (0,0,0,0) = shadow zone (zero amplitude).
+    // Skirt geometry ensures open ocean areas have correct phasors from mesh triangles.
     let waveField = textureSampleLevel(waveFieldTexture, waveFieldSampler, uv, i32(i), 0.0);
     let pc = waveField.r;
     let ps = waveField.g;
-    let coverage = waveField.b;
     let turbulence = waveField.a;
 
     maxTurbulence = max(maxTurbulence, turbulence);
 
-    if (coverage > 0.0) {
-      let mag = sqrt(pc * pc + ps * ps);
-      energyFactors[i] = mag;
-      // Avoid atan2(0, 0) which is undefined on GPU — can produce NaN
-      if (mag > 0.001) {
-        phaseCorrections[i] = atan2(ps, pc);
-      } else {
-        phaseCorrections[i] = 0.0;
-      }
-
-      // Breaking zone turbulence: add per-wave-source noise for chaotic breaking
-      if (turbulence > 0.0) {
-        let waveSeed = f32(i) * 17.31;
-        let breakPhaseNoise = simplex3D(vec3<f32>(
-          worldPos.x * BREAK_NOISE_SPATIAL_SCALE,
-          worldPos.y * BREAK_NOISE_SPATIAL_SCALE,
-          params.time * BREAK_NOISE_TIME_SCALE + waveSeed
-        ));
-        phaseCorrections[i] += turbulence * breakPhaseNoise * BREAK_PHASE_NOISE_STRENGTH;
-
-        let breakAmpNoise = simplex3D(vec3<f32>(
-          worldPos.x * BREAK_NOISE_SPATIAL_SCALE * 1.7 + 100.0,
-          worldPos.y * BREAK_NOISE_SPATIAL_SCALE * 1.7 + 100.0,
-          params.time * BREAK_NOISE_TIME_SCALE * 0.8 + waveSeed + 50.0
-        ));
-        energyFactors[i] *= 1.0 + turbulence * breakAmpNoise * BREAK_AMP_NOISE_STRENGTH;
-      }
+    let mag = sqrt(pc * pc + ps * ps);
+    energyFactors[i] = mag;
+    // Avoid atan2(0, 0) which is undefined on GPU — can produce NaN
+    if (mag > 0.001) {
+      phaseCorrections[i] = atan2(ps, pc);
     } else {
-      energyFactors[i] = 1.0;
       phaseCorrections[i] = 0.0;
+    }
+
+    // Breaking zone turbulence: add per-wave-source noise for chaotic breaking
+    if (turbulence > 0.0) {
+      let waveSeed = f32(i) * 17.31;
+      let breakPhaseNoise = simplex3D(vec3<f32>(
+        worldPos.x * BREAK_NOISE_SPATIAL_SCALE,
+        worldPos.y * BREAK_NOISE_SPATIAL_SCALE,
+        params.time * BREAK_NOISE_TIME_SCALE + waveSeed
+      ));
+      phaseCorrections[i] += turbulence * breakPhaseNoise * BREAK_PHASE_NOISE_STRENGTH;
+
+      let breakAmpNoise = simplex3D(vec3<f32>(
+        worldPos.x * BREAK_NOISE_SPATIAL_SCALE * 1.7 + 100.0,
+        worldPos.y * BREAK_NOISE_SPATIAL_SCALE * 1.7 + 100.0,
+        params.time * BREAK_NOISE_TIME_SCALE * 0.8 + waveSeed + 50.0
+      ));
+      energyFactors[i] *= 1.0 + turbulence * breakAmpNoise * BREAK_AMP_NOISE_STRENGTH;
     }
     directionOffsets[i] = 0.0;
   }

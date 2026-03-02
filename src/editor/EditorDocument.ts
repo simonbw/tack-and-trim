@@ -17,8 +17,10 @@ import {
 import {
   createEmptyEditorDefinition,
   EditorContour,
+  EditorLevelDefinition,
   EditorTerrainDefinition,
-} from "./io/TerrainFileFormat";
+} from "./io/LevelFileFormat";
+import { WaveConfig } from "../game/world/water/WaveSource";
 
 /**
  * Contour hierarchy based on geometric containment.
@@ -89,6 +91,7 @@ export interface DocumentChangeListener {
  */
 export class EditorDocument {
   private terrainDefinition: EditorTerrainDefinition;
+  private waveConfig: WaveConfig | undefined;
   private selection: EditorSelection = {
     contourIndex: null,
     pointIndices: new Set(),
@@ -158,6 +161,26 @@ export class EditorDocument {
     this.clearUndoHistory();
     this.setDirty(false);
     this.notifyTerrainChanged();
+  }
+
+  getLevelDefinition(): EditorLevelDefinition {
+    return {
+      terrain: this.terrainDefinition,
+      waveConfig: this.waveConfig,
+    };
+  }
+
+  setLevelDefinition(definition: EditorLevelDefinition): void {
+    this.terrainDefinition = definition.terrain;
+    this.waveConfig = definition.waveConfig;
+    this.clearSelection();
+    this.clearUndoHistory();
+    this.setDirty(false);
+    this.notifyTerrainChanged();
+  }
+
+  getWaveConfig(): WaveConfig | undefined {
+    return this.waveConfig;
   }
 
   getContours(): readonly EditorContour[] {
