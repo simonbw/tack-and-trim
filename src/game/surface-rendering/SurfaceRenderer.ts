@@ -15,7 +15,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
-import type { Matrix3 } from "../../core/graphics/Matrix3";
+import { Matrix3 } from "../../core/graphics/Matrix3";
 import { type UniformInstance } from "../../core/graphics/UniformStruct";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
@@ -380,17 +380,16 @@ export class SurfaceRenderer extends BaseEntity {
    */
   private updateCompositeUniforms(
     expandedViewport: Viewport,
-    cameraViewport: Viewport,
     currentTime: number,
     width: number,
     height: number,
-    cameraMatrix: Matrix3,
+    clipToWorldMatrix: Matrix3,
     waterResources: WaterResources,
     terrainResources: TerrainResources,
   ): void {
     if (!this.compositeUniforms || !this.terrainTileCache) return;
 
-    this.compositeUniforms.set.cameraMatrix(cameraMatrix);
+    this.compositeUniforms.set.cameraMatrix(clipToWorldMatrix);
     this.compositeUniforms.set.screenWidth(width);
     this.compositeUniforms.set.screenHeight(height);
     // Expanded viewport for height texture UV lookups
@@ -410,12 +409,6 @@ export class SurfaceRenderer extends BaseEntity {
     this.compositeUniforms.set.atlasWorldUnitsPerTile(
       atlasInfo.worldUnitsPerTile,
     );
-
-    // Camera viewport for clip-to-world mapping (matches camera matrix)
-    this.compositeUniforms.set.cameraLeft(cameraViewport.left);
-    this.compositeUniforms.set.cameraTop(cameraViewport.top);
-    this.compositeUniforms.set.cameraWidth(cameraViewport.width);
-    this.compositeUniforms.set.cameraHeight(cameraViewport.height);
   }
 
   /**
@@ -523,8 +516,13 @@ export class SurfaceRenderer extends BaseEntity {
     // Ensure intermediate textures
     this.ensureTextures(width, height);
 
-    // Get camera matrix
-    const cameraMatrix = camera.getMatrix().clone().invert();
+    // Compute clip-to-world matrix: maps clip space (-1,1) directly to world space.
+    // Composed as: screenToWorld * clipToScreen
+    const clipToScreen = new Matrix3();
+    clipToScreen.translate(width / 2, height / 2);
+    clipToScreen.scale(width / 2, -height / 2);
+    const clipToWorldMatrix = camera.getMatrix().clone().invert();
+    clipToWorldMatrix.multiply(clipToScreen);
 
     // === Terrain Tile Cache Update ===
     // Check for terrain changes and invalidate if needed
@@ -559,15 +557,12 @@ export class SurfaceRenderer extends BaseEntity {
       height,
       waterResources,
     );
-    // Get the camera viewport (non-expanded) for correct clip-to-world mapping
-    const cameraViewport = camera.getWorldViewport();
     this.updateCompositeUniforms(
       expandedViewport,
-      cameraViewport,
       currentTime,
       width,
       height,
-      cameraMatrix,
+      clipToWorldMatrix,
       waterResources,
       terrainResources,
     );

@@ -263,11 +263,18 @@ export class Camera2d extends BaseEntity implements Entity {
       return this._cachedViewport;
     }
 
-    // Compute viewport - normalize so top < bottom (top = minY, bottom = maxY)
-    const [left, y1] = this.toWorld(V(0, 0));
-    const [right, y2] = this.toWorld(this.getViewportSize());
-    const top = Math.min(y1, y2);
-    const bottom = Math.max(y1, y2);
+    // Transform all 4 screen corners to world space and compute AABB.
+    // With camera rotation, opposite corners aren't sufficient.
+    const w = viewportWidth;
+    const h = viewportHeight;
+    const c0 = this.toWorld(V(0, 0));
+    const c1 = this.toWorld(V(w, 0));
+    const c2 = this.toWorld(V(w, h));
+    const c3 = this.toWorld(V(0, h));
+    const left = Math.min(c0[0], c1[0], c2[0], c3[0]);
+    const right = Math.max(c0[0], c1[0], c2[0], c3[0]);
+    const top = Math.min(c0[1], c1[1], c2[1], c3[1]);
+    const bottom = Math.max(c0[1], c1[1], c2[1], c3[1]);
     const width = right - left;
     const height = bottom - top;
 

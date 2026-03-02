@@ -14,7 +14,7 @@ import {
  * Uniforms for the surface composite pass.
  */
 export const SurfaceCompositeUniforms = defineUniformStruct("Params", {
-  // Camera matrix for screen-to-world transform (stored as 3 vec4s for alignment)
+  // Clip-to-world matrix (stored as 3 vec4s for alignment)
   cameraMatrix: mat3x3,
 
   // Screen dimensions
@@ -38,10 +38,4 @@ export const SurfaceCompositeUniforms = defineUniformStruct("Params", {
   atlasTilesX: u32,
   atlasTilesY: u32,
   atlasWorldUnitsPerTile: f32,
-
-  // Camera viewport bounds in world space (for clip-to-world mapping)
-  cameraLeft: f32,
-  cameraTop: f32,
-  cameraWidth: f32,
-  cameraHeight: f32,
 });
