@@ -85,6 +85,7 @@ impl WavefrontSegment {
     }
 
     /// Number of rays in this segment.
+    #[inline(always)]
     pub fn len(&self) -> usize { self.x.len() }
 
     /// Append a ray with all per-vertex fields.

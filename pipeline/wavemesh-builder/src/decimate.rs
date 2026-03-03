@@ -92,44 +92,63 @@ struct SegmentSample {
     x: f64, y: f64, amplitude: f64, turbulence: f64, blend: f64,
 }
 
-fn sample_segment_at_t(seg: &WavefrontSegment, t: f64) -> Option<SegmentSample> {
-    let n = seg.len();
-    if n == 0 { return None; }
-    let t_min = seg.t[0];
-    let t_max = seg.t[n - 1];
-    if t < t_min - 1e-9 || t > t_max + 1e-9 { return None; }
+/// Forward-only sampler for monotonically increasing t queries on a segment.
+/// Maintains a cursor to avoid binary search, giving O(1) amortized per query.
+struct SegmentScanner<'a> {
+    seg: &'a WavefrontSegment,
+    cursor: usize,
+    n: usize,
+    t_min: f64,
+    t_max: f64,
+}
 
-    if t <= t_min {
-        return Some(SegmentSample {
-            x: seg.x[0], y: seg.y[0],
-            amplitude: seg.amplitude[0], turbulence: seg.turbulence[0], blend: seg.blend[0],
-        });
-    }
-    if t >= t_max {
-        let i = n - 1;
-        return Some(SegmentSample {
-            x: seg.x[i], y: seg.y[i],
-            amplitude: seg.amplitude[i], turbulence: seg.turbulence[i], blend: seg.blend[i],
-        });
+impl<'a> SegmentScanner<'a> {
+    fn new(seg: &'a WavefrontSegment) -> Self {
+        let n = seg.len();
+        let (t_min, t_max) = if n > 0 { (seg.t[0], seg.t[n - 1]) } else { (0.0, 0.0) };
+        SegmentScanner { seg, cursor: 0, n, t_min, t_max }
     }
 
-    // Binary search
-    let mut left = 0;
-    let mut right = n - 1;
-    while left < right - 1 {
-        let mid = (left + right) / 2;
-        if seg.t[mid] <= t { left = mid; } else { right = mid; }
-    }
+    /// Sample interpolated values at t. Queries must be monotonically increasing.
+    fn sample(&mut self, t: f64) -> Option<SegmentSample> {
+        if self.n == 0 { return None; }
+        if t < self.t_min - 1e-9 || t > self.t_max + 1e-9 { return None; }
 
-    let span = seg.t[right] - seg.t[left];
-    let f = if span > 0.0 { (t - seg.t[left]) / span } else { 0.0 };
-    Some(SegmentSample {
-        x: lerp(seg.x[left], seg.x[right], f),
-        y: lerp(seg.y[left], seg.y[right], f),
-        amplitude: lerp(seg.amplitude[left], seg.amplitude[right], f),
-        turbulence: lerp(seg.turbulence[left], seg.turbulence[right], f),
-        blend: lerp(seg.blend[left], seg.blend[right], f),
-    })
+        if t <= self.t_min {
+            return Some(SegmentSample {
+                x: self.seg.x[0], y: self.seg.y[0],
+                amplitude: self.seg.amplitude[0],
+                turbulence: self.seg.turbulence[0],
+                blend: self.seg.blend[0],
+            });
+        }
+        if t >= self.t_max {
+            let i = self.n - 1;
+            return Some(SegmentSample {
+                x: self.seg.x[i], y: self.seg.y[i],
+                amplitude: self.seg.amplitude[i],
+                turbulence: self.seg.turbulence[i],
+                blend: self.seg.blend[i],
+            });
+        }
+
+        // Advance cursor forward until we bracket t
+        while self.cursor < self.n - 2 && self.seg.t[self.cursor + 1] <= t {
+            self.cursor += 1;
+        }
+
+        let left = self.cursor;
+        let right = left + 1;
+        let span = self.seg.t[right] - self.seg.t[left];
+        let f = if span > 0.0 { (t - self.seg.t[left]) / span } else { 0.0 };
+        Some(SegmentSample {
+            x: lerp(self.seg.x[left], self.seg.x[right], f),
+            y: lerp(self.seg.y[left], self.seg.y[right], f),
+            amplitude: lerp(self.seg.amplitude[left], self.seg.amplitude[right], f),
+            turbulence: lerp(self.seg.turbulence[left], self.seg.turbulence[right], f),
+            blend: lerp(self.seg.blend[left], self.seg.blend[right], f),
+        })
+    }
 }
 
 fn normalized_error(error: f64, tolerance: f64) -> f64 {
@@ -159,10 +178,13 @@ fn evaluate_snapshot_removal(
     let anchor_phase_base = anchor.source_step_index as f64 * phase_per_step;
     let endpoint_phase_base = endpoint.source_step_index as f64 * phase_per_step;
 
+    let mut anchor_scan = SegmentScanner::new(anchor);
+    let mut endpoint_scan = SegmentScanner::new(endpoint);
+
     for i in 0..snapshot.len() {
         let pt = snapshot.t[i];
-        let a = match sample_segment_at_t(anchor, pt) { Some(s) => s, None => return false };
-        let e = match sample_segment_at_t(endpoint, pt) { Some(s) => s, None => return false };
+        let a = match anchor_scan.sample(pt) { Some(s) => s, None => return false };
+        let e = match endpoint_scan.sample(pt) { Some(s) => s, None => return false };
 
         let ix = lerp(a.x, e.x, fraction);
         let iy = lerp(a.y, e.y, fraction);
