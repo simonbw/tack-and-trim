@@ -286,15 +286,10 @@ fn march_single_track(
             continue;
         }
 
-        // Split: multiple segments produced
-        let mut children: Vec<WavefrontSegment> = produced;
-        // Post-process all children as a wavefront step
-        {
-            let mut refs: Vec<&mut WavefrontSegment> = children.iter_mut().collect();
-            post_process_segments(&mut refs, wp, &config.post);
-        }
-
-        for child in children {
+        // Split: multiple segments produced.
+        // Do not post-process children here; each child track post-processes its
+        // seed exactly once at track start.
+        for child in produced {
             marched_verts += child.len() as u64;
             child_seeds.push(child);
         }
