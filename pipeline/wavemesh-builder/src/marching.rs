@@ -554,7 +554,7 @@ pub struct MarchResult {
     pub total_refractions: u64,
 }
 
-/// March all wavefronts using rayon::scope for track-level parallelism
+/// March all wavefronts using rayon::scope_fifo for track-level scheduling
 /// and rayon par_iter for ray-level parallelism within each step.
 pub fn march_wavefronts(
     first_wavefront: WavefrontSegment,
@@ -607,9 +607,9 @@ pub fn march_wavefronts(
     let tracks_done = AtomicU64::new(0);
 
     // Process a single track end-to-end: march all steps (with par_iter on rays),
-    // spawn child tracks on split, then decimate.
+    // spawn child tracks first, then queue decimation work.
     fn process_track<'scope>(
-        s: &rayon::Scope<'scope>,
+        s: &rayon::ScopeFifo<'scope>,
         mut seed: WavefrontSegment,
         wp: &'scope WaveParams,
         bounds: &'scope WaveBounds,
@@ -650,7 +650,7 @@ pub fn march_wavefronts(
 
         for (mut child, &id) in child_seeds.into_iter().zip(child_ids.iter()) {
             child.track_id = id;
-            s.spawn(move |s| {
+            s.spawn_fifo(move |s| {
                 process_track(
                     s,
                     child,
@@ -678,24 +678,28 @@ pub fn march_wavefronts(
         let mut final_track = track;
         final_track.child_track_ids = child_ids;
 
-        // Decimate while children are already running on other threads
-        let dec = decimate_track_snapshots(&final_track, wp, config.decimation.tolerance);
-        removed_snapshots.fetch_add(dec.removed_snapshots, Ordering::Relaxed);
-        removed_vertices.fetch_add(dec.removed_vertices, Ordering::Relaxed);
+        // Queue decimation after child marches so FIFO scheduling tends to
+        // prioritize frontier expansion before cleanup.
+        let tolerance = config.decimation.tolerance;
+        s.spawn_fifo(move |_| {
+            let dec = decimate_track_snapshots(&final_track, wp, tolerance);
+            removed_snapshots.fetch_add(dec.removed_snapshots, Ordering::Relaxed);
+            removed_vertices.fetch_add(dec.removed_vertices, Ordering::Relaxed);
 
-        all_tracks.lock().unwrap().push(dec.track);
-        let done = tracks_done.fetch_add(1, Ordering::Relaxed) + 1;
-        if done % 500 == 0 {
-            eprintln!(
-                "    [march] {} tracks done ({:.1}s)",
-                int(done),
-                start.elapsed().as_secs_f64()
-            );
-        }
+            all_tracks.lock().unwrap().push(dec.track);
+            let done = tracks_done.fetch_add(1, Ordering::Relaxed) + 1;
+            if done % 500 == 0 {
+                eprintln!(
+                    "    [march] {} tracks done ({:.1}s)",
+                    int(done),
+                    start.elapsed().as_secs_f64()
+                );
+            }
+        });
     }
 
-    rayon::scope(|s| {
-        s.spawn(|s| {
+    rayon::scope_fifo(|s| {
+        s.spawn_fifo(|s| {
             process_track(
                 s,
                 first_wavefront,
