@@ -48,15 +48,20 @@ pub fn build_wavemesh_buffer(meshes: &[WavefrontMeshData], input_hash: [u32; 2])
         let idx_data_off = data_start + index_offsets[i];
 
         buf[entry_off..entry_off + 4].copy_from_slice(&(vert_data_off as u32).to_le_bytes());
-        buf[entry_off + 4..entry_off + 8].copy_from_slice(&(mesh.vertex_count as u32).to_le_bytes());
+        buf[entry_off + 4..entry_off + 8]
+            .copy_from_slice(&(mesh.vertex_count as u32).to_le_bytes());
         buf[entry_off + 8..entry_off + 12].copy_from_slice(&(idx_data_off as u32).to_le_bytes());
-        buf[entry_off + 12..entry_off + 16].copy_from_slice(&(mesh.index_count as u32).to_le_bytes());
+        buf[entry_off + 12..entry_off + 16]
+            .copy_from_slice(&(mesh.index_count as u32).to_le_bytes());
 
         // Coverage quad
         let cov_off = coverage_start + i * COVERAGE_BYTES;
         buf[cov_off..cov_off + 4].copy_from_slice(&1u32.to_le_bytes());
         let q = &mesh.coverage_quad;
-        for (j, &val) in [q.x0, q.y0, q.x1, q.y1, q.x2, q.y2, q.x3, q.y3].iter().enumerate() {
+        for (j, &val) in [q.x0, q.y0, q.x1, q.y1, q.x2, q.y2, q.x3, q.y3]
+            .iter()
+            .enumerate()
+        {
             let off = cov_off + 4 + j * 4;
             buf[off..off + 4].copy_from_slice(&(val as f32).to_le_bytes());
         }
@@ -89,7 +94,9 @@ fn fnv1a_32(parts: &[&[u8]], offset_basis: u32) -> u32 {
     h
 }
 
-fn f64_bytes(v: f64) -> [u8; 8] { v.to_le_bytes() }
+fn f64_bytes(v: f64) -> [u8; 8] {
+    v.to_le_bytes()
+}
 
 /// Compute a 64-bit FNV-1a hash of all terrain data and wave source parameters
 /// for cache invalidation. Returns `[hash_lo, hash_hi]`.
@@ -99,8 +106,16 @@ pub fn compute_input_hash(
     tide_height: f64,
 ) -> [u32; 2] {
     // Collect all byte slices
-    let vertex_bytes: Vec<u8> = terrain.vertex_data.iter().flat_map(|f| f.to_le_bytes()).collect();
-    let children_bytes: Vec<u8> = terrain.children_data.iter().flat_map(|u| u.to_le_bytes()).collect();
+    let vertex_bytes: Vec<u8> = terrain
+        .vertex_data
+        .iter()
+        .flat_map(|f| f.to_le_bytes())
+        .collect();
+    let children_bytes: Vec<u8> = terrain
+        .children_data
+        .iter()
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
     let contour_count_bytes = f64_bytes(terrain.contour_count as f64);
     let default_depth_bytes = f64_bytes(terrain.default_depth);
     let tide_bytes = f64_bytes(tide_height);
@@ -124,8 +139,5 @@ pub fn compute_input_hash(
     }
 
     let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
-    [
-        fnv1a_32(&refs, 0x811c9dc5),
-        fnv1a_32(&refs, 0x050c5d1f),
-    ]
+    [fnv1a_32(&refs, 0x811c9dc5), fnv1a_32(&refs, 0x050c5d1f)]
 }

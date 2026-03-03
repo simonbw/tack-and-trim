@@ -20,7 +20,9 @@ pub struct RayState {
 }
 
 fn normalized_speed(depth: f64, k: f64) -> f64 {
-    if depth <= 0.0 { return 0.0; }
+    if depth <= 0.0 {
+        return 0.0;
+    }
     (k * depth).tanh().sqrt()
 }
 
@@ -32,14 +34,17 @@ pub struct SentinelResult {
 
 /// Advance a sentinel ray one step along the wave direction.
 pub fn advance_sentinel_ray(
-    px: f64, py: f64,
+    px: f64,
+    py: f64,
     wp: &WaveParams,
     bounds: &WaveBounds,
 ) -> Option<SentinelResult> {
     let nx = px + wp.wave_dx * wp.step_size;
     let ny = py + wp.wave_dy * wp.step_size;
     let proj = nx * wp.wave_dx + ny * wp.wave_dy;
-    if proj < bounds.min_proj || proj > bounds.max_proj { return None; }
+    if proj < bounds.min_proj || proj > bounds.max_proj {
+        return None;
+    }
     Some(SentinelResult { nx, ny })
 }
 
@@ -93,12 +98,19 @@ pub fn advance_interior_ray(
     if depth > 0.0 {
         let tanh_kd = base_speed * base_speed;
         let sech2_kd = 1.0 - tanh_kd * tanh_kd;
-        let dc_d_depth = if base_speed > 1e-6 { (wp.k * sech2_kd) / (2.0 * base_speed) } else { 0.0 };
+        let dc_d_depth = if base_speed > 1e-6 {
+            (wp.k * sech2_kd) / (2.0 * base_speed)
+        } else {
+            0.0
+        };
         let dcdx = -dc_d_depth * grad_x;
         let dcdy = -dc_d_depth * grad_y;
         let dc_perp = -dcdx * dir_y + dcdy * dir_x;
         let raw_d_theta = -(1.0 / current_speed) * dc_perp * local_step;
-        let d_theta = raw_d_theta.clamp(-physics.max_turn_per_step_rad, physics.max_turn_per_step_rad);
+        let d_theta = raw_d_theta.clamp(
+            -physics.max_turn_per_step_rad,
+            physics.max_turn_per_step_rad,
+        );
         abs_d_theta = d_theta.abs();
         refracted = true;
         if raw_d_theta.abs() > physics.max_turn_per_step_rad {
@@ -115,7 +127,11 @@ pub fn advance_interior_ray(
 
     let proj = nx * wp.wave_dx + ny * wp.wave_dy;
     let perp = nx * wp.perp_dx + ny * wp.perp_dy;
-    if proj < bounds.min_proj || proj > bounds.max_proj || perp < bounds.min_perp || perp > bounds.max_perp {
+    if proj < bounds.min_proj
+        || proj > bounds.max_proj
+        || perp < bounds.min_perp
+        || perp > bounds.max_perp
+    {
         return None;
     }
 

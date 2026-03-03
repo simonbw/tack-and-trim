@@ -8,6 +8,9 @@ DTRACE_OUT="/tmp/wavemesh-dtrace.out"
 # Build release (frame pointers + debug symbols enabled via .cargo/config.toml and Cargo.toml)
 cargo build --release --manifest-path "$SCRIPT_DIR/Cargo.toml"
 
+# Remove stale output so we never accidentally re-parse old data
+sudo rm -f "$DTRACE_OUT"
+
 # Run under dtrace:
 #   -c: launch command and trace it
 #   profile-97: sample at 97 Hz (prime to avoid aliasing)

@@ -279,22 +279,59 @@ def print_report(threads: list[dict], categories: dict[str, int]):
     print(f"  Effective cores: {effective_cores:.1f} / {n_workers} ({overall_util:.1f}%)")
 
     # --- Category breakdown ---
-    print(f"\n{'='*64}")
-    print(f"  TIME BREAKDOWN (% of {total_worker_samples} worker samples)")
-    print(f"{'='*64}\n")
-    print(f"  {'Category':<24} {'Samples':>9} {'%':>7}")
-    print(f"  {'─'*24} {'─'*9} {'─'*7}")
+    # The macOS `sample` profiler reports inclusive (recursive) stack counts.
+    # With aggressive inlining, our leaf functions are often invisible — the
+    # compiler inlines them into rayon closures, so the profiler attributes
+    # the samples to rayon framework code.  We skip those inclusive wrappers
+    # and only count leaf-ish functions, so the attributed total is typically
+    # much less than total_worker_samples.  We use the attributed total as
+    # the denominator so percentages reflect the visible work distribution.
+    attributed = sum(categories.values())
+    overhead_cats = {"idle_cvwait", "idle_yield", "idle_mutex", "rayon_overhead", "tlv"}
+    overhead_samples = sum(categories.get(k, 0) for k in overhead_cats)
+    work_attributed = attributed - overhead_samples
+    unattributed = total_worker_samples - attributed
 
-    for display_name, cat_keys in DISPLAY_GROUPS:
+    print(f"\n{'='*64}")
+    print(f"  TIME BREAKDOWN")
+    print(f"{'='*64}\n")
+    pct_attr = 100 * attributed / total_worker_samples if total_worker_samples else 0
+    print(f"  {total_worker_samples:,} total worker samples")
+    print(f"  {attributed:,} attributed ({pct_attr:.0f}%), "
+          f"{unattributed:,} inlined/unattributed")
+    print()
+
+    # Work categories — % of attributed work (excluding idle/rayon overhead)
+    work_groups = [g for g in DISPLAY_GROUPS if not any(
+        k in overhead_cats for k in g[1]
+    )]
+    print(f"  {'Category':<24} {'Samples':>9} {'% work':>7}")
+    print(f"  {'─'*24} {'─'*9} {'─'*7}")
+    for display_name, cat_keys in work_groups:
+        samples = sum(categories.get(k, 0) for k in cat_keys)
+        pct = 100.0 * samples / work_attributed if work_attributed else 0
+        if samples > 0:
+            print(f"  {display_name:<24} {samples:>9} {pct:>6.1f}%")
+    other = categories.get("other", 0)
+    if other > 0:
+        pct = 100.0 * other / work_attributed
+        print(f"  {'Other':<24} {other:>9} {pct:>6.1f}%")
+    print(f"  {'─'*24} {'─'*9} {'─'*7}")
+    print(f"  {'Attributed work':<24} {work_attributed:>9}")
+
+    # Overhead/idle categories — % of total worker samples
+    overhead_groups = [g for g in DISPLAY_GROUPS if any(
+        k in overhead_cats for k in g[1]
+    )]
+    print()
+    print(f"  {'Overhead':<24} {'Samples':>9} {'% total':>7}")
+    print(f"  {'─'*24} {'─'*9} {'─'*7}")
+    for display_name, cat_keys in overhead_groups:
         samples = sum(categories.get(k, 0) for k in cat_keys)
         pct = 100.0 * samples / total_worker_samples if total_worker_samples else 0
         if samples > 0:
             print(f"  {display_name:<24} {samples:>9} {pct:>6.1f}%")
-
-    other = categories.get("other", 0)
-    if other > 0:
-        pct = 100.0 * other / total_worker_samples
-        print(f"  {'Other':<24} {other:>9} {pct:>6.1f}%")
+    print(f"  {'Inlined/unattributed':<24} {unattributed:>9} {100*unattributed/total_worker_samples:>6.1f}%")
 
 
 def print_top_functions(entries: list[tuple[int, str]], total_worker_samples: int):

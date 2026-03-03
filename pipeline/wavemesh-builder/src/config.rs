@@ -123,19 +123,45 @@ pub fn resolve_config() -> MeshBuildConfig {
             turbulence_diffusion_iterations: 2,
             turbulence_diffusion_d: 0.3,
         },
-        decimation: MeshBuildDecimationConfig {
-            tolerance: 0.08,
-        },
+        decimation: MeshBuildDecimationConfig { tolerance: 0.08 },
     };
 
-    env_override!(config.resolution.step_size_ft, "MESH_BUILD_STEP_SIZE_FT", f64);
-    env_override!(config.resolution.vertex_spacing_ft, "MESH_BUILD_VERTEX_SPACING_FT", f64);
-    env_override!(config.decimation.tolerance, "MESH_BUILD_DECIMATION_TOLERANCE", f64);
-    env_override!(config.physics.max_turn_per_step_rad, "MESH_BUILD_MAX_TURN_PER_STEP_RAD", f64);
+    env_override!(
+        config.resolution.step_size_ft,
+        "MESH_BUILD_STEP_SIZE_FT",
+        f64
+    );
+    env_override!(
+        config.resolution.vertex_spacing_ft,
+        "MESH_BUILD_VERTEX_SPACING_FT",
+        f64
+    );
+    env_override!(
+        config.decimation.tolerance,
+        "MESH_BUILD_DECIMATION_TOLERANCE",
+        f64
+    );
+    env_override!(
+        config.physics.max_turn_per_step_rad,
+        "MESH_BUILD_MAX_TURN_PER_STEP_RAD",
+        f64
+    );
     env_override!(config.refinement.min_energy, "MESH_BUILD_MIN_ENERGY", f64);
-    env_override!(config.refinement.max_energy_ratio, "MESH_BUILD_MAX_ENERGY_RATIO", f64);
-    env_override!(config.post.diffraction_iterations, "MESH_BUILD_DIFFRACTION_ITERATIONS", usize);
-    env_override!(config.post.max_diffusion_d, "MESH_BUILD_MAX_DIFFUSION_D", f64);
+    env_override!(
+        config.refinement.max_energy_ratio,
+        "MESH_BUILD_MAX_ENERGY_RATIO",
+        f64
+    );
+    env_override!(
+        config.post.diffraction_iterations,
+        "MESH_BUILD_DIFFRACTION_ITERATIONS",
+        usize
+    );
+    env_override!(
+        config.post.max_diffusion_d,
+        "MESH_BUILD_MAX_DIFFUSION_D",
+        f64
+    );
 
     config
 }

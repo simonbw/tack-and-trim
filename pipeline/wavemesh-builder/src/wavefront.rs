@@ -70,32 +70,53 @@ impl WavefrontSegment {
     }
 
     /// Create a segment pre-allocated for `cap` rays.
-    pub fn with_capacity(track_id: i32, parent_track_id: Option<i32>, source_step_index: usize, cap: usize) -> Self {
+    pub fn with_capacity(
+        track_id: i32,
+        parent_track_id: Option<i32>,
+        source_step_index: usize,
+        cap: usize,
+    ) -> Self {
         WavefrontSegment {
             track_id,
             parent_track_id,
             source_step_index,
-            x: Vec::with_capacity(cap), y: Vec::with_capacity(cap), t: Vec::with_capacity(cap),
-            dir_x: Vec::with_capacity(cap), dir_y: Vec::with_capacity(cap),
-            energy: Vec::with_capacity(cap), turbulence: Vec::with_capacity(cap),
+            x: Vec::with_capacity(cap),
+            y: Vec::with_capacity(cap),
+            t: Vec::with_capacity(cap),
+            dir_x: Vec::with_capacity(cap),
+            dir_y: Vec::with_capacity(cap),
+            energy: Vec::with_capacity(cap),
+            turbulence: Vec::with_capacity(cap),
             depth: Vec::with_capacity(cap),
-            terrain_grad_x: Vec::with_capacity(cap), terrain_grad_y: Vec::with_capacity(cap),
-            amplitude: Vec::with_capacity(cap), blend: Vec::with_capacity(cap),
+            terrain_grad_x: Vec::with_capacity(cap),
+            terrain_grad_y: Vec::with_capacity(cap),
+            amplitude: Vec::with_capacity(cap),
+            blend: Vec::with_capacity(cap),
         }
     }
 
     /// Number of rays in this segment.
     #[inline(always)]
-    pub fn len(&self) -> usize { self.x.len() }
+    pub fn len(&self) -> usize {
+        self.x.len()
+    }
 
     /// Append a ray with all per-vertex fields.
     #[allow(clippy::too_many_arguments)]
     pub fn push(
-        &mut self, x: f64, y: f64, t: f64,
-        dir_x: f64, dir_y: f64,
-        energy: f64, turbulence: f64, depth: f64,
-        terrain_grad_x: f64, terrain_grad_y: f64,
-        amplitude: f64, blend: f64,
+        &mut self,
+        x: f64,
+        y: f64,
+        t: f64,
+        dir_x: f64,
+        dir_y: f64,
+        energy: f64,
+        turbulence: f64,
+        depth: f64,
+        terrain_grad_x: f64,
+        terrain_grad_y: f64,
+        amplitude: f64,
+        blend: f64,
     ) {
         self.x.push(x);
         self.y.push(y);
@@ -151,8 +172,12 @@ pub struct WavefrontMeshData {
 /// World-space quad covering a wave source's mesh extent.
 #[derive(Clone, Debug, Default)]
 pub struct CoverageQuad {
-    pub x0: f64, pub y0: f64,
-    pub x1: f64, pub y1: f64,
-    pub x2: f64, pub y2: f64,
-    pub x3: f64, pub y3: f64,
+    pub x0: f64,
+    pub y0: f64,
+    pub x1: f64,
+    pub y1: f64,
+    pub x2: f64,
+    pub y2: f64,
+    pub x3: f64,
+    pub y3: f64,
 }

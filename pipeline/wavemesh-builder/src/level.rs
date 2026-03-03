@@ -39,8 +39,12 @@ pub struct WaveSourceJSON {
     #[serde(rename = "sourceOffsetY", default)]
     pub source_offset_y: f64,
 }
-fn default_speed_mult() -> f64 { 1.0 }
-fn default_source_dist() -> f64 { 1e10 }
+fn default_speed_mult() -> f64 {
+    1.0
+}
+fn default_source_dist() -> f64 {
+    1e10
+}
 
 /// JSON representation of a terrain contour (island, shoal, etc.).
 #[derive(Deserialize, Debug)]
@@ -122,20 +126,24 @@ pub struct TerrainCPUData {
 fn catmull_rom_point(p0: [f64; 2], p1: [f64; 2], p2: [f64; 2], p3: [f64; 2], t: f64) -> [f64; 2] {
     let t2 = t * t;
     let t3 = t2 * t;
-    let x = 0.5 * (2.0 * p1[0]
-        + (-p0[0] + p2[0]) * t
-        + (2.0 * p0[0] - 5.0 * p1[0] + 4.0 * p2[0] - p3[0]) * t2
-        + (-p0[0] + 3.0 * p1[0] - 3.0 * p2[0] + p3[0]) * t3);
-    let y = 0.5 * (2.0 * p1[1]
-        + (-p0[1] + p2[1]) * t
-        + (2.0 * p0[1] - 5.0 * p1[1] + 4.0 * p2[1] - p3[1]) * t2
-        + (-p0[1] + 3.0 * p1[1] - 3.0 * p2[1] + p3[1]) * t3);
+    let x = 0.5
+        * (2.0 * p1[0]
+            + (-p0[0] + p2[0]) * t
+            + (2.0 * p0[0] - 5.0 * p1[0] + 4.0 * p2[0] - p3[0]) * t2
+            + (-p0[0] + 3.0 * p1[0] - 3.0 * p2[0] + p3[0]) * t3);
+    let y = 0.5
+        * (2.0 * p1[1]
+            + (-p0[1] + p2[1]) * t
+            + (2.0 * p0[1] - 5.0 * p1[1] + 4.0 * p2[1] - p3[1]) * t2
+            + (-p0[1] + 3.0 * p1[1] - 3.0 * p2[1] + p3[1]) * t3);
     [x, y]
 }
 
 fn sample_closed_spline(control_points: &[[f64; 2]], samples_per_segment: usize) -> Vec<[f64; 2]> {
     let n = control_points.len();
-    if n < 3 { return control_points.to_vec(); }
+    if n < 3 {
+        return control_points.to_vec();
+    }
     let mut result = Vec::with_capacity(n * samples_per_segment);
     for i in 0..n {
         let p0 = control_points[(i + n - 1) % n];
@@ -152,7 +160,9 @@ fn sample_closed_spline(control_points: &[[f64; 2]], samples_per_segment: usize)
 
 fn adaptive_samples_per_segment(control_points: &[[f64; 2]]) -> usize {
     let n = control_points.len();
-    if n < 3 { return 1; }
+    if n < 3 {
+        return 1;
+    }
     let mut total_length = 0.0;
     for i in 0..n {
         let a = control_points[i];
@@ -162,14 +172,19 @@ fn adaptive_samples_per_segment(control_points: &[[f64; 2]]) -> usize {
         total_length += (dx * dx + dy * dy).sqrt();
     }
     let avg = total_length / n as f64;
-    (avg / SAMPLES_PER_SEGMENT as f64).round().max(1.0).min(SAMPLES_PER_SEGMENT as f64) as usize
+    (avg / SAMPLES_PER_SEGMENT as f64)
+        .round()
+        .max(1.0)
+        .min(SAMPLES_PER_SEGMENT as f64) as usize
 }
 
 // ── Winding normalisation ────────────────────────────────────────────────────
 
 fn signed_area(points: &[[f64; 2]]) -> f64 {
     let n = points.len();
-    if n < 3 { return 0.0; }
+    if n < 3 {
+        return 0.0;
+    }
     let mut area = 0.0;
     for i in 0..n {
         let j = (i + 1) % n;
@@ -206,33 +221,56 @@ fn point_in_polygon(px: f64, py: f64, polygon: &[[f64; 2]]) -> bool {
 
 // ── Contour tree ─────────────────────────────────────────────────────────────
 
-struct BBox { min_x: f64, min_y: f64, max_x: f64, max_y: f64 }
+struct BBox {
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+}
 
 fn compute_bbox(points: &[[f64; 2]]) -> BBox {
     let mut b = BBox {
-        min_x: f64::INFINITY, min_y: f64::INFINITY,
-        max_x: f64::NEG_INFINITY, max_y: f64::NEG_INFINITY,
+        min_x: f64::INFINITY,
+        min_y: f64::INFINITY,
+        max_x: f64::NEG_INFINITY,
+        max_y: f64::NEG_INFINITY,
     };
     for p in points {
-        if p[0] < b.min_x { b.min_x = p[0]; }
-        if p[0] > b.max_x { b.max_x = p[0]; }
-        if p[1] < b.min_y { b.min_y = p[1]; }
-        if p[1] > b.max_y { b.max_y = p[1]; }
+        if p[0] < b.min_x {
+            b.min_x = p[0];
+        }
+        if p[0] > b.max_x {
+            b.max_x = p[0];
+        }
+        if p[1] < b.min_y {
+            b.min_y = p[1];
+        }
+        if p[1] > b.max_y {
+            b.max_y = p[1];
+        }
     }
     b
 }
 
 fn bbox_contains(outer: &BBox, inner: &BBox) -> bool {
-    inner.min_x >= outer.min_x && inner.max_x <= outer.max_x
-        && inner.min_y >= outer.min_y && inner.max_y <= outer.max_y
+    inner.min_x >= outer.min_x
+        && inner.max_x <= outer.max_x
+        && inner.min_y >= outer.min_y
+        && inner.max_y <= outer.max_y
 }
 
 fn is_contour_inside(
-    inner_poly: &[[f64; 2]], inner_bbox: &BBox,
-    outer_poly: &[[f64; 2]], outer_bbox: &BBox,
+    inner_poly: &[[f64; 2]],
+    inner_bbox: &BBox,
+    outer_poly: &[[f64; 2]],
+    outer_bbox: &BBox,
 ) -> bool {
-    if !bbox_contains(outer_bbox, inner_bbox) { return false; }
-    if inner_poly.is_empty() { return false; }
+    if !bbox_contains(outer_bbox, inner_bbox) {
+        return false;
+    }
+    if inner_poly.is_empty() {
+        return false;
+    }
     point_in_polygon(inner_poly[0][0], inner_poly[0][1], outer_poly)
 }
 
@@ -247,13 +285,13 @@ struct ContourTree {
     children_flat: Vec<u32>,
 }
 
-fn build_contour_tree(
-    sampled: &[Vec<[f64; 2]>],
-    bboxes: &[BBox],
-) -> ContourTree {
+fn build_contour_tree(sampled: &[Vec<[f64; 2]>], bboxes: &[BBox]) -> ContourTree {
     let n = sampled.len();
     if n == 0 {
-        return ContourTree { nodes: vec![], children_flat: vec![] };
+        return ContourTree {
+            nodes: vec![],
+            children_flat: vec![],
+        };
     }
 
     // Working tree: virtual root's children list
@@ -266,11 +304,13 @@ fn build_contour_tree(
     }
 
     // Build final tree nodes
-    let mut nodes: Vec<ContourTreeNode> = (0..n).map(|_| ContourTreeNode {
-        parent_index: -1,
-        depth: 0,
-        children: vec![],
-    }).collect();
+    let mut nodes: Vec<ContourTreeNode> = (0..n)
+        .map(|_| ContourTreeNode {
+            parent_index: -1,
+            depth: 0,
+            children: vec![],
+        })
+        .collect();
 
     for i in 0..n {
         if let Some(p) = parent_of[i] {
@@ -297,7 +337,10 @@ fn build_contour_tree(
         }
     }
 
-    ContourTree { nodes, children_flat }
+    ContourTree {
+        nodes,
+        children_flat,
+    }
 }
 
 fn insert_contour(
@@ -314,7 +357,12 @@ fn insert_contour(
     let existing_children: Vec<usize> = children_of[parent].clone();
     let mut children_to_reparent = vec![];
     for &existing in &existing_children {
-        if is_contour_inside(&sampled[existing], &bboxes[existing], &sampled[ci], &bboxes[ci]) {
+        if is_contour_inside(
+            &sampled[existing],
+            &bboxes[existing],
+            &sampled[ci],
+            &bboxes[ci],
+        ) {
             children_to_reparent.push(existing);
         }
     }
@@ -326,7 +374,11 @@ fn insert_contour(
     }
 
     children_of[parent].push(ci);
-    parent_of[ci] = if parent == virtual_root { None } else { Some(parent) };
+    parent_of[ci] = if parent == virtual_root {
+        None
+    } else {
+        Some(parent)
+    };
 }
 
 fn find_deepest_container(
@@ -402,7 +454,12 @@ pub fn build_terrain_data(level: &LevelFileJSON) -> TerrainCPUData {
     let mut skip_counts = vec![0usize; n];
     let roots: Vec<usize> = (0..n).filter(|&i| tree.nodes[i].parent_index < 0).collect();
 
-    fn dfs_visit(idx: usize, tree: &ContourTree, dfs_order: &mut Vec<usize>, skip_counts: &mut Vec<usize>) -> usize {
+    fn dfs_visit(
+        idx: usize,
+        tree: &ContourTree,
+        dfs_order: &mut Vec<usize>,
+        skip_counts: &mut Vec<usize>,
+    ) -> usize {
         let dfs_idx = dfs_order.len();
         dfs_order.push(idx);
         let mut sub = 0usize;

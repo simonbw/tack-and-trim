@@ -9,7 +9,9 @@ use crate::wavefront::{WaveParams, WavefrontSegment};
 
 fn compute_shoaling_factor(depth: f64, k: f64) -> f64 {
     let kh = k * depth;
-    if kh > 10.0 { return 1.0; }
+    if kh > 10.0 {
+        return 1.0;
+    }
     let sinh2kh = (2.0 * kh).sinh();
     let n = 0.5 * (1.0 + (2.0 * kh) / sinh2kh);
     1.0 / (2.0 * n * kh.tanh()).sqrt()
@@ -26,7 +28,9 @@ pub fn compute_amplitudes(
 
     for wf in segments.iter_mut() {
         let n = wf.len();
-        if n == 0 { continue; }
+        if n == 0 {
+            continue;
+        }
 
         for i in 0..n {
             if wf.t[i] == 0.0 || wf.t[i] == 1.0 {
@@ -63,7 +67,9 @@ pub fn compute_amplitudes(
             };
 
             let expected = delta_t * spacing_per_t;
-            let divergence = (expected / local_spacing).sqrt().min(config.max_amplification);
+            let divergence = (expected / local_spacing)
+                .sqrt()
+                .min(config.max_amplification);
             wf.amplitude[i] = wf.energy[i] * shoaling * divergence;
         }
     }
@@ -75,12 +81,15 @@ pub fn apply_diffraction(
     wp: &WaveParams,
     config: &MeshBuildPostConfig,
 ) {
-    let d = (wp.step_size / (2.0 * wp.k * wp.vertex_spacing * wp.vertex_spacing)).min(config.max_diffusion_d);
+    let d = (wp.step_size / (2.0 * wp.k * wp.vertex_spacing * wp.vertex_spacing))
+        .min(config.max_diffusion_d);
     let mut scratch = Vec::new();
 
     for seg in segments.iter_mut() {
         let n = seg.len();
-        if n <= 1 { continue; }
+        if n <= 1 {
+            continue;
+        }
 
         let edge_threshold = wp.initial_delta_t * 0.5;
         let left_is_edge = seg.t[0] < edge_threshold;
@@ -92,8 +101,20 @@ pub fn apply_diffraction(
             scratch[..n].copy_from_slice(&seg.amplitude[..n]);
 
             for i in 0..n {
-                let left = if i > 0 { scratch[i - 1] } else if left_is_edge { 1.0 } else { 0.0 };
-                let right = if i < n - 1 { scratch[i + 1] } else if right_is_edge { 1.0 } else { 0.0 };
+                let left = if i > 0 {
+                    scratch[i - 1]
+                } else if left_is_edge {
+                    1.0
+                } else {
+                    0.0
+                };
+                let right = if i < n - 1 {
+                    scratch[i + 1]
+                } else if right_is_edge {
+                    1.0
+                } else {
+                    0.0
+                };
                 seg.amplitude[i] = (scratch[i] + d * (left - 2.0 * scratch[i] + right)).max(0.0);
             }
         }
@@ -101,15 +122,14 @@ pub fn apply_diffraction(
 }
 
 /// Lateral diffusion of turbulence across wavefront segments.
-pub fn diffuse_turbulence_step(
-    segments: &mut [WavefrontSegment],
-    config: &MeshBuildPostConfig,
-) {
+pub fn diffuse_turbulence_step(segments: &mut [WavefrontSegment], config: &MeshBuildPostConfig) {
     let mut scratch = Vec::new();
 
     for seg in segments.iter_mut() {
         let n = seg.len();
-        if n <= 2 { continue; }
+        if n <= 2 {
+            continue;
+        }
 
         scratch.resize(n, 0.0);
 
@@ -118,7 +138,9 @@ pub fn diffuse_turbulence_step(
             for i in 0..n {
                 let left = if i > 0 { scratch[i - 1] } else { 0.0 };
                 let right = if i < n - 1 { scratch[i + 1] } else { 0.0 };
-                seg.turbulence[i] = (scratch[i] + config.turbulence_diffusion_d * (left - 2.0 * scratch[i] + right)).max(0.0);
+                seg.turbulence[i] = (scratch[i]
+                    + config.turbulence_diffusion_d * (left - 2.0 * scratch[i] + right))
+                    .max(0.0);
             }
         }
     }

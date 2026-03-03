@@ -19,22 +19,36 @@ pub fn refine_wavefront(
     config: &MeshBuildRefinementConfig,
 ) -> WavefrontSegment {
     let src_len = wf.len();
-    if src_len <= 1 { return wf.clone(); }
+    if src_len <= 1 {
+        return wf.clone();
+    }
 
     let min_dist_sq = (vertex_spacing * config.merge_ratio).powi(2);
     let can_split = src_len < config.max_segment_points;
     let split_escalation_exp = config.split_escalation.ln() / 2.0_f64.ln();
 
     // Pre-allocate for roughly the same size — splits/merges make it vary slightly
-    let mut result = WavefrontSegment::with_capacity(wf.track_id, wf.parent_track_id, wf.source_step_index, src_len + src_len / 4);
+    let mut result = WavefrontSegment::with_capacity(
+        wf.track_id,
+        wf.parent_track_id,
+        wf.source_step_index,
+        src_len + src_len / 4,
+    );
 
     // Push first point
     result.push(
-        wf.x[0], wf.y[0], wf.t[0],
-        wf.dir_x[0], wf.dir_y[0],
-        wf.energy[0], wf.turbulence[0], wf.depth[0],
-        wf.terrain_grad_x[0], wf.terrain_grad_y[0],
-        0.0, wf.blend[0],
+        wf.x[0],
+        wf.y[0],
+        wf.t[0],
+        wf.dir_x[0],
+        wf.dir_y[0],
+        wf.energy[0],
+        wf.turbulence[0],
+        wf.depth[0],
+        wf.terrain_grad_x[0],
+        wf.terrain_grad_y[0],
+        0.0,
+        wf.blend[0],
     );
 
     let mut split_count = 0usize;
@@ -57,9 +71,7 @@ pub fn refine_wavefront(
         let dist_sq = dx * dx + dy * dy;
 
         // Merge check — never merge sentinels
-        if dist_sq < min_dist_sq
-            && prev_t != 0.0 && prev_t != 1.0
-            && curr_t != 0.0 && curr_t != 1.0
+        if dist_sq < min_dist_sq && prev_t != 0.0 && prev_t != 1.0 && curr_t != 0.0 && curr_t != 1.0
         {
             stats.merges += 1;
             continue;
@@ -90,13 +102,17 @@ pub fn refine_wavefront(
             let mut mid_dir_x = result.dir_x[prev_idx] + wf.dir_x[i];
             let mut mid_dir_y = result.dir_y[prev_idx] + wf.dir_y[i];
             let len = (mid_dir_x * mid_dir_x + mid_dir_y * mid_dir_y).sqrt();
-            if len > 0.0 { mid_dir_x /= len; mid_dir_y /= len; }
+            if len > 0.0 {
+                mid_dir_x /= len;
+                mid_dir_y /= len;
+            }
 
             result.push(
                 (prev_x + curr_x) / 2.0,
                 (prev_y + curr_y) / 2.0,
                 (prev_t + curr_t) / 2.0,
-                mid_dir_x, mid_dir_y,
+                mid_dir_x,
+                mid_dir_y,
                 (prev_energy + curr_energy) / 2.0,
                 (result.turbulence[prev_idx] + wf.turbulence[i]) / 2.0,
                 (result.depth[prev_idx] + wf.depth[i]) / 2.0,
@@ -110,11 +126,18 @@ pub fn refine_wavefront(
         }
 
         result.push(
-            curr_x, curr_y, curr_t,
-            wf.dir_x[i], wf.dir_y[i],
-            wf.energy[i], wf.turbulence[i], wf.depth[i],
-            wf.terrain_grad_x[i], wf.terrain_grad_y[i],
-            0.0, wf.blend[i],
+            curr_x,
+            curr_y,
+            curr_t,
+            wf.dir_x[i],
+            wf.dir_y[i],
+            wf.energy[i],
+            wf.turbulence[i],
+            wf.depth[i],
+            wf.terrain_grad_x[i],
+            wf.terrain_grad_y[i],
+            0.0,
+            wf.blend[i],
         );
     }
 

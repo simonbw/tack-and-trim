@@ -1,8 +1,8 @@
 //! CPU terrain height queries — contour tree DFS, winding number, IDW.
 //! Mirrors terrainHeightCPU.ts.
 
-use crate::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
 use crate::humanize::int;
+use crate::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
 
 // ---------------------------------------------------------------------------
 // Containment grid — O(1) point-in-contour for all contours
@@ -24,9 +24,17 @@ const CONTAINMENT_GRID_SIZE: usize = 64;
 /// traversed cell as BOUNDARY. Marks the cell of both endpoints and every
 /// cell the line crosses between them.
 fn rasterize_edge_to_grid(
-    ax: f64, ay: f64, bx: f64, by: f64,
-    min_x: f64, min_y: f64, inv_cell_w: f64, inv_cell_h: f64,
-    cols: usize, rows: usize, cell_flags: &mut [u8],
+    ax: f64,
+    ay: f64,
+    bx: f64,
+    by: f64,
+    min_x: f64,
+    min_y: f64,
+    inv_cell_w: f64,
+    inv_cell_h: f64,
+    cols: usize,
+    rows: usize,
+    cell_flags: &mut [u8],
 ) {
     let max_col = cols as isize - 1;
     let max_row = rows as isize - 1;
@@ -45,8 +53,20 @@ fn rasterize_edge_to_grid(
     let dx = bx - ax;
     let dy = by - ay;
 
-    let step_col: isize = if dx > 0.0 { 1 } else if dx < 0.0 { -1 } else { 0 };
-    let step_row: isize = if dy > 0.0 { 1 } else if dy < 0.0 { -1 } else { 0 };
+    let step_col: isize = if dx > 0.0 {
+        1
+    } else if dx < 0.0 {
+        -1
+    } else {
+        0
+    };
+    let step_row: isize = if dy > 0.0 {
+        1
+    } else if dy < 0.0 {
+        -1
+    } else {
+        0
+    };
 
     // t values at which the line crosses the next vertical/horizontal grid line
     let cell_w = 1.0 / inv_cell_w;
@@ -74,13 +94,23 @@ fn rasterize_edge_to_grid(
         f64::MAX
     };
 
-    let t_delta_x = if dx != 0.0 { (cell_w / dx).abs() } else { f64::MAX };
-    let t_delta_y = if dy != 0.0 { (cell_h / dy).abs() } else { f64::MAX };
+    let t_delta_x = if dx != 0.0 {
+        (cell_w / dx).abs()
+    } else {
+        f64::MAX
+    };
+    let t_delta_y = if dy != 0.0 {
+        (cell_h / dy).abs()
+    } else {
+        f64::MAX
+    };
 
     // Walk the grid until we reach the end cell or go out of bounds
     let max_steps = (cols + rows) * 2; // safety limit
     for _ in 0..max_steps {
-        if col == end_col && row == end_row { break; }
+        if col == end_col && row == end_row {
+            break;
+        }
 
         if t_max_x < t_max_y {
             col += step_col;
@@ -98,7 +128,13 @@ fn rasterize_edge_to_grid(
 
 impl ContainmentGrid {
     fn empty() -> Self {
-        ContainmentGrid { cell_flags: Vec::new(), inv_cell_w: 0.0, inv_cell_h: 0.0, min_x: 0.0, min_y: 0.0 }
+        ContainmentGrid {
+            cell_flags: Vec::new(),
+            inv_cell_w: 0.0,
+            inv_cell_h: 0.0,
+            min_x: 0.0,
+            min_y: 0.0,
+        }
     }
 
     fn build(c: &ParsedContour, vd: &[f32]) -> Self {
@@ -132,9 +168,17 @@ impl ContainmentGrid {
 
             // Rasterize line from (ax,ay) to (bx,by) through grid cells
             rasterize_edge_to_grid(
-                ax, ay, bx, by,
-                min_x, min_y, inv_cell_w, inv_cell_h,
-                cols, rows, &mut cell_flags,
+                ax,
+                ay,
+                bx,
+                by,
+                min_x,
+                min_y,
+                inv_cell_w,
+                inv_cell_h,
+                cols,
+                rows,
+                &mut cell_flags,
             );
         }
 
@@ -151,7 +195,13 @@ impl ContainmentGrid {
             }
         }
 
-        ContainmentGrid { cell_flags, inv_cell_w, inv_cell_h, min_x, min_y }
+        ContainmentGrid {
+            cell_flags,
+            inv_cell_w,
+            inv_cell_h,
+            min_x,
+            min_y,
+        }
     }
 
     /// Returns `Some(true)` if definitely inside, `Some(false)` if definitely
@@ -160,7 +210,11 @@ impl ContainmentGrid {
     fn contains(&self, px: f64, py: f64) -> Option<bool> {
         let ci = ((px - self.min_x) * self.inv_cell_w).floor() as isize;
         let ri = ((py - self.min_y) * self.inv_cell_h).floor() as isize;
-        if ci < 0 || ri < 0 || ci >= CONTAINMENT_GRID_SIZE as isize || ri >= CONTAINMENT_GRID_SIZE as isize {
+        if ci < 0
+            || ri < 0
+            || ci >= CONTAINMENT_GRID_SIZE as isize
+            || ri >= CONTAINMENT_GRID_SIZE as isize
+        {
             return Some(false);
         }
         let cell = ri as usize * CONTAINMENT_GRID_SIZE + ci as usize;
@@ -296,7 +350,16 @@ impl EdgeGrid {
             }
         }
 
-        EdgeGrid { cell_starts, edge_indices, cols, rows, inv_cell_w, inv_cell_h, min_x, min_y }
+        EdgeGrid {
+            cell_starts,
+            edge_indices,
+            cols,
+            rows,
+            inv_cell_w,
+            inv_cell_h,
+            min_x,
+            min_y,
+        }
     }
 
     /// Return an iterator of edge indices in cells within `radius` of `(px, py)`.
@@ -315,9 +378,14 @@ impl EdgeGrid {
         // Clamp to grid bounds; if range is empty, return an exhausted iterator
         if c0i > max_c || c1i < 0 || r0i > max_r || r1i < 0 {
             return NearbyEdges {
-                grid: self, c0: 0, c1: 0, r1: 0,
-                cur_r: 1, cur_c: 0, // cur_r > r1 → immediately exhausted
-                pos: 0, end: 0,
+                grid: self,
+                c0: 0,
+                c1: 0,
+                r1: 0,
+                cur_r: 1,
+                cur_c: 0, // cur_r > r1 → immediately exhausted
+                pos: 0,
+                end: 0,
             };
         }
 
@@ -329,7 +397,9 @@ impl EdgeGrid {
         let cell = r0 * self.cols + c0;
         NearbyEdges {
             grid: self,
-            c0, c1, r1,
+            c0,
+            c1,
+            r1,
             cur_r: r0,
             cur_c: c0,
             pos: self.cell_starts[cell] as usize,
@@ -408,8 +478,10 @@ pub struct IDWGrid {
 
 /// A collected edge for IDW grid building.
 struct IDWEdge {
-    ax: f64, ay: f64,
-    bx: f64, by: f64,
+    ax: f64,
+    ay: f64,
+    bx: f64,
+    by: f64,
     contour_tag: u16,
     edge_index: u16,
 }
@@ -450,8 +522,10 @@ impl IDWGrid {
             for i in 0..n {
                 let j = (i + 1) % n;
                 edges.push(IDWEdge {
-                    ax: vd[s + i * 2] as f64, ay: vd[s + i * 2 + 1] as f64,
-                    bx: vd[s + j * 2] as f64, by: vd[s + j * 2 + 1] as f64,
+                    ax: vd[s + i * 2] as f64,
+                    ay: vd[s + i * 2 + 1] as f64,
+                    bx: vd[s + j * 2] as f64,
+                    by: vd[s + j * 2 + 1] as f64,
                     contour_tag: 0,
                     edge_index: i as u16,
                 });
@@ -461,15 +535,19 @@ impl IDWGrid {
         // Children edges (tags 1..N)
         for ci in 0..parent.child_count {
             let child_dfs = children_data[parent.child_start + ci] as usize;
-            if child_dfs >= contours.len() { continue; }
+            if child_dfs >= contours.len() {
+                continue;
+            }
             let child = &contours[child_dfs];
             let n = child.point_count;
             let s = child.point_start * 2;
             for i in 0..n {
                 let j = (i + 1) % n;
                 edges.push(IDWEdge {
-                    ax: vd[s + i * 2] as f64, ay: vd[s + i * 2 + 1] as f64,
-                    bx: vd[s + j * 2] as f64, by: vd[s + j * 2 + 1] as f64,
+                    ax: vd[s + i * 2] as f64,
+                    ay: vd[s + i * 2 + 1] as f64,
+                    bx: vd[s + j * 2] as f64,
+                    by: vd[s + j * 2 + 1] as f64,
                     contour_tag: (ci + 1) as u16,
                     edge_index: i as u16,
                 });
@@ -488,7 +566,9 @@ impl IDWGrid {
                 let mut min_dist_sq = f64::MAX;
                 for e in &edges {
                     let d2 = point_to_segment_dist_sq(cx, cy, e.ax, e.ay, e.bx, e.by);
-                    if d2 < min_dist_sq { min_dist_sq = d2; }
+                    if d2 < min_dist_sq {
+                        min_dist_sq = d2;
+                    }
                 }
 
                 // Threshold: any edge within min_dist + cell_diagonal
@@ -518,7 +598,17 @@ impl IDWGrid {
             entries.extend_from_slice(cell);
         }
 
-        IDWGrid { cell_starts, entries, cols, rows, inv_cell_w, inv_cell_h, min_x, min_y, contour_count }
+        IDWGrid {
+            cell_starts,
+            entries,
+            cols,
+            rows,
+            inv_cell_w,
+            inv_cell_h,
+            min_x,
+            min_y,
+            contour_count,
+        }
     }
 
     /// Look up candidate edges for a query point. Returns a slice of packed entries.
@@ -798,10 +888,7 @@ fn build_contour_lookup_grid(
     }
 
     let total_candidates: usize = candidate_indices.len();
-    let cells_with_candidates = cell_starts
-        .windows(2)
-        .filter(|w| w[1] > w[0])
-        .count();
+    let cells_with_candidates = cell_starts.windows(2).filter(|w| w[1] > w[0]).count();
     eprintln!(
         "    [lookup grid] {}x{} cells, {} total candidates, {} cells with candidates",
         int(cols),
@@ -943,10 +1030,18 @@ pub fn parse_contours(terrain: &TerrainCPUData) -> (Vec<ParsedContour>, ContourL
 /// by `point_count` vertices starting at `start` in `vertex_data`.
 /// On aarch64, processes 4 edges at a time using NEON f32x4 intrinsics.
 #[cfg(target_arch = "aarch64")]
-fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, vertex_data: &[f32]) -> bool {
+fn winding_number_test(
+    px: f64,
+    py: f64,
+    point_count: usize,
+    start: usize,
+    vertex_data: &[f32],
+) -> bool {
     use std::arch::aarch64::*;
 
-    if point_count < 3 { return false; }
+    if point_count < 3 {
+        return false;
+    }
 
     let n = point_count;
     let px32 = px as f32;
@@ -985,14 +1080,14 @@ fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, verte
                 let cross = vsubq_f32(vmulq_f32(xj_xi, py_yi), vmulq_f32(px_xi, yj_yi));
 
                 // Upward crossing: yi <= py && yj > py && cross > 0 → winding += 1
-                let yi_le_py = vcleq_f32(yi, vpy);  // yi <= py
-                let yj_gt_py = vcgtq_f32(yj, vpy);  // yj > py
+                let yi_le_py = vcleq_f32(yi, vpy); // yi <= py
+                let yj_gt_py = vcgtq_f32(yj, vpy); // yj > py
                 let cross_gt_0 = vcgtq_f32(cross, vzero);
                 let up = vandq_u32(vandq_u32(yi_le_py, yj_gt_py), cross_gt_0);
 
                 // Downward crossing: yi > py && yj <= py && cross < 0 → winding -= 1
-                let yi_gt_py = vcgtq_f32(yi, vpy);  // yi > py
-                let yj_le_py = vcleq_f32(yj, vpy);  // yj <= py
+                let yi_gt_py = vcgtq_f32(yi, vpy); // yi > py
+                let yj_le_py = vcleq_f32(yj, vpy); // yj <= py
                 let cross_lt_0 = vcltq_f32(cross, vzero);
                 let down = vandq_u32(vandq_u32(yi_gt_py, yj_le_py), cross_lt_0);
 
@@ -1021,11 +1116,15 @@ fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, verte
         if yi <= py32 {
             if yj > py32 {
                 let cross = (xj - xi) * (py32 - yi) - (px32 - xi) * (yj - yi);
-                if cross > 0.0 { winding += 1; }
+                if cross > 0.0 {
+                    winding += 1;
+                }
             }
         } else if yj <= py32 {
             let cross = (xj - xi) * (py32 - yi) - (px32 - xi) * (yj - yi);
-            if cross < 0.0 { winding -= 1; }
+            if cross < 0.0 {
+                winding -= 1;
+            }
         }
     }
 
@@ -1034,8 +1133,16 @@ fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, verte
 
 /// Raw winding number test — scalar fallback for non-aarch64.
 #[cfg(not(target_arch = "aarch64"))]
-fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, vertex_data: &[f32]) -> bool {
-    if point_count < 3 { return false; }
+fn winding_number_test(
+    px: f64,
+    py: f64,
+    point_count: usize,
+    start: usize,
+    vertex_data: &[f32],
+) -> bool {
+    if point_count < 3 {
+        return false;
+    }
     let mut winding: i32 = 0;
     for i in 0..point_count {
         let j = (i + 1) % point_count;
@@ -1046,11 +1153,15 @@ fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, verte
         if yi <= py {
             if yj > py {
                 let cross = (xj - xi) * (py - yi) - (px - xi) * (yj - yi);
-                if cross > 0.0 { winding += 1; }
+                if cross > 0.0 {
+                    winding += 1;
+                }
             }
         } else if yj <= py {
             let cross = (xj - xi) * (py - yi) - (px - xi) * (yj - yi);
-            if cross < 0.0 { winding -= 1; }
+            if cross < 0.0 {
+                winding -= 1;
+            }
         }
     }
     winding != 0
@@ -1058,26 +1169,31 @@ fn winding_number_test(px: f64, py: f64, point_count: usize, start: usize, verte
 
 /// Point-in-contour test. Uses the containment grid for O(1) lookups,
 /// falling back to full winding number test only for boundary cells.
-fn is_inside_contour(
-    px: f64, py: f64,
-    contour: &ParsedContour,
-    vertex_data: &[f32],
-) -> bool {
+fn is_inside_contour(px: f64, py: f64, contour: &ParsedContour, vertex_data: &[f32]) -> bool {
     if let Some(inside) = contour.containment_grid.contains(px, py) {
         return inside;
     }
     // Boundary cell — full winding test
-    winding_number_test(px, py, contour.point_count, contour.point_start * 2, vertex_data)
+    winding_number_test(
+        px,
+        py,
+        contour.point_count,
+        contour.point_start * 2,
+        vertex_data,
+    )
 }
 
 /// Compute terrain height at (px, py) using contour tree DFS with skip counts.
 pub fn compute_terrain_height(
-    px: f64, py: f64,
+    px: f64,
+    py: f64,
     terrain: &TerrainCPUData,
     contours: &[ParsedContour],
 ) -> f64 {
     let n = contours.len();
-    if n == 0 { return terrain.default_depth; }
+    if n == 0 {
+        return terrain.default_depth;
+    }
 
     let vd = &terrain.vertex_data;
     let cd = &terrain.children_data;
@@ -1090,8 +1206,10 @@ pub fn compute_terrain_height(
     while i < n {
         let c = &contours[i];
         // Bbox reject
-        if (px as f32) < c.bbox_min_x || (px as f32) > c.bbox_max_x
-            || (py as f32) < c.bbox_min_y || (py as f32) > c.bbox_max_y
+        if (px as f32) < c.bbox_min_x
+            || (px as f32) > c.bbox_max_x
+            || (py as f32) < c.bbox_min_y
+            || (py as f32) > c.bbox_max_y
         {
             i += 1 + c.skip_count as usize;
             continue;
@@ -1106,9 +1224,13 @@ pub fn compute_terrain_height(
     }
 
     // IDW blend with children of the deepest contour
-    let Some(deepest) = deepest_idx else { return deepest_height; };
+    let Some(deepest) = deepest_idx else {
+        return deepest_height;
+    };
     let dc = &contours[deepest];
-    if dc.child_count == 0 { return deepest_height; }
+    if dc.child_count == 0 {
+        return deepest_height;
+    }
 
     let mut weight_sum = 0.0;
     let mut height_sum = 0.0;
@@ -1116,7 +1238,9 @@ pub fn compute_terrain_height(
 
     for ci in 0..dc.child_count {
         let child_dfs = cd[dc.child_start + ci] as usize;
-        if child_dfs >= n { continue; }
+        if child_dfs >= n {
+            continue;
+        }
         let child = &contours[child_dfs];
         let dist = min_dist_to_contour(px, py, child, vd);
         if dist < 1e-6 {
@@ -1130,7 +1254,9 @@ pub fn compute_terrain_height(
     if weight_sum > 0.0 {
         // Also add the base contour with a weight from its own boundary distance
         let base_dist = min_dist_to_contour(px, py, dc, vd);
-        if base_dist < 1e-6 { return base_height; }
+        if base_dist < 1e-6 {
+            return base_height;
+        }
         let base_w = 1.0 / (base_dist * base_dist);
         weight_sum += base_w;
         height_sum += base_w * base_height;
@@ -1143,9 +1269,16 @@ pub fn compute_terrain_height(
 /// Minimum distance to contour boundary plus the gradient (unit direction from
 /// nearest edge point to query point). Returns `(distance, grad_x, grad_y)`.
 /// Mirrors TS `computeDistanceToBoundaryWithGradientFast`.
-fn min_dist_to_contour_with_gradient(px: f64, py: f64, c: &ParsedContour, vd: &[f32]) -> (f64, f64, f64) {
+fn min_dist_to_contour_with_gradient(
+    px: f64,
+    py: f64,
+    c: &ParsedContour,
+    vd: &[f32],
+) -> (f64, f64, f64) {
     let n = c.point_count;
-    if n == 0 { return (f64::INFINITY, 0.0, 0.0); }
+    if n == 0 {
+        return (f64::INFINITY, 0.0, 0.0);
+    }
 
     if let Some(grid) = &c.edge_grid {
         return min_dist_with_gradient_grid(px, py, c, vd, grid);
@@ -1156,7 +1289,11 @@ fn min_dist_to_contour_with_gradient(px: f64, py: f64, c: &ParsedContour, vd: &[
 
 /// Grid-accelerated nearest-edge search with gradient.
 fn min_dist_with_gradient_grid(
-    px: f64, py: f64, c: &ParsedContour, vd: &[f32], grid: &EdgeGrid,
+    px: f64,
+    py: f64,
+    c: &ParsedContour,
+    vd: &[f32],
+    grid: &EdgeGrid,
 ) -> (f64, f64, f64) {
     let n = c.point_count;
     let start = c.point_start * 2;
@@ -1224,7 +1361,12 @@ fn min_dist_with_gradient_grid(
 /// Linear scan nearest-edge search with gradient — used for small contours.
 /// On aarch64, processes 4 edges at a time using NEON f32x4 intrinsics.
 #[cfg(target_arch = "aarch64")]
-fn min_dist_with_gradient_linear(px: f64, py: f64, c: &ParsedContour, vd: &[f32]) -> (f64, f64, f64) {
+fn min_dist_with_gradient_linear(
+    px: f64,
+    py: f64,
+    c: &ParsedContour,
+    vd: &[f32],
+) -> (f64, f64, f64) {
     use std::arch::aarch64::*;
 
     let n = c.point_count;
@@ -1269,10 +1411,7 @@ fn min_dist_with_gradient_linear(px: f64, py: f64, c: &ParsedContour, vd: &[f32]
                 let aby = vsubq_f32(by, ay);
 
                 // len_sq = AB·AB, clamped to avoid div-by-zero
-                let len_sq = vmaxq_f32(
-                    vfmaq_f32(vmulq_f32(abx, abx), aby, aby),
-                    veps,
-                );
+                let len_sq = vmaxq_f32(vfmaq_f32(vmulq_f32(abx, abx), aby, aby), veps);
 
                 // AP = P - A
                 let apx = vsubq_f32(vpx, ax);
@@ -1348,7 +1487,12 @@ fn min_dist_with_gradient_linear(px: f64, py: f64, c: &ParsedContour, vd: &[f32]
 
 /// Linear scan nearest-edge search with gradient — scalar fallback for non-aarch64.
 #[cfg(not(target_arch = "aarch64"))]
-fn min_dist_with_gradient_linear(px: f64, py: f64, c: &ParsedContour, vd: &[f32]) -> (f64, f64, f64) {
+fn min_dist_with_gradient_linear(
+    px: f64,
+    py: f64,
+    c: &ParsedContour,
+    vd: &[f32],
+) -> (f64, f64, f64) {
     let n = c.point_count;
     let start = c.point_start * 2;
     let mut best_dist_sq = 1e20_f64;
@@ -1401,7 +1545,9 @@ fn point_to_segment_dx_dy(px: f64, py: f64, ax: f64, ay: f64, bx: f64, by: f64) 
 
 fn min_dist_to_contour(px: f64, py: f64, c: &ParsedContour, vd: &[f32]) -> f64 {
     let n = c.point_count;
-    if n == 0 { return f64::INFINITY; }
+    if n == 0 {
+        return f64::INFINITY;
+    }
     let start = c.point_start * 2;
     let mut best = f64::INFINITY;
     for i in 0..n {
@@ -1411,7 +1557,9 @@ fn min_dist_to_contour(px: f64, py: f64, c: &ParsedContour, vd: &[f32]) -> f64 {
         let bx = vd[start + j * 2] as f64;
         let by = vd[start + j * 2 + 1] as f64;
         let d = point_to_segment_dist(px, py, ax, ay, bx, by);
-        if d < best { best = d; }
+        if d < best {
+            best = d;
+        }
     }
     best
 }
@@ -1445,7 +1593,8 @@ const IDW_MIN_DIST: f64 = 0.1;
 /// the IDW interpolation directly via the quotient rule, using the distance
 /// gradient from `min_dist_to_contour_with_gradient`.
 pub fn compute_terrain_height_and_gradient(
-    px: f64, py: f64,
+    px: f64,
+    py: f64,
     terrain: &TerrainCPUData,
     contours: &[ParsedContour],
     lookup_grid: &ContourLookupGrid,
@@ -1503,7 +1652,8 @@ pub fn compute_terrain_height_and_gradient(
 
 /// IDW interpolation using the precomputed candidate grid.
 fn idw_from_grid(
-    px: f64, py: f64,
+    px: f64,
+    py: f64,
     dc: &ParsedContour,
     contours: &[ParsedContour],
     cd: &[u32],
@@ -1534,37 +1684,43 @@ fn idw_from_grid(
     let mut contour_counts_stack = [0usize; CONTOUR_STACK_MAX];
     let mut contour_starts_heap: Vec<usize>;
     let mut contour_counts_heap: Vec<usize>;
-    let (contour_starts, contour_pcounts): (&[usize], &[usize]) = if contour_count <= CONTOUR_STACK_MAX {
-        contour_starts_stack[0] = dc.point_start * 2;
-        contour_counts_stack[0] = dc.point_count;
-        for ci in 0..dc.child_count {
-            let child_dfs = cd[dc.child_start + ci] as usize;
-            if child_dfs < n {
-                contour_starts_stack[ci + 1] = contours[child_dfs].point_start * 2;
-                contour_counts_stack[ci + 1] = contours[child_dfs].point_count;
+    let (contour_starts, contour_pcounts): (&[usize], &[usize]) =
+        if contour_count <= CONTOUR_STACK_MAX {
+            contour_starts_stack[0] = dc.point_start * 2;
+            contour_counts_stack[0] = dc.point_count;
+            for ci in 0..dc.child_count {
+                let child_dfs = cd[dc.child_start + ci] as usize;
+                if child_dfs < n {
+                    contour_starts_stack[ci + 1] = contours[child_dfs].point_start * 2;
+                    contour_counts_stack[ci + 1] = contours[child_dfs].point_count;
+                }
             }
-        }
-        (&contour_starts_stack[..contour_count], &contour_counts_stack[..contour_count])
-    } else {
-        contour_starts_heap = vec![0; contour_count];
-        contour_counts_heap = vec![0; contour_count];
-        contour_starts_heap[0] = dc.point_start * 2;
-        contour_counts_heap[0] = dc.point_count;
-        for ci in 0..dc.child_count {
-            let child_dfs = cd[dc.child_start + ci] as usize;
-            if child_dfs < n {
-                contour_starts_heap[ci + 1] = contours[child_dfs].point_start * 2;
-                contour_counts_heap[ci + 1] = contours[child_dfs].point_count;
+            (
+                &contour_starts_stack[..contour_count],
+                &contour_counts_stack[..contour_count],
+            )
+        } else {
+            contour_starts_heap = vec![0; contour_count];
+            contour_counts_heap = vec![0; contour_count];
+            contour_starts_heap[0] = dc.point_start * 2;
+            contour_counts_heap[0] = dc.point_count;
+            for ci in 0..dc.child_count {
+                let child_dfs = cd[dc.child_start + ci] as usize;
+                if child_dfs < n {
+                    contour_starts_heap[ci + 1] = contours[child_dfs].point_start * 2;
+                    contour_counts_heap[ci + 1] = contours[child_dfs].point_count;
+                }
             }
-        }
-        (&contour_starts_heap, &contour_counts_heap)
-    };
+            (&contour_starts_heap, &contour_counts_heap)
+        };
 
     // Process all candidate edges, tracking per-contour best distance
     for &packed in candidates {
         let tag = (packed >> 16) as usize;
         let edge_i = (packed & 0xFFFF) as usize;
-        if tag >= contour_count { continue; }
+        if tag >= contour_count {
+            continue;
+        }
 
         let s = contour_starts[tag];
         let pc = contour_pcounts[tag];
@@ -1591,7 +1747,9 @@ fn idw_from_grid(
     // Heights: tag 0 = parent, tags 1..N = children
     for tag in 0..contour_count {
         let (best_dist_sq, best_dx, best_dy) = bests[tag];
-        if best_dist_sq >= f64::MAX * 0.5 { continue; } // no edge found for this contour
+        if best_dist_sq >= f64::MAX * 0.5 {
+            continue;
+        } // no edge found for this contour
 
         let height = if tag == 0 {
             deepest_height
@@ -1649,7 +1807,8 @@ fn idw_from_grid(
 
 /// Fallback IDW interpolation without grid (for safety).
 fn idw_fallback(
-    px: f64, py: f64,
+    px: f64,
+    py: f64,
     dc: &ParsedContour,
     contours: &[ParsedContour],
     cd: &[u32],
@@ -1665,8 +1824,7 @@ fn idw_fallback(
     let mut grad_wh_sum_y = 0.0;
 
     let mut accumulate = |height: f64, contour: &ParsedContour| {
-        let (dist, ddist_dx, ddist_dy) =
-            min_dist_to_contour_with_gradient(px, py, contour, vd);
+        let (dist, ddist_dx, ddist_dy) = min_dist_to_contour_with_gradient(px, py, contour, vd);
 
         let (w, dw_dx, dw_dy);
         if dist <= IDW_MIN_DIST {
@@ -1692,7 +1850,9 @@ fn idw_fallback(
     accumulate(deepest_height, dc);
     for ci in 0..dc.child_count {
         let child_dfs = cd[dc.child_start + ci] as usize;
-        if child_dfs >= n { continue; }
+        if child_dfs >= n {
+            continue;
+        }
         accumulate(contours[child_dfs].height as f64, &contours[child_dfs]);
     }
 
