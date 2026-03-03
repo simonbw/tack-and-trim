@@ -56,12 +56,14 @@ fn main() -> anyhow::Result<()> {
 
     for level_path in &level_paths {
         let level_name = std::path::Path::new(level_path)
-            .file_stem().unwrap_or_default()
+            .file_stem()
+            .unwrap_or_default()
             .to_string_lossy()
             .replace(".level", "");
-        let wavemesh_path = cli.output.clone().unwrap_or_else(|| {
-            level_path.replace(".level.json", ".wavemesh")
-        });
+        let wavemesh_path = cli
+            .output
+            .clone()
+            .unwrap_or_else(|| level_path.replace(".level.json", ".wavemesh"));
 
         eprintln!("\n=== {level_name} ===");
         eprintln!("  Level: {level_path}");
@@ -73,14 +75,20 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBuildConfig) -> anyhow::Result<()> {
+fn process_level(
+    level_path: &str,
+    wavemesh_path: &str,
+    config: &config::MeshBuildConfig,
+) -> anyhow::Result<()> {
     let t0 = Instant::now();
     let json_str = std::fs::read_to_string(level_path)
         .with_context(|| format!("failed to read level file: {level_path}"))?;
     let level_file = level::parse_level_file(&json_str)
         .with_context(|| format!("failed to parse level JSON: {level_path}"))?;
 
-    let wave_sources: Vec<level::WaveSource> = level_file.waves.as_ref()
+    let wave_sources: Vec<level::WaveSource> = level_file
+        .waves
+        .as_ref()
         .map(|w| w.sources.iter().map(level::WaveSource::from).collect())
         .unwrap_or_else(level::default_wave_sources);
 
@@ -125,14 +133,21 @@ fn process_level(level_path: &str, wavemesh_path: &str, config: &config::MeshBui
     }
 
     let total_build_time = total_timer.elapsed();
-    eprintln!("  Total build time: {:.0}ms", total_build_time.as_secs_f64() * 1000.0);
+    eprintln!(
+        "  Total build time: {:.0}ms",
+        total_build_time.as_secs_f64() * 1000.0
+    );
 
     let t_write = Instant::now();
     let buffer = wavemesh_file::build_wavemesh_buffer(&meshes, input_hash);
     std::fs::write(wavemesh_path, &buffer)
         .with_context(|| format!("failed to write wavemesh file: {wavemesh_path}"))?;
-    eprintln!("  Wrote {} ({:.1} KB) in {}ms",
-        wavemesh_path, buffer.len() as f64 / 1024.0, t_write.elapsed().as_millis());
+    eprintln!(
+        "  Wrote {} ({:.1} KB) in {}ms",
+        wavemesh_path,
+        buffer.len() as f64 / 1024.0,
+        t_write.elapsed().as_millis()
+    );
     Ok(())
 }
 
@@ -161,12 +176,17 @@ fn build_wave_mesh(
     );
 
     let march_result = marching::march_wavefronts(
-        first_wf, &wave_params, &wave_bounds, terrain, contours, lookup_grid, config,
+        first_wf,
+        &wave_params,
+        &wave_bounds,
+        terrain,
+        contours,
+        lookup_grid,
+        config,
     );
 
-    let mesh = triangulate::build_mesh_data_from_tracks(
-        &march_result.tracks, &wave_params, &wave_bounds,
-    );
+    let mesh =
+        triangulate::build_mesh_data_from_tracks(&march_result.tracks, &wave_params, &wave_bounds);
 
     eprintln!(
         "    splits: {}, merges: {}, verts: {} → {} ({:.0}% reduction)",
@@ -177,9 +197,7 @@ fn build_wave_mesh(
         100.0
             * (1.0
                 - mesh.vertex_count as f64
-                    / march_result
-                        .marched_vertices_before_decimation
-                        .max(1) as f64)
+                    / march_result.marched_vertices_before_decimation.max(1) as f64)
     );
 
     mesh

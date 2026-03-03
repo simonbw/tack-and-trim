@@ -13,16 +13,15 @@ use crate::level::TerrainCPUData;
 use crate::physics::{advance_interior_ray, advance_sentinel_ray, RayState};
 use crate::refine::{refine_wavefront, RefineStats};
 use crate::terrain::{ContourLookupGrid, ParsedContour};
-use crate::wavefront::{SegmentTrack, SegmentTrackSnapshot, WaveBounds, WaveParams, WavefrontSegment};
+use crate::wavefront::{
+    SegmentTrack, SegmentTrackSnapshot, WaveBounds, WaveParams, WavefrontSegment,
+};
 
 // ── Initial wavefront ────────────────────────────────────────────────────────
 
 /// Generate the initial wavefront with left/right sentinels and evenly-spaced
 /// interior rays spanning the perpendicular extent of the wave bounds.
-pub fn generate_initial_wavefront(
-    bounds: &WaveBounds,
-    wp: &WaveParams,
-) -> WavefrontSegment {
+pub fn generate_initial_wavefront(bounds: &WaveBounds, wp: &WaveParams) -> WavefrontSegment {
     let width = bounds.max_perp - bounds.min_perp;
     let num_interior = (width / wp.vertex_spacing).ceil() as usize + 1;
     let num_interior = num_interior.max(3);
@@ -35,8 +34,16 @@ pub fn generate_initial_wavefront(
     wf.push(
         bounds.min_proj * wp.wave_dx + left_perp * wp.perp_dx,
         bounds.min_proj * wp.wave_dy + left_perp * wp.perp_dy,
-        0.0, wp.wave_dx, wp.wave_dy,
-        1.0, 0.0, wp.wavelength, 0.0, 0.0, 0.0, 1.0,
+        0.0,
+        wp.wave_dx,
+        wp.wave_dy,
+        1.0,
+        0.0,
+        wp.wavelength,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
     );
 
     // Interior rays
@@ -46,8 +53,16 @@ pub fn generate_initial_wavefront(
         wf.push(
             bounds.min_proj * wp.wave_dx + perp_pos * wp.perp_dx,
             bounds.min_proj * wp.wave_dy + perp_pos * wp.perp_dy,
-            ti, wp.wave_dx, wp.wave_dy,
-            1.0, 0.0, 0.0, f64::NAN, f64::NAN, 0.0, 1.0,
+            ti,
+            wp.wave_dx,
+            wp.wave_dy,
+            1.0,
+            0.0,
+            0.0,
+            f64::NAN,
+            f64::NAN,
+            0.0,
+            1.0,
         );
     }
 
@@ -56,8 +71,16 @@ pub fn generate_initial_wavefront(
     wf.push(
         bounds.min_proj * wp.wave_dx + right_perp * wp.perp_dx,
         bounds.min_proj * wp.wave_dy + right_perp * wp.perp_dy,
-        1.0, wp.wave_dx, wp.wave_dy,
-        1.0, 0.0, wp.wavelength, 0.0, 0.0, 0.0, 1.0,
+        1.0,
+        wp.wave_dx,
+        wp.wave_dy,
+        1.0,
+        0.0,
+        wp.wavelength,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
     );
 
     assert_eq!(wf.len(), num_vertices);
@@ -73,10 +96,16 @@ enum RayStepOutcome {
     Gap,
     /// Ray advanced successfully.
     Advanced {
-        nx: f64, ny: f64, t: f64,
-        dir_x: f64, dir_y: f64,
-        energy: f64, turbulence: f64, depth: f64,
-        terrain_grad_x: f64, terrain_grad_y: f64,
+        nx: f64,
+        ny: f64,
+        t: f64,
+        dir_x: f64,
+        dir_y: f64,
+        energy: f64,
+        turbulence: f64,
+        depth: f64,
+        terrain_grad_x: f64,
+        terrain_grad_y: f64,
         blend: f64,
         is_sentinel: bool,
         refracted: bool,
@@ -117,34 +146,62 @@ fn advance_track_segment_step(
             if is_sentinel {
                 return match advance_sentinel_ray(px, py, wp, bounds) {
                     Some(sr) => RayStepOutcome::Advanced {
-                        nx: sr.nx, ny: sr.ny, t: pt,
-                        dir_x: wp.wave_dx, dir_y: wp.wave_dy,
-                        energy: 1.0, turbulence: 0.0, depth: wp.wavelength,
-                        terrain_grad_x: 0.0, terrain_grad_y: 0.0,
-                        blend: 1.0, is_sentinel: true,
-                        refracted: false, turn_clamped: false,
+                        nx: sr.nx,
+                        ny: sr.ny,
+                        t: pt,
+                        dir_x: wp.wave_dx,
+                        dir_y: wp.wave_dy,
+                        energy: 1.0,
+                        turbulence: 0.0,
+                        depth: wp.wavelength,
+                        terrain_grad_x: 0.0,
+                        terrain_grad_y: 0.0,
+                        blend: 1.0,
+                        is_sentinel: true,
+                        refracted: false,
+                        turn_clamped: false,
                     },
                     None => RayStepOutcome::Gap,
                 };
             }
 
             let ray = RayState {
-                x: px, y: py, energy,
+                x: px,
+                y: py,
+                energy,
                 turbulence: segment.turbulence[i],
-                dir_x: segment.dir_x[i], dir_y: segment.dir_y[i],
+                dir_x: segment.dir_x[i],
+                dir_y: segment.dir_y[i],
                 depth: segment.depth[i],
                 terrain_grad_x: segment.terrain_grad_x[i],
                 terrain_grad_y: segment.terrain_grad_y[i],
             };
 
-            match advance_interior_ray(&ray, wp, bounds, breaking_depth, &config.physics, terrain, contours, lookup_grid) {
+            match advance_interior_ray(
+                &ray,
+                wp,
+                bounds,
+                breaking_depth,
+                &config.physics,
+                terrain,
+                contours,
+                lookup_grid,
+            ) {
                 Some(ir) => RayStepOutcome::Advanced {
-                    nx: ir.nx, ny: ir.ny, t: pt,
-                    dir_x: ir.dir_x, dir_y: ir.dir_y,
-                    energy: ir.energy, turbulence: ir.turbulence, depth: ir.depth,
-                    terrain_grad_x: ir.terrain_grad_x, terrain_grad_y: ir.terrain_grad_y,
-                    blend: 1.0, is_sentinel: false,
-                    refracted: ir.refracted, turn_clamped: ir.turn_clamped,
+                    nx: ir.nx,
+                    ny: ir.ny,
+                    t: pt,
+                    dir_x: ir.dir_x,
+                    dir_y: ir.dir_y,
+                    energy: ir.energy,
+                    turbulence: ir.turbulence,
+                    depth: ir.depth,
+                    terrain_grad_x: ir.terrain_grad_x,
+                    terrain_grad_y: ir.terrain_grad_y,
+                    blend: 1.0,
+                    is_sentinel: false,
+                    refracted: ir.refracted,
+                    turn_clamped: ir.turn_clamped,
                 },
                 None => RayStepOutcome::Gap,
             }
@@ -156,11 +213,20 @@ fn advance_track_segment_step(
     let mut refracted_count = 0u64;
     let mut turn_clamped_count = 0u64;
 
-    let mut current = WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len);
+    let mut current =
+        WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len);
 
     let mut flush = |current: &mut WavefrontSegment, produced: &mut Vec<WavefrontSegment>| {
-        if current.len() == 0 { return; }
-        let refined = refine_wavefront(current, wp.vertex_spacing, wp.initial_delta_t, stats, &config.refinement);
+        if current.len() == 0 {
+            return;
+        }
+        let refined = refine_wavefront(
+            current,
+            wp.vertex_spacing,
+            wp.initial_delta_t,
+            stats,
+            &config.refinement,
+        );
         produced.push(refined);
         *current = WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len);
     };
@@ -171,39 +237,76 @@ fn advance_track_segment_step(
                 flush(&mut current, &mut produced);
             }
             RayStepOutcome::Advanced {
-                nx, ny, t, dir_x, dir_y, energy, turbulence, depth,
-                terrain_grad_x, terrain_grad_y, blend, is_sentinel,
-                refracted, turn_clamped,
+                nx,
+                ny,
+                t,
+                dir_x,
+                dir_y,
+                energy,
+                turbulence,
+                depth,
+                terrain_grad_x,
+                terrain_grad_y,
+                blend,
+                is_sentinel,
+                refracted,
+                turn_clamped,
             } => {
-                if *refracted { refracted_count += 1; }
-                if *turn_clamped { turn_clamped_count += 1; }
+                if *refracted {
+                    refracted_count += 1;
+                }
+                if *turn_clamped {
+                    turn_clamped_count += 1;
+                }
 
                 // Energy ratio check → segment break (skip for sentinels)
                 if !is_sentinel && !current.energy.is_empty() {
                     let prev_e = *current.energy.last().unwrap();
-                    let ratio = if *energy > prev_e { energy / prev_e } else { prev_e / energy };
+                    let ratio = if *energy > prev_e {
+                        energy / prev_e
+                    } else {
+                        prev_e / energy
+                    };
                     if ratio > config.refinement.max_energy_ratio {
                         flush(&mut current, &mut produced);
                     }
                 }
 
                 current.push(
-                    *nx, *ny, *t,
-                    *dir_x, *dir_y,
-                    *energy, *turbulence, *depth,
-                    *terrain_grad_x, *terrain_grad_y,
-                    0.0, *blend,
+                    *nx,
+                    *ny,
+                    *t,
+                    *dir_x,
+                    *dir_y,
+                    *energy,
+                    *turbulence,
+                    *depth,
+                    *terrain_grad_x,
+                    *terrain_grad_y,
+                    0.0,
+                    *blend,
                 );
             }
         }
     }
 
     if current.len() > 0 {
-        let refined = refine_wavefront(&current, wp.vertex_spacing, wp.initial_delta_t, stats, &config.refinement);
+        let refined = refine_wavefront(
+            &current,
+            wp.vertex_spacing,
+            wp.initial_delta_t,
+            stats,
+            &config.refinement,
+        );
         produced.push(refined);
     }
 
-    (next_source_step, produced, refracted_count, turn_clamped_count)
+    (
+        next_source_step,
+        produced,
+        refracted_count,
+        turn_clamped_count,
+    )
 }
 
 // ── March a single track to completion ───────────────────────────────────────
@@ -228,7 +331,10 @@ fn march_single_track(
 ) -> TrackResult {
     let breaking_depth = config.physics.breaking_depth_ratio * wp.wavelength;
 
-    let mut stats = RefineStats { splits: 0, merges: 0 };
+    let mut stats = RefineStats {
+        splits: 0,
+        merges: 0,
+    };
     let mut total_refractions = 0u64;
     let mut total_clamps = 0u64;
     let mut marched_verts = seed.len() as u64;
@@ -256,9 +362,16 @@ fn march_single_track(
 
     loop {
         let (next_step, produced, refractions, clamps) = advance_track_segment_step(
-            &segment, segment.parent_track_id,
-            wp, bounds, breaking_depth,
-            terrain, contours, lookup_grid, config, &mut stats,
+            &segment,
+            segment.parent_track_id,
+            wp,
+            bounds,
+            breaking_depth,
+            terrain,
+            contours,
+            lookup_grid,
+            config,
+            &mut stats,
         );
         total_refractions += refractions;
         total_clamps += clamps;
@@ -296,7 +409,14 @@ fn march_single_track(
         break;
     }
 
-    (track, child_seeds, stats, total_refractions, total_clamps, marched_verts)
+    (
+        track,
+        child_seeds,
+        stats,
+        total_refractions,
+        total_clamps,
+        marched_verts,
+    )
 }
 
 fn post_process_segments(
@@ -308,7 +428,9 @@ fn post_process_segments(
 
     for seg in segments.iter_mut() {
         let n = seg.len();
-        if n == 0 { continue; }
+        if n == 0 {
+            continue;
+        }
 
         for i in 0..n {
             if seg.t[i] == 0.0 || seg.t[i] == 1.0 {
@@ -319,13 +441,17 @@ fn post_process_segments(
             let p_depth = seg.depth[i];
             let kh = wp.k * p_depth;
             let shoaling = if p_depth > 0.0 {
-                let s = if kh > 10.0 { 1.0 } else {
+                let s = if kh > 10.0 {
+                    1.0
+                } else {
                     let sinh2kh = (2.0 * kh).sinh();
                     let n_val = 0.5 * (1.0 + (2.0 * kh) / sinh2kh);
                     1.0 / (2.0 * n_val * kh.tanh()).sqrt()
                 };
                 s.min(config.max_amplification)
-            } else { 1.0 };
+            } else {
+                1.0
+            };
 
             let (local_spacing, delta_t) = if n <= 1 {
                 (wp.vertex_spacing, wp.initial_delta_t)
@@ -349,18 +475,23 @@ fn post_process_segments(
             };
 
             let expected = delta_t * spacing_per_t;
-            let divergence = (expected / local_spacing).sqrt().min(config.max_amplification);
+            let divergence = (expected / local_spacing)
+                .sqrt()
+                .min(config.max_amplification);
             seg.amplitude[i] = seg.energy[i] * shoaling * divergence;
         }
     }
 
     // Diffraction
-    let d = (wp.step_size / (2.0 * wp.k * wp.vertex_spacing * wp.vertex_spacing)).min(config.max_diffusion_d);
+    let d = (wp.step_size / (2.0 * wp.k * wp.vertex_spacing * wp.vertex_spacing))
+        .min(config.max_diffusion_d);
     let mut scratch = Vec::new();
 
     for seg in segments.iter_mut() {
         let n = seg.len();
-        if n <= 1 { continue; }
+        if n <= 1 {
+            continue;
+        }
 
         let edge_threshold = wp.initial_delta_t * 0.5;
         let left_is_edge = seg.t[0] < edge_threshold;
@@ -370,8 +501,20 @@ fn post_process_segments(
         for _ in 0..config.diffraction_iterations {
             scratch[..n].copy_from_slice(&seg.amplitude[..n]);
             for i in 0..n {
-                let left = if i > 0 { scratch[i - 1] } else if left_is_edge { 1.0 } else { 0.0 };
-                let right = if i < n - 1 { scratch[i + 1] } else if right_is_edge { 1.0 } else { 0.0 };
+                let left = if i > 0 {
+                    scratch[i - 1]
+                } else if left_is_edge {
+                    1.0
+                } else {
+                    0.0
+                };
+                let right = if i < n - 1 {
+                    scratch[i + 1]
+                } else if right_is_edge {
+                    1.0
+                } else {
+                    0.0
+                };
                 seg.amplitude[i] = (scratch[i] + d * (left - 2.0 * scratch[i] + right)).max(0.0);
             }
         }
@@ -380,14 +523,18 @@ fn post_process_segments(
     // Turbulence diffusion
     for seg in segments.iter_mut() {
         let n = seg.len();
-        if n <= 2 { continue; }
+        if n <= 2 {
+            continue;
+        }
         scratch.resize(n, 0.0);
         for _ in 0..config.turbulence_diffusion_iterations {
             scratch[..n].copy_from_slice(&seg.turbulence[..n]);
             for i in 0..n {
                 let left = if i > 0 { scratch[i - 1] } else { 0.0 };
                 let right = if i < n - 1 { scratch[i + 1] } else { 0.0 };
-                seg.turbulence[i] = (scratch[i] + config.turbulence_diffusion_d * (left - 2.0 * scratch[i] + right)).max(0.0);
+                seg.turbulence[i] = (scratch[i]
+                    + config.turbulence_diffusion_d * (left - 2.0 * scratch[i] + right))
+                    .max(0.0);
             }
         }
     }
@@ -505,10 +652,25 @@ pub fn march_wavefronts(
             child.track_id = id;
             s.spawn(move |s| {
                 process_track(
-                    s, child, wp, bounds, terrain, contours, lookup_grid, config,
-                    next_track_id, all_tracks,
-                    total_splits, total_merges, total_refractions, turn_clamp_count,
-                    marched_verts, removed_snapshots, removed_vertices, tracks_done, start,
+                    s,
+                    child,
+                    wp,
+                    bounds,
+                    terrain,
+                    contours,
+                    lookup_grid,
+                    config,
+                    next_track_id,
+                    all_tracks,
+                    total_splits,
+                    total_merges,
+                    total_refractions,
+                    turn_clamp_count,
+                    marched_verts,
+                    removed_snapshots,
+                    removed_vertices,
+                    tracks_done,
+                    start,
                 );
             });
         }
@@ -535,10 +697,25 @@ pub fn march_wavefronts(
     rayon::scope(|s| {
         s.spawn(|s| {
             process_track(
-                s, first_wavefront, &wp, bounds, terrain, contours, lookup_grid, config,
-                &next_track_id, &all_tracks,
-                &total_splits, &total_merges, &total_refractions, &turn_clamp_count,
-                &marched_verts, &removed_snapshots, &removed_vertices, &tracks_done, &start,
+                s,
+                first_wavefront,
+                &wp,
+                bounds,
+                terrain,
+                contours,
+                lookup_grid,
+                config,
+                &next_track_id,
+                &all_tracks,
+                &total_splits,
+                &total_merges,
+                &total_refractions,
+                &turn_clamp_count,
+                &marched_verts,
+                &removed_snapshots,
+                &removed_vertices,
+                &tracks_done,
+                &start,
             );
         });
     }); // blocks until all tracks (including children) are done

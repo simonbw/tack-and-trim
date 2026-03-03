@@ -1,6 +1,8 @@
 //! Segment and track-level decimation.
 //! Mirrors decimateSegment.ts and decimateWavefrontTracks.ts.
 
+use rayon::prelude::*;
+
 use crate::wavefront::{SegmentTrack, SegmentTrackSnapshot, WaveParams, WavefrontSegment};
 
 fn lerp(a: f64, b: f64, f: f64) -> f64 {
@@ -8,76 +10,6 @@ fn lerp(a: f64, b: f64, f: f64) -> f64 {
 }
 
 // ── Segment-level decimation ─────────────────────────────────────────────────
-
-fn can_remove_vertices_between(
-    seg: &WavefrontSegment,
-    anchor: usize,
-    endpoint: usize,
-    pos_tol_sq: f64,
-    amp_tol: f64,
-) -> bool {
-    if endpoint <= anchor + 1 {
-        return true;
-    }
-
-    let a_t = seg.t[anchor];
-    let b_t = seg.t[endpoint];
-    let t_span = b_t - a_t;
-    let inv_t_span = if t_span > 0.0 { 1.0 / t_span } else { 0.0 };
-
-    let ax = seg.x[anchor];
-    let ay = seg.y[anchor];
-    let bx = seg.x[endpoint];
-    let by = seg.y[endpoint];
-    let x_delta = bx - ax;
-    let y_delta = by - ay;
-
-    let a_amp = seg.amplitude[anchor];
-    let b_amp = seg.amplitude[endpoint];
-    let amp_delta = b_amp - a_amp;
-    let a_turb = seg.turbulence[anchor];
-    let b_turb = seg.turbulence[endpoint];
-    let turb_delta = b_turb - a_turb;
-    let a_blend = seg.blend[anchor];
-    let b_blend = seg.blend[endpoint];
-    let blend_delta = b_blend - a_blend;
-
-    let t_slice = &seg.t[(anchor + 1)..endpoint];
-    let x_slice = &seg.x[(anchor + 1)..endpoint];
-    let y_slice = &seg.y[(anchor + 1)..endpoint];
-    let amp_slice = &seg.amplitude[(anchor + 1)..endpoint];
-    let turb_slice = &seg.turbulence[(anchor + 1)..endpoint];
-    let blend_slice = &seg.blend[(anchor + 1)..endpoint];
-
-    for (((((&t, &x), &y), &amp), &turb), &blend) in t_slice
-        .iter()
-        .zip(x_slice)
-        .zip(y_slice)
-        .zip(amp_slice)
-        .zip(turb_slice)
-        .zip(blend_slice)
-    {
-        let f = (t - a_t) * inv_t_span;
-        let ix = ax + x_delta * f;
-        let iy = ay + y_delta * f;
-        let dx = x - ix;
-        let dy = y - iy;
-        if dx * dx + dy * dy > pos_tol_sq {
-            return false;
-        }
-
-        if (amp - (a_amp + amp_delta * f)).abs() > amp_tol {
-            return false;
-        }
-        if (turb - (a_turb + turb_delta * f)).abs() > amp_tol {
-            return false;
-        }
-        if (blend - (a_blend + blend_delta * f)).abs() > amp_tol {
-            return false;
-        }
-    }
-    true
-}
 
 fn build_segment_from_kept(seg: &WavefrontSegment, kept: &[usize]) -> WavefrontSegment {
     let mut out = WavefrontSegment::with_capacity(
@@ -129,37 +61,115 @@ fn build_segment_from_kept(seg: &WavefrontSegment, kept: &[usize]) -> WavefrontS
     out
 }
 
-/// Decimate a single segment by removing vertices whose linear interpolation
-/// stays within position and amplitude tolerances.
+
+/// Decimate a single segment using Imai-Iri shortest-path DP with slope-interval
+/// pruning for O(n × avg_reach) performance.
+///
+/// For each source vertex, we track the range of valid slopes (one interval per
+/// property) that satisfy all intermediate vertices seen so far. Each new
+/// intermediate narrows the intervals in O(1). When any interval becomes empty,
+/// no future endpoint can work — we break provably, not heuristically.
 pub fn decimate_segment(seg: &WavefrontSegment, pos_tol_sq: f64, amp_tol: f64) -> WavefrontSegment {
-    let len = seg.len();
-    if len <= 2 {
+    let n = seg.len();
+    if n <= 2 {
         return seg.clone();
     }
 
-    let mut kept = vec![0usize];
-    let mut anchor = 0;
-    let mut endpoint = 2;
+    let pos_tol = pos_tol_sq.sqrt();
 
-    while endpoint < len {
-        if can_remove_vertices_between(seg, anchor, endpoint, pos_tol_sq, amp_tol) {
-            if endpoint == len - 1 {
-                kept.push(endpoint);
+    let mut dist = vec![u32::MAX; n];
+    let mut prev = vec![0usize; n];
+    dist[0] = 0;
+
+    for i in 0..n - 1 {
+        if dist[i] == u32::MAX {
+            continue;
+        }
+        let d = dist[i] + 1;
+
+        let ti = seg.t[i];
+        let xi = seg.x[i];
+        let yi = seg.y[i];
+        let ai = seg.amplitude[i];
+        let turbi = seg.turbulence[i];
+        let bi = seg.blend[i];
+
+        // Slope intervals: valid range of (value[j] - value[i]) / (t[j] - t[i])
+        let mut sx_min = f64::NEG_INFINITY;
+        let mut sx_max = f64::INFINITY;
+        let mut sy_min = f64::NEG_INFINITY;
+        let mut sy_max = f64::INFINITY;
+        let mut sa_min = f64::NEG_INFINITY;
+        let mut sa_max = f64::INFINITY;
+        let mut st_min = f64::NEG_INFINITY;
+        let mut st_max = f64::INFINITY;
+        let mut sb_min = f64::NEG_INFINITY;
+        let mut sb_max = f64::INFINITY;
+
+        for j in (i + 1)..n {
+            // Check edge i→j: intervals reflect constraints from intermediates i+1..j-1
+            let dt = seg.t[j] - ti;
+            let inv_dt = if dt > 0.0 { 1.0 / dt } else { 0.0 };
+
+            let slope_x = (seg.x[j] - xi) * inv_dt;
+            let slope_y = (seg.y[j] - yi) * inv_dt;
+            let slope_a = (seg.amplitude[j] - ai) * inv_dt;
+            let slope_t = (seg.turbulence[j] - turbi) * inv_dt;
+            let slope_b = (seg.blend[j] - bi) * inv_dt;
+
+            let edge_exists = slope_x >= sx_min
+                && slope_x <= sx_max
+                && slope_y >= sy_min
+                && slope_y <= sy_max
+                && slope_a >= sa_min
+                && slope_a <= sa_max
+                && slope_t >= st_min
+                && slope_t <= st_max
+                && slope_b >= sb_min
+                && slope_b <= sb_max;
+
+            if edge_exists && d < dist[j] {
+                dist[j] = d;
+                prev[j] = i;
+            }
+
+            // Narrow intervals using vertex j as intermediate for future edges
+            let pos_inv = pos_tol * inv_dt;
+            let amp_inv = amp_tol * inv_dt;
+
+            sx_min = sx_min.max(slope_x - pos_inv);
+            sx_max = sx_max.min(slope_x + pos_inv);
+            sy_min = sy_min.max(slope_y - pos_inv);
+            sy_max = sy_max.min(slope_y + pos_inv);
+            sa_min = sa_min.max(slope_a - amp_inv);
+            sa_max = sa_max.min(slope_a + amp_inv);
+            st_min = st_min.max(slope_t - amp_inv);
+            st_max = st_max.min(slope_t + amp_inv);
+            sb_min = sb_min.max(slope_b - amp_inv);
+            sb_max = sb_max.min(slope_b + amp_inv);
+
+            if sx_min > sx_max
+                || sy_min > sy_max
+                || sa_min > sa_max
+                || st_min > st_max
+                || sb_min > sb_max
+            {
                 break;
             }
-            endpoint += 1;
-        } else {
-            kept.push(endpoint - 1);
-            anchor = endpoint - 1;
-            endpoint = anchor + 2;
         }
     }
 
-    if *kept.last().unwrap() != len - 1 {
-        kept.push(len - 1);
+    // Reconstruct path
+    let mut kept = Vec::new();
+    let mut cur = n - 1;
+    while cur != 0 {
+        kept.push(cur);
+        cur = prev[cur];
     }
+    kept.push(0);
+    kept.reverse();
 
-    if kept.len() == len {
+    if kept.len() == n {
         return seg.clone();
     }
     build_segment_from_kept(seg, &kept)
@@ -423,35 +433,34 @@ pub fn decimate_track_snapshots(
         wp.phase_per_step,
     );
 
-    let mut decimated = SegmentTrack {
-        track_id: track.track_id,
-        parent_track_id: track.parent_track_id,
-        child_track_ids: track.child_track_ids.clone(),
-        snapshots: Vec::new(),
-    };
-    let mut removed_snapshots = 0u64;
+    let removed_snapshots = keep_mask.iter().filter(|&&k| !k).count() as u64;
 
-    for (i, snap) in track.snapshots.iter().enumerate() {
-        if !keep_mask[i] {
-            removed_snapshots += 1;
-            continue;
-        }
-        let decimated_seg = decimate_segment(&snap.segment, pos_tol_sq, amp_tol);
-        decimated.snapshots.push(SegmentTrackSnapshot {
-            step_index: snap.step_index,
-            segment_index: snap.segment_index,
-            source_step_index: snap.source_step_index,
-            segment: decimated_seg,
-        });
-    }
+    // Decimate kept snapshots in parallel
+    let snapshots: Vec<SegmentTrackSnapshot> = track
+        .snapshots
+        .par_iter()
+        .enumerate()
+        .filter(|(i, _)| keep_mask[*i])
+        .map(|(_, snap)| {
+            let decimated_seg = decimate_segment(&snap.segment, pos_tol_sq, amp_tol);
+            SegmentTrackSnapshot {
+                step_index: snap.step_index,
+                segment_index: snap.segment_index,
+                source_step_index: snap.source_step_index,
+                segment: decimated_seg,
+            }
+        })
+        .collect();
 
-    let mut verts_after: u64 = 0;
-    for snap in &decimated.snapshots {
-        verts_after += snap.segment.len() as u64;
-    }
+    let verts_after: u64 = snapshots.iter().map(|s| s.segment.len() as u64).sum();
 
     SingleTrackDecimationResult {
-        track: decimated,
+        track: SegmentTrack {
+            track_id: track.track_id,
+            parent_track_id: track.parent_track_id,
+            child_track_ids: track.child_track_ids.clone(),
+            snapshots,
+        },
         removed_snapshots,
         removed_vertices: verts_before.saturating_sub(verts_after),
     }
