@@ -54,6 +54,24 @@ The script categorizes terrain time into containment (bbox/winding number) vs ID
 
 Note: the terrain sub-categories use source line number ranges that may need updating if `terrain.rs` is significantly restructured. See `TERRAIN_CONTAINMENT_LINES` and `TERRAIN_IDW_LINES` in the script.
 
+### dtrace profiling with inline resolution
+
+For profiling with full visibility into inlined functions. Requires `sudo` (dtrace instruments the kernel) and `inferno`:
+
+```sh
+cargo install inferno
+
+# Capture raw dtrace data + collapsed stacks (requires sudo)
+npm run profile-wavemesh:dtrace
+
+# Summarize with atos -i inline resolution
+python3 pipeline/wavemesh-builder/profile-dtrace-summary.py /tmp/wavemesh-dtrace.out
+```
+
+The summary script resolves inlined function addresses via `atos -i`, which cracks open opaque blobs like `HeapJob::execute` to reveal the actual application functions inside. It produces a categorized time breakdown, top functions by self-time, and hot call paths.
+
+The binary is built with frame pointers (`.cargo/config.toml`) so dtrace's `ustack()` can walk the call stack reliably.
+
 ### Raw profiling with macOS `sample`
 
 For a raw text-based profile (no GUI needed), use macOS's built-in `sample` command:

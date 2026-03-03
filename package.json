@@ -20,6 +20,7 @@
     "build-wavemesh:ts": "tsx ./bin/build-wavemesh.ts",
     "build-wavemesh:compile": "cargo build --release --manifest-path pipeline/wavemesh-builder/Cargo.toml",
     "profile-wavemesh": "python3 pipeline/wavemesh-builder/profile.py",
+    "profile-wavemesh:dtrace": "./pipeline/wavemesh-builder/profile-dtrace.sh",
     "download-terrain": "tsx ./src/pipeline/terrain-import/download.ts",
     "build-terrain-grid": "tsx ./src/pipeline/terrain-import/build-grid.ts",
     "extract-terrain-contours": "tsx ./src/pipeline/terrain-import/extract-contours.ts",
