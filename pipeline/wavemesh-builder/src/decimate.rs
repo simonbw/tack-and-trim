@@ -3,50 +3,125 @@
 
 use crate::wavefront::{SegmentTrack, SegmentTrackSnapshot, WaveParams, WavefrontSegment};
 
-fn lerp(a: f64, b: f64, f: f64) -> f64 { a + (b - a) * f }
+fn lerp(a: f64, b: f64, f: f64) -> f64 {
+    a + (b - a) * f
+}
 
 // ── Segment-level decimation ─────────────────────────────────────────────────
 
 fn can_remove_vertices_between(
-    seg: &WavefrontSegment, anchor: usize, endpoint: usize,
-    pos_tol_sq: f64, amp_tol: f64,
+    seg: &WavefrontSegment,
+    anchor: usize,
+    endpoint: usize,
+    pos_tol_sq: f64,
+    amp_tol: f64,
 ) -> bool {
+    if endpoint <= anchor + 1 {
+        return true;
+    }
+
     let a_t = seg.t[anchor];
     let b_t = seg.t[endpoint];
     let t_span = b_t - a_t;
-    let ax = seg.x[anchor]; let ay = seg.y[anchor];
-    let bx = seg.x[endpoint]; let by = seg.y[endpoint];
-    let a_amp = seg.amplitude[anchor]; let b_amp = seg.amplitude[endpoint];
-    let a_turb = seg.turbulence[anchor]; let b_turb = seg.turbulence[endpoint];
-    let a_blend = seg.blend[anchor]; let b_blend = seg.blend[endpoint];
+    let inv_t_span = if t_span > 0.0 { 1.0 / t_span } else { 0.0 };
 
-    for i in (anchor + 1)..endpoint {
-        let f = if t_span > 0.0 { (seg.t[i] - a_t) / t_span } else { 0.0 };
-        let ix = lerp(ax, bx, f);
-        let iy = lerp(ay, by, f);
-        let dx = seg.x[i] - ix;
-        let dy = seg.y[i] - iy;
-        if dx * dx + dy * dy > pos_tol_sq { return false; }
+    let ax = seg.x[anchor];
+    let ay = seg.y[anchor];
+    let bx = seg.x[endpoint];
+    let by = seg.y[endpoint];
+    let x_delta = bx - ax;
+    let y_delta = by - ay;
 
-        if (seg.amplitude[i] - lerp(a_amp, b_amp, f)).abs() > amp_tol { return false; }
-        if (seg.turbulence[i] - lerp(a_turb, b_turb, f)).abs() > amp_tol { return false; }
-        if (seg.blend[i] - lerp(a_blend, b_blend, f)).abs() > amp_tol { return false; }
+    let a_amp = seg.amplitude[anchor];
+    let b_amp = seg.amplitude[endpoint];
+    let amp_delta = b_amp - a_amp;
+    let a_turb = seg.turbulence[anchor];
+    let b_turb = seg.turbulence[endpoint];
+    let turb_delta = b_turb - a_turb;
+    let a_blend = seg.blend[anchor];
+    let b_blend = seg.blend[endpoint];
+    let blend_delta = b_blend - a_blend;
+
+    let t_slice = &seg.t[(anchor + 1)..endpoint];
+    let x_slice = &seg.x[(anchor + 1)..endpoint];
+    let y_slice = &seg.y[(anchor + 1)..endpoint];
+    let amp_slice = &seg.amplitude[(anchor + 1)..endpoint];
+    let turb_slice = &seg.turbulence[(anchor + 1)..endpoint];
+    let blend_slice = &seg.blend[(anchor + 1)..endpoint];
+
+    for (((((&t, &x), &y), &amp), &turb), &blend) in t_slice
+        .iter()
+        .zip(x_slice)
+        .zip(y_slice)
+        .zip(amp_slice)
+        .zip(turb_slice)
+        .zip(blend_slice)
+    {
+        let f = (t - a_t) * inv_t_span;
+        let ix = ax + x_delta * f;
+        let iy = ay + y_delta * f;
+        let dx = x - ix;
+        let dy = y - iy;
+        if dx * dx + dy * dy > pos_tol_sq {
+            return false;
+        }
+
+        if (amp - (a_amp + amp_delta * f)).abs() > amp_tol {
+            return false;
+        }
+        if (turb - (a_turb + turb_delta * f)).abs() > amp_tol {
+            return false;
+        }
+        if (blend - (a_blend + blend_delta * f)).abs() > amp_tol {
+            return false;
+        }
     }
     true
 }
 
 fn build_segment_from_kept(seg: &WavefrontSegment, kept: &[usize]) -> WavefrontSegment {
-    let mut out = WavefrontSegment::with_capacity(seg.track_id, seg.parent_track_id, seg.source_step_index, kept.len());
+    let mut out = WavefrontSegment::with_capacity(
+        seg.track_id,
+        seg.parent_track_id,
+        seg.source_step_index,
+        kept.len(),
+    );
     for &idx in kept {
         out.push(
-            seg.x[idx], seg.y[idx], seg.t[idx],
-            if !seg.dir_x.is_empty() { seg.dir_x[idx] } else { 0.0 },
-            if !seg.dir_y.is_empty() { seg.dir_y[idx] } else { 0.0 },
-            if !seg.energy.is_empty() { seg.energy[idx] } else { 0.0 },
+            seg.x[idx],
+            seg.y[idx],
+            seg.t[idx],
+            if !seg.dir_x.is_empty() {
+                seg.dir_x[idx]
+            } else {
+                0.0
+            },
+            if !seg.dir_y.is_empty() {
+                seg.dir_y[idx]
+            } else {
+                0.0
+            },
+            if !seg.energy.is_empty() {
+                seg.energy[idx]
+            } else {
+                0.0
+            },
             seg.turbulence[idx],
-            if !seg.depth.is_empty() { seg.depth[idx] } else { 0.0 },
-            if !seg.terrain_grad_x.is_empty() { seg.terrain_grad_x[idx] } else { 0.0 },
-            if !seg.terrain_grad_y.is_empty() { seg.terrain_grad_y[idx] } else { 0.0 },
+            if !seg.depth.is_empty() {
+                seg.depth[idx]
+            } else {
+                0.0
+            },
+            if !seg.terrain_grad_x.is_empty() {
+                seg.terrain_grad_x[idx]
+            } else {
+                0.0
+            },
+            if !seg.terrain_grad_y.is_empty() {
+                seg.terrain_grad_y[idx]
+            } else {
+                0.0
+            },
             seg.amplitude[idx],
             seg.blend[idx],
         );
@@ -58,7 +133,9 @@ fn build_segment_from_kept(seg: &WavefrontSegment, kept: &[usize]) -> WavefrontS
 /// stays within position and amplitude tolerances.
 pub fn decimate_segment(seg: &WavefrontSegment, pos_tol_sq: f64, amp_tol: f64) -> WavefrontSegment {
     let len = seg.len();
-    if len <= 2 { return seg.clone(); }
+    if len <= 2 {
+        return seg.clone();
+    }
 
     let mut kept = vec![0usize];
     let mut anchor = 0;
@@ -82,14 +159,20 @@ pub fn decimate_segment(seg: &WavefrontSegment, pos_tol_sq: f64, amp_tol: f64) -
         kept.push(len - 1);
     }
 
-    if kept.len() == len { return seg.clone(); }
+    if kept.len() == len {
+        return seg.clone();
+    }
     build_segment_from_kept(seg, &kept)
 }
 
 // ── Track-level decimation ───────────────────────────────────────────────────
 
 struct SegmentSample {
-    x: f64, y: f64, amplitude: f64, turbulence: f64, blend: f64,
+    x: f64,
+    y: f64,
+    amplitude: f64,
+    turbulence: f64,
+    blend: f64,
 }
 
 /// Forward-only sampler for monotonically increasing t queries on a segment.
@@ -105,18 +188,33 @@ struct SegmentScanner<'a> {
 impl<'a> SegmentScanner<'a> {
     fn new(seg: &'a WavefrontSegment) -> Self {
         let n = seg.len();
-        let (t_min, t_max) = if n > 0 { (seg.t[0], seg.t[n - 1]) } else { (0.0, 0.0) };
-        SegmentScanner { seg, cursor: 0, n, t_min, t_max }
+        let (t_min, t_max) = if n > 0 {
+            (seg.t[0], seg.t[n - 1])
+        } else {
+            (0.0, 0.0)
+        };
+        SegmentScanner {
+            seg,
+            cursor: 0,
+            n,
+            t_min,
+            t_max,
+        }
     }
 
     /// Sample interpolated values at t. Queries must be monotonically increasing.
     fn sample(&mut self, t: f64) -> Option<SegmentSample> {
-        if self.n == 0 { return None; }
-        if t < self.t_min - 1e-9 || t > self.t_max + 1e-9 { return None; }
+        if self.n == 0 {
+            return None;
+        }
+        if t < self.t_min - 1e-9 || t > self.t_max + 1e-9 {
+            return None;
+        }
 
         if t <= self.t_min {
             return Some(SegmentSample {
-                x: self.seg.x[0], y: self.seg.y[0],
+                x: self.seg.x[0],
+                y: self.seg.y[0],
                 amplitude: self.seg.amplitude[0],
                 turbulence: self.seg.turbulence[0],
                 blend: self.seg.blend[0],
@@ -125,7 +223,8 @@ impl<'a> SegmentScanner<'a> {
         if t >= self.t_max {
             let i = self.n - 1;
             return Some(SegmentSample {
-                x: self.seg.x[i], y: self.seg.y[i],
+                x: self.seg.x[i],
+                y: self.seg.y[i],
                 amplitude: self.seg.amplitude[i],
                 turbulence: self.seg.turbulence[i],
                 blend: self.seg.blend[i],
@@ -140,7 +239,11 @@ impl<'a> SegmentScanner<'a> {
         let left = self.cursor;
         let right = left + 1;
         let span = self.seg.t[right] - self.seg.t[left];
-        let f = if span > 0.0 { (t - self.seg.t[left]) / span } else { 0.0 };
+        let f = if span > 0.0 {
+            (t - self.seg.t[left]) / span
+        } else {
+            0.0
+        };
         Some(SegmentSample {
             x: lerp(self.seg.x[left], self.seg.x[right], f),
             y: lerp(self.seg.y[left], self.seg.y[right], f),
@@ -152,7 +255,9 @@ impl<'a> SegmentScanner<'a> {
 }
 
 fn normalized_error(error: f64, tolerance: f64) -> f64 {
-    if tolerance <= 0.0 { return if error == 0.0 { 0.0 } else { f64::INFINITY }; }
+    if tolerance <= 0.0 {
+        return if error == 0.0 { 0.0 } else { f64::INFINITY };
+    }
     error / tolerance
 }
 
@@ -163,15 +268,20 @@ fn evaluate_snapshot_removal(
     anchor_idx: usize,
     endpoint_idx: usize,
     k: f64,
-    wave_dx: f64, wave_dy: f64,
-    pos_tol_sq: f64, amp_tol: f64, phase_tol: f64,
+    wave_dx: f64,
+    wave_dy: f64,
+    pos_tol_sq: f64,
+    amp_tol: f64,
+    phase_tol: f64,
     phase_per_step: f64,
 ) -> bool {
     let snapshot = &track.snapshots[snapshot_idx].segment;
     let anchor = &track.snapshots[anchor_idx].segment;
     let endpoint = &track.snapshots[endpoint_idx].segment;
     let span = endpoint_idx - anchor_idx;
-    if span <= 1 { return false; }
+    if span <= 1 {
+        return false;
+    }
 
     let fraction = (snapshot_idx - anchor_idx) as f64 / span as f64;
     let step_phase_base = snapshot.source_step_index as f64 * phase_per_step;
@@ -183,29 +293,46 @@ fn evaluate_snapshot_removal(
 
     for i in 0..snapshot.len() {
         let pt = snapshot.t[i];
-        let a = match anchor_scan.sample(pt) { Some(s) => s, None => return false };
-        let e = match endpoint_scan.sample(pt) { Some(s) => s, None => return false };
+        let a = match anchor_scan.sample(pt) {
+            Some(s) => s,
+            None => return false,
+        };
+        let e = match endpoint_scan.sample(pt) {
+            Some(s) => s,
+            None => return false,
+        };
 
         let ix = lerp(a.x, e.x, fraction);
         let iy = lerp(a.y, e.y, fraction);
         let dx = snapshot.x[i] - ix;
         let dy = snapshot.y[i] - iy;
-        if normalized_error(dx * dx + dy * dy, pos_tol_sq) > 1.0 { return false; }
+        if normalized_error(dx * dx + dy * dy, pos_tol_sq) > 1.0 {
+            return false;
+        }
 
         let i_amp = lerp(a.amplitude, e.amplitude, fraction);
-        if normalized_error((snapshot.amplitude[i] - i_amp).abs(), amp_tol) > 1.0 { return false; }
+        if normalized_error((snapshot.amplitude[i] - i_amp).abs(), amp_tol) > 1.0 {
+            return false;
+        }
 
         let i_turb = lerp(a.turbulence, e.turbulence, fraction);
-        if normalized_error((snapshot.turbulence[i] - i_turb).abs(), amp_tol) > 1.0 { return false; }
+        if normalized_error((snapshot.turbulence[i] - i_turb).abs(), amp_tol) > 1.0 {
+            return false;
+        }
 
         let i_blend = lerp(a.blend, e.blend, fraction);
-        if normalized_error((snapshot.blend[i] - i_blend).abs(), amp_tol) > 1.0 { return false; }
+        if normalized_error((snapshot.blend[i] - i_blend).abs(), amp_tol) > 1.0 {
+            return false;
+        }
 
-        let actual_phase = step_phase_base - k * (snapshot.x[i] * wave_dx + snapshot.y[i] * wave_dy);
+        let actual_phase =
+            step_phase_base - k * (snapshot.x[i] * wave_dx + snapshot.y[i] * wave_dy);
         let anchor_phase = anchor_phase_base - k * (a.x * wave_dx + a.y * wave_dy);
         let endpoint_phase = endpoint_phase_base - k * (e.x * wave_dx + e.y * wave_dy);
         let i_phase = lerp(anchor_phase, endpoint_phase, fraction);
-        if normalized_error((actual_phase - i_phase).abs(), phase_tol) > 1.0 { return false; }
+        if normalized_error((actual_phase - i_phase).abs(), phase_tol) > 1.0 {
+            return false;
+        }
     }
     true
 }
@@ -213,12 +340,18 @@ fn evaluate_snapshot_removal(
 #[allow(clippy::too_many_arguments)]
 fn keep_mask_for_track(
     track: &SegmentTrack,
-    k: f64, wave_dx: f64, wave_dy: f64,
-    pos_tol_sq: f64, amp_tol: f64, phase_tol: f64,
+    k: f64,
+    wave_dx: f64,
+    wave_dy: f64,
+    pos_tol_sq: f64,
+    amp_tol: f64,
+    phase_tol: f64,
     phase_per_step: f64,
 ) -> Vec<bool> {
     let len = track.snapshots.len();
-    if len <= 2 { return vec![true; len]; }
+    if len <= 2 {
+        return vec![true; len];
+    }
 
     let mut keep = vec![false; len];
     keep[0] = true;
@@ -229,11 +362,22 @@ fn keep_mask_for_track(
 
     while endpoint < len {
         let removable = evaluate_snapshot_removal(
-            track, endpoint - 1, anchor, endpoint,
-            k, wave_dx, wave_dy, pos_tol_sq, amp_tol, phase_tol, phase_per_step,
+            track,
+            endpoint - 1,
+            anchor,
+            endpoint,
+            k,
+            wave_dx,
+            wave_dy,
+            pos_tol_sq,
+            amp_tol,
+            phase_tol,
+            phase_per_step,
         );
         if removable {
-            if endpoint == len - 1 { break; }
+            if endpoint == len - 1 {
+                break;
+            }
             endpoint += 1;
         } else {
             keep[endpoint - 1] = true;
@@ -269,8 +413,14 @@ pub fn decimate_track_snapshots(
     }
 
     let keep_mask = keep_mask_for_track(
-        track, k, wp.wave_dx, wp.wave_dy,
-        pos_tol_sq, amp_tol, phase_tol, wp.phase_per_step,
+        track,
+        k,
+        wp.wave_dx,
+        wp.wave_dy,
+        pos_tol_sq,
+        amp_tol,
+        phase_tol,
+        wp.phase_per_step,
     );
 
     let mut decimated = SegmentTrack {
