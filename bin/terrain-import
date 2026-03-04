@@ -121,6 +121,7 @@ EOF
 
 run_rust_cli() {
   exec cargo run \
+    --release \
     --manifest-path "$REPO_ROOT/pipeline/Cargo.toml" \
     -p terrain-import \
     -- \

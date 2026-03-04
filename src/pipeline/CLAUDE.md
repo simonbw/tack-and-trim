@@ -36,14 +36,17 @@ Imports real-world bathymetric/topographic data from NOAA's CUDEM dataset into `
 
 ### Entry Points
 
-| Command                         | Description                                                                          |
-| ------------------------------ | ------------------------------------------------------------------------------------ |
-| `npm run import-terrain`       | Orchestrates full pipeline (download → build-grid → extract → wavemesh)             |
-| `npm run download-terrain`     | **Step 1** — Downloads GeoTIFF tiles matching region bbox                             |
-| `npm run build-terrain-grid`   | **Step 2** — Merges tiles into `merged.tif` via `gdalwarp`                            |
-| `npm run extract-terrain-contours` | **Step 3** — Marching squares → constrained simplification → `.level.json`        |
-| `npm run validate-level`       | Standalone `.level.json` validator (overlap + containment checks)                    |
+Use `./bin/terrain-import` directly as the primary interface (or `terrain-import` if installed on `PATH`).
 
+| Command                                                | Description                                                                 |
+| ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `./bin/terrain-import --region <slug>`                | Orchestrates full pipeline (download → build-grid → extract → wavemesh)    |
+| `./bin/terrain-import download --region <slug>`       | **Step 1** — Downloads GeoTIFF tiles matching region bbox                  |
+| `./bin/terrain-import build-grid --region <slug>`     | **Step 2** — Merges tiles into `merged.tif` via `gdalwarp`                 |
+| `./bin/terrain-import extract --region <slug>`        | **Step 3** — Marching squares → constrained simplification → `.level.json` |
+| `./bin/terrain-import validate --region <slug>`       | Standalone `.level.json` validator (overlap + containment checks)           |
+
+NPM scripts (`download-terrain`, `build-terrain-grid`, `extract-terrain-contours`, `validate-level`, `import-terrain`) are thin wrappers around `./bin/terrain-import`.
 The legacy TypeScript implementation under `src/pipeline/terrain-import/` is retained as reference.
 
 ### Configuration
