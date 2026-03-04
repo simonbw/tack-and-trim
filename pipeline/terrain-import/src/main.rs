@@ -9,16 +9,20 @@ mod segment_index;
 mod simplify;
 mod validate;
 
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use terrain_core::humanize::format_int;
 
 use build_grid::run_build_grid;
 use download::run_download;
 use extract::run_extract;
-use region::{list_regions, load_region_config, resolve_level_path, resolve_repo_path};
+use region::{
+    grid_cache_dir, list_regions, load_region_config, resolve_level_path, resolve_repo_path,
+    tiles_dir,
+};
 use validate::{validate_level_file, ValidationErrorType};
 
 #[derive(Parser)]
@@ -34,6 +38,7 @@ enum Commands {
     Download(CommonRegionArgs),
     BuildGrid(BuildGridArgs),
     Extract(CommonRegionArgs),
+    Clean(CommonRegionArgs),
     Validate(ValidateArgs),
     Import(CommonRegionArgs),
 }
@@ -71,8 +76,51 @@ fn main() -> Result<()> {
         Commands::Extract(args) => run_extract(args.region.as_deref()),
         Commands::Download(args) => run_download(args.region.as_deref()),
         Commands::BuildGrid(args) => run_build_grid(args.region.as_deref(), args.force),
+        Commands::Clean(args) => run_clean(args.region.as_deref()),
         Commands::Import(args) => run_import(args.region.as_deref()),
     }
+}
+
+#[derive(Default, Clone, Copy)]
+struct CleanStats {
+    removed: usize,
+    skipped_protected: usize,
+}
+
+fn run_clean(region_arg: Option<&str>) -> Result<()> {
+    if let Some(slug) = region_arg {
+        clean_region_outputs(slug)?;
+        println!("\nDone.");
+        return Ok(());
+    }
+
+    let regions = list_regions()?;
+    if regions.is_empty() {
+        bail!("No regions found. Create assets/terrain/<name>/region.json first.");
+    }
+
+    println!("Cleaning {} regions", format_int(regions.len()));
+
+    let mut totals = CleanStats::default();
+    for (idx, slug) in regions.iter().enumerate() {
+        println!(
+            "\n=== region {}/{}: {} ===",
+            format_int(idx + 1),
+            format_int(regions.len()),
+            slug
+        );
+        let stats = clean_region_outputs(slug)?;
+        totals.removed += stats.removed;
+        totals.skipped_protected += stats.skipped_protected;
+    }
+
+    println!(
+        "\nRemoved {} path(s) total (skipped {} protected path(s)).",
+        format_int(totals.removed),
+        format_int(totals.skipped_protected)
+    );
+    println!("\nDone.");
+    Ok(())
 }
 
 fn run_validate(args: ValidateArgs) -> Result<()> {
@@ -137,6 +185,70 @@ fn run_import(region_arg: Option<&str>) -> Result<()> {
     }
 
     println!("\nDone.");
+    Ok(())
+}
+
+fn clean_region_outputs(slug: &str) -> Result<CleanStats> {
+    let config = load_region_config(slug)?;
+    let tiles_root = tiles_dir(slug);
+    let cache_dir = grid_cache_dir(slug);
+    let level_path = resolve_repo_path(&config.output);
+    let wavemesh_path = resolve_repo_path(&config.output.replace(".level.json", ".wavemesh"));
+
+    println!("Region: {}", config.name);
+
+    let mut stats = CleanStats::default();
+    remove_generated_path(&cache_dir, &tiles_root, "cache directory", &mut stats)?;
+    remove_generated_path(&level_path, &tiles_root, "level file", &mut stats)?;
+    if wavemesh_path != level_path {
+        remove_generated_path(&wavemesh_path, &tiles_root, "wavemesh file", &mut stats)?;
+    }
+
+    println!(
+        "Cleaned {} path(s) (skipped {} protected path(s))",
+        format_int(stats.removed),
+        format_int(stats.skipped_protected)
+    );
+    Ok(stats)
+}
+
+fn remove_generated_path(
+    path: &Path,
+    tiles_root: &Path,
+    label: &str,
+    stats: &mut CleanStats,
+) -> Result<()> {
+    if path == tiles_root || path.starts_with(tiles_root) {
+        stats.skipped_protected += 1;
+        println!(
+            "Skipped {}: {} (inside downloaded tiles directory)",
+            label,
+            path.display()
+        );
+        return Ok(());
+    }
+
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            println!("Already clean {}: {}", label, path.display());
+            return Ok(());
+        }
+        Err(err) => {
+            return Err(err).with_context(|| format!("Failed to inspect {}", path.display()))
+        }
+    };
+
+    if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path)
+            .with_context(|| format!("Failed to remove directory {}", path.display()))?;
+    } else {
+        fs::remove_file(path)
+            .with_context(|| format!("Failed to remove file {}", path.display()))?;
+    }
+
+    stats.removed += 1;
+    println!("Removed {}: {}", label, path.display());
     Ok(())
 }
 

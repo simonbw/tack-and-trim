@@ -31,13 +31,14 @@ print_help() {
   cat <<'EOF'
 Usage:
   terrain-import [import] [--region <slug>]
-  terrain-import <download|build-grid|extract|validate|import> [args]
+  terrain-import <download|build-grid|extract|clean|validate|import> [args]
   terrain-import list-regions
   terrain-import completion zsh
 
 Examples:
   terrain-import --region san-juan-islands
   terrain-import build-grid --region san-juan-islands --force
+  terrain-import clean --region san-juan-islands
   terrain-import validate --region san-juan-islands
   terrain-import list-regions
   eval "$(terrain-import completion zsh)"
@@ -65,6 +66,7 @@ _terrain_import() {
       'download[Download terrain tiles]' \
       'build-grid[Build merged terrain grid cache]' \
       'extract[Extract contour rings]' \
+      'clean[Delete generated outputs while keeping downloaded tiles]' \
       'validate[Validate level contour topology]' \
       'list-regions[List available region slugs]' \
       'completion[Print shell completion script]'
@@ -80,7 +82,7 @@ _terrain_import() {
   fi
 
   case "$cmd" in
-    download|extract|import)
+    download|extract|import|clean)
       _arguments \
         '--region[Region slug]:region:_terrain_import_regions' \
         '-h[Show help]' \
@@ -150,7 +152,7 @@ case "${1:-}" in
     echo "Usage: terrain-import completion zsh" >&2
     exit 2
     ;;
-  download|build-grid|extract|validate|import )
+  download|build-grid|extract|clean|validate|import )
     run_rust_cli "$@"
     ;;
   --* )

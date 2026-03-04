@@ -65,6 +65,19 @@ terrain-import extract --region san-juan-islands
 
 Loads the cached grid, runs marching squares to extract iso-contour rings, simplifies them with Ramer-Douglas-Peucker, and writes the `.level.json` file. This is the fastest step and can be re-run independently to iterate on contour parameters.
 
+#### Clean generated outputs
+
+```bash
+terrain-import clean --region san-juan-islands
+```
+
+Deletes generated files for the region so the next import starts fresh:
+- `assets/terrain/<name>/cache/`
+- Region output `.level.json`
+- Derived `.wavemesh`
+
+Downloaded tiles in `assets/terrain/<name>/tiles/` are preserved.
+
 ## Adding a new region
 
 1. Create `assets/terrain/<name>/region.json` with the region config
@@ -114,7 +127,7 @@ Downloads a single GeoTIFF via a WCS GetCoverage request from `https://ows.emodn
 
 ## File structure
 
-- `pipeline/terrain-import/src/main.rs` - CLI entrypoint (`download`, `build-grid`, `extract`, `validate`, `import`)
+- `pipeline/terrain-import/src/main.rs` - CLI entrypoint (`download`, `build-grid`, `extract`, `clean`, `validate`, `import`)
 - `pipeline/terrain-import/src/region.rs` - Region discovery, config loading, path helpers
 - `pipeline/terrain-import/src/download.rs` - Step 1: fetches GeoTIFF tiles from CUDEM / USACE / EMODnet
 - `pipeline/terrain-import/src/build_grid.rs` - Step 2: merges tiles via `gdalwarp`

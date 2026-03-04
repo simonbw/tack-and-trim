@@ -44,6 +44,7 @@ Use `./bin/terrain-import` directly as the primary interface (or `terrain-import
 | `./bin/terrain-import download --region <slug>`       | **Step 1** — Downloads GeoTIFF tiles matching region bbox                  |
 | `./bin/terrain-import build-grid --region <slug>`     | **Step 2** — Merges tiles into `merged.tif` via `gdalwarp`                 |
 | `./bin/terrain-import extract --region <slug>`        | **Step 3** — Marching squares → constrained simplification → `.level.json` |
+| `./bin/terrain-import clean --region <slug>`          | Deletes generated outputs (`cache/`, `.level.json`, `.wavemesh`) while keeping `tiles/` |
 | `./bin/terrain-import validate --region <slug>`       | Standalone `.level.json` validator (overlap + containment checks)           |
 
 NPM scripts (`download-terrain`, `build-terrain-grid`, `extract-terrain-contours`, `validate-level`, `import-terrain`) are thin wrappers around `./bin/terrain-import`.
