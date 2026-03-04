@@ -8,20 +8,43 @@ Each region is defined by a `region.json` file in `assets/terrain/<name>/`. This
 
 ## Usage
 
+### Install command (once)
+
+```bash
+ln -sf "$PWD/bin/terrain-import" "$HOME/.local/bin/terrain-import"
+```
+
+Make sure `~/.local/bin` is on your `PATH`.
+
+### Enable zsh completion (once)
+
+```bash
+echo 'eval "$(terrain-import completion zsh)"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+`--region` suggestions are loaded dynamically from `assets/terrain/*/region.json`.
+
 ### Run the full pipeline
 
 ```bash
-npm run import-terrain -- --region san-juan-islands
+terrain-import --region san-juan-islands
 ```
 
 Runs all three steps in sequence. If only one region exists, `--region` can be omitted.
+
+Equivalent explicit form:
+
+```bash
+terrain-import import --region san-juan-islands
+```
 
 ### Individual steps
 
 #### 1. Download tiles
 
 ```bash
-npm run download-terrain -- --region san-juan-islands
+terrain-import download --region san-juan-islands
 ```
 
 Downloads GeoTIFF tiles from NOAA's CUDEM dataset to `assets/terrain/<name>/tiles/`. Already-cached tiles are skipped.
@@ -29,7 +52,7 @@ Downloads GeoTIFF tiles from NOAA's CUDEM dataset to `assets/terrain/<name>/tile
 #### 2. Build elevation grid
 
 ```bash
-npm run build-terrain-grid -- --region san-juan-islands
+terrain-import build-grid --region san-juan-islands
 ```
 
 Reads downloaded tiles, assembles a merged elevation grid, and caches the result to `assets/terrain/<name>/cache/`. Skips if cache is already valid.
@@ -37,7 +60,7 @@ Reads downloaded tiles, assembles a merged elevation grid, and caches the result
 #### 3. Extract contours
 
 ```bash
-npm run extract-terrain-contours -- --region san-juan-islands
+terrain-import extract --region san-juan-islands
 ```
 
 Loads the cached grid, runs marching squares to extract iso-contour rings, simplifies them with Ramer-Douglas-Peucker, and writes the `.level.json` file. This is the fastest step and can be re-run independently to iterate on contour parameters.
@@ -46,7 +69,7 @@ Loads the cached grid, runs marching squares to extract iso-contour rings, simpl
 
 1. Create `assets/terrain/<name>/region.json` with the region config
 2. Configure the data source (see below)
-3. Run `npm run import-terrain -- --region <name>`
+3. Run `terrain-import --region <name>`
 
 ### Data sources
 
