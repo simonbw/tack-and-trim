@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
@@ -13,7 +14,9 @@ use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet};
 use crate::marching::{
     build_block_index, build_closed_rings, march_contours, BlockIndex, ScalarGrid,
 };
-use crate::region::{assets_root, grid_cache_dir, load_region_config, resolve_region, resolve_repo_path};
+use crate::region::{
+    assets_root, grid_cache_dir, load_region_config, resolve_region, resolve_repo_path,
+};
 use crate::segment_index::SegmentIndex;
 use crate::simplify::{ring_perimeter, signed_area, Point};
 use crate::validate::validate_level_file;
@@ -283,6 +286,19 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // Prune contours orphaned by a missing 0ft intermediate. This happens
+    // when a small 0ft ring was filtered by perimeter or simplified away,
+    // leaving inner contours (which are even tinier) parented across zero.
+    let pre_prune = contours.len();
+    prune_zero_crossing_orphans(&mut contours, DEFAULT_DEPTH);
+    let pruned = pre_prune - contours.len();
+    if pruned > 0 {
+        println!(
+            "Pruned {} contour(s) orphaned by missing 0ft intermediate",
+            format_int(pruned)
+        );
+    }
+
     let output_path = resolve_repo_path(&config.output);
     timer = Instant::now();
     write_level_file(&output_path, contours)?;
@@ -523,6 +539,79 @@ fn build_containment_tree(rings: &[RawRing]) -> Vec<ContourNode> {
         insert_contour(&mut roots, idx, rings);
     }
     roots
+}
+
+/// Remove output contours whose parent crosses zero without an intermediate
+/// 0ft contour. Builds a temporary containment tree from the output polygons
+/// to detect the orphaned subtrees.
+fn prune_zero_crossing_orphans(contours: &mut Vec<TerrainContourJson>, default_depth: f64) {
+    if contours.is_empty() {
+        return;
+    }
+
+    // Build temporary RawRings from the output contours for the tree.
+    let rings: Vec<RawRing> = contours
+        .iter()
+        .map(|c| {
+            let points: Vec<Point> = c.polygon.iter().map(|p| (p[0], p[1])).collect();
+            let mut bbox = RingBBox {
+                min_x: f64::INFINITY,
+                min_y: f64::INFINITY,
+                max_x: f64::NEG_INFINITY,
+                max_y: f64::NEG_INFINITY,
+            };
+            for &(x, y) in &points {
+                bbox.min_x = bbox.min_x.min(x);
+                bbox.min_y = bbox.min_y.min(y);
+                bbox.max_x = bbox.max_x.max(x);
+                bbox.max_y = bbox.max_y.max(y);
+            }
+            RawRing {
+                height: c.height,
+                points,
+                bbox,
+            }
+        })
+        .collect();
+
+    let tree_roots = build_containment_tree(&rings);
+
+    let mut to_remove = HashSet::new();
+    find_zero_orphans_recursive(&tree_roots, &rings, default_depth, &mut to_remove);
+
+    if !to_remove.is_empty() {
+        let mut idx = 0;
+        contours.retain(|_| {
+            let keep = !to_remove.contains(&idx);
+            idx += 1;
+            keep
+        });
+    }
+}
+
+fn find_zero_orphans_recursive(
+    nodes: &[ContourNode],
+    rings: &[RawRing],
+    parent_height: f64,
+    result: &mut HashSet<usize>,
+) {
+    for node in nodes {
+        let height = rings[node.ring_index].height;
+        let crosses_zero =
+            (height > 0.0 && parent_height < 0.0) || (height < 0.0 && parent_height > 0.0);
+        if crosses_zero {
+            collect_subtree(node, result);
+        } else {
+            find_zero_orphans_recursive(&node.children, rings, height, result);
+        }
+    }
+}
+
+fn collect_subtree(node: &ContourNode, result: &mut HashSet<usize>) {
+    result.insert(node.ring_index);
+    for child in &node.children {
+        collect_subtree(child, result);
+    }
 }
 
 fn bfs_order(roots: &[ContourNode]) -> Vec<usize> {
