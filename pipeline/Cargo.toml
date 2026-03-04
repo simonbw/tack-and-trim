@@ -1,5 +1,5 @@
 [workspace]
-members = ["terrain-core", "wavemesh-builder"]
+members = ["terrain-core", "wavemesh-builder", "terrain-import"]
 resolver = "2"
 
 [profile.release]
