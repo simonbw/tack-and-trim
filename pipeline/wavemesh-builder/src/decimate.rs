@@ -60,7 +60,6 @@ fn build_segment_from_kept(seg: &WavefrontSegment, kept: &[usize]) -> WavefrontS
     out
 }
 
-
 /// Decimate a single segment using Imai-Iri shortest-path DP with slope-interval
 /// pruning for O(n × avg_reach) performance.
 ///

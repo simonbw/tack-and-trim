@@ -20,7 +20,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-BINARY_PATH = Path(__file__).resolve().parent / "target/release/wavemesh-builder"
+BINARY_PATH = Path(__file__).resolve().parent.parent / "target/release/wavemesh-builder"
 
 
 # ---------------------------------------------------------------------------

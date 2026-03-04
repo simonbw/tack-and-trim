@@ -2,11 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BINARY="$SCRIPT_DIR/target/release/wavemesh-builder"
+BINARY="$SCRIPT_DIR/../target/release/wavemesh-builder"
 DTRACE_OUT="/tmp/wavemesh-dtrace.out"
 
 # Build release (frame pointers + debug symbols enabled via .cargo/config.toml and Cargo.toml)
-cargo build --release --manifest-path "$SCRIPT_DIR/Cargo.toml"
+cargo build --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" -p wavemesh-builder
 
 # Remove stale output so we never accidentally re-parse old data
 sudo rm -f "$DTRACE_OUT"

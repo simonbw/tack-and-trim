@@ -25,8 +25,8 @@ cargo install samply
 Debug symbols are always enabled in the release build (`debug = true` in Cargo.toml) so profilers can resolve function names. This has no runtime cost.
 
 ```sh
-cargo build --release --manifest-path pipeline/wavemesh-builder/Cargo.toml
-samply record ./pipeline/wavemesh-builder/target/release/wavemesh-builder
+cargo build --release --manifest-path pipeline/Cargo.toml -p wavemesh-builder
+samply record ./pipeline/target/release/wavemesh-builder
 ```
 
 This runs the full build under the profiler and opens the Firefox Profiler UI in your browser. The flame graph and call tree tabs show where time is spent; the timeline shows per-thread activity.
@@ -34,7 +34,7 @@ This runs the full build under the profiler and opens the Firefox Profiler UI in
 To save a profile for later analysis without opening the browser:
 
 ```sh
-samply record --save-only -o /tmp/wavemesh-profile.json ./pipeline/wavemesh-builder/target/release/wavemesh-builder
+samply record --save-only -o /tmp/wavemesh-profile.json ./pipeline/target/release/wavemesh-builder
 samply load /tmp/wavemesh-profile.json  # open it later
 ```
 
@@ -78,7 +78,7 @@ For a raw text-based profile (no GUI needed), use macOS's built-in `sample` comm
 
 ```sh
 # Start the build in the background
-./pipeline/wavemesh-builder/target/release/wavemesh-builder &
+./pipeline/target/release/wavemesh-builder &
 PID=$!
 
 # Wait for it to reach the hot loop (san-juan-islands), then sample

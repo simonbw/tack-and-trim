@@ -363,12 +363,12 @@ def print_top_functions(entries: list[tuple[int, str]], total_worker_samples: in
 def run_profiler() -> str:
     """Build, run the wavemesh-builder under `sample`, and return the output file path."""
     project_root = Path(__file__).resolve().parent.parent.parent
-    binary = project_root / "pipeline/wavemesh-builder/target/release/wavemesh-builder"
+    binary = project_root / "pipeline/target/release/wavemesh-builder"
     output_file = "/tmp/wavemesh-sample.txt"
 
     print("Building release binary...")
     subprocess.run(
-        ["cargo", "build", "--release", "--manifest-path", "pipeline/wavemesh-builder/Cargo.toml"],
+        ["cargo", "build", "--release", "--manifest-path", "pipeline/Cargo.toml", "-p", "wavemesh-builder"],
         cwd=project_root, check=True, capture_output=True,
     )
     print("Done.\n")

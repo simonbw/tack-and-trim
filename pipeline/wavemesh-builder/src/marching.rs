@@ -284,14 +284,24 @@ fn advance_track_segment_step(
         raw_segments
             .into_iter()
             .map(|seg| {
-                refine_wavefront(seg, wp.vertex_spacing, wp.initial_delta_t, &config.refinement)
+                refine_wavefront(
+                    seg,
+                    wp.vertex_spacing,
+                    wp.initial_delta_t,
+                    &config.refinement,
+                )
             })
             .collect()
     } else {
         raw_segments
             .into_par_iter()
             .map(|seg| {
-                refine_wavefront(seg, wp.vertex_spacing, wp.initial_delta_t, &config.refinement)
+                refine_wavefront(
+                    seg,
+                    wp.vertex_spacing,
+                    wp.initial_delta_t,
+                    &config.refinement,
+                )
             })
             .collect()
     };
