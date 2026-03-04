@@ -332,10 +332,13 @@ fn load_merged_grid(merged_path: &Path, merged_display: &str) -> Result<LoadedGr
         .read_as::<f64>((0, 0), (width, height), (width, height), None)
         .context("Failed to read raster")?;
     println!(
-        "\rLoaded merged grid from {} in {}ms. Starting preprocessing...",
+        "\rLoaded merged grid from {} in {}ms",
         merged_display,
         format_int(read_timer.elapsed().as_millis())
     );
+    print!("Preprocessing merged grid...");
+    let _ = io::stdout().flush();
+    let preprocess_timer = Instant::now();
 
     let mut values = vec![0.0; width * height];
     let mut nodata_mask = vec![0u8; width * height];
@@ -372,13 +375,6 @@ fn load_merged_grid(merged_path: &Path, merged_display: &str) -> Result<LoadedGr
         }
     }
 
-    if seam_fills > 0 {
-        println!(
-            "Interpolated {} tile-seam nodata cells",
-            format_int(seam_fills)
-        );
-    }
-
     let mut depth_fills = 0usize;
     for i in 0..values.len() {
         if nodata_mask[i] != 0 {
@@ -386,14 +382,6 @@ fn load_merged_grid(merged_path: &Path, merged_display: &str) -> Result<LoadedGr
             nodata_mask[i] = 0;
             depth_fills += 1;
         }
-    }
-
-    if depth_fills > 0 {
-        println!(
-            "Filled {} remaining nodata cells with {}ft",
-            format_int(depth_fills),
-            DEFAULT_DEPTH
-        );
     }
 
     let pad_w = width + 2;
@@ -410,6 +398,24 @@ fn load_merged_grid(merged_path: &Path, merged_display: &str) -> Result<LoadedGr
     for &v in &values {
         min_feet = min_feet.min(v);
         max_feet = max_feet.max(v);
+    }
+
+    println!(
+        "\rPreprocessed merged grid in {}ms",
+        format_int(preprocess_timer.elapsed().as_millis())
+    );
+    if seam_fills > 0 {
+        println!(
+            "Interpolated {} tile-seam nodata cells",
+            format_int(seam_fills)
+        );
+    }
+    if depth_fills > 0 {
+        println!(
+            "Filled {} remaining nodata cells with {}ft",
+            format_int(depth_fills),
+            DEFAULT_DEPTH
+        );
     }
 
     Ok(LoadedGrid {

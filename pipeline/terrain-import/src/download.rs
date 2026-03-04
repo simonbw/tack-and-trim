@@ -15,7 +15,7 @@ use terrain_core::humanize::format_int;
 
 use crate::geo::{bbox_intersects, normalize_dataset_path, parse_tile_coverage_from_name};
 use crate::region::{
-    grid_cache_dir, load_region_config, resolve_data_source, resolve_region, tiles_dir,
+    assets_root, grid_cache_dir, load_region_config, resolve_data_source, resolve_region, tiles_dir,
     BoundingBox, DataSourceConfig,
 };
 
@@ -151,6 +151,8 @@ fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path) -> Resu
         .with_context(|| format!("Failed to create {}", out_dir.display()))?;
 
     println!("Found {} matching tiles", format_int(tiff_urls.len()));
+    let tile_dir_display = terrain_relative_path(out_dir);
+    let download_start = std::time::Instant::now();
 
     let mut downloaded = 0usize;
     let mut skipped = 0usize;
@@ -267,16 +269,28 @@ fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path) -> Resu
         }
     }
 
-    if interactive_progress && !tiff_urls.is_empty() {
-        println!();
-    }
-
-    println!(
-        "Done. Downloaded: {}, skipped: {}",
+    let summary = format!(
+        "downloaded tiles into {} — {}ms (downloaded: {}, skipped: {})",
+        tile_dir_display,
+        format_int(download_start.elapsed().as_millis()),
         format_int(downloaded),
         format_int(skipped)
     );
-    println!("Tiles: {}", out_dir.display());
+    if interactive_progress && !tiff_urls.is_empty() {
+        let mut stdout = io::stdout().lock();
+        let progress_line = format!(
+            "[{}/{}] completed (downloaded: {}, skipped: {})",
+            format_int(tiff_urls.len()),
+            format_int(tiff_urls.len()),
+            format_int(downloaded),
+            format_int(skipped)
+        );
+        let padding = " ".repeat(progress_line.len().saturating_sub(summary.len()));
+        write!(stdout, "\r{summary}{padding}\n").context("Failed to write download summary")?;
+        stdout.flush().context("Failed to flush download summary")?;
+    } else {
+        println!("{summary}");
+    }
 
     Ok(())
 }
@@ -405,7 +419,7 @@ fn list_cudem_tiff_urls(
         Some(cached) if cached.is_fresh => {
             println!(
                 "Using cached CUDEM URL list: {} (age {})",
-                cache_path.display(),
+                terrain_relative_path(&cache_path),
                 format_cache_age(cached.age)
             );
             Ok(parse_url_list_lines(&cached.text))
@@ -413,7 +427,7 @@ fn list_cudem_tiff_urls(
         Some(cached) => {
             println!(
                 "Refreshing stale CUDEM URL list cache: {} (age {})",
-                cache_path.display(),
+                terrain_relative_path(&cache_path),
                 format_cache_age(cached.age)
             );
             match fetch_cudem_tiff_urls(client, &dataset_url) {
@@ -422,14 +436,17 @@ fn list_cudem_tiff_urls(
                     if let Err(err) = write_url_list_cache(&cache_path, &text) {
                         eprintln!("Warning: {err}");
                     } else {
-                        println!("Updated CUDEM URL list cache: {}", cache_path.display());
+                        println!(
+                            "Updated CUDEM URL list cache: {}",
+                            terrain_relative_path(&cache_path)
+                        );
                     }
                     Ok(urls)
                 }
                 Err(err) => {
                     eprintln!(
                         "Warning: {err}. Falling back to stale CUDEM URL list cache at {}.",
-                        cache_path.display()
+                        terrain_relative_path(&cache_path)
                     );
                     Ok(parse_url_list_lines(&cached.text))
                 }
@@ -441,7 +458,7 @@ fn list_cudem_tiff_urls(
             if let Err(err) = write_url_list_cache(&cache_path, &text) {
                 eprintln!("Warning: {err}");
             } else {
-                println!("Cached CUDEM URL list: {}", cache_path.display());
+                println!("Cached CUDEM URL list: {}", terrain_relative_path(&cache_path));
             }
             Ok(urls)
         }
@@ -533,7 +550,7 @@ fn download_usace_s3(
         Some(cached) if cached.is_fresh => {
             println!(
                 "Using cached URL list: {} (age {})",
-                cache_path.display(),
+                terrain_relative_path(&cache_path),
                 format_cache_age(cached.age)
             );
             cached.text
@@ -541,7 +558,7 @@ fn download_usace_s3(
         Some(cached) => {
             println!(
                 "Refreshing stale URL list cache: {} (age {})",
-                cache_path.display(),
+                terrain_relative_path(&cache_path),
                 format_cache_age(cached.age)
             );
             match fetch_usace_url_list_text(client, &url_list_url) {
@@ -549,14 +566,14 @@ fn download_usace_s3(
                     if let Err(err) = write_url_list_cache(&cache_path, &text) {
                         eprintln!("Warning: {err}");
                     } else {
-                        println!("Updated URL list cache: {}", cache_path.display());
+                        println!("Updated URL list cache: {}", terrain_relative_path(&cache_path));
                     }
                     text
                 }
                 Err(err) => {
                     eprintln!(
                         "Warning: {err}. Falling back to stale URL list cache at {}.",
-                        cache_path.display()
+                        terrain_relative_path(&cache_path)
                     );
                     cached.text
                 }
@@ -567,7 +584,7 @@ fn download_usace_s3(
             if let Err(err) = write_url_list_cache(&cache_path, &text) {
                 eprintln!("Warning: {err}");
             } else {
-                println!("Cached URL list: {}", cache_path.display());
+                println!("Cached URL list: {}", terrain_relative_path(&cache_path));
             }
             text
         }
@@ -584,8 +601,7 @@ fn download_usace_s3(
     }
 
     println!(
-        "Found {} tiles for prefix \"{}\" (from {} total entries)",
-        format_int(tif_urls.len()),
+        "Filtered URL list by prefix \"{}\" ({} total entries)",
         state_prefix,
         format_int(all_urls.len())
     );
@@ -606,7 +622,7 @@ fn download_emodnet_wcs(
     let destination = out_dir.join(&filename);
     if destination.exists() {
         println!("Already downloaded: {filename}");
-        println!("Tiles: {}", out_dir.display());
+        println!("Tiles: {}", terrain_relative_path(out_dir));
         return Ok(());
     }
 
@@ -623,12 +639,26 @@ fn download_emodnet_wcs(
             &format!("Long({},{})", bbox.min_lon, bbox.max_lon),
         );
 
-    println!("Requesting WCS coverage: {coverage_id}");
+    let timer = std::time::Instant::now();
+    print!("doing request WCS coverage {coverage_id}...");
+    io::stdout()
+        .flush()
+        .context("Failed to flush WCS progress output")?;
     download_file(client, url.as_ref(), &destination)?;
 
+    println!(
+        "\rrequested WCS coverage {coverage_id} — {}ms",
+        format_int(timer.elapsed().as_millis())
+    );
     println!("Downloaded: {filename}");
-    println!("Tiles: {}", out_dir.display());
+    println!("Tiles: {}", terrain_relative_path(out_dir));
     Ok(())
+}
+
+fn terrain_relative_path(path: &Path) -> String {
+    path.strip_prefix(assets_root())
+        .map(|rel| rel.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
 }
 
 #[cfg(test)]
