@@ -16,3 +16,4 @@ pipeline/wavemesh-builder/profile-samply.json
 pipeline/wavemesh-builder/profile-samply.syms.json
 pipeline/wavemesh-builder/profile-samply.meta.json
 pipeline/wavemesh-builder/profile-samply.atos-cache.json
+pipeline/target/

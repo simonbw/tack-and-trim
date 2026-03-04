@@ -89,16 +89,15 @@ Downloads a single GeoTIFF via a WCS GetCoverage request from `https://ows.emodn
 
 ## File structure
 
-- `download.ts` - Step 1: fetches GeoTIFF tiles from NOAA
-- `build-grid.ts` - Step 2: merges tiles into an elevation grid with binary cache
-- `extract-contours.ts` - Step 3: marching squares → simplified contours → `.level.json`
-- `run-all.ts` - Convenience script that runs all three steps
-- `util/region.ts` - Region discovery and config loading
-- `util/grid-cache.ts` - Grid binary cache format (save/load) and tile metadata
-- `util/geo-utils.ts` - Geographic math (projections, bbox ops, unit conversion)
-- `util/simplify.ts` - Ramer-Douglas-Peucker line simplification for closed rings
-- `util/constrained-simplify.ts` - RDP variant that avoids crossing existing contours
-- `util/segment-index.ts` - Spatial grid for fast segment intersection queries
-- `worker/marching-squares.ts` - Marching squares types, ring tracer, and block index
-- `worker/worker-pool.ts` - Distributes marching squares work across worker threads
-- `worker/contour-worker.ts` - Worker thread: block index + marching squares algorithm
+- `pipeline/terrain-import/src/main.rs` - CLI entrypoint (`download`, `build-grid`, `extract`, `validate`, `import`)
+- `pipeline/terrain-import/src/region.rs` - Region discovery, config loading, path helpers
+- `pipeline/terrain-import/src/download.rs` - Step 1: fetches GeoTIFF tiles from CUDEM / USACE / EMODnet
+- `pipeline/terrain-import/src/build_grid.rs` - Step 2: merges tiles via `gdalwarp`
+- `pipeline/terrain-import/src/extract.rs` - Step 3: GDAL raster load → marching squares → simplification → `.level.json`
+- `pipeline/terrain-import/src/validate.rs` - Standalone/programmatic `.level.json` validation
+- `pipeline/terrain-import/src/marching.rs` - Block index + marching squares + ring tracing
+- `pipeline/terrain-import/src/simplify.rs` - RDP + ring geometry helpers
+- `pipeline/terrain-import/src/constrained_simplify.rs` - RDP variant constrained by segment intersection checks
+- `pipeline/terrain-import/src/segment_index.rs` - Spatial segment index for constrained simplification
+
+Legacy TypeScript files in this directory are retained as reference only.

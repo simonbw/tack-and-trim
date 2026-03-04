@@ -2,13 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BINARY="$SCRIPT_DIR/target/release/wavemesh-builder"
+BINARY="$SCRIPT_DIR/../target/release/wavemesh-builder"
 OUTPUT="$SCRIPT_DIR/profile-samply.json"
 META_OUTPUT="$SCRIPT_DIR/profile-samply.meta.json"
 
 # Build release (frame pointers + debug symbols enabled via .cargo/config.toml and Cargo.toml)
 echo "Building release binary..."
-cargo build --release --manifest-path "$SCRIPT_DIR/Cargo.toml"
+cargo build --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" -p wavemesh-builder
 
 # Remove stale output
 rm -f "$OUTPUT" "${OUTPUT}.gz" "$META_OUTPUT"
