@@ -7,10 +7,6 @@ pub fn meters_to_feet(meters: f64) -> f64 {
     meters * FEET_PER_METER
 }
 
-pub fn feet_to_meters(feet: f64) -> f64 {
-    feet / FEET_PER_METER
-}
-
 pub fn bbox_center(bbox: &BoundingBox) -> (f64, f64) {
     (
         (bbox.min_lat + bbox.max_lat) * 0.5,

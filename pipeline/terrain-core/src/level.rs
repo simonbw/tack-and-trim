@@ -282,16 +282,12 @@ struct ContourTreeNode {
 
 struct ContourTree {
     nodes: Vec<ContourTreeNode>,
-    children_flat: Vec<u32>,
 }
 
 fn build_contour_tree(sampled: &[Vec<[f64; 2]>], bboxes: &[BBox]) -> ContourTree {
     let n = sampled.len();
     if n == 0 {
-        return ContourTree {
-            nodes: vec![],
-            children_flat: vec![],
-        };
+        return ContourTree { nodes: vec![] };
     }
 
     // Working tree: virtual root's children list
@@ -329,18 +325,7 @@ fn build_contour_tree(sampled: &[Vec<[f64; 2]>], bboxes: &[BBox]) -> ContourTree
         }
     }
 
-    // Build flat children
-    let mut children_flat = Vec::new();
-    for node in &nodes {
-        for &child in &node.children {
-            children_flat.push(child as u32);
-        }
-    }
-
-    ContourTree {
-        nodes,
-        children_flat,
-    }
+    ContourTree { nodes }
 }
 
 fn insert_contour(
