@@ -1,8 +1,11 @@
 use std::fs::{self, File};
-use std::io::Write;
-use std::path::Path;
+use std::io::{self, IsTerminal, Write};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
+use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use reqwest::blocking::Client;
 use reqwest::Url;
 
@@ -15,6 +18,19 @@ use crate::region::{
 const CUDEM_BASE_URL: &str =
     "https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/";
 const EMODNET_WCS_BASE: &str = "https://ows.emodnet-bathymetry.eu/wcs";
+const DEFAULT_DOWNLOAD_CONCURRENCY: usize = 8;
+
+struct DownloadJob {
+    url: String,
+    destination: PathBuf,
+}
+
+struct DownloadProgress {
+    completed: usize,
+    downloaded: usize,
+    skipped: usize,
+    max_line_len: usize,
+}
 
 pub fn run_download(region_arg: Option<&str>) -> Result<()> {
     let slug = resolve_region(region_arg)?;
@@ -82,6 +98,30 @@ fn download_file(client: &Client, url: &str, destination: &Path) -> Result<()> {
     Ok(())
 }
 
+fn render_download_progress(
+    completed: usize,
+    total: usize,
+    downloaded: usize,
+    skipped: usize,
+    max_line_len: &mut usize,
+    interactive: bool,
+) -> Result<()> {
+    let line =
+        format!("[{completed}/{total}] completed (downloaded: {downloaded}, skipped: {skipped})");
+
+    if interactive {
+        let mut stdout = io::stdout().lock();
+        let padding = " ".repeat(max_line_len.saturating_sub(line.len()));
+        write!(stdout, "\r{line}{padding}").context("Failed to write progress output")?;
+        stdout.flush().context("Failed to flush progress output")?;
+        *max_line_len = (*max_line_len).max(line.len());
+    } else if completed == total || completed % 25 == 0 {
+        println!("{line}");
+    }
+
+    Ok(())
+}
+
 fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path) -> Result<()> {
     fs::create_dir_all(out_dir)
         .with_context(|| format!("Failed to create {}", out_dir.display()))?;
@@ -90,8 +130,12 @@ fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path) -> Resu
 
     let mut downloaded = 0usize;
     let mut skipped = 0usize;
+    let mut completed = 0usize;
+    let mut max_progress_line_len = 0usize;
+    let interactive_progress = io::stdout().is_terminal();
+    let mut jobs = Vec::new();
 
-    for (i, tiff_url) in tiff_urls.iter().enumerate() {
+    for tiff_url in tiff_urls {
         let filename = Url::parse(tiff_url)
             .ok()
             .and_then(|url| {
@@ -109,13 +153,98 @@ fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path) -> Resu
         let destination = out_dir.join(&filename);
         if destination.exists() {
             skipped += 1;
-            println!("[{}/{}] skip {}", i + 1, tiff_urls.len(), filename);
+            completed += 1;
+            render_download_progress(
+                completed,
+                tiff_urls.len(),
+                downloaded,
+                skipped,
+                &mut max_progress_line_len,
+                interactive_progress,
+            )?;
             continue;
         }
 
-        println!("[{}/{}] download {}", i + 1, tiff_urls.len(), filename);
-        download_file(client, tiff_url, &destination)?;
-        downloaded += 1;
+        jobs.push(DownloadJob {
+            url: tiff_url.clone(),
+            destination,
+        });
+    }
+
+    if !jobs.is_empty() {
+        let worker_count = DEFAULT_DOWNLOAD_CONCURRENCY.min(jobs.len());
+        let pool = ThreadPoolBuilder::new()
+            .num_threads(worker_count)
+            .build()
+            .context("Failed to create download worker pool")?;
+        let progress = Arc::new(Mutex::new(DownloadProgress {
+            completed,
+            downloaded,
+            skipped,
+            max_line_len: max_progress_line_len,
+        }));
+        let first_error = Arc::new(Mutex::new(None::<anyhow::Error>));
+
+        pool.install(|| {
+            jobs.par_iter().for_each(|job| {
+                let result = download_file(client, &job.url, &job.destination)
+                    .with_context(|| format!("Failed to download {}", job.url));
+
+                let mut candidate_error: Option<anyhow::Error> = None;
+                {
+                    let mut progress_state = progress
+                        .lock()
+                        .expect("download progress mutex should not be poisoned");
+                    progress_state.completed += 1;
+                    match result {
+                        Ok(()) => progress_state.downloaded += 1,
+                        Err(err) => candidate_error = Some(err),
+                    }
+
+                    if let Err(err) = render_download_progress(
+                        progress_state.completed,
+                        tiff_urls.len(),
+                        progress_state.downloaded,
+                        progress_state.skipped,
+                        &mut progress_state.max_line_len,
+                        interactive_progress,
+                    ) {
+                        candidate_error.get_or_insert(err);
+                    }
+                }
+
+                if let Some(err) = candidate_error {
+                    let mut first_error_state = first_error
+                        .lock()
+                        .expect("download error mutex should not be poisoned");
+                    if first_error_state.is_none() {
+                        *first_error_state = Some(err);
+                    }
+                }
+            });
+        });
+
+        {
+            let progress_state = progress
+                .lock()
+                .expect("download progress mutex should not be poisoned");
+            downloaded = progress_state.downloaded;
+        }
+
+        let first_error = first_error
+            .lock()
+            .expect("download error mutex should not be poisoned")
+            .take();
+        if let Some(err) = first_error {
+            if interactive_progress {
+                println!();
+            }
+            return Err(err);
+        }
+    }
+
+    if interactive_progress && !tiff_urls.is_empty() {
+        println!();
     }
 
     println!("Done. Downloaded: {downloaded}, skipped: {skipped}");

@@ -1242,6 +1242,7 @@ dependencies = [
  "anyhow",
  "clap",
  "gdal",
+ "rayon",
  "regex",
  "reqwest",
  "serde",
