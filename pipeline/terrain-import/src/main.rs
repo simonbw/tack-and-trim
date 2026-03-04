@@ -17,7 +17,9 @@ use clap::{Parser, Subcommand};
 use build_grid::run_build_grid;
 use download::run_download;
 use extract::run_extract;
-use region::{load_region_config, resolve_level_path, resolve_region, resolve_repo_path};
+use region::{
+    list_regions, load_region_config, resolve_level_path, resolve_repo_path,
+};
 use validate::{validate_level_file, ValidationErrorType};
 
 #[derive(Parser)]
@@ -110,25 +112,44 @@ fn run_validate(args: ValidateArgs) -> Result<()> {
 }
 
 fn run_import(region_arg: Option<&str>) -> Result<()> {
-    let slug = resolve_region(region_arg)?;
+    if let Some(slug) = region_arg {
+        run_import_for_region(slug)?;
+        println!("\nDone.");
+        return Ok(());
+    }
+
+    let regions = list_regions()?;
+    if regions.is_empty() {
+        bail!("No regions found. Create assets/terrain/<name>/region.json first.");
+    }
+
+    println!("Importing {} regions", regions.len());
+    for (idx, slug) in regions.iter().enumerate() {
+        println!("\n=== region {}/{}: {} ===", idx + 1, regions.len(), slug);
+        run_import_for_region(slug)?;
+    }
+
+    println!("\nDone.");
+    Ok(())
+}
+
+fn run_import_for_region(slug: &str) -> Result<()> {
     let config = load_region_config(&slug)?;
     let level_path = resolve_repo_path(&config.output);
 
     println!("\n=== download ===\n");
-    run_download(Some(&slug))?;
+    run_download(Some(slug))?;
 
     println!("\n=== build-grid ===\n");
-    run_build_grid(Some(&slug), false)?;
+    run_build_grid(Some(slug), false)?;
 
     println!("\n=== extract-contours ===\n");
-    run_extract(Some(&slug))?;
+    run_extract(Some(slug))?;
 
     println!("\n=== build-wavemesh ===\n");
     wavemesh_builder::build_wavemesh_for_level(
         level_path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid level path"))?,
         None,
     )?;
-
-    println!("\nDone.");
     Ok(())
 }
