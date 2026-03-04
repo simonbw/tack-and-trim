@@ -25,7 +25,25 @@ fn segments_intersect(
 
     let denom = d1x * d2y - d1y * d2x;
     if denom.abs() < 1e-12 {
-        return false;
+        // Segments are parallel — check if they are collinear and overlapping.
+        // Project p3 onto the line through p1→p2: if the perpendicular distance
+        // is near zero, they are collinear.
+        let len_sq = d1x * d1x + d1y * d1y;
+        if len_sq < 1e-24 {
+            return false; // degenerate (zero-length) segment
+        }
+        // Perpendicular distance of p3 from line p1→p2
+        let cross = (p3x - p1x) * d1y - (p3y - p1y) * d1x;
+        if (cross * cross / len_sq) > 1e-6 {
+            return false; // parallel but not collinear
+        }
+        // Collinear: project both segment endpoints onto the p1→p2 axis
+        let t3 = ((p3x - p1x) * d1x + (p3y - p1y) * d1y) / len_sq;
+        let t4 = ((p4x - p1x) * d1x + (p4y - p1y) * d1y) / len_sq;
+        let (t_min, t_max) = if t3 < t4 { (t3, t4) } else { (t4, t3) };
+        let eps = 1e-9;
+        // Overlap exists if the projected range [t_min, t_max] intersects (eps, 1-eps)
+        return t_max > eps && t_min < 1.0 - eps;
     }
 
     let t = ((p3x - p1x) * d2y - (p3y - p1y) * d2x) / denom;
@@ -181,5 +199,35 @@ mod tests {
 
         assert!(index.segment_intersects_any(10.0, 90.0, 90.0, 10.0, 1));
         assert!(!index.segment_intersects_any(0.0, 0.0, 5.0, 5.0, 1));
+    }
+
+    #[test]
+    fn detects_collinear_overlapping_segments() {
+        // Horizontal overlap
+        assert!(segments_intersect(0.0, 0.0, 10.0, 0.0, 5.0, 0.0, 15.0, 0.0));
+        // One fully inside the other
+        assert!(segments_intersect(0.0, 0.0, 10.0, 0.0, 2.0, 0.0, 8.0, 0.0));
+        // Vertical overlap
+        assert!(segments_intersect(5.0, 0.0, 5.0, 10.0, 5.0, 5.0, 5.0, 15.0));
+        // Diagonal overlap
+        assert!(segments_intersect(0.0, 0.0, 10.0, 10.0, 5.0, 5.0, 15.0, 15.0));
+    }
+
+    #[test]
+    fn rejects_collinear_non_overlapping_segments() {
+        // Same line but disjoint
+        assert!(!segments_intersect(0.0, 0.0, 3.0, 0.0, 7.0, 0.0, 10.0, 0.0));
+    }
+
+    #[test]
+    fn rejects_parallel_non_collinear_segments() {
+        // Parallel but offset
+        assert!(!segments_intersect(0.0, 0.0, 10.0, 0.0, 0.0, 1.0, 10.0, 1.0));
+    }
+
+    #[test]
+    fn rejects_collinear_touching_only_at_endpoint() {
+        // Touching at exactly one endpoint (t=1 for first, t=0 for second)
+        assert!(!segments_intersect(0.0, 0.0, 5.0, 0.0, 5.0, 0.0, 10.0, 0.0));
     }
 }

@@ -15,13 +15,18 @@ pub fn bbox_center(bbox: &BoundingBox) -> (f64, f64) {
 }
 
 pub fn lat_lon_to_feet(lat: f64, lon: f64, center_lat: f64, center_lon: f64) -> (f64, f64) {
-    let lat_rad = lat.to_radians();
     let center_lat_rad = center_lat.to_radians();
     let d_lat_rad = (lat - center_lat).to_radians();
     let d_lon_rad = (lon - center_lon).to_radians();
 
     let y_meters = d_lat_rad * EARTH_RADIUS_METERS;
-    let x_meters = d_lon_rad * EARTH_RADIUS_METERS * ((lat_rad + center_lat_rad) * 0.5).cos();
+    // Use a fixed cos(center_lat) for x-scaling instead of cos(avg(lat, center_lat)).
+    // This makes the projection affine (linear), which preserves the topological
+    // guarantee from marching squares that contours at different levels never cross.
+    // The per-point cos(lat) variant introduces a y-dependent x-distortion that can
+    // cause near-parallel contour segments at steep terrain to converge and intersect.
+    // The accuracy difference is negligible over typical region extents (~0.2° lat).
+    let x_meters = d_lon_rad * EARTH_RADIUS_METERS * center_lat_rad.cos();
 
     (meters_to_feet(x_meters), meters_to_feet(y_meters))
 }

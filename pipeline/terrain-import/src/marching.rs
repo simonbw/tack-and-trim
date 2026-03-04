@@ -210,14 +210,10 @@ fn march_cell(
             let bottom = interp_bottom();
             let left = interp_left();
 
-            let denom = v_tl - v_tr + v_br - v_bl;
-            let cv = if denom.abs() < 1e-12 {
-                (v_tl + v_tr + v_br + v_bl) * 0.25
-            } else {
-                (v_tl * v_br - v_tr * v_bl) / denom
-            };
-
-            if cv >= level {
+            // Use level-independent disambiguation based on diagonal dominance.
+            // This ensures all contour levels get the same connectivity in a
+            // saddle cell, preventing cross-level contour intersections.
+            if v_tl + v_br >= v_tr + v_bl {
                 push(top, left);
                 push(right, bottom);
             } else {
@@ -237,14 +233,7 @@ fn march_cell(
             let bottom = interp_bottom();
             let left = interp_left();
 
-            let denom = v_tl - v_tr + v_br - v_bl;
-            let cv = if denom.abs() < 1e-12 {
-                (v_tl + v_tr + v_br + v_bl) * 0.25
-            } else {
-                (v_tl * v_br - v_tr * v_bl) / denom
-            };
-
-            if cv >= level {
+            if v_tl + v_br >= v_tr + v_bl {
                 push(top, right);
                 push(left, bottom);
             } else {
