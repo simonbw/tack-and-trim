@@ -6,11 +6,11 @@ GPU-accelerated world state queries for terrain, water, and wind. Entities sampl
 
 Each subsystem (terrain, water, wind) follows a three-layer pattern:
 
-| Layer | Role | Example |
-|-------|------|---------|
-| **Resources** entity | Owns GPU buffers, uploads data | `WaterResources` |
-| **QueryManager** entity | Runs GPU compute pipeline, delivers results | `WaterQueryManager` |
-| **Query** entity | Declares sample points, exposes typed results | `WaterQuery` |
+| Layer                   | Role                                          | Example             |
+| ----------------------- | --------------------------------------------- | ------------------- |
+| **Resources** entity    | Owns GPU buffers, uploads data                | `WaterResources`    |
+| **QueryManager** entity | Runs GPU compute pipeline, delivers results   | `WaterQueryManager` |
+| **Query** entity        | Declares sample points, exposes typed results | `WaterQuery`        |
 
 Game entities create a Query, add it to the game, and read results each frame. Everything else is automatic -- query discovery, GPU dispatch, and result delivery happen without manual registration.
 
@@ -42,7 +42,7 @@ Results have **one frame of latency**. Points collected in frame N produce resul
 ```typescript
 // Create a query with a point-supplier callback
 const waterQuery = this.game.addEntity(
-  new WaterQuery(() => [this.body.position])
+  new WaterQuery(() => [this.body.position]),
 );
 
 // Read results (available after one frame)
@@ -116,6 +116,7 @@ Follow the existing pattern (water is the most complete example):
 Shared WGSL code lives in `shaders/` as TypeScript objects with dependency tracking. See `shaders/README.md` for full documentation.
 
 Key points:
+
 - One export per module, prefixed: `fn_` (functions), `struct_` (structs), `const_` (constants)
 - Dependencies are explicit arrays -- `ComputeShader` resolves, deduplicates, and concatenates
 - TypeScript constants are interpolated into WGSL via template literals (`${MAX_WAVES}`) so CPU and GPU share values
@@ -131,6 +132,7 @@ All terrain GPU data is packed into a single `array<u32>` buffer (`packedTerrain
 ### Water
 
 The most complex subsystem. The compute shader combines:
+
 - **Gerstner waves** (two-pass: horizontal displacement, then height at displaced position)
 - **Wavefront mesh terrain interaction** (per-wave energy, direction bending, and phase corrections via packed mesh buffer)
 - **Water modifiers** (wakes, ripples, currents, obstacles) collected from tagged entities each tick

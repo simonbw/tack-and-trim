@@ -51,7 +51,9 @@ export class WaterQueryManager extends QueryManager {
     });
 
     // Create placeholder packed mesh buffer (empty - no wave sources)
-    this.placeholderPackedMeshBuffer = createPlaceholderPackedMeshBuffer(this.game.getWebGPUDevice());
+    this.placeholderPackedMeshBuffer = createPlaceholderPackedMeshBuffer(
+      this.game.getWebGPUDevice(),
+    );
   }
 
   getQueries(): BaseQuery<unknown>[] {

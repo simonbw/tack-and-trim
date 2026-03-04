@@ -36,7 +36,7 @@ Imports real-world bathymetric/topographic data from NOAA's CUDEM dataset into `
 
 | File                  | Description                                                                                   |
 | --------------------- | --------------------------------------------------------------------------------------------- |
-| `run-all.ts`          | Orchestrates the full pipeline (download → grid → contours → wavemesh build)                |
+| `run-all.ts`          | Orchestrates the full pipeline (download → grid → contours → wavemesh build)                  |
 | `download.ts`         | **Step 1** — Scrapes NOAA directory listing, downloads GeoTIFF tiles matching the region bbox |
 | `build-grid.ts`       | **Step 2** — Merges tiles into a single raster via `gdalwarp`                                 |
 | `extract-contours.ts` | **Step 3** — Marching squares → ring tracing → constrained simplification → `.level.json`     |
@@ -62,22 +62,22 @@ Each region has an `assets/terrain/<slug>/region.json`:
 
 ### util/ Support Modules
 
-| Module                    | Purpose                                                                               |
-| ------------------------- | ------------------------------------------------------------------------------------- |
-| `util/region.ts`          | Loads `region.json`, resolves `--region` CLI flag, path helpers                       |
-| `util/geo-utils.ts`       | Lat/lon ↔ feet projection, bbox math, CUDEM tile filename parsing                    |
-| `util/grid-cache.ts`      | Lists local tiles by bbox, reads GeoTIFF metadata                                     |
-| `util/simplify.ts`        | Ramer-Douglas-Peucker for polylines and closed rings, `signedArea`, `ringPerimeter`   |
-| `util/segment-index.ts`   | Spatial grid for fast segment intersection queries                                    |
-| `util/constrained-simplify.ts` | RDP that refuses to collapse spans crossing already-finalized contours           |
+| Module                         | Purpose                                                                             |
+| ------------------------------ | ----------------------------------------------------------------------------------- |
+| `util/region.ts`               | Loads `region.json`, resolves `--region` CLI flag, path helpers                     |
+| `util/geo-utils.ts`            | Lat/lon ↔ feet projection, bbox math, CUDEM tile filename parsing                  |
+| `util/grid-cache.ts`           | Lists local tiles by bbox, reads GeoTIFF metadata                                   |
+| `util/simplify.ts`             | Ramer-Douglas-Peucker for polylines and closed rings, `signedArea`, `ringPerimeter` |
+| `util/segment-index.ts`        | Spatial grid for fast segment intersection queries                                  |
+| `util/constrained-simplify.ts` | RDP that refuses to collapse spans crossing already-finalized contours              |
 
 ### worker/ — Marching Squares Worker System
 
-| Module                      | Purpose                                                                                                        |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `worker/marching-squares.ts`  | `ScalarGrid`, `MarchSegments` types, `buildClosedRings()` ring tracer, `BlockIndex` for fast level-skip      |
-| `worker/worker-pool.ts`       | `ContourWorkerPool` — distributes marching squares across worker threads using `SharedArrayBuffer`           |
-| `worker/contour-worker.ts`    | Worker thread: computes block index, runs `marchCell()` with full 16-case lookup table + saddle disambiguation |
+| Module                       | Purpose                                                                                                        |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `worker/marching-squares.ts` | `ScalarGrid`, `MarchSegments` types, `buildClosedRings()` ring tracer, `BlockIndex` for fast level-skip        |
+| `worker/worker-pool.ts`      | `ContourWorkerPool` — distributes marching squares across worker threads using `SharedArrayBuffer`             |
+| `worker/contour-worker.ts`   | Worker thread: computes block index, runs `marchCell()` with full 16-case lookup table + saddle disambiguation |
 
 ### The `.level.json` Format
 

@@ -59,7 +59,11 @@ export class WetnessRenderPipeline {
   // Track the last snapped viewport for returning to caller
   private lastSnappedViewport: Viewport | null = null;
 
-  constructor(private device: GPUDevice, textureWidth: number, textureHeight: number) {
+  constructor(
+    private device: GPUDevice,
+    textureWidth: number,
+    textureHeight: number,
+  ) {
     this.textureWidth = textureWidth;
     this.textureHeight = textureHeight;
   }

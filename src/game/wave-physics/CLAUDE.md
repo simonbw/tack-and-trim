@@ -82,6 +82,7 @@ Accessor functions in `world/shaders/mesh-packed.wgsl.ts`: `lookupMeshForWave` w
 ## Wave Field Texture
 
 The rasterizer outputs to an rgba16float 2D texture array:
+
 - **R**: Phase correction cos component
 - **G**: Phase correction sin component
 - **B**: Wave coverage (0 = no mesh data at this pixel)

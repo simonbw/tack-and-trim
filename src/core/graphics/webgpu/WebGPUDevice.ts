@@ -16,7 +16,7 @@ function formatWGSLCompilationMessages(
     .map((message) => {
       const lineNum = message.lineNum ?? 0;
       const linePos = message.linePos ?? 0;
-      const sourceLine = lineNum > 0 ? lines[lineNum - 1] ?? "" : "";
+      const sourceLine = lineNum > 0 ? (lines[lineNum - 1] ?? "") : "";
       const location =
         lineNum > 0 ? `:${lineNum}:${Math.max(0, linePos) + 1}` : "";
       const snippet = sourceLine ? `\n  ${sourceLine}` : "";
@@ -34,7 +34,9 @@ export async function validateShaderModuleCompilation(
   if (info.messages.length === 0) return;
 
   const prefix = label ? `[${label}]` : "[Shader]";
-  const warnings = info.messages.filter((message) => message.type === "warning");
+  const warnings = info.messages.filter(
+    (message) => message.type === "warning",
+  );
   if (warnings.length > 0) {
     console.warn(
       `${prefix} WGSL compilation warnings:\n${formatWGSLCompilationMessages(code, warnings)}`,

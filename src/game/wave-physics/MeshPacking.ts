@@ -540,7 +540,9 @@ function logBufferStats(
 /**
  * Create a placeholder packed mesh buffer with numWaveSources = 0.
  */
-export function createPlaceholderPackedMeshBuffer(device: GPUDevice): GPUBuffer {
+export function createPlaceholderPackedMeshBuffer(
+  device: GPUDevice,
+): GPUBuffer {
   const buffer = device.createBuffer({
     size: 64,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,

@@ -141,7 +141,8 @@ export class Boat extends BaseEntity {
 
     // Create wake effects — bow wave (dominant) and stern wave (weaker)
     // Use waterline vertices for wake spawn points (where hull meets water)
-    const waterlineVerts = config.hull.waterlineVertices ?? config.hull.vertices;
+    const waterlineVerts =
+      config.hull.waterlineVertices ?? config.hull.vertices;
     const bowPoint = findBowPoint(waterlineVerts);
     const sternPoints = findSternPoints(waterlineVerts);
     const sternCenter = sternPoints.port.add(sternPoints.starboard).imul(0.5);

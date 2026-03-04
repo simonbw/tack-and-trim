@@ -53,14 +53,17 @@ Loads the cached grid, runs marching squares to extract iso-contour rings, simpl
 Each region specifies where to download elevation tiles via a `dataSource` field in `region.json`. Two source types are supported:
 
 **NOAA CUDEM** (U.S. ocean coastlines, ~3m resolution):
+
 ```json
 {
   "dataSource": { "type": "cudem", "datasetPath": "wash_bellingham/" }
 }
 ```
+
 The `datasetPath` must match a directory under `https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/`. Tiles are filtered by bbox using the CUDEM filename convention. For backward compatibility, a top-level `datasetPath` field (without `dataSource`) is also accepted.
 
 **USACE S3** (e.g. Lake Superior DEM, ~1m resolution):
+
 ```json
 {
   "dataSource": {
@@ -71,14 +74,17 @@ The `datasetPath` must match a directory under `https://coast.noaa.gov/htdata/ra
   }
 }
 ```
+
 Downloads all tiles matching the state prefix from the S3 bucket's URL list file. Spatial clipping is handled by `gdalwarp` in the build-grid step.
 
 **EMODnet WCS** (European seas bathymetry, ~115m resolution):
+
 ```json
 {
   "dataSource": { "type": "emodnet-wcs", "coverageId": "emodnet__mean" }
 }
 ```
+
 Downloads a single GeoTIFF via a WCS GetCoverage request from `https://ows.emodnet-bathymetry.eu/wcs`, cropped to the region bbox. Covers all European sea areas. The `coverageId` is typically `emodnet__mean` for the latest composite bathymetry.
 
 ## File structure
