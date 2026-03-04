@@ -13,13 +13,23 @@ import sys
 import os
 import subprocess
 from bisect import bisect_right
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
+
+try:
+    import orjson
+
+    def _json_load(f):
+        return orjson.loads(f.read())
+except ImportError:
+    def _json_load(f):
+        return json.load(f)
 
 SCRIPT_DIR = Path(__file__).parent
 DEFAULT_PROFILE = SCRIPT_DIR / "profile-samply.json"
 DEFAULT_SYMS = SCRIPT_DIR / "profile-samply.syms.json"
 MACHO_TEXT_BASE = 0x100000000
+ATOS_CACHE_FILE = SCRIPT_DIR / "profile-samply.atos-cache.json"
 
 
 WRAPPER_SUBSTRINGS = [
@@ -28,17 +38,28 @@ WRAPPER_SUBSTRINGS = [
     "rayon_core::join::join_context::{{closure}}",
     "rayon_core::join::join_context::",
     "rayon::iter::plumbing::bridge_producer_consumer::helper",
+    "rayon::iter::plumbing::bridge_producer_consumer",
+    "rayon::iter::plumbing::bridge",
+    "rayon_core::registry::in_worker",
+    "rayon_core::registry::WorkerThread::wait_until",
+    "rayon_core::registry::Registry::in_worker_cold",
+    "rayon_core::job::JobRef::execute",
+    "std::thread::Builder::spawn_unchecked",
     "core::ops::function::impls::<impl core::ops::function::FnMut",
     "core::ops::function::impls::<impl core::ops::function::FnOnce",
+    "core::ops::function::impls::_<impl core::ops::function::FnOnce",
+    "core::ops::function::impls::_<impl core::ops::function::FnMut",
     "core::ops::function::FnOnce::call_once",
+    "_<alloc::boxed::Box<F$C$A> as core::ops::function::FnOnce<Args>>::call_once",
     "std::sys::backtrace::__rust_begin_short_backtrace",
+    "_pthread_start",
 ]
 
 
 def load_symbol_table(syms_path):
     """Load the sidecar symbol table and build RVA->name lookup per library."""
-    with open(syms_path) as f:
-        syms_data = json.load(f)
+    with open(syms_path, "rb") as f:
+        syms_data = _json_load(f)
 
     string_table = syms_data["string_table"]
     # Build per-debugName lookup: sorted list of (rva, name)
@@ -235,6 +256,34 @@ def resolve_inline_names_with_atos(binary_path, rvas):
     return resolved
 
 
+def load_atos_cache(binary_path):
+    """Load persisted atos results; returns (cache_dict, binary_mtime)."""
+    if not binary_path or not os.path.exists(binary_path):
+        return {}, None
+    binary_mtime = os.path.getmtime(binary_path)
+    if ATOS_CACHE_FILE.exists():
+        try:
+            with open(ATOS_CACHE_FILE) as f:
+                data = json.load(f)
+            if data.get("binary_mtime") == binary_mtime and data.get("binary_path") == binary_path:
+                # Keys are stored as strings in JSON; convert back to int.
+                return {int(k): v for k, v in data["entries"].items()}, binary_mtime
+        except Exception:
+            pass
+    return {}, binary_mtime
+
+
+def save_atos_cache(binary_path, binary_mtime, cache):
+    """Persist atos results to disk for future runs."""
+    if not binary_path or binary_mtime is None:
+        return
+    try:
+        with open(ATOS_CACHE_FILE, "w") as f:
+            json.dump({"binary_path": binary_path, "binary_mtime": binary_mtime, "entries": cache}, f)
+    except Exception:
+        pass
+
+
 CATEGORY_ORDER = [
     "terrain-idw",
     "terrain-containment",
@@ -257,9 +306,28 @@ CATEGORY_ORDER = [
 ]
 
 
+def is_worker_thread_name(name):
+    """Heuristic: Rayon worker threads sampled by samply."""
+    return bool(name) and name.startswith("Thread <")
+
+
+def percentile(values, p):
+    """Linear-interpolated percentile for a list of floats."""
+    if not values:
+        return 0.0
+    xs = sorted(values)
+    if len(xs) == 1:
+        return xs[0]
+    rank = (len(xs) - 1) * (p / 100.0)
+    lo = int(rank)
+    hi = min(lo + 1, len(xs) - 1)
+    frac = rank - lo
+    return xs[lo] * (1.0 - frac) + xs[hi] * frac
+
+
 def analyze_profile(profile_path, syms_path):
-    with open(profile_path) as f:
-        profile = json.load(f)
+    with open(profile_path, "rb") as f:
+        profile = _json_load(f)
 
     lib_symbols = load_symbol_table(syms_path)
 
@@ -285,8 +353,19 @@ def analyze_profile(profile_path, syms_path):
     func_effective_counts = Counter()
     # Per-thread stats
     thread_stats = []
-    # Cache RVA -> atos inlined name across threads
-    inline_name_cache = {}
+    # Cache RVA -> atos inlined name across threads (loaded from disk if available)
+    inline_name_cache, _atos_binary_mtime = load_atos_cache(wavemesh_binary)
+    _atos_cache_size_before = len(inline_name_cache)
+    # Immediate non-wrapper caller attribution: leaf -> caller -> samples
+    leaf_caller_counts = defaultdict(Counter)
+    # First project frame (wavemesh_builder::...) on stack: global and per leaf.
+    project_owner_counts = Counter()
+    project_owner_by_leaf = defaultdict(Counter)
+
+    # Worker-thread time-binned data for idle-overlap analysis
+    worker_seen_by_bin = defaultdict(set)    # bin -> set(tid) with any sample
+    worker_active_by_bin = defaultdict(set)  # bin -> set(tid) with non-idle sample
+    worker_records_by_bin = defaultdict(list)  # bin -> list[(eff_name, cat, weight)]
 
     for thread in threads:
         samples = thread["samples"]
@@ -320,9 +399,12 @@ def analyze_profile(profile_path, syms_path):
             resolve_inline_names_with_atos(wavemesh_binary, missing_inline_rvas)
         )
 
-        # Pre-resolve all function names.
+        # Pre-resolve all function names and pre-compute per-func flags.
+        n_funcs = func_table["length"]
         resolved_names = {}
-        for fi in range(func_table["length"]):
+        func_is_wrapper = [False] * n_funcs
+        func_is_project = [False] * n_funcs
+        for fi in range(n_funcs):
             raw_name = string_array[func_table["name"][fi]]
             resource_idx = func_table["resource"][fi]
             lib_name = resource_lib_names.get(resource_idx, "")
@@ -341,39 +423,75 @@ def analyze_profile(profile_path, syms_path):
                 or is_wrapper_frame(resolved)
                 or raw_name.startswith("0x")
             ):
-                resolved_names[fi] = inline_name
+                name = inline_name
             elif resolved:
-                resolved_names[fi] = resolved
+                name = resolved
             else:
-                resolved_names[fi] = raw_name
+                name = raw_name
+            resolved_names[fi] = name
+            func_is_wrapper[fi] = is_wrapper_frame(name)
+            func_is_project[fi] = name.startswith("wavemesh_builder::")
+
+        # Pre-extract hot arrays to avoid repeated dict indexing in the sample loop.
+        st_frame = stack_table["frame"]
+        st_prefix = stack_table["prefix"]
+        ft_func = frame_table["func"]
+        s_stack = samples["stack"]
+        s_weight = samples["weight"] if samples.get("weight") else None
 
         # Walk each sample
         t_idle = 0
         t_work = 0
+        thread_name = thread["name"]
+        thread_tid = thread["tid"]
+        worker_thread = is_worker_thread_name(thread_name)
+        time_deltas = samples.get("timeDeltas")
+        time_ms = 0.0
 
         for si in range(n_samples):
-            stack_idx = samples["stack"][si]
-            weight = samples["weight"][si] if samples.get("weight") else 1
+            dt_ms = time_deltas[si] if time_deltas else interval_ms
+            time_ms += dt_ms
+            bin_idx = int(time_ms // interval_ms) if interval_ms > 0 else int(time_ms)
+            if worker_thread:
+                worker_seen_by_bin[bin_idx].add(thread_tid)
+
+            stack_idx = s_stack[si]
+            weight = s_weight[si] if s_weight is not None else 1
 
             # Get the leaf (top-of-stack) frame
             if stack_idx is None:
                 continue
 
-            leaf_frame = stack_table["frame"][stack_idx]
-            leaf_func = frame_table["func"][leaf_frame]
+            leaf_frame = st_frame[stack_idx]
+            leaf_func = ft_func[leaf_frame]
             leaf_name = resolved_names.get(leaf_func, "???")
 
-            # Walk up the stack (leaf -> root) and find first non-wrapper frame.
+            # Single combined stack walk: find effective_name, caller_name, project_owner.
             effective_name = leaf_name
+            caller_name = None
+            project_owner = None
+            found_effective = False
+            found_caller = False
+            found_owner = False
+            is_leaf_frame = True
             cur = stack_idx
             while cur is not None:
-                frame_idx = stack_table["frame"][cur]
-                func_idx = frame_table["func"][frame_idx]
+                func_idx = ft_func[st_frame[cur]]
                 name = resolved_names.get(func_idx, "???")
-                if not is_wrapper_frame(name):
+                is_wrap = func_is_wrapper[func_idx]
+                if not found_effective and not is_wrap:
                     effective_name = name
+                    found_effective = True
+                if not is_leaf_frame and not found_caller and not is_wrap:
+                    caller_name = name
+                    found_caller = True
+                if not found_owner and func_is_project[func_idx]:
+                    project_owner = name
+                    found_owner = True
+                if found_effective and found_caller and found_owner:
                     break
-                cur = stack_table["prefix"][cur]
+                is_leaf_frame = False
+                cur = st_prefix[cur]
 
             cat = categorize(effective_name)
 
@@ -386,16 +504,28 @@ def analyze_profile(profile_path, syms_path):
                 func_self_counts[leaf_name] += weight
                 func_effective_counts[effective_name] += weight
                 cat_counts[cat] += weight
+                if caller_name:
+                    leaf_caller_counts[leaf_name][caller_name] += weight
+                if project_owner:
+                    project_owner_counts[project_owner] += weight
+                    project_owner_by_leaf[leaf_name][project_owner] += weight
+                if worker_thread:
+                    worker_active_by_bin[bin_idx].add(thread_tid)
+                    worker_records_by_bin[bin_idx].append((effective_name, cat, weight))
 
             total_samples += weight
 
         thread_stats.append({
-            "name": thread["name"],
-            "tid": thread["tid"],
+            "name": thread_name,
+            "tid": thread_tid,
             "samples": n_samples,
             "idle": t_idle,
             "work": t_work,
         })
+
+    # Persist atos cache if we resolved new symbols.
+    if len(inline_name_cache) > _atos_cache_size_before:
+        save_atos_cache(wavemesh_binary, _atos_binary_mtime, inline_name_cache)
 
     # Print results
     duration_s = total_samples * interval_ms / 1000.0
@@ -430,6 +560,77 @@ def analyze_profile(profile_path, syms_path):
     print(f"\n  Effective cores: {effective_cores:.1f}")
     print()
 
+    # Worker-only time-binned utilization and idle-overlap attribution.
+    worker_threads = [
+        t for t in active_threads
+        if is_worker_thread_name(t["name"])
+    ]
+    n_workers = len(worker_threads)
+    idle_overlap_func = Counter()
+    idle_overlap_cat = Counter()
+    util_ratios = []
+    active_worker_counts = []
+    total_idle_core_samples = 0.0
+
+    if n_workers > 0:
+        for bin_idx, seen in worker_seen_by_bin.items():
+            total_present = len(seen)
+            if total_present == 0:
+                continue
+            active_present = len(worker_active_by_bin.get(bin_idx, set()))
+            idle_present = max(total_present - active_present, 0)
+
+            util_ratios.append(active_present / total_present)
+            active_worker_counts.append(active_present)
+            total_idle_core_samples += idle_present
+
+            if active_present == 0 or idle_present == 0:
+                continue
+
+            # Distribute each bin's idle cores across threads that were working.
+            share = idle_present / active_present
+            for eff_name, cat, weight in worker_records_by_bin.get(bin_idx, []):
+                contrib = weight * share
+                idle_overlap_func[eff_name] += contrib
+                idle_overlap_cat[cat] += contrib
+
+    print("-" * 72)
+    print("WORKER TIMELINE (time-binned utilization)")
+    print("-" * 72)
+    if n_workers == 0 or not util_ratios:
+        print("  No worker-thread timeline data available.")
+    else:
+        avg_active = sum(active_worker_counts) / len(active_worker_counts)
+        p50_active = percentile(active_worker_counts, 50)
+        p10_active = percentile(active_worker_counts, 10)
+        low_util_bins = sum(1 for u in util_ratios if u < 0.5)
+        low_util_pct = 100.0 * low_util_bins / len(util_ratios)
+        print(f"  Worker threads detected: {n_workers}")
+        print(f"  Avg active workers: {avg_active:.2f} / {n_workers}")
+        print(f"  P50 active workers: {p50_active:.1f}, P10 active workers: {p10_active:.1f}")
+        print(f"  Time bins below 50% worker utilization: {low_util_pct:.1f}%")
+    print()
+
+    print("-" * 72)
+    print("IDLE-OVERLAP ATTRIBUTION (worker cores only)")
+    print("-" * 72)
+    if total_idle_core_samples <= 0:
+        print("  No worker idle-overlap samples available.")
+    else:
+        idle_core_seconds = total_idle_core_samples * interval_ms / 1000.0
+        print(f"  Total idle worker core-time: {idle_core_seconds:.1f}s")
+        print("  Top categories during idle overlap:")
+        for cat, count in idle_overlap_cat.most_common(8):
+            pct = 100.0 * count / total_idle_core_samples
+            secs = count * interval_ms / 1000.0
+            print(f"    {cat:23s} {pct:5.1f}%  ({secs:5.1f}s)")
+        print("  Top functions during idle overlap:")
+        for name, count in idle_overlap_func.most_common(12):
+            pct = 100.0 * count / total_idle_core_samples
+            secs = count * interval_ms / 1000.0
+            print(f"    {pct:5.1f}%  {secs:5.1f}s  {name}")
+    print()
+
     # Category breakdown
     print("-" * 72)
     print("TIME BREAKDOWN (by category, de-wrapped self time)")
@@ -462,6 +663,49 @@ def analyze_profile(profile_path, syms_path):
         pct = count / work_samples * 100
         secs = count * interval_ms / 1000.0
         print(f"  {pct:5.1f}%  {secs:5.1f}s  {name}")
+    print()
+
+    print("-" * 72)
+    print("TOP PROJECT OWNERS (first wavemesh_builder frame on stack)")
+    print("-" * 72)
+    for name, count in project_owner_counts.most_common(20):
+        pct = count / work_samples * 100
+        secs = count * interval_ms / 1000.0
+        print(f"  {pct:5.1f}%  {secs:5.1f}s  {name}")
+    print()
+
+    print("-" * 72)
+    print("CALLER ATTRIBUTION FOR HOT LEAF FUNCTIONS")
+    print("-" * 72)
+    target_substrings = [
+        "core::f64::_<impl f64>::max",
+        "core::f64::_<impl f64>::min",
+        "SliceIndex",
+        "alloc::vec::Vec<T$C$A>::push",
+    ]
+    target_leafs = []
+    for leaf_name, count in func_self_counts.most_common():
+        if any(s in leaf_name for s in target_substrings):
+            target_leafs.append((leaf_name, count))
+    if not target_leafs:
+        print("  No matching hot leaf functions found.")
+    else:
+        for leaf_name, count in target_leafs[:6]:
+            pct = count / work_samples * 100
+            print(f"  {leaf_name}  ({pct:.1f}% self)")
+            callers = leaf_caller_counts.get(leaf_name)
+            if callers:
+                for caller_name, c in callers.most_common(5):
+                    cpct = 100.0 * c / count
+                    print(f"    caller {cpct:5.1f}%  {caller_name}")
+            else:
+                print("    caller (no non-wrapper caller frame found)")
+
+            owners = project_owner_by_leaf.get(leaf_name)
+            if owners:
+                for owner_name, c in owners.most_common(3):
+                    opct = 100.0 * c / count
+                    print(f"    owner  {opct:5.1f}%  {owner_name}")
     print()
 
     # Interactive hint
