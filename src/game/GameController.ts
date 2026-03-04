@@ -23,6 +23,7 @@ import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
 import { TerrainResources } from "./world/terrain/TerrainResources";
 import { WaterQueryManager } from "./world/water/WaterQueryManager";
 import { WaterResources } from "./world/water/WaterResources";
+import { Tree } from "./Tree";
 import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
 
@@ -31,9 +32,41 @@ let MENU_ZOOM: number = 2;
 //#tunable("Camera") { min: 1, max: 20 }
 let GAMEPLAY_ZOOM: number = 5;
 
+// Hardcoded tree positions per level (in world feet, on landmasses)
+const TREES_BY_LEVEL: Partial<Record<LevelName, [number, number][]>> = {
+  default: [
+    [300, -200],
+    [100, -440],
+    [-130, -170],
+    [440, 60],
+    [-60, 180],
+    [-150, 2800],
+    [200, 3100],
+    [350, 2650],
+  ],
+  vendoviIsland: [
+    [580, -280],
+    [960, -80],
+    [420, 420],
+    [-80, 310],
+    [1220, -180],
+    [780, -500],
+  ],
+  sanJuanIslands: [
+    [-14000, 4000],
+    [-17000, 6500],
+    [-11000, 9000],
+    [-20000, 17000],
+    [-22000, 20000],
+    [-13500, 2000],
+  ],
+};
+
 export class GameController extends BaseEntity {
   id = "gameController";
   persistenceLevel = 100;
+
+  private currentLevel: LevelName | null = null;
 
   @on("add")
   onAdd() {
@@ -53,6 +86,7 @@ export class GameController extends BaseEntity {
 
   @on("levelSelected")
   async onLevelSelected({ levelName }: { levelName: LevelName }) {
+    this.currentLevel = levelName;
     const initScreen = this.game.addEntity(new GameInitializingScreen());
 
     // 1. Load level data (terrain + waves + wavemesh)
@@ -108,6 +142,13 @@ export class GameController extends BaseEntity {
     // Spawn wind particles and sound
     this.game.addEntity(new WindParticles());
     this.game.addEntity(new WindSoundGenerator());
+
+    // Spawn trees on landmasses
+    const treePositions =
+      this.currentLevel != null ? TREES_BY_LEVEL[this.currentLevel] : undefined;
+    for (const [x, y] of treePositions ?? []) {
+      this.game.addEntity(new Tree(x, y));
+    }
 
     // Start the tutorial if not already completed
     if (!isTutorialCompleted()) {
