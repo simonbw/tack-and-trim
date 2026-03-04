@@ -1,23 +1,25 @@
 # Pipeline — Offline Build Tools
 
-`src/pipeline/` contains code that runs on the **dev machine** (Node.js), never in the browser.
+`src/pipeline/` contains offline build tooling that runs on the dev machine, never in the browser.
 
 ## Overview
 
-1. **`terrain-import/`** — Downloads real-world bathymetry data and produces `.level.json` files.
+1. **`terrain-import/`** — Rust CLI pipeline that downloads real-world bathymetry data and produces `.level.json` files.
 2. **`mesh-building/`** — Shared `.wavemesh` format/types used by runtime loading and tooling.
 
-The canonical wave-mesh builder is the Rust implementation in `pipeline/wavemesh-builder/`.
+The canonical Rust pipeline lives under `pipeline/`:
+- `pipeline/terrain-import/` for terrain import/validation
+- `pipeline/wavemesh-builder/` for wave-mesh generation
 
 ## Data Flow
 
 ```
 NOAA CUDEM GeoTIFF tiles
-  ↓  terrain-import/download.ts
+  ↓  terrain-import download
 assets/terrain/<slug>/tiles/*.tif
-  ↓  terrain-import/build-grid.ts  (gdalwarp)
+  ↓  terrain-import build-grid  (gdalwarp)
 assets/terrain/<slug>/cache/merged.tif
-  ↓  terrain-import/extract-contours.ts
+  ↓  terrain-import extract
      (marching squares → ring assembly → simplification → validation)
 resources/levels/<slug>.level.json
   ↓  npm run build-wavemesh  (Rust: pipeline/wavemesh-builder)
@@ -28,19 +30,21 @@ resources/levels/<slug>.wavemesh
 
 ---
 
-## terrain-import/
+## terrain-import (Rust CLI)
 
 Imports real-world bathymetric/topographic data from NOAA's CUDEM dataset into `.level.json` level files.
 
 ### Entry Points
 
-| File                  | Description                                                                                   |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `run-all.ts`          | Orchestrates the full pipeline (download → grid → contours → wavemesh build)                  |
-| `download.ts`         | **Step 1** — Scrapes NOAA directory listing, downloads GeoTIFF tiles matching the region bbox |
-| `build-grid.ts`       | **Step 2** — Merges tiles into a single raster via `gdalwarp`                                 |
-| `extract-contours.ts` | **Step 3** — Marching squares → ring tracing → constrained simplification → `.level.json`     |
-| `validate-level.ts`   | Standalone or programmatic validation of `.level.json` (overlap + containment checks)         |
+| Command                         | Description                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------ |
+| `npm run import-terrain`       | Orchestrates full pipeline (download → build-grid → extract → wavemesh)             |
+| `npm run download-terrain`     | **Step 1** — Downloads GeoTIFF tiles matching region bbox                             |
+| `npm run build-terrain-grid`   | **Step 2** — Merges tiles into `merged.tif` via `gdalwarp`                            |
+| `npm run extract-terrain-contours` | **Step 3** — Marching squares → constrained simplification → `.level.json`        |
+| `npm run validate-level`       | Standalone `.level.json` validator (overlap + containment checks)                    |
+
+The legacy TypeScript implementation under `src/pipeline/terrain-import/` is retained as reference.
 
 ### Configuration
 
@@ -60,24 +64,17 @@ Each region has an `assets/terrain/<slug>/region.json`:
 }
 ```
 
-### util/ Support Modules
+### Rust module layout
 
-| Module                         | Purpose                                                                             |
-| ------------------------------ | ----------------------------------------------------------------------------------- |
-| `util/region.ts`               | Loads `region.json`, resolves `--region` CLI flag, path helpers                     |
-| `util/geo-utils.ts`            | Lat/lon ↔ feet projection, bbox math, CUDEM tile filename parsing                  |
-| `util/grid-cache.ts`           | Lists local tiles by bbox, reads GeoTIFF metadata                                   |
-| `util/simplify.ts`             | Ramer-Douglas-Peucker for polylines and closed rings, `signedArea`, `ringPerimeter` |
-| `util/segment-index.ts`        | Spatial grid for fast segment intersection queries                                  |
-| `util/constrained-simplify.ts` | RDP that refuses to collapse spans crossing already-finalized contours              |
-
-### worker/ — Marching Squares Worker System
-
-| Module                       | Purpose                                                                                                        |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `worker/marching-squares.ts` | `ScalarGrid`, `MarchSegments` types, `buildClosedRings()` ring tracer, `BlockIndex` for fast level-skip        |
-| `worker/worker-pool.ts`      | `ContourWorkerPool` — distributes marching squares across worker threads using `SharedArrayBuffer`             |
-| `worker/contour-worker.ts`   | Worker thread: computes block index, runs `marchCell()` with full 16-case lookup table + saddle disambiguation |
+- `pipeline/terrain-import/src/region.rs` — region discovery, config loading, path helpers
+- `pipeline/terrain-import/src/download.rs` — CUDEM / USACE / EMODnet tile downloads
+- `pipeline/terrain-import/src/build_grid.rs` — `gdalwarp` merge step
+- `pipeline/terrain-import/src/extract.rs` — merged GeoTIFF load + contour extraction + validation
+- `pipeline/terrain-import/src/marching.rs` — marching squares + block index + ring tracer
+- `pipeline/terrain-import/src/simplify.rs` — RDP and ring geometry helpers
+- `pipeline/terrain-import/src/constrained_simplify.rs` — intersection-aware RDP variant
+- `pipeline/terrain-import/src/segment_index.rs` — spatial segment index
+- `pipeline/terrain-import/src/validate.rs` — standalone validator logic
 
 ### The `.level.json` Format
 

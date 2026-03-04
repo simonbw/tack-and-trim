@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::BufWriter;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
@@ -12,7 +12,7 @@ use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet};
 use crate::marching::{
     build_block_index, build_closed_rings, march_contours, BlockIndex, ScalarGrid,
 };
-use crate::region::{grid_cache_dir, load_region_config, resolve_region};
+use crate::region::{grid_cache_dir, load_region_config, resolve_region, resolve_repo_path};
 use crate::segment_index::SegmentIndex;
 use crate::simplify::{ring_perimeter, signed_area, Point};
 use crate::validate::validate_level_file;
@@ -182,7 +182,7 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
     );
 
     if all_rings.is_empty() {
-        let output_path = resolve_output_path(&config.output);
+        let output_path = resolve_repo_path(&config.output);
         write_level_file(&output_path, Vec::new())?;
         println!("Wrote empty contour set to {}", output_path.display());
         return Ok(());
@@ -272,7 +272,7 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let output_path = resolve_output_path(&config.output);
+    let output_path = resolve_repo_path(&config.output);
     timer = Instant::now();
     write_level_file(&output_path, contours)?;
     println!(
@@ -524,17 +524,6 @@ fn write_level_file(output_path: &Path, contours: Vec<TerrainContourJson>) -> Re
     serde_json::to_writer_pretty(writer, &level)
         .with_context(|| format!("Failed to write {}", output_path.display()))?;
     Ok(())
-}
-
-fn resolve_output_path(config_output: &str) -> PathBuf {
-    let output = PathBuf::from(config_output);
-    if output.is_absolute() {
-        output
-    } else {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(output)
-    }
 }
 
 fn print_block_index_stats(blocks: &BlockIndex, elapsed_ms: f64) {

@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand};
 use build_grid::run_build_grid;
 use download::run_download;
 use extract::run_extract;
-use region::resolve_level_path;
+use region::{load_region_config, resolve_level_path, resolve_region, resolve_repo_path};
 use validate::{validate_level_file, ValidationErrorType};
 
 #[derive(Parser)]
@@ -70,7 +70,7 @@ fn main() -> Result<()> {
         Commands::Extract(args) => run_extract(args.region.as_deref()),
         Commands::Download(args) => run_download(args.region.as_deref()),
         Commands::BuildGrid(args) => run_build_grid(args.region.as_deref(), args.force),
-        Commands::Import(_) => bail!("import not implemented yet"),
+        Commands::Import(args) => run_import(args.region.as_deref()),
     }
 }
 
@@ -107,4 +107,28 @@ fn run_validate(args: ValidateArgs) -> Result<()> {
     }
 
     bail!("validation failed")
+}
+
+fn run_import(region_arg: Option<&str>) -> Result<()> {
+    let slug = resolve_region(region_arg)?;
+    let config = load_region_config(&slug)?;
+    let level_path = resolve_repo_path(&config.output);
+
+    println!("\n=== download ===\n");
+    run_download(Some(&slug))?;
+
+    println!("\n=== build-grid ===\n");
+    run_build_grid(Some(&slug), false)?;
+
+    println!("\n=== extract-contours ===\n");
+    run_extract(Some(&slug))?;
+
+    println!("\n=== build-wavemesh ===\n");
+    wavemesh_builder::build_wavemesh_for_level(
+        level_path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid level path"))?,
+        None,
+    )?;
+
+    println!("\nDone.");
+    Ok(())
 }

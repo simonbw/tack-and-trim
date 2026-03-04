@@ -81,6 +81,10 @@ pub fn assets_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/terrain")
 }
 
+pub fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
 pub fn region_dir(slug: &str) -> PathBuf {
     assets_root().join(slug)
 }
@@ -161,5 +165,14 @@ pub fn resolve_level_path(level: Option<&Path>, region: Option<&str>) -> Result<
 
     let slug = resolve_region(region)?;
     let config = load_region_config(&slug)?;
-    Ok(PathBuf::from(config.output))
+    Ok(resolve_repo_path(&config.output))
+}
+
+pub fn resolve_repo_path(path: &str) -> PathBuf {
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        path
+    } else {
+        repo_root().join(path)
+    }
 }
