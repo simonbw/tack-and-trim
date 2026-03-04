@@ -23,7 +23,8 @@ pub fn refine_wavefront(
         return wf.clone();
     }
 
-    let min_dist_sq = (vertex_spacing * config.merge_ratio).powi(2);
+    let min_dist = vertex_spacing * config.merge_ratio;
+    let min_dist_sq = min_dist * min_dist;
     let can_split = src_len < config.max_segment_points;
     let split_escalation_exp = config.split_escalation.ln() / 2.0_f64.ln();
 
@@ -86,7 +87,8 @@ pub fn refine_wavefront(
         };
         let escalation = t_scale.powf(split_escalation_exp);
         let effective_ratio = (config.base_split_ratio * escalation).min(config.max_split_ratio);
-        let max_dist_sq = (vertex_spacing * effective_ratio).powi(2);
+        let max_dist = vertex_spacing * effective_ratio;
+        let max_dist_sq = max_dist * max_dist;
 
         let prev_is_sentinel = prev_t == 0.0 || prev_t == 1.0;
         let curr_is_sentinel = curr_t == 0.0 || curr_t == 1.0;
