@@ -1,4 +1,10 @@
+mod constrained_simplify;
+mod extract;
+mod geo;
+mod marching;
 mod region;
+mod segment_index;
+mod simplify;
 mod validate;
 
 use std::path::PathBuf;
@@ -6,6 +12,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 
+use extract::run_extract;
 use region::resolve_level_path;
 use validate::{validate_level_file, ValidationErrorType};
 
@@ -47,9 +54,9 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Validate(args) => run_validate(args),
+        Commands::Extract(args) => run_extract(args.region.as_deref()),
         Commands::Download(_) => bail!("download not implemented yet"),
         Commands::BuildGrid(_) => bail!("build-grid not implemented yet"),
-        Commands::Extract(_) => bail!("extract not implemented yet"),
         Commands::Import(_) => bail!("import not implemented yet"),
     }
 }
