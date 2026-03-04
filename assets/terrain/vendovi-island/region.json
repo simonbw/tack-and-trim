@@ -7,8 +7,8 @@
     "maxLat": 48.617294,
     "maxLon": -122.595673
   },
-  "interval": 100,
-  "simplify": 20,
+  "interval": 25,
+  "simplify": 5,
   "scale": 1,
   "minPerimeter": 1500,
   "minPoints": 4,
