@@ -14,22 +14,23 @@ async function main(): Promise<void> {
     { name: "download", script: "download.ts" },
     { name: "build-grid", script: "build-grid.ts" },
     { name: "extract-contours", script: "extract-contours.ts" },
-    {
-      name: "build-wavemesh",
-      script: "../../../bin/build-wavemesh.ts",
-      args: `--level ${levelPath}`,
-    },
   ];
 
   for (const step of steps) {
     const scriptPath = path.join(binDir, step.script);
     console.log(`\n=== ${step.name} ===\n`);
-    const args = "args" in step ? ` ${step.args}` : ` --region ${slug}`;
+    const args = ` --region ${slug}`;
     execSync(`tsx ${scriptPath}${args}`, {
       stdio: "inherit",
       cwd: process.cwd(),
     });
   }
+
+  console.log(`\n=== build-wavemesh ===\n`);
+  execSync(`npm run build-wavemesh -- --level "${levelPath}"`, {
+    stdio: "inherit",
+    cwd: process.cwd(),
+  });
 
   console.log("\nDone.");
 }
