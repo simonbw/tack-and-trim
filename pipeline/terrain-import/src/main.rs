@@ -1,4 +1,6 @@
+mod build_grid;
 mod constrained_simplify;
+mod download;
 mod extract;
 mod geo;
 mod marching;
@@ -12,6 +14,8 @@ use std::path::PathBuf;
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 
+use build_grid::run_build_grid;
+use download::run_download;
 use extract::run_extract;
 use region::resolve_level_path;
 use validate::{validate_level_file, ValidationErrorType};
@@ -27,7 +31,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Download(CommonRegionArgs),
-    BuildGrid(CommonRegionArgs),
+    BuildGrid(BuildGridArgs),
     Extract(CommonRegionArgs),
     Validate(ValidateArgs),
     Import(CommonRegionArgs),
@@ -49,14 +53,23 @@ struct ValidateArgs {
     region: Option<String>,
 }
 
+#[derive(Parser)]
+struct BuildGridArgs {
+    #[arg(long)]
+    region: Option<String>,
+
+    #[arg(long)]
+    force: bool,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Validate(args) => run_validate(args),
         Commands::Extract(args) => run_extract(args.region.as_deref()),
-        Commands::Download(_) => bail!("download not implemented yet"),
-        Commands::BuildGrid(_) => bail!("build-grid not implemented yet"),
+        Commands::Download(args) => run_download(args.region.as_deref()),
+        Commands::BuildGrid(args) => run_build_grid(args.region.as_deref(), args.force),
         Commands::Import(_) => bail!("import not implemented yet"),
     }
 }
