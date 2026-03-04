@@ -55,7 +55,6 @@ fn build_segment_from_kept(seg: &WavefrontSegment, kept: &[usize]) -> WavefrontS
                 0.0
             },
             seg.amplitude[idx],
-            seg.blend[idx],
         );
     }
     out
@@ -69,30 +68,38 @@ fn build_segment_from_kept(seg: &WavefrontSegment, kept: &[usize]) -> WavefrontS
 /// property) that satisfy all intermediate vertices seen so far. Each new
 /// intermediate narrows the intervals in O(1). When any interval becomes empty,
 /// no future endpoint can work — we break provably, not heuristically.
-pub fn decimate_segment(seg: &WavefrontSegment, pos_tol_sq: f64, amp_tol: f64) -> WavefrontSegment {
+pub fn decimate_segment(seg: WavefrontSegment, pos_tol_sq: f64, amp_tol: f64) -> WavefrontSegment {
     let n = seg.len();
     if n <= 2 {
-        return seg.clone();
+        return seg;
     }
 
     let pos_tol = pos_tol_sq.sqrt();
+    let t = seg.t.as_slice();
+    let x = seg.x.as_slice();
+    let y = seg.y.as_slice();
+    let amp = seg.amplitude.as_slice();
+    let turb = seg.turbulence.as_slice();
 
     let mut dist = vec![u32::MAX; n];
     let mut prev = vec![0usize; n];
     dist[0] = 0;
+    let mut best_end = u32::MAX;
 
     for i in 0..n - 1 {
         if dist[i] == u32::MAX {
             continue;
         }
         let d = dist[i] + 1;
+        if d >= best_end {
+            continue;
+        }
 
-        let ti = seg.t[i];
-        let xi = seg.x[i];
-        let yi = seg.y[i];
-        let ai = seg.amplitude[i];
-        let turbi = seg.turbulence[i];
-        let bi = seg.blend[i];
+        let ti = t[i];
+        let xi = x[i];
+        let yi = y[i];
+        let ai = amp[i];
+        let turbi = turb[i];
 
         // Slope intervals: valid range of (value[j] - value[i]) / (t[j] - t[i])
         let mut sx_min = f64::NEG_INFINITY;
@@ -103,58 +110,65 @@ pub fn decimate_segment(seg: &WavefrontSegment, pos_tol_sq: f64, amp_tol: f64) -
         let mut sa_max = f64::INFINITY;
         let mut st_min = f64::NEG_INFINITY;
         let mut st_max = f64::INFINITY;
-        let mut sb_min = f64::NEG_INFINITY;
-        let mut sb_max = f64::INFINITY;
 
         for j in (i + 1)..n {
+            // SAFETY: j iterates in [i+1, n), and all slices are len n.
+            let (tj, xj, yj, aj, turbj) = unsafe {
+                (
+                    *t.get_unchecked(j),
+                    *x.get_unchecked(j),
+                    *y.get_unchecked(j),
+                    *amp.get_unchecked(j),
+                    *turb.get_unchecked(j),
+                )
+            };
+
             // Check edge i→j: intervals reflect constraints from intermediates i+1..j-1
-            let dt = seg.t[j] - ti;
+            let dt = tj - ti;
             let inv_dt = if dt > 0.0 { 1.0 / dt } else { 0.0 };
+            let pos_inv = pos_tol * inv_dt;
+            let amp_inv = amp_tol * inv_dt;
 
-            let slope_x = (seg.x[j] - xi) * inv_dt;
-            let slope_y = (seg.y[j] - yi) * inv_dt;
-            let slope_a = (seg.amplitude[j] - ai) * inv_dt;
-            let slope_t = (seg.turbulence[j] - turbi) * inv_dt;
-            let slope_b = (seg.blend[j] - bi) * inv_dt;
+            let slope_x = (xj - xi) * inv_dt;
+            let x_ok = slope_x >= sx_min && slope_x <= sx_max;
+            sx_min = sx_min.max(slope_x - pos_inv);
+            sx_max = sx_max.min(slope_x + pos_inv);
+            if sx_min > sx_max {
+                break;
+            }
 
-            let edge_exists = slope_x >= sx_min
-                && slope_x <= sx_max
-                && slope_y >= sy_min
-                && slope_y <= sy_max
-                && slope_a >= sa_min
-                && slope_a <= sa_max
-                && slope_t >= st_min
-                && slope_t <= st_max
-                && slope_b >= sb_min
-                && slope_b <= sb_max;
+            let slope_y = (yj - yi) * inv_dt;
+            let y_ok = slope_y >= sy_min && slope_y <= sy_max;
+            sy_min = sy_min.max(slope_y - pos_inv);
+            sy_max = sy_max.min(slope_y + pos_inv);
+            if sy_min > sy_max {
+                break;
+            }
+
+            let slope_a = (aj - ai) * inv_dt;
+            let a_ok = slope_a >= sa_min && slope_a <= sa_max;
+            sa_min = sa_min.max(slope_a - amp_inv);
+            sa_max = sa_max.min(slope_a + amp_inv);
+            if sa_min > sa_max {
+                break;
+            }
+
+            let slope_t = (turbj - turbi) * inv_dt;
+            let t_ok = slope_t >= st_min && slope_t <= st_max;
+            st_min = st_min.max(slope_t - amp_inv);
+            st_max = st_max.min(slope_t + amp_inv);
+            if st_min > st_max {
+                break;
+            }
+
+            let edge_exists = x_ok && y_ok && a_ok && t_ok;
 
             if edge_exists && d < dist[j] {
                 dist[j] = d;
                 prev[j] = i;
-            }
-
-            // Narrow intervals using vertex j as intermediate for future edges
-            let pos_inv = pos_tol * inv_dt;
-            let amp_inv = amp_tol * inv_dt;
-
-            sx_min = sx_min.max(slope_x - pos_inv);
-            sx_max = sx_max.min(slope_x + pos_inv);
-            sy_min = sy_min.max(slope_y - pos_inv);
-            sy_max = sy_max.min(slope_y + pos_inv);
-            sa_min = sa_min.max(slope_a - amp_inv);
-            sa_max = sa_max.min(slope_a + amp_inv);
-            st_min = st_min.max(slope_t - amp_inv);
-            st_max = st_max.min(slope_t + amp_inv);
-            sb_min = sb_min.max(slope_b - amp_inv);
-            sb_max = sb_max.min(slope_b + amp_inv);
-
-            if sx_min > sx_max
-                || sy_min > sy_max
-                || sa_min > sa_max
-                || st_min > st_max
-                || sb_min > sb_max
-            {
-                break;
+                if j == n - 1 {
+                    best_end = d;
+                }
             }
         }
     }
@@ -170,9 +184,9 @@ pub fn decimate_segment(seg: &WavefrontSegment, pos_tol_sq: f64, amp_tol: f64) -
     kept.reverse();
 
     if kept.len() == n {
-        return seg.clone();
+        return seg;
     }
-    build_segment_from_kept(seg, &kept)
+    build_segment_from_kept(&seg, &kept)
 }
 
 // ── Track-level decimation ───────────────────────────────────────────────────
@@ -182,7 +196,6 @@ struct SegmentSample {
     y: f64,
     amplitude: f64,
     turbulence: f64,
-    blend: f64,
 }
 
 /// Forward-only sampler for monotonically increasing t queries on a segment.
@@ -227,7 +240,6 @@ impl<'a> SegmentScanner<'a> {
                 y: self.seg.y[0],
                 amplitude: self.seg.amplitude[0],
                 turbulence: self.seg.turbulence[0],
-                blend: self.seg.blend[0],
             });
         }
         if t >= self.t_max {
@@ -237,7 +249,6 @@ impl<'a> SegmentScanner<'a> {
                 y: self.seg.y[i],
                 amplitude: self.seg.amplitude[i],
                 turbulence: self.seg.turbulence[i],
-                blend: self.seg.blend[i],
             });
         }
 
@@ -259,7 +270,6 @@ impl<'a> SegmentScanner<'a> {
             y: lerp(self.seg.y[left], self.seg.y[right], f),
             amplitude: lerp(self.seg.amplitude[left], self.seg.amplitude[right], f),
             turbulence: lerp(self.seg.turbulence[left], self.seg.turbulence[right], f),
-            blend: lerp(self.seg.blend[left], self.seg.blend[right], f),
         })
     }
 }
@@ -327,11 +337,6 @@ fn evaluate_snapshot_removal(
 
         let i_turb = lerp(a.turbulence, e.turbulence, fraction);
         if normalized_error((snapshot.turbulence[i] - i_turb).abs(), amp_tol) > 1.0 {
-            return false;
-        }
-
-        let i_blend = lerp(a.blend, e.blend, fraction);
-        if normalized_error((snapshot.blend[i] - i_blend).abs(), amp_tol) > 1.0 {
             return false;
         }
 
@@ -408,7 +413,7 @@ pub struct SingleTrackDecimationResult {
 /// Decimate a track by removing snapshots and vertices that can be linearly
 /// interpolated within the given tolerance.
 pub fn decimate_track_snapshots(
-    track: &SegmentTrack,
+    track: SegmentTrack,
     wp: &WaveParams,
     tolerance: f64,
 ) -> SingleTrackDecimationResult {
@@ -423,7 +428,7 @@ pub fn decimate_track_snapshots(
     }
 
     let keep_mask = keep_mask_for_track(
-        track,
+        &track,
         k,
         wp.wave_dx,
         wp.wave_dy,
@@ -436,19 +441,22 @@ pub fn decimate_track_snapshots(
     let removed_snapshots = keep_mask.iter().filter(|&&k| !k).count() as u64;
 
     // Decimate kept snapshots in parallel
-    let snapshots: Vec<SegmentTrackSnapshot> = track
-        .snapshots
-        .par_iter()
+    let SegmentTrack {
+        track_id,
+        parent_track_id,
+        child_track_ids,
+        snapshots: src_snapshots,
+    } = track;
+
+    let snapshots: Vec<SegmentTrackSnapshot> = src_snapshots
+        .into_par_iter()
         .enumerate()
-        .filter(|(i, _)| keep_mask[*i])
-        .map(|(_, snap)| {
-            let decimated_seg = decimate_segment(&snap.segment, pos_tol_sq, amp_tol);
-            SegmentTrackSnapshot {
-                step_index: snap.step_index,
-                segment_index: snap.segment_index,
-                source_step_index: snap.source_step_index,
-                segment: decimated_seg,
+        .filter_map(|(i, mut snap)| {
+            if !keep_mask[i] {
+                return None;
             }
+            snap.segment = decimate_segment(snap.segment, pos_tol_sq, amp_tol);
+            Some(snap)
         })
         .collect();
 
@@ -456,9 +464,9 @@ pub fn decimate_track_snapshots(
 
     SingleTrackDecimationResult {
         track: SegmentTrack {
-            track_id: track.track_id,
-            parent_track_id: track.parent_track_id,
-            child_track_ids: track.child_track_ids.clone(),
+            track_id,
+            parent_track_id,
+            child_track_ids,
             snapshots,
         },
         removed_snapshots,

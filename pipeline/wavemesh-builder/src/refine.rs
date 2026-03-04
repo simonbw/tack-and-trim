@@ -120,7 +120,6 @@ pub fn refine_wavefront(
         wf.terrain_grad_x[0],
         wf.terrain_grad_y[0],
         0.0,
-        wf.blend[0],
     );
 
     split_count = 0;
@@ -131,7 +130,6 @@ pub fn refine_wavefront(
         let prev_y = result.y[prev_idx];
         let prev_t = result.t[prev_idx];
         let prev_energy = result.energy[prev_idx];
-        let prev_blend = result.blend[prev_idx];
 
         let curr_x = wf.x[i];
         let curr_y = wf.y[i];
@@ -191,7 +189,6 @@ pub fn refine_wavefront(
                 (result.terrain_grad_x[prev_idx] + wf.terrain_grad_x[i]) / 2.0,
                 (result.terrain_grad_y[prev_idx] + wf.terrain_grad_y[i]) / 2.0,
                 0.0,
-                (prev_blend + wf.blend[i]) / 2.0,
             );
             split_count += 1;
         }
@@ -208,7 +205,6 @@ pub fn refine_wavefront(
             wf.terrain_grad_x[i],
             wf.terrain_grad_y[i],
             0.0,
-            wf.blend[i],
         );
     }
 

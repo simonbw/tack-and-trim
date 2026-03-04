@@ -56,7 +56,8 @@ pub fn build_mesh_data_from_tracks(
             *vertex_offset += 1;
             vertices[*vertex_offset] = phase_offset as f32;
             *vertex_offset += 1;
-            vertices[*vertex_offset] = seg.blend[pi] as f32;
+            // Keep binary/layout compatibility: blend weight is currently constant.
+            vertices[*vertex_offset] = 1.0;
             *vertex_offset += 1;
         }
         base

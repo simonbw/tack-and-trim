@@ -60,7 +60,6 @@ pub struct WavefrontSegment {
     pub terrain_grad_x: Vec<f64>,
     pub terrain_grad_y: Vec<f64>,
     pub amplitude: Vec<f64>,
-    pub blend: Vec<f64>,
 }
 
 impl WavefrontSegment {
@@ -91,7 +90,6 @@ impl WavefrontSegment {
             terrain_grad_x: Vec::with_capacity(cap),
             terrain_grad_y: Vec::with_capacity(cap),
             amplitude: Vec::with_capacity(cap),
-            blend: Vec::with_capacity(cap),
         }
     }
 
@@ -116,7 +114,6 @@ impl WavefrontSegment {
         terrain_grad_x: f64,
         terrain_grad_y: f64,
         amplitude: f64,
-        blend: f64,
     ) {
         self.x.push(x);
         self.y.push(y);
@@ -129,7 +126,6 @@ impl WavefrontSegment {
         self.terrain_grad_x.push(terrain_grad_x);
         self.terrain_grad_y.push(terrain_grad_y);
         self.amplitude.push(amplitude);
-        self.blend.push(blend);
     }
 }
 

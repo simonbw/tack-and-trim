@@ -43,7 +43,6 @@ pub fn generate_initial_wavefront(bounds: &WaveBounds, wp: &WaveParams) -> Wavef
         0.0,
         0.0,
         0.0,
-        1.0,
     );
 
     // Interior rays
@@ -62,7 +61,6 @@ pub fn generate_initial_wavefront(bounds: &WaveBounds, wp: &WaveParams) -> Wavef
             f64::NAN,
             f64::NAN,
             0.0,
-            1.0,
         );
     }
 
@@ -80,7 +78,6 @@ pub fn generate_initial_wavefront(bounds: &WaveBounds, wp: &WaveParams) -> Wavef
         0.0,
         0.0,
         0.0,
-        1.0,
     );
 
     assert_eq!(wf.len(), num_vertices);
@@ -106,7 +103,6 @@ enum RayStepOutcome {
         depth: f64,
         terrain_grad_x: f64,
         terrain_grad_y: f64,
-        blend: f64,
         is_sentinel: bool,
         refracted: bool,
         turn_clamped: bool,
@@ -156,7 +152,6 @@ fn advance_track_segment_step(
                         depth: wp.wavelength,
                         terrain_grad_x: 0.0,
                         terrain_grad_y: 0.0,
-                        blend: 1.0,
                         is_sentinel: true,
                         refracted: false,
                         turn_clamped: false,
@@ -198,7 +193,6 @@ fn advance_track_segment_step(
                     depth: ir.depth,
                     terrain_grad_x: ir.terrain_grad_x,
                     terrain_grad_y: ir.terrain_grad_y,
-                    blend: 1.0,
                     is_sentinel: false,
                     refracted: ir.refracted,
                     turn_clamped: ir.turn_clamped,
@@ -242,7 +236,6 @@ fn advance_track_segment_step(
                 depth,
                 terrain_grad_x,
                 terrain_grad_y,
-                blend,
                 is_sentinel,
                 refracted,
                 turn_clamped,
@@ -279,7 +272,6 @@ fn advance_track_segment_step(
                     *terrain_grad_x,
                     *terrain_grad_y,
                     0.0,
-                    *blend,
                 );
             }
         }
@@ -692,7 +684,7 @@ pub fn march_wavefronts(
         // prioritize frontier expansion before cleanup.
         let tolerance = config.decimation.tolerance;
         s.spawn_fifo(move |_| {
-            let dec = decimate_track_snapshots(&final_track, wp, tolerance);
+            let dec = decimate_track_snapshots(final_track, wp, tolerance);
             removed_snapshots.fetch_add(dec.removed_snapshots, Ordering::Relaxed);
             removed_vertices.fetch_add(dec.removed_vertices, Ordering::Relaxed);
 
