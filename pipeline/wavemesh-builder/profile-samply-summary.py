@@ -325,9 +325,26 @@ def percentile(values, p):
     return xs[lo] * (1.0 - frac) + xs[hi] * frac
 
 
+def load_wall_clock_ms(profile_path):
+    """Load exact wall-clock from sidecar metadata if present."""
+    meta_path = profile_path.replace(".json", ".meta.json")
+    if not os.path.exists(meta_path):
+        return None
+    try:
+        with open(meta_path) as f:
+            data = json.load(f)
+        wall_ms = data.get("wall_clock_ms")
+        if wall_ms is None:
+            return None
+        return float(wall_ms)
+    except Exception:
+        return None
+
+
 def analyze_profile(profile_path, syms_path):
     with open(profile_path, "rb") as f:
         profile = _json_load(f)
+    wall_clock_ms = load_wall_clock_ms(profile_path)
 
     lib_symbols = load_symbol_table(syms_path)
 
@@ -538,6 +555,8 @@ def analyze_profile(profile_path, syms_path):
     print(f"Total samples: {total_samples:,}  ({duration_s:.1f}s at {1000/interval_ms:.0f}Hz)")
     print(f"Work samples:  {work_samples:,}  ({work_duration_s:.1f}s)")
     print(f"Idle samples:  {idle_samples:,}")
+    if wall_clock_ms is not None:
+        print(f"Recorded wall-clock: {wall_clock_ms / 1000.0:.2f}s")
     print()
 
     # Thread utilization
@@ -557,7 +576,16 @@ def analyze_profile(profile_path, syms_path):
     effective_cores = sum(t["work"] for t in active_threads) / max(
         max(t["work"] + t["idle"] for t in active_threads), 1
     )
+    max_thread_samples = max((t["work"] + t["idle"] for t in active_threads), default=0)
+    max_thread_secs = max_thread_samples * interval_ms / 1000.0
+    worker_threads_for_wall = [t for t in active_threads if is_worker_thread_name(t["name"])]
+    max_worker_samples = max((t["work"] + t["idle"] for t in worker_threads_for_wall), default=0)
+    max_worker_secs = max_worker_samples * interval_ms / 1000.0
+
     print(f"\n  Effective cores: {effective_cores:.1f}")
+    print(f"  Estimated wall-clock (process span): {max_thread_secs:.1f}s")
+    if worker_threads_for_wall:
+        print(f"  Estimated wall-clock (worker span):  {max_worker_secs:.1f}s")
     print()
 
     # Worker-only time-binned utilization and idle-overlap attribution.

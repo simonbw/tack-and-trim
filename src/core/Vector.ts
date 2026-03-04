@@ -1,6 +1,6 @@
 import { lerp } from "./util/MathUtil";
 
-type CompatibleTuple = [number, number] | Float32Array;
+type CompatibleTuple = [number, number] | Float32Array | Float64Array;
 export type CompatibleVector = CompatibleTuple | ReadonlyV2d;
 
 /** Immutable interface for V2d that exposes only read-only properties and non-mutating methods. */
@@ -47,7 +47,11 @@ export function V(
 ) {
   if (x instanceof V2d) {
     return x.clone();
-  } else if (x instanceof Array || x instanceof Float32Array) {
+  } else if (
+    x instanceof Array ||
+    x instanceof Float32Array ||
+    x instanceof Float64Array
+  ) {
     return new V2d(x[0], x[1]);
   } else if (typeof x === "object") {
     // object with x, y properties
