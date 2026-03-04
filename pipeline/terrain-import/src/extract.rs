@@ -1,18 +1,19 @@
 use std::fs::{self, File};
-use std::io::BufWriter;
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use gdal::Dataset;
 use serde::Serialize;
+use terrain_core::humanize::format_int;
 
 use crate::constrained_simplify::constrained_simplify_closed_ring;
 use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet};
 use crate::marching::{
     build_block_index, build_closed_rings, march_contours, BlockIndex, ScalarGrid,
 };
-use crate::region::{grid_cache_dir, load_region_config, resolve_region, resolve_repo_path};
+use crate::region::{assets_root, grid_cache_dir, load_region_config, resolve_region, resolve_repo_path};
 use crate::segment_index::SegmentIndex;
 use crate::simplify::{ring_perimeter, signed_area, Point};
 use crate::validate::validate_level_file;
@@ -76,18 +77,28 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
         );
     }
 
+    let merged_display = terrain_relative_path(&merged_path);
+    print!("Loading merged grid from {merged_display}...");
+    let _ = io::stdout().flush();
     let mut timer = Instant::now();
-    let loaded = load_merged_grid(&merged_path)?;
-    println!("Load grid: {:.0}ms", timer.elapsed().as_secs_f64() * 1000.0);
+    let loaded = load_merged_grid(&merged_path, &merged_display)?;
+    println!("Load grid: {}ms", format_int(timer.elapsed().as_millis()));
 
     println!("Region: {}", config.name);
     println!(
         "Grid: {}x{}, elevation range {:.1}ft to {:.1}ft",
-        loaded.grid.width, loaded.grid.height, loaded.min_feet, loaded.max_feet
+        format_int(loaded.grid.width),
+        format_int(loaded.grid.height),
+        loaded.min_feet,
+        loaded.max_feet
     );
     println!(
         "Settings: interval {}ft, simplify {}ft, scale {}, minPerimeter {}ft, minPoints {}",
-        config.interval, config.simplify, config.scale, config.min_perimeter, config.min_points
+        config.interval,
+        config.simplify,
+        config.scale,
+        config.min_perimeter,
+        format_int(config.min_points)
     );
 
     let clamped_min = loaded.min_feet.max(DEFAULT_DEPTH);
@@ -162,23 +173,23 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
         total_raw_rings += ring_count;
 
         println!(
-            "[{}/{}] {:.3}ft: {} rings -> {} kept  (march {:.0}ms, convert {:.0}ms)",
-            li + 1,
-            levels.len(),
+            "[{}/{}] {:.3}ft: {} rings -> {} kept  (march {}ms, convert {}ms)",
+            format_int(li + 1),
+            format_int(levels.len()),
             level_feet,
-            ring_count,
-            kept_count,
-            march_ms,
-            rings_ms
+            format_int(ring_count),
+            format_int(kept_count),
+            format_int(march_ms.round() as u64),
+            format_int(rings_ms.round() as u64)
         );
     }
 
     println!(
-        "\nPhase 1: {} raw rings -> {} pre-filtered  (march {:.0}ms, convert {:.0}ms)",
-        total_raw_rings,
-        all_rings.len(),
-        total_march_ms,
-        total_rings_ms
+        "\nPhase 1: {} raw rings -> {} pre-filtered  (march {}ms, convert {}ms)",
+        format_int(total_raw_rings),
+        format_int(all_rings.len()),
+        format_int(total_march_ms.round() as u64),
+        format_int(total_rings_ms.round() as u64)
     );
 
     if all_rings.is_empty() {
@@ -192,9 +203,9 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
     let tree_roots = build_containment_tree(&all_rings);
     let order = bfs_order(&tree_roots);
     println!(
-        "Containment tree: {} roots, BFS order computed  ({:.0}ms)",
-        tree_roots.len(),
-        timer.elapsed().as_secs_f64() * 1000.0
+        "Containment tree: {} roots, BFS order computed  ({}ms)",
+        format_int(tree_roots.len()),
+        format_int(timer.elapsed().as_millis())
     );
 
     let mut g_min_x = f64::INFINITY;
@@ -259,11 +270,11 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
 
     let final_points: usize = contours.iter().map(|c| c.polygon.len()).sum();
     println!(
-        "Phase 2: {} -> {} contours ({} pts)  (simplify {:.0}ms)",
-        all_rings.len(),
-        constrained_kept,
-        final_points,
-        timer.elapsed().as_secs_f64() * 1000.0
+        "Phase 2: {} -> {} contours ({} pts)  (simplify {}ms)",
+        format_int(all_rings.len()),
+        format_int(constrained_kept),
+        format_int(final_points),
+        format_int(timer.elapsed().as_millis())
     );
 
     contours.sort_by(|a, b| {
@@ -276,16 +287,18 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
     timer = Instant::now();
     write_level_file(&output_path, contours)?;
     println!(
-        "Wrote contours to {}  (write {:.0}ms)",
+        "Wrote contours to {}  (write {}ms)",
         output_path.display(),
-        timer.elapsed().as_secs_f64() * 1000.0
+        format_int(timer.elapsed().as_millis())
     );
 
     println!("\nValidating output...");
     let validation = validate_level_file(&output_path)?;
     println!(
         "  {} contours, {} roots, max depth {}",
-        validation.contour_count, validation.root_count, validation.max_depth
+        format_int(validation.contour_count),
+        format_int(validation.root_count),
+        format_int(validation.max_depth)
     );
     for warning in &validation.warnings {
         println!("  WARNING: {warning}");
@@ -296,14 +309,14 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
-    println!("  FAIL: {} error(s):", validation.errors.len());
+    println!("  FAIL: {} error(s):", format_int(validation.errors.len()));
     for error in &validation.errors {
         println!("    [{:?}] {}", error.error_type, error.message);
     }
     bail!("extracted level failed validation")
 }
 
-fn load_merged_grid(merged_path: &Path) -> Result<LoadedGrid> {
+fn load_merged_grid(merged_path: &Path, merged_display: &str) -> Result<LoadedGrid> {
     let dataset = Dataset::open(merged_path)
         .with_context(|| format!("Failed to open {}", merged_path.display()))?;
     let band = dataset
@@ -314,9 +327,15 @@ fn load_merged_grid(merged_path: &Path) -> Result<LoadedGrid> {
     let transform = dataset.geo_transform().context("Missing geotransform")?;
     let no_data_value = band.no_data_value();
 
+    let read_timer = Instant::now();
     let buffer = band
         .read_as::<f64>((0, 0), (width, height), (width, height), None)
         .context("Failed to read raster")?;
+    println!(
+        "\rLoaded merged grid from {} in {}ms. Starting preprocessing...",
+        merged_display,
+        format_int(read_timer.elapsed().as_millis())
+    );
 
     let mut values = vec![0.0; width * height];
     let mut nodata_mask = vec![0u8; width * height];
@@ -354,7 +373,10 @@ fn load_merged_grid(merged_path: &Path) -> Result<LoadedGrid> {
     }
 
     if seam_fills > 0 {
-        println!("Interpolated {} tile-seam nodata cells", seam_fills);
+        println!(
+            "Interpolated {} tile-seam nodata cells",
+            format_int(seam_fills)
+        );
     }
 
     let mut depth_fills = 0usize;
@@ -369,7 +391,8 @@ fn load_merged_grid(merged_path: &Path) -> Result<LoadedGrid> {
     if depth_fills > 0 {
         println!(
             "Filled {} remaining nodata cells with {}ft",
-            depth_fills, DEFAULT_DEPTH
+            format_int(depth_fills),
+            DEFAULT_DEPTH
         );
     }
 
@@ -402,6 +425,12 @@ fn load_merged_grid(merged_path: &Path) -> Result<LoadedGrid> {
         origin_lon: transform[0],
         origin_lat: transform[3],
     })
+}
+
+fn terrain_relative_path(path: &Path) -> String {
+    path.strip_prefix(assets_root())
+        .map(|rel| rel.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
 }
 
 fn quantize_levels(min: f64, max: f64, interval: f64) -> Vec<f64> {
@@ -528,8 +557,10 @@ fn write_level_file(output_path: &Path, contours: Vec<TerrainContourJson>) -> Re
 
 fn print_block_index_stats(blocks: &BlockIndex, elapsed_ms: f64) {
     println!(
-        "Block index: {}x{} blocks  ({:.0}ms)",
-        blocks.block_cols, blocks.block_rows, elapsed_ms
+        "Block index: {}x{} blocks  ({}ms)",
+        format_int(blocks.block_cols),
+        format_int(blocks.block_rows),
+        format_int(elapsed_ms.round() as u64)
     );
 }
 

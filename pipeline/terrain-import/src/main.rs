@@ -13,13 +13,12 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
+use terrain_core::humanize::format_int;
 
 use build_grid::run_build_grid;
 use download::run_download;
 use extract::run_extract;
-use region::{
-    list_regions, load_region_config, resolve_level_path, resolve_repo_path,
-};
+use region::{list_regions, load_region_config, resolve_level_path, resolve_repo_path};
 use validate::{validate_level_file, ValidationErrorType};
 
 #[derive(Parser)]
@@ -83,11 +82,14 @@ fn run_validate(args: ValidateArgs) -> Result<()> {
 
     let t0 = std::time::Instant::now();
     let result = validate_level_file(&level_path)?;
-    let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let elapsed_ms = t0.elapsed().as_millis();
 
     println!(
-        "  {} contours, {} roots, max depth {}  ({:.0}ms)",
-        result.contour_count, result.root_count, result.max_depth, elapsed_ms
+        "  {} contours, {} roots, max depth {}  ({}ms)",
+        format_int(result.contour_count),
+        format_int(result.root_count),
+        format_int(result.max_depth),
+        format_int(elapsed_ms)
     );
 
     for warning in &result.warnings {
@@ -99,7 +101,7 @@ fn run_validate(args: ValidateArgs) -> Result<()> {
         return Ok(());
     }
 
-    println!("  FAIL: {} error(s):", result.errors.len());
+    println!("  FAIL: {} error(s):", format_int(result.errors.len()));
     for error in &result.errors {
         let tag = match error.error_type {
             ValidationErrorType::Overlap => "overlap",
@@ -123,9 +125,14 @@ fn run_import(region_arg: Option<&str>) -> Result<()> {
         bail!("No regions found. Create assets/terrain/<name>/region.json first.");
     }
 
-    println!("Importing {} regions", regions.len());
+    println!("Importing {} regions", format_int(regions.len()));
     for (idx, slug) in regions.iter().enumerate() {
-        println!("\n=== region {}/{}: {} ===", idx + 1, regions.len(), slug);
+        println!(
+            "\n=== region {}/{}: {} ===",
+            format_int(idx + 1),
+            format_int(regions.len()),
+            slug
+        );
         run_import_for_region(slug)?;
     }
 
@@ -148,7 +155,9 @@ fn run_import_for_region(slug: &str) -> Result<()> {
 
     println!("\n=== build-wavemesh ===\n");
     wavemesh_builder::build_wavemesh_for_level(
-        level_path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid level path"))?,
+        level_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid level path"))?,
         None,
     )?;
     Ok(())

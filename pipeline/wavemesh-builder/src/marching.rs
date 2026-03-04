@@ -8,7 +8,7 @@ use rayon::prelude::*;
 
 use crate::config::MeshBuildConfig;
 use crate::decimate::decimate_track_snapshots;
-use crate::humanize::int;
+use crate::humanize::format_int;
 use crate::level::TerrainCPUData;
 use crate::physics::{advance_interior_ray, advance_sentinel_ray, RayState};
 use crate::refine::{refine_wavefront, RefineStats};
@@ -598,7 +598,10 @@ pub fn march_wavefronts(
                 .unwrap_or(4);
             cpus
         });
-    eprintln!("    [march] using {num_threads} rayon threads");
+    eprintln!(
+        "    [march] using {} rayon threads",
+        format_int(num_threads)
+    );
 
     // Configure rayon's global thread pool (only takes effect on first call)
     let _ = rayon::ThreadPoolBuilder::new()
@@ -703,7 +706,7 @@ pub fn march_wavefronts(
             if done % 500 == 0 {
                 eprintln!(
                     "    [march] {} tracks done ({:.1}s)",
-                    int(done),
+                    format_int(done),
                     start.elapsed().as_secs_f64()
                 );
             }
@@ -742,7 +745,7 @@ pub fn march_wavefronts(
     let total_elapsed = start.elapsed();
     eprintln!(
         "    [marching] complete — {} tracks, {:.1}s total",
-        int(tracks.len()),
+        format_int(tracks.len()),
         total_elapsed.as_secs_f64(),
     );
 

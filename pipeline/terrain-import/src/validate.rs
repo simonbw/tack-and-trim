@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use terrain_core::humanize::format_int;
 
 const DEFAULT_DEPTH: f64 = -300.0;
 
@@ -129,7 +130,7 @@ fn validate_level_data(data: RawLevel) -> ValidationResult {
     if errors.len() >= max_overlap_reports {
         warnings.push(format!(
             "Stopped checking after {} overlap errors (there may be more)",
-            max_overlap_reports
+            format_int(max_overlap_reports)
         ));
     }
 
@@ -153,7 +154,7 @@ fn validate_level_data(data: RawLevel) -> ValidationResult {
                 let parent_desc = if node.parent_index >= 0 {
                     format!(
                         "contour {} (h={}ft)",
-                        node.parent_index,
+                        format_int(node.parent_index),
                         format_height(parent_height)
                     )
                 } else {
@@ -164,7 +165,7 @@ fn validate_level_data(data: RawLevel) -> ValidationResult {
                     error_type: ValidationErrorType::Tree,
                     message: format!(
                         "Contour {} (h={}ft) has parent {} — height crosses zero without a h=0 contour between them",
-                        idx,
+                        format_int(idx),
                         format_height(height),
                         parent_desc
                     ),
@@ -176,7 +177,7 @@ fn validate_level_data(data: RawLevel) -> ValidationResult {
     if tree_error_count > max_tree_errors {
         warnings.push(format!(
             "{} more tree nesting errors not shown",
-            tree_error_count - max_tree_errors
+            format_int(tree_error_count - max_tree_errors)
         ));
     }
 
@@ -427,9 +428,9 @@ fn find_overlaps_with_grid(
                         error_type: ValidationErrorType::Overlap,
                         message: format!(
                             "Contour {} (h={}ft) and contour {} (h={}ft) intersect near ({:.0}, {:.0})",
-                            ci_a,
+                            format_int(ci_a),
                             format_height(contours[ci_a].height),
-                            ci_b,
+                            format_int(ci_b),
                             format_height(contours[ci_b].height),
                             mx,
                             my

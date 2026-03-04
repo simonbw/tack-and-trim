@@ -1,7 +1,7 @@
 //! CPU terrain height queries — contour tree DFS, winding number, IDW.
 //! Mirrors terrainHeightCPU.ts.
 
-use crate::humanize::int;
+use crate::humanize::format_int;
 use crate::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
 
 // ---------------------------------------------------------------------------
@@ -891,10 +891,10 @@ fn build_contour_lookup_grid(
     let cells_with_candidates = cell_starts.windows(2).filter(|w| w[1] > w[0]).count();
     eprintln!(
         "    [lookup grid] {}x{} cells, {} total candidates, {} cells with candidates",
-        int(cols),
-        int(rows),
-        int(total_candidates),
-        int(cells_with_candidates),
+        format_int(cols),
+        format_int(rows),
+        format_int(total_candidates),
+        format_int(cells_with_candidates),
     );
 
     ContourLookupGrid {
@@ -1016,12 +1016,22 @@ pub fn parse_contours(terrain: &TerrainCPUData) -> (Vec<ParsedContour>, ContourL
 
     eprintln!(
         "    [terrain] {} contours, {} vertices",
-        int(n),
-        int(total_vertices)
+        format_int(n),
+        format_int(total_vertices)
     );
-    eprintln!("      contour grids: {:.0}ms", contour_grids_ms);
-    eprintln!("      IDW grids ({}): {:.0}ms", int(idw_count), idw_ms);
-    eprintln!("      lookup grid: {:.0}ms", lookup_ms);
+    eprintln!(
+        "      contour grids: {}ms",
+        format_int(contour_grids_ms.round() as u64)
+    );
+    eprintln!(
+        "      IDW grids ({}): {}ms",
+        format_int(idw_count),
+        format_int(idw_ms.round() as u64)
+    );
+    eprintln!(
+        "      lookup grid: {}ms",
+        format_int(lookup_ms.round() as u64)
+    );
 
     (contours, lookup_grid)
 }

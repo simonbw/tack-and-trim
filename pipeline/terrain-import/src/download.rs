@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use reqwest::blocking::Client;
 use reqwest::Url;
+use terrain_core::humanize::format_int;
 
 use crate::geo::{bbox_intersects, normalize_dataset_path, parse_tile_coverage_from_name};
 use crate::region::{
@@ -124,8 +125,13 @@ fn render_download_progress(
     max_line_len: &mut usize,
     interactive: bool,
 ) -> Result<()> {
-    let line =
-        format!("[{completed}/{total}] completed (downloaded: {downloaded}, skipped: {skipped})");
+    let line = format!(
+        "[{}/{}] completed (downloaded: {}, skipped: {})",
+        format_int(completed),
+        format_int(total),
+        format_int(downloaded),
+        format_int(skipped)
+    );
 
     if interactive {
         let mut stdout = io::stdout().lock();
@@ -144,7 +150,7 @@ fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path) -> Resu
     fs::create_dir_all(out_dir)
         .with_context(|| format!("Failed to create {}", out_dir.display()))?;
 
-    println!("Found {} matching tiles", tiff_urls.len());
+    println!("Found {} matching tiles", format_int(tiff_urls.len()));
 
     let mut downloaded = 0usize;
     let mut skipped = 0usize;
@@ -265,7 +271,11 @@ fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path) -> Resu
         println!();
     }
 
-    println!("Done. Downloaded: {downloaded}, skipped: {skipped}");
+    println!(
+        "Done. Downloaded: {}, skipped: {}",
+        format_int(downloaded),
+        format_int(skipped)
+    );
     println!("Tiles: {}", out_dir.display());
 
     Ok(())
@@ -286,7 +296,7 @@ fn is_url_list_cache_fresh(age: Duration) -> bool {
 fn format_cache_age(age: Duration) -> String {
     let seconds = age.as_secs();
     if seconds < 60 {
-        format!("{seconds}s")
+        format!("{}s", format_int(seconds))
     } else if seconds < 3600 {
         format!("{:.1}m", seconds as f64 / 60.0)
     } else if seconds < 86_400 {
@@ -575,9 +585,9 @@ fn download_usace_s3(
 
     println!(
         "Found {} tiles for prefix \"{}\" (from {} total entries)",
-        tif_urls.len(),
+        format_int(tif_urls.len()),
         state_prefix,
-        all_urls.len()
+        format_int(all_urls.len())
     );
 
     download_tiles(client, &tif_urls, out_dir)

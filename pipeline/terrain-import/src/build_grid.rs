@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
+use terrain_core::humanize::format_int;
 
 use crate::geo::{bbox_intersects, parse_tile_coverage_from_name};
 use crate::region::{grid_cache_dir, load_region_config, resolve_region, tiles_dir, BoundingBox};
@@ -37,7 +38,10 @@ pub fn run_build_grid(region_arg: Option<&str>, force: bool) -> Result<()> {
     fs::create_dir_all(&cache_dir)
         .with_context(|| format!("Failed to create {}", cache_dir.display()))?;
 
-    println!("Merging {} tiles with gdalwarp...", local_tile_paths.len());
+    println!(
+        "Merging {} tiles with gdalwarp...",
+        format_int(local_tile_paths.len())
+    );
 
     let t0 = std::time::Instant::now();
     let mut cmd = Command::new("gdalwarp");
@@ -63,11 +67,11 @@ pub fn run_build_grid(region_arg: Option<&str>, force: bool) -> Result<()> {
         bail!("gdalwarp failed with status {status}");
     }
 
-    let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let elapsed_ms = t0.elapsed().as_millis();
     println!(
-        "Merged grid: {}  ({:.0}ms)",
+        "Merged grid: {}  ({}ms)",
         output_path.display(),
-        elapsed_ms
+        format_int(elapsed_ms)
     );
 
     Ok(())

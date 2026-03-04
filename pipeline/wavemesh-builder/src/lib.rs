@@ -17,7 +17,7 @@ mod wavemesh_file;
 use std::time::Instant;
 
 use anyhow::{bail, Context};
-use humanize::int;
+use humanize::format_int;
 
 use terrain::{ContourLookupGrid, ParsedContour};
 
@@ -86,9 +86,9 @@ fn process_level(
 
     eprintln!(
         "  Parsed level: {}ms ({} contours, {} wave sources)",
-        t0.elapsed().as_millis(),
-        int(level_file.contours.len()),
-        int(wave_sources.len())
+        format_int(t0.elapsed().as_millis()),
+        format_int(level_file.contours.len()),
+        format_int(wave_sources.len())
     );
 
     if wave_sources.is_empty() {
@@ -99,7 +99,10 @@ fn process_level(
     let t1 = Instant::now();
     let terrain = level::build_terrain_data(&level_file);
     let (contours, lookup_grid) = terrain::parse_contours(&terrain);
-    eprintln!("  Built terrain data: {}ms", t1.elapsed().as_millis());
+    eprintln!(
+        "  Built terrain data: {}ms",
+        format_int(t1.elapsed().as_millis())
+    );
 
     let tide_height = 0.0;
     let input_hash = wavemesh_file::compute_input_hash(&wave_sources, &terrain, tide_height);
@@ -111,23 +114,28 @@ fn process_level(
     for (i, ws) in wave_sources.iter().enumerate() {
         let wave_timer = Instant::now();
         let dir_deg = ws.direction * 180.0 / std::f64::consts::PI;
-        eprintln!("  Wave {}: λ={}ft, dir={:.1}°", i, ws.wavelength, dir_deg);
+        eprintln!(
+            "  Wave {}: λ={}ft, dir={:.1}°",
+            format_int(i),
+            ws.wavelength,
+            dir_deg
+        );
 
         let mesh = build_wave_mesh(ws, &terrain, &contours, &lookup_grid, config);
         let elapsed = wave_timer.elapsed();
         eprintln!(
-            "    Built in {:.0}ms — {} vertices, {} triangles",
-            elapsed.as_secs_f64() * 1000.0,
-            int(mesh.vertex_count),
-            int(mesh.index_count / 3)
+            "    Built in {}ms — {} vertices, {} triangles",
+            format_int(elapsed.as_millis()),
+            format_int(mesh.vertex_count),
+            format_int(mesh.index_count / 3)
         );
         meshes.push(mesh);
     }
 
     let total_build_time = total_timer.elapsed();
     eprintln!(
-        "  Total build time: {:.0}ms",
-        total_build_time.as_secs_f64() * 1000.0
+        "  Total build time: {}ms",
+        format_int(total_build_time.as_millis())
     );
 
     let t_write = Instant::now();
@@ -138,7 +146,7 @@ fn process_level(
         "  Wrote {} ({:.1} KB) in {}ms",
         wavemesh_path,
         buffer.len() as f64 / 1024.0,
-        t_write.elapsed().as_millis()
+        format_int(t_write.elapsed().as_millis())
     );
     Ok(())
 }
@@ -161,10 +169,10 @@ fn build_wave_mesh(
     let estimated_steps = (domain_length / wave_params.step_size).ceil() as usize;
     eprintln!(
         "    [marching] domain — rays: {}, {}ft × {}ft, ~{} steps",
-        int(num_rays),
-        int(domain_length as i64),
-        int(domain_width as i64),
-        int(estimated_steps)
+        format_int(num_rays),
+        format_int(domain_length as i64),
+        format_int(domain_width as i64),
+        format_int(estimated_steps)
     );
 
     let march_result = marching::march_wavefronts(
@@ -182,10 +190,10 @@ fn build_wave_mesh(
 
     eprintln!(
         "    splits: {}, merges: {}, verts: {} → {} ({:.0}% reduction)",
-        int(march_result.splits),
-        int(march_result.merges),
-        int(march_result.marched_vertices_before_decimation),
-        int(mesh.vertex_count),
+        format_int(march_result.splits),
+        format_int(march_result.merges),
+        format_int(march_result.marched_vertices_before_decimation),
+        format_int(mesh.vertex_count),
         100.0
             * (1.0
                 - mesh.vertex_count as f64
