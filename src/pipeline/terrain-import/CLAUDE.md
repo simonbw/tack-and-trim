@@ -84,6 +84,7 @@ Each region specifies where to download elevation tiles via a `dataSource` field
 ```
 
 The `datasetPath` must match a directory under `https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/`. Tiles are filtered by bbox using the CUDEM filename convention. For backward compatibility, a top-level `datasetPath` field (without `dataSource`) is also accepted.
+The parsed CUDEM tile URL list is cached under `assets/terrain/<name>/cache/` for 24 hours to avoid re-fetching and re-parsing directory HTML on repeated runs; stale cache is used as a fallback if refresh fails.
 
 **USACE S3** (e.g. Lake Superior DEM, ~1m resolution):
 
@@ -99,6 +100,7 @@ The `datasetPath` must match a directory under `https://coast.noaa.gov/htdata/ra
 ```
 
 Downloads all tiles matching the state prefix from the S3 bucket's URL list file. Spatial clipping is handled by `gdalwarp` in the build-grid step.
+The URL list is cached under `assets/terrain/<name>/cache/` for 24 hours to avoid re-fetching on repeated runs; stale cache is used as a fallback if refresh fails.
 
 **EMODnet WCS** (European seas bathymetry, ~115m resolution):
 

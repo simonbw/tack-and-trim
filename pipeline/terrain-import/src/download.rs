@@ -1,7 +1,10 @@
+use std::collections::hash_map::DefaultHasher;
 use std::fs::{self, File};
+use std::hash::{Hash, Hasher};
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use rayon::prelude::*;
@@ -11,14 +14,15 @@ use reqwest::Url;
 
 use crate::geo::{bbox_intersects, normalize_dataset_path, parse_tile_coverage_from_name};
 use crate::region::{
-    load_region_config, resolve_data_source, resolve_region, tiles_dir, BoundingBox,
-    DataSourceConfig,
+    grid_cache_dir, load_region_config, resolve_data_source, resolve_region, tiles_dir,
+    BoundingBox, DataSourceConfig,
 };
 
 const CUDEM_BASE_URL: &str =
     "https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/";
 const EMODNET_WCS_BASE: &str = "https://ows.emodnet-bathymetry.eu/wcs";
 const DEFAULT_DOWNLOAD_CONCURRENCY: usize = 8;
+const URL_LIST_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 struct DownloadJob {
     url: String,
@@ -32,10 +36,17 @@ struct DownloadProgress {
     max_line_len: usize,
 }
 
+struct CachedUrlList {
+    text: String,
+    age: Duration,
+    is_fresh: bool,
+}
+
 pub fn run_download(region_arg: Option<&str>) -> Result<()> {
     let slug = resolve_region(region_arg)?;
     let config = load_region_config(&slug)?;
     let source = resolve_data_source(&config)?;
+    let cache_dir = grid_cache_dir(&slug);
     let out_dir = tiles_dir(&slug);
 
     println!("Region: {}", config.name);
@@ -51,13 +62,20 @@ pub fn run_download(region_arg: Option<&str>) -> Result<()> {
 
     match source {
         DataSourceConfig::Cudem { dataset_path } => {
-            download_cudem(&client, &dataset_path, &config.bbox, &out_dir)
+            download_cudem(&client, &dataset_path, &config.bbox, &cache_dir, &out_dir)
         }
         DataSourceConfig::UsaceS3 {
             base_url,
             state_prefix,
             url_list,
-        } => download_usace_s3(&client, &base_url, &state_prefix, &url_list, &out_dir),
+        } => download_usace_s3(
+            &client,
+            &base_url,
+            &state_prefix,
+            &url_list,
+            &cache_dir,
+            &out_dir,
+        ),
         DataSourceConfig::EmodnetWcs { coverage_id } => {
             download_emodnet_wcs(&client, &coverage_id, &config.bbox, &out_dir)
         }
@@ -253,20 +271,106 @@ fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path) -> Resu
     Ok(())
 }
 
-fn list_cudem_tiff_urls(client: &Client, dataset_path: &str) -> Result<Vec<String>> {
-    let base_url = Url::parse(CUDEM_BASE_URL).context("Invalid CUDEM base URL")?;
-    let url = base_url
-        .join(dataset_path)
-        .with_context(|| format!("Invalid CUDEM dataset path: {dataset_path}"))?;
+fn parse_url_list_lines(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
 
+fn is_url_list_cache_fresh(age: Duration) -> bool {
+    age <= URL_LIST_CACHE_TTL
+}
+
+fn format_cache_age(age: Duration) -> String {
+    let seconds = age.as_secs();
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 3600 {
+        format!("{:.1}m", seconds as f64 / 60.0)
+    } else if seconds < 86_400 {
+        format!("{:.1}h", seconds as f64 / 3600.0)
+    } else {
+        format!("{:.1}d", seconds as f64 / 86_400.0)
+    }
+}
+
+fn url_list_cache_path(cache_dir: &Path, kind: &str, source_url: &Url) -> PathBuf {
+    let mut hasher = DefaultHasher::new();
+    source_url.as_str().hash(&mut hasher);
+    let cache_key = hasher.finish();
+    cache_dir.join(format!("{kind}-{cache_key:016x}.txt"))
+}
+
+fn read_url_list_cache(cache_path: &Path) -> Result<Option<CachedUrlList>> {
+    let text = match fs::read_to_string(cache_path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(err)
+                .with_context(|| format!("Failed to read URL list cache {}", cache_path.display()))
+        }
+    };
+
+    let age = fs::metadata(cache_path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .unwrap_or(Duration::MAX);
+
+    Ok(Some(CachedUrlList {
+        text,
+        age,
+        is_fresh: is_url_list_cache_fresh(age),
+    }))
+}
+
+fn write_url_list_cache(cache_path: &Path, text: &str) -> Result<()> {
+    if let Some(parent) = cache_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create {}", parent.display()))?;
+    }
+
+    fs::write(cache_path, text)
+        .with_context(|| format!("Failed to write URL list cache {}", cache_path.display()))?;
+    Ok(())
+}
+
+fn serialize_url_list(urls: &[String]) -> String {
+    if urls.is_empty() {
+        String::new()
+    } else {
+        let mut text = urls.join("\n");
+        text.push('\n');
+        text
+    }
+}
+
+fn cudem_dataset_url(dataset_path: &str) -> Result<Url> {
+    let base_url = Url::parse(CUDEM_BASE_URL).context("Invalid CUDEM base URL")?;
+    base_url
+        .join(dataset_path)
+        .with_context(|| format!("Invalid CUDEM dataset path: {dataset_path}"))
+}
+
+fn parse_cudem_tiff_urls(dataset_url: &Url, html: &str) -> Vec<String> {
+    parse_directory_links(html)
+        .into_iter()
+        .filter(|href| href.to_ascii_lowercase().ends_with(".tif"))
+        .filter_map(|href| dataset_url.join(&href).ok().map(|u| u.to_string()))
+        .collect()
+}
+
+fn fetch_cudem_tiff_urls(client: &Client, dataset_url: &Url) -> Result<Vec<String>> {
     let response = client
-        .get(url.clone())
+        .get(dataset_url.clone())
         .send()
-        .with_context(|| format!("Failed to list dataset directory {url}"))?;
+        .with_context(|| format!("Failed to list dataset directory {dataset_url}"))?;
 
     if !response.status().is_success() {
         bail!(
-            "Failed to list dataset directory {url}: HTTP {}",
+            "Failed to list dataset directory {dataset_url}: HTTP {}",
             response.status()
         );
     }
@@ -274,13 +378,64 @@ fn list_cudem_tiff_urls(client: &Client, dataset_path: &str) -> Result<Vec<Strin
     let html = response
         .text()
         .context("Failed to read CUDEM directory HTML")?;
-    let links = parse_directory_links(&html);
 
-    Ok(links
-        .into_iter()
-        .filter(|href| href.to_ascii_lowercase().ends_with(".tif"))
-        .filter_map(|href| url.join(&href).ok().map(|u| u.to_string()))
-        .collect())
+    Ok(parse_cudem_tiff_urls(dataset_url, &html))
+}
+
+fn list_cudem_tiff_urls(
+    client: &Client,
+    dataset_path: &str,
+    cache_dir: &Path,
+) -> Result<Vec<String>> {
+    let dataset_url = cudem_dataset_url(dataset_path)?;
+    let cache_path = url_list_cache_path(cache_dir, "cudem-url-list", &dataset_url);
+    let cached = read_url_list_cache(&cache_path)?;
+
+    match cached {
+        Some(cached) if cached.is_fresh => {
+            println!(
+                "Using cached CUDEM URL list: {} (age {})",
+                cache_path.display(),
+                format_cache_age(cached.age)
+            );
+            Ok(parse_url_list_lines(&cached.text))
+        }
+        Some(cached) => {
+            println!(
+                "Refreshing stale CUDEM URL list cache: {} (age {})",
+                cache_path.display(),
+                format_cache_age(cached.age)
+            );
+            match fetch_cudem_tiff_urls(client, &dataset_url) {
+                Ok(urls) => {
+                    let text = serialize_url_list(&urls);
+                    if let Err(err) = write_url_list_cache(&cache_path, &text) {
+                        eprintln!("Warning: {err}");
+                    } else {
+                        println!("Updated CUDEM URL list cache: {}", cache_path.display());
+                    }
+                    Ok(urls)
+                }
+                Err(err) => {
+                    eprintln!(
+                        "Warning: {err}. Falling back to stale CUDEM URL list cache at {}.",
+                        cache_path.display()
+                    );
+                    Ok(parse_url_list_lines(&cached.text))
+                }
+            }
+        }
+        None => {
+            let urls = fetch_cudem_tiff_urls(client, &dataset_url)?;
+            let text = serialize_url_list(&urls);
+            if let Err(err) = write_url_list_cache(&cache_path, &text) {
+                eprintln!("Warning: {err}");
+            } else {
+                println!("Cached CUDEM URL list: {}", cache_path.display());
+            }
+            Ok(urls)
+        }
+    }
 }
 
 fn select_cudem_urls_by_bbox(all_urls: &[String], bbox: &BoundingBox) -> Vec<String> {
@@ -301,12 +456,13 @@ fn download_cudem(
     client: &Client,
     dataset_path: &str,
     bbox: &BoundingBox,
+    cache_dir: &Path,
     out_dir: &Path,
 ) -> Result<()> {
     let dataset_path = normalize_dataset_path(dataset_path);
     println!("Dataset: {dataset_path}");
 
-    let all_tiff_urls = list_cudem_tiff_urls(client, &dataset_path)?;
+    let all_tiff_urls = list_cudem_tiff_urls(client, &dataset_path, cache_dir)?;
     if all_tiff_urls.is_empty() {
         bail!("No GeoTIFF files found in dataset path: {dataset_path}");
     }
@@ -329,18 +485,7 @@ fn filter_usace_urls(all_urls: &[String], state_prefix: &str) -> Vec<String> {
         .collect()
 }
 
-fn download_usace_s3(
-    client: &Client,
-    base_url: &str,
-    state_prefix: &str,
-    url_list: &str,
-    out_dir: &Path,
-) -> Result<()> {
-    let url_list_url = Url::parse(base_url)
-        .with_context(|| format!("Invalid baseUrl: {base_url}"))?
-        .join(url_list)
-        .with_context(|| format!("Invalid urlList path: {url_list}"))?;
-
+fn fetch_usace_url_list_text(client: &Client, url_list_url: &Url) -> Result<String> {
     println!("Fetching URL list: {url_list_url}");
 
     let response = client
@@ -356,13 +501,69 @@ fn download_usace_s3(
         );
     }
 
-    let text = response.text().context("Failed to read USACE URL list")?;
-    let all_urls: Vec<String> = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(ToString::to_string)
-        .collect();
+    response.text().context("Failed to read USACE URL list")
+}
+
+fn download_usace_s3(
+    client: &Client,
+    base_url: &str,
+    state_prefix: &str,
+    url_list: &str,
+    cache_dir: &Path,
+    out_dir: &Path,
+) -> Result<()> {
+    let url_list_url = Url::parse(base_url)
+        .with_context(|| format!("Invalid baseUrl: {base_url}"))?
+        .join(url_list)
+        .with_context(|| format!("Invalid urlList path: {url_list}"))?;
+    let cache_path = url_list_cache_path(cache_dir, "usace-url-list", &url_list_url);
+    let cached = read_url_list_cache(&cache_path)?;
+
+    let text = match cached {
+        Some(cached) if cached.is_fresh => {
+            println!(
+                "Using cached URL list: {} (age {})",
+                cache_path.display(),
+                format_cache_age(cached.age)
+            );
+            cached.text
+        }
+        Some(cached) => {
+            println!(
+                "Refreshing stale URL list cache: {} (age {})",
+                cache_path.display(),
+                format_cache_age(cached.age)
+            );
+            match fetch_usace_url_list_text(client, &url_list_url) {
+                Ok(text) => {
+                    if let Err(err) = write_url_list_cache(&cache_path, &text) {
+                        eprintln!("Warning: {err}");
+                    } else {
+                        println!("Updated URL list cache: {}", cache_path.display());
+                    }
+                    text
+                }
+                Err(err) => {
+                    eprintln!(
+                        "Warning: {err}. Falling back to stale URL list cache at {}.",
+                        cache_path.display()
+                    );
+                    cached.text
+                }
+            }
+        }
+        None => {
+            let text = fetch_usace_url_list_text(client, &url_list_url)?;
+            if let Err(err) = write_url_list_cache(&cache_path, &text) {
+                eprintln!("Warning: {err}");
+            } else {
+                println!("Cached URL list: {}", cache_path.display());
+            }
+            text
+        }
+    };
+
+    let all_urls = parse_url_list_lines(&text);
 
     let tif_urls = filter_usace_urls(&all_urls, state_prefix);
     if tif_urls.is_empty() {
@@ -439,6 +640,28 @@ mod tests {
     }
 
     #[test]
+    fn parses_cudem_tiff_urls_into_absolute_urls() {
+        let dataset_url =
+            Url::parse("https://example.com/cudem/wash_bellingham/").expect("valid url");
+        let html = r#"
+            <a href="../">../</a>
+            <a href="?C=N;O=D">sort</a>
+            <a href="tile-a.tif">tile-a.tif</a>
+            <a href="tile-b.TIF">tile-b.TIF</a>
+            <a href="readme.txt">readme</a>
+        "#;
+
+        let urls = parse_cudem_tiff_urls(&dataset_url, html);
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.com/cudem/wash_bellingham/tile-a.tif".to_string(),
+                "https://example.com/cudem/wash_bellingham/tile-b.TIF".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn filters_usace_urls_by_state_prefix_and_extension() {
         let all = vec![
             "https://example.com/wi/a.tif".to_string(),
@@ -455,5 +678,55 @@ mod tests {
                 "https://example.com/wi/b.TIF".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn parses_url_list_lines_and_ignores_empty_rows() {
+        let text = " https://example.com/a.tif \n\n\t\nhttps://example.com/b.tif\n";
+        let lines = parse_url_list_lines(text);
+        assert_eq!(
+            lines,
+            vec![
+                "https://example.com/a.tif".to_string(),
+                "https://example.com/b.tif".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn cache_freshness_uses_ttl_boundary() {
+        assert!(is_url_list_cache_fresh(Duration::from_secs(10)));
+        assert!(is_url_list_cache_fresh(URL_LIST_CACHE_TTL));
+        assert!(!is_url_list_cache_fresh(
+            URL_LIST_CACHE_TTL + Duration::from_secs(1)
+        ));
+    }
+
+    #[test]
+    fn cache_path_changes_with_url() {
+        let cache_dir = Path::new("/tmp/cache");
+        let url_a = Url::parse("https://example.com/one/list.txt").expect("valid url");
+        let url_b = Url::parse("https://example.com/two/list.txt").expect("valid url");
+
+        let path_a = url_list_cache_path(cache_dir, "usace-url-list", &url_a);
+        let path_b = url_list_cache_path(cache_dir, "usace-url-list", &url_b);
+
+        assert_ne!(path_a, path_b);
+        assert!(path_a
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.starts_with("usace-url-list-"))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn cache_path_changes_with_kind() {
+        let cache_dir = Path::new("/tmp/cache");
+        let url = Url::parse("https://example.com/list.txt").expect("valid url");
+
+        let usace_path = url_list_cache_path(cache_dir, "usace-url-list", &url);
+        let cudem_path = url_list_cache_path(cache_dir, "cudem-url-list", &url);
+
+        assert_ne!(usace_path, cudem_path);
     }
 }
