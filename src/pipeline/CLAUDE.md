@@ -1,9 +1,13 @@
 # Pipeline — Offline Build Tools
 
-`src/pipeline/` contains code that runs on the **dev machine** (Node.js / worker threads), never in the browser. It has two independent sub-pipelines:
+`src/pipeline/` contains code that runs on the **dev machine** (Node.js), never in the browser.
 
-1. **`terrain-import/`** — Downloads real-world bathymetry data and produces `.level.json` files
-2. **`mesh-building/`** — Ray-traces wave propagation over terrain and produces `.wavemesh` files
+## Overview
+
+1. **`terrain-import/`** — Downloads real-world bathymetry data and produces `.level.json` files.
+2. **`mesh-building/`** — Shared `.wavemesh` format/types used by runtime loading and tooling.
+
+The canonical wave-mesh builder is the Rust implementation in `pipeline/wavemesh-builder/`.
 
 ## Data Flow
 
@@ -16,7 +20,7 @@ assets/terrain/<slug>/cache/merged.tif
   ↓  terrain-import/extract-contours.ts
      (marching squares → ring assembly → simplification → validation)
 resources/levels/<slug>.level.json
-  ↓  bin/build-wavemesh.ts  (calls mesh-building/)
+  ↓  npm run build-wavemesh  (Rust: pipeline/wavemesh-builder)
      (ray tracing → decimation → triangulation → binary packing)
 resources/levels/<slug>.wavemesh
   ↓  runtime: GPU upload → WavefrontRasterizer / WaterQueryShader
@@ -32,7 +36,7 @@ Imports real-world bathymetric/topographic data from NOAA's CUDEM dataset into `
 
 | File                  | Description                                                                                   |
 | --------------------- | --------------------------------------------------------------------------------------------- |
-| `run-all.ts`          | Orchestrates the full pipeline (steps 1–4) via `execSync`                                     |
+| `run-all.ts`          | Orchestrates the full pipeline (download → grid → contours → wavemesh build)                |
 | `download.ts`         | **Step 1** — Scrapes NOAA directory listing, downloads GeoTIFF tiles matching the region bbox |
 | `build-grid.ts`       | **Step 2** — Merges tiles into a single raster via `gdalwarp`                                 |
 | `extract-contours.ts` | **Step 3** — Marching squares → ring tracing → constrained simplification → `.level.json`     |
@@ -93,67 +97,9 @@ Coordinates are in game feet, centered on bbox center. Heights are signed (negat
 
 ## mesh-building/
 
-Ray-traces wave propagation over terrain to build pre-computed wavefront meshes. Each vertex stores amplitude, turbulence, phase offset, and blend weight.
+Only shared `.wavemesh` format helpers remain in TypeScript:
 
-### Entry Point
+- `MeshBuildTypes.ts` — type definitions for wavefront mesh payloads.
+- `WavemeshFile.ts` — binary `.wavemesh` serialization/parsing and input-hash helpers.
 
-`bin/build-wavemesh.ts` (outside this directory) calls `buildMarchingMesh()` for each wave source, then packs results into a `.wavemesh` binary.
-
-### Core Files
-
-| File                  | Purpose                                                                                                                                                                                                                                                                                                |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `buildMarchingMesh.ts`| **Top-level builder**: `buildMarchingMesh(waveSource, bounds, terrain, tideHeight)` — orchestrates bounds → initial wavefront → march → segment decimate → track triangulate                                                                                                                           |
-| `marching.ts`         | **Ray tracing core**: `marchWavefronts()` advances rays with Snell's law refraction, energy dissipation (bottom friction, breaking, refraction), turbulence tracking, segment split/merge, and diffraction. Also `generateInitialWavefront()`, amplitude/diffraction post-processing                |
-| `computeBounds.ts`    | `computeBounds()` — projects terrain contour bboxes onto wave direction, adds asymmetric margins (10λ upwave, 80λ downwave, 20λ crosswave)                                                                                                                                                             |
-| `decimateSegment.ts`  | Segment vertex decimator (`decimateSegment`) used by track decimation                                                                                                                                                                                                                                   |
-| `decimateWavefrontTracks.ts` | Track-based decimation (`decimateWavefrontTracks`) across segment lineage                                                                                                                                                                                                                        |
-| `segmentTracks.ts` | Shared segment-track lineage types (`SegmentTrack`, `SegmentTrackSnapshot`) used by marching, decimation, and triangulation                                                                                                                                                                             |
-| `buildSegmentTracks.ts` | Test/helper utility to reconstruct tracks from step-ordered wavefront fixtures (`buildSegmentTracks`)                                                                                                                                                                                                 |
-| `buildMeshDataFromTracks.ts` | `buildMeshDataFromTracks()` — triangulates along track snapshots, emits vertex/index arrays, computes coverage quad                                                                                                                                                                               |
-| `terrainHeightCPU.ts` | CPU port of the GPU terrain shader: DFS contour tree traversal, winding-number containment, IDW boundary blending, spatial gradient for Snell's law                                                                                                                                                    |
-| `MeshBuildTypes.ts`   | Core types: `WavefrontMeshData`, `MeshBuildBounds`, `CoverageQuad`                                                                                                                                                                                                                                     |
-| `marchingTypes.ts`    | Marching-specific types: `WavefrontSegment`, `Wavefront`, `WaveBounds`, `VERTEX_FLOATS = 6`                                                                                                                                                                                                            |
-| `WavemeshFile.ts`     | `.wavemesh` binary serialization/deserialization, input hash computation for cache validation                                                                                                                                                                                                          |
-
-### Key Constants
-
-- `VERTEX_SPACING = 20 ft` — cross-wave ray spacing
-- `STEP_SIZE = 10 ft` — along-wave march step
-- `DECIMATION_TOLERANCE = 0.02` — max interpolation error for removing steps/vertices
-
-### Vertex Layout (6 floats)
-
-```
-[x, y, amplitude, turbulence, phaseOffset, blendWeight]
-```
-
-### The `.wavemesh` Binary Format
-
-```
-Header (32 bytes):
-  magic "WVMH"  version:u16  waveSourceCount:u16  inputHash:u64  reserved
-
-Per-wave entry table (16 bytes each):
-  vertexDataOffset:u32  vertexCount:u32  indexDataOffset:u32  indexCount:u32
-
-Coverage quad table (36 bytes each):
-  hasCoverageQuad:u32  corners: 8×f32
-
-Data sections:
-  Vertex arrays (Float32Array, 6 f32/vertex)
-  Index arrays (Uint32Array)
-```
-
-`computeInputHash()` produces a ~64-bit FNV-1a hash over all terrain data + wave source parameters for cache invalidation.
-
-### Physics Summary
-
-Each ray is advanced per step with:
-
-- **Speed**: `c = sqrt(tanh(k · depth))` (deep water = 1, shoreline = 0)
-- **Refraction**: Snell's law via depth gradient, clamped ±π/8 per step
-- **Energy loss**: bottom friction + wave breaking (depth < 0.07λ) + refraction dissipation
-- **Amplitude**: `energy × shoaling × divergence` (linear wave theory)
-- **Diffraction**: lateral amplitude diffusion via parabolic approximation, 10 iterations/step
-- **Turbulence**: accumulated from energy dissipation, diffused laterally, decays over distance
+All marching/decimation/triangulation logic now lives in `pipeline/wavemesh-builder/` (Rust).
