@@ -5,6 +5,7 @@ use crate::config::MeshBuildRefinementConfig;
 use crate::wavefront::WavefrontSegment;
 
 /// Counters for split and merge operations during wavefront refinement.
+#[derive(Clone, Copy, Default)]
 pub struct RefineStats {
     pub splits: u64,
     pub merges: u64,
@@ -12,15 +13,14 @@ pub struct RefineStats {
 
 /// Single pass of merge/split refinement on a wavefront segment.
 pub fn refine_wavefront(
-    wf: &WavefrontSegment,
+    wf: WavefrontSegment,
     vertex_spacing: f64,
     initial_delta_t: f64,
-    stats: &mut RefineStats,
     config: &MeshBuildRefinementConfig,
-) -> WavefrontSegment {
+) -> (WavefrontSegment, RefineStats) {
     let src_len = wf.len();
     if src_len <= 1 {
-        return wf.clone();
+        return (wf, RefineStats::default());
     }
 
     let min_dist = vertex_spacing * config.merge_ratio;
@@ -28,12 +28,83 @@ pub fn refine_wavefront(
     let can_split = src_len < config.max_segment_points;
     let split_escalation_exp = config.split_escalation.ln() / 2.0_f64.ln();
 
-    // Pre-allocate for roughly the same size — splits/merges make it vary slightly
+    // Pre-scan for split/merge decisions. If there are no edits, return the
+    // input segment unchanged and avoid re-allocating/copying all points.
+    let mut split_count = 0usize;
+    let mut splits = 0usize;
+    let mut merges = 0usize;
+
+    let mut prev_x = wf.x[0];
+    let mut prev_y = wf.y[0];
+    let mut prev_t = wf.t[0];
+    let mut prev_energy = wf.energy[0];
+
+    for i in 1..src_len {
+        let curr_x = wf.x[i];
+        let curr_y = wf.y[i];
+        let curr_t = wf.t[i];
+        let curr_energy = wf.energy[i];
+
+        let dx = curr_x - prev_x;
+        let dy = curr_y - prev_y;
+        let dist_sq = dx * dx + dy * dy;
+
+        // Merge check — never merge sentinels
+        if dist_sq < min_dist_sq && prev_t != 0.0 && prev_t != 1.0 && curr_t != 0.0 && curr_t != 1.0
+        {
+            merges += 1;
+            continue;
+        }
+
+        // Split check
+        let delta_t = (curr_t - prev_t).abs();
+        let t_scale = if delta_t > 1e-12 {
+            initial_delta_t / delta_t
+        } else {
+            config.max_split_ratio
+        };
+        let escalation = t_scale.powf(split_escalation_exp);
+        let effective_ratio = (config.base_split_ratio * escalation).min(config.max_split_ratio);
+        let max_dist = vertex_spacing * effective_ratio;
+        let max_dist_sq = max_dist * max_dist;
+
+        let prev_is_sentinel = prev_t == 0.0 || prev_t == 1.0;
+        let curr_is_sentinel = curr_t == 0.0 || curr_t == 1.0;
+
+        if can_split
+            && dist_sq > max_dist_sq
+            && split_count < config.max_splits_per_segment
+            && prev_energy >= config.min_split_energy
+            && curr_energy >= config.min_split_energy
+            && !prev_is_sentinel
+            && !curr_is_sentinel
+        {
+            split_count += 1;
+            splits += 1;
+        }
+
+        prev_x = curr_x;
+        prev_y = curr_y;
+        prev_t = curr_t;
+        prev_energy = curr_energy;
+    }
+
+    let stats = RefineStats {
+        splits: splits as u64,
+        merges: merges as u64,
+    };
+
+    if splits == 0 && merges == 0 {
+        return (wf, stats);
+    }
+
+    // Edits are required; build a new segment with exact target capacity.
+    let out_cap = src_len + splits - merges;
     let mut result = WavefrontSegment::with_capacity(
         wf.track_id,
         wf.parent_track_id,
         wf.source_step_index,
-        src_len + src_len / 4,
+        out_cap,
     );
 
     // Push first point
@@ -52,7 +123,7 @@ pub fn refine_wavefront(
         wf.blend[0],
     );
 
-    let mut split_count = 0usize;
+    split_count = 0;
 
     for i in 1..src_len {
         let prev_idx = result.len() - 1;
@@ -74,7 +145,6 @@ pub fn refine_wavefront(
         // Merge check — never merge sentinels
         if dist_sq < min_dist_sq && prev_t != 0.0 && prev_t != 1.0 && curr_t != 0.0 && curr_t != 1.0
         {
-            stats.merges += 1;
             continue;
         }
 
@@ -124,7 +194,6 @@ pub fn refine_wavefront(
                 (prev_blend + wf.blend[i]) / 2.0,
             );
             split_count += 1;
-            stats.splits += 1;
         }
 
         result.push(
@@ -143,5 +212,5 @@ pub fn refine_wavefront(
         );
     }
 
-    result
+    (result, stats)
 }

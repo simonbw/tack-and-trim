@@ -209,32 +209,27 @@ fn advance_track_segment_step(
         .collect();
 
     // ── Pass 2: sequential assembly with split/flush logic ──────────────────
-    let mut produced: Vec<WavefrontSegment> = Vec::new();
+    let mut raw_segments: Vec<WavefrontSegment> = Vec::new();
     let mut refracted_count = 0u64;
     let mut turn_clamped_count = 0u64;
 
     let mut current =
         WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len);
 
-    let mut flush = |current: &mut WavefrontSegment, produced: &mut Vec<WavefrontSegment>| {
+    let flush = |current: &mut WavefrontSegment, raw_segments: &mut Vec<WavefrontSegment>| {
         if current.len() == 0 {
             return;
         }
-        let refined = refine_wavefront(
+        raw_segments.push(std::mem::replace(
             current,
-            wp.vertex_spacing,
-            wp.initial_delta_t,
-            stats,
-            &config.refinement,
-        );
-        produced.push(refined);
-        *current = WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len);
+            WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len),
+        ));
     };
 
     for outcome in &outcomes {
         match outcome {
             RayStepOutcome::Gap => {
-                flush(&mut current, &mut produced);
+                flush(&mut current, &mut raw_segments);
             }
             RayStepOutcome::Advanced {
                 nx,
@@ -268,7 +263,7 @@ fn advance_track_segment_step(
                         prev_e / energy
                     };
                     if ratio > config.refinement.max_energy_ratio {
-                        flush(&mut current, &mut produced);
+                        flush(&mut current, &mut raw_segments);
                     }
                 }
 
@@ -290,15 +285,30 @@ fn advance_track_segment_step(
         }
     }
 
-    if current.len() > 0 {
-        let refined = refine_wavefront(
-            &current,
-            wp.vertex_spacing,
-            wp.initial_delta_t,
-            stats,
-            &config.refinement,
-        );
-        produced.push(refined);
+    flush(&mut current, &mut raw_segments);
+
+    // ── Pass 3: refine assembled segments (parallel if we have multiple) ────
+    let refined: Vec<(WavefrontSegment, RefineStats)> = if raw_segments.len() <= 1 {
+        raw_segments
+            .into_iter()
+            .map(|seg| {
+                refine_wavefront(seg, wp.vertex_spacing, wp.initial_delta_t, &config.refinement)
+            })
+            .collect()
+    } else {
+        raw_segments
+            .into_par_iter()
+            .map(|seg| {
+                refine_wavefront(seg, wp.vertex_spacing, wp.initial_delta_t, &config.refinement)
+            })
+            .collect()
+    };
+
+    let mut produced: Vec<WavefrontSegment> = Vec::with_capacity(refined.len());
+    for (seg, local_stats) in refined {
+        stats.splits += local_stats.splits;
+        stats.merges += local_stats.merges;
+        produced.push(seg);
     }
 
     (
