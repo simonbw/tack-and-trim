@@ -5,6 +5,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use gdal::Dataset;
+use rayon::prelude::*;
 use serde::Serialize;
 use terrain_core::humanize::format_int;
 use terrain_core::step::{format_ms, StepView};
@@ -15,7 +16,7 @@ use crate::marching::{
     build_block_index, build_closed_rings, march_contours, ScalarGrid,
 };
 use crate::region::{
-    assets_root, grid_cache_dir, load_region_config, resolve_region, resolve_repo_path,
+    display_path, grid_cache_dir, load_region_config, resolve_region, resolve_repo_path,
 };
 use crate::segment_index::SegmentIndex;
 use crate::simplify::{ring_perimeter, signed_area, Point};
@@ -82,34 +83,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
         );
     }
 
-    let merged_display = terrain_relative_path(&merged_path);
-    let loaded = view.try_run_step(
-        &format!("Loading grid from {merged_display}"),
-        || load_merged_grid(&merged_path),
-        |loaded, d| {
-            let mut msg = format!(
-                "Loaded grid: {}x{}, {:.1}ft to {:.1}ft ({}ms)",
-                format_int(loaded.grid.width),
-                format_int(loaded.grid.height),
-                loaded.min_feet,
-                loaded.max_feet,
-                format_ms(d)
-            );
-            if loaded.seam_fills > 0 {
-                msg.push_str(&format!(
-                    ", {} seam fills",
-                    format_int(loaded.seam_fills)
-                ));
-            }
-            if loaded.depth_fills > 0 {
-                msg.push_str(&format!(
-                    ", {} depth fills",
-                    format_int(loaded.depth_fills)
-                ));
-            }
-            msg
-        },
-    )?;
+    let loaded = load_merged_grid(&merged_path, view)?;
 
     view.info(format!("Region: {}", config.name));
     view.info(format!(
@@ -207,7 +181,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
         write_level_file(&output_path, Vec::new())?;
         view.info(format!(
             "Wrote empty contour set to {}",
-            output_path.display()
+            display_path(&output_path)
         ));
         return Ok(());
     }
@@ -334,7 +308,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
         |_, d| {
             format!(
                 "Wrote contours to {}  ({}ms)",
-                output_path.display(),
+                display_path(&output_path),
                 format_ms(d)
             )
         },
@@ -375,102 +349,150 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
     Ok(())
 }
 
-fn load_merged_grid(merged_path: &Path) -> Result<LoadedGrid> {
-    let dataset = Dataset::open(merged_path)
-        .with_context(|| format!("Failed to open {}", merged_path.display()))?;
-    let band = dataset
-        .rasterband(1)
-        .context("Failed to read raster band 1")?;
+fn load_merged_grid(merged_path: &Path, view: &StepView) -> Result<LoadedGrid> {
+    let merged_display = display_path(merged_path);
 
-    let (width, height) = band.size();
-    let transform = dataset.geo_transform().context("Missing geotransform")?;
-    let no_data_value = band.no_data_value();
-
-    let buffer = band
-        .read_as::<f64>((0, 0), (width, height), (width, height), None)
-        .context("Failed to read raster")?;
-
-    let mut values = vec![0.0; width * height];
-    let mut nodata_mask = vec![0u8; width * height];
-
-    for i in 0..values.len() {
-        let v = buffer.data()[i];
-        if !v.is_finite()
-            || no_data_value
-                .map(|no_data| (v - no_data).abs() < 1e-6)
-                .unwrap_or(false)
-        {
-            nodata_mask[i] = 1;
-            values[i] = 0.0;
-        } else {
-            values[i] = meters_to_feet(v);
-        }
-    }
-
-    let mut seam_fills = 0usize;
-    for y in 1..height.saturating_sub(1) {
-        for x in 0..width {
-            let idx = y * width + x;
-            if nodata_mask[idx] == 0 {
-                continue;
-            }
-
-            let above = (y - 1) * width + x;
-            let below = (y + 1) * width + x;
-            if nodata_mask[above] == 0 && nodata_mask[below] == 0 {
-                values[idx] = (values[above] + values[below]) * 0.5;
-                nodata_mask[idx] = 0;
-                seam_fills += 1;
-            }
-        }
-    }
-
-    let mut depth_fills = 0usize;
-    for i in 0..values.len() {
-        if nodata_mask[i] != 0 {
-            values[i] = DEFAULT_DEPTH;
-            nodata_mask[i] = 0;
-            depth_fills += 1;
-        }
-    }
-
-    let pad_w = width + 2;
-    let pad_h = height + 2;
-    let mut padded = vec![DEFAULT_DEPTH; pad_w * pad_h];
-    for y in 0..height {
-        let src = y * width;
-        let dst = (y + 1) * pad_w + 1;
-        padded[dst..dst + width].copy_from_slice(&values[src..src + width]);
-    }
-
-    let mut min_feet = f64::INFINITY;
-    let mut max_feet = f64::NEG_INFINITY;
-    for &v in &values {
-        min_feet = min_feet.min(v);
-        max_feet = max_feet.max(v);
-    }
-
-    Ok(LoadedGrid {
-        grid: ScalarGrid {
-            width: pad_w,
-            height: pad_h,
-            values: padded,
+    let (width, height, transform, no_data_value, raw_data) = view.try_run_step(
+        &format!("Reading raster from {merged_display}"),
+        || -> Result<_> {
+            let dataset = Dataset::open(merged_path)
+                .with_context(|| format!("Failed to open {}", merged_path.display()))?;
+            let band = dataset
+                .rasterband(1)
+                .context("Failed to read raster band 1")?;
+            let (w, h) = band.size();
+            let tf = dataset.geo_transform().context("Missing geotransform")?;
+            let ndv = band.no_data_value();
+            let buf = band
+                .read_as::<f64>((0, 0), (w, h), (w, h), None)
+                .context("Failed to read raster")?;
+            Ok((w, h, tf, ndv, buf))
         },
-        min_feet,
-        max_feet,
-        lon_step: transform[1].abs(),
-        lat_step: transform[5].abs(),
-        origin_lon: transform[0],
-        origin_lat: transform[3],
-        seam_fills,
-        depth_fills,
-    })
-}
+        |(w, h, ..), d| {
+            format!(
+                "Read raster: {}x{} ({}ms)",
+                format_int(*w),
+                format_int(*h),
+                format_ms(d)
+            )
+        },
+    )?;
 
-fn terrain_relative_path(path: &Path) -> String {
-    path.strip_prefix(assets_root())
-        .map(|rel| rel.display().to_string())
-        .unwrap_or_else(|_| path.display().to_string())
+    let loaded = view.run_step(
+        "Processing grid",
+        || {
+            let pad_w = width + 2;
+            let pad_h = height + 2;
+            let raw = raw_data.data();
+
+            // Pass 1 (parallel): convert to feet, write directly into padded buffer.
+            // Use NAN as sentinel for nodata cells; border stays DEFAULT_DEPTH.
+            let mut padded = vec![DEFAULT_DEPTH; pad_w * pad_h];
+            padded
+                .par_chunks_mut(pad_w)
+                .skip(1)
+                .take(height)
+                .enumerate()
+                .for_each(|(src_y, pad_row)| {
+                    let row_start = src_y * width;
+                    for x in 0..width {
+                        let v = raw[row_start + x];
+                        if !v.is_finite()
+                            || no_data_value
+                                .map(|nd| (v - nd).abs() < 1e-6)
+                                .unwrap_or(false)
+                        {
+                            pad_row[x + 1] = f64::NAN;
+                        } else {
+                            pad_row[x + 1] = meters_to_feet(v);
+                        }
+                    }
+                });
+
+            // Pass 2 (sequential): seam fill — interpolate single-row nodata gaps.
+            // Only ~2,581 cells on this dataset, so sequential is fine.
+            let mut seam_fills = 0usize;
+            for y in 2..pad_h.saturating_sub(2) {
+                for x in 1..=width {
+                    let idx = y * pad_w + x;
+                    if !padded[idx].is_nan() {
+                        continue;
+                    }
+                    let above = (y - 1) * pad_w + x;
+                    let below = (y + 1) * pad_w + x;
+                    if !padded[above].is_nan() && !padded[below].is_nan() {
+                        padded[idx] = (padded[above] + padded[below]) * 0.5;
+                        seam_fills += 1;
+                    }
+                }
+            }
+
+            // Pass 3 (parallel): replace remaining NAN with DEFAULT_DEPTH, compute min/max.
+            let (min_feet, max_feet, depth_fills) = padded
+                .par_chunks_mut(pad_w)
+                .skip(1)
+                .take(height)
+                .map(|pad_row| {
+                    let mut local_min = f64::INFINITY;
+                    let mut local_max = f64::NEG_INFINITY;
+                    let mut local_fills = 0usize;
+                    for x in 1..=width {
+                        if pad_row[x].is_nan() {
+                            pad_row[x] = DEFAULT_DEPTH;
+                            local_fills += 1;
+                        }
+                        local_min = local_min.min(pad_row[x]);
+                        local_max = local_max.max(pad_row[x]);
+                    }
+                    (local_min, local_max, local_fills)
+                })
+                .reduce(
+                    || (f64::INFINITY, f64::NEG_INFINITY, 0usize),
+                    |(min1, max1, f1), (min2, max2, f2)| {
+                        (min1.min(min2), max1.max(max2), f1 + f2)
+                    },
+                );
+
+            LoadedGrid {
+                grid: ScalarGrid {
+                    width: pad_w,
+                    height: pad_h,
+                    values: padded,
+                },
+                min_feet,
+                max_feet,
+                lon_step: transform[1].abs(),
+                lat_step: transform[5].abs(),
+                origin_lon: transform[0],
+                origin_lat: transform[3],
+                seam_fills,
+                depth_fills,
+            }
+        },
+        |loaded, d| {
+            let mut msg = format!(
+                "Processed grid: {:.1}ft to {:.1}ft ({}ms)",
+                loaded.min_feet,
+                loaded.max_feet,
+                format_ms(d)
+            );
+            if loaded.seam_fills > 0 {
+                msg.push_str(&format!(
+                    ", {} seam fills",
+                    format_int(loaded.seam_fills)
+                ));
+            }
+            if loaded.depth_fills > 0 {
+                msg.push_str(&format!(
+                    ", {} depth fills",
+                    format_int(loaded.depth_fills)
+                ));
+            }
+            msg
+        },
+    );
+
+    Ok(loaded)
 }
 
 fn quantize_levels(min: f64, max: f64, interval: f64) -> Vec<f64> {
