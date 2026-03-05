@@ -376,7 +376,7 @@ fn march_single_track(
     loop {
         let (next_step, produced, refractions, clamps) = advance_track_segment_step(
             &segment,
-            segment.parent_track_id,
+            Some(track.track_id),
             wp,
             bounds,
             breaking_depth,
