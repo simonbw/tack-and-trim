@@ -2,6 +2,7 @@
 //! and parallel orchestration via concurrent work queue.
 //! Mirrors marching.ts.
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use rayon::prelude::*;
@@ -555,6 +556,100 @@ fn post_process_segments(
 // ── Parallel march orchestration ─────────────────────────────────────────────
 
 /// Aggregated results from marching all wavefronts for a single wave source.
+/// Reorder tracks in deterministic DFS order based on the parent-child tree.
+/// This eliminates dependence on rayon scheduling order for track_id assignment.
+fn reorder_tracks_deterministic(mut tracks: Vec<SegmentTrack>) -> Vec<SegmentTrack> {
+    if tracks.is_empty() {
+        return tracks;
+    }
+
+    // Build a map from old track_id → index in the tracks vec.
+    let id_to_idx: HashMap<i32, usize> = tracks
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.track_id, i))
+        .collect();
+
+    // Sort each track's children by the midpoint of their first snapshot's t range.
+    // This is deterministic because t values come from geometry, not scheduling.
+    for i in 0..tracks.len() {
+        let child_ids = tracks[i].child_track_ids.clone();
+        if child_ids.len() <= 1 {
+            continue;
+        }
+        let mut children_with_key: Vec<(i32, f64)> = child_ids
+            .iter()
+            .map(|&cid| {
+                let midpoint = id_to_idx.get(&cid).map_or(0.0, |&idx| {
+                    let snap = &tracks[idx].snapshots;
+                    if snap.is_empty() || snap[0].segment.t.is_empty() {
+                        0.0
+                    } else {
+                        let t = &snap[0].segment.t;
+                        (t[0] + t[t.len() - 1]) / 2.0
+                    }
+                });
+                (cid, midpoint)
+            })
+            .collect();
+        children_with_key.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        tracks[i].child_track_ids = children_with_key.iter().map(|&(id, _)| id).collect();
+    }
+
+    // DFS from root (the track with parent_track_id == None).
+    let root_idx = tracks
+        .iter()
+        .position(|t| t.parent_track_id.is_none())
+        .expect("no root track found");
+
+    let mut visit_order: Vec<usize> = Vec::with_capacity(tracks.len());
+    let mut stack: Vec<usize> = vec![root_idx];
+    while let Some(idx) = stack.pop() {
+        visit_order.push(idx);
+        // Push children in reverse so leftmost child is visited first.
+        let child_ids = &tracks[idx].child_track_ids;
+        for &cid in child_ids.iter().rev() {
+            if let Some(&cidx) = id_to_idx.get(&cid) {
+                stack.push(cidx);
+            }
+        }
+    }
+
+    debug_assert_eq!(
+        visit_order.len(),
+        tracks.len(),
+        "DFS did not visit all tracks: visited {} of {}",
+        visit_order.len(),
+        tracks.len()
+    );
+
+    // Build old_id → new_id mapping.
+    let mut old_to_new: HashMap<i32, i32> = HashMap::with_capacity(tracks.len());
+    for (new_id, &old_idx) in visit_order.iter().enumerate() {
+        old_to_new.insert(tracks[old_idx].track_id, new_id as i32);
+    }
+
+    // Extract tracks in DFS order using indices (avoids ownership issues).
+    // We swap-remove from the end to avoid shifting, but we need stable indices,
+    // so instead we'll use a temporary vec of Options.
+    let mut slots: Vec<Option<SegmentTrack>> = tracks.into_iter().map(Some).collect();
+    let mut ordered: Vec<SegmentTrack> = Vec::with_capacity(visit_order.len());
+
+    for &idx in &visit_order {
+        let mut track = slots[idx].take().unwrap();
+        track.track_id = old_to_new[&track.track_id];
+        track.parent_track_id = track.parent_track_id.map(|pid| old_to_new[&pid]);
+        track.child_track_ids = track
+            .child_track_ids
+            .iter()
+            .map(|&cid| old_to_new[&cid])
+            .collect();
+        ordered.push(track);
+    }
+
+    ordered
+}
+
 pub struct MarchResult {
     pub tracks: Vec<SegmentTrack>,
     pub marched_vertices_before_decimation: u64,
@@ -588,25 +683,6 @@ pub fn march_wavefronts(
     } else {
         1.0
     };
-
-    let num_threads = std::env::var("WAVEMESH_THREADS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| {
-            let cpus = std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4);
-            cpus
-        });
-    eprintln!(
-        "    [march] using {} rayon threads",
-        format_int(num_threads)
-    );
-
-    // Configure rayon's global thread pool (only takes effect on first call)
-    let _ = rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build_global();
 
     let start = Instant::now();
 
@@ -739,8 +815,8 @@ pub fn march_wavefronts(
         });
     }); // blocks until all tracks (including children) are done
 
-    let mut tracks = all_tracks.into_inner().unwrap();
-    tracks.sort_by_key(|t| t.track_id);
+    let tracks = all_tracks.into_inner().unwrap();
+    let tracks = reorder_tracks_deterministic(tracks);
 
     let total_elapsed = start.elapsed();
     eprintln!(

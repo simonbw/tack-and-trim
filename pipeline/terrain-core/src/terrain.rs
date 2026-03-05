@@ -880,7 +880,7 @@ fn build_contour_lookup_grid(
             })
             .map(|&ci| (contours[ci as usize].depth, ci))
             .collect();
-        candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
         for &(_, ci) in &candidates {
             candidate_indices.push(ci);
         }

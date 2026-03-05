@@ -24,6 +24,21 @@ use terrain::{ContourLookupGrid, ParsedContour};
 pub fn run(level_paths: Vec<String>, output: Option<String>) -> anyhow::Result<()> {
     let config = config::resolve_config();
 
+    // Initialize rayon thread pool once, before processing any levels.
+    let num_threads = std::env::var("WAVEMESH_THREADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+        });
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global()
+        .context("failed to initialize rayon thread pool")?;
+    eprintln!("Using {} rayon threads", format_int(num_threads));
+
     let level_paths: Vec<String> = if level_paths.is_empty() {
         glob::glob("resources/levels/*.level.json")
             .context("invalid glob pattern")?
@@ -61,6 +76,20 @@ pub fn run(level_paths: Vec<String>, output: Option<String>) -> anyhow::Result<(
 
 pub fn build_wavemesh_for_level(level_path: &str, output: Option<&str>) -> anyhow::Result<()> {
     let config = config::resolve_config();
+
+    // Initialize rayon thread pool (no-op if already initialized by run()).
+    let num_threads = std::env::var("WAVEMESH_THREADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+        });
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global();
+
     let wavemesh_path = output
         .map(std::string::ToString::to_string)
         .unwrap_or_else(|| level_path.replace(".level.json", ".wavemesh"));
