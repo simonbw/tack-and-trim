@@ -1,18 +1,18 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Write};
+use std::io::BufWriter;
 use std::path::Path;
-use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use gdal::Dataset;
 use serde::Serialize;
 use terrain_core::humanize::format_int;
+use terrain_core::step::{format_ms, StepView};
 
 use crate::constrained_simplify::constrained_simplify_closed_ring;
 use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet};
 use crate::marching::{
-    build_block_index, build_closed_rings, march_contours, BlockIndex, ScalarGrid,
+    build_block_index, build_closed_rings, march_contours, ScalarGrid,
 };
 use crate::region::{
     assets_root, grid_cache_dir, load_region_config, resolve_region, resolve_repo_path,
@@ -66,9 +66,11 @@ struct LoadedGrid {
     lat_step: f64,
     origin_lon: f64,
     origin_lat: f64,
+    seam_fills: usize,
+    depth_fills: usize,
 }
 
-pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
+pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
     let slug = resolve_region(region_arg)?;
     let config = load_region_config(&slug)?;
 
@@ -81,28 +83,43 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
     }
 
     let merged_display = terrain_relative_path(&merged_path);
-    print!("Loading merged grid from {merged_display}...");
-    let _ = io::stdout().flush();
-    let mut timer = Instant::now();
-    let loaded = load_merged_grid(&merged_path, &merged_display)?;
-    println!("Load grid: {}ms", format_int(timer.elapsed().as_millis()));
+    let loaded = view.try_run_step(
+        &format!("Loading grid from {merged_display}"),
+        || load_merged_grid(&merged_path),
+        |loaded, d| {
+            let mut msg = format!(
+                "Loaded grid: {}x{}, {:.1}ft to {:.1}ft ({}ms)",
+                format_int(loaded.grid.width),
+                format_int(loaded.grid.height),
+                loaded.min_feet,
+                loaded.max_feet,
+                format_ms(d)
+            );
+            if loaded.seam_fills > 0 {
+                msg.push_str(&format!(
+                    ", {} seam fills",
+                    format_int(loaded.seam_fills)
+                ));
+            }
+            if loaded.depth_fills > 0 {
+                msg.push_str(&format!(
+                    ", {} depth fills",
+                    format_int(loaded.depth_fills)
+                ));
+            }
+            msg
+        },
+    )?;
 
-    println!("Region: {}", config.name);
-    println!(
-        "Grid: {}x{}, elevation range {:.1}ft to {:.1}ft",
-        format_int(loaded.grid.width),
-        format_int(loaded.grid.height),
-        loaded.min_feet,
-        loaded.max_feet
-    );
-    println!(
+    view.info(format!("Region: {}", config.name));
+    view.info(format!(
         "Settings: interval {}ft, simplify {}ft, scale {}, minPerimeter {}ft, minPoints {}",
         config.interval,
         config.simplify,
         config.scale,
         config.min_perimeter,
         format_int(config.min_points)
-    );
+    ));
 
     let clamped_min = loaded.min_feet.max(DEFAULT_DEPTH);
     let levels = quantize_levels(clamped_min, loaded.max_feet, config.interval);
@@ -111,175 +128,184 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
     let bbox_min_lon = loaded.origin_lon - loaded.lon_step;
     let bbox_max_lat = loaded.origin_lat + loaded.lat_step;
 
-    timer = Instant::now();
-    let blocks = build_block_index(&loaded.grid);
-    print_block_index_stats(&blocks, timer.elapsed().as_secs_f64() * 1000.0);
+    let blocks = view.run_step(
+        "Building block index",
+        || build_block_index(&loaded.grid),
+        |blocks, d| {
+            format!(
+                "Block index: {}x{} blocks  ({}ms)",
+                format_int(blocks.block_cols),
+                format_int(blocks.block_rows),
+                format_ms(d)
+            )
+        },
+    );
 
-    let mut all_rings = Vec::new();
-    let mut total_march_ms = 0.0;
-    let mut total_rings_ms = 0.0;
-    let mut total_raw_rings = 0usize;
+    let all_rings = view.run_step_with_progress(
+        "Marching contours",
+        Some(levels.len()),
+        |progress| {
+            let mut all_rings = Vec::new();
 
-    for (li, level_feet) in levels.iter().enumerate() {
-        timer = Instant::now();
-        let segments = march_contours(&loaded.grid, &blocks, *level_feet);
-        let march_ms = timer.elapsed().as_secs_f64() * 1000.0;
-        total_march_ms += march_ms;
+            for level_feet in &levels {
+                let segments = march_contours(&loaded.grid, &blocks, *level_feet);
+                let rings = build_closed_rings(&segments);
 
-        timer = Instant::now();
-        let rings = build_closed_rings(&segments);
+                for ring in rings {
+                    let mut feet_points = Vec::with_capacity(ring.len());
+                    let mut bbox = RingBBox {
+                        min_x: f64::INFINITY,
+                        min_y: f64::INFINITY,
+                        max_x: f64::NEG_INFINITY,
+                        max_y: f64::NEG_INFINITY,
+                    };
 
-        let mut ring_count = 0usize;
-        let mut kept_count = 0usize;
+                    for (gx, gy) in ring {
+                        let lon = bbox_min_lon + gx * loaded.lon_step;
+                        let lat = bbox_max_lat - gy * loaded.lat_step;
+                        let (x_feet, y_feet) = lat_lon_to_feet(lat, lon, center_lat, center_lon);
+                        let fy = if config.flip_y { -y_feet } else { y_feet };
+                        feet_points.push((x_feet, fy));
 
-        for ring in rings {
-            ring_count += 1;
+                        bbox.min_x = bbox.min_x.min(x_feet);
+                        bbox.max_x = bbox.max_x.max(x_feet);
+                        bbox.min_y = bbox.min_y.min(fy);
+                        bbox.max_y = bbox.max_y.max(fy);
+                    }
 
-            let mut feet_points = Vec::with_capacity(ring.len());
-            let mut bbox = RingBBox {
-                min_x: f64::INFINITY,
-                min_y: f64::INFINITY,
-                max_x: f64::NEG_INFINITY,
-                max_y: f64::NEG_INFINITY,
-            };
+                    if ring_perimeter(&feet_points) < config.min_perimeter {
+                        continue;
+                    }
+                    if feet_points.len() < config.min_points {
+                        continue;
+                    }
 
-            for (gx, gy) in ring {
-                let lon = bbox_min_lon + gx * loaded.lon_step;
-                let lat = bbox_max_lat - gy * loaded.lat_step;
-                let (x_feet, y_feet) = lat_lon_to_feet(lat, lon, center_lat, center_lon);
-                let fy = if config.flip_y { -y_feet } else { y_feet };
-                feet_points.push((x_feet, fy));
+                    all_rings.push(RawRing {
+                        height: *level_feet,
+                        points: feet_points,
+                        bbox,
+                    });
+                }
 
-                bbox.min_x = bbox.min_x.min(x_feet);
-                bbox.max_x = bbox.max_x.max(x_feet);
-                bbox.min_y = bbox.min_y.min(fy);
-                bbox.max_y = bbox.max_y.max(fy);
+                progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
 
-            if ring_perimeter(&feet_points) < config.min_perimeter {
-                continue;
-            }
-            if feet_points.len() < config.min_points {
-                continue;
-            }
-
-            all_rings.push(RawRing {
-                height: *level_feet,
-                points: feet_points,
-                bbox,
-            });
-            kept_count += 1;
-        }
-
-        let rings_ms = timer.elapsed().as_secs_f64() * 1000.0;
-        total_rings_ms += rings_ms;
-        total_raw_rings += ring_count;
-
-        println!(
-            "[{}/{}] {:.3}ft: {} rings -> {} kept  (march {}ms, convert {}ms)",
-            format_int(li + 1),
-            format_int(levels.len()),
-            level_feet,
-            format_int(ring_count),
-            format_int(kept_count),
-            format_int(march_ms.round() as u64),
-            format_int(rings_ms.round() as u64)
-        );
-    }
-
-    println!(
-        "\nPhase 1: {} raw rings -> {} pre-filtered  (march {}ms, convert {}ms)",
-        format_int(total_raw_rings),
-        format_int(all_rings.len()),
-        format_int(total_march_ms.round() as u64),
-        format_int(total_rings_ms.round() as u64)
+            all_rings
+        },
+        |rings, d| {
+            format!(
+                "Marched {} levels → {} rings ({}ms)",
+                format_int(levels.len()),
+                format_int(rings.len()),
+                format_ms(d)
+            )
+        },
     );
 
     if all_rings.is_empty() {
         let output_path = resolve_repo_path(&config.output);
         write_level_file(&output_path, Vec::new())?;
-        println!("Wrote empty contour set to {}", output_path.display());
+        view.info(format!(
+            "Wrote empty contour set to {}",
+            output_path.display()
+        ));
         return Ok(());
     }
 
-    timer = Instant::now();
-    let tree_roots = build_containment_tree(&all_rings);
+    let tree_roots = view.run_step(
+        "Building containment tree",
+        || build_containment_tree(&all_rings),
+        |roots, d| {
+            format!(
+                "Containment tree: {} roots ({}ms)",
+                format_int(roots.len()),
+                format_ms(d)
+            )
+        },
+    );
+
     let order = bfs_order(&tree_roots);
-    println!(
-        "Containment tree: {} roots, BFS order computed  ({}ms)",
-        format_int(tree_roots.len()),
-        format_int(timer.elapsed().as_millis())
+
+    let contours = view.run_step(
+        "Simplifying contours",
+        || {
+            let mut g_min_x = f64::INFINITY;
+            let mut g_min_y = f64::INFINITY;
+            let mut g_max_x = f64::NEG_INFINITY;
+            let mut g_max_y = f64::NEG_INFINITY;
+            let mut total_points = 0usize;
+
+            for ring in &all_rings {
+                g_min_x = g_min_x.min(ring.bbox.min_x);
+                g_min_y = g_min_y.min(ring.bbox.min_y);
+                g_max_x = g_max_x.max(ring.bbox.max_x);
+                g_max_y = g_max_y.max(ring.bbox.max_y);
+                total_points += ring.points.len();
+            }
+
+            let area = ((g_max_x - g_min_x) * (g_max_y - g_min_y)).abs();
+            let cell_size = (area / ((total_points as f64 / 8.0).max(1.0)))
+                .sqrt()
+                .max(50.0)
+                .max(1e-6);
+
+            let mut seg_index =
+                SegmentIndex::new(g_min_x, g_min_y, g_max_x, g_max_y, cell_size);
+            for (idx, ring) in all_rings.iter().enumerate() {
+                seg_index.add_contour_segments(idx, &ring.points);
+            }
+
+            let mut contours = Vec::new();
+
+            for ring_idx in order {
+                let ring = &all_rings[ring_idx];
+                let simplified = constrained_simplify_closed_ring(
+                    &ring.points,
+                    config.simplify,
+                    ring_idx,
+                    &seg_index,
+                );
+
+                if simplified.len() < config.min_points {
+                    continue;
+                }
+
+                seg_index.remove_contour_segments(ring_idx);
+                seg_index.add_contour_segments(ring_idx, &simplified);
+
+                let mut scaled: Vec<Point> = simplified
+                    .iter()
+                    .map(|(x, y)| (x / config.scale, y / config.scale))
+                    .collect();
+
+                if signed_area(&scaled) < 0.0 {
+                    scaled.reverse();
+                }
+
+                contours.push(TerrainContourJson {
+                    height: round3(ring.height),
+                    polygon: scaled
+                        .iter()
+                        .map(|(x, y)| [round3(*x), round3(*y)])
+                        .collect(),
+                });
+            }
+
+            contours
+        },
+        |contours, d| {
+            let final_points: usize = contours.iter().map(|c| c.polygon.len()).sum();
+            format!(
+                "Simplified: {} → {} contours ({} pts, {}ms)",
+                format_int(all_rings.len()),
+                format_int(contours.len()),
+                format_int(final_points),
+                format_ms(d)
+            )
+        },
     );
 
-    let mut g_min_x = f64::INFINITY;
-    let mut g_min_y = f64::INFINITY;
-    let mut g_max_x = f64::NEG_INFINITY;
-    let mut g_max_y = f64::NEG_INFINITY;
-    let mut total_points = 0usize;
-
-    for ring in &all_rings {
-        g_min_x = g_min_x.min(ring.bbox.min_x);
-        g_min_y = g_min_y.min(ring.bbox.min_y);
-        g_max_x = g_max_x.max(ring.bbox.max_x);
-        g_max_y = g_max_y.max(ring.bbox.max_y);
-        total_points += ring.points.len();
-    }
-
-    let area = ((g_max_x - g_min_x) * (g_max_y - g_min_y)).abs();
-    let cell_size = (area / ((total_points as f64 / 8.0).max(1.0)))
-        .sqrt()
-        .max(50.0)
-        .max(1e-6);
-
-    let mut seg_index = SegmentIndex::new(g_min_x, g_min_y, g_max_x, g_max_y, cell_size);
-    for (idx, ring) in all_rings.iter().enumerate() {
-        seg_index.add_contour_segments(idx, &ring.points);
-    }
-
-    timer = Instant::now();
-    let mut contours = Vec::new();
-    let mut constrained_kept = 0usize;
-
-    for ring_idx in order {
-        let ring = &all_rings[ring_idx];
-        let simplified =
-            constrained_simplify_closed_ring(&ring.points, config.simplify, ring_idx, &seg_index);
-
-        if simplified.len() < config.min_points {
-            continue;
-        }
-
-        seg_index.remove_contour_segments(ring_idx);
-        seg_index.add_contour_segments(ring_idx, &simplified);
-
-        let mut scaled: Vec<Point> = simplified
-            .iter()
-            .map(|(x, y)| (x / config.scale, y / config.scale))
-            .collect();
-
-        if signed_area(&scaled) < 0.0 {
-            scaled.reverse();
-        }
-
-        contours.push(TerrainContourJson {
-            height: round3(ring.height),
-            polygon: scaled
-                .iter()
-                .map(|(x, y)| [round3(*x), round3(*y)])
-                .collect(),
-        });
-        constrained_kept += 1;
-    }
-
-    let final_points: usize = contours.iter().map(|c| c.polygon.len()).sum();
-    println!(
-        "Phase 2: {} -> {} contours ({} pts)  (simplify {}ms)",
-        format_int(all_rings.len()),
-        format_int(constrained_kept),
-        format_int(final_points),
-        format_int(timer.elapsed().as_millis())
-    );
-
+    let mut contours = contours;
     contours.sort_by(|a, b| {
         a.height
             .partial_cmp(&b.height)
@@ -291,53 +317,65 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
             })
     });
 
-    // Prune contours orphaned by a missing 0ft intermediate. This happens
-    // when a small 0ft ring was filtered by perimeter or simplified away,
-    // leaving inner contours (which are even tinier) parented across zero.
     let pre_prune = contours.len();
     prune_zero_crossing_orphans(&mut contours, DEFAULT_DEPTH);
     let pruned = pre_prune - contours.len();
     if pruned > 0 {
-        println!(
+        view.info(format!(
             "Pruned {} contour(s) orphaned by missing 0ft intermediate",
             format_int(pruned)
-        );
+        ));
     }
 
     let output_path = resolve_repo_path(&config.output);
-    timer = Instant::now();
-    write_level_file(&output_path, contours)?;
-    println!(
-        "Wrote contours to {}  (write {}ms)",
-        output_path.display(),
-        format_int(timer.elapsed().as_millis())
-    );
+    view.try_run_step(
+        "Writing level file",
+        || write_level_file(&output_path, contours),
+        |_, d| {
+            format!(
+                "Wrote contours to {}  ({}ms)",
+                output_path.display(),
+                format_ms(d)
+            )
+        },
+    )?;
 
-    println!("\nValidating output...");
-    let validation = validate_level_file(&output_path)?;
-    println!(
-        "  {} contours, {} roots, max depth {}",
-        format_int(validation.contour_count),
-        format_int(validation.root_count),
-        format_int(validation.max_depth)
-    );
-    for warning in &validation.warnings {
-        println!("  WARNING: {warning}");
+    let validation = view.try_run_step(
+        "Validating output",
+        || validate_level_file(&output_path),
+        |v, d| {
+            let mut msg = format!(
+                "Validated: {} contours, {} roots, max depth {} ({}ms)",
+                format_int(v.contour_count),
+                format_int(v.root_count),
+                format_int(v.max_depth),
+                format_ms(d)
+            );
+            if !v.warnings.is_empty() {
+                for w in &v.warnings {
+                    msg.push_str(&format!("\n  WARNING: {w}"));
+                }
+            }
+            if v.errors.is_empty() {
+                msg.push_str(" — PASS");
+            } else {
+                msg.push_str(&format!(" — FAIL: {} error(s)", format_int(v.errors.len())));
+                for e in &v.errors {
+                    msg.push_str(&format!("\n  [{:?}] {}", e.error_type, e.message));
+                }
+            }
+            msg
+        },
+    )?;
+
+    if !validation.errors.is_empty() {
+        bail!("extracted level failed validation");
     }
 
-    if validation.errors.is_empty() {
-        println!("  PASS: No errors found");
-        return Ok(());
-    }
-
-    println!("  FAIL: {} error(s):", format_int(validation.errors.len()));
-    for error in &validation.errors {
-        println!("    [{:?}] {}", error.error_type, error.message);
-    }
-    bail!("extracted level failed validation")
+    Ok(())
 }
 
-fn load_merged_grid(merged_path: &Path, merged_display: &str) -> Result<LoadedGrid> {
+fn load_merged_grid(merged_path: &Path) -> Result<LoadedGrid> {
     let dataset = Dataset::open(merged_path)
         .with_context(|| format!("Failed to open {}", merged_path.display()))?;
     let band = dataset
@@ -348,18 +386,9 @@ fn load_merged_grid(merged_path: &Path, merged_display: &str) -> Result<LoadedGr
     let transform = dataset.geo_transform().context("Missing geotransform")?;
     let no_data_value = band.no_data_value();
 
-    let read_timer = Instant::now();
     let buffer = band
         .read_as::<f64>((0, 0), (width, height), (width, height), None)
         .context("Failed to read raster")?;
-    println!(
-        "\rLoaded merged grid from {} in {}ms",
-        merged_display,
-        format_int(read_timer.elapsed().as_millis())
-    );
-    print!("Preprocessing merged grid...");
-    let _ = io::stdout().flush();
-    let preprocess_timer = Instant::now();
 
     let mut values = vec![0.0; width * height];
     let mut nodata_mask = vec![0u8; width * height];
@@ -421,24 +450,6 @@ fn load_merged_grid(merged_path: &Path, merged_display: &str) -> Result<LoadedGr
         max_feet = max_feet.max(v);
     }
 
-    println!(
-        "\rPreprocessed merged grid in {}ms",
-        format_int(preprocess_timer.elapsed().as_millis())
-    );
-    if seam_fills > 0 {
-        println!(
-            "Interpolated {} tile-seam nodata cells",
-            format_int(seam_fills)
-        );
-    }
-    if depth_fills > 0 {
-        println!(
-            "Filled {} remaining nodata cells with {}ft",
-            format_int(depth_fills),
-            DEFAULT_DEPTH
-        );
-    }
-
     Ok(LoadedGrid {
         grid: ScalarGrid {
             width: pad_w,
@@ -451,6 +462,8 @@ fn load_merged_grid(merged_path: &Path, merged_display: &str) -> Result<LoadedGr
         lat_step: transform[5].abs(),
         origin_lon: transform[0],
         origin_lat: transform[3],
+        seam_fills,
+        depth_fills,
     })
 }
 
@@ -653,15 +666,6 @@ fn write_level_file(output_path: &Path, contours: Vec<TerrainContourJson>) -> Re
     serde_json::to_writer_pretty(writer, &level)
         .with_context(|| format!("Failed to write {}", output_path.display()))?;
     Ok(())
-}
-
-fn print_block_index_stats(blocks: &BlockIndex, elapsed_ms: f64) {
-    println!(
-        "Block index: {}x{} blocks  ({}ms)",
-        format_int(blocks.block_cols),
-        format_int(blocks.block_rows),
-        format_int(elapsed_ms.round() as u64)
-    );
 }
 
 fn round3(v: f64) -> f64 {

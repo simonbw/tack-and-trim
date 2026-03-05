@@ -1,7 +1,6 @@
 //! CPU terrain height queries — contour tree DFS, winding number, IDW.
 //! Mirrors terrainHeightCPU.ts.
 
-use crate::humanize::format_int;
 use crate::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
 
 // ---------------------------------------------------------------------------
@@ -887,16 +886,6 @@ fn build_contour_lookup_grid(
         cell_starts.push(candidate_indices.len() as u32);
     }
 
-    let total_candidates: usize = candidate_indices.len();
-    let cells_with_candidates = cell_starts.windows(2).filter(|w| w[1] > w[0]).count();
-    eprintln!(
-        "    [lookup grid] {}x{} cells, {} total candidates, {} cells with candidates",
-        format_int(cols),
-        format_int(rows),
-        format_int(total_candidates),
-        format_int(cells_with_candidates),
-    );
-
     ContourLookupGrid {
         base_contour,
         base_height,
@@ -940,14 +929,12 @@ pub struct ParsedContour {
 /// the level-wide contour lookup grid. All phases are parallelized with rayon.
 pub fn parse_contours(terrain: &TerrainCPUData) -> (Vec<ParsedContour>, ContourLookupGrid) {
     use rayon::prelude::*;
-    use std::time::Instant;
 
     let n = terrain.contour_count;
     let cd = &terrain.contour_data;
     let vd = &terrain.vertex_data;
 
     // Phase 1: Parse contours and build per-contour grids in parallel
-    let t_contour_grids = Instant::now();
     let mut contours: Vec<ParsedContour> = (0..n)
         .into_par_iter()
         .map(|i| {
@@ -978,11 +965,7 @@ pub fn parse_contours(terrain: &TerrainCPUData) -> (Vec<ParsedContour>, ContourL
             c
         })
         .collect();
-    let total_vertices: usize = contours.iter().map(|c| c.point_count).sum();
-    let contour_grids_ms = t_contour_grids.elapsed().as_secs_f64() * 1000.0;
-
     // Phase 2: Build IDW grids in parallel (reads shared contours, each writes its own grid)
-    let t_idw = Instant::now();
     let children_data = &terrain.children_data;
     let idw_grids: Vec<Option<IDWGrid>> = (0..n)
         .into_par_iter()
@@ -1000,38 +983,14 @@ pub fn parse_contours(terrain: &TerrainCPUData) -> (Vec<ParsedContour>, ContourL
             }
         })
         .collect();
-    let mut idw_count = 0usize;
     for (i, grid) in idw_grids.into_iter().enumerate() {
         if let Some(g) = grid {
             contours[i].idw_grid = Some(g);
-            idw_count += 1;
         }
     }
-    let idw_ms = t_idw.elapsed().as_secs_f64() * 1000.0;
 
     // Phase 3: Build level-wide lookup grid (contour classification parallelized)
-    let t_lookup = Instant::now();
     let lookup_grid = build_contour_lookup_grid(&contours, vd, terrain.default_depth);
-    let lookup_ms = t_lookup.elapsed().as_secs_f64() * 1000.0;
-
-    eprintln!(
-        "    [terrain] {} contours, {} vertices",
-        format_int(n),
-        format_int(total_vertices)
-    );
-    eprintln!(
-        "      contour grids: {}ms",
-        format_int(contour_grids_ms.round() as u64)
-    );
-    eprintln!(
-        "      IDW grids ({}): {}ms",
-        format_int(idw_count),
-        format_int(idw_ms.round() as u64)
-    );
-    eprintln!(
-        "      lookup grid: {}ms",
-        format_int(lookup_ms.round() as u64)
-    );
 
     (contours, lookup_grid)
 }

@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use terrain_core::humanize::format_int;
+use terrain_core::step::StepView;
 
 use build_grid::run_build_grid;
 use download::run_download;
@@ -70,14 +71,15 @@ struct BuildGridArgs {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let view = StepView::new();
 
     match cli.command {
-        Commands::Validate(args) => run_validate(args),
-        Commands::Extract(args) => run_extract(args.region.as_deref()),
-        Commands::Download(args) => run_download(args.region.as_deref()),
-        Commands::BuildGrid(args) => run_build_grid(args.region.as_deref(), args.force),
-        Commands::Clean(args) => run_clean(args.region.as_deref()),
-        Commands::Import(args) => run_import(args.region.as_deref()),
+        Commands::Validate(args) => run_validate(args, &view),
+        Commands::Extract(args) => run_extract(args.region.as_deref(), &view),
+        Commands::Download(args) => run_download(args.region.as_deref(), &view),
+        Commands::BuildGrid(args) => run_build_grid(args.region.as_deref(), args.force, &view),
+        Commands::Clean(args) => run_clean(args.region.as_deref(), &view),
+        Commands::Import(args) => run_import(args.region.as_deref(), &view),
     }
 }
 
@@ -87,10 +89,10 @@ struct CleanStats {
     skipped_protected: usize,
 }
 
-fn run_clean(region_arg: Option<&str>) -> Result<()> {
+fn run_clean(region_arg: Option<&str>, view: &StepView) -> Result<()> {
     if let Some(slug) = region_arg {
-        clean_region_outputs(slug)?;
-        println!("\nDone.");
+        clean_region_outputs(slug, view)?;
+        view.info("Done.");
         return Ok(());
     }
 
@@ -99,72 +101,75 @@ fn run_clean(region_arg: Option<&str>) -> Result<()> {
         bail!("No regions found. Create assets/terrain/<name>/region.json first.");
     }
 
-    println!("Cleaning {} regions", format_int(regions.len()));
+    view.info(format!("Cleaning {} regions", format_int(regions.len())));
 
     let mut totals = CleanStats::default();
     for (idx, slug) in regions.iter().enumerate() {
-        println!(
-            "\n=== region {}/{}: {} ===",
+        view.header(&format!(
+            "region {}/{}: {}",
             format_int(idx + 1),
             format_int(regions.len()),
             slug
-        );
-        let stats = clean_region_outputs(slug)?;
+        ));
+        let stats = clean_region_outputs(slug, &view.indented())?;
         totals.removed += stats.removed;
         totals.skipped_protected += stats.skipped_protected;
     }
 
-    println!(
-        "\nRemoved {} path(s) total (skipped {} protected path(s)).",
+    view.info(format!(
+        "Removed {} path(s) total (skipped {} protected path(s)).",
         format_int(totals.removed),
         format_int(totals.skipped_protected)
-    );
-    println!("\nDone.");
+    ));
+    view.info("Done.");
     Ok(())
 }
 
-fn run_validate(args: ValidateArgs) -> Result<()> {
+fn run_validate(args: ValidateArgs, view: &StepView) -> Result<()> {
     let level_path = resolve_level_path(args.level_path.as_deref(), args.region.as_deref())?;
 
-    println!("Validating: {}", level_path.display());
+    view.info(format!("Validating: {}", level_path.display()));
 
     let t0 = std::time::Instant::now();
     let result = validate_level_file(&level_path)?;
     let elapsed_ms = t0.elapsed().as_millis();
 
-    println!(
+    view.info(format!(
         "  {} contours, {} roots, max depth {}  ({}ms)",
         format_int(result.contour_count),
         format_int(result.root_count),
         format_int(result.max_depth),
         format_int(elapsed_ms)
-    );
+    ));
 
     for warning in &result.warnings {
-        println!("  WARNING: {warning}");
+        view.info(format!("  WARNING: {warning}"));
     }
 
     if result.errors.is_empty() {
-        println!("  PASS: No errors found");
+        view.info("  PASS: No errors found");
         return Ok(());
     }
 
-    println!("  FAIL: {} error(s):", format_int(result.errors.len()));
+    view.info(format!(
+        "  FAIL: {} error(s):",
+        format_int(result.errors.len())
+    ));
     for error in &result.errors {
         let tag = match error.error_type {
             ValidationErrorType::Overlap => "overlap",
             ValidationErrorType::Tree => "tree",
         };
-        println!("    [{tag}] {}", error.message);
+        view.info(format!("    [{tag}] {}", error.message));
     }
 
     bail!("validation failed")
 }
 
-fn run_import(region_arg: Option<&str>) -> Result<()> {
+fn run_import(region_arg: Option<&str>, view: &StepView) -> Result<()> {
     if let Some(slug) = region_arg {
-        run_import_for_region(slug)?;
-        println!("\nDone.");
+        run_import_for_region(slug, view)?;
+        view.info("Done.");
         return Ok(());
     }
 
@@ -173,42 +178,42 @@ fn run_import(region_arg: Option<&str>) -> Result<()> {
         bail!("No regions found. Create assets/terrain/<name>/region.json first.");
     }
 
-    println!("Importing {} regions", format_int(regions.len()));
+    view.info(format!("Importing {} regions", format_int(regions.len())));
     for (idx, slug) in regions.iter().enumerate() {
-        println!(
-            "\n=== region {}/{}: {} ===",
+        view.header(&format!(
+            "region {}/{}: {}",
             format_int(idx + 1),
             format_int(regions.len()),
             slug
-        );
-        run_import_for_region(slug)?;
+        ));
+        run_import_for_region(slug, &view.indented())?;
     }
 
-    println!("\nDone.");
+    view.info("Done.");
     Ok(())
 }
 
-fn clean_region_outputs(slug: &str) -> Result<CleanStats> {
+fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
     let config = load_region_config(slug)?;
     let tiles_root = tiles_dir(slug);
     let cache_dir = grid_cache_dir(slug);
     let level_path = resolve_repo_path(&config.output);
     let wavemesh_path = resolve_repo_path(&config.output.replace(".level.json", ".wavemesh"));
 
-    println!("Region: {}", config.name);
+    view.info(format!("Region: {}", config.name));
 
     let mut stats = CleanStats::default();
-    remove_generated_path(&cache_dir, &tiles_root, "cache directory", &mut stats)?;
-    remove_generated_path(&level_path, &tiles_root, "level file", &mut stats)?;
+    remove_generated_path(&cache_dir, &tiles_root, "cache directory", &mut stats, view)?;
+    remove_generated_path(&level_path, &tiles_root, "level file", &mut stats, view)?;
     if wavemesh_path != level_path {
-        remove_generated_path(&wavemesh_path, &tiles_root, "wavemesh file", &mut stats)?;
+        remove_generated_path(&wavemesh_path, &tiles_root, "wavemesh file", &mut stats, view)?;
     }
 
-    println!(
+    view.info(format!(
         "Cleaned {} path(s) (skipped {} protected path(s))",
         format_int(stats.removed),
         format_int(stats.skipped_protected)
-    );
+    ));
     Ok(stats)
 }
 
@@ -217,21 +222,22 @@ fn remove_generated_path(
     tiles_root: &Path,
     label: &str,
     stats: &mut CleanStats,
+    view: &StepView,
 ) -> Result<()> {
     if path == tiles_root || path.starts_with(tiles_root) {
         stats.skipped_protected += 1;
-        println!(
+        view.info(format!(
             "Skipped {}: {} (inside downloaded tiles directory)",
             label,
             path.display()
-        );
+        ));
         return Ok(());
     }
 
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            println!("Already clean {}: {}", label, path.display());
+            view.info(format!("Already clean {}: {}", label, path.display()));
             return Ok(());
         }
         Err(err) => {
@@ -248,29 +254,31 @@ fn remove_generated_path(
     }
 
     stats.removed += 1;
-    println!("Removed {}: {}", label, path.display());
+    view.info(format!("Removed {}: {}", label, path.display()));
     Ok(())
 }
 
-fn run_import_for_region(slug: &str) -> Result<()> {
-    let config = load_region_config(&slug)?;
+fn run_import_for_region(slug: &str, view: &StepView) -> Result<()> {
+    let config = load_region_config(slug)?;
     let level_path = resolve_repo_path(&config.output);
+    let inner = view.indented();
 
-    println!("\n=== download ===\n");
-    run_download(Some(slug))?;
+    view.section("download");
+    run_download(Some(slug), &inner)?;
 
-    println!("\n=== build-grid ===\n");
-    run_build_grid(Some(slug), false)?;
+    view.section("build-grid");
+    run_build_grid(Some(slug), false, &inner)?;
 
-    println!("\n=== extract-contours ===\n");
-    run_extract(Some(slug))?;
+    view.section("extract-contours");
+    run_extract(Some(slug), &inner)?;
 
-    println!("\n=== build-wavemesh ===\n");
-    wavemesh_builder::build_wavemesh_for_level(
+    view.section("build-wavemesh");
+    wavemesh_builder::build_wavemesh_for_level_with_view(
         level_path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Invalid level path"))?,
         None,
+        Some(&inner),
     )?;
     Ok(())
 }

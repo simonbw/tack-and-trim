@@ -3,13 +3,12 @@
 //! Mirrors marching.ts.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::sync::atomic::AtomicUsize;
 
 use rayon::prelude::*;
 
 use crate::config::MeshBuildConfig;
 use crate::decimate::decimate_track_snapshots;
-use crate::humanize::format_int;
 use crate::level::TerrainCPUData;
 use crate::physics::{advance_interior_ray, advance_sentinel_ray, RayState};
 use crate::refine::{refine_wavefront, RefineStats};
@@ -671,6 +670,7 @@ pub fn march_wavefronts(
     contours: &[ParsedContour],
     lookup_grid: &ContourLookupGrid,
     config: &MeshBuildConfig,
+    progress: Option<&AtomicUsize>,
 ) -> MarchResult {
     use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
     use std::sync::Mutex;
@@ -684,8 +684,6 @@ pub fn march_wavefronts(
         1.0
     };
 
-    let start = Instant::now();
-
     let next_track_id = AtomicI32::new(first_wavefront.track_id + 1);
     let all_tracks: Mutex<Vec<SegmentTrack>> = Mutex::new(Vec::new());
     let total_splits = AtomicU64::new(0);
@@ -695,7 +693,6 @@ pub fn march_wavefronts(
     let marched_verts = AtomicU64::new(0);
     let removed_snapshots = AtomicU64::new(0);
     let removed_vertices = AtomicU64::new(0);
-    let tracks_done = AtomicU64::new(0);
 
     // Process a single track end-to-end: march all steps (with par_iter on rays),
     // spawn child tracks first, then queue decimation work.
@@ -717,8 +714,7 @@ pub fn march_wavefronts(
         marched_verts: &'scope AtomicU64,
         removed_snapshots: &'scope AtomicU64,
         removed_vertices: &'scope AtomicU64,
-        tracks_done: &'scope AtomicU64,
-        start: &'scope Instant,
+        progress: Option<&'scope AtomicUsize>,
     ) {
         if seed.track_id < 0 {
             seed.track_id = next_track_id.fetch_add(1, Ordering::Relaxed);
@@ -760,8 +756,7 @@ pub fn march_wavefronts(
                     marched_verts,
                     removed_snapshots,
                     removed_vertices,
-                    tracks_done,
-                    start,
+                    progress,
                 );
             });
         }
@@ -778,13 +773,8 @@ pub fn march_wavefronts(
             removed_vertices.fetch_add(dec.removed_vertices, Ordering::Relaxed);
 
             all_tracks.lock().unwrap().push(dec.track);
-            let done = tracks_done.fetch_add(1, Ordering::Relaxed) + 1;
-            if done % 500 == 0 {
-                eprintln!(
-                    "    [march] {} tracks done ({:.1}s)",
-                    format_int(done),
-                    start.elapsed().as_secs_f64()
-                );
+            if let Some(p) = progress {
+                p.fetch_add(1, Ordering::Relaxed);
             }
         });
     }
@@ -809,21 +799,13 @@ pub fn march_wavefronts(
                 &marched_verts,
                 &removed_snapshots,
                 &removed_vertices,
-                &tracks_done,
-                &start,
+                progress,
             );
         });
     }); // blocks until all tracks (including children) are done
 
     let tracks = all_tracks.into_inner().unwrap();
     let tracks = reorder_tracks_deterministic(tracks);
-
-    let total_elapsed = start.elapsed();
-    eprintln!(
-        "    [marching] complete — {} tracks, {:.1}s total",
-        format_int(tracks.len()),
-        total_elapsed.as_secs_f64(),
-    );
 
     MarchResult {
         tracks,
