@@ -338,9 +338,20 @@ pub fn build_closed_rings(segs: &MarchSegments) -> Vec<Vec<Point>> {
             if signed_area(&scratch) < 0.0 {
                 scratch.reverse();
             }
+            // Canonicalize startpoint: rotate so lex-smallest (x, y) is first.
+            let min_idx = scratch
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)))
+                .unwrap()
+                .0;
+            scratch.rotate_left(min_idx);
             rings.push(scratch);
         }
     }
+
+    // Sort rings by canonical first point for deterministic order.
+    rings.sort_by(|a, b| a[0].0.total_cmp(&b[0].0).then(a[0].1.total_cmp(&b[0].1)));
 
     rings
 }

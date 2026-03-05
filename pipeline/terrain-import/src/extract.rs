@@ -284,6 +284,11 @@ pub fn run_extract(region_arg: Option<&str>) -> Result<()> {
         a.height
             .partial_cmp(&b.height)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                let pa = a.polygon.first().unwrap_or(&[0.0, 0.0]);
+                let pb = b.polygon.first().unwrap_or(&[0.0, 0.0]);
+                pa[0].total_cmp(&pb[0]).then(pa[1].total_cmp(&pb[1]))
+            })
     });
 
     // Prune contours orphaned by a missing 0ft intermediate. This happens
