@@ -47,7 +47,10 @@ const wavemeshes = {
 export type WavemeshName = keyof typeof wavemeshes;
 
 const windmeshes = {
-
+  vendoviIsland: require("url:./levels/vendovi-island.windmesh"),
+  sanJuanIslands: require("url:./levels/san-juan-islands.windmesh"),
+  islesOfScilly: require("url:./levels/isles-of-scilly.windmesh"),
+  apostleIslands: require("url:./levels/apostle-islands.windmesh")
 };
 export type WindmeshName = keyof typeof windmeshes;
 

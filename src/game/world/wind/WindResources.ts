@@ -52,6 +52,10 @@ export class WindResources extends BaseEntity {
     return this.packedWindMeshBuffer!;
   }
 
+  getWindMeshData(): WindMeshFileData | undefined {
+    return this.windMeshData;
+  }
+
   /**
    * Get the base wind velocity vector.
    */

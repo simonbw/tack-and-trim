@@ -17,6 +17,7 @@ import { TerrainHeightDebugMode } from "./modes/TerrainHeightDebugMode";
 import { WaterHeightDebugMode } from "./modes/WaterHeightDebugMode";
 import { WavefrontMeshDebugMode } from "./modes/WavefrontMeshDebugMode.js";
 import { WindFieldDebugMode } from "./modes/WindFieldDebugMode";
+import { WindMeshDebugMode } from "./modes/WindMeshDebugMode";
 
 export class DebugRenderer extends ReactEntity {
   id = "debugRenderer";
@@ -26,6 +27,7 @@ export class DebugRenderer extends ReactEntity {
     () => new TerrainHeightDebugMode(),
     () => new WaterHeightDebugMode(),
     () => new WindFieldDebugMode(),
+    () => new WindMeshDebugMode(),
   ];
   private activeModeIndex = -1; // -1 = off
   private currentMode: DebugRenderMode | null = null;
