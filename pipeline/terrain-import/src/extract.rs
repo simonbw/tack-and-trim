@@ -119,54 +119,59 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
         "Marching contours",
         Some(levels.len()),
         |progress| {
-            let mut all_rings = Vec::new();
+            // Process each level in parallel, then flatten in level order.
+            let per_level: Vec<Vec<RawRing>> = levels
+                .par_iter()
+                .map(|level_feet| {
+                    let segments = march_contours(&loaded.grid, &blocks, *level_feet);
+                    let rings = build_closed_rings(&segments);
 
-            for level_feet in &levels {
-                let segments = march_contours(&loaded.grid, &blocks, *level_feet);
-                let rings = build_closed_rings(&segments);
+                    let mut level_rings = Vec::new();
+                    for ring in rings {
+                        let mut feet_points = Vec::with_capacity(ring.len());
+                        let mut bbox = RingBBox {
+                            min_x: f64::INFINITY,
+                            min_y: f64::INFINITY,
+                            max_x: f64::NEG_INFINITY,
+                            max_y: f64::NEG_INFINITY,
+                        };
 
-                for ring in rings {
-                    let mut feet_points = Vec::with_capacity(ring.len());
-                    let mut bbox = RingBBox {
-                        min_x: f64::INFINITY,
-                        min_y: f64::INFINITY,
-                        max_x: f64::NEG_INFINITY,
-                        max_y: f64::NEG_INFINITY,
-                    };
+                        for (gx, gy) in ring {
+                            let lon = bbox_min_lon + gx * loaded.lon_step;
+                            let lat = bbox_max_lat - gy * loaded.lat_step;
+                            let (x_feet, y_feet) =
+                                lat_lon_to_feet(lat, lon, center_lat, center_lon);
+                            let fy = if config.flip_y { -y_feet } else { y_feet };
+                            feet_points.push((x_feet, fy));
 
-                    for (gx, gy) in ring {
-                        let lon = bbox_min_lon + gx * loaded.lon_step;
-                        let lat = bbox_max_lat - gy * loaded.lat_step;
-                        let (x_feet, y_feet) = lat_lon_to_feet(lat, lon, center_lat, center_lon);
-                        let fy = if config.flip_y { -y_feet } else { y_feet };
-                        feet_points.push((x_feet, fy));
+                            bbox.min_x = bbox.min_x.min(x_feet);
+                            bbox.max_x = bbox.max_x.max(x_feet);
+                            bbox.min_y = bbox.min_y.min(fy);
+                            bbox.max_y = bbox.max_y.max(fy);
+                        }
 
-                        bbox.min_x = bbox.min_x.min(x_feet);
-                        bbox.max_x = bbox.max_x.max(x_feet);
-                        bbox.min_y = bbox.min_y.min(fy);
-                        bbox.max_y = bbox.max_y.max(fy);
+                        if ring_perimeter(&feet_points) < config.min_perimeter {
+                            continue;
+                        }
+                        if feet_points.len() < config.min_points {
+                            continue;
+                        }
+
+                        level_rings.push(RawRing {
+                            height: *level_feet,
+                            points: feet_points,
+                            bbox,
+                        });
                     }
 
-                    if ring_perimeter(&feet_points) < config.min_perimeter {
-                        continue;
-                    }
-                    if feet_points.len() < config.min_points {
-                        continue;
-                    }
+                    progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    level_rings
+                })
+                .collect();
 
-                    all_rings.push(RawRing {
-                        height: *level_feet,
-                        points: feet_points,
-                        bbox,
-                    });
-                }
-
-                progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-
-            all_rings
+            per_level.into_iter().flatten().collect()
         },
-        |rings, d| {
+        |rings: &Vec<RawRing>, d| {
             format!(
                 "Marched {} levels → {} rings ({}ms)",
                 format_int(levels.len()),

@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use rayon::prelude::*;
+
 use crate::simplify::{signed_area, Point};
 
 pub struct ScalarGrid {
@@ -31,33 +33,38 @@ pub fn build_block_index(grid: &ScalarGrid) -> BlockIndex {
     let block_rows = (grid.height.saturating_sub(1)).div_ceil(BLOCK_SIZE);
     let num_blocks = block_cols * block_rows;
 
+    // Each block's min/max is independent — compute all in parallel.
     let mut block_min = vec![f64::INFINITY; num_blocks];
     let mut block_max = vec![f64::NEG_INFINITY; num_blocks];
 
-    for by in 0..block_rows {
-        let y_start = by * BLOCK_SIZE;
-        let y_end = (y_start + BLOCK_SIZE).min(grid.height - 1);
-        for bx in 0..block_cols {
-            let x_start = bx * BLOCK_SIZE;
-            let x_end = (x_start + BLOCK_SIZE).min(grid.width - 1);
-            let bi = by * block_cols + bx;
+    block_min
+        .par_chunks_mut(block_cols)
+        .zip(block_max.par_chunks_mut(block_cols))
+        .enumerate()
+        .for_each(|(by, (row_min, row_max))| {
+            let y_start = by * BLOCK_SIZE;
+            let y_end = (y_start + BLOCK_SIZE).min(grid.height - 1);
+            for (bx, (bmin_out, bmax_out)) in row_min.iter_mut().zip(row_max.iter_mut()).enumerate()
+            {
+                let x_start = bx * BLOCK_SIZE;
+                let x_end = (x_start + BLOCK_SIZE).min(grid.width - 1);
 
-            let mut bmin = f64::INFINITY;
-            let mut bmax = f64::NEG_INFINITY;
+                let mut bmin = f64::INFINITY;
+                let mut bmax = f64::NEG_INFINITY;
 
-            for y in y_start..=y_end {
-                let row = y * grid.width;
-                for x in x_start..=x_end {
-                    let v = grid.values[row + x];
-                    bmin = bmin.min(v);
-                    bmax = bmax.max(v);
+                for y in y_start..=y_end {
+                    let row = y * grid.width;
+                    for x in x_start..=x_end {
+                        let v = grid.values[row + x];
+                        bmin = bmin.min(v);
+                        bmax = bmax.max(v);
+                    }
                 }
-            }
 
-            block_min[bi] = bmin;
-            block_max[bi] = bmax;
-        }
-    }
+                *bmin_out = bmin;
+                *bmax_out = bmax;
+            }
+        });
 
     BlockIndex {
         block_cols,
