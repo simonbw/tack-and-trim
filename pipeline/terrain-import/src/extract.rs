@@ -224,7 +224,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
                 .max(1e-6);
 
             let mut seg_index =
-                SegmentIndex::new(g_min_x, g_min_y, g_max_x, g_max_y, cell_size);
+                SegmentIndex::new(g_min_x, g_min_y, g_max_x, g_max_y, cell_size, all_rings.len());
             for (idx, ring) in all_rings.iter().enumerate() {
                 seg_index.add_contour_segments(idx, &ring.points);
             }
