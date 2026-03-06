@@ -48,7 +48,6 @@ Use `./bin/terrain-import` directly as the primary interface (or `terrain-import
 | `./bin/terrain-import validate --region <slug>`       | Standalone `.level.json` validator (overlap + containment checks)           |
 
 NPM scripts (`download-terrain`, `build-terrain-grid`, `extract-terrain-contours`, `validate-level`, `import-terrain`) are thin wrappers around `./bin/terrain-import`.
-The legacy TypeScript implementation under `src/pipeline/terrain-import/` is retained as reference.
 
 ### Configuration
 

@@ -1,6 +1,8 @@
 # Rust Pipeline Port Plan
 
-This document outlines what TypeScript pipeline code remains to be ported to Rust, and how to structure it to maximize code sharing with the existing `wavemesh-builder`.
+Status (2026-03-06): completed. The legacy TypeScript terrain-import implementation under `src/pipeline/terrain-import/` has been removed. This document is retained as historical migration context.
+
+This document outlined what TypeScript pipeline code remained to be ported to Rust, and how to structure it to maximize code sharing with the existing `wavemesh-builder`.
 
 ## Current State
 
@@ -8,7 +10,7 @@ The pipeline has one Rust implementation today:
 
 - **`pipeline/wavemesh-builder/`** — ray-marching wavefront mesh builder. Takes `.level.json` → produces `.wavemesh`.
 
-The remaining TypeScript pipeline lives in `src/pipeline/terrain-import/` and `bin/`:
+At the time this plan was written, the remaining TypeScript pipeline lived in `src/pipeline/terrain-import/` and `bin/`:
 
 | Step | TypeScript file | Status |
 |------|----------------|--------|
