@@ -11,8 +11,9 @@ data/
 assets/terrain/*/tiles/
 assets/terrain/*/cache/
 __pycache__/
-pipeline/profile-samply.json
-pipeline/profile-samply.syms.json
-pipeline/profile-samply.meta.json
-pipeline/profile-samply.atos-cache.*.json
+pipeline/**/profile-samply.json
+pipeline/**/profile-samply.json.gz
+pipeline/**/profile-samply.syms.json
+pipeline/**/profile-samply.meta.json
+pipeline/**/profile-samply.atos-cache*.json
 pipeline/target/
