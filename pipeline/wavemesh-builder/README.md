@@ -12,81 +12,8 @@ This builds the release binary and runs it against all levels in `resources/leve
 
 ## Profiling
 
-### Setup
-
-Install [samply](https://github.com/jlfwong/samply) (sampling profiler for Rust, opens Firefox Profiler UI):
+See [pipeline/PROFILING.md](../PROFILING.md) for setup and usage. Quick start:
 
 ```sh
-cargo install samply
-```
-
-### Collecting a profile
-
-Debug symbols are always enabled in the release build (`debug = true` in Cargo.toml) so profilers can resolve function names. This has no runtime cost.
-
-```sh
-cargo build --release --manifest-path pipeline/Cargo.toml -p wavemesh-builder
-samply record ./pipeline/target/release/wavemesh-builder
-```
-
-This runs the full build under the profiler and opens the Firefox Profiler UI in your browser. The flame graph and call tree tabs show where time is spent; the timeline shows per-thread activity.
-
-To save a profile for later analysis without opening the browser:
-
-```sh
-samply record --save-only -o /tmp/wavemesh-profile.json ./pipeline/target/release/wavemesh-builder
-samply load /tmp/wavemesh-profile.json  # open it later
-```
-
-### Quick summary with `profile.py`
-
-The `profile.py` script captures a macOS `sample` profile during the san-juan-islands build and prints a summary with per-thread utilization and categorized time breakdown:
-
-```sh
-# Capture and analyze in one step (requires debug = true in Cargo.toml):
-python3 pipeline/wavemesh-builder/profile.py
-
-# Or analyze an existing sample file:
-python3 pipeline/wavemesh-builder/profile.py /tmp/wavemesh-sample.txt
-```
-
-The script categorizes terrain time into containment (bbox/winding number) vs IDW distance (nearest-edge search), and reports per-thread idle time broken down by cause (sleeping, spinning, mutex contention).
-
-Note: the terrain sub-categories use source line number ranges that may need updating if `terrain.rs` is significantly restructured. See `TERRAIN_CONTAINMENT_LINES` and `TERRAIN_IDW_LINES` in the script.
-
-### dtrace profiling with inline resolution
-
-For profiling with full visibility into inlined functions. Requires `sudo` (dtrace instruments the kernel) and `inferno`:
-
-```sh
-cargo install inferno
-
-# Capture raw dtrace data + collapsed stacks (requires sudo)
-npm run profile-wavemesh:dtrace
-
-# Summarize with atos -i inline resolution
-python3 pipeline/wavemesh-builder/profile-dtrace-summary.py /tmp/wavemesh-dtrace.out
-```
-
-The summary script resolves inlined function addresses via `atos -i`, which cracks open opaque blobs like `HeapJob::execute` to reveal the actual application functions inside. It produces a categorized time breakdown, top functions by self-time, and hot call paths.
-
-The binary is built with frame pointers (`.cargo/config.toml`) so dtrace's `ustack()` can walk the call stack reliably.
-
-### Raw profiling with macOS `sample`
-
-For a raw text-based profile (no GUI needed), use macOS's built-in `sample` command:
-
-```sh
-# Start the build in the background
-./pipeline/target/release/wavemesh-builder &
-PID=$!
-
-# Wait for it to reach the hot loop (san-juan-islands), then sample
-sleep 20
-sample $PID 30 -f /tmp/wavemesh-sample.txt
-
-# The output file has:
-# - Call tree with sample counts per function (top of file)
-# - Per-thread breakdown showing idle vs working time
-# - "Total number in stack" summary at the bottom
+npm run profile-wavemesh:samply
 ```

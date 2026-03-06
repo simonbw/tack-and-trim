@@ -2,13 +2,30 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BINARY="$SCRIPT_DIR/../target/release/wavemesh-builder"
+
+usage() {
+  echo "Usage: profile-samply.sh [-p <crate>] [-- <binary-args...>]"
+  echo "  -p <crate>  Workspace crate to profile (default: terrain-import)"
+  exit 1
+}
+
+CRATE="terrain-import"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -p) CRATE="$2"; shift 2 ;;
+    -h|--help) usage ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+BINARY="$SCRIPT_DIR/target/release/$CRATE"
 OUTPUT="$SCRIPT_DIR/profile-samply.json"
 META_OUTPUT="$SCRIPT_DIR/profile-samply.meta.json"
 
 # Build release (frame pointers + debug symbols enabled via .cargo/config.toml and Cargo.toml)
-echo "Building release binary..."
-cargo build --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" -p wavemesh-builder
+echo "Building release binary ($CRATE)..."
+cargo build --release --manifest-path "$SCRIPT_DIR/Cargo.toml" -p "$CRATE"
 
 # Remove stale output
 rm -f "$OUTPUT" "${OUTPUT}.gz" "$META_OUTPUT"
@@ -29,6 +46,7 @@ ELAPSED_MS=$((END_MS - START_MS))
 cat > "$META_OUTPUT" <<EOF
 {
   "wall_clock_ms": $ELAPSED_MS,
+  "crate": "$CRATE",
   "binary": "$BINARY",
   "profile": "$OUTPUT"
 }

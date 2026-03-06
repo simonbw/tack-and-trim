@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Analyze a samply profile of wavemesh-builder.
+Analyze a samply profile of a pipeline binary.
 
 Reads the Firefox Profiler JSON (profile-samply.json) and its symbol sidecar
 (profile-samply.syms.json), resolves addresses to function names, and prints
@@ -29,7 +29,8 @@ SCRIPT_DIR = Path(__file__).parent
 DEFAULT_PROFILE = SCRIPT_DIR / "profile-samply.json"
 DEFAULT_SYMS = SCRIPT_DIR / "profile-samply.syms.json"
 MACHO_TEXT_BASE = 0x100000000
-ATOS_CACHE_FILE = SCRIPT_DIR / "profile-samply.atos-cache.json"
+
+WORKSPACE_BINARIES = {"wavemesh-builder", "terrain-import"}
 
 
 WRAPPER_SUBSTRINGS = [
@@ -256,14 +257,14 @@ def resolve_inline_names_with_atos(binary_path, rvas):
     return resolved
 
 
-def load_atos_cache(binary_path):
+def load_atos_cache(binary_path, cache_file):
     """Load persisted atos results; returns (cache_dict, binary_mtime)."""
     if not binary_path or not os.path.exists(binary_path):
         return {}, None
     binary_mtime = os.path.getmtime(binary_path)
-    if ATOS_CACHE_FILE.exists():
+    if cache_file.exists():
         try:
-            with open(ATOS_CACHE_FILE) as f:
+            with open(cache_file) as f:
                 data = json.load(f)
             if data.get("binary_mtime") == binary_mtime and data.get("binary_path") == binary_path:
                 # Keys are stored as strings in JSON; convert back to int.
@@ -273,12 +274,12 @@ def load_atos_cache(binary_path):
     return {}, binary_mtime
 
 
-def save_atos_cache(binary_path, binary_mtime, cache):
+def save_atos_cache(binary_path, binary_mtime, cache, cache_file):
     """Persist atos results to disk for future runs."""
     if not binary_path or binary_mtime is None:
         return
     try:
-        with open(ATOS_CACHE_FILE, "w") as f:
+        with open(cache_file, "w") as f:
             json.dump({"binary_path": binary_path, "binary_mtime": binary_mtime, "entries": cache}, f)
     except Exception:
         pass
@@ -341,6 +342,14 @@ def load_wall_clock_ms(profile_path):
         return None
 
 
+PROJECT_CRATE_PREFIXES = ("wavemesh_builder::", "terrain_import::", "terrain_core::")
+
+
+def func_is_project(name):
+    """Check if a function name belongs to the project workspace."""
+    return name.startswith(PROJECT_CRATE_PREFIXES)
+
+
 def analyze_profile(profile_path, syms_path):
     with open(profile_path, "rb") as f:
         profile = _json_load(f)
@@ -348,12 +357,17 @@ def analyze_profile(profile_path, syms_path):
 
     lib_symbols = load_symbol_table(syms_path)
 
-    # Find wavemesh binary path from libs (for atos inline expansion).
-    wavemesh_binary = None
+    # Find project binary path from libs (for atos inline expansion).
+    project_binary = None
+    project_binary_name = None
     for lib in profile.get("libs", []):
-        if lib.get("debugName") == "wavemesh-builder":
-            wavemesh_binary = lib.get("debugPath") or lib.get("path")
+        debug_name = lib.get("debugName", "")
+        if debug_name in WORKSPACE_BINARIES:
+            project_binary = lib.get("debugPath") or lib.get("path")
+            project_binary_name = debug_name
             break
+
+    atos_cache_file = SCRIPT_DIR / f"profile-samply.atos-cache.{project_binary_name}.json" if project_binary_name else SCRIPT_DIR / "profile-samply.atos-cache.json"
 
     threads = profile["threads"]
     interval_ms = profile["meta"]["interval"]
@@ -371,11 +385,11 @@ def analyze_profile(profile_path, syms_path):
     # Per-thread stats
     thread_stats = []
     # Cache RVA -> atos inlined name across threads (loaded from disk if available)
-    inline_name_cache, _atos_binary_mtime = load_atos_cache(wavemesh_binary)
+    inline_name_cache, _atos_binary_mtime = load_atos_cache(project_binary, atos_cache_file)
     _atos_cache_size_before = len(inline_name_cache)
     # Immediate non-wrapper caller attribution: leaf -> caller -> samples
     leaf_caller_counts = defaultdict(Counter)
-    # First project frame (wavemesh_builder::...) on stack: global and per leaf.
+    # First project frame on stack: global and per leaf.
     project_owner_counts = Counter()
     project_owner_by_leaf = defaultdict(Counter)
 
@@ -401,26 +415,26 @@ def analyze_profile(profile_path, syms_path):
         for ri in range(resource_table["length"]):
             resource_lib_names[ri] = string_array[resource_table["name"][ri]]
 
-        # Collect unresolved wavemesh RVAs for optional atos -i enrichment.
+        # Collect unresolved project RVAs for optional atos -i enrichment.
         missing_inline_rvas = set()
         for fi in range(func_table["length"]):
             resource_idx = func_table["resource"][fi]
             lib_name = resource_lib_names.get(resource_idx, "")
-            if lib_name != "wavemesh-builder":
+            if lib_name != project_binary_name:
                 continue
             address = frame_table["address"][fi]  # rva for samply-presymbolicated
             if address not in inline_name_cache:
                 missing_inline_rvas.add(address)
 
         inline_name_cache.update(
-            resolve_inline_names_with_atos(wavemesh_binary, missing_inline_rvas)
+            resolve_inline_names_with_atos(project_binary, missing_inline_rvas)
         )
 
         # Pre-resolve all function names and pre-compute per-func flags.
         n_funcs = func_table["length"]
         resolved_names = {}
         func_is_wrapper = [False] * n_funcs
-        func_is_project = [False] * n_funcs
+        func_is_proj = [False] * n_funcs
         for fi in range(n_funcs):
             raw_name = string_array[func_table["name"][fi]]
             resource_idx = func_table["resource"][fi]
@@ -432,7 +446,7 @@ def analyze_profile(profile_path, syms_path):
             raw_name = clean_symbol_name(raw_name)
 
             inline_name = None
-            if lib_name == "wavemesh-builder":
+            if lib_name == project_binary_name:
                 inline_name = inline_name_cache.get(address)
 
             if inline_name and (
@@ -447,7 +461,7 @@ def analyze_profile(profile_path, syms_path):
                 name = raw_name
             resolved_names[fi] = name
             func_is_wrapper[fi] = is_wrapper_frame(name)
-            func_is_project[fi] = name.startswith("wavemesh_builder::")
+            func_is_proj[fi] = func_is_project(name)
 
         # Pre-extract hot arrays to avoid repeated dict indexing in the sample loop.
         st_frame = stack_table["frame"]
@@ -502,7 +516,7 @@ def analyze_profile(profile_path, syms_path):
                 if not is_leaf_frame and not found_caller and not is_wrap:
                     caller_name = name
                     found_caller = True
-                if not found_owner and func_is_project[func_idx]:
+                if not found_owner and func_is_proj[func_idx]:
                     project_owner = name
                     found_owner = True
                 if found_effective and found_caller and found_owner:
@@ -542,7 +556,7 @@ def analyze_profile(profile_path, syms_path):
 
     # Persist atos cache if we resolved new symbols.
     if len(inline_name_cache) > _atos_cache_size_before:
-        save_atos_cache(wavemesh_binary, _atos_binary_mtime, inline_name_cache)
+        save_atos_cache(project_binary, _atos_binary_mtime, inline_name_cache, atos_cache_file)
 
     # Print results
     duration_s = total_samples * interval_ms / 1000.0
@@ -694,7 +708,7 @@ def analyze_profile(profile_path, syms_path):
     print()
 
     print("-" * 72)
-    print("TOP PROJECT OWNERS (first wavemesh_builder frame on stack)")
+    print("TOP PROJECT OWNERS (first project frame on stack)")
     print("-" * 72)
     for name, count in project_owner_counts.most_common(20):
         pct = count / work_samples * 100
@@ -748,7 +762,7 @@ def main():
 
     if not os.path.exists(profile_path):
         print(f"ERROR: Profile not found: {profile_path}")
-        print(f"Run: npm run profile-wavemesh:samply")
+        print(f"Run: npm run profile:samply")
         sys.exit(1)
 
     if not os.path.exists(syms_path):
