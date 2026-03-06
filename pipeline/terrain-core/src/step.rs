@@ -46,8 +46,14 @@ impl StepView {
     }
 
     /// Print a sub-section header: "--- text ---"
-    pub fn section(&self, text: &str) {
+    /// Returns a guard that prints "--- end text (Xms) ---" when dropped.
+    pub fn section(&self, text: &str) -> SectionGuard {
         eprintln!("\n{}--- {} ---", self.prefix(), text);
+        SectionGuard {
+            prefix: self.prefix(),
+            name: text.to_string(),
+            start: Instant::now(),
+        }
     }
 
     /// Print an info line (no timing).
@@ -221,6 +227,20 @@ impl StepView {
         } else {
             eprintln!("{}{}", self.prefix(), message);
         }
+    }
+}
+
+/// Prints a closing "--- end <name> (Xms) ---" line when dropped.
+pub struct SectionGuard {
+    prefix: String,
+    name: String,
+    start: Instant,
+}
+
+impl Drop for SectionGuard {
+    fn drop(&mut self) {
+        let ms = format_int(self.start.elapsed().as_millis());
+        eprintln!("{}--- end {} ({}ms) ---", self.prefix, self.name, ms);
     }
 }
 

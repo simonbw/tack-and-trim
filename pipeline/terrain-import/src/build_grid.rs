@@ -7,7 +7,9 @@ use terrain_core::humanize::format_int;
 use terrain_core::step::{format_ms, StepView};
 
 use crate::geo::{bbox_intersects, parse_tile_coverage_from_name};
-use crate::region::{grid_cache_dir, load_region_config, resolve_region, tiles_dir, BoundingBox};
+use crate::region::{
+    display_path, grid_cache_dir, load_region_config, resolve_region, tiles_dir, BoundingBox,
+};
 
 pub fn run_build_grid(region_arg: Option<&str>, force: bool, view: &StepView) -> Result<()> {
     let slug = resolve_region(region_arg)?;
@@ -33,7 +35,7 @@ pub fn run_build_grid(region_arg: Option<&str>, force: bool, view: &StepView) ->
     if !force && output_path.exists() {
         view.info(format!(
             "Merged grid already exists: {}",
-            output_path.display()
+            display_path(&output_path)
         ));
         view.info("Use --force to rebuild.");
         return Ok(());
@@ -76,7 +78,7 @@ pub fn run_build_grid(region_arg: Option<&str>, force: bool, view: &StepView) ->
         |_, d| {
             format!(
                 "Merged grid: {}  ({}ms)",
-                output_path.display(),
+                display_path(&output_path),
                 format_ms(d)
             )
         },

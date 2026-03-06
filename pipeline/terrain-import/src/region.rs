@@ -176,3 +176,18 @@ pub fn resolve_repo_path(path: &str) -> PathBuf {
         repo_root().join(path)
     }
 }
+
+/// Display a path relative to the repo root for cleaner log output.
+/// Falls back to the original path if it's not under the repo root.
+pub fn display_path(path: &Path) -> String {
+    let canonical_repo = repo_root().canonicalize().ok();
+    let canonical_path = path.canonicalize().ok();
+
+    if let (Some(repo), Some(p)) = (canonical_repo, canonical_path) {
+        if let Ok(rel) = p.strip_prefix(&repo) {
+            return rel.display().to_string();
+        }
+    }
+
+    path.display().to_string()
+}

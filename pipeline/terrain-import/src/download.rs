@@ -16,8 +16,8 @@ use terrain_core::step::StepView;
 
 use crate::geo::{bbox_intersects, normalize_dataset_path, parse_tile_coverage_from_name};
 use crate::region::{
-    assets_root, grid_cache_dir, load_region_config, resolve_data_source, resolve_region, tiles_dir,
-    BoundingBox, DataSourceConfig,
+    display_path, grid_cache_dir, load_region_config, resolve_data_source, resolve_region,
+    tiles_dir, BoundingBox, DataSourceConfig,
 };
 
 const CUDEM_BASE_URL: &str =
@@ -151,7 +151,7 @@ fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path, view: &
         .with_context(|| format!("Failed to create {}", out_dir.display()))?;
 
     view.info(format!("Found {} matching tiles", format_int(tiff_urls.len())));
-    let tile_dir_display = terrain_relative_path(out_dir);
+    let tile_dir_display = display_path(out_dir);
     let download_start = std::time::Instant::now();
 
     // Capture these for use inside rayon closures (StepView isn't Send+Sync)
@@ -428,7 +428,7 @@ fn list_cudem_tiff_urls(
         Some(cached) if cached.is_fresh => {
             view.info(format!(
                 "Using cached CUDEM URL list: {} (age {})",
-                terrain_relative_path(&cache_path),
+                display_path(&cache_path),
                 format_cache_age(cached.age)
             ));
             Ok(parse_url_list_lines(&cached.text))
@@ -436,7 +436,7 @@ fn list_cudem_tiff_urls(
         Some(cached) => {
             view.info(format!(
                 "Refreshing stale CUDEM URL list cache: {} (age {})",
-                terrain_relative_path(&cache_path),
+                display_path(&cache_path),
                 format_cache_age(cached.age)
             ));
             match fetch_cudem_tiff_urls(client, &dataset_url) {
@@ -447,7 +447,7 @@ fn list_cudem_tiff_urls(
                     } else {
                         view.info(format!(
                             "Updated CUDEM URL list cache: {}",
-                            terrain_relative_path(&cache_path)
+                            display_path(&cache_path)
                         ));
                     }
                     Ok(urls)
@@ -455,7 +455,7 @@ fn list_cudem_tiff_urls(
                 Err(err) => {
                     eprintln!(
                         "Warning: {err}. Falling back to stale CUDEM URL list cache at {}.",
-                        terrain_relative_path(&cache_path)
+                        display_path(&cache_path)
                     );
                     Ok(parse_url_list_lines(&cached.text))
                 }
@@ -469,7 +469,7 @@ fn list_cudem_tiff_urls(
             } else {
                 view.info(format!(
                     "Cached CUDEM URL list: {}",
-                    terrain_relative_path(&cache_path)
+                    display_path(&cache_path)
                 ));
             }
             Ok(urls)
@@ -564,7 +564,7 @@ fn download_usace_s3(
         Some(cached) if cached.is_fresh => {
             view.info(format!(
                 "Using cached URL list: {} (age {})",
-                terrain_relative_path(&cache_path),
+                display_path(&cache_path),
                 format_cache_age(cached.age)
             ));
             cached.text
@@ -572,7 +572,7 @@ fn download_usace_s3(
         Some(cached) => {
             view.info(format!(
                 "Refreshing stale URL list cache: {} (age {})",
-                terrain_relative_path(&cache_path),
+                display_path(&cache_path),
                 format_cache_age(cached.age)
             ));
             match fetch_usace_url_list_text(client, &url_list_url, view) {
@@ -582,7 +582,7 @@ fn download_usace_s3(
                     } else {
                         view.info(format!(
                             "Updated URL list cache: {}",
-                            terrain_relative_path(&cache_path)
+                            display_path(&cache_path)
                         ));
                     }
                     text
@@ -590,7 +590,7 @@ fn download_usace_s3(
                 Err(err) => {
                     eprintln!(
                         "Warning: {err}. Falling back to stale URL list cache at {}.",
-                        terrain_relative_path(&cache_path)
+                        display_path(&cache_path)
                     );
                     cached.text
                 }
@@ -603,7 +603,7 @@ fn download_usace_s3(
             } else {
                 view.info(format!(
                     "Cached URL list: {}",
-                    terrain_relative_path(&cache_path)
+                    display_path(&cache_path)
                 ));
             }
             text
@@ -643,7 +643,7 @@ fn download_emodnet_wcs(
     let destination = out_dir.join(&filename);
     if destination.exists() {
         view.info(format!("Already downloaded: {filename}"));
-        view.info(format!("Tiles: {}", terrain_relative_path(out_dir)));
+        view.info(format!("Tiles: {}", display_path(out_dir)));
         return Ok(());
     }
 
@@ -680,14 +680,8 @@ fn download_emodnet_wcs(
         );
     }
     view.info(format!("Downloaded: {filename}"));
-    view.info(format!("Tiles: {}", terrain_relative_path(out_dir)));
+    view.info(format!("Tiles: {}", display_path(out_dir)));
     Ok(())
-}
-
-fn terrain_relative_path(path: &Path) -> String {
-    path.strip_prefix(assets_root())
-        .map(|rel| rel.display().to_string())
-        .unwrap_or_else(|_| path.display().to_string())
 }
 
 #[cfg(test)]
