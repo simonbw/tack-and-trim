@@ -13,6 +13,8 @@ mod terrain;
 mod triangulate;
 mod wavefront;
 mod wavemesh_file;
+mod windmesh;
+mod windmesh_file;
 
 use std::sync::Arc;
 
@@ -67,7 +69,7 @@ pub fn run(level_paths: Vec<String>, output: Option<String>) -> anyhow::Result<(
             .unwrap_or_else(|| level_path.replace(".level.json", ".wavemesh"));
 
         view.header(&level_name);
-        view.info(format!("Level: {level_path}"));
+        view.info(format!("Level: {}", short_path(level_path)));
 
         process_level(level_path, &wavemesh_path, &config, &view)?;
     }
@@ -167,26 +169,23 @@ fn process_level(
     ));
 
     let mut meshes = Vec::new();
-    let total_timer = std::time::Instant::now();
 
     for (i, ws) in wave_sources.iter().enumerate() {
         let dir_deg = ws.direction * 180.0 / std::f64::consts::PI;
-        view.info(format!(
-            "Wave {}: λ={}ft, dir={:.1}°",
+        let label = format!(
+            "Wave {} (λ={}ft, dir={:.1}°)",
             format_int(i),
             ws.wavelength,
             dir_deg
-        ));
+        );
 
-        let mesh = build_wave_mesh(ws, &terrain_data, &contours, &lookup_grid, config, view);
+        let mesh = view.run_step(
+            &label,
+            || build_wave_mesh(ws, &terrain_data, &contours, &lookup_grid, config, view),
+            |_mesh, d| format!("{} — {:.1}s", label, d.as_secs_f64()),
+        );
         meshes.push(mesh);
     }
-
-    let total_build_time = total_timer.elapsed();
-    view.info(format!(
-        "Total build time: {}ms",
-        format_int(total_build_time.as_millis())
-    ));
 
     view.try_run_step(
         "Writing wavemesh",
@@ -199,7 +198,7 @@ fn process_level(
         |buffer, d| {
             format!(
                 "Wrote {} ({:.1} KB) in {}ms",
-                wavemesh_path,
+                short_path(wavemesh_path),
                 buffer.len() as f64 / 1024.0,
                 format_ms(d)
             )
@@ -225,15 +224,8 @@ fn build_wave_mesh(
 
     let num_rays = first_wf.len();
     let domain_length = wave_bounds.max_proj - wave_bounds.min_proj;
-    let domain_width = wave_bounds.max_perp - wave_bounds.min_perp;
+    let _domain_width = wave_bounds.max_perp - wave_bounds.min_perp;
     let estimated_steps = (domain_length / wave_params.step_size).ceil() as usize;
-    inner.info(format!(
-        "[marching] domain — rays: {}, {}ft × {}ft, ~{} steps",
-        format_int(num_rays),
-        format_int(domain_length as i64),
-        format_int(domain_width as i64),
-        format_int(estimated_steps)
-    ));
 
     let march_result = inner.run_step_with_progress(
         "Marching wavefronts",
@@ -252,7 +244,9 @@ fn build_wave_mesh(
         },
         |result, d| {
             format!(
-                "Marching complete — {} tracks, {:.1}s",
+                "Marched {} rays × ~{} steps → {} tracks ({:.1}s)",
+                format_int(num_rays),
+                format_int(estimated_steps),
                 format_int(result.tracks.len()),
                 d.as_secs_f64()
             )
@@ -291,4 +285,101 @@ fn build_wave_mesh(
     ));
 
     mesh
+}
+
+pub fn build_windmesh_for_level_with_view(
+    level_path: &str,
+    output: Option<&str>,
+    view: Option<&StepView>,
+) -> anyhow::Result<()> {
+    let owned_view;
+    let view = match view {
+        Some(v) => v,
+        None => {
+            owned_view = StepView::new();
+            &owned_view
+        }
+    };
+
+    let windmesh_path = output
+        .map(std::string::ToString::to_string)
+        .unwrap_or_else(|| level_path.replace(".level.json", ".windmesh"));
+
+    let level_file = view.try_run_step(
+        "Parsing level for wind mesh",
+        || -> anyhow::Result<_> {
+            let json_str = std::fs::read_to_string(level_path)
+                .with_context(|| format!("failed to read level file: {level_path}"))?;
+            level::parse_level_file(&json_str)
+                .with_context(|| format!("failed to parse level JSON: {level_path}"))
+        },
+        |lf, d| {
+            format!(
+                "Parsed level: {}ms ({} contours)",
+                format_ms(d),
+                format_int(lf.contours.len())
+            )
+        },
+    )?;
+
+    let terrain_data = view.run_step(
+        "Building terrain data",
+        || level::build_terrain_data(&level_file),
+        |_, d| format!("Built terrain data: {}ms", format_ms(d)),
+    );
+
+    let input_hash = windmesh_file::compute_wind_input_hash(&terrain_data);
+    view.info(format!(
+        "Input hash: 0x{:08x}{:08x}",
+        input_hash[0], input_hash[1]
+    ));
+
+    const GRID_SPACING: f64 = 200.0;
+    let mesh = view.run_step(
+        "Building wind grid",
+        || windmesh::build_wind_grid(&terrain_data, GRID_SPACING),
+        |mesh, d| {
+            format!(
+                "Built wind grid: {}×{} = {} verts, {} tris ({}ms)",
+                format_int(mesh.grid_cols),
+                format_int(mesh.grid_rows),
+                format_int(mesh.vertex_count),
+                format_int(mesh.index_count / 3),
+                format_ms(d)
+            )
+        },
+    );
+
+    view.try_run_step(
+        "Writing windmesh",
+        || -> anyhow::Result<_> {
+            let buffer = windmesh_file::build_windmesh_buffer(&mesh, input_hash);
+            std::fs::write(&windmesh_path, &buffer)
+                .with_context(|| format!("failed to write windmesh file: {windmesh_path}"))?;
+            Ok(buffer)
+        },
+        |buffer, d| {
+            format!(
+                "Wrote {} ({:.1} KB) in {}ms",
+                short_path(&windmesh_path),
+                buffer.len() as f64 / 1024.0,
+                format_ms(d)
+            )
+        },
+    )?;
+
+    Ok(())
+}
+
+/// Strip the current working directory prefix from a path for cleaner logs.
+fn short_path(path: &str) -> String {
+    let path = std::path::Path::new(path);
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Ok(canonical) = path.canonicalize() {
+            if let Ok(rel) = canonical.strip_prefix(&cwd) {
+                return rel.display().to_string();
+            }
+        }
+    }
+    path.display().to_string()
 }

@@ -23,6 +23,7 @@ const manifestFileTemplate = (
   entityDefFiles: string[],
   jsonFiles: string[],
   wavemeshFiles: string[],
+  windmeshFiles: string[],
   varName: (file: string) => string,
 ) =>
   /*ts*/ `
@@ -76,7 +77,14 @@ ${wavemeshFiles
 };
 export type WavemeshName = keyof typeof wavemeshes;
 
-export const RESOURCES = { sounds, images, fonts, levels, entityDefs, jsonBlobs, wavemeshes };
+const windmeshes = {
+${windmeshFiles
+  .map((wm) => /*ts*/ `  ${varName(wm)}: require("url:${wm}")`)
+  .join(",\n")}
+};
+export type WindmeshName = keyof typeof windmeshes;
+
+export const RESOURCES = { sounds, images, fonts, levels, entityDefs, jsonBlobs, wavemeshes, windmeshes };
 `.trimStart();
 
 /*
@@ -113,6 +121,7 @@ async function main() {
     json: "json",
     // binary data
     wavemesh: "wavemesh",
+    windmesh: "windmesh",
   } as const;
   type FileExtension = keyof typeof extensionToType;
   type ResourceType = (typeof extensionToType)[FileExtension] | "res";
@@ -199,6 +208,7 @@ async function main() {
     const entityDefFiles = [];
     const jsonFiles = [];
     const wavemeshFiles = [];
+    const windmeshFiles = [];
 
     for (const fileName of fileNames) {
       const parts = fileName.split(".");
@@ -229,6 +239,9 @@ async function main() {
         case "wavemesh":
           wavemeshFiles.push(relativePath);
           break;
+        case "windmesh":
+          windmeshFiles.push(relativePath);
+          break;
       }
     }
 
@@ -244,6 +257,7 @@ async function main() {
       entityDefFiles,
       jsonFiles,
       wavemeshFiles,
+      windmeshFiles,
       varName,
     );
 

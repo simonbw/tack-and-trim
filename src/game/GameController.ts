@@ -90,7 +90,8 @@ export class GameController extends BaseEntity {
     const initScreen = this.game.addEntity(new GameInitializingScreen());
 
     // 1. Load level data (terrain + waves + wavemesh)
-    const { terrain, waves, wavemeshData } = await loadLevel(levelName);
+    const { terrain, waves, wavemeshData, windmeshData } =
+      await loadLevel(levelName);
     this.game.addEntity(new TerrainResources(terrain));
     this.game.addEntity(new TerrainQueryManager());
 
@@ -107,7 +108,7 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new WaterQueryManager());
 
     // 5. Wind data systems
-    this.game.addEntity(new WindResources());
+    this.game.addEntity(new WindResources(windmeshData));
     this.game.addEntity(new WindQueryManager());
 
     // 6. Visual entities

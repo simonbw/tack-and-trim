@@ -25,6 +25,7 @@ import {
   WIND_SPEED_VARIATION,
 } from "./WindConstants";
 import { fn_computeWindAtPoint } from "../shaders/wind.wgsl";
+import { fn_lookupWindMesh } from "../shaders/wind-mesh-packed.wgsl";
 
 const WORKGROUP_SIZE = [64, 1, 1] as const;
 
@@ -72,6 +73,7 @@ struct WindQueryResult {
     params: { type: "uniform", wgslType: "Params" },
     pointBuffer: { type: "storage", wgslType: "array<vec2<f32>>" },
     resultBuffer: { type: "storageRW", wgslType: "array<WindQueryResult>" },
+    packedWindMesh: { type: "storage", wgslType: "array<u32>" },
   },
   code: "",
 };
@@ -80,7 +82,11 @@ struct WindQueryResult {
  * Module containing the compute entry point.
  */
 const windQueryMainModule: ShaderModule = {
-  dependencies: [fn_computeWindAtPoint, windQueryParamsModule],
+  dependencies: [
+    fn_computeWindAtPoint,
+    fn_lookupWindMesh,
+    windQueryParamsModule,
+  ],
   code: /*wgsl*/ `
 // Wind constants
 const WIND_NOISE_SPATIAL_SCALE: f32 = ${WIND_NOISE_SPATIAL_SCALE};
@@ -98,14 +104,20 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   let queryPoint = pointBuffer[index];
 
+  // Look up wind mesh for terrain influence
+  let meshResult = lookupWindMesh(queryPoint, &packedWindMesh);
+  let speedFactor = select(params.influenceSpeedFactor, meshResult.speedFactor, meshResult.found);
+  let dirOffset = select(params.influenceDirectionOffset, meshResult.directionOffset, meshResult.found);
+  let turb = select(params.influenceTurbulence, meshResult.turbulence, meshResult.found);
+
   // Compute wind using shared module
   let windResult = computeWindAtPoint(
     queryPoint,
     params.time,
     vec2<f32>(params.baseWindX, params.baseWindY),
-    params.influenceSpeedFactor,
-    params.influenceDirectionOffset,
-    params.influenceTurbulence,
+    speedFactor,
+    dirOffset,
+    turb,
     WIND_NOISE_SPATIAL_SCALE,
     WIND_NOISE_TIME_SCALE,
     WIND_SPEED_VARIATION,

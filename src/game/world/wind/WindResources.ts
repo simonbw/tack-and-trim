@@ -6,7 +6,13 @@
  */
 
 import { BaseEntity } from "../../../core/entity/BaseEntity";
+import { on } from "../../../core/entity/handler";
 import { V, type V2d } from "../../../core/Vector";
+import type { WindMeshFileData } from "../../../pipeline/mesh-building/WindmeshFile";
+import {
+  buildPackedWindMeshBuffer,
+  createPlaceholderPackedWindMeshBuffer,
+} from "../../wind/WindMeshPacking";
 
 /**
  * Manages wind state for the wind query system.
@@ -20,6 +26,31 @@ export class WindResources extends BaseEntity {
   // Base wind velocity - the global wind direction and speed
   // ~15 ft/s (~9 kts), NW breeze
   private baseVelocity: V2d = V(11, 11);
+
+  private windMeshData?: WindMeshFileData;
+  private packedWindMeshBuffer: GPUBuffer | null = null;
+
+  constructor(windMeshData?: WindMeshFileData) {
+    super();
+    this.windMeshData = windMeshData;
+  }
+
+  @on("add")
+  onAdd(): void {
+    const device = this.game.getWebGPUDevice();
+    if (this.windMeshData) {
+      this.packedWindMeshBuffer = buildPackedWindMeshBuffer(
+        device,
+        this.windMeshData,
+      );
+    } else {
+      this.packedWindMeshBuffer = createPlaceholderPackedWindMeshBuffer(device);
+    }
+  }
+
+  getPackedWindMeshBuffer(): GPUBuffer {
+    return this.packedWindMeshBuffer!;
+  }
 
   /**
    * Get the base wind velocity vector.

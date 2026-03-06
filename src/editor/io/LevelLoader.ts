@@ -6,7 +6,9 @@
  */
 
 import type { WavefrontMeshData } from "../../pipeline/mesh-building/MeshBuildTypes";
+import type { WindMeshFileData } from "../../pipeline/mesh-building/WindmeshFile";
 import { loadWavemeshFromUrl } from "../../game/wave-physics/WavemeshLoader";
+import { loadWindmeshFromUrl } from "../../game/wind/WindmeshLoader";
 import { RESOURCES, LevelName } from "../../../resources/resources";
 import {
   EditorLevelDefinition,
@@ -23,6 +25,7 @@ import {
  */
 export interface LoadedLevel extends LevelData {
   wavemeshData: WavefrontMeshData[] | undefined;
+  windmeshData: WindMeshFileData | undefined;
 }
 
 /**
@@ -55,7 +58,22 @@ export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
     );
   }
 
-  return { ...levelData, wavemeshData };
+  let windmeshData: WindMeshFileData | undefined;
+  const windmeshUrl =
+    RESOURCES.windmeshes[levelName as keyof typeof RESOURCES.windmeshes];
+  if (windmeshUrl) {
+    try {
+      windmeshData = await loadWindmeshFromUrl(windmeshUrl);
+      console.log(`[LevelLoader] Loaded prebuilt windmesh for "${levelName}"`);
+    } catch (e) {
+      console.error(
+        `[LevelLoader] Failed to load windmesh for "${levelName}":`,
+        e,
+      );
+    }
+  }
+
+  return { ...levelData, wavemeshData, windmeshData };
 }
 
 /**

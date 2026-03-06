@@ -46,4 +46,9 @@ const wavemeshes = {
 };
 export type WavemeshName = keyof typeof wavemeshes;
 
-export const RESOURCES = { sounds, images, fonts, levels, entityDefs, jsonBlobs, wavemeshes };
+const windmeshes = {
+
+};
+export type WindmeshName = keyof typeof windmeshes;
+
+export const RESOURCES = { sounds, images, fonts, levels, entityDefs, jsonBlobs, wavemeshes, windmeshes };

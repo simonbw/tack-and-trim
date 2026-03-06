@@ -72,10 +72,12 @@ export class WindQueryManager extends QueryManager {
     this.uniforms.uploadTo(this.uniformBuffer);
 
     // Create bind group
+    const windMeshBuffer = windResources.getPackedWindMeshBuffer();
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
+      packedWindMesh: { buffer: windMeshBuffer },
     });
 
     // Dispatch compute shader with GPU profiling

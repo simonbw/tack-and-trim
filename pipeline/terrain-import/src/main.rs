@@ -21,8 +21,8 @@ use build_grid::run_build_grid;
 use download::run_download;
 use extract::run_extract;
 use region::{
-    grid_cache_dir, list_regions, load_region_config, resolve_level_path, resolve_repo_path,
-    tiles_dir,
+    display_path, grid_cache_dir, list_regions, load_region_config, resolve_level_path,
+    resolve_repo_path, tiles_dir,
 };
 use validate::{validate_level_file, ValidationErrorType};
 
@@ -128,7 +128,7 @@ fn run_clean(region_arg: Option<&str>, view: &StepView) -> Result<()> {
 fn run_validate(args: ValidateArgs, view: &StepView) -> Result<()> {
     let level_path = resolve_level_path(args.level_path.as_deref(), args.region.as_deref())?;
 
-    view.info(format!("Validating: {}", level_path.display()));
+    view.info(format!("Validating: {}", display_path(&level_path)));
 
     let t0 = std::time::Instant::now();
     let result = validate_level_file(&level_path)?;
@@ -199,6 +199,7 @@ fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
     let cache_dir = grid_cache_dir(slug);
     let level_path = resolve_repo_path(&config.output);
     let wavemesh_path = resolve_repo_path(&config.output.replace(".level.json", ".wavemesh"));
+    let windmesh_path = resolve_repo_path(&config.output.replace(".level.json", ".windmesh"));
 
     view.info(format!("Region: {}", config.name));
 
@@ -207,6 +208,9 @@ fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
     remove_generated_path(&level_path, &tiles_root, "level file", &mut stats, view)?;
     if wavemesh_path != level_path {
         remove_generated_path(&wavemesh_path, &tiles_root, "wavemesh file", &mut stats, view)?;
+    }
+    if windmesh_path != level_path && windmesh_path != wavemesh_path {
+        remove_generated_path(&windmesh_path, &tiles_root, "windmesh file", &mut stats, view)?;
     }
 
     view.info(format!(
@@ -229,7 +233,7 @@ fn remove_generated_path(
         view.info(format!(
             "Skipped {}: {} (inside downloaded tiles directory)",
             label,
-            path.display()
+            display_path(path)
         ));
         return Ok(());
     }
@@ -237,24 +241,24 @@ fn remove_generated_path(
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            view.info(format!("Already clean {}: {}", label, path.display()));
+            view.info(format!("Already clean {}: {}", label, display_path(path)));
             return Ok(());
         }
         Err(err) => {
-            return Err(err).with_context(|| format!("Failed to inspect {}", path.display()))
+            return Err(err).with_context(|| format!("Failed to inspect {}", display_path(path)))
         }
     };
 
     if metadata.file_type().is_dir() {
         fs::remove_dir_all(path)
-            .with_context(|| format!("Failed to remove directory {}", path.display()))?;
+            .with_context(|| format!("Failed to remove directory {}", display_path(path)))?;
     } else {
         fs::remove_file(path)
-            .with_context(|| format!("Failed to remove file {}", path.display()))?;
+            .with_context(|| format!("Failed to remove file {}", display_path(path)))?;
     }
 
     stats.removed += 1;
-    view.info(format!("Removed {}: {}", label, path.display()));
+    view.info(format!("Removed {}: {}", label, display_path(path)));
     Ok(())
 }
 
@@ -263,16 +267,19 @@ fn run_import_for_region(slug: &str, view: &StepView) -> Result<()> {
     let level_path = resolve_repo_path(&config.output);
     let inner = view.indented();
 
-    view.section("download");
+    let _s = view.section("download");
     run_download(Some(slug), &inner)?;
+    drop(_s);
 
-    view.section("build-grid");
+    let _s = view.section("build-grid");
     run_build_grid(Some(slug), false, &inner)?;
+    drop(_s);
 
-    view.section("extract-contours");
+    let _s = view.section("extract-contours");
     run_extract(Some(slug), &inner)?;
+    drop(_s);
 
-    view.section("build-wavemesh");
+    let _s = view.section("build-wavemesh");
     wavemesh_builder::build_wavemesh_for_level_with_view(
         level_path
             .to_str()
@@ -280,5 +287,16 @@ fn run_import_for_region(slug: &str, view: &StepView) -> Result<()> {
         None,
         Some(&inner),
     )?;
+    drop(_s);
+
+    let _s = view.section("build-windmesh");
+    wavemesh_builder::build_windmesh_for_level_with_view(
+        level_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid level path"))?,
+        None,
+        Some(&inner),
+    )?;
+    drop(_s);
     Ok(())
 }
