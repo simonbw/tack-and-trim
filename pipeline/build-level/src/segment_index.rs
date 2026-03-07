@@ -204,7 +204,9 @@ mod tests {
         // Vertical overlap
         assert!(segments_intersect(5.0, 0.0, 5.0, 10.0, 5.0, 5.0, 5.0, 15.0));
         // Diagonal overlap
-        assert!(segments_intersect(0.0, 0.0, 10.0, 10.0, 5.0, 5.0, 15.0, 15.0));
+        assert!(segments_intersect(
+            0.0, 0.0, 10.0, 10.0, 5.0, 5.0, 15.0, 15.0
+        ));
     }
 
     #[test]
@@ -216,7 +218,9 @@ mod tests {
     #[test]
     fn rejects_parallel_non_collinear_segments() {
         // Parallel but offset
-        assert!(!segments_intersect(0.0, 0.0, 10.0, 0.0, 0.0, 1.0, 10.0, 1.0));
+        assert!(!segments_intersect(
+            0.0, 0.0, 10.0, 0.0, 0.0, 1.0, 10.0, 1.0
+        ));
     }
 
     #[test]

@@ -122,10 +122,7 @@ fn f64_bytes(v: f64) -> [u8; 8] {
     v.to_le_bytes()
 }
 
-pub fn compute_wind_input_hash(
-    terrain: &TerrainCPUData,
-    wind_directions: &[f64],
-) -> [u32; 2] {
+pub fn compute_wind_input_hash(terrain: &TerrainCPUData, wind_directions: &[f64]) -> [u32; 2] {
     let vertex_bytes: Vec<u8> = terrain
         .vertex_data
         .iter()

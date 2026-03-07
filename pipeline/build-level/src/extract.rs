@@ -12,9 +12,7 @@ use terrain_core::step::{format_ms, StepView};
 
 use crate::constrained_simplify::constrained_simplify_closed_ring;
 use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet};
-use crate::marching::{
-    build_block_index, build_closed_rings, march_contours, ScalarGrid,
-};
+use crate::marching::{build_block_index, build_closed_rings, march_contours, ScalarGrid};
 use crate::region::{
     display_path, grid_cache_dir, load_region_config, resolve_region, terrain_output_path,
 };
@@ -228,8 +226,14 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
                 .max(50.0)
                 .max(1e-6);
 
-            let mut seg_index =
-                SegmentIndex::new(g_min_x, g_min_y, g_max_x, g_max_y, cell_size, all_rings.len());
+            let mut seg_index = SegmentIndex::new(
+                g_min_x,
+                g_min_y,
+                g_max_x,
+                g_max_y,
+                cell_size,
+                all_rings.len(),
+            );
             for (idx, ring) in all_rings.iter().enumerate() {
                 seg_index.add_contour_segments(idx, &ring.points);
             }
@@ -453,9 +457,7 @@ fn load_merged_grid(merged_path: &Path, view: &StepView) -> Result<LoadedGrid> {
                 })
                 .reduce(
                     || (f64::INFINITY, f64::NEG_INFINITY, 0usize),
-                    |(min1, max1, f1), (min2, max2, f2)| {
-                        (min1.min(min2), max1.max(max2), f1 + f2)
-                    },
+                    |(min1, max1, f1), (min2, max2, f2)| (min1.min(min2), max1.max(max2), f1 + f2),
                 );
 
             LoadedGrid {
@@ -482,16 +484,10 @@ fn load_merged_grid(merged_path: &Path, view: &StepView) -> Result<LoadedGrid> {
                 format_ms(d)
             );
             if loaded.seam_fills > 0 {
-                msg.push_str(&format!(
-                    ", {} seam fills",
-                    format_int(loaded.seam_fills)
-                ));
+                msg.push_str(&format!(", {} seam fills", format_int(loaded.seam_fills)));
             }
             if loaded.depth_fills > 0 {
-                msg.push_str(&format!(
-                    ", {} depth fills",
-                    format_int(loaded.depth_fills)
-                ));
+                msg.push_str(&format!(", {} depth fills", format_int(loaded.depth_fills)));
             }
             msg
         },

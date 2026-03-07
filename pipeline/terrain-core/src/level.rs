@@ -55,9 +55,8 @@ pub fn resolve_level_terrain(
                 level_path.display()
             )
         })?;
-        let terrain: TerrainFileJSON = parse_terrain_file(&terrain_json).with_context(|| {
-            format!("failed to parse terrain file: {}", terrain_path.display())
-        })?;
+        let terrain: TerrainFileJSON = parse_terrain_file(&terrain_json)
+            .with_context(|| format!("failed to parse terrain file: {}", terrain_path.display()))?;
         if level.default_depth.is_none() {
             level.default_depth = terrain.default_depth;
         }

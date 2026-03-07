@@ -338,7 +338,12 @@ pub fn build_wind_grid(
     }
     eprintln!(
         "  Wind result: {}/{} sheltered, {}/{} channeled, speed=[{:.3}, {:.3}], max turb={:.3}",
-        sheltered_count, vertex_count, channeled_count, vertex_count, min_speed, max_speed,
+        sheltered_count,
+        vertex_count,
+        channeled_count,
+        vertex_count,
+        min_speed,
+        max_speed,
         max_turbulence
     );
 

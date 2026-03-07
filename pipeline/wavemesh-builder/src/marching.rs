@@ -591,7 +591,8 @@ fn reorder_tracks_deterministic(mut tracks: Vec<SegmentTrack>) -> Vec<SegmentTra
                 (cid, midpoint)
             })
             .collect();
-        children_with_key.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        children_with_key
+            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         tracks[i].child_track_ids = children_with_key.iter().map(|&(id, _)| id).collect();
     }
 

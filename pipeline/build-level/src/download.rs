@@ -63,15 +63,26 @@ pub fn run_download(region_arg: Option<&str>, view: &StepView) -> Result<()> {
         .context("Failed to create HTTP client")?;
 
     match source {
-        DataSourceConfig::Cudem { dataset_path } => {
-            download_cudem(&client, &dataset_path, &config.bbox, &cache_dir, &out_dir, view)
-        }
+        DataSourceConfig::Cudem { dataset_path } => download_cudem(
+            &client,
+            &dataset_path,
+            &config.bbox,
+            &cache_dir,
+            &out_dir,
+            view,
+        ),
         DataSourceConfig::UsaceS3 {
             base_url,
             state_prefix,
             url_list,
         } => download_usace_s3(
-            &client, &base_url, &state_prefix, &url_list, &cache_dir, &out_dir, view,
+            &client,
+            &base_url,
+            &state_prefix,
+            &url_list,
+            &cache_dir,
+            &out_dir,
+            view,
         ),
         DataSourceConfig::EmodnetWcs { coverage_id } => {
             download_emodnet_wcs(&client, &coverage_id, &config.bbox, &out_dir, view)
@@ -146,11 +157,19 @@ fn render_download_progress(
     Ok(())
 }
 
-fn download_tiles(client: &Client, tiff_urls: &[String], out_dir: &Path, view: &StepView) -> Result<()> {
+fn download_tiles(
+    client: &Client,
+    tiff_urls: &[String],
+    out_dir: &Path,
+    view: &StepView,
+) -> Result<()> {
     fs::create_dir_all(out_dir)
         .with_context(|| format!("Failed to create {}", out_dir.display()))?;
 
-    view.info(format!("Found {} matching tiles", format_int(tiff_urls.len())));
+    view.info(format!(
+        "Found {} matching tiles",
+        format_int(tiff_urls.len())
+    ));
     let tile_dir_display = display_path(out_dir);
     let download_start = std::time::Instant::now();
 
@@ -525,7 +544,11 @@ fn filter_usace_urls(all_urls: &[String], state_prefix: &str) -> Vec<String> {
         .collect()
 }
 
-fn fetch_usace_url_list_text(client: &Client, url_list_url: &Url, view: &StepView) -> Result<String> {
+fn fetch_usace_url_list_text(
+    client: &Client,
+    url_list_url: &Url,
+    view: &StepView,
+) -> Result<String> {
     view.info(format!("Fetching URL list: {url_list_url}"));
 
     let response = client
@@ -601,10 +624,7 @@ fn download_usace_s3(
             if let Err(err) = write_url_list_cache(&cache_path, &text) {
                 eprintln!("Warning: {err}");
             } else {
-                view.info(format!(
-                    "Cached URL list: {}",
-                    display_path(&cache_path)
-                ));
+                view.info(format!("Cached URL list: {}", display_path(&cache_path)));
             }
             text
         }
