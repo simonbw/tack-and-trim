@@ -1,20 +1,16 @@
 /**
- * LOD Terrain Tile Cache
+ * LOD Terrain Tile Cache — Sliding Window
  *
- * Manages multiple TerrainTileCache instances at different LOD levels to support
- * extreme zoom ranges (0.02 to 1.0+). Each LOD covers progressively larger world
- * areas per tile, allowing the editor to zoom out to MIN_ZOOM = 0.02 which shows
- * ~96,000 world units.
+ * Maintains a sliding window of 3 TerrainTileCache instances that follow the
+ * camera zoom: one for the current LOD level, one finer, one coarser.
  *
- * LOD selection is based on camera zoom with hysteresis to prevent flickering
- * during smooth zoom transitions.
+ * LOD levels are computed from a formula rather than a static list:
+ *   worldUnitsPerTile(level) = BASE_WORLD_UNITS * SCALE^level
+ *   zoomThreshold(level)     = BASE_ZOOM * (1/SCALE)^level
  *
- * | LOD | World Units/Tile | Tiles | Coverage | Min Zoom |
- * |-----|------------------|-------|----------|----------|
- * | 0   | 64               | 512   | ~1,500   | 1.0      |
- * | 1   | 256              | 256   | ~6,000   | 0.25     |
- * | 2   | 1024             | 128   | ~24,000  | 0.06     |
- * | 3   | 4096             | 64    | ~94,000  | 0.02     |
+ * Level 0 is highest detail. No upper bound — infinite zoom out.
+ *
+ * Memory: 3 × 256-tile atlas = 192 MB fixed, regardless of zoom range.
  */
 
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
@@ -23,146 +19,179 @@ import type { TerrainResources } from "../world/terrain/TerrainResources";
 import { TerrainTileCache, type VisibleTile } from "./TerrainTileCache";
 import type { TileRequest } from "../../core/graphics/VirtualTextureCache";
 
+const BASE_WORLD_UNITS = 16;
+const SCALE_FACTOR = 4;
+const BASE_ZOOM = 48.0;
+const DEFAULT_MAX_TILES = 256;
+const DEFAULT_HYSTERESIS = 0.05;
+const DEFAULT_ADJACENT_TILE_BUDGET = 2;
+
+interface CacheSlot {
+  level: number;
+  cache: TerrainTileCache;
+}
+
 /**
- * Configuration for a single LOD level.
+ * Compute world units per tile for a given LOD level.
  */
+function worldUnitsForLevel(level: number): number {
+  return BASE_WORLD_UNITS * SCALE_FACTOR ** level;
+}
+
+/**
+ * Compute the zoom threshold for a given LOD level.
+ * At or above this zoom, this level is the ideal LOD.
+ */
+function zoomThresholdForLevel(level: number): number {
+  return BASE_ZOOM * (1 / SCALE_FACTOR) ** level;
+}
+
+/**
+ * Compute the ideal LOD level for a given zoom.
+ * Higher zoom → lower level (finer detail).
+ */
+function levelForZoom(zoom: number): number {
+  if (zoom >= BASE_ZOOM) return 0;
+  // level = log(BASE_ZOOM / zoom) / log(SCALE_FACTOR)
+  const level = Math.floor(Math.log(BASE_ZOOM / zoom) / Math.log(SCALE_FACTOR));
+  return Math.max(0, level);
+}
+
 export interface LODConfig {
-  /** World units covered by each tile at this LOD */
   worldUnitsPerTile: number;
-  /** Maximum number of tiles to cache at this LOD */
   maxTiles: number;
-  /** Minimum camera zoom where this LOD is used */
   minZoom: number;
 }
 
 /**
- * Configuration for the LOD terrain tile cache.
- */
-export interface LODTerrainTileCacheConfig {
-  /** Configuration for each LOD level, ordered from highest detail (LOD 0) to lowest */
-  lodConfigs: LODConfig[];
-  /** Hysteresis factor for LOD transitions (default: 0.2 = 20%) */
-  hysteresis?: number;
-}
-
-/**
- * Default LOD configuration covering zoom range 0.02 to 50+.
- *
- * Visible tiles ≈ (screenWidth / zoom) / worldUnitsPerTile
- * Since worldUnitsPerTile scales 4x per LOD, minZoom scales 1/4x to keep
- * visible tile count roughly constant (~10-15 tiles per axis).
- *
- * All LODs use 256 tiles (16x16) except the most zoomed out which needs
- * 1024 (32x32) to handle extreme zoom where viewport spans ~24 tiles per axis.
- */
-const DEFAULT_LOD_CONFIGS: LODConfig[] = [
-  { worldUnitsPerTile: 16, maxTiles: 256, minZoom: 12.0 },
-  { worldUnitsPerTile: 64, maxTiles: 256, minZoom: 3.0 },
-  { worldUnitsPerTile: 256, maxTiles: 256, minZoom: 0.75 },
-  { worldUnitsPerTile: 1024, maxTiles: 256, minZoom: 0.19 },
-  { worldUnitsPerTile: 4096, maxTiles: 1024, minZoom: 0.0 },
-];
-
-/**
- * LOD manager for terrain tile caching.
- *
- * Creates multiple TerrainTileCache instances with different worldUnitsPerTile
- * values and selects the appropriate one based on camera zoom.
+ * LOD manager with sliding window of 3 caches.
  */
 export class LODTerrainTileCache {
   private device: GPUDevice;
-  private readonly lodConfigs: LODConfig[];
-  private readonly caches: TerrainTileCache[];
+  private readonly maxTilesPerCache: number;
   private readonly hysteresis: number;
+  private readonly adjacentTileBudget: number;
 
-  private currentLOD = 0;
+  private slots: [CacheSlot, CacheSlot, CacheSlot];
+  private currentLevel = 0;
   private initialized = false;
 
-  constructor(
-    device: GPUDevice,
-    config: LODTerrainTileCacheConfig = { lodConfigs: DEFAULT_LOD_CONFIGS },
-  ) {
-    this.device = device;
-    this.lodConfigs = config.lodConfigs;
-    this.hysteresis = config.hysteresis ?? 0.05;
+  // Queued adjacent tile requests for budget-limited rendering
+  private adjacentRequests: { slot: CacheSlot; requests: TileRequest[] }[] = [];
 
-    // Create a TerrainTileCache for each LOD level
-    this.caches = this.lodConfigs.map(
-      (lodConfig) =>
-        new TerrainTileCache(device, {
-          worldUnitsPerTile: lodConfig.worldUnitsPerTile,
-          maxTiles: lodConfig.maxTiles,
-        }),
-    );
+  constructor(device: GPUDevice) {
+    this.device = device;
+    this.maxTilesPerCache = DEFAULT_MAX_TILES;
+    this.hysteresis = DEFAULT_HYSTERESIS;
+    this.adjacentTileBudget = DEFAULT_ADJACENT_TILE_BUDGET;
+
+    // Initialize window at level 0: [clamped(0-1)=0, 0, 1]
+    this.slots = [
+      this.createSlot(0), // level max(0, current-1) = 0
+      this.createSlot(0), // current
+      this.createSlot(1), // current+1
+    ];
   }
 
-  /**
-   * Initialize all LOD caches.
-   */
   async init(): Promise<void> {
     if (this.initialized) return;
-    await Promise.all(this.caches.map((cache) => cache.init()));
+    await Promise.all(this.slots.map((s) => s.cache.init()));
     this.initialized = true;
   }
 
   /**
-   * Select the appropriate LOD level based on camera zoom.
-   *
-   * Uses hysteresis to prevent flickering when zooming near LOD boundaries.
-   * The current LOD is "sticky" - we only switch when the zoom moves
-   * significantly past the threshold.
-   *
-   * @param zoom - Current camera zoom level (higher = more zoomed in)
-   * @returns The selected LOD index
+   * Select LOD based on zoom with hysteresis, reshuffle caches if level changes.
    */
-  selectLOD(zoom: number): number {
-    // Find the ideal LOD for this zoom level
-    // LODs are ordered from highest detail (LOD 0) to lowest detail
-    let idealLOD = this.lodConfigs.length - 1; // Default to lowest detail
-    for (let i = 0; i < this.lodConfigs.length; i++) {
-      if (zoom >= this.lodConfigs[i].minZoom) {
-        idealLOD = i;
-        break;
-      }
+  private selectLOD(zoom: number): void {
+    const idealLevel = levelForZoom(zoom);
+
+    if (idealLevel === this.currentLevel) return;
+
+    // Apply hysteresis
+    const currentThreshold = zoomThresholdForLevel(this.currentLevel);
+
+    if (idealLevel < this.currentLevel) {
+      // Zooming in → finer detail (lower level number)
+      const threshold = currentThreshold * (1 + this.hysteresis);
+      if (zoom < threshold) return;
+    } else {
+      // Zooming out → coarser detail (higher level number)
+      const threshold = currentThreshold * (1 - this.hysteresis);
+      if (zoom > threshold) return;
     }
 
-    // Apply hysteresis: only switch LOD if zoom has moved significantly
-    // past the threshold (20% beyond the boundary)
-    if (idealLOD !== this.currentLOD) {
-      const currentConfig = this.lodConfigs[this.currentLOD];
-
-      if (idealLOD < this.currentLOD) {
-        // Trying to switch to higher detail (zooming in)
-        // Only switch if zoom is well above the current LOD's threshold
-        const threshold = currentConfig.minZoom * (1 + this.hysteresis);
-        if (zoom >= threshold) {
-          this.currentLOD = idealLOD;
-        }
-      } else {
-        // Trying to switch to lower detail (zooming out)
-        // Only switch if zoom is well below the current LOD's threshold
-        // (using current, not ideal, because ideal's minZoom could be 0)
-        const threshold = currentConfig.minZoom * (1 - this.hysteresis);
-        if (zoom <= threshold) {
-          this.currentLOD = idealLOD;
-        }
-      }
-    }
-
-    return this.currentLOD;
+    this.reshuffleCaches(idealLevel);
   }
 
   /**
-   * Check if terrain has changed and invalidate all LOD caches if needed.
-   *
-   * @returns true if caches were invalidated
+   * Reshuffle the 3 cache slots for a new current level.
+   * Reuses caches whose levels are still in the new window.
    */
+  private reshuffleCaches(newLevel: number): void {
+    this.currentLevel = newLevel;
+
+    const newWindowLevels = [Math.max(0, newLevel - 1), newLevel, newLevel + 1];
+
+    // Build a map of old slots by level for reuse
+    const oldSlotsByLevel = new Map<number, CacheSlot>();
+    for (const slot of this.slots) {
+      oldSlotsByLevel.set(slot.level, slot);
+    }
+
+    const newSlots: [CacheSlot, CacheSlot, CacheSlot] = [null!, null!, null!];
+    const reused = new Set<CacheSlot>();
+
+    // Assign reusable caches, prioritizing the current slot (index 1) first
+    const assignOrder = [1, 0, 2];
+    for (const i of assignOrder) {
+      const level = newWindowLevels[i];
+      const existing = oldSlotsByLevel.get(level);
+      if (existing && !reused.has(existing)) {
+        newSlots[i] = existing;
+        reused.add(existing);
+      }
+    }
+
+    // Destroy old slots that aren't reused, create new ones
+    for (const slot of this.slots) {
+      if (!reused.has(slot)) {
+        slot.cache.destroy();
+      }
+    }
+
+    for (let i = 0; i < 3; i++) {
+      if (!newSlots[i]) {
+        const slot = this.createSlot(newWindowLevels[i]);
+        if (this.initialized) {
+          // Fire-and-forget init for dynamically created caches.
+          // The cache handles the not-initialized state gracefully.
+          slot.cache.init();
+        }
+        newSlots[i] = slot;
+      }
+    }
+
+    this.slots = newSlots;
+  }
+
+  private createSlot(level: number): CacheSlot {
+    return {
+      level,
+      cache: new TerrainTileCache(this.device, {
+        worldUnitsPerTile: worldUnitsForLevel(level),
+        maxTiles: this.maxTilesPerCache,
+      }),
+    };
+  }
+
+  private getCurrentSlot(): CacheSlot {
+    return this.slots[1];
+  }
+
   checkInvalidation(terrainResources: TerrainResources): boolean {
-    // Only need to check one cache since they all share the same terrain version
-    // But we need to invalidate all of them if terrain changed
     let invalidated = false;
-    for (const cache of this.caches) {
-      if (cache.checkInvalidation(terrainResources)) {
+    for (const slot of this.slots) {
+      if (slot.cache.checkInvalidation(terrainResources)) {
         invalidated = true;
       }
     }
@@ -170,12 +199,8 @@ export class LODTerrainTileCache {
   }
 
   /**
-   * Update the cache for the current viewport and zoom level.
-   * Returns tile requests that need rendering.
-   *
-   * @param viewport - The expanded viewport to cache tiles for
-   * @param zoom - Current camera zoom level for LOD selection
-   * @param terrainResources - Terrain data resources
+   * Update all 3 slots. Returns only the current slot's tile requests for the caller.
+   * Adjacent slots are pre-warmed and their requests queued for budget-limited rendering.
    */
   update(
     viewport: Viewport,
@@ -184,46 +209,62 @@ export class LODTerrainTileCache {
   ): TileRequest[] {
     if (!this.initialized) return [];
 
-    // Select LOD based on zoom
     this.selectLOD(zoom);
 
-    // Update only the current LOD's cache
-    return this.caches[this.currentLOD].update(viewport, terrainResources);
+    // Update all slots with current viewport
+    this.adjacentRequests = [];
+
+    let currentRequests: TileRequest[] = [];
+    for (const slot of this.slots) {
+      const requests = slot.cache.update(viewport, terrainResources);
+      if (slot === this.getCurrentSlot()) {
+        currentRequests = requests;
+      } else if (requests.length > 0) {
+        this.adjacentRequests.push({ slot, requests });
+      }
+    }
+
+    return currentRequests;
   }
 
   /**
-   * Render missing tiles to the current LOD's atlas.
+   * Render current cache's tiles (from caller requests),
+   * plus adjacent tiles up to budget.
    */
   renderTiles(
     requests: TileRequest[],
     terrainResources: TerrainResources,
     gpuProfiler?: GPUProfiler,
   ): void {
-    if (!this.initialized || requests.length === 0) return;
-    this.caches[this.currentLOD].renderTiles(
-      requests,
-      terrainResources,
-      gpuProfiler,
-    );
+    if (!this.initialized) return;
+
+    // Render current LOD's tiles
+    if (requests.length > 0) {
+      this.getCurrentSlot().cache.renderTiles(
+        requests,
+        terrainResources,
+        gpuProfiler,
+      );
+    }
+
+    // Render adjacent tiles with budget cap
+    let budget = this.adjacentTileBudget;
+    for (const { slot, requests: adjRequests } of this.adjacentRequests) {
+      if (budget <= 0) break;
+      const limited = adjRequests.slice(0, budget);
+      slot.cache.renderTiles(limited, terrainResources);
+      budget -= limited.length;
+    }
   }
 
-  /**
-   * Get the current LOD's atlas texture view for sampling.
-   */
   getAtlasView(): GPUTextureView {
-    return this.caches[this.currentLOD].getAtlasView();
+    return this.getCurrentSlot().cache.getAtlasView();
   }
 
-  /**
-   * Get the current LOD's atlas texture.
-   */
   getAtlasTexture(): GPUTexture {
-    return this.caches[this.currentLOD].getAtlasTexture();
+    return this.getCurrentSlot().cache.getAtlasTexture();
   }
 
-  /**
-   * Get the current LOD's atlas info for shader uniforms.
-   */
   getAtlasInfo(): {
     atlasWidth: number;
     atlasHeight: number;
@@ -232,74 +273,51 @@ export class LODTerrainTileCache {
     tilesY: number;
     worldUnitsPerTile: number;
   } {
-    return this.caches[this.currentLOD].getAtlasInfo();
+    return this.getCurrentSlot().cache.getAtlasInfo();
   }
 
-  /**
-   * Get list of currently visible tiles that are ready for rendering.
-   */
   getVisibleTiles(): readonly VisibleTile[] {
-    return this.caches[this.currentLOD].getVisibleTiles();
+    return this.getCurrentSlot().cache.getVisibleTiles();
   }
 
-  /**
-   * Get the current LOD level (0 = highest detail).
-   */
   getCurrentLOD(): number {
-    return this.currentLOD;
+    return this.currentLevel;
   }
 
-  /**
-   * Get the current LOD's configuration.
-   */
   getCurrentLODConfig(): LODConfig {
-    return this.lodConfigs[this.currentLOD];
+    const level = this.currentLevel;
+    return {
+      worldUnitsPerTile: worldUnitsForLevel(level),
+      maxTiles: this.maxTilesPerCache,
+      minZoom: zoomThresholdForLevel(level),
+    };
   }
 
-  /**
-   * Get the number of LOD levels.
-   */
-  getLODCount(): number {
-    return this.lodConfigs.length;
-  }
-
-  /**
-   * Get the number of cached tiles in the current LOD.
-   */
   getCachedTileCount(): number {
-    return this.caches[this.currentLOD].getCachedTileCount();
+    return this.getCurrentSlot().cache.getCachedTileCount();
   }
 
-  /**
-   * Get the number of ready tiles in the current LOD.
-   */
   getReadyTileCount(): number {
-    return this.caches[this.currentLOD].getReadyTileCount();
+    return this.getCurrentSlot().cache.getReadyTileCount();
   }
 
-  /**
-   * Get stats for all LOD levels.
-   */
   getAllLODStats(): Array<{
     lod: number;
     worldUnitsPerTile: number;
     cachedTiles: number;
     readyTiles: number;
   }> {
-    return this.caches.map((cache, index) => ({
-      lod: index,
-      worldUnitsPerTile: this.lodConfigs[index].worldUnitsPerTile,
-      cachedTiles: cache.getCachedTileCount(),
-      readyTiles: cache.getReadyTileCount(),
+    return this.slots.map((slot) => ({
+      lod: slot.level,
+      worldUnitsPerTile: worldUnitsForLevel(slot.level),
+      cachedTiles: slot.cache.getCachedTileCount(),
+      readyTiles: slot.cache.getReadyTileCount(),
     }));
   }
 
-  /**
-   * Clean up all GPU resources.
-   */
   destroy(): void {
-    for (const cache of this.caches) {
-      cache.destroy();
+    for (const slot of this.slots) {
+      slot.cache.destroy();
     }
   }
 }

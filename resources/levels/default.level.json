@@ -1,6 +1,27 @@
 {
   "version": 2,
   "defaultDepth": -300,
+  "waves": {
+    "sources": [
+      {
+        "amplitude": 0.4,
+        "wavelength": 200,
+        "direction": 0.8
+      },
+      {
+        "amplitude": 0.15,
+        "wavelength": 20,
+        "direction": 0.8
+      }
+    ]
+  },
+  "wind": {
+    "sources": [
+      {
+        "direction": 0.785
+      }
+    ]
+  },
   "contours": [
     {
       "name": "Bay Island Shore",
@@ -248,7 +269,7 @@
     },
     {
       "name": "Contour 6",
-      "height": 8,
+      "height": 20,
       "controlPoints": [
         [
           -162.9629601447973,
@@ -274,7 +295,7 @@
     },
     {
       "name": "Contour 7",
-      "height": 8,
+      "height": 20,
       "controlPoints": [
         [
           -640.6606242653818,
@@ -294,27 +315,5 @@
         ]
       ]
     }
-  ],
-  "name": "Bay Islands",
-  "waves": {
-    "sources": [
-      {
-        "amplitude": 0.4,
-        "wavelength": 200,
-        "direction": 0.8
-      },
-      {
-        "amplitude": 0.15,
-        "wavelength": 20,
-        "direction": 0.8
-      }
-    ]
-  },
-  "wind": {
-    "sources": [
-      {
-        "direction": 0.785
-      }
-    ]
-  }
+  ]
 }
