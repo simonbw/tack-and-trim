@@ -269,7 +269,7 @@ export class Anchor extends BaseEntity {
       // Draw stowed anchor at bow
       const bowPos = this.getBowWorldPosition();
       draw.fillCircle(bowPos.x, bowPos.y, this.anchorSize, {
-        color: 0x444444,
+        color: 0x222222,
       });
       return;
     }
@@ -283,7 +283,7 @@ export class Anchor extends BaseEntity {
       this.anchorPosition.y,
       this.anchorSize,
       {
-        color: 0x444444,
+        color: 0x222222,
       },
     );
   }
