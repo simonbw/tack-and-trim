@@ -9,6 +9,7 @@ import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
 import { MainMenu } from "./MainMenu";
+import { NavigationHUD } from "./NavigationHUD";
 import { SpeedReadout } from "./SpeedReadout";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
@@ -130,6 +131,7 @@ export class GameController extends BaseEntity {
     // The clock
     this.game.addEntity(new TimeOfDayHUD());
     this.game.addEntity(new SpeedReadout());
+    this.game.addEntity(new NavigationHUD());
     // Spawn boat and controls
     const boat = this.game.addEntity(new Boat());
     this.game.addEntity(new PlayerBoatController(boat));
