@@ -222,9 +222,7 @@ export class NavigationHUD extends ReactEntity {
     this.mapTerrainVersion = terrainVersion;
 
     const contours = terrain.getContours();
-    const shorelineContours = contours.filter((contour) => contour.height >= 0);
-    const visibleContours =
-      shorelineContours.length > 0 ? shorelineContours : [...contours];
+    const coastlineContours = contours.filter((contour) => contour.height === 0);
 
     const mapContours: MapContourLine[] = [];
     let minX = Infinity;
@@ -232,8 +230,8 @@ export class NavigationHUD extends ReactEntity {
     let maxX = -Infinity;
     let maxY = -Infinity;
 
-    for (let i = 0; i < visibleContours.length; i++) {
-      const contour = visibleContours[i];
+    for (let i = 0; i < coastlineContours.length; i++) {
+      const contour = coastlineContours[i];
       const sampled = this.simplifyContour(contour.sampledPolygon);
       if (sampled.length < 3) continue;
 
