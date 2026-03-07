@@ -42,20 +42,24 @@ list_levels() {
 print_help() {
   cat <<'EOF'
 Usage:
-  build-level [--level <name>]           Build meshes for level(s) (default: all)
-  build-level import --region <slug>     Full terrain pipeline + mesh build
-  build-level extract --region <slug>    Extract terrain → .terrain.json
-  build-level download --region <slug>   Download elevation tiles
-  build-level build-grid --region <slug> Build merged elevation grid
-  build-level clean --region <slug>      Clean generated outputs
-  build-level validate [path]            Validate level or terrain file
-  build-level list-levels                List available levels
-  build-level list-regions               List available regions
+  build-level [--level <name>]                                 Run full pipeline + mesh build (default command)
+  build-level build --region <slug>                            Run full pipeline + mesh build for a region
+  build-level wave-mesh [--level <name>]                       Build wave mesh(es) only
+  build-level wind-mesh [--level <name>]                       Build wind mesh(es) only
+  build-level extract [--region <slug> | --level <name>]       Extract terrain → .terrain.json
+  build-level download [--region <slug> | --level <name>]      Download elevation tiles
+  build-level build-grid [--region <slug> | --level <name>]    Build merged elevation grid
+  build-level clean [--region <slug> | --level <name>]         Clean generated outputs
+  build-level validate [path] [--region <slug> | --level <name>] Validate level or terrain file
+  build-level list-levels                                      List available levels
+  build-level list-regions                                     List available regions
+  build-level completion zsh                                   Print zsh completion script
 
 Examples:
   build-level
   build-level --level vendovi-island
-  build-level import --region san-juan-islands
+  build-level build --region san-juan-islands
+  build-level wave-mesh --level default
   build-level validate --region san-juan-islands
   eval "$(build-level completion zsh)"
 EOF
@@ -86,7 +90,9 @@ _build_level() {
 
   if [[ -z "$cmd" ]]; then
     _values 'subcommand' \
-      'import[Run full pipeline]' \
+      'build[Run full pipeline]' \
+      'wave-mesh[Build .wavemesh files only]' \
+      'wind-mesh[Build .windmesh files only]' \
       'download[Download terrain tiles]' \
       'build-grid[Build merged terrain grid cache]' \
       'extract[Extract terrain contours]' \
@@ -99,22 +105,31 @@ _build_level() {
   fi
 
   case "$cmd" in
-    download|extract|import|clean)
+    build|download|extract|import|clean)
       _arguments \
         '--region[Region slug]:region:_build_level_regions' \
+        '--level[Level name (region inferred from terrainFile)]:level:_build_level_levels' \
         '-h[Show help]' \
         '--help[Show help]'
       ;;
     build-grid)
       _arguments \
         '--region[Region slug]:region:_build_level_regions' \
+        '--level[Level name (region inferred from terrainFile)]:level:_build_level_levels' \
         '--force[Rebuild cached grid even if already present]' \
+        '-h[Show help]' \
+        '--help[Show help]'
+      ;;
+    wave-mesh|wind-mesh)
+      _arguments \
+        '--level[Level name]:level:_build_level_levels' \
         '-h[Show help]' \
         '--help[Show help]'
       ;;
     validate)
       _arguments \
         '--region[Region slug]:region:_build_level_regions' \
+        '--level[Level name]:level:_build_level_levels' \
         '-h[Show help]' \
         '--help[Show help]' \
         '*:level file:_files -g "*.{level,terrain}.json"'
@@ -181,14 +196,14 @@ case "${1:-}" in
     echo "Usage: build-level completion zsh" >&2
     exit 2
     ;;
-  download|build-grid|extract|clean|validate|import )
+  build|wave-mesh|wind-mesh|download|build-grid|extract|clean|validate|import )
     run_rust_cli "$@"
     ;;
   --* )
     run_rust_cli "$@"
     ;;
   * )
-    # Shorthand: build-level <region-slug> → import --region <slug>
-    run_rust_cli import --region "$1" "${@:2}"
+    # Shorthand: build-level <region-slug> → build --region <slug>
+    run_rust_cli build --region "$1" "${@:2}"
     ;;
 esac

@@ -25,7 +25,8 @@
     "build-terrain-grid": "./bin/build-level build-grid",
     "extract-terrain-contours": "./bin/build-level extract",
     "validate-level": "./bin/build-level validate",
-    "import-terrain": "./bin/build-level import",
+    "build-terrain": "./bin/build-level build",
+    "import-terrain": "./bin/build-level build",
     "docs": "typedoc",
     "count-tokens": "tsx ./bin/count-tokens.ts"
   },

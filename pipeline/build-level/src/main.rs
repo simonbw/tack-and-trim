@@ -12,9 +12,10 @@ mod validate;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use terrain_core::humanize::format_int;
+use terrain_core::level::parse_level_file;
 use terrain_core::step::StepView;
 
 use build_grid::run_build_grid;
@@ -33,15 +34,21 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 
-    /// Build meshes for a specific level (default: all)
-    #[arg(long)]
+    /// Level slug from resources/levels/<slug>.level.json.
+    /// Works with all commands. Terrain commands infer --region from terrainFile.
+    #[arg(long, global = true)]
     level: Option<String>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run full terrain pipeline + mesh build for a region
-    Import(CommonRegionArgs),
+    /// Run full pipeline (download → build-grid → extract → wave/wind mesh)
+    #[command(alias = "import")]
+    Build(CommonRegionArgs),
+    /// Build wave mesh (.wavemesh) for level(s)
+    WaveMesh,
+    /// Build wind mesh (.windmesh) for level(s)
+    WindMesh,
     /// Extract terrain → .terrain.json
     Extract(CommonRegionArgs),
     /// Download elevation tiles
@@ -86,83 +93,237 @@ struct BuildGridArgs {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let view = StepView::new();
+    let level_filter = cli.level.as_deref();
 
     match cli.command {
-        None => run_build_all(cli.level.as_deref(), &view),
-        Some(Commands::Import(args)) => run_import(args.region.as_deref(), &view),
-        Some(Commands::Extract(args)) => run_extract(args.region.as_deref(), &view),
-        Some(Commands::Download(args)) => run_download(args.region.as_deref(), &view),
-        Some(Commands::BuildGrid(args)) => {
-            run_build_grid(args.region.as_deref(), args.force, &view)
+        None => run_build(None, level_filter, &view),
+        Some(Commands::Build(args)) => run_build(args.region.as_deref(), level_filter, &view),
+        Some(Commands::WaveMesh) => run_wave_mesh(level_filter, &view),
+        Some(Commands::WindMesh) => run_wind_mesh(level_filter, &view),
+        Some(Commands::Extract(args)) => {
+            let region = resolve_region_for_terrain_command(
+                "extract",
+                args.region.as_deref(),
+                level_filter,
+            )?;
+            run_extract(region.as_deref(), &view)
         }
-        Some(Commands::Clean(args)) => run_clean(args.region.as_deref(), &view),
-        Some(Commands::Validate(args)) => run_validate(args, &view),
+        Some(Commands::Download(args)) => {
+            let region = resolve_region_for_terrain_command(
+                "download",
+                args.region.as_deref(),
+                level_filter,
+            )?;
+            run_download(region.as_deref(), &view)
+        }
+        Some(Commands::BuildGrid(args)) => {
+            let region = resolve_region_for_terrain_command(
+                "build-grid",
+                args.region.as_deref(),
+                level_filter,
+            )?;
+            run_build_grid(region.as_deref(), args.force, &view)
+        }
+        Some(Commands::Clean(args)) => {
+            let region =
+                resolve_region_for_terrain_command("clean", args.region.as_deref(), level_filter)?;
+            run_clean(region.as_deref(), &view)
+        }
+        Some(Commands::Validate(args)) => run_validate(args, level_filter, &view),
         Some(Commands::ListLevels) => run_list_levels(),
         Some(Commands::ListRegions) => run_list_regions(),
     }
 }
 
-/// Default command: build meshes for all levels (or a specific one).
-fn run_build_all(level_filter: Option<&str>, view: &StepView) -> Result<()> {
-    let level_paths: Vec<String> = if let Some(name) = level_filter {
-        let path = level_path_for_slug(name);
-        if !path.exists() {
-            bail!("Level file not found: {}", path.display());
-        }
-        vec![path.to_string_lossy().to_string()]
-    } else {
-        glob::glob("resources/levels/*.level.json")
-            .context("invalid glob pattern")?
-            .filter_map(|p| p.ok().map(|p| p.to_string_lossy().to_string()))
-            .collect()
-    };
+fn run_build(region_arg: Option<&str>, level_filter: Option<&str>, view: &StepView) -> Result<()> {
+    if region_arg.is_some() && level_filter.is_some() {
+        bail!("Specify either --region <slug> or --level <name>, not both");
+    }
 
-    if level_paths.is_empty() {
-        view.info("No level files found.");
+    if let Some(level_slug) = level_filter {
+        let level_path = resolve_level_file_for_slug(level_slug)?;
+        if let Some(region_slug) = terrain_region_from_level_path(&level_path)? {
+            run_build_for_region_and_level(&region_slug, &level_path, view)?;
+        } else {
+            view.info(format!(
+                "Level \"{level_slug}\" has inline terrain; skipping terrain pipeline steps."
+            ));
+            run_all_meshes_for_level(&level_path, view)?;
+        }
+        view.info("Done.");
         return Ok(());
     }
 
-    view.info(format!(
-        "Building meshes for {} level(s)",
-        format_int(level_paths.len())
-    ));
+    if let Some(slug) = region_arg {
+        let level_path = resolve_level_file_for_slug(slug)?;
+        run_build_for_region_and_level(slug, &level_path, view)?;
+        view.info("Done.");
+        return Ok(());
+    }
 
-    for level_path in &level_paths {
-        let level_name = std::path::Path::new(level_path)
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .replace(".level", "");
-        view.header(&level_name);
+    let regions = list_regions()?;
+    if regions.is_empty() {
+        bail!("No regions found. Create assets/terrain/<name>/region.json first.");
+    }
 
-        let inner = view.indented();
-
-        let _s = view.section("build-wavemesh");
-        wavemesh_builder::build_wavemesh_for_level_with_view(level_path, None, Some(&inner))?;
-        drop(_s);
-
-        let _s = view.section("build-windmesh");
-        wavemesh_builder::build_windmesh_for_level_with_view(level_path, None, Some(&inner))?;
-        drop(_s);
+    view.info(format!("Building {} regions", format_int(regions.len())));
+    for (idx, slug) in regions.iter().enumerate() {
+        view.header(&format!(
+            "region {}/{}: {}",
+            format_int(idx + 1),
+            format_int(regions.len()),
+            slug
+        ));
+        let level_path = resolve_level_file_for_slug(slug)?;
+        run_build_for_region_and_level(slug, &level_path, &view.indented())?;
     }
 
     view.info("Done.");
     Ok(())
 }
 
-fn run_list_levels() -> Result<()> {
-    let paths: Vec<_> = glob::glob("resources/levels/*.level.json")
+fn run_wave_mesh(level_filter: Option<&str>, view: &StepView) -> Result<()> {
+    let level_paths = resolve_level_paths(level_filter)?;
+    if level_paths.is_empty() {
+        view.info("No level files found.");
+        return Ok(());
+    }
+
+    view.info(format!(
+        "Building wave mesh for {} level(s)",
+        format_int(level_paths.len())
+    ));
+
+    for level_path in &level_paths {
+        view.header(&level_slug_from_path(level_path));
+        run_wave_mesh_for_level(level_path, &view.indented())?;
+    }
+
+    view.info("Done.");
+    Ok(())
+}
+
+fn run_wind_mesh(level_filter: Option<&str>, view: &StepView) -> Result<()> {
+    let level_paths = resolve_level_paths(level_filter)?;
+    if level_paths.is_empty() {
+        view.info("No level files found.");
+        return Ok(());
+    }
+
+    view.info(format!(
+        "Building wind mesh for {} level(s)",
+        format_int(level_paths.len())
+    ));
+
+    for level_path in &level_paths {
+        view.header(&level_slug_from_path(level_path));
+        run_wind_mesh_for_level(level_path, &view.indented())?;
+    }
+
+    view.info("Done.");
+    Ok(())
+}
+
+fn resolve_level_paths(level_filter: Option<&str>) -> Result<Vec<PathBuf>> {
+    if let Some(level_slug) = level_filter {
+        return Ok(vec![resolve_level_file_for_slug(level_slug)?]);
+    }
+
+    let mut paths: Vec<_> = glob::glob("resources/levels/*.level.json")
         .context("invalid glob pattern")?
         .filter_map(|p| p.ok())
         .collect();
+    paths.sort();
+    Ok(paths)
+}
+
+fn resolve_level_file_for_slug(level_slug: &str) -> Result<PathBuf> {
+    let level_path = level_path_for_slug(level_slug);
+    if !level_path.exists() {
+        bail!("Level file not found: {}", display_path(&level_path));
+    }
+    Ok(level_path)
+}
+
+fn terrain_region_from_level_path(level_path: &Path) -> Result<Option<String>> {
+    let level_json = fs::read_to_string(level_path)
+        .with_context(|| format!("Failed to read {}", display_path(level_path)))?;
+    let level = parse_level_file(&level_json)
+        .with_context(|| format!("Failed to parse {}", display_path(level_path)))?;
+    Ok(level.terrain_file)
+}
+
+fn resolve_region_for_terrain_command(
+    command_name: &str,
+    region_arg: Option<&str>,
+    level_filter: Option<&str>,
+) -> Result<Option<String>> {
+    if region_arg.is_some() && level_filter.is_some() {
+        bail!("`{command_name}` accepts either --region <slug> or --level <name>, not both");
+    }
+
+    if let Some(region_slug) = region_arg {
+        return Ok(Some(region_slug.to_string()));
+    }
+
+    let Some(level_slug) = level_filter else {
+        return Ok(None);
+    };
+
+    let level_path = resolve_level_file_for_slug(level_slug)?;
+    let Some(region_slug) = terrain_region_from_level_path(&level_path)? else {
+        bail!(
+            "Level \"{level_slug}\" does not specify terrainFile; `{command_name}` needs --region or a level with terrainFile."
+        );
+    };
+
+    Ok(Some(region_slug))
+}
+
+fn level_slug_from_path(path: &Path) -> String {
+    path.file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .replace(".level", "")
+}
+
+fn run_wave_mesh_for_level(level_path: &Path, view: &StepView) -> Result<()> {
+    let level_path_str = level_path
+        .to_str()
+        .ok_or_else(|| anyhow!("Invalid level path"))?;
+    let inner = view.indented();
+    let _s = view.section("build-wavemesh");
+    wavemesh_builder::build_wavemesh_for_level_with_view(level_path_str, None, Some(&inner))?;
+    drop(_s);
+    Ok(())
+}
+
+fn run_wind_mesh_for_level(level_path: &Path, view: &StepView) -> Result<()> {
+    let level_path_str = level_path
+        .to_str()
+        .ok_or_else(|| anyhow!("Invalid level path"))?;
+    let inner = view.indented();
+    let _s = view.section("build-windmesh");
+    wavemesh_builder::build_windmesh_for_level_with_view(level_path_str, None, Some(&inner))?;
+    drop(_s);
+    Ok(())
+}
+
+fn run_all_meshes_for_level(level_path: &Path, view: &StepView) -> Result<()> {
+    run_wave_mesh_for_level(level_path, view)?;
+    run_wind_mesh_for_level(level_path, view)?;
+    Ok(())
+}
+
+fn run_list_levels() -> Result<()> {
+    let mut paths: Vec<_> = glob::glob("resources/levels/*.level.json")
+        .context("invalid glob pattern")?
+        .filter_map(|p| p.ok())
+        .collect();
+    paths.sort();
 
     for path in paths {
-        let name = path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .replace(".level", "");
-        println!("{}", name);
+        println!("{}", level_slug_from_path(&path));
     }
     Ok(())
 }
@@ -217,8 +378,15 @@ fn run_clean(region_arg: Option<&str>, view: &StepView) -> Result<()> {
     Ok(())
 }
 
-fn run_validate(args: ValidateArgs, view: &StepView) -> Result<()> {
-    let level_path = resolve_level_path(args.level_path.as_deref(), args.region.as_deref())?;
+fn run_validate(args: ValidateArgs, level_filter: Option<&str>, view: &StepView) -> Result<()> {
+    let level_path = if let Some(level_slug) = level_filter {
+        if args.level_path.is_some() || args.region.is_some() {
+            bail!("Specify only one of --level <name>, [path], or --region <slug>");
+        }
+        resolve_level_file_for_slug(level_slug)?
+    } else {
+        resolve_level_path(args.level_path.as_deref(), args.region.as_deref())?
+    };
 
     view.info(format!("Validating: {}", display_path(&level_path)));
 
@@ -258,33 +426,6 @@ fn run_validate(args: ValidateArgs, view: &StepView) -> Result<()> {
     bail!("validation failed")
 }
 
-fn run_import(region_arg: Option<&str>, view: &StepView) -> Result<()> {
-    if let Some(slug) = region_arg {
-        run_import_for_region(slug, view)?;
-        view.info("Done.");
-        return Ok(());
-    }
-
-    let regions = list_regions()?;
-    if regions.is_empty() {
-        bail!("No regions found. Create assets/terrain/<name>/region.json first.");
-    }
-
-    view.info(format!("Importing {} regions", format_int(regions.len())));
-    for (idx, slug) in regions.iter().enumerate() {
-        view.header(&format!(
-            "region {}/{}: {}",
-            format_int(idx + 1),
-            format_int(regions.len()),
-            slug
-        ));
-        run_import_for_region(slug, &view.indented())?;
-    }
-
-    view.info("Done.");
-    Ok(())
-}
-
 fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
     let config = load_region_config(slug)?;
     let tiles_root = tiles_dir(slug);
@@ -299,8 +440,20 @@ fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
     let mut stats = CleanStats::default();
     remove_generated_path(&cache_dir, &tiles_root, "cache directory", &mut stats, view)?;
     remove_generated_path(&terrain_path, &tiles_root, "terrain file", &mut stats, view)?;
-    remove_generated_path(&wavemesh_path, &tiles_root, "wavemesh file", &mut stats, view)?;
-    remove_generated_path(&windmesh_path, &tiles_root, "windmesh file", &mut stats, view)?;
+    remove_generated_path(
+        &wavemesh_path,
+        &tiles_root,
+        "wavemesh file",
+        &mut stats,
+        view,
+    )?;
+    remove_generated_path(
+        &windmesh_path,
+        &tiles_root,
+        "windmesh file",
+        &mut stats,
+        view,
+    )?;
 
     view.info(format!(
         "Cleaned {} path(s) (skipped {} protected path(s))",
@@ -351,40 +504,28 @@ fn remove_generated_path(
     Ok(())
 }
 
-fn run_import_for_region(slug: &str, view: &StepView) -> Result<()> {
-    let level_path = level_path_for_slug(slug);
+fn run_build_for_region_and_level(
+    region_slug: &str,
+    level_path: &Path,
+    view: &StepView,
+) -> Result<()> {
+    if !level_path.exists() {
+        bail!("Level file not found: {}", display_path(level_path));
+    }
+
     let inner = view.indented();
 
     let _s = view.section("download");
-    run_download(Some(slug), &inner)?;
+    run_download(Some(region_slug), &inner)?;
     drop(_s);
 
     let _s = view.section("build-grid");
-    run_build_grid(Some(slug), false, &inner)?;
+    run_build_grid(Some(region_slug), false, &inner)?;
     drop(_s);
 
     let _s = view.section("extract-contours");
-    run_extract(Some(slug), &inner)?;
+    run_extract(Some(region_slug), &inner)?;
     drop(_s);
 
-    let _s = view.section("build-wavemesh");
-    wavemesh_builder::build_wavemesh_for_level_with_view(
-        level_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid level path"))?,
-        None,
-        Some(&inner),
-    )?;
-    drop(_s);
-
-    let _s = view.section("build-windmesh");
-    wavemesh_builder::build_windmesh_for_level_with_view(
-        level_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid level path"))?,
-        None,
-        Some(&inner),
-    )?;
-    drop(_s);
-    Ok(())
+    run_all_meshes_for_level(level_path, view)
 }
