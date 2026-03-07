@@ -1,6 +1,7 @@
 //! JSON level file parsing, Catmull-Rom spline sampling, contour tree building,
 //! and terrain CPU data construction. Mirrors LevelFileFormat.ts + LandMass.ts.
 
+use anyhow::Context;
 use serde::Deserialize;
 
 // ── JSON types ───────────────────────────────────────────────────────────────
@@ -10,10 +11,59 @@ use serde::Deserialize;
 pub struct LevelFileJSON {
     #[allow(dead_code)]
     pub version: u32,
+    pub name: Option<String>,
+    #[serde(rename = "terrainFile")]
+    pub terrain_file: Option<String>,
     #[serde(rename = "defaultDepth")]
     pub default_depth: Option<f64>,
     pub waves: Option<WaveConfigJSON>,
+    pub wind: Option<WindConfigJSON>,
+    #[serde(default)]
     pub contours: Vec<TerrainContourJSON>,
+}
+
+/// Top-level JSON structure for a `.terrain.json` file.
+#[derive(Deserialize, Debug)]
+pub struct TerrainFileJSON {
+    #[allow(dead_code)]
+    pub version: u32,
+    #[serde(rename = "defaultDepth")]
+    pub default_depth: Option<f64>,
+    pub contours: Vec<TerrainContourJSON>,
+}
+
+/// Parse a terrain JSON string into a `TerrainFileJSON`.
+pub fn parse_terrain_file(json_str: &str) -> anyhow::Result<TerrainFileJSON> {
+    Ok(serde_json::from_str(json_str)?)
+}
+
+/// Resolve terrain references: if the level has a `terrain_file`, read the
+/// sibling `.terrain.json` and merge its contours and defaultDepth into the level.
+pub fn resolve_level_terrain(
+    level: &mut LevelFileJSON,
+    level_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    if let Some(ref slug) = level.terrain_file {
+        let terrain_path = level_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join(format!("{}.terrain.json", slug));
+        let terrain_json = std::fs::read_to_string(&terrain_path).with_context(|| {
+            format!(
+                "failed to read terrain file: {} (referenced by {})",
+                terrain_path.display(),
+                level_path.display()
+            )
+        })?;
+        let terrain: TerrainFileJSON = parse_terrain_file(&terrain_json).with_context(|| {
+            format!("failed to parse terrain file: {}", terrain_path.display())
+        })?;
+        if level.default_depth.is_none() {
+            level.default_depth = terrain.default_depth;
+        }
+        level.contours = terrain.contours;
+    }
+    Ok(())
 }
 
 /// Optional wave configuration section in a level file.
@@ -45,6 +95,45 @@ fn default_speed_mult() -> f64 {
 fn default_source_dist() -> f64 {
     1e10
 }
+
+// ── Wind source types ────────────────────────────────────────────────────────
+
+/// JSON representation of a single wind source.
+#[derive(Deserialize, Debug, Clone)]
+pub struct WindSourceJSON {
+    pub direction: f64,
+}
+
+/// Optional wind configuration section in a level file.
+#[derive(Deserialize, Debug)]
+pub struct WindConfigJSON {
+    pub sources: Vec<WindSourceJSON>,
+}
+
+/// Resolved wind source parameters used during mesh building.
+#[derive(Clone, Debug)]
+pub struct WindSource {
+    pub direction: f64,
+}
+
+impl From<&WindSourceJSON> for WindSource {
+    fn from(j: &WindSourceJSON) -> Self {
+        WindSource {
+            direction: j.direction,
+        }
+    }
+}
+
+/// Default wind sources used when the level file has no "wind" section.
+/// Single NE source matching the default baseWind of V(11, 11).
+/// atan2(11, 11) = PI/4.
+pub fn default_wind_sources() -> Vec<WindSource> {
+    vec![WindSource {
+        direction: std::f64::consts::FRAC_PI_4,
+    }]
+}
+
+// ── Terrain types ────────────────────────────────────────────────────────────
 
 /// JSON representation of a terrain contour (island, shoal, etc.).
 #[derive(Deserialize, Debug)]

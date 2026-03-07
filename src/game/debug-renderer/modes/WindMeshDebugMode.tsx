@@ -6,6 +6,7 @@
  * with colors mapped from a selectable vertex attribute.
  *
  * Use V to cycle through color modes (Speed Factor, Direction Offset, Turbulence).
+ * Use B to cycle through wind sources.
  */
 
 import { type JSX } from "preact";
@@ -18,11 +19,14 @@ import {
   type UniformInstance,
 } from "../../../core/graphics/UniformStruct";
 import { validateShaderModuleCompilation } from "../../../core/graphics/webgpu/WebGPUDevice";
-import type { WindMeshFileData } from "../../../pipeline/mesh-building/WindmeshFile";
+import type {
+  WindMeshFileBundle,
+  WindMeshSourceData,
+} from "../../../pipeline/mesh-building/WindmeshFile";
 import { WindResources } from "../../world/wind/WindResources";
 import { DebugRenderMode } from "./DebugRenderMode";
 
-/** Floats per vertex in WindMeshFileData: posX, posY, speedFactor, directionOffset, turbulence */
+/** Floats per vertex in WindMeshSourceData: posX, posY, speedFactor, directionOffset, turbulence */
 const WIND_VERTEX_FLOATS = 5;
 
 const WindMeshDebugUniforms = defineUniformStruct("WindMeshDebugParams", {
@@ -167,6 +171,7 @@ const COLOR_MODE_NAMES = ["Speed Factor", "Direction Offset", "Turbulence"];
 export class WindMeshDebugMode extends DebugRenderMode {
   layer = "windViz" as const;
   private colorMode = 0;
+  private selectedSource = 0;
 
   private pipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
@@ -178,7 +183,7 @@ export class WindMeshDebugMode extends DebugRenderMode {
   private initialized = false;
 
   private cachedWireframe: WireframeBuffer | null = null;
-  private cachedMeshData: WindMeshFileData | null = null;
+  private cachedSourceData: WindMeshSourceData | null = null;
 
   @on("add")
   async onAdd() {
@@ -283,6 +288,14 @@ export class WindMeshDebugMode extends DebugRenderMode {
     this.initialized = true;
   }
 
+  private getActiveSource(): WindMeshSourceData | null {
+    const windResources = this.game.entities.tryGetSingleton(WindResources);
+    const bundle = windResources?.getWindMeshData();
+    if (!bundle || bundle.sourceCount === 0) return null;
+    const idx = Math.min(this.selectedSource, bundle.sourceCount - 1);
+    return bundle.sources[idx];
+  }
+
   @on("render")
   onRender(_event: GameEventMap["render"]): void {
     if (
@@ -294,12 +307,11 @@ export class WindMeshDebugMode extends DebugRenderMode {
     )
       return;
 
-    const windResources = this.game.entities.tryGetSingleton(WindResources);
-    const meshData = windResources?.getWindMeshData();
-    if (!meshData) return;
+    const source = this.getActiveSource();
+    if (!source) return;
 
     const device = this.game.getWebGPUDevice();
-    const wireframe = this.getWireframeBuffer(meshData, device);
+    const wireframe = this.getWireframeBuffer(source, device);
 
     const renderer = this.game.getRenderer();
     const renderPass = renderer.getCurrentRenderPass();
@@ -323,10 +335,10 @@ export class WindMeshDebugMode extends DebugRenderMode {
   }
 
   private getWireframeBuffer(
-    meshData: WindMeshFileData,
+    sourceData: WindMeshSourceData,
     device: GPUDevice,
   ): WireframeBuffer {
-    if (this.cachedWireframe && this.cachedMeshData === meshData) {
+    if (this.cachedWireframe && this.cachedSourceData === sourceData) {
       return this.cachedWireframe;
     }
 
@@ -334,7 +346,7 @@ export class WindMeshDebugMode extends DebugRenderMode {
       this.cachedWireframe.buffer.destroy();
     }
 
-    const { vertices, indices, indexCount } = meshData;
+    const { vertices, indices, indexCount } = sourceData;
     const floatsPerVertex = 7; // posX, posY, speedFactor, directionOffset, turbulence, baryU, baryV
     const expanded = new Float32Array(indexCount * floatsPerVertex);
 
@@ -362,16 +374,16 @@ export class WindMeshDebugMode extends DebugRenderMode {
     device.queue.writeBuffer(buffer, 0, expanded);
 
     this.cachedWireframe = { buffer, vertexCount: indexCount };
-    this.cachedMeshData = meshData;
+    this.cachedSourceData = sourceData;
     return this.cachedWireframe;
   }
 
   private sampleMeshAtPoint(
-    meshData: WindMeshFileData,
+    sourceData: WindMeshSourceData,
     px: number,
     py: number,
   ): CursorSample | null {
-    const { vertices, indices, indexCount } = meshData;
+    const { vertices, indices, indexCount } = sourceData;
 
     for (let i = 0; i < indexCount; i += 3) {
       const ia = indices[i] * WIND_VERTEX_FLOATS;
@@ -445,11 +457,24 @@ export class WindMeshDebugMode extends DebugRenderMode {
     if (key === "KeyV") {
       this.cycleColorMode(event.shiftKey ? -1 : 1);
     }
+    if (key === "KeyB") {
+      this.cycleSource(event.shiftKey ? -1 : 1);
+    }
   }
 
   private cycleColorMode(direction: 1 | -1): void {
     const n = COLOR_MODE_NAMES.length;
     this.colorMode = (this.colorMode + direction + n) % n;
+  }
+
+  private cycleSource(direction: 1 | -1): void {
+    const windResources = this.game.entities.tryGetSingleton(WindResources);
+    const bundle = windResources?.getWindMeshData();
+    if (!bundle || bundle.sourceCount <= 1) return;
+    const n = bundle.sourceCount;
+    this.selectedSource = (this.selectedSource + direction + n) % n;
+    // Invalidate cached wireframe so it rebuilds for the new source
+    this.cachedSourceData = null;
   }
 
   @on("destroy")
@@ -467,8 +492,8 @@ export class WindMeshDebugMode extends DebugRenderMode {
 
   getHudInfo(): JSX.Element | string | null {
     const windResources = this.game.entities.tryGetSingleton(WindResources);
-    const meshData = windResources?.getWindMeshData();
-    if (!meshData) return "No wind mesh data";
+    const bundle = windResources?.getWindMeshData();
+    if (!bundle) return "No wind mesh data";
 
     const chipStyle = {
       cursor: "pointer",
@@ -492,7 +517,11 @@ export class WindMeshDebugMode extends DebugRenderMode {
 
     const dimStyle = { color: "#aaa", fontSize: "11px" };
 
-    const triCount = Math.floor(meshData.indexCount / 3);
+    const sourceIdx = Math.min(this.selectedSource, bundle.sourceCount - 1);
+    const source = bundle.sources[sourceIdx];
+    const triCount = Math.floor(source.indexCount / 3);
+    const dirDeg = ((source.direction * 180) / Math.PI).toFixed(1);
+    const weights = windResources?.getSourceWeights() ?? [];
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
@@ -506,10 +535,21 @@ export class WindMeshDebugMode extends DebugRenderMode {
             {COLOR_MODE_NAMES[this.colorMode]}
           </span>
         </span>
+        <span style={controlLineStyle}>
+          <span style={labelStyle}>Source</span>
+          <span
+            style={chipStyle}
+            onClick={() => this.cycleSource(1)}
+            title="Click to cycle (B / Shift+B)"
+          >
+            {sourceIdx + 1}/{bundle.sourceCount} ({dirDeg}&deg;, w=
+            {(weights[sourceIdx] ?? 0).toFixed(2)})
+          </span>
+        </span>
         <div style={dimStyle}>
           <span>
-            {meshData.gridCols}&times;{meshData.gridRows} grid{" "}
-            {(meshData.vertexCount / 1000).toFixed(1)}k verts {triCount} tris
+            {bundle.gridCols}&times;{bundle.gridRows} grid{" "}
+            {(source.vertexCount / 1000).toFixed(1)}k verts {triCount} tris
           </span>
         </div>
       </div>
@@ -520,8 +560,7 @@ export class WindMeshDebugMode extends DebugRenderMode {
     const mouseWorldPos = this.game.camera.toWorld(this.game.io.mousePosition);
     if (!mouseWorldPos) return null;
 
-    const windResources = this.game.entities.tryGetSingleton(WindResources);
-    const meshData = windResources?.getWindMeshData();
+    const source = this.getActiveSource();
 
     const rowStyle = {
       display: "flex",
@@ -532,7 +571,7 @@ export class WindMeshDebugMode extends DebugRenderMode {
     const labelStyle = { color: "#8fa3b8", fontSize: "11px" };
     const valueStyle = { color: "#d9e6f2", fontSize: "11px" };
 
-    if (!meshData) {
+    if (!source) {
       return (
         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
           <span style={labelStyle}>Wind Mesh</span>
@@ -542,7 +581,7 @@ export class WindMeshDebugMode extends DebugRenderMode {
     }
 
     const sample = this.sampleMeshAtPoint(
-      meshData,
+      source,
       mouseWorldPos.x,
       mouseWorldPos.y,
     );

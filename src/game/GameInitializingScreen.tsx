@@ -13,7 +13,7 @@ export class GameInitializingScreen extends ReactEntity {
           background:
             "radial-gradient(ellipse at center, rgba(0, 18, 36, 0.6) 0%, rgba(0, 10, 24, 0.9) 100%)",
           color: "#e8e4d9",
-          fontFamily: "Georgia, 'Times New Roman', serif",
+          fontFamily: "var(--font-title)",
           fontSize: "1.4rem",
           letterSpacing: "0.08em",
           textTransform: "uppercase",

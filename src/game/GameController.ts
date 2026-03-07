@@ -8,6 +8,7 @@ import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
+import { LevelMapLabel } from "./LevelMapLabel";
 import { MainMenu } from "./MainMenu";
 import { NavigationHUD } from "./NavigationHUD";
 import { SpeedReadout } from "./SpeedReadout";
@@ -91,7 +92,7 @@ export class GameController extends BaseEntity {
     const initScreen = this.game.addEntity(new GameInitializingScreen());
 
     // 1. Load level data (terrain + waves + wavemesh)
-    const { terrain, waves, wavemeshData, windmeshData } =
+    const { terrain, waves, wind, wavemeshData, windmeshData } =
       await loadLevel(levelName);
     this.game.addEntity(new TerrainResources(terrain));
     this.game.addEntity(new TerrainQueryManager());
@@ -109,7 +110,7 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new WaterQueryManager());
 
     // 5. Wind data systems
-    this.game.addEntity(new WindResources(windmeshData));
+    this.game.addEntity(new WindResources(windmeshData, wind));
     this.game.addEntity(new WindQueryManager());
 
     // 6. Visual entities
@@ -132,6 +133,9 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new TimeOfDayHUD());
     this.game.addEntity(new SpeedReadout());
     this.game.addEntity(new NavigationHUD());
+    if (this.currentLevel) {
+      this.game.addEntity(new LevelMapLabel(this.currentLevel));
+    }
     // Spawn boat and controls
     const boat = this.game.addEntity(new Boat());
     this.game.addEntity(new PlayerBoatController(boat));

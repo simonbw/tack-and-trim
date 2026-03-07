@@ -1,0 +1,11 @@
+:root {
+  --font-title: "Young Serif", Georgia, "Times New Roman", serif;
+  --font-body: "Spectral", Georgia, "Times New Roman", serif;
+  --font-map: "Tangerine", "Young Serif", Georgia, serif;
+}
+
+html,
+body {
+  font-family: var(--font-body);
+  font-weight: 300;
+}

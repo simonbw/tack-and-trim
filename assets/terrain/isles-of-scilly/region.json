@@ -15,6 +15,5 @@
   "scale": 1,
   "minPerimeter": 1500,
   "minPoints": 4,
-  "flipY": true,
-  "output": "resources/levels/isles-of-scilly.level.json"
+  "flipY": true
 }

@@ -5,11 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 usage() {
   echo "Usage: profile-samply.sh [-p <crate>] [-- <binary-args...>]"
-  echo "  -p <crate>  Workspace crate to profile (default: terrain-import)"
+  echo "  -p <crate>  Workspace crate to profile (default: build-level)"
   exit 1
 }
 
-CRATE="terrain-import"
+CRATE="build-level"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -p) CRATE="$2"; shift 2 ;;

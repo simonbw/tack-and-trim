@@ -12,6 +12,5 @@
   "scale": 1,
   "minPerimeter": 3000,
   "minPoints": 4,
-  "flipY": true,
-  "output": "resources/levels/san-juan-islands.level.json"
+  "flipY": true
 }

@@ -18,15 +18,17 @@ export const GamePreloader = new ReactPreloader(
           color: "white",
           display: "flex",
           flexDirection: "column",
-          fontFamily: `monospace`,
+          fontFamily: "var(--font-body)",
+          fontWeight: "300",
           fontSize: "1.5rem",
           gap: "1rem",
         }}
       >
         <span
           style={{
-            fontFamily: `monospace`,
+            fontFamily: "var(--font-title)",
             fontSize: "2em",
+            fontWeight: "400",
           }}
         >
           Loading...

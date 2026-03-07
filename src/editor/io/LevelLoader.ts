@@ -6,26 +6,57 @@
  */
 
 import type { WavefrontMeshData } from "../../pipeline/mesh-building/MeshBuildTypes";
-import type { WindMeshFileData } from "../../pipeline/mesh-building/WindmeshFile";
+import type { WindMeshFileBundle } from "../../pipeline/mesh-building/WindmeshFile";
 import { loadWavemeshFromUrl } from "../../game/wave-physics/WavemeshLoader";
 import { loadWindmeshFromUrl } from "../../game/wind/WindmeshLoader";
 import { RESOURCES, LevelName } from "../../../resources/resources";
 import {
   EditorLevelDefinition,
   LevelData,
+  LevelFileJSON,
+  TerrainFileJSON,
   levelFileToEditorDefinition,
   levelFileToLevelData,
   parseLevelFile,
   validateLevelFile,
+  validateTerrainFile,
 } from "./LevelFileFormat";
 
 /**
+ * Resolve terrain references in a v2 level file.
+ * If the level has a terrainFile reference, merge the terrain data into it.
+ */
+function resolveTerrainReference(file: LevelFileJSON): LevelFileJSON {
+  if (!file.terrainFile) {
+    return file;
+  }
+
+  const terrainKey = file.terrainFile.replace(
+    /-([a-z])/g,
+    (_: string, c: string) => c.toUpperCase(),
+  ) as keyof typeof RESOURCES.terrains;
+  const terrainData = RESOURCES.terrains[terrainKey];
+  if (!terrainData) {
+    throw new Error(
+      `Terrain file "${file.terrainFile}" not found in resources`,
+    );
+  }
+
+  const terrain = validateTerrainFile(terrainData);
+  return {
+    ...file,
+    defaultDepth: file.defaultDepth ?? terrain.defaultDepth,
+    contours: terrain.contours,
+  };
+}
+
+/**
  * Everything needed to initialize a level at runtime: terrain, wave config,
- * and prebuilt wavemesh data.
+ * wind config, and prebuilt mesh data.
  */
 export interface LoadedLevel extends LevelData {
   wavemeshData: WavefrontMeshData[] | undefined;
-  windmeshData: WindMeshFileData | undefined;
+  windmeshData: WindMeshFileBundle | undefined;
 }
 
 /**
@@ -34,7 +65,8 @@ export interface LoadedLevel extends LevelData {
  * is missing, `wavemeshData` will be undefined.
  */
 export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
-  const file = validateLevelFile(RESOURCES.levels[levelName]);
+  const rawFile = validateLevelFile(RESOURCES.levels[levelName]);
+  const file = resolveTerrainReference(rawFile);
   const levelData = levelFileToLevelData(file);
 
   let wavemeshData: WavefrontMeshData[] | undefined;
@@ -58,13 +90,15 @@ export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
     );
   }
 
-  let windmeshData: WindMeshFileData | undefined;
+  let windmeshData: WindMeshFileBundle | undefined;
   const windmeshUrl =
     RESOURCES.windmeshes[levelName as keyof typeof RESOURCES.windmeshes];
   if (windmeshUrl) {
     try {
       windmeshData = await loadWindmeshFromUrl(windmeshUrl);
-      console.log(`[LevelLoader] Loaded prebuilt windmesh for "${levelName}"`);
+      console.log(
+        `[LevelLoader] Loaded prebuilt windmesh for "${levelName}" (${windmeshData.sourceCount} sources)`,
+      );
     } catch (e) {
       console.error(
         `[LevelLoader] Failed to load windmesh for "${levelName}":`,
@@ -81,7 +115,8 @@ export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
  * Uses the bundled resource from the asset system.
  */
 export function loadDefaultEditorLevel(): EditorLevelDefinition {
-  const file = validateLevelFile(RESOURCES.levels.default);
+  const rawFile = validateLevelFile(RESOURCES.levels.default);
+  const file = resolveTerrainReference(rawFile);
   return levelFileToEditorDefinition(file);
 }
 

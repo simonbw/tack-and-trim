@@ -1,5 +1,6 @@
 import { AutoPauser } from "../core/AutoPauser";
 import { Game } from "../core/Game";
+import "../fonts.css";
 import "../core/tuning/TunableRegistry"; // Initialize tunable registry early
 import { TuningPanel } from "../core/tuning/TuningPanel";
 import { createGraphicsPanel } from "../core/util/stats-overlay/GraphicsPanel";

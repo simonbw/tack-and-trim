@@ -127,6 +127,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
 
 [[package]]
+name = "build-level"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "gdal",
+ "glob",
+ "rayon",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "terrain-core",
+ "wavemesh-builder",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1281,22 +1298,6 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "terrain-import"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "gdal",
- "rayon",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "terrain-core",
- "wavemesh-builder",
 ]
 
 [[package]]

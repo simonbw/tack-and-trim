@@ -3,6 +3,7 @@
  *
  * Samples wind data (velocity, speed, direction) at arbitrary query points.
  * Uses wind shader modules for consistent computation with rendering.
+ * Supports per-source wind mesh blending via weights.
  *
  * Input:  pointBuffer (storage) - array of vec2<f32> query points
  * Output: resultBuffer (storage) - array of WindQueryResult structs
@@ -20,17 +21,21 @@ import {
 } from "../../../core/graphics/UniformStruct";
 import {
   WIND_ANGLE_VARIATION,
+  WIND_FLOW_CYCLE_PERIOD,
   WIND_NOISE_SPATIAL_SCALE,
   WIND_NOISE_TIME_SCALE,
+  WIND_SLOW_TIME_SCALE,
   WIND_SPEED_VARIATION,
+  MAX_WIND_SOURCES,
 } from "./WindConstants";
 import { fn_computeWindAtPoint } from "../shaders/wind.wgsl";
-import { fn_lookupWindMesh } from "../shaders/wind-mesh-packed.wgsl";
+import { fn_lookupWindMeshBlended } from "../shaders/wind-mesh-packed.wgsl";
 
 const WORKGROUP_SIZE = [64, 1, 1] as const;
 
 /**
  * Uniform struct for wind query parameters.
+ * Includes per-source weights (8 floats).
  */
 export const WindQueryUniforms = defineUniformStruct("Params", {
   pointCount: u32,
@@ -40,7 +45,16 @@ export const WindQueryUniforms = defineUniformStruct("Params", {
   influenceSpeedFactor: f32,
   influenceDirectionOffset: f32,
   influenceTurbulence: f32,
-  _padding: f32,
+  numActiveWindSources: u32,
+  // Per-source weights (8 floats, packed as 2 vec4s for alignment)
+  weights0: f32,
+  weights1: f32,
+  weights2: f32,
+  weights3: f32,
+  weights4: f32,
+  weights5: f32,
+  weights6: f32,
+  weights7: f32,
 });
 
 /**
@@ -57,7 +71,15 @@ struct Params {
   influenceSpeedFactor: f32,
   influenceDirectionOffset: f32,
   influenceTurbulence: f32,
-  _padding: f32,
+  numActiveWindSources: u32,
+  weights0: f32,
+  weights1: f32,
+  weights2: f32,
+  weights3: f32,
+  weights4: f32,
+  weights5: f32,
+  weights6: f32,
+  weights7: f32,
 }
 
 // Result structure (matches WindQueryResult interface)
@@ -84,7 +106,7 @@ struct WindQueryResult {
 const windQueryMainModule: ShaderModule = {
   dependencies: [
     fn_computeWindAtPoint,
-    fn_lookupWindMesh,
+    fn_lookupWindMeshBlended,
     windQueryParamsModule,
   ],
   code: /*wgsl*/ `
@@ -93,6 +115,8 @@ const WIND_NOISE_SPATIAL_SCALE: f32 = ${WIND_NOISE_SPATIAL_SCALE};
 const WIND_NOISE_TIME_SCALE: f32 = ${WIND_NOISE_TIME_SCALE};
 const WIND_SPEED_VARIATION: f32 = ${WIND_SPEED_VARIATION};
 const WIND_ANGLE_VARIATION: f32 = ${WIND_ANGLE_VARIATION};
+const WIND_FLOW_CYCLE_PERIOD: f32 = ${WIND_FLOW_CYCLE_PERIOD};
+const WIND_SLOW_TIME_SCALE: f32 = ${WIND_SLOW_TIME_SCALE};
 
 @compute @workgroup_size(${WORKGROUP_SIZE[0]})
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
@@ -104,8 +128,19 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   let queryPoint = pointBuffer[index];
 
-  // Look up wind mesh for terrain influence
-  let meshResult = lookupWindMesh(queryPoint, &packedWindMesh);
+  // Build weights array from uniform fields
+  var weights: array<f32, ${MAX_WIND_SOURCES}>;
+  weights[0] = params.weights0;
+  weights[1] = params.weights1;
+  weights[2] = params.weights2;
+  weights[3] = params.weights3;
+  weights[4] = params.weights4;
+  weights[5] = params.weights5;
+  weights[6] = params.weights6;
+  weights[7] = params.weights7;
+
+  // Look up blended wind mesh for terrain influence
+  let meshResult = lookupWindMeshBlended(queryPoint, &packedWindMesh, weights);
   let speedFactor = select(params.influenceSpeedFactor, meshResult.speedFactor, meshResult.found);
   let dirOffset = select(params.influenceDirectionOffset, meshResult.directionOffset, meshResult.found);
   let turb = select(params.influenceTurbulence, meshResult.turbulence, meshResult.found);
@@ -121,7 +156,9 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     WIND_NOISE_SPATIAL_SCALE,
     WIND_NOISE_TIME_SCALE,
     WIND_SPEED_VARIATION,
-    WIND_ANGLE_VARIATION
+    WIND_ANGLE_VARIATION,
+    WIND_FLOW_CYCLE_PERIOD,
+    WIND_SLOW_TIME_SCALE
   );
 
   var result: WindQueryResult;

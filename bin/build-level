@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SOURCE_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE_PATH" ]]; do
+  SOURCE_DIR="$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
+  SOURCE_PATH="$(readlink "$SOURCE_PATH")"
+  [[ "$SOURCE_PATH" != /* ]] && SOURCE_PATH="$SOURCE_DIR/$SOURCE_PATH"
+done
+
+SCRIPT_DIR="$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+list_regions() {
+  local root="$REPO_ROOT/assets/terrain"
+  local region_json
+
+  if [[ ! -d "$root" ]]; then
+    return 0
+  fi
+
+  for region_json in "$root"/*/region.json; do
+    if [[ -f "$region_json" ]]; then
+      basename "$(dirname "$region_json")"
+    fi
+  done | sort
+}
+
+list_levels() {
+  local levels_dir="$REPO_ROOT/resources/levels"
+  if [[ ! -d "$levels_dir" ]]; then
+    return 0
+  fi
+  for f in "$levels_dir"/*.level.json; do
+    if [[ -f "$f" ]]; then
+      basename "$f" .level.json
+    fi
+  done | sort
+}
+
+print_help() {
+  cat <<'EOF'
+Usage:
+  build-level [--level <name>]           Build meshes for level(s) (default: all)
+  build-level import --region <slug>     Full terrain pipeline + mesh build
+  build-level extract --region <slug>    Extract terrain → .terrain.json
+  build-level download --region <slug>   Download elevation tiles
+  build-level build-grid --region <slug> Build merged elevation grid
+  build-level clean --region <slug>      Clean generated outputs
+  build-level validate [path]            Validate level or terrain file
+  build-level list-levels                List available levels
+  build-level list-regions               List available regions
+
+Examples:
+  build-level
+  build-level --level vendovi-island
+  build-level import --region san-juan-islands
+  build-level validate --region san-juan-islands
+  eval "$(build-level completion zsh)"
+EOF
+}
+
+print_zsh_completion() {
+  cat <<'EOF'
+#compdef build-level
+
+_build_level_regions() {
+  local -a regions
+  regions=(${(f)"$(build-level list-regions 2>/dev/null)"})
+  if (( ${#regions[@]} > 0 )); then
+    compadd -- "${regions[@]}"
+  fi
+}
+
+_build_level_levels() {
+  local -a levels
+  levels=(${(f)"$(build-level list-levels 2>/dev/null)"})
+  if (( ${#levels[@]} > 0 )); then
+    compadd -- "${levels[@]}"
+  fi
+}
+
+_build_level() {
+  local cmd="${words[2]-}"
+
+  if [[ -z "$cmd" ]]; then
+    _values 'subcommand' \
+      'import[Run full pipeline]' \
+      'download[Download terrain tiles]' \
+      'build-grid[Build merged terrain grid cache]' \
+      'extract[Extract terrain contours]' \
+      'clean[Delete generated outputs while keeping downloaded tiles]' \
+      'validate[Validate level/terrain contour topology]' \
+      'list-levels[List available level slugs]' \
+      'list-regions[List available region slugs]' \
+      'completion[Print shell completion script]'
+    return
+  fi
+
+  case "$cmd" in
+    download|extract|import|clean)
+      _arguments \
+        '--region[Region slug]:region:_build_level_regions' \
+        '-h[Show help]' \
+        '--help[Show help]'
+      ;;
+    build-grid)
+      _arguments \
+        '--region[Region slug]:region:_build_level_regions' \
+        '--force[Rebuild cached grid even if already present]' \
+        '-h[Show help]' \
+        '--help[Show help]'
+      ;;
+    validate)
+      _arguments \
+        '--region[Region slug]:region:_build_level_regions' \
+        '-h[Show help]' \
+        '--help[Show help]' \
+        '*:level file:_files -g "*.{level,terrain}.json"'
+      ;;
+    completion)
+      _arguments '1:shell:(zsh)'
+      ;;
+    list-levels|list-regions)
+      ;;
+    --level)
+      _arguments \
+        '--level[Level name]:level:_build_level_levels' \
+        '-h[Show help]' \
+        '--help[Show help]'
+      ;;
+    *)
+      _arguments \
+        '--level[Level name]:level:_build_level_levels' \
+        '-h[Show help]' \
+        '--help[Show help]'
+      ;;
+  esac
+}
+
+compdef _build_level build-level
+EOF
+}
+
+run_rust_cli() {
+  exec cargo run \
+    --release \
+    --manifest-path "$REPO_ROOT/pipeline/Cargo.toml" \
+    -p build-level \
+    -- \
+    "$@"
+}
+
+case "${1:-}" in
+  "" )
+    run_rust_cli
+    ;;
+  -h|--help|help )
+    print_help
+    ;;
+  list-levels )
+    if [[ $# -gt 1 ]]; then
+      echo "list-levels does not accept arguments" >&2
+      exit 2
+    fi
+    list_levels
+    ;;
+  list-regions )
+    if [[ $# -gt 1 ]]; then
+      echo "list-regions does not accept arguments" >&2
+      exit 2
+    fi
+    list_regions
+    ;;
+  completion )
+    if [[ "${2:-}" == "zsh" ]]; then
+      print_zsh_completion
+      exit 0
+    fi
+    echo "Usage: build-level completion zsh" >&2
+    exit 2
+    ;;
+  download|build-grid|extract|clean|validate|import )
+    run_rust_cli "$@"
+    ;;
+  --* )
+    run_rust_cli "$@"
+    ;;
+  * )
+    # Shorthand: build-level <region-slug> → import --region <slug>
+    run_rust_cli import --region "$1" "${@:2}"
+    ;;
+esac

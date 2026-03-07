@@ -15,7 +15,12 @@ const images = {
 export type ImageName = keyof typeof images;
 
 const fonts = {
-
+  spectralLight: require("url:./fonts/Spectral-Light.woff2"),
+  spectralRegular: require("url:./fonts/Spectral-Regular.woff2"),
+  spectralSemiBold: require("url:./fonts/Spectral-SemiBold.woff2"),
+  tangerineBold: require("url:./fonts/Tangerine-Bold.woff2"),
+  tangerineRegular: require("url:./fonts/Tangerine-Regular.woff2"),
+  youngSerifRegular: require("url:./fonts/YoungSerif-Regular.woff2")
 };
 export type FontName = keyof typeof fonts;
 
@@ -27,6 +32,14 @@ const levels = {
   apostleIslands: require("./levels/apostle-islands.level.json")
 };
 export type LevelName = keyof typeof levels;
+
+const terrains = {
+  vendoviIsland: require("./levels/vendovi-island.terrain.json"),
+  sanJuanIslands: require("./levels/san-juan-islands.terrain.json"),
+  islesOfScilly: require("./levels/isles-of-scilly.terrain.json"),
+  apostleIslands: require("./levels/apostle-islands.terrain.json")
+};
+export type TerrainName = keyof typeof terrains;
 
 const entityDefs = {
 
@@ -50,8 +63,9 @@ const windmeshes = {
   vendoviIsland: require("url:./levels/vendovi-island.windmesh"),
   sanJuanIslands: require("url:./levels/san-juan-islands.windmesh"),
   islesOfScilly: require("url:./levels/isles-of-scilly.windmesh"),
+  default: require("url:./levels/default.windmesh"),
   apostleIslands: require("url:./levels/apostle-islands.windmesh")
 };
 export type WindmeshName = keyof typeof windmeshes;
 
-export const RESOURCES = { sounds, images, fonts, levels, entityDefs, jsonBlobs, wavemeshes, windmeshes };
+export const RESOURCES = { sounds, images, fonts, levels, terrains, entityDefs, jsonBlobs, wavemeshes, windmeshes };

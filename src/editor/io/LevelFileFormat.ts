@@ -18,6 +18,10 @@ import {
   WaveSource,
   DEFAULT_WAVE_CONFIG,
 } from "../../game/world/water/WaveSource";
+import {
+  WindConfig,
+  DEFAULT_WIND_CONFIG,
+} from "../../game/world/wind/WindSource";
 
 // ==========================================
 // Editor types
@@ -50,6 +54,7 @@ export interface EditorTerrainDefinition {
 export interface EditorLevelDefinition {
   terrain: EditorTerrainDefinition;
   waveConfig: WaveConfig | undefined;
+  windConfig: WindConfig | undefined;
 }
 
 /**
@@ -80,7 +85,7 @@ export function editorDefinitionToGameDefinition(
 }
 
 /** Current file format version */
-export const LEVEL_FILE_VERSION = 1;
+export const LEVEL_FILE_VERSION = 2;
 
 /**
  * JSON representation of a wave source in the file format.
@@ -113,6 +118,22 @@ export interface WaveConfigJSON {
 }
 
 /**
+ * JSON representation of a wind source in the file format.
+ */
+export interface WindSourceJSON {
+  /** Wind direction in radians */
+  direction: number;
+}
+
+/**
+ * JSON representation of wind configuration in the file format.
+ */
+export interface WindConfigJSON {
+  /** Array of wind source configurations */
+  sources: WindSourceJSON[];
+}
+
+/**
  * JSON representation of a contour in the file format.
  * A contour has either `controlPoints` (spline) or `polygon` (direct vertices), not both.
  */
@@ -137,17 +158,36 @@ export type TerrainContourJSON =
     };
 
 /**
- * JSON schema for level files.
+ * JSON schema for terrain files (.terrain.json).
  */
-export interface LevelFileJSON {
+export interface TerrainFileJSON {
   /** File format version */
   version: number;
   /** Deep ocean baseline depth in feet */
   defaultDepth?: number;
-  /** Wave configuration (optional, defaults to DEFAULT_WAVE_CONFIG) */
-  waves?: WaveConfigJSON;
   /** Array of terrain contours */
   contours: TerrainContourJSON[];
+}
+
+/**
+ * JSON schema for level files.
+ * v2 allows either inline contours or a terrainFile reference.
+ */
+export interface LevelFileJSON {
+  /** File format version */
+  version: number;
+  /** Human-readable level name */
+  name?: string;
+  /** Slug referencing a sibling .terrain.json file (v2) */
+  terrainFile?: string;
+  /** Deep ocean baseline depth in feet (inline terrain) */
+  defaultDepth?: number;
+  /** Wave configuration (optional, defaults to DEFAULT_WAVE_CONFIG) */
+  waves?: WaveConfigJSON;
+  /** Wind configuration (optional, defaults to DEFAULT_WIND_CONFIG) */
+  wind?: WindConfigJSON;
+  /** Array of terrain contours (optional in v2 if terrainFile is set) */
+  contours?: TerrainContourJSON[];
 }
 
 /**
@@ -171,13 +211,17 @@ export function validateLevelFile(data: unknown): LevelFileJSON {
     );
   }
 
-  if (!Array.isArray(file.contours)) {
+  // v2 allows terrainFile instead of inline contours
+  if (file.version >= 2 && typeof file.terrainFile === "string") {
+    // No inline contours required for v2 with terrainFile
+  } else if (!Array.isArray(file.contours)) {
     throw new Error("Invalid level file: contours must be an array");
   }
 
-  // Validate contours
-  for (let i = 0; i < file.contours.length; i++) {
-    const contour = file.contours[i];
+  // Validate contours if present
+  const contours = Array.isArray(file.contours) ? file.contours : [];
+  for (let i = 0; i < contours.length; i++) {
+    const contour = contours[i];
     if (!contour || typeof contour !== "object") {
       throw new Error(`Invalid level file: contour ${i} is not an object`);
     }
@@ -251,6 +295,34 @@ export function validateLevelFile(data: unknown): LevelFileJSON {
     }
   }
 
+  // Validate wind if present
+  if (file.wind !== undefined) {
+    if (!file.wind || typeof file.wind !== "object") {
+      throw new Error("Invalid level file: wind must be an object");
+    }
+
+    const wind = file.wind as Record<string, unknown>;
+
+    if (!Array.isArray(wind.sources)) {
+      throw new Error("Invalid level file: wind.sources must be an array");
+    }
+
+    for (let i = 0; i < wind.sources.length; i++) {
+      const source = wind.sources[i];
+      if (!source || typeof source !== "object") {
+        throw new Error(
+          `Invalid level file: wind source ${i} is not an object`,
+        );
+      }
+
+      if (typeof source.direction !== "number") {
+        throw new Error(
+          `Invalid level file: wind source ${i} missing direction`,
+        );
+      }
+    }
+  }
+
   return file as unknown as LevelFileJSON;
 }
 
@@ -286,7 +358,7 @@ export function waveConfigJSONToWaveConfig(json: WaveConfigJSON): WaveConfig {
 export function levelFileToTerrainDefinition(
   file: LevelFileJSON,
 ): TerrainDefinition {
-  const contours: TerrainContour[] = file.contours.map((c) => {
+  const contours: TerrainContour[] = (file.contours ?? []).map((c) => {
     if (c.polygon) {
       const points: V2d[] = c.polygon.map(([x, y]) => V(x, y));
       return createPolygonContour(points, c.height);
@@ -313,11 +385,44 @@ export function levelFileToWaveConfig(file: LevelFileJSON): WaveConfig {
 }
 
 /**
+ * Validate a terrain file JSON object.
+ * Throws an error if invalid.
+ */
+export function validateTerrainFile(data: unknown): TerrainFileJSON {
+  if (!data || typeof data !== "object") {
+    throw new Error("Invalid terrain file: expected object");
+  }
+
+  const file = data as Record<string, unknown>;
+
+  if (!Array.isArray(file.contours)) {
+    throw new Error("Invalid terrain file: contours must be an array");
+  }
+
+  return file as unknown as TerrainFileJSON;
+}
+
+/**
  * Result of parsing a level file.
  */
 export interface LevelData {
+  name?: string;
   terrain: TerrainDefinition;
   waves: WaveConfig;
+  wind: WindConfig;
+}
+
+/**
+ * Convert level file JSON to game WindConfig.
+ * Returns default config if no wind section present.
+ */
+export function levelFileToWindConfig(file: LevelFileJSON): WindConfig {
+  if (!file.wind) {
+    return DEFAULT_WIND_CONFIG;
+  }
+  return {
+    sources: file.wind.sources.map((s) => ({ direction: s.direction })),
+  };
 }
 
 /**
@@ -325,8 +430,10 @@ export interface LevelData {
  */
 export function levelFileToLevelData(file: LevelFileJSON): LevelData {
   return {
+    name: file.name,
     terrain: levelFileToTerrainDefinition(file),
     waves: levelFileToWaveConfig(file),
+    wind: levelFileToWindConfig(file),
   };
 }
 
@@ -354,6 +461,17 @@ export function waveConfigToJSON(config: WaveConfig): WaveConfigJSON {
 }
 
 /**
+ * Convert game WindConfig to JSON for saving.
+ */
+export function windConfigToJSON(config: WindConfig): WindConfigJSON {
+  return {
+    sources: config.sources.map((source) => ({
+      direction: source.direction,
+    })),
+  };
+}
+
+/**
  * Parse JSON string to level file.
  */
 export function parseLevelFile(json: string): LevelFileJSON {
@@ -371,7 +489,7 @@ export function parseLevelFile(json: string): LevelFileJSON {
 export function levelFileToEditorDefinition(
   file: LevelFileJSON,
 ): EditorLevelDefinition {
-  const contours: EditorContour[] = file.contours.map((c) => {
+  const contours: EditorContour[] = (file.contours ?? []).map((c) => {
     const points = c.polygon ?? c.controlPoints;
     const controlPoints: V2d[] = points.map(([x, y]) => V(x, y));
     return {
@@ -387,6 +505,9 @@ export function levelFileToEditorDefinition(
       contours,
     },
     waveConfig: file.waves ? waveConfigJSONToWaveConfig(file.waves) : undefined,
+    windConfig: file.wind
+      ? levelFileToWindConfig({ wind: file.wind } as LevelFileJSON)
+      : undefined,
   };
 }
 
@@ -411,6 +532,9 @@ export function editorDefinitionToLevelFile(
     defaultDepth: definition.terrain.defaultDepth,
     ...(definition.waveConfig && {
       waves: waveConfigToJSON(definition.waveConfig),
+    }),
+    ...(definition.windConfig && {
+      wind: windConfigToJSON(definition.windConfig),
     }),
     contours,
   };

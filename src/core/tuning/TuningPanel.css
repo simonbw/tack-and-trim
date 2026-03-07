@@ -11,10 +11,8 @@
   max-height: calc(100vh - 32px);
   overflow-y: auto;
   color: #e0e8f0;
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
+  font-family: var(--font-body);
+  font-weight: 300;
   font-size: 12px;
   z-index: 900;
   pointer-events: auto;
@@ -151,7 +149,7 @@
   border-radius: 3px;
   color: #e0e8f0;
   font-size: 11px;
-  font-family: monospace;
+  font-family: var(--font-body);
   padding: 1px 4px;
   text-align: right;
 }

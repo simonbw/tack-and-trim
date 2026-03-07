@@ -9,6 +9,8 @@ export const WIND_NOISE_SPATIAL_SCALE = 0.005; // How quickly wind varies across
 export const WIND_NOISE_TIME_SCALE = 0.15; // How quickly wind varies over time
 export const WIND_SPEED_VARIATION = 0.5; // ±50% speed variation
 export const WIND_ANGLE_VARIATION = 0.17; // ±10° direction variation (~0.17 rad)
+export const WIND_FLOW_CYCLE_PERIOD = 20.0; // Seconds before a flow-map layer resets
+export const WIND_SLOW_TIME_SCALE = 0.02; // Very slow temporal evolution in noise z-axis
 
 // Wind modifier limits
 export const MAX_SAILS = 16;
@@ -31,6 +33,9 @@ export const TURBULENCE_STALL_INJECTION = 0.3; // Turbulence added when segment 
 export const TURBULENCE_DETACH_THRESHOLD = 0.5; // Turbulence level that causes flow detachment
 export const SEPARATION_DECAY_RATE = 0.1; // How quickly separated flow recovers
 export const SEGMENT_INFLUENCE_RADIUS = 8; // ft - how far segment pressure extends
+
+// Wind sources
+export const MAX_WIND_SOURCES = 8;
 
 // Velocity encoding for textures
 // Wind velocity range: typically -50 to +50 ft/s

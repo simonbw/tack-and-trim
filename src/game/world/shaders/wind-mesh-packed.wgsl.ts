@@ -1,26 +1,32 @@
 /**
  * Packed wind mesh accessor functions for reading from a single array<u32> buffer.
  *
- * Buffer layout matches WindMeshPacking.ts:
+ * Multi-source buffer layout matches WindMeshPacking.ts:
  *
- * HEADER (16 u32s):
- *   [0]  hasMesh          [1]  vertexOffset    [2]  vertexCount
- *   [3]  indexOffset       [4]  triangleCount
- *   [5]  gridOffset        [6]  gridCols       [7]  gridRows
- *   [8]  gridMinX (f32)    [9]  gridMinY (f32)
- *   [10] gridCellWidth     [11] gridCellHeight
- *   [12..15] padding
+ * GLOBAL HEADER (32 u32s):
+ *   [0]      numWindSources
+ *   [1..8]   meshOffset[0..7]
+ *   [9..16]  direction[0..7]      (f32 bitcast)
+ *   [17..31] padding
+ *
+ * PER-SOURCE MESH HEADER (16 u32s each):
+ *   [0]  vertexOffset    [1]  vertexCount
+ *   [2]  indexOffset      [3]  triangleCount
+ *   [4]  gridOffset       [5]  gridCols       [6]  gridRows
+ *   [7]  gridMinX (f32)   [8]  gridMinY (f32)
+ *   [9]  gridCellWidth    [10] gridCellHeight
+ *   [11..15] padding
  *
  * All float values are stored as u32 and recovered via bitcast<f32>().
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { fn_barycentric } from "./mesh-packed.wgsl";
+import { MAX_WIND_SOURCES } from "../wind/WindConstants";
 
-export const struct_WindMeshHeader: ShaderModule = {
+export const struct_WindMeshSourceHeader: ShaderModule = {
   preamble: /*wgsl*/ `
-struct WindMeshHeader {
-  hasMesh: u32,
+struct WindMeshSourceHeader {
   vertexOffset: u32,
   vertexCount: u32,
   indexOffset: u32,
@@ -49,23 +55,22 @@ struct WindMeshLookupResult {
   code: "",
 };
 
-export const fn_getWindMeshHeader: ShaderModule = {
-  dependencies: [struct_WindMeshHeader],
+export const fn_getWindMeshSourceHeader: ShaderModule = {
+  dependencies: [struct_WindMeshSourceHeader],
   code: /*wgsl*/ `
-fn getWindMeshHeader(packed: ptr<storage, array<u32>, read>) -> WindMeshHeader {
-  var h: WindMeshHeader;
-  h.hasMesh = (*packed)[0u];
-  h.vertexOffset = (*packed)[1u];
-  h.vertexCount = (*packed)[2u];
-  h.indexOffset = (*packed)[3u];
-  h.triangleCount = (*packed)[4u];
-  h.gridOffset = (*packed)[5u];
-  h.gridCols = (*packed)[6u];
-  h.gridRows = (*packed)[7u];
-  h.gridMinX = bitcast<f32>((*packed)[8u]);
-  h.gridMinY = bitcast<f32>((*packed)[9u]);
-  h.gridCellWidth = bitcast<f32>((*packed)[10u]);
-  h.gridCellHeight = bitcast<f32>((*packed)[11u]);
+fn getWindMeshSourceHeader(packed: ptr<storage, array<u32>, read>, meshOffset: u32) -> WindMeshSourceHeader {
+  var h: WindMeshSourceHeader;
+  h.vertexOffset = (*packed)[meshOffset + 0u];
+  h.vertexCount = (*packed)[meshOffset + 1u];
+  h.indexOffset = (*packed)[meshOffset + 2u];
+  h.triangleCount = (*packed)[meshOffset + 3u];
+  h.gridOffset = (*packed)[meshOffset + 4u];
+  h.gridCols = (*packed)[meshOffset + 5u];
+  h.gridRows = (*packed)[meshOffset + 6u];
+  h.gridMinX = bitcast<f32>((*packed)[meshOffset + 7u]);
+  h.gridMinY = bitcast<f32>((*packed)[meshOffset + 8u]);
+  h.gridCellWidth = bitcast<f32>((*packed)[meshOffset + 9u]);
+  h.gridCellHeight = bitcast<f32>((*packed)[meshOffset + 10u]);
   return h;
 }
 `,
@@ -129,11 +134,11 @@ fn getWindMeshGridTriIndex(packed: ptr<storage, array<u32>, read>, listOffset: u
 `,
 };
 
-export const fn_lookupWindMesh: ShaderModule = {
+export const fn_lookupWindMeshForSource: ShaderModule = {
   dependencies: [
-    struct_WindMeshHeader,
+    struct_WindMeshSourceHeader,
     struct_WindMeshLookupResult,
-    fn_getWindMeshHeader,
+    fn_getWindMeshSourceHeader,
     fn_getWindMeshVertexPos,
     fn_getWindMeshVertexAttribs,
     fn_getWindMeshTriangle,
@@ -142,9 +147,10 @@ export const fn_lookupWindMesh: ShaderModule = {
     fn_barycentric,
   ],
   code: /*wgsl*/ `
-fn lookupWindMesh(
+fn lookupWindMeshForSource(
   worldPos: vec2<f32>,
   packed: ptr<storage, array<u32>, read>,
+  meshOffset: u32,
 ) -> WindMeshLookupResult {
   var result: WindMeshLookupResult;
   result.speedFactor = 1.0;
@@ -152,12 +158,11 @@ fn lookupWindMesh(
   result.turbulence = 0.0;
   result.found = false;
 
-  let header = getWindMeshHeader(packed);
-  if (header.hasMesh == 0u || header.triangleCount == 0u) {
+  let header = getWindMeshSourceHeader(packed, meshOffset);
+  if (header.triangleCount == 0u) {
     return result;
   }
 
-  // Axis-aligned grid lookup (no rotation needed)
   let gx = (worldPos.x - header.gridMinX) / header.gridCellWidth;
   let gy = (worldPos.y - header.gridMinY) / header.gridCellHeight;
 
@@ -196,6 +201,64 @@ fn lookupWindMesh(
       result.found = true;
       return result;
     }
+  }
+
+  return result;
+}
+`,
+};
+
+export const fn_lookupWindMeshBlended: ShaderModule = {
+  dependencies: [fn_lookupWindMeshForSource, struct_WindMeshLookupResult],
+  code: /*wgsl*/ `
+const MAX_WIND_SOURCES: u32 = ${MAX_WIND_SOURCES}u;
+
+fn lookupWindMeshBlended(
+  worldPos: vec2<f32>,
+  packed: ptr<storage, array<u32>, read>,
+  weights: array<f32, ${MAX_WIND_SOURCES}>,
+) -> WindMeshLookupResult {
+  var result: WindMeshLookupResult;
+  result.speedFactor = 1.0;
+  result.directionOffset = 0.0;
+  result.turbulence = 0.0;
+  result.found = false;
+
+  let numSources = (*packed)[0u];
+  if (numSources == 0u) {
+    return result;
+  }
+
+  var totalWeight: f32 = 0.0;
+  var accSpeed: f32 = 0.0;
+  var accDir: f32 = 0.0;
+  var accTurb: f32 = 0.0;
+  var anyFound: bool = false;
+
+  for (var s = 0u; s < numSources && s < MAX_WIND_SOURCES; s++) {
+    let w = weights[s];
+    if (w <= 0.0) {
+      continue;
+    }
+
+    let meshOffset = (*packed)[1u + s];
+    let sourceResult = lookupWindMeshForSource(worldPos, packed, meshOffset);
+
+    if (sourceResult.found) {
+      accSpeed += sourceResult.speedFactor * w;
+      accDir += sourceResult.directionOffset * w;
+      accTurb += sourceResult.turbulence * w;
+      totalWeight += w;
+      anyFound = true;
+    }
+  }
+
+  if (anyFound && totalWeight > 0.0) {
+    let invWeight = 1.0 / totalWeight;
+    result.speedFactor = accSpeed * invWeight;
+    result.directionOffset = accDir * invWeight;
+    result.turbulence = accTurb * invWeight;
+    result.found = true;
   }
 
   return result;

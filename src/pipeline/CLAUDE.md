@@ -4,50 +4,65 @@
 
 ## Overview
 
-1. **`terrain-import/`** — Rust CLI pipeline that downloads real-world bathymetry data and produces `.level.json` files.
+1. **`build-level/`** — Rust CLI pipeline that downloads real-world bathymetry data, extracts terrain, and builds meshes.
 2. **`mesh-building/`** — Shared `.wavemesh` format/types used by runtime loading and tooling.
 
 The canonical Rust pipeline lives under `pipeline/`:
-- `pipeline/terrain-import/` for terrain import/validation
+- `pipeline/build-level/` for terrain import/validation/mesh building
 - `pipeline/wavemesh-builder/` for wave-mesh generation
+
+## File Layout
+
+```
+assets/terrain/<slug>/region.json       -- Terrain extraction config (no output field)
+
+resources/levels/<slug>.level.json      -- Level definition (hand-written, small)
+resources/levels/<slug>.terrain.json    -- Extracted terrain contours (generated, large)
+resources/levels/<slug>.wavemesh        -- Prebuilt wave mesh
+resources/levels/<slug>.windmesh        -- Prebuilt wind mesh
+```
 
 ## Data Flow
 
 ```
 NOAA CUDEM GeoTIFF tiles
-  ↓  terrain-import download
+  ↓  build-level download
 assets/terrain/<slug>/tiles/*.tif
-  ↓  terrain-import build-grid  (gdalwarp)
+  ↓  build-level build-grid  (gdalwarp)
 assets/terrain/<slug>/cache/merged.tif
-  ↓  terrain-import extract
+  ↓  build-level extract
      (marching squares → ring assembly → simplification → validation)
-resources/levels/<slug>.level.json
-  ↓  npm run build-wavemesh  (Rust: pipeline/wavemesh-builder)
-     (ray tracing → decimation → triangulation → binary packing)
-resources/levels/<slug>.wavemesh
+resources/levels/<slug>.terrain.json
+  ↓  build-level (default command, or build-level --level <name>)
+     Level file references .terrain.json; mesh builder resolves the reference
+resources/levels/<slug>.wavemesh + .windmesh
   ↓  runtime: GPU upload → WavefrontRasterizer / WaterQueryShader
 ```
 
 ---
 
-## terrain-import (Rust CLI)
+## build-level (Rust CLI)
 
-Imports real-world bathymetric/topographic data from NOAA's CUDEM dataset into `.level.json` level files.
+Level-centric build pipeline. Downloads real-world data, extracts terrain contours, and builds wave/wind meshes.
 
 ### Entry Points
 
-Use `./bin/terrain-import` directly as the primary interface (or `terrain-import` if installed on `PATH`).
+Use `./bin/build-level` directly as the primary interface.
 
-| Command                                                | Description                                                                 |
-| ------------------------------------------------------ | --------------------------------------------------------------------------- |
-| `./bin/terrain-import --region <slug>`                | Orchestrates full pipeline (download → build-grid → extract → wavemesh)    |
-| `./bin/terrain-import download --region <slug>`       | **Step 1** — Downloads GeoTIFF tiles matching region bbox                  |
-| `./bin/terrain-import build-grid --region <slug>`     | **Step 2** — Merges tiles into `merged.tif` via `gdalwarp`                 |
-| `./bin/terrain-import extract --region <slug>`        | **Step 3** — Marching squares → constrained simplification → `.level.json` |
-| `./bin/terrain-import clean --region <slug>`          | Deletes generated outputs (`cache/`, `.level.json`, `.wavemesh`) while keeping `tiles/` |
-| `./bin/terrain-import validate --region <slug>`       | Standalone `.level.json` validator (overlap + containment checks)           |
+| Command                                              | Description                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `./bin/build-level`                                  | Build meshes for all levels (default)                                          |
+| `./bin/build-level --level <name>`                   | Build meshes for a specific level                                              |
+| `./bin/build-level import --region <slug>`           | Full pipeline (download → build-grid → extract → mesh build)                  |
+| `./bin/build-level extract --region <slug>`          | Extract terrain → `.terrain.json`                                              |
+| `./bin/build-level download --region <slug>`         | Download GeoTIFF tiles                                                         |
+| `./bin/build-level build-grid --region <slug>`       | Merge tiles into `merged.tif` via `gdalwarp`                                   |
+| `./bin/build-level clean --region <slug>`            | Delete generated outputs while keeping `tiles/`                                |
+| `./bin/build-level validate [path]`                  | Validate level or terrain file                                                 |
+| `./bin/build-level list-levels`                      | List available levels                                                          |
+| `./bin/build-level list-regions`                     | List available regions                                                         |
 
-NPM scripts (`download-terrain`, `build-terrain-grid`, `extract-terrain-contours`, `validate-level`, `import-terrain`) are thin wrappers around `./bin/terrain-import`.
+NPM scripts (`download-terrain`, `build-terrain-grid`, `extract-terrain-contours`, `validate-level`, `import-terrain`) are thin wrappers around `./bin/build-level`.
 
 ### Configuration
 
@@ -63,35 +78,58 @@ Each region has an `assets/terrain/<slug>/region.json`:
   "scale": 1.0,
   "minPerimeter": 100,
   "minPoints": 4,
-  "output": "resources/levels/vendovi-island.level.json"
+  "flipY": true
+}
+```
+
+Output paths are convention-based: `resources/levels/<slug>.terrain.json`.
+
+### Level File Format (v2)
+
+Referenced terrain (real-world levels):
+```json
+{
+  "version": 2,
+  "name": "Vendovi Island",
+  "terrainFile": "vendovi-island",
+  "waves": { "sources": [{ "amplitude": 0.4, "wavelength": 200, "direction": 0.8 }] },
+  "wind": { "sources": [{ "direction": 0.785 }] }
+}
+```
+
+Inline terrain (hand-crafted levels):
+```json
+{
+  "version": 2,
+  "name": "Bay Islands",
+  "defaultDepth": -300,
+  "contours": [...],
+  "waves": { "sources": [...] },
+  "wind": { "sources": [...] }
+}
+```
+
+### Terrain File Format
+
+```json
+{
+  "version": 1,
+  "defaultDepth": -300,
+  "contours": [{ "height": 0, "polygon": [[x, y], ...] }]
 }
 ```
 
 ### Rust module layout
 
-- `pipeline/terrain-import/src/region.rs` — region discovery, config loading, path helpers
-- `pipeline/terrain-import/src/download.rs` — CUDEM / USACE / EMODnet tile downloads
-- `pipeline/terrain-import/src/build_grid.rs` — `gdalwarp` merge step
-- `pipeline/terrain-import/src/extract.rs` — merged GeoTIFF load + contour extraction + validation
-- `pipeline/terrain-import/src/marching.rs` — marching squares + block index + ring tracer
-- `pipeline/terrain-import/src/simplify.rs` — RDP and ring geometry helpers
-- `pipeline/terrain-import/src/constrained_simplify.rs` — intersection-aware RDP variant
-- `pipeline/terrain-import/src/segment_index.rs` — spatial segment index
-- `pipeline/terrain-import/src/validate.rs` — standalone validator logic
-
-### The `.level.json` Format
-
-```json
-{
-  "version": 1,
-  "defaultDepth": -30,
-  "contours": [
-    { "height": -6, "polygon": [[x, y], [x, y], ...] }
-  ]
-}
-```
-
-Coordinates are in game feet, centered on bbox center. Heights are signed (negative = underwater). Polygons are CCW-wound.
+- `pipeline/build-level/src/region.rs` — region discovery, config loading, path helpers
+- `pipeline/build-level/src/download.rs` — CUDEM / USACE / EMODnet tile downloads
+- `pipeline/build-level/src/build_grid.rs` — `gdalwarp` merge step
+- `pipeline/build-level/src/extract.rs` — merged GeoTIFF load + contour extraction + validation
+- `pipeline/build-level/src/marching.rs` — marching squares + block index + ring tracer
+- `pipeline/build-level/src/simplify.rs` — RDP and ring geometry helpers
+- `pipeline/build-level/src/constrained_simplify.rs` — intersection-aware RDP variant
+- `pipeline/build-level/src/segment_index.rs` — spatial segment index
+- `pipeline/build-level/src/validate.rs` — standalone validator logic
 
 ---
 

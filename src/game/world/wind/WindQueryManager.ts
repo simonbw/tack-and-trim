@@ -59,6 +59,7 @@ export class WindQueryManager extends QueryManager {
     // Get wind parameters from WindResources
     const windResources = this.game.entities.getSingleton(WindResources);
     const baseWind = windResources.getBaseVelocity();
+    const sourceWeights = windResources.getSourceWeights();
 
     // Update uniform buffer with wind parameters
     this.uniforms.set.pointCount(pointCount);
@@ -68,7 +69,18 @@ export class WindQueryManager extends QueryManager {
     this.uniforms.set.influenceSpeedFactor(1.0);
     this.uniforms.set.influenceDirectionOffset(0.0);
     this.uniforms.set.influenceTurbulence(0.0);
-    this.uniforms.set._padding(0.0);
+    this.uniforms.set.numActiveWindSources(sourceWeights.length);
+
+    // Write per-source weights
+    this.uniforms.set.weights0(sourceWeights[0] ?? 0);
+    this.uniforms.set.weights1(sourceWeights[1] ?? 0);
+    this.uniforms.set.weights2(sourceWeights[2] ?? 0);
+    this.uniforms.set.weights3(sourceWeights[3] ?? 0);
+    this.uniforms.set.weights4(sourceWeights[4] ?? 0);
+    this.uniforms.set.weights5(sourceWeights[5] ?? 0);
+    this.uniforms.set.weights6(sourceWeights[6] ?? 0);
+    this.uniforms.set.weights7(sourceWeights[7] ?? 0);
+
     this.uniforms.uploadTo(this.uniformBuffer);
 
     // Create bind group

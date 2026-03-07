@@ -10,10 +10,8 @@
   min-width: 320px;
   max-width: 420px;
   color: #e0e8f0;
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
+  font-family: var(--font-body);
+  font-weight: 300;
   z-index: 900;
   animation: tutorial-slide-in 0.3s ease-out;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
@@ -102,7 +100,7 @@
   border-bottom: 3px solid #1a1a1a;
   border-radius: 5px;
   padding: 4px 10px;
-  font-family: monospace;
+  font-family: var(--font-body);
   font-size: 13px;
   font-weight: 600;
   color: #e8e8e8;

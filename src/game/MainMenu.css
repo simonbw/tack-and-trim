@@ -13,18 +13,19 @@
     rgba(0, 20, 40, 0.7) 0%,
     rgba(0, 10, 30, 0.85) 100%
   );
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-body);
+  font-weight: 300;
   color: #e8e4d9;
   text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.8);
   pointer-events: none;
 }
 
 .main-menu__title {
+  font-family: var(--font-title);
   font-size: 5rem;
-  font-weight: bold;
+  font-weight: 400;
   letter-spacing: 0.15em;
   margin-bottom: 0.5rem;
-  text-transform: uppercase;
 }
 
 .main-menu__subtitle {
@@ -48,8 +49,9 @@
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   padding: 1rem 2rem;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-body);
   font-size: 1.3rem;
+  font-weight: 400;
   color: #e8e4d9;
   text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.6);
   letter-spacing: 0.05em;

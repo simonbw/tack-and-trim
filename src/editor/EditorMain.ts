@@ -6,6 +6,9 @@
  */
 
 import { Game } from "../core/Game";
+import "../fonts.css";
+import { registerManifestFonts } from "../core/resources/fonts";
+import { RESOURCES } from "../../resources/resources";
 import { EditorController } from "./EditorController";
 
 // Editor-specific debug interface
@@ -15,6 +18,8 @@ interface EditorDebug {
 }
 
 async function main() {
+  await registerManifestFonts(RESOURCES.fonts);
+
   // Create game with standard tick rate
   const game = new Game({ ticksPerSecond: 120 });
 

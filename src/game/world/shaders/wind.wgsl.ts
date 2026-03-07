@@ -38,19 +38,44 @@ export const fn_calculateWindVelocity: ShaderModule = {
       noiseSpatialScale: f32,
       noiseTimeScale: f32,
       speedVariation: f32,
-      angleVariation: f32
+      angleVariation: f32,
+      flowCyclePeriod: f32,
+      slowTimeScale: f32
     ) -> vec2<f32> {
-      let x = worldPos.x;
-      let y = worldPos.y;
+      // Compute local flow velocity from terrain-modified wind
+      let localFlow = baseWind * influenceSpeedFactor;
+      let cosDir = cos(influenceDirectionOffset);
+      let sinDir = sin(influenceDirectionOffset);
+      let flow = vec2<f32>(
+        localFlow.x * cosDir - localFlow.y * sinDir,
+        localFlow.x * sinDir + localFlow.y * cosDir
+      );
 
-      let t = time * noiseTimeScale;
-      let sx = x * noiseSpatialScale;
-      let sy = y * noiseSpatialScale;
+      // Dual-layer flow-map: two time phases offset by half a cycle
+      let t0 = fract(time / flowCyclePeriod);
+      let t1 = fract(time / flowCyclePeriod + 0.5);
+      let blend = abs(2.0 * t0 - 1.0);
 
-      // Sample noise for speed and angle variation
-      // Use offset coordinates for angle noise to get independent variation
-      let speedNoise = simplex3D(vec3<f32>(sx, sy, t));
-      let angleNoise = simplex3D(vec3<f32>(sx + 1000.0, sy + 1000.0, t));
+      // Slow time for organic z-axis evolution
+      let slowTime = time * slowTimeScale;
+
+      // Flow-advected UVs for speed noise
+      let uv0_speed = (worldPos - flow * t0 * flowCyclePeriod) * noiseSpatialScale;
+      let uv1_speed = (worldPos - flow * t1 * flowCyclePeriod) * noiseSpatialScale;
+      let speedNoise = mix(
+        simplex3D(vec3<f32>(uv0_speed, slowTime)),
+        simplex3D(vec3<f32>(uv1_speed, slowTime)),
+        blend
+      );
+
+      // Flow-advected UVs for angle noise (offset for independent variation)
+      let uv0_angle = uv0_speed + vec2<f32>(1000.0, 1000.0);
+      let uv1_angle = uv1_speed + vec2<f32>(1000.0, 1000.0);
+      let angleNoise = mix(
+        simplex3D(vec3<f32>(uv0_angle, slowTime)),
+        simplex3D(vec3<f32>(uv1_angle, slowTime)),
+        blend
+      );
 
       // Apply terrain influence to speed variation (turbulence boosts noise)
       let turbulenceBoost = 1.0 + influenceTurbulence * 0.5;
@@ -109,7 +134,9 @@ export const fn_computeWindAtPoint: ShaderModule = {
       noiseSpatialScale: f32,
       noiseTimeScale: f32,
       speedVariation: f32,
-      angleVariation: f32
+      angleVariation: f32,
+      flowCyclePeriod: f32,
+      slowTimeScale: f32
     ) -> WindResult {
       // Calculate velocity using wind module
       let velocity = calculateWindVelocity(
@@ -122,7 +149,9 @@ export const fn_computeWindAtPoint: ShaderModule = {
         noiseSpatialScale,
         noiseTimeScale,
         speedVariation,
-        angleVariation
+        angleVariation,
+        flowCyclePeriod,
+        slowTimeScale
       );
 
       // Compute speed and direction from velocity

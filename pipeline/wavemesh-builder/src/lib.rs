@@ -127,8 +127,9 @@ fn process_level(
         || -> anyhow::Result<_> {
             let json_str = std::fs::read_to_string(level_path)
                 .with_context(|| format!("failed to read level file: {level_path}"))?;
-            let level_file = level::parse_level_file(&json_str)
+            let mut level_file = level::parse_level_file(&json_str)
                 .with_context(|| format!("failed to parse level JSON: {level_path}"))?;
+            level::resolve_level_terrain(&mut level_file, std::path::Path::new(level_path))?;
             let wave_sources: Vec<level::WaveSource> = level_file
                 .waves
                 .as_ref()
@@ -305,19 +306,27 @@ pub fn build_windmesh_for_level_with_view(
         .map(std::string::ToString::to_string)
         .unwrap_or_else(|| level_path.replace(".level.json", ".windmesh"));
 
-    let level_file = view.try_run_step(
+    let (level_file, wind_sources) = view.try_run_step(
         "Parsing level for wind mesh",
         || -> anyhow::Result<_> {
             let json_str = std::fs::read_to_string(level_path)
                 .with_context(|| format!("failed to read level file: {level_path}"))?;
-            level::parse_level_file(&json_str)
-                .with_context(|| format!("failed to parse level JSON: {level_path}"))
+            let mut level_file = level::parse_level_file(&json_str)
+                .with_context(|| format!("failed to parse level JSON: {level_path}"))?;
+            level::resolve_level_terrain(&mut level_file, std::path::Path::new(level_path))?;
+            let wind_sources: Vec<level::WindSource> = level_file
+                .wind
+                .as_ref()
+                .map(|w| w.sources.iter().map(level::WindSource::from).collect())
+                .unwrap_or_else(level::default_wind_sources);
+            Ok((level_file, wind_sources))
         },
-        |lf, d| {
+        |(lf, ws), d| {
             format!(
-                "Parsed level: {}ms ({} contours)",
+                "Parsed level: {}ms ({} contours, {} wind sources)",
                 format_ms(d),
-                format_int(lf.contours.len())
+                format_int(lf.contours.len()),
+                format_int(ws.len())
             )
         },
     )?;
@@ -328,41 +337,52 @@ pub fn build_windmesh_for_level_with_view(
         |_, d| format!("Built terrain data: {}ms", format_ms(d)),
     );
 
-    let input_hash = windmesh_file::compute_wind_input_hash(&terrain_data);
+    let wind_directions: Vec<f64> = wind_sources.iter().map(|s| s.direction).collect();
+    let input_hash = windmesh_file::compute_wind_input_hash(&terrain_data, &wind_directions);
     view.info(format!(
         "Input hash: 0x{:08x}{:08x}",
         input_hash[0], input_hash[1]
     ));
 
     const GRID_SPACING: f64 = 200.0;
-    let mesh = view.run_step(
-        "Building wind grid",
-        || windmesh::build_wind_grid(&terrain_data, GRID_SPACING),
-        |mesh, d| {
-            format!(
-                "Built wind grid: {}×{} = {} verts, {} tris ({}ms)",
-                format_int(mesh.grid_cols),
-                format_int(mesh.grid_rows),
-                format_int(mesh.vertex_count),
-                format_int(mesh.index_count / 3),
-                format_ms(d)
+
+    let meshes: Vec<windmesh::WindMeshData> = wind_sources
+        .iter()
+        .enumerate()
+        .map(|(i, ws)| {
+            let dir_deg = ws.direction * 180.0 / std::f64::consts::PI;
+            let label = format!("Wind source {} (dir={:.1}°)", format_int(i), dir_deg);
+
+            view.run_step(
+                &label,
+                || windmesh::build_wind_grid(&terrain_data, GRID_SPACING, ws.direction),
+                |mesh, d| {
+                    format!(
+                        "{}: {} verts, {} tris ({}ms)",
+                        label,
+                        format_int(mesh.vertex_count),
+                        format_int(mesh.index_count / 3),
+                        format_ms(d)
+                    )
+                },
             )
-        },
-    );
+        })
+        .collect();
 
     view.try_run_step(
         "Writing windmesh",
         || -> anyhow::Result<_> {
-            let buffer = windmesh_file::build_windmesh_buffer(&mesh, input_hash);
+            let buffer = windmesh_file::build_windmesh_buffer(&meshes, input_hash);
             std::fs::write(&windmesh_path, &buffer)
                 .with_context(|| format!("failed to write windmesh file: {windmesh_path}"))?;
             Ok(buffer)
         },
         |buffer, d| {
             format!(
-                "Wrote {} ({:.1} KB) in {}ms",
+                "Wrote {} ({:.1} KB, {} sources) in {}ms",
                 short_path(&windmesh_path),
                 buffer.len() as f64 / 1024.0,
+                format_int(meshes.len()),
                 format_ms(d)
             )
         },

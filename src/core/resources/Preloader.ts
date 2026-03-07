@@ -5,14 +5,8 @@ import { ReactEntity } from "../ReactEntity";
 import { BaseEntity } from "../entity/BaseEntity";
 import Entity from "../entity/Entity";
 import { on } from "../entity/handler";
+import { registerManifestFonts } from "./fonts";
 import { getBiggestSounds, getTotalSoundBytes, loadSound } from "./sounds";
-
-// TypeScript's DOM types are missing FontFaceSet.add()
-declare global {
-  interface FontFaceSet {
-    add(font: FontFace): void;
-  }
-}
 
 export type ResourceManifest = {
   images: { [name: string]: string };
@@ -95,13 +89,9 @@ export class ReactPreloader extends BaseEntity implements Entity {
     this.progress.fonts.loaded = 0;
 
     try {
-      await Promise.all(
-        Object.entries(this.manifest.fonts).map(async ([name, src]) => {
-          const fontFace = new FontFace(name, `url(${src})`);
-          document.fonts.add(await fontFace.load());
-          this.progress.fonts.loaded += 1;
-        }),
-      );
+      await registerManifestFonts(this.manifest.fonts, () => {
+        this.progress.fonts.loaded += 1;
+      });
     } catch (e) {
       console.error("Fonts failed to load", e);
     }

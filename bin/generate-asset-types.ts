@@ -20,6 +20,7 @@ const manifestFileTemplate = (
   imageFiles: string[],
   fontFiles: string[],
   levelFiles: string[],
+  terrainFiles: string[],
   entityDefFiles: string[],
   jsonFiles: string[],
   wavemeshFiles: string[],
@@ -45,7 +46,7 @@ export type ImageName = keyof typeof images;
 
 const fonts = {
 ${fontFiles
-  .map((font) => /*ts*/ `  ${varName(font)}: require("${font}")`)
+  .map((font) => /*ts*/ `  ${varName(font)}: require("url:${font}")`)
   .join(",\n")}
 };
 export type FontName = keyof typeof fonts;
@@ -56,6 +57,13 @@ ${levelFiles
   .join(",\n")}
 };
 export type LevelName = keyof typeof levels;
+
+const terrains = {
+${terrainFiles
+  .map((terrain) => /*ts*/ `  ${varName(terrain)}: require("${terrain}")`)
+  .join(",\n")}
+};
+export type TerrainName = keyof typeof terrains;
 
 const entityDefs = {
 ${entityDefFiles
@@ -84,7 +92,7 @@ ${windmeshFiles
 };
 export type WindmeshName = keyof typeof windmeshes;
 
-export const RESOURCES = { sounds, images, fonts, levels, entityDefs, jsonBlobs, wavemeshes, windmeshes };
+export const RESOURCES = { sounds, images, fonts, levels, terrains, entityDefs, jsonBlobs, wavemeshes, windmeshes };
 `.trimStart();
 
 /*
@@ -201,14 +209,15 @@ async function main() {
     const pattern = `${assetsFolder}/**/*.@(${extensionPattern})`;
     const fileNames = globSync(pattern, {}).map((f) => f);
 
-    const soundFiles = [];
-    const imageFiles = [];
-    const fontFiles = [];
-    const levelFiles = [];
-    const entityDefFiles = [];
-    const jsonFiles = [];
-    const wavemeshFiles = [];
-    const windmeshFiles = [];
+    const soundFiles: string[] = [];
+    const imageFiles: string[] = [];
+    const fontFiles: string[] = [];
+    const levelFiles: string[] = [];
+    const terrainFiles: string[] = [];
+    const entityDefFiles: string[] = [];
+    const jsonFiles: string[] = [];
+    const wavemeshFiles: string[] = [];
+    const windmeshFiles: string[] = [];
 
     for (const fileName of fileNames) {
       const parts = fileName.split(".");
@@ -231,7 +240,13 @@ async function main() {
           if (fileName.includes("entity-defs/")) {
             entityDefFiles.push(relativePath);
           } else if (fileName.includes("levels/")) {
-            levelFiles.push(relativePath);
+            if (fileName.endsWith(".terrain.json")) {
+              terrainFiles.push(relativePath);
+            } else if (fileName.endsWith(".level.json")) {
+              levelFiles.push(relativePath);
+            } else {
+              jsonFiles.push(relativePath);
+            }
           } else {
             jsonFiles.push(relativePath);
           }
@@ -245,6 +260,8 @@ async function main() {
       }
     }
 
+    const preferredFontFiles = selectPreferredFontFiles(fontFiles);
+
     /** Get the variable name from a file path. */
     const varName = (filename: string) =>
       camelcase(path.basename(filename).split(".")[0]);
@@ -252,8 +269,9 @@ async function main() {
     const content = manifestFileTemplate(
       soundFiles,
       imageFiles,
-      fontFiles,
+      preferredFontFiles,
       levelFiles,
+      terrainFiles,
       entityDefFiles,
       jsonFiles,
       wavemeshFiles,
@@ -267,6 +285,35 @@ async function main() {
     if (!silent) {
       console.log(`manifest at ${manifestFile}`);
     }
+  }
+
+  function selectPreferredFontFiles(fontFiles: string[]): string[] {
+    const extensionPriority = ["woff2", "woff", "otf", "ttf"];
+    const selected = new Map<string, string>();
+
+    for (const fontFile of fontFiles) {
+      const extension = path.extname(fontFile).slice(1).toLowerCase();
+      const baseName = path.basename(fontFile, path.extname(fontFile));
+      const current = selected.get(baseName);
+      if (!current) {
+        selected.set(baseName, fontFile);
+        continue;
+      }
+
+      const currentExt = path.extname(current).slice(1).toLowerCase();
+      const currentPriority = extensionPriority.indexOf(currentExt);
+      const nextPriority = extensionPriority.indexOf(extension);
+      const normalizedCurrentPriority =
+        currentPriority === -1 ? Number.MAX_SAFE_INTEGER : currentPriority;
+      const normalizedNextPriority =
+        nextPriority === -1 ? Number.MAX_SAFE_INTEGER : nextPriority;
+
+      if (normalizedNextPriority < normalizedCurrentPriority) {
+        selected.set(baseName, fontFile);
+      }
+    }
+
+    return Array.from(selected.values()).sort((a, b) => a.localeCompare(b));
   }
 
   function cleanAndGenerate(assetsFolder: string) {
