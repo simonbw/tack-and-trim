@@ -24,7 +24,8 @@ const SCALE_FACTOR = 4;
 const BASE_ZOOM = 48.0;
 const DEFAULT_MAX_TILES = 256;
 const DEFAULT_HYSTERESIS = 0.05;
-const DEFAULT_ADJACENT_TILE_BUDGET = 2;
+const NEAR_ADJACENT_TILE_BUDGET = 2;
+const FAR_ADJACENT_TILE_BUDGET = 1;
 
 interface CacheSlot {
   level: number;
@@ -70,10 +71,9 @@ export class LODTerrainTileCache {
   private device: GPUDevice;
   private readonly maxTilesPerCache: number;
   private readonly hysteresis: number;
-  private readonly adjacentTileBudget: number;
-
   private slots: [CacheSlot, CacheSlot, CacheSlot];
   private currentLevel = 0;
+  private lastZoom = BASE_ZOOM;
   private initialized = false;
 
   // Queued adjacent tile requests for budget-limited rendering
@@ -83,7 +83,6 @@ export class LODTerrainTileCache {
     this.device = device;
     this.maxTilesPerCache = DEFAULT_MAX_TILES;
     this.hysteresis = DEFAULT_HYSTERESIS;
-    this.adjacentTileBudget = DEFAULT_ADJACENT_TILE_BUDGET;
 
     // Initialize window at level 0: [clamped(0-1)=0, 0, 1]
     this.slots = [
@@ -103,6 +102,7 @@ export class LODTerrainTileCache {
    * Select LOD based on zoom with hysteresis, reshuffle caches if level changes.
    */
   private selectLOD(zoom: number): void {
+    this.lastZoom = zoom;
     const idealLevel = levelForZoom(zoom);
 
     if (idealLevel === this.currentLevel) return;
@@ -120,6 +120,9 @@ export class LODTerrainTileCache {
       if (zoom > threshold) return;
     }
 
+    console.log(
+      `[LOD] transition L${this.currentLevel} → L${idealLevel} (zoom=${zoom.toFixed(3)})`,
+    );
     this.reshuffleCaches(idealLevel);
   }
 
@@ -214,12 +217,30 @@ export class LODTerrainTileCache {
     // Update all slots with current viewport
     this.adjacentRequests = [];
 
+    // Viewport center for prioritizing adjacent tile requests
+    const cx = viewport.left + viewport.width * 0.5;
+    const cy = viewport.top + viewport.height * 0.5;
+
     let currentRequests: TileRequest[] = [];
     for (const slot of this.slots) {
       const requests = slot.cache.update(viewport, terrainResources);
       if (slot === this.getCurrentSlot()) {
         currentRequests = requests;
       } else if (requests.length > 0) {
+        // Sort adjacent requests by distance to viewport center so the
+        // most useful tiles get rendered first within the budget
+        const wu = worldUnitsForLevel(slot.level);
+        requests.sort((a, b) => {
+          const [ax, ay] = a.key.split(",");
+          const [bx, by] = b.key.split(",");
+          const da =
+            (Number(ax) * wu + wu * 0.5 - cx) ** 2 +
+            (Number(ay) * wu + wu * 0.5 - cy) ** 2;
+          const db =
+            (Number(bx) * wu + wu * 0.5 - cx) ** 2 +
+            (Number(by) * wu + wu * 0.5 - cy) ** 2;
+          return da - db;
+        });
         this.adjacentRequests.push({ slot, requests });
       }
     }
@@ -228,8 +249,8 @@ export class LODTerrainTileCache {
   }
 
   /**
-   * Render current cache's tiles (from caller requests),
-   * plus adjacent tiles up to budget.
+   * Render current cache's tiles (all of them),
+   * plus adjacent tiles with budget, prioritized by which level we're closer to.
    */
   renderTiles(
     requests: TileRequest[],
@@ -238,7 +259,7 @@ export class LODTerrainTileCache {
   ): void {
     if (!this.initialized) return;
 
-    // Render current LOD's tiles
+    // Render all current LOD tiles — these are needed immediately
     if (requests.length > 0) {
       this.getCurrentSlot().cache.renderTiles(
         requests,
@@ -247,13 +268,38 @@ export class LODTerrainTileCache {
       );
     }
 
-    // Render adjacent tiles with budget cap
-    let budget = this.adjacentTileBudget;
-    for (const { slot, requests: adjRequests } of this.adjacentRequests) {
-      if (budget <= 0) break;
+    // Sort adjacent caches: the level we're closer to transitioning to gets more budget.
+    // If zoom is below the current threshold, we're closer to zooming out (higher level).
+    const currentThreshold = zoomThresholdForLevel(this.currentLevel);
+    const zoomingOut = this.lastZoom < currentThreshold;
+    const sorted = [...this.adjacentRequests].sort((a, b) => {
+      const aIsCoarser = a.slot.level > this.currentLevel;
+      const bIsCoarser = b.slot.level > this.currentLevel;
+      if (zoomingOut) {
+        return aIsCoarser === bIsCoarser ? 0 : aIsCoarser ? -1 : 1;
+      } else {
+        return aIsCoarser === bIsCoarser ? 0 : aIsCoarser ? 1 : -1;
+      }
+    });
+
+    // Near adjacent gets more budget, far gets less
+    let adjacentRendered = 0;
+    const budgets = [NEAR_ADJACENT_TILE_BUDGET, FAR_ADJACENT_TILE_BUDGET];
+    for (let i = 0; i < sorted.length; i++) {
+      const budget = budgets[i] ?? 0;
+      if (budget <= 0) continue;
+      const { slot, requests: adjRequests } = sorted[i];
       const limited = adjRequests.slice(0, budget);
       slot.cache.renderTiles(limited, terrainResources);
-      budget -= limited.length;
+      adjacentRendered += limited.length;
+    }
+
+    // Debug: log frames with significant tile rendering
+    const total = requests.length + adjacentRendered;
+    if (total > 0) {
+      console.log(
+        `[LOD] rendered ${requests.length} current (L${this.currentLevel}) + ${adjacentRendered} adjacent = ${total} tiles`,
+      );
     }
   }
 

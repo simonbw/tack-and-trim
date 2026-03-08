@@ -540,14 +540,12 @@ export class SurfaceRenderer extends BaseEntity {
       terrainResources,
     );
 
-    // Render any missing tiles
-    if (tileRequests.length > 0) {
-      this.terrainTileCache.renderTiles(
-        tileRequests,
-        terrainResources,
-        gpuProfiler ?? undefined,
-      );
-    }
+    // Render any missing tiles (current LOD + budget-limited adjacent pre-warming)
+    this.terrainTileCache.renderTiles(
+      tileRequests,
+      terrainResources,
+      gpuProfiler ?? undefined,
+    );
 
     // Get terrain atlas view for composite shader
     const terrainAtlasView = this.terrainTileCache.getAtlasView();
