@@ -60,7 +60,10 @@ export type LevelName = keyof typeof levels;
 
 const terrains = {
 ${terrainFiles
-  .map((terrain) => /*ts*/ `  ${varName(terrain)}: require("url:${terrain}")`)
+  .map(
+    (terrain) =>
+      /*ts*/ `  ${varName(terrain)}: "/assets/${terrain.replace(/^\.\//, "")}"`,
+  )
   .join(",\n")}
 };
 export type TerrainName = keyof typeof terrains;
@@ -80,14 +83,14 @@ ${jsonFiles
 
 const wavemeshes = {
 ${wavemeshFiles
-  .map((wm) => /*ts*/ `  ${varName(wm)}: require("url:${wm}")`)
+  .map((wm) => /*ts*/ `  ${varName(wm)}: "/assets/${wm.replace(/^\.\//, "")}"`)
   .join(",\n")}
 };
 export type WavemeshName = keyof typeof wavemeshes;
 
 const windmeshes = {
 ${windmeshFiles
-  .map((wm) => /*ts*/ `  ${varName(wm)}: require("url:${wm}")`)
+  .map((wm) => /*ts*/ `  ${varName(wm)}: "/assets/${wm.replace(/^\.\//, "")}"`)
   .join(",\n")}
 };
 export type WindmeshName = keyof typeof windmeshes;
@@ -135,8 +138,14 @@ async function main() {
   type FileExtension = keyof typeof extensionToType;
   type ResourceType = (typeof extensionToType)[FileExtension] | "res";
 
+  /** Extensions served statically (no Parcel processing, no .d.ts needed). */
+  const staticExtensions = new Set(["terrain", "wavemesh", "windmesh"]);
+
   const extensions = Object.keys(extensionToType);
   const extensionPattern = extensions.join("|");
+  const parcelExtensionPattern = extensions
+    .filter((e) => !staticExtensions.has(e))
+    .join("|");
 
   // The contents of the generated file
   function getContent(fileName: string) {
@@ -168,7 +177,7 @@ async function main() {
         `removing old asset .d.ts files from "${assetsFolder}" . . .`,
       );
     }
-    const pattern = `${assetsFolder}/**/*.@(${extensionPattern}).d.ts`;
+    const pattern = `${assetsFolder}/**/*.@(${parcelExtensionPattern}).d.ts`;
     const fileNames = globSync(pattern, {});
     fileNames.forEach((fileName) => {
       if (!silent) {
@@ -189,7 +198,7 @@ async function main() {
         `generating new asset .d.ts files in "${assetsFolder}" . . .`,
       );
     }
-    const pattern = `${assetsFolder}/**/*.@(${extensionPattern})`;
+    const pattern = `${assetsFolder}/**/*.@(${parcelExtensionPattern})`;
     const fileNames = globSync(pattern, {}).map((f) => f + ".d.ts");
     fileNames.forEach((fileName) => {
       fs.writeFileSync(fileName, getContent(fileName));

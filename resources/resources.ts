@@ -34,10 +34,10 @@ const levels = {
 export type LevelName = keyof typeof levels;
 
 const terrains = {
-  vendoviIsland: require("url:./levels/vendovi-island.terrain"),
-  sanJuanIslands: require("url:./levels/san-juan-islands.terrain"),
-  islesOfScilly: require("url:./levels/isles-of-scilly.terrain"),
-  apostleIslands: require("url:./levels/apostle-islands.terrain")
+  vendoviIsland: "/assets/levels/vendovi-island.terrain",
+  sanJuanIslands: "/assets/levels/san-juan-islands.terrain",
+  islesOfScilly: "/assets/levels/isles-of-scilly.terrain",
+  apostleIslands: "/assets/levels/apostle-islands.terrain"
 };
 export type TerrainName = keyof typeof terrains;
 
@@ -51,20 +51,20 @@ const jsonBlobs = {
 };
 
 const wavemeshes = {
-  vendoviIsland: require("url:./levels/vendovi-island.wavemesh"),
-  sanJuanIslands: require("url:./levels/san-juan-islands.wavemesh"),
-  islesOfScilly: require("url:./levels/isles-of-scilly.wavemesh"),
-  default: require("url:./levels/default.wavemesh"),
-  apostleIslands: require("url:./levels/apostle-islands.wavemesh")
+  vendoviIsland: "/assets/levels/vendovi-island.wavemesh",
+  sanJuanIslands: "/assets/levels/san-juan-islands.wavemesh",
+  islesOfScilly: "/assets/levels/isles-of-scilly.wavemesh",
+  default: "/assets/levels/default.wavemesh",
+  apostleIslands: "/assets/levels/apostle-islands.wavemesh"
 };
 export type WavemeshName = keyof typeof wavemeshes;
 
 const windmeshes = {
-  vendoviIsland: require("url:./levels/vendovi-island.windmesh"),
-  sanJuanIslands: require("url:./levels/san-juan-islands.windmesh"),
-  islesOfScilly: require("url:./levels/isles-of-scilly.windmesh"),
-  default: require("url:./levels/default.windmesh"),
-  apostleIslands: require("url:./levels/apostle-islands.windmesh")
+  vendoviIsland: "/assets/levels/vendovi-island.windmesh",
+  sanJuanIslands: "/assets/levels/san-juan-islands.windmesh",
+  islesOfScilly: "/assets/levels/isles-of-scilly.windmesh",
+  default: "/assets/levels/default.windmesh",
+  apostleIslands: "/assets/levels/apostle-islands.windmesh"
 };
 export type WindmeshName = keyof typeof windmeshes;
 
