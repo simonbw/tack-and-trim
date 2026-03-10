@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use gdal::Dataset;
 use rayon::prelude::*;
-use serde::Serialize;
+
 use terrain_core::humanize::format_int;
 use terrain_core::step::{format_ms, StepView};
 
@@ -18,22 +18,13 @@ use crate::region::{
 };
 use crate::segment_index::SegmentIndex;
 use crate::simplify::{ring_perimeter, signed_area, Point};
-use crate::validate::validate_terrain_file;
+use crate::validate::validate_terrain_binary;
 
 const DEFAULT_DEPTH: f64 = -300.0;
 
-#[derive(Serialize)]
 struct TerrainContourJson {
     height: f64,
     polygon: Vec<[f64; 2]>,
-}
-
-#[derive(Serialize)]
-struct TerrainJson {
-    version: u32,
-    #[serde(rename = "defaultDepth")]
-    default_depth: f64,
-    contours: Vec<TerrainContourJson>,
 }
 
 #[derive(Clone)]
@@ -325,7 +316,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
 
     let validation = view.try_run_step(
         "Validating output",
-        || validate_terrain_file(&output_path),
+        || validate_terrain_binary(&output_path),
         |v, d| {
             let mut msg = format!(
                 "Validated: {} contours, {} roots, max depth {} ({}ms)",
@@ -671,23 +662,42 @@ fn bfs_order(roots: &[ContourNode]) -> Vec<usize> {
     order
 }
 
+/// Binary terrain format:
+///   Header (16 bytes): magic u32 ("TRRN"), version u32, defaultDepth f32, contourCount u32
+///   Contour headers (8 bytes each): height f32, pointCount u32
+///   Vertex data (8 bytes per point): x f32, y f32
+/// All values are little-endian.
 fn write_terrain_file(output_path: &Path, contours: Vec<TerrainContourJson>) -> Result<()> {
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create {}", parent.display()))?;
     }
 
-    let level = TerrainJson {
-        version: 1,
-        default_depth: DEFAULT_DEPTH,
-        contours,
-    };
-
     let file = File::create(output_path)
         .with_context(|| format!("Failed to create {}", output_path.display()))?;
-    let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, &level)
-        .with_context(|| format!("Failed to write {}", output_path.display()))?;
+    let mut w = BufWriter::new(file);
+
+    // Header
+    w.write_all(&0x4E525254_u32.to_le_bytes())?; // "TRRN" magic
+    w.write_all(&1_u32.to_le_bytes())?; // version
+    w.write_all(&(DEFAULT_DEPTH as f32).to_le_bytes())?; // defaultDepth
+    w.write_all(&(contours.len() as u32).to_le_bytes())?; // contourCount
+
+    // Contour headers
+    for c in &contours {
+        w.write_all(&(c.height as f32).to_le_bytes())?;
+        w.write_all(&(c.polygon.len() as u32).to_le_bytes())?;
+    }
+
+    // Vertex data
+    for c in &contours {
+        for pt in &c.polygon {
+            w.write_all(&(pt[0] as f32).to_le_bytes())?;
+            w.write_all(&(pt[1] as f32).to_le_bytes())?;
+        }
+    }
+
+    w.flush()?;
     Ok(())
 }
 

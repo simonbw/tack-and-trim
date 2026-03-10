@@ -157,9 +157,9 @@ export class EditorController
   }
 
   @on("add")
-  onAdd(): void {
+  async onAdd(): Promise<void> {
     // Load default level from bundled resource
-    const level = loadDefaultEditorLevel();
+    const level = await loadDefaultEditorLevel();
     this.document.setLevelDefinition(level);
 
     // Create TerrainResources for GPU buffers and terrain data storage

@@ -169,6 +169,53 @@ export interface TerrainFileJSON {
   contours: TerrainContourJSON[];
 }
 
+/** Magic number for binary terrain files: "TRRN" as little-endian u32. */
+const TERRAIN_MAGIC = 0x4e525254;
+
+/**
+ * Parse a binary .terrain file into a TerrainFileJSON.
+ *
+ * Binary format (all little-endian):
+ *   Header (16 bytes): magic u32, version u32, defaultDepth f32, contourCount u32
+ *   Contour headers (8 bytes each): height f32, pointCount u32
+ *   Vertex data (8 bytes per point): x f32, y f32
+ */
+export function parseTerrainBinary(buffer: ArrayBuffer): TerrainFileJSON {
+  const view = new DataView(buffer);
+  const magic = view.getUint32(0, true);
+  if (magic !== TERRAIN_MAGIC) {
+    throw new Error(
+      `Invalid terrain file: bad magic 0x${magic.toString(16)} (expected 0x${TERRAIN_MAGIC.toString(16)})`,
+    );
+  }
+
+  const version = view.getUint32(4, true);
+  const defaultDepth = view.getFloat32(8, true);
+  const contourCount = view.getUint32(12, true);
+
+  const headerEnd = 16 + contourCount * 8;
+  const contours: TerrainContourJSON[] = [];
+  let vertexOffset = headerEnd;
+
+  for (let i = 0; i < contourCount; i++) {
+    const off = 16 + i * 8;
+    const height = view.getFloat32(off, true);
+    const pointCount = view.getUint32(off + 4, true);
+
+    const polygon: [number, number][] = new Array(pointCount);
+    for (let j = 0; j < pointCount; j++) {
+      const x = view.getFloat32(vertexOffset, true);
+      const y = view.getFloat32(vertexOffset + 4, true);
+      polygon[j] = [x, y];
+      vertexOffset += 8;
+    }
+
+    contours.push({ height, polygon });
+  }
+
+  return { version, defaultDepth, contours };
+}
+
 /**
  * JSON schema for level files.
  * v2 allows either inline contours or a terrainFile reference.

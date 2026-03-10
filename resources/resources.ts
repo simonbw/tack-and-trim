@@ -34,10 +34,10 @@ const levels = {
 export type LevelName = keyof typeof levels;
 
 const terrains = {
-  vendoviIsland: require("./levels/vendovi-island.terrain.json"),
-  sanJuanIslands: require("./levels/san-juan-islands.terrain.json"),
-  islesOfScilly: require("./levels/isles-of-scilly.terrain.json"),
-  apostleIslands: require("./levels/apostle-islands.terrain.json")
+  vendoviIsland: require("url:./levels/vendovi-island.terrain"),
+  sanJuanIslands: require("url:./levels/san-juan-islands.terrain"),
+  islesOfScilly: require("url:./levels/isles-of-scilly.terrain"),
+  apostleIslands: require("url:./levels/apostle-islands.terrain")
 };
 export type TerrainName = keyof typeof terrains;
 

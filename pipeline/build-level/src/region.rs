@@ -61,7 +61,7 @@ pub struct RegionConfig {
 
 /// Convention-based path for a region's terrain output file.
 pub fn terrain_output_path(slug: &str) -> PathBuf {
-    repo_root().join(format!("resources/levels/{}.terrain.json", slug))
+    repo_root().join(format!("resources/levels/{}.terrain", slug))
 }
 
 /// Convention-based path for a region's level file.

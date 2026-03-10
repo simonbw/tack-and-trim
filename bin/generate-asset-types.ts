@@ -60,7 +60,7 @@ export type LevelName = keyof typeof levels;
 
 const terrains = {
 ${terrainFiles
-  .map((terrain) => /*ts*/ `  ${varName(terrain)}: require("${terrain}")`)
+  .map((terrain) => /*ts*/ `  ${varName(terrain)}: require("url:${terrain}")`)
   .join(",\n")}
 };
 export type TerrainName = keyof typeof terrains;
@@ -128,6 +128,7 @@ async function main() {
     txt: "txt",
     json: "json",
     // binary data
+    terrain: "terrain",
     wavemesh: "wavemesh",
     windmesh: "windmesh",
   } as const;
@@ -240,9 +241,7 @@ async function main() {
           if (fileName.includes("entity-defs/")) {
             entityDefFiles.push(relativePath);
           } else if (fileName.includes("levels/")) {
-            if (fileName.endsWith(".terrain.json")) {
-              terrainFiles.push(relativePath);
-            } else if (fileName.endsWith(".level.json")) {
+            if (fileName.endsWith(".level.json")) {
               levelFiles.push(relativePath);
             } else {
               jsonFiles.push(relativePath);
@@ -250,6 +249,9 @@ async function main() {
           } else {
             jsonFiles.push(relativePath);
           }
+          break;
+        case "terrain":
+          terrainFiles.push(relativePath);
           break;
         case "wavemesh":
           wavemeshFiles.push(relativePath);

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use terrain_core::humanize::format_int;
 
@@ -80,20 +80,75 @@ pub fn validate_level_file(level_path: &Path) -> Result<ValidationResult> {
         let terrain_path = level_path
             .parent()
             .unwrap_or(std::path::Path::new("."))
-            .join(format!("{}.terrain.json", slug));
-        return validate_terrain_file(&terrain_path);
+            .join(format!("{}.terrain", slug));
+        return validate_terrain_binary(&terrain_path);
     }
 
     Ok(validate_level_data(data))
 }
 
-pub fn validate_terrain_file(terrain_path: &Path) -> Result<ValidationResult> {
-    let json = fs::read_to_string(terrain_path)
+/// Parse and validate a binary .terrain file.
+pub fn validate_terrain_binary(terrain_path: &Path) -> Result<ValidationResult> {
+    let bytes = fs::read(terrain_path)
         .with_context(|| format!("Failed to read {}", terrain_path.display()))?;
-    validate_level_json(&json)
+
+    if bytes.len() < 16 {
+        bail!("Terrain file too short: {} bytes", bytes.len());
+    }
+
+    let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    if magic != 0x4E525254 {
+        bail!("Invalid terrain magic: 0x{:08X}", magic);
+    }
+
+    let default_depth =
+        f32::from_le_bytes(bytes[8..12].try_into().unwrap()) as f64;
+    let contour_count =
+        u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+
+    let header_end = 16 + contour_count * 8;
+    if bytes.len() < header_end {
+        bail!("Terrain file truncated in contour headers");
+    }
+
+    let mut contours = Vec::with_capacity(contour_count);
+    let mut vertex_offset = header_end;
+
+    for i in 0..contour_count {
+        let off = 16 + i * 8;
+        let height =
+            f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as f64;
+        let point_count =
+            u32::from_le_bytes(bytes[off + 4..off + 8].try_into().unwrap()) as usize;
+
+        let data_end = vertex_offset + point_count * 8;
+        if bytes.len() < data_end {
+            bail!("Terrain file truncated in vertex data for contour {}", i);
+        }
+
+        let mut flat = Vec::with_capacity(point_count * 2);
+        for j in 0..point_count {
+            let voff = vertex_offset + j * 8;
+            let x = f32::from_le_bytes(bytes[voff..voff + 4].try_into().unwrap()) as f64;
+            let y = f32::from_le_bytes(bytes[voff + 4..voff + 8].try_into().unwrap()) as f64;
+            flat.push(x);
+            flat.push(y);
+        }
+
+        contours.push(ensure_ccw(LightContour {
+            height,
+            num_points: point_count,
+            points: flat,
+        }));
+
+        vertex_offset = data_end;
+    }
+
+    Ok(validate_contours(contours, default_depth))
 }
 
-pub fn validate_level_json(json: &str) -> Result<ValidationResult> {
+#[cfg(test)]
+fn validate_level_json(json: &str) -> Result<ValidationResult> {
     let data: RawLevel = serde_json::from_str(json).context("Failed to parse level JSON")?;
     Ok(validate_level_data(data))
 }
@@ -126,6 +181,10 @@ fn validate_level_data(data: RawLevel) -> ValidationResult {
         })
         .collect();
 
+    validate_contours(contours, default_depth)
+}
+
+fn validate_contours(contours: Vec<LightContour>, default_depth: f64) -> ValidationResult {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 

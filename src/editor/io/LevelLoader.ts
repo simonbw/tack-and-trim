@@ -17,16 +17,30 @@ import {
   TerrainFileJSON,
   levelFileToEditorDefinition,
   levelFileToLevelData,
+  parseTerrainBinary,
   parseLevelFile,
   validateLevelFile,
-  validateTerrainFile,
 } from "./LevelFileFormat";
 
 /**
- * Resolve terrain references in a v2 level file.
- * If the level has a terrainFile reference, merge the terrain data into it.
+ * Fetch and parse a binary .terrain file from a URL.
  */
-function resolveTerrainReference(file: LevelFileJSON): LevelFileJSON {
+async function loadTerrainFromUrl(url: string): Promise<TerrainFileJSON> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch terrain: ${response.status} ${url}`);
+  }
+  const buffer = await response.arrayBuffer();
+  return parseTerrainBinary(buffer);
+}
+
+/**
+ * Resolve terrain references in a v2 level file.
+ * If the level has a terrainFile reference, fetch and merge the binary terrain data.
+ */
+async function resolveTerrainReference(
+  file: LevelFileJSON,
+): Promise<LevelFileJSON> {
   if (!file.terrainFile) {
     return file;
   }
@@ -35,14 +49,14 @@ function resolveTerrainReference(file: LevelFileJSON): LevelFileJSON {
     /-([a-z])/g,
     (_: string, c: string) => c.toUpperCase(),
   ) as keyof typeof RESOURCES.terrains;
-  const terrainData = RESOURCES.terrains[terrainKey];
-  if (!terrainData) {
+  const terrainUrl = RESOURCES.terrains[terrainKey];
+  if (!terrainUrl) {
     throw new Error(
       `Terrain file "${file.terrainFile}" not found in resources`,
     );
   }
 
-  const terrain = validateTerrainFile(terrainData);
+  const terrain = await loadTerrainFromUrl(terrainUrl);
   return {
     ...file,
     defaultDepth: file.defaultDepth ?? terrain.defaultDepth,
@@ -66,7 +80,7 @@ export interface LoadedLevel extends LevelData {
  */
 export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
   const rawFile = validateLevelFile(RESOURCES.levels[levelName]);
-  const file = resolveTerrainReference(rawFile);
+  const file = await resolveTerrainReference(rawFile);
   const levelData = levelFileToLevelData(file);
 
   let wavemeshData: WavefrontMeshData[] | undefined;
@@ -114,9 +128,9 @@ export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
  * Load the default level for editor (preserves names and wave config).
  * Uses the bundled resource from the asset system.
  */
-export function loadDefaultEditorLevel(): EditorLevelDefinition {
+export async function loadDefaultEditorLevel(): Promise<EditorLevelDefinition> {
   const rawFile = validateLevelFile(RESOURCES.levels.default);
-  const file = resolveTerrainReference(rawFile);
+  const file = await resolveTerrainReference(rawFile);
   return levelFileToEditorDefinition(file);
 }
 
