@@ -219,6 +219,14 @@ async function main() {
     const pattern = `${assetsFolder}/**/*.@(${extensionPattern})`;
     const fileNames = globSync(pattern, {}).map((f) => f);
 
+    // Also scan the static/ directory for binary assets served outside Parcel
+    const staticDir = path.resolve(assetsFolder, "../static");
+    const staticExtPattern = [...staticExtensions].join("|");
+    const staticFileNames = globSync(
+      `${staticDir}/**/*.@(${staticExtPattern})`,
+      {},
+    );
+
     const soundFiles: string[] = [];
     const imageFiles: string[] = [];
     const fontFiles: string[] = [];
@@ -259,6 +267,18 @@ async function main() {
             jsonFiles.push(relativePath);
           }
           break;
+      }
+    }
+
+    // Categorize static binary assets by extension
+    for (const fileName of staticFileNames) {
+      const parts = fileName.split(".");
+      const extension = parts.length > 1 ? parts[parts.length - 1] : "";
+      const relativePath = path
+        .relative(staticDir, fileName)
+        .replaceAll("\\", "/");
+
+      switch (extension) {
         case "terrain":
           terrainFiles.push(relativePath);
           break;
@@ -355,6 +375,8 @@ async function main() {
 
   function watch(assetsFolder: string) {
     const resourceGlob = `${assetsFolder}/**/*.{${extensions.join(",")}}`;
+    const staticDir = path.resolve(assetsFolder, "../static");
+    const staticGlob = `${staticDir}/**/*.{${[...staticExtensions].join(",")}}`;
     console.log(`Watching for resource changes in ${resourceGlob}`);
 
     // Run once at the beginning
@@ -362,7 +384,7 @@ async function main() {
 
     // Then run it on every new or removed file
     chokidar
-      .watch(resourceGlob, { ignoreInitial: true })
+      .watch([resourceGlob, staticGlob], { ignoreInitial: true })
       .on("add", (path, stats) => {
         cleanAndGenerate(assetsFolder);
       })

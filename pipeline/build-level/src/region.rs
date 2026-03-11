@@ -61,7 +61,17 @@ pub struct RegionConfig {
 
 /// Convention-based path for a region's terrain output file.
 pub fn terrain_output_path(slug: &str) -> PathBuf {
-    repo_root().join(format!("resources/levels/{}.terrain", slug))
+    repo_root().join(format!("static/levels/{}.terrain", slug))
+}
+
+/// Convention-based path for a region's wavemesh output file.
+pub fn wavemesh_output_path(slug: &str) -> PathBuf {
+    repo_root().join(format!("static/levels/{}.wavemesh", slug))
+}
+
+/// Convention-based path for a region's windmesh output file.
+pub fn windmesh_output_path(slug: &str) -> PathBuf {
+    repo_root().join(format!("static/levels/{}.windmesh", slug))
 }
 
 /// Convention-based path for a region's level file.

@@ -4,7 +4,7 @@ import path from "path";
 import httpProxy from "http-proxy";
 import { spawn } from "child_process";
 
-const RESOURCES_DIR = path.resolve(import.meta.dirname, "../resources");
+const STATIC_DIR = path.resolve(__dirname, "../static");
 
 // Allow PORT override from environment for test isolation
 const PROXY_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 1234;
@@ -45,7 +45,7 @@ const server = http.createServer((req, res) => {
   // Serve binary assets directly from resources/, bypassing Parcel
   if (req.url?.startsWith("/assets/")) {
     const relativePath = req.url.slice("/assets/".length);
-    const filePath = path.join(RESOURCES_DIR, relativePath);
+    const filePath = path.join(STATIC_DIR, relativePath);
     fs.readFile(filePath, (err, data) => {
       if (err) {
         res.writeHead(404, { "Content-Type": "text/plain" });

@@ -148,7 +148,7 @@ fn run_build(region_arg: Option<&str>, level_filter: Option<&str>, view: &StepVi
             view.info(format!(
                 "Level \"{level_slug}\" has inline terrain; skipping terrain pipeline steps."
             ));
-            run_all_meshes_for_level(&level_path, view)?;
+            run_all_meshes_for_level(&level_path, level_slug, view)?;
         }
         view.info("Done.");
         return Ok(());
@@ -196,7 +196,7 @@ fn run_wave_mesh(level_filter: Option<&str>, view: &StepView) -> Result<()> {
 
     for level_path in &level_paths {
         view.header(&level_slug_from_path(level_path));
-        run_wave_mesh_for_level(level_path, &view.indented())?;
+        run_wave_mesh_for_level(level_path, &level_slug_from_path(level_path), &view.indented())?;
     }
 
     view.info("Done.");
@@ -217,7 +217,7 @@ fn run_wind_mesh(level_filter: Option<&str>, view: &StepView) -> Result<()> {
 
     for level_path in &level_paths {
         view.header(&level_slug_from_path(level_path));
-        run_wind_mesh_for_level(level_path, &view.indented())?;
+        run_wind_mesh_for_level(level_path, &level_slug_from_path(level_path), &view.indented())?;
     }
 
     view.info("Done.");
@@ -287,31 +287,47 @@ fn level_slug_from_path(path: &Path) -> String {
         .replace(".level", "")
 }
 
-fn run_wave_mesh_for_level(level_path: &Path, view: &StepView) -> Result<()> {
+fn run_wave_mesh_for_level(level_path: &Path, slug: &str, view: &StepView) -> Result<()> {
     let level_path_str = level_path
         .to_str()
         .ok_or_else(|| anyhow!("Invalid level path"))?;
+    let output_path = region::wavemesh_output_path(slug);
+    let output_str = output_path
+        .to_str()
+        .ok_or_else(|| anyhow!("Invalid wavemesh output path"))?;
     let inner = view.indented();
     let _s = view.section("build-wavemesh");
-    wavemesh_builder::build_wavemesh_for_level_with_view(level_path_str, None, Some(&inner))?;
+    wavemesh_builder::build_wavemesh_for_level_with_view(
+        level_path_str,
+        Some(output_str),
+        Some(&inner),
+    )?;
     drop(_s);
     Ok(())
 }
 
-fn run_wind_mesh_for_level(level_path: &Path, view: &StepView) -> Result<()> {
+fn run_wind_mesh_for_level(level_path: &Path, slug: &str, view: &StepView) -> Result<()> {
     let level_path_str = level_path
         .to_str()
         .ok_or_else(|| anyhow!("Invalid level path"))?;
+    let output_path = region::windmesh_output_path(slug);
+    let output_str = output_path
+        .to_str()
+        .ok_or_else(|| anyhow!("Invalid windmesh output path"))?;
     let inner = view.indented();
     let _s = view.section("build-windmesh");
-    wavemesh_builder::build_windmesh_for_level_with_view(level_path_str, None, Some(&inner))?;
+    wavemesh_builder::build_windmesh_for_level_with_view(
+        level_path_str,
+        Some(output_str),
+        Some(&inner),
+    )?;
     drop(_s);
     Ok(())
 }
 
-fn run_all_meshes_for_level(level_path: &Path, view: &StepView) -> Result<()> {
-    run_wave_mesh_for_level(level_path, view)?;
-    run_wind_mesh_for_level(level_path, view)?;
+fn run_all_meshes_for_level(level_path: &Path, slug: &str, view: &StepView) -> Result<()> {
+    run_wave_mesh_for_level(level_path, slug, view)?;
+    run_wind_mesh_for_level(level_path, slug, view)?;
     Ok(())
 }
 
@@ -431,9 +447,8 @@ fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
     let tiles_root = tiles_dir(slug);
     let cache_dir = grid_cache_dir(slug);
     let terrain_path = terrain_output_path(slug);
-    let levels_dir = terrain_path.parent().unwrap();
-    let wavemesh_path = levels_dir.join(format!("{}.wavemesh", slug));
-    let windmesh_path = levels_dir.join(format!("{}.windmesh", slug));
+    let wavemesh_path = region::wavemesh_output_path(slug);
+    let windmesh_path = region::windmesh_output_path(slug);
 
     view.info(format!("Region: {}", config.name));
 
@@ -527,5 +542,6 @@ fn run_build_for_region_and_level(
     run_extract(Some(region_slug), &inner)?;
     drop(_s);
 
-    run_all_meshes_for_level(level_path, view)
+    let slug = level_slug_from_path(level_path);
+    run_all_meshes_for_level(level_path, &slug, view)
 }
