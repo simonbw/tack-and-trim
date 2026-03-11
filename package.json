@@ -8,10 +8,10 @@
     "watch-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources watch",
     "build": "parcel build src/index.html && npm run copy-static-assets",
     "copy-static-assets": "mkdir -p dist/assets/levels && cp static/levels/*.terrain static/levels/*.wavemesh static/levels/*.windmesh dist/assets/levels/ 2>/dev/null || true",
-    "tsc": "tsc --noEmit",
-    "tsc-watch": "tsc --noEmit --watch",
-    "tsgo": "tsgo --noEmit",
-    "tsgo-watch": "tsgo --noEmit --watch",
+    "tsc": "tsc -p tsconfig.check.json --noEmit",
+    "tsc-watch": "tsc -p tsconfig.check.json --noEmit --watch",
+    "tsgo": "tsgo -p tsconfig.check.json --noEmit",
+    "tsgo-watch": "tsgo -p tsconfig.check.json --noEmit --watch",
     "prettier": "prettier --write src",
     "generate-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources",
     "test": "playwright test",
@@ -46,7 +46,8 @@
     "react": "preact/compat",
     "react-dom": "preact/compat",
     "react-dom/client": "preact/compat/client",
-    "react/jsx-runtime": "preact/jsx-runtime"
+    "react/jsx-runtime": "preact/jsx-runtime",
+    "preact/jsx-dev-runtime": "preact/jsx-runtime"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

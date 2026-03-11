@@ -3,7 +3,7 @@
   "transformers": {
     "*.{ts,tsx}": [
       "./parcel-transformer-tunables",
-      "@parcel/transformer-typescript-tsc"
+      "..."
     ]
   }
 }
