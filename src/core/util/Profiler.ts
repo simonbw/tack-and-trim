@@ -410,18 +410,18 @@ export const profiler = new Profiler();
  *
  * This will automatically profile as "MyClass.myMethod"
  */
-export function profile<T extends (...args: any[]) => any>(
-  target: T,
-  context: ClassMethodDecoratorContext,
-): T {
-  const methodName = String(context.name);
-
-  return function (this: any, ...args: Parameters<T>): ReturnType<T> {
+export function profile(
+  _target: object,
+  propertyKey: string,
+  descriptor: PropertyDescriptor,
+): void {
+  const original = descriptor.value;
+  descriptor.value = function (this: any, ...args: any[]) {
     const className = this.constructor.name;
-    return profiler.measure(`${className}.${methodName}`, () => {
-      return target.call(this, ...args);
+    return profiler.measure(`${className}.${propertyKey}`, () => {
+      return original.call(this, ...args);
     });
-  } as T;
+  };
 }
 
 /**
@@ -439,20 +439,20 @@ export function profile<T extends (...args: any[]) => any>(
  *
  * This will automatically profile as "MyClass.myAsyncMethod"
  */
-export function profileAsync<T extends (...args: any[]) => Promise<any>>(
-  target: T,
-  context: ClassMethodDecoratorContext,
-): T {
-  const methodName = String(context.name);
-
-  return async function (this: any, ...args: Parameters<T>): Promise<any> {
+export function profileAsync(
+  _target: object,
+  propertyKey: string,
+  descriptor: PropertyDescriptor,
+): void {
+  const original = descriptor.value;
+  descriptor.value = async function (this: any, ...args: any[]) {
     const className = this.constructor.name;
-    const label = `${className}.${methodName}`;
+    const label = `${className}.${propertyKey}`;
     const start = performance.now();
     try {
-      return await target.call(this, ...args);
+      return await original.call(this, ...args);
     } finally {
       profiler.recordElapsed(label, performance.now() - start);
     }
-  } as T;
+  };
 }

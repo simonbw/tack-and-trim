@@ -5,9 +5,6 @@
     "moduleResolution": "Node",
     "isolatedModules": true,
     "esModuleInterop": true,
-    // Enables decorator support in Parcel's SWC transformer.
-    // Type checking uses tsconfig.check.json (without this flag) since
-    // our decorators use the TC39 stage 3 API, not legacy TS decorators.
     "experimentalDecorators": true,
 
     "allowImportingTsExtensions": true,

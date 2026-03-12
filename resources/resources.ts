@@ -8,8 +8,6 @@ const sounds = {
 export type SoundName = keyof typeof sounds;
 
 const images = {
-  vendoviIsland: require("url:./levels/vendovi-island.svg"),
-  default: require("url:./levels/default.svg"),
   favicon: require("url:./images/favicon.png")
 };
 export type ImageName = keyof typeof images;

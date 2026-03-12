@@ -16,10 +16,6 @@ type HandlerFn<K extends GameEventName> = GameEventMap[K] extends void
 // Map from class constructor to its directly declared handlers
 const classHandlers = new WeakMap<object, Set<GameEventName>>();
 
-// Track which (class, event) pairs have already been processed
-// Key format: uses a WeakMap of class -> Set of event names
-const processedHandlers = new WeakMap<object, Set<GameEventName>>();
-
 /**
  * Decorator that marks a method as an event handler.
  * Provides compile-time type checking for the handler signature.
@@ -38,56 +34,27 @@ const processedHandlers = new WeakMap<object, Set<GameEventName>>();
  * }
  */
 export function on<K extends GameEventName>(event: K) {
-  return function <T extends HandlerFn<K>>(
-    _target: T,
-    context: ClassMethodDecoratorContext,
-  ): T {
-    const methodName = String(context.name);
+  return function (
+    target: object,
+    propertyKey: string,
+    _descriptor: PropertyDescriptor,
+  ): void {
+    // Validate method name matches expected pattern
+    const expectedName = `on${event.charAt(0).toUpperCase()}${event.slice(1)}`;
+    if (propertyKey !== expectedName) {
+      throw new Error(
+        `@on("${event}") requires the method to be named "${expectedName}", but found "${propertyKey}"`,
+      );
+    }
 
-    // Use addInitializer to register handlers on first instantiation
-    // We need this because we don't have access to the class constructor at decoration time
-    context.addInitializer(function (this: unknown) {
-      const instance = this as object;
-
-      // Validate method name matches expected pattern
-      const expectedName = `on${event.charAt(0).toUpperCase()}${event.slice(1)}`;
-      if (methodName !== expectedName) {
-        throw new Error(
-          `@on("${event}") requires the method to be named "${expectedName}", but found "${methodName}"`,
-        );
-      }
-
-      // Find which class in the prototype chain actually owns this method
-      let proto = Object.getPrototypeOf(instance);
-      while (proto && proto !== Object.prototype) {
-        if (Object.prototype.hasOwnProperty.call(proto, methodName)) {
-          const owningClass = proto.constructor;
-
-          // Check if we've already processed this (class, event) pair
-          let processed = processedHandlers.get(owningClass);
-          if (!processed) {
-            processed = new Set();
-            processedHandlers.set(owningClass, processed);
-          }
-          if (processed.has(event)) {
-            return; // Already registered
-          }
-          processed.add(event);
-
-          // Register this event for the class that owns the method
-          let handlers = classHandlers.get(owningClass);
-          if (!handlers) {
-            handlers = new Set();
-            classHandlers.set(owningClass, handlers);
-          }
-          handlers.add(event);
-          return;
-        }
-        proto = Object.getPrototypeOf(proto);
-      }
-    });
-
-    return _target;
+    // Register this event for the class that owns the method
+    const owningClass = target.constructor;
+    let handlers = classHandlers.get(owningClass);
+    if (!handlers) {
+      handlers = new Set();
+      classHandlers.set(owningClass, handlers);
+    }
+    handlers.add(event);
   };
 }
 
