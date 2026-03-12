@@ -7,6 +7,7 @@ mod marching;
 mod region;
 mod segment_index;
 mod simplify;
+mod trees;
 mod validate;
 
 use std::fs;
@@ -49,6 +50,8 @@ enum Commands {
     WaveMesh,
     /// Build wind mesh (.windmesh) for level(s)
     WindMesh,
+    /// Generate tree positions (.trees) for level(s)
+    Trees,
     /// Extract terrain → .terrain.json
     Extract(CommonRegionArgs),
     /// Download elevation tiles
@@ -100,6 +103,7 @@ fn main() -> Result<()> {
         Some(Commands::Build(args)) => run_build(args.region.as_deref(), level_filter, &view),
         Some(Commands::WaveMesh) => run_wave_mesh(level_filter, &view),
         Some(Commands::WindMesh) => run_wind_mesh(level_filter, &view),
+        Some(Commands::Trees) => run_trees(level_filter, &view),
         Some(Commands::Extract(args)) => {
             let region = resolve_region_for_terrain_command(
                 "extract",
@@ -224,6 +228,28 @@ fn run_wind_mesh(level_filter: Option<&str>, view: &StepView) -> Result<()> {
     Ok(())
 }
 
+fn run_trees(level_filter: Option<&str>, view: &StepView) -> Result<()> {
+    let level_paths = resolve_level_paths(level_filter)?;
+    if level_paths.is_empty() {
+        view.info("No level files found.");
+        return Ok(());
+    }
+
+    view.info(format!(
+        "Generating trees for {} level(s)",
+        format_int(level_paths.len())
+    ));
+
+    for level_path in &level_paths {
+        let slug = level_slug_from_path(level_path);
+        view.header(&slug);
+        run_trees_for_level(level_path, &slug, &view.indented())?;
+    }
+
+    view.info("Done.");
+    Ok(())
+}
+
 fn resolve_level_paths(level_filter: Option<&str>) -> Result<Vec<PathBuf>> {
     if let Some(level_slug) = level_filter {
         return Ok(vec![resolve_level_file_for_slug(level_slug)?]);
@@ -325,8 +351,19 @@ fn run_wind_mesh_for_level(level_path: &Path, slug: &str, view: &StepView) -> Re
     Ok(())
 }
 
+fn run_trees_for_level(level_path: &Path, slug: &str, view: &StepView) -> Result<()> {
+    let output_path = region::trees_output_path(slug);
+    let inner = view.indented();
+    let _s = view.section("generate-trees");
+    trees::run_generate_trees(level_path, &output_path, &inner)?;
+    drop(_s);
+    Ok(())
+}
+
 fn run_all_meshes_for_level(level_path: &Path, slug: &str, view: &StepView) -> Result<()> {
     run_wave_mesh_for_level(level_path, slug, view)?;
+    // Generate trees before wind mesh so tree data is available for wind
+    run_trees_for_level(level_path, slug, view)?;
     run_wind_mesh_for_level(level_path, slug, view)?;
     Ok(())
 }
@@ -449,6 +486,7 @@ fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
     let terrain_path = terrain_output_path(slug);
     let wavemesh_path = region::wavemesh_output_path(slug);
     let windmesh_path = region::windmesh_output_path(slug);
+    let trees_path = region::trees_output_path(slug);
 
     view.info(format!("Region: {}", config.name));
 
@@ -466,6 +504,13 @@ fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
         &windmesh_path,
         &tiles_root,
         "windmesh file",
+        &mut stats,
+        view,
+    )?;
+    remove_generated_path(
+        &trees_path,
+        &tiles_root,
+        "trees file",
         &mut stats,
         view,
     )?;

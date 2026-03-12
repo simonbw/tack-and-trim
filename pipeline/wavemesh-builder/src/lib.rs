@@ -337,6 +337,69 @@ pub fn build_windmesh_for_level_with_view(
         |_, d| format!("Built terrain data: {}ms", format_ms(d)),
     );
 
+    // Load tree data if a .trees file exists alongside the level
+    let trees_path = level_path.replace(".level.json", ".trees");
+    // Try static/levels/ path convention (used by build pipeline)
+    let trees_static_path = {
+        let p = std::path::Path::new(level_path);
+        let slug = p
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .replace(".level", "");
+        format!("static/levels/{}.trees", slug)
+    };
+    let _tree_data = if std::path::Path::new(&trees_static_path).exists() {
+        match std::fs::read(&trees_static_path) {
+            Ok(data) => {
+                let tree_count = if data.len() >= 16 {
+                    u32::from_le_bytes([data[8], data[9], data[10], data[11]]) as usize
+                } else {
+                    0
+                };
+                view.info(format!(
+                    "Loaded tree data: {} trees from {}",
+                    format_int(tree_count),
+                    short_path(&trees_static_path)
+                ));
+                Some(data)
+            }
+            Err(e) => {
+                view.info(format!(
+                    "Could not load tree data from {}: {}",
+                    trees_static_path, e
+                ));
+                None
+            }
+        }
+    } else if std::path::Path::new(&trees_path).exists() {
+        match std::fs::read(&trees_path) {
+            Ok(data) => {
+                let tree_count = if data.len() >= 16 {
+                    u32::from_le_bytes([data[8], data[9], data[10], data[11]]) as usize
+                } else {
+                    0
+                };
+                view.info(format!(
+                    "Loaded tree data: {} trees from {}",
+                    format_int(tree_count),
+                    short_path(&trees_path)
+                ));
+                Some(data)
+            }
+            Err(e) => {
+                view.info(format!(
+                    "Could not load tree data from {}: {}",
+                    trees_path, e
+                ));
+                None
+            }
+        }
+    } else {
+        view.info("No tree data available (wind mesh will not account for trees)".to_string());
+        None
+    };
+
     let wind_directions: Vec<f64> = wind_sources.iter().map(|s| s.direction).collect();
     let input_hash = windmesh_file::compute_wind_input_hash(&terrain_data, &wind_directions);
     view.info(format!(

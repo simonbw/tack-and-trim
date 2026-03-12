@@ -6,9 +6,11 @@
  */
 
 import type { WavefrontMeshData } from "../../pipeline/mesh-building/MeshBuildTypes";
+import type { TreeFileData } from "../../pipeline/mesh-building/TreeFile";
 import type { WindMeshFileBundle } from "../../pipeline/mesh-building/WindmeshFile";
 import { loadWavemeshFromUrl } from "../../game/wave-physics/WavemeshLoader";
 import { loadWindmeshFromUrl } from "../../game/wind/WindmeshLoader";
+import { loadTreesFromUrl } from "../../game/trees/TreeLoader";
 import { RESOURCES, LevelName } from "../../../resources/resources";
 import {
   EditorLevelDefinition,
@@ -71,6 +73,7 @@ async function resolveTerrainReference(
 export interface LoadedLevel extends LevelData {
   wavemeshData: WavefrontMeshData[] | undefined;
   windmeshData: WindMeshFileBundle | undefined;
+  treeData: TreeFileData | undefined;
 }
 
 /**
@@ -121,7 +124,24 @@ export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
     }
   }
 
-  return { ...levelData, wavemeshData, windmeshData };
+  let treeData: TreeFileData | undefined;
+  const treesUrl =
+    RESOURCES.trees[levelName as keyof typeof RESOURCES.trees];
+  if (treesUrl) {
+    try {
+      treeData = await loadTreesFromUrl(treesUrl);
+      console.log(
+        `[LevelLoader] Loaded tree data for "${levelName}" (${treeData.positions.length} trees)`,
+      );
+    } catch (e) {
+      console.error(
+        `[LevelLoader] Failed to load tree data for "${levelName}":`,
+        e,
+      );
+    }
+  }
+
+  return { ...levelData, wavemeshData, windmeshData, treeData };
 }
 
 /**
