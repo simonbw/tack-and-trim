@@ -17,17 +17,23 @@ import {
   FLOATS_PER_CONTOUR,
   normalizeTerrainWinding,
 } from "./LandMass";
-import { MAX_CHILDREN, MAX_CONTOURS, MAX_VERTICES } from "./TerrainConstants";
+import {
+  CONTAINMENT_GRID_U32S_PER_CONTOUR,
+  MAX_CHILDREN,
+  MAX_CONTOURS,
+  MAX_VERTICES,
+} from "./TerrainConstants";
 
-/** Header size for packed terrain buffer: 3 u32 offsets (vertices, contours, children) */
-const PACKED_TERRAIN_HEADER_SIZE = 3;
+/** Header size for packed terrain buffer: 4 u32 offsets (vertices, contours, children, containmentGrid) */
+const PACKED_TERRAIN_HEADER_SIZE = 4;
 
 /** Total packed buffer size in u32 elements */
 const PACKED_TERRAIN_SIZE =
   PACKED_TERRAIN_HEADER_SIZE +
   MAX_VERTICES * 2 + // vertices: 2 u32 per vertex (f32 pair bitcast)
   MAX_CONTOURS * FLOATS_PER_CONTOUR + // contours: 13 u32 per contour
-  MAX_CHILDREN; // children: 1 u32 per child
+  MAX_CHILDREN + // children: 1 u32 per child
+  MAX_CONTOURS * CONTAINMENT_GRID_U32S_PER_CONTOUR; // containment grids: 256 u32 per contour
 
 /**
  * Manages GPU resources for terrain data.
@@ -37,10 +43,11 @@ const PACKED_TERRAIN_SIZE =
  *
  * Terrain data is packed into a single `array<u32>` storage buffer with layout:
  * ```
- * [verticesOffset, contoursOffset, childrenOffset,
+ * [verticesOffset, contoursOffset, childrenOffset, containmentGridOffset,
  *  ...vertices (f32 pairs as u32)...,
  *  ...contours (13 mixed fields as u32)...,
- *  ...children (u32)...]
+ *  ...children (u32)...,
+ *  ...containment grids (256 u32 per contour, 2-bit packed flags)...]
  * ```
  */
 export class TerrainResources extends BaseEntity {
@@ -89,16 +96,24 @@ export class TerrainResources extends BaseEntity {
    * [0] verticesOffset - element index where vertex data starts
    * [1] contoursOffset - element index where contour data starts
    * [2] childrenOffset - element index where children data starts
-   * [3..] vertex data (f32 pairs stored as u32 via bitcast)
+   * [3] containmentGridOffset - element index where containment grid data starts
+   * [4..] vertex data (f32 pairs stored as u32 via bitcast)
    * [...] contour data (13 fields per contour, mixed u32/f32 via bitcast)
    * [...] children data (u32 indices)
+   * [...] containment grid data (256 u32 per contour, 2-bit packed flags)
    *
    * @internal
    */
   private uploadTerrainData(definition: TerrainDefinition): void {
     const device = this.game.getWebGPUDevice();
     const gpuData = buildTerrainGPUData(definition);
-    const { vertexData, contourData, childrenData, contourCount } = gpuData;
+    const {
+      vertexData,
+      contourData,
+      childrenData,
+      containmentGridData,
+      contourCount,
+    } = gpuData;
 
     const packed = new Uint32Array(PACKED_TERRAIN_SIZE);
     const packedFloat = new Float32Array(packed.buffer);
@@ -109,11 +124,13 @@ export class TerrainResources extends BaseEntity {
     const contoursOffset = verticesOffset + MAX_VERTICES * 2;
     const contourFloatCount = contourCount * FLOATS_PER_CONTOUR;
     const childrenOffset = contoursOffset + MAX_CONTOURS * FLOATS_PER_CONTOUR;
+    const containmentGridOffset = childrenOffset + MAX_CHILDREN;
 
     // Write header
     packed[0] = verticesOffset;
     packed[1] = contoursOffset;
     packed[2] = childrenOffset;
+    packed[3] = containmentGridOffset;
 
     // Write vertex data (f32 pairs → stored as u32 via shared buffer)
     for (let i = 0; i < vertexCount; i++) {
@@ -129,6 +146,11 @@ export class TerrainResources extends BaseEntity {
     // Write children data
     for (let i = 0; i < childrenData.length; i++) {
       packed[childrenOffset + i] = childrenData[i];
+    }
+
+    // Write containment grid data
+    for (let i = 0; i < containmentGridData.length; i++) {
+      packed[containmentGridOffset + i] = containmentGridData[i];
     }
 
     device.queue.writeBuffer(this.packedTerrainBuffer, 0, packed.buffer);

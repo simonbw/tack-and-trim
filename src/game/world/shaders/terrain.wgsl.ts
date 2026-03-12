@@ -19,6 +19,7 @@ import {
   fn_getTerrainVertex,
   fn_getContourData,
   fn_getTerrainChild,
+  fn_getContainmentCellFlag,
 } from "./terrain-packed.wgsl";
 
 // Re-export for backwards compatibility
@@ -80,10 +81,21 @@ export const fn_isInsideContour: ShaderModule = {
       let c = getContourData(packedTerrain, contourIndex);
 
       // Early bbox check
+      let bboxW = c.bboxMaxX - c.bboxMinX;
+      let bboxH = c.bboxMaxY - c.bboxMinY;
       if (worldPos.x < c.bboxMinX || worldPos.x > c.bboxMaxX ||
-          worldPos.y < c.bboxMinY || worldPos.y > c.bboxMaxY) {
+          worldPos.y < c.bboxMinY || worldPos.y > c.bboxMaxY ||
+          bboxW <= 0.0 || bboxH <= 0.0) {
         return false;
       }
+
+      // Containment grid fast path — O(1) for ~95% of queries
+      let col = u32(clamp(floor((worldPos.x - c.bboxMinX) * (64.0 / bboxW)), 0.0, 63.0));
+      let row = u32(clamp(floor((worldPos.y - c.bboxMinY) * (64.0 / bboxH)), 0.0, 63.0));
+      let flag = getContainmentCellFlag(packedTerrain, contourIndex, row * 64u + col);
+      if (flag == 0u) { return false; }   // OUTSIDE
+      if (flag == 1u) { return true; }    // INSIDE
+      // BOUNDARY (flag == 2): fall through to winding test
 
       let n = c.pointCount;
       let start = c.pointStartIndex;
@@ -115,6 +127,7 @@ export const fn_isInsideContour: ShaderModule = {
     struct_ContourData,
     fn_getContourData,
     fn_getTerrainVertex,
+    fn_getContainmentCellFlag,
   ],
 };
 

@@ -6,7 +6,13 @@ import {
   isSplineInsideSpline,
   sampleClosedSpline,
 } from "../../../core/util/Spline";
-import { DEFAULT_DEPTH, SAMPLES_PER_SEGMENT } from "./TerrainConstants";
+import {
+  CONTAINMENT_GRID_CELLS,
+  CONTAINMENT_GRID_SIZE,
+  CONTAINMENT_GRID_U32S_PER_CONTOUR,
+  DEFAULT_DEPTH,
+  SAMPLES_PER_SEGMENT,
+} from "./TerrainConstants";
 
 interface BBox {
   minX: number;
@@ -528,6 +534,156 @@ export function validateTerrainDefinition(definition: TerrainDefinition): void {
   }
 }
 
+// =============================================================================
+// Containment Grid — O(1) point-in-contour for GPU queries
+// =============================================================================
+
+const CELL_OUTSIDE = 0;
+const CELL_INSIDE = 1;
+const CELL_BOUNDARY = 2;
+
+/**
+ * DDA line rasterization through grid cells, marking each traversed cell as BOUNDARY.
+ * Ported from Rust terrain.rs `rasterize_edge_to_grid`.
+ */
+function rasterizeEdgeToGrid(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  minX: number,
+  minY: number,
+  invCellW: number,
+  invCellH: number,
+  cols: number,
+  rows: number,
+  cellFlags: Uint8Array,
+): void {
+  const maxCol = cols - 1;
+  const maxRow = rows - 1;
+
+  let col = Math.floor((ax - minX) * invCellW);
+  let row = Math.floor((ay - minY) * invCellH);
+  const endCol = Math.floor((bx - minX) * invCellW);
+  const endRow = Math.floor((by - minY) * invCellH);
+
+  // Mark start cell
+  if (col >= 0 && col <= maxCol && row >= 0 && row <= maxRow) {
+    cellFlags[row * cols + col] = CELL_BOUNDARY;
+  }
+
+  const dx = bx - ax;
+  const dy = by - ay;
+
+  const stepCol = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+  const stepRow = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+
+  const cellW = 1 / invCellW;
+  const cellH = 1 / invCellH;
+
+  let tMaxX =
+    dx !== 0
+      ? ((dx > 0 ? minX + (col + 1) * cellW : minX + col * cellW) - ax) / dx
+      : Infinity;
+  let tMaxY =
+    dy !== 0
+      ? ((dy > 0 ? minY + (row + 1) * cellH : minY + row * cellH) - ay) / dy
+      : Infinity;
+
+  const tDeltaX = dx !== 0 ? Math.abs(cellW / dx) : Infinity;
+  const tDeltaY = dy !== 0 ? Math.abs(cellH / dy) : Infinity;
+
+  const maxSteps = (cols + rows) * 2;
+  for (let step = 0; step < maxSteps; step++) {
+    if (col === endCol && row === endRow) break;
+
+    if (tMaxX < tMaxY) {
+      col += stepCol;
+      tMaxX += tDeltaX;
+    } else {
+      row += stepRow;
+      tMaxY += tDeltaY;
+    }
+
+    if (col >= 0 && col <= maxCol && row >= 0 && row <= maxRow) {
+      cellFlags[row * cols + col] = CELL_BOUNDARY;
+    }
+  }
+}
+
+/**
+ * Build a 64x64 containment grid for a contour's sampled polygon.
+ * Returns a Uint32Array of 256 elements with 2-bit packed flags
+ * (OUTSIDE=0, INSIDE=1, BOUNDARY=2).
+ *
+ * Algorithm (ported from Rust terrain.rs):
+ * 1. DDA-rasterize each polygon edge to mark BOUNDARY cells
+ * 2. Test center of each non-BOUNDARY cell with pointInPolygon
+ * 3. Pack into 2-bit representation (16 cells per u32)
+ */
+function buildContainmentGrid(
+  polygon: readonly V2d[],
+  bboxMinX: number,
+  bboxMinY: number,
+  bboxMaxX: number,
+  bboxMaxY: number,
+): Uint32Array {
+  const cols = CONTAINMENT_GRID_SIZE;
+  const rows = CONTAINMENT_GRID_SIZE;
+  const numCells = CONTAINMENT_GRID_CELLS;
+
+  const w = Math.max(bboxMaxX - bboxMinX, 1e-9);
+  const h = Math.max(bboxMaxY - bboxMinY, 1e-9);
+  const invCellW = cols / w;
+  const invCellH = rows / h;
+  const cellW = w / cols;
+  const cellH = h / rows;
+
+  const cellFlags = new Uint8Array(numCells);
+  // cellFlags starts as all CELL_OUTSIDE (0)
+
+  // Rasterize polygon edges to mark BOUNDARY cells
+  const n = polygon.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    rasterizeEdgeToGrid(
+      polygon[i].x,
+      polygon[i].y,
+      polygon[j].x,
+      polygon[j].y,
+      bboxMinX,
+      bboxMinY,
+      invCellW,
+      invCellH,
+      cols,
+      rows,
+      cellFlags,
+    );
+  }
+
+  // Test center of non-BOUNDARY cells with pointInPolygon
+  const testPoint = new V2d(0, 0);
+  for (let cell = 0; cell < numCells; cell++) {
+    if (cellFlags[cell] !== CELL_BOUNDARY) {
+      const col = cell % cols;
+      const row = Math.floor(cell / cols);
+      testPoint.x = bboxMinX + (col + 0.5) * cellW;
+      testPoint.y = bboxMinY + (row + 0.5) * cellH;
+      if (pointInPolygon(testPoint, polygon)) {
+        cellFlags[cell] = CELL_INSIDE;
+      }
+    }
+  }
+
+  // Pack into 2-bit representation: 16 cells per u32
+  const packed = new Uint32Array(CONTAINMENT_GRID_U32S_PER_CONTOUR);
+  for (let i = 0; i < numCells; i++) {
+    packed[i >> 4] |= (cellFlags[i] & 3) << ((i & 15) * 2);
+  }
+
+  return packed;
+}
+
 /**
  * Build GPU data arrays from terrain definition.
  * Returns flat arrays ready for upload to GPU buffers.
@@ -547,6 +703,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   vertexData: Float32Array;
   contourData: ArrayBuffer;
   childrenData: Uint32Array;
+  containmentGridData: Uint32Array;
   coastlineIndices: Uint32Array;
   contourCount: number;
   coastlineCount: number;
@@ -560,6 +717,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
       vertexData: new Float32Array(0),
       contourData: new ArrayBuffer(0),
       childrenData: new Uint32Array(0),
+      containmentGridData: new Uint32Array(0),
       coastlineIndices: new Uint32Array(0),
       contourCount: 0,
       coastlineCount: 0,
@@ -660,7 +818,10 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   }
   const coastlineIndices = new Uint32Array(coastlineIndicesList);
 
-  // Write contour data in DFS order
+  // Write contour data in DFS order, and build containment grids
+  const containmentGridData = new Uint32Array(
+    contours.length * CONTAINMENT_GRID_U32S_PER_CONTOUR,
+  );
   let vertexIndex = 0;
   for (let dfsIndex = 0; dfsIndex < dfsOrder.length; dfsIndex++) {
     const originalIndex = dfsOrder[dfsIndex];
@@ -688,11 +849,15 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     contourView.setUint32(byteBase + 28, contour.height === 0 ? 1 : 0, true); // isCoastline
 
     // Compute bounding box from pre-sampled vertices
+    let minX = 0,
+      maxX = 0,
+      minY = 0,
+      maxY = 0;
     if (vertices.length > 0) {
-      let minX = Infinity,
-        maxX = -Infinity,
-        minY = Infinity,
-        maxY = -Infinity;
+      minX = Infinity;
+      maxX = -Infinity;
+      minY = Infinity;
+      maxY = -Infinity;
       for (const pt of vertices) {
         minX = Math.min(minX, pt.x);
         maxX = Math.max(maxX, pt.x);
@@ -708,6 +873,13 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     // Skip count for DFS traversal
     contourView.setUint32(byteBase + 48, skipCounts[dfsIndex], true); // skipCount
 
+    // Build containment grid for this contour
+    if (vertices.length >= 3) {
+      const grid = buildContainmentGrid(vertices, minX, minY, maxX, maxY);
+      const gridOffset = dfsIndex * CONTAINMENT_GRID_U32S_PER_CONTOUR;
+      containmentGridData.set(grid, gridOffset);
+    }
+
     // Store pre-sampled vertices
     for (const pt of vertices) {
       vertexData[vertexIndex * 2 + 0] = pt.x;
@@ -720,6 +892,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     vertexData,
     contourData: contourBuffer,
     childrenData,
+    containmentGridData,
     coastlineIndices,
     contourCount: contours.length,
     coastlineCount: coastlineIndices.length,

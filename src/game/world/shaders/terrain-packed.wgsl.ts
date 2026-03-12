@@ -5,9 +5,11 @@
  * [0] verticesOffset - element index where vertex data starts
  * [1] contoursOffset - element index where contour data starts
  * [2] childrenOffset - element index where children data starts
+ * [3] containmentGridOffset - element index where containment grid data starts
  * [...] vertex data (f32 pairs stored as u32)
  * [...] contour data (13 fields per contour, mixed u32/f32)
  * [...] children data (u32 indices)
+ * [...] containment grid data (256 u32 per contour, 2-bit packed flags)
  *
  * All float values are stored as u32 and recovered via bitcast<f32>().
  */
@@ -92,6 +94,25 @@ export const fn_getTerrainChild: ShaderModule = {
 fn getTerrainChild(packed: ptr<storage, array<u32>, read>, index: u32) -> u32 {
   let offset = (*packed)[2u]; // childrenOffset
   return (*packed)[offset + index];
+}
+`,
+};
+
+/**
+ * Read a 2-bit containment grid cell flag from the packed buffer.
+ * Returns 0 (OUTSIDE), 1 (INSIDE), or 2 (BOUNDARY).
+ *
+ * Each contour has a 64x64 grid = 4096 cells, packed as 2 bits per cell
+ * (16 cells per u32, 256 u32s per contour).
+ */
+export const fn_getContainmentCellFlag: ShaderModule = {
+  code: /*wgsl*/ `
+fn getContainmentCellFlag(packed: ptr<storage, array<u32>, read>, contourIndex: u32, cellIndex: u32) -> u32 {
+  let gridOffset = (*packed)[3u]; // containmentGridOffset
+  let contourGridBase = gridOffset + contourIndex * 256u;
+  let wordIndex = cellIndex >> 4u;  // cellIndex / 16
+  let word = (*packed)[contourGridBase + wordIndex];
+  return (word >> ((cellIndex & 15u) * 2u)) & 3u;
 }
 `,
 };
