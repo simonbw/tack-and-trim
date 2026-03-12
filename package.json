@@ -7,7 +7,7 @@
     "dev-server": "tsx ./bin/dev-server.ts",
     "watch-manifest": "tsx ./bin/generate-asset-types.ts -d ./resources watch",
     "build": "parcel build src/index.html && npm run copy-static-assets",
-    "copy-static-assets": "mkdir -p dist/assets/levels && cp static/levels/*.terrain static/levels/*.wavemesh static/levels/*.windmesh dist/assets/levels/ 2>/dev/null || true",
+    "copy-static-assets": "mkdir -p dist/assets/levels && cp static/levels/*.terrain static/levels/*.wavemesh static/levels/*.windmesh static/levels/*.trees dist/assets/levels/ 2>/dev/null || true",
     "tsc": "tsc --noEmit",
     "tsc-watch": "tsc --noEmit --watch",
     "tsgo": "tsgo --noEmit",

@@ -74,6 +74,11 @@ pub fn windmesh_output_path(slug: &str) -> PathBuf {
     repo_root().join(format!("static/levels/{}.windmesh", slug))
 }
 
+/// Convention-based path for a region's trees output file.
+pub fn trees_output_path(slug: &str) -> PathBuf {
+    repo_root().join(format!("static/levels/{}.trees", slug))
+}
+
 /// Convention-based path for a region's level file.
 pub fn level_path_for_slug(slug: &str) -> PathBuf {
     repo_root().join(format!("resources/levels/{}.level.json", slug))

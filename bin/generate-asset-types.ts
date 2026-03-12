@@ -25,6 +25,7 @@ const manifestFileTemplate = (
   jsonFiles: string[],
   wavemeshFiles: string[],
   windmeshFiles: string[],
+  treesFiles: string[],
   varName: (file: string) => string,
 ) =>
   /*ts*/ `
@@ -95,7 +96,14 @@ ${windmeshFiles
 };
 export type WindmeshName = keyof typeof windmeshes;
 
-export const RESOURCES = { sounds, images, fonts, levels, terrains, entityDefs, jsonBlobs, wavemeshes, windmeshes };
+const trees = {
+${treesFiles
+  .map((t) => /*ts*/ `  ${varName(t)}: "/assets/${t.replace(/^\.\//, "")}"`)
+  .join(",\n")}
+};
+export type TreesName = keyof typeof trees;
+
+export const RESOURCES = { sounds, images, fonts, levels, terrains, entityDefs, jsonBlobs, wavemeshes, windmeshes, trees };
 `.trimStart();
 
 /*
@@ -134,12 +142,13 @@ async function main() {
     terrain: "terrain",
     wavemesh: "wavemesh",
     windmesh: "windmesh",
+    trees: "trees",
   } as const;
   type FileExtension = keyof typeof extensionToType;
   type ResourceType = (typeof extensionToType)[FileExtension] | "res";
 
   /** Extensions served statically (no Parcel processing, no .d.ts needed). */
-  const staticExtensions = new Set(["terrain", "wavemesh", "windmesh"]);
+  const staticExtensions = new Set(["terrain", "wavemesh", "windmesh", "trees"]);
 
   const extensions = Object.keys(extensionToType);
   const extensionPattern = extensions.join("|");
@@ -236,6 +245,7 @@ async function main() {
     const jsonFiles: string[] = [];
     const wavemeshFiles: string[] = [];
     const windmeshFiles: string[] = [];
+    const treesFiles: string[] = [];
 
     for (const fileName of fileNames) {
       const parts = fileName.split(".");
@@ -288,6 +298,9 @@ async function main() {
         case "windmesh":
           windmeshFiles.push(relativePath);
           break;
+        case "trees":
+          treesFiles.push(relativePath);
+          break;
       }
     }
 
@@ -307,6 +320,7 @@ async function main() {
       jsonFiles,
       wavemeshFiles,
       windmeshFiles,
+      treesFiles,
       varName,
     );
 

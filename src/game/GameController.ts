@@ -1,6 +1,7 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { ReactPreloader } from "../core/resources/Preloader";
+import type { TreeFileData } from "../pipeline/mesh-building/TreeFile";
 import { LevelName } from "../../resources/resources";
 import { loadLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
@@ -33,8 +34,8 @@ let MENU_ZOOM: number = 2;
 //#tunable("Camera") { min: 1, max: 20 }
 let GAMEPLAY_ZOOM: number = 5;
 
-// Hardcoded tree positions per level (in world feet, on landmasses)
-const TREES_BY_LEVEL: Partial<Record<LevelName, [number, number][]>> = {
+// Fallback hardcoded tree positions for levels without a .trees file
+const FALLBACK_TREES: Partial<Record<LevelName, [number, number][]>> = {
   default: [
     [300, -200],
     [100, -440],
@@ -68,6 +69,7 @@ export class GameController extends BaseEntity {
   persistenceLevel = 100;
 
   private currentLevel: LevelName | null = null;
+  private treeData: TreeFileData | undefined;
 
   @on("add")
   onAdd() {
@@ -90,9 +92,10 @@ export class GameController extends BaseEntity {
     this.currentLevel = levelName;
     const initScreen = this.game.addEntity(new GameInitializingScreen());
 
-    // 1. Load level data (terrain + waves + wavemesh)
-    const { terrain, waves, wind, wavemeshData, windmeshData } =
+    // 1. Load level data (terrain + waves + wavemesh + trees)
+    const { terrain, waves, wind, wavemeshData, windmeshData, treeData } =
       await loadLevel(levelName);
+    this.treeData = treeData;
     this.game.addEntity(new TerrainResources(terrain));
     this.game.addEntity(new TerrainQueryManager());
 
@@ -146,10 +149,13 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new WindParticles());
     this.game.addEntity(new WindSoundGenerator());
 
-    // Spawn trees on landmasses
-    const treePositions =
-      this.currentLevel != null ? TREES_BY_LEVEL[this.currentLevel] : undefined;
-    for (const [x, y] of treePositions ?? []) {
+    // Spawn trees on landmasses (prefer generated .trees file, fall back to hardcoded)
+    const treePositions: [number, number][] = this.treeData
+      ? this.treeData.positions
+      : (this.currentLevel != null
+          ? FALLBACK_TREES[this.currentLevel]
+          : undefined) ?? [];
+    for (const [x, y] of treePositions) {
       this.game.addEntity(new Tree(x, y));
     }
 

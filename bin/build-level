@@ -46,6 +46,7 @@ Usage:
   build-level build --region <slug>                            Run full pipeline + mesh build for a region
   build-level wave-mesh [--level <name>]                       Build wave mesh(es) only
   build-level wind-mesh [--level <name>]                       Build wind mesh(es) only
+  build-level trees [--level <name>]                           Generate tree positions only
   build-level extract [--region <slug> | --level <name>]       Extract terrain → .terrain.json
   build-level download [--region <slug> | --level <name>]      Download elevation tiles
   build-level build-grid [--region <slug> | --level <name>]    Build merged elevation grid
@@ -196,7 +197,7 @@ case "${1:-}" in
     echo "Usage: build-level completion zsh" >&2
     exit 2
     ;;
-  build|wave-mesh|wind-mesh|download|build-grid|extract|clean|validate|import )
+  build|wave-mesh|wind-mesh|trees|download|build-grid|extract|clean|validate|import )
     run_rust_cli "$@"
     ;;
   --* )
