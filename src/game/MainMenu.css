@@ -22,10 +22,11 @@
 
 .main-menu__title {
   font-family: var(--font-title);
-  font-size: 5rem;
+  font-size: 5.5rem;
   font-weight: 400;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.06em;
   margin-bottom: 0.5rem;
+  text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.8);
 }
 
 .main-menu__subtitle {

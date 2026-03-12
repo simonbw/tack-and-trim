@@ -11,6 +11,11 @@ const MAP_PADDING_RATIO = 0.06;
 const MIN_MAP_PADDING = 200;
 const CARDINAL_DIRECTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
+function formatLevelName(levelName: string): string {
+  const spaced = levelName.replace(/([A-Z])/g, " $1");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 interface MapContourLine {
   readonly id: string;
   readonly points: string;
@@ -24,14 +29,16 @@ export class NavigationHUD extends ReactEntity {
   renderLayer = "hud" as const;
 
   private isMapOpen = false;
+  private mapTitle: string;
 
   private terrainRef: TerrainResources | null = null;
   private mapTerrainVersion = -1;
   private mapContours: MapContourLine[] = [];
   private mapViewBox = "0 0 100 100";
 
-  constructor() {
+  constructor(levelName?: string) {
     super(() => this.renderContent());
+    this.mapTitle = levelName ? formatLevelName(levelName) : "Sea Chart";
   }
 
   @on("keyDown")
@@ -85,7 +92,7 @@ export class NavigationHUD extends ReactEntity {
         {this.isMapOpen && (
           <div className="navigation-hud__map-overlay">
             <div className="navigation-hud__map-sheet">
-              <div className="navigation-hud__map-title">Sea Chart</div>
+              <div className="navigation-hud__map-title">{this.mapTitle}</div>
               {this.mapContours.length > 0 ? (
                 <svg
                   className="navigation-hud__map-svg"
@@ -222,7 +229,9 @@ export class NavigationHUD extends ReactEntity {
     this.mapTerrainVersion = terrainVersion;
 
     const contours = terrain.getContours();
-    const coastlineContours = contours.filter((contour) => contour.height === 0);
+    const coastlineContours = contours.filter(
+      (contour) => contour.height === 0,
+    );
 
     const mapContours: MapContourLine[] = [];
     let minX = Infinity;

@@ -8,7 +8,6 @@ import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
-import { LevelMapLabel } from "./LevelMapLabel";
 import { MainMenu } from "./MainMenu";
 import { NavigationHUD } from "./NavigationHUD";
 import { SpeedReadout } from "./SpeedReadout";
@@ -132,10 +131,7 @@ export class GameController extends BaseEntity {
     // The clock
     this.game.addEntity(new TimeOfDayHUD());
     this.game.addEntity(new SpeedReadout());
-    this.game.addEntity(new NavigationHUD());
-    if (this.currentLevel) {
-      this.game.addEntity(new LevelMapLabel(this.currentLevel));
-    }
+    this.game.addEntity(new NavigationHUD(this.currentLevel ?? undefined));
     // Spawn boat and controls
     const boat = this.game.addEntity(new Boat());
     this.game.addEntity(new PlayerBoatController(boat));
