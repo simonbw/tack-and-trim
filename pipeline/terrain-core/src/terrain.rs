@@ -553,7 +553,10 @@ impl IDWGrid {
             }
         }
 
-        // For each cell, find candidates: all edges within min_dist + cell_diagonal
+        // For each cell, find candidates using per-contour thresholds.
+        // IDW needs the nearest edge per contour, not just globally. Each contour's
+        // threshold is: sqrt(minDistToContour) + cellDiagonal, ensuring the nearest
+        // edge for that contour is included for any point in the cell.
         let mut cell_entries: Vec<Vec<u32>> = vec![Vec::new(); num_cells];
 
         for row in 0..rows {
@@ -561,23 +564,30 @@ impl IDWGrid {
                 let cx = min_x + (col as f64 + 0.5) * cell_w;
                 let cy = min_y + (row as f64 + 0.5) * cell_h;
 
-                // Find min distance from cell center to any edge
-                let mut min_dist_sq = f64::MAX;
+                // Find per-contour minimum distance from cell center
+                let mut per_tag_min_dist_sq = vec![f64::MAX; contour_count];
                 for e in &edges {
+                    let tag = e.contour_tag as usize;
                     let d2 = point_to_segment_dist_sq(cx, cy, e.ax, e.ay, e.bx, e.by);
-                    if d2 < min_dist_sq {
-                        min_dist_sq = d2;
+                    if d2 < per_tag_min_dist_sq[tag] {
+                        per_tag_min_dist_sq[tag] = d2;
                     }
                 }
 
-                // Threshold: any edge within min_dist + cell_diagonal
-                let threshold = min_dist_sq.sqrt() + cell_diagonal;
-                let threshold_sq = threshold * threshold;
+                // Per-contour threshold: nearest edge for this contour + cell diagonal
+                let per_tag_threshold_sq: Vec<f64> = per_tag_min_dist_sq
+                    .iter()
+                    .map(|&d| {
+                        let threshold = d.sqrt() + cell_diagonal;
+                        threshold * threshold
+                    })
+                    .collect();
 
                 let cell = row * cols + col;
                 for e in &edges {
+                    let tag = e.contour_tag as usize;
                     let d2 = point_to_segment_dist_sq(cx, cy, e.ax, e.ay, e.bx, e.by);
-                    if d2 <= threshold_sq {
+                    if d2 <= per_tag_threshold_sq[tag] {
                         let packed = ((e.contour_tag as u32) << 16) | (e.edge_index as u32);
                         cell_entries[cell].push(packed);
                     }
@@ -1772,6 +1782,65 @@ fn idw_from_grid(
         gradient_x: (grad_wh_sum_x * weight_sum - weighted_h_sum * grad_w_sum_x) * inv_w_sq,
         gradient_y: (grad_wh_sum_y * weight_sum - weighted_h_sum * grad_w_sum_y) * inv_w_sq,
     }
+}
+
+/// Compute terrain height and gradient, optionally bypassing the IDW candidate grid.
+/// When `use_idw_grid` is false, always uses the brute-force fallback path.
+/// Useful for diagnostic comparison of grid vs. non-grid results.
+pub fn compute_terrain_height_and_gradient_ex(
+    px: f64,
+    py: f64,
+    terrain: &TerrainCPUData,
+    contours: &[ParsedContour],
+    lookup_grid: &ContourLookupGrid,
+    use_idw_grid: bool,
+) -> TerrainHeightGradient {
+    let n = contours.len();
+    if n == 0 {
+        return TerrainHeightGradient {
+            height: terrain.default_depth,
+            gradient_x: 0.0,
+            gradient_y: 0.0,
+        };
+    }
+
+    let vd = &terrain.vertex_data;
+    let cd = &terrain.children_data;
+
+    let (lookup_idx, lookup_height) =
+        lookup_grid.lookup(px, py, contours, vd, terrain.default_depth);
+    let deepest_height = lookup_height;
+    let deepest_idx: Option<usize> = if lookup_idx != usize::MAX {
+        Some(lookup_idx)
+    } else {
+        None
+    };
+
+    let Some(deepest) = deepest_idx else {
+        return TerrainHeightGradient {
+            height: deepest_height,
+            gradient_x: 0.0,
+            gradient_y: 0.0,
+        };
+    };
+
+    let dc = &contours[deepest];
+
+    if dc.child_count == 0 {
+        return TerrainHeightGradient {
+            height: deepest_height,
+            gradient_x: 0.0,
+            gradient_y: 0.0,
+        };
+    }
+
+    if use_idw_grid {
+        if let Some(idw_grid) = &dc.idw_grid {
+            return idw_from_grid(px, py, dc, contours, cd, n, deepest_height, idw_grid, vd);
+        }
+    }
+
+    idw_fallback(px, py, dc, contours, cd, n, deepest_height, vd)
 }
 
 /// Fallback IDW interpolation without grid (for safety).

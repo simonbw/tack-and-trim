@@ -6,10 +6,12 @@
  * [1] contoursOffset - element index where contour data starts
  * [2] childrenOffset - element index where children data starts
  * [3] containmentGridOffset - element index where containment grid data starts
+ * [4] idwGridDataOffset - element index where IDW grid data starts
  * [...] vertex data (f32 pairs stored as u32)
- * [...] contour data (13 fields per contour, mixed u32/f32)
+ * [...] contour data (14 fields per contour, mixed u32/f32)
  * [...] children data (u32 indices)
  * [...] containment grid data (256 u32 per contour, 2-bit packed flags)
+ * [...] IDW grid data (variable, prefix-sum cell_starts + packed entries)
  *
  * All float values are stored as u32 and recovered via bitcast<f32>().
  */
@@ -36,7 +38,8 @@ export const struct_ContourData: ShaderModule = {
       bboxMinY: f32,
       bboxMaxX: f32,
       bboxMaxY: f32,
-      skipCount: u32,  // Number of contours in subtree (for DFS skip traversal)
+      skipCount: u32,           // Number of contours in subtree (for DFS skip traversal)
+      idwGridDataOffset: u32,   // Absolute offset in packed buffer for IDW grid (0 = no grid)
     }
   `,
 };
@@ -81,6 +84,7 @@ fn getContourData(packed: ptr<storage, array<u32>, read>, contourIndex: u32) -> 
   c.bboxMaxX = bitcast<f32>((*packed)[base + 10u]);
   c.bboxMaxY = bitcast<f32>((*packed)[base + 11u]);
   c.skipCount = (*packed)[base + 12u];
+  c.idwGridDataOffset = (*packed)[base + 13u];
   return c;
 }
 `,
@@ -113,6 +117,34 @@ fn getContainmentCellFlag(packed: ptr<storage, array<u32>, read>, contourIndex: 
   let wordIndex = cellIndex >> 4u;  // cellIndex / 16
   let word = (*packed)[contourGridBase + wordIndex];
   return (word >> ((cellIndex & 15u) * 2u)) & 3u;
+}
+`,
+};
+
+/**
+ * Get the candidate range (start, end) for an IDW grid cell.
+ * gridBase is the contour's idwGridDataOffset.
+ * Returns vec2<u32>(entryStart, entryEnd) as indices into the entries array.
+ */
+export const fn_getIDWGridCandidateRange: ShaderModule = {
+  code: /*wgsl*/ `
+fn getIDWGridCandidateRange(packed: ptr<storage, array<u32>, read>, gridBase: u32, cellIndex: u32) -> vec2<u32> {
+  let entryStart = (*packed)[gridBase + cellIndex];
+  let entryEnd = (*packed)[gridBase + cellIndex + 1u];
+  return vec2<u32>(entryStart, entryEnd);
+}
+`,
+};
+
+/**
+ * Get a packed IDW grid entry at a given index.
+ * Returns packed u32: high 16 bits = contour tag, low 16 bits = edge index.
+ */
+export const fn_getIDWGridEntry: ShaderModule = {
+  code: /*wgsl*/ `
+fn getIDWGridEntry(packed: ptr<storage, array<u32>, read>, gridBase: u32, entryIndex: u32) -> u32 {
+  let entriesBase = gridBase + 257u;  // after 257 cell_starts
+  return (*packed)[entriesBase + entryIndex];
 }
 `,
 };

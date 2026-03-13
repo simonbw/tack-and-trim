@@ -120,9 +120,6 @@ export class LODTerrainTileCache {
       if (zoom > threshold) return;
     }
 
-    console.log(
-      `[LOD] transition L${this.currentLevel} → L${idealLevel} (zoom=${zoom.toFixed(3)})`,
-    );
     this.reshuffleCaches(idealLevel);
   }
 
@@ -292,14 +289,6 @@ export class LODTerrainTileCache {
       const limited = adjRequests.slice(0, budget);
       slot.cache.renderTiles(limited, terrainResources);
       adjacentRendered += limited.length;
-    }
-
-    // Debug: log frames with significant tile rendering
-    const total = requests.length + adjacentRendered;
-    if (total > 0) {
-      console.log(
-        `[LOD] rendered ${requests.length} current (L${this.currentLevel}) + ${adjacentRendered} adjacent = ${total} tiles`,
-      );
     }
   }
 

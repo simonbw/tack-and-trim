@@ -11,6 +11,11 @@ import {
   CONTAINMENT_GRID_SIZE,
   CONTAINMENT_GRID_U32S_PER_CONTOUR,
   DEFAULT_DEPTH,
+  IDW_GRID_CELLS,
+  IDW_GRID_CELL_STARTS,
+  IDW_GRID_SIZE,
+  MAX_IDW_CONTOURS,
+  MAX_IDW_DATA,
   SAMPLES_PER_SEGMENT,
 } from "./TerrainConstants";
 
@@ -101,8 +106,8 @@ export interface TerrainDefinition {
   defaultDepth?: number;
 }
 
-/** Number of 32-bit values per contour in GPU buffer (12 values + 1 padding for 16-byte alignment = 52 bytes) */
-export const FLOATS_PER_CONTOUR = 13;
+/** Number of 32-bit values per contour in GPU buffer (13 values + idwGridDataOffset = 56 bytes) */
+export const FLOATS_PER_CONTOUR = 14;
 
 /**
  * A node in the contour containment tree.
@@ -684,6 +689,153 @@ function buildContainmentGrid(
   return packed;
 }
 
+// =============================================================================
+// IDW Grid — precomputed candidate edges for GPU IDW blending
+// =============================================================================
+
+/** Squared distance from point to segment (no sqrt). */
+function pointToSegmentDistSq(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const lenSq = Math.max(abx * abx + aby * aby, 1e-20);
+  const t = Math.max(
+    0,
+    Math.min(1, ((px - ax) * abx + (py - ay) * aby) / lenSq),
+  );
+  const nx = ax + t * abx;
+  const ny = ay + t * aby;
+  const dx = px - nx;
+  const dy = py - ny;
+  return dx * dx + dy * dy;
+}
+
+/**
+ * Build a 16×16 IDW candidate grid for a parent contour and its children.
+ * Each grid cell stores candidate (tag, edgeIndex) pairs for edges that could
+ * be the nearest boundary for any point in that cell.
+ *
+ * Returns null if the grid would be too large.
+ */
+function buildIDWGrid(
+  parentPolygon: readonly V2d[],
+  childPolygons: readonly (readonly V2d[])[],
+  parentBBox: BBox,
+): { cellStarts: Uint32Array; entries: Uint32Array } | null {
+  const minX = parentBBox.minX;
+  const minY = parentBBox.minY;
+  const w = Math.max(parentBBox.maxX - minX, 1e-9);
+  const h = Math.max(parentBBox.maxY - minY, 1e-9);
+  const cellW = w / IDW_GRID_SIZE;
+  const cellH = h / IDW_GRID_SIZE;
+  const cellDiagonal = Math.sqrt(cellW * cellW + cellH * cellH) * 0.5;
+
+  // Collect all edges with tags
+  interface IDWEdge {
+    ax: number;
+    ay: number;
+    bx: number;
+    by: number;
+    tag: number;
+    edgeIndex: number;
+  }
+
+  const edges: IDWEdge[] = [];
+
+  // Parent edges (tag 0)
+  for (let i = 0; i < parentPolygon.length; i++) {
+    const j = (i + 1) % parentPolygon.length;
+    edges.push({
+      ax: parentPolygon[i].x,
+      ay: parentPolygon[i].y,
+      bx: parentPolygon[j].x,
+      by: parentPolygon[j].y,
+      tag: 0,
+      edgeIndex: i,
+    });
+  }
+
+  // Child edges (tags 1..N)
+  for (let ci = 0; ci < childPolygons.length; ci++) {
+    const poly = childPolygons[ci];
+    for (let i = 0; i < poly.length; i++) {
+      const j = (i + 1) % poly.length;
+      edges.push({
+        ax: poly[i].x,
+        ay: poly[i].y,
+        bx: poly[j].x,
+        by: poly[j].y,
+        tag: ci + 1,
+        edgeIndex: i,
+      });
+    }
+  }
+
+  // For each cell, find candidate edges using per-contour thresholds.
+  // IDW needs the nearest edge per contour, not just globally. Each contour's
+  // threshold is: sqrt(minDistToContour) + cellDiagonal, ensuring the nearest
+  // edge for that contour is included for any point in the cell.
+  const numTags = 1 + childPolygons.length;
+  const cellEntries: number[][] = new Array(IDW_GRID_CELLS);
+  let totalEntries = 0;
+
+  for (let row = 0; row < IDW_GRID_SIZE; row++) {
+    for (let col = 0; col < IDW_GRID_SIZE; col++) {
+      const cx = minX + (col + 0.5) * cellW;
+      const cy = minY + (row + 0.5) * cellH;
+
+      // Find per-contour minimum distance from cell center
+      const perTagMinDistSq = new Float64Array(numTags);
+      perTagMinDistSq.fill(Infinity);
+      for (const e of edges) {
+        const d2 = pointToSegmentDistSq(cx, cy, e.ax, e.ay, e.bx, e.by);
+        if (d2 < perTagMinDistSq[e.tag]) perTagMinDistSq[e.tag] = d2;
+      }
+
+      // Per-contour threshold: nearest edge for this contour + cell diagonal
+      const perTagThresholdSq = new Float64Array(numTags);
+      for (let t = 0; t < numTags; t++) {
+        const threshold = Math.sqrt(perTagMinDistSq[t]) + cellDiagonal;
+        perTagThresholdSq[t] = threshold * threshold;
+      }
+
+      const cell = row * IDW_GRID_SIZE + col;
+      const candidates: number[] = [];
+      for (const e of edges) {
+        const d2 = pointToSegmentDistSq(cx, cy, e.ax, e.ay, e.bx, e.by);
+        if (d2 <= perTagThresholdSq[e.tag]) {
+          candidates.push((e.tag << 16) | e.edgeIndex);
+        }
+      }
+      cellEntries[cell] = candidates;
+      totalEntries += candidates.length;
+    }
+  }
+
+  // Build prefix-sum cell_starts and flat entries
+  const cellStarts = new Uint32Array(IDW_GRID_CELL_STARTS);
+  cellStarts[0] = 0;
+  for (let i = 0; i < IDW_GRID_CELLS; i++) {
+    cellStarts[i + 1] = cellStarts[i] + cellEntries[i].length;
+  }
+
+  const entries = new Uint32Array(totalEntries);
+  let writeIdx = 0;
+  for (let i = 0; i < IDW_GRID_CELLS; i++) {
+    for (const packed of cellEntries[i]) {
+      entries[writeIdx++] = packed;
+    }
+  }
+
+  return { cellStarts, entries };
+}
+
 /**
  * Build GPU data arrays from terrain definition.
  * Returns flat arrays ready for upload to GPU buffers.
@@ -704,6 +856,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   contourData: ArrayBuffer;
   childrenData: Uint32Array;
   containmentGridData: Uint32Array;
+  idwGridData: Uint32Array;
   coastlineIndices: Uint32Array;
   contourCount: number;
   coastlineCount: number;
@@ -718,6 +871,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
       contourData: new ArrayBuffer(0),
       childrenData: new Uint32Array(0),
       containmentGridData: new Uint32Array(0),
+      idwGridData: new Uint32Array(0),
       coastlineIndices: new Uint32Array(0),
       contourCount: 0,
       coastlineCount: 0,
@@ -774,7 +928,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   const vertexData = new Float32Array(totalVertices * 2);
 
   // Use ArrayBuffer + DataView to write mixed u32/f32 data correctly
-  // Layout per contour (52 bytes = 13 x 4 bytes):
+  // Layout per contour (56 bytes = 14 x 4 bytes):
   //   0-3:   pointStartIndex (u32) - refers to pre-sampled vertices
   //   4-7:   pointCount (u32) - refers to pre-sampled vertices
   //   8-11:  height (f32)
@@ -788,6 +942,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   //   40-43: bboxMaxX (f32)
   //   44-47: bboxMaxY (f32)
   //   48-51: skipCount (u32) - number of contours in subtree
+  //   52-55: idwGridDataOffset (u32) - absolute offset into packed buffer for IDW grid
   const contourBuffer = new ArrayBuffer(
     contours.length * FLOATS_PER_CONTOUR * 4,
   );
@@ -873,6 +1028,9 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     // Skip count for DFS traversal
     contourView.setUint32(byteBase + 48, skipCounts[dfsIndex], true); // skipCount
 
+    // IDW grid data offset (0 = no grid, set later if grid is built)
+    contourView.setUint32(byteBase + 52, 0, true); // idwGridDataOffset
+
     // Build containment grid for this contour
     if (vertices.length >= 3) {
       const grid = buildContainmentGrid(vertices, minX, minY, maxX, maxY);
@@ -888,11 +1046,64 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     }
   }
 
+  // Build IDW grids for contours with children
+  const idwGridParts: Uint32Array[] = [];
+  let idwGridTotalSize = 0;
+
+  for (let dfsIndex = 0; dfsIndex < dfsOrder.length; dfsIndex++) {
+    const originalIndex = dfsOrder[dfsIndex];
+    const node = tree.nodes[originalIndex];
+    const contour = contours[originalIndex];
+
+    if (
+      node.children.length === 0 ||
+      node.children.length + 1 > MAX_IDW_CONTOURS
+    ) {
+      continue;
+    }
+
+    // Gather parent polygon
+    const parentPoly = contour.sampledPolygon;
+    const parentBBox = computeBBox(parentPoly);
+
+    // Gather child polygons
+    const childPolygons: (readonly V2d[])[] = [];
+    for (const childOrigIdx of node.children) {
+      childPolygons.push(contours[childOrigIdx].sampledPolygon);
+    }
+
+    const grid = buildIDWGrid(parentPoly, childPolygons, parentBBox);
+    if (grid === null) continue;
+
+    const gridSize = grid.cellStarts.length + grid.entries.length;
+    if (idwGridTotalSize + gridSize > MAX_IDW_DATA) {
+      console.warn("IDW grid data exceeds budget, skipping remaining grids");
+      break;
+    }
+
+    // Record relative offset + 1 (so 0 remains "no grid" sentinel)
+    const byteBase = dfsIndex * FLOATS_PER_CONTOUR * 4;
+    contourView.setUint32(byteBase + 52, idwGridTotalSize + 1, true);
+
+    idwGridParts.push(grid.cellStarts);
+    idwGridParts.push(grid.entries);
+    idwGridTotalSize += gridSize;
+  }
+
+  // Assemble flat idwGridData
+  const idwGridData = new Uint32Array(idwGridTotalSize);
+  let idwWriteOffset = 0;
+  for (const part of idwGridParts) {
+    idwGridData.set(part, idwWriteOffset);
+    idwWriteOffset += part.length;
+  }
+
   return {
     vertexData,
     contourData: contourBuffer,
     childrenData,
     containmentGridData,
+    idwGridData,
     coastlineIndices,
     contourCount: contours.length,
     coastlineCount: coastlineIndices.length,

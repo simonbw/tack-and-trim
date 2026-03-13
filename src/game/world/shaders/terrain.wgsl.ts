@@ -10,6 +10,8 @@
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
+import { FLOATS_PER_CONTOUR } from "../terrain/LandMass";
+import { MAX_IDW_CONTOURS } from "../terrain/TerrainConstants";
 import {
   fn_pointLeftOfSegment,
   fn_pointToLineSegmentDistanceSq,
@@ -20,6 +22,8 @@ import {
   fn_getContourData,
   fn_getTerrainChild,
   fn_getContainmentCellFlag,
+  fn_getIDWGridCandidateRange,
+  fn_getIDWGridEntry,
 } from "./terrain-packed.wgsl";
 
 // Re-export for backwards compatibility
@@ -366,41 +370,90 @@ export const fn_computeTerrainHeight: ShaderModule = {
       }
 
       // Phase 4: IDW interpolation between parent and children
-      // NOW we compute distances - only for the parent and its children
-      let distToParent = computeDistanceToBoundary(
-        worldPos,
-        u32(deepestIndex),
-        packedTerrain
-      );
-      let parentWeight = 1.0 / max(distToParent, _IDW_MIN_DIST);
-      var totalWeight = parentWeight;
-      var weightedSum = parent.height * parentWeight;
+      let gridBase = parent.idwGridDataOffset;
+      if (gridBase == 0u) {
+        // Fallback: no IDW grid — linear scan of all edges
+        let distToParent = computeDistanceToBoundary(worldPos, u32(deepestIndex), packedTerrain);
+        let parentWeight = 1.0 / max(distToParent, _IDW_MIN_DIST);
+        var totalWeight = parentWeight;
+        var weightedSum = parent.height * parentWeight;
 
-      for (var c: u32 = 0u; c < parent.childCount; c++) {
-        let childIndex = getTerrainChild(packedTerrain, parent.childStartIndex + c);
-        let child = getContourData(packedTerrain, childIndex);
-
-        // Compute distance to this child's boundary
-        // We know we're outside the child (since parent is deepest), so distance is positive
-        let distToChild = computeDistanceToBoundary(
-          worldPos,
-          childIndex,
-          packedTerrain
-        );
-
-        let childWeight = 1.0 / max(distToChild, _IDW_MIN_DIST);
-        totalWeight += childWeight;
-        weightedSum += child.height * childWeight;
+        for (var c: u32 = 0u; c < parent.childCount; c++) {
+          let childIndex = getTerrainChild(packedTerrain, parent.childStartIndex + c);
+          let child = getContourData(packedTerrain, childIndex);
+          let distToChild = computeDistanceToBoundary(worldPos, childIndex, packedTerrain);
+          let childWeight = 1.0 / max(distToChild, _IDW_MIN_DIST);
+          totalWeight += childWeight;
+          weightedSum += child.height * childWeight;
+        }
+        return weightedSum / totalWeight;
       }
 
-      return weightedSum / totalWeight;
+      // Grid-accelerated IDW: map world pos to grid cell
+      let bboxW = parent.bboxMaxX - parent.bboxMinX;
+      let bboxH = parent.bboxMaxY - parent.bboxMinY;
+      let col = u32(clamp(floor((worldPos.x - parent.bboxMinX) * (16.0 / bboxW)), 0.0, 15.0));
+      let row = u32(clamp(floor((worldPos.y - parent.bboxMinY) * (16.0 / bboxH)), 0.0, 15.0));
+      let cellIdx = row * 16u + col;
+
+      let range = getIDWGridCandidateRange(packedTerrain, gridBase, cellIdx);
+
+      // Track per-contour best distances
+      let contourCount2 = 1u + parent.childCount;
+      var bestDistSq: array<f32, ${MAX_IDW_CONTOURS}>;
+      for (var t = 0u; t < contourCount2; t++) { bestDistSq[t] = 1e20; }
+
+      // Read parent contour vertex info once
+      let contoursBase = (*packedTerrain)[1u];
+
+      // Process candidates
+      for (var e = range.x; e < range.y; e++) {
+        let packed_entry = getIDWGridEntry(packedTerrain, gridBase, e);
+        let tag = packed_entry >> 16u;
+        let edgeIdx = packed_entry & 0xFFFFu;
+
+        // Resolve contour index for this tag
+        var cIdx: u32;
+        if (tag == 0u) { cIdx = u32(deepestIndex); }
+        else { cIdx = getTerrainChild(packedTerrain, parent.childStartIndex + tag - 1u); }
+
+        let cBase = contoursBase + cIdx * ${FLOATS_PER_CONTOUR}u;
+        let pStart = (*packedTerrain)[cBase];
+        let pCount = (*packedTerrain)[cBase + 1u];
+
+        let a = getTerrainVertex(packedTerrain, pStart + edgeIdx);
+        let b = getTerrainVertex(packedTerrain, pStart + ((edgeIdx + 1u) % pCount));
+
+        let distSq = pointToLineSegmentDistanceSq(worldPos, a, b);
+        if (distSq < bestDistSq[tag]) { bestDistSq[tag] = distSq; }
+      }
+
+      // IDW blend using per-contour best distances
+      let parentDist = max(sqrt(bestDistSq[0u]), _IDW_MIN_DIST);
+      let parentW = 1.0 / parentDist;
+      var totalWeight2 = parentW;
+      var weightedSum2 = parent.height * parentW;
+
+      for (var c2: u32 = 0u; c2 < parent.childCount; c2++) {
+        let childIdx = getTerrainChild(packedTerrain, parent.childStartIndex + c2);
+        let child = getContourData(packedTerrain, childIdx);
+        let childDist = max(sqrt(bestDistSq[c2 + 1u]), _IDW_MIN_DIST);
+        let childW = 1.0 / childDist;
+        totalWeight2 += childW;
+        weightedSum2 += child.height * childW;
+      }
+      return weightedSum2 / totalWeight2;
     }
   `,
   dependencies: [
     fn_isInsideContour,
     fn_computeDistanceToBoundary,
+    fn_pointToLineSegmentDistanceSq,
     fn_getContourData,
     fn_getTerrainChild,
+    fn_getTerrainVertex,
+    fn_getIDWGridCandidateRange,
+    fn_getIDWGridEntry,
   ],
 };
 
@@ -478,80 +531,190 @@ export const fn_computeTerrainHeightAndGradient: ShaderModule = {
       }
 
       // Phase 4: IDW interpolation with analytical gradient
-      // We accumulate: weightSum, weightedHeightSum, and their gradients
-      var weightSum: f32 = 0.0;
-      var weightedHeightSum: f32 = 0.0;
-      var gradWeightSumX: f32 = 0.0;
-      var gradWeightSumY: f32 = 0.0;
-      var gradWeightedHeightSumX: f32 = 0.0;
-      var gradWeightedHeightSumY: f32 = 0.0;
+      let gridBase = parent.idwGridDataOffset;
+      if (gridBase == 0u) {
+        // Fallback: no IDW grid — linear scan
+        var weightSum: f32 = 0.0;
+        var weightedHeightSum: f32 = 0.0;
+        var gradWeightSumX: f32 = 0.0;
+        var gradWeightSumY: f32 = 0.0;
+        var gradWeightedHeightSumX: f32 = 0.0;
+        var gradWeightedHeightSumY: f32 = 0.0;
 
-      // Parent contribution
-      let parentBdg = computeDistanceToBoundaryWithGradient(
-        worldPos, u32(deepestIndex), packedTerrain
-      );
-      var weight: f32;
-      var gradWeightX: f32 = 0.0;
-      var gradWeightY: f32 = 0.0;
-      if (parentBdg.distance <= _IDW_MIN_DIST) {
-        weight = 1.0 / _IDW_MIN_DIST;
-      } else {
-        let invDist = 1.0 / parentBdg.distance;
-        weight = invDist;
-        let scale = -invDist * invDist;
-        gradWeightX = scale * parentBdg.gradientX;
-        gradWeightY = scale * parentBdg.gradientY;
-      }
-      weightSum += weight;
-      weightedHeightSum += parent.height * weight;
-      gradWeightSumX += gradWeightX;
-      gradWeightSumY += gradWeightY;
-      gradWeightedHeightSumX += parent.height * gradWeightX;
-      gradWeightedHeightSumY += parent.height * gradWeightY;
-
-      // Children contributions
-      for (var c: u32 = 0u; c < parent.childCount; c++) {
-        let childIndex = getTerrainChild(packedTerrain, parent.childStartIndex + c);
-        let child = getContourData(packedTerrain, childIndex);
-
-        let childBdg = computeDistanceToBoundaryWithGradient(
-          worldPos, childIndex, packedTerrain
-        );
-
-        var cWeight: f32;
-        var cGradWeightX: f32 = 0.0;
-        var cGradWeightY: f32 = 0.0;
-        if (childBdg.distance <= _IDW_MIN_DIST) {
-          cWeight = 1.0 / _IDW_MIN_DIST;
+        let parentBdg = computeDistanceToBoundaryWithGradient(worldPos, u32(deepestIndex), packedTerrain);
+        var weight: f32;
+        var gradWeightX: f32 = 0.0;
+        var gradWeightY: f32 = 0.0;
+        if (parentBdg.distance <= _IDW_MIN_DIST) {
+          weight = 1.0 / _IDW_MIN_DIST;
         } else {
-          let cInvDist = 1.0 / childBdg.distance;
-          cWeight = cInvDist;
-          let cScale = -cInvDist * cInvDist;
-          cGradWeightX = cScale * childBdg.gradientX;
-          cGradWeightY = cScale * childBdg.gradientY;
+          let invDist = 1.0 / parentBdg.distance;
+          weight = invDist;
+          let scale = -invDist * invDist;
+          gradWeightX = scale * parentBdg.gradientX;
+          gradWeightY = scale * parentBdg.gradientY;
         }
-        weightSum += cWeight;
-        weightedHeightSum += child.height * cWeight;
-        gradWeightSumX += cGradWeightX;
-        gradWeightSumY += cGradWeightY;
-        gradWeightedHeightSumX += child.height * cGradWeightX;
-        gradWeightedHeightSumY += child.height * cGradWeightY;
+        weightSum += weight;
+        weightedHeightSum += parent.height * weight;
+        gradWeightSumX += gradWeightX;
+        gradWeightSumY += gradWeightY;
+        gradWeightedHeightSumX += parent.height * gradWeightX;
+        gradWeightedHeightSumY += parent.height * gradWeightY;
+
+        for (var c: u32 = 0u; c < parent.childCount; c++) {
+          let childIndex = getTerrainChild(packedTerrain, parent.childStartIndex + c);
+          let child = getContourData(packedTerrain, childIndex);
+          let childBdg = computeDistanceToBoundaryWithGradient(worldPos, childIndex, packedTerrain);
+          var cWeight: f32;
+          var cGradWeightX: f32 = 0.0;
+          var cGradWeightY: f32 = 0.0;
+          if (childBdg.distance <= _IDW_MIN_DIST) {
+            cWeight = 1.0 / _IDW_MIN_DIST;
+          } else {
+            let cInvDist = 1.0 / childBdg.distance;
+            cWeight = cInvDist;
+            let cScale = -cInvDist * cInvDist;
+            cGradWeightX = cScale * childBdg.gradientX;
+            cGradWeightY = cScale * childBdg.gradientY;
+          }
+          weightSum += cWeight;
+          weightedHeightSum += child.height * cWeight;
+          gradWeightSumX += cGradWeightX;
+          gradWeightSumY += cGradWeightY;
+          gradWeightedHeightSumX += child.height * cGradWeightX;
+          gradWeightedHeightSumY += child.height * cGradWeightY;
+        }
+
+        let invWeightSum = 1.0 / weightSum;
+        let invWeightSumSq = invWeightSum * invWeightSum;
+        result.height = weightedHeightSum * invWeightSum;
+        result.gradientX = (gradWeightedHeightSumX * weightSum - weightedHeightSum * gradWeightSumX) * invWeightSumSq;
+        result.gradientY = (gradWeightedHeightSumY * weightSum - weightedHeightSum * gradWeightSumY) * invWeightSumSq;
+        return result;
       }
 
-      // Quotient rule: ∇(f/g) = (∇f·g - f·∇g) / g²
-      let invWeightSum = 1.0 / weightSum;
-      let invWeightSumSq = invWeightSum * invWeightSum;
-      result.height = weightedHeightSum * invWeightSum;
-      result.gradientX = (gradWeightedHeightSumX * weightSum - weightedHeightSum * gradWeightSumX) * invWeightSumSq;
-      result.gradientY = (gradWeightedHeightSumY * weightSum - weightedHeightSum * gradWeightSumY) * invWeightSumSq;
+      // Grid-accelerated IDW with gradient
+      let bboxW = parent.bboxMaxX - parent.bboxMinX;
+      let bboxH = parent.bboxMaxY - parent.bboxMinY;
+      let col = u32(clamp(floor((worldPos.x - parent.bboxMinX) * (16.0 / bboxW)), 0.0, 15.0));
+      let row = u32(clamp(floor((worldPos.y - parent.bboxMinY) * (16.0 / bboxH)), 0.0, 15.0));
+      let cellIdx = row * 16u + col;
+
+      let range = getIDWGridCandidateRange(packedTerrain, gridBase, cellIdx);
+
+      let contourCount2 = 1u + parent.childCount;
+      var bestDistSq: array<f32, ${MAX_IDW_CONTOURS}>;
+      var bestDx: array<f32, ${MAX_IDW_CONTOURS}>;
+      var bestDy: array<f32, ${MAX_IDW_CONTOURS}>;
+      for (var t = 0u; t < contourCount2; t++) {
+        bestDistSq[t] = 1e20;
+        bestDx[t] = 0.0;
+        bestDy[t] = 0.0;
+      }
+
+      let contoursBase = (*packedTerrain)[1u];
+
+      for (var e = range.x; e < range.y; e++) {
+        let packed_entry = getIDWGridEntry(packedTerrain, gridBase, e);
+        let tag = packed_entry >> 16u;
+        let edgeIdx = packed_entry & 0xFFFFu;
+
+        var cIdx: u32;
+        if (tag == 0u) { cIdx = u32(deepestIndex); }
+        else { cIdx = getTerrainChild(packedTerrain, parent.childStartIndex + tag - 1u); }
+
+        let cBase = contoursBase + cIdx * ${FLOATS_PER_CONTOUR}u;
+        let pStart = (*packedTerrain)[cBase];
+        let pCount = (*packedTerrain)[cBase + 1u];
+
+        let a = getTerrainVertex(packedTerrain, pStart + edgeIdx);
+        let b = getTerrainVertex(packedTerrain, pStart + ((edgeIdx + 1u) % pCount));
+
+        // Compute distance and gradient direction to nearest point on edge
+        let ab = b - a;
+        let lengthSq = dot(ab, ab);
+        var dx: f32;
+        var dy: f32;
+        var distSq: f32;
+        if (lengthSq == 0.0) {
+          dx = worldPos.x - a.x;
+          dy = worldPos.y - a.y;
+          distSq = dx * dx + dy * dy;
+        } else {
+          let t2 = clamp(dot(worldPos - a, ab) / lengthSq, 0.0, 1.0);
+          let nearest = a + t2 * ab;
+          dx = worldPos.x - nearest.x;
+          dy = worldPos.y - nearest.y;
+          distSq = dx * dx + dy * dy;
+        }
+
+        if (distSq < bestDistSq[tag]) {
+          bestDistSq[tag] = distSq;
+          bestDx[tag] = dx;
+          bestDy[tag] = dy;
+        }
+      }
+
+      // IDW blend with gradient using quotient rule
+      var gWeightSum: f32 = 0.0;
+      var gWeightedHeightSum: f32 = 0.0;
+      var gGradWeightSumX: f32 = 0.0;
+      var gGradWeightSumY: f32 = 0.0;
+      var gGradWHSumX: f32 = 0.0;
+      var gGradWHSumY: f32 = 0.0;
+
+      for (var c2: u32 = 0u; c2 < contourCount2; c2++) {
+        var height: f32;
+        if (c2 == 0u) {
+          height = parent.height;
+        } else {
+          let childIdx = getTerrainChild(packedTerrain, parent.childStartIndex + c2 - 1u);
+          let child = getContourData(packedTerrain, childIdx);
+          height = child.height;
+        }
+
+        let dist = sqrt(bestDistSq[c2]);
+        var w: f32;
+        var gwx: f32 = 0.0;
+        var gwy: f32 = 0.0;
+        if (dist <= _IDW_MIN_DIST) {
+          w = 1.0 / _IDW_MIN_DIST;
+        } else {
+          let invD = 1.0 / dist;
+          w = invD;
+          // Gradient of distance = unit direction from nearest boundary point
+          let gradDx = bestDx[c2] * invD;
+          let gradDy = bestDy[c2] * invD;
+          // Gradient of weight = -1/d² * grad(d)
+          let scale = -invD * invD;
+          gwx = scale * gradDx;
+          gwy = scale * gradDy;
+        }
+        gWeightSum += w;
+        gWeightedHeightSum += height * w;
+        gGradWeightSumX += gwx;
+        gGradWeightSumY += gwy;
+        gGradWHSumX += height * gwx;
+        gGradWHSumY += height * gwy;
+      }
+
+      let invWS = 1.0 / gWeightSum;
+      let invWSSq = invWS * invWS;
+      result.height = gWeightedHeightSum * invWS;
+      result.gradientX = (gGradWHSumX * gWeightSum - gWeightedHeightSum * gGradWeightSumX) * invWSSq;
+      result.gradientY = (gGradWHSumY * gWeightSum - gWeightedHeightSum * gGradWeightSumY) * invWSSq;
       return result;
     }
   `,
   dependencies: [
     fn_isInsideContour,
     fn_computeDistanceToBoundaryWithGradient,
+    fn_pointToLineSegmentDistanceSq,
     fn_getContourData,
     fn_getTerrainChild,
+    fn_getTerrainVertex,
+    fn_getIDWGridCandidateRange,
+    fn_getIDWGridEntry,
   ],
 };
 

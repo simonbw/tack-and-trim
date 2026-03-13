@@ -21,19 +21,21 @@ import {
   CONTAINMENT_GRID_U32S_PER_CONTOUR,
   MAX_CHILDREN,
   MAX_CONTOURS,
+  MAX_IDW_DATA,
   MAX_VERTICES,
 } from "./TerrainConstants";
 
-/** Header size for packed terrain buffer: 4 u32 offsets (vertices, contours, children, containmentGrid) */
-const PACKED_TERRAIN_HEADER_SIZE = 4;
+/** Header size for packed terrain buffer: 5 u32 offsets (vertices, contours, children, containmentGrid, idwGridData) */
+const PACKED_TERRAIN_HEADER_SIZE = 5;
 
 /** Total packed buffer size in u32 elements */
 const PACKED_TERRAIN_SIZE =
   PACKED_TERRAIN_HEADER_SIZE +
   MAX_VERTICES * 2 + // vertices: 2 u32 per vertex (f32 pair bitcast)
-  MAX_CONTOURS * FLOATS_PER_CONTOUR + // contours: 13 u32 per contour
+  MAX_CONTOURS * FLOATS_PER_CONTOUR + // contours: 14 u32 per contour
   MAX_CHILDREN + // children: 1 u32 per child
-  MAX_CONTOURS * CONTAINMENT_GRID_U32S_PER_CONTOUR; // containment grids: 256 u32 per contour
+  MAX_CONTOURS * CONTAINMENT_GRID_U32S_PER_CONTOUR + // containment grids: 256 u32 per contour
+  MAX_IDW_DATA; // IDW grid data: 2M u32s
 
 /**
  * Manages GPU resources for terrain data.
@@ -43,11 +45,12 @@ const PACKED_TERRAIN_SIZE =
  *
  * Terrain data is packed into a single `array<u32>` storage buffer with layout:
  * ```
- * [verticesOffset, contoursOffset, childrenOffset, containmentGridOffset,
+ * [verticesOffset, contoursOffset, childrenOffset, containmentGridOffset, idwGridDataOffset,
  *  ...vertices (f32 pairs as u32)...,
- *  ...contours (13 mixed fields as u32)...,
+ *  ...contours (14 mixed fields as u32)...,
  *  ...children (u32)...,
- *  ...containment grids (256 u32 per contour, 2-bit packed flags)...]
+ *  ...containment grids (256 u32 per contour, 2-bit packed flags)...,
+ *  ...IDW grid data (variable, prefix-sum cell_starts + packed entries)...]
  * ```
  */
 export class TerrainResources extends BaseEntity {
@@ -97,10 +100,12 @@ export class TerrainResources extends BaseEntity {
    * [1] contoursOffset - element index where contour data starts
    * [2] childrenOffset - element index where children data starts
    * [3] containmentGridOffset - element index where containment grid data starts
-   * [4..] vertex data (f32 pairs stored as u32 via bitcast)
-   * [...] contour data (13 fields per contour, mixed u32/f32 via bitcast)
+   * [4] idwGridDataOffset - element index where IDW grid data starts
+   * [5..] vertex data (f32 pairs stored as u32 via bitcast)
+   * [...] contour data (14 fields per contour, mixed u32/f32 via bitcast)
    * [...] children data (u32 indices)
    * [...] containment grid data (256 u32 per contour, 2-bit packed flags)
+   * [...] IDW grid data (variable, prefix-sum + packed entries)
    *
    * @internal
    */
@@ -112,6 +117,7 @@ export class TerrainResources extends BaseEntity {
       contourData,
       childrenData,
       containmentGridData,
+      idwGridData,
       contourCount,
     } = gpuData;
 
@@ -125,12 +131,15 @@ export class TerrainResources extends BaseEntity {
     const contourFloatCount = contourCount * FLOATS_PER_CONTOUR;
     const childrenOffset = contoursOffset + MAX_CONTOURS * FLOATS_PER_CONTOUR;
     const containmentGridOffset = childrenOffset + MAX_CHILDREN;
+    const idwGridDataOffset =
+      containmentGridOffset + MAX_CONTOURS * CONTAINMENT_GRID_U32S_PER_CONTOUR;
 
     // Write header
     packed[0] = verticesOffset;
     packed[1] = contoursOffset;
     packed[2] = childrenOffset;
     packed[3] = containmentGridOffset;
+    packed[4] = idwGridDataOffset;
 
     // Write vertex data (f32 pairs → stored as u32 via shared buffer)
     for (let i = 0; i < vertexCount; i++) {
@@ -138,9 +147,18 @@ export class TerrainResources extends BaseEntity {
     }
 
     // Write contour data (mixed u32/f32 - contourData is already an ArrayBuffer)
+    // Contour field 13 (idwGridDataOffset) stores (relative offset + 1) where
+    // 0 means "no grid". Convert to absolute offset in packed buffer.
     const contourSrc = new Uint32Array(contourData);
     for (let i = 0; i < contourFloatCount; i++) {
       packed[contoursOffset + i] = contourSrc[i];
+    }
+    for (let ci = 0; ci < contourCount; ci++) {
+      const fieldOffset = contoursOffset + ci * FLOATS_PER_CONTOUR + 13;
+      const encoded = packed[fieldOffset];
+      if (encoded !== 0) {
+        packed[fieldOffset] = idwGridDataOffset + (encoded - 1);
+      }
     }
 
     // Write children data
@@ -151,6 +169,11 @@ export class TerrainResources extends BaseEntity {
     // Write containment grid data
     for (let i = 0; i < containmentGridData.length; i++) {
       packed[containmentGridOffset + i] = containmentGridData[i];
+    }
+
+    // Write IDW grid data
+    for (let i = 0; i < idwGridData.length; i++) {
+      packed[idwGridDataOffset + i] = idwGridData[i];
     }
 
     device.queue.writeBuffer(this.packedTerrainBuffer, 0, packed.buffer);

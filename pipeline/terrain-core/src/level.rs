@@ -38,31 +38,124 @@ pub fn parse_terrain_file(json_str: &str) -> anyhow::Result<TerrainFileJSON> {
 }
 
 /// Resolve terrain references: if the level has a `terrain_file`, read the
-/// sibling `.terrain.json` and merge its contours and defaultDepth into the level.
+/// binary `.terrain` file from `static/levels/` and merge its contours and
+/// defaultDepth into the level.
 pub fn resolve_level_terrain(
     level: &mut LevelFileJSON,
     level_path: &std::path::Path,
 ) -> anyhow::Result<()> {
     if let Some(ref slug) = level.terrain_file {
-        let terrain_path = level_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join(format!("{}.terrain.json", slug));
-        let terrain_json = std::fs::read_to_string(&terrain_path).with_context(|| {
+        // Look for binary .terrain in static/levels/ (next to the level's directory,
+        // or by walking up to find the repo root with a static/ directory)
+        let terrain_path = find_terrain_file(slug, level_path)?;
+        let bytes = std::fs::read(&terrain_path).with_context(|| {
             format!(
                 "failed to read terrain file: {} (referenced by {})",
                 terrain_path.display(),
                 level_path.display()
             )
         })?;
-        let terrain: TerrainFileJSON = parse_terrain_file(&terrain_json)
-            .with_context(|| format!("failed to parse terrain file: {}", terrain_path.display()))?;
+        let (contours, default_depth) = parse_terrain_binary(&bytes).with_context(|| {
+            format!("failed to parse terrain file: {}", terrain_path.display())
+        })?;
         if level.default_depth.is_none() {
-            level.default_depth = terrain.default_depth;
+            level.default_depth = Some(default_depth);
         }
-        level.contours = terrain.contours;
+        level.contours = contours;
     }
     Ok(())
+}
+
+/// Find the binary .terrain file for a slug by checking:
+/// 1. `static/levels/<slug>.terrain` relative to the level file's grandparent (repo root)
+/// 2. Walking up from the level file looking for a `static/` directory
+fn find_terrain_file(
+    slug: &str,
+    level_path: &std::path::Path,
+) -> anyhow::Result<std::path::PathBuf> {
+    let filename = format!("{}.terrain", slug);
+
+    // The level file is typically at <repo>/resources/levels/<name>.level.json
+    // So the repo root is two directories up, and static/ is at <repo>/static/levels/
+    if let Some(levels_dir) = level_path.parent() {
+        if let Some(resources_dir) = levels_dir.parent() {
+            if let Some(repo_root) = resources_dir.parent() {
+                let candidate = repo_root.join("static").join("levels").join(&filename);
+                if candidate.exists() {
+                    return Ok(candidate);
+                }
+            }
+        }
+        // Also try sibling static/levels/ from the level file's directory
+        let candidate = levels_dir.join(&filename);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    anyhow::bail!(
+        "terrain file not found: static/levels/{} (referenced by {})",
+        filename,
+        level_path.display()
+    )
+}
+
+/// Parse a binary .terrain file into contours and default depth.
+///
+/// Binary format:
+///   Header (16 bytes): magic u32 ("TRRN"), version u32, defaultDepth f32, contourCount u32
+///   Contour headers (8 bytes each): height f32, pointCount u32
+///   Vertex data (8 bytes per point): x f32, y f32
+fn parse_terrain_binary(
+    bytes: &[u8],
+) -> anyhow::Result<(Vec<TerrainContourJSON>, f64)> {
+    anyhow::ensure!(bytes.len() >= 16, "terrain file too short: {} bytes", bytes.len());
+
+    let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    anyhow::ensure!(magic == 0x4E525254, "invalid terrain magic: 0x{:08X}", magic);
+
+    let default_depth = f32::from_le_bytes(bytes[8..12].try_into().unwrap()) as f64;
+    let contour_count = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+
+    let header_end = 16 + contour_count * 8;
+    anyhow::ensure!(
+        bytes.len() >= header_end,
+        "terrain file truncated in contour headers"
+    );
+
+    let mut contours = Vec::with_capacity(contour_count);
+    let mut vertex_offset = header_end;
+
+    for i in 0..contour_count {
+        let off = 16 + i * 8;
+        let height = f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as f64;
+        let point_count =
+            u32::from_le_bytes(bytes[off + 4..off + 8].try_into().unwrap()) as usize;
+
+        let data_end = vertex_offset + point_count * 8;
+        anyhow::ensure!(
+            bytes.len() >= data_end,
+            "terrain file truncated in vertex data for contour {}",
+            i
+        );
+
+        let mut polygon = Vec::with_capacity(point_count);
+        for j in 0..point_count {
+            let voff = vertex_offset + j * 8;
+            let x = f32::from_le_bytes(bytes[voff..voff + 4].try_into().unwrap()) as f64;
+            let y = f32::from_le_bytes(bytes[voff + 4..voff + 8].try_into().unwrap()) as f64;
+            polygon.push([x, y]);
+        }
+        vertex_offset = data_end;
+
+        contours.push(TerrainContourJSON {
+            height,
+            control_points: None,
+            polygon: Some(polygon),
+        });
+    }
+
+    Ok((contours, default_depth))
 }
 
 /// Optional wave configuration section in a level file.
