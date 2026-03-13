@@ -18,6 +18,7 @@
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { FLOATS_PER_CONTOUR } from "../terrain/LandMass";
+import { IDW_GRID_CELL_STARTS } from "../terrain/TerrainConstants";
 
 /**
  * Contour data structure for terrain height computation.
@@ -143,7 +144,7 @@ fn getIDWGridCandidateRange(packed: ptr<storage, array<u32>, read>, gridBase: u3
 export const fn_getIDWGridEntry: ShaderModule = {
   code: /*wgsl*/ `
 fn getIDWGridEntry(packed: ptr<storage, array<u32>, read>, gridBase: u32, entryIndex: u32) -> u32 {
-  let entriesBase = gridBase + 257u;  // after 257 cell_starts
+  let entriesBase = gridBase + ${IDW_GRID_CELL_STARTS}u;  // after cell_starts prefix-sum
   return (*packed)[entriesBase + entryIndex];
 }
 `,

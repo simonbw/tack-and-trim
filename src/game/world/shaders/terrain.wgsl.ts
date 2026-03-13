@@ -11,7 +11,11 @@
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { FLOATS_PER_CONTOUR } from "../terrain/LandMass";
-import { MAX_IDW_CONTOURS } from "../terrain/TerrainConstants";
+import {
+  IDW_GRID_SIZE,
+  IDW_GRID_CELL_STARTS,
+  MAX_IDW_CONTOURS,
+} from "../terrain/TerrainConstants";
 import {
   fn_pointLeftOfSegment,
   fn_pointToLineSegmentDistanceSq,
@@ -392,9 +396,9 @@ export const fn_computeTerrainHeight: ShaderModule = {
       // Grid-accelerated IDW: map world pos to grid cell
       let bboxW = parent.bboxMaxX - parent.bboxMinX;
       let bboxH = parent.bboxMaxY - parent.bboxMinY;
-      let col = u32(clamp(floor((worldPos.x - parent.bboxMinX) * (16.0 / bboxW)), 0.0, 15.0));
-      let row = u32(clamp(floor((worldPos.y - parent.bboxMinY) * (16.0 / bboxH)), 0.0, 15.0));
-      let cellIdx = row * 16u + col;
+      let col = u32(clamp(floor((worldPos.x - parent.bboxMinX) * (${IDW_GRID_SIZE}.0 / bboxW)), 0.0, ${IDW_GRID_SIZE - 1}.0));
+      let row = u32(clamp(floor((worldPos.y - parent.bboxMinY) * (${IDW_GRID_SIZE}.0 / bboxH)), 0.0, ${IDW_GRID_SIZE - 1}.0));
+      let cellIdx = row * ${IDW_GRID_SIZE}u + col;
 
       let range = getIDWGridCandidateRange(packedTerrain, gridBase, cellIdx);
 
@@ -596,9 +600,9 @@ export const fn_computeTerrainHeightAndGradient: ShaderModule = {
       // Grid-accelerated IDW with gradient
       let bboxW = parent.bboxMaxX - parent.bboxMinX;
       let bboxH = parent.bboxMaxY - parent.bboxMinY;
-      let col = u32(clamp(floor((worldPos.x - parent.bboxMinX) * (16.0 / bboxW)), 0.0, 15.0));
-      let row = u32(clamp(floor((worldPos.y - parent.bboxMinY) * (16.0 / bboxH)), 0.0, 15.0));
-      let cellIdx = row * 16u + col;
+      let col = u32(clamp(floor((worldPos.x - parent.bboxMinX) * (${IDW_GRID_SIZE}.0 / bboxW)), 0.0, ${IDW_GRID_SIZE - 1}.0));
+      let row = u32(clamp(floor((worldPos.y - parent.bboxMinY) * (${IDW_GRID_SIZE}.0 / bboxH)), 0.0, ${IDW_GRID_SIZE - 1}.0));
+      let cellIdx = row * ${IDW_GRID_SIZE}u + col;
 
       let range = getIDWGridCandidateRange(packedTerrain, gridBase, cellIdx);
 
