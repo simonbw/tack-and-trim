@@ -131,6 +131,16 @@ export class GameController extends BaseEntity {
     this.game.dispatch("gameStart", {});
   }
 
+  @on("keyDown")
+  onKeyDown({ key }: { key: string }) {
+    if (key === "Escape" && this.currentLevel !== null) {
+      this.game.clearScene(99);
+      this.currentLevel = null;
+      this.game.camera.z = MENU_ZOOM;
+      this.game.addEntity(new MainMenu());
+    }
+  }
+
   @on("gameStart")
   onGameStart() {
     // The clock
