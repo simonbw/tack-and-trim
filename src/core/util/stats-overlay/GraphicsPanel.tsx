@@ -21,6 +21,7 @@ function groupAndSortGpuSections(
   sections: Record<string, number>,
 ): GpuSectionGroup[] {
   const groups = new Map<string, GpuSectionGroup>();
+  const measuredTotals = new Map<string, number>();
 
   for (const [key, value] of Object.entries(sections)) {
     const dotIndex = key.indexOf(".");
@@ -31,13 +32,33 @@ function groupAndSortGpuSections(
       groups.set(prefix, { prefix, items: [], total: 0 });
     }
 
-    const group = groups.get(prefix)!;
-    group.items.push({
-      key,
-      label: suffix || formatCamelCase(prefix),
-      value,
-    });
-    group.total += value;
+    if (suffix === "") {
+      // Group-level measurement (e.g. "surface", "query") or standalone section (e.g. "render")
+      measuredTotals.set(prefix, value);
+    } else {
+      groups.get(prefix)!.items.push({ key, label: suffix, value });
+    }
+  }
+
+  // Compute totals: use measured GPU total when available, otherwise sum items.
+  // For standalone sections (measured total, no items), add as a single item.
+  for (const group of groups.values()) {
+    const measured = measuredTotals.get(group.prefix);
+    if (measured !== undefined && group.items.length === 0) {
+      // Standalone section (e.g. "render") — show as single item
+      group.items.push({
+        key: group.prefix,
+        label: formatCamelCase(group.prefix),
+        value: measured,
+      });
+      group.total = measured;
+    } else if (measured !== undefined) {
+      // Group with real GPU measurement spanning all passes
+      group.total = measured;
+    } else {
+      // No group-level measurement — sum individual items
+      group.total = group.items.reduce((sum, item) => sum + item.value, 0);
+    }
   }
 
   // Sort groups by total time (high to low)
