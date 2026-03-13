@@ -25,16 +25,41 @@ export class GPUProfiler {
   // Section definitions
   private static readonly SECTIONS = [
     "render",
+    "surface",
     "surface.water",
     "surface.terrain",
     "surface.rasterize",
     "surface.modifiers",
     "surface.wetness",
+    "query",
+    "query.terrain",
     "query.water",
     "query.wind",
-    "query.terrain",
   ] as const;
   private static readonly QUERY_COUNT = GPUProfiler.SECTIONS.length * 2;
+
+  /**
+   * Groups share timestamp indices with their first/last child sections.
+   * The first section's begin writes to the group's begin slot,
+   * and the last section's end writes to the group's end slot.
+   * This gives accurate wall-clock GPU time spanning all passes in the group.
+   */
+  private static readonly GROUPS: ReadonlyArray<{
+    group: GPUProfileSection;
+    firstSection: GPUProfileSection;
+    lastSection: GPUProfileSection;
+  }> = [
+    {
+      group: "surface",
+      firstSection: "surface.terrain",
+      lastSection: "surface.wetness",
+    },
+    {
+      group: "query",
+      firstSection: "query.terrain",
+      lastSection: "query.wind",
+    },
+  ];
 
   // Query resources
   private querySet: GPUQuerySet;
@@ -85,6 +110,18 @@ export class GPUProfiler {
         smoothedMs: 0,
       });
     });
+
+    // Apply group index sharing: the first section's begin writes to the
+    // group's begin slot, and the last section's end writes to the group's
+    // end slot. Since these happen at the same GPU instant, individual
+    // section timings remain accurate.
+    for (const { group, firstSection, lastSection } of GPUProfiler.GROUPS) {
+      const groupData = this.sections.get(group)!;
+      const firstData = this.sections.get(firstSection)!;
+      const lastData = this.sections.get(lastSection)!;
+      firstData.queryStartIndex = groupData.queryStartIndex;
+      lastData.queryEndIndex = groupData.queryEndIndex;
+    }
   }
 
   /**

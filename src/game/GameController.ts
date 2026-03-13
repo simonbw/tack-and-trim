@@ -26,6 +26,7 @@ import { TerrainResources } from "./world/terrain/TerrainResources";
 import { WaterQueryManager } from "./world/water/WaterQueryManager";
 import { WaterResources } from "./world/water/WaterResources";
 import { Tree } from "./Tree";
+import { QueryCoordinator } from "./world/query/QueryCoordinator";
 import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
 
@@ -114,6 +115,7 @@ export class GameController extends BaseEntity {
     // 5. Wind data systems
     this.game.addEntity(new WindResources(windmeshData, wind));
     this.game.addEntity(new WindQueryManager());
+    this.game.addEntity(new QueryCoordinator());
 
     // 6. Visual entities
     const surfaceRenderer = this.game.addEntity(new SurfaceRenderer());

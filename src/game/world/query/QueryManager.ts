@@ -31,6 +31,15 @@ const STRIDE_PER_POINT = 2;
  * - Zero-allocation result delivery via buffer-backed views
  */
 export abstract class QueryManager extends BaseEntity {
+  tags = ["queryManager"];
+
+  /**
+   * When true, this manager's afterPhysicsStep is a no-op.
+   * A QueryCoordinator will call the individual dispatch phases instead,
+   * batching all managers onto a single command encoder for GPU parallelism.
+   */
+  coordinated = false;
+
   /**
    * GPU buffer containing input query points (vec2f per point).
    * Written by CPU, read by GPU compute shader.
@@ -150,9 +159,10 @@ export abstract class QueryManager extends BaseEntity {
 
   /**
    * Dispatch GPU compute shader.
+   * Creates a compute pass, records the dispatch, and ends the pass.
    *
    * @param pointCount Number of points to process
-   * @param commandEncoder Command encoder to record compute pass to (caller will submit)
+   * @param commandEncoder Command encoder to record the compute pass onto
    */
   abstract dispatchCompute(
     pointCount: number,
@@ -279,22 +289,17 @@ export abstract class QueryManager extends BaseEntity {
     }
   }
 
-  @on("afterPhysicsStep")
-  @profile
-  onAfterPhysicsStep(): void {
-    const device = this.game.getWebGPUDevice();
-
-    // Collect query points based on updated entity positions
+  /**
+   * Collect query points and upload to GPU.
+   * Returns the point count (0 means skip this manager).
+   */
+  collectAndUploadPoints(): number {
     const { points, pointCount } = this.collectPoints();
+    if (pointCount === 0) return 0;
 
-    // Skip GPU work entirely if there are no query points
-    if (pointCount === 0) {
-      return;
-    }
-
-    // Upload only the points we actually have
     const pointBytesNeeded =
       pointCount * STRIDE_PER_POINT * Float32Array.BYTES_PER_ELEMENT;
+    const device = this.game.getWebGPUDevice();
     device.queue.writeBuffer(
       this.pointBuffer,
       0,
@@ -303,15 +308,16 @@ export abstract class QueryManager extends BaseEntity {
       pointBytesNeeded,
     );
 
-    // Single command encoder for both compute and copy
-    const commandEncoder = device.createCommandEncoder({
-      label: `${this.constructor.name} Compute + Copy`,
-    });
+    return pointCount;
+  }
 
-    // Run GPU compute (records to command encoder)
-    this.dispatchCompute(pointCount, commandEncoder);
-
-    // Copy results to readback buffer
+  /**
+   * Record a copy from resultBuffer to the current write readback buffer.
+   */
+  recordCopyToReadback(
+    pointCount: number,
+    commandEncoder: GPUCommandEncoder,
+  ): void {
     const resultBytesNeeded =
       pointCount * this.resultLayout.stride * Float32Array.BYTES_PER_ELEMENT;
     const readbackBuffer = this.readbackBuffers.getWrite();
@@ -323,12 +329,16 @@ export abstract class QueryManager extends BaseEntity {
       0,
       resultBytesNeeded,
     );
+  }
 
-    // Single submit for compute + copy
-    device.queue.submit([commandEncoder.finish()]);
+  /**
+   * Swap double buffers and start async map for next tick's results.
+   */
+  startReadback(pointCount: number): void {
+    const resultBytesNeeded =
+      pointCount * this.resultLayout.stride * Float32Array.BYTES_PER_ELEMENT;
+    const readbackBuffer = this.readbackBuffers.getWrite();
 
-    // Start async map for next tick's results
-    // Use partial mapping to avoid slow path for large buffers (>~125KB threshold)
     this.readbackBuffers.swap();
     this.pendingReadbackBytes = resultBytesNeeded;
     this.readbackPromise = readbackBuffer.mapAsync(
@@ -336,6 +346,27 @@ export abstract class QueryManager extends BaseEntity {
       0,
       resultBytesNeeded,
     );
+  }
+
+  @on("afterPhysicsStep")
+  @profile
+  onAfterPhysicsStep(): void {
+    if (this.coordinated) return;
+
+    const pointCount = this.collectAndUploadPoints();
+    if (pointCount === 0) return;
+
+    const device = this.game.getWebGPUDevice();
+    const commandEncoder = device.createCommandEncoder({
+      label: `${this.constructor.name} Compute + Copy`,
+    });
+
+    this.dispatchCompute(pointCount, commandEncoder);
+    this.recordCopyToReadback(pointCount, commandEncoder);
+
+    device.queue.submit([commandEncoder.finish()]);
+
+    this.startReadback(pointCount);
   }
 
   @profile

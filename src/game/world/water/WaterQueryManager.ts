@@ -61,31 +61,25 @@ export class WaterQueryManager extends QueryManager {
   }
 
   dispatchCompute(pointCount: number, commandEncoder: GPUCommandEncoder): void {
-    // Skip if no points to query
-    if (pointCount === 0) {
-      return;
-    }
+    if (pointCount === 0) return;
 
     if (!this.queryShader || !this.uniformBuffer) {
       console.warn("[WaterQuery] Shader not initialized");
       return;
     }
 
-    // Get WaterResources singleton for shared buffers
     const waterResources = this.game.entities.tryGetSingleton(WaterResources);
     if (!waterResources) {
       console.warn("[WaterQuery] WaterResources not found");
       return;
     }
 
-    // Get WavePhysicsResources for packed mesh data
     const wavePhysicsResources =
       this.game.entities.tryGetSingleton(WavePhysicsResources);
     const packedMeshBuffer =
       wavePhysicsResources?.getPackedMeshBuffer() ??
       this.placeholderPackedMeshBuffer!;
 
-    // Get TerrainResources for analytical terrain height computation
     const terrainResources =
       this.game.entities.tryGetSingleton(TerrainResources);
     if (!terrainResources) {
@@ -93,11 +87,9 @@ export class WaterQueryManager extends QueryManager {
       return;
     }
 
-    // Get data from WaterResources
     const tideHeight = waterResources.getTideHeight();
     const modifierCount = waterResources.getModifierCount();
 
-    // Update uniform buffer
     this.uniforms.set.pointCount(pointCount);
     this.uniforms.set.time(performance.now() / 1000);
     this.uniforms.set.tideHeight(tideHeight);
@@ -112,7 +104,6 @@ export class WaterQueryManager extends QueryManager {
     this.uniforms.set._padding4(0);
     this.uniforms.uploadTo(this.uniformBuffer);
 
-    // Create bind group with shared buffers (including packed terrain/mesh)
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
       waveData: { buffer: waterResources.waveDataBuffer },
@@ -123,7 +114,6 @@ export class WaterQueryManager extends QueryManager {
       resultBuffer: { buffer: this.resultBuffer },
     });
 
-    // Dispatch compute shader with GPU profiling
     const gpuProfiler = this.game.getRenderer().getGpuProfiler();
     const computePass = commandEncoder.beginComputePass({
       label: "Water Query Compute Pass",

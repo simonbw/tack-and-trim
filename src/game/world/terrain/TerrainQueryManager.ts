@@ -55,22 +55,16 @@ export class TerrainQueryManager extends QueryManager {
       return;
     }
 
-    // Skip dispatch if no points to query
-    if (pointCount === 0) {
-      return;
-    }
+    if (pointCount === 0) return;
 
-    // Get terrain resources
     const terrainResources = this.game.entities.getSingleton(TerrainResources);
 
-    // Update uniform buffer with query parameters
     this.uniforms.set.pointCount(pointCount);
     this.uniforms.set.contourCount(terrainResources.getContourCount());
     this.uniforms.set.defaultDepth(DEFAULT_DEPTH);
     this.uniforms.set._padding(0);
     this.uniforms.uploadTo(this.uniformBuffer);
 
-    // Create bind group with packed terrain buffer
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
       pointBuffer: { buffer: this.pointBuffer },
@@ -78,7 +72,6 @@ export class TerrainQueryManager extends QueryManager {
       packedTerrain: { buffer: terrainResources.packedTerrainBuffer },
     });
 
-    // Dispatch compute shader with GPU profiling
     const gpuProfiler = this.game.getRenderer().getGpuProfiler();
     const computePass = commandEncoder.beginComputePass({
       label: "Terrain Query Compute Pass",

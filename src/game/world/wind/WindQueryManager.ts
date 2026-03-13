@@ -46,22 +46,17 @@ export class WindQueryManager extends QueryManager {
   }
 
   dispatchCompute(pointCount: number, commandEncoder: GPUCommandEncoder): void {
-    // Skip if no points to query
-    if (pointCount === 0) {
-      return;
-    }
+    if (pointCount === 0) return;
 
     if (!this.queryShader || !this.uniformBuffer) {
       console.warn("[WindQuery] Shader not initialized");
       return;
     }
 
-    // Get wind parameters from WindResources
     const windResources = this.game.entities.getSingleton(WindResources);
     const baseWind = windResources.getBaseVelocity();
     const sourceWeights = windResources.getSourceWeights();
 
-    // Update uniform buffer with wind parameters
     this.uniforms.set.pointCount(pointCount);
     this.uniforms.set.time(performance.now() / 1000);
     this.uniforms.set.baseWindX(baseWind.x);
@@ -71,7 +66,6 @@ export class WindQueryManager extends QueryManager {
     this.uniforms.set.influenceTurbulence(0.0);
     this.uniforms.set.numActiveWindSources(sourceWeights.length);
 
-    // Write per-source weights
     this.uniforms.set.weights0(sourceWeights[0] ?? 0);
     this.uniforms.set.weights1(sourceWeights[1] ?? 0);
     this.uniforms.set.weights2(sourceWeights[2] ?? 0);
@@ -83,7 +77,6 @@ export class WindQueryManager extends QueryManager {
 
     this.uniforms.uploadTo(this.uniformBuffer);
 
-    // Create bind group
     const windMeshBuffer = windResources.getPackedWindMeshBuffer();
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },
@@ -92,7 +85,6 @@ export class WindQueryManager extends QueryManager {
       packedWindMesh: { buffer: windMeshBuffer },
     });
 
-    // Dispatch compute shader with GPU profiling
     const gpuProfiler = this.game.getRenderer().getGpuProfiler();
     const computePass = commandEncoder.beginComputePass({
       label: "Wind Query Compute Pass",
