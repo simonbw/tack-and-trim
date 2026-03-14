@@ -42,16 +42,16 @@ list_levels() {
 print_help() {
   cat <<'EOF'
 Usage:
-  build-level [--level <name>]                                 Run full pipeline + mesh build (default command)
-  build-level build --region <slug>                            Run full pipeline + mesh build for a region
-  build-level wave-mesh [--level <name>]                       Build wave mesh(es) only
-  build-level wind-mesh [--level <name>]                       Build wind mesh(es) only
-  build-level trees [--level <name>]                           Generate tree positions only
-  build-level extract [--region <slug> | --level <name>]       Extract terrain → .terrain.json
-  build-level download [--region <slug> | --level <name>]      Download elevation tiles
-  build-level build-grid [--region <slug> | --level <name>]    Build merged elevation grid
-  build-level clean [--region <slug> | --level <name>]         Clean generated outputs
-  build-level validate [path] [--region <slug> | --level <name>] Validate level or terrain file
+  build-level [--level <name>]                                 Run full pipeline + mesh build (all if omitted)
+  build-level build [--region <slug> | --level <name>]         Run full pipeline + mesh build (all if omitted)
+  build-level wave-mesh [--level <name>]                       Build wave mesh(es) (all if omitted)
+  build-level wind-mesh [--level <name>]                       Build wind mesh(es) (all if omitted)
+  build-level trees [--level <name>]                           Generate tree positions (all if omitted)
+  build-level extract [--region <slug> | --level <name>]       Extract terrain (all regions if omitted)
+  build-level download [--region <slug> | --level <name>]      Download elevation tiles (all regions if omitted)
+  build-level build-grid [--region <slug> | --level <name>]    Build merged elevation grid (all regions if omitted)
+  build-level clean [--region <slug> | --level <name>]         Clean generated outputs (all regions if omitted)
+  build-level validate [path] [--region <slug> | --level <name>] Validate level/terrain (all levels if omitted)
   build-level list-levels                                      List available levels
   build-level list-regions                                     List available regions
   build-level completion zsh                                   Print zsh completion script

@@ -110,7 +110,9 @@ fn main() -> Result<()> {
                 args.region.as_deref(),
                 level_filter,
             )?;
-            run_extract(region.as_deref(), &view)
+            run_for_each_region(region.as_deref(), "Extracting", &view, |slug, v| {
+                run_extract(Some(slug), v)
+            })
         }
         Some(Commands::Download(args)) => {
             let region = resolve_region_for_terrain_command(
@@ -118,7 +120,9 @@ fn main() -> Result<()> {
                 args.region.as_deref(),
                 level_filter,
             )?;
-            run_download(region.as_deref(), &view)
+            run_for_each_region(region.as_deref(), "Downloading", &view, |slug, v| {
+                run_download(Some(slug), v)
+            })
         }
         Some(Commands::BuildGrid(args)) => {
             let region = resolve_region_for_terrain_command(
@@ -126,7 +130,9 @@ fn main() -> Result<()> {
                 args.region.as_deref(),
                 level_filter,
             )?;
-            run_build_grid(region.as_deref(), args.force, &view)
+            run_for_each_region(region.as_deref(), "Building grid for", &view, |slug, v| {
+                run_build_grid(Some(slug), args.force, v)
+            })
         }
         Some(Commands::Clean(args)) => {
             let region =
@@ -431,7 +437,67 @@ fn run_clean(region_arg: Option<&str>, view: &StepView) -> Result<()> {
     Ok(())
 }
 
+fn run_for_each_region(
+    region: Option<&str>,
+    verb: &str,
+    view: &StepView,
+    mut f: impl FnMut(&str, &StepView) -> Result<()>,
+) -> Result<()> {
+    if let Some(slug) = region {
+        f(slug, view)?;
+        view.info("Done.");
+        return Ok(());
+    }
+
+    let regions = list_regions()?;
+    if regions.is_empty() {
+        bail!("No regions found. Create assets/terrain/<name>/region.json first.");
+    }
+
+    view.info(format!(
+        "{verb} {} region(s)",
+        format_int(regions.len())
+    ));
+    for (idx, slug) in regions.iter().enumerate() {
+        view.header(&format!(
+            "region {}/{}: {}",
+            format_int(idx + 1),
+            format_int(regions.len()),
+            slug
+        ));
+        f(slug, &view.indented())?;
+    }
+
+    view.info("Done.");
+    Ok(())
+}
+
 fn run_validate(args: ValidateArgs, level_filter: Option<&str>, view: &StepView) -> Result<()> {
+    if level_filter.is_none() && args.level_path.is_none() && args.region.is_none() {
+        let level_paths = resolve_level_paths(None)?;
+        if level_paths.is_empty() {
+            view.info("No level files found.");
+            return Ok(());
+        }
+
+        view.info(format!(
+            "Validating {} level(s)",
+            format_int(level_paths.len())
+        ));
+        let mut failures = 0usize;
+        for level_path in &level_paths {
+            view.header(&level_slug_from_path(level_path));
+            if !validate_and_report(level_path, &view.indented())? {
+                failures += 1;
+            }
+        }
+        if failures > 0 {
+            bail!("{} level(s) failed validation", format_int(failures));
+        }
+        view.info("Done.");
+        return Ok(());
+    }
+
     let level_path = if let Some(level_slug) = level_filter {
         if args.level_path.is_some() || args.region.is_some() {
             bail!("Specify only one of --level <name>, [path], or --region <slug>");
@@ -442,9 +508,16 @@ fn run_validate(args: ValidateArgs, level_filter: Option<&str>, view: &StepView)
     };
 
     view.info(format!("Validating: {}", display_path(&level_path)));
+    if !validate_and_report(&level_path, view)? {
+        bail!("validation failed");
+    }
+    Ok(())
+}
 
+/// Returns true if validation passed, false if there were errors.
+fn validate_and_report(level_path: &Path, view: &StepView) -> Result<bool> {
     let t0 = std::time::Instant::now();
-    let result = validate_level_file(&level_path)?;
+    let result = validate_level_file(level_path)?;
     let elapsed_ms = t0.elapsed().as_millis();
 
     view.info(format!(
@@ -461,7 +534,7 @@ fn run_validate(args: ValidateArgs, level_filter: Option<&str>, view: &StepView)
 
     if result.errors.is_empty() {
         view.info("  PASS: No errors found");
-        return Ok(());
+        return Ok(true);
     }
 
     view.info(format!(
@@ -476,7 +549,7 @@ fn run_validate(args: ValidateArgs, level_filter: Option<&str>, view: &StepView)
         view.info(format!("    [{tag}] {}", error.message));
     }
 
-    bail!("validation failed")
+    Ok(false)
 }
 
 fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
