@@ -9,8 +9,8 @@ import { TreeRasterizer } from "./TreeRasterizer";
 // Spatial tile size in world feet
 const TILE_SIZE = 500;
 
-// Tree dimensions (used for visibility culling)
-const OUTER_RADIUS = 12;
+// Tree dimensions (used for visibility culling — must cover largest trees)
+const OUTER_RADIUS = 16;
 
 interface Tile {
   startIndex: number; // Index into treeData (multiply by 3 for float offset)

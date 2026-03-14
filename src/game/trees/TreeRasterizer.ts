@@ -4,8 +4,10 @@
  * Renders trees as instanced quads with wind sway computed on GPU.
  * Each tree is a vec4(x, y, phase, 0) in a storage buffer.
  * Vertex shader generates 6 vertices per instance (2-triangle quad),
- * computes wind sway from simplex noise, and shifts top vertices downwind.
- * Fragment shader draws a placeholder canopy + trunk using SDF circles.
+ * computes wind velocity via simplex noise, and passes it to the fragment
+ * shader as a flat varying. Fragment shader renders 5 concentric branch
+ * whorls composited back-to-front, each shifted by wind proportional to
+ * its height for a parallax depth effect.
  */
 
 import {
@@ -25,9 +27,9 @@ import {
   WIND_SLOW_TIME_SCALE,
 } from "../world/wind/WindConstants";
 
-// Tree dimensions (must match TreeManager constants)
-const OUTER_RADIUS = 12;
-const QUAD_HALF = OUTER_RADIUS + 2; // slight padding for smoothstep edges
+// Quad half-extent in world feet. Must be large enough for the biggest tree
+// (outer whorl ~0.64 UV * sizeVar 1.35 + bumps ≈ 0.95 UV → 0.95 * 18 = 17.1 ft).
+const QUAD_HALF = 18;
 
 const TreeUniforms = defineUniformStruct("TreeParams", {
   cameraA: f32,
@@ -80,12 +82,13 @@ struct TreeParams {
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) uv: vec2<f32>,
-  @location(1) windStrength: f32,
+  @location(1) @interpolate(flat) windVelX: f32,
+  @location(2) @interpolate(flat) windVelY: f32,
+  @location(3) @interpolate(flat) phase: f32,
 }
 
 const QUAD_HALF: f32 = ${QUAD_HALF}.0;
-const SWAY_SCALE: f32 = 0.15;
-const SWAY_FREQ: f32 = 1.8;
+const SWAY_SCALE: f32 = 0.4;
 
 // Simplex noise
 ${SIMPLEX_CODE}
@@ -108,9 +111,7 @@ fn vs_main(
     vec2<f32>(treeX, treeY),
     params.time,
     vec2<f32>(params.baseWindX, params.baseWindY),
-    1.0, // influenceSpeedFactor (no terrain influence)
-    0.0, // influenceDirectionOffset
-    0.0, // influenceTurbulence
+    1.0, 0.0, 0.0,
     params.noiseSpatialScale,
     params.noiseTimeScale,
     params.speedVariation,
@@ -119,26 +120,7 @@ fn vs_main(
     params.slowTimeScale
   );
 
-  let windSpeed = length(windVel);
-  let swayAmount = windSpeed * SWAY_SCALE;
-  let invSpeed = select(0.0, 1.0 / windSpeed, windSpeed > 0.01);
-  let windDirX = windVel.x * invSpeed;
-  let windDirY = windVel.y * invSpeed;
-  let perpX = -windDirY;
-  let perpY = windDirX;
-
-  // Per-tree oscillation
-  let oscillation = sin(params.time * SWAY_FREQ + phase);
-  let oscillationPerp = cos(params.time * SWAY_FREQ + phase) * 0.3;
-
-  let tipDx = windDirX * swayAmount * (1.0 + oscillation * 0.3)
-            + perpX * swayAmount * oscillationPerp;
-  let tipDy = windDirY * swayAmount * (1.0 + oscillation * 0.3)
-            + perpY * swayAmount * oscillationPerp;
-
   // 6 vertices per quad: 2 triangles
-  // Quad corners: (-1,-1), (1,-1), (1,1), (-1,1) in local space
-  // Triangle 1: 0,1,2  Triangle 2: 0,2,3
   var localX: f32;
   var localY: f32;
   var u: f32;
@@ -152,14 +134,9 @@ fn vs_main(
     default: { localX = -1.0; localY =  1.0; u = 0.0; v = 1.0; }
   }
 
-  // World position of this vertex
-  var worldX = treeX + localX * QUAD_HALF;
-  var worldY = treeY + localY * QUAD_HALF;
-
-  // Shift top half of quad by wind sway (v > 0.5 means top)
-  let swayFactor = max(0.0, (v - 0.3) / 0.7); // gradual from 30% up
-  worldX += tipDx * swayFactor;
-  worldY += tipDy * swayFactor;
+  // World position — no quad sway; fragment shader handles per-whorl sway
+  let worldX = treeX + localX * QUAD_HALF;
+  let worldY = treeY + localY * QUAD_HALF;
 
   // World → screen via camera matrix (2x3 affine)
   let screenX = params.cameraA * worldX + params.cameraC * worldY + params.cameraTx;
@@ -172,38 +149,127 @@ fn vs_main(
   var out: VertexOutput;
   out.position = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
   out.uv = vec2<f32>(u, v);
-  out.windStrength = swayAmount;
+  out.windVelX = windVel.x;
+  out.windVelY = windVel.y;
+  out.phase = phase;
   return out;
 }
 
-// Colors
-const CANOPY_GREEN: vec3<f32> = vec3<f32>(0.102, 0.251, 0.063);
-const TRUNK_BROWN: vec3<f32> = vec3<f32>(0.239, 0.126, 0.031);
+// ---- Fragment shader: layered evergreen canopy ----
+
+// Dark interior visible between whorls (trunk/shadow)
+const TRUNK_COLOR: vec3<f32> = vec3<f32>(0.04, 0.07, 0.03);
+// Bright leader tip at top of tree
+const LEADER_COLOR: vec3<f32> = vec3<f32>(0.20, 0.36, 0.14);
+
+// Number of branch whorls (tiers)
+const NUM_WHORLS: i32 = 5;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  // UV centered at (0.5, 0.5), range [-1, 1]
-  let centered = (in.uv - vec2<f32>(0.5, 0.5)) * 2.0;
-  let dist = length(centered);
+  // Centered UV: [-1, 1]
+  let centered = (in.uv - vec2<f32>(0.5)) * 2.0;
 
-  // Canopy: star-like shape using angular variation
-  let angle = atan2(centered.y, centered.x);
-  let starRadius = 0.75 + 0.1 * sin(angle * 6.0);
-  let canopyAlpha = 1.0 - smoothstep(starRadius - 0.08, starRadius + 0.08, dist);
+  // Wind sway setup
+  let windVel = vec2<f32>(in.windVelX, in.windVelY);
+  let windSpeed = length(windVel);
+  let swayAmount = windSpeed * SWAY_SCALE;
+  let invSpeed = select(0.0, 1.0 / windSpeed, windSpeed > 0.01);
+  let windDir = windVel * invSpeed;
+  let perpDir = vec2<f32>(-windDir.y, windDir.x);
 
-  // Trunk: small circle at center
-  let trunkRadius = 0.1;
-  let trunkAlpha = 1.0 - smoothstep(trunkRadius - 0.03, trunkRadius + 0.03, dist);
+  // Per-tree size variation (0.65x to 1.35x for visible variety)
+  let sizeVar = 0.65 + fract(in.phase * 3.17) * 0.70;
 
-  // Combine: trunk on top of canopy
-  let color = mix(CANOPY_GREEN, TRUNK_BROWN, trunkAlpha);
-  let alpha = max(canopyAlpha, trunkAlpha);
+  // Premultiplied alpha accumulator
+  var pm = vec3<f32>(0.0);
+  var a: f32 = 0.0;
 
-  if (alpha < 0.01) {
+  // Dark trunk/shadow base disc (no sway — it's the ground-level footprint)
+  let trunkDist = length(centered);
+  let trunkR: f32 = 0.61 * sizeVar;
+  let trunkAlpha = (1.0 - smoothstep(trunkR - 0.04, trunkR + 0.02, trunkDist)) * 0.92;
+  pm = TRUNK_COLOR * trunkAlpha + pm * (1.0 - trunkAlpha);
+  a = trunkAlpha + a * (1.0 - trunkAlpha);
+
+  // Composite whorls from outermost (lowest) to innermost (highest)
+  for (var w: i32 = 0; w < NUM_WHORLS; w = w + 1) {
+    let fi = f32(w);
+    let height = fi / f32(NUM_WHORLS - 1); // 0 (ground) to 1 (top)
+
+    // Wind-only sway: lean proportional to whorl height, scaled by tree size
+    let swayUV = windDir * swayAmount * height * sizeVar / QUAD_HALF;
+
+    // Shifted position for this whorl
+    let shiftedPos = centered - swayUV;
+    let dist = length(shiftedPos);
+    let angle = atan2(shiftedPos.y, shiftedPos.x);
+
+    // Whorl shape — fractional branch count per tree+whorl breaks polygon regularity
+    let radius = (0.64 - fi * 0.10) * sizeVar;
+    let branches = 5.0 + fract(in.phase * 1.37 + fi * 0.23) * 3.0; // 5.0–8.0
+    let angularOffset = fi * 0.9 + in.phase;
+
+    // Primary branch tips
+    let branchAngle = angle * branches + angularOffset;
+    let tipShape = pow(0.5 + 0.5 * cos(branchAngle), 2.0);
+
+    // Secondary sub-bumps at different frequency for organic irregularity
+    let subAngle = angle * (branches * 2.0 + 1.0) + in.phase * 3.7 + fi * 1.9;
+    let subBump = pow(0.5 + 0.5 * cos(subAngle), 3.0) * 0.25;
+
+    // Per-branch magnitude variation — some branches reach further
+    let branchVar = 0.7 + 0.3 * sin(angle * 3.17 + in.phase * 13.0 + fi * 5.3);
+
+    // Multi-frequency edge noise
+    let edgeNoise = sin(angle * 13.7 + in.phase * 5.1) * 0.02
+                  + sin(angle * 23.1 + in.phase * 11.3 + fi * 3.7) * 0.015
+                  + sin(angle * 37.3 + in.phase * 7.9) * 0.008;
+
+    // Combined bump
+    let baseBumpMag = (0.08 + 0.02 * sin(fi * 2.3 + in.phase)) * sizeVar;
+    let edgeR = radius + (tipShape * branchVar + subBump) * baseBumpMag + edgeNoise;
+
+    // Whorl base coverage — sharper edge
+    let baseAlpha = 1.0 - smoothstep(edgeR - 0.03, edgeR + 0.015, dist);
+
+    // Valley coverage — less transparent than before for crisper lower layers
+    let valleyCoverage = smoothstep(0.0, 0.3, tipShape);
+    let whorlAlpha = baseAlpha * mix(0.65, 1.0, valleyCoverage);
+
+    // Color: progressively lighter for upper whorls
+    let lum = 0.16 + height * 0.12;
+    let whorlBaseColor = vec3<f32>(lum * 0.50, lum, lum * 0.35);
+
+    // Gentler AO: darker near center, lighter at tips
+    let tipLighting = smoothstep(radius * 0.4, radius, dist);
+    let whorlColor = mix(whorlBaseColor * 0.65, whorlBaseColor, tipLighting);
+
+    // Drop shadow: darken area just outside this whorl's edge
+    let shadowDist = dist - edgeR;
+    let shadowStr = smoothstep(0.08, 0.0, shadowDist) * 0.18 * (1.0 - baseAlpha);
+    pm = pm * (1.0 - shadowStr);
+
+    // Composite whorl over accumulated layers
+    pm = whorlColor * whorlAlpha + pm * (1.0 - whorlAlpha);
+    a = whorlAlpha + a * (1.0 - whorlAlpha);
+  }
+
+  // Leader (topmost point) — sways most, wind-only, scaled by tree size
+  let leaderShift = windDir * swayAmount * 1.1 * sizeVar / QUAD_HALF;
+  let leaderPos = centered - leaderShift;
+  let leaderDist = length(leaderPos);
+  let leaderAlpha = 1.0 - smoothstep(0.03, 0.06, leaderDist);
+  pm = LEADER_COLOR * leaderAlpha + pm * (1.0 - leaderAlpha);
+  a = leaderAlpha + a * (1.0 - leaderAlpha);
+
+  if (a < 0.01) {
     discard;
   }
 
-  return vec4<f32>(color, alpha);
+  // Convert premultiplied → straight alpha for framebuffer blending
+  let finalColor = pm / a;
+  return vec4<f32>(finalColor, a);
 }
 `;
 
