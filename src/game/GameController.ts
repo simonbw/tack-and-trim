@@ -25,7 +25,7 @@ import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
 import { TerrainResources } from "./world/terrain/TerrainResources";
 import { WaterQueryManager } from "./world/water/WaterQueryManager";
 import { WaterResources } from "./world/water/WaterResources";
-import { Tree } from "./Tree";
+import { TreeManager } from "./trees/TreeManager";
 import { QueryCoordinator } from "./world/query/QueryCoordinator";
 import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
@@ -133,9 +133,7 @@ export class GameController extends BaseEntity {
 
     // Spawn trees on landmasses from generated .trees file
     if (this.treeData) {
-      for (const [x, y] of this.treeData.positions) {
-        this.game.addEntity(new Tree(x, y));
-      }
+      this.game.addEntity(new TreeManager(this.treeData));
     }
 
     // Start the tutorial if not already completed

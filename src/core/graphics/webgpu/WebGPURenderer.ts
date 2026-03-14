@@ -664,6 +664,12 @@ export class WebGPURenderer {
     this.currentRenderTarget = null;
   }
 
+  /** Flush all pending shape and sprite batches to ensure correct layer ordering before custom pipeline draws. */
+  flush(): void {
+    this.flushShapes();
+    this.flushSprites();
+  }
+
   /** Get the current render pass encoder for custom rendering */
   getCurrentRenderPass(): GPURenderPassEncoder | null {
     return this.currentRenderPass;
