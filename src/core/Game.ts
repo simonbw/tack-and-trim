@@ -254,7 +254,7 @@ export class Game {
   ) {
     const effectivelyPaused = respectPause && this.paused;
     for (const entity of this.entities.getHandlers(eventName)) {
-      if (entity.game && !(effectivelyPaused && !entity.pausable)) {
+      if (entity.isAdded && !(effectivelyPaused && !entity.pausable)) {
         const functionName = eventHandlerName(eventName);
         const handler = entity[functionName];
         if (typeof handler !== "function") {
@@ -355,7 +355,7 @@ export class Game {
   clearScene(persistenceThreshold = 0) {
     for (const entity of this.entities) {
       if (
-        entity.game && // Not already destroyed
+        entity.isAdded && // Not already destroyed
         !this.entitiesToRemove.has(entity) && // not already about to be destroyed
         entity.persistenceLevel <= persistenceThreshold &&
         !entity.parent // We only wanna deal with top-level things, let parents handle the rest
@@ -507,7 +507,7 @@ export class Game {
     const promises: Promise<void>[] = [];
 
     for (const entity of this.entities.getTickersOnLayer(layerName)) {
-      if (entity.game && !(effectivelyPaused && !entity.pausable)) {
+      if (entity.isAdded && !(effectivelyPaused && !entity.pausable)) {
         const result = entity.onTick?.(tickData);
         // Only collect actual Promises
         if (result && result instanceof Promise) {
@@ -585,7 +585,7 @@ export class Game {
     const renderData = { dt, layer: layerName, draw, camera: draw.camera };
 
     for (const entity of this.entities.getRenderersOnLayer(layerName)) {
-      if (entity.game && !(effectivelyPaused && !entity.pausable)) {
+      if (entity.isAdded && !(effectivelyPaused && !entity.pausable)) {
         entity.onRender?.(renderData);
       }
     }
@@ -600,7 +600,7 @@ export class Game {
     const ownerB = shapeB.owner ?? bodyB.owner;
 
     // If either owner has been removed from the game, we shouldn't do the contact
-    if (ownerA?.game && ownerB?.game) {
+    if (ownerA?.isAdded && ownerB?.isAdded) {
       if (ownerA?.onBeginContact) {
         ownerA.onBeginContact({
           other: ownerB,
@@ -629,7 +629,7 @@ export class Game {
     const ownerB = shapeB.owner ?? bodyB.owner;
 
     // If either owner has been removed from the game, we shouldn't do the contact
-    if (ownerA?.game && ownerB?.game) {
+    if (ownerA?.isAdded && ownerB?.isAdded) {
       if (ownerA?.onEndContact) {
         ownerA.onEndContact({
           other: ownerB,
@@ -678,7 +678,7 @@ export class Game {
     const ownerA = event.bodyA.owner;
     const ownerB = event.bodyB.owner;
     // If either owner has been removed from the game, we shouldn't do the contact
-    if (ownerA?.game && ownerB?.game) {
+    if (ownerA?.isAdded && ownerB?.isAdded) {
       if (ownerA?.onImpact) {
         ownerA.onImpact({ other: ownerB });
       }
