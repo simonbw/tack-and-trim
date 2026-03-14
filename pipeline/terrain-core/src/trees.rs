@@ -2,9 +2,9 @@
 //!
 //! Algorithm:
 //! 1. Build a coarse elevation raster from terrain height queries (parallel).
-//! 2. Run Poisson disk sampling (Bridson's algorithm) with land-aware rejection
-//!    so the algorithm never explores ocean regions.
-//! 3. Filter surviving candidates by elevation acceptance curve and density.
+//! 2. Flood-fill the land mask to find connected land regions (islands).
+//! 3. Run Poisson disk sampling (Bridson's algorithm) per-island in parallel.
+//! 4. Filter surviving candidates by elevation acceptance curve and density.
 
 use crate::level::{TerrainCPUData, TreeConfigJSON};
 use crate::terrain::{compute_terrain_height, parse_contours, ParsedContour};
@@ -63,14 +63,10 @@ pub fn build_tree_buffer(data: &TreeData) -> Vec<u8> {
     let total_size = HEADER_BYTES + tree_count * BYTES_PER_TREE;
     let mut buf = vec![0u8; total_size];
 
-    // Header (16 bytes)
     buf[0..4].copy_from_slice(&MAGIC.to_le_bytes());
     buf[4..6].copy_from_slice(&VERSION.to_le_bytes());
-    // [6..8] reserved = 0
     buf[8..12].copy_from_slice(&(tree_count as u32).to_le_bytes());
-    // [12..16] reserved = 0
 
-    // Tree data (8 bytes per tree)
     for (i, pos) in data.positions.iter().enumerate() {
         let offset = HEADER_BYTES + i * BYTES_PER_TREE;
         buf[offset..offset + 4].copy_from_slice(&pos[0].to_le_bytes());
@@ -107,7 +103,6 @@ impl Rng {
         x
     }
 
-    /// Returns a value in [0.0, 1.0).
     fn next_f64(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
     }
@@ -131,9 +126,7 @@ struct ElevationRaster {
 
 impl ElevationRaster {
     /// Build by sampling terrain height at the center of each coarse cell.
-    /// Rows are computed in parallel with rayon — each row's output depends
-    /// only on its coordinates and the (read-only) terrain data, so the
-    /// result is fully deterministic regardless of thread scheduling.
+    /// Rows are computed in parallel with rayon.
     fn build(
         width: f64,
         height: f64,
@@ -150,7 +143,6 @@ impl ElevationRaster {
         let grid_w = (width / cell_size).ceil() as usize + 1;
         let grid_h = (height / cell_size).ceil() as usize + 1;
 
-        // Compute heights in parallel, one row at a time.
         let heights: Vec<f64> = (0..grid_h)
             .into_par_iter()
             .flat_map_iter(|cy| {
@@ -162,7 +154,7 @@ impl ElevationRaster {
             })
             .collect();
 
-        // Build dilated land mask: mark cell + neighbors if any cell has land.
+        // Build dilated land mask.
         let n = grid_w * grid_h;
         let mut land_mask = vec![false; n];
         for cy in 0..grid_h {
@@ -225,7 +217,83 @@ impl ElevationRaster {
     }
 }
 
-// ── Land-aware Poisson disk sampling ────────────────────────────────────────
+// ── Connected land region detection ─────────────────────────────────────────
+
+/// A connected land region (island) found by flood-filling the land mask.
+struct LandRegion {
+    /// Bounding box in raster cell coordinates.
+    min_cx: usize,
+    min_cy: usize,
+    max_cx: usize,
+    max_cy: usize,
+    /// Raster cells belonging to this region (stored as (cx, cy) pairs).
+    cells: Vec<(usize, usize)>,
+}
+
+/// Flood-fill the land mask to find connected land regions.
+/// Uses 4-connectivity (not diagonal) so narrow diagonal channels separate islands.
+fn find_land_regions(raster: &ElevationRaster) -> Vec<LandRegion> {
+    let n = raster.grid_w * raster.grid_h;
+    let mut visited = vec![false; n];
+    let mut regions = Vec::new();
+
+    for start_y in 0..raster.grid_h {
+        for start_x in 0..raster.grid_w {
+            let si = start_y * raster.grid_w + start_x;
+            if visited[si] || !raster.land_mask[si] {
+                continue;
+            }
+
+            // BFS flood fill from this cell.
+            let mut region = LandRegion {
+                min_cx: start_x,
+                min_cy: start_y,
+                max_cx: start_x,
+                max_cy: start_y,
+                cells: Vec::new(),
+            };
+
+            let mut queue = vec![(start_x, start_y)];
+            visited[si] = true;
+
+            while let Some((cx, cy)) = queue.pop() {
+                region.cells.push((cx, cy));
+                region.min_cx = region.min_cx.min(cx);
+                region.min_cy = region.min_cy.min(cy);
+                region.max_cx = region.max_cx.max(cx);
+                region.max_cy = region.max_cy.max(cy);
+
+                // 4-connected neighbors.
+                for (dx, dy) in [(-1i32, 0), (1, 0), (0, -1i32), (0, 1)] {
+                    let nx = cx as i32 + dx;
+                    let ny = cy as i32 + dy;
+                    if nx < 0
+                        || ny < 0
+                        || nx >= raster.grid_w as i32
+                        || ny >= raster.grid_h as i32
+                    {
+                        continue;
+                    }
+                    let nx = nx as usize;
+                    let ny = ny as usize;
+                    let ni = ny * raster.grid_w + nx;
+                    if !visited[ni] && raster.land_mask[ni] {
+                        visited[ni] = true;
+                        queue.push((nx, ny));
+                    }
+                }
+            }
+
+            regions.push(region);
+        }
+    }
+
+    // Sort by (min_cy, min_cx) for deterministic ordering.
+    regions.sort_by_key(|r| (r.min_cy, r.min_cx));
+    regions
+}
+
+// ── Per-island Poisson disk sampling ────────────────────────────────────────
 
 /// Maximum candidates to try around each active point before giving up.
 const BRIDSON_K: usize = 30;
@@ -233,38 +301,52 @@ const BRIDSON_K: usize = 30;
 /// Sentinel value for empty cells in the Poisson disk grid.
 const EMPTY: u32 = u32::MAX;
 
-/// Bridson's algorithm with land-aware rejection. Candidates in ocean cells are
-/// rejected before becoming active, so the algorithm never explores ocean
-/// regions.
+/// Run Bridson's algorithm on a single land region. The grid is sized to the
+/// region's bounding box. Seeds from the region's land cells and only accepts
+/// candidates that fall in land cells.
 ///
-/// Uses a dense `Vec<u32>` grid for O(1) neighbor lookups (vs ~50-100ns per
-/// HashMap lookup). Seeds from all land cells in the raster so multi-island
-/// maps are fully populated.
-fn poisson_disk_sample_on_land(
-    width: f64,
-    height: f64,
+/// Coordinates are in the global AABB local space (relative to terrain min).
+fn poisson_disk_for_region(
+    region: &LandRegion,
     r: f64,
     raster: &ElevationRaster,
     rng: &mut Rng,
+    aabb_width: f64,
+    aabb_height: f64,
 ) -> Vec<[f64; 2]> {
     let cell_size = r / std::f64::consts::SQRT_2;
-    let grid_w = (width / cell_size).ceil() as usize + 1;
-    let grid_h = (height / cell_size).ceil() as usize + 1;
-
     let r_sq = r * r;
 
-    // Dense grid storing point index per cell (EMPTY = unoccupied).
+    // Region bounding box in world-local coordinates, with padding for Bridson
+    // annulus (2r) so expansion can reach the edges.
+    let pad = 2.0 * r;
+    let region_x0 = (region.min_cx as f64 * raster.cell_size - pad).max(0.0);
+    let region_y0 = (region.min_cy as f64 * raster.cell_size - pad).max(0.0);
+    let region_x1 = ((region.max_cx + 1) as f64 * raster.cell_size + pad).min(aabb_width);
+    let region_y1 = ((region.max_cy + 1) as f64 * raster.cell_size + pad).min(aabb_height);
+    let region_w = region_x1 - region_x0;
+    let region_h = region_y1 - region_y0;
+
+    if region_w <= 0.0 || region_h <= 0.0 {
+        return Vec::new();
+    }
+
+    // Grid sized to region bounding box only.
+    let grid_w = (region_w / cell_size).ceil() as usize + 1;
+    let grid_h = (region_h / cell_size).ceil() as usize + 1;
+
     let mut grid = vec![EMPTY; grid_w * grid_h];
     let mut points: Vec<[f64; 2]> = Vec::new();
     let mut active: Vec<u32> = Vec::new();
 
+    // Convert global coordinates to region-local grid coordinates.
     let to_grid = |x: f64, y: f64| -> (usize, usize) {
-        let gx = (x / cell_size) as usize;
-        let gy = (y / cell_size) as usize;
+        let gx = ((x - region_x0) / cell_size) as usize;
+        let gy = ((y - region_y0) / cell_size) as usize;
         (gx.min(grid_w - 1), gy.min(grid_h - 1))
     };
 
-    // Try to insert a seed point. Returns true if placed (no conflict).
+    // Try to insert a seed point at global coordinates.
     let try_seed = |x: f64,
                     y: f64,
                     grid: &mut [u32],
@@ -276,7 +358,6 @@ fn poisson_disk_sample_on_land(
         if grid[gi] != EMPTY {
             return false;
         }
-        // Check neighbors for distance conflicts.
         let g_min_x = gx.saturating_sub(2);
         let g_min_y = gy.saturating_sub(2);
         let g_max_x = (gx + 3).min(grid_w);
@@ -300,28 +381,21 @@ fn poisson_disk_sample_on_land(
         true
     };
 
-    // Seed from every land cell in the raster (center of cell).
-    // This ensures all disconnected land masses get populated.
-    // The Poisson disk conflict check prevents over-seeding.
-    for cy in 0..raster.grid_h {
-        for cx in 0..raster.grid_w {
-            if !raster.land_mask[cy * raster.grid_w + cx] {
-                continue;
-            }
-            let x = (cx as f64 + 0.5) * raster.cell_size;
-            let y = (cy as f64 + 0.5) * raster.cell_size;
-            if x >= width || y >= height {
-                continue;
-            }
-            try_seed(x, y, &mut grid, &mut points, &mut active);
+    // Seed from this region's land cells.
+    for &(cx, cy) in &region.cells {
+        let x = (cx as f64 + 0.5) * raster.cell_size;
+        let y = (cy as f64 + 0.5) * raster.cell_size;
+        if x >= aabb_width || y >= aabb_height {
+            continue;
         }
+        try_seed(x, y, &mut grid, &mut points, &mut active);
     }
 
     if points.is_empty() {
         return Vec::new();
     }
 
-    // Standard Bridson expansion from all seeded points.
+    // Bridson expansion.
     while !active.is_empty() {
         let active_idx = (rng.next_u64() as usize) % active.len();
         let point_idx = active[active_idx] as usize;
@@ -335,12 +409,12 @@ fn poisson_disk_sample_on_land(
             let cx = px + angle.cos() * dist;
             let cy = py + angle.sin() * dist;
 
-            // Bounds check.
-            if cx < 0.0 || cx >= width || cy < 0.0 || cy >= height {
+            // Global bounds check.
+            if cx < region_x0 || cx >= region_x1 || cy < region_y0 || cy >= region_y1 {
                 continue;
             }
 
-            // Land check: skip candidates in ocean cells.
+            // Land check.
             if !raster.is_near_land(cx, cy) {
                 continue;
             }
@@ -348,12 +422,10 @@ fn poisson_disk_sample_on_land(
             let (gx, gy) = to_grid(cx, cy);
             let gi = gy * grid_w + gx;
 
-            // Quick check: cell already occupied.
             if grid[gi] != EMPTY {
                 continue;
             }
 
-            // Check neighbors in a 5x5 grid around the candidate.
             let mut too_close = false;
             let g_min_x = gx.saturating_sub(2);
             let g_min_y = gy.saturating_sub(2);
@@ -425,7 +497,10 @@ fn elevation_acceptance(h: f64, min_elev: f64, max_elev: f64) -> f64 {
 // ── Generation ─────────────────────────────────────────────────────────────
 
 /// Generate tree positions using Poisson disk sampling with elevation filtering.
+/// Islands are detected via flood-fill and processed in parallel.
 pub fn generate_trees(terrain: &TerrainCPUData, config: &TreeConfig, seed: u64) -> TreeData {
+    use rayon::prelude::*;
+
     let (contours, _lookup_grid) = parse_contours(terrain);
 
     // Compute terrain AABB.
@@ -459,11 +534,7 @@ pub fn generate_trees(terrain: &TerrainCPUData, config: &TreeConfig, seed: u64) 
         };
     }
 
-    let mut rng = Rng::new(seed);
-
-    // Step 1: Build coarse elevation raster for fast land checks + height lookups.
-    // This is the most parallelizable step — each cell is an independent terrain
-    // height query, and the results are deterministic regardless of thread order.
+    // Step 1: Build coarse elevation raster (parallel).
     let raster_cell = config.spacing * RASTER_SCALE;
     let raster = ElevationRaster::build(
         width,
@@ -477,32 +548,54 @@ pub fn generate_trees(terrain: &TerrainCPUData, config: &TreeConfig, seed: u64) 
         config.max_elevation,
     );
 
-    // Step 2: Poisson disk sampling, constrained to land regions only.
-    // Sequential but fast thanks to dense u32 grid for O(1) neighbor lookups.
-    let candidates = poisson_disk_sample_on_land(width, height, config.spacing, &raster, &mut rng);
+    // Step 2: Find connected land regions (islands).
+    let regions = find_land_regions(&raster);
 
-    // Step 3: Filter by elevation acceptance curve and density thinning.
-    let mut positions = Vec::with_capacity(candidates.len() / 2);
+    if regions.is_empty() {
+        return TreeData {
+            positions: Vec::new(),
+        };
+    }
 
-    for [cx, cy] in &candidates {
-        // Approximate elevation from bilinear interpolation of coarse raster.
-        let h = raster.sample(*cx, *cy);
+    // Step 3: Run Poisson disk sampling per-island in parallel.
+    // Each island gets a deterministic seed derived from the base seed and
+    // its sorted index, so results are independent of thread scheduling.
+    let all_candidates: Vec<Vec<[f64; 2]>> = regions
+        .par_iter()
+        .enumerate()
+        .map(|(i, region)| {
+            let island_seed = seed ^ (i as u64).wrapping_mul(0x517CC1B727220A95);
+            let mut rng = Rng::new(island_seed);
+            poisson_disk_for_region(region, config.spacing, &raster, &mut rng, width, height)
+        })
+        .collect();
 
-        // Elevation acceptance (smooth ramp at edges of band).
-        let accept = elevation_acceptance(h, config.min_elevation, config.max_elevation);
-        if accept <= 0.0 {
-            continue;
+    // Step 4: Filter by elevation acceptance curve and density thinning.
+    // Each island's filter uses a deterministic RNG seeded from its index,
+    // so the output is identical regardless of parallel execution order.
+    let mut positions: Vec<[f32; 2]> = Vec::new();
+
+    for (i, candidates) in all_candidates.into_iter().enumerate() {
+        let filter_seed = seed ^ (i as u64).wrapping_mul(0x9E3779B97F4A7C15);
+        let mut rng = Rng::new(filter_seed);
+
+        for [cx, cy] in &candidates {
+            let h = raster.sample(*cx, *cy);
+
+            let accept = elevation_acceptance(h, config.min_elevation, config.max_elevation);
+            if accept <= 0.0 {
+                continue;
+            }
+
+            let threshold = accept * config.density;
+            if rng.next_f64() >= threshold {
+                continue;
+            }
+
+            let world_x = min_x + cx;
+            let world_y = min_y + cy;
+            positions.push([world_x as f32, world_y as f32]);
         }
-
-        // Density thinning: combine elevation acceptance with user density.
-        let threshold = accept * config.density;
-        if rng.next_f64() >= threshold {
-            continue;
-        }
-
-        let world_x = min_x + cx;
-        let world_y = min_y + cy;
-        positions.push([world_x as f32, world_y as f32]);
     }
 
     TreeData { positions }
