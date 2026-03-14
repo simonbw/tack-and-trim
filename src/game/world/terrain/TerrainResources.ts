@@ -14,28 +14,12 @@ import {
   type TerrainContour,
   type TerrainDefinition,
   buildTerrainGPUData,
+  buildTerrainGPUDataFromPrecomputed,
   FLOATS_PER_CONTOUR,
   normalizeTerrainWinding,
 } from "./LandMass";
-import {
-  CONTAINMENT_GRID_U32S_PER_CONTOUR,
-  MAX_CHILDREN,
-  MAX_CONTOURS,
-  MAX_IDW_DATA,
-  MAX_VERTICES,
-} from "./TerrainConstants";
-
-/** Header size for packed terrain buffer: 5 u32 offsets (vertices, contours, children, containmentGrid, idwGridData) */
-const PACKED_TERRAIN_HEADER_SIZE = 5;
-
-/** Total packed buffer size in u32 elements */
-const PACKED_TERRAIN_SIZE =
-  PACKED_TERRAIN_HEADER_SIZE +
-  MAX_VERTICES * 2 + // vertices: 2 u32 per vertex (f32 pair bitcast)
-  MAX_CONTOURS * FLOATS_PER_CONTOUR + // contours: 14 u32 per contour
-  MAX_CHILDREN + // children: 1 u32 per child
-  MAX_CONTOURS * CONTAINMENT_GRID_U32S_PER_CONTOUR + // containment grids: 256 u32 per contour
-  MAX_IDW_DATA; // IDW grid data: 2M u32s
+/** Header size for packed terrain buffer: 6 u32 offsets (vertices, contours, children, containmentGrid, idwGridData, lookupGrid) */
+const PACKED_TERRAIN_HEADER_SIZE = 6;
 
 /**
  * Manages GPU resources for terrain data.
@@ -45,12 +29,13 @@ const PACKED_TERRAIN_SIZE =
  *
  * Terrain data is packed into a single `array<u32>` storage buffer with layout:
  * ```
- * [verticesOffset, contoursOffset, childrenOffset, containmentGridOffset, idwGridDataOffset,
+ * [verticesOffset, contoursOffset, childrenOffset, containmentGridOffset, idwGridDataOffset, lookupGridOffset,
  *  ...vertices (f32 pairs as u32)...,
  *  ...contours (14 mixed fields as u32)...,
  *  ...children (u32)...,
  *  ...containment grids (256 u32 per contour, 2-bit packed flags)...,
- *  ...IDW grid data (variable, prefix-sum cell_starts + packed entries)...]
+ *  ...IDW grid data (variable, prefix-sum cell_starts + packed entries)...,
+ *  ...lookup grid data (level-wide 256×256 contour lookup grid)...]
  * ```
  */
 export class TerrainResources extends BaseEntity {
@@ -75,15 +60,8 @@ export class TerrainResources extends BaseEntity {
   }
 
   @on("add")
-  onAdd({ game }: GameEventMap["add"]): void {
-    // Create single packed GPU buffer
-    this.packedTerrainBuffer = game.getWebGPUDevice().createBuffer({
-      size: PACKED_TERRAIN_SIZE * 4,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: "Packed Terrain Buffer",
-    });
-
-    // Upload initial terrain data
+  onAdd(): void {
+    // Upload initial terrain data (creates buffer sized to actual data)
     this.uploadTerrainData(this.terrainDefinition);
   }
 
@@ -101,38 +79,55 @@ export class TerrainResources extends BaseEntity {
    * [2] childrenOffset - element index where children data starts
    * [3] containmentGridOffset - element index where containment grid data starts
    * [4] idwGridDataOffset - element index where IDW grid data starts
-   * [5..] vertex data (f32 pairs stored as u32 via bitcast)
+   * [5] lookupGridOffset - element index where lookup grid data starts (0 = no grid)
+   * [6..] vertex data (f32 pairs stored as u32 via bitcast)
    * [...] contour data (14 fields per contour, mixed u32/f32 via bitcast)
    * [...] children data (u32 indices)
    * [...] containment grid data (256 u32 per contour, 2-bit packed flags)
    * [...] IDW grid data (variable, prefix-sum + packed entries)
+   * [...] lookup grid data (level-wide 256×256 contour lookup grid)
    *
    * @internal
    */
   private uploadTerrainData(definition: TerrainDefinition): void {
     const device = this.game.getWebGPUDevice();
-    const gpuData = buildTerrainGPUData(definition);
+    const gpuData = definition.precomputedGPUData
+      ? buildTerrainGPUDataFromPrecomputed(definition.precomputedGPUData)
+      : buildTerrainGPUData(definition);
     const {
       vertexData,
       contourData,
       childrenData,
       containmentGridData,
       idwGridData,
+      lookupGridData,
       contourCount,
     } = gpuData;
 
-    const packed = new Uint32Array(PACKED_TERRAIN_SIZE);
-    const packedFloat = new Float32Array(packed.buffer);
-
-    // Compute section offsets (element indices into packed array)
+    // Compute section offsets from actual data sizes (tightly packed)
     const verticesOffset = PACKED_TERRAIN_HEADER_SIZE;
     const vertexCount = vertexData.length; // number of f32s (2 per vertex)
-    const contoursOffset = verticesOffset + MAX_VERTICES * 2;
+    const contoursOffset = verticesOffset + vertexCount;
     const contourFloatCount = contourCount * FLOATS_PER_CONTOUR;
-    const childrenOffset = contoursOffset + MAX_CONTOURS * FLOATS_PER_CONTOUR;
-    const containmentGridOffset = childrenOffset + MAX_CHILDREN;
+    const childrenOffset = contoursOffset + contourFloatCount;
+    const containmentGridOffset = childrenOffset + childrenData.length;
     const idwGridDataOffset =
-      containmentGridOffset + MAX_CONTOURS * CONTAINMENT_GRID_U32S_PER_CONTOUR;
+      containmentGridOffset + containmentGridData.length;
+    const lookupGridOffset =
+      lookupGridData.length > 0 ? idwGridDataOffset + idwGridData.length : 0;
+    const packedSize =
+      idwGridDataOffset + idwGridData.length + lookupGridData.length;
+
+    // Recreate GPU buffer sized to actual data
+    this.packedTerrainBuffer?.destroy();
+    this.packedTerrainBuffer = device.createBuffer({
+      size: packedSize * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      label: "Packed Terrain Buffer",
+    });
+
+    const packed = new Uint32Array(packedSize);
+    const packedFloat = new Float32Array(packed.buffer);
 
     // Write header
     packed[0] = verticesOffset;
@@ -140,6 +135,7 @@ export class TerrainResources extends BaseEntity {
     packed[2] = childrenOffset;
     packed[3] = containmentGridOffset;
     packed[4] = idwGridDataOffset;
+    packed[5] = lookupGridOffset;
 
     // Write vertex data (f32 pairs → stored as u32 via shared buffer)
     for (let i = 0; i < vertexCount; i++) {
@@ -174,6 +170,13 @@ export class TerrainResources extends BaseEntity {
     // Write IDW grid data
     for (let i = 0; i < idwGridData.length; i++) {
       packed[idwGridDataOffset + i] = idwGridData[i];
+    }
+
+    // Write lookup grid data
+    if (lookupGridOffset > 0) {
+      for (let i = 0; i < lookupGridData.length; i++) {
+        packed[lookupGridOffset + i] = lookupGridData[i];
+      }
     }
 
     device.queue.writeBuffer(this.packedTerrainBuffer, 0, packed.buffer);

@@ -6,6 +6,7 @@ import {
   isSplineInsideSpline,
   sampleClosedSpline,
 } from "../../../core/util/Spline";
+import type { PrecomputedTerrainGPUData } from "../../../editor/io/LevelFileFormat";
 import {
   CONTAINMENT_GRID_CELLS,
   CONTAINMENT_GRID_SIZE,
@@ -104,6 +105,8 @@ export interface TerrainDefinition {
   contours: TerrainContour[];
   /** Deep ocean baseline depth in feet (default: DEFAULT_DEPTH) */
   defaultDepth?: number;
+  /** Precomputed GPU data from binary .terrain file (v2 format). */
+  precomputedGPUData?: PrecomputedTerrainGPUData;
 }
 
 /** Number of 32-bit values per contour in GPU buffer (13 values + idwGridDataOffset = 56 bytes) */
@@ -294,6 +297,7 @@ export function normalizeTerrainWinding(
   return {
     contours: normalizedContours,
     defaultDepth: definition.defaultDepth,
+    precomputedGPUData: definition.precomputedGPUData,
   };
 }
 
@@ -716,6 +720,106 @@ function pointToSegmentDistSq(
   return dx * dx + dy * dy;
 }
 
+/** Squared distance from point to axis-aligned rectangle (0 if inside). */
+function pointToRectDistSq(
+  px: number,
+  py: number,
+  rx0: number,
+  ry0: number,
+  rx1: number,
+  ry1: number,
+): number {
+  const dx = px < rx0 ? rx0 - px : px > rx1 ? px - rx1 : 0;
+  const dy = py < ry0 ? ry0 - py : py > ry1 ? py - ry1 : 0;
+  return dx * dx + dy * dy;
+}
+
+/** Test if segment (ax,ay)-(bx,by) intersects axis-aligned rectangle. */
+function segmentIntersectsRect(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  rx0: number,
+  ry0: number,
+  rx1: number,
+  ry1: number,
+): boolean {
+  if (ax >= rx0 && ax <= rx1 && ay >= ry0 && ay <= ry1) return true;
+  if (bx >= rx0 && bx <= rx1 && by >= ry0 && by <= ry1) return true;
+
+  const ddx = bx - ax;
+  const ddy = by - ay;
+  let tMin = 0;
+  let tMax = 1;
+
+  const clips: [number, number][] = [
+    [-ddx, ax - rx0],
+    [ddx, rx1 - ax],
+    [-ddy, ay - ry0],
+    [ddy, ry1 - ay],
+  ];
+
+  for (const [p, q] of clips) {
+    if (Math.abs(p) < 1e-20) {
+      if (q < 0) return false;
+    } else {
+      const r = q / p;
+      if (p < 0) {
+        if (r > tMax) return false;
+        if (r > tMin) tMin = r;
+      } else {
+        if (r < tMin) return false;
+        if (r < tMax) tMax = r;
+      }
+    }
+  }
+  return tMin <= tMax;
+}
+
+/** Min squared distance from axis-aligned rect to segment (0 if they intersect). */
+function minDistSqRectSegment(
+  rx0: number,
+  ry0: number,
+  rx1: number,
+  ry1: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  if (segmentIntersectsRect(ax, ay, bx, by, rx0, ry0, rx1, ry1)) return 0;
+
+  let d = Infinity;
+  d = Math.min(d, pointToSegmentDistSq(rx0, ry0, ax, ay, bx, by));
+  d = Math.min(d, pointToSegmentDistSq(rx1, ry0, ax, ay, bx, by));
+  d = Math.min(d, pointToSegmentDistSq(rx0, ry1, ax, ay, bx, by));
+  d = Math.min(d, pointToSegmentDistSq(rx1, ry1, ax, ay, bx, by));
+  d = Math.min(d, pointToRectDistSq(ax, ay, rx0, ry0, rx1, ry1));
+  d = Math.min(d, pointToRectDistSq(bx, by, rx0, ry0, rx1, ry1));
+  return d;
+}
+
+/** Max squared distance from any rect point to segment (at a corner, since
+ *  dist-to-segment is convex). */
+function maxDistSqRectSegment(
+  rx0: number,
+  ry0: number,
+  rx1: number,
+  ry1: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  return Math.max(
+    pointToSegmentDistSq(rx0, ry0, ax, ay, bx, by),
+    pointToSegmentDistSq(rx1, ry0, ax, ay, bx, by),
+    pointToSegmentDistSq(rx0, ry1, ax, ay, bx, by),
+    pointToSegmentDistSq(rx1, ry1, ax, ay, bx, by),
+  );
+}
+
 /**
  * Build a 16×16 IDW candidate grid for a parent contour and its children.
  * Each grid cell stores candidate (tag, edgeIndex) pairs for edges that could
@@ -734,8 +838,6 @@ function buildIDWGrid(
   const h = Math.max(parentBBox.maxY - minY, 1e-9);
   const cellW = w / IDW_GRID_SIZE;
   const cellH = h / IDW_GRID_SIZE;
-  const cellDiagonal = Math.sqrt(cellW * cellW + cellH * cellH) * 0.5;
-
   // Collect all edges with tags
   interface IDWEdge {
     ax: number;
@@ -777,42 +879,99 @@ function buildIDWGrid(
     }
   }
 
-  // For each cell, find candidate edges using per-contour thresholds.
-  // IDW needs the nearest edge per contour, not just globally. Each contour's
-  // threshold is: sqrt(minDistToContour) + cellDiagonal, ensuring the nearest
-  // edge for that contour is included for any point in the cell.
+  // For each cell, find candidate edges using exact rect-to-segment distances.
+  // Per-tag upper bound = min over same-tag edges of max_dist(cell_rect, edge).
+  // Edge E is included if min_dist(cell_rect, E) ≤ upper bound for its tag.
   const numTags = 1 + childPolygons.length;
   const cellEntries: number[][] = new Array(IDW_GRID_CELLS);
   let totalEntries = 0;
+  const perTagUpperBoundSq = new Float64Array(numTags);
 
   for (let row = 0; row < IDW_GRID_SIZE; row++) {
     for (let col = 0; col < IDW_GRID_SIZE; col++) {
-      const cx = minX + (col + 0.5) * cellW;
-      const cy = minY + (row + 0.5) * cellH;
+      const rx0 = minX + col * cellW;
+      const ry0 = minY + row * cellH;
+      const rx1 = rx0 + cellW;
+      const ry1 = ry0 + cellH;
 
-      // Find per-contour minimum distance from cell center
-      const perTagMinDistSq = new Float64Array(numTags);
-      perTagMinDistSq.fill(Infinity);
+      // Find per-tag upper bound: smallest max-distance to any edge of that tag
+      perTagUpperBoundSq.fill(Infinity);
       for (const e of edges) {
-        const d2 = pointToSegmentDistSq(cx, cy, e.ax, e.ay, e.bx, e.by);
-        if (d2 < perTagMinDistSq[e.tag]) perTagMinDistSq[e.tag] = d2;
-      }
-
-      // Per-contour threshold: nearest edge for this contour + cell diagonal
-      const perTagThresholdSq = new Float64Array(numTags);
-      for (let t = 0; t < numTags; t++) {
-        const threshold = Math.sqrt(perTagMinDistSq[t]) + cellDiagonal;
-        perTagThresholdSq[t] = threshold * threshold;
+        const dMax = maxDistSqRectSegment(
+          rx0,
+          ry0,
+          rx1,
+          ry1,
+          e.ax,
+          e.ay,
+          e.bx,
+          e.by,
+        );
+        if (dMax < perTagUpperBoundSq[e.tag]) perTagUpperBoundSq[e.tag] = dMax;
       }
 
       const cell = row * IDW_GRID_SIZE + col;
-      const candidates: number[] = [];
-      for (const e of edges) {
-        const d2 = pointToSegmentDistSq(cx, cy, e.ax, e.ay, e.bx, e.by);
-        if (d2 <= perTagThresholdSq[e.tag]) {
-          candidates.push((e.tag << 16) | e.edgeIndex);
+      // Collect candidates passing the rect-segment upper bound filter
+      const candidateIndices: number[] = [];
+      for (let i = 0; i < edges.length; i++) {
+        const e = edges[i];
+        const dMin = minDistSqRectSegment(
+          rx0,
+          ry0,
+          rx1,
+          ry1,
+          e.ax,
+          e.ay,
+          e.bx,
+          e.by,
+        );
+        if (dMin <= perTagUpperBoundSq[e.tag]) {
+          candidateIndices.push(i);
         }
       }
+
+      // Pairwise pruning: sample 5 points (4 corners + center), keep only
+      // edges that are the nearest of their tag at ≥1 sample point.
+      let candidates: number[];
+      if (candidateIndices.length > 1) {
+        const cx = (rx0 + rx1) * 0.5;
+        const cy = (ry0 + ry1) * 0.5;
+        const samples = [rx0, ry0, rx1, ry0, rx0, ry1, rx1, ry1, cx, cy];
+        const keep = new Uint8Array(candidateIndices.length);
+        const nearestIdx = new Int32Array(numTags);
+
+        for (let s = 0; s < 10; s += 2) {
+          const sx = samples[s];
+          const sy = samples[s + 1];
+          perTagUpperBoundSq.fill(Infinity); // reuse as nearest-dist tracker
+          nearestIdx.fill(-1);
+          for (let j = 0; j < candidateIndices.length; j++) {
+            const e = edges[candidateIndices[j]];
+            const d = pointToSegmentDistSq(sx, sy, e.ax, e.ay, e.bx, e.by);
+            if (d < perTagUpperBoundSq[e.tag]) {
+              perTagUpperBoundSq[e.tag] = d;
+              nearestIdx[e.tag] = j;
+            }
+          }
+          for (let t = 0; t < numTags; t++) {
+            if (nearestIdx[t] >= 0) keep[nearestIdx[t]] = 1;
+          }
+        }
+
+        candidates = [];
+        for (let j = 0; j < candidateIndices.length; j++) {
+          if (keep[j]) {
+            const e = edges[candidateIndices[j]];
+            candidates.push((e.tag << 16) | e.edgeIndex);
+          }
+        }
+      } else {
+        candidates = candidateIndices.map((i) => {
+          const e = edges[i];
+          return (e.tag << 16) | e.edgeIndex;
+        });
+      }
+
       cellEntries[cell] = candidates;
       totalEntries += candidates.length;
     }
@@ -857,6 +1016,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   childrenData: Uint32Array;
   containmentGridData: Uint32Array;
   idwGridData: Uint32Array;
+  lookupGridData: Uint32Array;
   coastlineIndices: Uint32Array;
   contourCount: number;
   coastlineCount: number;
@@ -872,6 +1032,7 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
       childrenData: new Uint32Array(0),
       containmentGridData: new Uint32Array(0),
       idwGridData: new Uint32Array(0),
+      lookupGridData: new Uint32Array(0),
       coastlineIndices: new Uint32Array(0),
       contourCount: 0,
       coastlineCount: 0,
@@ -1050,6 +1211,19 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
   const idwGridParts: Uint32Array[] = [];
   let idwGridTotalSize = 0;
 
+  // Count eligible contours (have children and fit IDW limit) for progress reporting
+  let eligibleCount = 0;
+  for (const originalIndex of dfsOrder) {
+    const node = tree.nodes[originalIndex];
+    if (
+      node.children.length > 0 &&
+      node.children.length + 1 <= MAX_IDW_CONTOURS
+    ) {
+      eligibleCount++;
+    }
+  }
+
+  let processedCount = 0;
   for (let dfsIndex = 0; dfsIndex < dfsOrder.length; dfsIndex++) {
     const originalIndex = dfsOrder[dfsIndex];
     const node = tree.nodes[originalIndex];
@@ -1077,9 +1251,27 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
 
     const gridSize = grid.cellStarts.length + grid.entries.length;
     if (idwGridTotalSize + gridSize > MAX_IDW_DATA) {
-      console.warn("IDW grid data exceeds budget, skipping remaining grids");
+      const pct = ((processedCount / eligibleCount) * 100).toFixed(1);
+      const usedMB = ((idwGridTotalSize * 4) / (1024 * 1024)).toFixed(1);
+      const budgetMB = ((MAX_IDW_DATA * 4) / (1024 * 1024)).toFixed(1);
+      console.warn(
+        `IDW grid data exceeds budget (${usedMB}/${budgetMB} MB), ` +
+          `processed ${processedCount}/${eligibleCount} contours (${pct}%)`,
+      );
       break;
     }
+
+    if (gridSize > 100000) {
+      const totalEdges =
+        parentPoly.length + childPolygons.reduce((s, p) => s + p.length, 0);
+      console.log(
+        `IDW grid: ${((gridSize * 4) / 1024).toFixed(0)} KB, ` +
+          `${totalEdges} edges, ${childPolygons.length} children, ` +
+          `${grid.entries.length} entries (${(grid.entries.length / totalEdges).toFixed(1)}x duplication)`,
+      );
+    }
+
+    processedCount++;
 
     // Record relative offset + 1 (so 0 remains "no grid" sentinel)
     const byteBase = dfsIndex * FLOATS_PER_CONTOUR * 4;
@@ -1104,10 +1296,62 @@ export function buildTerrainGPUData(definition: TerrainDefinition): {
     childrenData,
     containmentGridData,
     idwGridData,
+    lookupGridData: new Uint32Array(0),
     coastlineIndices,
     contourCount: contours.length,
     coastlineCount: coastlineIndices.length,
     maxDepth: tree.maxDepth,
     defaultDepth: definition.defaultDepth ?? DEFAULT_DEPTH,
+  };
+}
+
+/**
+ * Build GPU data from precomputed binary terrain data.
+ * Extracts coastlineIndices and maxDepth from contour metadata,
+ * passes arrays through without recomputation.
+ */
+export function buildTerrainGPUDataFromPrecomputed(
+  precomputed: PrecomputedTerrainGPUData,
+): {
+  vertexData: Float32Array;
+  contourData: ArrayBuffer;
+  childrenData: Uint32Array;
+  containmentGridData: Uint32Array;
+  idwGridData: Uint32Array;
+  lookupGridData: Uint32Array;
+  coastlineIndices: Uint32Array;
+  contourCount: number;
+  coastlineCount: number;
+  maxDepth: number;
+  defaultDepth: number;
+} {
+  const contourView = new DataView(precomputed.contourData);
+  const coastlineList: number[] = [];
+  let maxDepth = 0;
+
+  for (let i = 0; i < precomputed.contourCount; i++) {
+    const base = i * FLOATS_PER_CONTOUR * 4;
+    const height = contourView.getFloat32(base + 8, true);
+    const depth = contourView.getUint32(base + 16, true);
+    if (height === 0) {
+      coastlineList.push(i);
+    }
+    if (depth > maxDepth) {
+      maxDepth = depth;
+    }
+  }
+
+  return {
+    vertexData: precomputed.vertexData,
+    contourData: precomputed.contourData,
+    childrenData: precomputed.childrenData,
+    containmentGridData: precomputed.containmentGridData,
+    idwGridData: precomputed.idwGridData,
+    lookupGridData: precomputed.lookupGridData,
+    coastlineIndices: new Uint32Array(coastlineList),
+    contourCount: precomputed.contourCount,
+    coastlineCount: coastlineList.length,
+    maxDepth,
+    defaultDepth: precomputed.defaultDepth,
   };
 }

@@ -1,6 +1,16 @@
+import {
+  GPUBufferTracker,
+  type BufferStats,
+} from "../../graphics/webgpu/GPUBufferTracker";
 import { isStatsProvider, type StatsSection } from "./StatsProvider";
 import { StatsRow } from "./StatsRow";
 import type { StatsPanel, StatsPanelContext } from "./StatsPanel";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 /** Convert camelCase to Title Case: "waterQuery" → "Water Query" */
 function formatCamelCase(key: string): string {
@@ -84,6 +94,7 @@ export function createGraphicsPanel(): StatsPanel {
 
     render: (ctx) => {
       const gfx = getGraphicsStats(ctx);
+      const bufferStats = GPUBufferTracker.getInstance().getStats();
       const customSections = getCustomSections(ctx);
 
       // Determine GPU time color
@@ -158,6 +169,30 @@ export function createGraphicsPanel(): StatsPanel {
                   value={`${gfx.resolution} @${gfx.pixelRatio}x`}
                 />
               </div>
+            </div>
+          </div>
+
+          {/* GPU Memory */}
+          <div className="stats-overlay__section">
+            <div className="stats-overlay__section-title">GPU Memory</div>
+            <div className="stats-overlay__grid">
+              <StatsRow
+                label="Buffers"
+                value={`${formatBytes(bufferStats.totalBytes)} (${bufferStats.entries.length})`}
+              />
+              {bufferStats.entries.map((entry) => (
+                <StatsRow
+                  key={entry.label}
+                  label={
+                    entry.count > 1
+                      ? `${entry.label} (x${entry.count})`
+                      : entry.label
+                  }
+                  value={formatBytes(entry.size)}
+                  indent={1}
+                  color="muted"
+                />
+              ))}
             </div>
           </div>
 

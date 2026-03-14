@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use serde::Deserialize;
 use terrain_core::humanize::format_int;
 
@@ -87,52 +87,36 @@ pub fn validate_level_file(level_path: &Path) -> Result<ValidationResult> {
     Ok(validate_level_data(data))
 }
 
-/// Parse and validate a binary .terrain file.
+/// Parse and validate a binary .terrain file (v2 format).
+/// Uses `read_terrain_binary` to parse the file, then extracts contour
+/// polygons for validation.
 pub fn validate_terrain_binary(terrain_path: &Path) -> Result<ValidationResult> {
     let bytes = fs::read(terrain_path)
         .with_context(|| format!("Failed to read {}", terrain_path.display()))?;
 
-    if bytes.len() < 16 {
-        bail!("Terrain file too short: {} bytes", bytes.len());
-    }
+    let terrain = terrain_core::level::read_terrain_binary(&bytes)
+        .with_context(|| format!("Failed to parse terrain binary: {}", terrain_path.display()))?;
 
-    let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
-    if magic != 0x4E525254 {
-        bail!("Invalid terrain magic: 0x{:08X}", magic);
-    }
+    let default_depth = terrain.default_depth;
+    let fpc = terrain_core::level::FLOATS_PER_CONTOUR;
+    let mut contours = Vec::with_capacity(terrain.contour_count);
 
-    let default_depth =
-        f32::from_le_bytes(bytes[8..12].try_into().unwrap()) as f64;
-    let contour_count =
-        u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+    for i in 0..terrain.contour_count {
+        let base = i * fpc * 4;
+        let cd = &terrain.contour_data[base..base + fpc * 4];
 
-    let header_end = 16 + contour_count * 8;
-    if bytes.len() < header_end {
-        bail!("Terrain file truncated in contour headers");
-    }
-
-    let mut contours = Vec::with_capacity(contour_count);
-    let mut vertex_offset = header_end;
-
-    for i in 0..contour_count {
-        let off = 16 + i * 8;
-        let height =
-            f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as f64;
+        let point_start =
+            u32::from_le_bytes(cd[0..4].try_into().unwrap()) as usize;
         let point_count =
-            u32::from_le_bytes(bytes[off + 4..off + 8].try_into().unwrap()) as usize;
-
-        let data_end = vertex_offset + point_count * 8;
-        if bytes.len() < data_end {
-            bail!("Terrain file truncated in vertex data for contour {}", i);
-        }
+            u32::from_le_bytes(cd[4..8].try_into().unwrap()) as usize;
+        let height =
+            f32::from_le_bytes(cd[8..12].try_into().unwrap()) as f64;
 
         let mut flat = Vec::with_capacity(point_count * 2);
         for j in 0..point_count {
-            let voff = vertex_offset + j * 8;
-            let x = f32::from_le_bytes(bytes[voff..voff + 4].try_into().unwrap()) as f64;
-            let y = f32::from_le_bytes(bytes[voff + 4..voff + 8].try_into().unwrap()) as f64;
-            flat.push(x);
-            flat.push(y);
+            let vi = (point_start + j) * 2;
+            flat.push(terrain.vertex_data[vi] as f64);
+            flat.push(terrain.vertex_data[vi + 1] as f64);
         }
 
         contours.push(ensure_ccw(LightContour {
@@ -140,8 +124,6 @@ pub fn validate_terrain_binary(terrain_path: &Path) -> Result<ValidationResult> 
             num_points: point_count,
             points: flat,
         }));
-
-        vertex_offset = data_end;
     }
 
     Ok(validate_contours(contours, default_depth))

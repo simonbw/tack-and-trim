@@ -4,6 +4,7 @@
  */
 
 import { setUniformDevice } from "../UniformStruct";
+import { GPUBufferTracker } from "./GPUBufferTracker";
 
 let instance: WebGPUDeviceManager | null = null;
 
@@ -154,6 +155,9 @@ export class WebGPUDeviceManager {
 
     // Get preferred canvas format
     this._preferredFormat = navigator.gpu.getPreferredCanvasFormat();
+
+    // Install GPU buffer tracker before anything else creates buffers
+    GPUBufferTracker.getInstance().install(this._device);
 
     // Initialize uniform struct system with device reference
     setUniformDevice(this._device);

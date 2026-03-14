@@ -172,15 +172,51 @@ export interface TerrainFileJSON {
 /** Magic number for binary terrain files: "TRRN" as little-endian u32. */
 const TERRAIN_MAGIC = 0x4e525254;
 
+/** Number of u32 fields per contour in the binary format. */
+const BINARY_FLOATS_PER_CONTOUR = 14;
+
 /**
- * Parse a binary .terrain file into a TerrainFileJSON.
- *
- * Binary format (all little-endian):
- *   Header (16 bytes): magic u32, version u32, defaultDepth f32, contourCount u32
- *   Contour headers (8 bytes each): height f32, pointCount u32
- *   Vertex data (8 bytes per point): x f32, y f32
+ * Precomputed GPU terrain data parsed from a v2 binary .terrain file.
+ * Contains all arrays ready for direct upload to GPU buffers.
  */
-export function parseTerrainBinary(buffer: ArrayBuffer): TerrainFileJSON {
+export interface PrecomputedTerrainGPUData {
+  vertexData: Float32Array;
+  contourData: ArrayBuffer;
+  childrenData: Uint32Array;
+  containmentGridData: Uint32Array;
+  idwGridData: Uint32Array;
+  lookupGridData: Uint32Array;
+  contourCount: number;
+  defaultDepth: number;
+}
+
+/**
+ * Parse result from a v2 binary .terrain file.
+ */
+export interface TerrainBinaryResult {
+  terrainFile: TerrainFileJSON;
+  precomputedGPUData: PrecomputedTerrainGPUData;
+}
+
+/**
+ * Parse a binary .terrain file (v2 or v3 format).
+ *
+ * v2 binary format (all little-endian):
+ *   Header (32 bytes):
+ *     magic u32, version u32, defaultDepth f32, contourCount u32,
+ *     vertexCount u32, childrenCount u32, containmentGridU32s u32, idwGridU32s u32
+ *   Sections:
+ *     1. contourData     — contourCount * 14 * 4 bytes
+ *     2. vertexData      — vertexCount * 2 * 4 bytes
+ *     3. childrenData    — childrenCount * 4 bytes
+ *     4. containmentGrid — containmentGridU32s * 4 bytes
+ *     5. idwGridData     — idwGridU32s * 4 bytes
+ *
+ * v3 adds:
+ *   Header (36 bytes): + lookupGridU32s u32
+ *   Section 6: lookupGridData — lookupGridU32s * 4 bytes
+ */
+export function parseTerrainBinary(buffer: ArrayBuffer): TerrainBinaryResult {
   const view = new DataView(buffer);
   const magic = view.getUint32(0, true);
   if (magic !== TERRAIN_MAGIC) {
@@ -190,30 +226,90 @@ export function parseTerrainBinary(buffer: ArrayBuffer): TerrainFileJSON {
   }
 
   const version = view.getUint32(4, true);
+  if (version !== 2 && version !== 3) {
+    throw new Error(
+      `Unsupported terrain version: ${version} (expected 2 or 3)`,
+    );
+  }
+
   const defaultDepth = view.getFloat32(8, true);
   const contourCount = view.getUint32(12, true);
+  const vertexCount = view.getUint32(16, true);
+  const childrenCount = view.getUint32(20, true);
+  const containmentGridU32s = view.getUint32(24, true);
+  const idwGridU32s = view.getUint32(28, true);
 
-  const headerEnd = 16 + contourCount * 8;
+  let lookupGridU32s = 0;
+  let headerSize = 32;
+  if (version >= 3) {
+    lookupGridU32s = view.getUint32(32, true);
+    headerSize = 36;
+  }
+
+  let offset = headerSize;
+
+  // Section 1: contourData
+  const contourBytes = contourCount * BINARY_FLOATS_PER_CONTOUR * 4;
+  const contourData = buffer.slice(offset, offset + contourBytes);
+  offset += contourBytes;
+
+  // Section 2: vertexData
+  const vertexFloats = vertexCount * 2;
+  const vertexData = new Float32Array(buffer, offset, vertexFloats);
+  offset += vertexFloats * 4;
+
+  // Section 3: childrenData
+  const childrenData = new Uint32Array(buffer, offset, childrenCount);
+  offset += childrenCount * 4;
+
+  // Section 4: containmentGrid
+  const containmentGridData = new Uint32Array(
+    buffer,
+    offset,
+    containmentGridU32s,
+  );
+  offset += containmentGridU32s * 4;
+
+  // Section 5: idwGridData
+  const idwGridData = new Uint32Array(buffer, offset, idwGridU32s);
+  offset += idwGridU32s * 4;
+
+  // Section 6: lookupGridData (v3 only)
+  const lookupGridData =
+    lookupGridU32s > 0
+      ? new Uint32Array(buffer, offset, lookupGridU32s)
+      : new Uint32Array(0);
+
+  // Reconstruct TerrainContourJSON[] for CPU-side TerrainDefinition
+  const contourView = new DataView(contourData);
   const contours: TerrainContourJSON[] = [];
-  let vertexOffset = headerEnd;
-
   for (let i = 0; i < contourCount; i++) {
-    const off = 16 + i * 8;
-    const height = view.getFloat32(off, true);
-    const pointCount = view.getUint32(off + 4, true);
+    const base = i * BINARY_FLOATS_PER_CONTOUR * 4;
+    const pointStart = contourView.getUint32(base + 0, true);
+    const pointCount = contourView.getUint32(base + 4, true);
+    const height = contourView.getFloat32(base + 8, true);
 
     const polygon: [number, number][] = new Array(pointCount);
     for (let j = 0; j < pointCount; j++) {
-      const x = view.getFloat32(vertexOffset, true);
-      const y = view.getFloat32(vertexOffset + 4, true);
-      polygon[j] = [x, y];
-      vertexOffset += 8;
+      const vi = (pointStart + j) * 2;
+      polygon[j] = [vertexData[vi], vertexData[vi + 1]];
     }
-
     contours.push({ height, polygon });
   }
 
-  return { version, defaultDepth, contours };
+  return {
+    terrainFile: { version, defaultDepth, contours },
+    precomputedGPUData: {
+      vertexData,
+      contourData,
+      childrenData,
+      containmentGridData,
+      idwGridData,
+      lookupGridData,
+      contourCount,
+      defaultDepth,
+    },
+  };
 }
 
 /**

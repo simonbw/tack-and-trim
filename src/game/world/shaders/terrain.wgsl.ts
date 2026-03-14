@@ -28,6 +28,9 @@ import {
   fn_getContainmentCellFlag,
   fn_getIDWGridCandidateRange,
   fn_getIDWGridEntry,
+  fn_getLookupGridBaseContour,
+  fn_getLookupGridCandidateRange,
+  fn_getLookupGridCandidate,
 } from "./terrain-packed.wgsl";
 
 // Re-export for backwards compatibility
@@ -325,38 +328,63 @@ export const fn_computeTerrainHeight: ShaderModule = {
       contourCount: u32,
       defaultDepth: f32
     ) -> f32 {
-      // Phase 1: Find the deepest containing contour using DFS skip traversal
-      // Uses fast winding-only test - no distance calculation yet
+      // Phase 1: Find the deepest containing contour
       var deepestIndex: i32 = -1;
-      var deepestDepth: u32 = 0u;
 
-      var i: u32 = 0u;
-      // lastToCheck narrows as we find containing contours - if we're inside
-      // a contour, we can skip its siblings (only need to check descendants)
-      var lastToCheck: u32 = contourCount;
+      let lookupGridOffset = (*packedTerrain)[5u];
+      if (lookupGridOffset != 0u) {
+        // Lookup grid fast path: O(candidates) instead of O(contours)
+        let gridCols = (*packedTerrain)[lookupGridOffset];
+        let gridRows = (*packedTerrain)[lookupGridOffset + 1u];
+        let gridMinX = bitcast<f32>((*packedTerrain)[lookupGridOffset + 2u]);
+        let gridMinY = bitcast<f32>((*packedTerrain)[lookupGridOffset + 3u]);
+        let gridInvCellW = bitcast<f32>((*packedTerrain)[lookupGridOffset + 4u]);
+        let gridInvCellH = bitcast<f32>((*packedTerrain)[lookupGridOffset + 5u]);
 
-      while (i < lastToCheck) {
-        let contour = getContourData(packedTerrain, i);
+        let col = i32(floor((worldPos.x - gridMinX) * gridInvCellW));
+        let row = i32(floor((worldPos.y - gridMinY) * gridInvCellH));
 
-        // Fast containment test - includes bbox check, winding number only, no distance
-        if (isInsideContour(
-          worldPos,
-          i,
-          packedTerrain
-        )) {
-          // Update if this is deeper than current deepest
-          if (contour.depth >= deepestDepth) {
-            deepestDepth = contour.depth;
-            deepestIndex = i32(i);
+        if (col >= 0 && row >= 0 && u32(col) < gridCols && u32(row) < gridRows) {
+          let cellIndex = u32(row) * gridCols + u32(col);
+
+          // Check candidates deepest-first; first match is the deepest containing contour
+          let range = getLookupGridCandidateRange(packedTerrain, lookupGridOffset, cellIndex);
+          for (var c = range.x; c < range.y; c++) {
+            let candidateIdx = getLookupGridCandidate(packedTerrain, lookupGridOffset, c);
+            if (isInsideContour(worldPos, candidateIdx, packedTerrain)) {
+              deepestIndex = i32(candidateIdx);
+              break;
+            }
           }
-          // Narrow search to only this contour's descendants
-          // (if we're inside this contour, we can't be inside its siblings)
-          lastToCheck = i + contour.skipCount + 1u;
-          // Continue to children (next contour in DFS order)
-          i += 1u;
-        } else {
-          // Not inside this contour, skip entire subtree
-          i += contour.skipCount + 1u;
+
+          // If no candidate matched, use base contour
+          if (deepestIndex < 0) {
+            let base = getLookupGridBaseContour(packedTerrain, lookupGridOffset, cellIndex);
+            if (base != 0xFFFFFFFFu) {
+              deepestIndex = i32(base);
+            }
+          }
+        }
+        // Outside grid bounds → outside all contours → deepestIndex stays -1
+      } else {
+        // DFS skip traversal fallback (when no lookup grid is available)
+        var deepestDepth: u32 = 0u;
+        var i: u32 = 0u;
+        var lastToCheck: u32 = contourCount;
+
+        while (i < lastToCheck) {
+          let contour = getContourData(packedTerrain, i);
+
+          if (isInsideContour(worldPos, i, packedTerrain)) {
+            if (contour.depth >= deepestDepth) {
+              deepestDepth = contour.depth;
+              deepestIndex = i32(i);
+            }
+            lastToCheck = i + contour.skipCount + 1u;
+            i += 1u;
+          } else {
+            i += contour.skipCount + 1u;
+          }
         }
       }
 
@@ -458,6 +486,9 @@ export const fn_computeTerrainHeight: ShaderModule = {
     fn_getTerrainVertex,
     fn_getIDWGridCandidateRange,
     fn_getIDWGridEntry,
+    fn_getLookupGridBaseContour,
+    fn_getLookupGridCandidateRange,
+    fn_getLookupGridCandidate,
   ],
 };
 
@@ -494,25 +525,60 @@ export const fn_computeTerrainHeightAndGradient: ShaderModule = {
     ) -> TerrainHeightAndGradient {
       var result: TerrainHeightAndGradient;
 
-      // Phase 1: Find the deepest containing contour using DFS skip traversal
+      // Phase 1: Find the deepest containing contour
       var deepestIndex: i32 = -1;
-      var deepestDepth: u32 = 0u;
 
-      var i: u32 = 0u;
-      var lastToCheck: u32 = contourCount;
+      let lookupGridOffset = (*packedTerrain)[5u];
+      if (lookupGridOffset != 0u) {
+        // Lookup grid fast path
+        let gridCols = (*packedTerrain)[lookupGridOffset];
+        let gridRows = (*packedTerrain)[lookupGridOffset + 1u];
+        let gridMinX = bitcast<f32>((*packedTerrain)[lookupGridOffset + 2u]);
+        let gridMinY = bitcast<f32>((*packedTerrain)[lookupGridOffset + 3u]);
+        let gridInvCellW = bitcast<f32>((*packedTerrain)[lookupGridOffset + 4u]);
+        let gridInvCellH = bitcast<f32>((*packedTerrain)[lookupGridOffset + 5u]);
 
-      while (i < lastToCheck) {
-        let contour = getContourData(packedTerrain, i);
+        let col = i32(floor((worldPos.x - gridMinX) * gridInvCellW));
+        let row = i32(floor((worldPos.y - gridMinY) * gridInvCellH));
 
-        if (isInsideContour(worldPos, i, packedTerrain)) {
-          if (contour.depth >= deepestDepth) {
-            deepestDepth = contour.depth;
-            deepestIndex = i32(i);
+        if (col >= 0 && row >= 0 && u32(col) < gridCols && u32(row) < gridRows) {
+          let cellIndex = u32(row) * gridCols + u32(col);
+
+          let range = getLookupGridCandidateRange(packedTerrain, lookupGridOffset, cellIndex);
+          for (var c = range.x; c < range.y; c++) {
+            let candidateIdx = getLookupGridCandidate(packedTerrain, lookupGridOffset, c);
+            if (isInsideContour(worldPos, candidateIdx, packedTerrain)) {
+              deepestIndex = i32(candidateIdx);
+              break;
+            }
           }
-          lastToCheck = i + contour.skipCount + 1u;
-          i += 1u;
-        } else {
-          i += contour.skipCount + 1u;
+
+          if (deepestIndex < 0) {
+            let base = getLookupGridBaseContour(packedTerrain, lookupGridOffset, cellIndex);
+            if (base != 0xFFFFFFFFu) {
+              deepestIndex = i32(base);
+            }
+          }
+        }
+      } else {
+        // DFS skip traversal fallback
+        var deepestDepth: u32 = 0u;
+        var i: u32 = 0u;
+        var lastToCheck: u32 = contourCount;
+
+        while (i < lastToCheck) {
+          let contour = getContourData(packedTerrain, i);
+
+          if (isInsideContour(worldPos, i, packedTerrain)) {
+            if (contour.depth >= deepestDepth) {
+              deepestDepth = contour.depth;
+              deepestIndex = i32(i);
+            }
+            lastToCheck = i + contour.skipCount + 1u;
+            i += 1u;
+          } else {
+            i += contour.skipCount + 1u;
+          }
         }
       }
 
@@ -719,6 +785,9 @@ export const fn_computeTerrainHeightAndGradient: ShaderModule = {
     fn_getTerrainVertex,
     fn_getIDWGridCandidateRange,
     fn_getIDWGridEntry,
+    fn_getLookupGridBaseContour,
+    fn_getLookupGridCandidateRange,
+    fn_getLookupGridCandidate,
   ],
 };
 

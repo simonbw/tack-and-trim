@@ -1,6 +1,4 @@
 use std::collections::HashSet;
-use std::fs::{self, File};
-use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -662,42 +660,20 @@ fn bfs_order(roots: &[ContourNode]) -> Vec<usize> {
     order
 }
 
-/// Binary terrain format:
-///   Header (16 bytes): magic u32 ("TRRN"), version u32, defaultDepth f32, contourCount u32
-///   Contour headers (8 bytes each): height f32, pointCount u32
-///   Vertex data (8 bytes per point): x f32, y f32
-/// All values are little-endian.
+/// Build terrain CPU data from polygon contours and write as v2 binary format.
 fn write_terrain_file(output_path: &Path, contours: Vec<TerrainContourJson>) -> Result<()> {
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create {}", parent.display()))?;
-    }
+    let polygon_contours: Vec<terrain_core::level::PolygonContour> = contours
+        .into_iter()
+        .map(|c| terrain_core::level::PolygonContour {
+            height: c.height,
+            polygon: c.polygon,
+        })
+        .collect();
 
-    let file = File::create(output_path)
-        .with_context(|| format!("Failed to create {}", output_path.display()))?;
-    let mut w = BufWriter::new(file);
+    let terrain =
+        terrain_core::level::build_terrain_data_from_polygons(&polygon_contours, DEFAULT_DEPTH);
+    terrain_core::level::write_terrain_binary(output_path, &terrain)?;
 
-    // Header
-    w.write_all(&0x4E525254_u32.to_le_bytes())?; // "TRRN" magic
-    w.write_all(&1_u32.to_le_bytes())?; // version
-    w.write_all(&(DEFAULT_DEPTH as f32).to_le_bytes())?; // defaultDepth
-    w.write_all(&(contours.len() as u32).to_le_bytes())?; // contourCount
-
-    // Contour headers
-    for c in &contours {
-        w.write_all(&(c.height as f32).to_le_bytes())?;
-        w.write_all(&(c.polygon.len() as u32).to_le_bytes())?;
-    }
-
-    // Vertex data
-    for c in &contours {
-        for pt in &c.polygon {
-            w.write_all(&(pt[0] as f32).to_le_bytes())?;
-            w.write_all(&(pt[1] as f32).to_le_bytes())?;
-        }
-    }
-
-    w.flush()?;
     Ok(())
 }
 

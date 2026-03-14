@@ -24,6 +24,11 @@ export const IDW_GRID_CELL_STARTS = IDW_GRID_CELLS + 1; // 257 (prefix-sum senti
 export const MAX_IDW_DATA = 25165824; // 24M u32s (96MB) for all IDW grid data
 export const MAX_IDW_CONTOURS = 32; // Max contours in one IDW blend (1 parent + 31 children)
 
+// Contour lookup grid for fast deepest-contour lookup (level-wide)
+export const LOOKUP_GRID_SIZE = 1024; // 1024×1024 grid
+export const LOOKUP_GRID_CELLS = LOOKUP_GRID_SIZE * LOOKUP_GRID_SIZE; // 65536
+export const LOOKUP_GRID_HEADER = 6; // cols, rows, min_x, min_y, inv_cell_w, inv_cell_h
+
 // Default terrain parameters
 export const DEFAULT_DEPTH = -300; // ft - deep ocean baseline
 

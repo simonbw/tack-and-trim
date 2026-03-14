@@ -7,18 +7,24 @@
  * [2] childrenOffset - element index where children data starts
  * [3] containmentGridOffset - element index where containment grid data starts
  * [4] idwGridDataOffset - element index where IDW grid data starts
+ * [5] lookupGridOffset - element index where lookup grid data starts (0 = no grid)
  * [...] vertex data (f32 pairs stored as u32)
  * [...] contour data (14 fields per contour, mixed u32/f32)
  * [...] children data (u32 indices)
  * [...] containment grid data (256 u32 per contour, 2-bit packed flags)
  * [...] IDW grid data (variable, prefix-sum cell_starts + packed entries)
+ * [...] lookup grid data (level-wide 256×256 contour lookup grid)
  *
  * All float values are stored as u32 and recovered via bitcast<f32>().
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { FLOATS_PER_CONTOUR } from "../terrain/LandMass";
-import { IDW_GRID_CELL_STARTS } from "../terrain/TerrainConstants";
+import {
+  IDW_GRID_CELL_STARTS,
+  LOOKUP_GRID_CELLS,
+  LOOKUP_GRID_HEADER,
+} from "../terrain/TerrainConstants";
 
 /**
  * Contour data structure for terrain height computation.
@@ -146,6 +152,49 @@ export const fn_getIDWGridEntry: ShaderModule = {
 fn getIDWGridEntry(packed: ptr<storage, array<u32>, read>, gridBase: u32, entryIndex: u32) -> u32 {
   let entriesBase = gridBase + ${IDW_GRID_CELL_STARTS}u;  // after cell_starts prefix-sum
   return (*packed)[entriesBase + entryIndex];
+}
+`,
+};
+
+// =============================================================================
+// Contour Lookup Grid Accessors
+// =============================================================================
+
+/**
+ * Get the base contour (deepest fully-containing contour) for a lookup grid cell.
+ * Returns the DFS contour index, or 0xFFFFFFFF if no contour contains this cell.
+ */
+export const fn_getLookupGridBaseContour: ShaderModule = {
+  code: /*wgsl*/ `
+fn getLookupGridBaseContour(packed: ptr<storage, array<u32>, read>, gridBase: u32, cellIndex: u32) -> u32 {
+  return (*packed)[gridBase + ${LOOKUP_GRID_HEADER}u + cellIndex];
+}
+`,
+};
+
+/**
+ * Get the candidate range (start, end) for a lookup grid cell.
+ * Returns vec2<u32>(start, end) indices into the candidate array.
+ */
+export const fn_getLookupGridCandidateRange: ShaderModule = {
+  code: /*wgsl*/ `
+fn getLookupGridCandidateRange(packed: ptr<storage, array<u32>, read>, gridBase: u32, cellIndex: u32) -> vec2<u32> {
+  let cellStartsBase = gridBase + ${LOOKUP_GRID_HEADER}u + ${LOOKUP_GRID_CELLS}u;
+  let start = (*packed)[cellStartsBase + cellIndex];
+  let end = (*packed)[cellStartsBase + cellIndex + 1u];
+  return vec2<u32>(start, end);
+}
+`,
+};
+
+/**
+ * Get a candidate contour DFS index from the lookup grid.
+ */
+export const fn_getLookupGridCandidate: ShaderModule = {
+  code: /*wgsl*/ `
+fn getLookupGridCandidate(packed: ptr<storage, array<u32>, read>, gridBase: u32, candidateIndex: u32) -> u32 {
+  let candidatesBase = gridBase + ${LOOKUP_GRID_HEADER}u + ${LOOKUP_GRID_CELLS}u + ${LOOKUP_GRID_CELLS + 1}u;
+  return (*packed)[candidatesBase + candidateIndex];
 }
 `,
 };

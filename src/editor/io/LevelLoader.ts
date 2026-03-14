@@ -12,11 +12,11 @@ import { loadWavemeshFromUrl } from "../../game/wave-physics/WavemeshLoader";
 import { loadWindmeshFromUrl } from "../../game/wind/WindmeshLoader";
 import { loadTreesFromUrl } from "../../game/trees/TreeLoader";
 import { RESOURCES, LevelName } from "../../../resources/resources";
+import type { PrecomputedTerrainGPUData } from "./LevelFileFormat";
 import {
   EditorLevelDefinition,
   LevelData,
   LevelFileJSON,
-  TerrainFileJSON,
   levelFileToEditorDefinition,
   levelFileToLevelData,
   parseTerrainBinary,
@@ -25,26 +25,16 @@ import {
 } from "./LevelFileFormat";
 
 /**
- * Fetch and parse a binary .terrain file from a URL.
- */
-async function loadTerrainFromUrl(url: string): Promise<TerrainFileJSON> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch terrain: ${response.status} ${url}`);
-  }
-  const buffer = await response.arrayBuffer();
-  return parseTerrainBinary(buffer);
-}
-
-/**
  * Resolve terrain references in a v2 level file.
  * If the level has a terrainFile reference, fetch and merge the binary terrain data.
+ * Returns the updated file and any precomputed GPU data.
  */
-async function resolveTerrainReference(
-  file: LevelFileJSON,
-): Promise<LevelFileJSON> {
+async function resolveTerrainReference(file: LevelFileJSON): Promise<{
+  file: LevelFileJSON;
+  precomputedGPUData: PrecomputedTerrainGPUData | undefined;
+}> {
   if (!file.terrainFile) {
-    return file;
+    return { file, precomputedGPUData: undefined };
   }
 
   const terrainKey = file.terrainFile.replace(
@@ -58,11 +48,22 @@ async function resolveTerrainReference(
     );
   }
 
-  const terrain = await loadTerrainFromUrl(terrainUrl);
+  const response = await fetch(terrainUrl);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch terrain: ${response.status} ${terrainUrl}`,
+    );
+  }
+  const buffer = await response.arrayBuffer();
+  const result = parseTerrainBinary(buffer);
+
   return {
-    ...file,
-    defaultDepth: file.defaultDepth ?? terrain.defaultDepth,
-    contours: terrain.contours,
+    file: {
+      ...file,
+      defaultDepth: file.defaultDepth ?? result.terrainFile.defaultDepth,
+      contours: result.terrainFile.contours,
+    },
+    precomputedGPUData: result.precomputedGPUData,
   };
 }
 
@@ -83,8 +84,11 @@ export interface LoadedLevel extends LevelData {
  */
 export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
   const rawFile = validateLevelFile(RESOURCES.levels[levelName]);
-  const file = await resolveTerrainReference(rawFile);
+  const { file, precomputedGPUData } = await resolveTerrainReference(rawFile);
   const levelData = levelFileToLevelData(file);
+  if (precomputedGPUData) {
+    levelData.terrain.precomputedGPUData = precomputedGPUData;
+  }
 
   let wavemeshData: WavefrontMeshData[] | undefined;
   const wavemeshUrl =
@@ -150,7 +154,7 @@ export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
  */
 export async function loadDefaultEditorLevel(): Promise<EditorLevelDefinition> {
   const rawFile = validateLevelFile(RESOURCES.levels.default);
-  const file = await resolveTerrainReference(rawFile);
+  const { file } = await resolveTerrainReference(rawFile);
   return levelFileToEditorDefinition(file);
 }
 

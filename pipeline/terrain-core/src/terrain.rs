@@ -505,7 +505,6 @@ impl IDWGrid {
         let h = (max_y - min_y).max(1e-9);
         let cell_w = w / cols as f64;
         let cell_h = h / rows as f64;
-        let cell_diagonal = (cell_w * cell_w + cell_h * cell_h).sqrt() * 0.5;
         let inv_cell_w = cols as f64 / w;
         let inv_cell_h = rows as f64 / h;
         let num_cells = cols * rows;
@@ -553,43 +552,98 @@ impl IDWGrid {
             }
         }
 
-        // For each cell, find candidates using per-contour thresholds.
-        // IDW needs the nearest edge per contour, not just globally. Each contour's
-        // threshold is: sqrt(minDistToContour) + cellDiagonal, ensuring the nearest
-        // edge for that contour is included for any point in the cell.
+        // For each cell, find candidates using exact rect-to-segment distances.
+        // Per-tag upper bound = min over same-tag edges of max_dist(cell, edge).
+        // Edge E is included if min_dist(cell, E) ≤ upper bound for its tag.
+        // Then pairwise pruning: keep only edges nearest at ≥1 of 5 sample points.
         let mut cell_entries: Vec<Vec<u32>> = vec![Vec::new(); num_cells];
+        let mut per_tag_upper_bound_sq = vec![f64::MAX; contour_count];
+        let mut edge_min_dists = vec![0.0f64; edges.len()];
+        let mut cell_candidate_indices: Vec<usize> = Vec::new();
+        let mut keep = Vec::new();
+        let mut nearest_dist_sq = vec![f64::MAX; contour_count];
+        let mut nearest_local_idx = vec![u32::MAX; contour_count];
 
         for row in 0..rows {
             for col in 0..cols {
-                let cx = min_x + (col as f64 + 0.5) * cell_w;
-                let cy = min_y + (row as f64 + 0.5) * cell_h;
+                let rx0 = min_x + col as f64 * cell_w;
+                let ry0 = min_y + row as f64 * cell_h;
+                let rx1 = rx0 + cell_w;
+                let ry1 = ry0 + cell_h;
 
-                // Find per-contour minimum distance from cell center
-                let mut per_tag_min_dist_sq = vec![f64::MAX; contour_count];
-                for e in &edges {
+                // Single pass: compute both min and max distances per edge
+                per_tag_upper_bound_sq.fill(f64::MAX);
+                for (i, e) in edges.iter().enumerate() {
+                    let (d_min, d_max) = rect_segment_min_max_dist_sq(
+                        rx0, ry0, rx1, ry1, e.ax, e.ay, e.bx, e.by,
+                    );
+                    edge_min_dists[i] = d_min;
                     let tag = e.contour_tag as usize;
-                    let d2 = point_to_segment_dist_sq(cx, cy, e.ax, e.ay, e.bx, e.by);
-                    if d2 < per_tag_min_dist_sq[tag] {
-                        per_tag_min_dist_sq[tag] = d2;
+                    if d_max < per_tag_upper_bound_sq[tag] {
+                        per_tag_upper_bound_sq[tag] = d_max;
                     }
                 }
 
-                // Per-contour threshold: nearest edge for this contour + cell diagonal
-                let per_tag_threshold_sq: Vec<f64> = per_tag_min_dist_sq
-                    .iter()
-                    .map(|&d| {
-                        let threshold = d.sqrt() + cell_diagonal;
-                        threshold * threshold
-                    })
-                    .collect();
+                // Collect candidates passing the rect-segment upper bound filter
+                cell_candidate_indices.clear();
+                for (i, e) in edges.iter().enumerate() {
+                    if edge_min_dists[i] <= per_tag_upper_bound_sq[e.contour_tag as usize] {
+                        cell_candidate_indices.push(i);
+                    }
+                }
 
                 let cell = row * cols + col;
-                for e in &edges {
-                    let tag = e.contour_tag as usize;
-                    let d2 = point_to_segment_dist_sq(cx, cy, e.ax, e.ay, e.bx, e.by);
-                    if d2 <= per_tag_threshold_sq[tag] {
-                        let packed = ((e.contour_tag as u32) << 16) | (e.edge_index as u32);
-                        cell_entries[cell].push(packed);
+
+                // Pairwise pruning: sample 5 points (4 corners + center), keep only
+                // edges that are the nearest of their tag at ≥1 sample point.
+                if cell_candidate_indices.len() > 1 {
+                    let cx = (rx0 + rx1) * 0.5;
+                    let cy = (ry0 + ry1) * 0.5;
+                    let samples =
+                        [(rx0, ry0), (rx1, ry0), (rx0, ry1), (rx1, ry1), (cx, cy)];
+
+                    keep.clear();
+                    keep.resize(cell_candidate_indices.len(), false);
+
+                    for &(sx, sy) in &samples {
+                        for v in nearest_dist_sq[..contour_count].iter_mut() {
+                            *v = f64::MAX;
+                        }
+                        for v in nearest_local_idx[..contour_count].iter_mut() {
+                            *v = u32::MAX;
+                        }
+                        for (j, &ei) in cell_candidate_indices.iter().enumerate() {
+                            let e = &edges[ei];
+                            let d = point_to_segment_dist_sq(
+                                sx, sy, e.ax, e.ay, e.bx, e.by,
+                            );
+                            let tag = e.contour_tag as usize;
+                            if d < nearest_dist_sq[tag] {
+                                nearest_dist_sq[tag] = d;
+                                nearest_local_idx[tag] = j as u32;
+                            }
+                        }
+                        for t in 0..contour_count {
+                            if nearest_local_idx[t] != u32::MAX {
+                                keep[nearest_local_idx[t] as usize] = true;
+                            }
+                        }
+                    }
+
+                    for (j, &ei) in cell_candidate_indices.iter().enumerate() {
+                        if keep[j] {
+                            let e = &edges[ei];
+                            cell_entries[cell].push(
+                                ((e.contour_tag as u32) << 16) | (e.edge_index as u32),
+                            );
+                        }
+                    }
+                } else {
+                    for &ei in &cell_candidate_indices {
+                        let e = &edges[ei];
+                        cell_entries[cell].push(
+                            ((e.contour_tag as u32) << 16) | (e.edge_index as u32),
+                        );
                     }
                 }
             }
@@ -647,6 +701,127 @@ fn point_to_segment_dist_sq(px: f64, py: f64, ax: f64, ay: f64, bx: f64, by: f64
     let dx = px - nx;
     let dy = py - ny;
     dx * dx + dy * dy
+}
+
+/// Compute both (min_dist_sq, max_dist_sq) from an axis-aligned rectangle to a
+/// line segment in a single pass, sharing the 4 corner distance computations.
+#[inline]
+fn rect_segment_min_max_dist_sq(
+    rx0: f64,
+    ry0: f64,
+    rx1: f64,
+    ry1: f64,
+    ax: f64,
+    ay: f64,
+    bx: f64,
+    by: f64,
+) -> (f64, f64) {
+    let d0 = point_to_segment_dist_sq(rx0, ry0, ax, ay, bx, by);
+    let d1 = point_to_segment_dist_sq(rx1, ry0, ax, ay, bx, by);
+    let d2 = point_to_segment_dist_sq(rx0, ry1, ax, ay, bx, by);
+    let d3 = point_to_segment_dist_sq(rx1, ry1, ax, ay, bx, by);
+
+    let d_max = d0.max(d1).max(d2).max(d3);
+    let d_min_corners = d0.min(d1).min(d2).min(d3);
+
+    if d_min_corners == 0.0 {
+        return (0.0, d_max);
+    }
+
+    let de0 = point_to_rect_dist_sq(ax, ay, rx0, ry0, rx1, ry1);
+    if de0 == 0.0 {
+        return (0.0, d_max);
+    }
+    let de1 = point_to_rect_dist_sq(bx, by, rx0, ry0, rx1, ry1);
+    if de1 == 0.0 {
+        return (0.0, d_max);
+    }
+
+    let d_min = d_min_corners.min(de0).min(de1);
+
+    let e_min_x = ax.min(bx);
+    let e_max_x = ax.max(bx);
+    let e_min_y = ay.min(by);
+    let e_max_y = ay.max(by);
+    if e_min_x > rx1 || e_max_x < rx0 || e_min_y > ry1 || e_max_y < ry0 {
+        return (d_min, d_max);
+    }
+
+    if segment_crosses_rect(ax, ay, bx, by, rx0, ry0, rx1, ry1) {
+        return (0.0, d_max);
+    }
+
+    (d_min, d_max)
+}
+
+#[inline]
+fn point_to_rect_dist_sq(px: f64, py: f64, rx0: f64, ry0: f64, rx1: f64, ry1: f64) -> f64 {
+    let dx = if px < rx0 {
+        rx0 - px
+    } else if px > rx1 {
+        px - rx1
+    } else {
+        0.0
+    };
+    let dy = if py < ry0 {
+        ry0 - py
+    } else if py > ry1 {
+        py - ry1
+    } else {
+        0.0
+    };
+    dx * dx + dy * dy
+}
+
+#[inline]
+fn segment_crosses_rect(
+    ax: f64,
+    ay: f64,
+    bx: f64,
+    by: f64,
+    rx0: f64,
+    ry0: f64,
+    rx1: f64,
+    ry1: f64,
+) -> bool {
+    let dx = bx - ax;
+    let dy = by - ay;
+    let mut t_min = 0.0f64;
+    let mut t_max = 1.0f64;
+
+    let clips = [
+        (-dx, ax - rx0),
+        (dx, rx1 - ax),
+        (-dy, ay - ry0),
+        (dy, ry1 - ay),
+    ];
+
+    for &(p, q) in &clips {
+        if p.abs() < 1e-20 {
+            if q < 0.0 {
+                return false;
+            }
+        } else {
+            let r = q / p;
+            if p < 0.0 {
+                if r > t_max {
+                    return false;
+                }
+                if r > t_min {
+                    t_min = r;
+                }
+            } else {
+                if r < t_min {
+                    return false;
+                }
+                if r < t_max {
+                    t_max = r;
+                }
+            }
+        }
+    }
+
+    t_min <= t_max
 }
 
 // ---------------------------------------------------------------------------

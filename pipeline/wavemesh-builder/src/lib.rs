@@ -122,26 +122,42 @@ fn process_level(
     config: &config::MeshBuildConfig,
     view: &StepView,
 ) -> anyhow::Result<()> {
-    let (level_file, wave_sources) = view.try_run_step(
+    let (terrain_data, wave_sources) = view.try_run_step(
         "Parsing level",
         || -> anyhow::Result<_> {
             let json_str = std::fs::read_to_string(level_path)
                 .with_context(|| format!("failed to read level file: {level_path}"))?;
-            let mut level_file = level::parse_level_file(&json_str)
+            let level_file = level::parse_level_file(&json_str)
                 .with_context(|| format!("failed to parse level JSON: {level_path}"))?;
-            level::resolve_level_terrain(&mut level_file, std::path::Path::new(level_path))?;
             let wave_sources: Vec<level::WaveSource> = level_file
                 .waves
                 .as_ref()
                 .map(|w| w.sources.iter().map(level::WaveSource::from).collect())
                 .unwrap_or_else(level::default_wave_sources);
-            Ok((level_file, wave_sources))
+
+            // Load terrain: prefer precomputed binary, fall back to building from contours
+            let terrain = if let Some(terrain_path) =
+                level::resolve_terrain_path(&level_file, std::path::Path::new(level_path))?
+            {
+                let bytes = std::fs::read(&terrain_path).with_context(|| {
+                    format!("failed to read terrain file: {}", terrain_path.display())
+                })?;
+                level::read_terrain_binary(&bytes).with_context(|| {
+                    format!("failed to parse terrain file: {}", terrain_path.display())
+                })?
+            } else {
+                let mut lf = level_file;
+                level::resolve_level_terrain(&mut lf, std::path::Path::new(level_path))?;
+                level::build_terrain_data(&lf)
+            };
+
+            Ok((terrain, wave_sources))
         },
-        |(_lf, ws), d| {
+        |(td, ws), d| {
             format!(
                 "Parsed level: {}ms ({} contours, {} wave sources)",
                 format_ms(d),
-                format_int(_lf.contours.len()),
+                format_int(td.contour_count),
                 format_int(ws.len())
             )
         },
@@ -152,14 +168,10 @@ fn process_level(
         return Ok(());
     }
 
-    let (terrain_data, contours, lookup_grid) = view.run_step(
-        "Building terrain",
-        || {
-            let terrain = level::build_terrain_data(&level_file);
-            let (contours, lookup_grid) = terrain::parse_contours(&terrain);
-            (terrain, contours, lookup_grid)
-        },
-        |_, d| format!("Built terrain data: {}ms", format_ms(d)),
+    let (contours, lookup_grid) = view.run_step(
+        "Building terrain grids",
+        || terrain::parse_contours(&terrain_data),
+        |_, d| format!("Built terrain grids: {}ms", format_ms(d)),
     );
 
     let tide_height = 0.0;
@@ -306,36 +318,46 @@ pub fn build_windmesh_for_level_with_view(
         .map(std::string::ToString::to_string)
         .unwrap_or_else(|| level_path.replace(".level.json", ".windmesh"));
 
-    let (level_file, wind_sources) = view.try_run_step(
+    let (terrain_data, wind_sources) = view.try_run_step(
         "Parsing level for wind mesh",
         || -> anyhow::Result<_> {
             let json_str = std::fs::read_to_string(level_path)
                 .with_context(|| format!("failed to read level file: {level_path}"))?;
-            let mut level_file = level::parse_level_file(&json_str)
+            let level_file = level::parse_level_file(&json_str)
                 .with_context(|| format!("failed to parse level JSON: {level_path}"))?;
-            level::resolve_level_terrain(&mut level_file, std::path::Path::new(level_path))?;
             let wind_sources: Vec<level::WindSource> = level_file
                 .wind
                 .as_ref()
                 .map(|w| w.sources.iter().map(level::WindSource::from).collect())
                 .unwrap_or_else(level::default_wind_sources);
-            Ok((level_file, wind_sources))
+
+            // Load terrain: prefer precomputed binary, fall back to building from contours
+            let terrain = if let Some(terrain_path) =
+                level::resolve_terrain_path(&level_file, std::path::Path::new(level_path))?
+            {
+                let bytes = std::fs::read(&terrain_path).with_context(|| {
+                    format!("failed to read terrain file: {}", terrain_path.display())
+                })?;
+                level::read_terrain_binary(&bytes).with_context(|| {
+                    format!("failed to parse terrain file: {}", terrain_path.display())
+                })?
+            } else {
+                let mut lf = level_file;
+                level::resolve_level_terrain(&mut lf, std::path::Path::new(level_path))?;
+                level::build_terrain_data(&lf)
+            };
+
+            Ok((terrain, wind_sources))
         },
-        |(lf, ws), d| {
+        |(td, ws), d| {
             format!(
                 "Parsed level: {}ms ({} contours, {} wind sources)",
                 format_ms(d),
-                format_int(lf.contours.len()),
+                format_int(td.contour_count),
                 format_int(ws.len())
             )
         },
     )?;
-
-    let terrain_data = view.run_step(
-        "Building terrain data",
-        || level::build_terrain_data(&level_file),
-        |_, d| format!("Built terrain data: {}ms", format_ms(d)),
-    );
 
     // Load tree data if a .trees file exists alongside the level
     let trees_path = level_path.replace(".level.json", ".trees");
