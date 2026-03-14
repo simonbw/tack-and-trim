@@ -1219,7 +1219,7 @@ fn build_lookup_grid_packed_gpu(
 
     // Print stats
     // Compute per-cell candidate counts
-    let mut candidate_counts: Vec<usize> = (0..num_cells)
+    let candidate_counts: Vec<usize> = (0..num_cells)
         .map(|c| (cell_starts[c + 1] - cell_starts[c]) as usize)
         .collect();
     let cells_with_zero_candidates = candidate_counts.iter().filter(|&&c| c == 0).count();
