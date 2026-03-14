@@ -35,36 +35,6 @@ let MENU_ZOOM: number = 2;
 //#tunable("Camera") { min: 1, max: 20 }
 let GAMEPLAY_ZOOM: number = 5;
 
-// Fallback hardcoded tree positions for levels without a .trees file
-const FALLBACK_TREES: Partial<Record<LevelName, [number, number][]>> = {
-  default: [
-    [300, -200],
-    [100, -440],
-    [-130, -170],
-    [440, 60],
-    [-60, 180],
-    [-150, 2800],
-    [200, 3100],
-    [350, 2650],
-  ],
-  vendoviIsland: [
-    [580, -280],
-    [960, -80],
-    [420, 420],
-    [-80, 310],
-    [1220, -180],
-    [780, -500],
-  ],
-  sanJuanIslands: [
-    [-14000, 4000],
-    [-17000, 6500],
-    [-11000, 9000],
-    [-20000, 17000],
-    [-22000, 20000],
-    [-13500, 2000],
-  ],
-};
-
 export class GameController extends BaseEntity {
   id = "gameController";
   persistenceLevel = 100;
@@ -161,14 +131,11 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new WindParticles());
     this.game.addEntity(new WindSoundGenerator());
 
-    // Spawn trees on landmasses (prefer generated .trees file, fall back to hardcoded)
-    const treePositions: [number, number][] = this.treeData
-      ? this.treeData.positions
-      : (this.currentLevel != null
-          ? FALLBACK_TREES[this.currentLevel]
-          : undefined) ?? [];
-    for (const [x, y] of treePositions) {
-      this.game.addEntity(new Tree(x, y));
+    // Spawn trees on landmasses from generated .trees file
+    if (this.treeData) {
+      for (const [x, y] of this.treeData.positions) {
+        this.game.addEntity(new Tree(x, y));
+      }
     }
 
     // Start the tutorial if not already completed

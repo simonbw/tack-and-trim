@@ -1352,9 +1352,12 @@ pub fn compute_terrain_height(
     let vd = &terrain.vertex_data;
     let cd = &terrain.children_data;
 
-    // Find the deepest contour containing the point using DFS with skipping
+    // Find the deepest contour containing the point using DFS with skipping.
+    // Track the best depth found so far so that overlapping siblings at a
+    // shallower tree depth cannot overwrite a deeper result.
     let mut deepest_height = terrain.default_depth;
     let mut deepest_idx: Option<usize> = None;
+    let mut deepest_depth: u32 = 0;
     let mut i = 0;
 
     while i < n {
@@ -1369,8 +1372,11 @@ pub fn compute_terrain_height(
             continue;
         }
         if is_inside_contour(px, py, c, vd) {
-            deepest_height = c.height as f64;
-            deepest_idx = Some(i);
+            if deepest_idx.is_none() || c.depth >= deepest_depth {
+                deepest_height = c.height as f64;
+                deepest_idx = Some(i);
+                deepest_depth = c.depth;
+            }
             i += 1; // descend into children
         } else {
             i += 1 + c.skip_count as usize;

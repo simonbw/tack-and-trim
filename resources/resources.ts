@@ -67,7 +67,10 @@ const windmeshes = {
 export type WindmeshName = keyof typeof windmeshes;
 
 const trees = {
-
+  vendoviIsland: "/assets/levels/vendovi-island.trees",
+  sanJuanIslands: "/assets/levels/san-juan-islands.trees",
+  islesOfScilly: "/assets/levels/isles-of-scilly.trees",
+  apostleIslands: "/assets/levels/apostle-islands.trees"
 };
 export type TreesName = keyof typeof trees;
 
