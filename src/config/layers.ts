@@ -15,6 +15,9 @@ export const LAYERS = {
   foamParticles: new LayerInfo(), // Foam on water surface
   sprayParticles: new LayerInfo(), // Spray particles above wake but below hull
 
+  //
+  trees: new LayerInfo(),
+
   underhull: new LayerInfo(),
   hull: new LayerInfo(),
   main: new LayerInfo(),

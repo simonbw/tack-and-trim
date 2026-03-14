@@ -313,6 +313,21 @@ export function parseTerrainBinary(buffer: ArrayBuffer): TerrainBinaryResult {
 }
 
 /**
+ * JSON representation of tree generation configuration in the file format.
+ * All fields are optional and fall back to sensible defaults in the pipeline.
+ */
+export interface TreeConfigJSON {
+  /** Minimum distance between trees in feet (default: 40) */
+  spacing?: number;
+  /** Fraction of valid positions that get trees, 0–1 (default: 0.7) */
+  density?: number;
+  /** Minimum terrain elevation for trees in feet (default: 5) */
+  minElevation?: number;
+  /** Maximum terrain elevation for trees in feet (default: 500) */
+  maxElevation?: number;
+}
+
+/**
  * JSON schema for level files.
  * v2 allows either inline contours or a terrainFile reference.
  */
@@ -329,6 +344,8 @@ export interface LevelFileJSON {
   waves?: WaveConfigJSON;
   /** Wind configuration (optional, defaults to DEFAULT_WIND_CONFIG) */
   wind?: WindConfigJSON;
+  /** Tree generation configuration (optional) */
+  trees?: TreeConfigJSON;
   /** Array of terrain contours (optional in v2 if terrainFile is set) */
   contours?: TerrainContourJSON[];
 }

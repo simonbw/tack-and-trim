@@ -1,6 +1,7 @@
+import { LayerName } from "../config/layers";
 import { BaseEntity } from "../core/entity/BaseEntity";
+import { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
-import type { Draw } from "../core/graphics/Draw";
 import { V, V2d } from "../core/Vector";
 import { WindQuery } from "./world/wind/WindQuery";
 
@@ -18,7 +19,7 @@ const CANOPY_COLOR = 0x1a4010;
 const TRUNK_COLOR = 0x3d2008;
 
 export class Tree extends BaseEntity {
-  layer = "main" as const;
+  layer: LayerName = "trees";
   private readonly position: V2d;
   private readonly phaseOffset: number;
   private time = 0;
@@ -32,7 +33,12 @@ export class Tree extends BaseEntity {
   }
 
   @on("render")
-  onRender({ dt, draw }: { dt: number; draw: Draw }) {
+  onRender({ dt, draw, camera }: GameEventMap["render"]) {
+    if (!camera.isVisible(this.position.x, this.position.y, OUTER_RADIUS)) {
+      // Early out
+      return;
+    }
+
     this.time += dt;
 
     let windVelX = 0;

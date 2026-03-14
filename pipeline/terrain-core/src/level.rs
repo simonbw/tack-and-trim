@@ -6,6 +6,21 @@ use serde::Deserialize;
 
 // ── JSON types ───────────────────────────────────────────────────────────────
 
+/// Tree generation configuration from the level file.
+#[derive(Deserialize, Debug, Clone)]
+pub struct TreeConfigJSON {
+    /// Minimum distance between trees in feet (default: 40).
+    pub spacing: Option<f64>,
+    /// Fraction of valid positions that get trees, 0–1 (default: 0.7).
+    pub density: Option<f64>,
+    /// Minimum terrain elevation for trees in feet (default: 5).
+    #[serde(rename = "minElevation")]
+    pub min_elevation: Option<f64>,
+    /// Maximum terrain elevation for trees in feet (default: 500).
+    #[serde(rename = "maxElevation")]
+    pub max_elevation: Option<f64>,
+}
+
 /// Top-level JSON structure for a `.level.json` file.
 #[derive(Deserialize, Debug)]
 pub struct LevelFileJSON {
@@ -18,6 +33,7 @@ pub struct LevelFileJSON {
     pub default_depth: Option<f64>,
     pub waves: Option<WaveConfigJSON>,
     pub wind: Option<WindConfigJSON>,
+    pub trees: Option<TreeConfigJSON>,
     #[serde(default)]
     pub contours: Vec<TerrainContourJSON>,
 }

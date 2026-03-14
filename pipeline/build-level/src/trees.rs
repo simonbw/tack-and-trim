@@ -8,7 +8,7 @@ use terrain_core::level::{
     resolve_terrain_path,
 };
 use terrain_core::step::StepView;
-use terrain_core::trees::{build_tree_buffer, generate_trees};
+use terrain_core::trees::{build_tree_buffer, generate_trees, TreeConfig};
 
 /// Default seed for deterministic tree placement.
 const DEFAULT_SEED: u64 = 42;
@@ -19,14 +19,16 @@ pub fn run_generate_trees(level_path: &Path, output_path: &Path, view: &StepView
         .to_str()
         .ok_or_else(|| anyhow!("Invalid level path"))?;
 
+    let json_str = std::fs::read_to_string(level_path)
+        .with_context(|| format!("failed to read level file: {level_path_str}"))?;
+    let level_file = parse_level_file(&json_str)
+        .with_context(|| format!("failed to parse level JSON: {level_path_str}"))?;
+
+    let tree_config = TreeConfig::from_json(level_file.trees.as_ref());
+
     let terrain_data = view.try_run_step(
         "Loading terrain for tree generation",
         || -> Result<_> {
-            let json_str = std::fs::read_to_string(level_path)
-                .with_context(|| format!("failed to read level file: {level_path_str}"))?;
-            let level_file = parse_level_file(&json_str)
-                .with_context(|| format!("failed to parse level JSON: {level_path_str}"))?;
-
             // Load terrain: prefer precomputed binary, fall back to building from contours
             if let Some(terrain_path) = resolve_terrain_path(&level_file, level_path)? {
                 let bytes = std::fs::read(&terrain_path).with_context(|| {
@@ -36,7 +38,7 @@ pub fn run_generate_trees(level_path: &Path, output_path: &Path, view: &StepView
                     format!("failed to parse terrain file: {}", terrain_path.display())
                 })
             } else {
-                let mut lf = level_file;
+                let mut lf = parse_level_file(&json_str)?;
                 resolve_level_terrain(&mut lf, level_path)?;
                 Ok(build_terrain_data(&lf))
             }
@@ -52,11 +54,13 @@ pub fn run_generate_trees(level_path: &Path, output_path: &Path, view: &StepView
 
     let tree_data = view.run_step(
         "Generating tree positions",
-        || generate_trees(&terrain_data, DEFAULT_SEED),
+        || generate_trees(&terrain_data, &tree_config, DEFAULT_SEED),
         |td, d| {
             format!(
-                "Generated {} trees ({}ms)",
+                "Generated {} trees (spacing={:.0}ft, density={:.0}%, {}ms)",
                 td.positions.len(),
+                tree_config.spacing,
+                tree_config.density * 100.0,
                 d.as_millis(),
             )
         },
