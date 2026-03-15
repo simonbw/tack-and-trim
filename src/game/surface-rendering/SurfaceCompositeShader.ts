@@ -19,7 +19,7 @@ import {
 } from "../../core/graphics/webgpu/FullscreenShader";
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
 import { fn_renderWaterLighting } from "../world/shaders/lighting.wgsl";
-import { fn_renderSand } from "../world/shaders/sand-rendering.wgsl";
+import { fn_renderTerrain } from "../world/shaders/terrain-rendering.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
 import { fn_fractalNoise3D, fn_simplex3D } from "../world/shaders/noise.wgsl";
 
@@ -111,7 +111,7 @@ const surfaceCompositeFragmentModule: ShaderModule = {
     fn_simplex3D,
     fn_fractalNoise3D,
     fn_renderWaterLighting,
-    fn_renderSand,
+    fn_renderTerrain,
   ],
   code: /*wgsl*/ `
 // Convert clip position to world position using the clip-to-world matrix.
@@ -327,7 +327,7 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
 
   if (waterDepth < 0.0) {
     // Above water - render as sand/terrain with tracked wetness
-    let color = renderSand(terrainHeight, terrainNormal, worldPos, wetness, params.time);
+    let color = renderTerrain(terrainHeight, terrainNormal, worldPos, wetness, params.time);
     return vec4<f32>(color, 1.0);
   } else if (waterDepth < params.shallowThreshold) {
     // Shallow water - blend between sand and water with sharp transition
@@ -337,7 +337,7 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
 
     // For underwater sand, use max of tracked wetness and water depth
     let underwaterWetness = max(wetness, waterDepth);
-    let sandColor = renderSand(terrainHeight, terrainNormal, worldPos, underwaterWetness, params.time);
+    let sandColor = renderTerrain(terrainHeight, terrainNormal, worldPos, underwaterWetness, params.time);
     let waterColor = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth, worldPos);
     var finalColor = mix(sandColor, waterColor, blendFactor);
 

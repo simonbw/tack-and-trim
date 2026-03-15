@@ -55,6 +55,7 @@ export interface EditorLevelDefinition {
   terrain: EditorTerrainDefinition;
   waveConfig: WaveConfig | undefined;
   windConfig: WindConfig | undefined;
+  biome?: BiomeConfigJSON;
 }
 
 /**
@@ -328,6 +329,41 @@ export interface TreeConfigJSON {
 }
 
 /**
+ * JSON representation of a biome elevation zone.
+ */
+export interface BiomeZoneJSON {
+  /** Upper height bound in feet for this zone */
+  maxHeight: number;
+  /** Base RGB color [0-1] */
+  color: [number, number, number];
+  /** Alternate RGB color for noise variation [0-1] */
+  colorAlt: [number, number, number];
+  /** How much noise blends between color and colorAlt (0-1) */
+  noiseBlend: number;
+}
+
+/**
+ * JSON representation of biome terrain coloring configuration.
+ * Defines how terrain surfaces are colored based on elevation, slope, and noise.
+ */
+export interface BiomeConfigJSON {
+  /** Elevation zones sorted by maxHeight, up to 6 */
+  zones: BiomeZoneJSON[];
+  /** RGB color for exposed rock on steep slopes [0-1] */
+  rockColor: [number, number, number];
+  /** Slope value (0-1) above which rock appears (0 = always rock, 1 = never) */
+  rockThreshold: number;
+  /** RGB color for snow (default: [0.95, 0.97, 1.0]) */
+  snowColor?: [number, number, number];
+  /** Height above which snow appears, -1 = no snow (default: -1) */
+  snowlineHeight?: number;
+  /** World units per noise cycle for large patches (default: 0.005) */
+  largeNoiseScale?: number;
+  /** World units per noise cycle for fine detail (default: 0.3) */
+  smallNoiseScale?: number;
+}
+
+/**
  * JSON schema for level files.
  * v2 allows either inline contours or a terrainFile reference.
  */
@@ -346,6 +382,8 @@ export interface LevelFileJSON {
   wind?: WindConfigJSON;
   /** Tree generation configuration (optional) */
   trees?: TreeConfigJSON;
+  /** Biome terrain coloring configuration (optional) */
+  biome?: BiomeConfigJSON;
   /** Array of terrain contours (optional in v2 if terrainFile is set) */
   contours?: TerrainContourJSON[];
 }
@@ -570,6 +608,7 @@ export interface LevelData {
   terrain: TerrainDefinition;
   waves: WaveConfig;
   wind: WindConfig;
+  biome?: BiomeConfigJSON;
 }
 
 /**
@@ -594,6 +633,7 @@ export function levelFileToLevelData(file: LevelFileJSON): LevelData {
     terrain: levelFileToTerrainDefinition(file),
     waves: levelFileToWaveConfig(file),
     wind: levelFileToWindConfig(file),
+    biome: file.biome,
   };
 }
 
@@ -668,6 +708,7 @@ export function levelFileToEditorDefinition(
     windConfig: file.wind
       ? levelFileToWindConfig({ wind: file.wind } as LevelFileJSON)
       : undefined,
+    biome: file.biome,
   };
 }
 
@@ -696,6 +737,7 @@ export function editorDefinitionToLevelFile(
     ...(definition.windConfig && {
       wind: windConfigToJSON(definition.windConfig),
     }),
+    ...(definition.biome && { biome: definition.biome }),
     contours,
   };
 }

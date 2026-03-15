@@ -22,5 +22,56 @@
         "direction": 0.785
       }
     ]
+  },
+  "biome": {
+    "zones": [
+      {
+        "maxHeight": 3,
+        "color": [0.55, 0.52, 0.45],
+        "colorAlt": [0.48, 0.45, 0.4],
+        "noiseBlend": 0.3
+      },
+      {
+        "maxHeight": 25,
+        "color": [0.22, 0.3, 0.14],
+        "colorAlt": [0.18, 0.22, 0.1],
+        "noiseBlend": 0.5
+      },
+      {
+        "maxHeight": 120,
+        "color": [0.1, 0.2, 0.07],
+        "colorAlt": [0.14, 0.16, 0.06],
+        "noiseBlend": 0.5
+      },
+      {
+        "maxHeight": 300,
+        "color": [0.08, 0.16, 0.05],
+        "colorAlt": [0.12, 0.12, 0.05],
+        "noiseBlend": 0.4
+      },
+      {
+        "maxHeight": 600,
+        "color": [0.38, 0.42, 0.36],
+        "colorAlt": [0.42, 0.4, 0.35],
+        "noiseBlend": 0.3
+      },
+      {
+        "maxHeight": 9999,
+        "color": [0.52, 0.52, 0.5],
+        "colorAlt": [0.48, 0.48, 0.45],
+        "noiseBlend": 0.2
+      }
+    ],
+    "rockColor": [0.42, 0.42, 0.4],
+    "rockThreshold": 0.55,
+    "snowlineHeight": -1,
+    "largeNoiseScale": 0.004,
+    "smallNoiseScale": 0.25
+  },
+  "trees": {
+    "spacing": 15,
+    "density": 1.0,
+    "minElevation": 3,
+    "maxElevation": 300
   }
 }

@@ -36,6 +36,12 @@ import { SurfaceCompositeUniforms } from "./SurfaceCompositeUniforms";
 import { TerrainScreenUniforms } from "./TerrainScreenUniforms";
 import { LODTerrainTileCache } from "./LODTerrainTileCache";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
+import {
+  type BiomeConfig,
+  DEFAULT_BIOME_CONFIG,
+  BIOME_BUFFER_SIZE,
+  packBiomeBuffer,
+} from "./BiomeConfig";
 
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
@@ -88,6 +94,7 @@ export class SurfaceRenderer extends BaseEntity {
   private terrainScreenUniformBuffer: GPUBuffer | null = null;
   private waterHeightUniformBuffer: GPUBuffer | null = null;
   private compositeUniformBuffer: GPUBuffer | null = null;
+  private biomeUniformBuffer: GPUBuffer | null = null;
 
   // Uniform instances
   private terrainScreenUniforms: UniformInstance<
@@ -115,8 +122,11 @@ export class SurfaceRenderer extends BaseEntity {
   private lastTerrainAtlasView: GPUTextureView | null = null;
   private lastWaveFieldTextureView: GPUTextureView | null = null;
 
-  constructor() {
+  private biomeConfig: BiomeConfig;
+
+  constructor(biomeConfig?: BiomeConfig) {
     super();
+    this.biomeConfig = biomeConfig ?? DEFAULT_BIOME_CONFIG;
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -166,6 +176,15 @@ export class SurfaceRenderer extends BaseEntity {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         label: "Surface Composite Uniform Buffer",
       });
+
+      // Biome uniform buffer — uploaded once per level load
+      this.biomeUniformBuffer = device.createBuffer({
+        size: BIOME_BUFFER_SIZE,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: "Biome Uniform Buffer",
+      });
+      const biomeData = packBiomeBuffer(this.biomeConfig);
+      device.queue.writeBuffer(this.biomeUniformBuffer, 0, biomeData.buffer);
 
       // Create uniform instances
       this.terrainScreenUniforms = TerrainScreenUniforms.create();
@@ -469,6 +488,7 @@ export class SurfaceRenderer extends BaseEntity {
     if (
       this.compositeShader &&
       this.compositeUniformBuffer &&
+      this.biomeUniformBuffer &&
       this.waterHeightView &&
       this.heightSampler &&
       wetnessTextureView
@@ -479,6 +499,7 @@ export class SurfaceRenderer extends BaseEntity {
         terrainTileAtlas: terrainAtlasView,
         wetnessTexture: wetnessTextureView,
         heightSampler: this.heightSampler,
+        biomeParams: { buffer: this.biomeUniformBuffer },
       });
     }
 
@@ -730,5 +751,6 @@ export class SurfaceRenderer extends BaseEntity {
     this.terrainScreenUniformBuffer?.destroy();
     this.waterHeightUniformBuffer?.destroy();
     this.compositeUniformBuffer?.destroy();
+    this.biomeUniformBuffer?.destroy();
   }
 }

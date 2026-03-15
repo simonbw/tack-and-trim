@@ -12,6 +12,7 @@ import { GameInitializingScreen } from "./GameInitializingScreen";
 import { MainMenu } from "./MainMenu";
 import { NavigationHUD } from "./NavigationHUD";
 import { SpeedReadout } from "./SpeedReadout";
+import { parseBiomeConfig } from "./surface-rendering/BiomeConfig";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { TimeOfDayHUD } from "./TimeOfDayHUD";
@@ -64,8 +65,15 @@ export class GameController extends BaseEntity {
     const initScreen = this.game.addEntity(new GameInitializingScreen());
 
     // 1. Load level data (terrain + waves + wavemesh + trees)
-    const { terrain, waves, wind, wavemeshData, windmeshData, treeData } =
-      await loadLevel(levelName);
+    const {
+      terrain,
+      waves,
+      wind,
+      wavemeshData,
+      windmeshData,
+      treeData,
+      biome,
+    } = await loadLevel(levelName);
     this.treeData = treeData;
     this.game.addEntity(new TerrainResources(terrain));
     this.game.addEntity(new TerrainQueryManager());
@@ -88,7 +96,9 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new QueryCoordinator());
 
     // 6. Visual entities
-    const surfaceRenderer = this.game.addEntity(new SurfaceRenderer());
+    const surfaceRenderer = this.game.addEntity(
+      new SurfaceRenderer(parseBiomeConfig(biome)),
+    );
     this.game.addEntity(new WindIndicator());
     this.game.addEntity(new DebugRenderer());
 
