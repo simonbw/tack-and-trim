@@ -12,10 +12,11 @@
  */
 
 import { getWebGPU } from "./WebGPUDevice";
-import { Shader } from "./Shader";
+import { collectShaderModules, Shader, SHADER_MATH_CONSTANTS } from "./Shader";
 import {
   type BindingsDefinition,
   createBindGroupLayoutEntries,
+  generateWGSLBindings,
 } from "./ShaderBindings";
 import type { ShaderModule } from "./ShaderModule";
 
@@ -31,6 +32,36 @@ export interface ComputeShaderConfig {
 
   /** Label for GPU debugging (optional) */
   label?: string;
+}
+
+/**
+ * Assemble complete WGSL code for a compute shader without requiring a GPU device.
+ * Useful for testing shader code in Node.js environments.
+ */
+export function assembleComputeShaderWGSL(config: ComputeShaderConfig): string {
+  const modules = collectShaderModules(config.modules);
+
+  // Collect preambles
+  const preambles = modules
+    .filter((m) => m.preamble)
+    .map((m) => m.preamble)
+    .join("\n\n");
+
+  // Merge bindings from all modules
+  const merged: Record<string, any> = {};
+  for (const module of modules) {
+    if (module.bindings) {
+      Object.assign(merged, module.bindings);
+    }
+  }
+  const bindingsWgsl = generateWGSLBindings(merged as BindingsDefinition, 0);
+
+  // Collect code
+  const code = modules.map((m) => m.code).join("\n\n");
+
+  return [SHADER_MATH_CONSTANTS, preambles, bindingsWgsl, code]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**

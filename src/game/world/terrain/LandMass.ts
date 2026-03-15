@@ -930,47 +930,11 @@ function buildIDWGrid(
         }
       }
 
-      // Pairwise pruning: sample 5 points (4 corners + center), keep only
-      // edges that are the nearest of their tag at ≥1 sample point.
-      let candidates: number[];
-      if (candidateIndices.length > 1) {
-        const cx = (rx0 + rx1) * 0.5;
-        const cy = (ry0 + ry1) * 0.5;
-        const samples = [rx0, ry0, rx1, ry0, rx0, ry1, rx1, ry1, cx, cy];
-        const keep = new Uint8Array(candidateIndices.length);
-        const nearestIdx = new Int32Array(numTags);
-
-        for (let s = 0; s < 10; s += 2) {
-          const sx = samples[s];
-          const sy = samples[s + 1];
-          perTagUpperBoundSq.fill(Infinity); // reuse as nearest-dist tracker
-          nearestIdx.fill(-1);
-          for (let j = 0; j < candidateIndices.length; j++) {
-            const e = edges[candidateIndices[j]];
-            const d = pointToSegmentDistSq(sx, sy, e.ax, e.ay, e.bx, e.by);
-            if (d < perTagUpperBoundSq[e.tag]) {
-              perTagUpperBoundSq[e.tag] = d;
-              nearestIdx[e.tag] = j;
-            }
-          }
-          for (let t = 0; t < numTags; t++) {
-            if (nearestIdx[t] >= 0) keep[nearestIdx[t]] = 1;
-          }
-        }
-
-        candidates = [];
-        for (let j = 0; j < candidateIndices.length; j++) {
-          if (keep[j]) {
-            const e = edges[candidateIndices[j]];
-            candidates.push((e.tag << 16) | e.edgeIndex);
-          }
-        }
-      } else {
-        candidates = candidateIndices.map((i) => {
-          const e = edges[i];
-          return (e.tag << 16) | e.edgeIndex;
-        });
-      }
+      // Add all candidates that pass the rect-segment upper bound filter.
+      const candidates: number[] = candidateIndices.map((i) => {
+        const e = edges[i];
+        return (e.tag << 16) | e.edgeIndex;
+      });
 
       cellEntries[cell] = candidates;
       totalEntries += candidates.length;

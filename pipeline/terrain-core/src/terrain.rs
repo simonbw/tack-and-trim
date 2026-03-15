@@ -560,9 +560,6 @@ impl IDWGrid {
         let mut per_tag_upper_bound_sq = vec![f64::MAX; contour_count];
         let mut edge_min_dists = vec![0.0f64; edges.len()];
         let mut cell_candidate_indices: Vec<usize> = Vec::new();
-        let mut keep = Vec::new();
-        let mut nearest_dist_sq = vec![f64::MAX; contour_count];
-        let mut nearest_local_idx = vec![u32::MAX; contour_count];
 
         for row in 0..rows {
             for col in 0..cols {
@@ -594,57 +591,12 @@ impl IDWGrid {
 
                 let cell = row * cols + col;
 
-                // Pairwise pruning: sample 5 points (4 corners + center), keep only
-                // edges that are the nearest of their tag at ≥1 sample point.
-                if cell_candidate_indices.len() > 1 {
-                    let cx = (rx0 + rx1) * 0.5;
-                    let cy = (ry0 + ry1) * 0.5;
-                    let samples =
-                        [(rx0, ry0), (rx1, ry0), (rx0, ry1), (rx1, ry1), (cx, cy)];
-
-                    keep.clear();
-                    keep.resize(cell_candidate_indices.len(), false);
-
-                    for &(sx, sy) in &samples {
-                        for v in nearest_dist_sq[..contour_count].iter_mut() {
-                            *v = f64::MAX;
-                        }
-                        for v in nearest_local_idx[..contour_count].iter_mut() {
-                            *v = u32::MAX;
-                        }
-                        for (j, &ei) in cell_candidate_indices.iter().enumerate() {
-                            let e = &edges[ei];
-                            let d = point_to_segment_dist_sq(
-                                sx, sy, e.ax, e.ay, e.bx, e.by,
-                            );
-                            let tag = e.contour_tag as usize;
-                            if d < nearest_dist_sq[tag] {
-                                nearest_dist_sq[tag] = d;
-                                nearest_local_idx[tag] = j as u32;
-                            }
-                        }
-                        for t in 0..contour_count {
-                            if nearest_local_idx[t] != u32::MAX {
-                                keep[nearest_local_idx[t] as usize] = true;
-                            }
-                        }
-                    }
-
-                    for (j, &ei) in cell_candidate_indices.iter().enumerate() {
-                        if keep[j] {
-                            let e = &edges[ei];
-                            cell_entries[cell].push(
-                                ((e.contour_tag as u32) << 16) | (e.edge_index as u32),
-                            );
-                        }
-                    }
-                } else {
-                    for &ei in &cell_candidate_indices {
-                        let e = &edges[ei];
-                        cell_entries[cell].push(
-                            ((e.contour_tag as u32) << 16) | (e.edge_index as u32),
-                        );
-                    }
+                // Add all candidates that pass the rect-segment upper bound filter.
+                for &ei in &cell_candidate_indices {
+                    let e = &edges[ei];
+                    cell_entries[cell].push(
+                        ((e.contour_tag as u32) << 16) | (e.edge_index as u32),
+                    );
                 }
             }
         }
@@ -1929,8 +1881,9 @@ fn idw_from_grid(
         let (w, dw_dx, dw_dy);
         if distance <= IDW_MIN_DIST {
             w = 1.0 / IDW_MIN_DIST;
-            dw_dx = 0.0;
-            dw_dy = 0.0;
+            let scale = -1.0 / (IDW_MIN_DIST * IDW_MIN_DIST);
+            dw_dx = scale * ddist_dx;
+            dw_dy = scale * ddist_dy;
         } else {
             let inv_dist = 1.0 / distance;
             w = inv_dist;
@@ -2048,8 +2001,9 @@ fn idw_fallback(
         let (w, dw_dx, dw_dy);
         if dist <= IDW_MIN_DIST {
             w = 1.0 / IDW_MIN_DIST;
-            dw_dx = 0.0;
-            dw_dy = 0.0;
+            let scale = -1.0 / (IDW_MIN_DIST * IDW_MIN_DIST);
+            dw_dx = scale * ddist_dx;
+            dw_dy = scale * ddist_dy;
         } else {
             let inv_dist = 1.0 / dist;
             w = inv_dist;
@@ -2082,5 +2036,192 @@ fn idw_fallback(
         height: weighted_h_sum * inv_w,
         gradient_x: (grad_wh_sum_x * weight_sum - weighted_h_sum * grad_w_sum_x) * inv_w_sq,
         gradient_y: (grad_wh_sum_y * weight_sum - weighted_h_sum * grad_w_sum_y) * inv_w_sq,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::level::{build_terrain_data, parse_level_file, resolve_level_terrain};
+
+    #[test]
+    fn test_idw_grid_matches_brute_force() {
+        // Locate the level file relative to the workspace root.
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let level_path = manifest_dir.join("../../resources/levels/default.level.json");
+        assert!(
+            level_path.exists(),
+            "Level file not found at {}",
+            level_path.display()
+        );
+
+        // Load and parse the level
+        let json_str = std::fs::read_to_string(&level_path)
+            .unwrap_or_else(|e| panic!("Failed to read {}: {}", level_path.display(), e));
+        let mut level = parse_level_file(&json_str)
+            .unwrap_or_else(|e| panic!("Failed to parse level file: {}", e));
+        resolve_level_terrain(&mut level, &level_path)
+            .unwrap_or_else(|e| panic!("Failed to resolve terrain: {}", e));
+
+        assert!(
+            !level.contours.is_empty(),
+            "Level has no contours — nothing to test"
+        );
+
+        // Build terrain data and parse contours
+        let terrain = build_terrain_data(&level);
+        let (contours, lookup_grid) = parse_contours(&terrain);
+
+        // Compute bounding box with 5% margin
+        let mut min_x = f64::MAX;
+        let mut min_y = f64::MAX;
+        let mut max_x = f64::MIN;
+        let mut max_y = f64::MIN;
+        for c in &contours {
+            min_x = min_x.min(c.bbox_min_x as f64);
+            min_y = min_y.min(c.bbox_min_y as f64);
+            max_x = max_x.max(c.bbox_max_x as f64);
+            max_y = max_y.max(c.bbox_max_y as f64);
+        }
+        let width = max_x - min_x;
+        let height = max_y - min_y;
+        let margin = 0.05;
+        let render_min_x = min_x - width * margin;
+        let render_min_y = min_y - height * margin;
+        let render_w = width * (1.0 + 2.0 * margin);
+        let render_h = height * (1.0 + 2.0 * margin);
+
+        // Sample a 256x256 grid
+        const GRID_SIZE: usize = 256;
+        let mut max_height_diff: f64 = 0.0;
+        let mut max_gx_diff: f64 = 0.0;
+        let mut max_gy_diff: f64 = 0.0;
+        let mut sum_height_diff: f64 = 0.0;
+        let mut sum_gx_diff: f64 = 0.0;
+        let mut sum_gy_diff: f64 = 0.0;
+        let mut worst_height_point = (0.0_f64, 0.0_f64);
+        let mut worst_height_vals = (0.0_f64, 0.0_f64); // (grid, brute)
+        let mut worst_gx_point = (0.0_f64, 0.0_f64);
+        let mut worst_gy_point = (0.0_f64, 0.0_f64);
+        let mut nonzero_count: usize = 0;
+        let total_points = GRID_SIZE * GRID_SIZE;
+
+        for row in 0..GRID_SIZE {
+            for col in 0..GRID_SIZE {
+                let px =
+                    render_min_x + (col as f64 + 0.5) / GRID_SIZE as f64 * render_w;
+                let py =
+                    render_min_y + (row as f64 + 0.5) / GRID_SIZE as f64 * render_h;
+
+                let with_grid = compute_terrain_height_and_gradient_ex(
+                    px,
+                    py,
+                    &terrain,
+                    &contours,
+                    &lookup_grid,
+                    true,
+                );
+                let without_grid = compute_terrain_height_and_gradient_ex(
+                    px,
+                    py,
+                    &terrain,
+                    &contours,
+                    &lookup_grid,
+                    false,
+                );
+
+                let h_diff = (with_grid.height - without_grid.height).abs();
+                let gx_diff =
+                    (with_grid.gradient_x - without_grid.gradient_x).abs();
+                let gy_diff =
+                    (with_grid.gradient_y - without_grid.gradient_y).abs();
+
+                sum_height_diff += h_diff;
+                sum_gx_diff += gx_diff;
+                sum_gy_diff += gy_diff;
+
+                if h_diff > 1e-15 || gx_diff > 1e-15 || gy_diff > 1e-15 {
+                    nonzero_count += 1;
+                }
+
+                if h_diff > max_height_diff {
+                    max_height_diff = h_diff;
+                    worst_height_point = (px, py);
+                    worst_height_vals = (with_grid.height, without_grid.height);
+                }
+                if gx_diff > max_gx_diff {
+                    max_gx_diff = gx_diff;
+                    worst_gx_point = (px, py);
+                }
+                if gy_diff > max_gy_diff {
+                    max_gy_diff = gy_diff;
+                    worst_gy_point = (px, py);
+                }
+            }
+        }
+
+        // Print comprehensive statistics
+        println!();
+        println!(
+            "IDW Grid vs Brute-Force comparison ({0}x{0} = {1} points):",
+            GRID_SIZE, total_points
+        );
+        println!("  Contours: {}", contours.len());
+        println!(
+            "  Terrain bounds: ({:.1}, {:.1}) to ({:.1}, {:.1})",
+            min_x, min_y, max_x, max_y
+        );
+        println!();
+        println!(
+            "  Points with any difference (>1e-15): {} / {} ({:.2}%)",
+            nonzero_count,
+            total_points,
+            100.0 * nonzero_count as f64 / total_points as f64
+        );
+        println!();
+        println!("  Height:");
+        println!("    Max error:        {:.6e} ft  at ({:.2}, {:.2})", max_height_diff, worst_height_point.0, worst_height_point.1);
+        println!("      grid={:.6}, brute={:.6}", worst_height_vals.0, worst_height_vals.1);
+        println!("    Cumulative error: {:.6e} ft", sum_height_diff);
+        println!("    Mean error:       {:.6e} ft", sum_height_diff / total_points as f64);
+        println!();
+        println!("  Gradient X:");
+        println!("    Max error:        {:.6e}  at ({:.2}, {:.2})", max_gx_diff, worst_gx_point.0, worst_gx_point.1);
+        println!("    Cumulative error: {:.6e}", sum_gx_diff);
+        println!("    Mean error:       {:.6e}", sum_gx_diff / total_points as f64);
+        println!();
+        println!("  Gradient Y:");
+        println!("    Max error:        {:.6e}  at ({:.2}, {:.2})", max_gy_diff, worst_gy_point.0, worst_gy_point.1);
+        println!("    Cumulative error: {:.6e}", sum_gy_diff);
+        println!("    Mean error:       {:.6e}", sum_gy_diff / total_points as f64);
+        println!();
+
+        // The IDW grid path computes distances in f64, while the brute-force
+        // fallback uses NEON f32 SIMD on aarch64. When two edges have nearly
+        // equal distances, f32 vs f64 precision can pick different "nearest"
+        // edges, causing small IDW blending differences. Tolerance of 1e-3
+        // catches real grid construction bugs (which cause multi-foot errors)
+        // while allowing for f32/f64 precision differences.
+        assert!(
+            max_height_diff < 1e-3,
+            "Height mismatch: max diff {:.6e} at ({:.4}, {:.4}) — grid candidate set may be missing edges",
+            max_height_diff,
+            worst_height_point.0,
+            worst_height_point.1,
+        );
+        assert!(
+            max_gx_diff < 1e-3,
+            "Gradient X mismatch: max diff {:.6e} at ({:.4}, {:.4})",
+            max_gx_diff,
+            worst_gx_point.0,
+            worst_gx_point.1,
+        );
+        assert!(
+            max_gy_diff < 1e-3,
+            "Gradient Y mismatch: max diff {:.6e} at ({:.4}, {:.4})",
+            max_gy_diff,
+            worst_gy_point.0,
+            worst_gy_point.1,
+        );
     }
 }

@@ -23,6 +23,35 @@ import type { MergeModuleBindings, ShaderModule } from "./ShaderModule";
 import { getWebGPU } from "./WebGPUDevice";
 
 /**
+ * Collect shader modules and their dependencies in correct order.
+ * Standalone version for use without a GPU device.
+ */
+export function collectShaderModules(modules: ShaderModule[]): ShaderModule[] {
+  const seen = new Set<ShaderModule>();
+  const ordered: ShaderModule[] = [];
+  function collect(module: ShaderModule) {
+    if (!seen.has(module)) {
+      seen.add(module);
+      module.dependencies?.forEach(collect);
+      ordered.push(module);
+    }
+  }
+  modules.forEach(collect);
+  return ordered;
+}
+
+/**
+ * Standard math and physics constants included in every shader.
+ */
+export const SHADER_MATH_CONSTANTS = /*wgsl*/ `
+// Fundamental constants (included automatically)
+const PI: f32 = 3.14159265359;
+const TWO_PI: f32 = 6.28318530718;
+const HALF_PI: f32 = 1.57079632679;
+const GRAVITY: f32 = 32.174; // ft/s^2
+`;
+
+/**
  * Abstract base class for all shaders.
  *
  * @template T - The bindings definition type for type-safe bind group creation
@@ -52,24 +81,7 @@ export abstract class Shader<T extends BindingsDefinition> {
    * Deduplicates shared dependencies.
    */
   protected collectModules(): ShaderModule[] {
-    if (!this.modules) return [];
-
-    const seen = new Set<ShaderModule>();
-    const ordered: ShaderModule[] = [];
-
-    function collect(module: ShaderModule) {
-      if (!seen.has(module)) {
-        seen.add(module);
-        // Collect dependencies first (depth-first)
-        module.dependencies?.forEach(collect);
-        // Add module after dependencies
-        ordered.push(module);
-      }
-    }
-
-    this.modules.forEach(collect);
-
-    return ordered;
+    return collectShaderModules(this.modules ?? []);
   }
 
   /**
@@ -77,13 +89,7 @@ export abstract class Shader<T extends BindingsDefinition> {
    * @returns WGSL code for fundamental constants
    */
   protected getMathConstants(): string {
-    return /*wgsl*/ `
-// Fundamental constants (included automatically)
-const PI: f32 = 3.14159265359;
-const TWO_PI: f32 = 6.28318530718;
-const HALF_PI: f32 = 1.57079632679;
-const GRAVITY: f32 = 32.174; // ft/s^2
-    `;
+    return SHADER_MATH_CONSTANTS;
   }
 
   /**

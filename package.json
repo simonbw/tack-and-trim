@@ -29,7 +29,8 @@
     "build-terrain": "./bin/build-level build",
     "import-terrain": "./bin/build-level build",
     "docs": "typedoc",
-    "count-tokens": "tsx ./bin/count-tokens.ts"
+    "count-tokens": "tsx ./bin/count-tokens.ts",
+    "test:terrain-gpu": "npx tsx tests/terrain-gpu-test.ts"
   },
   "repository": {
     "type": "git",
@@ -66,8 +67,8 @@
     "chokidar": "^4.0.3",
     "concurrently": "^9.2.0",
     "console-browserify": "^1.2.0",
-    "glob": "^11.0.3",
     "geotiff": "^2.1.4-beta.1",
+    "glob": "^11.0.3",
     "http-proxy": "^1.18.1",
     "parcel": "^2.16.3",
     "prettier": "^3.6.0",
@@ -77,6 +78,7 @@
     "typedoc": "^0.28.16",
     "typescript": "^5.9.3",
     "util": "^0.12.5",
+    "webgpu": "^0.3.8",
     "yargs": "^18.0.0"
   }
 }

@@ -962,9 +962,6 @@ fn build_idw_grid_packed(
     let mut per_tag_upper_bound_sq = vec![f64::MAX; num_tags];
     let mut edge_min_dists = vec![0.0f64; edges.len()];
     let mut cell_candidate_indices: Vec<usize> = Vec::new();
-    let mut keep = Vec::new();
-    let mut nearest_dist_sq = vec![f64::MAX; num_tags];
-    let mut nearest_local_idx = vec![u32::MAX; num_tags];
 
     for row in 0..IDW_GRID_SIZE {
         for col in 0..IDW_GRID_SIZE {
@@ -996,53 +993,11 @@ fn build_idw_grid_packed(
 
             let cell = row * IDW_GRID_SIZE + col;
 
-            // Pairwise pruning: sample 5 points (4 corners + center), keep only
-            // edges that are the nearest of their tag at ≥1 sample point.
-            if cell_candidate_indices.len() > 1 {
-                let cx = (rx0 + rx1) * 0.5;
-                let cy = (ry0 + ry1) * 0.5;
-                let samples = [(rx0, ry0), (rx1, ry0), (rx0, ry1), (rx1, ry1), (cx, cy)];
-
-                keep.clear();
-                keep.resize(cell_candidate_indices.len(), false);
-
-                for &(sx, sy) in &samples {
-                    for v in nearest_dist_sq[..num_tags].iter_mut() {
-                        *v = f64::MAX;
-                    }
-                    for v in nearest_local_idx[..num_tags].iter_mut() {
-                        *v = u32::MAX;
-                    }
-                    for (j, &ei) in cell_candidate_indices.iter().enumerate() {
-                        let e = &edges[ei];
-                        let d =
-                            point_to_segment_dist_sq(sx, sy, e.ax, e.ay, e.bx, e.by);
-                        let tag = e.tag as usize;
-                        if d < nearest_dist_sq[tag] {
-                            nearest_dist_sq[tag] = d;
-                            nearest_local_idx[tag] = j as u32;
-                        }
-                    }
-                    for t in 0..num_tags {
-                        if nearest_local_idx[t] != u32::MAX {
-                            keep[nearest_local_idx[t] as usize] = true;
-                        }
-                    }
-                }
-
-                for (j, &ei) in cell_candidate_indices.iter().enumerate() {
-                    if keep[j] {
-                        let e = &edges[ei];
-                        cell_entries[cell]
-                            .push(((e.tag as u32) << 16) | (e.edge_index as u32));
-                    }
-                }
-            } else {
-                for &ei in &cell_candidate_indices {
-                    let e = &edges[ei];
-                    cell_entries[cell]
-                        .push(((e.tag as u32) << 16) | (e.edge_index as u32));
-                }
+            // Add all candidates that pass the rect-segment upper bound filter.
+            for &ei in &cell_candidate_indices {
+                let e = &edges[ei];
+                cell_entries[cell]
+                    .push(((e.tag as u32) << 16) | (e.edge_index as u32));
             }
         }
     }

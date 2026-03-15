@@ -22,6 +22,98 @@ import {
 const PACKED_TERRAIN_HEADER_SIZE = 6;
 
 /**
+ * Pack terrain data into a single Uint32Array for GPU upload.
+ * Pure function — no GPU device needed.
+ */
+export function packTerrainBuffer(gpuData: {
+  vertexData: Float32Array;
+  contourData: ArrayBuffer;
+  childrenData: Uint32Array;
+  containmentGridData: Uint32Array;
+  idwGridData: Uint32Array;
+  lookupGridData: Uint32Array;
+  contourCount: number;
+}): Uint32Array {
+  const {
+    vertexData,
+    contourData,
+    childrenData,
+    containmentGridData,
+    idwGridData,
+    lookupGridData,
+    contourCount,
+  } = gpuData;
+
+  // Compute section offsets from actual data sizes (tightly packed)
+  const verticesOffset = PACKED_TERRAIN_HEADER_SIZE;
+  const vertexCount = vertexData.length; // number of f32s (2 per vertex)
+  const contoursOffset = verticesOffset + vertexCount;
+  const contourFloatCount = contourCount * FLOATS_PER_CONTOUR;
+  const childrenOffset = contoursOffset + contourFloatCount;
+  const containmentGridOffset = childrenOffset + childrenData.length;
+  const idwGridDataOffset = containmentGridOffset + containmentGridData.length;
+  const lookupGridOffset =
+    lookupGridData.length > 0 ? idwGridDataOffset + idwGridData.length : 0;
+  const packedSize =
+    idwGridDataOffset + idwGridData.length + lookupGridData.length;
+
+  const packed = new Uint32Array(packedSize);
+  const packedFloat = new Float32Array(packed.buffer);
+
+  // Write header
+  packed[0] = verticesOffset;
+  packed[1] = contoursOffset;
+  packed[2] = childrenOffset;
+  packed[3] = containmentGridOffset;
+  packed[4] = idwGridDataOffset;
+  packed[5] = lookupGridOffset;
+
+  // Write vertex data (f32 pairs → stored as u32 via shared buffer)
+  for (let i = 0; i < vertexCount; i++) {
+    packedFloat[verticesOffset + i] = vertexData[i];
+  }
+
+  // Write contour data (mixed u32/f32 - contourData is already an ArrayBuffer)
+  // Contour field 13 (idwGridDataOffset) stores (relative offset + 1) where
+  // 0 means "no grid". Convert to absolute offset in packed buffer.
+  const contourSrc = new Uint32Array(contourData);
+  for (let i = 0; i < contourFloatCount; i++) {
+    packed[contoursOffset + i] = contourSrc[i];
+  }
+  for (let ci = 0; ci < contourCount; ci++) {
+    const fieldOffset = contoursOffset + ci * FLOATS_PER_CONTOUR + 13;
+    const encoded = packed[fieldOffset];
+    if (encoded !== 0) {
+      packed[fieldOffset] = idwGridDataOffset + (encoded - 1);
+    }
+  }
+
+  // Write children data
+  for (let i = 0; i < childrenData.length; i++) {
+    packed[childrenOffset + i] = childrenData[i];
+  }
+
+  // Write containment grid data
+  for (let i = 0; i < containmentGridData.length; i++) {
+    packed[containmentGridOffset + i] = containmentGridData[i];
+  }
+
+  // Write IDW grid data
+  for (let i = 0; i < idwGridData.length; i++) {
+    packed[idwGridDataOffset + i] = idwGridData[i];
+  }
+
+  // Write lookup grid data
+  if (lookupGridOffset > 0) {
+    for (let i = 0; i < lookupGridData.length; i++) {
+      packed[lookupGridOffset + i] = lookupGridData[i];
+    }
+  }
+
+  return packed;
+}
+
+/**
  * Manages GPU resources for terrain data.
  *
  * Resource provider that owns GPU buffers and provides access to them.
@@ -94,94 +186,19 @@ export class TerrainResources extends BaseEntity {
     const gpuData = definition.precomputedGPUData
       ? buildTerrainGPUDataFromPrecomputed(definition.precomputedGPUData)
       : buildTerrainGPUData(definition);
-    const {
-      vertexData,
-      contourData,
-      childrenData,
-      containmentGridData,
-      idwGridData,
-      lookupGridData,
-      contourCount,
-    } = gpuData;
 
-    // Compute section offsets from actual data sizes (tightly packed)
-    const verticesOffset = PACKED_TERRAIN_HEADER_SIZE;
-    const vertexCount = vertexData.length; // number of f32s (2 per vertex)
-    const contoursOffset = verticesOffset + vertexCount;
-    const contourFloatCount = contourCount * FLOATS_PER_CONTOUR;
-    const childrenOffset = contoursOffset + contourFloatCount;
-    const containmentGridOffset = childrenOffset + childrenData.length;
-    const idwGridDataOffset =
-      containmentGridOffset + containmentGridData.length;
-    const lookupGridOffset =
-      lookupGridData.length > 0 ? idwGridDataOffset + idwGridData.length : 0;
-    const packedSize =
-      idwGridDataOffset + idwGridData.length + lookupGridData.length;
+    const packed = packTerrainBuffer(gpuData);
 
     // Recreate GPU buffer sized to actual data
     this.packedTerrainBuffer?.destroy();
     this.packedTerrainBuffer = device.createBuffer({
-      size: packedSize * 4,
+      size: packed.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: "Packed Terrain Buffer",
     });
-
-    const packed = new Uint32Array(packedSize);
-    const packedFloat = new Float32Array(packed.buffer);
-
-    // Write header
-    packed[0] = verticesOffset;
-    packed[1] = contoursOffset;
-    packed[2] = childrenOffset;
-    packed[3] = containmentGridOffset;
-    packed[4] = idwGridDataOffset;
-    packed[5] = lookupGridOffset;
-
-    // Write vertex data (f32 pairs → stored as u32 via shared buffer)
-    for (let i = 0; i < vertexCount; i++) {
-      packedFloat[verticesOffset + i] = vertexData[i];
-    }
-
-    // Write contour data (mixed u32/f32 - contourData is already an ArrayBuffer)
-    // Contour field 13 (idwGridDataOffset) stores (relative offset + 1) where
-    // 0 means "no grid". Convert to absolute offset in packed buffer.
-    const contourSrc = new Uint32Array(contourData);
-    for (let i = 0; i < contourFloatCount; i++) {
-      packed[contoursOffset + i] = contourSrc[i];
-    }
-    for (let ci = 0; ci < contourCount; ci++) {
-      const fieldOffset = contoursOffset + ci * FLOATS_PER_CONTOUR + 13;
-      const encoded = packed[fieldOffset];
-      if (encoded !== 0) {
-        packed[fieldOffset] = idwGridDataOffset + (encoded - 1);
-      }
-    }
-
-    // Write children data
-    for (let i = 0; i < childrenData.length; i++) {
-      packed[childrenOffset + i] = childrenData[i];
-    }
-
-    // Write containment grid data
-    for (let i = 0; i < containmentGridData.length; i++) {
-      packed[containmentGridOffset + i] = containmentGridData[i];
-    }
-
-    // Write IDW grid data
-    for (let i = 0; i < idwGridData.length; i++) {
-      packed[idwGridDataOffset + i] = idwGridData[i];
-    }
-
-    // Write lookup grid data
-    if (lookupGridOffset > 0) {
-      for (let i = 0; i < lookupGridData.length; i++) {
-        packed[lookupGridOffset + i] = lookupGridData[i];
-      }
-    }
-
     device.queue.writeBuffer(this.packedTerrainBuffer, 0, packed.buffer);
 
-    this.contourCount = contourCount;
+    this.contourCount = gpuData.contourCount;
   }
 
   /**
