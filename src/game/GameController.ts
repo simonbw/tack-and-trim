@@ -20,7 +20,6 @@ import { TimeOfDayHUD } from "./TimeOfDayHUD";
 import { TutorialManager } from "./tutorial/TutorialManager";
 import { isTutorialCompleted } from "./tutorial/tutorialStorage";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
-import { WindIndicator } from "./WindIndicator";
 import { WindParticles } from "./WindParticles";
 import { WindSoundGenerator } from "./WindSoundGenerator";
 import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
@@ -103,7 +102,6 @@ export class GameController extends BaseEntity {
     const surfaceRenderer = this.game.addEntity(
       new SurfaceRenderer(parseBiomeConfig(biome)),
     );
-    this.game.addEntity(new WindIndicator());
     this.game.addEntity(new DebugRenderer());
 
     // Wait for critical systems before starting gameplay
