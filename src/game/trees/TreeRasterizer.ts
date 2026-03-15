@@ -49,6 +49,7 @@ const TreeUniforms = defineUniformStruct("TreeParams", {
   angleVariation: f32,
   flowCyclePeriod: f32,
   slowTimeScale: f32,
+  timeOfDay: f32,
 });
 
 // Inline the simplex3D and calculateWindVelocity WGSL code
@@ -74,6 +75,7 @@ struct TreeParams {
   angleVariation: f32,
   flowCyclePeriod: f32,
   slowTimeScale: f32,
+  timeOfDay: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: TreeParams;
@@ -95,6 +97,19 @@ ${SIMPLEX_CODE}
 
 // Wind velocity
 ${WIND_CODE}
+
+// Sun direction for lighting (inlined from scene-lighting.wgsl.ts)
+fn getSunDirection(time: f32) -> vec3<f32> {
+  let hour = time / 3600.0;
+  let sunPhase = (hour - 6.0) * 3.14159 / 12.0;
+  let elevation = sin(sunPhase);
+  let sunElevation = max(elevation, 0.0);
+  let azimuth = (hour - 12.0) * 3.14159 / 6.0;
+  let x = cos(azimuth) * 0.3 + 0.3;
+  let y = sin(azimuth) * 0.2 + 0.2;
+  let z = sunElevation * 0.9 + 0.1;
+  return normalize(vec3<f32>(x, y, z));
+}
 
 @vertex
 fn vs_main(
@@ -188,7 +203,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   // Dark trunk/shadow base disc (no sway — it's the ground-level footprint)
   let trunkDist = length(centered);
   let trunkR: f32 = 0.61 * sizeVar;
-  let trunkAlpha = (1.0 - smoothstep(trunkR - 0.04, trunkR + 0.02, trunkDist)) * 0.92;
+  let trunkAlpha = (1.0 - step(trunkR, trunkDist)) * 0.92;
   pm = TRUNK_COLOR * trunkAlpha + pm * (1.0 - trunkAlpha);
   a = trunkAlpha + a * (1.0 - trunkAlpha);
 
@@ -198,7 +213,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let height = fi / f32(NUM_WHORLS - 1); // 0 (ground) to 1 (top)
 
     // Wind-only sway: lean proportional to whorl height, scaled by tree size
-    let swayUV = windDir * swayAmount * height * sizeVar / QUAD_HALF;
+    let osc = sin(params.time * 1.8 + in.phase + fi * 0.5) * 0.03;
+    let swayUV = windDir * swayAmount * height * sizeVar * (1.0 + osc) / QUAD_HALF;
 
     // Shifted position for this whorl
     let shiftedPos = centered - swayUV;
@@ -231,7 +247,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let edgeR = radius + (tipShape * branchVar + subBump) * baseBumpMag + edgeNoise;
 
     // Whorl base coverage — sharper edge
-    let baseAlpha = 1.0 - smoothstep(edgeR - 0.03, edgeR + 0.015, dist);
+    let baseAlpha = 1.0 - step(edgeR, dist);
 
     // Valley coverage — less transparent than before for crisper lower layers
     let valleyCoverage = smoothstep(0.0, 0.3, tipShape);
@@ -239,11 +255,27 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Color: progressively lighter for upper whorls
     let lum = 0.16 + height * 0.12;
-    let whorlBaseColor = vec3<f32>(lum * 0.50, lum, lum * 0.35);
+    let hueShift = fract(in.phase * 2.71);
+    let coolGreen = vec3<f32>(lum * 0.40, lum, lum * 0.45);
+    let warmGreen = vec3<f32>(lum * 0.55, lum, lum * 0.25);
+    let whorlBaseColor = mix(coolGreen, warmGreen, hueShift);
 
     // Gentler AO: darker near center, lighter at tips
     let tipLighting = smoothstep(radius * 0.4, radius, dist);
-    let whorlColor = mix(whorlBaseColor * 0.65, whorlBaseColor, tipLighting);
+    var whorlColor = mix(whorlBaseColor * 0.65, whorlBaseColor, tipLighting);
+
+    // Sun-side lighting
+    let sunDir3 = getSunDirection(params.timeOfDay);
+    let sunDir2 = normalize(sunDir3.xy);
+    let radialDir = select(vec2<f32>(1.0, 0.0), normalize(shiftedPos), dist > 0.001);
+    let sunDot = dot(radialDir, sunDir2);
+    let sunFactor = 0.85 + 0.15 * sunDot;
+    whorlColor *= sunFactor;
+
+    // Rim highlight on branch tips catching light
+    let rimFactor = smoothstep(radius * 0.7, radius, dist);
+    let rimBoost = rimFactor * 0.08 * (0.5 + 0.5 * sunDot);
+    whorlColor += vec3<f32>(rimBoost);
 
     // Drop shadow: darken area just outside this whorl's edge
     let shadowDist = dist - edgeR;
@@ -259,7 +291,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let leaderShift = windDir * swayAmount * 1.1 * sizeVar / QUAD_HALF;
   let leaderPos = centered - leaderShift;
   let leaderDist = length(leaderPos);
-  let leaderAlpha = 1.0 - smoothstep(0.03, 0.06, leaderDist);
+  let leaderAlpha = 1.0 - step(0.045, leaderDist);
   pm = LEADER_COLOR * leaderAlpha + pm * (1.0 - leaderAlpha);
   a = leaderAlpha + a * (1.0 - leaderAlpha);
 
@@ -436,6 +468,7 @@ export class TreeRasterizer {
     time: number,
     baseWindX: number,
     baseWindY: number,
+    timeOfDay: number,
   ): void {
     if (
       !this.initialized ||
@@ -464,6 +497,7 @@ export class TreeRasterizer {
     this.uniforms.set.angleVariation(WIND_ANGLE_VARIATION);
     this.uniforms.set.flowCyclePeriod(WIND_FLOW_CYCLE_PERIOD);
     this.uniforms.set.slowTimeScale(WIND_SLOW_TIME_SCALE);
+    this.uniforms.set.timeOfDay(timeOfDay);
     this.uniforms.uploadTo(this.uniformBuffer);
 
     renderPass.setPipeline(this.pipeline);

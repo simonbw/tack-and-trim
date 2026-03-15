@@ -3,6 +3,7 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import type { TreeFileData } from "../../pipeline/mesh-building/TreeFile";
+import { TimeOfDay } from "../time/TimeOfDay";
 import { WindResources } from "../world/wind/WindResources";
 import { TreeRasterizer } from "./TreeRasterizer";
 
@@ -191,6 +192,9 @@ export class TreeManager extends BaseEntity {
     const baseWindX = windResources ? windResources.getBaseVelocity().x : 11;
     const baseWindY = windResources ? windResources.getBaseVelocity().y : 11;
 
+    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
+    const todSeconds = timeOfDay ? timeOfDay.getTimeInSeconds() : 43200;
+
     this.rasterizer.render(
       renderPass,
       visibleCount,
@@ -205,6 +209,7 @@ export class TreeManager extends BaseEntity {
       performance.now() / 1000,
       baseWindX,
       baseWindY,
+      todSeconds,
     );
   }
 }
