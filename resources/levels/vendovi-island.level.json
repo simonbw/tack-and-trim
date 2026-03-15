@@ -23,6 +23,7 @@
       }
     ]
   },
+  "startPosition": [0, -2000],
   "biome": {
     "zones": [
       {

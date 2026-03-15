@@ -1,6 +1,7 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { ReactPreloader } from "../core/resources/Preloader";
+import { V, V2d } from "../core/Vector";
 import type { TreeFileData } from "../pipeline/mesh-building/TreeFile";
 import { LevelName } from "../../resources/resources";
 import { loadLevel } from "../editor/io/LevelLoader";
@@ -42,6 +43,7 @@ export class GameController extends BaseEntity {
 
   private currentLevel: LevelName | null = null;
   private treeData: TreeFileData | undefined;
+  private startPosition: V2d = V(0, 0);
 
   @on("add")
   onAdd() {
@@ -73,8 +75,10 @@ export class GameController extends BaseEntity {
       windmeshData,
       treeData,
       biome,
+      startPosition,
     } = await loadLevel(levelName);
     this.treeData = treeData;
+    this.startPosition = startPosition ?? V(0, 0);
     this.game.addEntity(new TerrainResources(terrain));
     this.game.addEntity(new TerrainQueryManager());
 
@@ -129,6 +133,7 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new NavigationHUD(this.currentLevel ?? undefined));
     // Spawn boat and controls
     const boat = this.game.addEntity(new Boat());
+    boat.hull.body.position.set(this.startPosition);
     this.game.addEntity(new PlayerBoatController(boat));
 
     // Spawn camera controller with zoom transition

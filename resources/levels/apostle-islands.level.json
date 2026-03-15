@@ -22,5 +22,12 @@
         "direction": 0.785
       }
     ]
+  },
+  "startPosition": [0, 0],
+  "trees": {
+    "spacing": 35,
+    "density": 0.75,
+    "minElevation": 4,
+    "maxElevation": 500
   }
 }

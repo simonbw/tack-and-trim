@@ -384,6 +384,8 @@ export interface LevelFileJSON {
   trees?: TreeConfigJSON;
   /** Biome terrain coloring configuration (optional) */
   biome?: BiomeConfigJSON;
+  /** Boat start position as [x, y] in world coordinates (optional, defaults to [0, 0]) */
+  startPosition?: [number, number];
   /** Array of terrain contours (optional in v2 if terrainFile is set) */
   contours?: TerrainContourJSON[];
 }
@@ -609,6 +611,7 @@ export interface LevelData {
   waves: WaveConfig;
   wind: WindConfig;
   biome?: BiomeConfigJSON;
+  startPosition?: V2d;
 }
 
 /**
@@ -634,6 +637,9 @@ export function levelFileToLevelData(file: LevelFileJSON): LevelData {
     waves: levelFileToWaveConfig(file),
     wind: levelFileToWindConfig(file),
     biome: file.biome,
+    startPosition: file.startPosition
+      ? V(file.startPosition[0], file.startPosition[1])
+      : undefined,
   };
 }
 
