@@ -13,6 +13,7 @@ import { on } from "../../core/entity/handler";
 import { ReactEntity } from "../../core/ReactEntity";
 import "./DebugHUD.css";
 import { DebugRenderMode } from "./modes/DebugRenderMode";
+import { TerrainGradientDebugMode } from "./modes/TerrainGradientDebugMode";
 import { TerrainHeightDebugMode } from "./modes/TerrainHeightDebugMode";
 import { WaterHeightDebugMode } from "./modes/WaterHeightDebugMode";
 import { WavefrontMeshDebugMode } from "./modes/WavefrontMeshDebugMode.js";
@@ -25,6 +26,7 @@ export class DebugRenderer extends ReactEntity {
   private modeConstructors: Array<() => DebugRenderMode> = [
     () => new WavefrontMeshDebugMode(),
     () => new TerrainHeightDebugMode(),
+    () => new TerrainGradientDebugMode(),
     () => new WaterHeightDebugMode(),
     () => new WindFieldDebugMode(),
     () => new WindMeshDebugMode(),
