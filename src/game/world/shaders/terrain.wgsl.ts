@@ -617,6 +617,9 @@ export const fn_computeTerrainHeightAndGradient: ShaderModule = {
         var gradWeightY: f32 = 0.0;
         if (parentBdg.distance <= _IDW_MIN_DIST) {
           weight = 1.0 / _IDW_MIN_DIST;
+          let scale = -1.0 / (_IDW_MIN_DIST * _IDW_MIN_DIST);
+          gradWeightX = scale * parentBdg.gradientX;
+          gradWeightY = scale * parentBdg.gradientY;
         } else {
           let invDist = 1.0 / parentBdg.distance;
           weight = invDist;
@@ -640,6 +643,9 @@ export const fn_computeTerrainHeightAndGradient: ShaderModule = {
           var cGradWeightY: f32 = 0.0;
           if (childBdg.distance <= _IDW_MIN_DIST) {
             cWeight = 1.0 / _IDW_MIN_DIST;
+            let cScale = -1.0 / (_IDW_MIN_DIST * _IDW_MIN_DIST);
+            cGradWeightX = cScale * childBdg.gradientX;
+            cGradWeightY = cScale * childBdg.gradientY;
           } else {
             let cInvDist = 1.0 / childBdg.distance;
             cWeight = cInvDist;
@@ -749,6 +755,15 @@ export const fn_computeTerrainHeightAndGradient: ShaderModule = {
         var gwy: f32 = 0.0;
         if (dist <= _IDW_MIN_DIST) {
           w = 1.0 / _IDW_MIN_DIST;
+          // Use clamped distance for gradient magnitude, keep direction
+          if (dist > 1e-9) {
+            let invD = 1.0 / dist;
+            let gradDx = bestDx[c2] * invD;
+            let gradDy = bestDy[c2] * invD;
+            let scale = -1.0 / (_IDW_MIN_DIST * _IDW_MIN_DIST);
+            gwx = scale * gradDx;
+            gwy = scale * gradDy;
+          }
         } else {
           let invD = 1.0 / dist;
           w = invD;
