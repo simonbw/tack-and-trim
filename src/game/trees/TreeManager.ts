@@ -2,9 +2,11 @@ import { LayerName } from "../../config/layers";
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
+import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
 import type { TreeFileData } from "../../pipeline/mesh-building/TreeFile";
 import { TimeOfDay } from "../time/TimeOfDay";
 import { WindResources } from "../world/wind/WindResources";
+import { createTreeCompositeShader } from "./TreeCompositeShader";
 import { TreeRasterizer } from "./TreeRasterizer";
 
 // Spatial tile size in world feet
@@ -39,6 +41,11 @@ function phaseFromPosition(x: number, y: number): number {
  * CPU does visibility culling via a tile grid, then uploads visible
  * tree data to a GPU storage buffer for instanced rendering with
  * wind sway computed entirely on GPU.
+ *
+ * Trees render to an offscreen texture via a separate command encoder
+ * (like SurfaceRenderer), then composite into the main render pass.
+ * This avoids expensive render pass restarts on tile-based GPUs and
+ * gives GPU profiling for free.
  */
 export class TreeManager extends BaseEntity {
   layer: LayerName = "trees";
@@ -49,6 +56,9 @@ export class TreeManager extends BaseEntity {
 
   // GPU rendering
   private rasterizer: TreeRasterizer | null = null;
+  private compositeShader: FullscreenShader | null = null;
+  private compositeBindGroup: GPUBindGroup | null = null;
+  private lastTextureView: GPUTextureView | null = null;
   private gpuTreeData: Float32Array; // staging buffer, stride 4: [x, y, phase, 0]
   private gpuTreeCapacity: number;
 
@@ -108,17 +118,24 @@ export class TreeManager extends BaseEntity {
     const device = this.game.getWebGPUDevice();
     this.rasterizer = new TreeRasterizer(device);
     await this.rasterizer.init();
+
+    this.compositeShader = createTreeCompositeShader();
+    await this.compositeShader.init();
   }
 
   @on("destroy")
   onDestroy(): void {
     this.rasterizer?.destroy();
     this.rasterizer = null;
+    this.compositeShader?.destroy();
+    this.compositeShader = null;
+    this.compositeBindGroup = null;
+    this.lastTextureView = null;
   }
 
   @on("render")
   onRender({ draw, camera }: GameEventMap["render"]) {
-    if (!this.rasterizer) return;
+    if (!this.rasterizer || !this.compositeShader) return;
 
     const viewport = camera.getWorldViewport();
     const minCol = Math.floor((viewport.left - OUTER_RADIUS) / TILE_SIZE);
@@ -175,19 +192,16 @@ export class TreeManager extends BaseEntity {
     // Upload visible tree data to GPU
     this.rasterizer.updateTreeBuffer(this.gpuTreeData, visibleCount);
 
-    // Flush pending draw calls to maintain layer ordering
     const renderer = draw.renderer;
-    renderer.flush();
-
-    const renderPass = renderer.getCurrentRenderPass();
-    if (!renderPass) return;
-
-    // Get camera matrix for world→screen transform
+    const gpuProfiler = renderer.getGpuProfiler();
     const camMatrix = camera.getMatrix();
+    // Use logical (CSS) pixels for camera transform — matches camera.getMatrix()
     const screenWidth = renderer.getWidth();
     const screenHeight = renderer.getHeight();
+    // Use physical pixels for the offscreen texture — matches the main render target
+    const physicalWidth = renderer.canvas.width;
+    const physicalHeight = renderer.canvas.height;
 
-    // Get base wind velocity
     const windResources = this.game.entities.tryGetSingleton(WindResources);
     const baseWindX = windResources ? windResources.getBaseVelocity().x : 11;
     const baseWindY = windResources ? windResources.getBaseVelocity().y : 11;
@@ -195,8 +209,10 @@ export class TreeManager extends BaseEntity {
     const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const todSeconds = timeOfDay ? timeOfDay.getTimeInSeconds() : 43200;
 
-    this.rasterizer.render(
-      renderPass,
+    // Render trees to offscreen texture (separate command encoder, like SurfaceRenderer).
+    // This avoids interrupting the main render pass — expensive on tile-based GPUs.
+    // GPU profiler timestamps are attached to this pass for free.
+    this.rasterizer.renderToTexture(
       visibleCount,
       camMatrix.a,
       camMatrix.b,
@@ -206,10 +222,32 @@ export class TreeManager extends BaseEntity {
       camMatrix.ty,
       screenWidth,
       screenHeight,
+      physicalWidth,
+      physicalHeight,
       performance.now() / 1000,
       baseWindX,
       baseWindY,
       todSeconds,
+      camera.z,
+      gpuProfiler,
     );
+
+    // Composite tree texture into the main render pass
+    renderer.flush();
+    const mainPass = renderer.getCurrentRenderPass();
+    if (!mainPass) return;
+
+    // Rebuild bind group if texture changed (e.g., resize)
+    const textureView = this.rasterizer.getTextureView();
+    if (textureView && textureView !== this.lastTextureView) {
+      this.compositeBindGroup = this.compositeShader.createBindGroup({
+        treeTexture: textureView,
+      });
+      this.lastTextureView = textureView;
+    }
+
+    if (this.compositeBindGroup) {
+      this.compositeShader.render(mainPass, this.compositeBindGroup);
+    }
   }
 }
