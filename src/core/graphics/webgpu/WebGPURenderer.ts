@@ -675,6 +675,40 @@ export class WebGPURenderer {
     return this.currentRenderPass;
   }
 
+  /**
+   * End the current render pass and begin a new one, preserving framebuffer contents.
+   * Use this to give a section of rendering its own render pass for GPU profiling
+   * via timestamp queries. Returns the new render pass encoder.
+   */
+  restartRenderPass(
+    timestampWrites?: GPURenderPassTimestampWrites,
+    label?: string,
+  ): GPURenderPassEncoder | null {
+    if (
+      !this.currentRenderPass ||
+      !this.currentCommandEncoder ||
+      !this.currentRenderTarget
+    )
+      return null;
+
+    this.flush();
+    this.currentRenderPass.end();
+
+    this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: this.currentRenderTarget,
+          loadOp: "load",
+          storeOp: "store",
+        },
+      ],
+      timestampWrites,
+      label,
+    });
+
+    return this.currentRenderPass;
+  }
+
   /** Clear the screen with a color */
   clear(color: number = 0x000000, _alpha: number = 1.0): void {
     // In WebGPU, clearing is done via loadOp in beginRenderPass
