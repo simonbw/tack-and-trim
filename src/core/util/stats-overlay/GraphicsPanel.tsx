@@ -1,10 +1,7 @@
-import {
-  GPUBufferTracker,
-  type BufferStats,
-} from "../../graphics/webgpu/GPUBufferTracker";
+import { GPUBufferTracker } from "../../graphics/webgpu/GPUBufferTracker";
+import type { StatsPanel, StatsPanelContext } from "./StatsPanel";
 import { isStatsProvider, type StatsSection } from "./StatsProvider";
 import { StatsRow } from "./StatsRow";
-import type { StatsPanel, StatsPanelContext } from "./StatsPanel";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -101,6 +98,16 @@ export function createGraphicsPanel(): StatsPanel {
       const gpuColor = gfx.gpuAvgMs > 8.33 ? "error" : undefined;
       const gpuPercent = ((gfx.gpuAvgMs / 8.33) * 100).toFixed(0);
 
+      const largeBuffers = bufferStats.entries.filter(
+        (entry) => entry.size >= 1024,
+      );
+      const tinyBuffers = bufferStats.entries.filter(
+        (entry) => entry.size < 1024,
+      );
+      const tinyBuffersTotal = tinyBuffers.reduce(
+        (sum, entry) => sum + entry.size,
+        0,
+      );
       return (
         <>
           <div className="stats-overlay__section">
@@ -180,7 +187,7 @@ export function createGraphicsPanel(): StatsPanel {
                 label="Buffers"
                 value={`${formatBytes(bufferStats.totalBytes)} (${bufferStats.entries.length})`}
               />
-              {bufferStats.entries.map((entry) => (
+              {largeBuffers.map((entry) => (
                 <StatsRow
                   key={entry.label}
                   label={
@@ -193,6 +200,20 @@ export function createGraphicsPanel(): StatsPanel {
                   color="muted"
                 />
               ))}
+              {tinyBuffers.length > 0 && (
+                <StatsRow
+                  key={"tinyBuffers"}
+                  label={
+                    <span style={{ fontStyle: "italic" }}>
+                      Other small buffers ({"<"}1KB) (x$
+                      {tinyBuffers.length.toLocaleString()})
+                    </span>
+                  }
+                  value={formatBytes(tinyBuffersTotal)}
+                  indent={1}
+                  color="muted"
+                />
+              )}
             </div>
           </div>
 

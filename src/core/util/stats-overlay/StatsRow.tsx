@@ -1,5 +1,7 @@
+import { JSX } from "preact/jsx-runtime";
+
 export interface StatsRowProps {
-  label: string;
+  label: string | JSX.Element;
   value: string | number;
   color?: "warning" | "error" | "success" | "muted" | "dim";
   indent?: boolean | number;
