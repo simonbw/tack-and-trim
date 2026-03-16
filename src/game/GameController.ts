@@ -130,8 +130,7 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new SpeedReadout());
     this.game.addEntity(new NavigationHUD(this.currentLevel ?? undefined));
     // Spawn boat and controls
-    const boat = this.game.addEntity(new Boat());
-    boat.hull.body.position.set(this.startPosition);
+    const boat = this.game.addEntity(new Boat(this.startPosition));
     this.game.addEntity(new PlayerBoatController(boat));
 
     // Spawn camera controller with zoom transition

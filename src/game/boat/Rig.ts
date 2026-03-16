@@ -37,9 +37,11 @@ export class Rig extends BaseEntity {
     this.boomColor = colors.boom;
 
     // Boom physics body - pivot is at origin, boom extends in -x direction
+    // Position at the mast's world-space location so constraints aren't violated at spawn
+    const mastWorld = hull.body.toWorldFrame(mastPosition);
     this.body = new DynamicBody({
       mass: boomMass,
-      position: [mastPosition.x, mastPosition.y],
+      position: [mastWorld.x, mastWorld.y],
     });
     this.body.addShape(new Box({ width: boomLength, height: boomWidth }), [
       -boomLength / 2,

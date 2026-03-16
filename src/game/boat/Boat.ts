@@ -47,7 +47,7 @@ export class Boat extends BaseEntity {
     return this.hull.body.toWorldFrame.bind(this.hull.body);
   }
 
-  constructor(config: BoatConfig = StarterBoat) {
+  constructor(startPosition: V2d = V(0, 0), config: BoatConfig = StarterBoat) {
     super();
 
     this.config = config;
@@ -59,6 +59,9 @@ export class Boat extends BaseEntity {
     ]);
     // Create hull first - everything attaches to it
     this.hull = this.addChild(new Hull(config.hull));
+    // Set hull position BEFORE creating sub-entities so that physics bodies
+    // (boom, sail particles, jib particles) are positioned correctly in world space.
+    this.hull.body.position.set(startPosition);
 
     // Create parts that attach to hull
     this.keel = this.addChild(new Keel(this.hull, config.keel));

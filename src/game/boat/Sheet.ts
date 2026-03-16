@@ -83,6 +83,9 @@ export class Sheet extends BaseEntity {
       thickness: this.config.ropeThickness ?? 0.75,
       color: this.config.ropeColor ?? 0x444444,
     });
+
+    // Initialize rope at correct world positions so it doesn't snap from (0,0) on first frame
+    this.visualRope.reset(this.getAnchorAWorld(), this.getAnchorBWorld());
   }
 
   /**
