@@ -24,6 +24,7 @@ export class CameraController extends BaseEntity {
     private camera: Camera2d,
   ) {
     super();
+    this.camera.center(boat.getPosition());
   }
 
   setZoomTarget(z: number) {
