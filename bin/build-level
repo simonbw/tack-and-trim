@@ -13,18 +13,8 @@ SCRIPT_DIR="$(cd -P -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
 list_regions() {
-  local root="$REPO_ROOT/assets/terrain"
-  local region_json
-
-  if [[ ! -d "$root" ]]; then
-    return 0
-  fi
-
-  for region_json in "$root"/*/region.json; do
-    if [[ -f "$region_json" ]]; then
-      basename "$(dirname "$region_json")"
-    fi
-  done | sort
+  # Delegate to Rust CLI for accurate listing (scans level files for region field)
+  cargo run --release --manifest-path "$REPO_ROOT/pipeline/Cargo.toml" -p build-level -- list-regions 2>/dev/null
 }
 
 list_levels() {
@@ -42,26 +32,26 @@ list_levels() {
 print_help() {
   cat <<'EOF'
 Usage:
-  build-level [--level <name>]                                 Run full pipeline + mesh build (all if omitted)
-  build-level build [--region <slug> | --level <name>]         Run full pipeline + mesh build (all if omitted)
-  build-level wave-mesh [--level <name>]                       Build wave mesh(es) (all if omitted)
-  build-level wind-mesh [--level <name>]                       Build wind mesh(es) (all if omitted)
-  build-level trees [--level <name>]                           Generate tree positions (all if omitted)
-  build-level extract [--region <slug> | --level <name>]       Extract terrain (all regions if omitted)
-  build-level download [--region <slug> | --level <name>]      Download elevation tiles (all regions if omitted)
-  build-level build-grid [--region <slug> | --level <name>]    Build merged elevation grid (all regions if omitted)
-  build-level clean [--region <slug> | --level <name>]         Clean generated outputs (all regions if omitted)
-  build-level validate [path] [--region <slug> | --level <name>] Validate level/terrain (all levels if omitted)
-  build-level list-levels                                      List available levels
-  build-level list-regions                                     List available regions
-  build-level completion zsh                                   Print zsh completion script
+  build-level [--level <name>]                    Run full pipeline + mesh build (all if omitted)
+  build-level build [--level <name>]              Run full pipeline + mesh build (all if omitted)
+  build-level wave-mesh [--level <name>]          Build wave mesh(es) (all if omitted)
+  build-level wind-mesh [--level <name>]          Build wind mesh(es) (all if omitted)
+  build-level trees [--level <name>]              Generate tree positions (all if omitted)
+  build-level extract [--level <name>]            Extract terrain (all regions if omitted)
+  build-level download [--level <name>]           Download elevation tiles (all regions if omitted)
+  build-level build-grid [--level <name>]         Build merged elevation grid (all regions if omitted)
+  build-level clean [--level <name>]              Clean generated outputs (all regions if omitted)
+  build-level validate [path] [--level <name>]    Validate level/terrain (all levels if omitted)
+  build-level list-levels                         List available levels
+  build-level list-regions                        List levels with region config
+  build-level completion zsh                      Print zsh completion script
 
 Examples:
   build-level
   build-level --level vendovi-island
-  build-level build --region san-juan-islands
+  build-level build --level san-juan-islands
   build-level wave-mesh --level default
-  build-level validate --region san-juan-islands
+  build-level validate --level san-juan-islands
   eval "$(build-level completion zsh)"
 EOF
 }
@@ -69,14 +59,6 @@ EOF
 print_zsh_completion() {
   cat <<'EOF'
 #compdef build-level
-
-_build_level_regions() {
-  local -a regions
-  regions=(${(f)"$(build-level list-regions 2>/dev/null)"})
-  if (( ${#regions[@]} > 0 )); then
-    compadd -- "${regions[@]}"
-  fi
-}
 
 _build_level_levels() {
   local -a levels
@@ -108,20 +90,18 @@ _build_level() {
   case "$cmd" in
     build|download|extract|import|clean)
       _arguments \
-        '--region[Region slug]:region:_build_level_regions' \
-        '--level[Level name (region inferred from terrainFile)]:level:_build_level_levels' \
+        '--level[Level name]:level:_build_level_levels' \
         '-h[Show help]' \
         '--help[Show help]'
       ;;
     build-grid)
       _arguments \
-        '--region[Region slug]:region:_build_level_regions' \
-        '--level[Level name (region inferred from terrainFile)]:level:_build_level_levels' \
+        '--level[Level name]:level:_build_level_levels' \
         '--force[Rebuild cached grid even if already present]' \
         '-h[Show help]' \
         '--help[Show help]'
       ;;
-    wave-mesh|wind-mesh)
+    wave-mesh|wind-mesh|trees)
       _arguments \
         '--level[Level name]:level:_build_level_levels' \
         '-h[Show help]' \
@@ -129,7 +109,6 @@ _build_level() {
       ;;
     validate)
       _arguments \
-        '--region[Region slug]:region:_build_level_regions' \
         '--level[Level name]:level:_build_level_levels' \
         '-h[Show help]' \
         '--help[Show help]' \
@@ -139,12 +118,6 @@ _build_level() {
       _arguments '1:shell:(zsh)'
       ;;
     list-levels|list-regions)
-      ;;
-    --level)
-      _arguments \
-        '--level[Level name]:level:_build_level_levels' \
-        '-h[Show help]' \
-        '--help[Show help]'
       ;;
     *)
       _arguments \
@@ -204,7 +177,7 @@ case "${1:-}" in
     run_rust_cli "$@"
     ;;
   * )
-    # Shorthand: build-level <region-slug> → build --region <slug>
-    run_rust_cli build --region "$1" "${@:2}"
+    # Shorthand: build-level <level-slug> → build --level <slug>
+    run_rust_cli build --level "$1" "${@:2}"
     ;;
 esac

@@ -56,8 +56,7 @@ struct TreeNode {
 struct RawLevel {
     #[serde(rename = "defaultDepth")]
     default_depth: Option<f64>,
-    #[serde(rename = "terrainFile")]
-    terrain_file: Option<String>,
+    region: Option<serde_json::Value>,
     #[serde(default)]
     contours: Vec<RawContour>,
 }
@@ -75,8 +74,13 @@ pub fn validate_level_file(level_path: &Path) -> Result<ValidationResult> {
         .with_context(|| format!("Failed to read {}", level_path.display()))?;
     let data: RawLevel = serde_json::from_str(&json).context("Failed to parse level JSON")?;
 
-    // If the level references a terrain file, resolve it
-    if let Some(ref slug) = data.terrain_file {
+    // If the level has a region config, look for a prebuilt .terrain binary
+    if data.region.is_some() {
+        let slug = level_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .replace(".level", "");
         let terrain_path = level_path
             .parent()
             .unwrap_or(std::path::Path::new("."))

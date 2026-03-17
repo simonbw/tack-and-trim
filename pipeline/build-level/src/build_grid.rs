@@ -15,7 +15,7 @@ pub fn run_build_grid(region_arg: Option<&str>, force: bool, view: &StepView) ->
     let slug = resolve_region(region_arg)?;
     let config = load_region_config(&slug)?;
 
-    view.info(format!("Region: {}", config.name));
+    view.info(format!("Region: {}", slug));
     view.info(format!(
         "BBOX: {:.4},{:.4} -> {:.4},{:.4}",
         config.bbox.min_lat, config.bbox.min_lon, config.bbox.max_lat, config.bbox.max_lon

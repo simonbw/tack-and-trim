@@ -51,7 +51,7 @@ pub fn run_download(region_arg: Option<&str>, view: &StepView) -> Result<()> {
     let cache_dir = grid_cache_dir(&slug);
     let out_dir = tiles_dir(&slug);
 
-    view.info(format!("Region: {}", config.name));
+    view.info(format!("Region: {}", slug));
     view.info(format!(
         "BBOX: {:.4},{:.4} -> {:.4},{:.4}",
         config.bbox.min_lat, config.bbox.min_lon, config.bbox.max_lat, config.bbox.max_lon
@@ -528,7 +528,7 @@ fn download_cudem(
 
     let selected = select_cudem_urls_by_bbox(&all_tiff_urls, bbox);
     if selected.is_empty() {
-        bail!("No matching tiles found for the target bbox. Check the datasetPath in region.json.");
+        bail!("No matching tiles found for the target bbox. Check the datasetPath in the level file's region config.");
     }
 
     download_tiles(client, &selected, out_dir, view)

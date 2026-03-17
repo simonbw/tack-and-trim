@@ -14,12 +14,17 @@ The canonical Rust pipeline lives under `pipeline/`:
 ## File Layout
 
 ```
-assets/terrain/<slug>/region.json       -- Terrain extraction config (no output field)
-
 resources/levels/<slug>.level.json      -- Level definition (hand-written, small)
-resources/levels/<slug>.terrain.json    -- Extracted terrain contours (generated, large)
-resources/levels/<slug>.wavemesh        -- Prebuilt wave mesh
-resources/levels/<slug>.windmesh        -- Prebuilt wind mesh
+                                           Levels with real-world terrain include a `region` field
+                                           with extraction config (bbox, data source, etc.)
+
+static/levels/<slug>.terrain            -- Extracted terrain (generated binary, large)
+static/levels/<slug>.wavemesh           -- Prebuilt wave mesh
+static/levels/<slug>.windmesh           -- Prebuilt wind mesh
+static/levels/<slug>.trees              -- Prebuilt tree positions
+
+assets/terrain/<slug>/tiles/            -- Downloaded elevation tiles (cached)
+assets/terrain/<slug>/cache/            -- Merged grid cache
 ```
 
 ## Data Flow
@@ -32,10 +37,10 @@ assets/terrain/<slug>/tiles/*.tif
 assets/terrain/<slug>/cache/merged.tif
   ↓  build-level extract
      (marching squares → ring assembly → simplification → validation)
-resources/levels/<slug>.terrain.json
+static/levels/<slug>.terrain
   ↓  build-level (default command, or build-level --level <name>)
-     Level file references .terrain.json; mesh builder resolves the reference
-resources/levels/<slug>.wavemesh + .windmesh
+     Level file's `region` field drives the pipeline; mesh builder resolves the terrain
+static/levels/<slug>.wavemesh + .windmesh + .trees
   ↓  runtime: GPU upload → WavefrontRasterizer / WaterQueryShader
 ```
 
@@ -49,54 +54,63 @@ Level-centric build pipeline. Downloads real-world data, extracts terrain contou
 
 Use `./bin/build-level` directly as the primary interface.
 
-| Command                                                         | Description                                                                 |
-| --------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `./bin/build-level`                                             | Run full pipeline for all regions (default command)                         |
-| `./bin/build-level --level <name>`                              | Run full pipeline for one level (region inferred from `terrainFile`)        |
-| `./bin/build-level build --region <slug>`                       | Run full pipeline for one region                                             |
-| `./bin/build-level wave-mesh [--level <name>]`                  | Build `.wavemesh` only (all levels by default)                              |
-| `./bin/build-level wind-mesh [--level <name>]`                  | Build `.windmesh` only (all levels by default)                              |
-| `./bin/build-level extract [--region <slug> \| --level <name>]` | Extract terrain → `.terrain.json`                                            |
-| `./bin/build-level download [--region <slug> \| --level <name>]` | Download GeoTIFF tiles                                                       |
-| `./bin/build-level build-grid [--region <slug> \| --level <name>]` | Merge tiles into `merged.tif` via `gdalwarp`                           |
-| `./bin/build-level clean [--region <slug> \| --level <name>]`   | Delete generated outputs while keeping `tiles/`                              |
-| `./bin/build-level validate [path] [--region <slug> \| --level <name>]` | Validate level or terrain file                                      |
-| `./bin/build-level list-levels`                                 | List available levels                                                        |
-| `./bin/build-level list-regions`                                | List available regions                                                       |
-| `./bin/build-level completion zsh`                              | Print zsh completion script                                                  |
-
-For terrain commands, `--level <name>` resolves to the region in that level’s `terrainFile`.
+| Command                                              | Description                                                          |
+| ---------------------------------------------------- | -------------------------------------------------------------------- |
+| `./bin/build-level`                                  | Run full pipeline for all levels with regions (default command)      |
+| `./bin/build-level --level <name>`                   | Run full pipeline for one level                                      |
+| `./bin/build-level build [--level <name>]`           | Run full pipeline                                                    |
+| `./bin/build-level wave-mesh [--level <name>]`       | Build `.wavemesh` only (all levels by default)                       |
+| `./bin/build-level wind-mesh [--level <name>]`       | Build `.windmesh` only (all levels by default)                       |
+| `./bin/build-level trees [--level <name>]`           | Generate tree positions (all levels by default)                      |
+| `./bin/build-level extract [--level <name>]`         | Extract terrain → `.terrain`                                         |
+| `./bin/build-level download [--level <name>]`        | Download GeoTIFF tiles                                               |
+| `./bin/build-level build-grid [--level <name>]`      | Merge tiles into `merged.tif` via `gdalwarp`                         |
+| `./bin/build-level clean [--level <name>]`           | Delete generated outputs while keeping `tiles/`                      |
+| `./bin/build-level validate [path] [--level <name>]` | Validate level or terrain file                                       |
+| `./bin/build-level list-levels`                      | List available levels                                                |
+| `./bin/build-level list-regions`                     | List levels with region config                                       |
+| `./bin/build-level completion zsh`                   | Print zsh completion script                                          |
 
 NPM scripts (`download-terrain`, `build-terrain-grid`, `extract-terrain-contours`, `validate-level`, `build-terrain`) are thin wrappers around `./bin/build-level`.
 
 ### Configuration
 
-Each region has an `assets/terrain/<slug>/region.json`:
+Region configuration is embedded directly in the level file as a `region` field:
 
-```json
-{
-  "name": "Vendovi Island",
-  "datasetPath": "NCEI_ninth_Topobathy_2014_8483",
-  "bbox": { "minLat": ..., "minLon": ..., "maxLat": ..., "maxLon": ... },
-  "interval": 3,
-  "simplify": 0.0003,
-  "scale": 1.0,
-  "minPerimeter": 100,
-  "minPoints": 4,
-  "flipY": true
-}
-```
-
-Output paths are convention-based: `resources/levels/<slug>.terrain.json`.
-
-### Level File Format (v2)
-
-Referenced terrain (real-world levels):
 ```json
 {
   "version": 2,
   "name": "Vendovi Island",
-  "terrainFile": "vendovi-island",
+  "region": {
+    "datasetPath": "wash_bellingham/",
+    "bbox": { "minLat": ..., "minLon": ..., "maxLat": ..., "maxLon": ... },
+    "interval": 25,
+    "simplify": 5,
+    "scale": 1,
+    "minPerimeter": 1500,
+    "minPoints": 4,
+    "flipY": true
+  },
+  "waves": { "sources": [...] },
+  "wind": { "sources": [...] }
+}
+```
+
+Output paths are convention-based: `static/levels/<slug>.terrain`.
+
+### Level File Format (v2)
+
+Region-based terrain (real-world levels):
+```json
+{
+  "version": 2,
+  "name": "Vendovi Island",
+  "region": {
+    "datasetPath": "wash_bellingham/",
+    "bbox": { "minLat": 48.6, "minLon": -122.6, "maxLat": 48.62, "maxLon": -122.59 },
+    "interval": 25, "simplify": 5, "scale": 1,
+    "minPerimeter": 1500, "minPoints": 4, "flipY": true
+  },
   "waves": { "sources": [{ "amplitude": 0.4, "wavelength": 200, "direction": 0.8 }] },
   "wind": { "sources": [{ "direction": 0.785 }] }
 }
@@ -116,17 +130,12 @@ Inline terrain (hand-crafted levels):
 
 ### Terrain File Format
 
-```json
-{
-  "version": 1,
-  "defaultDepth": -300,
-  "contours": [{ "height": 0, "polygon": [[x, y], ...] }]
-}
-```
+Binary `.terrain` format (v2/v3) with magic number `0x4e525254` ("TRRN").
 
 ### Rust module layout
 
-- `pipeline/build-level/src/region.rs` — region discovery, config loading, path helpers
+- `pipeline/terrain-core/src/level.rs` — level/region types, JSON parsing, contour tree building
+- `pipeline/build-level/src/region.rs` — region config loading (from level files), path helpers
 - `pipeline/build-level/src/download.rs` — CUDEM / USACE / EMODnet tile downloads
 - `pipeline/build-level/src/build_grid.rs` — `gdalwarp` merge step
 - `pipeline/build-level/src/extract.rs` — merged GeoTIFF load + contour extraction + validation

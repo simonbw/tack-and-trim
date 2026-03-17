@@ -72,7 +72,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
 
     let loaded = load_merged_grid(&merged_path, view)?;
 
-    view.info(format!("Region: {}", config.name));
+    view.info(format!("Region: {}", slug));
     view.info(format!(
         "Settings: interval {}ft, simplify {}ft, scale {}, minPerimeter {}ft, minPoints {}",
         config.interval,

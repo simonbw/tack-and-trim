@@ -1,7 +1,26 @@
 {
   "version": 2,
   "name": "Apostle Islands",
-  "terrainFile": "apostle-islands",
+  "region": {
+    "dataSource": {
+      "type": "usace-s3",
+      "baseUrl": "https://noaa-nos-coastal-lidar-pds.s3.us-east-1.amazonaws.com/dem/USACE_Superior_DEM_2019_9185/",
+      "statePrefix": "wi/",
+      "urlList": "urllist9185.txt"
+    },
+    "bbox": {
+      "minLat": 46.85,
+      "minLon": -90.9,
+      "maxLat": 47.05,
+      "maxLon": -90.2
+    },
+    "interval": 100,
+    "simplify": 100,
+    "scale": 1,
+    "minPerimeter": 1500,
+    "minPoints": 4,
+    "flipY": true
+  },
   "waves": {
     "sources": [
       {

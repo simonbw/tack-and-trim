@@ -26,25 +26,25 @@ import {
 
 /**
  * Resolve terrain references in a v2 level file.
- * If the level has a terrainFile reference, fetch and merge the binary terrain data.
+ * If the level has a region config, fetch and merge the binary terrain data.
  * Returns the updated file and any precomputed GPU data.
  */
-async function resolveTerrainReference(file: LevelFileJSON): Promise<{
+async function resolveTerrainReference(
+  file: LevelFileJSON,
+  levelName: string,
+): Promise<{
   file: LevelFileJSON;
   precomputedGPUData: PrecomputedTerrainGPUData | undefined;
 }> {
-  if (!file.terrainFile) {
+  if (!file.region) {
     return { file, precomputedGPUData: undefined };
   }
 
-  const terrainKey = file.terrainFile.replace(
-    /-([a-z])/g,
-    (_: string, c: string) => c.toUpperCase(),
-  ) as keyof typeof RESOURCES.terrains;
+  const terrainKey = levelName as keyof typeof RESOURCES.terrains;
   const terrainUrl = RESOURCES.terrains[terrainKey];
   if (!terrainUrl) {
     throw new Error(
-      `Terrain file "${file.terrainFile}" not found in resources`,
+      `Terrain binary for level "${levelName}" not found in resources`,
     );
   }
 
@@ -84,7 +84,10 @@ export interface LoadedLevel extends LevelData {
  */
 export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
   const rawFile = validateLevelFile(RESOURCES.levels[levelName]);
-  const { file, precomputedGPUData } = await resolveTerrainReference(rawFile);
+  const { file, precomputedGPUData } = await resolveTerrainReference(
+    rawFile,
+    levelName,
+  );
   const levelData = levelFileToLevelData(file);
   if (precomputedGPUData) {
     levelData.terrain.precomputedGPUData = precomputedGPUData;
@@ -129,8 +132,7 @@ export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
   }
 
   let treeData: TreeFileData | undefined;
-  const treesUrl =
-    RESOURCES.trees[levelName as keyof typeof RESOURCES.trees];
+  const treesUrl = RESOURCES.trees[levelName as keyof typeof RESOURCES.trees];
   if (treesUrl) {
     try {
       treeData = await loadTreesFromUrl(treesUrl);
@@ -154,7 +156,7 @@ export async function loadLevel(levelName: LevelName): Promise<LoadedLevel> {
  */
 export async function loadDefaultEditorLevel(): Promise<EditorLevelDefinition> {
   const rawFile = validateLevelFile(RESOURCES.levels.default);
-  const { file } = await resolveTerrainReference(rawFile);
+  const { file } = await resolveTerrainReference(rawFile, "default");
   return levelFileToEditorDefinition(file);
 }
 

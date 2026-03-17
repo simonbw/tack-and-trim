@@ -4,6 +4,63 @@
 use anyhow::Context;
 use serde::Deserialize;
 
+// ── Region config types ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BoundingBox {
+    #[serde(rename = "minLat")]
+    pub min_lat: f64,
+    #[serde(rename = "minLon")]
+    pub min_lon: f64,
+    #[serde(rename = "maxLat")]
+    pub max_lat: f64,
+    #[serde(rename = "maxLon")]
+    pub max_lon: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum DataSourceConfig {
+    #[serde(rename = "cudem")]
+    Cudem {
+        #[serde(rename = "datasetPath")]
+        dataset_path: String,
+    },
+    #[serde(rename = "usace-s3")]
+    UsaceS3 {
+        #[serde(rename = "baseUrl")]
+        base_url: String,
+        #[serde(rename = "statePrefix")]
+        state_prefix: String,
+        #[serde(rename = "urlList")]
+        url_list: String,
+    },
+    #[serde(rename = "emodnet-wcs")]
+    EmodnetWcs {
+        #[serde(rename = "coverageId")]
+        coverage_id: String,
+    },
+}
+
+/// Region configuration for terrain extraction, embedded in the level file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RegionConfig {
+    #[serde(rename = "datasetPath")]
+    pub dataset_path: Option<String>,
+    #[serde(rename = "dataSource")]
+    pub data_source: Option<DataSourceConfig>,
+    pub bbox: BoundingBox,
+    pub interval: f64,
+    pub simplify: f64,
+    pub scale: f64,
+    #[serde(rename = "minPerimeter")]
+    pub min_perimeter: f64,
+    #[serde(rename = "minPoints")]
+    pub min_points: usize,
+    #[serde(rename = "flipY")]
+    pub flip_y: bool,
+}
+
 // ── JSON types ───────────────────────────────────────────────────────────────
 
 /// Tree generation configuration from the level file.
@@ -27,8 +84,7 @@ pub struct LevelFileJSON {
     #[allow(dead_code)]
     pub version: u32,
     pub name: Option<String>,
-    #[serde(rename = "terrainFile")]
-    pub terrain_file: Option<String>,
+    pub region: Option<RegionConfig>,
     #[serde(rename = "defaultDepth")]
     pub default_depth: Option<f64>,
     pub waves: Option<WaveConfigJSON>,
@@ -53,28 +109,30 @@ pub fn parse_terrain_file(json_str: &str) -> anyhow::Result<TerrainFileJSON> {
     Ok(serde_json::from_str(json_str)?)
 }
 
-/// Resolve terrain references: if the level has a `terrain_file`, find the
-/// binary `.terrain` path. Returns the path if a terrain file is referenced.
+/// Resolve terrain references: if the level has a `region`, find the
+/// binary `.terrain` path. Returns the path if a region is defined.
 pub fn resolve_terrain_path(
     level: &LevelFileJSON,
     level_path: &std::path::Path,
 ) -> anyhow::Result<Option<std::path::PathBuf>> {
-    if let Some(ref slug) = level.terrain_file {
-        Ok(Some(find_terrain_file(slug, level_path)?))
+    if level.region.is_some() {
+        let slug = level_slug_from_path(level_path);
+        Ok(Some(find_terrain_file(&slug, level_path)?))
     } else {
         Ok(None)
     }
 }
 
-/// Resolve terrain references: if the level has a `terrain_file`, read the
+/// Resolve terrain references: if the level has a `region`, read the
 /// binary `.terrain` file from `static/levels/` and merge its contours and
 /// defaultDepth into the level.
 pub fn resolve_level_terrain(
     level: &mut LevelFileJSON,
     level_path: &std::path::Path,
 ) -> anyhow::Result<()> {
-    if let Some(ref slug) = level.terrain_file {
-        let terrain_path = find_terrain_file(slug, level_path)?;
+    if level.region.is_some() {
+        let slug = level_slug_from_path(level_path);
+        let terrain_path = find_terrain_file(&slug, level_path)?;
         let bytes = std::fs::read(&terrain_path).with_context(|| {
             format!(
                 "failed to read terrain file: {} (referenced by {})",
@@ -92,6 +150,15 @@ pub fn resolve_level_terrain(
         level.contours = terrain_cpu_data_to_contours(&terrain);
     }
     Ok(())
+}
+
+/// Extract a level slug from its file path (e.g. "vendovi-island" from "vendovi-island.level.json").
+fn level_slug_from_path(level_path: &std::path::Path) -> String {
+    level_path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .replace(".level", "")
 }
 
 /// Find the binary .terrain file for a slug by checking:

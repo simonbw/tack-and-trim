@@ -1,7 +1,21 @@
 {
   "version": 2,
   "name": "San Juan Islands",
-  "terrainFile": "san-juan-islands",
+  "region": {
+    "datasetPath": "wash_bellingham/",
+    "bbox": {
+      "minLat": 48.4,
+      "minLon": -123.35,
+      "maxLat": 48.75,
+      "maxLon": -122.75
+    },
+    "interval": 25,
+    "simplify": 5,
+    "scale": 1,
+    "minPerimeter": 3000,
+    "minPoints": 4,
+    "flipY": true
+  },
   "waves": {
     "sources": [
       {

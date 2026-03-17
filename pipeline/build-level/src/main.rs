@@ -23,8 +23,8 @@ use build_grid::run_build_grid;
 use download::run_download;
 use extract::run_extract;
 use region::{
-    display_path, grid_cache_dir, level_path_for_slug, list_regions, load_region_config,
-    resolve_level_path, terrain_output_path, tiles_dir,
+    display_path, grid_cache_dir, level_path_for_slug, list_regions,
+    terrain_output_path, tiles_dir,
 };
 use validate::{validate_level_file, ValidationErrorType};
 
@@ -36,7 +36,6 @@ struct Cli {
     command: Option<Commands>,
 
     /// Level slug from resources/levels/<slug>.level.json.
-    /// Works with all commands. Terrain commands infer --region from terrainFile.
     #[arg(long, global = true)]
     level: Option<String>,
 }
@@ -45,50 +44,37 @@ struct Cli {
 enum Commands {
     /// Run full pipeline (download → build-grid → extract → wave/wind mesh)
     #[command(alias = "import")]
-    Build(CommonRegionArgs),
+    Build,
     /// Build wave mesh (.wavemesh) for level(s)
     WaveMesh,
     /// Build wind mesh (.windmesh) for level(s)
     WindMesh,
     /// Generate tree positions (.trees) for level(s)
     Trees,
-    /// Extract terrain → .terrain.json
-    Extract(CommonRegionArgs),
+    /// Extract terrain → .terrain
+    Extract,
     /// Download elevation tiles
-    Download(CommonRegionArgs),
+    Download,
     /// Build merged elevation grid
     BuildGrid(BuildGridArgs),
     /// Clean generated outputs
-    Clean(CommonRegionArgs),
+    Clean,
     /// Validate level or terrain file
     Validate(ValidateArgs),
     /// List available levels
     ListLevels,
-    /// List available regions
+    /// List levels with region config
     ListRegions,
-}
-
-#[derive(Parser)]
-struct CommonRegionArgs {
-    #[arg(long)]
-    region: Option<String>,
 }
 
 #[derive(Parser)]
 struct ValidateArgs {
     /// Path to .level.json or .terrain.json file
     level_path: Option<PathBuf>,
-
-    /// Region slug from assets/terrain/<slug>/region.json
-    #[arg(long)]
-    region: Option<String>,
 }
 
 #[derive(Parser)]
 struct BuildGridArgs {
-    #[arg(long)]
-    region: Option<String>,
-
     #[arg(long)]
     force: bool,
 }
@@ -99,44 +85,31 @@ fn main() -> Result<()> {
     let level_filter = cli.level.as_deref();
 
     match cli.command {
-        None => run_build(None, level_filter, &view),
-        Some(Commands::Build(args)) => run_build(args.region.as_deref(), level_filter, &view),
+        None => run_build(level_filter, &view),
+        Some(Commands::Build) => run_build(level_filter, &view),
         Some(Commands::WaveMesh) => run_wave_mesh(level_filter, &view),
         Some(Commands::WindMesh) => run_wind_mesh(level_filter, &view),
         Some(Commands::Trees) => run_trees(level_filter, &view),
-        Some(Commands::Extract(args)) => {
-            let region = resolve_region_for_terrain_command(
-                "extract",
-                args.region.as_deref(),
-                level_filter,
-            )?;
+        Some(Commands::Extract) => {
+            let region = resolve_region_for_terrain_command("extract", level_filter)?;
             run_for_each_region(region.as_deref(), "Extracting", &view, |slug, v| {
                 run_extract(Some(slug), v)
             })
         }
-        Some(Commands::Download(args)) => {
-            let region = resolve_region_for_terrain_command(
-                "download",
-                args.region.as_deref(),
-                level_filter,
-            )?;
+        Some(Commands::Download) => {
+            let region = resolve_region_for_terrain_command("download", level_filter)?;
             run_for_each_region(region.as_deref(), "Downloading", &view, |slug, v| {
                 run_download(Some(slug), v)
             })
         }
         Some(Commands::BuildGrid(args)) => {
-            let region = resolve_region_for_terrain_command(
-                "build-grid",
-                args.region.as_deref(),
-                level_filter,
-            )?;
+            let region = resolve_region_for_terrain_command("build-grid", level_filter)?;
             run_for_each_region(region.as_deref(), "Building grid for", &view, |slug, v| {
                 run_build_grid(Some(slug), args.force, v)
             })
         }
-        Some(Commands::Clean(args)) => {
-            let region =
-                resolve_region_for_terrain_command("clean", args.region.as_deref(), level_filter)?;
+        Some(Commands::Clean) => {
+            let region = resolve_region_for_terrain_command("clean", level_filter)?;
             run_clean(region.as_deref(), &view)
         }
         Some(Commands::Validate(args)) => run_validate(args, level_filter, &view),
@@ -145,15 +118,11 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_build(region_arg: Option<&str>, level_filter: Option<&str>, view: &StepView) -> Result<()> {
-    if region_arg.is_some() && level_filter.is_some() {
-        bail!("Specify either --region <slug> or --level <name>, not both");
-    }
-
+fn run_build(level_filter: Option<&str>, view: &StepView) -> Result<()> {
     if let Some(level_slug) = level_filter {
         let level_path = resolve_level_file_for_slug(level_slug)?;
-        if let Some(region_slug) = terrain_region_from_level_path(&level_path)? {
-            run_build_for_region_and_level(&region_slug, &level_path, view)?;
+        if level_has_region(&level_path)? {
+            run_build_for_region_and_level(level_slug, &level_path, view)?;
         } else {
             view.info(format!(
                 "Level \"{level_slug}\" has inline terrain; skipping terrain pipeline steps."
@@ -164,16 +133,9 @@ fn run_build(region_arg: Option<&str>, level_filter: Option<&str>, view: &StepVi
         return Ok(());
     }
 
-    if let Some(slug) = region_arg {
-        let level_path = resolve_level_file_for_slug(slug)?;
-        run_build_for_region_and_level(slug, &level_path, view)?;
-        view.info("Done.");
-        return Ok(());
-    }
-
     let regions = list_regions()?;
     if regions.is_empty() {
-        bail!("No regions found. Create assets/terrain/<name>/region.json first.");
+        bail!("No levels with region config found.");
     }
 
     view.info(format!("Building {} regions", format_int(regions.len())));
@@ -277,39 +239,30 @@ fn resolve_level_file_for_slug(level_slug: &str) -> Result<PathBuf> {
     Ok(level_path)
 }
 
-fn terrain_region_from_level_path(level_path: &Path) -> Result<Option<String>> {
+fn level_has_region(level_path: &Path) -> Result<bool> {
     let level_json = fs::read_to_string(level_path)
         .with_context(|| format!("Failed to read {}", display_path(level_path)))?;
     let level = parse_level_file(&level_json)
         .with_context(|| format!("Failed to parse {}", display_path(level_path)))?;
-    Ok(level.terrain_file)
+    Ok(level.region.is_some())
 }
 
 fn resolve_region_for_terrain_command(
     command_name: &str,
-    region_arg: Option<&str>,
     level_filter: Option<&str>,
 ) -> Result<Option<String>> {
-    if region_arg.is_some() && level_filter.is_some() {
-        bail!("`{command_name}` accepts either --region <slug> or --level <name>, not both");
-    }
-
-    if let Some(region_slug) = region_arg {
-        return Ok(Some(region_slug.to_string()));
-    }
-
     let Some(level_slug) = level_filter else {
         return Ok(None);
     };
 
     let level_path = resolve_level_file_for_slug(level_slug)?;
-    let Some(region_slug) = terrain_region_from_level_path(&level_path)? else {
+    if !level_has_region(&level_path)? {
         bail!(
-            "Level \"{level_slug}\" does not specify terrainFile; `{command_name}` needs --region or a level with terrainFile."
+            "Level \"{level_slug}\" has no region config; `{command_name}` requires a level with a region field."
         );
-    };
+    }
 
-    Ok(Some(region_slug))
+    Ok(Some(level_slug.to_string()))
 }
 
 fn level_slug_from_path(path: &Path) -> String {
@@ -410,7 +363,7 @@ fn run_clean(region_arg: Option<&str>, view: &StepView) -> Result<()> {
 
     let regions = list_regions()?;
     if regions.is_empty() {
-        bail!("No regions found. Create assets/terrain/<name>/region.json first.");
+        bail!("No levels with region config found.");
     }
 
     view.info(format!("Cleaning {} regions", format_int(regions.len())));
@@ -451,7 +404,7 @@ fn run_for_each_region(
 
     let regions = list_regions()?;
     if regions.is_empty() {
-        bail!("No regions found. Create assets/terrain/<name>/region.json first.");
+        bail!("No levels with region config found.");
     }
 
     view.info(format!(
@@ -473,7 +426,7 @@ fn run_for_each_region(
 }
 
 fn run_validate(args: ValidateArgs, level_filter: Option<&str>, view: &StepView) -> Result<()> {
-    if level_filter.is_none() && args.level_path.is_none() && args.region.is_none() {
+    if level_filter.is_none() && args.level_path.is_none() {
         let level_paths = resolve_level_paths(None)?;
         if level_paths.is_empty() {
             view.info("No level files found.");
@@ -499,12 +452,14 @@ fn run_validate(args: ValidateArgs, level_filter: Option<&str>, view: &StepView)
     }
 
     let level_path = if let Some(level_slug) = level_filter {
-        if args.level_path.is_some() || args.region.is_some() {
-            bail!("Specify only one of --level <name>, [path], or --region <slug>");
+        if args.level_path.is_some() {
+            bail!("Specify only one of --level <name> or [path]");
         }
         resolve_level_file_for_slug(level_slug)?
+    } else if let Some(path) = args.level_path {
+        path
     } else {
-        resolve_level_path(args.level_path.as_deref(), args.region.as_deref())?
+        unreachable!()
     };
 
     view.info(format!("Validating: {}", display_path(&level_path)));
@@ -553,7 +508,6 @@ fn validate_and_report(level_path: &Path, view: &StepView) -> Result<bool> {
 }
 
 fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
-    let config = load_region_config(slug)?;
     let tiles_root = tiles_dir(slug);
     let cache_dir = grid_cache_dir(slug);
     let terrain_path = terrain_output_path(slug);
@@ -561,7 +515,7 @@ fn clean_region_outputs(slug: &str, view: &StepView) -> Result<CleanStats> {
     let windmesh_path = region::windmesh_output_path(slug);
     let trees_path = region::trees_output_path(slug);
 
-    view.info(format!("Region: {}", config.name));
+    view.info(format!("Region: {}", slug));
 
     let mut stats = CleanStats::default();
     remove_generated_path(&cache_dir, &tiles_root, "cache directory", &mut stats, view)?;

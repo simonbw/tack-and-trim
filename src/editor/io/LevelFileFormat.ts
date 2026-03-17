@@ -343,6 +343,35 @@ export interface BiomeZoneJSON {
 }
 
 /**
+ * Geographic bounding box for region terrain extraction.
+ */
+export interface BoundingBoxJSON {
+  minLat: number;
+  minLon: number;
+  maxLat: number;
+  maxLon: number;
+}
+
+/**
+ * Region configuration for terrain extraction from elevation data.
+ * Embedded in the level file to define how terrain is built from geographic data.
+ */
+export interface RegionConfigJSON {
+  datasetPath?: string;
+  dataSource?: {
+    type: string;
+    [key: string]: unknown;
+  };
+  bbox: BoundingBoxJSON;
+  interval: number;
+  simplify: number;
+  scale: number;
+  minPerimeter: number;
+  minPoints: number;
+  flipY: boolean;
+}
+
+/**
  * JSON representation of biome terrain coloring configuration.
  * Defines how terrain surfaces are colored based on elevation, slope, and noise.
  */
@@ -365,15 +394,15 @@ export interface BiomeConfigJSON {
 
 /**
  * JSON schema for level files.
- * v2 allows either inline contours or a terrainFile reference.
+ * v2 allows either inline contours or a region config (external terrain).
  */
 export interface LevelFileJSON {
   /** File format version */
   version: number;
   /** Human-readable level name */
   name?: string;
-  /** Slug referencing a sibling .terrain.json file (v2) */
-  terrainFile?: string;
+  /** Region config for terrain extraction (presence implies external .terrain binary) */
+  region?: RegionConfigJSON;
   /** Deep ocean baseline depth in feet (inline terrain) */
   defaultDepth?: number;
   /** Wave configuration (optional, defaults to DEFAULT_WAVE_CONFIG) */
@@ -386,7 +415,7 @@ export interface LevelFileJSON {
   biome?: BiomeConfigJSON;
   /** Boat start position as [x, y] in world coordinates (optional, defaults to [0, 0]) */
   startPosition?: [number, number];
-  /** Array of terrain contours (optional in v2 if terrainFile is set) */
+  /** Array of terrain contours (optional in v2 if region is set) */
   contours?: TerrainContourJSON[];
 }
 
@@ -411,9 +440,9 @@ export function validateLevelFile(data: unknown): LevelFileJSON {
     );
   }
 
-  // v2 allows terrainFile instead of inline contours
-  if (file.version >= 2 && typeof file.terrainFile === "string") {
-    // No inline contours required for v2 with terrainFile
+  // v2 allows region instead of inline contours
+  if (file.version >= 2 && file.region != null) {
+    // No inline contours required for v2 with region
   } else if (!Array.isArray(file.contours)) {
     throw new Error("Invalid level file: contours must be an array");
   }

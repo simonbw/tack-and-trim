@@ -2,62 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use serde::Deserialize;
+use terrain_core::level::parse_level_file;
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct BoundingBox {
-    #[serde(rename = "minLat")]
-    pub min_lat: f64,
-    #[serde(rename = "minLon")]
-    pub min_lon: f64,
-    #[serde(rename = "maxLat")]
-    pub max_lat: f64,
-    #[serde(rename = "maxLon")]
-    pub max_lon: f64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type")]
-pub enum DataSourceConfig {
-    #[serde(rename = "cudem")]
-    Cudem {
-        #[serde(rename = "datasetPath")]
-        dataset_path: String,
-    },
-    #[serde(rename = "usace-s3")]
-    UsaceS3 {
-        #[serde(rename = "baseUrl")]
-        base_url: String,
-        #[serde(rename = "statePrefix")]
-        state_prefix: String,
-        #[serde(rename = "urlList")]
-        url_list: String,
-    },
-    #[serde(rename = "emodnet-wcs")]
-    EmodnetWcs {
-        #[serde(rename = "coverageId")]
-        coverage_id: String,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RegionConfig {
-    pub name: String,
-    #[serde(rename = "datasetPath")]
-    pub dataset_path: Option<String>,
-    #[serde(rename = "dataSource")]
-    pub data_source: Option<DataSourceConfig>,
-    pub bbox: BoundingBox,
-    pub interval: f64,
-    pub simplify: f64,
-    pub scale: f64,
-    #[serde(rename = "minPerimeter")]
-    pub min_perimeter: f64,
-    #[serde(rename = "minPoints")]
-    pub min_points: usize,
-    #[serde(rename = "flipY")]
-    pub flip_y: bool,
-}
+// Re-export region types from terrain-core so other modules can import from here.
+pub use terrain_core::level::{BoundingBox, DataSourceConfig, RegionConfig};
 
 /// Convention-based path for a region's terrain output file.
 pub fn terrain_output_path(slug: &str) -> PathBuf {
@@ -79,7 +27,7 @@ pub fn trees_output_path(slug: &str) -> PathBuf {
     repo_root().join(format!("static/levels/{}.trees", slug))
 }
 
-/// Convention-based path for a region's level file.
+/// Convention-based path for a level file.
 pub fn level_path_for_slug(slug: &str) -> PathBuf {
     repo_root().join(format!("resources/levels/{}.level.json", slug))
 }
@@ -95,10 +43,7 @@ pub fn resolve_data_source(config: &RegionConfig) -> Result<DataSourceConfig> {
         });
     }
 
-    bail!(
-        "Region \"{}\" must have either dataSource or datasetPath",
-        config.name
-    )
+    bail!("Region must have either dataSource or datasetPath")
 }
 
 pub fn assets_root() -> PathBuf {
@@ -121,74 +66,84 @@ pub fn grid_cache_dir(slug: &str) -> PathBuf {
     region_dir(slug).join("cache")
 }
 
+/// Load the region config from the level file's `region` field.
 pub fn load_region_config(slug: &str) -> Result<RegionConfig> {
-    let config_path = region_dir(slug).join("region.json");
-    let json = fs::read_to_string(&config_path)
-        .with_context(|| format!("No region.json found at {}", config_path.display()))?;
-    Ok(serde_json::from_str(&json)
-        .with_context(|| format!("Failed to parse region config at {}", config_path.display()))?)
+    let level_path = level_path_for_slug(slug);
+    let json = fs::read_to_string(&level_path)
+        .with_context(|| format!("Failed to read level file at {}", display_path(&level_path)))?;
+    let level = parse_level_file(&json)
+        .with_context(|| format!("Failed to parse level file at {}", display_path(&level_path)))?;
+    level.region.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Level \"{}\" has no region config (no external terrain)",
+            slug
+        )
+    })
 }
 
-pub fn list_regions() -> Result<Vec<String>> {
-    let root = assets_root();
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut regions = Vec::new();
-    for entry in
-        fs::read_dir(&root).with_context(|| format!("Failed to read {}", root.display()))?
-    {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-
-        let region_name = entry.file_name().to_string_lossy().to_string();
-        let config_path = root.join(&region_name).join("region.json");
-        if config_path.exists() {
-            regions.push(region_name);
-        }
-    }
-
-    regions.sort();
-    Ok(regions)
-}
-
-pub fn resolve_region(region: Option<&str>) -> Result<String> {
-    if let Some(slug) = region {
-        let config_path = region_dir(slug).join("region.json");
-        if !config_path.exists() {
+/// Resolve a region slug, validating that the level file exists and has a region.
+/// When called with None, auto-selects if there is exactly one region.
+pub fn resolve_region(slug: Option<&str>) -> Result<String> {
+    if let Some(slug) = slug {
+        let level_path = level_path_for_slug(slug);
+        if !level_path.exists() {
             let available = list_regions()?.join(", ");
-            bail!("Unknown region \"{}\". Available: {}", slug, available);
+            bail!(
+                "No level file found for \"{}\". Available levels with regions: {}",
+                slug,
+                available
+            );
         }
         return Ok(slug.to_string());
     }
 
     let regions = list_regions()?;
     match regions.as_slice() {
-        [] => bail!("No regions found. Create assets/terrain/<name>/region.json first."),
+        [] => bail!("No levels with region config found."),
         [only] => {
             println!("Auto-selected region: {only}");
             Ok(only.clone())
         }
         _ => bail!(
-            "Multiple regions available. Specify --region <name>: {}",
+            "Multiple levels with regions available. Specify --level <name>: {}",
             regions.join(", ")
         ),
     }
 }
 
-pub fn resolve_level_path(level: Option<&Path>, region: Option<&str>) -> Result<PathBuf> {
-    if let Some(path) = level {
-        if region.is_some() {
-            bail!("Specify either <level-path> or --region <name>, not both")
-        }
-        return Ok(path.to_path_buf());
+/// List level slugs that have a `region` field (i.e. external terrain).
+pub fn list_regions() -> Result<Vec<String>> {
+    let levels_dir = repo_root().join("resources/levels");
+    if !levels_dir.exists() {
+        return Ok(Vec::new());
     }
 
-    let slug = resolve_region(region)?;
-    Ok(level_path_for_slug(&slug))
+    let mut regions = Vec::new();
+    for entry in fs::read_dir(&levels_dir)
+        .with_context(|| format!("Failed to read {}", levels_dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".level.json") {
+            continue;
+        }
+
+        let json = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read {}", path.display()))?;
+        let level = parse_level_file(&json)
+            .with_context(|| format!("Failed to parse {}", path.display()))?;
+
+        if level.region.is_some() {
+            let slug = name.strip_suffix(".level.json").unwrap().to_string();
+            regions.push(slug);
+        }
+    }
+
+    regions.sort();
+    Ok(regions)
 }
 
 /// Display a path relative to the repo root for cleaner log output.
