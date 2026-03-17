@@ -6,7 +6,7 @@
 //! 3. Run Poisson disk sampling (Bridson's algorithm) per-island in parallel.
 //! 4. Filter surviving candidates by elevation acceptance curve and density.
 
-use crate::level::{TerrainCPUData, TreeConfigJSON};
+use crate::level::{BiomeConfigJSON, TerrainCPUData, TreeConfigJSON};
 use crate::terrain::{compute_terrain_height, parse_contours, ParsedContour};
 
 // ── Default configuration ───────────────────────────────────────────────────
@@ -41,6 +41,119 @@ impl TreeConfig {
             },
         }
     }
+}
+
+// ── Biome-aware tree zones ────────────────────────────────────────────────
+
+/// A resolved biome zone with its tree density.
+pub struct TreeZone {
+    pub max_height: f64,
+    pub density: f64,
+}
+
+/// Optional biome-aware tree configuration. When present, replaces the
+/// hardcoded elevation_acceptance curve with per-zone density values.
+pub struct BiomeTreeZones {
+    pub zones: Vec<TreeZone>,
+}
+
+impl BiomeTreeZones {
+    /// Build from biome config. Returns `None` if no zones have `treeDensity`
+    /// set, which preserves the old elevation acceptance behavior.
+    pub fn from_biome(biome: &BiomeConfigJSON, default_density: f64) -> Option<Self> {
+        let has_any = biome.zones.iter().any(|z| z.tree_density.is_some());
+        if !has_any {
+            return None;
+        }
+
+        let zones = biome
+            .zones
+            .iter()
+            .map(|z| TreeZone {
+                max_height: z.max_height,
+                density: z.tree_density.unwrap_or(default_density).clamp(0.0, 1.0),
+            })
+            .collect();
+
+        Some(Self { zones })
+    }
+}
+
+fn smoothstep(t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Look up the effective tree density at a given elevation using biome zones.
+/// Returns a value in [0, 1] suitable for direct use as a keep threshold.
+///
+/// Applies smooth blending at zone boundaries and a shore ramp near min_elev.
+fn biome_density_at_height(
+    h: f64,
+    zones: &BiomeTreeZones,
+    min_elev: f64,
+    max_elev: f64,
+) -> f64 {
+    if h < min_elev || h > max_elev || zones.zones.is_empty() {
+        return 0.0;
+    }
+
+    // Find the zone containing this height and get its density.
+    // Zones are sorted by max_height. The zone for height h is the first
+    // zone where h <= max_height.
+    let mut zone_idx = 0;
+    for (i, zone) in zones.zones.iter().enumerate() {
+        if h <= zone.max_height {
+            zone_idx = i;
+            break;
+        }
+        // If h is above all zones, use the last zone.
+        zone_idx = i;
+    }
+
+    let zone = &zones.zones[zone_idx];
+    let zone_density = zone.density;
+
+    // Determine the lower boundary of this zone.
+    let zone_lo = if zone_idx == 0 {
+        min_elev
+    } else {
+        zones.zones[zone_idx - 1].max_height
+    };
+    let zone_hi = zone.max_height;
+    let zone_range = zone_hi - zone_lo;
+
+    // Blend with adjacent zones at boundaries.
+    let blend_band = (zone_range * 0.15).min(15.0).max(2.0);
+    let mut density = zone_density;
+
+    // Blend with previous zone near the lower boundary.
+    if zone_idx > 0 {
+        let dist_from_lo = h - zone_lo;
+        if dist_from_lo < blend_band {
+            let prev_density = zones.zones[zone_idx - 1].density;
+            let t = smoothstep(dist_from_lo / blend_band);
+            density = prev_density + (zone_density - prev_density) * t;
+        }
+    }
+
+    // Blend with next zone near the upper boundary.
+    if zone_idx + 1 < zones.zones.len() {
+        let dist_from_hi = zone_hi - h;
+        if dist_from_hi < blend_band {
+            let next_density = zones.zones[zone_idx + 1].density;
+            let t = smoothstep(dist_from_hi / blend_band);
+            density = next_density + (density - next_density) * t;
+        }
+    }
+
+    // Shore ramp: smooth fade-in near min_elev so trees don't start abruptly
+    // at the water line.
+    let shore_band = 5.0_f64.max((max_elev - min_elev) * 0.02);
+    let shore_factor = smoothstep((h - min_elev) / shore_band);
+    density *= shore_factor;
+
+    density
 }
 
 // ── Output ──────────────────────────────────────────────────────────────────
@@ -498,7 +611,12 @@ fn elevation_acceptance(h: f64, min_elev: f64, max_elev: f64) -> f64 {
 
 /// Generate tree positions using Poisson disk sampling with elevation filtering.
 /// Islands are detected via flood-fill and processed in parallel.
-pub fn generate_trees(terrain: &TerrainCPUData, config: &TreeConfig, seed: u64) -> TreeData {
+pub fn generate_trees(
+    terrain: &TerrainCPUData,
+    config: &TreeConfig,
+    biome_zones: Option<&BiomeTreeZones>,
+    seed: u64,
+) -> TreeData {
     use rayon::prelude::*;
 
     let (contours, _lookup_grid) = parse_contours(terrain);
@@ -582,12 +700,18 @@ pub fn generate_trees(terrain: &TerrainCPUData, config: &TreeConfig, seed: u64) 
         for [cx, cy] in &candidates {
             let h = raster.sample(*cx, *cy);
 
-            let accept = elevation_acceptance(h, config.min_elevation, config.max_elevation);
-            if accept <= 0.0 {
+            let threshold = match biome_zones {
+                Some(zones) => {
+                    biome_density_at_height(h, zones, config.min_elevation, config.max_elevation)
+                }
+                None => {
+                    elevation_acceptance(h, config.min_elevation, config.max_elevation)
+                        * config.density
+                }
+            };
+            if threshold <= 0.0 {
                 continue;
             }
-
-            let threshold = accept * config.density;
             if rng.next_f64() >= threshold {
                 continue;
             }

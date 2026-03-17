@@ -61,6 +61,25 @@ pub struct RegionConfig {
     pub flip_y: bool,
 }
 
+// ── Biome types ─────────────────────────────────────────────────────────────
+
+/// A single biome elevation zone. Only fields relevant to tree generation are
+/// parsed here; color/noise fields are ignored by serde's default behavior.
+#[derive(Deserialize, Debug, Clone)]
+pub struct BiomeZoneJSON {
+    #[serde(rename = "maxHeight")]
+    pub max_height: f64,
+    #[serde(rename = "treeDensity")]
+    pub tree_density: Option<f64>,
+}
+
+/// Biome configuration from the level file. Only the zones array is needed
+/// for tree generation; other biome fields (rock, snow, noise) are ignored.
+#[derive(Deserialize, Debug, Clone)]
+pub struct BiomeConfigJSON {
+    pub zones: Vec<BiomeZoneJSON>,
+}
+
 // ── JSON types ───────────────────────────────────────────────────────────────
 
 /// Tree generation configuration from the level file.
@@ -90,6 +109,7 @@ pub struct LevelFileJSON {
     pub waves: Option<WaveConfigJSON>,
     pub wind: Option<WindConfigJSON>,
     pub trees: Option<TreeConfigJSON>,
+    pub biome: Option<BiomeConfigJSON>,
     #[serde(default)]
     pub contours: Vec<TerrainContourJSON>,
 }

@@ -8,7 +8,7 @@ use terrain_core::level::{
     resolve_terrain_path,
 };
 use terrain_core::step::StepView;
-use terrain_core::trees::{build_tree_buffer, generate_trees, TreeConfig};
+use terrain_core::trees::{build_tree_buffer, generate_trees, BiomeTreeZones, TreeConfig};
 
 /// Default seed for deterministic tree placement.
 const DEFAULT_SEED: u64 = 42;
@@ -25,6 +25,10 @@ pub fn run_generate_trees(level_path: &Path, output_path: &Path, view: &StepView
         .with_context(|| format!("failed to parse level JSON: {level_path_str}"))?;
 
     let tree_config = TreeConfig::from_json(level_file.trees.as_ref());
+    let biome_zones = level_file
+        .biome
+        .as_ref()
+        .and_then(|b| BiomeTreeZones::from_biome(b, tree_config.density));
 
     let terrain_data = view.try_run_step(
         "Loading terrain for tree generation",
@@ -54,7 +58,7 @@ pub fn run_generate_trees(level_path: &Path, output_path: &Path, view: &StepView
 
     let tree_data = view.run_step(
         "Generating tree positions",
-        || generate_trees(&terrain_data, &tree_config, DEFAULT_SEED),
+        || generate_trees(&terrain_data, &tree_config, biome_zones.as_ref(), DEFAULT_SEED),
         |td, d| {
             format!(
                 "Generated {} trees (spacing={:.0}ft, density={:.0}%, {}ms)",

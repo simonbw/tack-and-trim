@@ -340,6 +340,8 @@ export interface BiomeZoneJSON {
   colorAlt: [number, number, number];
   /** How much noise blends between color and colorAlt (0-1) */
   noiseBlend: number;
+  /** Tree density override for this zone, 0-1. Omit to use global trees.density. */
+  treeDensity?: number;
 }
 
 /**
