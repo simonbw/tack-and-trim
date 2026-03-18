@@ -21,6 +21,9 @@ export class Rig extends BaseEntity {
   private mastColor: number;
   private boomColor: number;
 
+  /** Bowsprit tip in hull-local coords — set by Boat for forestay rendering */
+  forestayTarget: V2d = V(11, 0);
+
   constructor(
     readonly hull: Hull,
     config: RigConfig,
@@ -66,6 +69,7 @@ export class Rig extends BaseEntity {
         headConstraint: { body: this.body, localAnchor: V(0, 0) },
         clewConstraint: { body: this.body, localAnchor: V(-boomLength, 0) },
         getForceScale: (t) => 1.0 - t,
+        getRenderOffset: () => this.hull.tiltTransform.worldOffset(3),
       }),
     );
   }
@@ -75,60 +79,72 @@ export class Rig extends BaseEntity {
     const [hx, hy] = this.hull.body.position;
     const hullAngle = this.hull.body.angle;
     const [mx, my] = this.getMastWorldPosition();
+    const t = this.hull.tiltTransform;
 
-    // Draw standing rigging (in hull coordinate space)
+    const mastTopLocal = t.localOffset(20);
+    const mastTopWorld = t.worldOffset(20);
+    const boomOff = t.worldOffset(3);
     const riggingColor = 0x444444;
     const riggingWidth = 0.15;
 
+    // 1. Boom (bottom layer)
+    draw.at(
+      { pos: V(mx + boomOff.x, my + boomOff.y), angle: this.body.angle },
+      () => {
+        draw.fillRect(
+          -this.boomLength,
+          -this.boomWidth / 2,
+          this.boomLength,
+          this.boomWidth,
+          { color: this.boomColor },
+        );
+        draw.fillCircle(-this.boomLength, 0, 0.3, { color: 0x664422 });
+      },
+    );
+
+    // 2. Standing rigging (above boom)
+    // Scale y-coords of deck attachment points by cosRoll to match hull foreshortening
+    const cr = t.cosRoll;
     draw.at({ pos: V(hx, hy), angle: hullAngle }, () => {
-      const mx = this.mastPosition.x;
-      const my = this.mastPosition.y;
+      const lmx = this.mastPosition.x;
+      const lmy = this.mastPosition.y;
+      const topLX = lmx + mastTopLocal.x;
+      const topLY = lmy + mastTopLocal.y;
 
-      // Forestay - mast to bowsprit tip
-      draw.line(mx, my, 11, 0, {
-        color: riggingColor,
-        width: riggingWidth,
-      });
-
-      // Port shroud - mast to chainplate on hull (port side, slightly aft of mast)
-      draw.line(mx, my, mx - 1, 3, {
-        color: riggingColor,
-        width: riggingWidth,
-      });
-
-      // Starboard shroud - mast to chainplate on hull (starboard side)
-      draw.line(mx, my, mx - 1, -3, {
-        color: riggingColor,
-        width: riggingWidth,
-      });
-
-      // Backstay - mast to stern
-      draw.line(mx, my, -6, 0, {
-        color: riggingColor,
-        width: riggingWidth,
-      });
-    });
-
-    // Draw boom (rectangle extending from mast)
-    draw.at({ pos: V(mx, my), angle: this.body.angle }, () => {
-      draw.fillRect(
-        -this.boomLength,
-        -this.boomWidth / 2,
-        this.boomLength,
-        this.boomWidth,
-        { color: this.boomColor },
+      // Forestay — mast top to bowsprit tip
+      draw.line(
+        topLX,
+        topLY,
+        this.forestayTarget.x,
+        this.forestayTarget.y * cr,
+        { color: riggingColor, width: riggingWidth },
       );
-
-      // Boom end cap
-      draw.fillCircle(-this.boomLength, 0, 0.3, { color: 0x664422 });
+      // Port shroud
+      draw.line(topLX, topLY, lmx - 1, 3 * cr, {
+        color: riggingColor,
+        width: riggingWidth,
+      });
+      // Starboard shroud
+      draw.line(topLX, topLY, lmx - 1, -3 * cr, {
+        color: riggingColor,
+        width: riggingWidth,
+      });
+      // Backstay
+      draw.line(topLX, topLY, -6, 0, {
+        color: riggingColor,
+        width: riggingWidth,
+      });
     });
 
-    // Draw mast with outer ring for depth
-    draw.strokeCircle(mx, my, 0.6, { color: 0x664422, width: 0.2 });
-    draw.fillCircle(mx, my, 0.5, { color: this.mastColor });
-
-    // Gooseneck fitting at boom pivot
-    draw.fillCircle(mx, my, 0.25, { color: 0x555555 });
+    // 3. Mast (on top of everything)
+    draw.line(mx, my, mx + mastTopWorld.x, my + mastTopWorld.y, {
+      color: this.mastColor,
+      width: 0.4,
+    });
+    draw.fillCircle(mx, my, 0.3, { color: this.mastColor });
+    draw.fillCircle(mx + mastTopWorld.x, my + mastTopWorld.y, 0.2, {
+      color: this.mastColor,
+    });
   }
 
   getMastWorldPosition(): V2d {

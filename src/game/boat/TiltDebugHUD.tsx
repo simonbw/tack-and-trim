@@ -1,0 +1,46 @@
+import { ReactEntity } from "../../core/ReactEntity";
+import { radToDeg } from "../../core/util/MathUtil";
+import { Boat } from "./Boat";
+
+/**
+ * Debug HUD showing tilt (heel/pitch) values.
+ * Temporary — remove after tilt tuning is complete.
+ */
+export class TiltDebugHUD extends ReactEntity {
+  renderLayer = "hud" as const;
+
+  constructor() {
+    super(() => this.renderContent());
+  }
+
+  private renderContent() {
+    const boat = this.game?.entities.getById("boat") as Boat | undefined;
+    if (!boat) return <div />;
+
+    const rollDeg = radToDeg(boat.roll);
+    const pitchDeg = radToDeg(boat.pitch);
+
+    return (
+      <div
+        style={{
+          position: "fixed",
+          top: "140px",
+          right: "20px",
+          color: "white",
+          textShadow: "0 0 2px rgba(0, 0, 0, 0.6)",
+          opacity: 0.7,
+          fontFamily: "var(--font-body)",
+          fontWeight: "300",
+          fontSize: "12px",
+          userSelect: "none",
+          pointerEvents: "none",
+          textAlign: "right",
+          lineHeight: "1.4",
+        }}
+      >
+        <div>heel {rollDeg.toFixed(1)}&deg;</div>
+        <div>pitch {pitchDeg.toFixed(1)}&deg;</div>
+      </div>
+    );
+  }
+}

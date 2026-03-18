@@ -50,10 +50,22 @@ export class Wake extends BaseEntity {
     const body = this.boat.hull.body;
     const pos = body.toWorldFrame(this.spawnLocal);
 
+    // Shift wake spawn position based on heel — heeled boat digs leeward edge in
+    const roll = this.boat.roll;
+    if (Math.abs(roll) > 0.01) {
+      const leewardShift = Math.sin(roll) * this.beam * 0.3;
+      const angle = body.angle;
+      pos[0] -= leewardShift * Math.sin(angle);
+      pos[1] += leewardShift * Math.cos(angle);
+    }
+
     // Actual distance moved since last spawn
     const spacing = this.lastPos ? this.lastPos.distanceTo(pos) : speed * dt;
 
     this.lastPos = pos;
+
+    // Increase wake amplitude when heeled (leeward edge digs in more)
+    const heelAmplitudeBoost = 1 + Math.abs(roll) * 0.5;
 
     const particle = new WakeParticle(
       pos,
@@ -61,7 +73,7 @@ export class Wake extends BaseEntity {
       this.waterlineLength,
       this.beam,
       spacing,
-      this.amplitudeScale,
+      this.amplitudeScale * heelAmplitudeBoost,
     );
     this.game.addEntity(particle);
   }

@@ -41,16 +41,20 @@ export class TellTail extends BaseEntity {
   // Wind query for each body (except first which is attached to sail)
   private windQuery: WindQuery;
 
+  private getRenderOffset?: () => V2d;
+
   constructor(
     getAttachmentPoint: () => ReadonlyV2d,
     getAttachmentVelocity: () => ReadonlyV2d,
     getHoistAmount: () => number = () => 1,
+    getRenderOffset?: () => V2d,
   ) {
     super();
 
     this.getAttachmentPoint = getAttachmentPoint;
     this.getAttachmentVelocity = getAttachmentVelocity;
     this.getHoistAmount = getHoistAmount;
+    this.getRenderOffset = getRenderOffset;
     const attachPos = this.getAttachmentPoint();
     const segmentLength = TELLTAIL_LENGTH / (TELLTAIL_NODES - 1);
 
@@ -138,7 +142,10 @@ export class TellTail extends BaseEntity {
     const alpha =
       hoistAmount >= fadeStart ? 1 : (hoistAmount / fadeStart) ** 0.5;
 
-    const vertices = this.bodies.map((b) => b.position.clone());
+    const off = this.getRenderOffset?.();
+    const vertices = off
+      ? this.bodies.map((b) => b.position.clone().iadd(off))
+      : this.bodies.map((b) => b.position.clone());
 
     draw.spline(vertices, {
       color: TELLTAIL_COLOR,

@@ -8,6 +8,7 @@ import { V, V2d } from "../../core/Vector";
 import { applySkinFriction } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { HullConfig } from "./BoatConfig";
+import { TiltTransform } from "./TiltTransform";
 
 /**
  * Find the bow (foremost) point from hull geometry.
@@ -58,6 +59,13 @@ export class Hull extends BaseEntity {
   private fillColor: number;
   private strokeColor: number;
   private tillerConfig?: TillerConfig;
+
+  /** Tilt state updated by Boat each tick. Used by child entities for physics effects. */
+  tiltRoll: number = 0;
+  tiltPitch: number = 0;
+
+  /** 3D→2D transform updated by Boat each tick. Used by child entities for rendering. */
+  readonly tiltTransform = new TiltTransform();
 
   // Water query for skin friction calculation (samples at body position)
   private waterQuery = this.addChild(
@@ -110,27 +118,48 @@ export class Hull extends BaseEntity {
   onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
 
+    // Hull width scaling based on roll — hull appears narrower when heeled
+    const rollScale = this.tiltTransform.cosRoll;
+
+    // Scale vertices by roll for visual heel effect
+    const scaledVertices =
+      rollScale < 0.99
+        ? this.vertices.map((v) => V(v.x, v.y * rollScale))
+        : this.vertices;
+
     draw.at({ pos: V(x, y), angle: this.body.angle }, () => {
-      draw.strokeSmoothPolygon(this.vertices, {
+      draw.strokeSmoothPolygon(scaledVertices, {
         color: 0x000000,
         alpha: 0.1,
         width: 1.5,
       });
-      draw.fillSmoothPolygon(this.vertices, { color: this.fillColor });
-      draw.strokeSmoothPolygon(this.vertices, {
+      draw.fillSmoothPolygon(scaledVertices, { color: this.fillColor });
+      draw.strokeSmoothPolygon(scaledVertices, {
         color: this.strokeColor,
         width: 0.25,
       });
 
       // Thwart (bench seat) - where helmsman sits, aft of centerboard
       const thwartColor = 0x886633;
-      draw.fillRect(-3.5, -2.5, 0.5, 5, { color: thwartColor });
-      draw.strokeRect(-3.5, -2.5, 0.5, 5, { color: 0x664422, width: 0.2 });
+      const thwartHalfW = 2.5 * rollScale;
+      draw.fillRect(-3.5, -thwartHalfW, 0.5, thwartHalfW * 2, {
+        color: thwartColor,
+      });
+      draw.strokeRect(-3.5, -thwartHalfW, 0.5, thwartHalfW * 2, {
+        color: 0x664422,
+        width: 0.2,
+      });
 
       // Centerboard trunk - center of cockpit
       const trunkColor = 0x665522;
-      draw.fillRect(-1, -0.2, 2, 0.4, { color: trunkColor });
-      draw.strokeRect(-1, -0.2, 2, 0.4, { color: 0x443311, width: 0.15 });
+      const trunkHalfW = 0.2 * rollScale;
+      draw.fillRect(-1, -trunkHalfW, 2, trunkHalfW * 2, {
+        color: trunkColor,
+      });
+      draw.strokeRect(-1, -trunkHalfW, 2, trunkHalfW * 2, {
+        color: 0x443311,
+        width: 0.15,
+      });
 
       // Tiller (rotates opposite to rudder)
       if (this.tillerConfig) {

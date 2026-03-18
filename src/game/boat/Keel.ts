@@ -60,9 +60,13 @@ export class Keel extends BaseEntity {
       }
     }
 
-    // Use proper foil physics with real chord dimension
-    const lift = foilLift(KEEL_CHORD);
-    const drag = foilDrag(KEEL_CHORD);
+    // Scale keel effectiveness by heel angle — keel loses lateral resistance at extreme heel
+    const heelFactor = Math.cos(this.hull.tiltRoll);
+    const effectiveChord = KEEL_CHORD * Math.max(0.1, heelFactor);
+
+    // Use proper foil physics with heel-adjusted chord dimension
+    const lift = foilLift(effectiveChord);
+    const drag = foilDrag(effectiveChord);
 
     // Get water velocity from cache or default to zero
     const getWaterVelocity = (point: V2d): V2d => {
@@ -94,17 +98,21 @@ export class Keel extends BaseEntity {
   @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [x, y] = this.hull.body.position;
+    const offset = this.hull.tiltTransform.worldOffset(-2); // keel below waterline
 
-    draw.at({ pos: V(x, y), angle: this.hull.body.angle }, () => {
-      // Draw keel as a polyline (open path)
-      const path = draw.path();
-      const first = this.vertices[0];
-      path.moveTo(first.x, first.y);
-      for (let i = 1; i < this.vertices.length; i++) {
-        const v = this.vertices[i];
-        path.lineTo(v.x, v.y);
-      }
-      path.stroke(this.color, 1, 1.0);
-    });
+    draw.at(
+      { pos: V(x + offset.x, y + offset.y), angle: this.hull.body.angle },
+      () => {
+        // Draw keel as a polyline (open path)
+        const path = draw.path();
+        const first = this.vertices[0];
+        path.moveTo(first.x, first.y);
+        for (let i = 1; i < this.vertices.length; i++) {
+          const v = this.vertices[i];
+          path.lineTo(v.x, v.y);
+        }
+        path.stroke(this.color, 1, 1.0);
+      },
+    );
   }
 }

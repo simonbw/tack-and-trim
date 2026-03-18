@@ -123,13 +123,24 @@ export class BoatSpray extends BaseEntity {
     const maxSize = MIN_SIZE + edge.vDotN * SIZE_VELOCITY_SCALE;
     const size = lerp(MIN_SIZE, maxSize, rUniform());
 
-    // Vertical velocity increases with impact velocity
+    // Vertical velocity increases with impact velocity — boost when heeled
+    const roll = this.boat.roll;
+    const heelBoost = 1 + Math.abs(roll) * 0.5;
     const minZVelocity = BASE_VZ;
-    const maxZVelocity = BASE_VZ + edge.vDotN * VZ_VELOCITY_SCALE;
+    const maxZVelocity = BASE_VZ + edge.vDotN * VZ_VELOCITY_SCALE * heelBoost;
     const zVelocity = lerp(minZVelocity, maxZVelocity, rUniform());
 
     const position = edge.randomPosOnEdge();
     const velocity = edge.apparentVelocity.add(sprayVelocity);
+
+    // Tilt spray direction toward leeward when heeled
+    if (Math.abs(roll) > 0.05) {
+      const hullAngle = this.boat.hull.body.angle;
+      const leewardX = -Math.sin(roll) * Math.sin(hullAngle) * 2;
+      const leewardY = Math.sin(roll) * Math.cos(hullAngle) * 2;
+      velocity[0] += leewardX;
+      velocity[1] += leewardY;
+    }
 
     this.game.addEntity(new SprayParticle(position, velocity, zVelocity, size));
   }

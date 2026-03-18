@@ -7,6 +7,7 @@ import { LevelName } from "../../resources/resources";
 import { loadLevel } from "../editor/io/LevelLoader";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
+import { TiltDebugHUD } from "./boat/TiltDebugHUD";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
@@ -132,6 +133,7 @@ export class GameController extends BaseEntity {
     // Spawn boat and controls
     const boat = this.game.addEntity(new Boat(this.startPosition));
     this.game.addEntity(new PlayerBoatController(boat));
+    this.game.addEntity(new TiltDebugHUD());
 
     // Spawn camera controller with zoom transition
     const cameraController = this.game.addEntity(

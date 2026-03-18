@@ -6,7 +6,7 @@ import { BowspritConfig } from "./BoatConfig";
 
 /** Bowsprit - a spar extending forward from the bow for jib attachment */
 export class Bowsprit extends BaseEntity {
-  layer = "main" as const;
+  layer = "hull" as const;
   localPosition: V2d;
   size: V2d;
   boat: Boat;
@@ -26,11 +26,22 @@ export class Bowsprit extends BaseEntity {
     const hullBody = this.boat.hull.body;
     const worldPos = hullBody.toWorldFrame(this.localPosition);
 
-    draw.at({ pos: V(worldPos[0], worldPos[1]), angle: hullBody.angle }, () => {
-      // Bowsprit visual - a spar extending forward from the bow
-      draw.fillRect(0, -this.size.y / 2, this.size.x, this.size.y, {
-        color: this.color,
-      });
-    });
+    // Bowsprit parallax — slightly above waterline
+    const offset = this.boat.hull.tiltTransform.worldOffset(
+      this.boat.config.tilt.zHeights.bowsprit,
+    );
+
+    draw.at(
+      {
+        pos: V(worldPos[0] + offset.x, worldPos[1] + offset.y),
+        angle: hullBody.angle,
+      },
+      () => {
+        // Bowsprit visual - a spar extending forward from the bow
+        draw.fillRect(0, -this.size.y / 2, this.size.x, this.size.y, {
+          color: this.color,
+        });
+      },
+    );
   }
 }

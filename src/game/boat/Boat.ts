@@ -1,8 +1,10 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
-import { polarToVec } from "../../core/util/MathUtil";
+import { clamp, polarToVec } from "../../core/util/MathUtil";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
+import { WaterQuery } from "../world/water/WaterQuery";
 import { Anchor } from "./Anchor";
 import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
@@ -31,6 +33,22 @@ export class Boat extends BaseEntity {
   starboardJibSheet: Sheet | null = null;
 
   readonly config: BoatConfig;
+
+  // Tilt state (radians)
+  roll: number = 0; // positive = heel toward port (+y)
+  pitch: number = 0; // positive = bow up
+  rollVelocity: number = 0;
+  pitchVelocity: number = 0;
+
+  // Tilt torque accumulators (reset each tick)
+  private accumulatedRollTorque: number = 0;
+  private accumulatedPitchTorque: number = 0;
+
+  // Water query for wave slope at boat position
+  private waterQuery: WaterQuery;
+
+  // Debug: manual tilt control
+  private debugTiltEnabled: boolean = false;
 
   // Derived positions (computed from config)
   private bowspritTipPosition: V2d;
@@ -67,6 +85,7 @@ export class Boat extends BaseEntity {
     this.keel = this.addChild(new Keel(this.hull, config.keel));
     this.rudder = this.addChild(new Rudder(this.hull, config.rudder));
     this.rig = this.addChild(new Rig(this.hull, config.rig));
+    this.rig.forestayTarget = this.bowspritTipPosition;
 
     // Wire up tiller rendering (drawn by hull, but follows rudder angle)
     this.hull.setTillerConfig({
@@ -113,6 +132,7 @@ export class Boat extends BaseEntity {
           },
           sailShape: "triangle",
           extraPoints: () => [this.toWorldFrame(jibHeadPosition)],
+          getRenderOffset: () => this.hull.tiltTransform.worldOffset(3),
         }),
       );
 
@@ -158,15 +178,123 @@ export class Boat extends BaseEntity {
 
     // Boat sound effects (sheet snaps, boom slams)
     this.addChild(new BoatSoundGenerator(this));
+
+    // Water query for wave slope (used for tilt wave response)
+    this.waterQuery = this.addChild(
+      new WaterQuery(() => [V(this.hull.body.position)]),
+    );
+  }
+
+  /** Accumulate tilt torque from external sources (sails, keel, waves, grounding) */
+  applyTiltTorque(rollTorque: number, pitchTorque: number): void {
+    this.accumulatedRollTorque += rollTorque;
+    this.accumulatedPitchTorque += pitchTorque;
   }
 
   @on("tick")
-  onTick(): void {
+  onTick({ dt }: GameEventMap["tick"]): void {
     // Fade jib sheets based on jib hoist amount
     if (this.jib && this.portJibSheet && this.starboardJibSheet) {
       const jibOpacity = this.jib.getHoistAmount();
       this.portJibSheet.setOpacity(jibOpacity);
       this.starboardJibSheet.setOpacity(jibOpacity);
+    }
+
+    const tilt = this.config.tilt;
+    const hullAngle = this.hull.body.angle;
+
+    // --- Compute tilt torques ---
+
+    // 1. Sail heeling torque: lateral component of sail force × z-height
+    // Lateral direction in world frame (perpendicular to boat heading, toward port)
+    const lateralX = -Math.sin(hullAngle);
+    const lateralY = Math.cos(hullAngle);
+
+    const mainForce = this.rig.sail.getTotalForce();
+    const mainLateral = mainForce.x * lateralX + mainForce.y * lateralY;
+    this.applyTiltTorque(mainLateral * tilt.zHeights.sailCE, 0);
+
+    if (this.jib) {
+      const jibForce = this.jib.getTotalForce();
+      const jibLateral = jibForce.x * lateralX + jibForce.y * lateralY;
+      this.applyTiltTorque(jibLateral * tilt.zHeights.sailCE, 0);
+    }
+
+    // 2. Wave slope torque: water surface normal drives roll and pitch
+    if (this.waterQuery.results.length > 0) {
+      const waterNormal = this.waterQuery.results[0].normal;
+      // Project water normal into boat frame
+      const cosA = Math.cos(hullAngle);
+      const sinA = Math.sin(hullAngle);
+      // Boat-frame x (forward) = world dot forward, boat-frame y (port) = world dot port
+      const normalForward = waterNormal.x * cosA + waterNormal.y * sinA;
+      const normalLateral = -waterNormal.x * sinA + waterNormal.y * cosA;
+      this.applyTiltTorque(
+        normalLateral * tilt.waveRollCoeff,
+        normalForward * tilt.wavePitchCoeff,
+      );
+    }
+
+    // 3. Righting moment (restoring torque from keel weight + buoyancy)
+    const rightingRoll = -tilt.rightingMomentCoeff * Math.sin(this.roll);
+    const rightingPitch = -tilt.pitchRightingCoeff * Math.sin(this.pitch);
+    this.applyTiltTorque(rightingRoll, rightingPitch);
+
+    // 4. Debug tilt controls (temporary)
+    if (this.debugTiltEnabled) {
+      const io = this.game.io;
+      const debugTorque = 3000;
+      if (io.isKeyDown("Numpad4")) this.applyTiltTorque(-debugTorque, 0);
+      if (io.isKeyDown("Numpad6")) this.applyTiltTorque(debugTorque, 0);
+      if (io.isKeyDown("Numpad8")) this.applyTiltTorque(0, debugTorque);
+      if (io.isKeyDown("Numpad2")) this.applyTiltTorque(0, -debugTorque);
+    }
+
+    // --- Integrate tilt ---
+
+    // Damping torque (opposes angular velocity)
+    const dampingRoll = -tilt.rollDamping * this.rollVelocity;
+    const dampingPitch = -tilt.pitchDamping * this.pitchVelocity;
+
+    // Angular acceleration = (torque + damping) / inertia
+    const rollAccel =
+      (this.accumulatedRollTorque + dampingRoll) / tilt.rollInertia;
+    const pitchAccel =
+      (this.accumulatedPitchTorque + dampingPitch) / tilt.pitchInertia;
+
+    // Semi-implicit Euler integration
+    this.rollVelocity += rollAccel * dt;
+    this.pitchVelocity += pitchAccel * dt;
+    this.roll += this.rollVelocity * dt;
+    this.pitch += this.pitchVelocity * dt;
+
+    // Clamp to max angles
+    this.roll = clamp(this.roll, -tilt.maxRoll, tilt.maxRoll);
+    this.pitch = clamp(this.pitch, -tilt.maxPitch, tilt.maxPitch);
+
+    // Reset accumulators
+    this.accumulatedRollTorque = 0;
+    this.accumulatedPitchTorque = 0;
+
+    // Propagate tilt to hull for child entities to read
+    this.hull.tiltRoll = this.roll;
+    this.hull.tiltPitch = this.pitch;
+
+    const [hx, hy] = this.hull.body.position;
+    this.hull.tiltTransform.update(
+      this.roll,
+      this.pitch,
+      this.hull.body.angle,
+      hx,
+      hy,
+    );
+  }
+
+  @on("keyDown")
+  onKeyDown({ key }: GameEventMap["keyDown"]): void {
+    // Toggle debug tilt controls with Numpad0
+    if (key === "Numpad0") {
+      this.debugTiltEnabled = !this.debugTiltEnabled;
     }
   }
 

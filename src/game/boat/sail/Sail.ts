@@ -46,6 +46,8 @@ export interface SailParams {
   initialClewPosition?: V2d; // Only used once during construction
   clewConstraint?: { body: Body; localAnchor: V2d };
   extraPoints?: () => V2d[];
+  /** Visual-only offset applied during rendering (e.g. tilt parallax). Not used in physics. */
+  getRenderOffset?: () => V2d;
 }
 
 const DEFAULT_CONFIG: SailConfig = {
@@ -88,6 +90,9 @@ export class Sail extends BaseEntity implements WindModifier {
 
   // Reusable AABB for WindModifier
   private readonly aabb: AABB = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+  // Total aerodynamic force applied this tick (for heeling torque calculation)
+  private _totalForce = V(0, 0);
 
   private config: SailParams & SailConfig;
 
@@ -165,6 +170,7 @@ export class Sail extends BaseEntity implements WindModifier {
           () => attachmentBody.position,
           () => attachmentBody.velocity,
           () => this.hoistAmount,
+          this.config.getRenderOffset,
         ),
       );
     }
@@ -250,6 +256,11 @@ export class Sail extends BaseEntity implements WindModifier {
     this.targetHoistAmount = hoisted ? 1 : 0;
   }
 
+  /** Get total aerodynamic force applied this tick (for heeling torque calculation) */
+  getTotalForce(): V2d {
+    return this._totalForce;
+  }
+
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]) {
     const { hoistSpeed, getForceScale } = this.config;
@@ -260,6 +271,8 @@ export class Sail extends BaseEntity implements WindModifier {
       this.targetHoistAmount,
       hoistSpeed * dt,
     );
+
+    this._totalForce.set(0, 0);
 
     if (!this.isHoisted() || this.hoistAmount <= 0) return;
 
@@ -283,6 +296,7 @@ export class Sail extends BaseEntity implements WindModifier {
         forceScale,
         this.config.liftScale,
         this.config.dragScale,
+        this._totalForce,
       );
     }
   }
@@ -440,6 +454,11 @@ export class Sail extends BaseEntity implements WindModifier {
     const head = this.config.getHeadPosition();
     const clew = this.getClewPosition();
 
+    // Visual-only parallax offset (doesn't affect physics)
+    const off = this.config.getRenderOffset?.() ?? null;
+    const ox = off ? off.x : 0;
+    const oy = off ? off.y : 0;
+
     // Scale billow by hoist amount - sail flattens as it's lowered
     const scaledBillowOuter = billowOuter * this.hoistAmount;
     const scaledBillowInner = billowInner * this.hoistAmount;
@@ -454,7 +473,7 @@ export class Sail extends BaseEntity implements WindModifier {
     if (sailShape === "triangle") {
       // Triangle rendering: single polygon with billow on one edge
       // head → particles with billow → clew → extraPoints → back to head
-      path.moveTo(head.x, head.y);
+      path.moveTo(head.x + ox, head.y + oy);
 
       // Billowed edge (foot for jib)
       for (let i = 1; i < this.bodies.length - 1; i++) {
@@ -462,31 +481,31 @@ export class Sail extends BaseEntity implements WindModifier {
         const t = i / (this.bodies.length - 1);
         const baseline = lerpV2d(head, clew, t);
         const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
-        path.lineTo(x, y);
+        path.lineTo(x + ox, y + oy);
       }
-      path.lineTo(clew.x, clew.y);
+      path.lineTo(clew.x + ox, clew.y + oy);
 
       // Extra points (e.g., masthead for jib - forms the leech)
       // Scale extra points toward clew as sail is lowered
       const extraPoints = this.config.extraPoints?.() ?? [];
       for (const point of extraPoints) {
         const scaledPoint = lerpV2d(clew, point, this.hoistAmount);
-        path.lineTo(scaledPoint.x, scaledPoint.y);
+        path.lineTo(scaledPoint.x + ox, scaledPoint.y + oy);
       }
 
       const scaledHead = lerpV2d(clew, head, this.hoistAmount);
-      path.lineTo(scaledHead.x, scaledHead.y);
+      path.lineTo(scaledHead.x + ox, scaledHead.y + oy);
 
       path.close();
       path.fill(color, alpha);
-      draw.screenLine(head.x, head.y, clew.x, clew.y, {
+      draw.screenLine(head.x + ox, head.y + oy, clew.x + ox, clew.y + oy, {
         color,
         alpha,
         width: 1,
       });
     } else {
       // Boom rendering: double-pass with inner and outer billow
-      path.moveTo(head.x, head.y);
+      path.moveTo(head.x + ox, head.y + oy);
 
       // Outer edge: head → particles (with billowOuter) → clew
       for (let i = 1; i < this.bodies.length - 1; i++) {
@@ -494,9 +513,9 @@ export class Sail extends BaseEntity implements WindModifier {
         const t = i / (this.bodies.length - 1);
         const baseline = lerpV2d(head, clew, t);
         const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
-        path.lineTo(x, y);
+        path.lineTo(x + ox, y + oy);
       }
-      path.lineTo(clew.x, clew.y);
+      path.lineTo(clew.x + ox, clew.y + oy);
 
       // Inner edge: back to head (with billowInner)
       const reversedBodies = this.bodies.toReversed();
@@ -505,12 +524,12 @@ export class Sail extends BaseEntity implements WindModifier {
         const t = i / (this.bodies.length - 1);
         const baseline = lerpV2d(clew, head, t);
         const [x, y] = lerpV2d(baseline, body.position, scaledBillowInner);
-        path.lineTo(x, y);
+        path.lineTo(x + ox, y + oy);
       }
 
       path.close();
       path.fill(color, alpha);
-      draw.screenLine(head.x, head.y, clew.x, clew.y, {
+      draw.screenLine(head.x + ox, head.y + oy, clew.x + ox, clew.y + oy, {
         color,
         alpha,
         width: 1,

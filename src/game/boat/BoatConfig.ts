@@ -107,6 +107,28 @@ export interface RowingConfig {
   readonly force: number; // lbf
 }
 
+export interface TiltConfig {
+  readonly rollInertia: number; // moment of inertia for roll (lbs·ft²)
+  readonly pitchInertia: number; // moment of inertia for pitch (lbs·ft²)
+  readonly rollDamping: number; // angular damping coefficient for roll
+  readonly pitchDamping: number; // angular damping coefficient for pitch
+  readonly rightingMomentCoeff: number; // righting moment coefficient (spring stiffness)
+  readonly pitchRightingCoeff: number; // pitch restoring coefficient
+  readonly maxRoll: number; // max roll angle (radians)
+  readonly maxPitch: number; // max pitch angle (radians)
+  readonly waveRollCoeff: number; // wave slope → roll torque coefficient
+  readonly wavePitchCoeff: number; // wave slope → pitch torque coefficient
+  readonly zHeights: {
+    readonly deck: number; // ft above waterline
+    readonly boom: number; // ft above waterline
+    readonly sailCE: number; // sail center of effort, ft above waterline
+    readonly mastTop: number; // ft above waterline
+    readonly keel: number; // ft below waterline (negative)
+    readonly rudder: number; // average depth ft below waterline (negative)
+    readonly bowsprit: number; // ft above waterline
+  };
+}
+
 // ============================================
 // Main BoatConfig Interface
 // ============================================
@@ -123,6 +145,7 @@ export interface BoatConfig {
   readonly jibSheet?: JibSheetConfig;
   readonly rowing: RowingConfig;
   readonly grounding: GroundingConfig;
+  readonly tilt: TiltConfig;
 }
 
 // Re-export boat configs

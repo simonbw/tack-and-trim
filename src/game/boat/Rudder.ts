@@ -109,9 +109,13 @@ export class Rudder extends BaseEntity {
     );
     const rudderEnd = this.position.add(rudderOffset);
 
-    // Use proper foil physics with real chord dimension
-    const lift = foilLift(RUDDER_CHORD);
-    const drag = foilDrag(RUDDER_CHORD);
+    // Scale rudder effectiveness by heel angle — rudder lifts out at extreme heel
+    const heelFactor = Math.cos(this.hull.tiltRoll);
+    const effectiveChord = RUDDER_CHORD * Math.max(0.1, heelFactor);
+
+    // Use proper foil physics with heel-adjusted chord dimension
+    const lift = foilLift(effectiveChord);
+    const drag = foilDrag(effectiveChord);
 
     // Get water velocity from cache or default to zero
     const getWaterVelocity = (point: V2d): V2d => {
@@ -144,10 +148,16 @@ export class Rudder extends BaseEntity {
     const [rx, ry] = this.position.rotate(this.hull.body.angle).iadd([x, y]);
     const rudderAngle = this.hull.body.angle - this.steer * this.maxSteerAngle;
 
+    // Rudder is below waterline — small parallax shift
+    const offset = this.hull.tiltTransform.worldOffset(-1);
+
     // Draw rudder blade (underwater)
-    draw.at({ pos: V(rx, ry), angle: rudderAngle }, () => {
-      draw.line(0, 0, -this.length, 0, { color: this.color, width: 0.5 });
-    });
+    draw.at(
+      { pos: V(rx + offset.x, ry + offset.y), angle: rudderAngle },
+      () => {
+        draw.line(0, 0, -this.length, 0, { color: this.color, width: 0.5 });
+      },
+    );
   }
 
   /** Get rudder position in hull-local coordinates */

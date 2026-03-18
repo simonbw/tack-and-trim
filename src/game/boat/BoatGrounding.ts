@@ -78,6 +78,7 @@ export class BoatGrounding extends BaseEntity {
     if (speed < 0.01) return;
 
     let totalForce = V(0, 0);
+    let groundingRollTorque = 0;
 
     // Results are ordered: keel vertices, then rudder, then hull center
     const keelVertexCount = this.boat.config.keel.vertices.length;
@@ -88,11 +89,6 @@ export class BoatGrounding extends BaseEntity {
       const result = this.terrainQuery.results[resultIndex++];
       const terrainHeight = result.height;
 
-      // Keel penetration: terrain height + keel draft (both are positive)
-      // If terrain is above water level by terrainHeight, and keel extends
-      // keelDraft below water, they intersect when terrainHeight > -keelDraft
-      // Since terrain height is positive (above water) and we're checking if
-      // the keel (below water) hits it, penetration = terrainHeight + keelDraft
       const penetration = terrainHeight - -this.keelDraft;
 
       if (penetration > 0) {
@@ -102,6 +98,9 @@ export class BoatGrounding extends BaseEntity {
           this.config.keelFriction,
         );
         totalForce.isub(velocity.normalize().mul(friction));
+
+        // Keel grounding produces a pitch torque (bow pitches up on impact)
+        this.boat.applyTiltTorque(0, penetration * speed * 100);
       }
     }
 
@@ -129,11 +128,24 @@ export class BoatGrounding extends BaseEntity {
         this.config.hullFriction,
       );
       totalForce.isub(velocity.normalize().mul(friction));
+
+      // Hull grounding at speed creates random roll torque (violent impact)
+      groundingRollTorque += hullPenetration * speed * 200;
     }
 
     // Apply grounding force
     if (totalForce.magnitude > 0) {
       body.applyForce(totalForce);
+    }
+
+    // Apply grounding tilt torque
+    if (groundingRollTorque > 0) {
+      // Roll direction based on which side hits harder (use velocity lateral component)
+      const hullAngle = body.angle;
+      const lateralVel =
+        -velocity[0] * Math.sin(hullAngle) + velocity[1] * Math.cos(hullAngle);
+      const rollSign = lateralVel > 0 ? 1 : -1;
+      this.boat.applyTiltTorque(rollSign * groundingRollTorque, 0);
     }
   }
 

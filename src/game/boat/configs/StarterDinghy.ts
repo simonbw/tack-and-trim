@@ -155,4 +155,26 @@ export const StarterDinghy: BoatConfig = {
     rudderFriction: 300, // lbf per ft penetration per ft/s
     hullFriction: 2000, // lbf per ft penetration per ft/s - severe when hull grounds
   },
+
+  tilt: {
+    rollInertia: 800,
+    pitchInertia: 1500,
+    rollDamping: 1200,
+    pitchDamping: 2000,
+    rightingMomentCoeff: 5000,
+    pitchRightingCoeff: 12000,
+    maxRoll: degToRad(60),
+    maxPitch: degToRad(30),
+    waveRollCoeff: 500,
+    wavePitchCoeff: 500,
+    zHeights: {
+      deck: 1, // ft above waterline
+      boom: 3,
+      sailCE: 8,
+      mastTop: 20,
+      keel: -3.5,
+      rudder: -1.25,
+      bowsprit: 0.5,
+    },
+  },
 };

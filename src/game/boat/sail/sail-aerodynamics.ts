@@ -1,7 +1,7 @@
 import type { DynamicBody } from "../../../core/physics/body/DynamicBody";
 import { clamp, degToRad } from "../../../core/util/MathUtil";
 import { rUniform } from "../../../core/util/Random";
-import { V } from "../../../core/Vector";
+import { V, V2d } from "../../../core/Vector";
 import { RHO_AIR } from "../../fluid-dynamics";
 import { SEPARATION_DECAY_RATE } from "../../world/wind/WindConstants";
 import type { SailSegment } from "./SailSegment";
@@ -63,6 +63,7 @@ export function applySailForces(
   forceScale: number,
   liftScale: number,
   dragScale: number,
+  forceAccumulator?: V2d,
 ): void {
   const { flow, length, tangent } = segment;
 
@@ -121,4 +122,7 @@ export function applySailForces(
 
   const totalForce = liftForce.add(dragForce);
   body.applyForce(totalForce);
+  if (forceAccumulator) {
+    forceAccumulator.iadd(totalForce);
+  }
 }

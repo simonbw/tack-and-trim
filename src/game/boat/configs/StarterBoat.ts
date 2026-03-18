@@ -136,4 +136,26 @@ export const StarterBoat: BoatConfig = {
     rudderFriction: 250,
     hullFriction: 1600,
   },
+
+  tilt: {
+    rollInertia: 600,
+    pitchInertia: 1200,
+    rollDamping: 1000,
+    pitchDamping: 1600,
+    rightingMomentCoeff: 4000,
+    pitchRightingCoeff: 10000,
+    maxRoll: degToRad(60),
+    maxPitch: degToRad(30),
+    waveRollCoeff: 600,
+    wavePitchCoeff: 600,
+    zHeights: {
+      deck: 0.8,
+      boom: 2.5,
+      sailCE: 6,
+      mastTop: 16,
+      keel: -3.0,
+      rudder: -1.0,
+      bowsprit: 0.4,
+    },
+  },
 };
