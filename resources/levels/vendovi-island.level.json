@@ -41,7 +41,7 @@
   "biome": {
     "zones": [
       {
-        "maxHeight": 3,
+        "maxHeight": 8,
         "color": [0.55, 0.52, 0.45],
         "colorAlt": [0.48, 0.45, 0.4],
         "noiseBlend": 0.3,
@@ -92,7 +92,7 @@
   "trees": {
     "spacing": 15,
     "density": 1.0,
-    "minElevation": 3,
+    "minElevation": 8,
     "maxElevation": 300
   }
 }
