@@ -8,6 +8,7 @@
 2. **`mesh-building/`** — Shared `.wavemesh` format/types used by runtime loading and tooling.
 
 The canonical Rust pipeline lives under `pipeline/`:
+
 - `pipeline/build-level/` for terrain download/extract/validation and mesh building
 - `pipeline/wavemesh-builder/` for wave-mesh generation
 
@@ -54,22 +55,22 @@ Level-centric build pipeline. Downloads real-world data, extracts terrain contou
 
 Use `./bin/build-level` directly as the primary interface.
 
-| Command                                              | Description                                                          |
-| ---------------------------------------------------- | -------------------------------------------------------------------- |
-| `./bin/build-level`                                  | Run full pipeline for all levels with regions (default command)      |
-| `./bin/build-level --level <name>`                   | Run full pipeline for one level                                      |
-| `./bin/build-level build [--level <name>]`           | Run full pipeline                                                    |
-| `./bin/build-level wave-mesh [--level <name>]`       | Build `.wavemesh` only (all levels by default)                       |
-| `./bin/build-level wind-mesh [--level <name>]`       | Build `.windmesh` only (all levels by default)                       |
-| `./bin/build-level trees [--level <name>]`           | Generate tree positions (all levels by default)                      |
-| `./bin/build-level extract [--level <name>]`         | Extract terrain → `.terrain`                                         |
-| `./bin/build-level download [--level <name>]`        | Download GeoTIFF tiles                                               |
-| `./bin/build-level build-grid [--level <name>]`      | Merge tiles into `merged.tif` via `gdalwarp`                         |
-| `./bin/build-level clean [--level <name>]`           | Delete generated outputs while keeping `tiles/`                      |
-| `./bin/build-level validate [path] [--level <name>]` | Validate level or terrain file                                       |
-| `./bin/build-level list-levels`                      | List available levels                                                |
-| `./bin/build-level list-regions`                     | List levels with region config                                       |
-| `./bin/build-level completion zsh`                   | Print zsh completion script                                          |
+| Command                                              | Description                                                     |
+| ---------------------------------------------------- | --------------------------------------------------------------- |
+| `./bin/build-level`                                  | Run full pipeline for all levels with regions (default command) |
+| `./bin/build-level --level <name>`                   | Run full pipeline for one level                                 |
+| `./bin/build-level build [--level <name>]`           | Run full pipeline                                               |
+| `./bin/build-level wave-mesh [--level <name>]`       | Build `.wavemesh` only (all levels by default)                  |
+| `./bin/build-level wind-mesh [--level <name>]`       | Build `.windmesh` only (all levels by default)                  |
+| `./bin/build-level trees [--level <name>]`           | Generate tree positions (all levels by default)                 |
+| `./bin/build-level extract [--level <name>]`         | Extract terrain → `.terrain`                                    |
+| `./bin/build-level download [--level <name>]`        | Download GeoTIFF tiles                                          |
+| `./bin/build-level build-grid [--level <name>]`      | Merge tiles into `merged.tif` via `gdalwarp`                    |
+| `./bin/build-level clean [--level <name>]`           | Delete generated outputs while keeping `tiles/`                 |
+| `./bin/build-level validate [path] [--level <name>]` | Validate level or terrain file                                  |
+| `./bin/build-level list-levels`                      | List available levels                                           |
+| `./bin/build-level list-regions`                     | List levels with region config                                  |
+| `./bin/build-level completion zsh`                   | Print zsh completion script                                     |
 
 NPM scripts (`download-terrain`, `build-terrain-grid`, `extract-terrain-contours`, `validate-level`, `build-terrain`) are thin wrappers around `./bin/build-level`.
 
@@ -101,22 +102,35 @@ Output paths are convention-based: `static/levels/<slug>.terrain`.
 ### Level File Format (v2)
 
 Region-based terrain (real-world levels):
+
 ```json
 {
   "version": 2,
   "name": "Vendovi Island",
   "region": {
     "datasetPath": "wash_bellingham/",
-    "bbox": { "minLat": 48.6, "minLon": -122.6, "maxLat": 48.62, "maxLon": -122.59 },
-    "interval": 25, "simplify": 5, "scale": 1,
-    "minPerimeter": 1500, "minPoints": 4, "flipY": true
+    "bbox": {
+      "minLat": 48.6,
+      "minLon": -122.6,
+      "maxLat": 48.62,
+      "maxLon": -122.59
+    },
+    "interval": 25,
+    "simplify": 5,
+    "scale": 1,
+    "minPerimeter": 1500,
+    "minPoints": 4,
+    "flipY": true
   },
-  "waves": { "sources": [{ "amplitude": 0.4, "wavelength": 200, "direction": 0.8 }] },
+  "waves": {
+    "sources": [{ "amplitude": 0.4, "wavelength": 200, "direction": 0.8 }]
+  },
   "wind": { "sources": [{ "direction": 0.785 }] }
 }
 ```
 
 Inline terrain (hand-crafted levels):
+
 ```json
 {
   "version": 2,

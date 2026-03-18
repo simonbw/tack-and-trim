@@ -1,4 +1,7 @@
-import { parseTreeBuffer, TreeFileData } from "../../pipeline/mesh-building/TreeFile";
+import {
+  parseTreeBuffer,
+  TreeFileData,
+} from "../../pipeline/mesh-building/TreeFile";
 
 export async function loadTreesFromUrl(url: string): Promise<TreeFileData> {
   const response = await fetch(url);
