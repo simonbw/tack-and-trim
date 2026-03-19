@@ -48,18 +48,41 @@ export const StarterBoat: BoatConfig = {
       V(-4.9, 1.5),
       V(-5.3, 0.85),
     ], // ~12.8 ft WLL, ~4.4 ft waterline beam
+    bottomVertices: [
+      // Narrowest cross-section at hull bottom
+      // Stern
+      V(-5.1, -0.4),
+      V(-4.7, -0.65),
+      // Starboard side
+      V(-2.1, -1.0),
+      V(1.7, -1.0),
+      V(4.5, -0.75),
+      V(6.4, -0.4),
+      // Bow
+      V(7.2, 0),
+      // Port side
+      V(6.4, 0.4),
+      V(4.5, 0.75),
+      V(1.7, 1.0),
+      V(-2.1, 1.0),
+      V(-4.7, 0.65),
+      V(-5.1, 0.4),
+    ], // ~12.3 ft, ~2.0 ft bottom beam
     skinFrictionCoefficient: 0.003,
-    draft: 0.4, // ft below waterline
+    draft: 0.6, // ft below waterline
+    deckHeight: 1.6, // ft above waterline (gunwale freeboard)
     colors: {
       fill: 0xccaa33,
       stroke: 0x886633,
+      side: 0xbb9928,
+      bottom: 0x886633, // same as deck outline
     },
   },
 
   keel: {
     vertices: [V(-4.2, 0), V(4.2, 0)], // 8.4ft span centerboard
     draft: 3.0, // ft below waterline
-    color: 0x665522,
+    color: 0x4a3a3d, // match rudder color
   },
 
   rudder: {
@@ -78,7 +101,7 @@ export const StarterBoat: BoatConfig = {
     boomWidth: 0.45, // ft
     boomMass: 12, // lbs
     colors: {
-      mast: 0x886633,
+      mast: 0x4a3a3d, // match keel/rudder
       boom: 0x997744,
     },
     mainsail: {
@@ -93,13 +116,16 @@ export const StarterBoat: BoatConfig = {
       hoistSpeed: 0.4,
       color: 0xeeeeff,
     },
+    stays: {
+      forestay: V(8, 0), // just aft of bowsprit tip
+      portShroud: V(1.5, 2.5),
+      starboardShroud: V(1.5, -2.5),
+      backstay: V(-5, 0),
+      deckHeight: 1.6,
+    },
   },
 
-  bowsprit: {
-    attachPoint: V(7.6, 0),
-    size: V(1.0, 0.3), // ft - smaller bowsprit (decorative, no jib)
-    color: 0x775533,
-  },
+  // No bowsprit on starter boat
 
   anchor: {
     bowAttachPoint: V(7.8, 0),
@@ -144,8 +170,8 @@ export const StarterBoat: BoatConfig = {
     pitchDamping: 1600,
     rightingMomentCoeff: 4000,
     pitchRightingCoeff: 10000,
-    maxRoll: degToRad(60),
-    maxPitch: degToRad(30),
+    maxRoll: degToRad(90),
+    maxPitch: degToRad(60),
     waveRollCoeff: 600,
     wavePitchCoeff: 600,
     zHeights: {

@@ -20,9 +20,7 @@ export class Rig extends BaseEntity {
   private boomWidth: number;
   private mastColor: number;
   private boomColor: number;
-
-  /** Bowsprit tip in hull-local coords — set by Boat for forestay rendering */
-  forestayTarget: V2d = V(11, 0);
+  private stays: RigConfig["stays"];
 
   constructor(
     readonly hull: Hull,
@@ -38,6 +36,7 @@ export class Rig extends BaseEntity {
     this.boomWidth = boomWidth;
     this.mastColor = colors.mast;
     this.boomColor = colors.boom;
+    this.stays = config.stays;
 
     // Boom physics body - pivot is at origin, boom extends in -x direction
     // Position at the mast's world-space location so constraints aren't violated at spawn
@@ -84,53 +83,59 @@ export class Rig extends BaseEntity {
     const mastTopLocal = t.localOffset(20);
     const mastTopWorld = t.worldOffset(20);
     const boomOff = t.worldOffset(3);
-    const riggingColor = 0x444444;
-    const riggingWidth = 0.15;
 
     // 1. Boom (bottom layer)
-    draw.at(
-      { pos: V(mx + boomOff.x, my + boomOff.y), angle: this.body.angle },
-      () => {
-        draw.fillRect(
-          -this.boomLength,
-          -this.boomWidth / 2,
-          this.boomLength,
-          this.boomWidth,
-          { color: this.boomColor },
-        );
-        draw.fillCircle(-this.boomLength, 0, 0.3, { color: 0x664422 });
-      },
-    );
+    // Draw between projected mast and boom-end world positions
+    const [bex, bey] = this.getBoomEndWorldPosition();
+    const boomStartX = mx + boomOff.x;
+    const boomStartY = my + boomOff.y;
+    const boomEndX = bex + boomOff.x;
+    const boomEndY = bey + boomOff.y;
+    const boomAngle = Math.atan2(boomEndY - boomStartY, boomEndX - boomStartX);
+    const boomLen = Math.hypot(boomEndX - boomStartX, boomEndY - boomStartY);
+
+    draw.at({ pos: V(boomStartX, boomStartY), angle: boomAngle }, () => {
+      draw.fillRect(0, -this.boomWidth / 2, boomLen, this.boomWidth, {
+        color: this.boomColor,
+      });
+      draw.fillCircle(boomLen, 0, 0.3, { color: 0x664422 });
+    });
 
     // 2. Standing rigging (above boom)
-    // Scale y-coords of deck attachment points by cosRoll to match hull foreshortening
     const cr = t.cosRoll;
+    const sr = t.sinRoll;
+    const sp = t.sinPitch;
+    const dz = this.stays.deckHeight;
+    const riggingColor = 0x999999;
+    const riggingWidth = 0.1;
     draw.at({ pos: V(hx, hy), angle: hullAngle }, () => {
       const lmx = this.mastPosition.x;
       const lmy = this.mastPosition.y;
       const topLX = lmx + mastTopLocal.x;
       const topLY = lmy + mastTopLocal.y;
 
-      // Forestay — mast top to bowsprit tip
-      draw.line(
-        topLX,
-        topLY,
-        this.forestayTarget.x,
-        this.forestayTarget.y * cr,
-        { color: riggingColor, width: riggingWidth },
-      );
-      // Port shroud
-      draw.line(topLX, topLY, lmx - 1, 3 * cr, {
+      // Project stay attachment points to deck height
+      const projectStay = (s: V2d) =>
+        [s.x + dz * sp, s.y * cr + dz * sr] as const;
+
+      const fs = projectStay(this.stays.forestay);
+      const ps = projectStay(this.stays.portShroud);
+      const ss = projectStay(this.stays.starboardShroud);
+      const bs = projectStay(this.stays.backstay);
+
+      draw.line(topLX, topLY, fs[0], fs[1], {
         color: riggingColor,
         width: riggingWidth,
       });
-      // Starboard shroud
-      draw.line(topLX, topLY, lmx - 1, -3 * cr, {
+      draw.line(topLX, topLY, ps[0], ps[1], {
         color: riggingColor,
         width: riggingWidth,
       });
-      // Backstay
-      draw.line(topLX, topLY, -6, 0, {
+      draw.line(topLX, topLY, ss[0], ss[1], {
+        color: riggingColor,
+        width: riggingWidth,
+      });
+      draw.line(topLX, topLY, bs[0], bs[1], {
         color: riggingColor,
         width: riggingWidth,
       });

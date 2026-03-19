@@ -37,6 +37,16 @@ export class TiltTransform {
     return this._cosRoll;
   }
 
+  /** sin(roll) — lateral parallax factor for hull-local drawing. */
+  get sinRoll(): number {
+    return this._sinRoll;
+  }
+
+  /** sin(pitch) — fore/aft parallax factor for hull-local drawing. */
+  get sinPitch(): number {
+    return this._sinPitch;
+  }
+
   /** Recompute the matrix. Called once per tick by Boat. */
   update(
     roll: number,

@@ -26,14 +26,18 @@ export class Keel extends BaseEntity {
   // Cached water velocities indexed by world position key
   private velocityCache = new Map<string, V2d>();
 
+  private keelZ: number;
+
   constructor(
     private hull: Hull,
     config: KeelConfig,
+    hullDraft: number,
   ) {
     super();
 
     this.vertices = config.vertices;
     this.color = config.color;
+    this.keelZ = -hullDraft; // keel attaches at hull bottom
   }
 
   /**
@@ -98,7 +102,7 @@ export class Keel extends BaseEntity {
   @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [x, y] = this.hull.body.position;
-    const offset = this.hull.tiltTransform.worldOffset(-2); // keel below waterline
+    const offset = this.hull.tiltTransform.worldOffset(this.keelZ);
 
     draw.at(
       { pos: V(x + offset.x, y + offset.y), angle: this.hull.body.angle },

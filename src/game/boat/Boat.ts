@@ -25,7 +25,7 @@ export class Boat extends BaseEntity {
   keel: Keel;
   rudder: Rudder;
   rig: Rig;
-  bowsprit: Bowsprit;
+  bowsprit: Bowsprit | null = null;
   jib: Sail | null = null;
   anchor: Anchor;
   mainsheet: Sheet;
@@ -47,11 +47,8 @@ export class Boat extends BaseEntity {
   // Water query for wave slope at boat position
   private waterQuery: WaterQuery;
 
-  // Debug: manual tilt control
-  private debugTiltEnabled: boolean = false;
-
   // Derived positions (computed from config)
-  private bowspritTipPosition: V2d;
+  private bowspritTipPosition: V2d | null;
 
   getPosition(): V2d {
     return this.hull.body.position;
@@ -71,10 +68,9 @@ export class Boat extends BaseEntity {
     this.config = config;
 
     // Compute derived positions from config
-    this.bowspritTipPosition = config.bowsprit.attachPoint.add([
-      config.bowsprit.size.x,
-      0,
-    ]);
+    this.bowspritTipPosition = config.bowsprit
+      ? config.bowsprit.attachPoint.add([config.bowsprit.size.x, 0])
+      : null;
     // Create hull first - everything attaches to it
     this.hull = this.addChild(new Hull(config.hull));
     // Set hull position BEFORE creating sub-entities so that physics bodies
@@ -82,17 +78,20 @@ export class Boat extends BaseEntity {
     this.hull.body.position.set(startPosition);
 
     // Create parts that attach to hull
-    this.keel = this.addChild(new Keel(this.hull, config.keel));
+    this.keel = this.addChild(
+      new Keel(this.hull, config.keel, config.hull.draft),
+    );
     this.rudder = this.addChild(new Rudder(this.hull, config.rudder));
     this.rig = this.addChild(new Rig(this.hull, config.rig));
-    this.rig.forestayTarget = this.bowspritTipPosition;
 
     // Wire up tiller rendering (drawn by hull, but follows rudder angle)
     this.hull.setTillerConfig({
       position: this.rudder.getPosition(),
       getTillerAngle: () => this.rudder.getTillerAngleOffset(),
     });
-    this.bowsprit = this.addChild(new Bowsprit(this, config.bowsprit));
+    if (config.bowsprit) {
+      this.bowsprit = this.addChild(new Bowsprit(this, config.bowsprit));
+    }
 
     // Create mainsheet (boom to hull)
     const { hullAttachPoint, boomAttachRatio, ...mainsheetConfig } =
@@ -108,7 +107,7 @@ export class Boat extends BaseEntity {
     );
 
     // Create jib and jib sheets if configured
-    if (config.jib && config.jibSheet) {
+    if (config.jib && config.jibSheet && this.bowspritTipPosition) {
       const jibTackPosition = this.bowspritTipPosition;
       const jibHeadPosition = config.rig.mastPosition;
 
@@ -240,16 +239,6 @@ export class Boat extends BaseEntity {
     const rightingPitch = -tilt.pitchRightingCoeff * Math.sin(this.pitch);
     this.applyTiltTorque(rightingRoll, rightingPitch);
 
-    // 4. Debug tilt controls (temporary)
-    if (this.debugTiltEnabled) {
-      const io = this.game.io;
-      const debugTorque = 3000;
-      if (io.isKeyDown("Numpad4")) this.applyTiltTorque(-debugTorque, 0);
-      if (io.isKeyDown("Numpad6")) this.applyTiltTorque(debugTorque, 0);
-      if (io.isKeyDown("Numpad8")) this.applyTiltTorque(0, debugTorque);
-      if (io.isKeyDown("Numpad2")) this.applyTiltTorque(0, -debugTorque);
-    }
-
     // --- Integrate tilt ---
 
     // Damping torque (opposes angular velocity)
@@ -288,14 +277,6 @@ export class Boat extends BaseEntity {
       hx,
       hy,
     );
-  }
-
-  @on("keyDown")
-  onKeyDown({ key }: GameEventMap["keyDown"]): void {
-    // Toggle debug tilt controls with Numpad0
-    if (key === "Numpad0") {
-      this.debugTiltEnabled = !this.debugTiltEnabled;
-    }
   }
 
   /** Row the boat forward */

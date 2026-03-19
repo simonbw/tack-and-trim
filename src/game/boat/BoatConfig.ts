@@ -10,13 +10,17 @@ import { SheetConfig } from "./Sheet";
 
 export interface HullConfig {
   readonly mass: number; // lbs
-  readonly vertices: V2d[]; // ft, hull shape polygon, counter-clockwise winding (visual/collision)
+  readonly vertices: V2d[]; // ft, deck/gunwale polygon, counter-clockwise winding (visual/collision)
   readonly waterlineVertices?: V2d[]; // ft, narrower shape at the waterline (water interaction)
+  readonly bottomVertices?: V2d[]; // ft, hull bottom shape (narrowest, at z = -draft)
   readonly skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
   readonly draft: number; // ft below waterline (hull bottom)
+  readonly deckHeight: number; // ft above waterline (gunwale/deck edge)
   readonly colors: {
-    readonly fill: number;
-    readonly stroke: number;
+    readonly fill: number; // deck color
+    readonly stroke: number; // outline color
+    readonly side?: number; // hull topsides color (between deck and waterline)
+    readonly bottom?: number; // hull bottom color (below waterline, antifouling)
   };
 }
 
@@ -72,6 +76,13 @@ export interface RigConfig {
     readonly boom: number;
   };
   readonly mainsail: MainsailConfig;
+  readonly stays: {
+    readonly forestay: V2d; // hull-local attachment point for forestay
+    readonly portShroud: V2d; // hull-local attachment point for port shroud
+    readonly starboardShroud: V2d; // hull-local attachment point for starboard shroud
+    readonly backstay: V2d; // hull-local attachment point for backstay
+    readonly deckHeight: number; // z-height of deck attachment points (ft above waterline)
+  };
 }
 
 export interface BowspritConfig {
@@ -138,7 +149,7 @@ export interface BoatConfig {
   readonly keel: KeelConfig;
   readonly rudder: RudderConfig;
   readonly rig: RigConfig;
-  readonly bowsprit: BowspritConfig;
+  readonly bowsprit?: BowspritConfig;
   readonly anchor: AnchorConfig;
   readonly jib?: JibConfig;
   readonly mainsheet: MainsheetConfig;

@@ -48,18 +48,41 @@ export const StarterDinghy: BoatConfig = {
       V(-5.8, 1.8),
       V(-6.3, 1.0),
     ], // ~15.1 ft WLL, ~5.2 ft waterline beam
+    bottomVertices: [
+      // Narrowest cross-section at hull bottom (keel line area)
+      // Stern
+      V(-6.1, -0.45),
+      V(-5.5, -0.8),
+      // Starboard side
+      V(-2.5, -1.2),
+      V(2, -1.2),
+      V(5.3, -0.9),
+      V(7.5, -0.45),
+      // Bow
+      V(8.5, 0),
+      // Port side
+      V(7.5, 0.45),
+      V(5.3, 0.9),
+      V(2, 1.2),
+      V(-2.5, 1.2),
+      V(-5.5, 0.8),
+      V(-6.1, 0.45),
+    ], // ~14.6 ft, ~2.4 ft bottom beam
     skinFrictionCoefficient: 0.003, // Typical smooth hull skin friction
-    draft: 0.5, // ft below waterline (hull bottom)
+    draft: 0.8, // ft below waterline (hull bottom)
+    deckHeight: 2.0, // ft above waterline (gunwale freeboard)
     colors: {
       fill: 0xccaa33,
       stroke: 0x886633,
+      side: 0xbb9928, // hull topsides, slightly darker than deck
+      bottom: 0x886633, // same as deck outline
     },
   },
 
   keel: {
     vertices: [V(-5, 0), V(5, 0)], // 10ft span centerboard
     draft: 3.5, // ft below waterline (centerboard extends 3ft below hull)
-    color: 0x665522,
+    color: 0x4a3a3d, // match rudder color
   },
 
   rudder: {
@@ -78,7 +101,7 @@ export const StarterDinghy: BoatConfig = {
     boomWidth: 0.5, // ft (~6 inches)
     boomMass: 15, // lbs
     colors: {
-      mast: 0x886633,
+      mast: 0x4a3a3d, // match keel/rudder
       boom: 0x997744,
     },
     mainsail: {
@@ -92,6 +115,13 @@ export const StarterDinghy: BoatConfig = {
       windInfluenceRadius: 15, // ft
       hoistSpeed: 0.4,
       color: 0xeeeeff,
+    },
+    stays: {
+      forestay: V(10, 0), // just aft of bowsprit tip
+      portShroud: V(2, 3),
+      starboardShroud: V(2, -3),
+      backstay: V(-6, 0),
+      deckHeight: 2.0,
     },
   },
 
