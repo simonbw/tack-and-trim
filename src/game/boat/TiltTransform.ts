@@ -87,6 +87,16 @@ export class TiltTransform {
     return V(this.m02 * z, this.m12 * z);
   }
 
+  /** World-space X parallax offset for a given z-height. Scalar, no allocation. */
+  worldOffsetX(z: number): number {
+    return this.m02 * z;
+  }
+
+  /** World-space Y parallax offset for a given z-height. Scalar, no allocation. */
+  worldOffsetY(z: number): number {
+    return this.m12 * z;
+  }
+
   /**
    * Hull-local parallax offset for a given z-height.
    * Use inside a draw.at() block that already applies hull position + angle.

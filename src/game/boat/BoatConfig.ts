@@ -59,6 +59,13 @@ export type BaseSailConfig = Partial<
     | "windInfluenceRadius"
     | "hoistSpeed"
     | "color"
+    | "clothColumns"
+    | "clothRows"
+    | "clothDamping"
+    | "clothIterations"
+    | "bendStiffness"
+    | "zFoot"
+    | "zHead"
   >
 >;
 

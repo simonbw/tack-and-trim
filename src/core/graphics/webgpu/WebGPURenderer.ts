@@ -126,8 +126,16 @@ export interface SpriteOptions {
 // Batch vertex size includes per-vertex model matrix (6 floats: a, b, c, d, tx, ty)
 const SPRITE_VERTEX_SIZE = 14; // position (2) + texCoord (2) + color (4) + matrix (6)
 const SHAPE_VERTEX_SIZE = 12; // position (2) + color (4) + matrix (6)
-const MAX_BATCH_VERTICES = 65536;
+// Max 65535 vertices because index buffer is Uint16Array (max addressable index = 65535).
+// Using 65536 would allow baseVertex + idx to overflow uint16 and wrap around,
+// causing triangles to reference wrong vertices.
+const MAX_BATCH_VERTICES = 65535;
 const MAX_BATCH_INDICES = MAX_BATCH_VERTICES * 6;
+
+// GPU buffers are sized larger than one batch to support multiple flushes per frame.
+// Each flush writes to a new region so earlier draw calls (recorded but not yet executed)
+// still reference their original data.
+const GPU_BUFFER_FLUSH_CAPACITY = 4;
 
 // Type-safe uniform buffer definition
 const ViewUniforms = defineUniformStruct("Uniforms", {
@@ -161,6 +169,15 @@ export class WebGPURenderer {
   private shapeBindGroup: GPUBindGroup | null = null;
   private shapeVertexCount = 0;
   private shapeIndexCount = 0;
+
+  // GPU buffer write offsets — advanced each flush to avoid overwriting
+  // data that earlier draw calls (recorded but not yet executed) still reference.
+  // Multiple writeBuffer calls to the same offset within a frame would cause
+  // earlier draw calls to read the LAST written data instead of their own.
+  private gpuShapeVertexByteOffset = 0;
+  private gpuShapeIndexByteOffset = 0;
+  private gpuSpriteVertexByteOffset = 0;
+  private gpuSpriteIndexByteOffset = 0;
 
   // Sprite batch resources
   private spriteVertices: Float32Array;
@@ -373,15 +390,15 @@ export class WebGPURenderer {
       label: "Shape Pipeline",
     });
 
-    // Create vertex and index buffers
+    // Create vertex and index buffers — sized for multiple flushes per frame
     this.shapeVertexBuffer = device.createBuffer({
-      size: this.shapeVertices.byteLength,
+      size: this.shapeVertices.byteLength * GPU_BUFFER_FLUSH_CAPACITY,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       label: "Shape Vertex Buffer",
     });
 
     this.shapeIndexBuffer = device.createBuffer({
-      size: this.shapeIndices.byteLength,
+      size: this.shapeIndices.byteLength * GPU_BUFFER_FLUSH_CAPACITY,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       label: "Shape Index Buffer",
     });
@@ -508,15 +525,15 @@ export class WebGPURenderer {
       label: "Sprite Pipeline",
     });
 
-    // Create vertex and index buffers
+    // Create vertex and index buffers — sized for multiple flushes per frame
     this.spriteVertexBuffer = device.createBuffer({
-      size: this.spriteVertices.byteLength,
+      size: this.spriteVertices.byteLength * GPU_BUFFER_FLUSH_CAPACITY,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       label: "Sprite Vertex Buffer",
     });
 
     this.spriteIndexBuffer = device.createBuffer({
-      size: this.spriteIndices.byteLength,
+      size: this.spriteIndices.byteLength * GPU_BUFFER_FLUSH_CAPACITY,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       label: "Sprite Index Buffer",
     });
@@ -562,6 +579,11 @@ export class WebGPURenderer {
     return this.canvas.height / this.pixelRatio;
   }
 
+  /** Get the current view matrix for custom render pipelines. */
+  getViewMatrix(): Matrix3 {
+    return this.viewMatrix;
+  }
+
   /** Begin a new frame */
   beginFrame(): void {
     if (!this.device || !this.context) return;
@@ -577,6 +599,12 @@ export class WebGPURenderer {
     this.spriteIndexCount = 0;
     this.currentTexture = null;
     this.currentTextureBindGroup = null;
+
+    // Reset GPU buffer write offsets so each frame starts writing from the beginning
+    this.gpuShapeVertexByteOffset = 0;
+    this.gpuShapeIndexByteOffset = 0;
+    this.gpuSpriteVertexByteOffset = 0;
+    this.gpuSpriteIndexByteOffset = 0;
 
     // Reset stats
     this.drawCallCount = 0;
@@ -805,6 +833,18 @@ export class WebGPURenderer {
       this.flushShapes();
     }
 
+    // If a single call still exceeds capacity after flush, split into triangle-sized chunks
+    if (
+      vertices.length > MAX_BATCH_VERTICES ||
+      indices.length > MAX_BATCH_INDICES
+    ) {
+      for (let t = 0; t < indices.length; t += 3) {
+        const triIndices = indices.slice(t, t + 3);
+        this.submitTriangles(vertices, triIndices, color, alpha);
+      }
+      return;
+    }
+
     // Extract color components
     const [r, g, b] = hexToVec3(color);
 
@@ -835,6 +875,72 @@ export class WebGPURenderer {
     }
   }
 
+  /**
+   * Submit triangles with per-vertex colors for smooth interpolation.
+   * Same as submitTriangles but each vertex has its own RGBA color.
+   * @param vertices - 2D vertex positions
+   * @param indices - Triangle indices
+   * @param colors - Per-vertex [r, g, b, a] colors (0-1 range), same length as vertices
+   */
+  submitColoredTriangles(
+    vertices: [number, number][],
+    indices: number[],
+    colors: [number, number, number, number][],
+  ): void {
+    // Flush sprites before drawing shapes (maintains layer ordering)
+    if (this.spriteIndexCount > 0) {
+      this.flushSprites();
+    }
+
+    // Check if we need to flush
+    if (
+      this.shapeVertexCount + vertices.length > MAX_BATCH_VERTICES ||
+      this.shapeIndexCount + indices.length > MAX_BATCH_INDICES
+    ) {
+      this.flushShapes();
+    }
+
+    // If a single call still exceeds capacity after flush, split into triangle-sized chunks
+    if (
+      vertices.length > MAX_BATCH_VERTICES ||
+      indices.length > MAX_BATCH_INDICES
+    ) {
+      for (let t = 0; t < indices.length; t += 3) {
+        const triIndices = indices.slice(t, t + 3);
+        this.submitColoredTriangles(vertices, triIndices, colors);
+      }
+      return;
+    }
+
+    // Extract model matrix components
+    const m = this.currentTransform;
+    const ma = m.a,
+      mb = m.b,
+      mc = m.c,
+      md = m.d,
+      mtx = m.tx,
+      mty = m.ty;
+
+    const baseVertex = this.shapeVertexCount;
+
+    // Store vertices with per-vertex color and model matrix
+    for (let i = 0; i < vertices.length; i++) {
+      const v = vertices[i];
+      const c = colors[i];
+      const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
+      this.shapeVertices.set(
+        [v[0], v[1], c[0], c[1], c[2], c[3], ma, mb, mc, md, mtx, mty],
+        offset,
+      );
+      this.shapeVertexCount++;
+    }
+
+    // Add indices
+    for (const idx of indices) {
+      this.shapeIndices[this.shapeIndexCount++] = baseVertex + idx;
+    }
+  }
+
   /** Flush the shape batch to the GPU */
   private flushShapes(): void {
     if (this.shapeIndexCount === 0 || !this.currentRenderPass || !this.device)
@@ -847,40 +953,69 @@ export class WebGPURenderer {
     // Upload view matrix to uniform buffer
     this.uploadViewMatrix(this.shapeUniformBuffer!);
 
-    // Upload vertex data
+    // Upload vertex data at current GPU offset
     const vertexData = this.shapeVertices.subarray(
       0,
       this.shapeVertexCount * SHAPE_VERTEX_SIZE,
     );
-    this.device.queue.writeBuffer(
-      this.shapeVertexBuffer!,
-      0,
-      vertexData.buffer,
-      vertexData.byteOffset,
-      vertexData.byteLength,
-    );
+    const vertexByteSize = vertexData.byteLength;
 
-    // Upload index data
+    // Upload index data at current GPU offset
     // WebGPU requires writeBuffer size to be a multiple of 4 bytes.
     // Uint16 indices may have odd count, so round up to even count.
     const paddedIndexCount = (this.shapeIndexCount + 1) & ~1;
     const indexData = this.shapeIndices.subarray(0, paddedIndexCount);
+    const indexByteSize = indexData.byteLength;
+
+    // If we'd exceed the GPU buffer, wrap to 0 (rare fallback)
+    const vertexBufferSize =
+      this.shapeVertices.byteLength * GPU_BUFFER_FLUSH_CAPACITY;
+    const indexBufferSize =
+      this.shapeIndices.byteLength * GPU_BUFFER_FLUSH_CAPACITY;
+    if (
+      this.gpuShapeVertexByteOffset + vertexByteSize > vertexBufferSize ||
+      this.gpuShapeIndexByteOffset + indexByteSize > indexBufferSize
+    ) {
+      this.gpuShapeVertexByteOffset = 0;
+      this.gpuShapeIndexByteOffset = 0;
+    }
+
     this.device.queue.writeBuffer(
-      this.shapeIndexBuffer!,
-      0,
-      indexData.buffer,
-      indexData.byteOffset,
-      indexData.byteLength,
+      this.shapeVertexBuffer!,
+      this.gpuShapeVertexByteOffset,
+      vertexData.buffer,
+      vertexData.byteOffset,
+      vertexByteSize,
     );
 
-    // Draw
+    this.device.queue.writeBuffer(
+      this.shapeIndexBuffer!,
+      this.gpuShapeIndexByteOffset,
+      indexData.buffer,
+      indexData.byteOffset,
+      indexByteSize,
+    );
+
+    // Draw with offsets so each flush reads its own data
     this.currentRenderPass.setPipeline(this.shapePipeline!);
     this.currentRenderPass.setBindGroup(0, this.shapeBindGroup!);
-    this.currentRenderPass.setVertexBuffer(0, this.shapeVertexBuffer!);
-    this.currentRenderPass.setIndexBuffer(this.shapeIndexBuffer!, "uint16");
+    this.currentRenderPass.setVertexBuffer(
+      0,
+      this.shapeVertexBuffer!,
+      this.gpuShapeVertexByteOffset,
+    );
+    this.currentRenderPass.setIndexBuffer(
+      this.shapeIndexBuffer!,
+      "uint16",
+      this.gpuShapeIndexByteOffset,
+    );
     this.currentRenderPass.drawIndexed(this.shapeIndexCount);
 
-    // Reset batch
+    // Advance GPU offsets for next flush
+    this.gpuShapeVertexByteOffset += vertexByteSize;
+    this.gpuShapeIndexByteOffset += indexByteSize;
+
+    // Reset CPU batch
     this.shapeVertexCount = 0;
     this.shapeIndexCount = 0;
   }
@@ -1031,20 +1166,14 @@ export class WebGPURenderer {
     // Upload view matrix to uniform buffer
     this.uploadViewMatrix(this.spriteUniformBuffer!);
 
-    // Upload vertex data
+    // Upload vertex data at current GPU offset
     const spriteVertexData = this.spriteVertices.subarray(
       0,
       this.spriteVertexCount,
     );
-    this.device.queue.writeBuffer(
-      this.spriteVertexBuffer!,
-      0,
-      spriteVertexData.buffer,
-      spriteVertexData.byteOffset,
-      spriteVertexData.byteLength,
-    );
+    const vertexByteSize = spriteVertexData.byteLength;
 
-    // Upload index data
+    // Upload index data at current GPU offset
     // WebGPU requires writeBuffer size to be a multiple of 4 bytes.
     // Uint16 indices may have odd count, so round up to even count.
     const paddedSpriteIndexCount = (this.spriteIndexCount + 1) & ~1;
@@ -1052,23 +1181,58 @@ export class WebGPURenderer {
       0,
       paddedSpriteIndexCount,
     );
+    const indexByteSize = spriteIndexData.byteLength;
+
+    // If we'd exceed the GPU buffer, wrap to 0 (rare fallback)
+    const vertexBufferSize =
+      this.spriteVertices.byteLength * GPU_BUFFER_FLUSH_CAPACITY;
+    const indexBufferSize =
+      this.spriteIndices.byteLength * GPU_BUFFER_FLUSH_CAPACITY;
+    if (
+      this.gpuSpriteVertexByteOffset + vertexByteSize > vertexBufferSize ||
+      this.gpuSpriteIndexByteOffset + indexByteSize > indexBufferSize
+    ) {
+      this.gpuSpriteVertexByteOffset = 0;
+      this.gpuSpriteIndexByteOffset = 0;
+    }
+
     this.device.queue.writeBuffer(
-      this.spriteIndexBuffer!,
-      0,
-      spriteIndexData.buffer,
-      spriteIndexData.byteOffset,
-      spriteIndexData.byteLength,
+      this.spriteVertexBuffer!,
+      this.gpuSpriteVertexByteOffset,
+      spriteVertexData.buffer,
+      spriteVertexData.byteOffset,
+      vertexByteSize,
     );
 
-    // Draw
+    this.device.queue.writeBuffer(
+      this.spriteIndexBuffer!,
+      this.gpuSpriteIndexByteOffset,
+      spriteIndexData.buffer,
+      spriteIndexData.byteOffset,
+      indexByteSize,
+    );
+
+    // Draw with offsets so each flush reads its own data
     this.currentRenderPass.setPipeline(this.spritePipeline!);
     this.currentRenderPass.setBindGroup(0, this.spriteUniformBindGroup!);
     this.currentRenderPass.setBindGroup(1, this.currentTextureBindGroup!);
-    this.currentRenderPass.setVertexBuffer(0, this.spriteVertexBuffer!);
-    this.currentRenderPass.setIndexBuffer(this.spriteIndexBuffer!, "uint16");
+    this.currentRenderPass.setVertexBuffer(
+      0,
+      this.spriteVertexBuffer!,
+      this.gpuSpriteVertexByteOffset,
+    );
+    this.currentRenderPass.setIndexBuffer(
+      this.spriteIndexBuffer!,
+      "uint16",
+      this.gpuSpriteIndexByteOffset,
+    );
     this.currentRenderPass.drawIndexed(this.spriteIndexCount);
 
-    // Reset batch
+    // Advance GPU offsets for next flush
+    this.gpuSpriteVertexByteOffset += vertexByteSize;
+    this.gpuSpriteIndexByteOffset += indexByteSize;
+
+    // Reset CPU batch
     this.spriteVertexCount = 0;
     this.spriteIndexCount = 0;
   }

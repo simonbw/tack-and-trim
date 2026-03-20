@@ -68,6 +68,7 @@ export class Rig extends BaseEntity {
         headConstraint: { body: this.body, localAnchor: V(0, 0) },
         clewConstraint: { body: this.body, localAnchor: V(-boomLength, 0) },
         getForceScale: (t) => 1.0 - t,
+        getTiltTransform: () => this.hull.tiltTransform,
         getRenderOffset: () => this.hull.tiltTransform.worldOffset(3),
       }),
     );

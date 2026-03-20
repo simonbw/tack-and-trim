@@ -131,6 +131,7 @@ export class Boat extends BaseEntity {
           },
           sailShape: "triangle",
           extraPoints: () => [this.toWorldFrame(jibHeadPosition)],
+          getTiltTransform: () => this.hull.tiltTransform,
           getRenderOffset: () => this.hull.tiltTransform.worldOffset(3),
         }),
       );

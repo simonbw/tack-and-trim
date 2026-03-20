@@ -4,6 +4,7 @@ import { rUniform } from "../../../core/util/Random";
 import { V, V2d } from "../../../core/Vector";
 import { RHO_AIR } from "../../fluid-dynamics";
 import { SEPARATION_DECAY_RATE } from "../../world/wind/WindConstants";
+import type { ClothSolver } from "./ClothSolver";
 import type { SailSegment } from "./SailSegment";
 
 // The physics engine uses mass in "lbs" but F=ma with gravity=32.174 ft/s²,
@@ -125,4 +126,115 @@ export function applySailForces(
   if (forceAccumulator) {
     forceAccumulator.iadd(totalForce);
   }
+}
+
+/**
+ * Compute per-triangle wind force for cloth sail simulation.
+ * Returns [fx, fy, fz] force to be distributed 1/3 to each vertex.
+ *
+ * @param solver - ClothSolver with vertex positions
+ * @param i0 - First vertex index
+ * @param i1 - Second vertex index
+ * @param i2 - Third vertex index
+ * @param windX - Apparent wind X (world space)
+ * @param windY - Apparent wind Y (world space)
+ * @param liftScale - Lift coefficient multiplier
+ * @param dragScale - Drag coefficient multiplier
+ */
+export function computeClothWindForce(
+  solver: ClothSolver,
+  i0: number,
+  i1: number,
+  i2: number,
+  windX: number,
+  windY: number,
+  liftScale: number,
+  dragScale: number,
+): [number, number, number] {
+  const windSpeed = Math.hypot(windX, windY);
+  if (windSpeed < 0.01) return [0, 0, 0];
+
+  // Get vertex positions
+  const x0 = solver.getPositionX(i0);
+  const y0 = solver.getPositionY(i0);
+  const z0 = solver.getZ(i0);
+  const x1 = solver.getPositionX(i1);
+  const y1 = solver.getPositionY(i1);
+  const z1 = solver.getZ(i1);
+  const x2 = solver.getPositionX(i2);
+  const y2 = solver.getPositionY(i2);
+  const z2 = solver.getZ(i2);
+
+  // Edge vectors
+  const e1x = x1 - x0;
+  const e1y = y1 - y0;
+  const e1z = z1 - z0;
+  const e2x = x2 - x0;
+  const e2y = y2 - y0;
+  const e2z = z2 - z0;
+
+  // 3D cross product → face normal
+  const nx = e1y * e2z - e1z * e2y;
+  const ny = e1z * e2x - e1x * e2z;
+  const nz = e1x * e2y - e1y * e2x;
+  const nLen = Math.hypot(nx, ny, nz);
+  if (nLen < 0.0001) return [0, 0, 0];
+
+  // Triangle area = 0.5 * |cross product|
+  const area = nLen * 0.5;
+
+  // Normalize normal
+  const nnx = nx / nLen;
+  const nny = ny / nLen;
+  const nnz = nz / nLen;
+
+  // Wind direction (normalized, treat as 2D with z=0)
+  const wdx = windX / windSpeed;
+  const wdy = windY / windSpeed;
+
+  // Angle of attack: angle between wind direction and face normal
+  // dot(wind3d, normal) where wind3d = (wdx, wdy, 0)
+  const dot = wdx * nnx + wdy * nny;
+  // The angle of attack is the complement: cos(aoa) = |dot| means aoa = acos(|dot|)
+  // But for a sail, aoa is angle between wind and the surface plane, not the normal
+  const sinAoa = Math.abs(dot); // sin of angle between wind and surface
+  const aoa = Math.asin(clamp(sinAoa, 0, 1));
+
+  // Dynamic pressure
+  const q = 0.5 * RHO_AIR * windSpeed * windSpeed;
+
+  // Lift and drag coefficients
+  const cl = getSailLiftCoefficient(aoa) * liftScale;
+  const cd = computeDragCoefficient(aoa) * dragScale;
+
+  const liftMag = cl * q * area * LBF_TO_ENGINE;
+  const dragMag = cd * q * area * LBF_TO_ENGINE;
+
+  // Drag force: along wind direction
+  const fdx = wdx * dragMag;
+  const fdy = wdy * dragMag;
+
+  // Lift force: perpendicular to wind, in the direction the normal faces
+  // Lift pushes the sail in the direction of the face normal (leeward)
+  // Project normal onto plane perpendicular to wind
+  const normalDotWind = nnx * wdx + nny * wdy;
+  let liftDirX = nnx - normalDotWind * wdx;
+  let liftDirY = nny - normalDotWind * wdy;
+  let liftDirZ = nnz;
+  const liftDirLen = Math.hypot(liftDirX, liftDirY, liftDirZ);
+  if (liftDirLen > 0.001) {
+    liftDirX /= liftDirLen;
+    liftDirY /= liftDirLen;
+    liftDirZ /= liftDirLen;
+  } else {
+    liftDirX = 0;
+    liftDirY = 0;
+    liftDirZ = 0;
+  }
+
+  const fx = fdx + liftDirX * liftMag;
+  const fy = fdy + liftDirY * liftMag;
+  const fz = liftDirZ * liftMag;
+
+  return [fx, fy, fz];
 }

@@ -8,6 +8,7 @@ export const TICK_LAYERS = [
   "environment", // Wind/water/terrain resources and stuff
   "query", // Wind/water/terrain query systems - kicks off GPU work early
   "main", // Default layer for most entities
+  "sail", // Cloth sail simulation
   "effects", // Particle effects (spray, foam, wake)
   "camera", // Camera follows final positions
 ] as const;

@@ -3,22 +3,31 @@ import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Body } from "../../../core/physics/body/Body";
 import { DynamicBody } from "../../../core/physics/body/DynamicBody";
-import { DistanceConstraint } from "../../../core/physics/constraints/DistanceConstraint";
 import { Particle } from "../../../core/physics/shapes/Particle";
-import { last, pairs, range } from "../../../core/util/FunctionalUtils";
-import { lerpV2d, stepToward } from "../../../core/util/MathUtil";
+import { stepToward } from "../../../core/util/MathUtil";
 import { AABB } from "../../../core/util/SparseSpatialHash";
 import { V, V2d } from "../../../core/Vector";
 import { WindModifier } from "../../WindModifier";
 import { WindQuery } from "../../world/wind/WindQuery";
-import { applySailForces } from "./sail-aerodynamics";
+import { TiltTransform } from "../TiltTransform";
+import { ClothRenderer } from "./ClothRenderer";
+import { ClothSolver } from "./ClothSolver";
+import { computeClothWindForce } from "./sail-aerodynamics";
 import { SailFlowSimulator } from "./SailFlowSimulator";
 import type { SailSegment } from "./SailSegment";
 import { SailSoundGenerator } from "./SailSoundGenerator";
+import { generateSailMesh, SailMeshData } from "./SailMesh";
+import { TimeOfDay } from "../../time/TimeOfDay";
 import { TellTail } from "./TellTail";
+
+// Gravity in ft/s² (downward in z)
+const GRAVITY_Z = -32.174;
 
 // Default sail chord (depth from luff to leech) in feet
 const DEFAULT_SAIL_CHORD = 5.0;
+
+// Influence radius for wind modifier AABB calculation
+const SEGMENT_INFLUENCE_RADIUS = 10;
 
 // Optional config with defaults
 export interface SailConfig {
@@ -35,43 +44,57 @@ export interface SailConfig {
   color: number;
   getForceScale: (t: number) => number;
   attachTellTail: boolean;
+  clothColumns: number;
+  clothRows: number;
+  clothDamping: number;
+  clothIterations: number;
+  bendStiffness: number;
+  zFoot: number;
+  zHead: number;
 }
 
 // Required params (no defaults)
 export interface SailParams {
   getHeadPosition: () => V2d; // Called each frame - head moves with boat
   headConstraint: { body: Body; localAnchor: V2d };
-  // Optional with no default
   getClewPosition?: () => V2d; // Called each frame for constrained clews
   initialClewPosition?: V2d; // Only used once during construction
   clewConstraint?: { body: Body; localAnchor: V2d };
   extraPoints?: () => V2d[];
+  getTiltTransform?: () => TiltTransform;
   /** Visual-only offset applied during rendering (e.g. tilt parallax). Not used in physics. */
   getRenderOffset?: () => V2d;
 }
 
 const DEFAULT_CONFIG: SailConfig = {
   nodeCount: 32,
-  nodeMass: 1.0, // lbs per particle - heavier for better force transfer through constraints
-  slackFactor: 1.01, // 1% slack in sail constraints
+  nodeMass: 1.0,
+  slackFactor: 1.01,
   liftScale: 1.0,
   dragScale: 1.0,
   sailShape: "boom",
-  billowInner: 0.8, // Billow scale at boom
-  billowOuter: 2.4, // Billow scale at leech
-  windInfluenceRadius: 15, // ft - sail's wind shadow radius
-  hoistSpeed: 0.4, // Full hoist/lower takes ~2.5 seconds
+  billowInner: 0.8,
+  billowOuter: 2.4,
+  windInfluenceRadius: 15,
+  hoistSpeed: 0.4,
   color: 0xeeeeff,
   getForceScale: () => 1.0,
   attachTellTail: true,
+  clothColumns: 32,
+  clothRows: 16,
+  clothDamping: 1.0,
+  clothIterations: 10,
+  bendStiffness: 0.3,
+  zFoot: 3,
+  zHead: 20,
 };
-
-// Influence radius for wind modifier AABB calculation
-const SEGMENT_INFLUENCE_RADIUS = 10;
 
 export class Sail extends BaseEntity implements WindModifier {
   layer = "sails" as const;
+  tickLayer = "sail" as const;
   tags = ["sail", "windModifier"];
+
+  // Keep bodies/constraints for jib clew coupling (single DynamicBody for sheets)
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
@@ -79,7 +102,12 @@ export class Sail extends BaseEntity implements WindModifier {
   hoistAmount: number = 0;
   targetHoistAmount: number = 0;
 
-  // Flow simulation
+  // Cloth simulation
+  private mesh: SailMeshData;
+  private solver: ClothSolver;
+  private clothRenderer: ClothRenderer;
+
+  // Flow simulation (for sail-to-sail interaction)
   private flowSimulator = new SailFlowSimulator();
   private cachedSegments: SailSegment[] = [];
   private flowComputedFrame: number = -1;
@@ -96,6 +124,10 @@ export class Sail extends BaseEntity implements WindModifier {
 
   private config: SailParams & SailConfig;
 
+  // Cached geometry for mapping UV to world
+  private headPos = V(0, 0);
+  private clewPos = V(0, 0);
+
   constructor(config: SailParams & Partial<SailConfig>) {
     super();
 
@@ -105,83 +137,164 @@ export class Sail extends BaseEntity implements WindModifier {
       getHeadPosition,
       initialClewPosition,
       getClewPosition,
-      headConstraint,
-      clewConstraint,
-      nodeCount,
-      nodeMass,
-      slackFactor,
+      clothColumns,
+      clothRows,
+      clothDamping,
+      clothIterations,
+      bendStiffness,
+      zFoot,
+      zHead,
+      sailShape,
       attachTellTail,
     } = this.config;
 
+    // Generate mesh
+    const taperFactor = sailShape === "triangle" ? 1.0 : 0.85;
+    this.mesh = generateSailMesh({
+      footColumns: clothColumns,
+      luffRows: clothRows,
+      taperFactor,
+      zFoot,
+      zHead,
+    });
+
+    // Create cloth solver
+    this.solver = new ClothSolver(this.mesh, {
+      damping: clothDamping,
+      constraintIterations: clothIterations,
+      bendStiffness,
+    });
+
+    // Create cloth renderer
+    this.clothRenderer = new ClothRenderer(
+      this.mesh.vertexCount,
+      this.mesh.indices,
+    );
+
+    // Initialize cloth positions in world space
     const head = getHeadPosition();
     const initialClew = initialClewPosition ?? getClewPosition?.() ?? head;
-    const totalLength = initialClew.distanceTo(head);
-    const segmentLength = totalLength / (nodeCount - 1);
+    this.headPos.set(head);
+    this.clewPos.set(initialClew);
 
-    // Create particle chain from head to clew
-    this.bodies = range(nodeCount).map((i) =>
-      new DynamicBody({
-        mass: nodeMass,
-        position: lerpV2d(head, initialClew, i / (nodeCount - 1)),
-        collisionResponse: false,
-        fixedRotation: true,
-      }).addShape(new Particle()),
-    );
+    const worldX = new Float64Array(this.mesh.vertexCount);
+    const worldY = new Float64Array(this.mesh.vertexCount);
+    const worldZ = new Float64Array(this.mesh.vertexCount);
+    this.mapUVToWorld(head, initialClew, worldX, worldY, worldZ);
+    this.solver.initializePositions(worldX, worldY, worldZ);
 
-    // Connect adjacent particles with distance constraints
-    this.constraints = pairs(this.bodies).map(
-      ([a, b]) =>
-        new DistanceConstraint(a, b, {
-          distance: segmentLength * slackFactor,
-          collideConnected: false,
-        }),
-    );
-
-    // Attach head (first particle) to specified body
-    this.constraints.push(
-      new DistanceConstraint(headConstraint.body, this.bodies[0], {
-        distance: 0,
-        collideConnected: false,
-        localAnchorA: [
-          headConstraint.localAnchor.x,
-          headConstraint.localAnchor.y,
-        ],
-      }),
-    );
-
-    // Optionally attach clew (last particle) to specified body
-    if (clewConstraint) {
-      this.constraints.push(
-        new DistanceConstraint(clewConstraint.body, last(this.bodies), {
-          distance: 0,
-          collideConnected: false,
-          localAnchorA: [
-            clewConstraint.localAnchor.x,
-            clewConstraint.localAnchor.y,
-          ],
-        }),
-      );
+    // Pin just 3 corners: tack, clew, head
+    const tackIdx = this.mesh.footVertices[0]; // (u=0, v=0)
+    const clewIdx = this.mesh.footVertices[this.mesh.footVertices.length - 1]; // (u=1, v=0)
+    const headIdx = this.mesh.luffVertices[this.mesh.luffVertices.length - 1]; // (u=0, v=1)
+    this.solver.setPinned(tackIdx, true);
+    this.solver.setPinned(headIdx, true);
+    if (sailShape === "boom") {
+      // Mainsail: clew pinned to boom end
+      this.solver.setPinned(clewIdx, true);
     }
 
+    // For jib: create a single DynamicBody for the clew (last vertex of foot row)
+    // to couple with Sheet constraints
+    if (sailShape === "triangle") {
+      const clewVertexIdx =
+        this.mesh.footVertices[this.mesh.footVertices.length - 1];
+      const cx = this.solver.getPositionX(clewVertexIdx);
+      const cy = this.solver.getPositionY(clewVertexIdx);
+
+      const clewBody = new DynamicBody({
+        mass: this.config.nodeMass,
+        position: [cx, cy],
+        collisionResponse: false,
+        fixedRotation: true,
+      }).addShape(new Particle());
+
+      this.bodies = [clewBody];
+      this.constraints = [];
+    } else {
+      this.bodies = [];
+      this.constraints = [];
+    }
+
+    // Attach tell tails to leech edge vertices
     if (attachTellTail) {
-      const attachmentBody = this.bodies[nodeCount - 1];
+      const leechIdx =
+        this.mesh.leechVertices[this.mesh.leechVertices.length - 1];
       this.addChild(
         new TellTail(
-          () => attachmentBody.position,
-          () => attachmentBody.velocity,
+          () =>
+            V(
+              this.solver.getPositionX(leechIdx),
+              this.solver.getPositionY(leechIdx),
+            ),
+          () => {
+            const dx =
+              this.solver.getPositionX(leechIdx) -
+              this.solver.getPrevPositionX(leechIdx);
+            const dy =
+              this.solver.getPositionY(leechIdx) -
+              this.solver.getPrevPositionY(leechIdx);
+            // Approximate velocity (positions are 1 tick apart)
+            return V(dx * 120, dy * 120);
+          },
           () => this.hoistAmount,
           this.config.getRenderOffset,
         ),
       );
     }
 
-    // Wind query for flow computation - queries centroid and midpoints to other sails
+    // Wind query for flow computation
     this.windQuery = this.addChild(
       new WindQuery(() => this.getWindQueryPoints()),
     );
 
-    // Sound synthesis driven by flow simulation
+    // Sound synthesis
     this.addChild(new SailSoundGenerator(this));
+  }
+
+  /**
+   * Map UV mesh positions to initial 3D world positions.
+   *
+   * The sail is a triangle in 3D:
+   *   Tack  (u=0, v=0) → (mast_x, mast_y, zFoot)
+   *   Clew  (u=1, v=0) → (boom_x, boom_y, zFoot)
+   *   Head  (u=0, v=1) → (mast_x, mast_y, zHead)
+   *
+   * u interpolates along the foot (boom direction) in x,y, tapered by row.
+   * v interpolates z from zFoot to zHead.
+   * The cloth solver operates in full 3D, so constraints along the luff
+   * (which differ only in z) have real nonzero rest lengths.
+   */
+  private mapUVToWorld(
+    head: V2d,
+    clew: V2d,
+    outX: Float64Array,
+    outY: Float64Array,
+    outZ: Float64Array,
+  ): void {
+    const footX = clew.x - head.x;
+    const footY = clew.y - head.y;
+    const { zFoot, zHead } = this.config;
+
+    const footColCount = this.mesh.colCounts[0];
+
+    for (let j = 0; j < this.mesh.colCounts.length; j++) {
+      const rowStart = this.mesh.rowStarts[j];
+      const colCount = this.mesh.colCounts[j];
+      const chordFrac = (colCount - 1) / Math.max(1, footColCount - 1);
+      const v = j / (this.mesh.colCounts.length - 1);
+
+      for (let c = 0; c < colCount; c++) {
+        const i = rowStart + c;
+        const u = colCount > 1 ? c / (colCount - 1) : 0;
+
+        // x,y: along the boom, tapered by row height
+        outX[i] = head.x + u * footX * chordFrac;
+        outY[i] = head.y + u * footY * chordFrac;
+        // z: interpolate from zFoot to zHead by row
+        outZ[i] = zFoot + v * (zHead - zFoot);
+      }
+    }
   }
 
   /**
@@ -193,7 +306,6 @@ export class Sail extends BaseEntity implements WindModifier {
     const myPos = this.getCentroid();
     const points = [myPos];
 
-    // Add midpoints to other sails for upwind/downwind determination
     const allSails = this.game
       ? ([...this.game.entities.getTagged("sail")] as Sail[])
       : [];
@@ -207,14 +319,18 @@ export class Sail extends BaseEntity implements WindModifier {
     return points;
   }
 
-  /** Get head body (first particle) */
+  /** Get head body - for mainsail, returns the head constraint body. For jib, returns first body or constraint body */
   getHead(): Body {
-    return this.bodies[0];
+    return this.config.headConstraint.body;
   }
 
-  /** Get clew body (last particle) */
+  /** Get clew body - for jib returns the DynamicBody; for mainsail returns the clew constraint body */
   getClew(): Body {
-    return last(this.bodies);
+    if (this.bodies.length > 0) {
+      return this.bodies[0]; // jib clew DynamicBody
+    }
+    // Mainsail: clew is on the boom, use clewConstraint body
+    return this.config.clewConstraint?.body ?? this.config.headConstraint.body;
   }
 
   /** Get current head position */
@@ -222,16 +338,20 @@ export class Sail extends BaseEntity implements WindModifier {
     return this.config.getHeadPosition();
   }
 
-  /** Get current clew position - from config or from particle */
+  /** Get current clew position - from config or from cloth solver */
   getClewPosition(): V2d {
     if (this.config.getClewPosition) {
       return this.config.getClewPosition();
     }
-    // Default: read from last particle (for free-clew sails)
-    return V(last(this.bodies).position);
+    // Read from cloth solver - clew is the last vertex of foot row
+    const clewIdx = this.mesh.footVertices[this.mesh.footVertices.length - 1];
+    return V(
+      this.solver.getPositionX(clewIdx),
+      this.solver.getPositionY(clewIdx),
+    );
   }
 
-  /** Get all particle bodies */
+  /** Get all particle bodies (for compatibility) */
   getBodies(): Body[] {
     return this.bodies;
   }
@@ -263,7 +383,7 @@ export class Sail extends BaseEntity implements WindModifier {
 
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]) {
-    const { hoistSpeed, getForceScale } = this.config;
+    const { hoistSpeed, liftScale, dragScale, sailShape } = this.config;
 
     // Animate hoist amount toward target
     this.hoistAmount = stepToward(
@@ -274,36 +394,91 @@ export class Sail extends BaseEntity implements WindModifier {
 
     this._totalForce.set(0, 0);
 
-    if (!this.isHoisted() || this.hoistAmount <= 0) return;
+    // Update pin targets for 3 pinned vertices: tack, clew, head
+    const head = this.config.getHeadPosition();
+    const clew = this.getClewPositionFromConfig();
+    this.headPos.set(head);
+    this.clewPos.set(clew);
 
-    // Get flow states (triggers upwind sail computation if needed)
-    const segments = this.getFlowStates();
-    if (segments.length === 0) return;
+    const tackIdx = this.mesh.footVertices[0];
+    const clewIdx = this.mesh.footVertices[this.mesh.footVertices.length - 1];
+    const headIdx = this.mesh.luffVertices[this.mesh.luffVertices.length - 1];
 
-    // Apply forces based on flow states
-    for (let i = 0; i < this.bodies.length; i++) {
-      const t = i / (this.bodies.length - 1);
-      const forceScale = getForceScale(t) * this.hoistAmount;
+    // Tack (u=0, v=0): at mast/boom junction, z=zFoot
+    this.solver.setPinTarget(tackIdx, head.x, head.y, this.config.zFoot);
 
-      // Find corresponding segment (bodies.length = segments.length + 1)
-      const segmentIndex = Math.min(i, segments.length - 1);
-      const segment = segments[segmentIndex];
+    // Clew (u=1, v=0): at boom end (mainsail only), z=zFoot
+    if (sailShape === "boom") {
+      this.solver.setPinTarget(clewIdx, clew.x, clew.y, this.config.zFoot);
+    }
 
-      applySailForces(
-        this.bodies[i],
-        segment,
-        DEFAULT_SAIL_CHORD,
-        forceScale,
-        this.config.liftScale,
-        this.config.dragScale,
-        this._totalForce,
+    // Head (u=0, v=1): at mast position in XY (same as tack), z varies with hoist.
+    // The z-height difference creates visual separation via parallax when heeled.
+    // When lowering, z drops toward zFoot so the head collapses toward the tack.
+    const headZ =
+      this.config.zFoot +
+      this.hoistAmount * (this.config.zHead - this.config.zFoot);
+    this.solver.setPinTarget(headIdx, head.x, head.y, headZ);
+
+    this.solver.clearForces();
+
+    // Gravity (downward in z)
+    for (let i = 0; i < this.mesh.vertexCount; i++) {
+      this.solver.applyForce(i, 0, 0, GRAVITY_Z);
+    }
+
+    // TODO(debug): Wind forces disabled for stability testing
+    // if (this.hoistAmount > 0 && this.windQuery.results.length > 0) { ... }
+
+    // Update solver
+    this.solver.update(dt);
+
+    // TODO(debug): Reaction force feedback disabled for stability testing
+    // Sum reaction forces from pinned vertices, apply to hull
+    // const luffReaction = ...
+    // const footReaction = ...
+
+    // Jib clew coupling: sync cloth → body position (no force feedback)
+    if (sailShape === "triangle" && this.bodies.length > 0) {
+      const clewBody = this.bodies[0];
+      const clewVertexIdx =
+        this.mesh.footVertices[this.mesh.footVertices.length - 1];
+
+      clewBody.position.set(
+        this.solver.getPositionX(clewVertexIdx),
+        this.solver.getPositionY(clewVertexIdx),
       );
     }
   }
 
+  /** Get clew position from config (for boom/constraint based sails) */
+  private getClewPositionFromConfig(): V2d {
+    if (this.config.getClewPosition) {
+      return this.config.getClewPosition();
+    }
+    if (this.config.initialClewPosition) {
+      return this.config.initialClewPosition;
+    }
+    return this.config.getHeadPosition();
+  }
+
+  /** Get upwind sail contribution at our centroid */
+  private getUpwindContributionAtCentroid(): V2d {
+    const upwindSails = this.getUpwindSails();
+    let cx = 0,
+      cy = 0;
+    const centroid = this.getCentroid();
+    for (const sail of upwindSails) {
+      const c = sail.getWindContributionAt(centroid);
+      cx += c.x;
+      cy += c.y;
+    }
+    return V(cx, cy);
+  }
+
   /**
    * Get flow states for all segments. Lazy computation with per-frame caching.
-   * Automatically triggers computation of upwind sails first.
+   * Uses luff-edge vertex positions from cloth solver to build SailSegment data.
    */
   getFlowStates(): SailSegment[] {
     const currentFrame = this.game?.ticknumber ?? 0;
@@ -312,14 +487,12 @@ export class Sail extends BaseEntity implements WindModifier {
       return this.cachedSegments;
     }
 
-    // Guard against infinite recursion from mutual upwind sail references
     if (this.inFlowComputation) {
       throw new Error(
         "Recursive getFlowStates() call detected on same sail - this would cause an infinite loop",
       );
     }
 
-    // Need wind query results (1-frame latency)
     if (this.windQuery.results.length === 0) {
       return this.cachedSegments;
     }
@@ -327,10 +500,8 @@ export class Sail extends BaseEntity implements WindModifier {
     try {
       this.inFlowComputation = true;
 
-      // Get upwind sails and trigger their flow computation first
       const upwindSails = this.getUpwindSails();
 
-      // Build contribution function from upwind sails
       const getUpwindContribution = (point: V2d): V2d => {
         let contribution = V(0, 0);
         for (const sail of upwindSails) {
@@ -339,12 +510,16 @@ export class Sail extends BaseEntity implements WindModifier {
         return contribution;
       };
 
-      // Get base wind at sail centroid (first query result)
       const baseWind = this.windQuery.results[0].velocity;
 
-      // Run flow simulation
+      // Build synthetic bodies from luff-edge vertices for flow simulator
+      const luffBodies = this.mesh.luffVertices.map((vi) => ({
+        position: V(this.solver.getPositionX(vi), this.solver.getPositionY(vi)),
+        velocity: V(0, 0),
+      }));
+
       this.cachedSegments = this.flowSimulator.simulate(
-        this.bodies,
+        luffBodies as any,
         this.getHeadPosition(),
         this.getClewPosition(),
         baseWind,
@@ -359,9 +534,7 @@ export class Sail extends BaseEntity implements WindModifier {
   }
 
   /**
-   * Get sails that are upwind of this sail and might affect it.
-   * Uses midpoint wind direction to guarantee asymmetry: if A sees B as upwind,
-   * B cannot see A as upwind, preventing infinite recursion.
+   * Get sails that are upwind of this sail.
    */
   private getUpwindSails(): Sail[] {
     const myPos = this.getCentroid();
@@ -370,12 +543,10 @@ export class Sail extends BaseEntity implements WindModifier {
       ...(this.game.entities.getTagged("sail") ?? []),
     ] as Sail[];
 
-    // Build map of sail -> result index for midpoint wind queries
-    // Results are: [centroid, midpoint_to_sail_0, midpoint_to_sail_1, ...]
     const otherSails = allSails.filter((s) => s !== this);
     const sailToResultIndex = new Map<Sail, number>();
     for (let i = 0; i < otherSails.length; i++) {
-      sailToResultIndex.set(otherSails[i], i + 1); // +1 because centroid is at index 0
+      sailToResultIndex.set(otherSails[i], i + 1);
     }
 
     return allSails.filter((sail) => {
@@ -386,20 +557,18 @@ export class Sail extends BaseEntity implements WindModifier {
         resultIndex === undefined ||
         resultIndex >= this.windQuery.results.length
       ) {
-        return false; // No wind data available yet
+        return false;
       }
 
       const otherPos = sail.getCentroid();
-      // Use wind at midpoint to ensure both sails agree on direction
       const windDir = this.windQuery.results[resultIndex].velocity.normalize();
       const toOther = otherPos.sub(myPos);
-      return toOther.dot(windDir) < 0; // Other sail is upwind
+      return toOther.dot(windDir) < 0;
     });
   }
 
   /**
    * Get wind velocity contribution at a point from this sail's pressure field.
-   * Used by downwind sails querying this sail's effect.
    */
   getWindContributionAt(point: V2d): V2d {
     const segments = this.getFlowStates();
@@ -415,7 +584,7 @@ export class Sail extends BaseEntity implements WindModifier {
   }
 
   /**
-   * Get the sail centroid (approximately 1/3 along chord from head).
+   * Get the sail centroid.
    */
   private getCentroid(): V2d {
     const head = this.getHeadPosition();
@@ -444,96 +613,34 @@ export class Sail extends BaseEntity implements WindModifier {
 
   @on("render")
   onRender({ draw }: { draw: import("../../../core/graphics/Draw").Draw }) {
-    // Hide sail when fully lowered
     if (this.hoistAmount <= 0) {
       return;
     }
 
-    const { billowOuter, billowInner, sailShape, color } = this.config;
+    const { color } = this.config;
 
-    const head = this.config.getHeadPosition();
-    const clew = this.getClewPosition();
-
-    // Visual-only parallax offset (doesn't affect physics)
-    const off = this.config.getRenderOffset?.() ?? null;
-    const ox = off ? off.x : 0;
-    const oy = off ? off.y : 0;
-
-    // Scale billow by hoist amount - sail flattens as it's lowered
-    const scaledBillowOuter = billowOuter * this.hoistAmount;
-    const scaledBillowInner = billowInner * this.hoistAmount;
-
-    // Fade alpha near the end of lowering (stays opaque until ~40% lowered)
+    // Fade alpha near the end of lowering
     const fadeStart = 0.4;
     const alpha =
-      this.hoistAmount >= fadeStart ? 1 : (this.hoistAmount / fadeStart) ** 0.5; // sqrt easing for smooth fade
+      this.hoistAmount >= fadeStart ? 1 : (this.hoistAmount / fadeStart) ** 0.5;
 
-    const path = draw.path();
+    // Get tilt transform for parallax
+    const tiltTransform =
+      this.config.getTiltTransform?.() ?? DEFAULT_TILT_TRANSFORM;
 
-    if (sailShape === "triangle") {
-      // Triangle rendering: single polygon with billow on one edge
-      // head → particles with billow → clew → extraPoints → back to head
-      path.moveTo(head.x + ox, head.y + oy);
+    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
+    const time = timeOfDay?.getTimeInSeconds() ?? 43200; // default noon
 
-      // Billowed edge (foot for jib)
-      for (let i = 1; i < this.bodies.length - 1; i++) {
-        const body = this.bodies[i];
-        const t = i / (this.bodies.length - 1);
-        const baseline = lerpV2d(head, clew, t);
-        const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
-        path.lineTo(x + ox, y + oy);
-      }
-      path.lineTo(clew.x + ox, clew.y + oy);
-
-      // Extra points (e.g., masthead for jib - forms the leech)
-      // Scale extra points toward clew as sail is lowered
-      const extraPoints = this.config.extraPoints?.() ?? [];
-      for (const point of extraPoints) {
-        const scaledPoint = lerpV2d(clew, point, this.hoistAmount);
-        path.lineTo(scaledPoint.x + ox, scaledPoint.y + oy);
-      }
-
-      const scaledHead = lerpV2d(clew, head, this.hoistAmount);
-      path.lineTo(scaledHead.x + ox, scaledHead.y + oy);
-
-      path.close();
-      path.fill(color, alpha);
-      draw.screenLine(head.x + ox, head.y + oy, clew.x + ox, clew.y + oy, {
-        color,
-        alpha,
-        width: 1,
-      });
-    } else {
-      // Boom rendering: double-pass with inner and outer billow
-      path.moveTo(head.x + ox, head.y + oy);
-
-      // Outer edge: head → particles (with billowOuter) → clew
-      for (let i = 1; i < this.bodies.length - 1; i++) {
-        const body = this.bodies[i];
-        const t = i / (this.bodies.length - 1);
-        const baseline = lerpV2d(head, clew, t);
-        const [x, y] = lerpV2d(baseline, body.position, scaledBillowOuter);
-        path.lineTo(x + ox, y + oy);
-      }
-      path.lineTo(clew.x + ox, clew.y + oy);
-
-      // Inner edge: back to head (with billowInner)
-      const reversedBodies = this.bodies.toReversed();
-      for (let i = 1; i < reversedBodies.length - 1; i++) {
-        const body = reversedBodies[i];
-        const t = i / (this.bodies.length - 1);
-        const baseline = lerpV2d(clew, head, t);
-        const [x, y] = lerpV2d(baseline, body.position, scaledBillowInner);
-        path.lineTo(x + ox, y + oy);
-      }
-
-      path.close();
-      path.fill(color, alpha);
-      draw.screenLine(head.x + ox, head.y + oy, clew.x + ox, clew.y + oy, {
-        color,
-        alpha,
-        width: 1,
-      });
-    }
+    this.clothRenderer.render(
+      this.solver,
+      tiltTransform,
+      draw,
+      color,
+      alpha,
+      time,
+    );
   }
 }
+
+// Default identity tilt transform (no tilt)
+const DEFAULT_TILT_TRANSFORM = new TiltTransform();
