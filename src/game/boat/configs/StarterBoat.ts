@@ -105,14 +105,9 @@ export const StarterBoat: BoatConfig = {
       boom: 0x997744,
     },
     mainsail: {
-      nodeCount: 28,
-      nodeMass: 0.8, // heavier for better force transfer through constraints
-      slackFactor: 1.005,
-      liftScale: 5.0,
-      dragScale: 5.0,
-      billowInner: 0.7,
-      billowOuter: 2.2,
-      windInfluenceRadius: 12, // ft
+      nodeMass: 0.8,
+      liftScale: 1.0,
+      dragScale: 1.0,
       hoistSpeed: 0.4,
       color: 0xeeeeff,
     },
@@ -142,7 +137,7 @@ export const StarterBoat: BoatConfig = {
   mainsheet: {
     boomAttachRatio: 0.9,
     hullAttachPoint: V(-4.2, 0),
-    minLength: 2,
+    minLength: 1,
     maxLength: 9,
     defaultLength: 4.5,
     trimSpeed: 3,
@@ -163,13 +158,16 @@ export const StarterBoat: BoatConfig = {
     hullFriction: 1600,
   },
 
+  // Tilt parameters derived from hull geometry and assumed ~450 lb displacement
+  // (250 lb hull + ~170 lb crew + equipment).
+  // Narrower beam (5.6 ft) → less form stability (GM ≈ 2.5 ft).
   tilt: {
-    rollInertia: 600,
-    pitchInertia: 1200,
-    rollDamping: 1000,
-    pitchDamping: 1600,
-    rightingMomentCoeff: 4000,
-    pitchRightingCoeff: 10000,
+    rollInertia: 1600, // 450 * (beam/3)² = 450 * 1.87²
+    pitchInertia: 4000, // 450 * (LOA/4)² = 450 * 3²
+    rollDamping: 3000, // ζ=0.2, critically damped = 2*sqrt(1600*36000)
+    pitchDamping: 6000, // ζ=0.2, critically damped = 2*sqrt(4000*58000)
+    rightingMomentCoeff: 36000, // 450 * 32.174 * GM_roll(2.5 ft)
+    pitchRightingCoeff: 58000, // 450 * 32.174 * GM_pitch(4 ft)
     maxRoll: degToRad(90),
     maxPitch: degToRad(60),
     waveRollCoeff: 600,

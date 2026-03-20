@@ -24,7 +24,7 @@ const SLACK_FACTOR = 1.02; // Dimensionless constraint slack
 const DRAG_SCALE = 2.0; // Dimensionless drag coefficient
 
 // Rendering
-const TELLTAIL_WIDTH = 0.3; // ft - visual ribbon width
+const TELLTAIL_WIDTH = 0.1; // ft - visual ribbon width
 const TELLTAIL_COLOR = 0xff6600;
 
 /** No lift for a thin streamer - it just gets pushed by the wind. */

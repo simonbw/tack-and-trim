@@ -207,15 +207,21 @@ export class ClothSolver {
    */
   update(dt: number): void {
     const dtSq = dt * dt;
+    const invDtSq = dtSq > 0 ? 1 / dtSq : 0;
     const n = this.vertexCount;
     const pos = this.positions;
     const prev = this.prevPositions;
     const forces = this.forces;
     const pinned = this.pinned;
     const damping = this.damping;
+    const reactions = this.reactionForces;
 
-    // Clear reaction forces
-    this.reactionForces.fill(0);
+    // Reaction forces on pinned vertices have two components:
+    // 1. External forces (gravity, wind) applied directly to the vertex
+    // 2. Constraint corrections from neighboring vertices pulling on it
+    // Start at zero; constraint displacement is accumulated during solving,
+    // then converted to force and combined with external forces at the end.
+    reactions.fill(0);
 
     // Verlet integration for free vertices — all 3 axes
     for (let i = 0; i < n; i++) {
@@ -235,18 +241,6 @@ export class ClothSolver {
       pos[i3 + 2] += vz + forces[i3 + 2] * dtSq;
     }
 
-    // Compute reaction forces on pinned vertices before snapping
-    const invDtSq = dtSq > 0 ? 1 / dtSq : 0;
-    for (let i = 0; i < n; i++) {
-      if (!pinned[i]) continue;
-      const i3 = i * 3;
-      this.reactionForces[i3] = (this.pinTargets[i3] - pos[i3]) * invDtSq;
-      this.reactionForces[i3 + 1] =
-        (this.pinTargets[i3 + 1] - pos[i3 + 1]) * invDtSq;
-      this.reactionForces[i3 + 2] =
-        (this.pinTargets[i3 + 2] - pos[i3 + 2]) * invDtSq;
-    }
-
     // Check for explosion
     if (this.checkExplosion()) {
       return;
@@ -256,6 +250,7 @@ export class ClothSolver {
     this.applyPins();
 
     // Constraint projection — 3D distances
+    // solveConstraints accumulates displacement into reactionForces for pinned vertices
     for (let iter = 0; iter < this.constraintIterations; iter++) {
       this.solveConstraints(this.structA, this.structB, this.structRest, 0.5);
       this.solveConstraints(this.shearA, this.shearB, this.shearRest, 0.5);
@@ -266,6 +261,16 @@ export class ClothSolver {
         0.5 * this.bendStiffness,
       );
       this.applyPins();
+    }
+
+    // Convert constraint displacement to force, add external forces.
+    // reactions = externalForces + constraintDisplacement / dt²
+    for (let i = 0; i < n; i++) {
+      if (!pinned[i]) continue;
+      const i3 = i * 3;
+      reactions[i3] = forces[i3] + reactions[i3] * invDtSq;
+      reactions[i3 + 1] = forces[i3 + 1] + reactions[i3 + 1] * invDtSq;
+      reactions[i3 + 2] = forces[i3 + 2] + reactions[i3 + 2] * invDtSq;
     }
   }
 
@@ -372,7 +377,12 @@ export class ClothSolver {
     this.reactionForces.fill(0);
   }
 
-  /** 3D constraint projection. */
+  /**
+   * 3D constraint projection.
+   * When one end is pinned, the full correction goes to the free end.
+   * The displacement the pinned end resisted is accumulated into reactionForces
+   * (in displacement units — converted to force after all iterations).
+   */
   private solveConstraints(
     aArr: Int32Array,
     bArr: Int32Array,
@@ -381,6 +391,7 @@ export class ClothSolver {
   ): void {
     const pos = this.positions;
     const pinned = this.pinned;
+    const reactions = this.reactionForces;
     const count = aArr.length;
 
     for (let c = 0; c < count; c++) {
@@ -410,10 +421,18 @@ export class ClothSolver {
         pos[b3] -= ex;
         pos[b3 + 1] -= ey;
         pos[b3 + 2] -= ez;
+        // The constraint pulls A toward B by (ex, ey, ez); pin absorbs it
+        reactions[a3] += ex;
+        reactions[a3 + 1] += ey;
+        reactions[a3 + 2] += ez;
       } else if (bPin) {
         pos[a3] += ex;
         pos[a3 + 1] += ey;
         pos[a3 + 2] += ez;
+        // The constraint pulls B toward A by (-ex, -ey, -ez); pin absorbs it
+        reactions[b3] -= ex;
+        reactions[b3 + 1] -= ey;
+        reactions[b3 + 2] -= ez;
       } else {
         pos[a3] += ex * 0.5;
         pos[a3 + 1] += ey * 0.5;

@@ -50,13 +50,9 @@ export interface GroundingConfig {
 export type BaseSailConfig = Partial<
   Pick<
     SailConfig,
-    | "nodeCount"
     | "nodeMass"
-    | "slackFactor"
     | "liftScale"
     | "dragScale"
-    | "billowOuter"
-    | "windInfluenceRadius"
     | "hoistSpeed"
     | "color"
     | "clothColumns"
@@ -69,9 +65,7 @@ export type BaseSailConfig = Partial<
   >
 >;
 
-export interface MainsailConfig extends BaseSailConfig {
-  billowInner?: number;
-}
+export interface MainsailConfig extends BaseSailConfig {}
 
 export interface RigConfig {
   readonly mastPosition: V2d; // ft from hull center

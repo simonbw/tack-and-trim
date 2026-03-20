@@ -105,14 +105,9 @@ export const StarterDinghy: BoatConfig = {
       boom: 0x997744,
     },
     mainsail: {
-      nodeCount: 32,
-      nodeMass: 0.7, // heavier for better force transfer through constraints
-      slackFactor: 1.005, // 0.5% slack
-      liftScale: 5.0,
-      dragScale: 5.0,
-      billowInner: 0.8,
-      billowOuter: 2.4,
-      windInfluenceRadius: 15, // ft
+      nodeMass: 0.7,
+      liftScale: 1.0,
+      dragScale: 1.0,
       hoistSpeed: 0.4,
       color: 0xeeeeff,
     },
@@ -142,13 +137,9 @@ export const StarterDinghy: BoatConfig = {
   },
 
   jib: {
-    nodeCount: 32,
-    nodeMass: 0.5, // heavier for better force transfer through constraints
-    slackFactor: 1.005,
-    liftScale: 5.0,
-    dragScale: 5.0,
-    billowOuter: 1.5,
-    windInfluenceRadius: 15, // ft
+    nodeMass: 0.5,
+    liftScale: 1.0,
+    dragScale: 1.0,
     hoistSpeed: 0.4,
     color: 0xeeeeff,
   },
@@ -186,13 +177,17 @@ export const StarterDinghy: BoatConfig = {
     hullFriction: 2000, // lbf per ft penetration per ft/s - severe when hull grounds
   },
 
+  // Tilt parameters derived from hull geometry and assumed ~400 lb displacement
+  // (200 lb hull + ~170 lb crew + equipment).
+  // RM = displacement * g * GM * sin(heel), where GM ≈ 3 ft (form stability).
+  // I = displacement * k², damping = ζ * 2 * sqrt(I * K) with ζ ≈ 0.2.
   tilt: {
-    rollInertia: 800,
-    pitchInertia: 1500,
-    rollDamping: 1200,
-    pitchDamping: 2000,
-    rightingMomentCoeff: 5000,
-    pitchRightingCoeff: 12000,
+    rollInertia: 1900, // 400 * (beam/3)² = 400 * 2.2²
+    pitchInertia: 6400, // 400 * (LOA/4)² = 400 * 4²
+    rollDamping: 3500, // ζ=0.2, critically damped = 2*sqrt(1900*39000)
+    pitchDamping: 8000, // ζ=0.2, critically damped = 2*sqrt(6400*64000)
+    rightingMomentCoeff: 39000, // 400 * 32.174 * GM_roll(3 ft)
+    pitchRightingCoeff: 64000, // 400 * 32.174 * GM_pitch(5 ft)
     maxRoll: degToRad(60),
     maxPitch: degToRad(30),
     waveRollCoeff: 500,

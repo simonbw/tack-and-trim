@@ -273,6 +273,7 @@ export class WindFieldDebugMode extends DebugRenderMode {
     // Cursor wind is the last result (we add it as last query point)
     const cursorResult = this.windQuery.get(this.windQuery.length - 1);
     const compass = radiansToCompass(cursorResult.direction);
-    return `Wind: ${cursorResult.speed.toFixed(0)} ft/s ${compass}`;
+    const knots = cursorResult.speed / 1.69;
+    return `Wind: ${knots.toFixed(1)} kt ${compass}`;
   }
 }

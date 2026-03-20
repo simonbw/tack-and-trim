@@ -27,13 +27,6 @@ export const WIND_MIN_DISTANCE = 1.5; // ft - minimum distance for wind effect
 export const TURBULENCE_STRENGTH = 3.0; // ft/s - magnitude of turbulence
 export const TURBULENCE_RADIUS = 3.0; // ft - influence radius
 
-// Flow propagation constants (for intra-sail simulation)
-export const TURBULENCE_DECAY = 0.9; // Per-segment turbulence decay
-export const TURBULENCE_STALL_INJECTION = 0.3; // Turbulence added when segment stalls
-export const TURBULENCE_DETACH_THRESHOLD = 0.5; // Turbulence level that causes flow detachment
-export const SEPARATION_DECAY_RATE = 0.1; // How quickly separated flow recovers
-export const SEGMENT_INFLUENCE_RADIUS = 8; // ft - how far segment pressure extends
-
 // Wind sources
 export const MAX_WIND_SOURCES = 8;
 

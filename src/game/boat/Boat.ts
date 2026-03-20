@@ -130,7 +130,6 @@ export class Boat extends BaseEntity {
             localAnchor: jibTackPosition,
           },
           sailShape: "triangle",
-          extraPoints: () => [this.toWorldFrame(jibHeadPosition)],
           getTiltTransform: () => this.hull.tiltTransform,
           getRenderOffset: () => this.hull.tiltTransform.worldOffset(3),
         }),
