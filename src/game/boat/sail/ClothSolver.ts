@@ -42,13 +42,11 @@ export class ClothSolver {
   private readonly bendRest: Float64Array;
 
   private readonly damping: number;
-  private readonly constraintIterations: number;
   private readonly bendStiffness: number;
 
   constructor(mesh: SailMeshData, config: ClothSolverConfig) {
     this.vertexCount = mesh.vertexCount;
     this.damping = config.damping;
-    this.constraintIterations = config.constraintIterations;
     this.bendStiffness = config.bendStiffness;
 
     const n = mesh.vertexCount;
@@ -205,7 +203,7 @@ export class ClothSolver {
    * Run one simulation step.
    * External code should call clearForces(), applyForce(), setPinTarget() before this.
    */
-  update(dt: number): void {
+  update(dt: number, constraintIterations: number): void {
     const dtSq = dt * dt;
     const invDtSq = dtSq > 0 ? 1 / dtSq : 0;
     const n = this.vertexCount;
@@ -251,7 +249,7 @@ export class ClothSolver {
 
     // Constraint projection — 3D distances
     // solveConstraints accumulates displacement into reactionForces for pinned vertices
-    for (let iter = 0; iter < this.constraintIterations; iter++) {
+    for (let iter = 0; iter < constraintIterations; iter++) {
       this.solveConstraints(this.structA, this.structB, this.structRest, 0.5);
       this.solveConstraints(this.shearA, this.shearB, this.shearRest, 0.5);
       this.solveConstraints(

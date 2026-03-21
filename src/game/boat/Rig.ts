@@ -64,11 +64,11 @@ export class Rig extends BaseEntity {
       new Sail({
         ...mainsail,
         getHeadPosition: () => this.getMastWorldPosition(),
+        headLocalPosition: mastPosition,
         getClewPosition: () => this.getBoomEndWorldPosition(),
         headConstraint: { body: this.body, localAnchor: V(0, 0) },
         clewConstraint: { body: this.body, localAnchor: V(-boomLength, 0) },
         getTiltTransform: () => this.hull.tiltTransform,
-        getRenderOffset: () => this.hull.tiltTransform.worldOffset(3),
       }),
     );
   }

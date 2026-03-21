@@ -133,7 +133,6 @@ export interface TiltConfig {
   readonly zHeights: {
     readonly deck: number; // ft above waterline
     readonly boom: number; // ft above waterline
-    readonly sailCE: number; // sail center of effort, ft above waterline
     readonly mastTop: number; // ft above waterline
     readonly keel: number; // ft below waterline (negative)
     readonly rudder: number; // average depth ft below waterline (negative)

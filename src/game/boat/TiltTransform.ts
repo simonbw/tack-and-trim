@@ -31,6 +31,9 @@ export class TiltTransform {
   private _sinRoll = 0;
   private _sinPitch = 0;
   private _cosRoll = 1;
+  private _cosPitch = 1;
+  private _cosAngle = 1;
+  private _sinAngle = 0;
 
   /** cos(roll) — y-axis foreshortening factor for hull-local drawing. */
   get cosRoll(): number {
@@ -45,6 +48,21 @@ export class TiltTransform {
   /** sin(pitch) — fore/aft parallax factor for hull-local drawing. */
   get sinPitch(): number {
     return this._sinPitch;
+  }
+
+  /** cos(pitch). */
+  get cosPitch(): number {
+    return this._cosPitch;
+  }
+
+  /** cos(hullAngle) — forward direction X component. */
+  get cosAngle(): number {
+    return this._cosAngle;
+  }
+
+  /** sin(hullAngle) — forward direction Y component. */
+  get sinAngle(): number {
+    return this._sinAngle;
   }
 
   /** Recompute the matrix. Called once per tick by Boat. */
@@ -72,6 +90,9 @@ export class TiltTransform {
     this._sinRoll = sr;
     this._sinPitch = sp;
     this._cosRoll = cr;
+    this._cosPitch = Math.cos(pitch);
+    this._cosAngle = ca;
+    this._sinAngle = sa;
   }
 
   /** Transform a boat-local 3D point (x, y, z) to world 2D. */
@@ -80,6 +101,21 @@ export class TiltTransform {
       this.m00 * x + this.m01 * y + this.m02 * z + this.tx,
       this.m10 * x + this.m11 * y + this.m12 * z + this.ty,
     );
+  }
+
+  /**
+   * Full 3D transform: boat-local (x, y, z) → world (wx, wy, wz).
+   * worldX/Y use the existing 2×3 matrix.
+   * worldZ = -x*sinP + y*sinR*cosP + z*cosR*cosP
+   */
+  toWorld3D(x: number, y: number, z: number): [number, number, number] {
+    return [
+      this.m00 * x + this.m01 * y + this.m02 * z + this.tx,
+      this.m10 * x + this.m11 * y + this.m12 * z + this.ty,
+      -x * this._sinPitch +
+        y * this._sinRoll * this._cosPitch +
+        z * this._cosRoll * this._cosPitch,
+    ];
   }
 
   /** World-space parallax offset for a given z-height (no position, no xy). */

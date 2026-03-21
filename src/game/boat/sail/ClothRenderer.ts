@@ -7,7 +7,6 @@
  */
 
 import type { Draw } from "../../../core/graphics/Draw";
-import type { TiltTransform } from "../TiltTransform";
 import type { ClothSolver } from "./ClothSolver";
 import { SailShaderInstance, SAIL_VERTEX_SIZE } from "./SailShader";
 
@@ -42,11 +41,11 @@ export class ClothRenderer {
   }
 
   /**
-   * Project cloth vertices, compute normals, and submit for rendering.
+   * Read solver positions (already in heeled world space), compute normals,
+   * and submit for rendering.
    */
   render(
     solver: ClothSolver,
-    tiltTransform: TiltTransform,
     draw: Draw,
     color: number,
     alpha: number,
@@ -60,14 +59,11 @@ export class ClothRenderer {
     // Clear normals
     normals.fill(0);
 
-    // Project vertices to 2D (with parallax) and store in vertex buffer
+    // Solver positions are already in heeled world space — read directly
     for (let i = 0; i < n; i++) {
-      const x = solver.getPositionX(i);
-      const y = solver.getPositionY(i);
-      const z = solver.getZ(i);
       const vi = i * SAIL_VERTEX_SIZE;
-      verts[vi] = x + tiltTransform.worldOffsetX(z);
-      verts[vi + 1] = y + tiltTransform.worldOffsetY(z);
+      verts[vi] = solver.getPositionX(i);
+      verts[vi + 1] = solver.getPositionY(i);
       // normal slots (vi+2, vi+3, vi+4) filled below
     }
 

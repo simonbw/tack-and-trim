@@ -124,6 +124,7 @@ export class Boat extends BaseEntity {
         new Sail({
           ...config.jib,
           getHeadPosition: () => this.toWorldFrame(jibTackPosition),
+          headLocalPosition: jibTackPosition,
           initialClewPosition,
           headConstraint: {
             body: this.hull.body,
@@ -131,7 +132,6 @@ export class Boat extends BaseEntity {
           },
           sailShape: "triangle",
           getTiltTransform: () => this.hull.tiltTransform,
-          getRenderOffset: () => this.hull.tiltTransform.worldOffset(3),
         }),
       );
 
@@ -204,19 +204,13 @@ export class Boat extends BaseEntity {
 
     // --- Compute tilt torques ---
 
-    // 1. Sail heeling torque: lateral component of sail force × z-height
-    // Lateral direction in world frame (perpendicular to boat heading, toward port)
-    const lateralX = -Math.sin(hullAngle);
-    const lateralY = Math.cos(hullAngle);
-
-    const mainForce = this.rig.sail.getTotalForce();
-    const mainLateral = mainForce.x * lateralX + mainForce.y * lateralY;
-    this.applyTiltTorque(mainLateral * tilt.zHeights.sailCE, 0);
+    // 1. Sail tilt torque: computed per-pin from reaction forces × world-Z heights
+    const mainTorque = this.rig.sail.getTiltTorque();
+    this.applyTiltTorque(mainTorque.roll, mainTorque.pitch);
 
     if (this.jib) {
-      const jibForce = this.jib.getTotalForce();
-      const jibLateral = jibForce.x * lateralX + jibForce.y * lateralY;
-      this.applyTiltTorque(jibLateral * tilt.zHeights.sailCE, 0);
+      const jibTorque = this.jib.getTiltTorque();
+      this.applyTiltTorque(jibTorque.roll, jibTorque.pitch);
     }
 
     // 2. Wave slope torque: water surface normal drives roll and pitch

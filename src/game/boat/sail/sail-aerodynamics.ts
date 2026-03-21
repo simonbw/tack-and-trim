@@ -47,6 +47,10 @@ function computeDragCoefficient(aoa: number): number {
  * Compute per-triangle wind force for cloth sail simulation.
  * Returns [fx, fy, fz] force to be distributed 1/3 to each vertex.
  *
+ * Uses the relative wind (true wind minus surface velocity) so that
+ * aerodynamic force naturally decays as the cloth catches up to the
+ * wind. This provides physical damping that prevents runaway oscillation.
+ *
  * @param solver - ClothSolver with vertex positions
  * @param i0 - First vertex index
  * @param i1 - Second vertex index
@@ -55,6 +59,7 @@ function computeDragCoefficient(aoa: number): number {
  * @param windY - Apparent wind Y (world space)
  * @param liftScale - Lift coefficient multiplier
  * @param dragScale - Drag coefficient multiplier
+ * @param tickRate - Physics tick rate (Hz) for velocity estimation from Verlet positions
  */
 export function computeClothWindForce(
   solver: ClothSolver,
@@ -65,10 +70,8 @@ export function computeClothWindForce(
   windY: number,
   liftScale: number,
   dragScale: number,
+  tickRate: number = 120,
 ): [number, number, number] {
-  const windSpeed = Math.hypot(windX, windY);
-  if (windSpeed < 0.01) return [0, 0, 0];
-
   // Get vertex positions
   const x0 = solver.getPositionX(i0);
   const y0 = solver.getPositionY(i0);
@@ -79,6 +82,26 @@ export function computeClothWindForce(
   const x2 = solver.getPositionX(i2);
   const y2 = solver.getPositionY(i2);
   const z2 = solver.getZ(i2);
+
+  // Centroid velocity from Verlet (pos - prevPos) * tickRate
+  const vx =
+    (x0 -
+      solver.getPrevPositionX(i0) +
+      (x1 - solver.getPrevPositionX(i1)) +
+      (x2 - solver.getPrevPositionX(i2))) *
+    (tickRate / 3);
+  const vy =
+    (y0 -
+      solver.getPrevPositionY(i0) +
+      (y1 - solver.getPrevPositionY(i1)) +
+      (y2 - solver.getPrevPositionY(i2))) *
+    (tickRate / 3);
+
+  // Relative wind = true wind - surface velocity
+  const relX = windX - vx;
+  const relY = windY - vy;
+  const relSpeed = Math.hypot(relX, relY);
+  if (relSpeed < 0.01) return [0, 0, 0];
 
   // Edge vectors
   const e1x = x1 - x0;
@@ -103,9 +126,9 @@ export function computeClothWindForce(
   const nny = ny / nLen;
   const nnz = nz / nLen;
 
-  // Wind direction (normalized, treat as 2D with z=0)
-  const wdx = windX / windSpeed;
-  const wdy = windY / windSpeed;
+  // Relative wind direction (normalized, treat as 2D with z=0)
+  const wdx = relX / relSpeed;
+  const wdy = relY / relSpeed;
 
   // Angle of attack: angle between wind direction and face normal
   // dot(wind3d, normal) where wind3d = (wdx, wdy, 0)
@@ -115,8 +138,8 @@ export function computeClothWindForce(
   const sinAoa = Math.abs(dot); // sin of angle between wind and surface
   const aoa = Math.asin(clamp(sinAoa, 0, 1));
 
-  // Dynamic pressure
-  const q = 0.5 * RHO_AIR * windSpeed * windSpeed;
+  // Dynamic pressure from relative wind
+  const q = 0.5 * RHO_AIR * relSpeed * relSpeed;
 
   // Lift and drag coefficients
   const cl = getSailLiftCoefficient(aoa) * liftScale;
@@ -125,7 +148,7 @@ export function computeClothWindForce(
   const liftMag = cl * q * area * LBF_TO_ENGINE;
   const dragMag = cd * q * area * LBF_TO_ENGINE;
 
-  // Drag force: along wind direction
+  // Drag force: along relative wind direction
   const fdx = wdx * dragMag;
   const fdy = wdy * dragMag;
 

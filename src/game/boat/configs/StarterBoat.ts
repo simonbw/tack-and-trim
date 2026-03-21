@@ -175,7 +175,6 @@ export const StarterBoat: BoatConfig = {
     zHeights: {
       deck: 0.8,
       boom: 2.5,
-      sailCE: 6,
       mastTop: 16,
       keel: -3.0,
       rudder: -1.0,

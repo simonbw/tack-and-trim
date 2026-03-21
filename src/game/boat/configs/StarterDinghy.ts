@@ -195,7 +195,6 @@ export const StarterDinghy: BoatConfig = {
     zHeights: {
       deck: 1, // ft above waterline
       boom: 3,
-      sailCE: 8,
       mastTop: 20,
       keel: -3.5,
       rudder: -1.25,
