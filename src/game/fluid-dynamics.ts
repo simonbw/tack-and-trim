@@ -22,6 +22,11 @@ export const KEEL_CHORD = 1.25; // ft - centerboard/daggerboard chord
 
 const MAX_RELATIVE_SPEED = 15; // ft/s - cap for numerical stability (~9 kts)
 
+// The physics engine uses mass in "lbs" but F=ma with gravity=32.174 ft/s²,
+// effectively treating mass as slugs. Fluid formulas with ρ in slugs/ft³
+// produce force in lbf, so we multiply by g to convert to engine force units.
+const LBF_TO_ENGINE = 32.174;
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -268,8 +273,10 @@ export function applySkinFriction(
   const cappedSpeed = Math.min(speed, MAX_RELATIVE_SPEED);
 
   // Proper skin friction formula: F = 0.5 * ρ * v² * Cf * A
+  // Result is in lbf; convert to engine force units
   const dynamicPressure = 0.5 * rho * cappedSpeed * cappedSpeed;
-  const forceMagnitude = frictionCoefficient * dynamicPressure * wettedArea;
+  const forceMagnitude =
+    frictionCoefficient * dynamicPressure * wettedArea * LBF_TO_ENGINE;
 
   const force = relativeVelocity.normalize().mul(-forceMagnitude);
 

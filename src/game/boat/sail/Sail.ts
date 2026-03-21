@@ -395,6 +395,13 @@ export class Sail extends BaseEntity {
         this.solver.applyForce(i0, sfx, sfy, sfz);
         this.solver.applyForce(i1, sfx, sfy, sfz);
         this.solver.applyForce(i2, sfx, sfy, sfz);
+
+        // Accumulate aerodynamic force for heeling torque (XY only).
+        // This is separate from the reaction forces used for physics body coupling,
+        // because reaction forces include inertial effects from hull movement
+        // that shouldn't cause heeling.
+        this._totalForce.x += fx * this.hoistAmount;
+        this._totalForce.y += fy * this.hoistAmount;
       }
     }
 
@@ -404,36 +411,30 @@ export class Sail extends BaseEntity {
     // Feed reaction forces from pinned vertices to constraint bodies.
     // These represent the cloth pulling on its attachment points (mast, boom end)
     // and transfer through the physics engine (boom → hull via revolute constraint).
-    const { headConstraint, clewConstraint } = this.config;
+    // Only apply when hoisted — when lowered, the cloth hangs limply and its
+    // gravity/inertial reaction forces shouldn't drive the boom or hull.
+    if (this.hoistAmount > 0) {
+      const { headConstraint, clewConstraint } = this.config;
 
-    const tackRx = this.solver.getReactionForceX(tackIdx);
-    const tackRy = this.solver.getReactionForceY(tackIdx);
-    const headRx = this.solver.getReactionForceX(headIdx);
-    const headRy = this.solver.getReactionForceY(headIdx);
+      const tackRx = this.solver.getReactionForceX(tackIdx);
+      const tackRy = this.solver.getReactionForceY(tackIdx);
+      const headRx = this.solver.getReactionForceX(headIdx);
+      const headRy = this.solver.getReactionForceY(headIdx);
 
-    // Tack + head both attach at the mast (headConstraint)
-    const hBody = headConstraint.body as DynamicBody;
-    const hPoint = hBody.vectorToWorldFrame(headConstraint.localAnchor);
-    hBody.applyForce(V(tackRx + headRx, tackRy + headRy), hPoint);
+      // Tack + head both attach at the mast (headConstraint)
+      const hBody = headConstraint.body as DynamicBody;
+      const hPoint = hBody.vectorToWorldFrame(headConstraint.localAnchor);
+      hBody.applyForce(V(tackRx + headRx, tackRy + headRy), hPoint);
 
-    // Clew attaches at boom end (mainsail) or is free (jib)
-    if (clewConstraint) {
-      const clewRx = this.solver.getReactionForceX(clewIdx);
-      const clewRy = this.solver.getReactionForceY(clewIdx);
-      const cBody = clewConstraint.body as DynamicBody;
-      const cPoint = cBody.vectorToWorldFrame(clewConstraint.localAnchor);
-      cBody.applyForce(V(clewRx, clewRy), cPoint);
+      // Clew attaches at boom end (mainsail) or is free (jib)
+      if (clewConstraint) {
+        const clewRx = this.solver.getReactionForceX(clewIdx);
+        const clewRy = this.solver.getReactionForceY(clewIdx);
+        const cBody = clewConstraint.body as DynamicBody;
+        const cPoint = cBody.vectorToWorldFrame(clewConstraint.localAnchor);
+        cBody.applyForce(V(clewRx, clewRy), cPoint);
+      }
     }
-
-    // Total force for heeling torque = sum of all pin reactions (XY only)
-    this._totalForce.set(
-      tackRx +
-        headRx +
-        (clewConstraint ? this.solver.getReactionForceX(clewIdx) : 0),
-      tackRy +
-        headRy +
-        (clewConstraint ? this.solver.getReactionForceY(clewIdx) : 0),
-    );
 
     // TODO: Jib clew coupling is currently one-way — the cloth solver computes
     // the clew position, then teleports the DynamicBody there. The jib sheets
