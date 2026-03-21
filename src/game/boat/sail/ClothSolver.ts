@@ -113,6 +113,27 @@ export class ClothSolver {
     this.recomputeRestLengths();
   }
 
+  /**
+   * Set all positions without recomputing rest lengths.
+   * Use after initializePositions to move vertices to a different starting
+   * state while keeping the rest lengths from the original shape.
+   */
+  resetPositions(
+    worldX: Float64Array,
+    worldY: Float64Array,
+    worldZ: Float64Array,
+  ): void {
+    for (let i = 0; i < this.vertexCount; i++) {
+      const i3 = i * 3;
+      this.positions[i3] = worldX[i];
+      this.positions[i3 + 1] = worldY[i];
+      this.positions[i3 + 2] = worldZ[i];
+      this.prevPositions[i3] = worldX[i];
+      this.prevPositions[i3 + 1] = worldY[i];
+      this.prevPositions[i3 + 2] = worldZ[i];
+    }
+  }
+
   /** Recompute all constraint rest lengths from current 3D positions. */
   private recomputeRestLengths(): void {
     const pos = this.positions;

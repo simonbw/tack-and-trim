@@ -131,7 +131,7 @@ export class Sail extends BaseEntity {
     } = this.config;
 
     // Generate mesh
-    const taperFactor = sailShape === "triangle" ? 1.0 : 0.85;
+    const taperFactor = 1.0;
     this.mesh = generateSailMesh({
       footColumns: clothColumns,
       luffRows: clothRows,
@@ -165,8 +165,14 @@ export class Sail extends BaseEntity {
     const worldX = new Float64Array(this.mesh.vertexCount);
     const worldY = new Float64Array(this.mesh.vertexCount);
     const worldZ = new Float64Array(this.mesh.vertexCount);
+    // Initialize at full height so rest lengths match the hoisted sail shape
     this.mapUVToWorld(head, initialClew, worldX, worldY, worldZ);
     this.solver.initializePositions(worldX, worldY, worldZ);
+    // Collapse to lowered state — all Z at zFoot, XY along the boom.
+    // Rest lengths are preserved, so constraints will pull the cloth
+    // into the correct shape as the head pin rises during hoisting.
+    worldZ.fill(zFoot);
+    this.solver.resetPositions(worldX, worldY, worldZ);
 
     // Pin just 3 corners: tack, clew, head
     const tackIdx = this.mesh.footVertices[0]; // (u=0, v=0)
