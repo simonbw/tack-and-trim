@@ -416,6 +416,13 @@ export abstract class QueryManager extends BaseEntity {
 
   @on("destroy")
   onDestroy(): void {
+    // Clear the pending promise so the awaiting onTick won't try to use
+    // destroyed buffers.  The mapAsync will reject with AbortError when
+    // the buffer is destroyed — we intentionally swallow that below.
+    const pendingPromise = this.readbackPromise;
+    this.readbackPromise = null;
+    pendingPromise?.catch(() => {});
+
     this.pointBuffer?.destroy();
     this.resultBuffer?.destroy();
     if (this.readbackBuffers) {
