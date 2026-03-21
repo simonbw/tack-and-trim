@@ -15,6 +15,7 @@ export interface ClothSolverConfig {
   damping: number; // velocity damping (0-1), e.g. 0.97
   constraintIterations: number; // e.g. 5
   bendStiffness: number; // 0-1 correction factor for bend constraints, e.g. 0.3
+  constraintDamping: number; // 0-1 damping of relative velocity along each constraint, e.g. 0.1
 }
 
 export class ClothSolver {
@@ -43,11 +44,13 @@ export class ClothSolver {
 
   private readonly damping: number;
   private readonly bendStiffness: number;
+  private constraintDamping: number;
 
   constructor(mesh: SailMeshData, config: ClothSolverConfig) {
     this.vertexCount = mesh.vertexCount;
     this.damping = config.damping;
     this.bendStiffness = config.bendStiffness;
+    this.constraintDamping = config.constraintDamping;
 
     const n = mesh.vertexCount;
 
@@ -156,6 +159,11 @@ export class ClothSolver {
   /** Toggle pinning for a vertex. */
   setPinned(index: number, pinned: boolean): void {
     this.pinned[index] = pinned ? 1 : 0;
+  }
+
+  /** Update constraint damping coefficient at runtime. */
+  setConstraintDamping(value: number): void {
+    this.constraintDamping = value;
   }
 
   getPositionX(index: number): number {
@@ -388,8 +396,10 @@ export class ClothSolver {
     correctionFactor: number,
   ): void {
     const pos = this.positions;
+    const prev = this.prevPositions;
     const pinned = this.pinned;
     const reactions = this.reactionForces;
+    const cDamp = this.constraintDamping;
     const count = aArr.length;
 
     for (let c = 0; c < count; c++) {
@@ -406,10 +416,32 @@ export class ClothSolver {
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (dist < 0.0001) continue;
 
-      const error = ((dist - rest) * correctionFactor) / dist;
-      const ex = dx * error;
-      const ey = dy * error;
-      const ez = dz * error;
+      const invDist = 1 / dist;
+
+      // Position correction (spring)
+      const error = (dist - rest) * correctionFactor * invDist;
+      let ex = dx * error;
+      let ey = dy * error;
+      let ez = dz * error;
+
+      // Constraint damping: damp relative velocity along the constraint direction.
+      // Like a dashpot in parallel with the spring — targets oscillation
+      // without damping overall cloth motion.
+      if (cDamp > 0) {
+        // Relative velocity (in displacement units: pos - prev)
+        const dvx = pos[b3] - prev[b3] - (pos[a3] - prev[a3]);
+        const dvy = pos[b3 + 1] - prev[b3 + 1] - (pos[a3 + 1] - prev[a3 + 1]);
+        const dvz = pos[b3 + 2] - prev[b3 + 2] - (pos[a3 + 2] - prev[a3 + 2]);
+
+        // Project onto constraint direction
+        const relVel = (dvx * dx + dvy * dy + dvz * dz) * invDist;
+
+        // Add damping correction along constraint direction
+        const dampCorr = relVel * cDamp * invDist;
+        ex += dx * dampCorr;
+        ey += dy * dampCorr;
+        ez += dz * dampCorr;
+      }
 
       const aPin = pinned[a];
       const bPin = pinned[b];

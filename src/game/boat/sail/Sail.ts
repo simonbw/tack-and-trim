@@ -19,10 +19,13 @@ import { TellTail } from "./TellTail";
 const GRAVITY_Z = -32.174;
 
 //#tunable { min: 1, max: 100, step: 1 }
-let CLOTH_ITERATIONS: number = 10;
+let CLOTH_ITERATIONS: number = 64;
 
 //#tunable { min: 1, max: 16, step: 1 }
-let CLOTH_SUBSTEPS: number = 4;
+let CLOTH_SUBSTEPS: number = 8;
+
+//#tunable { min: 0, max: 1, step: 0.01 }
+let CONSTRAINT_DAMPING: number = 0.02;
 
 //#tunable { min: 0.1, max: 50 }
 let CLOTH_MASS: number = 8.0;
@@ -41,6 +44,7 @@ export interface SailConfig {
   clothDamping: number;
   clothIterations: number;
   bendStiffness: number;
+  constraintDamping: number;
   zFoot: number;
   zHead: number;
 }
@@ -69,6 +73,7 @@ const DEFAULT_CONFIG: SailConfig = {
   clothDamping: 1.0,
   clothIterations: 10,
   bendStiffness: 0.3,
+  constraintDamping: 0.1,
   zFoot: 3,
   zHead: 20,
 };
@@ -142,6 +147,7 @@ export class Sail extends BaseEntity {
       damping: clothDamping,
       constraintIterations: clothIterations,
       bendStiffness,
+      constraintDamping: this.config.constraintDamping,
     });
 
     // Create cloth renderer
@@ -343,8 +349,9 @@ export class Sail extends BaseEntity {
     this._rollTorque = 0;
     this._pitchTorque = 0;
 
-    // Recompute vertex mass from tunable (allows runtime adjustment)
+    // Sync tunables (allows runtime adjustment)
     this.vertexMass = CLOTH_MASS / this.mesh.vertexCount;
+    this.solver.setConstraintDamping(CONSTRAINT_DAMPING);
 
     // Get tilt transform for 3D pin targets
     const tilt = this.config.getTiltTransform?.() ?? DEFAULT_TILT_TRANSFORM;
