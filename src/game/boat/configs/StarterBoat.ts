@@ -158,6 +158,18 @@ export const StarterBoat: BoatConfig = {
     hullFriction: 1600,
   },
 
+  bilge: {
+    maxWaterVolume: 6, // cubic ft — smaller cockpit than the dinghy (~45 gallons)
+    pumpDrainRate: 0.02, // cubic ft/s — slow background pump
+    bailRate: 0.12, // cubic ft/s — manual bailing
+    waterDensity: 64, // lbs/ft³ (saltwater)
+    ingressCoefficient: 1.8, // cubic ft/s per ft of submersion
+    sloshGravity: 4.0,
+    sloshDamping: 2.0,
+    halfBeam: 2.8, // ft — half of 5.6ft beam at deck edge
+    sinkingDuration: 3.0, // seconds
+  },
+
   // Tilt parameters derived from hull geometry and assumed ~450 lb displacement
   // (250 lb hull + ~170 lb crew + equipment).
   // Narrower beam (5.6 ft) → less form stability (GM ≈ 2.5 ft).

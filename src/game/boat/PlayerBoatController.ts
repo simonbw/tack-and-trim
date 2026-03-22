@@ -19,6 +19,18 @@ export class PlayerBoatController extends BaseEntity {
   onTick({ dt }: GameEventMap["tick"]) {
     const io = this.game.io;
 
+    // Boat is sinking — no controls
+    if (this.boat.bilge.isSinking()) {
+      this.boat.bilge.setBailing(false);
+      return;
+    }
+
+    // Bailing — B key locks out all other controls
+    const bailing =
+      io.isKeyDown("KeyB") && this.boat.bilge.getWaterFraction() > 0;
+    this.boat.bilge.setBailing(bailing);
+    if (bailing) return;
+
     // Handle continuous input
     const [steer, sheet] = io.getMovementVector();
     const shiftHeld = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
@@ -95,6 +107,9 @@ export class PlayerBoatController extends BaseEntity {
 
   @on("keyDown")
   onKeyDown({ key }: GameEventMap["keyDown"]) {
+    // No actions while sinking
+    if (this.boat.bilge.isSinking()) return;
+
     // Toggle sails hoisted/lowered
     if (key === "KeyR") {
       this.boat.toggleSails();
