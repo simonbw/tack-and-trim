@@ -18,6 +18,7 @@ export class Rig extends BaseEntity {
   private mastPosition: V2d;
   private boomLength: number;
   private boomWidth: number;
+  private boomZ: number;
   private mastColor: number;
   private boomColor: number;
   private stays: RigConfig["stays"];
@@ -34,6 +35,7 @@ export class Rig extends BaseEntity {
     this.mastPosition = mastPosition;
     this.boomLength = boomLength;
     this.boomWidth = boomWidth;
+    this.boomZ = mainsail.zFoot ?? 3;
     this.mastColor = colors.mast;
     this.boomColor = colors.boom;
     this.stays = config.stays;
@@ -82,15 +84,25 @@ export class Rig extends BaseEntity {
 
     const mastTopLocal = t.localOffset(20);
     const mastTopWorld = t.worldOffset(20);
-    const boomOff = t.worldOffset(3);
 
     // 1. Boom (bottom layer)
-    // Draw between projected mast and boom-end world positions
-    const [bex, bey] = this.getBoomEndWorldPosition();
-    const boomStartX = mx + boomOff.x;
-    const boomStartY = my + boomOff.y;
-    const boomEndX = bex + boomOff.x;
-    const boomEndY = bey + boomOff.y;
+    // Project boom start/end in hull-local 3D through tilt transform
+    // so roll foreshortens the boom's lateral displacement correctly.
+    const relAngle = this.body.angle - this.hull.body.angle;
+    const boomEndLocalX =
+      this.mastPosition.x - this.boomLength * Math.cos(relAngle);
+    const boomEndLocalY =
+      this.mastPosition.y - this.boomLength * Math.sin(relAngle);
+    const boomStart = t.toWorld(
+      this.mastPosition.x,
+      this.mastPosition.y,
+      this.boomZ,
+    );
+    const boomEnd = t.toWorld(boomEndLocalX, boomEndLocalY, this.boomZ);
+    const boomStartX = boomStart.x;
+    const boomStartY = boomStart.y;
+    const boomEndX = boomEnd.x;
+    const boomEndY = boomEnd.y;
     const boomAngle = Math.atan2(boomEndY - boomStartY, boomEndX - boomStartX);
     const boomLen = Math.hypot(boomEndX - boomStartX, boomEndY - boomStartY);
 
