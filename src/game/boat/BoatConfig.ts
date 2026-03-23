@@ -152,6 +152,22 @@ export interface TiltConfig {
   };
 }
 
+export interface LifelinesConfig {
+  // Stanchion positions along deck edge (boat-local coords)
+  readonly portStanchions: ReadonlyArray<readonly [number, number]>;
+  readonly starboardStanchions: ReadonlyArray<readonly [number, number]>;
+  // Bow pulpit path (boat-local coords, rendered as stroked open path)
+  readonly bowPulpit: ReadonlyArray<readonly [number, number]>;
+  // Stern pulpit path (boat-local coords)
+  readonly sternPulpit: ReadonlyArray<readonly [number, number]>;
+  // Height of stanchions above deck (ft)
+  readonly stanchionHeight: number;
+  // Visual properties
+  readonly color: number; // metal tubing/wire color
+  readonly tubeWidth: number; // stroke width for pulpit tubing
+  readonly wireWidth: number; // stroke width for lifeline wires
+}
+
 // ============================================
 // Main BoatConfig Interface
 // ============================================
@@ -162,6 +178,7 @@ export interface BoatConfig {
   readonly rudder: RudderConfig;
   readonly rig: RigConfig;
   readonly bowsprit?: BowspritConfig;
+  readonly lifelines?: LifelinesConfig;
   readonly anchor: AnchorConfig;
   readonly jib?: JibConfig;
   readonly mainsheet: MainsheetConfig;

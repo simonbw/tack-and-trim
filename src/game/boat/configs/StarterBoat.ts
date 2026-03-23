@@ -120,6 +120,37 @@ export const StarterBoat: BoatConfig = {
     },
   },
 
+  lifelines: {
+    portStanchions: [
+      [-1.5, 2.6],
+      [3, 2.3],
+    ],
+    starboardStanchions: [
+      [-1.5, -2.6],
+      [3, -2.3],
+    ],
+    // U-shape around bow: starboard → bow tip → port
+    bowPulpit: [
+      [5.5, -1.0],
+      [7.0, -0.5],
+      [7.8, 0],
+      [7.0, 0.5],
+      [5.5, 1.0],
+    ],
+    // Wrap around stern: starboard → port
+    sternPulpit: [
+      [-4.8, -1.5],
+      [-5.3, -0.8],
+      [-5.5, 0],
+      [-5.3, 0.8],
+      [-4.8, 1.5],
+    ],
+    stanchionHeight: 1.2, // ft above deck (smaller boat)
+    color: 0xbbbbbb,
+    tubeWidth: 0.18,
+    wireWidth: 0.09,
+  },
+
   // No bowsprit on starter boat
 
   anchor: {

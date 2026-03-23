@@ -13,6 +13,7 @@ import { BoatSoundGenerator } from "./BoatSoundGenerator";
 import { Bowsprit } from "./Bowsprit";
 import { findBowPoint, findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
+import { Lifelines } from "./Lifelines";
 import { Rig } from "./Rig";
 import { Rudder } from "./Rudder";
 import { Sail } from "./sail/Sail";
@@ -158,6 +159,11 @@ export class Boat extends BaseEntity {
         }),
       );
       this.starboardJibSheet.release();
+    }
+
+    // Create lifelines (stanchions, pulpits, lifeline wires)
+    if (config.lifelines) {
+      this.addChild(new Lifelines(this, config.lifelines));
     }
 
     // Create anchor

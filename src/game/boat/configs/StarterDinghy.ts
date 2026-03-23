@@ -126,6 +126,39 @@ export const StarterDinghy: BoatConfig = {
     color: 0x775533,
   },
 
+  lifelines: {
+    portStanchions: [
+      [-2.5, 3.1],
+      [1.5, 3.1],
+      [5, 2.4],
+    ],
+    starboardStanchions: [
+      [-2.5, -3.1],
+      [1.5, -3.1],
+      [5, -2.4],
+    ],
+    // U-shape around bow: starboard → bow tip → port
+    bowPulpit: [
+      [7, -1.2],
+      [8.5, -0.6],
+      [9.2, 0],
+      [8.5, 0.6],
+      [7, 1.2],
+    ],
+    // Wrap around stern: starboard → port
+    sternPulpit: [
+      [-5.5, -1.8],
+      [-6.3, -1.0],
+      [-6.5, 0],
+      [-6.3, 1.0],
+      [-5.5, 1.8],
+    ],
+    stanchionHeight: 1.5, // ft above deck
+    color: 0xbbbbbb, // silver metal
+    tubeWidth: 0.2,
+    wireWidth: 0.1,
+  },
+
   anchor: {
     bowAttachPoint: V(9.2, 0),
     maxRodeLength: 40, // ft
