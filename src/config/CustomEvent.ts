@@ -13,4 +13,10 @@ export type CustomEvents = {
 
   /** Fired when the entire tutorial is completed */
   tutorialComplete: {};
+
+  /** Fired when the boat begins sinking (water at 100%) */
+  boatSinking: {};
+
+  /** Fired when the boat has fully sunk (after sinking animation) */
+  boatSunk: {};
 };

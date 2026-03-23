@@ -21,7 +21,7 @@ const TELLTAIL_LENGTH = 1; // ft - total streamer length
 const SLACK_FACTOR = 1.02; // Dimensionless constraint slack
 
 // Drag parameters
-const DRAG_SCALE = 2.0; // Dimensionless drag coefficient
+const DRAG_SCALE = 5.0; // Dimensionless drag coefficient
 
 // Rendering
 const TELLTAIL_WIDTH = 0.1; // ft - visual ribbon width

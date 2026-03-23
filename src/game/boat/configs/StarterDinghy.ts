@@ -177,6 +177,17 @@ export const StarterDinghy: BoatConfig = {
     hullFriction: 2000, // lbf per ft penetration per ft/s - severe when hull grounds
   },
 
+  bilge: {
+    maxWaterVolume: 8, // cubic ft — roughly 60 gallons, enough to swamp a 16ft dinghy
+    bailRate: 0.15, // cubic ft/s — manual bailing (~7 gal/min with bucket)
+    waterDensity: 64, // lbs/ft³ (saltwater)
+    ingressCoefficient: 2.0, // cubic ft/s per ft of submersion — fast flood when rail is under
+    sloshGravity: 4.0, // how aggressively water shifts to low side
+    sloshDamping: 2.0, // damping on slosh oscillation
+    halfBeam: 3.3, // ft — half of 6.6ft beam at deck edge
+    sinkingDuration: 3.0, // seconds
+  },
+
   // Tilt parameters derived from hull geometry and assumed ~400 lb displacement
   // (200 lb hull + ~170 lb crew + equipment).
   // RM = displacement * g * GM * sin(heel), where GM ≈ 3 ft (form stability).

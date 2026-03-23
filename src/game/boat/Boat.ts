@@ -6,6 +6,7 @@ import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { Anchor } from "./Anchor";
+import { Bilge } from "./Bilge";
 import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
@@ -28,6 +29,7 @@ export class Boat extends BaseEntity {
   bowsprit: Bowsprit | null = null;
   jib: Sail | null = null;
   anchor: Anchor;
+  bilge: Bilge;
   mainsheet: Sheet;
   portJibSheet: Sheet | null = null;
   starboardJibSheet: Sheet | null = null;
@@ -174,6 +176,9 @@ export class Boat extends BaseEntity {
 
     // Create terrain querier for grounding physics
     this.addChild(new BoatGrounding(this));
+
+    // Water accumulation, slosh, and bilge system
+    this.bilge = this.addChild(new Bilge(this, config.bilge));
 
     // Boat sound effects (sheet snaps, boom slams)
     this.addChild(new BoatSoundGenerator(this));

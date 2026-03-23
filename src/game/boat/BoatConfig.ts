@@ -119,6 +119,18 @@ export interface RowingConfig {
   readonly force: number; // lbf
 }
 
+export interface BilgeConfig {
+  readonly maxWaterVolume: number; // cubic ft — cockpit capacity before swamped
+  readonly pumpDrainRate?: number; // cubic ft/s — automatic bilge pump rate (0 or omitted = no pump)
+  readonly bailRate: number; // cubic ft/s — manual bailing removal rate
+  readonly waterDensity: number; // lbs/ft³ (62.4 fresh, 64 salt)
+  readonly ingressCoefficient: number; // cubic ft/s per ft of submersion depth
+  readonly sloshGravity: number; // acceleration of water toward low side
+  readonly sloshDamping: number; // damping on slosh velocity
+  readonly halfBeam: number; // ft — half the beam at deck edge (for submersion calc)
+  readonly sinkingDuration: number; // seconds — how long the sinking animation takes
+}
+
 export interface TiltConfig {
   readonly rollInertia: number; // moment of inertia for roll (lbs·ft²)
   readonly pitchInertia: number; // moment of inertia for pitch (lbs·ft²)
@@ -157,6 +169,7 @@ export interface BoatConfig {
   readonly rowing: RowingConfig;
   readonly grounding: GroundingConfig;
   readonly tilt: TiltConfig;
+  readonly bilge: BilgeConfig;
 }
 
 // Re-export boat configs
