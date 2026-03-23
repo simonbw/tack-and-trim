@@ -27,7 +27,7 @@ export class Lifelines extends BaseEntity {
     const cr = t.cosRoll;
     const sr = t.sinRoll;
     const sp = t.sinPitch;
-    const deckZ = this.boat.config.tilt.zHeights.deck;
+    const deckZ = this.boat.config.hull.deckHeight;
     const topZ = deckZ + this.config.stanchionHeight;
 
     const { color, tubeWidth, wireWidth } = this.config;
