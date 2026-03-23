@@ -32,6 +32,7 @@ import { QueryCoordinator } from "./world/query/QueryCoordinator";
 import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
 import { ClothWorkerPool } from "./boat/sail/ClothWorkerPool";
+import { GameOverScreen } from "./GameOverScreen";
 
 //#tunable("Camera") { min: 0.5, max: 10 }
 let MENU_ZOOM: number = 2;
@@ -123,6 +124,27 @@ export class GameController extends BaseEntity {
       this.game.camera.z = MENU_ZOOM;
       this.game.addEntity(new MainMenu());
     }
+  }
+
+  @on("boatSunk")
+  onBoatSunk() {
+    this.game.addEntity(new GameOverScreen());
+  }
+
+  @on("restartLevel")
+  onRestartLevel() {
+    if (this.currentLevel) {
+      this.game.clearScene(99);
+      this.game.dispatch("levelSelected", { levelName: this.currentLevel });
+    }
+  }
+
+  @on("returnToMenu")
+  onReturnToMenu() {
+    this.game.clearScene(99);
+    this.currentLevel = null;
+    this.game.camera.z = MENU_ZOOM;
+    this.game.addEntity(new MainMenu());
   }
 
   @on("gameStart")

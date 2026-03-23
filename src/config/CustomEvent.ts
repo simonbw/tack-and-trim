@@ -19,4 +19,10 @@ export type CustomEvents = {
 
   /** Fired when the boat has fully sunk (after sinking animation) */
   boatSunk: {};
+
+  /** Fired from game over screen to restart the current level */
+  restartLevel: {};
+
+  /** Fired from game over screen to return to main menu */
+  returnToMenu: {};
 };

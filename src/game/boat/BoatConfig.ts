@@ -122,7 +122,8 @@ export interface RowingConfig {
 export interface BilgeConfig {
   readonly maxWaterVolume: number; // cubic ft — cockpit capacity before swamped
   readonly pumpDrainRate?: number; // cubic ft/s — automatic bilge pump rate (0 or omitted = no pump)
-  readonly bailRate: number; // cubic ft/s — manual bailing removal rate
+  readonly bailBucketSize: number; // cubic ft — volume removed per bail scoop
+  readonly bailInterval: number; // seconds — time between scoops
   readonly waterDensity: number; // lbs/ft³ (62.4 fresh, 64 salt)
   readonly ingressCoefficient: number; // cubic ft/s per ft of submersion depth
   readonly sloshGravity: number; // acceleration of water toward low side

@@ -191,7 +191,8 @@ export const StarterBoat: BoatConfig = {
 
   bilge: {
     maxWaterVolume: 6, // cubic ft — smaller cockpit than the dinghy (~45 gallons)
-    bailRate: 0.12, // cubic ft/s — manual bailing
+    bailBucketSize: 0.17, // cubic ft per scoop (~1.3 gallons)
+    bailInterval: 1.4, // seconds between scoops
     waterDensity: 64, // lbs/ft³ (saltwater)
     ingressCoefficient: 1.8, // cubic ft/s per ft of submersion
     sloshGravity: 4.0,

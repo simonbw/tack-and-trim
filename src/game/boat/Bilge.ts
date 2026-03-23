@@ -2,7 +2,9 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
+import { SoundInstance } from "../../core/sound/SoundInstance";
 import { clamp } from "../../core/util/MathUtil";
+import { rUniform } from "../../core/util/Random";
 import { V, V2d } from "../../core/Vector";
 import { BilgeConfig } from "./BoatConfig";
 import type { Boat } from "./Boat";
@@ -38,6 +40,9 @@ export class Bilge extends BaseEntity {
 
   /** Whether the player is currently bailing */
   private bailing: boolean = false;
+
+  /** Timer tracking progress toward next bail scoop */
+  private bailTimer: number = 0;
 
   /** Sinking state */
   private sinking: boolean = false;
@@ -111,9 +116,21 @@ export class Bilge extends BaseEntity {
       this.waterVolume -= this.config.pumpDrainRate * dt;
     }
 
-    // Manual bailing
-    if (this.bailing) {
-      this.waterVolume -= this.config.bailRate * dt;
+    // Manual bailing — discrete bucket scoops
+    if (this.bailing && this.waterVolume > 0) {
+      this.bailTimer += dt;
+      if (this.bailTimer >= this.config.bailInterval) {
+        this.bailTimer -= this.config.bailInterval;
+        this.waterVolume -= this.config.bailBucketSize;
+        this.game.addEntity(
+          new SoundInstance("bail1", {
+            gain: 0.5,
+            speed: rUniform(0.9, 1.1),
+          }),
+        );
+      }
+    } else {
+      this.bailTimer = 0;
     }
 
     // Clamp

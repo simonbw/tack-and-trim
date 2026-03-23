@@ -591,6 +591,7 @@ export class Sail extends BaseEntity {
 
   @on("destroy")
   onDestroy() {
+    if (this.isDestroyed) return;
     const pool = this.game.entities.tryGetSingleton(ClothWorkerPool);
     if (pool && this.handle) {
       pool.unregister(this.handle);

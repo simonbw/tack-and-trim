@@ -3,7 +3,9 @@
 const sounds = {
   snap: require("url:./audio/snap.flac"),
   sheetSnap: require("url:./audio/sheet_snap.wav"),
-  boomSlam: require("url:./audio/boom_slam.wav")
+  paddle1: require("url:./audio/paddle-1.flac"),
+  boomSlam: require("url:./audio/boom_slam.wav"),
+  bail1: require("url:./audio/bail-1.flac")
 };
 export type SoundName = keyof typeof sounds;
 
