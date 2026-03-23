@@ -213,7 +213,7 @@ export const StarterDinghy: BoatConfig = {
   bilge: {
     maxWaterVolume: 8, // cubic ft — roughly 60 gallons, enough to swamp a 16ft dinghy
     bailBucketSize: 0.35, // cubic ft per scoop (~2.6 gallons)
-    bailInterval: 0.8, // seconds between scoops
+    bailInterval: 1.0, // seconds between scoops
     waterDensity: 64, // lbs/ft³ (saltwater)
     ingressCoefficient: 2.0, // cubic ft/s per ft of submersion — fast flood when rail is under
     sloshGravity: 4.0, // how aggressively water shifts to low side
