@@ -6,6 +6,7 @@ import { DistanceConstraint } from "../../core/physics/constraints/DistanceConst
 import { clamp, lerp, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { VerletRope } from "../rope/VerletRope";
+import type { TiltTransform } from "./TiltTransform";
 
 export interface SheetConfig {
   minLength: number;
@@ -48,6 +49,9 @@ export class Sheet extends BaseEntity {
     private bodyB: Body,
     private localAnchorB: V2d,
     config: Partial<SheetConfig> = {},
+    private getTiltTransform?: () => TiltTransform,
+    private zA: number = 0,
+    private zB: number = 0,
   ) {
     super();
 
@@ -168,6 +172,64 @@ export class Sheet extends BaseEntity {
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     if (this.opacity <= 0) return;
 
-    this.visualRope.render(draw, this.opacity);
+    const tilt = this.getTiltTransform?.();
+    if (!tilt) {
+      this.visualRope.render(draw, this.opacity);
+      return;
+    }
+
+    const points = this.visualRope.getPoints();
+    const n = points.length;
+    if (n < 2) return;
+
+    const path = draw.path();
+
+    // Project first point at zA height
+    const p0 = points[0];
+    path.moveTo(
+      p0.x + tilt.worldOffsetX(this.zA),
+      p0.y + tilt.worldOffsetY(this.zA),
+    );
+
+    if (n === 2) {
+      const p1 = points[1];
+      path.lineTo(
+        p1.x + tilt.worldOffsetX(this.zB),
+        p1.y + tilt.worldOffsetY(this.zB),
+      );
+    } else {
+      // Smooth quadratic bezier curve (same logic as VerletRope.render)
+      for (let i = 0; i < n - 2; i++) {
+        const t1 = (i + 1) / (n - 1);
+        const t2 = (i + 2) / (n - 1);
+        const z1 = lerp(this.zA, this.zB, t1);
+        const z2 = lerp(this.zA, this.zB, t2);
+
+        const p1x = points[i + 1].x + tilt.worldOffsetX(z1);
+        const p1y = points[i + 1].y + tilt.worldOffsetY(z1);
+        const p2x = points[i + 2].x + tilt.worldOffsetX(z2);
+        const p2y = points[i + 2].y + tilt.worldOffsetY(z2);
+
+        path.quadraticTo(p1x, p1y, (p1x + p2x) / 2, (p1y + p2y) / 2);
+      }
+
+      // Last segment
+      const zLast = this.zB;
+      const zSecondLast = lerp(this.zA, this.zB, (n - 2) / (n - 1));
+      const pLast = points[n - 1];
+      const pSL = points[n - 2];
+      path.quadraticTo(
+        pSL.x + tilt.worldOffsetX(zSecondLast),
+        pSL.y + tilt.worldOffsetY(zSecondLast),
+        pLast.x + tilt.worldOffsetX(zLast),
+        pLast.y + tilt.worldOffsetY(zLast),
+      );
+    }
+
+    path.stroke(
+      this.config.ropeColor ?? 0x444444,
+      this.config.ropeThickness ?? 0.75,
+      this.opacity,
+    );
   }
 }

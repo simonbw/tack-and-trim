@@ -10,6 +10,7 @@ import { Bilge } from "./Bilge";
 import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
+import { HullDamage } from "./HullDamage";
 import { Bowsprit } from "./Bowsprit";
 import { findBowPoint, findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
@@ -31,6 +32,7 @@ export class Boat extends BaseEntity {
   jib: Sail | null = null;
   anchor: Anchor;
   bilge: Bilge;
+  hullDamage: HullDamage;
   mainsheet: Sheet;
   portJibSheet: Sheet | null = null;
   starboardJibSheet: Sheet | null = null;
@@ -99,6 +101,9 @@ export class Boat extends BaseEntity {
     // Create mainsheet (boom to hull)
     const { hullAttachPoint, boomAttachRatio, ...mainsheetConfig } =
       config.mainsheet;
+    const boomZ = config.rig.mainsail.zFoot ?? 3;
+    const deckZ = config.hull.deckHeight;
+    const getTilt = () => this.hull.tiltTransform;
     this.mainsheet = this.addChild(
       new Sheet(
         this.rig.body,
@@ -106,6 +111,9 @@ export class Boat extends BaseEntity {
         this.hull.body,
         hullAttachPoint,
         mainsheetConfig,
+        getTilt,
+        boomZ,
+        deckZ,
       ),
     );
 
@@ -143,6 +151,7 @@ export class Boat extends BaseEntity {
         config.jibSheet;
       const clewBody = this.jib.getClew();
 
+      const jibClewZ = config.jib.zFoot ?? 3;
       this.portJibSheet = this.addChild(
         new Sheet(
           clewBody,
@@ -150,13 +159,23 @@ export class Boat extends BaseEntity {
           this.hull.body,
           portAttachPoint,
           jibSheetConfig,
+          getTilt,
+          jibClewZ,
+          deckZ,
         ),
       );
 
       this.starboardJibSheet = this.addChild(
-        new Sheet(clewBody, V(0, 0), this.hull.body, starboardAttachPoint, {
-          ...jibSheetConfig,
-        }),
+        new Sheet(
+          clewBody,
+          V(0, 0),
+          this.hull.body,
+          starboardAttachPoint,
+          { ...jibSheetConfig },
+          getTilt,
+          jibClewZ,
+          deckZ,
+        ),
       );
       this.starboardJibSheet.release();
     }
@@ -185,6 +204,15 @@ export class Boat extends BaseEntity {
 
     // Water accumulation, slosh, and bilge system
     this.bilge = this.addChild(new Bilge(this, config.bilge));
+
+    // Hull damage tracking
+    this.hullDamage = this.addChild(new HullDamage(this, config.hullDamage));
+
+    // Wire damage effects to hull friction and bilge leaking
+    this.hull.setDamageMultiplier(() =>
+      this.hullDamage.getSkinFrictionMultiplier(),
+    );
+    this.bilge.setHullLeakRate(() => this.hullDamage.getLeakRate());
 
     // Boat sound effects (sheet snaps, boom slams)
     this.addChild(new BoatSoundGenerator(this));
