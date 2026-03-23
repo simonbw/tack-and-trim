@@ -230,25 +230,31 @@ export class Sail extends BaseEntity {
       }),
     );
 
-    // Attach tell tails to leech edge vertices
+    // Attach tell tails along the leech (trailing edge) at 1/4, 1/2, 3/4 height
     if (attachTellTail) {
-      const leechIdx =
-        this.mesh.leechVertices[this.mesh.leechVertices.length - 1];
+      const leech = this.mesh.leechVertices;
       const reader = () => this.handle ?? this.solver;
-      this.addChild(
-        new TellTail(
-          () =>
-            V(reader().getPositionX(leechIdx), reader().getPositionY(leechIdx)),
-          () => {
-            const r = reader();
-            const dx = r.getPositionX(leechIdx) - r.getPrevPositionX(leechIdx);
-            const dy = r.getPositionY(leechIdx) - r.getPrevPositionY(leechIdx);
-            // Approximate velocity (positions are 1 tick apart)
-            return V(dx * 120, dy * 120);
-          },
-          () => this.hoistAmount,
-        ),
-      );
+      for (const frac of [0.25, 0.5, 0.75]) {
+        const leechIdx = leech[Math.round(frac * (leech.length - 1))];
+        this.addChild(
+          new TellTail(
+            () =>
+              V(
+                reader().getPositionX(leechIdx),
+                reader().getPositionY(leechIdx),
+              ),
+            () => {
+              const r = reader();
+              const dx =
+                r.getPositionX(leechIdx) - r.getPrevPositionX(leechIdx);
+              const dy =
+                r.getPositionY(leechIdx) - r.getPrevPositionY(leechIdx);
+              return V(dx * 120, dy * 120);
+            },
+            () => this.hoistAmount,
+          ),
+        );
+      }
     }
   }
 

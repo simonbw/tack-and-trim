@@ -17,7 +17,7 @@ import { WindQuery } from "../../world/wind/WindQuery";
 // TellTail dimensions
 const TELLTAIL_NODES = 6;
 const TELLTAIL_NODE_MASS = 0.01; // lbs per particle (tuned for physics)
-const TELLTAIL_LENGTH = 2; // ft - total streamer length
+const TELLTAIL_LENGTH = 1; // ft - total streamer length
 const SLACK_FACTOR = 1.02; // Dimensionless constraint slack
 
 // Drag parameters
