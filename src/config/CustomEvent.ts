@@ -28,4 +28,7 @@ export type CustomEvents = {
 
   /** Fired when the hull takes damage from grounding or collision */
   hullDamaged: { damage: number; health: number; source: "grounding" };
+
+  /** Fired when the rudder takes damage from grounding or collision */
+  rudderDamaged: { damage: number; health: number; source: "grounding" };
 };

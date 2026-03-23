@@ -146,7 +146,8 @@ export const StarterBoat: BoatConfig = {
       [-5.1, 1.95],
     ],
     stanchionHeight: 0.83, // ft above deck (~10 inches)
-    color: 0xbbbbbb,
+    tubeColor: 0xbbbbbb,
+    wireColor: 0x999999,
     tubeWidth: 0.18,
     wireWidth: 0.09,
   },
@@ -173,7 +174,7 @@ export const StarterBoat: BoatConfig = {
     defaultLength: 4.5,
     trimSpeed: 3,
     easeSpeed: 3,
-    ropeThickness: 0.3,
+    ropeThickness: 0.225,
   },
 
   // No jib sheets on starter boat
@@ -206,6 +207,14 @@ export const StarterBoat: BoatConfig = {
     groundingSpeedThreshold: 1.0, // ft/s — gentle bumps are safe
     damageFrictionMultiplier: 2.0, // at 0 health, Cf triples (0.003 → 0.009)
     damageLeakRate: 0.5, // cubic ft/s at 0 health
+    repairRate: 0, // no self-repair
+  },
+
+  rudderDamage: {
+    groundingDamageRate: 0.25, // rudder is more fragile than hull
+    groundingSpeedThreshold: 0.8, // ft/s
+    maxSteeringReduction: 0.7, // lose 70% of steering authority at 0 health
+    maxSteeringBias: 0.3, // pulls 30% toward one side at 0 health
     repairRate: 0, // no self-repair
   },
 

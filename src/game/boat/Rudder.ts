@@ -1,7 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
-import { stepToward } from "../../core/util/MathUtil";
+import { clamp, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import {
   applyFluidForces,
@@ -16,9 +16,12 @@ import { Hull } from "./Hull";
 export class Rudder extends BaseEntity {
   layer = "underhull" as const;
 
-  private steer: number = 0; // -1 to 1
+  private steer: number = 0; // -1 to 1 (player input position)
+  private effectiveSteer: number = 0; // -1 to 1 (actual position including damage bias)
   private steerInput: number = 0; // Current steering input from controller
   private fastMode: boolean = false;
+  private getSteeringMultiplier: () => number = () => 1;
+  private getSteeringBias: () => number = () => 0;
 
   private position: V2d;
   private length: number;
@@ -53,9 +56,9 @@ export class Rudder extends BaseEntity {
    * Get query points in world space for rudder pivot and end.
    */
   private getQueryPoints(): V2d[] {
-    // Calculate rudder end position based on steering angle
+    // Calculate rudder end position based on effective steering angle (includes damage bias)
     const rudderOffset = V(-this.length, 0).irotate(
-      -this.steer * this.maxSteerAngle,
+      -this.effectiveSteer * this.maxSteerAngle,
     );
     const rudderEnd = this.position.add(rudderOffset);
 
@@ -103,9 +106,13 @@ export class Rudder extends BaseEntity {
       }
     }
 
+    // Apply damage bias to effective steer (pulls rudder to one side)
+    this.effectiveSteer = clamp(this.steer + this.getSteeringBias(), -1, 1);
+    const effectiveSteer = this.effectiveSteer;
+
     // Calculate rudder end position based on steering angle
     const rudderOffset = V(-this.length, 0).irotate(
-      -this.steer * this.maxSteerAngle,
+      -effectiveSteer * this.maxSteerAngle,
     );
     const rudderEnd = this.position.add(rudderOffset);
 
@@ -114,7 +121,11 @@ export class Rudder extends BaseEntity {
     const effectiveChord = RUDDER_CHORD * Math.max(0.1, heelFactor);
 
     // Use proper foil physics with heel-adjusted chord dimension
-    const lift = foilLift(effectiveChord);
+    // Damage reduces lift (steering authority) but not drag
+    const steeringMultiplier = this.getSteeringMultiplier();
+    const baseLift = foilLift(effectiveChord);
+    const lift: typeof baseLift = (params) =>
+      baseLift(params) * steeringMultiplier;
     const drag = foilDrag(effectiveChord);
 
     // Get water velocity from cache or default to zero
@@ -146,7 +157,8 @@ export class Rudder extends BaseEntity {
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
     const [x, y] = this.hull.body.position;
     const [rx, ry] = this.position.rotate(this.hull.body.angle).iadd([x, y]);
-    const rudderAngle = this.hull.body.angle - this.steer * this.maxSteerAngle;
+    const rudderAngle =
+      this.hull.body.angle - this.effectiveSteer * this.maxSteerAngle;
 
     // Rudder is below waterline — small parallax shift
     const offset = this.hull.tiltTransform.worldOffset(-1);
@@ -167,6 +179,14 @@ export class Rudder extends BaseEntity {
 
   /** Get the current tiller angle offset (same as rudder, they're on the same shaft) */
   getTillerAngleOffset(): number {
-    return -this.steer * this.maxSteerAngle;
+    return -this.effectiveSteer * this.maxSteerAngle;
+  }
+
+  setDamageEffects(
+    steeringMultiplier: () => number,
+    steeringBias: () => number,
+  ): void {
+    this.getSteeringMultiplier = steeringMultiplier;
+    this.getSteeringBias = steeringBias;
   }
 }

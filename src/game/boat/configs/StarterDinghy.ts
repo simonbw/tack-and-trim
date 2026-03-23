@@ -154,7 +154,8 @@ export const StarterDinghy: BoatConfig = {
       [-6, 2.3],
     ],
     stanchionHeight: 1.5, // ft above deck
-    color: 0xbbbbbb, // silver metal
+    tubeColor: 0xbbbbbb, // silver metal
+    wireColor: 0x999999, // slightly darker for wires
     tubeWidth: 0.2,
     wireWidth: 0.1,
   },
@@ -227,6 +228,14 @@ export const StarterDinghy: BoatConfig = {
     groundingSpeedThreshold: 0.8, // ft/s — slightly more sensitive
     damageFrictionMultiplier: 2.0, // same friction penalty
     damageLeakRate: 0.6, // leaks slightly more (thinner hull)
+    repairRate: 0, // no self-repair
+  },
+
+  rudderDamage: {
+    groundingDamageRate: 0.3, // lighter rudder, more fragile
+    groundingSpeedThreshold: 0.6, // ft/s
+    maxSteeringReduction: 0.7, // lose 70% of steering authority at 0 health
+    maxSteeringBias: 0.3, // pulls 30% toward one side at 0 health
     repairRate: 0, // no self-repair
   },
 

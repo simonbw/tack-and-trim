@@ -119,6 +119,14 @@ export interface RowingConfig {
   readonly force: number; // lbf
 }
 
+export interface RudderDamageConfig {
+  readonly groundingDamageRate: number; // damage per (ft penetration × ft/s speed × second)
+  readonly groundingSpeedThreshold: number; // ft/s — below this, grounding does no damage
+  readonly maxSteeringReduction: number; // fraction of steering authority lost at health=0 (0-1)
+  readonly maxSteeringBias: number; // max rudder bias in steer units at health=0 (pulls to one side)
+  readonly repairRate: number; // health/s natural repair (0 = none)
+}
+
 export interface HullDamageConfig {
   readonly groundingDamageRate: number; // damage per (ft penetration × ft/s speed × second)
   readonly groundingSpeedThreshold: number; // ft/s — below this, grounding does no damage
@@ -172,7 +180,8 @@ export interface LifelinesConfig {
   // Height of stanchions above deck (ft)
   readonly stanchionHeight: number;
   // Visual properties
-  readonly color: number; // metal tubing/wire color
+  readonly tubeColor: number; // stanchion and pulpit tubing color
+  readonly wireColor: number; // lifeline wire color
   readonly tubeWidth: number; // stroke width for pulpit tubing
   readonly wireWidth: number; // stroke width for lifeline wires
 }
@@ -197,6 +206,7 @@ export interface BoatConfig {
   readonly tilt: TiltConfig;
   readonly bilge: BilgeConfig;
   readonly hullDamage: HullDamageConfig;
+  readonly rudderDamage: RudderDamageConfig;
 }
 
 // Re-export boat configs

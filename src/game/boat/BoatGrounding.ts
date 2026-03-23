@@ -119,6 +119,9 @@ export class BoatGrounding extends BaseEntity {
         this.config.rudderFriction,
       );
       totalForce.isub(velocity.normalize().mul(friction));
+
+      // Rudder grounding causes rudder damage
+      this.boat.rudderDamage.applyGroundingDamage(rudderPenetration, speed, dt);
     }
 
     // Check hull grounding (use center of hull)

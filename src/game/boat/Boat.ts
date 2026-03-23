@@ -11,6 +11,7 @@ import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
 import { HullDamage } from "./HullDamage";
+import { RudderDamage } from "./RudderDamage";
 import { Bowsprit } from "./Bowsprit";
 import { findBowPoint, findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
@@ -33,6 +34,7 @@ export class Boat extends BaseEntity {
   anchor: Anchor;
   bilge: Bilge;
   hullDamage: HullDamage;
+  rudderDamage: RudderDamage;
   mainsheet: Sheet;
   portJibSheet: Sheet | null = null;
   starboardJibSheet: Sheet | null = null;
@@ -213,6 +215,17 @@ export class Boat extends BaseEntity {
       this.hullDamage.getSkinFrictionMultiplier(),
     );
     this.bilge.setHullLeakRate(() => this.hullDamage.getLeakRate());
+
+    // Rudder damage tracking
+    this.rudderDamage = this.addChild(
+      new RudderDamage(this, config.rudderDamage),
+    );
+
+    // Wire rudder damage effects to steering
+    this.rudder.setDamageEffects(
+      () => this.rudderDamage.getSteeringMultiplier(),
+      () => this.rudderDamage.getSteeringBias(),
+    );
 
     // Boat sound effects (sheet snaps, boom slams)
     this.addChild(new BoatSoundGenerator(this));
