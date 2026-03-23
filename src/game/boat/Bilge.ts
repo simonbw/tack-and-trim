@@ -106,8 +106,10 @@ export class Bilge extends BaseEntity {
 
     // --- Water egress ---
 
-    // Automatic bilge pump (always running)
-    this.waterVolume -= this.config.pumpDrainRate * dt;
+    // Automatic bilge pump (if equipped)
+    if (this.config.pumpDrainRate) {
+      this.waterVolume -= this.config.pumpDrainRate * dt;
+    }
 
     // Manual bailing
     if (this.bailing) {
