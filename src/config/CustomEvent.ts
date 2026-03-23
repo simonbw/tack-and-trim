@@ -25,4 +25,7 @@ export type CustomEvents = {
 
   /** Fired from game over screen to return to main menu */
   returnToMenu: {};
+
+  /** Fired when the hull takes damage from grounding or collision */
+  hullDamaged: { damage: number; health: number; source: "grounding" };
 };

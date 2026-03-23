@@ -7,6 +7,7 @@
  */
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { V, type V2d } from "../../core/Vector";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
@@ -63,7 +64,7 @@ export class BoatGrounding extends BaseEntity {
   }
 
   @on("tick")
-  onTick() {
+  onTick({ dt }: GameEventMap["tick"]) {
     // Skip if no terrain results yet (first frame)
     if (this.terrainQuery.results.length === 0) return;
 
@@ -101,6 +102,9 @@ export class BoatGrounding extends BaseEntity {
 
         // Keel grounding produces a pitch torque (bow pitches up on impact)
         this.boat.applyTiltTorque(0, penetration * speed * 100);
+
+        // Keel grounding causes mild hull stress (30% of hull grounding rate)
+        this.boat.hullDamage.applyGroundingDamage(penetration * 0.3, speed, dt);
       }
     }
 
@@ -131,6 +135,9 @@ export class BoatGrounding extends BaseEntity {
 
       // Hull grounding at speed creates random roll torque (violent impact)
       groundingRollTorque += hullPenetration * speed * 200;
+
+      // Hull grounding causes damage
+      this.boat.hullDamage.applyGroundingDamage(hullPenetration, speed, dt);
     }
 
     // Apply grounding force

@@ -164,6 +164,7 @@ export class Hull extends BaseEntity {
   private sideColor: number;
   private bottomColor: number;
   private tillerConfig?: TillerConfig;
+  private getDamageMultiplier: () => number = () => 1;
   private mesh: HullMesh;
 
   /** Tilt state updated by Boat each tick. Used by child entities for physics effects. */
@@ -234,7 +235,7 @@ export class Hull extends BaseEntity {
     applySkinFriction(
       this.body,
       this.hullArea,
-      this.skinFrictionCoefficient,
+      this.skinFrictionCoefficient * this.getDamageMultiplier(),
       getWaterVelocity,
     );
   }
@@ -356,6 +357,10 @@ export class Hull extends BaseEntity {
 
   setTillerConfig(config: TillerConfig): void {
     this.tillerConfig = config;
+  }
+
+  setDamageMultiplier(fn: () => number): void {
+    this.getDamageMultiplier = fn;
   }
 }
 

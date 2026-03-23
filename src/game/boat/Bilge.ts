@@ -49,6 +49,8 @@ export class Bilge extends BaseEntity {
   private sinkTimer: number = 0;
   private sunk: boolean = false;
 
+  private getHullLeakRate: () => number = () => 0;
+
   /** Cached hull vertices for water polygon clipping */
   private hullVertices: V2d[];
 
@@ -72,6 +74,10 @@ export class Bilge extends BaseEntity {
 
   isSunk(): boolean {
     return this.sunk;
+  }
+
+  setHullLeakRate(fn: () => number): void {
+    this.getHullLeakRate = fn;
   }
 
   /** Set bailing state (called by PlayerBoatController) */
@@ -107,6 +113,12 @@ export class Bilge extends BaseEntity {
     if (submersionDepth > 0) {
       const ingress = this.config.ingressCoefficient * submersionDepth * dt;
       this.waterVolume += ingress;
+    }
+
+    // Hull damage leak ingress
+    const hullLeakRate = this.getHullLeakRate();
+    if (hullLeakRate > 0) {
+      this.waterVolume += hullLeakRate * dt;
     }
 
     // --- Water egress ---

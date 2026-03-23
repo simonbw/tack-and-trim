@@ -119,6 +119,14 @@ export interface RowingConfig {
   readonly force: number; // lbf
 }
 
+export interface HullDamageConfig {
+  readonly groundingDamageRate: number; // damage per (ft penetration × ft/s speed × second)
+  readonly groundingSpeedThreshold: number; // ft/s — below this, grounding does no damage
+  readonly damageFrictionMultiplier: number; // at health=0, Cf multiplied by (1 + this)
+  readonly damageLeakRate: number; // cubic ft/s water ingress at health=0, scales with damage
+  readonly repairRate: number; // health/s natural repair (0 = none)
+}
+
 export interface BilgeConfig {
   readonly maxWaterVolume: number; // cubic ft — cockpit capacity before swamped
   readonly pumpDrainRate?: number; // cubic ft/s — automatic bilge pump rate (0 or omitted = no pump)
@@ -188,6 +196,7 @@ export interface BoatConfig {
   readonly grounding: GroundingConfig;
   readonly tilt: TiltConfig;
   readonly bilge: BilgeConfig;
+  readonly hullDamage: HullDamageConfig;
 }
 
 // Re-export boat configs

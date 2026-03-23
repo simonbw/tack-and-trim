@@ -191,14 +191,22 @@ export const StarterBoat: BoatConfig = {
 
   bilge: {
     maxWaterVolume: 6, // cubic ft — smaller cockpit than the dinghy (~45 gallons)
-    bailBucketSize: 0.17, // cubic ft per scoop (~1.3 gallons)
-    bailInterval: 1.4, // seconds between scoops
+    bailBucketSize: 0.3, // cubic ft per scoop (~2.2 gallons)
+    bailInterval: 0.9, // seconds between scoops
     waterDensity: 64, // lbs/ft³ (saltwater)
     ingressCoefficient: 1.8, // cubic ft/s per ft of submersion
     sloshGravity: 4.0,
     sloshDamping: 2.0,
     halfBeam: 2.8, // ft — half of 5.6ft beam at deck edge
     sinkingDuration: 3.0, // seconds
+  },
+
+  hullDamage: {
+    groundingDamageRate: 0.15, // moderate damage rate
+    groundingSpeedThreshold: 1.0, // ft/s — gentle bumps are safe
+    damageFrictionMultiplier: 2.0, // at 0 health, Cf triples (0.003 → 0.009)
+    damageLeakRate: 0.5, // cubic ft/s at 0 health
+    repairRate: 0, // no self-repair
   },
 
   // Tilt parameters derived from hull geometry and assumed ~450 lb displacement
