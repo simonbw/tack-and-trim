@@ -103,6 +103,14 @@ export class PlayerBoatController extends BaseEntity {
     if (io.isKeyDown("Space")) {
       this.boat.row();
     }
+
+    // Debug: apply heeling forces with [ and ]
+    if (io.isKeyDown("BracketLeft")) {
+      this.boat.applyTiltTorque(20000, 0);
+    }
+    if (io.isKeyDown("BracketRight")) {
+      this.boat.applyTiltTorque(-20000, 0);
+    }
   }
 
   @on("keyDown")
