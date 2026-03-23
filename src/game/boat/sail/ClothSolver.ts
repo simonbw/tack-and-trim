@@ -93,6 +93,53 @@ export class ClothSolver {
   }
 
   /**
+   * Construct a ClothSolver from a snapshot (for use in workers).
+   * The snapshot provides pre-computed arrays so no SailMeshData is needed.
+   */
+  static fromSnapshot(
+    snapshot: ReturnType<ClothSolver["snapshotState"]> & {
+      vertexCount: number;
+    },
+  ): ClothSolver {
+    // Create a minimal mesh-like object just to satisfy the constructor
+    const dummy: SailMeshData = {
+      vertexCount: snapshot.vertexCount,
+      restPositions: new Float64Array(0),
+      zHeights: new Float64Array(0),
+      indices: [],
+      structuralConstraints: [],
+      shearConstraints: [],
+      bendConstraints: [],
+      luffVertices: [],
+      footVertices: [],
+      leechVertices: [],
+      rowStarts: [],
+      colCounts: [],
+    };
+    const solver = new ClothSolver(dummy, {
+      damping: snapshot.damping,
+      constraintIterations: 0,
+      bendStiffness: snapshot.bendStiffness,
+      constraintDamping: snapshot.constraintDamping,
+    });
+    // Overwrite the arrays with the snapshot data
+    (solver as any).positions.set(snapshot.positions);
+    (solver as any).prevPositions.set(snapshot.prevPositions);
+    (solver as any).pinned.set(snapshot.pinned);
+    (solver as any).pinTargets.set(snapshot.pinTargets);
+    (solver as any).structA = snapshot.structA;
+    (solver as any).structB = snapshot.structB;
+    (solver as any).structRest = snapshot.structRest;
+    (solver as any).shearA = snapshot.shearA;
+    (solver as any).shearB = snapshot.shearB;
+    (solver as any).shearRest = snapshot.shearRest;
+    (solver as any).bendA = snapshot.bendA;
+    (solver as any).bendB = snapshot.bendB;
+    (solver as any).bendRest = snapshot.bendRest;
+    return solver;
+  }
+
+  /**
    * Initialize all 3D positions. Call once after construction.
    * Recomputes constraint rest lengths from 3D distances.
    */
@@ -185,6 +232,48 @@ export class ClothSolver {
   /** Update constraint damping coefficient at runtime. */
   setConstraintDamping(value: number): void {
     this.constraintDamping = value;
+  }
+
+  /**
+   * Snapshot solver state for transfer to a worker.
+   * Returns copies of internal arrays for one-time transfer.
+   */
+  snapshotState(): {
+    positions: Float64Array;
+    prevPositions: Float64Array;
+    pinned: Uint8Array;
+    pinTargets: Float64Array;
+    structA: Int32Array;
+    structB: Int32Array;
+    structRest: Float64Array;
+    shearA: Int32Array;
+    shearB: Int32Array;
+    shearRest: Float64Array;
+    bendA: Int32Array;
+    bendB: Int32Array;
+    bendRest: Float64Array;
+    damping: number;
+    bendStiffness: number;
+    constraintDamping: number;
+  } {
+    return {
+      positions: new Float64Array(this.positions),
+      prevPositions: new Float64Array(this.prevPositions),
+      pinned: new Uint8Array(this.pinned),
+      pinTargets: new Float64Array(this.pinTargets),
+      structA: new Int32Array(this.structA),
+      structB: new Int32Array(this.structB),
+      structRest: new Float64Array(this.structRest),
+      shearA: new Int32Array(this.shearA),
+      shearB: new Int32Array(this.shearB),
+      shearRest: new Float64Array(this.shearRest),
+      bendA: new Int32Array(this.bendA),
+      bendB: new Int32Array(this.bendB),
+      bendRest: new Float64Array(this.bendRest),
+      damping: this.damping,
+      bendStiffness: this.bendStiffness,
+      constraintDamping: this.constraintDamping,
+    };
   }
 
   getPositionX(index: number): number {

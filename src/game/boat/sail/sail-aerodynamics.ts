@@ -1,5 +1,5 @@
 import { clamp, degToRad } from "../../../core/util/MathUtil";
-import { RHO_AIR } from "../../fluid-dynamics";
+import { RHO_AIR } from "../../physics-constants";
 import type { ClothSolver } from "./ClothSolver";
 
 // The physics engine uses mass in "lbs" but F=ma with gravity=32.174 ft/s²,

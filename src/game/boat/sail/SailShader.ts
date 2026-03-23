@@ -90,16 +90,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   if (diffuse > 0.5) {
     tone = 1.0;       // lit — full brightness
   } else if (diffuse > 0.2) {
-    tone = 0.92;      // slight shadow
+    tone = 0.96;      // slight shadow
   } else {
-    tone = 0.85;      // shadow
+    tone = 0.92;      // shadow
   }
 
-  // Apply warm tint to shadows (red stays, green/blue drop slightly)
   let tintedColor = vec3<f32>(
     uniforms.baseColor.r * tone,
-    uniforms.baseColor.g * tone * 0.98,
-    uniforms.baseColor.b * tone * 0.95,
+    uniforms.baseColor.g * tone,
+    uniforms.baseColor.b * tone,
   );
 
   return vec4<f32>(tintedColor, uniforms.baseColor.a);

@@ -9,8 +9,8 @@ import {
   applyFluidForces,
   flatPlateDrag,
   ForceMagnitudeFn,
-  RHO_AIR,
 } from "../../fluid-dynamics";
+import { RHO_AIR } from "../../physics-constants";
 import { WindQuery } from "../../world/wind/WindQuery";
 
 // Units: feet (ft), lbs

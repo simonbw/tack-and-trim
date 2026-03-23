@@ -2,15 +2,10 @@ import { DynamicBody } from "../core/physics/body/DynamicBody";
 import { Convex } from "../core/physics/shapes/Convex";
 import { degToRad } from "../core/util/MathUtil";
 import { V, V2d } from "../core/Vector";
+import { RHO_WATER, RHO_AIR } from "./physics-constants";
 
-// =============================================================================
-// Physical Constants
-// =============================================================================
-
-// Fluid densities in slugs/ft³ (produces lbf when used with ft and ft/s)
-// Using slugs ensures F = ρ * v² * A gives force in lbf directly
-export const RHO_WATER = 1.94; // Seawater at 60°F
-export const RHO_AIR = 0.00238; // Air at sea level, 60°F
+// Re-export so existing importers don't break
+export { RHO_WATER, RHO_AIR };
 
 // Foil chord (depth) dimensions in feet
 export const RUDDER_CHORD = 1.5; // ft - typical dinghy rudder depth

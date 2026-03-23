@@ -151,7 +151,7 @@ export class TuningPanel extends ReactEntity {
             type="range"
             min={min}
             max={max}
-            step="any"
+            step={step}
             value={entry.value}
             onInput={(e: Event) => {
               const v = parseFloat((e.target as HTMLInputElement).value);

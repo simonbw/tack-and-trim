@@ -7,8 +7,14 @@
  */
 
 import type { Draw } from "../../../core/graphics/Draw";
-import type { ClothSolver } from "./ClothSolver";
 import { SailShaderInstance, SAIL_VERTEX_SIZE } from "./SailShader";
+
+/** Minimal interface for reading cloth vertex positions. */
+export interface ClothPositionReader {
+  getPositionX(i: number): number;
+  getPositionY(i: number): number;
+  getZ(i: number): number;
+}
 
 export class ClothRenderer {
   /** Pre-allocated vertex data: [px, py, nx, ny, nz] per vertex. */
@@ -45,7 +51,7 @@ export class ClothRenderer {
    * and submit for rendering.
    */
   render(
-    solver: ClothSolver,
+    solver: ClothPositionReader,
     draw: Draw,
     color: number,
     alpha: number,

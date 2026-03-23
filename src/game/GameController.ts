@@ -31,6 +31,7 @@ import { TreeManager } from "./trees/TreeManager";
 import { QueryCoordinator } from "./world/query/QueryCoordinator";
 import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
+import { ClothWorkerPool } from "./boat/sail/ClothWorkerPool";
 
 //#tunable("Camera") { min: 0.5, max: 10 }
 let MENU_ZOOM: number = 2;
@@ -130,6 +131,8 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new TimeOfDayHUD());
     this.game.addEntity(new SpeedReadout());
     this.game.addEntity(new NavigationHUD(this.currentLevel ?? undefined));
+    // Cloth worker pool for off-thread sail simulation (must exist before sails)
+    this.game.addEntity(new ClothWorkerPool());
     // Spawn boat and controls
     const boat = this.game.addEntity(new Boat(this.startPosition));
     this.game.addEntity(new PlayerBoatController(boat));
