@@ -9,7 +9,7 @@ use terrain_core::humanize::format_int;
 use terrain_core::step::{format_ms, StepView};
 
 use crate::constrained_simplify::constrained_simplify_closed_ring;
-use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet};
+use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet, point_in_latlon_polygon};
 use crate::marching::{build_block_index, build_closed_rings, march_contours, ScalarGrid};
 use crate::region::{
     display_path, grid_cache_dir, load_region_config, resolve_region, terrain_output_path,
@@ -70,7 +70,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
         );
     }
 
-    let loaded = load_merged_grid(&merged_path, view)?;
+    let mut loaded = load_merged_grid(&merged_path, view)?;
 
     view.info(format!("Region: {}", slug));
     view.info(format!(
@@ -82,9 +82,39 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
         format_int(config.min_points)
     ));
 
+    // When polygon bounds are specified, mask grid cells outside the polygon
+    // to DEFAULT_DEPTH so marching squares never generates contours there.
+    if let Some(ref bounds) = config.bounds {
+        let (masked_count, new_min, new_max) = view.run_step(
+            "Masking grid to polygon bounds",
+            || {
+                mask_grid_to_polygon(
+                    &mut loaded.grid,
+                    loaded.origin_lon,
+                    loaded.origin_lat,
+                    loaded.lon_step,
+                    loaded.lat_step,
+                    bounds,
+                )
+            },
+            |(masked, _, _), d| {
+                format!(
+                    "Masked {} cells outside polygon ({}ms)",
+                    format_int(*masked),
+                    format_ms(d)
+                )
+            },
+        );
+        if masked_count > 0 {
+            loaded.min_feet = new_min;
+            loaded.max_feet = new_max;
+        }
+    }
+
+    let effective_bbox = config.effective_bbox();
     let clamped_min = loaded.min_feet.max(DEFAULT_DEPTH);
     let levels = quantize_levels(clamped_min, loaded.max_feet, config.interval);
-    let (center_lat, center_lon) = bbox_center(&config.bbox);
+    let (center_lat, center_lon) = bbox_center(&effective_bbox);
 
     let bbox_min_lon = loaded.origin_lon - loaded.lon_step;
     let bbox_max_lat = loaded.origin_lat + loaded.lat_step;
@@ -683,4 +713,62 @@ fn round3(v: f64) -> f64 {
 
 fn round6(v: f64) -> f64 {
     (v * 1_000_000.0).round() / 1_000_000.0
+}
+
+/// Mask grid cells outside the polygon to DEFAULT_DEPTH.
+/// Returns (masked_count, new_min_feet, new_max_feet).
+fn mask_grid_to_polygon(
+    grid: &mut ScalarGrid,
+    origin_lon: f64,
+    origin_lat: f64,
+    lon_step: f64,
+    lat_step: f64,
+    polygon: &[[f64; 2]],
+) -> (usize, f64, f64) {
+    // The grid has a 1-cell padding border. Interior cells start at (1,1).
+    // Grid coords to lat/lon (matching load_merged_grid's transform):
+    //   lon = (origin_lon - lon_step) + gx * lon_step
+    //   lat = (origin_lat + lat_step) - gy * lat_step
+    let base_lon = origin_lon - lon_step;
+    let base_lat = origin_lat + lat_step;
+
+    let width = grid.width;
+    let height = grid.height;
+
+    use rayon::prelude::*;
+
+    let results: Vec<(usize, f64, f64)> = grid
+        .values
+        .par_chunks_mut(width)
+        .enumerate()
+        .map(|(gy, row)| {
+            let lat = base_lat - (gy as f64) * lat_step;
+            let mut masked = 0usize;
+            let mut row_min = f64::INFINITY;
+            let mut row_max = f64::NEG_INFINITY;
+            for gx in 0..width {
+                let lon = base_lon + (gx as f64) * lon_step;
+                if !point_in_latlon_polygon(lat, lon, polygon) {
+                    if row[gx] != DEFAULT_DEPTH {
+                        row[gx] = DEFAULT_DEPTH;
+                        masked += 1;
+                    }
+                }
+                row_min = row_min.min(row[gx]);
+                row_max = row_max.max(row[gx]);
+            }
+            (masked, row_min, row_max)
+        })
+        .collect();
+
+    let mut total_masked = 0usize;
+    let mut min_feet = f64::INFINITY;
+    let mut max_feet = f64::NEG_INFINITY;
+    for (m, rmin, rmax) in results {
+        total_masked += m;
+        min_feet = min_feet.min(rmin);
+        max_feet = max_feet.max(rmax);
+    }
+
+    (total_masked, min_feet, max_feet)
 }
