@@ -368,6 +368,18 @@ export class Sail extends BaseEntity {
     return { roll: this._rollTorque, pitch: this._pitchTorque };
   }
 
+  /** Total reaction force magnitude from all pins (lbf). Updated each tick. */
+  private _totalReactionForce = 0;
+  getTotalReactionForce(): number {
+    return this._totalReactionForce;
+  }
+
+  /** Damage multiplier applied to liftScale (1.0 = no damage) */
+  private getDamageMultiplier: () => number = () => 1;
+  setDamageMultiplier(fn: () => number): void {
+    this.getDamageMultiplier = fn;
+  }
+
   /**
    * onTick runs on the "sail" tick layer, BEFORE physics.
    * Reads results from the previous tick's worker solve and applies reaction forces.
@@ -394,6 +406,7 @@ export class Sail extends BaseEntity {
       // Feed reaction forces from pinned vertices to constraint bodies.
       // Reaction forces are summed across sub-steps; divide by substeps to average.
       // Only apply when hoisted.
+      this._totalReactionForce = 0;
       if (this.hoistAmount > 0) {
         const { headConstraint, clewConstraint } = this.config;
         const vm = vertexMass / CLOTH_SUBSTEPS;
@@ -402,6 +415,14 @@ export class Sail extends BaseEntity {
         const tackRy = reactions[REACTION_TACK_Y] * vm;
         const headRx = reactions[REACTION_HEAD_X] * vm;
         const headRy = reactions[REACTION_HEAD_Y] * vm;
+        const clewRxRaw = reactions[REACTION_CLEW_X] * vm;
+        const clewRyRaw = reactions[REACTION_CLEW_Y] * vm;
+
+        // Total reaction force magnitude across all pins (for damage tracking)
+        this._totalReactionForce =
+          Math.hypot(tackRx, tackRy) +
+          Math.hypot(headRx, headRy) +
+          Math.hypot(clewRxRaw, clewRyRaw);
 
         // Tack + head both attach at the mast (headConstraint)
         const hBody = headConstraint.body as DynamicBody;
@@ -469,6 +490,9 @@ export class Sail extends BaseEntity {
   onAfterPhysicsStep(dt: number) {
     const { sailShape, liftScale, dragScale } = this.config;
 
+    // Apply damage multiplier to lift (damaged sails produce less drive)
+    const effectiveLiftScale = liftScale * this.getDamageMultiplier();
+
     // Get tilt transform for 3D pin targets
     const tilt = this.config.getTiltTransform?.() ?? DEFAULT_TILT_TRANSFORM;
     const local = this.config.headLocalPosition;
@@ -527,7 +551,7 @@ export class Sail extends BaseEntity {
       hoistAmount: this.hoistAmount,
       windX,
       windY,
-      liftScale,
+      liftScale: effectiveLiftScale,
       dragScale,
       tackX,
       tackY,

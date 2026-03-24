@@ -119,6 +119,14 @@ export interface RowingConfig {
   readonly force: number; // lbf
 }
 
+export interface SailDamageConfig {
+  readonly overpowerForceThreshold: number; // lbf — reaction force above this causes damage
+  readonly overpowerDamageRate: number; // damage per lbf of excess force per second
+  readonly jibeDamagePerForce: number; // damage per lbf of boom slam force (one-shot)
+  readonly maxLiftReduction: number; // fraction of lift lost at health=0 (0-1)
+  readonly repairRate: number; // health/s natural repair (0 = none)
+}
+
 export interface RudderDamageConfig {
   readonly groundingDamageRate: number; // damage per (ft penetration × ft/s speed × second)
   readonly groundingSpeedThreshold: number; // ft/s — below this, grounding does no damage
@@ -207,6 +215,7 @@ export interface BoatConfig {
   readonly bilge: BilgeConfig;
   readonly hullDamage: HullDamageConfig;
   readonly rudderDamage: RudderDamageConfig;
+  readonly sailDamage: SailDamageConfig;
 }
 
 // Re-export boat configs

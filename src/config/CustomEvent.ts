@@ -31,4 +31,12 @@ export type CustomEvents = {
 
   /** Fired when the rudder takes damage from grounding or collision */
   rudderDamaged: { damage: number; health: number; source: "grounding" };
+
+  /** Fired when a sail takes damage from overpowering or jibe */
+  sailDamaged: {
+    damage: number;
+    health: number;
+    sail: "main" | "jib";
+    source: "overpower" | "jibe";
+  };
 };

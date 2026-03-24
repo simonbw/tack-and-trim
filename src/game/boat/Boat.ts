@@ -12,6 +12,7 @@ import { BoatGrounding } from "./BoatGrounding";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
 import { HullDamage } from "./HullDamage";
 import { RudderDamage } from "./RudderDamage";
+import { SailDamage } from "./SailDamage";
 import { Bowsprit } from "./Bowsprit";
 import { findBowPoint, findSternPoints, Hull } from "./Hull";
 import { Keel } from "./Keel";
@@ -35,6 +36,8 @@ export class Boat extends BaseEntity {
   bilge: Bilge;
   hullDamage: HullDamage;
   rudderDamage: RudderDamage;
+  mainSailDamage: SailDamage;
+  jibSailDamage: SailDamage | null = null;
   mainsheet: Sheet;
   portJibSheet: Sheet | null = null;
   starboardJibSheet: Sheet | null = null;
@@ -226,6 +229,36 @@ export class Boat extends BaseEntity {
       () => this.rudderDamage.getSteeringMultiplier(),
       () => this.rudderDamage.getSteeringBias(),
     );
+
+    // Sail damage tracking (mainsail)
+    this.mainSailDamage = this.addChild(
+      new SailDamage(
+        this,
+        config.sailDamage,
+        this.rig.sail,
+        "main",
+        this.mainsheet,
+      ),
+    );
+    this.rig.sail.setDamageMultiplier(() =>
+      this.mainSailDamage.getLiftMultiplier(),
+    );
+
+    // Sail damage tracking (jib, if present)
+    if (this.jib) {
+      this.jibSailDamage = this.addChild(
+        new SailDamage(
+          this,
+          config.sailDamage,
+          this.jib,
+          "jib",
+          this.portJibSheet,
+        ),
+      );
+      this.jib.setDamageMultiplier(() =>
+        this.jibSailDamage!.getLiftMultiplier(),
+      );
+    }
 
     // Boat sound effects (sheet snaps, boom slams)
     this.addChild(new BoatSoundGenerator(this));

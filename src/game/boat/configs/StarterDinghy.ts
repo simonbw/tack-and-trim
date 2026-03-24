@@ -239,6 +239,14 @@ export const StarterDinghy: BoatConfig = {
     repairRate: 0, // no self-repair
   },
 
+  sailDamage: {
+    overpowerForceThreshold: 350, // lbf — lighter rig, lower threshold
+    overpowerDamageRate: 0.00006, // damage per excess lbf per second
+    jibeDamagePerForce: 0.0001, // damage per lbf of boom slam force
+    maxLiftReduction: 0.6, // lose 60% of drive force at 0 health
+    repairRate: 0, // no self-repair
+  },
+
   // Tilt parameters derived from hull geometry and assumed ~400 lb displacement
   // (200 lb hull + ~170 lb crew + equipment).
   // RM = displacement * g * GM * sin(heel), where GM ≈ 3 ft (form stability).

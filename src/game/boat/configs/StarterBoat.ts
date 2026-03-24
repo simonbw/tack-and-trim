@@ -218,6 +218,14 @@ export const StarterBoat: BoatConfig = {
     repairRate: 0, // no self-repair
   },
 
+  sailDamage: {
+    overpowerForceThreshold: 400, // lbf — sail load above this causes wear
+    overpowerDamageRate: 0.00005, // damage per excess lbf per second
+    jibeDamagePerForce: 0.00008, // damage per lbf of boom slam force
+    maxLiftReduction: 0.6, // lose 60% of drive force at 0 health
+    repairRate: 0, // no self-repair
+  },
+
   // Tilt parameters derived from hull geometry and assumed ~450 lb displacement
   // (250 lb hull + ~170 lb crew + equipment).
   // Narrower beam (5.6 ft) → less form stability (GM ≈ 2.5 ft).
