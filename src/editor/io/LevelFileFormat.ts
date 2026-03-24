@@ -357,6 +357,9 @@ export interface BoundingBoxJSON {
 /**
  * Region configuration for terrain extraction from elevation data.
  * Embedded in the level file to define how terrain is built from geographic data.
+ *
+ * Bounds can be specified as either a rectangular `bbox` or a convex `bounds`
+ * polygon (array of `[lat, lon]` pairs). Exactly one must be present.
  */
 export interface RegionConfigJSON {
   datasetPath?: string;
@@ -364,7 +367,10 @@ export interface RegionConfigJSON {
     type: string;
     [key: string]: unknown;
   };
-  bbox: BoundingBoxJSON;
+  /** Axis-aligned bounding box. Mutually exclusive with `bounds`. */
+  bbox?: BoundingBoxJSON;
+  /** Convex polygon as `[lat, lon]` vertices. Mutually exclusive with `bbox`. */
+  bounds?: [number, number][];
   interval: number;
   simplify: number;
   scale: number;

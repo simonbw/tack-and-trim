@@ -43,13 +43,20 @@ pub enum DataSourceConfig {
 }
 
 /// Region configuration for terrain extraction, embedded in the level file.
+///
+/// Bounds can be specified as either a rectangular `bbox` or a convex `bounds`
+/// polygon (array of `[lat, lon]` vertices). Exactly one must be present.
+/// When `bounds` is used, the pipeline computes the AABB from the polygon
+/// vertices for tile fetching and grid merging, then masks grid cells outside
+/// the polygon before contour extraction.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RegionConfig {
     #[serde(rename = "datasetPath")]
     pub dataset_path: Option<String>,
     #[serde(rename = "dataSource")]
     pub data_source: Option<DataSourceConfig>,
-    pub bbox: BoundingBox,
+    pub bbox: Option<BoundingBox>,
+    pub bounds: Option<Vec<[f64; 2]>>,
     pub interval: f64,
     pub simplify: f64,
     pub scale: f64,
@@ -59,6 +66,35 @@ pub struct RegionConfig {
     pub min_points: usize,
     #[serde(rename = "flipY")]
     pub flip_y: bool,
+}
+
+impl RegionConfig {
+    /// Returns the effective axis-aligned bounding box, whether specified
+    /// directly via `bbox` or computed from the `bounds` polygon vertices.
+    pub fn effective_bbox(&self) -> BoundingBox {
+        if let Some(ref bbox) = self.bbox {
+            return bbox.clone();
+        }
+        if let Some(ref bounds) = self.bounds {
+            let mut min_lat = f64::INFINITY;
+            let mut max_lat = f64::NEG_INFINITY;
+            let mut min_lon = f64::INFINITY;
+            let mut max_lon = f64::NEG_INFINITY;
+            for &[lat, lon] in bounds {
+                min_lat = min_lat.min(lat);
+                max_lat = max_lat.max(lat);
+                min_lon = min_lon.min(lon);
+                max_lon = max_lon.max(lon);
+            }
+            return BoundingBox {
+                min_lat,
+                max_lat,
+                min_lon,
+                max_lon,
+            };
+        }
+        panic!("RegionConfig must have either bbox or bounds");
+    }
 }
 
 // ── Biome types ─────────────────────────────────────────────────────────────

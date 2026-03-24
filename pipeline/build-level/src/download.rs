@@ -51,10 +51,11 @@ pub fn run_download(region_arg: Option<&str>, view: &StepView) -> Result<()> {
     let cache_dir = grid_cache_dir(&slug);
     let out_dir = tiles_dir(&slug);
 
+    let bbox = config.effective_bbox();
     view.info(format!("Region: {}", slug));
     view.info(format!(
         "BBOX: {:.4},{:.4} -> {:.4},{:.4}",
-        config.bbox.min_lat, config.bbox.min_lon, config.bbox.max_lat, config.bbox.max_lon
+        bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon
     ));
 
     let client = Client::builder()
@@ -66,7 +67,7 @@ pub fn run_download(region_arg: Option<&str>, view: &StepView) -> Result<()> {
         DataSourceConfig::Cudem { dataset_path } => download_cudem(
             &client,
             &dataset_path,
-            &config.bbox,
+            &bbox,
             &cache_dir,
             &out_dir,
             view,
@@ -85,7 +86,7 @@ pub fn run_download(region_arg: Option<&str>, view: &StepView) -> Result<()> {
             view,
         ),
         DataSourceConfig::EmodnetWcs { coverage_id } => {
-            download_emodnet_wcs(&client, &coverage_id, &config.bbox, &out_dir, view)
+            download_emodnet_wcs(&client, &coverage_id, &bbox, &out_dir, view)
         }
     }
 }

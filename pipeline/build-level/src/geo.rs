@@ -47,6 +47,25 @@ pub fn bbox_intersects(a: &BoundingBox, b: &BoundingBox) -> bool {
         || a.min_lon >= b.max_lon)
 }
 
+/// Ray-casting point-in-polygon test for lat/lon coordinates.
+/// Polygon vertices are `[lat, lon]` pairs forming a closed ring.
+pub fn point_in_latlon_polygon(lat: f64, lon: f64, polygon: &[[f64; 2]]) -> bool {
+    if polygon.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = polygon.len() - 1;
+    for i in 0..polygon.len() {
+        let (yi, xi) = (polygon[i][0], polygon[i][1]);
+        let (yj, xj) = (polygon[j][0], polygon[j][1]);
+        if (yi > lat) != (yj > lat) && lon < ((xj - xi) * (lat - yi) / (yj - yi)) + xi {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
 pub fn parse_tile_coverage_from_name(name: &str) -> Option<BoundingBox> {
     let re = regex::Regex::new(r"_([ns])(\d{1,2})x(\d{2})_([ew])(\d{1,3})x(\d{2})_").ok()?;
     let caps = re.captures(name)?;

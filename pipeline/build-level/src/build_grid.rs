@@ -15,13 +15,14 @@ pub fn run_build_grid(region_arg: Option<&str>, force: bool, view: &StepView) ->
     let slug = resolve_region(region_arg)?;
     let config = load_region_config(&slug)?;
 
+    let bbox = config.effective_bbox();
     view.info(format!("Region: {}", slug));
     view.info(format!(
         "BBOX: {:.4},{:.4} -> {:.4},{:.4}",
-        config.bbox.min_lat, config.bbox.min_lon, config.bbox.max_lat, config.bbox.max_lon
+        bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon
     ));
 
-    let local_tile_paths = list_local_tiles(&tiles_dir(&slug), &config.bbox)?;
+    let local_tile_paths = list_local_tiles(&tiles_dir(&slug), &bbox)?;
     if local_tile_paths.is_empty() {
         bail!(
             "No matching GeoTIFF files in {}. Run download step first.",
@@ -55,10 +56,10 @@ pub fn run_build_grid(region_arg: Option<&str>, force: bool, view: &StepView) ->
             cmd.arg("-t_srs")
                 .arg("EPSG:4326")
                 .arg("-te")
-                .arg(config.bbox.min_lon.to_string())
-                .arg(config.bbox.min_lat.to_string())
-                .arg(config.bbox.max_lon.to_string())
-                .arg(config.bbox.max_lat.to_string())
+                .arg(bbox.min_lon.to_string())
+                .arg(bbox.min_lat.to_string())
+                .arg(bbox.max_lon.to_string())
+                .arg(bbox.max_lat.to_string())
                 .arg("-overwrite");
 
             for path in &local_tile_paths {
