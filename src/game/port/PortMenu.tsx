@@ -3,9 +3,11 @@ import { on } from "../../core/entity/handler";
 import { KeyCode } from "../../core/io/Keys";
 import { Boat } from "../boat/Boat";
 import { ShipyardUI } from "../catalog/ShipyardUI";
+import { MissionBoard } from "../mission/MissionBoard";
 import "./PortMenu.css";
 
 type PortMenuAction = "missionBoard" | "shipyard" | "castOff";
+type SubMenu = "shipyard" | "missionBoard" | null;
 
 const ACTIONS: { key: PortMenuAction; label: string }[] = [
   { key: "missionBoard", label: "Mission Board" },
@@ -15,7 +17,7 @@ const ACTIONS: { key: PortMenuAction; label: string }[] = [
 
 export class PortMenu extends ReactEntity {
   private selectedIndex = 0;
-  private shipyardOpen = false;
+  private subMenuOpen: SubMenu = null;
 
   constructor(
     private portId: string,
@@ -42,7 +44,7 @@ export class PortMenu extends ReactEntity {
   private execute(action: PortMenuAction) {
     switch (action) {
       case "missionBoard":
-        console.log("Mission Board: Coming soon");
+        this.openMissionBoard();
         break;
       case "shipyard":
         this.openShipyard();
@@ -54,28 +56,39 @@ export class PortMenu extends ReactEntity {
   }
 
   private openShipyard() {
-    if (this.shipyardOpen) return;
-    this.shipyardOpen = true;
+    if (this.subMenuOpen) return;
+    this.subMenuOpen = "shipyard";
     this.game.addEntity(new ShipyardUI());
     this.game.dispatch("openShipyard", {});
   }
 
+  private openMissionBoard() {
+    if (this.subMenuOpen) return;
+    this.subMenuOpen = "missionBoard";
+    this.game.addEntity(new MissionBoard(this.portId));
+  }
+
   @on("closeShipyard")
   onCloseShipyard() {
-    this.shipyardOpen = false;
+    this.subMenuOpen = null;
   }
 
   private castOff() {
     const boat = this.game.entities.getById("boat") as Boat | undefined;
     if (boat) {
-      boat.anchor.retrieve();
+      boat.mooring.castOff();
     }
-    this.game.dispatch("boatUnmoored", { portId: this.portId });
   }
 
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
-    if (this.shipyardOpen) return;
+    // Check if sub menus have closed themselves
+    if (this.subMenuOpen === "missionBoard") {
+      if (!this.game.entities.tryGetSingleton(MissionBoard)) {
+        this.subMenuOpen = null;
+      }
+    }
+    if (this.subMenuOpen) return;
 
     if (key === "Escape") {
       this.castOff();

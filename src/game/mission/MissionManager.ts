@@ -8,6 +8,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { MissionDef } from "../../editor/io/LevelFileFormat";
+import { ProgressionManager } from "../progression/ProgressionManager";
 import type { ActiveMission } from "./MissionTypes";
 
 export class MissionManager extends BaseEntity {
@@ -99,8 +100,13 @@ export class MissionManager extends BaseEntity {
     const { def } = this.activeMission;
     const rewards = def.rewards ?? {};
 
-    // Grant money reward
+    // Grant money reward via ProgressionManager
     if (rewards.money) {
+      const progression =
+        this.game.entities.tryGetSingleton(ProgressionManager);
+      if (progression) {
+        progression.addMoney(rewards.money);
+      }
       this.money += rewards.money;
     }
 

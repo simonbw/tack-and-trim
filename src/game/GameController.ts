@@ -39,6 +39,8 @@ import { PortMenu } from "./port/PortMenu";
 import { MissionManager } from "./mission/MissionManager";
 import { MissionHUD } from "./mission/MissionHUD";
 import { ProgressionManager } from "./progression/ProgressionManager";
+import { SaveManager } from "./persistence/SaveManager";
+import { applySaveData } from "./persistence/SaveDeserializer";
 
 //#tunable("Camera") { min: 0.5, max: 10 }
 let MENU_ZOOM: number = 2;
@@ -64,6 +66,9 @@ export class GameController extends BaseEntity {
     ]) {
       preloader.destroy();
     }
+
+    // Create save manager (persists across scene clears like GameController)
+    this.game.addEntity(new SaveManager());
 
     // Start with wide camera shot for menu
     this.game.camera.z = MENU_ZOOM;
@@ -191,10 +196,24 @@ export class GameController extends BaseEntity {
       this.game.addEntity(new Port(portData));
     }
 
+    // Check for pending save data (load game flow)
+    const saveManager = this.game.entities.tryGetSingleton(SaveManager);
+    const pendingSave = saveManager?.consumePendingSave() ?? null;
+
+    // Use saved position if loading, otherwise level start position
+    const boatPosition = pendingSave
+      ? V(pendingSave.boat.position[0], pendingSave.boat.position[1])
+      : this.startPosition;
+
     // Spawn boat and controls
-    const boat = this.game.addEntity(new Boat(this.startPosition));
+    const boat = this.game.addEntity(new Boat(boatPosition));
     this.game.addEntity(new PlayerBoatController(boat));
     this.game.addEntity(new TiltDebugHUD());
+
+    // Apply remaining save state (damage, bilge, anchor) after construction
+    if (pendingSave) {
+      applySaveData(this.game, pendingSave);
+    }
 
     // Spawn camera controller with zoom transition
     const cameraController = this.game.addEntity(

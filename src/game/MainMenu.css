@@ -79,3 +79,21 @@
   background: rgba(180, 160, 120, 0.3);
   border-color: rgba(220, 200, 150, 0.6);
 }
+
+.main-menu__section {
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.main-menu__save-name {
+  font-size: 1.2rem;
+  font-weight: 400;
+}
+
+.main-menu__save-details {
+  font-size: 0.85rem;
+  opacity: 0.5;
+  margin-top: 0.25rem;
+}

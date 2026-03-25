@@ -23,8 +23,8 @@ export class MissionBoard extends ReactEntity {
     super(() => this.renderContent());
   }
 
-  @on("add")
-  onAdd() {
+  @on("afterAdded")
+  onAfterAdded() {
     this.manager = this.game.entities.getSingleton(MissionManager);
     this.missions = this.manager.getAvailableMissions(this.portId);
   }

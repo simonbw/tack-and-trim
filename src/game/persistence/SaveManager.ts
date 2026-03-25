@@ -24,7 +24,7 @@ export class SaveManager extends BaseEntity {
   private currentLevelId: LevelName | null = null;
 
   /** Pending save data waiting to be applied after a level reload. */
-  private pendingSave: SaveFile | null = null;
+  pendingSave: SaveFile | null = null;
 
   /** Save current game state to the current slot. */
   save(saveName?: string): void {
@@ -85,13 +85,11 @@ export class SaveManager extends BaseEntity {
     this.currentLevelId = levelName;
   }
 
-  @on("gameStart")
-  onGameStart(): void {
-    if (this.pendingSave) {
-      const save = this.pendingSave;
-      this.pendingSave = null;
-      applySaveData(this.game, save);
-    }
+  /** Consume the pending save (called by GameController after constructing entities). */
+  consumePendingSave(): SaveFile | null {
+    const save = this.pendingSave;
+    this.pendingSave = null;
+    return save;
   }
 
   @on("boatMoored")
