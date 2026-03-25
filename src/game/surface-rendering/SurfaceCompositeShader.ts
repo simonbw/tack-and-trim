@@ -18,6 +18,10 @@ import {
   type FullscreenShaderConfig,
 } from "../../core/graphics/webgpu/FullscreenShader";
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
+import {
+  DEPTH_Z_MAX,
+  DEPTH_Z_MIN,
+} from "../../core/graphics/webgpu/WebGPURenderer";
 import { fn_renderWaterLighting } from "../world/shaders/lighting.wgsl";
 import { fn_renderTerrain } from "../world/shaders/terrain-rendering.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
@@ -76,6 +80,11 @@ const SHALLOW_WATER_THRESHOLD: f32 = ${SHALLOW_WATER_THRESHOLD};
       sampleType: "unfilterable-float",
     },
     heightSampler: { type: "sampler", samplerType: "non-filtering" },
+    boatDepthTexture: {
+      type: "texture",
+      viewDimension: "2d",
+      sampleType: "depth",
+    },
   },
   code: "",
 };
@@ -277,8 +286,26 @@ fn computeWaterColorAtPoint(normal: vec3<f32>, waterHeight: f32, waterDepth: f32
   return color;
 }
 
+// Depth mapping constants — must match shape/sprite shaders
+const Z_MIN: f32 = ${DEPTH_Z_MIN};
+const Z_MAX: f32 = ${DEPTH_Z_MAX};
+const SUBMERSION_THRESHOLD: f32 = 1.5;
+
+fn mapZToDepth(z: f32) -> f32 {
+  return (z - Z_MIN) / (Z_MAX - Z_MIN);
+}
+
+fn depthToZ(d: f32) -> f32 {
+  return d * (Z_MAX - Z_MIN) + Z_MIN;
+}
+
+struct FragmentOutput {
+  @location(0) color: vec4<f32>,
+  @builtin(frag_depth) depth: f32,
+}
+
 @fragment
-fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
+fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec2<f32>) -> FragmentOutput {
   let worldPos = clipToWorld(clipPosition);
 
   // Sample heights, turbulence, and wetness from textures
@@ -295,70 +322,85 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
   let waterNormal = computeWaterNormal(worldPos);
   let terrainNormal = computeTerrainNormal(worldPos);
 
+  // Read boat depth from the depth copy (boat rendered before surface).
+  // Depth buffer cleared to 0.0 (= Z_MIN in world space). Any boat pixel writes depth > 0.
+  // Z_MIN maps to depth 0.0, so anything drawn has depth > 0.
+  let boatDepthNDC = textureLoad(boatDepthTexture, vec2<i32>(fragPos.xy), 0);
+  let boatZ = depthToZ(boatDepthNDC);
+  // Boat is present if depth was written (anything above Z_MIN = -10)
+  let boatPresent = boatZ > (Z_MIN + 0.1);
+
   // Render based on depth
   let foamColor = vec3<f32>(0.95, 0.98, 1.0);
 
   // Foam from turbulence (wave breaking + wake)
   var turbulenceFoam = 0.0;
   if (turbulence > 0.0) {
-    // Fractal noise for natural, streaky foam texture, remapped to [0, 1]
     let foamNoise = fractalNoise3D(vec3<f32>(
       worldPos.x * 0.5,
       worldPos.y * 0.5,
       params.time * 0.4
     )) * 0.5 + 0.5;
-
-    // Amplify turbulence so small values (e.g. wake) still produce visible foam.
-    // foamCoverage controls both how much of the noise field becomes foam and
-    // the final brightness — avoiding the double-penalty of using turbulence twice.
-    // Exponential curve: approaches but never reaches max coverage as turbulence increases.
-    // Multiply by 0.7 so even extreme turbulence tops out at 70% foam density.
     let foamCoverage = (1.0 - exp(-turbulence * 1.0)) * 0.7;
     let foamThreshold = 1.0 - foamCoverage;
     turbulenceFoam = smoothstep(foamThreshold - 0.15, foamThreshold, foamNoise) * foamCoverage;
   }
 
+  // Determine the visible surface z-height for depth buffer
+  var surfaceZ: f32;
+
+  var finalColor: vec3<f32>;
   if (params.hasTerrainData == 0) {
     // No terrain data - render as deep water
-    var color = computeWaterColorAtPoint(waterNormal, waterHeight, 100.0, worldPos);
-    color = mix(color, foamColor, turbulenceFoam);
-    return vec4<f32>(color, 1.0);
-  }
-
-  if (waterDepth < 0.0) {
+    finalColor = computeWaterColorAtPoint(waterNormal, waterHeight, 100.0, worldPos);
+    finalColor = mix(finalColor, foamColor, turbulenceFoam);
+    surfaceZ = waterHeight;
+  } else if (waterDepth < 0.0) {
     // Above water - render as sand/terrain with tracked wetness
-    let color = renderTerrain(terrainHeight, terrainNormal, worldPos, wetness, params.time);
-    return vec4<f32>(color, 1.0);
+    finalColor = renderTerrain(terrainHeight, terrainNormal, worldPos, wetness, params.time);
+    surfaceZ = terrainHeight;
   } else if (waterDepth < params.shallowThreshold) {
     // Shallow water - blend between sand and water with sharp transition
-    // Use power curve for sharper edge while maintaining some gradual depth visibility
     let normalizedDepth = waterDepth / params.shallowThreshold;
-    let blendFactor = pow(normalizedDepth, 0.4); // Sharp at edge, gradual deeper
+    let blendFactor = pow(normalizedDepth, 0.4);
 
-    // For underwater sand, use max of tracked wetness and water depth
     let underwaterWetness = max(wetness, waterDepth);
     let sandColor = renderTerrain(terrainHeight, terrainNormal, worldPos, underwaterWetness, params.time);
     let waterColor = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth, worldPos);
-    var finalColor = mix(sandColor, waterColor, blendFactor);
+    finalColor = mix(sandColor, waterColor, blendFactor);
 
-    // Add foam at the water's edge
-    let foamThreshold = 0.2; // Foam appears in first 0.2 units of water depth
+    let foamThreshold = 0.2;
     if (waterDepth < foamThreshold) {
-      // Foam intensity: strong at edge (depth=0), fades out at foamThreshold
       let foamIntensity = (1.0 - (waterDepth / foamThreshold)) * 0.7;
       finalColor = mix(finalColor, foamColor, foamIntensity);
     }
-
-    // Breaking wave foam on crests
     finalColor = mix(finalColor, foamColor, turbulenceFoam);
-
-    return vec4<f32>(finalColor, 1.0);
+    surfaceZ = waterHeight;
   } else {
     // Deep water
-    var color = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth, worldPos);
-    color = mix(color, foamColor, turbulenceFoam);
-    return vec4<f32>(color, 1.0);
+    finalColor = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth, worldPos);
+    finalColor = mix(finalColor, foamColor, turbulenceFoam);
+    surfaceZ = waterHeight;
   }
+
+  // Compute alpha: opaque normally, but semi-transparent over submerged boat parts
+  var alpha = 1.0;
+  if (boatPresent) {
+    let submersion = waterHeight - boatZ;
+    if (submersion <= 0.0) {
+      // Water is below the boat at this pixel — don't draw water here
+      alpha = 0.0;
+    } else {
+      // Boat is submerged: sharp edge, then gradual increase (like terrain-water blend)
+      let normalized = min(submersion / SUBMERSION_THRESHOLD, 1.0);
+      alpha = pow(normalized, 0.4);
+    }
+  }
+
+  var out: FragmentOutput;
+  out.color = vec4<f32>(finalColor * alpha, alpha);
+  out.depth = mapZToDepth(surfaceZ);
+  return out;
 }
 `,
 };
@@ -366,6 +408,25 @@ fn fs_main(@location(0) clipPosition: vec2<f32>) -> @location(0) vec4<f32> {
 const surfaceCompositeShaderConfig: FullscreenShaderConfig = {
   modules: [surfaceCompositeFragmentModule],
   label: "SurfaceCompositeShader",
+  // Premultiplied alpha blending so water blends over submerged boat parts
+  blendState: {
+    color: {
+      srcFactor: "one",
+      dstFactor: "one-minus-src-alpha",
+      operation: "add",
+    },
+    alpha: {
+      srcFactor: "one",
+      dstFactor: "one-minus-src-alpha",
+      operation: "add",
+    },
+  },
+  // Write surface z-height to depth buffer
+  depthStencilState: {
+    format: "depth24plus",
+    depthCompare: "always",
+    depthWriteEnabled: true,
+  },
 };
 
 export function createSurfaceCompositeShader(): FullscreenShader {

@@ -31,12 +31,13 @@ const TELLTAIL_COLOR = 0xff6600;
 const noLift: ForceMagnitudeFn = () => 0;
 
 export class TellTail extends BaseEntity {
-  layer = "telltails" as const;
+  layer = "boat" as const;
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
   getAttachmentPoint: () => ReadonlyV2d;
   getAttachmentVelocity: () => ReadonlyV2d;
   getHoistAmount: () => number;
+  getAttachmentZ: () => number;
 
   // Wind query for each body (except first which is attached to sail)
   private windQuery: WindQuery;
@@ -45,12 +46,14 @@ export class TellTail extends BaseEntity {
     getAttachmentPoint: () => ReadonlyV2d,
     getAttachmentVelocity: () => ReadonlyV2d,
     getHoistAmount: () => number = () => 1,
+    getAttachmentZ: () => number = () => 5,
   ) {
     super();
 
     this.getAttachmentPoint = getAttachmentPoint;
     this.getAttachmentVelocity = getAttachmentVelocity;
     this.getHoistAmount = getHoistAmount;
+    this.getAttachmentZ = getAttachmentZ;
     const attachPos = this.getAttachmentPoint();
     const segmentLength = TELLTAIL_LENGTH / (TELLTAIL_NODES - 1);
 
@@ -132,18 +135,16 @@ export class TellTail extends BaseEntity {
   onRender({ draw }: { draw: import("../../../core/graphics/Draw").Draw }) {
     if (this.bodies.length < 2) return;
 
-    // Match sail's fade behavior: fade when hoistAmount < 0.4
-    const fadeStart = 0.4;
     const hoistAmount = this.getHoistAmount();
-    const alpha =
-      hoistAmount >= fadeStart ? 1 : (hoistAmount / fadeStart) ** 0.5;
+    if (hoistAmount <= 0) return;
 
     const vertices = this.bodies.map((b) => b.position.clone());
 
+    // Use the z-height of the sail attachment point for depth
     draw.spline(vertices, {
       color: TELLTAIL_COLOR,
       width: TELLTAIL_WIDTH,
-      alpha,
+      z: this.getAttachmentZ(),
     });
   }
 }

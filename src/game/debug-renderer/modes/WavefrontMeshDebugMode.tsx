@@ -333,6 +333,11 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
       primitive: {
         topology: "triangle-list",
       },
+      depthStencil: {
+        format: "depth24plus",
+        depthCompare: "always",
+        depthWriteEnabled: false,
+      },
       label: "Wavefront Debug Pipeline",
     });
 

@@ -186,6 +186,8 @@ function buildCatmullRomSpline(
 export interface DrawOptions {
   color?: number; // 0xRRGGBB
   alpha?: number; // 0-1
+  /** Z-height for depth testing. Only meaningful inside a tilt context or on a depth-enabled layer. */
+  z?: number;
 }
 
 /** Options for line drawing */
@@ -258,18 +260,57 @@ export class Draw {
       pos,
       angle,
       scale,
+      tilt,
     }: {
       pos: V2d;
       angle?: number;
       scale?: number | V2d;
+      /** When provided, sets up a 3D tilt projection context.
+       * All draw calls inside will have their z-height projected
+       * into 2D position offset and written to the depth buffer.
+       * The model matrix includes cosR Y-compression for heel. */
+      tilt?: { roll: number; pitch: number };
     },
     draw: () => void,
   ): void {
     this.renderer.save();
-    this.renderer.translate(pos);
 
-    if (angle !== undefined) {
-      this.renderer.rotate(angle);
+    if (tilt) {
+      // Get the camera matrix (currentTransform before model composition).
+      // We need its linear part to transform z-coefficients from world → screen space.
+      const cam = this.renderer.getTransform();
+
+      // Compose model transform: translate(pos) * rotate(angle) * scaleY(cosR)
+      // This matches TiltTransform's 2D projection: rotation with Y-axis
+      // compressed by cos(roll) to simulate heel foreshortening.
+      this.renderer.translate(pos);
+      if (angle !== undefined) {
+        this.renderer.rotate(angle);
+      }
+      const cr = Math.cos(tilt.roll);
+      this.renderer.scale(1, cr);
+
+      // Compute z-to-position offset in world space (matches TiltTransform m02, m12)
+      const a = angle ?? 0;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const sr = Math.sin(tilt.roll);
+      const sp = Math.sin(tilt.pitch);
+      const worldZX = ca * sp - sa * sr;
+      const worldZY = sa * sp + ca * sr;
+
+      // Transform z-coefficients through camera's linear part (rotation+zoom)
+      // so they're in the same screen-pixel space as the model matrix output.
+      this.renderer.setZCoeffs(
+        cam.a * worldZX + cam.c * worldZY,
+        cam.b * worldZX + cam.d * worldZY,
+      );
+    } else {
+      this.renderer.translate(pos);
+
+      if (angle !== undefined) {
+        this.renderer.rotate(angle);
+      }
     }
 
     if (scale !== undefined) {
@@ -285,6 +326,15 @@ export class Draw {
     this.renderer.restore();
   }
 
+  /** Set z-height on renderer, returning the previous value for restoration. */
+  private applyZ(z: number | undefined): number {
+    const prev = this.renderer.getZ();
+    if (z !== undefined) {
+      this.renderer.setZ(z);
+    }
+    return prev;
+  }
+
   /** Draw a filled rectangle */
   fillRect(
     x: number,
@@ -295,6 +345,7 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
+    const prevZ = this.applyZ(opts?.z);
 
     // Reuse pooled arrays - update coordinates in place
     this._rectVertices[0].set(x, y);
@@ -308,6 +359,7 @@ export class Draw {
       color,
       alpha,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a stroked rectangle outline */
@@ -318,14 +370,17 @@ export class Draw {
     h: number,
     opts?: LineOptions,
   ): void {
+    const prevZ = this.applyZ(opts?.z);
     const vertices = [V(x, y), V(x + w, y), V(x + w, y + h), V(x, y + h)];
     this.strokePolygon(vertices, opts);
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a filled circle */
   fillCircle(x: number, y: number, radius: number, opts?: CircleOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
+    const prevZ = this.applyZ(opts?.z);
     const radiusOnScreen = radius * this.renderer.getCurrentScale();
     const segments = opts?.segments ?? getCircleSegments(radiusOnScreen);
 
@@ -363,6 +418,7 @@ export class Draw {
     }
 
     this.renderer.submitTriangles(vertices, indices, color, alpha);
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a stroked circle outline */
@@ -390,6 +446,7 @@ export class Draw {
   fillPolygon(vertices: V2d[], opts?: DrawOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
+    const prevZ = this.applyZ(opts?.z);
 
     if (vertices.length < 3) return;
 
@@ -398,6 +455,7 @@ export class Draw {
     if (!indices) return; // Triangulation failed (degenerate polygon)
 
     this.renderer.submitTriangles(vertices, indices, color, alpha);
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a filled triangle (pooled for zero allocation) */
@@ -409,6 +467,7 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
+    const prevZ = this.applyZ(opts?.z);
 
     // Reuse pooled arrays - update coordinates in place
     this._triangleVertices[0].set(v1.x, v1.y);
@@ -421,6 +480,7 @@ export class Draw {
       color,
       alpha,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a stroked polygon outline */
@@ -428,6 +488,7 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
     const width = opts?.width ?? 1;
+    const prevZ = this.applyZ(opts?.z);
 
     if (vertices.length < 2) return;
 
@@ -437,6 +498,7 @@ export class Draw {
       path.lineTo(vertices[i].x, vertices[i].y);
     }
     path.close().stroke(color, width, alpha);
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a line (world-space width - scales with zoom) */
@@ -450,6 +512,7 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
     const width = opts?.width ?? 1;
+    const prevZ = this.applyZ(opts?.z);
 
     // Create a quad along the line
     const dx = x2 - x1;
@@ -472,6 +535,7 @@ export class Draw {
       color,
       alpha,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /**
@@ -562,6 +626,7 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
+    const prevZ = this.applyZ(opts?.z);
 
     const roundedVertices = buildRoundedPolygonVertices(vertices, radius);
     if (roundedVertices.length < 3) return;
@@ -573,6 +638,7 @@ export class Draw {
     }
 
     this.renderer.submitTriangles(roundedVertices, indices, color, alpha);
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a stroked polygon with rounded corners */
@@ -601,6 +667,7 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1.0;
     const tension = opts?.tension ?? 0.5;
+    const prevZ = this.applyZ(opts?.z);
 
     const splineVertices = buildCatmullRomSpline(vertices, true, tension);
     if (splineVertices.length < 3) return;
@@ -612,6 +679,7 @@ export class Draw {
     if (!indices) return;
 
     this.renderer.submitTriangles(splineVertices, indices, color, alpha);
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a stroked smooth polygon using Catmull-Rom spline through control points */
@@ -623,6 +691,7 @@ export class Draw {
     const alpha = opts?.alpha ?? 1.0;
     const width = opts?.width ?? 1;
     const tension = opts?.tension ?? 0.5;
+    const prevZ = this.applyZ(opts?.z);
 
     const splineVertices = buildCatmullRomSpline(vertices, true, tension);
     if (splineVertices.length < 2) return;
@@ -633,6 +702,7 @@ export class Draw {
       path.lineTo(splineVertices[i].x, splineVertices[i].y);
     }
     path.close().stroke(color, width, alpha);
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a smooth open curve (spline) through the given points */
@@ -641,6 +711,7 @@ export class Draw {
     const alpha = opts?.alpha ?? 1.0;
     const width = opts?.width ?? 1;
     const tension = opts?.tension ?? 0.5;
+    const prevZ = this.applyZ(opts?.z);
 
     const splineVertices = buildCatmullRomSpline(vertices, false, tension);
     if (splineVertices.length < 2) return;
@@ -651,5 +722,6 @@ export class Draw {
       path.lineTo(splineVertices[i].x, splineVertices[i].y);
     }
     path.stroke(color, width, alpha);
+    this.renderer.setZ(prevZ);
   }
 }

@@ -9,20 +9,19 @@ import { LayerInfo } from "../core/graphics/LayerInfo";
  */
 export const LAYERS = {
   // Rendered first (on the bottom)
-  water: new LayerInfo(),
-  waterShader: new LayerInfo({ parallax: V(0, 0) }), // don't move water, shader does the work for us
+  // Boat renders FIRST with depth read-write. Intra-boat depth testing works
+  // (deck covers keel, rigging over hull, etc). Depth buffer cleared to 0.
+  boat: new LayerInfo({ depth: "read-write" }),
+
+  // Surface renders AFTER the boat. Reads the depth buffer (boat z-heights) to
+  // blend water over submerged boat parts with alpha based on submersion depth.
+  // Terrain and deep water (no boat) render opaque. Shallow submersion is translucent.
+  surface: new LayerInfo({ depth: "read-write" }),
+
   wake: new LayerInfo(),
   foamParticles: new LayerInfo(), // Foam on water surface
-  sprayParticles: new LayerInfo(), // Spray particles above wake but below hull
-
-  //
+  sprayParticles: new LayerInfo(), // Spray particles above wake but below boat
   trees: new LayerInfo(),
-
-  underhull: new LayerInfo(),
-  hull: new LayerInfo(),
-  main: new LayerInfo(),
-  sails: new LayerInfo(),
-  telltails: new LayerInfo(),
 
   windParticles: new LayerInfo(),
 
@@ -39,4 +38,4 @@ export const LAYERS = {
 export type LayerName = keyof typeof LAYERS;
 
 /** The layer that sprites that do not specify a layer will be added to. */
-export const DEFAULT_LAYER: LayerName = "main";
+export const DEFAULT_LAYER: LayerName = "boat";

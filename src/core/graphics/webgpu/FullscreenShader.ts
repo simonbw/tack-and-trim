@@ -33,6 +33,9 @@ export interface FullscreenShaderConfig {
   /** Render target format (defaults to preferred format) */
   targetFormat?: GPUTextureFormat;
 
+  /** Depth stencil state for depth buffer interaction (undefined = no depth) */
+  depthStencilState?: GPUDepthStencilState;
+
   /** Label for GPU debugging (optional) */
   label?: string;
 }
@@ -44,6 +47,7 @@ export class FullscreenShader extends Shader<BindingsDefinition> {
   private readonly _label: string;
   private readonly blendState?: GPUBlendState;
   private readonly targetFormat?: GPUTextureFormat;
+  private readonly depthStencilState?: GPUDepthStencilState;
 
   private pipeline: GPURenderPipeline | null = null;
   private quad: WebGPUFullscreenQuad | null = null;
@@ -54,6 +58,14 @@ export class FullscreenShader extends Shader<BindingsDefinition> {
     this._label = config.label ?? "FullscreenShader";
     this.blendState = config.blendState;
     this.targetFormat = config.targetFormat;
+    // Default: depth-compatible no-op (always pass, no write) since the main render
+    // pass has a depth attachment. Override with explicit depthStencilState for
+    // depth-writing shaders, or set to undefined for offscreen-only shaders.
+    this.depthStencilState = config.depthStencilState ?? {
+      format: "depth24plus",
+      depthCompare: "always",
+      depthWriteEnabled: false,
+    };
   }
 
   get label(): string {
@@ -126,6 +138,7 @@ export class FullscreenShader extends Shader<BindingsDefinition> {
       primitive: {
         topology: "triangle-list",
       },
+      depthStencil: this.depthStencilState,
       label: `${this.label} Render Pipeline`,
     });
 

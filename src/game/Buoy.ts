@@ -15,7 +15,7 @@ const WATER_DRAG = 0.1; // Dimensionless - how strongly the buoy is pushed by wa
 const HEIGHT_SCALE_FACTOR = 0.2; // Dimensionless - how much surface height affects sprite scale
 
 export class Buoy extends BaseEntity {
-  layer = "main" as const;
+  layer = "boat" as const;
   body: DynamicBody;
   private currentScale: number = 1;
 

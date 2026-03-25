@@ -27,7 +27,7 @@ const SPLASH_SPRAY_MAX_Z_VELOCITY = 60; // ft/s
 const RODE_RETRIEVAL_THRESHOLD = 0.1; // ft
 
 export class Anchor extends BaseEntity {
-  layer = "underhull" as const;
+  layer = "boat" as const;
 
   private anchorBody: DynamicBody | null = null;
   private rodeConstraint: DistanceConstraint | null = null;
@@ -266,24 +266,28 @@ export class Anchor extends BaseEntity {
   @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     if (this.state === "stowed") {
-      // Draw stowed anchor at bow
+      // Draw stowed anchor at bow (on deck, at waterline z)
       const bowPos = this.getBowWorldPosition();
       draw.fillCircle(bowPos.x, bowPos.y, this.anchorSize, {
         color: 0x222222,
+        z: 0,
       });
       return;
     }
 
-    // Draw rode using visual rope simulation
+    // Draw rode using visual rope simulation (underwater)
+    draw.renderer.setZ(-1);
     this.visualRope.render(draw);
+    draw.renderer.setZ(0);
 
-    // Draw anchor (simple circle)
+    // Draw anchor (simple circle, underwater)
     draw.fillCircle(
       this.anchorPosition.x,
       this.anchorPosition.y,
       this.anchorSize,
       {
         color: 0x222222,
+        z: -1,
       },
     );
   }

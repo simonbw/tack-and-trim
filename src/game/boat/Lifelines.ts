@@ -7,7 +7,7 @@ import { LifelinesConfig } from "./BoatConfig";
 
 /** Lifelines, stanchions, bow pulpit, and stern pulpit rendered on the hull deck. */
 export class Lifelines extends BaseEntity {
-  layer = "hull" as const;
+  layer = "boat" as const;
 
   private boat: Boat;
   private config: LifelinesConfig;
@@ -30,7 +30,7 @@ export class Lifelines extends BaseEntity {
     const deckZ = this.boat.config.hull.deckHeight;
     const topZ = deckZ + this.config.stanchionHeight;
 
-    const { color, tubeWidth, wireWidth } = this.config;
+    const { tubeColor, wireColor, tubeWidth, wireWidth } = this.config;
 
     // Project a hull-local (x, y) point at a given z-height to hull-local 2D,
     // matching the projection used by Hull and Rig:
@@ -47,7 +47,7 @@ export class Lifelines extends BaseEntity {
           projY(sy, deckZ),
           projX(sx, topZ),
           projY(sy, topZ),
-          { color, width: tubeWidth },
+          { color: tubeColor, width: tubeWidth, z: topZ },
         );
       }
       for (const [sx, sy] of this.config.starboardStanchions) {
@@ -56,18 +56,19 @@ export class Lifelines extends BaseEntity {
           projY(sy, deckZ),
           projX(sx, topZ),
           projY(sy, topZ),
-          { color, width: tubeWidth },
+          { color: tubeColor, width: tubeWidth, z: topZ },
         );
       }
 
       // --- Bow pulpit (U-shaped rail at bow) ---
+      draw.renderer.setZ(topZ);
       this.drawStrokedPath(
         draw,
         this.config.bowPulpit,
         topZ,
         projX,
         projY,
-        color,
+        tubeColor,
         tubeWidth,
       );
 
@@ -78,7 +79,7 @@ export class Lifelines extends BaseEntity {
         topZ,
         projX,
         projY,
-        color,
+        tubeColor,
         tubeWidth,
       );
 
@@ -92,7 +93,7 @@ export class Lifelines extends BaseEntity {
         topZ,
         projX,
         projY,
-        color,
+        wireColor,
         wireWidth,
       );
       this.drawLifeline(
@@ -104,9 +105,10 @@ export class Lifelines extends BaseEntity {
         topZ,
         projX,
         projY,
-        color,
+        wireColor,
         wireWidth,
       );
+      draw.renderer.setZ(0);
     });
   }
 

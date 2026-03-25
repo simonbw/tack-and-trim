@@ -242,10 +242,21 @@ export function generateWGSLBindings(
       case "texture": {
         const viewDimension = definition.viewDimension ?? "2d";
         const sampleType = definition.sampleType ?? "float";
-        const textureType = viewDimensionToTextureType[viewDimension];
-        const wgslSampleType = sampleTypeToWgslType[sampleType];
-        const wgslType = `${textureType}<${wgslSampleType}>`;
-        declaration = `var ${name}: ${wgslType}`;
+        if (sampleType === "depth") {
+          // Depth textures use special WGSL types (texture_depth_2d, etc.)
+          const depthType =
+            viewDimension === "2d-array"
+              ? "texture_depth_2d_array"
+              : viewDimension === "cube"
+                ? "texture_depth_cube"
+                : "texture_depth_2d";
+          declaration = `var ${name}: ${depthType}`;
+        } else {
+          const textureType = viewDimensionToTextureType[viewDimension];
+          const wgslSampleType = sampleTypeToWgslType[sampleType];
+          const wgslType = `${textureType}<${wgslSampleType}>`;
+          declaration = `var ${name}: ${wgslType}`;
+        }
         break;
       }
 

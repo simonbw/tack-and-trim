@@ -73,7 +73,7 @@ export interface HoverInfo {
 }
 
 export class ContourRenderer extends BaseEntity {
-  layer = "main" as const;
+  layer = "boat" as const;
 
   private document: EditorDocument;
   private hoverInfo: HoverInfo | null = null;

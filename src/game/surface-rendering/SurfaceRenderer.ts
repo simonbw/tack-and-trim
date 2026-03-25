@@ -57,7 +57,7 @@ const SHALLOW_WATER_THRESHOLD = 1.5;
  */
 export class SurfaceRenderer extends BaseEntity {
   id = "waterRenderer";
-  layer = "water" as const;
+  layer = "surface" as const;
 
   private initialized = false;
   private enabled = false;
@@ -121,6 +121,7 @@ export class SurfaceRenderer extends BaseEntity {
   private lastWaveDataBuffer: GPUBuffer | null = null;
   private lastTerrainAtlasView: GPUTextureView | null = null;
   private lastWaveFieldTextureView: GPUTextureView | null = null;
+  private lastBoatDepthView: GPUTextureView | null = null;
 
   private biomeConfig: BiomeConfig;
 
@@ -483,7 +484,25 @@ export class SurfaceRenderer extends BaseEntity {
       });
     }
 
-    // Composite bind group (uses terrain tile atlas and wetness texture)
+    // Note: composite bind group is rebuilt separately in rebuildCompositeBindGroup()
+    // right before the composite pass, after the depth buffer copy.
+
+    // Update tracking
+    this.lastWaveDataBuffer = waveDataBuffer;
+    this.lastTerrainAtlasView = terrainAtlasView;
+    this.lastWaveFieldTextureView = this.waveFieldTextureView;
+  }
+
+  /**
+   * Rebuild the composite bind group with current resources.
+   * Called right before the composite pass to ensure all textures (including
+   * the depth copy and terrain atlas) are current.
+   */
+  private rebuildCompositeBindGroup(
+    waterResources: WaterResources,
+    terrainAtlasView: GPUTextureView,
+    boatDepthView: GPUTextureView | null,
+  ): void {
     const wetnessTextureView = this.wetnessPipeline?.getOutputTextureView();
     if (
       this.compositeShader &&
@@ -491,7 +510,8 @@ export class SurfaceRenderer extends BaseEntity {
       this.biomeUniformBuffer &&
       this.waterHeightView &&
       this.heightSampler &&
-      wetnessTextureView
+      wetnessTextureView &&
+      boatDepthView
     ) {
       this.compositeBindGroup = this.compositeShader.createBindGroup({
         params: { buffer: this.compositeUniformBuffer },
@@ -499,14 +519,10 @@ export class SurfaceRenderer extends BaseEntity {
         terrainTileAtlas: terrainAtlasView,
         wetnessTexture: wetnessTextureView,
         heightSampler: this.heightSampler,
+        boatDepthTexture: boatDepthView,
         biomeParams: { buffer: this.biomeUniformBuffer },
       });
     }
-
-    // Update tracking
-    this.lastWaveDataBuffer = waveDataBuffer;
-    this.lastTerrainAtlasView = terrainAtlasView;
-    this.lastWaveFieldTextureView = this.waveFieldTextureView;
   }
 
   @on("render")
@@ -694,11 +710,35 @@ export class SurfaceRenderer extends BaseEntity {
       );
     }
 
+    // Copy depth buffer so the composite shader can read boat z-heights.
+    // The boat layer has already rendered and written its z-heights to the depth buffer.
+    const webgpuRenderer = this.game.getRenderer();
+    webgpuRenderer.copyDepthBuffer();
+
+    // Always rebuild the composite bind group right before the composite pass.
+    // The depth copy texture may change on resize, and the terrain atlas may be
+    // recreated (on zoom). Building it here ensures all resources are current.
+    const boatDepthView = webgpuRenderer.getDepthCopyTextureView();
+    this.rebuildCompositeBindGroup(
+      waterResources,
+      terrainAtlasView,
+      boatDepthView,
+    );
+
     // === Pass 3: Surface Composite (fragment) ===
+    // The composite shader now reads the depth copy to blend water over submerged boat parts.
     const renderPass = renderer.getCurrentRenderPass();
     if (renderPass && this.compositeShader && this.compositeBindGroup) {
       this.compositeShader.render(renderPass, this.compositeBindGroup);
     }
+  }
+
+  /**
+   * Get the screen-space water height texture (output of Pass 2).
+   * Returns null if not initialized.
+   */
+  getWaterHeightTextureView(): GPUTextureView | null {
+    return this.waterHeightView;
   }
 
   /**

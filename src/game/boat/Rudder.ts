@@ -14,7 +14,7 @@ import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
 export class Rudder extends BaseEntity {
-  layer = "underhull" as const;
+  layer = "boat" as const;
 
   private steer: number = 0; // -1 to 1 (player input position)
   private effectiveSteer: number = 0; // -1 to 1 (actual position including damage bias)
@@ -167,7 +167,11 @@ export class Rudder extends BaseEntity {
     draw.at(
       { pos: V(rx + offset.x, ry + offset.y), angle: rudderAngle },
       () => {
-        draw.line(0, 0, -this.length, 0, { color: this.color, width: 0.5 });
+        draw.line(0, 0, -this.length, 0, {
+          color: this.color,
+          width: 0.5,
+          z: -1,
+        });
       },
     );
   }

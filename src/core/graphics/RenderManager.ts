@@ -146,8 +146,10 @@ export class RenderManager implements ViewportProvider {
 
   /** Set up the renderer for drawing on a specific layer */
   setLayer(layerName: LayerName): void {
+    const layer = this.layerInfos[layerName];
     const transform = this.getLayerTransform(layerName);
     this.renderer.setTransform(transform);
+    this.renderer.setDepthMode(layer.depth);
   }
 
   /** Get the low-level renderer for direct drawing */

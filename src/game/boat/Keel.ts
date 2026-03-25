@@ -13,7 +13,7 @@ import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
 export class Keel extends BaseEntity {
-  layer = "underhull" as const;
+  layer = "boat" as const;
 
   private vertices: V2d[];
   private color: number;
@@ -115,7 +115,9 @@ export class Keel extends BaseEntity {
           const v = this.vertices[i];
           path.lineTo(v.x, v.y);
         }
+        draw.renderer.setZ(this.keelZ);
         path.stroke(this.color, 1, 1.0);
+        draw.renderer.setZ(0);
       },
     );
   }

@@ -263,6 +263,11 @@ export class WindMeshDebugMode extends DebugRenderMode {
       primitive: {
         topology: "triangle-list",
       },
+      depthStencil: {
+        format: "depth24plus",
+        depthCompare: "always",
+        depthWriteEnabled: false,
+      },
       label: "Wind Mesh Debug Pipeline",
     });
 

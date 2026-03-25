@@ -84,7 +84,7 @@ const DEFAULT_CONFIG: SailConfig = {
 };
 
 export class Sail extends BaseEntity {
-  layer = "sails" as const;
+  layer = "boat" as const;
   tickLayer = "sail" as const;
   tags = ["sail"];
 
@@ -252,6 +252,7 @@ export class Sail extends BaseEntity {
               return V(dx * 120, dy * 120);
             },
             () => this.hoistAmount,
+            () => reader().getZ(leechIdx),
           ),
         );
       }
@@ -584,14 +585,7 @@ export class Sail extends BaseEntity {
     }
 
     const { color } = this.config;
-
-    // Slight transparency so you can see through the sail, with extra fade when lowering
-    const fadeStart = 0.4;
-    const baseAlpha = 0.99;
-    const alpha =
-      this.hoistAmount >= fadeStart
-        ? baseAlpha
-        : baseAlpha * (this.hoistAmount / fadeStart) ** 0.5;
+    const alpha = 1.0;
 
     const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const time = timeOfDay?.getTimeInSeconds() ?? 43200; // default noon

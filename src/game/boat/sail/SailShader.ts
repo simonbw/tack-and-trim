@@ -34,6 +34,12 @@ const SailUniforms = defineUniformStruct("SailUniforms", {
 const SAIL_SHADER_SOURCE = /*wgsl*/ `
 ${SailUniforms.wgsl}
 
+// Depth mapping — must match WebGPURenderer constants
+const Z_MIN: f32 = -10.0;
+const Z_MAX: f32 = 30.0;
+// Sails are well above sea level. Use a constant z-height for depth.
+const SAIL_Z: f32 = 5.0;
+
 @group(0) @binding(0) var<uniform> uniforms: SailUniforms;
 
 struct VertexInput {
@@ -51,8 +57,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   let worldPos = vec3<f32>(in.position, 1.0);
   let clipPos = uniforms.viewMatrix * worldPos;
 
+  let depth = (SAIL_Z - Z_MIN) / (Z_MAX - Z_MIN);
+
   var out: VertexOutput;
-  out.position = vec4<f32>(clipPos.xy, 0.0, 1.0);
+  out.position = vec4<f32>(clipPos.xy, depth, 1.0);
   out.normal = in.normal;
   return out;
 }
@@ -106,12 +114,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 `;
 
 // Module-level singleton state
-let pipeline: GPURenderPipeline | null = null;
+let pipelineWithDepth: GPURenderPipeline | null = null;
 let bindGroupLayout: GPUBindGroupLayout | null = null;
 let initPromise: Promise<void> | null = null;
 
 async function ensureInitialized(): Promise<void> {
-  if (pipeline) return;
+  if (pipelineWithDepth) return;
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
@@ -147,36 +155,46 @@ async function ensureInitialized(): Promise<void> {
       ],
     };
 
-    pipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [vertexBufferLayout],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_main",
-        targets: [
-          {
-            format: gpu.preferredFormat,
-            blend: {
-              color: {
-                srcFactor: "src-alpha",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
-              alpha: {
-                srcFactor: "one",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
+    const fragmentState: GPUFragmentState = {
+      module: shaderModule,
+      entryPoint: "fs_main",
+      targets: [
+        {
+          format: gpu.preferredFormat,
+          blend: {
+            color: {
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+            alpha: {
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
             },
           },
-        ],
-      },
-      primitive: {
-        topology: "triangle-list",
+        },
+      ],
+    };
+
+    const vertexState: GPUVertexState = {
+      module: shaderModule,
+      entryPoint: "vs_main",
+      buffers: [vertexBufferLayout],
+    };
+
+    // Pipeline for main render pass (has depth attachment).
+    // Sails use the same depth mode as the boat layer (read-write)
+    // so the surface shader knows the boat is present at sail pixels.
+    pipelineWithDepth = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: { topology: "triangle-list" },
+      depthStencil: {
+        format: "depth24plus",
+        depthCompare: "greater-equal",
+        depthWriteEnabled: true,
       },
       label: "Sail Pipeline",
     });
@@ -208,7 +226,7 @@ export class SailShaderInstance {
   /** Lazily create GPU buffers. Returns false if not ready yet. */
   private ensureBuffers(): boolean {
     if (this.vertexBuffer) return true;
-    if (!pipeline || !bindGroupLayout) return false;
+    if (!pipelineWithDepth || !bindGroupLayout) return false;
 
     const device = getWebGPU().device;
 
@@ -261,7 +279,7 @@ export class SailShaderInstance {
     time: number,
   ): void {
     // Kick off async init if not done yet
-    if (!pipeline) {
+    if (!pipelineWithDepth) {
       ensureInitialized();
       return; // Skip this frame, will render next frame
     }
@@ -308,7 +326,7 @@ export class SailShaderInstance {
     this.uniforms.uploadTo(this.uniformBuffer!);
 
     // Draw
-    renderPass.setPipeline(pipeline);
+    renderPass.setPipeline(pipelineWithDepth!);
     renderPass.setBindGroup(0, this.bindGroup!);
     renderPass.setVertexBuffer(0, this.vertexBuffer!);
     renderPass.setIndexBuffer(this.indexBuffer!, "uint16");

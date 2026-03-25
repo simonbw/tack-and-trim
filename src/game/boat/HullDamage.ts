@@ -30,7 +30,7 @@ interface Scratch {
  * - Visual scratch marks on the hull
  */
 export class HullDamage extends BaseEntity {
-  layer = "hull" as const;
+  layer = "boat" as const;
 
   private health: number = 1.0;
   private scratches: Scratch[] = [];
@@ -119,6 +119,7 @@ export class HullDamage extends BaseEntity {
           color: SCRATCH_COLOR,
           width: scratch.width,
           alpha,
+          z: scratch.z,
         });
       }
     });

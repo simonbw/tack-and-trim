@@ -35,7 +35,7 @@ const DEFAULT_CONFIG: SheetConfig = {
  * Can be trimmed in or eased out smoothly.
  */
 export class Sheet extends BaseEntity {
-  layer = "main" as const;
+  layer = "boat" as const;
   private constraint: DistanceConstraint;
   private visualRope: VerletRope;
 
@@ -226,10 +226,14 @@ export class Sheet extends BaseEntity {
       );
     }
 
+    // Set z for depth testing — use the average rope height
+    const avgZ = (this.zA + this.zB) / 2;
+    draw.renderer.setZ(avgZ);
     path.stroke(
       this.config.ropeColor ?? 0x444444,
       this.config.ropeThickness ?? 0.75,
       this.opacity,
     );
+    draw.renderer.setZ(0);
   }
 }

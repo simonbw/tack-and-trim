@@ -20,8 +20,18 @@ import { GPUProfiler, GPUProfileSection } from "./GPUProfiler";
 import { getWebGPU } from "./WebGPUDevice";
 import { WebGPUTexture, WebGPUTextureManager } from "./WebGPUTextureManager";
 
-// Shape shader: Renders untextured colored primitives
+// Depth mapping constants — shared between shape/sprite shaders and surface shader.
+// World z-heights are linearly mapped to NDC depth [0, 1].
+// Higher z = closer to viewer. depthCompare: "greater-equal" means higher depth wins.
+export const DEPTH_Z_MIN = -10.0;
+export const DEPTH_Z_MAX = 30.0;
+const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
+
+// Shape shader: Renders untextured colored primitives with optional depth
 const shapeShaderSource = /*wgsl*/ `
+const Z_MIN: f32 = ${DEPTH_Z_MIN};
+const Z_MAX: f32 = ${DEPTH_Z_MAX};
+
 struct Uniforms {
   viewMatrix: mat3x3<f32>,
 }
@@ -32,6 +42,8 @@ struct VertexInput {
   @location(2) modelCol0: vec2<f32>,
   @location(3) modelCol1: vec2<f32>,
   @location(4) modelCol2: vec2<f32>,
+  @location(5) z: f32,
+  @location(6) zCoeffs: vec2<f32>,
 }
 
 struct VertexOutput {
@@ -43,16 +55,18 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-  let modelMatrix = mat3x3<f32>(
-    vec3<f32>(in.modelCol0.x, in.modelCol0.y, 0.0),
-    vec3<f32>(in.modelCol1.x, in.modelCol1.y, 0.0),
-    vec3<f32>(in.modelCol2.x, in.modelCol2.y, 1.0)
-  );
-  let worldPos = modelMatrix * vec3<f32>(in.position, 1.0);
-  let clipPos = uniforms.viewMatrix * worldPos;
+  // 2D position from model matrix + z-height contribution via zCoeffs
+  let worldX = in.modelCol0.x * in.position.x + in.modelCol1.x * in.position.y
+               + in.zCoeffs.x * in.z + in.modelCol2.x;
+  let worldY = in.modelCol0.y * in.position.x + in.modelCol1.y * in.position.y
+               + in.zCoeffs.y * in.z + in.modelCol2.y;
+  let clipPos = uniforms.viewMatrix * vec3<f32>(worldX, worldY, 1.0);
+
+  // Map z-height to NDC depth [0, 1]
+  let depth = (in.z - Z_MIN) / (Z_MAX - Z_MIN);
 
   var out: VertexOutput;
-  out.position = vec4<f32>(clipPos.xy, 0.0, 1.0);
+  out.position = vec4<f32>(clipPos.xy, depth, 1.0);
   out.color = in.color;
   return out;
 }
@@ -63,8 +77,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 `;
 
-// Sprite shader: Renders textured quads with tinting
+// Sprite shader: Renders textured quads with tinting and optional depth
 const spriteShaderSource = /*wgsl*/ `
+const Z_MIN: f32 = ${DEPTH_Z_MIN};
+const Z_MAX: f32 = ${DEPTH_Z_MAX};
+
 struct Uniforms {
   viewMatrix: mat3x3<f32>,
 }
@@ -76,6 +93,8 @@ struct VertexInput {
   @location(3) modelCol0: vec2<f32>,
   @location(4) modelCol1: vec2<f32>,
   @location(5) modelCol2: vec2<f32>,
+  @location(6) z: f32,
+  @location(7) zCoeffs: vec2<f32>,
 }
 
 struct VertexOutput {
@@ -90,16 +109,16 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-  let modelMatrix = mat3x3<f32>(
-    vec3<f32>(in.modelCol0.x, in.modelCol0.y, 0.0),
-    vec3<f32>(in.modelCol1.x, in.modelCol1.y, 0.0),
-    vec3<f32>(in.modelCol2.x, in.modelCol2.y, 1.0)
-  );
-  let worldPos = modelMatrix * vec3<f32>(in.position, 1.0);
-  let clipPos = uniforms.viewMatrix * worldPos;
+  let worldX = in.modelCol0.x * in.position.x + in.modelCol1.x * in.position.y
+               + in.zCoeffs.x * in.z + in.modelCol2.x;
+  let worldY = in.modelCol0.y * in.position.x + in.modelCol1.y * in.position.y
+               + in.zCoeffs.y * in.z + in.modelCol2.y;
+  let clipPos = uniforms.viewMatrix * vec3<f32>(worldX, worldY, 1.0);
+
+  let depth = (in.z - Z_MIN) / (Z_MAX - Z_MIN);
 
   var out: VertexOutput;
-  out.position = vec4<f32>(clipPos.xy, 0.0, 1.0);
+  out.position = vec4<f32>(clipPos.xy, depth, 1.0);
   out.texCoord = in.texCoord;
   out.color = in.color;
   return out;
@@ -123,9 +142,9 @@ export interface SpriteOptions {
   anchorY?: number; // 0-1, default 0.5
 }
 
-// Batch vertex size includes per-vertex model matrix (6 floats: a, b, c, d, tx, ty)
-const SPRITE_VERTEX_SIZE = 14; // position (2) + texCoord (2) + color (4) + matrix (6)
-const SHAPE_VERTEX_SIZE = 12; // position (2) + color (4) + matrix (6)
+// Batch vertex size includes per-vertex model matrix (6 floats) + z (1) + zCoeffs (2)
+const SPRITE_VERTEX_SIZE = 17; // position (2) + texCoord (2) + color (4) + matrix (6) + z (1) + zCoeffs (2)
+const SHAPE_VERTEX_SIZE = 15; // position (2) + color (4) + matrix (6) + z (1) + zCoeffs (2)
 // Max 65535 vertices because index buffer is Uint16Array (max addressable index = 65535).
 // Using 65536 would allow baseVertex + idx to overflow uint16 and wrap around,
 // causing triangles to reference wrong vertices.
@@ -156,9 +175,35 @@ export class WebGPURenderer {
   private context: GPUCanvasContext | null = null;
   private device: GPUDevice | null = null;
 
-  // Pipelines
+  // Pipeline variants:
+  // Pipeline variants for different depth modes:
+  // - default: depth always-pass, no-write (main pass, non-depth layers)
+  // - depth: depth greater-equal, write (main pass, depth-tested layers)
+  // - alwaysWrite: depth always-pass, write (main pass, boat layer — draws on top, writes z)
+  // - noDepth: no depthStencil at all (offscreen passes without depth attachment)
   private shapePipeline: GPURenderPipeline | null = null;
+  private shapePipelineDepth: GPURenderPipeline | null = null;
+  private shapePipelineAlwaysWrite: GPURenderPipeline | null = null;
+  private shapePipelineNoDepth: GPURenderPipeline | null = null;
   private spritePipeline: GPURenderPipeline | null = null;
+  private spritePipelineDepth: GPURenderPipeline | null = null;
+  private spritePipelineAlwaysWrite: GPURenderPipeline | null = null;
+  private spritePipelineNoDepth: GPURenderPipeline | null = null;
+
+  // Depth state
+  private depthMode: "none" | "read-write" | "always-write" = "none";
+  private inOffscreenPass = false;
+  private mainDepthTexture: GPUTexture | null = null;
+  private mainDepthTextureView: GPUTextureView | null = null;
+  // Copy of depth buffer for overlay shaders to sample
+  private depthCopyTexture: GPUTexture | null = null;
+  private depthCopyTextureView: GPUTextureView | null = null;
+
+  // Z-height state for 3D tilt projection (saved/restored with transform stack)
+  private currentZ = 0;
+  private currentZCoeffX = 0;
+  private currentZCoeffY = 0;
+  private zStack: [number, number, number][] = [];
 
   // Shape batch resources
   private shapeVertices: Float32Array;
@@ -345,49 +390,95 @@ export class WebGPURenderer {
 
     // Create vertex buffer layout
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: SHAPE_VERTEX_SIZE * 4, // 48 bytes
+      arrayStride: SHAPE_VERTEX_SIZE * 4, // 60 bytes
       attributes: [
         { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
         { shaderLocation: 1, offset: 8, format: "float32x4" }, // color
         { shaderLocation: 2, offset: 24, format: "float32x2" }, // modelCol0
         { shaderLocation: 3, offset: 32, format: "float32x2" }, // modelCol1
         { shaderLocation: 4, offset: 40, format: "float32x2" }, // modelCol2
+        { shaderLocation: 5, offset: 48, format: "float32" }, // z
+        { shaderLocation: 6, offset: 52, format: "float32x2" }, // zCoeffs
       ],
     };
 
-    // Create pipeline
-    this.shapePipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [vertexBufferLayout],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_main",
-        targets: [
-          {
-            format: getWebGPU().preferredFormat,
-            blend: {
-              color: {
-                srcFactor: "src-alpha",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
-              alpha: {
-                srcFactor: "one",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
+    const fragmentState: GPUFragmentState = {
+      module: shaderModule,
+      entryPoint: "fs_main",
+      targets: [
+        {
+          format: getWebGPU().preferredFormat,
+          blend: {
+            color: {
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+            alpha: {
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
             },
           },
-        ],
-      },
-      primitive: {
-        topology: "triangle-list",
+        },
+      ],
+    };
+
+    const vertexState: GPUVertexState = {
+      module: shaderModule,
+      entryPoint: "vs_main",
+      buffers: [vertexBufferLayout],
+    };
+
+    // Create pipeline without depth (for layers with depth: "none")
+    this.shapePipeline = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: { topology: "triangle-list" },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "always",
+        depthWriteEnabled: false,
       },
       label: "Shape Pipeline",
+    });
+
+    // Create pipeline with depth (for layers with depth: "read-write")
+    this.shapePipelineDepth = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: { topology: "triangle-list" },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "greater-equal",
+        depthWriteEnabled: true,
+      },
+      label: "Shape Pipeline (Depth)",
+    });
+
+    // Create pipeline with always-pass + depth write (boat layer: draws on top, writes z for overlay)
+    this.shapePipelineAlwaysWrite = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: { topology: "triangle-list" },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "always",
+        depthWriteEnabled: true,
+      },
+      label: "Shape Pipeline (Always Write)",
+    });
+
+    // Create pipeline without any depthStencil (for offscreen passes without depth attachment)
+    this.shapePipelineNoDepth = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: { topology: "triangle-list" },
+      label: "Shape Pipeline (No Depth)",
     });
 
     // Create vertex and index buffers — sized for multiple flushes per frame
@@ -479,7 +570,7 @@ export class WebGPURenderer {
 
     // Create vertex buffer layout
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: SPRITE_VERTEX_SIZE * 4, // 56 bytes
+      arrayStride: SPRITE_VERTEX_SIZE * 4, // 68 bytes
       attributes: [
         { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
         { shaderLocation: 1, offset: 8, format: "float32x2" }, // texCoord
@@ -487,42 +578,88 @@ export class WebGPURenderer {
         { shaderLocation: 3, offset: 32, format: "float32x2" }, // modelCol0
         { shaderLocation: 4, offset: 40, format: "float32x2" }, // modelCol1
         { shaderLocation: 5, offset: 48, format: "float32x2" }, // modelCol2
+        { shaderLocation: 6, offset: 56, format: "float32" }, // z
+        { shaderLocation: 7, offset: 60, format: "float32x2" }, // zCoeffs
       ],
     };
 
-    // Create pipeline
-    this.spritePipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [vertexBufferLayout],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_main",
-        targets: [
-          {
-            format: getWebGPU().preferredFormat,
-            blend: {
-              color: {
-                srcFactor: "src-alpha",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
-              alpha: {
-                srcFactor: "one",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
+    const fragmentState: GPUFragmentState = {
+      module: shaderModule,
+      entryPoint: "fs_main",
+      targets: [
+        {
+          format: getWebGPU().preferredFormat,
+          blend: {
+            color: {
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+            alpha: {
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
             },
           },
-        ],
-      },
-      primitive: {
-        topology: "triangle-list",
+        },
+      ],
+    };
+
+    const vertexState: GPUVertexState = {
+      module: shaderModule,
+      entryPoint: "vs_main",
+      buffers: [vertexBufferLayout],
+    };
+
+    // Create pipeline without depth
+    this.spritePipeline = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: { topology: "triangle-list" },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "always",
+        depthWriteEnabled: false,
       },
       label: "Sprite Pipeline",
+    });
+
+    // Create pipeline with depth
+    this.spritePipelineDepth = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: { topology: "triangle-list" },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "greater-equal",
+        depthWriteEnabled: true,
+      },
+      label: "Sprite Pipeline (Depth)",
+    });
+
+    // Create pipeline with always-pass + depth write (boat layer)
+    this.spritePipelineAlwaysWrite = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: { topology: "triangle-list" },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "always",
+        depthWriteEnabled: true,
+      },
+      label: "Sprite Pipeline (Always Write)",
+    });
+
+    // Create pipeline without any depthStencil (for offscreen passes without depth attachment)
+    this.spritePipelineNoDepth = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: { topology: "triangle-list" },
+      label: "Sprite Pipeline (No Depth)",
     });
 
     // Create vertex and index buffers — sized for multiple flushes per frame
@@ -563,6 +700,25 @@ export class WebGPURenderer {
       this.canvas.style.height = `${height}px`;
     }
 
+    // Recreate depth texture if canvas size changed
+    if (
+      this.device &&
+      (!this.mainDepthTexture ||
+        this.mainDepthTexture.width !== w ||
+        this.mainDepthTexture.height !== h)
+    ) {
+      this.mainDepthTexture?.destroy();
+      this.mainDepthTexture = this.device.createTexture({
+        size: { width: w, height: h },
+        format: DEPTH_FORMAT,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        label: "Main Depth Texture",
+      });
+      this.mainDepthTextureView = this.mainDepthTexture.createView({
+        label: "Main Depth Texture View",
+      });
+    }
+
     // Update view matrix to convert from pixel coords to clip space
     this.viewMatrix.identity();
     this.viewMatrix.scale(2 / width, 2 / height);
@@ -588,9 +744,15 @@ export class WebGPURenderer {
   beginFrame(): void {
     if (!this.device || !this.context) return;
 
-    // Reset transform stack
+    // Reset transform stack and z state
     this.transformStack.length = 0;
     this.currentTransform.identity();
+    this.zStack.length = 0;
+    this.currentZ = 0;
+    this.currentZCoeffX = 0;
+    this.currentZCoeffY = 0;
+    this.depthMode = "none";
+    this.inOffscreenPass = false;
 
     // Reset batches
     this.shapeVertexCount = 0;
@@ -619,7 +781,7 @@ export class WebGPURenderer {
     // Get current texture view
     this.currentRenderTarget = this.context.getCurrentTexture().createView();
 
-    // Begin render pass
+    // Begin render pass with depth attachment
     this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
       colorAttachments: [
         {
@@ -629,6 +791,14 @@ export class WebGPURenderer {
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
         },
       ],
+      depthStencilAttachment: this.mainDepthTextureView
+        ? {
+            view: this.mainDepthTextureView,
+            depthLoadOp: "clear",
+            depthStoreOp: "store",
+            depthClearValue: 0.0,
+          }
+        : undefined,
       timestampWrites: this.gpuProfiler?.getTimestampWrites(),
       label: "Main Render Pass",
     });
@@ -730,11 +900,78 @@ export class WebGPURenderer {
           storeOp: "store",
         },
       ],
+      depthStencilAttachment: this.mainDepthTextureView
+        ? {
+            view: this.mainDepthTextureView,
+            depthLoadOp: "load",
+            depthStoreOp: "store",
+          }
+        : undefined,
       timestampWrites,
       label,
     });
 
     return this.currentRenderPass;
+  }
+
+  /**
+   * Switch rendering to an offscreen texture target.
+   * Flushes pending batches and ends the current render pass before switching.
+   * The offscreen target must use the same format as the canvas (preferredFormat).
+   */
+  beginOffscreenPass(target: GPUTextureView, clearColor?: GPUColor): void {
+    if (!this.currentRenderPass || !this.currentCommandEncoder) return;
+
+    this.flush();
+    this.currentRenderPass.end();
+
+    this.inOffscreenPass = true;
+    this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: target,
+          loadOp: "clear",
+          storeOp: "store",
+          clearValue: clearColor ?? { r: 0, g: 0, b: 0, a: 0 },
+        },
+      ],
+      label: "Offscreen Render Pass",
+    });
+  }
+
+  /**
+   * Resume rendering to the main framebuffer, preserving existing content.
+   * Flushes pending batches and ends the current (offscreen) render pass.
+   */
+  resumeMainPass(): void {
+    if (
+      !this.currentRenderPass ||
+      !this.currentCommandEncoder ||
+      !this.currentRenderTarget
+    )
+      return;
+
+    this.flush();
+    this.currentRenderPass.end();
+    this.inOffscreenPass = false;
+
+    this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: this.currentRenderTarget,
+          loadOp: "load",
+          storeOp: "store",
+        },
+      ],
+      depthStencilAttachment: this.mainDepthTextureView
+        ? {
+            view: this.mainDepthTextureView,
+            depthLoadOp: "load",
+            depthStoreOp: "store",
+          }
+        : undefined,
+      label: "Resumed Main Render Pass",
+    });
   }
 
   /** Clear the screen with a color */
@@ -748,12 +985,13 @@ export class WebGPURenderer {
 
   // ============ Transform Stack ============
 
-  /** Save the current transform */
+  /** Save the current transform and z state */
   save(): void {
     this.transformStack.push(this.currentTransform.clone());
+    this.zStack.push([this.currentZ, this.currentZCoeffX, this.currentZCoeffY]);
   }
 
-  /** Restore the previous transform */
+  /** Restore the previous transform and z state */
   restore(): void {
     const prev = this.transformStack.pop();
     if (prev) {
@@ -764,6 +1002,16 @@ export class WebGPURenderer {
         "WebGPURenderer.restore called with an empty transform stack; resetting to identity.",
       );
       this.currentTransform.identity();
+    }
+    const zPrev = this.zStack.pop();
+    if (zPrev) {
+      this.currentZ = zPrev[0];
+      this.currentZCoeffX = zPrev[1];
+      this.currentZCoeffY = zPrev[2];
+    } else {
+      this.currentZ = 0;
+      this.currentZCoeffX = 0;
+      this.currentZCoeffY = 0;
     }
   }
 
@@ -807,6 +1055,111 @@ export class WebGPURenderer {
       Math.abs(this.currentTransform.a),
       Math.abs(this.currentTransform.d),
     );
+  }
+
+  // ============ Z-Height / Depth ============
+
+  /** Set the z-height for subsequent draw calls. */
+  setZ(z: number): void {
+    this.currentZ = z;
+  }
+
+  /** Get the current z-height. */
+  getZ(): number {
+    return this.currentZ;
+  }
+
+  /** Set the z-to-position-offset coefficients (from TiltTransform m02, m12). */
+  setZCoeffs(x: number, y: number): void {
+    this.currentZCoeffX = x;
+    this.currentZCoeffY = y;
+  }
+
+  /** Whether we're currently rendering to an offscreen pass (no depth attachment). */
+  isInOffscreenPass(): boolean {
+    return this.inOffscreenPass;
+  }
+
+  /**
+   * Set the depth mode for subsequent draw calls.
+   * Flushes pending batches when the mode changes (pipeline switch required).
+   */
+  setDepthMode(mode: "none" | "read-write" | "always-write"): void {
+    if (this.depthMode !== mode) {
+      this.flush();
+      this.depthMode = mode;
+    }
+  }
+
+  /** Get a readable copy of the depth buffer (available after copyDepthBuffer is called). */
+  getDepthCopyTextureView(): GPUTextureView | null {
+    return this.depthCopyTextureView;
+  }
+
+  /**
+   * Copy the current depth buffer to a readable texture for use by overlay shaders.
+   * Must be called outside a render pass (flushes and ends the current pass, copies, restarts).
+   */
+  copyDepthBuffer(): void {
+    if (
+      !this.mainDepthTexture ||
+      !this.currentCommandEncoder ||
+      !this.currentRenderPass ||
+      !this.currentRenderTarget
+    )
+      return;
+
+    this.flush();
+    this.currentRenderPass.end();
+
+    // Ensure copy destination exists and matches size
+    if (
+      !this.depthCopyTexture ||
+      this.depthCopyTexture.width !== this.mainDepthTexture.width ||
+      this.depthCopyTexture.height !== this.mainDepthTexture.height
+    ) {
+      this.depthCopyTexture?.destroy();
+      this.depthCopyTexture = this.device!.createTexture({
+        size: {
+          width: this.mainDepthTexture.width,
+          height: this.mainDepthTexture.height,
+        },
+        format: DEPTH_FORMAT,
+        usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+        label: "Depth Copy Texture",
+      });
+      this.depthCopyTextureView = this.depthCopyTexture.createView({
+        label: "Depth Copy Texture View",
+      });
+    }
+
+    this.currentCommandEncoder.copyTextureToTexture(
+      { texture: this.mainDepthTexture },
+      { texture: this.depthCopyTexture },
+      {
+        width: this.mainDepthTexture.width,
+        height: this.mainDepthTexture.height,
+      },
+    );
+
+    // Restart render pass (preserving framebuffer + depth)
+    this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: this.currentRenderTarget,
+          loadOp: "load",
+          storeOp: "store",
+        },
+      ],
+      depthStencilAttachment: this.mainDepthTextureView
+        ? {
+            view: this.mainDepthTextureView,
+            depthLoadOp: "load",
+            depthStoreOp: "store",
+          }
+        : undefined,
+      label: "Post-Depth-Copy Render Pass",
+    });
   }
 
   // ============ Core Primitive ============
@@ -859,11 +1212,16 @@ export class WebGPURenderer {
 
     const baseVertex = this.shapeVertexCount;
 
-    // Store untransformed vertices with per-vertex color and model matrix
+    // Extract z state
+    const z = this.currentZ;
+    const zcx = this.currentZCoeffX;
+    const zcy = this.currentZCoeffY;
+
+    // Store untransformed vertices with per-vertex color, model matrix, and z data
     for (const v of vertices) {
       const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
       this.shapeVertices.set(
-        [v[0], v[1], r, g, b, alpha, ma, mb, mc, md, mtx, mty],
+        [v[0], v[1], r, g, b, alpha, ma, mb, mc, md, mtx, mty, z, zcx, zcy],
         offset,
       );
       this.shapeVertexCount++;
@@ -921,15 +1279,36 @@ export class WebGPURenderer {
       mtx = m.tx,
       mty = m.ty;
 
+    // Extract z state
+    const z = this.currentZ;
+    const zcx = this.currentZCoeffX;
+    const zcy = this.currentZCoeffY;
+
     const baseVertex = this.shapeVertexCount;
 
-    // Store vertices with per-vertex color and model matrix
+    // Store vertices with per-vertex color, model matrix, and z data
     for (let i = 0; i < vertices.length; i++) {
       const v = vertices[i];
       const c = colors[i];
       const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
       this.shapeVertices.set(
-        [v[0], v[1], c[0], c[1], c[2], c[3], ma, mb, mc, md, mtx, mty],
+        [
+          v[0],
+          v[1],
+          c[0],
+          c[1],
+          c[2],
+          c[3],
+          ma,
+          mb,
+          mc,
+          md,
+          mtx,
+          mty,
+          z,
+          zcx,
+          zcy,
+        ],
         offset,
       );
       this.shapeVertexCount++;
@@ -997,7 +1376,14 @@ export class WebGPURenderer {
     );
 
     // Draw with offsets so each flush reads its own data
-    this.currentRenderPass.setPipeline(this.shapePipeline!);
+    const shapePipeline = this.inOffscreenPass
+      ? this.shapePipelineNoDepth!
+      : this.depthMode === "read-write"
+        ? this.shapePipelineDepth!
+        : this.depthMode === "always-write"
+          ? this.shapePipelineAlwaysWrite!
+          : this.shapePipeline!;
+    this.currentRenderPass.setPipeline(shapePipeline);
     this.currentRenderPass.setBindGroup(0, this.shapeBindGroup!);
     this.currentRenderPass.setVertexBuffer(
       0,
@@ -1097,6 +1483,10 @@ export class WebGPURenderer {
 
     const baseVertex = this.spriteVertexCount / SPRITE_VERTEX_SIZE;
 
+    const z = this.currentZ;
+    const zcx = this.currentZCoeffX;
+    const zcy = this.currentZCoeffY;
+
     for (let i = 0; i < 4; i++) {
       const offset = this.spriteVertexCount;
       this.spriteVertices.set(
@@ -1115,6 +1505,9 @@ export class WebGPURenderer {
           md,
           mtx,
           mty,
+          z,
+          zcx,
+          zcy,
         ],
         offset,
       );
@@ -1213,7 +1606,14 @@ export class WebGPURenderer {
     );
 
     // Draw with offsets so each flush reads its own data
-    this.currentRenderPass.setPipeline(this.spritePipeline!);
+    const spritePipeline = this.inOffscreenPass
+      ? this.spritePipelineNoDepth!
+      : this.depthMode === "read-write"
+        ? this.spritePipelineDepth!
+        : this.depthMode === "always-write"
+          ? this.spritePipelineAlwaysWrite!
+          : this.spritePipeline!;
+    this.currentRenderPass.setPipeline(spritePipeline);
     this.currentRenderPass.setBindGroup(0, this.spriteUniformBindGroup!);
     this.currentRenderPass.setBindGroup(1, this.currentTextureBindGroup!);
     this.currentRenderPass.setVertexBuffer(
@@ -1282,9 +1682,11 @@ export class WebGPURenderer {
     // Save current render pass state
     const savedPass = this.currentRenderPass;
     const savedEncoder = this.currentCommandEncoder;
+    const savedOffscreen = this.inOffscreenPass;
 
-    // Begin render pass to texture
+    // Begin render pass to texture (no depth attachment)
     this.currentCommandEncoder = commandEncoder;
+    this.inOffscreenPass = true;
     this.currentRenderPass = commandEncoder.beginRenderPass({
       colorAttachments: [
         {
@@ -1311,6 +1713,7 @@ export class WebGPURenderer {
     // Restore state
     this.currentRenderPass = savedPass;
     this.currentCommandEncoder = savedEncoder;
+    this.inOffscreenPass = savedOffscreen;
     this.resize(oldWidth, oldHeight, this.pixelRatio);
     this.viewMatrix = oldViewMatrix;
     this.currentTransform = oldTransform;

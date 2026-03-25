@@ -55,7 +55,7 @@ export interface TillerConfig {
  * 3D hull mesh built from three vertex rings (deck, waterline, bottom).
  * Triangle indices are precomputed once; only vertex projection changes per frame.
  */
-interface HullMesh {
+export interface HullMesh {
   /** 3D vertices as [x, y, z] triples. Layout: deck ring, waterline ring, bottom ring. */
   positions: number[]; // length = ringSize * 3 * 3
   ringSize: number;
@@ -154,7 +154,7 @@ function projectMesh(
 }
 
 export class Hull extends BaseEntity {
-  layer = "hull" as const;
+  layer = "boat" as const;
   body: DynamicBody;
   private hullArea: number;
   private skinFrictionCoefficient: number;
@@ -258,8 +258,12 @@ export class Hull extends BaseEntity {
       // Draw back-to-front: lower sides → upper sides → deck
       // Side/bottom faces that peek beyond the deck edge remain visible;
       // those under the deck get covered.
+      // Set z-height per group for depth testing against water surface.
+      const deckZ = this.mesh.positions[2]; // z of first vertex (deck ring)
+      const bottomZ = this.mesh.positions[this.mesh.ringSize * 2 * 3 + 2]; // z of bottom ring
 
       // Lower sides (waterline → bottom) — hull bottom paint color
+      draw.renderer.setZ(bottomZ);
       draw.renderer.submitTriangles(
         projected,
         lowerSideIndices,
@@ -268,6 +272,7 @@ export class Hull extends BaseEntity {
       );
 
       // Upper sides (deck → waterline) — hull topsides color
+      draw.renderer.setZ(0); // waterline z
       draw.renderer.submitTriangles(
         projected,
         upperSideIndices,
@@ -276,12 +281,14 @@ export class Hull extends BaseEntity {
       );
 
       // Deck cap — main hull color
+      draw.renderer.setZ(deckZ);
       draw.renderer.submitTriangles(
         projected,
         deckIndices,
         this.fillColor,
         1.0,
       );
+      draw.renderer.setZ(0);
 
       // Outline: stroke the projected deck polygon (gunwale line)
       const ringSize = this.mesh.ringSize;
@@ -290,6 +297,7 @@ export class Hull extends BaseEntity {
         {
           color: this.strokeColor,
           width: 0.25,
+          z: deckZ,
         },
       );
 
@@ -345,6 +353,11 @@ export class Hull extends BaseEntity {
         );
       }
     });
+  }
+
+  /** Data needed by BoatCompositor for hull height rendering. */
+  getHeightMeshData(): HullMesh {
+    return this.mesh;
   }
 
   getPosition(): V2d {

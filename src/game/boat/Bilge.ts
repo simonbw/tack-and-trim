@@ -29,7 +29,7 @@ const WATER_ALPHA = 0.45;
  * bilge pump or manual bailing. At 100% capacity the boat sinks.
  */
 export class Bilge extends BaseEntity {
-  layer = "hull" as const;
+  layer = "boat" as const;
 
   /** Current water volume in cubic ft */
   waterVolume: number = 0;
@@ -240,7 +240,7 @@ export class Bilge extends BaseEntity {
       );
 
       if (waterPoly.length >= 3) {
-        draw.fillPolygon(waterPoly, { color: WATER_COLOR, alpha });
+        draw.fillPolygon(waterPoly, { color: WATER_COLOR, alpha, z: waterZ });
       }
     });
   }

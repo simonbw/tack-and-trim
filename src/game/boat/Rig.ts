@@ -10,7 +10,7 @@ import { Hull } from "./Hull";
 import { Sail } from "./sail/Sail";
 
 export class Rig extends BaseEntity {
-  layer = "main" as const;
+  layer = "boat" as const;
   body: NonNullable<Entity["body"]>;
   private boomConstraint: RevoluteConstraint;
   sail!: Sail;
@@ -109,8 +109,9 @@ export class Rig extends BaseEntity {
     draw.at({ pos: V(boomStartX, boomStartY), angle: boomAngle }, () => {
       draw.fillRect(0, -this.boomWidth / 2, boomLen, this.boomWidth, {
         color: this.boomColor,
+        z: this.boomZ,
       });
-      draw.fillCircle(boomLen, 0, 0.3, { color: 0x664422 });
+      draw.fillCircle(boomLen, 0, 0.3, { color: 0x664422, z: this.boomZ });
     });
 
     // 2. Standing rigging (above boom)
@@ -138,18 +139,22 @@ export class Rig extends BaseEntity {
       draw.line(topLX, topLY, fs[0], fs[1], {
         color: riggingColor,
         width: riggingWidth,
+        z: dz,
       });
       draw.line(topLX, topLY, ps[0], ps[1], {
         color: riggingColor,
         width: riggingWidth,
+        z: dz,
       });
       draw.line(topLX, topLY, ss[0], ss[1], {
         color: riggingColor,
         width: riggingWidth,
+        z: dz,
       });
       draw.line(topLX, topLY, bs[0], bs[1], {
         color: riggingColor,
         width: riggingWidth,
+        z: dz,
       });
     });
 
@@ -157,10 +162,12 @@ export class Rig extends BaseEntity {
     draw.line(mx, my, mx + mastTopWorld.x, my + mastTopWorld.y, {
       color: this.mastColor,
       width: 0.4,
+      z: 20,
     });
-    draw.fillCircle(mx, my, 0.3, { color: this.mastColor });
+    draw.fillCircle(mx, my, 0.3, { color: this.mastColor, z: 0 });
     draw.fillCircle(mx + mastTopWorld.x, my + mastTopWorld.y, 0.2, {
       color: this.mastColor,
+      z: 20,
     });
   }
 
