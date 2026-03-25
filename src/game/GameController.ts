@@ -200,13 +200,16 @@ export class GameController extends BaseEntity {
     const saveManager = this.game.entities.tryGetSingleton(SaveManager);
     const pendingSave = saveManager?.consumePendingSave() ?? null;
 
-    // Use saved position if loading, otherwise level start position
+    // Use saved position/rotation if loading, otherwise level start position
     const boatPosition = pendingSave
       ? V(pendingSave.boat.position[0], pendingSave.boat.position[1])
       : this.startPosition;
+    const boatRotation = pendingSave?.boat.rotation ?? 0;
 
     // Spawn boat and controls
-    const boat = this.game.addEntity(new Boat(boatPosition));
+    const boat = this.game.addEntity(
+      new Boat(boatPosition, undefined, boatRotation),
+    );
     this.game.addEntity(new PlayerBoatController(boat));
     this.game.addEntity(new TiltDebugHUD());
 
@@ -232,8 +235,28 @@ export class GameController extends BaseEntity {
 
     // Mission system
     if (this.missions.length > 0) {
-      this.game.addEntity(new MissionManager(this.missions));
+      const missionManager = this.game.addEntity(
+        new MissionManager(this.missions),
+      );
       this.game.addEntity(new MissionHUD());
+
+      // Restore mission state from save
+      if (pendingSave) {
+        missionManager.setState({
+          completedMissionIds: pendingSave.progression.completedMissions,
+          currentMissionId: pendingSave.progression.currentMission?.missionId,
+          money: pendingSave.progression.money,
+          revealedPortIds: pendingSave.progression.discoveredPorts,
+        });
+      }
+    }
+
+    // Restore progression state from save
+    if (pendingSave) {
+      const prog = this.game.entities.tryGetSingleton(ProgressionManager);
+      if (prog) {
+        prog.restoreFromSave(pendingSave.progression);
+      }
     }
 
     // Start the tutorial if not already completed

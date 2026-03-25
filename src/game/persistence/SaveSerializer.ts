@@ -1,5 +1,7 @@
 import type { Game } from "../../core/Game";
 import type { Boat } from "../boat/Boat";
+import { MissionManager } from "../mission/MissionManager";
+import { ProgressionManager } from "../progression/ProgressionManager";
 import { CURRENT_SAVE_VERSION, type SaveFile } from "./SaveFile";
 
 /**
@@ -19,6 +21,12 @@ export function collectSaveData(
   }
 
   const body = boat.hull.body;
+
+  // Read progression state
+  const progression = game.entities.tryGetSingleton(ProgressionManager);
+  const missionManager = game.entities.tryGetSingleton(MissionManager);
+  const missionState = missionManager?.getState();
+  const activeMission = missionManager?.getActiveMission();
 
   return {
     saveName,
@@ -43,12 +51,19 @@ export function collectSaveData(
     },
 
     progression: {
-      money: 0,
-      currentBoatId: "starter-dinghy",
-      ownedBoats: [{ boatId: "starter-dinghy", purchasedUpgrades: [] }],
-      completedMissions: [],
-      currentMission: null,
-      discoveredPorts: [],
+      money: progression?.getMoney() ?? 0,
+      currentBoatId: progression?.getCurrentBoatId() ?? "starter-dinghy",
+      ownedBoats: progression
+        ? progression.getOwnedBoats().map((boatId) => ({
+            boatId,
+            purchasedUpgrades: progression.getUpgradesForBoat(boatId),
+          }))
+        : [{ boatId: "starter-dinghy", purchasedUpgrades: [] }],
+      completedMissions: missionState?.completedMissionIds ?? [],
+      currentMission: activeMission
+        ? { missionId: activeMission.def.id, state: {} }
+        : null,
+      discoveredPorts: missionState?.revealedPortIds ?? [],
     },
 
     world: {

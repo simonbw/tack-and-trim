@@ -74,7 +74,11 @@ export class Boat extends BaseEntity {
     return this.hull.body.toWorldFrame.bind(this.hull.body);
   }
 
-  constructor(startPosition: V2d = V(0, 0), config: BoatConfig = StarterBoat) {
+  constructor(
+    startPosition: V2d = V(0, 0),
+    config: BoatConfig = StarterBoat,
+    startRotation: number = 0,
+  ) {
     super();
 
     this.config = config;
@@ -88,6 +92,7 @@ export class Boat extends BaseEntity {
     // Set hull position BEFORE creating sub-entities so that physics bodies
     // (boom, sail particles, jib particles) are positioned correctly in world space.
     this.hull.body.position.set(startPosition);
+    this.hull.body.angle = startRotation;
 
     // Create parts that attach to hull
     this.keel = this.addChild(

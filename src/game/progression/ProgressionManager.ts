@@ -121,6 +121,20 @@ export class ProgressionManager extends BaseEntity {
     this.switchBoat(boatId);
   }
 
+  /** Restore state from a save file's progression data. */
+  restoreFromSave(data: {
+    money: number;
+    currentBoatId: string;
+    ownedBoats: { boatId: string; purchasedUpgrades: string[] }[];
+  }): void {
+    this.money = data.money;
+    this.currentBoatId = data.currentBoatId;
+    this.ownedBoats.clear();
+    for (const { boatId, purchasedUpgrades } of data.ownedBoats) {
+      this.ownedBoats.set(boatId, new Set(purchasedUpgrades));
+    }
+  }
+
   @on("repairBoat")
   onRepairBoat() {
     const boat = this.game.entities.getById("boat") as Boat | undefined;
