@@ -1,7 +1,13 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
+import { V } from "../../core/Vector";
+import { Port } from "../port/Port";
+import { PortMenu } from "../port/PortMenu";
 import { Boat } from "./Boat";
+import { findBowPoint } from "./Hull";
+
+const DOCK_RANGE = 30; // feet — max distance to dock from bow
 
 /**
  * Maps player input to boat actions.
@@ -18,6 +24,9 @@ export class PlayerBoatController extends BaseEntity {
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]) {
     const io = this.game.io;
+
+    // Port menu open — no controls
+    if (this.game.entities.tryGetSingleton(PortMenu)) return;
 
     // Boat is sinking — no controls
     if (this.boat.bilge.isSinking()) {
@@ -113,9 +122,31 @@ export class PlayerBoatController extends BaseEntity {
     }
   }
 
+  /** Find the nearest port within docking range, or null. */
+  private findNearbyPort(): Port | null {
+    const bowLocal = findBowPoint(this.boat.config.hull.vertices);
+    const bowWorld = bowLocal
+      .rotate(this.boat.hull.body.angle)
+      .iadd(this.boat.hull.body.position);
+
+    let closest: Port | null = null;
+    let closestDist = DOCK_RANGE;
+
+    for (const entity of this.game.entities.getTagged("port")) {
+      const port = entity as Port;
+      const dist = V(port.getPosition()).sub(bowWorld).magnitude;
+      if (dist < closestDist) {
+        closestDist = dist;
+        closest = port;
+      }
+    }
+    return closest;
+  }
+
   @on("keyDown")
   onKeyDown({ key }: GameEventMap["keyDown"]) {
-    // No actions while sinking
+    // No actions while port menu is open or sinking
+    if (this.game.entities.tryGetSingleton(PortMenu)) return;
     if (this.boat.bilge.isSinking()) return;
 
     // Toggle sails hoisted/lowered
@@ -123,9 +154,18 @@ export class PlayerBoatController extends BaseEntity {
       this.boat.toggleSails();
     }
 
-    // Toggle anchor
+    // Dock / anchor toggle
     if (key === "KeyF") {
-      this.boat.anchor.toggle();
+      if (this.boat.mooring.isMoored()) {
+        this.boat.mooring.castOff();
+      } else {
+        const nearbyPort = this.findNearbyPort();
+        if (nearbyPort) {
+          this.boat.mooring.moorTo(nearbyPort);
+        } else {
+          this.boat.anchor.toggle();
+        }
+      }
     }
   }
 }

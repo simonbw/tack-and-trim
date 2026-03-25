@@ -1,0 +1,38 @@
+import type { Game } from "../../core/Game";
+import type { Boat } from "../boat/Boat";
+import type { SaveFile } from "./SaveFile";
+
+/**
+ * Apply saved state back to living game entities.
+ *
+ * This must be called AFTER the level has been loaded and all entities exist.
+ * It overrides mutable state on existing entities -- it does NOT construct entities.
+ */
+export function applySaveData(game: Game, save: SaveFile): void {
+  const boat = game.entities.getById("boat") as Boat | undefined;
+  if (!boat) {
+    throw new Error("Cannot load save: no boat entity found");
+  }
+
+  const body = boat.hull.body;
+  const boatState = save.boat;
+
+  // Restore hull physics state
+  body.position.set(boatState.position);
+  body.angle = boatState.rotation;
+  body.velocity.set(boatState.velocity);
+  body.angularVelocity = boatState.angularVelocity;
+
+  // Restore damage health values
+  boat.hullDamage.setHealth(boatState.damage.hull);
+  boat.rudderDamage.setHealth(boatState.damage.rudder);
+  boat.mainSailDamage.setHealth(boatState.damage.sail);
+
+  // Restore bilge water volume
+  boat.bilge.waterVolume = boatState.bilgeWater;
+
+  // Restore anchor state
+  if (boatState.anchorDeployed && !boat.anchor.isDeployed()) {
+    boat.anchor.deploy();
+  }
+}

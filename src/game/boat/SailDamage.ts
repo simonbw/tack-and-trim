@@ -54,6 +54,11 @@ export class SailDamage extends BaseEntity {
     return this.health;
   }
 
+  /** Set health directly, clamped to [0, 1]. */
+  setHealth(value: number): void {
+    this.health = clamp(value, 0, 1);
+  }
+
   /** Lift multiplier for the sail (1.0 = full lift) */
   getLiftMultiplier(): number {
     return 1 - this.config.maxLiftReduction * this.getDamage();

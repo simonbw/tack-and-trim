@@ -23,6 +23,84 @@
     ]
   },
   "startPosition": [100, 1100],
+  "startingPortId": "bayview-harbor",
+  "ports": [
+    {
+      "id": "bayview-harbor",
+      "name": "Bayview Harbor",
+      "position": [30, 680],
+      "angle": 1.57
+    },
+    {
+      "id": "shield-cove",
+      "name": "Shield Cove",
+      "position": [500, 1870],
+      "angle": -1.57
+    },
+    {
+      "id": "eastern-point",
+      "name": "Eastern Point",
+      "position": [1050, 2650],
+      "angle": 0
+    }
+  ],
+  "missions": [
+    {
+      "id": "first-voyage",
+      "name": "First Voyage",
+      "description": "Deliver supplies from Bayview Harbor to Shield Cove across the channel.",
+      "type": "delivery",
+      "sourcePortId": "bayview-harbor",
+      "destinationPortId": "shield-cove",
+      "prerequisites": {},
+      "rewards": {
+        "money": 100,
+        "revealPorts": ["eastern-point"]
+      }
+    },
+    {
+      "id": "supply-run",
+      "name": "Supply Run",
+      "description": "Bring provisions back from Shield Cove to Bayview Harbor.",
+      "type": "delivery",
+      "sourcePortId": "shield-cove",
+      "destinationPortId": "bayview-harbor",
+      "prerequisites": {
+        "completedMissions": ["first-voyage"]
+      },
+      "rewards": {
+        "money": 150
+      }
+    },
+    {
+      "id": "long-haul",
+      "name": "Long Haul",
+      "description": "Transport cargo from Bayview Harbor around to the remote Eastern Point.",
+      "type": "delivery",
+      "sourcePortId": "bayview-harbor",
+      "destinationPortId": "eastern-point",
+      "prerequisites": {
+        "completedMissions": ["supply-run"]
+      },
+      "rewards": {
+        "money": 300
+      }
+    },
+    {
+      "id": "return-trip",
+      "name": "Return Trip",
+      "description": "Navigate back from Eastern Point to Bayview Harbor with the final delivery.",
+      "type": "delivery",
+      "sourcePortId": "eastern-point",
+      "destinationPortId": "bayview-harbor",
+      "prerequisites": {
+        "completedMissions": ["long-haul"]
+      },
+      "rewards": {
+        "money": 200
+      }
+    }
+  ],
   "contours": [
     {
       "name": "Bay Island Shore",

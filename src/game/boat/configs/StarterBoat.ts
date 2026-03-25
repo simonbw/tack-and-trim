@@ -82,6 +82,7 @@ export const StarterBoat: BoatConfig = {
   keel: {
     vertices: [V(-4.2, 0), V(4.2, 0)], // 8.4ft span centerboard
     draft: 3.0, // ft below waterline
+    chord: 1.25, // ft - centerboard/daggerboard chord
     color: 0x4a3a3d, // match rudder color
   },
 
@@ -89,6 +90,7 @@ export const StarterBoat: BoatConfig = {
     position: V(-5.1, 0), // At transom
     length: 2.0, // ft (slightly smaller)
     draft: 2.0, // ft below waterline
+    chord: 1.5, // ft - typical dinghy rudder depth
     maxSteerAngle: degToRad(35),
     steerAdjustSpeed: 0.8,
     steerAdjustSpeedFast: 2.0,

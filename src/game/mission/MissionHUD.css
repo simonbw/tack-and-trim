@@ -1,0 +1,36 @@
+.mission-hud {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  pointer-events: none;
+  user-select: none;
+  z-index: 20;
+  font-family: var(--font-body);
+  max-width: 320px;
+}
+
+.mission-hud__panel {
+  background: rgba(8, 14, 28, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 10px 14px;
+  backdrop-filter: blur(4px);
+}
+
+.mission-hud__title {
+  color: rgba(255, 220, 140, 0.95);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1.3;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+}
+
+.mission-hud__objective {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  font-weight: 300;
+  margin-top: 4px;
+  line-height: 1.3;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+}

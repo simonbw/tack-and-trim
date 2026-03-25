@@ -2,12 +2,7 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import { pairs } from "../../core/util/FunctionalUtils";
 import { V, V2d } from "../../core/Vector";
-import {
-  applyFluidForces,
-  foilDrag,
-  foilLift,
-  KEEL_CHORD,
-} from "../fluid-dynamics";
+import { applyFluidForces, foilDrag, foilLift } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
@@ -16,6 +11,7 @@ export class Keel extends BaseEntity {
   layer = "boat" as const;
 
   private vertices: V2d[];
+  private chord: number;
   private color: number;
 
   // Water query for keel vertices (transforms to world space for query)
@@ -36,6 +32,7 @@ export class Keel extends BaseEntity {
     super();
 
     this.vertices = config.vertices;
+    this.chord = config.chord;
     this.color = config.color;
     this.keelZ = -hullDraft; // keel attaches at hull bottom
   }
@@ -66,7 +63,7 @@ export class Keel extends BaseEntity {
 
     // Scale keel effectiveness by heel angle — keel loses lateral resistance at extreme heel
     const heelFactor = Math.cos(this.hull.tiltRoll);
-    const effectiveChord = KEEL_CHORD * Math.max(0.1, heelFactor);
+    const effectiveChord = this.chord * Math.max(0.1, heelFactor);
 
     // Use proper foil physics with heel-adjusted chord dimension
     const lift = foilLift(effectiveChord);

@@ -401,6 +401,52 @@ export interface BiomeConfigJSON {
 }
 
 /**
+ * JSON representation of a port (dock/harbor) in the file format.
+ */
+export interface PortJSON {
+  /** Unique identifier for this port */
+  id: string;
+  /** Human-readable port name */
+  name: string;
+  /** World coordinates in feet */
+  position: [number, number];
+  /** Dock orientation in radians */
+  angle: number;
+}
+
+/**
+ * JSON representation of a mission definition in the file format.
+ */
+export interface MissionDefJSON {
+  /** Unique identifier for this mission */
+  id: string;
+  /** Human-readable mission name */
+  name: string;
+  /** Description shown to the player */
+  description: string;
+  /** Mission type */
+  type: "delivery";
+  /** Port where cargo is picked up */
+  sourcePortId: string;
+  /** Port where cargo is delivered */
+  destinationPortId: string;
+  /** Requirements to unlock this mission */
+  prerequisites: {
+    /** Mission IDs that must be completed first */
+    completedMissions?: string[];
+    /** Minimum money required */
+    money?: number;
+  };
+  /** What the player receives on completion */
+  rewards: {
+    /** Money earned */
+    money?: number;
+    /** Port IDs to reveal on the map */
+    revealPorts?: string[];
+  };
+}
+
+/**
  * JSON schema for level files.
  * v2 allows either inline contours or a region config (external terrain).
  */
@@ -423,8 +469,14 @@ export interface LevelFileJSON {
   biome?: BiomeConfigJSON;
   /** Boat start position as [x, y] in world coordinates (optional, defaults to [0, 0]) */
   startPosition?: [number, number];
+  /** Port where the player starts a new game */
+  startingPortId?: string;
   /** Array of terrain contours (optional in v2 if region is set) */
   contours?: TerrainContourJSON[];
+  /** Ports (docks/harbors) in this level */
+  ports?: PortJSON[];
+  /** Mission definitions for the progression system */
+  missions?: MissionDefJSON[];
 }
 
 /**
@@ -560,6 +612,134 @@ export function validateLevelFile(data: unknown): LevelFileJSON {
     }
   }
 
+  // Validate ports if present
+  if (file.ports !== undefined) {
+    if (!Array.isArray(file.ports)) {
+      throw new Error("Invalid level file: ports must be an array");
+    }
+
+    const portIds = new Set<string>();
+    for (let i = 0; i < file.ports.length; i++) {
+      const port = file.ports[i] as Record<string, unknown>;
+      if (!port || typeof port !== "object") {
+        throw new Error(`Invalid level file: port ${i} is not an object`);
+      }
+      if (typeof port.id !== "string" || port.id.length === 0) {
+        throw new Error(`Invalid level file: port ${i} missing or empty id`);
+      }
+      if (portIds.has(port.id as string)) {
+        throw new Error(`Invalid level file: duplicate port id "${port.id}"`);
+      }
+      portIds.add(port.id as string);
+      if (typeof port.name !== "string") {
+        throw new Error(`Invalid level file: port ${i} missing name`);
+      }
+      if (
+        !Array.isArray(port.position) ||
+        port.position.length !== 2 ||
+        typeof port.position[0] !== "number" ||
+        typeof port.position[1] !== "number"
+      ) {
+        throw new Error(
+          `Invalid level file: port ${i} position must be [x, y]`,
+        );
+      }
+      if (typeof port.angle !== "number") {
+        throw new Error(`Invalid level file: port ${i} missing angle`);
+      }
+    }
+
+    // Validate startingPortId references a valid port
+    if (
+      typeof file.startingPortId === "string" &&
+      !portIds.has(file.startingPortId)
+    ) {
+      throw new Error(
+        `Invalid level file: startingPortId "${file.startingPortId}" does not match any port id`,
+      );
+    }
+  }
+
+  // Validate missions if present
+  if (file.missions !== undefined) {
+    if (!Array.isArray(file.missions)) {
+      throw new Error("Invalid level file: missions must be an array");
+    }
+
+    // Collect port IDs for cross-reference validation
+    const portIds = new Set<string>(
+      Array.isArray(file.ports)
+        ? (file.ports as Array<Record<string, unknown>>).map(
+            (p) => p.id as string,
+          )
+        : [],
+    );
+
+    const missionIds = new Set<string>();
+    for (let i = 0; i < file.missions.length; i++) {
+      const mission = file.missions[i] as Record<string, unknown>;
+      if (!mission || typeof mission !== "object") {
+        throw new Error(`Invalid level file: mission ${i} is not an object`);
+      }
+      if (typeof mission.id !== "string" || mission.id.length === 0) {
+        throw new Error(`Invalid level file: mission ${i} missing or empty id`);
+      }
+      if (missionIds.has(mission.id as string)) {
+        throw new Error(
+          `Invalid level file: duplicate mission id "${mission.id}"`,
+        );
+      }
+      missionIds.add(mission.id as string);
+      if (typeof mission.name !== "string") {
+        throw new Error(`Invalid level file: mission ${i} missing name`);
+      }
+      if (typeof mission.description !== "string") {
+        throw new Error(`Invalid level file: mission ${i} missing description`);
+      }
+      if (mission.type !== "delivery") {
+        throw new Error(
+          `Invalid level file: mission ${i} has invalid type "${mission.type}" (expected "delivery")`,
+        );
+      }
+      if (typeof mission.sourcePortId !== "string") {
+        throw new Error(
+          `Invalid level file: mission ${i} missing sourcePortId`,
+        );
+      }
+      if (portIds.size > 0 && !portIds.has(mission.sourcePortId as string)) {
+        throw new Error(
+          `Invalid level file: mission ${i} sourcePortId "${mission.sourcePortId}" does not match any port id`,
+        );
+      }
+      if (typeof mission.destinationPortId !== "string") {
+        throw new Error(
+          `Invalid level file: mission ${i} missing destinationPortId`,
+        );
+      }
+      if (
+        portIds.size > 0 &&
+        !portIds.has(mission.destinationPortId as string)
+      ) {
+        throw new Error(
+          `Invalid level file: mission ${i} destinationPortId "${mission.destinationPortId}" does not match any port id`,
+        );
+      }
+      if (
+        mission.prerequisites != null &&
+        typeof mission.prerequisites !== "object"
+      ) {
+        throw new Error(
+          `Invalid level file: mission ${i} prerequisites must be an object`,
+        );
+      }
+      if (mission.rewards != null && typeof mission.rewards !== "object") {
+        throw new Error(
+          `Invalid level file: mission ${i} rewards must be an object`,
+        );
+      }
+    }
+  }
+
   return file as unknown as LevelFileJSON;
 }
 
@@ -640,6 +820,53 @@ export function validateTerrainFile(data: unknown): TerrainFileJSON {
 }
 
 /**
+ * Runtime port data with V2d position.
+ */
+export interface PortData {
+  /** Unique identifier for this port */
+  id: string;
+  /** Human-readable port name */
+  name: string;
+  /** World position in feet */
+  position: V2d;
+  /** Dock orientation in radians */
+  angle: number;
+}
+
+/**
+ * Runtime mission definition.
+ * Mirrors MissionDefJSON — no coordinate conversions needed.
+ */
+export interface MissionDef {
+  /** Unique identifier for this mission */
+  id: string;
+  /** Human-readable mission name */
+  name: string;
+  /** Description shown to the player */
+  description: string;
+  /** Mission type */
+  type: "delivery";
+  /** Port where cargo is picked up */
+  sourcePortId: string;
+  /** Port where cargo is delivered */
+  destinationPortId: string;
+  /** Requirements to unlock this mission */
+  prerequisites: {
+    /** Mission IDs that must be completed first */
+    completedMissions?: string[];
+    /** Minimum money required */
+    money?: number;
+  };
+  /** What the player receives on completion */
+  rewards: {
+    /** Money earned */
+    money?: number;
+    /** Port IDs to reveal on the map */
+    revealPorts?: string[];
+  };
+}
+
+/**
  * Result of parsing a level file.
  */
 export interface LevelData {
@@ -649,6 +876,12 @@ export interface LevelData {
   wind: WindConfig;
   biome?: BiomeConfigJSON;
   startPosition?: V2d;
+  /** Port where the player starts a new game */
+  startingPortId?: string;
+  /** Ports (docks/harbors) in this level */
+  ports?: PortData[];
+  /** Mission definitions for the progression system */
+  missions?: MissionDef[];
 }
 
 /**
@@ -665,6 +898,46 @@ export function levelFileToWindConfig(file: LevelFileJSON): WindConfig {
 }
 
 /**
+ * Convert port JSON to runtime PortData.
+ */
+function portJSONToPortData(json: PortJSON): PortData {
+  return {
+    id: json.id,
+    name: json.name,
+    position: V(json.position[0], json.position[1]),
+    angle: json.angle,
+  };
+}
+
+/**
+ * Convert mission def JSON to runtime MissionDef.
+ */
+function missionDefJSONToMissionDef(json: MissionDefJSON): MissionDef {
+  return {
+    id: json.id,
+    name: json.name,
+    description: json.description,
+    type: json.type,
+    sourcePortId: json.sourcePortId,
+    destinationPortId: json.destinationPortId,
+    prerequisites: {
+      ...(json.prerequisites.completedMissions && {
+        completedMissions: [...json.prerequisites.completedMissions],
+      }),
+      ...(json.prerequisites.money != null && {
+        money: json.prerequisites.money,
+      }),
+    },
+    rewards: {
+      ...(json.rewards.money != null && { money: json.rewards.money }),
+      ...(json.rewards.revealPorts && {
+        revealPorts: [...json.rewards.revealPorts],
+      }),
+    },
+  };
+}
+
+/**
  * Convert level file JSON to game data structures.
  */
 export function levelFileToLevelData(file: LevelFileJSON): LevelData {
@@ -677,6 +950,9 @@ export function levelFileToLevelData(file: LevelFileJSON): LevelData {
     startPosition: file.startPosition
       ? V(file.startPosition[0], file.startPosition[1])
       : undefined,
+    startingPortId: file.startingPortId,
+    ports: file.ports?.map(portJSONToPortData),
+    missions: file.missions?.map(missionDefJSONToMissionDef),
   };
 }
 

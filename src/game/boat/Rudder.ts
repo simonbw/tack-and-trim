@@ -3,12 +3,7 @@ import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { clamp, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import {
-  applyFluidForces,
-  foilDrag,
-  foilLift,
-  RUDDER_CHORD,
-} from "../fluid-dynamics";
+import { applyFluidForces, foilDrag, foilLift } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
@@ -25,6 +20,7 @@ export class Rudder extends BaseEntity {
 
   private position: V2d;
   private length: number;
+  private chord: number;
   private maxSteerAngle: number;
   private steerAdjustSpeed: number;
   private steerAdjustSpeedFast: number;
@@ -46,6 +42,7 @@ export class Rudder extends BaseEntity {
 
     this.position = config.position;
     this.length = config.length;
+    this.chord = config.chord;
     this.maxSteerAngle = config.maxSteerAngle;
     this.steerAdjustSpeed = config.steerAdjustSpeed;
     this.steerAdjustSpeedFast = config.steerAdjustSpeedFast;
@@ -118,7 +115,7 @@ export class Rudder extends BaseEntity {
 
     // Scale rudder effectiveness by heel angle — rudder lifts out at extreme heel
     const heelFactor = Math.cos(this.hull.tiltRoll);
-    const effectiveChord = RUDDER_CHORD * Math.max(0.1, heelFactor);
+    const effectiveChord = this.chord * Math.max(0.1, heelFactor);
 
     // Use proper foil physics with heel-adjusted chord dimension
     // Damage reduces lift (steering authority) but not drag

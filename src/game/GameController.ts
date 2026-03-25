@@ -5,6 +5,7 @@ import { V, V2d } from "../core/Vector";
 import type { TreeFileData } from "../pipeline/mesh-building/TreeFile";
 import { LevelName } from "../../resources/resources";
 import { loadLevel } from "../editor/io/LevelLoader";
+import type { MissionDef, PortData } from "../editor/io/LevelFileFormat";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { TiltDebugHUD } from "./boat/TiltDebugHUD";
@@ -33,6 +34,11 @@ import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
 import { ClothWorkerPool } from "./boat/sail/ClothWorkerPool";
 import { GameOverScreen } from "./GameOverScreen";
+import { Port } from "./port/Port";
+import { PortMenu } from "./port/PortMenu";
+import { MissionManager } from "./mission/MissionManager";
+import { MissionHUD } from "./mission/MissionHUD";
+import { ProgressionManager } from "./progression/ProgressionManager";
 
 //#tunable("Camera") { min: 0.5, max: 10 }
 let MENU_ZOOM: number = 2;
@@ -46,6 +52,9 @@ export class GameController extends BaseEntity {
   private currentLevel: LevelName | null = null;
   private treeData: TreeFileData | undefined;
   private startPosition: V2d = V(0, 0);
+  private ports: PortData[] = [];
+  private missions: MissionDef[] = [];
+  private portMenu: PortMenu | null = null;
 
   @on("add")
   onAdd() {
@@ -78,9 +87,13 @@ export class GameController extends BaseEntity {
       treeData,
       biome,
       startPosition,
+      ports,
+      missions,
     } = await loadLevel(levelName);
     this.treeData = treeData;
     this.startPosition = startPosition ?? V(0, 0);
+    this.ports = ports ?? [];
+    this.missions = missions ?? [];
     this.game.addEntity(new TerrainResources(terrain));
     this.game.addEntity(new TerrainQueryManager());
 
@@ -118,7 +131,7 @@ export class GameController extends BaseEntity {
 
   @on("keyDown")
   onKeyDown({ key }: { key: string }) {
-    if (key === "Escape" && this.currentLevel !== null) {
+    if (key === "Escape" && this.currentLevel !== null && !this.portMenu) {
       this.game.clearScene(99);
       this.currentLevel = null;
       this.game.camera.z = MENU_ZOOM;
@@ -129,6 +142,20 @@ export class GameController extends BaseEntity {
   @on("boatSunk")
   onBoatSunk() {
     this.game.addEntity(new GameOverScreen());
+  }
+
+  @on("boatMoored")
+  onBoatMoored({ portId, portName }: { portId: string; portName: string }) {
+    if (this.portMenu) return;
+    this.portMenu = this.game.addEntity(new PortMenu(portId, portName));
+  }
+
+  @on("boatUnmoored")
+  onBoatUnmoored() {
+    if (this.portMenu) {
+      this.portMenu.destroy();
+      this.portMenu = null;
+    }
   }
 
   @on("restartLevel")
@@ -155,6 +182,15 @@ export class GameController extends BaseEntity {
     this.game.addEntity(new NavigationHUD(this.currentLevel ?? undefined));
     // Cloth worker pool for off-thread sail simulation (must exist before sails)
     this.game.addEntity(new ClothWorkerPool());
+
+    // Progression system
+    this.game.addEntity(new ProgressionManager());
+
+    // Spawn ports
+    for (const portData of this.ports) {
+      this.game.addEntity(new Port(portData));
+    }
+
     // Spawn boat and controls
     const boat = this.game.addEntity(new Boat(this.startPosition));
     this.game.addEntity(new PlayerBoatController(boat));
@@ -173,6 +209,12 @@ export class GameController extends BaseEntity {
     // Spawn trees on landmasses from generated .trees file
     if (this.treeData) {
       this.game.addEntity(new TreeManager(this.treeData));
+    }
+
+    // Mission system
+    if (this.missions.length > 0) {
+      this.game.addEntity(new MissionManager(this.missions));
+      this.game.addEntity(new MissionHUD());
     }
 
     // Start the tutorial if not already completed
