@@ -53,6 +53,11 @@ export class MissionManager extends BaseEntity {
     });
   }
 
+  /** Look up a mission definition by ID. */
+  getMissionDef(missionId: string): MissionDef | undefined {
+    return this.missionDefs.find((m) => m.id === missionId);
+  }
+
   /**
    * Accept a mission by ID. Sets it as the active mission and dispatches
    * the missionAccepted event.
