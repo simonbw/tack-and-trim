@@ -26,9 +26,6 @@ const STEER_TORQUE_FAST = 20000;
 // Angular damping on the rudder body so it doesn't oscillate wildly
 const RUDDER_ANGULAR_DAMPING = 0.98;
 
-// Centering torque that gently returns rudder to center when no input
-const CENTERING_STIFFNESS = 200;
-
 export class Rudder extends BaseEntity {
   layer = "boat" as const;
 
@@ -152,15 +149,7 @@ export class Rudder extends BaseEntity {
     // Apply damage bias as a constant torque pulling rudder to one side
     const biasTorque = this.getSteeringBias() * torqueMag * 0.5;
 
-    // Centering torque: gently return rudder to center when no input
-    const relAngle = this.getRelativeAngle();
-    const relAngVel = this.body.angularVelocity - this.hull.body.angularVelocity;
-    const centeringTorque =
-      this.steerInput === 0
-        ? -CENTERING_STIFFNESS * relAngle - CENTERING_STIFFNESS * 0.3 * relAngVel
-        : 0;
-
-    this.body.angularForce += steerTorque + biasTorque + centeringTorque;
+    this.body.angularForce += steerTorque + biasTorque;
 
     // Scale rudder effectiveness by heel angle — rudder lifts out at extreme heel
     const heelFactor = Math.cos(this.hull.tiltRoll);
