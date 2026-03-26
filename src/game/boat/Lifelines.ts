@@ -31,30 +31,31 @@ export class Lifelines extends BaseEntity {
     const topZ = deckZ + this.config.stanchionHeight;
 
     const { tubeColor, wireColor, tubeWidth, wireWidth } = this.config;
+    const cp = t.cosPitch;
 
-    // Project a hull-local (x, y) point at a given z-height to hull-local 2D,
-    // matching the projection used by Hull and Rig:
-    //   projX = x + z * sinPitch
-    //   projY = y * cosRoll + z * sinRoll
-    const projX = (x: number, z: number) => x + z * sp;
+    // Project hull-local (x, y, z) to hull-local 2D via R_pitch * R_roll:
+    //   projX = x*cosP + y*sinP*sinR - z*sinP*cosR
+    //   projY = y*cosR + z*sinR
+    const projX = (x: number, y: number, z: number) =>
+      x * cp + y * sp * sr - z * sp * cr;
     const projY = (y: number, z: number) => y * cr + z * sr;
 
     draw.at({ pos: V(hx, hy), angle: hullAngle }, () => {
       // --- Stanchions (short posts from deck to rail height) ---
       for (const [sx, sy] of this.config.portStanchions) {
         draw.line(
-          projX(sx, deckZ),
+          projX(sx, sy, deckZ),
           projY(sy, deckZ),
-          projX(sx, topZ),
+          projX(sx, sy, topZ),
           projY(sy, topZ),
           { color: tubeColor, width: tubeWidth, z: topZ },
         );
       }
       for (const [sx, sy] of this.config.starboardStanchions) {
         draw.line(
-          projX(sx, deckZ),
+          projX(sx, sy, deckZ),
           projY(sy, deckZ),
-          projX(sx, topZ),
+          projX(sx, sy, topZ),
           projY(sy, topZ),
           { color: tubeColor, width: tubeWidth, z: topZ },
         );
@@ -117,16 +118,16 @@ export class Lifelines extends BaseEntity {
     draw: Draw,
     points: ReadonlyArray<readonly [number, number]>,
     z: number,
-    projX: (x: number, z: number) => number,
+    projX: (x: number, y: number, z: number) => number,
     projY: (y: number, z: number) => number,
     color: number,
     width: number,
   ): void {
     if (points.length < 2) return;
     const path = draw.path();
-    path.moveTo(projX(points[0][0], z), projY(points[0][1], z));
+    path.moveTo(projX(points[0][0], points[0][1], z), projY(points[0][1], z));
     for (let i = 1; i < points.length; i++) {
-      path.lineTo(projX(points[i][0], z), projY(points[i][1], z));
+      path.lineTo(projX(points[i][0], points[i][1], z), projY(points[i][1], z));
     }
     path.stroke(color, width);
   }
@@ -139,7 +140,7 @@ export class Lifelines extends BaseEntity {
     sternPulpit: ReadonlyArray<readonly [number, number]>,
     isPort: boolean,
     z: number,
-    projX: (x: number, z: number) => number,
+    projX: (x: number, y: number, z: number) => number,
     projY: (y: number, z: number) => number,
     color: number,
     width: number,
@@ -167,9 +168,12 @@ export class Lifelines extends BaseEntity {
 
     if (points.length >= 2) {
       const path = draw.path();
-      path.moveTo(projX(points[0][0], z), projY(points[0][1], z));
+      path.moveTo(projX(points[0][0], points[0][1], z), projY(points[0][1], z));
       for (let i = 1; i < points.length; i++) {
-        path.lineTo(projX(points[i][0], z), projY(points[i][1], z));
+        path.lineTo(
+          projX(points[i][0], points[i][1], z),
+          projY(points[i][1], z),
+        );
       }
       path.stroke(color, width);
     }

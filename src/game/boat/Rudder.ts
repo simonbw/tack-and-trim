@@ -161,7 +161,12 @@ export class Rudder extends BaseEntity {
     // Apply damage bias as a constant torque pulling rudder to one side
     const biasTorque = this.getSteeringBias() * torqueMag * 0.5;
 
-    this.body.angularForce += steerTorque + biasTorque;
+    const totalSteerTorque = steerTorque + biasTorque;
+    this.body.angularForce += totalSteerTorque;
+    // Counter-torque on hull: the helmsperson is inside the boat, so steering
+    // is an internal force — their body absorbs the reaction. Without this,
+    // the constraint reaction dumps the full steer torque into the hull as yaw.
+    this.hull.body.angularForce -= totalSteerTorque;
 
     // Scale rudder effectiveness by heel angle — rudder lifts out at extreme heel
     const heelFactor = Math.cos(this.hull.tiltRoll);

@@ -211,6 +211,7 @@ export class Bilge extends BaseEntity {
     const cosR = t.cosRoll;
     const sinR = t.sinRoll;
     const sinP = t.sinPitch;
+    const cosP = t.cosPitch;
 
     // Water fill level in hull-local z-space
     // At 0 water: water surface is at hull bottom (-draft)
@@ -240,6 +241,7 @@ export class Bilge extends BaseEntity {
         cosR,
         sinR,
         sinP,
+        cosP,
       );
 
       if (waterPoly.length >= 3) {
@@ -262,6 +264,7 @@ export class Bilge extends BaseEntity {
     cosR: number,
     sinR: number,
     sinP: number,
+    cosP: number,
   ): V2d[] {
     const verts = this.hullVertices;
     const n = verts.length;
@@ -285,7 +288,12 @@ export class Bilge extends BaseEntity {
         // Current vertex is below water — project the hull vertex (at water z)
         // but clamp the rendering to the water surface height
         const z = Math.min(wZCurr, deckZ);
-        result.push(V(curr.x + z * sinP, curr.y * cosR + z * sinR));
+        result.push(
+          V(
+            curr.x * cosP + curr.y * sinP * sinR - z * sinP * cosR,
+            curr.y * cosR + z * sinR,
+          ),
+        );
       }
 
       // If the edge crosses the water line, compute intersection
@@ -301,7 +309,12 @@ export class Bilge extends BaseEntity {
           const ix = curr.x + t * (next.x - curr.x);
           const iy = curr.y + t * (next.y - curr.y);
           const iz = deckZ; // intersection is at deck level
-          result.push(V(ix + iz * sinP, iy * cosR + iz * sinR));
+          result.push(
+            V(
+              ix * cosP + iy * sinP * sinR - iz * sinP * cosR,
+              iy * cosR + iz * sinR,
+            ),
+          );
         }
       }
     }

@@ -118,6 +118,7 @@ export class Rig extends BaseEntity {
     const cr = t.cosRoll;
     const sr = t.sinRoll;
     const sp = t.sinPitch;
+    const cp = t.cosPitch;
     const dz = this.stays.deckHeight;
     const riggingColor = 0x999999;
     const riggingWidth = 0.1;
@@ -127,9 +128,9 @@ export class Rig extends BaseEntity {
       const topLX = lmx + mastTopLocal.x;
       const topLY = lmy + mastTopLocal.y;
 
-      // Project stay attachment points to deck height
+      // Project stay attachment points to deck height via R_pitch * R_roll
       const projectStay = (s: V2d) =>
-        [s.x + dz * sp, s.y * cr + dz * sr] as const;
+        [s.x * cp + s.y * sp * sr - dz * sp * cr, s.y * cr + dz * sr] as const;
 
       const fs = projectStay(this.stays.forestay);
       const ps = projectStay(this.stays.portShroud);

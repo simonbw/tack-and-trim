@@ -115,12 +115,18 @@ export class HullDamage extends BaseEntity {
     const t = this.boat.hull.tiltTransform;
 
     draw.at({ pos: V(x, y), angle: this.boat.hull.body.angle }, () => {
+      const cp = t.cosPitch;
+      const sp = t.sinPitch;
+      const sr = t.sinRoll;
+      const cr = t.cosRoll;
       for (const scratch of this.scratches) {
         const alpha = scratch.severity * 0.7;
-        const sx1 = scratch.x1 + scratch.z * t.sinPitch;
-        const sy1 = scratch.y1 * t.cosRoll + scratch.z * t.sinRoll;
-        const sx2 = scratch.x2 + scratch.z * t.sinPitch;
-        const sy2 = scratch.y2 * t.cosRoll + scratch.z * t.sinRoll;
+        const sx1 =
+          scratch.x1 * cp + scratch.y1 * sp * sr - scratch.z * sp * cr;
+        const sy1 = scratch.y1 * cr + scratch.z * sr;
+        const sx2 =
+          scratch.x2 * cp + scratch.y2 * sp * sr - scratch.z * sp * cr;
+        const sy2 = scratch.y2 * cr + scratch.z * sr;
         draw.line(sx1, sy1, sx2, sy2, {
           color: SCRATCH_COLOR,
           width: scratch.width,

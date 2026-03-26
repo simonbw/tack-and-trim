@@ -134,13 +134,16 @@ function buildHullMesh(
 
 /**
  * Project all 3D hull vertices to 2D using the current tilt state.
- * In hull-local space: px = x + z*sinPitch, py = y*cosRoll + z*sinRoll.
+ * Hull-local projection: top two rows of R_pitch * R_roll:
+ *   px = x*cosP + y*sinP*sinR - z*sinP*cosR
+ *   py = y*cosR + z*sinR
  */
 function projectMesh(
   mesh: HullMesh,
   cosR: number,
   sinR: number,
   sinP: number,
+  cosP: number,
 ): void {
   const { positions, projected } = mesh;
   const totalVerts = projected.length;
@@ -149,7 +152,7 @@ function projectMesh(
     const x = positions[base];
     const y = positions[base + 1];
     const z = positions[base + 2];
-    projected[i][0] = x + z * sinP;
+    projected[i][0] = x * cosP + y * sinP * sinR - z * sinP * cosR;
     projected[i][1] = y * cosR + z * sinR;
   }
 }
@@ -256,13 +259,13 @@ export class Hull extends BaseEntity {
       const result = this.waterQuery.get(i);
       const worldPoint = this.queryPoints[i]; // already in world space from getWorldSamplePoints
 
-      // Compute vertical velocity of this hull point from roll/pitch rotation
-      // In body-local frame, a point at (x, y, 0) has z-velocity from:
-      //   dz/dt = y * rollVelocity - x * pitchVelocity
-      // (rotation about forward axis (roll) moves port side up/down,
-      //  rotation about lateral axis (pitch) moves bow up/down)
+      // Compute vertical velocity of this hull point from roll/pitch rotation.
+      // From d/dt of worldZ = x*sinP - y*sinR*cosP (at small angles):
+      //   dz/dt = x * pitchVelocity - y * rollVelocity
+      // Positive roll (port down) → port points (y>0) move down (negative dz/dt).
+      // Positive pitch (bow up) → bow points (x>0) move up (positive dz/dt).
       const pointZVelocity = bb
-        ? local.y * bb.rollVelocity - local.x * bb.pitchVelocity
+        ? local.x * bb.pitchVelocity - local.y * bb.rollVelocity
         : 0;
 
       const force = computeSkinFrictionAtPoint(
@@ -302,9 +305,10 @@ export class Hull extends BaseEntity {
     const cosR = t.cosRoll;
     const sinR = t.sinRoll;
     const sinP = t.sinPitch;
+    const cosP = t.cosPitch;
 
     // Project all 3D mesh vertices to 2D
-    projectMesh(this.mesh, cosR, sinR, sinP);
+    projectMesh(this.mesh, cosR, sinR, sinP, cosP);
 
     draw.at({ pos: V(x, y), angle: this.body.angle }, () => {
       const { projected, deckIndices, upperSideIndices, lowerSideIndices } =
@@ -357,31 +361,8 @@ export class Hull extends BaseEntity {
       );
 
       // Deck details — offset to deck z-height for correct parallax
-      const deckOffX = sinP * this.mesh.positions[2]; // deckZ * sinP
-      const deckOffY = sinR * this.mesh.positions[2]; // deckZ * sinR
-
-      // Thwart (bench seat) - where helmsman sits, aft of centerboard
-      const thwartColor = 0x886633;
-      const thwartHalfW = 2.5 * cosR;
-      draw.fillRect(
-        -3.5 + deckOffX,
-        -thwartHalfW + deckOffY,
-        0.5,
-        thwartHalfW * 2,
-        {
-          color: thwartColor,
-        },
-      );
-      draw.strokeRect(
-        -3.5 + deckOffX,
-        -thwartHalfW + deckOffY,
-        0.5,
-        thwartHalfW * 2,
-        {
-          color: 0x664422,
-          width: 0.2,
-        },
-      );
+      const deckOffX = -sinP * cosR * deckZ;
+      const deckOffY = sinR * deckZ;
 
       // Tiller (rotates opposite to rudder)
       if (this.tillerConfig) {
@@ -393,16 +374,21 @@ export class Hull extends BaseEntity {
 
         draw.at(
           {
-            pos: V(tillerPos.x + deckOffX, tillerPos.y * cosR + deckOffY),
+            pos: V(
+              tillerPos.x * cosP + tillerPos.y * sinP * sinR + deckOffX,
+              tillerPos.y * cosR + deckOffY,
+            ),
             angle: tillerAngle,
           },
           () => {
             draw.fillRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
               color: tillerColor,
+              z: deckZ,
             });
             draw.strokeRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
               color: 0x664422,
               width: 0.1,
+              z: deckZ,
             });
           },
         );
