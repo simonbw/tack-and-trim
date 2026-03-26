@@ -4,12 +4,14 @@ import { on } from "../../core/entity/handler";
 import { clamp, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import {
-  applyFluidForces,
+  computeFluidForces,
+  FluidForceResult,
   foilDrag,
   foilLift,
   RUDDER_CHORD,
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
+import type { BuoyantBody } from "./BuoyantBody";
 import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -29,6 +31,7 @@ export class Rudder extends BaseEntity {
   private steerAdjustSpeed: number;
   private steerAdjustSpeedFast: number;
   private color: number;
+  private rudderZ: number;
 
   // Water query for rudder endpoints (transforms to world space for query)
   private waterQuery = this.addChild(
@@ -38,8 +41,15 @@ export class Rudder extends BaseEntity {
   // Cached water velocities indexed by world position key
   private velocityCache = new Map<string, V2d>();
 
+  // Pre-allocated force result buffer
+  private forceResults: FluidForceResult[] = [
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+  ];
+
   constructor(
     private hull: Hull,
+    private buoyantBody: BuoyantBody,
     config: RudderConfig,
   ) {
     super();
@@ -50,6 +60,7 @@ export class Rudder extends BaseEntity {
     this.steerAdjustSpeed = config.steerAdjustSpeed;
     this.steerAdjustSpeedFast = config.steerAdjustSpeedFast;
     this.color = config.color;
+    this.rudderZ = -config.draft;
   }
 
   /**
@@ -135,22 +146,32 @@ export class Rudder extends BaseEntity {
     };
 
     // Apply rudder forces to hull (both directions)
-    applyFluidForces(
-      this.hull.body,
-      this.position,
-      rudderEnd,
-      lift,
-      drag,
-      getWaterVelocity,
-    );
-    applyFluidForces(
-      this.hull.body,
-      rudderEnd,
-      this.position,
-      lift,
-      drag,
-      getWaterVelocity,
-    );
+    // Forces applied at rudderZ depth for correct 3D torque
+    for (const [a, b] of [
+      [this.position, rudderEnd],
+      [rudderEnd, this.position],
+    ] as const) {
+      const count = computeFluidForces(
+        this.hull.body,
+        a,
+        b,
+        lift,
+        drag,
+        getWaterVelocity,
+        this.forceResults,
+      );
+      for (let i = 0; i < count; i++) {
+        const r = this.forceResults[i];
+        this.buoyantBody.applyForce3D(
+          r.fx,
+          r.fy,
+          0,
+          r.localX,
+          r.localY,
+          this.rudderZ,
+        );
+      }
+    }
   }
 
   @on("render")

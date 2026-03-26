@@ -6,8 +6,9 @@ import { Convex } from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { earClipTriangulate } from "../../core/util/Triangulate";
 import { V, V2d } from "../../core/Vector";
-import { applySkinFriction } from "../fluid-dynamics";
+import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
+import type { BuoyantBody } from "./BuoyantBody";
 import { HullConfig } from "./BoatConfig";
 import { TiltTransform } from "./TiltTransform";
 
@@ -156,7 +157,6 @@ function projectMesh(
 export class Hull extends BaseEntity {
   layer = "boat" as const;
   body: DynamicBody;
-  private hullArea: number;
   private skinFrictionCoefficient: number;
   private vertices: V2d[];
   private fillColor: number;
@@ -167,6 +167,11 @@ export class Hull extends BaseEntity {
   private getDamageMultiplier: () => number = () => 1;
   private mesh: HullMesh;
 
+  // Distributed skin friction: waterline sample points and per-point area
+  private waterlineSamplePoints: V2d[];
+  private areaPerPoint: number;
+  private buoyantBody: BuoyantBody | null = null;
+
   /** Tilt state updated by Boat each tick. Used by child entities for physics effects. */
   tiltRoll: number = 0;
   tiltPitch: number = 0;
@@ -174,16 +179,27 @@ export class Hull extends BaseEntity {
   /** 3D→2D transform updated by Boat each tick. Used by child entities for rendering. */
   readonly tiltTransform = new TiltTransform();
 
-  // Water query for skin friction calculation (samples at body position)
-  private waterQuery = this.addChild(
-    new WaterQuery(() => [V(this.body.position)]),
-  );
+  // Water query for distributed skin friction (multi-point at waterline vertices)
+  private waterQuery: WaterQuery;
+
+  // Pre-allocated query points
+  private queryPoints: V2d[];
 
   constructor(config: HullConfig) {
     super();
 
     // Use waterline vertices for wetted area (skin friction), fall back to hull vertices
-    this.hullArea = polygonArea(config.waterlineVertices ?? config.vertices);
+    const waterlineVerts = config.waterlineVertices ?? config.vertices;
+    this.waterlineSamplePoints = waterlineVerts.map((v) => V(v.x, v.y));
+    const totalArea = polygonArea(waterlineVerts);
+    this.areaPerPoint = totalArea / waterlineVerts.length;
+
+    // Pre-allocate query point array
+    this.queryPoints = this.waterlineSamplePoints.map(() => V(0, 0));
+    this.waterQuery = this.addChild(
+      new WaterQuery(() => this.getWorldSamplePoints()),
+    );
+
     this.skinFrictionCoefficient = config.skinFrictionCoefficient;
     this.vertices = config.vertices;
     this.fillColor = config.colors.fill;
@@ -204,40 +220,79 @@ export class Hull extends BaseEntity {
     );
 
     // Build 3D hull mesh from the three vertex rings
-    const waterlineVerts = config.waterlineVertices ?? config.vertices;
+    const meshWaterlineVerts = config.waterlineVertices ?? config.vertices;
     const bottomVerts =
-      config.bottomVertices ?? waterlineVerts.map((v) => V(v.x, v.y * 0.45));
+      config.bottomVertices ??
+      meshWaterlineVerts.map((v) => V(v.x, v.y * 0.45));
     const deckZ = config.deckHeight;
     const bottomZ = -config.draft;
 
     this.mesh = buildHullMesh(
       config.vertices,
-      waterlineVerts,
+      meshWaterlineVerts,
       bottomVerts,
       deckZ,
       bottomZ,
     );
   }
 
+  /**
+   * Set the BuoyantBody for 3D force application. Called by Boat after construction.
+   */
+  setBuoyantBody(bb: BuoyantBody): void {
+    this.buoyantBody = bb;
+  }
+
   @on("tick")
   onTick() {
-    // Use water velocity from previous frame's query (1-frame latency)
-    // Results may be empty on first frame
-    const waterVelocity =
-      this.waterQuery.results.length > 0
-        ? this.waterQuery.results[0].velocity
-        : V(0, 0);
+    const bb = this.buoyantBody;
+    const cf = this.skinFrictionCoefficient * this.getDamageMultiplier();
 
-    // Provide constant velocity function for skin friction
-    // (skin friction samples at body center, which is what we query)
-    const getWaterVelocity = (): V2d => waterVelocity;
+    // Apply distributed 3D skin friction at each waterline sample point
+    for (let i = 0; i < this.waterlineSamplePoints.length; i++) {
+      if (i >= this.waterQuery.length) break;
 
-    applySkinFriction(
-      this.body,
-      this.hullArea,
-      this.skinFrictionCoefficient * this.getDamageMultiplier(),
-      getWaterVelocity,
-    );
+      const local = this.waterlineSamplePoints[i];
+      const result = this.waterQuery.get(i);
+      const worldPoint = this.queryPoints[i]; // already in world space from getWorldSamplePoints
+
+      // Compute vertical velocity of this hull point from roll/pitch rotation
+      // In body-local frame, a point at (x, y, 0) has z-velocity from:
+      //   dz/dt = y * rollVelocity - x * pitchVelocity
+      // (rotation about forward axis (roll) moves port side up/down,
+      //  rotation about lateral axis (pitch) moves bow up/down)
+      const pointZVelocity = bb
+        ? local.y * bb.rollVelocity - local.x * bb.pitchVelocity
+        : 0;
+
+      const force = computeSkinFrictionAtPoint(
+        this.body,
+        worldPoint,
+        this.areaPerPoint,
+        cf,
+        result.velocity,
+        pointZVelocity,
+      );
+
+      if (force && bb) {
+        bb.applyForce3D(force.fx, force.fy, force.fz, local.x, local.y, 0);
+      } else if (force) {
+        // Fallback: apply 2D only (shouldn't happen if properly wired)
+        this.body.applyForce(V(force.fx, force.fy));
+      }
+    }
+  }
+
+  /**
+   * Get world-space positions of waterline sample points for water queries.
+   */
+  private getWorldSamplePoints(): V2d[] {
+    for (let i = 0; i < this.waterlineSamplePoints.length; i++) {
+      const local = this.waterlineSamplePoints[i];
+      const world = this.body.toWorldFrame(local);
+      this.queryPoints[i].set(world.x, world.y);
+    }
+    return this.queryPoints;
   }
 
   @on("render")

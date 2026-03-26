@@ -3,12 +3,14 @@ import { on } from "../../core/entity/handler";
 import { pairs } from "../../core/util/FunctionalUtils";
 import { V, V2d } from "../../core/Vector";
 import {
-  applyFluidForces,
+  computeFluidForces,
+  FluidForceResult,
   foilDrag,
   foilLift,
   KEEL_CHORD,
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
+import type { BuoyantBody } from "./BuoyantBody";
 import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -28,8 +30,15 @@ export class Keel extends BaseEntity {
 
   private keelZ: number;
 
+  // Pre-allocated force result buffer
+  private forceResults: FluidForceResult[] = [
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+  ];
+
   constructor(
     private hull: Hull,
+    private buoyantBody: BuoyantBody,
     config: KeelConfig,
     hullDraft: number,
   ) {
@@ -79,23 +88,32 @@ export class Keel extends BaseEntity {
     };
 
     // Apply keel forces to hull (both directions for symmetry)
+    // Forces applied at keelZ depth so they naturally produce anti-heeling torque
     for (const [start, end] of pairs(this.vertices)) {
-      applyFluidForces(
-        this.hull.body,
-        start,
-        end,
-        lift,
-        drag,
-        getWaterVelocity,
-      );
-      applyFluidForces(
-        this.hull.body,
-        end,
-        start,
-        lift,
-        drag,
-        getWaterVelocity,
-      );
+      for (const reversed of [false, true]) {
+        const a = reversed ? end : start;
+        const b = reversed ? start : end;
+        const count = computeFluidForces(
+          this.hull.body,
+          a,
+          b,
+          lift,
+          drag,
+          getWaterVelocity,
+          this.forceResults,
+        );
+        for (let i = 0; i < count; i++) {
+          const r = this.forceResults[i];
+          this.buoyantBody.applyForce3D(
+            r.fx,
+            r.fy,
+            0,
+            r.localX,
+            r.localY,
+            this.keelZ,
+          );
+        }
+      }
     }
   }
 

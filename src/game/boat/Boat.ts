@@ -1,15 +1,15 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
-import { clamp, polarToVec } from "../../core/util/MathUtil";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
-import { WaterQuery } from "../world/water/WaterQuery";
 import { Anchor } from "./Anchor";
 import { Bilge } from "./Bilge";
 import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
+import { Buoyancy } from "./Buoyancy";
+import { BuoyantBody } from "./BuoyantBody";
 import { HullDamage } from "./HullDamage";
 import { RudderDamage } from "./RudderDamage";
 import { SailDamage } from "./SailDamage";
@@ -44,18 +44,28 @@ export class Boat extends BaseEntity {
 
   readonly config: BoatConfig;
 
-  // Tilt state (radians)
-  roll: number = 0; // positive = heel toward port (+y)
-  pitch: number = 0; // positive = bow up
-  rollVelocity: number = 0;
-  pitchVelocity: number = 0;
+  // 3D vertical physics (z, roll, pitch)
+  buoyantBody!: BuoyantBody;
 
-  // Tilt torque accumulators (reset each tick)
-  private accumulatedRollTorque: number = 0;
-  private accumulatedPitchTorque: number = 0;
-
-  // Water query for wave slope at boat position
-  private waterQuery: WaterQuery;
+  // Convenience accessors for roll/pitch (delegates to buoyantBody)
+  get roll(): number {
+    return this.buoyantBody.roll;
+  }
+  set roll(value: number) {
+    this.buoyantBody.roll = value;
+  }
+  get pitch(): number {
+    return this.buoyantBody.pitch;
+  }
+  set pitch(value: number) {
+    this.buoyantBody.pitch = value;
+  }
+  get rollVelocity(): number {
+    return this.buoyantBody.rollVelocity;
+  }
+  get pitchVelocity(): number {
+    return this.buoyantBody.pitchVelocity;
+  }
 
   // Derived positions (computed from config)
   private bowspritTipPosition: V2d | null;
@@ -87,11 +97,39 @@ export class Boat extends BaseEntity {
     // (boom, sail particles, jib particles) are positioned correctly in world space.
     this.hull.body.position.set(startPosition);
 
+    // Create 3D buoyancy body wrapping the hull's 2D physics body
+    // Wire it to the hull for distributed skin friction
+    const bc = config.buoyancy;
+    this.buoyantBody = new BuoyantBody({
+      body: this.hull.body,
+      verticalMass: bc.verticalMass,
+      rollInertia: bc.rollInertia,
+      pitchInertia: bc.pitchInertia,
+      maxRoll: bc.maxRoll,
+      maxPitch: bc.maxPitch,
+    });
+    this.hull.setBuoyantBody(this.buoyantBody);
+
+    // Create buoyancy entity for multi-point sampling
+    const buoyancyWaterlineVerts =
+      config.hull.waterlineVertices ?? config.hull.vertices;
+    this.addChild(
+      new Buoyancy(
+        this.buoyantBody,
+        this.hull,
+        buoyancyWaterlineVerts,
+        bc.verticalMass, // boat mass = displacement mass
+        bc.centerOfGravityZ,
+      ),
+    );
+
     // Create parts that attach to hull
     this.keel = this.addChild(
-      new Keel(this.hull, config.keel, config.hull.draft),
+      new Keel(this.hull, this.buoyantBody, config.keel, config.hull.draft),
     );
-    this.rudder = this.addChild(new Rudder(this.hull, config.rudder));
+    this.rudder = this.addChild(
+      new Rudder(this.hull, this.buoyantBody, config.rudder),
+    );
     this.rig = this.addChild(new Rig(this.hull, config.rig));
 
     // Wire up tiller rendering (drawn by hull, but follows rudder angle)
@@ -263,16 +301,15 @@ export class Boat extends BaseEntity {
     // Boat sound effects (sheet snaps, boom slams)
     this.addChild(new BoatSoundGenerator(this));
 
-    // Water query for wave slope (used for tilt wave response)
-    this.waterQuery = this.addChild(
-      new WaterQuery(() => [V(this.hull.body.position)]),
-    );
   }
 
-  /** Accumulate tilt torque from external sources (sails, keel, waves, grounding) */
+  /**
+   * Accumulate tilt torque from external sources.
+   * Legacy API — delegates to buoyantBody. Prefer calling
+   * buoyantBody.applyForce3D() or buoyantBody.applyVerticalTorqueFrom() directly.
+   */
   applyTiltTorque(rollTorque: number, pitchTorque: number): void {
-    this.accumulatedRollTorque += rollTorque;
-    this.accumulatedPitchTorque += pitchTorque;
+    this.buoyantBody.applyTorque(rollTorque, pitchTorque);
   }
 
   @on("tick")
@@ -284,12 +321,7 @@ export class Boat extends BaseEntity {
       this.starboardJibSheet.setOpacity(jibOpacity);
     }
 
-    const tilt = this.config.tilt;
-    const hullAngle = this.hull.body.angle;
-
-    // --- Compute tilt torques ---
-
-    // 1. Sail tilt torque: computed per-pin from reaction forces × world-Z heights
+    // Sail heeling torques (vertical torque from forces already applied to 2D body)
     const mainTorque = this.rig.sail.getTiltTorque();
     this.applyTiltTorque(mainTorque.roll, mainTorque.pitch);
 
@@ -298,51 +330,11 @@ export class Boat extends BaseEntity {
       this.applyTiltTorque(jibTorque.roll, jibTorque.pitch);
     }
 
-    // 2. Wave slope torque: water surface normal drives roll and pitch
-    if (this.waterQuery.results.length > 0) {
-      const waterNormal = this.waterQuery.results[0].normal;
-      // Project water normal into boat frame
-      const cosA = Math.cos(hullAngle);
-      const sinA = Math.sin(hullAngle);
-      // Boat-frame x (forward) = world dot forward, boat-frame y (port) = world dot port
-      const normalForward = waterNormal.x * cosA + waterNormal.y * sinA;
-      const normalLateral = -waterNormal.x * sinA + waterNormal.y * cosA;
-      this.applyTiltTorque(
-        normalLateral * tilt.waveRollCoeff,
-        normalForward * tilt.wavePitchCoeff,
-      );
-    }
-
-    // 3. Righting moment (restoring torque from keel weight + buoyancy)
-    const rightingRoll = -tilt.rightingMomentCoeff * Math.sin(this.roll);
-    const rightingPitch = -tilt.pitchRightingCoeff * Math.sin(this.pitch);
-    this.applyTiltTorque(rightingRoll, rightingPitch);
-
-    // --- Integrate tilt ---
-
-    // Damping torque (opposes angular velocity)
-    const dampingRoll = -tilt.rollDamping * this.rollVelocity;
-    const dampingPitch = -tilt.pitchDamping * this.pitchVelocity;
-
-    // Angular acceleration = (torque + damping) / inertia
-    const rollAccel =
-      (this.accumulatedRollTorque + dampingRoll) / tilt.rollInertia;
-    const pitchAccel =
-      (this.accumulatedPitchTorque + dampingPitch) / tilt.pitchInertia;
-
-    // Semi-implicit Euler integration
-    this.rollVelocity += rollAccel * dt;
-    this.pitchVelocity += pitchAccel * dt;
-    this.roll += this.rollVelocity * dt;
-    this.pitch += this.pitchVelocity * dt;
-
-    // Clamp to max angles
-    this.roll = clamp(this.roll, -tilt.maxRoll, tilt.maxRoll);
-    this.pitch = clamp(this.pitch, -tilt.maxPitch, tilt.maxPitch);
-
-    // Reset accumulators
-    this.accumulatedRollTorque = 0;
-    this.accumulatedPitchTorque = 0;
+    // --- Integrate vertical DOFs (z, roll, pitch) ---
+    // Buoyancy and gravity forces are applied by the Buoyancy entity.
+    // Sail, keel, rudder, bilge, grounding forces are applied by their respective entities.
+    this.buoyantBody.integrateVertical(dt);
+    this.buoyantBody.resetVerticalForces();
 
     // Propagate tilt to hull for child entities to read
     this.hull.tiltRoll = this.roll;
@@ -360,8 +352,15 @@ export class Boat extends BaseEntity {
 
   /** Row the boat forward */
   row(): void {
-    this.hull.body.applyForce(
-      polarToVec(this.hull.body.angle, this.config.rowing.force),
+    const angle = this.hull.body.angle;
+    const force = this.config.rowing.force;
+    this.buoyantBody.applyForce3D(
+      Math.cos(angle) * force,
+      Math.sin(angle) * force,
+      0,
+      0,
+      0,
+      0,
     );
   }
 

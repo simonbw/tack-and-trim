@@ -177,6 +177,23 @@ export interface TiltConfig {
   };
 }
 
+export interface BuoyancyConfig {
+  readonly verticalMass: number; // effective mass for z-axis (lbs, ≈ displaced water mass)
+  readonly rollInertia: number; // moment of inertia for roll (lbs·ft²)
+  readonly pitchInertia: number; // moment of inertia for pitch (lbs·ft²)
+  readonly maxRoll: number; // max roll angle (radians)
+  readonly maxPitch: number; // max pitch angle (radians)
+  readonly centerOfGravityZ: number; // z of CG in body-local frame (ft, negative = below waterline)
+  readonly zHeights: {
+    readonly deck: number; // ft above waterline
+    readonly boom: number; // ft above waterline
+    readonly mastTop: number; // ft above waterline
+    readonly keel: number; // ft below waterline (negative)
+    readonly rudder: number; // average depth ft below waterline (negative)
+    readonly bowsprit: number; // ft above waterline
+  };
+}
+
 export interface LifelinesConfig {
   // Stanchion positions along deck edge (boat-local coords)
   readonly portStanchions: ReadonlyArray<readonly [number, number]>;
@@ -212,6 +229,7 @@ export interface BoatConfig {
   readonly rowing: RowingConfig;
   readonly grounding: GroundingConfig;
   readonly tilt: TiltConfig;
+  readonly buoyancy: BuoyancyConfig;
   readonly bilge: BilgeConfig;
   readonly hullDamage: HullDamageConfig;
   readonly rudderDamage: RudderDamageConfig;
