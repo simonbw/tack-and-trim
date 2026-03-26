@@ -1,35 +1,47 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
-import { clamp, stepToward } from "../../core/util/MathUtil";
+import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import { RevoluteConstraint } from "../../core/physics/constraints/RevoluteConstraint";
+import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import {
   computeFluidForces,
   FluidForceResult,
   foilDrag,
   foilLift,
-  RUDDER_CHORD,
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
 import type { BuoyantBody } from "./BuoyantBody";
 import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
+// Rudder body mass — light enough to respond quickly to input,
+// heavy enough for the constraint solver to be stable.
+const RUDDER_MASS = 5; // lbs
+
+// Torque applied by player input to turn the rudder
+const STEER_TORQUE = 8000;
+const STEER_TORQUE_FAST = 20000;
+
+// Angular damping on the rudder body so it doesn't oscillate wildly
+const RUDDER_ANGULAR_DAMPING = 0.98;
+
 export class Rudder extends BaseEntity {
   layer = "boat" as const;
 
-  private steer: number = 0; // -1 to 1 (player input position)
-  private effectiveSteer: number = 0; // -1 to 1 (actual position including damage bias)
+  body: DynamicBody;
+  private rudderConstraint: RevoluteConstraint;
+
   private steerInput: number = 0; // Current steering input from controller
   private fastMode: boolean = false;
   private getSteeringMultiplier: () => number = () => 1;
   private getSteeringBias: () => number = () => 0;
 
-  private position: V2d;
+  private pivotPosition: V2d; // hull-local position of rudder pivot
   private length: number;
+  private chord: number;
   private maxSteerAngle: number;
-  private steerAdjustSpeed: number;
-  private steerAdjustSpeedFast: number;
   private color: number;
   private rudderZ: number;
 
@@ -54,34 +66,59 @@ export class Rudder extends BaseEntity {
   ) {
     super();
 
-    this.position = config.position;
+    this.pivotPosition = config.position;
     this.length = config.length;
+    this.chord = config.chord;
     this.maxSteerAngle = config.maxSteerAngle;
-    this.steerAdjustSpeed = config.steerAdjustSpeed;
-    this.steerAdjustSpeedFast = config.steerAdjustSpeedFast;
     this.color = config.color;
     this.rudderZ = -config.draft;
+
+    // Create a dynamic body for the rudder blade.
+    // The pivot is at the body's origin (0,0 in local space).
+    // The blade extends in the -x direction (aft).
+    const pivotWorld = hull.body.toWorldFrame(config.position);
+    this.body = new DynamicBody({
+      mass: RUDDER_MASS,
+      position: [pivotWorld.x, pivotWorld.y],
+      angularDamping: RUDDER_ANGULAR_DAMPING,
+      allowSleep: false,
+    });
+    this.body.angle = hull.body.angle;
+
+    // Small box shape for the rudder blade
+    this.body.addShape(new Box({ width: config.length, height: 0.4 }), [
+      -config.length / 2,
+      0,
+    ]);
+
+    // Revolute constraint: attach rudder to hull at the pivot point
+    this.rudderConstraint = new RevoluteConstraint(hull.body, this.body, {
+      localPivotA: [config.position.x, config.position.y],
+      localPivotB: [0, 0],
+      collideConnected: false,
+    });
+
+    // Set angle limits so rudder can't spin freely
+    this.rudderConstraint.setLimits(
+      -config.maxSteerAngle,
+      config.maxSteerAngle,
+    );
+
+    this.constraints = [this.rudderConstraint];
   }
 
   /**
    * Get query points in world space for rudder pivot and end.
    */
   private getQueryPoints(): V2d[] {
-    // Calculate rudder end position based on effective steering angle (includes damage bias)
-    const rudderOffset = V(-this.length, 0).irotate(
-      -this.effectiveSteer * this.maxSteerAngle,
-    );
-    const rudderEnd = this.position.add(rudderOffset);
-
-    // Transform both points to world space
-    return [
-      this.hull.body.toWorldFrame(this.position),
-      this.hull.body.toWorldFrame(rudderEnd),
-    ];
+    // Pivot is at the body origin, blade tip is at (-length, 0) in body-local space
+    const pivotWorld = V(this.body.position);
+    const tipWorld = this.body.toWorldFrame(V(-this.length, 0));
+    return [pivotWorld, tipWorld];
   }
 
   /**
-   * Set steering input. The rudder will smoothly adjust toward the target in onTick.
+   * Set steering input. Applies torque to the rudder body.
    * @param input -1 to 1 where negative = steer left, positive = steer right
    * @param fast Whether to use fast adjustment speed
    */
@@ -91,21 +128,19 @@ export class Rudder extends BaseEntity {
   }
 
   getSteer(): number {
-    return this.steer;
+    // Return normalized steer position based on actual rudder angle
+    const relAngle = this.body.angle - this.hull.body.angle;
+    if (this.maxSteerAngle === 0) return 0;
+    return -(relAngle / this.maxSteerAngle);
+  }
+
+  /** Get the actual angle of the rudder relative to the hull */
+  private getRelativeAngle(): number {
+    return this.body.angle - this.hull.body.angle;
   }
 
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]) {
-    // Update steering position based on input
-    if (this.steerInput !== 0) {
-      const target = this.steerInput < 0 ? -1 : 1;
-      const baseSpeed = this.fastMode
-        ? this.steerAdjustSpeedFast
-        : this.steerAdjustSpeed;
-      const speed = Math.abs(this.steerInput) * baseSpeed;
-      this.steer = stepToward(this.steer, target, speed * dt);
-    }
-
     // Build velocity cache from query results
     this.velocityCache.clear();
     const queryPoints = this.getQueryPoints();
@@ -117,19 +152,20 @@ export class Rudder extends BaseEntity {
       }
     }
 
-    // Apply damage bias to effective steer (pulls rudder to one side)
-    this.effectiveSteer = clamp(this.steer + this.getSteeringBias(), -1, 1);
-    const effectiveSteer = this.effectiveSteer;
+    // Apply steering torque from player input
+    // Negative sign: positive steerInput should rotate rudder in -angle direction
+    // (turning the rudder clockwise when viewed from above steers the boat to starboard)
+    const torqueMag = this.fastMode ? STEER_TORQUE_FAST : STEER_TORQUE;
+    const steerTorque = -this.steerInput * torqueMag;
 
-    // Calculate rudder end position based on steering angle
-    const rudderOffset = V(-this.length, 0).irotate(
-      -effectiveSteer * this.maxSteerAngle,
-    );
-    const rudderEnd = this.position.add(rudderOffset);
+    // Apply damage bias as a constant torque pulling rudder to one side
+    const biasTorque = this.getSteeringBias() * torqueMag * 0.5;
+
+    this.body.angularForce += steerTorque + biasTorque;
 
     // Scale rudder effectiveness by heel angle — rudder lifts out at extreme heel
     const heelFactor = Math.cos(this.hull.tiltRoll);
-    const effectiveChord = RUDDER_CHORD * Math.max(0.1, heelFactor);
+    const effectiveChord = this.chord * Math.max(0.1, heelFactor);
 
     // Use proper foil physics with heel-adjusted chord dimension
     // Damage reduces lift (steering authority) but not drag
@@ -145,14 +181,18 @@ export class Rudder extends BaseEntity {
       return this.velocityCache.get(key) ?? V(0, 0);
     };
 
-    // Apply rudder forces to hull (both directions)
-    // Forces applied at rudderZ depth for correct 3D torque
+    // Apply rudder forces to the rudder body (constraint transfers 2D forces to hull).
+    // Also compute 3D vertical torques at rudderZ depth for proper roll/pitch.
+    // v1/v2 are in rudder-body-local coordinates: pivot at origin, tip at (-length, 0).
+    const pivotLocal = V(0, 0);
+    const tipLocal = V(-this.length, 0);
+
     for (const [a, b] of [
-      [this.position, rudderEnd],
-      [rudderEnd, this.position],
+      [pivotLocal, tipLocal],
+      [tipLocal, pivotLocal],
     ] as const) {
       const count = computeFluidForces(
-        this.hull.body,
+        this.body,
         a,
         b,
         lift,
@@ -162,12 +202,19 @@ export class Rudder extends BaseEntity {
       );
       for (let i = 0; i < count; i++) {
         const r = this.forceResults[i];
-        this.buoyantBody.applyForce3D(
+        // Apply 2D force to rudder body (constraint transfers to hull)
+        const relPoint = this.body.vectorToWorldFrame(V(r.localX, r.localY));
+        this.body.applyForce(V(r.fx, r.fy), relPoint);
+        // Apply 3D vertical torques at rudder depth (without double-applying 2D)
+        // Convert application point from rudder-local to hull-local frame
+        const worldPoint = this.body.toWorldFrame(V(r.localX, r.localY));
+        const hullLocal = this.hull.body.toLocalFrame(worldPoint);
+        this.buoyantBody.applyVerticalTorqueFrom(
           r.fx,
           r.fy,
           0,
-          r.localX,
-          r.localY,
+          hullLocal.x,
+          hullLocal.y,
           this.rudderZ,
         );
       }
@@ -176,10 +223,9 @@ export class Rudder extends BaseEntity {
 
   @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
-    const [x, y] = this.hull.body.position;
-    const [rx, ry] = this.position.rotate(this.hull.body.angle).iadd([x, y]);
-    const rudderAngle =
-      this.hull.body.angle - this.effectiveSteer * this.maxSteerAngle;
+    // Use the actual rudder body position and angle for rendering
+    const [rx, ry] = this.body.position;
+    const rudderAngle = this.body.angle;
 
     // Rudder is below waterline — small parallax shift
     const offset = this.hull.tiltTransform.worldOffset(-1);
@@ -197,14 +243,14 @@ export class Rudder extends BaseEntity {
     );
   }
 
-  /** Get rudder position in hull-local coordinates */
+  /** Get rudder pivot position in hull-local coordinates */
   getPosition(): V2d {
-    return this.position;
+    return this.pivotPosition;
   }
 
-  /** Get the current tiller angle offset (same as rudder, they're on the same shaft) */
+  /** Get the current tiller angle offset (actual angle from physics) */
   getTillerAngleOffset(): number {
-    return -this.effectiveSteer * this.maxSteerAngle;
+    return this.getRelativeAngle();
   }
 
   setDamageEffects(

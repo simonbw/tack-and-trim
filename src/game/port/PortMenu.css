@@ -1,4 +1,4 @@
-.main-menu {
+.port-menu {
   position: fixed;
   top: 0;
   left: 0;
@@ -10,48 +10,58 @@
   align-items: center;
   background: radial-gradient(
     ellipse at center,
-    rgba(0, 20, 40, 0.7) 0%,
-    rgba(0, 10, 30, 0.85) 100%
+    rgba(0, 15, 30, 0.65) 0%,
+    rgba(0, 8, 20, 0.8) 100%
   );
   font-family: var(--font-body);
   font-weight: 300;
   color: #e8e4d9;
   text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.8);
   pointer-events: none;
+  animation: port-menu-fade-in 0.4s ease-out;
+  z-index: 800;
 }
 
-.main-menu__title {
+@keyframes port-menu-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.port-menu__title {
   font-family: var(--font-title);
-  font-size: 5.5rem;
+  font-size: 3.5rem;
   font-weight: 400;
   letter-spacing: 0.06em;
   margin-bottom: 0.5rem;
-  text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.8);
 }
 
-.main-menu__subtitle {
-  font-size: 1.2rem;
+.port-menu__subtitle {
+  font-size: 1rem;
   letter-spacing: 0.1em;
-  opacity: 0.6;
+  opacity: 0.5;
   margin-bottom: 2rem;
 }
 
-.main-menu__levels {
+.port-menu__actions {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  min-width: 300px;
+  min-width: 260px;
 }
 
-.main-menu__card {
+.port-menu__button {
   pointer-events: auto;
   cursor: pointer;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
-  padding: 1rem 2rem;
+  padding: 0.8rem 2rem;
   font-family: var(--font-body);
-  font-size: 1.3rem;
+  font-size: 1.2rem;
   font-weight: 400;
   color: #e8e4d9;
   text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.6);
@@ -63,37 +73,24 @@
   text-align: center;
 }
 
-.main-menu__card:hover {
+.port-menu__button:hover {
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.3);
   transform: scale(1.02);
 }
 
-.main-menu__card--selected {
+.port-menu__button--selected {
   background: rgba(180, 160, 120, 0.2);
   border-color: rgba(220, 200, 150, 0.5);
   box-shadow: 0 0 12px rgba(180, 160, 120, 0.15);
 }
 
-.main-menu__card--selected:hover {
+.port-menu__button--selected:hover {
   background: rgba(180, 160, 120, 0.3);
   border-color: rgba(220, 200, 150, 0.6);
 }
 
-.main-menu__section {
-  margin-bottom: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.main-menu__save-name {
-  font-size: 1.2rem;
-  font-weight: 400;
-}
-
-.main-menu__save-details {
-  font-size: 0.85rem;
-  opacity: 0.5;
-  margin-top: 0.25rem;
+.port-menu__button--cast-off {
+  margin-top: 1rem;
+  border-color: rgba(200, 180, 140, 0.3);
 }

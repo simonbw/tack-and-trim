@@ -34,6 +34,11 @@ export class RudderDamage extends BaseEntity {
     return this.health;
   }
 
+  /** Set health directly, clamped to [0, 1]. */
+  setHealth(value: number): void {
+    this.health = clamp(value, 0, 1);
+  }
+
   /** Multiplier for rudder lift forces (1.0 = full authority) */
   getSteeringMultiplier(): number {
     return 1 - this.config.maxSteeringReduction * this.getDamage();

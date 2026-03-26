@@ -22,6 +22,7 @@ import { Rudder } from "./Rudder";
 import { Sail } from "./sail/Sail";
 import { Sheet } from "./Sheet";
 import { Wake } from "./Wake";
+import { Mooring } from "../port/Mooring";
 
 export class Boat extends BaseEntity {
   id = "boat";
@@ -33,6 +34,7 @@ export class Boat extends BaseEntity {
   bowsprit: Bowsprit | null = null;
   jib: Sail | null = null;
   anchor: Anchor;
+  mooring: Mooring;
   bilge: Bilge;
   hullDamage: HullDamage;
   rudderDamage: RudderDamage;
@@ -82,7 +84,11 @@ export class Boat extends BaseEntity {
     return this.hull.body.toWorldFrame.bind(this.hull.body);
   }
 
-  constructor(startPosition: V2d = V(0, 0), config: BoatConfig = StarterBoat) {
+  constructor(
+    startPosition: V2d = V(0, 0),
+    config: BoatConfig = StarterBoat,
+    startRotation: number = 0,
+  ) {
     super();
 
     this.config = config;
@@ -96,6 +102,7 @@ export class Boat extends BaseEntity {
     // Set hull position BEFORE creating sub-entities so that physics bodies
     // (boom, sail particles, jib particles) are positioned correctly in world space.
     this.hull.body.position.set(startPosition);
+    this.hull.body.angle = startRotation;
 
     // Create 3D buoyancy body wrapping the hull's 2D physics body
     // Wire it to the hull for distributed skin friction
@@ -228,8 +235,9 @@ export class Boat extends BaseEntity {
       this.addChild(new Lifelines(this, config.lifelines));
     }
 
-    // Create anchor
+    // Create anchor and mooring
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
+    this.mooring = this.addChild(new Mooring(this));
 
     // Create wake effects — bow wave (dominant) and stern wave (weaker)
     // Use waterline vertices for wake spawn points (where hull meets water)

@@ -1,0 +1,339 @@
+.shipyard {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 12, 25, 0.85) 0%,
+    rgba(0, 6, 16, 0.95) 100%
+  );
+  font-family: var(--font-body);
+  font-weight: 300;
+  color: #e8e4d9;
+  text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: shipyard-fade-in 0.3s ease-out;
+  z-index: 850;
+}
+
+@keyframes shipyard-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.shipyard__panel {
+  width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.shipyard__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1.2rem;
+}
+
+.shipyard__title {
+  font-family: var(--font-title);
+  font-size: 2.5rem;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
+
+.shipyard__money {
+  font-size: 1.1rem;
+  color: #d4b96a;
+  letter-spacing: 0.03em;
+}
+
+/* ============================================
+   Tabs
+   ============================================ */
+
+.shipyard__tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.shipyard__tab {
+  pointer-events: auto;
+  cursor: pointer;
+  flex: 1;
+  padding: 0.6rem 1rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 400;
+  color: rgba(232, 228, 217, 0.5);
+  letter-spacing: 0.05em;
+  text-align: center;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.shipyard__tab:hover {
+  color: rgba(232, 228, 217, 0.8);
+}
+
+.shipyard__tab--active {
+  color: #e8e4d9;
+  border-bottom-color: #d4b96a;
+}
+
+/* ============================================
+   Item List
+   ============================================ */
+
+.shipyard__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  max-height: 50vh;
+  padding-right: 0.25rem;
+}
+
+.shipyard__item {
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.shipyard__item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.shipyard__item--selected {
+  background: rgba(180, 160, 120, 0.15);
+  border-color: rgba(220, 200, 150, 0.4);
+  box-shadow: 0 0 8px rgba(180, 160, 120, 0.1);
+}
+
+.shipyard__item--selected:hover {
+  background: rgba(180, 160, 120, 0.22);
+  border-color: rgba(220, 200, 150, 0.5);
+}
+
+.shipyard__item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.shipyard__item-name {
+  font-size: 1.1rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+.shipyard__item-cost {
+  font-size: 0.95rem;
+  color: #d4b96a;
+}
+
+.shipyard__item-desc {
+  font-size: 0.85rem;
+  opacity: 0.6;
+  line-height: 1.4;
+  margin-bottom: 0.4rem;
+}
+
+/* ============================================
+   Stats Bar
+   ============================================ */
+
+.shipyard__stats {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.3rem;
+}
+
+.shipyard__stat {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.shipyard__stat-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+}
+
+.shipyard__stat-bar {
+  width: 60px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.shipyard__stat-fill {
+  height: 100%;
+  background: #d4b96a;
+  border-radius: 2px;
+  transition: width 0.2s;
+}
+
+/* ============================================
+   Badges
+   ============================================ */
+
+.shipyard__badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.shipyard__badge--owned {
+  background: rgba(100, 180, 100, 0.2);
+  color: #8cd48c;
+  border: 1px solid rgba(100, 180, 100, 0.3);
+}
+
+.shipyard__badge--current {
+  background: rgba(100, 150, 220, 0.2);
+  color: #8cb4e0;
+  border: 1px solid rgba(100, 150, 220, 0.3);
+}
+
+/* ============================================
+   Action Button
+   ============================================ */
+
+.shipyard__action {
+  pointer-events: auto;
+  cursor: pointer;
+  margin-top: 0.4rem;
+  padding: 0.45rem 1.2rem;
+  background: rgba(180, 160, 120, 0.2);
+  border: 1px solid rgba(220, 200, 150, 0.4);
+  border-radius: 6px;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: #e8e4d9;
+  letter-spacing: 0.04em;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.shipyard__action:hover {
+  background: rgba(180, 160, 120, 0.35);
+  border-color: rgba(220, 200, 150, 0.6);
+}
+
+.shipyard__action--disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* ============================================
+   Repair Tab
+   ============================================ */
+
+.shipyard__repair-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.shipyard__repair-item:last-child {
+  border-bottom: none;
+}
+
+.shipyard__repair-label {
+  font-size: 1rem;
+}
+
+.shipyard__repair-bar {
+  width: 120px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0 1rem;
+}
+
+.shipyard__repair-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.shipyard__repair-fill--good {
+  background: #6cc46c;
+}
+
+.shipyard__repair-fill--warn {
+  background: #d4a846;
+}
+
+.shipyard__repair-fill--bad {
+  background: #c46c6c;
+}
+
+.shipyard__repair-pct {
+  font-size: 0.85rem;
+  min-width: 3rem;
+  text-align: right;
+  opacity: 0.7;
+}
+
+.shipyard__repair-all {
+  margin-top: 1rem;
+  width: 100%;
+}
+
+/* ============================================
+   Footer (close hint)
+   ============================================ */
+
+.shipyard__footer {
+  margin-top: 1.2rem;
+  font-size: 0.8rem;
+  opacity: 0.35;
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+.shipyard__empty {
+  text-align: center;
+  opacity: 0.4;
+  padding: 2rem 0;
+  font-size: 0.95rem;
+}

@@ -39,4 +39,40 @@ export type CustomEvents = {
     sail: "main" | "jib";
     source: "overpower" | "jibe";
   };
+
+  /** Fired when the boat is moored to a port */
+  boatMoored: { portId: string; portName: string };
+
+  /** Fired when the boat casts off from a port */
+  boatUnmoored: { portId: string };
+
+  /** Fired when a port is discovered for the first time */
+  portDiscovered: { portId: string; portName: string };
+
+  /** Fired when the player accepts a new mission */
+  missionAccepted: { missionId: string };
+
+  /** Fired when a mission is completed */
+  missionCompleted: {
+    missionId: string;
+    rewards: { money?: number; revealPorts?: string[] };
+  };
+
+  /** Fired to buy a boat */
+  buyBoat: { boatId: string };
+
+  /** Fired to buy an upgrade for a boat */
+  buyUpgrade: { boatId: string; upgradeId: string };
+
+  /** Fired to repair the current boat */
+  repairBoat: {};
+
+  /** Fired to switch to a different owned boat */
+  switchBoat: { boatId: string };
+
+  /** Fired when the shipyard UI opens */
+  openShipyard: {};
+
+  /** Fired when the shipyard UI closes */
+  closeShipyard: {};
 };

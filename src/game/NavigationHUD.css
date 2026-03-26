@@ -217,6 +217,26 @@
   fill: rgba(24, 14, 5, 0.92);
 }
 
+.navigation-hud__map-port {
+  fill: rgba(10, 8, 6, 0.8);
+  stroke: none;
+}
+
+.navigation-hud__map-port--destination {
+  fill: rgba(10, 8, 6, 0.8);
+  stroke: rgba(10, 8, 6, 0.8);
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.navigation-hud__map-port-label {
+  font-family: var(--font-map);
+  font-weight: 700;
+  fill: rgba(32, 21, 8, 0.9);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
 .navigation-hud__map-empty {
   width: 100%;
   height: 100%;
