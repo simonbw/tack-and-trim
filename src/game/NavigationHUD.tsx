@@ -3,6 +3,8 @@ import { on } from "../core/entity/handler";
 import { ReactEntity } from "../core/ReactEntity";
 import type { V2d } from "../core/Vector";
 import { Boat } from "./boat/Boat";
+import { Port } from "./port/Port";
+import { MissionManager } from "./mission/MissionManager";
 import "./NavigationHUD.css";
 import { TerrainResources } from "./world/terrain/TerrainResources";
 
@@ -107,6 +109,7 @@ export class NavigationHUD extends ReactEntity {
                       className="navigation-hud__map-line"
                     />
                   ))}
+                  {this.renderMapMarkers()}
                 </svg>
               ) : (
                 <div className="navigation-hud__map-empty">
@@ -193,6 +196,52 @@ export class NavigationHUD extends ReactEntity {
           W
         </text>
       </svg>
+    );
+  }
+
+  private renderMapMarkers() {
+    const ports = this.game?.entities.getTagged("port") ?? [];
+    const missionManager =
+      this.game?.entities.tryGetSingleton(MissionManager) ?? null;
+    const activeMission = missionManager?.getActiveMission() ?? null;
+    const destinationPortId =
+      activeMission?.def.type === "delivery"
+        ? activeMission.def.destinationPortId
+        : null;
+
+    // Scale marker sizes relative to the map — read viewBox dimensions
+    const vbParts = this.mapViewBox.split(" ").map(Number);
+    const vbSize = Math.max(vbParts[2] ?? 100, vbParts[3] ?? 100);
+    const markerR = vbSize * 0.003;
+    const fontSize = vbSize * 0.022;
+
+    return (
+      <>
+        {[...ports].map((entity) => {
+          const port = entity as Port;
+          const pos = port.getPosition();
+          const isDestination = port.getId() === destinationPortId;
+          return (
+            <g key={port.getId()}>
+              <circle
+                cx={pos.x.toFixed(1)}
+                cy={pos.y.toFixed(1)}
+                r={markerR}
+                className={`navigation-hud__map-port ${isDestination ? "navigation-hud__map-port--destination" : ""}`}
+              />
+              <text
+                x={pos.x.toFixed(1)}
+                y={(pos.y - markerR * 2.2).toFixed(1)}
+                textAnchor="middle"
+                className="navigation-hud__map-port-label"
+                style={{ fontSize: `${fontSize}px` }}
+              >
+                {port.getName()}
+              </text>
+            </g>
+          );
+        })}
+      </>
     );
   }
 

@@ -1,10 +1,13 @@
 import { ReactEntity } from "../core/ReactEntity";
 import { on } from "../core/entity/handler";
 import { KeyCode } from "../core/io/Keys";
+import { SaveManager } from "./persistence/SaveManager";
+import { getMostRecentSave } from "./persistence/SaveStorage";
 import "./GameOverScreen.css";
 
-type GameOverAction = "restart" | "menu";
+type GameOverAction = "loadSave" | "restart" | "menu";
 const ACTIONS: { key: GameOverAction; label: string }[] = [
+  { key: "loadSave", label: "Load Last Save" },
   { key: "restart", label: "Restart Level" },
   { key: "menu", label: "Main Menu" },
 ];
@@ -31,7 +34,19 @@ export class GameOverScreen extends ReactEntity {
   }
 
   private execute(action: GameOverAction) {
-    if (action === "restart") {
+    if (action === "loadSave") {
+      const recentSave = getMostRecentSave();
+      if (recentSave) {
+        const saveManager = this.game.entities.tryGetSingleton(SaveManager);
+        if (saveManager) {
+          saveManager.loadFromSlot(recentSave.slotId);
+          this.destroy();
+          return;
+        }
+      }
+      // Fall through to restart if no save exists
+      this.game.dispatch("restartLevel", {});
+    } else if (action === "restart") {
       this.game.dispatch("restartLevel", {});
     } else {
       this.game.dispatch("returnToMenu", {});

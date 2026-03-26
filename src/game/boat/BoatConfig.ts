@@ -27,6 +27,7 @@ export interface HullConfig {
 export interface KeelConfig {
   readonly vertices: V2d[]; // ft, keel shape (usually a line)
   readonly draft: number; // ft below waterline (tip of keel/centerboard)
+  readonly chord: number; // ft, foil chord (depth) for hydrodynamic calculations
   readonly color: number;
 }
 
@@ -34,6 +35,7 @@ export interface RudderConfig {
   readonly position: V2d; // ft from hull center
   readonly length: number; // ft (span of rudder blade)
   readonly draft: number; // ft below waterline (tip of rudder)
+  readonly chord: number; // ft, foil chord (depth) for hydrodynamic calculations
   readonly maxSteerAngle: number; // radians
   readonly steerAdjustSpeed: number; // rad/sec
   readonly steerAdjustSpeedFast: number; // rad/sec

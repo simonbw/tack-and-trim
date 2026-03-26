@@ -5,12 +5,7 @@ import { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { RevoluteConstraint } from "../../core/physics/constraints/RevoluteConstraint";
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
-import {
-  applyFluidForces,
-  foilDrag,
-  foilLift,
-  RUDDER_CHORD,
-} from "../fluid-dynamics";
+import { applyFluidForces, foilDrag, foilLift } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { RudderConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
@@ -39,6 +34,7 @@ export class Rudder extends BaseEntity {
 
   private pivotPosition: V2d; // hull-local position of rudder pivot
   private length: number;
+  private chord: number;
   private maxSteerAngle: number;
   private color: number;
 
@@ -58,6 +54,7 @@ export class Rudder extends BaseEntity {
 
     this.pivotPosition = config.position;
     this.length = config.length;
+    this.chord = config.chord;
     this.maxSteerAngle = config.maxSteerAngle;
     this.color = config.color;
 
@@ -153,7 +150,7 @@ export class Rudder extends BaseEntity {
 
     // Scale rudder effectiveness by heel angle — rudder lifts out at extreme heel
     const heelFactor = Math.cos(this.hull.tiltRoll);
-    const effectiveChord = RUDDER_CHORD * Math.max(0.1, heelFactor);
+    const effectiveChord = this.chord * Math.max(0.1, heelFactor);
 
     // Use proper foil physics with heel-adjusted chord dimension
     // Damage reduces lift (steering authority) but not drag

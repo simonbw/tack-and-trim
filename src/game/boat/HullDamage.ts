@@ -53,6 +53,12 @@ export class HullDamage extends BaseEntity {
     return this.health;
   }
 
+  /** Set health directly, clamped to [0, 1]. Clears scratch marks. */
+  setHealth(value: number): void {
+    this.health = clamp(value, 0, 1);
+    this.scratches = [];
+  }
+
   /** Effective skin friction multiplier based on damage */
   getSkinFrictionMultiplier(): number {
     return 1 + this.config.damageFrictionMultiplier * this.getDamage();
