@@ -81,94 +81,112 @@ export class Rig extends BaseEntity {
     const hullAngle = this.hull.body.angle;
     const [mx, my] = this.getMastWorldPosition();
     const t = this.hull.tiltTransform;
+    const zOffset = this.hull.getZOffset();
 
-    const mastTopLocal = t.localOffset(20);
     const mastTopWorld = t.worldOffset(20);
 
     // 1. Boom (bottom layer)
-    // Project boom start/end in hull-local 3D through tilt transform
-    // so roll foreshortens the boom's lateral displacement correctly.
+    // Boom has independent rotation from hull, so we keep manual 2D endpoint
+    // computation but use t.worldZ() for the depth value.
     const relAngle = this.body.angle - this.hull.body.angle;
     const boomEndLocalX =
       this.mastPosition.x - this.boomLength * Math.cos(relAngle);
     const boomEndLocalY =
       this.mastPosition.y - this.boomLength * Math.sin(relAngle);
-    const boomStart = t.toWorld(
+    const [boomStartX, boomStartY] = t.toWorld3D(
       this.mastPosition.x,
       this.mastPosition.y,
       this.boomZ,
     );
-    const boomEnd = t.toWorld(boomEndLocalX, boomEndLocalY, this.boomZ);
-    const boomStartX = boomStart.x;
-    const boomStartY = boomStart.y;
-    const boomEndX = boomEnd.x;
-    const boomEndY = boomEnd.y;
+    const [boomEndX, boomEndY] = t.toWorld3D(
+      boomEndLocalX,
+      boomEndLocalY,
+      this.boomZ,
+    );
+    const boomWorldZ = t.worldZ(
+      this.mastPosition.x,
+      this.mastPosition.y,
+      this.boomZ,
+      zOffset,
+    );
     const boomAngle = Math.atan2(boomEndY - boomStartY, boomEndX - boomStartX);
     const boomLen = Math.hypot(boomEndX - boomStartX, boomEndY - boomStartY);
 
     draw.at({ pos: V(boomStartX, boomStartY), angle: boomAngle }, () => {
       draw.fillRect(0, -this.boomWidth / 2, boomLen, this.boomWidth, {
         color: this.boomColor,
-        z: this.boomZ,
+        z: boomWorldZ,
       });
-      draw.fillCircle(boomLen, 0, 0.3, { color: 0x664422, z: this.boomZ });
+      draw.fillCircle(boomLen, 0, 0.3, { color: 0x664422, z: boomWorldZ });
     });
 
     // 2. Standing rigging (above boom)
-    const cr = t.cosRoll;
-    const sr = t.sinRoll;
-    const sp = t.sinPitch;
-    const cp = t.cosPitch;
+    // Use GPU-driven tilt projection: draw.at with tilt context handles
+    // parallax and depth. We draw with body-local coords and z = deckHeight.
     const dz = this.stays.deckHeight;
     const riggingColor = 0x999999;
     const riggingWidth = 0.1;
-    draw.at({ pos: V(hx, hy), angle: hullAngle }, () => {
-      const lmx = this.mastPosition.x;
-      const lmy = this.mastPosition.y;
-      const topLX = lmx + mastTopLocal.x;
-      const topLY = lmy + mastTopLocal.y;
+    draw.at(
+      {
+        pos: V(hx, hy),
+        angle: hullAngle,
+        tilt: { roll: this.hull.tiltRoll, pitch: this.hull.tiltPitch, zOffset },
+      },
+      () => {
+        const lmx = this.mastPosition.x;
+        const lmy = this.mastPosition.y;
 
-      // Project stay attachment points to deck height via R_pitch * R_roll
-      const projectStay = (s: V2d) =>
-        [s.x * cp + s.y * sp * sr - dz * sp * cr, s.y * cr + dz * sr] as const;
+        const fs = this.stays.forestay;
+        const ps = this.stays.portShroud;
+        const ss = this.stays.starboardShroud;
+        const bs = this.stays.backstay;
 
-      const fs = projectStay(this.stays.forestay);
-      const ps = projectStay(this.stays.portShroud);
-      const ss = projectStay(this.stays.starboardShroud);
-      const bs = projectStay(this.stays.backstay);
-
-      draw.line(topLX, topLY, fs[0], fs[1], {
-        color: riggingColor,
-        width: riggingWidth,
-        z: dz,
-      });
-      draw.line(topLX, topLY, ps[0], ps[1], {
-        color: riggingColor,
-        width: riggingWidth,
-        z: dz,
-      });
-      draw.line(topLX, topLY, ss[0], ss[1], {
-        color: riggingColor,
-        width: riggingWidth,
-        z: dz,
-      });
-      draw.line(topLX, topLY, bs[0], bs[1], {
-        color: riggingColor,
-        width: riggingWidth,
-        z: dz,
-      });
-    });
+        draw.line(lmx, lmy, fs.x, fs.y, {
+          color: riggingColor,
+          width: riggingWidth,
+          z: dz,
+        });
+        draw.line(lmx, lmy, ps.x, ps.y, {
+          color: riggingColor,
+          width: riggingWidth,
+          z: dz,
+        });
+        draw.line(lmx, lmy, ss.x, ss.y, {
+          color: riggingColor,
+          width: riggingWidth,
+          z: dz,
+        });
+        draw.line(lmx, lmy, bs.x, bs.y, {
+          color: riggingColor,
+          width: riggingWidth,
+          z: dz,
+        });
+      },
+    );
 
     // 3. Mast (on top of everything)
+    // Use t.worldZ() for depth at mast base and top.
+    const mastBaseZ = t.worldZ(
+      this.mastPosition.x,
+      this.mastPosition.y,
+      0,
+      zOffset,
+    );
+    const mastTopZ = t.worldZ(
+      this.mastPosition.x,
+      this.mastPosition.y,
+      20,
+      zOffset,
+    );
     draw.line(mx, my, mx + mastTopWorld.x, my + mastTopWorld.y, {
       color: this.mastColor,
       width: 0.4,
-      z: 20,
+      z: mastTopZ,
     });
-    draw.fillCircle(mx, my, 0.3, { color: this.mastColor, z: 0 });
+    draw.fillCircle(mx, my, 0.3, { color: this.mastColor, z: mastBaseZ });
     draw.fillCircle(mx + mastTopWorld.x, my + mastTopWorld.y, 0.2, {
       color: this.mastColor,
-      z: 20,
+      z: mastTopZ,
     });
   }
 

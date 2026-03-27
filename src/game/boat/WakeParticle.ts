@@ -15,7 +15,7 @@ const GRAVITY = 32.174; // ft/s^2
 const HULL_SPEED_FROUDE = 1 / Math.sqrt(2 * Math.PI);
 
 // How much of the boat's displacement energy goes into wake wave height.
-const WAVE_HEIGHT_SCALE = 0.25; // dimensionless, tweak for visual strength
+const WAVE_HEIGHT_SCALE = 0.05; // dimensionless, tweak for visual strength
 
 // Ring pulse width — how sharp the ring is in the radial direction.
 const RING_WIDTH = 1.5; // ft

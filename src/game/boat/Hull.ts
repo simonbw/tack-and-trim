@@ -60,8 +60,10 @@ export interface HullMesh {
   /** 3D vertices as [x, y, z] triples. Layout: deck ring, waterline ring, bottom ring. */
   positions: number[]; // length = ringSize * 3 * 3
   ringSize: number;
-  /** Pre-allocated 2D projection buffer for submitTriangles. */
-  projected: [number, number][];
+  /** Body-local XY positions for GPU submission (static, built once). */
+  xyPositions: [number, number][];
+  /** Per-vertex z-heights for GPU depth + parallax (static, built once). */
+  zValues: number[];
   /** Triangle indices for the deck cap polygon. */
   deckIndices: number[];
   /** Triangle indices for the upper side strip (deck → waterline). */
@@ -91,11 +93,14 @@ function buildHullMesh(
     positions.push(v.x, v.y, bottomZ);
   }
 
-  // Pre-allocate projection buffer
+  // Build static XY and Z arrays from 3D positions (GPU handles the rest)
   const totalVerts = ringSize * 3;
-  const projected: [number, number][] = new Array(totalVerts);
+  const xyPositions: [number, number][] = new Array(totalVerts);
+  const zValues: number[] = new Array(totalVerts);
   for (let i = 0; i < totalVerts; i++) {
-    projected[i] = [0, 0];
+    const base = i * 3;
+    xyPositions[i] = [positions[base], positions[base + 1]];
+    zValues[i] = positions[base + 2];
   }
 
   // Triangulate the deck cap using the original (un-projected) vertices.
@@ -125,36 +130,12 @@ function buildHullMesh(
   return {
     positions,
     ringSize,
-    projected,
+    xyPositions,
+    zValues,
     deckIndices,
     upperSideIndices,
     lowerSideIndices,
   };
-}
-
-/**
- * Project all 3D hull vertices to 2D using the current tilt state.
- * Hull-local projection: top two rows of R_pitch * R_roll:
- *   px = x*cosP + y*sinP*sinR - z*sinP*cosR
- *   py = y*cosR + z*sinR
- */
-function projectMesh(
-  mesh: HullMesh,
-  cosR: number,
-  sinR: number,
-  sinP: number,
-  cosP: number,
-): void {
-  const { positions, projected } = mesh;
-  const totalVerts = projected.length;
-  for (let i = 0; i < totalVerts; i++) {
-    const base = i * 3;
-    const x = positions[base];
-    const y = positions[base + 1];
-    const z = positions[base + 2];
-    projected[i][0] = x * cosP + y * sinP * sinR - z * sinP * cosR;
-    projected[i][1] = y * cosR + z * sinR;
-  }
 }
 
 export class Hull extends BaseEntity {
@@ -246,6 +227,11 @@ export class Hull extends BaseEntity {
     this.buoyantBody = bb;
   }
 
+  /** Boat's vertical offset from buoyancy physics (0 if not wired up). */
+  getZOffset(): number {
+    return this.buoyantBody?.z ?? 0;
+  }
+
   @on("tick")
   onTick() {
     const bb = this.buoyantBody;
@@ -302,85 +288,78 @@ export class Hull extends BaseEntity {
   onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
     const t = this.tiltTransform;
-    const cosR = t.cosRoll;
-    const sinR = t.sinRoll;
-    const sinP = t.sinPitch;
-    const cosP = t.cosPitch;
+    const zOffset = this.buoyantBody?.z ?? 0;
 
-    // Project all 3D mesh vertices to 2D
-    projectMesh(this.mesh, cosR, sinR, sinP, cosP);
+    // GPU-driven tilt projection: the model matrix and zCoeffs handle
+    // both 2D parallax and depth buffer writes. Components just submit
+    // body-local (x, y) with z = their 3D height.
+    draw.at(
+      {
+        pos: V(x, y),
+        angle: this.body.angle,
+        tilt: { roll: this.tiltRoll, pitch: this.tiltPitch, zOffset },
+      },
+      () => {
+        const {
+          xyPositions,
+          zValues,
+          deckIndices,
+          upperSideIndices,
+          lowerSideIndices,
+        } = this.mesh;
 
-    draw.at({ pos: V(x, y), angle: this.body.angle }, () => {
-      const { projected, deckIndices, upperSideIndices, lowerSideIndices } =
-        this.mesh;
+        // Draw back-to-front: lower sides → upper sides → deck
+        // Per-vertex z gives each vertex the correct depth + parallax.
 
-      // Draw back-to-front: lower sides → upper sides → deck
-      // Side/bottom faces that peek beyond the deck edge remain visible;
-      // those under the deck get covered.
-      // Set z-height per group for depth testing against water surface.
-      const deckZ = this.mesh.positions[2]; // z of first vertex (deck ring)
-      const bottomZ = this.mesh.positions[this.mesh.ringSize * 2 * 3 + 2]; // z of bottom ring
+        // Lower sides (waterline → bottom) — hull bottom paint color
+        draw.renderer.submitTrianglesWithZ(
+          xyPositions,
+          lowerSideIndices,
+          this.bottomColor,
+          1.0,
+          zValues,
+        );
 
-      // Lower sides (waterline → bottom) — hull bottom paint color
-      draw.renderer.setZ(bottomZ);
-      draw.renderer.submitTriangles(
-        projected,
-        lowerSideIndices,
-        this.bottomColor,
-        1.0,
-      );
+        // Upper sides (deck → waterline) — hull topsides color
+        draw.renderer.submitTrianglesWithZ(
+          xyPositions,
+          upperSideIndices,
+          this.sideColor,
+          1.0,
+          zValues,
+        );
 
-      // Upper sides (deck → waterline) — hull topsides color
-      draw.renderer.setZ(0); // waterline z
-      draw.renderer.submitTriangles(
-        projected,
-        upperSideIndices,
-        this.sideColor,
-        1.0,
-      );
+        // Deck cap — main hull color
+        draw.renderer.submitTrianglesWithZ(
+          xyPositions,
+          deckIndices,
+          this.fillColor,
+          1.0,
+          zValues,
+        );
 
-      // Deck cap — main hull color
-      draw.renderer.setZ(deckZ);
-      draw.renderer.submitTriangles(
-        projected,
-        deckIndices,
-        this.fillColor,
-        1.0,
-      );
-      draw.renderer.setZ(0);
-
-      // Outline: stroke the projected deck polygon (gunwale line)
-      const ringSize = this.mesh.ringSize;
-      draw.strokePolygon(
-        projected.slice(0, ringSize).map((p) => V(p[0], p[1])),
-        {
-          color: this.strokeColor,
-          width: 0.25,
-          z: deckZ,
-        },
-      );
-
-      // Deck details — offset to deck z-height for correct parallax
-      const deckOffX = -sinP * cosR * deckZ;
-      const deckOffY = sinR * deckZ;
-
-      // Tiller (rotates opposite to rudder)
-      if (this.tillerConfig) {
-        const tillerAngle = this.tillerConfig.getTillerAngle();
-        const tillerPos = this.tillerConfig.position;
-        const tillerLength = 3;
-        const tillerWidth = 0.25;
-        const tillerColor = 0x886633;
-
-        draw.at(
+        // Outline: stroke the deck polygon (gunwale line)
+        const ringSize = this.mesh.ringSize;
+        const deckZ = this.mesh.positions[2];
+        draw.strokePolygon(
+          xyPositions.slice(0, ringSize).map((p) => V(p[0], p[1])),
           {
-            pos: V(
-              tillerPos.x * cosP + tillerPos.y * sinP * sinR + deckOffX,
-              tillerPos.y * cosR + deckOffY,
-            ),
-            angle: tillerAngle,
+            color: this.strokeColor,
+            width: 0.25,
+            z: deckZ,
           },
-          () => {
+        );
+
+        // Tiller (rotates opposite to rudder)
+        if (this.tillerConfig) {
+          const tillerAngle = this.tillerConfig.getTillerAngle();
+          const tillerPos = this.tillerConfig.position;
+          const tillerLength = 3;
+          const tillerWidth = 0.25;
+          const tillerColor = 0x886633;
+
+          // Tiller is at deck height — z handles both parallax and depth
+          draw.at({ pos: tillerPos, angle: tillerAngle }, () => {
             draw.fillRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
               color: tillerColor,
               z: deckZ,
@@ -390,10 +369,10 @@ export class Hull extends BaseEntity {
               width: 0.1,
               z: deckZ,
             });
-          },
-        );
-      }
-    });
+          });
+        }
+      },
+    );
   }
 
   /** Data needed by BoatCompositor for hull height rendering. */

@@ -207,11 +207,9 @@ export class Bilge extends BaseEntity {
     if (this.waterVolume < 0.01 && !this.sinking) return;
 
     const [x, y] = this.boat.hull.body.position;
-    const t = this.boat.hull.tiltTransform;
-    const cosR = t.cosRoll;
-    const sinR = t.sinRoll;
-    const sinP = t.sinPitch;
-    const cosP = t.cosPitch;
+    const roll = this.boat.hull.tiltRoll;
+    const pitch = this.boat.hull.tiltPitch;
+    const zOffset = this.boat.hull.getZOffset();
 
     // Water fill level in hull-local z-space
     // At 0 water: water surface is at hull bottom (-draft)
@@ -233,39 +231,32 @@ export class Bilge extends BaseEntity {
       alpha = WATER_ALPHA + (1 - WATER_ALPHA) * sinkFraction;
     }
 
-    draw.at({ pos: V(x, y), angle: this.boat.hull.body.angle }, () => {
-      // Compute water polygon by clipping hull vertices to those below water level
-      const waterPoly = this.computeWaterPolygon(
-        waterZ,
-        sloshTiltScale,
-        cosR,
-        sinR,
-        sinP,
-        cosP,
-      );
+    draw.at(
+      {
+        pos: V(x, y),
+        angle: this.boat.hull.body.angle,
+        tilt: { roll, pitch, zOffset },
+      },
+      () => {
+        // Compute water polygon by clipping hull vertices to those below water level
+        const waterPoly = this.computeWaterPolygon(waterZ, sloshTiltScale);
 
-      if (waterPoly.length >= 3) {
-        draw.fillPolygon(waterPoly, { color: WATER_COLOR, alpha, z: waterZ });
-      }
-    });
+        if (waterPoly.length >= 3) {
+          draw.fillPolygon(waterPoly, { color: WATER_COLOR, alpha, z: waterZ });
+        }
+      },
+    );
   }
 
   /**
-   * Compute the visible water polygon in hull-local 2D projected space.
+   * Compute the visible water polygon in body-local coordinates.
    *
    * For each hull vertex, compute the water z-height at that y-position
-   * (accounting for slosh tilt), then project both the hull vertex and the
-   * water surface to 2D. Vertices below the water line are included directly;
-   * edges crossing the water line are clipped.
+   * (accounting for slosh tilt). Vertices below the water line are included
+   * directly; edges crossing the water line are clipped. Returns body-local
+   * (x, y) positions — the GPU tilt context handles the 3D projection.
    */
-  private computeWaterPolygon(
-    waterZ: number,
-    sloshTilt: number,
-    cosR: number,
-    sinR: number,
-    sinP: number,
-    cosP: number,
-  ): V2d[] {
+  private computeWaterPolygon(waterZ: number, sloshTilt: number): V2d[] {
     const verts = this.hullVertices;
     const n = verts.length;
     const result: V2d[] = [];
@@ -285,22 +276,13 @@ export class Bilge extends BaseEntity {
       const nextBelow = deckZ <= wZNext;
 
       if (currBelow) {
-        // Current vertex is below water — project the hull vertex (at water z)
-        // but clamp the rendering to the water surface height
-        const z = Math.min(wZCurr, deckZ);
-        result.push(
-          V(
-            curr.x * cosP + curr.y * sinP * sinR - z * sinP * cosR,
-            curr.y * cosR + z * sinR,
-          ),
-        );
+        // Current vertex is below water — use body-local position
+        result.push(V(curr.x, curr.y));
       }
 
       // If the edge crosses the water line, compute intersection
       if (currBelow !== nextBelow) {
         // Interpolate: find t where deckZ = waterZ + sloshTilt * lerp(curr.y, next.y, t)
-        // deckZ = waterZ + sloshTilt * (curr.y + t * (next.y - curr.y))
-        // For no slosh: t = (wZCurr - deckZ) / (wZCurr - wZNext) but with deckZ constant:
         const diffCurr = wZCurr - deckZ;
         const diffNext = wZNext - deckZ;
         const denom = diffCurr - diffNext;
@@ -308,13 +290,7 @@ export class Bilge extends BaseEntity {
           const t = diffCurr / denom;
           const ix = curr.x + t * (next.x - curr.x);
           const iy = curr.y + t * (next.y - curr.y);
-          const iz = deckZ; // intersection is at deck level
-          result.push(
-            V(
-              ix * cosP + iy * sinP * sinR - iz * sinP * cosR,
-              iy * cosR + iz * sinR,
-            ),
-          );
+          result.push(V(ix, iy));
         }
       }
     }

@@ -226,9 +226,10 @@ export class Sheet extends BaseEntity {
       );
     }
 
-    // Set z for depth testing — use the average rope height
+    // Set z for depth testing — use worldZ() for proper tilt-aware depth
     const avgZ = (this.zA + this.zB) / 2;
-    draw.renderer.setZ(avgZ);
+    const z = tilt.worldZ(0, 0, avgZ, 0);
+    draw.renderer.setZ(z);
     path.stroke(
       this.config.ropeColor ?? 0x444444,
       this.config.ropeThickness ?? 0.75,

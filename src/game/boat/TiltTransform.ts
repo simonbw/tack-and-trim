@@ -145,4 +145,21 @@ export class TiltTransform {
   localOffset(z: number): V2d {
     return V(-z * this._sinPitch * this._cosRoll, z * this._sinRoll);
   }
+
+  /**
+   * Compute the world Z-height of a body-local 3D point.
+   * This is the third row of the full rotation matrix:
+   *   worldZ = x*sinP - y*sinR*cosP + z*cosR*cosP + zOffset
+   *
+   * Use for depth buffer z-values on components that can't use the
+   * GPU-driven tilt context (e.g., boom with independent rotation).
+   */
+  worldZ(x: number, y: number, z: number, zOffset: number = 0): number {
+    return (
+      x * this._sinPitch -
+      y * this._sinRoll * this._cosPitch +
+      z * this._cosRoll * this._cosPitch +
+      zOffset
+    );
+  }
 }

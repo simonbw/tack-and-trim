@@ -12,8 +12,8 @@ import {
   foilLift,
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
-import type { BuoyantBody } from "./BuoyantBody";
 import { RudderConfig } from "./BoatConfig";
+import type { BuoyantBody } from "./BuoyantBody";
 import { Hull } from "./Hull";
 
 // Rudder body mass — light enough to respond quickly to input,
@@ -21,8 +21,8 @@ import { Hull } from "./Hull";
 const RUDDER_MASS = 5; // lbs
 
 // Torque applied by player input to turn the rudder
-const STEER_TORQUE = 8000;
-const STEER_TORQUE_FAST = 20000;
+const STEER_TORQUE = 2000;
+const STEER_TORQUE_FAST = 10000;
 
 // Angular damping on the rudder body so it doesn't oscillate wildly
 const RUDDER_ANGULAR_DAMPING = 0.98;
@@ -228,12 +228,25 @@ export class Rudder extends BaseEntity {
 
   @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
-    // Use the actual rudder body position and angle for rendering
+    // Use the actual rudder body position and angle for rendering.
+    // The rudder has its own physics body with independent position/angle,
+    // so it can't use the hull's tilt context directly. Instead, use
+    // worldZ() to compute the correct depth from the hull-local pivot.
     const [rx, ry] = this.body.position;
     const rudderAngle = this.body.angle;
+    const tilt = this.hull.tiltTransform;
+    const zOffset = this.hull.getZOffset();
 
-    // Rudder is below waterline — small parallax shift
-    const offset = this.hull.tiltTransform.worldOffset(-1);
+    // Compute world-space depth at the rudder pivot (hull-local coords)
+    const z = tilt.worldZ(
+      this.pivotPosition.x,
+      this.pivotPosition.y,
+      this.rudderZ,
+      zOffset,
+    );
+
+    // Apply tilt parallax offset for 2D position
+    const offset = tilt.worldOffset(this.rudderZ);
 
     // Draw rudder blade (underwater)
     draw.at(
@@ -242,7 +255,7 @@ export class Rudder extends BaseEntity {
         draw.line(0, 0, -this.length, 0, {
           color: this.color,
           width: 0.5,
-          z: -1,
+          z,
         });
       },
     );

@@ -1,5 +1,6 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
+import type { Draw } from "../../core/graphics/Draw";
 import { pairs } from "../../core/util/FunctionalUtils";
 import { V, V2d } from "../../core/Vector";
 import {
@@ -120,24 +121,31 @@ export class Keel extends BaseEntity {
   }
 
   @on("render")
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
+  onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.hull.body.position;
-    const offset = this.hull.tiltTransform.worldOffset(this.keelZ);
+    const zOffset = this.hull.getZOffset();
 
     draw.at(
-      { pos: V(x + offset.x, y + offset.y), angle: this.hull.body.angle },
+      {
+        pos: V(x, y),
+        angle: this.hull.body.angle,
+        tilt: {
+          roll: this.hull.tiltRoll,
+          pitch: this.hull.tiltPitch,
+          zOffset,
+        },
+      },
       () => {
-        // Draw keel as a polyline (open path)
-        const path = draw.path();
-        const first = this.vertices[0];
-        path.moveTo(first.x, first.y);
-        for (let i = 1; i < this.vertices.length; i++) {
-          const v = this.vertices[i];
-          path.lineTo(v.x, v.y);
+        // Draw keel as a polyline (open path) in body-local coords
+        for (let i = 0; i < this.vertices.length - 1; i++) {
+          const a = this.vertices[i];
+          const b = this.vertices[i + 1];
+          draw.line(a.x, a.y, b.x, b.y, {
+            color: this.color,
+            width: 1,
+            z: this.keelZ,
+          });
         }
-        draw.renderer.setZ(this.keelZ);
-        path.stroke(this.color, 1, 1.0);
-        draw.renderer.setZ(0);
       },
     );
   }

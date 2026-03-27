@@ -112,29 +112,28 @@ export class HullDamage extends BaseEntity {
     if (this.scratches.length === 0) return;
 
     const [x, y] = this.boat.hull.body.position;
-    const t = this.boat.hull.tiltTransform;
+    const roll = this.boat.hull.tiltRoll;
+    const pitch = this.boat.hull.tiltPitch;
+    const zOffset = this.boat.hull.getZOffset();
 
-    draw.at({ pos: V(x, y), angle: this.boat.hull.body.angle }, () => {
-      const cp = t.cosPitch;
-      const sp = t.sinPitch;
-      const sr = t.sinRoll;
-      const cr = t.cosRoll;
-      for (const scratch of this.scratches) {
-        const alpha = scratch.severity * 0.7;
-        const sx1 =
-          scratch.x1 * cp + scratch.y1 * sp * sr - scratch.z * sp * cr;
-        const sy1 = scratch.y1 * cr + scratch.z * sr;
-        const sx2 =
-          scratch.x2 * cp + scratch.y2 * sp * sr - scratch.z * sp * cr;
-        const sy2 = scratch.y2 * cr + scratch.z * sr;
-        draw.line(sx1, sy1, sx2, sy2, {
-          color: SCRATCH_COLOR,
-          width: scratch.width,
-          alpha,
-          z: scratch.z,
-        });
-      }
-    });
+    draw.at(
+      {
+        pos: V(x, y),
+        angle: this.boat.hull.body.angle,
+        tilt: { roll, pitch, zOffset },
+      },
+      () => {
+        for (const scratch of this.scratches) {
+          const alpha = scratch.severity * 0.7;
+          draw.line(scratch.x1, scratch.y1, scratch.x2, scratch.y2, {
+            color: SCRATCH_COLOR,
+            width: scratch.width,
+            alpha,
+            z: scratch.z,
+          });
+        }
+      },
+    );
   }
 
   private addScratch(damage: number): void {
