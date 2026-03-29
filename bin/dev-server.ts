@@ -20,6 +20,7 @@ const parcel = spawn(
     String(PARCEL_PORT),
     "src/index.html",
     "src/editor.html",
+    "src/boat-editor.html",
   ],
   {
     stdio: "inherit",

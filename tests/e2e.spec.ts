@@ -35,7 +35,7 @@ test("game initializes, shows main menu, and starts without errors", async ({
   const mainMenu = page.locator(".main-menu");
   await expect(mainMenu).toBeVisible({ timeout: 30000 });
   await expect(mainMenu).toContainText("Tack & Trim");
-  await expect(mainMenu).toContainText("Select a Level");
+  await expect(mainMenu).toContainText("New Game");
 
   // --- Assertion: No errors during initialization ---
   expect(issues).toHaveLength(0);
