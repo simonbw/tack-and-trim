@@ -34,9 +34,9 @@ export class Bowsprit extends BaseEntity {
         pos: V(hx, hy),
         angle: hull.body.angle,
         tilt: {
-          roll: hull.tiltRoll,
-          pitch: hull.tiltPitch,
-          zOffset: hull.getZOffset(),
+          roll: hull.body.roll,
+          pitch: hull.body.pitch,
+          zOffset: hull.body.z,
         },
       },
       () => {

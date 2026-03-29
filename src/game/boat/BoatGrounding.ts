@@ -78,7 +78,7 @@ export class BoatGrounding extends BaseEntity {
     // Skip grounding calculation if not moving
     if (speed < 0.01) return;
 
-    const bb = this.boat.buoyantBody;
+    const hullBody = hull.body;
     const velDir = velocity.normalize();
 
     // Results are ordered: keel vertices, then rudder, then hull center
@@ -99,7 +99,7 @@ export class BoatGrounding extends BaseEntity {
         );
         const keelVertex = this.boat.config.keel.vertices[i];
         // Apply at keel depth — friction at depth naturally produces pitch torque
-        bb.applyForce3D(
+        hullBody.applyForce3D(
           -velDir.x * friction,
           -velDir.y * friction,
           0,
@@ -123,7 +123,7 @@ export class BoatGrounding extends BaseEntity {
         this.config.rudderFriction,
       );
       const rudderPos = this.boat.config.rudder.position;
-      bb.applyForce3D(
+      hullBody.applyForce3D(
         -velDir.x * friction,
         -velDir.y * friction,
         0,
@@ -146,7 +146,7 @@ export class BoatGrounding extends BaseEntity {
         this.config.hullFriction,
       );
       // Apply at hull bottom depth
-      bb.applyForce3D(
+      hullBody.applyForce3D(
         -velDir.x * friction,
         -velDir.y * friction,
         0,

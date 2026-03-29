@@ -1,14 +1,21 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
-import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import {
+  DynamicBody,
+  type SixDOFOptions,
+} from "../../core/physics/body/DynamicBody";
 import { Convex } from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { earClipTriangulate } from "../../core/util/Triangulate";
 import { V, V2d } from "../../core/Vector";
-import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
+import {
+  computeFluidForces,
+  computeSkinFrictionAtPoint,
+  flatPlateDrag,
+  type FluidForceResult,
+} from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
-import type { BuoyantBody } from "./BuoyantBody";
 import { HullConfig } from "./BoatConfig";
 import { TiltTransform } from "./TiltTransform";
 
@@ -154,14 +161,15 @@ export class Hull extends BaseEntity {
   // Distributed skin friction: waterline sample points and per-point area
   private waterlineSamplePoints: V2d[];
   private areaPerPoint: number;
-  private buoyantBody: BuoyantBody | null = null;
-
-  /** Tilt state updated by Boat each tick. Used by child entities for physics effects. */
-  tiltRoll: number = 0;
-  tiltPitch: number = 0;
-
+  private draft: number;
   /** 3D→2D transform updated by Boat each tick. Used by child entities for rendering. */
   readonly tiltTransform = new TiltTransform();
+
+  // Pre-allocated buffer for edge form drag results
+  private formDragResults: FluidForceResult[] = [
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+  ];
 
   // Water query for distributed skin friction (multi-point at waterline vertices)
   private waterQuery: WaterQuery;
@@ -169,7 +177,7 @@ export class Hull extends BaseEntity {
   // Pre-allocated query points
   private queryPoints: V2d[];
 
-  constructor(config: HullConfig) {
+  constructor(config: HullConfig, sixDOF?: SixDOFOptions) {
     super();
 
     // Use waterline vertices for wetted area (skin friction), fall back to hull vertices
@@ -177,6 +185,7 @@ export class Hull extends BaseEntity {
     this.waterlineSamplePoints = waterlineVerts.map((v) => V(v.x, v.y));
     const totalArea = polygonArea(waterlineVerts);
     this.areaPerPoint = totalArea / waterlineVerts.length;
+    this.draft = config.draft;
 
     // Pre-allocate query point array
     this.queryPoints = this.waterlineSamplePoints.map(() => V(0, 0));
@@ -195,6 +204,7 @@ export class Hull extends BaseEntity {
 
     this.body = new DynamicBody({
       mass: config.mass,
+      sixDOF,
     });
 
     this.body.addShape(
@@ -220,21 +230,8 @@ export class Hull extends BaseEntity {
     );
   }
 
-  /**
-   * Set the BuoyantBody for 3D force application. Called by Boat after construction.
-   */
-  setBuoyantBody(bb: BuoyantBody): void {
-    this.buoyantBody = bb;
-  }
-
-  /** Boat's vertical offset from buoyancy physics (0 if not wired up). */
-  getZOffset(): number {
-    return this.buoyantBody?.z ?? 0;
-  }
-
   @on("tick")
   onTick() {
-    const bb = this.buoyantBody;
     const cf = this.skinFrictionCoefficient * this.getDamageMultiplier();
 
     // Apply distributed 3D skin friction at each waterline sample point
@@ -250,9 +247,8 @@ export class Hull extends BaseEntity {
       //   dz/dt = x * pitchVelocity - y * rollVelocity
       // Positive roll (port down) → port points (y>0) move down (negative dz/dt).
       // Positive pitch (bow up) → bow points (x>0) move up (positive dz/dt).
-      const pointZVelocity = bb
-        ? local.x * bb.pitchVelocity - local.y * bb.rollVelocity
-        : 0;
+      const pointZVelocity =
+        local.x * this.body.pitchVelocity - local.y * this.body.rollVelocity;
 
       const force = computeSkinFrictionAtPoint(
         this.body,
@@ -263,11 +259,67 @@ export class Hull extends BaseEntity {
         pointZVelocity,
       );
 
-      if (force && bb) {
-        bb.applyForce3D(force.fx, force.fy, force.fz, local.x, local.y, 0);
-      } else if (force) {
-        // Fallback: apply 2D only (shouldn't happen if properly wired)
-        this.body.applyForce(V(force.fx, force.fy));
+      if (force) {
+        this.body.applyForce3D(
+          force.fx,
+          force.fy,
+          force.fz,
+          local.x,
+          local.y,
+          0,
+        );
+      }
+    }
+
+    // Apply form drag on hull waterline edges.
+    // When the hull rotates or moves sideways, the broadside of the hull
+    // pushes through water, creating pressure drag much larger than skin friction.
+    // This is the dominant yaw resistance mechanism.
+    const drag = flatPlateDrag(this.draft);
+    const noLift = () => 0;
+    const getWaterVelocity = (worldPoint: V2d) => {
+      // Find nearest waterline sample point for water velocity
+      let bestDist = Infinity;
+      let bestIdx = 0;
+      for (let j = 0; j < this.queryPoints.length; j++) {
+        const qp = this.queryPoints[j];
+        const dx = worldPoint.x - qp.x;
+        const dy = worldPoint.y - qp.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestDist) {
+          bestDist = d2;
+          bestIdx = j;
+        }
+      }
+      if (bestIdx < this.waterQuery.length) {
+        return this.waterQuery.get(bestIdx).velocity;
+      }
+      return V(0, 0);
+    };
+
+    const pts = this.waterlineSamplePoints;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+
+      // Both edge directions to handle flow from either side
+      for (const [start, end] of [
+        [a, b],
+        [b, a],
+      ] as const) {
+        const count = computeFluidForces(
+          this.body,
+          start,
+          end,
+          noLift,
+          drag,
+          getWaterVelocity,
+          this.formDragResults,
+        );
+        for (let j = 0; j < count; j++) {
+          const r = this.formDragResults[j];
+          this.body.applyForce3D(r.fx, r.fy, 0, r.localX, r.localY, 0);
+        }
       }
     }
   }
@@ -288,7 +340,7 @@ export class Hull extends BaseEntity {
   onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
     const t = this.tiltTransform;
-    const zOffset = this.buoyantBody?.z ?? 0;
+    const zOffset = this.body.z;
 
     // GPU-driven tilt projection: the model matrix and zCoeffs handle
     // both 2D parallax and depth buffer writes. Components just submit
@@ -297,7 +349,7 @@ export class Hull extends BaseEntity {
       {
         pos: V(x, y),
         angle: this.body.angle,
-        tilt: { roll: this.tiltRoll, pitch: this.tiltPitch, zOffset },
+        tilt: { roll: this.body.roll, pitch: this.body.pitch, zOffset },
       },
       () => {
         const {

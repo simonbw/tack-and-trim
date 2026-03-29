@@ -11,7 +11,6 @@ import {
   KEEL_CHORD,
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
-import type { BuoyantBody } from "./BuoyantBody";
 import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -40,7 +39,6 @@ export class Keel extends BaseEntity {
 
   constructor(
     private hull: Hull,
-    private buoyantBody: BuoyantBody,
     config: KeelConfig,
     hullDraft: number,
   ) {
@@ -77,7 +75,7 @@ export class Keel extends BaseEntity {
     }
 
     // Scale keel effectiveness by heel angle — keel loses lateral resistance at extreme heel
-    const heelFactor = Math.cos(this.hull.tiltRoll);
+    const heelFactor = Math.cos(this.hull.body.roll);
     const effectiveChord = this.chord * Math.max(0.1, heelFactor);
 
     // Use proper foil physics with heel-adjusted chord dimension
@@ -107,7 +105,7 @@ export class Keel extends BaseEntity {
         );
         for (let i = 0; i < count; i++) {
           const r = this.forceResults[i];
-          this.buoyantBody.applyForce3D(
+          this.hull.body.applyForce3D(
             r.fx,
             r.fy,
             0,
@@ -123,15 +121,15 @@ export class Keel extends BaseEntity {
   @on("render")
   onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.hull.body.position;
-    const zOffset = this.hull.getZOffset();
+    const zOffset = this.hull.body.z;
 
     draw.at(
       {
         pos: V(x, y),
         angle: this.hull.body.angle,
         tilt: {
-          roll: this.hull.tiltRoll,
-          pitch: this.hull.tiltPitch,
+          roll: this.hull.body.roll,
+          pitch: this.hull.body.pitch,
           zOffset,
         },
       },

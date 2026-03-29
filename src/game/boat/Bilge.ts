@@ -155,16 +155,16 @@ export class Bilge extends BaseEntity {
 
     // --- Water mass effects ---
     const waterMass = this.waterVolume * this.config.waterDensity;
-    const bb = this.boat.buoyantBody;
+    const body = this.boat.hull.body;
 
     if (waterMass > 0) {
       // Added drag: water weight makes the boat sluggish
-      const velocity = this.boat.hull.body.velocity;
+      const velocity = body.velocity;
       const speed = velocity.magnitude;
       if (speed > 0.01) {
         const dragMagnitude = WATER_DRAG_COEFF * waterMass * speed;
         const norm = velocity.normalize();
-        bb.applyForce3D(
+        body.applyForce3D(
           -norm.x * dragMagnitude,
           -norm.y * dragMagnitude,
           0,
@@ -198,7 +198,7 @@ export class Bilge extends BaseEntity {
       const deckHeight = this.boat.config.hull.deckHeight;
       const waterCgZ = -draft + (draft + deckHeight) * waterFraction * 0.5;
       const waterCgY = this.sloshOffset * this.config.halfBeam;
-      bb.applyForce3D(0, 0, -waterMass * GRAVITY, 0, waterCgY, waterCgZ);
+      body.applyForce3D(0, 0, -waterMass * GRAVITY, 0, waterCgY, waterCgZ);
     }
   }
 
@@ -207,9 +207,9 @@ export class Bilge extends BaseEntity {
     if (this.waterVolume < 0.01 && !this.sinking) return;
 
     const [x, y] = this.boat.hull.body.position;
-    const roll = this.boat.hull.tiltRoll;
-    const pitch = this.boat.hull.tiltPitch;
-    const zOffset = this.boat.hull.getZOffset();
+    const roll = this.boat.hull.body.roll;
+    const pitch = this.boat.hull.body.pitch;
+    const zOffset = this.boat.hull.body.z;
 
     // Water fill level in hull-local z-space
     // At 0 water: water surface is at hull bottom (-draft)

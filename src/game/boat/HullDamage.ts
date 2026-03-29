@@ -112,9 +112,9 @@ export class HullDamage extends BaseEntity {
     if (this.scratches.length === 0) return;
 
     const [x, y] = this.boat.hull.body.position;
-    const roll = this.boat.hull.tiltRoll;
-    const pitch = this.boat.hull.tiltPitch;
-    const zOffset = this.boat.hull.getZOffset();
+    const roll = this.boat.hull.body.roll;
+    const pitch = this.boat.hull.body.pitch;
+    const zOffset = this.boat.hull.body.z;
 
     draw.at(
       {

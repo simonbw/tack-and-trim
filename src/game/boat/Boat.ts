@@ -9,7 +9,6 @@ import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
 import { Buoyancy } from "./Buoyancy";
-import { BuoyantBody } from "./BuoyantBody";
 import { HullDamage } from "./HullDamage";
 import { RudderDamage } from "./RudderDamage";
 import { SailDamage } from "./SailDamage";
@@ -46,27 +45,18 @@ export class Boat extends BaseEntity {
 
   readonly config: BoatConfig;
 
-  // 3D vertical physics (z, roll, pitch)
-  buoyantBody!: BuoyantBody;
-
-  // Convenience accessors for roll/pitch (delegates to buoyantBody)
+  // Convenience accessors for roll/pitch (delegates to hull body's 6DOF state)
   get roll(): number {
-    return this.buoyantBody.roll;
-  }
-  set roll(value: number) {
-    this.buoyantBody.roll = value;
+    return this.hull.body.roll;
   }
   get pitch(): number {
-    return this.buoyantBody.pitch;
-  }
-  set pitch(value: number) {
-    this.buoyantBody.pitch = value;
+    return this.hull.body.pitch;
   }
   get rollVelocity(): number {
-    return this.buoyantBody.rollVelocity;
+    return this.hull.body.rollVelocity;
   }
   get pitchVelocity(): number {
-    return this.buoyantBody.pitchVelocity;
+    return this.hull.body.pitchVelocity;
   }
 
   // Derived positions (computed from config)
@@ -97,32 +87,25 @@ export class Boat extends BaseEntity {
     this.bowspritTipPosition = config.bowsprit
       ? config.bowsprit.attachPoint.add([config.bowsprit.size.x, 0])
       : null;
-    // Create hull first - everything attaches to it
-    this.hull = this.addChild(new Hull(config.hull));
+    // Create hull first with 6DOF physics (z, roll, pitch integrated by engine)
+    const bc = config.buoyancy;
+    this.hull = this.addChild(
+      new Hull(config.hull, {
+        rollInertia: bc.rollInertia,
+        pitchInertia: bc.pitchInertia,
+        zMass: bc.verticalMass,
+      }),
+    );
     // Set hull position BEFORE creating sub-entities so that physics bodies
     // (boom, sail particles, jib particles) are positioned correctly in world space.
     this.hull.body.position.set(startPosition);
     this.hull.body.angle = startRotation;
-
-    // Create 3D buoyancy body wrapping the hull's 2D physics body
-    // Wire it to the hull for distributed skin friction
-    const bc = config.buoyancy;
-    this.buoyantBody = new BuoyantBody({
-      body: this.hull.body,
-      verticalMass: bc.verticalMass,
-      rollInertia: bc.rollInertia,
-      pitchInertia: bc.pitchInertia,
-      maxRoll: bc.maxRoll,
-      maxPitch: bc.maxPitch,
-    });
-    this.hull.setBuoyantBody(this.buoyantBody);
 
     // Create buoyancy entity for multi-point sampling
     const buoyancyWaterlineVerts =
       config.hull.waterlineVertices ?? config.hull.vertices;
     this.addChild(
       new Buoyancy(
-        this.buoyantBody,
         this.hull,
         buoyancyWaterlineVerts,
         bc.verticalMass, // boat mass = displacement mass
@@ -132,11 +115,9 @@ export class Boat extends BaseEntity {
 
     // Create parts that attach to hull
     this.keel = this.addChild(
-      new Keel(this.hull, this.buoyantBody, config.keel, config.hull.draft),
+      new Keel(this.hull, config.keel, config.hull.draft),
     );
-    this.rudder = this.addChild(
-      new Rudder(this.hull, this.buoyantBody, config.rudder),
-    );
+    this.rudder = this.addChild(new Rudder(this.hull, config.rudder));
     this.rig = this.addChild(new Rig(this.hull, config.rig));
 
     // Wire up tiller rendering (drawn by hull, but follows rudder angle)
@@ -308,16 +289,6 @@ export class Boat extends BaseEntity {
 
     // Boat sound effects (sheet snaps, boom slams)
     this.addChild(new BoatSoundGenerator(this));
-
-  }
-
-  /**
-   * Accumulate tilt torque from external sources.
-   * Legacy API — delegates to buoyantBody. Prefer calling
-   * buoyantBody.applyForce3D() or buoyantBody.applyVerticalTorqueFrom() directly.
-   */
-  applyTiltTorque(rollTorque: number, pitchTorque: number): void {
-    this.buoyantBody.applyTorque(rollTorque, pitchTorque);
   }
 
   @on("tick")
@@ -329,30 +300,11 @@ export class Boat extends BaseEntity {
       this.starboardJibSheet.setOpacity(jibOpacity);
     }
 
-    // Sail heeling torques (vertical torque from forces already applied to 2D body)
-    const mainTorque = this.rig.sail.getTiltTorque();
-    this.applyTiltTorque(mainTorque.roll, mainTorque.pitch);
-
-    if (this.jib) {
-      const jibTorque = this.jib.getTiltTorque();
-      this.applyTiltTorque(jibTorque.roll, jibTorque.pitch);
-    }
-
-    // --- Integrate vertical DOFs (z, roll, pitch) ---
-    // Buoyancy and gravity forces are applied by the Buoyancy entity.
-    // Sail, keel, rudder, bilge, grounding forces are applied by their respective entities.
-    this.buoyantBody.integrateVertical(dt);
-    this.buoyantBody.resetVerticalForces();
-
-    // Propagate tilt to hull for child entities to read
-    this.hull.tiltRoll = this.roll;
-    this.hull.tiltPitch = this.pitch;
-
+    // Update TiltTransform from the hull body's 6DOF rotation matrix.
+    // The physics engine now integrates z, roll, pitch automatically.
     const [hx, hy] = this.hull.body.position;
-    this.hull.tiltTransform.update(
-      this.roll,
-      this.pitch,
-      this.hull.body.angle,
+    this.hull.tiltTransform.updateFromRotationMatrix(
+      this.hull.body.orientation,
       hx,
       hy,
     );
@@ -362,7 +314,7 @@ export class Boat extends BaseEntity {
   row(): void {
     const angle = this.hull.body.angle;
     const force = this.config.rowing.force;
-    this.buoyantBody.applyForce3D(
+    this.hull.body.applyForce3D(
       Math.cos(angle) * force,
       Math.sin(angle) * force,
       0,

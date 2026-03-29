@@ -13,7 +13,6 @@ import {
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { RudderConfig } from "./BoatConfig";
-import type { BuoyantBody } from "./BuoyantBody";
 import { Hull } from "./Hull";
 
 // Rudder body mass — light enough to respond quickly to input,
@@ -61,7 +60,6 @@ export class Rudder extends BaseEntity {
 
   constructor(
     private hull: Hull,
-    private buoyantBody: BuoyantBody,
     config: RudderConfig,
   ) {
     super();
@@ -91,10 +89,13 @@ export class Rudder extends BaseEntity {
       0,
     ]);
 
-    // Revolute constraint: attach rudder to hull at the pivot point
+    // Revolute constraint: attach rudder to hull at the pivot point.
+    // localPivotZA sets the z-height so constraint reactions automatically
+    // generate roll/pitch torques via 3D cross products in the solver.
     this.rudderConstraint = new RevoluteConstraint(hull.body, this.body, {
       localPivotA: [config.position.x, config.position.y],
       localPivotB: [0, 0],
+      localPivotZA: this.rudderZ,
       collideConnected: false,
     });
 
@@ -169,7 +170,7 @@ export class Rudder extends BaseEntity {
     this.hull.body.angularForce -= totalSteerTorque;
 
     // Scale rudder effectiveness by heel angle — rudder lifts out at extreme heel
-    const heelFactor = Math.cos(this.hull.tiltRoll);
+    const heelFactor = Math.cos(this.hull.body.roll);
     const effectiveChord = this.chord * Math.max(0.1, heelFactor);
 
     // Use proper foil physics with heel-adjusted chord dimension
@@ -186,8 +187,8 @@ export class Rudder extends BaseEntity {
       return this.velocityCache.get(key) ?? V(0, 0);
     };
 
-    // Apply rudder forces to the rudder body (constraint transfers 2D forces to hull).
-    // Also compute 3D vertical torques at rudderZ depth for proper roll/pitch.
+    // Apply rudder forces to the rudder body. The revolute constraint (with
+    // localPivotZA) transfers these to the hull with correct roll/pitch torques.
     // v1/v2 are in rudder-body-local coordinates: pivot at origin, tip at (-length, 0).
     const pivotLocal = V(0, 0);
     const tipLocal = V(-this.length, 0);
@@ -207,21 +208,9 @@ export class Rudder extends BaseEntity {
       );
       for (let i = 0; i < count; i++) {
         const r = this.forceResults[i];
-        // Apply 2D force to rudder body (constraint transfers to hull)
+        // Apply 2D force to rudder body (constraint transfers to hull with roll/pitch)
         const relPoint = this.body.vectorToWorldFrame(V(r.localX, r.localY));
         this.body.applyForce(V(r.fx, r.fy), relPoint);
-        // Apply 3D vertical torques at rudder depth (without double-applying 2D)
-        // Convert application point from rudder-local to hull-local frame
-        const worldPoint = this.body.toWorldFrame(V(r.localX, r.localY));
-        const hullLocal = this.hull.body.toLocalFrame(worldPoint);
-        this.buoyantBody.applyVerticalTorqueFrom(
-          r.fx,
-          r.fy,
-          0,
-          hullLocal.x,
-          hullLocal.y,
-          this.rudderZ,
-        );
       }
     }
   }
@@ -235,7 +224,7 @@ export class Rudder extends BaseEntity {
     const [rx, ry] = this.body.position;
     const rudderAngle = this.body.angle;
     const tilt = this.hull.tiltTransform;
-    const zOffset = this.hull.getZOffset();
+    const zOffset = this.hull.body.z;
 
     // Compute world-space depth at the rudder pivot (hull-local coords)
     const z = tilt.worldZ(

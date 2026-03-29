@@ -52,10 +52,13 @@ export class Rig extends BaseEntity {
       0,
     ]);
 
-    // Constraint connecting boom to hull at mast position
+    // Constraint connecting boom to hull at mast position.
+    // localPivotZA sets the z-height so constraint reactions automatically
+    // generate roll/pitch torques via 3D cross products in the solver.
     this.boomConstraint = new RevoluteConstraint(hull.body, this.body, {
       localPivotA: [mastPosition.x, mastPosition.y],
       localPivotB: [0, 0],
+      localPivotZA: this.boomZ,
       collideConnected: false,
     });
 
@@ -81,7 +84,7 @@ export class Rig extends BaseEntity {
     const hullAngle = this.hull.body.angle;
     const [mx, my] = this.getMastWorldPosition();
     const t = this.hull.tiltTransform;
-    const zOffset = this.hull.getZOffset();
+    const zOffset = this.hull.body.z;
 
     const mastTopWorld = t.worldOffset(20);
 
@@ -130,7 +133,11 @@ export class Rig extends BaseEntity {
       {
         pos: V(hx, hy),
         angle: hullAngle,
-        tilt: { roll: this.hull.tiltRoll, pitch: this.hull.tiltPitch, zOffset },
+        tilt: {
+          roll: this.hull.body.roll,
+          pitch: this.hull.body.pitch,
+          zOffset,
+        },
       },
       () => {
         const lmx = this.mastPosition.x;

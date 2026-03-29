@@ -65,7 +65,7 @@ export class TiltTransform {
     return this._sinAngle;
   }
 
-  /** Recompute the matrix. Called once per tick by Boat. */
+  /** Recompute the matrix from Euler angles. Called once per tick by Boat. */
   update(
     roll: number,
     pitch: number,
@@ -94,6 +94,40 @@ export class TiltTransform {
     this._cosPitch = cp;
     this._cosAngle = ca;
     this._sinAngle = sa;
+  }
+
+  /**
+   * Recompute from a 3x3 rotation matrix (row-major, from DynamicBody.orientation).
+   * The top two rows of the rotation matrix are exactly the 2×3 projection matrix.
+   * The third row gives the worldZ coefficients.
+   */
+  updateFromRotationMatrix(R: Float64Array, hx: number, hy: number): void {
+    // Top two rows = 2D projection matrix
+    this.m00 = R[0];
+    this.m01 = R[1];
+    this.m02 = R[2];
+    this.m10 = R[3];
+    this.m11 = R[4];
+    this.m12 = R[5];
+    this.tx = hx;
+    this.ty = hy;
+
+    // Extract trig values from the rotation matrix for cached accessors.
+    // Third row: [sinP, -sinR*cosP, cosR*cosP]
+    const sinP = R[6];
+    const cosP = Math.sqrt(R[0] * R[0] + R[3] * R[3]);
+    const sinR = cosP > 1e-6 ? -R[7] / cosP : 0;
+    const cosR = cosP > 1e-6 ? R[8] / cosP : 1;
+    // First column: [cosA*cosP, sinA*cosP, sinP]
+    const cosA = cosP > 1e-6 ? R[0] / cosP : 1;
+    const sinA = cosP > 1e-6 ? R[3] / cosP : 0;
+
+    this._sinRoll = sinR;
+    this._sinPitch = sinP;
+    this._cosRoll = cosR;
+    this._cosPitch = cosP;
+    this._cosAngle = cosA;
+    this._sinAngle = sinA;
   }
 
   /** Transform a boat-local 3D point (x, y, z) to world 2D. */

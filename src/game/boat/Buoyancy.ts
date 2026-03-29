@@ -4,7 +4,6 @@ import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { V, V2d } from "../../core/Vector";
 import { RHO_WATER } from "../physics-constants";
 import { WaterQuery } from "../world/water/WaterQuery";
-import type { BuoyantBody } from "./BuoyantBody";
 import type { Hull } from "./Hull";
 
 // Engine uses mass in lbm and F=m*a, so force is lbm·ft/s².
@@ -34,7 +33,6 @@ export class Buoyancy extends BaseEntity {
   // Center of gravity z-offset (body-local, negative = below waterline)
   private readonly centerOfGravityZ: number;
 
-  private readonly buoyantBody: BuoyantBody;
   private readonly hull: Hull;
 
   // Water query for all sample points
@@ -44,7 +42,6 @@ export class Buoyancy extends BaseEntity {
   private readonly queryPoints: V2d[];
 
   constructor(
-    buoyantBody: BuoyantBody,
     hull: Hull,
     waterlineVertices: ReadonlyArray<V2d>,
     boatMass: number,
@@ -52,7 +49,6 @@ export class Buoyancy extends BaseEntity {
   ) {
     super();
 
-    this.buoyantBody = buoyantBody;
     this.hull = hull;
     this.boatMass = boatMass;
     this.centerOfGravityZ = centerOfGravityZ;
@@ -87,11 +83,18 @@ export class Buoyancy extends BaseEntity {
 
   @on("tick")
   onTick() {
-    const bb = this.buoyantBody;
+    const body = this.hull.body;
     const tilt = this.hull.tiltTransform;
 
     // Apply gravity at center of gravity
-    bb.applyForce3D(0, 0, -this.boatMass * GRAVITY, 0, 0, this.centerOfGravityZ);
+    body.applyForce3D(
+      0,
+      0,
+      -this.boatMass * GRAVITY,
+      0,
+      0,
+      this.centerOfGravityZ,
+    );
 
     // Apply buoyancy at each sample point
     for (let i = 0; i < this.samplePoints.length; i++) {
@@ -105,14 +108,15 @@ export class Buoyancy extends BaseEntity {
       const worldZ = tilt.toWorld3D(local.x, local.y, 0)[2];
 
       // How far below the water surface is this point?
-      const submersion = result.surfaceHeight - worldZ - bb.z;
+      const submersion = result.surfaceHeight - worldZ - body.z;
       if (submersion <= 0) continue; // Above water — no buoyancy
 
       // Upward buoyancy force proportional to submersion depth
-      const force = BUOYANCY_FORCE_PER_DEPTH_PER_AREA * submersion * this.areaPerPoint;
+      const force =
+        BUOYANCY_FORCE_PER_DEPTH_PER_AREA * submersion * this.areaPerPoint;
 
       // Apply at the body-local position of this sample point (z=0, waterline)
-      bb.applyForce3D(0, 0, force, local.x, local.y, 0);
+      body.applyForce3D(0, 0, force, local.x, local.y, 0);
     }
   }
 }

@@ -110,15 +110,6 @@ export class Sail extends BaseEntity {
   // Wind query for aerodynamic forces
   private windQuery: WindQuery;
 
-  // Tilt torque from sail forces × pin world-Z heights
-  private _rollTorque = 0;
-  private _pitchTorque = 0;
-
-  // Cached tilt-dependent pin world-Z heights from last reaction force read
-  private lastTackZ = 0;
-  private lastHeadWZ = 0;
-  private lastClewWorldZ = 0;
-
   private config: SailParams & SailConfig;
 
   // Cached geometry for mapping UV to world
@@ -364,11 +355,6 @@ export class Sail extends BaseEntity {
     this.targetHoistAmount = hoisted ? 1 : 0;
   }
 
-  /** Get tilt torque from sail pin reaction forces × world-Z heights */
-  getTiltTorque(): { roll: number; pitch: number } {
-    return { roll: this._rollTorque, pitch: this._pitchTorque };
-  }
-
   /** Total reaction force magnitude from all pins (lbf). Updated each tick. */
   private _totalReactionForce = 0;
   getTotalReactionForce(): number {
@@ -395,9 +381,6 @@ export class Sail extends BaseEntity {
       this.targetHoistAmount,
       hoistSpeed * dt,
     );
-
-    this._rollTorque = 0;
-    this._pitchTorque = 0;
 
     // Read results from the worker's previous solve (one-tick lag)
     if (this.handle.hasNewResults()) {
@@ -437,35 +420,6 @@ export class Sail extends BaseEntity {
           const cBody = clewConstraint.body as DynamicBody;
           const cPoint = cBody.vectorToWorldFrame(clewConstraint.localAnchor);
           cBody.applyForce(V(clewRx, clewRy), cPoint);
-        }
-
-        // Compute per-pin tilt torque: reaction force × world-Z height
-        const tilt = this.config.getTiltTransform?.() ?? DEFAULT_TILT_TRANSFORM;
-        const latX = -tilt.sinAngle;
-        const latY = tilt.cosAngle;
-        const fwdX = tilt.cosAngle;
-        const fwdY = tilt.sinAngle;
-
-        // Tack pin
-        const tackLat = tackRx * latX + tackRy * latY;
-        const tackFwd = tackRx * fwdX + tackRy * fwdY;
-        this._rollTorque += tackLat * this.lastTackZ;
-        this._pitchTorque += tackFwd * this.lastTackZ;
-
-        // Head pin
-        const headLat = headRx * latX + headRy * latY;
-        const headFwd = headRx * fwdX + headRy * fwdY;
-        this._rollTorque += headLat * this.lastHeadWZ;
-        this._pitchTorque += headFwd * this.lastHeadWZ;
-
-        // Clew pin (if boom-attached)
-        if (clewConstraint) {
-          const clewRx2 = reactions[REACTION_CLEW_X] * vm;
-          const clewRy2 = reactions[REACTION_CLEW_Y] * vm;
-          const clewLat = clewRx2 * latX + clewRy2 * latY;
-          const clewFwd = clewRx2 * fwdX + clewRy2 * fwdY;
-          this._rollTorque += clewLat * this.lastClewWorldZ;
-          this._pitchTorque += clewFwd * this.lastClewWorldZ;
         }
       }
 
@@ -527,11 +481,6 @@ export class Sail extends BaseEntity {
       this.config.zFoot +
       this.hoistAmount * (this.config.zHead - this.config.zFoot);
     const [headWX, headWY, headWZ] = tilt.toWorld3D(local.x, local.y, headZ);
-
-    // Cache world-Z heights for next tick's torque computation
-    this.lastTackZ = tackZ;
-    this.lastHeadWZ = headWZ;
-    this.lastClewWorldZ = this.config.zFoot * tilt.cosRoll * tilt.cosPitch;
 
     // Sample wind
     let windX = 0,

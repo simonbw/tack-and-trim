@@ -215,8 +215,11 @@ export class World extends EventEmitter<PhysicsEventMap> {
       spring.applyForce();
     }
 
-    // Apply damping (only to awake bodies)
+    // Apply damping and recompute world inertia for 6DOF bodies
     for (const body of this.bodies.dynamicAwake) {
+      if (body.is6DOF) {
+        body.recomputeWorldInertia();
+      }
       body.applyDamping(dt);
     }
   }

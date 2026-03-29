@@ -23,9 +23,9 @@ export class Lifelines extends BaseEntity {
     const hullBody = this.boat.hull.body;
     const [hx, hy] = hullBody.position;
     const hullAngle = hullBody.angle;
-    const roll = this.boat.hull.tiltRoll;
-    const pitch = this.boat.hull.tiltPitch;
-    const zOffset = this.boat.hull.getZOffset();
+    const roll = this.boat.hull.body.roll;
+    const pitch = this.boat.hull.body.pitch;
+    const zOffset = this.boat.hull.body.z;
     const deckZ = this.boat.config.hull.deckHeight;
     const topZ = deckZ + this.config.stanchionHeight;
 
