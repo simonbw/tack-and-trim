@@ -175,13 +175,13 @@ export class DistanceConstraint extends Constraint {
     const rixn = ri.crossLength(nNormalized);
     const rjxn = rj.crossLength(nNormalized);
 
-    // G = [-n -rixn n rjxn]
+    // G = [-n 0 0 0 -rixn | n 0 0 0 rjxn]
     G[0] = -nNormalized[0];
     G[1] = -nNormalized[1];
-    G[2] = -rixn;
-    G[3] = nNormalized[0];
-    G[4] = nNormalized[1];
-    G[5] = rjxn;
+    G[5] = -rixn;
+    G[6] = nNormalized[0];
+    G[7] = nNormalized[1];
+    G[11] = rjxn;
 
     return this;
   }

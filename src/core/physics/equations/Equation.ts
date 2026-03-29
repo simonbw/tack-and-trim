@@ -38,10 +38,14 @@ export class Equation {
   enabled: boolean;
 
   /**
-   * Jacobian vector: [vx_A, vy_A, ω_A, vx_B, vy_B, ω_B]
-   * Defines what velocities this constraint restricts.
+   * Jacobian vector (12 components):
+   * [vxA, vyA, vzA, wxA, wyA, wzA, vxB, vyB, vzB, wxB, wyB, wzB]
+   *
+   * For 3DOF-only constraints, components 2,3,4 (vzA, wxA, wyA) and
+   * 8,9,10 (vzB, wxB, wyB) are 0 — the solver handles this correctly
+   * because the corresponding inverse mass/inertia values are also 0.
    */
-  G: Float32Array = new Float32Array(6);
+  G: Float32Array = new Float32Array(12);
 
   // Solver-internal properties (hidden from autocomplete via symbols)
   [EQ_B]: number = 0;
@@ -86,23 +90,6 @@ export class Equation {
     return this;
   }
 
-  gmult(
-    G: ArrayLike<number>,
-    vi: ArrayLike<number>,
-    wi: number,
-    vj: ArrayLike<number>,
-    wj: number,
-  ): number {
-    return (
-      G[0] * vi[0] +
-      G[1] * vi[1] +
-      G[2] * wi +
-      G[3] * vj[0] +
-      G[4] * vj[1] +
-      G[5] * wj
-    );
-  }
-
   computeB(
     a: number,
     b: number,
@@ -115,111 +102,199 @@ export class Equation {
     return -Gq * a - GW * b - GiMf * h;
   }
 
+  /**
+   * Position-level constraint evaluation.
+   * Default: G · [posA, zA, 0, 0, yawA, posB, zB, 0, 0, yawB] + offset.
+   * Most constraint types override this with a custom geometric computation.
+   */
   computeGq(): number {
     const G = this.G;
     const bi = this.bodyA;
     const bj = this.bodyB;
-    const xi = bi.position;
-    const xj = bj.position;
-    const ai = bi.angle;
-    const aj = bj.angle;
-    return this.gmult(G, xi, ai, xj, aj) + this.offset;
+    return (
+      G[0] * bi.position[0] +
+      G[1] * bi.position[1] +
+      G[2] * bi.z +
+      // G[3], G[4]: roll/pitch position terms — 0 for standard constraints
+      G[5] * bi.angle +
+      G[6] * bj.position[0] +
+      G[7] * bj.position[1] +
+      G[8] * bj.z +
+      // G[9], G[10]: roll/pitch position terms — 0 for standard constraints
+      G[11] * bj.angle +
+      this.offset
+    );
   }
 
+  /** Velocity-level constraint: G · [velA, zVelA, ωA, velB, zVelB, ωB]. */
   computeGW(): number {
     const G = this.G;
     const bi = this.bodyA;
     const bj = this.bodyB;
-    const vi = bi.velocity;
-    const vj = bj.velocity;
-    const wi = bi.angularVelocity;
-    const wj = bj.angularVelocity;
-    return this.gmult(G, vi, wi, vj, wj) + this.relativeVelocity;
+    const wA = bi.angularVelocity3;
+    const wB = bj.angularVelocity3;
+    return (
+      G[0] * bi.velocity[0] +
+      G[1] * bi.velocity[1] +
+      G[2] * bi.zVelocity +
+      G[3] * wA[0] +
+      G[4] * wA[1] +
+      G[5] * wA[2] +
+      G[6] * bj.velocity[0] +
+      G[7] * bj.velocity[1] +
+      G[8] * bj.zVelocity +
+      G[9] * wB[0] +
+      G[10] * wB[1] +
+      G[11] * wB[2] +
+      this.relativeVelocity
+    );
   }
 
+  /** Accumulated solver impulse velocity: G · [vlambdaA, wlambdaA, vlambdaB, wlambdaB]. */
   computeGWlambda(bodyState: Map<Body, SolverBodyState>): number {
     const G = this.G;
-    const bi = this.bodyA;
-    const bj = this.bodyB;
-    const stateI = bodyState.get(bi)!;
-    const stateJ = bodyState.get(bj)!;
-    return this.gmult(
-      G,
-      stateI.vlambda,
-      stateI.wlambda,
-      stateJ.vlambda,
-      stateJ.wlambda,
+    const sA = bodyState.get(this.bodyA)!;
+    const sB = bodyState.get(this.bodyB)!;
+    const vlA = sA.vlambda;
+    const wlA = sA.wlambda;
+    const vlB = sB.vlambda;
+    const wlB = sB.wlambda;
+    return (
+      G[0] * vlA[0] +
+      G[1] * vlA[1] +
+      G[2] * vlA[2] +
+      G[3] * wlA[0] +
+      G[4] * wlA[1] +
+      G[5] * wlA[2] +
+      G[6] * vlB[0] +
+      G[7] * vlB[1] +
+      G[8] * vlB[2] +
+      G[9] * wlB[0] +
+      G[10] * wlB[1] +
+      G[11] * wlB[2]
     );
   }
 
+  /**
+   * External force contribution: G · [invM*f, invI*τ] for both bodies.
+   * The angular part uses the full 3x3 world-frame inverse inertia tensor.
+   */
   computeGiMf(bodyState: Map<Body, SolverBodyState>): number {
+    const G = this.G;
     const bi = this.bodyA;
     const bj = this.bodyB;
-    const fi = bi.force;
-    const ti = bi.angularForce;
-    const fj = bj.force;
-    const tj = bj.angularForce;
-    const stateI = bodyState.get(bi)!;
-    const stateJ = bodyState.get(bj)!;
-    const invMassi = stateI.invMassSolve;
-    const invMassj = stateJ.invMassSolve;
-    const invIi = stateI.invInertiaSolve;
-    const invIj = stateJ.invInertiaSolve;
-    const G = this.G;
+    const sA = bodyState.get(bi)!;
+    const sB = bodyState.get(bj)!;
+
+    // Body A: invI_world * torque3
+    const iIA = sA.invInertiaSolve;
+    const tA = bi.angularForce3;
+    const aA0 = iIA[0] * tA[0] + iIA[1] * tA[1] + iIA[2] * tA[2];
+    const aA1 = iIA[3] * tA[0] + iIA[4] * tA[1] + iIA[5] * tA[2];
+    const aA2 = iIA[6] * tA[0] + iIA[7] * tA[1] + iIA[8] * tA[2];
+
+    // Body B: invI_world * torque3
+    const iIB = sB.invInertiaSolve;
+    const tB = bj.angularForce3;
+    const aB0 = iIB[0] * tB[0] + iIB[1] * tB[1] + iIB[2] * tB[2];
+    const aB1 = iIB[3] * tB[0] + iIB[4] * tB[1] + iIB[5] * tB[2];
+    const aB2 = iIB[6] * tB[0] + iIB[7] * tB[1] + iIB[8] * tB[2];
 
     return (
-      G[0] * fi[0] * invMassi +
-      G[1] * fi[1] * invMassi +
-      G[2] * ti * invIi +
-      G[3] * fj[0] * invMassj +
-      G[4] * fj[1] * invMassj +
-      G[5] * tj * invIj
+      G[0] * bi.force[0] * sA.invMassSolve +
+      G[1] * bi.force[1] * sA.invMassSolve +
+      G[2] * bi.zForce * sA.invMassSolveZ +
+      G[3] * aA0 +
+      G[4] * aA1 +
+      G[5] * aA2 +
+      G[6] * bj.force[0] * sB.invMassSolve +
+      G[7] * bj.force[1] * sB.invMassSolve +
+      G[8] * bj.zForce * sB.invMassSolveZ +
+      G[9] * aB0 +
+      G[10] * aB1 +
+      G[11] * aB2
     );
   }
 
+  /**
+   * Effective mass: G · invM · G^T.
+   * Linear part: G_lin^T * diag(invM, invM, invMz) * G_lin.
+   * Angular part: G_ang^T * invI_world * G_ang (quadratic form with 3x3 tensor).
+   */
   computeGiMGt(bodyState: Map<Body, SolverBodyState>): number {
-    const bi = this.bodyA;
-    const bj = this.bodyB;
-    const stateI = bodyState.get(bi)!;
-    const stateJ = bodyState.get(bj)!;
-    const invMassi = stateI.invMassSolve;
-    const invMassj = stateJ.invMassSolve;
-    const invIi = stateI.invInertiaSolve;
-    const invIj = stateJ.invInertiaSolve;
     const G = this.G;
+    const sA = bodyState.get(this.bodyA)!;
+    const sB = bodyState.get(this.bodyB)!;
 
-    return (
-      G[0] * G[0] * invMassi +
-      G[1] * G[1] * invMassi +
-      G[2] * G[2] * invIi +
-      G[3] * G[3] * invMassj +
-      G[4] * G[4] * invMassj +
-      G[5] * G[5] * invIj
-    );
+    // Body A linear
+    const iMA = sA.invMassSolve;
+    let result =
+      G[0] * G[0] * iMA + G[1] * G[1] * iMA + G[2] * G[2] * sA.invMassSolveZ;
+
+    // Body A angular: G_ang^T * invI * G_ang (symmetric quadratic form)
+    const iIA = sA.invInertiaSolve;
+    result +=
+      G[3] * (iIA[0] * G[3] + iIA[1] * G[4] + iIA[2] * G[5]) +
+      G[4] * (iIA[3] * G[3] + iIA[4] * G[4] + iIA[5] * G[5]) +
+      G[5] * (iIA[6] * G[3] + iIA[7] * G[4] + iIA[8] * G[5]);
+
+    // Body B linear
+    const iMB = sB.invMassSolve;
+    result +=
+      G[6] * G[6] * iMB + G[7] * G[7] * iMB + G[8] * G[8] * sB.invMassSolveZ;
+
+    // Body B angular
+    const iIB = sB.invInertiaSolve;
+    result +=
+      G[9] * (iIB[0] * G[9] + iIB[1] * G[10] + iIB[2] * G[11]) +
+      G[10] * (iIB[3] * G[9] + iIB[4] * G[10] + iIB[5] * G[11]) +
+      G[11] * (iIB[6] * G[9] + iIB[7] * G[10] + iIB[8] * G[11]);
+
+    return result;
   }
 
+  /**
+   * Apply impulse to both bodies' solver state.
+   * Linear: vlambda += invM * G_lin * deltalambda
+   * Angular: wlambda += invI_world * G_ang * deltalambda
+   */
   addToWlambda(
     deltalambda: number,
     bodyState: Map<Body, SolverBodyState>,
   ): this {
-    const bi = this.bodyA;
-    const bj = this.bodyB;
-    const stateI = bodyState.get(bi)!;
-    const stateJ = bodyState.get(bj)!;
-    const invMassi = stateI.invMassSolve;
-    const invMassj = stateJ.invMassSolve;
-    const invIi = stateI.invInertiaSolve;
-    const invIj = stateJ.invInertiaSolve;
     const G = this.G;
+    const sA = bodyState.get(this.bodyA)!;
+    const sB = bodyState.get(this.bodyB)!;
+    const dl = deltalambda;
 
-    // v_lambda += inv(M) * delta_lambda * G
-    stateI.vlambda[0] += invMassi * G[0] * deltalambda;
-    stateI.vlambda[1] += invMassi * G[1] * deltalambda;
-    stateI.wlambda += invIi * G[2] * deltalambda;
+    // Body A linear
+    sA.vlambda[0] += sA.invMassSolve * G[0] * dl;
+    sA.vlambda[1] += sA.invMassSolve * G[1] * dl;
+    sA.vlambda[2] += sA.invMassSolveZ * G[2] * dl;
 
-    stateJ.vlambda[0] += invMassj * G[3] * deltalambda;
-    stateJ.vlambda[1] += invMassj * G[4] * deltalambda;
-    stateJ.wlambda += invIj * G[5] * deltalambda;
+    // Body A angular: wlambda += invI * (G_ang * dl)
+    const iIA = sA.invInertiaSolve;
+    const gA3 = G[3] * dl;
+    const gA4 = G[4] * dl;
+    const gA5 = G[5] * dl;
+    sA.wlambda[0] += iIA[0] * gA3 + iIA[1] * gA4 + iIA[2] * gA5;
+    sA.wlambda[1] += iIA[3] * gA3 + iIA[4] * gA4 + iIA[5] * gA5;
+    sA.wlambda[2] += iIA[6] * gA3 + iIA[7] * gA4 + iIA[8] * gA5;
+
+    // Body B linear
+    sB.vlambda[0] += sB.invMassSolve * G[6] * dl;
+    sB.vlambda[1] += sB.invMassSolve * G[7] * dl;
+    sB.vlambda[2] += sB.invMassSolveZ * G[8] * dl;
+
+    // Body B angular
+    const iIB = sB.invInertiaSolve;
+    const gB9 = G[9] * dl;
+    const gB10 = G[10] * dl;
+    const gB11 = G[11] * dl;
+    sB.wlambda[0] += iIB[0] * gB9 + iIB[1] * gB10 + iIB[2] * gB11;
+    sB.wlambda[1] += iIB[3] * gB9 + iIB[4] * gB10 + iIB[5] * gB11;
+    sB.wlambda[2] += iIB[6] * gB9 + iIB[7] * gB10 + iIB[8] * gB11;
+
     return this;
   }
 

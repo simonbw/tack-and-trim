@@ -120,19 +120,19 @@ export class LockConstraint extends Constraint {
 
     x.G[0] = -1;
     x.G[1] = 0;
-    x.G[2] = -l.crossLength(xAxis);
-    x.G[3] = 1;
+    x.G[5] = -l.crossLength(xAxis);
+    x.G[6] = 1;
 
     y.G[0] = 0;
     y.G[1] = -1;
-    y.G[2] = -l.crossLength(yAxis);
-    y.G[4] = 1;
+    y.G[5] = -l.crossLength(yAxis);
+    y.G[7] = 1;
 
     rot.G[0] = -t[0];
     rot.G[1] = -t[1];
-    rot.G[3] = t[0];
-    rot.G[4] = t[1];
-    rot.G[5] = r.crossLength(t);
+    rot.G[6] = t[0];
+    rot.G[7] = t[1];
+    rot.G[11] = r.crossLength(t);
     return this;
   }
 }

@@ -20,8 +20,8 @@ export class RotationalVelocityEquation extends Equation {
     bodyState: Map<Body, SolverBodyState>,
   ): number {
     const G = this.G;
-    G[2] = -1;
-    G[5] = this.ratio;
+    G[5] = -1;
+    G[11] = this.ratio;
 
     const GiMf = this.computeGiMf(bodyState);
     const GW = this.computeGW();

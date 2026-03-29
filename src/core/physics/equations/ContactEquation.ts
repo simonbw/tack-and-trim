@@ -76,13 +76,13 @@ export class ContactEquation extends Equation {
     const rixn = ri.crossLength(n);
     const rjxn = rj.crossLength(n);
 
-    // G = [-n -rixn n rjxn]
+    // G = [-n 0 0 0 -rixn | n 0 0 0 rjxn]
     G[0] = -n[0];
     G[1] = -n[1];
-    G[2] = -rixn;
-    G[3] = n[0];
-    G[4] = n[1];
-    G[5] = rjxn;
+    G[5] = -rixn;
+    G[6] = n[0];
+    G[7] = n[1];
+    G[11] = rjxn;
 
     // Calculate q = xj+rj -(xi+ri) i.e. the penetration vector
     penetrationVec.set(xj).iadd(rj).isub(xi).isub(ri);

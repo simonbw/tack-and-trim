@@ -1,31 +1,33 @@
-import type { Body } from "../body/Body";
+import { Body } from "../body/Body";
 import { DynamicBody } from "../body/DynamicBody";
 import type { Equation } from "../equations/Equation";
 import { FrictionEquation } from "../equations/FrictionEquation";
-import { V, V2d } from "../../Vector";
 import type { Island } from "../world/Island";
 
 // --- Types ---
 
 /** Ephemeral solver state for a body during constraint resolution. */
 export interface SolverBodyState {
-  /** Linear constraint velocity accumulator */
-  vlambda: V2d;
-  /** Angular constraint velocity accumulator */
-  wlambda: number;
-  /** 0 if sleeping, else body.invMass */
+  /** Linear constraint velocity accumulator [vx, vy, vz] */
+  vlambda: Float64Array;
+  /** Angular constraint velocity accumulator [wx, wy, wz] in world frame */
+  wlambda: Float64Array;
+  /** 0 if sleeping, else body.invMass (for x, y axes) */
   invMassSolve: number;
-  /** 0 if sleeping, else body.invInertia */
-  invInertiaSolve: number;
+  /** 0 if sleeping or non-6DOF, else body.invMassZ */
+  invMassSolveZ: number;
+  /** World-frame 3x3 inverse inertia tensor (row-major). Reference to body's array. */
+  invInertiaSolve: Float64Array;
 }
 
 /** Creates initial solver state for a body. */
 function createSolverState(body: Body, isSleeping: boolean): SolverBodyState {
   return {
-    vlambda: V(),
-    wlambda: 0,
+    vlambda: new Float64Array(3),
+    wlambda: new Float64Array(3),
     invMassSolve: isSleeping ? 0 : body.invMass,
-    invInertiaSolve: isSleeping ? 0 : body.invInertia,
+    invMassSolveZ: isSleeping ? 0 : body.invMassZ,
+    invInertiaSolve: isSleeping ? Body.ZERO_9 : body.invWorldInertia,
   };
 }
 
@@ -167,8 +169,24 @@ export function solveEquations(
   // Apply constraint velocities to dynamic bodies
   for (const body of dynamicBodies) {
     const state = bodyState.get(body)!;
-    body.velocity.iadd(state.vlambda);
-    body.angularVelocity += state.wlambda;
+    const vl = state.vlambda;
+    const wl = state.wlambda;
+
+    // Linear velocity (x, y always; z only for 6DOF)
+    body.velocity.x += vl[0];
+    body.velocity.y += vl[1];
+
+    // Angular velocity (all 3 axes via the 3-vector)
+    const av = body.angularVelocity3;
+    av[0] += wl[0];
+    av[1] += wl[1];
+    av[2] += wl[2];
+
+    // Z velocity (only meaningful for 6DOF bodies; vlambda[2] is 0 for 3DOF
+    // because invMassSolveZ is 0, so this is a no-op for 3DOF)
+    if (body.is6DOF) {
+      body.zVelocity += vl[2];
+    }
   }
 
   // Update equation multipliers

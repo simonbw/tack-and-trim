@@ -81,14 +81,14 @@ export class FrictionEquation extends Equation {
     const t = this.t;
     const G = this.G;
 
-    // G = [-t -rixt t rjxt]
+    // G = [-t 0 0 0 -rixt | t 0 0 0 rjxt]
     // And remember, this is a pure velocity constraint, g is always zero!
     G[0] = -t[0];
     G[1] = -t[1];
-    G[2] = -ri.crossLength(t);
-    G[3] = t[0];
-    G[4] = t[1];
-    G[5] = rj.crossLength(t);
+    G[5] = -ri.crossLength(t);
+    G[6] = t[0];
+    G[7] = t[1];
+    G[11] = rj.crossLength(t);
 
     const GW = this.computeGW();
     const GiMf = this.computeGiMf(bodyState);

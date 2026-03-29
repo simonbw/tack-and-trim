@@ -23,8 +23,8 @@ export class RotationalLockEquation extends Equation {
     this.angle = options.angle || 0;
 
     const G = this.G;
-    G[2] = 1;
-    G[5] = -1;
+    G[5] = 1;
+    G[11] = -1;
   }
 
   computeGq(): number {

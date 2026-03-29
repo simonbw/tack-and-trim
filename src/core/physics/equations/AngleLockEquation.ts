@@ -38,8 +38,8 @@ export class AngleLockEquation extends Equation {
    */
   setRatio(ratio: number): void {
     const G = this.G;
-    G[2] = ratio;
-    G[5] = -1;
+    G[5] = ratio;
+    G[11] = -1;
     this.ratio = ratio;
   }
 

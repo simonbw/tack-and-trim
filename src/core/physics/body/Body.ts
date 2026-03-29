@@ -38,6 +38,11 @@ export abstract class Body extends EventEmitter<PhysicsEventMap> {
   /** @internal */
   static _idCounter = 0;
 
+  // Shared zero arrays for 6DOF accessor defaults (non-6DOF bodies).
+  // These must never be written to.
+  /** @internal */ static readonly ZERO_3 = new Float64Array(3);
+  /** @internal */ static readonly ZERO_9 = new Float64Array(9);
+
   /** Unique identifier for this body. */
   readonly id: number;
   /** The world this body belongs to, or null if not added. */
@@ -86,6 +91,50 @@ export abstract class Body extends EventEmitter<PhysicsEventMap> {
   /** Current angular force (torque) accumulator. */
   abstract get angularForce(): number;
   abstract set angularForce(value: number);
+
+  // ── 6DOF accessors (defaults for non-6DOF bodies) ──
+  // Overridden by DynamicBody when sixDOF is enabled.
+  // The solver reads these uniformly from any Body; defaults are zero/identity.
+
+  /** Whether this body has 6DOF (z, roll, pitch) enabled. */
+  get is6DOF(): boolean {
+    return false;
+  }
+  /** Z position (vertical). Always 0 for non-6DOF bodies. */
+  get z(): number {
+    return 0;
+  }
+  set z(_v: number) {}
+  /** Z velocity. Always 0 for non-6DOF bodies. */
+  get zVelocity(): number {
+    return 0;
+  }
+  set zVelocity(_v: number) {}
+  /** Z force accumulator. Always 0 for non-6DOF bodies. */
+  get zForce(): number {
+    return 0;
+  }
+  set zForce(_v: number) {}
+  /** Inverse mass for Z axis. 0 = immovable on Z. */
+  get invMassZ(): number {
+    return 0;
+  }
+  /** 3D angular velocity [wx, wy, wz] in world frame. Shared zero for non-6DOF. */
+  get angularVelocity3(): Float64Array {
+    return Body.ZERO_3;
+  }
+  /** 3D torque [tx, ty, tz] in world frame. Shared zero for non-6DOF. */
+  get angularForce3(): Float64Array {
+    return Body.ZERO_3;
+  }
+  /** 3x3 rotation matrix (row-major). Shared zero for non-6DOF. */
+  get orientation(): Float64Array {
+    return Body.ZERO_9;
+  }
+  /** World-frame 3x3 inverse inertia tensor. Shared zero for non-6DOF. */
+  get invWorldInertia(): Float64Array {
+    return Body.ZERO_9;
+  }
 
   constructor(options: BaseBodyOptions = {}) {
     super();

@@ -192,17 +192,17 @@ export class RevoluteConstraint extends Constraint {
 
     x.G[0] = -1;
     x.G[1] = 0;
-    x.G[2] = -worldPivotA.crossLength(xAxis);
-    x.G[3] = 1;
-    x.G[4] = 0;
-    x.G[5] = worldPivotB.crossLength(xAxis);
+    x.G[5] = -worldPivotA.crossLength(xAxis);
+    x.G[6] = 1;
+    x.G[7] = 0;
+    x.G[11] = worldPivotB.crossLength(xAxis);
 
     y.G[0] = 0;
     y.G[1] = -1;
-    y.G[2] = -worldPivotA.crossLength(yAxis);
-    y.G[3] = 0;
-    y.G[4] = 1;
-    y.G[5] = worldPivotB.crossLength(yAxis);
+    y.G[5] = -worldPivotA.crossLength(yAxis);
+    y.G[6] = 0;
+    y.G[7] = 1;
+    y.G[11] = worldPivotB.crossLength(yAxis);
     return this;
   }
 
