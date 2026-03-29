@@ -23,24 +23,35 @@ export class Bowsprit extends BaseEntity {
 
   @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
-    const hullBody = this.boat.hull.body;
-    const worldPos = hullBody.toWorldFrame(this.localPosition);
-
-    // Bowsprit parallax — slightly above waterline
+    const hull = this.boat.hull;
+    const [hx, hy] = hull.body.position;
     const bowspritZ = this.boat.config.tilt.zHeights.bowsprit;
-    const offset = this.boat.hull.tiltTransform.worldOffset(bowspritZ);
 
+    // GPU-driven tilt projection: hull position + angle + tilt context.
+    // Body-local coords with per-vertex z handle both parallax and depth.
     draw.at(
       {
-        pos: V(worldPos[0] + offset.x, worldPos[1] + offset.y),
-        angle: hullBody.angle,
+        pos: V(hx, hy),
+        angle: hull.body.angle,
+        tilt: {
+          roll: hull.tiltRoll,
+          pitch: hull.tiltPitch,
+          zOffset: hull.getZOffset(),
+        },
       },
       () => {
         // Bowsprit visual - a spar extending forward from the bow
-        draw.fillRect(0, -this.size.y / 2, this.size.x, this.size.y, {
-          color: this.color,
-          z: bowspritZ,
-        });
+        // localPosition is already in hull-local coords
+        draw.fillRect(
+          this.localPosition.x,
+          this.localPosition.y - this.size.y / 2,
+          this.size.x,
+          this.size.y,
+          {
+            color: this.color,
+            z: bowspritZ,
+          },
+        );
       },
     );
   }

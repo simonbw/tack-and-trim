@@ -266,10 +266,13 @@ export class Draw {
       angle?: number;
       scale?: number | V2d;
       /** When provided, sets up a 3D tilt projection context.
-       * All draw calls inside will have their z-height projected
-       * into 2D position offset and written to the depth buffer.
-       * The model matrix includes cosR Y-compression for heel. */
-      tilt?: { roll: number; pitch: number };
+       * The model matrix uses the full Yaw·Pitch·Roll rotation so that
+       * body-local (x, y) coordinates with per-vertex z are correctly
+       * projected to 2D AND write accurate depth to the depth buffer.
+       * zOffset (typically bb.z) is added to currentZ so all setZ()
+       * calls within the context automatically include the boat's
+       * vertical position. */
+      tilt?: { roll: number; pitch: number; zOffset?: number };
     },
     draw: () => void,
   ): void {
@@ -280,31 +283,53 @@ export class Draw {
       // We need its linear part to transform z-coefficients from world → screen space.
       const cam = this.renderer.getTransform();
 
-      // Compose model transform: translate(pos) * rotate(angle) * scaleY(cosR)
-      // This matches TiltTransform's 2D projection: rotation with Y-axis
-      // compressed by cos(roll) to simulate heel foreshortening.
-      this.renderer.translate(pos);
-      if (angle !== undefined) {
-        this.renderer.rotate(angle);
-      }
-      const cr = Math.cos(tilt.roll);
-      this.renderer.scale(1, cr);
-
-      // Compute z-to-position offset in world space (matches TiltTransform m02, m12)
+      // Compose model transform using the full Yaw(A)·Pitch(P)·Roll(R) rotation.
+      // The 2×2 xy-columns of the rotation matrix become the model matrix,
+      // and the z-column becomes the zCoeffs for GPU parallax + depth.
       const a = angle ?? 0;
       const ca = Math.cos(a);
       const sa = Math.sin(a);
       const sr = Math.sin(tilt.roll);
       const sp = Math.sin(tilt.pitch);
-      const worldZX = ca * sp - sa * sr;
-      const worldZY = sa * sp + ca * sr;
+      const cr = Math.cos(tilt.roll);
+      const cp = Math.cos(tilt.pitch);
+
+      // Build the model matrix: camera × translate(pos) × tiltRotation
+      // The tilt rotation xy-columns (from TiltTransform):
+      //   col0 = [ca*cp,          sa*cp         ]
+      //   col1 = [ca*sp*sr-sa*cr, sa*sp*sr+ca*cr]
+      const r00 = ca * cp;
+      const r10 = sa * cp;
+      const r01 = ca * sp * sr - sa * cr;
+      const r11 = sa * sp * sr + ca * cr;
+
+      // Compose: camera × translate(pos) × rotation
+      // M = cam × [r00 r01 px; r10 r11 py; 0 0 1]
+      const px = pos.x;
+      const py = pos.y;
+      const m = this.renderer.getTransform();
+      m.a = cam.a * r00 + cam.c * r10;
+      m.b = cam.b * r00 + cam.d * r10;
+      m.c = cam.a * r01 + cam.c * r11;
+      m.d = cam.b * r01 + cam.d * r11;
+      m.tx = cam.a * px + cam.c * py + cam.tx;
+      m.ty = cam.b * px + cam.d * py + cam.ty;
+      this.renderer.setTransform(m);
+
+      // z-column of the rotation (zCoeffs in world space)
+      const worldZX = -(ca * sp * cr + sa * sr);
+      const worldZY = -(sa * sp * cr - ca * sr);
 
       // Transform z-coefficients through camera's linear part (rotation+zoom)
-      // so they're in the same screen-pixel space as the model matrix output.
       this.renderer.setZCoeffs(
         cam.a * worldZX + cam.c * worldZY,
         cam.b * worldZX + cam.d * worldZY,
       );
+
+      // Apply z-offset so all setZ() calls within this context include bb.z
+      if (tilt.zOffset) {
+        this.renderer.setZ(tilt.zOffset);
+      }
     } else {
       this.renderer.translate(pos);
 

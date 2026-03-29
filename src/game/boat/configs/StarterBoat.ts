@@ -251,4 +251,23 @@ export const StarterBoat: BoatConfig = {
       bowsprit: 0.4,
     },
   },
+
+  // 3D buoyancy physics — righting, wave response, and damping emerge from
+  // multi-point buoyancy sampling and distributed skin friction.
+  buoyancy: {
+    verticalMass: 450, // ~450 lb total displacement (hull + crew + equipment)
+    rollInertia: 1600, // 450 * (beam/3)² = 450 * 1.87²
+    pitchInertia: 4000, // 450 * (LOA/4)² = 450 * 3²
+    maxRoll: degToRad(90),
+    maxPitch: degToRad(60),
+    centerOfGravityZ: -0.6, // ft — slightly below waterline
+    zHeights: {
+      deck: 0.8,
+      boom: 2.5,
+      mastTop: 16,
+      keel: -3.0,
+      rudder: -1.0,
+      bowsprit: 0.4,
+    },
+  },
 };

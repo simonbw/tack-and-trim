@@ -112,23 +112,28 @@ export class HullDamage extends BaseEntity {
     if (this.scratches.length === 0) return;
 
     const [x, y] = this.boat.hull.body.position;
-    const t = this.boat.hull.tiltTransform;
+    const roll = this.boat.hull.tiltRoll;
+    const pitch = this.boat.hull.tiltPitch;
+    const zOffset = this.boat.hull.getZOffset();
 
-    draw.at({ pos: V(x, y), angle: this.boat.hull.body.angle }, () => {
-      for (const scratch of this.scratches) {
-        const alpha = scratch.severity * 0.7;
-        const sx1 = scratch.x1 + scratch.z * t.sinPitch;
-        const sy1 = scratch.y1 * t.cosRoll + scratch.z * t.sinRoll;
-        const sx2 = scratch.x2 + scratch.z * t.sinPitch;
-        const sy2 = scratch.y2 * t.cosRoll + scratch.z * t.sinRoll;
-        draw.line(sx1, sy1, sx2, sy2, {
-          color: SCRATCH_COLOR,
-          width: scratch.width,
-          alpha,
-          z: scratch.z,
-        });
-      }
-    });
+    draw.at(
+      {
+        pos: V(x, y),
+        angle: this.boat.hull.body.angle,
+        tilt: { roll, pitch, zOffset },
+      },
+      () => {
+        for (const scratch of this.scratches) {
+          const alpha = scratch.severity * 0.7;
+          draw.line(scratch.x1, scratch.y1, scratch.x2, scratch.y2, {
+            color: SCRATCH_COLOR,
+            width: scratch.width,
+            alpha,
+            z: scratch.z,
+          });
+        }
+      },
+    );
   }
 
   private addScratch(damage: number): void {

@@ -6,8 +6,9 @@ import { Convex } from "../../core/physics/shapes/Convex";
 import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { earClipTriangulate } from "../../core/util/Triangulate";
 import { V, V2d } from "../../core/Vector";
-import { applySkinFriction } from "../fluid-dynamics";
+import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
+import type { BuoyantBody } from "./BuoyantBody";
 import { HullConfig } from "./BoatConfig";
 import { TiltTransform } from "./TiltTransform";
 
@@ -59,8 +60,10 @@ export interface HullMesh {
   /** 3D vertices as [x, y, z] triples. Layout: deck ring, waterline ring, bottom ring. */
   positions: number[]; // length = ringSize * 3 * 3
   ringSize: number;
-  /** Pre-allocated 2D projection buffer for submitTriangles. */
-  projected: [number, number][];
+  /** Body-local XY positions for GPU submission (static, built once). */
+  xyPositions: [number, number][];
+  /** Per-vertex z-heights for GPU depth + parallax (static, built once). */
+  zValues: number[];
   /** Triangle indices for the deck cap polygon. */
   deckIndices: number[];
   /** Triangle indices for the upper side strip (deck → waterline). */
@@ -90,11 +93,14 @@ function buildHullMesh(
     positions.push(v.x, v.y, bottomZ);
   }
 
-  // Pre-allocate projection buffer
+  // Build static XY and Z arrays from 3D positions (GPU handles the rest)
   const totalVerts = ringSize * 3;
-  const projected: [number, number][] = new Array(totalVerts);
+  const xyPositions: [number, number][] = new Array(totalVerts);
+  const zValues: number[] = new Array(totalVerts);
   for (let i = 0; i < totalVerts; i++) {
-    projected[i] = [0, 0];
+    const base = i * 3;
+    xyPositions[i] = [positions[base], positions[base + 1]];
+    zValues[i] = positions[base + 2];
   }
 
   // Triangulate the deck cap using the original (un-projected) vertices.
@@ -124,39 +130,17 @@ function buildHullMesh(
   return {
     positions,
     ringSize,
-    projected,
+    xyPositions,
+    zValues,
     deckIndices,
     upperSideIndices,
     lowerSideIndices,
   };
 }
 
-/**
- * Project all 3D hull vertices to 2D using the current tilt state.
- * In hull-local space: px = x + z*sinPitch, py = y*cosRoll + z*sinRoll.
- */
-function projectMesh(
-  mesh: HullMesh,
-  cosR: number,
-  sinR: number,
-  sinP: number,
-): void {
-  const { positions, projected } = mesh;
-  const totalVerts = projected.length;
-  for (let i = 0; i < totalVerts; i++) {
-    const base = i * 3;
-    const x = positions[base];
-    const y = positions[base + 1];
-    const z = positions[base + 2];
-    projected[i][0] = x + z * sinP;
-    projected[i][1] = y * cosR + z * sinR;
-  }
-}
-
 export class Hull extends BaseEntity {
   layer = "boat" as const;
   body: DynamicBody;
-  private hullArea: number;
   private skinFrictionCoefficient: number;
   private vertices: V2d[];
   private fillColor: number;
@@ -167,6 +151,11 @@ export class Hull extends BaseEntity {
   private getDamageMultiplier: () => number = () => 1;
   private mesh: HullMesh;
 
+  // Distributed skin friction: waterline sample points and per-point area
+  private waterlineSamplePoints: V2d[];
+  private areaPerPoint: number;
+  private buoyantBody: BuoyantBody | null = null;
+
   /** Tilt state updated by Boat each tick. Used by child entities for physics effects. */
   tiltRoll: number = 0;
   tiltPitch: number = 0;
@@ -174,16 +163,27 @@ export class Hull extends BaseEntity {
   /** 3D→2D transform updated by Boat each tick. Used by child entities for rendering. */
   readonly tiltTransform = new TiltTransform();
 
-  // Water query for skin friction calculation (samples at body position)
-  private waterQuery = this.addChild(
-    new WaterQuery(() => [V(this.body.position)]),
-  );
+  // Water query for distributed skin friction (multi-point at waterline vertices)
+  private waterQuery: WaterQuery;
+
+  // Pre-allocated query points
+  private queryPoints: V2d[];
 
   constructor(config: HullConfig) {
     super();
 
     // Use waterline vertices for wetted area (skin friction), fall back to hull vertices
-    this.hullArea = polygonArea(config.waterlineVertices ?? config.vertices);
+    const waterlineVerts = config.waterlineVertices ?? config.vertices;
+    this.waterlineSamplePoints = waterlineVerts.map((v) => V(v.x, v.y));
+    const totalArea = polygonArea(waterlineVerts);
+    this.areaPerPoint = totalArea / waterlineVerts.length;
+
+    // Pre-allocate query point array
+    this.queryPoints = this.waterlineSamplePoints.map(() => V(0, 0));
+    this.waterQuery = this.addChild(
+      new WaterQuery(() => this.getWorldSamplePoints()),
+    );
+
     this.skinFrictionCoefficient = config.skinFrictionCoefficient;
     this.vertices = config.vertices;
     this.fillColor = config.colors.fill;
@@ -204,155 +204,175 @@ export class Hull extends BaseEntity {
     );
 
     // Build 3D hull mesh from the three vertex rings
-    const waterlineVerts = config.waterlineVertices ?? config.vertices;
+    const meshWaterlineVerts = config.waterlineVertices ?? config.vertices;
     const bottomVerts =
-      config.bottomVertices ?? waterlineVerts.map((v) => V(v.x, v.y * 0.45));
+      config.bottomVertices ??
+      meshWaterlineVerts.map((v) => V(v.x, v.y * 0.45));
     const deckZ = config.deckHeight;
     const bottomZ = -config.draft;
 
     this.mesh = buildHullMesh(
       config.vertices,
-      waterlineVerts,
+      meshWaterlineVerts,
       bottomVerts,
       deckZ,
       bottomZ,
     );
   }
 
+  /**
+   * Set the BuoyantBody for 3D force application. Called by Boat after construction.
+   */
+  setBuoyantBody(bb: BuoyantBody): void {
+    this.buoyantBody = bb;
+  }
+
+  /** Boat's vertical offset from buoyancy physics (0 if not wired up). */
+  getZOffset(): number {
+    return this.buoyantBody?.z ?? 0;
+  }
+
   @on("tick")
   onTick() {
-    // Use water velocity from previous frame's query (1-frame latency)
-    // Results may be empty on first frame
-    const waterVelocity =
-      this.waterQuery.results.length > 0
-        ? this.waterQuery.results[0].velocity
-        : V(0, 0);
+    const bb = this.buoyantBody;
+    const cf = this.skinFrictionCoefficient * this.getDamageMultiplier();
 
-    // Provide constant velocity function for skin friction
-    // (skin friction samples at body center, which is what we query)
-    const getWaterVelocity = (): V2d => waterVelocity;
+    // Apply distributed 3D skin friction at each waterline sample point
+    for (let i = 0; i < this.waterlineSamplePoints.length; i++) {
+      if (i >= this.waterQuery.length) break;
 
-    applySkinFriction(
-      this.body,
-      this.hullArea,
-      this.skinFrictionCoefficient * this.getDamageMultiplier(),
-      getWaterVelocity,
-    );
+      const local = this.waterlineSamplePoints[i];
+      const result = this.waterQuery.get(i);
+      const worldPoint = this.queryPoints[i]; // already in world space from getWorldSamplePoints
+
+      // Compute vertical velocity of this hull point from roll/pitch rotation.
+      // From d/dt of worldZ = x*sinP - y*sinR*cosP (at small angles):
+      //   dz/dt = x * pitchVelocity - y * rollVelocity
+      // Positive roll (port down) → port points (y>0) move down (negative dz/dt).
+      // Positive pitch (bow up) → bow points (x>0) move up (positive dz/dt).
+      const pointZVelocity = bb
+        ? local.x * bb.pitchVelocity - local.y * bb.rollVelocity
+        : 0;
+
+      const force = computeSkinFrictionAtPoint(
+        this.body,
+        worldPoint,
+        this.areaPerPoint,
+        cf,
+        result.velocity,
+        pointZVelocity,
+      );
+
+      if (force && bb) {
+        bb.applyForce3D(force.fx, force.fy, force.fz, local.x, local.y, 0);
+      } else if (force) {
+        // Fallback: apply 2D only (shouldn't happen if properly wired)
+        this.body.applyForce(V(force.fx, force.fy));
+      }
+    }
+  }
+
+  /**
+   * Get world-space positions of waterline sample points for water queries.
+   */
+  private getWorldSamplePoints(): V2d[] {
+    for (let i = 0; i < this.waterlineSamplePoints.length; i++) {
+      const local = this.waterlineSamplePoints[i];
+      const world = this.body.toWorldFrame(local);
+      this.queryPoints[i].set(world.x, world.y);
+    }
+    return this.queryPoints;
   }
 
   @on("render")
   onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
     const t = this.tiltTransform;
-    const cosR = t.cosRoll;
-    const sinR = t.sinRoll;
-    const sinP = t.sinPitch;
+    const zOffset = this.buoyantBody?.z ?? 0;
 
-    // Project all 3D mesh vertices to 2D
-    projectMesh(this.mesh, cosR, sinR, sinP);
+    // GPU-driven tilt projection: the model matrix and zCoeffs handle
+    // both 2D parallax and depth buffer writes. Components just submit
+    // body-local (x, y) with z = their 3D height.
+    draw.at(
+      {
+        pos: V(x, y),
+        angle: this.body.angle,
+        tilt: { roll: this.tiltRoll, pitch: this.tiltPitch, zOffset },
+      },
+      () => {
+        const {
+          xyPositions,
+          zValues,
+          deckIndices,
+          upperSideIndices,
+          lowerSideIndices,
+        } = this.mesh;
 
-    draw.at({ pos: V(x, y), angle: this.body.angle }, () => {
-      const { projected, deckIndices, upperSideIndices, lowerSideIndices } =
-        this.mesh;
+        // Draw back-to-front: lower sides → upper sides → deck
+        // Per-vertex z gives each vertex the correct depth + parallax.
 
-      // Draw back-to-front: lower sides → upper sides → deck
-      // Side/bottom faces that peek beyond the deck edge remain visible;
-      // those under the deck get covered.
-      // Set z-height per group for depth testing against water surface.
-      const deckZ = this.mesh.positions[2]; // z of first vertex (deck ring)
-      const bottomZ = this.mesh.positions[this.mesh.ringSize * 2 * 3 + 2]; // z of bottom ring
+        // Lower sides (waterline → bottom) — hull bottom paint color
+        draw.renderer.submitTrianglesWithZ(
+          xyPositions,
+          lowerSideIndices,
+          this.bottomColor,
+          1.0,
+          zValues,
+        );
 
-      // Lower sides (waterline → bottom) — hull bottom paint color
-      draw.renderer.setZ(bottomZ);
-      draw.renderer.submitTriangles(
-        projected,
-        lowerSideIndices,
-        this.bottomColor,
-        1.0,
-      );
+        // Upper sides (deck → waterline) — hull topsides color
+        draw.renderer.submitTrianglesWithZ(
+          xyPositions,
+          upperSideIndices,
+          this.sideColor,
+          1.0,
+          zValues,
+        );
 
-      // Upper sides (deck → waterline) — hull topsides color
-      draw.renderer.setZ(0); // waterline z
-      draw.renderer.submitTriangles(
-        projected,
-        upperSideIndices,
-        this.sideColor,
-        1.0,
-      );
+        // Deck cap — main hull color
+        draw.renderer.submitTrianglesWithZ(
+          xyPositions,
+          deckIndices,
+          this.fillColor,
+          1.0,
+          zValues,
+        );
 
-      // Deck cap — main hull color
-      draw.renderer.setZ(deckZ);
-      draw.renderer.submitTriangles(
-        projected,
-        deckIndices,
-        this.fillColor,
-        1.0,
-      );
-      draw.renderer.setZ(0);
-
-      // Outline: stroke the projected deck polygon (gunwale line)
-      const ringSize = this.mesh.ringSize;
-      draw.strokePolygon(
-        projected.slice(0, ringSize).map((p) => V(p[0], p[1])),
-        {
-          color: this.strokeColor,
-          width: 0.25,
-          z: deckZ,
-        },
-      );
-
-      // Deck details — offset to deck z-height for correct parallax
-      const deckOffX = sinP * this.mesh.positions[2]; // deckZ * sinP
-      const deckOffY = sinR * this.mesh.positions[2]; // deckZ * sinR
-
-      // Thwart (bench seat) - where helmsman sits, aft of centerboard
-      const thwartColor = 0x886633;
-      const thwartHalfW = 2.5 * cosR;
-      draw.fillRect(
-        -3.5 + deckOffX,
-        -thwartHalfW + deckOffY,
-        0.5,
-        thwartHalfW * 2,
-        {
-          color: thwartColor,
-        },
-      );
-      draw.strokeRect(
-        -3.5 + deckOffX,
-        -thwartHalfW + deckOffY,
-        0.5,
-        thwartHalfW * 2,
-        {
-          color: 0x664422,
-          width: 0.2,
-        },
-      );
-
-      // Tiller (rotates opposite to rudder)
-      if (this.tillerConfig) {
-        const tillerAngle = this.tillerConfig.getTillerAngle();
-        const tillerPos = this.tillerConfig.position;
-        const tillerLength = 3;
-        const tillerWidth = 0.25;
-        const tillerColor = 0x886633;
-
-        draw.at(
+        // Outline: stroke the deck polygon (gunwale line)
+        const ringSize = this.mesh.ringSize;
+        const deckZ = this.mesh.positions[2];
+        draw.strokePolygon(
+          xyPositions.slice(0, ringSize).map((p) => V(p[0], p[1])),
           {
-            pos: V(tillerPos.x + deckOffX, tillerPos.y * cosR + deckOffY),
-            angle: tillerAngle,
+            color: this.strokeColor,
+            width: 0.25,
+            z: deckZ,
           },
-          () => {
+        );
+
+        // Tiller (rotates opposite to rudder)
+        if (this.tillerConfig) {
+          const tillerAngle = this.tillerConfig.getTillerAngle();
+          const tillerPos = this.tillerConfig.position;
+          const tillerLength = 3;
+          const tillerWidth = 0.25;
+          const tillerColor = 0x886633;
+
+          // Tiller is at deck height — z handles both parallax and depth
+          draw.at({ pos: tillerPos, angle: tillerAngle }, () => {
             draw.fillRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
               color: tillerColor,
+              z: deckZ,
             });
             draw.strokeRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
               color: 0x664422,
               width: 0.1,
+              z: deckZ,
             });
-          },
-        );
-      }
-    });
+          });
+        }
+      },
+    );
   }
 
   /** Data needed by BoatCompositor for hull height rendering. */

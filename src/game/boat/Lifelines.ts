@@ -23,112 +23,93 @@ export class Lifelines extends BaseEntity {
     const hullBody = this.boat.hull.body;
     const [hx, hy] = hullBody.position;
     const hullAngle = hullBody.angle;
-    const t = this.boat.hull.tiltTransform;
-    const cr = t.cosRoll;
-    const sr = t.sinRoll;
-    const sp = t.sinPitch;
+    const roll = this.boat.hull.tiltRoll;
+    const pitch = this.boat.hull.tiltPitch;
+    const zOffset = this.boat.hull.getZOffset();
     const deckZ = this.boat.config.hull.deckHeight;
     const topZ = deckZ + this.config.stanchionHeight;
 
     const { tubeColor, wireColor, tubeWidth, wireWidth } = this.config;
 
-    // Project a hull-local (x, y) point at a given z-height to hull-local 2D,
-    // matching the projection used by Hull and Rig:
-    //   projX = x + z * sinPitch
-    //   projY = y * cosRoll + z * sinRoll
-    const projX = (x: number, z: number) => x + z * sp;
-    const projY = (y: number, z: number) => y * cr + z * sr;
+    draw.at(
+      { pos: V(hx, hy), angle: hullAngle, tilt: { roll, pitch, zOffset } },
+      () => {
+        // --- Stanchions (short posts from deck to rail height) ---
+        for (const [sx, sy] of this.config.portStanchions) {
+          draw.line(sx, sy, sx, sy, {
+            color: tubeColor,
+            width: tubeWidth,
+            z: topZ,
+          });
+        }
+        for (const [sx, sy] of this.config.starboardStanchions) {
+          draw.line(sx, sy, sx, sy, {
+            color: tubeColor,
+            width: tubeWidth,
+            z: topZ,
+          });
+        }
 
-    draw.at({ pos: V(hx, hy), angle: hullAngle }, () => {
-      // --- Stanchions (short posts from deck to rail height) ---
-      for (const [sx, sy] of this.config.portStanchions) {
-        draw.line(
-          projX(sx, deckZ),
-          projY(sy, deckZ),
-          projX(sx, topZ),
-          projY(sy, topZ),
-          { color: tubeColor, width: tubeWidth, z: topZ },
+        // --- Bow pulpit (U-shaped rail at bow) ---
+        this.drawStrokedPath(
+          draw,
+          this.config.bowPulpit,
+          topZ,
+          tubeColor,
+          tubeWidth,
         );
-      }
-      for (const [sx, sy] of this.config.starboardStanchions) {
-        draw.line(
-          projX(sx, deckZ),
-          projY(sy, deckZ),
-          projX(sx, topZ),
-          projY(sy, topZ),
-          { color: tubeColor, width: tubeWidth, z: topZ },
+
+        // --- Stern pulpit (rail at stern) ---
+        this.drawStrokedPath(
+          draw,
+          this.config.sternPulpit,
+          topZ,
+          tubeColor,
+          tubeWidth,
         );
-      }
 
-      // --- Bow pulpit (U-shaped rail at bow) ---
-      draw.renderer.setZ(topZ);
-      this.drawStrokedPath(
-        draw,
-        this.config.bowPulpit,
-        topZ,
-        projX,
-        projY,
-        tubeColor,
-        tubeWidth,
-      );
-
-      // --- Stern pulpit (rail at stern) ---
-      this.drawStrokedPath(
-        draw,
-        this.config.sternPulpit,
-        topZ,
-        projX,
-        projY,
-        tubeColor,
-        tubeWidth,
-      );
-
-      // --- Lifeline wires (connect stanchion tops, bow to stern per side) ---
-      this.drawLifeline(
-        draw,
-        this.config.bowPulpit,
-        this.config.portStanchions,
-        this.config.sternPulpit,
-        true,
-        topZ,
-        projX,
-        projY,
-        wireColor,
-        wireWidth,
-      );
-      this.drawLifeline(
-        draw,
-        this.config.bowPulpit,
-        this.config.starboardStanchions,
-        this.config.sternPulpit,
-        false,
-        topZ,
-        projX,
-        projY,
-        wireColor,
-        wireWidth,
-      );
-      draw.renderer.setZ(0);
-    });
+        // --- Lifeline wires (connect stanchion tops, bow to stern per side) ---
+        this.drawLifeline(
+          draw,
+          this.config.bowPulpit,
+          this.config.portStanchions,
+          this.config.sternPulpit,
+          true,
+          topZ,
+          wireColor,
+          wireWidth,
+        );
+        this.drawLifeline(
+          draw,
+          this.config.bowPulpit,
+          this.config.starboardStanchions,
+          this.config.sternPulpit,
+          false,
+          topZ,
+          wireColor,
+          wireWidth,
+        );
+      },
+    );
   }
 
-  /** Draw a stroked open path at a given z-height with proper tilt projection. */
+  /** Draw a stroked open path at a given z-height. Coordinates are body-local. */
   private drawStrokedPath(
     draw: Draw,
     points: ReadonlyArray<readonly [number, number]>,
     z: number,
-    projX: (x: number, z: number) => number,
-    projY: (y: number, z: number) => number,
     color: number,
     width: number,
   ): void {
     if (points.length < 2) return;
+    draw.renderer.setZ(z);
     const path = draw.path();
-    path.moveTo(projX(points[0][0], z), projY(points[0][1], z));
+    path.moveTo(points[0][0], points[0][1]);
     for (let i = 1; i < points.length; i++) {
-      path.lineTo(projX(points[i][0], z), projY(points[i][1], z));
+      path.lineTo(points[i][0], points[i][1]);
     }
     path.stroke(color, width);
+    draw.renderer.setZ(0);
   }
 
   /** Draw a lifeline wire connecting pulpit ends through stanchion tops. */
@@ -139,8 +120,6 @@ export class Lifelines extends BaseEntity {
     sternPulpit: ReadonlyArray<readonly [number, number]>,
     isPort: boolean,
     z: number,
-    projX: (x: number, z: number) => number,
-    projY: (y: number, z: number) => number,
     color: number,
     width: number,
   ): void {
@@ -166,12 +145,14 @@ export class Lifelines extends BaseEntity {
     }
 
     if (points.length >= 2) {
+      draw.renderer.setZ(z);
       const path = draw.path();
-      path.moveTo(projX(points[0][0], z), projY(points[0][1], z));
+      path.moveTo(points[0][0], points[0][1]);
       for (let i = 1; i < points.length; i++) {
-        path.lineTo(projX(points[i][0], z), projY(points[i][1], z));
+        path.lineTo(points[i][0], points[i][1]);
       }
       path.stroke(color, width);
+      draw.renderer.setZ(0);
     }
   }
 }

@@ -1,9 +1,17 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
+import type { Draw } from "../../core/graphics/Draw";
 import { pairs } from "../../core/util/FunctionalUtils";
 import { V, V2d } from "../../core/Vector";
-import { applyFluidForces, foilDrag, foilLift } from "../fluid-dynamics";
+import {
+  computeFluidForces,
+  FluidForceResult,
+  foilDrag,
+  foilLift,
+  KEEL_CHORD,
+} from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
+import type { BuoyantBody } from "./BuoyantBody";
 import { KeelConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 
@@ -24,8 +32,15 @@ export class Keel extends BaseEntity {
 
   private keelZ: number;
 
+  // Pre-allocated force result buffer
+  private forceResults: FluidForceResult[] = [
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+  ];
+
   constructor(
     private hull: Hull,
+    private buoyantBody: BuoyantBody,
     config: KeelConfig,
     hullDraft: number,
   ) {
@@ -76,45 +91,61 @@ export class Keel extends BaseEntity {
     };
 
     // Apply keel forces to hull (both directions for symmetry)
+    // Forces applied at keelZ depth so they naturally produce anti-heeling torque
     for (const [start, end] of pairs(this.vertices)) {
-      applyFluidForces(
-        this.hull.body,
-        start,
-        end,
-        lift,
-        drag,
-        getWaterVelocity,
-      );
-      applyFluidForces(
-        this.hull.body,
-        end,
-        start,
-        lift,
-        drag,
-        getWaterVelocity,
-      );
+      for (const reversed of [false, true]) {
+        const a = reversed ? end : start;
+        const b = reversed ? start : end;
+        const count = computeFluidForces(
+          this.hull.body,
+          a,
+          b,
+          lift,
+          drag,
+          getWaterVelocity,
+          this.forceResults,
+        );
+        for (let i = 0; i < count; i++) {
+          const r = this.forceResults[i];
+          this.buoyantBody.applyForce3D(
+            r.fx,
+            r.fy,
+            0,
+            r.localX,
+            r.localY,
+            this.keelZ,
+          );
+        }
+      }
     }
   }
 
   @on("render")
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
+  onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.hull.body.position;
-    const offset = this.hull.tiltTransform.worldOffset(this.keelZ);
+    const zOffset = this.hull.getZOffset();
 
     draw.at(
-      { pos: V(x + offset.x, y + offset.y), angle: this.hull.body.angle },
+      {
+        pos: V(x, y),
+        angle: this.hull.body.angle,
+        tilt: {
+          roll: this.hull.tiltRoll,
+          pitch: this.hull.tiltPitch,
+          zOffset,
+        },
+      },
       () => {
-        // Draw keel as a polyline (open path)
-        const path = draw.path();
-        const first = this.vertices[0];
-        path.moveTo(first.x, first.y);
-        for (let i = 1; i < this.vertices.length; i++) {
-          const v = this.vertices[i];
-          path.lineTo(v.x, v.y);
+        // Draw keel as a polyline (open path) in body-local coords
+        for (let i = 0; i < this.vertices.length - 1; i++) {
+          const a = this.vertices[i];
+          const b = this.vertices[i + 1];
+          draw.line(a.x, a.y, b.x, b.y, {
+            color: this.color,
+            width: 1,
+            z: this.keelZ,
+          });
         }
-        draw.renderer.setZ(this.keelZ);
-        path.stroke(this.color, 1, 1.0);
-        draw.renderer.setZ(0);
       },
     );
   }

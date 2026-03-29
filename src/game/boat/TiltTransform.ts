@@ -4,15 +4,15 @@ import { V, V2d } from "../../core/Vector";
  * Affine transform from boat-local 3D coordinates (x, y, z) to world 2D coordinates.
  *
  * The boat exists in a 2D physics world but has simulated tilt (roll/pitch).
- * When heeled, the boat appears narrower (y-axis foreshortening by cos(roll)),
- * and elements at different heights shift via parallax. The full 2×3 matrix:
+ * The 2×3 matrix is the top two rows of the full 3D rotation Yaw(A)·Pitch(P)·Roll(R):
  *
- *   [wx]   [cosA  -sinA·cosR  cosA·sp - sinA·sr] [x]   [hx]
- *   [wy] = [sinA   cosA·cosR  sinA·sp + cosA·sr] [y] + [hy]
- *                                                  [z]
+ *   [wx]   [ca·cp   ca·sp·sr - sa·cr   -(ca·sp·cr + sa·sr)] [x]   [hx]
+ *   [wy] = [sa·cp   sa·sp·sr + ca·cr   -(sa·sp·cr - ca·sr)] [y] + [hy]
+ *                                                              [z]
  *
- * where A = hull angle, R = roll, sp = sin(pitch), sr = sin(roll),
- * cosR = cos(roll), (hx,hy) = hull position.
+ * Sign conventions:
+ *   positive pitch = bow up (forward axis foreshortens, high points shift aft)
+ *   positive roll  = heel to port (beam foreshortens, high points shift to port)
  *
  * Updated once per tick by Boat; read by all boat sub-entities for rendering.
  */
@@ -78,19 +78,20 @@ export class TiltTransform {
     const sr = Math.sin(roll);
     const sp = Math.sin(pitch);
     const cr = Math.cos(roll);
+    const cp = Math.cos(pitch);
 
-    this.m00 = ca;
-    this.m01 = -sa * cr;
-    this.m02 = ca * sp - sa * sr;
-    this.m10 = sa;
-    this.m11 = ca * cr;
-    this.m12 = sa * sp + ca * sr;
+    this.m00 = ca * cp;
+    this.m01 = ca * sp * sr - sa * cr;
+    this.m02 = -(ca * sp * cr + sa * sr);
+    this.m10 = sa * cp;
+    this.m11 = sa * sp * sr + ca * cr;
+    this.m12 = -(sa * sp * cr - ca * sr);
     this.tx = hx;
     this.ty = hy;
     this._sinRoll = sr;
     this._sinPitch = sp;
     this._cosRoll = cr;
-    this._cosPitch = Math.cos(pitch);
+    this._cosPitch = cp;
     this._cosAngle = ca;
     this._sinAngle = sa;
   }
@@ -106,13 +107,16 @@ export class TiltTransform {
   /**
    * Full 3D transform: boat-local (x, y, z) → world (wx, wy, wz).
    * worldX/Y use the existing 2×3 matrix.
-   * worldZ = -x*sinP + y*sinR*cosP + z*cosR*cosP
+   * worldZ = x*sinP - y*sinR*cosP + z*cosR*cosP
+   *
+   * Sign conventions: positive pitch = bow up (bow points get positive worldZ),
+   * positive roll = heel to port (port points get negative worldZ).
    */
   toWorld3D(x: number, y: number, z: number): [number, number, number] {
     return [
       this.m00 * x + this.m01 * y + this.m02 * z + this.tx,
       this.m10 * x + this.m11 * y + this.m12 * z + this.ty,
-      -x * this._sinPitch +
+      x * this._sinPitch -
         y * this._sinRoll * this._cosPitch +
         z * this._cosRoll * this._cosPitch,
     ];
@@ -136,8 +140,26 @@ export class TiltTransform {
   /**
    * Hull-local parallax offset for a given z-height.
    * Use inside a draw.at() block that already applies hull position + angle.
+   * Derived from R_pitch * R_roll * [0, 0, z] projected to XY.
    */
   localOffset(z: number): V2d {
-    return V(z * this._sinPitch, z * this._sinRoll);
+    return V(-z * this._sinPitch * this._cosRoll, z * this._sinRoll);
+  }
+
+  /**
+   * Compute the world Z-height of a body-local 3D point.
+   * This is the third row of the full rotation matrix:
+   *   worldZ = x*sinP - y*sinR*cosP + z*cosR*cosP + zOffset
+   *
+   * Use for depth buffer z-values on components that can't use the
+   * GPU-driven tilt context (e.g., boom with independent rotation).
+   */
+  worldZ(x: number, y: number, z: number, zOffset: number = 0): number {
+    return (
+      x * this._sinPitch -
+      y * this._sinRoll * this._cosPitch +
+      z * this._cosRoll * this._cosPitch +
+      zOffset
+    );
   }
 }

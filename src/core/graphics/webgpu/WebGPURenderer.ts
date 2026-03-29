@@ -1173,6 +1173,21 @@ export class WebGPURenderer {
     color: number,
     alpha: number,
   ): void {
+    this.submitTrianglesWithZ(vertices, indices, color, alpha, null);
+  }
+
+  /**
+   * Submit triangles with optional per-vertex z-values for depth testing.
+   * When zValues is null, uses the current global z from setZ().
+   * When provided, each vertex gets its own z-height for accurate depth.
+   */
+  submitTrianglesWithZ(
+    vertices: [number, number][],
+    indices: number[],
+    color: number,
+    alpha: number,
+    zValues: number[] | null,
+  ): void {
     // Flush sprites before drawing shapes (maintains layer ordering)
     if (this.spriteIndexCount > 0) {
       this.flushSprites();
@@ -1193,7 +1208,7 @@ export class WebGPURenderer {
     ) {
       for (let t = 0; t < indices.length; t += 3) {
         const triIndices = indices.slice(t, t + 3);
-        this.submitTriangles(vertices, triIndices, color, alpha);
+        this.submitTrianglesWithZ(vertices, triIndices, color, alpha, zValues);
       }
       return;
     }
@@ -1213,12 +1228,14 @@ export class WebGPURenderer {
     const baseVertex = this.shapeVertexCount;
 
     // Extract z state
-    const z = this.currentZ;
+    const globalZ = this.currentZ;
     const zcx = this.currentZCoeffX;
     const zcy = this.currentZCoeffY;
 
     // Store untransformed vertices with per-vertex color, model matrix, and z data
-    for (const v of vertices) {
+    for (let i = 0; i < vertices.length; i++) {
+      const v = vertices[i];
+      const z = zValues !== null ? zValues[i] : globalZ;
       const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
       this.shapeVertices.set(
         [v[0], v[1], r, g, b, alpha, ma, mb, mc, md, mtx, mty, z, zcx, zcy],

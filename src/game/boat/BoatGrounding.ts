@@ -78,8 +78,8 @@ export class BoatGrounding extends BaseEntity {
     // Skip grounding calculation if not moving
     if (speed < 0.01) return;
 
-    let totalForce = V(0, 0);
-    let groundingRollTorque = 0;
+    const bb = this.boat.buoyantBody;
+    const velDir = velocity.normalize();
 
     // Results are ordered: keel vertices, then rudder, then hull center
     const keelVertexCount = this.boat.config.keel.vertices.length;
@@ -89,7 +89,6 @@ export class BoatGrounding extends BaseEntity {
     for (let i = 0; i < keelVertexCount; i++) {
       const result = this.terrainQuery.results[resultIndex++];
       const terrainHeight = result.height;
-
       const penetration = terrainHeight - -this.keelDraft;
 
       if (penetration > 0) {
@@ -98,12 +97,17 @@ export class BoatGrounding extends BaseEntity {
           speed,
           this.config.keelFriction,
         );
-        totalForce.isub(velocity.normalize().mul(friction));
+        const keelVertex = this.boat.config.keel.vertices[i];
+        // Apply at keel depth — friction at depth naturally produces pitch torque
+        bb.applyForce3D(
+          -velDir.x * friction,
+          -velDir.y * friction,
+          0,
+          keelVertex.x,
+          keelVertex.y,
+          -this.keelDraft,
+        );
 
-        // Keel grounding produces a pitch torque (bow pitches up on impact)
-        this.boat.applyTiltTorque(0, penetration * speed * 100);
-
-        // Keel grounding causes mild hull stress (30% of hull grounding rate)
         this.boat.hullDamage.applyGroundingDamage(penetration * 0.3, speed, dt);
       }
     }
@@ -118,9 +122,16 @@ export class BoatGrounding extends BaseEntity {
         speed,
         this.config.rudderFriction,
       );
-      totalForce.isub(velocity.normalize().mul(friction));
+      const rudderPos = this.boat.config.rudder.position;
+      bb.applyForce3D(
+        -velDir.x * friction,
+        -velDir.y * friction,
+        0,
+        rudderPos.x,
+        rudderPos.y,
+        -this.rudderDraft,
+      );
 
-      // Rudder grounding causes rudder damage
       this.boat.rudderDamage.applyGroundingDamage(rudderPenetration, speed, dt);
     }
 
@@ -134,28 +145,17 @@ export class BoatGrounding extends BaseEntity {
         speed,
         this.config.hullFriction,
       );
-      totalForce.isub(velocity.normalize().mul(friction));
+      // Apply at hull bottom depth
+      bb.applyForce3D(
+        -velDir.x * friction,
+        -velDir.y * friction,
+        0,
+        0,
+        0,
+        -this.hullDraft,
+      );
 
-      // Hull grounding at speed creates random roll torque (violent impact)
-      groundingRollTorque += hullPenetration * speed * 200;
-
-      // Hull grounding causes damage
       this.boat.hullDamage.applyGroundingDamage(hullPenetration, speed, dt);
-    }
-
-    // Apply grounding force
-    if (totalForce.magnitude > 0) {
-      body.applyForce(totalForce);
-    }
-
-    // Apply grounding tilt torque
-    if (groundingRollTorque > 0) {
-      // Roll direction based on which side hits harder (use velocity lateral component)
-      const hullAngle = body.angle;
-      const lateralVel =
-        -velocity[0] * Math.sin(hullAngle) + velocity[1] * Math.cos(hullAngle);
-      const rollSign = lateralVel > 0 ? 1 : -1;
-      this.boat.applyTiltTorque(rollSign * groundingRollTorque, 0);
     }
   }
 

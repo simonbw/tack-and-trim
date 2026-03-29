@@ -5,9 +5,15 @@ import { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { RevoluteConstraint } from "../../core/physics/constraints/RevoluteConstraint";
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
-import { applyFluidForces, foilDrag, foilLift } from "../fluid-dynamics";
+import {
+  computeFluidForces,
+  FluidForceResult,
+  foilDrag,
+  foilLift,
+} from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { RudderConfig } from "./BoatConfig";
+import type { BuoyantBody } from "./BuoyantBody";
 import { Hull } from "./Hull";
 
 // Rudder body mass — light enough to respond quickly to input,
@@ -15,8 +21,8 @@ import { Hull } from "./Hull";
 const RUDDER_MASS = 5; // lbs
 
 // Torque applied by player input to turn the rudder
-const STEER_TORQUE = 8000;
-const STEER_TORQUE_FAST = 20000;
+const STEER_TORQUE = 2000;
+const STEER_TORQUE_FAST = 10000;
 
 // Angular damping on the rudder body so it doesn't oscillate wildly
 const RUDDER_ANGULAR_DAMPING = 0.98;
@@ -37,6 +43,7 @@ export class Rudder extends BaseEntity {
   private chord: number;
   private maxSteerAngle: number;
   private color: number;
+  private rudderZ: number;
 
   // Water query for rudder endpoints (transforms to world space for query)
   private waterQuery = this.addChild(
@@ -46,8 +53,15 @@ export class Rudder extends BaseEntity {
   // Cached water velocities indexed by world position key
   private velocityCache = new Map<string, V2d>();
 
+  // Pre-allocated force result buffer
+  private forceResults: FluidForceResult[] = [
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+    { fx: 0, fy: 0, localX: 0, localY: 0 },
+  ];
+
   constructor(
     private hull: Hull,
+    private buoyantBody: BuoyantBody,
     config: RudderConfig,
   ) {
     super();
@@ -57,6 +71,7 @@ export class Rudder extends BaseEntity {
     this.chord = config.chord;
     this.maxSteerAngle = config.maxSteerAngle;
     this.color = config.color;
+    this.rudderZ = -config.draft;
 
     // Create a dynamic body for the rudder blade.
     // The pivot is at the body's origin (0,0 in local space).
@@ -71,10 +86,10 @@ export class Rudder extends BaseEntity {
     this.body.angle = hull.body.angle;
 
     // Small box shape for the rudder blade
-    this.body.addShape(
-      new Box({ width: config.length, height: 0.4 }),
-      [-config.length / 2, 0],
-    );
+    this.body.addShape(new Box({ width: config.length, height: 0.4 }), [
+      -config.length / 2,
+      0,
+    ]);
 
     // Revolute constraint: attach rudder to hull at the pivot point
     this.rudderConstraint = new RevoluteConstraint(hull.body, this.body, {
@@ -146,7 +161,12 @@ export class Rudder extends BaseEntity {
     // Apply damage bias as a constant torque pulling rudder to one side
     const biasTorque = this.getSteeringBias() * torqueMag * 0.5;
 
-    this.body.angularForce += steerTorque + biasTorque;
+    const totalSteerTorque = steerTorque + biasTorque;
+    this.body.angularForce += totalSteerTorque;
+    // Counter-torque on hull: the helmsperson is inside the boat, so steering
+    // is an internal force — their body absorbs the reaction. Without this,
+    // the constraint reaction dumps the full steer torque into the hull as yaw.
+    this.hull.body.angularForce -= totalSteerTorque;
 
     // Scale rudder effectiveness by heel angle — rudder lifts out at extreme heel
     const heelFactor = Math.cos(this.hull.tiltRoll);
@@ -166,37 +186,67 @@ export class Rudder extends BaseEntity {
       return this.velocityCache.get(key) ?? V(0, 0);
     };
 
-    // Apply rudder forces to the rudder body (constraint transfers them to hull).
+    // Apply rudder forces to the rudder body (constraint transfers 2D forces to hull).
+    // Also compute 3D vertical torques at rudderZ depth for proper roll/pitch.
     // v1/v2 are in rudder-body-local coordinates: pivot at origin, tip at (-length, 0).
     const pivotLocal = V(0, 0);
     const tipLocal = V(-this.length, 0);
 
-    applyFluidForces(
-      this.body,
-      pivotLocal,
-      tipLocal,
-      lift,
-      drag,
-      getWaterVelocity,
-    );
-    applyFluidForces(
-      this.body,
-      tipLocal,
-      pivotLocal,
-      lift,
-      drag,
-      getWaterVelocity,
-    );
+    for (const [a, b] of [
+      [pivotLocal, tipLocal],
+      [tipLocal, pivotLocal],
+    ] as const) {
+      const count = computeFluidForces(
+        this.body,
+        a,
+        b,
+        lift,
+        drag,
+        getWaterVelocity,
+        this.forceResults,
+      );
+      for (let i = 0; i < count; i++) {
+        const r = this.forceResults[i];
+        // Apply 2D force to rudder body (constraint transfers to hull)
+        const relPoint = this.body.vectorToWorldFrame(V(r.localX, r.localY));
+        this.body.applyForce(V(r.fx, r.fy), relPoint);
+        // Apply 3D vertical torques at rudder depth (without double-applying 2D)
+        // Convert application point from rudder-local to hull-local frame
+        const worldPoint = this.body.toWorldFrame(V(r.localX, r.localY));
+        const hullLocal = this.hull.body.toLocalFrame(worldPoint);
+        this.buoyantBody.applyVerticalTorqueFrom(
+          r.fx,
+          r.fy,
+          0,
+          hullLocal.x,
+          hullLocal.y,
+          this.rudderZ,
+        );
+      }
+    }
   }
 
   @on("render")
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
-    // Use the actual rudder body position and angle for rendering
+    // Use the actual rudder body position and angle for rendering.
+    // The rudder has its own physics body with independent position/angle,
+    // so it can't use the hull's tilt context directly. Instead, use
+    // worldZ() to compute the correct depth from the hull-local pivot.
     const [rx, ry] = this.body.position;
     const rudderAngle = this.body.angle;
+    const tilt = this.hull.tiltTransform;
+    const zOffset = this.hull.getZOffset();
 
-    // Rudder is below waterline — small parallax shift
-    const offset = this.hull.tiltTransform.worldOffset(-1);
+    // Compute world-space depth at the rudder pivot (hull-local coords)
+    const z = tilt.worldZ(
+      this.pivotPosition.x,
+      this.pivotPosition.y,
+      this.rudderZ,
+      zOffset,
+    );
+
+    // Apply tilt parallax offset for 2D position
+    const offset = tilt.worldOffset(this.rudderZ);
 
     // Draw rudder blade (underwater)
     draw.at(
@@ -205,7 +255,7 @@ export class Rudder extends BaseEntity {
         draw.line(0, 0, -this.length, 0, {
           color: this.color,
           width: 0.5,
-          z: -1,
+          z,
         });
       },
     );
