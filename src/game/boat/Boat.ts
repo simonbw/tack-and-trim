@@ -8,7 +8,6 @@ import { Bilge } from "./Bilge";
 import { BoatConfig, StarterBoat } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
-import { Buoyancy } from "./Buoyancy";
 import { HullDamage } from "./HullDamage";
 import { RudderDamage } from "./RudderDamage";
 import { SailDamage } from "./SailDamage";
@@ -90,28 +89,21 @@ export class Boat extends BaseEntity {
     // Create hull first with 6DOF physics (z, roll, pitch integrated by engine)
     const bc = config.buoyancy;
     this.hull = this.addChild(
-      new Hull(config.hull, {
-        rollInertia: bc.rollInertia,
-        pitchInertia: bc.pitchInertia,
-        zMass: bc.verticalMass,
-      }),
+      new Hull(
+        config.hull,
+        {
+          rollInertia: bc.rollInertia,
+          pitchInertia: bc.pitchInertia,
+          zMass: bc.verticalMass,
+        },
+        bc.verticalMass,
+        bc.centerOfGravityZ,
+      ),
     );
     // Set hull position BEFORE creating sub-entities so that physics bodies
     // (boom, sail particles, jib particles) are positioned correctly in world space.
     this.hull.body.position.set(startPosition);
     this.hull.body.angle = startRotation;
-
-    // Create buoyancy entity for multi-point sampling
-    const buoyancyWaterlineVerts =
-      config.hull.waterlineVertices ?? config.hull.vertices;
-    this.addChild(
-      new Buoyancy(
-        this.hull,
-        buoyancyWaterlineVerts,
-        bc.verticalMass, // boat mass = displacement mass
-        bc.centerOfGravityZ,
-      ),
-    );
 
     // Create parts that attach to hull
     this.keel = this.addChild(

@@ -6,21 +6,25 @@ import {
   type SixDOFOptions,
 } from "../../core/physics/body/DynamicBody";
 import { Convex } from "../../core/physics/shapes/Convex";
-import { polygonArea } from "../../core/physics/utils/ShapeUtils";
 import { earClipTriangulate } from "../../core/util/Triangulate";
 import { V, V2d } from "../../core/Vector";
 import {
-  computeFluidForces,
   computeSkinFrictionAtPoint,
-  flatPlateDrag,
-  type FluidForceResult,
+  RHO_AIR,
+  RHO_WATER,
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
-
-/** Zero lift function for hull edges (form drag only, no lift). */
-const noLift = () => 0;
+import { WindQuery } from "../world/wind/WindQuery";
 import { HullConfig } from "./BoatConfig";
 import { TiltTransform } from "./TiltTransform";
+
+const GRAVITY = 32.174; // ft/s²
+// Hydrostatic pressure: F = ρ * g * depth * area (lbf), converted to engine units (* g)
+const BUOYANCY_FORCE_PER_DEPTH_PER_AREA = RHO_WATER * GRAVITY * GRAVITY;
+// Force conversion: lbf to engine units (lbm·ft/s²)
+const LBF_TO_ENGINE = 32.174;
+// Waterline transition band half-width (ft)
+const WATERLINE_BAND = 0.1;
 
 /**
  * Find the bow (foremost) point from hull geometry.
@@ -42,14 +46,9 @@ export function findSternPoints(vertices: V2d[]): {
   port: V2d;
   starboard: V2d;
 } {
-  // Sort vertices by x (ascending) to find the aftmost points
   const sorted = [...vertices].sort((a, b) => a.x - b.x);
-
-  // Take the two most aft vertices
   const v1 = sorted[0];
   const v2 = sorted[1];
-
-  // Determine port (positive y) vs starboard (negative y)
   if (v1.y > v2.y) {
     return { port: v1, starboard: v2 };
   } else {
@@ -68,7 +67,7 @@ export interface TillerConfig {
  */
 export interface HullMesh {
   /** 3D vertices as [x, y, z] triples. Layout: deck ring, waterline ring, bottom ring. */
-  positions: number[]; // length = ringSize * 3 * 3
+  positions: number[];
   ringSize: number;
   /** Body-local XY positions for GPU submission (static, built once). */
   xyPositions: [number, number][];
@@ -80,6 +79,30 @@ export interface HullMesh {
   upperSideIndices: number[];
   /** Triangle indices for the lower side strip (waterline → bottom). */
   lowerSideIndices: number[];
+  /** Triangle indices for the bottom cap polygon (physics only). */
+  bottomIndices: number[];
+}
+
+/**
+ * Precomputed per-triangle data for hull force computation.
+ * Stored as flat arrays for cache-friendly access.
+ */
+interface HullForceData {
+  count: number;
+  /** Body-local centroid X */
+  cx: Float64Array;
+  /** Body-local centroid Y */
+  cy: Float64Array;
+  /** Body-local centroid Z */
+  cz: Float64Array;
+  /** Body-local outward normal X */
+  nx: Float64Array;
+  /** Body-local outward normal Y */
+  ny: Float64Array;
+  /** Body-local outward normal Z */
+  nz: Float64Array;
+  /** Triangle surface area (ft²) */
+  area: Float64Array;
 }
 
 function buildHullMesh(
@@ -103,7 +126,7 @@ function buildHullMesh(
     positions.push(v.x, v.y, bottomZ);
   }
 
-  // Build static XY and Z arrays from 3D positions (GPU handles the rest)
+  // Build static XY and Z arrays from 3D positions
   const totalVerts = ringSize * 3;
   const xyPositions: [number, number][] = new Array(totalVerts);
   const zValues: number[] = new Array(totalVerts);
@@ -113,9 +136,18 @@ function buildHullMesh(
     zValues[i] = positions[base + 2];
   }
 
-  // Triangulate the deck cap using the original (un-projected) vertices.
-  // The ear-clip indices reference vertices 0..ringSize-1 (the deck ring).
+  // Triangulate caps
   const deckIndices = earClipTriangulate(deckVertices) ?? [];
+  const bottomRawIndices = earClipTriangulate(bottomVertices) ?? [];
+  // Offset bottom indices to the third ring and reverse winding for downward-facing normals
+  const bottomIndices: number[] = [];
+  for (let i = 0; i < bottomRawIndices.length; i += 3) {
+    bottomIndices.push(
+      bottomRawIndices[i + 2] + 2 * ringSize,
+      bottomRawIndices[i + 1] + 2 * ringSize,
+      bottomRawIndices[i] + 2 * ringSize,
+    );
+  }
 
   // Build side strip indices
   const upperSideIndices: number[] = [];
@@ -123,15 +155,12 @@ function buildHullMesh(
 
   for (let i = 0; i < ringSize; i++) {
     const next = (i + 1) % ringSize;
-
-    // Upper strip: deck (ring 0) → waterline (ring 1)
     const d0 = i;
     const d1 = next;
     const w0 = ringSize + i;
     const w1 = ringSize + next;
     upperSideIndices.push(d0, d1, w1, d0, w1, w0);
 
-    // Lower strip: waterline (ring 1) → bottom (ring 2)
     const b0 = 2 * ringSize + i;
     const b1 = 2 * ringSize + next;
     lowerSideIndices.push(w0, w1, b1, w0, b1, b0);
@@ -145,7 +174,96 @@ function buildHullMesh(
     deckIndices,
     upperSideIndices,
     lowerSideIndices,
+    bottomIndices,
   };
+}
+
+/**
+ * Precompute per-triangle force data (centroid, outward normal, area)
+ * from the hull mesh geometry.
+ */
+function buildHullForceData(mesh: HullMesh): HullForceData {
+  const allIndices = [
+    ...mesh.deckIndices,
+    ...mesh.upperSideIndices,
+    ...mesh.lowerSideIndices,
+    ...mesh.bottomIndices,
+  ];
+  const triCount = allIndices.length / 3;
+  const data: HullForceData = {
+    count: triCount,
+    cx: new Float64Array(triCount),
+    cy: new Float64Array(triCount),
+    cz: new Float64Array(triCount),
+    nx: new Float64Array(triCount),
+    ny: new Float64Array(triCount),
+    nz: new Float64Array(triCount),
+    area: new Float64Array(triCount),
+  };
+
+  const pos = mesh.xyPositions;
+  const zVals = mesh.zValues;
+
+  for (let t = 0; t < triCount; t++) {
+    const i0 = allIndices[t * 3];
+    const i1 = allIndices[t * 3 + 1];
+    const i2 = allIndices[t * 3 + 2];
+
+    // Vertex positions
+    const x0 = pos[i0][0],
+      y0 = pos[i0][1],
+      z0 = zVals[i0];
+    const x1 = pos[i1][0],
+      y1 = pos[i1][1],
+      z1 = zVals[i1];
+    const x2 = pos[i2][0],
+      y2 = pos[i2][1],
+      z2 = zVals[i2];
+
+    // Centroid
+    data.cx[t] = (x0 + x1 + x2) / 3;
+    data.cy[t] = (y0 + y1 + y2) / 3;
+    data.cz[t] = (z0 + z1 + z2) / 3;
+
+    // Edge vectors
+    const e1x = x1 - x0,
+      e1y = y1 - y0,
+      e1z = z1 - z0;
+    const e2x = x2 - x0,
+      e2y = y2 - y0,
+      e2z = z2 - z0;
+
+    // Cross product (outward normal, unnormalized)
+    let nx = e1y * e2z - e1z * e2y;
+    let ny = e1z * e2x - e1x * e2z;
+    let nz = e1x * e2y - e1y * e2x;
+
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    data.area[t] = len * 0.5;
+
+    if (len > 1e-8) {
+      nx /= len;
+      ny /= len;
+      nz /= len;
+    }
+
+    // Ensure outward-facing: normal should point away from hull interior.
+    // For side triangles, the centroid's XY direction from the centerline
+    // should align with the normal's XY direction.
+    // For caps, check Z direction.
+    const centroidDot = data.cx[t] * nx + data.cy[t] * ny + data.cz[t] * nz;
+    if (centroidDot < 0) {
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
+
+    data.nx[t] = nx;
+    data.ny[t] = ny;
+    data.nz[t] = nz;
+  }
+
+  return data;
 }
 
 export class Hull extends BaseEntity {
@@ -161,40 +279,30 @@ export class Hull extends BaseEntity {
   private getDamageMultiplier: () => number = () => 1;
   private mesh: HullMesh;
 
-  // Distributed skin friction: waterline sample points and per-point area
-  private waterlineSamplePoints: V2d[];
-  private areaPerPoint: number;
   /** 3D→2D transform updated by Boat each tick. Used by child entities for rendering. */
   readonly tiltTransform = new TiltTransform();
 
-  // Hull edge form drag (cached to avoid per-tick closure allocation)
-  private hullFormDrag: ReturnType<typeof flatPlateDrag> | null = null;
-  private formDragResults: FluidForceResult[] = [
-    { fx: 0, fy: 0, localX: 0, localY: 0 },
-    { fx: 0, fy: 0, localX: 0, localY: 0 },
-  ];
+  // Per-triangle force data (precomputed at construction)
+  private forceData: HullForceData;
 
-  // Water query for distributed skin friction (multi-point at waterline vertices)
+  // Gravity params (from buoyancy config, applied per-tick)
+  private boatMass: number;
+  private centerOfGravityZ: number;
+
+  // Water and wind queries at triangle centroids
   private waterQuery: WaterQuery;
+  private windQuery: WindQuery;
 
-  // Pre-allocated query points
+  // Pre-allocated query points (one per triangle)
   private queryPoints: V2d[];
 
-  constructor(config: HullConfig, sixDOF?: SixDOFOptions) {
+  constructor(
+    config: HullConfig,
+    sixDOF?: SixDOFOptions,
+    boatMass: number = 0,
+    centerOfGravityZ: number = 0,
+  ) {
     super();
-
-    // Use waterline vertices for wetted area (skin friction), fall back to hull vertices
-    const waterlineVerts = config.waterlineVertices ?? config.vertices;
-    this.waterlineSamplePoints = waterlineVerts.map((v) => V(v.x, v.y));
-    const totalArea = polygonArea(waterlineVerts);
-    this.areaPerPoint = totalArea / waterlineVerts.length;
-    this.hullFormDrag = flatPlateDrag(config.draft);
-
-    // Pre-allocate query point array
-    this.queryPoints = this.waterlineSamplePoints.map(() => V(0, 0));
-    this.waterQuery = this.addChild(
-      new WaterQuery(() => this.getWorldSamplePoints()),
-    );
 
     this.skinFrictionCoefficient = config.skinFrictionCoefficient;
     this.vertices = config.vertices;
@@ -204,6 +312,8 @@ export class Hull extends BaseEntity {
       config.colors.side ?? darkenColor(config.colors.fill, 0.85);
     this.bottomColor =
       config.colors.bottom ?? darkenColor(config.colors.fill, 0.6);
+    this.boatMass = boatMass;
+    this.centerOfGravityZ = centerOfGravityZ;
 
     this.body = new DynamicBody({
       mass: config.mass,
@@ -231,110 +341,215 @@ export class Hull extends BaseEntity {
       deckZ,
       bottomZ,
     );
+
+    // Precompute per-triangle force data
+    this.forceData = buildHullForceData(this.mesh);
+
+    // Pre-allocate query points (one per triangle)
+    this.queryPoints = Array.from({ length: this.forceData.count }, () =>
+      V(0, 0),
+    );
+
+    // Water and wind queries at triangle centroids
+    this.waterQuery = this.addChild(
+      new WaterQuery(() => this.getTriangleCentroidWorldPoints()),
+    );
+    this.windQuery = this.addChild(
+      new WindQuery(() => this.getTriangleCentroidWorldPoints()),
+    );
+  }
+
+  /**
+   * Transform body-local triangle centroids to world XY for queries.
+   */
+  private getTriangleCentroidWorldPoints(): V2d[] {
+    const fd = this.forceData;
+    for (let i = 0; i < fd.count; i++) {
+      const world = this.body.toWorldFrame(V(fd.cx[i], fd.cy[i]));
+      this.queryPoints[i].set(world.x, world.y);
+    }
+    return this.queryPoints;
   }
 
   @on("tick")
   onTick() {
+    const body = this.body;
+    const R = body.orientation;
+    const bodyZ = body.z;
+    const fd = this.forceData;
     const cf = this.skinFrictionCoefficient * this.getDamageMultiplier();
 
-    // Apply distributed 3D skin friction at each waterline sample point
-    for (let i = 0; i < this.waterlineSamplePoints.length; i++) {
-      if (i >= this.waterQuery.length) break;
-
-      const local = this.waterlineSamplePoints[i];
-      const result = this.waterQuery.get(i);
-      const worldPoint = this.queryPoints[i]; // already in world space from getWorldSamplePoints
-
-      // Compute vertical velocity of this hull point from roll/pitch rotation.
-      // From d/dt of worldZ = x*sinP - y*sinR*cosP (at small angles):
-      //   dz/dt = x * pitchVelocity - y * rollVelocity
-      // Positive roll (port down) → port points (y>0) move down (negative dz/dt).
-      // Positive pitch (bow up) → bow points (x>0) move up (positive dz/dt).
-      const pointZVelocity =
-        local.x * this.body.pitchVelocity - local.y * this.body.rollVelocity;
-
-      const force = computeSkinFrictionAtPoint(
-        this.body,
-        worldPoint,
-        this.areaPerPoint,
-        cf,
-        result.velocity,
-        pointZVelocity,
+    // Apply gravity at center of gravity
+    if (this.boatMass > 0) {
+      body.applyForce3D(
+        0,
+        0,
+        -this.boatMass * GRAVITY,
+        0,
+        0,
+        this.centerOfGravityZ,
       );
-
-      if (force) {
-        this.body.applyForce3D(
-          force.fx,
-          force.fy,
-          force.fz,
-          local.x,
-          local.y,
-          0,
-        );
-      }
     }
 
-    // Apply form drag on hull waterline edges.
-    // When the hull rotates or moves sideways, the broadside of the hull
-    // pushes through water, creating pressure drag much larger than skin friction.
-    // This is the dominant yaw resistance mechanism.
-    const drag = this.hullFormDrag!;
-    const pts = this.waterlineSamplePoints;
-    const wq = this.waterQuery;
+    // Per-triangle force loop
+    for (let i = 0; i < fd.count; i++) {
+      const localX = fd.cx[i];
+      const localY = fd.cy[i];
+      const localZ = fd.cz[i];
+      const area = fd.area[i];
+      if (area < 0.001) continue;
 
-    // Water velocity lookup by vertex index (edge endpoints ARE the sample points)
-    const getWaterVelocityAtIndex = (idx: number): V2d =>
-      idx < wq.length ? wq.get(idx).velocity : V(0, 0);
+      // Transform centroid to world Z (using tilt transform for efficiency)
+      const worldZ = this.tiltTransform.worldZ(localX, localY, localZ, bodyZ);
 
-    for (let i = 0; i < pts.length; i++) {
-      const ni = (i + 1) % pts.length;
-      const a = pts[i];
-      const b = pts[ni];
+      // Transform normal to world frame via rotation matrix
+      const lnx = fd.nx[i],
+        lny = fd.ny[i],
+        lnz = fd.nz[i];
+      const wnx = R[0] * lnx + R[1] * lny + R[2] * lnz;
+      const wny = R[3] * lnx + R[4] * lny + R[5] * lnz;
+      const wnz = R[6] * lnx + R[7] * lny + R[8] * lnz;
 
-      // Precompute water velocities at the two endpoints
-      const velA = getWaterVelocityAtIndex(i);
-      const velB = getWaterVelocityAtIndex(ni);
-      const getVel = (worldPoint: V2d) => {
-        // Pick the closer endpoint's velocity
-        const qA = this.queryPoints[i];
-        const qB = this.queryPoints[ni];
-        const dA = worldPoint.squaredDistanceTo(qA);
-        const dB = worldPoint.squaredDistanceTo(qB);
-        return dA <= dB ? velA : velB;
-      };
+      // Water surface height at this centroid
+      const waterResult =
+        i < this.waterQuery.length ? this.waterQuery.get(i) : null;
+      const waterHeight = waterResult?.surfaceHeight ?? 0;
+      const submersion = waterHeight - worldZ;
 
-      // Both edge directions to handle flow from either side
-      for (const [start, end] of [
-        [a, b],
-        [b, a],
-      ] as const) {
-        const count = computeFluidForces(
-          this.body,
-          start,
-          end,
-          noLift,
-          drag,
-          getVel,
-          this.formDragResults,
-        );
-        for (let j = 0; j < count; j++) {
-          const r = this.formDragResults[j];
-          this.body.applyForce3D(r.fx, r.fy, 0, r.localX, r.localY, 0);
+      // Waterline interpolation factor (0 = fully above water, 1 = fully submerged)
+      let waterFrac: number;
+      if (submersion > WATERLINE_BAND) {
+        waterFrac = 1;
+      } else if (submersion < -WATERLINE_BAND) {
+        waterFrac = 0;
+      } else {
+        waterFrac = (submersion + WATERLINE_BAND) / (2 * WATERLINE_BAND);
+      }
+
+      // === UNDERWATER FORCES (scaled by waterFrac) ===
+      if (waterFrac > 0) {
+        const effectiveSubmersion = Math.max(0, submersion);
+
+        // Buoyancy: hydrostatic pressure normal to surface
+        // F = rho * g² * depth * area applied in -worldNormal direction
+        if (effectiveSubmersion > 0) {
+          const buoyancyMag =
+            BUOYANCY_FORCE_PER_DEPTH_PER_AREA *
+            effectiveSubmersion *
+            area *
+            waterFrac;
+          body.applyForce3D(
+            -wnx * buoyancyMag,
+            -wny * buoyancyMag,
+            -wnz * buoyancyMag,
+            localX,
+            localY,
+            localZ,
+          );
+        }
+
+        // Skin friction: viscous tangential drag
+        if (waterResult) {
+          const worldPoint = this.queryPoints[i];
+          const pointZVelocity =
+            localX * body.pitchVelocity - localY * body.rollVelocity;
+          const friction = computeSkinFrictionAtPoint(
+            body,
+            worldPoint,
+            area * waterFrac,
+            cf,
+            waterResult.velocity,
+            pointZVelocity,
+          );
+          if (friction) {
+            body.applyForce3D(
+              friction.fx,
+              friction.fy,
+              friction.fz,
+              localX,
+              localY,
+              localZ,
+            );
+          }
+        }
+
+        // Form drag: pressure drag from normal component of relative velocity
+        if (waterResult) {
+          const worldPoint = this.queryPoints[i];
+          const r = V(
+            worldPoint.x - body.position[0],
+            worldPoint.y - body.position[1],
+          );
+          // Point velocity = body velocity + ω × r
+          const pvx = body.velocity[0] - r.y * body.angularVelocity;
+          const pvy = body.velocity[1] + r.x * body.angularVelocity;
+          // Relative velocity (body minus water)
+          const rvx = pvx - waterResult.velocity.x;
+          const rvy = pvy - waterResult.velocity.y;
+          const rvz = 0; // approximate: ignore vertical relative velocity for form drag
+          const speed = Math.sqrt(rvx * rvx + rvy * rvy + rvz * rvz);
+
+          if (speed > 0.01) {
+            // Normal component of relative velocity
+            const vDotN = rvx * wnx + rvy * wny + rvz * wnz;
+            if (vDotN > 0) {
+              // Moving into the water against this face
+              const Cd = vDotN / speed; // sin(angle of attack)
+              const dynamicPressure = 0.5 * RHO_WATER * speed * speed;
+              const forceMag =
+                Cd * dynamicPressure * area * waterFrac * LBF_TO_ENGINE;
+              body.applyForce3D(
+                -wnx * forceMag,
+                -wny * forceMag,
+                -wnz * forceMag,
+                localX,
+                localY,
+                localZ,
+              );
+            }
+          }
+        }
+      }
+
+      // === ABOVE-WATER FORCES (scaled by 1 - waterFrac) ===
+      if (waterFrac < 1) {
+        const airFrac = 1 - waterFrac;
+        const windResult =
+          i < this.windQuery.length ? this.windQuery.get(i) : null;
+
+        if (windResult) {
+          const worldPoint = this.queryPoints[i];
+          const r = V(
+            worldPoint.x - body.position[0],
+            worldPoint.y - body.position[1],
+          );
+          const pvx = body.velocity[0] - r.y * body.angularVelocity;
+          const pvy = body.velocity[1] + r.x * body.angularVelocity;
+          // Relative velocity (body minus wind — wind blows against hull)
+          const rvx = pvx - windResult.velocity.x;
+          const rvy = pvy - windResult.velocity.y;
+          const speed = Math.sqrt(rvx * rvx + rvy * rvy);
+
+          if (speed > 0.01) {
+            const vDotN = rvx * wnx + rvy * wny;
+            if (vDotN > 0) {
+              const Cd = vDotN / speed;
+              const dynamicPressure = 0.5 * RHO_AIR * speed * speed;
+              const forceMag =
+                Cd * dynamicPressure * area * airFrac * LBF_TO_ENGINE;
+              body.applyForce3D(
+                -wnx * forceMag,
+                -wny * forceMag,
+                -wnz * forceMag,
+                localX,
+                localY,
+                localZ,
+              );
+            }
+          }
         }
       }
     }
-  }
-
-  /**
-   * Get world-space positions of waterline sample points for water queries.
-   */
-  private getWorldSamplePoints(): V2d[] {
-    for (let i = 0; i < this.waterlineSamplePoints.length; i++) {
-      const local = this.waterlineSamplePoints[i];
-      const world = this.body.toWorldFrame(local);
-      this.queryPoints[i].set(world.x, world.y);
-    }
-    return this.queryPoints;
   }
 
   @on("render")
@@ -343,9 +558,6 @@ export class Hull extends BaseEntity {
     const t = this.tiltTransform;
     const zOffset = this.body.z;
 
-    // GPU-driven tilt projection: the model matrix and zCoeffs handle
-    // both 2D parallax and depth buffer writes. Components just submit
-    // body-local (x, y) with z = their 3D height.
     draw.at(
       {
         pos: V(x, y),
@@ -362,9 +574,6 @@ export class Hull extends BaseEntity {
         } = this.mesh;
 
         // Draw back-to-front: lower sides → upper sides → deck
-        // Per-vertex z gives each vertex the correct depth + parallax.
-
-        // Lower sides (waterline → bottom) — hull bottom paint color
         draw.renderer.submitTrianglesWithZ(
           xyPositions,
           lowerSideIndices,
@@ -373,7 +582,6 @@ export class Hull extends BaseEntity {
           zValues,
         );
 
-        // Upper sides (deck → waterline) — hull topsides color
         draw.renderer.submitTrianglesWithZ(
           xyPositions,
           upperSideIndices,
@@ -382,7 +590,6 @@ export class Hull extends BaseEntity {
           zValues,
         );
 
-        // Deck cap — main hull color
         draw.renderer.submitTrianglesWithZ(
           xyPositions,
           deckIndices,
@@ -403,7 +610,7 @@ export class Hull extends BaseEntity {
           },
         );
 
-        // Tiller (rotates opposite to rudder)
+        // Tiller
         if (this.tillerConfig) {
           const tillerAngle = this.tillerConfig.getTillerAngle();
           const tillerPos = this.tillerConfig.position;
@@ -411,7 +618,6 @@ export class Hull extends BaseEntity {
           const tillerWidth = 0.25;
           const tillerColor = 0x886633;
 
-          // Tiller is at deck height — z handles both parallax and depth
           draw.at({ pos: tillerPos, angle: tillerAngle }, () => {
             draw.fillRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
               color: tillerColor,
