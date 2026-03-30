@@ -103,6 +103,10 @@ interface HullForceData {
   nz: Float64Array;
   /** Triangle surface area (ft²) */
   area: Float64Array;
+  /** Vertex indices for each triangle (3 per triangle) */
+  vertexIndices: Uint16Array;
+  /** Number of unique vertices in the mesh */
+  vertexCount: number;
 }
 
 function buildHullMesh(
@@ -199,6 +203,8 @@ function buildHullForceData(mesh: HullMesh): HullForceData {
     ny: new Float64Array(triCount),
     nz: new Float64Array(triCount),
     area: new Float64Array(triCount),
+    vertexIndices: new Uint16Array(allIndices),
+    vertexCount: mesh.xyPositions.length,
   };
 
   const pos = mesh.xyPositions;
@@ -289,12 +295,12 @@ export class Hull extends BaseEntity {
   private boatMass: number;
   private centerOfGravityZ: number;
 
-  // Water and wind queries at triangle centroids
+  // Water and wind queries at mesh vertices (shared by all triangles)
   private waterQuery: WaterQuery;
   private windQuery: WindQuery;
 
-  // Pre-allocated query points (one per triangle)
-  private queryPoints: V2d[];
+  // Pre-allocated vertex query points (one per unique vertex)
+  private vertexQueryPoints: V2d[];
 
   constructor(
     config: HullConfig,
@@ -345,30 +351,29 @@ export class Hull extends BaseEntity {
     // Precompute per-triangle force data
     this.forceData = buildHullForceData(this.mesh);
 
-    // Pre-allocate query points (one per triangle)
-    this.queryPoints = Array.from({ length: this.forceData.count }, () =>
-      V(0, 0),
-    );
+    // Pre-allocate vertex query points (one per unique mesh vertex)
+    const vertCount = this.forceData.vertexCount;
+    this.vertexQueryPoints = Array.from({ length: vertCount }, () => V(0, 0));
 
-    // Water and wind queries at triangle centroids
+    // Water and wind queries at mesh vertices (shared across triangles)
     this.waterQuery = this.addChild(
-      new WaterQuery(() => this.getTriangleCentroidWorldPoints()),
+      new WaterQuery(() => this.getVertexWorldPoints()),
     );
     this.windQuery = this.addChild(
-      new WindQuery(() => this.getTriangleCentroidWorldPoints()),
+      new WindQuery(() => this.getVertexWorldPoints()),
     );
   }
 
   /**
-   * Transform body-local triangle centroids to world XY for queries.
+   * Transform body-local mesh vertices to world XY for queries.
    */
-  private getTriangleCentroidWorldPoints(): V2d[] {
-    const fd = this.forceData;
-    for (let i = 0; i < fd.count; i++) {
-      const world = this.body.toWorldFrame(V(fd.cx[i], fd.cy[i]));
-      this.queryPoints[i].set(world.x, world.y);
+  private getVertexWorldPoints(): V2d[] {
+    const pos = this.mesh.xyPositions;
+    for (let i = 0; i < pos.length; i++) {
+      const world = this.body.toWorldFrame(V(pos[i][0], pos[i][1]));
+      this.vertexQueryPoints[i].set(world.x, world.y);
     }
-    return this.queryPoints;
+    return this.vertexQueryPoints;
   }
 
   @on("tick")
@@ -391,16 +396,24 @@ export class Hull extends BaseEntity {
       );
     }
 
-    // Per-triangle force loop
+    // Per-triangle force loop.
+    // Water/wind are queried at mesh vertices; per-triangle values are
+    // averaged from the three vertex results for better partial-submersion handling.
+    const tilt = this.tiltTransform;
+    const meshPos = this.mesh.xyPositions;
+    const meshZ = this.mesh.zValues;
+    const vi = fd.vertexIndices;
+    const wq = this.waterQuery;
+    const wiq = this.windQuery;
+
     for (let i = 0; i < fd.count; i++) {
-      const localX = fd.cx[i];
-      const localY = fd.cy[i];
-      const localZ = fd.cz[i];
       const area = fd.area[i];
       if (area < 0.001) continue;
 
-      // Transform centroid to world Z (using tilt transform for efficiency)
-      const worldZ = this.tiltTransform.worldZ(localX, localY, localZ, bodyZ);
+      // Triangle centroid (body-local, for force application point)
+      const localX = fd.cx[i];
+      const localY = fd.cy[i];
+      const localZ = fd.cz[i];
 
       // Transform normal to world frame via rotation matrix
       const lnx = fd.nx[i],
@@ -410,34 +423,44 @@ export class Hull extends BaseEntity {
       const wny = R[3] * lnx + R[4] * lny + R[5] * lnz;
       const wnz = R[6] * lnx + R[7] * lny + R[8] * lnz;
 
-      // Water surface height at this centroid
-      const waterResult =
-        i < this.waterQuery.length ? this.waterQuery.get(i) : null;
-      const waterHeight = waterResult?.surfaceHeight ?? 0;
-      const submersion = waterHeight - worldZ;
+      // Look up per-vertex water data and average submersion across the triangle.
+      // This handles partial submersion much better than centroid-only sampling:
+      // a triangle with one vertex underwater gets ~1/3 submersion contribution.
+      const v0 = vi[i * 3],
+        v1 = vi[i * 3 + 1],
+        v2 = vi[i * 3 + 2];
 
-      // Waterline interpolation factor (0 = fully above water, 1 = fully submerged)
-      let waterFrac: number;
-      if (submersion > WATERLINE_BAND) {
-        waterFrac = 1;
-      } else if (submersion < -WATERLINE_BAND) {
-        waterFrac = 0;
-      } else {
-        waterFrac = (submersion + WATERLINE_BAND) / (2 * WATERLINE_BAND);
-      }
+      // Per-vertex world Z (from body orientation + z offset)
+      const wz0 = tilt.worldZ(meshPos[v0][0], meshPos[v0][1], meshZ[v0], bodyZ);
+      const wz1 = tilt.worldZ(meshPos[v1][0], meshPos[v1][1], meshZ[v1], bodyZ);
+      const wz2 = tilt.worldZ(meshPos[v2][0], meshPos[v2][1], meshZ[v2], bodyZ);
 
-      // === UNDERWATER FORCES (scaled by waterFrac) ===
+      // Per-vertex water surface height
+      const wh0 = v0 < wq.length ? wq.get(v0).surfaceHeight : 0;
+      const wh1 = v1 < wq.length ? wq.get(v1).surfaceHeight : 0;
+      const wh2 = v2 < wq.length ? wq.get(v2).surfaceHeight : 0;
+
+      // Per-vertex submersion (positive = underwater)
+      const sub0 = Math.max(0, wh0 - wz0);
+      const sub1 = Math.max(0, wh1 - wz1);
+      const sub2 = Math.max(0, wh2 - wz2);
+
+      // Average submersion across the triangle
+      const avgSubmersion = (sub0 + sub1 + sub2) / 3;
+
+      // Fraction of triangle that is submerged (0-1), based on how many vertices are wet
+      const wetCount =
+        (sub0 > 0 ? 1 : 0) + (sub1 > 0 ? 1 : 0) + (sub2 > 0 ? 1 : 0);
+      const waterFrac = wetCount / 3;
+
+      // === UNDERWATER FORCES ===
       if (waterFrac > 0) {
-        const effectiveSubmersion = Math.max(0, submersion);
-
-        // Buoyancy: hydrostatic pressure normal to surface
-        // F = rho * g² * depth * area applied in -worldNormal direction
-        if (effectiveSubmersion > 0) {
+        // Buoyancy: hydrostatic pressure normal to surface.
+        // Average submersion depth gives the correct integral for
+        // linearly varying pressure across a planar triangle.
+        if (avgSubmersion > 0) {
           const buoyancyMag =
-            BUOYANCY_FORCE_PER_DEPTH_PER_AREA *
-            effectiveSubmersion *
-            area *
-            waterFrac;
+            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgSubmersion * area;
           body.applyForce3D(
             -wnx * buoyancyMag,
             -wny * buoyancyMag,
@@ -448,104 +471,137 @@ export class Hull extends BaseEntity {
           );
         }
 
-        // Skin friction: viscous tangential drag
-        if (waterResult) {
-          const worldPoint = this.queryPoints[i];
-          const pointZVelocity =
-            localX * body.pitchVelocity - localY * body.rollVelocity;
-          const friction = computeSkinFrictionAtPoint(
-            body,
-            worldPoint,
-            area * waterFrac,
-            cf,
-            waterResult.velocity,
-            pointZVelocity,
+        // Average water velocity from submerged vertices
+        let waterVx = 0,
+          waterVy = 0;
+        if (wetCount > 0) {
+          if (sub0 > 0 && v0 < wq.length) {
+            const vel = wq.get(v0).velocity;
+            waterVx += vel.x;
+            waterVy += vel.y;
+          }
+          if (sub1 > 0 && v1 < wq.length) {
+            const vel = wq.get(v1).velocity;
+            waterVx += vel.x;
+            waterVy += vel.y;
+          }
+          if (sub2 > 0 && v2 < wq.length) {
+            const vel = wq.get(v2).velocity;
+            waterVx += vel.x;
+            waterVy += vel.y;
+          }
+          waterVx /= wetCount;
+          waterVy /= wetCount;
+        }
+
+        // Skin friction on submerged area
+        const centroidWorld = this.body.toWorldFrame(V(localX, localY));
+        const pointZVelocity =
+          localX * body.pitchVelocity - localY * body.rollVelocity;
+        const friction = computeSkinFrictionAtPoint(
+          body,
+          centroidWorld,
+          area * waterFrac,
+          cf,
+          V(waterVx, waterVy),
+          pointZVelocity,
+        );
+        if (friction) {
+          body.applyForce3D(
+            friction.fx,
+            friction.fy,
+            friction.fz,
+            localX,
+            localY,
+            localZ,
           );
-          if (friction) {
+        }
+
+        // Form drag: pressure drag from normal component of relative velocity
+        const rr = V(
+          centroidWorld.x - body.position[0],
+          centroidWorld.y - body.position[1],
+        );
+        const pvx = body.velocity[0] - rr.y * body.angularVelocity;
+        const pvy = body.velocity[1] + rr.x * body.angularVelocity;
+        const rvx = pvx - waterVx;
+        const rvy = pvy - waterVy;
+        const speed = Math.sqrt(rvx * rvx + rvy * rvy);
+
+        if (speed > 0.01) {
+          const vDotN = rvx * wnx + rvy * wny;
+          if (vDotN > 0) {
+            const Cd = vDotN / speed;
+            const dynamicPressure = 0.5 * RHO_WATER * speed * speed;
+            const forceMag =
+              Cd * dynamicPressure * area * waterFrac * LBF_TO_ENGINE;
             body.applyForce3D(
-              friction.fx,
-              friction.fy,
-              friction.fz,
+              -wnx * forceMag,
+              -wny * forceMag,
+              -wnz * forceMag,
               localX,
               localY,
               localZ,
             );
           }
         }
-
-        // Form drag: pressure drag from normal component of relative velocity
-        if (waterResult) {
-          const worldPoint = this.queryPoints[i];
-          const r = V(
-            worldPoint.x - body.position[0],
-            worldPoint.y - body.position[1],
-          );
-          // Point velocity = body velocity + ω × r
-          const pvx = body.velocity[0] - r.y * body.angularVelocity;
-          const pvy = body.velocity[1] + r.x * body.angularVelocity;
-          // Relative velocity (body minus water)
-          const rvx = pvx - waterResult.velocity.x;
-          const rvy = pvy - waterResult.velocity.y;
-          const rvz = 0; // approximate: ignore vertical relative velocity for form drag
-          const speed = Math.sqrt(rvx * rvx + rvy * rvy + rvz * rvz);
-
-          if (speed > 0.01) {
-            // Normal component of relative velocity
-            const vDotN = rvx * wnx + rvy * wny + rvz * wnz;
-            if (vDotN > 0) {
-              // Moving into the water against this face
-              const Cd = vDotN / speed; // sin(angle of attack)
-              const dynamicPressure = 0.5 * RHO_WATER * speed * speed;
-              const forceMag =
-                Cd * dynamicPressure * area * waterFrac * LBF_TO_ENGINE;
-              body.applyForce3D(
-                -wnx * forceMag,
-                -wny * forceMag,
-                -wnz * forceMag,
-                localX,
-                localY,
-                localZ,
-              );
-            }
-          }
-        }
       }
 
-      // === ABOVE-WATER FORCES (scaled by 1 - waterFrac) ===
+      // === ABOVE-WATER FORCES ===
       if (waterFrac < 1) {
         const airFrac = 1 - waterFrac;
-        const windResult =
-          i < this.windQuery.length ? this.windQuery.get(i) : null;
+        const dryCount = 3 - wetCount;
 
-        if (windResult) {
-          const worldPoint = this.queryPoints[i];
-          const r = V(
-            worldPoint.x - body.position[0],
-            worldPoint.y - body.position[1],
-          );
-          const pvx = body.velocity[0] - r.y * body.angularVelocity;
-          const pvy = body.velocity[1] + r.x * body.angularVelocity;
-          // Relative velocity (body minus wind — wind blows against hull)
-          const rvx = pvx - windResult.velocity.x;
-          const rvy = pvy - windResult.velocity.y;
-          const speed = Math.sqrt(rvx * rvx + rvy * rvy);
+        // Average wind velocity from above-water vertices
+        let windVx = 0,
+          windVy = 0;
+        if (dryCount > 0) {
+          if (sub0 <= 0 && v0 < wiq.length) {
+            const vel = wiq.get(v0).velocity;
+            windVx += vel.x;
+            windVy += vel.y;
+          }
+          if (sub1 <= 0 && v1 < wiq.length) {
+            const vel = wiq.get(v1).velocity;
+            windVx += vel.x;
+            windVy += vel.y;
+          }
+          if (sub2 <= 0 && v2 < wiq.length) {
+            const vel = wiq.get(v2).velocity;
+            windVx += vel.x;
+            windVy += vel.y;
+          }
+          windVx /= dryCount;
+          windVy /= dryCount;
+        }
 
-          if (speed > 0.01) {
-            const vDotN = rvx * wnx + rvy * wny;
-            if (vDotN > 0) {
-              const Cd = vDotN / speed;
-              const dynamicPressure = 0.5 * RHO_AIR * speed * speed;
-              const forceMag =
-                Cd * dynamicPressure * area * airFrac * LBF_TO_ENGINE;
-              body.applyForce3D(
-                -wnx * forceMag,
-                -wny * forceMag,
-                -wnz * forceMag,
-                localX,
-                localY,
-                localZ,
-              );
-            }
+        // Wind drag on above-water surface
+        const centroidWorld = this.body.toWorldFrame(V(localX, localY));
+        const rr = V(
+          centroidWorld.x - body.position[0],
+          centroidWorld.y - body.position[1],
+        );
+        const pvx = body.velocity[0] - rr.y * body.angularVelocity;
+        const pvy = body.velocity[1] + rr.x * body.angularVelocity;
+        const rvx = pvx - windVx;
+        const rvy = pvy - windVy;
+        const speed = Math.sqrt(rvx * rvx + rvy * rvy);
+
+        if (speed > 0.01) {
+          const vDotN = rvx * wnx + rvy * wny;
+          if (vDotN > 0) {
+            const Cd = vDotN / speed;
+            const dynamicPressure = 0.5 * RHO_AIR * speed * speed;
+            const forceMag =
+              Cd * dynamicPressure * area * airFrac * LBF_TO_ENGINE;
+            body.applyForce3D(
+              -wnx * forceMag,
+              -wny * forceMag,
+              -wnz * forceMag,
+              localX,
+              localY,
+              localZ,
+            );
           }
         }
       }
