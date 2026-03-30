@@ -128,16 +128,13 @@ export class DynamicBody extends Body implements SleepableBody {
   private _z: number = 0;
   private _zVelocity: number = 0;
   private _zForce: number = 0;
-  private _zMass: number = 0;
   private _invZMass: number = 0;
   private _zDamping: number = 0;
   private _rollPitchDamping: number = 0;
   private _fixedZ: boolean = false;
 
-  // Body-frame diagonal inertia for roll/pitch.
-  // Yaw inertia uses the existing _inertia field.
-  private _rollInertia: number = 0;
-  private _pitchInertia: number = 0;
+  // Inverse body-frame diagonal inertia for roll/pitch.
+  // Yaw inertia uses the existing _inertia / _invInertia fields.
   private _invRollInertia: number = 0;
   private _invPitchInertia: number = 0;
 
@@ -173,13 +170,11 @@ export class DynamicBody extends Body implements SleepableBody {
     const s = options.sixDOF;
     this._is6DOF = !!s;
     if (s) {
-      this._rollInertia = s.rollInertia;
-      this._pitchInertia = s.pitchInertia;
       this._invRollInertia = s.rollInertia > 0 ? 1 / s.rollInertia : 0;
       this._invPitchInertia = s.pitchInertia > 0 ? 1 / s.pitchInertia : 0;
       this._z = s.zPosition ?? 0;
-      this._zMass = s.zMass ?? options.mass;
-      this._invZMass = this._zMass > 0 ? 1 / this._zMass : 0;
+      const zMass = s.zMass ?? options.mass;
+      this._invZMass = zMass > 0 ? 1 / zMass : 0;
       this._zDamping = s.zDamping ?? 0;
       this._rollPitchDamping = s.rollPitchDamping ?? 0;
       this._fixedZ = s.fixedZ ?? false;
@@ -632,37 +627,33 @@ export class DynamicBody extends Body implements SleepableBody {
     const pos = this.position;
     const velo = this._velocity;
 
-    // Yaw velocity update from torque
-    if (!this.fixedRotation) {
-      this._angularVelocity3[2] +=
-        this._angularForce3[2] * this._invInertia * dt;
-    }
-
     // Linear velocity update (x, y)
     const fhMinv = V(f);
     fhMinv.imul(dt * minv);
     fhMinv.imulComponent(this.massMultiplier);
     velo.iadd(fhMinv);
 
-    // 6DOF velocity updates (roll, pitch, z)
     if (this._is6DOF) {
-      // Roll/pitch angular velocity from torque (using world-frame inertia tensor)
+      // 6DOF: full angular velocity update via world-frame inertia tensor.
+      // α = invI_world * τ (matrix-vector multiply for all 3 axes)
       const iI = this._invWorldInertia;
       const tf = this._angularForce3;
-
-      // α = invI_world * τ (matrix-vector multiply, but skip yaw — handled above)
-      // We need to apply the FULL angular acceleration from roll/pitch torques
       this._angularVelocity3[0] +=
         (iI[0] * tf[0] + iI[1] * tf[1] + iI[2] * tf[2]) * dt;
       this._angularVelocity3[1] +=
         (iI[3] * tf[0] + iI[4] * tf[1] + iI[5] * tf[2]) * dt;
-      // Yaw already handled above (iI[6]*tf[0] + iI[7]*tf[1] + iI[8]*tf[2])
-      // For correctness with cross-coupling, add the off-diagonal yaw contribution:
-      this._angularVelocity3[2] += (iI[6] * tf[0] + iI[7] * tf[1]) * dt; // cross terms only (iI[8]*tf[2] already applied)
+      this._angularVelocity3[2] +=
+        (iI[6] * tf[0] + iI[7] * tf[1] + iI[8] * tf[2]) * dt;
 
       // Z velocity from force
       if (!this._fixedZ) {
         this._zVelocity += this._zForce * this._invZMass * dt;
+      }
+    } else {
+      // 3DOF: scalar yaw torque only
+      if (!this.fixedRotation) {
+        this._angularVelocity3[2] +=
+          this._angularForce3[2] * this._invInertia * dt;
       }
     }
 

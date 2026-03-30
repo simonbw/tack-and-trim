@@ -99,9 +99,6 @@ export class RevoluteConstraint extends Constraint {
     const y = new Equation(bodyA, bodyB, -maxForce, maxForce);
     const that = this;
 
-    const xAxis = V(1, 0);
-    const yAxis = V(0, 1);
-
     x.computeGq = function () {
       // Use orientation matrix to compute 3D world-frame pivot XY
       const RA = bodyA.orientation;

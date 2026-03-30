@@ -16,6 +16,9 @@ import {
   type FluidForceResult,
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
+
+/** Zero lift function for hull edges (form drag only, no lift). */
+const noLift = () => 0;
 import { HullConfig } from "./BoatConfig";
 import { TiltTransform } from "./TiltTransform";
 
@@ -161,11 +164,11 @@ export class Hull extends BaseEntity {
   // Distributed skin friction: waterline sample points and per-point area
   private waterlineSamplePoints: V2d[];
   private areaPerPoint: number;
-  private draft: number;
   /** 3D→2D transform updated by Boat each tick. Used by child entities for rendering. */
   readonly tiltTransform = new TiltTransform();
 
-  // Pre-allocated buffer for edge form drag results
+  // Hull edge form drag (cached to avoid per-tick closure allocation)
+  private hullFormDrag: ReturnType<typeof flatPlateDrag> | null = null;
   private formDragResults: FluidForceResult[] = [
     { fx: 0, fy: 0, localX: 0, localY: 0 },
     { fx: 0, fy: 0, localX: 0, localY: 0 },
@@ -185,7 +188,7 @@ export class Hull extends BaseEntity {
     this.waterlineSamplePoints = waterlineVerts.map((v) => V(v.x, v.y));
     const totalArea = polygonArea(waterlineVerts);
     this.areaPerPoint = totalArea / waterlineVerts.length;
-    this.draft = config.draft;
+    this.hullFormDrag = flatPlateDrag(config.draft);
 
     // Pre-allocate query point array
     this.queryPoints = this.waterlineSamplePoints.map(() => V(0, 0));
@@ -275,32 +278,30 @@ export class Hull extends BaseEntity {
     // When the hull rotates or moves sideways, the broadside of the hull
     // pushes through water, creating pressure drag much larger than skin friction.
     // This is the dominant yaw resistance mechanism.
-    const drag = flatPlateDrag(this.draft);
-    const noLift = () => 0;
-    const getWaterVelocity = (worldPoint: V2d) => {
-      // Find nearest waterline sample point for water velocity
-      let bestDist = Infinity;
-      let bestIdx = 0;
-      for (let j = 0; j < this.queryPoints.length; j++) {
-        const qp = this.queryPoints[j];
-        const dx = worldPoint.x - qp.x;
-        const dy = worldPoint.y - qp.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < bestDist) {
-          bestDist = d2;
-          bestIdx = j;
-        }
-      }
-      if (bestIdx < this.waterQuery.length) {
-        return this.waterQuery.get(bestIdx).velocity;
-      }
-      return V(0, 0);
-    };
-
+    const drag = this.hullFormDrag!;
     const pts = this.waterlineSamplePoints;
+    const wq = this.waterQuery;
+
+    // Water velocity lookup by vertex index (edge endpoints ARE the sample points)
+    const getWaterVelocityAtIndex = (idx: number): V2d =>
+      idx < wq.length ? wq.get(idx).velocity : V(0, 0);
+
     for (let i = 0; i < pts.length; i++) {
+      const ni = (i + 1) % pts.length;
       const a = pts[i];
-      const b = pts[(i + 1) % pts.length];
+      const b = pts[ni];
+
+      // Precompute water velocities at the two endpoints
+      const velA = getWaterVelocityAtIndex(i);
+      const velB = getWaterVelocityAtIndex(ni);
+      const getVel = (worldPoint: V2d) => {
+        // Pick the closer endpoint's velocity
+        const qA = this.queryPoints[i];
+        const qB = this.queryPoints[ni];
+        const dA = worldPoint.squaredDistanceTo(qA);
+        const dB = worldPoint.squaredDistanceTo(qB);
+        return dA <= dB ? velA : velB;
+      };
 
       // Both edge directions to handle flow from either side
       for (const [start, end] of [
@@ -313,7 +314,7 @@ export class Hull extends BaseEntity {
           end,
           noLift,
           drag,
-          getWaterVelocity,
+          getVel,
           this.formDragResults,
         );
         for (let j = 0; j < count; j++) {
