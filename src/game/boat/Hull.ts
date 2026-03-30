@@ -440,27 +440,37 @@ export class Hull extends BaseEntity {
       const wh1 = v1 < wq.length ? wq.get(v1).surfaceHeight : 0;
       const wh2 = v2 < wq.length ? wq.get(v2).surfaceHeight : 0;
 
-      // Per-vertex submersion (positive = underwater)
-      const sub0 = Math.max(0, wh0 - wz0);
-      const sub1 = Math.max(0, wh1 - wz1);
-      const sub2 = Math.max(0, wh2 - wz2);
+      // Per-vertex submersion (positive = underwater, negative = above)
+      const sub0 = wh0 - wz0;
+      const sub1 = wh1 - wz1;
+      const sub2 = wh2 - wz2;
 
-      // Average submersion across the triangle
+      // Average submersion across the triangle (can be negative = above water)
       const avgSubmersion = (sub0 + sub1 + sub2) / 3;
 
-      // Fraction of triangle that is submerged (0-1), based on how many vertices are wet
-      const wetCount =
-        (sub0 > 0 ? 1 : 0) + (sub1 > 0 ? 1 : 0) + (sub2 > 0 ? 1 : 0);
-      const waterFrac = wetCount / 3;
+      // Average of clamped submersion depths (for buoyancy magnitude)
+      const avgDepth =
+        (Math.max(0, sub0) + Math.max(0, sub1) + Math.max(0, sub2)) / 3;
+
+      // Smooth water fraction based on average submersion with transition band.
+      // This avoids discrete force jumps as individual vertices cross the waterline.
+      let waterFrac: number;
+      if (avgSubmersion > WATERLINE_BAND) {
+        waterFrac = 1;
+      } else if (avgSubmersion < -WATERLINE_BAND) {
+        waterFrac = 0;
+      } else {
+        waterFrac = (avgSubmersion + WATERLINE_BAND) / (2 * WATERLINE_BAND);
+      }
 
       // === UNDERWATER FORCES ===
       if (waterFrac > 0) {
         // Buoyancy: hydrostatic pressure normal to surface.
-        // Average submersion depth gives the correct integral for
-        // linearly varying pressure across a planar triangle.
-        if (avgSubmersion > 0) {
+        // avgDepth is the average of per-vertex clamped submersion depths,
+        // giving correct results for partially submerged triangles.
+        if (avgDepth > 0) {
           const buoyancyMag =
-            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgSubmersion * area;
+            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area;
           body.applyForce3D(
             -wnx * buoyancyMag,
             -wny * buoyancyMag,
@@ -471,27 +481,34 @@ export class Hull extends BaseEntity {
           );
         }
 
-        // Average water velocity from submerged vertices
+        // Average water velocity from vertices (weighted by submersion)
         let waterVx = 0,
           waterVy = 0;
-        if (wetCount > 0) {
-          if (sub0 > 0 && v0 < wq.length) {
+        {
+          // Simple average of all three vertex water velocities
+          let count = 0;
+          if (v0 < wq.length) {
             const vel = wq.get(v0).velocity;
             waterVx += vel.x;
             waterVy += vel.y;
+            count++;
           }
-          if (sub1 > 0 && v1 < wq.length) {
+          if (v1 < wq.length) {
             const vel = wq.get(v1).velocity;
             waterVx += vel.x;
             waterVy += vel.y;
+            count++;
           }
-          if (sub2 > 0 && v2 < wq.length) {
+          if (v2 < wq.length) {
             const vel = wq.get(v2).velocity;
             waterVx += vel.x;
             waterVy += vel.y;
+            count++;
           }
-          waterVx /= wetCount;
-          waterVy /= wetCount;
+          if (count > 0) {
+            waterVx /= count;
+            waterVy /= count;
+          }
         }
 
         // Skin friction on submerged area
@@ -550,29 +567,34 @@ export class Hull extends BaseEntity {
       // === ABOVE-WATER FORCES ===
       if (waterFrac < 1) {
         const airFrac = 1 - waterFrac;
-        const dryCount = 3 - wetCount;
 
-        // Average wind velocity from above-water vertices
+        // Average wind velocity from vertices
         let windVx = 0,
           windVy = 0;
-        if (dryCount > 0) {
-          if (sub0 <= 0 && v0 < wiq.length) {
+        {
+          let count = 0;
+          if (v0 < wiq.length) {
             const vel = wiq.get(v0).velocity;
             windVx += vel.x;
             windVy += vel.y;
+            count++;
           }
-          if (sub1 <= 0 && v1 < wiq.length) {
+          if (v1 < wiq.length) {
             const vel = wiq.get(v1).velocity;
             windVx += vel.x;
             windVy += vel.y;
+            count++;
           }
-          if (sub2 <= 0 && v2 < wiq.length) {
+          if (v2 < wiq.length) {
             const vel = wiq.get(v2).velocity;
             windVx += vel.x;
             windVy += vel.y;
+            count++;
           }
-          windVx /= dryCount;
-          windVy /= dryCount;
+          if (count > 0) {
+            windVx /= count;
+            windVy /= count;
+          }
         }
 
         // Wind drag on above-water surface

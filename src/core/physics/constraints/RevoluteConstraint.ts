@@ -99,33 +99,25 @@ export class RevoluteConstraint extends Constraint {
     const y = new Equation(bodyA, bodyB, -maxForce, maxForce);
     const that = this;
 
+    // Position-level constraint stays 2D: use only XY pivots (ignore z-anchors).
+    // The z-anchors only affect the Jacobian G (velocity/impulse coupling),
+    // where 3D cross products produce roll/pitch torques from constraint reactions.
+    // Including z in computeGq would cause position mismatches between 6DOF and
+    // 3DOF bodies when the 6DOF body heels (the z-parallax shifts the 2D projection).
     x.computeGq = function () {
-      // Use orientation matrix to compute 3D world-frame pivot XY
-      const RA = bodyA.orientation;
-      const pA = that.pivotA;
-      const zA = that.pivotZA;
-      const wpAx = RA[0] * pA.x + RA[1] * pA.y + RA[2] * zA;
-
-      const RB = bodyB.orientation;
-      const pB = that.pivotB;
-      const zB = that.pivotZB;
-      const wpBx = RB[0] * pB.x + RB[1] * pB.y + RB[2] * zB;
-
-      return bodyB.position[0] + wpBx - bodyA.position[0] - wpAx;
+      const worldPivotA = that.pivotA.rotate(bodyA.angle);
+      const worldPivotB = that.pivotB.rotate(bodyB.angle);
+      return (
+        bodyB.position[0] + worldPivotB.x - bodyA.position[0] - worldPivotA.x
+      );
     };
 
     y.computeGq = function () {
-      const RA = bodyA.orientation;
-      const pA = that.pivotA;
-      const zA = that.pivotZA;
-      const wpAy = RA[3] * pA.x + RA[4] * pA.y + RA[5] * zA;
-
-      const RB = bodyB.orientation;
-      const pB = that.pivotB;
-      const zB = that.pivotZB;
-      const wpBy = RB[3] * pB.x + RB[4] * pB.y + RB[5] * zB;
-
-      return bodyB.position[1] + wpBy - bodyA.position[1] - wpAy;
+      const worldPivotA = that.pivotA.rotate(bodyA.angle);
+      const worldPivotB = that.pivotB.rotate(bodyB.angle);
+      return (
+        bodyB.position[1] + worldPivotB.y - bodyA.position[1] - worldPivotA.y
+      );
     };
 
     x.minForce = y.minForce = -maxForce;
