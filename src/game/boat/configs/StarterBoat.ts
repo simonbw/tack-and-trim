@@ -238,8 +238,6 @@ export const StarterBoat: BoatConfig = {
     pitchDamping: 6000, // ζ=0.2, critically damped = 2*sqrt(4000*58000)
     rightingMomentCoeff: 36000, // 450 * 32.174 * GM_roll(2.5 ft)
     pitchRightingCoeff: 58000, // 450 * 32.174 * GM_pitch(4 ft)
-    maxRoll: degToRad(90),
-    maxPitch: degToRad(60),
     waveRollCoeff: 600,
     wavePitchCoeff: 600,
     zHeights: {
@@ -258,8 +256,6 @@ export const StarterBoat: BoatConfig = {
     verticalMass: 450, // ~450 lb total displacement (hull + crew + equipment)
     rollInertia: 1600, // 450 * (beam/3)² = 450 * 1.87²
     pitchInertia: 4000, // 450 * (LOA/4)² = 450 * 3²
-    maxRoll: degToRad(90),
-    maxPitch: degToRad(60),
     centerOfGravityZ: -0.6, // ft — slightly below waterline
     zHeights: {
       deck: 0.8,

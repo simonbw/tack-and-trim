@@ -260,8 +260,6 @@ export const StarterDinghy: BoatConfig = {
     pitchDamping: 8000, // ζ=0.2, critically damped = 2*sqrt(6400*64000)
     rightingMomentCoeff: 39000, // 400 * 32.174 * GM_roll(3 ft)
     pitchRightingCoeff: 64000, // 400 * 32.174 * GM_pitch(5 ft)
-    maxRoll: degToRad(60),
-    maxPitch: degToRad(30),
     waveRollCoeff: 500,
     wavePitchCoeff: 500,
     zHeights: {
@@ -280,8 +278,6 @@ export const StarterDinghy: BoatConfig = {
     verticalMass: 400, // ~400 lb total displacement (hull + crew + equipment)
     rollInertia: 1900, // 400 * (beam/3)² = 400 * 2.2²
     pitchInertia: 6400, // 400 * (LOA/4)² = 400 * 4²
-    maxRoll: degToRad(60),
-    maxPitch: degToRad(30),
     centerOfGravityZ: -0.5, // ft — slightly below waterline (keel + crew weight)
     zHeights: {
       deck: 1,

@@ -300,30 +300,6 @@ export function BoatPropertyPanels({ controller }: BoatPropertyPanelsProps) {
           max={200000}
           step={1000}
         />
-        <NumberField
-          label="Max Roll"
-          value={toDeg(config.tilt.maxRoll)}
-          path="tilt.maxRoll"
-          controller={controller}
-          min={5}
-          max={90}
-          step={1}
-          unit="deg"
-          toConfig={toRad}
-          fromConfig={toDeg}
-        />
-        <NumberField
-          label="Max Pitch"
-          value={toDeg(config.tilt.maxPitch)}
-          path="tilt.maxPitch"
-          controller={controller}
-          min={5}
-          max={60}
-          step={1}
-          unit="deg"
-          toConfig={toRad}
-          fromConfig={toDeg}
-        />
       </PanelSection>
 
       <PanelSection title="Buoyancy">

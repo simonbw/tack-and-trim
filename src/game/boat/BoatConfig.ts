@@ -165,8 +165,6 @@ export interface TiltConfig {
   readonly pitchDamping: number; // angular damping coefficient for pitch
   readonly rightingMomentCoeff: number; // righting moment coefficient (spring stiffness)
   readonly pitchRightingCoeff: number; // pitch restoring coefficient
-  readonly maxRoll: number; // max roll angle (radians)
-  readonly maxPitch: number; // max pitch angle (radians)
   readonly waveRollCoeff: number; // wave slope → roll torque coefficient
   readonly wavePitchCoeff: number; // wave slope → pitch torque coefficient
   readonly zHeights: {
@@ -183,8 +181,6 @@ export interface BuoyancyConfig {
   readonly verticalMass: number; // effective mass for z-axis (lbs, ≈ displaced water mass)
   readonly rollInertia: number; // moment of inertia for roll (lbs·ft²)
   readonly pitchInertia: number; // moment of inertia for pitch (lbs·ft²)
-  readonly maxRoll: number; // max roll angle (radians)
-  readonly maxPitch: number; // max pitch angle (radians)
   readonly centerOfGravityZ: number; // z of CG in body-local frame (ft, negative = below waterline)
   readonly zHeights: {
     readonly deck: number; // ft above waterline
