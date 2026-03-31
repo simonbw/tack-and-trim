@@ -465,20 +465,18 @@ export class Hull extends BaseEntity {
 
       // === UNDERWATER FORCES ===
       if (waterFrac > 0) {
-        // Buoyancy: hydrostatic pressure normal to surface.
-        // avgDepth is the average of per-vertex clamped submersion depths,
-        // giving correct results for partially submerged triangles.
+        // Buoyancy: vertical force proportional to submersion depth × area.
+        // Applied purely upward (+Z), not in -normal direction, because our hull
+        // mesh is not closed at the waterline — the "pressure on surface" approach
+        // requires a closed surface for lateral forces to cancel. Without a
+        // waterplane cap, normal-directed buoyancy creates unbalanced lateral
+        // forces that push the boat around. Vertical buoyancy with distributed
+        // application points naturally produces righting moment (deeper points
+        // get more upward force, creating torque that opposes heel).
         if (avgDepth > 0) {
           const buoyancyMag =
             BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area;
-          body.applyForce3D(
-            -wnx * buoyancyMag,
-            -wny * buoyancyMag,
-            -wnz * buoyancyMag,
-            localX,
-            localY,
-            localZ,
-          );
+          body.applyForce3D(0, 0, buoyancyMag, localX, localY, localZ);
         }
 
         // Average water velocity from vertices (weighted by submersion)
