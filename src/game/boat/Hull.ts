@@ -16,7 +16,6 @@ import {
 import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
 import { HullConfig } from "./BoatConfig";
-import { TiltTransform } from "./TiltTransform";
 
 const GRAVITY = 32.174; // ft/s²
 // Hydrostatic pressure: F = ρ * g * depth * area (lbf), converted to engine units (* g)
@@ -301,9 +300,6 @@ export class Hull extends BaseEntity {
   // Energy dissipation tracking (updated each tick)
   private _dissipation: HullDissipation = { totalPower: 0, triangleCount: 0 };
 
-  /** 3D→2D transform updated by Boat each tick. Used by child entities for rendering. */
-  readonly tiltTransform = new TiltTransform();
-
   // Per-triangle force data (precomputed at construction)
   private forceData: HullForceData;
 
@@ -406,7 +402,6 @@ export class Hull extends BaseEntity {
   onTick() {
     const body = this.body;
     const R = body.orientation;
-    const bodyZ = body.z;
     const fd = this.forceData;
     const cf = this.skinFrictionCoefficient * this.getDamageMultiplier();
 
@@ -425,7 +420,6 @@ export class Hull extends BaseEntity {
     // Per-triangle force loop.
     // Water/wind are queried at mesh vertices; per-triangle values are
     // averaged from the three vertex results for better partial-submersion handling.
-    const tilt = this.tiltTransform;
     const meshPos = this.mesh.xyPositions;
     const meshZ = this.mesh.zValues;
     const vi = fd.vertexIndices;
@@ -465,9 +459,9 @@ export class Hull extends BaseEntity {
         v2 = vi[i * 3 + 2];
 
       // Per-vertex world Z (from body orientation + z offset)
-      const wz0 = tilt.worldZ(meshPos[v0][0], meshPos[v0][1], meshZ[v0], bodyZ);
-      const wz1 = tilt.worldZ(meshPos[v1][0], meshPos[v1][1], meshZ[v1], bodyZ);
-      const wz2 = tilt.worldZ(meshPos[v2][0], meshPos[v2][1], meshZ[v2], bodyZ);
+      const wz0 = body.worldZ(meshPos[v0][0], meshPos[v0][1], meshZ[v0]);
+      const wz1 = body.worldZ(meshPos[v1][0], meshPos[v1][1], meshZ[v1]);
+      const wz2 = body.worldZ(meshPos[v2][0], meshPos[v2][1], meshZ[v2]);
 
       // Per-vertex water surface height
       const wh0 = v0 < wq.length ? wq.get(v0).surfaceHeight : 0;
@@ -732,7 +726,6 @@ export class Hull extends BaseEntity {
   @on("render")
   onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
-    const t = this.tiltTransform;
     const zOffset = this.body.z;
 
     draw.at(

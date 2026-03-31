@@ -270,31 +270,27 @@ export class Rudder extends BaseEntity {
     // worldZ() to compute the correct depth from the hull-local pivot.
     const [rx, ry] = this.body.position;
     const rudderAngle = this.body.angle;
-    const tilt = this.hull.tiltTransform;
-    const zOffset = this.hull.body.z;
+    const hullBody = this.hull.body;
 
     // Compute world-space depth at the rudder pivot (hull-local coords)
-    const z = tilt.worldZ(
+    const z = hullBody.worldZ(
       this.pivotPosition.x,
       this.pivotPosition.y,
       this.rudderZ,
-      zOffset,
     );
 
     // Apply tilt parallax offset for 2D position
-    const offset = tilt.worldOffset(this.rudderZ);
+    const offsetX = hullBody.zParallaxX(this.rudderZ);
+    const offsetY = hullBody.zParallaxY(this.rudderZ);
 
     // Draw rudder blade (underwater)
-    draw.at(
-      { pos: V(rx + offset.x, ry + offset.y), angle: rudderAngle },
-      () => {
-        draw.line(0, 0, -this.length, 0, {
-          color: this.color,
-          width: 0.5,
-          z,
-        });
-      },
-    );
+    draw.at({ pos: V(rx + offsetX, ry + offsetY), angle: rudderAngle }, () => {
+      draw.line(0, 0, -this.length, 0, {
+        color: this.color,
+        width: 0.5,
+        z,
+      });
+    });
   }
 
   /** Get rudder pivot position in hull-local coordinates */

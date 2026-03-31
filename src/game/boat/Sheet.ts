@@ -6,7 +6,7 @@ import { DistanceConstraint } from "../../core/physics/constraints/DistanceConst
 import { clamp, lerp, stepToward } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { VerletRope } from "../rope/VerletRope";
-import type { TiltTransform } from "./TiltTransform";
+import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 
 export interface SheetConfig {
   minLength: number;
@@ -49,7 +49,7 @@ export class Sheet extends BaseEntity {
     private bodyB: Body,
     private localAnchorB: V2d,
     config: Partial<SheetConfig> = {},
-    private getTiltTransform?: () => TiltTransform,
+    private getHullBody?: () => DynamicBody,
     private zA: number = 0,
     private zB: number = 0,
   ) {
@@ -172,8 +172,8 @@ export class Sheet extends BaseEntity {
   onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
     if (this.opacity <= 0) return;
 
-    const tilt = this.getTiltTransform?.();
-    if (!tilt) {
+    const hullBody = this.getHullBody?.();
+    if (!hullBody) {
       this.visualRope.render(draw, this.opacity);
       return;
     }
@@ -187,15 +187,15 @@ export class Sheet extends BaseEntity {
     // Project first point at zA height
     const p0 = points[0];
     path.moveTo(
-      p0.x + tilt.worldOffsetX(this.zA),
-      p0.y + tilt.worldOffsetY(this.zA),
+      p0.x + hullBody.zParallaxX(this.zA),
+      p0.y + hullBody.zParallaxY(this.zA),
     );
 
     if (n === 2) {
       const p1 = points[1];
       path.lineTo(
-        p1.x + tilt.worldOffsetX(this.zB),
-        p1.y + tilt.worldOffsetY(this.zB),
+        p1.x + hullBody.zParallaxX(this.zB),
+        p1.y + hullBody.zParallaxY(this.zB),
       );
     } else {
       // Smooth quadratic bezier curve (same logic as VerletRope.render)
@@ -205,10 +205,10 @@ export class Sheet extends BaseEntity {
         const z1 = lerp(this.zA, this.zB, t1);
         const z2 = lerp(this.zA, this.zB, t2);
 
-        const p1x = points[i + 1].x + tilt.worldOffsetX(z1);
-        const p1y = points[i + 1].y + tilt.worldOffsetY(z1);
-        const p2x = points[i + 2].x + tilt.worldOffsetX(z2);
-        const p2y = points[i + 2].y + tilt.worldOffsetY(z2);
+        const p1x = points[i + 1].x + hullBody.zParallaxX(z1);
+        const p1y = points[i + 1].y + hullBody.zParallaxY(z1);
+        const p2x = points[i + 2].x + hullBody.zParallaxX(z2);
+        const p2y = points[i + 2].y + hullBody.zParallaxY(z2);
 
         path.quadraticTo(p1x, p1y, (p1x + p2x) / 2, (p1y + p2y) / 2);
       }
@@ -219,16 +219,17 @@ export class Sheet extends BaseEntity {
       const pLast = points[n - 1];
       const pSL = points[n - 2];
       path.quadraticTo(
-        pSL.x + tilt.worldOffsetX(zSecondLast),
-        pSL.y + tilt.worldOffsetY(zSecondLast),
-        pLast.x + tilt.worldOffsetX(zLast),
-        pLast.y + tilt.worldOffsetY(zLast),
+        pSL.x + hullBody.zParallaxX(zSecondLast),
+        pSL.y + hullBody.zParallaxY(zSecondLast),
+        pLast.x + hullBody.zParallaxX(zLast),
+        pLast.y + hullBody.zParallaxY(zLast),
       );
     }
 
-    // Set z for depth testing — use worldZ() for proper tilt-aware depth
+    // Set z for depth testing — use orientation[8] for rotation-only depth
+    // (no body.z offset, matching the original tilt.worldZ(0, 0, avgZ, 0) behavior)
     const avgZ = (this.zA + this.zB) / 2;
-    const z = tilt.worldZ(0, 0, avgZ, 0);
+    const z = hullBody.orientation[8] * avgZ;
     draw.renderer.setZ(z);
     path.stroke(
       this.config.ropeColor ?? 0x444444,

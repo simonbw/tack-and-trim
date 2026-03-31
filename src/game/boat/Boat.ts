@@ -126,7 +126,7 @@ export class Boat extends BaseEntity {
       config.mainsheet;
     const boomZ = config.rig.mainsail.zFoot ?? 3;
     const deckZ = config.hull.deckHeight;
-    const getTilt = () => this.hull.tiltTransform;
+    const getHullBody = () => this.hull.body;
     this.mainsheet = this.addChild(
       new Sheet(
         this.rig.body,
@@ -134,7 +134,7 @@ export class Boat extends BaseEntity {
         this.hull.body,
         hullAttachPoint,
         mainsheetConfig,
-        getTilt,
+        getHullBody,
         boomZ,
         deckZ,
       ),
@@ -165,7 +165,7 @@ export class Boat extends BaseEntity {
             localAnchor: jibTackPosition,
           },
           sailShape: "triangle",
-          getTiltTransform: () => this.hull.tiltTransform,
+          getHullBody: () => this.hull.body,
         }),
       );
 
@@ -182,7 +182,7 @@ export class Boat extends BaseEntity {
           this.hull.body,
           portAttachPoint,
           jibSheetConfig,
-          getTilt,
+          getHullBody,
           jibClewZ,
           deckZ,
         ),
@@ -195,7 +195,7 @@ export class Boat extends BaseEntity {
           this.hull.body,
           starboardAttachPoint,
           { ...jibSheetConfig },
-          getTilt,
+          getHullBody,
           jibClewZ,
           deckZ,
         ),
@@ -284,22 +284,13 @@ export class Boat extends BaseEntity {
   }
 
   @on("tick")
-  onTick({ dt }: GameEventMap["tick"]): void {
+  onTick({}: GameEventMap["tick"]): void {
     // Fade jib sheets based on jib hoist amount
     if (this.jib && this.portJibSheet && this.starboardJibSheet) {
       const jibOpacity = this.jib.getHoistAmount();
       this.portJibSheet.setOpacity(jibOpacity);
       this.starboardJibSheet.setOpacity(jibOpacity);
     }
-
-    // Update TiltTransform from the hull body's 6DOF rotation matrix.
-    // The physics engine now integrates z, roll, pitch automatically.
-    const [hx, hy] = this.hull.body.position;
-    this.hull.tiltTransform.updateFromRotationMatrix(
-      this.hull.body.orientation,
-      hx,
-      hy,
-    );
   }
 
   /** Row the boat forward */

@@ -698,6 +698,53 @@ export class DynamicBody extends Body implements SleepableBody {
   }
 
   // ──────────────────────────────────────────────────────────────
+  // 3D transform helpers
+  // ──────────────────────────────────────────────────────────────
+
+  /**
+   * Compute the world Z-height of a body-local 3D point.
+   * Uses the third row of the rotation matrix: worldZ = R[6]*x + R[7]*y + R[8]*z + bodyZ
+   */
+  worldZ(localX: number, localY: number, localZ: number): number {
+    const R = this._orientation;
+    return R[6] * localX + R[7] * localY + R[8] * localZ + this._z;
+  }
+
+  /**
+   * Transform a body-local 3D point to world coordinates [wx, wy, wz].
+   * Uses the full rotation matrix plus body position and z offset.
+   */
+  toWorldFrame3D(
+    localX: number,
+    localY: number,
+    localZ: number,
+  ): [number, number, number] {
+    const R = this._orientation;
+    return [
+      R[0] * localX + R[1] * localY + R[2] * localZ + this.position[0],
+      R[3] * localX + R[4] * localY + R[5] * localZ + this.position[1],
+      R[6] * localX + R[7] * localY + R[8] * localZ + this._z,
+    ];
+  }
+
+  /**
+   * Get the world-space X parallax offset for a given z-height.
+   * This is how much a point at height z shifts in screen X due to tilt.
+   * Uses R[2] (the x-component of the rotation matrix's z-column).
+   */
+  zParallaxX(z: number): number {
+    return this._orientation[2] * z;
+  }
+
+  /**
+   * Get the world-space Y parallax offset for a given z-height.
+   * Uses R[5] (the y-component of the rotation matrix's z-column).
+   */
+  zParallaxY(z: number): number {
+    return this._orientation[5] * z;
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // Private helpers
   // ──────────────────────────────────────────────────────────────
 

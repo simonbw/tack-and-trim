@@ -8,7 +8,6 @@ import { stepToward } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
 import { TimeOfDay } from "../../time/TimeOfDay";
 import { WindQuery } from "../../world/wind/WindQuery";
-import { TiltTransform } from "../TiltTransform";
 import { ClothRenderer } from "./ClothRenderer";
 import { ClothSolver } from "./ClothSolver";
 import { ClothWorkerPool, type SailHandle } from "./ClothWorkerPool";
@@ -62,7 +61,7 @@ export interface SailParams {
   getClewPosition?: () => V2d; // Called each frame for constrained clews
   initialClewPosition?: V2d; // Only used once during construction
   clewConstraint?: { body: Body; localAnchor: V2d };
-  getTiltTransform?: () => TiltTransform;
+  getHullBody?: () => DynamicBody;
 }
 
 const DEFAULT_CONFIG: SailConfig = {
@@ -448,8 +447,8 @@ export class Sail extends BaseEntity {
     // Apply damage multiplier to lift (damaged sails produce less drive)
     const effectiveLiftScale = liftScale * this.getDamageMultiplier();
 
-    // Get tilt transform for 3D pin targets
-    const tilt = this.config.getTiltTransform?.() ?? DEFAULT_TILT_TRANSFORM;
+    // Get hull body for 3D pin targets (or use identity-like defaults when no body)
+    const hullBody = this.config.getHullBody?.();
     const local = this.config.headLocalPosition;
 
     // Update pin targets for 3 pinned vertices: tack, clew, head
@@ -459,28 +458,49 @@ export class Sail extends BaseEntity {
     this.clewPos.set(clew);
 
     // Tack (u=0, v=0): at mast/forestay junction, z=zFoot — transformed to heeled 3D
-    const [tackX, tackY, tackZ] = tilt.toWorld3D(
-      local.x,
-      local.y,
-      this.config.zFoot,
-    );
+    let tackX: number, tackY: number, tackZ: number;
+    if (hullBody) {
+      // toWorldFrame3D includes body.z in Z; subtract it to get rotation-only Z
+      // (the cloth sim works in its own coordinate frame, not absolute world height)
+      [tackX, tackY, tackZ] = hullBody.toWorldFrame3D(
+        local.x,
+        local.y,
+        this.config.zFoot,
+      );
+      tackZ -= hullBody.z;
+    } else {
+      tackX = local.x;
+      tackY = local.y;
+      tackZ = this.config.zFoot;
+    }
 
     // Clew (u=1, v=0): at boom end (mainsail only), z=zFoot
     let clewX = clew.x,
       clewY = clew.y,
       clewZ = this.config.zFoot;
-    if (sailShape === "boom") {
-      const clewParallax = tilt.worldOffset(this.config.zFoot);
-      clewX = clew.x + clewParallax.x;
-      clewY = clew.y + clewParallax.y;
-      clewZ = this.config.zFoot * tilt.cosRoll * tilt.cosPitch;
+    if (sailShape === "boom" && hullBody) {
+      clewX = clew.x + hullBody.zParallaxX(this.config.zFoot);
+      clewY = clew.y + hullBody.zParallaxY(this.config.zFoot);
+      clewZ = this.config.zFoot * hullBody.orientation[8];
     }
 
     // Head (u=0, v=1): at mast position, z varies with hoist.
     const headZ =
       this.config.zFoot +
       this.hoistAmount * (this.config.zHead - this.config.zFoot);
-    const [headWX, headWY, headWZ] = tilt.toWorld3D(local.x, local.y, headZ);
+    let headWX: number, headWY: number, headWZ: number;
+    if (hullBody) {
+      [headWX, headWY, headWZ] = hullBody.toWorldFrame3D(
+        local.x,
+        local.y,
+        headZ,
+      );
+      headWZ -= hullBody.z;
+    } else {
+      headWX = local.x;
+      headWY = local.y;
+      headWZ = headZ;
+    }
 
     // Sample wind
     let windX = 0,
@@ -565,6 +585,3 @@ export class Sail extends BaseEntity {
     }
   }
 }
-
-// Default identity tilt transform (no tilt)
-const DEFAULT_TILT_TRANSFORM = new TiltTransform();

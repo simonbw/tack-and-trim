@@ -295,7 +295,7 @@ export class Draw {
       const cp = Math.cos(tilt.pitch);
 
       // Build the model matrix: camera × translate(pos) × tiltRotation
-      // The tilt rotation xy-columns (from TiltTransform):
+      // The tilt rotation xy-columns (from body orientation matrix):
       //   col0 = [ca*cp,          sa*cp         ]
       //   col1 = [ca*sp*sr-sa*cr, sa*sp*sr+ca*cr]
       const r00 = ca * cp;

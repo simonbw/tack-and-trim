@@ -1069,7 +1069,7 @@ export class WebGPURenderer {
     return this.currentZ;
   }
 
-  /** Set the z-to-position-offset coefficients (from TiltTransform m02, m12). */
+  /** Set the z-to-position-offset coefficients (orientation R[2], R[5]). */
   setZCoeffs(x: number, y: number): void {
     this.currentZCoeffX = x;
     this.currentZCoeffY = y;

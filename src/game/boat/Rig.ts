@@ -73,7 +73,7 @@ export class Rig extends BaseEntity {
         getClewPosition: () => this.getBoomEndWorldPosition(),
         headConstraint: { body: this.body, localAnchor: V(0, 0) },
         clewConstraint: { body: this.body, localAnchor: V(-boomLength, 0) },
-        getTiltTransform: () => this.hull.tiltTransform,
+        getHullBody: () => this.hull.body,
       }),
     );
   }
@@ -83,34 +83,34 @@ export class Rig extends BaseEntity {
     const [hx, hy] = this.hull.body.position;
     const hullAngle = this.hull.body.angle;
     const [mx, my] = this.getMastWorldPosition();
-    const t = this.hull.tiltTransform;
-    const zOffset = this.hull.body.z;
+    const hullBody = this.hull.body;
+    const zOffset = hullBody.z;
 
-    const mastTopWorld = t.worldOffset(20);
+    const mastTopOffsetX = hullBody.zParallaxX(20);
+    const mastTopOffsetY = hullBody.zParallaxY(20);
 
     // 1. Boom (bottom layer)
     // Boom has independent rotation from hull, so we keep manual 2D endpoint
-    // computation but use t.worldZ() for the depth value.
-    const relAngle = this.body.angle - this.hull.body.angle;
+    // computation but use body.worldZ() for the depth value.
+    const relAngle = this.body.angle - hullBody.angle;
     const boomEndLocalX =
       this.mastPosition.x - this.boomLength * Math.cos(relAngle);
     const boomEndLocalY =
       this.mastPosition.y - this.boomLength * Math.sin(relAngle);
-    const [boomStartX, boomStartY] = t.toWorld3D(
+    const [boomStartX, boomStartY] = hullBody.toWorldFrame3D(
       this.mastPosition.x,
       this.mastPosition.y,
       this.boomZ,
     );
-    const [boomEndX, boomEndY] = t.toWorld3D(
+    const [boomEndX, boomEndY] = hullBody.toWorldFrame3D(
       boomEndLocalX,
       boomEndLocalY,
       this.boomZ,
     );
-    const boomWorldZ = t.worldZ(
+    const boomWorldZ = hullBody.worldZ(
       this.mastPosition.x,
       this.mastPosition.y,
       this.boomZ,
-      zOffset,
     );
     const boomAngle = Math.atan2(boomEndY - boomStartY, boomEndX - boomStartX);
     const boomLen = Math.hypot(boomEndX - boomStartX, boomEndY - boomStartY);
@@ -172,26 +172,24 @@ export class Rig extends BaseEntity {
     );
 
     // 3. Mast (on top of everything)
-    // Use t.worldZ() for depth at mast base and top.
-    const mastBaseZ = t.worldZ(
+    // Use body.worldZ() for depth at mast base and top.
+    const mastBaseZ = hullBody.worldZ(
       this.mastPosition.x,
       this.mastPosition.y,
       0,
-      zOffset,
     );
-    const mastTopZ = t.worldZ(
+    const mastTopZ = hullBody.worldZ(
       this.mastPosition.x,
       this.mastPosition.y,
       20,
-      zOffset,
     );
-    draw.line(mx, my, mx + mastTopWorld.x, my + mastTopWorld.y, {
+    draw.line(mx, my, mx + mastTopOffsetX, my + mastTopOffsetY, {
       color: this.mastColor,
       width: 0.4,
       z: mastTopZ,
     });
     draw.fillCircle(mx, my, 0.3, { color: this.mastColor, z: mastBaseZ });
-    draw.fillCircle(mx + mastTopWorld.x, my + mastTopWorld.y, 0.2, {
+    draw.fillCircle(mx + mastTopOffsetX, my + mastTopOffsetY, 0.2, {
       color: this.mastColor,
       z: mastTopZ,
     });
