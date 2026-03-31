@@ -510,12 +510,12 @@ export class Hull extends BaseEntity {
         }
 
         // Skin friction on submerged area
-        const centroidWorld = this.body.toWorldFrame(V(localX, localY));
+        const centroidWorldWater = this.body.toWorldFrame(V(localX, localY));
         const pointZVelocity =
-          localX * body.pitchVelocity - localY * body.rollVelocity;
+          localY * body.rollVelocity - localX * body.pitchVelocity;
         const friction = computeSkinFrictionAtPoint(
           body,
-          centroidWorld,
+          centroidWorldWater,
           area * waterFrac,
           cf,
           V(waterVx, waterVy),
@@ -532,22 +532,26 @@ export class Hull extends BaseEntity {
           );
         }
 
-        // Form drag: pressure drag from normal component of relative velocity
-        const rr = V(
-          centroidWorld.x - body.position[0],
-          centroidWorld.y - body.position[1],
+        // Form drag: pressure drag from normal component of 3D relative velocity.
+        // The vertical velocity from roll/pitch is critical for roll damping —
+        // when the boat heels, hull triangles push through water vertically.
+        const rrWater = V(
+          centroidWorldWater.x - body.position[0],
+          centroidWorldWater.y - body.position[1],
         );
-        const pvx = body.velocity[0] - rr.y * body.angularVelocity;
-        const pvy = body.velocity[1] + rr.x * body.angularVelocity;
-        const rvx = pvx - waterVx;
-        const rvy = pvy - waterVy;
-        const speed = Math.sqrt(rvx * rvx + rvy * rvy);
+        const pvxW = body.velocity[0] - rrWater.y * body.angularVelocity;
+        const pvyW = body.velocity[1] + rrWater.x * body.angularVelocity;
+        const pvzW = pointZVelocity + body.zVelocity;
+        const rvxW = pvxW - waterVx;
+        const rvyW = pvyW - waterVy;
+        const rvzW = pvzW; // water has no vertical velocity
+        const speedW = Math.sqrt(rvxW * rvxW + rvyW * rvyW + rvzW * rvzW);
 
-        if (speed > 0.01) {
-          const vDotN = rvx * wnx + rvy * wny;
+        if (speedW > 0.01) {
+          const vDotN = rvxW * wnx + rvyW * wny + rvzW * wnz;
           if (vDotN > 0) {
-            const Cd = vDotN / speed;
-            const dynamicPressure = 0.5 * RHO_WATER * speed * speed;
+            const Cd = vDotN / speedW;
+            const dynamicPressure = 0.5 * RHO_WATER * speedW * speedW;
             const forceMag =
               Cd * dynamicPressure * area * waterFrac * LBF_TO_ENGINE;
             body.applyForce3D(

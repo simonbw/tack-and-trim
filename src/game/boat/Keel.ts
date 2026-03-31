@@ -47,7 +47,10 @@ export class Keel extends BaseEntity {
     this.vertices = config.vertices;
     this.chord = config.chord;
     this.color = config.color;
-    this.keelZ = -hullDraft; // keel attaches at hull bottom
+    // Apply keel forces at the midpoint of the keel blade span.
+    // The keel extends from hull bottom (-hullDraft) to keel tip (-config.draft).
+    // Center of pressure is roughly at the midpoint of the blade.
+    this.keelZ = -(hullDraft + config.draft) / 2;
   }
 
   /**
