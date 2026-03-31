@@ -507,9 +507,19 @@ export class Hull extends BaseEntity {
         // forces that push the boat around. Vertical buoyancy with distributed
         // application points naturally produces righting moment (deeper points
         // get more upward force, creating torque that opposes heel).
+        //
+        // The buoyancy contribution is weighted by |wnz| — the world-frame
+        // vertical component of the triangle's outward normal. This accounts
+        // for hull orientation (heel and pitch):
+        //   - A flat bottom triangle (normal pointing down): |wnz| ≈ 1 upright,
+        //     decreases toward 0 at 90° heel → loses buoyancy contribution.
+        //   - A vertical side wall (normal pointing sideways): |wnz| ≈ 0 upright,
+        //     increases toward 1 at 90° heel → gains buoyancy contribution.
+        // This correctly models the change in effective waterplane area with tilt.
         if (avgDepth > 0) {
+          const absWnz = Math.abs(wnz);
           const buoyancyMag =
-            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area;
+            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area * absWnz;
           body.applyForce3D(0, 0, buoyancyMag, localX, localY, localZ);
         }
 
@@ -760,8 +770,8 @@ export class Hull extends BaseEntity {
         draw.renderer.submitTrianglesWithZ(
           xyPositions,
           deckIndices,
-          0xff0000,
-          0.1,
+          this.fillColor,
+          1.0,
           zValues,
         );
 

@@ -224,8 +224,10 @@ export function flatPlateDrag(
   rho: number = RHO_WATER,
 ): ForceMagnitudeFn {
   return ({ angleOfAttack, speed, edgeLength }) => {
-    // Flat plate drag coefficient: Cd = sin(α) (projected area)
-    const cd = Math.abs(Math.sin(angleOfAttack));
+    // Flat plate drag coefficient: Cd = 1.28 · sin(α)
+    // The 1.28 factor comes from Kirchhoff free-streamline theory, accounting
+    // for the wake pressure deficit behind a flat plate in a real fluid.
+    const cd = 1.28 * Math.abs(Math.sin(angleOfAttack));
     const area = edgeLength * chord;
     const dynamicPressure = 0.5 * rho * speed * speed;
     return cd * dynamicPressure * area;
