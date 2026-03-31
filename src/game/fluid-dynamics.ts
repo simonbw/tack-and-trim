@@ -1,7 +1,7 @@
 import { DynamicBody } from "../core/physics/body/DynamicBody";
 import { degToRad } from "../core/util/MathUtil";
 import { V, V2d } from "../core/Vector";
-import { RHO_WATER, RHO_AIR } from "./physics-constants";
+import { RHO_WATER, RHO_AIR, LBF_TO_ENGINE } from "./physics-constants";
 
 // Re-export so existing importers don't break
 export { RHO_WATER, RHO_AIR };
@@ -15,11 +15,6 @@ export const KEEL_CHORD = 1.25; // ft - centerboard/daggerboard chord
 // =============================================================================
 
 const MAX_RELATIVE_SPEED = 15; // ft/s - cap for numerical stability (~9 kts)
-
-// The physics engine uses mass in "lbs" but F=ma with gravity=32.174 ft/s²,
-// effectively treating mass as slugs. Fluid formulas with ρ in slugs/ft³
-// produce force in lbf, so we multiply by g to convert to engine force units.
-const LBF_TO_ENGINE = 32.174;
 
 // ============================================================================
 // Types

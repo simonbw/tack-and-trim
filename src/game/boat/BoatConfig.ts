@@ -4,6 +4,24 @@ import { StarterDinghy } from "./configs/StarterDinghy";
 import { SailConfig } from "./sail/Sail";
 import { SheetConfig } from "./Sheet";
 
+/**
+ * Boat coordinate conventions:
+ *   +X = forward (toward bow)
+ *   -X = aft (toward stern)
+ *   +Y = starboard (right when facing forward)
+ *   -Y = port (left when facing forward)
+ *   +Z = up (above waterline)
+ *   -Z = down (below waterline, keel/rudder depth)
+ *   Z = 0 at the waterline
+ *
+ * Angles: radians, positive = counter-clockwise when viewed from above
+ * Roll: positive = heel to port (left side down)
+ * Pitch: positive = bow up
+ *
+ * Units: feet (length), pounds (mass), seconds (time), radians (angles)
+ * Force: engine units = lbf * 32.174 (see LBF_TO_ENGINE in physics-constants.ts)
+ */
+
 // ============================================
 // Component Config Interfaces
 // ============================================
@@ -34,6 +52,7 @@ export interface KeelConfig {
   readonly vertices: V2d[]; // ft, keel shape (usually a line)
   readonly draft: number; // ft below waterline (tip of keel/centerboard)
   readonly chord: number; // ft, foil chord (depth) for hydrodynamic calculations
+  /** Visual color for the keel (hex RGB). */
   readonly color: number;
 }
 
@@ -42,9 +61,10 @@ export interface RudderConfig {
   readonly length: number; // ft (span of rudder blade)
   readonly draft: number; // ft below waterline (tip of rudder)
   readonly chord: number; // ft, foil chord (depth) for hydrodynamic calculations
-  readonly maxSteerAngle: number; // radians
-  readonly steerAdjustSpeed: number; // rad/sec
-  readonly steerAdjustSpeedFast: number; // rad/sec
+  readonly maxSteerAngle: number; // radians (typical 0.5-0.8, ~30-45°)
+  readonly steerAdjustSpeed: number; // rad/s, normal steering rate (typical 0.5-1.5)
+  readonly steerAdjustSpeedFast: number; // rad/s, fast steering rate (typical 1.5-3.0)
+  /** Visual color for the rudder blade (hex RGB). */
   readonly color: number;
 }
 
@@ -81,22 +101,23 @@ export interface RigConfig {
   readonly boomWidth: number; // ft
   readonly boomMass: number; // lbs
   readonly colors: {
-    readonly mast: number;
-    readonly boom: number;
+    readonly mast: number; // hex RGB
+    readonly boom: number; // hex RGB
   };
   readonly mainsail: MainsailConfig;
   readonly stays: {
-    readonly forestay: V2d; // hull-local attachment point for forestay
-    readonly portShroud: V2d; // hull-local attachment point for port shroud
-    readonly starboardShroud: V2d; // hull-local attachment point for starboard shroud
-    readonly backstay: V2d; // hull-local attachment point for backstay
-    readonly deckHeight: number; // z-height of deck attachment points (ft above waterline)
+    readonly forestay: V2d; // ft, hull-local attachment point for forestay
+    readonly portShroud: V2d; // ft, hull-local attachment point for port shroud
+    readonly starboardShroud: V2d; // ft, hull-local attachment point for starboard shroud
+    readonly backstay: V2d; // ft, hull-local attachment point for backstay
+    readonly deckHeight: number; // ft above waterline, z-height of deck attachment points
   };
 }
 
 export interface BowspritConfig {
   readonly attachPoint: V2d; // ft from hull center
   readonly size: V2d; // ft (length, width)
+  /** Visual color for the bowsprit (hex RGB). */
   readonly color: number;
 }
 
@@ -139,7 +160,7 @@ export interface RudderDamageConfig {
   readonly groundingDamageRate: number; // damage per (ft penetration × ft/s speed × second)
   readonly groundingSpeedThreshold: number; // ft/s — below this, grounding does no damage
   readonly maxSteeringReduction: number; // fraction of steering authority lost at health=0 (0-1)
-  readonly maxSteeringBias: number; // max rudder bias in steer units at health=0 (pulls to one side)
+  readonly maxSteeringBias: number; // radians, max rudder bias at health=0 (pulls to one side)
   readonly repairRate: number; // health/s natural repair (0 = none)
 }
 
@@ -158,21 +179,21 @@ export interface BilgeConfig {
   readonly bailInterval: number; // seconds — time between scoops
   readonly waterDensity: number; // lbs/ft³ (62.4 fresh, 64 salt)
   readonly ingressCoefficient: number; // cubic ft/s per ft of submersion depth
-  readonly sloshGravity: number; // acceleration of water toward low side
-  readonly sloshDamping: number; // damping on slosh velocity
+  readonly sloshGravity: number; // ft/s², acceleration of bilge water toward heeled side (typical 5-20)
+  readonly sloshDamping: number; // dimensionless, velocity damping on bilge slosh (typical 0.5-2.0)
   readonly halfBeam: number; // ft — half the beam at deck edge (for submersion calc)
   readonly sinkingDuration: number; // seconds — how long the sinking animation takes
 }
 
 export interface TiltConfig {
-  readonly rollInertia: number; // moment of inertia for roll (lbs·ft²)
-  readonly pitchInertia: number; // moment of inertia for pitch (lbs·ft²)
-  readonly rollDamping: number; // angular damping coefficient for roll
-  readonly pitchDamping: number; // angular damping coefficient for pitch
-  readonly rightingMomentCoeff: number; // righting moment coefficient (spring stiffness)
-  readonly pitchRightingCoeff: number; // pitch restoring coefficient
-  readonly waveRollCoeff: number; // wave slope → roll torque coefficient
-  readonly wavePitchCoeff: number; // wave slope → pitch torque coefficient
+  readonly rollInertia: number; // lbs·ft², moment of inertia for roll (typical 500-5000)
+  readonly pitchInertia: number; // lbs·ft², moment of inertia for pitch (typical 500-5000)
+  readonly rollDamping: number; // lbs·ft²/s, angular damping coefficient for roll (typical 50-500)
+  readonly pitchDamping: number; // lbs·ft²/s, angular damping coefficient for pitch (typical 50-500)
+  readonly rightingMomentCoeff: number; // lbs·ft/rad, righting moment spring stiffness (typical 200-2000)
+  readonly pitchRightingCoeff: number; // lbs·ft/rad, pitch restoring spring stiffness (typical 200-2000)
+  readonly waveRollCoeff: number; // dimensionless, wave slope to roll torque gain (typical 0.1-1.0)
+  readonly wavePitchCoeff: number; // dimensionless, wave slope to pitch torque gain (typical 0.1-1.0)
   readonly zHeights: {
     readonly deck: number; // ft above waterline
     readonly boom: number; // ft above waterline
@@ -209,10 +230,10 @@ export interface LifelinesConfig {
   // Height of stanchions above deck (ft)
   readonly stanchionHeight: number;
   // Visual properties
-  readonly tubeColor: number; // stanchion and pulpit tubing color
-  readonly wireColor: number; // lifeline wire color
-  readonly tubeWidth: number; // stroke width for pulpit tubing
-  readonly wireWidth: number; // stroke width for lifeline wires
+  readonly tubeColor: number; // hex RGB, stanchion and pulpit tubing color
+  readonly wireColor: number; // hex RGB, lifeline wire color
+  readonly tubeWidth: number; // ft, stroke width for pulpit tubing (typical 0.05-0.15)
+  readonly wireWidth: number; // ft, stroke width for lifeline wires (typical 0.02-0.06)
 }
 
 // ============================================

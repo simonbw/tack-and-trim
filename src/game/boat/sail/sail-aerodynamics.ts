@@ -1,12 +1,6 @@
 import { clamp, degToRad } from "../../../core/util/MathUtil";
-import { RHO_AIR } from "../../physics-constants";
+import { LBF_TO_ENGINE, RHO_AIR } from "../../physics-constants";
 import type { ClothSolver } from "./ClothSolver";
-
-// The physics engine uses mass in "lbs" but F=ma with gravity=32.174 ft/s²,
-// meaning it effectively treats mass as slugs. Aerodynamic formulas with
-// RHO_AIR in slugs/ft³ produce force in lbf, so we multiply by g to convert
-// lbf to the engine's force units (slug·ft/s²).
-const LBF_TO_ENGINE = 32.174;
 
 export const STALL_ANGLE = degToRad(15);
 

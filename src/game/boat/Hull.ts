@@ -8,11 +8,8 @@ import {
 import { Convex } from "../../core/physics/shapes/Convex";
 import { earClipTriangulate } from "../../core/util/Triangulate";
 import { V, V2d } from "../../core/Vector";
-import {
-  computeSkinFrictionAtPoint,
-  RHO_AIR,
-  RHO_WATER,
-} from "../fluid-dynamics";
+import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
+import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
 import { HullConfig } from "./BoatConfig";
@@ -20,8 +17,6 @@ import { HullConfig } from "./BoatConfig";
 const GRAVITY = 32.174; // ft/s²
 // Hydrostatic pressure: F = ρ * g * depth * area (lbf), converted to engine units (* g)
 const BUOYANCY_FORCE_PER_DEPTH_PER_AREA = RHO_WATER * GRAVITY * GRAVITY;
-// Force conversion: lbf to engine units (lbm·ft/s²)
-const LBF_TO_ENGINE = 32.174;
 // Waterline transition band half-width (ft)
 const WATERLINE_BAND = 0.1;
 

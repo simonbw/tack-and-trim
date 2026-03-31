@@ -34,22 +34,35 @@ let CONSTRAINT_DAMPING: number = 0.02;
 //#tunable { min: 0.1, max: 50 }
 let CLOTH_MASS: number = 8.0;
 
-// Optional config with defaults
+// Optional config with defaults (see DEFAULT_CONFIG below for typical values)
 export interface SailConfig {
+  /** lbs, mass per cloth node for inertia scaling. Typical 0.5-2.0. */
   nodeMass: number;
+  /** dimensionless, multiplier on aerodynamic lift force. Default 1.0. */
   liftScale: number;
+  /** dimensionless, multiplier on aerodynamic drag force. Default 1.0. */
   dragScale: number;
   sailShape: "boom" | "triangle";
+  /** fraction/s, rate at which sail hoists/lowers (0-1 range per second). Typical 0.3-0.6. */
   hoistSpeed: number;
+  /** hex RGB, sail cloth color. */
   color: number;
   attachTellTail: boolean;
+  /** count, number of cloth columns along the foot (chord). Typical 16-48. */
   clothColumns: number;
+  /** count, number of cloth rows along the luff (height). Typical 8-24. */
   clothRows: number;
+  /** dimensionless, Verlet velocity damping factor (0-1). Higher = more damping. Default 1.0. */
   clothDamping: number;
+  /** count, constraint solver iterations per substep. Higher = stiffer cloth. Typical 5-20. */
   clothIterations: number;
+  /** dimensionless, correction factor for bend constraints (0-1). Higher = stiffer. Default 0.3. */
   bendStiffness: number;
+  /** dimensionless, damping of relative velocity along constraints (0-1). Default 0.1. */
   constraintDamping: number;
+  /** ft above waterline, z-height of the sail foot (boom). Typical 2-5. */
   zFoot: number;
+  /** ft above waterline, z-height of the sail head (masthead). Typical 15-40. */
   zHead: number;
 }
 

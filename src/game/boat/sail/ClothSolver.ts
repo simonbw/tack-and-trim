@@ -12,10 +12,20 @@
 import type { SailMeshData } from "./SailMesh";
 
 export interface ClothSolverConfig {
-  damping: number; // velocity damping (0-1), e.g. 0.97
-  constraintIterations: number; // e.g. 5
-  bendStiffness: number; // 0-1 correction factor for bend constraints, e.g. 0.3
-  constraintDamping: number; // 0-1 damping of relative velocity along each constraint, e.g. 0.1
+  /** dimensionless (0-1), Verlet velocity retention per step. 1.0 = no damping,
+   *  0.0 = full damping. Typical 0.95-1.0. Controls overall cloth motion damping. */
+  damping: number;
+  /** count, number of constraint projection iterations per simulation step.
+   *  Higher = stiffer cloth but more expensive. Typical 5-20. */
+  constraintIterations: number;
+  /** dimensionless (0-1), correction factor for bend (skip-one) constraints.
+   *  0 = no bend resistance, 1 = rigid. Typical 0.1-0.5. Controls how much the
+   *  cloth resists bending between non-adjacent vertices. */
+  bendStiffness: number;
+  /** dimensionless (0-1), damping of relative velocity along constraint directions.
+   *  Acts like a dashpot in parallel with each distance constraint to reduce oscillation.
+   *  Typical 0.02-0.2. */
+  constraintDamping: number;
 }
 
 export class ClothSolver {

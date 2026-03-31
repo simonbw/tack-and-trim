@@ -1,3 +1,45 @@
+/**
+ * Base constraint equation for the physics solver.
+ *
+ * ## Constraint formulation
+ *
+ * Each equation represents a single scalar constraint of the form:
+ *
+ *   C(q) = 0          (position-level: "these bodies should be at this configuration")
+ *   dC/dt = G * v = 0 (velocity-level: "the relative velocity along this constraint axis is zero")
+ *
+ * where:
+ *   - C(q) is the constraint function evaluated at the current positions/orientations
+ *   - G is the constraint Jacobian — a 1x12 row vector (see the G field below)
+ *   - v is the 12-component generalized velocity vector of the two bodies:
+ *     [vxA, vyA, vzA, wxA, wyA, wzA, vxB, vyB, vzB, wxB, wyB, wzB]
+ *
+ * The Jacobian G encodes *how* the constraint responds to each body's motion.
+ * For example, a contact normal constraint sets G so that G*v gives the
+ * relative velocity along the contact normal.
+ *
+ * ## Stiffness, damping, and the a/b/epsilon parameters
+ *
+ * Rather than enforcing C=0 rigidly (which requires infinite stiffness and
+ * can cause instability), constraints are modeled as damped springs:
+ *
+ *   F = -k*C - d*(dC/dt)
+ *
+ * where k = stiffness (N/m) and d = relaxation (dimensionless damping ratio,
+ * not seconds — higher values = more damping).
+ *
+ * The update() method converts (k, d, h) into solver-friendly parameters:
+ *   a       = 4 / (h * (1 + 4d))       — position error feedback gain (1/s)
+ *   b       = 4d / (1 + 4d)             — velocity error feedback gain (dimensionless, 0..1)
+ *   epsilon = 4 / (h^2 * k * (1 + 4d)) — compliance/regularization (s^2/kg/m or equivalent)
+ *
+ * These appear in the solver's right-hand side: B = -a*Gq - b*GW - h*GiMf
+ * and in the effective mass: invC = 1/(G*M^-1*G^T + epsilon).
+ *
+ * High stiffness (k -> inf) makes epsilon -> 0, recovering a rigid constraint.
+ * High relaxation (d -> inf) makes b -> 1 and a -> 0, prioritizing velocity
+ * correction over position correction (more damped, less springy).
+ */
 import type { Body } from "../body/Body";
 import type { SolverBodyState } from "../solver/GSSolver";
 import {
@@ -9,11 +51,15 @@ import {
 } from "../internal";
 
 export interface EquationOptions {
+  /** Spring stiffness for the constraint (N/m). Higher = more rigid.
+   *  Default: 1e6. */
   stiffness?: number;
+  /** Damping ratio (dimensionless). Higher = more damping, less oscillation.
+   *  Default: 4. Typical range: 1-10. */
   relaxation?: number;
 }
 
-/** Base class for constraint equations. */
+/** Base class for constraint equations. See module-level docs for theory. */
 export class Equation {
   static DEFAULT_STIFFNESS = 1e6;
   static DEFAULT_RELAXATION = 4;
@@ -21,20 +67,42 @@ export class Equation {
   static idCounter = 0;
 
   id: number;
+  /** Minimum force the constraint can apply (N). Negative for bilateral
+   *  constraints, 0 for unilateral (e.g. contacts that can only push). */
   minForce: number;
+  /** Maximum force the constraint can apply (N). */
   maxForce: number;
   bodyA: Body;
   bodyB: Body;
+  /** Spring stiffness (N/m). Controls how rigidly the constraint is enforced. */
   stiffness: number;
+  /** Damping ratio (dimensionless). Controls how quickly oscillations die out. */
   relaxation: number;
+  /** Constant offset added to the position-level constraint evaluation (Gq).
+   *  Used to set a desired separation distance or angle. */
   offset: number;
+  /** Position error feedback gain (1/s). Derived from stiffness, relaxation, and timestep.
+   *  Multiplies Gq in the RHS computation: B = -a*Gq - b*GW - h*GiMf. */
   a: number;
+  /** Velocity error feedback gain (dimensionless, 0..1). Derived from relaxation.
+   *  Multiplies GW in the RHS computation. */
   b: number;
+  /** Compliance/regularization (s^2*kg^-1*m^-1 equivalent). Added to the
+   *  effective mass denominator to soften the constraint and improve stability.
+   *  Derived from stiffness, relaxation, and timestep. */
   epsilon: number;
+  /** Current simulation timestep (s). Cached to detect when update() is needed. */
   timeStep: number;
+  /** Flag indicating that a/b/epsilon need recomputation (e.g. after stiffness change). */
   needsUpdate: boolean;
+  /** The constraint force magnitude from the last solver iteration (N).
+   *  Positive means the constraint was active. Useful for game logic
+   *  (e.g. reading contact force, breaking constraints above a threshold). */
   multiplier: number;
+  /** Desired relative velocity along the constraint axis (m/s).
+   *  Added to GW. Used by motor constraints to drive a target speed. */
   relativeVelocity: number;
+  /** When false, the solver skips this equation entirely. */
   enabled: boolean;
 
   /**
@@ -78,6 +146,17 @@ export class Equation {
     this.enabled = true;
   }
 
+  /**
+   * Recompute the solver parameters (a, b, epsilon) from stiffness, relaxation,
+   * and the current timestep. Called automatically by the solver when the
+   * timestep changes or needsUpdate is set.
+   *
+   * Derivation: models the constraint as a damped spring C'' + 2d/h*C' + k*C = 0,
+   * discretized with implicit Euler. The resulting formulas are:
+   *   a       = 4 / (h * (1 + 4d))        — position correction rate
+   *   b       = 4d / (1 + 4d)             — velocity correction blend (0 = spring, 1 = damper)
+   *   epsilon = 4 / (h^2 * k * (1 + 4d)) — constraint softness (compliance)
+   */
   update(): this {
     const k = this.stiffness;
     const d = this.relaxation;
@@ -90,6 +169,25 @@ export class Equation {
     return this;
   }
 
+  /**
+   * Compute the right-hand side (B) of the constraint equation for the solver.
+   *
+   *   B = -a * Gq - b * GW - h * GiMf
+   *
+   * This combines three correction terms:
+   * - **Gq** (position error): how far the constraint is violated right now.
+   *   Scaled by `a` to control position correction aggressiveness (Baumgarte).
+   * - **GW** (velocity error): the current relative velocity along the constraint.
+   *   Scaled by `b` to provide velocity-level damping.
+   * - **GiMf** (force term): the acceleration that external forces would cause
+   *   along the constraint direction. Scaled by `h` to predict the velocity
+   *   change from external forces over this timestep.
+   *
+   * @param a - Position error feedback gain (1/s), from update()
+   * @param b - Velocity error feedback gain (dimensionless), from update()
+   * @param h - Timestep (s)
+   * @param bodyState - Solver body states (provides inverse mass/inertia)
+   */
   computeB(
     a: number,
     b: number,
@@ -126,7 +224,17 @@ export class Equation {
     );
   }
 
-  /** Velocity-level constraint: G · [velA, zVelA, ωA, velB, zVelB, ωB]. */
+  /**
+   * Velocity-level constraint evaluation: G * v.
+   *
+   * Computes the current relative velocity along the constraint direction
+   * using the bodies' actual velocities (not the solver accumulators).
+   * This is the "GW" term in the RHS: it tells the solver how fast the
+   * constraint is currently being violated.
+   *
+   * The `relativeVelocity` field is added as a bias — used by motor
+   * constraints to drive toward a target speed.
+   */
   computeGW(): number {
     const G = this.G;
     const bi = this.bodyA;
@@ -150,7 +258,14 @@ export class Equation {
     );
   }
 
-  /** Accumulated solver impulse velocity: G · [vlambdaA, wlambdaA, vlambdaB, wlambdaB]. */
+  /**
+   * Compute the constraint velocity from accumulated solver impulses: G * v_lambda.
+   *
+   * This is the "GWlambda" term in the solver iteration. It represents
+   * how much constraint-velocity has already been accumulated from impulses
+   * applied by this and other equations during the current solve. The solver
+   * subtracts this from B to find the remaining violation to correct.
+   */
   computeGWlambda(bodyState: Map<Body, SolverBodyState>): number {
     const G = this.G;
     const sA = bodyState.get(this.bodyA)!;
@@ -298,6 +413,16 @@ export class Equation {
     return this;
   }
 
+  /**
+   * Compute the inverse effective mass for this constraint:
+   *   invC = 1 / (G * M^-1 * G^T + epsilon)
+   *
+   * The denominator is the "effective mass" — how much impulse is needed to
+   * produce a unit velocity change along this constraint. The epsilon term
+   * regularizes the computation: it prevents division by zero when bodies
+   * are massless along the constraint direction, and softens the constraint
+   * to model compliance (springiness).
+   */
   computeInvC(eps: number, bodyState: Map<Body, SolverBodyState>): number {
     return 1.0 / (this.computeGiMGt(bodyState) + eps);
   }
