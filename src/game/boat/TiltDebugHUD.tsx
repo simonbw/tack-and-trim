@@ -19,6 +19,7 @@ export class TiltDebugHUD extends ReactEntity {
 
     const rollDeg = radToDeg(boat.roll);
     const pitchDeg = radToDeg(boat.pitch);
+    const zHeight = boat.hull.body.z;
     const waterPct = boat.bilge.getWaterFraction() * 100;
 
     return (
@@ -41,6 +42,7 @@ export class TiltDebugHUD extends ReactEntity {
       >
         <div>heel {rollDeg.toFixed(1)}&deg;</div>
         <div>pitch {pitchDeg.toFixed(1)}&deg;</div>
+        <div>z {zHeight.toFixed(2)} ft</div>
         <div>water {waterPct.toFixed(0)}%</div>
       </div>
     );
