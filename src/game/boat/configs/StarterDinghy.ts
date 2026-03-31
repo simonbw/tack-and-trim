@@ -69,6 +69,8 @@ export const StarterDinghy: BoatConfig = {
       V(-6.1, 0.45),
     ], // ~14.6 ft, ~2.4 ft bottom beam
     skinFrictionCoefficient: 0.003, // Typical smooth hull skin friction
+    stagnationCoefficient: 0.4, // placeholder until precomputed separation model (#125)
+    separationCoefficient: 0.15, // placeholder until precomputed separation model (#125)
     draft: 0.8, // ft below waterline (hull bottom)
     deckHeight: 2.0, // ft above waterline (gunwale freeboard)
     colors: {

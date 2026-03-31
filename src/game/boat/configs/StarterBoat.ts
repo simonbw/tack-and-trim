@@ -69,6 +69,8 @@ export const StarterBoat: BoatConfig = {
       V(-5.1, 0.4),
     ], // ~12.3 ft, ~2.0 ft bottom beam
     skinFrictionCoefficient: 0.003,
+    stagnationCoefficient: 0.4, // placeholder until precomputed separation model (#125)
+    separationCoefficient: 0.12, // placeholder until precomputed separation model (#125)
     draft: 0.6, // ft below waterline
     deckHeight: 1.6, // ft above waterline (gunwale freeboard)
     colors: {

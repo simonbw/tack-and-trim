@@ -14,6 +14,12 @@ export interface HullConfig {
   readonly waterlineVertices?: V2d[]; // ft, narrower shape at the waterline (water interaction)
   readonly bottomVertices?: V2d[]; // ft, hull bottom shape (narrowest, at z = -draft)
   readonly skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
+  /** Pressure coefficient for front-facing (stagnation) surfaces, dimensionless.
+   * Typical range 0.8-1.0. Default 1.0. */
+  readonly stagnationCoefficient?: number;
+  /** Pressure coefficient for rear-facing (wake/separation) surfaces, dimensionless.
+   * Higher = more wake drag. Bluff stern ≈ 0.7, tapered stern ≈ 0.3. Default 0.5. */
+  readonly separationCoefficient?: number;
   readonly draft: number; // ft below waterline (hull bottom)
   readonly deckHeight: number; // ft above waterline (gunwale/deck edge)
   readonly colors: {

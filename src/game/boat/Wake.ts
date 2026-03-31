@@ -7,6 +7,12 @@ import { WakeParticle } from "./WakeParticle";
 
 const MIN_SPEED = 1; // ft/s — below this, no wake
 
+// Reference dissipation power for normalization (ft·lbf/s in engine units).
+// Chosen so that a dinghy at ~4 kts (~6.7 ft/s) with moderate form drag
+// produces a dissipation factor of roughly 1.0. Above this, wake grows;
+// below, it shrinks. The exact value is tuned empirically.
+const REFERENCE_DISSIPATION = 5000;
+
 export class Wake extends BaseEntity {
   layer = "wake" as const;
   tickLayer = "effects" as const;
@@ -67,13 +73,24 @@ export class Wake extends BaseEntity {
     // Increase wake amplitude when heeled (leeward edge digs in more)
     const heelAmplitudeBoost = 1 + Math.abs(roll) * 0.5;
 
+    // Modulate wake intensity by hull form drag energy dissipation.
+    // More energy lost to pressure drag (bluff shapes, separation) → bigger wake.
+    // Uses sqrt to compress the range: double the drag → ~1.4x the wake.
+    const dissipation = this.boat.hull.getDissipation();
+    const dissipationFactor =
+      dissipation.totalPower > 0
+        ? Math.sqrt(dissipation.totalPower / REFERENCE_DISSIPATION)
+        : 0;
+    // Clamp to [0.3, 2.0] so wake never vanishes entirely and doesn't blow up
+    const clampedDissipation = Math.min(2.0, Math.max(0.3, dissipationFactor));
+
     const particle = new WakeParticle(
       pos,
       speed,
       this.waterlineLength,
       this.beam,
       spacing,
-      this.amplitudeScale * heelAmplitudeBoost,
+      this.amplitudeScale * heelAmplitudeBoost * clampedDissipation,
     );
     this.game.addEntity(particle);
   }

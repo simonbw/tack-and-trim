@@ -272,10 +272,23 @@ function buildHullForceData(mesh: HullMesh): HullForceData {
   return data;
 }
 
+/**
+ * Per-tick energy dissipation summary from hull form drag.
+ * Used by the Wake system to modulate wake intensity.
+ */
+export interface HullDissipation {
+  /** Total power dissipated by form drag this tick (ft·lbf/s) */
+  totalPower: number;
+  /** Number of triangles contributing to dissipation */
+  triangleCount: number;
+}
+
 export class Hull extends BaseEntity {
   layer = "boat" as const;
   body: DynamicBody;
   private skinFrictionCoefficient: number;
+  private stagnationCoefficient: number;
+  private separationCoefficient: number;
   private vertices: V2d[];
   private fillColor: number;
   private strokeColor: number;
@@ -284,6 +297,9 @@ export class Hull extends BaseEntity {
   private tillerConfig?: TillerConfig;
   private getDamageMultiplier: () => number = () => 1;
   private mesh: HullMesh;
+
+  // Energy dissipation tracking (updated each tick)
+  private _dissipation: HullDissipation = { totalPower: 0, triangleCount: 0 };
 
   /** 3D→2D transform updated by Boat each tick. Used by child entities for rendering. */
   readonly tiltTransform = new TiltTransform();
@@ -311,6 +327,8 @@ export class Hull extends BaseEntity {
     super();
 
     this.skinFrictionCoefficient = config.skinFrictionCoefficient;
+    this.stagnationCoefficient = config.stagnationCoefficient ?? 1.0;
+    this.separationCoefficient = config.separationCoefficient ?? 0.5;
     this.vertices = config.vertices;
     this.fillColor = config.colors.fill;
     this.strokeColor = config.colors.stroke;
@@ -365,6 +383,14 @@ export class Hull extends BaseEntity {
   }
 
   /**
+   * Get form drag energy dissipation from the most recent tick.
+   * Used by Wake to modulate wake intensity based on hull drag.
+   */
+  getDissipation(): Readonly<HullDissipation> {
+    return this._dissipation;
+  }
+
+  /**
    * Transform body-local mesh vertices to world XY for queries.
    */
   private getVertexWorldPoints(): V2d[] {
@@ -405,6 +431,14 @@ export class Hull extends BaseEntity {
     const vi = fd.vertexIndices;
     const wq = this.waterQuery;
     const wiq = this.windQuery;
+
+    // Reset per-tick dissipation accumulator
+    let dissipationPower = 0;
+    let dissipationCount = 0;
+
+    // Pressure coefficients for form drag
+    const cpStag = this.stagnationCoefficient;
+    const cpSep = this.separationCoefficient;
 
     for (let i = 0; i < fd.count; i++) {
       const area = fd.area[i];
@@ -532,15 +566,18 @@ export class Hull extends BaseEntity {
           );
         }
 
-        // Form drag: pressure drag from normal component of 3D relative velocity.
+        // Form drag: pressure-based drag from normal component of 3D relative velocity.
+        // Uses separate stagnation (front-facing) and separation (rear-facing) models.
         // The vertical velocity from roll/pitch is critical for roll damping —
         // when the boat heels, hull triangles push through water vertically.
-        const rrWater = V(
-          centroidWorldWater.x - body.position[0],
-          centroidWorldWater.y - body.position[1],
-        );
-        const pvxW = body.velocity[0] - rrWater.y * body.angularVelocity;
-        const pvyW = body.velocity[1] + rrWater.x * body.angularVelocity;
+        //
+        // Relative velocity at this point (hull velocity minus water velocity):
+        //   rv = point_velocity - water_velocity
+        // where point_velocity includes body translation, rotation, and z-axis rotation.
+        const rrWaterX = centroidWorldWater.x - body.position[0];
+        const rrWaterY = centroidWorldWater.y - body.position[1];
+        const pvxW = body.velocity[0] - rrWaterY * body.angularVelocity;
+        const pvyW = body.velocity[1] + rrWaterX * body.angularVelocity;
         const pvzW = pointZVelocity + body.zVelocity;
         const rvxW = pvxW - waterVx;
         const rvyW = pvyW - waterVy;
@@ -548,12 +585,19 @@ export class Hull extends BaseEntity {
         const speedW = Math.sqrt(rvxW * rvxW + rvyW * rvyW + rvzW * rvzW);
 
         if (speedW > 0.01) {
+          // vDotN > 0: flow hitting front-facing surface (stagnation pressure)
+          // vDotN < 0: surface is in the wake (separation/suction pressure)
           const vDotN = rvxW * wnx + rvyW * wny + rvzW * wnz;
+
           if (vDotN > 0) {
-            const Cd = vDotN / speedW;
-            const dynamicPressure = 0.5 * RHO_WATER * speedW * speedW;
+            // --- Stagnation pressure (front-facing triangles) ---
+            // F = Cp_stag * 0.5 * rho * v^2 * A_projected
+            // where A_projected = area * |vDotN / speed| (projected area normal to flow)
+            // Force direction: along inward normal (-n), opposing the impinging flow.
+            const aProjected = area * (vDotN / speedW); // ft² — projected area normal to flow
+            const dynamicPressure = 0.5 * RHO_WATER * speedW * speedW; // lbf/ft²
             const forceMag =
-              Cd * dynamicPressure * area * waterFrac * LBF_TO_ENGINE;
+              cpStag * dynamicPressure * aProjected * waterFrac * LBF_TO_ENGINE;
             body.applyForce3D(
               -wnx * forceMag,
               -wny * forceMag,
@@ -562,6 +606,45 @@ export class Hull extends BaseEntity {
               localY,
               localZ,
             );
+
+            // Energy dissipation: P = F_drag · v_relative (dot product)
+            // Force is -n * forceMag, relative velocity is (rvxW, rvyW, rvzW)
+            // P = (-wnx*forceMag*rvxW + -wny*forceMag*rvyW + -wnz*forceMag*rvzW)
+            //   = -forceMag * vDotN  (since vDotN = rv · n)
+            // Power dissipated is positive (force opposes motion), so P = forceMag * vDotN
+            // But forceMag is already in engine units; convert back for physical power:
+            // power in ft·lbf/s = forceMag/LBF_TO_ENGINE * vDotN ... but we just want
+            // a consistent energy signal, so keep in engine units for simplicity.
+            dissipationPower += forceMag * vDotN;
+            dissipationCount++;
+          } else if (vDotN < 0) {
+            // --- Separation/suction pressure (rear-facing triangles) ---
+            // In the wake region behind the hull, flow separates and creates a
+            // low-pressure zone. This suction pulls the surface backward.
+            // F = Cp_sep * 0.5 * rho * v^2 * A_projected
+            // where A_projected = area * |vDotN / speed|
+            // Force direction: along outward normal (+n), pulling surface into the wake.
+            const absVDotN = -vDotN; // positive magnitude
+            const aProjected = area * (absVDotN / speedW); // ft²
+            const dynamicPressure = 0.5 * RHO_WATER * speedW * speedW; // lbf/ft²
+            const forceMag =
+              cpSep * dynamicPressure * aProjected * waterFrac * LBF_TO_ENGINE;
+            // Suction force: +n direction (pulling surface into wake = opposing motion)
+            body.applyForce3D(
+              wnx * forceMag,
+              wny * forceMag,
+              wnz * forceMag,
+              localX,
+              localY,
+              localZ,
+            );
+
+            // Energy dissipation: F is +n*forceMag, rv·n = vDotN < 0
+            // P = F · v = forceMag * (wnx*rvxW + wny*rvyW + wnz*rvzW) = forceMag * vDotN
+            // Since vDotN < 0 and forceMag > 0, this is negative (force opposes motion).
+            // Take absolute value for power dissipated.
+            dissipationPower += forceMag * absVDotN;
+            dissipationCount++;
           }
         }
       }
@@ -630,6 +713,10 @@ export class Hull extends BaseEntity {
         }
       }
     }
+
+    // Store per-tick dissipation for Wake to read
+    this._dissipation.totalPower = dissipationPower;
+    this._dissipation.triangleCount = dissipationCount;
   }
 
   @on("render")
@@ -673,8 +760,8 @@ export class Hull extends BaseEntity {
         draw.renderer.submitTrianglesWithZ(
           xyPositions,
           deckIndices,
-          this.fillColor,
-          1.0,
+          0xff0000,
+          0.1,
           zValues,
         );
 
