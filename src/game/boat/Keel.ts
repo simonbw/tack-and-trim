@@ -1,13 +1,13 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
-import { pairs } from "../../core/util/FunctionalUtils";
 import { V, V2d } from "../../core/Vector";
 import {
-  computeFluidForces,
+  computeHydrofoilForces,
   FluidForceResult,
   foilDrag,
   foilLift,
+  HydrofoilForceResult,
   KEEL_CHORD,
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
@@ -32,11 +32,15 @@ export class Keel extends BaseEntity {
   private keelZ: number;
   private aspectRatio: number; // AR = span / chord (dimensionless)
 
-  // Pre-allocated force result buffer
-  private forceResults: FluidForceResult[] = [
+  // Pre-allocated force result buffers
+  private fluidForceResults: FluidForceResult[] = [
     { fx: 0, fy: 0, localX: 0, localY: 0 },
     { fx: 0, fy: 0, localX: 0, localY: 0 },
   ];
+  private hydrofoilResults: HydrofoilForceResult[] = Array.from(
+    { length: 12 },
+    () => ({ fx: 0, fy: 0, fz: 0, localX: 0, localY: 0 }),
+  );
 
   constructor(
     private hull: Hull,
@@ -96,60 +100,33 @@ export class Keel extends BaseEntity {
       return this.velocityCache.get(key) ?? V(0, 0);
     };
 
-    // Cache trig values for 3D force decomposition (same for all vertices)
     const roll = this.hull.body.roll;
-    const cosRoll = Math.cos(roll);
-    const sinRoll = Math.sin(roll);
     const angle = this.hull.body.angle;
-    const cosA = Math.cos(angle);
-    const sinA = Math.sin(angle);
 
-    // Apply keel forces to hull (both directions for symmetry)
-    // Forces applied at keelZ depth so they naturally produce anti-heeling torque
-    for (const [start, end] of pairs(this.vertices)) {
-      for (const reversed of [false, true]) {
-        const a = reversed ? end : start;
-        const b = reversed ? start : end;
-        const count = computeFluidForces(
-          this.hull.body,
-          a,
-          b,
-          lift,
-          drag,
-          getWaterVelocity,
-          this.forceResults,
-        );
-        for (let i = 0; i < count; i++) {
-          const r = this.forceResults[i];
+    // Compute 3D hydrofoil forces with heel decomposition
+    const count = computeHydrofoilForces(
+      this.hull.body,
+      this.vertices,
+      roll,
+      angle,
+      lift,
+      drag,
+      getWaterVelocity,
+      this.hydrofoilResults,
+      this.fluidForceResults,
+    );
 
-          // 3D force decomposition: rotate lateral force component by heel angle.
-          // The keel tilts with the boat's heel, so its lift vector tilts too.
-          // Decompose world-frame force into longitudinal (along heading) and
-          // lateral (perpendicular to heading) components relative to boat heading.
-          const longitudinal = r.fx * cosA + r.fy * sinA;
-          const lateral = -r.fx * sinA + r.fy * cosA;
-
-          // The longitudinal component (drag) stays horizontal regardless of heel.
-          // The lateral component (lift) tilts with the keel:
-          //   horizontal part = lateral * cos(roll)
-          //   vertical part   = lateral * sin(roll) — this provides righting force
-          const lateralH = lateral * cosRoll;
-          const fz = lateral * sinRoll;
-
-          // Reconstruct world-frame horizontal force
-          const fxNew = longitudinal * cosA - lateralH * sinA;
-          const fyNew = longitudinal * sinA + lateralH * cosA;
-
-          this.hull.body.applyForce3D(
-            fxNew,
-            fyNew,
-            fz,
-            r.localX,
-            r.localY,
-            this.keelZ,
-          );
-        }
-      }
+    // Apply keel forces to hull at keelZ depth (produces anti-heeling torque)
+    for (let i = 0; i < count; i++) {
+      const r = this.hydrofoilResults[i];
+      this.hull.body.applyForce3D(
+        r.fx,
+        r.fy,
+        r.fz,
+        r.localX,
+        r.localY,
+        this.keelZ,
+      );
     }
   }
 

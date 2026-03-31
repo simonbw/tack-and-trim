@@ -6,10 +6,11 @@ import { RevoluteConstraint } from "../../core/physics/constraints/RevoluteConst
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import {
-  computeFluidForces,
+  computeHydrofoilForces,
   FluidForceResult,
   foilDrag,
   foilLift,
+  HydrofoilForceResult,
 } from "../fluid-dynamics";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { RudderConfig } from "./BoatConfig";
@@ -53,11 +54,18 @@ export class Rudder extends BaseEntity {
   // Cached water velocities indexed by world position key
   private velocityCache = new Map<string, V2d>();
 
-  // Pre-allocated force result buffer
-  private forceResults: FluidForceResult[] = [
+  // Pre-allocated force result buffers
+  private fluidForceResults: FluidForceResult[] = [
     { fx: 0, fy: 0, localX: 0, localY: 0 },
     { fx: 0, fy: 0, localX: 0, localY: 0 },
   ];
+  private hydrofoilResults: HydrofoilForceResult[] = Array.from(
+    { length: 12 },
+    () => ({ fx: 0, fy: 0, fz: 0, localX: 0, localY: 0 }),
+  );
+
+  // Pre-allocated rudder vertices in body-local coords (pivot + tip)
+  private rudderVertices: V2d[] = [];
 
   constructor(
     private hull: Hull,
@@ -74,6 +82,9 @@ export class Rudder extends BaseEntity {
 
     // Aspect ratio = span / chord. Span is the rudder blade depth (draft).
     this.aspectRatio = config.draft / config.chord;
+
+    // Pre-allocate rudder vertices: pivot at origin, tip at (-length, 0)
+    this.rudderVertices = [V(0, 0), V(-this.length, 0)];
 
     // Create a dynamic body for the rudder blade.
     // The pivot is at the body's origin (0,0 in local space).
@@ -191,73 +202,42 @@ export class Rudder extends BaseEntity {
       return this.velocityCache.get(key) ?? V(0, 0);
     };
 
-    // Cache trig values for 3D force decomposition (same for all vertices).
     // Use the hull's roll (the rudder tilts with the hull) and the rudder
     // body's own angle (forces are computed in the rudder's frame).
     const roll = this.hull.body.roll;
-    const cosRoll = Math.cos(roll);
-    const sinRoll = Math.sin(roll);
     const rudderAngle = this.body.angle;
-    const cosA = Math.cos(rudderAngle);
-    const sinA = Math.sin(rudderAngle);
 
-    // Apply rudder forces to the rudder body. The revolute constraint (with
-    // localPivotZA) transfers these to the hull with correct roll/pitch torques.
-    // v1/v2 are in rudder-body-local coordinates: pivot at origin, tip at (-length, 0).
-    const pivotLocal = V(0, 0);
-    const tipLocal = V(-this.length, 0);
+    // Compute 3D hydrofoil forces with heel decomposition
+    const count = computeHydrofoilForces(
+      this.body,
+      this.rudderVertices,
+      roll,
+      rudderAngle,
+      lift,
+      drag,
+      getWaterVelocity,
+      this.hydrofoilResults,
+      this.fluidForceResults,
+    );
 
-    for (const [a, b] of [
-      [pivotLocal, tipLocal],
-      [tipLocal, pivotLocal],
-    ] as const) {
-      const count = computeFluidForces(
-        this.body,
-        a,
-        b,
-        lift,
-        drag,
-        getWaterVelocity,
-        this.forceResults,
-      );
-      for (let i = 0; i < count; i++) {
-        const r = this.forceResults[i];
+    // Apply horizontal force to rudder body (constraint transfers to hull
+    // with correct yaw torque). Apply vertical force directly to hull body
+    // at the rudder pivot, since the 2D constraint can't transfer fz.
+    for (let i = 0; i < count; i++) {
+      const r = this.hydrofoilResults[i];
 
-        // 3D force decomposition: rotate lateral force component by heel angle.
-        // Same physics as the keel — the rudder tilts with the hull's heel,
-        // so its lift vector gains a vertical component.
-        // Decompose world-frame force into longitudinal/lateral relative to
-        // the rudder body's heading (not the hull's, since forces are computed
-        // in the rudder's own reference frame).
-        const longitudinal = r.fx * cosA + r.fy * sinA;
-        const lateral = -r.fx * sinA + r.fy * cosA;
+      const relPoint = this.body.vectorToWorldFrame(V(r.localX, r.localY));
+      this.body.applyForce(V(r.fx, r.fy), relPoint);
 
-        // Lateral component tilts with heel:
-        //   horizontal part = lateral * cos(roll)
-        //   vertical part   = lateral * sin(roll)
-        const lateralH = lateral * cosRoll;
-        const fz = lateral * sinRoll;
-
-        // Reconstruct world-frame horizontal force
-        const fxNew = longitudinal * cosA - lateralH * sinA;
-        const fyNew = longitudinal * sinA + lateralH * cosA;
-
-        // Apply horizontal force to rudder body (constraint transfers to hull
-        // with correct yaw torque). Apply vertical force directly to hull body
-        // at the rudder pivot, since the 2D constraint can't transfer fz.
-        const relPoint = this.body.vectorToWorldFrame(V(r.localX, r.localY));
-        this.body.applyForce(V(fxNew, fyNew), relPoint);
-
-        if (fz !== 0) {
-          this.hull.body.applyForce3D(
-            0,
-            0,
-            fz,
-            this.pivotPosition.x,
-            this.pivotPosition.y,
-            this.rudderZ,
-          );
-        }
+      if (r.fz !== 0) {
+        this.hull.body.applyForce3D(
+          0,
+          0,
+          r.fz,
+          this.pivotPosition.x,
+          this.pivotPosition.y,
+          this.rudderZ,
+        );
       }
     }
   }

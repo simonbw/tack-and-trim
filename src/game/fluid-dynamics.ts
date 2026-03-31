@@ -359,6 +359,121 @@ export function foilDrag(
 }
 
 // ============================================================================
+// Hydrofoil 3D Force Computation (shared by keel and rudder)
+// ============================================================================
+
+/**
+ * Result of computing 3D hydrofoil forces at a single application point.
+ * Includes heel-adjusted horizontal forces and vertical righting force.
+ */
+export interface HydrofoilForceResult {
+  /** World-frame horizontal force X */
+  fx: number;
+  /** World-frame horizontal force Y */
+  fy: number;
+  /** Vertical force from heel tilt (righting/heeling force) */
+  fz: number;
+  /** Body-local application point X */
+  localX: number;
+  /** Body-local application point Y */
+  localY: number;
+}
+
+/**
+ * Compute 3D hydrofoil forces for a set of foil edge vertices.
+ *
+ * Handles:
+ * - Heel-adjusted effective chord (foil loses area as hull heels)
+ * - Symmetric foil lift and drag via `foilLift`/`foilDrag`
+ * - Forward and reversed edge iteration for symmetric force computation
+ * - 3D force decomposition: lateral force component is tilted by hull roll,
+ *   producing a vertical (fz) righting/heeling force
+ *
+ * Each edge pair produces up to 2 results per direction × 2 directions = 4 results.
+ * For N vertices there are (N-1) edge pairs, so max results = 4 × (N-1).
+ * Pre-allocate the results array accordingly.
+ *
+ * @param body - The physics body the foil is attached to (used for velocity computation in computeFluidForces)
+ * @param vertices - Foil edge vertices in body-local coordinates
+ * @param chord - Foil chord length (ft)
+ * @param aspectRatio - Aspect ratio AR = span / chord (dimensionless)
+ * @param roll - Hull roll angle (radians) — used for heel factor and 3D decomposition
+ * @param bodyAngle - Angle of the body whose frame forces are decomposed relative to
+ * @param getLiftMagnitude - Lift magnitude function (caller may wrap foilLift to apply multipliers)
+ * @param getDragMagnitude - Drag magnitude function
+ * @param getWaterVelocity - Callback returning water velocity at a world-space point
+ * @param results - Pre-allocated output buffer for force results
+ * @returns Number of valid results written to the results array
+ */
+export function computeHydrofoilForces(
+  body: DynamicBody,
+  vertices: ReadonlyArray<V2d>,
+  roll: number,
+  bodyAngle: number,
+  getLiftMagnitude: ForceMagnitudeFn,
+  getDragMagnitude: ForceMagnitudeFn,
+  getWaterVelocity: FluidVelocityFn,
+  results: HydrofoilForceResult[],
+  fluidForceResults: FluidForceResult[],
+): number {
+  // Cache trig values for 3D force decomposition
+  const cosRoll = Math.cos(roll);
+  const sinRoll = Math.sin(roll);
+  const cosA = Math.cos(bodyAngle);
+  const sinA = Math.sin(bodyAngle);
+
+  let totalCount = 0;
+
+  // Iterate all edge pairs, both forward and reversed
+  for (let vi = 0; vi < vertices.length - 1; vi++) {
+    const start = vertices[vi];
+    const end = vertices[vi + 1];
+
+    for (let dir = 0; dir < 2; dir++) {
+      const a = dir === 0 ? start : end;
+      const b = dir === 0 ? end : start;
+
+      const count = computeFluidForces(
+        body,
+        a,
+        b,
+        getLiftMagnitude,
+        getDragMagnitude,
+        getWaterVelocity,
+        fluidForceResults,
+      );
+
+      for (let i = 0; i < count; i++) {
+        const r = fluidForceResults[i];
+
+        // 3D force decomposition: rotate lateral force component by heel angle.
+        // The foil tilts with the boat's heel, so its lift vector tilts too.
+        // Decompose world-frame force into longitudinal (along heading) and
+        // lateral (perpendicular to heading) components relative to bodyAngle.
+        const longitudinal = r.fx * cosA + r.fy * sinA;
+        const lateral = -r.fx * sinA + r.fy * cosA;
+
+        // The longitudinal component (drag) stays horizontal regardless of heel.
+        // The lateral component (lift) tilts with the foil:
+        //   horizontal part = lateral * cos(roll)
+        //   vertical part   = lateral * sin(roll) — this provides righting force
+        const lateralH = lateral * cosRoll;
+
+        const out = results[totalCount];
+        out.fx = longitudinal * cosA - lateralH * sinA;
+        out.fy = longitudinal * sinA + lateralH * cosA;
+        out.fz = lateral * sinRoll;
+        out.localX = r.localX;
+        out.localY = r.localY;
+        totalCount++;
+      }
+    }
+  }
+
+  return totalCount;
+}
+
+// ============================================================================
 // Skin Friction (viscous drag from water flowing along hull surface)
 // ============================================================================
 
