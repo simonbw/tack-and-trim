@@ -261,9 +261,10 @@ export function foilLift(
       // Linear region: Cl = 2π·sin(α)
       cl = 2 * Math.PI * Math.sin(effectiveAlpha);
     } else {
-      // Post-stall: gradual decay
+      // Post-stall: simplified decay model. Exponent of 1.5 gives gradual
+      // falloff — real foils and sails maintain partial lift well past stall.
       const peak = 2 * Math.PI * Math.sin(FOIL_STALL_ANGLE);
-      const decay = Math.exp(-2 * (effectiveAlpha - FOIL_STALL_ANGLE));
+      const decay = Math.exp(-1.5 * (effectiveAlpha - FOIL_STALL_ANGLE));
       cl = peak * decay;
     }
 
@@ -279,31 +280,74 @@ export function foilLift(
 
 /**
  * Create a drag magnitude function for symmetric foil behavior.
- * Lower base drag than flat plate, with induced drag and stall penalty.
+ * Uses lifting-line theory for induced drag and Kirchhoff flat-plate
+ * model for post-stall saturation.
  * Uses proper fluid dynamics: F = 0.5 * ρ * v² * Cd * A
  * @param chord - The chord (depth) of the foil in feet
+ * @param aspectRatio - Aspect ratio AR = span / chord (dimensionless)
  * @param rho - Fluid density in slugs/ft³ (default: water)
  */
 export function foilDrag(
   chord: number,
+  aspectRatio: number,
   rho: number = RHO_WATER,
 ): ForceMagnitudeFn {
+  // Oswald efficiency factor — accounts for non-elliptical lift distribution.
+  // e ≈ 0.9 is typical for well-designed symmetric foils.
+  const e = 0.9;
+
+  // Compute the lift coefficient at the stall angle for the transition point.
+  // Cl = 2π·sin(α) from thin airfoil theory.
+  const clAtStall = 2 * Math.PI * Math.sin(FOIL_STALL_ANGLE);
+
+  // Induced drag at stall: Cd_i = Cl² / (π · AR · e)
+  // This is the maximum induced drag before we switch to the flat-plate model.
+  const cdInducedAtStall =
+    (clAtStall * clAtStall) / (Math.PI * aspectRatio * e);
+
   return ({ angleOfAttack, speed, edgeLength }) => {
     // Use effective angle (0 to 90°) for coefficient calculation
     const alpha = Math.abs(angleOfAttack);
     const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
 
-    // Drag components:
-    // - Base drag: minimal for streamlined foil
-    // - Induced drag: proportional to α² (lift-induced)
-    // - Stall penalty: significant increase after stall
-    const baseDrag = 0.01;
-    const inducedDrag = 0.15 * effectiveAlpha * effectiveAlpha;
-    const stallDrag =
-      effectiveAlpha > FOIL_STALL_ANGLE
-        ? 0.8 * (effectiveAlpha - FOIL_STALL_ANGLE)
-        : 0;
-    const cd = baseDrag + inducedDrag + stallDrag;
+    let cd: number;
+
+    // Minimum profile drag for symmetric NACA foil section (Cd0 ≈ 0.006-0.008)
+    const cdBase = 0.007;
+
+    if (effectiveAlpha < FOIL_STALL_ANGLE) {
+      // Pre-stall regime: base profile drag + induced drag from lifting-line theory.
+      //
+      // Induced drag formula (Prandtl lifting-line theory):
+      //   Cd_induced = Cl² / (π · AR · e)
+      // where:
+      //   Cl  = lift coefficient = 2π·sin(α) (thin airfoil theory)
+      //   AR  = aspect ratio = span / chord
+      //   e   = Oswald efficiency factor (≈ 0.9)
+      //   π   = pi
+      //
+      // This is the minimum induced drag for a finite wing; the 1/AR dependence
+      // means high-aspect-ratio foils (long, narrow) have less induced drag.
+      const cl = 2 * Math.PI * Math.sin(effectiveAlpha);
+      const cdInduced = (cl * cl) / (Math.PI * aspectRatio * e);
+      cd = cdBase + cdInduced;
+    } else {
+      // Post-stall regime: transition from foil drag to flat-plate behavior.
+      //
+      // Flat-plate normal drag (Kirchhoff theory):
+      //   Cd_flatplate = 1.28 · sin²(α)
+      // This naturally saturates at Cd = 1.28 at α = 90° (broadside to flow),
+      // is near zero at small α, and rises smoothly through stall.
+      //
+      // We take the maximum of:
+      //   - The foil drag at stall (continuity with pre-stall)
+      //   - The flat-plate drag model
+      // This ensures a smooth, physically bounded transition.
+      const CD_FLAT_PLATE = 1.28;
+      const sinAlpha = Math.sin(effectiveAlpha);
+      const cdFlatPlate = CD_FLAT_PLATE * sinAlpha * sinAlpha;
+      cd = Math.max(cdBase + cdInducedAtStall, cdFlatPlate);
+    }
 
     // Proper fluid dynamics formula: F = 0.5 * ρ * v² * Cd * A
     const area = edgeLength * chord;

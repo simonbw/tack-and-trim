@@ -20,8 +20,8 @@ import { Hull } from "./Hull";
 const RUDDER_MASS = 5; // lbs
 
 // Torque applied by player input to turn the rudder
-const STEER_TORQUE = 400;
-const STEER_TORQUE_FAST = 1000;
+const STEER_TORQUE = 800;
+const STEER_TORQUE_FAST = 1200;
 
 // Angular damping on the rudder body so it doesn't oscillate wildly
 const RUDDER_ANGULAR_DAMPING = 0.98;
@@ -43,6 +43,7 @@ export class Rudder extends BaseEntity {
   private maxSteerAngle: number;
   private color: number;
   private rudderZ: number;
+  private aspectRatio: number; // AR = span / chord (dimensionless)
 
   // Water query for rudder endpoints (transforms to world space for query)
   private waterQuery = this.addChild(
@@ -70,6 +71,9 @@ export class Rudder extends BaseEntity {
     this.maxSteerAngle = config.maxSteerAngle;
     this.color = config.color;
     this.rudderZ = -config.draft;
+
+    // Aspect ratio = span / chord. Span is the rudder blade depth (draft).
+    this.aspectRatio = config.draft / config.chord;
 
     // Create a dynamic body for the rudder blade.
     // The pivot is at the body's origin (0,0 in local space).
@@ -179,13 +183,23 @@ export class Rudder extends BaseEntity {
     const baseLift = foilLift(effectiveChord);
     const lift: typeof baseLift = (params) =>
       baseLift(params) * steeringMultiplier;
-    const drag = foilDrag(effectiveChord);
+    const drag = foilDrag(effectiveChord, this.aspectRatio);
 
     // Get water velocity from cache or default to zero
     const getWaterVelocity = (point: V2d): V2d => {
       const key = `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
       return this.velocityCache.get(key) ?? V(0, 0);
     };
+
+    // Cache trig values for 3D force decomposition (same for all vertices).
+    // Use the hull's roll (the rudder tilts with the hull) and the rudder
+    // body's own angle (forces are computed in the rudder's frame).
+    const roll = this.hull.body.roll;
+    const cosRoll = Math.cos(roll);
+    const sinRoll = Math.sin(roll);
+    const rudderAngle = this.body.angle;
+    const cosA = Math.cos(rudderAngle);
+    const sinA = Math.sin(rudderAngle);
 
     // Apply rudder forces to the rudder body. The revolute constraint (with
     // localPivotZA) transfers these to the hull with correct roll/pitch torques.
@@ -208,9 +222,42 @@ export class Rudder extends BaseEntity {
       );
       for (let i = 0; i < count; i++) {
         const r = this.forceResults[i];
-        // Apply 2D force to rudder body (constraint transfers to hull with roll/pitch)
+
+        // 3D force decomposition: rotate lateral force component by heel angle.
+        // Same physics as the keel — the rudder tilts with the hull's heel,
+        // so its lift vector gains a vertical component.
+        // Decompose world-frame force into longitudinal/lateral relative to
+        // the rudder body's heading (not the hull's, since forces are computed
+        // in the rudder's own reference frame).
+        const longitudinal = r.fx * cosA + r.fy * sinA;
+        const lateral = -r.fx * sinA + r.fy * cosA;
+
+        // Lateral component tilts with heel:
+        //   horizontal part = lateral * cos(roll)
+        //   vertical part   = lateral * sin(roll)
+        const lateralH = lateral * cosRoll;
+        const fz = lateral * sinRoll;
+
+        // Reconstruct world-frame horizontal force
+        const fxNew = longitudinal * cosA - lateralH * sinA;
+        const fyNew = longitudinal * sinA + lateralH * cosA;
+
+        // Apply horizontal force to rudder body (constraint transfers to hull
+        // with correct yaw torque). Apply vertical force directly to hull body
+        // at the rudder pivot, since the 2D constraint can't transfer fz.
         const relPoint = this.body.vectorToWorldFrame(V(r.localX, r.localY));
-        this.body.applyForce(V(r.fx, r.fy), relPoint);
+        this.body.applyForce(V(fxNew, fyNew), relPoint);
+
+        if (fz !== 0) {
+          this.hull.body.applyForce3D(
+            0,
+            0,
+            fz,
+            this.pivotPosition.x,
+            this.pivotPosition.y,
+            this.rudderZ,
+          );
+        }
       }
     }
   }

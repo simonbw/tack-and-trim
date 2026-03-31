@@ -30,6 +30,7 @@ export class Keel extends BaseEntity {
   private velocityCache = new Map<string, V2d>();
 
   private keelZ: number;
+  private aspectRatio: number; // AR = span / chord (dimensionless)
 
   // Pre-allocated force result buffer
   private forceResults: FluidForceResult[] = [
@@ -51,6 +52,10 @@ export class Keel extends BaseEntity {
     // The keel extends from hull bottom (-hullDraft) to keel tip (-config.draft).
     // Center of pressure is roughly at the midpoint of the blade.
     this.keelZ = -(hullDraft + config.draft) / 2;
+
+    // Aspect ratio = span / chord. Span is the keel blade depth (draft below hull bottom).
+    const keelSpan = config.draft - hullDraft;
+    this.aspectRatio = keelSpan / config.chord;
   }
 
   /**
@@ -83,13 +88,21 @@ export class Keel extends BaseEntity {
 
     // Use proper foil physics with heel-adjusted chord dimension
     const lift = foilLift(effectiveChord);
-    const drag = foilDrag(effectiveChord);
+    const drag = foilDrag(effectiveChord, this.aspectRatio);
 
     // Get water velocity from cache or default to zero
     const getWaterVelocity = (point: V2d): V2d => {
       const key = `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
       return this.velocityCache.get(key) ?? V(0, 0);
     };
+
+    // Cache trig values for 3D force decomposition (same for all vertices)
+    const roll = this.hull.body.roll;
+    const cosRoll = Math.cos(roll);
+    const sinRoll = Math.sin(roll);
+    const angle = this.hull.body.angle;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
 
     // Apply keel forces to hull (both directions for symmetry)
     // Forces applied at keelZ depth so they naturally produce anti-heeling torque
@@ -108,10 +121,29 @@ export class Keel extends BaseEntity {
         );
         for (let i = 0; i < count; i++) {
           const r = this.forceResults[i];
+
+          // 3D force decomposition: rotate lateral force component by heel angle.
+          // The keel tilts with the boat's heel, so its lift vector tilts too.
+          // Decompose world-frame force into longitudinal (along heading) and
+          // lateral (perpendicular to heading) components relative to boat heading.
+          const longitudinal = r.fx * cosA + r.fy * sinA;
+          const lateral = -r.fx * sinA + r.fy * cosA;
+
+          // The longitudinal component (drag) stays horizontal regardless of heel.
+          // The lateral component (lift) tilts with the keel:
+          //   horizontal part = lateral * cos(roll)
+          //   vertical part   = lateral * sin(roll) — this provides righting force
+          const lateralH = lateral * cosRoll;
+          const fz = lateral * sinRoll;
+
+          // Reconstruct world-frame horizontal force
+          const fxNew = longitudinal * cosA - lateralH * sinA;
+          const fyNew = longitudinal * sinA + lateralH * cosA;
+
           this.hull.body.applyForce3D(
-            r.fx,
-            r.fy,
-            0,
+            fxNew,
+            fyNew,
+            fz,
             r.localX,
             r.localY,
             this.keelZ,
