@@ -2,7 +2,6 @@ import { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 import { ReactEntity } from "../core/ReactEntity";
 import type { V2d } from "../core/Vector";
-import { Boat } from "./boat/Boat";
 import { Port } from "./port/Port";
 import { MissionManager } from "./mission/MissionManager";
 import "./NavigationHUD.css";
@@ -54,8 +53,7 @@ export class NavigationHUD extends ReactEntity {
   private renderContent() {
     this.updateMapCache();
 
-    const boat = this.getBoat();
-    const headingDegrees = this.getHeadingDegrees(boat);
+    const headingDegrees = this.getHeadingDegrees();
     const headingLabel =
       CARDINAL_DIRECTIONS[
         Math.round(headingDegrees / 45) % CARDINAL_DIRECTIONS.length
@@ -81,13 +79,12 @@ export class NavigationHUD extends ReactEntity {
               className="navigation-hud__heading-needle"
               style={{
                 transform: `translate(-50%, -100%) rotate(${headingDegrees.toFixed(1)}deg)`,
-                opacity: boat ? 1 : 0.25,
               }}
             />
             <div className="navigation-hud__heading-dot" />
           </div>
           <div className="navigation-hud__heading-label">
-            {boat ? `${headingLabel} ${headingDegrees.toFixed(0)}°` : "No boat"}
+            {`${headingLabel} ${headingDegrees.toFixed(0)}°`}
           </div>
         </div>
 
@@ -245,13 +242,9 @@ export class NavigationHUD extends ReactEntity {
     );
   }
 
-  private getBoat(): Boat | undefined {
-    return this.game?.entities.getById("boat") as Boat | undefined;
-  }
-
-  private getHeadingDegrees(boat: Boat | undefined): number {
-    if (!boat) return 0;
-    const degrees = (boat.hull.body.angle * 180) / Math.PI + 90;
+  private getHeadingDegrees(): number {
+    if (!this.game) return 0;
+    const degrees = (this.game.camera.angle * 180) / Math.PI + 90;
     return ((degrees % 360) + 360) % 360;
   }
 

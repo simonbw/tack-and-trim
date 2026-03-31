@@ -8,13 +8,12 @@ import { loadLevel } from "../editor/io/LevelLoader";
 import type { MissionDef, PortData } from "../editor/io/LevelFileFormat";
 import { Boat } from "./boat/Boat";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
-import { TiltDebugHUD } from "./boat/TiltDebugHUD";
+import { BoatDebugHUD } from "./boat/BoatDebugHUD";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
 import { MainMenu } from "./MainMenu";
 import { NavigationHUD } from "./NavigationHUD";
-import { SpeedReadout } from "./SpeedReadout";
 import { parseBiomeConfig } from "./surface-rendering/BiomeConfig";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
@@ -183,7 +182,6 @@ export class GameController extends BaseEntity {
   onGameStart() {
     // The clock
     this.game.addEntity(new TimeOfDayHUD());
-    this.game.addEntity(new SpeedReadout());
     this.game.addEntity(new NavigationHUD(this.currentLevel ?? undefined));
     // Cloth worker pool for off-thread sail simulation (must exist before sails)
     this.game.addEntity(new ClothWorkerPool());
@@ -211,7 +209,7 @@ export class GameController extends BaseEntity {
       new Boat(boatPosition, undefined, boatRotation),
     );
     this.game.addEntity(new PlayerBoatController(boat));
-    this.game.addEntity(new TiltDebugHUD());
+    this.game.addEntity(new BoatDebugHUD());
 
     // Apply remaining save state (damage, bilge, anchor) after construction
     if (pendingSave) {
