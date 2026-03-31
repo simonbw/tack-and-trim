@@ -20,8 +20,8 @@ import { Hull } from "./Hull";
 const RUDDER_MASS = 5; // lbs
 
 // Torque applied by player input to turn the rudder
-const STEER_TORQUE = 2000;
-const STEER_TORQUE_FAST = 10000;
+const STEER_TORQUE = 400;
+const STEER_TORQUE_FAST = 1000;
 
 // Angular damping on the rudder body so it doesn't oscillate wildly
 const RUDDER_ANGULAR_DAMPING = 0.98;
