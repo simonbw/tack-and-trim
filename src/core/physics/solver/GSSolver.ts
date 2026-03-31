@@ -88,7 +88,7 @@ export function solveEquations(
     return { usedIterations: 0 };
   }
 
-  const tolSquared = (tolerance * Neq) ** 2;
+  const tolSquared = tolerance ** 2;
   let usedIterations = 0;
 
   // Create solver state map for all bodies in equations

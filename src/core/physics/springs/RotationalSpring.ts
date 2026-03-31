@@ -35,7 +35,7 @@ export class RotationalSpring extends Spring {
     const x = bodyB.angle - bodyA.angle;
     const u = bodyB.angularVelocity - bodyA.angularVelocity;
 
-    const torque = -k * (x - l) - d * u * 0;
+    const torque = -k * (x - l) - d * u;
 
     bodyA.angularForce -= torque;
     bodyB.angularForce += torque;

@@ -102,12 +102,12 @@ export function integrateToTimeOfImpact(
   while (tmax >= tmin && iter < config.ccdIterations) {
     iter++;
 
-    tmid = (tmax - tmin) / 2;
+    tmid = (tmax + tmin) / 2;
 
     const velodt = V(startToEnd);
-    velodt.imul(timeOfImpact);
+    velodt.imul(tmid);
     body.position.set(rememberPosition).iadd(velodt);
-    body.angle = rememberAngle + startToEndAngle * timeOfImpact;
+    body.angle = rememberAngle + startToEndAngle * tmid;
     body.updateAABB();
 
     const overlaps =
