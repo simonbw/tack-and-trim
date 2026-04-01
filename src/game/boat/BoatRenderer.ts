@@ -7,11 +7,15 @@ import type { Boat } from "./Boat";
 import type { BoatConfig } from "./BoatConfig";
 import {
   MeshContribution,
+  TiltProjection,
+  computeTiltProjection,
   tessellateCircleToTris,
   tessellateLineToQuad,
   tessellatePolylineToStrip,
   tessellateRectToTris,
   tessellateRotatedRectToTris,
+  tessellateScreenWidthLine,
+  tessellateScreenWidthPolyline,
 } from "./tessellation";
 
 /**
@@ -31,12 +35,6 @@ export class BoatRenderer extends BaseEntity {
   private bowspritMesh: MeshContribution | null = null;
   private mastBaseMesh: MeshContribution | null = null;
   private mastTopMesh: MeshContribution | null = null;
-
-  // Lifeline static meshes
-  private bowPulpitMesh: MeshContribution | null = null;
-  private sternPulpitMesh: MeshContribution | null = null;
-  private portLifelineMesh: MeshContribution | null = null;
-  private starboardLifelineMesh: MeshContribution | null = null;
 
   constructor(private boat: Boat) {
     super();
@@ -92,103 +90,6 @@ export class BoatRenderer extends BaseEntity {
       8,
       rig.getMastColor(),
     );
-
-    // Lifeline static meshes
-    this.buildLifelineMeshes();
-  }
-
-  private buildLifelineMeshes() {
-    const lifelineConfig = this.config.lifelines;
-    if (!lifelineConfig) return;
-
-    const deckZ = this.config.hull.deckHeight;
-    const topZ = deckZ + lifelineConfig.stanchionHeight;
-    const { tubeColor, wireColor, tubeWidth, wireWidth } = lifelineConfig;
-
-    // Bow pulpit
-    if (lifelineConfig.bowPulpit.length >= 2) {
-      const points = lifelineConfig.bowPulpit.map(
-        (p) => [p[0], p[1]] as [number, number],
-      );
-      this.bowPulpitMesh = tessellatePolylineToStrip(
-        points,
-        points.map(() => topZ),
-        tubeWidth,
-        tubeColor,
-      );
-    }
-
-    // Stern pulpit
-    if (lifelineConfig.sternPulpit.length >= 2) {
-      const points = lifelineConfig.sternPulpit.map(
-        (p) => [p[0], p[1]] as [number, number],
-      );
-      this.sternPulpitMesh = tessellatePolylineToStrip(
-        points,
-        points.map(() => topZ),
-        tubeWidth,
-        tubeColor,
-      );
-    }
-
-    // Port lifeline wire
-    this.portLifelineMesh = this.buildLifelineWireMesh(
-      lifelineConfig.bowPulpit,
-      lifelineConfig.portStanchions,
-      lifelineConfig.sternPulpit,
-      true,
-      topZ,
-      wireColor,
-      wireWidth,
-    );
-
-    // Starboard lifeline wire
-    this.starboardLifelineMesh = this.buildLifelineWireMesh(
-      lifelineConfig.bowPulpit,
-      lifelineConfig.starboardStanchions,
-      lifelineConfig.sternPulpit,
-      false,
-      topZ,
-      wireColor,
-      wireWidth,
-    );
-  }
-
-  private buildLifelineWireMesh(
-    bowPulpit: ReadonlyArray<readonly [number, number]>,
-    stanchions: ReadonlyArray<readonly [number, number]>,
-    sternPulpit: ReadonlyArray<readonly [number, number]>,
-    isPort: boolean,
-    z: number,
-    color: number,
-    width: number,
-  ): MeshContribution | null {
-    if (stanchions.length === 0) return null;
-
-    const points: [number, number][] = [];
-
-    if (bowPulpit.length > 0) {
-      const bp = isPort ? bowPulpit[bowPulpit.length - 1] : bowPulpit[0];
-      points.push([bp[0], bp[1]]);
-    }
-
-    for (const s of stanchions) {
-      points.push([s[0], s[1]]);
-    }
-
-    if (sternPulpit.length > 0) {
-      const sp = isPort ? sternPulpit[sternPulpit.length - 1] : sternPulpit[0];
-      points.push([sp[0], sp[1]]);
-    }
-
-    if (points.length < 2) return null;
-
-    return tessellatePolylineToStrip(
-      points,
-      points.map(() => z),
-      width,
-      color,
-    );
   }
 
   @on("render")
@@ -196,6 +97,13 @@ export class BoatRenderer extends BaseEntity {
     const hull = this.boat.hull;
     const hullBody = hull.body;
     const [x, y] = hullBody.position;
+
+    // Precompute tilt projection for screen-width tessellation
+    const tilt = computeTiltProjection(
+      hullBody.angle,
+      hullBody.roll,
+      hullBody.pitch,
+    );
 
     draw.at(
       {
@@ -213,7 +121,7 @@ export class BoatRenderer extends BaseEntity {
         // === 1. Keel (deepest, drawn first) ===
         this.submitMesh(renderer, this.keelMesh);
 
-        // === 2. Rudder blade (underwater) ===
+        // === 2. Rudder blade (underwater, flat — hull-local width is correct) ===
         this.renderRudder(renderer);
 
         // === 3. Hull mesh (lower sides → upper sides → deck) ===
@@ -271,20 +179,17 @@ export class BoatRenderer extends BaseEntity {
         // === 6. Bowsprit ===
         this.submitMesh(renderer, this.bowspritMesh);
 
-        // === 7. Boom ===
-        this.renderBoom(renderer);
+        // === 7. Boom (cylindrical — screen-width) ===
+        this.renderBoom(renderer, tilt);
 
-        // === 8. Standing rigging ===
-        this.renderStandingRigging(renderer);
+        // === 8. Standing rigging (wires — screen-width) ===
+        this.renderStandingRigging(renderer, tilt);
 
-        // === 9. Lifeline stanchions ===
-        this.renderStanchions(renderer);
+        // === 9. Lifeline stanchions (tubes — screen-width) ===
+        this.renderStanchions(renderer, tilt);
 
-        // === 10. Lifeline pulpits and wires ===
-        this.submitMesh(renderer, this.bowPulpitMesh);
-        this.submitMesh(renderer, this.sternPulpitMesh);
-        this.submitMesh(renderer, this.portLifelineMesh);
-        this.submitMesh(renderer, this.starboardLifelineMesh);
+        // === 10. Lifeline pulpits and wires (screen-width) ===
+        this.renderLifelineWires(renderer, tilt);
 
         // === 11. Sheets/ropes ===
         this.renderSheet(renderer, this.boat.mainsheet);
@@ -295,8 +200,8 @@ export class BoatRenderer extends BaseEntity {
           this.renderSheet(renderer, this.boat.starboardJibSheet);
         }
 
-        // === 12. Mast (tallest, drawn last) ===
-        this.renderMast(renderer);
+        // === 12. Mast (cylindrical — screen-width, tallest, drawn last) ===
+        this.renderMast(renderer, tilt);
       },
     );
   }
@@ -386,13 +291,13 @@ export class BoatRenderer extends BaseEntity {
 
   private renderBoom(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
   ) {
     const rig = this.boat.rig;
     const hullAngle = this.boat.hull.body.angle;
     const boomRelAngle = rig.body.angle - hullAngle;
     const mastPos = rig.getMastPosition();
     const boomLength = rig.getBoomLength();
-    const boomWidth = rig.getBoomWidth();
     const boomZ = rig.getBoomZ();
 
     // Boom endpoints in hull-local coords
@@ -401,16 +306,16 @@ export class BoatRenderer extends BaseEntity {
     const endX = mastPos.x - boomLength * cos;
     const endY = mastPos.y - boomLength * sin;
 
-    // Boom body
-    const boomMesh = tessellateRotatedRectToTris(
+    // Boom body (cylindrical — screen-width)
+    const boomMesh = tessellateScreenWidthLine(
       mastPos.x,
       mastPos.y,
-      0,
-      -boomWidth / 2,
-      boomLength,
-      boomWidth,
-      boomRelAngle + Math.PI, // boom extends aft (negative direction)
       boomZ,
+      endX,
+      endY,
+      boomZ,
+      rig.getBoomWidth(),
+      tilt,
       rig.getBoomColor(),
     );
     this.submitMesh(renderer, boomMesh);
@@ -422,6 +327,7 @@ export class BoatRenderer extends BaseEntity {
 
   private renderStandingRigging(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
   ) {
     const rig = this.boat.rig;
     const mastPos = rig.getMastPosition();
@@ -437,7 +343,7 @@ export class BoatRenderer extends BaseEntity {
     ];
 
     for (const attach of attachments) {
-      const mesh = tessellateLineToQuad(
+      const mesh = tessellateScreenWidthLine(
         mastPos.x,
         mastPos.y,
         mastTopZ,
@@ -445,6 +351,7 @@ export class BoatRenderer extends BaseEntity {
         attach.y,
         deckHeight,
         0.1,
+        tilt,
         0x999999,
       );
       this.submitMesh(renderer, mesh);
@@ -453,6 +360,7 @@ export class BoatRenderer extends BaseEntity {
 
   private renderStanchions(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
   ) {
     const lifelineConfig = this.config.lifelines;
     if (!lifelineConfig) return;
@@ -466,7 +374,7 @@ export class BoatRenderer extends BaseEntity {
     ];
 
     for (const [sx, sy] of allStanchions) {
-      const mesh = tessellateLineToQuad(
+      const mesh = tessellateScreenWidthLine(
         sx,
         sy,
         deckZ,
@@ -474,9 +382,88 @@ export class BoatRenderer extends BaseEntity {
         sy,
         topZ,
         lifelineConfig.tubeWidth,
+        tilt,
         lifelineConfig.tubeColor,
       );
       this.submitMesh(renderer, mesh);
+    }
+  }
+
+  private renderLifelineWires(
+    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
+  ) {
+    const lifelineConfig = this.config.lifelines;
+    if (!lifelineConfig) return;
+
+    const deckZ = this.config.hull.deckHeight;
+    const topZ = deckZ + lifelineConfig.stanchionHeight;
+    const { tubeColor, wireColor, tubeWidth, wireWidth } = lifelineConfig;
+
+    // Bow pulpit
+    if (lifelineConfig.bowPulpit.length >= 2) {
+      const points = lifelineConfig.bowPulpit.map(
+        (p) => [p[0], p[1]] as [number, number],
+      );
+      const mesh = tessellateScreenWidthPolyline(
+        points,
+        points.map(() => topZ),
+        tubeWidth,
+        tilt,
+        tubeColor,
+      );
+      this.submitMesh(renderer, mesh);
+    }
+
+    // Stern pulpit
+    if (lifelineConfig.sternPulpit.length >= 2) {
+      const points = lifelineConfig.sternPulpit.map(
+        (p) => [p[0], p[1]] as [number, number],
+      );
+      const mesh = tessellateScreenWidthPolyline(
+        points,
+        points.map(() => topZ),
+        tubeWidth,
+        tilt,
+        tubeColor,
+      );
+      this.submitMesh(renderer, mesh);
+    }
+
+    // Lifeline wires (port and starboard)
+    for (const isPort of [true, false]) {
+      const stanchions = isPort
+        ? lifelineConfig.portStanchions
+        : lifelineConfig.starboardStanchions;
+      if (stanchions.length === 0) continue;
+
+      const points: [number, number][] = [];
+      if (lifelineConfig.bowPulpit.length > 0) {
+        const bp = isPort
+          ? lifelineConfig.bowPulpit[lifelineConfig.bowPulpit.length - 1]
+          : lifelineConfig.bowPulpit[0];
+        points.push([bp[0], bp[1]]);
+      }
+      for (const s of stanchions) {
+        points.push([s[0], s[1]]);
+      }
+      if (lifelineConfig.sternPulpit.length > 0) {
+        const sp = isPort
+          ? lifelineConfig.sternPulpit[lifelineConfig.sternPulpit.length - 1]
+          : lifelineConfig.sternPulpit[0];
+        points.push([sp[0], sp[1]]);
+      }
+
+      if (points.length >= 2) {
+        const mesh = tessellateScreenWidthPolyline(
+          points,
+          points.map(() => topZ),
+          wireWidth,
+          tilt,
+          wireColor,
+        );
+        this.submitMesh(renderer, mesh);
+      }
     }
   }
 
@@ -519,13 +506,14 @@ export class BoatRenderer extends BaseEntity {
 
   private renderMast(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
   ) {
     const rig = this.boat.rig;
     const mastPos = rig.getMastPosition();
     const mastTopZ = rig.getMastTopZ();
 
-    // Mast shaft: line from base (z=0) to top (z=mastTopZ)
-    const mastMesh = tessellateLineToQuad(
+    // Mast shaft (cylindrical — screen-width)
+    const mastMesh = tessellateScreenWidthLine(
       mastPos.x,
       mastPos.y,
       0,
@@ -533,6 +521,7 @@ export class BoatRenderer extends BaseEntity {
       mastPos.y,
       mastTopZ,
       0.4,
+      tilt,
       rig.getMastColor(),
     );
     this.submitMesh(renderer, mastMesh);

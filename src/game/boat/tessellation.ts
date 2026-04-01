@@ -5,6 +5,66 @@
  * All functions produce data suitable for WebGPURenderer.submitTrianglesWithZ().
  */
 
+/**
+ * Tilt projection parameters, precomputed once per frame.
+ * Used by screen-width tessellation functions to compute hull-local offsets
+ * that produce constant screen-space width after GPU tilt projection.
+ */
+export interface TiltProjection {
+  /** 2x2 xy-columns of the Yaw·Pitch·Roll rotation matrix */
+  m00: number;
+  m10: number;
+  m01: number;
+  m11: number;
+  /** z-column: how z-height displaces screen position */
+  zx: number;
+  zy: number;
+  /** Inverse of the 2x2 matrix (for screen→local transform) */
+  inv00: number;
+  inv10: number;
+  inv01: number;
+  inv11: number;
+}
+
+/** Precompute the tilt projection matrix from hull body state. */
+export function computeTiltProjection(
+  angle: number,
+  roll: number,
+  pitch: number,
+): TiltProjection {
+  const ca = Math.cos(angle);
+  const sa = Math.sin(angle);
+  const sr = Math.sin(roll);
+  const sp = Math.sin(pitch);
+  const cr = Math.cos(roll);
+  const cp = Math.cos(pitch);
+
+  const m00 = ca * cp;
+  const m10 = sa * cp;
+  const m01 = ca * sp * sr - sa * cr;
+  const m11 = sa * sp * sr + ca * cr;
+
+  const zx = -(ca * sp * cr + sa * sr);
+  const zy = -(sa * sp * cr - ca * sr);
+
+  // Inverse of the 2x2 matrix: (1/det) * [[m11, -m01], [-m10, m00]]
+  const det = m00 * m11 - m01 * m10;
+  const invDet = det !== 0 ? 1 / det : 1;
+
+  return {
+    m00,
+    m10,
+    m01,
+    m11,
+    zx,
+    zy,
+    inv00: m11 * invDet,
+    inv10: -m10 * invDet,
+    inv01: -m01 * invDet,
+    inv11: m00 * invDet,
+  };
+}
+
 /** A batch of triangles with per-vertex z, ready for submitTrianglesWithZ. */
 export interface MeshContribution {
   positions: [number, number][];
@@ -57,6 +117,190 @@ export function tessellateLineToQuad(
     color,
     alpha,
   };
+}
+
+/**
+ * Tessellate a 3D line into a quad with constant screen-space width.
+ * For cylindrical objects (mast, boom, rigging, stanchions) whose visual
+ * width shouldn't depend on the boat's tilt orientation.
+ *
+ * Computes the projected line direction on screen, finds the screen-space
+ * perpendicular, then inverse-transforms it to hull-local space so the GPU
+ * tilt projection produces the desired constant width.
+ */
+export function tessellateScreenWidthLine(
+  x1: number,
+  y1: number,
+  z1: number,
+  x2: number,
+  y2: number,
+  z2: number,
+  width: number,
+  tilt: TiltProjection,
+  color: number,
+  alpha: number = 1,
+): MeshContribution {
+  // Project line direction to screen space
+  const dlx = x2 - x1;
+  const dly = y2 - y1;
+  const dlz = z2 - z1;
+  const dsx = tilt.m00 * dlx + tilt.m01 * dly + tilt.zx * dlz;
+  const dsy = tilt.m10 * dlx + tilt.m11 * dly + tilt.zy * dlz;
+
+  // Screen-space perpendicular (normalized)
+  const sLen = Math.sqrt(dsx * dsx + dsy * dsy);
+  if (sLen < 1e-6) {
+    return { positions: [], zValues: [], indices: [], color, alpha };
+  }
+  const hw = width / 2;
+  const spx = (-dsy / sLen) * hw;
+  const spy = (dsx / sLen) * hw;
+
+  // Inverse-transform screen perpendicular to hull-local offset
+  const nx = tilt.inv00 * spx + tilt.inv01 * spy;
+  const ny = tilt.inv10 * spx + tilt.inv11 * spy;
+
+  return {
+    positions: [
+      [x1 + nx, y1 + ny],
+      [x2 + nx, y2 + ny],
+      [x2 - nx, y2 - ny],
+      [x1 - nx, y1 - ny],
+    ],
+    zValues: [z1, z2, z2, z1],
+    indices: [0, 1, 2, 0, 2, 3],
+    color,
+    alpha,
+  };
+}
+
+/**
+ * Tessellate a polyline with per-vertex z and constant screen-space width.
+ * Screen-width variant of tessellatePolylineToStrip for cylindrical geometry.
+ */
+export function tessellateScreenWidthPolyline(
+  points: ReadonlyArray<readonly [number, number]>,
+  zPerPoint: number[],
+  width: number,
+  tilt: TiltProjection,
+  color: number,
+  alpha: number = 1,
+  closed: boolean = false,
+): MeshContribution {
+  if (points.length < 2) {
+    return { positions: [], zValues: [], indices: [], color, alpha };
+  }
+
+  const halfWidth = width / 2;
+  const positions: [number, number][] = [];
+  const zValues: number[] = [];
+  const indices: number[] = [];
+
+  // Compute screen-space perpendicular for a hull-local segment,
+  // then inverse-project to hull-local offset
+  const screenPerp = (dx: number, dy: number, dz: number): [number, number] => {
+    // Project to screen
+    const sx = tilt.m00 * dx + tilt.m01 * dy + tilt.zx * dz;
+    const sy = tilt.m10 * dx + tilt.m11 * dy + tilt.zy * dz;
+    const len = Math.sqrt(sx * sx + sy * sy);
+    if (len === 0) return [0, 0];
+    // Screen perpendicular
+    const px = -sy / len;
+    const py = sx / len;
+    // Inverse-transform to hull-local
+    return [
+      tilt.inv00 * px + tilt.inv01 * py,
+      tilt.inv10 * px + tilt.inv11 * py,
+    ];
+  };
+
+  for (let i = 0; i < points.length; i++) {
+    const curr = points[i];
+    const currZ = zPerPoint[i];
+    let prev: readonly [number, number] | null = null;
+    let prevZ = currZ;
+    let next: readonly [number, number] | null = null;
+    let nextZ = currZ;
+
+    if (i > 0) {
+      prev = points[i - 1];
+      prevZ = zPerPoint[i - 1];
+    } else if (closed) {
+      prev = points[points.length - 1];
+      prevZ = zPerPoint[points.length - 1];
+    }
+
+    if (i < points.length - 1) {
+      next = points[i + 1];
+      nextZ = zPerPoint[i + 1];
+    } else if (closed) {
+      next = points[0];
+      nextZ = zPerPoint[0];
+    }
+
+    let nx: number, ny: number;
+
+    if (prev === null && next !== null) {
+      [nx, ny] = screenPerp(
+        next[0] - curr[0],
+        next[1] - curr[1],
+        nextZ - currZ,
+      );
+    } else if (next === null && prev !== null) {
+      [nx, ny] = screenPerp(
+        curr[0] - prev[0],
+        curr[1] - prev[1],
+        currZ - prevZ,
+      );
+    } else if (prev !== null && next !== null) {
+      const [n1x, n1y] = screenPerp(
+        curr[0] - prev[0],
+        curr[1] - prev[1],
+        currZ - prevZ,
+      );
+      const [n2x, n2y] = screenPerp(
+        next[0] - curr[0],
+        next[1] - curr[1],
+        nextZ - currZ,
+      );
+      let mx = (n1x + n2x) / 2;
+      let my = (n1y + n2y) / 2;
+      const mLen = Math.sqrt(mx * mx + my * my);
+      if (mLen > 0.001) {
+        const dot = n1x * mx + n1y * my;
+        const scale = dot > 0.1 ? 1 / dot : 1;
+        const clampedScale = Math.min(scale, 3);
+        mx = (mx / mLen) * clampedScale;
+        my = (my / mLen) * clampedScale;
+      } else {
+        mx = n1x;
+        my = n1y;
+      }
+      nx = mx;
+      ny = my;
+    } else {
+      nx = 0;
+      ny = 1;
+    }
+
+    positions.push(
+      [curr[0] + nx * halfWidth, curr[1] + ny * halfWidth],
+      [curr[0] - nx * halfWidth, curr[1] - ny * halfWidth],
+    );
+    zValues.push(currZ, currZ);
+
+    if (i > 0) {
+      const base = (i - 1) * 2;
+      indices.push(base, base + 2, base + 3, base, base + 3, base + 1);
+    }
+  }
+
+  if (closed && points.length >= 3) {
+    const last = (points.length - 1) * 2;
+    indices.push(last, 0, 1, last, 1, last + 1);
+  }
+
+  return { positions, zValues, indices, color, alpha };
 }
 
 /**
