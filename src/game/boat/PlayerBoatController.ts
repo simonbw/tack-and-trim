@@ -1,6 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
+import { clamp } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
 import { Port } from "../port/Port";
 import { PortMenu } from "../port/PortMenu";
@@ -26,11 +27,15 @@ export class PlayerBoatController extends BaseEntity {
     const io = this.game.io;
 
     // Port menu open — no controls
-    if (this.game.entities.tryGetSingleton(PortMenu)) return;
+    if (this.game.entities.tryGetSingleton(PortMenu)) {
+      io.setSteeringWheelForceFeedback(0);
+      return;
+    }
 
     // Boat is sinking — no controls
     if (this.boat.bilge.isSinking()) {
       this.boat.bilge.setBailing(false);
+      io.setSteeringWheelForceFeedback(0);
       return;
     }
 
@@ -38,14 +43,19 @@ export class PlayerBoatController extends BaseEntity {
     const bailing =
       io.isKeyDown("KeyB") && this.boat.bilge.getWaterFraction() > 0;
     this.boat.bilge.setBailing(bailing);
-    if (bailing) return;
+    if (bailing) {
+      io.setSteeringWheelForceFeedback(0);
+      return;
+    }
 
     // Handle continuous input
-    const [steer, sheet] = io.getMovementVector();
+    const steer = io.getRudderSteerInput();
+    const sheet = io.getSheetInput();
     const shiftHeld = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
 
     // Update rudder steering (A/D or left/right arrows)
     this.boat.rudder.setSteer(steer, shiftHeld);
+    io.setSteeringWheelForceFeedback(this.computeWheelFeedback(steer));
 
     // Update mainsheet (W = trim in, S = ease out)
     const mainsheetDt = shiftHeld ? dt * 2.5 : dt;
@@ -123,6 +133,23 @@ export class PlayerBoatController extends BaseEntity {
     }
   }
 
+  private computeWheelFeedback(driverSteerInput: number): number {
+    const rudderSteer = this.boat.rudder.getSteer();
+    const rudderAngularVelocity = this.boat.rudder.getRelativeAngularVelocity();
+    const speed = this.boat.getVelocity().magnitude;
+    const speedFactor = Math.min(speed / 16, 1);
+
+    // Simple PoC signal:
+    // - gentle centering spring around helm center
+    // - hydrodynamic loading that grows with speed and rudder deflection
+    // - light damping from rudder angular velocity
+    const centering = driverSteerInput * 0.25;
+    const waterLoad = rudderSteer * speedFactor * 0.65;
+    const damping = rudderAngularVelocity * 0.06;
+
+    return clamp(-(centering + waterLoad + damping), -1, 1);
+  }
+
   /** Find the nearest port within docking range, or null. */
   private findNearbyPort(): Port | null {
     const bowLocal = findBowPoint(this.boat.config.hull.vertices);
@@ -146,6 +173,16 @@ export class PlayerBoatController extends BaseEntity {
 
   @on("keyDown")
   onKeyDown({ key }: GameEventMap["keyDown"]) {
+    if (key === "KeyH") {
+      void this.game.io.requestSteeringWheelConnection().then((result) => {
+        if (result.connected) {
+          console.info(`[Wheel] ${result.message}`);
+        } else {
+          console.warn(`[Wheel] ${result.message}`);
+        }
+      });
+    }
+
     // No actions while port menu is open or sinking
     if (this.game.entities.tryGetSingleton(PortMenu)) return;
     if (this.boat.bilge.isSinking()) return;
@@ -168,5 +205,10 @@ export class PlayerBoatController extends BaseEntity {
         }
       }
     }
+  }
+
+  @on("destroy")
+  onDestroy(): void {
+    this.game.io.setSteeringWheelForceFeedback(0);
   }
 }

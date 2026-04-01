@@ -283,6 +283,11 @@ export class Rudder extends BaseEntity {
     return this.getRelativeAngle();
   }
 
+  /** Get angular velocity of rudder relative to hull yaw (rad/s). */
+  getRelativeAngularVelocity(): number {
+    return this.body.angularVelocity - this.hull.body.angularVelocity;
+  }
+
   setDamageEffects(
     steeringMultiplier: () => number,
     steeringBias: () => number,

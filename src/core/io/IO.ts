@@ -6,6 +6,10 @@ import { GamepadManager } from "./GamepadManager";
 import { KeyboardManager } from "./KeyboardManager";
 import { KeyCode } from "./Keys";
 import { MouseManager } from "./MouseManager";
+import {
+  SteeringWheelConnectionResult,
+  SteeringWheelManager,
+} from "./SteeringWheelManager";
 
 /**
  * Manages all input sources (keyboard, mouse, gamepad) and dispatches events to handlers.
@@ -15,6 +19,7 @@ export class IOManager {
   private keyboard: KeyboardManager;
   private mouse: MouseManager;
   private gamepad: GamepadManager;
+  private steeringWheel: SteeringWheelManager;
 
   constructor(
     view: HTMLElement,
@@ -30,12 +35,14 @@ export class IOManager {
       this.dispatch,
       () => {}, // Device change is handled internally by GamepadManager
     );
+    this.steeringWheel = new SteeringWheelManager();
   }
 
   destroy(): void {
     this.keyboard.destroy();
     this.mouse.destroy();
     this.gamepad.destroy();
+    this.steeringWheel.destroy();
   }
 
   // --- Keyboard ---
@@ -100,6 +107,101 @@ export class IOManager {
    */
   getControllerType(): ControllerType | null {
     return this.gamepad.getControllerType();
+  }
+
+  get usingSteeringWheel(): boolean {
+    return this.steeringWheel.isConnected;
+  }
+
+  getSteeringWheelDebugLabel(): string {
+    return this.steeringWheel.getDebugLabel();
+  }
+
+  async requestSteeringWheelConnection(): Promise<SteeringWheelConnectionResult> {
+    return this.steeringWheel.requestConnection();
+  }
+
+  setSteeringWheelForceFeedback(force: number): void {
+    this.steeringWheel.setForceFeedback(force);
+  }
+
+  /**
+   * Sheet/trim axis (W/S, up/down arrows, or gamepad left stick Y).
+   * When a steering wheel is active, gamepad Y is ignored to avoid
+   * treating wheel pedal axes as sail trim input.
+   */
+  getSheetInput(): number {
+    if (this.isInputFocused()) return 0;
+
+    let sheet = 0;
+    if (this.usingGamepad && !this.usingSteeringWheel) {
+      sheet += this.getStick("left").y;
+    }
+
+    if (this.isKeyDown("ArrowUp")) {
+      sheet -= 1;
+    }
+    if (this.isKeyDown("ArrowDown")) {
+      sheet += 1;
+    }
+
+    const hasModifier =
+      this.isKeyDown("MetaLeft") ||
+      this.isKeyDown("MetaRight") ||
+      this.isKeyDown("ControlLeft") ||
+      this.isKeyDown("ControlRight");
+    if (!hasModifier) {
+      if (this.isKeyDown("KeyW")) {
+        sheet -= 1;
+      }
+      if (this.isKeyDown("KeyS")) {
+        sheet += 1;
+      }
+    }
+
+    return clamp(sheet, -1, 1);
+  }
+
+  /**
+   * Steering axis for rudder/tiller control.
+   * Priority:
+   * 1) Steering wheel axis (if connected)
+   * 2) Standard gamepad left stick (if active)
+   * 3) Keyboard arrows / A,D
+   */
+  getRudderSteerInput(): number {
+    if (this.isInputFocused()) return 0;
+
+    let steer = 0;
+    const wheelSteer = this.steeringWheel.getSteeringInput();
+    if (wheelSteer !== null) {
+      steer += wheelSteer;
+    } else if (this.usingGamepad) {
+      steer += this.getStick("left").x;
+    }
+
+    if (this.isKeyDown("ArrowRight")) {
+      steer += 1;
+    }
+    if (this.isKeyDown("ArrowLeft")) {
+      steer -= 1;
+    }
+
+    const hasModifier =
+      this.isKeyDown("MetaLeft") ||
+      this.isKeyDown("MetaRight") ||
+      this.isKeyDown("ControlLeft") ||
+      this.isKeyDown("ControlRight");
+    if (!hasModifier) {
+      if (this.isKeyDown("KeyD")) {
+        steer += 1;
+      }
+      if (this.isKeyDown("KeyA")) {
+        steer -= 1;
+      }
+    }
+
+    return clamp(steer, -1, 1);
   }
 
   // --- Combined Input ---
