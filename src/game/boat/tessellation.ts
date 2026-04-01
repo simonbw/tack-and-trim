@@ -401,6 +401,44 @@ export function tessellateCircleToTris(
 }
 
 /**
+ * Tessellate a filled circle that maintains a circular screen-space shape
+ * regardless of tilt. Offsets are computed in screen space then inverse-
+ * projected to hull-local so the GPU tilt transform produces a true circle.
+ */
+export function tessellateScreenCircle(
+  cx: number,
+  cy: number,
+  z: number,
+  radius: number,
+  segments: number,
+  tilt: TiltProjection,
+  color: number,
+  alpha: number = 1,
+): MeshContribution {
+  const positions: [number, number][] = [[cx, cy]];
+  const zValues: number[] = [z];
+  const indices: number[] = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    // Screen-space offset
+    const sx = Math.cos(a) * radius;
+    const sy = Math.sin(a) * radius;
+    // Inverse-project to hull-local
+    const lx = tilt.inv00 * sx + tilt.inv01 * sy;
+    const ly = tilt.inv10 * sx + tilt.inv11 * sy;
+    positions.push([cx + lx, cy + ly]);
+    zValues.push(z);
+  }
+
+  for (let i = 1; i <= segments; i++) {
+    indices.push(0, i, i + 1 > segments ? 1 : i + 1);
+  }
+
+  return { positions, zValues, indices, color, alpha };
+}
+
+/**
  * Tessellate a polyline with per-vertex z into a triangle strip with miter joins.
  * Adapted from PathBuilder.stroke() logic.
  */

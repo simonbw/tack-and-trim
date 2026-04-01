@@ -9,7 +9,7 @@ import {
   MeshContribution,
   TiltProjection,
   computeTiltProjection,
-  tessellateCircleToTris,
+  tessellateScreenCircle,
   tessellateLineToQuad,
   tessellatePolylineToStrip,
   tessellateRectToTris,
@@ -33,8 +33,6 @@ export class BoatRenderer extends BaseEntity {
   // Pre-built static meshes (hull-local, computed once)
   private keelMesh: MeshContribution | null = null;
   private bowspritMesh: MeshContribution | null = null;
-  private mastBaseMesh: MeshContribution | null = null;
-  private mastTopMesh: MeshContribution | null = null;
 
   constructor(private boat: Boat) {
     super();
@@ -69,27 +67,6 @@ export class BoatRenderer extends BaseEntity {
         bs.getColor(),
       );
     }
-
-    // Mast base and top circles (static in hull-local space)
-    const rig = this.boat.rig;
-    const mastPos = rig.getMastPosition();
-    const mastTopZ = rig.getMastTopZ();
-    this.mastBaseMesh = tessellateCircleToTris(
-      mastPos.x,
-      mastPos.y,
-      0,
-      0.3,
-      8,
-      rig.getMastColor(),
-    );
-    this.mastTopMesh = tessellateCircleToTris(
-      mastPos.x,
-      mastPos.y,
-      mastTopZ,
-      0.2,
-      8,
-      rig.getMastColor(),
-    );
   }
 
   @on("render")
@@ -320,9 +297,32 @@ export class BoatRenderer extends BaseEntity {
     );
     this.submitMesh(renderer, boomMesh);
 
-    // Boom end cap
-    const capMesh = tessellateCircleToTris(endX, endY, boomZ, 0.3, 8, 0x664422);
-    this.submitMesh(renderer, capMesh);
+    // Boom end caps (match line width for flush rounded ends)
+    const boomCapR = rig.getBoomWidth() / 2;
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        mastPos.x,
+        mastPos.y,
+        boomZ,
+        boomCapR,
+        16,
+        tilt,
+        rig.getBoomColor(),
+      ),
+    );
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        endX,
+        endY,
+        boomZ,
+        boomCapR,
+        16,
+        tilt,
+        rig.getBoomColor(),
+      ),
+    );
   }
 
   private renderStandingRigging(
@@ -373,19 +373,46 @@ export class BoatRenderer extends BaseEntity {
       ...lifelineConfig.starboardStanchions,
     ];
 
+    const capRadius = lifelineConfig.tubeWidth / 2;
     for (const [sx, sy] of allStanchions) {
-      const mesh = tessellateScreenWidthLine(
-        sx,
-        sy,
-        deckZ,
-        sx,
-        sy,
-        topZ,
-        lifelineConfig.tubeWidth,
-        tilt,
-        lifelineConfig.tubeColor,
+      this.submitMesh(
+        renderer,
+        tessellateScreenWidthLine(
+          sx,
+          sy,
+          deckZ,
+          sx,
+          sy,
+          topZ,
+          lifelineConfig.tubeWidth,
+          tilt,
+          lifelineConfig.tubeColor,
+        ),
       );
-      this.submitMesh(renderer, mesh);
+      this.submitMesh(
+        renderer,
+        tessellateScreenCircle(
+          sx,
+          sy,
+          deckZ,
+          capRadius,
+          16,
+          tilt,
+          lifelineConfig.tubeColor,
+        ),
+      );
+      this.submitMesh(
+        renderer,
+        tessellateScreenCircle(
+          sx,
+          sy,
+          topZ,
+          capRadius,
+          16,
+          tilt,
+          lifelineConfig.tubeColor,
+        ),
+      );
     }
   }
 
@@ -526,8 +553,45 @@ export class BoatRenderer extends BaseEntity {
     );
     this.submitMesh(renderer, mastMesh);
 
-    // Mast base and top circles
-    this.submitMesh(renderer, this.mastBaseMesh);
-    this.submitMesh(renderer, this.mastTopMesh);
+    // Mast caps: base, boom connection, and top
+    const mastCapR = 0.4 / 2;
+    const mastColor = rig.getMastColor();
+    const boomZ = rig.getBoomZ();
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        mastPos.x,
+        mastPos.y,
+        0,
+        mastCapR,
+        16,
+        tilt,
+        mastColor,
+      ),
+    );
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        mastPos.x,
+        mastPos.y,
+        boomZ,
+        mastCapR,
+        16,
+        tilt,
+        mastColor,
+      ),
+    );
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        mastPos.x,
+        mastPos.y,
+        mastTopZ,
+        mastCapR,
+        16,
+        tilt,
+        mastColor,
+      ),
+    );
   }
 }
