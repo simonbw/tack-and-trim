@@ -9,6 +9,7 @@ import {
   MeshContribution,
   TiltProjection,
   computeTiltProjection,
+  subdivideSmooth,
   tessellateScreenCircle,
   tessellateLineToQuad,
   tessellatePolylineToStrip,
@@ -155,6 +156,24 @@ export class BoatRenderer extends BaseEntity {
 
         // === 6. Bowsprit ===
         this.submitMesh(renderer, this.bowspritMesh);
+        if (this.boat.bowsprit) {
+          const bs = this.boat.bowsprit;
+          const bsZ = this.config.tilt.zHeights.bowsprit;
+          const tipX = bs.localPosition.x + bs.size.x;
+          const tipY = bs.localPosition.y;
+          this.submitMesh(
+            renderer,
+            tessellateScreenCircle(
+              tipX,
+              tipY,
+              bsZ,
+              bs.size.y / 2,
+              16,
+              tilt,
+              bs.getColor(),
+            ),
+          );
+        }
 
         // === 7. Boom (cylindrical — screen-width) ===
         this.renderBoom(renderer, tilt);
@@ -521,9 +540,12 @@ export class BoatRenderer extends BaseEntity {
       zPerPoint.push(z);
     }
 
+    // Smooth subdivision for rope curves (matches old bezier rendering)
+    const smooth = subdivideSmooth(localPoints, zPerPoint, 6);
+
     const mesh = tessellatePolylineToStrip(
-      localPoints,
-      zPerPoint,
+      smooth.points,
+      smooth.zValues,
       sheet.getRopeThickness(),
       sheet.getRopeColor(),
       opacity,

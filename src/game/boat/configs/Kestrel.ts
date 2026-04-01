@@ -109,29 +109,29 @@ export const Kestrel: BoatConfig = {
       zHead: 26,
     },
     stays: {
-      forestay: V(15.5, 0), // at bowsprit tip
-      portShroud: V(3.5, 3.8),
-      starboardShroud: V(3.5, -3.8),
+      forestay: V(15.4, 0), // at bowsprit tip
+      portShroud: V(3.5, 3.3),
+      starboardShroud: V(3.5, -3.3),
       backstay: V(-9.5, 0),
       deckHeight: 2.5,
     },
   },
 
   bowsprit: {
-    attachPoint: V(13, 0),
-    size: V(2.5, 0.4),
+    attachPoint: V(12.9, 0),
+    size: V(2.5, 0.35),
     color: 0x775533,
   },
 
   lifelines: {
     // Stanchion positions interpolated along hull deck edge vertices
     portStanchions: [
-      [5.3, 2.6], // between bow shoulder and max beam
+      [6.0, 3.0], // between bow shoulder and max beam
       [1, 4.0], // at max beam
       [-4, 4.0], // at max beam, aft
     ],
     starboardStanchions: [
-      [5.3, -2.6],
+      [6.0, -3.0],
       [1, -4.0],
       [-4, -4.0],
     ],

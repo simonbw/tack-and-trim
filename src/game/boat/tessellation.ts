@@ -439,6 +439,73 @@ export function tessellateScreenCircle(
 }
 
 /**
+ * Subdivide a polyline using quadratic bezier smoothing with per-vertex z.
+ * Interior points are treated as control points; on-curve points are placed
+ * at midpoints between consecutive control points. This produces a smooth
+ * C1-continuous curve through the subdivided points.
+ *
+ * @param subdivisions Number of interpolated points per segment (2-4 is typical)
+ */
+export function subdivideSmooth(
+  points: ReadonlyArray<readonly [number, number]>,
+  zPerPoint: number[],
+  subdivisions: number = 3,
+): { points: [number, number][]; zValues: number[] } {
+  const n = points.length;
+  if (n < 3) {
+    return {
+      points: points.map((p) => [p[0], p[1]] as [number, number]),
+      zValues: [...zPerPoint],
+    };
+  }
+
+  const out: [number, number][] = [];
+  const outZ: number[] = [];
+
+  // First point is on the curve
+  out.push([points[0][0], points[0][1]]);
+  outZ.push(zPerPoint[0]);
+
+  // Interior segments: each pair of control points defines a quadratic bezier
+  // where the on-curve knots are midpoints between consecutive control points.
+  for (let i = 0; i < n - 2; i++) {
+    const p0x = i === 0 ? points[0][0] : (points[i][0] + points[i + 1][0]) / 2;
+    const p0y = i === 0 ? points[0][1] : (points[i][1] + points[i + 1][1]) / 2;
+    const p0z = i === 0 ? zPerPoint[0] : (zPerPoint[i] + zPerPoint[i + 1]) / 2;
+
+    const cpx = points[i + 1][0];
+    const cpy = points[i + 1][1];
+    const cpz = zPerPoint[i + 1];
+
+    const p1x =
+      i === n - 3
+        ? points[n - 1][0]
+        : (points[i + 1][0] + points[i + 2][0]) / 2;
+    const p1y =
+      i === n - 3
+        ? points[n - 1][1]
+        : (points[i + 1][1] + points[i + 2][1]) / 2;
+    const p1z =
+      i === n - 3
+        ? zPerPoint[n - 1]
+        : (zPerPoint[i + 1] + zPerPoint[i + 2]) / 2;
+
+    // Sample the quadratic bezier: B(t) = (1-t)²·p0 + 2(1-t)t·cp + t²·p1
+    for (let s = 1; s <= subdivisions; s++) {
+      const t = s / subdivisions;
+      const u = 1 - t;
+      const x = u * u * p0x + 2 * u * t * cpx + t * t * p1x;
+      const y = u * u * p0y + 2 * u * t * cpy + t * t * p1y;
+      const z = u * u * p0z + 2 * u * t * cpz + t * t * p1z;
+      out.push([x, y]);
+      outZ.push(z);
+    }
+  }
+
+  return { points: out, zValues: outZ };
+}
+
+/**
  * Tessellate a polyline with per-vertex z into a triangle strip with miter joins.
  * Adapted from PathBuilder.stroke() logic.
  */
