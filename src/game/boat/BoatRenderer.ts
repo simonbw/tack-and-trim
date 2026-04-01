@@ -446,6 +446,8 @@ export class BoatRenderer extends BaseEntity {
     const topZ = deckZ + lifelineConfig.stanchionHeight;
     const { tubeColor, wireColor, tubeWidth, wireWidth } = lifelineConfig;
 
+    const capRadius = tubeWidth / 2;
+
     // Bow pulpit
     if (lifelineConfig.bowPulpit.length >= 2) {
       const points = lifelineConfig.bowPulpit.map(
@@ -459,6 +461,32 @@ export class BoatRenderer extends BaseEntity {
         tubeColor,
       );
       this.submitMesh(renderer, mesh);
+
+      // Vertical posts at each pulpit point
+      for (const [px, py] of points) {
+        this.submitMesh(
+          renderer,
+          tessellateScreenWidthLine(
+            px,
+            py,
+            deckZ,
+            px,
+            py,
+            topZ,
+            tubeWidth,
+            tilt,
+            tubeColor,
+          ),
+        );
+        this.submitMesh(
+          renderer,
+          tessellateScreenCircle(px, py, deckZ, capRadius, 16, tilt, tubeColor),
+        );
+        this.submitMesh(
+          renderer,
+          tessellateScreenCircle(px, py, topZ, capRadius, 16, tilt, tubeColor),
+        );
+      }
     }
 
     // Stern pulpit
@@ -474,6 +502,31 @@ export class BoatRenderer extends BaseEntity {
         tubeColor,
       );
       this.submitMesh(renderer, mesh);
+
+      for (const [px, py] of points) {
+        this.submitMesh(
+          renderer,
+          tessellateScreenWidthLine(
+            px,
+            py,
+            deckZ,
+            px,
+            py,
+            topZ,
+            tubeWidth,
+            tilt,
+            tubeColor,
+          ),
+        );
+        this.submitMesh(
+          renderer,
+          tessellateScreenCircle(px, py, deckZ, capRadius, 16, tilt, tubeColor),
+        );
+        this.submitMesh(
+          renderer,
+          tessellateScreenCircle(px, py, topZ, capRadius, 16, tilt, tubeColor),
+        );
+      }
     }
 
     // Lifeline wires (port and starboard)
