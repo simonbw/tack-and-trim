@@ -1,6 +1,5 @@
 import { DeepPartial, deepMerge } from "../../core/util/ObjectUtils";
 import { V2d } from "../../core/Vector";
-import { StarterDinghy } from "./configs/StarterDinghy";
 import { SailConfig } from "./sail/Sail";
 import { SheetConfig } from "./Sheet";
 
@@ -262,8 +261,9 @@ export interface BoatConfig {
 }
 
 // Re-export boat configs
-export { StarterDinghy } from "./configs/StarterDinghy";
-export { StarterBoat } from "./configs/StarterBoat";
+export { Kestrel } from "./configs/Kestrel";
+export { Osprey } from "./configs/Osprey";
+export { Albatross } from "./configs/Albatross";
 
 /**
  * Create a boat config with partial overrides from a base config.

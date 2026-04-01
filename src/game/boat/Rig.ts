@@ -21,6 +21,7 @@ export class Rig extends BaseEntity {
   private boomZ: number;
   private mastColor: number;
   private boomColor: number;
+  private mastTopZ: number;
   private stays: RigConfig["stays"];
 
   constructor(
@@ -36,6 +37,7 @@ export class Rig extends BaseEntity {
     this.boomLength = boomLength;
     this.boomWidth = boomWidth;
     this.boomZ = mainsail.zFoot ?? 3;
+    this.mastTopZ = mainsail.zHead ?? 20;
     this.mastColor = colors.mast;
     this.boomColor = colors.boom;
     this.stays = config.stays;
@@ -86,8 +88,8 @@ export class Rig extends BaseEntity {
     const hullBody = this.hull.body;
     const zOffset = hullBody.z;
 
-    const mastTopOffsetX = hullBody.zParallaxX(20);
-    const mastTopOffsetY = hullBody.zParallaxY(20);
+    const mastTopOffsetX = hullBody.zParallaxX(this.mastTopZ);
+    const mastTopOffsetY = hullBody.zParallaxY(this.mastTopZ);
 
     // 1. Boom (bottom layer)
     // Boom has independent rotation from hull, so we keep manual 2D endpoint
@@ -123,53 +125,32 @@ export class Rig extends BaseEntity {
       draw.fillCircle(boomLen, 0, 0.3, { color: 0x664422, z: boomWorldZ });
     });
 
-    // 2. Standing rigging (above boom)
-    // Use GPU-driven tilt projection: draw.at with tilt context handles
-    // parallax and depth. We draw with body-local coords and z = deckHeight.
-    const dz = this.stays.deckHeight;
+    // 2. Standing rigging — lines from masthead to deck attachment points.
+    // World-space rendering so each endpoint gets correct z-parallax.
+    const mastTopX = mx + mastTopOffsetX;
+    const mastTopY = my + mastTopOffsetY;
+    const mastTopWorldZ = hullBody.worldZ(
+      this.mastPosition.x,
+      this.mastPosition.y,
+      this.mastTopZ,
+    );
     const riggingColor = 0x999999;
     const riggingWidth = 0.1;
-    draw.at(
-      {
-        pos: V(hx, hy),
-        angle: hullAngle,
-        tilt: {
-          roll: this.hull.body.roll,
-          pitch: this.hull.body.pitch,
-          zOffset,
-        },
-      },
-      () => {
-        const lmx = this.mastPosition.x;
-        const lmy = this.mastPosition.y;
-
-        const fs = this.stays.forestay;
-        const ps = this.stays.portShroud;
-        const ss = this.stays.starboardShroud;
-        const bs = this.stays.backstay;
-
-        draw.line(lmx, lmy, fs.x, fs.y, {
-          color: riggingColor,
-          width: riggingWidth,
-          z: dz,
-        });
-        draw.line(lmx, lmy, ps.x, ps.y, {
-          color: riggingColor,
-          width: riggingWidth,
-          z: dz,
-        });
-        draw.line(lmx, lmy, ss.x, ss.y, {
-          color: riggingColor,
-          width: riggingWidth,
-          z: dz,
-        });
-        draw.line(lmx, lmy, bs.x, bs.y, {
-          color: riggingColor,
-          width: riggingWidth,
-          z: dz,
-        });
-      },
-    );
+    const dz = this.stays.deckHeight;
+    const stayAttachments = [
+      this.stays.forestay,
+      this.stays.portShroud,
+      this.stays.starboardShroud,
+      this.stays.backstay,
+    ];
+    for (const attach of stayAttachments) {
+      const [ax, ay] = hullBody.toWorldFrame3D(attach.x, attach.y, dz);
+      draw.line(mastTopX, mastTopY, ax, ay, {
+        color: riggingColor,
+        width: riggingWidth,
+        z: mastTopWorldZ,
+      });
+    }
 
     // 3. Mast (on top of everything)
     // Use body.worldZ() for depth at mast base and top.
@@ -178,11 +159,7 @@ export class Rig extends BaseEntity {
       this.mastPosition.y,
       0,
     );
-    const mastTopZ = hullBody.worldZ(
-      this.mastPosition.x,
-      this.mastPosition.y,
-      20,
-    );
+    const mastTopZ = mastTopWorldZ;
     draw.line(mx, my, mx + mastTopOffsetX, my + mastTopOffsetY, {
       color: this.mastColor,
       width: 0.4,

@@ -1,4 +1,4 @@
-export const CURRENT_SAVE_VERSION = 1;
+export const CURRENT_SAVE_VERSION = 2;
 
 export interface SaveFile {
   // Meta

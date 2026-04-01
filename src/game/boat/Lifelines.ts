@@ -31,25 +31,27 @@ export class Lifelines extends BaseEntity {
 
     const { tubeColor, wireColor, tubeWidth, wireWidth } = this.config;
 
+    // --- Stanchions (vertical posts from deck to rail height) ---
+    // Drawn in world-space with 3D projection so they appear as vertical
+    // lines when the boat heels, just like the mast.
+    const allStanchions = [
+      ...this.config.portStanchions,
+      ...this.config.starboardStanchions,
+    ];
+    for (const [sx, sy] of allStanchions) {
+      const [bx, by] = hullBody.toWorldFrame3D(sx, sy, deckZ);
+      const [tx, ty] = hullBody.toWorldFrame3D(sx, sy, topZ);
+      const stanchionZ = hullBody.worldZ(sx, sy, topZ);
+      draw.line(bx, by, tx, ty, {
+        color: tubeColor,
+        width: tubeWidth,
+        z: stanchionZ,
+      });
+    }
+
     draw.at(
       { pos: V(hx, hy), angle: hullAngle, tilt: { roll, pitch, zOffset } },
       () => {
-        // --- Stanchions (short posts from deck to rail height) ---
-        for (const [sx, sy] of this.config.portStanchions) {
-          draw.line(sx, sy, sx, sy, {
-            color: tubeColor,
-            width: tubeWidth,
-            z: topZ,
-          });
-        }
-        for (const [sx, sy] of this.config.starboardStanchions) {
-          draw.line(sx, sy, sx, sy, {
-            color: tubeColor,
-            width: tubeWidth,
-            z: topZ,
-          });
-        }
-
         // --- Bow pulpit (U-shaped rail at bow) ---
         this.drawStrokedPath(
           draw,

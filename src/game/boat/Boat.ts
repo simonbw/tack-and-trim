@@ -5,7 +5,7 @@ import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
 import { Anchor } from "./Anchor";
 import { Bilge } from "./Bilge";
-import { BoatConfig, StarterBoat } from "./BoatConfig";
+import { BoatConfig, Kestrel } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
 import { HullDamage } from "./HullDamage";
@@ -75,7 +75,7 @@ export class Boat extends BaseEntity {
 
   constructor(
     startPosition: V2d = V(0, 0),
-    config: BoatConfig = StarterBoat,
+    config: BoatConfig = Kestrel,
     startRotation: number = 0,
   ) {
     super();

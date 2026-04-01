@@ -14,7 +14,7 @@ export const KEEL_CHORD = 1.25; // ft - centerboard/daggerboard chord
 // Simulation Constants
 // =============================================================================
 
-const MAX_RELATIVE_SPEED = 15; // ft/s - cap for numerical stability (~9 kts)
+const MAX_RELATIVE_SPEED = 25; // ft/s - cap for numerical stability (~15 kts)
 
 // ============================================================================
 // Types
