@@ -824,8 +824,8 @@ export function subdivideSmooth(
 }
 
 /**
- * Tessellate a polyline with per-vertex z into a triangle strip with miter joins.
- * Adapted from PathBuilder.stroke() logic.
+ * Tessellate a polyline with per-vertex z into a triangle strip.
+ * Supports miter joins (default) or round joins at corners.
  */
 export function tessellatePolylineToStrip(
   points: ReadonlyArray<readonly [number, number]>,
@@ -834,6 +834,7 @@ export function tessellatePolylineToStrip(
   color: number,
   alpha: number = 1,
   closed: boolean = false,
+  roundJoins: boolean = false,
 ): MeshContribution {
   if (points.length < 2) {
     return { positions: [], zValues: [], indices: [], color, alpha };
@@ -850,6 +851,23 @@ export function tessellatePolylineToStrip(
     return [-dy / len, dx / len];
   };
 
+  const emitPair = (
+    cx: number,
+    cy: number,
+    z: number,
+    nx: number,
+    ny: number,
+  ) => {
+    positions.push(
+      [cx + nx * halfWidth, cy + ny * halfWidth],
+      [cx - nx * halfWidth, cy - ny * halfWidth],
+    );
+    zValues.push(z, z);
+  };
+
+  let prevPairEnd = -1;
+  let firstPairStart = 0;
+
   for (let i = 0; i < points.length; i++) {
     const curr = points[i];
     let prev: readonly [number, number] | null = null;
@@ -861,56 +879,87 @@ export function tessellatePolylineToStrip(
     if (i < points.length - 1) next = points[i + 1];
     else if (closed) next = points[0];
 
-    let nx: number, ny: number;
+    const z = zPerPoint[i];
+    const pairStart = positions.length;
+    if (i === 0) firstPairStart = pairStart;
 
     if (prev === null && next !== null) {
-      [nx, ny] = perp(next[0] - curr[0], next[1] - curr[1]);
+      const [nx, ny] = perp(next[0] - curr[0], next[1] - curr[1]);
+      emitPair(curr[0], curr[1], z, nx, ny);
     } else if (next === null && prev !== null) {
-      [nx, ny] = perp(curr[0] - prev[0], curr[1] - prev[1]);
+      const [nx, ny] = perp(curr[0] - prev[0], curr[1] - prev[1]);
+      emitPair(curr[0], curr[1], z, nx, ny);
     } else if (prev !== null && next !== null) {
       const [n1x, n1y] = perp(curr[0] - prev[0], curr[1] - prev[1]);
       const [n2x, n2y] = perp(next[0] - curr[0], next[1] - curr[1]);
       let mx = (n1x + n2x) / 2;
       let my = (n1y + n2y) / 2;
       const mLen = Math.sqrt(mx * mx + my * my);
-      if (mLen > 0.001) {
-        // Miter: scale so that the offset at the join is correct
-        const dot = n1x * mx + n1y * my;
-        const scale = dot > 0.1 ? 1 / dot : 1;
-        // Clamp miter to avoid spikes at sharp angles
-        const clampedScale = Math.min(scale, 1);
-        mx = (mx / mLen) * clampedScale;
-        my = (my / mLen) * clampedScale;
+      const dot = mLen > 0.001 ? n1x * mx + n1y * my : 0;
+      const miterScale = dot > 0.1 ? 1 / dot : 10;
+
+      if (roundJoins && miterScale > 1.05) {
+        // Round join: fan from incoming to outgoing perpendicular
+        const angle1 = Math.atan2(n1y, n1x);
+        let angle2 = Math.atan2(n2y, n2x);
+        let angleDiff = angle2 - angle1;
+        if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+        if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+        const steps = Math.max(
+          2,
+          Math.ceil(Math.abs(angleDiff) / (Math.PI / 8)),
+        );
+        for (let s = 0; s <= steps; s++) {
+          const angle = angle1 + angleDiff * (s / steps);
+          emitPair(curr[0], curr[1], z, Math.cos(angle), Math.sin(angle));
+        }
       } else {
-        mx = n1x;
-        my = n1y;
+        // Miter join
+        if (mLen > 0.001) {
+          const clampedScale = Math.min(miterScale, 1);
+          mx = (mx / mLen) * clampedScale;
+          my = (my / mLen) * clampedScale;
+        } else {
+          mx = n1x;
+          my = n1y;
+        }
+        emitPair(curr[0], curr[1], z, mx, my);
       }
-      nx = mx;
-      ny = my;
     } else {
-      nx = 0;
-      ny = 1;
+      emitPair(curr[0], curr[1], z, 0, 1);
     }
 
-    const z = zPerPoint[i];
-    // Left and right offset vertices
-    positions.push(
-      [curr[0] + nx * halfWidth, curr[1] + ny * halfWidth],
-      [curr[0] - nx * halfWidth, curr[1] - ny * halfWidth],
-    );
-    zValues.push(z, z);
-
-    // Build quad between this point and the previous
-    if (i > 0) {
-      const base = (i - 1) * 2;
-      indices.push(base, base + 2, base + 3, base, base + 3, base + 1);
+    // Connect consecutive vertex pairs within this vertex (round join fan)
+    for (let p = pairStart; p < positions.length - 2; p += 2) {
+      indices.push(p, p + 2, p + 3, p, p + 3, p + 1);
     }
+
+    // Connect to previous vertex's last pair
+    const pairEnd = positions.length - 2;
+    if (prevPairEnd >= 0) {
+      indices.push(
+        prevPairEnd,
+        pairStart,
+        pairStart + 1,
+        prevPairEnd,
+        pairStart + 1,
+        prevPairEnd + 1,
+      );
+    }
+    prevPairEnd = pairEnd;
   }
 
   // Close the strip if needed
-  if (closed && points.length >= 3) {
-    const last = (points.length - 1) * 2;
-    indices.push(last, 0, 1, last, 1, last + 1);
+  if (closed && points.length >= 3 && prevPairEnd >= 0) {
+    indices.push(
+      prevPairEnd,
+      firstPairStart,
+      firstPairStart + 1,
+      prevPairEnd,
+      firstPairStart + 1,
+      prevPairEnd + 1,
+    );
   }
 
   return { positions, zValues, indices, color, alpha };

@@ -621,7 +621,7 @@ export class BoatRenderer extends BaseEntity {
       zPerPoint.push(z);
     }
 
-    // Smooth subdivision for rope curves (matches old bezier rendering)
+    // Smooth subdivision for rope curves
     const smooth = subdivideSmooth(localPoints, zPerPoint, 6);
 
     const mesh = tessellatePolylineToStrip(
@@ -630,6 +630,8 @@ export class BoatRenderer extends BaseEntity {
       sheet.getRopeThickness(),
       sheet.getRopeColor(),
       opacity,
+      false,
+      true,
     );
     this.submitMesh(renderer, mesh);
   }
