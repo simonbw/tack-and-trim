@@ -14,7 +14,6 @@ import {
   tessellateScreenCircle,
   tessellateLineToQuad,
   tessellatePolylineToStrip,
-  tessellateRectToTris,
   tessellateScreenWidthLine,
   tessellateScreenWidthPolyline,
 } from "./tessellation";
@@ -33,7 +32,6 @@ export class BoatRenderer extends BaseEntity {
 
   // Pre-built static meshes (hull-local, computed once)
   private keelMesh: MeshContribution | null = null;
-  private bowspritMesh: MeshContribution | null = null;
 
   constructor(private boat: Boat) {
     super();
@@ -54,20 +52,6 @@ export class BoatRenderer extends BaseEntity {
       1,
       keel.getColor(),
     );
-
-    // Bowsprit
-    if (this.boat.bowsprit) {
-      const bs = this.boat.bowsprit;
-      const bowspritZ = this.config.tilt.zHeights.bowsprit;
-      this.bowspritMesh = tessellateRectToTris(
-        bs.localPosition.x,
-        bs.localPosition.y - bs.size.y / 2,
-        bs.size.x,
-        bs.size.y,
-        bowspritZ,
-        bs.getColor(),
-      );
-    }
   }
 
   @on("render")
@@ -141,56 +125,38 @@ export class BoatRenderer extends BaseEntity {
           gunwalePoints.push(xyPositions[i]);
         }
         const gunwaleZValues = gunwalePoints.map(() => deckZ);
-        const gunwaleMesh = tessellatePolylineToStrip(
+        const gunwaleMesh = tessellateScreenWidthPolyline(
           gunwalePoints,
           gunwaleZValues,
           0.25,
+          tilt,
           hull.getStrokeColor(),
           1,
           true,
         );
         this.submitMesh(renderer, gunwaleMesh);
 
-        // Caps at sharp vertices to fill pinched miter joins
-        const sharpVerts = this.config.hull.sharpVertices;
-        if (sharpVerts) {
-          const hullVerts = this.config.hull.vertices;
-          for (const idx of sharpVerts) {
-            this.submitMesh(
-              renderer,
-              tessellateScreenCircle(
-                hullVerts[idx].x,
-                hullVerts[idx].y,
-                deckZ,
-                0.25 / 2,
-                16,
-                tilt,
-                hull.getStrokeColor(),
-              ),
-            );
-          }
-        }
-
         // === 5. Tiller ===
         this.renderTiller(renderer, tilt);
 
-        // === 6. Bowsprit ===
-        this.submitMesh(renderer, this.bowspritMesh);
+        // === 6. Bowsprit (cylindrical — screen-width, with round caps) ===
         if (this.boat.bowsprit) {
           const bs = this.boat.bowsprit;
           const bsZ = this.config.tilt.zHeights.bowsprit;
-          const tipX = bs.localPosition.x + bs.size.x;
-          const tipY = bs.localPosition.y;
           this.submitMesh(
             renderer,
-            tessellateScreenCircle(
-              tipX,
-              tipY,
+            tessellateScreenWidthLine(
+              bs.localPosition.x,
+              bs.localPosition.y,
               bsZ,
-              bs.size.y / 2,
-              16,
+              bs.localPosition.x + bs.size.x,
+              bs.localPosition.y,
+              bsZ,
+              bs.size.y,
               tilt,
               bs.getColor(),
+              1,
+              true,
             ),
           );
         }
@@ -286,31 +252,8 @@ export class BoatRenderer extends BaseEntity {
         bladeWidth,
         tilt,
         rudderColor,
-      ),
-    );
-    const bladeCapR = bladeWidth / 2;
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(
-        pivot.x,
-        pivot.y,
-        bladeTopZ,
-        bladeCapR,
-        16,
-        tilt,
-        rudderColor,
-      ),
-    );
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(
-        trailingX,
-        trailingY,
-        bladeTopZ,
-        bladeCapR,
-        16,
-        tilt,
-        rudderColor,
+        1,
+        true,
       ),
     );
 
@@ -328,32 +271,8 @@ export class BoatRenderer extends BaseEntity {
         stockWidth,
         tilt,
         rudderColor,
-      ),
-    );
-    // Stock caps
-    const stockCapR = stockWidth / 2;
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(
-        pivot.x,
-        pivot.y,
-        deckZ,
-        stockCapR,
-        16,
-        tilt,
-        rudderColor,
-      ),
-    );
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(
-        pivot.x,
-        pivot.y,
-        rudderZ,
-        stockCapR,
-        16,
-        tilt,
-        rudderColor,
+        1,
+        true,
       ),
     );
   }
@@ -388,24 +307,9 @@ export class BoatRenderer extends BaseEntity {
         tillerWidth,
         tilt,
         tillerColor,
+        1,
+        true,
       ),
-    );
-    const capR = tillerWidth / 2;
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(
-        tillerPos.x,
-        tillerPos.y,
-        deckZ,
-        capR,
-        16,
-        tilt,
-        tillerColor,
-      ),
-    );
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(tipX, tipY, deckZ, capR, 16, tilt, tillerColor),
     );
   }
 
@@ -426,44 +330,21 @@ export class BoatRenderer extends BaseEntity {
     const endX = mastPos.x - boomLength * cos;
     const endY = mastPos.y - boomLength * sin;
 
-    // Boom body (cylindrical — screen-width)
-    const boomMesh = tessellateScreenWidthLine(
-      mastPos.x,
-      mastPos.y,
-      boomZ,
-      endX,
-      endY,
-      boomZ,
-      rig.getBoomWidth(),
-      tilt,
-      rig.getBoomColor(),
-    );
-    this.submitMesh(renderer, boomMesh);
-
-    // Boom end caps (match line width for flush rounded ends)
-    const boomCapR = rig.getBoomWidth() / 2;
+    // Boom body (cylindrical — screen-width, with round caps)
     this.submitMesh(
       renderer,
-      tessellateScreenCircle(
+      tessellateScreenWidthLine(
         mastPos.x,
         mastPos.y,
         boomZ,
-        boomCapR,
-        16,
-        tilt,
-        rig.getBoomColor(),
-      ),
-    );
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(
         endX,
         endY,
         boomZ,
-        boomCapR,
-        16,
+        rig.getBoomWidth(),
         tilt,
         rig.getBoomColor(),
+        1,
+        true,
       ),
     );
   }
@@ -516,7 +397,6 @@ export class BoatRenderer extends BaseEntity {
       ...lifelineConfig.starboardStanchions,
     ];
 
-    const capRadius = lifelineConfig.tubeWidth / 2;
     for (const [sx, sy] of allStanchions) {
       this.submitMesh(
         renderer,
@@ -530,30 +410,8 @@ export class BoatRenderer extends BaseEntity {
           lifelineConfig.tubeWidth,
           tilt,
           lifelineConfig.tubeColor,
-        ),
-      );
-      this.submitMesh(
-        renderer,
-        tessellateScreenCircle(
-          sx,
-          sy,
-          deckZ,
-          capRadius,
-          16,
-          tilt,
-          lifelineConfig.tubeColor,
-        ),
-      );
-      this.submitMesh(
-        renderer,
-        tessellateScreenCircle(
-          sx,
-          sy,
-          topZ,
-          capRadius,
-          16,
-          tilt,
-          lifelineConfig.tubeColor,
+          1,
+          true,
         ),
       );
     }
@@ -569,8 +427,6 @@ export class BoatRenderer extends BaseEntity {
     const deckZ = this.config.hull.deckHeight;
     const topZ = deckZ + lifelineConfig.stanchionHeight;
     const { tubeColor, wireColor, tubeWidth, wireWidth } = lifelineConfig;
-
-    const capRadius = tubeWidth / 2;
 
     // Bow pulpit
     if (lifelineConfig.bowPulpit.length >= 2) {
@@ -599,7 +455,6 @@ export class BoatRenderer extends BaseEntity {
         deckZ,
         topZ,
         tubeWidth,
-        capRadius,
         tubeColor,
       );
     }
@@ -631,7 +486,6 @@ export class BoatRenderer extends BaseEntity {
         deckZ,
         topZ,
         tubeWidth,
-        capRadius,
         tubeColor,
       );
     }
@@ -675,7 +529,7 @@ export class BoatRenderer extends BaseEntity {
 
   /** Render vertical posts at pulpit points. Endpoints use original positions;
    *  interior vertices use arc midpoints so posts sit under the rounded path. */
-  /** Render a screen-width polyline with round joins (circle at every vertex). */
+  /** Render a screen-width polyline with round joins and round end caps. */
   private renderRoundedPolyline(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
     tilt: TiltProjection,
@@ -684,30 +538,19 @@ export class BoatRenderer extends BaseEntity {
     width: number,
     color: number,
   ) {
-    const mesh = tessellateScreenWidthPolyline(
-      points,
-      zValues,
-      width,
-      tilt,
-      color,
+    this.submitMesh(
+      renderer,
+      tessellateScreenWidthPolyline(
+        points,
+        zValues,
+        width,
+        tilt,
+        color,
+        1,
+        false,
+        true,
+      ),
     );
-    this.submitMesh(renderer, mesh);
-
-    const r = width / 2;
-    for (let i = 0; i < points.length; i++) {
-      this.submitMesh(
-        renderer,
-        tessellateScreenCircle(
-          points[i][0],
-          points[i][1],
-          zValues[i],
-          r,
-          16,
-          tilt,
-          color,
-        ),
-      );
-    }
   }
 
   private renderPulpitPosts(
@@ -718,7 +561,6 @@ export class BoatRenderer extends BaseEntity {
     deckZ: number,
     topZ: number,
     tubeWidth: number,
-    capRadius: number,
     tubeColor: number,
   ) {
     for (let i = 0; i < originalPoints.length; i++) {
@@ -745,15 +587,9 @@ export class BoatRenderer extends BaseEntity {
           tubeWidth,
           tilt,
           tubeColor,
+          1,
+          true,
         ),
-      );
-      this.submitMesh(
-        renderer,
-        tessellateScreenCircle(px, py, deckZ, capRadius, 16, tilt, tubeColor),
-      );
-      this.submitMesh(
-        renderer,
-        tessellateScreenCircle(px, py, topZ, capRadius, 16, tilt, tubeColor),
       );
     }
   }
@@ -806,21 +642,25 @@ export class BoatRenderer extends BaseEntity {
     const mastPos = rig.getMastPosition();
     const mastTopZ = rig.getMastTopZ();
 
-    // Mast shaft (cylindrical — screen-width)
-    const mastMesh = tessellateScreenWidthLine(
-      mastPos.x,
-      mastPos.y,
-      0,
-      mastPos.x,
-      mastPos.y,
-      mastTopZ,
-      0.4,
-      tilt,
-      rig.getMastColor(),
+    // Mast shaft (cylindrical — screen-width, with round caps)
+    this.submitMesh(
+      renderer,
+      tessellateScreenWidthLine(
+        mastPos.x,
+        mastPos.y,
+        0,
+        mastPos.x,
+        mastPos.y,
+        mastTopZ,
+        0.4,
+        tilt,
+        rig.getMastColor(),
+        1,
+        true,
+      ),
     );
-    this.submitMesh(renderer, mastMesh);
 
-    // Mast caps: base, boom connection, and top
+    // Boom connection cap (intermediate, not an endpoint)
     const mastCapR = 0.4 / 2;
     const mastColor = rig.getMastColor();
     const boomZ = rig.getBoomZ();
@@ -829,31 +669,7 @@ export class BoatRenderer extends BaseEntity {
       tessellateScreenCircle(
         mastPos.x,
         mastPos.y,
-        0,
-        mastCapR,
-        16,
-        tilt,
-        mastColor,
-      ),
-    );
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(
-        mastPos.x,
-        mastPos.y,
         boomZ,
-        mastCapR,
-        16,
-        tilt,
-        mastColor,
-      ),
-    );
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(
-        mastPos.x,
-        mastPos.y,
-        mastTopZ,
         mastCapR,
         16,
         tilt,

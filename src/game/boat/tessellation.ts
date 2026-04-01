@@ -139,6 +139,7 @@ export function tessellateScreenWidthLine(
   tilt: TiltProjection,
   color: number,
   alpha: number = 1,
+  roundCaps: boolean = false,
 ): MeshContribution {
   // Project line direction to screen space
   const dlx = x2 - x1;
@@ -160,18 +161,52 @@ export function tessellateScreenWidthLine(
   const nx = tilt.inv00 * spx + tilt.inv01 * spy;
   const ny = tilt.inv10 * spx + tilt.inv11 * spy;
 
-  return {
-    positions: [
-      [x1 + nx, y1 + ny],
-      [x2 + nx, y2 + ny],
-      [x2 - nx, y2 - ny],
-      [x1 - nx, y1 - ny],
-    ],
-    zValues: [z1, z2, z2, z1],
-    indices: [0, 1, 2, 0, 2, 3],
-    color,
-    alpha,
-  };
+  const positions: [number, number][] = [
+    [x1 + nx, y1 + ny],
+    [x2 + nx, y2 + ny],
+    [x2 - nx, y2 - ny],
+    [x1 - nx, y1 - ny],
+  ];
+  const zValues = [z1, z2, z2, z1];
+  const indices = [0, 1, 2, 0, 2, 3];
+
+  if (roundCaps) {
+    const perpAngle = Math.atan2(spy, spx);
+    const capSteps = 8;
+
+    // Helper: add a semicircular cap fan at a point
+    const addCap = (
+      cx: number,
+      cy: number,
+      z: number,
+      startAngle: number,
+      sweep: number,
+    ) => {
+      const center = positions.length;
+      positions.push([cx, cy]);
+      zValues.push(z);
+      for (let s = 0; s <= capSteps; s++) {
+        const angle = startAngle + (sweep * s) / capSteps;
+        const sx = Math.cos(angle) * hw;
+        const sy = Math.sin(angle) * hw;
+        positions.push([
+          cx + tilt.inv00 * sx + tilt.inv01 * sy,
+          cy + tilt.inv10 * sx + tilt.inv11 * sy,
+        ]);
+        zValues.push(z);
+        if (s > 0) {
+          indices.push(center, center + s, center + s + 1);
+        }
+      }
+    };
+
+    // Start cap: fan from +perp through backward to -perp
+    addCap(x1, y1, z1, perpAngle, Math.PI);
+    // End cap: fan from +perp through forward to -perp
+    addCap(x2, y2, z2, perpAngle, -Math.PI);
+  }
+
+  return { positions, zValues, indices, color, alpha };
 }
 
 /**
@@ -186,6 +221,7 @@ export function tessellateScreenWidthPolyline(
   color: number,
   alpha: number = 1,
   closed: boolean = false,
+  roundCaps: boolean = false,
 ): MeshContribution {
   if (points.length < 2) {
     return { positions: [], zValues: [], indices: [], color, alpha };
@@ -215,6 +251,26 @@ export function tessellateScreenWidthPolyline(
     tilt.inv10 * sx + tilt.inv11 * sy,
   ];
 
+  // Emit a vertex pair offset from a point along a screen-space direction
+  const emitPair = (
+    cx: number,
+    cy: number,
+    z: number,
+    sx: number,
+    sy: number,
+  ) => {
+    const [lx, ly] = toLocal(sx, sy);
+    positions.push(
+      [cx + lx * halfWidth, cy + ly * halfWidth],
+      [cx - lx * halfWidth, cy - ly * halfWidth],
+    );
+    zValues.push(z, z);
+  };
+
+  // Track the base index of the last pair emitted for segment connections.
+  let prevPairEnd = -1;
+  let firstPairStart = 0;
+
   for (let i = 0; i < points.length; i++) {
     const curr = points[i];
     const currZ = zPerPoint[i];
@@ -239,8 +295,8 @@ export function tessellateScreenWidthPolyline(
       nextZ = zPerPoint[0];
     }
 
-    // Compute miter in screen space, then inverse-project to hull-local
-    let nx: number, ny: number;
+    const pairStart = positions.length;
+    if (i === 0) firstPairStart = pairStart;
 
     if (prev === null && next !== null) {
       const [sx, sy] = screenPerpDir(
@@ -248,14 +304,14 @@ export function tessellateScreenWidthPolyline(
         next[1] - curr[1],
         nextZ - currZ,
       );
-      [nx, ny] = toLocal(sx, sy);
+      emitPair(curr[0], curr[1], currZ, sx, sy);
     } else if (next === null && prev !== null) {
       const [sx, sy] = screenPerpDir(
         curr[0] - prev[0],
         curr[1] - prev[1],
         currZ - prevZ,
       );
-      [nx, ny] = toLocal(sx, sy);
+      emitPair(curr[0], curr[1], currZ, sx, sy);
     } else if (prev !== null && next !== null) {
       const [s1x, s1y] = screenPerpDir(
         curr[0] - prev[0],
@@ -267,40 +323,130 @@ export function tessellateScreenWidthPolyline(
         next[1] - curr[1],
         nextZ - currZ,
       );
-      // Average perpendiculars in screen space
+
+      // Check if the miter would need clamping
       let mx = (s1x + s2x) / 2;
       let my = (s1y + s2y) / 2;
       const mLen = Math.sqrt(mx * mx + my * my);
-      if (mLen > 0.001) {
-        const dot = s1x * mx + s1y * my;
-        const scale = dot > 0.1 ? 1 / dot : 1;
-        const clampedScale = Math.min(scale, 1);
-        mx = (mx / mLen) * clampedScale;
-        my = (my / mLen) * clampedScale;
+      const dot = mLen > 0.001 ? s1x * mx + s1y * my : 0;
+      const miterScale = dot > 0.1 ? 1 / dot : 10;
+
+      if (miterScale > 1.05) {
+        // Round join: fan from incoming to outgoing perpendicular
+        const angle1 = Math.atan2(s1y, s1x);
+        let angle2 = Math.atan2(s2y, s2x);
+        let angleDiff = angle2 - angle1;
+        if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+        if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+        const steps = Math.max(
+          2,
+          Math.ceil(Math.abs(angleDiff) / (Math.PI / 8)),
+        );
+        for (let s = 0; s <= steps; s++) {
+          const angle = angle1 + angleDiff * (s / steps);
+          emitPair(curr[0], curr[1], currZ, Math.cos(angle), Math.sin(angle));
+        }
       } else {
-        mx = s1x;
-        my = s1y;
+        // Normal miter
+        const clampedScale = Math.min(miterScale, 1);
+        emitPair(
+          curr[0],
+          curr[1],
+          currZ,
+          (mx / mLen) * clampedScale,
+          (my / mLen) * clampedScale,
+        );
       }
-      [nx, ny] = toLocal(mx, my);
     } else {
-      [nx, ny] = toLocal(0, 1);
+      emitPair(curr[0], curr[1], currZ, 0, 1);
     }
 
-    positions.push(
-      [curr[0] + nx * halfWidth, curr[1] + ny * halfWidth],
-      [curr[0] - nx * halfWidth, curr[1] - ny * halfWidth],
-    );
-    zValues.push(currZ, currZ);
-
-    if (i > 0) {
-      const base = (i - 1) * 2;
-      indices.push(base, base + 2, base + 3, base, base + 3, base + 1);
+    // Connect consecutive vertex pairs within this vertex (round join fan)
+    for (let p = pairStart; p < positions.length - 2; p += 2) {
+      indices.push(p, p + 2, p + 3, p, p + 3, p + 1);
     }
+
+    // Connect to previous vertex's last pair
+    const pairEnd = positions.length - 2;
+    if (prevPairEnd >= 0) {
+      indices.push(
+        prevPairEnd,
+        pairStart,
+        pairStart + 1,
+        prevPairEnd,
+        pairStart + 1,
+        prevPairEnd + 1,
+      );
+    }
+    prevPairEnd = pairEnd;
   }
 
-  if (closed && points.length >= 3) {
-    const last = (points.length - 1) * 2;
-    indices.push(last, 0, 1, last, 1, last + 1);
+  if (closed && points.length >= 3 && prevPairEnd >= 0) {
+    indices.push(
+      prevPairEnd,
+      firstPairStart,
+      firstPairStart + 1,
+      prevPairEnd,
+      firstPairStart + 1,
+      prevPairEnd + 1,
+    );
+  }
+
+  // Round end caps for open polylines
+  if (roundCaps && !closed && points.length >= 2) {
+    const capSteps = 8;
+    const addCap = (
+      cx: number,
+      cy: number,
+      z: number,
+      perpSx: number,
+      perpSy: number,
+      sweep: number,
+    ) => {
+      const perpAngle = Math.atan2(perpSy, perpSx);
+      const center = positions.length;
+      positions.push([cx, cy]);
+      zValues.push(z);
+      for (let s = 0; s <= capSteps; s++) {
+        const angle = perpAngle + (sweep * s) / capSteps;
+        const sx = Math.cos(angle);
+        const sy = Math.sin(angle);
+        const [lx, ly] = toLocal(sx, sy);
+        positions.push([cx + lx * halfWidth, cy + ly * halfWidth]);
+        zValues.push(z);
+        if (s > 0) {
+          indices.push(center, center + s, center + s + 1);
+        }
+      }
+    };
+
+    // Start cap: perpendicular of first segment, fanning through backward
+    const p0 = points[0];
+    const p1 = points[1];
+    const [sp0x, sp0y] = screenPerpDir(
+      p1[0] - p0[0],
+      p1[1] - p0[1],
+      zPerPoint[1] - zPerPoint[0],
+    );
+    addCap(p0[0], p0[1], zPerPoint[0], sp0x, sp0y, Math.PI);
+
+    // End cap: perpendicular of last segment, fanning through forward
+    const pLast = points[points.length - 1];
+    const pPrev = points[points.length - 2];
+    const [spLx, spLy] = screenPerpDir(
+      pLast[0] - pPrev[0],
+      pLast[1] - pPrev[1],
+      zPerPoint[points.length - 1] - zPerPoint[points.length - 2],
+    );
+    addCap(
+      pLast[0],
+      pLast[1],
+      zPerPoint[points.length - 1],
+      spLx,
+      spLy,
+      -Math.PI,
+    );
   }
 
   return { positions, zValues, indices, color, alpha };
