@@ -596,7 +596,10 @@ export function tessellateScreenCircle(
  * Vertices in `sharpIndices` are kept as hard corners — the curve passes
  * through them exactly instead of smoothing around them.
  *
- * @param subdivisions Number of interpolated points per segment (3-6 typical)
+ * Subdivision count is adaptive: sharper corners get more points to stay
+ * smooth, while gentle curves use fewer.
+ *
+ * @param subdivisions Base subdivision count — a 45° bend gets this many points
  * @param sharpIndices Set of vertex indices that should remain sharp corners
  */
 export function subdivideClosedSmooth(
@@ -638,11 +641,33 @@ export function subdivideClosedSmooth(
     const cpy = points[next][1];
     const [p1x, p1y] = knot(next, next2);
 
+    // Compute bend angle at control point to scale subdivisions
+    const dx0 = p0x - cpx;
+    const dy0 = p0y - cpy;
+    const dx1 = p1x - cpx;
+    const dy1 = p1y - cpy;
+    const len0 = Math.sqrt(dx0 * dx0 + dy0 * dy0);
+    const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+
+    let subs = subdivisions;
+    if (len0 > 1e-6 && len1 > 1e-6) {
+      const cosAngle = (dx0 * dx1 + dy0 * dy1) / (len0 * len1);
+      const bend = Math.PI - Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+      // Floor at base subdivisions, scale up for sharper bends (30° = base)
+      subs = Math.min(
+        subdivisions * 3,
+        Math.max(
+          subdivisions,
+          Math.ceil((subdivisions * bend) / (Math.PI / 6)),
+        ),
+      );
+    }
+
     // Sample quadratic Bezier, skip t=1 (start of next segment).
     // Also skip t=0 if the start knot is a sharp vertex already emitted.
     const startS = sharpIndices?.has(i) ? 1 : 0;
-    for (let s = startS; s < subdivisions; s++) {
-      const t = s / subdivisions;
+    for (let s = startS; s < subs; s++) {
+      const t = s / subs;
       const u = 1 - t;
       out.push([
         u * u * p0x + 2 * u * t * cpx + t * t * p1x,
