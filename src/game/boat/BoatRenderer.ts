@@ -458,41 +458,27 @@ export class BoatRenderer extends BaseEntity {
         points,
         points.map(() => topZ),
         1.5,
+        16,
       );
-      const mesh = tessellateScreenWidthPolyline(
+      this.renderRoundedPolyline(
+        renderer,
+        tilt,
         rounded.points,
         rounded.zValues,
         tubeWidth,
-        tilt,
         tubeColor,
       );
-      this.submitMesh(renderer, mesh);
-
-      // Vertical posts at each pulpit point
-      for (const [px, py] of points) {
-        this.submitMesh(
-          renderer,
-          tessellateScreenWidthLine(
-            px,
-            py,
-            deckZ,
-            px,
-            py,
-            topZ,
-            tubeWidth,
-            tilt,
-            tubeColor,
-          ),
-        );
-        this.submitMesh(
-          renderer,
-          tessellateScreenCircle(px, py, deckZ, capRadius, 16, tilt, tubeColor),
-        );
-        this.submitMesh(
-          renderer,
-          tessellateScreenCircle(px, py, topZ, capRadius, 16, tilt, tubeColor),
-        );
-      }
+      this.renderPulpitPosts(
+        renderer,
+        tilt,
+        points,
+        rounded,
+        deckZ,
+        topZ,
+        tubeWidth,
+        capRadius,
+        tubeColor,
+      );
     }
 
     // Stern pulpit
@@ -504,40 +490,27 @@ export class BoatRenderer extends BaseEntity {
         points,
         points.map(() => topZ),
         1.5,
+        16,
       );
-      const mesh = tessellateScreenWidthPolyline(
+      this.renderRoundedPolyline(
+        renderer,
+        tilt,
         rounded.points,
         rounded.zValues,
         tubeWidth,
-        tilt,
         tubeColor,
       );
-      this.submitMesh(renderer, mesh);
-
-      for (const [px, py] of points) {
-        this.submitMesh(
-          renderer,
-          tessellateScreenWidthLine(
-            px,
-            py,
-            deckZ,
-            px,
-            py,
-            topZ,
-            tubeWidth,
-            tilt,
-            tubeColor,
-          ),
-        );
-        this.submitMesh(
-          renderer,
-          tessellateScreenCircle(px, py, deckZ, capRadius, 16, tilt, tubeColor),
-        );
-        this.submitMesh(
-          renderer,
-          tessellateScreenCircle(px, py, topZ, capRadius, 16, tilt, tubeColor),
-        );
-      }
+      this.renderPulpitPosts(
+        renderer,
+        tilt,
+        points,
+        rounded,
+        deckZ,
+        topZ,
+        tubeWidth,
+        capRadius,
+        tubeColor,
+      );
     }
 
     // Lifeline wires (port and starboard)
@@ -574,6 +547,91 @@ export class BoatRenderer extends BaseEntity {
         );
         this.submitMesh(renderer, mesh);
       }
+    }
+  }
+
+  /** Render vertical posts at pulpit points. Endpoints use original positions;
+   *  interior vertices use arc midpoints so posts sit under the rounded path. */
+  /** Render a screen-width polyline with round joins (circle at every vertex). */
+  private renderRoundedPolyline(
+    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
+    points: [number, number][],
+    zValues: number[],
+    width: number,
+    color: number,
+  ) {
+    const mesh = tessellateScreenWidthPolyline(
+      points,
+      zValues,
+      width,
+      tilt,
+      color,
+    );
+    this.submitMesh(renderer, mesh);
+
+    const r = width / 2;
+    for (let i = 0; i < points.length; i++) {
+      this.submitMesh(
+        renderer,
+        tessellateScreenCircle(
+          points[i][0],
+          points[i][1],
+          zValues[i],
+          r,
+          16,
+          tilt,
+          color,
+        ),
+      );
+    }
+  }
+
+  private renderPulpitPosts(
+    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
+    originalPoints: [number, number][],
+    rounded: ReturnType<typeof roundCorners>,
+    deckZ: number,
+    topZ: number,
+    tubeWidth: number,
+    capRadius: number,
+    tubeColor: number,
+  ) {
+    for (let i = 0; i < originalPoints.length; i++) {
+      // First and last points aren't rounded, use original positions.
+      // Interior points use arc midpoints so posts align with the rounded path.
+      let px: number, py: number;
+      if (i === 0 || i === originalPoints.length - 1) {
+        [px, py] = originalPoints[i];
+      } else {
+        const mid = rounded.arcMidpoints[i - 1];
+        px = mid.x;
+        py = mid.y;
+      }
+
+      this.submitMesh(
+        renderer,
+        tessellateScreenWidthLine(
+          px,
+          py,
+          deckZ,
+          px,
+          py,
+          topZ,
+          tubeWidth,
+          tilt,
+          tubeColor,
+        ),
+      );
+      this.submitMesh(
+        renderer,
+        tessellateScreenCircle(px, py, deckZ, capRadius, 16, tilt, tubeColor),
+      );
+      this.submitMesh(
+        renderer,
+        tessellateScreenCircle(px, py, topZ, capRadius, 16, tilt, tubeColor),
+      );
     }
   }
 

@@ -196,23 +196,24 @@ export function tessellateScreenWidthPolyline(
   const zValues: number[] = [];
   const indices: number[] = [];
 
-  // Compute screen-space perpendicular for a hull-local segment,
-  // then inverse-project to hull-local offset
-  const screenPerp = (dx: number, dy: number, dz: number): [number, number] => {
-    // Project to screen
+  // Compute unit screen-space perpendicular for a hull-local segment
+  const screenPerpDir = (
+    dx: number,
+    dy: number,
+    dz: number,
+  ): [number, number] => {
     const sx = tilt.m00 * dx + tilt.m01 * dy + tilt.zx * dz;
     const sy = tilt.m10 * dx + tilt.m11 * dy + tilt.zy * dz;
     const len = Math.sqrt(sx * sx + sy * sy);
     if (len === 0) return [0, 0];
-    // Screen perpendicular
-    const px = -sy / len;
-    const py = sx / len;
-    // Inverse-transform to hull-local
-    return [
-      tilt.inv00 * px + tilt.inv01 * py,
-      tilt.inv10 * px + tilt.inv11 * py,
-    ];
+    return [-sy / len, sx / len];
   };
+
+  // Inverse-project a screen-space offset to hull-local
+  const toLocal = (sx: number, sy: number): [number, number] => [
+    tilt.inv00 * sx + tilt.inv01 * sy,
+    tilt.inv10 * sx + tilt.inv11 * sy,
+  ];
 
   for (let i = 0; i < points.length; i++) {
     const curr = points[i];
@@ -238,49 +239,51 @@ export function tessellateScreenWidthPolyline(
       nextZ = zPerPoint[0];
     }
 
+    // Compute miter in screen space, then inverse-project to hull-local
     let nx: number, ny: number;
 
     if (prev === null && next !== null) {
-      [nx, ny] = screenPerp(
+      const [sx, sy] = screenPerpDir(
         next[0] - curr[0],
         next[1] - curr[1],
         nextZ - currZ,
       );
+      [nx, ny] = toLocal(sx, sy);
     } else if (next === null && prev !== null) {
-      [nx, ny] = screenPerp(
+      const [sx, sy] = screenPerpDir(
         curr[0] - prev[0],
         curr[1] - prev[1],
         currZ - prevZ,
       );
+      [nx, ny] = toLocal(sx, sy);
     } else if (prev !== null && next !== null) {
-      const [n1x, n1y] = screenPerp(
+      const [s1x, s1y] = screenPerpDir(
         curr[0] - prev[0],
         curr[1] - prev[1],
         currZ - prevZ,
       );
-      const [n2x, n2y] = screenPerp(
+      const [s2x, s2y] = screenPerpDir(
         next[0] - curr[0],
         next[1] - curr[1],
         nextZ - currZ,
       );
-      let mx = (n1x + n2x) / 2;
-      let my = (n1y + n2y) / 2;
+      // Average perpendiculars in screen space
+      let mx = (s1x + s2x) / 2;
+      let my = (s1y + s2y) / 2;
       const mLen = Math.sqrt(mx * mx + my * my);
       if (mLen > 0.001) {
-        const dot = n1x * mx + n1y * my;
+        const dot = s1x * mx + s1y * my;
         const scale = dot > 0.1 ? 1 / dot : 1;
-        const clampedScale = Math.min(scale, 3);
+        const clampedScale = Math.min(scale, 1);
         mx = (mx / mLen) * clampedScale;
         my = (my / mLen) * clampedScale;
       } else {
-        mx = n1x;
-        my = n1y;
+        mx = s1x;
+        my = s1y;
       }
-      nx = mx;
-      ny = my;
+      [nx, ny] = toLocal(mx, my);
     } else {
-      nx = 0;
-      ny = 1;
+      [nx, ny] = toLocal(0, 1);
     }
 
     positions.push(
@@ -444,16 +447,32 @@ export function tessellateScreenCircle(
  * at midpoints between consecutive controls. This produces a smooth
  * C1-continuous closed curve.
  *
+ * Vertices in `sharpIndices` are kept as hard corners — the curve passes
+ * through them exactly instead of smoothing around them.
+ *
  * @param subdivisions Number of interpolated points per segment (3-6 typical)
+ * @param sharpIndices Set of vertex indices that should remain sharp corners
  */
 export function subdivideClosedSmooth(
   points: ReadonlyArray<readonly [number, number]>,
   subdivisions: number = 4,
+  sharpIndices?: ReadonlySet<number>,
 ): [number, number][] {
   const n = points.length;
   if (n < 3) {
     return points.map((p) => [p[0], p[1]] as [number, number]);
   }
+
+  // Compute on-curve knot for the edge from P[i] to P[next].
+  // Sharp vertices pull the knot to themselves.
+  const knot = (i: number, next: number): [number, number] => {
+    if (sharpIndices?.has(next)) return [points[next][0], points[next][1]];
+    if (sharpIndices?.has(i)) return [points[i][0], points[i][1]];
+    return [
+      (points[i][0] + points[next][0]) / 2,
+      (points[i][1] + points[next][1]) / 2,
+    ];
+  };
 
   const out: [number, number][] = [];
 
@@ -461,20 +480,22 @@ export function subdivideClosedSmooth(
     const next = (i + 1) % n;
     const next2 = (i + 2) % n;
 
-    // On-curve start = midpoint(P_i, P_{i+1})
-    const p0x = (points[i][0] + points[next][0]) / 2;
-    const p0y = (points[i][1] + points[next][1]) / 2;
+    // If the control point (P[next]) is sharp, both knots collapse to it —
+    // just emit the sharp point and skip the bezier sampling.
+    if (sharpIndices?.has(next)) {
+      out.push([points[next][0], points[next][1]]);
+      continue;
+    }
 
-    // Control point = P_{i+1}
+    const [p0x, p0y] = knot(i, next);
     const cpx = points[next][0];
     const cpy = points[next][1];
+    const [p1x, p1y] = knot(next, next2);
 
-    // On-curve end = midpoint(P_{i+1}, P_{i+2})
-    const p1x = (points[next][0] + points[next2][0]) / 2;
-    const p1y = (points[next][1] + points[next2][1]) / 2;
-
-    // Sample quadratic Bezier, skip t=1 (start of next segment)
-    for (let s = 0; s < subdivisions; s++) {
+    // Sample quadratic Bezier, skip t=1 (start of next segment).
+    // Also skip t=0 if the start knot is a sharp vertex already emitted.
+    const startS = sharpIndices?.has(i) ? 1 : 0;
+    for (let s = startS; s < subdivisions; s++) {
       const t = s / subdivisions;
       const u = 1 - t;
       out.push([
@@ -500,18 +521,25 @@ export function roundCorners(
   points: ReadonlyArray<readonly [number, number]>,
   zPerPoint: number[],
   radius: number,
-  arcPoints: number = 6,
-): { points: [number, number][]; zValues: number[] } {
+  arcPoints: number = 16,
+): {
+  points: [number, number][];
+  zValues: number[];
+  /** Arc midpoints for each interior vertex (where the rounded path is closest to the original vertex). */
+  arcMidpoints: { x: number; y: number; z: number }[];
+} {
   const n = points.length;
   if (n < 3 || radius <= 0) {
     return {
       points: points.map((p) => [p[0], p[1]] as [number, number]),
       zValues: [...zPerPoint],
+      arcMidpoints: [],
     };
   }
 
   const out: [number, number][] = [];
   const outZ: number[] = [];
+  const arcMidpoints: { x: number; y: number; z: number }[] = [];
 
   // First point (no rounding)
   out.push([points[0][0], points[0][1]]);
@@ -533,6 +561,7 @@ export function roundCorners(
     if (lenIn < 1e-6 || lenOut < 1e-6) {
       out.push([curr[0], curr[1]]);
       outZ.push(zPerPoint[i]);
+      arcMidpoints.push({ x: curr[0], y: curr[1], z: zPerPoint[i] });
       continue;
     }
 
@@ -549,9 +578,22 @@ export function roundCorners(
     const by = curr[1] + (doy / lenOut) * r;
     const bZ = zPerPoint[i] + (zPerPoint[i + 1] - zPerPoint[i]) * (r / lenOut);
 
+    // Arc midpoint at t=0.5: where the path is closest to the original vertex
+    arcMidpoints.push({
+      x: 0.25 * ax + 0.5 * curr[0] + 0.25 * bx,
+      y: 0.25 * ay + 0.5 * curr[1] + 0.25 * by,
+      z: 0.25 * aZ + 0.5 * zPerPoint[i] + 0.25 * bZ,
+    });
+
+    // Scale arc samples by how sharp the corner is.
+    // dot=1 means straight (no turn), dot=-1 means full U-turn.
+    const dot = (dix / lenIn) * (dox / lenOut) + (diy / lenIn) * (doy / lenOut);
+    const turnAmount = (1 - dot) / 2; // 0 = straight, 1 = U-turn
+    const samples = Math.max(2, Math.round(arcPoints * turnAmount));
+
     // Sample quadratic bezier: arc_start -> vertex (control) -> arc_end
-    for (let s = 0; s <= arcPoints; s++) {
-      const t = s / arcPoints;
+    for (let s = 0; s <= samples; s++) {
+      const t = s / samples;
       const u = 1 - t;
       out.push([
         u * u * ax + 2 * u * t * curr[0] + t * t * bx,
@@ -565,7 +607,7 @@ export function roundCorners(
   out.push([points[n - 1][0], points[n - 1][1]]);
   outZ.push(zPerPoint[n - 1]);
 
-  return { points: out, zValues: outZ };
+  return { points: out, zValues: outZ, arcMidpoints };
 }
 
 /**
@@ -690,7 +732,7 @@ export function tessellatePolylineToStrip(
         const dot = n1x * mx + n1y * my;
         const scale = dot > 0.1 ? 1 / dot : 1;
         // Clamp miter to avoid spikes at sharp angles
-        const clampedScale = Math.min(scale, 3);
+        const clampedScale = Math.min(scale, 1);
         mx = (mx / mLen) * clampedScale;
         my = (my / mLen) * clampedScale;
       } else {
