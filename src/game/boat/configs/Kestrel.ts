@@ -81,7 +81,7 @@ export const Kestrel: BoatConfig = {
   },
 
   rudder: {
-    position: V(-10, 0), // Behind transom (stock hangs off stern)
+    position: V(-9.75, 0), // Behind transom (stock hangs off stern)
     length: 2.5, // ft
     draft: 3.0, // ft below waterline
     chord: 2.0, // ft

@@ -15,7 +15,6 @@ import {
   tessellateLineToQuad,
   tessellatePolylineToStrip,
   tessellateRectToTris,
-  tessellateRotatedRectToTris,
   tessellateScreenWidthLine,
   tessellateScreenWidthPolyline,
 } from "./tessellation";
@@ -101,7 +100,7 @@ export class BoatRenderer extends BaseEntity {
         this.submitMesh(renderer, this.keelMesh);
 
         // === 2. Rudder blade (underwater, flat — hull-local width is correct) ===
-        this.renderRudder(renderer);
+        this.renderRudder(renderer, tilt);
 
         // === 3. Hull mesh (lower sides → upper sides → deck) ===
         const {
@@ -152,8 +151,28 @@ export class BoatRenderer extends BaseEntity {
         );
         this.submitMesh(renderer, gunwaleMesh);
 
+        // Caps at sharp vertices to fill pinched miter joins
+        const sharpVerts = this.config.hull.sharpVertices;
+        if (sharpVerts) {
+          const hullVerts = this.config.hull.vertices;
+          for (const idx of sharpVerts) {
+            this.submitMesh(
+              renderer,
+              tessellateScreenCircle(
+                hullVerts[idx].x,
+                hullVerts[idx].y,
+                deckZ,
+                0.25 / 2,
+                16,
+                tilt,
+                hull.getStrokeColor(),
+              ),
+            );
+          }
+        }
+
         // === 5. Tiller ===
-        this.renderTiller(renderer);
+        this.renderTiller(renderer, tilt);
 
         // === 6. Bowsprit ===
         this.submitMesh(renderer, this.bowspritMesh);
@@ -219,36 +238,129 @@ export class BoatRenderer extends BaseEntity {
 
   private renderRudder(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
   ) {
     const rudder = this.boat.rudder;
     const relAngle = rudder.getTillerAngleOffset();
     const pivot = rudder.getPosition();
     const rudderZ = rudder.getRudderZ();
     const rudderLength = rudder.getLength();
+    const rudderColor = rudder.getColor();
+    const deckZ = this.config.hull.deckHeight;
+    const bladeTopZ = 0.5; // blade starts just above waterline
+    const stockWidth = 0.3;
 
-    // Blade tip in hull-local coords
+    // Blade trailing edge in hull-local coords (extends aft from the stock)
     const cos = Math.cos(relAngle);
     const sin = Math.sin(relAngle);
-    const tipX = pivot.x - rudderLength * cos;
-    const tipY = pivot.y - rudderLength * sin;
+    const trailingX = pivot.x - rudderLength * cos;
+    const trailingY = pivot.y - rudderLength * sin;
 
-    // Rudder extends from hull bottom (z ~ 0 at pivot) down to rudderZ at tip
-    const pivotZ = rudderZ * 0.3; // pivot is shallower
-    const mesh = tessellateLineToQuad(
-      pivot.x,
-      pivot.y,
-      pivotZ,
-      tipX,
-      tipY,
-      rudderZ,
-      0.5,
-      rudder.getColor(),
+    // Rudder blade — vertical rectangle: leading edge at stock, trailing edge aft.
+    // 4 corners: top-leading, top-trailing, bottom-trailing, bottom-leading.
+    const bladeMesh: MeshContribution = {
+      positions: [
+        [pivot.x, pivot.y], // top-leading (at stock)
+        [trailingX, trailingY], // top-trailing
+        [trailingX, trailingY], // bottom-trailing
+        [pivot.x, pivot.y], // bottom-leading (at stock)
+      ],
+      zValues: [bladeTopZ, bladeTopZ, rudderZ, rudderZ],
+      indices: [0, 1, 2, 0, 2, 3],
+      color: rudderColor,
+      alpha: 1,
+    };
+    this.submitMesh(renderer, bladeMesh);
+
+    // Blade top edge — screen-width line so blade has visible thickness from above
+    const bladeWidth = 0.2;
+    this.submitMesh(
+      renderer,
+      tessellateScreenWidthLine(
+        pivot.x,
+        pivot.y,
+        bladeTopZ,
+        trailingX,
+        trailingY,
+        bladeTopZ,
+        bladeWidth,
+        tilt,
+        rudderColor,
+      ),
     );
-    this.submitMesh(renderer, mesh);
+    const bladeCapR = bladeWidth / 2;
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        pivot.x,
+        pivot.y,
+        bladeTopZ,
+        bladeCapR,
+        16,
+        tilt,
+        rudderColor,
+      ),
+    );
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        trailingX,
+        trailingY,
+        bladeTopZ,
+        bladeCapR,
+        16,
+        tilt,
+        rudderColor,
+      ),
+    );
+
+    // Rudder stock — vertical shaft from deck down through hull to blade
+    // (cylindrical — screen-width)
+    this.submitMesh(
+      renderer,
+      tessellateScreenWidthLine(
+        pivot.x,
+        pivot.y,
+        deckZ,
+        pivot.x,
+        pivot.y,
+        rudderZ,
+        stockWidth,
+        tilt,
+        rudderColor,
+      ),
+    );
+    // Stock caps
+    const stockCapR = stockWidth / 2;
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        pivot.x,
+        pivot.y,
+        deckZ,
+        stockCapR,
+        16,
+        tilt,
+        rudderColor,
+      ),
+    );
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        pivot.x,
+        pivot.y,
+        rudderZ,
+        stockCapR,
+        16,
+        tilt,
+        rudderColor,
+      ),
+    );
   }
 
   private renderTiller(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
   ) {
     const rudder = this.boat.rudder;
     const tillerAngle = rudder.getTillerAngleOffset();
@@ -256,34 +368,45 @@ export class BoatRenderer extends BaseEntity {
     const deckZ = this.config.hull.deckHeight;
     const tillerLength = 3;
     const tillerWidth = 0.25;
+    const tillerColor = 0x886633;
 
-    // Tiller outline (larger rect drawn first, slightly behind in z)
-    const outline = tessellateRotatedRectToTris(
-      tillerPos.x,
-      tillerPos.y,
-      -0.05,
-      -tillerWidth / 2 - 0.05,
-      tillerLength + 0.1,
-      tillerWidth + 0.1,
-      tillerAngle,
-      deckZ - 0.01,
-      0x664422,
-    );
-    this.submitMesh(renderer, outline);
+    // Tiller arm (cylindrical — screen-width, with round caps)
+    const cos = Math.cos(tillerAngle);
+    const sin = Math.sin(tillerAngle);
+    const tipX = tillerPos.x + tillerLength * cos;
+    const tipY = tillerPos.y + tillerLength * sin;
 
-    // Tiller fill (on top of outline)
-    const fill = tessellateRotatedRectToTris(
-      tillerPos.x,
-      tillerPos.y,
-      0,
-      -tillerWidth / 2,
-      tillerLength,
-      tillerWidth,
-      tillerAngle,
-      deckZ,
-      0x886633,
+    this.submitMesh(
+      renderer,
+      tessellateScreenWidthLine(
+        tillerPos.x,
+        tillerPos.y,
+        deckZ,
+        tipX,
+        tipY,
+        deckZ,
+        tillerWidth,
+        tilt,
+        tillerColor,
+      ),
     );
-    this.submitMesh(renderer, fill);
+    const capR = tillerWidth / 2;
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(
+        tillerPos.x,
+        tillerPos.y,
+        deckZ,
+        capR,
+        16,
+        tilt,
+        tillerColor,
+      ),
+    );
+    this.submitMesh(
+      renderer,
+      tessellateScreenCircle(tipX, tipY, deckZ, capR, 16, tilt, tillerColor),
+    );
   }
 
   private renderBoom(
