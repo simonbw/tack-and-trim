@@ -23,6 +23,7 @@ export class BoatDebugHUD extends ReactEntity {
     const pitchDeg = radToDeg(boat.pitch);
     const zHeight = boat.hull.body.z;
     const waterPct = boat.bilge.getWaterFraction() * 100;
+    const wheelLabel = this.game.io.getSteeringWheelDebugLabel();
 
     return (
       <div
@@ -47,6 +48,7 @@ export class BoatDebugHUD extends ReactEntity {
         <div>pitch {pitchDeg.toFixed(1)}&deg;</div>
         <div>z {zHeight.toFixed(2)} ft</div>
         <div>water {waterPct.toFixed(0)}%</div>
+        <div>{wheelLabel}</div>
       </div>
     );
   }
