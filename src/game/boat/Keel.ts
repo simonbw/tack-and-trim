@@ -1,6 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import type { Draw } from "../../core/graphics/Draw";
 import { V, V2d } from "../../core/Vector";
 import {
   computeHydrofoilForces,
@@ -130,33 +129,18 @@ export class Keel extends BaseEntity {
     }
   }
 
-  @on("render")
-  onRender({ draw }: { draw: Draw }) {
-    const [x, y] = this.hull.body.position;
-    const zOffset = this.hull.body.z;
+  /** Hull-local keel vertices for rendering. */
+  getVertices(): V2d[] {
+    return this.vertices;
+  }
 
-    draw.at(
-      {
-        pos: V(x, y),
-        angle: this.hull.body.angle,
-        tilt: {
-          roll: this.hull.body.roll,
-          pitch: this.hull.body.pitch,
-          zOffset,
-        },
-      },
-      () => {
-        // Draw keel as a polyline (open path) in body-local coords
-        for (let i = 0; i < this.vertices.length - 1; i++) {
-          const a = this.vertices[i];
-          const b = this.vertices[i + 1];
-          draw.line(a.x, a.y, b.x, b.y, {
-            color: this.color,
-            width: 1,
-            z: this.keelZ,
-          });
-        }
-      },
-    );
+  /** Z-depth of the keel blade midpoint. */
+  getKeelZ(): number {
+    return this.keelZ;
+  }
+
+  /** Visual color for the keel. */
+  getColor(): number {
+    return this.color;
   }
 }

@@ -1,6 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import type { Draw } from "../../core/graphics/Draw";
 import {
   DynamicBody,
   type SixDOFOptions,
@@ -48,11 +47,6 @@ export function findSternPoints(vertices: V2d[]): {
   } else {
     return { port: v2, starboard: v1 };
   }
-}
-
-export interface TillerConfig {
-  position: V2d;
-  getTillerAngle: () => number;
 }
 
 /**
@@ -288,7 +282,6 @@ export class Hull extends BaseEntity {
   private strokeColor: number;
   private sideColor: number;
   private bottomColor: number;
-  private tillerConfig?: TillerConfig;
   private getDamageMultiplier: () => number = () => 1;
   private mesh: HullMesh;
 
@@ -718,85 +711,24 @@ export class Hull extends BaseEntity {
     this._dissipation.triangleCount = dissipationCount;
   }
 
-  @on("render")
-  onRender({ draw }: { draw: Draw }) {
-    const [x, y] = this.body.position;
-    const zOffset = this.body.z;
+  /** Deck/fill color. */
+  getFillColor(): number {
+    return this.fillColor;
+  }
 
-    draw.at(
-      {
-        pos: V(x, y),
-        angle: this.body.angle,
-        tilt: { roll: this.body.roll, pitch: this.body.pitch, zOffset },
-      },
-      () => {
-        const {
-          xyPositions,
-          zValues,
-          deckIndices,
-          upperSideIndices,
-          lowerSideIndices,
-        } = this.mesh;
+  /** Gunwale stroke color. */
+  getStrokeColor(): number {
+    return this.strokeColor;
+  }
 
-        // Draw back-to-front: lower sides → upper sides → deck
-        draw.renderer.submitTrianglesWithZ(
-          xyPositions,
-          lowerSideIndices,
-          this.bottomColor,
-          1.0,
-          zValues,
-        );
+  /** Hull topsides color. */
+  getSideColor(): number {
+    return this.sideColor;
+  }
 
-        draw.renderer.submitTrianglesWithZ(
-          xyPositions,
-          upperSideIndices,
-          this.sideColor,
-          1.0,
-          zValues,
-        );
-
-        draw.renderer.submitTrianglesWithZ(
-          xyPositions,
-          deckIndices,
-          this.fillColor,
-          1.0,
-          zValues,
-        );
-
-        // Outline: stroke the deck polygon (gunwale line)
-        const ringSize = this.mesh.ringSize;
-        const deckZ = this.mesh.positions[2];
-        draw.strokePolygon(
-          xyPositions.slice(0, ringSize).map((p) => V(p[0], p[1])),
-          {
-            color: this.strokeColor,
-            width: 0.25,
-            z: deckZ,
-          },
-        );
-
-        // Tiller
-        if (this.tillerConfig) {
-          const tillerAngle = this.tillerConfig.getTillerAngle();
-          const tillerPos = this.tillerConfig.position;
-          const tillerLength = 3;
-          const tillerWidth = 0.25;
-          const tillerColor = 0x886633;
-
-          draw.at({ pos: tillerPos, angle: tillerAngle }, () => {
-            draw.fillRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
-              color: tillerColor,
-              z: deckZ,
-            });
-            draw.strokeRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
-              color: 0x664422,
-              width: 0.1,
-              z: deckZ,
-            });
-          });
-        }
-      },
-    );
+  /** Hull bottom color. */
+  getBottomColor(): number {
+    return this.bottomColor;
   }
 
   /** Data needed by BoatCompositor for hull height rendering. */
@@ -810,10 +742,6 @@ export class Hull extends BaseEntity {
 
   getAngle(): number {
     return this.body.angle;
-  }
-
-  setTillerConfig(config: TillerConfig): void {
-    this.tillerConfig = config;
   }
 
   setDamageMultiplier(fn: () => number): void {

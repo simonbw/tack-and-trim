@@ -168,74 +168,33 @@ export class Sheet extends BaseEntity {
     this.visualRope.update(anchorA, anchorB, dt);
   }
 
-  @on("render")
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
-    if (this.opacity <= 0) return;
+  /** Get world-space rope simulation points. */
+  getRopePoints(): readonly V2d[] {
+    return this.visualRope.getPoints();
+  }
 
-    const hullBody = this.getHullBody?.();
-    if (!hullBody) {
-      this.visualRope.render(draw, this.opacity);
-      return;
-    }
+  /** Get visual opacity. */
+  getOpacity(): number {
+    return this.opacity;
+  }
 
-    const points = this.visualRope.getPoints();
-    const n = points.length;
-    if (n < 2) return;
+  /** Z-height at anchor A (body A end). */
+  getZA(): number {
+    return this.zA;
+  }
 
-    const path = draw.path();
+  /** Z-height at anchor B (body B end). */
+  getZB(): number {
+    return this.zB;
+  }
 
-    // Project first point at zA height
-    const p0 = points[0];
-    path.moveTo(
-      p0.x + hullBody.zParallaxX(this.zA),
-      p0.y + hullBody.zParallaxY(this.zA),
-    );
+  /** Rope thickness for rendering. */
+  getRopeThickness(): number {
+    return this.config.ropeThickness ?? 0.75;
+  }
 
-    if (n === 2) {
-      const p1 = points[1];
-      path.lineTo(
-        p1.x + hullBody.zParallaxX(this.zB),
-        p1.y + hullBody.zParallaxY(this.zB),
-      );
-    } else {
-      // Smooth quadratic bezier curve (same logic as VerletRope.render)
-      for (let i = 0; i < n - 2; i++) {
-        const t1 = (i + 1) / (n - 1);
-        const t2 = (i + 2) / (n - 1);
-        const z1 = lerp(this.zA, this.zB, t1);
-        const z2 = lerp(this.zA, this.zB, t2);
-
-        const p1x = points[i + 1].x + hullBody.zParallaxX(z1);
-        const p1y = points[i + 1].y + hullBody.zParallaxY(z1);
-        const p2x = points[i + 2].x + hullBody.zParallaxX(z2);
-        const p2y = points[i + 2].y + hullBody.zParallaxY(z2);
-
-        path.quadraticTo(p1x, p1y, (p1x + p2x) / 2, (p1y + p2y) / 2);
-      }
-
-      // Last segment
-      const zLast = this.zB;
-      const zSecondLast = lerp(this.zA, this.zB, (n - 2) / (n - 1));
-      const pLast = points[n - 1];
-      const pSL = points[n - 2];
-      path.quadraticTo(
-        pSL.x + hullBody.zParallaxX(zSecondLast),
-        pSL.y + hullBody.zParallaxY(zSecondLast),
-        pLast.x + hullBody.zParallaxX(zLast),
-        pLast.y + hullBody.zParallaxY(zLast),
-      );
-    }
-
-    // Set z for depth testing — use orientation[8] for rotation-only depth
-    // (no body.z offset, matching the original tilt.worldZ(0, 0, avgZ, 0) behavior)
-    const avgZ = (this.zA + this.zB) / 2;
-    const z = hullBody.orientation[8] * avgZ;
-    draw.renderer.setZ(z);
-    path.stroke(
-      this.config.ropeColor ?? 0x444444,
-      this.config.ropeThickness ?? 0.75,
-      this.opacity,
-    );
-    draw.renderer.setZ(0);
+  /** Rope color for rendering. */
+  getRopeColor(): number {
+    return this.config.ropeColor ?? 0x444444;
   }
 }

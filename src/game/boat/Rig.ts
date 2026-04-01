@@ -1,6 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
-import { on } from "../../core/entity/handler";
 import { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { RevoluteConstraint } from "../../core/physics/constraints/RevoluteConstraint";
 import { Box } from "../../core/physics/shapes/Box";
@@ -80,96 +79,39 @@ export class Rig extends BaseEntity {
     );
   }
 
-  @on("render")
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
-    const [hx, hy] = this.hull.body.position;
-    const hullAngle = this.hull.body.angle;
-    const [mx, my] = this.getMastWorldPosition();
-    const hullBody = this.hull.body;
-    const zOffset = hullBody.z;
+  /** Hull-local mast position. */
+  getMastPosition(): V2d {
+    return this.mastPosition;
+  }
 
-    const mastTopOffsetX = hullBody.zParallaxX(this.mastTopZ);
-    const mastTopOffsetY = hullBody.zParallaxY(this.mastTopZ);
+  /** Z-height of mast top. */
+  getMastTopZ(): number {
+    return this.mastTopZ;
+  }
 
-    // 1. Boom (bottom layer)
-    // Boom has independent rotation from hull, so we keep manual 2D endpoint
-    // computation but use body.worldZ() for the depth value.
-    const relAngle = this.body.angle - hullBody.angle;
-    const boomEndLocalX =
-      this.mastPosition.x - this.boomLength * Math.cos(relAngle);
-    const boomEndLocalY =
-      this.mastPosition.y - this.boomLength * Math.sin(relAngle);
-    const [boomStartX, boomStartY] = hullBody.toWorldFrame3D(
-      this.mastPosition.x,
-      this.mastPosition.y,
-      this.boomZ,
-    );
-    const [boomEndX, boomEndY] = hullBody.toWorldFrame3D(
-      boomEndLocalX,
-      boomEndLocalY,
-      this.boomZ,
-    );
-    const boomWorldZ = hullBody.worldZ(
-      this.mastPosition.x,
-      this.mastPosition.y,
-      this.boomZ,
-    );
-    const boomAngle = Math.atan2(boomEndY - boomStartY, boomEndX - boomStartX);
-    const boomLen = Math.hypot(boomEndX - boomStartX, boomEndY - boomStartY);
+  /** Z-height of the boom. */
+  getBoomZ(): number {
+    return this.boomZ;
+  }
 
-    draw.at({ pos: V(boomStartX, boomStartY), angle: boomAngle }, () => {
-      draw.fillRect(0, -this.boomWidth / 2, boomLen, this.boomWidth, {
-        color: this.boomColor,
-        z: boomWorldZ,
-      });
-      draw.fillCircle(boomLen, 0, 0.3, { color: 0x664422, z: boomWorldZ });
-    });
+  /** Boom width in ft. */
+  getBoomWidth(): number {
+    return this.boomWidth;
+  }
 
-    // 2. Standing rigging — lines from masthead to deck attachment points.
-    // World-space rendering so each endpoint gets correct z-parallax.
-    const mastTopX = mx + mastTopOffsetX;
-    const mastTopY = my + mastTopOffsetY;
-    const mastTopWorldZ = hullBody.worldZ(
-      this.mastPosition.x,
-      this.mastPosition.y,
-      this.mastTopZ,
-    );
-    const riggingColor = 0x999999;
-    const riggingWidth = 0.1;
-    const dz = this.stays.deckHeight;
-    const stayAttachments = [
-      this.stays.forestay,
-      this.stays.portShroud,
-      this.stays.starboardShroud,
-      this.stays.backstay,
-    ];
-    for (const attach of stayAttachments) {
-      const [ax, ay] = hullBody.toWorldFrame3D(attach.x, attach.y, dz);
-      draw.line(mastTopX, mastTopY, ax, ay, {
-        color: riggingColor,
-        width: riggingWidth,
-        z: mastTopWorldZ,
-      });
-    }
+  /** Mast visual color. */
+  getMastColor(): number {
+    return this.mastColor;
+  }
 
-    // 3. Mast (on top of everything)
-    // Use body.worldZ() for depth at mast base and top.
-    const mastBaseZ = hullBody.worldZ(
-      this.mastPosition.x,
-      this.mastPosition.y,
-      0,
-    );
-    const mastTopZ = mastTopWorldZ;
-    draw.line(mx, my, mx + mastTopOffsetX, my + mastTopOffsetY, {
-      color: this.mastColor,
-      width: 0.4,
-      z: mastTopZ,
-    });
-    draw.fillCircle(mx, my, 0.3, { color: this.mastColor, z: mastBaseZ });
-    draw.fillCircle(mx + mastTopOffsetX, my + mastTopOffsetY, 0.2, {
-      color: this.mastColor,
-      z: mastTopZ,
-    });
+  /** Boom visual color. */
+  getBoomColor(): number {
+    return this.boomColor;
+  }
+
+  /** Stay attachment config. */
+  getStays(): typeof this.stays {
+    return this.stays;
   }
 
   getMastWorldPosition(): V2d {

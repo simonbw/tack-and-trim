@@ -242,37 +242,6 @@ export class Rudder extends BaseEntity {
     }
   }
 
-  @on("render")
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
-    // Use the actual rudder body position and angle for rendering.
-    // The rudder has its own physics body with independent position/angle,
-    // so it can't use the hull's tilt context directly. Instead, use
-    // worldZ() to compute the correct depth from the hull-local pivot.
-    const [rx, ry] = this.body.position;
-    const rudderAngle = this.body.angle;
-    const hullBody = this.hull.body;
-
-    // Compute world-space depth at the rudder pivot (hull-local coords)
-    const z = hullBody.worldZ(
-      this.pivotPosition.x,
-      this.pivotPosition.y,
-      this.rudderZ,
-    );
-
-    // Apply tilt parallax offset for 2D position
-    const offsetX = hullBody.zParallaxX(this.rudderZ);
-    const offsetY = hullBody.zParallaxY(this.rudderZ);
-
-    // Draw rudder blade (underwater)
-    draw.at({ pos: V(rx + offsetX, ry + offsetY), angle: rudderAngle }, () => {
-      draw.line(0, 0, -this.length, 0, {
-        color: this.color,
-        width: 0.5,
-        z,
-      });
-    });
-  }
-
   /** Get rudder pivot position in hull-local coordinates */
   getPosition(): V2d {
     return this.pivotPosition;
@@ -281,6 +250,21 @@ export class Rudder extends BaseEntity {
   /** Get the current tiller angle offset (actual angle from physics) */
   getTillerAngleOffset(): number {
     return this.getRelativeAngle();
+  }
+
+  /** Z-depth of the rudder blade tip. */
+  getRudderZ(): number {
+    return this.rudderZ;
+  }
+
+  /** Rudder blade length (ft). */
+  getLength(): number {
+    return this.length;
+  }
+
+  /** Visual color for the rudder blade. */
+  getColor(): number {
+    return this.color;
   }
 
   setDamageEffects(

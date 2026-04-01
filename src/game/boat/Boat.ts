@@ -7,6 +7,7 @@ import { Anchor } from "./Anchor";
 import { Bilge } from "./Bilge";
 import { BoatConfig, Kestrel } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
+import { BoatRenderer } from "./BoatRenderer";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
 import { HullDamage } from "./HullDamage";
 import { RudderDamage } from "./RudderDamage";
@@ -112,11 +113,6 @@ export class Boat extends BaseEntity {
     this.rudder = this.addChild(new Rudder(this.hull, config.rudder));
     this.rig = this.addChild(new Rig(this.hull, config.rig));
 
-    // Wire up tiller rendering (drawn by hull, but follows rudder angle)
-    this.hull.setTillerConfig({
-      position: this.rudder.getPosition(),
-      getTillerAngle: () => this.rudder.getTillerAngleOffset(),
-    });
     if (config.bowsprit) {
       this.bowsprit = this.addChild(new Bowsprit(this, config.bowsprit));
     }
@@ -207,6 +203,10 @@ export class Boat extends BaseEntity {
     if (config.lifelines) {
       this.addChild(new Lifelines(this, config.lifelines));
     }
+
+    // Unified boat renderer — all boat visual components rendered through
+    // a single tilt context with per-vertex z for correct depth ordering
+    this.addChild(new BoatRenderer(this));
 
     // Create anchor and mooring
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
