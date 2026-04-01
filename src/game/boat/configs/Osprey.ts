@@ -59,6 +59,7 @@ export const Osprey: BoatConfig = {
       V(-10.5, 1.0),
       V(-11.0, 0.55),
     ], // ~25.0 ft, ~3.0 ft bottom beam
+    sharpVertices: [6], // bow
     skinFrictionCoefficient: 0.003,
     stagnationCoefficient: 0.4, // placeholder until precomputed separation model (#125)
     separationCoefficient: 0.12, // placeholder until precomputed separation model (#125)
@@ -126,16 +127,16 @@ export const Osprey: BoatConfig = {
   lifelines: {
     // Stanchion positions interpolated along hull deck edge vertices
     portStanchions: [
-      [7, 3.4], // on hull edge at forward quarter
-      [1, 4.375], // at max beam
-      [-5, 4.375], // at max beam, aft
-      [-9, 3.2], // aft quarter, interpolated toward stern
+      [7, 3.25], // on hull edge at forward quarter
+      [1, 4.225], // at max beam
+      [-5, 4.225], // at max beam, aft
+      [-9, 3.05], // aft quarter, interpolated toward stern
     ],
     starboardStanchions: [
-      [7, -3.4],
-      [1, -4.375],
-      [-5, -4.375],
-      [-9, -3.2],
+      [7, -3.25],
+      [1, -4.225],
+      [-5, -4.225],
+      [-9, -3.05],
     ],
     bowPulpit: [
       [10, -2.4],

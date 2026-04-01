@@ -37,6 +37,7 @@ export interface HullConfig {
   /** Pressure coefficient for rear-facing (wake/separation) surfaces, dimensionless.
    * Higher = more wake drag. Bluff stern ≈ 0.7, tapered stern ≈ 0.3. Default 0.5. */
   readonly separationCoefficient?: number;
+  readonly sharpVertices?: number[]; // indices of vertices that stay sharp (not smoothed)
   readonly draft: number; // ft below waterline (hull bottom)
   readonly deckHeight: number; // ft above waterline (gunwale/deck edge)
   readonly colors: {

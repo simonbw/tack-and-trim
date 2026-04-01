@@ -60,6 +60,7 @@ export const Albatross: BoatConfig = {
       V(-15.8, 1.5),
       V(-16.3, 0.8),
     ], // ~38.3 ft, ~4.4 ft bottom beam
+    sharpVertices: [6], // bow
     skinFrictionCoefficient: 0.003,
     stagnationCoefficient: 0.4, // placeholder until precomputed separation model (#125)
     separationCoefficient: 0.12, // placeholder until precomputed separation model (#125)
@@ -129,20 +130,20 @@ export const Albatross: BoatConfig = {
   lifelines: {
     // Stanchion positions interpolated along hull deck edge vertices
     portStanchions: [
-      [13, 3.8], // forward, interpolated between V(17,2.5) and V(9,5.0)
-      [9, 5.0], // on hull vertex
-      [4.5, 5.6], // between V(9,5.0) and V(0,6.25)
-      [0, 6.25], // at max beam
-      [-8, 6.25], // on hull vertex
-      [-13, 5.3], // aft, interpolated toward stern
+      [13, 3.65], // forward, interpolated between V(17,2.5) and V(9,5.0)
+      [9, 4.85], // on hull vertex
+      [4.5, 5.45], // between V(9,5.0) and V(0,6.25)
+      [0, 6.1], // at max beam
+      [-8, 6.1], // on hull vertex
+      [-13, 5.15], // aft, interpolated toward stern
     ],
     starboardStanchions: [
-      [13, -3.8],
-      [9, -5.0],
-      [4.5, -5.6],
-      [0, -6.25],
-      [-8, -6.25],
-      [-13, -5.3],
+      [13, -3.65],
+      [9, -4.85],
+      [4.5, -5.45],
+      [0, -6.1],
+      [-8, -6.1],
+      [-13, -5.15],
     ],
     bowPulpit: [
       [15.5, -3.2],

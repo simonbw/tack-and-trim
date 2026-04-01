@@ -353,10 +353,14 @@ export class Hull extends BaseEntity {
     );
 
     // Build smooth render mesh from subdivided rings
+    const sharp = config.sharpVertices
+      ? new Set(config.sharpVertices)
+      : undefined;
     const subdivide = (verts: V2d[]) =>
       subdivideClosedSmooth(
         verts.map((v) => [v.x, v.y] as [number, number]),
         4,
+        sharp,
       ).map(([x, y]) => V(x, y));
 
     this.renderMesh = buildHullMesh(

@@ -20,7 +20,7 @@ export const Kestrel: BoatConfig = {
       V(6, -3.0),
       V(10, -1.5),
       // Bow
-      V(13, 0),
+      V(13, 0), // Bow
       // Port side
       V(10, 1.5),
       V(6, 3.0),
@@ -59,6 +59,7 @@ export const Kestrel: BoatConfig = {
       V(-8.5, 0.9),
       V(-9.0, 0.5),
     ], // ~21.3 ft, ~2.8 ft bottom beam
+    sharpVertices: [6], // bow
     skinFrictionCoefficient: 0.003,
     stagnationCoefficient: 0.4, // placeholder until precomputed separation model (#125)
     separationCoefficient: 0.12, // placeholder until precomputed separation model (#125)
@@ -126,14 +127,14 @@ export const Kestrel: BoatConfig = {
   lifelines: {
     // Stanchion positions interpolated along hull deck edge vertices
     portStanchions: [
-      [6.0, 3.0], // between bow shoulder and max beam
-      [1, 4.0], // at max beam
-      [-4, 4.0], // at max beam, aft
+      [6.0, 2.85], // between bow shoulder and max beam
+      [1, 3.85], // at max beam
+      [-4, 3.85], // at max beam, aft
     ],
     starboardStanchions: [
-      [6.0, -3.0],
-      [1, -4.0],
-      [-4, -4.0],
+      [6.0, -2.85],
+      [1, -3.85],
+      [-4, -3.85],
     ],
     bowPulpit: [
       [8.5, -2.0],
