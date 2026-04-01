@@ -439,6 +439,136 @@ export function tessellateScreenCircle(
 }
 
 /**
+ * Subdivide a closed polygon using quadratic bezier smoothing.
+ * Every vertex is treated as a control point; on-curve points are placed
+ * at midpoints between consecutive controls. This produces a smooth
+ * C1-continuous closed curve.
+ *
+ * @param subdivisions Number of interpolated points per segment (3-6 typical)
+ */
+export function subdivideClosedSmooth(
+  points: ReadonlyArray<readonly [number, number]>,
+  subdivisions: number = 4,
+): [number, number][] {
+  const n = points.length;
+  if (n < 3) {
+    return points.map((p) => [p[0], p[1]] as [number, number]);
+  }
+
+  const out: [number, number][] = [];
+
+  for (let i = 0; i < n; i++) {
+    const next = (i + 1) % n;
+    const next2 = (i + 2) % n;
+
+    // On-curve start = midpoint(P_i, P_{i+1})
+    const p0x = (points[i][0] + points[next][0]) / 2;
+    const p0y = (points[i][1] + points[next][1]) / 2;
+
+    // Control point = P_{i+1}
+    const cpx = points[next][0];
+    const cpy = points[next][1];
+
+    // On-curve end = midpoint(P_{i+1}, P_{i+2})
+    const p1x = (points[next][0] + points[next2][0]) / 2;
+    const p1y = (points[next][1] + points[next2][1]) / 2;
+
+    // Sample quadratic Bezier, skip t=1 (start of next segment)
+    for (let s = 0; s < subdivisions; s++) {
+      const t = s / subdivisions;
+      const u = 1 - t;
+      out.push([
+        u * u * p0x + 2 * u * t * cpx + t * t * p1x,
+        u * u * p0y + 2 * u * t * cpy + t * t * p1y,
+      ]);
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Round the corners of a polyline by inserting bezier arcs at each interior vertex.
+ * Straight segments stay straight; only the corners get rounded.
+ * The original vertex becomes the bezier control point, with on-curve points
+ * offset inward along each adjacent segment by `radius`.
+ *
+ * @param radius How far from each corner to start rounding (ft)
+ * @param arcPoints Number of points to sample along each corner arc (4-8 typical)
+ */
+export function roundCorners(
+  points: ReadonlyArray<readonly [number, number]>,
+  zPerPoint: number[],
+  radius: number,
+  arcPoints: number = 6,
+): { points: [number, number][]; zValues: number[] } {
+  const n = points.length;
+  if (n < 3 || radius <= 0) {
+    return {
+      points: points.map((p) => [p[0], p[1]] as [number, number]),
+      zValues: [...zPerPoint],
+    };
+  }
+
+  const out: [number, number][] = [];
+  const outZ: number[] = [];
+
+  // First point (no rounding)
+  out.push([points[0][0], points[0][1]]);
+  outZ.push(zPerPoint[0]);
+
+  for (let i = 1; i < n - 1; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const next = points[i + 1];
+
+    // Incoming and outgoing segment vectors
+    const dix = curr[0] - prev[0];
+    const diy = curr[1] - prev[1];
+    const dox = next[0] - curr[0];
+    const doy = next[1] - curr[1];
+    const lenIn = Math.sqrt(dix * dix + diy * diy);
+    const lenOut = Math.sqrt(dox * dox + doy * doy);
+
+    if (lenIn < 1e-6 || lenOut < 1e-6) {
+      out.push([curr[0], curr[1]]);
+      outZ.push(zPerPoint[i]);
+      continue;
+    }
+
+    // Clamp radius so we don't overshoot either segment
+    const r = Math.min(radius, lenIn * 0.5, lenOut * 0.5);
+
+    // Arc start: back off from vertex along incoming segment
+    const ax = curr[0] - (dix / lenIn) * r;
+    const ay = curr[1] - (diy / lenIn) * r;
+    const aZ = zPerPoint[i] - (zPerPoint[i] - zPerPoint[i - 1]) * (r / lenIn);
+
+    // Arc end: advance from vertex along outgoing segment
+    const bx = curr[0] + (dox / lenOut) * r;
+    const by = curr[1] + (doy / lenOut) * r;
+    const bZ = zPerPoint[i] + (zPerPoint[i + 1] - zPerPoint[i]) * (r / lenOut);
+
+    // Sample quadratic bezier: arc_start -> vertex (control) -> arc_end
+    for (let s = 0; s <= arcPoints; s++) {
+      const t = s / arcPoints;
+      const u = 1 - t;
+      out.push([
+        u * u * ax + 2 * u * t * curr[0] + t * t * bx,
+        u * u * ay + 2 * u * t * curr[1] + t * t * by,
+      ]);
+      outZ.push(u * u * aZ + 2 * u * t * zPerPoint[i] + t * t * bZ);
+    }
+  }
+
+  // Last point (no rounding)
+  out.push([points[n - 1][0], points[n - 1][1]]);
+  outZ.push(zPerPoint[n - 1]);
+
+  return { points: out, zValues: outZ };
+}
+
+/**
  * Subdivide a polyline using quadratic bezier smoothing with per-vertex z.
  * Interior points are treated as control points; on-curve points are placed
  * at midpoints between consecutive control points. This produces a smooth

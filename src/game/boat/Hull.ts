@@ -12,6 +12,7 @@ import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
 import { HullConfig } from "./BoatConfig";
+import { subdivideClosedSmooth } from "./tessellation";
 
 const GRAVITY = 32.174; // ft/s²
 // Hydrostatic pressure: F = ρ * g * depth * area (lbf), converted to engine units (* g)
@@ -284,6 +285,7 @@ export class Hull extends BaseEntity {
   private bottomColor: number;
   private getDamageMultiplier: () => number = () => 1;
   private mesh: HullMesh;
+  private renderMesh: HullMesh;
 
   // Energy dissipation tracking (updated each tick)
   private _dissipation: HullDissipation = { totalPower: 0, triangleCount: 0 };
@@ -346,6 +348,21 @@ export class Hull extends BaseEntity {
       config.vertices,
       meshWaterlineVerts,
       bottomVerts,
+      deckZ,
+      bottomZ,
+    );
+
+    // Build smooth render mesh from subdivided rings
+    const subdivide = (verts: V2d[]) =>
+      subdivideClosedSmooth(
+        verts.map((v) => [v.x, v.y] as [number, number]),
+        4,
+      ).map(([x, y]) => V(x, y));
+
+    this.renderMesh = buildHullMesh(
+      subdivide(config.vertices),
+      subdivide(meshWaterlineVerts),
+      subdivide(bottomVerts),
       deckZ,
       bottomZ,
     );
@@ -733,7 +750,7 @@ export class Hull extends BaseEntity {
 
   /** Data needed by BoatCompositor for hull height rendering. */
   getHeightMeshData(): HullMesh {
-    return this.mesh;
+    return this.renderMesh;
   }
 
   getPosition(): V2d {

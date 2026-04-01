@@ -9,6 +9,7 @@ import {
   MeshContribution,
   TiltProjection,
   computeTiltProjection,
+  roundCorners,
   subdivideSmooth,
   tessellateScreenCircle,
   tessellateLineToQuad,
@@ -453,9 +454,14 @@ export class BoatRenderer extends BaseEntity {
       const points = lifelineConfig.bowPulpit.map(
         (p) => [p[0], p[1]] as [number, number],
       );
-      const mesh = tessellateScreenWidthPolyline(
+      const rounded = roundCorners(
         points,
         points.map(() => topZ),
+        1.5,
+      );
+      const mesh = tessellateScreenWidthPolyline(
+        rounded.points,
+        rounded.zValues,
         tubeWidth,
         tilt,
         tubeColor,
@@ -494,9 +500,14 @@ export class BoatRenderer extends BaseEntity {
       const points = lifelineConfig.sternPulpit.map(
         (p) => [p[0], p[1]] as [number, number],
       );
-      const mesh = tessellateScreenWidthPolyline(
+      const rounded = roundCorners(
         points,
         points.map(() => topZ),
+        1.5,
+      );
+      const mesh = tessellateScreenWidthPolyline(
+        rounded.points,
+        rounded.zValues,
         tubeWidth,
         tilt,
         tubeColor,
