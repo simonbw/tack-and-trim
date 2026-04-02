@@ -27,8 +27,9 @@ import { fn_renderTerrain } from "../world/shaders/terrain-rendering.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
 import { fn_fractalNoise3D, fn_simplex3D } from "../world/shaders/noise.wgsl";
 
-// Shallow water threshold for rendering
-const SHALLOW_WATER_THRESHOLD = 1.5;
+// Beer-Lambert attenuation coefficient for underwater visibility (per foot).
+// Clear coastal water: ~0.15. Objects at 10ft → 22% visible, 20ft → 5%.
+const WATER_ATTENUATION = 0.15;
 
 /**
  * Params module with uniforms and bindings for surface composite.
@@ -50,7 +51,7 @@ struct Params {
   viewportHeight: f32,
   time: f32,
   tideHeight: f32,
-  shallowThreshold: f32,
+  waterAttenuation: f32,
   hasTerrainData: i32,
 
   // Terrain tile atlas parameters
@@ -60,7 +61,7 @@ struct Params {
   atlasWorldUnitsPerTile: f32,
 }
 
-const SHALLOW_WATER_THRESHOLD: f32 = ${SHALLOW_WATER_THRESHOLD};
+const WATER_ATTENUATION: f32 = ${WATER_ATTENUATION};
 `,
   bindings: {
     params: { type: "uniform", wgslType: "Params" },
@@ -289,7 +290,6 @@ fn computeWaterColorAtPoint(normal: vec3<f32>, waterHeight: f32, waterDepth: f32
 // Depth mapping constants — must match shape/sprite shaders
 const Z_MIN: f32 = ${DEPTH_Z_MIN};
 const Z_MAX: f32 = ${DEPTH_Z_MAX};
-const SUBMERSION_THRESHOLD: f32 = 1.5;
 
 fn mapZToDepth(z: f32) -> f32 {
   return (z - Z_MIN) / (Z_MAX - Z_MIN);
@@ -359,16 +359,16 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     // Above water - render as sand/terrain with tracked wetness
     finalColor = renderTerrain(terrainHeight, terrainNormal, worldPos, wetness, params.time);
     surfaceZ = terrainHeight;
-  } else if (waterDepth < params.shallowThreshold) {
-    // Shallow water - blend between sand and water with sharp transition
-    let normalizedDepth = waterDepth / params.shallowThreshold;
-    let blendFactor = pow(normalizedDepth, 0.4);
-
-    let underwaterWetness = max(wetness, waterDepth);
-    let sandColor = renderTerrain(terrainHeight, terrainNormal, worldPos, underwaterWetness, params.time);
+  } else {
+    // Underwater terrain: Beer-Lambert blend from terrain color to water color.
+    // Visibility = exp(-attenuation * depth). Same formula used for boat submersion.
+    let underwaterWetness = min(max(wetness, waterDepth), 1.0);
+    let terrainColor = renderTerrain(terrainHeight, terrainNormal, worldPos, underwaterWetness, params.time);
     let waterColor = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth, worldPos);
-    finalColor = mix(sandColor, waterColor, blendFactor);
+    let waterBlend = 1.0 - exp(-params.waterAttenuation * waterDepth);
+    finalColor = mix(terrainColor, waterColor, waterBlend);
 
+    // Shoreline foam at the water's edge
     let foamThreshold = 0.2;
     if (waterDepth < foamThreshold) {
       let foamIntensity = (1.0 - (waterDepth / foamThreshold)) * 0.7;
@@ -376,24 +376,17 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     }
     finalColor = mix(finalColor, foamColor, turbulenceFoam);
     surfaceZ = waterHeight;
-  } else {
-    // Deep water
-    finalColor = computeWaterColorAtPoint(waterNormal, waterHeight, waterDepth, worldPos);
-    finalColor = mix(finalColor, foamColor, turbulenceFoam);
-    surfaceZ = waterHeight;
   }
 
-  // Compute alpha: opaque normally, but semi-transparent over submerged boat parts
+  // Boat submersion: same Beer-Lambert attenuation as terrain.
+  // Water is drawn over submerged boat pixels with exponential alpha.
   var alpha = 1.0;
   if (boatPresent) {
     let submersion = waterHeight - boatZ;
     if (submersion <= 0.0) {
-      // Water is below the boat at this pixel — don't draw water here
       alpha = 0.0;
     } else {
-      // Boat is submerged: sharp edge, then gradual increase (like terrain-water blend)
-      let normalized = min(submersion / SUBMERSION_THRESHOLD, 1.0);
-      alpha = pow(normalized, 0.4);
+      alpha = 1.0 - exp(-params.waterAttenuation * submersion);
     }
   }
 
