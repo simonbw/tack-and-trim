@@ -1,7 +1,6 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
-import { lerp } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
 import type { Boat } from "./Boat";
 import type { BoatConfig } from "./BoatConfig";
@@ -649,25 +648,11 @@ export class BoatRenderer extends BaseEntity {
     const opacity = sheet.getOpacity();
     if (opacity <= 0) return;
 
-    const points = sheet.getRopePoints();
-    const n = points.length;
-    if (n < 2) return;
-
-    const zA = sheet.getZA();
-    const zB = sheet.getZB();
-
-    // Rope points are in world space. The clew endpoint includes tilt parallax
-    // from the cloth sim, matching the sail rendering. Render directly in world
-    // space (outside the hull draw.at context) so tilt isn't double-counted.
-    const worldPoints: [number, number][] = [];
-    const zPerPoint: number[] = [];
-
-    for (let i = 0; i < n; i++) {
-      const t = i / (n - 1);
-      const z = lerp(zA, zB, t);
-      worldPoints.push([points[i].x, points[i].y]);
-      zPerPoint.push(z);
-    }
+    // Rope points come from physics particles with real z-values.
+    // Rendered in world space (outside the hull draw.at context) so tilt
+    // isn't double-counted.
+    const { points: worldPoints, z: zPerPoint } = sheet.getRopePointsWithZ();
+    if (worldPoints.length < 2) return;
 
     // Smooth subdivision for rope curves
     const smooth = subdivideSmooth(worldPoints, zPerPoint, 6);

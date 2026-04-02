@@ -3,7 +3,6 @@ import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Body } from "../../../core/physics/body/Body";
 import { DynamicBody } from "../../../core/physics/body/DynamicBody";
-import { Particle } from "../../../core/physics/shapes/Particle";
 import { clamp } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
 import { TimeOfDay } from "../../time/TimeOfDay";
@@ -251,7 +250,10 @@ export class Sail extends BaseEntity {
           zDamping: 0.9,
           rollPitchDamping: 0,
         },
-      }).addShape(new Particle());
+      });
+      // No collision shape — the clew body is inside the hull polygon
+      // and would collide with it. It only needs to participate in
+      // constraint solving and force application.
 
       this.bodies = [clewBody];
       this.constraints = [];
@@ -490,13 +492,19 @@ export class Sail extends BaseEntity {
       const hPoint = hBody.vectorToWorldFrame(headConstraint.localAnchor);
       hBody.applyForce(V(tackRx + headRx, tackRy + headRy), hPoint);
 
-      // Clew reaction forces (mainsail only — jib clew is free/unpinned)
+      // Clew reaction forces — apply to constraint body (mainsail: boom)
+      // or directly to the clew body (jib: free body constrained by sheets)
       if (clewConstraint) {
         const clewRx = reactions[REACTION_CLEW_X] * vm;
         const clewRy = reactions[REACTION_CLEW_Y] * vm;
         const cBody = clewConstraint.body as DynamicBody;
         const cPoint = cBody.vectorToWorldFrame(clewConstraint.localAnchor);
         cBody.applyForce(V(clewRx, clewRy), cPoint);
+      } else if (sailShape === "triangle" && this.bodies.length > 0) {
+        const clewRx = reactions[REACTION_CLEW_X] * vm;
+        const clewRy = reactions[REACTION_CLEW_Y] * vm;
+        const cBody = this.bodies[0] as DynamicBody;
+        cBody.applyForce(V(clewRx, clewRy));
       }
 
       this.handle.ackResults();
@@ -545,14 +553,15 @@ export class Sail extends BaseEntity {
     // Clew (u=1, v=0): position depends on sail type
     let clewX: number, clewY: number, clewZ: number;
     if (sailShape === "triangle" && this.bodies.length > 0) {
-      // Jib: use the cloth sim's current clew position directly as the pin
-      // target. This avoids frame conversion drift — the pin target stays
-      // exactly where the vertex already is, keeping the coupling stable.
-      // Sheet spring forces still act on the body during physics, and the
-      // body is snapped back to the cloth sim position afterwards.
-      clewX = this.handle.getPositionX(this.clewIdx);
-      clewY = this.handle.getPositionY(this.clewIdx);
-      clewZ = this.handle.getZ(this.clewIdx);
+      // Jib: use the clew body's physics position as the pin target.
+      // The sheet constrains this body, so when trimmed the body moves
+      // inward → cloth sim pins the vertex to the new position → wind
+      // pushes back via reaction forces → equilibrium.
+      const clewBody = this.bodies[0] as DynamicBody;
+      clewX = clewBody.position[0];
+      clewY = clewBody.position[1];
+      // Z from the body's 6DOF position, minus hull heave (cloth sim frame)
+      clewZ = clewBody.z - (hullBody?.z ?? 0);
     } else {
       // Mainsail: clew at boom end
       clewX = clew.x;
@@ -614,24 +623,14 @@ export class Sail extends BaseEntity {
       headX: headWX,
       headY: headWY,
       headZ: headWZ,
-      clewPinned: sailShape === "boom",
+      clewPinned: true,
     });
 
-    // Snap the jib clew body position to match the cloth sim's clew vertex.
-    // This runs AFTER physics, so the Sheet visual (read next frame) will match
-    // the sail rendering (both show the cloth sim position). The force coupling
-    // during the physics step still works — this just fixes the visual endpoint.
-    if (sailShape === "triangle" && this.bodies.length > 0) {
-      const clewBody = this.bodies[0] as DynamicBody;
-      const simX = this.handle.getPositionX(this.clewIdx);
-      const simY = this.handle.getPositionY(this.clewIdx);
-
-      // Set body position to the cloth sim clew position directly.
-      // The sail renders in world space using these same coords.
-      clewBody.position.set(simX, simY);
-      // Zero velocity to prevent drift between frames
-      clewBody.velocity.set(0, 0);
-    }
+    // Note: the jib clew body is NOT snapped to the cloth sim position.
+    // It's a real physics body — the sheet constraints control it, and the
+    // cloth sim pins its vertex to the body position. Reaction forces from
+    // the cloth push the body outward (wind), sheet constraints pull it
+    // inward (trim). The clew body finds equilibrium between the two.
   }
 
   /** Get clew position from config (for boom/constraint based sails) */

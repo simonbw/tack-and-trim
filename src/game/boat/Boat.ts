@@ -121,7 +121,6 @@ export class Boat extends BaseEntity {
       config.mainsheet;
     const boomZ = config.rig.mainsail.zFoot ?? 3;
     const deckZ = config.hull.deckHeight;
-    const getHullBody = () => this.hull.body;
     this.mainsheet = this.addChild(
       new Sheet(
         this.rig.body as DynamicBody,
@@ -129,7 +128,6 @@ export class Boat extends BaseEntity {
         this.hull.body,
         hullAttachPoint,
         mainsheetConfig,
-        getHullBody,
         boomZ,
         deckZ,
       ),
@@ -178,7 +176,6 @@ export class Boat extends BaseEntity {
           this.hull.body,
           portAttachPoint,
           jibSheetConfig,
-          getHullBody,
           jibClewZ,
           deckZ,
         ),
@@ -191,7 +188,6 @@ export class Boat extends BaseEntity {
           this.hull.body,
           starboardAttachPoint,
           { ...jibSheetConfig },
-          getHullBody,
           jibClewZ,
           deckZ,
         ),

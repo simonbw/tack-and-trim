@@ -1,12 +1,10 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
-import { RopeSpring3D } from "../../core/physics/springs/RopeSpring3D";
 import { clamp, lerp, stepToward } from "../../core/util/MathUtil";
-import { V, V2d } from "../../core/Vector";
-import { VerletRope } from "../rope/VerletRope";
+import { V2d } from "../../core/Vector";
+import { Rope, RopeConfig } from "../rope/Rope";
 
 export interface SheetConfig {
   minLength: number;
@@ -17,12 +15,12 @@ export interface SheetConfig {
   ropePointCount: number;
   ropeThickness: number;
   ropeColor: number;
-  /** Spring stiffness (force per ft of extension). Default 200. */
-  stiffness?: number;
-  /** Spring damping coefficient. Default 50. */
-  springDamping?: number;
-  /** Maximum spring force (lbf). Prevents instability. Default 1000. */
-  maxForce?: number;
+  /** Number of interior rope particles. Default 6. */
+  particleCount?: number;
+  /** Particle mass in lbs. Default 0.5. */
+  particleMass?: number;
+  /** Particle linear damping (0-1). Default 0.5. */
+  ropeDamping?: number;
 }
 
 const DEFAULT_CONFIG: SheetConfig = {
@@ -34,32 +32,36 @@ const DEFAULT_CONFIG: SheetConfig = {
   ropePointCount: 8,
   ropeThickness: 0.75,
   ropeColor: 0x444444,
-  stiffness: 200,
-  springDamping: 50,
-  maxForce: 1000,
+  particleCount: 6,
+  particleMass: 0.5,
+  ropeDamping: 0.5,
 };
 
 /**
  * A single adjustable sheet (rope) connecting two physics bodies.
- * Uses a RopeSpring3D (only applies force when taut) for soft, stable coupling.
- * Can be trimmed in or eased out smoothly.
+ * Uses a chain of lightweight particles connected by upper-limit-only
+ * distance constraints for stable, energy-dissipative force transmission.
+ *
+ * maxLength is computed from the actual endpoint geometry at construction
+ * time — it's the distance the rope needs to be fully slack. The config's
+ * maxLength is ignored; minLength is how short the crew can trim to.
  */
 export class Sheet extends BaseEntity {
   layer = "boat" as const;
-  private spring: RopeSpring3D;
-  private visualRope: VerletRope;
+  private rope: Rope;
 
   private config: SheetConfig;
+  /** Effective max length — computed from endpoint geometry. */
+  private maxLength: number;
   private position: number; // 0 = full in, 1 = full out (single source of truth)
   private opacity: number = 1.0;
 
   constructor(
-    private bodyA: DynamicBody,
-    private localAnchorA: V2d,
-    private bodyB: Body,
-    private localAnchorB: V2d,
+    bodyA: DynamicBody,
+    localAnchorA: V2d,
+    bodyB: Body,
+    localAnchorB: V2d,
     config: Partial<SheetConfig> = {},
-    private getHullBody?: () => DynamicBody,
     private zA: number = 0,
     private zB: number = 0,
   ) {
@@ -67,38 +69,47 @@ export class Sheet extends BaseEntity {
 
     this.config = { ...DEFAULT_CONFIG, ...config };
 
-    // Initialize position based on default length
-    this.position =
-      (this.config.defaultLength - this.config.minLength) /
-      (this.config.maxLength - this.config.minLength);
+    // Compute maxLength from the actual endpoint distance so the rope
+    // is always long enough to be fully slack when released.
+    const anchorAWorld = bodyA.toWorldFrame(localAnchorA);
+    const anchorBWorld = bodyB.toWorldFrame(localAnchorB);
+    const dx = anchorBWorld[0] - anchorAWorld[0];
+    const dy = anchorBWorld[1] - anchorAWorld[1];
+    this.maxLength = Math.sqrt(dx * dx + dy * dy);
 
-    const initialLength = this.getSheetLength();
+    const ropeConfig: RopeConfig = {
+      particleCount: this.config.particleCount,
+      particleMass: this.config.particleMass,
+      damping: this.config.ropeDamping,
+    };
 
-    // RopeSpring3D: only applies force when stretched beyond rest length.
-    // Softer than a hard distance constraint, preventing instability when
-    // coupling with the cloth sim's separate constraint solver.
-    this.spring = new RopeSpring3D(bodyA, bodyB, {
-      localAnchorA: [localAnchorA.x, localAnchorA.y, this.zA],
-      localAnchorB: [localAnchorB.x, localAnchorB.y, this.zB],
-      restLength: initialLength,
-      stiffness: this.config.stiffness,
-      damping: this.config.springDamping,
-      maxForce: this.config.maxForce,
-    });
+    // Start at maxLength (fully slack). The Rope constructor will clamp
+    // up if needed, but with maxLength derived from geometry it shouldn't.
+    this.position = 1;
 
-    this.springs = [this.spring];
+    this.rope = new Rope(
+      bodyA,
+      [localAnchorA.x, localAnchorA.y, this.zA],
+      bodyB,
+      [localAnchorB.x, localAnchorB.y, this.zB],
+      this.maxLength,
+      ropeConfig,
+    );
 
-    this.visualRope = new VerletRope({
-      pointCount: this.config.ropePointCount ?? 8,
-      restLength: initialLength,
-      gravity: V(0, 3),
-      damping: 0.98,
-      thickness: this.config.ropeThickness ?? 0.75,
-      color: this.config.ropeColor ?? 0x444444,
-    });
+    // Sync position back from the Rope's actual length (in case it clamped).
+    const range = this.maxLength - this.config.minLength;
+    if (range > 0) {
+      this.position = clamp(
+        (this.rope.getLength() - this.config.minLength) / range,
+        0,
+        1,
+      );
+    }
 
-    // Initialize rope at correct world positions so it doesn't snap from (0,0) on first frame
-    this.visualRope.reset(this.getAnchorAWorld(), this.getAnchorBWorld());
+    // Expose rope internals to the entity system for automatic
+    // add/remove from the physics world on entity lifecycle.
+    this.bodies = [...this.rope.getParticles()];
+    this.constraints = [...this.rope.getConstraints()];
   }
 
   /**
@@ -112,19 +123,19 @@ export class Sheet extends BaseEntity {
     const target = input < 0 ? 0 : 1;
     const baseSpeed = input < 0 ? this.config.trimSpeed : this.config.easeSpeed;
     const speed =
-      (Math.abs(input) * baseSpeed) /
-      (this.config.maxLength - this.config.minLength);
+      (Math.abs(input) * baseSpeed) / (this.maxLength - this.config.minLength);
 
     this.position = stepToward(this.position, target, speed * dt);
-    this.syncSpringAndRope();
+    this.rope.setLength(this.getSheetLength());
   }
 
   /**
    * Instantly release the sheet to maximum length (for tacking).
+   * Guarantees slack by using at least the current endpoint distance.
    */
   release(): void {
     this.position = 1;
-    this.syncSpringAndRope();
+    this.rope.releaseToSlack(this.getSheetLength());
   }
 
   /**
@@ -133,13 +144,7 @@ export class Sheet extends BaseEntity {
    */
   setPosition(position: number): void {
     this.position = clamp(position, 0, 1);
-    this.syncSpringAndRope();
-  }
-
-  private syncSpringAndRope(): void {
-    const length = this.getSheetLength();
-    this.spring.restLength = length;
-    this.visualRope.setRestLength(length);
+    this.rope.setLength(this.getSheetLength());
   }
 
   getSheetPosition(): number {
@@ -147,7 +152,7 @@ export class Sheet extends BaseEntity {
   }
 
   getSheetLength(): number {
-    return lerp(this.config.minLength, this.config.maxLength, this.position);
+    return lerp(this.config.minLength, this.maxLength, this.position);
   }
 
   /** Set the visual opacity of the sheet (0 = invisible, 1 = fully visible) */
@@ -160,26 +165,22 @@ export class Sheet extends BaseEntity {
     return this.position >= 1;
   }
 
-  private getAnchorAWorld(): V2d {
-    const [x, y] = this.bodyA.position;
-    return this.localAnchorA.rotate(this.bodyA.angle).iadd([x, y]);
-  }
-
-  private getAnchorBWorld(): V2d {
-    const [x, y] = this.bodyB.position;
-    return this.localAnchorB.rotate(this.bodyB.angle).iadd([x, y]);
-  }
-
   @on("tick")
-  onTick({ dt }: GameEventMap["tick"]): void {
-    const anchorA = this.getAnchorAWorld();
-    const anchorB = this.getAnchorBWorld();
-    this.visualRope.update(anchorA, anchorB, dt);
+  onTick(): void {
+    this.rope.tick();
   }
 
-  /** Get world-space rope simulation points. */
+  /** Get world-space rope points (endpoints + particles). */
   getRopePoints(): readonly V2d[] {
-    return this.visualRope.getPoints();
+    return this.rope.getPoints();
+  }
+
+  /** Get world-space rope points with z-values from particle positions. */
+  getRopePointsWithZ(): {
+    points: [number, number][];
+    z: number[];
+  } {
+    return this.rope.getPointsWithZ();
   }
 
   /** Get visual opacity. */
@@ -199,11 +200,11 @@ export class Sheet extends BaseEntity {
 
   /** Rope thickness for rendering. */
   getRopeThickness(): number {
-    return this.config.ropeThickness ?? 0.75;
+    return this.config.ropeThickness;
   }
 
   /** Rope color for rendering. */
   getRopeColor(): number {
-    return this.config.ropeColor ?? 0x444444;
+    return this.config.ropeColor;
   }
 }
