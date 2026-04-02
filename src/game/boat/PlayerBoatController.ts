@@ -51,6 +51,16 @@ export class PlayerBoatController extends BaseEntity {
     const mainsheetDt = shiftHeld ? dt * 2.5 : dt;
     this.boat.mainsheet.adjust(-sheet, mainsheetDt);
 
+    // Mainsail hoist/furl (T = hoist, G = furl)
+    const mainHoist = io.isKeyDown("KeyT") ? 1 : io.isKeyDown("KeyG") ? -1 : 0;
+    this.boat.rig.sail.setHoistInput(mainHoist as -1 | 0 | 1);
+
+    // Jib hoist/furl (Y = hoist, H = furl)
+    if (this.boat.jib) {
+      const jibHoist = io.isKeyDown("KeyY") ? 1 : io.isKeyDown("KeyH") ? -1 : 0;
+      this.boat.jib.setHoistInput(jibHoist as -1 | 0 | 1);
+    }
+
     // Jib sheet controls - only if boat has a jib
     if (
       this.boat.jib &&
@@ -149,11 +159,6 @@ export class PlayerBoatController extends BaseEntity {
     // No actions while port menu is open or sinking
     if (this.game.entities.tryGetSingleton(PortMenu)) return;
     if (this.boat.bilge.isSinking()) return;
-
-    // Toggle sails hoisted/lowered
-    if (key === "KeyR") {
-      this.boat.toggleSails();
-    }
 
     // Dock / anchor toggle
     if (key === "KeyF") {

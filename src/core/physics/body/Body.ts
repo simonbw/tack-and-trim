@@ -150,6 +150,22 @@ export abstract class Body extends EventEmitter<PhysicsEventMap> {
   }
 
   /**
+   * Transform a world 3D point to body-local coordinates [lx, ly, lz].
+   * Non-6DOF bodies use 2D inverse rotation for x,y and return worldZ for z.
+   */
+  toLocalFrame3D(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): [number, number, number] {
+    const c = Math.cos(-this.angle);
+    const s = Math.sin(-this.angle);
+    const dx = worldX - this.position[0];
+    const dy = worldY - this.position[1];
+    return [c * dx - s * dy, s * dx + c * dy, worldZ];
+  }
+
+  /**
    * Transform a body-local 3D point to world coordinates [wx, wy, wz].
    * Non-6DOF bodies use 2D toWorldFrame for x,y and return localZ for z.
    */

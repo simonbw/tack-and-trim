@@ -49,6 +49,9 @@ export class ClothRenderer {
   /**
    * Read solver positions (already in heeled world space), compute normals,
    * and submit for rendering.
+   *
+   * @param vertexActive Optional per-vertex active mask. If provided, triangles
+   *   with any inactive vertex are skipped.
    */
   render(
     solver: ClothPositionReader,
@@ -56,6 +59,7 @@ export class ClothRenderer {
     color: number,
     alpha: number,
     time: number,
+    vertexActive?: Uint8Array,
   ): void {
     const n = this.vertexCount;
     const verts = this.vertexData;
@@ -73,11 +77,19 @@ export class ClothRenderer {
       // normal slots (vi+2, vi+3, vi+4) filled below
     }
 
-    // Accumulate face normals to each vertex
+    // Build index buffer, skipping inactive triangles
+    let activeIndexCount = 0;
     for (let t = 0; t < indices.length; t += 3) {
       const i0 = indices[t];
       const i1 = indices[t + 1];
       const i2 = indices[t + 2];
+
+      // Skip triangles with any inactive vertex
+      if (
+        vertexActive &&
+        (!vertexActive[i0] || !vertexActive[i1] || !vertexActive[i2])
+      )
+        continue;
 
       const x0 = solver.getPositionX(i0),
         y0 = solver.getPositionY(i0),
@@ -110,7 +122,15 @@ export class ClothRenderer {
       normals[i2 * 3] += nx;
       normals[i2 * 3 + 1] += ny;
       normals[i2 * 3 + 2] += nz;
+
+      // Write to index buffer
+      this.indexData[activeIndexCount] = i0;
+      this.indexData[activeIndexCount + 1] = i1;
+      this.indexData[activeIndexCount + 2] = i2;
+      activeIndexCount += 3;
     }
+
+    if (activeIndexCount === 0) return;
 
     // Write normalized normals into vertex buffer
     for (let i = 0; i < n; i++) {
@@ -143,7 +163,7 @@ export class ClothRenderer {
       verts,
       n,
       this.indexData,
-      this.indexCount,
+      activeIndexCount,
       color,
       alpha,
       time,

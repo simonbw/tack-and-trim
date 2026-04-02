@@ -728,6 +728,27 @@ export class DynamicBody extends Body implements SleepableBody {
   }
 
   /**
+   * Transform a world 3D point to body-local coordinates [lx, ly, lz].
+   * Inverse of toWorldFrame3D — subtracts position/z, then applies transposed rotation.
+   */
+  toLocalFrame3D(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): [number, number, number] {
+    const R = this._orientation;
+    const dx = worldX - this.position[0];
+    const dy = worldY - this.position[1];
+    const dz = worldZ - this._z;
+    // R is orthonormal, so R^-1 = R^T
+    return [
+      R[0] * dx + R[3] * dy + R[6] * dz,
+      R[1] * dx + R[4] * dy + R[7] * dz,
+      R[2] * dx + R[5] * dy + R[8] * dz,
+    ];
+  }
+
+  /**
    * Get the world-space X parallax offset for a given z-height.
    * This is how much a point at height z shifts in screen X due to tilt.
    * Uses R[2] (the x-component of the rotation matrix's z-column).

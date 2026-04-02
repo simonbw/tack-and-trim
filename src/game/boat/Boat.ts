@@ -1,6 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import { GameEventMap } from "../../core/entity/Entity";
-import { on } from "../../core/entity/handler";
+import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
 import { Anchor } from "./Anchor";
@@ -125,7 +124,7 @@ export class Boat extends BaseEntity {
     const getHullBody = () => this.hull.body;
     this.mainsheet = this.addChild(
       new Sheet(
-        this.rig.body,
+        this.rig.body as DynamicBody,
         V(-this.rig.getBoomLength() * boomAttachRatio, 0),
         this.hull.body,
         hullAttachPoint,
@@ -155,6 +154,7 @@ export class Boat extends BaseEntity {
           ...config.jib,
           getHeadPosition: () => this.toWorldFrame(jibTackPosition),
           headLocalPosition: jibTackPosition,
+          luffTopLocalPosition: jibHeadPosition,
           initialClewPosition,
           headConstraint: {
             body: this.hull.body,
@@ -168,7 +168,7 @@ export class Boat extends BaseEntity {
       // Create jib sheets (clew to hull, port and starboard)
       const { portAttachPoint, starboardAttachPoint, ...jibSheetConfig } =
         config.jibSheet;
-      const clewBody = this.jib.getClew();
+      const clewBody = this.jib.getClew() as DynamicBody;
 
       const jibClewZ = config.jib.zFoot ?? 3;
       this.portJibSheet = this.addChild(
@@ -283,16 +283,6 @@ export class Boat extends BaseEntity {
     this.addChild(new BoatSoundGenerator(this));
   }
 
-  @on("tick")
-  onTick({}: GameEventMap["tick"]): void {
-    // Fade jib sheets based on jib hoist amount
-    if (this.jib && this.portJibSheet && this.starboardJibSheet) {
-      const jibOpacity = this.jib.getHoistAmount();
-      this.portJibSheet.setOpacity(jibOpacity);
-      this.starboardJibSheet.setOpacity(jibOpacity);
-    }
-  }
-
   /** Row the boat forward */
   row(): void {
     const angle = this.hull.body.angle;
@@ -305,12 +295,5 @@ export class Boat extends BaseEntity {
       0,
       0,
     );
-  }
-
-  /** Toggle sails hoisted/lowered */
-  toggleSails(): void {
-    const newState = !this.rig.sail.isHoisted();
-    this.rig.sail.setHoisted(newState);
-    this.jib?.setHoisted(newState);
   }
 }

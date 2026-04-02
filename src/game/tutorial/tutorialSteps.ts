@@ -50,8 +50,8 @@ export const tutorialSteps: TutorialStep[] = [
     title: "Raise Your Sails",
     description:
       "With the anchor up, you'll need wind power to move. Raise your sails to catch the breeze.",
-    objective: "Press R to raise your sails",
-    keyHint: "R",
+    objective: "Hold T to raise your sails",
+    keyHint: "T",
     checkComplete: (ctx) => ctx.boat.rig.sail.getHoistAmount() > 0.9,
   },
   {

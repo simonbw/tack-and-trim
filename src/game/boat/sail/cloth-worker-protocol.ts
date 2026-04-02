@@ -125,6 +125,12 @@ export function getReactionForces(
 
 // ---- Message types ----
 
+/** Furl mode determines how partial deployment is handled:
+ * - "v-cutoff": mainsail in-boom roller — vertices above v threshold are excluded
+ * - "u-wrap": jib forestay roller — vertices below u threshold are pinned to forestay
+ */
+export type FurlMode = "v-cutoff" | "u-wrap";
+
 export interface ClothInitMessage {
   type: "init";
   sab: SharedArrayBuffer;
@@ -135,6 +141,7 @@ export interface ClothInitMessage {
   prevPositions: Float64Array;
   pinned: Uint8Array;
   pinTargets: Float64Array;
+  skipped: Uint8Array;
   structA: Int32Array;
   structB: Int32Array;
   structRest: Float64Array;
@@ -151,6 +158,11 @@ export interface ClothInitMessage {
   tackIdx: number;
   clewIdx: number;
   headIdx: number;
+  // Mesh topology for furling
+  luffVertices: number[];
+  vertexU: Float64Array;
+  vertexV: Float64Array;
+  furlMode: FurlMode;
 }
 
 export interface ClothDestroyMessage {

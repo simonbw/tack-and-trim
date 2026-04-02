@@ -40,18 +40,32 @@ export class BoatRenderer extends BaseEntity {
   }
 
   private buildStaticMeshes() {
-    // Keel: polyline at keelZ
+    // Keel: vertical blade from hull bottom to keel tip
     const keel = this.boat.keel;
     const keelVertices = keel.getVertices();
-    const keelZ = keel.getKeelZ();
-    const keelPoints: [number, number][] = keelVertices.map((v) => [v.x, v.y]);
-    const keelZValues = keelPoints.map(() => keelZ);
-    this.keelMesh = tessellatePolylineToStrip(
-      keelPoints,
-      keelZValues,
-      1,
-      keel.getColor(),
-    );
+    const keelColor = keel.getColor();
+    const topZ = -this.config.hull.draft; // hull bottom
+    const bottomZ = -this.config.keel.draft; // keel tip
+
+    // Build a vertical quad strip: for each vertex, top and bottom copies
+    const n = keelVertices.length;
+    const positions: [number, number][] = [];
+    const zValues: number[] = [];
+    for (const v of keelVertices) {
+      positions.push([v.x, v.y]); // top edge (at hull bottom)
+      positions.push([v.x, v.y]); // bottom edge (at keel tip)
+      zValues.push(topZ, bottomZ);
+    }
+    // Triangle strip indices: pairs of quads between consecutive vertices
+    const indices: number[] = [];
+    for (let i = 0; i < n - 1; i++) {
+      const tl = i * 2; // top-left
+      const bl = tl + 1; // bottom-left
+      const tr = tl + 2; // top-right
+      const br = tl + 3; // bottom-right
+      indices.push(tl, tr, br, tl, br, bl);
+    }
+    this.keelMesh = { positions, zValues, indices, color: keelColor, alpha: 1 };
   }
 
   @on("render")
@@ -173,19 +187,24 @@ export class BoatRenderer extends BaseEntity {
         // === 10. Lifeline pulpits and wires (screen-width) ===
         this.renderLifelineWires(renderer, tilt);
 
-        // === 11. Sheets/ropes ===
-        this.renderSheet(renderer, this.boat.mainsheet);
-        if (this.boat.portJibSheet) {
-          this.renderSheet(renderer, this.boat.portJibSheet);
-        }
-        if (this.boat.starboardJibSheet) {
-          this.renderSheet(renderer, this.boat.starboardJibSheet);
-        }
-
-        // === 12. Mast (cylindrical — screen-width, tallest, drawn last) ===
+        // === 11. Mast (cylindrical — screen-width, tallest, drawn last) ===
         this.renderMast(renderer, tilt);
       },
     );
+
+    // === 12. Sheets/ropes — rendered in world space (outside draw.at) ===
+    // Sheet rope endpoints come from the cloth sim which includes tilt parallax,
+    // matching the sail rendering. Rendering through the hull model matrix would
+    // double-count the tilt.
+    const renderer = draw.renderer;
+    renderer.flush();
+    this.renderSheet(renderer, this.boat.mainsheet, hullBody);
+    if (this.boat.portJibSheet) {
+      this.renderSheet(renderer, this.boat.portJibSheet, hullBody);
+    }
+    if (this.boat.starboardJibSheet) {
+      this.renderSheet(renderer, this.boat.starboardJibSheet, hullBody);
+    }
   }
 
   private submitMesh(
@@ -597,11 +616,11 @@ export class BoatRenderer extends BaseEntity {
   private renderSheet(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
     sheet: import("./Sheet").Sheet,
+    hullBody: import("../../core/physics/body/DynamicBody").DynamicBody,
   ) {
     const opacity = sheet.getOpacity();
     if (opacity <= 0) return;
 
-    const hullBody = this.boat.hull.body;
     const points = sheet.getRopePoints();
     const n = points.length;
     if (n < 2) return;
@@ -609,20 +628,21 @@ export class BoatRenderer extends BaseEntity {
     const zA = sheet.getZA();
     const zB = sheet.getZB();
 
-    // Transform world-space rope points to hull-local coords
-    const localPoints: [number, number][] = [];
+    // Rope points are in world space. The clew endpoint includes tilt parallax
+    // from the cloth sim, matching the sail rendering. Render directly in world
+    // space (outside the hull draw.at context) so tilt isn't double-counted.
+    const worldPoints: [number, number][] = [];
     const zPerPoint: number[] = [];
 
     for (let i = 0; i < n; i++) {
       const t = i / (n - 1);
       const z = lerp(zA, zB, t);
-      const local = hullBody.toLocalFrame(points[i]);
-      localPoints.push([local.x, local.y]);
+      worldPoints.push([points[i].x, points[i].y]);
       zPerPoint.push(z);
     }
 
     // Smooth subdivision for rope curves
-    const smooth = subdivideSmooth(localPoints, zPerPoint, 6);
+    const smooth = subdivideSmooth(worldPoints, zPerPoint, 6);
 
     const mesh = tessellatePolylineToStrip(
       smooth.points,

@@ -183,7 +183,7 @@ export const Kestrel: BoatConfig = {
     defaultLength: 6,
     trimSpeed: 3,
     easeSpeed: 3,
-    ropeThickness: 0.3,
+    ropeThickness: 0.15,
   },
 
   jibSheet: {
@@ -194,7 +194,7 @@ export const Kestrel: BoatConfig = {
     defaultLength: 12,
     trimSpeed: 5,
     easeSpeed: 15,
-    ropeThickness: 0.3,
+    ropeThickness: 0.15,
   },
 
   rowing: {
