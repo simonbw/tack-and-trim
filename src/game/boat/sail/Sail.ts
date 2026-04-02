@@ -464,6 +464,27 @@ export class Sail extends BaseEntity {
       );
     }
 
+    // Skip cloth sim processing when fully furled — no sail to simulate.
+    // The hoist ramp above still runs so the player can start hoisting.
+    if (this.hoistAmount <= 0) {
+      // Still consume results so the worker doesn't stall
+      if (this.handle.hasNewResults()) {
+        this.handle.readReactionForces();
+        this.handle.ackResults();
+      }
+      this._totalReactionForce = 0;
+
+      // Pin the jib clew body to the tack (where the furled sail lives)
+      // so it doesn't float in space disconnected from the boat.
+      if (sailShape === "triangle" && this.bodies.length > 0) {
+        const tackPos = this.config.getHeadPosition();
+        const clewBody = this.bodies[0] as DynamicBody;
+        clewBody.position.set(tackPos);
+        clewBody.velocity.set(0, 0);
+      }
+      return;
+    }
+
     // Read results from the worker's previous solve (one-tick lag)
     if (this.handle.hasNewResults()) {
       const reactions = this.handle.readReactionForces();
@@ -518,6 +539,9 @@ export class Sail extends BaseEntity {
    */
   @on("afterPhysicsStep")
   onAfterPhysicsStep(dt: number) {
+    // Don't kick off cloth sim when fully furled
+    if (this.hoistAmount <= 0) return;
+
     const { sailShape, liftScale, dragScale } = this.config;
 
     // Apply damage multiplier to lift (damaged sails produce less drive)

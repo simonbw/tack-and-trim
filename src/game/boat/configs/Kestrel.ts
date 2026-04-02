@@ -209,7 +209,7 @@ export const Kestrel: BoatConfig = {
     colors: {
       fill: 0xc4a46c, // light teak deck
       stroke: 0x7a5230, // dark wood trim
-      side: 0xa8874e,
+      side: 0xc4a46c,
       bottom: 0x6b4226, // dark stained hull
     },
   },
@@ -226,7 +226,7 @@ export const Kestrel: BoatConfig = {
     length: 2.5, // ft
     draft: 3.0, // ft below waterline
     chord: 2.0, // ft
-    maxSteerAngle: degToRad(35),
+    maxSteerAngle: degToRad(60),
     steerAdjustSpeed: 0.8,
     steerAdjustSpeedFast: 2.0,
     color: 0x4a3a3d,
@@ -330,6 +330,8 @@ export const Kestrel: BoatConfig = {
   jibSheet: {
     portAttachPoint: V(-5, 3.5),
     starboardAttachPoint: V(-5, -3.5),
+    portBlockPoint: V(2, 3.8), // deck block, roughly abeam of mast at rail
+    starboardBlockPoint: V(2, -3.8),
     minLength: 6,
     maxLength: 18,
     defaultLength: 12,

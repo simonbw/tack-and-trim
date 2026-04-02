@@ -4,7 +4,7 @@ import { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { clamp, lerp, stepToward } from "../../core/util/MathUtil";
 import { V2d } from "../../core/Vector";
-import { Rope, RopeConfig } from "../rope/Rope";
+import { Rope, RopeConfig, RopeWaypoint } from "../rope/Rope";
 
 export interface SheetConfig {
   minLength: number;
@@ -34,7 +34,7 @@ const DEFAULT_CONFIG: SheetConfig = {
   ropeColor: 0x444444,
   particleCount: 6,
   particleMass: 0.5,
-  ropeDamping: 0.5,
+  ropeDamping: 0.85,
 };
 
 /**
@@ -64,18 +64,27 @@ export class Sheet extends BaseEntity {
     config: Partial<SheetConfig> = {},
     private zA: number = 0,
     private zB: number = 0,
+    waypoints: RopeWaypoint[] = [],
   ) {
     super();
 
     this.config = { ...DEFAULT_CONFIG, ...config };
 
-    // Compute maxLength from the actual endpoint distance so the rope
-    // is always long enough to be fully slack when released.
-    const anchorAWorld = bodyA.toWorldFrame(localAnchorA);
-    const anchorBWorld = bodyB.toWorldFrame(localAnchorB);
-    const dx = anchorBWorld[0] - anchorAWorld[0];
-    const dy = anchorBWorld[1] - anchorAWorld[1];
-    this.maxLength = Math.sqrt(dx * dx + dy * dy);
+    // Compute maxLength from the full path distance (endpoint → waypoints → endpoint)
+    // so the rope is always long enough to be fully slack when released.
+    const pathPoints = [
+      bodyA.toWorldFrame(localAnchorA),
+      ...waypoints.map((w) => w.body.toWorldFrame(w.localAnchor)),
+      bodyB.toWorldFrame(localAnchorB),
+    ];
+    this.maxLength = 0;
+    for (let i = 0; i < pathPoints.length - 1; i++) {
+      const dx = pathPoints[i + 1][0] - pathPoints[i][0];
+      const dy = pathPoints[i + 1][1] - pathPoints[i][1];
+      this.maxLength += Math.sqrt(dx * dx + dy * dy);
+    }
+    // Add slack margin so "fully released" has real slack, not zero.
+    this.maxLength *= 1.1;
 
     const ropeConfig: RopeConfig = {
       particleCount: this.config.particleCount,
@@ -94,6 +103,7 @@ export class Sheet extends BaseEntity {
       [localAnchorB.x, localAnchorB.y, this.zB],
       this.maxLength,
       ropeConfig,
+      waypoints,
     );
 
     // Sync position back from the Rope's actual length (in case it clamped).
@@ -166,8 +176,10 @@ export class Sheet extends BaseEntity {
   }
 
   @on("tick")
-  onTick(): void {
-    this.rope.tick();
+  onTick({
+    dt,
+  }: import("../../core/entity/Entity").GameEventMap["tick"]): void {
+    this.rope.tick(dt);
   }
 
   /** Get world-space rope points (endpoints + particles). */
@@ -196,6 +208,11 @@ export class Sheet extends BaseEntity {
   /** Z-height at anchor B (body B end). */
   getZB(): number {
     return this.zB;
+  }
+
+  /** World positions of blocks/waypoints along this sheet. */
+  getBlockPositions(): V2d[] {
+    return this.rope.getWaypointPositions();
   }
 
   /** Rope thickness for rendering. */

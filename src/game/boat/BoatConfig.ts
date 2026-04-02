@@ -263,8 +263,12 @@ export interface MainsheetConfig extends Partial<SheetConfig> {
 }
 
 export interface JibSheetConfig extends Partial<SheetConfig> {
-  readonly portAttachPoint: V2d; // ft from hull center
-  readonly starboardAttachPoint: V2d; // ft from hull center
+  readonly portAttachPoint: V2d; // ft from hull center (cleat/winch)
+  readonly starboardAttachPoint: V2d; // ft from hull center (cleat/winch)
+  /** Optional block position for port sheet (hull-local). Rope routes through this. */
+  readonly portBlockPoint?: V2d;
+  /** Optional block position for starboard sheet (hull-local). */
+  readonly starboardBlockPoint?: V2d;
 }
 
 export interface RowingConfig {

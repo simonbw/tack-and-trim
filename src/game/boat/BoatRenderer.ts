@@ -205,10 +205,13 @@ export class BoatRenderer extends BaseEntity {
         // === 7. Boom (cylindrical — screen-width) ===
         this.renderBoom(renderer, tilt);
 
-        // === 8. Standing rigging (wires — screen-width) ===
+        // === 8. Sheet blocks (small circles on deck) ===
+        this.renderBlocks(renderer, tilt);
+
+        // === 9. Standing rigging (wires — screen-width) ===
         this.renderStandingRigging(renderer, tilt);
 
-        // === 9. Lifeline stanchions (tubes — screen-width) ===
+        // === 10. Lifeline stanchions (tubes — screen-width) ===
         this.renderStanchions(renderer, tilt);
 
         // === 10. Lifeline pulpits and wires (screen-width) ===
@@ -393,6 +396,41 @@ export class BoatRenderer extends BaseEntity {
         true,
       ),
     );
+  }
+
+  private renderBlocks(
+    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    tilt: TiltProjection,
+  ) {
+    const deckZ = this.config.hull.deckHeight;
+    const sheets = [
+      this.boat.mainsheet,
+      this.boat.portJibSheet,
+      this.boat.starboardJibSheet,
+    ];
+    for (const sheet of sheets) {
+      if (!sheet) continue;
+      for (const pos of sheet.getBlockPositions()) {
+        // Small circle at the block, rendered in hull-local frame (the
+        // draw.at tilt context transforms hull-local → world).
+        // Convert world position back to hull-local for the tilt context.
+        const hullBody = this.boat.hull.body;
+        const local = hullBody.toLocalFrame(pos);
+        this.submitMesh(
+          renderer,
+          tessellateScreenCircle(
+            local[0],
+            local[1],
+            deckZ,
+            0.3,
+            8,
+            tilt,
+            0x444444,
+            1,
+          ),
+        );
+      }
+    }
   }
 
   private renderStandingRigging(
@@ -654,12 +692,10 @@ export class BoatRenderer extends BaseEntity {
     const { points: worldPoints, z: zPerPoint } = sheet.getRopePointsWithZ();
     if (worldPoints.length < 2) return;
 
-    // Smooth subdivision for rope curves
-    const smooth = subdivideSmooth(worldPoints, zPerPoint, 6);
-
+    // DEBUG: skip smoothing to see raw particle positions
     const mesh = tessellatePolylineToStrip(
-      smooth.points,
-      smooth.zValues,
+      worldPoints as [number, number][],
+      zPerPoint,
       sheet.getRopeThickness(),
       sheet.getRopeColor(),
       opacity,

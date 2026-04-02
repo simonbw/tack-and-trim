@@ -164,11 +164,29 @@ export class Boat extends BaseEntity {
       );
 
       // Create jib sheets (clew to hull, port and starboard)
-      const { portAttachPoint, starboardAttachPoint, ...jibSheetConfig } =
-        config.jibSheet;
+      const {
+        portAttachPoint,
+        starboardAttachPoint,
+        portBlockPoint,
+        starboardBlockPoint,
+        ...jibSheetConfig
+      } = config.jibSheet;
       const clewBody = this.jib.getClew() as DynamicBody;
 
       const jibClewZ = config.jib.zFoot ?? 3;
+      const portWaypoints = portBlockPoint
+        ? [{ body: this.hull.body, localAnchor: portBlockPoint, z: deckZ }]
+        : [];
+      const starboardWaypoints = starboardBlockPoint
+        ? [
+            {
+              body: this.hull.body,
+              localAnchor: starboardBlockPoint,
+              z: deckZ,
+            },
+          ]
+        : [];
+
       this.portJibSheet = this.addChild(
         new Sheet(
           clewBody,
@@ -178,6 +196,7 @@ export class Boat extends BaseEntity {
           jibSheetConfig,
           jibClewZ,
           deckZ,
+          portWaypoints,
         ),
       );
 
@@ -190,6 +209,7 @@ export class Boat extends BaseEntity {
           { ...jibSheetConfig },
           jibClewZ,
           deckZ,
+          starboardWaypoints,
         ),
       );
       this.starboardJibSheet.release();
