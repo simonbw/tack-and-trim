@@ -10,18 +10,15 @@ import { BoatConfig } from "../BoatConfig";
 export const Osprey: BoatConfig = {
   hull: {
     mass: 1400, // lbs - structural mass for 2D physics
+    // 2D collision polygon (deck outline, CCW winding)
     vertices: [
-      // Stern (transom)
       V(-11.5, -1.8),
       V(-11.0, -3.0),
-      // Starboard side
       V(-5, -4.375),
       V(1, -4.375),
       V(7, -3.4),
       V(11.5, -1.8),
-      // Bow
       V(14.75, 0),
-      // Port side
       V(11.5, 1.8),
       V(7, 3.4),
       V(1, 4.375),
@@ -29,37 +26,181 @@ export const Osprey: BoatConfig = {
       V(-11.0, 3.0),
       V(-11.5, 1.8),
     ], // ~26.25 ft LOA, ~8.75 ft beam
-    waterlineVertices: [
-      V(-11.3, -1.4),
-      V(-10.8, -2.4),
-      V(-5, -3.6),
-      V(1, -3.6),
-      V(7, -2.8),
-      V(11.3, -1.4),
-      V(14.4, 0),
-      V(11.3, 1.4),
-      V(7, 2.8),
-      V(1, 3.6),
-      V(-5, 3.6),
-      V(-10.8, 2.4),
-      V(-11.3, 1.4),
-    ], // ~25.7 ft WLL, ~7.2 ft waterline beam
-    bottomVertices: [
-      V(-11.0, -0.55),
-      V(-10.5, -1.0),
-      V(-5, -1.5),
-      V(1, -1.5),
-      V(7, -1.2),
-      V(11.0, -0.55),
-      V(14.0, 0),
-      V(11.0, 0.55),
-      V(7, 1.2),
-      V(1, 1.5),
-      V(-5, 1.5),
-      V(-10.5, 1.0),
-      V(-11.0, 0.55),
-    ], // ~25.0 ft, ~3.0 ft bottom beam
-    sharpVertices: [6], // bow
+    // 3D hull shape — station profiles from stern to bow.
+    // Each profile is a half-curve [y, z] from keel center to gunwale (starboard).
+    shape: {
+      stations: [
+        // Stern transom — narrow, relatively flat
+        {
+          x: -11.5,
+          profile: [
+            [0, -0.6],
+            [0.55, -0.6],
+            [1.4, 0],
+            [1.8, 3.0],
+          ],
+        },
+        // Stern shoulder — widening aft sections
+        {
+          x: -11.0,
+          profile: [
+            [0, -1.0],
+            [1.0, -1.0],
+            [2.4, 0],
+            [3.0, 3.0],
+          ],
+        },
+        // Aft quarter — approaching max beam
+        {
+          x: -5,
+          profile: [
+            [0, -1.2],
+            [1.5, -1.2],
+            [3.6, 0],
+            [4.375, 3.0],
+          ],
+        },
+        // Midships — max beam, deepest draft
+        {
+          x: 1,
+          profile: [
+            [0, -1.2],
+            [1.5, -1.2],
+            [3.6, 0],
+            [4.375, 3.0],
+          ],
+        },
+        // Forward quarter — narrowing
+        {
+          x: 7,
+          profile: [
+            [0, -1.2],
+            [1.2, -1.2],
+            [2.8, 0],
+            [3.4, 3.0],
+          ],
+        },
+        // Forward shoulder — fine entry
+        {
+          x: 11.5,
+          profile: [
+            [0, -0.8],
+            [0.55, -0.6],
+            [1.4, 0],
+            [1.8, 3.0],
+          ],
+        },
+        // Bow — collapses to a point
+        {
+          x: 14.75,
+          profile: [
+            [0, -0.3],
+            [0, 3.0],
+          ],
+        },
+      ],
+      sharpStations: [6], // bow
+    },
+    // Deck plan — interior layout
+    deckPlan: {
+      zones: [
+        // Foredeck — flat deck forward of bulkhead
+        {
+          name: "foredeck",
+          type: "deck",
+          outline: [
+            [3, -6],
+            [3, 6],
+            [15, 6],
+            [15, -6],
+          ],
+          floorZ: 3.0,
+          color: 0xb8935a,
+        },
+        // Cockpit sole — recessed floor (oversized, clipped to hull outline)
+        {
+          name: "cockpit",
+          type: "cockpit",
+          outline: [
+            [-12, -6],
+            [-12, 6],
+            [3, 6],
+            [3, -6],
+          ],
+          floorZ: 1.2,
+          color: 0x7a5a35,
+        },
+        // Port bench — extends from stern to bulkhead
+        {
+          name: "port-bench",
+          type: "bench",
+          outline: [
+            [-11, 2.0],
+            [-11, 6],
+            [3, 6],
+            [3, 2.0],
+          ],
+          floorZ: 2.0,
+          color: 0xa58048,
+        },
+        // Starboard bench
+        {
+          name: "starboard-bench",
+          type: "bench",
+          outline: [
+            [-11, -6],
+            [-11, -2.0],
+            [3, -2.0],
+            [3, -6],
+          ],
+          floorZ: 2.0,
+          color: 0xa58048,
+        },
+        // Port bulkhead — forward cockpit wall (port side of companionway)
+        {
+          name: "port-bulkhead",
+          type: "deck",
+          outline: [
+            [3, 1.0],
+            [3, 6],
+            [3.5, 6],
+            [3.5, 1.0],
+          ],
+          floorZ: 1.2,
+          wallHeight: 1.8,
+          color: 0x7a5530,
+          wallColor: 0x7a5530,
+        },
+        // Starboard bulkhead — forward cockpit wall (starboard side of companionway)
+        {
+          name: "starboard-bulkhead",
+          type: "deck",
+          outline: [
+            [3, -6],
+            [3, -1.0],
+            [3.5, -1.0],
+            [3.5, -6],
+          ],
+          floorZ: 1.2,
+          wallHeight: 1.8,
+          color: 0x7a5530,
+          wallColor: 0x7a5530,
+        },
+        // Companionway — dark opening between cockpit and cabin
+        {
+          name: "companionway",
+          type: "companionway",
+          outline: [
+            [3, -1.0],
+            [3, 1.0],
+            [3.5, 1.0],
+            [3.5, -1.0],
+          ],
+          floorZ: 1.2,
+          color: 0x3a2810,
+        },
+      ],
+    },
     skinFrictionCoefficient: 0.003,
     stagnationCoefficient: 0.4, // placeholder until precomputed separation model (#125)
     separationCoefficient: 0.12, // placeholder until precomputed separation model (#125)

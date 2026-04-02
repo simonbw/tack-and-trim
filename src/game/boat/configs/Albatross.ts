@@ -30,37 +30,209 @@ export const Albatross: BoatConfig = {
       V(-16.5, 4.5),
       V(-17, 2.5),
     ], // ~40.4 ft LOA, ~12.5 ft beam
-    waterlineVertices: [
-      V(-16.7, -2.0),
-      V(-16.2, -3.6),
-      V(-8, -5.2),
-      V(0, -5.2),
-      V(9, -4.1),
-      V(16.7, -2.0),
-      V(22.8, 0),
-      V(16.7, 2.0),
-      V(9, 4.1),
-      V(0, 5.2),
-      V(-8, 5.2),
-      V(-16.2, 3.6),
-      V(-16.7, 2.0),
-    ], // ~39.5 ft WLL, ~10.4 ft waterline beam
-    bottomVertices: [
-      V(-16.3, -0.8),
-      V(-15.8, -1.5),
-      V(-8, -2.2),
-      V(0, -2.2),
-      V(9, -1.7),
-      V(16.3, -0.8),
-      V(22.0, 0),
-      V(16.3, 0.8),
-      V(9, 1.7),
-      V(0, 2.2),
-      V(-8, 2.2),
-      V(-15.8, 1.5),
-      V(-16.3, 0.8),
-    ], // ~38.3 ft, ~4.4 ft bottom beam
-    sharpVertices: [6], // bow
+    // 3D hull shape — station profiles from stern to bow.
+    // Each profile is a half-curve [y, z] from keel center to gunwale (starboard).
+    shape: {
+      stations: [
+        // Stern transom — narrow, shallow
+        {
+          x: -17,
+          profile: [
+            [0, -0.8],
+            [0.8, -0.8],
+            [2.0, 0],
+            [2.5, 4.0],
+          ],
+        },
+        // Stern shoulder — widening aft sections
+        {
+          x: -16.5,
+          profile: [
+            [0, -1.4],
+            [1.5, -1.4],
+            [3.6, 0],
+            [4.5, 4.0],
+          ],
+        },
+        // Aft quarter — approaching max beam
+        {
+          x: -8,
+          profile: [
+            [0, -1.8],
+            [2.2, -1.8],
+            [5.2, 0],
+            [6.25, 4.0],
+          ],
+        },
+        // Midships — max beam, deepest draft
+        {
+          x: 0,
+          profile: [
+            [0, -1.8],
+            [2.2, -1.8],
+            [5.2, 0],
+            [6.25, 4.0],
+          ],
+        },
+        // Forward quarter — narrowing
+        {
+          x: 9,
+          profile: [
+            [0, -1.8],
+            [1.7, -1.8],
+            [4.1, 0],
+            [5.0, 4.0],
+          ],
+        },
+        // Forward shoulder — fine entry
+        {
+          x: 17,
+          profile: [
+            [0, -1.4],
+            [0.8, -1.2],
+            [2.0, 0],
+            [2.5, 4.0],
+          ],
+        },
+        // Bow — collapses to a point
+        {
+          x: 23.4,
+          profile: [
+            [0, -0.5],
+            [0, 4.0],
+          ],
+        },
+      ],
+      sharpStations: [6], // bow
+    },
+    // Deck plan — interior layout for a 40ft performance cruiser
+    deckPlan: {
+      zones: [
+        // Foredeck — flat deck forward of cabin
+        {
+          name: "foredeck",
+          type: "deck",
+          outline: [
+            [5, -8],
+            [5, 8],
+            [24, 8],
+            [24, -8],
+          ],
+          floorZ: 4.0,
+          color: 0xa07848,
+        },
+        // Cabin trunk — raised cabin top
+        {
+          name: "cabin-trunk",
+          type: "cabin",
+          outline: [
+            [-2, -8],
+            [-2, 8],
+            [5, 8],
+            [5, -8],
+          ],
+          floorZ: 4.0,
+          wallHeight: 1.5,
+          color: 0x7a5830,
+          wallColor: 0x7a5830,
+        },
+        // Cabin sole — interior floor visible through companionway
+        {
+          name: "cabin-sole",
+          type: "sole",
+          outline: [
+            [-2, -8],
+            [-2, 8],
+            [5, 8],
+            [5, -8],
+          ],
+          floorZ: 1.5,
+          color: 0x4a3018,
+        },
+        // Cockpit sole — recessed floor
+        {
+          name: "cockpit",
+          type: "cockpit",
+          outline: [
+            [-18, -8],
+            [-18, 8],
+            [-2, 8],
+            [-2, -8],
+          ],
+          floorZ: 1.5,
+          color: 0x6a4828,
+        },
+        // Port bench
+        {
+          name: "port-bench",
+          type: "bench",
+          outline: [
+            [-15, 2.5],
+            [-15, 8],
+            [-2, 8],
+            [-2, 2.5],
+          ],
+          floorZ: 2.5,
+          color: 0x906838,
+        },
+        // Starboard bench
+        {
+          name: "starboard-bench",
+          type: "bench",
+          outline: [
+            [-15, -8],
+            [-15, -2.5],
+            [-2, -2.5],
+            [-2, -8],
+          ],
+          floorZ: 2.5,
+          color: 0x906838,
+        },
+        // Port bulkhead — forward cockpit wall (port side of companionway)
+        {
+          name: "port-bulkhead",
+          type: "deck",
+          outline: [
+            [-2, 1.2],
+            [-2, 8],
+            [-1.5, 8],
+            [-1.5, 1.2],
+          ],
+          floorZ: 1.5,
+          wallHeight: 2.5,
+          color: 0x6a4828,
+          wallColor: 0x6a4828,
+        },
+        // Starboard bulkhead — forward cockpit wall (starboard side of companionway)
+        {
+          name: "starboard-bulkhead",
+          type: "deck",
+          outline: [
+            [-2, -8],
+            [-2, -1.2],
+            [-1.5, -1.2],
+            [-1.5, -8],
+          ],
+          floorZ: 1.5,
+          wallHeight: 2.5,
+          color: 0x6a4828,
+          wallColor: 0x6a4828,
+        },
+        // Companionway — dark opening between cockpit and cabin
+        {
+          name: "companionway",
+          type: "companionway",
+          outline: [
+            [-2, -1.2],
+            [-2, 1.2],
+            [-1.5, 1.2],
+            [-1.5, -1.2],
+          ],
+          floorZ: 1.5,
+          color: 0x2a1808,
+        },
+      ],
+    },
     skinFrictionCoefficient: 0.003,
     stagnationCoefficient: 0.4, // placeholder until precomputed separation model (#125)
     separationCoefficient: 0.12, // placeholder until precomputed separation model (#125)
