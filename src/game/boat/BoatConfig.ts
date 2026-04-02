@@ -25,11 +25,136 @@ import { SheetConfig } from "./Sheet";
 // Component Config Interfaces
 // ============================================
 
+// ============================================
+// Hull Shape Definition (Station Profiles)
+// ============================================
+
+/**
+ * A cross-section profile at a specific x-station along the hull.
+ * Each profile is a half-curve in the y-z plane (starboard side only),
+ * automatically mirrored for the port side.
+ *
+ * Control points go from keel center (y≈0, z=bottom) up to gunwale (y=beam, z=top).
+ * Intermediate points define the hull's cross-sectional curvature — round bilge,
+ * hard chine, tumblehome, flare, etc.
+ */
+export interface HullStation {
+  /** Position along the hull length (ft). +X = forward. */
+  readonly x: number;
+  /**
+   * Half-profile control points as [y, z] pairs (ft).
+   * - y = distance from centerline (0 = keel center, positive = starboard)
+   * - z = height (0 = waterline, positive = above, negative = below)
+   * - First point should be near y=0 (keel/centerline)
+   * - Last point is the gunwale
+   *
+   * Points are spline-interpolated to create a smooth curve.
+   * At the bow, the profile may collapse to a single point [0, z].
+   */
+  readonly profile: ReadonlyArray<readonly [number, number]>;
+}
+
+/**
+ * Hull shape defined as a series of cross-section profiles at stations
+ * along the hull length, like a naval architecture "lines drawing."
+ *
+ * The system interpolates between stations and lofts the resulting profiles
+ * into a 3D triangle mesh. Port side is auto-mirrored from starboard.
+ */
+export interface HullShape {
+  /** Cross-section stations ordered from stern to bow. */
+  readonly stations: readonly HullStation[];
+  /**
+   * Indices of stations to keep sharp (no smoothing in the x-direction).
+   * Typically the bow station. Similar to sharpVertices in the ring system.
+   */
+  readonly sharpStations?: readonly number[];
+  /**
+   * Number of interpolated points per profile curve segment.
+   * Higher = smoother cross-sections. Default 4.
+   */
+  readonly profileSubdivisions?: number;
+  /**
+   * Number of interpolated stations between each defined station.
+   * Higher = smoother hull surface along the length. Default 4.
+   */
+  readonly stationSubdivisions?: number;
+}
+
+// ============================================
+// Deck Plan (Interior Features)
+// ============================================
+
+/**
+ * Zone type hint for gameplay logic, editor tooling, and validation.
+ * All zones render the same way (polygon floor + optional walls);
+ * the type is semantic metadata.
+ */
+export type DeckZoneType =
+  | "deck" // main deck surface
+  | "cockpit" // recessed crew area
+  | "cabin" // raised cabin trunk
+  | "sole" // interior floor (cabin sole, cockpit sole)
+  | "bench" // seating surface
+  | "seat" // individual seat
+  | "companionway" // opening/passage between areas
+  | "locker" // storage area
+  | "lazarette"; // stern storage
+
+/**
+ * A named zone in the deck plan with a polygon outline, floor height,
+ * optional walls, and visual properties.
+ */
+export interface DeckZone {
+  readonly name: string;
+  readonly type: DeckZoneType;
+  /**
+   * Polygon outline in hull-local XY coordinates (ft).
+   * Does not need to match the hull outline exactly — zones are
+   * automatically clipped to the hull's deck edge during rendering.
+   */
+  readonly outline: ReadonlyArray<readonly [number, number]>;
+  /** Floor/surface height (ft above waterline). */
+  readonly floorZ: number;
+  /**
+   * Wall height above floorZ (ft). If set, vertical walls are rendered
+   * around the zone boundary up to floorZ + wallHeight.
+   * For cockpits, this is the coaming height.
+   * For cabins, this is the cabin trunk height.
+   */
+  readonly wallHeight?: number;
+  /** Floor/surface color (hex RGB). */
+  readonly color: number;
+  /** Wall color (hex RGB). Defaults to a darker shade of floor color. */
+  readonly wallColor?: number;
+}
+
+/**
+ * Deck plan defining interior features of the boat.
+ * Zones are rendered bottom-up by floorZ, with higher zones drawing
+ * over lower ones. Zone polygons are clipped to the hull deck outline.
+ */
+export interface DeckPlan {
+  readonly zones: readonly DeckZone[];
+}
+
+// ============================================
+// Hull Config
+// ============================================
+
 export interface HullConfig {
   readonly mass: number; // lbs
+  // --- 2D deck polygon (always required — used for collision shape, spray, wake, etc.) ---
   readonly vertices: V2d[]; // ft, deck/gunwale polygon, counter-clockwise winding (visual/collision)
+  // --- Ring-based hull definition (used for 3D mesh when shape is absent) ---
   readonly waterlineVertices?: V2d[]; // ft, narrower shape at the waterline (water interaction)
   readonly bottomVertices?: V2d[]; // ft, hull bottom shape (narrowest, at z = -draft)
+  readonly sharpVertices?: number[]; // indices of vertices that stay sharp (not smoothed)
+  // --- Station profile hull definition (preferred for 3D mesh when present) ---
+  readonly shape?: HullShape;
+  // --- Deck plan (interior features) ---
+  readonly deckPlan?: DeckPlan;
+  // --- Common properties ---
   readonly skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
   /** Pressure coefficient for front-facing (stagnation) surfaces, dimensionless.
    * Typical range 0.8-1.0. Default 1.0. */
@@ -37,7 +162,6 @@ export interface HullConfig {
   /** Pressure coefficient for rear-facing (wake/separation) surfaces, dimensionless.
    * Higher = more wake drag. Bluff stern ≈ 0.7, tapered stern ≈ 0.3. Default 0.5. */
   readonly separationCoefficient?: number;
-  readonly sharpVertices?: number[]; // indices of vertices that stay sharp (not smoothed)
   readonly draft: number; // ft below waterline (hull bottom)
   readonly deckHeight: number; // ft above waterline (gunwale/deck edge)
   readonly colors: {

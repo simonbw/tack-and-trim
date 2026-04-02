@@ -12,6 +12,7 @@ import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
 import { HullConfig } from "./BoatConfig";
+import { buildHullMeshFromProfiles } from "./hull-profiles";
 import { subdivideClosedSmooth } from "./tessellation";
 
 const GRAVITY = 32.174; // ft/s²
@@ -70,6 +71,8 @@ export interface HullMesh {
   lowerSideIndices: number[];
   /** Triangle indices for the bottom cap polygon (physics only). */
   bottomIndices: number[];
+  /** Deck edge polygon for gunwale stroke rendering + deck plan clipping. */
+  deckOutline?: [number, number][];
 }
 
 /**
@@ -336,40 +339,52 @@ export class Hull extends BaseEntity {
       }),
     );
 
-    // Build 3D hull mesh from the three vertex rings
-    const meshWaterlineVerts = config.waterlineVertices ?? config.vertices;
-    const bottomVerts =
-      config.bottomVertices ??
-      meshWaterlineVerts.map((v) => V(v.x, v.y * 0.45));
-    const deckZ = config.deckHeight;
-    const bottomZ = -config.draft;
+    if (config.shape) {
+      // Station profile hull — use the new profile-based mesh builder.
+      // Physics mesh uses lower subdivision for cache-friendly force computation.
+      this.mesh = buildHullMeshFromProfiles({
+        ...config.shape,
+        profileSubdivisions: 2,
+        stationSubdivisions: 2,
+      });
+      // Render mesh uses full subdivision for visual smoothness.
+      this.renderMesh = buildHullMeshFromProfiles(config.shape);
+    } else {
+      // Legacy ring-based hull definition.
+      const meshWaterlineVerts = config.waterlineVertices ?? config.vertices;
+      const bottomVerts =
+        config.bottomVertices ??
+        meshWaterlineVerts.map((v) => V(v.x, v.y * 0.45));
+      const deckZ = config.deckHeight;
+      const bottomZ = -config.draft;
 
-    this.mesh = buildHullMesh(
-      config.vertices,
-      meshWaterlineVerts,
-      bottomVerts,
-      deckZ,
-      bottomZ,
-    );
+      this.mesh = buildHullMesh(
+        config.vertices,
+        meshWaterlineVerts,
+        bottomVerts,
+        deckZ,
+        bottomZ,
+      );
 
-    // Build smooth render mesh from subdivided rings
-    const sharp = config.sharpVertices
-      ? new Set(config.sharpVertices)
-      : undefined;
-    const subdivide = (verts: V2d[]) =>
-      subdivideClosedSmooth(
-        verts.map((v) => [v.x, v.y] as [number, number]),
-        4,
-        sharp,
-      ).map(([x, y]) => V(x, y));
+      // Build smooth render mesh from subdivided rings
+      const sharp = config.sharpVertices
+        ? new Set(config.sharpVertices)
+        : undefined;
+      const subdivide = (verts: V2d[]) =>
+        subdivideClosedSmooth(
+          verts.map((v) => [v.x, v.y] as [number, number]),
+          4,
+          sharp,
+        ).map(([x, y]) => V(x, y));
 
-    this.renderMesh = buildHullMesh(
-      subdivide(config.vertices),
-      subdivide(meshWaterlineVerts),
-      subdivide(bottomVerts),
-      deckZ,
-      bottomZ,
-    );
+      this.renderMesh = buildHullMesh(
+        subdivide(config.vertices),
+        subdivide(meshWaterlineVerts),
+        subdivide(bottomVerts),
+        deckZ,
+        bottomZ,
+      );
+    }
 
     // Precompute per-triangle force data
     this.forceData = buildHullForceData(this.mesh);

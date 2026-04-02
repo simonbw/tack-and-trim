@@ -5,6 +5,7 @@ import { lerp } from "../../core/util/MathUtil";
 import { V } from "../../core/Vector";
 import type { Boat } from "./Boat";
 import type { BoatConfig } from "./BoatConfig";
+import { buildDeckPlanMeshes } from "./deck-plan";
 import {
   MeshContribution,
   TiltProjection,
@@ -32,6 +33,7 @@ export class BoatRenderer extends BaseEntity {
 
   // Pre-built static meshes (hull-local, computed once)
   private keelMesh: MeshContribution | null = null;
+  private deckPlanMeshes: MeshContribution[] = [];
 
   constructor(private boat: Boat) {
     super();
@@ -66,6 +68,25 @@ export class BoatRenderer extends BaseEntity {
       indices.push(tl, tr, br, tl, br, bl);
     }
     this.keelMesh = { positions, zValues, indices, color: keelColor, alpha: 1 };
+
+    // Build deck plan meshes if configured
+    const deckPlan = this.config.hull.deckPlan;
+    if (deckPlan) {
+      const hullMeshData = this.boat.hull.getHeightMeshData();
+      const hullOutline: [number, number][] =
+        hullMeshData.deckOutline ??
+        // Fallback: extract from first ringSize vertices (legacy ring mesh)
+        Array.from({ length: hullMeshData.ringSize }, (_, i) => [
+          hullMeshData.xyPositions[i][0],
+          hullMeshData.xyPositions[i][1],
+        ]);
+      this.deckPlanMeshes = buildDeckPlanMeshes(
+        deckPlan,
+        hullOutline,
+        this.config.hull.deckHeight,
+        hullMeshData,
+      );
+    }
   }
 
   @on("render")
@@ -113,7 +134,7 @@ export class BoatRenderer extends BaseEntity {
         renderer.submitTrianglesWithZ(
           xyPositions,
           lowerSideIndices,
-          hull.getBottomColor(),
+          hull.getSideColor(),
           1.0,
           zValues,
         );
@@ -124,20 +145,27 @@ export class BoatRenderer extends BaseEntity {
           1.0,
           zValues,
         );
-        renderer.submitTrianglesWithZ(
-          xyPositions,
-          deckIndices,
-          hull.getFillColor(),
-          1.0,
-          zValues,
-        );
+        // Deck surface: use deck plan zones if configured, otherwise flat deck cap
+        if (this.deckPlanMeshes.length > 0) {
+          for (const mesh of this.deckPlanMeshes) {
+            this.submitMesh(renderer, mesh);
+          }
+        } else {
+          renderer.submitTrianglesWithZ(
+            xyPositions,
+            deckIndices,
+            hull.getFillColor(),
+            1.0,
+            zValues,
+          );
+        }
 
         // === 4. Gunwale stroke ===
-        const deckZ = hull.getHeightMeshData().zValues[0]; // deck ring z
-        const gunwalePoints: [number, number][] = [];
-        for (let i = 0; i < ringSize; i++) {
-          gunwalePoints.push(xyPositions[i]);
-        }
+        const meshData = hull.getHeightMeshData();
+        const deckZ = meshData.zValues[0]; // deck ring z
+        const gunwalePoints: [number, number][] = meshData.deckOutline
+          ? meshData.deckOutline.map(([x, y]) => [x, y] as [number, number])
+          : Array.from({ length: ringSize }, (_, i) => xyPositions[i]);
         const gunwaleZValues = gunwalePoints.map(() => deckZ);
         const gunwaleMesh = tessellateScreenWidthPolyline(
           gunwalePoints,
