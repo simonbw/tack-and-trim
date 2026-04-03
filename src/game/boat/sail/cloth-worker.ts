@@ -41,10 +41,13 @@ import {
   INPUT_CLEW_PINNED,
   REACTION_TACK_X,
   REACTION_TACK_Y,
+  REACTION_TACK_Z,
   REACTION_HEAD_X,
   REACTION_HEAD_Y,
+  REACTION_HEAD_Z,
   REACTION_CLEW_X,
   REACTION_CLEW_Y,
+  REACTION_CLEW_Z,
   type ClothWorkerMessage,
   type FurlMode,
 } from "./cloth-worker-protocol";
@@ -324,11 +327,13 @@ function solveLoop() {
     const subDt = dt / substeps;
     const subIter = Math.max(1, Math.round(iterations / substeps));
 
-    // Accumulate reaction forces from all luff pins and clew
+    // Accumulate 3D reaction forces from all luff pins and clew
     let sumLuffRx = 0,
-      sumLuffRy = 0;
+      sumLuffRy = 0,
+      sumLuffRz = 0;
     let sumClewRx = 0,
-      sumClewRy = 0;
+      sumClewRy = 0,
+      sumClewRz = 0;
 
     for (let s = 0; s < substeps; s++) {
       solver.update(subDt, subIter);
@@ -338,20 +343,25 @@ function solveLoop() {
         if (vertexActive[li]) {
           sumLuffRx += solver.getReactionForceX(li);
           sumLuffRy += solver.getReactionForceY(li);
+          sumLuffRz += solver.getReactionForceZ(li);
         }
       }
 
       sumClewRx += solver.getReactionForceX(clewIdx);
       sumClewRy += solver.getReactionForceY(clewIdx);
+      sumClewRz += solver.getReactionForceZ(clewIdx);
     }
 
-    // Write reaction forces — luff sum goes into TACK+HEAD slots
+    // Write 3D reaction forces — luff sum goes into TACK+HEAD slots
     reactions[REACTION_TACK_X] = 0;
     reactions[REACTION_TACK_Y] = 0;
+    reactions[REACTION_TACK_Z] = 0;
     reactions[REACTION_HEAD_X] = sumLuffRx;
     reactions[REACTION_HEAD_Y] = sumLuffRy;
+    reactions[REACTION_HEAD_Z] = sumLuffRz;
     reactions[REACTION_CLEW_X] = sumClewRx;
     reactions[REACTION_CLEW_Y] = sumClewRy;
+    reactions[REACTION_CLEW_Z] = sumClewRz;
 
     // Write positions to back buffer
     const swapFlag = Atomics.load(control, 1);

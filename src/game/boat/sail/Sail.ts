@@ -13,10 +13,13 @@ import { ClothWorkerPool, type SailHandle } from "./ClothWorkerPool";
 import {
   REACTION_TACK_X,
   REACTION_TACK_Y,
+  REACTION_TACK_Z,
   REACTION_HEAD_X,
   REACTION_HEAD_Y,
+  REACTION_HEAD_Z,
   REACTION_CLEW_X,
   REACTION_CLEW_Y,
+  REACTION_CLEW_Z,
   type FurlMode,
 } from "./cloth-worker-protocol";
 import { generateSailMesh, SailMeshData } from "./SailMesh";
@@ -474,13 +477,27 @@ export class Sail extends BaseEntity {
       }
       this._totalReactionForce = 0;
 
-      // Pin the jib clew body to the tack (where the furled sail lives)
-      // so it doesn't float in space disconnected from the boat.
+      // Pin the jib clew body to the tack (where the furled sail lives),
+      // using the hull's full 3D transform so it accounts for heel/pitch.
       if (sailShape === "triangle" && this.bodies.length > 0) {
-        const tackPos = this.config.getHeadPosition();
+        const hullBody = this.config.getHullBody?.();
+        const local = this.config.headLocalPosition;
         const clewBody = this.bodies[0] as DynamicBody;
-        clewBody.position.set(tackPos);
+        if (hullBody) {
+          const [wx, wy, wz] = hullBody.toWorldFrame3D(
+            local.x,
+            local.y,
+            this.config.zFoot,
+          );
+          clewBody.position.set(wx, wy);
+          clewBody.z = wz;
+        } else {
+          const tackPos = this.config.getHeadPosition();
+          clewBody.position.set(tackPos);
+          clewBody.z = this.config.zFoot;
+        }
         clewBody.velocity.set(0, 0);
+        clewBody.zVelocity = 0;
       }
       return;
     }
@@ -497,35 +514,46 @@ export class Sail extends BaseEntity {
 
       const tackRx = reactions[REACTION_TACK_X] * vm;
       const tackRy = reactions[REACTION_TACK_Y] * vm;
+      const tackRz = reactions[REACTION_TACK_Z] * vm;
       const headRx = reactions[REACTION_HEAD_X] * vm;
       const headRy = reactions[REACTION_HEAD_Y] * vm;
-      const clewRxRaw = reactions[REACTION_CLEW_X] * vm;
-      const clewRyRaw = reactions[REACTION_CLEW_Y] * vm;
+      const headRz = reactions[REACTION_HEAD_Z] * vm;
+      const clewRx = reactions[REACTION_CLEW_X] * vm;
+      const clewRy = reactions[REACTION_CLEW_Y] * vm;
+      const clewRz = reactions[REACTION_CLEW_Z] * vm;
 
       // Total reaction force magnitude across all pins (for damage tracking)
       this._totalReactionForce =
-        Math.hypot(tackRx, tackRy) +
-        Math.hypot(headRx, headRy) +
-        Math.hypot(clewRxRaw, clewRyRaw);
+        Math.hypot(tackRx, tackRy, tackRz) +
+        Math.hypot(headRx, headRy, headRz) +
+        Math.hypot(clewRx, clewRy, clewRz);
 
       // Tack + head both attach at the mast (headConstraint)
       const hBody = headConstraint.body as DynamicBody;
-      const hPoint = hBody.vectorToWorldFrame(headConstraint.localAnchor);
-      hBody.applyForce(V(tackRx + headRx, tackRy + headRy), hPoint);
+      hBody.applyForce3D(
+        tackRx + headRx,
+        tackRy + headRy,
+        tackRz + headRz,
+        headConstraint.localAnchor.x,
+        headConstraint.localAnchor.y,
+        0,
+      );
 
       // Clew reaction forces — apply to constraint body (mainsail: boom)
       // or directly to the clew body (jib: free body constrained by sheets)
       if (clewConstraint) {
-        const clewRx = reactions[REACTION_CLEW_X] * vm;
-        const clewRy = reactions[REACTION_CLEW_Y] * vm;
         const cBody = clewConstraint.body as DynamicBody;
-        const cPoint = cBody.vectorToWorldFrame(clewConstraint.localAnchor);
-        cBody.applyForce(V(clewRx, clewRy), cPoint);
+        cBody.applyForce3D(
+          clewRx,
+          clewRy,
+          clewRz,
+          clewConstraint.localAnchor.x,
+          clewConstraint.localAnchor.y,
+          0,
+        );
       } else if (sailShape === "triangle" && this.bodies.length > 0) {
-        const clewRx = reactions[REACTION_CLEW_X] * vm;
-        const clewRy = reactions[REACTION_CLEW_Y] * vm;
         const cBody = this.bodies[0] as DynamicBody;
-        cBody.applyForce(V(clewRx, clewRy));
+        cBody.applyForce3D(clewRx, clewRy, clewRz, 0, 0, 0);
       }
 
       this.handle.ackResults();
@@ -539,8 +567,31 @@ export class Sail extends BaseEntity {
    */
   @on("afterPhysicsStep")
   onAfterPhysicsStep(dt: number) {
-    // Don't kick off cloth sim when fully furled
-    if (this.hoistAmount <= 0) return;
+    // When fully furled, just pin the jib clew after the solver
+    // (the solver may have dragged it away from the tack via rope constraints)
+    if (this.hoistAmount <= 0) {
+      if (this.config.sailShape === "triangle" && this.bodies.length > 0) {
+        const hullBody = this.config.getHullBody?.();
+        const local = this.config.headLocalPosition;
+        const clewBody = this.bodies[0] as DynamicBody;
+        if (hullBody) {
+          const [wx, wy, wz] = hullBody.toWorldFrame3D(
+            local.x,
+            local.y,
+            this.config.zFoot,
+          );
+          clewBody.position.set(wx, wy);
+          clewBody.z = wz;
+        } else {
+          const tackPos = this.config.getHeadPosition();
+          clewBody.position.set(tackPos);
+          clewBody.z = this.config.zFoot;
+        }
+        clewBody.velocity.set(0, 0);
+        clewBody.zVelocity = 0;
+      }
+      return;
+    }
 
     const { sailShape, liftScale, dragScale } = this.config;
 
@@ -650,11 +701,8 @@ export class Sail extends BaseEntity {
       clewPinned: true,
     });
 
-    // Note: the jib clew body is NOT snapped to the cloth sim position.
-    // It's a real physics body — the sheet constraints control it, and the
-    // cloth sim pins its vertex to the body position. Reaction forces from
-    // the cloth push the body outward (wind), sheet constraints pull it
-    // inward (trim). The clew body finds equilibrium between the two.
+    // The jib clew body is a real 3D physics body — sheet constraints and
+    // cloth 3D reaction forces find equilibrium in all three axes.
   }
 
   /** Get clew position from config (for boom/constraint based sails) */

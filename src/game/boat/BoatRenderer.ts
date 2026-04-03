@@ -686,9 +686,8 @@ export class BoatRenderer extends BaseEntity {
     const opacity = sheet.getOpacity();
     if (opacity <= 0) return;
 
-    // Rope points come from physics particles with real z-values.
-    // Rendered in world space (outside the hull draw.at context) so tilt
-    // isn't double-counted.
+    // Rope points come from 3D physics particles. The positions already
+    // include tilt parallax via toWorldFrame3D on 6DOF bodies.
     const { points: worldPoints, z: zPerPoint } = sheet.getRopePointsWithZ();
     if (worldPoints.length < 2) return;
 

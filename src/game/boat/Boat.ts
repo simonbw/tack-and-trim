@@ -187,6 +187,8 @@ export class Boat extends BaseEntity {
           ]
         : [];
 
+      // zA = 0 for jib sheets: the clew body already has z = jibClewZ
+      // from its sixDOF setup. The local anchor z is relative to the body.
       this.portJibSheet = this.addChild(
         new Sheet(
           clewBody,
@@ -194,7 +196,7 @@ export class Boat extends BaseEntity {
           this.hull.body,
           portAttachPoint,
           jibSheetConfig,
-          jibClewZ,
+          0,
           deckZ,
           portWaypoints,
         ),
@@ -207,7 +209,7 @@ export class Boat extends BaseEntity {
           this.hull.body,
           starboardAttachPoint,
           { ...jibSheetConfig },
-          jibClewZ,
+          0,
           deckZ,
           starboardWaypoints,
         ),

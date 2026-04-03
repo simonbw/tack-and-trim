@@ -1,6 +1,6 @@
 import type { Body } from "../../core/physics/body/Body";
 import { DynamicBody } from "../../core/physics/body/DynamicBody";
-import { DistanceConstraint } from "../../core/physics/constraints/DistanceConstraint";
+import { DistanceConstraint3D } from "../../core/physics/constraints/DistanceConstraint3D";
 import type { World } from "../../core/physics/world/World";
 import { V, V2d } from "../../core/Vector";
 
@@ -30,7 +30,7 @@ export interface RopeWaypoint {
  */
 interface RopeSegment {
   particles: DynamicBody[];
-  constraints: DistanceConstraint[];
+  constraints: DistanceConstraint3D[];
   length: number;
 }
 
@@ -67,7 +67,7 @@ export class Rope {
 
   // Flattened arrays for entity system integration
   private allParticles: DynamicBody[] = [];
-  private allConstraints: DistanceConstraint[] = [];
+  private allConstraints: DistanceConstraint3D[] = [];
 
   // Pre-allocated output arrays
   private cachedPoints: V2d[] = [];
@@ -112,20 +112,25 @@ export class Rope {
 
     const numSegments = this.pathNodes.length - 1;
 
-    // Compute world positions for each path node
+    // Compute 3D world positions for each path node
+    const nodeWorld3D = this.pathNodes.map((n) =>
+      n.body.toWorldFrame3D(n.localAnchor.x, n.localAnchor.y, n.z),
+    );
+    // 2D world positions for particle placement
     const nodeWorldPositions = this.pathNodes.map((n) =>
       n.body.toWorldFrame(n.localAnchor),
     );
 
-    // Compute the total path distance (sum of segment straight-line distances)
+    // Compute the total 3D path distance
     let totalPathDist = 0;
     const segDists: number[] = [];
     for (let s = 0; s < numSegments; s++) {
-      const a = nodeWorldPositions[s];
-      const b = nodeWorldPositions[s + 1];
+      const a = nodeWorld3D[s];
+      const b = nodeWorld3D[s + 1];
       const dx = b[0] - a[0];
       const dy = b[1] - a[1];
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const dz = b[2] - a[2];
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       segDists.push(dist);
       totalPathDist += dist;
     }
@@ -226,11 +231,13 @@ export class Rope {
     nParticles: number,
     segLength: number,
   ): RopeSegment {
+    const startZ = startNode.z;
+    const endZ = endNode.z;
     const dx = endWorld[0] - startWorld[0];
     const dy = endWorld[1] - startWorld[1];
+    const dz = endZ - startZ;
 
-    // Create particles along straight line, with interpolated velocity
-    // from the endpoint bodies so there's no velocity mismatch at spawn.
+    // Create 3D particles along straight line, with interpolated velocity.
     const velA = startNode.body.velocity;
     const velB = endNode.body.velocity;
     const particles: DynamicBody[] = [];
@@ -242,23 +249,31 @@ export class Rope {
         fixedRotation: true,
         damping: this.particleDamping,
         allowSleep: false,
+        sixDOF: {
+          rollInertia: 1,
+          pitchInertia: 1,
+          zMass: this.particleMass,
+          zDamping: this.particleDamping,
+          rollPitchDamping: 0,
+          zPosition: startZ + dz * t,
+        },
       });
       particle.velocity[0] = velA[0] + (velB[0] - velA[0]) * t;
       particle.velocity[1] = velA[1] + (velB[1] - velA[1]) * t;
       particles.push(particle);
     }
 
-    // Create constraints
-    const constraints: DistanceConstraint[] = [];
+    // Create 3D constraints
+    const constraints: DistanceConstraint3D[] = [];
     const constraintSegLen = segLength / (nParticles + 1);
 
     // Start node → first particle
     constraints.push(
       this.makeConstraint(
         startNode.body,
-        startNode.localAnchor,
+        [startNode.localAnchor.x, startNode.localAnchor.y, startZ],
         particles[0],
-        V(0, 0),
+        [0, 0, 0],
         constraintSegLen,
       ),
     );
@@ -268,9 +283,9 @@ export class Rope {
       constraints.push(
         this.makeConstraint(
           particles[i],
-          V(0, 0),
+          [0, 0, 0],
           particles[i + 1],
-          V(0, 0),
+          [0, 0, 0],
           constraintSegLen,
         ),
       );
@@ -280,9 +295,9 @@ export class Rope {
     constraints.push(
       this.makeConstraint(
         particles[nParticles - 1],
-        V(0, 0),
+        [0, 0, 0],
         endNode.body,
-        endNode.localAnchor,
+        [endNode.localAnchor.x, endNode.localAnchor.y, endZ],
         constraintSegLen,
       ),
     );
@@ -292,12 +307,12 @@ export class Rope {
 
   private makeConstraint(
     a: Body,
-    anchorA: V2d,
+    anchorA: [number, number, number],
     b: Body,
-    anchorB: V2d,
+    anchorB: [number, number, number],
     segLen: number,
-  ): DistanceConstraint {
-    const c = new DistanceConstraint(a, b, {
+  ): DistanceConstraint3D {
+    const c = new DistanceConstraint3D(a, b, {
       localAnchorA: anchorA,
       localAnchorB: anchorB,
       distance: segLen,
@@ -347,10 +362,8 @@ export class Rope {
   }
 
   /**
-   * Per-tick update. Transfers rope length through blocks based on
-   * constraint violations — the amount transferred is exactly the
-   * violation (how much the taut constraint exceeds its limit),
-   * so transfer is self-limiting with no overshoot.
+   * Per-tick update. Maintains particle z-heights and transfers rope
+   * length through blocks based on constraint violations.
    */
   tick(_dt: number): void {
     if (this.segments.length < 2) return;
@@ -419,15 +432,22 @@ export class Rope {
   releaseToSlack(minLength: number): void {
     let pathDist = 0;
     for (let i = 0; i < this.pathNodes.length - 1; i++) {
-      const a = this.pathNodes[i].body.toWorldFrame(
-        this.pathNodes[i].localAnchor,
+      const ni = this.pathNodes[i];
+      const nj = this.pathNodes[i + 1];
+      const a = ni.body.toWorldFrame3D(
+        ni.localAnchor.x,
+        ni.localAnchor.y,
+        ni.z,
       );
-      const b = this.pathNodes[i + 1].body.toWorldFrame(
-        this.pathNodes[i + 1].localAnchor,
+      const b = nj.body.toWorldFrame3D(
+        nj.localAnchor.x,
+        nj.localAnchor.y,
+        nj.z,
       );
       const dx = b[0] - a[0];
       const dy = b[1] - a[1];
-      pathDist += Math.sqrt(dx * dx + dy * dy);
+      const dz = b[2] - a[2];
+      pathDist += Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
     this.setLength(Math.max(minLength, pathDist));
   }
@@ -470,45 +490,47 @@ export class Rope {
   }
 
   /**
-   * Get world-space rope points with z-values interpolated along the path.
+   * Get world-space rope points with real z-values from 3D particle positions.
    */
   getPointsWithZ(): {
     points: [number, number][];
     z: number[];
   } {
-    const totalPoints = this.cachedPositions.length;
     let idx = 0;
 
     for (let s = 0; s < this.segments.length; s++) {
       const startNode = this.pathNodes[s];
-      const endNode = this.pathNodes[s + 1];
-      const startWorld = startNode.body.toWorldFrame(startNode.localAnchor);
-      const nParticles = this.segments[s].particles.length;
-      const segPoints = nParticles + 2; // start node + particles + end node
+      const [sx, sy, sz] = startNode.body.toWorldFrame3D(
+        startNode.localAnchor.x,
+        startNode.localAnchor.y,
+        startNode.z,
+      );
 
       // Start node
-      this.cachedPositions[idx][0] = startWorld[0];
-      this.cachedPositions[idx][1] = startWorld[1];
-      this.cachedZValues[idx] = startNode.z;
+      this.cachedPositions[idx][0] = sx;
+      this.cachedPositions[idx][1] = sy;
+      this.cachedZValues[idx] = sz;
       idx++;
 
-      // Particles — interpolate z between segment start and end
-      for (let i = 0; i < nParticles; i++) {
-        const p = this.segments[s].particles[i];
+      // Particles — real z from 6DOF
+      for (const p of this.segments[s].particles) {
         this.cachedPositions[idx][0] = p.position[0];
         this.cachedPositions[idx][1] = p.position[1];
-        this.cachedZValues[idx] =
-          startNode.z + (endNode.z - startNode.z) * ((i + 1) / (segPoints - 1));
+        this.cachedZValues[idx] = p.z;
         idx++;
       }
     }
 
     // Final endpoint
     const lastNode = this.pathNodes[this.pathNodes.length - 1];
-    const endWorld = lastNode.body.toWorldFrame(lastNode.localAnchor);
-    this.cachedPositions[idx][0] = endWorld[0];
-    this.cachedPositions[idx][1] = endWorld[1];
-    this.cachedZValues[idx] = lastNode.z;
+    const [ex, ey, ez] = lastNode.body.toWorldFrame3D(
+      lastNode.localAnchor.x,
+      lastNode.localAnchor.y,
+      lastNode.z,
+    );
+    this.cachedPositions[idx][0] = ex;
+    this.cachedPositions[idx][1] = ey;
+    this.cachedZValues[idx] = ez;
 
     return { points: this.cachedPositions, z: this.cachedZValues };
   }
@@ -524,7 +546,7 @@ export class Rope {
   }
 
   /** All constraints across all segments. */
-  getConstraints(): readonly DistanceConstraint[] {
+  getConstraints(): readonly DistanceConstraint3D[] {
     return this.allConstraints;
   }
 

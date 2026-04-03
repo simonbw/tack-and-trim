@@ -39,14 +39,17 @@ export const INPUT_HEAD_Z = 18;
 export const INPUT_CLEW_PINNED = 19;
 export const INPUT_COUNT = 20;
 
-// Reaction forces: tack(x,y), head(x,y), clew(x,y) — 6 floats
-export const REACTION_COUNT = 6;
+// Reaction forces: tack(x,y,z), head(x,y,z), clew(x,y,z) — 9 floats
+export const REACTION_COUNT = 9;
 export const REACTION_TACK_X = 0;
 export const REACTION_TACK_Y = 1;
-export const REACTION_HEAD_X = 2;
-export const REACTION_HEAD_Y = 3;
-export const REACTION_CLEW_X = 4;
-export const REACTION_CLEW_Y = 5;
+export const REACTION_TACK_Z = 2;
+export const REACTION_HEAD_X = 3;
+export const REACTION_HEAD_Y = 4;
+export const REACTION_HEAD_Z = 5;
+export const REACTION_CLEW_X = 6;
+export const REACTION_CLEW_Y = 7;
+export const REACTION_CLEW_Z = 8;
 
 /**
  * Compute SAB byte size and region offsets for a given vertex count.
