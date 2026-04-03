@@ -326,6 +326,8 @@ export const Kestrel: BoatConfig = {
     trimSpeed: 3,
     easeSpeed: 3,
     ropeThickness: 0.15,
+    ropeColor: 0xcc2222, // red strand
+    ropeStrandColor: 0xeeeeee, // white strand
   },
 
   jibSheet: {
@@ -341,6 +343,8 @@ export const Kestrel: BoatConfig = {
     trimSpeed: 5,
     easeSpeed: 15,
     ropeThickness: 0.15,
+    ropeColor: 0x2255cc, // blue strand
+    ropeStrandColor: 0xeeeeee, // white strand
   },
 
   rowing: {

@@ -15,6 +15,8 @@ export interface SheetConfig {
   ropePointCount: number;
   ropeThickness: number;
   ropeColor: number;
+  /** Second strand color for the twisted rope pattern. Default same as ropeColor. */
+  ropeStrandColor?: number;
   /** Number of interior rope particles. Default 6. */
   particleCount?: number;
   /** Particle mass in lbs. Default 0.5. */
@@ -316,5 +318,10 @@ export class Sheet extends BaseEntity {
   /** Rope color for rendering. */
   getRopeColor(): number {
     return this.config.ropeColor;
+  }
+
+  /** Second strand color for the twisted rope pattern. */
+  getRopeStrandColor(): number {
+    return this.config.ropeStrandColor ?? this.config.ropeColor;
   }
 }

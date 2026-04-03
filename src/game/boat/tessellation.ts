@@ -989,3 +989,176 @@ export function tessellatePolylineToStrip(
 
   return { positions, zValues, indices, color, alpha };
 }
+
+// ============================================================
+// Rope-specific tessellation with per-vertex UVs
+// ============================================================
+
+/** Result metadata from tessellateRopeStrip (data is in the pre-allocated arrays). */
+export interface RopeMeshData {
+  vertexCount: number;
+  indexCount: number;
+}
+
+/** Floats per vertex in the rope shader layout: posX, posY, u, v, z */
+export const ROPE_VERTEX_FLOATS = 5;
+
+/**
+ * Camera 2x2 transform for screen-space perpendicular computation.
+ * Forward: world direction → screen direction.
+ * Inverse: screen direction → world direction.
+ */
+export interface CameraTransform2x2 {
+  fa: number;
+  fb: number;
+  fc: number;
+  fd: number;
+  ia: number;
+  ib: number;
+  ic: number;
+  id: number;
+}
+
+/**
+ * Extract the 2x2 forward and inverse parts from a Matrix3 camera transform.
+ * The Matrix3 uses column-major [a,b] [c,d] [tx,ty] convention.
+ */
+export function extractCameraTransform(cam: {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+}): CameraTransform2x2 {
+  const { a, b, c, d } = cam;
+  const det = a * d - b * c;
+  const invDet = det !== 0 ? 1 / det : 0;
+  return {
+    fa: a,
+    fb: b,
+    fc: c,
+    fd: d,
+    ia: d * invDet,
+    ib: -b * invDet,
+    ic: -c * invDet,
+    id: a * invDet,
+  };
+}
+
+/**
+ * Tessellate a polyline into a triangle strip with per-vertex UV coordinates
+ * for the procedural rope shader.
+ *
+ * Vertex layout per vertex: [posX, posY, u, v, z] — 5 floats, 20 bytes.
+ *   u: cross-rope coordinate, -1 (left edge) to +1 (right edge)
+ *   v: cumulative arc length along the centerline (feet)
+ *
+ * Perpendicular offsets are computed in screen space (via the camera transform)
+ * so the rope always appears as a consistent width on screen.
+ *
+ * Uses simple miter joins. Writes directly into pre-allocated output arrays.
+ * Vertex count = 2 * points.length, index count = 6 * (points.length - 1).
+ */
+export function tessellateRopeStrip(
+  points: ReadonlyArray<readonly [number, number]>,
+  zPerPoint: number[],
+  width: number,
+  cam: CameraTransform2x2,
+  outVertices: Float32Array,
+  outIndices: Uint16Array,
+): RopeMeshData {
+  const n = points.length;
+  if (n < 2) return { vertexCount: 0, indexCount: 0 };
+
+  const halfWidth = width / 2;
+  let vOff = 0; // vertex float offset
+  let iOff = 0; // index offset
+  let cumulativeDist = 0;
+
+  // Compute unit screen-space perpendicular for a world-space direction,
+  // then inverse-project back to world. Returns the world-space offset
+  // direction (unit length in screen space).
+  const screenPerp = (dx: number, dy: number): [number, number] => {
+    // Forward-project direction to screen
+    const sx = cam.fa * dx + cam.fc * dy;
+    const sy = cam.fb * dx + cam.fd * dy;
+    const len = Math.sqrt(sx * sx + sy * sy);
+    if (len < 1e-6) return [0, 0];
+    // Screen-space perpendicular (unit)
+    const px = -sy / len;
+    const py = sx / len;
+    // Inverse-project back to world
+    return [cam.ia * px + cam.ic * py, cam.ib * px + cam.id * py];
+  };
+
+  for (let i = 0; i < n; i++) {
+    const cx = points[i][0];
+    const cy = points[i][1];
+    const z = zPerPoint[i];
+
+    // Accumulate distance along the centerline
+    if (i > 0) {
+      const dx = cx - points[i - 1][0];
+      const dy = cy - points[i - 1][1];
+      cumulativeDist += Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Compute perpendicular direction in screen space
+    let nx: number, ny: number;
+    if (i === 0) {
+      [nx, ny] = screenPerp(points[1][0] - cx, points[1][1] - cy);
+    } else if (i === n - 1) {
+      [nx, ny] = screenPerp(cx - points[i - 1][0], cy - points[i - 1][1]);
+    } else {
+      // Interior: average screen perpendiculars (miter)
+      const [s1x, s1y] = screenPerp(
+        cx - points[i - 1][0],
+        cy - points[i - 1][1],
+      );
+      const [s2x, s2y] = screenPerp(
+        points[i + 1][0] - cx,
+        points[i + 1][1] - cy,
+      );
+      let mx = (s1x + s2x) / 2;
+      let my = (s1y + s2y) / 2;
+      const mLen = Math.sqrt(mx * mx + my * my);
+      if (mLen > 0.001) {
+        const dot = s1x * mx + s1y * my;
+        const miterScale = Math.min(dot > 0.1 ? 1 / dot : 1, 1);
+        mx = (mx / mLen) * miterScale;
+        my = (my / mLen) * miterScale;
+      } else {
+        mx = s1x;
+        my = s1y;
+      }
+      nx = mx;
+      ny = my;
+    }
+
+    // Left vertex: u = +1
+    outVertices[vOff++] = cx + nx * halfWidth;
+    outVertices[vOff++] = cy + ny * halfWidth;
+    outVertices[vOff++] = 1; // u
+    outVertices[vOff++] = cumulativeDist; // v
+    outVertices[vOff++] = z;
+
+    // Right vertex: u = -1
+    outVertices[vOff++] = cx - nx * halfWidth;
+    outVertices[vOff++] = cy - ny * halfWidth;
+    outVertices[vOff++] = -1; // u
+    outVertices[vOff++] = cumulativeDist; // v
+    outVertices[vOff++] = z;
+
+    // Indices: connect to previous pair
+    if (i > 0) {
+      const base = (i - 1) * 2;
+      outIndices[iOff++] = base;
+      outIndices[iOff++] = base + 2;
+      outIndices[iOff++] = base + 3;
+      outIndices[iOff++] = base;
+      outIndices[iOff++] = base + 3;
+      outIndices[iOff++] = base + 1;
+    }
+  }
+
+  return { vertexCount: n * 2, indexCount: (n - 1) * 6 };
+}

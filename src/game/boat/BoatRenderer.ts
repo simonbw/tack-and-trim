@@ -5,15 +5,16 @@ import { V } from "../../core/Vector";
 import type { Boat } from "./Boat";
 import type { BoatConfig } from "./BoatConfig";
 import { buildDeckPlanMeshes } from "./deck-plan";
+import { RopeShaderInstance } from "./RopeShader";
 import {
   MeshContribution,
   TiltProjection,
   computeTiltProjection,
   roundCorners,
-  subdivideSmooth,
+  extractCameraTransform,
+  tessellateRopeStrip,
   tessellateScreenCircle,
   tessellateLineToQuad,
-  tessellatePolylineToStrip,
   tessellateScreenWidthLine,
   tessellateScreenWidthPolyline,
 } from "./tessellation";
@@ -33,6 +34,9 @@ export class BoatRenderer extends BaseEntity {
   // Pre-built static meshes (hull-local, computed once)
   private keelMesh: MeshContribution | null = null;
   private deckPlanMeshes: MeshContribution[] = [];
+
+  // Per-sheet rope shader instances (lazy-created)
+  private ropeShaders = new Map<import("./Sheet").Sheet, RopeShaderInstance>();
 
   constructor(private boat: Boat) {
     super();
@@ -678,6 +682,15 @@ export class BoatRenderer extends BaseEntity {
     }
   }
 
+  private getRopeShader(sheet: import("./Sheet").Sheet): RopeShaderInstance {
+    let instance = this.ropeShaders.get(sheet);
+    if (!instance) {
+      instance = new RopeShaderInstance(32);
+      this.ropeShaders.set(sheet, instance);
+    }
+    return instance;
+  }
+
   private renderSheet(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
     sheet: import("./Sheet").Sheet,
@@ -691,17 +704,33 @@ export class BoatRenderer extends BaseEntity {
     const { points: worldPoints, z: zPerPoint } = sheet.getRopePointsWithZ();
     if (worldPoints.length < 2) return;
 
-    // DEBUG: skip smoothing to see raw particle positions
-    const mesh = tessellatePolylineToStrip(
+    const ropeShader = this.getRopeShader(sheet);
+    const width = sheet.getRopeThickness();
+    const cam = extractCameraTransform(renderer.getTransform());
+
+    const { vertexCount, indexCount } = tessellateRopeStrip(
       worldPoints as [number, number][],
       zPerPoint,
-      sheet.getRopeThickness(),
-      sheet.getRopeColor(),
-      opacity,
-      false,
-      true,
+      width,
+      cam,
+      ropeShader.scratchVertexData,
+      ropeShader.scratchIndexData,
     );
-    this.submitMesh(renderer, mesh);
+
+    if (vertexCount === 0) return;
+
+    ropeShader.draw(
+      renderer,
+      ropeShader.scratchVertexData,
+      vertexCount,
+      ropeShader.scratchIndexData,
+      indexCount,
+      sheet.getRopeColor(),
+      sheet.getRopeStrandColor(),
+      opacity,
+      width,
+      0, // time — not used (twist pattern is static)
+    );
   }
 
   private renderMast(
