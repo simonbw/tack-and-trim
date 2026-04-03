@@ -318,7 +318,8 @@ export const Kestrel: BoatConfig = {
 
   mainsheet: {
     boomAttachRatio: 0.9,
-    hullAttachPoint: V(-7, 0),
+    hullAttachPoint: V(-7.5, 0), // cleat — aft end of cockpit sole
+    winchPoint: V(-6.5, 0), // cam cleat on cockpit sole
     minLength: 2,
     maxLength: 12,
     defaultLength: 6,
@@ -328,10 +329,12 @@ export const Kestrel: BoatConfig = {
   },
 
   jibSheet: {
-    portAttachPoint: V(-5, 3.5),
-    starboardAttachPoint: V(-5, -3.5),
+    portAttachPoint: V(-6, 3.2), // cleat — tail end, cockpit coaming
+    starboardAttachPoint: V(-6, -3.2),
     portBlockPoint: V(2, 3.8), // deck block, roughly abeam of mast at rail
     starboardBlockPoint: V(2, -3.8),
+    portWinchPoint: V(-4, 3.4), // winch on cockpit coaming
+    starboardWinchPoint: V(-4, -3.4),
     minLength: 6,
     maxLength: 18,
     defaultLength: 12,

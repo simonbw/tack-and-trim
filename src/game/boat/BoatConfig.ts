@@ -259,16 +259,22 @@ export interface JibConfig extends BaseSailConfig {}
 
 export interface MainsheetConfig extends Partial<SheetConfig> {
   readonly boomAttachRatio: number; // 0-1 along boom
-  readonly hullAttachPoint: V2d; // ft from hull center
+  readonly hullAttachPoint: V2d; // ft from hull center (cleat — tail end of sheet)
+  /** Winch position on deck (hull-local). Rope controlled here by crew. */
+  readonly winchPoint?: V2d;
 }
 
 export interface JibSheetConfig extends Partial<SheetConfig> {
-  readonly portAttachPoint: V2d; // ft from hull center (cleat/winch)
-  readonly starboardAttachPoint: V2d; // ft from hull center (cleat/winch)
+  readonly portAttachPoint: V2d; // ft from hull center (cleat — tail end)
+  readonly starboardAttachPoint: V2d; // ft from hull center (cleat — tail end)
   /** Optional block position for port sheet (hull-local). Rope routes through this. */
   readonly portBlockPoint?: V2d;
   /** Optional block position for starboard sheet (hull-local). */
   readonly starboardBlockPoint?: V2d;
+  /** Winch position for port sheet (hull-local). */
+  readonly portWinchPoint?: V2d;
+  /** Winch position for starboard sheet (hull-local). */
+  readonly starboardWinchPoint?: V2d;
 }
 
 export interface RowingConfig {

@@ -117,10 +117,20 @@ export class Boat extends BaseEntity {
     }
 
     // Create mainsheet (boom to hull)
-    const { hullAttachPoint, boomAttachRatio, ...mainsheetConfig } =
+    const { hullAttachPoint, boomAttachRatio, winchPoint, ...mainsheetConfig } =
       config.mainsheet;
     const boomZ = config.rig.mainsail.zFoot ?? 3;
     const deckZ = config.hull.deckHeight;
+    const mainsheetWaypoints = winchPoint
+      ? [
+          {
+            body: this.hull.body,
+            localAnchor: winchPoint,
+            z: deckZ,
+            type: "winch" as const,
+          },
+        ]
+      : [];
     this.mainsheet = this.addChild(
       new Sheet(
         this.rig.body as DynamicBody,
@@ -130,6 +140,7 @@ export class Boat extends BaseEntity {
         mainsheetConfig,
         boomZ,
         deckZ,
+        mainsheetWaypoints,
       ),
     );
 
@@ -169,23 +180,43 @@ export class Boat extends BaseEntity {
         starboardAttachPoint,
         portBlockPoint,
         starboardBlockPoint,
+        portWinchPoint,
+        starboardWinchPoint,
         ...jibSheetConfig
       } = config.jibSheet;
       const clewBody = this.jib.getClew() as DynamicBody;
 
       const jibClewZ = config.jib.zFoot ?? 3;
-      const portWaypoints = portBlockPoint
-        ? [{ body: this.hull.body, localAnchor: portBlockPoint, z: deckZ }]
-        : [];
-      const starboardWaypoints = starboardBlockPoint
-        ? [
-            {
-              body: this.hull.body,
-              localAnchor: starboardBlockPoint,
-              z: deckZ,
-            },
-          ]
-        : [];
+      // Build waypoint arrays: blocks first, then winch
+      const portWaypoints: import("../rope/Rope").RopeWaypoint[] = [];
+      if (portBlockPoint)
+        portWaypoints.push({
+          body: this.hull.body,
+          localAnchor: portBlockPoint,
+          z: deckZ,
+        });
+      if (portWinchPoint)
+        portWaypoints.push({
+          body: this.hull.body,
+          localAnchor: portWinchPoint,
+          z: deckZ,
+          type: "winch",
+        });
+
+      const starboardWaypoints: import("../rope/Rope").RopeWaypoint[] = [];
+      if (starboardBlockPoint)
+        starboardWaypoints.push({
+          body: this.hull.body,
+          localAnchor: starboardBlockPoint,
+          z: deckZ,
+        });
+      if (starboardWinchPoint)
+        starboardWaypoints.push({
+          body: this.hull.body,
+          localAnchor: starboardWinchPoint,
+          z: deckZ,
+          type: "winch",
+        });
 
       // zA = 0 for jib sheets: the clew body already has z = jibClewZ
       // from its sixDOF setup. The local anchor z is relative to the body.

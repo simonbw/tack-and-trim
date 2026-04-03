@@ -17,11 +17,19 @@ export interface RopeConfig {
   constraintRelaxation?: number;
 }
 
-/** A block/fairlead that the rope passes through. */
+/** Waypoint behavior:
+ * - "block": rope slides freely through based on tension (physics-driven)
+ * - "winch": rope only moves when explicitly transferred (player-controlled)
+ */
+export type WaypointType = "block" | "winch";
+
+/** A block, fairlead, or winch that the rope passes through. */
 export interface RopeWaypoint {
   body: Body;
   localAnchor: V2d;
   z: number;
+  /** Default "block" — free physics-driven transfer. */
+  type?: WaypointType;
 }
 
 /**
@@ -41,6 +49,9 @@ interface PathNode {
   z: number;
 }
 
+/** Type of each interior waypoint (indexed by waypoint, not segment). */
+type WaypointTypes = WaypointType[];
+
 /**
  * A rope modeled as a chain of lightweight 2D physics particles connected
  * by upper-limit-only distance constraints.
@@ -56,6 +67,7 @@ interface PathNode {
 export class Rope {
   private readonly segments: RopeSegment[] = [];
   private readonly pathNodes: PathNode[];
+  private readonly waypointTypes: WaypointTypes;
 
   private readonly stiffness: number;
   private readonly relaxation: number;
@@ -109,6 +121,9 @@ export class Rope {
         z: localAnchorB[2],
       },
     ];
+
+    // Store waypoint types (one per interior node)
+    this.waypointTypes = waypoints.map((w) => w.type ?? "block");
 
     const numSegments = this.pathNodes.length - 1;
 
@@ -369,6 +384,9 @@ export class Rope {
     if (this.segments.length < 2) return;
 
     for (let w = 0; w < this.segments.length - 1; w++) {
+      // Only auto-transfer at block waypoints, not winches
+      if (this.waypointTypes[w] !== "block") continue;
+
       const segA = this.segments[w];
       const segB = this.segments[w + 1];
 
@@ -405,6 +423,71 @@ export class Rope {
         segA.length -= give;
       }
     }
+  }
+
+  /**
+   * Manually transfer rope through a waypoint (e.g. winch).
+   * Positive amount = move rope from before the waypoint to after it
+   * (i.e. the before-segment gets shorter, after-segment gets longer).
+   *
+   * @param waypointIndex 0-based index into the waypoints array
+   * @param amount Rope length to transfer (ft). Positive = before→after.
+   * @returns Actual amount transferred (may be clamped).
+   */
+  transferAtWaypoint(waypointIndex: number, amount: number): number {
+    const segBefore = this.segments[waypointIndex];
+    const segAfter = this.segments[waypointIndex + 1];
+    if (!segBefore || !segAfter) return 0;
+
+    const constraintBefore =
+      segBefore.constraints[segBefore.constraints.length - 1];
+    const constraintAfter = segAfter.constraints[0];
+
+    const minSegLen = 0.1;
+
+    // Clamp to available rope on the giving side
+    let actual = amount;
+    if (actual > 0) {
+      // Moving rope from before → after: before gets shorter
+      actual = Math.min(actual, constraintBefore.upperLimit - minSegLen);
+    } else {
+      // Moving rope from after → before: after gets shorter
+      actual = Math.max(actual, -(constraintAfter.upperLimit - minSegLen));
+    }
+
+    if (Math.abs(actual) < 1e-6) return 0;
+
+    constraintBefore.upperLimit -= actual;
+    constraintBefore.distance = constraintBefore.upperLimit;
+    constraintAfter.upperLimit += actual;
+    constraintAfter.distance = constraintAfter.upperLimit;
+    segBefore.length -= actual;
+    segAfter.length += actual;
+
+    return actual;
+  }
+
+  /**
+   * Get the total length of segments before a given waypoint.
+   * Useful for querying the "working length" of rope on the sail side of a winch.
+   */
+  getLengthBeforeWaypoint(waypointIndex: number): number {
+    let total = 0;
+    for (let i = 0; i <= waypointIndex; i++) {
+      total += this.segments[i].length;
+    }
+    return total;
+  }
+
+  /**
+   * Get the total length of segments after a given waypoint.
+   */
+  getLengthAfterWaypoint(waypointIndex: number): number {
+    let total = 0;
+    for (let i = waypointIndex + 1; i < this.segments.length; i++) {
+      total += this.segments[i].length;
+    }
+    return total;
   }
 
   /**
@@ -533,6 +616,11 @@ export class Rope {
     this.cachedZValues[idx] = ez;
 
     return { points: this.cachedPositions, z: this.cachedZValues };
+  }
+
+  /** Find the index of the first waypoint with the given type, or -1. */
+  findWaypoint(type: WaypointType): number {
+    return this.waypointTypes.indexOf(type);
   }
 
   /** Whether the rope is currently attached to a physics world. */
