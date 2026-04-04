@@ -786,30 +786,65 @@ export class DynamicBody extends Body implements SleepableBody {
   }
 
   /**
-   * Integrate the orientation matrix using angular velocity.
-   * R_new = R + skew(ω) * R * dt, then re-orthogonalize.
+   * Integrate the orientation matrix using the Rodrigues (exponential map) formula.
+   * Exact for constant angular velocity over the timestep, unlike first-order Euler.
+   * R_new = exp(skew(ω·dt)) * R
    */
   private _integrateOrientation(dt: number): void {
     const R = this._orientation;
-    const wx = this._angularVelocity3[0];
-    const wy = this._angularVelocity3[1];
-    const wz = this._angularVelocity3[2];
 
-    // skew(ω) * R: each row of the result is ω × (row of R)
-    // But since R is row-major, we compute column-by-column:
-    // new_col_j = col_j + (ω × col_j) * dt
-    for (let j = 0; j < 3; j++) {
-      const c0 = R[j]; // column j, row 0
-      const c1 = R[3 + j]; // column j, row 1
-      const c2 = R[6 + j]; // column j, row 2
+    // Rotation vector for this step
+    const vx = this._angularVelocity3[0] * dt;
+    const vy = this._angularVelocity3[1] * dt;
+    const vz = this._angularVelocity3[2] * dt;
+    const theta2 = vx * vx + vy * vy + vz * vz;
 
-      // ω × c = (wy*c2 - wz*c1, wz*c0 - wx*c2, wx*c1 - wy*c0)
-      R[j] += (wy * c2 - wz * c1) * dt;
-      R[3 + j] += (wz * c0 - wx * c2) * dt;
-      R[6 + j] += (wx * c1 - wy * c0) * dt;
+    // Rodrigues coefficients: s = sin(θ)/θ, c = (1-cos(θ))/θ²
+    // Taylor expansion for small angles avoids 0/0 singularity
+    let s: number, c: number;
+    if (theta2 < 1e-8) {
+      s = 1 - theta2 / 6;
+      c = 0.5 - theta2 / 24;
+    } else {
+      const theta = Math.sqrt(theta2);
+      s = Math.sin(theta) / theta;
+      c = (1 - Math.cos(theta)) / theta2;
     }
 
-    // Re-orthogonalize using Gram-Schmidt on rows
+    // E = I + s·skew(v) + c·skew(v)²
+    const e00 = 1 + c * (-vy * vy - vz * vz);
+    const e01 = -s * vz + c * vx * vy;
+    const e02 = s * vy + c * vx * vz;
+    const e10 = s * vz + c * vx * vy;
+    const e11 = 1 + c * (-vx * vx - vz * vz);
+    const e12 = -s * vx + c * vy * vz;
+    const e20 = -s * vy + c * vx * vz;
+    const e21 = s * vx + c * vy * vz;
+    const e22 = 1 + c * (-vx * vx - vy * vy);
+
+    // R_new = E * R_old (row-major)
+    const r00 = R[0],
+      r01 = R[1],
+      r02 = R[2];
+    const r10 = R[3],
+      r11 = R[4],
+      r12 = R[5];
+    const r20 = R[6],
+      r21 = R[7],
+      r22 = R[8];
+
+    R[0] = e00 * r00 + e01 * r10 + e02 * r20;
+    R[1] = e00 * r01 + e01 * r11 + e02 * r21;
+    R[2] = e00 * r02 + e01 * r12 + e02 * r22;
+    R[3] = e10 * r00 + e11 * r10 + e12 * r20;
+    R[4] = e10 * r01 + e11 * r11 + e12 * r21;
+    R[5] = e10 * r02 + e11 * r12 + e12 * r22;
+    R[6] = e20 * r00 + e21 * r10 + e22 * r20;
+    R[7] = e20 * r01 + e21 * r11 + e22 * r21;
+    R[8] = e20 * r02 + e21 * r12 + e22 * r22;
+
+    // Rodrigues preserves orthogonality well, but Gram-Schmidt guards
+    // against long-term numerical drift
     this._orthogonalizeOrientation();
   }
 
