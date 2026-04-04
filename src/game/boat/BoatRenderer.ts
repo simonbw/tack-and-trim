@@ -770,6 +770,8 @@ export class BoatRenderer extends BaseEntity {
       sheet.getRopeStrandColor(),
       opacity,
       width,
+      sheet.getRopePatternType(),
+      sheet.getBraidColors(),
       0,
     );
   }
@@ -841,6 +843,8 @@ export class BoatRenderer extends BaseEntity {
       color, // same for both strands = solid color
       1,
       width,
+      0, // twist pattern
+      null,
       0,
     );
   }

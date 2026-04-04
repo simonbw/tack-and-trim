@@ -323,8 +323,18 @@ export const Kestrel: BoatConfig = {
     minLength: 2,
     maxLength: 12,
     ropeThickness: 0.15,
-    ropeColor: 0xcc2222, // red strand
-    ropeStrandColor: 0xeeeeee, // white strand
+    ropePattern: "braid",
+    ropeColor: 0xeeeeee,
+    braidColors: [
+      0xeeeeee, // white
+      0xcc2222, // red
+      0xcc2222, // red
+      0xeeeeee, // white
+      0xeeeeee, // white
+      0x222222, // dark
+      0xeeeeee, // white
+      0xeeeeee, // white
+    ],
   },
 
   jibSheet: {
@@ -337,8 +347,18 @@ export const Kestrel: BoatConfig = {
     minLength: 6,
     maxLength: 18,
     ropeThickness: 0.15,
-    ropeColor: 0x2255cc, // blue strand
-    ropeStrandColor: 0xeeeeee, // white strand
+    ropePattern: "braid",
+    ropeColor: 0xeeeeee,
+    braidColors: [
+      0xeeeeee, // white
+      0x2255cc, // blue
+      0x2255cc, // blue
+      0xeeeeee, // white
+      0xeeeeee, // white
+      0x222222, // dark
+      0xeeeeee, // white
+      0xeeeeee, // white
+    ],
   },
 
   rowing: {

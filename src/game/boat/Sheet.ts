@@ -14,6 +14,19 @@ export interface SheetConfig {
   ropeColor: number;
   /** Second strand color for the twisted rope pattern. Default same as ropeColor. */
   ropeStrandColor?: number;
+  /**
+   * Rope visual pattern.
+   * - "twist" (default): three-strand twisted rope with two alternating colors
+   *   (ropeColor and ropeStrandColor).
+   * - "braid": 16-plait braided cover with per-carrier colors defined by braidColors.
+   */
+  ropePattern?: "twist" | "braid";
+  /**
+   * Per-carrier colors for the braid pattern, as an array of up to 8 hex colors
+   * (0xRRGGBB). Each entry maps to one carrier slot in the braid weave.
+   * Shorter arrays are padded with ropeColor. Only used when ropePattern is "braid".
+   */
+  braidColors?: number[];
   /** Particles per foot of rope. Default 1.5. */
   particlesPerFoot?: number;
   /**
@@ -262,5 +275,26 @@ export class Sheet extends BaseEntity {
   /** Second strand color for the twisted rope pattern. */
   getRopeStrandColor(): number {
     return this.config.ropeStrandColor ?? this.config.ropeColor;
+  }
+
+  /** Rope pattern type as integer for the shader uniform. */
+  getRopePatternType(): number {
+    return this.config.ropePattern === "braid" ? 1 : 0;
+  }
+
+  /**
+   * Per-carrier braid colors (8 entries). Returns null for non-braid patterns.
+   * Shorter braidColors arrays are padded with ropeColor.
+   */
+  getBraidColors(): readonly number[] | null {
+    if (this.config.ropePattern !== "braid") return null;
+    const base = this.config.ropeColor;
+    const src = this.config.braidColors;
+    if (!src) return [base, base, base, base, base, base, base, base];
+    const out: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      out.push(src[i] ?? base);
+    }
+    return out;
   }
 }
