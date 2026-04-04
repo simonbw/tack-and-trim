@@ -363,9 +363,6 @@ export const Albatross: BoatConfig = {
     hullAttachPoint: V(-14, 0),
     minLength: 4,
     maxLength: 18,
-    defaultLength: 9,
-    trimSpeed: 2,
-    easeSpeed: 2,
     ropeThickness: 0.4,
   },
 
@@ -374,9 +371,6 @@ export const Albatross: BoatConfig = {
     starboardAttachPoint: V(-12, -5.5),
     minLength: 10,
     maxLength: 28,
-    defaultLength: 18,
-    trimSpeed: 3.5,
-    easeSpeed: 12,
     ropeThickness: 0.4,
   },
 

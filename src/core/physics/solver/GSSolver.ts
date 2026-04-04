@@ -178,6 +178,11 @@ export function solveEquations(
     if (!bodyState.has(eq.bodyB)) {
       bodyState.set(eq.bodyB, createSolverState(eq.bodyB, false));
     }
+    // 3-body equations (PulleyEquation) have a bodyC
+    const eqAny = eq as any;
+    if (eqAny.bodyC && !bodyState.has(eqAny.bodyC)) {
+      bodyState.set(eqAny.bodyC, createSolverState(eqAny.bodyC, false));
+    }
   }
 
   // Allocate per-equation solver arrays:

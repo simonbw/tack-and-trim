@@ -11,7 +11,9 @@ import {
   TiltProjection,
   computeTiltProjection,
   roundCorners,
+  catmullRomOutputCount,
   extractCameraTransform,
+  subdivideCatmullRom,
   tessellateRopeStrip,
   tessellateScreenCircle,
   tessellateLineToQuad,
@@ -34,9 +36,6 @@ export class BoatRenderer extends BaseEntity {
   // Pre-built static meshes (hull-local, computed once)
   private keelMesh: MeshContribution | null = null;
   private deckPlanMeshes: MeshContribution[] = [];
-
-  // Per-sheet rope shader instances (lazy-created)
-  private ropeShaders = new Map<import("./Sheet").Sheet, RopeShaderInstance>();
 
   constructor(private boat: Boat) {
     super();
@@ -239,6 +238,9 @@ export class BoatRenderer extends BaseEntity {
     if (this.boat.starboardJibSheet) {
       this.renderSheet(renderer, this.boat.starboardJibSheet, hullBody);
     }
+
+    // Anchor rode
+    this.renderRode(renderer);
   }
 
   private submitMesh(
@@ -603,9 +605,10 @@ export class BoatRenderer extends BaseEntity {
       }
 
       if (points.length >= 2) {
+        const wireZ = topZ - 0.5 / 12; // slightly below stanchion top caps
         const mesh = tessellateScreenWidthPolyline(
           points,
-          points.map(() => topZ),
+          points.map(() => wireZ),
           wireWidth,
           tilt,
           wireColor,
@@ -682,13 +685,42 @@ export class BoatRenderer extends BaseEntity {
     }
   }
 
-  private getRopeShader(sheet: import("./Sheet").Sheet): RopeShaderInstance {
-    let instance = this.ropeShaders.get(sheet);
-    if (!instance) {
-      instance = new RopeShaderInstance(32);
-      this.ropeShaders.set(sheet, instance);
+  /** Subdivisions per segment for Catmull-Rom rope smoothing. */
+  private static readonly ROPE_SUBDIVISIONS = 3;
+
+  /** Per-sheet smoothing scratch buffers and shader instance. */
+  private ropeRenderState = new Map<
+    import("./Sheet").Sheet,
+    {
+      shader: RopeShaderInstance;
+      smoothPoints: [number, number][];
+      smoothZ: number[];
+      rawCount: number;
     }
-    return instance;
+  >();
+
+  private getRopeRenderState(
+    rawPointCount: number,
+    sheet: import("./Sheet").Sheet,
+  ) {
+    let state = this.ropeRenderState.get(sheet);
+    if (!state || state.rawCount !== rawPointCount) {
+      const smoothCount = catmullRomOutputCount(
+        rawPointCount,
+        BoatRenderer.ROPE_SUBDIVISIONS,
+      );
+      state = {
+        shader: new RopeShaderInstance(smoothCount),
+        smoothPoints: Array.from(
+          { length: smoothCount },
+          () => [0, 0] as [number, number],
+        ),
+        smoothZ: new Array(smoothCount).fill(0),
+        rawCount: rawPointCount,
+      };
+      this.ropeRenderState.set(sheet, state);
+    }
+    return state;
   }
 
   private renderSheet(
@@ -699,37 +731,117 @@ export class BoatRenderer extends BaseEntity {
     const opacity = sheet.getOpacity();
     if (opacity <= 0) return;
 
-    // Rope points come from 3D physics particles. The positions already
-    // include tilt parallax via toWorldFrame3D on 6DOF bodies.
-    const { points: worldPoints, z: zPerPoint } = sheet.getRopePointsWithZ();
-    if (worldPoints.length < 2) return;
+    const { points: rawPoints, z: rawZ } = sheet.getRopePointsWithZ();
+    if (rawPoints.length < 2) return;
 
-    const ropeShader = this.getRopeShader(sheet);
+    const state = this.getRopeRenderState(rawPoints.length, sheet);
+
+    // Smooth the physics points with Catmull-Rom interpolation
+    const smoothCount = subdivideCatmullRom(
+      rawPoints,
+      rawZ,
+      BoatRenderer.ROPE_SUBDIVISIONS,
+      state.smoothPoints,
+      state.smoothZ,
+    );
+
     const width = sheet.getRopeThickness();
     const cam = extractCameraTransform(renderer.getTransform());
 
     const { vertexCount, indexCount } = tessellateRopeStrip(
-      worldPoints as [number, number][],
-      zPerPoint,
+      state.smoothPoints,
+      state.smoothZ,
       width,
       cam,
-      ropeShader.scratchVertexData,
-      ropeShader.scratchIndexData,
+      state.shader.scratchVertexData,
+      state.shader.scratchIndexData,
+      smoothCount,
     );
 
     if (vertexCount === 0) return;
 
-    ropeShader.draw(
+    state.shader.draw(
       renderer,
-      ropeShader.scratchVertexData,
+      state.shader.scratchVertexData,
       vertexCount,
-      ropeShader.scratchIndexData,
+      state.shader.scratchIndexData,
       indexCount,
       sheet.getRopeColor(),
       sheet.getRopeStrandColor(),
       opacity,
       width,
-      0, // time — not used (twist pattern is static)
+      0,
+    );
+  }
+
+  /** Rode render state (lazy-created). */
+  private rodeState: {
+    shader: RopeShaderInstance;
+    smoothPoints: [number, number][];
+    smoothZ: number[];
+    rawCount: number;
+  } | null = null;
+
+  private renderRode(
+    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+  ) {
+    const rodeData = this.boat.anchor.getRodePointsWithZ();
+    if (!rodeData) return;
+    const { points: rawPoints, z: rawZ } = rodeData;
+    if (rawPoints.length < 2) return;
+
+    // Lazy-create or recreate if point count changed
+    if (!this.rodeState || this.rodeState.rawCount !== rawPoints.length) {
+      const smoothCount = catmullRomOutputCount(
+        rawPoints.length,
+        BoatRenderer.ROPE_SUBDIVISIONS,
+      );
+      this.rodeState = {
+        shader: new RopeShaderInstance(smoothCount),
+        smoothPoints: Array.from(
+          { length: smoothCount },
+          () => [0, 0] as [number, number],
+        ),
+        smoothZ: new Array(smoothCount).fill(0),
+        rawCount: rawPoints.length,
+      };
+    }
+
+    const smoothCount = subdivideCatmullRom(
+      rawPoints,
+      rawZ,
+      BoatRenderer.ROPE_SUBDIVISIONS,
+      this.rodeState.smoothPoints,
+      this.rodeState.smoothZ,
+    );
+
+    const width = this.boat.anchor.getRodeThickness();
+    const cam = extractCameraTransform(renderer.getTransform());
+
+    const { vertexCount, indexCount } = tessellateRopeStrip(
+      this.rodeState.smoothPoints,
+      this.rodeState.smoothZ,
+      width,
+      cam,
+      this.rodeState.shader.scratchVertexData,
+      this.rodeState.shader.scratchIndexData,
+      smoothCount,
+    );
+
+    if (vertexCount === 0) return;
+
+    const color = this.boat.anchor.getRodeColor();
+    this.rodeState.shader.draw(
+      renderer,
+      this.rodeState.shader.scratchVertexData,
+      vertexCount,
+      this.rodeState.shader.scratchIndexData,
+      indexCount,
+      color,
+      color, // same for both strands = solid color
+      1,
+      width,
+      0,
     );
   }
 

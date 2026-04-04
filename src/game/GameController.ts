@@ -259,7 +259,6 @@ export class GameController extends BaseEntity {
 
     // Start the tutorial if not already completed
     if (!isTutorialCompleted()) {
-      boat.anchor.deploy(); // Start with anchor deployed for tutorial
       this.game.addEntity(new TutorialManager());
     }
   }

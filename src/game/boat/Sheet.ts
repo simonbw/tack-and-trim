@@ -4,56 +4,61 @@ import { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { clamp } from "../../core/util/MathUtil";
 import { V2d } from "../../core/Vector";
+import { LBF_TO_ENGINE } from "../physics-constants";
 import { Rope, RopeConfig, RopeWaypoint } from "../rope/Rope";
 
 export interface SheetConfig {
   minLength: number;
   maxLength: number;
-  defaultLength: number;
-  trimSpeed: number; // Ft / second when pulling in
-  easeSpeed: number; // Ft / second when easing out
-  ropePointCount: number;
   ropeThickness: number;
   ropeColor: number;
   /** Second strand color for the twisted rope pattern. Default same as ropeColor. */
   ropeStrandColor?: number;
-  /** Number of interior rope particles. Default 6. */
-  particleCount?: number;
-  /** Particle mass in lbs. Default 0.5. */
-  particleMass?: number;
-  /** Particle linear damping (0-1). Default 0.5. */
+  /** Particles per foot of rope. Default 1.5. */
+  particlesPerFoot?: number;
+  /**
+   * Rope mass in lbs per foot. Real 5/16" line is ~0.03 lb/ft, but heavier
+   * values improve simulation stability. Default 0.1.
+   */
+  massPerFoot?: number;
+  /** Particle linear damping (0-1). Default 0.85. */
   ropeDamping?: number;
+  /**
+   * Tailing force in lbf (pounds-force) when trimming at full input.
+   * Represents the mechanical advantage of the winch × crew effort.
+   * Shift-held multiplies the input, simulating grinding harder.
+   * Default 50.
+   */
+  winchForce?: number;
 }
 
 const DEFAULT_CONFIG: SheetConfig = {
   minLength: 6,
   maxLength: 35,
-  defaultLength: 20,
-  trimSpeed: 15,
-  easeSpeed: 15,
-  ropePointCount: 8,
   ropeThickness: 0.75,
   ropeColor: 0x444444,
-  particleCount: 6,
-  particleMass: 0.5,
+  particlesPerFoot: 1.5,
+  massPerFoot: 0.1,
   ropeDamping: 0.85,
+  winchForce: 50,
 };
 
 /**
- * A single adjustable sheet (rope) connecting two physics bodies.
- * Uses a chain of lightweight particles connected by upper-limit-only
- * distance constraints for stable, energy-dissipative force transmission.
+ * A single adjustable sheet (rope) connecting a sail to the boat.
  *
- * The rope has a fixed total length. Trimming moves rope through the
- * winch waypoint — the working side (sail) gets shorter while the tail
- * (crew) side gets longer, and vice versa when easing.
+ * The rope is a fixed-length continuous particle chain with a free bitter end.
+ * Blocks are PulleyConstraint3D (rope slides freely through).
+ * Winches are pulleys with a grip pin: when idle the grip locks the rope;
+ * when the player trims, the grip releases and a force pulls rope through.
  */
 export class Sheet extends BaseEntity {
   layer = "boat" as const;
   private rope: Rope;
 
   private config: SheetConfig;
-  /** Index of the winch waypoint in the rope's waypoint array. */
+  /** The hull body — used to compute the tailing direction toward the helm. */
+  private hullBody: Body;
+  /** Index of the winch in the rope's winch array, or -1. */
   private winchIndex: number;
   private opacity: number = 1.0;
 
@@ -70,47 +75,42 @@ export class Sheet extends BaseEntity {
     super();
 
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.hullBody = bodyB;
 
-    // Compute path segment distances for total rope length calculation
+    // Compute total path distance for rope length calculation
     const pathPoints = [
       bodyA.toWorldFrame(localAnchorA),
       ...waypoints.map((w) => w.body.toWorldFrame(w.localAnchor)),
       bodyB.toWorldFrame(localAnchorB),
     ];
-    const segDists: number[] = [];
+    let totalPathDist = 0;
     for (let i = 0; i < pathPoints.length - 1; i++) {
       const dx = pathPoints[i + 1][0] - pathPoints[i][0];
       const dy = pathPoints[i + 1][1] - pathPoints[i][1];
-      segDists.push(Math.sqrt(dx * dx + dy * dy));
+      totalPathDist += Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Find which waypoint is the winch (in the waypoints array, 0-based)
-    const winchWaypointIdx = waypoints.findIndex((w) => w.type === "winch");
+    // Total rope length: enough for max working length plus tail
+    const totalRopeLength = Math.max(
+      this.config.maxLength * 1.3,
+      totalPathDist * 1.3,
+    );
 
-    // Compute working-side and tail-side path distances
-    // The winch is at pathPoints index (winchWaypointIdx + 1)
-    let workingPathDist = 0;
-    let tailPathDist = 0;
-    if (winchWaypointIdx >= 0) {
-      const winchPathIdx = winchWaypointIdx + 1; // index in pathPoints
-      for (let i = 0; i < winchPathIdx; i++) workingPathDist += segDists[i];
-      for (let i = winchPathIdx; i < segDists.length; i++)
-        tailPathDist += segDists[i];
-    } else {
-      for (const d of segDists) workingPathDist += d;
-    }
-
-    // Total rope length: working max + tail with slack margin.
-    // The working side needs enough rope for maxLength (fully eased).
-    // The tail needs at least the path distance from winch to cleat.
-    const workingMax = Math.max(this.config.maxLength, workingPathDist * 1.1);
-    const totalRopeLength =
-      winchWaypointIdx >= 0 ? workingMax + tailPathDist * 1.5 : workingMax; // no winch — total = working
+    // Derive particle count and per-particle mass from rope length
+    const particlesPerFt =
+      this.config.particlesPerFoot ?? DEFAULT_CONFIG.particlesPerFoot!;
+    const massPerFt = this.config.massPerFoot ?? DEFAULT_CONFIG.massPerFoot!;
+    const particleCount = Math.max(
+      4,
+      Math.round(totalRopeLength * particlesPerFt),
+    );
+    const particleMass = (totalRopeLength * massPerFt) / particleCount;
 
     const ropeConfig: RopeConfig = {
-      particleCount: this.config.particleCount,
-      particleMass: this.config.particleMass,
+      particleCount,
+      particleMass,
       damping: this.config.ropeDamping,
+      freeEndB: true,
     };
 
     this.rope = new Rope(
@@ -123,24 +123,11 @@ export class Sheet extends BaseEntity {
       waypoints,
     );
 
-    // Find the winch waypoint in the rope's internal indexing
-    this.winchIndex = this.rope.findWaypoint("winch");
+    this.winchIndex = this.rope.findWinch();
 
-    // If there's a winch, redistribute so working side starts at maxLength
-    // (fully eased). The Rope constructor distributes proportionally, so
-    // we transfer the excess from working side to tail.
-    if (this.winchIndex >= 0) {
-      const currentWorking = this.rope.getLengthBeforeWaypoint(this.winchIndex);
-      const delta = currentWorking - workingMax;
-      if (Math.abs(delta) > 0.01) {
-        this.rope.transferAtWaypoint(this.winchIndex, delta);
-      }
-    }
-
-    // Expose rope internals to the entity system for automatic
-    // add/remove from the physics world on entity lifecycle.
+    // Expose rope internals to the entity system
     this.bodies = [...this.rope.getParticles()];
-    this.constraints = [...this.rope.getConstraints()];
+    this.constraints = [...this.rope.getAllConstraints()];
   }
 
   /**
@@ -148,106 +135,63 @@ export class Sheet extends BaseEntity {
    */
   getWorkingLength(): number {
     if (this.winchIndex < 0) return this.rope.getLength();
-    return this.rope.getLengthBeforeWaypoint(this.winchIndex);
+    return this.rope.getWorkingLength(this.winchIndex);
   }
 
   /**
-   * Adjust sheet length based on input.
-   * @param input -1 to 1 where negative = trim in (shorter), positive = ease out (longer)
-   * @param dt Delta time in seconds
+   * Adjust sheet length based on player input.
+   *
+   * When trimming: ratchet mode (rope can slide in only) + tailing force
+   * on the tail-side particle toward the helm, pulling rope through.
+   * When easing: free mode — rope slides out under sail loads.
+   * When idle (input = 0): ratchet mode — rope locked against easing.
+   *
+   * @param input Negative = trim in, positive = ease out.
+   *   Magnitude controls force: 1 = normal, >1 = grinding harder (shift held).
    */
-  adjust(input: number, dt: number): void {
-    if (input === 0) return;
+  adjust(input: number): void {
+    if (this.winchIndex < 0) return;
 
-    if (this.winchIndex < 0) {
-      // No winch — fall back to setLength model
-      const workingLen = this.rope.getLength();
-      const range = this.config.maxLength - this.config.minLength;
-      const position = clamp(
-        (workingLen - this.config.minLength) / (range || 1),
-        0,
-        1,
-      );
-      const target = input < 0 ? 0 : 1;
-      const baseSpeed =
-        input < 0 ? this.config.trimSpeed : this.config.easeSpeed;
-      const speed = (Math.abs(input) * baseSpeed) / (range || 1);
-      const newPos = clamp(
-        position + (target - position > 0 ? speed * dt : -speed * dt),
-        0,
-        1,
-      );
-      this.rope.setLength(
-        this.config.minLength +
-          newPos * (this.config.maxLength - this.config.minLength),
-      );
+    if (input === 0) {
+      // Idle: ratchet prevents the sail from pulling rope out
+      this.rope.setWinchMode(this.winchIndex, "ratchet");
       return;
     }
-
-    // Winch model: transfer rope through the winch
-    const speed =
-      Math.abs(input) *
-      (input < 0 ? this.config.trimSpeed : this.config.easeSpeed);
-    // Positive amount = move rope from working (before winch) to tail (after winch)
-    // input < 0 = trim in = working gets shorter = positive transfer
-    const amount = (input < 0 ? 1 : -1) * speed * dt;
 
     // Clamp: don't trim shorter than minLength or ease longer than maxLength
-    const workingLen = this.rope.getLengthBeforeWaypoint(this.winchIndex);
-    let clamped = amount;
-    if (clamped > 0) {
-      // Trimming in — working side gets shorter
-      const available = workingLen - this.config.minLength;
-      clamped = Math.min(clamped, available);
-    } else {
-      // Easing out — working side gets longer
-      const available = this.config.maxLength - workingLen;
-      clamped = Math.max(clamped, -available);
-    }
+    const workingLen = this.rope.getWorkingLength(this.winchIndex);
+    if (input < 0 && workingLen <= this.config.minLength) return;
+    if (input > 0 && workingLen >= this.config.maxLength) return;
 
-    if (Math.abs(clamped) > 1e-6) {
-      this.rope.transferAtWaypoint(this.winchIndex, clamped);
+    if (input < 0) {
+      // Trimming: ratchet stays engaged (rope can only shorten on working side)
+      // + apply tailing force to actively pull rope through
+      this.rope.setWinchMode(this.winchIndex, "ratchet");
+
+      // Force in engine units: winchForce (lbf) × input magnitude × lbf→engine
+      const forceMag =
+        Math.abs(input) *
+        (this.config.winchForce ?? DEFAULT_CONFIG.winchForce!) *
+        LBF_TO_ENGINE;
+
+      // Tail direction: aft along the hull (toward the helm)
+      const angle = this.hullBody.angle;
+      const aftX = -Math.cos(angle);
+      const aftY = -Math.sin(angle);
+      this.rope.applyWinchForce(this.winchIndex, forceMag, aftX, aftY);
+    } else {
+      // Easing: free mode — sail loads pull the rope out naturally
+      this.rope.setWinchMode(this.winchIndex, "free");
     }
   }
 
   /**
-   * Instantly release the sheet to maximum working length (for tacking).
-   * Moves rope from the tail through the winch to the working side.
+   * Release the sheet for tacking. Releases the winch grip so sail loads
+   * can pull the rope out freely.
    */
   release(): void {
-    if (this.winchIndex < 0) {
-      this.rope.releaseToSlack(this.config.maxLength);
-      return;
-    }
-
-    const workingLen = this.rope.getLengthBeforeWaypoint(this.winchIndex);
-    const target = this.config.maxLength;
-    const delta = workingLen - target; // negative = need to ease out
-    if (delta < 0) {
-      this.rope.transferAtWaypoint(this.winchIndex, delta);
-    }
-  }
-
-  /**
-   * Set sheet to a specific position.
-   * @param position 0 = full in, 1 = full out
-   */
-  setPosition(position: number): void {
-    const pos = clamp(position, 0, 1);
-    const targetWorking =
-      this.config.minLength +
-      pos * (this.config.maxLength - this.config.minLength);
-
-    if (this.winchIndex < 0) {
-      this.rope.setLength(targetWorking);
-      return;
-    }
-
-    const currentWorking = this.rope.getLengthBeforeWaypoint(this.winchIndex);
-    const delta = currentWorking - targetWorking;
-    if (Math.abs(delta) > 1e-6) {
-      this.rope.transferAtWaypoint(this.winchIndex, delta);
-    }
+    if (this.winchIndex < 0) return;
+    this.rope.setWinchMode(this.winchIndex, "free");
   }
 
   getSheetPosition(): number {
@@ -275,11 +219,6 @@ export class Sheet extends BaseEntity {
     dt,
   }: import("../../core/entity/Entity").GameEventMap["tick"]): void {
     this.rope.tick(dt);
-  }
-
-  /** Get world-space rope points (endpoints + particles). */
-  getRopePoints(): readonly V2d[] {
-    return this.rope.getPoints();
   }
 
   /** Get world-space rope points with z-values from particle positions. */

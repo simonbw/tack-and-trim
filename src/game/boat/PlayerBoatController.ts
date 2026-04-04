@@ -48,8 +48,9 @@ export class PlayerBoatController extends BaseEntity {
     this.boat.rudder.setSteer(steer, shiftHeld);
 
     // Update mainsheet (W = trim in, S = ease out)
-    const mainsheetDt = shiftHeld ? dt * 2.5 : dt;
-    this.boat.mainsheet.adjust(-sheet, mainsheetDt);
+    // Normal = 30% winch force, shift = full grind
+    const mainsheetInput = -sheet * (shiftHeld ? 1.0 : 0.3);
+    this.boat.mainsheet.adjust(mainsheetInput);
 
     // Mainsail hoist/furl (T = hoist, G = furl)
     const mainHoist = io.isKeyDown("KeyT") ? 1 : io.isKeyDown("KeyG") ? -1 : 0;
@@ -114,13 +115,22 @@ export class PlayerBoatController extends BaseEntity {
         }
       }
 
-      // Jib sheet speed: normal = 0.5x, fast = 1x
-      const jibDt = shiftHeld ? dt : dt * 0.5;
-      activeSheet.adjust(trimInput, jibDt);
+      // Jib sheet: normal = 30% winch force, shift = full grind
+      const jibInput = trimInput * (shiftHeld ? 1.0 : 0.3);
+      activeSheet.adjust(jibInput);
     }
 
     if (io.isKeyDown("Space")) {
       this.boat.row();
+    }
+
+    // Anchor winch: F = lower (free spool), R = raise (hoist)
+    if (io.isKeyDown("KeyF") && !this.boat.mooring.isMoored()) {
+      this.boat.anchor.lower();
+    } else if (io.isKeyDown("KeyR")) {
+      this.boat.anchor.raise();
+    } else {
+      this.boat.anchor.idle();
     }
 
     // Debug: apply heeling forces with [ and ]
@@ -160,7 +170,7 @@ export class PlayerBoatController extends BaseEntity {
     if (this.game.entities.tryGetSingleton(PortMenu)) return;
     if (this.boat.bilge.isSinking()) return;
 
-    // Dock / anchor toggle
+    // Dock toggle (F key, only when near a port — anchor is now hold-to-use)
     if (key === "KeyF") {
       if (this.boat.mooring.isMoored()) {
         this.boat.mooring.castOff();
@@ -168,8 +178,6 @@ export class PlayerBoatController extends BaseEntity {
         const nearbyPort = this.findNearbyPort();
         if (nearbyPort) {
           this.boat.mooring.moorTo(nearbyPort);
-        } else {
-          this.boat.anchor.toggle();
         }
       }
     }

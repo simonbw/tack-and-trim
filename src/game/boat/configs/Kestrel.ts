@@ -322,9 +322,6 @@ export const Kestrel: BoatConfig = {
     winchPoint: V(-6.5, 0), // cam cleat on cockpit sole
     minLength: 2,
     maxLength: 12,
-    defaultLength: 6,
-    trimSpeed: 3,
-    easeSpeed: 3,
     ropeThickness: 0.15,
     ropeColor: 0xcc2222, // red strand
     ropeStrandColor: 0xeeeeee, // white strand
@@ -339,9 +336,6 @@ export const Kestrel: BoatConfig = {
     starboardWinchPoint: V(-4, -3.4),
     minLength: 6,
     maxLength: 18,
-    defaultLength: 12,
-    trimSpeed: 5,
-    easeSpeed: 15,
     ropeThickness: 0.15,
     ropeColor: 0x2255cc, // blue strand
     ropeStrandColor: 0xeeeeee, // white strand

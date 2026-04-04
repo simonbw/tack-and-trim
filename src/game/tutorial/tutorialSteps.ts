@@ -42,9 +42,9 @@ export const tutorialSteps: TutorialStep[] = [
   {
     title: "Raise Your Anchor",
     description: "Your boat is anchored in place. Let's get moving!",
-    objective: "Press F to raise the anchor",
-    keyHint: "F",
-    checkComplete: (ctx) => ctx.boat.anchor.getState() === "stowed",
+    objective: "Hold R to raise the anchor",
+    keyHint: "R",
+    checkComplete: (ctx) => !ctx.boat.anchor.isDeployed(),
   },
   {
     title: "Raise Your Sails",

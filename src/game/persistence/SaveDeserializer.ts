@@ -25,8 +25,8 @@ export function applySaveData(game: Game, save: SaveFile): void {
   // Restore bilge water volume
   boat.bilge.waterVolume = boatState.bilgeWater;
 
-  // Restore anchor state
-  if (boatState.anchorDeployed && !boat.anchor.isDeployed()) {
-    boat.anchor.deploy();
+  // Anchor is always simulated now — lower it if the save had it deployed
+  if (boatState.anchorDeployed) {
+    boat.anchor.lower();
   }
 }

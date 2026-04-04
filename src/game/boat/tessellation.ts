@@ -1045,6 +1045,104 @@ export function extractCameraTransform(cam: {
 }
 
 /**
+ * Subdivide an open polyline using Catmull-Rom interpolation.
+ * The output curve passes exactly through all input points.
+ * Zero-allocation: writes into pre-allocated output arrays.
+ *
+ * Output point count = (n - 1) * subdivisions + 1, where n = input point count.
+ *
+ * @returns The number of output points written.
+ */
+export function subdivideCatmullRom(
+  points: ReadonlyArray<readonly [number, number]>,
+  zPerPoint: ReadonlyArray<number>,
+  subdivisions: number,
+  outPoints: [number, number][],
+  outZ: number[],
+): number {
+  const n = points.length;
+  if (n < 2) {
+    if (n === 1) {
+      outPoints[0][0] = points[0][0];
+      outPoints[0][1] = points[0][1];
+      outZ[0] = zPerPoint[0];
+      return 1;
+    }
+    return 0;
+  }
+
+  let idx = 0;
+
+  // Emit the first point
+  outPoints[idx][0] = points[0][0];
+  outPoints[idx][1] = points[0][1];
+  outZ[idx] = zPerPoint[0];
+  idx++;
+
+  for (let i = 0; i < n - 1; i++) {
+    // Control points: clamp at boundaries
+    const i0 = Math.max(0, i - 1);
+    const i1 = i;
+    const i2 = i + 1;
+    const i3 = Math.min(n - 1, i + 2);
+
+    const p0x = points[i0][0],
+      p0y = points[i0][1],
+      p0z = zPerPoint[i0];
+    const p1x = points[i1][0],
+      p1y = points[i1][1],
+      p1z = zPerPoint[i1];
+    const p2x = points[i2][0],
+      p2y = points[i2][1],
+      p2z = zPerPoint[i2];
+    const p3x = points[i3][0],
+      p3y = points[i3][1],
+      p3z = zPerPoint[i3];
+
+    // Emit subdivisions points (skip t=0 since it was the previous segment's end)
+    for (let s = 1; s <= subdivisions; s++) {
+      const t = s / subdivisions;
+      const t2 = t * t;
+      const t3 = t2 * t;
+
+      // Catmull-Rom: 0.5 * (2p1 + (-p0+p2)*t + (2p0-5p1+4p2-p3)*t² + (-p0+3p1-3p2+p3)*t³)
+      outPoints[idx][0] =
+        0.5 *
+        (2 * p1x +
+          (-p0x + p2x) * t +
+          (2 * p0x - 5 * p1x + 4 * p2x - p3x) * t2 +
+          (-p0x + 3 * p1x - 3 * p2x + p3x) * t3);
+      outPoints[idx][1] =
+        0.5 *
+        (2 * p1y +
+          (-p0y + p2y) * t +
+          (2 * p0y - 5 * p1y + 4 * p2y - p3y) * t2 +
+          (-p0y + 3 * p1y - 3 * p2y + p3y) * t3);
+      outZ[idx] =
+        0.5 *
+        (2 * p1z +
+          (-p0z + p2z) * t +
+          (2 * p0z - 5 * p1z + 4 * p2z - p3z) * t2 +
+          (-p0z + 3 * p1z - 3 * p2z + p3z) * t3);
+      idx++;
+    }
+  }
+
+  return idx;
+}
+
+/**
+ * Compute the output point count for Catmull-Rom subdivision.
+ */
+export function catmullRomOutputCount(
+  inputPoints: number,
+  subdivisions: number,
+): number {
+  if (inputPoints < 2) return inputPoints;
+  return (inputPoints - 1) * subdivisions + 1;
+}
+
+/**
  * Tessellate a polyline into a triangle strip with per-vertex UV coordinates
  * for the procedural rope shader.
  *
@@ -1060,13 +1158,15 @@ export function extractCameraTransform(cam: {
  */
 export function tessellateRopeStrip(
   points: ReadonlyArray<readonly [number, number]>,
-  zPerPoint: number[],
+  zPerPoint: ReadonlyArray<number>,
   width: number,
   cam: CameraTransform2x2,
   outVertices: Float32Array,
   outIndices: Uint16Array,
+  /** Number of points to use. Defaults to points.length. */
+  count?: number,
 ): RopeMeshData {
-  const n = points.length;
+  const n = count ?? points.length;
   if (n < 2) return { vertexCount: 0, indexCount: 0 };
 
   const halfWidth = width / 2;
@@ -1074,20 +1174,26 @@ export function tessellateRopeStrip(
   let iOff = 0; // index offset
   let cumulativeDist = 0;
 
-  // Compute unit screen-space perpendicular for a world-space direction,
-  // then inverse-project back to world. Returns the world-space offset
-  // direction (unit length in screen space).
+  // Compute the perpendicular direction for a world-space segment.
+  // The direction is determined in screen space (so the rope faces the
+  // camera), then inverse-projected and re-normalized to unit length
+  // in world space (so halfWidth stays in world units, not pixels).
   const screenPerp = (dx: number, dy: number): [number, number] => {
     // Forward-project direction to screen
     const sx = cam.fa * dx + cam.fc * dy;
     const sy = cam.fb * dx + cam.fd * dy;
-    const len = Math.sqrt(sx * sx + sy * sy);
-    if (len < 1e-6) return [0, 0];
-    // Screen-space perpendicular (unit)
-    const px = -sy / len;
-    const py = sx / len;
+    const sLen = Math.sqrt(sx * sx + sy * sy);
+    if (sLen < 1e-6) return [0, 0];
+    // Screen-space perpendicular (unit in screen space)
+    const px = -sy / sLen;
+    const py = sx / sLen;
     // Inverse-project back to world
-    return [cam.ia * px + cam.ic * py, cam.ib * px + cam.id * py];
+    const wx = cam.ia * px + cam.ic * py;
+    const wy = cam.ib * px + cam.id * py;
+    // Re-normalize to unit length in WORLD space
+    const wLen = Math.sqrt(wx * wx + wy * wy);
+    if (wLen < 1e-6) return [0, 0];
+    return [wx / wLen, wy / wLen];
   };
 
   for (let i = 0; i < n; i++) {

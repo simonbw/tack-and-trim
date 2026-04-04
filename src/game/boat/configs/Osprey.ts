@@ -323,9 +323,6 @@ export const Osprey: BoatConfig = {
     hullAttachPoint: V(-9, 0),
     minLength: 3,
     maxLength: 14,
-    defaultLength: 7,
-    trimSpeed: 2.5,
-    easeSpeed: 2.5,
     ropeThickness: 0.35,
   },
 
@@ -334,9 +331,6 @@ export const Osprey: BoatConfig = {
     starboardAttachPoint: V(-7, -4.0),
     minLength: 7,
     maxLength: 20,
-    defaultLength: 14,
-    trimSpeed: 4.5,
-    easeSpeed: 14,
     ropeThickness: 0.35,
   },
 
