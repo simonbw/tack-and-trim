@@ -306,6 +306,14 @@ export const Kestrel: BoatConfig = {
     rodeRetrieveSpeed: 12,
     anchorMass: 15, // lbs
     anchorDragCoefficient: 400,
+    ropePattern: {
+      type: "braid",
+      carriers: [
+        0x22aa44, 0x22aa44, 0xddaa00, 0xddaa00, 0x22aa44, 0x22aa44, 0x22aa44,
+        0x22aa44,
+      ],
+      helixAngle: 40,
+    },
   },
 
   jib: {
@@ -324,17 +332,15 @@ export const Kestrel: BoatConfig = {
     maxLength: 12,
     ropeThickness: 0.15,
     ropeColor: 0xeeeeee,
-    // 16-plait braid with symmetric red + dark tracers on white
+    // White base with a single navy fleck (symmetric 16-plait)
     ropePattern: {
       type: "braid",
       carriers: [
-        // S-laid (8 carriers)
-        0xeeeeee, 0xcc2222, 0xcc2222, 0xeeeeee, 0xeeeeee, 0x222222, 0xeeeeee,
-        0xeeeeee,
-        // Z-laid (8 carriers) — same pattern for symmetric weave
-        0xeeeeee, 0xcc2222, 0xcc2222, 0xeeeeee, 0xeeeeee, 0x222222, 0xeeeeee,
-        0xeeeeee,
+        0xeeeeee, 0xeeeeee, 0x113366, 0xeeeeee, 0xeeeeee, 0xeeeeee, 0xeeeeee,
+        0xeeeeee, 0xeeeeee, 0xeeeeee, 0x113366, 0xeeeeee, 0xeeeeee, 0xeeeeee,
+        0xeeeeee, 0xeeeeee,
       ],
+      helixAngle: 35,
     },
   },
 
@@ -348,18 +354,16 @@ export const Kestrel: BoatConfig = {
     minLength: 6,
     maxLength: 18,
     ropeThickness: 0.15,
-    ropeColor: 0xeeeeee,
-    // 16-plait braid with symmetric blue + dark tracers on white
+    ropeColor: 0x113366,
+    // Navy base with a single white fleck (symmetric 16-plait)
     ropePattern: {
       type: "braid",
       carriers: [
-        // S-laid (8 carriers)
-        0xeeeeee, 0x2255cc, 0x2255cc, 0xeeeeee, 0xeeeeee, 0x222222, 0xeeeeee,
-        0xeeeeee,
-        // Z-laid (8 carriers) — same pattern for symmetric weave
-        0xeeeeee, 0x2255cc, 0x2255cc, 0xeeeeee, 0xeeeeee, 0x222222, 0xeeeeee,
-        0xeeeeee,
+        0x113366, 0x113366, 0xeeeeee, 0x113366, 0x113366, 0x113366, 0x113366,
+        0x113366, 0x113366, 0x113366, 0xeeeeee, 0x113366, 0x113366, 0x113366,
+        0x113366, 0x113366,
       ],
+      helixAngle: 35,
     },
   },
 

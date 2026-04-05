@@ -253,6 +253,8 @@ export interface AnchorConfig {
   readonly rodeRetrieveSpeed: number; // ft/s
   readonly anchorMass: number; // lbs
   readonly anchorDragCoefficient: number; // dimensionless
+  /** Visual rope pattern for the rode. Defaults to a solid dark color. */
+  readonly ropePattern?: import("./RopeShader").RopePattern;
 }
 
 export interface JibConfig extends BaseSailConfig {}

@@ -373,8 +373,7 @@ export class BoatRenderer extends BaseEntity {
     tilt: TiltProjection,
   ) {
     const rig = this.boat.rig;
-    const hullAngle = this.boat.hull.body.angle;
-    const boomRelAngle = rig.body.angle - hullAngle;
+    const boomRelAngle = rig.getBoomRelativeYaw();
     const mastPos = rig.getMastPosition();
     const boomLength = rig.getBoomLength();
     const boomZ = rig.getBoomZ();
@@ -828,14 +827,13 @@ export class BoatRenderer extends BaseEntity {
 
     if (vertexCount === 0) return;
 
-    const color = this.boat.anchor.getRodeColor();
     this.rodeState.shader.draw(
       renderer,
       this.rodeState.shader.scratchVertexData,
       vertexCount,
       this.rodeState.shader.scratchIndexData,
       indexCount,
-      { type: "laid", carriers: [color] },
+      this.boat.anchor.getRodePattern(),
       1,
       width,
     );

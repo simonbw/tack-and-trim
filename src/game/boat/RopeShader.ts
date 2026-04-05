@@ -45,6 +45,20 @@ export const MAX_CARRIERS = 32;
 export interface RopePattern {
   type: "laid" | "braid";
   carriers: number[];
+  /**
+   * Weave pattern as `[over, under]` cell counts. Only used for braid.
+   * Default `[1, 1]` (plain weave: alternates every cell).
+   * `[2, 2]` = 2/2 twill (classic Marlowbraid look).
+   * `[1, 2]` = asymmetric: S-laid carriers spend 1/3 of cells on top,
+   * Z-laid carriers dominate the surface.
+   */
+  weave?: [number, number];
+  /**
+   * Helix angle of the carriers from the rope axis, in degrees.
+   * Default 45°. Real sailing lines are often 30-40° (shallower braid,
+   * more elongated diamonds). Values > 45° make wide, squished diamonds.
+   */
+  helixAngle?: number;
 }
 
 const RopeUniforms = defineUniformStruct("RopeUniforms", {
@@ -53,6 +67,9 @@ const RopeUniforms = defineUniformStruct("RopeUniforms", {
   twistFrequency: f32,
   carriersPerFamily: u32,
   isBraid: u32,
+  weaveOver: u32,
+  weaveUnder: u32,
+  helixScale: f32,
   // 8 × vec4<u32> = 32 carrier slots, packed 0xRRGGBB.
   carriers0: vec4u,
   carriers1: vec4u,
@@ -140,12 +157,20 @@ fn ropePattern(u: f32, v: f32) -> vec4<f32> {
   // twistFrequency = 2π / (8 * ropeWidth)
   let ropeWidth = 2.0 * PI / (8.0 * uniforms.twistFrequency);
 
-  // Scale UV so each diamond/stripe = 1 unit in each axis.
-  let su = u * nVisible;             // u ∈ [-1,+1] → [-nVisible, +nVisible]
-  let sv = v * nVisible * 2.0 / ropeWidth;
+  // Map screen u to angular position on the cylinder surface.
+  // asin(u) gives the angle θ where sin(θ) = u (orthographic cylinder
+  // projection), so carriers compress naturally near the rope edges.
+  // su ranges over nVisible across the visible 180° arc.
+  let su = asin(clamp(u, -1.0, 1.0)) * nVisible / PI;
+  let sv = v * nVisible / ropeWidth;
+
+  // helixScale = tan(helixAngle). Scales the axial component of both
+  // diagonals, changing diamond aspect ratio. 1.0 = 45° square diamonds;
+  // <1 = shallower braid (tall diamonds); >1 = steeper braid (wide).
+  let hs = uniforms.helixScale;
 
   // First diagonal (all patterns use this one)
-  let du = su + sv;
+  let du = su + sv * hs;
   let ci = floor(du);
   let sId = ((ci % cpf) + cpf) % cpf;  // S-laid carrier ID: 0..cpf-1
 
@@ -155,11 +180,12 @@ fn ropePattern(u: f32, v: f32) -> vec4<f32> {
     // Laid: single family, parallel diagonal stripes
     carrierIdx = u32(sId);
   } else {
-    // Braid: second diagonal + checkerboard over/under
-    let dv = -su + sv;
+    // Braid: second diagonal + weave pattern picks which family is on top
+    let dv = -su + sv * hs;
     let cj = floor(dv);
-    let checker = ((ci + cj) % 2.0 + 2.0) % 2.0;
-    let isOver = checker < 0.5;
+    let period = f32(uniforms.weaveOver + uniforms.weaveUnder);
+    let phase = ((ci + cj) % period + period) % period;
+    let isOver = phase < f32(uniforms.weaveOver);
     let zId = ((cj % cpf) + cpf) % cpf;
     // S-laid carriers are indices 0..cpf-1, Z-laid are cpf..2*cpf-1
     if (isOver) {
@@ -377,6 +403,10 @@ export class RopeShaderInstance {
         ? Math.floor(pattern.carriers.length / 2)
         : pattern.carriers.length;
     const cpf = Math.max(1, Math.min(carriersPerFamily, MAX_CARRIERS / 2));
+    const weaveOver = Math.max(1, pattern.weave?.[0] ?? 1);
+    const weaveUnder = Math.max(1, pattern.weave?.[1] ?? 1);
+    const helixAngleDeg = pattern.helixAngle ?? 45;
+    const helixScale = Math.tan((helixAngleDeg * Math.PI) / 180);
 
     // Upload uniforms
     this.combinedMatrix.copyFrom(renderer.getViewMatrix());
@@ -388,6 +418,9 @@ export class RopeShaderInstance {
     );
     this.uniforms.set.carriersPerFamily(cpf);
     this.uniforms.set.isBraid(isBraid);
+    this.uniforms.set.weaveOver(weaveOver);
+    this.uniforms.set.weaveUnder(weaveUnder);
+    this.uniforms.set.helixScale(helixScale);
 
     // Pack carriers into 8 vec4<u32> slots. Pad with the first color.
     const pad = pattern.carriers[0] ?? 0x888888;

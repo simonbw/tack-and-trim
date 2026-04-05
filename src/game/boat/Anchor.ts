@@ -9,6 +9,7 @@ import { WaterQuery } from "../world/water/WaterQuery";
 import { Rope, RopeWaypoint } from "../rope/Rope";
 import { AnchorConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
+import type { RopePattern } from "./RopeShader";
 import { LBF_TO_ENGINE } from "../physics-constants";
 import { type MeshContribution, tessellateLineToQuad } from "./tessellation";
 
@@ -61,6 +62,7 @@ export class Anchor extends BaseEntity {
   private anchorSize: number;
   private anchorMass: number;
   private anchorDragCoefficient: number;
+  private ropePattern?: RopePattern;
 
   // Anchor geometry (derived from anchorSize)
   private anchorLen: number;
@@ -78,6 +80,7 @@ export class Anchor extends BaseEntity {
     this.anchorSize = config.anchorSize;
     this.anchorMass = config.anchorMass;
     this.anchorDragCoefficient = config.anchorDragCoefficient;
+    this.ropePattern = config.ropePattern;
 
     this.anchorLen = config.anchorSize * 1.55;
     this.d_cg = this.anchorLen * ANCHOR_CG_RATIO;
@@ -220,6 +223,10 @@ export class Anchor extends BaseEntity {
 
   getRodeColor(): number {
     return RODE_COLOR;
+  }
+
+  getRodePattern(): RopePattern {
+    return this.ropePattern ?? { type: "laid", carriers: [RODE_COLOR] };
   }
 
   // ---- Per-tick physics ----
