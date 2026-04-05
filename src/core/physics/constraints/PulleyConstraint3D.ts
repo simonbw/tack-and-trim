@@ -143,15 +143,31 @@ export class PulleyConstraint3D extends Constraint {
     this.equations = [this.sumEquation, this.ratchetEquation];
   }
 
-  /** Update which particle is on side A of the pulley. */
-  setParticleA(body: Body, localAnchor: [number, number, number]): void {
+  /**
+   * Update which particle is on side A of the pulley.
+   *
+   * @param ratchetDelta If provided, shift `ratchetDistA` by this amount
+   *   instead of resetting. Use this when swapping to a neighbor particle
+   *   along a rope chain: passing the chain-length distance between the
+   *   old and new particles preserves the ratchet's working-length lock
+   *   across the swap (no momentary slack). If omitted, the ratchet
+   *   resets to Infinity and re-locks on the next update.
+   */
+  setParticleA(
+    body: Body,
+    localAnchor: [number, number, number],
+    ratchetDelta?: number,
+  ): void {
     this.bodyA = body;
     this.sumEquation.bodyA = body;
     this.ratchetEquation.bodyA = body;
     this.localAnchorA = localAnchor;
-    // Reset ratchet distance so it re-locks at the new particle's position
     if (this.mode === "ratchet") {
-      this.ratchetDistA = Infinity;
+      if (ratchetDelta !== undefined && Number.isFinite(this.ratchetDistA)) {
+        this.ratchetDistA = Math.max(0, this.ratchetDistA + ratchetDelta);
+      } else {
+        this.ratchetDistA = Infinity;
+      }
     }
   }
 
@@ -167,13 +183,16 @@ export class PulleyConstraint3D extends Constraint {
    * - "free": rope slides both directions (block, or easing)
    * - "ratchet": A side can only get shorter (cam cleat / winch idle+trim)
    *
-   * When transitioning to ratchet, locks at the current distA.
+   * On transition to ratchet, the lock is deferred: ratchetDistA is set to
+   * Infinity so the next update() tracks it down to the true current distA.
+   * This avoids capturing a stale this.distA (which may be 0 if setMode is
+   * called before any update() has run — e.g. at construction).
    */
   setMode(mode: PulleyMode): void {
     if (mode === this.mode) return;
     this.mode = mode;
     if (mode === "ratchet") {
-      this.ratchetDistA = this.distA;
+      this.ratchetDistA = Infinity;
     }
   }
 

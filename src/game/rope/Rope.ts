@@ -62,6 +62,12 @@ interface PulleyState {
    *   constraint spans p_2 to p_4 (2 chain links).
    */
   state: number;
+  /**
+   * Current particle index referenced by the constraint's bodyA (side A).
+   * Straddle s=K+0.5 → K; contained s=K → K-1. Tracked explicitly so we can
+   * shift the ratchet lock by the chain-length delta when swapping.
+   */
+  indexA: number;
   /** The waypoint body anchor in local coordinates. */
   localAnchor: [number, number, number];
   /** The waypoint body. */
@@ -117,7 +123,10 @@ export class Rope {
 
   /**
    * Fraction of chainLinkLength: particle must be this close to the pulley
-   * to enter contained mode.
+   * to enter contained mode. Kept small so the straddle↔contained constraint
+   * swap is near-continuous (at threshold 0 it is exactly continuous, but we
+   * need headroom larger than the max particle motion per tick to avoid
+   * skipping past the switch point).
    */
   private static readonly CONTAIN_ENTER_FRACTION = 0.25;
   /**
@@ -341,6 +350,7 @@ export class Rope {
       const pulleyState: PulleyState = {
         constraint: pulley,
         state: indexA + 0.5, // start in straddle mode
+        indexA, // straddle(K+0.5): constraint bodyA = particles[K]
         localAnchor: wpAnchor,
         body: wp.body,
       };
@@ -401,14 +411,10 @@ export class Rope {
     this.cachedZValues = new Array(totalPoints).fill(0);
   }
 
-  /** Total number of rendered points (endpoints + particles + straddle insertions). */
+  /** Total number of rendered points (endpoints + particles + one per waypoint). */
   private getPointCount(): number {
-    let straddleCount = 0;
-    for (const ps of this.pulleys) {
-      if (!Number.isInteger(ps.state)) straddleCount++;
-    }
     const endpoints = this.freeEndB ? 1 : 2;
-    return endpoints + this.particles.length + straddleCount;
+    return endpoints + this.particles.length + this.pulleys.length;
   }
 
   // ---- Physics world management ----
@@ -432,11 +438,9 @@ export class Rope {
   // ---- Per-tick update ----
 
   tick(_dt: number): void {
-    let modeChanged = false;
     for (const ps of this.pulleys) {
-      if (this.updatePulleyState(ps)) modeChanged = true;
+      this.updatePulleyState(ps);
     }
-    if (modeChanged) this.rebuildCachedArrays();
   }
 
   /**
@@ -526,16 +530,26 @@ export class Rope {
     return idx > 0 && idx < this.particles.length - 1;
   }
 
-  /** Update the pulley constraint's particle references and total length. */
+  /**
+   * Update the pulley constraint's particle references and total length.
+   *
+   * When bodyA's particle changes, shift the ratchet lock by the chain-length
+   * delta so the working-length limit `(indexA+1)·link + ratchetDistA` is
+   * preserved across the swap. Moving bodyA one particle closer to endpoint A
+   * (indexA decreases by 1) loses a link of indexing, so we add a link to
+   * ratchetDistA. The opposite direction subtracts.
+   */
   private applyPulleyConstraint(
     ps: PulleyState,
     indexA: number,
     indexB: number,
     linkSpan: number,
   ): void {
-    ps.constraint.setParticleA(this.particles[indexA], [0, 0, 0]);
+    const ratchetDelta = (ps.indexA - indexA) * this.chainLinkLength;
+    ps.constraint.setParticleA(this.particles[indexA], [0, 0, 0], ratchetDelta);
     ps.constraint.setParticleB(this.particles[indexB], [0, 0, 0]);
     ps.constraint.totalLength = linkSpan * this.chainLinkLength;
+    ps.indexA = indexA;
   }
 
   // ---- Winch: ratcheted pulley ----
@@ -628,33 +642,52 @@ export class Rope {
     points: [number, number][];
     z: number[];
   } {
-    // Build lookup structures for the two pulley modes:
-    // - Straddle: insert pulley position after indexA (adds a point)
-    // - Contained: replace containedIndex's position with pulley position
-    const containedSet = new Set<number>();
-    const straddleInsertions: {
+    // Fixed topology: always insert each pulley as an extra point between
+    // two adjacent particles. This keeps the render point count constant
+    // across straddle↔contained mode flips, avoiding geometry snaps.
+    //
+    // Insertion index ("afterParticle") per pulley:
+    // - Straddle (state = K + 0.5): insert after particle K.
+    // - Contained (state = K): pick the side via the signed projection of
+    //   (p_K − pulley) onto (p_{K+1} − p_{K-1}). If p_K lies toward p_{K+1},
+    //   the pulley is "before" p_K → insert after K-1. Otherwise after K.
+    //   This flips continuously with particle position (no discrete jump
+    //   tied to the mode transition).
+    const insertions: {
       afterParticle: number;
-      body: Body;
-      anchor: V2d;
-      z: number;
+      px: number;
+      py: number;
+      pz: number;
     }[] = [];
 
     for (const wd of this.waypointData) {
       const ps = this.pulleys[wd.pulleyIndex];
-      if (Number.isInteger(ps.state)) {
-        // Contained: replace this particle's position
-        containedSet.add(ps.state);
+      const [px, py, pz] = wd.body.toWorldFrame3D(
+        wd.localAnchor.x,
+        wd.localAnchor.y,
+        wd.z,
+      );
+      let afterParticle: number;
+      if (!Number.isInteger(ps.state)) {
+        afterParticle = ps.state - 0.5;
       } else {
-        // Straddle: insert after indexA
-        straddleInsertions.push({
-          afterParticle: ps.state - 0.5,
-          body: wd.body,
-          anchor: wd.localAnchor,
-          z: wd.z,
-        });
+        const k = ps.state;
+        // canContain guarantees both neighbors exist for contained mode
+        const pk = this.particles[k];
+        const pPrev = this.particles[k - 1];
+        const pNext = this.particles[k + 1];
+        const axisX = pNext.position[0] - pPrev.position[0];
+        const axisY = pNext.position[1] - pPrev.position[1];
+        const axisZ = pNext.z - pPrev.z;
+        const dx = pk.position[0] - px;
+        const dy = pk.position[1] - py;
+        const dz = pk.z - pz;
+        const proj = dx * axisX + dy * axisY + dz * axisZ;
+        afterParticle = proj > 0 ? k - 1 : k;
       }
+      insertions.push({ afterParticle, px, py, pz });
     }
-    straddleInsertions.sort((a, b) => a.afterParticle - b.afterParticle);
+    insertions.sort((a, b) => a.afterParticle - b.afterParticle);
 
     let idx = 0;
     let insertIdx = 0;
@@ -668,43 +701,35 @@ export class Rope {
     this.cachedZValues[idx] = eaz;
     idx++;
 
-    // Particles — with straddle insertions and contained replacements
+    // Any pulleys that insert before particle 0 (afterParticle < 0).
+    while (
+      insertIdx < insertions.length &&
+      insertions[insertIdx].afterParticle < 0
+    ) {
+      const ins = insertions[insertIdx];
+      this.cachedPositions[idx][0] = ins.px;
+      this.cachedPositions[idx][1] = ins.py;
+      this.cachedZValues[idx] = ins.pz;
+      idx++;
+      insertIdx++;
+    }
+
+    // Particles with pulley insertions after each index.
     for (let i = 0; i < this.particles.length; i++) {
-      if (containedSet.has(i)) {
-        // Contained mode: use pulley world position instead of particle position
-        const wd = this.waypointDataForContainedParticle(i);
-        if (wd) {
-          const [wx, wy, wz] = wd.body.toWorldFrame3D(
-            wd.localAnchor.x,
-            wd.localAnchor.y,
-            wd.z,
-          );
-          this.cachedPositions[idx][0] = wx;
-          this.cachedPositions[idx][1] = wy;
-          this.cachedZValues[idx] = wz;
-        }
-      } else {
-        const p = this.particles[i];
-        this.cachedPositions[idx][0] = p.position[0];
-        this.cachedPositions[idx][1] = p.position[1];
-        this.cachedZValues[idx] = p.z;
-      }
+      const p = this.particles[i];
+      this.cachedPositions[idx][0] = p.position[0];
+      this.cachedPositions[idx][1] = p.position[1];
+      this.cachedZValues[idx] = p.z;
       idx++;
 
-      // Insert any straddle waypoints that come after this particle
       while (
-        insertIdx < straddleInsertions.length &&
-        straddleInsertions[insertIdx].afterParticle === i
+        insertIdx < insertions.length &&
+        insertions[insertIdx].afterParticle === i
       ) {
-        const ins = straddleInsertions[insertIdx];
-        const [wx, wy, wz] = ins.body.toWorldFrame3D(
-          ins.anchor.x,
-          ins.anchor.y,
-          ins.z,
-        );
-        this.cachedPositions[idx][0] = wx;
-        this.cachedPositions[idx][1] = wy;
-        this.cachedZValues[idx] = wz;
+        const ins = insertions[insertIdx];
+        this.cachedPositions[idx][0] = ins.px;
+        this.cachedPositions[idx][1] = ins.py;
+        this.cachedZValues[idx] = ins.pz;
         idx++;
         insertIdx++;
       }
@@ -721,19 +746,6 @@ export class Rope {
     }
 
     return { points: this.cachedPositions, z: this.cachedZValues };
-  }
-
-  /** Find the waypoint data for a pulley in contained mode at the given particle index. */
-  private waypointDataForContainedParticle(
-    particleIdx: number,
-  ): (typeof this.waypointData)[number] | undefined {
-    for (const wd of this.waypointData) {
-      const ps = this.pulleys[wd.pulleyIndex];
-      if (Number.isInteger(ps.state) && ps.state === particleIdx) {
-        return wd;
-      }
-    }
-    return undefined;
   }
 
   // ---- Entity system integration ----
