@@ -766,13 +766,9 @@ export class BoatRenderer extends BaseEntity {
       vertexCount,
       state.shader.scratchIndexData,
       indexCount,
-      sheet.getRopeColor(),
-      sheet.getRopeStrandColor(),
+      sheet.getRopePattern(),
       opacity,
       width,
-      sheet.getRopePatternType(),
-      sheet.getBraidColors(),
-      0,
     );
   }
 
@@ -839,13 +835,9 @@ export class BoatRenderer extends BaseEntity {
       vertexCount,
       this.rodeState.shader.scratchIndexData,
       indexCount,
-      color,
-      color, // same for both strands = solid color
+      { type: "laid", carriers: [color] },
       1,
       width,
-      0, // twist pattern
-      null,
-      0,
     );
   }
 

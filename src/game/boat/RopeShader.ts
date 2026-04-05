@@ -1,16 +1,14 @@
 /**
  * Custom WebGPU render pipeline for procedural rope rendering.
  *
- * Generates a three-strand twisted rope appearance from per-vertex UVs:
- *   u = cross-rope [-1, +1]
- *   v = cumulative distance along the centerline (feet)
+ * Unified laid/braid shader: renders both traditional twisted-laid rope and
+ * plaited-braid rope using a single diamond-grid fragment function. Each rope
+ * carries a set of per-carrier colors; the shader samples them based on the
+ * construction type (one strand family for laid, two crossing families with
+ * over/under checkerboard for braid).
  *
- * The fragment shader produces helical twist stripes, cylindrical
- * cross-section shading, and strand color variation — all procedural,
- * no texture needed.
- *
- * Follows the SailShader pattern: module-level singleton pipeline,
- * per-rope instance with its own GPU buffers.
+ * Follows the SailShader pattern: module-level singleton pipeline, per-rope
+ * instance with its own GPU buffers.
  */
 
 import { Matrix3 } from "../../core/graphics/Matrix3";
@@ -19,7 +17,7 @@ import {
   f32,
   mat3x3,
   u32,
-  vec4,
+  vec4u,
 } from "../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import type { WebGPURenderer } from "../../core/graphics/webgpu/WebGPURenderer";
@@ -28,30 +26,43 @@ import { ROPE_VERTEX_FLOATS } from "./tessellation";
 /** 5 floats per vertex: position (2) + uv (2) + z (1) */
 const ROPE_VERTEX_STRIDE = ROPE_VERTEX_FLOATS * 4; // 20 bytes
 
-/** Number of carrier slots in the braid pattern. */
-export const BRAID_CARRIER_COUNT = 8;
+/**
+ * Maximum carrier slots supported by the shader.
+ * Covers up to 32-plait asymmetric braid (16 S-laid + 16 Z-laid) or a
+ * 32-strand laid rope. Most sailing lines are 8-16 plait.
+ */
+export const MAX_CARRIERS = 32;
+
+/**
+ * Describes the visual construction of a rope.
+ *
+ * - `type: "laid"` — traditional twisted rope. `carriers` entries are the
+ *   individual strand colors (typically 3 for classic 3-strand rope).
+ * - `type: "braid"` — plaited cover. `carriers` splits into two equal halves:
+ *   first half is the S-laid family, second is the Z-laid family. Length
+ *   must be even and equals the total plait count (8 = 8-plait, 16 = 16-plait).
+ */
+export interface RopePattern {
+  type: "laid" | "braid";
+  carriers: number[];
+}
 
 const RopeUniforms = defineUniformStruct("RopeUniforms", {
   viewMatrix: mat3x3,
-  colorA: vec4,
-  colorB: vec4,
+  alpha: f32,
   twistFrequency: f32,
-  time: f32,
-  patternType: u32,
-  // Braid carrier colors — packed 0xRRGGBB, one per carrier slot.
-  carrier0: u32,
-  carrier1: u32,
-  carrier2: u32,
-  carrier3: u32,
-  carrier4: u32,
-  carrier5: u32,
-  carrier6: u32,
-  carrier7: u32,
+  carriersPerFamily: u32,
+  isBraid: u32,
+  // 8 × vec4<u32> = 32 carrier slots, packed 0xRRGGBB.
+  carriers0: vec4u,
+  carriers1: vec4u,
+  carriers2: vec4u,
+  carriers3: vec4u,
+  carriers4: vec4u,
+  carriers5: vec4u,
+  carriers6: vec4u,
+  carriers7: vec4u,
 });
-
-/** Pattern type constants — must match WGSL switch cases. */
-export const ROPE_PATTERN_TWIST = 0;
-export const ROPE_PATTERN_BRAID = 1;
 
 const ROPE_SHADER_SOURCE = /*wgsl*/ `
 ${RopeUniforms.wgsl}
@@ -86,23 +97,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   return out;
 }
 
-// --- Pattern: three-strand twisted rope ---
-
-fn twistedStrand(u: f32, v: f32) -> vec4<f32> {
-  let phase = v * uniforms.twistFrequency + u * PI;
-  let strand = sin(phase);
-  let t = smoothstep(-0.15, 0.15, strand);
-  let finalColor = mix(uniforms.colorB.rgb, uniforms.colorA.rgb, t);
-  let alpha = mix(uniforms.colorB.a, uniforms.colorA.a, t);
-  return vec4<f32>(finalColor, alpha);
-}
-
-// --- Pattern: double-braid with diamond weave ---
-// Models a 16-plait braided cover as a 45°-rotated grid of diamond cells.
-// Each diamond is one strand crossing. Two carrier families (S-laid and Z-laid)
-// alternate over/under in a checkerboard. Each carrier slot has its own color,
-// passed as packed 0xRRGGBB uniforms.
-
 fn unpackRGB(packed: u32) -> vec3<f32> {
   return vec3<f32>(
     f32((packed >> 16u) & 0xFFu) / 255.0,
@@ -112,62 +106,75 @@ fn unpackRGB(packed: u32) -> vec3<f32> {
 }
 
 fn getCarrierColor(id: u32) -> vec3<f32> {
-  switch id {
-    case 0u: { return unpackRGB(uniforms.carrier0); }
-    case 1u: { return unpackRGB(uniforms.carrier1); }
-    case 2u: { return unpackRGB(uniforms.carrier2); }
-    case 3u: { return unpackRGB(uniforms.carrier3); }
-    case 4u: { return unpackRGB(uniforms.carrier4); }
-    case 5u: { return unpackRGB(uniforms.carrier5); }
-    case 6u: { return unpackRGB(uniforms.carrier6); }
-    case 7u: { return unpackRGB(uniforms.carrier7); }
-    default: { return unpackRGB(uniforms.carrier0); }
+  let chunk = id >> 2u;   // which vec4<u32> (0-7)
+  let lane = id & 3u;     // which element within vec4 (0-3)
+  var v: vec4<u32>;
+  switch chunk {
+    case 0u: { v = uniforms.carriers0; }
+    case 1u: { v = uniforms.carriers1; }
+    case 2u: { v = uniforms.carriers2; }
+    case 3u: { v = uniforms.carriers3; }
+    case 4u: { v = uniforms.carriers4; }
+    case 5u: { v = uniforms.carriers5; }
+    case 6u: { v = uniforms.carriers6; }
+    case 7u: { v = uniforms.carriers7; }
+    default: { v = uniforms.carriers0; }
   }
+  return unpackRGB(v[lane]);
 }
 
-fn braidedCover(u: f32, v: f32) -> vec4<f32> {
-  // Diamonds visible across rope width (half of 16-plait visible from one side)
-  let N = 4.0;
+// --- Unified rope pattern ---
+// Scales UV into a diamond grid sized so carriersPerFamily/2 diamonds fit
+// across the visible width (matches the circumference geometry of real rope).
+// For laid: samples one diagonal only → parallel helical stripes.
+// For braid: samples both diagonals with a checkerboard → diamond weave with
+// independent S-laid and Z-laid families.
 
-  // Recover physical rope width from twist frequency to get square diamonds.
+fn ropePattern(u: f32, v: f32) -> vec4<f32> {
+  let cpf = f32(uniforms.carriersPerFamily);
+  // Visible diamonds/stripes across the rope face = half the carriers per family
+  // (the other half is on the far side of the rope).
+  let nVisible = cpf * 0.5;
+
+  // Recover physical rope width from twist frequency.
   // twistFrequency = 2π / (8 * ropeWidth)
   let ropeWidth = 2.0 * PI / (8.0 * uniforms.twistFrequency);
 
-  // Scale UV so one diamond = one unit in each axis
-  let su = u * N * 0.5;           // u ∈ [-1,+1] → [-N/2, +N/2]
-  let sv = v * N / ropeWidth;     // v in feet → diamond count
+  // Scale UV so each diamond/stripe = 1 unit in each axis.
+  let su = u * nVisible;             // u ∈ [-1,+1] → [-nVisible, +nVisible]
+  let sv = v * nVisible * 2.0 / ropeWidth;
 
-  // Rotate 45° to create the diamond grid
+  // First diagonal (all patterns use this one)
   let du = su + sv;
-  let dv = -su + sv;
-
-  // Integer cell ID
   let ci = floor(du);
-  let cj = floor(dv);
+  let sId = ((ci % cpf) + cpf) % cpf;  // S-laid carrier ID: 0..cpf-1
 
-  // Over/under checkerboard — determines which carrier family is visible
-  let checker = ((ci + cj) % 2.0 + 2.0) % 2.0;
-  let isOver = checker < 0.5;
+  var carrierIdx: u32;
 
-  // Carrier identification along diagonals
-  let period = 8.0;
-  let sId = ((ci % period) + period) % period;
-  let zId = ((cj % period) + period) % period;
-  let carrierId = u32(select(zId, sId, isOver));
+  if (uniforms.isBraid == 0u) {
+    // Laid: single family, parallel diagonal stripes
+    carrierIdx = u32(sId);
+  } else {
+    // Braid: second diagonal + checkerboard over/under
+    let dv = -su + sv;
+    let cj = floor(dv);
+    let checker = ((ci + cj) % 2.0 + 2.0) % 2.0;
+    let isOver = checker < 0.5;
+    let zId = ((cj % cpf) + cpf) % cpf;
+    // S-laid carriers are indices 0..cpf-1, Z-laid are cpf..2*cpf-1
+    if (isOver) {
+      carrierIdx = u32(sId);
+    } else {
+      carrierIdx = u32(zId) + uniforms.carriersPerFamily;
+    }
+  }
 
-  let color = getCarrierColor(carrierId);
-  return vec4<f32>(color, uniforms.colorA.a);
+  return vec4<f32>(getCarrierColor(carrierIdx), uniforms.alpha);
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  let u = in.uv.x;
-  let v = in.uv.y;
-
-  if (uniforms.patternType == 1u) {
-    return braidedCover(u, v);
-  }
-  return twistedStrand(u, v);
+  return ropePattern(in.uv.x, in.uv.y);
 }
 `;
 
@@ -318,7 +325,7 @@ export class RopeShaderInstance {
   }
 
   /**
-   * Upload vertex data and draw with the rope shader pipeline.
+   * Upload vertex data and draw the rope with the given pattern.
    * Caller must have called renderer.flush() before this.
    */
   draw(
@@ -327,13 +334,9 @@ export class RopeShaderInstance {
     vertexCount: number,
     indexData: Uint16Array,
     indexCount: number,
-    colorA: number,
-    colorB: number,
+    pattern: RopePattern,
     alpha: number,
     ropeWidth: number,
-    patternType: number,
-    braidColors: readonly number[] | null,
-    time: number,
   ): void {
     if (!pipelineWithDepth) {
       ensureInitialized();
@@ -367,36 +370,45 @@ export class RopeShaderInstance {
       iBytes,
     );
 
-    // Upload uniforms
-    const rA = ((colorA >> 16) & 0xff) / 255;
-    const gA = ((colorA >> 8) & 0xff) / 255;
-    const bA = (colorA & 0xff) / 255;
-    const rB = ((colorB >> 16) & 0xff) / 255;
-    const gB = ((colorB >> 8) & 0xff) / 255;
-    const bB = (colorB & 0xff) / 255;
+    // Derive shader parameters from the pattern
+    const isBraid = pattern.type === "braid" ? 1 : 0;
+    const carriersPerFamily =
+      pattern.type === "braid"
+        ? Math.floor(pattern.carriers.length / 2)
+        : pattern.carriers.length;
+    const cpf = Math.max(1, Math.min(carriersPerFamily, MAX_CARRIERS / 2));
 
+    // Upload uniforms
     this.combinedMatrix.copyFrom(renderer.getViewMatrix());
     this.combinedMatrix.multiply(renderer.getTransform());
     this.uniforms.set.viewMatrix(this.combinedMatrix);
-    this.uniforms.set.colorA([rA, gA, bA, alpha]);
-    this.uniforms.set.colorB([rB, gB, bB, alpha]);
-    // One full twist every 8 rope diameters
+    this.uniforms.set.alpha(alpha);
     this.uniforms.set.twistFrequency(
       (2 * Math.PI) / (8 * Math.max(ropeWidth, 0.01)),
     );
-    this.uniforms.set.time(time);
-    this.uniforms.set.patternType(patternType);
+    this.uniforms.set.carriersPerFamily(cpf);
+    this.uniforms.set.isBraid(isBraid);
 
-    // Upload braid carrier colors (packed 0xRRGGBB)
-    if (braidColors) {
-      this.uniforms.set.carrier0(braidColors[0] ?? 0);
-      this.uniforms.set.carrier1(braidColors[1] ?? 0);
-      this.uniforms.set.carrier2(braidColors[2] ?? 0);
-      this.uniforms.set.carrier3(braidColors[3] ?? 0);
-      this.uniforms.set.carrier4(braidColors[4] ?? 0);
-      this.uniforms.set.carrier5(braidColors[5] ?? 0);
-      this.uniforms.set.carrier6(braidColors[6] ?? 0);
-      this.uniforms.set.carrier7(braidColors[7] ?? 0);
+    // Pack carriers into 8 vec4<u32> slots. Pad with the first color.
+    const pad = pattern.carriers[0] ?? 0x888888;
+    const slots = [
+      this.uniforms.set.carriers0,
+      this.uniforms.set.carriers1,
+      this.uniforms.set.carriers2,
+      this.uniforms.set.carriers3,
+      this.uniforms.set.carriers4,
+      this.uniforms.set.carriers5,
+      this.uniforms.set.carriers6,
+      this.uniforms.set.carriers7,
+    ];
+    for (let chunk = 0; chunk < 8; chunk++) {
+      const i = chunk * 4;
+      slots[chunk]([
+        pattern.carriers[i + 0] ?? pad,
+        pattern.carriers[i + 1] ?? pad,
+        pattern.carriers[i + 2] ?? pad,
+        pattern.carriers[i + 3] ?? pad,
+      ]);
     }
 
     this.uniforms.uploadTo(this.uniformBuffer!);

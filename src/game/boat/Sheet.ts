@@ -6,27 +6,23 @@ import { clamp } from "../../core/util/MathUtil";
 import { V2d } from "../../core/Vector";
 import { LBF_TO_ENGINE } from "../physics-constants";
 import { Rope, RopeConfig, RopeWaypoint } from "../rope/Rope";
+import type { RopePattern } from "./RopeShader";
 
 export interface SheetConfig {
   minLength: number;
   maxLength: number;
   ropeThickness: number;
+  /**
+   * Fallback solid color if `ropePattern` is not specified.
+   * Also used as the padding color when a pattern has fewer carriers than
+   * the uniform buffer expects.
+   */
   ropeColor: number;
-  /** Second strand color for the twisted rope pattern. Default same as ropeColor. */
-  ropeStrandColor?: number;
   /**
-   * Rope visual pattern.
-   * - "twist" (default): three-strand twisted rope with two alternating colors
-   *   (ropeColor and ropeStrandColor).
-   * - "braid": 16-plait braided cover with per-carrier colors defined by braidColors.
+   * Rope visual construction and carrier colors. If not specified, the rope
+   * renders as a solid `ropeColor` laid rope.
    */
-  ropePattern?: "twist" | "braid";
-  /**
-   * Per-carrier colors for the braid pattern, as an array of up to 8 hex colors
-   * (0xRRGGBB). Each entry maps to one carrier slot in the braid weave.
-   * Shorter arrays are padded with ropeColor. Only used when ropePattern is "braid".
-   */
-  braidColors?: number[];
+  ropePattern?: RopePattern;
   /** Particles per foot of rope. Default 1.5. */
   particlesPerFoot?: number;
   /**
@@ -267,34 +263,13 @@ export class Sheet extends BaseEntity {
     return this.config.ropeThickness;
   }
 
-  /** Rope color for rendering. */
-  getRopeColor(): number {
-    return this.config.ropeColor;
-  }
-
-  /** Second strand color for the twisted rope pattern. */
-  getRopeStrandColor(): number {
-    return this.config.ropeStrandColor ?? this.config.ropeColor;
-  }
-
-  /** Rope pattern type as integer for the shader uniform. */
-  getRopePatternType(): number {
-    return this.config.ropePattern === "braid" ? 1 : 0;
-  }
-
-  /**
-   * Per-carrier braid colors (8 entries). Returns null for non-braid patterns.
-   * Shorter braidColors arrays are padded with ropeColor.
-   */
-  getBraidColors(): readonly number[] | null {
-    if (this.config.ropePattern !== "braid") return null;
-    const base = this.config.ropeColor;
-    const src = this.config.braidColors;
-    if (!src) return [base, base, base, base, base, base, base, base];
-    const out: number[] = [];
-    for (let i = 0; i < 8; i++) {
-      out.push(src[i] ?? base);
-    }
-    return out;
+  /** Rope construction and carrier colors for rendering. */
+  getRopePattern(): RopePattern {
+    return (
+      this.config.ropePattern ?? {
+        type: "laid",
+        carriers: [this.config.ropeColor],
+      }
+    );
   }
 }

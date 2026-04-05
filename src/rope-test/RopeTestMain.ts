@@ -18,7 +18,7 @@ async function main() {
   });
 
   // Zoom the camera so the ropes are visible at a comfortable scale
-  game.renderer.camera.z = 15;
+  game.renderer.camera.z = 60;
 
   game.addEntity(new RopeTestController());
 

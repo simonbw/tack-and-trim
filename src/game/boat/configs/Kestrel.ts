@@ -323,18 +323,19 @@ export const Kestrel: BoatConfig = {
     minLength: 2,
     maxLength: 12,
     ropeThickness: 0.15,
-    ropePattern: "braid",
     ropeColor: 0xeeeeee,
-    braidColors: [
-      0xeeeeee, // white
-      0xcc2222, // red
-      0xcc2222, // red
-      0xeeeeee, // white
-      0xeeeeee, // white
-      0x222222, // dark
-      0xeeeeee, // white
-      0xeeeeee, // white
-    ],
+    // 16-plait braid with symmetric red + dark tracers on white
+    ropePattern: {
+      type: "braid",
+      carriers: [
+        // S-laid (8 carriers)
+        0xeeeeee, 0xcc2222, 0xcc2222, 0xeeeeee, 0xeeeeee, 0x222222, 0xeeeeee,
+        0xeeeeee,
+        // Z-laid (8 carriers) — same pattern for symmetric weave
+        0xeeeeee, 0xcc2222, 0xcc2222, 0xeeeeee, 0xeeeeee, 0x222222, 0xeeeeee,
+        0xeeeeee,
+      ],
+    },
   },
 
   jibSheet: {
@@ -347,18 +348,19 @@ export const Kestrel: BoatConfig = {
     minLength: 6,
     maxLength: 18,
     ropeThickness: 0.15,
-    ropePattern: "braid",
     ropeColor: 0xeeeeee,
-    braidColors: [
-      0xeeeeee, // white
-      0x2255cc, // blue
-      0x2255cc, // blue
-      0xeeeeee, // white
-      0xeeeeee, // white
-      0x222222, // dark
-      0xeeeeee, // white
-      0xeeeeee, // white
-    ],
+    // 16-plait braid with symmetric blue + dark tracers on white
+    ropePattern: {
+      type: "braid",
+      carriers: [
+        // S-laid (8 carriers)
+        0xeeeeee, 0x2255cc, 0x2255cc, 0xeeeeee, 0xeeeeee, 0x222222, 0xeeeeee,
+        0xeeeeee,
+        // Z-laid (8 carriers) — same pattern for symmetric weave
+        0xeeeeee, 0x2255cc, 0x2255cc, 0xeeeeee, 0xeeeeee, 0x222222, 0xeeeeee,
+        0xeeeeee,
+      ],
+    },
   },
 
   rowing: {
