@@ -117,11 +117,11 @@ export interface SolverResult {
 }
 
 export const DEFAULT_SOLVER_CONFIG: SolverConfig = {
-  iterations: 10,
-  tolerance: 1e-7,
+  iterations: 20,
+  tolerance: 1e-3,
   frictionIterations: 0,
   useZeroRHS: false,
-  equationSortFunction: false,
+  equationSortFunction: (a, b) => a.solverOrder - b.solverOrder,
 };
 
 // --- Main Functions ---
@@ -186,7 +186,7 @@ export function solveEquations(
   }
 
   // Allocate per-equation solver arrays:
-  // lambda[i] — accumulated impulse for equation i (starts at 0 each solve)
+  // lambda[i] — accumulated impulse for equation i
   // Bs[i]     — right-hand side: encodes the violation to correct this step
   // invCs[i]  — inverse effective mass: 1/(G*M^-1*G^T + epsilon)
   const lambda = new Float32Array(Neq);
@@ -202,6 +202,24 @@ export function solveEquations(
     }
     Bs[i] = eq.computeB(eq.a, eq.b, h, bodyState);
     invCs[i] = eq.computeInvC(eq.epsilon, bodyState);
+  }
+
+  // Warm start: initialize lambda from previous frame's solution and
+  // pre-apply the cached impulses to body velocity deltas. This lets the
+  // solver start near the previous solution instead of from zero, which
+  // dramatically improves convergence for constraints under steady load.
+  for (let i = 0; i < Neq; i++) {
+    const eq = equations[i];
+    let warm = eq.warmLambda;
+    if (warm !== 0) {
+      // Clamp to current force bounds (may have changed since last frame)
+      const minFDt = eq.minForce * h;
+      const maxFDt = eq.maxForce * h;
+      if (warm < minFDt) warm = minFDt;
+      else if (warm > maxFDt) warm = maxFDt;
+      lambda[i] = warm;
+      eq.addToWlambda(warm, bodyState);
+    }
   }
 
   // Optional friction pre-iteration phase
@@ -268,7 +286,10 @@ export function solveEquations(
     }
   }
 
-  // Update equation multipliers
+  // Cache lambda for warm starting next frame, then update multipliers
+  for (let i = 0; i < Neq; i++) {
+    equations[i].warmLambda = lambda[i];
+  }
   updateMultipliers(equations, lambda, 1 / h);
 
   return { usedIterations };

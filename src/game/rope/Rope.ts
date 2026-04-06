@@ -32,6 +32,13 @@ export interface RopeConfig {
   constraintStiffness?: number;
   /** Constraint relaxation for the GS solver. Higher = more damping. Default 8. */
   constraintRelaxation?: number;
+  /**
+   * Internal friction coefficient. Damps relative velocity between adjacent
+   * particles, simulating fiber-on-fiber friction within the rope. Kills
+   * high-frequency oscillation (guitar-string vibration) without affecting
+   * bulk rope motion. Units: force per velocity per mass (1/s). Default 30.
+   */
+  internalFriction?: number;
   /** If true, the B endpoint is free (bitter end hangs loose). Default false. */
   freeEndB?: boolean;
 }
@@ -113,6 +120,7 @@ export class Rope {
   private readonly relaxation: number;
   private readonly particleMass: number;
   private readonly particleDamping: number;
+  private readonly internalFriction: number;
   private totalLength: number;
   private readonly freeEndB: boolean;
   private attached: boolean = false;
@@ -146,9 +154,10 @@ export class Rope {
     waypoints: RopeWaypoint[] = [],
   ) {
     this.stiffness = config.constraintStiffness ?? 1e5;
-    this.relaxation = config.constraintRelaxation ?? 8;
+    this.relaxation = config.constraintRelaxation ?? 12;
     this.particleMass = config.particleMass ?? 0.5;
     this.particleDamping = config.damping ?? 0.85;
+    this.internalFriction = config.internalFriction ?? 40;
     this.freeEndB = config.freeEndB ?? false;
 
     const numParticles = config.particleCount ?? 24;
@@ -374,6 +383,26 @@ export class Rope {
       }
     }
 
+    // Assign sequential solver order so the GS solver processes chain
+    // equations in order from endpoint A to B. This lets corrections
+    // propagate along the full chain in a single iteration instead of
+    // requiring one iteration per link. Chain constraints get odd values
+    // (1, 3, 5, ...) with even values reserved for interleaved pulleys.
+    for (let i = 0; i < this.chainConstraints.length; i++) {
+      for (const eq of this.chainConstraints[i].equations) {
+        eq.solverOrder = 2 * i + 1;
+      }
+    }
+    for (const ps of this.pulleys) {
+      // Pulley at straddle(K+0.5): interleave after chain constraint K+1
+      // (the link connecting p_K to p_{K+1}).
+      const chainIdx = Math.floor(ps.state - 0.5) + 1;
+      const order = 2 * chainIdx + 2;
+      for (const eq of ps.constraint.equations) {
+        eq.solverOrder = order;
+      }
+    }
+
     // Pre-allocate output arrays
     // Points: endpointA + particles + waypoints (inserted) + endpointB
     this.rebuildCachedArrays();
@@ -437,9 +466,49 @@ export class Rope {
 
   // ---- Per-tick update ----
 
-  tick(_dt: number): void {
+  tick(dt: number): void {
     for (const ps of this.pulleys) {
       this.updatePulleyState(ps);
+    }
+    this.applyInternalFriction(dt);
+  }
+
+  /**
+   * Apply internal friction: damp relative velocity between adjacent
+   * particles. This simulates fiber-on-fiber friction within the rope and
+   * kills high-frequency oscillation (guitar-string modes) without affecting
+   * bulk rope motion. Neighbors moving together feel no force; neighbors
+   * moving apart or past each other feel a restoring force.
+   */
+  private applyInternalFriction(dt: number): void {
+    const c = this.internalFriction;
+    if (c <= 0) return;
+
+    // Clamp effective coefficient so it can't overshoot. The relative
+    // velocity change from the damping force is c*dt; if c*dt > 1 the
+    // force reverses the relative velocity and adds energy (unstable).
+    const cEff = Math.min(c, 0.9 / dt);
+
+    const particles = this.particles;
+    for (let i = 0; i < particles.length - 1; i++) {
+      const a = particles[i];
+      const b = particles[i + 1];
+
+      // Relative velocity of b with respect to a
+      const dvx = b.velocity[0] - a.velocity[0];
+      const dvy = b.velocity[1] - a.velocity[1];
+      const dvz = b.zVelocity - a.zVelocity;
+
+      // Damping force proportional to relative velocity, scaled by
+      // the harmonic mean of the two masses so the force is symmetric
+      // and independent of mass distribution.
+      const mHarm = (a.mass * b.mass) / (a.mass + b.mass);
+      const fx = cEff * mHarm * dvx;
+      const fy = cEff * mHarm * dvy;
+      const fz = cEff * mHarm * dvz;
+
+      a.applyForce3D(fx, fy, fz, 0, 0, 0);
+      b.applyForce3D(-fx, -fy, -fz, 0, 0, 0);
     }
   }
 

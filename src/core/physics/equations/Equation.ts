@@ -104,6 +104,25 @@ export class Equation {
   relativeVelocity: number;
   /** When false, the solver skips this equation entirely. */
   enabled: boolean;
+  /**
+   * Cached impulse (lambda) from the previous solver step. Used for warm
+   * starting: instead of solving from lambda=0 each frame, the solver begins
+   * from the previous solution and corrects the delta. For constraints under
+   * steady load (taut ropes, persistent contacts), this dramatically reduces
+   * the number of iterations needed to converge.
+   */
+  warmLambda: number;
+  /**
+   * Solver iteration order hint. Equations are sorted by this value before
+   * the Gauss-Seidel iteration loop. Default 0 means "no preference."
+   *
+   * For chain-like structures (ropes, ragdolls), assigning sequential values
+   * lets corrections propagate along the chain in a single iteration instead
+   * of requiring one iteration per link. Use even spacing (e.g. 2, 4, 6, ...)
+   * to leave room for interleaving related equations (e.g. pulley constraints
+   * between chain links).
+   */
+  solverOrder: number;
 
   /**
    * Jacobian vector (12 components):
@@ -144,6 +163,8 @@ export class Equation {
     this.multiplier = 0;
     this.relativeVelocity = 0;
     this.enabled = true;
+    this.warmLambda = 0;
+    this.solverOrder = 0;
   }
 
   /**

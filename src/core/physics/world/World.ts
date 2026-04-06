@@ -92,6 +92,16 @@ export class World extends EventEmitter<PhysicsEventMap> {
   _constraintIdCounter: number = 0;
   /** @internal */
   _bodyIdCounter: number = 0;
+
+  // Solver stats from the most recent step (for debug overlays)
+  /** Total equations solved in the most recent step. */
+  solverEquationCount: number = 0;
+  /** Number of islands solved in the most recent step (0 if island splitting is off). */
+  solverIslandCount: number = 0;
+  /** Total solver iterations across all islands in the most recent step. */
+  solverIterations: number = 0;
+  /** Max iterations used by any single island (or the global solve) in the most recent step. */
+  solverMaxIterations: number = 0;
   /** Controls body sleeping behavior. */
   sleepMode: SleepMode;
   /** Tracks shape overlaps for begin/end contact events. */
@@ -440,25 +450,41 @@ export class World extends EventEmitter<PhysicsEventMap> {
     ];
 
     if (allEquations.length === 0) {
+      this.solverEquationCount = 0;
+      this.solverIslandCount = 0;
+      this.solverIterations = 0;
+      this.solverMaxIterations = 0;
       return undefined;
     }
+
+    this.solverEquationCount = allEquations.length;
 
     if (this.islandSplit) {
       // Split into islands and solve each
       const islands = splitIntoIslands(this.bodies.all, allEquations);
+      let totalIter = 0;
+      let maxIter = 0;
       for (const island of islands) {
         if (island.equations.length) {
-          solveIsland(island, dt, this.solverConfig);
+          const result = solveIsland(island, dt, this.solverConfig);
+          totalIter += result.usedIterations;
+          if (result.usedIterations > maxIter) maxIter = result.usedIterations;
         }
       }
+      this.solverIslandCount = islands.length;
+      this.solverIterations = totalIter;
+      this.solverMaxIterations = maxIter;
       return islands;
     } else {
-      solveEquations(
+      const result = solveEquations(
         allEquations,
         this.bodies.dynamicAwake,
         dt,
         this.solverConfig,
       );
+      this.solverIslandCount = 0;
+      this.solverIterations = result.usedIterations;
+      this.solverMaxIterations = result.usedIterations;
       return undefined;
     }
   }
