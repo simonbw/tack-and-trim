@@ -408,6 +408,8 @@ export class BoatRenderer extends BaseEntity {
     tilt: TiltProjection,
   ) {
     const deckZ = this.config.hull.deckHeight;
+    const hullBody = this.boat.hull.body;
+    const winchRadius = 0.3;
     const sheets = [
       this.boat.mainsheet,
       this.boat.portJibSheet,
@@ -415,25 +417,47 @@ export class BoatRenderer extends BaseEntity {
     ];
     for (const sheet of sheets) {
       if (!sheet) continue;
-      for (const pos of sheet.getBlockPositions()) {
-        // Small circle at the block, rendered in hull-local frame (the
-        // draw.at tilt context transforms hull-local → world).
-        // Convert world position back to hull-local for the tilt context.
-        const hullBody = this.boat.hull.body;
-        const local = hullBody.toLocalFrame(pos);
+      for (const wp of sheet.getWaypointInfo()) {
+        const local = hullBody.toLocalFrame(wp.position);
+        // Circle for block or winch drum
         this.submitMesh(
           renderer,
           tessellateScreenCircle(
             local[0],
             local[1],
             deckZ,
-            0.3,
-            8,
+            winchRadius,
+            32,
             tilt,
             0x444444,
             1,
           ),
         );
+        // Winch handle: a short line from center outward
+        if (wp.type === "winch") {
+          const handleLen = winchRadius * 1.6;
+          const cos = Math.cos(wp.winchAngle);
+          const sin = Math.sin(wp.winchAngle);
+          const hx = local[0] + cos * handleLen;
+          const hy = local[1] + sin * handleLen;
+          const handleZ = deckZ + 0.15;
+          this.submitMesh(
+            renderer,
+            tessellateScreenWidthLine(
+              local[0],
+              local[1],
+              handleZ,
+              hx,
+              hy,
+              handleZ,
+              0.12,
+              tilt,
+              0x666666,
+              1,
+              true,
+            ),
+          );
+        }
       }
     }
   }

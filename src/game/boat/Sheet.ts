@@ -53,6 +53,12 @@ export interface SheetConfig {
    * Default 50.
    */
   winchForce?: number;
+  /**
+   * Maximum rope speed through the winch in ft/s when trimming.
+   * Models the limit of how fast a crew can crank. Force tapers to
+   * zero as rope speed approaches this value. Default 3.
+   */
+  winchMaxSpeed?: number;
 }
 
 const DEFAULT_CONFIG: SheetConfig = {
@@ -64,6 +70,7 @@ const DEFAULT_CONFIG: SheetConfig = {
   massPerFoot: 0.1,
   ropeDamping: 0.05,
   winchForce: 50,
+  winchMaxSpeed: 3,
   ropeDiameter: 0.026,
   ropeDragCd: 0.6,
 };
@@ -86,6 +93,10 @@ export class Sheet extends BaseEntity {
   /** Index of the winch in the rope's winch array, or -1. */
   private winchIndex: number;
   private opacity: number = 1.0;
+  /** Cumulative winch handle rotation (radians). */
+  private winchAngle: number = 0;
+  /** Previous working length, for computing winch rotation delta. */
+  private prevWorkingLength: number = -1;
 
   // Fluid drag queries and state
   private windQuery: WindQuery;
@@ -221,7 +232,15 @@ export class Sheet extends BaseEntity {
       const angle = this.hullBody.angle;
       const aftX = -Math.cos(angle);
       const aftY = -Math.sin(angle);
-      this.rope.applyWinchForce(this.winchIndex, forceMag, aftX, aftY);
+      const maxSpeed =
+        this.config.winchMaxSpeed ?? DEFAULT_CONFIG.winchMaxSpeed!;
+      this.rope.applyWinchForce(
+        this.winchIndex,
+        forceMag,
+        aftX,
+        aftY,
+        maxSpeed,
+      );
     } else {
       // Easing: free mode — sail loads pull the rope out naturally
       this.rope.setWinchMode(this.winchIndex, "free");
@@ -264,6 +283,19 @@ export class Sheet extends BaseEntity {
     this.rope.tick(dt);
     this.updateQueryPoints();
     this.applyFluidDrag();
+    this.updateWinchAngle();
+  }
+
+  /** Update winch handle rotation based on rope length change. */
+  private updateWinchAngle(): void {
+    if (this.winchIndex < 0) return;
+    const len = this.rope.getWorkingLength(this.winchIndex);
+    if (this.prevWorkingLength >= 0) {
+      const delta = this.prevWorkingLength - len;
+      // Geared down: one full handle turn per ~6ft of rope travel
+      this.winchAngle += delta / (6 / (2 * Math.PI));
+    }
+    this.prevWorkingLength = len;
   }
 
   /** Sync query sample points with current particle world positions. */
@@ -368,6 +400,18 @@ export class Sheet extends BaseEntity {
   /** World positions of blocks/waypoints along this sheet. */
   getBlockPositions(): V2d[] {
     return this.rope.getWaypointPositions();
+  }
+
+  /** Waypoint info for rendering — position, type, and winch angle. */
+  getWaypointInfo(): {
+    position: V2d;
+    type: "block" | "winch";
+    winchAngle: number;
+  }[] {
+    return this.rope.getWaypointInfo().map((wp) => ({
+      ...wp,
+      winchAngle: wp.type === "winch" ? this.winchAngle : 0,
+    }));
   }
 
   /** Rope thickness for rendering. */

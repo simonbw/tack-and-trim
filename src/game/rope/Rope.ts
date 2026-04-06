@@ -648,12 +648,15 @@ export class Rope {
    * @param forceMagnitude Force strength (positive = pull tail in the given direction)
    * @param dirX World-space X component of the tail direction (unit vector)
    * @param dirY World-space Y component of the tail direction (unit vector)
+   * @param maxSpeed Maximum rope speed (ft/s). Force tapers to zero as rope
+   *   speed through the winch approaches this limit. Pass 0 or Infinity to disable.
    */
   applyWinchForce(
     winchIndex: number,
     forceMagnitude: number,
     dirX: number,
     dirY: number,
+    maxSpeed: number = Infinity,
   ): void {
     const ws = this.winches[winchIndex];
     if (!ws) return;
@@ -664,13 +667,25 @@ export class Rope {
     if (indexB < 0 || indexB >= this.particles.length) return;
 
     const particle = this.particles[indexB];
-    particle.force[0] += dirX * forceMagnitude;
-    particle.force[1] += dirY * forceMagnitude;
+
+    // Taper force based on how fast the rope is already moving through the
+    // winch. Project the tail particle's velocity onto the pull direction to
+    // get the scalar rope-feed speed, then scale force down as it approaches
+    // maxSpeed.
+    let scale = 1;
+    if (maxSpeed > 0 && isFinite(maxSpeed)) {
+      const vRope = particle.velocity[0] * dirX + particle.velocity[1] * dirY;
+      scale = Math.min(1, Math.max(0, 1 - vRope / maxSpeed));
+    }
+
+    const f = forceMagnitude * scale;
+    particle.force[0] += dirX * f;
+    particle.force[1] += dirY * f;
 
     // Newton's third law: equal and opposite reaction on the winch body
     const winchBody = ps.body;
-    winchBody.force[0] -= dirX * forceMagnitude;
-    winchBody.force[1] -= dirY * forceMagnitude;
+    winchBody.force[0] -= dirX * f;
+    winchBody.force[1] -= dirY * f;
   }
 
   /**
@@ -754,7 +769,8 @@ export class Rope {
         const proj = dx * axisX + dy * axisY + dz * axisZ;
         afterParticle = proj > 0 ? k - 1 : k;
       }
-      insertions.push({ afterParticle, px, py, pz });
+      // Offset rope z slightly below the pulley so it renders under
+      insertions.push({ afterParticle, px, py, pz: pz - 0.15 });
     }
     insertions.sort((a, b) => a.afterParticle - b.afterParticle);
 
@@ -836,5 +852,14 @@ export class Rope {
   /** World positions of waypoints (blocks/winches), for rendering block circles. */
   getWaypointPositions(): V2d[] {
     return this.waypointData.map((wd) => wd.body.toWorldFrame(wd.localAnchor));
+  }
+
+  /** Waypoint info for rendering — position, type, and z. */
+  getWaypointInfo(): { position: V2d; type: WaypointType; z: number }[] {
+    return this.waypointData.map((wd) => ({
+      position: wd.body.toWorldFrame(wd.localAnchor),
+      type: wd.type,
+      z: wd.z,
+    }));
   }
 }
