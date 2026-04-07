@@ -302,10 +302,8 @@ export const Kestrel: BoatConfig = {
     bowAttachPoint: V(13, 0),
     maxRodeLength: 60, // ft
     anchorSize: 1.2, // ft
-    rodeDeploySpeed: 20,
-    rodeRetrieveSpeed: 12,
     anchorMass: 15, // lbs
-    anchorDragCoefficient: 400,
+    deckHeight: 2.5,
     ropePattern: {
       type: "braid",
       carriers: [
@@ -349,6 +347,7 @@ export const Kestrel: BoatConfig = {
     starboardAttachPoint: V(-6, -3.2),
     portBlockPoint: V(2, 3.8), // deck block, roughly abeam of mast at rail
     starboardBlockPoint: V(2, -3.8),
+    blockFrictionCoefficient: 0.4,
     portWinchPoint: V(-4, 3.4), // winch on cockpit coaming
     starboardWinchPoint: V(-4, -3.4),
     minLength: 6,

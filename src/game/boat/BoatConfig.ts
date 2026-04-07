@@ -249,10 +249,8 @@ export interface AnchorConfig {
   readonly bowAttachPoint: V2d; // ft from hull center
   readonly maxRodeLength: number; // ft
   readonly anchorSize: number; // ft (visual radius)
-  readonly rodeDeploySpeed: number; // ft/s
-  readonly rodeRetrieveSpeed: number; // ft/s
   readonly anchorMass: number; // lbs
-  readonly anchorDragCoefficient: number; // dimensionless
+  readonly deckHeight: number; // ft above waterline — z for bow roller, winch, and stowed anchor
   /** Visual rope pattern for the rode. Defaults to a solid dark color. */
   readonly ropePattern?: import("./RopeShader").RopePattern;
 }
@@ -277,6 +275,8 @@ export interface JibSheetConfig extends Partial<SheetConfig> {
   readonly portWinchPoint?: V2d;
   /** Winch position for starboard sheet (hull-local). */
   readonly starboardWinchPoint?: V2d;
+  /** Coulomb friction coefficient for jib sheet blocks. 0 = frictionless. Default 0. */
+  readonly blockFrictionCoefficient?: number;
 }
 
 export interface RowingConfig {

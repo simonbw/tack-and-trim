@@ -68,6 +68,13 @@ export class PulleyConstraint3D extends Constraint {
   /** When ratcheting, the maximum allowed distA. Tracked downward as rope slides in. */
   ratchetDistA: number = Infinity;
 
+  /**
+   * Coulomb friction coefficient for rope sliding through this pulley.
+   * 0 = frictionless block. Typical values: 0.05–0.3 for well-maintained
+   * blocks, up to 1+ for a fairlead or jammed sheave.
+   */
+  frictionCoefficient: number = 0;
+
   private sumEquation: PulleyEquation;
   /**
    * Ratchet equation: a 2-body distance upper-limit between bodyA (particle)
@@ -75,6 +82,13 @@ export class PulleyConstraint3D extends Constraint {
    * Only enabled in ratchet mode.
    */
   private ratchetEquation: Equation;
+  /**
+   * Friction equation: bilateral velocity constraint that resists rope sliding
+   * through the pulley. Force bounds are ±frictionCoefficient * tension,
+   * giving Coulomb stick/slip behaviour. Only enabled when frictionCoefficient > 0
+   * and the rope is taut.
+   */
+  private frictionEquation: Equation;
 
   constructor(
     bodyA: Body,
@@ -140,7 +154,18 @@ export class PulleyConstraint3D extends Constraint {
       return self.distA - self.ratchetDistA;
     };
 
-    this.equations = [this.sumEquation, this.ratchetEquation];
+    // Friction equation: resists rope sliding through pulley (bilateral)
+    this.frictionEquation = new Equation(bodyA, bodyC);
+    this.frictionEquation.maxForce = 0;
+    this.frictionEquation.minForce = 0;
+    this.frictionEquation.enabled = false;
+    this.frictionEquation.computeGq = () => 0;
+
+    this.equations = [
+      this.sumEquation,
+      this.ratchetEquation,
+      this.frictionEquation,
+    ];
   }
 
   /**
@@ -161,6 +186,7 @@ export class PulleyConstraint3D extends Constraint {
     this.bodyA = body;
     this.sumEquation.bodyA = body;
     this.ratchetEquation.bodyA = body;
+    this.frictionEquation.bodyA = body;
     this.localAnchorA = localAnchor;
     if (this.mode === "ratchet") {
       if (ratchetDelta !== undefined && Number.isFinite(this.ratchetDistA)) {
@@ -325,6 +351,32 @@ export class PulleyConstraint3D extends Constraint {
       }
     } else {
       this.ratchetEquation.enabled = false;
+    }
+
+    // --- Friction equation ---
+    if (this.frictionCoefficient > 0 && eq.enabled) {
+      const slip =
+        Math.abs(this.sumEquation.multiplier) * this.frictionCoefficient;
+      this.frictionEquation.enabled = true;
+      this.frictionEquation.maxForce = slip;
+      this.frictionEquation.minForce = -slip;
+
+      // Same Jacobian as ratchet: constrains d(distA)/dt = 0
+      const Gf = this.frictionEquation.G;
+      Gf[0] = nAx;
+      Gf[1] = nAy;
+      Gf[2] = nAz;
+      Gf[3] = rAy * nAz - rAz * nAy;
+      Gf[4] = rAz * nAx - rAx * nAz;
+      Gf[5] = rAx * nAy - rAy * nAx;
+      Gf[6] = -nAx;
+      Gf[7] = -nAy;
+      Gf[8] = -nAz;
+      Gf[9] = -(rCy * nAz - rCz * nAy);
+      Gf[10] = -(rCz * nAx - rCx * nAz);
+      Gf[11] = -(rCx * nAy - rCy * nAx);
+    } else {
+      this.frictionEquation.enabled = false;
     }
 
     return this;

@@ -401,6 +401,7 @@ function iterateEquation(
   }
 
   let deltalambda = invC * (B - GWlambda - eps * lambdaj);
+  if (!isFinite(deltalambda)) deltalambda = 0;
 
   // Clamp if we are not within the min/max interval
   const lambdaj_plus_deltalambda = lambdaj + deltalambda;

@@ -445,6 +445,9 @@ export class Equation {
    * to model compliance (springiness).
    */
   computeInvC(eps: number, bodyState: Map<Body, SolverBodyState>): number {
-    return 1.0 / (this.computeGiMGt(bodyState) + eps);
+    const denom = this.computeGiMGt(bodyState) + eps;
+    if (denom <= 0 || !isFinite(denom)) return 0;
+    const inv = 1.0 / denom;
+    return isFinite(inv) ? inv : 0;
   }
 }

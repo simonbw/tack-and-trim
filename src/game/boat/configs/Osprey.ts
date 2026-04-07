@@ -304,10 +304,8 @@ export const Osprey: BoatConfig = {
     bowAttachPoint: V(14.75, 0),
     maxRodeLength: 80, // ft
     anchorSize: 1.5, // ft
-    rodeDeploySpeed: 18,
-    rodeRetrieveSpeed: 10,
     anchorMass: 25, // lbs
-    anchorDragCoefficient: 600,
+    deckHeight: 3.0,
   },
 
   jib: {

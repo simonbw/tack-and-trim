@@ -439,15 +439,6 @@ export function BoatPropertyPanels({ controller }: BoatPropertyPanelsProps) {
           step={1}
           unit="lbs"
         />
-        <NumberField
-          label="Drag Coefficient"
-          value={config.anchor.anchorDragCoefficient}
-          path="anchor.anchorDragCoefficient"
-          controller={controller}
-          min={10}
-          max={1000}
-          step={10}
-        />
       </PanelSection>
 
       <PanelSection title="Rowing">

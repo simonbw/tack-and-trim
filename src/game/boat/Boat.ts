@@ -194,6 +194,7 @@ export class Boat extends BaseEntity {
           body: this.hull.body,
           localAnchor: portBlockPoint,
           z: deckZ,
+          frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
         });
       if (portWinchPoint)
         portWaypoints.push({
@@ -209,6 +210,7 @@ export class Boat extends BaseEntity {
           body: this.hull.body,
           localAnchor: starboardBlockPoint,
           z: deckZ,
+          frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
         });
       if (starboardWinchPoint)
         starboardWaypoints.push({

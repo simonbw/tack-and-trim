@@ -342,10 +342,8 @@ export const Albatross: BoatConfig = {
     bowAttachPoint: V(23.4, 0),
     maxRodeLength: 150, // ft
     anchorSize: 2.0, // ft
-    rodeDeploySpeed: 15,
-    rodeRetrieveSpeed: 8,
     anchorMass: 45, // lbs
-    anchorDragCoefficient: 1200,
+    deckHeight: 4.0,
   },
 
   jib: {

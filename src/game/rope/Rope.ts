@@ -56,6 +56,9 @@ export interface RopeWaypoint {
   z: number;
   /** Default "block" — free physics-driven sliding. */
   type?: WaypointType;
+  /** Coulomb friction coefficient for rope sliding through this block.
+   *  0 = frictionless (default). Typical: 0.05–0.3 for a block. */
+  frictionCoefficient?: number;
 }
 
 /** Internal state for a pulley at a block or winch waypoint. */
@@ -351,6 +354,9 @@ export class Rope {
           collideConnected: true,
         },
       );
+      if (wp.frictionCoefficient) {
+        pulley.frictionCoefficient = wp.frictionCoefficient;
+      }
       for (const eq of pulley.equations) {
         eq.stiffness = this.stiffness;
         eq.relaxation = this.relaxation;
@@ -703,6 +709,36 @@ export class Rope {
     // Links from endpointA to that particle = indexA + 1
     // Plus a partial link from the particle to the winch
     return (indexA + 1) * this.chainLinkLength + ps.constraint.distA;
+  }
+
+  /**
+   * Move the winch pulley so that the working length (anchor side) is
+   * approximately `targetLength`. Used to stow a rode with minimal slack
+   * at startup — places most particles on the tail side of the winch.
+   */
+  setWorkingLength(winchIndex: number, targetLength: number): void {
+    const ws = this.winches[winchIndex];
+    if (!ws) return;
+    const ps = this.pulleys[ws.pulleyIndex];
+
+    // Target particle index on the A-side: workingLength ≈ (indexA+1) * linkLen
+    const targetIndexA = Math.max(
+      0,
+      Math.min(
+        this.particles.length - 2,
+        Math.round(targetLength / this.chainLinkLength) - 1,
+      ),
+    );
+    const targetIndexB = targetIndexA + 1;
+
+    // Move the pulley to the target position
+    this.applyPulleyConstraint(ps, targetIndexA, targetIndexB, 1);
+    ps.state = targetIndexA + 0.5;
+
+    // Reset ratchet so it re-locks at the new position on the next update
+    if (ps.constraint.mode === "ratchet") {
+      ps.constraint.ratchetDistA = Infinity;
+    }
   }
 
   /** Get the current total rope length. */
