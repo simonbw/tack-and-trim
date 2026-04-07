@@ -75,6 +75,7 @@ export class ClothRenderer {
       verts[vi] = solver.getPositionX(i);
       verts[vi + 1] = solver.getPositionY(i);
       // normal slots (vi+2, vi+3, vi+4) filled below
+      verts[vi + 5] = solver.getZ(i); // world z-height for depth testing
     }
 
     // Build index buffer, skipping inactive triangles

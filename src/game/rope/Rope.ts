@@ -769,8 +769,7 @@ export class Rope {
         const proj = dx * axisX + dy * axisY + dz * axisZ;
         afterParticle = proj > 0 ? k - 1 : k;
       }
-      // Offset rope z slightly below the pulley so it renders under
-      insertions.push({ afterParticle, px, py, pz: pz - 0.15 });
+      insertions.push({ afterParticle, px, py, pz });
     }
     insertions.sort((a, b) => a.afterParticle - b.afterParticle);
 

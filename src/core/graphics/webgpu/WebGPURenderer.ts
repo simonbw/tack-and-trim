@@ -13,8 +13,10 @@ import { CompatibleVector } from "../../Vector";
 import { Matrix3 } from "../Matrix3";
 import {
   defineUniformStruct,
+  f32,
   mat3x3,
   type UniformInstance,
+  vec3,
 } from "../UniformStruct";
 import { GPUProfiler, GPUProfileSection } from "./GPUProfiler";
 import { getWebGPU } from "./WebGPUDevice";
@@ -34,6 +36,11 @@ const Z_MAX: f32 = ${DEPTH_Z_MAX};
 
 struct Uniforms {
   viewMatrix: mat3x3<f32>,
+  // Z-row of the body's rotation matrix (R[6], R[7], R[8]).
+  // Maps hull-local (x, y, z) → world z contribution for depth.
+  zRow: vec3<f32>,
+  // Body's world z position (additive base for depth).
+  zBase: f32,
 }
 
 struct VertexInput {
@@ -55,15 +62,22 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-  // 2D position from model matrix + z-height contribution via zCoeffs
+  // 2D screen position: model matrix transforms hull-local (x,y),
+  // zCoeffs adds parallax from local z-height (z-column of rotation).
   let worldX = in.modelCol0.x * in.position.x + in.modelCol1.x * in.position.y
                + in.zCoeffs.x * in.z + in.modelCol2.x;
   let worldY = in.modelCol0.y * in.position.x + in.modelCol1.y * in.position.y
                + in.zCoeffs.y * in.z + in.modelCol2.y;
   let clipPos = uniforms.viewMatrix * vec3<f32>(worldX, worldY, 1.0);
 
-  // Map z-height to NDC depth [0, 1]
-  let depth = (in.z - Z_MIN) / (Z_MAX - Z_MIN);
+  // Depth: full 3D world z from the rotation's z-row applied to the vertex position.
+  // This is separate from the parallax z because depth depends on (x, y, z) jointly
+  // while parallax depends only on z — using a single value for both causes cross-coupling.
+  let depthZ = uniforms.zBase
+             + uniforms.zRow.x * in.position.x
+             + uniforms.zRow.y * in.position.y
+             + uniforms.zRow.z * in.z;
+  let depth = (depthZ - Z_MIN) / (Z_MAX - Z_MIN);
 
   var out: VertexOutput;
   out.position = vec4<f32>(clipPos.xy, depth, 1.0);
@@ -84,6 +98,8 @@ const Z_MAX: f32 = ${DEPTH_Z_MAX};
 
 struct Uniforms {
   viewMatrix: mat3x3<f32>,
+  zRow: vec3<f32>,
+  zBase: f32,
 }
 
 struct VertexInput {
@@ -115,7 +131,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
                + in.zCoeffs.y * in.z + in.modelCol2.y;
   let clipPos = uniforms.viewMatrix * vec3<f32>(worldX, worldY, 1.0);
 
-  let depth = (in.z - Z_MIN) / (Z_MAX - Z_MIN);
+  let depthZ = uniforms.zBase
+             + uniforms.zRow.x * in.position.x
+             + uniforms.zRow.y * in.position.y
+             + uniforms.zRow.z * in.z;
+  let depth = (depthZ - Z_MIN) / (Z_MAX - Z_MIN);
 
   var out: VertexOutput;
   out.position = vec4<f32>(clipPos.xy, depth, 1.0);
@@ -156,9 +176,13 @@ const MAX_BATCH_INDICES = MAX_BATCH_VERTICES * 6;
 // still reference their original data.
 const GPU_BUFFER_FLUSH_CAPACITY = 4;
 
-// Type-safe uniform buffer definition
+// Type-safe uniform buffer definition.
+// zRow + zBase let the shader compute world z for depth from the vertex's
+// hull-local position, without contaminating the per-vertex z used for parallax.
 const ViewUniforms = defineUniformStruct("Uniforms", {
   viewMatrix: mat3x3,
+  zRow: vec3,
+  zBase: f32,
 });
 
 const UNIFORM_BUFFER_SIZE = ViewUniforms.byteSize;
@@ -199,11 +223,22 @@ export class WebGPURenderer {
   private depthCopyTexture: GPUTexture | null = null;
   private depthCopyTextureView: GPUTextureView | null = null;
 
-  // Z-height state for 3D tilt projection (saved/restored with transform stack)
+  // Z-height state for 3D tilt projection (saved/restored with transform stack).
+  //
+  // The tilt context decomposes the 3×3 Yaw·Pitch·Roll rotation matrix R into:
+  //   zCoeffs = R's z-column (R[0,2], R[1,2]) — maps local z → screen xy offset (parallax)
+  //   zRow    = R's z-row    (R[2,0], R[2,1], R[2,2]) — maps local (x,y,z) → world z (depth)
+  //   currentZ = body's world z position (additive base for depth)
+  //
+  // World z for depth: worldZ = currentZ + zRowX·localX + zRowY·localY + zRowZ·localZ
+  // Default zRow (0,0,1) passes local z through unchanged (no tilt).
   private currentZ = 0;
   private currentZCoeffX = 0;
   private currentZCoeffY = 0;
-  private zStack: [number, number, number][] = [];
+  private currentZRowX = 0;
+  private currentZRowY = 0;
+  private currentZRowZ = 1;
+  private zStack: number[][] = [];
 
   // Shape batch resources
   private shapeVertices: Float32Array;
@@ -751,6 +786,9 @@ export class WebGPURenderer {
     this.currentZ = 0;
     this.currentZCoeffX = 0;
     this.currentZCoeffY = 0;
+    this.currentZRowX = 0;
+    this.currentZRowY = 0;
+    this.currentZRowZ = 1;
     this.depthMode = "none";
     this.inOffscreenPass = false;
 
@@ -988,7 +1026,14 @@ export class WebGPURenderer {
   /** Save the current transform and z state */
   save(): void {
     this.transformStack.push(this.currentTransform.clone());
-    this.zStack.push([this.currentZ, this.currentZCoeffX, this.currentZCoeffY]);
+    this.zStack.push([
+      this.currentZ,
+      this.currentZCoeffX,
+      this.currentZCoeffY,
+      this.currentZRowX,
+      this.currentZRowY,
+      this.currentZRowZ,
+    ]);
   }
 
   /** Restore the previous transform and z state */
@@ -1008,10 +1053,16 @@ export class WebGPURenderer {
       this.currentZ = zPrev[0];
       this.currentZCoeffX = zPrev[1];
       this.currentZCoeffY = zPrev[2];
+      this.currentZRowX = zPrev[3];
+      this.currentZRowY = zPrev[4];
+      this.currentZRowZ = zPrev[5];
     } else {
       this.currentZ = 0;
       this.currentZCoeffX = 0;
       this.currentZCoeffY = 0;
+      this.currentZRowX = 0;
+      this.currentZRowY = 0;
+      this.currentZRowZ = 1;
     }
   }
 
@@ -1069,10 +1120,21 @@ export class WebGPURenderer {
     return this.currentZ;
   }
 
-  /** Set the z-to-position-offset coefficients (orientation R[2], R[5]). */
+  /** Set the z-to-position-offset coefficients (z-column of rotation: R[0,2], R[1,2]). */
   setZCoeffs(x: number, y: number): void {
     this.currentZCoeffX = x;
     this.currentZCoeffY = y;
+  }
+
+  /**
+   * Set the z-row of the rotation matrix (R[2,0], R[2,1], R[2,2]).
+   * Maps local vertex (x, y, z) → world z contribution for depth:
+   *   worldZ = currentZ + zRowX·localX + zRowY·localY + zRowZ·localZ
+   */
+  setZRow(x: number, y: number, z: number): void {
+    this.currentZRowX = x;
+    this.currentZRowY = y;
+    this.currentZRowZ = z;
   }
 
   /** Whether we're currently rendering to an offscreen pass (no depth attachment). */
@@ -1227,12 +1289,12 @@ export class WebGPURenderer {
 
     const baseVertex = this.shapeVertexCount;
 
-    // Extract z state
+    // Extract z state. Per-vertex z is the LOCAL z-height (for parallax via zCoeffs).
+    // World z for depth is computed in the shader from the uniform z-row + vertex position.
     const globalZ = this.currentZ;
     const zcx = this.currentZCoeffX;
     const zcy = this.currentZCoeffY;
 
-    // Store untransformed vertices with per-vertex color, model matrix, and z data
     for (let i = 0; i < vertices.length; i++) {
       const v = vertices[i];
       const z = zValues !== null ? zValues[i] : globalZ;
@@ -1347,7 +1409,7 @@ export class WebGPURenderer {
     this.vertexCount += this.shapeVertexCount;
 
     // Upload view matrix to uniform buffer
-    this.uploadViewMatrix(this.shapeUniformBuffer!);
+    this.uploadUniforms(this.shapeUniformBuffer!);
 
     // Upload vertex data at current GPU offset
     const vertexData = this.shapeVertices.subarray(
@@ -1574,7 +1636,7 @@ export class WebGPURenderer {
     this.vertexCount += this.spriteVertexCount / SPRITE_VERTEX_SIZE;
 
     // Upload view matrix to uniform buffer
-    this.uploadViewMatrix(this.spriteUniformBuffer!);
+    this.uploadUniforms(this.spriteUniformBuffer!);
 
     // Upload vertex data at current GPU offset
     const spriteVertexData = this.spriteVertices.subarray(
@@ -1654,12 +1716,17 @@ export class WebGPURenderer {
     this.spriteIndexCount = 0;
   }
 
-  /** Upload view matrix to a uniform buffer */
-  private uploadViewMatrix(buffer: GPUBuffer): void {
+  /** Upload uniforms (view matrix + z-row depth state) to a uniform buffer */
+  private uploadUniforms(buffer: GPUBuffer): void {
     if (!this.device) return;
 
-    // Use type-safe setter which handles mat3x3 padding automatically
     this.viewUniforms.set.viewMatrix(this.viewMatrix);
+    this.viewUniforms.set.zRow([
+      this.currentZRowX,
+      this.currentZRowY,
+      this.currentZRowZ,
+    ]);
+    this.viewUniforms.set.zBase(this.currentZ);
     this.viewUniforms.uploadTo(buffer);
   }
 

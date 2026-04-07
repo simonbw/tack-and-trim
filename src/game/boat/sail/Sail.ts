@@ -142,6 +142,16 @@ export class Sail extends BaseEntity {
   private headPos = V(0, 0);
   private clewPos = V(0, 0);
 
+  // Pre-allocated buffers for furled sail line quad rendering
+  private readonly furlQuadVerts: [number, number][] = [
+    [0, 0],
+    [0, 0],
+    [0, 0],
+    [0, 0],
+  ];
+  private readonly furlQuadZ: number[] = [0, 0, 0, 0];
+  private static readonly FURL_QUAD_INDICES = [0, 1, 2, 0, 2, 3];
+
   constructor(config: SailParams & Partial<SailConfig>) {
     super();
 
@@ -638,14 +648,27 @@ export class Sail extends BaseEntity {
       // Z from the body's 6DOF position, minus hull heave (cloth sim frame)
       clewZ = clewBody.z - (hullBody?.z ?? 0);
     } else {
-      // Mainsail: clew at boom end
-      clewX = clew.x;
-      clewY = clew.y;
-      clewZ = this.config.zFoot;
-      if (sailShape === "boom" && hullBody) {
-        clewX = clew.x + hullBody.zParallaxX(this.config.zFoot);
-        clewY = clew.y + hullBody.zParallaxY(this.config.zFoot);
-        clewZ = this.config.zFoot * hullBody.orientation[8];
+      // Mainsail: clew at boom end. The boom body is 6DOF with its
+      // orientation kinematically slaved to the hull (Rig.syncOrientationToHull),
+      // so toWorldFrame3D returns the 3D boom end position directly.
+      const boomBody = this.config.clewConstraint?.body as
+        | DynamicBody
+        | undefined;
+      const clewLocal = this.config.clewConstraint?.localAnchor;
+      if (boomBody && clewLocal) {
+        const [bcx, bcy, bcz] = boomBody.toWorldFrame3D(
+          clewLocal.x,
+          clewLocal.y,
+          0,
+        );
+        clewX = bcx;
+        clewY = bcy;
+        // Cloth sim frame: subtract hull heave like the jib pin does
+        clewZ = bcz - (hullBody?.z ?? 0);
+      } else {
+        clewX = clew.x;
+        clewY = clew.y;
+        clewZ = this.config.zFoot;
       }
     }
 
@@ -718,6 +741,91 @@ export class Sail extends BaseEntity {
 
   @on("render")
   onRender({ draw }: { draw: import("../../../core/graphics/Draw").Draw }) {
+    // Draw furled sail as a white line along the boom/forestay.
+    // Min width matches the spar it wraps; drawn slightly above to stay visible.
+    if (this.hoistAmount < 1) {
+      const hullBody = this.config.getHullBody?.();
+      const sparWidth = this.furlMode === "v-cutoff" ? 0.5 : 0.1;
+      const furlWidth = sparWidth + 0.5 * (1 - this.hoistAmount);
+      // The furled sail wraps around the spar, sitting slightly above its surface.
+      const zBump = 0.05;
+
+      let x1: number, y1: number, z1: number;
+      let x2: number, y2: number, z2: number;
+      let valid = false;
+
+      if (this.furlMode === "v-cutoff") {
+        // Mainsail: line along the boom from mast to boom end. The boom body
+        // is 6DOF, locked to the hull's tilt, so toWorldFrame3D gives the
+        // correct 3D position at both endpoints.
+        const clewLocal = this.config.clewConstraint?.localAnchor;
+        const boomBody = this.config.clewConstraint?.body as
+          | DynamicBody
+          | undefined;
+        if (boomBody && clewLocal) {
+          [x1, y1, z1] = boomBody.toWorldFrame3D(0, 0, zBump);
+          [x2, y2, z2] = boomBody.toWorldFrame3D(
+            clewLocal.x,
+            clewLocal.y,
+            zBump,
+          );
+          valid = true;
+        } else {
+          x1 = y1 = z1 = x2 = y2 = z2 = 0;
+        }
+      } else {
+        // Jib: line along the forestay from bowsprit tip to mast top
+        const local = this.config.headLocalPosition;
+        const luffTop = this.config.luffTopLocalPosition ?? local;
+        if (hullBody) {
+          [x1, y1, z1] = hullBody.toWorldFrame3D(
+            local.x,
+            local.y,
+            this.config.zFoot + zBump,
+          );
+          [x2, y2, z2] = hullBody.toWorldFrame3D(
+            luffTop.x,
+            luffTop.y,
+            this.config.zHead + zBump,
+          );
+          valid = true;
+        } else {
+          x1 = y1 = z1 = x2 = y2 = z2 = 0;
+        }
+      }
+
+      if (valid) {
+        // Build a quad perpendicular to the line with per-vertex z
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 1e-6) {
+          const hw = furlWidth / 2;
+          const nx = (-dy / len) * hw;
+          const ny = (dx / len) * hw;
+          this.furlQuadVerts[0][0] = x1 + nx;
+          this.furlQuadVerts[0][1] = y1 + ny;
+          this.furlQuadVerts[1][0] = x2 + nx;
+          this.furlQuadVerts[1][1] = y2 + ny;
+          this.furlQuadVerts[2][0] = x2 - nx;
+          this.furlQuadVerts[2][1] = y2 - ny;
+          this.furlQuadVerts[3][0] = x1 - nx;
+          this.furlQuadVerts[3][1] = y1 - ny;
+          this.furlQuadZ[0] = z1;
+          this.furlQuadZ[1] = z2;
+          this.furlQuadZ[2] = z2;
+          this.furlQuadZ[3] = z1;
+          draw.renderer.submitTrianglesWithZ(
+            this.furlQuadVerts,
+            Sail.FURL_QUAD_INDICES,
+            0xffffff,
+            0.9,
+            this.furlQuadZ,
+          );
+        }
+      }
+    }
+
     if (this.hoistAmount <= 0) {
       return;
     }
@@ -743,19 +851,22 @@ export class Sail extends BaseEntity {
 
     this.clothRenderer.render(this.handle, draw, color, alpha, time, active);
 
-    // Draw a line along the leech (trailing edge) to give the sail more definition
+    // Draw a line along the leech (trailing edge) to give the sail more definition.
+    // Each segment uses the average z of its endpoints so the line sits on the
+    // sail surface rather than at z=0 (which would be behind the sail mesh).
     const leech = this.mesh.leechVertices;
     for (let i = 0; i < leech.length - 1; i++) {
       const a = leech[i];
       const b = leech[i + 1];
       // Skip inactive leech segments
       if (!active[a] || !active[b]) continue;
+      const z = (this.handle.getZ(a) + this.handle.getZ(b)) / 2;
       draw.line(
         this.handle.getPositionX(a),
         this.handle.getPositionY(a),
         this.handle.getPositionX(b),
         this.handle.getPositionY(b),
-        { color: 0xffffff, alpha: 0.95, width: 0.15 },
+        { color: 0xffffff, alpha: 0.95, width: 0.15, z },
       );
     }
   }

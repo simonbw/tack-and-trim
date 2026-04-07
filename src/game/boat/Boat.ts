@@ -131,6 +131,8 @@ export class Boat extends BaseEntity {
           },
         ]
       : [];
+    // zA = 0 for the boom: the boom body is 6DOF with zPosition = boomZ
+    // (set in Rig), so the local anchor z is relative to the boom's own plane.
     this.mainsheet = this.addChild(
       new Sheet(
         this.rig.body as DynamicBody,
@@ -138,7 +140,7 @@ export class Boat extends BaseEntity {
         this.hull.body,
         hullAttachPoint,
         mainsheetConfig,
-        boomZ,
+        0,
         deckZ,
         mainsheetWaypoints,
       ),

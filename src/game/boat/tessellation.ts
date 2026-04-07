@@ -26,7 +26,17 @@ export interface TiltProjection {
   inv11: number;
 }
 
-/** Precompute the tilt projection matrix from hull body state. */
+/**
+ * Precompute the tilt projection matrix from hull body state.
+ *
+ * Returns the 2×2 xy-columns of the Yaw·Pitch·Roll rotation plus the
+ * z-column (for parallax) and the 2×2 inverse. Screen-width tessellation
+ * uses the forward projection to find the on-screen line direction, then
+ * the inverse to convert a screen-space perpendicular offset back to
+ * hull-local coordinates. The GPU's model matrix (camera × rotation) and
+ * the inverse cancel, leaving only the camera zoom — so line widths scale
+ * naturally with zoom but stay constant under tilt.
+ */
 export function computeTiltProjection(
   angle: number,
   roll: number,

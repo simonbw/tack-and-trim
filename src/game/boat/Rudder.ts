@@ -2,7 +2,7 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { DynamicBody } from "../../core/physics/body/DynamicBody";
-import { RevoluteConstraint } from "../../core/physics/constraints/RevoluteConstraint";
+import { RevoluteConstraint3D } from "../../core/physics/constraints/RevoluteConstraint3D";
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import {
@@ -31,7 +31,7 @@ export class Rudder extends BaseEntity {
   layer = "boat" as const;
 
   body: DynamicBody;
-  private rudderConstraint: RevoluteConstraint;
+  private rudderConstraint: RevoluteConstraint3D;
 
   private steerInput: number = 0; // Current steering input from controller
   private fastMode: boolean = false;
@@ -86,15 +86,26 @@ export class Rudder extends BaseEntity {
     // Pre-allocate rudder vertices: pivot at origin, tip at (-length, 0)
     this.rudderVertices = [V(0, 0), V(-this.length, 0)];
 
-    // Create a dynamic body for the rudder blade.
-    // The pivot is at the body's origin (0,0 in local space).
-    // The blade extends in the -x direction (aft).
-    const pivotWorld = hull.body.toWorldFrame(config.position);
+    // Create a dynamic body for the rudder blade. 6DOF so the 3D revolute
+    // joint can lock its orientation (roll/pitch/z) to the hull. The pivot
+    // is at the body's origin (0,0 in local space). The blade extends in
+    // the -x direction (aft).
+    const [pivotWorldX, pivotWorldY, pivotWorldZ] = hull.body.toWorldFrame3D(
+      config.position.x,
+      config.position.y,
+      this.rudderZ,
+    );
     this.body = new DynamicBody({
       mass: RUDDER_MASS,
-      position: [pivotWorld.x, pivotWorld.y],
+      position: [pivotWorldX, pivotWorldY],
       angularDamping: RUDDER_ANGULAR_DAMPING,
       allowSleep: false,
+      sixDOF: {
+        rollInertia: 1,
+        pitchInertia: 1,
+        zMass: RUDDER_MASS,
+        zPosition: pivotWorldZ,
+      },
     });
     this.body.angle = hull.body.angle;
 
@@ -104,10 +115,10 @@ export class Rudder extends BaseEntity {
       0,
     ]);
 
-    // Revolute constraint: attach rudder to hull at the pivot point.
-    // localPivotZA sets the z-height so constraint reactions automatically
-    // generate roll/pitch torques via 3D cross products in the solver.
-    this.rudderConstraint = new RevoluteConstraint(hull.body, this.body, {
+    // 3D revolute joint: pins the rudder to the hull at the pivot in 3D
+    // and locks the rudder's roll/pitch to the hull's, leaving only yaw
+    // around the pivot axis free (the steering DOF).
+    this.rudderConstraint = new RevoluteConstraint3D(hull.body, this.body, {
       localPivotA: [config.position.x, config.position.y],
       localPivotB: [0, 0],
       localPivotZA: this.rudderZ,
@@ -145,14 +156,13 @@ export class Rudder extends BaseEntity {
 
   getSteer(): number {
     // Return normalized steer position based on actual rudder angle
-    const relAngle = this.body.angle - this.hull.body.angle;
     if (this.maxSteerAngle === 0) return 0;
-    return -(relAngle / this.maxSteerAngle);
+    return -(this.rudderConstraint.getRelativeAngle() / this.maxSteerAngle);
   }
 
   /** Get the actual angle of the rudder relative to the hull */
   private getRelativeAngle(): number {
-    return this.body.angle - this.hull.body.angle;
+    return this.rudderConstraint.getRelativeAngle();
   }
 
   @on("tick")

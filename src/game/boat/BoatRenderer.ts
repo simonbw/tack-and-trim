@@ -7,19 +7,15 @@ import type { BoatConfig } from "./BoatConfig";
 import { buildDeckPlanMeshes } from "./deck-plan";
 import { RopeShaderInstance } from "./RopeShader";
 import {
-  MeshContribution,
-  TiltProjection,
+  type MeshContribution,
   computeTiltProjection,
   roundCorners,
   catmullRomOutputCount,
   extractCameraTransform,
   subdivideCatmullRom,
   tessellateRopeStrip,
-  tessellateScreenCircle,
-  tessellateLineToQuad,
-  tessellateScreenWidthLine,
-  tessellateScreenWidthPolyline,
 } from "./tessellation";
+import { TiltDraw } from "./TiltDraw";
 
 /**
  * Unified boat renderer that collects geometry from all boat components
@@ -116,12 +112,13 @@ export class BoatRenderer extends BaseEntity {
       },
       () => {
         const renderer = draw.renderer;
+        const td = new TiltDraw(renderer, tilt);
 
         // === 1. Keel (deepest, drawn first) ===
-        this.submitMesh(renderer, this.keelMesh);
+        td.mesh(this.keelMesh);
 
         // === 2. Rudder blade (underwater, flat — hull-local width is correct) ===
-        this.renderRudder(renderer, tilt);
+        this.renderRudder(td);
 
         // === 3. Hull mesh (lower sides → upper sides → deck) ===
         const {
@@ -150,7 +147,7 @@ export class BoatRenderer extends BaseEntity {
         // Deck surface: use deck plan zones if configured, otherwise flat deck cap
         if (this.deckPlanMeshes.length > 0) {
           for (const mesh of this.deckPlanMeshes) {
-            this.submitMesh(renderer, mesh);
+            td.mesh(mesh);
           }
         } else {
           renderer.submitTrianglesWithZ(
@@ -168,64 +165,80 @@ export class BoatRenderer extends BaseEntity {
         const gunwalePoints: [number, number][] = meshData.deckOutline
           ? meshData.deckOutline.map(([x, y]) => [x, y] as [number, number])
           : Array.from({ length: ringSize }, (_, i) => xyPositions[i]);
-        const gunwaleZValues = gunwalePoints.map(() => deckZ);
-        const gunwaleMesh = tessellateScreenWidthPolyline(
+        // Gunwales sit a couple of inches above the deck surface
+        const gunwaleZ = deckZ + 0.2;
+        td.polyline(
           gunwalePoints,
-          gunwaleZValues,
+          gunwalePoints.map(() => gunwaleZ),
           0.25,
-          tilt,
           hull.getStrokeColor(),
           1,
           true,
         );
-        this.submitMesh(renderer, gunwaleMesh);
 
         // === 5. Tiller ===
-        this.renderTiller(renderer, tilt);
+        this.renderTiller(td);
 
         // === 6. Bowsprit (cylindrical — screen-width, with round caps) ===
         if (this.boat.bowsprit) {
           const bs = this.boat.bowsprit;
           const bsZ = this.config.tilt.zHeights.bowsprit;
-          this.submitMesh(
-            renderer,
-            tessellateScreenWidthLine(
-              bs.localPosition.x,
-              bs.localPosition.y,
-              bsZ,
-              bs.localPosition.x + bs.size.x,
-              bs.localPosition.y,
-              bsZ,
-              bs.size.y,
-              tilt,
-              bs.getColor(),
-              1,
-              true,
-            ),
+          td.line(
+            bs.localPosition.x,
+            bs.localPosition.y,
+            bsZ,
+            bs.localPosition.x + bs.size.x,
+            bs.localPosition.y,
+            bsZ,
+            bs.size.y,
+            bs.getColor(),
+            1,
+            true,
           );
         }
 
         // === 7. Boom (cylindrical — screen-width) ===
-        this.renderBoom(renderer, tilt);
+        this.renderBoom(td);
 
-        // === 8. Sheet blocks (small circles on deck) ===
-        this.renderBlocks(renderer, tilt);
+        // === 8. Sheet blocks/winches (small circles on deck) ===
+        this.renderBlocks(td);
 
         // === 9. Standing rigging (wires — screen-width) ===
-        this.renderStandingRigging(renderer, tilt);
+        this.renderStandingRigging(td);
 
         // === 10. Lifeline stanchions (tubes — screen-width) ===
-        this.renderStanchions(renderer, tilt);
+        this.renderStanchions(td);
 
-        // === 10. Lifeline pulpits and wires (screen-width) ===
-        this.renderLifelineWires(renderer, tilt);
+        // === 11. Lifeline pulpits and wires (screen-width) ===
+        this.renderLifelineWires(td);
 
-        // === 11. Mast (cylindrical — screen-width, tallest, drawn last) ===
-        this.renderMast(renderer, tilt);
+        // === 12. Mast (cylindrical — screen-width, tallest, drawn last) ===
+        this.renderMast(td);
+
+        // === 13. Air displacement cap — transparent, depth-only ===
+        // The hull is an open-topped 3D shape: sides go from keel up to the
+        // deck edge, but the deck plan may have gaps (cockpit, hatches, etc.).
+        // Without this cap, the water surface shader — which reads the depth
+        // buffer to decide where to draw water — would see no boat at those
+        // gaps and render water inside the hull.
+        //
+        // This invisible polygon covers the full hull outline at deck height,
+        // writing depth (via alpha=0: no color change, but depth still writes)
+        // so the surface shader sees "above water" everywhere inside the hull.
+        // When the boat sinks far enough that deckHeight + hullBody.z drops
+        // below the waterline, the cap's depth falls below the water's depth
+        // and the hull correctly floods.
+        renderer.submitTrianglesWithZ(
+          xyPositions,
+          deckIndices,
+          0x000000,
+          0, // alpha=0: invisible, but writes to the depth buffer
+          zValues,
+        );
       },
     );
 
-    // === 12. Sheets/ropes — rendered in world space (outside draw.at) ===
+    // === 13. Sheets/ropes — rendered in world space (outside draw.at) ===
     // Sheet rope endpoints come from the cloth sim which includes tilt parallax,
     // matching the sail rendering. Rendering through the hull model matrix would
     // double-count the tilt.
@@ -239,28 +252,11 @@ export class BoatRenderer extends BaseEntity {
       this.renderSheet(renderer, this.boat.starboardJibSheet, hullBody);
     }
 
-    // Anchor rode
+    // === 14. Anchor rode ===
     this.renderRode(renderer);
   }
 
-  private submitMesh(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    mesh: MeshContribution | null,
-  ) {
-    if (!mesh || mesh.indices.length === 0) return;
-    renderer.submitTrianglesWithZ(
-      mesh.positions,
-      mesh.indices,
-      mesh.color,
-      mesh.alpha,
-      mesh.zValues,
-    );
-  }
-
-  private renderRudder(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
-  ) {
+  private renderRudder(td: TiltDraw) {
     const rudder = this.boat.rudder;
     const relAngle = rudder.getTillerAngleOffset();
     const pivot = rudder.getPosition();
@@ -278,8 +274,7 @@ export class BoatRenderer extends BaseEntity {
     const trailingY = pivot.y - rudderLength * sin;
 
     // Rudder blade — vertical rectangle: leading edge at stock, trailing edge aft.
-    // 4 corners: top-leading, top-trailing, bottom-trailing, bottom-leading.
-    const bladeMesh: MeshContribution = {
+    td.mesh({
       positions: [
         [pivot.x, pivot.y], // top-leading (at stock)
         [trailingX, trailingY], // top-trailing
@@ -290,125 +285,92 @@ export class BoatRenderer extends BaseEntity {
       indices: [0, 1, 2, 0, 2, 3],
       color: rudderColor,
       alpha: 1,
-    };
-    this.submitMesh(renderer, bladeMesh);
+    });
 
     // Blade top edge — screen-width line so blade has visible thickness from above
-    const bladeWidth = 0.2;
-    this.submitMesh(
-      renderer,
-      tessellateScreenWidthLine(
-        pivot.x,
-        pivot.y,
-        bladeTopZ,
-        trailingX,
-        trailingY,
-        bladeTopZ,
-        bladeWidth,
-        tilt,
-        rudderColor,
-        1,
-        true,
-      ),
+    td.line(
+      pivot.x,
+      pivot.y,
+      bladeTopZ,
+      trailingX,
+      trailingY,
+      bladeTopZ,
+      0.2,
+      rudderColor,
+      1,
+      true,
     );
 
     // Rudder stock — vertical shaft from deck down through hull to blade
-    // (cylindrical — screen-width)
-    this.submitMesh(
-      renderer,
-      tessellateScreenWidthLine(
-        pivot.x,
-        pivot.y,
-        deckZ,
-        pivot.x,
-        pivot.y,
-        rudderZ,
-        stockWidth,
-        tilt,
-        rudderColor,
-        1,
-        true,
-      ),
+    td.line(
+      pivot.x,
+      pivot.y,
+      deckZ,
+      pivot.x,
+      pivot.y,
+      rudderZ,
+      stockWidth,
+      rudderColor,
+      1,
+      true,
     );
   }
 
-  private renderTiller(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
-  ) {
+  private renderTiller(td: TiltDraw) {
     const rudder = this.boat.rudder;
     const tillerAngle = rudder.getTillerAngleOffset();
     const tillerPos = rudder.getPosition();
     const deckZ = this.config.hull.deckHeight;
-    const tillerLength = 3;
-    const tillerWidth = 0.25;
-    const tillerColor = 0x886633;
 
-    // Tiller arm (cylindrical — screen-width, with round caps)
     const cos = Math.cos(tillerAngle);
     const sin = Math.sin(tillerAngle);
-    const tipX = tillerPos.x + tillerLength * cos;
-    const tipY = tillerPos.y + tillerLength * sin;
+    const tipX = tillerPos.x + 3 * cos;
+    const tipY = tillerPos.y + 3 * sin;
 
-    this.submitMesh(
-      renderer,
-      tessellateScreenWidthLine(
-        tillerPos.x,
-        tillerPos.y,
-        deckZ,
-        tipX,
-        tipY,
-        deckZ,
-        tillerWidth,
-        tilt,
-        tillerColor,
-        1,
-        true,
-      ),
+    td.line(
+      tillerPos.x,
+      tillerPos.y,
+      deckZ,
+      tipX,
+      tipY,
+      deckZ,
+      0.25,
+      0x886633,
+      1,
+      true,
     );
   }
 
-  private renderBoom(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
-  ) {
+  private renderBoom(td: TiltDraw) {
     const rig = this.boat.rig;
     const boomRelAngle = rig.getBoomRelativeYaw();
     const mastPos = rig.getMastPosition();
     const boomLength = rig.getBoomLength();
     const boomZ = rig.getBoomZ();
 
-    // Boom endpoints in hull-local coords
     const cos = Math.cos(boomRelAngle);
     const sin = Math.sin(boomRelAngle);
     const endX = mastPos.x - boomLength * cos;
     const endY = mastPos.y - boomLength * sin;
 
-    // Boom body (cylindrical — screen-width, with round caps)
-    this.submitMesh(
-      renderer,
-      tessellateScreenWidthLine(
-        mastPos.x,
-        mastPos.y,
-        boomZ,
-        endX,
-        endY,
-        boomZ,
-        rig.getBoomWidth(),
-        tilt,
-        rig.getBoomColor(),
-        1,
-        true,
-      ),
+    td.line(
+      mastPos.x,
+      mastPos.y,
+      boomZ,
+      endX,
+      endY,
+      boomZ,
+      rig.getBoomWidth(),
+      rig.getBoomColor(),
+      1,
+      true,
     );
   }
 
-  private renderBlocks(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
-  ) {
-    const deckZ = this.config.hull.deckHeight;
+  private renderBlocks(td: TiltDraw) {
     const hullBody = this.boat.hull.body;
+    // Blocks and winch drums sit on top of the deck, protruding ~3.6 inches.
+    const deckZ = this.config.hull.deckHeight + 0.3;
     const winchRadius = 0.3;
     const sheets = [
       this.boat.mainsheet,
@@ -419,121 +381,80 @@ export class BoatRenderer extends BaseEntity {
       if (!sheet) continue;
       for (const wp of sheet.getWaypointInfo()) {
         const local = hullBody.toLocalFrame(wp.position);
-        // Circle for block or winch drum
-        this.submitMesh(
-          renderer,
-          tessellateScreenCircle(
-            local[0],
-            local[1],
-            deckZ,
-            winchRadius,
-            32,
-            tilt,
-            0x444444,
-            1,
-          ),
-        );
-        // Winch handle: a short line from center outward
+        td.circle(local[0], local[1], deckZ, winchRadius, 32, 0x444444);
         if (wp.type === "winch") {
           const handleLen = winchRadius * 1.6;
           const cos = Math.cos(wp.winchAngle);
           const sin = Math.sin(wp.winchAngle);
-          const hx = local[0] + cos * handleLen;
-          const hy = local[1] + sin * handleLen;
-          const handleZ = deckZ + 0.15;
-          this.submitMesh(
-            renderer,
-            tessellateScreenWidthLine(
-              local[0],
-              local[1],
-              handleZ,
-              hx,
-              hy,
-              handleZ,
-              0.12,
-              tilt,
-              0x666666,
-              1,
-              true,
-            ),
+          td.line(
+            local[0],
+            local[1],
+            deckZ + 0.15,
+            local[0] + cos * handleLen,
+            local[1] + sin * handleLen,
+            deckZ + 0.15,
+            0.12,
+            0x666666,
+            1,
+            true,
           );
         }
       }
     }
   }
 
-  private renderStandingRigging(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
-  ) {
+  private renderStandingRigging(td: TiltDraw) {
     const rig = this.boat.rig;
     const mastPos = rig.getMastPosition();
     const mastTopZ = rig.getMastTopZ();
     const stays = rig.getStays();
-    const deckHeight = stays.deckHeight;
 
-    const attachments = [
+    for (const attach of [
       stays.forestay,
       stays.portShroud,
       stays.starboardShroud,
       stays.backstay,
-    ];
-
-    for (const attach of attachments) {
-      const mesh = tessellateScreenWidthLine(
+    ]) {
+      td.line(
         mastPos.x,
         mastPos.y,
         mastTopZ,
         attach.x,
         attach.y,
-        deckHeight,
+        stays.deckHeight,
         0.1,
-        tilt,
         0x999999,
       );
-      this.submitMesh(renderer, mesh);
     }
   }
 
-  private renderStanchions(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
-  ) {
+  private renderStanchions(td: TiltDraw) {
     const lifelineConfig = this.config.lifelines;
     if (!lifelineConfig) return;
 
     const deckZ = this.config.hull.deckHeight;
     const topZ = deckZ + lifelineConfig.stanchionHeight;
 
-    const allStanchions = [
+    for (const [sx, sy] of [
       ...lifelineConfig.portStanchions,
       ...lifelineConfig.starboardStanchions,
-    ];
-
-    for (const [sx, sy] of allStanchions) {
-      this.submitMesh(
-        renderer,
-        tessellateScreenWidthLine(
-          sx,
-          sy,
-          deckZ,
-          sx,
-          sy,
-          topZ,
-          lifelineConfig.tubeWidth,
-          tilt,
-          lifelineConfig.tubeColor,
-          1,
-          true,
-        ),
+    ]) {
+      td.line(
+        sx,
+        sy,
+        deckZ,
+        sx,
+        sy,
+        topZ,
+        lifelineConfig.tubeWidth,
+        lifelineConfig.tubeColor,
+        1,
+        true,
       );
     }
   }
 
-  private renderLifelineWires(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
-  ) {
+  private renderLifelineWires(td: TiltDraw) {
     const lifelineConfig = this.config.lifelines;
     if (!lifelineConfig) return;
 
@@ -552,17 +473,17 @@ export class BoatRenderer extends BaseEntity {
         1.5,
         16,
       );
-      this.renderRoundedPolyline(
-        renderer,
-        tilt,
+      td.polyline(
         rounded.points,
         rounded.zValues,
         tubeWidth,
         tubeColor,
+        1,
+        false,
+        true,
       );
       this.renderPulpitPosts(
-        renderer,
-        tilt,
+        td,
         points,
         rounded,
         deckZ,
@@ -583,17 +504,17 @@ export class BoatRenderer extends BaseEntity {
         1.5,
         16,
       );
-      this.renderRoundedPolyline(
-        renderer,
-        tilt,
+      td.polyline(
         rounded.points,
         rounded.zValues,
         tubeWidth,
         tubeColor,
+        1,
+        false,
+        true,
       );
       this.renderPulpitPosts(
-        renderer,
-        tilt,
+        td,
         points,
         rounded,
         deckZ,
@@ -628,48 +549,20 @@ export class BoatRenderer extends BaseEntity {
       }
 
       if (points.length >= 2) {
-        const wireZ = topZ - 0.5 / 12; // slightly below stanchion top caps
-        const mesh = tessellateScreenWidthPolyline(
+        // Wires thread through eyes ~½ inch below the stanchion caps
+        const wireZ = topZ - 0.5 / 12;
+        td.polyline(
           points,
           points.map(() => wireZ),
           wireWidth,
-          tilt,
           wireColor,
         );
-        this.submitMesh(renderer, mesh);
       }
     }
   }
 
-  /** Render vertical posts at pulpit points. Endpoints use original positions;
-   *  interior vertices use arc midpoints so posts sit under the rounded path. */
-  /** Render a screen-width polyline with round joins and round end caps. */
-  private renderRoundedPolyline(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
-    points: [number, number][],
-    zValues: number[],
-    width: number,
-    color: number,
-  ) {
-    this.submitMesh(
-      renderer,
-      tessellateScreenWidthPolyline(
-        points,
-        zValues,
-        width,
-        tilt,
-        color,
-        1,
-        false,
-        true,
-      ),
-    );
-  }
-
   private renderPulpitPosts(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
+    td: TiltDraw,
     originalPoints: [number, number][],
     rounded: ReturnType<typeof roundCorners>,
     deckZ: number,
@@ -689,22 +582,7 @@ export class BoatRenderer extends BaseEntity {
         py = mid.y;
       }
 
-      this.submitMesh(
-        renderer,
-        tessellateScreenWidthLine(
-          px,
-          py,
-          deckZ,
-          px,
-          py,
-          topZ,
-          tubeWidth,
-          tilt,
-          tubeColor,
-          1,
-          true,
-        ),
-      );
+      td.line(px, py, deckZ, px, py, topZ, tubeWidth, tubeColor, 1, true);
     }
   }
 
@@ -863,47 +741,27 @@ export class BoatRenderer extends BaseEntity {
     );
   }
 
-  private renderMast(
-    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    tilt: TiltProjection,
-  ) {
+  private renderMast(td: TiltDraw) {
     const rig = this.boat.rig;
     const mastPos = rig.getMastPosition();
     const mastTopZ = rig.getMastTopZ();
+    const mastColor = rig.getMastColor();
 
     // Mast shaft (cylindrical — screen-width, with round caps)
-    this.submitMesh(
-      renderer,
-      tessellateScreenWidthLine(
-        mastPos.x,
-        mastPos.y,
-        0,
-        mastPos.x,
-        mastPos.y,
-        mastTopZ,
-        0.4,
-        tilt,
-        rig.getMastColor(),
-        1,
-        true,
-      ),
+    td.line(
+      mastPos.x,
+      mastPos.y,
+      0,
+      mastPos.x,
+      mastPos.y,
+      mastTopZ,
+      0.4,
+      mastColor,
+      1,
+      true,
     );
 
-    // Boom connection cap (intermediate, not an endpoint)
-    const mastCapR = 0.4 / 2;
-    const mastColor = rig.getMastColor();
-    const boomZ = rig.getBoomZ();
-    this.submitMesh(
-      renderer,
-      tessellateScreenCircle(
-        mastPos.x,
-        mastPos.y,
-        boomZ,
-        mastCapR,
-        16,
-        tilt,
-        mastColor,
-      ),
-    );
+    // Boom connection cap
+    td.circle(mastPos.x, mastPos.y, rig.getBoomZ(), 0.2, 16, mastColor);
   }
 }

@@ -1,7 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
 import { DynamicBody } from "../../core/physics/body/DynamicBody";
-import { RevoluteConstraint } from "../../core/physics/constraints/RevoluteConstraint";
+import { RevoluteConstraint3D } from "../../core/physics/constraints/RevoluteConstraint3D";
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import { RigConfig } from "./BoatConfig";
@@ -11,7 +11,7 @@ import { Sail } from "./sail/Sail";
 export class Rig extends BaseEntity {
   layer = "boat" as const;
   body: NonNullable<Entity["body"]>;
-  private boomConstraint: RevoluteConstraint;
+  private boomConstraint: RevoluteConstraint3D;
   sail!: Sail;
 
   private mastPosition: V2d;
@@ -41,22 +41,33 @@ export class Rig extends BaseEntity {
     this.boomColor = colors.boom;
     this.stays = config.stays;
 
-    // Boom physics body - pivot is at origin, boom extends in -x direction
-    // Position at the mast's world-space location so constraints aren't violated at spawn
-    const mastWorld = hull.body.toWorldFrame(mastPosition);
+    // Boom physics body — 6DOF so the 3D revolute joint can lock its
+    // orientation to the hull's (hinge around the mast axis). Pivot is at
+    // origin, boom extends in -x direction.
+    const [mastWorldX, mastWorldY, mastWorldZ] = hull.body.toWorldFrame3D(
+      mastPosition.x,
+      mastPosition.y,
+      this.boomZ,
+    );
     this.body = new DynamicBody({
       mass: boomMass,
-      position: [mastWorld.x, mastWorld.y],
+      position: [mastWorldX, mastWorldY],
+      sixDOF: {
+        rollInertia: 1,
+        pitchInertia: 1,
+        zMass: boomMass,
+        zPosition: mastWorldZ,
+      },
     });
     this.body.addShape(new Box({ width: boomLength, height: boomWidth }), [
       -boomLength / 2,
       0,
     ]);
 
-    // Constraint connecting boom to hull at mast position.
-    // localPivotZA sets the z-height so constraint reactions automatically
-    // generate roll/pitch torques via 3D cross products in the solver.
-    this.boomConstraint = new RevoluteConstraint(hull.body, this.body, {
+    // 3D revolute joint (hinge around the mast axis): pins the boom to the
+    // hull at the mast pivot in 3D and locks the boom's roll/pitch to the
+    // hull's, leaving only yaw around the mast axis free.
+    this.boomConstraint = new RevoluteConstraint3D(hull.body, this.body, {
       localPivotA: [mastPosition.x, mastPosition.y],
       localPivotB: [0, 0],
       localPivotZA: this.boomZ,
@@ -120,11 +131,24 @@ export class Rig extends BaseEntity {
   }
 
   getBoomEndWorldPosition(): V2d {
-    const [mx, my] = this.getMastWorldPosition();
-    return V(-this.boomLength, 0).rotate(this.body.angle).iadd([mx, my]);
+    // Use the boom body's full 3D transform. The 3D revolute joint keeps
+    // the boom body's orientation and z in sync with the hull's tilt, so
+    // this naturally includes hull roll/pitch parallax.
+    const [x, y] = this.body.toWorldFrame3D(-this.boomLength, 0, 0);
+    return V(x, y);
   }
 
   getBoomLength(): number {
     return this.boomLength;
+  }
+
+  /**
+   * Boom yaw relative to hull (around the hull's z-axis), maintained by
+   * the 3D revolute joint via axis projection. Prefer this over
+   * `boom.angle - hull.angle` — with hull tilt, that extraction mixes yaw
+   * with tilt due to atan2 projection.
+   */
+  getBoomRelativeYaw(): number {
+    return this.boomConstraint.getRelativeAngle();
   }
 }
