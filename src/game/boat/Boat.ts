@@ -20,6 +20,7 @@ import { Sail } from "./sail/Sail";
 import { Sheet } from "./Sheet";
 import { Wake } from "./Wake";
 import { Mooring } from "../port/Mooring";
+import { Anchor } from "./Anchor";
 
 export class Boat extends BaseEntity {
   id = "boat";
@@ -30,6 +31,7 @@ export class Boat extends BaseEntity {
   rig: Rig;
   bowsprit: Bowsprit | null = null;
   jib: Sail | null = null;
+  anchor: Anchor;
   mooring: Mooring;
   bilge: Bilge;
   hullDamage: HullDamage;
@@ -260,6 +262,8 @@ export class Boat extends BaseEntity {
     this.addChild(new BoatRenderer(this));
 
     this.mooring = this.addChild(new Mooring(this));
+
+    this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
 
     // Create wake effects — bow wave (dominant) and stern wave (weaker)
     // Use waterline vertices for wake spawn points (where hull meets water)

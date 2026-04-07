@@ -304,6 +304,11 @@ export const Kestrel: BoatConfig = {
     anchorSize: 1.2, // ft
     anchorMass: 15, // lbs
     deckHeight: 2.5,
+    rollInertia: 0.3,
+    pitchInertia: 1.5,
+    yawInertia: 1.5,
+    rodeAttachOffset: [1.02, 0, 0.36] as const,
+    anchorDragCoefficient: 500,
     ropePattern: {
       type: "braid",
       carriers: [

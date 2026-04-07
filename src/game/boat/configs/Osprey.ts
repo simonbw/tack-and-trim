@@ -306,6 +306,11 @@ export const Osprey: BoatConfig = {
     anchorSize: 1.5, // ft
     anchorMass: 25, // lbs
     deckHeight: 3.0,
+    rollInertia: 0.8,
+    pitchInertia: 4.0,
+    yawInertia: 4.0,
+    rodeAttachOffset: [1.28, 0, 0.45] as const,
+    anchorDragCoefficient: 800,
   },
 
   jib: {

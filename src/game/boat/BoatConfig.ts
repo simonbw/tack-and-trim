@@ -251,6 +251,13 @@ export interface AnchorConfig {
   readonly anchorSize: number; // ft (visual radius)
   readonly anchorMass: number; // lbs
   readonly deckHeight: number; // ft above waterline — z for bow roller, winch, and stowed anchor
+  readonly rollInertia: number; // lb·ft² — moment of inertia for roll
+  readonly pitchInertia: number; // lb·ft² — moment of inertia for pitch (around lateral axis)
+  readonly yawInertia: number; // lb·ft² — moment of inertia for yaw
+  /** Body-local offset [x,y,z] where the rode attaches — toward top of shank so tension creates pitch torque. */
+  readonly rodeAttachOffset: readonly [number, number, number];
+  readonly anchorDragCoefficient: number; // scope-based holding drag when set on bottom
+  readonly hoistForce?: number; // lbf for winch when raising (default 15)
   /** Visual rope pattern for the rode. Defaults to a solid dark color. */
   readonly ropePattern?: import("./RopeShader").RopePattern;
 }

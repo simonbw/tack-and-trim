@@ -251,6 +251,9 @@ export class BoatRenderer extends BaseEntity {
     if (this.boat.starboardJibSheet) {
       this.renderSheet(renderer, this.boat.starboardJibSheet, hullBody);
     }
+
+    // === 14. Anchor rode ===
+    this.renderRode(renderer);
   }
 
   private renderRudder(td: TiltDraw) {
@@ -666,6 +669,74 @@ export class BoatRenderer extends BaseEntity {
       indexCount,
       sheet.getRopePattern(),
       opacity,
+      width,
+    );
+  }
+
+  /** Rode render state (lazy-created). */
+  private rodeState: {
+    shader: RopeShaderInstance;
+    smoothPoints: [number, number][];
+    smoothZ: number[];
+    rawCount: number;
+  } | null = null;
+
+  private renderRode(
+    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+  ) {
+    const rodeData = this.boat.anchor.getRodePointsWithZ();
+    if (!rodeData) return;
+    const { points: rawPoints, z: rawZ } = rodeData;
+    if (rawPoints.length < 2) return;
+
+    // Lazy-create or recreate if point count changed
+    if (!this.rodeState || this.rodeState.rawCount !== rawPoints.length) {
+      const smoothCount = catmullRomOutputCount(
+        rawPoints.length,
+        BoatRenderer.ROPE_SUBDIVISIONS,
+      );
+      this.rodeState = {
+        shader: new RopeShaderInstance(smoothCount),
+        smoothPoints: Array.from(
+          { length: smoothCount },
+          () => [0, 0] as [number, number],
+        ),
+        smoothZ: new Array(smoothCount).fill(0),
+        rawCount: rawPoints.length,
+      };
+    }
+
+    const smoothCount = subdivideCatmullRom(
+      rawPoints,
+      rawZ,
+      BoatRenderer.ROPE_SUBDIVISIONS,
+      this.rodeState.smoothPoints,
+      this.rodeState.smoothZ,
+    );
+
+    const width = this.boat.anchor.getRodeThickness();
+    const cam = extractCameraTransform(renderer.getTransform());
+
+    const { vertexCount, indexCount } = tessellateRopeStrip(
+      this.rodeState.smoothPoints,
+      this.rodeState.smoothZ,
+      width,
+      cam,
+      this.rodeState.shader.scratchVertexData,
+      this.rodeState.shader.scratchIndexData,
+      smoothCount,
+    );
+
+    if (vertexCount === 0) return;
+
+    this.rodeState.shader.draw(
+      renderer,
+      this.rodeState.shader.scratchVertexData,
+      vertexCount,
+      this.rodeState.shader.scratchIndexData,
+      indexCount,
+      this.boat.anchor.getRodePattern(),
+      1,
       width,
     );
   }

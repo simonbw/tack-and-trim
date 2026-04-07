@@ -1,0 +1,541 @@
+import { BaseEntity } from "../../core/entity/BaseEntity";
+import { GameEventMap } from "../../core/entity/Entity";
+import { on } from "../../core/entity/handler";
+import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import { Circle } from "../../core/physics/shapes/Circle";
+import { V, V2d } from "../../core/Vector";
+import { TerrainQuery } from "../world/terrain/TerrainQuery";
+import { WaterQuery } from "../world/water/WaterQuery";
+import { Rope, RopeWaypoint } from "../rope/Rope";
+import { AnchorConfig } from "./BoatConfig";
+import { Hull } from "./Hull";
+import type { RopePattern } from "./RopeShader";
+import { LBF_TO_ENGINE } from "../physics-constants";
+import { type MeshContribution, tessellateLineToQuad } from "./tessellation";
+
+// Z-axis physics constants
+const ANCHOR_NET_GRAVITY = 28; // ft/s² (gravity × 0.87 after buoyancy for iron)
+const ANCHOR_Z_DRAG = 3.0; // Water drag coefficient for anchor body (1/s)
+const ANCHOR_ANGULAR_DRAG = 8; // Angular drag coefficient (1/s)
+
+// Rode particle physics
+const RODE_PARTICLES_PER_FOOT = 1.0;
+const RODE_MASS_PER_FOOT = 0.15; // lbs/ft (chain in water)
+const RODE_GRAVITY = 15; // ft/s² (chain in water, buoyancy-reduced)
+const RODE_DRAG = 5; // Water drag on rode particles (1/s)
+const RODE_FLOOR_FRICTION = 0.8; // Friction damping when particle rests on bottom
+
+// Rode rendering
+const RODE_THICKNESS = 0.15; // ft (~2 inches)
+const RODE_COLOR = 0x333322; // Dark rope color
+
+// Default winch force for hoisting the anchor
+const DEFAULT_HOIST_FORCE = 150; // lbf
+const WINCH_MAX_SPEED = 2; // ft/s
+
+// Anchor shape constants
+const ANCHOR_COLOR = 0x333333;
+const ANCHOR_SHAPE_LINE_WIDTH_RATIO = 0.12;
+
+// Anchor geometry ratios
+const ANCHOR_LENGTH_RATIO = 1.55; // anchorLen = anchorSize * this
+const ANCHOR_CG_RATIO = 0.55; // CG distance from flukes / anchorLen
+
+export class Anchor extends BaseEntity {
+  layer = "boat" as const;
+
+  private anchorBody!: DynamicBody;
+  private rode: Rope | null = null;
+  private winchIndex: number = -1;
+
+  private onBottom: boolean = false;
+
+  // World queries at rode particle positions + anchor
+  private terrainQuery: TerrainQuery | null = null;
+  private waterQuery: WaterQuery | null = null;
+  private queryPoints: V2d[] = [];
+
+  // Config values
+  private bowAttachPoint: V2d;
+  private maxRodeLength: number;
+  private anchorSize: number;
+  private anchorMass: number;
+  private anchorDragCoefficient: number;
+  private hoistForce: number;
+  private ropePattern?: RopePattern;
+  private rodeAttachOffset: readonly [number, number, number];
+  private deckHeight: number;
+  private rollInertia: number;
+  private pitchInertia: number;
+  private yawInertia: number;
+
+  // Anchor geometry (derived from anchorSize)
+  private anchorLen: number;
+  private d_cg: number;
+
+  constructor(
+    private hull: Hull,
+    config: AnchorConfig,
+  ) {
+    super();
+
+    this.bowAttachPoint = config.bowAttachPoint;
+    this.maxRodeLength = config.maxRodeLength;
+    this.anchorSize = config.anchorSize;
+    this.anchorMass = config.anchorMass;
+    this.anchorDragCoefficient = config.anchorDragCoefficient;
+    this.hoistForce = config.hoistForce ?? DEFAULT_HOIST_FORCE;
+    this.ropePattern = config.ropePattern;
+    this.rodeAttachOffset = config.rodeAttachOffset;
+    this.deckHeight = config.deckHeight;
+    this.rollInertia = config.rollInertia;
+    this.pitchInertia = config.pitchInertia;
+    this.yawInertia = config.yawInertia;
+
+    this.anchorLen = config.anchorSize * ANCHOR_LENGTH_RATIO;
+    this.d_cg = this.anchorLen * ANCHOR_CG_RATIO;
+  }
+
+  @on("add")
+  onAdd(): void {
+    const bowWorld = this.getBowWorldPosition();
+
+    // Create anchor body — 6DOF with proper inertia on all axes
+    // Yaw inertia comes from the Circle shape: I = 0.5 * m * r²
+    // So r = sqrt(2 * I_yaw / m)
+    const yawRadius = Math.sqrt((2 * this.yawInertia) / this.anchorMass);
+
+    this.anchorBody = new DynamicBody({
+      mass: this.anchorMass,
+      position: [bowWorld.x, bowWorld.y],
+      angle: this.hull.body.angle,
+      damping: 0.5,
+      angularDamping: 0.95,
+      allowSleep: false,
+      sixDOF: {
+        rollInertia: this.rollInertia,
+        pitchInertia: this.pitchInertia,
+        zMass: this.anchorMass,
+        zDamping: 0, // We apply drag as explicit underwater forces
+        rollPitchDamping: 0,
+        zPosition: this.deckHeight,
+      },
+    });
+    this.anchorBody.addShape(
+      new Circle({ radius: yawRadius, collisionGroup: 0, collisionMask: 0 }),
+    );
+
+    // Derive particle count and mass from rode length
+    const particleCount = Math.max(
+      4,
+      Math.round(this.maxRodeLength * RODE_PARTICLES_PER_FOOT),
+    );
+    const particleMass =
+      (this.maxRodeLength * RODE_MASS_PER_FOOT) / particleCount;
+
+    // Waypoints: bow roller (block) redirects rode from vertical to horizontal,
+    // winch sits a few feet aft on foredeck, tail extends further aft
+    const winchPoint = V(this.bowAttachPoint.x - 3, 0);
+    const tailPoint = V(this.bowAttachPoint.x - 8, 0);
+
+    const bowRoller: RopeWaypoint = {
+      body: this.hull.body,
+      localAnchor: this.bowAttachPoint,
+      z: this.deckHeight,
+      type: "block",
+    };
+
+    const winchWaypoint: RopeWaypoint = {
+      body: this.hull.body,
+      localAnchor: winchPoint,
+      z: this.deckHeight,
+      type: "winch",
+    };
+
+    // Rode: anchor → bow roller (block) → winch on deck → tail (free end aft)
+    this.rode = new Rope(
+      this.anchorBody,
+      [
+        this.rodeAttachOffset[0],
+        this.rodeAttachOffset[1],
+        this.rodeAttachOffset[2],
+      ],
+      this.hull.body,
+      [tailPoint.x, tailPoint.y, this.deckHeight],
+      this.maxRodeLength,
+      {
+        particleCount,
+        particleMass,
+        damping: 0, // We apply drag as explicit underwater forces
+      },
+      [bowRoller, winchWaypoint],
+    );
+
+    this.winchIndex = this.rode.findWinch();
+
+    // Register bodies and constraints with entity system
+    this.bodies = [this.anchorBody, ...this.rode.getParticles()];
+    this.constraints = [...this.rode.getAllConstraints()];
+
+    // Query points: rode particles + anchor body
+    const particles = this.rode.getParticles();
+    this.queryPoints = [];
+    for (let i = 0; i < particles.length + 1; i++) {
+      this.queryPoints.push(V(0, 0));
+    }
+
+    this.terrainQuery = this.addChild(new TerrainQuery(() => this.queryPoints));
+    this.waterQuery = this.addChild(new WaterQuery(() => this.queryPoints));
+  }
+
+  // ---- Winch controls (called by PlayerBoatController) ----
+
+  /** Release the winch — rode pays out freely under anchor weight. */
+  lower(): void {
+    if (this.winchIndex < 0) return;
+    this.rode!.setWinchMode(this.winchIndex, "free");
+  }
+
+  /** Engage ratchet + apply tailing force to hoist the anchor. */
+  raise(): void {
+    if (this.winchIndex < 0) return;
+    this.rode!.setWinchMode(this.winchIndex, "ratchet");
+
+    // Tail direction: aft along the hull (toward the helm)
+    const angle = this.hull.body.angle;
+    const aftX = -Math.cos(angle);
+    const aftY = -Math.sin(angle);
+    this.rode!.applyWinchForce(
+      this.winchIndex,
+      this.hoistForce * LBF_TO_ENGINE,
+      aftX,
+      aftY,
+      WINCH_MAX_SPEED,
+    );
+  }
+
+  /** Lock the rode in place (ratchet, no force). */
+  idle(): void {
+    if (this.winchIndex < 0) return;
+    this.rode!.setWinchMode(this.winchIndex, "ratchet");
+  }
+
+  // ---- Public accessors ----
+
+  isDeployed(): boolean {
+    return this.anchorBody != null && this.anchorBody.z < -1;
+  }
+
+  getRodePointsWithZ(): {
+    points: [number, number][];
+    z: number[];
+  } | null {
+    return this.rode?.getPointsWithZ() ?? null;
+  }
+
+  getRodeThickness(): number {
+    return RODE_THICKNESS;
+  }
+
+  getRodeColor(): number {
+    return RODE_COLOR;
+  }
+
+  getRodePattern(): RopePattern {
+    return this.ropePattern ?? { type: "laid", carriers: [RODE_COLOR] };
+  }
+
+  getWaypointInfo() {
+    return this.rode?.getWaypointInfo() ?? [];
+  }
+
+  // ---- Per-tick physics ----
+
+  @on("tick")
+  onTick({ dt }: GameEventMap["tick"]): void {
+    if (!this.rode) return;
+
+    this.rode.tick(dt);
+
+    // Update query points from particle positions
+    this.updateQueryPoints();
+
+    // Apply underwater forces on rode particles and anchor
+    this.applyRodeForces();
+
+    // Apply anchor-specific forces: gravity at CG offset, angular drag
+    this.applyAnchorBodyForces();
+
+    // XY drag on the anchor body (scope-dependent holding power)
+    this.applyAnchorDrag();
+  }
+
+  private updateQueryPoints(): void {
+    const particles = this.rode!.getParticles();
+    for (let i = 0; i < particles.length; i++) {
+      const [px, py] = particles[i].position;
+      this.queryPoints[i].set(px, py);
+    }
+    // Last query point is the anchor
+    this.queryPoints[particles.length].set(
+      this.anchorBody.position[0],
+      this.anchorBody.position[1],
+    );
+  }
+
+  private applyRodeForces(): void {
+    const particles = this.rode!.getParticles();
+    const particleMass =
+      (this.maxRodeLength * RODE_MASS_PER_FOOT) / particles.length;
+
+    for (let i = 0; i < particles.length; i++) {
+      this.applyUnderwaterForces(
+        particles[i],
+        particleMass,
+        RODE_GRAVITY,
+        RODE_DRAG,
+        i,
+      );
+    }
+
+    // Anchor body — linear underwater forces (gravity at origin, drag)
+    this.applyUnderwaterForces(
+      this.anchorBody,
+      this.anchorMass,
+      ANCHOR_NET_GRAVITY,
+      ANCHOR_Z_DRAG,
+      particles.length,
+    );
+  }
+
+  private applyUnderwaterForces(
+    body: DynamicBody,
+    mass: number,
+    gravity: number,
+    drag: number,
+    queryIdx: number,
+  ): void {
+    // Gravity (buoyancy-reduced)
+    body.applyForce3D(0, 0, -gravity * mass, 0, 0, 0);
+
+    // Water drag
+    const [vx, vy] = body.velocity;
+    const vz = body.zVelocity;
+    body.applyForce3D(
+      -drag * vx * mass,
+      -drag * vy * mass,
+      -drag * vz * mass,
+      0,
+      0,
+      0,
+    );
+
+    // Floor collision
+    if (
+      this.terrainQuery &&
+      queryIdx < this.terrainQuery.length &&
+      this.waterQuery &&
+      queryIdx < this.waterQuery.length
+    ) {
+      const terrainHeight = this.terrainQuery.get(queryIdx).height;
+      const surfaceHeight = this.waterQuery.get(queryIdx).surfaceHeight;
+      const floorZ = terrainHeight - surfaceHeight;
+
+      if (body.z < floorZ) {
+        body.z = floorZ;
+        if (body.zVelocity < 0) body.zVelocity = 0;
+        body.velocity.imul(1 - RODE_FLOOR_FRICTION);
+      }
+    }
+  }
+
+  private applyAnchorBodyForces(): void {
+    // Gravity applied at CG offset — the CG is at the body origin by default,
+    // but for a real anchor the CG is below the rode attachment point.
+    // Apply gravity at a small negative-z offset to create a righting torque
+    // that keeps the anchor oriented properly.
+    const cgOffsetZ = -this.anchorSize * 0.15;
+    this.anchorBody.applyForce3D(
+      0,
+      0,
+      -ANCHOR_NET_GRAVITY * this.anchorMass,
+      0,
+      0,
+      cgOffsetZ,
+    );
+    // Counteract the gravity already applied at origin by applyUnderwaterForces
+    this.anchorBody.applyForce3D(
+      0,
+      0,
+      ANCHOR_NET_GRAVITY * this.anchorMass,
+      0,
+      0,
+      0,
+    );
+
+    // Angular drag on all rotation axes
+    const av3 = this.anchorBody.angularVelocity3;
+    if (av3) {
+      this.anchorBody.angularForce3[0] -=
+        ANCHOR_ANGULAR_DRAG * av3[0] * this.rollInertia;
+      this.anchorBody.angularForce3[1] -=
+        ANCHOR_ANGULAR_DRAG * av3[1] * this.pitchInertia;
+      this.anchorBody.angularForce3[2] -=
+        ANCHOR_ANGULAR_DRAG * av3[2] * this.yawInertia;
+    }
+
+    // Detect bottom contact
+    const anchorQueryIdx = this.rode!.getParticles().length;
+    if (
+      this.terrainQuery &&
+      this.terrainQuery.length > anchorQueryIdx &&
+      this.waterQuery &&
+      this.waterQuery.length > anchorQueryIdx
+    ) {
+      const terrainHeight = this.terrainQuery.get(anchorQueryIdx).height;
+      const surfaceHeight = this.waterQuery.get(anchorQueryIdx).surfaceHeight;
+      const floorZ = terrainHeight - surfaceHeight;
+      this.onBottom = this.anchorBody.z <= floorZ + 0.1;
+    }
+  }
+
+  private applyAnchorDrag(): void {
+    const velocity = this.anchorBody.velocity;
+    const speed = velocity.magnitude;
+    if (speed < 0.01) return;
+
+    // Scope-based drag: more rode out = better holding
+    const workingLength =
+      this.winchIndex >= 0 ? this.rode!.getWorkingLength(this.winchIndex) : 0;
+    const scope = workingLength / this.maxRodeLength;
+    let dragMagnitude = this.anchorDragCoefficient * scope * speed;
+
+    // Bottom rode bonus: extra holding when rode lies on the bottom
+    const anchorQueryIdx = this.rode!.getParticles().length;
+    if (
+      this.onBottom &&
+      this.waterQuery &&
+      this.waterQuery.length > anchorQueryIdx
+    ) {
+      const waterDepth = this.waterQuery.get(anchorQueryIdx).depth;
+      const bottomRodeLength = Math.max(0, workingLength - waterDepth * 1.5);
+      const scopeBonus = bottomRodeLength / this.maxRodeLength;
+      dragMagnitude *= 1 + scopeBonus * 2;
+    }
+
+    const dragForce = velocity.normalize().imul(-dragMagnitude);
+    this.anchorBody.applyForce(dragForce);
+  }
+
+  // ---- Rendering ----
+
+  @on("render")
+  onRender({ draw }: GameEventMap["render"]): void {
+    this.renderDeployedAnchor(draw);
+  }
+
+  private renderDeployedAnchor(
+    draw: import("../../core/graphics/Draw").Draw,
+  ): void {
+    const size = this.anchorSize;
+    const lineWidth = size * ANCHOR_SHAPE_LINE_WIDTH_RATIO;
+
+    // Use the 6DOF body's pitch to determine foreshortening
+    const pitch = this.anchorBody.pitch;
+    const foreshorten = Math.abs(Math.cos(pitch));
+    const thicknessBoost = 1 + (1 - foreshorten) * 2;
+    const w = lineWidth * thicknessBoost;
+
+    const ringEnd = this.d_cg;
+    const flukeEnd = -(this.anchorLen - this.d_cg);
+
+    // Use 6DOF body's toWorldFrame3D for all transforms
+    const tw = (lx: number, ly: number, lz: number): [number, number, number] =>
+      this.anchorBody.toWorldFrame3D(lx, ly, lz);
+
+    // Shank (main vertical bar)
+    const [sx1, sy1, sz1] = tw(flukeEnd, 0, 0);
+    const [sx2, sy2, sz2] = tw(ringEnd, 0, 0);
+    this.submitMesh(
+      draw,
+      tessellateLineToQuad(sx1, sy1, sz1, sx2, sy2, sz2, w, ANCHOR_COLOR),
+    );
+
+    // Stock (crossbar near top)
+    const stockX = ringEnd - size * 0.25;
+    const stockHalf = size * 0.45;
+    const [st1x, st1y, st1z] = tw(stockX, -stockHalf, 0);
+    const [st2x, st2y, st2z] = tw(stockX, stockHalf, 0);
+    this.submitMesh(
+      draw,
+      tessellateLineToQuad(st1x, st1y, st1z, st2x, st2y, st2z, w, ANCHOR_COLOR),
+    );
+
+    // Crown (crossbar at bottom)
+    const crownHalf = size * 0.25;
+    const [c1x, c1y, c1z] = tw(flukeEnd, -crownHalf, 0);
+    const [c2x, c2y, c2z] = tw(flukeEnd, crownHalf, 0);
+    this.submitMesh(
+      draw,
+      tessellateLineToQuad(c1x, c1y, c1z, c2x, c2y, c2z, w, ANCHOR_COLOR),
+    );
+
+    // Left fluke
+    const flukeLen = size * 0.45;
+    const flukeSpread = size * 0.15;
+    const flukeEndX = flukeEnd + flukeSpread;
+    const [lf1x, lf1y, lf1z] = tw(flukeEnd, -crownHalf, 0);
+    const [lf2x, lf2y, lf2z] = tw(flukeEndX, -crownHalf - flukeLen, 0);
+    this.submitMesh(
+      draw,
+      tessellateLineToQuad(lf1x, lf1y, lf1z, lf2x, lf2y, lf2z, w, ANCHOR_COLOR),
+    );
+
+    // Right fluke
+    const [rf1x, rf1y, rf1z] = tw(flukeEnd, crownHalf, 0);
+    const [rf2x, rf2y, rf2z] = tw(flukeEndX, crownHalf + flukeLen, 0);
+    this.submitMesh(
+      draw,
+      tessellateLineToQuad(rf1x, rf1y, rf1z, rf2x, rf2y, rf2z, w, ANCHOR_COLOR),
+    );
+
+    // Ring at top
+    const ringRadius = size * 0.15;
+    const [rx, ry, rz] = tw(ringEnd + ringRadius, 0, 0);
+    draw.fillCircle(rx, ry, ringRadius * thicknessBoost, {
+      color: ANCHOR_COLOR,
+      z: rz,
+    });
+  }
+
+  private submitMesh(
+    draw: import("../../core/graphics/Draw").Draw,
+    mesh: MeshContribution,
+  ): void {
+    if (mesh.positions.length === 0) return;
+    draw.renderer.submitTrianglesWithZ(
+      mesh.positions,
+      mesh.indices,
+      mesh.color,
+      mesh.alpha,
+      mesh.zValues,
+    );
+  }
+
+  private getBowWorldPosition(): V2d {
+    const [hx, hy] = this.hull.body.position;
+    return this.bowAttachPoint.rotate(this.hull.body.angle).iadd([hx, hy]);
+  }
+
+  @on("destroy")
+  onDestroy(): void {
+    if (this.terrainQuery) {
+      this.terrainQuery.destroy();
+      this.terrainQuery = null;
+    }
+    if (this.waterQuery) {
+      this.waterQuery.destroy();
+      this.waterQuery = null;
+    }
+  }
+}

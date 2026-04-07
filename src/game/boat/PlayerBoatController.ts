@@ -124,6 +124,15 @@ export class PlayerBoatController extends BaseEntity {
       this.boat.row();
     }
 
+    // Anchor rode controls: F (hold) = lower, R (hold) = raise, release = locked
+    if (io.isKeyDown("KeyF") && !this.boat.mooring.isMoored()) {
+      this.boat.anchor.lower();
+    } else if (io.isKeyDown("KeyR")) {
+      this.boat.anchor.raise();
+    } else {
+      this.boat.anchor.idle();
+    }
+
     // Debug: apply heeling forces with [ and ]
     // Apply roll torque by pushing up on one side of the hull
     if (io.isKeyDown("BracketLeft")) {

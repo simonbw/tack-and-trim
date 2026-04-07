@@ -344,6 +344,11 @@ export const Albatross: BoatConfig = {
     anchorSize: 2.0, // ft
     anchorMass: 45, // lbs
     deckHeight: 4.0,
+    rollInertia: 2.0,
+    pitchInertia: 10.0,
+    yawInertia: 10.0,
+    rodeAttachOffset: [1.71, 0, 0.6] as const,
+    anchorDragCoefficient: 1500,
   },
 
   jib: {
