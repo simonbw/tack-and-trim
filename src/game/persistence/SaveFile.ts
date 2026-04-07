@@ -22,7 +22,6 @@ export interface SaveFile {
       sail: number;
     };
     bilgeWater: number;
-    anchorDeployed: boolean;
   };
 
   // Progression

@@ -47,7 +47,6 @@ export function collectSaveData(
         sail: boat.mainSailDamage.getHealth(),
       },
       bilgeWater: boat.bilge.waterVolume,
-      anchorDeployed: boat.anchor.isDeployed(),
     },
 
     progression: {

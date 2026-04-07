@@ -2,7 +2,6 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
-import { Anchor } from "./Anchor";
 import { Bilge } from "./Bilge";
 import { BoatConfig, Kestrel } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
@@ -31,7 +30,6 @@ export class Boat extends BaseEntity {
   rig: Rig;
   bowsprit: Bowsprit | null = null;
   jib: Sail | null = null;
-  anchor: Anchor;
   mooring: Mooring;
   bilge: Bilge;
   hullDamage: HullDamage;
@@ -259,8 +257,6 @@ export class Boat extends BaseEntity {
     // a single tilt context with per-vertex z for correct depth ordering
     this.addChild(new BoatRenderer(this));
 
-    // Create anchor and mooring
-    this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
     this.mooring = this.addChild(new Mooring(this));
 
     // Create wake effects — bow wave (dominant) and stern wave (weaker)

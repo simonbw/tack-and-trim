@@ -40,13 +40,6 @@ function getCurrentTack(ctx: TutorialContext): "port" | "starboard" {
 
 export const tutorialSteps: TutorialStep[] = [
   {
-    title: "Raise Your Anchor",
-    description: "Your boat is anchored in place. Let's get moving!",
-    objective: "Hold R to raise the anchor",
-    keyHint: "R",
-    checkComplete: (ctx) => !ctx.boat.anchor.isDeployed(),
-  },
-  {
     title: "Raise Your Sails",
     description:
       "With the anchor up, you'll need wind power to move. Raise your sails to catch the breeze.",
