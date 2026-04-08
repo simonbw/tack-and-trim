@@ -657,6 +657,29 @@ export class DynamicBody extends Body implements SleepableBody {
       }
     }
 
+    // NaN guard: if force or velocity became NaN, reset them and skip this step.
+    if (
+      !isFinite(velo.x) ||
+      !isFinite(velo.y) ||
+      !isFinite(this._angularVelocity3[0]) ||
+      !isFinite(this._angularVelocity3[1]) ||
+      !isFinite(this._angularVelocity3[2])
+    ) {
+      console.error(
+        `DynamicBody "${this.id}": NaN detected in integrate, resetting velocity/forces.`,
+        { force: [f.x, f.y], velocity: [velo.x, velo.y] },
+      );
+      velo.x = 0;
+      velo.y = 0;
+      this._angularVelocity3[0] = 0;
+      this._angularVelocity3[1] = 0;
+      this._angularVelocity3[2] = 0;
+      this._zVelocity = 0;
+      f.x = 0;
+      f.y = 0;
+      return;
+    }
+
     // CCD
     const ccdApplied =
       this.world &&
