@@ -132,7 +132,6 @@ export class EditorController
   private terrainResources: TerrainResources | null = null;
   private cameraController: EditorCameraController | null = null;
   private contourRenderer: ContourRenderer | null = null;
-  private debugRenderMode = false;
   private fileHandle: FileSystemFileHandle | null = null;
   private clipboardContour: EditorContour | null = null;
   private mouseWorldPosition: V2d | null = null;
@@ -306,10 +305,7 @@ export class EditorController
     const validationResults = this.document.getValidationResults();
 
     return contours
-      .filter(
-        (_, i) =>
-          this.debugRenderMode || validationResults[i]?.isValid !== false,
-      )
+      .filter((_, i) => validationResults[i]?.isValid !== false)
       .map((c) => createContour([...c.controlPoints], c.height));
   }
 
@@ -318,13 +314,6 @@ export class EditorController
    */
   getDocument(): EditorDocument {
     return this.document;
-  }
-
-  /**
-   * Get whether debug render mode is enabled.
-   */
-  getDebugRenderMode(): boolean {
-    return this.debugRenderMode;
   }
 
   /**
