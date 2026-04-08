@@ -316,7 +316,7 @@ export interface HullDamageConfig {
 }
 
 export interface BilgeConfig {
-  readonly maxWaterVolume: number; // cubic ft — cockpit capacity before swamped
+  readonly maxWaterVolume?: number; // cubic ft — override; if omitted, computed from hull geometry
   readonly pumpDrainRate?: number; // cubic ft/s — automatic bilge pump rate (0 or omitted = no pump)
   readonly bailBucketSize: number; // cubic ft — volume removed per bail scoop
   readonly bailInterval: number; // seconds — time between scoops

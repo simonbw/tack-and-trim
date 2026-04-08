@@ -294,7 +294,9 @@ export class Boat extends BaseEntity {
     this.addChild(new BoatGrounding(this));
 
     // Water accumulation, slosh, and bilge system
-    this.bilge = this.addChild(new Bilge(this, config.bilge));
+    this.bilge = this.addChild(
+      new Bilge(this, config.bilge, this.hull.hullVolume),
+    );
 
     // Hull damage tracking
     this.hullDamage = this.addChild(new HullDamage(this, config.hullDamage));

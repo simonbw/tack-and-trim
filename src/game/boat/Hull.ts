@@ -265,6 +265,22 @@ function buildHullForceData(mesh: HullMesh): HullForceData {
 }
 
 /**
+ * Compute the enclosed volume of the hull mesh using the divergence theorem.
+ * For a closed surface: V = (1/3) * Σ (centroid · outward_normal) * area
+ */
+function computeHullVolume(data: HullForceData): number {
+  let volume = 0;
+  for (let i = 0; i < data.count; i++) {
+    volume +=
+      (data.cx[i] * data.nx[i] +
+        data.cy[i] * data.ny[i] +
+        data.cz[i] * data.nz[i]) *
+      data.area[i];
+  }
+  return Math.abs(volume) / 3;
+}
+
+/**
  * Per-tick energy dissipation summary from hull form drag.
  * Used by the Wake system to modulate wake intensity.
  */
@@ -296,6 +312,9 @@ export class Hull extends BaseEntity {
 
   // Per-triangle force data (precomputed at construction)
   private forceData: HullForceData;
+
+  /** Enclosed hull volume in cubic feet, computed from mesh geometry via divergence theorem. */
+  readonly hullVolume: number;
 
   // Gravity params (from buoyancy config, applied per-tick)
   private boatMass: number;
@@ -394,6 +413,9 @@ export class Hull extends BaseEntity {
 
     // Precompute per-triangle force data
     this.forceData = buildHullForceData(this.mesh);
+
+    // Compute enclosed hull volume via divergence theorem: V = (1/3) Σ (c · n) * A
+    this.hullVolume = computeHullVolume(this.forceData);
 
     // Pre-allocate vertex query points (one per unique mesh vertex)
     const vertCount = this.forceData.vertexCount;

@@ -328,7 +328,7 @@ export function BoatPropertyPanels({ controller }: BoatPropertyPanelsProps) {
       <PanelSection title="Bilge">
         <NumberField
           label="Max Water Volume"
-          value={config.bilge.maxWaterVolume}
+          value={config.bilge.maxWaterVolume ?? 0}
           path="bilge.maxWaterVolume"
           controller={controller}
           min={1}

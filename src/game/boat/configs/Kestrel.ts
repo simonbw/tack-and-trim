@@ -383,7 +383,6 @@ export const Kestrel: BoatConfig = {
   },
 
   bilge: {
-    maxWaterVolume: 12, // cubic ft
     bailBucketSize: 0.4,
     bailInterval: 1.0,
     waterDensity: 64, // lbs/ft³ (saltwater)

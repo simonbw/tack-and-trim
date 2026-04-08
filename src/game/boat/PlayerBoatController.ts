@@ -141,6 +141,12 @@ export class PlayerBoatController extends BaseEntity {
     if (io.isKeyDown("BracketRight")) {
       this.boat.hull.body.applyForce3D(0, 0, -20000, 0, 3, 0);
     }
+
+    // Debug: fill bilge with water (hold ')
+    if (io.isKeyDown("Quote")) {
+      this.boat.bilge.waterVolume +=
+        this.boat.bilge.getMaxWaterVolume() * 0.05 * dt;
+    }
   }
 
   /** Find the nearest port within docking range, or null. */

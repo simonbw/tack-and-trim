@@ -389,7 +389,6 @@ export const Albatross: BoatConfig = {
   },
 
   bilge: {
-    maxWaterVolume: 40, // cubic ft — large cockpit and cabin volume
     pumpDrainRate: 0.15, // cubic ft/s — small built-in bilge pump
     bailBucketSize: 0.6,
     bailInterval: 1.2,

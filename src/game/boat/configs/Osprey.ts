@@ -349,7 +349,6 @@ export const Osprey: BoatConfig = {
   },
 
   bilge: {
-    maxWaterVolume: 18, // cubic ft
     bailBucketSize: 0.5,
     bailInterval: 1.0,
     waterDensity: 64,

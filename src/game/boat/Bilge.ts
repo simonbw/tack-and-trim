@@ -51,17 +51,26 @@ export class Bilge extends BaseEntity {
   /** Cached hull vertices for water polygon clipping */
   private hullVertices: V2d[];
 
+  private maxWaterVolume: number;
+
   constructor(
     private boat: Boat,
     private config: BilgeConfig,
+    hullVolume: number,
   ) {
     super();
     this.hullVertices = boat.config.hull.vertices;
+    this.maxWaterVolume = config.maxWaterVolume ?? hullVolume;
+  }
+
+  /** Get the max water volume in cubic ft */
+  getMaxWaterVolume(): number {
+    return this.maxWaterVolume;
   }
 
   /** Get the water level as a fraction 0-1 */
   getWaterFraction(): number {
-    return this.waterVolume / this.config.maxWaterVolume;
+    return this.waterVolume / this.maxWaterVolume;
   }
 
   /** Check if the boat is sinking or has sunk */
@@ -143,10 +152,10 @@ export class Bilge extends BaseEntity {
     }
 
     // Clamp
-    this.waterVolume = clamp(this.waterVolume, 0, this.config.maxWaterVolume);
+    this.waterVolume = clamp(this.waterVolume, 0, this.maxWaterVolume);
 
     // --- Check for sinking ---
-    if (this.waterVolume >= this.config.maxWaterVolume) {
+    if (this.waterVolume >= this.maxWaterVolume) {
       this.sinking = true;
       this.sinkTimer = 0;
       this.game.dispatch("boatSinking", {});
