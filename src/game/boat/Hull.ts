@@ -73,6 +73,8 @@ export interface HullMesh {
   bottomIndices: number[];
   /** Deck edge polygon for gunwale stroke rendering + deck plan clipping. */
   deckOutline?: [number, number][];
+  /** Map from deck outline polygon index to mesh xyPositions/zValues index. */
+  deckVertexMap?: number[];
 }
 
 /**
@@ -171,6 +173,7 @@ function buildHullMesh(
     upperSideIndices,
     lowerSideIndices,
     bottomIndices,
+    deckVertexMap: Array.from({ length: ringSize }, (_, i) => i),
   };
 }
 
@@ -428,6 +431,16 @@ export class Hull extends BaseEntity {
     this.windQuery = this.addChild(
       new WindQuery(() => this.getVertexWorldPoints()),
     );
+  }
+
+  /** Get the water query for reading per-vertex water data. */
+  getWaterQuery(): WaterQuery {
+    return this.waterQuery;
+  }
+
+  /** Get the physics mesh (vertex positions correspond to water query indices). */
+  getPhysicsMesh(): HullMesh {
+    return this.mesh;
   }
 
   /**

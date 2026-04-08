@@ -11,7 +11,12 @@ import { HullDamage } from "./HullDamage";
 import { RudderDamage } from "./RudderDamage";
 import { SailDamage } from "./SailDamage";
 import { Bowsprit } from "./Bowsprit";
-import { findBowPoint, findSternPoints, Hull } from "./Hull";
+import { findBowPoint, findSternPoints, Hull, type HullMesh } from "./Hull";
+import { extractHullOutlineAtZ } from "./hull-profiles";
+import {
+  buildBoundaryLevel,
+  type HullBoundaryData,
+} from "../../core/physics/constraints/DeckContactConstraint";
 import { Keel } from "./Keel";
 import { Lifelines } from "./Lifelines";
 import { Rig } from "./Rig";
@@ -116,6 +121,15 @@ export class Boat extends BaseEntity {
       this.bowsprit = this.addChild(new Bowsprit(this, config.bowsprit));
     }
 
+    // Build hull boundary data for deck contact constraints (shared by all sheets).
+    // Samples the hull cross-section at multiple z-levels so wall constraints
+    // respect the hull's tapering shape at different depths.
+    const hullBoundary = buildHullBoundary(
+      this.hull.getPhysicsMesh(),
+      config.hull.deckHeight,
+      config.hull.draft,
+    );
+
     // Create mainsheet (boom to hull)
     const { hullAttachPoint, boomAttachRatio, winchPoint, ...mainsheetConfig } =
       config.mainsheet;
@@ -151,6 +165,7 @@ export class Boat extends BaseEntity {
         deckZAt(hullAttachPoint),
         mainsheetWaypoints,
         getDeckHeight,
+        hullBoundary,
       ),
     );
 
@@ -247,6 +262,7 @@ export class Boat extends BaseEntity {
           deckZAt(portAttachPoint),
           portWaypoints,
           getDeckHeight,
+          hullBoundary,
         ),
       );
 
@@ -261,6 +277,7 @@ export class Boat extends BaseEntity {
           deckZAt(starboardAttachPoint),
           starboardWaypoints,
           getDeckHeight,
+          hullBoundary,
         ),
       );
       this.starboardJibSheet.release();
@@ -365,4 +382,37 @@ export class Boat extends BaseEntity {
       0,
     );
   }
+}
+
+/**
+ * Build hull boundary data by sampling the hull cross-section at multiple
+ * z-levels. The resulting outlines taper from wide (deck) to narrow (keel),
+ * so wall constraints at different depths correctly match the hull shape.
+ */
+function buildHullBoundary(
+  mesh: HullMesh,
+  deckHeight: number,
+  draft: number,
+): HullBoundaryData {
+  // Sample z-levels from hull bottom to deck
+  const zSamples = [
+    -draft,
+    -draft * 0.5,
+    0,
+    deckHeight * 0.33,
+    deckHeight * 0.67,
+    deckHeight,
+  ];
+
+  const levels: HullBoundaryData["levels"] = [];
+  for (const z of zSamples) {
+    const outline = extractHullOutlineAtZ(mesh, z);
+    const level = buildBoundaryLevel(outline, z);
+    if (level) levels.push(level);
+  }
+
+  // Sort ascending by z (should already be, but ensure)
+  levels.sort((a, b) => a.z - b.z);
+
+  return { levels, deckHeight, draft };
 }

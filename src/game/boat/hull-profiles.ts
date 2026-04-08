@@ -682,6 +682,7 @@ export function buildHullMeshFromProfiles(shape: HullShape): HullMesh {
     lowerSideIndices,
     bottomIndices,
     deckOutline,
+    deckVertexMap,
   };
 }
 

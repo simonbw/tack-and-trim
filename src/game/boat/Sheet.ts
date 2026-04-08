@@ -4,7 +4,10 @@ import { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { clamp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import { DeckContactConstraint } from "../../core/physics/constraints/DeckContactConstraint";
+import {
+  DeckContactConstraint,
+  type HullBoundaryData,
+} from "../../core/physics/constraints/DeckContactConstraint";
 import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
 import { Rope, RopeConfig, RopeWaypoint } from "../rope/Rope";
 import { WaterQuery } from "../world/water/WaterQuery";
@@ -122,6 +125,7 @@ export class Sheet extends BaseEntity {
     private zB: number = 0,
     waypoints: RopeWaypoint[] = [],
     private getDeckHeight?: (localX: number, localY: number) => number | null,
+    private hullBoundary?: HullBoundaryData,
   ) {
     super();
 
@@ -182,7 +186,9 @@ export class Sheet extends BaseEntity {
 
     // Deck contact: keep rope particles above the deck surface with friction.
     // Offset by rope radius so the rope sits visibly on top of the deck.
-    if (this.getDeckHeight) {
+    // Hull boundary enables stateful inside/outside tracking to prevent
+    // explosive re-entry forces during capsize.
+    if (this.getDeckHeight && this.hullBoundary) {
       const ropeRadius =
         (this.config.ropeDiameter ?? DEFAULT_CONFIG.ropeDiameter!) / 2;
       const particles = this.rope.getParticles();
@@ -192,6 +198,7 @@ export class Sheet extends BaseEntity {
             p,
             bodyB,
             this.getDeckHeight,
+            this.hullBoundary,
             1.5,
             ropeRadius,
             {
@@ -406,8 +413,11 @@ export class Sheet extends BaseEntity {
       if (vrMag < 0.001) continue;
 
       // F = -0.5 * rho * Cd * A * |v_rel| * v_rel, converted to engine units
-      const scale = -rho * halfCdA * vrMag * LBF_TO_ENGINE;
-      p.applyForce3D(scale * vrx, scale * vry, scale * vrz, 0, 0, 0);
+      const forceMag = rho * halfCdA * vrMag * vrMag * LBF_TO_ENGINE;
+      // Clamp to prevent numerical explosion from extreme particle velocities
+      const clampedMag = Math.min(forceMag, 1e6);
+      const s = -clampedMag / vrMag;
+      p.applyForce3D(s * vrx, s * vry, s * vrz, 0, 0, 0);
     }
   }
 

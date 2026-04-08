@@ -440,6 +440,10 @@ export class DynamicBody extends Body implements SleepableBody {
    * relativePoint is in world frame.
    */
   applyForce(force: V2d, relativePoint?: V2d): this {
+    if (!isFinite(force.x) || !isFinite(force.y)) {
+      console.trace(`applyForce NaN on body "${this.id}":`, force.x, force.y);
+      return this;
+    }
     this._force.iadd(force);
 
     if (relativePoint) {
@@ -471,6 +475,24 @@ export class DynamicBody extends Body implements SleepableBody {
     localY: number,
     localZ: number,
   ): this {
+    if (
+      !isFinite(fx) ||
+      !isFinite(fy) ||
+      !isFinite(fz) ||
+      !isFinite(localX) ||
+      !isFinite(localY) ||
+      !isFinite(localZ)
+    ) {
+      console.trace(`applyForce3D NaN on body "${this.id}":`, {
+        fx,
+        fy,
+        fz,
+        localX,
+        localY,
+        localZ,
+      });
+      return this;
+    }
     // Linear force
     this._force.x += fx;
     this._force.y += fy;
@@ -626,6 +648,25 @@ export class DynamicBody extends Body implements SleepableBody {
     const f = this._force;
     const pos = this.position;
     const velo = this._velocity;
+
+    // NaN guard: if accumulated force is NaN, zero it and skip this step.
+    if (!isFinite(f.x) || !isFinite(f.y)) {
+      f.x = 0;
+      f.y = 0;
+      velo.x = 0;
+      velo.y = 0;
+      if (this._is6DOF) {
+        this._angularVelocity3[0] = 0;
+        this._angularVelocity3[1] = 0;
+        this._angularVelocity3[2] = 0;
+        this._zVelocity = 0;
+        this._zForce = 0;
+        this._angularForce3[0] = 0;
+        this._angularForce3[1] = 0;
+        this._angularForce3[2] = 0;
+      }
+      return;
+    }
 
     // Linear velocity update (x, y)
     const fhMinv = V(f);

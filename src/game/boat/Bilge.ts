@@ -53,6 +53,12 @@ export class Bilge extends BaseEntity {
 
   private maxWaterVolume: number;
 
+  // Gunwale geometry for per-segment ingress (precomputed at construction)
+  private gunwaleVertexIndices: number[];
+  private gunwaleSegmentLengths: Float64Array;
+  private gunwaleSubmersionDepths: Float64Array;
+  private halfBeam: number;
+
   constructor(
     private boat: Boat,
     private config: BilgeConfig,
@@ -61,6 +67,27 @@ export class Bilge extends BaseEntity {
     super();
     this.hullVertices = boat.config.hull.vertices;
     this.maxWaterVolume = config.maxWaterVolume ?? hullVolume;
+
+    // Precompute gunwale geometry from hull mesh
+    const mesh = boat.hull.getPhysicsMesh();
+    this.gunwaleVertexIndices =
+      mesh.deckVertexMap ?? Array.from({ length: mesh.ringSize }, (_, i) => i);
+    const n = this.gunwaleVertexIndices.length;
+    this.gunwaleSegmentLengths = new Float64Array(n);
+    this.gunwaleSubmersionDepths = new Float64Array(n);
+
+    // Compute segment lengths and half-beam from gunwale vertices
+    let maxAbsY = 0;
+    for (let i = 0; i < n; i++) {
+      const vi = this.gunwaleVertexIndices[i];
+      const vj = this.gunwaleVertexIndices[(i + 1) % n];
+      const dx = mesh.xyPositions[vi][0] - mesh.xyPositions[vj][0];
+      const dy = mesh.xyPositions[vi][1] - mesh.xyPositions[vj][1];
+      this.gunwaleSegmentLengths[i] = Math.sqrt(dx * dx + dy * dy);
+      const absY = Math.abs(mesh.xyPositions[vi][1]);
+      if (absY > maxAbsY) maxAbsY = absY;
+    }
+    this.halfBeam = maxAbsY;
   }
 
   /** Get the max water volume in cubic ft */
@@ -104,21 +131,48 @@ export class Bilge extends BaseEntity {
       return;
     }
 
-    // --- Water ingress ---
+    // --- Water ingress from deck edge submersion ---
     const waterFraction = this.getWaterFraction();
 
-    // Effective freeboard decreases as water accumulates (boat sits lower)
-    const freeboard =
+    // Effective deck height decreases as water accumulates (boat sits lower)
+    const effectiveDeckHeight =
       this.boat.config.hull.deckHeight * (1 - waterFraction * 0.8);
 
-    // Deck edge submersion: leeward rail dips below water when heeled
-    const rollAbs = Math.abs(this.boat.roll);
-    const deckDip = this.config.halfBeam * Math.sin(rollAbs);
-    const submersionDepth = Math.max(0, deckDip - freeboard);
+    // Compute per-vertex submersion depth along the gunwale
+    const hull = this.boat.hull;
+    const body = hull.body;
+    const wq = hull.getWaterQuery();
+    const mesh = hull.getPhysicsMesh();
+    const n = this.gunwaleVertexIndices.length;
 
-    if (submersionDepth > 0) {
-      const ingress = this.config.ingressCoefficient * submersionDepth * dt;
-      this.waterVolume += ingress;
+    for (let i = 0; i < n; i++) {
+      const vi = this.gunwaleVertexIndices[i];
+      // World Z of this gunwale vertex, accounting for roll, pitch, heave
+      const worldZ = body.worldZ(
+        mesh.xyPositions[vi][0],
+        mesh.xyPositions[vi][1],
+        effectiveDeckHeight,
+      );
+      // Water surface height at this vertex (from GPU query)
+      const waterSurface = vi < wq.length ? wq.get(vi).surfaceHeight : 0;
+      this.gunwaleSubmersionDepths[i] = Math.max(0, waterSurface - worldZ);
+    }
+
+    // Sum ingress across all gunwale segments: length × average depth
+    let totalIngressArea = 0;
+    for (let i = 0; i < n; i++) {
+      const avgDepth =
+        (this.gunwaleSubmersionDepths[i] +
+          this.gunwaleSubmersionDepths[(i + 1) % n]) *
+        0.5;
+      if (avgDepth > 0) {
+        totalIngressArea += this.gunwaleSegmentLengths[i] * avgDepth;
+      }
+    }
+
+    if (totalIngressArea > 0) {
+      this.waterVolume +=
+        this.config.ingressCoefficient * totalIngressArea * dt;
     }
 
     // Hull damage leak ingress
@@ -164,7 +218,6 @@ export class Bilge extends BaseEntity {
 
     // --- Water mass effects ---
     const waterMass = this.waterVolume * this.config.waterDensity;
-    const body = this.boat.hull.body;
 
     if (waterMass > 0) {
       // Added drag: water weight makes the boat sluggish
@@ -206,7 +259,7 @@ export class Bilge extends BaseEntity {
       const draft = this.boat.config.hull.draft;
       const deckHeight = this.boat.config.hull.deckHeight;
       const waterCgZ = -draft + (draft + deckHeight) * waterFraction * 0.5;
-      const waterCgY = this.sloshOffset * this.config.halfBeam;
+      const waterCgY = this.sloshOffset * this.halfBeam;
       body.applyForce3D(0, 0, -waterMass * GRAVITY, 0, waterCgY, waterCgZ);
     }
   }

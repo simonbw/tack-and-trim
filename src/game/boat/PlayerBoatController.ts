@@ -136,10 +136,10 @@ export class PlayerBoatController extends BaseEntity {
     // Debug: apply heeling forces with [ and ]
     // Apply roll torque by pushing up on one side of the hull
     if (io.isKeyDown("BracketLeft")) {
-      this.boat.hull.body.applyForce3D(0, 0, 20000, 0, 3, 0);
+      this.boat.hull.body.applyForce3D(0, 0, 80000, 0, 3, 0);
     }
     if (io.isKeyDown("BracketRight")) {
-      this.boat.hull.body.applyForce3D(0, 0, -20000, 0, 3, 0);
+      this.boat.hull.body.applyForce3D(0, 0, -80000, 0, 3, 0);
     }
 
     // Debug: fill bilge with water (hold ')
