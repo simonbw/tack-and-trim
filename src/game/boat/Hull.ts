@@ -524,7 +524,7 @@ export class Hull extends BaseEntity {
       // === UNDERWATER FORCES ===
       if (waterFrac > 0) {
         // Buoyancy: vertical force proportional to submersion depth × area.
-        // Applied purely upward (+Z), not in -normal direction, because our hull
+        // Applied in Z (vertical), not in -normal direction, because our hull
         // mesh is not closed at the waterline — the "pressure on surface" approach
         // requires a closed surface for lateral forces to cancel. Without a
         // waterplane cap, normal-directed buoyancy creates unbalanced lateral
@@ -532,18 +532,17 @@ export class Hull extends BaseEntity {
         // application points naturally produces righting moment (deeper points
         // get more upward force, creating torque that opposes heel).
         //
-        // The buoyancy contribution is weighted by |wnz| — the world-frame
-        // vertical component of the triangle's outward normal. This accounts
-        // for hull orientation (heel and pitch):
-        //   - A flat bottom triangle (normal pointing down): |wnz| ≈ 1 upright,
-        //     decreases toward 0 at 90° heel → loses buoyancy contribution.
-        //   - A vertical side wall (normal pointing sideways): |wnz| ≈ 0 upright,
-        //     increases toward 1 at 90° heel → gains buoyancy contribution.
-        // This correctly models the change in effective waterplane area with tilt.
+        // The buoyancy contribution is weighted by -wnz — the negated world-frame
+        // vertical component of the triangle's outward normal. The sign matters:
+        //   - Bottom triangles (outward normal points down, wnz < 0): -wnz > 0,
+        //     so force is upward — water pushes up on the hull bottom.
+        //   - Submerged deck triangles (outward normal points up, wnz > 0):
+        //     -wnz < 0, so force is downward — water presses down on the top
+        //     surface. This is critical at extreme heel when deck edges submerge.
+        //   - Side triangles (wnz ≈ 0): negligible contribution either way.
         if (avgDepth > 0) {
-          const absWnz = Math.abs(wnz);
           const buoyancyMag =
-            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area * absWnz;
+            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area * -wnz;
           body.applyForce3D(0, 0, buoyancyMag, localX, localY, localZ);
         }
 

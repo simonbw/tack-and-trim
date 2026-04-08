@@ -418,16 +418,16 @@ export const Kestrel: BoatConfig = {
     repairRate: 0,
   },
 
-  // Tilt parameters derived from hull geometry and ~1790 lb displacement
-  // (900 lb hull + 600 lb keel ballast + ~290 lb crew/equipment).
+  // Tilt parameters derived from hull geometry and ~2100 lb displacement
+  // (900 lb hull + 600 lb keel ballast + ~600 lb crew/rigging/sails/supplies).
   // GM_roll ≈ 3.0 ft (swing keel, moderate form stability).
   tilt: {
-    rollInertia: 12744, // 1790 * (8/3)² = 1790 * 7.11
-    pitchInertia: 56600, // 1790 * (22.5/4)² = 1790 * 31.64
-    rollDamping: 18727, // 0.4 * sqrt(12744 * 172774)
-    pitchDamping: 48358, // 0.4 * sqrt(56600 * 259161)
-    rightingMomentCoeff: 172774, // 1790 * 32.174 * 3.0
-    pitchRightingCoeff: 259161, // 1790 * 32.174 * 4.5
+    rollInertia: 14933, // 2100 * (8/3)² = 2100 * 7.11
+    pitchInertia: 66445, // 2100 * (22.5/4)² = 2100 * 31.64
+    rollDamping: 22007, // 0.4 * sqrt(14933 * 202696)
+    pitchDamping: 56854, // 0.4 * sqrt(66445 * 304044)
+    rightingMomentCoeff: 202696, // 2100 * 32.174 * 3.0
+    pitchRightingCoeff: 304044, // 2100 * 32.174 * 4.5
     waveRollCoeff: 2000,
     wavePitchCoeff: 2000,
     zHeights: {
@@ -441,9 +441,9 @@ export const Kestrel: BoatConfig = {
   },
 
   buoyancy: {
-    verticalMass: 1790, // total displacement
-    rollInertia: 12744,
-    pitchInertia: 56600,
+    verticalMass: 2100, // total displacement
+    rollInertia: 14933,
+    pitchInertia: 66445,
     centerOfGravityZ: -1.2, // ft — below waterline (swing keel ballast)
     zHeights: {
       deck: 1.2,
