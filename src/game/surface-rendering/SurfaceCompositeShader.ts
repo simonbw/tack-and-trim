@@ -386,7 +386,14 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     if (submersion <= 0.0) {
       alpha = 0.0;
     } else {
-      alpha = 1.0 - exp(-params.waterAttenuation * submersion);
+      alpha = max(0.15, 1.0 - exp(-params.waterAttenuation * submersion));
+      // Foam where water meets the hull/objects
+      let objectFoamThreshold = 0.2;
+      if (submersion < objectFoamThreshold) {
+        let foamIntensity = mix(0.15, 0.7, 1.0 - (submersion / objectFoamThreshold));
+        finalColor = mix(finalColor, foamColor, foamIntensity);
+        alpha = max(alpha, foamIntensity);
+      }
     }
   }
 
