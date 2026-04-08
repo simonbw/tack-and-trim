@@ -439,6 +439,11 @@ export class Sheet extends BaseEntity {
     }));
   }
 
+  /** Rest length of one chain link (uniform segment spacing). */
+  getRopeSegmentLength(): number {
+    return this.rope.getChainLinkLength();
+  }
+
   /** Rope thickness for rendering. */
   getRopeThickness(): number {
     return this.config.ropeThickness;

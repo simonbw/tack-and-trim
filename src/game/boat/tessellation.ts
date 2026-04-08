@@ -1069,6 +1069,11 @@ export function subdivideCatmullRom(
   subdivisions: number,
   outPoints: [number, number][],
   outZ: number[],
+  /** Optional per-input-point material v-coordinate. When provided, output
+   *  v-values are linearly interpolated (not Catmull-Rom — avoids overshoot)
+   *  so the texture sticks to the rope material. */
+  vPerPoint?: ReadonlyArray<number>,
+  outV?: number[],
 ): number {
   const n = points.length;
   if (n < 2) {
@@ -1076,6 +1081,7 @@ export function subdivideCatmullRom(
       outPoints[0][0] = points[0][0];
       outPoints[0][1] = points[0][1];
       outZ[0] = zPerPoint[0];
+      if (vPerPoint && outV) outV[0] = vPerPoint[0];
       return 1;
     }
     return 0;
@@ -1087,6 +1093,7 @@ export function subdivideCatmullRom(
   outPoints[idx][0] = points[0][0];
   outPoints[idx][1] = points[0][1];
   outZ[idx] = zPerPoint[0];
+  if (vPerPoint && outV) outV[idx] = vPerPoint[0];
   idx++;
 
   for (let i = 0; i < n - 1; i++) {
@@ -1108,6 +1115,10 @@ export function subdivideCatmullRom(
     const p3x = points[i3][0],
       p3y = points[i3][1],
       p3z = zPerPoint[i3];
+
+    // Material v: linear interpolation between input points
+    const v1 = vPerPoint ? vPerPoint[i1] : 0;
+    const v2 = vPerPoint ? vPerPoint[i2] : 0;
 
     // Emit subdivisions points (skip t=0 since it was the previous segment's end)
     for (let s = 1; s <= subdivisions; s++) {
@@ -1134,6 +1145,7 @@ export function subdivideCatmullRom(
           (-p0z + p2z) * t +
           (2 * p0z - 5 * p1z + 4 * p2z - p3z) * t2 +
           (-p0z + 3 * p1z - 3 * p2z + p3z) * t3);
+      if (outV) outV[idx] = v1 + (v2 - v1) * t;
       idx++;
     }
   }
@@ -1178,6 +1190,9 @@ export function tessellateRopeStrip(
   /** World-space z gradient (dz/dx, dz/dy). When provided, z varies across
    *  the strip width to match a tilted surface (e.g. a heeled deck). */
   zSlope?: { dx: number; dy: number },
+  /** Pre-computed material v-coordinate per point. When provided, the texture
+   *  is pinned to the rope material instead of sliding with arc length. */
+  vPerPoint?: ReadonlyArray<number>,
 ): RopeMeshData {
   const n = count ?? points.length;
   if (n < 2) return { vertexCount: 0, indexCount: 0 };
@@ -1214,12 +1229,13 @@ export function tessellateRopeStrip(
     const cy = points[i][1];
     const z = zPerPoint[i];
 
-    // Accumulate distance along the centerline
-    if (i > 0) {
+    // Accumulate distance along the centerline (fallback when no material v)
+    if (!vPerPoint && i > 0) {
       const dx = cx - points[i - 1][0];
       const dy = cy - points[i - 1][1];
       cumulativeDist += Math.sqrt(dx * dx + dy * dy);
     }
+    const vCoord = vPerPoint ? vPerPoint[i] : cumulativeDist;
 
     // Compute perpendicular direction in screen space
     let nx: number, ny: number;
@@ -1264,14 +1280,14 @@ export function tessellateRopeStrip(
     outVertices[vOff++] = cx + offX;
     outVertices[vOff++] = cy + offY;
     outVertices[vOff++] = 1; // u
-    outVertices[vOff++] = cumulativeDist; // v
+    outVertices[vOff++] = vCoord; // v
     outVertices[vOff++] = z + dz;
 
     // Right vertex: u = -1
     outVertices[vOff++] = cx - offX;
     outVertices[vOff++] = cy - offY;
     outVertices[vOff++] = -1; // u
-    outVertices[vOff++] = cumulativeDist; // v
+    outVertices[vOff++] = vCoord; // v
     outVertices[vOff++] = z - dz;
 
     // Indices: connect to previous pair

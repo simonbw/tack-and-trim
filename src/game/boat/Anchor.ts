@@ -143,6 +143,7 @@ export class Anchor extends BaseEntity {
       localAnchor: this.bowAttachPoint,
       z: this.deckHeight,
       type: "block",
+      radius: 0,
     };
 
     const winchWaypoint: RopeWaypoint = {
@@ -150,6 +151,7 @@ export class Anchor extends BaseEntity {
       localAnchor: winchPoint,
       z: this.deckHeight,
       type: "winch",
+      radius: 0,
     };
 
     // Rode: anchor → bow roller (block) → winch on deck → tail (free end aft)
@@ -231,6 +233,10 @@ export class Anchor extends BaseEntity {
     z: number[];
   } | null {
     return this.rode?.getPointsWithZ() ?? null;
+  }
+
+  getRodeSegmentLength(): number {
+    return this.rode?.getChainLinkLength() ?? 0;
   }
 
   getRodeThickness(): number {

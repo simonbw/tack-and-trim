@@ -606,6 +606,8 @@ export class BoatRenderer extends BaseEntity {
       shader: RopeShaderInstance;
       smoothPoints: [number, number][];
       smoothZ: number[];
+      rawV: number[];
+      smoothV: number[];
       rawCount: number;
     }
   >();
@@ -627,6 +629,8 @@ export class BoatRenderer extends BaseEntity {
           () => [0, 0] as [number, number],
         ),
         smoothZ: new Array(smoothCount).fill(0),
+        rawV: new Array(rawPointCount).fill(0),
+        smoothV: new Array(smoothCount).fill(0),
         rawCount: rawPointCount,
       };
       this.ropeRenderState.set(sheet, state);
@@ -647,6 +651,14 @@ export class BoatRenderer extends BaseEntity {
 
     const state = this.getRopeRenderState(rawPoints.length, sheet);
 
+    // Compute material v-coordinates: each raw point gets a uniform spacing
+    // based on the rope's rest segment length so the texture sticks to the
+    // rope material instead of sliding with arc length.
+    const segLen = sheet.getRopeSegmentLength();
+    for (let i = 0; i < rawPoints.length; i++) {
+      state.rawV[i] = i * segLen;
+    }
+
     // Smooth the physics points with Catmull-Rom interpolation
     const smoothCount = subdivideCatmullRom(
       rawPoints,
@@ -654,6 +666,8 @@ export class BoatRenderer extends BaseEntity {
       BoatRenderer.ROPE_SUBDIVISIONS,
       state.smoothPoints,
       state.smoothZ,
+      state.rawV,
+      state.smoothV,
     );
 
     const width = sheet.getRopeThickness();
@@ -678,6 +692,7 @@ export class BoatRenderer extends BaseEntity {
       state.shader.scratchIndexData,
       smoothCount,
       zSlope,
+      state.smoothV,
     );
 
     if (vertexCount === 0) return;
@@ -699,6 +714,8 @@ export class BoatRenderer extends BaseEntity {
     shader: RopeShaderInstance;
     smoothPoints: [number, number][];
     smoothZ: number[];
+    rawV: number[];
+    smoothV: number[];
     rawCount: number;
   } | null = null;
 
@@ -723,8 +740,16 @@ export class BoatRenderer extends BaseEntity {
           () => [0, 0] as [number, number],
         ),
         smoothZ: new Array(smoothCount).fill(0),
+        rawV: new Array(rawPoints.length).fill(0),
+        smoothV: new Array(smoothCount).fill(0),
         rawCount: rawPoints.length,
       };
+    }
+
+    // Compute material v-coordinates for rode
+    const segLen = this.boat.anchor.getRodeSegmentLength();
+    for (let i = 0; i < rawPoints.length; i++) {
+      this.rodeState.rawV[i] = i * segLen;
     }
 
     const smoothCount = subdivideCatmullRom(
@@ -733,6 +758,8 @@ export class BoatRenderer extends BaseEntity {
       BoatRenderer.ROPE_SUBDIVISIONS,
       this.rodeState.smoothPoints,
       this.rodeState.smoothZ,
+      this.rodeState.rawV,
+      this.rodeState.smoothV,
     );
 
     const width = this.boat.anchor.getRodeThickness();
@@ -746,6 +773,8 @@ export class BoatRenderer extends BaseEntity {
       this.rodeState.shader.scratchVertexData,
       this.rodeState.shader.scratchIndexData,
       smoothCount,
+      undefined,
+      this.rodeState.smoothV,
     );
 
     if (vertexCount === 0) return;
@@ -783,6 +812,6 @@ export class BoatRenderer extends BaseEntity {
     );
 
     // Boom connection cap
-    td.circle(mastPos.x, mastPos.y, rig.getBoomZ(), 0.2, 16, mastColor);
+    td.circle(mastPos.x, mastPos.y, rig.getBoomZ() + 0.01, 0.2, 16, mastColor);
   }
 }
