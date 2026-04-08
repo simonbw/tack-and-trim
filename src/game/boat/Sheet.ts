@@ -60,6 +60,12 @@ export interface SheetConfig {
    * zero as rope speed approaches this value. Default 3.
    */
   winchMaxSpeed?: number;
+  /**
+   * Tailing direction as a hull-local unit vector. The rope exits the
+   * winch in this direction (transformed to world space each frame).
+   * Default (-1, 0) = aft along the hull toward the helm.
+   */
+  tailDirection?: V2d;
 }
 
 const DEFAULT_CONFIG: SheetConfig = {
@@ -186,7 +192,7 @@ export class Sheet extends BaseEntity {
             p,
             bodyB,
             this.getDeckHeight,
-            0.5,
+            1.5,
             ropeRadius,
             {
               collideConnected: true,
@@ -253,10 +259,16 @@ export class Sheet extends BaseEntity {
         (this.config.winchForce ?? DEFAULT_CONFIG.winchForce!) *
         LBF_TO_ENGINE;
 
-      // Tail direction: aft along the hull (toward the helm)
+      // Tail direction in world space (from hull-local config)
       const angle = this.hullBody.angle;
-      const aftX = -Math.cos(angle);
-      const aftY = -Math.sin(angle);
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const td = this.config.tailDirection;
+      // Default: aft along the hull (-1, 0) in local frame
+      const lx = td ? td.x : -1;
+      const ly = td ? td.y : 0;
+      const aftX = cos * lx - sin * ly;
+      const aftY = sin * lx + cos * ly;
       const maxSpeed =
         this.config.winchMaxSpeed ?? DEFAULT_CONFIG.winchMaxSpeed!;
       this.rope.applyWinchForce(
