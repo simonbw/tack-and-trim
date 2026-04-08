@@ -24,6 +24,7 @@ import type { Body } from "../body/Body";
 import { DynamicBody } from "../body/DynamicBody";
 import { Equation } from "../equations/Equation";
 import { PulleyEquation } from "../equations/PulleyEquation";
+import { computePulleyWrap } from "../utils/pulleyGeometry";
 import { Constraint, ConstraintOptions } from "./Constraint";
 
 export type PulleyMode = "free" | "ratchet";
@@ -39,6 +40,8 @@ export interface PulleyConstraint3DOptions extends ConstraintOptions {
   totalLength?: number;
   /** Max constraint force. Default MAX_VALUE. */
   maxForce?: number;
+  /** Sheave/winch drum radius in feet. 0 = point pulley (legacy). Default 0. */
+  radius?: number;
 }
 
 export class PulleyConstraint3D extends Constraint {
@@ -67,6 +70,11 @@ export class PulleyConstraint3D extends Constraint {
   mode: PulleyMode = "free";
   /** When ratcheting, the maximum allowed distA. Tracked downward as rope slides in. */
   ratchetDistA: number = Infinity;
+
+  /** Sheave/winch drum radius. 0 = point pulley. */
+  radius: number;
+  /** Current wrap angle in radians (arc of contact). Updated each tick. */
+  wrapAngle: number = 0;
 
   /**
    * Coulomb friction coefficient for rope sliding through this pulley.
@@ -115,6 +123,7 @@ export class PulleyConstraint3D extends Constraint {
       : [0, 0, 0];
 
     this.maxForce = options.maxForce ?? Number.MAX_VALUE;
+    this.radius = options.radius ?? 0;
 
     // Compute initial total length if not provided
     if (typeof options.totalLength === "number") {
@@ -230,7 +239,7 @@ export class PulleyConstraint3D extends Constraint {
     const [px, py, pz] = this.bodyC.toWorldFrame3D(...this.localAnchorC);
     const [bx, by, bz] = this.bodyB.toWorldFrame3D(...this.localAnchorB);
 
-    // Separation vectors and distances
+    // Separation vectors and center-to-center distances
     const dAx = ax - px,
       dAy = ay - py,
       dAz = az - pz;
@@ -239,19 +248,48 @@ export class PulleyConstraint3D extends Constraint {
       dBz = bz - pz;
     this.distA = Math.sqrt(dAx * dAx + dAy * dAy + dAz * dAz);
     this.distB = Math.sqrt(dBx * dBx + dBy * dBy + dBz * dBz);
-    this.position = this.distA + this.distB;
 
-    // --- Sum equation (total path length) ---
+    // With radius > 0, the constraint measures *free rope* only — the straight
+    // tangent-line distances from each particle to the pulley surface. The arc
+    // (rope in contact with the drum) is geometrically determined and does not
+    // consume from the chain-link budget. distA/distB stay as center distances
+    // for the ratchet and state machine.
+    if (
+      this.radius > 0 &&
+      this.distA > this.radius &&
+      this.distB > this.radius
+    ) {
+      const straightA = Math.sqrt(
+        this.distA * this.distA - this.radius * this.radius,
+      );
+      const straightB = Math.sqrt(
+        this.distB * this.distB - this.radius * this.radius,
+      );
+      this.position = straightA + straightB;
 
-    if (this.upperLimitEnabled && this.position <= this.totalLength) {
-      eq.enabled = false;
+      // Compute wrap angle for capstan friction and rendering
+      const wrap = computePulleyWrap(
+        ax,
+        ay,
+        az,
+        bx,
+        by,
+        bz,
+        px,
+        py,
+        pz,
+        this.radius,
+      );
+      this.wrapAngle = wrap.wrapAngle;
     } else {
-      eq.enabled = true;
-      eq.maxForce = 0;
-      eq.minForce = -this.maxForce;
+      this.position = this.distA + this.distB;
+      this.wrapAngle = 0;
     }
 
-    // Normalized directions from pulley toward each particle
+    // Force directions: center-directed unit vectors (same as point pulley).
+    // The Jacobian direction is the gradient of the center distance, which
+    // is also approximately correct for the free-rope position measurement
+    // (exact in the limit R/d → 0, mild undershoot otherwise).
     let nAx: number, nAy: number, nAz: number;
     if (this.distA > 0.0001) {
       const inv = 1 / this.distA;
@@ -274,6 +312,16 @@ export class PulleyConstraint3D extends Constraint {
       nBx = -1;
       nBy = 0;
       nBz = 0;
+    }
+
+    // --- Sum equation (total path length) ---
+
+    if (this.upperLimitEnabled && this.position <= this.totalLength) {
+      eq.enabled = false;
+    } else {
+      eq.enabled = true;
+      eq.maxForce = 0;
+      eq.minForce = -this.maxForce;
     }
 
     // Lever arms from body centers to world anchor points
@@ -355,8 +403,17 @@ export class PulleyConstraint3D extends Constraint {
 
     // --- Friction equation ---
     if (this.frictionCoefficient > 0 && eq.enabled) {
+      const tension = Math.abs(this.sumEquation.multiplier);
+      // With wrap geometry, use capstan equation: friction grows
+      // exponentially with wrap angle. Fall back to linear for point pulleys.
       const slip =
-        Math.abs(this.sumEquation.multiplier) * this.frictionCoefficient;
+        this.radius > 0 && this.wrapAngle > 0
+          ? tension *
+            Math.min(
+              Math.exp(this.frictionCoefficient * this.wrapAngle) - 1,
+              10,
+            )
+          : tension * this.frictionCoefficient;
       this.frictionEquation.enabled = true;
       this.frictionEquation.maxForce = slip;
       this.frictionEquation.minForce = -slip;
