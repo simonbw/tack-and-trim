@@ -1175,6 +1175,9 @@ export function tessellateRopeStrip(
   outIndices: Uint16Array,
   /** Number of points to use. Defaults to points.length. */
   count?: number,
+  /** World-space z gradient (dz/dx, dz/dy). When provided, z varies across
+   *  the strip width to match a tilted surface (e.g. a heeled deck). */
+  zSlope?: { dx: number; dy: number },
 ): RopeMeshData {
   const n = count ?? points.length;
   if (n < 2) return { vertexCount: 0, indexCount: 0 };
@@ -1250,19 +1253,26 @@ export function tessellateRopeStrip(
       ny = my;
     }
 
+    // Per-vertex z offset from the center z, accounting for deck tilt.
+    // On a heeled surface, the left and right edges of the strip sit at
+    // different heights — without this, one edge clips through the deck.
+    const offX = nx * halfWidth;
+    const offY = ny * halfWidth;
+    const dz = zSlope ? zSlope.dx * offX + zSlope.dy * offY : 0;
+
     // Left vertex: u = +1
-    outVertices[vOff++] = cx + nx * halfWidth;
-    outVertices[vOff++] = cy + ny * halfWidth;
+    outVertices[vOff++] = cx + offX;
+    outVertices[vOff++] = cy + offY;
     outVertices[vOff++] = 1; // u
     outVertices[vOff++] = cumulativeDist; // v
-    outVertices[vOff++] = z;
+    outVertices[vOff++] = z + dz;
 
     // Right vertex: u = -1
-    outVertices[vOff++] = cx - nx * halfWidth;
-    outVertices[vOff++] = cy - ny * halfWidth;
+    outVertices[vOff++] = cx - offX;
+    outVertices[vOff++] = cy - offY;
     outVertices[vOff++] = -1; // u
     outVertices[vOff++] = cumulativeDist; // v
-    outVertices[vOff++] = z;
+    outVertices[vOff++] = z - dz;
 
     // Indices: connect to previous pair
     if (i > 0) {

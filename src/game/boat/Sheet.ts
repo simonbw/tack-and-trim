@@ -4,6 +4,7 @@ import { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { clamp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
+import { DeckContactConstraint } from "../../core/physics/constraints/DeckContactConstraint";
 import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
 import { Rope, RopeConfig, RopeWaypoint } from "../rope/Rope";
 import { WaterQuery } from "../world/water/WaterQuery";
@@ -114,6 +115,7 @@ export class Sheet extends BaseEntity {
     private zA: number = 0,
     private zB: number = 0,
     waypoints: RopeWaypoint[] = [],
+    private getDeckHeight?: (localX: number, localY: number) => number | null,
   ) {
     super();
 
@@ -171,6 +173,29 @@ export class Sheet extends BaseEntity {
     // Expose rope internals to the entity system
     this.bodies = [...this.rope.getParticles()];
     this.constraints = [...this.rope.getAllConstraints()];
+
+    // Deck contact: keep rope particles above the deck surface with friction.
+    // Offset by rope radius so the rope sits visibly on top of the deck.
+    if (this.getDeckHeight) {
+      const ropeRadius =
+        (this.config.ropeDiameter ?? DEFAULT_CONFIG.ropeDiameter!) / 2;
+      const particles = this.rope.getParticles();
+      for (const p of particles) {
+        this.constraints.push(
+          new DeckContactConstraint(
+            p,
+            bodyB,
+            this.getDeckHeight,
+            0.5,
+            ropeRadius,
+            {
+              collideConnected: true,
+              wakeUpBodies: false,
+            },
+          ),
+        );
+      }
+    }
 
     // Fluid drag: query wind and water at each particle position each frame.
     const particles = this.rope.getParticles();

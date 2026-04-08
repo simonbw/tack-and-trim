@@ -36,11 +36,6 @@ const Z_MAX: f32 = ${DEPTH_Z_MAX};
 
 struct Uniforms {
   viewMatrix: mat3x3<f32>,
-  // Z-row of the body's rotation matrix (R[6], R[7], R[8]).
-  // Maps hull-local (x, y, z) → world z contribution for depth.
-  zRow: vec3<f32>,
-  // Body's world z position (additive base for depth).
-  zBase: f32,
 }
 
 struct VertexInput {
@@ -51,6 +46,7 @@ struct VertexInput {
   @location(4) modelCol2: vec2<f32>,
   @location(5) z: f32,
   @location(6) zCoeffs: vec2<f32>,
+  @location(7) zDepth: vec4<f32>,  // (zRow.x, zRow.y, zRow.z, zBase)
 }
 
 struct VertexOutput {
@@ -71,12 +67,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   let clipPos = uniforms.viewMatrix * vec3<f32>(worldX, worldY, 1.0);
 
   // Depth: full 3D world z from the rotation's z-row applied to the vertex position.
-  // This is separate from the parallax z because depth depends on (x, y, z) jointly
-  // while parallax depends only on z — using a single value for both causes cross-coupling.
-  let depthZ = uniforms.zBase
-             + uniforms.zRow.x * in.position.x
-             + uniforms.zRow.y * in.position.y
-             + uniforms.zRow.z * in.z;
+  // zDepth is per-vertex (zRow.x, zRow.y, zRow.z, zBase) so depth is always correct
+  // regardless of when the batch is flushed relative to save/restore.
+  let depthZ = in.zDepth.w
+             + in.zDepth.x * in.position.x
+             + in.zDepth.y * in.position.y
+             + in.zDepth.z * in.z;
   let depth = (depthZ - Z_MIN) / (Z_MAX - Z_MIN);
 
   var out: VertexOutput;
@@ -98,8 +94,6 @@ const Z_MAX: f32 = ${DEPTH_Z_MAX};
 
 struct Uniforms {
   viewMatrix: mat3x3<f32>,
-  zRow: vec3<f32>,
-  zBase: f32,
 }
 
 struct VertexInput {
@@ -111,6 +105,7 @@ struct VertexInput {
   @location(5) modelCol2: vec2<f32>,
   @location(6) z: f32,
   @location(7) zCoeffs: vec2<f32>,
+  @location(8) zDepth: vec4<f32>,  // (zRow.x, zRow.y, zRow.z, zBase)
 }
 
 struct VertexOutput {
@@ -131,10 +126,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
                + in.zCoeffs.y * in.z + in.modelCol2.y;
   let clipPos = uniforms.viewMatrix * vec3<f32>(worldX, worldY, 1.0);
 
-  let depthZ = uniforms.zBase
-             + uniforms.zRow.x * in.position.x
-             + uniforms.zRow.y * in.position.y
-             + uniforms.zRow.z * in.z;
+  let depthZ = in.zDepth.w
+             + in.zDepth.x * in.position.x
+             + in.zDepth.y * in.position.y
+             + in.zDepth.z * in.z;
   let depth = (depthZ - Z_MIN) / (Z_MAX - Z_MIN);
 
   var out: VertexOutput;
@@ -162,9 +157,9 @@ export interface SpriteOptions {
   anchorY?: number; // 0-1, default 0.5
 }
 
-// Batch vertex size includes per-vertex model matrix (6 floats) + z (1) + zCoeffs (2)
-const SPRITE_VERTEX_SIZE = 17; // position (2) + texCoord (2) + color (4) + matrix (6) + z (1) + zCoeffs (2)
-const SHAPE_VERTEX_SIZE = 15; // position (2) + color (4) + matrix (6) + z (1) + zCoeffs (2)
+// Batch vertex size includes per-vertex model matrix (6 floats) + z (1) + zCoeffs (2) + zDepth (4)
+const SPRITE_VERTEX_SIZE = 21; // position (2) + texCoord (2) + color (4) + matrix (6) + z (1) + zCoeffs (2) + zDepth (4)
+const SHAPE_VERTEX_SIZE = 19; // position (2) + color (4) + matrix (6) + z (1) + zCoeffs (2) + zDepth (4)
 // Max 65535 vertices because index buffer is Uint16Array (max addressable index = 65535).
 // Using 65536 would allow baseVertex + idx to overflow uint16 and wrap around,
 // causing triangles to reference wrong vertices.
@@ -176,13 +171,10 @@ const MAX_BATCH_INDICES = MAX_BATCH_VERTICES * 6;
 // still reference their original data.
 const GPU_BUFFER_FLUSH_CAPACITY = 4;
 
-// Type-safe uniform buffer definition.
-// zRow + zBase let the shader compute world z for depth from the vertex's
-// hull-local position, without contaminating the per-vertex z used for parallax.
+// Type-safe uniform buffer definition (view matrix only — depth transform
+// is per-vertex via zDepth to avoid flush-timing issues with save/restore).
 const ViewUniforms = defineUniformStruct("Uniforms", {
   viewMatrix: mat3x3,
-  zRow: vec3,
-  zBase: f32,
 });
 
 const UNIFORM_BUFFER_SIZE = ViewUniforms.byteSize;
@@ -425,7 +417,7 @@ export class WebGPURenderer {
 
     // Create vertex buffer layout
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: SHAPE_VERTEX_SIZE * 4, // 60 bytes
+      arrayStride: SHAPE_VERTEX_SIZE * 4, // 76 bytes
       attributes: [
         { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
         { shaderLocation: 1, offset: 8, format: "float32x4" }, // color
@@ -434,6 +426,7 @@ export class WebGPURenderer {
         { shaderLocation: 4, offset: 40, format: "float32x2" }, // modelCol2
         { shaderLocation: 5, offset: 48, format: "float32" }, // z
         { shaderLocation: 6, offset: 52, format: "float32x2" }, // zCoeffs
+        { shaderLocation: 7, offset: 60, format: "float32x4" }, // zDepth
       ],
     };
 
@@ -605,7 +598,7 @@ export class WebGPURenderer {
 
     // Create vertex buffer layout
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: SPRITE_VERTEX_SIZE * 4, // 68 bytes
+      arrayStride: SPRITE_VERTEX_SIZE * 4, // 84 bytes
       attributes: [
         { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
         { shaderLocation: 1, offset: 8, format: "float32x2" }, // texCoord
@@ -615,6 +608,7 @@ export class WebGPURenderer {
         { shaderLocation: 5, offset: 48, format: "float32x2" }, // modelCol2
         { shaderLocation: 6, offset: 56, format: "float32" }, // z
         { shaderLocation: 7, offset: 60, format: "float32x2" }, // zCoeffs
+        { shaderLocation: 8, offset: 68, format: "float32x4" }, // zDepth
       ],
     };
 
@@ -1290,17 +1284,41 @@ export class WebGPURenderer {
     const baseVertex = this.shapeVertexCount;
 
     // Extract z state. Per-vertex z is the LOCAL z-height (for parallax via zCoeffs).
-    // World z for depth is computed in the shader from the uniform z-row + vertex position.
+    // zDepth (zRow + zBase) is stored per-vertex so depth is always correct
+    // regardless of when the batch is flushed relative to save/restore.
     const globalZ = this.currentZ;
     const zcx = this.currentZCoeffX;
     const zcy = this.currentZCoeffY;
+    const zrx = this.currentZRowX;
+    const zry = this.currentZRowY;
+    const zrz = this.currentZRowZ;
 
     for (let i = 0; i < vertices.length; i++) {
       const v = vertices[i];
       const z = zValues !== null ? zValues[i] : globalZ;
       const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
       this.shapeVertices.set(
-        [v[0], v[1], r, g, b, alpha, ma, mb, mc, md, mtx, mty, z, zcx, zcy],
+        [
+          v[0],
+          v[1],
+          r,
+          g,
+          b,
+          alpha,
+          ma,
+          mb,
+          mc,
+          md,
+          mtx,
+          mty,
+          z,
+          zcx,
+          zcy,
+          zrx,
+          zry,
+          zrz,
+          globalZ,
+        ],
         offset,
       );
       this.shapeVertexCount++;
@@ -1362,6 +1380,9 @@ export class WebGPURenderer {
     const z = this.currentZ;
     const zcx = this.currentZCoeffX;
     const zcy = this.currentZCoeffY;
+    const zrx = this.currentZRowX;
+    const zry = this.currentZRowY;
+    const zrz = this.currentZRowZ;
 
     const baseVertex = this.shapeVertexCount;
 
@@ -1387,6 +1408,10 @@ export class WebGPURenderer {
           z,
           zcx,
           zcy,
+          zrx,
+          zry,
+          zrz,
+          z,
         ],
         offset,
       );
@@ -1565,6 +1590,9 @@ export class WebGPURenderer {
     const z = this.currentZ;
     const zcx = this.currentZCoeffX;
     const zcy = this.currentZCoeffY;
+    const zrx = this.currentZRowX;
+    const zry = this.currentZRowY;
+    const zrz = this.currentZRowZ;
 
     for (let i = 0; i < 4; i++) {
       const offset = this.spriteVertexCount;
@@ -1587,6 +1615,10 @@ export class WebGPURenderer {
           z,
           zcx,
           zcy,
+          zrx,
+          zry,
+          zrz,
+          z,
         ],
         offset,
       );
@@ -1716,17 +1748,11 @@ export class WebGPURenderer {
     this.spriteIndexCount = 0;
   }
 
-  /** Upload uniforms (view matrix + z-row depth state) to a uniform buffer */
+  /** Upload uniforms (view matrix only — depth transform is per-vertex) */
   private uploadUniforms(buffer: GPUBuffer): void {
     if (!this.device) return;
 
     this.viewUniforms.set.viewMatrix(this.viewMatrix);
-    this.viewUniforms.set.zRow([
-      this.currentZRowX,
-      this.currentZRowY,
-      this.currentZRowZ,
-    ]);
-    this.viewUniforms.set.zBase(this.currentZ);
     this.viewUniforms.uploadTo(buffer);
   }
 

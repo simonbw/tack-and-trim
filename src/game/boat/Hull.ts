@@ -11,7 +11,7 @@ import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
 import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
-import { HullConfig } from "./BoatConfig";
+import { DeckZone, HullConfig } from "./BoatConfig";
 import { buildHullMeshFromProfiles } from "./hull-profiles";
 import { subdivideClosedSmooth } from "./tessellation";
 
@@ -289,6 +289,7 @@ export class Hull extends BaseEntity {
   private getDamageMultiplier: () => number = () => 1;
   private mesh: HullMesh;
   private renderMesh: HullMesh;
+  private deckZonesByHeight: readonly DeckZone[];
 
   // Energy dissipation tracking (updated each tick)
   private _dissipation: HullDissipation = { totalPower: 0, triangleCount: 0 };
@@ -327,6 +328,11 @@ export class Hull extends BaseEntity {
       config.colors.bottom ?? darkenColor(config.colors.fill, 0.6);
     this.boatMass = boatMass;
     this.centerOfGravityZ = centerOfGravityZ;
+
+    // Pre-sort deck zones by floorZ descending for getDeckHeight lookups
+    this.deckZonesByHeight = config.deckPlan
+      ? [...config.deckPlan.zones].sort((a, b) => b.floorZ - a.floorZ)
+      : [];
 
     this.body = new DynamicBody({
       mass: config.mass,
@@ -767,6 +773,20 @@ export class Hull extends BaseEntity {
     return this.bottomColor;
   }
 
+  /**
+   * Get the z-height of the topmost deck surface at a hull-local (x, y) point.
+   * Returns the floorZ of the highest deck zone containing the point,
+   * or null if the point is not over any deck zone.
+   */
+  getDeckHeight(localX: number, localY: number): number | null {
+    for (const zone of this.deckZonesByHeight) {
+      if (pointInPolygonTuple(localX, localY, zone.outline)) {
+        return zone.floorZ;
+      }
+    }
+    return null;
+  }
+
   /** Data needed by BoatCompositor for hull height rendering. */
   getHeightMeshData(): HullMesh {
     return this.renderMesh;
@@ -783,6 +803,32 @@ export class Hull extends BaseEntity {
   setDamageMultiplier(fn: () => number): void {
     this.getDamageMultiplier = fn;
   }
+}
+
+/**
+ * Ray-casting point-in-polygon test for [number, number][] outlines.
+ * Casts a ray in the +x direction and counts edge crossings.
+ */
+function pointInPolygonTuple(
+  px: number,
+  py: number,
+  polygon: ReadonlyArray<readonly [number, number]>,
+): boolean {
+  const n = polygon.length;
+  if (n < 3) return false;
+
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i][0],
+      yi = polygon[i][1];
+    const xj = polygon[j][0],
+      yj = polygon[j][1];
+
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 /** Darken a hex color by a factor (0-1). */

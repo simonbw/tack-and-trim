@@ -121,13 +121,20 @@ export class Boat extends BaseEntity {
       config.mainsheet;
     const boomZ = config.rig.mainsail.zFoot ?? 3;
     const deckZ = config.hull.deckHeight;
+    const getDeckHeight = (lx: number, ly: number) =>
+      this.hull.getDeckHeight(lx, ly);
+    // Hardware (blocks, winches) sits slightly above the deck surface.
+    const hardwareOffset = 0.3;
+    const deckZAt = (anchor: V2d) =>
+      (getDeckHeight(anchor.x, anchor.y) ?? deckZ) + hardwareOffset;
     const mainsheetWaypoints = winchPoint
       ? [
           {
             body: this.hull.body,
             localAnchor: winchPoint,
-            z: deckZ,
+            z: deckZAt(winchPoint),
             type: "winch" as const,
+            radius: 0,
           },
         ]
       : [];
@@ -141,8 +148,9 @@ export class Boat extends BaseEntity {
         hullAttachPoint,
         mainsheetConfig,
         0,
-        deckZ,
+        deckZAt(hullAttachPoint),
         mainsheetWaypoints,
+        getDeckHeight,
       ),
     );
 
@@ -195,15 +203,17 @@ export class Boat extends BaseEntity {
         portWaypoints.push({
           body: this.hull.body,
           localAnchor: portBlockPoint,
-          z: deckZ,
+          z: deckZAt(portBlockPoint),
           frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
+          radius: 0,
         });
       if (portWinchPoint)
         portWaypoints.push({
           body: this.hull.body,
           localAnchor: portWinchPoint,
-          z: deckZ,
+          z: deckZAt(portWinchPoint),
           type: "winch",
+          radius: 0,
         });
 
       const starboardWaypoints: import("../rope/Rope").RopeWaypoint[] = [];
@@ -211,15 +221,17 @@ export class Boat extends BaseEntity {
         starboardWaypoints.push({
           body: this.hull.body,
           localAnchor: starboardBlockPoint,
-          z: deckZ,
+          z: deckZAt(starboardBlockPoint),
           frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
+          radius: 0,
         });
       if (starboardWinchPoint)
         starboardWaypoints.push({
           body: this.hull.body,
           localAnchor: starboardWinchPoint,
-          z: deckZ,
+          z: deckZAt(starboardWinchPoint),
           type: "winch",
+          radius: 0,
         });
 
       // zA = 0 for jib sheets: the clew body already has z = jibClewZ
@@ -232,8 +244,9 @@ export class Boat extends BaseEntity {
           portAttachPoint,
           jibSheetConfig,
           0,
-          deckZ,
+          deckZAt(portAttachPoint),
           portWaypoints,
+          getDeckHeight,
         ),
       );
 
@@ -245,8 +258,9 @@ export class Boat extends BaseEntity {
           starboardAttachPoint,
           { ...jibSheetConfig },
           0,
-          deckZ,
+          deckZAt(starboardAttachPoint),
           starboardWaypoints,
+          getDeckHeight,
         ),
       );
       this.starboardJibSheet.release();

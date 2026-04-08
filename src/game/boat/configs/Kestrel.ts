@@ -348,13 +348,13 @@ export const Kestrel: BoatConfig = {
   },
 
   jibSheet: {
-    portAttachPoint: V(-6, 3.2), // cleat — tail end, cockpit coaming
-    starboardAttachPoint: V(-6, -3.2),
-    portBlockPoint: V(2, 3.8), // deck block, roughly abeam of mast at rail
-    starboardBlockPoint: V(2, -3.8),
+    portAttachPoint: V(-6, 2.6), // cleat — tail end, cockpit coaming
+    starboardAttachPoint: V(-6, -2.6),
+    portBlockPoint: V(3, 3.0), // deck block, forward of bulkhead
+    starboardBlockPoint: V(3, -3.0),
     blockFrictionCoefficient: 0.4,
-    portWinchPoint: V(-4, 3.4), // winch on cockpit coaming
-    starboardWinchPoint: V(-4, -3.4),
+    portWinchPoint: V(-4, 2.8), // winch on cockpit coaming
+    starboardWinchPoint: V(-4, -2.8),
     minLength: 6,
     maxLength: 18,
     ropeThickness: 0.15,

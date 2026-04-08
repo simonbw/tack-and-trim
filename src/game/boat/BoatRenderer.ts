@@ -214,27 +214,6 @@ export class BoatRenderer extends BaseEntity {
 
         // === 12. Mast (cylindrical — screen-width, tallest, drawn last) ===
         this.renderMast(td);
-
-        // === 13. Air displacement cap — transparent, depth-only ===
-        // The hull is an open-topped 3D shape: sides go from keel up to the
-        // deck edge, but the deck plan may have gaps (cockpit, hatches, etc.).
-        // Without this cap, the water surface shader — which reads the depth
-        // buffer to decide where to draw water — would see no boat at those
-        // gaps and render water inside the hull.
-        //
-        // This invisible polygon covers the full hull outline at deck height,
-        // writing depth (via alpha=0: no color change, but depth still writes)
-        // so the surface shader sees "above water" everywhere inside the hull.
-        // When the boat sinks far enough that deckHeight + hullBody.z drops
-        // below the waterline, the cap's depth falls below the water's depth
-        // and the hull correctly floods.
-        renderer.submitTrianglesWithZ(
-          xyPositions,
-          deckIndices,
-          0x000000,
-          0, // alpha=0: invisible, but writes to the depth buffer
-          zValues,
-        );
       },
     );
 
@@ -254,6 +233,33 @@ export class BoatRenderer extends BaseEntity {
 
     // === 14. Anchor rode ===
     this.renderRode(renderer);
+
+    // === 15. Air displacement cap — transparent, depth-only ===
+    // Rendered AFTER ropes so rope color pixels are already in the framebuffer.
+    // The cap writes depth only (alpha=0, no color change), blocking the water
+    // surface shader from rendering water inside the hull. Ropes remain visible
+    // because their color was already drawn; only the depth buffer is overwritten.
+    draw.at(
+      {
+        pos: V(x, y),
+        angle: hullBody.angle,
+        tilt: {
+          roll: hullBody.roll,
+          pitch: hullBody.pitch,
+          zOffset: hullBody.z,
+        },
+      },
+      () => {
+        const { xyPositions, deckIndices, zValues } = hull.getHeightMeshData();
+        draw.renderer.submitTrianglesWithZ(
+          xyPositions,
+          deckIndices,
+          0x000000,
+          0, // alpha=0: invisible, but writes to the depth buffer
+          zValues,
+        );
+      },
+    );
   }
 
   private renderRudder(td: TiltDraw) {
@@ -369,8 +375,9 @@ export class BoatRenderer extends BaseEntity {
 
   private renderBlocks(td: TiltDraw) {
     const hullBody = this.boat.hull.body;
-    // Blocks and winch drums sit on top of the deck, protruding ~3.6 inches.
-    const deckZ = this.config.hull.deckHeight + 0.3;
+    const hull = this.boat.hull;
+    const fallbackDeckZ = this.config.hull.deckHeight;
+    const hardwareOffset = 0.3; // blocks/winches protrude ~3.6 inches
     const winchRadius = 0.3;
     const sheets = [
       this.boat.mainsheet,
@@ -381,7 +388,10 @@ export class BoatRenderer extends BaseEntity {
       if (!sheet) continue;
       for (const wp of sheet.getWaypointInfo()) {
         const local = hullBody.toLocalFrame(wp.position);
-        td.circle(local[0], local[1], deckZ, winchRadius, 32, 0x444444);
+        const surfaceZ =
+          (hull.getDeckHeight(local[0], local[1]) ?? fallbackDeckZ) +
+          hardwareOffset;
+        td.circle(local[0], local[1], surfaceZ, winchRadius, 32, 0x444444);
         if (wp.type === "winch") {
           const handleLen = winchRadius * 1.6;
           const cos = Math.cos(wp.winchAngle);
@@ -389,10 +399,10 @@ export class BoatRenderer extends BaseEntity {
           td.line(
             local[0],
             local[1],
-            deckZ + 0.15,
+            surfaceZ + 0.15,
             local[0] + cos * handleLen,
             local[1] + sin * handleLen,
-            deckZ + 0.15,
+            surfaceZ + 0.15,
             0.12,
             0x666666,
             1,
@@ -649,6 +659,16 @@ export class BoatRenderer extends BaseEntity {
     const width = sheet.getRopeThickness();
     const cam = extractCameraTransform(renderer.getTransform());
 
+    // Compute world-space z-slope from the hull's deck normal so the rope
+    // strip tilts with the deck when heeled. Without this, one edge of the
+    // strip clips through the tilted deck surface.
+    const R = hullBody.orientation;
+    const nz = R[8]; // deck normal z-component (cos of combined tilt)
+    const zSlope =
+      Math.abs(nz) > 0.01
+        ? { dx: -R[2] / nz, dy: -R[5] / nz }
+        : { dx: 0, dy: 0 };
+
     const { vertexCount, indexCount } = tessellateRopeStrip(
       state.smoothPoints,
       state.smoothZ,
@@ -657,6 +677,7 @@ export class BoatRenderer extends BaseEntity {
       state.shader.scratchVertexData,
       state.shader.scratchIndexData,
       smoothCount,
+      zSlope,
     );
 
     if (vertexCount === 0) return;

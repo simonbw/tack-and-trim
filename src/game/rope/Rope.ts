@@ -18,6 +18,7 @@ import {
   PulleyConstraint3D,
   type PulleyMode,
 } from "../../core/physics/constraints/PulleyConstraint3D";
+import { computePulleyWrap } from "../../core/physics/utils/pulleyGeometry";
 import type { World } from "../../core/physics/world/World";
 import { V, V2d } from "../../core/Vector";
 
@@ -39,8 +40,19 @@ export interface RopeConfig {
    * bulk rope motion. Units: force per velocity per mass (1/s). Default 30.
    */
   internalFriction?: number;
+  /** Gravity acceleration applied to rope particles (ft/s²).
+   *  Buoyancy-reduced: full gravity is ~32.2, but rope in water sinks slower.
+   *  Default 15. Set to 0 to disable. */
+  gravity?: number;
   /** If true, the B endpoint is free (bitter end hangs loose). Default false. */
   freeEndB?: boolean;
+  /**
+   * Lower distance limit as a fraction of the chain link length.
+   * Particles push apart when compressed below this fraction, giving them
+   * effective volume for coiling. 0 = disabled, 1 = rigid rod.
+   * Default 0.7 (particles compress to 70% of natural spacing).
+   */
+  minLinkFraction?: number;
 }
 
 /** Waypoint behavior:
@@ -59,6 +71,8 @@ export interface RopeWaypoint {
   /** Coulomb friction coefficient for rope sliding through this block.
    *  0 = frictionless (default). Typical: 0.05–0.3 for a block. */
   frictionCoefficient?: number;
+  /** Sheave/winch drum radius in feet. 0 = point pulley (legacy). Default 0. */
+  radius?: number;
 }
 
 /** Internal state for a pulley at a block or winch waypoint. */
@@ -82,6 +96,8 @@ interface PulleyState {
   localAnchor: [number, number, number];
   /** The waypoint body. */
   body: Body;
+  /** Sheave/winch drum radius in feet. 0 = point pulley. */
+  radius: number;
 }
 
 /**
@@ -117,6 +133,7 @@ export class Rope {
     z: number;
     type: WaypointType;
     pulleyIndex: number;
+    radius: number;
   }[] = [];
 
   private readonly stiffness: number;
@@ -124,6 +141,8 @@ export class Rope {
   private readonly particleMass: number;
   private readonly particleDamping: number;
   private readonly internalFriction: number;
+  private readonly gravity: number;
+  private readonly minLinkFraction: number;
   private totalLength: number;
   private readonly freeEndB: boolean;
   private attached: boolean = false;
@@ -147,6 +166,9 @@ export class Rope {
    */
   private static readonly CONTAIN_EXIT_FRACTION = 0.5;
 
+  /** Number of interpolation points along the arc between the two tangent points. */
+  private static readonly ARC_INTERPOLATION_POINTS = 4;
+
   constructor(
     bodyA: Body,
     localAnchorA: [number, number, number],
@@ -161,6 +183,8 @@ export class Rope {
     this.particleMass = config.particleMass ?? 0.5;
     this.particleDamping = config.damping ?? 0.85;
     this.internalFriction = config.internalFriction ?? 40;
+    this.gravity = config.gravity ?? 15;
+    this.minLinkFraction = config.minLinkFraction ?? 0.7;
     this.freeEndB = config.freeEndB ?? false;
 
     const numParticles = config.particleCount ?? 24;
@@ -340,6 +364,7 @@ export class Rope {
       indexB = Math.max(indexB, indexA + 1);
 
       // Create PulleyConstraint3D
+      const wpRadius = wp.radius ?? 0;
       const pulley = new PulleyConstraint3D(
         this.particles[indexA],
         this.particles[indexB],
@@ -352,6 +377,7 @@ export class Rope {
           // This is the rope that passes through the block
           totalLength: linkLen,
           collideConnected: true,
+          radius: wpRadius,
         },
       );
       if (wp.frictionCoefficient) {
@@ -368,6 +394,7 @@ export class Rope {
         indexA, // straddle(K+0.5): constraint bodyA = particles[K]
         localAnchor: wpAnchor,
         body: wp.body,
+        radius: wpRadius,
       };
       this.pulleys.push(pulleyState);
 
@@ -378,6 +405,7 @@ export class Rope {
         z: wp.z,
         type: wp.type ?? "block",
         pulleyIndex: this.pulleys.length - 1,
+        radius: wpRadius,
       });
 
       // For winch waypoints, record the winch and start in ratchet mode
@@ -428,8 +456,9 @@ export class Rope {
       collideConnected: true,
     });
     c.upperLimitEnabled = true;
-    c.lowerLimitEnabled = false;
     c.upperLimit = length;
+    c.lowerLimitEnabled = this.minLinkFraction > 0;
+    c.lowerLimit = length * this.minLinkFraction;
     for (const eq of c.equations) {
       eq.stiffness = this.stiffness;
       eq.relaxation = this.relaxation;
@@ -446,10 +475,15 @@ export class Rope {
     this.cachedZValues = new Array(totalPoints).fill(0);
   }
 
-  /** Total number of rendered points (endpoints + particles + one per waypoint). */
+  /** Total number of rendered points (endpoints + particles + waypoint points). */
   private getPointCount(): number {
     const endpoints = this.freeEndB ? 1 : 2;
-    return endpoints + this.particles.length + this.pulleys.length;
+    let waypointPoints = 0;
+    for (const wd of this.waypointData) {
+      // Radius > 0: 2 tangent points + N arc interpolation points
+      waypointPoints += wd.radius > 0 ? 2 + Rope.ARC_INTERPOLATION_POINTS : 1;
+    }
+    return endpoints + this.particles.length + waypointPoints;
   }
 
   // ---- Physics world management ----
@@ -476,7 +510,19 @@ export class Rope {
     for (const ps of this.pulleys) {
       this.updatePulleyState(ps);
     }
+    this.applyGravity();
     this.applyInternalFriction(dt);
+  }
+
+  /** Apply buoyancy-reduced gravity as a downward z-force on each particle. */
+  private applyGravity(): void {
+    const g = this.gravity;
+    if (g <= 0) return;
+    const mass = this.particleMass;
+    const fz = -g * mass;
+    for (const p of this.particles) {
+      p.applyForce3D(0, 0, fz, 0, 0, 0);
+    }
   }
 
   /**
@@ -773,16 +819,17 @@ export class Rope {
     //   the pulley is "before" p_K → insert after K-1. Otherwise after K.
     //   This flips continuously with particle position (no discrete jump
     //   tied to the mode transition).
+    // Each waypoint produces 1 point (point pulley) or 2+N points (radius
+    // wrapping: tangentA, N arc midpoints, tangentB). All points for a
+    // waypoint share the same afterParticle index.
     const insertions: {
       afterParticle: number;
-      px: number;
-      py: number;
-      pz: number;
+      points: { x: number; y: number; z: number }[];
     }[] = [];
 
     for (const wd of this.waypointData) {
       const ps = this.pulleys[wd.pulleyIndex];
-      const [px, py, pz] = wd.body.toWorldFrame3D(
+      const [wpx, wpy, wpz] = wd.body.toWorldFrame3D(
         wd.localAnchor.x,
         wd.localAnchor.y,
         wd.z,
@@ -792,20 +839,117 @@ export class Rope {
         afterParticle = ps.state - 0.5;
       } else {
         const k = ps.state;
-        // canContain guarantees both neighbors exist for contained mode
         const pk = this.particles[k];
         const pPrev = this.particles[k - 1];
         const pNext = this.particles[k + 1];
         const axisX = pNext.position[0] - pPrev.position[0];
         const axisY = pNext.position[1] - pPrev.position[1];
         const axisZ = pNext.z - pPrev.z;
-        const dx = pk.position[0] - px;
-        const dy = pk.position[1] - py;
-        const dz = pk.z - pz;
+        const dx = pk.position[0] - wpx;
+        const dy = pk.position[1] - wpy;
+        const dz = pk.z - wpz;
         const proj = dx * axisX + dy * axisY + dz * axisZ;
         afterParticle = proj > 0 ? k - 1 : k;
       }
-      insertions.push({ afterParticle, px, py, pz });
+
+      if (wd.radius > 0) {
+        // Get straddling particle positions for tangent computation
+        const pA = ps.constraint.bodyA;
+        const pB = ps.constraint.bodyB;
+        const [pAx, pAy, pAz] = pA.toWorldFrame3D(
+          ...ps.constraint.localAnchorA,
+        );
+        const [pBx, pBy, pBz] = pB.toWorldFrame3D(
+          ...ps.constraint.localAnchorB,
+        );
+
+        const wrap = computePulleyWrap(
+          pAx,
+          pAy,
+          pAz,
+          pBx,
+          pBy,
+          pBz,
+          wpx,
+          wpy,
+          wpz,
+          wd.radius,
+        );
+
+        if (wrap.degenerate) {
+          insertions.push({
+            afterParticle,
+            points: [{ x: wpx, y: wpy, z: wpz }],
+          });
+        } else {
+          const pts: { x: number; y: number; z: number }[] = [];
+          // Tangent point A
+          pts.push({
+            x: wrap.tangentAx,
+            y: wrap.tangentAy,
+            z: wrap.tangentAz,
+          });
+          // Arc interpolation points — rotate the tangentA radius vector
+          // around the pulley center in the wrap plane.
+          const n = Rope.ARC_INTERPOLATION_POINTS;
+          if (n > 0) {
+            // Basis: rA = tangentA offset from center (radius vector)
+            const rAx = wrap.tangentAx - wpx;
+            const rAy = wrap.tangentAy - wpy;
+            const rAz = wrap.tangentAz - wpz;
+
+            // Perpendicular to rA in the wrap plane, derived from tangentB
+            const rBx = wrap.tangentBx - wpx;
+            const rBy = wrap.tangentBy - wpy;
+            const rBz = wrap.tangentBz - wpz;
+            const rAHatX = rAx / wd.radius,
+              rAHatY = rAy / wd.radius,
+              rAHatZ = rAz / wd.radius;
+            const rBdotRA = rBx * rAHatX + rBy * rAHatY + rBz * rAHatZ;
+            let perpX = rBx - rBdotRA * rAHatX;
+            let perpY = rBy - rBdotRA * rAHatY;
+            let perpZ = rBz - rBdotRA * rAHatZ;
+            const perpLen = Math.sqrt(
+              perpX * perpX + perpY * perpY + perpZ * perpZ,
+            );
+            if (perpLen > 1e-8) {
+              const scale = wd.radius / perpLen;
+              perpX *= scale;
+              perpY *= scale;
+              perpZ *= scale;
+            }
+            if (wrap.wrapDirection < 0) {
+              perpX = -perpX;
+              perpY = -perpY;
+              perpZ = -perpZ;
+            }
+
+            for (let k = 1; k <= n; k++) {
+              const relAngle =
+                (k / (n + 1)) * wrap.wrapDirection * wrap.wrapAngle;
+              const cosRel = Math.cos(relAngle);
+              const sinRel = Math.sin(relAngle);
+              pts.push({
+                x: wpx + cosRel * rAx + sinRel * perpX,
+                y: wpy + cosRel * rAy + sinRel * perpY,
+                z: wpz + cosRel * rAz + sinRel * perpZ,
+              });
+            }
+          }
+          // Tangent point B
+          pts.push({
+            x: wrap.tangentBx,
+            y: wrap.tangentBy,
+            z: wrap.tangentBz,
+          });
+          insertions.push({ afterParticle, points: pts });
+        }
+      } else {
+        insertions.push({
+          afterParticle,
+          points: [{ x: wpx, y: wpy, z: wpz }],
+        });
+      }
     }
     insertions.sort((a, b) => a.afterParticle - b.afterParticle);
 
@@ -821,16 +965,22 @@ export class Rope {
     this.cachedZValues[idx] = eaz;
     idx++;
 
+    // Helper: write all points from an insertion into the cached arrays
+    const writeInsertion = (ins: (typeof insertions)[0]) => {
+      for (const pt of ins.points) {
+        this.cachedPositions[idx][0] = pt.x;
+        this.cachedPositions[idx][1] = pt.y;
+        this.cachedZValues[idx] = pt.z;
+        idx++;
+      }
+    };
+
     // Any pulleys that insert before particle 0 (afterParticle < 0).
     while (
       insertIdx < insertions.length &&
       insertions[insertIdx].afterParticle < 0
     ) {
-      const ins = insertions[insertIdx];
-      this.cachedPositions[idx][0] = ins.px;
-      this.cachedPositions[idx][1] = ins.py;
-      this.cachedZValues[idx] = ins.pz;
-      idx++;
+      writeInsertion(insertions[insertIdx]);
       insertIdx++;
     }
 
@@ -846,11 +996,7 @@ export class Rope {
         insertIdx < insertions.length &&
         insertions[insertIdx].afterParticle === i
       ) {
-        const ins = insertions[insertIdx];
-        this.cachedPositions[idx][0] = ins.px;
-        this.cachedPositions[idx][1] = ins.py;
-        this.cachedZValues[idx] = ins.pz;
-        idx++;
+        writeInsertion(insertions[insertIdx]);
         insertIdx++;
       }
     }
