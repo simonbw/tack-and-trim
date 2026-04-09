@@ -25,6 +25,7 @@ const manifestFileTemplate = (
   jsonFiles: string[],
   wavemeshFiles: string[],
   windmeshFiles: string[],
+  tidemeshFiles: string[],
   treesFiles: string[],
   varName: (file: string) => string,
 ) =>
@@ -96,6 +97,13 @@ ${windmeshFiles
 };
 export type WindmeshName = keyof typeof windmeshes;
 
+const tidemeshes = {
+${tidemeshFiles
+  .map((tm) => /*ts*/ `  ${varName(tm)}: "/assets/${tm.replace(/^\.\//, "")}"`)
+  .join(",\n")}
+};
+export type TidemeshName = keyof typeof tidemeshes;
+
 const trees = {
 ${treesFiles
   .map((t) => /*ts*/ `  ${varName(t)}: "/assets/${t.replace(/^\.\//, "")}"`)
@@ -103,7 +111,7 @@ ${treesFiles
 };
 export type TreesName = keyof typeof trees;
 
-export const RESOURCES = { sounds, images, fonts, levels, terrains, entityDefs, jsonBlobs, wavemeshes, windmeshes, trees };
+export const RESOURCES = { sounds, images, fonts, levels, terrains, entityDefs, jsonBlobs, wavemeshes, windmeshes, tidemeshes, trees };
 `.trimStart();
 
 /*
@@ -142,13 +150,14 @@ async function main() {
     terrain: "terrain",
     wavemesh: "wavemesh",
     windmesh: "windmesh",
+    tidemesh: "tidemesh",
     trees: "trees",
   } as const;
   type FileExtension = keyof typeof extensionToType;
   type ResourceType = (typeof extensionToType)[FileExtension] | "res";
 
   /** Extensions served statically (no Parcel processing, no .d.ts needed). */
-  const staticExtensions = new Set(["terrain", "wavemesh", "windmesh", "trees"]);
+  const staticExtensions = new Set(["terrain", "wavemesh", "windmesh", "tidemesh", "trees"]);
 
   const extensions = Object.keys(extensionToType);
   const extensionPattern = extensions.join("|");
@@ -245,6 +254,7 @@ async function main() {
     const jsonFiles: string[] = [];
     const wavemeshFiles: string[] = [];
     const windmeshFiles: string[] = [];
+    const tidemeshFiles: string[] = [];
     const treesFiles: string[] = [];
 
     for (const fileName of fileNames) {
@@ -298,6 +308,9 @@ async function main() {
         case "windmesh":
           windmeshFiles.push(relativePath);
           break;
+        case "tidemesh":
+          tidemeshFiles.push(relativePath);
+          break;
         case "trees":
           treesFiles.push(relativePath);
           break;
@@ -320,6 +333,7 @@ async function main() {
       jsonFiles,
       wavemeshFiles,
       windmeshFiles,
+      tidemeshFiles,
       treesFiles,
       varName,
     );

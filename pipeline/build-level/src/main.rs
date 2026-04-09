@@ -49,6 +49,8 @@ enum Commands {
     WaveMesh,
     /// Build wind mesh (.windmesh) for level(s)
     WindMesh,
+    /// Build tide mesh (.tidemesh) for level(s)
+    TideMesh,
     /// Generate tree positions (.trees) for level(s)
     Trees,
     /// Extract terrain → .terrain
@@ -89,6 +91,7 @@ fn main() -> Result<()> {
         Some(Commands::Build) => run_build(level_filter, &view),
         Some(Commands::WaveMesh) => run_wave_mesh(level_filter, &view),
         Some(Commands::WindMesh) => run_wind_mesh(level_filter, &view),
+        Some(Commands::TideMesh) => run_tide_mesh(level_filter, &view),
         Some(Commands::Trees) => run_trees(level_filter, &view),
         Some(Commands::Extract) => {
             let region = resolve_region_for_terrain_command("extract", level_filter)?;
@@ -319,11 +322,52 @@ fn run_trees_for_level(level_path: &Path, slug: &str, view: &StepView) -> Result
     Ok(())
 }
 
+fn run_tide_mesh(level_filter: Option<&str>, view: &StepView) -> Result<()> {
+    let level_paths = resolve_level_paths(level_filter)?;
+    if level_paths.is_empty() {
+        view.info("No level files found.");
+        return Ok(());
+    }
+
+    view.info(format!(
+        "Building tide mesh for {} level(s)",
+        format_int(level_paths.len())
+    ));
+
+    for level_path in &level_paths {
+        view.header(&level_slug_from_path(level_path));
+        run_tide_mesh_for_level(level_path, &level_slug_from_path(level_path), &view.indented())?;
+    }
+
+    view.info("Done.");
+    Ok(())
+}
+
+fn run_tide_mesh_for_level(level_path: &Path, slug: &str, view: &StepView) -> Result<()> {
+    let level_path_str = level_path
+        .to_str()
+        .ok_or_else(|| anyhow!("Invalid level path"))?;
+    let output_path = region::tidemesh_output_path(slug);
+    let output_str = output_path
+        .to_str()
+        .ok_or_else(|| anyhow!("Invalid tidemesh output path"))?;
+    let inner = view.indented();
+    let _s = view.section("build-tidemesh");
+    wavemesh_builder::build_tidemesh_for_level_with_view(
+        level_path_str,
+        Some(output_str),
+        Some(&inner),
+    )?;
+    drop(_s);
+    Ok(())
+}
+
 fn run_all_meshes_for_level(level_path: &Path, slug: &str, view: &StepView) -> Result<()> {
     run_wave_mesh_for_level(level_path, slug, view)?;
     // Generate trees before wind mesh so tree data is available for wind
     run_trees_for_level(level_path, slug, view)?;
     run_wind_mesh_for_level(level_path, slug, view)?;
+    run_tide_mesh_for_level(level_path, slug, view)?;
     Ok(())
 }
 
