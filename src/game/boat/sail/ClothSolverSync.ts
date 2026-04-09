@@ -24,7 +24,6 @@ export class ClothSolverSync implements ClothPositionReader {
   private readonly vertexV: Float64Array;
   private readonly furlMode: FurlMode;
   private readonly vertexActive: Uint8Array;
-  private readonly prevVertexActive: Uint8Array;
   private solved = false;
 
   // Reaction force accumulators
@@ -54,7 +53,6 @@ export class ClothSolverSync implements ClothPositionReader {
     this.vertexV = vertexV;
     this.furlMode = furlMode;
     this.vertexActive = new Uint8Array(solver.vertexCount);
-    this.prevVertexActive = new Uint8Array(solver.vertexCount);
   }
 
   hasNewResults(): boolean {
@@ -222,36 +220,14 @@ export class ClothSolverSync implements ClothPositionReader {
       }
     }
 
-    // Reset vertices that just transitioned from skipped to active (v-cutoff only).
-    // Skipped vertices don't get their positions updated, so they drift as the boat
-    // moves. Without this reset they enter the Verlet integrator at stale positions,
-    // causing explosive constraint corrections.
-    if (this.furlMode === "v-cutoff") {
-      for (let i = 0; i < vertexCount; i++) {
-        if (active[i] && !this.prevVertexActive[i]) {
-          const v = this.vertexV[i];
-          solver.resetVertex(
-            i,
-            tackX + v * (headX - tackX),
-            tackY + v * (headY - tackY),
-            tackZ + v * (headZ - tackZ),
-          );
-        }
-      }
-    }
-
-    // Save active state for next frame's transition detection
-    this.prevVertexActive.set(active);
-
-    // Clear pins and skipped
+    // Clear pin states — we'll set them fresh each frame
     for (let i = 0; i < vertexCount; i++) {
       solver.setPinned(i, false);
-      solver.setSkipped(i, false);
     }
 
     // Pin active luff vertices
     for (const li of this.luffVertices) {
-      if (!active[li] && this.furlMode === "v-cutoff") continue;
+      if (!active[li]) continue;
       const v = this.vertexV[li];
       solver.setPinned(li, true);
       solver.setPinTarget(
@@ -262,23 +238,19 @@ export class ClothSolverSync implements ClothPositionReader {
       );
     }
 
-    if (this.furlMode === "v-cutoff") {
-      for (let i = 0; i < vertexCount; i++) {
-        if (!active[i]) solver.setSkipped(i, true);
-      }
-    } else {
-      // u-wrap: pin wrapped vertices to forestay
-      for (let i = 0; i < vertexCount; i++) {
-        if (!active[i]) {
-          const v = this.vertexV[i];
-          solver.setPinned(i, true);
-          solver.setPinTarget(
-            i,
-            tackX + v * (headX - tackX),
-            tackY + v * (headY - tackY),
-            tackZ + v * (headZ - tackZ),
-          );
-        }
+    // Pin all inactive vertices to the luff at their v-height. This keeps their
+    // positions current as the boat moves, so they enter the simulation smoothly
+    // when they become active (no stale-position explosions).
+    for (let i = 0; i < vertexCount; i++) {
+      if (!active[i]) {
+        const v = this.vertexV[i];
+        solver.setPinned(i, true);
+        solver.setPinTarget(
+          i,
+          tackX + v * (headX - tackX),
+          tackY + v * (headY - tackY),
+          tackZ + v * (headZ - tackZ),
+        );
       }
     }
 

@@ -75,8 +75,6 @@ let vertexU: Float64Array;
 let vertexV: Float64Array;
 // Per-vertex active flag (reused each frame, allocated once)
 let vertexActive: Uint8Array;
-// Previous frame's active flags — used to detect skipped→active transitions
-let prevVertexActive: Uint8Array;
 
 self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
   const msg = e.data;
@@ -94,7 +92,6 @@ self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
     vertexU = msg.vertexU;
     vertexV = msg.vertexV;
     vertexActive = new Uint8Array(vertexCount);
-    prevVertexActive = new Uint8Array(vertexCount);
 
     // Reconstruct solver from snapshot
     solver = ClothSolver.fromSnapshot({
@@ -177,36 +174,14 @@ function updateFurlState(
     }
   }
 
-  // Reset vertices that just transitioned from skipped to active (v-cutoff only).
-  // Skipped vertices don't get their positions updated, so they drift as the boat
-  // moves. Without this reset they enter the Verlet integrator at stale positions,
-  // causing explosive constraint corrections.
-  if (furlMode === "v-cutoff") {
-    for (let i = 0; i < vertexCount; i++) {
-      if (vertexActive[i] && !prevVertexActive[i]) {
-        const v = vertexV[i];
-        solver.resetVertex(
-          i,
-          tackX + v * (headX - tackX),
-          tackY + v * (headY - tackY),
-          tackZ + v * (headZ - tackZ),
-        );
-      }
-    }
-  }
-
-  // Save active state for next frame's transition detection
-  prevVertexActive.set(vertexActive);
-
-  // Clear all pin and skip states — we'll set them fresh each frame
+  // Clear all pin states — we'll set them fresh each frame
   for (let i = 0; i < vertexCount; i++) {
     solver.setPinned(i, false);
-    solver.setSkipped(i, false);
   }
 
   // Pin all active luff vertices to the mast/forestay (lerp tack→head by v)
   for (const li of luffVertices) {
-    if (!vertexActive[li] && furlMode === "v-cutoff") continue;
+    if (!vertexActive[li]) continue;
     const v = vertexV[li];
     solver.setPinned(li, true);
     solver.setPinTarget(
@@ -217,26 +192,19 @@ function updateFurlState(
     );
   }
 
-  if (furlMode === "v-cutoff") {
-    // Skip all inactive vertices — they're inside the boom
-    for (let i = 0; i < vertexCount; i++) {
-      if (!vertexActive[i]) {
-        solver.setSkipped(i, true);
-      }
-    }
-  } else {
-    // u-wrap: pin wrapped (inactive) vertices to forestay at their v-height
-    for (let i = 0; i < vertexCount; i++) {
-      if (!vertexActive[i]) {
-        const v = vertexV[i];
-        solver.setPinned(i, true);
-        solver.setPinTarget(
-          i,
-          tackX + v * (headX - tackX),
-          tackY + v * (headY - tackY),
-          tackZ + v * (headZ - tackZ),
-        );
-      }
+  // Pin all inactive vertices to the luff at their v-height. This keeps their
+  // positions current as the boat moves, so they enter the simulation smoothly
+  // when they become active (no stale-position explosions).
+  for (let i = 0; i < vertexCount; i++) {
+    if (!vertexActive[i]) {
+      const v = vertexV[i];
+      solver.setPinned(i, true);
+      solver.setPinTarget(
+        i,
+        tackX + v * (headX - tackX),
+        tackY + v * (headY - tackY),
+        tackZ + v * (headZ - tackZ),
+      );
     }
   }
 
