@@ -75,6 +75,8 @@ let vertexU: Float64Array;
 let vertexV: Float64Array;
 // Per-vertex active flag (reused each frame, allocated once)
 let vertexActive: Uint8Array;
+// Previous frame's active flags — used to detect skipped→active transitions
+let prevVertexActive: Uint8Array;
 
 self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
   const msg = e.data;
@@ -92,6 +94,7 @@ self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
     vertexU = msg.vertexU;
     vertexV = msg.vertexV;
     vertexActive = new Uint8Array(vertexCount);
+    prevVertexActive = new Uint8Array(vertexCount);
 
     // Reconstruct solver from snapshot
     solver = ClothSolver.fromSnapshot({
@@ -173,6 +176,27 @@ function updateFurlState(
       vertexActive[i] = vertexU[i] >= wrapThreshold ? 1 : 0;
     }
   }
+
+  // Reset vertices that just transitioned from skipped to active (v-cutoff only).
+  // Skipped vertices don't get their positions updated, so they drift as the boat
+  // moves. Without this reset they enter the Verlet integrator at stale positions,
+  // causing explosive constraint corrections.
+  if (furlMode === "v-cutoff") {
+    for (let i = 0; i < vertexCount; i++) {
+      if (vertexActive[i] && !prevVertexActive[i]) {
+        const v = vertexV[i];
+        solver.resetVertex(
+          i,
+          tackX + v * (headX - tackX),
+          tackY + v * (headY - tackY),
+          tackZ + v * (headZ - tackZ),
+        );
+      }
+    }
+  }
+
+  // Save active state for next frame's transition detection
+  prevVertexActive.set(vertexActive);
 
   // Clear all pin and skip states — we'll set them fresh each frame
   for (let i = 0; i < vertexCount; i++) {

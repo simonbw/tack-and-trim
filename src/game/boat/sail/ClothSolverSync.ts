@@ -24,6 +24,7 @@ export class ClothSolverSync implements ClothPositionReader {
   private readonly vertexV: Float64Array;
   private readonly furlMode: FurlMode;
   private readonly vertexActive: Uint8Array;
+  private readonly prevVertexActive: Uint8Array;
   private solved = false;
 
   // Reaction force accumulators
@@ -53,6 +54,7 @@ export class ClothSolverSync implements ClothPositionReader {
     this.vertexV = vertexV;
     this.furlMode = furlMode;
     this.vertexActive = new Uint8Array(solver.vertexCount);
+    this.prevVertexActive = new Uint8Array(solver.vertexCount);
   }
 
   hasNewResults(): boolean {
@@ -219,6 +221,27 @@ export class ClothSolverSync implements ClothPositionReader {
         active[i] = this.vertexU[i] >= wrapThreshold ? 1 : 0;
       }
     }
+
+    // Reset vertices that just transitioned from skipped to active (v-cutoff only).
+    // Skipped vertices don't get their positions updated, so they drift as the boat
+    // moves. Without this reset they enter the Verlet integrator at stale positions,
+    // causing explosive constraint corrections.
+    if (this.furlMode === "v-cutoff") {
+      for (let i = 0; i < vertexCount; i++) {
+        if (active[i] && !this.prevVertexActive[i]) {
+          const v = this.vertexV[i];
+          solver.resetVertex(
+            i,
+            tackX + v * (headX - tackX),
+            tackY + v * (headY - tackY),
+            tackZ + v * (headZ - tackZ),
+          );
+        }
+      }
+    }
+
+    // Save active state for next frame's transition detection
+    this.prevVertexActive.set(active);
 
     // Clear pins and skipped
     for (let i = 0; i < vertexCount; i++) {
