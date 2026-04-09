@@ -7,7 +7,6 @@ import { V, V2d } from "../../core/Vector";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { TerrainFloorConstraint } from "../constraints/TerrainFloorConstraint";
-import { RopeDragConstraint } from "../rope/RopeDragConstraint";
 import { Rope, RopeWaypoint } from "../rope/Rope";
 import { AnchorConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
@@ -171,32 +170,24 @@ export class Anchor extends BaseEntity {
         particleCount,
         particleMass,
         damping: 0,
+        drag: {
+          waterDrag: true,
+          ropeDiameter: RODE_DIAMETER,
+          ropeDragCd: RODE_DRAG_CD,
+        },
+        terrainFloor: {
+          floorFriction: RODE_FLOOR_FRICTION,
+        },
       },
       [bowRoller, winchWaypoint],
     );
 
     this.winchIndex = this.rode.findWinch();
 
-    // Register bodies and constraints with entity system
-    this.bodies = [this.anchorBody, ...this.rode.getParticles()];
+    // Register rode particles as child entities (each owns its body + queries)
+    this.bodies = [this.anchorBody];
+    for (const p of this.rode.getParticleEntities()) this.addChild(p);
     this.constraints = [...this.rode.getAllConstraints()];
-
-    const rodeParticles = this.rode.getParticles();
-
-    // Rode particle environment physics
-    this.addChild(
-      new RopeDragConstraint(rodeParticles, {
-        waterDrag: true,
-        ropeDiameter: RODE_DIAMETER,
-        ropeDragCd: RODE_DRAG_CD,
-        chainLinkLength: this.rode.getChainLinkLength(),
-      }),
-    );
-    this.addChild(
-      new TerrainFloorConstraint(rodeParticles, {
-        floorFriction: RODE_FLOOR_FRICTION,
-      }),
-    );
 
     // Anchor body terrain floor
     this.addChild(

@@ -7,7 +7,6 @@ import { V2d } from "../../core/Vector";
 import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
 import { LBF_TO_ENGINE } from "../physics-constants";
 import { Rope, RopeConfig, RopeWaypoint } from "../rope/Rope";
-import { RopeDragConstraint } from "../rope/RopeDragConstraint";
 import type { RopePattern } from "./RopeShader";
 
 export interface SheetConfig {
@@ -165,6 +164,12 @@ export class Sheet extends BaseEntity {
               hullBoundary: this.hullBoundary,
             }
           : undefined,
+      drag: {
+        airDrag: true,
+        waterDrag: true,
+        ropeDiameter,
+        ropeDragCd: this.config.ropeDragCd ?? DEFAULT_CONFIG.ropeDragCd!,
+      },
     };
 
     this.rope = new Rope(
@@ -179,20 +184,9 @@ export class Sheet extends BaseEntity {
 
     this.winchIndex = this.rope.findWinch();
 
-    // Expose rope internals to the entity system
-    this.bodies = [...this.rope.getParticles()];
+    // Register rope particles as child entities (each owns its body + queries)
+    for (const p of this.rope.getParticleEntities()) this.addChild(p);
     this.constraints = [...this.rope.getAllConstraints()];
-
-    // Fluid drag: quadratic air + water drag on rope particles
-    this.addChild(
-      new RopeDragConstraint(this.rope.getParticles(), {
-        airDrag: true,
-        waterDrag: true,
-        ropeDiameter: ropeDiameter,
-        ropeDragCd: this.config.ropeDragCd ?? DEFAULT_CONFIG.ropeDragCd!,
-        chainLinkLength: this.rope.getChainLinkLength(),
-      }),
-    );
   }
 
   /**

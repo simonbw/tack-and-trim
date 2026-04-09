@@ -19,12 +19,9 @@ import {
   type PulleyMode,
 } from "../../core/physics/constraints/PulleyConstraint3D";
 import { computePulleyWrap } from "../../core/physics/utils/pulleyGeometry";
-import type { World } from "../../core/physics/world/World";
-import {
-  DeckContactConstraint,
-  type HullBoundaryData,
-} from "../../core/physics/constraints/DeckContactConstraint";
+import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
 import { V, V2d } from "../../core/Vector";
+import { RopeParticle } from "./RopeParticle";
 
 export interface RopeConfig {
   /** Total number of interior particles. Default 24. */
@@ -71,6 +68,24 @@ export interface RopeConfig {
     hullBoundary: HullBoundaryData;
     /** Coulomb friction coefficient. Default 1.5. */
     frictionCoefficient?: number;
+  };
+
+  /** Fluid drag applied to each particle. If omitted, no drag. */
+  drag?: {
+    /** Apply aerodynamic drag above the water surface. Default false. */
+    airDrag?: boolean;
+    /** Apply hydrodynamic drag below the water surface. Default false. */
+    waterDrag?: boolean;
+    /** Rope diameter in feet (drag area). Default uses ropeDiameter. */
+    ropeDiameter?: number;
+    /** Drag coefficient for cylinder cross-section. Default 1.2. */
+    ropeDragCd?: number;
+  };
+
+  /** Terrain floor constraint per particle. If omitted, no floor. */
+  terrainFloor?: {
+    /** Friction applied to XY velocity when resting on the floor. Default 0.8. */
+    floorFriction?: number;
   };
 }
 
@@ -131,6 +146,7 @@ interface WinchState {
 
 export class Rope {
   // The continuous particle chain
+  private particleEntities: RopeParticle[];
   private particles: DynamicBody[];
   private chainConstraints: DistanceConstraint3D[];
   private chainLinkLength: number;
@@ -164,10 +180,6 @@ export class Rope {
   private readonly minLinkFraction: number;
   private totalLength: number;
   private readonly freeEndB: boolean;
-  private attached: boolean = false;
-
-  // Deck contact constraints (one per particle, if enabled)
-  private deckContactConstraints: DeckContactConstraint[] = [];
 
   // Pre-allocated output arrays
   private cachedPositions: [number, number][] = [];
@@ -262,8 +274,28 @@ export class Rope {
     // Chain link length: total rope / (numParticles + 1) links
     this.chainLinkLength = this.totalLength / (numParticles + 1);
 
+    // Precompute drag half-Cd-A if drag is configured
+    const dragConfig = config.drag;
+    const dragHalfCdA = dragConfig
+      ? 0.5 *
+        (dragConfig.ropeDragCd ?? 1.2) *
+        (dragConfig.ropeDiameter ?? config.ropeDiameter ?? 0.026) *
+        this.chainLinkLength
+      : 0;
+
+    // Build deck contact config (if enabled) — applied per particle against bodyB
+    const deckContactConfig = config.deckContact
+      ? {
+          hullBody: bodyB,
+          getDeckHeight: config.deckContact.getDeckHeight,
+          hullBoundary: config.deckContact.hullBoundary,
+          frictionCoefficient: config.deckContact.frictionCoefficient ?? 1.5,
+          ropeRadius: (config.ropeDiameter ?? 0.026) / 2,
+        }
+      : undefined;
+
     // Create particles uniformly spaced along the path
-    this.particles = [];
+    this.particleEntities = [];
     const velA = bodyA.velocity;
     const velB = bodyB.velocity;
     for (let i = 0; i < numParticles; i++) {
@@ -295,26 +327,31 @@ export class Rope {
         worldPos[segIdx][2] +
         segT * (worldPos[segIdx + 1][2] - worldPos[segIdx][2]);
 
-      const particle = new DynamicBody({
+      const rp = new RopeParticle({
         mass: this.particleMass,
-        position: [px, py],
-        fixedRotation: true,
         damping: this.particleDamping,
-        allowSleep: false,
-        sixDOF: {
-          rollInertia: 1,
-          pitchInertia: 1,
-          zMass: this.particleMass,
-          zDamping: this.particleDamping,
-          rollPitchDamping: 0,
-          zPosition: pz,
-        },
+        position: [px, py],
+        zPosition: pz,
+        initialVelocity: [
+          velA[0] + t * (velB[0] - velA[0]),
+          velA[1] + t * (velB[1] - velA[1]),
+        ],
+        gravity: this.gravity,
+        drag: dragConfig
+          ? {
+              airDrag: dragConfig.airDrag ?? false,
+              waterDrag: dragConfig.waterDrag ?? false,
+              halfCdA: dragHalfCdA,
+            }
+          : undefined,
+        deckContact: deckContactConfig,
+        terrainFloor: config.terrainFloor
+          ? { floorFriction: config.terrainFloor.floorFriction ?? 0.8 }
+          : undefined,
       });
-      // Interpolate velocity
-      particle.velocity[0] = velA[0] + t * (velB[0] - velA[0]);
-      particle.velocity[1] = velA[1] + t * (velB[1] - velA[1]);
-      this.particles.push(particle);
+      this.particleEntities.push(rp);
     }
+    this.particles = this.particleEntities.map((rp) => rp.body);
 
     // Create chain constraints: endpointA → P₀ → P₁ → ... → Pₙ → endpointB
     this.chainConstraints = [];
@@ -459,25 +496,6 @@ export class Rope {
       }
     }
 
-    // Deck contact constraints: one per particle against endpoint B (hull body)
-    if (config.deckContact) {
-      const dc = config.deckContact;
-      const ropeRadius = (config.ropeDiameter ?? 0.026) / 2;
-      for (const p of this.particles) {
-        this.deckContactConstraints.push(
-          new DeckContactConstraint(
-            p,
-            bodyB,
-            dc.getDeckHeight,
-            dc.hullBoundary,
-            dc.frictionCoefficient ?? 1.5,
-            ropeRadius,
-            { collideConnected: true, wakeUpBodies: false },
-          ),
-        );
-      }
-    }
-
     // Pre-allocate output arrays
     // Points: endpointA + particles + waypoints (inserted) + endpointB
     this.rebuildCachedArrays();
@@ -529,43 +547,13 @@ export class Rope {
 
   // ---- Physics world management ----
 
-  attach(world: World): void {
-    if (this.attached) return;
-    for (const p of this.particles) world.bodies.add(p);
-    for (const c of this.chainConstraints) world.constraints.add(c);
-    for (const ps of this.pulleys) world.constraints.add(ps.constraint);
-    for (const c of this.deckContactConstraints) world.constraints.add(c);
-    this.attached = true;
-  }
-
-  detach(world: World): void {
-    if (!this.attached) return;
-    for (const c of this.deckContactConstraints) world.constraints.remove(c);
-    for (const ps of this.pulleys) world.constraints.remove(ps.constraint);
-    for (const c of this.chainConstraints) world.constraints.remove(c);
-    for (const p of this.particles) world.bodies.remove(p);
-    this.attached = false;
-  }
-
   // ---- Per-tick update ----
 
   tick(dt: number): void {
     for (const ps of this.pulleys) {
       this.updatePulleyState(ps);
     }
-    this.applyGravity();
     this.applyInternalFriction(dt);
-  }
-
-  /** Apply buoyancy-reduced gravity as a downward z-force on each particle. */
-  private applyGravity(): void {
-    const g = this.gravity;
-    if (g <= 0) return;
-    const mass = this.particleMass;
-    const fz = -g * mass;
-    for (const p of this.particles) {
-      p.applyForce3D(0, 0, fz, 0, 0, 0);
-    }
   }
 
   /**
@@ -1059,6 +1047,10 @@ export class Rope {
 
   // ---- Entity system integration ----
 
+  getParticleEntities(): readonly RopeParticle[] {
+    return this.particleEntities;
+  }
+
   getParticles(): readonly DynamicBody[] {
     return this.particles;
   }
@@ -1066,12 +1058,7 @@ export class Rope {
   getAllConstraints(): readonly Constraint[] {
     const result: Constraint[] = [...this.chainConstraints];
     for (const ps of this.pulleys) result.push(ps.constraint);
-    result.push(...this.deckContactConstraints);
     return result;
-  }
-
-  isAttached(): boolean {
-    return this.attached;
   }
 
   /** World positions of waypoints (blocks/winches), for rendering block circles. */
