@@ -15,6 +15,8 @@ mod wavefront;
 mod wavemesh_file;
 mod windmesh;
 mod windmesh_file;
+pub mod tidemesh;
+mod tidemesh_file;
 
 use std::sync::Arc;
 
@@ -468,6 +470,106 @@ pub fn build_windmesh_for_level_with_view(
                 short_path(&windmesh_path),
                 buffer.len() as f64 / 1024.0,
                 format_int(meshes.len()),
+                format_ms(d)
+            )
+        },
+    )?;
+
+    Ok(())
+}
+
+pub fn build_tidemesh_for_level_with_view(
+    level_path: &str,
+    output: Option<&str>,
+    view: Option<&StepView>,
+) -> anyhow::Result<()> {
+    let owned_view;
+    let view = match view {
+        Some(v) => v,
+        None => {
+            owned_view = StepView::new();
+            &owned_view
+        }
+    };
+
+    let tidemesh_path = output
+        .map(std::string::ToString::to_string)
+        .unwrap_or_else(|| level_path.replace(".level.json", ".tidemesh"));
+
+    let terrain_data = view.try_run_step(
+        "Parsing level for tide mesh",
+        || -> anyhow::Result<_> {
+            let json_str = std::fs::read_to_string(level_path)
+                .with_context(|| format!("failed to read level file: {level_path}"))?;
+            let level_file = level::parse_level_file(&json_str)
+                .with_context(|| format!("failed to parse level JSON: {level_path}"))?;
+
+            // Load terrain: prefer precomputed binary, fall back to building from contours
+            let terrain = if let Some(terrain_path) =
+                level::resolve_terrain_path(&level_file, std::path::Path::new(level_path))?
+            {
+                let bytes = std::fs::read(&terrain_path).with_context(|| {
+                    format!("failed to read terrain file: {}", terrain_path.display())
+                })?;
+                level::read_terrain_binary(&bytes).with_context(|| {
+                    format!("failed to parse terrain file: {}", terrain_path.display())
+                })?
+            } else {
+                let mut lf = level_file;
+                level::resolve_level_terrain(&mut lf, std::path::Path::new(level_path))?;
+                level::build_terrain_data(&lf)
+            };
+
+            Ok(terrain)
+        },
+        |td, d| {
+            format!(
+                "Parsed level: {}ms ({} contours)",
+                format_ms(d),
+                format_int(td.contour_count),
+            )
+        },
+    )?;
+
+    let config = tidemesh::resolve_tidemesh_config();
+    let input_hash =
+        tidemesh_file::compute_tide_input_hash(&terrain_data, &config.tide_levels);
+    view.info(format!(
+        "Input hash: 0x{:08x}{:08x}",
+        input_hash[0], input_hash[1]
+    ));
+    view.info(format!(
+        "Tide levels: {:?}",
+        config.tide_levels
+    ));
+
+    let mesh = view.run_step(
+        "Building tide mesh",
+        || tidemesh::build_tide_mesh(&terrain_data, &config),
+        |mesh, d| {
+            format!(
+                "Built tide mesh: {} verts, {} tris, {} tide levels ({:.1}s)",
+                format_int(mesh.vertex_count),
+                format_int(mesh.triangle_count),
+                format_int(mesh.tide_levels.len()),
+                d.as_secs_f64()
+            )
+        },
+    );
+
+    view.try_run_step(
+        "Writing tidemesh",
+        || -> anyhow::Result<_> {
+            let buffer = tidemesh_file::build_tidemesh_buffer(&mesh, input_hash);
+            std::fs::write(&tidemesh_path, &buffer)
+                .with_context(|| format!("failed to write tidemesh file: {tidemesh_path}"))?;
+            Ok(buffer)
+        },
+        |buffer, d| {
+            format!(
+                "Wrote {} ({:.1} KB) in {}ms",
+                short_path(&tidemesh_path),
+                buffer.len() as f64 / 1024.0,
                 format_ms(d)
             )
         },

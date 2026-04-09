@@ -7,11 +7,11 @@ import { WakeParticle } from "./WakeParticle";
 
 const MIN_SPEED = 1; // ft/s — below this, no wake
 
-// Reference dissipation power for normalization (ft·lbf/s in engine units).
-// Chosen so that a dinghy at ~4 kts (~6.7 ft/s) with moderate form drag
-// produces a dissipation factor of roughly 1.0. Above this, wake grows;
-// below, it shrinks. The exact value is tuned empirically.
-const REFERENCE_DISSIPATION = 5000;
+// Reference dissipation per pound of displacement (ft·lbf/s per lb).
+// Calibrated so that a boat at ~4 kts with moderate form drag produces a
+// dissipation factor of roughly 1.0. Scales with displacement so heavier
+// boats don't peg the wake at maximum.
+const REFERENCE_DISSIPATION_PER_LB = 12.5; // gives 5000 at 400 lb displacement
 
 export class Wake extends BaseEntity {
   layer = "wake" as const;
@@ -24,6 +24,7 @@ export class Wake extends BaseEntity {
   private amplitudeScale: number;
   private waterlineLength: number;
   private beam: number;
+  private referenceDissipation: number;
 
   constructor(boat: Boat, spawnLocal: V2d, amplitudeScale: number = 1) {
     super();
@@ -46,6 +47,8 @@ export class Wake extends BaseEntity {
     }
     this.waterlineLength = maxX - minX;
     this.beam = maxY - minY;
+    this.referenceDissipation =
+      boat.config.buoyancy.verticalMass * REFERENCE_DISSIPATION_PER_LB;
   }
 
   @on("tick")
@@ -79,7 +82,7 @@ export class Wake extends BaseEntity {
     const dissipation = this.boat.hull.getDissipation();
     const dissipationFactor =
       dissipation.totalPower > 0
-        ? Math.sqrt(dissipation.totalPower / REFERENCE_DISSIPATION)
+        ? Math.sqrt(dissipation.totalPower / this.referenceDissipation)
         : 0;
     // Clamp to [0.3, 2.0] so wake never vanishes entirely and doesn't blow up
     const clampedDissipation = Math.min(2.0, Math.max(0.3, dissipationFactor));

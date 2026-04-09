@@ -62,7 +62,7 @@ export class TimeOfDay extends BaseEntity {
    */
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]) {
-    if (this.game.io.isKeyDown("KeyT")) {
+    if (this.game.io.isKeyDown("Period")) {
       this.timeInSeconds += dt * this.timeScale * 5000;
     } else {
       this.timeInSeconds += dt * this.timeScale;

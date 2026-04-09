@@ -22,6 +22,11 @@ pub fn windmesh_output_path(slug: &str) -> PathBuf {
     repo_root().join(format!("static/levels/{}.windmesh", slug))
 }
 
+/// Convention-based path for a region's tidemesh output file.
+pub fn tidemesh_output_path(slug: &str) -> PathBuf {
+    repo_root().join(format!("static/levels/{}.tidemesh", slug))
+}
+
 /// Convention-based path for a region's trees output file.
 pub fn trees_output_path(slug: &str) -> PathBuf {
     repo_root().join(format!("static/levels/{}.trees", slug))

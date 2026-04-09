@@ -26,6 +26,7 @@ import {
   fn_computeTerrainHeight,
   struct_ContourData,
 } from "../shaders/terrain.wgsl";
+import { fn_lookupTidalFlow } from "../shaders/tide-mesh-packed.wgsl";
 import { fn_calculateModifiers } from "../shaders/water-modifiers.wgsl";
 import {
   GERSTNER_STEEPNESS,
@@ -49,8 +50,8 @@ export const WaterQueryUniforms = defineUniformStruct("Params", {
   contourCount: u32,
   defaultDepth: f32,
   numWaves: u32,
-  _padding0: f32,
-  _padding1: f32,
+  tidalPhase: f32,
+  tidalStrength: f32,
   _padding2: f32,
   _padding3: f32,
   _padding4: f32,
@@ -71,8 +72,8 @@ struct Params {
   contourCount: u32,
   defaultDepth: f32,
   numWaves: u32,
-  _padding0: f32,
-  _padding1: f32,
+  tidalPhase: f32,
+  tidalStrength: f32,
   _padding2: f32,
   _padding3: f32,
   _padding4: f32,
@@ -94,6 +95,7 @@ struct WaterQueryResult {
     modifiers: { type: "storage", wgslType: "array<f32>" },
     packedMesh: { type: "storage", wgslType: "array<u32>" },
     packedTerrain: { type: "storage", wgslType: "array<u32>" },
+    packedTideMesh: { type: "storage", wgslType: "array<u32>" },
     pointBuffer: { type: "storage", wgslType: "array<vec2<f32>>" },
     resultBuffer: { type: "storageRW", wgslType: "array<WaterQueryResult>" },
   },
@@ -111,6 +113,7 @@ const waterQueryMainModule: ShaderModule = {
     fn_calculateModifiers,
     fn_lookupMeshForWave,
     fn_computeTerrainHeight,
+    fn_lookupTidalFlow,
   ],
   code: /*wgsl*/ `
 // Constants
@@ -233,10 +236,19 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let finalSurfaceHeight = surfaceHeight + modifierResult.x;
   let finalDepth = finalSurfaceHeight - terrainHeight;
 
+  // Sample tidal flow from precomputed mesh
+  let tidalVel = lookupTidalFlow(
+    queryPoint,
+    &packedTideMesh,
+    params.tideHeight,
+    params.tidalPhase,
+    params.tidalStrength,
+  );
+
   var result: WaterQueryResult;
   result.surfaceHeight = finalSurfaceHeight;
-  result.velocityX = modifierResult.y;
-  result.velocityY = modifierResult.z;
+  result.velocityX = modifierResult.y + tidalVel.x;
+  result.velocityY = modifierResult.z + tidalVel.y;
   result.normalX = normal.x;
   result.normalY = normal.y;
   result.depth = finalDepth;

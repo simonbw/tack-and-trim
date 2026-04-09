@@ -19,9 +19,9 @@ import {
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import type { WebGPURenderer } from "../../../core/graphics/webgpu/WebGPURenderer";
 
-/** 5 floats per vertex: position (2) + normal (3) */
-export const SAIL_VERTEX_SIZE = 5;
-const SAIL_VERTEX_STRIDE = SAIL_VERTEX_SIZE * 4; // 20 bytes
+/** 6 floats per vertex: position (2) + normal (3) + z (1) */
+export const SAIL_VERTEX_SIZE = 6;
+const SAIL_VERTEX_STRIDE = SAIL_VERTEX_SIZE * 4; // 24 bytes
 
 const SailUniforms = defineUniformStruct("SailUniforms", {
   viewMatrix: mat3x3,
@@ -37,14 +37,13 @@ ${SailUniforms.wgsl}
 // Depth mapping — must match WebGPURenderer constants
 const Z_MIN: f32 = -10.0;
 const Z_MAX: f32 = 30.0;
-// Sails are well above sea level. Use a constant z-height for depth.
-const SAIL_Z: f32 = 5.0;
 
 @group(0) @binding(0) var<uniform> uniforms: SailUniforms;
 
 struct VertexInput {
   @location(0) position: vec2<f32>,
   @location(1) normal: vec3<f32>,
+  @location(2) z: f32,
 }
 
 struct VertexOutput {
@@ -57,7 +56,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   let worldPos = vec3<f32>(in.position, 1.0);
   let clipPos = uniforms.viewMatrix * worldPos;
 
-  let depth = (SAIL_Z - Z_MIN) / (Z_MAX - Z_MIN);
+  let depth = (in.z - Z_MIN) / (Z_MAX - Z_MIN);
 
   var out: VertexOutput;
   out.position = vec4<f32>(clipPos.xy, depth, 1.0);
@@ -152,6 +151,7 @@ async function ensureInitialized(): Promise<void> {
       attributes: [
         { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
         { shaderLocation: 1, offset: 8, format: "float32x3" }, // normal
+        { shaderLocation: 2, offset: 20, format: "float32" }, // z
       ],
     };
 

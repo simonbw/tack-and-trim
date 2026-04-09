@@ -1,8 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
-import { on } from "../../core/entity/handler";
 import { DynamicBody } from "../../core/physics/body/DynamicBody";
-import { RevoluteConstraint } from "../../core/physics/constraints/RevoluteConstraint";
+import { RevoluteConstraint3D } from "../../core/physics/constraints/RevoluteConstraint3D";
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import { RigConfig } from "./BoatConfig";
@@ -12,7 +11,7 @@ import { Sail } from "./sail/Sail";
 export class Rig extends BaseEntity {
   layer = "boat" as const;
   body: NonNullable<Entity["body"]>;
-  private boomConstraint: RevoluteConstraint;
+  private boomConstraint: RevoluteConstraint3D;
   sail!: Sail;
 
   private mastPosition: V2d;
@@ -21,6 +20,7 @@ export class Rig extends BaseEntity {
   private boomZ: number;
   private mastColor: number;
   private boomColor: number;
+  private mastTopZ: number;
   private stays: RigConfig["stays"];
 
   constructor(
@@ -36,26 +36,38 @@ export class Rig extends BaseEntity {
     this.boomLength = boomLength;
     this.boomWidth = boomWidth;
     this.boomZ = mainsail.zFoot ?? 3;
+    this.mastTopZ = mainsail.zHead ?? 20;
     this.mastColor = colors.mast;
     this.boomColor = colors.boom;
     this.stays = config.stays;
 
-    // Boom physics body - pivot is at origin, boom extends in -x direction
-    // Position at the mast's world-space location so constraints aren't violated at spawn
-    const mastWorld = hull.body.toWorldFrame(mastPosition);
+    // Boom physics body — 6DOF so the 3D revolute joint can lock its
+    // orientation to the hull's (hinge around the mast axis). Pivot is at
+    // origin, boom extends in -x direction.
+    const [mastWorldX, mastWorldY, mastWorldZ] = hull.body.toWorldFrame3D(
+      mastPosition.x,
+      mastPosition.y,
+      this.boomZ,
+    );
     this.body = new DynamicBody({
       mass: boomMass,
-      position: [mastWorld.x, mastWorld.y],
+      position: [mastWorldX, mastWorldY],
+      sixDOF: {
+        rollInertia: 1,
+        pitchInertia: 1,
+        zMass: boomMass,
+        zPosition: mastWorldZ,
+      },
     });
     this.body.addShape(new Box({ width: boomLength, height: boomWidth }), [
       -boomLength / 2,
       0,
     ]);
 
-    // Constraint connecting boom to hull at mast position.
-    // localPivotZA sets the z-height so constraint reactions automatically
-    // generate roll/pitch torques via 3D cross products in the solver.
-    this.boomConstraint = new RevoluteConstraint(hull.body, this.body, {
+    // 3D revolute joint (hinge around the mast axis): pins the boom to the
+    // hull at the mast pivot in 3D and locks the boom's roll/pitch to the
+    // hull's, leaving only yaw around the mast axis free.
+    this.boomConstraint = new RevoluteConstraint3D(hull.body, this.body, {
       localPivotA: [mastPosition.x, mastPosition.y],
       localPivotB: [0, 0],
       localPivotZA: this.boomZ,
@@ -73,128 +85,44 @@ export class Rig extends BaseEntity {
         getClewPosition: () => this.getBoomEndWorldPosition(),
         headConstraint: { body: this.body, localAnchor: V(0, 0) },
         clewConstraint: { body: this.body, localAnchor: V(-boomLength, 0) },
-        getTiltTransform: () => this.hull.tiltTransform,
+        getHullBody: () => this.hull.body,
       }),
     );
   }
 
-  @on("render")
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }) {
-    const [hx, hy] = this.hull.body.position;
-    const hullAngle = this.hull.body.angle;
-    const [mx, my] = this.getMastWorldPosition();
-    const t = this.hull.tiltTransform;
-    const zOffset = this.hull.body.z;
+  /** Hull-local mast position. */
+  getMastPosition(): V2d {
+    return this.mastPosition;
+  }
 
-    const mastTopWorld = t.worldOffset(20);
+  /** Z-height of mast top. */
+  getMastTopZ(): number {
+    return this.mastTopZ;
+  }
 
-    // 1. Boom (bottom layer)
-    // Boom has independent rotation from hull, so we keep manual 2D endpoint
-    // computation but use t.worldZ() for the depth value.
-    const relAngle = this.body.angle - this.hull.body.angle;
-    const boomEndLocalX =
-      this.mastPosition.x - this.boomLength * Math.cos(relAngle);
-    const boomEndLocalY =
-      this.mastPosition.y - this.boomLength * Math.sin(relAngle);
-    const [boomStartX, boomStartY] = t.toWorld3D(
-      this.mastPosition.x,
-      this.mastPosition.y,
-      this.boomZ,
-    );
-    const [boomEndX, boomEndY] = t.toWorld3D(
-      boomEndLocalX,
-      boomEndLocalY,
-      this.boomZ,
-    );
-    const boomWorldZ = t.worldZ(
-      this.mastPosition.x,
-      this.mastPosition.y,
-      this.boomZ,
-      zOffset,
-    );
-    const boomAngle = Math.atan2(boomEndY - boomStartY, boomEndX - boomStartX);
-    const boomLen = Math.hypot(boomEndX - boomStartX, boomEndY - boomStartY);
+  /** Z-height of the boom. */
+  getBoomZ(): number {
+    return this.boomZ;
+  }
 
-    draw.at({ pos: V(boomStartX, boomStartY), angle: boomAngle }, () => {
-      draw.fillRect(0, -this.boomWidth / 2, boomLen, this.boomWidth, {
-        color: this.boomColor,
-        z: boomWorldZ,
-      });
-      draw.fillCircle(boomLen, 0, 0.3, { color: 0x664422, z: boomWorldZ });
-    });
+  /** Boom width in ft. */
+  getBoomWidth(): number {
+    return this.boomWidth;
+  }
 
-    // 2. Standing rigging (above boom)
-    // Use GPU-driven tilt projection: draw.at with tilt context handles
-    // parallax and depth. We draw with body-local coords and z = deckHeight.
-    const dz = this.stays.deckHeight;
-    const riggingColor = 0x999999;
-    const riggingWidth = 0.1;
-    draw.at(
-      {
-        pos: V(hx, hy),
-        angle: hullAngle,
-        tilt: {
-          roll: this.hull.body.roll,
-          pitch: this.hull.body.pitch,
-          zOffset,
-        },
-      },
-      () => {
-        const lmx = this.mastPosition.x;
-        const lmy = this.mastPosition.y;
+  /** Mast visual color. */
+  getMastColor(): number {
+    return this.mastColor;
+  }
 
-        const fs = this.stays.forestay;
-        const ps = this.stays.portShroud;
-        const ss = this.stays.starboardShroud;
-        const bs = this.stays.backstay;
+  /** Boom visual color. */
+  getBoomColor(): number {
+    return this.boomColor;
+  }
 
-        draw.line(lmx, lmy, fs.x, fs.y, {
-          color: riggingColor,
-          width: riggingWidth,
-          z: dz,
-        });
-        draw.line(lmx, lmy, ps.x, ps.y, {
-          color: riggingColor,
-          width: riggingWidth,
-          z: dz,
-        });
-        draw.line(lmx, lmy, ss.x, ss.y, {
-          color: riggingColor,
-          width: riggingWidth,
-          z: dz,
-        });
-        draw.line(lmx, lmy, bs.x, bs.y, {
-          color: riggingColor,
-          width: riggingWidth,
-          z: dz,
-        });
-      },
-    );
-
-    // 3. Mast (on top of everything)
-    // Use t.worldZ() for depth at mast base and top.
-    const mastBaseZ = t.worldZ(
-      this.mastPosition.x,
-      this.mastPosition.y,
-      0,
-      zOffset,
-    );
-    const mastTopZ = t.worldZ(
-      this.mastPosition.x,
-      this.mastPosition.y,
-      20,
-      zOffset,
-    );
-    draw.line(mx, my, mx + mastTopWorld.x, my + mastTopWorld.y, {
-      color: this.mastColor,
-      width: 0.4,
-      z: mastTopZ,
-    });
-    draw.fillCircle(mx, my, 0.3, { color: this.mastColor, z: mastBaseZ });
-    draw.fillCircle(mx + mastTopWorld.x, my + mastTopWorld.y, 0.2, {
-      color: this.mastColor,
-      z: mastTopZ,
-    });
+  /** Stay attachment config. */
+  getStays(): typeof this.stays {
+    return this.stays;
   }
 
   getMastWorldPosition(): V2d {
@@ -203,11 +131,24 @@ export class Rig extends BaseEntity {
   }
 
   getBoomEndWorldPosition(): V2d {
-    const [mx, my] = this.getMastWorldPosition();
-    return V(-this.boomLength, 0).rotate(this.body.angle).iadd([mx, my]);
+    // Use the boom body's full 3D transform. The 3D revolute joint keeps
+    // the boom body's orientation and z in sync with the hull's tilt, so
+    // this naturally includes hull roll/pitch parallax.
+    const [x, y] = this.body.toWorldFrame3D(-this.boomLength, 0, 0);
+    return V(x, y);
   }
 
   getBoomLength(): number {
     return this.boomLength;
+  }
+
+  /**
+   * Boom yaw relative to hull (around the hull's z-axis), maintained by
+   * the 3D revolute joint via axis projection. Prefer this over
+   * `boom.angle - hull.angle` — with hull tilt, that extraction mixes yaw
+   * with tilt due to atan2 projection.
+   */
+  getBoomRelativeYaw(): number {
+    return this.boomConstraint.getRelativeAngle();
   }
 }

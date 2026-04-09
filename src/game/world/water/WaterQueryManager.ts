@@ -3,6 +3,8 @@ import type { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader"
 
 import { createPlaceholderPackedMeshBuffer } from "../../wave-physics/MeshPacking";
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
+import { createPlaceholderTideMeshBuffer } from "./TideMeshPacking";
+import { TidalResources } from "./TidalResources";
 import { BaseQuery } from "../query/BaseQuery";
 import { QueryManager } from "../query/QueryManager";
 import { DEFAULT_DEPTH } from "../terrain/TerrainConstants";
@@ -27,6 +29,7 @@ export class WaterQueryManager extends QueryManager {
   private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private placeholderPackedMeshBuffer: GPUBuffer | null = null;
+  private placeholderTideMeshBuffer: GPUBuffer | null = null;
   private uniforms = WaterQueryUniforms.create();
 
   constructor() {
@@ -53,6 +56,18 @@ export class WaterQueryManager extends QueryManager {
     // Create placeholder packed mesh buffer (empty - no wave sources)
     this.placeholderPackedMeshBuffer = createPlaceholderPackedMeshBuffer(
       this.game.getWebGPUDevice(),
+    );
+
+    // Create placeholder tide mesh buffer (empty - no tidal data)
+    this.placeholderTideMeshBuffer = device.createBuffer({
+      label: "Placeholder Tide Mesh Buffer",
+      size: createPlaceholderTideMeshBuffer().byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(
+      this.placeholderTideMeshBuffer,
+      0,
+      createPlaceholderTideMeshBuffer(),
     );
   }
 
@@ -90,6 +105,12 @@ export class WaterQueryManager extends QueryManager {
     const tideHeight = waterResources.getTideHeight();
     const modifierCount = waterResources.getModifierCount();
 
+    const tidalResources =
+      this.game.entities.tryGetSingleton(TidalResources);
+    const packedTideMeshBuffer =
+      tidalResources?.getPackedBuffer(this.game.getWebGPUDevice()) ??
+      this.placeholderTideMeshBuffer!;
+
     this.uniforms.set.pointCount(pointCount);
     this.uniforms.set.time(performance.now() / 1000);
     this.uniforms.set.tideHeight(tideHeight);
@@ -97,8 +118,8 @@ export class WaterQueryManager extends QueryManager {
     this.uniforms.set.contourCount(terrainResources.getContourCount());
     this.uniforms.set.defaultDepth(DEFAULT_DEPTH);
     this.uniforms.set.numWaves(waterResources.getNumWaves());
-    this.uniforms.set._padding0(0);
-    this.uniforms.set._padding1(0);
+    this.uniforms.set.tidalPhase(tidalResources?.getTidalPhase() ?? 0);
+    this.uniforms.set.tidalStrength(tidalResources?.getTidalStrength() ?? 0);
     this.uniforms.set._padding2(0);
     this.uniforms.set._padding3(0);
     this.uniforms.set._padding4(0);
@@ -110,6 +131,7 @@ export class WaterQueryManager extends QueryManager {
       modifiers: { buffer: waterResources.modifiersBuffer },
       packedMesh: { buffer: packedMeshBuffer },
       packedTerrain: { buffer: terrainResources.packedTerrainBuffer },
+      packedTideMesh: { buffer: packedTideMeshBuffer },
       pointBuffer: { buffer: this.pointBuffer },
       resultBuffer: { buffer: this.resultBuffer },
     });
@@ -127,5 +149,6 @@ export class WaterQueryManager extends QueryManager {
   onDestroy(): void {
     this.uniformBuffer?.destroy();
     this.placeholderPackedMeshBuffer?.destroy();
+    this.placeholderTideMeshBuffer?.destroy();
   }
 }

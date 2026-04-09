@@ -7,7 +7,7 @@ import { V, V2d } from "../../core/Vector";
 import type { PortData } from "../../editor/io/LevelFileFormat";
 
 // Dock dimensions in feet
-const DOCK_LENGTH = 25; // ft
+const DOCK_LENGTH = 50; // ft — long enough for the largest boats
 const DOCK_WIDTH = 5; // ft
 
 // Cleat positions along dock length from shore end (0 = shore, 1 = tip)

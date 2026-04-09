@@ -1,0 +1,817 @@
+import { BaseEntity } from "../../core/entity/BaseEntity";
+import { on } from "../../core/entity/handler";
+import type { Draw } from "../../core/graphics/Draw";
+import { V } from "../../core/Vector";
+import type { Boat } from "./Boat";
+import type { BoatConfig } from "./BoatConfig";
+import { buildDeckPlanMeshes } from "./deck-plan";
+import { RopeShaderInstance } from "./RopeShader";
+import {
+  type MeshContribution,
+  computeTiltProjection,
+  roundCorners,
+  catmullRomOutputCount,
+  extractCameraTransform,
+  subdivideCatmullRom,
+  tessellateRopeStrip,
+} from "./tessellation";
+import { TiltDraw } from "./TiltDraw";
+
+/**
+ * Unified boat renderer that collects geometry from all boat components
+ * and submits it through a single tilt context with per-vertex z-values.
+ *
+ * This fixes z-ordering issues caused by the previous approach where each
+ * component rendered independently with inconsistent z-handling.
+ */
+export class BoatRenderer extends BaseEntity {
+  layer = "boat" as const;
+
+  private config: BoatConfig;
+
+  // Pre-built static meshes (hull-local, computed once)
+  private keelMesh: MeshContribution | null = null;
+  private deckPlanMeshes: MeshContribution[] = [];
+
+  constructor(private boat: Boat) {
+    super();
+    this.config = boat.config;
+    this.buildStaticMeshes();
+  }
+
+  private buildStaticMeshes() {
+    // Keel: vertical blade from hull bottom to keel tip
+    const keel = this.boat.keel;
+    const keelVertices = keel.getVertices();
+    const keelColor = keel.getColor();
+    const topZ = -this.config.hull.draft; // hull bottom
+    const bottomZ = -this.config.keel.draft; // keel tip
+
+    // Build a vertical quad strip: for each vertex, top and bottom copies
+    const n = keelVertices.length;
+    const positions: [number, number][] = [];
+    const zValues: number[] = [];
+    for (const v of keelVertices) {
+      positions.push([v.x, v.y]); // top edge (at hull bottom)
+      positions.push([v.x, v.y]); // bottom edge (at keel tip)
+      zValues.push(topZ, bottomZ);
+    }
+    // Triangle strip indices: pairs of quads between consecutive vertices
+    const indices: number[] = [];
+    for (let i = 0; i < n - 1; i++) {
+      const tl = i * 2; // top-left
+      const bl = tl + 1; // bottom-left
+      const tr = tl + 2; // top-right
+      const br = tl + 3; // bottom-right
+      indices.push(tl, tr, br, tl, br, bl);
+    }
+    this.keelMesh = { positions, zValues, indices, color: keelColor, alpha: 1 };
+
+    // Build deck plan meshes if configured
+    const deckPlan = this.config.hull.deckPlan;
+    if (deckPlan) {
+      const hullMeshData = this.boat.hull.getHeightMeshData();
+      const hullOutline: [number, number][] =
+        hullMeshData.deckOutline ??
+        // Fallback: extract from first ringSize vertices (legacy ring mesh)
+        Array.from({ length: hullMeshData.ringSize }, (_, i) => [
+          hullMeshData.xyPositions[i][0],
+          hullMeshData.xyPositions[i][1],
+        ]);
+      this.deckPlanMeshes = buildDeckPlanMeshes(
+        deckPlan,
+        hullOutline,
+        this.config.hull.deckHeight,
+        hullMeshData,
+      );
+    }
+  }
+
+  @on("render")
+  onRender({ draw }: { draw: Draw }) {
+    const hull = this.boat.hull;
+    const hullBody = hull.body;
+    const [x, y] = hullBody.position;
+
+    // Precompute tilt projection for screen-width tessellation
+    const tilt = computeTiltProjection(
+      hullBody.angle,
+      hullBody.roll,
+      hullBody.pitch,
+    );
+
+    draw.at(
+      {
+        pos: V(x, y),
+        angle: hullBody.angle,
+        tilt: {
+          roll: hullBody.roll,
+          pitch: hullBody.pitch,
+          zOffset: hullBody.z,
+        },
+      },
+      () => {
+        const renderer = draw.renderer;
+        const td = new TiltDraw(renderer, tilt);
+
+        // === 1. Keel (deepest, drawn first) ===
+        td.mesh(this.keelMesh);
+
+        // === 2. Rudder blade (underwater, flat — hull-local width is correct) ===
+        this.renderRudder(td);
+
+        // === 3. Hull mesh (lower sides → upper sides → deck) ===
+        const {
+          xyPositions,
+          zValues,
+          lowerSideIndices,
+          upperSideIndices,
+          deckIndices,
+          ringSize,
+        } = hull.getHeightMeshData();
+
+        renderer.submitTrianglesWithZ(
+          xyPositions,
+          lowerSideIndices,
+          hull.getSideColor(),
+          1.0,
+          zValues,
+        );
+        renderer.submitTrianglesWithZ(
+          xyPositions,
+          upperSideIndices,
+          hull.getSideColor(),
+          1.0,
+          zValues,
+        );
+        // Deck surface: use deck plan zones if configured, otherwise flat deck cap
+        if (this.deckPlanMeshes.length > 0) {
+          for (const mesh of this.deckPlanMeshes) {
+            td.mesh(mesh);
+          }
+        } else {
+          renderer.submitTrianglesWithZ(
+            xyPositions,
+            deckIndices,
+            hull.getFillColor(),
+            1.0,
+            zValues,
+          );
+        }
+
+        // === 4. Gunwale stroke ===
+        const meshData = hull.getHeightMeshData();
+        const deckZ = meshData.zValues[0]; // deck ring z
+        const gunwalePoints: [number, number][] = meshData.deckOutline
+          ? meshData.deckOutline.map(([x, y]) => [x, y] as [number, number])
+          : Array.from({ length: ringSize }, (_, i) => xyPositions[i]);
+        // Gunwales sit a couple of inches above the deck surface
+        const gunwaleZ = deckZ + 0.2;
+        td.polyline(
+          gunwalePoints,
+          gunwalePoints.map(() => gunwaleZ),
+          0.25,
+          hull.getStrokeColor(),
+          1,
+          true,
+        );
+
+        // === 5. Tiller ===
+        this.renderTiller(td);
+
+        // === 6. Bowsprit (cylindrical — screen-width, with round caps) ===
+        if (this.boat.bowsprit) {
+          const bs = this.boat.bowsprit;
+          const bsZ = this.config.tilt.zHeights.bowsprit;
+          td.line(
+            bs.localPosition.x,
+            bs.localPosition.y,
+            bsZ,
+            bs.localPosition.x + bs.size.x,
+            bs.localPosition.y,
+            bsZ,
+            bs.size.y,
+            bs.getColor(),
+            1,
+            true,
+          );
+        }
+
+        // === 7. Boom (cylindrical — screen-width) ===
+        this.renderBoom(td);
+
+        // === 8. Sheet blocks/winches (small circles on deck) ===
+        this.renderBlocks(td);
+
+        // === 9. Standing rigging (wires — screen-width) ===
+        this.renderStandingRigging(td);
+
+        // === 10. Lifeline stanchions (tubes — screen-width) ===
+        this.renderStanchions(td);
+
+        // === 11. Lifeline pulpits and wires (screen-width) ===
+        this.renderLifelineWires(td);
+
+        // === 12. Mast (cylindrical — screen-width, tallest, drawn last) ===
+        this.renderMast(td);
+      },
+    );
+
+    // === 13. Sheets/ropes — rendered in world space (outside draw.at) ===
+    // Sheet rope endpoints come from the cloth sim which includes tilt parallax,
+    // matching the sail rendering. Rendering through the hull model matrix would
+    // double-count the tilt.
+    const renderer = draw.renderer;
+    renderer.flush();
+    this.renderSheet(renderer, this.boat.mainsheet, hullBody);
+    if (this.boat.portJibSheet) {
+      this.renderSheet(renderer, this.boat.portJibSheet, hullBody);
+    }
+    if (this.boat.starboardJibSheet) {
+      this.renderSheet(renderer, this.boat.starboardJibSheet, hullBody);
+    }
+
+    // === 14. Anchor rode ===
+    this.renderRode(renderer);
+
+    // === 15. Air displacement cap — transparent, depth-only ===
+    // Rendered AFTER ropes so rope color pixels are already in the framebuffer.
+    // The cap writes depth only (alpha=0, no color change), blocking the water
+    // surface shader from rendering water inside the hull. Ropes remain visible
+    // because their color was already drawn; only the depth buffer is overwritten.
+    draw.at(
+      {
+        pos: V(x, y),
+        angle: hullBody.angle,
+        tilt: {
+          roll: hullBody.roll,
+          pitch: hullBody.pitch,
+          zOffset: hullBody.z,
+        },
+      },
+      () => {
+        const { xyPositions, deckIndices, zValues } = hull.getHeightMeshData();
+        draw.renderer.submitTrianglesWithZ(
+          xyPositions,
+          deckIndices,
+          0x000000,
+          0, // alpha=0: invisible, but writes to the depth buffer
+          zValues,
+        );
+      },
+    );
+  }
+
+  private renderRudder(td: TiltDraw) {
+    const rudder = this.boat.rudder;
+    const relAngle = rudder.getTillerAngleOffset();
+    const pivot = rudder.getPosition();
+    const rudderZ = rudder.getRudderZ();
+    const rudderLength = rudder.getLength();
+    const rudderColor = rudder.getColor();
+    const deckZ = this.config.hull.deckHeight;
+    const bladeTopZ = 0.5; // blade starts just above waterline
+    const stockWidth = 0.3;
+
+    // Blade trailing edge in hull-local coords (extends aft from the stock)
+    const cos = Math.cos(relAngle);
+    const sin = Math.sin(relAngle);
+    const trailingX = pivot.x - rudderLength * cos;
+    const trailingY = pivot.y - rudderLength * sin;
+
+    // Rudder blade — vertical rectangle: leading edge at stock, trailing edge aft.
+    td.mesh({
+      positions: [
+        [pivot.x, pivot.y], // top-leading (at stock)
+        [trailingX, trailingY], // top-trailing
+        [trailingX, trailingY], // bottom-trailing
+        [pivot.x, pivot.y], // bottom-leading (at stock)
+      ],
+      zValues: [bladeTopZ, bladeTopZ, rudderZ, rudderZ],
+      indices: [0, 1, 2, 0, 2, 3],
+      color: rudderColor,
+      alpha: 1,
+    });
+
+    // Blade top edge — screen-width line so blade has visible thickness from above
+    td.line(
+      pivot.x,
+      pivot.y,
+      bladeTopZ,
+      trailingX,
+      trailingY,
+      bladeTopZ,
+      0.2,
+      rudderColor,
+      1,
+      true,
+    );
+
+    // Rudder stock — vertical shaft from deck down through hull to blade
+    td.line(
+      pivot.x,
+      pivot.y,
+      deckZ,
+      pivot.x,
+      pivot.y,
+      rudderZ,
+      stockWidth,
+      rudderColor,
+      1,
+      true,
+    );
+  }
+
+  private renderTiller(td: TiltDraw) {
+    const rudder = this.boat.rudder;
+    const tillerAngle = rudder.getTillerAngleOffset();
+    const tillerPos = rudder.getPosition();
+    const deckZ = this.config.hull.deckHeight;
+
+    const cos = Math.cos(tillerAngle);
+    const sin = Math.sin(tillerAngle);
+    const tipX = tillerPos.x + 3 * cos;
+    const tipY = tillerPos.y + 3 * sin;
+
+    td.line(
+      tillerPos.x,
+      tillerPos.y,
+      deckZ,
+      tipX,
+      tipY,
+      deckZ,
+      0.25,
+      0x886633,
+      1,
+      true,
+    );
+  }
+
+  private renderBoom(td: TiltDraw) {
+    const rig = this.boat.rig;
+    const boomRelAngle = rig.getBoomRelativeYaw();
+    const mastPos = rig.getMastPosition();
+    const boomLength = rig.getBoomLength();
+    const boomZ = rig.getBoomZ();
+
+    const cos = Math.cos(boomRelAngle);
+    const sin = Math.sin(boomRelAngle);
+    const endX = mastPos.x - boomLength * cos;
+    const endY = mastPos.y - boomLength * sin;
+
+    td.line(
+      mastPos.x,
+      mastPos.y,
+      boomZ,
+      endX,
+      endY,
+      boomZ,
+      rig.getBoomWidth(),
+      rig.getBoomColor(),
+      1,
+      true,
+    );
+  }
+
+  private renderBlocks(td: TiltDraw) {
+    const hullBody = this.boat.hull.body;
+    const hull = this.boat.hull;
+    const fallbackDeckZ = this.config.hull.deckHeight;
+    const hardwareOffset = 0.3; // blocks/winches protrude ~3.6 inches
+    const winchRadius = 0.3;
+    const sheets = [
+      this.boat.mainsheet,
+      this.boat.portJibSheet,
+      this.boat.starboardJibSheet,
+    ];
+    for (const sheet of sheets) {
+      if (!sheet) continue;
+      for (const wp of sheet.getWaypointInfo()) {
+        const local = hullBody.toLocalFrame(wp.position);
+        const surfaceZ =
+          (hull.getDeckHeight(local[0], local[1]) ?? fallbackDeckZ) +
+          hardwareOffset;
+        td.circle(local[0], local[1], surfaceZ, winchRadius, 32, 0x444444);
+        if (wp.type === "winch") {
+          const handleLen = winchRadius * 1.6;
+          const cos = Math.cos(wp.winchAngle);
+          const sin = Math.sin(wp.winchAngle);
+          td.line(
+            local[0],
+            local[1],
+            surfaceZ + 0.15,
+            local[0] + cos * handleLen,
+            local[1] + sin * handleLen,
+            surfaceZ + 0.15,
+            0.12,
+            0x666666,
+            1,
+            true,
+          );
+        }
+      }
+    }
+  }
+
+  private renderStandingRigging(td: TiltDraw) {
+    const rig = this.boat.rig;
+    const mastPos = rig.getMastPosition();
+    const mastTopZ = rig.getMastTopZ();
+    const stays = rig.getStays();
+
+    for (const attach of [
+      stays.forestay,
+      stays.portShroud,
+      stays.starboardShroud,
+      stays.backstay,
+    ]) {
+      td.line(
+        mastPos.x,
+        mastPos.y,
+        mastTopZ,
+        attach.x,
+        attach.y,
+        stays.deckHeight,
+        0.1,
+        0x999999,
+      );
+    }
+  }
+
+  private renderStanchions(td: TiltDraw) {
+    const lifelineConfig = this.config.lifelines;
+    if (!lifelineConfig) return;
+
+    const deckZ = this.config.hull.deckHeight;
+    const topZ = deckZ + lifelineConfig.stanchionHeight;
+
+    for (const [sx, sy] of [
+      ...lifelineConfig.portStanchions,
+      ...lifelineConfig.starboardStanchions,
+    ]) {
+      td.line(
+        sx,
+        sy,
+        deckZ,
+        sx,
+        sy,
+        topZ,
+        lifelineConfig.tubeWidth,
+        lifelineConfig.tubeColor,
+        1,
+        true,
+      );
+    }
+  }
+
+  private renderLifelineWires(td: TiltDraw) {
+    const lifelineConfig = this.config.lifelines;
+    if (!lifelineConfig) return;
+
+    const deckZ = this.config.hull.deckHeight;
+    const topZ = deckZ + lifelineConfig.stanchionHeight;
+    const { tubeColor, wireColor, tubeWidth, wireWidth } = lifelineConfig;
+
+    // Bow pulpit
+    if (lifelineConfig.bowPulpit.length >= 2) {
+      const points = lifelineConfig.bowPulpit.map(
+        (p) => [p[0], p[1]] as [number, number],
+      );
+      const rounded = roundCorners(
+        points,
+        points.map(() => topZ),
+        1.5,
+        16,
+      );
+      td.polyline(
+        rounded.points,
+        rounded.zValues,
+        tubeWidth,
+        tubeColor,
+        1,
+        false,
+        true,
+      );
+      this.renderPulpitPosts(
+        td,
+        points,
+        rounded,
+        deckZ,
+        topZ,
+        tubeWidth,
+        tubeColor,
+      );
+    }
+
+    // Stern pulpit
+    if (lifelineConfig.sternPulpit.length >= 2) {
+      const points = lifelineConfig.sternPulpit.map(
+        (p) => [p[0], p[1]] as [number, number],
+      );
+      const rounded = roundCorners(
+        points,
+        points.map(() => topZ),
+        1.5,
+        16,
+      );
+      td.polyline(
+        rounded.points,
+        rounded.zValues,
+        tubeWidth,
+        tubeColor,
+        1,
+        false,
+        true,
+      );
+      this.renderPulpitPosts(
+        td,
+        points,
+        rounded,
+        deckZ,
+        topZ,
+        tubeWidth,
+        tubeColor,
+      );
+    }
+
+    // Lifeline wires (port and starboard)
+    for (const isPort of [true, false]) {
+      const stanchions = isPort
+        ? lifelineConfig.portStanchions
+        : lifelineConfig.starboardStanchions;
+      if (stanchions.length === 0) continue;
+
+      const points: [number, number][] = [];
+      if (lifelineConfig.bowPulpit.length > 0) {
+        const bp = isPort
+          ? lifelineConfig.bowPulpit[lifelineConfig.bowPulpit.length - 1]
+          : lifelineConfig.bowPulpit[0];
+        points.push([bp[0], bp[1]]);
+      }
+      for (const s of stanchions) {
+        points.push([s[0], s[1]]);
+      }
+      if (lifelineConfig.sternPulpit.length > 0) {
+        const sp = isPort
+          ? lifelineConfig.sternPulpit[lifelineConfig.sternPulpit.length - 1]
+          : lifelineConfig.sternPulpit[0];
+        points.push([sp[0], sp[1]]);
+      }
+
+      if (points.length >= 2) {
+        // Wires thread through eyes ~½ inch below the stanchion caps
+        const wireZ = topZ - 0.5 / 12;
+        td.polyline(
+          points,
+          points.map(() => wireZ),
+          wireWidth,
+          wireColor,
+        );
+      }
+    }
+  }
+
+  private renderPulpitPosts(
+    td: TiltDraw,
+    originalPoints: [number, number][],
+    rounded: ReturnType<typeof roundCorners>,
+    deckZ: number,
+    topZ: number,
+    tubeWidth: number,
+    tubeColor: number,
+  ) {
+    for (let i = 0; i < originalPoints.length; i++) {
+      // First and last points aren't rounded, use original positions.
+      // Interior points use arc midpoints so posts align with the rounded path.
+      let px: number, py: number;
+      if (i === 0 || i === originalPoints.length - 1) {
+        [px, py] = originalPoints[i];
+      } else {
+        const mid = rounded.arcMidpoints[i - 1];
+        px = mid.x;
+        py = mid.y;
+      }
+
+      td.line(px, py, deckZ, px, py, topZ, tubeWidth, tubeColor, 1, true);
+    }
+  }
+
+  /** Subdivisions per segment for Catmull-Rom rope smoothing. */
+  private static readonly ROPE_SUBDIVISIONS = 3;
+
+  /** Per-sheet smoothing scratch buffers and shader instance. */
+  private ropeRenderState = new Map<
+    import("./Sheet").Sheet,
+    {
+      shader: RopeShaderInstance;
+      smoothPoints: [number, number][];
+      smoothZ: number[];
+      rawV: number[];
+      smoothV: number[];
+      rawCount: number;
+    }
+  >();
+
+  private getRopeRenderState(
+    rawPointCount: number,
+    sheet: import("./Sheet").Sheet,
+  ) {
+    let state = this.ropeRenderState.get(sheet);
+    if (!state || state.rawCount !== rawPointCount) {
+      const smoothCount = catmullRomOutputCount(
+        rawPointCount,
+        BoatRenderer.ROPE_SUBDIVISIONS,
+      );
+      state = {
+        shader: new RopeShaderInstance(smoothCount),
+        smoothPoints: Array.from(
+          { length: smoothCount },
+          () => [0, 0] as [number, number],
+        ),
+        smoothZ: new Array(smoothCount).fill(0),
+        rawV: new Array(rawPointCount).fill(0),
+        smoothV: new Array(smoothCount).fill(0),
+        rawCount: rawPointCount,
+      };
+      this.ropeRenderState.set(sheet, state);
+    }
+    return state;
+  }
+
+  private renderSheet(
+    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+    sheet: import("./Sheet").Sheet,
+    hullBody: import("../../core/physics/body/DynamicBody").DynamicBody,
+  ) {
+    const opacity = sheet.getOpacity();
+    if (opacity <= 0) return;
+
+    const { points: rawPoints, z: rawZ } = sheet.getRopePointsWithZ();
+    if (rawPoints.length < 2) return;
+
+    const state = this.getRopeRenderState(rawPoints.length, sheet);
+
+    // Compute material v-coordinates: each raw point gets a uniform spacing
+    // based on the rope's rest segment length so the texture sticks to the
+    // rope material instead of sliding with arc length.
+    const segLen = sheet.getRopeSegmentLength();
+    for (let i = 0; i < rawPoints.length; i++) {
+      state.rawV[i] = i * segLen;
+    }
+
+    // Smooth the physics points with Catmull-Rom interpolation
+    const smoothCount = subdivideCatmullRom(
+      rawPoints,
+      rawZ,
+      BoatRenderer.ROPE_SUBDIVISIONS,
+      state.smoothPoints,
+      state.smoothZ,
+      state.rawV,
+      state.smoothV,
+    );
+
+    const width = sheet.getRopeThickness();
+    const cam = extractCameraTransform(renderer.getTransform());
+
+    // Compute world-space z-slope from the hull's deck normal so the rope
+    // strip tilts with the deck when heeled. Without this, one edge of the
+    // strip clips through the tilted deck surface.
+    const R = hullBody.orientation;
+    const nz = R[8]; // deck normal z-component (cos of combined tilt)
+    const zSlope =
+      Math.abs(nz) > 0.01
+        ? { dx: -R[2] / nz, dy: -R[5] / nz }
+        : { dx: 0, dy: 0 };
+
+    const { vertexCount, indexCount } = tessellateRopeStrip(
+      state.smoothPoints,
+      state.smoothZ,
+      width,
+      cam,
+      state.shader.scratchVertexData,
+      state.shader.scratchIndexData,
+      smoothCount,
+      zSlope,
+      state.smoothV,
+    );
+
+    if (vertexCount === 0) return;
+
+    state.shader.draw(
+      renderer,
+      state.shader.scratchVertexData,
+      vertexCount,
+      state.shader.scratchIndexData,
+      indexCount,
+      sheet.getRopePattern(),
+      opacity,
+      width,
+    );
+  }
+
+  /** Rode render state (lazy-created). */
+  private rodeState: {
+    shader: RopeShaderInstance;
+    smoothPoints: [number, number][];
+    smoothZ: number[];
+    rawV: number[];
+    smoothV: number[];
+    rawCount: number;
+  } | null = null;
+
+  private renderRode(
+    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+  ) {
+    const rodeData = this.boat.anchor.getRodePointsWithZ();
+    if (!rodeData) return;
+    const { points: rawPoints, z: rawZ } = rodeData;
+    if (rawPoints.length < 2) return;
+
+    // Lazy-create or recreate if point count changed
+    if (!this.rodeState || this.rodeState.rawCount !== rawPoints.length) {
+      const smoothCount = catmullRomOutputCount(
+        rawPoints.length,
+        BoatRenderer.ROPE_SUBDIVISIONS,
+      );
+      this.rodeState = {
+        shader: new RopeShaderInstance(smoothCount),
+        smoothPoints: Array.from(
+          { length: smoothCount },
+          () => [0, 0] as [number, number],
+        ),
+        smoothZ: new Array(smoothCount).fill(0),
+        rawV: new Array(rawPoints.length).fill(0),
+        smoothV: new Array(smoothCount).fill(0),
+        rawCount: rawPoints.length,
+      };
+    }
+
+    // Compute material v-coordinates for rode
+    const segLen = this.boat.anchor.getRodeSegmentLength();
+    for (let i = 0; i < rawPoints.length; i++) {
+      this.rodeState.rawV[i] = i * segLen;
+    }
+
+    const smoothCount = subdivideCatmullRom(
+      rawPoints,
+      rawZ,
+      BoatRenderer.ROPE_SUBDIVISIONS,
+      this.rodeState.smoothPoints,
+      this.rodeState.smoothZ,
+      this.rodeState.rawV,
+      this.rodeState.smoothV,
+    );
+
+    const width = this.boat.anchor.getRodeThickness();
+    const cam = extractCameraTransform(renderer.getTransform());
+
+    const { vertexCount, indexCount } = tessellateRopeStrip(
+      this.rodeState.smoothPoints,
+      this.rodeState.smoothZ,
+      width,
+      cam,
+      this.rodeState.shader.scratchVertexData,
+      this.rodeState.shader.scratchIndexData,
+      smoothCount,
+      undefined,
+      this.rodeState.smoothV,
+    );
+
+    if (vertexCount === 0) return;
+
+    this.rodeState.shader.draw(
+      renderer,
+      this.rodeState.shader.scratchVertexData,
+      vertexCount,
+      this.rodeState.shader.scratchIndexData,
+      indexCount,
+      this.boat.anchor.getRodePattern(),
+      1,
+      width,
+    );
+  }
+
+  private renderMast(td: TiltDraw) {
+    const rig = this.boat.rig;
+    const mastPos = rig.getMastPosition();
+    const mastTopZ = rig.getMastTopZ();
+    const mastColor = rig.getMastColor();
+
+    // Mast shaft (cylindrical — screen-width, with round caps)
+    td.line(
+      mastPos.x,
+      mastPos.y,
+      0,
+      mastPos.x,
+      mastPos.y,
+      mastTopZ,
+      0.4,
+      mastColor,
+      1,
+      true,
+    );
+
+    // Boom connection cap
+    td.circle(mastPos.x, mastPos.y, rig.getBoomZ() + 0.01, 0.2, 16, mastColor);
+  }
+}

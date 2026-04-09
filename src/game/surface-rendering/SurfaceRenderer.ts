@@ -49,8 +49,9 @@ const RENDER_VIEWPORT_MARGIN = 0.1;
 // Modifier texture resolution scale (fraction of screen resolution)
 const MODIFIER_RESOLUTION_SCALE = 0.25;
 
-// Shallow water threshold for rendering
-const SHALLOW_WATER_THRESHOLD = 1.5;
+// Beer-Lambert attenuation coefficient for underwater visibility (per foot).
+// Clear coastal water: ~0.15. At 10ft → 22% visible, 20ft → 5%.
+const WATER_ATTENUATION = 0.15;
 
 /**
  * Surface renderer entity using multi-pass rendering.
@@ -193,7 +194,7 @@ export class SurfaceRenderer extends BaseEntity {
       this.compositeUniforms = SurfaceCompositeUniforms.create();
 
       // Set default composite values
-      this.compositeUniforms.set.shallowThreshold(SHALLOW_WATER_THRESHOLD);
+      this.compositeUniforms.set.waterAttenuation(WATER_ATTENUATION);
       this.compositeUniforms.set.hasTerrainData(0);
 
       // Create samplers

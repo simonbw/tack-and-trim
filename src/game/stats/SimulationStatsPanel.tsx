@@ -8,6 +8,15 @@ import { TerrainQuery } from "../world/terrain/TerrainQuery";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
 
+interface PhysicsStats {
+  equations: number;
+  islands: number;
+  iterations: number;
+  maxIterations: number;
+  bodies: number;
+  constraints: number;
+}
+
 interface QueryStats {
   waterPoints: number;
   waterQueries: number;
@@ -32,6 +41,7 @@ export function createSimulationStatsPanel(): StatsPanel {
     id: "simulation",
 
     render: (ctx) => {
+      const physics = getPhysicsStats(ctx);
       const stats = getQueryStats(ctx);
       const terrainCache = getTerrainCacheStats(ctx);
 
@@ -39,6 +49,21 @@ export function createSimulationStatsPanel(): StatsPanel {
         <>
           <div className="stats-overlay__header">
             <span>Simulation</span>
+          </div>
+
+          <div className="stats-overlay__section">
+            <div className="stats-overlay__section-title">Physics</div>
+            <div className="stats-overlay__grid">
+              <StatsRow label="Bodies" value={physics.bodies} />
+              <StatsRow label="Constraints" value={physics.constraints} />
+              <StatsRow label="Equations" value={physics.equations} />
+              <StatsRow label="Islands" value={physics.islands || "off"} />
+              <StatsRow
+                label="Iterations"
+                value={`${physics.iterations} (max ${physics.maxIterations})`}
+                color={physics.maxIterations >= 10 ? "warning" : undefined}
+              />
+            </div>
           </div>
 
           <div className="stats-overlay__section">
@@ -77,6 +102,18 @@ export function createSimulationStatsPanel(): StatsPanel {
         </>
       );
     },
+  };
+}
+
+function getPhysicsStats(ctx: StatsPanelContext): PhysicsStats {
+  const world = ctx.game.world;
+  return {
+    equations: world.solverEquationCount,
+    islands: world.solverIslandCount,
+    iterations: world.solverIterations,
+    maxIterations: world.solverMaxIterations,
+    bodies: world.bodies.dynamic.length,
+    constraints: world.constraints.length,
   };
 }
 

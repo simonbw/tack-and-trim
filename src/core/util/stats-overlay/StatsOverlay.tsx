@@ -1,4 +1,5 @@
 import type { VNode } from "preact";
+import { LayerName } from "../../../config/layers";
 import Entity, { GameEventMap } from "../../entity/Entity";
 import { on } from "../../entity/handler";
 import { ReactEntity } from "../../ReactEntity";
@@ -38,6 +39,8 @@ export class StatsOverlay extends ReactEntity implements Entity {
   private averageDuration: number = 0;
   private lastUpdate = performance.now();
   private frameCounter = 0;
+
+  layer: LayerName = "debugHud";
 
   constructor(panels: StatsPanel[]) {
     super(() => this.renderContent(), false); // autoRender = false for throttling

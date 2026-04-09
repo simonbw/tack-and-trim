@@ -3,8 +3,40 @@ import { CURRENT_SAVE_VERSION, SaveFile } from "./SaveFile";
 type Migration = (data: Record<string, unknown>) => Record<string, unknown>;
 
 const MIGRATIONS: Migration[] = [
-  // Future migrations go here: v1->v2, v2->v3, etc.
-  // Index 0 = migration from v1 to v2, index 1 = v2 to v3, etc.
+  // v1 -> v2: Rename old boat IDs to new fleet names
+  (data) => {
+    const progression = data.progression as Record<string, unknown> | undefined;
+    if (!progression) return data;
+
+    // Map old boat IDs to the Kestrel (closest equivalent)
+    const oldToNew: Record<string, string> = {
+      "starter-dinghy": "kestrel",
+      "starter-boat": "kestrel",
+    };
+
+    const currentBoatId = progression.currentBoatId as string;
+    if (currentBoatId in oldToNew) {
+      progression.currentBoatId = oldToNew[currentBoatId];
+    }
+
+    const ownedBoats = progression.ownedBoats as
+      | { boatId: string; purchasedUpgrades: string[] }[]
+      | undefined;
+    if (ownedBoats) {
+      for (const entry of ownedBoats) {
+        if (entry.boatId in oldToNew) {
+          entry.boatId = oldToNew[entry.boatId];
+        }
+        // Rename "deeper-centerboard" upgrade to "deeper-keel"
+        const idx = entry.purchasedUpgrades.indexOf("deeper-centerboard");
+        if (idx !== -1) {
+          entry.purchasedUpgrades[idx] = "deeper-keel";
+        }
+      }
+    }
+
+    return data;
+  },
 ];
 
 /**

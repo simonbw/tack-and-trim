@@ -1,4 +1,6 @@
-import { LinearSpring } from "./LinearSpring";
+import type { DynamicBody } from "../body/DynamicBody";
+import type { Body } from "../body/Body";
+import { LinearSpring, LinearSpringOptions } from "./LinearSpring";
 import { V, V2d } from "../../Vector";
 
 // Module-level temp vectors for zero-allocation physics calculations
@@ -12,11 +14,28 @@ const _ri = V();
 const _rj = V();
 const _tmp = V();
 
+export interface RopeSpringOptions extends LinearSpringOptions {
+  /** Maximum force the rope can apply. Prevents instability with stiff ropes. Default: Infinity (no limit). */
+  maxForce?: number;
+}
+
 /**
  * A spring that only applies force when stretched, not when compressed.
  * Useful for rope/cable physics where slack is allowed.
  */
 export class RopeSpring extends LinearSpring {
+  /** Maximum force magnitude. */
+  maxForce: number;
+
+  constructor(
+    bodyA: DynamicBody,
+    bodyB: Body,
+    options: RopeSpringOptions = {},
+  ) {
+    super(bodyA, bodyB, options);
+    this.maxForce = options.maxForce ?? Infinity;
+  }
+
   applyForce(): this {
     const k = this.stiffness;
     const d = this.damping;
@@ -51,10 +70,9 @@ export class RopeSpring extends LinearSpring {
       _f.set(_rUnit).imul(-k * (rlen - l) - d * _u.dot(_rUnit));
 
       // Clamp force magnitude to prevent instability
-      const maxForce = 200;
       const forceMag = _f.magnitude;
-      if (forceMag > maxForce) {
-        _f.imul(maxForce / forceMag);
+      if (forceMag > this.maxForce) {
+        _f.imul(this.maxForce / forceMag);
       }
 
       // Add forces to bodies

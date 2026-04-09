@@ -75,13 +75,6 @@ The surface renderer uses a multi-pass pipeline: terrain tile caching, screen-sp
 - **WetnessRenderPipeline.ts** - Ping-pong texture pipeline for sand wetness tracking with camera reprojection.
 - **WetnessStateShader.ts** - Compute shader that updates wetness over time (fast wetting ~0.2s, slow drying ~20s).
 
-### Legacy (not used)
-
-- **UnifiedSurfaceShader.ts** - Single-pass version (kept for reference)
-- **UnifiedSurfaceUniforms.ts** - Uniforms for single-pass
-- **TerrainHeightShader.ts** - Old terrain height compute (replaced by tile atlas approach)
-- **TerrainHeightUniforms.ts** - Old terrain height params
-
 ## Render Flow
 
 1. **Terrain tile cache update** - LODTerrainTileCache selects LOD, renders any missing tiles to atlas

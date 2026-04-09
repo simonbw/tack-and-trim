@@ -32,6 +32,10 @@ export class WaterResultView {
     return this._data[this._offset + WaterResultLayout.fields.surfaceHeight];
   }
 
+  /**
+   * Water current velocity in world frame — the direction the water is flowing TOWARD.
+   * Includes contributions from Gerstner wave orbital motion, currents, and modifiers.
+   */
   get velocity(): V2d {
     this._velocity.set(
       this._data[this._offset + WaterResultLayout.fields.velocityX],

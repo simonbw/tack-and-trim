@@ -51,6 +51,9 @@ interface Vec3Type extends FieldTypeBase {
 interface Vec4Type extends FieldTypeBase {
   readonly _brand: "vec4";
 }
+interface Vec4UType extends FieldTypeBase {
+  readonly _brand: "vec4u";
+}
 interface Mat3x3Type extends FieldTypeBase {
   readonly _brand: "mat3x3";
 }
@@ -63,6 +66,7 @@ export type FieldType =
   | Vec2Type
   | Vec3Type
   | Vec4Type
+  | Vec4UType
   | Mat3x3Type;
 
 /** f32 scalar (4 bytes, 4-byte aligned) */
@@ -119,6 +123,15 @@ export const vec4: Vec4Type = {
   floatCount: 4,
 };
 
+/** vec4<u32> (16 bytes, 16-byte aligned) */
+export const vec4u: Vec4UType = {
+  _brand: "vec4u",
+  wgslType: "vec4<u32>",
+  size: 16,
+  align: 16,
+  floatCount: 4,
+};
+
 /**
  * mat3x3<f32> (48 bytes, 16-byte aligned)
  * Each column is a vec3 padded to 16 bytes (4 floats)
@@ -146,9 +159,11 @@ type SetterParamType<T extends FieldType> = T extends F32Type
           ? readonly [number, number, number]
           : T extends Vec4Type
             ? readonly [number, number, number, number]
-            : T extends Mat3x3Type
-              ? Matrix3 | Float32Array
-              : never;
+            : T extends Vec4UType
+              ? readonly [number, number, number, number]
+              : T extends Mat3x3Type
+                ? Matrix3 | Float32Array
+                : never;
 
 // ============ Computed Field Info ============
 
@@ -313,6 +328,13 @@ function createSetters<T extends Record<string, FieldType>>(
         data[offset + 1] = value[1];
         data[offset + 2] = value[2];
         data[offset + 3] = value[3];
+      };
+    } else if (brand === "vec4u") {
+      setters[name] = (value: readonly [number, number, number, number]) => {
+        uintView[offset] = value[0];
+        uintView[offset + 1] = value[1];
+        uintView[offset + 2] = value[2];
+        uintView[offset + 3] = value[3];
       };
     } else if (brand === "mat3x3") {
       setters[name] = (value: Matrix3 | Float32Array) => {

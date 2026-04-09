@@ -1,3 +1,60 @@
+/**
+ * Gauss-Seidel Sequential Impulse (SI) constraint solver.
+ *
+ * This module implements an iterative Gauss-Seidel method for solving systems
+ * of constraint equations in a rigid body physics simulation. The algorithm
+ * is equivalent to projected Gauss-Seidel (PGS) — the standard approach used
+ * by most real-time physics engines (Box2D, Bullet, etc.).
+ *
+ * ## Algorithm overview
+ *
+ * Given N constraint equations, each with a Jacobian row G_i, the solver
+ * finds impulse magnitudes lambda_i that satisfy all constraints simultaneously
+ * (within tolerance). On each iteration it sweeps through every equation and
+ * computes an impulse correction:
+ *
+ *   delta_lambda_i = invC_i * (B_i - G_i * v_lambda - epsilon_i * lambda_i)
+ *
+ * where:
+ *   - **lambda** is the accumulated constraint impulse (units: N*s = kg*m/s).
+ *     Clamped to [minForce*dt, maxForce*dt] to enforce inequality constraints
+ *     (e.g. contacts can push but not pull, friction is bounded).
+ *   - **B** (the "right-hand side") encodes the constraint violation to be
+ *     corrected this timestep. It combines three terms:
+ *       B = -a * Gq - b * GW - h * GiMf
+ *     where Gq is position error, GW is velocity error, and GiMf is the
+ *     external-force contribution. The coefficients a, b come from the
+ *     Baumgarte-like stabilization derived from stiffness/relaxation.
+ *   - **invC** is the inverse effective mass for the constraint:
+ *       invC = 1 / (G * M^-1 * G^T + epsilon)
+ *     This is a scalar because each equation is 1-DOF.
+ *   - **epsilon** is a compliance/regularization term (units: 1/(kg*m^2/s^2*s^2)
+ *     effectively dimensionless after scaling). It softens the constraint,
+ *     preventing the effective mass from becoming infinite or ill-conditioned
+ *     when bodies have extreme mass ratios. Derived from stiffness and
+ *     relaxation: epsilon = 4 / (h^2 * k * (1 + 4d)).
+ *
+ * After each equation update, the impulse is immediately applied to the
+ * participating bodies' velocity accumulators (vlambda, wlambda), so
+ * subsequent equations in the same iteration see the updated velocities.
+ * This is what makes it "Gauss-Seidel" rather than "Jacobi".
+ *
+ * ## Friction pre-iterations
+ *
+ * Friction equations depend on the normal force magnitude from their
+ * associated contact equations (Coulomb friction: |f_t| <= mu * |f_n|).
+ * The `frictionIterations` parameter runs a preliminary solve pass to
+ * estimate contact forces, then updates friction bounds before the main
+ * solve. Without this, friction limits on the first iteration would use
+ * stale or zero normal force estimates, leading to sliding artifacts.
+ *
+ * ## Convergence
+ *
+ * The solver terminates early when the total absolute change in lambda
+ * across all equations falls below `tolerance` (squared comparison for
+ * efficiency). This means the system has settled and further iterations
+ * would produce negligible improvement.
+ */
 import { Body } from "../body/Body";
 import { DynamicBody } from "../body/DynamicBody";
 import type { Equation } from "../equations/Equation";
@@ -32,10 +89,24 @@ function createSolverState(body: Body, isSleeping: boolean): SolverBodyState {
 }
 
 export interface SolverConfig {
+  /** Maximum number of Gauss-Seidel iterations per solve. Higher values
+   *  improve accuracy at the cost of CPU time. Typical range: 5-20. */
   readonly iterations: number;
+  /** Early-exit threshold. The solver stops when the sum of |delta_lambda|
+   *  across all equations squared is below this value (dimensionless after
+   *  normalization). Typical range: 1e-7 to 1e-10. */
   readonly tolerance: number;
+  /** Number of preliminary iterations used to estimate normal forces before
+   *  the main solve, so friction bounds (mu * f_n) are reasonable from the
+   *  start. 0 disables friction pre-iterations. Typical: 0-3. */
   readonly frictionIterations: number;
+  /** When true, sets B=0 during iteration (ignores position/velocity error
+   *  and external forces). Used for split-impulse / pseudo-velocity schemes
+   *  where position correction is handled separately. */
   readonly useZeroRHS: boolean;
+  /** Optional comparator to sort equations before solving. Solving order
+   *  affects convergence in Gauss-Seidel; sorting contacts by penetration
+   *  depth or by body mass ratio can improve stability. False disables sorting. */
   readonly equationSortFunction?:
     | ((a: Equation, b: Equation) => number)
     | false;
@@ -46,11 +117,11 @@ export interface SolverResult {
 }
 
 export const DEFAULT_SOLVER_CONFIG: SolverConfig = {
-  iterations: 10,
-  tolerance: 1e-7,
+  iterations: 20,
+  tolerance: 1e-3,
   frictionIterations: 0,
   useZeroRHS: false,
-  equationSortFunction: false,
+  equationSortFunction: (a, b) => a.solverOrder - b.solverOrder,
 };
 
 // --- Main Functions ---
@@ -107,9 +178,17 @@ export function solveEquations(
     if (!bodyState.has(eq.bodyB)) {
       bodyState.set(eq.bodyB, createSolverState(eq.bodyB, false));
     }
+    // 3-body equations (PulleyEquation) have a bodyC
+    const eqAny = eq as any;
+    if (eqAny.bodyC && !bodyState.has(eqAny.bodyC)) {
+      bodyState.set(eqAny.bodyC, createSolverState(eqAny.bodyC, false));
+    }
   }
 
-  // Allocate fresh arrays
+  // Allocate per-equation solver arrays:
+  // lambda[i] — accumulated impulse for equation i
+  // Bs[i]     — right-hand side: encodes the violation to correct this step
+  // invCs[i]  — inverse effective mass: 1/(G*M^-1*G^T + epsilon)
   const lambda = new Float32Array(Neq);
   const Bs = new Float32Array(Neq);
   const invCs = new Float32Array(Neq);
@@ -123,6 +202,24 @@ export function solveEquations(
     }
     Bs[i] = eq.computeB(eq.a, eq.b, h, bodyState);
     invCs[i] = eq.computeInvC(eq.epsilon, bodyState);
+  }
+
+  // Warm start: initialize lambda from previous frame's solution and
+  // pre-apply the cached impulses to body velocity deltas. This lets the
+  // solver start near the previous solution instead of from zero, which
+  // dramatically improves convergence for constraints under steady load.
+  for (let i = 0; i < Neq; i++) {
+    const eq = equations[i];
+    let warm = eq.warmLambda;
+    if (warm !== 0) {
+      // Clamp to current force bounds (may have changed since last frame)
+      const minFDt = eq.minForce * h;
+      const maxFDt = eq.maxForce * h;
+      if (warm < minFDt) warm = minFDt;
+      else if (warm > maxFDt) warm = maxFDt;
+      lambda[i] = warm;
+      eq.addToWlambda(warm, bodyState);
+    }
   }
 
   // Optional friction pre-iteration phase
@@ -189,7 +286,10 @@ export function solveEquations(
     }
   }
 
-  // Update equation multipliers
+  // Cache lambda for warm starting next frame, then update multipliers
+  for (let i = 0; i < Neq; i++) {
+    equations[i].warmLambda = lambda[i];
+  }
   updateMultipliers(equations, lambda, 1 / h);
 
   return { usedIterations };
@@ -266,7 +366,17 @@ function runIteration(
   return deltalambdaTot;
 }
 
-/** Iterates a single equation and returns the delta lambda. */
+/**
+ * Iterates a single equation and returns the change in impulse (delta lambda).
+ *
+ * Core PGS update rule:
+ *   delta_lambda = invC * (B - GWlambda - epsilon * lambda)
+ *
+ * - GWlambda is the current constraint velocity from accumulated impulses
+ * - epsilon * lambda is the regularization/compliance feedback term
+ * - The result is clamped so that the total lambda stays within
+ *   [minForce*dt, maxForce*dt], enforcing inequality constraints
+ */
 function iterateEquation(
   j: number,
   eq: Equation,
@@ -291,6 +401,7 @@ function iterateEquation(
   }
 
   let deltalambda = invC * (B - GWlambda - eps * lambdaj);
+  if (!isFinite(deltalambda)) deltalambda = 0;
 
   // Clamp if we are not within the min/max interval
   const lambdaj_plus_deltalambda = lambdaj + deltalambda;

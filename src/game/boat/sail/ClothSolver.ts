@@ -12,10 +12,20 @@
 import type { SailMeshData } from "./SailMesh";
 
 export interface ClothSolverConfig {
-  damping: number; // velocity damping (0-1), e.g. 0.97
-  constraintIterations: number; // e.g. 5
-  bendStiffness: number; // 0-1 correction factor for bend constraints, e.g. 0.3
-  constraintDamping: number; // 0-1 damping of relative velocity along each constraint, e.g. 0.1
+  /** dimensionless (0-1), Verlet velocity retention per step. 1.0 = no damping,
+   *  0.0 = full damping. Typical 0.95-1.0. Controls overall cloth motion damping. */
+  damping: number;
+  /** count, number of constraint projection iterations per simulation step.
+   *  Higher = stiffer cloth but more expensive. Typical 5-20. */
+  constraintIterations: number;
+  /** dimensionless (0-1), correction factor for bend (skip-one) constraints.
+   *  0 = no bend resistance, 1 = rigid. Typical 0.1-0.5. Controls how much the
+   *  cloth resists bending between non-adjacent vertices. */
+  bendStiffness: number;
+  /** dimensionless (0-1), damping of relative velocity along constraint directions.
+   *  Acts like a dashpot in parallel with each distance constraint to reduce oscillation.
+   *  Typical 0.02-0.2. */
+  constraintDamping: number;
 }
 
 export class ClothSolver {
@@ -27,6 +37,7 @@ export class ClothSolver {
   private readonly forces: Float64Array; // 3 * vertexCount (fx, fy, fz)
   private readonly pinned: Uint8Array;
   private readonly pinTargets: Float64Array; // 3 * vertexCount (tx, ty, tz)
+  private readonly skipped: Uint8Array; // 1 = vertex excluded from simulation entirely
 
   // Reaction forces on pinned vertices
   private readonly reactionForces: Float64Array; // 3 * vertexCount
@@ -59,6 +70,7 @@ export class ClothSolver {
     this.forces = new Float64Array(n * 3);
     this.pinned = new Uint8Array(n);
     this.pinTargets = new Float64Array(n * 3);
+    this.skipped = new Uint8Array(n);
     this.reactionForces = new Float64Array(n * 3);
 
     // Pack constraints into flat arrays
@@ -127,6 +139,7 @@ export class ClothSolver {
     (solver as any).prevPositions.set(snapshot.prevPositions);
     (solver as any).pinned.set(snapshot.pinned);
     (solver as any).pinTargets.set(snapshot.pinTargets);
+    if (snapshot.skipped) (solver as any).skipped.set(snapshot.skipped);
     (solver as any).structA = snapshot.structA;
     (solver as any).structB = snapshot.structB;
     (solver as any).structRest = snapshot.structRest;
@@ -234,6 +247,22 @@ export class ClothSolver {
     this.constraintDamping = value;
   }
 
+  /** Mark a vertex as skipped (excluded from simulation entirely). */
+  setSkipped(index: number, skip: boolean): void {
+    this.skipped[index] = skip ? 1 : 0;
+  }
+
+  /** Reset a single vertex position and zero its velocity. */
+  resetVertex(index: number, x: number, y: number, z: number): void {
+    const i3 = index * 3;
+    this.positions[i3] = x;
+    this.positions[i3 + 1] = y;
+    this.positions[i3 + 2] = z;
+    this.prevPositions[i3] = x;
+    this.prevPositions[i3 + 1] = y;
+    this.prevPositions[i3 + 2] = z;
+  }
+
   /**
    * Snapshot solver state for transfer to a worker.
    * Returns copies of internal arrays for one-time transfer.
@@ -243,6 +272,7 @@ export class ClothSolver {
     prevPositions: Float64Array;
     pinned: Uint8Array;
     pinTargets: Float64Array;
+    skipped: Uint8Array;
     structA: Int32Array;
     structB: Int32Array;
     structRest: Float64Array;
@@ -261,6 +291,7 @@ export class ClothSolver {
       prevPositions: new Float64Array(this.prevPositions),
       pinned: new Uint8Array(this.pinned),
       pinTargets: new Float64Array(this.pinTargets),
+      skipped: new Uint8Array(this.skipped),
       structA: new Int32Array(this.structA),
       structB: new Int32Array(this.structB),
       structRest: new Float64Array(this.structRest),
@@ -329,6 +360,7 @@ export class ClothSolver {
     const prev = this.prevPositions;
     const forces = this.forces;
     const pinned = this.pinned;
+    const skipped = this.skipped;
     const damping = this.damping;
     const reactions = this.reactionForces;
 
@@ -341,7 +373,7 @@ export class ClothSolver {
 
     // Verlet integration for free vertices — all 3 axes
     for (let i = 0; i < n; i++) {
-      if (pinned[i]) continue;
+      if (pinned[i] || skipped[i]) continue;
 
       const i3 = i * 3;
       const vx = (pos[i3] - prev[i3]) * damping;
@@ -382,7 +414,7 @@ export class ClothSolver {
     // Convert constraint displacement to force, add external forces.
     // reactions = externalForces + constraintDisplacement / dt²
     for (let i = 0; i < n; i++) {
-      if (!pinned[i]) continue;
+      if (!pinned[i] || skipped[i]) continue;
       const i3 = i * 3;
       reactions[i3] = forces[i3] + reactions[i3] * invDtSq;
       reactions[i3 + 1] = forces[i3 + 1] + reactions[i3 + 1] * invDtSq;
@@ -419,7 +451,7 @@ export class ClothSolver {
     const maxR2 = ClothSolver.EXPLOSION_RADIUS * ClothSolver.EXPLOSION_RADIUS;
 
     for (let i = 0; i < n; i++) {
-      if (pinned[i]) continue;
+      if (pinned[i] || this.skipped[i]) continue;
       const i3 = i * 3;
       const dx = pos[i3] - cx;
       const dy = pos[i3 + 1] - cy;
@@ -508,6 +540,7 @@ export class ClothSolver {
     const pos = this.positions;
     const prev = this.prevPositions;
     const pinned = this.pinned;
+    const skipped = this.skipped;
     const reactions = this.reactionForces;
     const cDamp = this.constraintDamping;
     const count = aArr.length;
@@ -515,6 +548,10 @@ export class ClothSolver {
     for (let c = 0; c < count; c++) {
       const a = aArr[c];
       const b = bArr[c];
+
+      // Skip constraints involving skipped (excluded) vertices
+      if (skipped[a] || skipped[b]) continue;
+
       const rest = restArr[c];
 
       const a3 = a * 3;
@@ -588,10 +625,11 @@ export class ClothSolver {
     const pos = this.positions;
     const prev = this.prevPositions;
     const pinned = this.pinned;
+    const skipped = this.skipped;
     const targets = this.pinTargets;
 
     for (let i = 0; i < this.vertexCount; i++) {
-      if (!pinned[i]) continue;
+      if (!pinned[i] || skipped[i]) continue;
       const i3 = i * 3;
       pos[i3] = targets[i3];
       pos[i3 + 1] = targets[i3 + 1];

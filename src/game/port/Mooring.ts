@@ -62,11 +62,6 @@ export class Mooring extends BaseEntity {
   moorTo(port: Port): void {
     if (this.state !== "free") return;
 
-    // If anchor is deployed, retract it first
-    if (this.boat.anchor.isDeployed()) {
-      this.boat.anchor.retrieve();
-    }
-
     this.currentPort = port;
 
     // Get cleat positions from the port
