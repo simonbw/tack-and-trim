@@ -6,6 +6,8 @@ import { Circle } from "../../core/physics/shapes/Circle";
 import { V, V2d } from "../../core/Vector";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
 import { WaterQuery } from "../world/water/WaterQuery";
+import { TerrainFloorConstraint } from "../constraints/TerrainFloorConstraint";
+import { RopeDragConstraint } from "../rope/RopeDragConstraint";
 import { Rope, RopeWaypoint } from "../rope/Rope";
 import { AnchorConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
@@ -21,8 +23,8 @@ const ANCHOR_ANGULAR_DRAG = 8; // Angular drag coefficient (1/s)
 // Rode particle physics
 const RODE_PARTICLES_PER_FOOT = 1.0;
 const RODE_MASS_PER_FOOT = 0.15; // lbs/ft (chain in water)
-const RODE_GRAVITY = 15; // ft/s² (chain in water, buoyancy-reduced)
-const RODE_DRAG = 5; // Water drag on rode particles (1/s)
+const RODE_DIAMETER = 0.03125; // ft (3/8" chain)
+const RODE_DRAG_CD = 1.2; // Cylinder cross-flow drag coefficient
 const RODE_FLOOR_FRICTION = 0.8; // Friction damping when particle rests on bottom
 
 // Rode rendering
@@ -50,10 +52,10 @@ export class Anchor extends BaseEntity {
 
   private onBottom: boolean = false;
 
-  // World queries at rode particle positions + anchor
-  private terrainQuery: TerrainQuery | null = null;
-  private waterQuery: WaterQuery | null = null;
-  private queryPoints: V2d[] = [];
+  // World queries for anchor body only (rode queries are managed by Rope)
+  private anchorTerrainQuery: TerrainQuery | null = null;
+  private anchorWaterQuery: WaterQuery | null = null;
+  private anchorQueryPoint: V2d[] = [];
 
   // Config values
   private bowAttachPoint: V2d;
@@ -168,7 +170,7 @@ export class Anchor extends BaseEntity {
       {
         particleCount,
         particleMass,
-        damping: 0, // We apply drag as explicit underwater forces
+        damping: 0,
       },
       [bowRoller, winchWaypoint],
     );
@@ -179,15 +181,38 @@ export class Anchor extends BaseEntity {
     this.bodies = [this.anchorBody, ...this.rode.getParticles()];
     this.constraints = [...this.rode.getAllConstraints()];
 
-    // Query points: rode particles + anchor body
-    const particles = this.rode.getParticles();
-    this.queryPoints = [];
-    for (let i = 0; i < particles.length + 1; i++) {
-      this.queryPoints.push(V(0, 0));
-    }
+    const rodeParticles = this.rode.getParticles();
 
-    this.terrainQuery = this.addChild(new TerrainQuery(() => this.queryPoints));
-    this.waterQuery = this.addChild(new WaterQuery(() => this.queryPoints));
+    // Rode particle environment physics
+    this.addChild(
+      new RopeDragConstraint(rodeParticles, {
+        waterDrag: true,
+        ropeDiameter: RODE_DIAMETER,
+        ropeDragCd: RODE_DRAG_CD,
+        chainLinkLength: this.rode.getChainLinkLength(),
+      }),
+    );
+    this.addChild(
+      new TerrainFloorConstraint(rodeParticles, {
+        floorFriction: RODE_FLOOR_FRICTION,
+      }),
+    );
+
+    // Anchor body terrain floor
+    this.addChild(
+      new TerrainFloorConstraint([this.anchorBody], {
+        floorFriction: RODE_FLOOR_FRICTION,
+      }),
+    );
+
+    // Anchor body queries — for bottom detection and scope drag
+    this.anchorQueryPoint = [V(0, 0)];
+    this.anchorTerrainQuery = this.addChild(
+      new TerrainQuery(() => this.anchorQueryPoint),
+    );
+    this.anchorWaterQuery = this.addChild(
+      new WaterQuery(() => this.anchorQueryPoint),
+    );
   }
 
   // ---- Winch controls (called by PlayerBoatController) ----
@@ -263,13 +288,13 @@ export class Anchor extends BaseEntity {
 
     this.rode.tick(dt);
 
-    // Update query points from particle positions
+    // Update anchor body query point
     this.updateQueryPoints();
 
-    // Apply underwater forces on rode particles and anchor
-    this.applyRodeForces();
+    // Anchor body underwater forces: gravity + drag + floor collision
+    this.applyAnchorUnderwaterForces();
 
-    // Apply anchor-specific forces: gravity at CG offset, angular drag
+    // Anchor-specific forces: gravity at CG offset, angular drag
     this.applyAnchorBodyForces();
 
     // XY drag on the anchor body (scope-dependent holding power)
@@ -277,99 +302,43 @@ export class Anchor extends BaseEntity {
   }
 
   private updateQueryPoints(): void {
-    const particles = this.rode!.getParticles();
-    for (let i = 0; i < particles.length; i++) {
-      const [px, py] = particles[i].position;
-      this.queryPoints[i].set(px, py);
-    }
-    // Last query point is the anchor
-    this.queryPoints[particles.length].set(
+    this.anchorQueryPoint[0].set(
       this.anchorBody.position[0],
       this.anchorBody.position[1],
     );
   }
 
-  private applyRodeForces(): void {
-    const particles = this.rode!.getParticles();
-    const particleMass =
-      (this.maxRodeLength * RODE_MASS_PER_FOOT) / particles.length;
-
-    for (let i = 0; i < particles.length; i++) {
-      this.applyUnderwaterForces(
-        particles[i],
-        particleMass,
-        RODE_GRAVITY,
-        RODE_DRAG,
-        i,
-      );
-    }
-
-    // Anchor body — linear underwater forces (gravity at origin, drag)
-    this.applyUnderwaterForces(
-      this.anchorBody,
-      this.anchorMass,
-      ANCHOR_NET_GRAVITY,
-      ANCHOR_Z_DRAG,
-      particles.length,
-    );
-  }
-
-  private applyUnderwaterForces(
-    body: DynamicBody,
-    mass: number,
-    gravity: number,
-    drag: number,
-    queryIdx: number,
-  ): void {
+  /** Apply underwater forces to the anchor body: gravity and drag. */
+  private applyAnchorUnderwaterForces(): void {
     // Gravity (buoyancy-reduced)
-    body.applyForce3D(0, 0, -gravity * mass, 0, 0, 0);
-
-    // Water drag
-    const [vx, vy] = body.velocity;
-    const vz = body.zVelocity;
-    body.applyForce3D(
-      -drag * vx * mass,
-      -drag * vy * mass,
-      -drag * vz * mass,
-      0,
-      0,
-      0,
-    );
-
-    // Floor collision
-    if (
-      this.terrainQuery &&
-      queryIdx < this.terrainQuery.length &&
-      this.waterQuery &&
-      queryIdx < this.waterQuery.length
-    ) {
-      const terrainHeight = this.terrainQuery.get(queryIdx).height;
-      const surfaceHeight = this.waterQuery.get(queryIdx).surfaceHeight;
-      const floorZ = terrainHeight - surfaceHeight;
-
-      if (body.z < floorZ) {
-        body.z = floorZ;
-        if (body.zVelocity < 0) body.zVelocity = 0;
-        body.velocity.imul(1 - RODE_FLOOR_FRICTION);
-      }
-    }
-  }
-
-  private applyAnchorBodyForces(): void {
-    // Gravity applied at CG offset — the CG is at the body origin by default,
-    // but for a real anchor the CG is below the rode attachment point.
-    // Apply gravity at a small negative-z offset to create a righting torque
-    // that keeps the anchor oriented properly.
-    const cgOffsetZ = -this.anchorSize * 0.15;
     this.anchorBody.applyForce3D(
       0,
       0,
       -ANCHOR_NET_GRAVITY * this.anchorMass,
       0,
       0,
-      cgOffsetZ,
+      0,
     );
-    // Counteract the gravity already applied at origin by applyUnderwaterForces
+
+    // Water drag (linear)
+    const [vx, vy] = this.anchorBody.velocity;
+    const vz = this.anchorBody.zVelocity;
+    this.anchorBody.applyForce3D(
+      -ANCHOR_Z_DRAG * vx * this.anchorMass,
+      -ANCHOR_Z_DRAG * vy * this.anchorMass,
+      -ANCHOR_Z_DRAG * vz * this.anchorMass,
+      0,
+      0,
+      0,
+    );
+  }
+
+  private applyAnchorBodyForces(): void {
+    // Shift the gravity application point from the origin (where
+    // applyAnchorUnderwaterForces applies it) to the CG offset, creating
+    // a righting torque that keeps the anchor oriented properly.
+    const cgOffsetZ = -this.anchorSize * 0.15;
+    // Cancel origin gravity, re-apply at CG offset
     this.anchorBody.applyForce3D(
       0,
       0,
@@ -377,6 +346,14 @@ export class Anchor extends BaseEntity {
       0,
       0,
       0,
+    );
+    this.anchorBody.applyForce3D(
+      0,
+      0,
+      -ANCHOR_NET_GRAVITY * this.anchorMass,
+      0,
+      0,
+      cgOffsetZ,
     );
 
     // Angular drag on all rotation axes
@@ -391,15 +368,14 @@ export class Anchor extends BaseEntity {
     }
 
     // Detect bottom contact
-    const anchorQueryIdx = this.rode!.getParticles().length;
     if (
-      this.terrainQuery &&
-      this.terrainQuery.length > anchorQueryIdx &&
-      this.waterQuery &&
-      this.waterQuery.length > anchorQueryIdx
+      this.anchorTerrainQuery &&
+      this.anchorTerrainQuery.length > 0 &&
+      this.anchorWaterQuery &&
+      this.anchorWaterQuery.length > 0
     ) {
-      const terrainHeight = this.terrainQuery.get(anchorQueryIdx).height;
-      const surfaceHeight = this.waterQuery.get(anchorQueryIdx).surfaceHeight;
+      const terrainHeight = this.anchorTerrainQuery.get(0).height;
+      const surfaceHeight = this.anchorWaterQuery.get(0).surfaceHeight;
       const floorZ = terrainHeight - surfaceHeight;
       this.onBottom = this.anchorBody.z <= floorZ + 0.1;
     }
@@ -417,13 +393,12 @@ export class Anchor extends BaseEntity {
     let dragMagnitude = this.anchorDragCoefficient * scope * speed;
 
     // Bottom rode bonus: extra holding when rode lies on the bottom
-    const anchorQueryIdx = this.rode!.getParticles().length;
     if (
       this.onBottom &&
-      this.waterQuery &&
-      this.waterQuery.length > anchorQueryIdx
+      this.anchorWaterQuery &&
+      this.anchorWaterQuery.length > 0
     ) {
-      const waterDepth = this.waterQuery.get(anchorQueryIdx).depth;
+      const waterDepth = this.anchorWaterQuery.get(0).depth;
       const bottomRodeLength = Math.max(0, workingLength - waterDepth * 1.5);
       const scopeBonus = bottomRodeLength / this.maxRodeLength;
       dragMagnitude *= 1 + scopeBonus * 2;
@@ -535,13 +510,13 @@ export class Anchor extends BaseEntity {
 
   @on("destroy")
   onDestroy(): void {
-    if (this.terrainQuery) {
-      this.terrainQuery.destroy();
-      this.terrainQuery = null;
+    if (this.anchorTerrainQuery) {
+      this.anchorTerrainQuery.destroy();
+      this.anchorTerrainQuery = null;
     }
-    if (this.waterQuery) {
-      this.waterQuery.destroy();
-      this.waterQuery = null;
+    if (this.anchorWaterQuery) {
+      this.anchorWaterQuery.destroy();
+      this.anchorWaterQuery = null;
     }
   }
 }

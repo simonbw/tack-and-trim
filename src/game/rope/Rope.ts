@@ -20,6 +20,10 @@ import {
 } from "../../core/physics/constraints/PulleyConstraint3D";
 import { computePulleyWrap } from "../../core/physics/utils/pulleyGeometry";
 import type { World } from "../../core/physics/world/World";
+import {
+  DeckContactConstraint,
+  type HullBoundaryData,
+} from "../../core/physics/constraints/DeckContactConstraint";
 import { V, V2d } from "../../core/Vector";
 
 export interface RopeConfig {
@@ -53,6 +57,21 @@ export interface RopeConfig {
    * Default 0.7 (particles compress to 70% of natural spacing).
    */
   minLinkFraction?: number;
+
+  /** Rope diameter in feet. Used by deck contact for surface offset. Default 0.026 (5/16"). */
+  ropeDiameter?: number;
+
+  /** Enable deck contact constraints: keep particles above the hull deck
+   *  and outside the hull walls, with Coulomb friction. One constraint per
+   *  particle, applied against endpoint B's body (the hull). */
+  deckContact?: {
+    /** Return deck z-height in hull-local coords, or null if no deck. */
+    getDeckHeight: (localX: number, localY: number) => number | null;
+    /** Pre-computed hull boundary for inside/outside tracking. */
+    hullBoundary: HullBoundaryData;
+    /** Coulomb friction coefficient. Default 1.5. */
+    frictionCoefficient?: number;
+  };
 }
 
 /** Waypoint behavior:
@@ -146,6 +165,9 @@ export class Rope {
   private totalLength: number;
   private readonly freeEndB: boolean;
   private attached: boolean = false;
+
+  // Deck contact constraints (one per particle, if enabled)
+  private deckContactConstraints: DeckContactConstraint[] = [];
 
   // Pre-allocated output arrays
   private cachedPositions: [number, number][] = [];
@@ -437,6 +459,25 @@ export class Rope {
       }
     }
 
+    // Deck contact constraints: one per particle against endpoint B (hull body)
+    if (config.deckContact) {
+      const dc = config.deckContact;
+      const ropeRadius = (config.ropeDiameter ?? 0.026) / 2;
+      for (const p of this.particles) {
+        this.deckContactConstraints.push(
+          new DeckContactConstraint(
+            p,
+            bodyB,
+            dc.getDeckHeight,
+            dc.hullBoundary,
+            dc.frictionCoefficient ?? 1.5,
+            ropeRadius,
+            { collideConnected: true, wakeUpBodies: false },
+          ),
+        );
+      }
+    }
+
     // Pre-allocate output arrays
     // Points: endpointA + particles + waypoints (inserted) + endpointB
     this.rebuildCachedArrays();
@@ -493,11 +534,13 @@ export class Rope {
     for (const p of this.particles) world.bodies.add(p);
     for (const c of this.chainConstraints) world.constraints.add(c);
     for (const ps of this.pulleys) world.constraints.add(ps.constraint);
+    for (const c of this.deckContactConstraints) world.constraints.add(c);
     this.attached = true;
   }
 
   detach(world: World): void {
     if (!this.attached) return;
+    for (const c of this.deckContactConstraints) world.constraints.remove(c);
     for (const ps of this.pulleys) world.constraints.remove(ps.constraint);
     for (const c of this.chainConstraints) world.constraints.remove(c);
     for (const p of this.particles) world.bodies.remove(p);
@@ -1023,6 +1066,7 @@ export class Rope {
   getAllConstraints(): readonly Constraint[] {
     const result: Constraint[] = [...this.chainConstraints];
     for (const ps of this.pulleys) result.push(ps.constraint);
+    result.push(...this.deckContactConstraints);
     return result;
   }
 

@@ -3,15 +3,11 @@ import { on } from "../../core/entity/handler";
 import { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { clamp } from "../../core/util/MathUtil";
-import { V, V2d } from "../../core/Vector";
-import {
-  DeckContactConstraint,
-  type HullBoundaryData,
-} from "../../core/physics/constraints/DeckContactConstraint";
-import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
+import { V2d } from "../../core/Vector";
+import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
+import { LBF_TO_ENGINE } from "../physics-constants";
 import { Rope, RopeConfig, RopeWaypoint } from "../rope/Rope";
-import { WaterQuery } from "../world/water/WaterQuery";
-import { WindQuery } from "../world/wind/WindQuery";
+import { RopeDragConstraint } from "../rope/RopeDragConstraint";
 import type { RopePattern } from "./RopeShader";
 
 export interface SheetConfig {
@@ -108,13 +104,6 @@ export class Sheet extends BaseEntity {
   /** Previous working length, for computing winch rotation delta. */
   private prevWorkingLength: number = -1;
 
-  // Fluid drag queries and state
-  private windQuery: WindQuery;
-  private waterQuery: WaterQuery;
-  private queryPoints: V2d[];
-  /** 0.5 * Cd * ropeDiameter * chainLinkLength — precomputed drag area factor. */
-  private dragHalfCdA: number;
-
   constructor(
     bodyA: DynamicBody,
     localAnchorA: V2d,
@@ -161,11 +150,21 @@ export class Sheet extends BaseEntity {
     );
     const particleMass = (totalRopeLength * massPerFt) / particleCount;
 
+    const ropeDiameter =
+      this.config.ropeDiameter ?? DEFAULT_CONFIG.ropeDiameter!;
     const ropeConfig: RopeConfig = {
       particleCount,
       particleMass,
       damping: this.config.ropeDamping,
       freeEndB: true,
+      ropeDiameter,
+      deckContact:
+        this.getDeckHeight && this.hullBoundary
+          ? {
+              getDeckHeight: this.getDeckHeight,
+              hullBoundary: this.hullBoundary,
+            }
+          : undefined,
     };
 
     this.rope = new Rope(
@@ -184,42 +183,16 @@ export class Sheet extends BaseEntity {
     this.bodies = [...this.rope.getParticles()];
     this.constraints = [...this.rope.getAllConstraints()];
 
-    // Deck contact: keep rope particles above the deck surface with friction.
-    // Offset by rope radius so the rope sits visibly on top of the deck.
-    // Hull boundary enables stateful inside/outside tracking to prevent
-    // explosive re-entry forces during capsize.
-    if (this.getDeckHeight && this.hullBoundary) {
-      const ropeRadius =
-        (this.config.ropeDiameter ?? DEFAULT_CONFIG.ropeDiameter!) / 2;
-      const particles = this.rope.getParticles();
-      for (const p of particles) {
-        this.constraints.push(
-          new DeckContactConstraint(
-            p,
-            bodyB,
-            this.getDeckHeight,
-            this.hullBoundary,
-            1.5,
-            ropeRadius,
-            {
-              collideConnected: true,
-              wakeUpBodies: false,
-            },
-          ),
-        );
-      }
-    }
-
-    // Fluid drag: query wind and water at each particle position each frame.
-    const particles = this.rope.getParticles();
-    this.queryPoints = Array.from({ length: particles.length }, () => V(0, 0));
-    this.windQuery = this.addChild(new WindQuery(() => this.queryPoints));
-    this.waterQuery = this.addChild(new WaterQuery(() => this.queryPoints));
-
-    // Precompute drag geometry: 0.5 * Cd * diameter * linkLength
-    const cd = this.config.ropeDragCd ?? DEFAULT_CONFIG.ropeDragCd!;
-    const diameter = this.config.ropeDiameter ?? DEFAULT_CONFIG.ropeDiameter!;
-    this.dragHalfCdA = 0.5 * cd * diameter * this.rope.getChainLinkLength();
+    // Fluid drag: quadratic air + water drag on rope particles
+    this.addChild(
+      new RopeDragConstraint(this.rope.getParticles(), {
+        airDrag: true,
+        waterDrag: true,
+        ropeDiameter: ropeDiameter,
+        ropeDragCd: this.config.ropeDragCd ?? DEFAULT_CONFIG.ropeDragCd!,
+        chainLinkLength: this.rope.getChainLinkLength(),
+      }),
+    );
   }
 
   /**
@@ -325,8 +298,6 @@ export class Sheet extends BaseEntity {
     dt,
   }: import("../../core/entity/Entity").GameEventMap["tick"]): void {
     this.rope.tick(dt);
-    this.updateQueryPoints();
-    this.applyFluidDrag();
     this.updateWinchAngle();
   }
 
@@ -340,85 +311,6 @@ export class Sheet extends BaseEntity {
       this.winchAngle += delta / (6 / (2 * Math.PI));
     }
     this.prevWorkingLength = len;
-  }
-
-  /** Sync query sample points with current particle world positions. */
-  private updateQueryPoints(): void {
-    const particles = this.rope.getParticles();
-    for (let i = 0; i < particles.length; i++) {
-      this.queryPoints[i].set(
-        particles[i].position[0],
-        particles[i].position[1],
-      );
-    }
-  }
-
-  /**
-   * Apply per-particle aerodynamic or hydrodynamic drag using the fluid
-   * velocity at each particle's position. Particles above the water surface
-   * feel wind drag; particles below feel water drag. The drag force is
-   * proportional to |v_relative|² (quadratic drag on a cylinder cross-section).
-   *
-   * This replaces bulk linear damping as the primary energy-removal mechanism,
-   * giving physically correct behavior: a rope streaming downwind feels no
-   * drag, while one whipping across the wind is heavily damped.
-   */
-  private applyFluidDrag(): void {
-    const particles = this.rope.getParticles();
-    const halfCdA = this.dragHalfCdA;
-    const windAvail = this.windQuery.length > 0;
-    const waterAvail = this.waterQuery.length > 0;
-
-    for (let i = 0; i < particles.length; i++) {
-      const p = particles[i];
-
-      // Determine which medium: compare particle z to water surface height
-      let rho: number;
-      let fluidVx: number;
-      let fluidVy: number;
-
-      if (waterAvail) {
-        const water = this.waterQuery.get(i);
-        if (p.z <= water.surfaceHeight) {
-          // Submerged: water drag with water current velocity
-          rho = RHO_WATER;
-          const wv = water.velocity;
-          fluidVx = wv.x;
-          fluidVy = wv.y;
-        } else if (windAvail) {
-          // Above water: air drag with wind velocity
-          rho = RHO_AIR;
-          const wv = this.windQuery.get(i).velocity;
-          fluidVx = wv.x;
-          fluidVy = wv.y;
-        } else {
-          continue;
-        }
-      } else if (windAvail) {
-        // No water data yet — use wind only
-        rho = RHO_AIR;
-        const wv = this.windQuery.get(i).velocity;
-        fluidVx = wv.x;
-        fluidVy = wv.y;
-      } else {
-        // No query data available yet (first frame)
-        continue;
-      }
-
-      // Relative velocity: particle velocity minus fluid velocity
-      const vrx = p.velocity[0] - fluidVx;
-      const vry = p.velocity[1] - fluidVy;
-      const vrz = p.zVelocity; // fluid has no vertical component
-      const vrMag = Math.sqrt(vrx * vrx + vry * vry + vrz * vrz);
-      if (vrMag < 0.001) continue;
-
-      // F = -0.5 * rho * Cd * A * |v_rel| * v_rel, converted to engine units
-      const forceMag = rho * halfCdA * vrMag * vrMag * LBF_TO_ENGINE;
-      // Clamp to prevent numerical explosion from extreme particle velocities
-      const clampedMag = Math.min(forceMag, 1e6);
-      const s = -clampedMag / vrMag;
-      p.applyForce3D(s * vrx, s * vry, s * vrz, 0, 0, 0);
-    }
   }
 
   /** Get world-space rope points with z-values from particle positions. */
