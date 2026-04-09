@@ -220,15 +220,14 @@ export class ClothSolverSync implements ClothPositionReader {
       }
     }
 
-    // Clear pins and skipped
+    // Clear pin states — we'll set them fresh each frame
     for (let i = 0; i < vertexCount; i++) {
       solver.setPinned(i, false);
-      solver.setSkipped(i, false);
     }
 
     // Pin active luff vertices
     for (const li of this.luffVertices) {
-      if (!active[li] && this.furlMode === "v-cutoff") continue;
+      if (!active[li]) continue;
       const v = this.vertexV[li];
       solver.setPinned(li, true);
       solver.setPinTarget(
@@ -239,23 +238,19 @@ export class ClothSolverSync implements ClothPositionReader {
       );
     }
 
-    if (this.furlMode === "v-cutoff") {
-      for (let i = 0; i < vertexCount; i++) {
-        if (!active[i]) solver.setSkipped(i, true);
-      }
-    } else {
-      // u-wrap: pin wrapped vertices to forestay
-      for (let i = 0; i < vertexCount; i++) {
-        if (!active[i]) {
-          const v = this.vertexV[i];
-          solver.setPinned(i, true);
-          solver.setPinTarget(
-            i,
-            tackX + v * (headX - tackX),
-            tackY + v * (headY - tackY),
-            tackZ + v * (headZ - tackZ),
-          );
-        }
+    // Pin all inactive vertices to the luff at their v-height. This keeps their
+    // positions current as the boat moves, so they enter the simulation smoothly
+    // when they become active (no stale-position explosions).
+    for (let i = 0; i < vertexCount; i++) {
+      if (!active[i]) {
+        const v = this.vertexV[i];
+        solver.setPinned(i, true);
+        solver.setPinTarget(
+          i,
+          tackX + v * (headX - tackX),
+          tackY + v * (headY - tackY),
+          tackZ + v * (headZ - tackZ),
+        );
       }
     }
 

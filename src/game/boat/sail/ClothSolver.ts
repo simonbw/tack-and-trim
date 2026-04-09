@@ -252,6 +252,17 @@ export class ClothSolver {
     this.skipped[index] = skip ? 1 : 0;
   }
 
+  /** Reset a single vertex position and zero its velocity. */
+  resetVertex(index: number, x: number, y: number, z: number): void {
+    const i3 = index * 3;
+    this.positions[i3] = x;
+    this.positions[i3 + 1] = y;
+    this.positions[i3 + 2] = z;
+    this.prevPositions[i3] = x;
+    this.prevPositions[i3 + 1] = y;
+    this.prevPositions[i3 + 2] = z;
+  }
+
   /**
    * Snapshot solver state for transfer to a worker.
    * Returns copies of internal arrays for one-time transfer.
