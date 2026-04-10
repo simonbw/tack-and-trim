@@ -213,7 +213,7 @@ export class Boat extends BaseEntity {
 
       const jibClewZ = config.jib.zFoot ?? 3;
       // Build waypoint arrays: blocks first, then winch
-      const portWaypoints: import("../rope/Rope").RopeWaypoint[] = [];
+      const portWaypoints: import("./Sheet").SheetWaypoint[] = [];
       if (portBlockPoint)
         portWaypoints.push({
           body: this.hull.body,
@@ -231,7 +231,7 @@ export class Boat extends BaseEntity {
           radius: 0,
         });
 
-      const starboardWaypoints: import("../rope/Rope").RopeWaypoint[] = [];
+      const starboardWaypoints: import("./Sheet").SheetWaypoint[] = [];
       if (starboardBlockPoint)
         starboardWaypoints.push({
           body: this.hull.body,

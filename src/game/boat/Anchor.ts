@@ -7,7 +7,8 @@ import { V, V2d } from "../../core/Vector";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { TerrainFloorConstraint } from "../constraints/TerrainFloorConstraint";
-import { Rope, RopeWaypoint } from "../rope/Rope";
+import { Pulley } from "../rope/Pulley";
+import { Rope, type RopePathHint } from "../rope/Rope";
 import { AnchorConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 import type { RopePattern } from "./RopeShader";
@@ -47,7 +48,8 @@ export class Anchor extends BaseEntity {
 
   private anchorBody!: DynamicBody;
   private rode: Rope | null = null;
-  private winchIndex: number = -1;
+  private winch: Pulley | null = null;
+  private pulleys: Pulley[] = [];
 
   private onBottom: boolean = false;
 
@@ -139,55 +141,68 @@ export class Anchor extends BaseEntity {
     const winchPoint = V(this.bowAttachPoint.x - 3, 0);
     const tailPoint = V(this.bowAttachPoint.x - 8, 0);
 
-    const bowRoller: RopeWaypoint = {
-      body: this.hull.body,
-      localAnchor: this.bowAttachPoint,
-      z: this.deckHeight,
-      type: "block",
-      radius: 0,
-    };
-
-    const winchWaypoint: RopeWaypoint = {
-      body: this.hull.body,
-      localAnchor: winchPoint,
-      z: this.deckHeight,
-      type: "winch",
-      radius: 0,
-    };
+    // Path hints for particle distribution (same positions as the pulleys)
+    const pathHints: RopePathHint[] = [
+      {
+        body: this.hull.body,
+        localAnchor: this.bowAttachPoint,
+        z: this.deckHeight,
+      },
+      { body: this.hull.body, localAnchor: winchPoint, z: this.deckHeight },
+    ];
 
     // Rode: anchor → bow roller (block) → winch on deck → tail (free end aft)
-    this.rode = new Rope(
-      this.anchorBody,
-      [
-        this.rodeAttachOffset[0],
-        this.rodeAttachOffset[1],
-        this.rodeAttachOffset[2],
-      ],
-      this.hull.body,
-      [tailPoint.x, tailPoint.y, this.deckHeight],
-      this.maxRodeLength,
-      {
-        particleCount,
-        particleMass,
-        damping: 0,
-        drag: {
-          waterDrag: true,
-          ropeDiameter: RODE_DIAMETER,
-          ropeDragCd: RODE_DRAG_CD,
+    this.rode = this.addChild(
+      new Rope(
+        this.anchorBody,
+        [
+          this.rodeAttachOffset[0],
+          this.rodeAttachOffset[1],
+          this.rodeAttachOffset[2],
+        ],
+        this.hull.body,
+        [tailPoint.x, tailPoint.y, this.deckHeight],
+        this.maxRodeLength,
+        {
+          particleCount,
+          particleMass,
+          damping: 0,
+          drag: {
+            waterDrag: true,
+            ropeDiameter: RODE_DIAMETER,
+            cdNormal: RODE_DRAG_CD,
+          },
+          terrainFloor: {
+            floorFriction: RODE_FLOOR_FRICTION,
+          },
         },
-        terrainFloor: {
-          floorFriction: RODE_FLOOR_FRICTION,
-        },
-      },
-      [bowRoller, winchWaypoint],
+        pathHints,
+      ),
     );
 
-    this.winchIndex = this.rode.findWinch();
-
-    // Register rode particles as child entities (each owns its body + queries)
     this.bodies = [this.anchorBody];
-    for (const p of this.rode.getParticleEntities()) this.addChild(p);
-    this.constraints = [...this.rode.getAllConstraints()];
+
+    // Create pulleys: bow roller (block) and deck winch
+    const bowRoller = this.addChild(
+      new Pulley(
+        this.rode,
+        this.hull.body,
+        this.bowAttachPoint,
+        this.deckHeight,
+        {
+          mode: "block",
+        },
+      ),
+    );
+    this.pulleys.push(bowRoller);
+
+    const winch = this.addChild(
+      new Pulley(this.rode, this.hull.body, winchPoint, this.deckHeight, {
+        mode: "winch",
+      }),
+    );
+    this.pulleys.push(winch);
+    this.winch = winch;
 
     // Anchor body terrain floor
     this.addChild(
@@ -210,21 +225,20 @@ export class Anchor extends BaseEntity {
 
   /** Release the winch — rode pays out freely under anchor weight. */
   lower(): void {
-    if (this.winchIndex < 0) return;
-    this.rode!.setWinchMode(this.winchIndex, "free");
+    if (!this.winch) return;
+    this.winch.setMode("free");
   }
 
   /** Engage ratchet + apply tailing force to hoist the anchor. */
   raise(): void {
-    if (this.winchIndex < 0) return;
-    this.rode!.setWinchMode(this.winchIndex, "ratchet");
+    if (!this.winch) return;
+    this.winch.setMode("ratchet");
 
     // Tail direction: aft along the hull (toward the helm)
     const angle = this.hull.body.angle;
     const aftX = -Math.cos(angle);
     const aftY = -Math.sin(angle);
-    this.rode!.applyWinchForce(
-      this.winchIndex,
+    this.winch.applyForce(
       this.hoistForce * LBF_TO_ENGINE,
       aftX,
       aftY,
@@ -234,8 +248,8 @@ export class Anchor extends BaseEntity {
 
   /** Lock the rode in place (ratchet, no force). */
   idle(): void {
-    if (this.winchIndex < 0) return;
-    this.rode!.setWinchMode(this.winchIndex, "ratchet");
+    if (!this.winch) return;
+    this.winch.setMode("ratchet");
   }
 
   // ---- Public accessors ----
@@ -267,17 +281,21 @@ export class Anchor extends BaseEntity {
     return this.ropePattern ?? { type: "laid", carriers: [RODE_COLOR] };
   }
 
-  getWaypointInfo() {
-    return this.rode?.getWaypointInfo() ?? [];
+  getWaypointInfo(): {
+    position: [number, number, number];
+    type: "block" | "winch";
+  }[] {
+    return this.pulleys.map((p) => ({
+      position: p.getWorldPosition(),
+      type: p.type,
+    }));
   }
 
   // ---- Per-tick physics ----
 
   @on("tick")
-  onTick({ dt }: GameEventMap["tick"]): void {
+  onTick(): void {
     if (!this.rode) return;
-
-    this.rode.tick(dt);
 
     // Update anchor body query point
     this.updateQueryPoints();
@@ -378,8 +396,7 @@ export class Anchor extends BaseEntity {
     if (speed < 0.01) return;
 
     // Scope-based drag: more rode out = better holding
-    const workingLength =
-      this.winchIndex >= 0 ? this.rode!.getWorkingLength(this.winchIndex) : 0;
+    const workingLength = this.winch ? this.winch.getWorkingLength() : 0;
     const scope = workingLength / this.maxRodeLength;
     let dragMagnitude = this.anchorDragCoefficient * scope * speed;
 

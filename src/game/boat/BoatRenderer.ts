@@ -387,10 +387,9 @@ export class BoatRenderer extends BaseEntity {
     for (const sheet of sheets) {
       if (!sheet) continue;
       for (const wp of sheet.getWaypointInfo()) {
-        const local = hullBody.toLocalFrame(wp.position);
-        const surfaceZ =
-          (hull.getDeckHeight(local[0], local[1]) ?? fallbackDeckZ) +
-          hardwareOffset;
+        const [wx, wy, wz] = wp.position;
+        const local = hullBody.toLocalFrame3D(wx, wy, wz);
+        const surfaceZ = local[2] + hardwareOffset;
         td.circle(local[0], local[1], surfaceZ, winchRadius, 32, 0x444444);
         if (wp.type === "winch") {
           const handleLen = winchRadius * 1.6;
