@@ -8,6 +8,8 @@ import type { HullBoundaryData } from "../../core/physics/constraints/DeckContac
 import { LBF_TO_ENGINE } from "../physics-constants";
 import { Pulley, type PulleyConfig } from "../rope/Pulley";
 import { Rope, RopeConfig, type RopePathHint } from "../rope/Rope";
+import { RopeObstacleCollider } from "../rope/RopeObstacleCollider";
+import type { RopeObstacle } from "../rope/RopeObstacle";
 import type { RopePattern } from "./RopeShader";
 
 export interface SheetConfig {
@@ -129,6 +131,7 @@ export class Sheet extends BaseEntity {
     waypoints: SheetWaypoint[] = [],
     private getDeckHeight?: (localX: number, localY: number) => number | null,
     private hullBoundary?: HullBoundaryData,
+    private hullObstacles?: readonly RopeObstacle[],
   ) {
     super();
 
@@ -205,6 +208,19 @@ export class Sheet extends BaseEntity {
         pathHints,
       ),
     );
+
+    // Rope-vs-obstacle segment collider (gunwale edges). Only spawned when
+    // the sheet has hull obstacles AND the rope has deck contact (the
+    // collider's gunwale prefilter relies on the per-particle inside flag).
+    if (
+      this.hullObstacles &&
+      this.hullObstacles.length > 0 &&
+      ropeConfig.deckContact
+    ) {
+      this.addChild(
+        new RopeObstacleCollider(this.rope, this.hullBody, this.hullObstacles),
+      );
+    }
 
     // Create pulleys at waypoints
     const stiffness = ropeConfig.constraintStiffness;

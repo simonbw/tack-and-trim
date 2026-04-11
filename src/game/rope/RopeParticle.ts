@@ -122,6 +122,18 @@ export class RopeParticle extends BaseEntity {
     this.applyTerrainFloor(p);
   }
 
+  /**
+   * Whether this particle is currently inside the hull (on the cockpit/deck
+   * side of the deck outline). Returns false if the particle has no
+   * deck-contact constraint.
+   */
+  isInside(): boolean {
+    const constraint = this.constraints?.[0];
+    return constraint instanceof DeckContactConstraint
+      ? constraint.isInside()
+      : false;
+  }
+
   private applyTerrainFloor(p: DynamicBody): void {
     if (!this.hasTerrainFloor) return;
     if (

@@ -408,6 +408,11 @@ export class Rope extends BaseEntity {
     return this.particles;
   }
 
+  /** Particle entities (one per body), used by obstacle collision code. */
+  getParticleEntities(): readonly RopeParticle[] {
+    return this.particleEntities;
+  }
+
   /** Get the current total rope length. */
   getLength(): number {
     return this.totalLength;
