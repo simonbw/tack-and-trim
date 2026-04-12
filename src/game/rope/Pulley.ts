@@ -1,9 +1,16 @@
 /**
  * A standalone pulley (block or winch) that constrains a rope.
  *
- * The pulley finds the two nearest particles on the rope, creates a
- * PulleyConstraint3D between them, and runs a two-mode state machine
- * (straddle ↔ contained) each tick to track which particles it spans.
+ * The constraint always references a span-2 triple (p_i, p_{i+2}) with
+ * totalLength = 2 * chainLinkLength. The interior particle p_{i+1} is the
+ * "swallowed" particle, free to flow through the pulley under chain dynamics.
+ * Each tick, a shift loop checks whether either anchor has reached the pulley
+ * point (distA or distB ≤ ε) and bumps `indexA` by ±1. After each shift, the
+ * old swallowed particle is marked as "skip" so its natural proximity to the
+ * pulley doesn't trigger an immediate reverse shift (ping-pong).
+ *
+ * Always-span-2 means the constraint anchors are never at the pulley itself,
+ * so the Jacobian never degenerates and the swallowed particle is never stuck.
  *
  * A winch is just a pulley in ratchet mode, with force application and
  * working-length queries.
@@ -36,15 +43,6 @@ export interface PulleyConfig {
   relaxation?: number;
 }
 
-/**
- * Straddle/contained state for the pulley's position along the particle chain.
- *
- * - Half-integer (e.g. 3.5): straddle mode — pulley sits between p_3 and p_4,
- *   constraint spans 1 chain link.
- * - Integer (e.g. 3): contained mode — pulley "swallows" p_3,
- *   constraint spans p_2 to p_4 (2 chain links).
- */
-
 export class Pulley extends BaseEntity {
   private readonly rope: Rope;
   private readonly particles: readonly DynamicBody[];
@@ -53,22 +51,31 @@ export class Pulley extends BaseEntity {
   private readonly chainLinkLength: number;
 
   private readonly constraint: PulleyConstraint3D;
-  private state: number;
+  /** A-side anchor index. Constraint spans (particles[indexA], particles[indexA + 2]). */
   private indexA: number;
 
   readonly type: "block" | "winch";
   readonly radius: number;
 
+  /** Anchor-to-pulley distance threshold for triggering a shift. */
+  private static readonly SHIFT_EPSILON_FRACTION = 0.4;
   /**
-   * Fraction of chainLinkLength: particle must be this close to enter
-   * contained mode.
+   * After a shift, the old swallowed particle becomes a new anchor. It's
+   * naturally near the pulley (chain forces balance it there), so its
+   * proximity would immediately trigger a reverse shift (ping-pong). We
+   * skip that particle until it has drifted this far from the pulley.
+   * Must be comfortably above SHIFT_EPSILON_FRACTION so the skip clears
+   * before the particle could re-trigger a shift.
    */
-  private static readonly CONTAIN_ENTER_FRACTION = 0.25;
+  private static readonly SKIP_CLEAR_FRACTION = 0.7;
+  /** Cap on shifts per tick to prevent pathological loops. */
+  private static readonly MAX_SHIFTS_PER_TICK = 16;
+
   /**
-   * Fraction of chainLinkLength: contained particle must drift this far
-   * to exit contained mode. Wider than enter to prevent oscillation.
+   * Particle index to ignore for shift triggers. Set to the swallowed
+   * particle's index after each shift; cleared once it moves away from P.
    */
-  private static readonly CONTAIN_EXIT_FRACTION = 0.5;
+  private skipParticleIdx: number = -1;
 
   constructor(
     rope: Rope,
@@ -90,21 +97,19 @@ export class Pulley extends BaseEntity {
     const stiffness = config.stiffness ?? 1e5;
     const relaxation = config.relaxation ?? 12;
 
-    // Find the two particles nearest to the pulley's world position
-    const [indexA, indexB] = this.findInitialParticles();
-    this.indexA = indexA;
-    this.state = indexA + 0.5; // start in straddle mode
+    // Find the best span-2 anchor index for the pulley's world position
+    this.indexA = this.findInitialParticles();
 
-    // Create constraint
+    // Create constraint: always spans (indexA, indexA + 2) with 2L of rope
     this.constraint = new PulleyConstraint3D(
-      this.particles[indexA],
-      this.particles[indexB],
+      this.particles[this.indexA],
+      this.particles[this.indexA + 2],
       body,
       {
         localAnchorA: [0, 0, 0],
         localAnchorB: [0, 0, 0],
         localAnchorC: this.localAnchor,
-        totalLength: this.chainLinkLength,
+        totalLength: 2 * this.chainLinkLength,
         collideConnected: true,
         radius: this.radius,
       },
@@ -130,21 +135,21 @@ export class Pulley extends BaseEntity {
   }
 
   /**
-   * Find the two adjacent particles that best straddle this pulley's
-   * world position. Returns [indexA, indexB] where indexB = indexA + 1.
+   * Find the span-2 anchor index that best straddles this pulley.
+   * Returns indexA such that the constraint spans (p_indexA, p_{indexA+2}).
    */
-  private findInitialParticles(): [number, number] {
+  private findInitialParticles(): number {
     const particles = this.particles;
     const [wx, wy, wz] = this.pulleyBody.toWorldFrame3D(...this.localAnchor);
 
-    // Find the pair of adjacent particles whose total distance through the
-    // pulley is smallest. This picks the pair that genuinely straddles the
-    // pulley, regardless of which side the nearest particle is on.
-    let bestPair = 0;
+    // Find the triple (p_i, p_{i+1}, p_{i+2}) whose two outer particles have
+    // the smallest combined distance to the pulley. This picks the slot that
+    // best wraps the pulley with one chain link of rope on each side.
+    let bestI = 0;
     let bestCost = Infinity;
-    for (let i = 0; i < particles.length - 1; i++) {
+    for (let i = 0; i <= particles.length - 3; i++) {
       const a = particles[i];
-      const b = particles[i + 1];
+      const b = particles[i + 2];
       const dAx = a.position[0] - wx,
         dAy = a.position[1] - wy,
         dAz = a.z - wz;
@@ -156,19 +161,18 @@ export class Pulley extends BaseEntity {
         Math.sqrt(dBx * dBx + dBy * dBy + dBz * dBz);
       if (cost < bestCost) {
         bestCost = cost;
-        bestPair = i;
+        bestI = i;
       }
     }
 
-    // Ensure at least one particle on each side for contained mode
-    const indexA = Math.max(1, Math.min(bestPair, particles.length - 2));
-    return [indexA, indexA + 1];
+    return Math.max(0, Math.min(bestI, particles.length - 3));
   }
 
   /**
-   * Set solver order so pulley equations interleave with chain constraints.
-   * Chain constraints use odd orders (1, 3, 5, ...).
-   * Pulleys use even orders: 2 * (indexA + 1) + 2.
+   * Set solver order so the pulley equation slots between the two chain
+   * constraints it encloses. Chain constraints use odd orders 2*(i+1)+1.
+   * The two enclosed links are 2*(indexA+1)+1 and 2*(indexA+2)+1; the
+   * pulley uses 2*(indexA+1)+2, which sits strictly between them.
    */
   private updateSolverOrder(): void {
     const order = 2 * (this.indexA + 1) + 2;
@@ -179,54 +183,58 @@ export class Pulley extends BaseEntity {
 
   @on("tick")
   onTick(): void {
-    this.updateState();
+    this.shiftIndex();
   }
 
-  // ---- State machine ----
+  // ---- Shift loop ----
 
-  private updateState(): void {
-    const enterDist = Pulley.CONTAIN_ENTER_FRACTION * this.chainLinkLength;
-    const exitDist = Pulley.CONTAIN_EXIT_FRACTION * this.chainLinkLength;
-
+  /**
+   * Shift indexA when either anchor reaches the pulley point.
+   *
+   * After every shift, the old swallowed particle (p_{indexA+1}) becomes
+   * either the new A-anchor or B-anchor. Because chain forces naturally
+   * balance it near the pulley, its proximity would immediately trigger a
+   * reverse shift. To prevent this ping-pong, we record its index in
+   * `skipParticleIdx` and ignore it for shift checks until it has drifted
+   * away from the pulley (> SKIP_CLEAR_FRACTION * L).
+   */
+  private shiftIndex(): void {
+    const epsilon = Pulley.SHIFT_EPSILON_FRACTION * this.chainLinkLength;
+    const clearDist = Pulley.SKIP_CLEAR_FRACTION * this.chainLinkLength;
+    const maxIndex = this.particles.length - 3;
     const [px, py, pz] = this.pulleyBody.toWorldFrame3D(...this.localAnchor);
 
-    if (!Number.isInteger(this.state)) {
-      // ---- Straddle mode ----
-      const idxA = this.state - 0.5;
-      const idxB = this.state + 0.5;
-      const distA = this.particleDistTo(idxA, px, py, pz);
-      const distB = this.particleDistTo(idxB, px, py, pz);
+    // Clear skip once the particle has settled away from the pulley
+    if (
+      this.skipParticleIdx >= 0 &&
+      this.particleDistTo(this.skipParticleIdx, px, py, pz) > clearDist
+    ) {
+      this.skipParticleIdx = -1;
+    }
 
-      if (distA < enterDist && this.canContain(idxA)) {
-        this.state = idxA;
-        this.applyConstraint(idxA - 1, idxA + 1, 2);
-      } else if (distB < enterDist && this.canContain(idxB)) {
-        this.state = idxB;
-        this.applyConstraint(idxB - 1, idxB + 1, 2);
+    for (let iter = 0; iter < Pulley.MAX_SHIFTS_PER_TICK; iter++) {
+      const distA = this.particleDistTo(this.indexA, px, py, pz);
+      const distB = this.particleDistTo(this.indexA + 2, px, py, pz);
+
+      if (
+        distA <= epsilon &&
+        this.indexA > 0 &&
+        this.indexA !== this.skipParticleIdx
+      ) {
+        this.skipParticleIdx = this.indexA + 1;
+        this.shiftBy(-1);
+        continue;
       }
-    } else {
-      // ---- Contained mode ----
-      const containedIdx = this.state;
-      const distContained = this.particleDistTo(containedIdx, px, py, pz);
-
-      if (distContained > exitDist) {
-        const canLow = containedIdx - 1 >= 0;
-        const canHigh = containedIdx + 1 < this.particles.length;
-        const costLow = canLow
-          ? this.particleDistTo(containedIdx - 1, px, py, pz) + distContained
-          : Infinity;
-        const costHigh = canHigh
-          ? distContained + this.particleDistTo(containedIdx + 1, px, py, pz)
-          : Infinity;
-
-        if (costLow <= costHigh && canLow) {
-          this.state = containedIdx - 0.5;
-          this.applyConstraint(containedIdx - 1, containedIdx, 1);
-        } else if (canHigh) {
-          this.state = containedIdx + 0.5;
-          this.applyConstraint(containedIdx, containedIdx + 1, 1);
-        }
+      if (
+        distB <= epsilon &&
+        this.indexA < maxIndex &&
+        this.indexA + 2 !== this.skipParticleIdx
+      ) {
+        this.skipParticleIdx = this.indexA + 1;
+        this.shiftBy(+1);
+        continue;
       }
+      break;
     }
   }
 
@@ -243,24 +251,26 @@ export class Pulley extends BaseEntity {
     return Math.sqrt(dx * dx + dy * dy + dz * dz);
   }
 
-  private canContain(idx: number): boolean {
-    return idx > 0 && idx < this.particles.length - 1;
-  }
-
-  private applyConstraint(
-    indexA: number,
-    indexB: number,
-    linkSpan: number,
-  ): void {
-    const ratchetDelta = (this.indexA - indexA) * this.chainLinkLength;
+  /**
+   * Shift the constraint by one chain link. delta = -1 means rope is
+   * trimming in (working side getting shorter, A-anchor moves further
+   * toward endpoint A); delta = +1 means easing out.
+   *
+   * Ratchet bookkeeping: when shifting backward by one link, the new
+   * A-anchor is one chain link further from endpoint A, so its distance
+   * to the pulley is roughly L greater than the old anchor's. Pass that
+   * delta to setParticleA so ratchetDistA tracks correctly across the swap.
+   */
+  private shiftBy(delta: -1 | 1): void {
+    const newIndexA = this.indexA + delta;
+    const ratchetDelta = -delta * this.chainLinkLength;
     this.constraint.setParticleA(
-      this.particles[indexA],
+      this.particles[newIndexA],
       [0, 0, 0],
       ratchetDelta,
     );
-    this.constraint.setParticleB(this.particles[indexB], [0, 0, 0]);
-    this.constraint.totalLength = linkSpan * this.chainLinkLength;
-    this.indexA = indexA;
+    this.constraint.setParticleB(this.particles[newIndexA + 2], [0, 0, 0]);
+    this.indexA = newIndexA;
     this.updateSolverOrder();
   }
 
@@ -290,10 +300,8 @@ export class Pulley extends BaseEntity {
     dirY: number,
     maxSpeed: number = Infinity,
   ): void {
-    // Get the tail-side particle (toward endpoint B / free end)
-    const idxB = Number.isInteger(this.state)
-      ? this.state + 1
-      : this.state + 0.5;
+    // Tail-side particle is always the B-anchor of the span-2 constraint
+    const idxB = this.indexA + 2;
     if (idxB < 0 || idxB >= this.particles.length) return;
 
     const particle = this.particles[idxB];
@@ -316,12 +324,12 @@ export class Pulley extends BaseEntity {
 
   /**
    * Approximate working length of rope on the A side (toward endpoint A).
+   * Counts the chain links from endpoint A to the A-anchor (each of length
+   * chainLinkLength) plus the straight-line distance from that anchor to
+   * the pulley.
    */
   getWorkingLength(): number {
-    const idxA = Number.isInteger(this.state)
-      ? this.state - 1
-      : this.state - 0.5;
-    return (idxA + 1) * this.chainLinkLength + this.constraint.distA;
+    return (this.indexA + 1) * this.chainLinkLength + this.constraint.distA;
   }
 
   /**
@@ -329,17 +337,23 @@ export class Pulley extends BaseEntity {
    * Used to position rope at startup.
    */
   setWorkingLength(targetLength: number): void {
+    // Subtract 2 because in span-2 the pulley sits ~2 links beyond the
+    // A-anchor (one full chain link plus one swallowed-particle gap).
     const targetIndexA = Math.max(
       0,
       Math.min(
-        this.particles.length - 2,
-        Math.round(targetLength / this.chainLinkLength) - 1,
+        this.particles.length - 3,
+        Math.round(targetLength / this.chainLinkLength) - 2,
       ),
     );
-    const targetIndexB = targetIndexA + 1;
 
-    this.applyConstraint(targetIndexA, targetIndexB, 1);
-    this.state = targetIndexA + 0.5;
+    this.constraint.setParticleA(this.particles[targetIndexA], [0, 0, 0]);
+    this.constraint.setParticleB(this.particles[targetIndexA + 2], [0, 0, 0]);
+    this.indexA = targetIndexA;
+    this.updateSolverOrder();
+
+    // Reset skip — anchor changed externally
+    this.skipParticleIdx = -1;
 
     if (this.constraint.mode === "ratchet") {
       this.constraint.ratchetDistA = Infinity;
