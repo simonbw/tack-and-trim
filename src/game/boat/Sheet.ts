@@ -175,9 +175,13 @@ export class Sheet extends BaseEntity {
       damping: this.config.ropeDamping,
       freeEndB: true,
       ropeDiameter,
-      // Temporarily disabled while testing pulley refactor — re-enable once
-      // deck contact behavior is fixed.
-      deckContact: undefined,
+      deckContact:
+        this.getDeckHeight && this.hullBoundary
+          ? {
+              getDeckHeight: this.getDeckHeight,
+              hullBoundary: this.hullBoundary,
+            }
+          : undefined,
       drag: {
         airDrag: true,
         waterDrag: true,
