@@ -1,5 +1,6 @@
 import type Entity from "../../entity/Entity";
 import { CompatibleVector, V, V2d } from "../../Vector";
+import { CompatibleVector3, V3d } from "../../Vector3";
 import { AABB } from "../collision/AABB";
 import { EventEmitter } from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
@@ -150,37 +151,61 @@ export abstract class Body extends EventEmitter<PhysicsEventMap> {
   }
 
   /**
-   * Transform a world 3D point to body-local coordinates [lx, ly, lz].
+   * Transform a world 3D point to body-local coordinates.
    * Non-6DOF bodies use 2D inverse rotation for x,y and return worldZ for z.
    */
+  toLocalFrame3D(point: CompatibleVector3): V3d;
+  toLocalFrame3D(worldX: number, worldY: number, worldZ: number): V3d;
   toLocalFrame3D(
-    worldX: number,
-    worldY: number,
-    worldZ: number,
-  ): [number, number, number] {
+    worldXOrPoint: number | CompatibleVector3,
+    worldY?: number,
+    worldZ?: number,
+  ): V3d {
+    let wx: number, wy: number, wz: number;
+    if (typeof worldXOrPoint === "number") {
+      wx = worldXOrPoint;
+      wy = worldY!;
+      wz = worldZ!;
+    } else {
+      wx = worldXOrPoint[0];
+      wy = worldXOrPoint[1];
+      wz = worldXOrPoint[2];
+    }
     const c = Math.cos(-this.angle);
     const s = Math.sin(-this.angle);
-    const dx = worldX - this.position[0];
-    const dy = worldY - this.position[1];
-    return [c * dx - s * dy, s * dx + c * dy, worldZ];
+    const dx = wx - this.position[0];
+    const dy = wy - this.position[1];
+    return new V3d(c * dx - s * dy, s * dx + c * dy, wz);
   }
 
   /**
-   * Transform a body-local 3D point to world coordinates [wx, wy, wz].
+   * Transform a body-local 3D point to world coordinates.
    * Non-6DOF bodies use 2D toWorldFrame for x,y and return localZ for z.
    */
+  toWorldFrame3D(point: CompatibleVector3): V3d;
+  toWorldFrame3D(localX: number, localY: number, localZ: number): V3d;
   toWorldFrame3D(
-    localX: number,
-    localY: number,
-    localZ: number,
-  ): [number, number, number] {
+    localXOrPoint: number | CompatibleVector3,
+    localY?: number,
+    localZ?: number,
+  ): V3d {
+    let lx: number, ly: number, lz: number;
+    if (typeof localXOrPoint === "number") {
+      lx = localXOrPoint;
+      ly = localY!;
+      lz = localZ!;
+    } else {
+      lx = localXOrPoint[0];
+      ly = localXOrPoint[1];
+      lz = localXOrPoint[2];
+    }
     const c = Math.cos(this.angle);
     const s = Math.sin(this.angle);
-    return [
-      c * localX - s * localY + this.position[0],
-      s * localX + c * localY + this.position[1],
-      localZ,
-    ];
+    return new V3d(
+      c * lx - s * ly + this.position[0],
+      s * lx + c * ly + this.position[1],
+      lz,
+    );
   }
 
   /**

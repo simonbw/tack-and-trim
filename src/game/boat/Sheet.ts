@@ -4,6 +4,7 @@ import { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { clamp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
+import { V3, V3d } from "../../core/Vector3";
 import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
 import { LBF_TO_ENGINE } from "../physics-constants";
 import { Pulley, type PulleyConfig } from "../rope/Pulley";
@@ -86,8 +87,7 @@ const DEFAULT_CONFIG: SheetConfig = {
 /** Waypoint definition passed to Sheet for creating pulleys/winches. */
 export interface SheetWaypoint {
   body: Body;
-  localAnchor: V2d;
-  z: number;
+  localAnchor: V3d;
   /** Default "block" — free physics-driven sliding. */
   type?: "block" | "winch";
   /** Coulomb friction coefficient for rope sliding through this block.
@@ -122,12 +122,10 @@ export class Sheet extends BaseEntity {
 
   constructor(
     bodyA: DynamicBody,
-    localAnchorA: V2d,
+    private localAnchorA: V3d,
     bodyB: Body,
-    localAnchorB: V2d,
+    private localAnchorB: V3d,
     config: Partial<SheetConfig> = {},
-    private zA: number = 0,
-    private zB: number = 0,
     waypoints: SheetWaypoint[] = [],
     private getDeckHeight?: (localX: number, localY: number) => number | null,
     private hullBoundary?: HullBoundaryData,
@@ -140,9 +138,11 @@ export class Sheet extends BaseEntity {
 
     // Compute total path distance for rope length calculation
     const pathPoints = [
-      bodyA.toWorldFrame(localAnchorA),
-      ...waypoints.map((w) => w.body.toWorldFrame(w.localAnchor)),
-      bodyB.toWorldFrame(localAnchorB),
+      bodyA.toWorldFrame(V(localAnchorA[0], localAnchorA[1])),
+      ...waypoints.map((w) =>
+        w.body.toWorldFrame(V(w.localAnchor[0], w.localAnchor[1])),
+      ),
+      bodyB.toWorldFrame(V(localAnchorB[0], localAnchorB[1])),
     ];
     let totalPathDist = 0;
     for (let i = 0; i < pathPoints.length - 1; i++) {
@@ -194,15 +194,14 @@ export class Sheet extends BaseEntity {
     const pathHints: RopePathHint[] = waypoints.map((w) => ({
       body: w.body,
       localAnchor: w.localAnchor,
-      z: w.z,
     }));
 
     this.rope = this.addChild(
       new Rope(
         bodyA,
-        [localAnchorA.x, localAnchorA.y, this.zA],
+        localAnchorA,
         bodyB,
-        [localAnchorB.x, localAnchorB.y, this.zB],
+        localAnchorB,
         totalRopeLength,
         ropeConfig,
         pathHints,
@@ -234,7 +233,7 @@ export class Sheet extends BaseEntity {
         relaxation,
       };
       const pulley = this.addChild(
-        new Pulley(this.rope, wp.body, wp.localAnchor, wp.z, pulleyConfig),
+        new Pulley(this.rope, wp.body, wp.localAnchor, pulleyConfig),
       );
       this.pulleys.push(pulley);
       if (pulley.type === "winch" && !this.winch) {
@@ -367,17 +366,17 @@ export class Sheet extends BaseEntity {
 
   /** Z-height at anchor A (body A end). */
   getZA(): number {
-    return this.zA;
+    return this.localAnchorA[2];
   }
 
   /** Z-height at anchor B (body B end). */
   getZB(): number {
-    return this.zB;
+    return this.localAnchorB[2];
   }
 
   /** Waypoint info for rendering — world position, type, and winch angle. */
   getWaypointInfo(): {
-    position: [number, number, number];
+    position: V3d;
     type: "block" | "winch";
     winchAngle: number;
   }[] {

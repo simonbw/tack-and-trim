@@ -4,6 +4,7 @@ import { on } from "../../core/entity/handler";
 import { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { Circle } from "../../core/physics/shapes/Circle";
 import { V, V2d } from "../../core/Vector";
+import { V3d } from "../../core/Vector3";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { TerrainFloorConstraint } from "../constraints/TerrainFloorConstraint";
@@ -145,23 +146,29 @@ export class Anchor extends BaseEntity {
     const pathHints: RopePathHint[] = [
       {
         body: this.hull.body,
-        localAnchor: this.bowAttachPoint,
-        z: this.deckHeight,
+        localAnchor: new V3d(
+          this.bowAttachPoint.x,
+          this.bowAttachPoint.y,
+          this.deckHeight,
+        ),
       },
-      { body: this.hull.body, localAnchor: winchPoint, z: this.deckHeight },
+      {
+        body: this.hull.body,
+        localAnchor: new V3d(winchPoint.x, winchPoint.y, this.deckHeight),
+      },
     ];
 
     // Rode: anchor → bow roller (block) → winch on deck → tail (free end aft)
     this.rode = this.addChild(
       new Rope(
         this.anchorBody,
-        [
+        new V3d(
           this.rodeAttachOffset[0],
           this.rodeAttachOffset[1],
           this.rodeAttachOffset[2],
-        ],
+        ),
         this.hull.body,
-        [tailPoint.x, tailPoint.y, this.deckHeight],
+        new V3d(tailPoint.x, tailPoint.y, this.deckHeight),
         this.maxRodeLength,
         {
           particleCount,
@@ -187,8 +194,7 @@ export class Anchor extends BaseEntity {
       new Pulley(
         this.rode,
         this.hull.body,
-        this.bowAttachPoint,
-        this.deckHeight,
+        new V3d(this.bowAttachPoint.x, this.bowAttachPoint.y, this.deckHeight),
         {
           mode: "block",
         },
@@ -197,9 +203,12 @@ export class Anchor extends BaseEntity {
     this.pulleys.push(bowRoller);
 
     const winch = this.addChild(
-      new Pulley(this.rode, this.hull.body, winchPoint, this.deckHeight, {
-        mode: "winch",
-      }),
+      new Pulley(
+        this.rode,
+        this.hull.body,
+        new V3d(winchPoint.x, winchPoint.y, this.deckHeight),
+        { mode: "winch" },
+      ),
     );
     this.pulleys.push(winch);
     this.winch = winch;

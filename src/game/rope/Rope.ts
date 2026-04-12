@@ -17,6 +17,7 @@ import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { DistanceConstraint3D } from "../../core/physics/constraints/DistanceConstraint3D";
 import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
 import { V, V2d } from "../../core/Vector";
+import { CompatibleVector3, V3, V3d } from "../../core/Vector3";
 import { RopeParticle } from "./RopeParticle";
 import { RopeSegment } from "./RopeSegment";
 
@@ -91,8 +92,7 @@ export interface RopeConfig {
 /** A world-space hint used to shape the initial path of the rope. */
 export interface RopePathHint {
   body: Body;
-  localAnchor: V2d;
-  z: number;
+  localAnchor: V3d;
 }
 
 export class Rope extends BaseEntity {
@@ -102,8 +102,8 @@ export class Rope extends BaseEntity {
   private chainLinkLength: number;
 
   // Endpoints
-  private endpointA: { body: Body; anchor: [number, number, number] };
-  private endpointB: { body: Body; anchor: [number, number, number] };
+  private endpointA: { body: Body; anchor: V3d };
+  private endpointB: { body: Body; anchor: V3d };
 
   private totalLength: number;
   private readonly freeEndB: boolean;
@@ -114,9 +114,9 @@ export class Rope extends BaseEntity {
 
   constructor(
     bodyA: Body,
-    localAnchorA: [number, number, number],
+    localAnchorA: CompatibleVector3,
     bodyB: Body,
-    localAnchorB: [number, number, number],
+    localAnchorB: CompatibleVector3,
     totalLength: number,
     config: RopeConfig = {},
     pathHints: RopePathHint[] = [],
@@ -134,34 +134,21 @@ export class Rope extends BaseEntity {
 
     const numParticles = config.particleCount ?? 24;
 
-    this.endpointA = { body: bodyA, anchor: [...localAnchorA] };
-    this.endpointB = { body: bodyB, anchor: [...localAnchorB] };
+    this.endpointA = { body: bodyA, anchor: V3(localAnchorA) };
+    this.endpointB = { body: bodyB, anchor: V3(localAnchorB) };
 
     // Build the full path: endpoint A → path hints → endpoint B
-    const pathNodes = [
-      {
-        body: bodyA,
-        x: localAnchorA[0],
-        y: localAnchorA[1],
-        z: localAnchorA[2],
-      },
-      ...pathHints.map((h) => ({
-        body: h.body,
-        x: h.localAnchor.x,
-        y: h.localAnchor.y,
-        z: h.z,
-      })),
-      {
-        body: bodyB,
-        x: localAnchorB[0],
-        y: localAnchorB[1],
-        z: localAnchorB[2],
-      },
+    const pathNodes: { body: Body; anchor: V3d }[] = [
+      { body: bodyA, anchor: this.endpointA.anchor },
+      ...pathHints.map((h) => ({ body: h.body, anchor: h.localAnchor })),
+      { body: bodyB, anchor: this.endpointB.anchor },
     ];
 
     // Compute world positions and cumulative distances along the path
-    const worldPos = pathNodes.map((n) => n.body.toWorldFrame3D(n.x, n.y, n.z));
-    const worldPos2D = pathNodes.map((n) => n.body.toWorldFrame(V(n.x, n.y)));
+    const worldPos = pathNodes.map((n) => n.body.toWorldFrame3D(n.anchor));
+    const worldPos2D = pathNodes.map((n) =>
+      n.body.toWorldFrame(V(n.anchor[0], n.anchor[1])),
+    );
     let totalPathDist = 0;
     const cumulDist = [0];
     for (let i = 1; i < worldPos.length; i++) {
@@ -316,9 +303,9 @@ export class Rope extends BaseEntity {
 
   private makeChainConstraint(
     a: Body,
-    anchorA: [number, number, number],
+    anchorA: CompatibleVector3,
     b: Body,
-    anchorB: [number, number, number],
+    anchorB: CompatibleVector3,
     length: number,
     stiffness: number,
     relaxation: number,
@@ -372,7 +359,7 @@ export class Rope extends BaseEntity {
 
     // Endpoint A
     const [eax, eay, eaz] = this.endpointA.body.toWorldFrame3D(
-      ...this.endpointA.anchor,
+      this.endpointA.anchor,
     );
     this.cachedPositions[idx][0] = eax;
     this.cachedPositions[idx][1] = eay;
@@ -391,7 +378,7 @@ export class Rope extends BaseEntity {
     // Endpoint B (only if attached)
     if (!this.freeEndB) {
       const [ebx, eby, ebz] = this.endpointB.body.toWorldFrame3D(
-        ...this.endpointB.anchor,
+        this.endpointB.anchor,
       );
       this.cachedPositions[idx][0] = ebx;
       this.cachedPositions[idx][1] = eby;

@@ -1,26 +1,22 @@
-import { CompatibleVector, V, V2d } from "../../Vector";
 import type { Body } from "../body/Body";
+import { CompatibleVector3, V3, V3d } from "../../Vector3";
 import { AxisAlignmentEquation } from "../equations/AxisAlignmentEquation";
 import { Equation } from "../equations/Equation";
 import { ConstraintOptions, Constraint } from "./Constraint";
 
 /** Options for creating a RevoluteConstraint3D. */
 export interface RevoluteConstraint3DOptions extends ConstraintOptions {
-  /** Pivot point on bodyA in local coordinates (XY). */
-  localPivotA?: CompatibleVector;
-  /** Pivot point on bodyB in local coordinates (XY). */
-  localPivotB?: CompatibleVector;
-  /** Z-height of pivot on bodyA in body-local frame. Default 0. */
-  localPivotZA?: number;
-  /** Z-height of pivot on bodyB in body-local frame. Default 0. */
-  localPivotZB?: number;
+  /** 3D pivot point on bodyA in local coordinates. Default [0,0,0]. */
+  localPivotA?: CompatibleVector3;
+  /** 3D pivot point on bodyB in local coordinates. Default [0,0,0]. */
+  localPivotB?: CompatibleVector3;
   /**
    * Hinge axis in each body's local frame (unit vectors). Default is
    * each body's local z-axis, i.e. `[0, 0, 1]` — correct for a gooseneck
    * where the boom swings around the vertical mast axis.
    */
-  hingeAxisA?: [number, number, number];
-  hingeAxisB?: [number, number, number];
+  hingeAxisA?: CompatibleVector3;
+  hingeAxisB?: CompatibleVector3;
   /** Maximum force the constraint can apply. Default MAX_VALUE. */
   maxForce?: number;
 }
@@ -41,12 +37,10 @@ export interface RevoluteConstraint3DOptions extends ConstraintOptions {
  * have no effect on that body.
  */
 export class RevoluteConstraint3D extends Constraint {
-  pivotA: V2d;
-  pivotB: V2d;
-  pivotZA: number;
-  pivotZB: number;
-  hingeAxisA: [number, number, number];
-  hingeAxisB: [number, number, number];
+  pivotA: V3d;
+  pivotB: V3d;
+  hingeAxisA: V3d;
+  hingeAxisB: V3d;
   maxForce: number;
 
   /** Position-level equations: x, y, z separation at the pivot. */
@@ -54,8 +48,8 @@ export class RevoluteConstraint3D extends Constraint {
   private yEq: Equation;
   private zEq: Equation;
   /** Two perpendicular directions on bodyA (chosen at construction, perpendicular to hingeAxisA). */
-  private dirA1: [number, number, number];
-  private dirA2: [number, number, number];
+  private dirA1: V3d;
+  private dirA2: V3d;
   /** Axis-alignment equations locking the hinge axes. */
   private axis1Eq: AxisAlignmentEquation;
   private axis2Eq: AxisAlignmentEquation;
@@ -83,16 +77,18 @@ export class RevoluteConstraint3D extends Constraint {
     const maxForce = options.maxForce ?? Number.MAX_VALUE;
     this.maxForce = maxForce;
 
-    this.pivotA = options.localPivotA ? V(options.localPivotA) : V(0, 0);
-    this.pivotB = options.localPivotB ? V(options.localPivotB) : V(0, 0);
-    this.pivotZA = options.localPivotZA ?? 0;
-    this.pivotZB = options.localPivotZB ?? 0;
+    this.pivotA = options.localPivotA
+      ? V3(options.localPivotA)
+      : new V3d(0, 0, 0);
+    this.pivotB = options.localPivotB
+      ? V3(options.localPivotB)
+      : new V3d(0, 0, 0);
     this.hingeAxisA = options.hingeAxisA
-      ? [options.hingeAxisA[0], options.hingeAxisA[1], options.hingeAxisA[2]]
-      : [0, 0, 1];
+      ? V3(options.hingeAxisA)
+      : new V3d(0, 0, 1);
     this.hingeAxisB = options.hingeAxisB
-      ? [options.hingeAxisB[0], options.hingeAxisB[1], options.hingeAxisB[2]]
-      : [0, 0, 1];
+      ? V3(options.hingeAxisB)
+      : new V3d(0, 0, 1);
 
     // Pick two directions on bodyA perpendicular to hingeAxisA to form
     // the axis-alignment constraints. For the common case hingeAxisA =
@@ -155,11 +151,9 @@ export class RevoluteConstraint3D extends Constraint {
     const pB = this.pivotB;
 
     // 3D world-frame pivot offsets (lever arms from body center to pivot).
-    const rowA0 = component * 3;
-    const rAc =
-      RA[rowA0] * pA.x + RA[rowA0 + 1] * pA.y + RA[rowA0 + 2] * this.pivotZA;
-    const rBc =
-      RB[rowA0] * pB.x + RB[rowA0 + 1] * pB.y + RB[rowA0 + 2] * this.pivotZB;
+    const row = component * 3;
+    const rAc = RA[row] * pA[0] + RA[row + 1] * pA[1] + RA[row + 2] * pA[2];
+    const rBc = RB[row] * pB[0] + RB[row + 1] * pB[1] + RB[row + 2] * pB[2];
 
     const posA =
       component === 0
@@ -210,12 +204,12 @@ export class RevoluteConstraint3D extends Constraint {
     const pB = this.pivotB;
 
     // 3D world-frame lever arms from each body's center to the pivot.
-    const rAx = RA[0] * pA.x + RA[1] * pA.y + RA[2] * this.pivotZA;
-    const rAy = RA[3] * pA.x + RA[4] * pA.y + RA[5] * this.pivotZA;
-    const rAz = RA[6] * pA.x + RA[7] * pA.y + RA[8] * this.pivotZA;
-    const rBx = RB[0] * pB.x + RB[1] * pB.y + RB[2] * this.pivotZB;
-    const rBy = RB[3] * pB.x + RB[4] * pB.y + RB[5] * this.pivotZB;
-    const rBz = RB[6] * pB.x + RB[7] * pB.y + RB[8] * this.pivotZB;
+    const rAx = RA[0] * pA[0] + RA[1] * pA[1] + RA[2] * pA[2];
+    const rAy = RA[3] * pA[0] + RA[4] * pA[1] + RA[5] * pA[2];
+    const rAz = RA[6] * pA[0] + RA[7] * pA[1] + RA[8] * pA[2];
+    const rBx = RB[0] * pB[0] + RB[1] * pB[1] + RB[2] * pB[2];
+    const rBy = RB[3] * pB[0] + RB[4] * pB[1] + RB[5] * pB[2];
+    const rBz = RB[6] * pB[0] + RB[7] * pB[1] + RB[8] * pB[2];
 
     // X-position equation:
     //   constraint: (pB + rB) · x̂ − (pA + rA) · x̂ = 0
@@ -376,9 +370,7 @@ export class RevoluteConstraint3D extends Constraint {
 /**
  * Pick two orthonormal vectors perpendicular to `axis` (assumed unit length).
  */
-function perpendicularBasis(
-  axis: [number, number, number],
-): [[number, number, number], [number, number, number]] {
+function perpendicularBasis(axis: V3d): [V3d, V3d] {
   // Find any vector not parallel to axis, then cross-product to build basis.
   const ax = Math.abs(axis[0]);
   const ay = Math.abs(axis[1]);
@@ -409,8 +401,5 @@ function perpendicularBasis(
   const e2x = axis[1] * e1z - axis[2] * e1y;
   const e2y = axis[2] * e1x - axis[0] * e1z;
   const e2z = axis[0] * e1y - axis[1] * e1x;
-  return [
-    [e1x, e1y, e1z],
-    [e2x, e2y, e2z],
-  ];
+  return [new V3d(e1x, e1y, e1z), new V3d(e2x, e2y, e2z)];
 }

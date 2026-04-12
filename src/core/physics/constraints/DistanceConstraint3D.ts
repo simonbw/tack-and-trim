@@ -1,4 +1,5 @@
 import type { Body } from "../body/Body";
+import { CompatibleVector3, V3, V3d } from "../../Vector3";
 import { Equation } from "../equations/Equation";
 import { ConstraintOptions, Constraint } from "./Constraint";
 
@@ -7,9 +8,9 @@ export interface DistanceConstraint3DOptions extends ConstraintOptions {
   /** Target distance. If not set, uses current 3D distance between anchors. */
   distance?: number;
   /** 3D anchor point on bodyA in local coordinates. Default [0,0,0]. */
-  localAnchorA?: [number, number, number];
+  localAnchorA?: CompatibleVector3;
   /** 3D anchor point on bodyB in local coordinates. Default [0,0,0]. */
-  localAnchorB?: [number, number, number];
+  localAnchorB?: CompatibleVector3;
   /** Maximum force the constraint can apply. Default MAX_VALUE. */
   maxForce?: number;
 }
@@ -29,8 +30,8 @@ export interface DistanceConstraint3DOptions extends ConstraintOptions {
  * DOFs is zero.
  */
 export class DistanceConstraint3D extends Constraint {
-  localAnchorA: [number, number, number];
-  localAnchorB: [number, number, number];
+  localAnchorA: V3d;
+  localAnchorB: V3d;
 
   /** The distance to keep. */
   distance: number;
@@ -64,26 +65,18 @@ export class DistanceConstraint3D extends Constraint {
     super(bodyA, bodyB, options);
 
     this.localAnchorA = options.localAnchorA
-      ? [
-          options.localAnchorA[0],
-          options.localAnchorA[1],
-          options.localAnchorA[2],
-        ]
-      : [0, 0, 0];
+      ? V3(options.localAnchorA)
+      : new V3d(0, 0, 0);
     this.localAnchorB = options.localAnchorB
-      ? [
-          options.localAnchorB[0],
-          options.localAnchorB[1],
-          options.localAnchorB[2],
-        ]
-      : [0, 0, 0];
+      ? V3(options.localAnchorB)
+      : new V3d(0, 0, 0);
 
     if (typeof options.distance === "number") {
       this.distance = options.distance;
     } else {
       // Use current 3D distance between anchors
-      const [ax, ay, az] = bodyA.toWorldFrame3D(...this.localAnchorA);
-      const [bx, by, bz] = bodyB.toWorldFrame3D(...this.localAnchorB);
+      const [ax, ay, az] = bodyA.toWorldFrame3D(this.localAnchorA);
+      const [bx, by, bz] = bodyB.toWorldFrame3D(this.localAnchorB);
       const dx = bx - ax;
       const dy = by - ay;
       const dz = bz - az;
@@ -98,8 +91,8 @@ export class DistanceConstraint3D extends Constraint {
     const that = this;
     const normal = new Equation(bodyA, bodyB, -maxForce, maxForce);
     normal.computeGq = function () {
-      const [ax, ay, az] = this.bodyA.toWorldFrame3D(...that.localAnchorA);
-      const [bx, by, bz] = this.bodyB.toWorldFrame3D(...that.localAnchorB);
+      const [ax, ay, az] = this.bodyA.toWorldFrame3D(that.localAnchorA);
+      const [bx, by, bz] = this.bodyB.toWorldFrame3D(that.localAnchorB);
       const dx = bx - ax;
       const dy = by - ay;
       const dz = bz - az;
@@ -120,8 +113,8 @@ export class DistanceConstraint3D extends Constraint {
     const G = normalEquation.G;
 
     // Transform local anchors to world 3D
-    const [ax, ay, az] = bodyA.toWorldFrame3D(...this.localAnchorA);
-    const [bx, by, bz] = bodyB.toWorldFrame3D(...this.localAnchorB);
+    const [ax, ay, az] = bodyA.toWorldFrame3D(this.localAnchorA);
+    const [bx, by, bz] = bodyB.toWorldFrame3D(this.localAnchorB);
 
     // Separation vector and distance
     const dx = bx - ax;

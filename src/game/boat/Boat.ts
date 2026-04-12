@@ -1,6 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
+import { V3d } from "../../core/Vector3";
 import { BoatSpray } from "../BoatSpray";
 import { Bilge } from "./Bilge";
 import { BoatConfig, Kestrel } from "./BoatConfig";
@@ -157,8 +158,11 @@ export class Boat extends BaseEntity {
       ? [
           {
             body: this.hull.body,
-            localAnchor: winchPoint,
-            z: deckZAt(winchPoint),
+            localAnchor: new V3d(
+              winchPoint.x,
+              winchPoint.y,
+              deckZAt(winchPoint),
+            ),
             type: "winch" as const,
             radius: 0,
           },
@@ -169,12 +173,10 @@ export class Boat extends BaseEntity {
     this.mainsheet = this.addChild(
       new Sheet(
         this.rig.body as DynamicBody,
-        V(-this.rig.getBoomLength() * boomAttachRatio, 0),
+        new V3d(-this.rig.getBoomLength() * boomAttachRatio, 0, 0),
         this.hull.body,
-        hullAttachPoint,
+        new V3d(hullAttachPoint.x, hullAttachPoint.y, deckZAt(hullAttachPoint)),
         mainsheetConfig,
-        0,
-        deckZAt(hullAttachPoint),
         mainsheetWaypoints,
         getDeckHeight,
         hullBoundary,
@@ -230,16 +232,22 @@ export class Boat extends BaseEntity {
       if (portBlockPoint)
         portWaypoints.push({
           body: this.hull.body,
-          localAnchor: portBlockPoint,
-          z: deckZAt(portBlockPoint),
+          localAnchor: new V3d(
+            portBlockPoint.x,
+            portBlockPoint.y,
+            deckZAt(portBlockPoint),
+          ),
           frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
           radius: 0,
         });
       if (portWinchPoint)
         portWaypoints.push({
           body: this.hull.body,
-          localAnchor: portWinchPoint,
-          z: deckZAt(portWinchPoint),
+          localAnchor: new V3d(
+            portWinchPoint.x,
+            portWinchPoint.y,
+            deckZAt(portWinchPoint),
+          ),
           type: "winch",
           radius: 0,
         });
@@ -248,16 +256,22 @@ export class Boat extends BaseEntity {
       if (starboardBlockPoint)
         starboardWaypoints.push({
           body: this.hull.body,
-          localAnchor: starboardBlockPoint,
-          z: deckZAt(starboardBlockPoint),
+          localAnchor: new V3d(
+            starboardBlockPoint.x,
+            starboardBlockPoint.y,
+            deckZAt(starboardBlockPoint),
+          ),
           frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
           radius: 0,
         });
       if (starboardWinchPoint)
         starboardWaypoints.push({
           body: this.hull.body,
-          localAnchor: starboardWinchPoint,
-          z: deckZAt(starboardWinchPoint),
+          localAnchor: new V3d(
+            starboardWinchPoint.x,
+            starboardWinchPoint.y,
+            deckZAt(starboardWinchPoint),
+          ),
           type: "winch",
           radius: 0,
         });
@@ -267,12 +281,14 @@ export class Boat extends BaseEntity {
       this.portJibSheet = this.addChild(
         new Sheet(
           clewBody,
-          V(0, 0),
+          new V3d(0, 0, 0),
           this.hull.body,
-          portAttachPoint,
+          new V3d(
+            portAttachPoint.x,
+            portAttachPoint.y,
+            deckZAt(portAttachPoint),
+          ),
           { ...jibSheetConfig, tailDirection: V(-1, -1).normalize() },
-          0,
-          deckZAt(portAttachPoint),
           portWaypoints,
           getDeckHeight,
           hullBoundary,
@@ -283,12 +299,14 @@ export class Boat extends BaseEntity {
       this.starboardJibSheet = this.addChild(
         new Sheet(
           clewBody,
-          V(0, 0),
+          new V3d(0, 0, 0),
           this.hull.body,
-          starboardAttachPoint,
+          new V3d(
+            starboardAttachPoint.x,
+            starboardAttachPoint.y,
+            deckZAt(starboardAttachPoint),
+          ),
           { ...jibSheetConfig, tailDirection: V(-1, 1).normalize() },
-          0,
-          deckZAt(starboardAttachPoint),
           starboardWaypoints,
           getDeckHeight,
           hullBoundary,

@@ -27,7 +27,7 @@ import {
   PulleyConstraint3D,
   type PulleyMode,
 } from "../../core/physics/constraints/PulleyConstraint3D";
-import type { V2d } from "../../core/Vector";
+import { V3, V3d } from "../../core/Vector3";
 import type { Rope } from "./Rope";
 
 export interface PulleyConfig {
@@ -47,7 +47,7 @@ export class Pulley extends BaseEntity {
   private readonly rope: Rope;
   private readonly particles: readonly DynamicBody[];
   private readonly pulleyBody: Body;
-  private readonly localAnchor: [number, number, number];
+  private readonly localAnchor: V3d;
   private readonly chainLinkLength: number;
 
   private readonly constraint: PulleyConstraint3D;
@@ -80,8 +80,7 @@ export class Pulley extends BaseEntity {
   constructor(
     rope: Rope,
     body: Body,
-    localAnchor: V2d,
-    z: number,
+    localAnchor: V3d,
     config: PulleyConfig = {},
   ) {
     super();
@@ -89,7 +88,7 @@ export class Pulley extends BaseEntity {
     this.rope = rope;
     this.particles = rope.getParticles();
     this.pulleyBody = body;
-    this.localAnchor = [localAnchor.x, localAnchor.y, z];
+    this.localAnchor = V3(localAnchor);
     this.chainLinkLength = rope.getChainLinkLength();
     this.type = config.mode ?? "block";
     this.radius = config.radius ?? 0;
@@ -140,7 +139,7 @@ export class Pulley extends BaseEntity {
    */
   private findInitialParticles(): number {
     const particles = this.particles;
-    const [wx, wy, wz] = this.pulleyBody.toWorldFrame3D(...this.localAnchor);
+    const [wx, wy, wz] = this.pulleyBody.toWorldFrame3D(this.localAnchor);
 
     // Find the triple (p_i, p_{i+1}, p_{i+2}) whose two outer particles have
     // the smallest combined distance to the pulley. This picks the slot that
@@ -202,7 +201,7 @@ export class Pulley extends BaseEntity {
     const epsilon = Pulley.SHIFT_EPSILON_FRACTION * this.chainLinkLength;
     const clearDist = Pulley.SKIP_CLEAR_FRACTION * this.chainLinkLength;
     const maxIndex = this.particles.length - 3;
-    const [px, py, pz] = this.pulleyBody.toWorldFrame3D(...this.localAnchor);
+    const [px, py, pz] = this.pulleyBody.toWorldFrame3D(this.localAnchor);
 
     // Clear skip once the particle has settled away from the pulley
     if (
@@ -361,7 +360,7 @@ export class Pulley extends BaseEntity {
   }
 
   /** World position of this pulley. */
-  getWorldPosition(): [number, number, number] {
-    return this.pulleyBody.toWorldFrame3D(...this.localAnchor);
+  getWorldPosition(): V3d {
+    return this.pulleyBody.toWorldFrame3D(this.localAnchor);
   }
 }

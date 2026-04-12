@@ -68,9 +68,8 @@ export class Rig extends BaseEntity {
     // hull at the mast pivot in 3D and locks the boom's roll/pitch to the
     // hull's, leaving only yaw around the mast axis free.
     this.boomConstraint = new RevoluteConstraint3D(hull.body, this.body, {
-      localPivotA: [mastPosition.x, mastPosition.y],
-      localPivotB: [0, 0],
-      localPivotZA: this.boomZ,
+      localPivotA: [mastPosition.x, mastPosition.y, this.boomZ],
+      localPivotB: [0, 0, 0],
       collideConnected: false,
     });
 

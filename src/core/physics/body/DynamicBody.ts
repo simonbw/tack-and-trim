@@ -1,4 +1,5 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
+import { CompatibleVector3, V3d } from "../../Vector3";
 import { BaseBodyOptions, SleepState, Body } from "./Body";
 import { integrateToTimeOfImpact } from "./ccdUtils";
 import { SleepBehavior, type SleepableBody } from "./SleepBehavior";
@@ -467,6 +468,7 @@ export class DynamicBody extends Body implements SleepableBody {
    * @param localY Body-local application point Y (port)
    * @param localZ Body-local application point Z (up from reference)
    */
+  applyForce3D(force: CompatibleVector3, localPoint: CompatibleVector3): this;
   applyForce3D(
     fx: number,
     fy: number,
@@ -474,7 +476,33 @@ export class DynamicBody extends Body implements SleepableBody {
     localX: number,
     localY: number,
     localZ: number,
+  ): this;
+  applyForce3D(
+    fxOrForce: number | CompatibleVector3,
+    fyOrLocalPoint: number | CompatibleVector3,
+    fzArg?: number,
+    localXArg?: number,
+    localYArg?: number,
+    localZArg?: number,
   ): this {
+    let fx: number, fy: number, fz: number;
+    let localX: number, localY: number, localZ: number;
+    if (typeof fxOrForce === "number") {
+      fx = fxOrForce;
+      fy = fyOrLocalPoint as number;
+      fz = fzArg!;
+      localX = localXArg!;
+      localY = localYArg!;
+      localZ = localZArg!;
+    } else {
+      fx = fxOrForce[0];
+      fy = fxOrForce[1];
+      fz = fxOrForce[2];
+      const lp = fyOrLocalPoint as CompatibleVector3;
+      localX = lp[0];
+      localY = lp[1];
+      localZ = lp[2];
+    }
     if (
       !isFinite(fx) ||
       !isFinite(fy) ||
@@ -775,41 +803,65 @@ export class DynamicBody extends Body implements SleepableBody {
   }
 
   /**
-   * Transform a body-local 3D point to world coordinates [wx, wy, wz].
+   * Transform a body-local 3D point to world coordinates.
    * Uses the full rotation matrix plus body position and z offset.
    */
-  toWorldFrame3D(
-    localX: number,
-    localY: number,
-    localZ: number,
-  ): [number, number, number] {
+  override toWorldFrame3D(point: CompatibleVector3): V3d;
+  override toWorldFrame3D(localX: number, localY: number, localZ: number): V3d;
+  override toWorldFrame3D(
+    localXOrPoint: number | CompatibleVector3,
+    localY?: number,
+    localZ?: number,
+  ): V3d {
+    let lx: number, ly: number, lz: number;
+    if (typeof localXOrPoint === "number") {
+      lx = localXOrPoint;
+      ly = localY!;
+      lz = localZ!;
+    } else {
+      lx = localXOrPoint[0];
+      ly = localXOrPoint[1];
+      lz = localXOrPoint[2];
+    }
     const R = this._orientation;
-    return [
-      R[0] * localX + R[1] * localY + R[2] * localZ + this.position[0],
-      R[3] * localX + R[4] * localY + R[5] * localZ + this.position[1],
-      R[6] * localX + R[7] * localY + R[8] * localZ + this._z,
-    ];
+    return new V3d(
+      R[0] * lx + R[1] * ly + R[2] * lz + this.position[0],
+      R[3] * lx + R[4] * ly + R[5] * lz + this.position[1],
+      R[6] * lx + R[7] * ly + R[8] * lz + this._z,
+    );
   }
 
   /**
-   * Transform a world 3D point to body-local coordinates [lx, ly, lz].
+   * Transform a world 3D point to body-local coordinates.
    * Inverse of toWorldFrame3D — subtracts position/z, then applies transposed rotation.
    */
-  toLocalFrame3D(
-    worldX: number,
-    worldY: number,
-    worldZ: number,
-  ): [number, number, number] {
+  override toLocalFrame3D(point: CompatibleVector3): V3d;
+  override toLocalFrame3D(worldX: number, worldY: number, worldZ: number): V3d;
+  override toLocalFrame3D(
+    worldXOrPoint: number | CompatibleVector3,
+    worldY?: number,
+    worldZ?: number,
+  ): V3d {
+    let wx: number, wy: number, wz: number;
+    if (typeof worldXOrPoint === "number") {
+      wx = worldXOrPoint;
+      wy = worldY!;
+      wz = worldZ!;
+    } else {
+      wx = worldXOrPoint[0];
+      wy = worldXOrPoint[1];
+      wz = worldXOrPoint[2];
+    }
     const R = this._orientation;
-    const dx = worldX - this.position[0];
-    const dy = worldY - this.position[1];
-    const dz = worldZ - this._z;
+    const dx = wx - this.position[0];
+    const dy = wy - this.position[1];
+    const dz = wz - this._z;
     // R is orthonormal, so R^-1 = R^T
-    return [
+    return new V3d(
       R[0] * dx + R[3] * dy + R[6] * dz,
       R[1] * dx + R[4] * dy + R[7] * dz,
       R[2] * dx + R[5] * dy + R[8] * dz,
-    ];
+    );
   }
 
   /**

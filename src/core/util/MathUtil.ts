@@ -1,4 +1,5 @@
 import { V, V2d } from "../Vector";
+import { V3, V3d } from "../Vector3";
 
 /** Returns the sum of all values */
 export function sum(...values: number[]): number {
@@ -51,6 +52,18 @@ export function lerpV2d(
   const x = lerp(a[0], b[0], t);
   const y = lerp(a[1], b[1], t);
   return V(x, y);
+}
+
+/** Linear interpolation between two 3D vectors */
+export function lerpV3d(
+  a: ArrayLike<number>,
+  b: ArrayLike<number>,
+  t: number = 0.5,
+): V3d {
+  const x = lerp(a[0], b[0], t);
+  const y = lerp(a[1], b[1], t);
+  const z = lerp(a[2], b[2], t);
+  return V3(x, y, z);
 }
 
 export function lerpOrSnap(
