@@ -1,50 +1,50 @@
+import { LevelName } from "../../resources/resources";
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import { ReactPreloader } from "../core/resources/Preloader";
 import { V, V2d } from "../core/Vector";
-import type { TreeFileData } from "../pipeline/mesh-building/TreeFile";
-import { LevelName } from "../../resources/resources";
-import { loadLevel } from "../editor/io/LevelLoader";
 import type { MissionDef, PortData } from "../editor/io/LevelFileFormat";
+import { loadLevel } from "../editor/io/LevelLoader";
+import type { TreeFileData } from "../pipeline/mesh-building/TreeFile";
 import { Boat } from "./boat/Boat";
-import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { BoatDebugHUD } from "./boat/BoatDebugHUD";
+import { PlayerBoatController } from "./boat/PlayerBoatController";
+import { ClothWorkerPool } from "./boat/sail/ClothWorkerPool";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
+import { GameOverScreen } from "./GameOverScreen";
 import { MainMenu } from "./MainMenu";
+import { MissionHUD } from "./mission/MissionHUD";
+import { MissionManager } from "./mission/MissionManager";
 import { NavigationHUD } from "./NavigationHUD";
+import { applySaveData } from "./persistence/SaveDeserializer";
+import { SaveManager } from "./persistence/SaveManager";
+import { Port } from "./port/Port";
+import { PortMenu } from "./port/PortMenu";
+import { ProgressionManager } from "./progression/ProgressionManager";
 import { parseBiomeConfig } from "./surface-rendering/BiomeConfig";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { TimeOfDayHUD } from "./TimeOfDayHUD";
+import { TreeManager } from "./trees/TreeManager";
 import { TutorialManager } from "./tutorial/TutorialManager";
 import { isTutorialCompleted } from "./tutorial/tutorialStorage";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindParticles } from "./WindParticles";
 import { WindSoundGenerator } from "./WindSoundGenerator";
+import { QueryCoordinator } from "./world/query/QueryCoordinator";
 import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
 import { TerrainResources } from "./world/terrain/TerrainResources";
 import { WaterQueryManager } from "./world/water/WaterQueryManager";
 import { WaterResources } from "./world/water/WaterResources";
-import { TreeManager } from "./trees/TreeManager";
-import { QueryCoordinator } from "./world/query/QueryCoordinator";
 import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
-import { ClothWorkerPool } from "./boat/sail/ClothWorkerPool";
-import { GameOverScreen } from "./GameOverScreen";
-import { Port } from "./port/Port";
-import { PortMenu } from "./port/PortMenu";
-import { MissionManager } from "./mission/MissionManager";
-import { MissionHUD } from "./mission/MissionHUD";
-import { ProgressionManager } from "./progression/ProgressionManager";
-import { SaveManager } from "./persistence/SaveManager";
-import { applySaveData } from "./persistence/SaveDeserializer";
 
 //#tunable("Camera") { min: 0.5, max: 10 }
 let MENU_ZOOM: number = 2;
 //#tunable("Camera") { min: 1, max: 20 }
-let GAMEPLAY_ZOOM: number = 3.5;
+let GAMEPLAY_ZOOM: number = 8;
 
 export class GameController extends BaseEntity {
   id = "gameController";
