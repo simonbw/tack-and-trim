@@ -352,7 +352,6 @@ export const Osprey: BoatConfig = {
     bailBucketSize: 0.5,
     bailInterval: 1.0,
     waterDensity: 64,
-    ingressCoefficient: 0.09,
     sloshGravity: 3.5,
     sloshDamping: 2.0,
     sinkingDuration: 6.0,

@@ -11,6 +11,14 @@ import type { Boat } from "./Boat";
 
 const GRAVITY = 32.174; // ft/s²
 
+// Weir flow ingress coefficient: Cd × (2/3) × sqrt(2g).
+// The (2/3)×sqrt(2g) comes from integrating Torricelli velocity sqrt(2gh) over
+// the submersion depth (standard sharp-crested weir derivation).
+// A textbook sharp-crested weir has Cd ≈ 0.6; we use 0.4 as a starting point
+// to account for hull geometry deflecting some flow. In the future this could be
+// computed dynamically from boat velocity, angular velocity, and sea state.
+const INGRESS_COEFF = 0.4 * (2 / 3) * Math.sqrt(2 * GRAVITY); // ~2.14
+
 // Water drag coefficient applied per lb of water mass per ft/s of boat speed
 const WATER_DRAG_COEFF = 0.08;
 
@@ -158,21 +166,23 @@ export class Bilge extends BaseEntity {
       this.gunwaleSubmersionDepths[i] = Math.max(0, waterSurface - worldZ);
     }
 
-    // Sum ingress across all gunwale segments: length × average depth
-    let totalIngressArea = 0;
+    // Sum ingress across all gunwale segments using weir flow: length × depth^(3/2).
+    // The h^(3/2) comes from integrating Torricelli velocity sqrt(2gh) over the
+    // submersion depth — correct scaling from gentle heel to full capsize.
+    let totalFlow = 0;
     for (let i = 0; i < n; i++) {
       const avgDepth =
         (this.gunwaleSubmersionDepths[i] +
           this.gunwaleSubmersionDepths[(i + 1) % n]) *
         0.5;
       if (avgDepth > 0) {
-        totalIngressArea += this.gunwaleSegmentLengths[i] * avgDepth;
+        totalFlow +=
+          this.gunwaleSegmentLengths[i] * avgDepth * Math.sqrt(avgDepth);
       }
     }
 
-    if (totalIngressArea > 0) {
-      this.waterVolume +=
-        this.config.ingressCoefficient * totalIngressArea * dt;
+    if (totalFlow > 0) {
+      this.waterVolume += INGRESS_COEFF * totalFlow * dt;
     }
 
     // Hull damage leak ingress

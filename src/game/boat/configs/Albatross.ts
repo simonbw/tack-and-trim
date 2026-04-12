@@ -393,7 +393,6 @@ export const Albatross: BoatConfig = {
     bailBucketSize: 0.6,
     bailInterval: 1.2,
     waterDensity: 64,
-    ingressCoefficient: 0.04, // lower — higher freeboard means less water over the rail
     sloshGravity: 3.0,
     sloshDamping: 2.5,
     sinkingDuration: 10.0,

@@ -386,7 +386,6 @@ export const Kestrel: BoatConfig = {
     bailBucketSize: 0.4,
     bailInterval: 1.0,
     waterDensity: 64, // lbs/ft³ (saltwater)
-    ingressCoefficient: 0.12,
     sloshGravity: 4.0,
     sloshDamping: 2.0,
     sinkingDuration: 5.0,

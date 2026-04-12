@@ -321,7 +321,6 @@ export interface BilgeConfig {
   readonly bailBucketSize: number; // cubic ft — volume removed per bail scoop
   readonly bailInterval: number; // seconds — time between scoops
   readonly waterDensity: number; // lbs/ft³ (62.4 fresh, 64 salt)
-  readonly ingressCoefficient: number; // ft³/s per ft² of submerged gunwale area (length × depth)
   readonly sloshGravity: number; // ft/s², acceleration of bilge water toward heeled side (typical 5-20)
   readonly sloshDamping: number; // dimensionless, velocity damping on bilge slosh (typical 0.5-2.0)
   readonly sinkingDuration: number; // seconds — how long the sinking animation takes
