@@ -5,6 +5,8 @@ import { StaticBody } from "../../core/physics/body/StaticBody";
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import type { PortData } from "../../editor/io/LevelFileFormat";
+import { computeTiltProjection } from "../boat/tessellation";
+import { TiltDraw } from "../boat/TiltDraw";
 
 // Dock dimensions in feet
 const DOCK_LENGTH = 50; // ft — long enough for the largest boats
@@ -17,6 +19,13 @@ const STERN_CLEAT_RATIO = 0.2; // near shore (where stern ties)
 // Piling radius
 const PILING_RADIUS = 0.8; // ft
 const CLEAT_RADIUS = 0.4; // ft
+
+// Z heights (waterline = 0)
+const DECK_HEIGHT = 1.5;
+const PILING_BOTTOM = -5;
+const PILING_TOP = DECK_HEIGHT + 0.3;
+const CLEAT_TOP = DECK_HEIGHT + 0.4;
+const DECK_OUTLINE_WIDTH = 0.25;
 
 // Colors
 const DOCK_WOOD_COLOR = 0x8b6914;
@@ -88,42 +97,69 @@ export class Port extends BaseEntity {
     const halfW = DOCK_WIDTH / 2;
     const halfL = DOCK_LENGTH / 2;
 
-    draw.at({ pos: V(x, y), angle }, () => {
-      // Draw the dock planks (filled rectangle)
-      draw.fillRect(-halfL, -halfW, DOCK_LENGTH, DOCK_WIDTH, {
-        color: DOCK_WOOD_COLOR,
-      });
+    const tilt = computeTiltProjection(angle, 0, 0);
 
-      // Draw dock outline
-      draw.strokeRect(-halfL, -halfW, DOCK_LENGTH, DOCK_WIDTH, {
-        color: DOCK_OUTLINE_COLOR,
-        width: 0.3,
-      });
+    draw.at({ pos: V(x, y), angle, tilt: { roll: 0, pitch: 0 } }, () => {
+      const renderer = draw.renderer;
+      const td = new TiltDraw(renderer, tilt);
 
-      // Draw pilings at the four corners
-      const corners = [
+      // Deck surface quad at DECK_HEIGHT
+      const deckPositions: [number, number][] = [
         [-halfL, -halfW],
-        [-halfL, halfW],
         [halfL, -halfW],
         [halfL, halfW],
+        [-halfL, halfW],
       ];
-      for (const [cx, cy] of corners) {
-        draw.fillCircle(cx, cy, PILING_RADIUS, { color: PILING_COLOR });
+      const deckZ = [DECK_HEIGHT, DECK_HEIGHT, DECK_HEIGHT, DECK_HEIGHT];
+      renderer.submitTrianglesWithZ(
+        deckPositions,
+        [0, 1, 2, 0, 2, 3],
+        DOCK_WOOD_COLOR,
+        1,
+        deckZ,
+      );
+
+      // Deck outline (closed polyline at deck height)
+      td.polyline(
+        deckPositions,
+        deckZ,
+        DECK_OUTLINE_WIDTH,
+        DOCK_OUTLINE_COLOR,
+        1,
+        true,
+      );
+
+      // Pilings: vertical cylinders at the four corners
+      for (const [cx, cy] of deckPositions) {
+        td.line(
+          cx,
+          cy,
+          PILING_BOTTOM,
+          cx,
+          cy,
+          PILING_TOP,
+          PILING_RADIUS * 2,
+          PILING_COLOR,
+          1,
+          true,
+        );
       }
 
-      // Draw cleats at the two cleat positions
-      draw.fillCircle(
-        this.bowCleatLocal.x,
-        this.bowCleatLocal.y,
-        CLEAT_RADIUS,
-        { color: CLEAT_COLOR },
-      );
-      draw.fillCircle(
-        this.sternCleatLocal.x,
-        this.sternCleatLocal.y,
-        CLEAT_RADIUS,
-        { color: CLEAT_COLOR },
-      );
+      // Cleats: short vertical stubs above the deck
+      for (const cleat of [this.bowCleatLocal, this.sternCleatLocal]) {
+        td.line(
+          cleat.x,
+          cleat.y,
+          DECK_HEIGHT,
+          cleat.x,
+          cleat.y,
+          CLEAT_TOP,
+          CLEAT_RADIUS * 2,
+          CLEAT_COLOR,
+          1,
+          true,
+        );
+      }
     });
   }
 }
