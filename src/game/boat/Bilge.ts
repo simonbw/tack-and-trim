@@ -1,13 +1,14 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
-import type { Draw } from "../../core/graphics/Draw";
 import { SoundInstance } from "../../core/sound/SoundInstance";
 import { clamp } from "../../core/util/MathUtil";
 import { rUniform } from "../../core/util/Random";
-import { V, V2d } from "../../core/Vector";
 import { BilgeConfig } from "./BoatConfig";
 import type { Boat } from "./Boat";
+import type { HullMesh } from "./Hull";
+import { extractHullOutlineAtZ } from "./hull-profiles";
+import { HULL_WATER_VERTEX_SIZE } from "./HullWaterShader";
 
 const GRAVITY = 32.174; // ft/s²
 
@@ -24,7 +25,22 @@ const WATER_DRAG_COEFF = 0.08;
 
 // Water rendering
 const WATER_COLOR = 0x2266aa;
-const WATER_ALPHA = 0.45;
+const WATER_ALPHA = 0.65;
+
+// How much the slosh offset tilts the rendered water surface (radians-ish).
+const SLOSH_TILT_SCALE = 0.3;
+
+/** Shoelace formula — signed area of a 2D polygon, absolute value returned. */
+function polygonArea(verts: [number, number][]): number {
+  const n = verts.length;
+  if (n < 3) return 0;
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += verts[i][0] * verts[j][1] - verts[j][0] * verts[i][1];
+  }
+  return Math.abs(area) * 0.5;
+}
 
 /**
  * Manages water accumulation inside the boat.
@@ -56,9 +72,6 @@ export class Bilge extends BaseEntity {
 
   private getHullLeakRate: () => number = () => 0;
 
-  /** Cached hull vertices for water polygon clipping */
-  private hullVertices: V2d[];
-
   private maxWaterVolume: number;
 
   // Gunwale geometry for per-segment ingress (precomputed at construction)
@@ -67,13 +80,37 @@ export class Bilge extends BaseEntity {
   private gunwaleSubmersionDepths: Float64Array;
   private halfBeam: number;
 
+  // Bilge rendering geometry (precomputed at construction)
+  private hullMesh: HullMesh;
+  /** Upper bound on outline vertex count (2 × numStations). */
+  public readonly maxHullWaterVertices: number;
+
+  // Per-station scratch for the tilted water-plane outline intersection.
+  // Sized to numStations; reused every frame.
+  private stationX: Float64Array;
+  private starboardY: Float64Array;
+  private portY: Float64Array;
+  private starboardValid: Uint8Array;
+  private portValid: Uint8Array;
+
+  /**
+   * Precomputed cumulative-volume table for mapping water volume to visual z.
+   * `volumeTableZ[i]` is a z-level from hull bottom to deck; `volumeTableV[i]`
+   * is the hull interior volume below that z (trapezoidal integral of the
+   * hull cross-section area). Used at render time to find the water surface
+   * z for a given accumulated water volume — correct for non-linear hull
+   * shapes where most of the volume sits in the upper, wider sections.
+   */
+  private volumeTableZ: Float64Array;
+  private volumeTableV: Float64Array;
+  private totalHullVolume: number;
+
   constructor(
     private boat: Boat,
     private config: BilgeConfig,
     hullVolume: number,
   ) {
     super();
-    this.hullVertices = boat.config.hull.vertices;
     this.maxWaterVolume = config.maxWaterVolume ?? hullVolume;
 
     // Precompute gunwale geometry from hull mesh
@@ -96,6 +133,67 @@ export class Bilge extends BaseEntity {
       if (absY > maxAbsY) maxAbsY = absY;
     }
     this.halfBeam = maxAbsY;
+
+    // Bilge render geometry
+    this.hullMesh = mesh;
+    const numStations = mesh.xyPositions.length / mesh.ringSize;
+    this.maxHullWaterVertices = 2 * numStations;
+    this.stationX = new Float64Array(numStations);
+    this.starboardY = new Float64Array(numStations);
+    this.portY = new Float64Array(numStations);
+    this.starboardValid = new Uint8Array(numStations);
+    this.portValid = new Uint8Array(numStations);
+
+    // Build cumulative-volume table. For each sample z between hull bottom
+    // and deck, extract the hull cross-section, compute its area, and
+    // integrate (trapezoidal rule) to get cumulative volume below z.
+    const draft = boat.config.hull.draft;
+    const deckHeight = boat.config.hull.deckHeight;
+    const VOLUME_SAMPLES = 48;
+    this.volumeTableZ = new Float64Array(VOLUME_SAMPLES);
+    this.volumeTableV = new Float64Array(VOLUME_SAMPLES);
+    let cumV = 0;
+    let prevArea = 0;
+    let prevZ = -draft;
+    for (let i = 0; i < VOLUME_SAMPLES; i++) {
+      const t = i / (VOLUME_SAMPLES - 1);
+      const z = -draft + (deckHeight + draft) * t;
+      const outline = extractHullOutlineAtZ(mesh, z);
+      const area = polygonArea(outline);
+      if (i > 0) {
+        cumV += (prevArea + area) * 0.5 * (z - prevZ);
+      }
+      this.volumeTableZ[i] = z;
+      this.volumeTableV[i] = cumV;
+      prevArea = area;
+      prevZ = z;
+    }
+    this.totalHullVolume = cumV > 0 ? cumV : hullVolume;
+  }
+
+  /**
+   * Invert the cumulative-volume table: given a water volume (cubic ft),
+   * return the hull-local z where that volume sits in the upright boat.
+   * Linear interpolation between the nearest table entries. Water below the
+   * hull bottom clamps to -draft; above the deck clamps to deckHeight.
+   */
+  private volumeToZ(targetVolume: number): number {
+    const tv = this.volumeTableV;
+    const tz = this.volumeTableZ;
+    const n = tv.length;
+    if (targetVolume <= 0) return tz[0];
+    if (targetVolume >= tv[n - 1]) return tz[n - 1];
+    // Linear scan — table is small (~48 entries) and rising monotonically.
+    for (let i = 1; i < n; i++) {
+      if (tv[i] >= targetVolume) {
+        const v0 = tv[i - 1];
+        const v1 = tv[i];
+        const denom = v1 - v0;
+        const f = denom > 1e-9 ? (targetVolume - v0) / denom : 0;
+        return tz[i - 1] + f * (tz[i] - tz[i - 1]);
+      }
+    }
+    return tz[n - 1];
   }
 
   /** Get the max water volume in cubic ft */
@@ -274,99 +372,200 @@ export class Bilge extends BaseEntity {
     }
   }
 
-  @on("render")
-  onRender({ draw }: { draw: Draw }): void {
-    if (this.waterVolume < 0.01 && !this.sinking) return;
+  /**
+   * Bake the interior water quad's vertex and index data into `outVerts`
+   * and `outIndices` for rendering by `BoatRenderer`. Returns `{ vertexCount,
+   * indexCount }` — both zero when there's nothing to draw.
+   *
+   * For each station of the hull mesh, find where the tilted water plane
+   * z(y) = waterZ + sloshTilt * y intersects the station's half-profile on
+   * the starboard (+y) and port (-y) sides. Those two points per station
+   * form the outline of the pool at that station. Walking the stations
+   * stern→bow on starboard and bow→stern on port gives a closed polygon
+   * that exactly traces the water-hull intersection, including the slosh
+   * tilt — unlike `extractHullOutlineAtZ` which assumes a horizontal plane.
+   *
+   * Vertex layout matches `HULL_WATER_VERTEX_SIZE`: position.xy (world),
+   * localUV.xy (hull-local), z (world).
+   */
+  buildHullWaterVertices(
+    outVerts: Float32Array,
+    outIndices: Uint16Array,
+  ): { vertexCount: number; indexCount: number } {
+    if (this.waterVolume < 0.01 && !this.sinking) {
+      return { vertexCount: 0, indexCount: 0 };
+    }
 
-    const [x, y] = this.boat.hull.body.position;
-    const roll = this.boat.hull.body.roll;
-    const pitch = this.boat.hull.body.pitch;
-    const zOffset = this.boat.hull.body.z;
+    // Map accumulated volume → visual z via the precomputed hull cumulative-
+    // volume table. This gives the physically-correct water surface height:
+    // the pool rises quickly in the narrow keel region and slowly across the
+    // wide upper sections. Note the volume table is built from horizontal
+    // cross-sections, so this is the AVERAGE surface height of the pool;
+    // slosh tilts about y = 0 which preserves total volume for symmetric hulls.
+    const targetVolume =
+      (this.waterVolume / this.maxWaterVolume) * this.totalHullVolume;
+    const waterZ = this.volumeToZ(targetVolume);
+    const sloshTilt = this.sloshOffset * SLOSH_TILT_SCALE;
 
-    // Water fill level in hull-local z-space
-    // At 0 water: water surface is at hull bottom (-draft)
-    // At max water: water surface is at deck height
-    const waterFraction = this.getWaterFraction();
-    const draft = this.boat.config.hull.draft;
-    const deckHeight = this.boat.config.hull.deckHeight;
-    const waterZ = -draft + (draft + deckHeight) * waterFraction;
+    const mesh = this.hullMesh;
+    const xyPositions = mesh.xyPositions;
+    const zValues = mesh.zValues;
+    const ringSize = mesh.ringSize;
+    const halfM = (ringSize + 1) / 2;
+    const numStations = xyPositions.length / ringSize;
+    const maxOutVerts = outVerts.length / HULL_WATER_VERTEX_SIZE;
 
-    // Slosh tilts the water surface laterally
-    // The water surface is a line in hull-local y-z space:
-    // z_water(y) = waterZ + sloshOffset * sloshTiltScale * y
-    const sloshTiltScale = this.sloshOffset * 0.3; // radians-ish tilt
+    const body = this.boat.hull.body;
+    const R = body.orientation;
+    const bx = body.position[0];
+    const by = body.position[1];
+    const bz = body.z;
 
-    // Sinking effect: hull fades out during sinking
+    // Scratch: per-station intersection results. Use the same scratch storage
+    // each frame via the Float64Array fields on `this`.
+    const sX = this.stationX;
+    const sYStar = this.starboardY;
+    const sYPort = this.portY;
+    const sValidStar = this.starboardValid;
+    const sValidPort = this.portValid;
+
+    for (let si = 0; si < numStations; si++) {
+      const base = si * ringSize;
+      sX[si] = xyPositions[base][0];
+      sValidStar[si] = 0;
+      sValidPort[si] = 0;
+
+      // --- Starboard side (+y half-profile, j = 0 at gunwale .. halfM-1 at keel) ---
+      // Find the first segment where (profile_z - water_z(profile_y)) crosses
+      // from non-negative to negative — i.e., profile goes from above water
+      // to below. Linear interpolate to find the crossing point.
+      {
+        let d0 = zValues[base] - (waterZ + sloshTilt * xyPositions[base][1]);
+        if (d0 < 0) {
+          // Gunwale already submerged on the starboard side → the entire
+          // starboard beam is underwater at this station. Use the gunwale.
+          sYStar[si] = xyPositions[base][1];
+          sValidStar[si] = 1;
+        } else {
+          for (let j = 0; j < halfM - 1; j++) {
+            const y1 = xyPositions[base + j + 1][1];
+            const z1 = zValues[base + j + 1];
+            const d1 = z1 - (waterZ + sloshTilt * y1);
+            if (d1 < 0) {
+              // Crossing between profile point j and j+1
+              const y0 = xyPositions[base + j][1];
+              const denom = d0 - d1;
+              const t = denom > 1e-9 ? d0 / denom : 0;
+              sYStar[si] = y0 + t * (y1 - y0);
+              sValidStar[si] = 1;
+              break;
+            }
+            d0 = d1;
+          }
+          // If no crossing found (the whole profile is above water), the
+          // station has no water intersection on starboard — leave invalid.
+        }
+      }
+
+      // --- Port side (mirrored: y_port = -y_profile) ---
+      // Tilted plane at port: z(y_port) = waterZ + sloshTilt * (-y_profile)
+      {
+        const y0Profile = xyPositions[base][1];
+        let d0 = zValues[base] - (waterZ - sloshTilt * y0Profile);
+        if (d0 < 0) {
+          sYPort[si] = -y0Profile;
+          sValidPort[si] = 1;
+        } else {
+          for (let j = 0; j < halfM - 1; j++) {
+            const y1Profile = xyPositions[base + j + 1][1];
+            const z1 = zValues[base + j + 1];
+            const d1 = z1 - (waterZ - sloshTilt * y1Profile);
+            if (d1 < 0) {
+              const yjProfile = xyPositions[base + j][1];
+              const denom = d0 - d1;
+              const t = denom > 1e-9 ? d0 / denom : 0;
+              sYPort[si] = -(yjProfile + t * (y1Profile - yjProfile));
+              sValidPort[si] = 1;
+              break;
+            }
+            d0 = d1;
+          }
+        }
+      }
+    }
+
+    // --- Bake outline: starboard stern→bow, then port bow→stern ---
+    // We emit into outVerts directly. Skip collapsed points (y ≈ 0) on the
+    // port pass to avoid duplicates where stations pinch together at bow/stern.
+    let n = 0;
+    const writeVertex = (vx: number, vy: number, vz: number): void => {
+      if (n >= maxOutVerts) return;
+      const worldX = R[0] * vx + R[1] * vy + R[2] * vz + bx;
+      const worldY = R[3] * vx + R[4] * vy + R[5] * vz + by;
+      const worldZ = R[6] * vx + R[7] * vy + R[8] * vz + bz;
+      const off = n * HULL_WATER_VERTEX_SIZE;
+      outVerts[off] = worldX;
+      outVerts[off + 1] = worldY;
+      outVerts[off + 2] = vx; // localUV.x
+      outVerts[off + 3] = vy; // localUV.y
+      outVerts[off + 4] = worldZ;
+      n++;
+    };
+
+    for (let si = 0; si < numStations; si++) {
+      if (sValidStar[si]) {
+        const vy = sYStar[si];
+        writeVertex(sX[si], vy, waterZ + sloshTilt * vy);
+      }
+    }
+    for (let si = numStations - 1; si >= 0; si--) {
+      if (sValidPort[si]) {
+        const vy = sYPort[si];
+        if (Math.abs(vy) < 0.01) continue; // collapsed bow/stern point
+        writeVertex(sX[si], vy, waterZ + sloshTilt * vy);
+      }
+    }
+
+    if (n < 3) return { vertexCount: 0, indexCount: 0 };
+
+    // Fan triangulation from vertex 0. The outline is convex (hull cross-
+    // sections are ~elliptical and the tilted plane preserves convexity).
+    const triCount = n - 2;
+    const indexCount = triCount * 3;
+    for (let i = 0; i < triCount; i++) {
+      outIndices[i * 3] = 0;
+      outIndices[i * 3 + 1] = i + 1;
+      outIndices[i * 3 + 2] = i + 2;
+    }
+
+    return { vertexCount: n, indexCount };
+  }
+
+  /** Current color to tint the hull water quad with. */
+  getWaterColor(): number {
+    return WATER_COLOR;
+  }
+
+  /**
+   * Base alpha multiplier for the hull water quad. Ramps up during sinking
+   * so the interior fills in as the boat goes under.
+   */
+  getWaterAlpha(): number {
     let alpha = WATER_ALPHA;
     if (this.sinking) {
       const sinkFraction = this.sinkTimer / this.config.sinkingDuration;
       alpha = WATER_ALPHA + (1 - WATER_ALPHA) * sinkFraction;
     }
-
-    draw.at(
-      {
-        pos: V(x, y),
-        angle: this.boat.hull.body.angle,
-        tilt: { roll, pitch, zOffset },
-      },
-      () => {
-        // Compute water polygon by clipping hull vertices to those below water level
-        const waterPoly = this.computeWaterPolygon(waterZ, sloshTiltScale);
-
-        if (waterPoly.length >= 3) {
-          draw.fillPolygon(waterPoly, { color: WATER_COLOR, alpha, z: waterZ });
-        }
-      },
-    );
+    return alpha;
   }
 
-  /**
-   * Compute the visible water polygon in body-local coordinates.
-   *
-   * For each hull vertex, compute the water z-height at that y-position
-   * (accounting for slosh tilt). Vertices below the water line are included
-   * directly; edges crossing the water line are clipped. Returns body-local
-   * (x, y) positions — the GPU tilt context handles the 3D projection.
-   */
-  private computeWaterPolygon(waterZ: number, sloshTilt: number): V2d[] {
-    const verts = this.hullVertices;
-    const n = verts.length;
-    const result: V2d[] = [];
-    const deckZ = this.boat.config.hull.deckHeight;
+  /** Current slosh offset (-1 starboard .. +1 port) for shader animation. */
+  getSloshOffset(): number {
+    return this.sloshOffset;
+  }
 
-    for (let i = 0; i < n; i++) {
-      const curr = verts[i];
-      const next = verts[(i + 1) % n];
-
-      // Water z at each vertex's y position (slosh tilts the water surface)
-      const wZCurr = waterZ + sloshTilt * curr.y;
-      const wZNext = waterZ + sloshTilt * next.y;
-
-      // Hull deck vertices are at z = deckHeight
-      // A vertex is "below water" if deckZ < waterZ at that point
-      const currBelow = deckZ <= wZCurr;
-      const nextBelow = deckZ <= wZNext;
-
-      if (currBelow) {
-        // Current vertex is below water — use body-local position
-        result.push(V(curr.x, curr.y));
-      }
-
-      // If the edge crosses the water line, compute intersection
-      if (currBelow !== nextBelow) {
-        // Interpolate: find t where deckZ = waterZ + sloshTilt * lerp(curr.y, next.y, t)
-        const diffCurr = wZCurr - deckZ;
-        const diffNext = wZNext - deckZ;
-        const denom = diffCurr - diffNext;
-        if (Math.abs(denom) > 1e-6) {
-          const t = diffCurr / denom;
-          const ix = curr.x + t * (next.x - curr.x);
-          const iy = curr.y + t * (next.y - curr.y);
-          result.push(V(ix, iy));
-        }
-      }
-    }
-
-    return result;
+  /** Current slosh velocity for shader animation. */
+  getSloshVelocity(): number {
+    return this.sloshVelocity;
   }
 }
