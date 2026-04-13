@@ -19,11 +19,13 @@ import { EventEmitter } from "../events/EventEmitter";
 import { PhysicsEventMap } from "../events/PhysicsEvents";
 import {
   DEFAULT_SOLVER_CONFIG,
-  solveEquations,
+  prepareSolverStep,
   solveIsland,
+  solveSubstep,
   type SolverConfig,
 } from "../solver/GSSolver";
 import { SolverWorkspace } from "../solver/SolverWorkspace";
+import type { Equation } from "../equations/Equation";
 import type { Spring } from "../springs/Spring";
 import { BodyManager } from "./BodyManager";
 import { ConstraintManager } from "./ConstraintManager";
@@ -299,13 +301,37 @@ export class World extends EventEmitter<PhysicsEventMap> {
     //    positions from velocity (plus constraint impulses).
     this.integrateForcesToVelocity(dt);
 
-    // 10. Substep loop: solve constraints + integrate positions with h = dt/N
+    // 10. Collect equations once per step (not per substep) and — for the
+    //     non-island path — sort + assign workspace indices up front. The
+    //     body/equation membership is stable across substeps thanks to
+    //     deferred body removal, so this setup is all hoisted out of the
+    //     inner loop.
+    profiler.start("World.collectEquations");
+    const allEquations: Equation[] = [
+      ...contactEquations,
+      ...frictionEquations,
+      ...[...this.constraints].flatMap((c) => c.equations),
+    ];
+    if (!this.islandSplit && this.solverConfig.equationSortFunction) {
+      // In-place sort — unlike toSorted this doesn't allocate a new array.
+      allEquations.sort(this.solverConfig.equationSortFunction);
+    }
+    profiler.end("World.collectEquations");
+
+    if (!this.islandSplit && allEquations.length > 0) {
+      prepareSolverStep(
+        allEquations,
+        this.bodies.dynamicAwake,
+        this.solverWorkspace,
+      );
+    }
+
+    // 11. Substep loop: solve constraints + integrate positions with h = dt/N
     const N = this.substeps;
     const h = dt / N;
     let lastIslands: Island[] | undefined;
     let totalIter = 0;
     let maxIter = 0;
-    let totalEquationCount = 0;
     let totalIslandCount = 0;
     for (let s = 0; s < N; s++) {
       // Refresh constraint Jacobians against current positions. (On the
@@ -317,24 +343,23 @@ export class World extends EventEmitter<PhysicsEventMap> {
       }
       profiler.end("World.constraintUpdate");
 
-      const result = this.solve(h, contactEquations, frictionEquations);
+      const result = this.solve(h, allEquations);
       lastIslands = result.islands;
       totalIter += result.usedIterations;
       if (result.maxIterations > maxIter) maxIter = result.maxIterations;
-      totalEquationCount = result.equationCount;
       totalIslandCount = result.islandCount;
 
       this.integratePositions(h);
     }
-    this.solverEquationCount = totalEquationCount;
+    this.solverEquationCount = allEquations.length;
     this.solverIslandCount = totalIslandCount;
     this.solverIterations = totalIter;
     this.solverMaxIterations = maxIter;
 
-    // 11. Emit impact events
+    // 12. Emit impact events
     this.emitImpactEvents(contactEquations);
 
-    // 12. Update sleeping
+    // 13. Update sleeping
     this.updateSleeping(dt, lastIslands);
 
     this.time += dt;
@@ -494,40 +519,35 @@ export class World extends EventEmitter<PhysicsEventMap> {
     });
   }
 
+  /**
+   * Run one substep of the constraint solver. For the non-island path,
+   * `allEquations` must already be sorted and the workspace must already
+   * be prepared (done once per step in `step()` before the substep loop).
+   * For the island path, islands are rebuilt per substep.
+   */
   @profile
   private solve(
     dt: number,
-    contacts: ContactEquation[],
-    friction: FrictionEquation[],
+    allEquations: Equation[],
   ): {
     islands: Island[] | undefined;
     usedIterations: number;
     maxIterations: number;
-    equationCount: number;
     islandCount: number;
   } {
-    // Collect all equations. Constraint Jacobians are refreshed by the
-    // substep loop in step() before calling solve().
-    profiler.start("World.collectEquations");
-    const allEquations = [
-      ...contacts,
-      ...friction,
-      ...[...this.constraints].flatMap((c) => c.equations),
-    ];
-    profiler.end("World.collectEquations");
-
     if (allEquations.length === 0) {
       return {
         islands: undefined,
         usedIterations: 0,
         maxIterations: 0,
-        equationCount: 0,
         islandCount: 0,
       };
     }
 
     if (this.islandSplit) {
-      // Split into islands and solve each
+      // Split into islands and solve each. Island membership can shift
+      // between substeps (as the body graph changes with constraint limit
+      // toggles), so the split runs per substep.
       const islands = splitIntoIslands(this.bodies.all, allEquations);
       let totalIter = 0;
       let maxIter = 0;
@@ -547,13 +567,14 @@ export class World extends EventEmitter<PhysicsEventMap> {
         islands,
         usedIterations: totalIter,
         maxIterations: maxIter,
-        equationCount: allEquations.length,
         islandCount: islands.length,
       };
     } else {
-      const result = solveEquations(
+      // Non-island path: the workspace was prepared once in step() before
+      // the substep loop. Each substep just runs the iteration phases
+      // against the cached indices.
+      const result = solveSubstep(
         allEquations,
-        this.bodies.dynamicAwake,
         dt,
         this.solverConfig,
         this.solverWorkspace,
@@ -562,7 +583,6 @@ export class World extends EventEmitter<PhysicsEventMap> {
         islands: undefined,
         usedIterations: result.usedIterations,
         maxIterations: result.usedIterations,
-        equationCount: allEquations.length,
         islandCount: 0,
       };
     }

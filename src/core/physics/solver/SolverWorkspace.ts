@@ -84,19 +84,34 @@ export class SolverWorkspace {
    */
   private bodyToIndex: Map<Body, number> = new Map();
 
-  /** Clear all per-solve state. Call at the start of each `solveEquations`. */
+  /**
+   * Fully clear per-step state. Drops the index assignment, registered
+   * dynamic bodies, and zeroes the accumulators. Call when starting a fresh
+   * solve that isn't reusing prepared indices (e.g. between islands, or at
+   * the start of a new step when using `prepareSolverStep`).
+   */
   reset(): void {
-    // Zero the live portion of vlambda/wlambda so accumulation starts clean.
-    // Clearing only what was used avoids touching unused capacity.
+    this.resetAccumulators();
+    this.bodyCount = 0;
+    this.bodyToIndex.clear();
+    this.dynamicBodies.length = 0;
+    this.dynamicBodyIndices.length = 0;
+  }
+
+  /**
+   * Zero the solver accumulators (vlambda, wlambda, lambda) without touching
+   * the body index assignment. Call this between substeps when the indices
+   * are being reused — it's significantly cheaper than a full `reset()`
+   * because it skips the Map clear and dynamic-body list churn.
+   */
+  resetAccumulators(): void {
+    // Only clear the live region; the tail may hold stale values from a
+    // larger previous solve but is never read.
     if (this.bodyCount > 0) {
       const count3 = this.bodyCount * 3;
       this.vlambda.fill(0, 0, count3);
       this.wlambda.fill(0, 0, count3);
     }
-    this.bodyCount = 0;
-    this.bodyToIndex.clear();
-    this.dynamicBodies.length = 0;
-    this.dynamicBodyIndices.length = 0;
   }
 
   /** Ensure per-body arrays can hold at least `needed` bodies. */

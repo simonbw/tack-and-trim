@@ -112,40 +112,63 @@ export const DEFAULT_SOLVER_CONFIG: SolverConfig = {
 // --- Main Functions ---
 
 /**
- * Solve a set of constraint equations using the iterative Gauss-Seidel method.
+ * One-time-per-step workspace preparation. Registers all dynamic bodies,
+ * assigns a workspace index to every body referenced by any equation, and
+ * ensures per-equation scratch capacity.
  *
- * Updates body velocities and equation multipliers in place. The workspace
- * is owned by the caller and reused across solves; this function calls
- * `workspace.reset()` at the start so callers don't need to.
+ * Callers that run multiple substeps per physics step should invoke this
+ * once (before the substep loop) and then invoke {@link solveSubstep} for
+ * each substep, reusing the same workspace. The body/equation membership
+ * must not change between substeps — deferred body removal in `BodyManager`
+ * ensures this is safe.
+ *
+ * @param equations - All equations to solve, already sorted into iteration
+ *   order by the caller. Disabled equations may be included; they are
+ *   skipped inside the solver but may still reference bodies whose indices
+ *   need to be assigned for other equations.
+ * @param dynamicBodies - All dynamic bodies that should receive constraint
+ *   velocity updates on finalize.
+ * @param workspace - Workspace to populate. Reset and rewritten in place.
  */
-export function solveEquations(
+export function prepareSolverStep(
   equations: readonly Equation[],
   dynamicBodies: Iterable<DynamicBody>,
+  workspace: SolverWorkspace,
+): void {
+  workspace.reset();
+  for (const body of dynamicBodies) {
+    workspace.registerDynamic(body);
+  }
+  const Neq = equations.length;
+  for (let i = 0; i < Neq; i++) {
+    equations[i].assignIndices(workspace);
+  }
+  workspace.ensureEqCapacity(Neq);
+}
+
+/**
+ * Run one substep of the Gauss-Seidel solver against a workspace that was
+ * previously prepared with {@link prepareSolverStep}. Equation body indices
+ * are reused; only the per-substep accumulators (vlambda, wlambda, lambda)
+ * are cleared.
+ *
+ * `equations` must be the same array that was passed to `prepareSolverStep`
+ * — it is not re-sorted or re-filtered here. Equations whose `enabled` flag
+ * is false are skipped by inline branches, since limit constraints can
+ * toggle their enabled flag between substeps.
+ */
+export function solveSubstep(
+  equations: readonly Equation[],
   h: number,
   config: SolverConfig,
   workspace: SolverWorkspace,
 ): SolverResult {
-  const {
-    iterations,
-    tolerance,
-    frictionIterations,
-    useZeroRHS,
-    equationSortFunction,
-  } = config;
+  const { iterations, tolerance, frictionIterations, useZeroRHS } = config;
 
   profiler.start("Solver.setup");
 
-  // Sort if configured
-  if (equationSortFunction) {
-    equations = equations.toSorted(equationSortFunction);
-  }
-
-  // Filter out disabled equations (e.g. bodies with collisionResponse: false)
-  equations = equations.filter((eq) => eq.enabled);
-
   const Neq = equations.length;
   if (Neq === 0) {
-    workspace.reset();
     profiler.end("Solver.setup");
     return { usedIterations: 0 };
   }
@@ -153,31 +176,20 @@ export function solveEquations(
   const tolSquared = tolerance ** 2;
   let usedIterations = 0;
 
-  // Assign workspace indices. Register dynamic bodies first so their
-  // invMass/invInertia slots get filled from the live body data and they
-  // show up on the finalize pass. Then let each equation pull in any
-  // static/kinematic (or extra pulley) bodies it references.
-  workspace.reset();
-  for (const body of dynamicBodies) {
-    workspace.registerDynamic(body);
-  }
-  for (let i = 0; i < Neq; i++) {
-    equations[i].assignIndices(workspace);
-  }
+  // Zero the per-substep accumulators. Indices and per-body inverse mass
+  // data are preserved from prepareSolverStep.
+  workspace.resetAccumulators();
 
-  // Allocate per-equation scratch. Grows geometrically; steady state is
-  // zero-alloc.
-  workspace.ensureEqCapacity(Neq);
   const lambda = workspace.lambda;
   const Bs = workspace.Bs;
   const invCs = workspace.invCs;
-  // Clear only the live region — the tail may hold stale values from a
-  // larger previous solve.
   lambda.fill(0, 0, Neq);
 
-  // Prepare equations - compute B and invC values
+  // Prepare equations - compute B and invC values. Disabled equations are
+  // skipped (their Bs/invCs slots are never read by iterate/warmStart).
   for (let i = 0; i < Neq; i++) {
     const eq = equations[i];
+    if (!eq.enabled) continue;
     if (eq.timeStep !== h || eq.needsUpdate) {
       eq.timeStep = h;
       eq.update();
@@ -189,12 +201,12 @@ export function solveEquations(
   profiler.end("Solver.setup");
 
   profiler.start("Solver.warmStart");
-  // Warm start: initialize lambda from previous frame's solution and
-  // pre-apply the cached impulses to body velocity deltas. This lets the
-  // solver start near the previous solution instead of from zero, which
-  // dramatically improves convergence for constraints under steady load.
+  // Warm start: initialize lambda from the cached solution (previous frame
+  // on substep 0, previous substep thereafter) and pre-apply the cached
+  // impulses to body velocity deltas.
   for (let i = 0; i < Neq; i++) {
     const eq = equations[i];
+    if (!eq.enabled) continue;
     let warm = eq.warmLambda;
     if (warm !== 0) {
       // Clamp to current force bounds (may have changed since last frame)
@@ -281,14 +293,41 @@ export function solveEquations(
     }
   }
 
-  // Cache lambda for warm starting next frame, then update multipliers
+  // Cache lambda for warm starting next frame, then update multipliers.
+  // Disabled equations retain their previous warmLambda / multiplier so
+  // game code reading those fields sees stable values.
   for (let i = 0; i < Neq; i++) {
-    equations[i].warmLambda = lambda[i];
+    const eq = equations[i];
+    if (eq.enabled) eq.warmLambda = lambda[i];
   }
   updateMultipliers(equations, lambda, 1 / h);
   profiler.end("Solver.finalize");
 
   return { usedIterations };
+}
+
+/**
+ * Solve a set of constraint equations in one call. Performs sort, filter,
+ * workspace prep, and a single substep. Used by the island-split path where
+ * a new workspace prep is needed per island.
+ *
+ * For the common case of running multiple substeps against the same set of
+ * equations, prefer {@link prepareSolverStep} + {@link solveSubstep}, which
+ * hoists the sort and index assignment out of the substep loop.
+ */
+export function solveEquations(
+  equations: readonly Equation[],
+  dynamicBodies: Iterable<DynamicBody>,
+  h: number,
+  config: SolverConfig,
+  workspace: SolverWorkspace,
+): SolverResult {
+  // Sort if configured
+  if (config.equationSortFunction) {
+    equations = equations.toSorted(config.equationSortFunction);
+  }
+  prepareSolverStep(equations, dynamicBodies, workspace);
+  return solveSubstep(equations, h, config, workspace);
 }
 
 /**
@@ -324,14 +363,15 @@ export function solveIsland(
 
 // --- Helper Functions ---
 
-/** Sets the .multiplier property of each equation from lambda values. */
+/** Sets the .multiplier property of each enabled equation from lambda values. */
 function updateMultipliers(
   equations: readonly Equation[],
   lambda: ArrayLike<number>,
   invDt: number,
 ): void {
   for (let i = equations.length - 1; i >= 0; i--) {
-    equations[i].multiplier = lambda[i] * invDt;
+    const eq = equations[i];
+    if (eq.enabled) eq.multiplier = lambda[i] * invDt;
   }
 }
 
@@ -350,6 +390,7 @@ function runIteration(
 
   for (let j = 0; j < Neq; j++) {
     const eq = equations[j];
+    if (!eq.enabled) continue;
     const deltalambda = iterateEquation(
       j,
       eq,
@@ -420,6 +461,7 @@ function iterateEquation(
 /** Updates friction equation bounds based on contact equation multipliers. */
 function updateFrictionBounds(equations: readonly Equation[]): void {
   for (const eq of equations) {
+    if (!eq.enabled) continue;
     if (eq instanceof FrictionEquation) {
       let f = 0.0;
       for (let k = 0; k < eq.contactEquations.length; k++) {
