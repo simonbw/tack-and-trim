@@ -4,6 +4,10 @@ import { on } from "../../../core/entity/handler";
 import type { Body } from "../../../core/physics/body/Body";
 import { DynamicBody } from "../../../core/physics/body/DynamicBody";
 import { clamp } from "../../../core/util/MathUtil";
+import {
+  asyncProfiler,
+  type AsyncOperationToken,
+} from "../../../core/util/AsyncProfiler";
 import { V, V2d } from "../../../core/Vector";
 import { TimeOfDay } from "../../time/TimeOfDay";
 import { WindQuery } from "../../world/wind/WindQuery";
@@ -458,6 +462,8 @@ export class Sail extends BaseEntity {
 
   /** Damage multiplier applied to liftScale (1.0 = no damage) */
   private getDamageMultiplier: () => number = () => 1;
+
+  private _clothSolveToken: AsyncOperationToken | null = null;
   setDamageMultiplier(fn: () => number): void {
     this.getDamageMultiplier = fn;
   }
@@ -482,6 +488,10 @@ export class Sail extends BaseEntity {
     if (this.hoistAmount <= 0) {
       // Still consume results so the worker doesn't stall
       if (this.handle.hasNewResults()) {
+        if (this._clothSolveToken) {
+          asyncProfiler.endAsync(this._clothSolveToken);
+          this._clothSolveToken = null;
+        }
         this.handle.readReactionForces();
         this.handle.ackResults();
       }
@@ -514,6 +524,10 @@ export class Sail extends BaseEntity {
 
     // Read results from the worker's previous solve (one-tick lag)
     if (this.handle.hasNewResults()) {
+      if (this._clothSolveToken) {
+        asyncProfiler.endAsync(this._clothSolveToken);
+        this._clothSolveToken = null;
+      }
       const reactions = this.handle.readReactionForces();
       const vertexMass = CLOTH_MASS / this.mesh.vertexCount;
 
@@ -700,7 +714,8 @@ export class Sail extends BaseEntity {
       windY = wind.y;
     }
 
-    // Kick off worker solve
+    // Kick off worker solve and start async profiling
+    this._clothSolveToken = asyncProfiler.startAsync("Cloth.solve");
     this.handle.writeInputsAndKick({
       dt,
       substeps: CLOTH_SUBSTEPS,
