@@ -261,6 +261,11 @@ export class Rudder extends BaseEntity {
     return this.getRelativeAngle();
   }
 
+  /** Get angular velocity of rudder relative to hull yaw (rad/s). */
+  getRelativeAngularVelocity(): number {
+    return this.body.angularVelocity - this.hull.body.angularVelocity;
+  }
+
   /** Z-depth of the rudder blade tip. */
   getRudderZ(): number {
     return this.rudderZ;
