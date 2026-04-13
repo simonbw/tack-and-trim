@@ -60,27 +60,23 @@ One collapsible panel per `BoatConfig` section. Each property is a labeled slide
 
 ### Hull Shape Editing
 
-The hull currently has three hand-placed vertex rings (deck, waterline, bottom). Two approaches worth considering — could support both:
+The hull is now defined as a series of cross-section profiles at stations along the hull length (`HullShape` / `HullStation` in `BoatConfig.ts`). Each station is a half-curve in the y-z plane from keel to gunwale; `buildHullMeshFromProfiles()` lofts the stations into a 3D mesh. Two approaches worth considering — could support both:
 
-**A) Direct vertex editing (current model)**
-- Top-down view shows the three rings as draggable points, color-coded
-- Enforce port/starboard symmetry (edit one side, mirror to the other)
-- Good for fine-tuning weird shapes
+**A) Direct station editing**
+- Per-station editor shows the half-profile control points as draggable handles (body-plan view)
+- Plan view shows station x-positions along the hull for inserting/removing stations
+- Good for fine-tuning — matches the underlying data model exactly
 
-**B) Parametric hull generation (new)**
+**B) Parametric hull generation**
 - Define hull from parameters: length, beam, bow shape (sharp→blunt), stern shape, rocker, deadrise angle
-- Generate all three rings procedurally
-- Much easier to explore the design space — you're tweaking 6-8 meaningful params instead of placing 30+ vertices
-- Can still allow manual vertex overrides on top
+- Generate stations procedurally
+- Much easier to explore the design space — tweaking 6-8 meaningful params instead of placing dozens of profile points
+- Can still allow manual station/profile overrides on top
 
 Parametric feels like the better default for a dev tool. You'd define a hull generator function:
 
 ```typescript
-function generateHullVertices(params: HullShapeParams): {
-  vertices: V2d[];        // deck ring
-  waterlineVertices: V2d[];
-  bottomVertices: V2d[];
-}
+function generateHullShape(params: HullShapeParams): HullShape;
 ```
 
 Where `HullShapeParams` might be:
@@ -90,8 +86,7 @@ Where `HullShapeParams` might be:
 - `sternFineness` — 0 (transom) to 1 (double-ender)
 - `bowRocker` — upward curve of the bow
 - `deadriseAngle` — V-shape of the bottom
-- `waterlineRatio` — how much narrower the waterline is than the deck
-- `bottomRatio` — how much narrower the bottom is than the waterline
+- `midshipFullness` — how quickly the cross-section widens from the keel
 - `vertexCount` — resolution
 
 This could live in the game code too (not just the editor), so configs could store either explicit vertices or parametric params.

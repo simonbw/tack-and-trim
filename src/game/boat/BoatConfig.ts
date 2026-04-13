@@ -66,7 +66,7 @@ export interface HullShape {
   readonly stations: readonly HullStation[];
   /**
    * Indices of stations to keep sharp (no smoothing in the x-direction).
-   * Typically the bow station. Similar to sharpVertices in the ring system.
+   * Typically the bow station.
    */
   readonly sharpStations?: readonly number[];
   /**
@@ -144,14 +144,10 @@ export interface DeckPlan {
 
 export interface HullConfig {
   readonly mass: number; // lbs
-  // --- 2D deck polygon (always required — used for collision shape, spray, wake, etc.) ---
+  // --- 2D deck polygon (used for collision shape, spray, wake, etc.) ---
   readonly vertices: V2d[]; // ft, deck/gunwale polygon, counter-clockwise winding (visual/collision)
-  // --- Ring-based hull definition (used for 3D mesh when shape is absent) ---
-  readonly waterlineVertices?: V2d[]; // ft, narrower shape at the waterline (water interaction)
-  readonly bottomVertices?: V2d[]; // ft, hull bottom shape (narrowest, at z = -draft)
-  readonly sharpVertices?: number[]; // indices of vertices that stay sharp (not smoothed)
-  // --- Station profile hull definition (preferred for 3D mesh when present) ---
-  readonly shape?: HullShape;
+  // --- Station profile hull shape (lofted into the 3D physics + render mesh) ---
+  readonly shape: HullShape;
   // --- Deck plan (interior features) ---
   readonly deckPlan?: DeckPlan;
   // --- Common properties ---
@@ -321,9 +317,12 @@ export interface BilgeConfig {
   readonly bailBucketSize: number; // cubic ft — volume removed per bail scoop
   readonly bailInterval: number; // seconds — time between scoops
   readonly waterDensity: number; // lbs/ft³ (62.4 fresh, 64 salt)
-  readonly ingressCoefficient: number; // ft³/s per ft² of submerged gunwale area (length × depth)
-  readonly sloshGravity: number; // ft/s², acceleration of bilge water toward heeled side (typical 5-20)
-  readonly sloshDamping: number; // dimensionless, velocity damping on bilge slosh (typical 0.5-2.0)
+  /** Natural frequency (rad/s) of the lateral slosh oscillator. ~3-5 for a dinghy. */
+  readonly sloshFreqLateral: number;
+  /** Natural frequency (rad/s) of the longitudinal slosh oscillator. Usually lower than lateral. */
+  readonly sloshFreqLongitudinal: number;
+  /** Damping ratio (0 = undamped, 1 = critical); ~0.3-0.5 looks alive. */
+  readonly sloshDampingRatio: number;
   readonly sinkingDuration: number; // seconds — how long the sinking animation takes
 }
 

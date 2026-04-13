@@ -1,6 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
+import { V3d } from "../../core/Vector3";
 import { BoatSpray } from "../BoatSpray";
 import { Bilge } from "./Bilge";
 import { BoatConfig, Kestrel } from "./BoatConfig";
@@ -17,6 +18,7 @@ import {
   buildBoundaryLevel,
   type HullBoundaryData,
 } from "../../core/physics/constraints/DeckContactConstraint";
+import { buildGunwaleObstacles, type RopeObstacle } from "../rope/RopeObstacle";
 import { Keel } from "./Keel";
 import { Lifelines } from "./Lifelines";
 import { Rig } from "./Rig";
@@ -130,6 +132,17 @@ export class Boat extends BaseEntity {
       config.hull.draft,
     );
 
+    // Gunwale-edge obstacles for segment-level rope collision. Built once
+    // and shared across all rope colliders on this hull.
+    const deckOutline = extractHullOutlineAtZ(
+      this.hull.getPhysicsMesh(),
+      config.hull.deckHeight,
+    );
+    const hullObstacles: RopeObstacle[] = buildGunwaleObstacles(
+      deckOutline,
+      config.hull.deckHeight,
+    );
+
     // Create mainsheet (boom to hull)
     const { hullAttachPoint, boomAttachRatio, winchPoint, ...mainsheetConfig } =
       config.mainsheet;
@@ -145,8 +158,11 @@ export class Boat extends BaseEntity {
       ? [
           {
             body: this.hull.body,
-            localAnchor: winchPoint,
-            z: deckZAt(winchPoint),
+            localAnchor: new V3d(
+              winchPoint.x,
+              winchPoint.y,
+              deckZAt(winchPoint),
+            ),
             type: "winch" as const,
             radius: 0,
           },
@@ -157,15 +173,14 @@ export class Boat extends BaseEntity {
     this.mainsheet = this.addChild(
       new Sheet(
         this.rig.body as DynamicBody,
-        V(-this.rig.getBoomLength() * boomAttachRatio, 0),
+        new V3d(-this.rig.getBoomLength() * boomAttachRatio, 0, 0),
         this.hull.body,
-        hullAttachPoint,
+        new V3d(hullAttachPoint.x, hullAttachPoint.y, deckZAt(hullAttachPoint)),
         mainsheetConfig,
-        0,
-        deckZAt(hullAttachPoint),
         mainsheetWaypoints,
         getDeckHeight,
         hullBoundary,
+        hullObstacles,
       ),
     );
 
@@ -213,38 +228,50 @@ export class Boat extends BaseEntity {
 
       const jibClewZ = config.jib.zFoot ?? 3;
       // Build waypoint arrays: blocks first, then winch
-      const portWaypoints: import("../rope/Rope").RopeWaypoint[] = [];
+      const portWaypoints: import("./Sheet").SheetWaypoint[] = [];
       if (portBlockPoint)
         portWaypoints.push({
           body: this.hull.body,
-          localAnchor: portBlockPoint,
-          z: deckZAt(portBlockPoint),
+          localAnchor: new V3d(
+            portBlockPoint.x,
+            portBlockPoint.y,
+            deckZAt(portBlockPoint),
+          ),
           frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
           radius: 0,
         });
       if (portWinchPoint)
         portWaypoints.push({
           body: this.hull.body,
-          localAnchor: portWinchPoint,
-          z: deckZAt(portWinchPoint),
+          localAnchor: new V3d(
+            portWinchPoint.x,
+            portWinchPoint.y,
+            deckZAt(portWinchPoint),
+          ),
           type: "winch",
           radius: 0,
         });
 
-      const starboardWaypoints: import("../rope/Rope").RopeWaypoint[] = [];
+      const starboardWaypoints: import("./Sheet").SheetWaypoint[] = [];
       if (starboardBlockPoint)
         starboardWaypoints.push({
           body: this.hull.body,
-          localAnchor: starboardBlockPoint,
-          z: deckZAt(starboardBlockPoint),
+          localAnchor: new V3d(
+            starboardBlockPoint.x,
+            starboardBlockPoint.y,
+            deckZAt(starboardBlockPoint),
+          ),
           frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
           radius: 0,
         });
       if (starboardWinchPoint)
         starboardWaypoints.push({
           body: this.hull.body,
-          localAnchor: starboardWinchPoint,
-          z: deckZAt(starboardWinchPoint),
+          localAnchor: new V3d(
+            starboardWinchPoint.x,
+            starboardWinchPoint.y,
+            deckZAt(starboardWinchPoint),
+          ),
           type: "winch",
           radius: 0,
         });
@@ -254,30 +281,36 @@ export class Boat extends BaseEntity {
       this.portJibSheet = this.addChild(
         new Sheet(
           clewBody,
-          V(0, 0),
+          new V3d(0, 0, 0),
           this.hull.body,
-          portAttachPoint,
+          new V3d(
+            portAttachPoint.x,
+            portAttachPoint.y,
+            deckZAt(portAttachPoint),
+          ),
           { ...jibSheetConfig, tailDirection: V(-1, -1).normalize() },
-          0,
-          deckZAt(portAttachPoint),
           portWaypoints,
           getDeckHeight,
           hullBoundary,
+          hullObstacles,
         ),
       );
 
       this.starboardJibSheet = this.addChild(
         new Sheet(
           clewBody,
-          V(0, 0),
+          new V3d(0, 0, 0),
           this.hull.body,
-          starboardAttachPoint,
+          new V3d(
+            starboardAttachPoint.x,
+            starboardAttachPoint.y,
+            deckZAt(starboardAttachPoint),
+          ),
           { ...jibSheetConfig, tailDirection: V(-1, 1).normalize() },
-          0,
-          deckZAt(starboardAttachPoint),
           starboardWaypoints,
           getDeckHeight,
           hullBoundary,
+          hullObstacles,
         ),
       );
       this.starboardJibSheet.release();
@@ -297,11 +330,9 @@ export class Boat extends BaseEntity {
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
 
     // Create wake effects — bow wave (dominant) and stern wave (weaker)
-    // Use waterline vertices for wake spawn points (where hull meets water)
-    const waterlineVerts =
-      config.hull.waterlineVertices ?? config.hull.vertices;
-    const bowPoint = findBowPoint(waterlineVerts);
-    const sternPoints = findSternPoints(waterlineVerts);
+    const hullVerts = config.hull.vertices;
+    const bowPoint = findBowPoint(hullVerts);
+    const sternPoints = findSternPoints(hullVerts);
     const sternCenter = sternPoints.port.add(sternPoints.starboard).imul(0.5);
     this.addChild(new Wake(this, bowPoint, 1.0));
     this.addChild(new Wake(this, sternCenter, 0.4));

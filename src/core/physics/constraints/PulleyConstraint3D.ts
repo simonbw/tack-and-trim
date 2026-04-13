@@ -22,6 +22,7 @@
 
 import type { Body } from "../body/Body";
 import { DynamicBody } from "../body/DynamicBody";
+import { CompatibleVector3, V3, V3d } from "../../Vector3";
 import { Equation } from "../equations/Equation";
 import { PulleyEquation } from "../equations/PulleyEquation";
 import { computePulleyWrap } from "../utils/pulleyGeometry";
@@ -31,11 +32,11 @@ export type PulleyMode = "free" | "ratchet";
 
 export interface PulleyConstraint3DOptions extends ConstraintOptions {
   /** Anchor on bodyA in local coordinates. Default [0,0,0]. */
-  localAnchorA?: [number, number, number];
+  localAnchorA?: CompatibleVector3;
   /** Anchor on bodyB in local coordinates. Default [0,0,0]. */
-  localAnchorB?: [number, number, number];
+  localAnchorB?: CompatibleVector3;
   /** Anchor on the pulley body (bodyC) in local coordinates. */
-  localAnchorC?: [number, number, number];
+  localAnchorC?: CompatibleVector3;
   /** Max total rope length through the pulley. If omitted, uses current distance. */
   totalLength?: number;
   /** Max constraint force. Default MAX_VALUE. */
@@ -48,9 +49,9 @@ export class PulleyConstraint3D extends Constraint {
   /** The pulley/block body. */
   bodyC: Body;
 
-  localAnchorA: [number, number, number];
-  localAnchorB: [number, number, number];
-  localAnchorC: [number, number, number];
+  localAnchorA: V3d;
+  localAnchorB: V3d;
+  localAnchorC: V3d;
 
   /** Upper limit: max combined path distance through pulley. */
   totalLength: number;
@@ -113,14 +114,14 @@ export class PulleyConstraint3D extends Constraint {
     }
 
     this.localAnchorA = options.localAnchorA
-      ? [...options.localAnchorA]
-      : [0, 0, 0];
+      ? V3(options.localAnchorA)
+      : new V3d(0, 0, 0);
     this.localAnchorB = options.localAnchorB
-      ? [...options.localAnchorB]
-      : [0, 0, 0];
+      ? V3(options.localAnchorB)
+      : new V3d(0, 0, 0);
     this.localAnchorC = options.localAnchorC
-      ? [...options.localAnchorC]
-      : [0, 0, 0];
+      ? V3(options.localAnchorC)
+      : new V3d(0, 0, 0);
 
     this.maxForce = options.maxForce ?? Number.MAX_VALUE;
     this.radius = options.radius ?? 0;
@@ -129,9 +130,9 @@ export class PulleyConstraint3D extends Constraint {
     if (typeof options.totalLength === "number") {
       this.totalLength = options.totalLength;
     } else {
-      const [ax, ay, az] = bodyA.toWorldFrame3D(...this.localAnchorA);
-      const [px, py, pz] = bodyC.toWorldFrame3D(...this.localAnchorC);
-      const [bx, by, bz] = bodyB.toWorldFrame3D(...this.localAnchorB);
+      const [ax, ay, az] = bodyA.toWorldFrame3D(this.localAnchorA);
+      const [px, py, pz] = bodyC.toWorldFrame3D(this.localAnchorC);
+      const [bx, by, bz] = bodyB.toWorldFrame3D(this.localAnchorB);
       const dAx = ax - px,
         dAy = ay - py,
         dAz = az - pz;
@@ -189,14 +190,14 @@ export class PulleyConstraint3D extends Constraint {
    */
   setParticleA(
     body: Body,
-    localAnchor: [number, number, number],
+    localAnchor: CompatibleVector3,
     ratchetDelta?: number,
   ): void {
     this.bodyA = body;
     this.sumEquation.bodyA = body;
     this.ratchetEquation.bodyA = body;
     this.frictionEquation.bodyA = body;
-    this.localAnchorA = localAnchor;
+    this.localAnchorA = V3(localAnchor);
     if (this.mode === "ratchet") {
       if (ratchetDelta !== undefined && Number.isFinite(this.ratchetDistA)) {
         this.ratchetDistA = Math.max(0, this.ratchetDistA + ratchetDelta);
@@ -207,10 +208,10 @@ export class PulleyConstraint3D extends Constraint {
   }
 
   /** Update which particle is on side B of the pulley. */
-  setParticleB(body: Body, localAnchor: [number, number, number]): void {
+  setParticleB(body: Body, localAnchor: CompatibleVector3): void {
     this.bodyB = body;
     this.sumEquation.bodyB = body;
-    this.localAnchorB = localAnchor;
+    this.localAnchorB = V3(localAnchor);
   }
 
   /**
@@ -235,9 +236,9 @@ export class PulleyConstraint3D extends Constraint {
     const eq = this.sumEquation;
 
     // Transform local anchors to world 3D
-    const [ax, ay, az] = this.bodyA.toWorldFrame3D(...this.localAnchorA);
-    const [px, py, pz] = this.bodyC.toWorldFrame3D(...this.localAnchorC);
-    const [bx, by, bz] = this.bodyB.toWorldFrame3D(...this.localAnchorB);
+    const [ax, ay, az] = this.bodyA.toWorldFrame3D(this.localAnchorA);
+    const [px, py, pz] = this.bodyC.toWorldFrame3D(this.localAnchorC);
+    const [bx, by, bz] = this.bodyB.toWorldFrame3D(this.localAnchorB);
 
     // Separation vectors and center-to-center distances
     const dAx = ax - px,

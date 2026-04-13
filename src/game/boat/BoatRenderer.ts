@@ -5,6 +5,10 @@ import { V } from "../../core/Vector";
 import type { Boat } from "./Boat";
 import type { BoatConfig } from "./BoatConfig";
 import { buildDeckPlanMeshes } from "./deck-plan";
+import {
+  HULL_WATER_VERTEX_SIZE,
+  HullWaterShaderInstance,
+} from "./HullWaterShader";
 import { RopeShaderInstance } from "./RopeShader";
 import {
   type MeshContribution,
@@ -33,10 +37,21 @@ export class BoatRenderer extends BaseEntity {
   private keelMesh: MeshContribution | null = null;
   private deckPlanMeshes: MeshContribution[] = [];
 
+  // Bilge water render state — lazy, shared across frames for this boat.
+  private hullWaterShader: HullWaterShaderInstance | null = null;
+  private hullWaterVertexData: Float32Array | null = null;
+  private hullWaterIndexData: Uint16Array | null = null;
+  private hullWaterIndexCount = 0;
+
   constructor(private boat: Boat) {
     super();
     this.config = boat.config;
     this.buildStaticMeshes();
+  }
+
+  onDestroy() {
+    this.hullWaterShader?.destroy();
+    this.hullWaterShader = null;
   }
 
   private buildStaticMeshes() {
@@ -234,6 +249,14 @@ export class BoatRenderer extends BaseEntity {
     // === 14. Anchor rode ===
     this.renderRode(renderer);
 
+    // === 14.5. Bilge water interior ===
+    // Must render AFTER the deck-plan meshes (step 3) so cockpit sole /
+    // benches / foredeck / hull-wall depths are already written, and BEFORE
+    // the air cap (step 15) so the cap's deck-height depth-only write doesn't
+    // pre-occlude the water quad. Depth testing hides the water beneath
+    // bench/foredeck zones and lets it show through the cockpit hole.
+    this.renderBilgeWater(renderer);
+
     // === 15. Air displacement cap — transparent, depth-only ===
     // Rendered AFTER ropes so rope color pixels are already in the framebuffer.
     // The cap writes depth only (alpha=0, no color change), blocking the water
@@ -387,10 +410,9 @@ export class BoatRenderer extends BaseEntity {
     for (const sheet of sheets) {
       if (!sheet) continue;
       for (const wp of sheet.getWaypointInfo()) {
-        const local = hullBody.toLocalFrame(wp.position);
-        const surfaceZ =
-          (hull.getDeckHeight(local[0], local[1]) ?? fallbackDeckZ) +
-          hardwareOffset;
+        const [wx, wy, wz] = wp.position;
+        const local = hullBody.toLocalFrame3D(wx, wy, wz);
+        const surfaceZ = local[2] + hardwareOffset;
         td.circle(local[0], local[1], surfaceZ, winchRadius, 32, 0x444444);
         if (wp.type === "winch") {
           const handleLen = winchRadius * 1.6;
@@ -788,6 +810,58 @@ export class BoatRenderer extends BaseEntity {
       this.boat.anchor.getRodePattern(),
       1,
       width,
+    );
+  }
+
+  private renderBilgeWater(
+    renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
+  ) {
+    const bilge = this.boat.bilge;
+
+    // Lazy-create scratch buffers + shader instance on first draw.
+    // The cross-section extracted from the hull mesh at waterZ can have up
+    // to 2 * numStations vertices; Bilge publishes its max via
+    // `maxHullWaterVertices`. We size all buffers to that worst case.
+    if (!this.hullWaterVertexData) {
+      const maxVerts = bilge.maxHullWaterVertices;
+      this.hullWaterVertexData = new Float32Array(
+        maxVerts * HULL_WATER_VERTEX_SIZE,
+      );
+
+      // Max indices for a fan triangulation of `maxVerts` verts.
+      const maxTriCount = Math.max(0, maxVerts - 2);
+      const maxIndexCount = maxTriCount * 3;
+      // Pad to even length so the byte length is a 4-byte multiple (uint16).
+      const paddedMaxIndices = maxIndexCount + (maxIndexCount & 1);
+      this.hullWaterIndexData = new Uint16Array(paddedMaxIndices);
+      this.hullWaterShader = new HullWaterShaderInstance(
+        maxVerts,
+        paddedMaxIndices,
+      );
+    }
+
+    const built = bilge.buildHullWaterVertices(
+      this.hullWaterVertexData,
+      this.hullWaterIndexData!,
+    );
+    if (built.vertexCount === 0) return;
+    this.hullWaterIndexCount = built.indexCount;
+
+    renderer.flush();
+    this.hullWaterShader!.draw(
+      renderer,
+      this.hullWaterVertexData,
+      built.vertexCount,
+      this.hullWaterIndexData!,
+      this.hullWaterIndexCount,
+      bilge.getWaterColor(),
+      bilge.getWaterAlpha(),
+      bilge.getSlopeX(),
+      bilge.getSlopeY(),
+      bilge.getSlopeXVelocity(),
+      bilge.getSlopeYVelocity(),
+      bilge.getWaterFraction(),
+      this.game.elapsedTime,
     );
   }
 

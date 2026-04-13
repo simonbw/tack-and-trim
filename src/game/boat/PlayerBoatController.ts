@@ -209,9 +209,8 @@ export class PlayerBoatController extends BaseEntity {
       });
     }
 
-    // No actions while port menu is open or sinking
+    // No actions while port menu is open
     if (this.game.entities.tryGetSingleton(PortMenu)) return;
-    if (this.boat.bilge.isSinking()) return;
 
     // Dock toggle (F key, only when near a port — anchor is now hold-to-use)
     if (key === "KeyF") {

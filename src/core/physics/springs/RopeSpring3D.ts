@@ -1,12 +1,13 @@
 import type { DynamicBody } from "../body/DynamicBody";
 import type { Body } from "../body/Body";
+import { CompatibleVector3, V3, V3d } from "../../Vector3";
 import { Spring, SpringOptions } from "./Spring";
 
 export interface RopeSpring3DOptions extends SpringOptions {
   /** 3D anchor point on bodyA in local coordinates. Default [0,0,0]. */
-  localAnchorA?: [number, number, number];
+  localAnchorA?: CompatibleVector3;
   /** 3D anchor point on bodyB in local coordinates. Default [0,0,0]. */
-  localAnchorB?: [number, number, number];
+  localAnchorB?: CompatibleVector3;
   /** Natural length of the spring. Auto-computed from anchor positions if not set. */
   restLength?: number;
   /** Maximum force the rope can apply. Prevents instability with stiff ropes. Default: Infinity. */
@@ -19,8 +20,8 @@ export interface RopeSpring3DOptions extends SpringOptions {
  * Useful for ropes/cables connecting bodies that can move in Z (e.g. jib sheets).
  */
 export class RopeSpring3D extends Spring {
-  localAnchorA: [number, number, number];
-  localAnchorB: [number, number, number];
+  localAnchorA: V3d;
+  localAnchorB: V3d;
   restLength: number;
   maxForce: number;
 
@@ -32,26 +33,18 @@ export class RopeSpring3D extends Spring {
     super(bodyA, bodyB, options);
 
     this.localAnchorA = options.localAnchorA
-      ? [
-          options.localAnchorA[0],
-          options.localAnchorA[1],
-          options.localAnchorA[2],
-        ]
-      : [0, 0, 0];
+      ? V3(options.localAnchorA)
+      : new V3d(0, 0, 0);
     this.localAnchorB = options.localAnchorB
-      ? [
-          options.localAnchorB[0],
-          options.localAnchorB[1],
-          options.localAnchorB[2],
-        ]
-      : [0, 0, 0];
+      ? V3(options.localAnchorB)
+      : new V3d(0, 0, 0);
     this.maxForce = options.maxForce ?? Infinity;
 
     if (typeof options.restLength === "number") {
       this.restLength = options.restLength;
     } else {
-      const [ax, ay, az] = bodyA.toWorldFrame3D(...this.localAnchorA);
-      const [bx, by, bz] = bodyB.toWorldFrame3D(...this.localAnchorB);
+      const [ax, ay, az] = bodyA.toWorldFrame3D(this.localAnchorA);
+      const [bx, by, bz] = bodyB.toWorldFrame3D(this.localAnchorB);
       const dx = bx - ax,
         dy = by - ay,
         dz = bz - az;
@@ -67,8 +60,8 @@ export class RopeSpring3D extends Spring {
     const bodyB = this.bodyB;
 
     // World anchor positions (3D)
-    const [ax, ay, az] = bodyA.toWorldFrame3D(...this.localAnchorA);
-    const [bx, by, bz] = bodyB.toWorldFrame3D(...this.localAnchorB);
+    const [ax, ay, az] = bodyA.toWorldFrame3D(this.localAnchorA);
+    const [bx, by, bz] = bodyB.toWorldFrame3D(this.localAnchorB);
 
     // Separation vector
     const dx = bx - ax;

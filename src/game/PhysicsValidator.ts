@@ -17,13 +17,27 @@ const MAX_VELOCITY = 1000;
 export class PhysicsValidator extends BaseEntity {
   @on("afterPhysicsStep")
   onAfterPhysicsStep() {
+    const warnings: Array<{
+      owner: string;
+      issue: "reset" | "clamp";
+      details: {
+        position?: [number, number];
+        velocity: [number, number];
+        angularVelocity: number;
+        speed?: number;
+        maxVelocity?: number;
+      };
+    }> = [];
+
     for (const body of this.game.world.bodies) {
       if (body instanceof StaticBody) continue;
 
       const [x, y] = body.position;
       const [vx, vy] = body.velocity;
+      const ownerName =
+        (body as Body & { owner?: Entity }).owner?.constructor?.name ??
+        "unknown";
 
-      // Check for NaN/Infinity or extreme positions
       const positionBad =
         !isFinite(x) ||
         !isFinite(y) ||
@@ -32,35 +46,46 @@ export class PhysicsValidator extends BaseEntity {
       const velocityBad = !isFinite(vx) || !isFinite(vy);
 
       if (positionBad || velocityBad) {
-        const owner = (body as Body & { owner?: Entity }).owner;
-        console.warn(
-          "Physics instability detected, resetting body:",
-          owner?.constructor?.name ?? "unknown",
-          {
+        warnings.push({
+          owner: ownerName,
+          issue: "reset",
+          details: {
             position: [x, y],
             velocity: [vx, vy],
             angularVelocity: body.angularVelocity,
           },
-        );
+        });
+
         body.position.set(0, 0);
         body.velocity.set(0, 0);
         body.angularVelocity = 0;
         continue;
       }
 
-      // Clamp extreme velocities
-      const speed = Math.sqrt(vx * vx + vy * vy);
+      const speed = Math.hypot(vx, vy);
       if (speed > MAX_VELOCITY) {
-        const owner = (body as Body & { owner?: Entity }).owner;
-        console.warn(
-          "Physics velocity clamped:",
-          owner?.constructor?.name ?? "unknown",
-          { speed, maxVelocity: MAX_VELOCITY },
-        );
+        warnings.push({
+          owner: ownerName,
+          issue: "clamp",
+          details: {
+            velocity: [vx, vy],
+            angularVelocity: body.angularVelocity,
+            speed,
+            maxVelocity: MAX_VELOCITY,
+          },
+        });
+
         const scale = MAX_VELOCITY / speed;
         body.velocity[0] *= scale;
         body.velocity[1] *= scale;
       }
+    }
+
+    if (warnings.length > 0) {
+      console.warn(
+        "Physics validator detected instability in bodies:",
+        warnings,
+      );
     }
   }
 }

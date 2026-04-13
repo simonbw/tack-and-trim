@@ -6,25 +6,16 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import type { Draw } from "../core/graphics/Draw";
-import { earClipTriangulate } from "../core/util/Triangulate";
-import { V, V2d } from "../core/Vector";
+import { V } from "../core/Vector";
 import {
   BoatConfig,
   HullConfig,
-  KeelConfig,
   RigConfig,
   RudderConfig,
 } from "../game/boat/BoatConfig";
+import { type HullMesh } from "../game/boat/Hull";
+import { buildHullMeshFromProfiles } from "../game/boat/hull-profiles";
 import type { BoatEditorCameraController } from "./BoatEditorCameraController";
-
-interface HullMesh {
-  xyPositions: [number, number][];
-  zValues: number[];
-  ringSize: number;
-  deckIndices: number[];
-  upperSideIndices: number[];
-  lowerSideIndices: number[];
-}
 
 export class BoatPreviewRenderer extends BaseEntity {
   private config: BoatConfig;
@@ -44,61 +35,7 @@ export class BoatPreviewRenderer extends BaseEntity {
   }
 
   private rebuildMesh(): void {
-    const hull = this.config.hull;
-    const deckVertices = hull.vertices;
-    const waterlineVertices = hull.waterlineVertices ?? hull.vertices;
-    const bottomVertices =
-      hull.bottomVertices ?? waterlineVertices.map((v) => V(v.x, v.y * 0.45));
-    const deckZ = hull.deckHeight;
-    const bottomZ = -hull.draft;
-
-    const ringSize = deckVertices.length;
-    const totalVerts = ringSize * 3;
-    const xyPositions: [number, number][] = new Array(totalVerts);
-    const zValues: number[] = new Array(totalVerts);
-
-    for (let i = 0; i < ringSize; i++) {
-      xyPositions[i] = [deckVertices[i].x, deckVertices[i].y];
-      zValues[i] = deckZ;
-    }
-    for (let i = 0; i < ringSize; i++) {
-      xyPositions[ringSize + i] = [
-        waterlineVertices[i].x,
-        waterlineVertices[i].y,
-      ];
-      zValues[ringSize + i] = 0;
-    }
-    for (let i = 0; i < ringSize; i++) {
-      xyPositions[2 * ringSize + i] = [
-        bottomVertices[i].x,
-        bottomVertices[i].y,
-      ];
-      zValues[2 * ringSize + i] = bottomZ;
-    }
-
-    const deckIndices = earClipTriangulate(deckVertices) ?? [];
-    const upperSideIndices: number[] = [];
-    const lowerSideIndices: number[] = [];
-    for (let i = 0; i < ringSize; i++) {
-      const next = (i + 1) % ringSize;
-      const d0 = i,
-        d1 = next;
-      const w0 = ringSize + i,
-        w1 = ringSize + next;
-      const b0 = 2 * ringSize + i,
-        b1 = 2 * ringSize + next;
-      upperSideIndices.push(d0, d1, w1, d0, w1, w0);
-      lowerSideIndices.push(w0, w1, b1, w0, b1, b0);
-    }
-
-    this.mesh = {
-      xyPositions,
-      zValues,
-      ringSize,
-      deckIndices,
-      upperSideIndices,
-      lowerSideIndices,
-    };
+    this.mesh = buildHullMeshFromProfiles(this.config.hull.shape);
   }
 
   @on("render")
@@ -155,7 +92,6 @@ export class BoatPreviewRenderer extends BaseEntity {
       deckIndices,
       upperSideIndices,
       lowerSideIndices,
-      ringSize,
     } = mesh;
 
     const bottomColor = hull.colors.bottom ?? darken(hull.colors.fill, 0.65);
@@ -186,10 +122,12 @@ export class BoatPreviewRenderer extends BaseEntity {
 
     // Gunwale outline
     const deckZ = hull.deckHeight;
-    draw.strokePolygon(
-      xyPositions.slice(0, ringSize).map((p) => V(p[0], p[1])),
-      { color: hull.colors.stroke, width: 0.25, z: deckZ },
-    );
+    if (mesh.deckOutline) {
+      draw.strokePolygon(
+        mesh.deckOutline.map(([x, y]) => V(x, y)),
+        { color: hull.colors.stroke, width: 0.25, z: deckZ },
+      );
+    }
   }
 
   private renderKeel(draw: Draw, config: BoatConfig): void {

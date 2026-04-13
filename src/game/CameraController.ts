@@ -15,7 +15,7 @@ let STIFFNESS: number = 4.0;
 
 export class CameraController extends BaseEntity {
   tickLayer = "camera" as const;
-  zTarget: number = 5;
+  zTarget: number = 8;
   offset = V(0, 0);
   rotateWithBoat = false;
 

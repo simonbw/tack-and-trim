@@ -119,9 +119,8 @@ export class Rudder extends BaseEntity {
     // and locks the rudder's roll/pitch to the hull's, leaving only yaw
     // around the pivot axis free (the steering DOF).
     this.rudderConstraint = new RevoluteConstraint3D(hull.body, this.body, {
-      localPivotA: [config.position.x, config.position.y],
-      localPivotB: [0, 0],
-      localPivotZA: this.rudderZ,
+      localPivotA: [config.position.x, config.position.y, this.rudderZ],
+      localPivotB: [0, 0, 0],
       collideConnected: false,
     });
 

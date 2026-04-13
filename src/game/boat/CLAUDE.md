@@ -84,15 +84,13 @@ Sails use cloth simulation (`ClothSolver`) with per-triangle aerodynamic forces 
 
 ## Hull Mesh
 
-The hull is modeled as a 3D mesh with three vertex rings:
+The hull is lofted from cross-section profiles at a series of stations along the hull length (like a naval architect's lines drawing). Each `HullStation` is a half-profile in the y-z plane from keel centerline to gunwale; port is auto-mirrored from starboard. `buildHullMeshFromProfiles()` (in `hull-profiles.ts`) resamples each profile, interpolates intermediate stations, mirrors to full cross-sections, and stitches adjacent rings into quad strips. Bow/stern stations can collapse to a point for fan triangulation, and the first station gets an ear-clipped transom cap.
 
-1. **Deck ring** -- at `z = deckHeight` (gunwale/deck edge polygon)
-2. **Waterline ring** -- at `z = 0` (can be narrower than deck)
-3. **Bottom ring** -- at `z = -draft` (narrowest, hull bottom)
+Triangles are classified into `upperSideIndices` (above waterline), `lowerSideIndices` (below), and `bottomIndices` (downward-facing panels) so the buoyancy and drag loops can key on the classification. A deck cap polygon is triangulated from the gunwale trace. Triangle data (centroid, outward normal, area, vertex indices) is precomputed once at construction in `HullForceData` flat arrays for cache-friendly access.
 
-Rings are connected by triangle strips (upper sides, lower sides) with ear-clipped cap polygons (deck, bottom). Triangle data (centroid, outward normal, area, vertex indices) is precomputed once at construction in `HullForceData` flat arrays for cache-friendly access.
+Two meshes are built per hull: a coarse physics mesh (lower `profileSubdivisions` / `stationSubdivisions`) driving the force loop, and a full-resolution render mesh used by `BoatCompositor` for the visible hull surface.
 
-Water and wind are queried at all mesh vertices each frame via `WaterQuery` and `WindQuery`. Per-triangle values are averaged from the three vertex results.
+Water and wind are queried at all physics-mesh vertices each frame via `WaterQuery` and `WindQuery`. Per-triangle values are averaged from the three vertex results.
 
 ## Configuration
 

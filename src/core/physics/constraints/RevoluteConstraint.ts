@@ -13,24 +13,19 @@ export interface RevoluteConstraintOptions extends ConstraintOptions {
   localPivotA?: CompatibleVector;
   /** Pivot point on bodyB in local coordinates. */
   localPivotB?: CompatibleVector;
-  /** Z-height of pivot on bodyA in body-local frame. Default 0. */
-  localPivotZA?: number;
-  /** Z-height of pivot on bodyB in body-local frame. Default 0. */
-  localPivotZB?: number;
   /** Maximum force the constraint can apply. Default MAX_VALUE. */
   maxForce?: number;
 }
 
 /**
  * Connects two bodies at given offset points, letting them rotate relative
- * to each other around this point.
+ * to each other around this point. Pure 2D: only constrains X/Y at the pivot
+ * and produces yaw torques. For a 3D hinge (e.g. on a 6DOF body with tilt),
+ * use RevoluteConstraint3D.
  */
 export class RevoluteConstraint extends Constraint {
   pivotA: V2d;
   pivotB: V2d;
-  /** Z-height of pivot in body-local frame. Creates roll/pitch coupling for 6DOF bodies. */
-  pivotZA: number;
-  pivotZB: number;
   maxForce: number;
   motorEquation: RotationalVelocityEquation;
 
@@ -78,8 +73,6 @@ export class RevoluteConstraint extends Constraint {
 
     this.pivotA = V();
     this.pivotB = V();
-    this.pivotZA = options.localPivotZA ?? 0;
-    this.pivotZB = options.localPivotZB ?? 0;
 
     if (options.worldPivot) {
       // Compute pivotA and pivotB
@@ -99,11 +92,6 @@ export class RevoluteConstraint extends Constraint {
     const y = new Equation(bodyA, bodyB, -maxForce, maxForce);
     const that = this;
 
-    // Position-level constraint stays 2D: use only XY pivots (ignore z-anchors).
-    // The z-anchors only affect the Jacobian G (velocity/impulse coupling),
-    // where 3D cross products produce roll/pitch torques from constraint reactions.
-    // Including z in computeGq would cause position mismatches between 6DOF and
-    // 3DOF bodies when the 6DOF body heels (the z-parallax shifts the 2D projection).
     x.computeGq = function () {
       const worldPivotA = that.pivotA.rotate(bodyA.angle);
       const worldPivotB = that.pivotB.rotate(bodyB.angle);
@@ -191,45 +179,31 @@ export class RevoluteConstraint extends Constraint {
       this.lowerLimitActive = false;
     }
 
-    // Compute 3D world-frame pivot vectors using orientation matrices.
-    // For 3DOF bodies, orientation is just yaw rotation with z unchanged.
-    // For 6DOF bodies, the full rotation matrix transforms (pivotXY, pivotZ).
-    const RA = bodyA.orientation;
-    const rAx = RA[0] * pivotA.x + RA[1] * pivotA.y + RA[2] * this.pivotZA;
-    const rAy = RA[3] * pivotA.x + RA[4] * pivotA.y + RA[5] * this.pivotZA;
-    const rAz = RA[6] * pivotA.x + RA[7] * pivotA.y + RA[8] * this.pivotZA;
+    // Lever arms: local pivots rotated into world frame by each body's yaw.
+    const cA = Math.cos(bodyA.angle);
+    const sA = Math.sin(bodyA.angle);
+    const rAx = cA * pivotA.x - sA * pivotA.y;
+    const rAy = sA * pivotA.x + cA * pivotA.y;
 
-    const RB = bodyB.orientation;
-    const rBx = RB[0] * pivotB.x + RB[1] * pivotB.y + RB[2] * this.pivotZB;
-    const rBy = RB[3] * pivotB.x + RB[4] * pivotB.y + RB[5] * this.pivotZB;
-    const rBz = RB[6] * pivotB.x + RB[7] * pivotB.y + RB[8] * this.pivotZB;
+    const cB = Math.cos(bodyB.angle);
+    const sB = Math.sin(bodyB.angle);
+    const rBx = cB * pivotB.x - sB * pivotB.y;
+    const rBy = sB * pivotB.x + cB * pivotB.y;
 
-    // X-position equation: constrain x-separation at pivot.
-    // d/dwA of -(rA × x̂) = -(0, rAz, -rAy) = (0, -rAz, rAy)
-    // d/dwB of +(rB × x̂) = (0, rBz, -rBy)
+    // X-position equation: yaw torque from rA × x̂ is +rAy, from rB × x̂ is -rBy.
     x.G[0] = -1;
     x.G[1] = 0;
-    x.G[3] = 0;
-    x.G[4] = -rAz;
     x.G[5] = rAy;
     x.G[6] = 1;
     x.G[7] = 0;
-    x.G[9] = 0;
-    x.G[10] = rBz;
     x.G[11] = -rBy;
 
-    // Y-position equation: constrain y-separation at pivot.
-    // d/dwA of -(rA × ŷ) = -(−rAz, 0, rAx) = (rAz, 0, -rAx)
-    // d/dwB of +(rB × ŷ) = (−rBz, 0, rBx)
+    // Y-position equation: yaw torque from rA × ŷ is -rAx, from rB × ŷ is +rBx.
     y.G[0] = 0;
     y.G[1] = -1;
-    y.G[3] = rAz;
-    y.G[4] = 0;
     y.G[5] = -rAx;
     y.G[6] = 0;
     y.G[7] = 1;
-    y.G[9] = -rBz;
-    y.G[10] = 0;
     y.G[11] = rBx;
     return this;
   }

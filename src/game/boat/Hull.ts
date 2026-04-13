@@ -5,7 +5,6 @@ import {
   type SixDOFOptions,
 } from "../../core/physics/body/DynamicBody";
 import { Convex } from "../../core/physics/shapes/Convex";
-import { earClipTriangulate } from "../../core/util/Triangulate";
 import { V, V2d } from "../../core/Vector";
 import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
 import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
@@ -13,7 +12,6 @@ import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
 import { DeckZone, HullConfig } from "./BoatConfig";
 import { buildHullMeshFromProfiles } from "./hull-profiles";
-import { subdivideClosedSmooth } from "./tessellation";
 
 const GRAVITY = 32.174; // ft/s²
 // Hydrostatic pressure: F = ρ * g * depth * area (lbf), converted to engine units (* g)
@@ -52,12 +50,13 @@ export function findSternPoints(vertices: V2d[]): {
 }
 
 /**
- * 3D hull mesh built from three vertex rings (deck, waterline, bottom).
+ * 3D hull mesh lofted from station cross-section profiles.
  * Triangle indices are precomputed once; only vertex projection changes per frame.
  */
 export interface HullMesh {
-  /** 3D vertices as [x, y, z] triples. Layout: deck ring, waterline ring, bottom ring. */
+  /** 3D vertices as [x, y, z] triples, one full cross-section per station. */
   positions: number[];
+  /** Vertices per non-collapsed cross-section (2 * halfProfilePoints - 1). */
   ringSize: number;
   /** Body-local XY positions for GPU submission (static, built once). */
   xyPositions: [number, number][];
@@ -65,11 +64,11 @@ export interface HullMesh {
   zValues: number[];
   /** Triangle indices for the deck cap polygon. */
   deckIndices: number[];
-  /** Triangle indices for the upper side strip (deck → waterline). */
+  /** Triangle indices for above-waterline hull panels. */
   upperSideIndices: number[];
-  /** Triangle indices for the lower side strip (waterline → bottom). */
+  /** Triangle indices for below-waterline hull panels. */
   lowerSideIndices: number[];
-  /** Triangle indices for the bottom cap polygon (physics only). */
+  /** Triangle indices for bottom-facing panels (physics only). */
   bottomIndices: number[];
   /** Deck edge polygon for gunwale stroke rendering + deck plan clipping. */
   deckOutline?: [number, number][];
@@ -101,80 +100,6 @@ interface HullForceData {
   vertexIndices: Uint16Array;
   /** Number of unique vertices in the mesh */
   vertexCount: number;
-}
-
-function buildHullMesh(
-  deckVertices: V2d[],
-  waterlineVertices: V2d[],
-  bottomVertices: V2d[],
-  deckZ: number,
-  bottomZ: number,
-): HullMesh {
-  const ringSize = deckVertices.length;
-
-  // Build 3D positions: three rings
-  const positions: number[] = [];
-  for (const v of deckVertices) {
-    positions.push(v.x, v.y, deckZ);
-  }
-  for (const v of waterlineVertices) {
-    positions.push(v.x, v.y, 0);
-  }
-  for (const v of bottomVertices) {
-    positions.push(v.x, v.y, bottomZ);
-  }
-
-  // Build static XY and Z arrays from 3D positions
-  const totalVerts = ringSize * 3;
-  const xyPositions: [number, number][] = new Array(totalVerts);
-  const zValues: number[] = new Array(totalVerts);
-  for (let i = 0; i < totalVerts; i++) {
-    const base = i * 3;
-    xyPositions[i] = [positions[base], positions[base + 1]];
-    zValues[i] = positions[base + 2];
-  }
-
-  // Triangulate caps
-  const deckIndices = earClipTriangulate(deckVertices) ?? [];
-  const bottomRawIndices = earClipTriangulate(bottomVertices) ?? [];
-  // Offset bottom indices to the third ring and reverse winding for downward-facing normals
-  const bottomIndices: number[] = [];
-  for (let i = 0; i < bottomRawIndices.length; i += 3) {
-    bottomIndices.push(
-      bottomRawIndices[i + 2] + 2 * ringSize,
-      bottomRawIndices[i + 1] + 2 * ringSize,
-      bottomRawIndices[i] + 2 * ringSize,
-    );
-  }
-
-  // Build side strip indices
-  const upperSideIndices: number[] = [];
-  const lowerSideIndices: number[] = [];
-
-  for (let i = 0; i < ringSize; i++) {
-    const next = (i + 1) % ringSize;
-    const d0 = i;
-    const d1 = next;
-    const w0 = ringSize + i;
-    const w1 = ringSize + next;
-    upperSideIndices.push(d0, d1, w1, d0, w1, w0);
-
-    const b0 = 2 * ringSize + i;
-    const b1 = 2 * ringSize + next;
-    lowerSideIndices.push(w0, w1, b1, w0, b1, b0);
-  }
-
-  return {
-    positions,
-    ringSize,
-    xyPositions,
-    zValues,
-    deckIndices,
-    upperSideIndices,
-    lowerSideIndices,
-    bottomIndices,
-    deckVertexMap: Array.from({ length: ringSize }, (_, i) => i),
-  };
 }
 
 /**
@@ -367,52 +292,14 @@ export class Hull extends BaseEntity {
       }),
     );
 
-    if (config.shape) {
-      // Station profile hull — use the new profile-based mesh builder.
-      // Physics mesh uses lower subdivision for cache-friendly force computation.
-      this.mesh = buildHullMeshFromProfiles({
-        ...config.shape,
-        profileSubdivisions: 2,
-        stationSubdivisions: 2,
-      });
-      // Render mesh uses full subdivision for visual smoothness.
-      this.renderMesh = buildHullMeshFromProfiles(config.shape);
-    } else {
-      // Legacy ring-based hull definition.
-      const meshWaterlineVerts = config.waterlineVertices ?? config.vertices;
-      const bottomVerts =
-        config.bottomVertices ??
-        meshWaterlineVerts.map((v) => V(v.x, v.y * 0.45));
-      const deckZ = config.deckHeight;
-      const bottomZ = -config.draft;
-
-      this.mesh = buildHullMesh(
-        config.vertices,
-        meshWaterlineVerts,
-        bottomVerts,
-        deckZ,
-        bottomZ,
-      );
-
-      // Build smooth render mesh from subdivided rings
-      const sharp = config.sharpVertices
-        ? new Set(config.sharpVertices)
-        : undefined;
-      const subdivide = (verts: V2d[]) =>
-        subdivideClosedSmooth(
-          verts.map((v) => [v.x, v.y] as [number, number]),
-          4,
-          sharp,
-        ).map(([x, y]) => V(x, y));
-
-      this.renderMesh = buildHullMesh(
-        subdivide(config.vertices),
-        subdivide(meshWaterlineVerts),
-        subdivide(bottomVerts),
-        deckZ,
-        bottomZ,
-      );
-    }
+    // Physics mesh uses lower subdivision for cache-friendly force computation.
+    this.mesh = buildHullMeshFromProfiles({
+      ...config.shape,
+      profileSubdivisions: 2,
+      stationSubdivisions: 2,
+    });
+    // Render mesh uses full subdivision for visual smoothness.
+    this.renderMesh = buildHullMeshFromProfiles(config.shape);
 
     // Precompute per-triangle force data
     this.forceData = buildHullForceData(this.mesh);
@@ -499,6 +386,24 @@ export class Hull extends BaseEntity {
     const cpStag = this.stagnationCoefficient;
     const cpSep = this.separationCoefficient;
 
+    // Depth baseline for buoyancy: the minimum submersion across all mesh
+    // vertices. When the hull is fully submerged every vertex has sub > 0, and
+    // subtracting this baseline from each triangle's depth keeps individual
+    // buoyancy force magnitudes bounded by hull height instead of sink depth.
+    // For a closed mesh the constant offset integrates to zero, so the net
+    // buoyancy force and torque are unchanged — only the numerical cancellation
+    // between near-equal top/bottom forces is improved. When any part of the
+    // hull is above water (minSub <= 0) the baseline is clamped to 0 and the
+    // computation reduces exactly to the previous behavior.
+    let minSub = Infinity;
+    for (let v = 0; v < meshPos.length; v++) {
+      const wz = body.worldZ(meshPos[v][0], meshPos[v][1], meshZ[v]);
+      const wh = v < wq.length ? wq.get(v).surfaceHeight : 0;
+      const sub = wh - wz;
+      if (sub < minSub) minSub = sub;
+    }
+    const depthBaseline = Math.max(0, minSub);
+
     for (let i = 0; i < fd.count; i++) {
       const area = fd.area[i];
       if (area < 0.001) continue;
@@ -575,9 +480,10 @@ export class Hull extends BaseEntity {
         //     -wnz < 0, so force is downward — water presses down on the top
         //     surface. This is critical at extreme heel when deck edges submerge.
         //   - Side triangles (wnz ≈ 0): negligible contribution either way.
-        if (avgDepth > 0) {
+        const effectiveDepth = avgDepth - depthBaseline;
+        if (effectiveDepth > 0) {
           const buoyancyMag =
-            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area * -wnz;
+            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * effectiveDepth * area * -wnz;
           body.applyForce3D(0, 0, buoyancyMag, localX, localY, localZ);
         }
 
