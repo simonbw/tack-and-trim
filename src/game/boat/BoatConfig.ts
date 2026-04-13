@@ -66,7 +66,7 @@ export interface HullShape {
   readonly stations: readonly HullStation[];
   /**
    * Indices of stations to keep sharp (no smoothing in the x-direction).
-   * Typically the bow station. Similar to sharpVertices in the ring system.
+   * Typically the bow station.
    */
   readonly sharpStations?: readonly number[];
   /**
@@ -144,14 +144,10 @@ export interface DeckPlan {
 
 export interface HullConfig {
   readonly mass: number; // lbs
-  // --- 2D deck polygon (always required — used for collision shape, spray, wake, etc.) ---
+  // --- 2D deck polygon (used for collision shape, spray, wake, etc.) ---
   readonly vertices: V2d[]; // ft, deck/gunwale polygon, counter-clockwise winding (visual/collision)
-  // --- Ring-based hull definition (used for 3D mesh when shape is absent) ---
-  readonly waterlineVertices?: V2d[]; // ft, narrower shape at the waterline (water interaction)
-  readonly bottomVertices?: V2d[]; // ft, hull bottom shape (narrowest, at z = -draft)
-  readonly sharpVertices?: number[]; // indices of vertices that stay sharp (not smoothed)
-  // --- Station profile hull definition (preferred for 3D mesh when present) ---
-  readonly shape?: HullShape;
+  // --- Station profile hull shape (lofted into the 3D physics + render mesh) ---
+  readonly shape: HullShape;
   // --- Deck plan (interior features) ---
   readonly deckPlan?: DeckPlan;
   // --- Common properties ---
