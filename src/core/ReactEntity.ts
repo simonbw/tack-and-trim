@@ -1,6 +1,6 @@
 import { render, VNode } from "preact";
 import { BaseEntity } from "./entity/BaseEntity";
-import Entity from "./entity/Entity";
+import Entity, { GameEventMap } from "./entity/Entity";
 import { on } from "./entity/handler";
 
 /** Useful for rendering preact to the screen when you want it */
@@ -32,7 +32,7 @@ export class ReactEntity extends BaseEntity implements Entity {
   }
 
   @on("destroy")
-  onDestroy() {
+  onDestroy(_data: GameEventMap["destroy"]) {
     render(null, this.el);
     this.el.remove();
   }

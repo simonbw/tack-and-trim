@@ -1,6 +1,6 @@
-import { ReactEntity } from "../../core/ReactEntity";
 import { on } from "../../core/entity/handler";
 import { KeyCode } from "../../core/io/Keys";
+import { Modal } from "../../core/ui/Modal";
 import { Boat } from "../boat/Boat";
 import { ShipyardUI } from "../catalog/ShipyardUI";
 import { MissionBoard } from "../mission/MissionBoard";
@@ -15,7 +15,7 @@ const ACTIONS: { key: PortMenuAction; label: string }[] = [
   { key: "castOff", label: "Cast Off" },
 ];
 
-export class PortMenu extends ReactEntity {
+export class PortMenu extends Modal {
   private selectedIndex = 0;
   private subMenuOpen: SubMenu = null;
 
@@ -80,6 +80,11 @@ export class PortMenu extends ReactEntity {
     }
   }
 
+  onEscape() {
+    if (this.subMenuOpen) return;
+    this.castOff();
+  }
+
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
     // Check if sub menus have closed themselves
@@ -89,11 +94,6 @@ export class PortMenu extends ReactEntity {
       }
     }
     if (this.subMenuOpen) return;
-
-    if (key === "Escape") {
-      this.castOff();
-      return;
-    }
 
     if (key === "ArrowUp" || key === "ArrowLeft") {
       this.selectedIndex =

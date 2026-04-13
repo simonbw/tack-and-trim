@@ -7,14 +7,14 @@
  */
 
 import { Fragment, type VNode } from "preact";
-import { ReactEntity } from "../../core/ReactEntity";
 import { on } from "../../core/entity/handler";
 import { KeyCode } from "../../core/io/Keys";
+import { Modal } from "../../core/ui/Modal";
 import type { MissionDef } from "../../editor/io/LevelFileFormat";
 import { MissionManager } from "./MissionManager";
 import "./MissionBoard.css";
 
-export class MissionBoard extends ReactEntity {
+export class MissionBoard extends Modal {
   private selectedIndex = 0;
   private missions: MissionDef[] = [];
   private manager!: MissionManager;
@@ -115,11 +115,6 @@ export class MissionBoard extends ReactEntity {
 
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
-    if (key === "Escape") {
-      this.destroy();
-      return;
-    }
-
     if (this.missions.length === 0) return;
 
     if (key === "ArrowUp" || key === "ArrowLeft") {

@@ -15,6 +15,7 @@ import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
 import { GameOverScreen } from "./GameOverScreen";
 import { MainMenu } from "./MainMenu";
+import { PauseMenu } from "./PauseMenu";
 import { MissionHUD } from "./mission/MissionHUD";
 import { MissionManager } from "./mission/MissionManager";
 import { NavigationHUD } from "./NavigationHUD";
@@ -135,11 +136,14 @@ export class GameController extends BaseEntity {
 
   @on("keyDown")
   onKeyDown({ key }: { key: string }) {
-    if (key === "Escape" && this.currentLevel !== null && !this.portMenu) {
-      this.game.clearScene(99);
-      this.currentLevel = null;
-      this.game.camera.z = MENU_ZOOM;
-      this.game.addEntity(new MainMenu());
+    if (key !== "Escape") return;
+    const stack = this.game.modalStack;
+    if (stack.length > 0) {
+      stack[stack.length - 1].onEscape();
+      return;
+    }
+    if (this.currentLevel !== null) {
+      this.game.addEntity(new PauseMenu());
     }
   }
 

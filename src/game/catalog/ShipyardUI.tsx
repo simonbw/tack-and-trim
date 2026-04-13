@@ -1,6 +1,6 @@
-import { ReactEntity } from "../../core/ReactEntity";
 import { on } from "../../core/entity/handler";
 import { KeyCode } from "../../core/io/Keys";
+import { Modal } from "../../core/ui/Modal";
 import { Boat } from "../boat/Boat";
 import { ProgressionManager } from "../progression/ProgressionManager";
 import {
@@ -24,7 +24,7 @@ interface RepairEntry {
   health: number;
 }
 
-export class ShipyardUI extends ReactEntity {
+export class ShipyardUI extends Modal {
   private activeTab: TabId = "boats";
   private selectedIndex = 0;
 
@@ -353,13 +353,12 @@ export class ShipyardUI extends ReactEntity {
   // Keyboard Navigation
   // ============================================
 
+  onEscape() {
+    this.close();
+  }
+
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
-    if (key === "Escape") {
-      this.close();
-      return;
-    }
-
     if (key === "Tab") {
       this.cycleTab(1);
       return;
