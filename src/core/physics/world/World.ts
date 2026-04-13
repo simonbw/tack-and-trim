@@ -43,6 +43,15 @@ export interface WorldOptions {
   broadphase?: Broadphase;
   /** Enable island splitting for more efficient solving and sleeping. */
   islandSplit?: boolean;
+  /**
+   * Number of constraint-solve substeps per `step()` call. Broadphase,
+   * narrowphase, and contact/friction equation generation run once per step;
+   * constraint resolution and position integration run `substeps` times with
+   * `dt / substeps`. Higher values stiffen constraints (especially useful for
+   * long rope/chain assemblies) at the cost of linear solver work. Defaults
+   * to `1` (legacy behavior). Clamped to `>= 1`.
+   */
+  substeps?: number;
 }
 
 /** Controls how bodies are allowed to sleep. */
@@ -84,6 +93,8 @@ export class World extends EventEmitter<PhysicsEventMap> {
   stepping: boolean = false;
   /** Whether to split bodies into islands for solving. */
   islandSplit: boolean;
+  /** Number of constraint-solve substeps per step(). See WorldOptions.substeps. */
+  substeps: number;
   /** Whether to emit "impact" events on first contact. */
   emitImpactEvent: boolean = true;
   /** When true, multiple contacts between shapes produce one averaged friction equation instead of many. */
@@ -123,6 +134,7 @@ export class World extends EventEmitter<PhysicsEventMap> {
     this.contactMaterials = new ContactMaterialManager();
 
     this.islandSplit = options.islandSplit ?? false;
+    this.substeps = Math.max(1, Math.floor(options.substeps ?? 1));
 
     this.sleepMode = SleepMode.NO_SLEEPING;
     this.overlapKeeper = new OverlapKeeper();
@@ -192,13 +204,29 @@ export class World extends EventEmitter<PhysicsEventMap> {
    *
    * Finally, `postStep` is emitted and `this.time` is advanced by dt.
    *
+   * ## Substepping
+   *
+   * When `substeps > 1`, phases 1-8 and 11-12 still run exactly once per
+   * `step()` call. Constraint resolution and position integration (the
+   * "substep core") run `substeps` times with `h = dt / substeps`:
+   *
+   *   for s in 1..N:
+   *     for c in constraints: c.update()   // refresh Jacobians
+   *     solve(h, contacts, friction, constraints)
+   *     integratePositions(h)
+   *
+   * This stiffens constraint enforcement without paying N× the collision
+   * detection cost. Forces (entity-applied + spring + damping) are folded
+   * into velocity once, up front — so entities continue to see their usual
+   * single `onTick` force application per game tick.
+   *
    * @param dt - Timestep in seconds (typically 1/60 or 1/120)
    */
   @profile
   step(dt: number): void {
     this.stepping = true;
 
-    // 1. Apply forces (springs, damping)
+    // 1. Apply forces (springs, damping) — once per step
     this.applyForces(dt);
 
     // 2. Broadphase - get potential collision pairs
@@ -262,17 +290,46 @@ export class World extends EventEmitter<PhysicsEventMap> {
     this.emitContactEvents(overlapChanges, collisionsWithContactEquations);
     this.emitPreSolveAndWakeUp(contactEquations, frictionEquations);
 
-    // 9. Solve constraints
-    const islands = this.solve(dt, contactEquations, frictionEquations);
+    // 9. Fold accumulated forces into velocity once, up front. This consumes
+    //    and zeroes body.force, so the subsequent substep loop only advances
+    //    positions from velocity (plus constraint impulses).
+    this.integrateForcesToVelocity(dt);
 
-    // 10. Integrate positions
-    this.integrate(dt);
+    // 10. Substep loop: solve constraints + integrate positions with h = dt/N
+    const N = this.substeps;
+    const h = dt / N;
+    let lastIslands: Island[] | undefined;
+    let totalIter = 0;
+    let maxIter = 0;
+    let totalEquationCount = 0;
+    let totalIslandCount = 0;
+    for (let s = 0; s < N; s++) {
+      // Refresh constraint Jacobians against current positions. (On the
+      // first substep this matches legacy behavior where solve() called
+      // c.update() once.)
+      for (const c of this.constraints) {
+        c.update();
+      }
+
+      const result = this.solve(h, contactEquations, frictionEquations);
+      lastIslands = result.islands;
+      totalIter += result.usedIterations;
+      if (result.maxIterations > maxIter) maxIter = result.maxIterations;
+      totalEquationCount = result.equationCount;
+      totalIslandCount = result.islandCount;
+
+      this.integratePositions(h);
+    }
+    this.solverEquationCount = totalEquationCount;
+    this.solverIslandCount = totalIslandCount;
+    this.solverIterations = totalIter;
+    this.solverMaxIterations = maxIter;
 
     // 11. Emit impact events
     this.emitImpactEvents(contactEquations);
 
     // 12. Update sleeping
-    this.updateSleeping(dt, islands);
+    this.updateSleeping(dt, lastIslands);
 
     this.time += dt;
 
@@ -436,13 +493,15 @@ export class World extends EventEmitter<PhysicsEventMap> {
     dt: number,
     contacts: ContactEquation[],
     friction: FrictionEquation[],
-  ): Island[] | undefined {
-    // Update constraint equations
-    for (const c of this.constraints) {
-      c.update();
-    }
-
-    // Collect all equations
+  ): {
+    islands: Island[] | undefined;
+    usedIterations: number;
+    maxIterations: number;
+    equationCount: number;
+    islandCount: number;
+  } {
+    // Collect all equations. Constraint Jacobians are refreshed by the
+    // substep loop in step() before calling solve().
     const allEquations = [
       ...contacts,
       ...friction,
@@ -450,14 +509,14 @@ export class World extends EventEmitter<PhysicsEventMap> {
     ];
 
     if (allEquations.length === 0) {
-      this.solverEquationCount = 0;
-      this.solverIslandCount = 0;
-      this.solverIterations = 0;
-      this.solverMaxIterations = 0;
-      return undefined;
+      return {
+        islands: undefined,
+        usedIterations: 0,
+        maxIterations: 0,
+        equationCount: 0,
+        islandCount: 0,
+      };
     }
-
-    this.solverEquationCount = allEquations.length;
 
     if (this.islandSplit) {
       // Split into islands and solve each
@@ -471,10 +530,13 @@ export class World extends EventEmitter<PhysicsEventMap> {
           if (result.usedIterations > maxIter) maxIter = result.usedIterations;
         }
       }
-      this.solverIslandCount = islands.length;
-      this.solverIterations = totalIter;
-      this.solverMaxIterations = maxIter;
-      return islands;
+      return {
+        islands,
+        usedIterations: totalIter,
+        maxIterations: maxIter,
+        equationCount: allEquations.length,
+        islandCount: islands.length,
+      };
     } else {
       const result = solveEquations(
         allEquations,
@@ -482,22 +544,39 @@ export class World extends EventEmitter<PhysicsEventMap> {
         dt,
         this.solverConfig,
       );
-      this.solverIslandCount = 0;
-      this.solverIterations = result.usedIterations;
-      this.solverMaxIterations = result.usedIterations;
-      return undefined;
+      return {
+        islands: undefined,
+        usedIterations: result.usedIterations,
+        maxIterations: result.usedIterations,
+        equationCount: allEquations.length,
+        islandCount: 0,
+      };
     }
   }
 
+  /**
+   * Apply accumulated forces to body velocities and zero the forces. Called
+   * once per physics step (before the substep loop) so entity-applied forces
+   * are integrated at the full tick dt rather than multiplied by N substeps.
+   */
   @profile
-  private integrate(dt: number): void {
-    // We only need to integrate kinematic and awake dynamic bodies
+  private integrateForcesToVelocity(dt: number): void {
+    for (const body of this.bodies.dynamicAwake) {
+      body.integrateVelocity(dt);
+    }
+  }
+
+  /**
+   * Advance positions/orientations from current velocity. Called once per
+   * substep with `h = dt / substeps`. Forces are not touched here.
+   */
+  @profile
+  private integratePositions(h: number): void {
     for (const body of this.bodies.kinematic) {
-      body.integrate(dt);
+      body.integratePosition(h);
     }
     for (const body of this.bodies.dynamicAwake) {
-      body.integrate(dt);
-      body.setZeroForce();
+      body.integratePosition(h);
     }
   }
 

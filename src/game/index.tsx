@@ -1,5 +1,6 @@
 import { AutoPauser } from "../core/AutoPauser";
 import { Game } from "../core/Game";
+import { World } from "../core/physics/world/World";
 import "../fonts.css";
 import "../core/tuning/TunableRegistry"; // Initialize tunable registry early
 import { TuningPanel } from "../core/tuning/TuningPanel";
@@ -22,7 +23,10 @@ declare global {
 const ticksPerFrame = 1;
 
 async function main() {
-  const game = new Game({ ticksPerSecond: 120 * ticksPerFrame });
+  const game = new Game({
+    ticksPerSecond: 120 * ticksPerFrame,
+    world: new World({ substeps: 8 }),
+  });
   await game.init({ rendererOptions: { backgroundColor: 0x000010 } });
   game.setGpuTimingEnabled(true);
   // Make the game accessible from the console

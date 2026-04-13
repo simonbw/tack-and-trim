@@ -53,7 +53,11 @@ export class StaticBody extends Body {
     return this;
   }
 
-  integrate(_dt: number): void {
+  integrateVelocity(_dt: number): void {
+    // Static bodies don't move
+  }
+
+  integratePosition(_dt: number): void {
     // Static bodies don't move
   }
 }

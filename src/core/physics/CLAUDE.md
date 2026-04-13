@@ -21,6 +21,17 @@ Connected bodies form "islands" that can sleep together. See `world/Island.ts`.
 2. Narrowphase generates ContactEquations
 3. GSSolver iterates to resolve constraints
 
+### Substepping
+
+`World.step(dt)` supports splitting the constraint-solve + position-integrate
+phase into `N = WorldOptions.substeps` iterations at `h = dt / N`. Broadphase,
+narrowphase, and contact/friction equation generation run once per step;
+entity-applied forces are folded into velocity once at the full `dt`; then
+the substep loop refreshes constraint Jacobians (`constraint.update()`),
+solves at `h`, and advances positions at `h`. This stiffens ropes and other
+long constraint chains without multiplying collision detection cost. Default
+is `1` (legacy behavior).
+
 ### Adding New Collision Types
 
 1. Create shape in `shapes/`

@@ -669,13 +669,23 @@ export class DynamicBody extends Body implements SleepableBody {
   // ──────────────────────────────────────────────────────────────
 
   /**
-   * Move the body forward in time given its current velocity.
+   * Tracks whether this body has been nuked by a NaN guard during the current
+   * physics step. When set, integratePosition skips its position update so the
+   * substep loop doesn't advance a body whose forces/velocities were just
+   * zeroed out.
    */
-  integrate(dt: number): void {
+  private _skipPositionThisStep: boolean = false;
+
+  /**
+   * Apply accumulated forces to velocity, then zero forces. Called once per
+   * physics step, before the substep loop begins.
+   */
+  integrateVelocity(dt: number): void {
     const minv = this._invMass;
     const f = this._force;
-    const pos = this.position;
     const velo = this._velocity;
+
+    this._skipPositionThisStep = false;
 
     // NaN guard: if accumulated force is NaN, zero it and skip this step.
     if (!isFinite(f.x) || !isFinite(f.y)) {
@@ -693,6 +703,7 @@ export class DynamicBody extends Body implements SleepableBody {
         this._angularForce3[1] = 0;
         this._angularForce3[2] = 0;
       }
+      this._skipPositionThisStep = true;
       return;
     }
 
@@ -746,8 +757,27 @@ export class DynamicBody extends Body implements SleepableBody {
       this._zVelocity = 0;
       f.x = 0;
       f.y = 0;
+      this._skipPositionThisStep = true;
       return;
     }
+
+    // Forces have now been consumed into velocity — zero them so they don't
+    // accumulate across substeps or into the next tick.
+    this.setZeroForce();
+  }
+
+  /**
+   * Advance position and orientation using current velocity. Called once per
+   * substep at the substep timestep `dt = tickDt / substeps`. Does not touch
+   * forces.
+   */
+  integratePosition(dt: number): void {
+    if (this._skipPositionThisStep) {
+      return;
+    }
+
+    const velo = this._velocity;
+    const pos = this.position;
 
     // CCD
     const ccdApplied =

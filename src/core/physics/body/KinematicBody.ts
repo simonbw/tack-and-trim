@@ -64,7 +64,11 @@ export class KinematicBody extends Body {
     return this;
   }
 
-  integrate(dt: number): void {
+  integrateVelocity(_dt: number): void {
+    // Kinematic bodies ignore forces; velocity is set externally.
+  }
+
+  integratePosition(dt: number): void {
     // Move according to velocity (set by game code)
     const velodt = V(this._velocity);
     velodt.imul(dt);

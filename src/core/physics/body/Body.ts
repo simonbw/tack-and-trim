@@ -244,8 +244,27 @@ export abstract class Body extends EventEmitter<PhysicsEventMap> {
 
   /** Recalculate mass and inertia from shapes. */
   abstract updateMassProperties(): this;
-  /** @internal Integrate position and velocity forward by dt. */
-  abstract integrate(dt: number): void;
+
+  /**
+   * @internal Apply accumulated forces to velocity (v += F*dt/m), then zero
+   * forces. Called once per physics step, before the substep loop.
+   */
+  abstract integrateVelocity(dt: number): void;
+
+  /**
+   * @internal Advance position and orientation from current velocity. Called
+   * once per substep. Does not touch forces.
+   */
+  abstract integratePosition(dt: number): void;
+
+  /**
+   * @internal Full integrate: velocity half then position half. Retained for
+   * callers that want a single-call integration (matches legacy behavior).
+   */
+  integrate(dt: number): void {
+    this.integrateVelocity(dt);
+    this.integratePosition(dt);
+  }
 
   /** Get the total area of all shapes in the body */
   getArea(): number {
