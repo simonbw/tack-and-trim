@@ -36,6 +36,7 @@ Usage:
   build-level build [--level <name>]              Run full pipeline + mesh build (all if omitted)
   build-level wave-mesh [--level <name>]          Build wave mesh(es) (all if omitted)
   build-level wind-mesh [--level <name>]          Build wind mesh(es) (all if omitted)
+  build-level tide-mesh [--level <name>]          Build tide mesh(es) (all if omitted)
   build-level trees [--level <name>]              Generate tree positions (all if omitted)
   build-level extract [--level <name>]            Extract terrain (all regions if omitted)
   build-level download [--level <name>]           Download elevation tiles (all regions if omitted)
@@ -76,6 +77,7 @@ _build_level() {
       'build[Run full pipeline]' \
       'wave-mesh[Build .wavemesh files only]' \
       'wind-mesh[Build .windmesh files only]' \
+      'tide-mesh[Build .tidemesh files only]' \
       'download[Download terrain tiles]' \
       'build-grid[Build merged terrain grid cache]' \
       'extract[Extract terrain contours]' \
@@ -101,7 +103,7 @@ _build_level() {
         '-h[Show help]' \
         '--help[Show help]'
       ;;
-    wave-mesh|wind-mesh|trees)
+    wave-mesh|wind-mesh|tide-mesh|trees)
       _arguments \
         '--level[Level name]:level:_build_level_levels' \
         '-h[Show help]' \
@@ -170,7 +172,7 @@ case "${1:-}" in
     echo "Usage: build-level completion zsh" >&2
     exit 2
     ;;
-  build|wave-mesh|wind-mesh|trees|download|build-grid|extract|clean|validate|import )
+  build|wave-mesh|wind-mesh|tide-mesh|trees|download|build-grid|extract|clean|validate|import )
     run_rust_cli "$@"
     ;;
   --* )

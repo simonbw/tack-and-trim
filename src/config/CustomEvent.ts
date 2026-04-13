@@ -46,9 +46,6 @@ export type CustomEvents = {
   /** Fired when the boat casts off from a port */
   boatUnmoored: { portId: string };
 
-  /** Fired when a port is discovered for the first time */
-  portDiscovered: { portId: string; portName: string };
-
   /** Fired when the player accepts a new mission */
   missionAccepted: { missionId: string };
 

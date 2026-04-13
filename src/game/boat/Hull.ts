@@ -1,6 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import type { Draw } from "../../core/graphics/Draw";
 import {
   DynamicBody,
   type SixDOFOptions,
@@ -8,21 +7,17 @@ import {
 import { Convex } from "../../core/physics/shapes/Convex";
 import { earClipTriangulate } from "../../core/util/Triangulate";
 import { V, V2d } from "../../core/Vector";
-import {
-  computeSkinFrictionAtPoint,
-  RHO_AIR,
-  RHO_WATER,
-} from "../fluid-dynamics";
+import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
+import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
 import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
-import { HullConfig } from "./BoatConfig";
-import { TiltTransform } from "./TiltTransform";
+import { DeckZone, HullConfig } from "./BoatConfig";
+import { buildHullMeshFromProfiles } from "./hull-profiles";
+import { subdivideClosedSmooth } from "./tessellation";
 
 const GRAVITY = 32.174; // ft/s²
 // Hydrostatic pressure: F = ρ * g * depth * area (lbf), converted to engine units (* g)
 const BUOYANCY_FORCE_PER_DEPTH_PER_AREA = RHO_WATER * GRAVITY * GRAVITY;
-// Force conversion: lbf to engine units (lbm·ft/s²)
-const LBF_TO_ENGINE = 32.174;
 // Waterline transition band half-width (ft)
 const WATERLINE_BAND = 0.1;
 
@@ -56,11 +51,6 @@ export function findSternPoints(vertices: V2d[]): {
   }
 }
 
-export interface TillerConfig {
-  position: V2d;
-  getTillerAngle: () => number;
-}
-
 /**
  * 3D hull mesh built from three vertex rings (deck, waterline, bottom).
  * Triangle indices are precomputed once; only vertex projection changes per frame.
@@ -81,6 +71,10 @@ export interface HullMesh {
   lowerSideIndices: number[];
   /** Triangle indices for the bottom cap polygon (physics only). */
   bottomIndices: number[];
+  /** Deck edge polygon for gunwale stroke rendering + deck plan clipping. */
+  deckOutline?: [number, number][];
+  /** Map from deck outline polygon index to mesh xyPositions/zValues index. */
+  deckVertexMap?: number[];
 }
 
 /**
@@ -179,6 +173,7 @@ function buildHullMesh(
     upperSideIndices,
     lowerSideIndices,
     bottomIndices,
+    deckVertexMap: Array.from({ length: ringSize }, (_, i) => i),
   };
 }
 
@@ -273,6 +268,22 @@ function buildHullForceData(mesh: HullMesh): HullForceData {
 }
 
 /**
+ * Compute the enclosed volume of the hull mesh using the divergence theorem.
+ * For a closed surface: V = (1/3) * Σ (centroid · outward_normal) * area
+ */
+function computeHullVolume(data: HullForceData): number {
+  let volume = 0;
+  for (let i = 0; i < data.count; i++) {
+    volume +=
+      (data.cx[i] * data.nx[i] +
+        data.cy[i] * data.ny[i] +
+        data.cz[i] * data.nz[i]) *
+      data.area[i];
+  }
+  return Math.abs(volume) / 3;
+}
+
+/**
  * Per-tick energy dissipation summary from hull form drag.
  * Used by the Wake system to modulate wake intensity.
  */
@@ -294,18 +305,19 @@ export class Hull extends BaseEntity {
   private strokeColor: number;
   private sideColor: number;
   private bottomColor: number;
-  private tillerConfig?: TillerConfig;
   private getDamageMultiplier: () => number = () => 1;
   private mesh: HullMesh;
+  private renderMesh: HullMesh;
+  private deckZonesByHeight: readonly DeckZone[];
 
   // Energy dissipation tracking (updated each tick)
   private _dissipation: HullDissipation = { totalPower: 0, triangleCount: 0 };
 
-  /** 3D→2D transform updated by Boat each tick. Used by child entities for rendering. */
-  readonly tiltTransform = new TiltTransform();
-
   // Per-triangle force data (precomputed at construction)
   private forceData: HullForceData;
+
+  /** Enclosed hull volume in cubic feet, computed from mesh geometry via divergence theorem. */
+  readonly hullVolume: number;
 
   // Gravity params (from buoyancy config, applied per-tick)
   private boatMass: number;
@@ -339,6 +351,11 @@ export class Hull extends BaseEntity {
     this.boatMass = boatMass;
     this.centerOfGravityZ = centerOfGravityZ;
 
+    // Pre-sort deck zones by floorZ descending for getDeckHeight lookups
+    this.deckZonesByHeight = config.deckPlan
+      ? [...config.deckPlan.zones].sort((a, b) => b.floorZ - a.floorZ)
+      : [];
+
     this.body = new DynamicBody({
       mass: config.mass,
       sixDOF,
@@ -350,24 +367,58 @@ export class Hull extends BaseEntity {
       }),
     );
 
-    // Build 3D hull mesh from the three vertex rings
-    const meshWaterlineVerts = config.waterlineVertices ?? config.vertices;
-    const bottomVerts =
-      config.bottomVertices ??
-      meshWaterlineVerts.map((v) => V(v.x, v.y * 0.45));
-    const deckZ = config.deckHeight;
-    const bottomZ = -config.draft;
+    if (config.shape) {
+      // Station profile hull — use the new profile-based mesh builder.
+      // Physics mesh uses lower subdivision for cache-friendly force computation.
+      this.mesh = buildHullMeshFromProfiles({
+        ...config.shape,
+        profileSubdivisions: 2,
+        stationSubdivisions: 2,
+      });
+      // Render mesh uses full subdivision for visual smoothness.
+      this.renderMesh = buildHullMeshFromProfiles(config.shape);
+    } else {
+      // Legacy ring-based hull definition.
+      const meshWaterlineVerts = config.waterlineVertices ?? config.vertices;
+      const bottomVerts =
+        config.bottomVertices ??
+        meshWaterlineVerts.map((v) => V(v.x, v.y * 0.45));
+      const deckZ = config.deckHeight;
+      const bottomZ = -config.draft;
 
-    this.mesh = buildHullMesh(
-      config.vertices,
-      meshWaterlineVerts,
-      bottomVerts,
-      deckZ,
-      bottomZ,
-    );
+      this.mesh = buildHullMesh(
+        config.vertices,
+        meshWaterlineVerts,
+        bottomVerts,
+        deckZ,
+        bottomZ,
+      );
+
+      // Build smooth render mesh from subdivided rings
+      const sharp = config.sharpVertices
+        ? new Set(config.sharpVertices)
+        : undefined;
+      const subdivide = (verts: V2d[]) =>
+        subdivideClosedSmooth(
+          verts.map((v) => [v.x, v.y] as [number, number]),
+          4,
+          sharp,
+        ).map(([x, y]) => V(x, y));
+
+      this.renderMesh = buildHullMesh(
+        subdivide(config.vertices),
+        subdivide(meshWaterlineVerts),
+        subdivide(bottomVerts),
+        deckZ,
+        bottomZ,
+      );
+    }
 
     // Precompute per-triangle force data
     this.forceData = buildHullForceData(this.mesh);
+
+    // Compute enclosed hull volume via divergence theorem: V = (1/3) Σ (c · n) * A
+    this.hullVolume = computeHullVolume(this.forceData);
 
     // Pre-allocate vertex query points (one per unique mesh vertex)
     const vertCount = this.forceData.vertexCount;
@@ -380,6 +431,16 @@ export class Hull extends BaseEntity {
     this.windQuery = this.addChild(
       new WindQuery(() => this.getVertexWorldPoints()),
     );
+  }
+
+  /** Get the water query for reading per-vertex water data. */
+  getWaterQuery(): WaterQuery {
+    return this.waterQuery;
+  }
+
+  /** Get the physics mesh (vertex positions correspond to water query indices). */
+  getPhysicsMesh(): HullMesh {
+    return this.mesh;
   }
 
   /**
@@ -406,7 +467,6 @@ export class Hull extends BaseEntity {
   onTick() {
     const body = this.body;
     const R = body.orientation;
-    const bodyZ = body.z;
     const fd = this.forceData;
     const cf = this.skinFrictionCoefficient * this.getDamageMultiplier();
 
@@ -425,7 +485,6 @@ export class Hull extends BaseEntity {
     // Per-triangle force loop.
     // Water/wind are queried at mesh vertices; per-triangle values are
     // averaged from the three vertex results for better partial-submersion handling.
-    const tilt = this.tiltTransform;
     const meshPos = this.mesh.xyPositions;
     const meshZ = this.mesh.zValues;
     const vi = fd.vertexIndices;
@@ -465,9 +524,9 @@ export class Hull extends BaseEntity {
         v2 = vi[i * 3 + 2];
 
       // Per-vertex world Z (from body orientation + z offset)
-      const wz0 = tilt.worldZ(meshPos[v0][0], meshPos[v0][1], meshZ[v0], bodyZ);
-      const wz1 = tilt.worldZ(meshPos[v1][0], meshPos[v1][1], meshZ[v1], bodyZ);
-      const wz2 = tilt.worldZ(meshPos[v2][0], meshPos[v2][1], meshZ[v2], bodyZ);
+      const wz0 = body.worldZ(meshPos[v0][0], meshPos[v0][1], meshZ[v0]);
+      const wz1 = body.worldZ(meshPos[v1][0], meshPos[v1][1], meshZ[v1]);
+      const wz2 = body.worldZ(meshPos[v2][0], meshPos[v2][1], meshZ[v2]);
 
       // Per-vertex water surface height
       const wh0 = v0 < wq.length ? wq.get(v0).surfaceHeight : 0;
@@ -500,7 +559,7 @@ export class Hull extends BaseEntity {
       // === UNDERWATER FORCES ===
       if (waterFrac > 0) {
         // Buoyancy: vertical force proportional to submersion depth × area.
-        // Applied purely upward (+Z), not in -normal direction, because our hull
+        // Applied in Z (vertical), not in -normal direction, because our hull
         // mesh is not closed at the waterline — the "pressure on surface" approach
         // requires a closed surface for lateral forces to cancel. Without a
         // waterplane cap, normal-directed buoyancy creates unbalanced lateral
@@ -508,18 +567,17 @@ export class Hull extends BaseEntity {
         // application points naturally produces righting moment (deeper points
         // get more upward force, creating torque that opposes heel).
         //
-        // The buoyancy contribution is weighted by |wnz| — the world-frame
-        // vertical component of the triangle's outward normal. This accounts
-        // for hull orientation (heel and pitch):
-        //   - A flat bottom triangle (normal pointing down): |wnz| ≈ 1 upright,
-        //     decreases toward 0 at 90° heel → loses buoyancy contribution.
-        //   - A vertical side wall (normal pointing sideways): |wnz| ≈ 0 upright,
-        //     increases toward 1 at 90° heel → gains buoyancy contribution.
-        // This correctly models the change in effective waterplane area with tilt.
+        // The buoyancy contribution is weighted by -wnz — the negated world-frame
+        // vertical component of the triangle's outward normal. The sign matters:
+        //   - Bottom triangles (outward normal points down, wnz < 0): -wnz > 0,
+        //     so force is upward — water pushes up on the hull bottom.
+        //   - Submerged deck triangles (outward normal points up, wnz > 0):
+        //     -wnz < 0, so force is downward — water presses down on the top
+        //     surface. This is critical at extreme heel when deck edges submerge.
+        //   - Side triangles (wnz ≈ 0): negligible contribution either way.
         if (avgDepth > 0) {
-          const absWnz = Math.abs(wnz);
           const buoyancyMag =
-            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area * absWnz;
+            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area * -wnz;
           body.applyForce3D(0, 0, buoyancyMag, localX, localY, localZ);
         }
 
@@ -729,91 +787,43 @@ export class Hull extends BaseEntity {
     this._dissipation.triangleCount = dissipationCount;
   }
 
-  @on("render")
-  onRender({ draw }: { draw: Draw }) {
-    const [x, y] = this.body.position;
-    const t = this.tiltTransform;
-    const zOffset = this.body.z;
+  /** Deck/fill color. */
+  getFillColor(): number {
+    return this.fillColor;
+  }
 
-    draw.at(
-      {
-        pos: V(x, y),
-        angle: this.body.angle,
-        tilt: { roll: this.body.roll, pitch: this.body.pitch, zOffset },
-      },
-      () => {
-        const {
-          xyPositions,
-          zValues,
-          deckIndices,
-          upperSideIndices,
-          lowerSideIndices,
-        } = this.mesh;
+  /** Gunwale stroke color. */
+  getStrokeColor(): number {
+    return this.strokeColor;
+  }
 
-        // Draw back-to-front: lower sides → upper sides → deck
-        draw.renderer.submitTrianglesWithZ(
-          xyPositions,
-          lowerSideIndices,
-          this.bottomColor,
-          1.0,
-          zValues,
-        );
+  /** Hull topsides color. */
+  getSideColor(): number {
+    return this.sideColor;
+  }
 
-        draw.renderer.submitTrianglesWithZ(
-          xyPositions,
-          upperSideIndices,
-          this.sideColor,
-          1.0,
-          zValues,
-        );
+  /** Hull bottom color. */
+  getBottomColor(): number {
+    return this.bottomColor;
+  }
 
-        draw.renderer.submitTrianglesWithZ(
-          xyPositions,
-          deckIndices,
-          this.fillColor,
-          1.0,
-          zValues,
-        );
-
-        // Outline: stroke the deck polygon (gunwale line)
-        const ringSize = this.mesh.ringSize;
-        const deckZ = this.mesh.positions[2];
-        draw.strokePolygon(
-          xyPositions.slice(0, ringSize).map((p) => V(p[0], p[1])),
-          {
-            color: this.strokeColor,
-            width: 0.25,
-            z: deckZ,
-          },
-        );
-
-        // Tiller
-        if (this.tillerConfig) {
-          const tillerAngle = this.tillerConfig.getTillerAngle();
-          const tillerPos = this.tillerConfig.position;
-          const tillerLength = 3;
-          const tillerWidth = 0.25;
-          const tillerColor = 0x886633;
-
-          draw.at({ pos: tillerPos, angle: tillerAngle }, () => {
-            draw.fillRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
-              color: tillerColor,
-              z: deckZ,
-            });
-            draw.strokeRect(0, -tillerWidth / 2, tillerLength, tillerWidth, {
-              color: 0x664422,
-              width: 0.1,
-              z: deckZ,
-            });
-          });
-        }
-      },
-    );
+  /**
+   * Get the z-height of the topmost deck surface at a hull-local (x, y) point.
+   * Returns the floorZ of the highest deck zone containing the point,
+   * or null if the point is not over any deck zone.
+   */
+  getDeckHeight(localX: number, localY: number): number | null {
+    for (const zone of this.deckZonesByHeight) {
+      if (pointInPolygonTuple(localX, localY, zone.outline)) {
+        return zone.floorZ;
+      }
+    }
+    return null;
   }
 
   /** Data needed by BoatCompositor for hull height rendering. */
   getHeightMeshData(): HullMesh {
-    return this.mesh;
+    return this.renderMesh;
   }
 
   getPosition(): V2d {
@@ -824,13 +834,35 @@ export class Hull extends BaseEntity {
     return this.body.angle;
   }
 
-  setTillerConfig(config: TillerConfig): void {
-    this.tillerConfig = config;
-  }
-
   setDamageMultiplier(fn: () => number): void {
     this.getDamageMultiplier = fn;
   }
+}
+
+/**
+ * Ray-casting point-in-polygon test for [number, number][] outlines.
+ * Casts a ray in the +x direction and counts edge crossings.
+ */
+function pointInPolygonTuple(
+  px: number,
+  py: number,
+  polygon: ReadonlyArray<readonly [number, number]>,
+): boolean {
+  const n = polygon.length;
+  if (n < 3) return false;
+
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i][0],
+      yi = polygon[i][1];
+    const xj = polygon[j][0],
+      yj = polygon[j][1];
+
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 /** Darken a hex color by a factor (0-1). */

@@ -17,3 +17,4 @@ pipeline/**/profile-samply.syms.json
 pipeline/**/profile-samply.meta.json
 pipeline/**/profile-samply.atos-cache*.json
 pipeline/target/
+.claude/worktrees/

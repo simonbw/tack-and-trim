@@ -92,6 +92,16 @@ export class World extends EventEmitter<PhysicsEventMap> {
   _constraintIdCounter: number = 0;
   /** @internal */
   _bodyIdCounter: number = 0;
+
+  // Solver stats from the most recent step (for debug overlays)
+  /** Total equations solved in the most recent step. */
+  solverEquationCount: number = 0;
+  /** Number of islands solved in the most recent step (0 if island splitting is off). */
+  solverIslandCount: number = 0;
+  /** Total solver iterations across all islands in the most recent step. */
+  solverIterations: number = 0;
+  /** Max iterations used by any single island (or the global solve) in the most recent step. */
+  solverMaxIterations: number = 0;
   /** Controls body sleeping behavior. */
   sleepMode: SleepMode;
   /** Tracks shape overlaps for begin/end contact events. */
@@ -120,7 +130,69 @@ export class World extends EventEmitter<PhysicsEventMap> {
 
   /**
    * Step the simulation forward by dt seconds.
-   * Applies forces, detects collisions, solves constraints, and integrates positions.
+   *
+   * ## Pipeline (executed in order)
+   *
+   * 1. **Apply forces** — Spring forces are computed and applied to bodies.
+   *    6DOF bodies recompute their world-frame inertia tensor. Velocity
+   *    damping is applied to all awake dynamic bodies.
+   *
+   * 2. **Broadphase** — The spatial hashing broadphase returns candidate
+   *    collision pairs. Pairs disabled by constraints (e.g. bodies connected
+   *    by a hinge with `collideConnected=false`) are filtered out.
+   *    Emits: `postBroadphase` with the filtered pair list.
+   *
+   * 3. **Narrowphase** — Exact collision detection runs on candidate pairs,
+   *    producing Collision objects (with contact points and normals) and
+   *    SensorOverlap objects (for sensor/trigger shapes).
+   *
+   * 4. **Overlap tracking** — The OverlapKeeper diffs current overlaps
+   *    against the previous frame to determine newly-begun and newly-ended
+   *    contacts (for beginContact/endContact events).
+   *
+   * 5. **Contact equations** — ContactEquations are generated from
+   *    collisions. These encode "don't penetrate" constraints with
+   *    restitution from ContactMaterials. First-impact detection is set
+   *    for newly overlapping body pairs.
+   *
+   * 6. **Friction equations** — FrictionEquations are generated alongside
+   *    contacts. When frictionReduction is enabled, multiple contact points
+   *    between the same shape pair produce a single averaged friction
+   *    equation instead of one per contact.
+   *
+   * 7. **Collision wake-ups** — Sleeping bodies are flagged for wake-up if
+   *    hit by a fast-moving awake body (speed >= 2x the sleep threshold).
+   *
+   * 8. **Events & wake** — `beginContact` and `endContact` events are
+   *    emitted. Flagged bodies are woken. Then `preSolve` is emitted,
+   *    giving listeners a chance to modify contact/friction equations
+   *    (e.g. disable contacts, adjust friction coefficients).
+   *
+   * 9. **Solve constraints** — All equations (contacts + friction +
+   *    constraint equations from joints/motors) are collected. If island
+   *    splitting is enabled, bodies are partitioned into connected islands
+   *    and each is solved independently (better cache performance and
+   *    enables island sleeping). Otherwise all equations are solved as
+   *    one system. Uses the Gauss-Seidel Sequential Impulse solver.
+   *
+   * 10. **Integrate** — Velocities (including solver impulses) are
+   *     integrated to update positions and angles for all kinematic and
+   *     awake dynamic bodies. Forces are zeroed after integration.
+   *
+   * 11. **Impact events** — `impact` events are emitted for first-time
+   *     contacts (contacts between body pairs that were not overlapping
+   *     in the previous frame). Only fires if emitImpactEvent is true.
+   *
+   * 12. **Sleep update** — Depending on sleepMode:
+   *     - BODY_SLEEPING: each body independently tracks idle time and
+   *       sleeps when below the speed threshold for long enough.
+   *     - ISLAND_SLEEPING: bodies track idle time, but only sleep when
+   *       *all* bodies in their island want to sleep (prevents one body
+   *       in a stack from sleeping while others are active).
+   *
+   * Finally, `postStep` is emitted and `this.time` is advanced by dt.
+   *
+   * @param dt - Timestep in seconds (typically 1/60 or 1/120)
    */
   @profile
   step(dt: number): void {
@@ -378,25 +450,41 @@ export class World extends EventEmitter<PhysicsEventMap> {
     ];
 
     if (allEquations.length === 0) {
+      this.solverEquationCount = 0;
+      this.solverIslandCount = 0;
+      this.solverIterations = 0;
+      this.solverMaxIterations = 0;
       return undefined;
     }
+
+    this.solverEquationCount = allEquations.length;
 
     if (this.islandSplit) {
       // Split into islands and solve each
       const islands = splitIntoIslands(this.bodies.all, allEquations);
+      let totalIter = 0;
+      let maxIter = 0;
       for (const island of islands) {
         if (island.equations.length) {
-          solveIsland(island, dt, this.solverConfig);
+          const result = solveIsland(island, dt, this.solverConfig);
+          totalIter += result.usedIterations;
+          if (result.usedIterations > maxIter) maxIter = result.usedIterations;
         }
       }
+      this.solverIslandCount = islands.length;
+      this.solverIterations = totalIter;
+      this.solverMaxIterations = maxIter;
       return islands;
     } else {
-      solveEquations(
+      const result = solveEquations(
         allEquations,
         this.bodies.dynamicAwake,
         dt,
         this.solverConfig,
       );
+      this.solverIslandCount = 0;
+      this.solverIterations = result.usedIterations;
+      this.solverMaxIterations = result.usedIterations;
       return undefined;
     }
   }

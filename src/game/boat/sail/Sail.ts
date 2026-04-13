@@ -3,22 +3,24 @@ import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Body } from "../../../core/physics/body/Body";
 import { DynamicBody } from "../../../core/physics/body/DynamicBody";
-import { Particle } from "../../../core/physics/shapes/Particle";
-import { stepToward } from "../../../core/util/MathUtil";
+import { clamp } from "../../../core/util/MathUtil";
 import { V, V2d } from "../../../core/Vector";
 import { TimeOfDay } from "../../time/TimeOfDay";
 import { WindQuery } from "../../world/wind/WindQuery";
-import { TiltTransform } from "../TiltTransform";
 import { ClothRenderer } from "./ClothRenderer";
 import { ClothSolver } from "./ClothSolver";
 import { ClothWorkerPool, type SailHandle } from "./ClothWorkerPool";
 import {
   REACTION_TACK_X,
   REACTION_TACK_Y,
+  REACTION_TACK_Z,
   REACTION_HEAD_X,
   REACTION_HEAD_Y,
+  REACTION_HEAD_Z,
   REACTION_CLEW_X,
   REACTION_CLEW_Y,
+  REACTION_CLEW_Z,
+  type FurlMode,
 } from "./cloth-worker-protocol";
 import { generateSailMesh, SailMeshData } from "./SailMesh";
 import { TellTail } from "./TellTail";
@@ -35,34 +37,52 @@ let CONSTRAINT_DAMPING: number = 0.02;
 //#tunable { min: 0.1, max: 50 }
 let CLOTH_MASS: number = 8.0;
 
-// Optional config with defaults
+// Optional config with defaults (see DEFAULT_CONFIG below for typical values)
 export interface SailConfig {
+  /** lbs, mass per cloth node for inertia scaling. Typical 0.5-2.0. */
   nodeMass: number;
+  /** dimensionless, multiplier on aerodynamic lift force. Default 1.0. */
   liftScale: number;
+  /** dimensionless, multiplier on aerodynamic drag force. Default 1.0. */
   dragScale: number;
   sailShape: "boom" | "triangle";
+  /** fraction/s, rate at which sail hoists/lowers (0-1 range per second). Typical 0.3-0.6. */
   hoistSpeed: number;
+  /** hex RGB, sail cloth color. */
   color: number;
   attachTellTail: boolean;
+  /** count, number of cloth columns along the foot (chord). Typical 16-48. */
   clothColumns: number;
+  /** count, number of cloth rows along the luff (height). Typical 8-24. */
   clothRows: number;
+  /** dimensionless, Verlet velocity damping factor (0-1). Higher = more damping. Default 1.0. */
   clothDamping: number;
+  /** count, constraint solver iterations per substep. Higher = stiffer cloth. Typical 5-20. */
   clothIterations: number;
+  /** dimensionless, correction factor for bend constraints (0-1). Higher = stiffer. Default 0.3. */
   bendStiffness: number;
+  /** dimensionless, damping of relative velocity along constraints (0-1). Default 0.1. */
   constraintDamping: number;
+  /** ft above waterline, z-height of the sail foot (boom). Typical 2-5. */
   zFoot: number;
+  /** ft above waterline, z-height of the sail head (masthead). Typical 15-40. */
   zHead: number;
 }
 
 // Required params (no defaults)
 export interface SailParams {
   getHeadPosition: () => V2d; // Called each frame - head moves with boat
-  headLocalPosition: V2d; // Boat-local XY of the mast/forestay attachment
+  headLocalPosition: V2d; // Boat-local XY of the luff base (tack end)
+  /** Boat-local XY of the luff top (masthead). Defaults to headLocalPosition
+   *  (correct for mainsails where the luff runs vertically up the mast).
+   *  For jibs, set this to the mast position so the luff runs diagonally
+   *  from bowsprit to masthead along the forestay. */
+  luffTopLocalPosition?: V2d;
   headConstraint: { body: Body; localAnchor: V2d };
   getClewPosition?: () => V2d; // Called each frame for constrained clews
   initialClewPosition?: V2d; // Only used once during construction
   clewConstraint?: { body: Body; localAnchor: V2d };
-  getTiltTransform?: () => TiltTransform;
+  getHullBody?: () => DynamicBody;
 }
 
 const DEFAULT_CONFIG: SailConfig = {
@@ -92,9 +112,9 @@ export class Sail extends BaseEntity {
   bodies: DynamicBody[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
-  // Hoist state (0 = fully lowered, 1 = fully hoisted)
+  // Hoist state (0 = fully furled, 1 = fully deployed)
   hoistAmount: number = 0;
-  targetHoistAmount: number = 0;
+  private hoistDirection: -1 | 0 | 1 = 0;
 
   // Cloth simulation
   private mesh: SailMeshData;
@@ -107,6 +127,12 @@ export class Sail extends BaseEntity {
   private clewIdx: number;
   private headIdx: number;
 
+  // Mesh topology for furling
+  private readonly vertexU: Float64Array;
+  private readonly vertexV: Float64Array;
+  private readonly furlMode: FurlMode;
+  private readonly vertexActive: Uint8Array;
+
   // Wind query for aerodynamic forces
   private windQuery: WindQuery;
 
@@ -115,6 +141,16 @@ export class Sail extends BaseEntity {
   // Cached geometry for mapping UV to world
   private headPos = V(0, 0);
   private clewPos = V(0, 0);
+
+  // Pre-allocated buffers for furled sail line quad rendering
+  private readonly furlQuadVerts: [number, number][] = [
+    [0, 0],
+    [0, 0],
+    [0, 0],
+    [0, 0],
+  ];
+  private readonly furlQuadZ: number[] = [0, 0, 0, 0];
+  private static readonly FURL_QUAD_INDICES = [0, 1, 2, 0, 2, 3];
 
   constructor(config: SailParams & Partial<SailConfig>) {
     super();
@@ -145,6 +181,16 @@ export class Sail extends BaseEntity {
       zFoot,
       zHead,
     });
+
+    // Extract per-vertex UV from mesh for furling
+    this.vertexU = new Float64Array(this.mesh.vertexCount);
+    this.vertexV = new Float64Array(this.mesh.vertexCount);
+    for (let i = 0; i < this.mesh.vertexCount; i++) {
+      this.vertexU[i] = this.mesh.restPositions[i * 2];
+      this.vertexV[i] = this.mesh.restPositions[i * 2 + 1];
+    }
+    this.furlMode = sailShape === "boom" ? "v-cutoff" : "u-wrap";
+    this.vertexActive = new Uint8Array(this.mesh.vertexCount);
 
     // Create cloth solver (used for initial position computation, then handed off)
     this.solver = new ClothSolver(this.mesh, {
@@ -178,31 +224,49 @@ export class Sail extends BaseEntity {
     worldZ.fill(zFoot);
     this.solver.resetPositions(worldX, worldY, worldZ);
 
-    // Pin just 3 corners: tack, clew, head
+    // Pin all luff vertices to the mast/forestay
     this.tackIdx = this.mesh.footVertices[0]; // (u=0, v=0)
     this.clewIdx = this.mesh.footVertices[this.mesh.footVertices.length - 1]; // (u=1, v=0)
     this.headIdx = this.mesh.luffVertices[this.mesh.luffVertices.length - 1]; // (u=0, v=1)
-    this.solver.setPinned(this.tackIdx, true);
-    this.solver.setPinned(this.headIdx, true);
+    for (const luffIdx of this.mesh.luffVertices) {
+      this.solver.setPinned(luffIdx, true);
+    }
     if (sailShape === "boom") {
       // Mainsail: clew pinned to boom end
       this.solver.setPinned(this.clewIdx, true);
     }
 
-    // For jib: create a single DynamicBody for the clew (last vertex of foot row)
-    // to couple with Sheet constraints
+    // For jib: create a 6DOF DynamicBody for the clew (last vertex of foot row)
+    // to couple with 3D sheet constraints. The clew is pinned in the cloth sim
+    // and reaction forces are applied to this body, creating two-way coupling.
     if (sailShape === "triangle") {
       const clewVertexIdx =
         this.mesh.footVertices[this.mesh.footVertices.length - 1];
       const cx = this.solver.getPositionX(clewVertexIdx);
       const cy = this.solver.getPositionY(clewVertexIdx);
 
+      // Mass is set high enough to stabilize the two-way coupling with the
+      // cloth sim (reaction forces feed back with a one-frame delay).
+      const clewMass = 5;
       const clewBody = new DynamicBody({
-        mass: this.config.nodeMass,
+        mass: clewMass,
         position: [cx, cy],
+        damping: 0.9,
         collisionResponse: false,
         fixedRotation: true,
-      }).addShape(new Particle());
+        allowSleep: false,
+        sixDOF: {
+          rollInertia: 1,
+          pitchInertia: 1,
+          zMass: clewMass,
+          zPosition: zFoot,
+          zDamping: 0.9,
+          rollPitchDamping: 0,
+        },
+      });
+      // No collision shape — the clew body is inside the hull polygon
+      // and would collide with it. It only needs to participate in
+      // constraint solving and force application.
 
       this.bodies = [clewBody];
       this.constraints = [];
@@ -242,7 +306,7 @@ export class Sail extends BaseEntity {
                 r.getPositionY(leechIdx) - r.getPrevPositionY(leechIdx);
               return V(dx * 120, dy * 120);
             },
-            () => this.hoistAmount,
+            () => (this.vertexActive[leechIdx] ? this.hoistAmount : 0),
             () => reader().getZ(leechIdx),
           ),
         );
@@ -261,6 +325,10 @@ export class Sail extends BaseEntity {
       tackIdx: this.tackIdx,
       clewIdx: this.clewIdx,
       headIdx: this.headIdx,
+      luffVertices: this.mesh.luffVertices,
+      vertexU: this.vertexU,
+      vertexV: this.vertexV,
+      furlMode: this.furlMode,
     });
   }
 
@@ -268,25 +336,44 @@ export class Sail extends BaseEntity {
    * Map UV mesh positions to initial 3D world positions.
    *
    * The sail is a triangle in 3D:
-   *   Tack  (u=0, v=0) → (mast_x, mast_y, zFoot)
-   *   Clew  (u=1, v=0) → (boom_x, boom_y, zFoot)
-   *   Head  (u=0, v=1) → (mast_x, mast_y, zHead)
+   *   Tack  (u=0, v=0) → (tack_x, tack_y, zFoot)
+   *   Clew  (u=1, v=0) → (clew_x, clew_y, zFoot)
+   *   Head  (u=0, v=1) → (luffTop_x, luffTop_y, zHead)
    *
-   * u interpolates along the foot (boom direction) in x,y, tapered by row.
-   * v interpolates z from zFoot to zHead.
-   * The cloth solver operates in full 3D, so constraints along the luff
-   * (which differ only in z) have real nonzero rest lengths.
+   * u interpolates along the chord (foot direction) in x,y, tapered by row.
+   * v interpolates z from zFoot to zHead and shifts luff XY from tack to luffTop.
+   * For mainsails, tack and luffTop have the same XY (mast). For jibs, the luff
+   * runs diagonally from bowsprit (tack) to masthead (luffTop) along the forestay.
    */
   private mapUVToWorld(
-    head: V2d,
+    tack: V2d,
     clew: V2d,
     outX: Float64Array,
     outY: Float64Array,
     outZ: Float64Array,
   ): void {
-    const footX = clew.x - head.x;
-    const footY = clew.y - head.y;
+    const footX = clew.x - tack.x;
+    const footY = clew.y - tack.y;
     const { zFoot, zHead } = this.config;
+
+    // Compute luffTop in world space (forestay head / masthead).
+    // For mainsails this is the same as the tack XY (vertical mast).
+    // For jibs this is the mast position (diagonal forestay).
+    let luffTopWorld: V2d | null = null;
+    if (this.config.luffTopLocalPosition) {
+      const hullBody = this.config.getHullBody?.();
+      if (hullBody) {
+        const [ltx, lty] = hullBody.toWorldFrame(
+          this.config.luffTopLocalPosition,
+        );
+        luffTopWorld = V(ltx, lty);
+      } else {
+        luffTopWorld = V(
+          this.config.luffTopLocalPosition.x,
+          this.config.luffTopLocalPosition.y,
+        );
+      }
+    }
 
     const footColCount = this.mesh.colCounts[0];
 
@@ -296,13 +383,21 @@ export class Sail extends BaseEntity {
       const chordFrac = (colCount - 1) / Math.max(1, footColCount - 1);
       const v = j / (this.mesh.colCounts.length - 1);
 
+      // Luff base XY at this row: lerp from tack to luffTop (forestay diagonal)
+      const luffX = luffTopWorld
+        ? tack.x + v * (luffTopWorld.x - tack.x)
+        : tack.x;
+      const luffY = luffTopWorld
+        ? tack.y + v * (luffTopWorld.y - tack.y)
+        : tack.y;
+
       for (let c = 0; c < colCount; c++) {
         const i = rowStart + c;
         const u = colCount > 1 ? c / (colCount - 1) : 0;
 
-        // x,y: along the boom, tapered by row height
-        outX[i] = head.x + u * footX * chordFrac;
-        outY[i] = head.y + u * footY * chordFrac;
+        // x,y: from luff base along the chord, tapered by row height
+        outX[i] = luffX + u * footX * chordFrac;
+        outY[i] = luffY + u * footY * chordFrac;
         // z: interpolate from zFoot to zHead by row
         outZ[i] = zFoot + v * (zHead - zFoot);
       }
@@ -342,17 +437,17 @@ export class Sail extends BaseEntity {
 
   /** Check if sail is hoisted (or hoisting) */
   isHoisted(): boolean {
-    return this.targetHoistAmount > 0.5;
+    return this.hoistAmount > 0.5;
   }
 
-  /** Get current hoist amount (0 = lowered, 1 = hoisted) */
+  /** Get current hoist amount (0 = furled, 1 = deployed) */
   getHoistAmount(): number {
     return this.hoistAmount;
   }
 
-  /** Set sail hoist state - will animate to target */
-  setHoisted(hoisted: boolean): void {
-    this.targetHoistAmount = hoisted ? 1 : 0;
+  /** Set hoist direction: 1 = hoisting, -1 = furling, 0 = hold position */
+  setHoistInput(direction: -1 | 0 | 1): void {
+    this.hoistDirection = direction;
   }
 
   /** Total reaction force magnitude from all pins (lbf). Updated each tick. */
@@ -375,12 +470,47 @@ export class Sail extends BaseEntity {
   onTick({ dt }: GameEventMap["tick"]) {
     const { hoistSpeed, sailShape } = this.config;
 
-    // Animate hoist amount toward target
-    this.hoistAmount = stepToward(
-      this.hoistAmount,
-      this.targetHoistAmount,
-      hoistSpeed * dt,
-    );
+    // Ramp hoist amount based on input direction
+    if (this.hoistDirection !== 0) {
+      this.hoistAmount = clamp(
+        this.hoistAmount + this.hoistDirection * hoistSpeed * dt,
+      );
+    }
+
+    // Skip cloth sim processing when fully furled — no sail to simulate.
+    // The hoist ramp above still runs so the player can start hoisting.
+    if (this.hoistAmount <= 0) {
+      // Still consume results so the worker doesn't stall
+      if (this.handle.hasNewResults()) {
+        this.handle.readReactionForces();
+        this.handle.ackResults();
+      }
+      this._totalReactionForce = 0;
+
+      // Pin the jib clew body to the tack (where the furled sail lives),
+      // using the hull's full 3D transform so it accounts for heel/pitch.
+      if (sailShape === "triangle" && this.bodies.length > 0) {
+        const hullBody = this.config.getHullBody?.();
+        const local = this.config.headLocalPosition;
+        const clewBody = this.bodies[0] as DynamicBody;
+        if (hullBody) {
+          const [wx, wy, wz] = hullBody.toWorldFrame3D(
+            local.x,
+            local.y,
+            this.config.zFoot,
+          );
+          clewBody.position.set(wx, wy);
+          clewBody.z = wz;
+        } else {
+          const tackPos = this.config.getHeadPosition();
+          clewBody.position.set(tackPos);
+          clewBody.z = this.config.zFoot;
+        }
+        clewBody.velocity.set(0, 0);
+        clewBody.zVelocity = 0;
+      }
+      return;
+    }
 
     // Read results from the worker's previous solve (one-tick lag)
     if (this.handle.hasNewResults()) {
@@ -389,47 +519,51 @@ export class Sail extends BaseEntity {
 
       // Feed reaction forces from pinned vertices to constraint bodies.
       // Reaction forces are summed across sub-steps; divide by substeps to average.
-      // Only apply when hoisted.
-      this._totalReactionForce = 0;
-      if (this.hoistAmount > 0) {
-        const { headConstraint, clewConstraint } = this.config;
-        const vm = vertexMass / CLOTH_SUBSTEPS;
+      const { headConstraint, clewConstraint } = this.config;
+      const vm = vertexMass / CLOTH_SUBSTEPS;
 
-        const tackRx = reactions[REACTION_TACK_X] * vm;
-        const tackRy = reactions[REACTION_TACK_Y] * vm;
-        const headRx = reactions[REACTION_HEAD_X] * vm;
-        const headRy = reactions[REACTION_HEAD_Y] * vm;
-        const clewRxRaw = reactions[REACTION_CLEW_X] * vm;
-        const clewRyRaw = reactions[REACTION_CLEW_Y] * vm;
+      const tackRx = reactions[REACTION_TACK_X] * vm;
+      const tackRy = reactions[REACTION_TACK_Y] * vm;
+      const tackRz = reactions[REACTION_TACK_Z] * vm;
+      const headRx = reactions[REACTION_HEAD_X] * vm;
+      const headRy = reactions[REACTION_HEAD_Y] * vm;
+      const headRz = reactions[REACTION_HEAD_Z] * vm;
+      const clewRx = reactions[REACTION_CLEW_X] * vm;
+      const clewRy = reactions[REACTION_CLEW_Y] * vm;
+      const clewRz = reactions[REACTION_CLEW_Z] * vm;
 
-        // Total reaction force magnitude across all pins (for damage tracking)
-        this._totalReactionForce =
-          Math.hypot(tackRx, tackRy) +
-          Math.hypot(headRx, headRy) +
-          Math.hypot(clewRxRaw, clewRyRaw);
+      // Total reaction force magnitude across all pins (for damage tracking)
+      this._totalReactionForce =
+        Math.hypot(tackRx, tackRy, tackRz) +
+        Math.hypot(headRx, headRy, headRz) +
+        Math.hypot(clewRx, clewRy, clewRz);
 
-        // Tack + head both attach at the mast (headConstraint)
-        const hBody = headConstraint.body as DynamicBody;
-        const hPoint = hBody.vectorToWorldFrame(headConstraint.localAnchor);
-        hBody.applyForce(V(tackRx + headRx, tackRy + headRy), hPoint);
+      // Tack + head both attach at the mast (headConstraint)
+      const hBody = headConstraint.body as DynamicBody;
+      hBody.applyForce3D(
+        tackRx + headRx,
+        tackRy + headRy,
+        tackRz + headRz,
+        headConstraint.localAnchor.x,
+        headConstraint.localAnchor.y,
+        0,
+      );
 
-        // Clew attaches at boom end (mainsail) or is free (jib)
-        if (clewConstraint) {
-          const clewRx = reactions[REACTION_CLEW_X] * vm;
-          const clewRy = reactions[REACTION_CLEW_Y] * vm;
-          const cBody = clewConstraint.body as DynamicBody;
-          const cPoint = cBody.vectorToWorldFrame(clewConstraint.localAnchor);
-          cBody.applyForce(V(clewRx, clewRy), cPoint);
-        }
-      }
-
-      // Sync jib clew body from handle positions
-      if (sailShape === "triangle" && this.bodies.length > 0) {
-        const clewBody = this.bodies[0];
-        clewBody.position.set(
-          this.handle.getPositionX(this.clewIdx),
-          this.handle.getPositionY(this.clewIdx),
+      // Clew reaction forces — apply to constraint body (mainsail: boom)
+      // or directly to the clew body (jib: free body constrained by sheets)
+      if (clewConstraint) {
+        const cBody = clewConstraint.body as DynamicBody;
+        cBody.applyForce3D(
+          clewRx,
+          clewRy,
+          clewRz,
+          clewConstraint.localAnchor.x,
+          clewConstraint.localAnchor.y,
+          0,
         );
+      } else if (sailShape === "triangle" && this.bodies.length > 0) {
+        const cBody = this.bodies[0] as DynamicBody;
+        cBody.applyForce3D(clewRx, clewRy, clewRz, 0, 0, 0);
       }
 
       this.handle.ackResults();
@@ -443,13 +577,39 @@ export class Sail extends BaseEntity {
    */
   @on("afterPhysicsStep")
   onAfterPhysicsStep(dt: number) {
+    // When fully furled, just pin the jib clew after the solver
+    // (the solver may have dragged it away from the tack via rope constraints)
+    if (this.hoistAmount <= 0) {
+      if (this.config.sailShape === "triangle" && this.bodies.length > 0) {
+        const hullBody = this.config.getHullBody?.();
+        const local = this.config.headLocalPosition;
+        const clewBody = this.bodies[0] as DynamicBody;
+        if (hullBody) {
+          const [wx, wy, wz] = hullBody.toWorldFrame3D(
+            local.x,
+            local.y,
+            this.config.zFoot,
+          );
+          clewBody.position.set(wx, wy);
+          clewBody.z = wz;
+        } else {
+          const tackPos = this.config.getHeadPosition();
+          clewBody.position.set(tackPos);
+          clewBody.z = this.config.zFoot;
+        }
+        clewBody.velocity.set(0, 0);
+        clewBody.zVelocity = 0;
+      }
+      return;
+    }
+
     const { sailShape, liftScale, dragScale } = this.config;
 
     // Apply damage multiplier to lift (damaged sails produce less drive)
     const effectiveLiftScale = liftScale * this.getDamageMultiplier();
 
-    // Get tilt transform for 3D pin targets
-    const tilt = this.config.getTiltTransform?.() ?? DEFAULT_TILT_TRANSFORM;
+    // Get hull body for 3D pin targets (or use identity-like defaults when no body)
+    const hullBody = this.config.getHullBody?.();
     const local = this.config.headLocalPosition;
 
     // Update pin targets for 3 pinned vertices: tack, clew, head
@@ -459,28 +619,77 @@ export class Sail extends BaseEntity {
     this.clewPos.set(clew);
 
     // Tack (u=0, v=0): at mast/forestay junction, z=zFoot — transformed to heeled 3D
-    const [tackX, tackY, tackZ] = tilt.toWorld3D(
-      local.x,
-      local.y,
-      this.config.zFoot,
-    );
-
-    // Clew (u=1, v=0): at boom end (mainsail only), z=zFoot
-    let clewX = clew.x,
-      clewY = clew.y,
-      clewZ = this.config.zFoot;
-    if (sailShape === "boom") {
-      const clewParallax = tilt.worldOffset(this.config.zFoot);
-      clewX = clew.x + clewParallax.x;
-      clewY = clew.y + clewParallax.y;
-      clewZ = this.config.zFoot * tilt.cosRoll * tilt.cosPitch;
+    let tackX: number, tackY: number, tackZ: number;
+    if (hullBody) {
+      // toWorldFrame3D includes body.z in Z; subtract it to get rotation-only Z
+      // (the cloth sim works in its own coordinate frame, not absolute world height)
+      [tackX, tackY, tackZ] = hullBody.toWorldFrame3D(
+        local.x,
+        local.y,
+        this.config.zFoot,
+      );
+      tackZ -= hullBody.z;
+    } else {
+      tackX = local.x;
+      tackY = local.y;
+      tackZ = this.config.zFoot;
     }
 
-    // Head (u=0, v=1): at mast position, z varies with hoist.
-    const headZ =
-      this.config.zFoot +
-      this.hoistAmount * (this.config.zHead - this.config.zFoot);
-    const [headWX, headWY, headWZ] = tilt.toWorld3D(local.x, local.y, headZ);
+    // Clew (u=1, v=0): position depends on sail type
+    let clewX: number, clewY: number, clewZ: number;
+    if (sailShape === "triangle" && this.bodies.length > 0) {
+      // Jib: use the clew body's physics position as the pin target.
+      // The sheet constrains this body, so when trimmed the body moves
+      // inward → cloth sim pins the vertex to the new position → wind
+      // pushes back via reaction forces → equilibrium.
+      const clewBody = this.bodies[0] as DynamicBody;
+      clewX = clewBody.position[0];
+      clewY = clewBody.position[1];
+      // Z from the body's 6DOF position, minus hull heave (cloth sim frame)
+      clewZ = clewBody.z - (hullBody?.z ?? 0);
+    } else {
+      // Mainsail: clew at boom end. The boom body is 6DOF with its
+      // orientation kinematically slaved to the hull (Rig.syncOrientationToHull),
+      // so toWorldFrame3D returns the 3D boom end position directly.
+      const boomBody = this.config.clewConstraint?.body as
+        | DynamicBody
+        | undefined;
+      const clewLocal = this.config.clewConstraint?.localAnchor;
+      if (boomBody && clewLocal) {
+        const [bcx, bcy, bcz] = boomBody.toWorldFrame3D(
+          clewLocal.x,
+          clewLocal.y,
+          0,
+        );
+        clewX = bcx;
+        clewY = bcy;
+        // Cloth sim frame: subtract hull heave like the jib pin does
+        clewZ = bcz - (hullBody?.z ?? 0);
+      } else {
+        clewX = clew.x;
+        clewY = clew.y;
+        clewZ = this.config.zFoot;
+      }
+    }
+
+    // Head (u=0, v=1): full mast/forestay top position — worker uses hoistAmount
+    // to determine the active region and interpolate luff pin targets.
+    // For jibs, luffTopLocalPosition is at the mast (different XY from the tack
+    // at the bowsprit), so the luff runs diagonally along the forestay.
+    const luffTop = this.config.luffTopLocalPosition ?? local;
+    let headWX: number, headWY: number, headWZ: number;
+    if (hullBody) {
+      [headWX, headWY, headWZ] = hullBody.toWorldFrame3D(
+        luffTop.x,
+        luffTop.y,
+        this.config.zHead,
+      );
+      headWZ -= hullBody.z;
+    } else {
+      headWX = luffTop.x;
+      headWY = luffTop.y;
+      headWZ = this.config.zHead;
+    }
 
     // Sample wind
     let windX = 0,
@@ -512,8 +721,11 @@ export class Sail extends BaseEntity {
       headX: headWX,
       headY: headWY,
       headZ: headWZ,
-      clewPinned: sailShape === "boom",
+      clewPinned: true,
     });
+
+    // The jib clew body is a real 3D physics body — sheet constraints and
+    // cloth 3D reaction forces find equilibrium in all three axes.
   }
 
   /** Get clew position from config (for boom/constraint based sails) */
@@ -529,8 +741,106 @@ export class Sail extends BaseEntity {
 
   @on("render")
   onRender({ draw }: { draw: import("../../../core/graphics/Draw").Draw }) {
+    // Draw furled sail as a white line along the boom/forestay.
+    // Min width matches the spar it wraps; drawn slightly above to stay visible.
+    if (this.hoistAmount < 1) {
+      const hullBody = this.config.getHullBody?.();
+      const sparWidth = this.furlMode === "v-cutoff" ? 0.5 : 0.1;
+      const furlWidth = sparWidth + 0.5 * (1 - this.hoistAmount);
+      // The furled sail wraps around the spar, sitting slightly above its surface.
+      const zBump = 0.05;
+
+      let x1: number, y1: number, z1: number;
+      let x2: number, y2: number, z2: number;
+      let valid = false;
+
+      if (this.furlMode === "v-cutoff") {
+        // Mainsail: line along the boom from mast to boom end. The boom body
+        // is 6DOF, locked to the hull's tilt, so toWorldFrame3D gives the
+        // correct 3D position at both endpoints.
+        const clewLocal = this.config.clewConstraint?.localAnchor;
+        const boomBody = this.config.clewConstraint?.body as
+          | DynamicBody
+          | undefined;
+        if (boomBody && clewLocal) {
+          [x1, y1, z1] = boomBody.toWorldFrame3D(0, 0, zBump);
+          [x2, y2, z2] = boomBody.toWorldFrame3D(
+            clewLocal.x,
+            clewLocal.y,
+            zBump,
+          );
+          valid = true;
+        } else {
+          x1 = y1 = z1 = x2 = y2 = z2 = 0;
+        }
+      } else {
+        // Jib: line along the forestay from bowsprit tip to mast top
+        const local = this.config.headLocalPosition;
+        const luffTop = this.config.luffTopLocalPosition ?? local;
+        if (hullBody) {
+          [x1, y1, z1] = hullBody.toWorldFrame3D(
+            local.x,
+            local.y,
+            this.config.zFoot + zBump,
+          );
+          [x2, y2, z2] = hullBody.toWorldFrame3D(
+            luffTop.x,
+            luffTop.y,
+            this.config.zHead + zBump,
+          );
+          valid = true;
+        } else {
+          x1 = y1 = z1 = x2 = y2 = z2 = 0;
+        }
+      }
+
+      if (valid) {
+        // Build a quad perpendicular to the line with per-vertex z
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 1e-6) {
+          const hw = furlWidth / 2;
+          const nx = (-dy / len) * hw;
+          const ny = (dx / len) * hw;
+          this.furlQuadVerts[0][0] = x1 + nx;
+          this.furlQuadVerts[0][1] = y1 + ny;
+          this.furlQuadVerts[1][0] = x2 + nx;
+          this.furlQuadVerts[1][1] = y2 + ny;
+          this.furlQuadVerts[2][0] = x2 - nx;
+          this.furlQuadVerts[2][1] = y2 - ny;
+          this.furlQuadVerts[3][0] = x1 - nx;
+          this.furlQuadVerts[3][1] = y1 - ny;
+          this.furlQuadZ[0] = z1;
+          this.furlQuadZ[1] = z2;
+          this.furlQuadZ[2] = z2;
+          this.furlQuadZ[3] = z1;
+          draw.renderer.submitTrianglesWithZ(
+            this.furlQuadVerts,
+            Sail.FURL_QUAD_INDICES,
+            0xffffff,
+            0.9,
+            this.furlQuadZ,
+          );
+        }
+      }
+    }
+
     if (this.hoistAmount <= 0) {
       return;
+    }
+
+    // Compute vertex active flags for rendering
+    const active = this.vertexActive;
+    if (this.furlMode === "v-cutoff") {
+      for (let i = 0; i < this.mesh.vertexCount; i++) {
+        active[i] = this.vertexV[i] <= this.hoistAmount ? 1 : 0;
+      }
+    } else {
+      const wrapThreshold = 1 - this.hoistAmount;
+      for (let i = 0; i < this.mesh.vertexCount; i++) {
+        active[i] = this.vertexU[i] >= wrapThreshold ? 1 : 0;
+      }
     }
 
     const { color } = this.config;
@@ -539,19 +849,24 @@ export class Sail extends BaseEntity {
     const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const time = timeOfDay?.getTimeInSeconds() ?? 43200; // default noon
 
-    this.clothRenderer.render(this.handle, draw, color, alpha, time);
+    this.clothRenderer.render(this.handle, draw, color, alpha, time, active);
 
-    // Draw a line along the leech (trailing edge) to give the sail more definition
+    // Draw a line along the leech (trailing edge) to give the sail more definition.
+    // Each segment uses the average z of its endpoints so the line sits on the
+    // sail surface rather than at z=0 (which would be behind the sail mesh).
     const leech = this.mesh.leechVertices;
     for (let i = 0; i < leech.length - 1; i++) {
       const a = leech[i];
       const b = leech[i + 1];
+      // Skip inactive leech segments
+      if (!active[a] || !active[b]) continue;
+      const z = (this.handle.getZ(a) + this.handle.getZ(b)) / 2;
       draw.line(
         this.handle.getPositionX(a),
         this.handle.getPositionY(a),
         this.handle.getPositionX(b),
         this.handle.getPositionY(b),
-        { color: 0xffffff, alpha: 0.95, width: 0.15 },
+        { color: 0xffffff, alpha: 0.95, width: 0.15, z },
       );
     }
   }
@@ -565,6 +880,3 @@ export class Sail extends BaseEntity {
     }
   }
 }
-
-// Default identity tilt transform (no tilt)
-const DEFAULT_TILT_TRANSFORM = new TiltTransform();

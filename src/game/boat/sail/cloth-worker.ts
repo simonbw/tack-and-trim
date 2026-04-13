@@ -2,6 +2,10 @@
  * Web Worker for cloth sail simulation.
  * Runs ClothSolver + aerodynamic forces off the main thread.
  * Communicates via SharedArrayBuffer + Atomics.
+ *
+ * Supports two furl modes:
+ * - "v-cutoff": mainsail in-boom roller — vertices above v threshold are excluded
+ * - "u-wrap": jib forestay roller — vertices below u threshold are pinned to forestay
  */
 
 import { ClothSolver } from "./ClothSolver";
@@ -37,11 +41,15 @@ import {
   INPUT_CLEW_PINNED,
   REACTION_TACK_X,
   REACTION_TACK_Y,
+  REACTION_TACK_Z,
   REACTION_HEAD_X,
   REACTION_HEAD_Y,
+  REACTION_HEAD_Z,
   REACTION_CLEW_X,
   REACTION_CLEW_Y,
+  REACTION_CLEW_Z,
   type ClothWorkerMessage,
+  type FurlMode,
 } from "./cloth-worker-protocol";
 
 // Gravity in ft/s² (downward in z)
@@ -60,6 +68,14 @@ let clewIdx: number;
 let headIdx: number;
 let running = false;
 
+// Furling data
+let furlMode: FurlMode;
+let luffVertices: number[];
+let vertexU: Float64Array;
+let vertexV: Float64Array;
+// Per-vertex active flag (reused each frame, allocated once)
+let vertexActive: Uint8Array;
+
 self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
   const msg = e.data;
 
@@ -70,6 +86,13 @@ self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
     clewIdx = msg.clewIdx;
     headIdx = msg.headIdx;
 
+    // Store furling data
+    furlMode = msg.furlMode;
+    luffVertices = msg.luffVertices;
+    vertexU = msg.vertexU;
+    vertexV = msg.vertexV;
+    vertexActive = new Uint8Array(vertexCount);
+
     // Reconstruct solver from snapshot
     solver = ClothSolver.fromSnapshot({
       vertexCount: msg.vertexCount,
@@ -77,6 +100,7 @@ self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
       prevPositions: msg.prevPositions,
       pinned: msg.pinned,
       pinTargets: msg.pinTargets,
+      skipped: msg.skipped,
       structA: msg.structA,
       structB: msg.structB,
       structRest: msg.structRest,
@@ -117,6 +141,79 @@ self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
   }
 };
 
+/**
+ * Compute active vertex flags and set up pins/skipped state based on furl mode.
+ *
+ * v-cutoff (mainsail): active if v <= hoistAmount. Inactive vertices are skipped.
+ *   All active luff vertices are pinned to the mast (lerp tack→head by v).
+ *
+ * u-wrap (jib): active if u >= (1 - hoistAmount). Inactive vertices are pinned
+ *   to the forestay (lerp tack→head by v). Cross-boundary constraints are kept.
+ */
+function updateFurlState(
+  solver: ClothSolver,
+  hoistAmount: number,
+  tackX: number,
+  tackY: number,
+  tackZ: number,
+  headX: number,
+  headY: number,
+  headZ: number,
+  clewPinned: boolean,
+): void {
+  // Compute per-vertex active flags
+  if (furlMode === "v-cutoff") {
+    for (let i = 0; i < vertexCount; i++) {
+      vertexActive[i] = vertexV[i] <= hoistAmount ? 1 : 0;
+    }
+  } else {
+    // u-wrap
+    const wrapThreshold = 1 - hoistAmount;
+    for (let i = 0; i < vertexCount; i++) {
+      vertexActive[i] = vertexU[i] >= wrapThreshold ? 1 : 0;
+    }
+  }
+
+  // Clear all pin states — we'll set them fresh each frame
+  for (let i = 0; i < vertexCount; i++) {
+    solver.setPinned(i, false);
+  }
+
+  // Pin all active luff vertices to the mast/forestay (lerp tack→head by v)
+  for (const li of luffVertices) {
+    if (!vertexActive[li]) continue;
+    const v = vertexV[li];
+    solver.setPinned(li, true);
+    solver.setPinTarget(
+      li,
+      tackX + v * (headX - tackX),
+      tackY + v * (headY - tackY),
+      tackZ + v * (headZ - tackZ),
+    );
+  }
+
+  // Pin all inactive vertices to the luff at their v-height. This keeps their
+  // positions current as the boat moves, so they enter the simulation smoothly
+  // when they become active (no stale-position explosions).
+  for (let i = 0; i < vertexCount; i++) {
+    if (!vertexActive[i]) {
+      const v = vertexV[i];
+      solver.setPinned(i, true);
+      solver.setPinTarget(
+        i,
+        tackX + v * (headX - tackX),
+        tackY + v * (headY - tackY),
+        tackZ + v * (headZ - tackZ),
+      );
+    }
+  }
+
+  // Clew pin (mainsail boom constraint)
+  if (clewPinned && vertexActive[clewIdx]) {
+    solver.setPinned(clewIdx, true);
+  }
+}
+
 function solveLoop() {
   while (running && solver) {
     // Wait until main thread signals SOLVING
@@ -141,51 +238,60 @@ function solveLoop() {
     const dragScale = input[INPUT_DRAG_SCALE];
     const clewPinned = input[INPUT_CLEW_PINNED] !== 0;
 
+    const tackX = input[INPUT_TACK_X];
+    const tackY = input[INPUT_TACK_Y];
+    const tackZ = input[INPUT_TACK_Z];
+    const headX = input[INPUT_HEAD_X];
+    const headY = input[INPUT_HEAD_Y];
+    const headZ = input[INPUT_HEAD_Z];
+
     // Update solver config
     solver.setConstraintDamping(constraintDamping);
 
-    // Update pin targets
-    solver.setPinTarget(
-      tackIdx,
-      input[INPUT_TACK_X],
-      input[INPUT_TACK_Y],
-      input[INPUT_TACK_Z],
-    );
+    // Update clew pin target (for mainsail boom constraint)
     solver.setPinTarget(
       clewIdx,
       input[INPUT_CLEW_X],
       input[INPUT_CLEW_Y],
       input[INPUT_CLEW_Z],
     );
-    solver.setPinTarget(
-      headIdx,
-      input[INPUT_HEAD_X],
-      input[INPUT_HEAD_Y],
-      input[INPUT_HEAD_Z],
-    );
 
-    // Ensure pin state matches
-    solver.setPinned(tackIdx, true);
-    solver.setPinned(headIdx, true);
-    solver.setPinned(clewIdx, clewPinned);
+    // Set up furl state: active flags, luff pins, skipped vertices
+    updateFurlState(
+      solver,
+      hoistAmount,
+      tackX,
+      tackY,
+      tackZ,
+      headX,
+      headY,
+      headZ,
+      clewPinned,
+    );
 
     // Apply forces and run solver
     const vertexMass = clothMass / vertexCount;
     solver.clearForces();
 
-    // Gravity
+    // Gravity — only for active, non-skipped vertices
     const gravZ = GRAVITY_Z * vertexMass;
     for (let i = 0; i < vertexCount; i++) {
-      solver.applyForce(i, 0, 0, gravZ);
+      if (vertexActive[i]) {
+        solver.applyForce(i, 0, 0, gravZ);
+      }
     }
 
-    // Aerodynamic forces
+    // Aerodynamic forces — only on active triangles (all 3 vertices active)
     if (hoistAmount > 0 && (windX !== 0 || windY !== 0)) {
       const invVertexMass = 1 / vertexMass;
       for (let t = 0; t < indices.length; t += 3) {
         const i0 = indices[t];
         const i1 = indices[t + 1];
         const i2 = indices[t + 2];
+
+        // Skip triangle if any vertex is inactive
+        if (!vertexActive[i0] || !vertexActive[i1] || !vertexActive[i2])
+          continue;
 
         const [fx, fy, fz] = computeClothWindForce(
           solver,
@@ -198,7 +304,7 @@ function solveLoop() {
           dragScale,
         );
 
-        const scale = (hoistAmount * invVertexMass) / 3;
+        const scale = invVertexMass / 3;
         const sfx = fx * scale;
         const sfy = fy * scale;
         const sfz = fz * scale;
@@ -212,30 +318,42 @@ function solveLoop() {
     // Sub-step the solver
     const subDt = dt / substeps;
     const subIter = Math.max(1, Math.round(iterations / substeps));
-    let sumTackRx = 0,
-      sumTackRy = 0;
-    let sumHeadRx = 0,
-      sumHeadRy = 0;
+
+    // Accumulate 3D reaction forces from all luff pins and clew
+    let sumLuffRx = 0,
+      sumLuffRy = 0,
+      sumLuffRz = 0;
     let sumClewRx = 0,
-      sumClewRy = 0;
+      sumClewRy = 0,
+      sumClewRz = 0;
 
     for (let s = 0; s < substeps; s++) {
       solver.update(subDt, subIter);
-      sumTackRx += solver.getReactionForceX(tackIdx);
-      sumTackRy += solver.getReactionForceY(tackIdx);
-      sumHeadRx += solver.getReactionForceX(headIdx);
-      sumHeadRy += solver.getReactionForceY(headIdx);
+
+      // Sum reaction forces from all active luff vertices
+      for (const li of luffVertices) {
+        if (vertexActive[li]) {
+          sumLuffRx += solver.getReactionForceX(li);
+          sumLuffRy += solver.getReactionForceY(li);
+          sumLuffRz += solver.getReactionForceZ(li);
+        }
+      }
+
       sumClewRx += solver.getReactionForceX(clewIdx);
       sumClewRy += solver.getReactionForceY(clewIdx);
+      sumClewRz += solver.getReactionForceZ(clewIdx);
     }
 
-    // Write reaction forces (averaged across substeps)
-    reactions[REACTION_TACK_X] = sumTackRx;
-    reactions[REACTION_TACK_Y] = sumTackRy;
-    reactions[REACTION_HEAD_X] = sumHeadRx;
-    reactions[REACTION_HEAD_Y] = sumHeadRy;
+    // Write 3D reaction forces — luff sum goes into TACK+HEAD slots
+    reactions[REACTION_TACK_X] = 0;
+    reactions[REACTION_TACK_Y] = 0;
+    reactions[REACTION_TACK_Z] = 0;
+    reactions[REACTION_HEAD_X] = sumLuffRx;
+    reactions[REACTION_HEAD_Y] = sumLuffRy;
+    reactions[REACTION_HEAD_Z] = sumLuffRz;
     reactions[REACTION_CLEW_X] = sumClewRx;
     reactions[REACTION_CLEW_Y] = sumClewRy;
+    reactions[REACTION_CLEW_Z] = sumClewRz;
 
     // Write positions to back buffer
     const swapFlag = Atomics.load(control, 1);

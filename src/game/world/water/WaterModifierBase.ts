@@ -51,9 +51,6 @@ export type GPUWaterModifierData = {
  */
 export enum WaterModifierType {
   Wake = 1,
-  Ripple = 2,
-  Current = 3,
-  Obstacle = 4,
 }
 
 /**
@@ -61,11 +58,7 @@ export enum WaterModifierType {
  * Wake uses 7 data floats (point source); other types use 3 floats.
  * All are packed into a fixed-stride buffer (see FLOATS_PER_MODIFIER).
  */
-export type WaterModifierTypeData =
-  | WakeModifierData
-  | RippleModifierData
-  | CurrentModifierData
-  | ObstacleModifierData;
+export type WaterModifierTypeData = WakeModifierData;
 
 /**
  * Wake modifier — expanding ring pulse.
@@ -82,35 +75,4 @@ export type WakeModifierData = {
   ringWidth: number; // [8] Gaussian width of ring pulse (ft)
   amplitude: number; // [9] Pre-computed height at ring (ft)
   turbulence: number; // [10] Pre-computed turbulence at ring (0-1)
-};
-
-/**
- * Ripple modifier - expanding ring with wave pattern.
- * Used by AnchorSplashRipple for anchor splash effects.
- */
-export type RippleModifierData = {
-  type: WaterModifierType.Ripple;
-  radius: number; // Current ring radius in world units
-  intensity: number; // Height amplitude
-  phase: number; // Wave phase (0-2π)
-};
-
-/**
- * Current modifier - directional flow field (future use).
- */
-export type CurrentModifierData = {
-  type: WaterModifierType.Current;
-  velocityX: number;
-  velocityY: number;
-  fadeDistance: number; // Distance over which current fades
-};
-
-/**
- * Obstacle modifier - dampening zone (future use).
- */
-export type ObstacleModifierData = {
-  type: WaterModifierType.Obstacle;
-  dampingFactor: number; // How much to dampen waves (0-1)
-  padding1: number; // Reserved for future use
-  padding2: number; // Reserved for future use
 };

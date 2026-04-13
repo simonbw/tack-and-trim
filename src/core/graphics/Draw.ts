@@ -295,7 +295,7 @@ export class Draw {
       const cp = Math.cos(tilt.pitch);
 
       // Build the model matrix: camera × translate(pos) × tiltRotation
-      // The tilt rotation xy-columns (from TiltTransform):
+      // The tilt rotation xy-columns (from body orientation matrix):
       //   col0 = [ca*cp,          sa*cp         ]
       //   col1 = [ca*sp*sr-sa*cr, sa*sp*sr+ca*cr]
       const r00 = ca * cp;
@@ -326,8 +326,15 @@ export class Draw {
         cam.b * worldZX + cam.d * worldZY,
       );
 
-      // Apply z-offset so all setZ() calls within this context include bb.z
-      if (tilt.zOffset) {
+      // Z-row of the rotation matrix (R[6], R[7], R[8] in row-major order).
+      // Maps hull-local (x, y, z) → world z contribution for depth.
+      // Note: sp and sr use the body's property values which are negated from
+      // the intrinsic Rz·Ry·Rx angles, so R[6]=sp, R[7]=-(cp*sr), R[8]=cp*cr.
+      this.renderer.setZRow(sp, -(cp * sr), cp * cr);
+
+      // Apply z-offset so per-vertex z-values within this context are elevated
+      // from body-local heights to world z-heights (local z + body z = world z).
+      if (tilt.zOffset !== undefined) {
         this.renderer.setZ(tilt.zOffset);
       }
     } else {

@@ -7,8 +7,9 @@ import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import {
   BoatConfig,
-  StarterDinghy,
-  StarterBoat,
+  Kestrel,
+  Osprey,
+  Albatross,
 } from "../game/boat/BoatConfig";
 import { BoatEditorDocument, BoatDocumentListener } from "./BoatEditorDocument";
 import { BoatEditorCameraController } from "./BoatEditorCameraController";
@@ -16,8 +17,9 @@ import { BoatPreviewRenderer } from "./BoatPreviewRenderer";
 import { BoatEditorUI } from "./BoatEditorUI";
 
 export const BOAT_PRESETS: Record<string, BoatConfig> = {
-  "Starter Dinghy": StarterDinghy,
-  "Starter Boat": StarterBoat,
+  Kestrel: Kestrel,
+  Osprey: Osprey,
+  Albatross: Albatross,
 };
 
 export class BoatEditorController
@@ -31,7 +33,7 @@ export class BoatEditorController
 
   constructor() {
     super();
-    this.document = new BoatEditorDocument(StarterDinghy);
+    this.document = new BoatEditorDocument(Kestrel);
     this.document.addListener(this);
   }
 

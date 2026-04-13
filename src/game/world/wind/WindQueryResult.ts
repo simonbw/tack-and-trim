@@ -24,6 +24,14 @@ export class WindResultView {
 
   private _velocity = V(0, 0);
 
+  /**
+   * True wind velocity in world frame — the direction the wind is blowing TOWARD,
+   * not the direction it is coming from. For example, a northerly wind (blowing
+   * from north to south) has velocity pointing south (negative Y in screen coords).
+   *
+   * To compute apparent/relative wind at a point on the boat:
+   *   apparent_wind = wind_velocity - boat_point_velocity
+   */
   get velocity(): V2d {
     this._velocity.set(
       this._data[this._offset + WindResultLayout.fields.velocityX],

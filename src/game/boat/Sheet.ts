@@ -1,144 +1,313 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { Body } from "../../core/physics/body/Body";
-import { DistanceConstraint } from "../../core/physics/constraints/DistanceConstraint";
-import { clamp, lerp, stepToward } from "../../core/util/MathUtil";
+import type { DynamicBody } from "../../core/physics/body/DynamicBody";
+import { clamp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import { VerletRope } from "../rope/VerletRope";
-import type { TiltTransform } from "./TiltTransform";
+import {
+  DeckContactConstraint,
+  type HullBoundaryData,
+} from "../../core/physics/constraints/DeckContactConstraint";
+import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
+import { Rope, RopeConfig, RopeWaypoint } from "../rope/Rope";
+import { WaterQuery } from "../world/water/WaterQuery";
+import { WindQuery } from "../world/wind/WindQuery";
+import type { RopePattern } from "./RopeShader";
 
 export interface SheetConfig {
   minLength: number;
   maxLength: number;
-  defaultLength: number;
-  trimSpeed: number; // Ft / second when pulling in
-  easeSpeed: number; // Ft / second when easing out
-  ropePointCount: number;
   ropeThickness: number;
+  /**
+   * Fallback solid color if `ropePattern` is not specified.
+   * Also used as the padding color when a pattern has fewer carriers than
+   * the uniform buffer expects.
+   */
   ropeColor: number;
+  /**
+   * Rope visual construction and carrier colors. If not specified, the rope
+   * renders as a solid `ropeColor` laid rope.
+   */
+  ropePattern?: RopePattern;
+  /** Particles per foot of rope. Default 1.5. */
+  particlesPerFoot?: number;
+  /**
+   * Rope mass in lbs per foot. Real 5/16" line is ~0.03 lb/ft, but heavier
+   * values improve simulation stability. Default 0.1.
+   */
+  massPerFoot?: number;
+  /** Particle linear damping (0-1). Default 0.05 (low — fluid drag handles
+   *  energy removal via wind/water-relative velocity instead). */
+  ropeDamping?: number;
+  /**
+   * Rope diameter in feet, used for fluid drag area calculation.
+   * Default 0.026 (≈ 5/16 inch, typical small-boat line).
+   */
+  ropeDiameter?: number;
+  /**
+   * Drag coefficient (Cd) for the rope cross-section. Cylinder crossflow
+   * is ~1.2. Increase for braided/fuzzy rope, decrease for smooth line.
+   * Default 1.2.
+   */
+  ropeDragCd?: number;
+  /**
+   * Tailing force in lbf (pounds-force) when trimming at full input.
+   * Represents the mechanical advantage of the winch × crew effort.
+   * Shift-held multiplies the input, simulating grinding harder.
+   * Default 50.
+   */
+  winchForce?: number;
+  /**
+   * Maximum rope speed through the winch in ft/s when trimming.
+   * Models the limit of how fast a crew can crank. Force tapers to
+   * zero as rope speed approaches this value. Default 3.
+   */
+  winchMaxSpeed?: number;
+  /**
+   * Tailing direction as a hull-local unit vector. The rope exits the
+   * winch in this direction (transformed to world space each frame).
+   * Default (-1, 0) = aft along the hull toward the helm.
+   */
+  tailDirection?: V2d;
 }
 
 const DEFAULT_CONFIG: SheetConfig = {
   minLength: 6,
   maxLength: 35,
-  defaultLength: 20,
-  trimSpeed: 15,
-  easeSpeed: 15,
-  ropePointCount: 8,
   ropeThickness: 0.75,
   ropeColor: 0x444444,
+  particlesPerFoot: 1.5,
+  massPerFoot: 0.1,
+  ropeDamping: 0.05,
+  winchForce: 50,
+  winchMaxSpeed: 3,
+  ropeDiameter: 0.026,
+  ropeDragCd: 0.6,
 };
 
 /**
- * A single adjustable sheet (rope) connecting two physics bodies.
- * Can be trimmed in or eased out smoothly.
+ * A single adjustable sheet (rope) connecting a sail to the boat.
+ *
+ * The rope is a fixed-length continuous particle chain with a free bitter end.
+ * Blocks are PulleyConstraint3D (rope slides freely through).
+ * Winches are pulleys with a grip pin: when idle the grip locks the rope;
+ * when the player trims, the grip releases and a force pulls rope through.
  */
 export class Sheet extends BaseEntity {
   layer = "boat" as const;
-  private constraint: DistanceConstraint;
-  private visualRope: VerletRope;
+  private rope: Rope;
 
   private config: SheetConfig;
-  private position: number; // 0 = full in, 1 = full out (single source of truth)
+  /** The hull body — used to compute the tailing direction toward the helm. */
+  private hullBody: Body;
+  /** Index of the winch in the rope's winch array, or -1. */
+  private winchIndex: number;
   private opacity: number = 1.0;
+  /** Cumulative winch handle rotation (radians). */
+  private winchAngle: number = 0;
+  /** Previous working length, for computing winch rotation delta. */
+  private prevWorkingLength: number = -1;
+
+  // Fluid drag queries and state
+  private windQuery: WindQuery;
+  private waterQuery: WaterQuery;
+  private queryPoints: V2d[];
+  /** 0.5 * Cd * ropeDiameter * chainLinkLength — precomputed drag area factor. */
+  private dragHalfCdA: number;
 
   constructor(
-    private bodyA: Body,
-    private localAnchorA: V2d,
-    private bodyB: Body,
-    private localAnchorB: V2d,
+    bodyA: DynamicBody,
+    localAnchorA: V2d,
+    bodyB: Body,
+    localAnchorB: V2d,
     config: Partial<SheetConfig> = {},
-    private getTiltTransform?: () => TiltTransform,
     private zA: number = 0,
     private zB: number = 0,
+    waypoints: RopeWaypoint[] = [],
+    private getDeckHeight?: (localX: number, localY: number) => number | null,
+    private hullBoundary?: HullBoundaryData,
   ) {
     super();
 
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.hullBody = bodyB;
 
-    // Initialize position based on default length
-    this.position =
-      (this.config.defaultLength - this.config.minLength) /
-      (this.config.maxLength - this.config.minLength);
+    // Compute total path distance for rope length calculation
+    const pathPoints = [
+      bodyA.toWorldFrame(localAnchorA),
+      ...waypoints.map((w) => w.body.toWorldFrame(w.localAnchor)),
+      bodyB.toWorldFrame(localAnchorB),
+    ];
+    let totalPathDist = 0;
+    for (let i = 0; i < pathPoints.length - 1; i++) {
+      const dx = pathPoints[i + 1][0] - pathPoints[i][0];
+      const dy = pathPoints[i + 1][1] - pathPoints[i][1];
+      totalPathDist += Math.sqrt(dx * dx + dy * dy);
+    }
 
-    const initialLength = this.getSheetLength();
+    // Total rope length: enough for max working length plus tail
+    const totalRopeLength = Math.max(
+      this.config.maxLength * 1.3,
+      totalPathDist * 1.3,
+    );
 
-    // Create distance constraint configured as a rope:
-    // - upperLimitEnabled: true (can't stretch beyond length)
-    // - lowerLimitEnabled: false (can be slack/closer)
-    this.constraint = new DistanceConstraint(bodyA, bodyB, {
-      localAnchorA: [localAnchorA.x, localAnchorA.y],
-      localAnchorB: [localAnchorB.x, localAnchorB.y],
-    });
+    // Derive particle count and per-particle mass from rope length
+    const particlesPerFt =
+      this.config.particlesPerFoot ?? DEFAULT_CONFIG.particlesPerFoot!;
+    const massPerFt = this.config.massPerFoot ?? DEFAULT_CONFIG.massPerFoot!;
+    const particleCount = Math.max(
+      4,
+      Math.round(totalRopeLength * particlesPerFt),
+    );
+    const particleMass = (totalRopeLength * massPerFt) / particleCount;
 
-    this.constraint.lowerLimit = 0;
-    this.constraint.lowerLimitEnabled = false;
-    this.constraint.upperLimitEnabled = true;
-    this.constraint.upperLimit = initialLength;
+    const ropeConfig: RopeConfig = {
+      particleCount,
+      particleMass,
+      damping: this.config.ropeDamping,
+      freeEndB: true,
+    };
 
-    this.constraints = [this.constraint];
+    this.rope = new Rope(
+      bodyA,
+      [localAnchorA.x, localAnchorA.y, this.zA],
+      bodyB,
+      [localAnchorB.x, localAnchorB.y, this.zB],
+      totalRopeLength,
+      ropeConfig,
+      waypoints,
+    );
 
-    this.visualRope = new VerletRope({
-      pointCount: this.config.ropePointCount ?? 8,
-      restLength: initialLength,
-      gravity: V(0, 3),
-      damping: 0.98,
-      thickness: this.config.ropeThickness ?? 0.75,
-      color: this.config.ropeColor ?? 0x444444,
-    });
+    this.winchIndex = this.rope.findWinch();
 
-    // Initialize rope at correct world positions so it doesn't snap from (0,0) on first frame
-    this.visualRope.reset(this.getAnchorAWorld(), this.getAnchorBWorld());
+    // Expose rope internals to the entity system
+    this.bodies = [...this.rope.getParticles()];
+    this.constraints = [...this.rope.getAllConstraints()];
+
+    // Deck contact: keep rope particles above the deck surface with friction.
+    // Offset by rope radius so the rope sits visibly on top of the deck.
+    // Hull boundary enables stateful inside/outside tracking to prevent
+    // explosive re-entry forces during capsize.
+    if (this.getDeckHeight && this.hullBoundary) {
+      const ropeRadius =
+        (this.config.ropeDiameter ?? DEFAULT_CONFIG.ropeDiameter!) / 2;
+      const particles = this.rope.getParticles();
+      for (const p of particles) {
+        this.constraints.push(
+          new DeckContactConstraint(
+            p,
+            bodyB,
+            this.getDeckHeight,
+            this.hullBoundary,
+            1.5,
+            ropeRadius,
+            {
+              collideConnected: true,
+              wakeUpBodies: false,
+            },
+          ),
+        );
+      }
+    }
+
+    // Fluid drag: query wind and water at each particle position each frame.
+    const particles = this.rope.getParticles();
+    this.queryPoints = Array.from({ length: particles.length }, () => V(0, 0));
+    this.windQuery = this.addChild(new WindQuery(() => this.queryPoints));
+    this.waterQuery = this.addChild(new WaterQuery(() => this.queryPoints));
+
+    // Precompute drag geometry: 0.5 * Cd * diameter * linkLength
+    const cd = this.config.ropeDragCd ?? DEFAULT_CONFIG.ropeDragCd!;
+    const diameter = this.config.ropeDiameter ?? DEFAULT_CONFIG.ropeDiameter!;
+    this.dragHalfCdA = 0.5 * cd * diameter * this.rope.getChainLinkLength();
   }
 
   /**
-   * Adjust sheet length based on input.
-   * @param input -1 to 1 where negative = trim in (shorter), positive = ease out (longer)
-   * @param dt Delta time in seconds
+   * Get the current working length (rope on the sail side of the winch).
    */
-  adjust(input: number, dt: number): void {
-    if (input === 0) return;
-
-    const target = input < 0 ? 0 : 1;
-    const baseSpeed = input < 0 ? this.config.trimSpeed : this.config.easeSpeed;
-    const speed =
-      (Math.abs(input) * baseSpeed) /
-      (this.config.maxLength - this.config.minLength);
-
-    this.position = stepToward(this.position, target, speed * dt);
-    this.syncConstraintAndRope();
+  getWorkingLength(): number {
+    if (this.winchIndex < 0) return this.rope.getLength();
+    return this.rope.getWorkingLength(this.winchIndex);
   }
 
   /**
-   * Instantly release the sheet to maximum length (for tacking).
+   * Adjust sheet length based on player input.
+   *
+   * When trimming: ratchet mode (rope can slide in only) + tailing force
+   * on the tail-side particle toward the helm, pulling rope through.
+   * When easing: free mode — rope slides out under sail loads.
+   * When idle (input = 0): ratchet mode — rope locked against easing.
+   *
+   * @param input Negative = trim in, positive = ease out.
+   *   Magnitude controls force: 1 = normal, >1 = grinding harder (shift held).
+   */
+  adjust(input: number): void {
+    if (this.winchIndex < 0) return;
+
+    if (input === 0) {
+      // Idle: ratchet prevents the sail from pulling rope out
+      this.rope.setWinchMode(this.winchIndex, "ratchet");
+      return;
+    }
+
+    // Clamp: don't trim shorter than minLength or ease longer than maxLength
+    const workingLen = this.rope.getWorkingLength(this.winchIndex);
+    if (input < 0 && workingLen <= this.config.minLength) return;
+    if (input > 0 && workingLen >= this.config.maxLength) return;
+
+    if (input < 0) {
+      // Trimming: ratchet stays engaged (rope can only shorten on working side)
+      // + apply tailing force to actively pull rope through
+      this.rope.setWinchMode(this.winchIndex, "ratchet");
+
+      // Force in engine units: winchForce (lbf) × input magnitude × lbf→engine
+      const forceMag =
+        Math.abs(input) *
+        (this.config.winchForce ?? DEFAULT_CONFIG.winchForce!) *
+        LBF_TO_ENGINE;
+
+      // Tail direction in world space (from hull-local config)
+      const angle = this.hullBody.angle;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const td = this.config.tailDirection;
+      // Default: aft along the hull (-1, 0) in local frame
+      const lx = td ? td.x : -1;
+      const ly = td ? td.y : 0;
+      const aftX = cos * lx - sin * ly;
+      const aftY = sin * lx + cos * ly;
+      const maxSpeed =
+        this.config.winchMaxSpeed ?? DEFAULT_CONFIG.winchMaxSpeed!;
+      this.rope.applyWinchForce(
+        this.winchIndex,
+        forceMag,
+        aftX,
+        aftY,
+        maxSpeed,
+      );
+    } else {
+      // Easing: free mode — sail loads pull the rope out naturally
+      this.rope.setWinchMode(this.winchIndex, "free");
+    }
+  }
+
+  /**
+   * Release the sheet for tacking. Releases the winch grip so sail loads
+   * can pull the rope out freely.
    */
   release(): void {
-    this.position = 1;
-    this.syncConstraintAndRope();
-  }
-
-  /**
-   * Set sheet to a specific position.
-   * @param position 0 = full in, 1 = full out
-   */
-  setPosition(position: number): void {
-    this.position = clamp(position, 0, 1);
-    this.syncConstraintAndRope();
-  }
-
-  private syncConstraintAndRope(): void {
-    const length = this.getSheetLength();
-    this.constraint.upperLimit = length;
-    this.visualRope.setRestLength(length);
+    if (this.winchIndex < 0) return;
+    this.rope.setWinchMode(this.winchIndex, "free");
   }
 
   getSheetPosition(): number {
-    return this.position;
+    const workingLen = this.getWorkingLength();
+    const range = this.config.maxLength - this.config.minLength;
+    return clamp((workingLen - this.config.minLength) / (range || 1), 0, 1);
   }
 
   getSheetLength(): number {
-    return lerp(this.config.minLength, this.config.maxLength, this.position);
+    return this.getWorkingLength();
   }
 
   /** Set the visual opacity of the sheet (0 = invisible, 1 = fully visible) */
@@ -146,95 +315,169 @@ export class Sheet extends BaseEntity {
     this.opacity = clamp(opacity, 0, 1);
   }
 
-  /** Check if sheet is fully eased out (at max length) */
+  /** Check if sheet is fully eased out (at max working length) */
   isAtMaxLength(): boolean {
-    return this.position >= 1;
-  }
-
-  private getAnchorAWorld(): V2d {
-    const [x, y] = this.bodyA.position;
-    return this.localAnchorA.rotate(this.bodyA.angle).iadd([x, y]);
-  }
-
-  private getAnchorBWorld(): V2d {
-    const [x, y] = this.bodyB.position;
-    return this.localAnchorB.rotate(this.bodyB.angle).iadd([x, y]);
+    return this.getSheetPosition() >= 0.99;
   }
 
   @on("tick")
-  onTick({ dt }: GameEventMap["tick"]): void {
-    const anchorA = this.getAnchorAWorld();
-    const anchorB = this.getAnchorBWorld();
-    this.visualRope.update(anchorA, anchorB, dt);
+  onTick({
+    dt,
+  }: import("../../core/entity/Entity").GameEventMap["tick"]): void {
+    this.rope.tick(dt);
+    this.updateQueryPoints();
+    this.applyFluidDrag();
+    this.updateWinchAngle();
   }
 
-  @on("render")
-  onRender({ draw }: { draw: import("../../core/graphics/Draw").Draw }): void {
-    if (this.opacity <= 0) return;
-
-    const tilt = this.getTiltTransform?.();
-    if (!tilt) {
-      this.visualRope.render(draw, this.opacity);
-      return;
+  /** Update winch handle rotation based on rope length change. */
+  private updateWinchAngle(): void {
+    if (this.winchIndex < 0) return;
+    const len = this.rope.getWorkingLength(this.winchIndex);
+    if (this.prevWorkingLength >= 0) {
+      const delta = this.prevWorkingLength - len;
+      // Geared down: one full handle turn per ~6ft of rope travel
+      this.winchAngle += delta / (6 / (2 * Math.PI));
     }
+    this.prevWorkingLength = len;
+  }
 
-    const points = this.visualRope.getPoints();
-    const n = points.length;
-    if (n < 2) return;
-
-    const path = draw.path();
-
-    // Project first point at zA height
-    const p0 = points[0];
-    path.moveTo(
-      p0.x + tilt.worldOffsetX(this.zA),
-      p0.y + tilt.worldOffsetY(this.zA),
-    );
-
-    if (n === 2) {
-      const p1 = points[1];
-      path.lineTo(
-        p1.x + tilt.worldOffsetX(this.zB),
-        p1.y + tilt.worldOffsetY(this.zB),
+  /** Sync query sample points with current particle world positions. */
+  private updateQueryPoints(): void {
+    const particles = this.rope.getParticles();
+    for (let i = 0; i < particles.length; i++) {
+      this.queryPoints[i].set(
+        particles[i].position[0],
+        particles[i].position[1],
       );
-    } else {
-      // Smooth quadratic bezier curve (same logic as VerletRope.render)
-      for (let i = 0; i < n - 2; i++) {
-        const t1 = (i + 1) / (n - 1);
-        const t2 = (i + 2) / (n - 1);
-        const z1 = lerp(this.zA, this.zB, t1);
-        const z2 = lerp(this.zA, this.zB, t2);
+    }
+  }
 
-        const p1x = points[i + 1].x + tilt.worldOffsetX(z1);
-        const p1y = points[i + 1].y + tilt.worldOffsetY(z1);
-        const p2x = points[i + 2].x + tilt.worldOffsetX(z2);
-        const p2y = points[i + 2].y + tilt.worldOffsetY(z2);
+  /**
+   * Apply per-particle aerodynamic or hydrodynamic drag using the fluid
+   * velocity at each particle's position. Particles above the water surface
+   * feel wind drag; particles below feel water drag. The drag force is
+   * proportional to |v_relative|² (quadratic drag on a cylinder cross-section).
+   *
+   * This replaces bulk linear damping as the primary energy-removal mechanism,
+   * giving physically correct behavior: a rope streaming downwind feels no
+   * drag, while one whipping across the wind is heavily damped.
+   */
+  private applyFluidDrag(): void {
+    const particles = this.rope.getParticles();
+    const halfCdA = this.dragHalfCdA;
+    const windAvail = this.windQuery.length > 0;
+    const waterAvail = this.waterQuery.length > 0;
 
-        path.quadraticTo(p1x, p1y, (p1x + p2x) / 2, (p1y + p2y) / 2);
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+
+      // Determine which medium: compare particle z to water surface height
+      let rho: number;
+      let fluidVx: number;
+      let fluidVy: number;
+
+      if (waterAvail) {
+        const water = this.waterQuery.get(i);
+        if (p.z <= water.surfaceHeight) {
+          // Submerged: water drag with water current velocity
+          rho = RHO_WATER;
+          const wv = water.velocity;
+          fluidVx = wv.x;
+          fluidVy = wv.y;
+        } else if (windAvail) {
+          // Above water: air drag with wind velocity
+          rho = RHO_AIR;
+          const wv = this.windQuery.get(i).velocity;
+          fluidVx = wv.x;
+          fluidVy = wv.y;
+        } else {
+          continue;
+        }
+      } else if (windAvail) {
+        // No water data yet — use wind only
+        rho = RHO_AIR;
+        const wv = this.windQuery.get(i).velocity;
+        fluidVx = wv.x;
+        fluidVy = wv.y;
+      } else {
+        // No query data available yet (first frame)
+        continue;
       }
 
-      // Last segment
-      const zLast = this.zB;
-      const zSecondLast = lerp(this.zA, this.zB, (n - 2) / (n - 1));
-      const pLast = points[n - 1];
-      const pSL = points[n - 2];
-      path.quadraticTo(
-        pSL.x + tilt.worldOffsetX(zSecondLast),
-        pSL.y + tilt.worldOffsetY(zSecondLast),
-        pLast.x + tilt.worldOffsetX(zLast),
-        pLast.y + tilt.worldOffsetY(zLast),
-      );
-    }
+      // Relative velocity: particle velocity minus fluid velocity
+      const vrx = p.velocity[0] - fluidVx;
+      const vry = p.velocity[1] - fluidVy;
+      const vrz = p.zVelocity; // fluid has no vertical component
+      const vrMag = Math.sqrt(vrx * vrx + vry * vry + vrz * vrz);
+      if (vrMag < 0.001) continue;
 
-    // Set z for depth testing — use worldZ() for proper tilt-aware depth
-    const avgZ = (this.zA + this.zB) / 2;
-    const z = tilt.worldZ(0, 0, avgZ, 0);
-    draw.renderer.setZ(z);
-    path.stroke(
-      this.config.ropeColor ?? 0x444444,
-      this.config.ropeThickness ?? 0.75,
-      this.opacity,
+      // F = -0.5 * rho * Cd * A * |v_rel| * v_rel, converted to engine units
+      const forceMag = rho * halfCdA * vrMag * vrMag * LBF_TO_ENGINE;
+      // Clamp to prevent numerical explosion from extreme particle velocities
+      const clampedMag = Math.min(forceMag, 1e6);
+      const s = -clampedMag / vrMag;
+      p.applyForce3D(s * vrx, s * vry, s * vrz, 0, 0, 0);
+    }
+  }
+
+  /** Get world-space rope points with z-values from particle positions. */
+  getRopePointsWithZ(): {
+    points: [number, number][];
+    z: number[];
+  } {
+    return this.rope.getPointsWithZ();
+  }
+
+  /** Get visual opacity. */
+  getOpacity(): number {
+    return this.opacity;
+  }
+
+  /** Z-height at anchor A (body A end). */
+  getZA(): number {
+    return this.zA;
+  }
+
+  /** Z-height at anchor B (body B end). */
+  getZB(): number {
+    return this.zB;
+  }
+
+  /** World positions of blocks/waypoints along this sheet. */
+  getBlockPositions(): V2d[] {
+    return this.rope.getWaypointPositions();
+  }
+
+  /** Waypoint info for rendering — position, type, and winch angle. */
+  getWaypointInfo(): {
+    position: V2d;
+    type: "block" | "winch";
+    winchAngle: number;
+  }[] {
+    return this.rope.getWaypointInfo().map((wp) => ({
+      ...wp,
+      winchAngle: wp.type === "winch" ? this.winchAngle : 0,
+    }));
+  }
+
+  /** Rest length of one chain link (uniform segment spacing). */
+  getRopeSegmentLength(): number {
+    return this.rope.getChainLinkLength();
+  }
+
+  /** Rope thickness for rendering. */
+  getRopeThickness(): number {
+    return this.config.ropeThickness;
+  }
+
+  /** Rope construction and carrier colors for rendering. */
+  getRopePattern(): RopePattern {
+    return (
+      this.config.ropePattern ?? {
+        type: "laid",
+        carriers: [this.config.ropeColor],
+      }
     );
-    draw.renderer.setZ(0);
   }
 }

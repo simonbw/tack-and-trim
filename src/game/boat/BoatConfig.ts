@@ -1,18 +1,160 @@
 import { DeepPartial, deepMerge } from "../../core/util/ObjectUtils";
 import { V2d } from "../../core/Vector";
-import { StarterDinghy } from "./configs/StarterDinghy";
 import { SailConfig } from "./sail/Sail";
 import { SheetConfig } from "./Sheet";
+
+/**
+ * Boat coordinate conventions:
+ *   +X = forward (toward bow)
+ *   -X = aft (toward stern)
+ *   +Y = starboard (right when facing forward)
+ *   -Y = port (left when facing forward)
+ *   +Z = up (above waterline)
+ *   -Z = down (below waterline, keel/rudder depth)
+ *   Z = 0 at the waterline
+ *
+ * Angles: radians, positive = counter-clockwise when viewed from above
+ * Roll: positive = heel to port (left side down)
+ * Pitch: positive = bow up
+ *
+ * Units: feet (length), pounds (mass), seconds (time), radians (angles)
+ * Force: engine units = lbf * 32.174 (see LBF_TO_ENGINE in physics-constants.ts)
+ */
 
 // ============================================
 // Component Config Interfaces
 // ============================================
 
+// ============================================
+// Hull Shape Definition (Station Profiles)
+// ============================================
+
+/**
+ * A cross-section profile at a specific x-station along the hull.
+ * Each profile is a half-curve in the y-z plane (starboard side only),
+ * automatically mirrored for the port side.
+ *
+ * Control points go from keel center (y≈0, z=bottom) up to gunwale (y=beam, z=top).
+ * Intermediate points define the hull's cross-sectional curvature — round bilge,
+ * hard chine, tumblehome, flare, etc.
+ */
+export interface HullStation {
+  /** Position along the hull length (ft). +X = forward. */
+  readonly x: number;
+  /**
+   * Half-profile control points as [y, z] pairs (ft).
+   * - y = distance from centerline (0 = keel center, positive = starboard)
+   * - z = height (0 = waterline, positive = above, negative = below)
+   * - First point should be near y=0 (keel/centerline)
+   * - Last point is the gunwale
+   *
+   * Points are spline-interpolated to create a smooth curve.
+   * At the bow, the profile may collapse to a single point [0, z].
+   */
+  readonly profile: ReadonlyArray<readonly [number, number]>;
+}
+
+/**
+ * Hull shape defined as a series of cross-section profiles at stations
+ * along the hull length, like a naval architecture "lines drawing."
+ *
+ * The system interpolates between stations and lofts the resulting profiles
+ * into a 3D triangle mesh. Port side is auto-mirrored from starboard.
+ */
+export interface HullShape {
+  /** Cross-section stations ordered from stern to bow. */
+  readonly stations: readonly HullStation[];
+  /**
+   * Indices of stations to keep sharp (no smoothing in the x-direction).
+   * Typically the bow station. Similar to sharpVertices in the ring system.
+   */
+  readonly sharpStations?: readonly number[];
+  /**
+   * Number of interpolated points per profile curve segment.
+   * Higher = smoother cross-sections. Default 4.
+   */
+  readonly profileSubdivisions?: number;
+  /**
+   * Number of interpolated stations between each defined station.
+   * Higher = smoother hull surface along the length. Default 4.
+   */
+  readonly stationSubdivisions?: number;
+}
+
+// ============================================
+// Deck Plan (Interior Features)
+// ============================================
+
+/**
+ * Zone type hint for gameplay logic, editor tooling, and validation.
+ * All zones render the same way (polygon floor + optional walls);
+ * the type is semantic metadata.
+ */
+export type DeckZoneType =
+  | "deck" // main deck surface
+  | "cockpit" // recessed crew area
+  | "cabin" // raised cabin trunk
+  | "sole" // interior floor (cabin sole, cockpit sole)
+  | "bench" // seating surface
+  | "seat" // individual seat
+  | "companionway" // opening/passage between areas
+  | "locker" // storage area
+  | "lazarette"; // stern storage
+
+/**
+ * A named zone in the deck plan with a polygon outline, floor height,
+ * optional walls, and visual properties.
+ */
+export interface DeckZone {
+  readonly name: string;
+  readonly type: DeckZoneType;
+  /**
+   * Polygon outline in hull-local XY coordinates (ft).
+   * Does not need to match the hull outline exactly — zones are
+   * automatically clipped to the hull's deck edge during rendering.
+   */
+  readonly outline: ReadonlyArray<readonly [number, number]>;
+  /** Floor/surface height (ft above waterline). */
+  readonly floorZ: number;
+  /**
+   * Wall height above floorZ (ft). If set, vertical walls are rendered
+   * around the zone boundary up to floorZ + wallHeight.
+   * For cockpits, this is the coaming height.
+   * For cabins, this is the cabin trunk height.
+   */
+  readonly wallHeight?: number;
+  /** Floor/surface color (hex RGB). */
+  readonly color: number;
+  /** Wall color (hex RGB). Defaults to a darker shade of floor color. */
+  readonly wallColor?: number;
+}
+
+/**
+ * Deck plan defining interior features of the boat.
+ * Zones are rendered bottom-up by floorZ, with higher zones drawing
+ * over lower ones. Zone polygons are clipped to the hull deck outline.
+ */
+export interface DeckPlan {
+  readonly zones: readonly DeckZone[];
+}
+
+// ============================================
+// Hull Config
+// ============================================
+
 export interface HullConfig {
   readonly mass: number; // lbs
+  // --- 2D deck polygon (always required — used for collision shape, spray, wake, etc.) ---
   readonly vertices: V2d[]; // ft, deck/gunwale polygon, counter-clockwise winding (visual/collision)
+  // --- Ring-based hull definition (used for 3D mesh when shape is absent) ---
   readonly waterlineVertices?: V2d[]; // ft, narrower shape at the waterline (water interaction)
   readonly bottomVertices?: V2d[]; // ft, hull bottom shape (narrowest, at z = -draft)
+  readonly sharpVertices?: number[]; // indices of vertices that stay sharp (not smoothed)
+  // --- Station profile hull definition (preferred for 3D mesh when present) ---
+  readonly shape?: HullShape;
+  // --- Deck plan (interior features) ---
+  readonly deckPlan?: DeckPlan;
+  // --- Common properties ---
   readonly skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
   /** Pressure coefficient for front-facing (stagnation) surfaces, dimensionless.
    * Typical range 0.8-1.0. Default 1.0. */
@@ -34,6 +176,7 @@ export interface KeelConfig {
   readonly vertices: V2d[]; // ft, keel shape (usually a line)
   readonly draft: number; // ft below waterline (tip of keel/centerboard)
   readonly chord: number; // ft, foil chord (depth) for hydrodynamic calculations
+  /** Visual color for the keel (hex RGB). */
   readonly color: number;
 }
 
@@ -42,9 +185,10 @@ export interface RudderConfig {
   readonly length: number; // ft (span of rudder blade)
   readonly draft: number; // ft below waterline (tip of rudder)
   readonly chord: number; // ft, foil chord (depth) for hydrodynamic calculations
-  readonly maxSteerAngle: number; // radians
-  readonly steerAdjustSpeed: number; // rad/sec
-  readonly steerAdjustSpeedFast: number; // rad/sec
+  readonly maxSteerAngle: number; // radians (typical 0.5-0.8, ~30-45°)
+  readonly steerAdjustSpeed: number; // rad/s, normal steering rate (typical 0.5-1.5)
+  readonly steerAdjustSpeedFast: number; // rad/s, fast steering rate (typical 1.5-3.0)
+  /** Visual color for the rudder blade (hex RGB). */
   readonly color: number;
 }
 
@@ -81,22 +225,23 @@ export interface RigConfig {
   readonly boomWidth: number; // ft
   readonly boomMass: number; // lbs
   readonly colors: {
-    readonly mast: number;
-    readonly boom: number;
+    readonly mast: number; // hex RGB
+    readonly boom: number; // hex RGB
   };
   readonly mainsail: MainsailConfig;
   readonly stays: {
-    readonly forestay: V2d; // hull-local attachment point for forestay
-    readonly portShroud: V2d; // hull-local attachment point for port shroud
-    readonly starboardShroud: V2d; // hull-local attachment point for starboard shroud
-    readonly backstay: V2d; // hull-local attachment point for backstay
-    readonly deckHeight: number; // z-height of deck attachment points (ft above waterline)
+    readonly forestay: V2d; // ft, hull-local attachment point for forestay
+    readonly portShroud: V2d; // ft, hull-local attachment point for port shroud
+    readonly starboardShroud: V2d; // ft, hull-local attachment point for starboard shroud
+    readonly backstay: V2d; // ft, hull-local attachment point for backstay
+    readonly deckHeight: number; // ft above waterline, z-height of deck attachment points
   };
 }
 
 export interface BowspritConfig {
   readonly attachPoint: V2d; // ft from hull center
   readonly size: V2d; // ft (length, width)
+  /** Visual color for the bowsprit (hex RGB). */
   readonly color: number;
 }
 
@@ -104,22 +249,41 @@ export interface AnchorConfig {
   readonly bowAttachPoint: V2d; // ft from hull center
   readonly maxRodeLength: number; // ft
   readonly anchorSize: number; // ft (visual radius)
-  readonly rodeDeploySpeed: number; // ft/s
-  readonly rodeRetrieveSpeed: number; // ft/s
   readonly anchorMass: number; // lbs
-  readonly anchorDragCoefficient: number; // dimensionless
+  readonly deckHeight: number; // ft above waterline — z for bow roller, winch, and stowed anchor
+  readonly rollInertia: number; // lb·ft² — moment of inertia for roll
+  readonly pitchInertia: number; // lb·ft² — moment of inertia for pitch (around lateral axis)
+  readonly yawInertia: number; // lb·ft² — moment of inertia for yaw
+  /** Body-local offset [x,y,z] where the rode attaches — toward top of shank so tension creates pitch torque. */
+  readonly rodeAttachOffset: readonly [number, number, number];
+  readonly anchorDragCoefficient: number; // scope-based holding drag when set on bottom
+  readonly hoistForce?: number; // lbf for winch when raising (default 15)
+  /** Visual rope pattern for the rode. Defaults to a solid dark color. */
+  readonly ropePattern?: import("./RopeShader").RopePattern;
 }
 
 export interface JibConfig extends BaseSailConfig {}
 
 export interface MainsheetConfig extends Partial<SheetConfig> {
   readonly boomAttachRatio: number; // 0-1 along boom
-  readonly hullAttachPoint: V2d; // ft from hull center
+  readonly hullAttachPoint: V2d; // ft from hull center (cleat — tail end of sheet)
+  /** Winch position on deck (hull-local). Rope controlled here by crew. */
+  readonly winchPoint?: V2d;
 }
 
 export interface JibSheetConfig extends Partial<SheetConfig> {
-  readonly portAttachPoint: V2d; // ft from hull center
-  readonly starboardAttachPoint: V2d; // ft from hull center
+  readonly portAttachPoint: V2d; // ft from hull center (cleat — tail end)
+  readonly starboardAttachPoint: V2d; // ft from hull center (cleat — tail end)
+  /** Optional block position for port sheet (hull-local). Rope routes through this. */
+  readonly portBlockPoint?: V2d;
+  /** Optional block position for starboard sheet (hull-local). */
+  readonly starboardBlockPoint?: V2d;
+  /** Winch position for port sheet (hull-local). */
+  readonly portWinchPoint?: V2d;
+  /** Winch position for starboard sheet (hull-local). */
+  readonly starboardWinchPoint?: V2d;
+  /** Coulomb friction coefficient for jib sheet blocks. 0 = frictionless. Default 0. */
+  readonly blockFrictionCoefficient?: number;
 }
 
 export interface RowingConfig {
@@ -139,7 +303,7 @@ export interface RudderDamageConfig {
   readonly groundingDamageRate: number; // damage per (ft penetration × ft/s speed × second)
   readonly groundingSpeedThreshold: number; // ft/s — below this, grounding does no damage
   readonly maxSteeringReduction: number; // fraction of steering authority lost at health=0 (0-1)
-  readonly maxSteeringBias: number; // max rudder bias in steer units at health=0 (pulls to one side)
+  readonly maxSteeringBias: number; // radians, max rudder bias at health=0 (pulls to one side)
   readonly repairRate: number; // health/s natural repair (0 = none)
 }
 
@@ -152,27 +316,26 @@ export interface HullDamageConfig {
 }
 
 export interface BilgeConfig {
-  readonly maxWaterVolume: number; // cubic ft — cockpit capacity before swamped
+  readonly maxWaterVolume?: number; // cubic ft — override; if omitted, computed from hull geometry
   readonly pumpDrainRate?: number; // cubic ft/s — automatic bilge pump rate (0 or omitted = no pump)
   readonly bailBucketSize: number; // cubic ft — volume removed per bail scoop
   readonly bailInterval: number; // seconds — time between scoops
   readonly waterDensity: number; // lbs/ft³ (62.4 fresh, 64 salt)
-  readonly ingressCoefficient: number; // cubic ft/s per ft of submersion depth
-  readonly sloshGravity: number; // acceleration of water toward low side
-  readonly sloshDamping: number; // damping on slosh velocity
-  readonly halfBeam: number; // ft — half the beam at deck edge (for submersion calc)
+  readonly ingressCoefficient: number; // ft³/s per ft² of submerged gunwale area (length × depth)
+  readonly sloshGravity: number; // ft/s², acceleration of bilge water toward heeled side (typical 5-20)
+  readonly sloshDamping: number; // dimensionless, velocity damping on bilge slosh (typical 0.5-2.0)
   readonly sinkingDuration: number; // seconds — how long the sinking animation takes
 }
 
 export interface TiltConfig {
-  readonly rollInertia: number; // moment of inertia for roll (lbs·ft²)
-  readonly pitchInertia: number; // moment of inertia for pitch (lbs·ft²)
-  readonly rollDamping: number; // angular damping coefficient for roll
-  readonly pitchDamping: number; // angular damping coefficient for pitch
-  readonly rightingMomentCoeff: number; // righting moment coefficient (spring stiffness)
-  readonly pitchRightingCoeff: number; // pitch restoring coefficient
-  readonly waveRollCoeff: number; // wave slope → roll torque coefficient
-  readonly wavePitchCoeff: number; // wave slope → pitch torque coefficient
+  readonly rollInertia: number; // lbs·ft², moment of inertia for roll (typical 500-5000)
+  readonly pitchInertia: number; // lbs·ft², moment of inertia for pitch (typical 500-5000)
+  readonly rollDamping: number; // lbs·ft²/s, angular damping coefficient for roll (typical 50-500)
+  readonly pitchDamping: number; // lbs·ft²/s, angular damping coefficient for pitch (typical 50-500)
+  readonly rightingMomentCoeff: number; // lbs·ft/rad, righting moment spring stiffness (typical 200-2000)
+  readonly pitchRightingCoeff: number; // lbs·ft/rad, pitch restoring spring stiffness (typical 200-2000)
+  readonly waveRollCoeff: number; // dimensionless, wave slope to roll torque gain (typical 0.1-1.0)
+  readonly wavePitchCoeff: number; // dimensionless, wave slope to pitch torque gain (typical 0.1-1.0)
   readonly zHeights: {
     readonly deck: number; // ft above waterline
     readonly boom: number; // ft above waterline
@@ -209,10 +372,10 @@ export interface LifelinesConfig {
   // Height of stanchions above deck (ft)
   readonly stanchionHeight: number;
   // Visual properties
-  readonly tubeColor: number; // stanchion and pulpit tubing color
-  readonly wireColor: number; // lifeline wire color
-  readonly tubeWidth: number; // stroke width for pulpit tubing
-  readonly wireWidth: number; // stroke width for lifeline wires
+  readonly tubeColor: number; // hex RGB, stanchion and pulpit tubing color
+  readonly wireColor: number; // hex RGB, lifeline wire color
+  readonly tubeWidth: number; // ft, stroke width for pulpit tubing (typical 0.05-0.15)
+  readonly wireWidth: number; // ft, stroke width for lifeline wires (typical 0.02-0.06)
 }
 
 // ============================================
@@ -241,8 +404,9 @@ export interface BoatConfig {
 }
 
 // Re-export boat configs
-export { StarterDinghy } from "./configs/StarterDinghy";
-export { StarterBoat } from "./configs/StarterBoat";
+export { Kestrel } from "./configs/Kestrel";
+export { Osprey } from "./configs/Osprey";
+export { Albatross } from "./configs/Albatross";
 
 /**
  * Create a boat config with partial overrides from a base config.

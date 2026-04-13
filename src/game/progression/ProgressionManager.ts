@@ -13,15 +13,15 @@ export class ProgressionManager extends BaseEntity {
   id = "progressionManager";
 
   private money: number = 0;
-  private currentBoatId: string = "starter-dinghy";
+  private currentBoatId: string = "kestrel";
 
   /** Map of boat ID -> set of owned upgrade IDs */
   private ownedBoats: Map<string, Set<string>> = new Map();
 
   constructor() {
     super();
-    // Start with the starter dinghy owned (no upgrades)
-    this.ownedBoats.set("starter-dinghy", new Set());
+    // Start with the Kestrel owned (no upgrades)
+    this.ownedBoats.set("kestrel", new Set());
   }
 
   // ============================================

@@ -6,7 +6,7 @@ import type { SaveFile } from "./SaveFile";
  * Apply saved state back to living game entities.
  *
  * This must be called AFTER the level has been loaded and all entities exist.
- * It restores non-positional state (damage, bilge, anchor). Position and
+ * It restores non-positional state (damage, bilge). Position and
  * rotation are handled by constructing the Boat at the saved position.
  */
 export function applySaveData(game: Game, save: SaveFile): void {
@@ -24,9 +24,4 @@ export function applySaveData(game: Game, save: SaveFile): void {
 
   // Restore bilge water volume
   boat.bilge.waterVolume = boatState.bilgeWater;
-
-  // Restore anchor state
-  if (boatState.anchorDeployed && !boat.anchor.isDeployed()) {
-    boat.anchor.deploy();
-  }
 }

@@ -83,15 +83,10 @@ Camera navigation:
 - Fit to terrain: Home key
 - Keyboard: WASD/arrows to pan, =/- to zoom
 
-### EditorSurfaceRenderer
-
-Renders water and terrain surfaces for visual context.
-
 ## Commands (Undo/Redo)
 
 | Command                     | Description               |
 | --------------------------- | ------------------------- |
-| `MovePointCommand`          | Move single point         |
 | `MovePointsCommand`         | Move multiple points      |
 | `AddPointCommand`           | Add point to contour      |
 | `DeletePointsCommand`       | Delete selected points    |

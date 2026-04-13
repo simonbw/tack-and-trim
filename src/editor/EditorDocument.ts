@@ -614,51 +614,6 @@ export class EditorDocument {
 // ==========================================
 
 /**
- * Command to move a single point.
- */
-export class MovePointCommand implements EditorCommand {
-  description: string;
-
-  constructor(
-    private document: EditorDocument,
-    private contourIndex: number,
-    private pointIndex: number,
-    private oldPosition: V2d,
-    private newPosition: V2d,
-  ) {
-    this.description = "Move point";
-  }
-
-  execute(): void {
-    const contour = this.document.getContour(this.contourIndex);
-    if (!contour) return;
-
-    const points = [...contour.controlPoints];
-    points[this.pointIndex] = V(this.newPosition.x, this.newPosition.y);
-
-    const definition = this.document.getTerrainDefinition();
-    definition.contours[this.contourIndex] = {
-      ...contour,
-      controlPoints: points,
-    };
-  }
-
-  undo(): void {
-    const contour = this.document.getContour(this.contourIndex);
-    if (!contour) return;
-
-    const points = [...contour.controlPoints];
-    points[this.pointIndex] = V(this.oldPosition.x, this.oldPosition.y);
-
-    const definition = this.document.getTerrainDefinition();
-    definition.contours[this.contourIndex] = {
-      ...contour,
-      controlPoints: points,
-    };
-  }
-}
-
-/**
  * Command to move multiple points.
  */
 export class MovePointsCommand implements EditorCommand {

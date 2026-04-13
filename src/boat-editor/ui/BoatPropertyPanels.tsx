@@ -234,14 +234,14 @@ export function BoatPropertyPanels({ controller }: BoatPropertyPanelsProps) {
           step={0.05}
         />
         <NumberField
-          label="Trim Speed"
-          value={config.mainsheet.trimSpeed ?? 3}
-          path="mainsheet.trimSpeed"
+          label="Winch Force"
+          value={config.mainsheet.winchForce ?? 200}
+          path="mainsheet.winchForce"
           controller={controller}
-          min={0.5}
-          max={20}
-          step={0.5}
-          unit="ft/s"
+          min={50}
+          max={1000}
+          step={25}
+          unit="lbf"
         />
       </PanelSection>
 
@@ -328,7 +328,7 @@ export function BoatPropertyPanels({ controller }: BoatPropertyPanelsProps) {
       <PanelSection title="Bilge">
         <NumberField
           label="Max Water Volume"
-          value={config.bilge.maxWaterVolume}
+          value={config.bilge.maxWaterVolume ?? 0}
           path="bilge.maxWaterVolume"
           controller={controller}
           min={1}
@@ -438,15 +438,6 @@ export function BoatPropertyPanels({ controller }: BoatPropertyPanelsProps) {
           max={200}
           step={1}
           unit="lbs"
-        />
-        <NumberField
-          label="Drag Coefficient"
-          value={config.anchor.anchorDragCoefficient}
-          path="anchor.anchorDragCoefficient"
-          controller={controller}
-          min={10}
-          max={1000}
-          step={10}
         />
       </PanelSection>
 

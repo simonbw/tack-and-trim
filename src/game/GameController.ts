@@ -44,7 +44,7 @@ import { applySaveData } from "./persistence/SaveDeserializer";
 //#tunable("Camera") { min: 0.5, max: 10 }
 let MENU_ZOOM: number = 2;
 //#tunable("Camera") { min: 1, max: 20 }
-let GAMEPLAY_ZOOM: number = 5;
+let GAMEPLAY_ZOOM: number = 3.5;
 
 export class GameController extends BaseEntity {
   id = "gameController";
@@ -259,7 +259,6 @@ export class GameController extends BaseEntity {
 
     // Start the tutorial if not already completed
     if (!isTutorialCompleted()) {
-      boat.anchor.deploy(); // Start with anchor deployed for tutorial
       this.game.addEntity(new TutorialManager());
     }
   }

@@ -7,7 +7,13 @@ import { SaveManager } from "./persistence/SaveManager";
 import { listSaves, deleteSave } from "./persistence/SaveStorage";
 import "./MainMenu.css";
 
-const LEVEL_NAMES = Object.keys(RESOURCES.levels) as LevelName[];
+const LEVEL_NAMES = (Object.keys(RESOURCES.levels) as LevelName[]).sort(
+  (a, b) => {
+    if (a === "default") return -1;
+    if (b === "default") return 1;
+    return a.localeCompare(b);
+  },
+);
 
 function formatLevelName(name: string): string {
   // "default" → "Default", "vendoviIsland" → "Vendovi Island"

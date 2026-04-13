@@ -1,6 +1,8 @@
 import { DeepPartial } from "../../core/util/ObjectUtils";
 import { BoatConfig } from "../boat/BoatConfig";
-import { StarterDinghy } from "../boat/configs/StarterDinghy";
+import { Kestrel } from "../boat/configs/Kestrel";
+import { Osprey } from "../boat/configs/Osprey";
+import { Albatross } from "../boat/configs/Albatross";
 
 // ============================================
 // Display Stats (simplified ratings for UI)
@@ -60,7 +62,7 @@ export const UPGRADE_DEFS: readonly UpgradeDef[] = [
     id: "bilge-pump",
     name: "Bilge Pump",
     description:
-      "A small electric bilge pump that automatically drains water from the cockpit.",
+      "An electric bilge pump that automatically drains water from the cockpit.",
     cost: 100,
     applyToConfig: () => ({
       bilge: {
@@ -81,14 +83,29 @@ export const UPGRADE_DEFS: readonly UpgradeDef[] = [
     }),
   },
   {
-    id: "deeper-centerboard",
-    name: "Deeper Centerboard",
+    id: "deeper-keel",
+    name: "Deeper Keel",
     description:
-      "Extended centerboard for better lateral resistance and pointing ability.",
+      "Extended keel for better lateral resistance and pointing ability.",
     cost: 200,
     applyToConfig: (config) => ({
       keel: {
         draft: config.keel.draft * 1.3,
+      },
+    }),
+  },
+  {
+    id: "racing-sails",
+    name: "Racing Sails",
+    description:
+      "High-performance laminate sails with better shape and less drag.",
+    cost: 300,
+    applyToConfig: () => ({
+      rig: {
+        mainsail: {
+          liftScale: 1.15,
+          dragScale: 0.9,
+        },
       },
     }),
   },
@@ -100,24 +117,59 @@ export const UPGRADE_DEFS: readonly UpgradeDef[] = [
 
 export const BOAT_DEFS: readonly BoatDef[] = [
   {
-    id: "starter-dinghy",
-    name: "Starter Dinghy",
+    id: "kestrel",
+    name: "Kestrel",
     description:
-      "A typical 16ft sailing dinghy. Good all-around boat for learning and casual sailing.",
+      "A nimble 22ft daysailer with a swing keel. Responsive and forgiving — a great boat to learn on.",
     cost: 0,
-    baseConfig: StarterDinghy,
+    baseConfig: Kestrel,
     displayStats: {
       speed: 5,
-      stability: 4,
-      durability: 3,
-      maneuverability: 6,
+      stability: 5,
+      durability: 4,
+      maneuverability: 7,
     },
     availableUpgrades: [
       "reinforced-hull",
       "bilge-pump",
       "better-oars",
-      "deeper-centerboard",
+      "deeper-keel",
     ],
+  },
+  {
+    id: "osprey",
+    name: "Osprey",
+    description:
+      "A fast 26ft sportboat with a fin keel. More power and stability, rewarding aggressive sailing.",
+    cost: 500,
+    baseConfig: Osprey,
+    displayStats: {
+      speed: 7,
+      stability: 6,
+      durability: 5,
+      maneuverability: 5,
+    },
+    availableUpgrades: [
+      "reinforced-hull",
+      "bilge-pump",
+      "deeper-keel",
+      "racing-sails",
+    ],
+  },
+  {
+    id: "albatross",
+    name: "Albatross",
+    description:
+      "A powerful 40ft performance cruiser with a deep fin keel. Very stable and fast, but demands planning ahead.",
+    cost: 2000,
+    baseConfig: Albatross,
+    displayStats: {
+      speed: 8,
+      stability: 9,
+      durability: 8,
+      maneuverability: 3,
+    },
+    availableUpgrades: ["reinforced-hull", "bilge-pump", "racing-sails"],
   },
 ];
 

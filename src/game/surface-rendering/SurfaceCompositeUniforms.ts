@@ -30,7 +30,7 @@ export const SurfaceCompositeUniforms = defineUniformStruct("Params", {
   // Time and rendering params
   time: f32,
   tideHeight: f32,
-  shallowThreshold: f32,
+  waterAttenuation: f32,
   hasTerrainData: i32,
 
   // Terrain tile atlas parameters

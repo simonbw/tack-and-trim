@@ -58,8 +58,19 @@ export class PlayerBoatController extends BaseEntity {
     io.setSteeringWheelForceFeedback(this.computeWheelFeedback(steer));
 
     // Update mainsheet (W = trim in, S = ease out)
-    const mainsheetDt = shiftHeld ? dt * 2.5 : dt;
-    this.boat.mainsheet.adjust(-sheet, mainsheetDt);
+    // Normal = 30% winch force, shift = full grind
+    const mainsheetInput = -sheet * (shiftHeld ? 1.0 : 0.3);
+    this.boat.mainsheet.adjust(mainsheetInput);
+
+    // Mainsail hoist/furl (T = hoist, G = furl)
+    const mainHoist = io.isKeyDown("KeyT") ? 1 : io.isKeyDown("KeyG") ? -1 : 0;
+    this.boat.rig.sail.setHoistInput(mainHoist as -1 | 0 | 1);
+
+    // Jib hoist/furl (Y = hoist, H = furl)
+    if (this.boat.jib) {
+      const jibHoist = io.isKeyDown("KeyY") ? 1 : io.isKeyDown("KeyH") ? -1 : 0;
+      this.boat.jib.setHoistInput(jibHoist as -1 | 0 | 1);
+    }
 
     // Jib sheet controls - only if boat has a jib
     if (
@@ -114,22 +125,37 @@ export class PlayerBoatController extends BaseEntity {
         }
       }
 
-      // Jib sheet speed: normal = 0.5x, fast = 1x
-      const jibDt = shiftHeld ? dt : dt * 0.5;
-      activeSheet.adjust(trimInput, jibDt);
+      // Jib sheet: normal = 30% winch force, shift = full grind
+      const jibInput = trimInput * (shiftHeld ? 1.0 : 0.3);
+      activeSheet.adjust(jibInput);
     }
 
     if (io.isKeyDown("Space")) {
       this.boat.row();
     }
 
+    // Anchor rode controls: F (hold) = lower, R (hold) = raise, release = locked
+    if (io.isKeyDown("KeyF") && !this.boat.mooring.isMoored()) {
+      this.boat.anchor.lower();
+    } else if (io.isKeyDown("KeyR")) {
+      this.boat.anchor.raise();
+    } else {
+      this.boat.anchor.idle();
+    }
+
     // Debug: apply heeling forces with [ and ]
     // Apply roll torque by pushing up on one side of the hull
     if (io.isKeyDown("BracketLeft")) {
-      this.boat.hull.body.applyForce3D(0, 0, 20000, 0, 3, 0);
+      this.boat.hull.body.applyForce3D(0, 0, 80000, 0, 3, 0);
     }
     if (io.isKeyDown("BracketRight")) {
-      this.boat.hull.body.applyForce3D(0, 0, -20000, 0, 3, 0);
+      this.boat.hull.body.applyForce3D(0, 0, -80000, 0, 3, 0);
+    }
+
+    // Debug: fill bilge with water (hold ')
+    if (io.isKeyDown("Quote")) {
+      this.boat.bilge.waterVolume +=
+        this.boat.bilge.getMaxWaterVolume() * 0.05 * dt;
     }
   }
 
@@ -187,12 +213,7 @@ export class PlayerBoatController extends BaseEntity {
     if (this.game.entities.tryGetSingleton(PortMenu)) return;
     if (this.boat.bilge.isSinking()) return;
 
-    // Toggle sails hoisted/lowered
-    if (key === "KeyR") {
-      this.boat.toggleSails();
-    }
-
-    // Dock / anchor toggle
+    // Dock toggle (F key, only when near a port — anchor is now hold-to-use)
     if (key === "KeyF") {
       if (this.boat.mooring.isMoored()) {
         this.boat.mooring.castOff();
@@ -200,8 +221,6 @@ export class PlayerBoatController extends BaseEntity {
         const nearbyPort = this.findNearbyPort();
         if (nearbyPort) {
           this.boat.mooring.moorTo(nearbyPort);
-        } else {
-          this.boat.anchor.toggle();
         }
       }
     }

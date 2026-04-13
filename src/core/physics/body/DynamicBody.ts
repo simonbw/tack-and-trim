@@ -440,6 +440,10 @@ export class DynamicBody extends Body implements SleepableBody {
    * relativePoint is in world frame.
    */
   applyForce(force: V2d, relativePoint?: V2d): this {
+    if (!isFinite(force.x) || !isFinite(force.y)) {
+      console.trace(`applyForce NaN on body "${this.id}":`, force.x, force.y);
+      return this;
+    }
     this._force.iadd(force);
 
     if (relativePoint) {
@@ -471,6 +475,24 @@ export class DynamicBody extends Body implements SleepableBody {
     localY: number,
     localZ: number,
   ): this {
+    if (
+      !isFinite(fx) ||
+      !isFinite(fy) ||
+      !isFinite(fz) ||
+      !isFinite(localX) ||
+      !isFinite(localY) ||
+      !isFinite(localZ)
+    ) {
+      console.trace(`applyForce3D NaN on body "${this.id}":`, {
+        fx,
+        fy,
+        fz,
+        localX,
+        localY,
+        localZ,
+      });
+      return this;
+    }
     // Linear force
     this._force.x += fx;
     this._force.y += fy;
@@ -627,6 +649,25 @@ export class DynamicBody extends Body implements SleepableBody {
     const pos = this.position;
     const velo = this._velocity;
 
+    // NaN guard: if accumulated force is NaN, zero it and skip this step.
+    if (!isFinite(f.x) || !isFinite(f.y)) {
+      f.x = 0;
+      f.y = 0;
+      velo.x = 0;
+      velo.y = 0;
+      if (this._is6DOF) {
+        this._angularVelocity3[0] = 0;
+        this._angularVelocity3[1] = 0;
+        this._angularVelocity3[2] = 0;
+        this._zVelocity = 0;
+        this._zForce = 0;
+        this._angularForce3[0] = 0;
+        this._angularForce3[1] = 0;
+        this._angularForce3[2] = 0;
+      }
+      return;
+    }
+
     // Linear velocity update (x, y)
     const fhMinv = V(f);
     fhMinv.imul(dt * minv);
@@ -655,6 +696,29 @@ export class DynamicBody extends Body implements SleepableBody {
         this._angularVelocity3[2] +=
           this._angularForce3[2] * this._invInertia * dt;
       }
+    }
+
+    // NaN guard: if force or velocity became NaN, reset them and skip this step.
+    if (
+      !isFinite(velo.x) ||
+      !isFinite(velo.y) ||
+      !isFinite(this._angularVelocity3[0]) ||
+      !isFinite(this._angularVelocity3[1]) ||
+      !isFinite(this._angularVelocity3[2])
+    ) {
+      console.error(
+        `DynamicBody "${this.id}": NaN detected in integrate, resetting velocity/forces.`,
+        { force: [f.x, f.y], velocity: [velo.x, velo.y] },
+      );
+      velo.x = 0;
+      velo.y = 0;
+      this._angularVelocity3[0] = 0;
+      this._angularVelocity3[1] = 0;
+      this._angularVelocity3[2] = 0;
+      this._zVelocity = 0;
+      f.x = 0;
+      f.y = 0;
+      return;
     }
 
     // CCD
@@ -698,6 +762,74 @@ export class DynamicBody extends Body implements SleepableBody {
   }
 
   // ──────────────────────────────────────────────────────────────
+  // 3D transform helpers
+  // ──────────────────────────────────────────────────────────────
+
+  /**
+   * Compute the world Z-height of a body-local 3D point.
+   * Uses the third row of the rotation matrix: worldZ = R[6]*x + R[7]*y + R[8]*z + bodyZ
+   */
+  worldZ(localX: number, localY: number, localZ: number): number {
+    const R = this._orientation;
+    return R[6] * localX + R[7] * localY + R[8] * localZ + this._z;
+  }
+
+  /**
+   * Transform a body-local 3D point to world coordinates [wx, wy, wz].
+   * Uses the full rotation matrix plus body position and z offset.
+   */
+  toWorldFrame3D(
+    localX: number,
+    localY: number,
+    localZ: number,
+  ): [number, number, number] {
+    const R = this._orientation;
+    return [
+      R[0] * localX + R[1] * localY + R[2] * localZ + this.position[0],
+      R[3] * localX + R[4] * localY + R[5] * localZ + this.position[1],
+      R[6] * localX + R[7] * localY + R[8] * localZ + this._z,
+    ];
+  }
+
+  /**
+   * Transform a world 3D point to body-local coordinates [lx, ly, lz].
+   * Inverse of toWorldFrame3D — subtracts position/z, then applies transposed rotation.
+   */
+  toLocalFrame3D(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): [number, number, number] {
+    const R = this._orientation;
+    const dx = worldX - this.position[0];
+    const dy = worldY - this.position[1];
+    const dz = worldZ - this._z;
+    // R is orthonormal, so R^-1 = R^T
+    return [
+      R[0] * dx + R[3] * dy + R[6] * dz,
+      R[1] * dx + R[4] * dy + R[7] * dz,
+      R[2] * dx + R[5] * dy + R[8] * dz,
+    ];
+  }
+
+  /**
+   * Get the world-space X parallax offset for a given z-height.
+   * This is how much a point at height z shifts in screen X due to tilt.
+   * Uses R[2] (the x-component of the rotation matrix's z-column).
+   */
+  zParallaxX(z: number): number {
+    return this._orientation[2] * z;
+  }
+
+  /**
+   * Get the world-space Y parallax offset for a given z-height.
+   * Uses R[5] (the y-component of the rotation matrix's z-column).
+   */
+  zParallaxY(z: number): number {
+    return this._orientation[5] * z;
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // Private helpers
   // ──────────────────────────────────────────────────────────────
 
@@ -718,30 +850,65 @@ export class DynamicBody extends Body implements SleepableBody {
   }
 
   /**
-   * Integrate the orientation matrix using angular velocity.
-   * R_new = R + skew(ω) * R * dt, then re-orthogonalize.
+   * Integrate the orientation matrix using the Rodrigues (exponential map) formula.
+   * Exact for constant angular velocity over the timestep, unlike first-order Euler.
+   * R_new = exp(skew(ω·dt)) * R
    */
   private _integrateOrientation(dt: number): void {
     const R = this._orientation;
-    const wx = this._angularVelocity3[0];
-    const wy = this._angularVelocity3[1];
-    const wz = this._angularVelocity3[2];
 
-    // skew(ω) * R: each row of the result is ω × (row of R)
-    // But since R is row-major, we compute column-by-column:
-    // new_col_j = col_j + (ω × col_j) * dt
-    for (let j = 0; j < 3; j++) {
-      const c0 = R[j]; // column j, row 0
-      const c1 = R[3 + j]; // column j, row 1
-      const c2 = R[6 + j]; // column j, row 2
+    // Rotation vector for this step
+    const vx = this._angularVelocity3[0] * dt;
+    const vy = this._angularVelocity3[1] * dt;
+    const vz = this._angularVelocity3[2] * dt;
+    const theta2 = vx * vx + vy * vy + vz * vz;
 
-      // ω × c = (wy*c2 - wz*c1, wz*c0 - wx*c2, wx*c1 - wy*c0)
-      R[j] += (wy * c2 - wz * c1) * dt;
-      R[3 + j] += (wz * c0 - wx * c2) * dt;
-      R[6 + j] += (wx * c1 - wy * c0) * dt;
+    // Rodrigues coefficients: s = sin(θ)/θ, c = (1-cos(θ))/θ²
+    // Taylor expansion for small angles avoids 0/0 singularity
+    let s: number, c: number;
+    if (theta2 < 1e-8) {
+      s = 1 - theta2 / 6;
+      c = 0.5 - theta2 / 24;
+    } else {
+      const theta = Math.sqrt(theta2);
+      s = Math.sin(theta) / theta;
+      c = (1 - Math.cos(theta)) / theta2;
     }
 
-    // Re-orthogonalize using Gram-Schmidt on rows
+    // E = I + s·skew(v) + c·skew(v)²
+    const e00 = 1 + c * (-vy * vy - vz * vz);
+    const e01 = -s * vz + c * vx * vy;
+    const e02 = s * vy + c * vx * vz;
+    const e10 = s * vz + c * vx * vy;
+    const e11 = 1 + c * (-vx * vx - vz * vz);
+    const e12 = -s * vx + c * vy * vz;
+    const e20 = -s * vy + c * vx * vz;
+    const e21 = s * vx + c * vy * vz;
+    const e22 = 1 + c * (-vx * vx - vy * vy);
+
+    // R_new = E * R_old (row-major)
+    const r00 = R[0],
+      r01 = R[1],
+      r02 = R[2];
+    const r10 = R[3],
+      r11 = R[4],
+      r12 = R[5];
+    const r20 = R[6],
+      r21 = R[7],
+      r22 = R[8];
+
+    R[0] = e00 * r00 + e01 * r10 + e02 * r20;
+    R[1] = e00 * r01 + e01 * r11 + e02 * r21;
+    R[2] = e00 * r02 + e01 * r12 + e02 * r22;
+    R[3] = e10 * r00 + e11 * r10 + e12 * r20;
+    R[4] = e10 * r01 + e11 * r11 + e12 * r21;
+    R[5] = e10 * r02 + e11 * r12 + e12 * r22;
+    R[6] = e20 * r00 + e21 * r10 + e22 * r20;
+    R[7] = e20 * r01 + e21 * r11 + e22 * r21;
+    R[8] = e20 * r02 + e21 * r12 + e22 * r22;
+
+    // Rodrigues preserves orthogonality well, but Gram-Schmidt guards
+    // against long-term numerical drift
     this._orthogonalizeOrientation();
   }
 

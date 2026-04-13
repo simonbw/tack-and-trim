@@ -11,7 +11,7 @@ cargo install samply
 ## Usage
 
 ```sh
-# Profile terrain-import (default crate):
+# Profile build-level (default crate):
 ./pipeline/profile-samply.sh
 
 # Profile wavemesh-builder:

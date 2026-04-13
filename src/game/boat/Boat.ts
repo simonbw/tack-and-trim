@@ -1,18 +1,22 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import { GameEventMap } from "../../core/entity/Entity";
-import { on } from "../../core/entity/handler";
+import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { BoatSpray } from "../BoatSpray";
-import { Anchor } from "./Anchor";
 import { Bilge } from "./Bilge";
-import { BoatConfig, StarterBoat } from "./BoatConfig";
+import { BoatConfig, Kestrel } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
+import { BoatRenderer } from "./BoatRenderer";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
 import { HullDamage } from "./HullDamage";
 import { RudderDamage } from "./RudderDamage";
 import { SailDamage } from "./SailDamage";
 import { Bowsprit } from "./Bowsprit";
-import { findBowPoint, findSternPoints, Hull } from "./Hull";
+import { findBowPoint, findSternPoints, Hull, type HullMesh } from "./Hull";
+import { extractHullOutlineAtZ } from "./hull-profiles";
+import {
+  buildBoundaryLevel,
+  type HullBoundaryData,
+} from "../../core/physics/constraints/DeckContactConstraint";
 import { Keel } from "./Keel";
 import { Lifelines } from "./Lifelines";
 import { Rig } from "./Rig";
@@ -21,6 +25,7 @@ import { Sail } from "./sail/Sail";
 import { Sheet } from "./Sheet";
 import { Wake } from "./Wake";
 import { Mooring } from "../port/Mooring";
+import { Anchor } from "./Anchor";
 
 export class Boat extends BaseEntity {
   id = "boat";
@@ -75,7 +80,7 @@ export class Boat extends BaseEntity {
 
   constructor(
     startPosition: V2d = V(0, 0),
-    config: BoatConfig = StarterBoat,
+    config: BoatConfig = Kestrel,
     startRotation: number = 0,
   ) {
     super();
@@ -112,31 +117,55 @@ export class Boat extends BaseEntity {
     this.rudder = this.addChild(new Rudder(this.hull, config.rudder));
     this.rig = this.addChild(new Rig(this.hull, config.rig));
 
-    // Wire up tiller rendering (drawn by hull, but follows rudder angle)
-    this.hull.setTillerConfig({
-      position: this.rudder.getPosition(),
-      getTillerAngle: () => this.rudder.getTillerAngleOffset(),
-    });
     if (config.bowsprit) {
       this.bowsprit = this.addChild(new Bowsprit(this, config.bowsprit));
     }
 
+    // Build hull boundary data for deck contact constraints (shared by all sheets).
+    // Samples the hull cross-section at multiple z-levels so wall constraints
+    // respect the hull's tapering shape at different depths.
+    const hullBoundary = buildHullBoundary(
+      this.hull.getPhysicsMesh(),
+      config.hull.deckHeight,
+      config.hull.draft,
+    );
+
     // Create mainsheet (boom to hull)
-    const { hullAttachPoint, boomAttachRatio, ...mainsheetConfig } =
+    const { hullAttachPoint, boomAttachRatio, winchPoint, ...mainsheetConfig } =
       config.mainsheet;
     const boomZ = config.rig.mainsail.zFoot ?? 3;
     const deckZ = config.hull.deckHeight;
-    const getTilt = () => this.hull.tiltTransform;
+    const getDeckHeight = (lx: number, ly: number) =>
+      this.hull.getDeckHeight(lx, ly);
+    // Hardware (blocks, winches) sits slightly above the deck surface.
+    const hardwareOffset = 0.3;
+    const deckZAt = (anchor: V2d) =>
+      (getDeckHeight(anchor.x, anchor.y) ?? deckZ) + hardwareOffset;
+    const mainsheetWaypoints = winchPoint
+      ? [
+          {
+            body: this.hull.body,
+            localAnchor: winchPoint,
+            z: deckZAt(winchPoint),
+            type: "winch" as const,
+            radius: 0,
+          },
+        ]
+      : [];
+    // zA = 0 for the boom: the boom body is 6DOF with zPosition = boomZ
+    // (set in Rig), so the local anchor z is relative to the boom's own plane.
     this.mainsheet = this.addChild(
       new Sheet(
-        this.rig.body,
+        this.rig.body as DynamicBody,
         V(-this.rig.getBoomLength() * boomAttachRatio, 0),
         this.hull.body,
         hullAttachPoint,
         mainsheetConfig,
-        getTilt,
-        boomZ,
-        deckZ,
+        0,
+        deckZAt(hullAttachPoint),
+        mainsheetWaypoints,
+        getDeckHeight,
+        hullBoundary,
       ),
     );
 
@@ -159,32 +188,81 @@ export class Boat extends BaseEntity {
           ...config.jib,
           getHeadPosition: () => this.toWorldFrame(jibTackPosition),
           headLocalPosition: jibTackPosition,
+          luffTopLocalPosition: jibHeadPosition,
           initialClewPosition,
           headConstraint: {
             body: this.hull.body,
             localAnchor: jibTackPosition,
           },
           sailShape: "triangle",
-          getTiltTransform: () => this.hull.tiltTransform,
+          getHullBody: () => this.hull.body,
         }),
       );
 
       // Create jib sheets (clew to hull, port and starboard)
-      const { portAttachPoint, starboardAttachPoint, ...jibSheetConfig } =
-        config.jibSheet;
-      const clewBody = this.jib.getClew();
+      const {
+        portAttachPoint,
+        starboardAttachPoint,
+        portBlockPoint,
+        starboardBlockPoint,
+        portWinchPoint,
+        starboardWinchPoint,
+        ...jibSheetConfig
+      } = config.jibSheet;
+      const clewBody = this.jib.getClew() as DynamicBody;
 
       const jibClewZ = config.jib.zFoot ?? 3;
+      // Build waypoint arrays: blocks first, then winch
+      const portWaypoints: import("../rope/Rope").RopeWaypoint[] = [];
+      if (portBlockPoint)
+        portWaypoints.push({
+          body: this.hull.body,
+          localAnchor: portBlockPoint,
+          z: deckZAt(portBlockPoint),
+          frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
+          radius: 0,
+        });
+      if (portWinchPoint)
+        portWaypoints.push({
+          body: this.hull.body,
+          localAnchor: portWinchPoint,
+          z: deckZAt(portWinchPoint),
+          type: "winch",
+          radius: 0,
+        });
+
+      const starboardWaypoints: import("../rope/Rope").RopeWaypoint[] = [];
+      if (starboardBlockPoint)
+        starboardWaypoints.push({
+          body: this.hull.body,
+          localAnchor: starboardBlockPoint,
+          z: deckZAt(starboardBlockPoint),
+          frictionCoefficient: jibSheetConfig.blockFrictionCoefficient,
+          radius: 0,
+        });
+      if (starboardWinchPoint)
+        starboardWaypoints.push({
+          body: this.hull.body,
+          localAnchor: starboardWinchPoint,
+          z: deckZAt(starboardWinchPoint),
+          type: "winch",
+          radius: 0,
+        });
+
+      // zA = 0 for jib sheets: the clew body already has z = jibClewZ
+      // from its sixDOF setup. The local anchor z is relative to the body.
       this.portJibSheet = this.addChild(
         new Sheet(
           clewBody,
           V(0, 0),
           this.hull.body,
           portAttachPoint,
-          jibSheetConfig,
-          getTilt,
-          jibClewZ,
-          deckZ,
+          { ...jibSheetConfig, tailDirection: V(-1, -1).normalize() },
+          0,
+          deckZAt(portAttachPoint),
+          portWaypoints,
+          getDeckHeight,
+          hullBoundary,
         ),
       );
 
@@ -194,10 +272,12 @@ export class Boat extends BaseEntity {
           V(0, 0),
           this.hull.body,
           starboardAttachPoint,
-          { ...jibSheetConfig },
-          getTilt,
-          jibClewZ,
-          deckZ,
+          { ...jibSheetConfig, tailDirection: V(-1, 1).normalize() },
+          0,
+          deckZAt(starboardAttachPoint),
+          starboardWaypoints,
+          getDeckHeight,
+          hullBoundary,
         ),
       );
       this.starboardJibSheet.release();
@@ -208,9 +288,13 @@ export class Boat extends BaseEntity {
       this.addChild(new Lifelines(this, config.lifelines));
     }
 
-    // Create anchor and mooring
-    this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
+    // Unified boat renderer — all boat visual components rendered through
+    // a single tilt context with per-vertex z for correct depth ordering
+    this.addChild(new BoatRenderer(this));
+
     this.mooring = this.addChild(new Mooring(this));
+
+    this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
 
     // Create wake effects — bow wave (dominant) and stern wave (weaker)
     // Use waterline vertices for wake spawn points (where hull meets water)
@@ -227,7 +311,9 @@ export class Boat extends BaseEntity {
     this.addChild(new BoatGrounding(this));
 
     // Water accumulation, slosh, and bilge system
-    this.bilge = this.addChild(new Bilge(this, config.bilge));
+    this.bilge = this.addChild(
+      new Bilge(this, config.bilge, this.hull.hullVolume),
+    );
 
     // Hull damage tracking
     this.hullDamage = this.addChild(new HullDamage(this, config.hullDamage));
@@ -283,25 +369,6 @@ export class Boat extends BaseEntity {
     this.addChild(new BoatSoundGenerator(this));
   }
 
-  @on("tick")
-  onTick({ dt }: GameEventMap["tick"]): void {
-    // Fade jib sheets based on jib hoist amount
-    if (this.jib && this.portJibSheet && this.starboardJibSheet) {
-      const jibOpacity = this.jib.getHoistAmount();
-      this.portJibSheet.setOpacity(jibOpacity);
-      this.starboardJibSheet.setOpacity(jibOpacity);
-    }
-
-    // Update TiltTransform from the hull body's 6DOF rotation matrix.
-    // The physics engine now integrates z, roll, pitch automatically.
-    const [hx, hy] = this.hull.body.position;
-    this.hull.tiltTransform.updateFromRotationMatrix(
-      this.hull.body.orientation,
-      hx,
-      hy,
-    );
-  }
-
   /** Row the boat forward */
   row(): void {
     const angle = this.hull.body.angle;
@@ -315,11 +382,37 @@ export class Boat extends BaseEntity {
       0,
     );
   }
+}
 
-  /** Toggle sails hoisted/lowered */
-  toggleSails(): void {
-    const newState = !this.rig.sail.isHoisted();
-    this.rig.sail.setHoisted(newState);
-    this.jib?.setHoisted(newState);
+/**
+ * Build hull boundary data by sampling the hull cross-section at multiple
+ * z-levels. The resulting outlines taper from wide (deck) to narrow (keel),
+ * so wall constraints at different depths correctly match the hull shape.
+ */
+function buildHullBoundary(
+  mesh: HullMesh,
+  deckHeight: number,
+  draft: number,
+): HullBoundaryData {
+  // Sample z-levels from hull bottom to deck
+  const zSamples = [
+    -draft,
+    -draft * 0.5,
+    0,
+    deckHeight * 0.33,
+    deckHeight * 0.67,
+    deckHeight,
+  ];
+
+  const levels: HullBoundaryData["levels"] = [];
+  for (const z of zSamples) {
+    const outline = extractHullOutlineAtZ(mesh, z);
+    const level = buildBoundaryLevel(outline, z);
+    if (level) levels.push(level);
   }
+
+  // Sort ascending by z (should already be, but ensure)
+  levels.sort((a, b) => a.z - b.z);
+
+  return { levels, deckHeight, draft };
 }

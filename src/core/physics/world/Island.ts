@@ -50,6 +50,22 @@ export function splitIntoIslands(
       nodeA.equations.push(eq);
       nodeB.equations.push(eq);
     }
+    // 3-body equations (PulleyEquation) have a bodyC — connect it too
+    const eqAny = eq as any;
+    if (eqAny.bodyC) {
+      const nodeC = bodyToNode.get(eqAny.bodyC);
+      if (nodeC) {
+        if (nodeA && !nodeA.neighbors.includes(nodeC)) {
+          nodeA.neighbors.push(nodeC);
+          nodeC.neighbors.push(nodeA);
+        }
+        if (nodeB && !nodeB.neighbors.includes(nodeC)) {
+          nodeB.neighbors.push(nodeC);
+          nodeC.neighbors.push(nodeB);
+        }
+        nodeC.equations.push(eq);
+      }
+    }
   }
 
   // BFS to find connected components starting from dynamic bodies

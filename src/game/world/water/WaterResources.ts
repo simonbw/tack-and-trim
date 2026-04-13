@@ -50,7 +50,7 @@ export const MAX_MODIFIERS = 16384;
  *   [10] turbulence    pre-computed turbulence (0-1)
  *   [11..13] (padding)
  *
- * Ripple / Current / Obstacle use only [5..7], leaving [8..13] as zero.
+ * Slots [11..13] are padding.
  */
 export const FLOATS_PER_MODIFIER = 14;
 
@@ -188,34 +188,16 @@ export class WaterResources extends BaseEntity {
       this.modifierData[base + 4] = mod.bounds.upperBound.y;
 
       // Pack type-specific data (see FLOATS_PER_MODIFIER comment for layout)
-      switch (mod.data.type) {
-        case WaterModifierType.Wake:
-          this.modifierData[base + 5] = mod.data.posX;
-          this.modifierData[base + 6] = mod.data.posY;
-          this.modifierData[base + 7] = mod.data.ringRadius;
-          this.modifierData[base + 8] = mod.data.ringWidth;
-          this.modifierData[base + 9] = mod.data.amplitude;
-          this.modifierData[base + 10] = mod.data.turbulence;
-          this.modifierData[base + 11] = 0; // padding
-          this.modifierData[base + 12] = 0; // padding
-          this.modifierData[base + 13] = 0; // padding
-          break;
-        case WaterModifierType.Ripple:
-          this.modifierData[base + 5] = mod.data.radius;
-          this.modifierData[base + 6] = mod.data.intensity;
-          this.modifierData[base + 7] = mod.data.phase;
-          break;
-        case WaterModifierType.Current:
-          this.modifierData[base + 5] = mod.data.velocityX;
-          this.modifierData[base + 6] = mod.data.velocityY;
-          this.modifierData[base + 7] = mod.data.fadeDistance;
-          break;
-        case WaterModifierType.Obstacle:
-          this.modifierData[base + 5] = mod.data.dampingFactor;
-          this.modifierData[base + 6] = mod.data.padding1;
-          this.modifierData[base + 7] = mod.data.padding2;
-          break;
-      }
+      // Pack wake data (see FLOATS_PER_MODIFIER comment for layout)
+      this.modifierData[base + 5] = mod.data.posX;
+      this.modifierData[base + 6] = mod.data.posY;
+      this.modifierData[base + 7] = mod.data.ringRadius;
+      this.modifierData[base + 8] = mod.data.ringWidth;
+      this.modifierData[base + 9] = mod.data.amplitude;
+      this.modifierData[base + 10] = mod.data.turbulence;
+      this.modifierData[base + 11] = 0; // padding
+      this.modifierData[base + 12] = 0; // padding
+      this.modifierData[base + 13] = 0; // padding
     }
 
     // Only upload the portion we need

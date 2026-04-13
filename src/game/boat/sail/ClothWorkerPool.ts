@@ -13,6 +13,7 @@ import {
   getPositionsA,
   getPositionsB,
   type ClothInitMessage,
+  type FurlMode,
 } from "./cloth-worker-protocol";
 import { SailWorkerHandle } from "./SailWorkerHandle";
 
@@ -23,6 +24,10 @@ export interface ClothWorkerRegistration {
   tackIdx: number;
   clewIdx: number;
   headIdx: number;
+  luffVertices: number[];
+  vertexU: Float64Array;
+  vertexV: Float64Array;
+  furlMode: FurlMode;
 }
 
 export type SailHandle = SailWorkerHandle | ClothSolverSync;
@@ -54,10 +59,25 @@ export class ClothWorkerPool extends BaseEntity {
         config.tackIdx,
         config.clewIdx,
         config.headIdx,
+        config.luffVertices,
+        config.vertexU,
+        config.vertexV,
+        config.furlMode,
       );
     }
 
-    const { solver, vertexCount, indices, tackIdx, clewIdx, headIdx } = config;
+    const {
+      solver,
+      vertexCount,
+      indices,
+      tackIdx,
+      clewIdx,
+      headIdx,
+      luffVertices,
+      vertexU,
+      vertexV,
+      furlMode,
+    } = config;
 
     // Create SharedArrayBuffer
     const sab = createSharedBuffer(vertexCount);
@@ -91,6 +111,7 @@ export class ClothWorkerPool extends BaseEntity {
       prevPositions: snapshot.prevPositions,
       pinned: snapshot.pinned,
       pinTargets: snapshot.pinTargets,
+      skipped: snapshot.skipped,
       structA: snapshot.structA,
       structB: snapshot.structB,
       structRest: snapshot.structRest,
@@ -106,6 +127,10 @@ export class ClothWorkerPool extends BaseEntity {
       tackIdx,
       clewIdx,
       headIdx,
+      luffVertices,
+      vertexU: new Float64Array(vertexU),
+      vertexV: new Float64Array(vertexV),
+      furlMode,
     };
 
     worker.postMessage(msg);
