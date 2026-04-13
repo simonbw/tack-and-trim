@@ -20,7 +20,6 @@ import {
   defineUniformStruct,
   f32,
   mat3x3,
-  vec2,
   vec4,
 } from "../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
@@ -33,7 +32,7 @@ const HULL_WATER_VERTEX_STRIDE = HULL_WATER_VERTEX_SIZE * 4; // 20 bytes
 const HullWaterUniforms = defineUniformStruct("HullWaterUniforms", {
   viewMatrix: mat3x3,
   baseColor: vec4,
-  slosh: vec2,
+  slope: vec4,
   time: f32,
   fillFraction: f32,
 });
@@ -96,17 +95,23 @@ fn valueNoise(p: vec2<f32>) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let t = uniforms.time;
-  let slosh = uniforms.slosh; // (offset, velocity)
+  // slope = (slopeX, slopeY, slopeXVelocity, slopeYVelocity), radians / rad/s
+  let slopeTilt = uniforms.slope.xy;
+  let slopeVel = uniforms.slope.zw;
+  let slopeVelMag = length(slopeVel);
 
-  // Two octaves drifting with time. Low octave biased by slosh so the
-  // pattern visibly shifts toward the low side when heeled.
+  // Two octaves drifting with time. Low octave's UV is biased along the
+  // hull-local slope vector so ripples appear to drift downhill. High octave
+  // shimmer amplitude scales with slope velocity so visible chop responds to
+  // how fast the water is actually sloshing.
   let uv = in.localUV;
   let lowFreq = uv * 0.35 + vec2<f32>(t * 0.15, -t * 0.08)
-              + vec2<f32>(slosh.x * 1.2, 0.0);
+              + slopeTilt * 2.0;
   let highFreq = uv * 1.1 + vec2<f32>(-t * 0.22, t * 0.17)
-              + vec2<f32>(slosh.y * 0.3, 0.0);
+              + slopeVel * 0.5;
+  let highAmp = 0.35 * clamp(0.3 + slopeVelMag * 1.5, 0.3, 1.5);
 
-  let n = valueNoise(lowFreq) * 0.65 + valueNoise(highFreq) * 0.35;
+  let n = valueNoise(lowFreq) * 0.65 + valueNoise(highFreq) * highAmp;
 
   // Alpha ramps with fill fraction: barely-there film at low fill,
   // saturated pool near max fill.
@@ -289,8 +294,10 @@ export class HullWaterShaderInstance {
     indexCount: number,
     color: number,
     alpha: number,
-    sloshOffset: number,
-    sloshVelocity: number,
+    slopeX: number,
+    slopeY: number,
+    slopeXVelocity: number,
+    slopeYVelocity: number,
     fillFraction: number,
     time: number,
   ): void {
@@ -335,7 +342,7 @@ export class HullWaterShaderInstance {
     this.combinedMatrix.multiply(renderer.getTransform());
     this.uniforms.set.viewMatrix(this.combinedMatrix);
     this.uniforms.set.baseColor([baseR, baseG, baseB, alpha]);
-    this.uniforms.set.slosh([sloshOffset, sloshVelocity]);
+    this.uniforms.set.slope([slopeX, slopeY, slopeXVelocity, slopeYVelocity]);
     this.uniforms.set.time(time);
     this.uniforms.set.fillFraction(fillFraction);
     this.uniforms.uploadTo(this.uniformBuffer!);

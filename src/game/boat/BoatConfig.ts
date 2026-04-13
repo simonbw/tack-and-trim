@@ -321,8 +321,12 @@ export interface BilgeConfig {
   readonly bailBucketSize: number; // cubic ft — volume removed per bail scoop
   readonly bailInterval: number; // seconds — time between scoops
   readonly waterDensity: number; // lbs/ft³ (62.4 fresh, 64 salt)
-  readonly sloshGravity: number; // ft/s², acceleration of bilge water toward heeled side (typical 5-20)
-  readonly sloshDamping: number; // dimensionless, velocity damping on bilge slosh (typical 0.5-2.0)
+  /** Natural frequency (rad/s) of the lateral slosh oscillator. ~3-5 for a dinghy. */
+  readonly sloshFreqLateral: number;
+  /** Natural frequency (rad/s) of the longitudinal slosh oscillator. Usually lower than lateral. */
+  readonly sloshFreqLongitudinal: number;
+  /** Damping ratio (0 = undamped, 1 = critical); ~0.3-0.5 looks alive. */
+  readonly sloshDampingRatio: number;
   readonly sinkingDuration: number; // seconds — how long the sinking animation takes
 }
 

@@ -393,9 +393,10 @@ export const Albatross: BoatConfig = {
     bailBucketSize: 0.6,
     bailInterval: 1.2,
     waterDensity: 64,
-    sloshGravity: 3.0,
-    sloshDamping: 2.5,
-    sinkingDuration: 10.0,
+    sloshFreqLateral: 3.2,
+    sloshFreqLongitudinal: 1.6,
+    sloshDampingRatio: 0.45,
+    sinkingDuration: 30.0,
   },
 
   hullDamage: {

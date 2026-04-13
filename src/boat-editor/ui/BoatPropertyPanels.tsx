@@ -347,13 +347,33 @@ export function BoatPropertyPanels({ controller }: BoatPropertyPanelsProps) {
           unit="ft³"
         />
         <NumberField
-          label="Slosh Gravity"
-          value={config.bilge.sloshGravity}
-          path="bilge.sloshGravity"
+          label="Slosh Freq (lateral)"
+          value={config.bilge.sloshFreqLateral}
+          path="bilge.sloshFreqLateral"
+          controller={controller}
+          min={0.5}
+          max={10}
+          step={0.1}
+          unit="rad/s"
+        />
+        <NumberField
+          label="Slosh Freq (longitudinal)"
+          value={config.bilge.sloshFreqLongitudinal}
+          path="bilge.sloshFreqLongitudinal"
+          controller={controller}
+          min={0.5}
+          max={10}
+          step={0.1}
+          unit="rad/s"
+        />
+        <NumberField
+          label="Slosh Damping Ratio"
+          value={config.bilge.sloshDampingRatio}
+          path="bilge.sloshDampingRatio"
           controller={controller}
           min={0}
-          max={20}
-          step={0.5}
+          max={1.5}
+          step={0.05}
         />
       </PanelSection>
 

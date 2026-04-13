@@ -856,8 +856,10 @@ export class BoatRenderer extends BaseEntity {
       this.hullWaterIndexCount,
       bilge.getWaterColor(),
       bilge.getWaterAlpha(),
-      bilge.getSloshOffset(),
-      bilge.getSloshVelocity(),
+      bilge.getSlopeX(),
+      bilge.getSlopeY(),
+      bilge.getSlopeXVelocity(),
+      bilge.getSlopeYVelocity(),
       bilge.getWaterFraction(),
       this.game.elapsedTime,
     );

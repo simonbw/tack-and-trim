@@ -28,12 +28,6 @@ export class PlayerBoatController extends BaseEntity {
     // Port menu open — no controls
     if (this.game.entities.tryGetSingleton(PortMenu)) return;
 
-    // Boat is sinking — no controls
-    if (this.boat.bilge.isSinking()) {
-      this.boat.bilge.setBailing(false);
-      return;
-    }
-
     // Bailing — B key locks out all other controls
     const bailing =
       io.isKeyDown("KeyB") && this.boat.bilge.getWaterFraction() > 0;
@@ -172,9 +166,8 @@ export class PlayerBoatController extends BaseEntity {
 
   @on("keyDown")
   onKeyDown({ key }: GameEventMap["keyDown"]) {
-    // No actions while port menu is open or sinking
+    // No actions while port menu is open
     if (this.game.entities.tryGetSingleton(PortMenu)) return;
-    if (this.boat.bilge.isSinking()) return;
 
     // Dock toggle (F key, only when near a port — anchor is now hold-to-use)
     if (key === "KeyF") {
