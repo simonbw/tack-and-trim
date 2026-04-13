@@ -18,6 +18,11 @@ import { DistanceConstraint3D } from "../../core/physics/constraints/DistanceCon
 import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
 import { V, V2d } from "../../core/Vector";
 import { CompatibleVector3, V3, V3d } from "../../core/Vector3";
+
+// Module-level scratch vectors reused by getPointsWithZ() to avoid
+// allocating a fresh V3d for each endpoint every render frame.
+const SCRATCH_ENDPOINT_A = new V3d(0, 0, 0);
+const SCRATCH_ENDPOINT_B = new V3d(0, 0, 0);
 import { RopeParticle } from "./RopeParticle";
 import { RopeSegment } from "./RopeSegment";
 
@@ -357,13 +362,14 @@ export class Rope extends BaseEntity {
   } {
     let idx = 0;
 
-    // Endpoint A
-    const [eax, eay, eaz] = this.endpointA.body.toWorldFrame3D(
+    // Endpoint A (zero-alloc via scratch)
+    const eA = this.endpointA.body.toWorldFrame3D(
       this.endpointA.anchor,
+      SCRATCH_ENDPOINT_A,
     );
-    this.cachedPositions[idx][0] = eax;
-    this.cachedPositions[idx][1] = eay;
-    this.cachedZValues[idx] = eaz;
+    this.cachedPositions[idx][0] = eA[0];
+    this.cachedPositions[idx][1] = eA[1];
+    this.cachedZValues[idx] = eA[2];
     idx++;
 
     // Particles
@@ -375,14 +381,15 @@ export class Rope extends BaseEntity {
       idx++;
     }
 
-    // Endpoint B (only if attached)
+    // Endpoint B (only if attached, zero-alloc via scratch)
     if (!this.freeEndB) {
-      const [ebx, eby, ebz] = this.endpointB.body.toWorldFrame3D(
+      const eB = this.endpointB.body.toWorldFrame3D(
         this.endpointB.anchor,
+        SCRATCH_ENDPOINT_B,
       );
-      this.cachedPositions[idx][0] = ebx;
-      this.cachedPositions[idx][1] = eby;
-      this.cachedZValues[idx] = ebz;
+      this.cachedPositions[idx][0] = eB[0];
+      this.cachedPositions[idx][1] = eB[1];
+      this.cachedZValues[idx] = eB[2];
     }
 
     return { points: this.cachedPositions, z: this.cachedZValues };

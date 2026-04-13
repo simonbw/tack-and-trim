@@ -3,6 +3,11 @@ import type { Body } from "../body/Body";
 import { CompatibleVector3, V3, V3d } from "../../Vector3";
 import { Spring, SpringOptions } from "./Spring";
 
+// Module-level scratch vectors reused across all RopeSpring3D instances to
+// avoid allocating two V3ds per spring per step inside applyForce().
+const SCRATCH_A = new V3d(0, 0, 0);
+const SCRATCH_B = new V3d(0, 0, 0);
+
 export interface RopeSpring3DOptions extends SpringOptions {
   /** 3D anchor point on bodyA in local coordinates. Default [0,0,0]. */
   localAnchorA?: CompatibleVector3;
@@ -59,9 +64,15 @@ export class RopeSpring3D extends Spring {
     const bodyA = this.bodyA;
     const bodyB = this.bodyB;
 
-    // World anchor positions (3D)
-    const [ax, ay, az] = bodyA.toWorldFrame3D(this.localAnchorA);
-    const [bx, by, bz] = bodyB.toWorldFrame3D(this.localAnchorB);
+    // World anchor positions (3D) — zero-alloc via scratch
+    const a = bodyA.toWorldFrame3D(this.localAnchorA, SCRATCH_A);
+    const b = bodyB.toWorldFrame3D(this.localAnchorB, SCRATCH_B);
+    const ax = a[0];
+    const ay = a[1];
+    const az = a[2];
+    const bx = b[0];
+    const by = b[1];
+    const bz = b[2];
 
     // Separation vector
     const dx = bx - ax;

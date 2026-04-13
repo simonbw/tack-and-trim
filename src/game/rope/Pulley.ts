@@ -28,6 +28,10 @@ import {
   type PulleyMode,
 } from "../../core/physics/constraints/PulleyConstraint3D";
 import { V3, V3d } from "../../core/Vector3";
+
+// Module-level scratch vector reused by shiftIndex() and findInitialParticles()
+// to avoid allocating a fresh V3d each tick.
+const SCRATCH_PULLEY = new V3d(0, 0, 0);
 import type { Rope } from "./Rope";
 
 export interface PulleyConfig {
@@ -139,7 +143,10 @@ export class Pulley extends BaseEntity {
    */
   private findInitialParticles(): number {
     const particles = this.particles;
-    const [wx, wy, wz] = this.pulleyBody.toWorldFrame3D(this.localAnchor);
+    const w = this.pulleyBody.toWorldFrame3D(this.localAnchor, SCRATCH_PULLEY);
+    const wx = w[0];
+    const wy = w[1];
+    const wz = w[2];
 
     // Find the triple (p_i, p_{i+1}, p_{i+2}) whose two outer particles have
     // the smallest combined distance to the pulley. This picks the slot that
@@ -201,7 +208,10 @@ export class Pulley extends BaseEntity {
     const epsilon = Pulley.SHIFT_EPSILON_FRACTION * this.chainLinkLength;
     const clearDist = Pulley.SKIP_CLEAR_FRACTION * this.chainLinkLength;
     const maxIndex = this.particles.length - 3;
-    const [px, py, pz] = this.pulleyBody.toWorldFrame3D(this.localAnchor);
+    const p = this.pulleyBody.toWorldFrame3D(this.localAnchor, SCRATCH_PULLEY);
+    const px = p[0];
+    const py = p[1];
+    const pz = p[2];
 
     // Clear skip once the particle has settled away from the pulley
     if (
