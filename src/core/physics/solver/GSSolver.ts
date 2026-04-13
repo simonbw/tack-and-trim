@@ -39,6 +39,15 @@
  * subsequent equations in the same iteration see the updated velocities.
  * This is what makes it "Gauss-Seidel" rather than "Jacobi".
  *
+ * ## Per-body state storage
+ *
+ * The solver stores per-body scratch state (vlambda, wlambda, inverse mass,
+ * inverse inertia) in a {@link SolverWorkspace}. Bodies are assigned integer
+ * indices at the start of each solve; equations read/write the flat
+ * Float64Arrays in the workspace by index. This replaces an earlier design
+ * that used `Map<Body, SolverBodyState>` — the index-based layout removes
+ * two Map lookups from the inner loop of every equation iteration.
+ *
  * ## Friction pre-iterations
  *
  * Friction equations depend on the normal force magnitude from their
@@ -55,38 +64,14 @@
  * efficiency). This means the system has settled and further iterations
  * would produce negligible improvement.
  */
-import { Body } from "../body/Body";
+import { profiler } from "../../util/Profiler";
 import { DynamicBody } from "../body/DynamicBody";
 import type { Equation } from "../equations/Equation";
 import { FrictionEquation } from "../equations/FrictionEquation";
 import type { Island } from "../world/Island";
+import type { SolverWorkspace } from "./SolverWorkspace";
 
 // --- Types ---
-
-/** Ephemeral solver state for a body during constraint resolution. */
-export interface SolverBodyState {
-  /** Linear constraint velocity accumulator [vx, vy, vz] */
-  vlambda: Float64Array;
-  /** Angular constraint velocity accumulator [wx, wy, wz] in world frame */
-  wlambda: Float64Array;
-  /** 0 if sleeping, else body.invMass (for x, y axes) */
-  invMassSolve: number;
-  /** 0 if sleeping or non-6DOF, else body.invMassZ */
-  invMassSolveZ: number;
-  /** World-frame 3x3 inverse inertia tensor (row-major). Reference to body's array. */
-  invInertiaSolve: Float64Array;
-}
-
-/** Creates initial solver state for a body. */
-function createSolverState(body: Body, isSleeping: boolean): SolverBodyState {
-  return {
-    vlambda: new Float64Array(3),
-    wlambda: new Float64Array(3),
-    invMassSolve: isSleeping ? 0 : body.invMass,
-    invMassSolveZ: isSleeping ? 0 : body.invMassZ,
-    invInertiaSolve: isSleeping ? Body.ZERO_9 : body.invWorldInertia,
-  };
-}
 
 export interface SolverConfig {
   /** Maximum number of Gauss-Seidel iterations per solve. Higher values
@@ -129,14 +114,16 @@ export const DEFAULT_SOLVER_CONFIG: SolverConfig = {
 /**
  * Solve a set of constraint equations using the iterative Gauss-Seidel method.
  *
- * This is a pure function that takes equations and bodies, solves the
- * constraints, and updates body velocities and equation multipliers in place.
+ * Updates body velocities and equation multipliers in place. The workspace
+ * is owned by the caller and reused across solves; this function calls
+ * `workspace.reset()` at the start so callers don't need to.
  */
 export function solveEquations(
   equations: readonly Equation[],
   dynamicBodies: Iterable<DynamicBody>,
   h: number,
   config: SolverConfig,
+  workspace: SolverWorkspace,
 ): SolverResult {
   const {
     iterations,
@@ -145,6 +132,8 @@ export function solveEquations(
     useZeroRHS,
     equationSortFunction,
   } = config;
+
+  profiler.start("Solver.setup");
 
   // Sort if configured
   if (equationSortFunction) {
@@ -156,42 +145,35 @@ export function solveEquations(
 
   const Neq = equations.length;
   if (Neq === 0) {
+    workspace.reset();
+    profiler.end("Solver.setup");
     return { usedIterations: 0 };
   }
 
   const tolSquared = tolerance ** 2;
   let usedIterations = 0;
 
-  // Create solver state map for all bodies in equations
-  const bodyState = new Map<Body, SolverBodyState>();
-
-  // Initialize state for dynamic bodies
+  // Assign workspace indices. Register dynamic bodies first so their
+  // invMass/invInertia slots get filled from the live body data and they
+  // show up on the finalize pass. Then let each equation pull in any
+  // static/kinematic (or extra pulley) bodies it references.
+  workspace.reset();
   for (const body of dynamicBodies) {
-    bodyState.set(body, createSolverState(body, body.isSleeping()));
+    workspace.registerDynamic(body);
+  }
+  for (let i = 0; i < Neq; i++) {
+    equations[i].assignIndices(workspace);
   }
 
-  // Ensure all bodies in equations have state (for static/kinematic bodies)
-  for (const eq of equations) {
-    if (!bodyState.has(eq.bodyA)) {
-      bodyState.set(eq.bodyA, createSolverState(eq.bodyA, false));
-    }
-    if (!bodyState.has(eq.bodyB)) {
-      bodyState.set(eq.bodyB, createSolverState(eq.bodyB, false));
-    }
-    // 3-body equations (PulleyEquation) have a bodyC
-    const eqAny = eq as any;
-    if (eqAny.bodyC && !bodyState.has(eqAny.bodyC)) {
-      bodyState.set(eqAny.bodyC, createSolverState(eqAny.bodyC, false));
-    }
-  }
-
-  // Allocate per-equation solver arrays:
-  // lambda[i] — accumulated impulse for equation i
-  // Bs[i]     — right-hand side: encodes the violation to correct this step
-  // invCs[i]  — inverse effective mass: 1/(G*M^-1*G^T + epsilon)
-  const lambda = new Float32Array(Neq);
-  const Bs = new Float32Array(Neq);
-  const invCs = new Float32Array(Neq);
+  // Allocate per-equation scratch. Grows geometrically; steady state is
+  // zero-alloc.
+  workspace.ensureEqCapacity(Neq);
+  const lambda = workspace.lambda;
+  const Bs = workspace.Bs;
+  const invCs = workspace.invCs;
+  // Clear only the live region — the tail may hold stale values from a
+  // larger previous solve.
+  lambda.fill(0, 0, Neq);
 
   // Prepare equations - compute B and invC values
   for (let i = 0; i < Neq; i++) {
@@ -200,10 +182,13 @@ export function solveEquations(
       eq.timeStep = h;
       eq.update();
     }
-    Bs[i] = eq.computeB(eq.a, eq.b, h, bodyState);
-    invCs[i] = eq.computeInvC(eq.epsilon, bodyState);
+    Bs[i] = eq.computeB(eq.a, eq.b, h, workspace);
+    invCs[i] = eq.computeInvC(eq.epsilon, workspace);
   }
 
+  profiler.end("Solver.setup");
+
+  profiler.start("Solver.warmStart");
   // Warm start: initialize lambda from previous frame's solution and
   // pre-apply the cached impulses to body velocity deltas. This lets the
   // solver start near the previous solution instead of from zero, which
@@ -218,9 +203,10 @@ export function solveEquations(
       if (warm < minFDt) warm = minFDt;
       else if (warm > maxFDt) warm = maxFDt;
       lambda[i] = warm;
-      eq.addToWlambda(warm, bodyState);
+      eq.addToWlambda(warm, workspace);
     }
   }
+  profiler.end("Solver.warmStart");
 
   // Optional friction pre-iteration phase
   if (frictionIterations > 0) {
@@ -232,7 +218,7 @@ export function solveEquations(
         lambda,
         useZeroRHS,
         h,
-        bodyState,
+        workspace,
       );
       usedIterations++;
 
@@ -246,6 +232,7 @@ export function solveEquations(
   }
 
   // Main iteration phase
+  profiler.start("Solver.iterate");
   for (let iter = 0; iter < iterations; iter++) {
     const deltaTot = runIteration(
       equations,
@@ -254,7 +241,7 @@ export function solveEquations(
       lambda,
       useZeroRHS,
       h,
-      bodyState,
+      workspace,
     );
     usedIterations++;
 
@@ -262,27 +249,35 @@ export function solveEquations(
       break;
     }
   }
+  profiler.end("Solver.iterate");
 
-  // Apply constraint velocities to dynamic bodies
-  for (const body of dynamicBodies) {
-    const state = bodyState.get(body)!;
-    const vl = state.vlambda;
-    const wl = state.wlambda;
+  profiler.start("Solver.finalize");
+  // Apply constraint velocities to dynamic bodies. The workspace's parallel
+  // dynamicBodies/dynamicBodyIndices arrays give us each dynamic body along
+  // with its slot in the flat vlambda/wlambda arrays.
+  const dynBodies = workspace.dynamicBodies;
+  const dynIdx = workspace.dynamicBodyIndices;
+  const vl = workspace.vlambda;
+  const wl = workspace.wlambda;
+  const dynCount = dynBodies.length;
+  for (let i = 0; i < dynCount; i++) {
+    const body = dynBodies[i];
+    const base = dynIdx[i] * 3;
 
     // Linear velocity (x, y always; z only for 6DOF)
-    body.velocity.x += vl[0];
-    body.velocity.y += vl[1];
+    body.velocity.x += vl[base];
+    body.velocity.y += vl[base + 1];
 
     // Angular velocity (all 3 axes via the 3-vector)
     const av = body.angularVelocity3;
-    av[0] += wl[0];
-    av[1] += wl[1];
-    av[2] += wl[2];
+    av[0] += wl[base];
+    av[1] += wl[base + 1];
+    av[2] += wl[base + 2];
 
-    // Z velocity (only meaningful for 6DOF bodies; vlambda[2] is 0 for 3DOF
-    // because invMassSolveZ is 0, so this is a no-op for 3DOF)
+    // Z velocity (only meaningful for 6DOF bodies; vlambda[base+2] is 0 for
+    // 3DOF because invMassSolveZ is 0, so this is a no-op for 3DOF)
     if (body.is6DOF) {
-      body.zVelocity += vl[2];
+      body.zVelocity += vl[base + 2];
     }
   }
 
@@ -291,6 +286,7 @@ export function solveEquations(
     equations[i].warmLambda = lambda[i];
   }
   updateMultipliers(equations, lambda, 1 / h);
+  profiler.end("Solver.finalize");
 
   return { usedIterations };
 }
@@ -299,11 +295,15 @@ export function solveEquations(
  * Solve all equations in an island.
  *
  * Extracts dynamic bodies from the island and delegates to solveEquations.
+ * The caller is responsible for passing a workspace; when solving multiple
+ * islands in one step, the same workspace can be reused (it will be reset
+ * at the start of each `solveEquations` call).
  */
 export function solveIsland(
   island: Island,
   h: number,
   config: SolverConfig,
+  workspace: SolverWorkspace,
 ): SolverResult {
   // Extract dynamic bodies from island
   const dynamicBodies: DynamicBody[] = [];
@@ -318,6 +318,7 @@ export function solveIsland(
     dynamicBodies,
     h,
     config,
+    workspace,
   );
 }
 
@@ -342,7 +343,7 @@ function runIteration(
   lambda: Float32Array,
   useZeroRHS: boolean,
   h: number,
-  bodyState: Map<Body, SolverBodyState>,
+  workspace: SolverWorkspace,
 ): number {
   let deltalambdaTot = 0.0;
   const Neq = equations.length;
@@ -358,7 +359,7 @@ function runIteration(
       lambda,
       useZeroRHS,
       h,
-      bodyState,
+      workspace,
     );
     deltalambdaTot += Math.abs(deltalambda);
   }
@@ -386,12 +387,12 @@ function iterateEquation(
   lambda: Float32Array,
   useZeroRHS: boolean,
   dt: number,
-  bodyState: Map<Body, SolverBodyState>,
+  workspace: SolverWorkspace,
 ): number {
   let B = Bs[j];
   const invC = invCs[j];
   const lambdaj = lambda[j];
-  const GWlambda = eq.computeGWlambda(bodyState);
+  const GWlambda = eq.computeGWlambda(workspace);
 
   const maxForce = eq.maxForce;
   const minForce = eq.minForce;
@@ -411,7 +412,7 @@ function iterateEquation(
     deltalambda = maxForce * dt - lambdaj;
   }
   lambda[j] += deltalambda;
-  eq.addToWlambda(deltalambda, bodyState);
+  eq.addToWlambda(deltalambda, workspace);
 
   return deltalambda;
 }

@@ -5,7 +5,7 @@ import { ProfileRow } from "./ProfileRow";
 import type { StatsPanel, StatsPanelContext } from "./StatsPanel";
 
 const TOP_N_PROFILES = 100;
-const TOP_N_CHILDREN = 3;
+const TOP_N_CHILDREN = 5;
 
 declare global {
   interface PerformanceMemory {

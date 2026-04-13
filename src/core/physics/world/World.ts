@@ -23,6 +23,7 @@ import {
   solveIsland,
   type SolverConfig,
 } from "../solver/GSSolver";
+import { SolverWorkspace } from "../solver/SolverWorkspace";
 import type { Spring } from "../springs/Spring";
 import { BodyManager } from "./BodyManager";
 import { ConstraintManager } from "./ConstraintManager";
@@ -117,6 +118,9 @@ export class World extends EventEmitter<PhysicsEventMap> {
   sleepMode: SleepMode;
   /** Tracks shape overlaps for begin/end contact events. */
   overlapKeeper: OverlapKeeper;
+  /** Solver scratch state, reused across every `step()` to avoid per-solve
+   *  allocation. See {@link SolverWorkspace}. */
+  private solverWorkspace: SolverWorkspace = new SolverWorkspace();
 
   /** Creates a new physics world. */
   constructor(options: WorldOptions = {}) {
@@ -307,9 +311,11 @@ export class World extends EventEmitter<PhysicsEventMap> {
       // Refresh constraint Jacobians against current positions. (On the
       // first substep this matches legacy behavior where solve() called
       // c.update() once.)
+      profiler.start("World.constraintUpdate");
       for (const c of this.constraints) {
         c.update();
       }
+      profiler.end("World.constraintUpdate");
 
       const result = this.solve(h, contactEquations, frictionEquations);
       lastIslands = result.islands;
@@ -502,11 +508,13 @@ export class World extends EventEmitter<PhysicsEventMap> {
   } {
     // Collect all equations. Constraint Jacobians are refreshed by the
     // substep loop in step() before calling solve().
+    profiler.start("World.collectEquations");
     const allEquations = [
       ...contacts,
       ...friction,
       ...[...this.constraints].flatMap((c) => c.equations),
     ];
+    profiler.end("World.collectEquations");
 
     if (allEquations.length === 0) {
       return {
@@ -525,7 +533,12 @@ export class World extends EventEmitter<PhysicsEventMap> {
       let maxIter = 0;
       for (const island of islands) {
         if (island.equations.length) {
-          const result = solveIsland(island, dt, this.solverConfig);
+          const result = solveIsland(
+            island,
+            dt,
+            this.solverConfig,
+            this.solverWorkspace,
+          );
           totalIter += result.usedIterations;
           if (result.usedIterations > maxIter) maxIter = result.usedIterations;
         }
@@ -543,6 +556,7 @@ export class World extends EventEmitter<PhysicsEventMap> {
         this.bodies.dynamicAwake,
         dt,
         this.solverConfig,
+        this.solverWorkspace,
       );
       return {
         islands: undefined,

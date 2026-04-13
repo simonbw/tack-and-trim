@@ -3,6 +3,12 @@ import { CompatibleVector3, V3, V3d } from "../../Vector3";
 import { Equation } from "../equations/Equation";
 import { ConstraintOptions, Constraint } from "./Constraint";
 
+// Module-level scratch vectors reused across all DistanceConstraint3D instances
+// to avoid allocating a fresh V3d on every update() / computeGq() call (hot
+// path: ~500 rope constraints × 8 substeps × 2 anchors per step).
+const SCRATCH_A = new V3d(0, 0, 0);
+const SCRATCH_B = new V3d(0, 0, 0);
+
 /** Options for creating a DistanceConstraint3D. */
 export interface DistanceConstraint3DOptions extends ConstraintOptions {
   /** Target distance. If not set, uses current 3D distance between anchors. */
@@ -91,11 +97,11 @@ export class DistanceConstraint3D extends Constraint {
     const that = this;
     const normal = new Equation(bodyA, bodyB, -maxForce, maxForce);
     normal.computeGq = function () {
-      const [ax, ay, az] = this.bodyA.toWorldFrame3D(that.localAnchorA);
-      const [bx, by, bz] = this.bodyB.toWorldFrame3D(that.localAnchorB);
-      const dx = bx - ax;
-      const dy = by - ay;
-      const dz = bz - az;
+      const a = this.bodyA.toWorldFrame3D(that.localAnchorA, SCRATCH_A);
+      const b = this.bodyB.toWorldFrame3D(that.localAnchorB, SCRATCH_B);
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const dz = b[2] - a[2];
       return Math.sqrt(dx * dx + dy * dy + dz * dz) - that.distance;
     };
 
@@ -112,9 +118,15 @@ export class DistanceConstraint3D extends Constraint {
     const normalEquation = this.equations[0];
     const G = normalEquation.G;
 
-    // Transform local anchors to world 3D
-    const [ax, ay, az] = bodyA.toWorldFrame3D(this.localAnchorA);
-    const [bx, by, bz] = bodyB.toWorldFrame3D(this.localAnchorB);
+    // Transform local anchors to world 3D (zero-alloc via scratch)
+    const a = bodyA.toWorldFrame3D(this.localAnchorA, SCRATCH_A);
+    const b = bodyB.toWorldFrame3D(this.localAnchorB, SCRATCH_B);
+    const ax = a[0];
+    const ay = a[1];
+    const az = a[2];
+    const bx = b[0];
+    const by = b[1];
+    const bz = b[2];
 
     // Separation vector and distance
     const dx = bx - ax;

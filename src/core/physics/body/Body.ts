@@ -182,30 +182,41 @@ export abstract class Body extends EventEmitter<PhysicsEventMap> {
    * Transform a body-local 3D point to world coordinates.
    * Non-6DOF bodies use 2D toWorldFrame for x,y and return localZ for z.
    */
-  toWorldFrame3D(point: CompatibleVector3): V3d;
-  toWorldFrame3D(localX: number, localY: number, localZ: number): V3d;
+  toWorldFrame3D(point: CompatibleVector3, out?: V3d): V3d;
+  toWorldFrame3D(
+    localX: number,
+    localY: number,
+    localZ: number,
+    out?: V3d,
+  ): V3d;
   toWorldFrame3D(
     localXOrPoint: number | CompatibleVector3,
-    localY?: number,
+    localYOrOut?: number | V3d,
     localZ?: number,
+    out?: V3d,
   ): V3d {
     let lx: number, ly: number, lz: number;
+    let target: V3d | undefined;
     if (typeof localXOrPoint === "number") {
       lx = localXOrPoint;
-      ly = localY!;
+      ly = localYOrOut as number;
       lz = localZ!;
+      target = out;
     } else {
       lx = localXOrPoint[0];
       ly = localXOrPoint[1];
       lz = localXOrPoint[2];
+      target = localYOrOut as V3d | undefined;
     }
     const c = Math.cos(this.angle);
     const s = Math.sin(this.angle);
-    return new V3d(
-      c * lx - s * ly + this.position[0],
-      s * lx + c * ly + this.position[1],
-      lz,
-    );
+    const wx = c * lx - s * ly + this.position[0];
+    const wy = s * lx + c * ly + this.position[1];
+    const wz = lz;
+    if (target) {
+      return target.set(wx, wy, wz);
+    }
+    return new V3d(wx, wy, wz);
   }
 
   /**

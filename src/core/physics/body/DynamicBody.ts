@@ -836,29 +836,40 @@ export class DynamicBody extends Body implements SleepableBody {
    * Transform a body-local 3D point to world coordinates.
    * Uses the full rotation matrix plus body position and z offset.
    */
-  override toWorldFrame3D(point: CompatibleVector3): V3d;
-  override toWorldFrame3D(localX: number, localY: number, localZ: number): V3d;
+  override toWorldFrame3D(point: CompatibleVector3, out?: V3d): V3d;
+  override toWorldFrame3D(
+    localX: number,
+    localY: number,
+    localZ: number,
+    out?: V3d,
+  ): V3d;
   override toWorldFrame3D(
     localXOrPoint: number | CompatibleVector3,
-    localY?: number,
+    localYOrOut?: number | V3d,
     localZ?: number,
+    out?: V3d,
   ): V3d {
     let lx: number, ly: number, lz: number;
+    let target: V3d | undefined;
     if (typeof localXOrPoint === "number") {
       lx = localXOrPoint;
-      ly = localY!;
+      ly = localYOrOut as number;
       lz = localZ!;
+      target = out;
     } else {
       lx = localXOrPoint[0];
       ly = localXOrPoint[1];
       lz = localXOrPoint[2];
+      target = localYOrOut as V3d | undefined;
     }
     const R = this._orientation;
-    return new V3d(
-      R[0] * lx + R[1] * ly + R[2] * lz + this.position[0],
-      R[3] * lx + R[4] * ly + R[5] * lz + this.position[1],
-      R[6] * lx + R[7] * ly + R[8] * lz + this._z,
-    );
+    const wx = R[0] * lx + R[1] * ly + R[2] * lz + this.position[0];
+    const wy = R[3] * lx + R[4] * ly + R[5] * lz + this.position[1];
+    const wz = R[6] * lx + R[7] * ly + R[8] * lz + this._z;
+    if (target) {
+      return target.set(wx, wy, wz);
+    }
+    return new V3d(wx, wy, wz);
   }
 
   /**

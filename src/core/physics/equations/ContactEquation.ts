@@ -1,7 +1,7 @@
 import { V, V2d } from "../../Vector";
 import type { Body } from "../body/Body";
 import type { Shape } from "../shapes/Shape";
-import type { SolverBodyState } from "../solver/GSSolver";
+import type { SolverWorkspace } from "../solver/SolverWorkspace";
 import { Equation } from "./Equation";
 
 /**
@@ -55,12 +55,7 @@ export class ContactEquation extends Equation {
     this.normalA = V();
   }
 
-  computeB(
-    a: number,
-    b: number,
-    h: number,
-    bodyState: Map<Body, SolverBodyState>,
-  ): number {
+  computeB(a: number, b: number, h: number, ws: SolverWorkspace): number {
     const bi = this.bodyA;
     const bj = this.bodyB;
     const ri = this.contactPointA;
@@ -98,7 +93,7 @@ export class ContactEquation extends Equation {
       GW = this.computeGW();
     }
 
-    const GiMf = this.computeGiMf(bodyState);
+    const GiMf = this.computeGiMf(ws);
     const B = -Gq * a - GW * b - h * GiMf;
 
     return B;

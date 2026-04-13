@@ -1,5 +1,5 @@
 import type { Body } from "../body/Body";
-import type { SolverBodyState } from "../solver/GSSolver";
+import type { SolverWorkspace } from "../solver/SolverWorkspace";
 import { Equation } from "./Equation";
 
 /**
@@ -13,17 +13,12 @@ export class RotationalVelocityEquation extends Equation {
     this.relativeVelocity = 1;
   }
 
-  computeB(
-    a: number,
-    b: number,
-    h: number,
-    bodyState: Map<Body, SolverBodyState>,
-  ): number {
+  computeB(a: number, b: number, h: number, ws: SolverWorkspace): number {
     const G = this.G;
     G[5] = -1;
     G[11] = this.ratio;
 
-    const GiMf = this.computeGiMf(bodyState);
+    const GiMf = this.computeGiMf(ws);
     const GW = this.computeGW();
     const B = -GW * b - h * GiMf;
 
