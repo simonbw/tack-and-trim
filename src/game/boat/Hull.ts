@@ -386,6 +386,24 @@ export class Hull extends BaseEntity {
     const cpStag = this.stagnationCoefficient;
     const cpSep = this.separationCoefficient;
 
+    // Depth baseline for buoyancy: the minimum submersion across all mesh
+    // vertices. When the hull is fully submerged every vertex has sub > 0, and
+    // subtracting this baseline from each triangle's depth keeps individual
+    // buoyancy force magnitudes bounded by hull height instead of sink depth.
+    // For a closed mesh the constant offset integrates to zero, so the net
+    // buoyancy force and torque are unchanged — only the numerical cancellation
+    // between near-equal top/bottom forces is improved. When any part of the
+    // hull is above water (minSub <= 0) the baseline is clamped to 0 and the
+    // computation reduces exactly to the previous behavior.
+    let minSub = Infinity;
+    for (let v = 0; v < meshPos.length; v++) {
+      const wz = body.worldZ(meshPos[v][0], meshPos[v][1], meshZ[v]);
+      const wh = v < wq.length ? wq.get(v).surfaceHeight : 0;
+      const sub = wh - wz;
+      if (sub < minSub) minSub = sub;
+    }
+    const depthBaseline = Math.max(0, minSub);
+
     for (let i = 0; i < fd.count; i++) {
       const area = fd.area[i];
       if (area < 0.001) continue;
@@ -462,9 +480,10 @@ export class Hull extends BaseEntity {
         //     -wnz < 0, so force is downward — water presses down on the top
         //     surface. This is critical at extreme heel when deck edges submerge.
         //   - Side triangles (wnz ≈ 0): negligible contribution either way.
-        if (avgDepth > 0) {
+        const effectiveDepth = avgDepth - depthBaseline;
+        if (effectiveDepth > 0) {
           const buoyancyMag =
-            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * avgDepth * area * -wnz;
+            BUOYANCY_FORCE_PER_DEPTH_PER_AREA * effectiveDepth * area * -wnz;
           body.applyForce3D(0, 0, buoyancyMag, localX, localY, localZ);
         }
 

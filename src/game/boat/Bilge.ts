@@ -138,6 +138,14 @@ export class Bilge extends BaseEntity {
   private volumeTableV: Float64Array;
   private totalHullVolume: number;
 
+  // Centroid of the full hull interior, used as the static force application
+  // point when the bilge is fully flooded (no air left to swap places with →
+  // no free-surface effect, so water weight acts at a fixed point rather than
+  // the sloshing pool centroid).
+  private staticCentroidX = 0;
+  private staticCentroidY = 0;
+  private staticCentroidZ = 0;
+
   // Per-station scratch for the wetted-area clipper (preallocated polygon buffers).
   private clipInY: Float64Array;
   private clipInZ: Float64Array;
@@ -219,6 +227,17 @@ export class Bilge extends BaseEntity {
       prevZ = z;
     }
     this.totalHullVolume = cumV > 0 ? cumV : hullVolume;
+
+    // Precompute the static interior centroid by integrating with a level
+    // plane well above the deck, so every hull cross-section is fully below it.
+    const fullStats = this.integratePoolUnderPlane(
+      0,
+      0,
+      deckHeight + draft + 1,
+    );
+    this.staticCentroidX = fullStats.cx;
+    this.staticCentroidY = fullStats.cy;
+    this.staticCentroidZ = fullStats.cz;
   }
 
   /**
@@ -436,8 +455,15 @@ export class Bilge extends BaseEntity {
     // gLocalZ is normally strongly negative; guard for the inverted-boat edge.
     const safeGz =
       Math.abs(gLocalZ) > 1e-3 ? gLocalZ : gLocalZ >= 0 ? 1e-3 : -1e-3;
-    const slopeXTarget = -gLocalX / safeGz;
-    const slopeYTarget = -gLocalY / safeGz;
+    // Cap slope targets at extreme attitudes. Past ~72° tilt of the water
+    // plane the bilge integration and centroid are meaningless anyway, and
+    // unclamped targets drive violent oscillator transients when the hull
+    // is inverted or on its side.
+    const MAX_SLOPE = 3;
+    const rawSlopeX = -gLocalX / safeGz;
+    const rawSlopeY = -gLocalY / safeGz;
+    const slopeXTarget = Math.max(-MAX_SLOPE, Math.min(MAX_SLOPE, rawSlopeX));
+    const slopeYTarget = Math.max(-MAX_SLOPE, Math.min(MAX_SLOPE, rawSlopeY));
 
     if (this.waterVolume > 0.01) {
       const wxLat = this.config.sloshFreqLateral;
@@ -509,16 +535,33 @@ export class Bilge extends BaseEntity {
     this.poolCentroidY = lastStats.cy;
     this.poolCentroidZ = lastStats.cz;
 
-    // --- Water weight applied at the real pool centroid (free-surface effect) ---
+    // --- Water weight application ---
+    //
+    // The free-surface effect exists because water redistributes into space
+    // formerly occupied by air. When the bilge is fully flooded there is no
+    // air to swap with, so the slosh torque must vanish and the water weight
+    // should act at a fixed interior centroid. We blend between the sloshing
+    // pool centroid and the precomputed static centroid by `airFraction`.
+    // At airFraction = 1 this reduces exactly to the previous behavior; at
+    // airFraction = 0 the water acts as a rigid ballast at the hull interior
+    // centroid, eliminating the self-reinforcing slosh loop that destabilizes
+    // the hull when it sinks completely.
     if (waterMass > 0) {
-      body.applyForce3D(
+      const fillFraction = Math.max(
         0,
-        0,
-        -waterMass * GRAVITY,
-        this.poolCentroidX,
-        this.poolCentroidY,
-        this.poolCentroidZ,
+        Math.min(1, this.waterVolume / this.maxWaterVolume),
       );
+      const airFraction = 1 - fillFraction;
+      const appCx =
+        this.staticCentroidX +
+        (this.poolCentroidX - this.staticCentroidX) * airFraction;
+      const appCy =
+        this.staticCentroidY +
+        (this.poolCentroidY - this.staticCentroidY) * airFraction;
+      const appCz =
+        this.staticCentroidZ +
+        (this.poolCentroidZ - this.staticCentroidZ) * airFraction;
+      body.applyForce3D(0, 0, -waterMass * GRAVITY, appCx, appCy, appCz);
     }
   }
 
