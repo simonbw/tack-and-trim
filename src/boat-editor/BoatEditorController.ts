@@ -8,8 +8,18 @@ import { on } from "../core/entity/handler";
 import {
   BoatConfig,
   Kestrel,
-  Osprey,
-  Albatross,
+  ShaffS7,
+  ShaffS11,
+  ShaffS15,
+  ShaffS20,
+  BhcDaysailer,
+  BhcWeekender,
+  BhcJourney,
+  BhcExpedition,
+  MaestroEtude,
+  MaestroTrio,
+  MaestroFantasia,
+  MaestroOpus,
 } from "../game/boat/BoatConfig";
 import { BoatEditorDocument, BoatDocumentListener } from "./BoatEditorDocument";
 import { BoatEditorCameraController } from "./BoatEditorCameraController";
@@ -17,9 +27,19 @@ import { BoatPreviewRenderer } from "./BoatPreviewRenderer";
 import { BoatEditorUI } from "./BoatEditorUI";
 
 export const BOAT_PRESETS: Record<string, BoatConfig> = {
+  "Shaff S-7": ShaffS7,
+  "Shaff S-11": ShaffS11,
+  "Shaff S-15": ShaffS15,
+  "Shaff S-20": ShaffS20,
+  "BHC Daysailer": BhcDaysailer,
+  "BHC Weekender": BhcWeekender,
+  "BHC Journey": BhcJourney,
+  "BHC Expedition": BhcExpedition,
+  "Maestro Etude": MaestroEtude,
+  "Maestro Trio": MaestroTrio,
+  "Maestro Fantasia": MaestroFantasia,
+  "Maestro Opus": MaestroOpus,
   Kestrel: Kestrel,
-  Osprey: Osprey,
-  Albatross: Albatross,
 };
 
 export class BoatEditorController

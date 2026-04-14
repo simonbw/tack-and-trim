@@ -402,10 +402,25 @@ export interface BoatConfig {
   readonly sailDamage: SailDamageConfig;
 }
 
-// Re-export boat configs
+// Legacy configs (still used as defaults in Boat.ts and the boat editor)
 export { Kestrel } from "./configs/Kestrel";
 export { Osprey } from "./configs/Osprey";
 export { Albatross } from "./configs/Albatross";
+// Re-export boat configs — Shaff
+export { ShaffS7 } from "./configs/ShaffS7";
+export { ShaffS11 } from "./configs/ShaffS11";
+export { ShaffS15 } from "./configs/ShaffS15";
+export { ShaffS20 } from "./configs/ShaffS20";
+// Re-export boat configs — BHC
+export { BhcDaysailer } from "./configs/BhcDaysailer";
+export { BhcWeekender } from "./configs/BhcWeekender";
+export { BhcJourney } from "./configs/BhcJourney";
+export { BhcExpedition } from "./configs/BhcExpedition";
+// Re-export boat configs — Maestro
+export { MaestroEtude } from "./configs/MaestroEtude";
+export { MaestroTrio } from "./configs/MaestroTrio";
+export { MaestroFantasia } from "./configs/MaestroFantasia";
+export { MaestroOpus } from "./configs/MaestroOpus";
 
 /**
  * Create a boat config with partial overrides from a base config.
