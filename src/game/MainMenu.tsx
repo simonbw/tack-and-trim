@@ -29,13 +29,11 @@ export class MainMenu extends ReactEntity {
               onClick={() => this.continueGame()}
             >
               <div class="main-menu__card-label">Continue</div>
-              {this.mostRecent && (
-                <div class="main-menu__save-details">
-                  {this.mostRecent.saveName} ·{" "}
-                  {formatLevelName(this.mostRecent.levelId)} ·{" "}
-                  {formatTimestamp(this.mostRecent.lastSaved)}
-                </div>
-              )}
+              <div class="main-menu__save-details">
+                {this.mostRecent
+                  ? `${this.mostRecent.saveName} · ${formatLevelName(this.mostRecent.levelId)} · ${formatTimestamp(this.mostRecent.lastSaved)}`
+                  : "No saved games"}
+              </div>
             </button>
             <button
               class="main-menu__card"
