@@ -226,7 +226,7 @@ export class PlayerBoatController extends BaseEntity {
   }
 
   @on("destroy")
-  onDestroy(): void {
-    this.game.io.setSteeringWheelForceFeedback(0);
+  onDestroy({ game }: GameEventMap["destroy"]): void {
+    game.io.setSteeringWheelForceFeedback(0);
   }
 }

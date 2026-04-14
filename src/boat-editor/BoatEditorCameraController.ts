@@ -9,6 +9,7 @@
  */
 
 import { BaseEntity } from "../core/entity/BaseEntity";
+import type { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 import { clamp, lerp } from "../core/util/MathUtil";
 
@@ -43,8 +44,8 @@ export class BoatEditorCameraController extends BaseEntity {
   }
 
   @on("destroy")
-  onDestroy() {
-    const canvas = this.game!.renderer.canvas;
+  onDestroy({ game }: GameEventMap["destroy"]) {
+    const canvas = game.renderer.canvas;
     canvas.removeEventListener("mousedown", this.handleMouseDown);
     canvas.removeEventListener("wheel", this.handleWheel);
     window.removeEventListener("mousemove", this.handleMouseMove);

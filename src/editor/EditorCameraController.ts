@@ -51,10 +51,10 @@ export class EditorCameraController extends BaseEntity {
   }
 
   @on("destroy")
-  onDestroy(): void {
+  onDestroy({ game }: GameEventMap["destroy"]): void {
     // Remove wheel event listener
     if (this.wheelHandler) {
-      const canvas = this.game.renderer.canvas;
+      const canvas = game.renderer.canvas;
       canvas.removeEventListener("wheel", this.wheelHandler);
       this.wheelHandler = null;
     }
