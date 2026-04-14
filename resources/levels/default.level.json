@@ -1,5 +1,9 @@
 {
   "version": 2,
+  "displayInfo": {
+    "description": "An open test basin with deep water and steady winds. Good for trying out the controls before heading somewhere real.",
+    "difficulty": "beginner"
+  },
   "defaultDepth": -300,
   "waves": {
     "sources": [

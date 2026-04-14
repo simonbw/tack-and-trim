@@ -1,6 +1,10 @@
 {
   "version": 2,
   "name": "Apostle Islands",
+  "displayInfo": {
+    "description": "A cluster of forested islands on the south shore of Lake Superior. Shifty winds in the channels and long fetches out in open water.",
+    "difficulty": "intermediate"
+  },
   "region": {
     "dataSource": {
       "type": "usace-s3",

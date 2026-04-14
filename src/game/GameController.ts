@@ -17,6 +17,7 @@ import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
 import { GameOverScreen } from "./GameOverScreen";
 import { MainMenu } from "./MainMenu";
+import { NewGameMenu } from "./NewGameMenu";
 import { PauseMenu } from "./PauseMenu";
 import { MissionHUD } from "./mission/MissionHUD";
 import { MissionManager } from "./mission/MissionManager";
@@ -78,6 +79,16 @@ export class GameController extends BaseEntity {
 
     // Show level select menu (no level loading yet)
     this.game.addEntity(new MainMenu());
+  }
+
+  @on("showMainMenu")
+  onShowMainMenu() {
+    this.game.addEntity(new MainMenu());
+  }
+
+  @on("showNewGameMenu")
+  onShowNewGameMenu() {
+    this.game.addEntity(new NewGameMenu());
   }
 
   @on("levelSelected")

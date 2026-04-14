@@ -1,6 +1,10 @@
 {
   "version": 2,
   "name": "Isles of Scilly",
+  "displayInfo": {
+    "description": "A low-lying archipelago off the coast of Cornwall. Exposed Atlantic swell, shallow rocks, and no shelter when the weather turns.",
+    "difficulty": "expert"
+  },
   "region": {
     "dataSource": {
       "type": "emodnet-wcs",

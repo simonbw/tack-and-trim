@@ -1,6 +1,10 @@
 {
   "version": 2,
   "name": "San Juan Islands",
+  "displayInfo": {
+    "description": "A sprawling archipelago between Washington and Vancouver Island. Strong tidal currents, narrow passes, and plenty of ports to explore.",
+    "difficulty": "expert"
+  },
   "region": {
     "datasetPath": "wash_bellingham/",
     "bbox": {

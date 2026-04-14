@@ -1,80 +1,52 @@
-import { LevelName, RESOURCES } from "../../resources/resources";
 import { ReactEntity } from "../core/ReactEntity";
+import type { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
-import { KeyCode } from "../core/io/Keys";
 import { focusFirst, moveFocus } from "../core/util/menuNav";
+import { LoadGameMenu } from "./LoadGameMenu";
+import { formatLevelName, formatTimestamp } from "./menuFormatting";
+import { NewGameMenu } from "./NewGameMenu";
 import type { SaveSlotInfo } from "./persistence/SaveFile";
 import { SaveManager } from "./persistence/SaveManager";
-import { deleteSave, listSaves } from "./persistence/SaveStorage";
+import { getMostRecentSave, listSaves } from "./persistence/SaveStorage";
 import "./MainMenu.css";
 
-const LEVEL_NAMES = (Object.keys(RESOURCES.levels) as LevelName[]).sort(
-  (a, b) => {
-    if (a === "default") return -1;
-    if (b === "default") return 1;
-    return a.localeCompare(b);
-  },
-);
-
-function formatLevelName(name: string): string {
-  // "default" → "Default", "vendoviIsland" → "Vendovi Island"
-  const spaced = name.replace(/([A-Z])/g, " $1");
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-function formatTimestamp(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 export class MainMenu extends ReactEntity {
-  private saves: SaveSlotInfo[] = [];
+  private hasSaves = false;
+  private mostRecent: SaveSlotInfo | null = null;
 
   constructor() {
     super(() => {
-      const hasSaves = this.saves.length > 0;
+      const continueDisabled = this.mostRecent === null;
+      const loadDisabled = !this.hasSaves;
       return (
         <div class="main-menu">
           <div class="main-menu__title">Tack & Trim</div>
 
-          {hasSaves && (
-            <div class="main-menu__section">
-              <div class="main-menu__subtitle">Saved Games</div>
-              <div class="main-menu__levels">
-                {this.saves.map((save) => (
-                  <button
-                    class="main-menu__card"
-                    onClick={() => this.loadSave(save.slotId)}
-                    onKeyDown={(e) => this.onSaveKeyDown(e, save.slotId)}
-                  >
-                    <div class="main-menu__save-name">{save.saveName}</div>
-                    <div class="main-menu__save-details">
-                      {formatLevelName(save.levelId)} ·{" "}
-                      {formatTimestamp(save.lastSaved)}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div class="main-menu__section">
-            <div class="main-menu__subtitle">New Game</div>
-            <div class="main-menu__levels">
-              {LEVEL_NAMES.map((name) => (
-                <button
-                  class="main-menu__card"
-                  onClick={() => this.selectLevel(name)}
-                >
-                  {formatLevelName(name)}
-                </button>
-              ))}
-            </div>
+          <div class="main-menu__buttons">
+            <button
+              class="main-menu__card"
+              disabled={continueDisabled}
+              onClick={() => this.continueGame()}
+            >
+              <div class="main-menu__card-label">Continue</div>
+              {this.mostRecent && (
+                <div class="main-menu__save-details">
+                  {this.mostRecent.saveName} ·{" "}
+                  {formatLevelName(this.mostRecent.levelId)} ·{" "}
+                  {formatTimestamp(this.mostRecent.lastSaved)}
+                </div>
+              )}
+            </button>
+            <button
+              class="main-menu__card"
+              disabled={loadDisabled}
+              onClick={() => this.openLoadGame()}
+            >
+              Load Game
+            </button>
+            <button class="main-menu__card" onClick={() => this.openNewGame()}>
+              New Game
+            </button>
           </div>
         </div>
       );
@@ -83,43 +55,39 @@ export class MainMenu extends ReactEntity {
 
   @on("afterAdded")
   onAfterAdded() {
-    this.saves = listSaves();
+    const saves = listSaves();
+    this.hasSaves = saves.length > 0;
+    this.mostRecent = getMostRecentSave();
     this.reactRender();
     focusFirst(this.el);
   }
 
-  private loadSave(slotId: string) {
+  private continueGame() {
+    if (!this.mostRecent) return;
     const saveManager = this.game.entities.tryGetSingleton(SaveManager);
     if (saveManager) {
-      saveManager.loadFromSlot(slotId);
+      saveManager.loadFromSlot(this.mostRecent.slotId);
     }
     this.destroy();
   }
 
-  private selectLevel(levelName: LevelName) {
-    this.game.dispatch("levelSelected", { levelName });
+  private openLoadGame() {
+    this.game.addEntity(new LoadGameMenu());
     this.destroy();
   }
 
-  private onSaveKeyDown(e: KeyboardEvent, slotId: string) {
-    if (e.key === "Delete" || e.key === "Backspace") {
-      e.preventDefault();
-      deleteSave(slotId);
-      const prev = document.activeElement as HTMLElement | null;
-      this.saves = listSaves();
-      this.reactRender();
-      // Focus shifted: try to focus a sibling, else fall through to first.
-      if (prev && !document.body.contains(prev)) {
-        focusFirst(this.el);
-      }
-    }
+  private openNewGame() {
+    this.game.addEntity(new NewGameMenu());
+    this.destroy();
   }
 
   @on("keyDown")
-  onKeyDown({ key }: { key: KeyCode }) {
+  onKeyDown({ key, event }: GameEventMap["keyDown"]) {
     if (key === "ArrowUp" || key === "ArrowLeft") {
+      event.preventDefault();
       moveFocus(this.el, -1);
     } else if (key === "ArrowDown" || key === "ArrowRight") {
+      event.preventDefault();
       moveFocus(this.el, +1);
     }
   }

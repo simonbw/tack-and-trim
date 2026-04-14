@@ -447,6 +447,17 @@ export interface MissionDefJSON {
 }
 
 /**
+ * Display metadata shown on the new-game map selection screen.
+ * All fields optional; the menu renders only the ones that are present.
+ */
+export interface LevelDisplayInfo {
+  /** Short description shown on the map selection screen (1-2 sentences) */
+  description?: string;
+  /** Difficulty rating rendered as a badge */
+  difficulty?: "beginner" | "intermediate" | "expert";
+}
+
+/**
  * JSON schema for level files.
  * v2 allows either inline contours or a region config (external terrain).
  */
@@ -455,6 +466,8 @@ export interface LevelFileJSON {
   version: number;
   /** Human-readable level name */
   name?: string;
+  /** Display metadata for the map selection screen */
+  displayInfo?: LevelDisplayInfo;
   /** Region config for terrain extraction (presence implies external .terrain binary) */
   region?: RegionConfigJSON;
   /** Deep ocean baseline depth in feet (inline terrain) */

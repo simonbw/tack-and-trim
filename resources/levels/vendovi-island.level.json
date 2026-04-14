@@ -1,6 +1,10 @@
 {
   "version": 2,
   "name": "Vendovi Island",
+  "displayInfo": {
+    "description": "A single small island in Washington's Rosario Strait. A compact playground for short trips and close-quarters handling.",
+    "difficulty": "beginner"
+  },
   "region": {
     "datasetPath": "wash_bellingham/",
     "bbox": {

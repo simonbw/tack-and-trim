@@ -1,10 +1,11 @@
 import type { LevelName } from "../../resources/resources";
 import { ReactEntity } from "../core/ReactEntity";
+import type { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
-import type { KeyCode } from "../core/io/Keys";
 import { focusFirst, moveFocus } from "../core/util/menuNav";
 import { BOAT_DEFS } from "./catalog/BoatCatalog";
 import "./BoatSelectionScreen.css";
+import "./MainMenu.css";
 
 function StatBar({ label, value }: { label: string; value: number }) {
   return (
@@ -29,15 +30,17 @@ export class BoatSelectionScreen extends ReactEntity {
     super(() => {
       const selected = BOAT_DEFS[this.focusedIndex];
       return (
-        <div class="boat-selection">
-          <div class="boat-selection__title">Choose Your Boat</div>
-          <div class="boat-selection__body">
-            <div class="boat-selection__list">
+        <div class="main-menu">
+          <div class="main-menu__page-title">Choose Your Boat</div>
+
+          <div class="main-menu__split">
+            <div class="main-menu__levels">
               {BOAT_DEFS.map((boat, i) => (
                 <button
-                  class="boat-selection__item"
+                  class="main-menu__card"
                   onClick={() => this.confirmSelection(i)}
                   onFocus={() => this.setFocused(i)}
+                  onMouseEnter={() => this.setFocused(i)}
                 >
                   {boat.name}
                 </button>
@@ -45,11 +48,9 @@ export class BoatSelectionScreen extends ReactEntity {
             </div>
 
             {selected && (
-              <div class="boat-selection__detail">
-                <div class="boat-selection__boat-name">{selected.name}</div>
-                <div class="boat-selection__boat-desc">
-                  {selected.description}
-                </div>
+              <div class="main-menu__detail">
+                <div class="main-menu__detail-name">{selected.name}</div>
+                <div class="main-menu__detail-desc">{selected.description}</div>
                 <div class="boat-selection__stats">
                   <StatBar label="Speed" value={selected.displayStats.speed} />
                   <StatBar
@@ -68,10 +69,23 @@ export class BoatSelectionScreen extends ReactEntity {
               </div>
             )}
           </div>
-          <div class="boat-selection__hint">↑↓ to browse · Enter to sail</div>
+
+          <button class="main-menu__back" onClick={() => this.goBack()}>
+            ← Back
+          </button>
         </div>
       );
     });
+  }
+
+  private goBack() {
+    // Defer the dispatch so that if we got here from a keyDown event, the
+    // new NewGameMenu isn't visited by the same in-flight event dispatch
+    // (Set iteration includes entries added mid-loop, which would cascade
+    // the same ESC all the way up to MainMenu).
+    const game = this.game;
+    this.destroy();
+    queueMicrotask(() => game.dispatch("showNewGameMenu", {}));
   }
 
   @on("afterAdded")
@@ -95,10 +109,14 @@ export class BoatSelectionScreen extends ReactEntity {
   }
 
   @on("keyDown")
-  onKeyDown({ key }: { key: KeyCode }) {
-    if (key === "ArrowUp" || key === "ArrowLeft") {
+  onKeyDown({ key, event }: GameEventMap["keyDown"]) {
+    if (key === "Escape") {
+      this.goBack();
+    } else if (key === "ArrowUp" || key === "ArrowLeft") {
+      event.preventDefault();
       moveFocus(this.el, -1);
     } else if (key === "ArrowDown" || key === "ArrowRight") {
+      event.preventDefault();
       moveFocus(this.el, +1);
     }
   }

@@ -2,6 +2,12 @@ import type { LevelName } from "../../resources/resources";
 
 /** Global event types that can be dispatched by the Game and listened to by entities. */
 export type CustomEvents = {
+  /** Fired when the main menu should be shown (e.g. from a sub-menu's back button) */
+  showMainMenu: {};
+
+  /** Fired when the new-game map selection menu should be shown */
+  showNewGameMenu: {};
+
   /** Fired when player selects a level from the main menu */
   levelSelected: { levelName: LevelName };
 

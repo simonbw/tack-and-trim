@@ -37,7 +37,14 @@ export function moveFocus(container: HTMLElement, delta: number): void {
         ? 0
         : items.length - 1
       : (idx + delta + items.length) % items.length;
-  items[next]?.focus();
+  const target = items[next];
+  if (!target) return;
+  // Focus without the browser's built-in scroll, then do our own. This
+  // decouples the focus act from scrolling so that a subsequent reflow (e.g.
+  // the detail panel next to the list resizing) can't race with a second
+  // browser-initiated scroll.
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 /** Focus the first focusable element inside `container`, if any. */
