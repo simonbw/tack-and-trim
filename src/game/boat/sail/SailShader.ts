@@ -17,7 +17,11 @@ import {
   vec4,
 } from "../../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
-import type { WebGPURenderer } from "../../../core/graphics/webgpu/WebGPURenderer";
+import {
+  DEPTH_Z_MAX,
+  DEPTH_Z_MIN,
+  type WebGPURenderer,
+} from "../../../core/graphics/webgpu/WebGPURenderer";
 
 /** 6 floats per vertex: position (2) + normal (3) + z (1) */
 export const SAIL_VERTEX_SIZE = 6;
@@ -35,8 +39,8 @@ const SAIL_SHADER_SOURCE = /*wgsl*/ `
 ${SailUniforms.wgsl}
 
 // Depth mapping — must match WebGPURenderer constants
-const Z_MIN: f32 = -10.0;
-const Z_MAX: f32 = 30.0;
+const Z_MIN: f32 = ${DEPTH_Z_MIN};
+const Z_MAX: f32 = ${DEPTH_Z_MAX};
 
 @group(0) @binding(0) var<uniform> uniforms: SailUniforms;
 

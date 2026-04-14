@@ -1,131 +1,76 @@
 /**
- * Lighting shader modules.
+ * Water surface lighting module.
+ *
+ * Physically-based surface reflection at the air-water interface:
+ *   - Schlick Fresnel mixing the transmitted light with the sky color
+ *   - Direct sun specular highlight
+ *
+ * The transmitted light (absorbed scene + inscatter) is computed by the
+ * caller; this module only handles what happens at the water surface.
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
 import { fn_SCENE_LIGHTING } from "./scene-lighting.wgsl";
 
-/**
- * Fresnel effect calculation module.
- * Provides computeFresnel for view-dependent reflectance.
- */
-export const fn_computeFresnel: ShaderModule = {
+export const fn_waterSurfaceLight: ShaderModule = {
   code: /*wgsl*/ `
-    // Compute Fresnel effect (Schlick approximation)
-    // facing: dot product of normal and view direction (0 = perpendicular, 1 = head-on)
-    // power: controls falloff (higher = sharper fresnel rim)
-    fn computeFresnel(facing: f32, power: f32) -> f32 {
-      return pow(1.0 - facing, power);
-    }
-  `,
-};
+    // Reflectance of the air-water interface at normal incidence.
+    // F0 = ((n1 - n2) / (n1 + n2))^2 with n_air = 1.0, n_water = 1.333
+    //    ≈ 0.0204. Real ocean water at normal incidence reflects ~2%.
+    const WATER_F0: f32 = 0.02;
 
-/**
- * Specular lighting calculation module.
- * Provides computeSpecular for mirror-like reflections.
- */
-export const fn_computeSpecular: ShaderModule = {
-  code: /*wgsl*/ `
-    // Compute Phong specular reflection
-    // viewDir: direction from surface to viewer
-    // normal: surface normal
-    // lightDir: direction from surface to light
-    // shininess: specular exponent (higher = tighter highlight)
-    fn computeSpecular(viewDir: vec3<f32>, normal: vec3<f32>, lightDir: vec3<f32>, shininess: f32) -> f32 {
-      let reflectDir = reflect(-lightDir, normal);
-      return pow(max(dot(viewDir, reflectDir), 0.0), shininess);
-    }
-  `,
-};
+    // Effective sun radiance relative to the tone-mapped sky color. In
+    // reality the sun's disc is ~10^4× the sky's luminance; in LDR we
+    // need an explicit scale factor so specular sparkles are visible
+    // against the already-bright sky. This is the one "HDR compensation"
+    // knob in the otherwise-physical surface model.
+    const SUN_INTENSITY: f32 = 12.0;
 
-/**
- * Diffuse lighting calculation module.
- * Provides computeDiffuse for matte surface lighting.
- */
-export const fn_computeDiffuse: ShaderModule = {
-  code: /*wgsl*/ `
-    // Compute Lambertian diffuse lighting
-    // normal: surface normal
-    // lightDir: direction from surface to light
-    fn computeDiffuse(normal: vec3<f32>, lightDir: vec3<f32>) -> f32 {
-      return max(dot(normal, lightDir), 0.0);
-    }
-  `,
-};
+    // Surface micro-roughness controls how wide the sun glint lobe is.
+    // Real water has tiny ripples from wind that spread the mirror
+    // reflection over a much wider angle than a perfectly flat surface.
+    // Smaller = wider, more sparkle; larger = sharper point highlight.
+    // 64 is broad enough that gentle wave slopes light up visibly when
+    // viewed from above.
+    const WATER_SPECULAR_POWER: f32 = 64.0;
 
-/**
- * Complete water lighting module combining all lighting effects.
- * Provides renderWaterLighting for full water surface shading.
- */
-export const fn_renderWaterLighting: ShaderModule = {
-  code: /*wgsl*/ `
-    // Compute complete water lighting
-    // normal: water surface normal
-    // viewDir: direction from surface to viewer
-    // rawHeight: normalized wave height (0-1)
-    // waterDepth: depth of water in world units
-    // time: time in seconds since midnight (for sun position/color)
-    fn renderWaterLighting(
+    // Schlick Fresnel approximation. 'facing' is dot(normal, viewDir).
+    fn waterFresnel(facing: f32) -> f32 {
+      let f = clamp(facing, 0.0, 1.0);
+      return WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - f, 5.0);
+    }
+
+    // Composite surface lighting: energy-conserving mix of transmitted
+    // light and sky reflection via Fresnel, plus direct sun specular.
+    //
+    //   base = (1 - F) * transmitted + F * sky
+    //   spec = F * SUN_INTENSITY * sunColor * pow(n·h, SPECULAR_POWER)
+    //   out  = base + spec
+    //
+    // The specular term scales by F so the Fresnel response still shapes
+    // the highlight (brighter toward grazing angles), but SUN_INTENSITY
+    // compensates for LDR so sparkles are actually visible.
+    fn waterSurfaceLight(
       normal: vec3<f32>,
       viewDir: vec3<f32>,
-      rawHeight: f32,
-      waterDepth: f32,
+      transmitted: vec3<f32>,
       time: f32
     ) -> vec3<f32> {
-      // Calculate sun direction and colors from time of day
       let sunDir = getSunDirection(time);
       let sunColor = getSunColor(time);
       let skyColor = getSkyColor(time);
 
-      // Water colors - vary by depth
-      let shallowWater = vec3<f32>(0.15, 0.55, 0.65);  // Light blue-green
-      let deepWater = vec3<f32>(0.08, 0.32, 0.52);     // Darker blue
-      let scatterColor = vec3<f32>(0.1, 0.45, 0.55);
+      let facing = max(dot(normal, viewDir), 0.0);
+      let F = waterFresnel(facing);
 
-      // Depth-based color (deeper = darker/more blue)
-      let depthFactor = smoothstep(0.0, 10.0, waterDepth);
-      var baseColor = mix(shallowWater, deepWater, depthFactor);
+      let base = mix(transmitted, skyColor, F);
 
-      // Slope-based color variation
-      let sunFacing = dot(normal.xy, sunDir.xy);
-      let slopeShift = mix(
-        vec3<f32>(-0.03, -0.02, 0.03),
-        vec3<f32>(0.03, 0.04, -0.02),
-        sunFacing * 0.5 + 0.5
-      );
-      baseColor = baseColor + slopeShift * 0.3;
+      let halfway = normalize(sunDir + viewDir);
+      let specAngle = max(dot(normal, halfway), 0.0);
+      let specular = pow(specAngle, WATER_SPECULAR_POWER) * F * SUN_INTENSITY;
 
-      // Troughs are darker
-      let troughDarken = (1.0 - rawHeight) * 0.35;
-      baseColor = baseColor * (1.0 - troughDarken);
-
-      // Fresnel effect
-      let facing = dot(normal, viewDir);
-      let fresnel = computeFresnel(facing, 4.0) * 0.15;
-
-      // Subsurface scattering
-      let scatter = computeDiffuse(normal, sunDir) * (0.5 + 0.5 * rawHeight);
-      let subsurface = scatterColor * scatter * 0.1;
-
-      // Diffuse lighting
-      let diffuse = computeDiffuse(normal, sunDir);
-
-      // Specular
-      let specular = computeSpecular(viewDir, normal, sunDir, 64.0);
-
-      // Combine lighting
-      let ambient = baseColor * 0.65;
-      let diffuseLight = baseColor * sunColor * diffuse * 0.3;
-      let skyReflection = skyColor * fresnel * 0.12;
-      let specularLight = sunColor * specular * 0.15;
-
-      return ambient + subsurface + diffuseLight + skyReflection + specularLight;
+      return base + sunColor * specular;
     }
   `,
-  dependencies: [
-    fn_SCENE_LIGHTING,
-    fn_computeFresnel,
-    fn_computeSpecular,
-    fn_computeDiffuse,
-  ],
+  dependencies: [fn_SCENE_LIGHTING],
 };

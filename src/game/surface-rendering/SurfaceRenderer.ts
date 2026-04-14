@@ -29,10 +29,12 @@ import { TerrainResources } from "../world/terrain/TerrainResources";
 import { WaterResources } from "../world/water/WaterResources";
 import { ModifierRasterizer } from "./ModifierRasterizer";
 import { createWaterHeightShader } from "./WaterHeightShader";
-import { createSurfaceCompositeShader } from "./SurfaceCompositeShader";
+import { createTerrainCompositeShader } from "./TerrainCompositeShader";
+import { createWaterFilterShader } from "./WaterFilterShader";
 import { createTerrainScreenShader } from "./TerrainScreenShader";
 import { WaterHeightUniforms } from "./WaterHeightUniforms";
-import { SurfaceCompositeUniforms } from "./SurfaceCompositeUniforms";
+import { TerrainCompositeUniforms } from "./TerrainCompositeUniforms";
+import { WaterFilterUniforms } from "./WaterFilterUniforms";
 import { TerrainScreenUniforms } from "./TerrainScreenUniforms";
 import { LODTerrainTileCache } from "./LODTerrainTileCache";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
@@ -49,10 +51,6 @@ const RENDER_VIEWPORT_MARGIN = 0.1;
 // Modifier texture resolution scale (fraction of screen resolution)
 const MODIFIER_RESOLUTION_SCALE = 0.25;
 
-// Beer-Lambert attenuation coefficient for underwater visibility (per foot).
-// Clear coastal water: ~0.15. At 10ft → 22% visible, 20ft → 5%.
-const WATER_ATTENUATION = 0.15;
-
 /**
  * Surface renderer entity using multi-pass rendering.
  */
@@ -66,7 +64,8 @@ export class SurfaceRenderer extends BaseEntity {
   // Shaders for each pass
   private terrainScreenShader: ComputeShader | null = null;
   private waterHeightShader: ComputeShader | null = null;
-  private compositeShader: FullscreenShader | null = null;
+  private terrainCompositeShader: FullscreenShader | null = null;
+  private waterFilterShader: FullscreenShader | null = null;
 
   // LOD terrain tile cache (multiple LOD levels for extreme zoom ranges)
   private terrainTileCache: LODTerrainTileCache | null = null;
@@ -94,7 +93,8 @@ export class SurfaceRenderer extends BaseEntity {
   // Uniform buffers
   private terrainScreenUniformBuffer: GPUBuffer | null = null;
   private waterHeightUniformBuffer: GPUBuffer | null = null;
-  private compositeUniformBuffer: GPUBuffer | null = null;
+  private terrainCompositeUniformBuffer: GPUBuffer | null = null;
+  private waterFilterUniformBuffer: GPUBuffer | null = null;
   private biomeUniformBuffer: GPUBuffer | null = null;
 
   // Uniform instances
@@ -104,8 +104,11 @@ export class SurfaceRenderer extends BaseEntity {
   private waterHeightUniforms: UniformInstance<
     typeof WaterHeightUniforms.fields
   > | null = null;
-  private compositeUniforms: UniformInstance<
-    typeof SurfaceCompositeUniforms.fields
+  private terrainCompositeUniforms: UniformInstance<
+    typeof TerrainCompositeUniforms.fields
+  > | null = null;
+  private waterFilterUniforms: UniformInstance<
+    typeof WaterFilterUniforms.fields
   > | null = null;
 
   // Samplers
@@ -114,7 +117,8 @@ export class SurfaceRenderer extends BaseEntity {
   // Bind groups (recreated when resources change)
   private terrainScreenBindGroup: GPUBindGroup | null = null;
   private waterHeightBindGroup: GPUBindGroup | null = null;
-  private compositeBindGroup: GPUBindGroup | null = null;
+  private terrainCompositeBindGroup: GPUBindGroup | null = null;
+  private waterFilterBindGroup: GPUBindGroup | null = null;
 
   // Track last resources
   private lastTextureWidth = 0;
@@ -122,7 +126,6 @@ export class SurfaceRenderer extends BaseEntity {
   private lastWaveDataBuffer: GPUBuffer | null = null;
   private lastTerrainAtlasView: GPUTextureView | null = null;
   private lastWaveFieldTextureView: GPUTextureView | null = null;
-  private lastBoatDepthView: GPUTextureView | null = null;
 
   private biomeConfig: BiomeConfig;
 
@@ -140,7 +143,8 @@ export class SurfaceRenderer extends BaseEntity {
       // Create shaders
       this.terrainScreenShader = createTerrainScreenShader();
       this.waterHeightShader = createWaterHeightShader();
-      this.compositeShader = createSurfaceCompositeShader();
+      this.terrainCompositeShader = createTerrainCompositeShader();
+      this.waterFilterShader = createWaterFilterShader();
 
       // Create LOD terrain tile cache (multiple LOD levels for extreme zoom ranges)
       // Supports zoom range 0.02 to 1.0+ by using progressively larger world units per tile
@@ -156,7 +160,8 @@ export class SurfaceRenderer extends BaseEntity {
       await Promise.all([
         this.terrainScreenShader.init(),
         this.waterHeightShader.init(),
-        this.compositeShader.init(),
+        this.terrainCompositeShader.init(),
+        this.waterFilterShader.init(),
         this.terrainTileCache.init(),
         this.wetnessPipeline.init(),
         this.modifierRasterizer.init(),
@@ -173,10 +178,15 @@ export class SurfaceRenderer extends BaseEntity {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         label: "Water Height Uniform Buffer",
       });
-      this.compositeUniformBuffer = device.createBuffer({
-        size: SurfaceCompositeUniforms.byteSize,
+      this.terrainCompositeUniformBuffer = device.createBuffer({
+        size: TerrainCompositeUniforms.byteSize,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        label: "Surface Composite Uniform Buffer",
+        label: "Terrain Composite Uniform Buffer",
+      });
+      this.waterFilterUniformBuffer = device.createBuffer({
+        size: WaterFilterUniforms.byteSize,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: "Water Filter Uniform Buffer",
       });
 
       // Biome uniform buffer — uploaded once per level load
@@ -191,11 +201,11 @@ export class SurfaceRenderer extends BaseEntity {
       // Create uniform instances
       this.terrainScreenUniforms = TerrainScreenUniforms.create();
       this.waterHeightUniforms = WaterHeightUniforms.create();
-      this.compositeUniforms = SurfaceCompositeUniforms.create();
+      this.terrainCompositeUniforms = TerrainCompositeUniforms.create();
+      this.waterFilterUniforms = WaterFilterUniforms.create();
 
-      // Set default composite values
-      this.compositeUniforms.set.waterAttenuation(WATER_ATTENUATION);
-      this.compositeUniforms.set.hasTerrainData(0);
+      this.terrainCompositeUniforms.set.hasTerrainData(0);
+      this.waterFilterUniforms.set.hasTerrainData(0);
 
       // Create samplers
       this.heightSampler = device.createSampler({
@@ -325,7 +335,8 @@ export class SurfaceRenderer extends BaseEntity {
     // Force bind group recreation
     this.terrainScreenBindGroup = null;
     this.waterHeightBindGroup = null;
-    this.compositeBindGroup = null;
+    this.terrainCompositeBindGroup = null;
+    this.waterFilterBindGroup = null;
   }
 
   /**
@@ -397,9 +408,9 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   /**
-   * Update uniforms for composite pass.
+   * Update uniforms for terrain composite pass.
    */
-  private updateCompositeUniforms(
+  private updateTerrainCompositeUniforms(
     expandedViewport: Viewport,
     currentTime: number,
     width: number,
@@ -408,28 +419,54 @@ export class SurfaceRenderer extends BaseEntity {
     waterResources: WaterResources,
     terrainResources: TerrainResources,
   ): void {
-    if (!this.compositeUniforms || !this.terrainTileCache) return;
+    if (!this.terrainCompositeUniforms || !this.terrainTileCache) return;
 
-    this.compositeUniforms.set.cameraMatrix(clipToWorldMatrix);
-    this.compositeUniforms.set.screenWidth(width);
-    this.compositeUniforms.set.screenHeight(height);
-    // Expanded viewport for height texture UV lookups
-    this.compositeUniforms.set.viewportLeft(expandedViewport.left);
-    this.compositeUniforms.set.viewportTop(expandedViewport.top);
-    this.compositeUniforms.set.viewportWidth(expandedViewport.width);
-    this.compositeUniforms.set.viewportHeight(expandedViewport.height);
-    this.compositeUniforms.set.time(currentTime);
-    this.compositeUniforms.set.tideHeight(waterResources.getTideHeight());
-    this.compositeUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
+    this.terrainCompositeUniforms.set.cameraMatrix(clipToWorldMatrix);
+    this.terrainCompositeUniforms.set.screenWidth(width);
+    this.terrainCompositeUniforms.set.screenHeight(height);
+    this.terrainCompositeUniforms.set.viewportLeft(expandedViewport.left);
+    this.terrainCompositeUniforms.set.viewportTop(expandedViewport.top);
+    this.terrainCompositeUniforms.set.viewportWidth(expandedViewport.width);
+    this.terrainCompositeUniforms.set.viewportHeight(expandedViewport.height);
+    this.terrainCompositeUniforms.set.time(currentTime);
+    this.terrainCompositeUniforms.set.tideHeight(
+      waterResources.getTideHeight(),
+    );
+    this.terrainCompositeUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
 
-    // Set terrain tile atlas parameters
     const atlasInfo = this.terrainTileCache.getAtlasInfo();
-    this.compositeUniforms.set.atlasTileSize(atlasInfo.tileSize);
-    this.compositeUniforms.set.atlasTilesX(atlasInfo.tilesX);
-    this.compositeUniforms.set.atlasTilesY(atlasInfo.tilesY);
-    this.compositeUniforms.set.atlasWorldUnitsPerTile(
+    this.terrainCompositeUniforms.set.atlasTileSize(atlasInfo.tileSize);
+    this.terrainCompositeUniforms.set.atlasTilesX(atlasInfo.tilesX);
+    this.terrainCompositeUniforms.set.atlasTilesY(atlasInfo.tilesY);
+    this.terrainCompositeUniforms.set.atlasWorldUnitsPerTile(
       atlasInfo.worldUnitsPerTile,
     );
+  }
+
+  /**
+   * Update uniforms for water filter pass.
+   */
+  private updateWaterFilterUniforms(
+    expandedViewport: Viewport,
+    currentTime: number,
+    width: number,
+    height: number,
+    clipToWorldMatrix: Matrix3,
+    waterResources: WaterResources,
+    terrainResources: TerrainResources,
+  ): void {
+    if (!this.waterFilterUniforms) return;
+
+    this.waterFilterUniforms.set.cameraMatrix(clipToWorldMatrix);
+    this.waterFilterUniforms.set.screenWidth(width);
+    this.waterFilterUniforms.set.screenHeight(height);
+    this.waterFilterUniforms.set.viewportLeft(expandedViewport.left);
+    this.waterFilterUniforms.set.viewportTop(expandedViewport.top);
+    this.waterFilterUniforms.set.viewportWidth(expandedViewport.width);
+    this.waterFilterUniforms.set.viewportHeight(expandedViewport.height);
+    this.waterFilterUniforms.set.time(currentTime);
+    this.waterFilterUniforms.set.tideHeight(waterResources.getTideHeight());
+    this.waterFilterUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
   }
 
   /**
@@ -444,7 +481,7 @@ export class SurfaceRenderer extends BaseEntity {
     const needsRebuild =
       !this.terrainScreenBindGroup ||
       !this.waterHeightBindGroup ||
-      !this.compositeBindGroup ||
+      !this.terrainCompositeBindGroup ||
       this.lastWaveDataBuffer !== waveDataBuffer ||
       this.lastTerrainAtlasView !== terrainAtlasView ||
       this.lastWaveFieldTextureView !== this.waveFieldTextureView;
@@ -485,8 +522,30 @@ export class SurfaceRenderer extends BaseEntity {
       });
     }
 
-    // Note: composite bind group is rebuilt separately in rebuildCompositeBindGroup()
-    // right before the composite pass, after the depth buffer copy.
+    // Terrain composite bind group (stable — reads only compute outputs)
+    const wetnessTextureView = this.wetnessPipeline?.getOutputTextureView();
+    if (
+      this.terrainCompositeShader &&
+      this.terrainCompositeUniformBuffer &&
+      this.biomeUniformBuffer &&
+      this.waterHeightView &&
+      this.heightSampler &&
+      wetnessTextureView
+    ) {
+      this.terrainCompositeBindGroup =
+        this.terrainCompositeShader.createBindGroup({
+          params: { buffer: this.terrainCompositeUniformBuffer },
+          waterHeightTexture: this.waterHeightView,
+          terrainTileAtlas: terrainAtlasView,
+          wetnessTexture: wetnessTextureView,
+          heightSampler: this.heightSampler,
+          biomeParams: { buffer: this.biomeUniformBuffer },
+        });
+    }
+
+    // Note: water filter bind group is rebuilt separately in
+    // rebuildWaterFilterBindGroup() right before the filter pass, after
+    // depth and color copies produce their readable views.
 
     // Update tracking
     this.lastWaveDataBuffer = waveDataBuffer;
@@ -495,33 +554,27 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   /**
-   * Rebuild the composite bind group with current resources.
-   * Called right before the composite pass to ensure all textures (including
-   * the depth copy and terrain atlas) are current.
+   * Rebuild the water filter bind group with current scene color and depth
+   * copy views. Called right before the water filter pass.
    */
-  private rebuildCompositeBindGroup(
-    waterResources: WaterResources,
-    terrainAtlasView: GPUTextureView,
-    boatDepthView: GPUTextureView | null,
+  private rebuildWaterFilterBindGroup(
+    sceneColorView: GPUTextureView | null,
+    sceneDepthView: GPUTextureView | null,
   ): void {
-    const wetnessTextureView = this.wetnessPipeline?.getOutputTextureView();
     if (
-      this.compositeShader &&
-      this.compositeUniformBuffer &&
-      this.biomeUniformBuffer &&
+      this.waterFilterShader &&
+      this.waterFilterUniformBuffer &&
       this.waterHeightView &&
       this.heightSampler &&
-      wetnessTextureView &&
-      boatDepthView
+      sceneColorView &&
+      sceneDepthView
     ) {
-      this.compositeBindGroup = this.compositeShader.createBindGroup({
-        params: { buffer: this.compositeUniformBuffer },
+      this.waterFilterBindGroup = this.waterFilterShader.createBindGroup({
+        params: { buffer: this.waterFilterUniformBuffer },
+        sceneColorTexture: sceneColorView,
+        sceneDepthTexture: sceneDepthView,
         waterHeightTexture: this.waterHeightView,
-        terrainTileAtlas: terrainAtlasView,
-        wetnessTexture: wetnessTextureView,
         heightSampler: this.heightSampler,
-        boatDepthTexture: boatDepthView,
-        biomeParams: { buffer: this.biomeUniformBuffer },
       });
     }
   }
@@ -597,7 +650,16 @@ export class SurfaceRenderer extends BaseEntity {
       height,
       waterResources,
     );
-    this.updateCompositeUniforms(
+    this.updateTerrainCompositeUniforms(
+      expandedViewport,
+      currentTime,
+      width,
+      height,
+      clipToWorldMatrix,
+      waterResources,
+      terrainResources,
+    );
+    this.updateWaterFilterUniforms(
       expandedViewport,
       currentTime,
       width,
@@ -610,7 +672,10 @@ export class SurfaceRenderer extends BaseEntity {
     // Upload uniforms
     this.terrainScreenUniforms?.uploadTo(this.terrainScreenUniformBuffer!);
     this.waterHeightUniforms?.uploadTo(this.waterHeightUniformBuffer!);
-    this.compositeUniforms?.uploadTo(this.compositeUniformBuffer!);
+    this.terrainCompositeUniforms?.uploadTo(
+      this.terrainCompositeUniformBuffer!,
+    );
+    this.waterFilterUniforms?.uploadTo(this.waterFilterUniformBuffer!);
 
     // Ensure bind groups
     this.ensureBindGroups(waterResources, terrainAtlasView);
@@ -711,26 +776,42 @@ export class SurfaceRenderer extends BaseEntity {
       );
     }
 
-    // Copy depth buffer so the composite shader can read boat z-heights.
-    // The boat layer has already rendered and written its z-heights to the depth buffer.
     const webgpuRenderer = this.game.getRenderer();
+
+    // === Pass 3a: Terrain Composite (fragment) ===
+    // Renders above-water terrain into the current mainColorTexture pass.
+    // greater-equal depth test: boat pixels already at higher z block terrain.
+    // Pixels where waterDepth >= 0 are discarded — water filter handles those.
+    const terrainPass = renderer.getCurrentRenderPass();
+    if (
+      terrainPass &&
+      this.terrainCompositeShader &&
+      this.terrainCompositeBindGroup
+    ) {
+      this.terrainCompositeShader.render(
+        terrainPass,
+        this.terrainCompositeBindGroup,
+      );
+    }
+
+    // Copy depth and color so the water filter can read the frozen scene.
+    // Ordering: terrain composite → copyDepthBuffer → copyColorBuffer.
+    // copyColorBuffer switches the active render target from mainColorTexture
+    // to the swapchain; subsequent draw calls go to the final frame output.
     webgpuRenderer.copyDepthBuffer();
+    webgpuRenderer.copyColorBuffer();
 
-    // Always rebuild the composite bind group right before the composite pass.
-    // The depth copy texture may change on resize, and the terrain atlas may be
-    // recreated (on zoom). Building it here ensures all resources are current.
-    const boatDepthView = webgpuRenderer.getDepthCopyTextureView();
-    this.rebuildCompositeBindGroup(
-      waterResources,
-      terrainAtlasView,
-      boatDepthView,
-    );
+    const sceneColorView = webgpuRenderer.getColorCopyTextureView();
+    const sceneDepthView = webgpuRenderer.getDepthCopyTextureView();
+    this.rebuildWaterFilterBindGroup(sceneColorView, sceneDepthView);
 
-    // === Pass 3: Surface Composite (fragment) ===
-    // The composite shader now reads the depth copy to blend water over submerged boat parts.
-    const renderPass = renderer.getCurrentRenderPass();
-    if (renderPass && this.compositeShader && this.compositeBindGroup) {
-      this.compositeShader.render(renderPass, this.compositeBindGroup);
+    // === Pass 3b: Water Filter (fragment) ===
+    // Applies physically-based absorption to the frozen scene and writes
+    // the final composited pixel to the swapchain. Post-water particles
+    // (wake, foam, spray) render on top in their own layers afterward.
+    const filterPass = renderer.getCurrentRenderPass();
+    if (filterPass && this.waterFilterShader && this.waterFilterBindGroup) {
+      this.waterFilterShader.render(filterPass, this.waterFilterBindGroup);
     }
   }
 
@@ -781,7 +862,8 @@ export class SurfaceRenderer extends BaseEntity {
   onDestroy(): void {
     this.terrainScreenShader?.destroy();
     this.waterHeightShader?.destroy();
-    this.compositeShader?.destroy();
+    this.terrainCompositeShader?.destroy();
+    this.waterFilterShader?.destroy();
     this.terrainTileCache?.destroy();
     this.wetnessPipeline?.destroy();
     this.modifierRasterizer?.destroy();
@@ -791,7 +873,8 @@ export class SurfaceRenderer extends BaseEntity {
     this.modifierTexture?.destroy();
     this.terrainScreenUniformBuffer?.destroy();
     this.waterHeightUniformBuffer?.destroy();
-    this.compositeUniformBuffer?.destroy();
+    this.terrainCompositeUniformBuffer?.destroy();
+    this.waterFilterUniformBuffer?.destroy();
     this.biomeUniformBuffer?.destroy();
   }
 }

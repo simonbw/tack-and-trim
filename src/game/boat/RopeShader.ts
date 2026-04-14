@@ -20,7 +20,11 @@ import {
   vec4u,
 } from "../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
-import type { WebGPURenderer } from "../../core/graphics/webgpu/WebGPURenderer";
+import {
+  DEPTH_Z_MAX,
+  DEPTH_Z_MIN,
+  type WebGPURenderer,
+} from "../../core/graphics/webgpu/WebGPURenderer";
 import { ROPE_VERTEX_FLOATS } from "./tessellation";
 
 /** 5 floats per vertex: position (2) + uv (2) + z (1) */
@@ -85,8 +89,8 @@ const ROPE_SHADER_SOURCE = /*wgsl*/ `
 ${RopeUniforms.wgsl}
 
 // Depth mapping — must match WebGPURenderer constants
-const Z_MIN: f32 = -10.0;
-const Z_MAX: f32 = 30.0;
+const Z_MIN: f32 = ${DEPTH_Z_MIN};
+const Z_MAX: f32 = ${DEPTH_Z_MAX};
 const PI: f32 = 3.14159265;
 
 @group(0) @binding(0) var<uniform> uniforms: RopeUniforms;

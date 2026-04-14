@@ -1,5 +1,8 @@
 /**
- * Uniform buffer definition for the Surface Composite shader.
+ * Uniform buffer definition for the Terrain Composite shader.
+ *
+ * Renders above-water terrain (sand, rock, snow) into the scene color target
+ * before the water filter pass.
  */
 
 import {
@@ -10,10 +13,7 @@ import {
   mat3x3,
 } from "../../core/graphics/UniformStruct";
 
-/**
- * Uniforms for the surface composite pass.
- */
-export const SurfaceCompositeUniforms = defineUniformStruct("Params", {
+export const TerrainCompositeUniforms = defineUniformStruct("Params", {
   // Clip-to-world matrix (stored as 3 vec4s for alignment)
   cameraMatrix: mat3x3,
 
@@ -27,10 +27,8 @@ export const SurfaceCompositeUniforms = defineUniformStruct("Params", {
   viewportWidth: f32,
   viewportHeight: f32,
 
-  // Time and rendering params
   time: f32,
   tideHeight: f32,
-  waterAttenuation: f32,
   hasTerrainData: i32,
 
   // Terrain tile atlas parameters

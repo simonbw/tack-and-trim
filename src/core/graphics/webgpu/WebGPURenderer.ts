@@ -25,7 +25,13 @@ import { WebGPUTexture, WebGPUTextureManager } from "./WebGPUTextureManager";
 // Depth mapping constants — shared between shape/sprite shaders and surface shader.
 // World z-heights are linearly mapped to NDC depth [0, 1].
 // Higher z = closer to viewer. depthCompare: "greater-equal" means higher depth wins.
-export const DEPTH_Z_MIN = -10.0;
+//
+// Z_MIN is set to the underwater visibility horizon: with the water filter's
+// wavelength-dependent absorption (blue at 0.06/ft), light from 100ft down is
+// attenuated to ~0.25% — below the 8-bit quantization threshold of bgra8unorm.
+// Anything beyond that is indistinguishable from pure water, so it's the
+// deepest point the depth buffer needs to represent.
+export const DEPTH_Z_MIN = -100.0;
 export const DEPTH_Z_MAX = 30.0;
 const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
 
@@ -215,6 +221,20 @@ export class WebGPURenderer {
   private depthCopyTexture: GPUTexture | null = null;
   private depthCopyTextureView: GPUTextureView | null = null;
 
+  // Intermediate color buffer — scene renders here, then water filter reads
+  // a copy and outputs to the swapchain. Enables the water filter to apply
+  // physically-based absorption to already-drawn content.
+  private mainColorTexture: GPUTexture | null = null;
+  private mainColorTextureView: GPUTextureView | null = null;
+  private colorCopyTexture: GPUTexture | null = null;
+  private colorCopyTextureView: GPUTextureView | null = null;
+  // Swapchain texture for this frame (stored in beginFrame for endFrame fallback)
+  private swapchainTexture: GPUTexture | null = null;
+  // True once copyColorBuffer has been called this frame (render target now
+  // points to swapchain). If false at endFrame, mainColorTexture is blitted
+  // to the swapchain as a fallback (e.g. editor mode with no water filter).
+  private colorCopied = false;
+
   // Z-height state for 3D tilt projection (saved/restored with transform stack).
   //
   // The tilt context decomposes the 3×3 Yaw·Pitch·Roll rotation matrix R into:
@@ -346,6 +366,7 @@ export class WebGPURenderer {
       device: this.device,
       format: gpuManager.preferredFormat,
       alphaMode: "opaque",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST,
     });
 
     // Create default sampler
@@ -748,6 +769,30 @@ export class WebGPURenderer {
       });
     }
 
+    // Recreate main color texture if canvas size changed. The scene renders
+    // here instead of directly to the swapchain, so the water filter can
+    // read a copy and apply absorption to previously-drawn pixels.
+    if (
+      this.device &&
+      (!this.mainColorTexture ||
+        this.mainColorTexture.width !== w ||
+        this.mainColorTexture.height !== h)
+    ) {
+      this.mainColorTexture?.destroy();
+      this.mainColorTexture = this.device.createTexture({
+        size: { width: w, height: h },
+        format: getWebGPU().preferredFormat,
+        usage:
+          GPUTextureUsage.RENDER_ATTACHMENT |
+          GPUTextureUsage.COPY_SRC |
+          GPUTextureUsage.TEXTURE_BINDING,
+        label: "Main Color Texture",
+      });
+      this.mainColorTextureView = this.mainColorTexture.createView({
+        label: "Main Color Texture View",
+      });
+    }
+
     // Update view matrix to convert from pixel coords to clip space
     this.viewMatrix.identity();
     this.viewMatrix.scale(2 / width, 2 / height);
@@ -810,8 +855,15 @@ export class WebGPURenderer {
       label: "Frame Command Encoder",
     });
 
-    // Get current texture view
-    this.currentRenderTarget = this.context.getCurrentTexture().createView();
+    // Save the swapchain texture for endFrame (used as fallback blit target
+    // when copyColorBuffer is never called, and by copyColorBuffer itself).
+    this.swapchainTexture = this.context.getCurrentTexture();
+    this.colorCopied = false;
+
+    // Scene renders to mainColorTexture, not the swapchain. The water filter
+    // (or endFrame fallback) produces the final swapchain contents.
+    this.currentRenderTarget =
+      this.mainColorTextureView ?? this.swapchainTexture.createView();
 
     // Begin render pass with depth attachment
     this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
@@ -874,6 +926,26 @@ export class WebGPURenderer {
     // End render pass
     this.currentRenderPass.end();
 
+    // Fallback: if no one called copyColorBuffer this frame, the scene is
+    // still sitting in mainColorTexture and the swapchain is empty. Blit it
+    // now. Happens in editor mode or any frame without SurfaceRenderer.
+    if (
+      !this.colorCopied &&
+      this.mainColorTexture &&
+      this.swapchainTexture &&
+      this.mainColorTexture.width === this.swapchainTexture.width &&
+      this.mainColorTexture.height === this.swapchainTexture.height
+    ) {
+      this.currentCommandEncoder.copyTextureToTexture(
+        { texture: this.mainColorTexture },
+        { texture: this.swapchainTexture },
+        {
+          width: this.mainColorTexture.width,
+          height: this.mainColorTexture.height,
+        },
+      );
+    }
+
     // Resolve GPU profiler timestamps before submit
     this.gpuProfiler?.resolve(this.currentCommandEncoder);
 
@@ -892,6 +964,7 @@ export class WebGPURenderer {
     this.currentCommandEncoder = null;
     this.currentRenderPass = null;
     this.currentRenderTarget = null;
+    this.swapchainTexture = null;
   }
 
   /** Flush all pending shape and sprite batches to ensure correct layer ordering before custom pipeline draws. */
@@ -1152,6 +1225,11 @@ export class WebGPURenderer {
     return this.depthCopyTextureView;
   }
 
+  /** Get a readable copy of the scene color (available after copyColorBuffer is called). */
+  getColorCopyTextureView(): GPUTextureView | null {
+    return this.colorCopyTextureView;
+  }
+
   /**
    * Copy the current depth buffer to a readable texture for use by overlay shaders.
    * Must be called outside a render pass (flushes and ends the current pass, copies, restarts).
@@ -1215,6 +1293,81 @@ export class WebGPURenderer {
           }
         : undefined,
       label: "Post-Depth-Copy Render Pass",
+    });
+  }
+
+  /**
+   * Copy the mainColorTexture to colorCopyTexture and switch the active
+   * render target to the swapchain. After this, subsequent draw calls go
+   * directly to the swapchain, and shaders can sample the frozen scene
+   * via getColorCopyTextureView(). Must be called inside a render pass.
+   */
+  copyColorBuffer(): void {
+    if (
+      !this.mainColorTexture ||
+      !this.currentCommandEncoder ||
+      !this.currentRenderPass ||
+      !this.swapchainTexture
+    )
+      return;
+
+    this.flush();
+    this.currentRenderPass.end();
+
+    // Lazy create/resize colorCopyTexture
+    if (
+      !this.colorCopyTexture ||
+      this.colorCopyTexture.width !== this.mainColorTexture.width ||
+      this.colorCopyTexture.height !== this.mainColorTexture.height
+    ) {
+      this.colorCopyTexture?.destroy();
+      this.colorCopyTexture = this.device!.createTexture({
+        size: {
+          width: this.mainColorTexture.width,
+          height: this.mainColorTexture.height,
+        },
+        format: getWebGPU().preferredFormat,
+        usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+        label: "Color Copy Texture",
+      });
+      this.colorCopyTextureView = this.colorCopyTexture.createView({
+        label: "Color Copy Texture View",
+      });
+    }
+
+    this.currentCommandEncoder.copyTextureToTexture(
+      { texture: this.mainColorTexture },
+      { texture: this.colorCopyTexture },
+      {
+        width: this.mainColorTexture.width,
+        height: this.mainColorTexture.height,
+      },
+    );
+
+    // Switch render target to the swapchain. Subsequent draws (water filter
+    // and post-water particles) render directly to the final frame output.
+    this.currentRenderTarget = this.swapchainTexture.createView({
+      label: "Swapchain View",
+    });
+    this.colorCopied = true;
+
+    this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: this.currentRenderTarget,
+          loadOp: "clear",
+          storeOp: "store",
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        },
+      ],
+      depthStencilAttachment: this.mainDepthTextureView
+        ? {
+            view: this.mainDepthTextureView,
+            depthLoadOp: "load",
+            depthStoreOp: "store",
+          }
+        : undefined,
+      label: "Post-Color-Copy Render Pass (Swapchain)",
     });
   }
 
@@ -1875,6 +2028,11 @@ export class WebGPURenderer {
     this.spriteVertexBuffer?.destroy();
     this.spriteIndexBuffer?.destroy();
     this.spriteUniformBuffer?.destroy();
+
+    this.mainDepthTexture?.destroy();
+    this.depthCopyTexture?.destroy();
+    this.mainColorTexture?.destroy();
+    this.colorCopyTexture?.destroy();
 
     this.initialized = false;
   }
