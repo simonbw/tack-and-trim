@@ -29,6 +29,9 @@
 
 import { Body } from "../body/Body";
 import { DynamicBody } from "../body/DynamicBody";
+import type { Equation } from "../equations/Equation";
+import type { ParticleDistanceEquation3D } from "../equations/ParticleDistanceEquation3D";
+import type { PulleyEquation } from "../equations/PulleyEquation";
 
 export class SolverWorkspace {
   /** Number of bodies currently registered in this solve. */
@@ -79,6 +82,23 @@ export class SolverWorkspace {
   private eqCapacity: number = 0;
 
   /**
+   * Equations partitioned by which specialized batch iterator handles them.
+   * Populated by prepareSolverStep; the hot solver loop iterates each group
+   * with a monomorphic, inlined function (no virtual dispatch).
+   *
+   * `generalEquations` covers every Equation whose hot methods use the base
+   * class implementation (all 2-body constraint types, contacts, friction,
+   * rotational locks, etc.). `pulleyEquations` covers PulleyEquation, which
+   * needs the 3-body path. `particleDistanceEquations` covers
+   * ParticleDistanceEquation3D — chain links between particle-like bodies
+   * where the angular Jacobian is zero and the effective mass / impulse
+   * loops can skip wlambda and invInertia entirely.
+   */
+  generalEquations: Equation[] = [];
+  pulleyEquations: PulleyEquation[] = [];
+  particleDistanceEquations: ParticleDistanceEquation3D[] = [];
+
+  /**
    * Body -> index map. Only touched during the setup phase of a solve (never
    * by the hot iteration loop). Cleared in `reset()`.
    */
@@ -96,6 +116,9 @@ export class SolverWorkspace {
     this.bodyToIndex.clear();
     this.dynamicBodies.length = 0;
     this.dynamicBodyIndices.length = 0;
+    this.generalEquations.length = 0;
+    this.pulleyEquations.length = 0;
+    this.particleDistanceEquations.length = 0;
   }
 
   /**

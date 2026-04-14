@@ -50,6 +50,7 @@ import {
   EQ_LAMBDA,
   EQ_MAX_FORCE_DT,
   EQ_MIN_FORCE_DT,
+  EQ_SLOT,
 } from "../internal";
 
 export interface EquationOptions {
@@ -146,6 +147,8 @@ export class Equation {
   [EQ_INDEX_A]: number = -1;
   /** Workspace row index for bodyB during the current solve. -1 when unset. */
   [EQ_INDEX_B]: number = -1;
+  /** Slot in workspace.Bs / invCs / lambda for the current solve. -1 when unset. */
+  [EQ_SLOT]: number = -1;
 
   constructor(
     bodyA: Body,

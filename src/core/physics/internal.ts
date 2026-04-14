@@ -19,3 +19,11 @@ export const EQ_MIN_FORCE_DT = Symbol("minForceDt");
 export const EQ_INDEX_A = Symbol("indexA");
 export const EQ_INDEX_B = Symbol("indexB");
 export const EQ_INDEX_C = Symbol("indexC");
+
+/**
+ * Per-equation slot index into the workspace's flat Bs/invCs/lambda arrays.
+ * Assigned once during prepareSolverStep, read on every iteration. Independent
+ * of an equation's position in any group array, so equations can be partitioned
+ * into per-kind groups without rewriting the slot mapping.
+ */
+export const EQ_SLOT = Symbol("eqSlot");

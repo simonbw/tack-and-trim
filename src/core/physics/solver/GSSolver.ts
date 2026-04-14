@@ -68,6 +68,9 @@ import { profiler } from "../../util/Profiler";
 import { DynamicBody } from "../body/DynamicBody";
 import type { Equation } from "../equations/Equation";
 import { FrictionEquation } from "../equations/FrictionEquation";
+import { ParticleDistanceEquation3D } from "../equations/ParticleDistanceEquation3D";
+import { PulleyEquation } from "../equations/PulleyEquation";
+import { EQ_INDEX_A, EQ_INDEX_B, EQ_SLOT } from "../internal";
 import type { Island } from "../world/Island";
 import type { SolverWorkspace } from "./SolverWorkspace";
 
@@ -140,8 +143,22 @@ export function prepareSolverStep(
     workspace.registerDynamic(body);
   }
   const Neq = equations.length;
+  const generalEquations = workspace.generalEquations;
+  const pulleyEquations = workspace.pulleyEquations;
+  const particleDistanceEquations = workspace.particleDistanceEquations;
   for (let i = 0; i < Neq; i++) {
-    equations[i].assignIndices(workspace);
+    const eq = equations[i];
+    eq.assignIndices(workspace);
+    // Each equation gets a stable slot in Bs/invCs/lambda, independent of
+    // which partitioned group it ends up in.
+    eq[EQ_SLOT] = i;
+    if (eq instanceof ParticleDistanceEquation3D) {
+      particleDistanceEquations.push(eq);
+    } else if (eq instanceof PulleyEquation) {
+      pulleyEquations.push(eq);
+    } else {
+      generalEquations.push(eq);
+    }
   }
   workspace.ensureEqCapacity(Neq);
 }
@@ -194,8 +211,9 @@ export function solveSubstep(
       eq.timeStep = h;
       eq.update();
     }
-    Bs[i] = eq.computeB(eq.a, eq.b, h, workspace);
-    invCs[i] = eq.computeInvC(eq.epsilon, workspace);
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, workspace);
+    invCs[slot] = eq.computeInvC(eq.epsilon, workspace);
   }
 
   profiler.end("Solver.setup");
@@ -214,7 +232,7 @@ export function solveSubstep(
       const maxFDt = eq.maxForce * h;
       if (warm < minFDt) warm = minFDt;
       else if (warm > maxFDt) warm = maxFDt;
-      lambda[i] = warm;
+      lambda[eq[EQ_SLOT]] = warm;
       eq.addToWlambda(warm, workspace);
     }
   }
@@ -224,7 +242,6 @@ export function solveSubstep(
   if (frictionIterations > 0) {
     for (let iter = 0; iter < frictionIterations; iter++) {
       const deltaTot = runIteration(
-        equations,
         Bs,
         invCs,
         lambda,
@@ -246,15 +263,7 @@ export function solveSubstep(
   // Main iteration phase
   profiler.start("Solver.iterate");
   for (let iter = 0; iter < iterations; iter++) {
-    const deltaTot = runIteration(
-      equations,
-      Bs,
-      invCs,
-      lambda,
-      useZeroRHS,
-      h,
-      workspace,
-    );
+    const deltaTot = runIteration(Bs, invCs, lambda, useZeroRHS, h, workspace);
     usedIterations++;
 
     if (deltaTot * deltaTot <= tolSquared) {
@@ -298,7 +307,7 @@ export function solveSubstep(
   // game code reading those fields sees stable values.
   for (let i = 0; i < Neq; i++) {
     const eq = equations[i];
-    if (eq.enabled) eq.warmLambda = lambda[i];
+    if (eq.enabled) eq.warmLambda = lambda[eq[EQ_SLOT]];
   }
   updateMultipliers(equations, lambda, 1 / h);
   profiler.end("Solver.finalize");
@@ -371,13 +380,25 @@ function updateMultipliers(
 ): void {
   for (let i = equations.length - 1; i >= 0; i--) {
     const eq = equations[i];
-    if (eq.enabled) eq.multiplier = lambda[i] * invDt;
+    if (eq.enabled) eq.multiplier = lambda[eq[EQ_SLOT]] * invDt;
   }
 }
 
-/** Runs one iteration over all equations. Returns total absolute delta. */
+/**
+ * Runs one iteration over all equations in the workspace's partitioned
+ * groups. Each group is handled by a specialized function with the hot
+ * math inlined, so V8 can monomorphize the call sites and avoid virtual
+ * dispatch through `Equation.computeGWlambda` / `addToWlambda`.
+ *
+ * Group execution order is fixed: general equations first, pulleys second.
+ * Within each group, equations are iterated in the order they were inserted
+ * during prepareSolverStep (which is the caller's sort order). This is a
+ * slight ordering change from the old fully-flat-list behavior when mixed
+ * equation types had interleaved solverOrder values; in practice it is
+ * fine for chain-like structures and often better, since related equations
+ * of the same type stay adjacent.
+ */
 function runIteration(
-  equations: readonly Equation[],
   Bs: Float32Array,
   invCs: Float32Array,
   lambda: Float32Array,
@@ -385,16 +406,10 @@ function runIteration(
   h: number,
   workspace: SolverWorkspace,
 ): number {
-  let deltalambdaTot = 0.0;
-  const Neq = equations.length;
-
-  for (let j = 0; j < Neq; j++) {
-    const eq = equations[j];
-    if (!eq.enabled) continue;
-    const deltalambda = iterateEquation(
-      j,
-      eq,
-      eq.epsilon,
+  let deltaTot = 0;
+  if (workspace.particleDistanceEquations.length > 0) {
+    deltaTot += iterateParticleDistanceBatch(
+      workspace.particleDistanceEquations,
       Bs,
       invCs,
       lambda,
@@ -402,60 +417,269 @@ function runIteration(
       h,
       workspace,
     );
-    deltalambdaTot += Math.abs(deltalambda);
   }
-
-  return deltalambdaTot;
+  deltaTot += iterateGeneralBatch(
+    workspace.generalEquations,
+    Bs,
+    invCs,
+    lambda,
+    useZeroRHS,
+    h,
+    workspace,
+  );
+  if (workspace.pulleyEquations.length > 0) {
+    deltaTot += iteratePulleyBatch(
+      workspace.pulleyEquations,
+      Bs,
+      invCs,
+      lambda,
+      useZeroRHS,
+      h,
+      workspace,
+    );
+  }
+  return deltaTot;
 }
 
 /**
- * Iterates a single equation and returns the change in impulse (delta lambda).
- *
- * Core PGS update rule:
- *   delta_lambda = invC * (B - GWlambda - epsilon * lambda)
- *
- * - GWlambda is the current constraint velocity from accumulated impulses
- * - epsilon * lambda is the regularization/compliance feedback term
- * - The result is clamped so that the total lambda stays within
- *   [minForce*dt, maxForce*dt], enforcing inequality constraints
+ * Specialized PGS iteration loop for 2-body equations that use the base
+ * Equation's 12-component Jacobian. Inlines computeGWlambda and addToWlambda
+ * so the call site is monomorphic and V8 can keep the math in one function.
+ * Covers every equation type except PulleyEquation.
  */
-function iterateEquation(
-  j: number,
-  eq: Equation,
-  eps: number,
-  Bs: ArrayLike<number>,
-  invCs: ArrayLike<number>,
+function iterateGeneralBatch(
+  equations: readonly Equation[],
+  Bs: Float32Array,
+  invCs: Float32Array,
   lambda: Float32Array,
   useZeroRHS: boolean,
   dt: number,
-  workspace: SolverWorkspace,
+  ws: SolverWorkspace,
 ): number {
-  let B = Bs[j];
-  const invC = invCs[j];
-  const lambdaj = lambda[j];
-  const GWlambda = eq.computeGWlambda(workspace);
+  const vl = ws.vlambda;
+  const wl = ws.wlambda;
+  const invMassSolve = ws.invMassSolve;
+  const invMassSolveZ = ws.invMassSolveZ;
+  const invInertia = ws.invInertia;
 
-  const maxForce = eq.maxForce;
-  const minForce = eq.minForce;
+  let deltaTot = 0;
+  const N = equations.length;
 
-  if (useZeroRHS) {
-    B = 0;
+  for (let k = 0; k < N; k++) {
+    const eq = equations[k];
+    if (!eq.enabled) continue;
+
+    const slot = eq[EQ_SLOT];
+    const G = eq.G;
+    const idxA = eq[EQ_INDEX_A];
+    const idxB = eq[EQ_INDEX_B];
+    const iA = idxA * 3;
+    const iB = idxB * 3;
+
+    // Inlined computeGWlambda: G · v_lambda (12 components)
+    const GWlambda =
+      G[0] * vl[iA] +
+      G[1] * vl[iA + 1] +
+      G[2] * vl[iA + 2] +
+      G[3] * wl[iA] +
+      G[4] * wl[iA + 1] +
+      G[5] * wl[iA + 2] +
+      G[6] * vl[iB] +
+      G[7] * vl[iB + 1] +
+      G[8] * vl[iB + 2] +
+      G[9] * wl[iB] +
+      G[10] * wl[iB + 1] +
+      G[11] * wl[iB + 2];
+
+    const B = useZeroRHS ? 0 : Bs[slot];
+    const invC = invCs[slot];
+    const lambdaj = lambda[slot];
+    const eps = eq.epsilon;
+
+    let dl = invC * (B - GWlambda - eps * lambdaj);
+    if (!isFinite(dl)) dl = 0;
+
+    // Clamp the new total lambda into [minForce*dt, maxForce*dt]
+    const minFDt = eq.minForce * dt;
+    const maxFDt = eq.maxForce * dt;
+    const newTotal = lambdaj + dl;
+    if (newTotal < minFDt) dl = minFDt - lambdaj;
+    else if (newTotal > maxFDt) dl = maxFDt - lambdaj;
+
+    lambda[slot] = lambdaj + dl;
+
+    // Inlined addToWlambda
+    const iMA = invMassSolve[idxA];
+    const iMB = invMassSolve[idxB];
+    const iMzA = invMassSolveZ[idxA];
+    const iMzB = invMassSolveZ[idxB];
+
+    // Body A linear
+    vl[iA] += iMA * G[0] * dl;
+    vl[iA + 1] += iMA * G[1] * dl;
+    vl[iA + 2] += iMzA * G[2] * dl;
+
+    // Body A angular: wlambda += invI_world * (G_ang * dl)
+    const iIA = invInertia[idxA];
+    const gA3 = G[3] * dl;
+    const gA4 = G[4] * dl;
+    const gA5 = G[5] * dl;
+    wl[iA] += iIA[0] * gA3 + iIA[1] * gA4 + iIA[2] * gA5;
+    wl[iA + 1] += iIA[3] * gA3 + iIA[4] * gA4 + iIA[5] * gA5;
+    wl[iA + 2] += iIA[6] * gA3 + iIA[7] * gA4 + iIA[8] * gA5;
+
+    // Body B linear
+    vl[iB] += iMB * G[6] * dl;
+    vl[iB + 1] += iMB * G[7] * dl;
+    vl[iB + 2] += iMzB * G[8] * dl;
+
+    // Body B angular
+    const iIB = invInertia[idxB];
+    const gB9 = G[9] * dl;
+    const gB10 = G[10] * dl;
+    const gB11 = G[11] * dl;
+    wl[iB] += iIB[0] * gB9 + iIB[1] * gB10 + iIB[2] * gB11;
+    wl[iB + 1] += iIB[3] * gB9 + iIB[4] * gB10 + iIB[5] * gB11;
+    wl[iB + 2] += iIB[6] * gB9 + iIB[7] * gB10 + iIB[8] * gB11;
+
+    deltaTot += dl >= 0 ? dl : -dl;
   }
 
-  let deltalambda = invC * (B - GWlambda - eps * lambdaj);
-  if (!isFinite(deltalambda)) deltalambda = 0;
+  return deltaTot;
+}
 
-  // Clamp if we are not within the min/max interval
-  const lambdaj_plus_deltalambda = lambdaj + deltalambda;
-  if (lambdaj_plus_deltalambda < minForce * dt) {
-    deltalambda = minForce * dt - lambdaj;
-  } else if (lambdaj_plus_deltalambda > maxForce * dt) {
-    deltalambda = maxForce * dt - lambdaj;
+/**
+ * Specialized PGS iteration loop for 3-body pulley equations. Still calls
+ * PulleyEquation's computeGWlambda / addToWlambda because they touch a third
+ * body — but the call site is monomorphic (only PulleyEquation lives in this
+ * group), so V8 can inline them through the polymorphic inline cache.
+ */
+function iteratePulleyBatch(
+  equations: readonly PulleyEquation[],
+  Bs: Float32Array,
+  invCs: Float32Array,
+  lambda: Float32Array,
+  useZeroRHS: boolean,
+  dt: number,
+  ws: SolverWorkspace,
+): number {
+  let deltaTot = 0;
+  const N = equations.length;
+
+  for (let k = 0; k < N; k++) {
+    const eq = equations[k];
+    if (!eq.enabled) continue;
+
+    const slot = eq[EQ_SLOT];
+    const B = useZeroRHS ? 0 : Bs[slot];
+    const invC = invCs[slot];
+    const lambdaj = lambda[slot];
+    const GWlambda = eq.computeGWlambda(ws);
+
+    let dl = invC * (B - GWlambda - eq.epsilon * lambdaj);
+    if (!isFinite(dl)) dl = 0;
+
+    const minFDt = eq.minForce * dt;
+    const maxFDt = eq.maxForce * dt;
+    const newTotal = lambdaj + dl;
+    if (newTotal < minFDt) dl = minFDt - lambdaj;
+    else if (newTotal > maxFDt) dl = maxFDt - lambdaj;
+
+    lambda[slot] = lambdaj + dl;
+    eq.addToWlambda(dl, ws);
+
+    deltaTot += dl >= 0 ? dl : -dl;
   }
-  lambda[j] += deltalambda;
-  eq.addToWlambda(deltalambda, workspace);
 
-  return deltalambda;
+  return deltaTot;
+}
+
+/**
+ * Specialized PGS iteration loop for particle-particle 3D distance
+ * constraints. Reads the direction vector directly from the equation
+ * (nx, ny, nz) instead of a 12-element G, and only touches `vlambda` +
+ * `invMassSolve` — never `wlambda` or `invInertia`. Used for rope chain
+ * links between rope particles, where the angular Jacobian is always zero.
+ *
+ * Per-equation op count vs. the general batch:
+ *  - computeGWlambda: 6 mul-adds instead of 12
+ *  - addToWlambda: 6 mul-adds instead of 21 (6 linear + 15 angular)
+ *  - computeInvC (already done in setup): doesn't run here
+ *
+ * The equation is still iterated in Gauss-Seidel order relative to the
+ * other particle-distance equations, so rope chain corrections propagate
+ * along the chain in the same way they did before.
+ */
+function iterateParticleDistanceBatch(
+  equations: readonly ParticleDistanceEquation3D[],
+  Bs: Float32Array,
+  invCs: Float32Array,
+  lambda: Float32Array,
+  useZeroRHS: boolean,
+  dt: number,
+  ws: SolverWorkspace,
+): number {
+  const vl = ws.vlambda;
+  const invMassSolve = ws.invMassSolve;
+  const invMassSolveZ = ws.invMassSolveZ;
+
+  let deltaTot = 0;
+  const N = equations.length;
+
+  for (let k = 0; k < N; k++) {
+    const eq = equations[k];
+    if (!eq.enabled) continue;
+
+    const slot = eq[EQ_SLOT];
+    const idxA = eq[EQ_INDEX_A];
+    const idxB = eq[EQ_INDEX_B];
+    const iA = idxA * 3;
+    const iB = idxB * 3;
+
+    const nx = eq.nx;
+    const ny = eq.ny;
+    const nz = eq.nz;
+
+    // GWlambda = n · (vlB - vlA). No angular component.
+    const GWlambda =
+      nx * (vl[iB] - vl[iA]) +
+      ny * (vl[iB + 1] - vl[iA + 1]) +
+      nz * (vl[iB + 2] - vl[iA + 2]);
+
+    const B = useZeroRHS ? 0 : Bs[slot];
+    const invC = invCs[slot];
+    const lambdaj = lambda[slot];
+    const eps = eq.epsilon;
+
+    let dl = invC * (B - GWlambda - eps * lambdaj);
+    if (!isFinite(dl)) dl = 0;
+
+    const minFDt = eq.minForce * dt;
+    const maxFDt = eq.maxForce * dt;
+    const newTotal = lambdaj + dl;
+    if (newTotal < minFDt) dl = minFDt - lambdaj;
+    else if (newTotal > maxFDt) dl = maxFDt - lambdaj;
+
+    lambda[slot] = lambdaj + dl;
+
+    // Linear-only impulse: vl += invM * (±n) * dl
+    const iMA = invMassSolve[idxA];
+    const iMB = invMassSolve[idxB];
+    const iMzA = invMassSolveZ[idxA];
+    const iMzB = invMassSolveZ[idxB];
+
+    vl[iA] -= iMA * nx * dl;
+    vl[iA + 1] -= iMA * ny * dl;
+    vl[iA + 2] -= iMzA * nz * dl;
+
+    vl[iB] += iMB * nx * dl;
+    vl[iB + 1] += iMB * ny * dl;
+    vl[iB + 2] += iMzB * nz * dl;
+
+    deltaTot += dl >= 0 ? dl : -dl;
+  }
+
+  return deltaTot;
 }
 
 /** Updates friction equation bounds based on contact equation multipliers. */

@@ -12,7 +12,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
-import { DistanceConstraint3D } from "../../core/physics/constraints/DistanceConstraint3D";
+import { ParticleDistanceConstraint3D } from "../../core/physics/constraints/ParticleDistanceConstraint3D";
 import { V, V2d } from "../../core/Vector";
 import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
 import { WaterQuery } from "../world/water/WaterQuery";
@@ -74,10 +74,10 @@ export class RopeSegment extends BaseEntity {
     this.length = config.length;
     this.internalFriction = config.internalFriction;
 
-    // Chain constraint
-    const c = new DistanceConstraint3D(particleA, particleB, {
-      localAnchorA: [0, 0, 0],
-      localAnchorB: [0, 0, 0],
+    // Chain constraint — particle-to-particle specialization skips all the
+    // angular Jacobian work and reads body positions directly, which is a
+    // big hot-path win for rope chains.
+    const c = new ParticleDistanceConstraint3D(particleA, particleB, {
       distance: config.length,
       collideConnected: true,
     });
