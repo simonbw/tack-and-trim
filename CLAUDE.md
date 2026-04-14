@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with this 2D sailing gam
 
 ## Project Overview
 
-**Tack & Trim** is a 2D top-down sailing simulator built on a custom TypeScript game engine. Players control a dinghy, managing sails and rudder to navigate realistic wind and water physics.
+**Tack & Trim** is a 2D top-down sailing simulator built on a custom TypeScript game engine. Players control a keelboat/yacht, managing sails and rudder to navigate realistic wind and water physics.
 
 ### Key Game Systems (`src/game/`)
 

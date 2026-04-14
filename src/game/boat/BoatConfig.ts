@@ -317,7 +317,7 @@ export interface BilgeConfig {
   readonly bailBucketSize: number; // cubic ft — volume removed per bail scoop
   readonly bailInterval: number; // seconds — time between scoops
   readonly waterDensity: number; // lbs/ft³ (62.4 fresh, 64 salt)
-  /** Natural frequency (rad/s) of the lateral slosh oscillator. ~3-5 for a dinghy. */
+  /** Natural frequency (rad/s) of the lateral slosh oscillator. ~3-5 for a keelboat. */
   readonly sloshFreqLateral: number;
   /** Natural frequency (rad/s) of the longitudinal slosh oscillator. Usually lower than lateral. */
   readonly sloshFreqLongitudinal: number;

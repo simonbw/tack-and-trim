@@ -1,6 +1,6 @@
 # Boat Upgrade Brainstorm
 
-Ideas for a boat upgrade system where players can purchase improvements for their dinghy. Organized by boat system.
+Ideas for a boat upgrade system where players can purchase improvements for their keelboat/yacht. Organized by boat system.
 
 ## Hull & Structure
 

@@ -7,7 +7,7 @@ import { RHO_WATER, RHO_AIR, LBF_TO_ENGINE } from "./physics-constants";
 export { RHO_WATER, RHO_AIR };
 
 // Foil chord (depth) dimensions in feet
-export const RUDDER_CHORD = 1.5; // ft - typical dinghy rudder depth
+export const RUDDER_CHORD = 1.5; // ft - typical keelboat rudder depth
 export const KEEL_CHORD = 1.25; // ft - centerboard/daggerboard chord
 
 // =============================================================================
