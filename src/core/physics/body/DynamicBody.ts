@@ -1,8 +1,23 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import { CompatibleVector3, V3d } from "../../Vector3";
 import { BaseBodyOptions, SleepState, Body } from "./Body";
-import { integrateToTimeOfImpact } from "./ccdUtils";
+import { integrateToTimeOfImpact, type CCDConfig } from "./ccdUtils";
 import { SleepBehavior, type SleepableBody } from "./SleepBehavior";
+
+// Module-level scratch CCD config so `integratePosition` doesn't allocate an
+// options object on every body every substep when CCD is enabled. CCD runs
+// in a single body's integration synchronously, so reuse is safe.
+const ccdConfigScratch: CCDConfig & {
+  set(threshold: number, iterations: number): CCDConfig;
+} = {
+  ccdSpeedThreshold: 0,
+  ccdIterations: 0,
+  set(threshold: number, iterations: number) {
+    this.ccdSpeedThreshold = threshold;
+    this.ccdIterations = iterations;
+    return this;
+  },
+};
 
 /** Additional options for enabling 6DOF (z, roll, pitch) on a body. */
 export interface SixDOFOptions {
@@ -779,25 +794,27 @@ export class DynamicBody extends Body implements SleepableBody {
     const velo = this._velocity;
     const pos = this.position;
 
-    // CCD
-    const ccdApplied =
-      this.world &&
-      integrateToTimeOfImpact(
+    // CCD: only enter the function when CCD is actually configured, so the
+    // common "no CCD" path doesn't pay for the call + the options-object
+    // allocation. The function does its own threshold check, but having it
+    // here lets the hot path stay free of any allocation.
+    let ccdApplied = false;
+    if (this.world && this.ccdSpeedThreshold >= 0) {
+      ccdApplied = integrateToTimeOfImpact(
         this,
         this,
-        {
-          ccdSpeedThreshold: this.ccdSpeedThreshold,
-          ccdIterations: this.ccdIterations,
-        },
+        ccdConfigScratch.set(this.ccdSpeedThreshold, this.ccdIterations),
         this.world,
         dt,
       );
+    }
 
     if (!ccdApplied) {
-      // Position update (x, y)
-      const velodt = V(velo);
-      velodt.imul(dt);
-      pos.iadd(velodt);
+      // Position update (x, y) — inlined to avoid allocating a V2d temp on
+      // every body every substep. Position integration is one of the
+      // hottest loops in the engine.
+      pos[0] += velo[0] * dt;
+      pos[1] += velo[1] * dt;
 
       if (this._is6DOF) {
         // Z position update
@@ -807,11 +824,12 @@ export class DynamicBody extends Body implements SleepableBody {
         this._integrateOrientation(dt);
         // Extract yaw for backward compatibility
         this.angle = Math.atan2(this._orientation[3], this._orientation[0]);
-      } else {
-        // 3DOF: update angle directly, then sync orientation matrix
-        if (!this.fixedRotation) {
-          this.angle += this._angularVelocity3[2] * dt;
-        }
+      } else if (!this.fixedRotation) {
+        // 3DOF non-fixed rotation: update angle and resync the orientation
+        // matrix (cos/sin). For `fixedRotation` bodies the angle never
+        // changes, so the orientation matrix is already up-to-date and we
+        // skip the trig entirely.
+        this.angle += this._angularVelocity3[2] * dt;
         this._syncOrientationFromAngle();
       }
     }
