@@ -7,7 +7,6 @@ import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import {
   BoatConfig,
-  Kestrel,
   ShaffS7,
   ShaffS11,
   ShaffS15,
@@ -39,7 +38,6 @@ export const BOAT_PRESETS: Record<string, BoatConfig> = {
   "Maestro Trio": MaestroTrio,
   "Maestro Fantasia": MaestroFantasia,
   "Maestro Opus": MaestroOpus,
-  Kestrel: Kestrel,
 };
 
 export class BoatEditorController
@@ -53,7 +51,7 @@ export class BoatEditorController
 
   constructor() {
     super();
-    this.document = new BoatEditorDocument(Kestrel);
+    this.document = new BoatEditorDocument(ShaffS7);
     this.document.addListener(this);
   }
 

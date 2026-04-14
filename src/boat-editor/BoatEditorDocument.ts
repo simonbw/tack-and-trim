@@ -3,7 +3,7 @@
  * Wraps a BoatConfig with undo/redo via the Command pattern.
  */
 
-import { BoatConfig, Kestrel } from "../game/boat/BoatConfig";
+import { BoatConfig, ShaffS7 } from "../game/boat/BoatConfig";
 
 // ============================================
 // Command Pattern
@@ -36,7 +36,7 @@ export class BoatEditorDocument {
   private listeners: BoatDocumentListener[] = [];
 
   constructor(config?: BoatConfig) {
-    this._config = config ?? Kestrel;
+    this._config = config ?? ShaffS7;
     this._savedConfig = jsonClone(this._config);
   }
 

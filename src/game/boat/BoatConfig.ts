@@ -402,10 +402,6 @@ export interface BoatConfig {
   readonly sailDamage: SailDamageConfig;
 }
 
-// Legacy configs (still used as defaults in Boat.ts and the boat editor)
-export { Kestrel } from "./configs/Kestrel";
-export { Osprey } from "./configs/Osprey";
-export { Albatross } from "./configs/Albatross";
 // Re-export boat configs — Shaff
 export { ShaffS7 } from "./configs/ShaffS7";
 export { ShaffS11 } from "./configs/ShaffS11";
