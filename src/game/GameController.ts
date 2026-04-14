@@ -8,6 +8,8 @@ import { loadLevel } from "../editor/io/LevelLoader";
 import type { TreeFileData } from "../pipeline/mesh-building/TreeFile";
 import { Boat } from "./boat/Boat";
 import { BoatDebugHUD } from "./boat/BoatDebugHUD";
+import { BoatSelectionScreen } from "./BoatSelectionScreen";
+import { getBoatDef } from "./catalog/BoatCatalog";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { ClothWorkerPool } from "./boat/sail/ClothWorkerPool";
 import { CameraController } from "./CameraController";
@@ -52,6 +54,7 @@ export class GameController extends BaseEntity {
   persistenceLevel = 100;
 
   private currentLevel: LevelName | null = null;
+  private selectedBoatId: string = "shaff-s7";
   private treeData: TreeFileData | undefined;
   private startPosition: V2d = V(0, 0);
   private ports: PortData[] = [];
@@ -78,8 +81,20 @@ export class GameController extends BaseEntity {
   }
 
   @on("levelSelected")
-  async onLevelSelected({ levelName }: { levelName: LevelName }) {
+  onLevelSelected({ levelName }: { levelName: LevelName }) {
+    this.game.addEntity(new BoatSelectionScreen(levelName));
+  }
+
+  @on("boatSelected")
+  async onBoatSelected({
+    boatId,
+    levelName,
+  }: {
+    boatId: string;
+    levelName: LevelName;
+  }) {
     this.currentLevel = levelName;
+    this.selectedBoatId = boatId;
     const initScreen = this.game.addEntity(new GameInitializingScreen());
 
     // 1. Load level data (terrain + waves + wavemesh + trees)
@@ -170,7 +185,10 @@ export class GameController extends BaseEntity {
   onRestartLevel() {
     if (this.currentLevel) {
       this.game.clearScene(99);
-      this.game.dispatch("levelSelected", { levelName: this.currentLevel });
+      this.game.dispatch("boatSelected", {
+        boatId: this.selectedBoatId,
+        levelName: this.currentLevel,
+      });
     }
   }
 
@@ -209,8 +227,9 @@ export class GameController extends BaseEntity {
     const boatRotation = pendingSave?.boat.rotation ?? 0;
 
     // Spawn boat and controls
+    const boatConfig = getBoatDef(this.selectedBoatId)?.baseConfig;
     const boat = this.game.addEntity(
-      new Boat(boatPosition, undefined, boatRotation),
+      new Boat(boatPosition, boatConfig, boatRotation),
     );
     this.game.addEntity(new PlayerBoatController(boat));
     this.game.addEntity(new BoatDebugHUD());
