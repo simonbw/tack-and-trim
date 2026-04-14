@@ -5,6 +5,9 @@ export type CustomEvents = {
   /** Fired when player selects a level from the main menu */
   levelSelected: { levelName: LevelName };
 
+  /** Fired when player selects a boat from the boat selection screen */
+  boatSelected: { boatId: string; levelName: LevelName };
+
   /** Fired when player starts the game from main menu */
   gameStart: {};
 
