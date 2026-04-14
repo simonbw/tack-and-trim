@@ -47,7 +47,8 @@ export class SaveManager extends BaseEntity {
    * Load a save from a slot. This triggers a full level reload:
    * 1. Read save data from storage
    * 2. Store as pending
-   * 3. Dispatch levelSelected to reload the level
+   * 3. Dispatch boatSelected directly (skipping BoatSelectionScreen) with
+   *    the boat the player was using when the save was written
    * 4. On gameStart, apply the pending save data
    */
   loadFromSlot(slotId: string): void {
@@ -62,10 +63,14 @@ export class SaveManager extends BaseEntity {
     this.pendingSave = save;
     this.currentSlotId = slotId;
 
-    // Trigger a full level reload. The GameController handles clearScene + level loading.
     const levelName = save.levelId as LevelName;
+    const boatId = save.progression.currentBoatId;
+    // currentLevelId is normally updated via the levelSelected event, but
+    // loads skip that path to avoid showing the boat selection screen.
+    this.currentLevelId = levelName;
+
     this.game.clearScene(99);
-    this.game.dispatch("levelSelected", { levelName });
+    this.game.dispatch("boatSelected", { boatId, levelName });
   }
 
   /** Set which slot to use for subsequent saves. */
