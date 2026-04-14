@@ -24,6 +24,15 @@ export const ProfileRow = ({ stat, frameTotalMs }: ProfileRowProps) => {
       ? `(x${Math.round(stat.callsPerFrame).toLocaleString()})`
       : "";
 
+  const timeDisplay =
+    stat.msPerFrame.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }) + "ms";
+
+  const indent = "  ".repeat(stat.depth);
+  const copyText = `${indent}${stat.shortLabel}${callsDisplay ? " " + callsDisplay : ""} ${timeDisplay}`;
+
   return (
     <div
       className={`profile-row ${isSlow ? "profile-row--slow" : ""}`}
@@ -32,18 +41,15 @@ export const ProfileRow = ({ stat, frameTotalMs }: ProfileRowProps) => {
         background: `linear-gradient(to right, transparent 0% ${barPercent}%, ${barColor} ${barPercent}%)`,
       }}
     >
-      <div className="profile-row__label">
+      <span className="profile-row__copy">{copyText}</span>
+      <div className="profile-row__label" aria-hidden="true">
         {stat.shortLabel}
         {callsDisplay && (
           <span className="profile-row__calls">{callsDisplay}</span>
         )}
       </div>
-      <div className="profile-row__time">
-        {stat.msPerFrame.toLocaleString(undefined, {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}
-        ms
+      <div className="profile-row__time" aria-hidden="true">
+        {timeDisplay}
       </div>
     </div>
   );

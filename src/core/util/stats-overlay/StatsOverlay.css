@@ -101,11 +101,24 @@
   display: flex;
   justify-content: space-between;
   padding: 1px 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Invisible overlay that holds the clean copy/paste text. Visible label/time
+   have user-select: none so only this text ends up on the clipboard. */
+.profile-row__copy {
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  white-space: pre;
+  user-select: text;
 }
 
 .profile-row__label {
   display: flex;
   align-items: center;
+  user-select: none;
 }
 
 .profile-row__calls {
@@ -116,6 +129,7 @@
 .profile-row__time {
   color: #888;
   margin-left: 8px;
+  user-select: none;
 }
 
 .profile-row--slow {
