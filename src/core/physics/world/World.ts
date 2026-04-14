@@ -338,8 +338,17 @@ export class World extends EventEmitter<PhysicsEventMap> {
       // first substep this matches legacy behavior where solve() called
       // c.update() once.)
       profiler.start("World.constraintUpdate");
-      for (const c of this.constraints) {
-        c.update();
+      for (const [ctor, bucket] of this.constraints.byType) {
+        if (bucket.length === 0) continue;
+        const t0 = performance.now();
+        for (let i = 0; i < bucket.length; i++) {
+          bucket[i].update();
+        }
+        profiler.recordElapsed(
+          ctor.name,
+          performance.now() - t0,
+          bucket.length,
+        );
       }
       profiler.end("World.constraintUpdate");
 

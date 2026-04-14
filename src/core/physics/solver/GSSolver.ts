@@ -222,40 +222,56 @@ export function solveSubstep(
   const invCs = workspace.invCs;
   lambda.fill(0, 0, Neq);
 
-  // Prepare equations - compute B and invC values. Disabled equations are
-  // skipped (their Bs/invCs slots are never read by iterate/warmStart).
-  for (let i = 0; i < Neq; i++) {
-    const eq = equations[i];
-    if (!eq.enabled) continue;
-    if (eq.timeStep !== h || eq.needsUpdate) {
-      eq.timeStep = h;
-      eq.update();
-    }
-    const slot = eq[EQ_SLOT];
-    Bs[slot] = eq.computeB(eq.a, eq.b, h, workspace);
-    invCs[slot] = eq.computeInvC(eq.epsilon, workspace);
-  }
+  // Prepare equations - compute B and invC values. Each shape group gets
+  // its own per-shape batch function so the `computeB` / `computeInvC` call
+  // sites inside are monomorphic and V8 can inline the override chain
+  // (computeGq / computeGW / computeGiMf / computeGiMGt). A single generic
+  // helper won't work: V8 compiles one bytecode for the helper with shared
+  // ICs, which go megamorphic once it's called with multiple shape types.
+  setupPointToPointBatch(
+    workspace.pointToPointEquations,
+    h,
+    Bs,
+    invCs,
+    workspace,
+  );
+  setupPointToRigidBatch(
+    workspace.pointToRigidEquations,
+    h,
+    Bs,
+    invCs,
+    workspace,
+  );
+  setupPlanar2DBatch(workspace.planar2DEquations, h, Bs, invCs, workspace);
+  setupAngular3DBatch(workspace.angular3DEquations, h, Bs, invCs, workspace);
+  setupAngular2DBatch(workspace.angular2DEquations, h, Bs, invCs, workspace);
+  setupPulleyBatch(workspace.pulleyEquations, h, Bs, invCs, workspace);
+  setupGeneralBatch(workspace.generalEquations, h, Bs, invCs, workspace);
 
   profiler.end("Solver.setup");
 
   profiler.start("Solver.warmStart");
   // Warm start: initialize lambda from the cached solution (previous frame
   // on substep 0, previous substep thereafter) and pre-apply the cached
-  // impulses to body velocity deltas.
-  for (let i = 0; i < Neq; i++) {
-    const eq = equations[i];
-    if (!eq.enabled) continue;
-    let warm = eq.warmLambda;
-    if (warm !== 0) {
-      // Clamp to current force bounds (may have changed since last frame)
-      const minFDt = eq.minForce * h;
-      const maxFDt = eq.maxForce * h;
-      if (warm < minFDt) warm = minFDt;
-      else if (warm > maxFDt) warm = maxFDt;
-      lambda[eq[EQ_SLOT]] = warm;
-      eq.addToWlambda(warm, workspace);
-    }
-  }
+  // impulses to body velocity deltas. Partitioned per shape so `addToWlambda`
+  // is monomorphic and inlineable at each call site.
+  warmStartPointToPointBatch(
+    workspace.pointToPointEquations,
+    h,
+    lambda,
+    workspace,
+  );
+  warmStartPointToRigidBatch(
+    workspace.pointToRigidEquations,
+    h,
+    lambda,
+    workspace,
+  );
+  warmStartPlanar2DBatch(workspace.planar2DEquations, h, lambda, workspace);
+  warmStartAngular3DBatch(workspace.angular3DEquations, h, lambda, workspace);
+  warmStartAngular2DBatch(workspace.angular2DEquations, h, lambda, workspace);
+  warmStartPulleyBatch(workspace.pulleyEquations, h, lambda, workspace);
+  warmStartGeneralBatch(workspace.generalEquations, h, lambda, workspace);
   profiler.end("Solver.warmStart");
 
   // Optional friction pre-iteration phase
@@ -324,12 +340,16 @@ export function solveSubstep(
 
   // Cache lambda for warm starting next frame, then update multipliers.
   // Disabled equations retain their previous warmLambda / multiplier so
-  // game code reading those fields sees stable values.
-  for (let i = 0; i < Neq; i++) {
-    const eq = equations[i];
-    if (eq.enabled) eq.warmLambda = lambda[eq[EQ_SLOT]];
-  }
-  updateMultipliers(equations, lambda, 1 / h);
+  // game code reading those fields sees stable values. Partitioned per
+  // shape so the field reads/writes are monomorphic.
+  const invDt = 1 / h;
+  finalizePointToPointBatch(workspace.pointToPointEquations, lambda, invDt);
+  finalizePointToRigidBatch(workspace.pointToRigidEquations, lambda, invDt);
+  finalizePlanar2DBatch(workspace.planar2DEquations, lambda, invDt);
+  finalizeAngular3DBatch(workspace.angular3DEquations, lambda, invDt);
+  finalizeAngular2DBatch(workspace.angular2DEquations, lambda, invDt);
+  finalizePulleyBatch(workspace.pulleyEquations, lambda, invDt);
+  finalizeGeneralBatch(workspace.generalEquations, lambda, invDt);
   profiler.end("Solver.finalize");
 
   return { usedIterations };
@@ -391,6 +411,403 @@ export function solveIsland(
 }
 
 // --- Helper Functions ---
+
+// --- Per-shape setup / warmStart / finalize batch functions ---
+//
+// Each of these is a separate top-level function so V8 compiles it with its
+// own inline-cache feedback. Because each function is only ever called with
+// equations of a single concrete shape, the `eq.computeB` / `eq.addToWlambda`
+// / field-access sites inside stay monomorphic, and V8 can inline the shape
+// override. A single generic helper called 7 times would share one bytecode
+// with megamorphic ICs — which is what we started with.
+//
+// The bodies are intentionally identical across shapes. Don't try to DRY them
+// by factoring into a generic helper; that defeats the whole point.
+
+function setupPointToPointBatch(
+  eqs: readonly PointToPointEquation3D[],
+  h: number,
+  Bs: Float32Array,
+  invCs: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    if (eq.timeStep !== h || eq.needsUpdate) {
+      eq.timeStep = h;
+      eq.update();
+    }
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, ws);
+    invCs[slot] = eq.computeInvC(eq.epsilon, ws);
+  }
+}
+
+function setupPointToRigidBatch(
+  eqs: readonly PointToRigidEquation3D[],
+  h: number,
+  Bs: Float32Array,
+  invCs: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    if (eq.timeStep !== h || eq.needsUpdate) {
+      eq.timeStep = h;
+      eq.update();
+    }
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, ws);
+    invCs[slot] = eq.computeInvC(eq.epsilon, ws);
+  }
+}
+
+function setupPlanar2DBatch(
+  eqs: readonly PlanarEquation2D[],
+  h: number,
+  Bs: Float32Array,
+  invCs: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    if (eq.timeStep !== h || eq.needsUpdate) {
+      eq.timeStep = h;
+      eq.update();
+    }
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, ws);
+    invCs[slot] = eq.computeInvC(eq.epsilon, ws);
+  }
+}
+
+function setupAngular3DBatch(
+  eqs: readonly AngularEquation3D[],
+  h: number,
+  Bs: Float32Array,
+  invCs: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    if (eq.timeStep !== h || eq.needsUpdate) {
+      eq.timeStep = h;
+      eq.update();
+    }
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, ws);
+    invCs[slot] = eq.computeInvC(eq.epsilon, ws);
+  }
+}
+
+function setupAngular2DBatch(
+  eqs: readonly AngularEquation2D[],
+  h: number,
+  Bs: Float32Array,
+  invCs: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    if (eq.timeStep !== h || eq.needsUpdate) {
+      eq.timeStep = h;
+      eq.update();
+    }
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, ws);
+    invCs[slot] = eq.computeInvC(eq.epsilon, ws);
+  }
+}
+
+function setupPulleyBatch(
+  eqs: readonly PulleyEquation[],
+  h: number,
+  Bs: Float32Array,
+  invCs: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    if (eq.timeStep !== h || eq.needsUpdate) {
+      eq.timeStep = h;
+      eq.update();
+    }
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, ws);
+    invCs[slot] = eq.computeInvC(eq.epsilon, ws);
+  }
+}
+
+function setupGeneralBatch(
+  eqs: readonly Equation[],
+  h: number,
+  Bs: Float32Array,
+  invCs: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    if (eq.timeStep !== h || eq.needsUpdate) {
+      eq.timeStep = h;
+      eq.update();
+    }
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, ws);
+    invCs[slot] = eq.computeInvC(eq.epsilon, ws);
+  }
+}
+
+function warmStartPointToPointBatch(
+  eqs: readonly PointToPointEquation3D[],
+  h: number,
+  lambda: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    let warm = eq.warmLambda;
+    if (warm === 0) continue;
+    const minFDt = eq.minForce * h;
+    const maxFDt = eq.maxForce * h;
+    if (warm < minFDt) warm = minFDt;
+    else if (warm > maxFDt) warm = maxFDt;
+    lambda[eq[EQ_SLOT]] = warm;
+    eq.addToWlambda(warm, ws);
+  }
+}
+
+function warmStartPointToRigidBatch(
+  eqs: readonly PointToRigidEquation3D[],
+  h: number,
+  lambda: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    let warm = eq.warmLambda;
+    if (warm === 0) continue;
+    const minFDt = eq.minForce * h;
+    const maxFDt = eq.maxForce * h;
+    if (warm < minFDt) warm = minFDt;
+    else if (warm > maxFDt) warm = maxFDt;
+    lambda[eq[EQ_SLOT]] = warm;
+    eq.addToWlambda(warm, ws);
+  }
+}
+
+function warmStartPlanar2DBatch(
+  eqs: readonly PlanarEquation2D[],
+  h: number,
+  lambda: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    let warm = eq.warmLambda;
+    if (warm === 0) continue;
+    const minFDt = eq.minForce * h;
+    const maxFDt = eq.maxForce * h;
+    if (warm < minFDt) warm = minFDt;
+    else if (warm > maxFDt) warm = maxFDt;
+    lambda[eq[EQ_SLOT]] = warm;
+    eq.addToWlambda(warm, ws);
+  }
+}
+
+function warmStartAngular3DBatch(
+  eqs: readonly AngularEquation3D[],
+  h: number,
+  lambda: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    let warm = eq.warmLambda;
+    if (warm === 0) continue;
+    const minFDt = eq.minForce * h;
+    const maxFDt = eq.maxForce * h;
+    if (warm < minFDt) warm = minFDt;
+    else if (warm > maxFDt) warm = maxFDt;
+    lambda[eq[EQ_SLOT]] = warm;
+    eq.addToWlambda(warm, ws);
+  }
+}
+
+function warmStartAngular2DBatch(
+  eqs: readonly AngularEquation2D[],
+  h: number,
+  lambda: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    let warm = eq.warmLambda;
+    if (warm === 0) continue;
+    const minFDt = eq.minForce * h;
+    const maxFDt = eq.maxForce * h;
+    if (warm < minFDt) warm = minFDt;
+    else if (warm > maxFDt) warm = maxFDt;
+    lambda[eq[EQ_SLOT]] = warm;
+    eq.addToWlambda(warm, ws);
+  }
+}
+
+function warmStartPulleyBatch(
+  eqs: readonly PulleyEquation[],
+  h: number,
+  lambda: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    let warm = eq.warmLambda;
+    if (warm === 0) continue;
+    const minFDt = eq.minForce * h;
+    const maxFDt = eq.maxForce * h;
+    if (warm < minFDt) warm = minFDt;
+    else if (warm > maxFDt) warm = maxFDt;
+    lambda[eq[EQ_SLOT]] = warm;
+    eq.addToWlambda(warm, ws);
+  }
+}
+
+function warmStartGeneralBatch(
+  eqs: readonly Equation[],
+  h: number,
+  lambda: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    let warm = eq.warmLambda;
+    if (warm === 0) continue;
+    const minFDt = eq.minForce * h;
+    const maxFDt = eq.maxForce * h;
+    if (warm < minFDt) warm = minFDt;
+    else if (warm > maxFDt) warm = maxFDt;
+    lambda[eq[EQ_SLOT]] = warm;
+    eq.addToWlambda(warm, ws);
+  }
+}
+
+function finalizePointToPointBatch(
+  eqs: readonly PointToPointEquation3D[],
+  lambda: Float32Array,
+  invDt: number,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    const slot = eq[EQ_SLOT];
+    const l = lambda[slot];
+    eq.warmLambda = l;
+    eq.multiplier = l * invDt;
+  }
+}
+
+function finalizePointToRigidBatch(
+  eqs: readonly PointToRigidEquation3D[],
+  lambda: Float32Array,
+  invDt: number,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    const slot = eq[EQ_SLOT];
+    const l = lambda[slot];
+    eq.warmLambda = l;
+    eq.multiplier = l * invDt;
+  }
+}
+
+function finalizePlanar2DBatch(
+  eqs: readonly PlanarEquation2D[],
+  lambda: Float32Array,
+  invDt: number,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    const slot = eq[EQ_SLOT];
+    const l = lambda[slot];
+    eq.warmLambda = l;
+    eq.multiplier = l * invDt;
+  }
+}
+
+function finalizeAngular3DBatch(
+  eqs: readonly AngularEquation3D[],
+  lambda: Float32Array,
+  invDt: number,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    const slot = eq[EQ_SLOT];
+    const l = lambda[slot];
+    eq.warmLambda = l;
+    eq.multiplier = l * invDt;
+  }
+}
+
+function finalizeAngular2DBatch(
+  eqs: readonly AngularEquation2D[],
+  lambda: Float32Array,
+  invDt: number,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    const slot = eq[EQ_SLOT];
+    const l = lambda[slot];
+    eq.warmLambda = l;
+    eq.multiplier = l * invDt;
+  }
+}
+
+function finalizePulleyBatch(
+  eqs: readonly PulleyEquation[],
+  lambda: Float32Array,
+  invDt: number,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    const slot = eq[EQ_SLOT];
+    const l = lambda[slot];
+    eq.warmLambda = l;
+    eq.multiplier = l * invDt;
+  }
+}
+
+function finalizeGeneralBatch(
+  eqs: readonly Equation[],
+  lambda: Float32Array,
+  invDt: number,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    const slot = eq[EQ_SLOT];
+    const l = lambda[slot];
+    eq.warmLambda = l;
+    eq.multiplier = l * invDt;
+  }
+}
 
 /** Sets the .multiplier property of each enabled equation from lambda values. */
 function updateMultipliers(

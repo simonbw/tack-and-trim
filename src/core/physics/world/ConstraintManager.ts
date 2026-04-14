@@ -10,6 +10,9 @@ export class ConstraintManager implements Iterable<Constraint> {
   );
   /** Cached body keys for constraints with collideConnected=false */
   private _disabledBodyKeys = new Set<string>();
+  /** Constraints bucketed by concrete class, so hot-path update loops can
+   *  run monomorphically and be measured per-type. */
+  private _byType = new Map<Function, Constraint[]>();
 
   /** Add a constraint to the world. */
   add(constraint: Constraint): void {
@@ -18,6 +21,13 @@ export class ConstraintManager implements Iterable<Constraint> {
     if (!constraint.collideConnected) {
       this._disabledBodyKeys.add(bodyKey(constraint.bodyA, constraint.bodyB));
     }
+    const ctor = constraint.constructor;
+    let bucket = this._byType.get(ctor);
+    if (!bucket) {
+      bucket = [];
+      this._byType.set(ctor, bucket);
+    }
+    bucket.push(constraint);
   }
 
   /** Remove a constraint from the world. */
@@ -29,12 +39,27 @@ export class ConstraintManager implements Iterable<Constraint> {
         bodyKey(constraint.bodyA, constraint.bodyB),
       );
     }
+    const bucket = this._byType.get(constraint.constructor);
+    if (bucket) {
+      const idx = bucket.indexOf(constraint);
+      if (idx >= 0) {
+        const last = bucket.length - 1;
+        if (idx !== last) bucket[idx] = bucket[last];
+        bucket.pop();
+      }
+    }
   }
 
   /** Remove all constraints from the world. */
   clear(): void {
     this.items.clear();
     this._disabledBodyKeys.clear();
+    this._byType.clear();
+  }
+
+  /** Iterate constraints grouped by concrete class. */
+  get byType(): ReadonlyMap<Function, readonly Constraint[]> {
+    return this._byType;
   }
 
   /** Number of constraints in the collection. */
