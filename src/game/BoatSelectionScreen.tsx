@@ -2,6 +2,7 @@ import type { LevelName } from "../../resources/resources";
 import { ReactEntity } from "../core/ReactEntity";
 import { on } from "../core/entity/handler";
 import type { KeyCode } from "../core/io/Keys";
+import { focusFirst, moveFocus } from "../core/util/menuNav";
 import { BOAT_DEFS } from "./catalog/BoatCatalog";
 import "./BoatSelectionScreen.css";
 
@@ -21,11 +22,12 @@ function StatBar({ label, value }: { label: string; value: number }) {
 }
 
 export class BoatSelectionScreen extends ReactEntity {
-  private selectedIndex = 0;
+  /** Index of the boat shown in the detail pane. Driven by focus. */
+  private focusedIndex = 0;
 
   constructor(private readonly levelName: LevelName) {
     super(() => {
-      const selected = BOAT_DEFS[this.selectedIndex];
+      const selected = BOAT_DEFS[this.focusedIndex];
       return (
         <div class="boat-selection">
           <div class="boat-selection__title">Choose Your Boat</div>
@@ -33,8 +35,9 @@ export class BoatSelectionScreen extends ReactEntity {
             <div class="boat-selection__list">
               {BOAT_DEFS.map((boat, i) => (
                 <button
-                  class={`boat-selection__item ${i === this.selectedIndex ? "boat-selection__item--selected" : ""}`}
+                  class="boat-selection__item"
                   onClick={() => this.confirmSelection(i)}
+                  onFocus={() => this.setFocused(i)}
                 >
                   {boat.name}
                 </button>
@@ -71,6 +74,16 @@ export class BoatSelectionScreen extends ReactEntity {
     });
   }
 
+  @on("afterAdded")
+  onAfterAdded() {
+    this.reactRender();
+    focusFirst(this.el);
+  }
+
+  private setFocused(index: number) {
+    this.focusedIndex = index;
+  }
+
   private confirmSelection(index: number) {
     const boat = BOAT_DEFS[index];
     if (!boat) return;
@@ -83,13 +96,10 @@ export class BoatSelectionScreen extends ReactEntity {
 
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
-    if (key === "ArrowUp") {
-      this.selectedIndex =
-        (this.selectedIndex - 1 + BOAT_DEFS.length) % BOAT_DEFS.length;
-    } else if (key === "ArrowDown") {
-      this.selectedIndex = (this.selectedIndex + 1) % BOAT_DEFS.length;
-    } else if (key === "Enter" || key === "Space") {
-      this.confirmSelection(this.selectedIndex);
+    if (key === "ArrowUp" || key === "ArrowLeft") {
+      moveFocus(this.el, -1);
+    } else if (key === "ArrowDown" || key === "ArrowRight") {
+      moveFocus(this.el, +1);
     }
   }
 }

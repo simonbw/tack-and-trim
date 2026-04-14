@@ -79,13 +79,14 @@
   transform: scale(1.02);
 }
 
-.port-menu__button--selected {
+.port-menu__button:focus {
+  outline: none;
   background: rgba(180, 160, 120, 0.2);
   border-color: rgba(220, 200, 150, 0.5);
   box-shadow: 0 0 12px rgba(180, 160, 120, 0.15);
 }
 
-.port-menu__button--selected:hover {
+.port-menu__button:focus:hover {
   background: rgba(180, 160, 120, 0.3);
   border-color: rgba(220, 200, 150, 0.6);
 }

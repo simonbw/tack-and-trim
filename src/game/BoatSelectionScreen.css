@@ -66,13 +66,14 @@
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-.boat-selection__item--selected {
+.boat-selection__item:focus {
+  outline: none;
   background: rgba(180, 160, 120, 0.2);
   border-color: rgba(220, 200, 150, 0.5);
   box-shadow: 0 0 12px rgba(180, 160, 120, 0.15);
 }
 
-.boat-selection__item--selected:hover {
+.boat-selection__item:focus:hover {
   background: rgba(180, 160, 120, 0.3);
   border-color: rgba(220, 200, 150, 0.6);
 }

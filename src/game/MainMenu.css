@@ -69,13 +69,14 @@
   transform: scale(1.02);
 }
 
-.main-menu__card--selected {
+.main-menu__card:focus {
+  outline: none;
   background: rgba(180, 160, 120, 0.2);
   border-color: rgba(220, 200, 150, 0.5);
   box-shadow: 0 0 12px rgba(180, 160, 120, 0.15);
 }
 
-.main-menu__card--selected:hover {
+.main-menu__card:focus:hover {
   background: rgba(180, 160, 120, 0.3);
   border-color: rgba(220, 200, 150, 0.6);
 }

@@ -72,13 +72,14 @@
   transform: scale(1.02);
 }
 
-.pause-menu__button--selected {
+.pause-menu__button:focus {
+  outline: none;
   background: rgba(180, 160, 120, 0.2);
   border-color: rgba(220, 200, 150, 0.5);
   box-shadow: 0 0 12px rgba(180, 160, 120, 0.15);
 }
 
-.pause-menu__button--selected:hover {
+.pause-menu__button:focus:hover {
   background: rgba(180, 160, 120, 0.3);
   border-color: rgba(220, 200, 150, 0.6);
 }

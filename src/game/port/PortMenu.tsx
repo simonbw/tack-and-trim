@@ -1,6 +1,7 @@
 import { on } from "../../core/entity/handler";
 import { KeyCode } from "../../core/io/Keys";
 import { Modal } from "../../core/ui/Modal";
+import { focusFirst, moveFocus } from "../../core/util/menuNav";
 import { Boat } from "../boat/Boat";
 import { ShipyardUI } from "../catalog/ShipyardUI";
 import { MissionBoard } from "../mission/MissionBoard";
@@ -16,7 +17,6 @@ const ACTIONS: { key: PortMenuAction; label: string }[] = [
 ];
 
 export class PortMenu extends Modal {
-  private selectedIndex = 0;
   private subMenuOpen: SubMenu = null;
 
   constructor(
@@ -28,9 +28,9 @@ export class PortMenu extends Modal {
         <div class="port-menu__title">{this.portName}</div>
         <div class="port-menu__subtitle">Port Services</div>
         <div class="port-menu__actions">
-          {ACTIONS.map(({ key, label }, i) => (
+          {ACTIONS.map(({ key, label }) => (
             <button
-              class={`port-menu__button ${key === "castOff" ? "port-menu__button--cast-off" : ""} ${i === this.selectedIndex ? "port-menu__button--selected" : ""}`}
+              class={`port-menu__button ${key === "castOff" ? "port-menu__button--cast-off" : ""}`}
               onClick={() => this.execute(key)}
             >
               {label}
@@ -39,6 +39,12 @@ export class PortMenu extends Modal {
         </div>
       </div>
     ));
+  }
+
+  @on("afterAdded")
+  onAfterAdded() {
+    this.reactRender();
+    focusFirst(this.el);
   }
 
   private execute(action: PortMenuAction) {
@@ -71,6 +77,7 @@ export class PortMenu extends Modal {
   @on("closeShipyard")
   onCloseShipyard() {
     this.subMenuOpen = null;
+    focusFirst(this.el);
   }
 
   private castOff() {
@@ -91,17 +98,15 @@ export class PortMenu extends Modal {
     if (this.subMenuOpen === "missionBoard") {
       if (!this.game.entities.tryGetSingleton(MissionBoard)) {
         this.subMenuOpen = null;
+        focusFirst(this.el);
       }
     }
     if (this.subMenuOpen) return;
 
     if (key === "ArrowUp" || key === "ArrowLeft") {
-      this.selectedIndex =
-        (this.selectedIndex - 1 + ACTIONS.length) % ACTIONS.length;
+      moveFocus(this.el, -1);
     } else if (key === "ArrowDown" || key === "ArrowRight") {
-      this.selectedIndex = (this.selectedIndex + 1) % ACTIONS.length;
-    } else if (key === "Enter" || key === "Space") {
-      this.execute(ACTIONS[this.selectedIndex].key);
+      moveFocus(this.el, +1);
     }
   }
 }

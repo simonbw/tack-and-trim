@@ -118,25 +118,42 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   padding: 0.8rem 1rem;
+  text-align: left;
+  font-family: var(--font-body);
+  color: #e8e4d9;
+  text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.6);
+  display: block;
+  width: 100%;
   transition:
     background 0.15s,
     border-color 0.15s;
 }
 
-.shipyard__item:hover {
+.shipyard__item:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-.shipyard__item--selected {
+.shipyard__item:focus {
+  outline: none;
   background: rgba(180, 160, 120, 0.15);
   border-color: rgba(220, 200, 150, 0.4);
   box-shadow: 0 0 8px rgba(180, 160, 120, 0.1);
 }
 
-.shipyard__item--selected:hover {
+.shipyard__item:focus:hover:not(:disabled) {
   background: rgba(180, 160, 120, 0.22);
   border-color: rgba(220, 200, 150, 0.5);
+}
+
+.shipyard__item:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.shipyard__item-action {
+  color: #e8e4d9;
+  margin-right: 0.4rem;
 }
 
 .shipyard__item-header {
@@ -255,9 +272,16 @@
   border-color: rgba(220, 200, 150, 0.6);
 }
 
-.shipyard__action--disabled {
+.shipyard__action:disabled {
   opacity: 0.35;
-  pointer-events: none;
+  cursor: default;
+}
+
+.shipyard__repair-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
 }
 
 /* ============================================

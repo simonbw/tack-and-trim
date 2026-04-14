@@ -111,15 +111,21 @@
   transform: scale(1.01);
 }
 
-.mission-board__entry--selected {
+.mission-board__entry:focus {
+  outline: none;
   background: rgba(180, 160, 120, 0.18);
   border-color: rgba(220, 200, 150, 0.5);
   box-shadow: 0 0 12px rgba(180, 160, 120, 0.12);
 }
 
-.mission-board__entry--selected:hover {
+.mission-board__entry:focus:hover {
   background: rgba(180, 160, 120, 0.25);
   border-color: rgba(220, 200, 150, 0.6);
+}
+
+.mission-board__entry:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .mission-board__entry-name {

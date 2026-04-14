@@ -2,9 +2,10 @@ import { LevelName, RESOURCES } from "../../resources/resources";
 import { ReactEntity } from "../core/ReactEntity";
 import { on } from "../core/entity/handler";
 import { KeyCode } from "../core/io/Keys";
+import { focusFirst, moveFocus } from "../core/util/menuNav";
 import type { SaveSlotInfo } from "./persistence/SaveFile";
 import { SaveManager } from "./persistence/SaveManager";
-import { listSaves, deleteSave } from "./persistence/SaveStorage";
+import { deleteSave, listSaves } from "./persistence/SaveStorage";
 import "./MainMenu.css";
 
 const LEVEL_NAMES = (Object.keys(RESOURCES.levels) as LevelName[]).sort(
@@ -31,18 +32,8 @@ function formatTimestamp(ts: number): string {
   });
 }
 
-type MenuSection = "saves" | "levels";
-
-interface MenuItem {
-  section: MenuSection;
-  index: number;
-}
-
 export class MainMenu extends ReactEntity {
   private saves: SaveSlotInfo[] = [];
-  private selectedSection: MenuSection = "saves";
-  private selectedSaveIndex = 0;
-  private selectedLevelIndex = 0;
 
   constructor() {
     super(() => {
@@ -55,10 +46,11 @@ export class MainMenu extends ReactEntity {
             <div class="main-menu__section">
               <div class="main-menu__subtitle">Saved Games</div>
               <div class="main-menu__levels">
-                {this.saves.map((save, i) => (
+                {this.saves.map((save) => (
                   <button
-                    class={`main-menu__card ${this.selectedSection === "saves" && i === this.selectedSaveIndex ? "main-menu__card--selected" : ""}`}
-                    onClick={() => this.loadSave(i)}
+                    class="main-menu__card"
+                    onClick={() => this.loadSave(save.slotId)}
+                    onKeyDown={(e) => this.onSaveKeyDown(e, save.slotId)}
                   >
                     <div class="main-menu__save-name">{save.saveName}</div>
                     <div class="main-menu__save-details">
@@ -74,10 +66,10 @@ export class MainMenu extends ReactEntity {
           <div class="main-menu__section">
             <div class="main-menu__subtitle">New Game</div>
             <div class="main-menu__levels">
-              {LEVEL_NAMES.map((name, i) => (
+              {LEVEL_NAMES.map((name) => (
                 <button
-                  class={`main-menu__card ${this.selectedSection === "levels" && i === this.selectedLevelIndex ? "main-menu__card--selected" : ""}`}
-                  onClick={() => this.selectLevel(i)}
+                  class="main-menu__card"
+                  onClick={() => this.selectLevel(name)}
                 >
                   {formatLevelName(name)}
                 </button>
@@ -92,76 +84,43 @@ export class MainMenu extends ReactEntity {
   @on("afterAdded")
   onAfterAdded() {
     this.saves = listSaves();
-    // Default to saves section if saves exist, otherwise levels
-    this.selectedSection = this.saves.length > 0 ? "saves" : "levels";
+    this.reactRender();
+    focusFirst(this.el);
   }
 
-  private loadSave(index: number) {
-    const save = this.saves[index];
-    if (!save) return;
+  private loadSave(slotId: string) {
     const saveManager = this.game.entities.tryGetSingleton(SaveManager);
     if (saveManager) {
-      saveManager.loadFromSlot(save.slotId);
+      saveManager.loadFromSlot(slotId);
     }
     this.destroy();
   }
 
-  private selectLevel(index: number) {
-    const levelName = LEVEL_NAMES[index];
+  private selectLevel(levelName: LevelName) {
     this.game.dispatch("levelSelected", { levelName });
     this.destroy();
   }
 
+  private onSaveKeyDown(e: KeyboardEvent, slotId: string) {
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      deleteSave(slotId);
+      const prev = document.activeElement as HTMLElement | null;
+      this.saves = listSaves();
+      this.reactRender();
+      // Focus shifted: try to focus a sibling, else fall through to first.
+      if (prev && !document.body.contains(prev)) {
+        focusFirst(this.el);
+      }
+    }
+  }
+
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
-    const hasSaves = this.saves.length > 0;
-
-    if (key === "ArrowUp") {
-      if (this.selectedSection === "saves") {
-        this.selectedSaveIndex =
-          (this.selectedSaveIndex - 1 + this.saves.length) % this.saves.length;
-      } else {
-        if (this.selectedLevelIndex === 0 && hasSaves) {
-          // Jump to saves section
-          this.selectedSection = "saves";
-          this.selectedSaveIndex = this.saves.length - 1;
-        } else {
-          this.selectedLevelIndex =
-            (this.selectedLevelIndex - 1 + LEVEL_NAMES.length) %
-            LEVEL_NAMES.length;
-        }
-      }
-    } else if (key === "ArrowDown") {
-      if (this.selectedSection === "saves") {
-        if (this.selectedSaveIndex === this.saves.length - 1) {
-          // Jump to levels section
-          this.selectedSection = "levels";
-          this.selectedLevelIndex = 0;
-        } else {
-          this.selectedSaveIndex++;
-        }
-      } else {
-        this.selectedLevelIndex =
-          (this.selectedLevelIndex + 1) % LEVEL_NAMES.length;
-      }
-    } else if (key === "Enter" || key === "Space") {
-      if (this.selectedSection === "saves") {
-        this.loadSave(this.selectedSaveIndex);
-      } else {
-        this.selectLevel(this.selectedLevelIndex);
-      }
-    } else if (key === "Delete" || key === "Backspace") {
-      // Delete selected save
-      if (this.selectedSection === "saves" && this.saves.length > 0) {
-        const save = this.saves[this.selectedSaveIndex];
-        deleteSave(save.slotId);
-        this.saves = listSaves();
-        if (this.saves.length === 0) {
-          this.selectedSection = "levels";
-        } else if (this.selectedSaveIndex >= this.saves.length) {
-          this.selectedSaveIndex = this.saves.length - 1;
-        }
-      }
+    if (key === "ArrowUp" || key === "ArrowLeft") {
+      moveFocus(this.el, -1);
+    } else if (key === "ArrowDown" || key === "ArrowRight") {
+      moveFocus(this.el, +1);
     }
   }
 }

@@ -1,6 +1,7 @@
 import { on } from "../../core/entity/handler";
 import { KeyCode } from "../../core/io/Keys";
 import { Modal } from "../../core/ui/Modal";
+import { focusFirst, moveFocus } from "../../core/util/menuNav";
 import { Boat } from "../boat/Boat";
 import { ProgressionManager } from "../progression/ProgressionManager";
 import {
@@ -26,10 +27,15 @@ interface RepairEntry {
 
 export class ShipyardUI extends Modal {
   private activeTab: TabId = "boats";
-  private selectedIndex = 0;
 
   constructor() {
     super(() => this.renderContent());
+  }
+
+  @on("afterAdded")
+  onAfterAdded() {
+    this.reactRender();
+    this.focusActiveList();
   }
 
   private get progression(): ProgressionManager {
@@ -38,6 +44,15 @@ export class ShipyardUI extends Modal {
 
   private get boat(): Boat | undefined {
     return this.game.entities.getById("boat") as Boat | undefined;
+  }
+
+  private getListContainer(): HTMLElement | null {
+    return this.el.querySelector<HTMLElement>(".shipyard__list");
+  }
+
+  private focusActiveList() {
+    const list = this.getListContainer();
+    if (list) focusFirst(list);
   }
 
   // ============================================
@@ -84,16 +99,16 @@ export class ShipyardUI extends Modal {
   private renderBoatsTab(prog: ProgressionManager) {
     return (
       <div class="shipyard__list">
-        {BOAT_DEFS.map((def, i) => {
+        {BOAT_DEFS.map((def) => {
           const owned = prog.ownsBoat(def.id);
           const isCurrent = def.id === prog.getCurrentBoatId();
+          const disabled = isCurrent || (!owned && prog.getMoney() < def.cost);
+          const actionLabel = isCurrent ? "" : owned ? "Switch" : "Buy";
           return (
-            <div
-              class={`shipyard__item ${i === this.selectedIndex ? "shipyard__item--selected" : ""}`}
-              onClick={() => {
-                this.selectedIndex = i;
-                this.executeBoatAction(def);
-              }}
+            <button
+              class="shipyard__item"
+              disabled={disabled}
+              onClick={() => this.executeBoatAction(def)}
             >
               <div class="shipyard__item-header">
                 <span class="shipyard__item-name">
@@ -112,23 +127,15 @@ export class ShipyardUI extends Modal {
                   )}
                 </span>
                 <span class="shipyard__item-cost">
-                  {owned ? "" : `${def.cost} gold`}
+                  {actionLabel && (
+                    <span class="shipyard__item-action">{actionLabel}</span>
+                  )}
+                  {!owned && ` ${def.cost} gold`}
                 </span>
               </div>
               <div class="shipyard__item-desc">{def.description}</div>
               {this.renderDisplayStats(def)}
-              {i === this.selectedIndex && !isCurrent && (
-                <button
-                  class={`shipyard__action ${!owned && prog.getMoney() < def.cost ? "shipyard__action--disabled" : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    this.executeBoatAction(def);
-                  }}
-                >
-                  {owned ? "Switch" : "Buy"}
-                </button>
-              )}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -183,15 +190,14 @@ export class ShipyardUI extends Modal {
 
     return (
       <div class="shipyard__list">
-        {availableUpgrades.map((def, i) => {
+        {availableUpgrades.map((def) => {
           const purchased = prog.hasUpgrade(boatId, def.id);
+          const disabled = purchased || prog.getMoney() < def.cost;
           return (
-            <div
-              class={`shipyard__item ${i === this.selectedIndex ? "shipyard__item--selected" : ""}`}
-              onClick={() => {
-                this.selectedIndex = i;
-                if (!purchased) this.executeUpgradeAction(def);
-              }}
+            <button
+              class="shipyard__item"
+              disabled={disabled}
+              onClick={() => this.executeUpgradeAction(def)}
             >
               <div class="shipyard__item-header">
                 <span class="shipyard__item-name">
@@ -204,22 +210,16 @@ export class ShipyardUI extends Modal {
                   )}
                 </span>
                 <span class="shipyard__item-cost">
-                  {purchased ? "" : `${def.cost} gold`}
+                  {!purchased && (
+                    <>
+                      <span class="shipyard__item-action">Buy</span>
+                      {` ${def.cost} gold`}
+                    </>
+                  )}
                 </span>
               </div>
               <div class="shipyard__item-desc">{def.description}</div>
-              {i === this.selectedIndex && !purchased && (
-                <button
-                  class={`shipyard__action ${prog.getMoney() < def.cost ? "shipyard__action--disabled" : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    this.executeUpgradeAction(def);
-                  }}
-                >
-                  Buy
-                </button>
-              )}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -257,7 +257,7 @@ export class ShipyardUI extends Modal {
 
     return (
       <div class="shipyard__list">
-        <div class="shipyard__item">
+        <div class="shipyard__repair-card">
           {entries.map((entry) => {
             const pct = Math.round(entry.health * 100);
             const fillClass =
@@ -281,7 +281,8 @@ export class ShipyardUI extends Modal {
           })}
 
           <button
-            class={`shipyard__action shipyard__repair-all ${!anyDamaged ? "shipyard__action--disabled" : ""}`}
+            class="shipyard__action shipyard__repair-all"
+            disabled={!anyDamaged}
             onClick={() => this.executeRepair()}
           >
             Repair All (Free)
@@ -331,22 +332,14 @@ export class ShipyardUI extends Modal {
 
   private setTab(tab: TabId) {
     this.activeTab = tab;
-    this.selectedIndex = 0;
+    this.reactRender();
+    this.focusActiveList();
   }
 
   private cycleTab(direction: 1 | -1) {
     const currentIdx = TABS.findIndex((t) => t.id === this.activeTab);
     const nextIdx = (currentIdx + direction + TABS.length) % TABS.length;
     this.setTab(TABS[nextIdx].id);
-  }
-
-  private getListLength(): number {
-    if (this.activeTab === "boats") return BOAT_DEFS.length;
-    if (this.activeTab === "upgrades") {
-      const boatDef = getBoatDef(this.progression.getCurrentBoatId());
-      return boatDef ? boatDef.availableUpgrades.length : 0;
-    }
-    return 0; // repairs tab has no selectable list
   }
 
   // ============================================
@@ -359,43 +352,22 @@ export class ShipyardUI extends Modal {
 
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
-    if (key === "Tab") {
+    if (key === "Tab" || key === "ArrowRight") {
       this.cycleTab(1);
       return;
     }
+    if (key === "ArrowLeft") {
+      this.cycleTab(-1);
+      return;
+    }
 
-    const listLen = this.getListLength();
+    const list = this.getListContainer();
+    if (!list) return;
 
     if (key === "ArrowUp") {
-      if (listLen > 0) {
-        this.selectedIndex = (this.selectedIndex - 1 + listLen) % listLen;
-      }
+      moveFocus(list, -1);
     } else if (key === "ArrowDown") {
-      if (listLen > 0) {
-        this.selectedIndex = (this.selectedIndex + 1) % listLen;
-      }
-    } else if (key === "ArrowLeft") {
-      this.cycleTab(-1);
-    } else if (key === "ArrowRight") {
-      this.cycleTab(1);
-    } else if (key === "Enter" || key === "Space") {
-      this.executeSelected();
-    }
-  }
-
-  private executeSelected() {
-    if (this.activeTab === "boats") {
-      const def = BOAT_DEFS[this.selectedIndex];
-      if (def) this.executeBoatAction(def);
-    } else if (this.activeTab === "upgrades") {
-      const boatDef = getBoatDef(this.progression.getCurrentBoatId());
-      if (boatDef) {
-        const upgradeId = boatDef.availableUpgrades[this.selectedIndex];
-        const def = upgradeId ? getUpgradeDef(upgradeId) : undefined;
-        if (def) this.executeUpgradeAction(def);
-      }
-    } else if (this.activeTab === "repairs") {
-      this.executeRepair();
+      moveFocus(list, +1);
     }
   }
 }

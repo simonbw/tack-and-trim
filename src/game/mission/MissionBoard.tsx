@@ -10,12 +10,12 @@ import { Fragment, type VNode } from "preact";
 import { on } from "../../core/entity/handler";
 import { KeyCode } from "../../core/io/Keys";
 import { Modal } from "../../core/ui/Modal";
+import { focusFirst, moveFocus } from "../../core/util/menuNav";
 import type { MissionDef } from "../../editor/io/LevelFileFormat";
 import { MissionManager } from "./MissionManager";
 import "./MissionBoard.css";
 
 export class MissionBoard extends Modal {
-  private selectedIndex = 0;
   private missions: MissionDef[] = [];
   private manager!: MissionManager;
 
@@ -27,6 +27,8 @@ export class MissionBoard extends Modal {
   onAfterAdded() {
     this.manager = this.game.entities.getSingleton(MissionManager);
     this.missions = this.manager.getAvailableMissions(this.portId);
+    this.reactRender();
+    focusFirst(this.el);
   }
 
   private renderContent() {
@@ -59,7 +61,8 @@ export class MissionBoard extends Modal {
           <div class="mission-board__list">
             {this.missions.map((mission, i) => (
               <button
-                class={`mission-board__entry ${i === this.selectedIndex ? "mission-board__entry--selected" : ""}`}
+                class="mission-board__entry"
+                disabled={hasActive}
                 onClick={() => this.acceptMission(i)}
               >
                 <div class="mission-board__entry-name">{mission.name}</div>
@@ -116,14 +119,10 @@ export class MissionBoard extends Modal {
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
     if (this.missions.length === 0) return;
-
     if (key === "ArrowUp" || key === "ArrowLeft") {
-      this.selectedIndex =
-        (this.selectedIndex - 1 + this.missions.length) % this.missions.length;
+      moveFocus(this.el, -1);
     } else if (key === "ArrowDown" || key === "ArrowRight") {
-      this.selectedIndex = (this.selectedIndex + 1) % this.missions.length;
-    } else if (key === "Enter" || key === "Space") {
-      this.acceptMission(this.selectedIndex);
+      moveFocus(this.el, +1);
     }
   }
 }

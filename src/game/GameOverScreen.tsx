@@ -1,6 +1,7 @@
 import { ReactEntity } from "../core/ReactEntity";
 import { on } from "../core/entity/handler";
 import { KeyCode } from "../core/io/Keys";
+import { focusFirst, moveFocus } from "../core/util/menuNav";
 import { SaveManager } from "./persistence/SaveManager";
 import { getMostRecentSave } from "./persistence/SaveStorage";
 import "./GameOverScreen.css";
@@ -13,24 +14,25 @@ const ACTIONS: { key: GameOverAction; label: string }[] = [
 ];
 
 export class GameOverScreen extends ReactEntity {
-  private selectedIndex = 0;
-
   constructor() {
     super(() => (
       <div class="game-over">
         <div class="game-over__title">Sunk!</div>
         <div class="game-over__actions">
-          {ACTIONS.map(({ key, label }, i) => (
-            <button
-              class={`game-over__button ${i === this.selectedIndex ? "game-over__button--selected" : ""}`}
-              onClick={() => this.execute(key)}
-            >
+          {ACTIONS.map(({ key, label }) => (
+            <button class="game-over__button" onClick={() => this.execute(key)}>
               {label}
             </button>
           ))}
         </div>
       </div>
     ));
+  }
+
+  @on("afterAdded")
+  onAfterAdded() {
+    this.reactRender();
+    focusFirst(this.el);
   }
 
   private execute(action: GameOverAction) {
@@ -44,7 +46,6 @@ export class GameOverScreen extends ReactEntity {
           return;
         }
       }
-      // Fall through to restart if no save exists
       this.game.dispatch("restartLevel", {});
     } else if (action === "restart") {
       this.game.dispatch("restartLevel", {});
@@ -57,12 +58,9 @@ export class GameOverScreen extends ReactEntity {
   @on("keyDown")
   onKeyDown({ key }: { key: KeyCode }) {
     if (key === "ArrowUp" || key === "ArrowLeft") {
-      this.selectedIndex =
-        (this.selectedIndex - 1 + ACTIONS.length) % ACTIONS.length;
+      moveFocus(this.el, -1);
     } else if (key === "ArrowDown" || key === "ArrowRight") {
-      this.selectedIndex = (this.selectedIndex + 1) % ACTIONS.length;
-    } else if (key === "Enter" || key === "Space") {
-      this.execute(ACTIONS[this.selectedIndex].key);
+      moveFocus(this.el, +1);
     }
   }
 }
