@@ -29,8 +29,12 @@
 
 import { Body } from "../body/Body";
 import { DynamicBody } from "../body/DynamicBody";
+import type { AngularEquation2D } from "../equations/AngularEquation2D";
+import type { AngularEquation3D } from "../equations/AngularEquation3D";
 import type { Equation } from "../equations/Equation";
-import type { ParticleDistanceEquation3D } from "../equations/ParticleDistanceEquation3D";
+import type { PlanarEquation2D } from "../equations/PlanarEquation2D";
+import type { PointToPointEquation3D } from "../equations/PointToPointEquation3D";
+import type { PointToRigidEquation3D } from "../equations/PointToRigidEquation3D";
 import type { PulleyEquation } from "../equations/PulleyEquation";
 
 export class SolverWorkspace {
@@ -86,17 +90,28 @@ export class SolverWorkspace {
    * Populated by prepareSolverStep; the hot solver loop iterates each group
    * with a monomorphic, inlined function (no virtual dispatch).
    *
-   * `generalEquations` covers every Equation whose hot methods use the base
-   * class implementation (all 2-body constraint types, contacts, friction,
-   * rotational locks, etc.). `pulleyEquations` covers PulleyEquation, which
-   * needs the 3-body path. `particleDistanceEquations` covers
-   * ParticleDistanceEquation3D — chain links between particle-like bodies
-   * where the angular Jacobian is zero and the effective mass / impulse
-   * loops can skip wlambda and invInertia entirely.
+   * Each group corresponds to a Jacobian "shape" — which components of `G`
+   * are structurally non-zero. See the equation class docs for the exact
+   * shape and `src/core/physics/CLAUDE.md` for the full taxonomy:
+   *
+   *  - `pointToPointEquations` — both bodies linear only (rope chain links)
+   *  - `pointToRigidEquations` — body A linear, body B rigid (deck contacts,
+   *    rope endpoint chain links)
+   *  - `planar2DEquations` — 2D rigid-rigid, linear XY + angular Z per body
+   *    (2D contacts, friction)
+   *  - `angular3DEquations` — pure 3D rotational (axis alignment)
+   *  - `angular2DEquations` — pure 2D rotational (angle locks, motors)
+   *  - `generalEquations` — fully general 2-body (anything that doesn't fit
+   *    a specialized shape)
+   *  - `pulleyEquations` — 3-body pulley
    */
   generalEquations: Equation[] = [];
   pulleyEquations: PulleyEquation[] = [];
-  particleDistanceEquations: ParticleDistanceEquation3D[] = [];
+  pointToPointEquations: PointToPointEquation3D[] = [];
+  pointToRigidEquations: PointToRigidEquation3D[] = [];
+  planar2DEquations: PlanarEquation2D[] = [];
+  angular3DEquations: AngularEquation3D[] = [];
+  angular2DEquations: AngularEquation2D[] = [];
 
   /**
    * Body -> index map. Only touched during the setup phase of a solve (never
@@ -118,7 +133,11 @@ export class SolverWorkspace {
     this.dynamicBodyIndices.length = 0;
     this.generalEquations.length = 0;
     this.pulleyEquations.length = 0;
-    this.particleDistanceEquations.length = 0;
+    this.pointToPointEquations.length = 0;
+    this.pointToRigidEquations.length = 0;
+    this.planar2DEquations.length = 0;
+    this.angular3DEquations.length = 0;
+    this.angular2DEquations.length = 0;
   }
 
   /**

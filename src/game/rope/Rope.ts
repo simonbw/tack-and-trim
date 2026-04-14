@@ -14,8 +14,8 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
-import { DistanceConstraint3D } from "../../core/physics/constraints/DistanceConstraint3D";
 import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
+import { PointToRigidDistanceConstraint3D } from "../../core/physics/constraints/PointToRigidDistanceConstraint3D";
 import { V, V2d } from "../../core/Vector";
 import { CompatibleVector3, V3, V3d } from "../../core/Vector3";
 
@@ -269,34 +269,34 @@ export class Rope extends BaseEntity {
     }
 
     // Endpoint chain constraints (A → P0 and Pn-1 → B). These don't have
-    // a neighbor on one side so they're not RopeSegments.
-    const endpointConstraints: DistanceConstraint3D[] = [];
+    // a neighbor on one side so they're not RopeSegments. Both use
+    // PointToRigidDistanceConstraint3D — the particle is always bodyA
+    // (per the shape's convention), and the rigid endpoint carries the
+    // local anchor. For the "A → P0" case we swap the natural body order
+    // so the particle ends up on side A.
+    const endpointConstraints: PointToRigidDistanceConstraint3D[] = [];
     endpointConstraints.push(
-      this.makeChainConstraint(
+      this.makeEndpointChainConstraint(
+        this.particles[0],
         bodyA,
         localAnchorA,
-        this.particles[0],
-        [0, 0, 0],
-        this.chainLinkLength,
+        1, // solver order: first chain link
         stiffness,
         relaxation,
         minLinkFraction,
-        1, // solver order: first chain link
       ),
     );
     if (!this.freeEndB) {
       endpointConstraints.push(
-        this.makeChainConstraint(
+        this.makeEndpointChainConstraint(
           this.particles[numParticles - 1],
-          [0, 0, 0],
           bodyB,
           localAnchorB,
-          this.chainLinkLength,
+          // Last solver order: chain order after the final particle pair
+          2 * numParticles + 1,
           stiffness,
           relaxation,
           minLinkFraction,
-          // Last solver order: chain order after the final particle pair
-          2 * numParticles + 1,
         ),
       );
     }
@@ -306,20 +306,18 @@ export class Rope extends BaseEntity {
     this.rebuildCachedArrays();
   }
 
-  private makeChainConstraint(
-    a: Body,
-    anchorA: CompatibleVector3,
-    b: Body,
-    anchorB: CompatibleVector3,
-    length: number,
+  private makeEndpointChainConstraint(
+    particle: DynamicBody,
+    rigid: Body,
+    localAnchorOnRigid: CompatibleVector3,
+    solverOrder: number,
     stiffness: number,
     relaxation: number,
     minLinkFraction: number,
-    solverOrder: number,
-  ): DistanceConstraint3D {
-    const c = new DistanceConstraint3D(a, b, {
-      localAnchorA: anchorA,
-      localAnchorB: anchorB,
+  ): PointToRigidDistanceConstraint3D {
+    const length = this.chainLinkLength;
+    const c = new PointToRigidDistanceConstraint3D(particle, rigid, {
+      localAnchorB: localAnchorOnRigid,
       distance: length,
       collideConnected: true,
     });

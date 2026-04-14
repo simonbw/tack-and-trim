@@ -3,47 +3,40 @@ import type { Body } from "../body/Body";
 import type { Shape } from "../shapes/Shape";
 import type { SolverWorkspace } from "../solver/SolverWorkspace";
 import type { ContactEquation } from "./ContactEquation";
-import { Equation } from "./Equation";
+import { PlanarEquation2D } from "./PlanarEquation2D";
 
 /**
- * Constrains the slipping in a contact along a tangent
+ * Constrains tangential slip at a contact — enforces `G·v == 0` along a
+ * tangent direction with bounded force (Coulomb friction).
+ *
+ * Same 2D planar shape as {@link ContactEquation}, just with a tangent
+ * instead of a normal as the constraint direction. Extends
+ * {@link PlanarEquation2D} for shape-specialized solver iteration.
  */
-export class FrictionEquation extends Equation {
-  /**
-   * Relative vector from center of body A to the contact point, world oriented.
-   */
+export class FrictionEquation extends PlanarEquation2D {
+  /** Vector from body A center to the contact point (world-oriented). */
   contactPointA: V2d;
 
-  /**
-   * Relative vector from center of body B to the contact point, world oriented.
-   */
+  /** Vector from body B center to the contact point (world-oriented). */
   contactPointB: V2d;
 
-  /**
-   * Tangent vector that the friction force will act along. World oriented.
-   */
+  /** Tangent vector the friction force acts along (world-oriented). */
   t: V2d;
 
   /**
-   * ContactEquations connected to this friction equation. The contact equations
-   * can be used to rescale the max force for the friction. If more than one
-   * contact equation is given, then the max force can be set to the average.
+   * Contact equations associated with this friction equation. The contact
+   * normal forces are used to rescale the friction slip bound. If more
+   * than one contact is given, the bound is averaged across them.
    */
   contactEquations: ContactEquation[] = [];
 
-  /**
-   * The shape in body i that triggered this friction.
-   */
+  /** Shape on body A that triggered this friction. */
   shapeA: Shape | null = null;
 
-  /**
-   * The shape in body j that triggered this friction.
-   */
+  /** Shape on body B that triggered this friction. */
   shapeB: Shape | null = null;
 
-  /**
-   * The friction coefficient to use.
-   */
+  /** Coulomb friction coefficient. */
   frictionCoefficient: number = 0.3;
 
   constructor(bodyA: Body, bodyB: Body, slipForce: number = 0) {
@@ -54,42 +47,37 @@ export class FrictionEquation extends Equation {
     this.t = V();
   }
 
-  /**
-   * Set the slipping condition for the constraint. The friction force cannot be
-   * larger than this value.
-   */
+  /** Set the friction slip bound. */
   setSlipForce(slipForce: number): void {
     this.maxForce = slipForce;
     this.minForce = -slipForce;
   }
 
-  /**
-   * Get the max force for the constraint.
-   */
+  /** Get the current friction slip bound. */
   getSlipForce(): number {
     return this.maxForce;
   }
 
-  computeB(a: number, b: number, h: number, ws: SolverWorkspace): number {
+  override computeB(
+    a: number,
+    b: number,
+    h: number,
+    ws: SolverWorkspace,
+  ): number {
     const ri = this.contactPointA;
     const rj = this.contactPointB;
     const t = this.t;
-    const G = this.G;
 
-    // G = [-t 0 0 0 -rixt | t 0 0 0 rjxt]
-    // And remember, this is a pure velocity constraint, g is always zero!
-    G[0] = -t[0];
-    G[1] = -t[1];
-    G[5] = -ri.crossLength(t);
-    G[6] = t[0];
-    G[7] = t[1];
-    G[11] = rj.crossLength(t);
+    // Write the planar-shape Jacobian fields. This is a pure velocity
+    // constraint (g ≡ 0), so only GW and GiMf contribute to B.
+    this.linX = t[0];
+    this.linY = t[1];
+    this.angAz = -ri.crossLength(t);
+    this.angBz = rj.crossLength(t);
 
     const GW = this.computeGW();
     const GiMf = this.computeGiMf(ws);
 
-    const B = /* - g * a  */ -GW * b - h * GiMf;
-
-    return B;
+    return /* - Gq * a */ -GW * b - h * GiMf;
   }
 }

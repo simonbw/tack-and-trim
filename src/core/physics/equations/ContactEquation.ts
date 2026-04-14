@@ -2,48 +2,49 @@ import { V, V2d } from "../../Vector";
 import type { Body } from "../body/Body";
 import type { Shape } from "../shapes/Shape";
 import type { SolverWorkspace } from "../solver/SolverWorkspace";
-import { Equation } from "./Equation";
+import { PlanarEquation2D } from "./PlanarEquation2D";
 
 /**
- * Non-penetration constraint equation. Tries to make the contactPointA and
- * contactPointB vectors coincide, while keeping the applied force repulsive.
+ * Non-penetration constraint equation. Tries to make `contactPointA` and
+ * `contactPointB` coincide along the contact normal while keeping the
+ * applied force repulsive.
+ *
+ * This is a 2D planar contact — both bodies live in the XY plane and
+ * rotate only about Z. It extends {@link PlanarEquation2D} so the solver
+ * uses the shape-specialized iteration path (half the arithmetic of the
+ * fully-general 12-component loop). The contact-specific state
+ * (`contactPointA/B`, `normalA`, `penetrationVec`, `restitution`,
+ * `firstImpact`, `shapeA/B`) is managed here; the shape-specific fields
+ * (`linX`, `linY`, `angAz`, `angBz`) are written in `computeB` each step.
  */
-export class ContactEquation extends Equation {
+export class ContactEquation extends PlanarEquation2D {
   /**
-   * Vector from body i center of mass to the contact point.
+   * Vector from body A center of mass to the contact point (world-oriented).
    */
   contactPointA: V2d;
   penetrationVec: V2d;
 
   /**
-   * World-oriented vector from body A center of mass to the contact point.
+   * Vector from body B center of mass to the contact point (world-oriented).
    */
   contactPointB: V2d;
 
-  /**
-   * The normal vector, pointing out of body i
-   */
+  /** Contact normal, pointing out of body A. */
   normalA: V2d;
 
-  /**
-   * The restitution to use (0=no bounciness, 1=max bounciness).
-   */
+  /** Restitution to use (0 = no bounciness, 1 = max bounciness). */
   restitution: number = 0;
 
   /**
-   * This property is set to true if this is the first impact between the bodies
-   * (not persistant contact).
+   * True on the first tick of an impact (as opposed to persistent contact).
+   * Used to inject restitution-based rebound velocity.
    */
   firstImpact: boolean = false;
 
-  /**
-   * The shape in body i that triggered this contact.
-   */
+  /** The shape on body A that triggered this contact. */
   shapeA: Shape | null = null;
 
-  /**
-   * The shape in body j that triggered this contact.
-   */
+  /** The shape on body B that triggered this contact. */
   shapeB: Shape | null = null;
 
   constructor(bodyA: Body, bodyB: Body) {
@@ -55,7 +56,12 @@ export class ContactEquation extends Equation {
     this.normalA = V();
   }
 
-  computeB(a: number, b: number, h: number, ws: SolverWorkspace): number {
+  override computeB(
+    a: number,
+    b: number,
+    h: number,
+    ws: SolverWorkspace,
+  ): number {
     const bi = this.bodyA;
     const bj = this.bodyB;
     const ri = this.contactPointA;
@@ -65,24 +71,18 @@ export class ContactEquation extends Equation {
 
     const penetrationVec = this.penetrationVec;
     const n = this.normalA;
-    const G = this.G;
 
-    // Calculate cross products
-    const rixn = ri.crossLength(n);
-    const rjxn = rj.crossLength(n);
+    // Write the planar-shape Jacobian fields. Linear is symmetric (body A
+    // receives `-lin`, body B receives `+lin`). The angular Z component per
+    // body comes from the lever-arm cross products ri × n and rj × n.
+    this.linX = n[0];
+    this.linY = n[1];
+    this.angAz = -ri.crossLength(n);
+    this.angBz = rj.crossLength(n);
 
-    // G = [-n 0 0 0 -rixn | n 0 0 0 rjxn]
-    G[0] = -n[0];
-    G[1] = -n[1];
-    G[5] = -rixn;
-    G[6] = n[0];
-    G[7] = n[1];
-    G[11] = rjxn;
-
-    // Calculate q = xj+rj -(xi+ri) i.e. the penetration vector
+    // q = xj + rj − (xi + ri), i.e. the penetration vector
     penetrationVec.set(xj).iadd(rj).isub(xi).isub(ri);
 
-    // Compute iteration
     let GW: number;
     let Gq: number;
     if (this.firstImpact && this.restitution !== 0) {
@@ -94,14 +94,10 @@ export class ContactEquation extends Equation {
     }
 
     const GiMf = this.computeGiMf(ws);
-    const B = -Gq * a - GW * b - h * GiMf;
-
-    return B;
+    return -Gq * a - GW * b - h * GiMf;
   }
 
-  /**
-   * Get the relative velocity along the normal vector.
-   */
+  /** Current relative velocity along the contact normal. */
   getVelocityAlongNormal(): number {
     const vi = this.bodyA.getVelocityAtPoint(this.contactPointA);
     const vj = this.bodyB.getVelocityAtPoint(this.contactPointB);

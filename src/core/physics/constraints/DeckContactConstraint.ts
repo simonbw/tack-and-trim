@@ -1,5 +1,5 @@
 import type { Body } from "../body/Body";
-import { Equation } from "../equations/Equation";
+import { PointToRigidEquation3D } from "../equations/PointToRigidEquation3D";
 import { Constraint, type ConstraintOptions } from "./Constraint";
 
 // ── Hull boundary data ─────────────────────────────────────────────
@@ -139,14 +139,19 @@ export class DeckContactConstraint extends Constraint {
     this.frictionCoefficient = frictionCoefficient;
     this.radius = radius;
 
-    // Normal equation: unilateral (can only push particle away from surface)
-    const normal = new Equation(particle, hullBody, 0, Number.MAX_VALUE);
-
-    // Friction equations: pure velocity constraints, no position error.
-    const friction1 = new Equation(particle, hullBody, 0, 0);
-    const friction2 = new Equation(particle, hullBody, 0, 0);
-    friction1.computeGq = () => 0;
-    friction2.computeGq = () => 0;
+    // Particle is bodyA (point-like, no angular), hull is bodyB (rigid). The
+    // PointToRigidEquation3D shape encodes G = [-n, 0, +n, rj×n] so the
+    // solver skips all body-A angular work. Friction equations reuse the
+    // same shape — they're pure velocity constraints, so update() leaves
+    // `offset = 0` on them.
+    const normal = new PointToRigidEquation3D(
+      particle,
+      hullBody,
+      0,
+      Number.MAX_VALUE,
+    );
+    const friction1 = new PointToRigidEquation3D(particle, hullBody, 0, 0);
+    const friction2 = new PointToRigidEquation3D(particle, hullBody, 0, 0);
 
     this.equations = [normal, friction1, friction2];
 
@@ -167,9 +172,9 @@ export class DeckContactConstraint extends Constraint {
   update(): this {
     const particle = this.bodyA;
     const hull = this.bodyB;
-    const normal = this.equations[0];
-    const friction1 = this.equations[1];
-    const friction2 = this.equations[2];
+    const normal = this.equations[0] as PointToRigidEquation3D;
+    const friction1 = this.equations[1] as PointToRigidEquation3D;
+    const friction2 = this.equations[2] as PointToRigidEquation3D;
     const boundary = this.boundary;
 
     // Convert particle world position to hull-local coordinates
@@ -219,9 +224,9 @@ export class DeckContactConstraint extends Constraint {
     lx: number,
     ly: number,
     lz: number,
-    normal: Equation,
-    friction1: Equation,
-    friction2: Equation,
+    normal: PointToRigidEquation3D,
+    friction1: PointToRigidEquation3D,
+    friction2: PointToRigidEquation3D,
   ): void {
     const particle = this.bodyA;
     const hull = this.bodyB;
@@ -263,12 +268,10 @@ export class DeckContactConstraint extends Constraint {
     const rjY = dy - hull.position[1];
     const rjZ = dz - hull.z;
 
-    // Normal equation Jacobian: G = [+n, 0, -n, -(rj×n)]
-    this.setNormalJacobian(normal, nx, ny, nz, rjX, rjY, rjZ);
-
-    // Position error: penetration depth
-    const pen = penetration;
-    normal.computeGq = () => pen;
+    // Write the point-to-rigid shape fields: G_A = -n, G_B = +n, G_B_ang = rj×n.
+    // Position error is the penetration depth (negative = penetrating).
+    this.setShapeJacobian(normal, nx, ny, nz, rjX, rjY, rjZ);
+    normal.offset = penetration;
 
     // Friction
     this.setFriction(normal, friction1, friction2, R, rjX, rjY, rjZ);
@@ -280,9 +283,9 @@ export class DeckContactConstraint extends Constraint {
     lx: number,
     ly: number,
     lz: number,
-    normal: Equation,
-    friction1: Equation,
-    friction2: Equation,
+    normal: PointToRigidEquation3D,
+    friction1: PointToRigidEquation3D,
+    friction2: PointToRigidEquation3D,
   ): void {
     const particle = this.bodyA;
     const hull = this.bodyB;
@@ -350,11 +353,9 @@ export class DeckContactConstraint extends Constraint {
     const rjY = wy - hull.position[1];
     const rjZ = wz - hull.z;
 
-    // Normal equation Jacobian: pushes particle outward from wall
-    this.setNormalJacobian(normal, wnx, wny, wnz, rjX, rjY, rjZ);
-
-    const pen = penetration;
-    normal.computeGq = () => pen;
+    // Shape fields: push particle outward from wall along world normal
+    this.setShapeJacobian(normal, wnx, wny, wnz, rjX, rjY, rjZ);
+    normal.offset = penetration;
 
     // Friction tangents for wall contact
     const normalForce = Math.abs(normal.multiplier);
@@ -384,8 +385,10 @@ export class DeckContactConstraint extends Constraint {
     const t2y = R[5];
     const t2z = R[8];
 
-    this.setFrictionJacobian(friction1, t1x, t1y, t1z, rjX, rjY, rjZ);
-    this.setFrictionJacobian(friction2, t2x, t2y, t2z, rjX, rjY, rjZ);
+    this.setShapeJacobian(friction1, t1x, t1y, t1z, rjX, rjY, rjZ);
+    friction1.offset = 0;
+    this.setShapeJacobian(friction2, t2x, t2y, t2z, rjX, rjY, rjZ);
+    friction2.offset = 0;
   }
 
   // ── Bottom contact (outside, below hull) ─────────────────────────
@@ -394,9 +397,9 @@ export class DeckContactConstraint extends Constraint {
     lx: number,
     ly: number,
     lz: number,
-    normal: Equation,
-    friction1: Equation,
-    friction2: Equation,
+    normal: PointToRigidEquation3D,
+    friction1: PointToRigidEquation3D,
+    friction2: PointToRigidEquation3D,
   ): void {
     const hull = this.bodyB;
     const R = hull.orientation;
@@ -428,10 +431,8 @@ export class DeckContactConstraint extends Constraint {
     const rjY = by - hull.position[1];
     const rjZ = bz - hull.z;
 
-    this.setNormalJacobian(normal, nx, ny, nz, rjX, rjY, rjZ);
-
-    const pen = penetration;
-    normal.computeGq = () => pen;
+    this.setShapeJacobian(normal, nx, ny, nz, rjX, rjY, rjZ);
+    normal.offset = penetration;
 
     // Friction on hull bottom: hull X and Y axes
     this.setFriction(normal, friction1, friction2, R, rjX, rjY, rjZ);
@@ -439,59 +440,39 @@ export class DeckContactConstraint extends Constraint {
 
   // ── Jacobian helpers ─────────────────────────────────────────────
 
-  private setNormalJacobian(
-    eq: Equation,
-    nx: number,
-    ny: number,
-    nz: number,
+  /**
+   * Write a point-to-rigid constraint direction to the shape fields.
+   *
+   * Historical convention of this constraint had body A (the particle)
+   * receiving `+origN` linearly. The {@link PointToRigidEquation3D} shape
+   * instead stores a direction `n` where body A gets `-n`, so we negate
+   * the incoming direction when assigning. The angular contribution for
+   * body B matches the original `G[9..11] = -(rj × origN)` expression —
+   * which is exactly `rj × (-origN) = rj × n` — so the cross-product
+   * formulas are unchanged from the original `setNormalJacobian`.
+   */
+  private setShapeJacobian(
+    eq: PointToRigidEquation3D,
+    origNx: number,
+    origNy: number,
+    origNz: number,
     rjX: number,
     rjY: number,
     rjZ: number,
   ): void {
-    const G = eq.G;
-    G[0] = nx;
-    G[1] = ny;
-    G[2] = nz;
-    G[3] = 0;
-    G[4] = 0;
-    G[5] = 0;
-    G[6] = -nx;
-    G[7] = -ny;
-    G[8] = -nz;
-    G[9] = -(rjY * nz - rjZ * ny);
-    G[10] = -(rjZ * nx - rjX * nz);
-    G[11] = -(rjX * ny - rjY * nx);
-  }
-
-  private setFrictionJacobian(
-    eq: Equation,
-    tx: number,
-    ty: number,
-    tz: number,
-    rjX: number,
-    rjY: number,
-    rjZ: number,
-  ): void {
-    const G = eq.G;
-    G[0] = tx;
-    G[1] = ty;
-    G[2] = tz;
-    G[3] = 0;
-    G[4] = 0;
-    G[5] = 0;
-    G[6] = -tx;
-    G[7] = -ty;
-    G[8] = -tz;
-    G[9] = -(rjY * tz - rjZ * ty);
-    G[10] = -(rjZ * tx - rjX * tz);
-    G[11] = -(rjX * ty - rjY * tx);
+    eq.nx = -origNx;
+    eq.ny = -origNy;
+    eq.nz = -origNz;
+    eq.rjXnX = -(rjY * origNz - rjZ * origNy);
+    eq.rjXnY = -(rjZ * origNx - rjX * origNz);
+    eq.rjXnZ = -(rjX * origNy - rjY * origNx);
   }
 
   /** Set up both friction equations using hull X/Y axes as tangents. */
   private setFriction(
-    normal: Equation,
-    friction1: Equation,
-    friction2: Equation,
+    normal: PointToRigidEquation3D,
+    friction1: PointToRigidEquation3D,
+    friction2: PointToRigidEquation3D,
     R: Float64Array,
     rjX: number,
     rjY: number,
@@ -513,9 +494,11 @@ export class DeckContactConstraint extends Constraint {
     }
 
     // Tangent 1: hull's local X axis (forward) in world space
-    this.setFrictionJacobian(friction1, R[0], R[3], R[6], rjX, rjY, rjZ);
+    this.setShapeJacobian(friction1, R[0], R[3], R[6], rjX, rjY, rjZ);
+    friction1.offset = 0;
     // Tangent 2: hull's local Y axis (starboard) in world space
-    this.setFrictionJacobian(friction2, R[1], R[4], R[7], rjX, rjY, rjZ);
+    this.setShapeJacobian(friction2, R[1], R[4], R[7], rjX, rjY, rjZ);
+    friction2.offset = 0;
   }
 
   // ── Geometry helpers ─────────────────────────────────────────────
@@ -609,9 +592,9 @@ export class DeckContactConstraint extends Constraint {
   }
 
   private disableAll(
-    normal: Equation,
-    friction1: Equation,
-    friction2: Equation,
+    normal: PointToRigidEquation3D,
+    friction1: PointToRigidEquation3D,
+    friction2: PointToRigidEquation3D,
   ): void {
     normal.enabled = false;
     friction1.enabled = false;

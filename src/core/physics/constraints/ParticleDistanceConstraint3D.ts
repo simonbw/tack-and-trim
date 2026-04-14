@@ -1,7 +1,7 @@
 /**
  * 3D distance constraint between two particle-like bodies whose anchors are
  * at the body center (no lever arm). Specialized for rope chain links — it
- * owns a single {@link ParticleDistanceEquation3D} and its `update()` reads
+ * owns a single {@link PointToPointEquation3D} and its `update()` reads
  * body positions directly instead of going through `toWorldFrame3D` + cross
  * products.
  *
@@ -10,7 +10,7 @@
  * the anchor is always the body center.
  */
 import type { Body } from "../body/Body";
-import { ParticleDistanceEquation3D } from "../equations/ParticleDistanceEquation3D";
+import { PointToPointEquation3D } from "../equations/PointToPointEquation3D";
 import { Constraint, ConstraintOptions } from "./Constraint";
 
 export interface ParticleDistanceConstraint3DOptions extends ConstraintOptions {
@@ -42,7 +42,7 @@ export class ParticleDistanceConstraint3D extends Constraint {
   /** Current distance between the bodies (refreshed by update()). */
   position: number = 0;
 
-  private readonly equation: ParticleDistanceEquation3D;
+  private readonly equation: PointToPointEquation3D;
 
   constructor(
     bodyA: Body,
@@ -54,13 +54,12 @@ export class ParticleDistanceConstraint3D extends Constraint {
     this.distance = options.distance;
     this.maxForce = options.maxForce ?? Number.MAX_VALUE;
 
-    const eq = new ParticleDistanceEquation3D(
+    const eq = new PointToPointEquation3D(
       bodyA,
       bodyB,
       -this.maxForce,
       this.maxForce,
     );
-    eq.distance = this.distance;
     this.equation = eq;
     this.equations = [eq];
   }
@@ -80,21 +79,22 @@ export class ParticleDistanceConstraint3D extends Constraint {
 
     const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
     this.position = len;
-    eq.position = len;
 
-    // Limit toggling: same semantics as DistanceConstraint3D.
+    // Pick the active target distance based on which limit (if any) is
+    // violating, then fold into the equation's position error via `offset`.
+    let target = this.distance;
     let violating = false;
     if (this.upperLimitEnabled && len > this.upperLimit) {
       eq.maxForce = 0;
       eq.minForce = -this.maxForce;
-      eq.distance = this.upperLimit;
+      target = this.upperLimit;
       this.distance = this.upperLimit;
       violating = true;
     }
     if (this.lowerLimitEnabled && len < this.lowerLimit) {
       eq.maxForce = this.maxForce;
       eq.minForce = 0;
-      eq.distance = this.lowerLimit;
+      target = this.lowerLimit;
       this.distance = this.lowerLimit;
       violating = true;
     }
@@ -103,6 +103,10 @@ export class ParticleDistanceConstraint3D extends Constraint {
       return this;
     }
     eq.enabled = true;
+
+    // Position error goes into the inherited `offset` field. PointToPoint's
+    // computeGq returns this value directly.
+    eq.offset = len - target;
 
     // Unit direction (fallback to +x when degenerate)
     if (len > 0.0001) {

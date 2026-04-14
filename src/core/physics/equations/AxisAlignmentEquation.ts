@@ -1,5 +1,5 @@
 import type { Body } from "../body/Body";
-import { Equation } from "./Equation";
+import { AngularEquation3D } from "./AngularEquation3D";
 
 /**
  * Locks a relative orientation DOF between two bodies by constraining a
@@ -12,7 +12,7 @@ import { Equation } from "./Equation";
  *
  * The constraint is `(RA · dirA) · (RB · hingeB) = 0`, i.e., the two
  * world-frame unit vectors are perpendicular. For a hinge with both axes
- * being the bodies' local z-axis, pick dirA ∈ {localX, localY} to produce
+ * being the bodies' local z-axis, pick `dirA ∈ {localX, localY}` to produce
  * two independent alignment equations.
  *
  * Jacobian derivation (velocity-level):
@@ -20,9 +20,12 @@ import { Equation } from "./Equation";
  *     = (ω_A × u) · u' + u · (ω_B × u')
  *     = (u × u') · (ω_A − ω_B)
  *
- * So G_angA = (u × u'), G_angB = -(u × u'), with no linear components.
+ * This fits the {@link AngularEquation3D} shape: `G_angA = (u × u')`,
+ * `G_angB = -(u × u')`, no linear contribution. The base shape class
+ * already handles the antisymmetric 3D angular math in the solver; this
+ * subclass just computes `(cx, cy, cz) = u × u'` each update.
  */
-export class AxisAlignmentEquation extends Equation {
+export class AxisAlignmentEquation extends AngularEquation3D {
   /** bodyA-local reference direction (unit vector, perpendicular to hinge axis). */
   private readonly dirA: [number, number, number];
   /** bodyB-local hinge axis (unit vector). */
@@ -40,8 +43,9 @@ export class AxisAlignmentEquation extends Equation {
   }
 
   /**
-   * Recompute world-frame axis vectors and fill Jacobian G[3..5] = u × u',
-   * G[9..11] = -(u × u'). Called each step by the owning constraint's update().
+   * Recompute the world-frame axis vectors and write `u × u'` into the
+   * angular shape fields `(cx, cy, cz)`. Called each step by the owning
+   * constraint's `update()`.
    */
   refreshJacobian(): void {
     const RA = this.bodyA.orientation;
@@ -59,27 +63,21 @@ export class AxisAlignmentEquation extends Equation {
     const vy = RB[3] * hB[0] + RB[4] * hB[1] + RB[5] * hB[2];
     const vz = RB[6] * hB[0] + RB[7] * hB[1] + RB[8] * hB[2];
 
-    // cross = u × u'
-    const cx = uy * vz - uz * vy;
-    const cy = uz * vx - ux * vz;
-    const cz = ux * vy - uy * vx;
+    // c = u × u'
+    this.cx = uy * vz - uz * vy;
+    this.cy = uz * vx - ux * vz;
+    this.cz = ux * vy - uy * vx;
 
-    const G = this.G;
-    G[0] = 0;
-    G[1] = 0;
-    G[2] = 0;
-    G[3] = cx;
-    G[4] = cy;
-    G[5] = cz;
-    G[6] = 0;
-    G[7] = 0;
-    G[8] = 0;
-    G[9] = -cx;
-    G[10] = -cy;
-    G[11] = -cz;
+    // Position error: u · u' (zero at rest, non-zero when the axes tilt).
+    this.offset = ux * vx + uy * vy + uz * vz;
   }
 
-  computeGq(): number {
+  /**
+   * The owning constraint should call `refreshJacobian()` each update
+   * instead of relying on the default computeGq, but this is kept as a
+   * fallback for compatibility with code paths that call it directly.
+   */
+  override computeGq(): number {
     const RA = this.bodyA.orientation;
     const RB = this.bodyB.orientation;
     const dA = this.dirA;

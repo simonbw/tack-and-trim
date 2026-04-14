@@ -214,12 +214,18 @@ class Profiler {
    * Record an elapsed time atomically (start + end in one call).
    * Safe for parallel async operations since it doesn't span an async gap.
    * The entry will be nested under the current stack context.
+   *
+   * `count` lets callers bump the frame-call counter by more than 1 —
+   * useful for batched work where the interesting "unit" is a work item
+   * (e.g. equations solved) rather than a function call. With a non-1
+   * count, the displayed `calls/frame` represents the total work items
+   * processed, and `ms/frame ÷ calls/frame` yields per-item cost.
    */
-  recordElapsed(label: string, elapsedMs: number): void {
+  recordElapsed(label: string, elapsedMs: number, count: number = 1): void {
     if (!this.enabled) return;
     const entryKey = this.getEntryKey(label);
     const entry = this.getOrCreate(entryKey);
-    entry.frameCalls++;
+    entry.frameCalls += count;
     entry.frameMs += elapsedMs;
     entry.maxMs = Math.max(entry.maxMs, elapsedMs);
   }

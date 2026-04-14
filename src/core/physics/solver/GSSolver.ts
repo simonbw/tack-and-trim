@@ -66,9 +66,13 @@
  */
 import { profiler } from "../../util/Profiler";
 import { DynamicBody } from "../body/DynamicBody";
+import { AngularEquation2D } from "../equations/AngularEquation2D";
+import { AngularEquation3D } from "../equations/AngularEquation3D";
 import type { Equation } from "../equations/Equation";
 import { FrictionEquation } from "../equations/FrictionEquation";
-import { ParticleDistanceEquation3D } from "../equations/ParticleDistanceEquation3D";
+import { PlanarEquation2D } from "../equations/PlanarEquation2D";
+import { PointToPointEquation3D } from "../equations/PointToPointEquation3D";
+import { PointToRigidEquation3D } from "../equations/PointToRigidEquation3D";
 import { PulleyEquation } from "../equations/PulleyEquation";
 import { EQ_INDEX_A, EQ_INDEX_B, EQ_SLOT } from "../internal";
 import type { Island } from "../world/Island";
@@ -145,15 +149,31 @@ export function prepareSolverStep(
   const Neq = equations.length;
   const generalEquations = workspace.generalEquations;
   const pulleyEquations = workspace.pulleyEquations;
-  const particleDistanceEquations = workspace.particleDistanceEquations;
+  const pointToPointEquations = workspace.pointToPointEquations;
+  const pointToRigidEquations = workspace.pointToRigidEquations;
+  const planar2DEquations = workspace.planar2DEquations;
+  const angular3DEquations = workspace.angular3DEquations;
+  const angular2DEquations = workspace.angular2DEquations;
   for (let i = 0; i < Neq; i++) {
     const eq = equations[i];
     eq.assignIndices(workspace);
     // Each equation gets a stable slot in Bs/invCs/lambda, independent of
     // which partitioned group it ends up in.
     eq[EQ_SLOT] = i;
-    if (eq instanceof ParticleDistanceEquation3D) {
-      particleDistanceEquations.push(eq);
+    // Partition by Jacobian shape. Most specific first — PulleyEquation is
+    // checked before its ancestor shapes (none apply), but the other shape
+    // classes don't have subclass relationships so order only matters for
+    // readability.
+    if (eq instanceof PointToPointEquation3D) {
+      pointToPointEquations.push(eq);
+    } else if (eq instanceof PointToRigidEquation3D) {
+      pointToRigidEquations.push(eq);
+    } else if (eq instanceof PlanarEquation2D) {
+      planar2DEquations.push(eq);
+    } else if (eq instanceof AngularEquation3D) {
+      angular3DEquations.push(eq);
+    } else if (eq instanceof AngularEquation2D) {
+      angular2DEquations.push(eq);
     } else if (eq instanceof PulleyEquation) {
       pulleyEquations.push(eq);
     } else {
@@ -386,17 +406,22 @@ function updateMultipliers(
 
 /**
  * Runs one iteration over all equations in the workspace's partitioned
- * groups. Each group is handled by a specialized function with the hot
- * math inlined, so V8 can monomorphize the call sites and avoid virtual
+ * groups. Each group is handled by a specialized batch function whose inner
+ * loop is monomorphic — so V8 can inline the hot math and avoid virtual
  * dispatch through `Equation.computeGWlambda` / `addToWlambda`.
  *
- * Group execution order is fixed: general equations first, pulleys second.
- * Within each group, equations are iterated in the order they were inserted
- * during prepareSolverStep (which is the caller's sort order). This is a
- * slight ordering change from the old fully-flat-list behavior when mixed
- * equation types had interleaved solverOrder values; in practice it is
- * fine for chain-like structures and often better, since related equations
- * of the same type stay adjacent.
+ * Group execution order is fixed. Within each group, equations are iterated
+ * in the order they were inserted during prepareSolverStep (which is the
+ * caller's sort order). This is a slight ordering change from the old
+ * fully-flat-list behavior when mixed equation types had interleaved
+ * solverOrder values; in practice it is fine for chain-like structures and
+ * often better, since related equations of the same type stay adjacent.
+ *
+ * Each batch is only called when its group is non-empty. Timings are
+ * reported via `profiler.recordElapsed` with the equation count as the
+ * "work unit" — so the profiler's `calls/frame` for each batch label is
+ * the total equations solved that frame (per-call count × iterations ×
+ * substeps), and `ms/frame ÷ calls/frame` yields the per-equation cost.
  */
 function runIteration(
   Bs: Float32Array,
@@ -407,9 +432,11 @@ function runIteration(
   workspace: SolverWorkspace,
 ): number {
   let deltaTot = 0;
-  if (workspace.particleDistanceEquations.length > 0) {
-    deltaTot += iterateParticleDistanceBatch(
-      workspace.particleDistanceEquations,
+
+  if (workspace.pointToPointEquations.length > 0) {
+    const t0 = performance.now();
+    deltaTot += iteratePointToPointBatch(
+      workspace.pointToPointEquations,
       Bs,
       invCs,
       lambda,
@@ -417,17 +444,105 @@ function runIteration(
       h,
       workspace,
     );
+    profiler.recordElapsed(
+      "pointToPoint",
+      performance.now() - t0,
+      workspace.pointToPointEquations.length,
+    );
   }
-  deltaTot += iterateGeneralBatch(
-    workspace.generalEquations,
-    Bs,
-    invCs,
-    lambda,
-    useZeroRHS,
-    h,
-    workspace,
-  );
+
+  if (workspace.pointToRigidEquations.length > 0) {
+    const t0 = performance.now();
+    deltaTot += iteratePointToRigidBatch(
+      workspace.pointToRigidEquations,
+      Bs,
+      invCs,
+      lambda,
+      useZeroRHS,
+      h,
+      workspace,
+    );
+    profiler.recordElapsed(
+      "pointToRigid",
+      performance.now() - t0,
+      workspace.pointToRigidEquations.length,
+    );
+  }
+
+  if (workspace.planar2DEquations.length > 0) {
+    const t0 = performance.now();
+    deltaTot += iteratePlanar2DBatch(
+      workspace.planar2DEquations,
+      Bs,
+      invCs,
+      lambda,
+      useZeroRHS,
+      h,
+      workspace,
+    );
+    profiler.recordElapsed(
+      "planar2D",
+      performance.now() - t0,
+      workspace.planar2DEquations.length,
+    );
+  }
+
+  if (workspace.angular3DEquations.length > 0) {
+    const t0 = performance.now();
+    deltaTot += iterateAngular3DBatch(
+      workspace.angular3DEquations,
+      Bs,
+      invCs,
+      lambda,
+      useZeroRHS,
+      h,
+      workspace,
+    );
+    profiler.recordElapsed(
+      "angular3D",
+      performance.now() - t0,
+      workspace.angular3DEquations.length,
+    );
+  }
+
+  if (workspace.angular2DEquations.length > 0) {
+    const t0 = performance.now();
+    deltaTot += iterateAngular2DBatch(
+      workspace.angular2DEquations,
+      Bs,
+      invCs,
+      lambda,
+      useZeroRHS,
+      h,
+      workspace,
+    );
+    profiler.recordElapsed(
+      "angular2D",
+      performance.now() - t0,
+      workspace.angular2DEquations.length,
+    );
+  }
+
+  if (workspace.generalEquations.length > 0) {
+    const t0 = performance.now();
+    deltaTot += iterateGeneralBatch(
+      workspace.generalEquations,
+      Bs,
+      invCs,
+      lambda,
+      useZeroRHS,
+      h,
+      workspace,
+    );
+    profiler.recordElapsed(
+      "general",
+      performance.now() - t0,
+      workspace.generalEquations.length,
+    );
+  }
+
   if (workspace.pulleyEquations.length > 0) {
+    const t0 = performance.now();
     deltaTot += iteratePulleyBatch(
       workspace.pulleyEquations,
       Bs,
@@ -437,7 +552,13 @@ function runIteration(
       h,
       workspace,
     );
+    profiler.recordElapsed(
+      "pulley",
+      performance.now() - t0,
+      workspace.pulleyEquations.length,
+    );
   }
+
   return deltaTot;
 }
 
@@ -595,23 +716,20 @@ function iteratePulleyBatch(
 }
 
 /**
- * Specialized PGS iteration loop for particle-particle 3D distance
- * constraints. Reads the direction vector directly from the equation
- * (nx, ny, nz) instead of a 12-element G, and only touches `vlambda` +
- * `invMassSolve` — never `wlambda` or `invInertia`. Used for rope chain
- * links between rope particles, where the angular Jacobian is always zero.
+ * Specialized PGS iteration loop for `PointToPointEquation3D` — 3D
+ * 2-body constraints where both bodies are point-like (no angular
+ * contribution). Reads the direction vector `(nx, ny, nz)` directly from
+ * the equation and touches only `vlambda` + `invMassSolve` — never
+ * `wlambda` or `invInertia`. Used for rope chain links between rope
+ * particles.
  *
  * Per-equation op count vs. the general batch:
  *  - computeGWlambda: 6 mul-adds instead of 12
- *  - addToWlambda: 6 mul-adds instead of 21 (6 linear + 15 angular)
+ *  - addToWlambda: 6 linear writes + 6 mul-adds, with zero angular work
  *  - computeInvC (already done in setup): doesn't run here
- *
- * The equation is still iterated in Gauss-Seidel order relative to the
- * other particle-distance equations, so rope chain corrections propagate
- * along the chain in the same way they did before.
  */
-function iterateParticleDistanceBatch(
-  equations: readonly ParticleDistanceEquation3D[],
+function iteratePointToPointBatch(
+  equations: readonly PointToPointEquation3D[],
   Bs: Float32Array,
   invCs: Float32Array,
   lambda: Float32Array,
@@ -675,6 +793,294 @@ function iterateParticleDistanceBatch(
     vl[iB] += iMB * nx * dl;
     vl[iB + 1] += iMB * ny * dl;
     vl[iB + 2] += iMzB * nz * dl;
+
+    deltaTot += dl >= 0 ? dl : -dl;
+  }
+
+  return deltaTot;
+}
+
+/**
+ * Specialized PGS iteration loop for `PointToRigidEquation3D` — 3D 2-body
+ * constraints where body A is a point (no angular) and body B is a rigid
+ * body (full linear + angular). Reads `(nx, ny, nz)` and `(rjXnX, rjXnY,
+ * rjXnZ)` directly instead of a 12-element G, and skips body-A angular
+ * work entirely.
+ *
+ * Per-equation op count vs. the general batch:
+ *  - computeGWlambda: 9 mul-adds instead of 12 (skip body A angular)
+ *  - addToWlambda: skips the 3×3 `invInertia[idxA]` read and the 9-mult
+ *    angular-A update
+ */
+function iteratePointToRigidBatch(
+  equations: readonly PointToRigidEquation3D[],
+  Bs: Float32Array,
+  invCs: Float32Array,
+  lambda: Float32Array,
+  useZeroRHS: boolean,
+  dt: number,
+  ws: SolverWorkspace,
+): number {
+  const vl = ws.vlambda;
+  const wl = ws.wlambda;
+  const invMassSolve = ws.invMassSolve;
+  const invMassSolveZ = ws.invMassSolveZ;
+  const invInertia = ws.invInertia;
+
+  let deltaTot = 0;
+  const N = equations.length;
+
+  for (let k = 0; k < N; k++) {
+    const eq = equations[k];
+    if (!eq.enabled) continue;
+
+    const slot = eq[EQ_SLOT];
+    const idxA = eq[EQ_INDEX_A];
+    const idxB = eq[EQ_INDEX_B];
+    const iA = idxA * 3;
+    const iB = idxB * 3;
+
+    const nx = eq.nx;
+    const ny = eq.ny;
+    const nz = eq.nz;
+    const rjXnX = eq.rjXnX;
+    const rjXnY = eq.rjXnY;
+    const rjXnZ = eq.rjXnZ;
+
+    // GWlambda = n · (vlB - vlA) + rjXn · wlB. No body-A angular term.
+    const GWlambda =
+      nx * (vl[iB] - vl[iA]) +
+      ny * (vl[iB + 1] - vl[iA + 1]) +
+      nz * (vl[iB + 2] - vl[iA + 2]) +
+      rjXnX * wl[iB] +
+      rjXnY * wl[iB + 1] +
+      rjXnZ * wl[iB + 2];
+
+    const B = useZeroRHS ? 0 : Bs[slot];
+    const invC = invCs[slot];
+    const lambdaj = lambda[slot];
+    const eps = eq.epsilon;
+
+    let dl = invC * (B - GWlambda - eps * lambdaj);
+    if (!isFinite(dl)) dl = 0;
+
+    const minFDt = eq.minForce * dt;
+    const maxFDt = eq.maxForce * dt;
+    const newTotal = lambdaj + dl;
+    if (newTotal < minFDt) dl = minFDt - lambdaj;
+    else if (newTotal > maxFDt) dl = maxFDt - lambdaj;
+
+    lambda[slot] = lambdaj + dl;
+
+    const iMA = invMassSolve[idxA];
+    const iMB = invMassSolve[idxB];
+    const iMzA = invMassSolveZ[idxA];
+    const iMzB = invMassSolveZ[idxB];
+
+    // Body A linear (-n)
+    vl[iA] -= iMA * nx * dl;
+    vl[iA + 1] -= iMA * ny * dl;
+    vl[iA + 2] -= iMzA * nz * dl;
+
+    // Body B linear (+n)
+    vl[iB] += iMB * nx * dl;
+    vl[iB + 1] += iMB * ny * dl;
+    vl[iB + 2] += iMzB * nz * dl;
+
+    // Body B angular through world-frame inverse inertia
+    const iIB = invInertia[idxB];
+    const g0 = rjXnX * dl;
+    const g1 = rjXnY * dl;
+    const g2 = rjXnZ * dl;
+    wl[iB] += iIB[0] * g0 + iIB[1] * g1 + iIB[2] * g2;
+    wl[iB + 1] += iIB[3] * g0 + iIB[4] * g1 + iIB[5] * g2;
+    wl[iB + 2] += iIB[6] * g0 + iIB[7] * g1 + iIB[8] * g2;
+
+    deltaTot += dl >= 0 ? dl : -dl;
+  }
+
+  return deltaTot;
+}
+
+/**
+ * Specialized PGS iteration loop for `PlanarEquation2D` — 2D rigid-rigid
+ * constraints whose Jacobian is `(linX, linY, angAz, angBz)`. The angular
+ * impulse only touches the Z component, so we read just the Z columns of
+ * each body's inverse inertia tensor instead of the full 3×3 block.
+ *
+ * Per-equation op count vs. the general batch:
+ *  - computeGWlambda: 6 mul-adds instead of 12
+ *  - addToWlambda: ~12 fewer ops by skipping the zero-row angular math
+ */
+function iteratePlanar2DBatch(
+  equations: readonly PlanarEquation2D[],
+  Bs: Float32Array,
+  invCs: Float32Array,
+  lambda: Float32Array,
+  useZeroRHS: boolean,
+  dt: number,
+  ws: SolverWorkspace,
+): number {
+  const vl = ws.vlambda;
+  const wl = ws.wlambda;
+  const invMassSolve = ws.invMassSolve;
+  const invInertia = ws.invInertia;
+
+  let deltaTot = 0;
+  const N = equations.length;
+
+  for (let k = 0; k < N; k++) {
+    const eq = equations[k];
+    if (!eq.enabled) continue;
+
+    const slot = eq[EQ_SLOT];
+    const idxA = eq[EQ_INDEX_A];
+    const idxB = eq[EQ_INDEX_B];
+    const iA = idxA * 3;
+    const iB = idxB * 3;
+
+    const linX = eq.linX;
+    const linY = eq.linY;
+    const angAz = eq.angAz;
+    const angBz = eq.angBz;
+
+    // GWlambda = lin · (vlB - vlA) + angAz * wlA_z + angBz * wlB_z
+    const GWlambda =
+      linX * (vl[iB] - vl[iA]) +
+      linY * (vl[iB + 1] - vl[iA + 1]) +
+      angAz * wl[iA + 2] +
+      angBz * wl[iB + 2];
+
+    const B = useZeroRHS ? 0 : Bs[slot];
+    const invC = invCs[slot];
+    const lambdaj = lambda[slot];
+    const eps = eq.epsilon;
+
+    let dl = invC * (B - GWlambda - eps * lambdaj);
+    if (!isFinite(dl)) dl = 0;
+
+    const minFDt = eq.minForce * dt;
+    const maxFDt = eq.maxForce * dt;
+    const newTotal = lambdaj + dl;
+    if (newTotal < minFDt) dl = minFDt - lambdaj;
+    else if (newTotal > maxFDt) dl = maxFDt - lambdaj;
+
+    lambda[slot] = lambdaj + dl;
+
+    const iMA = invMassSolve[idxA];
+    const iMB = invMassSolve[idxB];
+
+    // Body A linear (-lin); body B linear (+lin)
+    vl[iA] -= iMA * linX * dl;
+    vl[iA + 1] -= iMA * linY * dl;
+    vl[iB] += iMB * linX * dl;
+    vl[iB + 1] += iMB * linY * dl;
+
+    // Angular impulse on Z axis: wl += invI_col2 * (angXz * dl)
+    const iIA = invInertia[idxA];
+    const gAz = angAz * dl;
+    wl[iA] += iIA[2] * gAz;
+    wl[iA + 1] += iIA[5] * gAz;
+    wl[iA + 2] += iIA[8] * gAz;
+
+    const iIB = invInertia[idxB];
+    const gBz = angBz * dl;
+    wl[iB] += iIB[2] * gBz;
+    wl[iB + 1] += iIB[5] * gBz;
+    wl[iB + 2] += iIB[8] * gBz;
+
+    deltaTot += dl >= 0 ? dl : -dl;
+  }
+
+  return deltaTot;
+}
+
+/**
+ * Specialized PGS iteration loop for `AngularEquation3D` — pure 3D
+ * rotational constraints, typically used for 3D revolute-joint axis
+ * alignment. Calls the subclass's specialized `computeGWlambda` /
+ * `addToWlambda` methods, which are monomorphic here (only
+ * `AngularEquation3D` lives in this group) so V8 inlines them through
+ * the PIC. Low volume, so the method-call form is kept for clarity.
+ */
+function iterateAngular3DBatch(
+  equations: readonly AngularEquation3D[],
+  Bs: Float32Array,
+  invCs: Float32Array,
+  lambda: Float32Array,
+  useZeroRHS: boolean,
+  dt: number,
+  ws: SolverWorkspace,
+): number {
+  let deltaTot = 0;
+  const N = equations.length;
+
+  for (let k = 0; k < N; k++) {
+    const eq = equations[k];
+    if (!eq.enabled) continue;
+
+    const slot = eq[EQ_SLOT];
+    const B = useZeroRHS ? 0 : Bs[slot];
+    const invC = invCs[slot];
+    const lambdaj = lambda[slot];
+    const GWlambda = eq.computeGWlambda(ws);
+
+    let dl = invC * (B - GWlambda - eq.epsilon * lambdaj);
+    if (!isFinite(dl)) dl = 0;
+
+    const minFDt = eq.minForce * dt;
+    const maxFDt = eq.maxForce * dt;
+    const newTotal = lambdaj + dl;
+    if (newTotal < minFDt) dl = minFDt - lambdaj;
+    else if (newTotal > maxFDt) dl = maxFDt - lambdaj;
+
+    lambda[slot] = lambdaj + dl;
+    eq.addToWlambda(dl, ws);
+
+    deltaTot += dl >= 0 ? dl : -dl;
+  }
+
+  return deltaTot;
+}
+
+/**
+ * Specialized PGS iteration loop for `AngularEquation2D` — pure 2D
+ * rotational constraints (angle locks, motors). Monomorphic method calls
+ * for the same reason as {@link iterateAngular3DBatch}.
+ */
+function iterateAngular2DBatch(
+  equations: readonly AngularEquation2D[],
+  Bs: Float32Array,
+  invCs: Float32Array,
+  lambda: Float32Array,
+  useZeroRHS: boolean,
+  dt: number,
+  ws: SolverWorkspace,
+): number {
+  let deltaTot = 0;
+  const N = equations.length;
+
+  for (let k = 0; k < N; k++) {
+    const eq = equations[k];
+    if (!eq.enabled) continue;
+
+    const slot = eq[EQ_SLOT];
+    const B = useZeroRHS ? 0 : Bs[slot];
+    const invC = invCs[slot];
+    const lambdaj = lambda[slot];
+    const GWlambda = eq.computeGWlambda(ws);
+
+    let dl = invC * (B - GWlambda - eq.epsilon * lambdaj);
+    if (!isFinite(dl)) dl = 0;
+
+    const minFDt = eq.minForce * dt;
+    const maxFDt = eq.maxForce * dt;
+    const newTotal = lambdaj + dl;
+    if (newTotal < minFDt) dl = minFDt - lambdaj;
+    else if (newTotal > maxFDt) dl = maxFDt - lambdaj;
+
+    lambda[slot] = lambdaj + dl;
+    eq.addToWlambda(dl, ws);
 
     deltaTot += dl >= 0 ? dl : -dl;
   }
