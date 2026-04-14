@@ -1,4 +1,5 @@
 import { createBoatConfig } from "../BoatConfig";
+import { MAESTRO_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
 import { Kestrel } from "./Kestrel";
 
@@ -17,46 +18,29 @@ const sz = sx;
  * Inspired by: Nautor Swan 60 FD (LOA 61.9ft, disp 52250 lbs, ballast 18078 lbs)
  */
 export const MaestroOpus = createBoatConfig(
-  scaleBoatConfig(Kestrel, sx, sy, sz),
+  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), MAESTRO_PALETTE),
   {
     hull: {
       mass: 31672,
       skinFrictionCoefficient: 0.0025, // premium fairing
-      colors: {
-        fill: 0xe8e0cc,
-        stroke: 0xb09030,
-        side: 0x1a2a50,
-        bottom: 0x080f1e,
-      },
     },
     keel: {
       draft: 9.8,
-      color: 0x303060,
     },
     rudder: {
       draft: 8.3,
       steerAdjustSpeed: 0.72,
       steerAdjustSpeedFast: 1.8,
-      color: 0x303060,
     },
     rig: {
-      colors: {
-        mast: 0xccccdd,
-        boom: 0xb09030,
-      },
       mainsail: {
         liftScale: 1.05,
         dragScale: 0.93,
-        color: 0xf4f2ee,
       },
     },
     jib: {
       liftScale: 1.05,
       dragScale: 0.93,
-      color: 0xf4f2ee,
-    },
-    mainsheet: {
-      ropeColor: 0x0a1a40,
     },
     hullDamage: {
       groundingDamageRate: 0.1,

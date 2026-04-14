@@ -1,4 +1,5 @@
 import { createBoatConfig } from "../BoatConfig";
+import { MAESTRO_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
 import { Kestrel } from "./Kestrel";
 
@@ -17,46 +18,29 @@ const sz = sx;
  * Inspired by: J/24 (LOA 24ft, disp 3100 lbs, ballast 950 lbs, SA 260 sqft)
  */
 export const MaestroEtude = createBoatConfig(
-  scaleBoatConfig(Kestrel, sx, sy, sz),
+  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), MAESTRO_PALETTE),
   {
     hull: {
       mass: 1700,
       skinFrictionCoefficient: 0.0028, // quality hand-laid hull
-      colors: {
-        fill: 0xe8e0cc, // ivory deck
-        stroke: 0xb09030, // gold trim
-        side: 0x1a2a50, // deep navy topsides
-        bottom: 0x080f1e, // very dark navy
-      },
     },
     keel: {
       draft: 4.0,
-      color: 0x303060,
     },
     rudder: {
       draft: 3.2,
       steerAdjustSpeed: 0.78,
       steerAdjustSpeedFast: 1.95,
-      color: 0x303060,
     },
     rig: {
-      colors: {
-        mast: 0xbbbbcc,
-        boom: 0xb09030,
-      },
       mainsail: {
         liftScale: 1.0,
         dragScale: 0.95,
-        color: 0xf4f2ee,
       },
     },
     jib: {
       liftScale: 1.0,
       dragScale: 0.95,
-      color: 0xf4f2ee,
-    },
-    mainsheet: {
-      ropeColor: 0x0a1a40,
     },
     hullDamage: {
       groundingDamageRate: 0.14,

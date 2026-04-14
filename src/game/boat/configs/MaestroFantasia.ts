@@ -1,4 +1,5 @@
 import { createBoatConfig } from "../BoatConfig";
+import { MAESTRO_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
 import { Kestrel } from "./Kestrel";
 
@@ -17,46 +18,29 @@ const sz = sx;
  * Inspired by: Jeanneau Sun Odyssey 45 (LOA 45ft, disp 22250 lbs, SA 1122 sqft)
  */
 export const MaestroFantasia = createBoatConfig(
-  scaleBoatConfig(Kestrel, sx, sy, sz),
+  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), MAESTRO_PALETTE),
   {
     hull: {
       mass: 14246,
       skinFrictionCoefficient: 0.0027,
-      colors: {
-        fill: 0xe8e0cc,
-        stroke: 0xb09030,
-        side: 0x1a2a50,
-        bottom: 0x080f1e,
-      },
     },
     keel: {
       draft: 6.7,
-      color: 0x303060,
     },
     rudder: {
       draft: 6.0,
       steerAdjustSpeed: 0.75,
       steerAdjustSpeedFast: 1.85,
-      color: 0x303060,
     },
     rig: {
-      colors: {
-        mast: 0xbbbbcc,
-        boom: 0xb09030,
-      },
       mainsail: {
         liftScale: 1.02,
         dragScale: 0.95,
-        color: 0xf4f2ee,
       },
     },
     jib: {
       liftScale: 1.02,
       dragScale: 0.95,
-      color: 0xf4f2ee,
-    },
-    mainsheet: {
-      ropeColor: 0x0a1a40,
     },
     hullDamage: {
       groundingDamageRate: 0.11,

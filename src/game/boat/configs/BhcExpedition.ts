@@ -1,4 +1,5 @@
 import { createBoatConfig } from "../BoatConfig";
+import { BHC_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
 import { Kestrel } from "./Kestrel";
 
@@ -17,46 +18,29 @@ const sz = sx;
  * Inspired by: Oyster 575 (LOA 58.67ft, disp 58422 lbs, ballast 17855 lbs, SA 2097 sqft)
  */
 export const BhcExpedition = createBoatConfig(
-  scaleBoatConfig(Kestrel, sx, sy, sz),
+  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), BHC_PALETTE),
   {
     hull: {
       mass: 38067,
       skinFrictionCoefficient: 0.0033,
-      colors: {
-        fill: 0xd8c89c,
-        stroke: 0x6a4a1a,
-        side: 0xd0c090,
-        bottom: 0x4a3018,
-      },
     },
     keel: {
       draft: 8.82,
-      color: 0x5a4030,
     },
     rudder: {
       draft: 7.8,
       steerAdjustSpeed: 0.58,
       steerAdjustSpeedFast: 1.4,
-      color: 0x5a4030,
     },
     rig: {
-      colors: {
-        mast: 0xa09080,
-        boom: 0x8a6a40,
-      },
       mainsail: {
         liftScale: 0.92,
         dragScale: 1.05,
-        color: 0xeeeedd,
       },
     },
     jib: {
       liftScale: 0.92,
       dragScale: 1.05,
-      color: 0xeeeedd,
-    },
-    mainsheet: {
-      ropeColor: 0xddddaa,
     },
     hullDamage: {
       groundingDamageRate: 0.08, // heavy offshore construction

@@ -1,4 +1,5 @@
 import { createBoatConfig } from "../BoatConfig";
+import { SHAFF_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
 import { Kestrel } from "./Kestrel";
 
@@ -16,66 +17,52 @@ const sz = sx;
  *
  * Inspired by: Farr 60 (LOA 60.25ft, disp 54000 lbs, ballast 18000 lbs, SA/D 23)
  */
-export const ShaffS20 = createBoatConfig(scaleBoatConfig(Kestrel, sx, sy, sz), {
-  hull: {
-    mass: 33500,
-    skinFrictionCoefficient: 0.0023, // highly faired race hull
-    colors: {
-      fill: 0xf0f0f0,
-      stroke: 0x1a1a1a,
-      side: 0xe0e0f0,
-      bottom: 0x0f1f2f,
+export const ShaffS20 = createBoatConfig(
+  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), SHAFF_PALETTE),
+  {
+    hull: {
+      mass: 33500,
+      skinFrictionCoefficient: 0.0023, // highly faired race hull
     },
-  },
-  keel: {
-    draft: 9.17,
-    color: 0x222222,
-  },
-  rudder: {
-    draft: 8.0,
-    steerAdjustSpeed: 0.75,
-    steerAdjustSpeedFast: 1.8,
-    color: 0x222222,
-  },
-  rig: {
-    colors: {
-      mast: 0x888888,
-      boom: 0x2a2a2a,
+    keel: {
+      draft: 9.17,
     },
-    mainsail: {
+    rudder: {
+      draft: 8.0,
+      steerAdjustSpeed: 0.75,
+      steerAdjustSpeedFast: 1.8,
+    },
+    rig: {
+      mainsail: {
+        liftScale: 1.08,
+        dragScale: 0.88,
+      },
+    },
+    jib: {
       liftScale: 1.08,
       dragScale: 0.88,
-      color: 0xfafafa,
+    },
+    hullDamage: {
+      groundingDamageRate: 0.15,
+    },
+    tilt: {
+      rollInertia: 1944000,
+      pitchInertia: 12251520,
+      rollDamping: 1792000,
+      pitchDamping: 6406000,
+      rightingMomentCoeff: 10320232, // GM 5.94ft — moderately tender for a 60-footer
+      pitchRightingCoeff: 20935622,
+      waveRollCoeff: 102000,
+      wavePitchCoeff: 138000,
+    },
+    buoyancy: {
+      verticalMass: 54000,
+      rollInertia: 1944000,
+      pitchInertia: 12251520,
+      centerOfGravityZ: -3.5,
+      zHeights: {
+        keel: -9.17,
+      },
     },
   },
-  jib: {
-    liftScale: 1.08,
-    dragScale: 0.88,
-    color: 0xfafafa,
-  },
-  mainsheet: {
-    ropeColor: 0xee2222,
-  },
-  hullDamage: {
-    groundingDamageRate: 0.15,
-  },
-  tilt: {
-    rollInertia: 1944000,
-    pitchInertia: 12251520,
-    rollDamping: 1792000,
-    pitchDamping: 6406000,
-    rightingMomentCoeff: 10320232, // GM 5.94ft — moderately tender for a 60-footer
-    pitchRightingCoeff: 20935622,
-    waveRollCoeff: 102000,
-    wavePitchCoeff: 138000,
-  },
-  buoyancy: {
-    verticalMass: 54000,
-    rollInertia: 1944000,
-    pitchInertia: 12251520,
-    centerOfGravityZ: -3.5,
-    zHeights: {
-      keel: -9.17,
-    },
-  },
-});
+);
