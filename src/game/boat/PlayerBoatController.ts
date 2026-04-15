@@ -200,7 +200,7 @@ export class PlayerBoatController extends BaseEntity {
 
   @on("keyDown")
   onKeyDown({ key }: GameEventMap["keyDown"]) {
-    if (key === "KeyH") {
+    if (key === "Comma") {
       void this.game.io.requestSteeringWheelConnection().then((result) => {
         if (result.connected) {
           console.info(`[Wheel] ${result.message}`);
