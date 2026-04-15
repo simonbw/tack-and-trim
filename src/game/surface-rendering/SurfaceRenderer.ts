@@ -27,6 +27,8 @@ import {
 } from "../wave-physics/WavePhysicsResources";
 import { TerrainResources } from "../world/terrain/TerrainResources";
 import { WaterResources } from "../world/water/WaterResources";
+import type { Boat } from "../boat/Boat";
+import { BoatAirShader } from "./BoatAirShader";
 import { ModifierRasterizer } from "./ModifierRasterizer";
 import { createWaterHeightShader } from "./WaterHeightShader";
 import { createTerrainCompositeShader } from "./TerrainCompositeShader";
@@ -94,6 +96,11 @@ export class SurfaceRenderer extends BaseEntity {
   private terrainHeightView: GPUTextureView | null = null;
   private waterHeightTexture: GPUTexture | null = null;
   private waterHeightView: GPUTextureView | null = null;
+  // Per-boat air gap (bilge surface Z + deck cap Z + bilge turbulence).
+  // Read by the water height compute as a substitution input — see
+  // BoatAirShader and WaterHeightShader.
+  private boatAirTexture: GPUTexture | null = null;
+  private boatAirTextureView: GPUTextureView | null = null;
 
   // Wave field texture array (rgba16float, one layer per wave source)
   private waveFieldTexture: GPUTexture | null = null;
@@ -120,6 +127,9 @@ export class SurfaceRenderer extends BaseEntity {
   private waterFilterUniforms: UniformInstance<
     typeof WaterFilterUniforms.fields
   > | null = null;
+
+  // Boat air rasterizer — feeds boatAirTexture to the water height compute.
+  private boatAirShader: BoatAirShader | null = null;
 
   // Samplers
   private heightSampler: GPUSampler | null = null;
@@ -166,6 +176,9 @@ export class SurfaceRenderer extends BaseEntity {
 
       // Create modifier rasterizer
       this.modifierRasterizer = new ModifierRasterizer(device);
+
+      // Create boat air rasterizer (publishes per-boat air gap to boatAirTexture)
+      this.boatAirShader = new BoatAirShader();
 
       await Promise.all([
         this.terrainScreenShader.init(),
@@ -286,6 +299,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterHeightTexture?.destroy();
     this.waveFieldTexture?.destroy();
     this.modifierTexture?.destroy();
+    this.boatAirTexture?.destroy();
 
     // Destroy old wetness pipeline (will be recreated with new size)
     this.wetnessPipeline?.destroy();
@@ -307,6 +321,18 @@ export class SurfaceRenderer extends BaseEntity {
       label: "Water Height Texture",
     });
     this.waterHeightView = this.waterHeightTexture.createView();
+
+    // Create boat air texture: per-pixel air gap published by BoatAirShader
+    // and consumed by WaterHeightShader. R = bilge surface Z, G = deck cap
+    // Z, B = bilge turbulence. Cleared each frame to a low sentinel.
+    this.boatAirTexture = device.createTexture({
+      size: { width, height },
+      format: "rgba16float",
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      label: "Boat Air Texture",
+    });
+    this.boatAirTextureView = this.boatAirTexture.createView();
 
     // Create wave field texture array (one layer per wave source)
     this.waveFieldTexture = device.createTexture({
@@ -514,7 +540,7 @@ export class SurfaceRenderer extends BaseEntity {
       });
     }
 
-    // Water height bind group (uses wave field + modifier textures)
+    // Water height bind group (uses wave field + modifier + boat air textures)
     if (
       this.waterHeightShader &&
       this.waterHeightUniformBuffer &&
@@ -522,7 +548,8 @@ export class SurfaceRenderer extends BaseEntity {
       this.waveFieldTextureView &&
       this.waveFieldSampler &&
       this.modifierTextureView &&
-      this.modifierSampler
+      this.modifierSampler &&
+      this.boatAirTextureView
     ) {
       this.waterHeightBindGroup = this.waterHeightShader.createBindGroup({
         params: { buffer: this.waterHeightUniformBuffer },
@@ -531,6 +558,7 @@ export class SurfaceRenderer extends BaseEntity {
         modifierSampler: this.modifierSampler,
         waveFieldTexture: this.waveFieldTextureView,
         waveFieldSampler: this.waveFieldSampler,
+        boatAirTexture: this.boatAirTextureView,
         outputTexture: this.waterHeightView,
       });
     }
@@ -749,6 +777,27 @@ export class SurfaceRenderer extends BaseEntity {
         gpuProfiler,
       );
       device.queue.submit([commandEncoder.finish()]);
+    }
+
+    // === Pass 1.8: Boat Air Rasterization ===
+    // Rasterize each boat's air gap (bilge surface Z + deck cap Z) into
+    // boatAirTexture. The water height compute reads this and substitutes
+    // the bilge surface for the ocean wherever the ocean would lie inside
+    // an air column. One uniform per-pixel mechanism handles dry boats,
+    // wet bilges, partial submersion, and full submersion.
+    if (this.boatAirShader && this.boatAirTextureView) {
+      const boat = this.game.entities.getById("boat") as Boat | undefined;
+      if (boat) {
+        this.boatAirShader.render(
+          this.boatAirTextureView,
+          expandedViewport,
+          boat,
+        );
+      } else {
+        // No boat — clear the air texture to "no air anywhere" so the
+        // water height compute's substitution is a no-op.
+        this.boatAirShader.clear(this.boatAirTextureView);
+      }
     }
 
     // === Pass 2: Water Height Compute ===

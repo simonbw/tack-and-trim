@@ -77,6 +77,16 @@ const BREAK_NOISE_TIME_SCALE: f32 = 1.2;
       sampleType: "float",
     },
     waveFieldSampler: { type: "sampler" },
+    // Per-boat air gap texture published by BoatAirShader. Encodes the
+    // bilge surface Z (R), deck cap Z (G), and bilge slosh turbulence (B)
+    // at each pixel inside any hull footprint. Outside hull pixels are at
+    // a low sentinel for both R and G, which makes `airMax > airMin` false
+    // and the substitution a no-op.
+    boatAirTexture: {
+      type: "texture",
+      viewDimension: "2d",
+      sampleType: "float",
+    },
     outputTexture: { type: "storageTexture", format: "rg32float" },
   },
   code: "",
@@ -189,6 +199,21 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
   let height = waveResult.x + modifierHeight + params.tideHeight;
   // Combine wave breaking turbulence with modifier turbulence (e.g. wake foam)
   let totalTurbulence = max(maxTurbulence, modifierTurbulence);
+
+  // Boat air substitution. BoatAirShader publishes per-pixel air gaps
+  // (bilge surface Z, deck cap Z, bilge turbulence). If the ocean surface
+  // would lie inside an air column at this pixel, the actual water surface
+  // here is the bilge level (or sentinel low for a dry hull) — substitute
+  // it. Outside any hull, both R and G are sentinel low so the range test
+  // fails and we fall through to the ocean output.
+  let air = textureSampleLevel(boatAirTexture, modifierSampler, uv, 0.0);
+  let airMin = air.r;
+  let airMax = air.g;
+  let bilgeTurb = air.b;
+  if (airMax > airMin && height >= airMin && height <= airMax) {
+    return vec2<f32>(airMin, bilgeTurb);
+  }
+
   return vec2<f32>(height, totalTurbulence);
 }
 

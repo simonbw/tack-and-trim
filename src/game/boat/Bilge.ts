@@ -8,7 +8,7 @@ import { BilgeConfig } from "./BoatConfig";
 import type { Boat } from "./Boat";
 import type { HullMesh } from "./Hull";
 import { extractHullOutlineAtZ } from "./hull-profiles";
-import { HULL_WATER_VERTEX_SIZE } from "./HullWaterShader";
+import { BOAT_AIR_VERTEX_SIZE } from "../surface-rendering/BoatAirShader";
 
 const GRAVITY = 32.174; // ft/s²
 
@@ -22,10 +22,6 @@ const INGRESS_COEFF = 0.4 * (2 / 3) * Math.sqrt(2 * GRAVITY); // ~2.14
 
 // Water drag coefficient applied per lb of water mass per ft/s of boat speed
 const WATER_DRAG_COEFF = 0.08;
-
-// Water rendering
-const WATER_COLOR = 0x2266aa;
-const WATER_ALPHA = 0.65;
 
 // Number of bisection iterations for the volume-conserving offset solve.
 // 8 gives ~draft/256 precision on a ±(draft+deckHeight) initial bracket.
@@ -755,8 +751,9 @@ export class Bilge extends BaseEntity {
    * station. Walking stations stern→bow on starboard and bow→stern on port
    * gives a closed polygon tracing the water-hull intersection.
    *
-   * Vertex layout matches `HULL_WATER_VERTEX_SIZE`: position.xy (world),
-   * localUV.xy (hull-local), z (world).
+   * Vertex layout matches `BOAT_AIR_VERTEX_SIZE`: position.xy (world),
+   * z (world). The z component carries the bilge surface height that the
+   * stamp shader writes into `waterHeightTexture`.
    */
   buildHullWaterVertices(
     outVerts: Float32Array,
@@ -776,7 +773,7 @@ export class Bilge extends BaseEntity {
     const ringSize = mesh.ringSize;
     const halfM = (ringSize + 1) / 2;
     const numStations = xyPositions.length / ringSize;
-    const maxOutVerts = outVerts.length / HULL_WATER_VERTEX_SIZE;
+    const maxOutVerts = outVerts.length / BOAT_AIR_VERTEX_SIZE;
 
     const body = this.boat.hull.body;
     const R = body.orientation;
@@ -878,12 +875,10 @@ export class Bilge extends BaseEntity {
       const worldX = R[0] * vx + R[1] * vy + R[2] * vz + bx;
       const worldY = R[3] * vx + R[4] * vy + R[5] * vz + by;
       const worldZ = R[6] * vx + R[7] * vy + R[8] * vz + bz;
-      const off = n * HULL_WATER_VERTEX_SIZE;
+      const off = n * BOAT_AIR_VERTEX_SIZE;
       outVerts[off] = worldX;
       outVerts[off + 1] = worldY;
-      outVerts[off + 2] = vx; // localUV.x
-      outVerts[off + 3] = vy; // localUV.y
-      outVerts[off + 4] = worldZ;
+      outVerts[off + 2] = worldZ;
       n++;
     };
 
@@ -913,16 +908,6 @@ export class Bilge extends BaseEntity {
     }
 
     return { vertexCount: n, indexCount };
-  }
-
-  /** Current color to tint the hull water quad with. */
-  getWaterColor(): number {
-    return WATER_COLOR;
-  }
-
-  /** Base alpha multiplier for the hull water quad. */
-  getWaterAlpha(): number {
-    return WATER_ALPHA;
   }
 
   /** Longitudinal slope of the bilge water plane (dz/dx in hull-local). */
