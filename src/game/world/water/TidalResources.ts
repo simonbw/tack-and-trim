@@ -28,7 +28,7 @@ export class TidalResources extends BaseEntity {
   id = "tidalResources";
   tickLayer = "query" as const;
 
-  private packedBuffer: Uint32Array;
+  private packedBuffer: Uint32Array<ArrayBuffer>;
   private gpuBuffer: GPUBuffer | null = null;
   private tidalPhase: number = 0;
   private tidalStrength: number = 1.5; // ft/s max current speed
@@ -106,8 +106,7 @@ export class TidalResources extends BaseEntity {
     if (timeOfDay) {
       const timeInSeconds = timeOfDay.getTimeInSeconds();
       this.tidalPhase =
-        ((timeInSeconds / TIDAL_PERIOD_SECONDS) * Math.PI * 2) %
-        (Math.PI * 2);
+        ((timeInSeconds / TIDAL_PERIOD_SECONDS) * Math.PI * 2) % (Math.PI * 2);
     }
   }
 

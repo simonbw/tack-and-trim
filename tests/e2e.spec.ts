@@ -40,7 +40,9 @@ test("game initializes, shows main menu, and starts without errors", async ({
   // --- Assertion: No errors during initialization ---
   expect(issues).toHaveLength(0);
 
-  // Press Enter to start the game
+  // Navigate: New Game → default level → default boat
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
   await page.keyboard.press("Enter");
 
   // --- Assertion: Main menu disappears ---

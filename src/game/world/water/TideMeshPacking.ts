@@ -43,7 +43,9 @@ function f32AsU32(f: number): number {
   return new Uint32Array(buf.buffer)[0];
 }
 
-export function packTideMeshBuffer(data: TideMeshFileData): Uint32Array {
+export function packTideMeshBuffer(
+  data: TideMeshFileData,
+): Uint32Array<ArrayBuffer> {
   const {
     tideLevels,
     vertexPositions,
@@ -150,7 +152,8 @@ export function packTideMeshBuffer(data: TideMeshFileData): Uint32Array {
   for (let i = 0; i < cellCount; i++) {
     const rawOffset = gridCellHeaders[i * 2]; // relative to grid triangle lists
     const count = gridCellHeaders[i * 2 + 1];
-    u32View[gridCellHeadersOffset + i * 2] = gridTriangleListsOffset + rawOffset;
+    u32View[gridCellHeadersOffset + i * 2] =
+      gridTriangleListsOffset + rawOffset;
     u32View[gridCellHeadersOffset + i * 2 + 1] = count;
   }
 
@@ -162,7 +165,7 @@ export function packTideMeshBuffer(data: TideMeshFileData): Uint32Array {
   return new Uint32Array(buffer);
 }
 
-export function createPlaceholderTideMeshBuffer(): Uint32Array {
+export function createPlaceholderTideMeshBuffer(): Uint32Array<ArrayBuffer> {
   const buffer = new Uint32Array(HEADER_U32S);
   // All zeros: tideLevelCount=0, vertexCount=0, triangleCount=0, etc.
   return buffer;
