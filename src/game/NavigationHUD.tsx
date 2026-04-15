@@ -27,7 +27,6 @@ interface MapContourLine {
  */
 export class NavigationHUD extends ReactEntity {
   id = "navigationHud";
-  renderLayer = "hud" as const;
 
   private isMapOpen = false;
   private mapTitle: string;

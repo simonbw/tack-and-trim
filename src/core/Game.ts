@@ -590,7 +590,9 @@ export class Game {
 
     for (const entity of this.entities.getRenderersOnLayer(layerName)) {
       if (entity.isAdded && !(effectivelyPaused && !entity.pausable)) {
-        entity.onRender?.(renderData);
+        profiler.measure(entity.constructor.name, () => {
+          entity.onRender?.(renderData);
+        });
       }
     }
   }

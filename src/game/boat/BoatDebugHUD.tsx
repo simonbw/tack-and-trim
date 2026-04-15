@@ -8,8 +8,6 @@ const FT_PER_SEC_TO_KNOTS = 1 / 1.69;
  * Debug HUD showing boat telemetry: speed, heel, pitch, z-height, bilge water.
  */
 export class BoatDebugHUD extends ReactEntity {
-  renderLayer = "hud" as const;
-
   constructor() {
     super(() => this.renderContent());
   }

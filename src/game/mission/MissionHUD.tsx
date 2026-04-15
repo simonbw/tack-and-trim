@@ -18,7 +18,6 @@ interface CompletionNotice {
 }
 
 export class MissionHUD extends ReactEntity {
-  renderLayer = "hud" as const;
   private completionNotice: CompletionNotice | null = null;
 
   constructor() {

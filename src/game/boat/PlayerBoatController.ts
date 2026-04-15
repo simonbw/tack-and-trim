@@ -154,8 +154,9 @@ export class PlayerBoatController extends BaseEntity {
 
     // Debug: fill bilge with water (hold ')
     if (io.isKeyDown("Quote")) {
+      const rate = shiftHeld ? 0.25 : 0.05;
       this.boat.bilge.waterVolume +=
-        this.boat.bilge.getMaxWaterVolume() * 0.05 * dt;
+        this.boat.bilge.getMaxWaterVolume() * rate * dt;
     }
   }
 

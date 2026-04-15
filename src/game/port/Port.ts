@@ -12,6 +12,9 @@ import { TiltDraw } from "../boat/TiltDraw";
 const DOCK_LENGTH = 50; // ft — long enough for the largest boats
 const DOCK_WIDTH = 5; // ft
 
+// Bounding radius for view-frustum culling: half the deck's diagonal.
+const CULL_RADIUS = Math.hypot(DOCK_LENGTH, DOCK_WIDTH) / 2;
+
 // Cleat positions along dock length from shore end (0 = shore, 1 = tip)
 // Placed mid-gap between pilings (pilings sit at ratios 0.0, 0.2, 0.4, ...)
 const BOW_CLEAT_RATIO = 0.7; // near the tip, centered between pilings
@@ -106,6 +109,7 @@ export class Port extends BaseEntity {
   @on("render")
   onRender({ draw }: { draw: Draw }) {
     const [x, y] = this.body.position;
+    if (!draw.camera.isVisible(x, y, CULL_RADIUS)) return;
     const angle = this.body.angle;
     const halfW = DOCK_WIDTH / 2;
     const halfL = DOCK_LENGTH / 2;

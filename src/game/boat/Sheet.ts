@@ -2,15 +2,15 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
 import { clamp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
-import { V3, V3d } from "../../core/Vector3";
-import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
+import { V3d } from "../../core/Vector3";
 import { LBF_TO_ENGINE } from "../physics-constants";
 import { Pulley, type PulleyConfig } from "../rope/Pulley";
 import { Rope, RopeConfig, type RopePathHint } from "../rope/Rope";
-import { RopeObstacleCollider } from "../rope/RopeObstacleCollider";
 import type { RopeObstacle } from "../rope/RopeObstacle";
+import { RopeObstacleCollider } from "../rope/RopeObstacleCollider";
 import type { RopePattern } from "./RopeShader";
 
 export interface SheetConfig {

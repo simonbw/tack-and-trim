@@ -5,8 +5,6 @@ import { TimeOfDay } from "./time/TimeOfDay";
  * HUD element displaying the current game time in the bottom right corner.
  */
 export class TimeOfDayHUD extends ReactEntity {
-  renderLayer = "hud" as const;
-
   constructor() {
     super(() => this.renderContent());
   }
