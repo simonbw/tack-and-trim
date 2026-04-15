@@ -51,6 +51,16 @@ const RENDER_VIEWPORT_MARGIN = 0.1;
 // Modifier texture resolution scale (fraction of screen resolution)
 const MODIFIER_RESOLUTION_SCALE = 0.25;
 
+// Default bio-optical water chemistry. These drive the water filter's
+// absorption/scattering computation. Eventually they should come from the
+// level's BiomeConfig / region file; for now they're clean-coastal defaults.
+//   chlorophyll: mg/m³     — 0.01 open ocean, 1 coastal, 10 bloom
+//   cdom:        normalized — 0 clean, 1 typical coastal, 2+ tannic
+//   sediment:    normalized — 0 clean, 1 typical coastal, 3 turbid
+const DEFAULT_CHLOROPHYLL = 0.5;
+const DEFAULT_CDOM = 0.3;
+const DEFAULT_SEDIMENT = 0.4;
+
 /**
  * Surface renderer entity using multi-pass rendering.
  */
@@ -467,6 +477,9 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterFilterUniforms.set.time(currentTime);
     this.waterFilterUniforms.set.tideHeight(waterResources.getTideHeight());
     this.waterFilterUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
+    this.waterFilterUniforms.set.chlorophyll(DEFAULT_CHLOROPHYLL);
+    this.waterFilterUniforms.set.cdom(DEFAULT_CDOM);
+    this.waterFilterUniforms.set.sediment(DEFAULT_SEDIMENT);
   }
 
   /**

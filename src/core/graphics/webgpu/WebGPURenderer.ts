@@ -26,12 +26,14 @@ import { WebGPUTexture, WebGPUTextureManager } from "./WebGPUTextureManager";
 // World z-heights are linearly mapped to NDC depth [0, 1].
 // Higher z = closer to viewer. depthCompare: "greater-equal" means higher depth wins.
 //
-// Z_MIN is set to the underwater visibility horizon: with the water filter's
-// wavelength-dependent absorption (blue at 0.06/ft), light from 100ft down is
-// attenuated to ~0.25% — below the 8-bit quantization threshold of bgra8unorm.
-// Anything beyond that is indistinguishable from pure water, so it's the
-// deepest point the depth buffer needs to represent.
-export const DEPTH_Z_MIN = -100.0;
+// Z_MIN is set to the deepest underwater visibility horizon across the
+// range of water chemistry presets the game supports. With clean coastal
+// water (chlorophyll ~0.1), blue-channel extinction is ~0.02/ft and light
+// from 260ft down is attenuated to the 8-bit quantization threshold
+// (~0.4%). With pristine open ocean it stretches further. -300ft gives
+// headroom for cleaner presets without clipping terrain or sunken objects.
+// Depth buffer precision at 330ft range is still ~20µm (24-bit depth).
+export const DEPTH_Z_MIN = -300.0;
 export const DEPTH_Z_MAX = 30.0;
 const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
 

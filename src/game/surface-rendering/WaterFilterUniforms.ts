@@ -27,4 +27,14 @@ export const WaterFilterUniforms = defineUniformStruct("Params", {
   time: f32,
   tideHeight: f32,
   hasTerrainData: i32,
+
+  // Bio-optical water chemistry (per-level / per-region).
+  // These drive the absorption/scattering calculation in the shader.
+  // Typical ranges:
+  //   chlorophyll: 0.01 (open ocean) – 10 (algal bloom), mg/m³
+  //   cdom:        0.0  – 1.5 (tannic/coastal), normalized
+  //   sediment:    0.0  – 3.0 (turbid estuary), normalized
+  chlorophyll: f32,
+  cdom: f32,
+  sediment: f32,
 });

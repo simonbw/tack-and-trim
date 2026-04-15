@@ -43,6 +43,11 @@ struct Params {
   time: f32,
   tideHeight: f32,
   hasTerrainData: i32,
+
+  // Bio-optical water chemistry (per level/region)
+  chlorophyll: f32,
+  cdom: f32,
+  sediment: f32,
 }
 `,
   bindings: {
@@ -95,26 +100,66 @@ const waterFilterFragmentModule: ShaderModule = {
   ],
   code: /*wgsl*/ `
 // ============================================================================
-// Physical water parameters
+// Bio-optical water model
 // ============================================================================
+//
+// Water optics decompose into contributions from four constituents, each
+// with a fixed spectral signature (vec3 per RGB channel, per foot). The
+// runtime mixes them using scalar concentrations supplied via uniforms:
+//
+//   a(λ) = a_water(λ) + a_phyto(λ)*C_chl + a_cdom(λ)*C_cdom + a_part(λ)*C_sed
+//   b(λ) = b_water(λ) + b_phyto(λ)*C_chl +                  b_part(λ)*C_sed
+//
+// (CDOM is dissolved, doesn't scatter, only absorbs.)
+//
+// Constants below are physically motivated rough-fits to published IOCCG
+// bio-optical data, scaled to per-foot units. They're in the right ballpark
+// but tuned by eye for good-looking water at default concentrations.
 
-// Wavelength-dependent absorption coefficient (per foot), one per RGB channel.
-// Red absorbs fastest, blue penetrates deepest — this is why deep water
-// looks blue-green. Real ocean water measurements (Jerlov Type II-III coastal):
-//   half-depth = ln(2) / coeff
-//   red  ≈ 1.4ft, green ≈ 5.8ft, blue ≈ 11.6ft
-const ABSORPTION: vec3<f32> = vec3<f32>(0.50, 0.12, 0.06);
+// --- Pure water (Pope & Fry 1997, scaled to per-foot) ---
+// Red absorbs fast; blue barely at all. Nearly zero scattering.
+const A_WATER_PURE: vec3<f32> = vec3<f32>(0.20, 0.018, 0.004);
+const B_WATER_PURE: vec3<f32> = vec3<f32>(0.0002, 0.0004, 0.0009);
 
-// Wavelength-dependent scattering coefficient (per foot). Describes how much
-// light is scattered out of a direct beam per foot of water travelled. In
-// clean tropical water scattering is nearly wavelength-independent (Rayleigh
-// at small particles, Mie at larger); in coastal water it biases slightly
-// blue-green because of dissolved organic matter and plankton.
-// Starting values chosen so the saturation of inscatter matches real ocean.
-const SCATTERING: vec3<f32> = vec3<f32>(0.04, 0.08, 0.10);
+// --- Phytoplankton (per mg/m³ chlorophyll-a) ---
+// Absorbs blue (440nm) and red (675nm); transmits green — algae look green.
+// Scattering is mild and slightly blue-biased.
+const A_PHYTO: vec3<f32> = vec3<f32>(0.040, 0.010, 0.030);
+const B_PHYTO: vec3<f32> = vec3<f32>(0.003, 0.004, 0.005);
 
-// Total extinction: light removed from the direct path per foot of travel.
-const EXTINCTION: vec3<f32> = ABSORPTION + SCATTERING;
+// --- CDOM / yellow substance (per normalized concentration) ---
+// Dissolved organic matter — exponential decay toward red. Strong blue
+// absorber, negligible at red. Gives tea-stained coastal water its
+// yellow-brown cast. Does not scatter.
+const A_CDOM: vec3<f32> = vec3<f32>(0.001, 0.020, 0.100);
+
+// --- Suspended particles (per normalized concentration) ---
+// Sand, silt, resuspended sediment. Scatters strongly and nearly flat
+// across wavelengths; absorption is mild.
+const A_PARTICLES: vec3<f32> = vec3<f32>(0.015, 0.015, 0.015);
+const B_PARTICLES: vec3<f32> = vec3<f32>(0.040, 0.045, 0.050);
+
+struct WaterOptics {
+  absorption: vec3<f32>,
+  scattering: vec3<f32>,
+  extinction: vec3<f32>,
+};
+
+// Compute per-pixel water optics from three constituent concentrations.
+fn computeWaterOptics(chl: f32, cdom: f32, sediment: f32) -> WaterOptics {
+  let a = A_WATER_PURE
+        + A_PHYTO * chl
+        + A_CDOM * cdom
+        + A_PARTICLES * sediment;
+  let b = B_WATER_PURE
+        + B_PHYTO * chl
+        + B_PARTICLES * sediment;
+  var optics: WaterOptics;
+  optics.absorption = a;
+  optics.scattering = b;
+  optics.extinction = a + b;
+  return optics;
+}
 
 const Z_MIN: f32 = ${DEPTH_Z_MIN};
 const Z_MAX: f32 = ${DEPTH_Z_MAX};
@@ -174,16 +219,21 @@ fn computeWaterNormal(worldPos: vec2<f32>) -> vec3<f32> {
 // Physically motivated inscatter: the amount of sky light scattered toward
 // the viewer from a water column of thickness d.
 //
-// Derivation (for a uniformly-lit column and simple single-scattering):
-//   dL/dz = SCATTERING * L_sky - EXTINCTION * L   (radiative transfer)
-//   L(d)  = (SCATTERING / EXTINCTION) * L_sky * (1 - exp(-EXTINCTION * d))
+// Derivation (uniformly-lit column, simple single-scattering):
+//   dL/dz = scattering * L_sky - extinction * L   (radiative transfer)
+//   L(d)  = (scattering / extinction) * L_sky * (1 - exp(-extinction * d))
 //
-// As d → ∞ this saturates at (SCATTERING / EXTINCTION) * L_sky — the
+// As d → ∞ this saturates at (scattering / extinction) * L_sky — the
 // characteristic water color. Shallow water is nearly clear; deep water
-// converges to the albedo color tinted by the sky.
-fn waterInscatter(skyColor: vec3<f32>, d: f32) -> vec3<f32> {
-  let albedo = SCATTERING / EXTINCTION;
-  let columnFraction = vec3<f32>(1.0) - exp(-EXTINCTION * d);
+// converges to the single-scattering albedo tinted by the sky.
+fn waterInscatter(
+  skyColor: vec3<f32>,
+  scattering: vec3<f32>,
+  extinction: vec3<f32>,
+  d: f32,
+) -> vec3<f32> {
+  let albedo = scattering / extinction;
+  let columnFraction = vec3<f32>(1.0) - exp(-extinction * d);
   return skyColor * albedo * columnFraction;
 }
 
@@ -241,18 +291,40 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     // infinite depth so the column fully saturates to the water albedo).
     let effectiveSubmersion = select(submersion, 1000.0, !scenePresent);
 
-    // Extinction transmittance per channel: light surviving a round trip
+    // -----------------------------------------------------------------
+    // Per-pixel bio-optical modulation
+    // -----------------------------------------------------------------
+    // Start from the level/region base concentrations and modulate by
+    // local conditions:
+    //   - shallowFactor: near-bottom water has more resuspended sediment,
+    //     more plankton in the photic zone, more shore-runoff CDOM.
+    //     Decays exponentially with water column depth.
+    //   - turbulenceFactor: breaking waves and wakes stir the bottom,
+    //     boosting sediment locally. Turbulence comes from the G channel
+    //     of waterHeightTexture (wake/breakers).
+    let depthForMod = select(1000.0, max(submersion, 0.0), scenePresent);
+    let shallowFactor = 1.0 + 2.0 * exp(-depthForMod * 0.15);
+    let turbulenceFactor = 1.0 + 3.0 * turbulence;
+
+    let localChl = params.chlorophyll * shallowFactor;
+    let localCdom = params.cdom * shallowFactor;
+    let localSediment = params.sediment * shallowFactor * turbulenceFactor;
+
+    let optics = computeWaterOptics(localChl, localCdom, localSediment);
+    let extinction = optics.extinction;
+    let scattering = optics.scattering;
+
+    // Extinction transmittance per channel: light surviving a direct path
     // from the scene point up to the surface.
-    let T = exp(-EXTINCTION * effectiveSubmersion);
+    let T = exp(-extinction * effectiveSubmersion);
 
     // Absorbed scene: scene color multiplied by the wavelength-dependent
     // transmittance. Red dies fastest, blue survives — color shifts cyan.
     let absorbed = select(vec3<f32>(0.0), sceneColor * T, scenePresent);
 
     // Inscatter: sky light scattered by the water column toward the viewer.
-    // Saturates at skyColor * (SCATTERING / EXTINCTION) in deep water.
     let skyColor = getSkyColor(params.time);
-    let inscatter = waterInscatter(skyColor, effectiveSubmersion);
+    let inscatter = waterInscatter(skyColor, scattering, extinction, effectiveSubmersion);
 
     // Light arriving at the underside of the water surface
     let transmitted = absorbed + inscatter;
