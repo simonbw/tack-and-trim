@@ -74,6 +74,8 @@ export class Game {
   private animationFrameId: number = 0;
   /** Whether the game has been destroyed */
   private destroyed: boolean = false;
+  /** Whether the animation-frame loop is currently running. */
+  private looping: boolean = false;
 
   /** Total amount of game time that has elapsed */
   elapsedTime: number = 0;
@@ -136,11 +138,13 @@ export class Game {
   /** Whether WebGPU has been initialized */
   private webGpuInitialized = false;
 
-  /** Start the event loop for the game. */
+  /** Initialize the game. By default also starts the animation-frame loop. */
   async init({
     rendererOptions = {},
+    autoStart = true,
   }: {
     rendererOptions?: RenderManagerOptions;
+    autoStart?: boolean;
   } = {}) {
     // Initialize WebGPU
     if (!WebGPUDeviceManager.isAvailable()) {
@@ -160,9 +164,32 @@ export class Game {
     this.io = new IOManager(this.renderer.canvas, dispatchIo);
     this.addEntity(this.renderer.camera);
 
-    this.animationFrameId = window.requestAnimationFrame(() =>
-      this.loop(this.lastFrameTime),
+    if (autoStart) {
+      this.startLoop();
+    }
+  }
+
+  /**
+   * Start the animation-frame loop. Called automatically by init() unless
+   * autoStart is false. Safe to call if the loop is already running.
+   */
+  startLoop() {
+    if (this.looping || this.destroyed) return;
+    this.looping = true;
+    this.lastFrameTime = window.performance.now();
+    this.lastAudioTime = this.audio.currentTime;
+    this.animationFrameId = window.requestAnimationFrame((t) =>
+      this.nextFrame(t),
     );
+  }
+
+  /**
+   * Stop the animation-frame loop. The game will not advance until startLoop()
+   * is called or nextFrame() is called manually (e.g. from the DevTools console).
+   */
+  stopLoop() {
+    this.looping = false;
+    window.cancelAnimationFrame(this.animationFrameId);
   }
 
   /** Check if WebGPU is available and initialized */
@@ -373,9 +400,13 @@ export class Game {
   /** Audio time at the end of the last frame's tick loop */
   private lastAudioTime: number = 0;
 
-  /** The main event loop. Run one frame of the game.  */
+  /**
+   * Run one frame of the game. Normally called by the animation-frame loop,
+   * but can also be invoked manually (e.g. from the DevTools console) after
+   * stopLoop() to step the simulation forward one frame at a time.
+   */
   @profile
-  private async loop(time: number): Promise<void> {
+  async nextFrame(time: number = window.performance.now()): Promise<void> {
     if (this.destroyed) return;
 
     this.framenumber += 1;
@@ -439,7 +470,11 @@ export class Game {
     this.render(renderDt);
 
     // CRITICAL: Request next frame at END to prevent concurrent loops
-    this.animationFrameId = window.requestAnimationFrame((t) => this.loop(t));
+    if (this.looping) {
+      this.animationFrameId = window.requestAnimationFrame((t) =>
+        this.nextFrame(t),
+      );
+    }
   }
 
   /**
