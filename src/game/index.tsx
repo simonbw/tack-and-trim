@@ -1,13 +1,13 @@
 import { AutoPauser } from "../core/AutoPauser";
 import { Game } from "../core/Game";
 import { World } from "../core/physics/world/World";
-import "../fonts.css";
 import "../core/tuning/TunableRegistry"; // Initialize tunable registry early
 import { TuningPanel } from "../core/tuning/TuningPanel";
 import { createGraphicsPanel } from "../core/util/stats-overlay/GraphicsPanel";
 import { createLeanPanel } from "../core/util/stats-overlay/LeanPanel";
 import { createProfilerPanel } from "../core/util/stats-overlay/ProfilerPanel";
 import { StatsOverlay } from "../core/util/stats-overlay/StatsOverlay";
+import "../fonts.css";
 import { GameController } from "./GameController";
 import { GamePreloader } from "./GamePreloader";
 import { PhysicsValidator } from "./PhysicsValidator";
@@ -25,7 +25,7 @@ const ticksPerFrame = 1;
 async function main() {
   const game = new Game({
     ticksPerSecond: 120 * ticksPerFrame,
-    world: new World({ substeps: 8 }),
+    world: new World({ substeps: 8, solverConfig: { iterations: 10 } }),
   });
   await game.init({ rendererOptions: { backgroundColor: 0x000010 } });
   game.setGpuTimingEnabled(true);

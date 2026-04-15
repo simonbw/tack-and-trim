@@ -1,173 +1,188 @@
 /**
  * Boat grounding physics.
  *
- * Applies friction forces when boat components contact terrain.
- * Checks keel (centerboard), rudder, and hull against terrain height.
- * Uses TerrainQuery for GPU-accelerated terrain height queries (1-frame latency).
+ * Keeps the boat from sinking through the seabed and from passing through
+ * terrain when running aground. One {@link TerrainContactConstraint} per
+ * contact point (hull-outline vertices at draft depth, rudder, mast tip)
+ * couples the hull body to `game.ground` via a point-to-rigid contact
+ * equation that supplies both the normal push-up and Coulomb friction for
+ * that point.
+ *
+ * Terrain and water heights are sampled once per tick via GPU queries
+ * (1-frame latency). The owning entity keeps the cached floor-z values and
+ * each constraint reads its own slot via a closure captured at construction.
  */
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
+import { TerrainContactConstraint } from "../../core/physics/constraints/TerrainContactConstraint";
 import { V, type V2d } from "../../core/Vector";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
+import { WaterQuery } from "../world/water/WaterQuery";
 import type { Boat } from "./Boat";
 import type { GroundingConfig } from "./BoatConfig";
 
-/**
- * Boat grounding physics entity.
- * Applies friction when underwater components contact terrain.
- */
 export class BoatGrounding extends BaseEntity {
   private readonly boat: Boat;
   private readonly config: GroundingConfig;
-  private readonly hullDraft: number;
-  private readonly keelDraft: number;
-  private readonly rudderDraft: number;
 
-  // Terrain query child entity - automatically discovered by TerrainQueryManager
-  private terrainQuery = this.addChild(
-    new TerrainQuery(() => this.getQueryPoints()),
-  );
+  // Contact point definitions in hull-local coordinates. Order matches
+  // the query point array so constraint callbacks can look up by index.
+  private readonly contactLocals: { x: number; y: number; z: number }[];
+  private readonly hullVertexCount: number;
+  private readonly rudderIndex: number;
+
+  // Scratch array for query point positions; reused each tick.
+  private queryPoints: V2d[] = [];
+
+  private terrainQuery: TerrainQuery;
+  private waterQuery: WaterQuery;
+
+  // Cached floor z (water-relative) per contact point, refreshed each tick.
+  // `null` until the first query result arrives.
+  private floorZCache: (number | null)[];
+
+  private contactConstraints: TerrainContactConstraint[] = [];
 
   constructor(boat: Boat) {
     super();
     this.boat = boat;
     this.config = boat.config.grounding;
-    this.hullDraft = boat.config.hull.draft;
-    this.keelDraft = boat.config.keel.draft;
-    this.rudderDraft = boat.config.rudder.draft;
-  }
 
-  /**
-   * Get all points that need terrain height queries.
-   * Returns: keel vertices + rudder position + hull center
-   */
-  private getQueryPoints(): V2d[] {
-    const hull = this.boat.hull?.body;
-    if (!hull) return [];
+    const hullVertices = boat.config.hull.vertices;
+    const rudderPos = boat.config.rudder.position;
+    const hullDraft = boat.config.hull.draft;
+    const rudderDraft = boat.config.rudder.draft;
+    const mastPos = boat.config.rig.mastPosition;
+    const mastTopZ = boat.config.rig.mainsail.zHead ?? 20;
 
-    const points: V2d[] = [];
+    // One contact point under each gunwale/deck vertex, projected down to
+    // the hull bottom. Sampling the full outline lets the hull rest tilted
+    // on an uneven seabed rather than pivoting on a single center point.
+    this.contactLocals = [];
+    for (const v of hullVertices) {
+      this.contactLocals.push({ x: v.x, y: v.y, z: -hullDraft });
+    }
+    this.hullVertexCount = hullVertices.length;
 
-    // Keel vertices
-    for (const v of this.boat.config.keel.vertices) {
-      points.push(hull.toWorldFrame(v));
+    this.contactLocals.push({
+      x: rudderPos.x,
+      y: rudderPos.y,
+      z: -rudderDraft,
+    });
+    this.rudderIndex = this.contactLocals.length - 1;
+
+    // Mast tip: hull-local XY at the mast pivot, z at the mast head. The
+    // mast is rigidly attached to the hull body, so this local point
+    // transforms to the mast tip world position every tick through the
+    // hull's 3D orientation.
+    this.contactLocals.push({ x: mastPos.x, y: mastPos.y, z: mastTopZ });
+
+    // Pre-allocate query points (updated each tick to match current hull pose).
+    for (let i = 0; i < this.contactLocals.length; i++) {
+      this.queryPoints.push(V(0, 0));
     }
 
-    // Rudder position
-    points.push(hull.toWorldFrame(this.boat.config.rudder.position));
+    this.floorZCache = new Array(this.contactLocals.length).fill(null);
 
-    // Hull center
-    points.push(V(hull.position));
+    this.terrainQuery = this.addChild(new TerrainQuery(() => this.queryPoints));
+    this.waterQuery = this.addChild(new WaterQuery(() => this.queryPoints));
+  }
 
-    return points;
+  @on("add")
+  onAdd() {
+    const hullBody = this.boat.hull.body;
+    const ground = this.game!.ground;
+
+    // Per-contact friction coefficients: hull vertices and the mast tip use
+    // the hull friction, the rudder uses its own. Keel friction is unused
+    // now that the keel isn't part of the contact set.
+    const frictions: number[] = [];
+    for (let i = 0; i < this.hullVertexCount; i++) {
+      frictions.push(this.config.hullFriction);
+    }
+    frictions.push(this.config.rudderFriction);
+    frictions.push(this.config.hullFriction);
+
+    const constraints: TerrainContactConstraint[] = [];
+    for (let i = 0; i < this.contactLocals.length; i++) {
+      const local = this.contactLocals[i];
+      const index = i;
+      constraints.push(
+        new TerrainContactConstraint(
+          ground,
+          hullBody,
+          local.x,
+          local.y,
+          local.z,
+          () => this.floorZCache[index],
+          frictions[i],
+          { collideConnected: true },
+        ),
+      );
+    }
+    this.contactConstraints = constraints;
+    this.constraints = constraints;
   }
 
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]) {
-    // Skip if no terrain results yet (first frame)
-    if (this.terrainQuery.results.length === 0) return;
-
     const hull = this.boat.hull;
     const body = hull.body;
 
-    // Get boat velocity for friction calculation
-    const velocity = body.velocity;
-    const speed = velocity.magnitude;
+    // Refresh query XY to match the current hull pose so next frame's
+    // terrain/water results correspond to the *current* contact positions.
+    for (let i = 0; i < this.contactLocals.length; i++) {
+      const local = this.contactLocals[i];
+      const world = body.toWorldFrame(V(local.x, local.y));
+      this.queryPoints[i].set(world[0], world[1]);
+    }
 
-    // Skip grounding calculation if not moving
+    // Refresh the cached floor z values from the latest query results.
+    // Water-relative frame: floorZ = terrainHeight - waterSurfaceHeight.
+    const tCount = this.terrainQuery.length;
+    const wCount = this.waterQuery.length;
+    const count = Math.min(tCount, wCount, this.contactLocals.length);
+    for (let i = 0; i < count; i++) {
+      const terrainHeight = this.terrainQuery.get(i).height;
+      const surfaceHeight = this.waterQuery.get(i).surfaceHeight;
+      this.floorZCache[i] = terrainHeight - surfaceHeight;
+    }
+    for (let i = count; i < this.floorZCache.length; i++) {
+      this.floorZCache[i] = null;
+    }
+
+    if (count === 0) return;
+
+    // Accumulate grounding damage from the constraints' reported penetration.
+    // The constraints handle all force application; this is gameplay
+    // bookkeeping. Per-vertex contributions are averaged across the hull
+    // outline so total damage stays comparable to the old single-point model.
+    const speed = body.velocity.magnitude;
     if (speed < 0.01) return;
 
-    const hullBody = hull.body;
-    const velDir = velocity.normalize();
-
-    // Results are ordered: keel vertices, then rudder, then hull center
-    const keelVertexCount = this.boat.config.keel.vertices.length;
-    let resultIndex = 0;
-
-    // Check keel grounding
-    for (let i = 0; i < keelVertexCount; i++) {
-      const result = this.terrainQuery.results[resultIndex++];
-      const terrainHeight = result.height;
-      const penetration = terrainHeight - -this.keelDraft;
-
+    const hullShare = this.hullVertexCount > 0 ? 1 / this.hullVertexCount : 0;
+    for (let i = 0; i < this.hullVertexCount; i++) {
+      const c = this.contactConstraints[i];
+      if (!c.isActive()) continue;
+      const penetration = c.getPenetration();
       if (penetration > 0) {
-        const friction = this.computeFriction(
-          penetration,
+        this.boat.hullDamage.applyGroundingDamage(
+          penetration * hullShare,
           speed,
-          this.config.keelFriction,
+          dt,
         );
-        const keelVertex = this.boat.config.keel.vertices[i];
-        // Apply at keel depth — friction at depth naturally produces pitch torque
-        hullBody.applyForce3D(
-          -velDir.x * friction,
-          -velDir.y * friction,
-          0,
-          keelVertex.x,
-          keelVertex.y,
-          -this.keelDraft,
-        );
-
-        this.boat.hullDamage.applyGroundingDamage(penetration * 0.3, speed, dt);
       }
     }
 
-    // Check rudder grounding
-    const rudderResult = this.terrainQuery.results[resultIndex++];
-    const rudderPenetration = rudderResult.height - -this.rudderDraft;
-
-    if (rudderPenetration > 0) {
-      const friction = this.computeFriction(
-        rudderPenetration,
+    const rudderC = this.contactConstraints[this.rudderIndex];
+    if (rudderC.isActive() && rudderC.getPenetration() > 0) {
+      this.boat.rudderDamage.applyGroundingDamage(
+        rudderC.getPenetration(),
         speed,
-        this.config.rudderFriction,
+        dt,
       );
-      const rudderPos = this.boat.config.rudder.position;
-      hullBody.applyForce3D(
-        -velDir.x * friction,
-        -velDir.y * friction,
-        0,
-        rudderPos.x,
-        rudderPos.y,
-        -this.rudderDraft,
-      );
-
-      this.boat.rudderDamage.applyGroundingDamage(rudderPenetration, speed, dt);
     }
-
-    // Check hull grounding (use center of hull)
-    const hullResult = this.terrainQuery.results[resultIndex++];
-    const hullPenetration = hullResult.height - -this.hullDraft;
-
-    if (hullPenetration > 0) {
-      const friction = this.computeFriction(
-        hullPenetration,
-        speed,
-        this.config.hullFriction,
-      );
-      // Apply at hull bottom depth
-      hullBody.applyForce3D(
-        -velDir.x * friction,
-        -velDir.y * friction,
-        0,
-        0,
-        0,
-        -this.hullDraft,
-      );
-
-      this.boat.hullDamage.applyGroundingDamage(hullPenetration, speed, dt);
-    }
-  }
-
-  /**
-   * Compute friction force based on penetration depth and speed.
-   * F = coefficient * penetration * speed
-   */
-  private computeFriction(
-    penetration: number,
-    speed: number,
-    coefficient: number,
-  ): number {
-    return coefficient * penetration * speed;
   }
 }
