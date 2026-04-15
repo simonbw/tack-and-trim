@@ -47,6 +47,7 @@ export class WakeParticle extends WaterModifier {
   private age: number = 0;
   private maxAge: number;
   private readonly groupSpeed: number;
+  private readonly omega: number; // rad/s, angular frequency of the wake wave
   private readonly initialAmplitude: number; // ft — wave height at 1 ft from source
   private readonly turbulence: number; // 0-1 foam/whitecap intensity
 
@@ -65,6 +66,10 @@ export class WakeParticle extends WaterModifier {
     // Ring expansion speed: half boat speed (group velocity of hull wavelength).
     // Add some random variation so rings don't all expand at exactly the same rate.
     this.groupSpeed = speed * GROUP_SPEED_FRACTION * rNormal(1.0, 0.1);
+
+    // Deep-water dispersion: c_g = 0.5 * sqrt(g/k) ⇒ omega = g / (2 * c_g).
+    // Clamp groupSpeed to avoid blowup for near-stationary wakes.
+    this.omega = GRAVITY / (2 * Math.max(this.groupSpeed, 0.1));
 
     // Froude number: dimensionless speed relative to hull length.
     const froudeNumber = speed / Math.sqrt(GRAVITY * waterlineLength);
@@ -147,6 +152,7 @@ export class WakeParticle extends WaterModifier {
         ringWidth: RING_WIDTH,
         amplitude,
         turbulence: this.turbulence * damping * spreading,
+        omega: this.omega,
       },
     };
   }

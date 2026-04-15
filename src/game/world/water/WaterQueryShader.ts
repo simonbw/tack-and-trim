@@ -130,11 +130,12 @@ const FLOATS_PER_MODIFIER: u32 = ${FLOATS_PER_MODIFIER}u;
 // Normal computation sample offset
 const NORMAL_SAMPLE_OFFSET: f32 = 1.0;
 
-// Compute height at a point using mesh lookup for per-wave data
-fn computeHeightAtPoint(
+// Compute Gerstner wave result at a point using mesh lookup for per-wave data.
+// Returns vec4<f32>(height + tide, velX, velY, dhdt).
+fn computeWaveResultAtPoint(
   worldPos: vec2<f32>,
   ampMod: f32,
-) -> f32 {
+) -> vec4<f32> {
   // Look up per-wave energy factors, direction offsets, and phase corrections from mesh
   var energyFactors: array<f32, MAX_WAVE_SOURCES>;
   var directionOffsets: array<f32, MAX_WAVE_SOURCES>;
@@ -163,7 +164,12 @@ fn computeHeightAtPoint(
     ampMod,
   );
 
-  return waveResult.x + params.tideHeight;
+  return vec4<f32>(waveResult.x + params.tideHeight, waveResult.y, waveResult.z, waveResult.w);
+}
+
+// Height-only helper for finite-difference normals.
+fn computeHeightAtPoint(worldPos: vec2<f32>, ampMod: f32) -> f32 {
+  return computeWaveResultAtPoint(worldPos, ampMod).x;
 }
 
 // Compute normal using finite differences
@@ -219,8 +225,11 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     ampModTime
   )) * WAVE_AMP_MOD_STRENGTH;
 
-  // Compute water height using mesh lookup
-  let surfaceHeight = computeHeightAtPoint(queryPoint, ampMod);
+  // Compute wave result (height + horizontal orbital velocity) using mesh lookup
+  let waveResult = computeWaveResultAtPoint(queryPoint, ampMod);
+  let surfaceHeight = waveResult.x;
+  let waveVelX = waveResult.y;
+  let waveVelY = waveResult.z;
 
   // Compute normal
   let normal = computeNormal(queryPoint, ampMod);
@@ -247,8 +256,8 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   var result: WaterQueryResult;
   result.surfaceHeight = finalSurfaceHeight;
-  result.velocityX = modifierResult.y + tidalVel.x;
-  result.velocityY = modifierResult.z + tidalVel.y;
+  result.velocityX = waveVelX + modifierResult.y + tidalVel.x;
+  result.velocityY = waveVelY + modifierResult.z + tidalVel.y;
   result.normalX = normal.x;
   result.normalY = normal.y;
   result.depth = finalDepth;

@@ -17,11 +17,12 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
  *   [8]  ringWidth   Gaussian width of ring pulse (ft)
  *   [9]  amplitude   pre-computed height at ring (ft)
  *   [10] turbulence  pre-computed turbulence (0-1)
+ *   [11] omega       angular frequency of wake wave (rad/s)
  */
 export const fn_computeWakeContribution: ShaderModule = {
   code: /*wgsl*/ `
     // Compute wake contribution as a Gaussian ring pulse.
-    // Returns vec4<f32>(height, 0, 0, turbulence)
+    // Returns vec4<f32>(height, velocityX, velocityY, turbulence)
     fn computeWakeContribution(
       worldX: f32,
       worldY: f32,
@@ -34,6 +35,7 @@ export const fn_computeWakeContribution: ShaderModule = {
       let ringWidth = modifiers[base + 8u];
       let amplitude = modifiers[base + 9u];
       let turbulence = modifiers[base + 10u];
+      let omega = modifiers[base + 11u];
 
       let dx = worldX - srcX;
       let dy = worldY - srcY;
@@ -45,7 +47,18 @@ export const fn_computeWakeContribution: ShaderModule = {
       // Gaussian ring profile
       let ring = exp(-(distFromRing * distFromRing) / (ringWidth * ringWidth));
 
-      return vec4<f32>(amplitude * ring, 0.0, 0.0, turbulence * ring);
+      // Local surface elevation at this point.
+      let localAmp = amplitude * ring;
+
+      // Radial orbital velocity: linear wave theory gives |u| = A * omega,
+      // in phase with surface elevation, directed radially outward at the crest.
+      // Cylindrical spreading (1/sqrt(r)) is already baked into amplitude on the CPU.
+      let invDist = select(0.0, 1.0 / dist, dist > 1e-4);
+      let nx = dx * invDist;
+      let ny = dy * invDist;
+      let vRadial = localAmp * omega;
+
+      return vec4<f32>(localAmp, vRadial * nx, vRadial * ny, turbulence * ring);
     }
   `,
 };

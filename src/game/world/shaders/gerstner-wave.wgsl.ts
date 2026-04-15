@@ -28,7 +28,9 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
     // directionOffsets: per-wave direction offset in radians (from direction bending)
     // phaseCorrections: per-wave phase correction in radians (from wavefront mesh)
     // ampMod: amplitude modulation factor (from noise)
-    // Returns vec4<f32>(height, dispX, dispY, dhdt)
+    // Returns vec4<f32>(height, velX, velY, dhdt) — horizontal orbital velocity
+    // in .yz (Gerstner time-derivative of displacement, evaluated at the
+    // back-displaced sample point, with per-wave energy and amp-mod scaling).
     fn calculateGerstnerWaves(
       worldPos: vec2<f32>,
       time: f32,
@@ -95,11 +97,14 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
         dispY += Q * amplitude * dy * cosPhase;
       }
 
-      // Second pass: compute height and dh/dt at displaced position
+      // Second pass: compute height, dh/dt, and horizontal orbital velocity
+      // at the displaced-back sample point.
       let sampleX = x - dispX;
       let sampleY = y - dispY;
       var height = 0.0;
       var dhdt = 0.0;
+      var velX = 0.0;
+      var velY = 0.0;
 
       for (var i = 0; i < numWaves; i++) {
         let base = i * 8;
@@ -119,13 +124,15 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
         let omega = sqrt(GRAVITY * k) * speedMult;
 
         var phase: f32;
+        var propDx: f32;
+        var propDy: f32;
 
         if (sourceDist > 1e9) {
           // Plane wave - apply direction offset for direction bending
           let bentDirection = direction + directionOffsets[i];
-          let bentDx = cos(bentDirection);
-          let bentDy = sin(bentDirection);
-          let projected = sampleX * bentDx + sampleY * bentDy;
+          propDx = cos(bentDirection);
+          propDy = sin(bentDirection);
+          let projected = sampleX * propDx + sampleY * propDy;
           phase = k * projected - omega * time + phaseOffset + phaseCorrections[i];
         } else {
           // Point source - direction from geometry, no offset
@@ -138,6 +145,9 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
           let toPointY = sampleY - sourceY;
           let distFromSource = sqrt(toPointX * toPointX + toPointY * toPointY);
 
+          let invDist = select(0.0, 1.0 / distFromSource, distFromSource > 1e-4);
+          propDx = toPointX * invDist;
+          propDy = toPointY * invDist;
           phase = k * distFromSource - omega * time + phaseOffset + phaseCorrections[i];
         }
 
@@ -146,9 +156,17 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
 
         height += amplitude * ampMod * sinPhase;
         dhdt += -amplitude * ampMod * omega * cosPhase;
+
+        // Horizontal orbital velocity (Gerstner time-derivative of displacement).
+        // Q * A = steepness / (k * numWaves), independent of amplitude, so the
+        // velocity magnitude depends only on wavenumber, steepness, and omega.
+        // Scale by energy factor and ampMod to match the height attenuation.
+        let velCoeff = (steepness / (k * f32(numWaves))) * omega * ampMod * energyFactors[i] * sinPhase;
+        velX += velCoeff * propDx;
+        velY += velCoeff * propDy;
       }
 
-      return vec4<f32>(height, dispX, dispY, dhdt);
+      return vec4<f32>(height, velX, velY, dhdt);
     }
   `,
 };

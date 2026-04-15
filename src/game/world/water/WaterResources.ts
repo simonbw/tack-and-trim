@@ -195,7 +195,7 @@ export class WaterResources extends BaseEntity {
       this.modifierData[base + 8] = mod.data.ringWidth;
       this.modifierData[base + 9] = mod.data.amplitude;
       this.modifierData[base + 10] = mod.data.turbulence;
-      this.modifierData[base + 11] = 0; // padding
+      this.modifierData[base + 11] = mod.data.omega;
       this.modifierData[base + 12] = 0; // padding
       this.modifierData[base + 13] = 0; // padding
     }

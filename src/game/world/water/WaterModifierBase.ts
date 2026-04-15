@@ -75,4 +75,5 @@ export type WakeModifierData = {
   ringWidth: number; // [8] Gaussian width of ring pulse (ft)
   amplitude: number; // [9] Pre-computed height at ring (ft)
   turbulence: number; // [10] Pre-computed turbulence at ring (0-1)
+  omega: number; // [11] Angular frequency of wake wave (rad/s)
 };
