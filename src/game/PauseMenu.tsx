@@ -3,11 +3,13 @@ import { KeyCode } from "../core/io/Keys";
 import { Modal } from "../core/ui/Modal";
 import { focusFirst, moveFocus } from "../core/util/menuNav";
 import "./PauseMenu.css";
+import { SaveManager } from "./persistence/SaveManager";
 
-type PauseAction = "resume" | "restart" | "mainMenu";
+type PauseAction = "resume" | "save" | "restart" | "mainMenu";
 
 const ACTIONS: { key: PauseAction; label: string }[] = [
   { key: "resume", label: "Resume" },
+  { key: "save", label: "Save Game" },
   { key: "restart", label: "Restart Level" },
   { key: "mainMenu", label: "Return to Main Menu" },
 ];
@@ -43,6 +45,10 @@ export class PauseMenu extends Modal {
   private execute(action: PauseAction) {
     switch (action) {
       case "resume":
+        this.destroy();
+        return;
+      case "save":
+        this.game.entities.getSingleton(SaveManager).save();
         this.destroy();
         return;
       case "restart":
