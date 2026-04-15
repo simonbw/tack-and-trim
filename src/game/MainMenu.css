@@ -93,8 +93,9 @@
 .main-menu__card:disabled {
   pointer-events: auto;
   cursor: default;
-  opacity: 0.35;
+  opacity: 0.7;
   background: rgba(255, 255, 255, 0.02);
+  filter: saturate(0.4);
 }
 
 .main-menu__card:disabled:hover {
