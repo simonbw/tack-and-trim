@@ -180,6 +180,15 @@ export function scaleBoatConfig(
       ...base.rowing,
       force: base.rowing.force * sx * sy,
     },
+    sailor: base.sailor
+      ? {
+          ...base.sailor,
+          stations: base.sailor.stations.map((s) => ({
+            ...s,
+            position: [s.position[0] * sx, s.position[1] * sy] as const,
+          })),
+        }
+      : undefined,
     grounding: {
       keelFriction: base.grounding.keelFriction * sx * sy,
       rudderFriction: base.grounding.rudderFriction * sx * sy,

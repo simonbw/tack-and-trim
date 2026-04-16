@@ -81,4 +81,10 @@ export type CustomEvents = {
 
   /** Fired when the shipyard UI closes */
   closeShipyard: {};
+
+  /** Fired when the sailor arrives at a station */
+  sailorEnteredStation: { stationId: string };
+
+  /** Fired when the sailor leaves a station and begins walking */
+  sailorLeftStation: { stationId: string };
 };

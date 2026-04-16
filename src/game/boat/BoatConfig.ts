@@ -1,6 +1,7 @@
 import { DeepPartial, deepMerge } from "../../core/util/ObjectUtils";
 import { V2d } from "../../core/Vector";
 import { SailConfig } from "./sail/Sail";
+import { SailorConfig } from "./sailor/StationConfig";
 import { SheetConfig } from "./Sheet";
 
 /**
@@ -400,6 +401,7 @@ export interface BoatConfig {
   readonly hullDamage: HullDamageConfig;
   readonly rudderDamage: RudderDamageConfig;
   readonly sailDamage: SailDamageConfig;
+  readonly sailor?: SailorConfig;
 }
 
 // Re-export boat configs — Shaff
