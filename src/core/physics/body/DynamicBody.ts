@@ -1,3 +1,4 @@
+import { clamp } from "../../util/MathUtil";
 import { CompatibleVector, V, V2d } from "../../Vector";
 import { CompatibleVector3, V3d } from "../../Vector3";
 import { BaseBodyOptions, SleepState, Body } from "./Body";
@@ -191,8 +192,8 @@ export class DynamicBody extends Body implements SleepableBody {
       this._z = s.zPosition ?? 0;
       const zMass = s.zMass ?? options.mass;
       this._invZMass = zMass > 0 ? 1 / zMass : 0;
-      this._zDamping = s.zDamping ?? 0;
-      this._rollPitchDamping = s.rollPitchDamping ?? 0;
+      this._zDamping = clamp(s.zDamping ?? 0, 0, 1);
+      this._rollPitchDamping = clamp(s.rollPitchDamping ?? 0, 0, 1);
       this._fixedZ = s.fixedZ ?? false;
     }
 
@@ -247,6 +248,22 @@ export class DynamicBody extends Body implements SleepableBody {
   }
 
   // ──────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────
+  // Angle override — keep orientation matrix in sync
+  // ──────────────────────────────────────────────────────────────
+
+  override get angle(): number {
+    return this._angle;
+  }
+  override set angle(value: number) {
+    this._angle = value;
+    // Guard: _orientation doesn't exist yet when Body's super() sets angle
+    // before DynamicBody field initializers have run.
+    if (this._orientation) {
+      this._syncOrientationFromAngle();
+    }
+  }
+
   // 6DOF accessors
   // ──────────────────────────────────────────────────────────────
 
@@ -756,6 +773,7 @@ export class DynamicBody extends Body implements SleepableBody {
     if (
       !isFinite(velo.x) ||
       !isFinite(velo.y) ||
+      !isFinite(this._zVelocity) ||
       !isFinite(this._angularVelocity3[0]) ||
       !isFinite(this._angularVelocity3[1]) ||
       !isFinite(this._angularVelocity3[2])
@@ -822,15 +840,14 @@ export class DynamicBody extends Body implements SleepableBody {
 
         // Orientation update: R += skew(ω) * R * dt
         this._integrateOrientation(dt);
-        // Extract yaw for backward compatibility
-        this.angle = Math.atan2(this._orientation[3], this._orientation[0]);
+        // Extract yaw for backward compatibility (write _angle directly to
+        // avoid re-syncing orientation — it was just computed above).
+        this._angle = Math.atan2(this._orientation[3], this._orientation[0]);
       } else if (!this.fixedRotation) {
-        // 3DOF non-fixed rotation: update angle and resync the orientation
-        // matrix (cos/sin). For `fixedRotation` bodies the angle never
-        // changes, so the orientation matrix is already up-to-date and we
-        // skip the trig entirely.
+        // 3DOF non-fixed rotation: update angle (setter syncs orientation).
+        // For `fixedRotation` bodies the angle never changes, so the
+        // orientation matrix is already up-to-date and we skip the trig.
         this.angle += this._angularVelocity3[2] * dt;
-        this._syncOrientationFromAngle();
       }
     }
 

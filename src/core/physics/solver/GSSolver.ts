@@ -574,7 +574,7 @@ function warmStartPointToPointBatch(
     const eq = eqs[i];
     if (!eq.enabled) continue;
     let warm = eq.warmLambda;
-    if (warm === 0) continue;
+    if (warm === 0 || !isFinite(warm)) continue;
     const minFDt = eq.minForce * h;
     const maxFDt = eq.maxForce * h;
     if (warm < minFDt) warm = minFDt;
@@ -594,7 +594,7 @@ function warmStartPointToRigidBatch(
     const eq = eqs[i];
     if (!eq.enabled) continue;
     let warm = eq.warmLambda;
-    if (warm === 0) continue;
+    if (warm === 0 || !isFinite(warm)) continue;
     const minFDt = eq.minForce * h;
     const maxFDt = eq.maxForce * h;
     if (warm < minFDt) warm = minFDt;
@@ -614,7 +614,7 @@ function warmStartPlanar2DBatch(
     const eq = eqs[i];
     if (!eq.enabled) continue;
     let warm = eq.warmLambda;
-    if (warm === 0) continue;
+    if (warm === 0 || !isFinite(warm)) continue;
     const minFDt = eq.minForce * h;
     const maxFDt = eq.maxForce * h;
     if (warm < minFDt) warm = minFDt;
@@ -634,7 +634,7 @@ function warmStartAngular3DBatch(
     const eq = eqs[i];
     if (!eq.enabled) continue;
     let warm = eq.warmLambda;
-    if (warm === 0) continue;
+    if (warm === 0 || !isFinite(warm)) continue;
     const minFDt = eq.minForce * h;
     const maxFDt = eq.maxForce * h;
     if (warm < minFDt) warm = minFDt;
@@ -654,7 +654,7 @@ function warmStartAngular2DBatch(
     const eq = eqs[i];
     if (!eq.enabled) continue;
     let warm = eq.warmLambda;
-    if (warm === 0) continue;
+    if (warm === 0 || !isFinite(warm)) continue;
     const minFDt = eq.minForce * h;
     const maxFDt = eq.maxForce * h;
     if (warm < minFDt) warm = minFDt;
@@ -674,7 +674,7 @@ function warmStartPulleyBatch(
     const eq = eqs[i];
     if (!eq.enabled) continue;
     let warm = eq.warmLambda;
-    if (warm === 0) continue;
+    if (warm === 0 || !isFinite(warm)) continue;
     const minFDt = eq.minForce * h;
     const maxFDt = eq.maxForce * h;
     if (warm < minFDt) warm = minFDt;
@@ -694,7 +694,7 @@ function warmStartGeneralBatch(
     const eq = eqs[i];
     if (!eq.enabled) continue;
     let warm = eq.warmLambda;
-    if (warm === 0) continue;
+    if (warm === 0 || !isFinite(warm)) continue;
     const minFDt = eq.minForce * h;
     const maxFDt = eq.maxForce * h;
     if (warm < minFDt) warm = minFDt;
@@ -714,8 +714,8 @@ function finalizePointToPointBatch(
     if (!eq.enabled) continue;
     const slot = eq[EQ_SLOT];
     const l = lambda[slot];
-    eq.warmLambda = l;
-    eq.multiplier = l * invDt;
+    eq.warmLambda = isFinite(l) ? l : 0;
+    eq.multiplier = isFinite(l) ? l * invDt : 0;
   }
 }
 
@@ -729,8 +729,8 @@ function finalizePointToRigidBatch(
     if (!eq.enabled) continue;
     const slot = eq[EQ_SLOT];
     const l = lambda[slot];
-    eq.warmLambda = l;
-    eq.multiplier = l * invDt;
+    eq.warmLambda = isFinite(l) ? l : 0;
+    eq.multiplier = isFinite(l) ? l * invDt : 0;
   }
 }
 
@@ -744,8 +744,8 @@ function finalizePlanar2DBatch(
     if (!eq.enabled) continue;
     const slot = eq[EQ_SLOT];
     const l = lambda[slot];
-    eq.warmLambda = l;
-    eq.multiplier = l * invDt;
+    eq.warmLambda = isFinite(l) ? l : 0;
+    eq.multiplier = isFinite(l) ? l * invDt : 0;
   }
 }
 
@@ -759,8 +759,8 @@ function finalizeAngular3DBatch(
     if (!eq.enabled) continue;
     const slot = eq[EQ_SLOT];
     const l = lambda[slot];
-    eq.warmLambda = l;
-    eq.multiplier = l * invDt;
+    eq.warmLambda = isFinite(l) ? l : 0;
+    eq.multiplier = isFinite(l) ? l * invDt : 0;
   }
 }
 
@@ -774,8 +774,8 @@ function finalizeAngular2DBatch(
     if (!eq.enabled) continue;
     const slot = eq[EQ_SLOT];
     const l = lambda[slot];
-    eq.warmLambda = l;
-    eq.multiplier = l * invDt;
+    eq.warmLambda = isFinite(l) ? l : 0;
+    eq.multiplier = isFinite(l) ? l * invDt : 0;
   }
 }
 
@@ -789,8 +789,8 @@ function finalizePulleyBatch(
     if (!eq.enabled) continue;
     const slot = eq[EQ_SLOT];
     const l = lambda[slot];
-    eq.warmLambda = l;
-    eq.multiplier = l * invDt;
+    eq.warmLambda = isFinite(l) ? l : 0;
+    eq.multiplier = isFinite(l) ? l * invDt : 0;
   }
 }
 
@@ -804,8 +804,8 @@ function finalizeGeneralBatch(
     if (!eq.enabled) continue;
     const slot = eq[EQ_SLOT];
     const l = lambda[slot];
-    eq.warmLambda = l;
-    eq.multiplier = l * invDt;
+    eq.warmLambda = isFinite(l) ? l : 0;
+    eq.multiplier = isFinite(l) ? l * invDt : 0;
   }
 }
 

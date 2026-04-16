@@ -61,8 +61,16 @@ export abstract class Body extends EventEmitter<PhysicsEventMap> {
 
   /** Position in world coordinates. */
   position: V2d = V();
+  /** Rotation angle in radians (backing field). */
+  protected _angle: number = 0;
+
   /** Rotation angle in radians. */
-  angle: number = 0;
+  get angle(): number {
+    return this._angle;
+  }
+  set angle(value: number) {
+    this._angle = value;
+  }
 
   /** Axis-aligned bounding box (call getAABB() for up-to-date value). */
   aabb: AABB = new AABB();

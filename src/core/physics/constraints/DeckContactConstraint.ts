@@ -198,10 +198,15 @@ export class DeckContactConstraint extends Constraint {
     const boundary = this.boundary;
 
     // Convert particle world position to hull-local coordinates
+    const pz = particle.z;
+    if (!isFinite(pz)) {
+      this.disableAll(normal, friction1, friction2);
+      return this;
+    }
     const [lx, ly, lz] = hull.toLocalFrame3D(
       particle.position[0],
       particle.position[1],
-      particle.z,
+      pz,
     );
 
     // Use the topmost level (deck-level outline) for state transitions
@@ -501,8 +506,7 @@ export class DeckContactConstraint extends Constraint {
 
     // Signed distance along inward normal from nearest edge point to particle.
     // Negative = particle is outside the hull (past the edge).
-    const signedDist =
-      (lx - nearest.cx) * inNx + (ly - nearest.cy) * inNy;
+    const signedDist = (lx - nearest.cx) * inNx + (ly - nearest.cy) * inNy;
     const penetration = signedDist - this.radius;
 
     // Transform inward normal to world frame

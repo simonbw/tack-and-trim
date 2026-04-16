@@ -56,7 +56,7 @@ export class Sailor extends BaseEntity {
         rollInertia: 1,
         pitchInertia: 1,
         zMass: config.mass,
-        zDamping: 5,
+        zDamping: 0.9,
         rollPitchDamping: 0,
         zPosition: deckHeight + SAILOR_RADIUS,
       },
@@ -131,14 +131,7 @@ export class Sailor extends BaseEntity {
   @on("tick")
   onTick(): void {
     // Gravity
-    this.body.applyForce3D(
-      0,
-      0,
-      -SAILOR_GRAVITY * this.body.mass,
-      0,
-      0,
-      0,
-    );
+    this.body.applyForce3D(0, 0, -SAILOR_GRAVITY * this.body.mass, 0, 0, 0);
 
     if (this._state.kind === "walking") {
       this.updateWalking();
