@@ -37,6 +37,17 @@ const MIGRATIONS: Migration[] = [
 
     return data;
   },
+  // v2 -> v3: Add sailor state to boat (defaults to helm)
+  (data) => {
+    const boat = data.boat as Record<string, unknown> | undefined;
+    if (boat && !boat.sailor) {
+      boat.sailor = {
+        stationId: "helm",
+        position: [0, 0],
+      };
+    }
+    return data;
+  },
 ];
 
 /**

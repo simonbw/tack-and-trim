@@ -44,6 +44,9 @@ export class PointToRigidDistanceConstraint3D extends Constraint {
   lowerLimitEnabled: boolean = false;
   lowerLimit: number = 0;
 
+  /** When true, update() disables the equation and short-circuits. */
+  disabled: boolean = false;
+
   /** Current distance between the particle and the world anchor on the rigid. */
   position: number = 0;
 
@@ -85,6 +88,11 @@ export class PointToRigidDistanceConstraint3D extends Constraint {
     const particle = this.bodyA;
     const rigid = this.bodyB;
     const eq = this.equation;
+
+    if (this.disabled) {
+      eq.enabled = false;
+      return this;
+    }
 
     // World anchor point on the rigid body
     const worldB = rigid.toWorldFrame3D(this.localAnchorB, SCRATCH_ANCHOR_B);

@@ -416,6 +416,39 @@ export const Kestrel: BoatConfig = {
     repairRate: 0,
   },
 
+  // Sailor / station layout
+  sailor: {
+    mass: 170, // lbs — average adult
+    walkSpeed: 4, // ft/s — cautious walking on a moving boat
+    runSpeed: 8, // ft/s — hustling when Shift is held
+    snapRadius: 1.5, // ft
+    initialStationId: "helm",
+    stations: [
+      {
+        id: "helm",
+        name: "Helm",
+        position: [-8, 0], // aft cockpit, near tiller
+        steerAxis: "rudder",
+        primaryAxis: "mainsheet",
+        secondaryAxis: "jibSheets",
+      },
+      {
+        id: "mast",
+        name: "Mast",
+        position: [5, 0], // at base of mast
+        primaryAxis: "mainHoist",
+        actions: ["bail"],
+      },
+      {
+        id: "bow",
+        name: "Bow",
+        position: [11, 0], // foredeck near bow roller
+        primaryAxis: "jibHoistFurl",
+        actions: ["anchor", "mooring"],
+      },
+    ],
+  },
+
   // Tilt parameters derived from hull geometry and ~2100 lb displacement
   // (900 lb hull + 600 lb keel ballast + ~600 lb crew/rigging/sails/supplies).
   // GM_roll ≈ 3.0 ft (swing keel, moderate form stability).

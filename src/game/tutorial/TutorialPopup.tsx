@@ -1,7 +1,7 @@
 import { Fragment, type VNode } from "preact";
 import { ReactEntity } from "../../core/ReactEntity";
-import type { TutorialStep } from "./TutorialStep";
 import "./TutorialPopup.css";
+import type { TutorialStep } from "./TutorialStep";
 
 interface TutorialPopupProps {
   step: TutorialStep;

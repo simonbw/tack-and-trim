@@ -10,7 +10,7 @@ export class ReactEntity extends BaseEntity implements Entity {
   el!: HTMLDivElement;
 
   constructor(
-    public getReactContent: () => VNode,
+    public getReactContent: () => VNode | null,
     public autoRender = true,
   ) {
     super();

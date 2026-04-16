@@ -23,7 +23,8 @@ See the comment block at the top of `BoatConfig.ts`. Summary: +X forward, +Y sta
 - **BoatGrounding** -- terrain collision detection for keel/rudder/hull
 - **HullDamage**, **RudderDamage**, **SailDamage** -- damage state tracking
 - **BoatSoundGenerator** -- positional audio
-- **PlayerBoatController** -- maps player input to steering, trim, rowing, anchoring
+- **Sailor** (`sailor/`) -- player character on deck. Particle body constrained via `DeckContactConstraint` with motorized friction for walking. See [`sailor/CLAUDE.md`](sailor/CLAUDE.md).
+- **PlayerBoatController** -- maps player input to boat actions, gated by the sailor's current station. Falls back to legacy direct controls when no sailor is configured.
 
 ## 3D Tilt System (6DOF)
 
@@ -96,4 +97,4 @@ Water and wind are queried at all physics-mesh vertices each frame via `WaterQue
 
 All boat parameters are data-driven via `BoatConfig` (defined in `BoatConfig.ts`). Concrete configs live in `configs/` (e.g., `Kestrel.ts`, `Osprey.ts`, `Albatross.ts`). Use `createBoatConfig(base, overrides)` for partial customization via deep merge.
 
-Key config sections: `hull` (mass, vertices, drag coefficients), `keel`/`rudder` (foil geometry), `rig` (mast/boom dimensions, sail configs), `buoyancy` (mass, inertia, CG height), `tilt` (damping, righting coefficients), `bilge` (flooding/sinking), `grounding` (terrain collision friction), and damage configs.
+Key config sections: `hull` (mass, vertices, drag coefficients), `keel`/`rudder` (foil geometry), `rig` (mast/boom dimensions, sail configs), `buoyancy` (mass, inertia, CG height), `tilt` (damping, righting coefficients), `bilge` (flooding/sinking), `grounding` (terrain collision friction), `sailor` (station layout, mass, walk speed), and damage configs.

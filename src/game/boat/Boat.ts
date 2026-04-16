@@ -28,6 +28,7 @@ import { Sheet } from "./Sheet";
 import { Wake } from "./Wake";
 import { Mooring } from "../port/Mooring";
 import { Anchor } from "./Anchor";
+import { Sailor } from "./sailor/Sailor";
 
 export class Boat extends BaseEntity {
   id = "boat";
@@ -48,6 +49,7 @@ export class Boat extends BaseEntity {
   mainsheet: Sheet;
   portJibSheet: Sheet | null = null;
   starboardJibSheet: Sheet | null = null;
+  sailor: Sailor | null = null;
 
   readonly config: BoatConfig;
 
@@ -324,6 +326,19 @@ export class Boat extends BaseEntity {
     // Unified boat renderer — all boat visual components rendered through
     // a single tilt context with per-vertex z for correct depth ordering
     this.addChild(new BoatRenderer(this));
+
+    // Create sailor character (if stations are configured)
+    if (config.sailor) {
+      this.sailor = this.addChild(
+        new Sailor(
+          config.sailor,
+          this.hull.body,
+          getDeckHeight,
+          hullBoundary,
+          config.hull.deckHeight,
+        ),
+      );
+    }
 
     this.mooring = this.addChild(new Mooring(this));
 

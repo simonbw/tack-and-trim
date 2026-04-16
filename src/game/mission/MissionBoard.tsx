@@ -12,8 +12,8 @@ import { KeyCode } from "../../core/io/Keys";
 import { Modal } from "../../core/ui/Modal";
 import { focusFirst, moveFocus } from "../../core/util/menuNav";
 import type { MissionDef } from "../../editor/io/LevelFileFormat";
-import { MissionManager } from "./MissionManager";
 import "./MissionBoard.css";
+import { MissionManager } from "./MissionManager";
 
 export class MissionBoard extends Modal {
   private missions: MissionDef[] = [];
