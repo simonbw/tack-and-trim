@@ -436,6 +436,7 @@ export const Kestrel: BoatConfig = {
         name: "Mast",
         position: [5, 0], // at base of mast
         primaryAxis: "mainHoist",
+        actions: ["bail"],
       },
       {
         id: "bow",

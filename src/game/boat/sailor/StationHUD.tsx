@@ -118,6 +118,9 @@ export class StationHUD extends ReactEntity {
     if (station.actions?.includes("mooring")) {
       bindings.push({ keys: "F", label: "Dock" });
     }
+    if (station.actions?.includes("bail")) {
+      bindings.push({ keys: "B", label: "Bail" });
+    }
 
     if (bindings.length === 0) return null;
 

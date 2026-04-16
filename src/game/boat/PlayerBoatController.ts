@@ -47,22 +47,24 @@ export class PlayerBoatController extends BaseEntity {
       return;
     }
 
-    // Bailing — B key locks out all other controls
-    const bailing =
-      io.isKeyDown("KeyB") && this.boat.bilge.getWaterFraction() > 0;
-    this.boat.bilge.setBailing(bailing);
-    if (bailing) {
-      io.setSteeringWheelForceFeedback(0);
-      return;
-    }
-
     const sailor = this.boat.sailor;
 
-    // No sailor configured — use legacy controls
+    // No sailor configured — use legacy controls (including global bailing)
     if (!sailor) {
+      // Bailing — B key locks out all other controls
+      const bailing =
+        io.isKeyDown("KeyB") && this.boat.bilge.getWaterFraction() > 0;
+      this.boat.bilge.setBailing(bailing);
+      if (bailing) {
+        io.setSteeringWheelForceFeedback(0);
+        return;
+      }
       this.onTickLegacy(dt);
       return;
     }
+
+    // Not at a bail station — ensure bailing is off
+    this.boat.bilge.setBailing(false);
 
     // Sailor is walking — WASD drives walking, boat controls inert
     if (sailor.state.kind === "walking") {
@@ -177,6 +179,13 @@ export class PlayerBoatController extends BaseEntity {
       }
     } else {
       this.boat.anchor.idle();
+    }
+
+    // Bailing — only at stations with the bail action
+    if (station.actions?.includes("bail")) {
+      const bailing =
+        io.isKeyDown("KeyB") && this.boat.bilge.getWaterFraction() > 0;
+      this.boat.bilge.setBailing(bailing);
     }
 
     // Rowing — always available at any station

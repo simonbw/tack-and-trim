@@ -16,7 +16,7 @@ export type AxisControl =
   | "jibHoistFurl";
 
 /** Discrete actions available at a station via dedicated keys. */
-export type ActionControl = "anchor" | "mooring";
+export type ActionControl = "anchor" | "mooring" | "bail";
 
 /**
  * A named position on the boat where the sailor can stand and
