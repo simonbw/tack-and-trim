@@ -206,33 +206,13 @@ export class Sailor extends BaseEntity {
 
   @on("render")
   onRender({ draw }: GameEventMap["render"]): void {
-    const hull = this.hullBody;
-    const [hx, hy] = hull.position;
-
-    // Compute sailor's hull-local position
-    const [lx, ly] = hull.toLocalFrame3D(
-      this.body.position[0],
-      this.body.position[1],
-      this.body.z,
-    );
-
-    draw.at(
-      {
-        pos: V(hx, hy),
-        angle: hull.angle,
-        tilt: {
-          roll: hull.roll,
-          pitch: hull.pitch,
-          zOffset: hull.z,
-        },
-      },
-      () => {
-        draw.fillCircle(lx, ly, SAILOR_RADIUS, {
-          color: 0xff8800,
-          z: this.deckHeight + SAILOR_RADIUS,
-        });
-      },
-    );
+    // Draw in world space without the hull's tilt transform so the sailor
+    // always reads as a flat 2D circle regardless of roll/pitch.
+    const [px, py] = this.body.position;
+    draw.fillCircle(px, py, SAILOR_RADIUS, {
+      color: 0xff8800,
+      z: this.body.z,
+    });
   }
 
   // ── Helpers ─────────────────────────────────────────────────────

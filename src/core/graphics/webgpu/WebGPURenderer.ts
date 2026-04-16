@@ -1170,11 +1170,10 @@ export class WebGPURenderer {
 
   /** Gets the current scale factor (the larger of the two if they're not equal) */
   getCurrentScale(): number {
-    // Return the maximum scale from the matrix (a = scaleX, d = scaleY)
-    return Math.max(
-      Math.abs(this.currentTransform.a),
-      Math.abs(this.currentTransform.d),
-    );
+    // Use basis-vector lengths so rotation doesn't zero out the scale.
+    // Matrix3 layout: x-basis = (a, b), y-basis = (c, d).
+    const m = this.currentTransform;
+    return Math.max(Math.hypot(m.a, m.b), Math.hypot(m.c, m.d));
   }
 
   // ============ Z-Height / Depth ============
