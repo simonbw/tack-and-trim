@@ -24,9 +24,14 @@ export class CameraController extends BaseEntity {
   constructor(
     private boat: Boat,
     private camera: Camera2d,
+    rotateWithBoat: boolean = true,
   ) {
     super();
+    this.rotateWithBoat = rotateWithBoat;
     this.camera.center(boat.getPosition());
+    if (this.rotateWithBoat) {
+      this.camera.angle = -Math.PI / 2 - this.boat.hull.getAngle();
+    }
   }
 
   setZoomTarget(z: number) {
