@@ -128,10 +128,19 @@ export class RopeParticle extends BaseEntity {
    * deck-contact constraint.
    */
   isInside(): boolean {
+    const constraint = this.getDeckContact();
+    return constraint != null ? constraint.isInside() : false;
+  }
+
+  /**
+   * The particle's {@link DeckContactConstraint}, or null if this particle
+   * has no deck contact configured. Used by {@link RopeSegment}'s wrap
+   * constraint, which needs the per-particle inside/outside flag each
+   * substep.
+   */
+  getDeckContact(): DeckContactConstraint | null {
     const constraint = this.constraints?.[0];
-    return constraint instanceof DeckContactConstraint
-      ? constraint.isInside()
-      : false;
+    return constraint instanceof DeckContactConstraint ? constraint : null;
   }
 
   private applyTerrainFloor(p: DynamicBody): void {

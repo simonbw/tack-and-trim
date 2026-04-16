@@ -14,7 +14,10 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
-import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
+import type {
+  DeckContactConstraint,
+  HullBoundaryData,
+} from "../../core/physics/constraints/DeckContactConstraint";
 import { PointToRigidDistanceConstraint3D } from "../../core/physics/constraints/PointToRigidDistanceConstraint3D";
 import { V, V2d } from "../../core/Vector";
 import { CompatibleVector3, V3, V3d } from "../../core/Vector3";
@@ -249,6 +252,30 @@ export class Rope extends BaseEntity {
       : undefined;
 
     for (let i = 0; i < numParticles - 1; i++) {
+      // Wrap constraint config: pair up the deck-contact constraints of the
+      // two neighboring particles so the segment can cheaply tell whether
+      // this pair currently straddles the hull edge.
+      let wrapConfig:
+        | {
+            hullBody: Body;
+            hullBoundary: HullBoundaryData;
+            deckContactA: DeckContactConstraint;
+            deckContactB: DeckContactConstraint;
+          }
+        | undefined;
+      if (config.deckContact) {
+        const dcA = this.particleEntities[i].getDeckContact();
+        const dcB = this.particleEntities[i + 1].getDeckContact();
+        if (dcA && dcB) {
+          wrapConfig = {
+            hullBody: bodyB,
+            hullBoundary: config.deckContact.hullBoundary,
+            deckContactA: dcA,
+            deckContactB: dcB,
+          };
+        }
+      }
+
       const segment = new RopeSegment(
         this.particles[i],
         this.particles[i + 1],
@@ -263,6 +290,7 @@ export class Rope extends BaseEntity {
           solverOrder: 2 * (i + 1) + 1,
           internalFriction,
           drag: segmentDragConfig,
+          wrap: wrapConfig,
         },
       );
       this.addChild(segment);

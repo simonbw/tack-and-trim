@@ -1,5 +1,10 @@
 import type { Body } from "../body/Body";
 import { PointToRigidEquation3D } from "../equations/PointToRigidEquation3D";
+import {
+  findLevelForZ,
+  findNearestEdge,
+  pointInPolygon,
+} from "../utils/HullBoundaryGeometry";
 import { Constraint, type ConstraintOptions } from "./Constraint";
 
 // ── Hull boundary data ─────────────────────────────────────────────
@@ -163,7 +168,7 @@ export class DeckContactConstraint extends Constraint {
         particle.position[1],
         particle.z,
       );
-      this.inside = this.pointInPolygon(deckLevel, lx, ly);
+      this.inside = pointInPolygon(deckLevel, lx, ly);
     } else {
       this.inside = true;
     }
@@ -191,7 +196,7 @@ export class DeckContactConstraint extends Constraint {
       return this;
     }
 
-    const insideDeckOutline = this.pointInPolygon(deckLevel, lx, ly);
+    const insideDeckOutline = pointInPolygon(deckLevel, lx, ly);
 
     // ── State transitions ──────────────────────────────────────────
     if (this.inside && !insideDeckOutline) {
@@ -298,14 +303,14 @@ export class DeckContactConstraint extends Constraint {
     }
 
     // Find the z-appropriate hull outline level
-    const zLevel = this.findLevelForZ(lz);
+    const zLevel = findLevelForZ(boundary, lz);
     if (!zLevel) {
       this.disableAll(normal, friction1, friction2);
       return;
     }
 
     // Find nearest hull edge at this z-level
-    const nearest = this.findNearestEdge(zLevel, lx, ly);
+    const nearest = findNearestEdge(zLevel, lx, ly);
     if (nearest.distSq > 25) {
       // > 5 ft from hull → disable
       this.disableAll(normal, friction1, friction2);
@@ -499,96 +504,6 @@ export class DeckContactConstraint extends Constraint {
     // Tangent 2: hull's local Y axis (starboard) in world space
     this.setShapeJacobian(friction2, R[1], R[4], R[7], rjX, rjY, rjZ);
     friction2.offset = 0;
-  }
-
-  // ── Geometry helpers ─────────────────────────────────────────────
-
-  /** Point-in-polygon test (ray-casting) on flat arrays. */
-  private pointInPolygon(
-    level: HullBoundaryLevel,
-    px: number,
-    py: number,
-  ): boolean {
-    const n = level.count;
-    const vx = level.vx;
-    const vy = level.vy;
-    let inside = false;
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const yi = vy[i],
-        yj = vy[j];
-      if (
-        yi > py !== yj > py &&
-        px < ((vx[j] - vx[i]) * (py - yi)) / (yj - yi) + vx[i]
-      ) {
-        inside = !inside;
-      }
-    }
-    return inside;
-  }
-
-  /** Find the nearest point on the hull polygon boundary at a given z-level. */
-  private findNearestEdge(
-    level: HullBoundaryLevel,
-    px: number,
-    py: number,
-  ): { edgeIndex: number; cx: number; cy: number; distSq: number } {
-    const n = level.count;
-    const vx = level.vx;
-    const vy = level.vy;
-
-    let bestDistSq = Infinity;
-    let bestIdx = 0;
-    let bestCx = 0;
-    let bestCy = 0;
-
-    for (let i = 0; i < n; i++) {
-      const j = (i + 1) % n;
-      const ax = vx[i],
-        ay = vy[i];
-      const ex = vx[j] - ax;
-      const ey = vy[j] - ay;
-      const lenSq = ex * ex + ey * ey;
-
-      // Project point onto edge, clamped to [0, 1]
-      let t: number;
-      if (lenSq < 1e-16) {
-        t = 0;
-      } else {
-        t = ((px - ax) * ex + (py - ay) * ey) / lenSq;
-        if (t < 0) t = 0;
-        else if (t > 1) t = 1;
-      }
-
-      const cx = ax + t * ex;
-      const cy = ay + t * ey;
-      const dx = px - cx;
-      const dy = py - cy;
-      const dSq = dx * dx + dy * dy;
-
-      if (dSq < bestDistSq) {
-        bestDistSq = dSq;
-        bestIdx = i;
-        bestCx = cx;
-        bestCy = cy;
-      }
-    }
-
-    return { edgeIndex: bestIdx, cx: bestCx, cy: bestCy, distSq: bestDistSq };
-  }
-
-  /** Find the hull outline level at or just below the given z-height (conservative: narrower). */
-  private findLevelForZ(z: number): HullBoundaryLevel | null {
-    const levels = this.boundary.levels;
-    if (levels.length === 0) return null;
-
-    // Below everything → use bottom level
-    if (z <= levels[0].z) return levels[0];
-
-    // Walk up to find the level at or just below z
-    for (let i = levels.length - 1; i >= 0; i--) {
-      if (levels[i].z <= z) return levels[i];
-    }
-    return levels[0];
   }
 
   private disableAll(
