@@ -1,4 +1,4 @@
-export const CURRENT_SAVE_VERSION = 2;
+export const CURRENT_SAVE_VERSION = 3;
 
 export interface SaveFile {
   // Meta
@@ -22,6 +22,11 @@ export interface SaveFile {
       sail: number;
     };
     bilgeWater: number;
+    /** Sailor state: station id if at a station, or hull-local position if walking. */
+    sailor?: {
+      stationId: string | null;
+      position: [number, number];
+    };
   };
 
   // Progression

@@ -239,4 +239,30 @@ export class Sailor extends BaseEntity {
     );
     return [lx, ly];
   }
+
+  /**
+   * Restore sailor state from a save file.
+   * If stationId is non-null, snaps to that station.
+   * Otherwise, places the sailor at the given hull-local position in walking mode.
+   */
+  restoreState(stationId: string | null, position: [number, number]): void {
+    if (stationId) {
+      const station = this.config.stations.find((s) => s.id === stationId);
+      if (station) {
+        const worldPos = this.stationWorldPosition(station);
+        this.body.position.set(worldPos);
+        this.body.velocity.set(0, 0);
+        this.body.zVelocity = 0;
+        this._state = { kind: "atStation", stationId };
+        return;
+      }
+    }
+
+    // Walking or unknown station — place at position
+    const [wx, wy] = this.hullBody.toWorldFrame3D(position[0], position[1], 0);
+    this.body.position.set(wx, wy);
+    this.body.velocity.set(0, 0);
+    this.body.zVelocity = 0;
+    this._state = { kind: "walking", targetStationId: null };
+  }
 }
