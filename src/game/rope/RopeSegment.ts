@@ -11,8 +11,14 @@
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
+import type { Body } from "../../core/physics/body/Body";
 import type { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type {
+  DeckContactConstraint,
+  HullBoundaryData,
+} from "../../core/physics/constraints/DeckContactConstraint";
 import { ParticleDistanceConstraint3D } from "../../core/physics/constraints/ParticleDistanceConstraint3D";
+import { WrapConstraint3D } from "../../core/physics/constraints/WrapConstraint3D";
 import { V, V2d } from "../../core/Vector";
 import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
 import { WaterQuery } from "../world/water/WaterQuery";
@@ -41,6 +47,19 @@ export interface RopeSegmentConfig {
     cdNormal: number;
     /** Skin friction coefficient for axial flow (~0.02). */
     cdTangent: number;
+  };
+  /**
+   * Hull wrap constraint config. If present, the segment pre-creates a
+   * {@link WrapConstraint3D} alongside its chain constraint that activates
+   * only while the two particles straddle the hull — modelling the rope
+   * wrapping around the gunwale so tension transmits over the edge rather
+   * than through the wall.
+   */
+  wrap?: {
+    hullBody: Body;
+    hullBoundary: HullBoundaryData;
+    deckContactA: DeckContactConstraint;
+    deckContactB: DeckContactConstraint;
   };
 }
 
@@ -91,6 +110,29 @@ export class RopeSegment extends BaseEntity {
       eq.solverOrder = config.solverOrder;
     }
     this.constraints = [c];
+
+    // Wrap constraint: disabled by default, activates only while the two
+    // particles straddle the hull. Matches the chain constraint's stiffness
+    // and solver order so the wrap bite-down is consistent with the chord
+    // pull on this segment.
+    if (config.wrap) {
+      const wrap = new WrapConstraint3D(
+        particleA,
+        particleB,
+        config.wrap.hullBody,
+        config.wrap.hullBoundary,
+        config.wrap.deckContactA,
+        config.wrap.deckContactB,
+        config.length,
+        { collideConnected: true, wakeUpBodies: false },
+      );
+      for (const eq of wrap.equations) {
+        eq.stiffness = config.stiffness;
+        eq.relaxation = config.relaxation;
+        eq.solverOrder = config.solverOrder;
+      }
+      this.constraints.push(wrap);
+    }
 
     // Drag setup
     this.airDrag = config.drag?.airDrag ?? false;
