@@ -168,7 +168,9 @@ export class PlayerBoatController extends BaseEntity {
 
     // --- Station actions ---
     if (station.actions?.includes("anchor")) {
-      if (io.isKeyDown("KeyR")) {
+      if (io.isKeyDown("KeyF") && !this.boat.mooring.isMoored()) {
+        this.boat.anchor.lower();
+      } else if (io.isKeyDown("KeyR")) {
         this.boat.anchor.raise();
       } else {
         this.boat.anchor.idle();
@@ -192,7 +194,7 @@ export class PlayerBoatController extends BaseEntity {
     if (io.isKeyDown("Quote")) {
       const rate = shiftHeld ? 0.25 : 0.05;
       this.boat.bilge.waterVolume +=
-        this.boat.bilge.getMaxWaterVolume() * rate * (1 / 120);
+        this.boat.bilge.getMaxWaterVolume() * rate * dt;
     }
   }
 
@@ -442,12 +444,6 @@ export class PlayerBoatController extends BaseEntity {
             this.boat.mooring.moorTo(nearbyPort);
           }
         }
-        return;
-      }
-
-      // F at a station with anchor action → lower anchor
-      if (key === "KeyF" && station.actions?.includes("anchor")) {
-        this.boat.anchor.lower();
         return;
       }
 

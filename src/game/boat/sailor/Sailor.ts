@@ -15,7 +15,7 @@ const SAILOR_FRICTION = 20.0; // high friction to track target velocity closely
 
 export type SailorState =
   | { kind: "atStation"; stationId: string }
-  | { kind: "walking"; targetStationId: string | null };
+  | { kind: "walking" };
 
 export class Sailor extends BaseEntity {
   layer = "boat" as const;
@@ -24,6 +24,7 @@ export class Sailor extends BaseEntity {
   private readonly config: SailorConfig;
   private readonly hullBody: DynamicBody;
   private readonly deckConstraint: DeckContactConstraint;
+  private readonly deckHeight: number;
 
   private _state: SailorState;
 
@@ -38,6 +39,7 @@ export class Sailor extends BaseEntity {
 
     this.config = config;
     this.hullBody = hullBody;
+    this.deckHeight = deckHeight;
 
     // Find the initial station and compute world position
     const initialStation = this.getStation(config.initialStationId);
@@ -100,7 +102,7 @@ export class Sailor extends BaseEntity {
   beginWalking(): void {
     if (this._state.kind === "atStation") {
       const prevStation = this._state.stationId;
-      this._state = { kind: "walking", targetStationId: null };
+      this._state = { kind: "walking" };
       this.game.dispatch("sailorLeftStation", { stationId: prevStation });
     }
   }
@@ -208,7 +210,7 @@ export class Sailor extends BaseEntity {
       () => {
         draw.fillCircle(lx, ly, SAILOR_RADIUS, {
           color: 0xff8800,
-          z: 3.5, // above deck surface
+          z: this.deckHeight + SAILOR_RADIUS,
         });
       },
     );
@@ -263,6 +265,6 @@ export class Sailor extends BaseEntity {
     this.body.position.set(wx, wy);
     this.body.velocity.set(0, 0);
     this.body.zVelocity = 0;
-    this._state = { kind: "walking", targetStationId: null };
+    this._state = { kind: "walking" };
   }
 }
