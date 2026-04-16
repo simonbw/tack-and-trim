@@ -2,11 +2,9 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import { DynamicBody } from "../../../core/physics/body/DynamicBody";
-import {
-  DeckContactConstraint,
-  type HullBoundaryData,
-} from "../../../core/physics/constraints/DeckContactConstraint";
+import { type HullBoundaryData } from "../../../core/physics/constraints/DeckContactConstraint";
 import { PointToRigidDistanceConstraint3D } from "../../../core/physics/constraints/PointToRigidDistanceConstraint3D";
+import { SailorDeckConstraint } from "../../../core/physics/constraints/SailorDeckConstraint";
 import { V, V2d } from "../../../core/Vector";
 import type { SailorConfig, StationDef } from "./StationConfig";
 
@@ -50,7 +48,7 @@ export class Sailor extends BaseEntity {
   readonly body: DynamicBody;
   private readonly config: SailorConfig;
   private readonly hullBody: DynamicBody;
-  private readonly deckConstraint: DeckContactConstraint;
+  private readonly deckConstraint: SailorDeckConstraint;
   /** Zero-distance weld to the current station. Disabled while walking. */
   private readonly stationWeld: PointToRigidDistanceConstraint3D;
   private readonly deckHeight: number;
@@ -99,17 +97,18 @@ export class Sailor extends BaseEntity {
       },
     });
 
-    // Create deck contact constraint — keeps sailor on deck, prevents fall-off
-    this.deckConstraint = new DeckContactConstraint(
+    // Create deck contact constraint — keeps sailor on deck with a
+    // vertex-aware inward wall that prevents walking off the edge.
+    this.deckConstraint = new SailorDeckConstraint(
       this.body,
       hullBody,
       getDeckHeight,
       hullBoundary,
       SAILOR_FRICTION,
       SAILOR_RADIUS,
+      SAILOR_RADIUS,
       { collideConnected: true, wakeUpBodies: false },
     );
-    this.deckConstraint.preventFallOff = true;
 
     // Cap the normal equation's max force so sudden deck-height
     // discontinuities don't jerk the hull. Steady-state support (gravity)

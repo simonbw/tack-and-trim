@@ -99,7 +99,7 @@ export function buildBoundaryLevel(
 /**
  * Stateful 3D hull contact constraint that keeps a particle either above
  * the deck (inside mode) or outside the hull walls (outside mode), with
- * Coulomb friction in both cases.
+ * Coulomb friction in both cases. Used by rope particles.
  *
  * Three equations (reused for both modes):
  * - **Normal** (unilateral): prevents penetration through deck or wall.
@@ -108,6 +108,9 @@ export function buildBoundaryLevel(
  * State transitions happen only at the gunwale ("open edge" at deckHeight):
  * - Inside → Outside: particle's hull-local XY exits the deck-level outline
  * - Outside → Inside: XY enters deck outline AND Z ≥ deckHeight (open top)
+ *
+ * For the sailor (single instance, must stay inside, needs a walk motor) use
+ * {@link SailorDeckConstraint} instead.
  */
 export class DeckContactConstraint extends Constraint {
   /** Callback returning deck z-height in bodyB-local coords, or null. */
@@ -121,40 +124,6 @@ export class DeckContactConstraint extends Constraint {
 
   /** Rope radius (ft). The particle center rests this far above surfaces. */
   radius: number;
-
-  /**
-   * When true, the particle cannot transition from inside to outside
-   * (it stays on the deck and is pushed back from the hull boundary).
-   * Used for the sailor character to prevent falling overboard.
-   */
-  preventFallOff: boolean = false;
-
-  /**
-   * Target relative velocity along hull-local X (forward) axis (ft/s).
-   * The friction equation drives toward this speed instead of zero.
-   * Used for motorized walking on deck.
-   */
-  targetVelocityX: number = 0;
-
-  /**
-   * Target relative velocity along hull-local Y (starboard) axis (ft/s).
-   * The friction equation drives toward this speed instead of zero.
-   */
-  targetVelocityY: number = 0;
-
-  /**
-   * When true, update() short-circuits and disables all equations.
-   * Used when the owner (e.g. sailor at a station) is pinning the particle
-   * kinematically and doesn't want the deck/wall forces interfering.
-   */
-  disabled: boolean = false;
-
-  /**
-   * When set, friction bounds become ±fixedFrictionForce regardless of the
-   * normal equation's multiplier. Lets callers decouple lateral grip from
-   * the (possibly softened) normal force. Null = standard Coulomb bound.
-   */
-  fixedFrictionForce: number | null = null;
 
   /** Whether the constraint is currently engaged (particle on or near a surface). */
   private _active: boolean = false;
@@ -216,11 +185,6 @@ export class DeckContactConstraint extends Constraint {
     const friction2 = this.equations[2] as PointToRigidEquation3D;
     const boundary = this.boundary;
 
-    if (this.disabled) {
-      this.disableAll(normal, friction1, friction2);
-      return this;
-    }
-
     // Convert particle world position to hull-local coordinates
     const pz = particle.z;
     if (!isFinite(pz)) {
@@ -244,21 +208,6 @@ export class DeckContactConstraint extends Constraint {
 
     // ── State transitions ──────────────────────────────────────────
     if (this.inside && !insideDeckOutline) {
-      if (this.preventFallOff) {
-        // Edge containment: push particle back toward deck interior.
-        // Stay in inside mode but apply inward wall force via the
-        // normal equation, then resume deck friction.
-        this.updateEdgeContainment(
-          lx,
-          ly,
-          lz,
-          deckLevel,
-          normal,
-          friction1,
-          friction2,
-        );
-        return this;
-      }
       // Was inside, slid over gunwale → outside
       this.inside = false;
       this.resetWarmStart();
@@ -274,7 +223,7 @@ export class DeckContactConstraint extends Constraint {
 
     // ── Dispatch to mode ───────────────────────────────────────────
     if (this.inside) {
-      this.updateInside(lx, ly, lz, normal, friction1, friction2);
+      this.updateInside(lx, ly, normal, friction1, friction2);
     } else {
       this.updateOutside(lx, ly, lz, normal, friction1, friction2);
     }
@@ -287,7 +236,6 @@ export class DeckContactConstraint extends Constraint {
   private updateInside(
     lx: number,
     ly: number,
-    lz: number,
     normal: PointToRigidEquation3D,
     friction1: PointToRigidEquation3D,
     friction2: PointToRigidEquation3D,
@@ -317,12 +265,6 @@ export class DeckContactConstraint extends Constraint {
     // Signed distance from particle center to the effective surface
     const rawDist = nx * (px - dx) + ny * (py - dy) + nz * (pz - dz);
     const penetration = rawDist - this.radius;
-
-    // Disable when particle is well above deck
-    if (penetration > 0.5) {
-      this.disableAll(normal, friction1, friction2);
-      return;
-    }
 
     this._active = true;
     normal.enabled = true;
@@ -378,7 +320,7 @@ export class DeckContactConstraint extends Constraint {
 
     // Below hull bottom → bottom contact (push downward, away from hull)
     if (lz <= -boundary.draft + this.radius) {
-      this.updateBottomContact(lx, ly, lz, normal, friction1, friction2);
+      this.updateBottomContact(lx, ly, normal, friction1, friction2);
       return;
     }
 
@@ -394,11 +336,6 @@ export class DeckContactConstraint extends Constraint {
     const signedDist =
       (lx - nearest.cx) * localNx + (ly - nearest.cy) * localNy;
     const penetration = signedDist - this.radius;
-
-    if (penetration > 0.5) {
-      this.disableAll(normal, friction1, friction2);
-      return;
-    }
 
     // Transform wall normal to world frame
     const R = hull.orientation;
@@ -422,10 +359,7 @@ export class DeckContactConstraint extends Constraint {
     normal.offset = penetration;
 
     // Friction tangents for wall contact
-    const slipForce =
-      this.fixedFrictionForce !== null
-        ? this.fixedFrictionForce
-        : this.frictionCoefficient * Math.abs(normal.multiplier);
+    const slipForce = this.frictionCoefficient * Math.abs(normal.multiplier);
 
     if (slipForce > 0) {
       friction1.enabled = true;
@@ -462,7 +396,6 @@ export class DeckContactConstraint extends Constraint {
   private updateBottomContact(
     lx: number,
     ly: number,
-    lz: number,
     normal: PointToRigidEquation3D,
     friction1: PointToRigidEquation3D,
     friction2: PointToRigidEquation3D,
@@ -485,11 +418,6 @@ export class DeckContactConstraint extends Constraint {
     const rawDist = nx * (px - bx) + ny * (py - by) + nz * (pz - bz);
     const penetration = rawDist - this.radius;
 
-    if (penetration > 0.5) {
-      this.disableAll(normal, friction1, friction2);
-      return;
-    }
-
     this._active = true;
     normal.enabled = true;
 
@@ -501,60 +429,6 @@ export class DeckContactConstraint extends Constraint {
     normal.offset = penetration;
 
     // Friction on hull bottom: hull X and Y axes
-    this.setFriction(normal, friction1, friction2, R, rjX, rjY, rjZ);
-  }
-
-  // ── Edge containment (preventFallOff mode) ───────────────────────
-
-  /**
-   * When preventFallOff is enabled and the particle exits the deck outline,
-   * use the normal equation to push it inward from the nearest hull edge
-   * while keeping it on the deck surface via friction.
-   */
-  private updateEdgeContainment(
-    lx: number,
-    ly: number,
-    lz: number,
-    deckLevel: HullBoundaryLevel,
-    normal: PointToRigidEquation3D,
-    friction1: PointToRigidEquation3D,
-    friction2: PointToRigidEquation3D,
-  ): void {
-    const hull = this.bodyB;
-    const R = hull.orientation;
-
-    // Find nearest edge on the deck-level outline
-    const nearest = this.findNearestEdge(deckLevel, lx, ly);
-
-    // Inward normal (negate the outward edge normal)
-    const inNx = -deckLevel.edgeNx[nearest.edgeIndex];
-    const inNy = -deckLevel.edgeNy[nearest.edgeIndex];
-
-    // Signed distance along inward normal from nearest edge point to particle.
-    // Negative = particle is outside the hull (past the edge).
-    const signedDist = (lx - nearest.cx) * inNx + (ly - nearest.cy) * inNy;
-    const penetration = signedDist - this.radius;
-
-    // Transform inward normal to world frame
-    const wnx = R[0] * inNx + R[1] * inNy;
-    const wny = R[3] * inNx + R[4] * inNy;
-    const wnz = R[6] * inNx + R[7] * inNy;
-
-    // Contact point on the edge in world space
-    const deckZ = this.getDeckHeight(lx, ly) ?? this.boundary.deckHeight;
-    const [wx, wy, wz] = hull.toWorldFrame3D(nearest.cx, nearest.cy, deckZ);
-
-    this._active = true;
-    normal.enabled = true;
-
-    const rjX = wx - hull.position[0];
-    const rjY = wy - hull.position[1];
-    const rjZ = wz - hull.z;
-
-    this.setShapeJacobian(normal, wnx, wny, wnz, rjX, rjY, rjZ);
-    normal.offset = penetration;
-
-    // Friction: same as deck contact (hull X/Y axes)
     this.setFriction(normal, friction1, friction2, R, rjX, rjY, rjZ);
   }
 
@@ -598,10 +472,7 @@ export class DeckContactConstraint extends Constraint {
     rjY: number,
     rjZ: number,
   ): void {
-    const slipForce =
-      this.fixedFrictionForce !== null
-        ? this.fixedFrictionForce
-        : this.frictionCoefficient * Math.abs(normal.multiplier);
+    const slipForce = this.frictionCoefficient * Math.abs(normal.multiplier);
 
     if (slipForce > 0) {
       friction1.enabled = true;
@@ -618,11 +489,9 @@ export class DeckContactConstraint extends Constraint {
     // Tangent 1: hull's local X axis (forward) in world space
     this.setShapeJacobian(friction1, R[0], R[3], R[6], rjX, rjY, rjZ);
     friction1.offset = 0;
-    friction1.relativeVelocity = this.targetVelocityX;
     // Tangent 2: hull's local Y axis (starboard) in world space
     this.setShapeJacobian(friction2, R[1], R[4], R[7], rjX, rjY, rjZ);
     friction2.offset = 0;
-    friction2.relativeVelocity = this.targetVelocityY;
   }
 
   private disableAll(
