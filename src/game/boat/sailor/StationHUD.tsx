@@ -63,6 +63,7 @@ export class StationHUD extends ReactEntity {
 
     const bindings: Array<{ keys: string; label: string }> = [
       { keys: "WASD", label: "Walk" },
+      { keys: "Shift", label: "Run" },
     ];
     if (nearStation) {
       bindings.push({ keys: "F", label: `Enter ${nearStation.name}` });

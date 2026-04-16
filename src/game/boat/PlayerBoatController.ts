@@ -89,19 +89,21 @@ export class PlayerBoatController extends BaseEntity {
     // Idle the anchor (no input)
     this.boat.anchor.idle();
 
-    // WASD → hull-local walk velocity.
+    // WASD → hull-local walk velocity. Shift = run.
     // The deck friction equations' Jacobian sign convention makes a
     // positive `relativeVelocity` push the sailor along the -tangent
     // direction, so we negate here: W (forward) = -X motor target, etc.
-    const walkSpeed = this.boat.config.sailor!.walkSpeed;
+    const sailorConfig = this.boat.config.sailor!;
+    const running = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
+    const speed = running ? sailorConfig.runSpeed : sailorConfig.walkSpeed;
     let vx = 0;
     let vy = 0;
-    if (io.isKeyDown("KeyW")) vx -= walkSpeed;
-    if (io.isKeyDown("KeyS")) vx += walkSpeed;
-    if (io.isKeyDown("KeyD")) vy -= walkSpeed;
-    if (io.isKeyDown("KeyA")) vy += walkSpeed;
+    if (io.isKeyDown("KeyW")) vx -= speed;
+    if (io.isKeyDown("KeyS")) vx += speed;
+    if (io.isKeyDown("KeyD")) vy -= speed;
+    if (io.isKeyDown("KeyA")) vy += speed;
 
-    sailor.setWalkVelocity(vx, vy);
+    sailor.setWalkVelocity(vx, vy, speed);
   }
 
   // ── Station mode ────────────────────────────────────────────────

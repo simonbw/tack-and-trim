@@ -54,8 +54,10 @@ export interface StationDef {
 export interface SailorConfig {
   /** Sailor mass in lbs. Affects boat balance via deck constraint reaction. */
   readonly mass: number;
-  /** Maximum walking speed in ft/s along the deck. */
+  /** Walking speed in ft/s along the deck. */
   readonly walkSpeed: number;
+  /** Running speed in ft/s along the deck (while Shift is held). */
+  readonly runSpeed: number;
   /** Proximity radius (ft) for snapping to a station on arrival. */
   readonly snapRadius: number;
   /** Station the sailor starts at. Must match a station id. */

@@ -420,6 +420,7 @@ export const Kestrel: BoatConfig = {
   sailor: {
     mass: 170, // lbs — average adult
     walkSpeed: 4, // ft/s — cautious walking on a moving boat
+    runSpeed: 8, // ft/s — hustling when Shift is held
     snapRadius: 1.5, // ft
     initialStationId: "helm",
     stations: [
