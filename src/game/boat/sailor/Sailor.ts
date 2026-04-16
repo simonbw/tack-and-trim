@@ -3,9 +3,10 @@ import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import { DynamicBody } from "../../../core/physics/body/DynamicBody";
 import { type HullBoundaryData } from "../../../core/physics/constraints/DeckContactConstraint";
-import { PointToRigidDistanceConstraint3D } from "../../../core/physics/constraints/PointToRigidDistanceConstraint3D";
+import { PointToRigidLockConstraint3D } from "../../../core/physics/constraints/PointToRigidLockConstraint3D";
 import { SailorDeckConstraint } from "../../../core/physics/constraints/SailorDeckConstraint";
 import { V, V2d } from "../../../core/Vector";
+import { V3d } from "../../../core/Vector3";
 import type { StationDef } from "./StationConfig";
 
 /** Sailor mass in lbs — average adult. Affects boat balance via deck constraint reaction. */
@@ -15,9 +16,9 @@ export const SAILOR_WALK_SPEED = 4;
 /** Running speed in ft/s — hustling when Shift is held. */
 export const SAILOR_RUN_SPEED = 8;
 /** Proximity radius (ft) for snapping to a station on arrival. */
-export const SAILOR_SNAP_RADIUS = 1.5;
+export const SAILOR_SNAP_RADIUS = 2.5;
 
-const SAILOR_RADIUS = 0.6; // ft — visual radius of the orange circle
+const SAILOR_RADIUS = 0.8; // ft — visual radius of the orange circle
 const SAILOR_GRAVITY = 32.174; // ft/s² (standard gravity in engine units)
 const SAILOR_FRICTION = 20.0; // high friction to track target velocity closely
 /**
@@ -30,20 +31,22 @@ const SAILOR_FRICTION = 20.0; // high friction to track target velocity closely
 const SAILOR_NORMAL_FORCE_CAP = 4; // × sailor weight
 
 /**
- * Cap on the station weld's max force (× sailor weight). Bounds the
- * impulse if the sailor happens to activate with a nonzero position error.
+ * Cap on the station weld's max force per axis (× sailor weight). Bounds
+ * the impulse if the sailor happens to activate with a nonzero position
+ * error and limits how hard the weld can yank the hull.
  */
 const SAILOR_WELD_FORCE_CAP = 8; // × sailor weight
 /**
- * Damping ratio for the station weld. Higher than the default 4 so any
- * residual oscillation after activation dies out quickly.
+ * Relaxation for the station weld's three axis equations. The weld is a
+ * full 3-axis position lock, so radial and tangential motion both settle
+ * naturally; default-ish relaxation is sufficient.
  */
-const SAILOR_WELD_RELAXATION = 16;
+const SAILOR_WELD_RELAXATION = 6;
 /**
- * Seconds to ramp the weld's target distance from the initial separation
- * down to zero on station entry. The constraint stays stiff throughout;
- * the target moves smoothly so the sailor tracks it without a big error
- * impulse at activation.
+ * Seconds to slide the weld's hull-local anchor from the sailor's entry
+ * position to the actual station position. The constraint stays stiff
+ * throughout; only the target moves, so the sailor tracks it without a
+ * large position-error impulse at activation.
  */
 const SAILOR_WELD_RAMP_DURATION = 0.3;
 
@@ -58,19 +61,22 @@ export class Sailor extends BaseEntity {
   private readonly stations: readonly StationDef[];
   private readonly hullBody: DynamicBody;
   private readonly deckConstraint: SailorDeckConstraint;
-  /** Zero-distance weld to the current station. Disabled while walking. */
-  private readonly stationWeld: PointToRigidDistanceConstraint3D;
+  /** 3-axis position lock to the current station. Disabled while walking. */
+  private readonly stationWeld: PointToRigidLockConstraint3D;
   private readonly deckHeight: number;
 
   private _state: SailorState;
   /**
-   * Ramp progress [0, 1] for the station weld's target distance.
-   * 1 = target fully at zero (sailor pinned to anchor). Reset to 0 on
-   * station entry and advances each tick while stationed.
+   * Ramp progress [0, 1] for sliding the weld's hull-local anchor from the
+   * sailor's entry position toward the station's actual position. 1 = anchor
+   * fully at the station. Reset to 0 on station entry and advances each tick
+   * while stationed.
    */
   private _weldRampT: number = 1;
-  /** Initial separation at the moment of weld activation (ft). */
-  private _weldRampStartDistance: number = 0;
+  /** Hull-local anchor position at activation (start of the slide). */
+  private readonly _weldRampStart: V3d = new V3d(0, 0, 0);
+  /** Hull-local anchor position at the station (end of the slide). */
+  private readonly _weldRampTarget: V3d = new V3d(0, 0, 0);
 
   constructor(
     stations: readonly StationDef[],
@@ -130,28 +136,24 @@ export class Sailor extends BaseEntity {
       sailorWeight * SAILOR_NORMAL_FORCE_CAP;
     this.deckConstraint.fixedFrictionForce = sailorWeight * SAILOR_FRICTION;
 
-    // Zero-distance weld that holds the sailor at a station's hull-local
-    // position while stationed. Disabled while walking. maxForce cap keeps
-    // an activation with residual position error from spiking the hull.
-    this.stationWeld = new PointToRigidDistanceConstraint3D(
-      this.body,
-      hullBody,
-      {
-        distance: 0,
-        localAnchorB: [
-          initialStation.position[0],
-          initialStation.position[1],
-          deckHeight + SAILOR_RADIUS,
-        ],
-        maxForce: sailorWeight * SAILOR_WELD_FORCE_CAP,
-        collideConnected: true,
-        wakeUpBodies: false,
-      },
-    );
-    // Over-damp the weld so any residual error settles without ringing.
-    const weldEq = this.stationWeld.equations[0];
-    weldEq.relaxation = SAILOR_WELD_RELAXATION;
-    weldEq.needsUpdate = true;
+    // 3-axis position lock that holds the sailor at a station's hull-local
+    // anchor while stationed. Disabled while walking. The per-axis maxForce
+    // cap bounds activation impulses and limits how hard the weld can yank
+    // the hull.
+    this.stationWeld = new PointToRigidLockConstraint3D(this.body, hullBody, {
+      localAnchorB: [
+        initialStation.position[0],
+        initialStation.position[1],
+        deckHeight + SAILOR_RADIUS,
+      ],
+      maxForce: sailorWeight * SAILOR_WELD_FORCE_CAP,
+      collideConnected: true,
+      wakeUpBodies: false,
+    });
+    for (const eq of this.stationWeld.equations) {
+      eq.relaxation = SAILOR_WELD_RELAXATION;
+      eq.needsUpdate = true;
+    }
 
     // Start pinned to the initial station: deck constraint off, weld on.
     this.deckConstraint.disabled = true;
@@ -214,8 +216,8 @@ export class Sailor extends BaseEntity {
 
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]): void {
-    // Gravity always acts on the sailor body. When stationed, the zero-
-    // distance weld resists gravity and transfers the reaction to the hull
+    // Gravity always acts on the sailor body. When stationed, the 3-axis
+    // station weld resists gravity and transfers the reaction to the hull
     // at the station anchor. When walking, the deck constraint handles it.
     this.body.applyForce3D(0, 0, -SAILOR_GRAVITY * this.body.mass, 0, 0, 0);
     if (this._state.kind === "atStation") {
@@ -231,32 +233,47 @@ export class Sailor extends BaseEntity {
       1,
       this._weldRampT + dt / SAILOR_WELD_RAMP_DURATION,
     );
-    // Smoothstep ease so the target accelerates in and decelerates out.
+    // Smoothstep ease so the anchor accelerates in and decelerates out.
     const t = this._weldRampT;
     const eased = t * t * (3 - 2 * t);
-    this.stationWeld.distance = this._weldRampStartDistance * (1 - eased);
+    const start = this._weldRampStart;
+    const target = this._weldRampTarget;
+    this.stationWeld.localAnchorB[0] =
+      start[0] + (target[0] - start[0]) * eased;
+    this.stationWeld.localAnchorB[1] =
+      start[1] + (target[1] - start[1]) * eased;
+    this.stationWeld.localAnchorB[2] =
+      start[2] + (target[2] - start[2]) * eased;
   }
 
   /**
-   * Kick off a fresh pull-in ramp. Captures the current 3D separation
-   * between body and anchor so the target distance can decay smoothly
-   * from there to 0, avoiding a large initial position error.
+   * Kick off a fresh pull-in ramp toward the given station. Snapshots the
+   * sailor's current hull-local 3D position as the slide's start so the
+   * weld activates with zero position error, then lerps the anchor over
+   * `SAILOR_WELD_RAMP_DURATION` to the station's actual local position.
    */
-  private beginWeldRamp(): void {
-    const [ax, ay, az] = this.hullBody.toWorldFrame3D(
-      this.stationWeld.localAnchorB[0],
-      this.stationWeld.localAnchorB[1],
-      this.stationWeld.localAnchorB[2],
+  private beginWeldRamp(station: StationDef): void {
+    const localStart = this.hullBody.toLocalFrame3D(
+      this.body.position[0],
+      this.body.position[1],
+      this.body.z,
     );
-    const dx = this.body.position[0] - ax;
-    const dy = this.body.position[1] - ay;
-    const dz = this.body.z - az;
-    this._weldRampStartDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    this._weldRampStart.set(localStart[0], localStart[1], localStart[2]);
+    this._weldRampTarget.set(
+      station.position[0],
+      station.position[1],
+      this.deckHeight + SAILOR_RADIUS,
+    );
+    this.stationWeld.localAnchorB.set(
+      this._weldRampStart[0],
+      this._weldRampStart[1],
+      this._weldRampStart[2],
+    );
     this._weldRampT = 0;
-    this.stationWeld.distance = this._weldRampStartDistance;
-    const weldEq = this.stationWeld.equations[0];
-    weldEq.warmLambda = 0;
-    weldEq.multiplier = 0;
+    for (const eq of this.stationWeld.equations) {
+      eq.warmLambda = 0;
+      eq.multiplier = 0;
+    }
   }
 
   /** Return the station within snapRadius of the sailor, or null. */
@@ -280,18 +297,13 @@ export class Sailor extends BaseEntity {
 
   private snapToStation(station: StationDef): void {
     // Switch from walking to the station weld. No position/velocity
-    // teleport — the ramped weld pulls the sailor to the anchor
-    // smoothly from wherever they currently are.
+    // teleport — the ramped weld slides the anchor from the sailor's
+    // current spot to the station, dragging them along smoothly.
     this.deckConstraint.targetVelocityX = 0;
     this.deckConstraint.targetVelocityY = 0;
     this.deckConstraint.disabled = true;
-    this.stationWeld.localAnchorB.set(
-      station.position[0],
-      station.position[1],
-      this.deckHeight + SAILOR_RADIUS,
-    );
     this.stationWeld.disabled = false;
-    this.beginWeldRamp();
+    this.beginWeldRamp(station);
 
     this._state = { kind: "atStation", stationId: station.id };
     this.game.dispatch("sailorEnteredStation", { stationId: station.id });
@@ -358,10 +370,12 @@ export class Sailor extends BaseEntity {
         this.stationWeld.disabled = false;
         // Load fully pinned — no pull-in animation on a fresh game.
         this._weldRampT = 1;
-        this.stationWeld.distance = 0;
-        const weldEq = this.stationWeld.equations[0];
-        weldEq.warmLambda = 0;
-        weldEq.multiplier = 0;
+        this._weldRampStart.set(this.stationWeld.localAnchorB);
+        this._weldRampTarget.set(this.stationWeld.localAnchorB);
+        for (const eq of this.stationWeld.equations) {
+          eq.warmLambda = 0;
+          eq.multiplier = 0;
+        }
         this._state = { kind: "atStation", stationId };
         return;
       }
