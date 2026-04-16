@@ -1,0 +1,144 @@
+import { ReactEntity } from "../../../core/ReactEntity";
+import type { Boat } from "../Boat";
+import type { Sailor } from "./Sailor";
+import type { AxisControl, StationDef } from "./StationConfig";
+
+/** Human-readable labels for axis controls. */
+const AXIS_LABELS: Record<AxisControl, string> = {
+  rudder: "Rudder",
+  mainsheet: "Mainsheet",
+  mainHoist: "Main Hoist",
+  jibSheets: "Jib Sheets",
+  jibHoistFurl: "Jib Hoist",
+};
+
+/** Key labels for each input axis. */
+const AXIS_KEYS: Record<"steer" | "primary" | "secondary", string> = {
+  steer: "A/D",
+  primary: "W/S",
+  secondary: "Q/E",
+};
+
+/**
+ * Always-visible HUD showing the sailor's current station and
+ * available controls, or a walking indicator when between stations.
+ */
+export class StationHUD extends ReactEntity {
+  constructor() {
+    super(() => this.renderContent());
+  }
+
+  private renderContent() {
+    const boat = this.game?.entities.getById("boat") as Boat | undefined;
+    const sailor = boat?.sailor;
+    if (!sailor) return null;
+
+    return (
+      <div
+        style={{
+          position: "fixed",
+          bottom: "20px",
+          left: "20px",
+          color: "white",
+          textShadow: "0 0 4px rgba(0, 0, 0, 0.8)",
+          fontFamily: "var(--font-body)",
+          fontWeight: "300",
+          fontSize: "14px",
+          userSelect: "none",
+          pointerEvents: "none",
+          lineHeight: "1.5",
+        }}
+      >
+        {sailor.state.kind === "walking"
+          ? this.renderWalking()
+          : this.renderStation(sailor)}
+      </div>
+    );
+  }
+
+  private renderWalking() {
+    return (
+      <div style={{ opacity: 0.6 }}>
+        <div style={{ fontSize: "12px", opacity: 0.7, marginBottom: "2px" }}>
+          WASD to walk
+        </div>
+        <div>Walking...</div>
+      </div>
+    );
+  }
+
+  private renderStation(sailor: Sailor) {
+    const station = sailor.getCurrentStation();
+    if (!station) return null;
+
+    return (
+      <div>
+        <div
+          style={{
+            fontSize: "16px",
+            fontWeight: "600",
+            marginBottom: "4px",
+            color: "#ff8800",
+          }}
+        >
+          {station.name}
+        </div>
+        {this.renderBindings(station)}
+        <div style={{ fontSize: "11px", opacity: 0.4, marginTop: "4px" }}>
+          ESC to leave
+        </div>
+      </div>
+    );
+  }
+
+  private renderBindings(station: StationDef) {
+    const bindings: Array<{ keys: string; label: string }> = [];
+
+    if (station.steerAxis) {
+      bindings.push({
+        keys: AXIS_KEYS.steer,
+        label: AXIS_LABELS[station.steerAxis],
+      });
+    }
+    if (station.primaryAxis) {
+      bindings.push({
+        keys: AXIS_KEYS.primary,
+        label: AXIS_LABELS[station.primaryAxis],
+      });
+    }
+    if (station.secondaryAxis) {
+      bindings.push({
+        keys: AXIS_KEYS.secondary,
+        label: AXIS_LABELS[station.secondaryAxis],
+      });
+    }
+    if (station.actions?.includes("anchor")) {
+      bindings.push({ keys: "R", label: "Anchor" });
+    }
+    if (station.actions?.includes("mooring")) {
+      bindings.push({ keys: "F", label: "Dock" });
+    }
+
+    if (bindings.length === 0) return null;
+
+    return (
+      <div style={{ opacity: 0.7 }}>
+        {bindings.map((b) => (
+          <div key={b.keys}>
+            <span
+              style={{
+                display: "inline-block",
+                minWidth: "36px",
+                fontWeight: "600",
+                opacity: 0.9,
+              }}
+            >
+              {b.keys}
+            </span>{" "}
+            {b.label}
+          </div>
+        ))}
+      </div>
+    );
+  }
+}

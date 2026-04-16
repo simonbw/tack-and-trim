@@ -11,6 +11,7 @@ import { BoatDebugHUD } from "./boat/BoatDebugHUD";
 import { BoatSelectionScreen } from "./BoatSelectionScreen";
 import { getBoatDef } from "./catalog/BoatCatalog";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
+import { StationHUD } from "./boat/sailor/StationHUD";
 import { ClothWorkerPool } from "./boat/sail/ClothWorkerPool";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
@@ -243,6 +244,7 @@ export class GameController extends BaseEntity {
       new Boat(boatPosition, boatConfig, boatRotation),
     );
     this.game.addEntity(new PlayerBoatController(boat));
+    this.game.addEntity(new StationHUD());
     this.game.addEntity(new BoatDebugHUD());
 
     // Apply remaining save state (damage, bilge, anchor) after construction
