@@ -27,9 +27,9 @@ Default station layout (defined in Kestrel, inherited by all boats):
 
 ### Walking
 
-- Press an **unbound WASD key** at a station to start walking (e.g. A/D at the Mast, where only W/S is bound). Press **Escape** to leave stations where all WASD keys are bound (like the Helm).
+- Press **F** at any station to leave and start walking. Pressing an **unbound WASD key** also starts walking (e.g. A/D at the Mast, where only W/S is bound).
 - WASD drives the sailor in hull-local coordinates: W = forward, S = backward, A = port, D = starboard.
-- When the sailor walks within `snapRadius` of any station, they snap to it and that station's controls activate.
+- To enter a station, walk within `snapRadius` of it and press **F**. The sailor does not auto-snap — entering is always an explicit action. After leaving a station, you must walk out of its `snapRadius` before you can re-enter it.
 
 ### Walking physics
 

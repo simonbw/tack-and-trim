@@ -27,6 +27,8 @@ export class Sailor extends BaseEntity {
   private readonly deckHeight: number;
 
   private _state: SailorState;
+  /** Station the sailor must first walk out of before it can re-snap to it. */
+  private _excludedStationId: string | null = null;
 
   constructor(
     config: SailorConfig,
@@ -103,6 +105,8 @@ export class Sailor extends BaseEntity {
     if (this._state.kind === "atStation") {
       const prevStation = this._state.stationId;
       this._state = { kind: "walking" };
+      // Prevent immediate re-snap — sailor is still standing on the station.
+      this._excludedStationId = prevStation;
       this.game.dispatch("sailorLeftStation", { stationId: prevStation });
     }
   }
@@ -143,22 +147,44 @@ export class Sailor extends BaseEntity {
   }
 
   private updateWalking(): void {
-    // Check proximity to each station — snap if within radius
-    const [lx, ly] = this.hullBody.toLocalFrame3D(
-      this.body.position[0],
-      this.body.position[1],
-      this.body.z,
-    );
-
-    for (const station of this.config.stations) {
-      const dx = lx - station.position[0];
-      const dy = ly - station.position[1];
-      const distSq = dx * dx + dy * dy;
-      if (distSq < this.config.snapRadius * this.config.snapRadius) {
-        this.snapToStation(station);
-        return;
+    // Clear the "just-left" exclusion once the sailor has walked out of that station's range.
+    if (this._excludedStationId !== null) {
+      const [lx, ly] = this.getLocalPosition();
+      const r2 = this.config.snapRadius * this.config.snapRadius;
+      const station = this.config.stations.find(
+        (s) => s.id === this._excludedStationId,
+      );
+      if (station) {
+        const dx = lx - station.position[0];
+        const dy = ly - station.position[1];
+        if (dx * dx + dy * dy >= r2) this._excludedStationId = null;
+      } else {
+        this._excludedStationId = null;
       }
     }
+  }
+
+  /**
+   * Return the station within snapRadius of the sailor, or null.
+   * Skips the station the sailor just left until they've walked out of it.
+   */
+  findNearbyStation(): StationDef | null {
+    const [lx, ly] = this.getLocalPosition();
+    const r2 = this.config.snapRadius * this.config.snapRadius;
+    for (const station of this.config.stations) {
+      if (station.id === this._excludedStationId) continue;
+      const dx = lx - station.position[0];
+      const dy = ly - station.position[1];
+      if (dx * dx + dy * dy < r2) return station;
+    }
+    return null;
+  }
+
+  /** Snap to a nearby station if one is in range. Does nothing otherwise. */
+  snapToNearbyStation(): void {
+    if (this._state.kind !== "walking") return;
+    const near = this.findNearbyStation();
+    if (near) this.snapToStation(near);
   }
 
   private snapToStation(station: StationDef): void {

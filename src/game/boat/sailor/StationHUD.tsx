@@ -57,12 +57,30 @@ export class StationHUD extends ReactEntity {
   }
 
   private renderWalking() {
+    const boat = this.game?.entities.getById("boat") as Boat | undefined;
+    const sailor = boat?.sailor;
+    const nearStation = sailor?.findNearbyStation() ?? null;
+
+    const bindings: Array<{ keys: string; label: string }> = [
+      { keys: "WASD", label: "Walk" },
+    ];
+    if (nearStation) {
+      bindings.push({ keys: "F", label: `Enter ${nearStation.name}` });
+    }
+
     return (
-      <div style={{ opacity: 0.6 }}>
-        <div style={{ fontSize: "12px", opacity: 0.7, marginBottom: "2px" }}>
-          WASD to walk
+      <div>
+        <div
+          style={{
+            fontSize: "16px",
+            fontWeight: "600",
+            marginBottom: "4px",
+            color: "#ff8800",
+          }}
+        >
+          Walking
         </div>
-        <div>Walking...</div>
+        {this.renderBindingList(bindings)}
       </div>
     );
   }
@@ -84,9 +102,6 @@ export class StationHUD extends ReactEntity {
           {station.name}
         </div>
         {this.renderBindings(station)}
-        <div style={{ fontSize: "11px", opacity: 0.4, marginTop: "4px" }}>
-          ESC to leave
-        </div>
       </div>
     );
   }
@@ -113,17 +128,22 @@ export class StationHUD extends ReactEntity {
       });
     }
     if (station.actions?.includes("anchor")) {
-      bindings.push({ keys: "R", label: "Anchor" });
+      bindings.push({ keys: "R", label: "Raise Anchor" });
+      bindings.push({ keys: "G", label: "Lower Anchor" });
     }
     if (station.actions?.includes("mooring")) {
-      bindings.push({ keys: "F", label: "Dock" });
+      bindings.push({ keys: "M", label: "Dock" });
     }
     if (station.actions?.includes("bail")) {
       bindings.push({ keys: "B", label: "Bail" });
     }
+    bindings.push({ keys: "F", label: "Leave Station" });
 
+    return this.renderBindingList(bindings);
+  }
+
+  private renderBindingList(bindings: Array<{ keys: string; label: string }>) {
     if (bindings.length === 0) return null;
-
     return (
       <div style={{ opacity: 0.7 }}>
         {bindings.map((b) => (
@@ -131,7 +151,7 @@ export class StationHUD extends ReactEntity {
             <span
               style={{
                 display: "inline-block",
-                minWidth: "36px",
+                minWidth: "52px",
                 fontWeight: "600",
                 opacity: 0.9,
               }}

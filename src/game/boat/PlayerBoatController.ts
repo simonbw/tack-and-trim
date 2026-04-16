@@ -89,16 +89,17 @@ export class PlayerBoatController extends BaseEntity {
     // Idle the anchor (no input)
     this.boat.anchor.idle();
 
-    // WASD → hull-local walk velocity
-    // W = forward (+X), S = backward (-X)
-    // D = starboard (+Y), A = port (-Y)
+    // WASD → hull-local walk velocity.
+    // The deck friction equations' Jacobian sign convention makes a
+    // positive `relativeVelocity` push the sailor along the -tangent
+    // direction, so we negate here: W (forward) = -X motor target, etc.
     const walkSpeed = this.boat.config.sailor!.walkSpeed;
     let vx = 0;
     let vy = 0;
-    if (io.isKeyDown("KeyW")) vx += walkSpeed;
-    if (io.isKeyDown("KeyS")) vx -= walkSpeed;
-    if (io.isKeyDown("KeyD")) vy += walkSpeed;
-    if (io.isKeyDown("KeyA")) vy -= walkSpeed;
+    if (io.isKeyDown("KeyW")) vx -= walkSpeed;
+    if (io.isKeyDown("KeyS")) vx += walkSpeed;
+    if (io.isKeyDown("KeyD")) vy -= walkSpeed;
+    if (io.isKeyDown("KeyA")) vy += walkSpeed;
 
     sailor.setWalkVelocity(vx, vy);
   }
@@ -170,7 +171,7 @@ export class PlayerBoatController extends BaseEntity {
 
     // --- Station actions ---
     if (station.actions?.includes("anchor")) {
-      if (io.isKeyDown("KeyF") && !this.boat.mooring.isMoored()) {
+      if (io.isKeyDown("KeyG") && !this.boat.mooring.isMoored()) {
         this.boat.anchor.lower();
       } else if (io.isKeyDown("KeyR")) {
         this.boat.anchor.raise();
@@ -238,7 +239,11 @@ export class PlayerBoatController extends BaseEntity {
     eHeld: boolean,
     shiftHeld: boolean,
   ): void {
-    if (!this.boat.jib || !this.boat.portJibSheet || !this.boat.starboardJibSheet)
+    if (
+      !this.boat.jib ||
+      !this.boat.portJibSheet ||
+      !this.boat.starboardJibSheet
+    )
       return;
 
     const activeSheet =
@@ -249,10 +254,12 @@ export class PlayerBoatController extends BaseEntity {
     // Calculate trim input based on active sheet
     let trimInput = 0;
     if (this.activeJibSheet === "port") {
-      if (eHeld) trimInput = -1; // E = trim in (port)
+      if (eHeld)
+        trimInput = -1; // E = trim in (port)
       else if (qHeld) trimInput = 1; // Q = ease out
     } else {
-      if (qHeld) trimInput = -1; // Q = trim in (starboard)
+      if (qHeld)
+        trimInput = -1; // Q = trim in (starboard)
       else if (eHeld) trimInput = 1; // E = ease out
     }
 
@@ -284,7 +291,11 @@ export class PlayerBoatController extends BaseEntity {
    * Uses sheet input directly for trim.
    */
   private updateJibSheets(rawSheetInput: number, shiftHeld: boolean): void {
-    if (!this.boat.jib || !this.boat.portJibSheet || !this.boat.starboardJibSheet)
+    if (
+      !this.boat.jib ||
+      !this.boat.portJibSheet ||
+      !this.boat.starboardJibSheet
+    )
       return;
 
     const activeSheet =
@@ -327,8 +338,7 @@ export class PlayerBoatController extends BaseEntity {
     this.boat.rig.sail.setHoistInput(mainHoist as -1 | 0 | 1);
 
     if (this.boat.jib) {
-      const jibHoist =
-        io.isKeyDown("KeyY") ? 1 : io.isKeyDown("KeyH") ? -1 : 0;
+      const jibHoist = io.isKeyDown("KeyY") ? 1 : io.isKeyDown("KeyH") ? -1 : 0;
       this.boat.jib.setHoistInput(jibHoist as -1 | 0 | 1);
     }
 
@@ -443,8 +453,14 @@ export class PlayerBoatController extends BaseEntity {
     if (sailor.state.kind === "atStation") {
       const station = sailor.getCurrentStation()!;
 
-      // F at a station with mooring action → dock toggle
-      if (key === "KeyF" && station.actions?.includes("mooring")) {
+      // F at any station → leave and start walking
+      if (key === "KeyF") {
+        sailor.beginWalking();
+        return;
+      }
+
+      // M at a station with mooring action → dock toggle
+      if (key === "KeyM" && station.actions?.includes("mooring")) {
         if (this.boat.mooring.isMoored()) {
           this.boat.mooring.castOff();
         } else {
@@ -455,10 +471,10 @@ export class PlayerBoatController extends BaseEntity {
         }
         return;
       }
-
-      // Escape at any station → leave and start walking
-      if (key === "Escape") {
-        sailor.beginWalking();
+    } else {
+      // Walking — F snaps to a nearby station (auto-snap also runs each tick).
+      if (key === "KeyF") {
+        sailor.snapToNearbyStation();
         return;
       }
     }
