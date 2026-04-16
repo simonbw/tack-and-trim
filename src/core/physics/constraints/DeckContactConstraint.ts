@@ -137,6 +137,20 @@ export class DeckContactConstraint extends Constraint {
    */
   targetVelocityY: number = 0;
 
+  /**
+   * When true, update() short-circuits and disables all equations.
+   * Used when the owner (e.g. sailor at a station) is pinning the particle
+   * kinematically and doesn't want the deck/wall forces interfering.
+   */
+  disabled: boolean = false;
+
+  /**
+   * When set, friction bounds become ±fixedFrictionForce regardless of the
+   * normal equation's multiplier. Lets callers decouple lateral grip from
+   * the (possibly softened) normal force. Null = standard Coulomb bound.
+   */
+  fixedFrictionForce: number | null = null;
+
   /** Whether the constraint is currently engaged (particle on or near a surface). */
   private _active: boolean = false;
 
@@ -196,6 +210,11 @@ export class DeckContactConstraint extends Constraint {
     const friction1 = this.equations[1] as PointToRigidEquation3D;
     const friction2 = this.equations[2] as PointToRigidEquation3D;
     const boundary = this.boundary;
+
+    if (this.disabled) {
+      this.disableAll(normal, friction1, friction2);
+      return this;
+    }
 
     // Convert particle world position to hull-local coordinates
     const pz = particle.z;
@@ -398,8 +417,10 @@ export class DeckContactConstraint extends Constraint {
     normal.offset = penetration;
 
     // Friction tangents for wall contact
-    const normalForce = Math.abs(normal.multiplier);
-    const slipForce = this.frictionCoefficient * normalForce;
+    const slipForce =
+      this.fixedFrictionForce !== null
+        ? this.fixedFrictionForce
+        : this.frictionCoefficient * Math.abs(normal.multiplier);
 
     if (slipForce > 0) {
       friction1.enabled = true;
@@ -572,8 +593,10 @@ export class DeckContactConstraint extends Constraint {
     rjY: number,
     rjZ: number,
   ): void {
-    const normalForce = Math.abs(normal.multiplier);
-    const slipForce = this.frictionCoefficient * normalForce;
+    const slipForce =
+      this.fixedFrictionForce !== null
+        ? this.fixedFrictionForce
+        : this.frictionCoefficient * Math.abs(normal.multiplier);
 
     if (slipForce > 0) {
       friction1.enabled = true;

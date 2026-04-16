@@ -6,12 +6,21 @@ import {
   DeckContactConstraint,
   type HullBoundaryData,
 } from "../../../core/physics/constraints/DeckContactConstraint";
+import { PointToRigidDistanceConstraint3D } from "../../../core/physics/constraints/PointToRigidDistanceConstraint3D";
 import { V, V2d } from "../../../core/Vector";
 import type { SailorConfig, StationDef } from "./StationConfig";
 
 const SAILOR_RADIUS = 0.6; // ft — visual radius of the orange circle
 const SAILOR_GRAVITY = 32.174; // ft/s² (standard gravity in engine units)
 const SAILOR_FRICTION = 20.0; // high friction to track target velocity closely
+/**
+ * Cap on the deck-normal reaction force (in force units, measured as
+ * multiples of the sailor's weight). The normal equation stays stiff so
+ * the sailor rests on the deck without sagging, but bounding the force
+ * means a sudden deck-height discontinuity produces a manageable impulse
+ * on the hull instead of yanking the ship downward.
+ */
+const SAILOR_NORMAL_FORCE_CAP = 4; // × sailor weight
 
 export type SailorState =
   | { kind: "atStation"; stationId: string }
@@ -24,6 +33,8 @@ export class Sailor extends BaseEntity {
   private readonly config: SailorConfig;
   private readonly hullBody: DynamicBody;
   private readonly deckConstraint: DeckContactConstraint;
+  /** Zero-distance weld to the current station. Disabled while walking. */
+  private readonly stationWeld: PointToRigidDistanceConstraint3D;
   private readonly deckHeight: number;
 
   private _state: SailorState;
@@ -74,7 +85,38 @@ export class Sailor extends BaseEntity {
     );
     this.deckConstraint.preventFallOff = true;
 
-    this.constraints = [this.deckConstraint];
+    // Cap the normal equation's max force so sudden deck-height
+    // discontinuities don't jerk the hull. Steady-state support (gravity)
+    // sits well below the cap, so normal behavior is unaffected. Friction
+    // is decoupled from the (now-bounded) normal multiplier so lateral
+    // grip stays firm regardless of transient normal dips.
+    const sailorWeight = config.mass * SAILOR_GRAVITY;
+    this.deckConstraint.equations[0].maxForce =
+      sailorWeight * SAILOR_NORMAL_FORCE_CAP;
+    this.deckConstraint.fixedFrictionForce = sailorWeight * SAILOR_FRICTION;
+
+    // Zero-distance weld that holds the sailor at a station's hull-local
+    // position while stationed. Disabled while walking.
+    this.stationWeld = new PointToRigidDistanceConstraint3D(
+      this.body,
+      hullBody,
+      {
+        distance: 0,
+        localAnchorB: [
+          initialStation.position[0],
+          initialStation.position[1],
+          deckHeight + SAILOR_RADIUS,
+        ],
+        collideConnected: true,
+        wakeUpBodies: false,
+      },
+    );
+
+    // Start pinned to the initial station: deck constraint off, weld on.
+    this.deckConstraint.disabled = true;
+    this.stationWeld.disabled = false;
+
+    this.constraints = [this.deckConstraint, this.stationWeld];
 
     this._state = { kind: "atStation", stationId: config.initialStationId };
   }
@@ -103,6 +145,8 @@ export class Sailor extends BaseEntity {
     if (this._state.kind === "atStation") {
       const prevStation = this._state.stationId;
       this._state = { kind: "walking" };
+      this.deckConstraint.disabled = false;
+      this.stationWeld.disabled = true;
       this.game.dispatch("sailorLeftStation", { stationId: prevStation });
     }
   }
@@ -130,11 +174,11 @@ export class Sailor extends BaseEntity {
 
   @on("tick")
   onTick(): void {
-    // Gravity
+    // Gravity always acts on the sailor body. When stationed, the zero-
+    // distance weld resists gravity and transfers the reaction to the hull
+    // at the station anchor. When walking, the deck constraint handles it.
     this.body.applyForce3D(0, 0, -SAILOR_GRAVITY * this.body.mass, 0, 0, 0);
-
     if (this._state.kind === "atStation") {
-      // At station — zero the motorized velocity and hold position
       this.deckConstraint.targetVelocityX = 0;
       this.deckConstraint.targetVelocityY = 0;
     }
@@ -166,9 +210,16 @@ export class Sailor extends BaseEntity {
     this.body.velocity.set(0, 0);
     this.body.zVelocity = 0;
 
-    // Stop motorized friction
+    // Stop motorized friction and switch to the station weld.
     this.deckConstraint.targetVelocityX = 0;
     this.deckConstraint.targetVelocityY = 0;
+    this.deckConstraint.disabled = true;
+    this.stationWeld.localAnchorB.set(
+      station.position[0],
+      station.position[1],
+      this.deckHeight + SAILOR_RADIUS,
+    );
+    this.stationWeld.disabled = false;
 
     this._state = { kind: "atStation", stationId: station.id };
     this.game.dispatch("sailorEnteredStation", { stationId: station.id });
@@ -226,6 +277,13 @@ export class Sailor extends BaseEntity {
         this.body.position.set(worldPos);
         this.body.velocity.set(0, 0);
         this.body.zVelocity = 0;
+        this.deckConstraint.disabled = true;
+        this.stationWeld.localAnchorB.set(
+          station.position[0],
+          station.position[1],
+          this.deckHeight + SAILOR_RADIUS,
+        );
+        this.stationWeld.disabled = false;
         this._state = { kind: "atStation", stationId };
         return;
       }
@@ -236,6 +294,8 @@ export class Sailor extends BaseEntity {
     this.body.position.set(wx, wy);
     this.body.velocity.set(0, 0);
     this.body.zVelocity = 0;
+    this.deckConstraint.disabled = false;
+    this.stationWeld.disabled = true;
     this._state = { kind: "walking" };
   }
 }
