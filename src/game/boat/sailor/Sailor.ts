@@ -6,7 +6,16 @@ import { type HullBoundaryData } from "../../../core/physics/constraints/DeckCon
 import { PointToRigidDistanceConstraint3D } from "../../../core/physics/constraints/PointToRigidDistanceConstraint3D";
 import { SailorDeckConstraint } from "../../../core/physics/constraints/SailorDeckConstraint";
 import { V, V2d } from "../../../core/Vector";
-import type { SailorConfig, StationDef } from "./StationConfig";
+import type { StationDef } from "./StationConfig";
+
+/** Sailor mass in lbs — average adult. Affects boat balance via deck constraint reaction. */
+export const SAILOR_MASS = 170;
+/** Walking speed in ft/s — cautious walking on a moving boat. */
+export const SAILOR_WALK_SPEED = 4;
+/** Running speed in ft/s — hustling when Shift is held. */
+export const SAILOR_RUN_SPEED = 8;
+/** Proximity radius (ft) for snapping to a station on arrival. */
+export const SAILOR_SNAP_RADIUS = 1.5;
 
 const SAILOR_RADIUS = 0.6; // ft — visual radius of the orange circle
 const SAILOR_GRAVITY = 32.174; // ft/s² (standard gravity in engine units)
@@ -46,7 +55,7 @@ export class Sailor extends BaseEntity {
   layer = "boat" as const;
 
   readonly body: DynamicBody;
-  private readonly config: SailorConfig;
+  private readonly stations: readonly StationDef[];
   private readonly hullBody: DynamicBody;
   private readonly deckConstraint: SailorDeckConstraint;
   /** Zero-distance weld to the current station. Disabled while walking. */
@@ -64,7 +73,8 @@ export class Sailor extends BaseEntity {
   private _weldRampStartDistance: number = 0;
 
   constructor(
-    config: SailorConfig,
+    stations: readonly StationDef[],
+    initialStationId: string,
     hullBody: DynamicBody,
     getDeckHeight: (localX: number, localY: number) => number | null,
     hullBoundary: HullBoundaryData,
@@ -72,17 +82,17 @@ export class Sailor extends BaseEntity {
   ) {
     super();
 
-    this.config = config;
+    this.stations = stations;
     this.hullBody = hullBody;
     this.deckHeight = deckHeight;
 
     // Find the initial station and compute world position
-    const initialStation = this.getStation(config.initialStationId);
+    const initialStation = this.getStation(initialStationId);
     const worldPos = this.stationWorldPosition(initialStation);
 
     // Create the sailor's physics body — a point particle on the deck
     this.body = new DynamicBody({
-      mass: config.mass,
+      mass: SAILOR_MASS,
       position: [worldPos.x, worldPos.y],
       fixedRotation: true,
       damping: 0.1,
@@ -90,7 +100,7 @@ export class Sailor extends BaseEntity {
       sixDOF: {
         rollInertia: 1,
         pitchInertia: 1,
-        zMass: config.mass,
+        zMass: SAILOR_MASS,
         zDamping: 0.9,
         rollPitchDamping: 0,
         zPosition: deckHeight + SAILOR_RADIUS,
@@ -115,7 +125,7 @@ export class Sailor extends BaseEntity {
     // sits well below the cap, so normal behavior is unaffected. Friction
     // is decoupled from the (now-bounded) normal multiplier so lateral
     // grip stays firm regardless of transient normal dips.
-    const sailorWeight = config.mass * SAILOR_GRAVITY;
+    const sailorWeight = SAILOR_MASS * SAILOR_GRAVITY;
     this.deckConstraint.equations[0].maxForce =
       sailorWeight * SAILOR_NORMAL_FORCE_CAP;
     this.deckConstraint.fixedFrictionForce = sailorWeight * SAILOR_FRICTION;
@@ -149,7 +159,7 @@ export class Sailor extends BaseEntity {
 
     this.constraints = [this.deckConstraint, this.stationWeld];
 
-    this._state = { kind: "atStation", stationId: config.initialStationId };
+    this._state = { kind: "atStation", stationId: initialStationId };
   }
 
   // ── Public API ──────────────────────────────────────────────────
@@ -252,8 +262,8 @@ export class Sailor extends BaseEntity {
   /** Return the station within snapRadius of the sailor, or null. */
   findNearbyStation(): StationDef | null {
     const [lx, ly] = this.getLocalPosition();
-    const r2 = this.config.snapRadius * this.config.snapRadius;
-    for (const station of this.config.stations) {
+    const r2 = SAILOR_SNAP_RADIUS * SAILOR_SNAP_RADIUS;
+    for (const station of this.stations) {
       const dx = lx - station.position[0];
       const dy = ly - station.position[1];
       if (dx * dx + dy * dy < r2) return station;
@@ -303,7 +313,7 @@ export class Sailor extends BaseEntity {
   // ── Helpers ─────────────────────────────────────────────────────
 
   private getStation(id: string): StationDef {
-    const station = this.config.stations.find((s) => s.id === id);
+    const station = this.stations.find((s) => s.id === id);
     if (!station) {
       throw new Error(`Unknown station: ${id}`);
     }
@@ -333,7 +343,7 @@ export class Sailor extends BaseEntity {
    */
   restoreState(stationId: string | null, position: [number, number]): void {
     if (stationId) {
-      const station = this.config.stations.find((s) => s.id === stationId);
+      const station = this.stations.find((s) => s.id === stationId);
       if (station) {
         const worldPos = this.stationWorldPosition(station);
         this.body.position.set(worldPos);

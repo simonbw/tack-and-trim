@@ -1,7 +1,7 @@
 import { DeepPartial, deepMerge } from "../../core/util/ObjectUtils";
 import { V2d } from "../../core/Vector";
 import { SailConfig } from "./sail/Sail";
-import { SailorConfig } from "./sailor/StationConfig";
+import { StationDef } from "./sailor/StationConfig";
 import { SheetConfig } from "./Sheet";
 
 /**
@@ -401,7 +401,10 @@ export interface BoatConfig {
   readonly hullDamage: HullDamageConfig;
   readonly rudderDamage: RudderDamageConfig;
   readonly sailDamage: SailDamageConfig;
-  readonly sailor?: SailorConfig;
+  /** Sailor stations on this boat. Every boat must have at least one. */
+  readonly stations: readonly StationDef[];
+  /** Station id where the sailor starts. Must match a station in `stations`. */
+  readonly initialStationId: string;
 }
 
 // Re-export boat configs — Shaff

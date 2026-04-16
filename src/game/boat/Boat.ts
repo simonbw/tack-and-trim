@@ -49,7 +49,7 @@ export class Boat extends BaseEntity {
   mainsheet: Sheet;
   portJibSheet: Sheet | null = null;
   starboardJibSheet: Sheet | null = null;
-  sailor: Sailor | null = null;
+  sailor: Sailor;
 
   readonly config: BoatConfig;
 
@@ -327,18 +327,17 @@ export class Boat extends BaseEntity {
     // a single tilt context with per-vertex z for correct depth ordering
     this.addChild(new BoatRenderer(this));
 
-    // Create sailor character (if stations are configured)
-    if (config.sailor) {
-      this.sailor = this.addChild(
-        new Sailor(
-          config.sailor,
-          this.hull.body,
-          getDeckHeight,
-          hullBoundary,
-          config.hull.deckHeight,
-        ),
-      );
-    }
+    // Create sailor character
+    this.sailor = this.addChild(
+      new Sailor(
+        config.stations,
+        config.initialStationId,
+        this.hull.body,
+        getDeckHeight,
+        hullBoundary,
+        config.hull.deckHeight,
+      ),
+    );
 
     this.mooring = this.addChild(new Mooring(this));
 

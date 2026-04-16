@@ -25,11 +25,9 @@ export function applySaveData(game: Game, save: SaveFile): void {
   // Restore bilge water volume
   boat.bilge.waterVolume = boatState.bilgeWater;
 
-  // Restore sailor state (if present in save and boat has a sailor)
-  if (boatState.sailor && boat.sailor) {
-    boat.sailor.restoreState(
-      boatState.sailor.stationId,
-      boatState.sailor.position,
-    );
-  }
+  // Restore sailor state
+  boat.sailor.restoreState(
+    boatState.sailor.stationId,
+    boatState.sailor.position,
+  );
 }

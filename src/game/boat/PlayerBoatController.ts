@@ -7,20 +7,20 @@ import { Port } from "../port/Port";
 import { PortMenu } from "../port/PortMenu";
 import { Boat } from "./Boat";
 import { findBowPoint } from "./Hull";
+import {
+  SAILOR_RUN_SPEED,
+  SAILOR_WALK_SPEED,
+  type Sailor,
+} from "./sailor/Sailor";
 import type { StationDef } from "./sailor/StationConfig";
-import type { Sailor } from "./sailor/Sailor";
 
 const DOCK_RANGE = 30; // feet — max distance to dock from bow
 
 /**
- * Maps player input to boat actions.
- *
- * When the boat has a sailor (config.sailor is set), controls are gated
- * by the sailor's current station. When walking, WASD drives the sailor
- * and all boat controls are inert. When at a station, WASD/QE drive
- * that station's bound controls.
- *
- * When the boat has no sailor config, falls back to legacy direct controls.
+ * Maps player input to boat actions. Controls are gated by the sailor's
+ * current station: when walking, WASD drives the sailor and all boat
+ * controls are inert; when at a station, WASD/QE drive that station's
+ * bound controls.
  */
 export class PlayerBoatController extends BaseEntity {
   tickLayer = "input" as const;
@@ -48,20 +48,6 @@ export class PlayerBoatController extends BaseEntity {
     }
 
     const sailor = this.boat.sailor;
-
-    // No sailor configured — use legacy controls (including global bailing)
-    if (!sailor) {
-      // Bailing — B key locks out all other controls
-      const bailing =
-        io.isKeyDown("KeyB") && this.boat.bilge.getWaterFraction() > 0;
-      this.boat.bilge.setBailing(bailing);
-      if (bailing) {
-        io.setSteeringWheelForceFeedback(0);
-        return;
-      }
-      this.onTickLegacy(dt);
-      return;
-    }
 
     // Not at a bail station — ensure bailing is off
     this.boat.bilge.setBailing(false);
@@ -93,9 +79,8 @@ export class PlayerBoatController extends BaseEntity {
     // The deck friction equations' Jacobian sign convention makes a
     // positive `relativeVelocity` push the sailor along the -tangent
     // direction, so we negate here: W (forward) = -X motor target, etc.
-    const sailorConfig = this.boat.config.sailor!;
     const running = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
-    const speed = running ? sailorConfig.runSpeed : sailorConfig.walkSpeed;
+    const speed = running ? SAILOR_RUN_SPEED : SAILOR_WALK_SPEED;
     let vx = 0;
     let vy = 0;
     if (io.isKeyDown("KeyW")) vx -= speed;
@@ -114,8 +99,8 @@ export class PlayerBoatController extends BaseEntity {
 
     // Check for implicit walk trigger: pressing an unbound WASD key
     if (this.shouldStartWalking(station)) {
-      this.boat.sailor!.beginWalking();
-      this.onTickWalking(this.boat.sailor!);
+      this.boat.sailor.beginWalking();
+      this.onTickWalking(this.boat.sailor);
       return;
     }
 
@@ -322,63 +307,6 @@ export class PlayerBoatController extends BaseEntity {
     activeSheet.adjust(jibInput);
   }
 
-  // ── Legacy controls (no sailor configured) ──────────────────────
-
-  private onTickLegacy(dt: number): void {
-    const io = this.game.io;
-    const steer = io.getRudderSteerInput();
-    const sheet = io.getSheetInput();
-    const shiftHeld = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
-
-    this.boat.rudder.setSteer(steer, shiftHeld);
-    io.setSteeringWheelForceFeedback(this.computeWheelFeedback(steer));
-
-    const mainsheetInput = -sheet * (shiftHeld ? 1.0 : 0.3);
-    this.boat.mainsheet.adjust(mainsheetInput);
-
-    const mainHoist = io.isKeyDown("KeyT") ? 1 : io.isKeyDown("KeyG") ? -1 : 0;
-    this.boat.rig.sail.setHoistInput(mainHoist as -1 | 0 | 1);
-
-    if (this.boat.jib) {
-      const jibHoist = io.isKeyDown("KeyY") ? 1 : io.isKeyDown("KeyH") ? -1 : 0;
-      this.boat.jib.setHoistInput(jibHoist as -1 | 0 | 1);
-    }
-
-    if (
-      this.boat.jib &&
-      this.boat.portJibSheet &&
-      this.boat.starboardJibSheet
-    ) {
-      const qHeld = io.isKeyDown("KeyQ");
-      const eHeld = io.isKeyDown("KeyE");
-      this.updateJibSheetsQE(qHeld, eHeld, shiftHeld);
-    }
-
-    if (io.isKeyDown("Space")) {
-      this.boat.row();
-    }
-
-    if (io.isKeyDown("KeyF") && !this.boat.mooring.isMoored()) {
-      this.boat.anchor.lower();
-    } else if (io.isKeyDown("KeyR")) {
-      this.boat.anchor.raise();
-    } else {
-      this.boat.anchor.idle();
-    }
-
-    if (io.isKeyDown("BracketLeft")) {
-      this.boat.hull.body.applyForce3D(0, 0, 80000, 0, 3, 0);
-    }
-    if (io.isKeyDown("BracketRight")) {
-      this.boat.hull.body.applyForce3D(0, 0, -80000, 0, 3, 0);
-    }
-    if (io.isKeyDown("Quote")) {
-      const rate = shiftHeld ? 0.25 : 0.05;
-      this.boat.bilge.waterVolume +=
-        this.boat.bilge.getMaxWaterVolume() * rate * dt;
-    }
-  }
-
   // ── Steering wheel force feedback ───────────────────────────────
 
   private computeWheelFeedback(driverSteerInput: number): number {
@@ -436,22 +364,6 @@ export class PlayerBoatController extends BaseEntity {
 
     const sailor = this.boat.sailor;
 
-    if (!sailor) {
-      // Legacy dock toggle
-      if (key === "KeyF") {
-        if (this.boat.mooring.isMoored()) {
-          this.boat.mooring.castOff();
-        } else {
-          const nearbyPort = this.findNearbyPort();
-          if (nearbyPort) {
-            this.boat.mooring.moorTo(nearbyPort);
-          }
-        }
-      }
-      return;
-    }
-
-    // Sailor exists — handle station-aware key events
     if (sailor.state.kind === "atStation") {
       const station = sailor.getCurrentStation()!;
 

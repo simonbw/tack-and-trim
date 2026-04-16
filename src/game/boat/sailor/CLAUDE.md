@@ -10,7 +10,7 @@ Controls are **modal**: when the sailor is at a station, WASD/QE operate that st
 
 ### Stations
 
-Stations are defined per-boat in `BoatConfig.sailor.stations`. Each station maps input axes to boat controls:
+Stations are defined per-boat in `BoatConfig.stations` (with `BoatConfig.initialStationId` naming the starting station). Each station maps input axes to boat controls:
 
 - **steerAxis** (A/D) -- e.g. `"rudder"` at the Helm
 - **primaryAxis** (W/S) -- e.g. `"mainsheet"` at Helm, `"mainHoist"` at Mast, `"jibHoistFurl"` at Bow
@@ -29,7 +29,7 @@ Default station layout (defined in Kestrel, inherited by all boats):
 
 - Press **F** at any station to leave and start walking. Pressing an **unbound WASD key** also starts walking (e.g. A/D at the Mast, where only W/S is bound).
 - WASD drives the sailor in hull-local coordinates: W = forward, S = backward, A = port, D = starboard.
-- To enter a station, walk within `snapRadius` of it and press **F**. The sailor does not auto-snap — entering is always an explicit action.
+- To enter a station, walk within `SAILOR_SNAP_RADIUS` of it and press **F**. The sailor does not auto-snap — entering is always an explicit action.
 
 ### Walking physics
 
@@ -39,19 +39,19 @@ The sailor is a `Particle` `DynamicBody` constrained to the deck via `DeckContac
 
 2. **Motorized friction** (`targetVelocityX`/`targetVelocityY`) -- the friction equations normally drive relative tangential velocity to zero. These fields set `relativeVelocity` on the friction equations so the solver drives toward the walk speed instead of zero. Walking is literally "set the friction setpoint."
 
-The sailor's mass (configured in `SailorConfig.mass`) affects boat balance through the deck constraint's reaction forces -- the same mechanism that lets ropes on deck transfer load to the hull.
+The sailor's mass (`SAILOR_MASS` in `Sailor.ts`) affects boat balance through the deck constraint's reaction forces -- the same mechanism that lets ropes on deck transfer load to the hull.
 
 ## Files
 
-- **`StationConfig.ts`** -- `StationDef`, `SailorConfig`, `AxisControl`, `ActionControl` types
-- **`Sailor.ts`** -- entity with physics body, deck constraint, state machine (`atStation` | `walking`), rendering (orange circle)
+- **`StationConfig.ts`** -- `StationDef`, `AxisControl`, `ActionControl` types
+- **`Sailor.ts`** -- entity with physics body, deck constraint, state machine (`atStation` | `walking`), rendering (orange circle). Also exports `SAILOR_MASS`, `SAILOR_WALK_SPEED`, `SAILOR_RUN_SPEED`, `SAILOR_SNAP_RADIUS` constants (not boat-dependent).
 - **`StationHUD.tsx`** -- ReactEntity HUD showing current station name, key bindings, and walking indicator
 
 ## Integration points
 
-- **`BoatConfig.sailor?`** -- optional `SailorConfig` on the boat config. When absent, `PlayerBoatController` falls back to legacy direct controls (T/G hoist, Y/H jib hoist, F anchor/dock).
-- **`Boat.sailor`** -- the `Sailor` entity, constructed when `config.sailor` is set. Added as a child of `Boat` after `BoatRenderer` for correct draw ordering.
-- **`PlayerBoatController`** -- reads `boat.sailor.getCurrentStation()` to gate input. Three modes: legacy (no sailor), walking (WASD drives sailor), at-station (dispatches to bound controls).
+- **`BoatConfig.stations`** / **`BoatConfig.initialStationId`** -- required fields on every boat config. The boat defines where stations are and what each controls; per-sailor constants (mass, walk/run speed, snap radius) live in `Sailor.ts`.
+- **`Boat.sailor`** -- the `Sailor` entity, always constructed. Added as a child of `Boat` after `BoatRenderer` for correct draw ordering.
+- **`PlayerBoatController`** -- reads `boat.sailor.getCurrentStation()` to gate input. Two modes: walking (WASD drives sailor, boat controls inert) and at-station (dispatches to bound controls).
 - **`DeckContactConstraint`** (`src/core/physics/constraints/`) -- the base constraint used by ropes, extended with `preventFallOff` and `targetVelocityX/Y` for the sailor.
 - **`GameController`** -- adds `StationHUD` alongside other HUDs on game start.
 - **`SaveFile.boat.sailor`** -- persists `stationId` and hull-local `position`. Save version 3.

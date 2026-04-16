@@ -47,15 +47,13 @@ export function collectSaveData(
         sail: boat.mainSailDamage.getHealth(),
       },
       bilgeWater: boat.bilge.waterVolume,
-      sailor: boat.sailor
-        ? {
-            stationId:
-              boat.sailor.state.kind === "atStation"
-                ? boat.sailor.state.stationId
-                : null,
-            position: boat.sailor.getLocalPosition(),
-          }
-        : undefined,
+      sailor: {
+        stationId:
+          boat.sailor.state.kind === "atStation"
+            ? boat.sailor.state.stationId
+            : null,
+        position: boat.sailor.getLocalPosition(),
+      },
     },
 
     progression: {

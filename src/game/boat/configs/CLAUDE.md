@@ -33,7 +33,7 @@ export const BhcWeekender = createBoatConfig(
 
 - **Do not set colors per boat.** Hull colors, deck zone colors, foil colors, rig colors, sail colors, rope colors, bowsprit color, and lifeline colors all come from the brand palette. If a boat is "special" enough to want a unique color, add a new palette — don't leak colors into the boat file.
 - **Scale geometry, override physics.** `scaleBoatConfig` stretches geometry but not physics. Mass, inertia, righting coefficients, damping, draft, and damage rates must all come from the per-boat overrides block. Sailor station positions are scaled geometrically.
-- **Sailor stations are inherited.** Kestrel defines the default 3-station layout (Helm, Mast, Bow) with axis bindings and actions. All derived configs inherit these via `scaleBoatConfig` (positions scaled) and `createBoatConfig` (deep merge). Per-boat overrides can add, remove, or relocate stations.
+- **Sailor stations are inherited.** Kestrel defines the default 3-station layout (Helm, Mast, Bow) on `BoatConfig.stations` with axis bindings and actions, plus `initialStationId`. All derived configs inherit these via `scaleBoatConfig` (positions scaled) and `createBoatConfig` (deep merge). Per-boat overrides can add, remove, or relocate stations.
 - **Inspiration comments.** Each boat's docstring cites a real-world boat (J/22, Catalina 30, Swan 60, etc.) with LOA, displacement, and sail area. Use the same format when adding a new model so physics values are justifiable.
 - **Deep merge caveat.** `createBoatConfig` uses `deepMerge`, which replaces arrays wholesale. That's why the brand palette rewrites `hull.deckPlan.zones` through `withBrandPalette` rather than letting configs splice individual zones.
 

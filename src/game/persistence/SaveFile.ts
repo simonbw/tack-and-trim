@@ -23,7 +23,7 @@ export interface SaveFile {
     };
     bilgeWater: number;
     /** Sailor state: station id if at a station, or hull-local position if walking. */
-    sailor?: {
+    sailor: {
       stationId: string | null;
       position: [number, number];
     };
