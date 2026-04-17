@@ -1,5 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import type { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { V3d } from "../../core/Vector3";
 import { BoatSpray } from "../BoatSpray";
@@ -174,7 +174,7 @@ export class Boat extends BaseEntity {
     // (set in Rig), so the local anchor z is relative to the boom's own plane.
     this.mainsheet = this.addChild(
       new Sheet(
-        this.rig.body as DynamicBody,
+        this.rig.body as UnifiedBody,
         new V3d(-this.rig.getBoomLength() * boomAttachRatio, 0, 0),
         this.hull.body,
         new V3d(hullAttachPoint.x, hullAttachPoint.y, deckZAt(hullAttachPoint)),
@@ -226,7 +226,7 @@ export class Boat extends BaseEntity {
         starboardWinchPoint,
         ...jibSheetConfig
       } = config.jibSheet;
-      const clewBody = this.jib.getClew() as DynamicBody;
+      const clewBody = this.jib.getClew() as UnifiedBody;
 
       const jibClewZ = config.jib.zFoot ?? 3;
       // Build waypoint arrays: blocks first, then winch

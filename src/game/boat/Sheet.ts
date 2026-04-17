@@ -1,7 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import { Body } from "../../core/physics/body/Body";
-import type { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
 import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
 import { clamp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
@@ -121,7 +121,7 @@ export class Sheet extends BaseEntity {
   private prevWorkingLength: number = -1;
 
   constructor(
-    bodyA: DynamicBody,
+    bodyA: UnifiedBody,
     private localAnchorA: V3d,
     bodyB: Body,
     private localAnchorB: V3d,
@@ -175,6 +175,9 @@ export class Sheet extends BaseEntity {
       damping: this.config.ropeDamping,
       freeEndB: true,
       ropeDiameter,
+      // Sheets have a lot of slack tail; a non-zero lower-limit would try
+      // to extend the chain to its natural length and yank both endpoints.
+      minLinkFraction: 0,
       deckContact:
         this.getDeckHeight && this.hullBoundary
           ? {

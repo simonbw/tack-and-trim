@@ -1,6 +1,8 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { DynamicBody } from "../../../core/physics/body/DynamicBody";
+import type { DynamicPointMass2D } from "../../../core/physics/body/bodyInterfaces";
+import type { UnifiedBody } from "../../../core/physics/body/UnifiedBody";
+import { createPointMass2D } from "../../../core/physics/body/bodyFactories";
 import { DistanceConstraint } from "../../../core/physics/constraints/DistanceConstraint";
 import { Particle } from "../../../core/physics/shapes/Particle";
 import { pairs, range } from "../../../core/util/FunctionalUtils";
@@ -32,7 +34,7 @@ const noLift: ForceMagnitudeFn = () => 0;
 
 export class TellTail extends BaseEntity {
   layer = "boat" as const;
-  bodies: DynamicBody[];
+  bodies: (UnifiedBody & DynamicPointMass2D)[];
   constraints: NonNullable<BaseEntity["constraints"]>;
   getAttachmentPoint: () => ReadonlyV2d;
   getAttachmentVelocity: () => ReadonlyV2d;
@@ -58,14 +60,16 @@ export class TellTail extends BaseEntity {
     const segmentLength = TELLTAIL_LENGTH / (TELLTAIL_NODES - 1);
 
     // Create particle chain - initially laid out horizontally from attachment
-    this.bodies = range(TELLTAIL_NODES).map((i) =>
-      new DynamicBody({
+    this.bodies = range(TELLTAIL_NODES).map((i) => {
+      const b = createPointMass2D({
+        motion: "dynamic",
         mass: TELLTAIL_NODE_MASS,
         position: attachPos.add([i * segmentLength, 0]),
         collisionResponse: false,
-        fixedRotation: true,
-      }).addShape(new Particle()),
-    );
+      });
+      b.addShape(new Particle());
+      return b;
+    });
 
     // Connect adjacent particles with distance constraints
     this.constraints = pairs(this.bodies).map(

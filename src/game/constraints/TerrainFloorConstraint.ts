@@ -10,7 +10,7 @@
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import type { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
 import { V, V2d } from "../../core/Vector";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
 import { WaterQuery } from "../world/water/WaterQuery";
@@ -21,14 +21,14 @@ export interface TerrainFloorOptions {
 }
 
 export class TerrainFloorConstraint extends BaseEntity {
-  private constrainedBodies: DynamicBody[];
+  private constrainedBodies: UnifiedBody[];
   private queryPoints: V2d[];
   private terrainQuery: TerrainQuery;
   private waterQuery: WaterQuery;
   private floorFriction: number;
 
   constructor(
-    bodies: DynamicBody[] | readonly DynamicBody[],
+    bodies: UnifiedBody[] | readonly UnifiedBody[],
     options?: TerrainFloorOptions,
   ) {
     super();

@@ -1,5 +1,4 @@
 import type { Body } from "../body/Body";
-import { DynamicBody } from "../body/DynamicBody";
 import type { Equation } from "../equations/Equation";
 
 /** An island of bodies connected by equations. */
@@ -35,7 +34,7 @@ export function splitIntoIslands(
       visited: false,
     };
     bodyToNode.set(body, node);
-    if (body instanceof DynamicBody) {
+    if (body.motion === "dynamic") {
       dynamicNodes.push(node);
     }
   }
@@ -93,7 +92,7 @@ export function splitIntoIslands(
 
       // Visit unvisited dynamic neighbors
       for (const neighbor of node.neighbors) {
-        if (!neighbor.visited && neighbor.body instanceof DynamicBody) {
+        if (!neighbor.visited && neighbor.body.motion === "dynamic") {
           neighbor.visited = true;
           unvisited.delete(neighbor);
           queue.push(neighbor);

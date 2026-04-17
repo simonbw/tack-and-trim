@@ -1,9 +1,14 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import {
-  DynamicBody,
-  type SixDOFOptions,
-} from "../../core/physics/body/DynamicBody";
+  createRigid2D,
+  createRigid3D,
+} from "../../core/physics/body/bodyFactories";
+import type {
+  DynamicRigid2D,
+  DynamicRigid3D,
+} from "../../core/physics/body/bodyInterfaces";
+import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
 import { Convex } from "../../core/physics/shapes/Convex";
 import { V, V2d } from "../../core/Vector";
 import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
@@ -12,6 +17,22 @@ import { WaterQuery } from "../world/water/WaterQuery";
 import { WindQuery } from "../world/wind/WindQuery";
 import { DeckZone, HullConfig } from "./BoatConfig";
 import { buildHullMeshFromProfiles } from "./hull-profiles";
+
+/** Additional options for enabling 6DOF (z, roll, pitch) on a hull body. */
+export interface SixDOFOptions {
+  /** Moment of inertia for roll (rotation around forward/x axis). */
+  rollInertia: number;
+  /** Moment of inertia for pitch (rotation around lateral/y axis). */
+  pitchInertia: number;
+  /** Effective mass for z-axis motion (e.g. displaced water mass for buoyancy). */
+  zMass?: number;
+  /** Initial z position. Default 0. */
+  zPosition?: number;
+  /** Damping for z velocity (0-1). Default 0. */
+  zDamping?: number;
+  /** Damping for roll/pitch angular velocity (0-1). Default 0. */
+  rollPitchDamping?: number;
+}
 
 const GRAVITY = 32.174; // ft/s²
 // Hydrostatic pressure: F = ρ * g * depth * area (lbf), converted to engine units (* g)
@@ -221,7 +242,7 @@ export interface HullDissipation {
 
 export class Hull extends BaseEntity {
   layer = "boat" as const;
-  body: DynamicBody;
+  body: UnifiedBody & (DynamicRigid2D | DynamicRigid3D);
   private skinFrictionCoefficient: number;
   private stagnationCoefficient: number;
   private separationCoefficient: number;
@@ -281,10 +302,21 @@ export class Hull extends BaseEntity {
       ? [...config.deckPlan.zones].sort((a, b) => b.floorZ - a.floorZ)
       : [];
 
-    this.body = new DynamicBody({
-      mass: config.mass,
-      sixDOF,
-    });
+    this.body = sixDOF
+      ? createRigid3D({
+          motion: "dynamic",
+          mass: config.mass,
+          rollInertia: sixDOF.rollInertia,
+          pitchInertia: sixDOF.pitchInertia,
+          zMass: sixDOF.zMass,
+          z: sixDOF.zPosition,
+          zDamping: sixDOF.zDamping,
+          rollPitchDamping: sixDOF.rollPitchDamping,
+        })
+      : createRigid2D({
+          motion: "dynamic",
+          mass: config.mass,
+        });
 
     this.body.addShape(
       new Convex({

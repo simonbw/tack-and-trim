@@ -2,7 +2,12 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Body } from "../../../core/physics/body/Body";
-import { DynamicBody } from "../../../core/physics/body/DynamicBody";
+import { createPointMass3D } from "../../../core/physics/body/bodyFactories";
+import { UnifiedBody } from "../../../core/physics/body/UnifiedBody";
+
+// Sail handles both point-mass-3D clews and rigid-3D hull/boom bodies; the
+// common surface (with 3D transforms and force application) is UnifiedBody.
+type DynamicBody = UnifiedBody;
 import { clamp } from "../../../core/util/MathUtil";
 import {
   asyncProfiler,
@@ -252,21 +257,16 @@ export class Sail extends BaseEntity {
       // Mass is set high enough to stabilize the two-way coupling with the
       // cloth sim (reaction forces feed back with a one-frame delay).
       const clewMass = 5;
-      const clewBody = new DynamicBody({
+      const clewBody = createPointMass3D({
+        motion: "dynamic",
         mass: clewMass,
         position: [cx, cy],
         damping: 0.9,
         collisionResponse: false,
-        fixedRotation: true,
         allowSleep: false,
-        sixDOF: {
-          rollInertia: 1,
-          pitchInertia: 1,
-          zMass: clewMass,
-          zPosition: zFoot,
-          zDamping: 0.9,
-          rollPitchDamping: 0,
-        },
+        zMass: clewMass,
+        z: zFoot,
+        zDamping: 0.9,
       });
       // No collision shape — the clew body is inside the hull polygon
       // and would collide with it. It only needs to participate in

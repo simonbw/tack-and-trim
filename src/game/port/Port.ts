@@ -1,7 +1,8 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
-import { StaticBody } from "../../core/physics/body/StaticBody";
+import type { Body } from "../../core/physics/body/Body";
+import { createRigid2D } from "../../core/physics/body/bodyFactories";
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
 import type { PortData } from "../../editor/io/LevelFileFormat";
@@ -48,7 +49,7 @@ const CLEAT_COLOR = 0x2b2b2b;
 export class Port extends BaseEntity {
   tags = ["port"];
   layer = "boat" as const;
-  body: StaticBody;
+  body: Body;
 
   private portData: PortData;
 
@@ -73,7 +74,8 @@ export class Port extends BaseEntity {
     );
 
     // Create static body for collision
-    this.body = new StaticBody({
+    this.body = createRigid2D({
+      motion: "static",
       position: [data.position.x, data.position.y],
       angle: data.angle,
     });

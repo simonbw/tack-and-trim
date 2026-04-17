@@ -21,19 +21,20 @@
  *
  * ## Separation of concerns
  *
- * `Body` and `DynamicBody` remain unaware of the solver. Equations accept
+ * `Body` and `Body` remain unaware of the solver. Equations accept
  * a `SolverWorkspace` as an opaque handle — they know the workspace exposes
  * `vlambda`, `wlambda`, `invMassSolve`, etc. by index, but not how that
  * storage is organized. A different solver could supply its own workspace.
  */
 
 import { Body } from "../body/Body";
-import { DynamicBody } from "../body/DynamicBody";
 import type { AngularEquation2D } from "../equations/AngularEquation2D";
 import type { AngularEquation3D } from "../equations/AngularEquation3D";
 import type { Equation } from "../equations/Equation";
 import type { PlanarEquation2D } from "../equations/PlanarEquation2D";
+import type { PointToPointEquation2D } from "../equations/PointToPointEquation2D";
 import type { PointToPointEquation3D } from "../equations/PointToPointEquation3D";
+import type { PointToRigidEquation2D } from "../equations/PointToRigidEquation2D";
 import type { PointToRigidEquation3D } from "../equations/PointToRigidEquation3D";
 import type { PulleyEquation } from "../equations/PulleyEquation";
 
@@ -68,7 +69,7 @@ export class SolverWorkspace {
    * finalize. Populated in the order they are registered. Parallel to
    * `dynamicBodyIndices`.
    */
-  dynamicBodies: DynamicBody[] = [];
+  dynamicBodies: Body[] = [];
 
   /** Workspace index for each entry in `dynamicBodies`. */
   dynamicBodyIndices: number[] = [];
@@ -109,6 +110,8 @@ export class SolverWorkspace {
   pulleyEquations: PulleyEquation[] = [];
   pointToPointEquations: PointToPointEquation3D[] = [];
   pointToRigidEquations: PointToRigidEquation3D[] = [];
+  pointToPoint2DEquations: PointToPointEquation2D[] = [];
+  pointToRigid2DEquations: PointToRigidEquation2D[] = [];
   planar2DEquations: PlanarEquation2D[] = [];
   angular3DEquations: AngularEquation3D[] = [];
   angular2DEquations: AngularEquation2D[] = [];
@@ -135,6 +138,8 @@ export class SolverWorkspace {
     this.pulleyEquations.length = 0;
     this.pointToPointEquations.length = 0;
     this.pointToRigidEquations.length = 0;
+    this.pointToPoint2DEquations.length = 0;
+    this.pointToRigid2DEquations.length = 0;
     this.planar2DEquations.length = 0;
     this.angular3DEquations.length = 0;
     this.angular2DEquations.length = 0;
@@ -209,7 +214,7 @@ export class SolverWorkspace {
    * Register a dynamic body. Sets invMass/invInertia from the body (or to
    * zero if sleeping) and records it for the finalize pass.
    */
-  registerDynamic(body: DynamicBody): number {
+  registerDynamic(body: Body): number {
     const existing = this.bodyToIndex.get(body);
     if (existing !== undefined) return existing;
     const idx = this.assign(body, body.isSleeping());

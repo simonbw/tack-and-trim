@@ -1,7 +1,8 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import { on } from "../core/entity/handler";
 import type { Draw } from "../core/graphics/Draw";
-import { DynamicBody } from "../core/physics/body/DynamicBody";
+import type { Body } from "../core/physics/body/Body";
+import { createRigid2D } from "../core/physics/body/bodyFactories";
 import { Circle } from "../core/physics/shapes/Circle";
 import { V } from "../core/Vector";
 import { WaterQuery } from "./world/water/WaterQuery";
@@ -16,7 +17,7 @@ const HEIGHT_SCALE_FACTOR = 0.2; // Dimensionless - how much surface height affe
 
 export class Buoy extends BaseEntity {
   layer = "boat" as const;
-  body: DynamicBody;
+  body: Body;
   private currentScale: number = 1;
 
   // Water query for buoy position
@@ -28,7 +29,10 @@ export class Buoy extends BaseEntity {
     super();
 
     // Physics: circular body
-    this.body = new DynamicBody({ mass: BUOY_MASS });
+    this.body = createRigid2D({
+      motion: "dynamic",
+      mass: BUOY_MASS,
+    });
     this.body.addShape(new Circle({ radius: BUOY_RADIUS }));
     this.body.position.set(x, y);
   }

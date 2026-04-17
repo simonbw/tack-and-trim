@@ -162,7 +162,7 @@ function getBasicStats(ctx: StatsPanelContext) {
     hugeBodyCount: broadphase.hugeBodies?.size ?? 0,
     dynamicBodyCount: world.bodies.dynamic.length,
     kinematicBodyCount: world.bodies.kinematic.length,
-    particleBodyCount: broadphase.particleBodies.size,
+    particleBodyCount: broadphase.pointShapeBodies.size,
     collisions: broadphase.debugData.numCollisions,
   };
 }

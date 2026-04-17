@@ -1,13 +1,12 @@
 import { FilterMultiMap } from "../../util/FilterListMap";
 import { Body } from "../body/Body";
-import {
-  isAwakeDynamicBody,
-  isDynamicBody,
-  isKinematicBody,
-  isStaticBody,
-} from "../body/body-helpers";
-import { DynamicBody } from "../body/DynamicBody";
 import type { World } from "./World";
+
+const isDynamic = (b: Body): b is Body => b.motion === "dynamic";
+const isKinematic = (b: Body): b is Body => b.motion === "kinematic";
+const isStatic = (b: Body): b is Body => b.motion === "static";
+const isAwakeDynamic = (b: Body): b is Body =>
+  b.motion === "dynamic" && !b.isSleeping();
 
 /** Manages bodies in the physics world with type-specific sets and deferred removal. */
 export class BodyManager implements Iterable<Body> {
@@ -23,33 +22,33 @@ export class BodyManager implements Iterable<Body> {
 
   constructor(world: World) {
     this.world = world;
-    this.filtered.addFilter(isDynamicBody);
-    this.filtered.addFilter(isKinematicBody);
-    this.filtered.addFilter(isStaticBody);
-    this.filtered.addFilter(isAwakeDynamicBody);
+    this.filtered.addFilter(isDynamic);
+    this.filtered.addFilter(isKinematic);
+    this.filtered.addFilter(isStatic);
+    this.filtered.addFilter(isAwakeDynamic);
 
     this.world.on("postStep", () => this.endStep());
   }
 
   /** Set of dynamic bodies for optimized iteration. */
   get dynamic() {
-    return this.filtered.getItems(isDynamicBody)!;
+    return this.filtered.getItems(isDynamic)!;
   }
   /** Set of kinematic bodies for optimized iteration. */
   get kinematic() {
-    return this.filtered.getItems(isKinematicBody)!;
+    return this.filtered.getItems(isKinematic)!;
   }
   /** Set of static bodies for optimized iteration. */
   get static() {
-    return this.filtered.getItems(isStaticBody)!;
+    return this.filtered.getItems(isStatic)!;
   }
   /** Set of awake dynamic bodies for optimized simulation loops. */
   get dynamicAwake() {
-    return this.filtered.getItems(isAwakeDynamicBody)!;
+    return this.filtered.getItems(isAwakeDynamic)!;
   }
 
   /** Update dynamicAwake filter membership when a body's sleep state changes. */
-  onSleepStateChanged(body: DynamicBody) {
+  onSleepStateChanged(body: Body) {
     this.dynamicAwake.addIfValid(body);
   }
 

@@ -22,7 +22,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Body } from "../../core/physics/body/Body";
-import type { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
 import {
   PulleyConstraint3D,
   type PulleyMode,
@@ -49,7 +49,7 @@ export interface PulleyConfig {
 
 export class Pulley extends BaseEntity {
   private readonly rope: Rope;
-  private readonly particles: readonly DynamicBody[];
+  private readonly particles: readonly UnifiedBody[];
   private readonly pulleyBody: Body;
   private readonly localAnchor: V3d;
   private readonly chainLinkLength: number;

@@ -1,7 +1,9 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
-import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { DynamicPointMass2D } from "../../core/physics/body/bodyInterfaces";
+import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
+import { createPointMass2D } from "../../core/physics/body/bodyFactories";
 import { DistanceConstraint } from "../../core/physics/constraints/DistanceConstraint";
 import { Particle } from "../../core/physics/shapes/Particle";
 import { V, V2d } from "../../core/Vector";
@@ -25,8 +27,8 @@ export class Mooring extends BaseEntity {
   private currentPort: Port | null = null;
 
   // Physics anchors for mooring lines
-  private bowAnchorBody: DynamicBody | null = null;
-  private sternAnchorBody: DynamicBody | null = null;
+  private bowAnchorBody: (UnifiedBody & DynamicPointMass2D) | null = null;
+  private sternAnchorBody: (UnifiedBody & DynamicPointMass2D) | null = null;
   private bowConstraint: DistanceConstraint | null = null;
   private sternConstraint: DistanceConstraint | null = null;
 
@@ -70,19 +72,19 @@ export class Mooring extends BaseEntity {
 
     // Create static anchor bodies at cleat positions
     // (using tiny dynamic bodies with high mass to act as fixed points for constraints)
-    this.bowAnchorBody = new DynamicBody({
+    this.bowAnchorBody = createPointMass2D({
+      motion: "dynamic",
       mass: 1e6,
       position: [bowCleatWorld.x, bowCleatWorld.y],
-      fixedRotation: true,
       damping: 1.0,
     });
     this.bowAnchorBody.addShape(new Particle());
     this.game.world.bodies.add(this.bowAnchorBody);
 
-    this.sternAnchorBody = new DynamicBody({
+    this.sternAnchorBody = createPointMass2D({
+      motion: "dynamic",
       mass: 1e6,
       position: [sternCleatWorld.x, sternCleatWorld.y],
-      fixedRotation: true,
       damping: 1.0,
     });
     this.sternAnchorBody.addShape(new Particle());

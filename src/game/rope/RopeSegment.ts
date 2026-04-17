@@ -12,12 +12,12 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Body } from "../../core/physics/body/Body";
-import type { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
 import type {
   DeckContactConstraint,
   HullBoundaryData,
 } from "../../core/physics/constraints/DeckContactConstraint";
-import { ParticleDistanceConstraint3D } from "../../core/physics/constraints/ParticleDistanceConstraint3D";
+import { DistanceConstraint3D } from "../../core/physics/constraints/DistanceConstraint3D";
 import { WrapConstraint3D } from "../../core/physics/constraints/WrapConstraint3D";
 import { V, V2d } from "../../core/Vector";
 import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
@@ -64,8 +64,8 @@ export interface RopeSegmentConfig {
 }
 
 export class RopeSegment extends BaseEntity {
-  private readonly particleA: DynamicBody;
-  private readonly particleB: DynamicBody;
+  private readonly particleA: UnifiedBody;
+  private readonly particleB: UnifiedBody;
   private readonly length: number;
   private readonly internalFriction: number;
 
@@ -82,8 +82,8 @@ export class RopeSegment extends BaseEntity {
   private waterQuery: WaterQuery | null = null;
 
   constructor(
-    particleA: DynamicBody,
-    particleB: DynamicBody,
+    particleA: UnifiedBody,
+    particleB: UnifiedBody,
     config: RopeSegmentConfig,
   ) {
     super();
@@ -96,7 +96,7 @@ export class RopeSegment extends BaseEntity {
     // Chain constraint — particle-to-particle specialization skips all the
     // angular Jacobian work and reads body positions directly, which is a
     // big hot-path win for rope chains.
-    const c = new ParticleDistanceConstraint3D(particleA, particleB, {
+    const c = new DistanceConstraint3D(particleA, particleB, {
       distance: config.length,
       collideConnected: true,
     });

@@ -2,7 +2,7 @@
  * 3D point-lock constraint between a particle-like body and a rigid body
  * with a local anchor. Holds the particle coincident with the anchor in all
  * three world-space position axes, so both radial and tangential motion are
- * resisted (unlike {@link PointToRigidDistanceConstraint3D}, which only
+ * resisted (unlike {@link DistanceConstraint3D}, which only
  * constrains radial separation).
  *
  * Owns three {@link PointToRigidEquation3D}s with fixed world-axis normals

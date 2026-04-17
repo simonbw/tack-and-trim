@@ -12,7 +12,7 @@ import { WebGPUDeviceManager, getWebGPU } from "./graphics/webgpu/WebGPUDevice";
 import { WebGPURenderer } from "./graphics/webgpu/WebGPURenderer";
 import { IOManager } from "./io/IO";
 import type { Body } from "./physics/body/Body";
-import { StaticBody } from "./physics/body/StaticBody";
+import { createRigid2D } from "./physics/body/bodyFactories";
 import { PhysicsEventMap } from "./physics/events/PhysicsEvents";
 import { World } from "./physics/world/World";
 import type { Modal } from "./ui/Modal";
@@ -126,7 +126,7 @@ export class Game {
     this.world.on("beginContact", this.beginContact, null);
     this.world.on("endContact", this.endContact, null);
     this.world.on("impact", this.impact, null);
-    this.ground = new StaticBody();
+    this.ground = createRigid2D({ motion: "static" });
     this.world.bodies.add(this.ground);
     this.contactList = new ContactList();
 

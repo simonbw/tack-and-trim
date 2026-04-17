@@ -1,5 +1,5 @@
 import { angleDelta } from "../../util/MathUtil";
-import type { DynamicBody } from "../body/DynamicBody";
+import type { UnifiedBody } from "../body/UnifiedBody";
 import { RotationalSpring } from "./RotationalSpring";
 
 /**
@@ -8,7 +8,7 @@ import { RotationalSpring } from "./RotationalSpring";
  * with damping to prevent oscillation.
  */
 export class AimSpring extends RotationalSpring {
-  constructor(bodyA: DynamicBody) {
+  constructor(bodyA: UnifiedBody) {
     super(bodyA, null as any, {
       damping: 1,
       stiffness: 10,

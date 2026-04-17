@@ -1,5 +1,5 @@
 import type { Body } from "../body/Body";
-import type { DynamicBody } from "../body/DynamicBody";
+import type { UnifiedBody } from "../body/UnifiedBody";
 
 /** Options shared by all spring types. */
 export interface SpringOptions {
@@ -19,12 +19,12 @@ export abstract class Spring {
   stiffness: number;
   /** Damping coefficient. */
   damping: number;
-  /** First body connected by the spring. Must be a DynamicBody. */
-  bodyA: DynamicBody;
+  /** First body connected by the spring. Must be a UnifiedBody. */
+  bodyA: UnifiedBody;
   /** Second body connected by the spring. */
   bodyB: Body;
 
-  constructor(bodyA: DynamicBody, bodyB: Body, options: SpringOptions = {}) {
+  constructor(bodyA: UnifiedBody, bodyB: Body, options: SpringOptions = {}) {
     this.stiffness = options?.stiffness ?? 100;
     this.damping = options?.damping ?? 1;
     this.bodyA = bodyA;

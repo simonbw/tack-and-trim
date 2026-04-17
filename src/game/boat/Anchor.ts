@@ -1,7 +1,9 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
-import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { DynamicRigid3D } from "../../core/physics/body/bodyInterfaces";
+import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
+import { createRigid3D } from "../../core/physics/body/bodyFactories";
 import { Circle } from "../../core/physics/shapes/Circle";
 import { V, V2d } from "../../core/Vector";
 import { V3d } from "../../core/Vector3";
@@ -47,7 +49,7 @@ const ANCHOR_CG_RATIO = 0.55; // CG distance from flukes / anchorLen
 export class Anchor extends BaseEntity {
   layer = "boat" as const;
 
-  private anchorBody!: DynamicBody;
+  private anchorBody!: UnifiedBody & DynamicRigid3D;
   private rode: Rope | null = null;
   private winch: Pulley | null = null;
   private pulleys: Pulley[] = [];
@@ -109,21 +111,20 @@ export class Anchor extends BaseEntity {
     // So r = sqrt(2 * I_yaw / m)
     const yawRadius = Math.sqrt((2 * this.yawInertia) / this.anchorMass);
 
-    this.anchorBody = new DynamicBody({
+    this.anchorBody = createRigid3D({
+      motion: "dynamic",
       mass: this.anchorMass,
       position: [bowWorld.x, bowWorld.y],
       angle: this.hull.body.angle,
       damping: 0.5,
       angularDamping: 0.95,
       allowSleep: false,
-      sixDOF: {
-        rollInertia: this.rollInertia,
-        pitchInertia: this.pitchInertia,
-        zMass: this.anchorMass,
-        zDamping: 0, // We apply drag as explicit underwater forces
-        rollPitchDamping: 0,
-        zPosition: this.deckHeight,
-      },
+      rollInertia: this.rollInertia,
+      pitchInertia: this.pitchInertia,
+      zMass: this.anchorMass,
+      zDamping: 0, // We apply drag as explicit underwater forces
+      rollPitchDamping: 0,
+      z: this.deckHeight,
     });
     this.anchorBody.addShape(
       new Circle({ radius: yawRadius, collisionGroup: 0, collisionMask: 0 }),
@@ -174,6 +175,10 @@ export class Anchor extends BaseEntity {
           particleCount,
           particleMass,
           damping: 0,
+          // Stowed rope coils freely inside the bow locker; a non-zero lower
+          // limit would try to extend it to its full deployed length and
+          // yank the anchor off the deck.
+          minLinkFraction: 0,
           drag: {
             waterDrag: true,
             ropeDiameter: RODE_DIAMETER,

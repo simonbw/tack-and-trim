@@ -1,16 +1,21 @@
+import { Particle } from "../shapes/Particle";
 import { Body } from "./Body";
-import { DynamicBody } from "./DynamicBody";
-import { KinematicBody } from "./KinematicBody";
-import { StaticBody } from "./StaticBody";
 
-export const isDynamicBody = (body: Body): body is DynamicBody =>
-  body instanceof DynamicBody;
+/**
+ * Returns true if the body's shape composition is entirely Particle shapes.
+ * Useful because particle-shape vs particle-shape has no narrowphase handler,
+ * so such bodies can skip pairwise collision registration with each other.
+ *
+ * Note: this is a shape-composition check, distinct from the body-level
+ * PointMass DOF concept.
+ */
+export function hasOnlyParticleShapes(body: Body): boolean {
+  return (
+    body.shapes.length > 0 && body.shapes.every((s) => s instanceof Particle)
+  );
+}
 
-export const isKinematicBody = (body: Body): body is KinematicBody =>
-  body instanceof KinematicBody;
-
-export const isStaticBody = (body: Body): body is StaticBody =>
-  body instanceof StaticBody;
-
-export const isAwakeDynamicBody = (body: Body): body is DynamicBody =>
-  body instanceof DynamicBody && !body.isSleeping();
+/** True if the body is a dynamic body that is currently awake. */
+export function isAwake(body: Body): boolean {
+  return body.motion === "dynamic" && !body.isSleeping();
+}
