@@ -65,6 +65,7 @@ export class WebGPUDeviceManager {
     float32Filterable: false,
     timestampQuery: false,
     shaderF16: false,
+    depthClipControl: false,
   };
 
   private constructor() {}
@@ -126,6 +127,11 @@ export class WebGPUDeviceManager {
     if (this._adapter.features.has("shader-f16")) {
       wantedFeatures.push("shader-f16");
       this._features.shaderF16 = true;
+    }
+
+    if (this._adapter.features.has("depth-clip-control")) {
+      wantedFeatures.push("depth-clip-control");
+      this._features.depthClipControl = true;
     }
 
     // Request device with optional features and higher limits
