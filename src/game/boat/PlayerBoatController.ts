@@ -97,13 +97,6 @@ export class PlayerBoatController extends BaseEntity {
     const io = this.game.io;
     const shiftHeld = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
 
-    // Check for implicit walk trigger: pressing an unbound WASD key
-    if (this.shouldStartWalking(station)) {
-      this.boat.sailor.beginWalking();
-      this.onTickWalking(this.boat.sailor);
-      return;
-    }
-
     // --- Steer axis (A/D) ---
     if (station.steerAxis) {
       const steer = io.getRudderSteerInput();
@@ -193,26 +186,6 @@ export class PlayerBoatController extends BaseEntity {
       this.boat.bilge.waterVolume +=
         this.boat.bilge.getMaxWaterVolume() * rate * dt;
     }
-  }
-
-  /**
-   * Check if the player is pressing a WASD key that has no binding
-   * at the current station, which should trigger walking.
-   */
-  private shouldStartWalking(station: StationDef): boolean {
-    const io = this.game.io;
-    // A or D pressed with no steerAxis binding
-    if (!station.steerAxis && (io.isKeyDown("KeyA") || io.isKeyDown("KeyD"))) {
-      return true;
-    }
-    // W or S pressed with no primaryAxis binding
-    if (
-      !station.primaryAxis &&
-      (io.isKeyDown("KeyW") || io.isKeyDown("KeyS"))
-    ) {
-      return true;
-    }
-    return false;
   }
 
   // ── Jib sheet helpers ───────────────────────────────────────────
