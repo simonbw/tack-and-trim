@@ -1,9 +1,8 @@
 import type { Body } from "../body/Body";
 
 /**
- * Recompute mass/inertia from the body's shape list. Mirrors the old
- * `DynamicBody.updateMassProperties` logic but operates on Body fields
- * directly. No-op for static / kinematic bodies.
+ * Recompute mass/inertia from the body's shape list. No-op for static /
+ * kinematic bodies.
  */
 export function updateMassProperties(body: Body): void {
   if (body.motion !== "dynamic") {

@@ -230,10 +230,9 @@ export class Body
             : 0;
       }
 
-      // Match legacy DynamicBody: initialize invMass / invInertia /
-      // invWorldInertia from mass (and, if shapes were added pre-construction,
-      // from them). Callers typically add shapes after construction; addShape
-      // re-runs this via _updateMassPropertiesInline.
+      // Initialize invMass / invInertia / invWorldInertia from mass (and from
+      // shapes if any were added pre-construction). Callers typically add
+      // shapes after construction; addShape re-runs this.
       updateMassPropertiesSystem(this);
     } else if (options.motion === "kinematic") {
       if (options.velocity) {
