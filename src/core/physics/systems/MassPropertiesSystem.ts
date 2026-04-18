@@ -1,11 +1,11 @@
-import type { UnifiedBody } from "../body/UnifiedBody";
+import type { Body } from "../body/Body";
 
 /**
  * Recompute mass/inertia from the body's shape list. Mirrors the old
- * `DynamicBody.updateMassProperties` logic but operates on UnifiedBody fields
+ * `DynamicBody.updateMassProperties` logic but operates on Body fields
  * directly. No-op for static / kinematic bodies.
  */
-export function updateMassProperties(body: UnifiedBody): void {
+export function updateMassProperties(body: Body): void {
   if (body.motion !== "dynamic") {
     return;
   }
@@ -54,7 +54,7 @@ export function updateMassProperties(body: UnifiedBody): void {
  * its orientation matrix: invI_world = R * diag(1/Ix, 1/Iy, 1/Iz) * R^T.
  * No-op on other shapes.
  */
-export function recomputeWorldInertia(body: UnifiedBody): void {
+export function recomputeWorldInertia(body: Body): void {
   if (body.shape !== "rigid3d" || body.motion !== "dynamic") {
     return;
   }

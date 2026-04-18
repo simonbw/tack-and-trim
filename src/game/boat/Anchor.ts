@@ -2,7 +2,7 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import type { DynamicRigid3D } from "../../core/physics/body/bodyInterfaces";
-import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
+import type { Body } from "../../core/physics/body/Body";
 import { createRigid3D } from "../../core/physics/body/bodyFactories";
 import { Circle } from "../../core/physics/shapes/Circle";
 import { V, V2d } from "../../core/Vector";
@@ -49,7 +49,7 @@ const ANCHOR_CG_RATIO = 0.55; // CG distance from flukes / anchorLen
 export class Anchor extends BaseEntity {
   layer = "boat" as const;
 
-  private anchorBody!: UnifiedBody & DynamicRigid3D;
+  private anchorBody!: Body & DynamicRigid3D;
   private rode: Rope | null = null;
   private winch: Pulley | null = null;
   private pulleys: Pulley[] = [];

@@ -1,7 +1,6 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
-import { Body } from "../../core/physics/body/Body";
-import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
+import type { Body } from "../../core/physics/body/Body";
 import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
 import { clamp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
@@ -121,7 +120,7 @@ export class Sheet extends BaseEntity {
   private prevWorkingLength: number = -1;
 
   constructor(
-    bodyA: UnifiedBody,
+    bodyA: Body,
     private localAnchorA: V3d,
     bodyB: Body,
     private localAnchorB: V3d,

@@ -12,7 +12,6 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Body } from "../../core/physics/body/Body";
-import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
 import type {
   DeckContactConstraint,
   HullBoundaryData,
@@ -64,8 +63,8 @@ export interface RopeSegmentConfig {
 }
 
 export class RopeSegment extends BaseEntity {
-  private readonly particleA: UnifiedBody;
-  private readonly particleB: UnifiedBody;
+  private readonly particleA: Body;
+  private readonly particleB: Body;
   private readonly length: number;
   private readonly internalFriction: number;
 
@@ -82,8 +81,8 @@ export class RopeSegment extends BaseEntity {
   private waterQuery: WaterQuery | null = null;
 
   constructor(
-    particleA: UnifiedBody,
-    particleB: UnifiedBody,
+    particleA: Body,
+    particleB: Body,
     config: RopeSegmentConfig,
   ) {
     super();

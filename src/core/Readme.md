@@ -322,7 +322,7 @@ The physics system is a custom 2D rigid body engine. See [physics/README.md](./p
 Key concepts:
 
 - **World** — The simulation container that manages bodies, constraints, and collision
-- **Bodies** — `DynamicBody` (responds to forces), `StaticBody` (immovable), `KinematicBody` (scripted motion)
+- **Body** — single `Body` class tagged by `shape` (pm2d/rigid2d/pm3d/rigid3d) × `motion` (static/kinematic/dynamic); construct via factories in `physics/body/bodyFactories.ts`
 - **Shapes** — Collision geometry: `Circle`, `Box`, `Convex`, `Capsule`, `Line`, `Plane`, `Particle`, `Heightfield`
 - **Constraints** — Maintain relationships between bodies: `DistanceConstraint`, `RevoluteConstraint`, `LockConstraint`
 - **Springs** — Soft connections: `LinearSpring`, `RotationalSpring`, `RopeSpring`, and more

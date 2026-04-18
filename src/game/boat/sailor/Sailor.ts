@@ -1,7 +1,7 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
-import type { UnifiedBody } from "../../../core/physics/body/UnifiedBody";
+import type { Body } from "../../../core/physics/body/Body";
 import { createPointMass3D } from "../../../core/physics/body/bodyFactories";
 import { type HullBoundaryData } from "../../../core/physics/constraints/DeckContactConstraint";
 import { PointToRigidLockConstraint3D } from "../../../core/physics/constraints/PointToRigidLockConstraint3D";
@@ -59,9 +59,9 @@ export type SailorState =
 export class Sailor extends BaseEntity {
   layer = "boat" as const;
 
-  readonly body: UnifiedBody;
+  readonly body: Body;
   private readonly stations: readonly StationDef[];
-  private readonly hullBody: UnifiedBody;
+  private readonly hullBody: Body;
   private readonly deckConstraint: SailorDeckConstraint;
   /** 3-axis position lock to the current station. Disabled while walking. */
   private readonly stationWeld: PointToRigidLockConstraint3D;
@@ -83,7 +83,7 @@ export class Sailor extends BaseEntity {
   constructor(
     stations: readonly StationDef[],
     initialStationId: string,
-    hullBody: UnifiedBody,
+    hullBody: Body,
     getDeckHeight: (localX: number, localY: number) => number | null,
     hullBoundary: HullBoundaryData,
     deckHeight: number,

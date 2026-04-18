@@ -1,6 +1,6 @@
 import type { V2d } from "../../Vector";
 import type { CompatibleVector3 } from "../../Vector3";
-import type { UnifiedBody } from "../body/UnifiedBody";
+import type { Body } from "../body/Body";
 
 /**
  * Apply a world-frame force at an optional world-frame relative point.
@@ -8,7 +8,7 @@ import type { UnifiedBody } from "../body/UnifiedBody";
  * via the scalar cross product. Point masses ignore the relativePoint.
  */
 export function applyForce(
-  body: UnifiedBody,
+  body: Body,
   force: V2d,
   relativeWorldPoint?: V2d,
 ): void {
@@ -32,7 +32,7 @@ export function applyForce(
  * world frame then delegates to {@link applyForce}.
  */
 export function applyForceLocal(
-  body: UnifiedBody,
+  body: Body,
   localForce: V2d,
   localPoint?: V2d,
 ): void {
@@ -48,12 +48,12 @@ export function applyForceLocal(
  * bodies — other shapes silently ignore the Z and roll/pitch components.
  */
 export function applyForce3D(
-  body: UnifiedBody,
+  body: Body,
   force: CompatibleVector3,
   localPoint: CompatibleVector3,
 ): void;
 export function applyForce3D(
-  body: UnifiedBody,
+  body: Body,
   fx: number,
   fy: number,
   fz: number,
@@ -62,7 +62,7 @@ export function applyForce3D(
   localZ: number,
 ): void;
 export function applyForce3D(
-  body: UnifiedBody,
+  body: Body,
   fxOrForce: number | CompatibleVector3,
   fyOrLocalPoint: number | CompatibleVector3,
   fzArg?: number,
@@ -127,7 +127,7 @@ export function applyForce3D(
  * optional relative world-frame point contributes angular velocity.
  */
 export function applyImpulse(
-  body: UnifiedBody,
+  body: Body,
   impulse: V2d,
   relativeWorldPoint?: V2d,
 ): void {
@@ -147,7 +147,7 @@ export function applyImpulse(
  * Apply an impulse in body-local frame at a body-local point.
  */
 export function applyImpulseLocal(
-  body: UnifiedBody,
+  body: Body,
   localImpulse: V2d,
   localPoint?: V2d,
 ): void {
@@ -162,7 +162,7 @@ export function applyImpulseLocal(
  * Zero out force, torque (all 3 axes), and z-force accumulators. Safe on any
  * shape — fields it doesn't use are harmless.
  */
-export function setZeroForce(body: UnifiedBody): void {
+export function setZeroForce(body: Body): void {
   body.force.x = 0;
   body.force.y = 0;
   body.angularForce3[0] = 0;

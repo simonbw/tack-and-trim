@@ -5,7 +5,8 @@ Custom rigid body physics engine (not a wrapper around another library).
 ## Architecture
 
 - **World** - Central container managing bodies, constraints, springs, and collision
-- **Bodies** - DynamicBody, StaticBody, KinematicBody with shared Body base
+- **Body** - Single concrete `Body` class tagged by readonly `shape` (`pm2d`/`rigid2d`/`pm3d`/`rigid3d`) and `motion` (`static`/`kinematic`/`dynamic`). Narrowed interface views in `bodyInterfaces.ts`; construct via factories in `bodyFactories.ts` (`createRigid2D`, `createPointMass3D`, etc.) for type-level narrowing.
+- **Systems** - Per-concern modules in `systems/` (AABB, Damping, Force, Integration, MassProperties, Sleep) operate on partitioned body buckets. The solver step in `World.step()` drives them in order.
 - **Shapes** - Circle, Convex, Particle, Line, Plane, Heightfield attached to bodies
 - **Collision** - Broadphase (spatial hashing) → Narrowphase → Contact generation
 

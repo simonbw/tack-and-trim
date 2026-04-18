@@ -1,6 +1,5 @@
 import { clamp } from "../../util/MathUtil";
 import type { Body } from "../body/Body";
-import type { UnifiedBody } from "../body/UnifiedBody";
 import type { RotationalSpringOptions } from "./RotationalSpring";
 import { RotationalSpring } from "./RotationalSpring";
 
@@ -16,7 +15,7 @@ export class DampedRotationalSpring extends RotationalSpring {
   maxTorque: number;
 
   constructor(
-    bodyA: UnifiedBody,
+    bodyA: Body,
     bodyB: Body,
     options: DampedRotationalSpringOptions = {},
   ) {

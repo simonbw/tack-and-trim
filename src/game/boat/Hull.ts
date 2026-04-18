@@ -8,7 +8,7 @@ import type {
   DynamicRigid2D,
   DynamicRigid3D,
 } from "../../core/physics/body/bodyInterfaces";
-import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
+import type { Body } from "../../core/physics/body/Body";
 import { Convex } from "../../core/physics/shapes/Convex";
 import { V, V2d } from "../../core/Vector";
 import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
@@ -242,7 +242,7 @@ export interface HullDissipation {
 
 export class Hull extends BaseEntity {
   layer = "boat" as const;
-  body: UnifiedBody & (DynamicRigid2D | DynamicRigid3D);
+  body: Body & (DynamicRigid2D | DynamicRigid3D);
   private skinFrictionCoefficient: number;
   private stagnationCoefficient: number;
   private separationCoefficient: number;

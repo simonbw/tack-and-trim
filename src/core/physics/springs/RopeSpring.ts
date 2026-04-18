@@ -1,4 +1,3 @@
-import type { UnifiedBody } from "../body/UnifiedBody";
 import type { Body } from "../body/Body";
 import { LinearSpring, LinearSpringOptions } from "./LinearSpring";
 import { V, V2d } from "../../Vector";
@@ -28,7 +27,7 @@ export class RopeSpring extends LinearSpring {
   maxForce: number;
 
   constructor(
-    bodyA: UnifiedBody,
+    bodyA: Body,
     bodyB: Body,
     options: RopeSpringOptions = {},
   ) {

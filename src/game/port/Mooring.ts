@@ -2,7 +2,7 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
 import type { DynamicPointMass2D } from "../../core/physics/body/bodyInterfaces";
-import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
+import type { Body } from "../../core/physics/body/Body";
 import { createPointMass2D } from "../../core/physics/body/bodyFactories";
 import { DistanceConstraint } from "../../core/physics/constraints/DistanceConstraint";
 import { Particle } from "../../core/physics/shapes/Particle";
@@ -27,8 +27,8 @@ export class Mooring extends BaseEntity {
   private currentPort: Port | null = null;
 
   // Physics anchors for mooring lines
-  private bowAnchorBody: (UnifiedBody & DynamicPointMass2D) | null = null;
-  private sternAnchorBody: (UnifiedBody & DynamicPointMass2D) | null = null;
+  private bowAnchorBody: (Body & DynamicPointMass2D) | null = null;
+  private sternAnchorBody: (Body & DynamicPointMass2D) | null = null;
   private bowConstraint: DistanceConstraint | null = null;
   private sternConstraint: DistanceConstraint | null = null;
 

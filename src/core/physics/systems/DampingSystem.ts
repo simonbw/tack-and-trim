@@ -1,14 +1,14 @@
-import type { UnifiedBody } from "../body/UnifiedBody";
+import type { Body } from "../body/Body";
 
 /** Apply linear damping to a 2D point mass. */
-export function applyDampingPointMass2D(body: UnifiedBody, dt: number): void {
+export function applyDampingPointMass2D(body: Body, dt: number): void {
   const f = Math.pow(1 - body.damping, dt);
   body.velocity.x *= f;
   body.velocity.y *= f;
 }
 
 /** Apply linear + yaw damping to a 2D rigid body. */
-export function applyDampingRigid2D(body: UnifiedBody, dt: number): void {
+export function applyDampingRigid2D(body: Body, dt: number): void {
   const lf = Math.pow(1 - body.damping, dt);
   body.velocity.x *= lf;
   body.velocity.y *= lf;
@@ -16,7 +16,7 @@ export function applyDampingRigid2D(body: UnifiedBody, dt: number): void {
 }
 
 /** Apply linear + z damping to a 3D point mass. */
-export function applyDampingPointMass3D(body: UnifiedBody, dt: number): void {
+export function applyDampingPointMass3D(body: Body, dt: number): void {
   const lf = Math.pow(1 - body.damping, dt);
   body.velocity.x *= lf;
   body.velocity.y *= lf;
@@ -24,7 +24,7 @@ export function applyDampingPointMass3D(body: UnifiedBody, dt: number): void {
 }
 
 /** Apply linear + z + roll/pitch/yaw damping to a 3D rigid body. */
-export function applyDampingRigid3D(body: UnifiedBody, dt: number): void {
+export function applyDampingRigid3D(body: Body, dt: number): void {
   const lf = Math.pow(1 - body.damping, dt);
   body.velocity.x *= lf;
   body.velocity.y *= lf;
@@ -41,7 +41,7 @@ export function applyDampingRigid3D(body: UnifiedBody, dt: number): void {
  * by shape. Filters to dynamic bodies; static and kinematic bodies never
  * damp.
  */
-export function applyDamping(bodies: Iterable<UnifiedBody>, dt: number): void {
+export function applyDamping(bodies: Iterable<Body>, dt: number): void {
   for (const body of bodies) {
     if (body.motion !== "dynamic") continue;
     switch (body.shape) {

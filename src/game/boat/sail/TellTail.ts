@@ -1,7 +1,7 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import type { DynamicPointMass2D } from "../../../core/physics/body/bodyInterfaces";
-import type { UnifiedBody } from "../../../core/physics/body/UnifiedBody";
+import type { Body } from "../../../core/physics/body/Body";
 import { createPointMass2D } from "../../../core/physics/body/bodyFactories";
 import { DistanceConstraint } from "../../../core/physics/constraints/DistanceConstraint";
 import { Particle } from "../../../core/physics/shapes/Particle";
@@ -34,7 +34,7 @@ const noLift: ForceMagnitudeFn = () => 0;
 
 export class TellTail extends BaseEntity {
   layer = "boat" as const;
-  bodies: (UnifiedBody & DynamicPointMass2D)[];
+  bodies: (Body & DynamicPointMass2D)[];
   constraints: NonNullable<BaseEntity["constraints"]>;
   getAttachmentPoint: () => ReadonlyV2d;
   getAttachmentVelocity: () => ReadonlyV2d;

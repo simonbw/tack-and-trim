@@ -1,5 +1,5 @@
 import { integrateToTimeOfImpact, type CCDConfig } from "../body/ccdUtils";
-import type { UnifiedBody } from "../body/UnifiedBody";
+import type { Body } from "../body/Body";
 import type { World } from "../world/World";
 import { updateAABB } from "./AABBSystem";
 import { setZeroForce } from "./ForceSystem";
@@ -21,15 +21,15 @@ const ccdConfigScratch: CCDConfig & {
 
 // Adapter shim so the existing `integrateToTimeOfImpact` helper — which
 // expects a CCDBodyState with `fixedRotation` and `updateAABB()` — can run
-// against a UnifiedBody. Shape "pm2d" / "pm3d" are treated as fixedRotation.
+// against a Body. Shape "pm2d" / "pm3d" are treated as fixedRotation.
 const ccdBodyAdapter: {
-  body: UnifiedBody | null;
+  body: Body | null;
   readonly velocity: { x: number; y: number; squaredMagnitude: number };
   readonly angularVelocity: number;
-  position: UnifiedBody["position"] | null;
+  position: Body["position"] | null;
   angle: number;
   readonly fixedRotation: boolean;
-  readonly aabb: UnifiedBody["aabb"] | null;
+  readonly aabb: Body["aabb"] | null;
   updateAABB(): void;
 } = {
   body: null,
@@ -67,7 +67,7 @@ const ccdBodyAdapter: {
 
 /** 2D point mass: linear only. */
 export function integrateVelocityPointMass2D(
-  body: UnifiedBody,
+  body: Body,
   dt: number,
 ): void {
   const f = body.force;
@@ -99,7 +99,7 @@ export function integrateVelocityPointMass2D(
 }
 
 /** 2D rigid: linear + scalar yaw. */
-export function integrateVelocityRigid2D(body: UnifiedBody, dt: number): void {
+export function integrateVelocityRigid2D(body: Body, dt: number): void {
   const f = body.force;
   const v = body.velocity;
   body._skipPositionThisStep = false;
@@ -135,7 +135,7 @@ export function integrateVelocityRigid2D(body: UnifiedBody, dt: number): void {
 
 /** 3D point mass: linear XY + z. */
 export function integrateVelocityPointMass3D(
-  body: UnifiedBody,
+  body: Body,
   dt: number,
 ): void {
   const f = body.force;
@@ -171,7 +171,7 @@ export function integrateVelocityPointMass3D(
 }
 
 /** 3D rigid: linear XYZ + full 3D angular via world-inertia tensor. */
-export function integrateVelocityRigid3D(body: UnifiedBody, dt: number): void {
+export function integrateVelocityRigid3D(body: Body, dt: number): void {
   const f = body.force;
   const v = body.velocity;
   body._skipPositionThisStep = false;
@@ -236,7 +236,7 @@ export function integrateVelocityRigid3D(body: UnifiedBody, dt: number): void {
  * integrate velocity; static/kinematic are skipped.
  */
 export function integrateVelocities(
-  bodies: Iterable<UnifiedBody>,
+  bodies: Iterable<Body>,
   dt: number,
 ): void {
   for (const body of bodies) {
@@ -261,7 +261,7 @@ export function integrateVelocities(
 // ─── Position integration ─────────────────────────────────────────────────
 
 /** Attempt CCD for a 2D-moving body; returns true if CCD consumed the step. */
-function tryCCD(body: UnifiedBody, world: World | null, dt: number): boolean {
+function tryCCD(body: Body, world: World | null, dt: number): boolean {
   if (!world || body.ccdSpeedThreshold < 0) return false;
   ccdBodyAdapter.body = body;
   const applied = integrateToTimeOfImpact(
@@ -276,7 +276,7 @@ function tryCCD(body: UnifiedBody, world: World | null, dt: number): boolean {
 }
 
 export function integratePositionPointMass2D(
-  body: UnifiedBody,
+  body: Body,
   dt: number,
   world: World | null,
 ): void {
@@ -292,7 +292,7 @@ export function integratePositionPointMass2D(
 }
 
 export function integratePositionRigid2D(
-  body: UnifiedBody,
+  body: Body,
   dt: number,
   world: World | null,
 ): void {
@@ -309,7 +309,7 @@ export function integratePositionRigid2D(
 }
 
 export function integratePositionPointMass3D(
-  body: UnifiedBody,
+  body: Body,
   dt: number,
   world: World | null,
 ): void {
@@ -326,7 +326,7 @@ export function integratePositionPointMass3D(
 }
 
 export function integratePositionRigid3D(
-  body: UnifiedBody,
+  body: Body,
   dt: number,
   world: World | null,
 ): void {
@@ -341,14 +341,14 @@ export function integratePositionRigid3D(
     integrateOrientation(body, dt);
     // Extract yaw directly; _angle is the backing field via the setter, but
     // writing to `angle` would re-sync the matrix we just integrated. Use
-    // the backing field on UnifiedBody.
+    // the backing field on Body.
     body._angle = Math.atan2(body.orientation[3], body.orientation[0]);
   }
   body.aabbNeedsUpdate = true;
 }
 
 /** Kinematic bodies advance their position using externally-set velocity. */
-function integratePositionKinematic(body: UnifiedBody, dt: number): void {
+function integratePositionKinematic(body: Body, dt: number): void {
   body.position[0] += body.velocity[0] * dt;
   body.position[1] += body.velocity[1] * dt;
   if (body.shape === "rigid2d" || body.shape === "rigid3d") {
@@ -366,7 +366,7 @@ function integratePositionKinematic(body: UnifiedBody, dt: number): void {
  * kinematic bodies use externally-set velocity; static bodies skip.
  */
 export function integratePositions(
-  bodies: Iterable<UnifiedBody>,
+  bodies: Iterable<Body>,
   dt: number,
   world: World | null,
 ): void {
@@ -399,7 +399,7 @@ export function integratePositions(
  * Advance the 3x3 rotation matrix via Rodrigues exponential map:
  * R_new = exp(skew(ω·dt)) · R_old. Exact for constant ω over the step.
  */
-function integrateOrientation(body: UnifiedBody, dt: number): void {
+function integrateOrientation(body: Body, dt: number): void {
   const R = body.orientation;
   const vx = body.angularVelocity3[0] * dt;
   const vy = body.angularVelocity3[1] * dt;

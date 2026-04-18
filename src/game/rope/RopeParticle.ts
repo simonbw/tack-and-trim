@@ -10,7 +10,6 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Body } from "../../core/physics/body/Body";
 import type { DynamicPointMass3D } from "../../core/physics/body/bodyInterfaces";
-import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
 import { createPointMass3D } from "../../core/physics/body/bodyFactories";
 import {
   DeckContactConstraint,
@@ -42,7 +41,7 @@ export interface RopeParticleConfig {
 }
 
 export class RopeParticle extends BaseEntity {
-  body: UnifiedBody & DynamicPointMass3D;
+  body: Body & DynamicPointMass3D;
 
   private readonly gravity: number;
 
@@ -140,7 +139,7 @@ export class RopeParticle extends BaseEntity {
     return constraint instanceof DeckContactConstraint ? constraint : null;
   }
 
-  private applyTerrainFloor(p: UnifiedBody & DynamicPointMass3D): void {
+  private applyTerrainFloor(p: Body & DynamicPointMass3D): void {
     if (!this.hasTerrainFloor) return;
     if (
       this.terrainQuery == null ||

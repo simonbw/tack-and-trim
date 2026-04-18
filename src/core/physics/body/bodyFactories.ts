@@ -19,7 +19,7 @@ import type {
   StaticRigid2D,
   StaticRigid3D,
 } from "./bodyInterfaces";
-import { UnifiedBody } from "./UnifiedBody";
+import { Body } from "./Body";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Per-shape option types, narrowed by a `motion` discriminant
@@ -63,20 +63,20 @@ export type PointMass2DOptions<M extends MotionMode = MotionMode> =
 
 export function createPointMass2D(
   opts: DynamicCommonOpts,
-): UnifiedBody & DynamicPointMass2D;
+): Body & DynamicPointMass2D;
 export function createPointMass2D(
   opts: KinematicCommonOpts,
-): UnifiedBody & KinematicPointMass2D;
+): Body & KinematicPointMass2D;
 export function createPointMass2D(
   opts: StaticCommonOpts,
-): UnifiedBody & StaticPointMass2D;
+): Body & StaticPointMass2D;
 export function createPointMass2D(
   opts: PointMass2DOptions,
-): UnifiedBody & PointMass2D & MotionView<MotionMode> {
-  return new UnifiedBody({
+): Body & PointMass2D & MotionView<MotionMode> {
+  return new Body({
     shape: "pm2d",
     ...opts,
-  } as ConstructorParameters<typeof UnifiedBody>[0]) as unknown as UnifiedBody &
+  } as ConstructorParameters<typeof Body>[0]) as unknown as Body &
     PointMass2D &
     MotionView<MotionMode>;
 }
@@ -105,20 +105,20 @@ export type Rigid2DOptions<M extends MotionMode = MotionMode> =
 
 export function createRigid2D(
   opts: Rigid2DDynamicOpts,
-): UnifiedBody & DynamicRigid2D;
+): Body & DynamicRigid2D;
 export function createRigid2D(
   opts: Rigid2DKinematicOpts,
-): UnifiedBody & KinematicRigid2D;
+): Body & KinematicRigid2D;
 export function createRigid2D(
   opts: Rigid2DStaticOpts,
-): UnifiedBody & StaticRigid2D;
+): Body & StaticRigid2D;
 export function createRigid2D(
   opts: Rigid2DOptions,
-): UnifiedBody & Rigid2D & MotionView<MotionMode> {
-  return new UnifiedBody({
+): Body & Rigid2D & MotionView<MotionMode> {
+  return new Body({
     shape: "rigid2d",
     ...opts,
-  } as ConstructorParameters<typeof UnifiedBody>[0]) as unknown as UnifiedBody &
+  } as ConstructorParameters<typeof Body>[0]) as unknown as Body &
     Rigid2D &
     MotionView<MotionMode>;
 }
@@ -148,20 +148,20 @@ export type PointMass3DOptions<M extends MotionMode = MotionMode> =
 
 export function createPointMass3D(
   opts: PointMass3DDynamicOpts,
-): UnifiedBody & DynamicPointMass3D;
+): Body & DynamicPointMass3D;
 export function createPointMass3D(
   opts: PointMass3DKinematicOpts,
-): UnifiedBody & KinematicPointMass3D;
+): Body & KinematicPointMass3D;
 export function createPointMass3D(
   opts: PointMass3DStaticOpts,
-): UnifiedBody & StaticPointMass3D;
+): Body & StaticPointMass3D;
 export function createPointMass3D(
   opts: PointMass3DOptions,
-): UnifiedBody & PointMass3D & MotionView<MotionMode> {
-  return new UnifiedBody({
+): Body & PointMass3D & MotionView<MotionMode> {
+  return new Body({
     shape: "pm3d",
     ...opts,
-  } as ConstructorParameters<typeof UnifiedBody>[0]) as unknown as UnifiedBody &
+  } as ConstructorParameters<typeof Body>[0]) as unknown as Body &
     PointMass3D &
     MotionView<MotionMode>;
 }
@@ -200,20 +200,20 @@ export type Rigid3DOptions<M extends MotionMode = MotionMode> =
 
 export function createRigid3D(
   opts: Rigid3DDynamicOpts,
-): UnifiedBody & DynamicRigid3D;
+): Body & DynamicRigid3D;
 export function createRigid3D(
   opts: Rigid3DKinematicOpts,
-): UnifiedBody & KinematicRigid3D;
+): Body & KinematicRigid3D;
 export function createRigid3D(
   opts: Rigid3DStaticOpts,
-): UnifiedBody & StaticRigid3D;
+): Body & StaticRigid3D;
 export function createRigid3D(
   opts: Rigid3DOptions,
-): UnifiedBody & Rigid3D & MotionView<MotionMode> {
-  return new UnifiedBody({
+): Body & Rigid3D & MotionView<MotionMode> {
+  return new Body({
     shape: "rigid3d",
     ...opts,
-  } as ConstructorParameters<typeof UnifiedBody>[0]) as unknown as UnifiedBody &
+  } as ConstructorParameters<typeof Body>[0]) as unknown as Body &
     Rigid3D &
     MotionView<MotionMode>;
 }

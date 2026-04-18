@@ -1,4 +1,3 @@
-import type { UnifiedBody } from "../body/UnifiedBody";
 import type { Body } from "../body/Body";
 import { CompatibleVector3, V3, V3d } from "../../Vector3";
 import { Spring, SpringOptions } from "./Spring";
@@ -31,7 +30,7 @@ export class RopeSpring3D extends Spring {
   maxForce: number;
 
   constructor(
-    bodyA: UnifiedBody,
+    bodyA: Body,
     bodyB: Body,
     options: RopeSpring3DOptions = {},
   ) {

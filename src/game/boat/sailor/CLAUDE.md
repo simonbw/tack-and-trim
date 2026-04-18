@@ -33,7 +33,7 @@ Default station layout (defined in Kestrel, inherited by all boats):
 
 ### Walking physics
 
-The sailor is a `Particle` `DynamicBody` constrained to the deck via `DeckContactConstraint` with two extensions:
+The sailor is a dynamic point-mass-3D body (`createPointMass3D({ motion: "dynamic", … })`) with a `Particle` shape, constrained to the deck via `DeckContactConstraint` with two extensions:
 
 1. **`preventFallOff`** -- blocks the inside-to-outside state transition so the sailor can never leave the deck. When the sailor reaches the hull boundary, the constraint applies an inward wall force instead of transitioning to outside mode.
 

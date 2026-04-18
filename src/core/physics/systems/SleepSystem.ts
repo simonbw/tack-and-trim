@@ -1,11 +1,11 @@
-import type { UnifiedBody } from "../body/UnifiedBody";
+import type { Body } from "../body/Body";
 
 /**
  * Tick sleep state for a single dynamic body. Delegates to the body's
  * composed SleepBehavior. No-op on non-dynamic bodies.
  */
 export function sleepTick(
-  body: UnifiedBody,
+  body: Body,
   time: number,
   dontSleep: boolean,
   dt: number,
@@ -15,12 +15,12 @@ export function sleepTick(
 }
 
 /** Wake a body up (idempotent). */
-export function wakeUp(body: UnifiedBody): void {
+export function wakeUp(body: Body): void {
   body.wakeUp();
 }
 
 /** Force a body to sleep (zeroes velocities and forces). */
-export function sleep(body: UnifiedBody): void {
+export function sleep(body: Body): void {
   body.sleep();
 }
 
@@ -29,7 +29,7 @@ export function sleep(body: UnifiedBody): void {
  * Callers pass `world.bodies.dynamicAwake` (or any dynamic-body iterator).
  */
 export function updateSleeping(
-  bodies: Iterable<UnifiedBody>,
+  bodies: Iterable<Body>,
   time: number,
   dt: number,
   dontSleep: boolean = false,

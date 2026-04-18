@@ -1,11 +1,11 @@
 import { V } from "../../Vector";
-import type { UnifiedBody } from "../body/UnifiedBody";
+import type { Body } from "../body/Body";
 
 /**
  * Recompute the body's AABB from its shapes and stamp `aabbNeedsUpdate = false`.
  * Ported from the legacy `Body.updateAABB` (Body.ts:305-332).
  */
-export function updateAABB(body: UnifiedBody): void {
+export function updateAABB(body: Body): void {
   const shapes = body.shapes;
   const N = shapes.length;
   const bodyAngle = body.angle;

@@ -3,11 +3,10 @@ import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Body } from "../../../core/physics/body/Body";
 import { createPointMass3D } from "../../../core/physics/body/bodyFactories";
-import { UnifiedBody } from "../../../core/physics/body/UnifiedBody";
 
 // Sail handles both point-mass-3D clews and rigid-3D hull/boom bodies; the
-// common surface (with 3D transforms and force application) is UnifiedBody.
-type DynamicBody = UnifiedBody;
+// common surface (with 3D transforms and force application) is Body.
+type DynamicBody = Body;
 import { clamp } from "../../../core/util/MathUtil";
 import {
   asyncProfiler,

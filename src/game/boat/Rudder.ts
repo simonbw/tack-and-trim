@@ -2,7 +2,7 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import type { DynamicRigid3D } from "../../core/physics/body/bodyInterfaces";
-import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
+import type { Body } from "../../core/physics/body/Body";
 import { createRigid3D } from "../../core/physics/body/bodyFactories";
 import { RevoluteConstraint3D } from "../../core/physics/constraints/RevoluteConstraint3D";
 import { Box } from "../../core/physics/shapes/Box";
@@ -32,7 +32,7 @@ const RUDDER_ANGULAR_DAMPING = 0.98;
 export class Rudder extends BaseEntity {
   layer = "boat" as const;
 
-  body: UnifiedBody & DynamicRigid3D;
+  body: Body & DynamicRigid3D;
   private rudderConstraint: RevoluteConstraint3D;
 
   private steerInput: number = 0; // Current steering input from controller

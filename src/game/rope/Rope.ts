@@ -13,7 +13,6 @@
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { Body } from "../../core/physics/body/Body";
-import type { UnifiedBody } from "../../core/physics/body/UnifiedBody";
 import type {
   DeckContactConstraint,
   HullBoundaryData,
@@ -106,7 +105,7 @@ export interface RopePathHint {
 export class Rope extends BaseEntity {
   // The continuous particle chain
   private particleEntities: RopeParticle[];
-  private particles: UnifiedBody[];
+  private particles: Body[];
   private chainLinkLength: number;
 
   // Endpoints
@@ -335,7 +334,7 @@ export class Rope extends BaseEntity {
   }
 
   private makeEndpointChainConstraint(
-    particle: UnifiedBody,
+    particle: Body,
     rigid: Body,
     localAnchorOnRigid: CompatibleVector3,
     solverOrder: number,
@@ -424,7 +423,7 @@ export class Rope extends BaseEntity {
   // ---- Public accessors ----
 
   /** Particle bodies, used by Pulley to set up its constraint. */
-  getParticles(): readonly UnifiedBody[] {
+  getParticles(): readonly Body[] {
     return this.particles;
   }
 
