@@ -1,7 +1,6 @@
 import { profile, profiler } from "../../util/Profiler";
 import { CompatibleVector } from "../../Vector";
 import { SleepState } from "../body/Body";
-import { DynamicBody } from "../body/DynamicBody";
 import { Broadphase } from "../collision/broadphase/Broadphase";
 import { SpatialHashingBroadphase } from "../collision/broadphase/SpatialHashingBroadphase";
 import {
@@ -73,7 +72,7 @@ export enum SleepMode {
  * @example
  * ```ts
  * const world = new World({ islandSplit: true });
- * world.bodies.add(new DynamicBody({ mass: 1 }));
+ * world.bodies.add(createRigid2D({ motion: "dynamic", mass: 1 }));
  * world.step(1/60);
  * ```
  */
@@ -434,8 +433,8 @@ export class World extends EventEmitter<PhysicsEventMap> {
   private handleCollisionWakeUps(collisions: Collision[]): void {
     for (const { bodyA, bodyB } of collisions) {
       // Only dynamic bodies can sleep or wake other bodies
-      const dynA = bodyA instanceof DynamicBody ? bodyA : null;
-      const dynB = bodyB instanceof DynamicBody ? bodyB : null;
+      const dynA = bodyA.motion === "dynamic" ? bodyA : null;
+      const dynB = bodyB.motion === "dynamic" ? bodyB : null;
 
       // Check if bodyA (sleeping) should be woken by bodyB (fast-moving)
       if (
@@ -663,11 +662,11 @@ export class World extends EventEmitter<PhysicsEventMap> {
       // Sleep islands where all dynamic bodies want to sleep
       for (const island of islands) {
         const allWantToSleep = island.bodies.every(
-          (body) => !(body instanceof DynamicBody) || body.wantsToSleep,
+          (body) => body.motion !== "dynamic" || body.wantsToSleep,
         );
         if (allWantToSleep) {
           for (const body of island.bodies) {
-            if (body instanceof DynamicBody) {
+            if (body.motion === "dynamic") {
               body.sleep();
             }
           }

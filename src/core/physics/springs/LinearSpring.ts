@@ -1,6 +1,5 @@
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type { Body } from "../body/Body";
-import type { DynamicBody } from "../body/DynamicBody";
 import { SpringOptions, Spring } from "./Spring";
 
 /** Options for creating a LinearSpring. */
@@ -27,7 +26,7 @@ export class LinearSpring extends Spring {
   restLength: number;
 
   constructor(
-    bodyA: DynamicBody,
+    bodyA: Body,
     bodyB: Body,
     options: LinearSpringOptions = {},
   ) {

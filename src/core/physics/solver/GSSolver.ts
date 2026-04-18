@@ -65,13 +65,15 @@
  * would produce negligible improvement.
  */
 import { profiler } from "../../util/Profiler";
-import { DynamicBody } from "../body/DynamicBody";
+import type { Body } from "../body/Body";
 import { AngularEquation2D } from "../equations/AngularEquation2D";
 import { AngularEquation3D } from "../equations/AngularEquation3D";
 import type { Equation } from "../equations/Equation";
 import { FrictionEquation } from "../equations/FrictionEquation";
 import { PlanarEquation2D } from "../equations/PlanarEquation2D";
+import { PointToPointEquation2D } from "../equations/PointToPointEquation2D";
 import { PointToPointEquation3D } from "../equations/PointToPointEquation3D";
+import { PointToRigidEquation2D } from "../equations/PointToRigidEquation2D";
 import { PointToRigidEquation3D } from "../equations/PointToRigidEquation3D";
 import { PulleyEquation } from "../equations/PulleyEquation";
 import { EQ_INDEX_A, EQ_INDEX_B, EQ_SLOT } from "../internal";
@@ -139,7 +141,7 @@ export const DEFAULT_SOLVER_CONFIG: SolverConfig = {
  */
 export function prepareSolverStep(
   equations: readonly Equation[],
-  dynamicBodies: Iterable<DynamicBody>,
+  dynamicBodies: Iterable<Body>,
   workspace: SolverWorkspace,
 ): void {
   workspace.reset();
@@ -151,6 +153,8 @@ export function prepareSolverStep(
   const pulleyEquations = workspace.pulleyEquations;
   const pointToPointEquations = workspace.pointToPointEquations;
   const pointToRigidEquations = workspace.pointToRigidEquations;
+  const pointToPoint2DEquations = workspace.pointToPoint2DEquations;
+  const pointToRigid2DEquations = workspace.pointToRigid2DEquations;
   const planar2DEquations = workspace.planar2DEquations;
   const angular3DEquations = workspace.angular3DEquations;
   const angular2DEquations = workspace.angular2DEquations;
@@ -168,6 +172,10 @@ export function prepareSolverStep(
       pointToPointEquations.push(eq);
     } else if (eq instanceof PointToRigidEquation3D) {
       pointToRigidEquations.push(eq);
+    } else if (eq instanceof PointToPointEquation2D) {
+      pointToPoint2DEquations.push(eq);
+    } else if (eq instanceof PointToRigidEquation2D) {
+      pointToRigid2DEquations.push(eq);
     } else if (eq instanceof PlanarEquation2D) {
       planar2DEquations.push(eq);
     } else if (eq instanceof AngularEquation3D) {
@@ -242,6 +250,20 @@ export function solveSubstep(
     invCs,
     workspace,
   );
+  setupPointToPoint2DBatch(
+    workspace.pointToPoint2DEquations,
+    h,
+    Bs,
+    invCs,
+    workspace,
+  );
+  setupPointToRigid2DBatch(
+    workspace.pointToRigid2DEquations,
+    h,
+    Bs,
+    invCs,
+    workspace,
+  );
   setupPlanar2DBatch(workspace.planar2DEquations, h, Bs, invCs, workspace);
   setupAngular3DBatch(workspace.angular3DEquations, h, Bs, invCs, workspace);
   setupAngular2DBatch(workspace.angular2DEquations, h, Bs, invCs, workspace);
@@ -263,6 +285,18 @@ export function solveSubstep(
   );
   warmStartPointToRigidBatch(
     workspace.pointToRigidEquations,
+    h,
+    lambda,
+    workspace,
+  );
+  warmStartPointToPoint2DBatch(
+    workspace.pointToPoint2DEquations,
+    h,
+    lambda,
+    workspace,
+  );
+  warmStartPointToRigid2DBatch(
+    workspace.pointToRigid2DEquations,
     h,
     lambda,
     workspace,
@@ -331,11 +365,13 @@ export function solveSubstep(
     av[1] += wl[base + 1];
     av[2] += wl[base + 2];
 
-    // Z velocity (only meaningful for 6DOF bodies; vlambda[base+2] is 0 for
-    // 3DOF because invMassSolveZ is 0, so this is a no-op for 3DOF)
-    if (body.is6DOF) {
-      body.zVelocity += vl[base + 2];
-    }
+    // Z velocity. For 2D bodies (pm2d/rigid2d) invMassSolveZ is 0 so the
+    // solver never writes to vlambda[base+2] and this is a no-op. For any
+    // 3D body (pm3d or rigid3d) invMassSolveZ is non-zero and this is where
+    // Z-axis constraint impulses land. The previous `is6DOF` gate dropped
+    // Z-impulses on pm3d bodies, causing sailor/rope particles to fall
+    // through constraints.
+    body.zVelocity += vl[base + 2];
   }
 
   // Cache lambda for warm starting next frame, then update multipliers.
@@ -345,6 +381,8 @@ export function solveSubstep(
   const invDt = 1 / h;
   finalizePointToPointBatch(workspace.pointToPointEquations, lambda, invDt);
   finalizePointToRigidBatch(workspace.pointToRigidEquations, lambda, invDt);
+  finalizePointToPoint2DBatch(workspace.pointToPoint2DEquations, lambda, invDt);
+  finalizePointToRigid2DBatch(workspace.pointToRigid2DEquations, lambda, invDt);
   finalizePlanar2DBatch(workspace.planar2DEquations, lambda, invDt);
   finalizeAngular3DBatch(workspace.angular3DEquations, lambda, invDt);
   finalizeAngular2DBatch(workspace.angular2DEquations, lambda, invDt);
@@ -366,7 +404,7 @@ export function solveSubstep(
  */
 export function solveEquations(
   equations: readonly Equation[],
-  dynamicBodies: Iterable<DynamicBody>,
+  dynamicBodies: Iterable<Body>,
   h: number,
   config: SolverConfig,
   workspace: SolverWorkspace,
@@ -394,9 +432,9 @@ export function solveIsland(
   workspace: SolverWorkspace,
 ): SolverResult {
   // Extract dynamic bodies from island
-  const dynamicBodies: DynamicBody[] = [];
+  const dynamicBodies: Body[] = [];
   for (const body of island.bodies) {
-    if (body instanceof DynamicBody) {
+    if (body.motion === "dynamic") {
       dynamicBodies.push(body);
     }
   }
@@ -883,6 +921,42 @@ function runIteration(
       "pointToRigid",
       performance.now() - t0,
       workspace.pointToRigidEquations.length,
+    );
+  }
+
+  if (workspace.pointToPoint2DEquations.length > 0) {
+    const t0 = performance.now();
+    deltaTot += iteratePointToPoint2DBatch(
+      workspace.pointToPoint2DEquations,
+      Bs,
+      invCs,
+      lambda,
+      useZeroRHS,
+      h,
+      workspace,
+    );
+    profiler.recordElapsed(
+      "pointToPoint2D",
+      performance.now() - t0,
+      workspace.pointToPoint2DEquations.length,
+    );
+  }
+
+  if (workspace.pointToRigid2DEquations.length > 0) {
+    const t0 = performance.now();
+    deltaTot += iteratePointToRigid2DBatch(
+      workspace.pointToRigid2DEquations,
+      Bs,
+      invCs,
+      lambda,
+      useZeroRHS,
+      h,
+      workspace,
+    );
+    profiler.recordElapsed(
+      "pointToRigid2D",
+      performance.now() - t0,
+      workspace.pointToRigid2DEquations.length,
     );
   }
 
@@ -1519,4 +1593,269 @@ function updateFrictionBounds(equations: readonly Equation[]): void {
       eq.minForce = -f;
     }
   }
+}
+
+function setupPointToPoint2DBatch(
+  eqs: readonly PointToPointEquation2D[],
+  h: number,
+  Bs: Float32Array,
+  invCs: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    if (eq.timeStep !== h || eq.needsUpdate) {
+      eq.timeStep = h;
+      eq.update();
+    }
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, ws);
+    invCs[slot] = eq.computeInvC(eq.epsilon, ws);
+  }
+}
+
+function setupPointToRigid2DBatch(
+  eqs: readonly PointToRigidEquation2D[],
+  h: number,
+  Bs: Float32Array,
+  invCs: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    if (eq.timeStep !== h || eq.needsUpdate) {
+      eq.timeStep = h;
+      eq.update();
+    }
+    const slot = eq[EQ_SLOT];
+    Bs[slot] = eq.computeB(eq.a, eq.b, h, ws);
+    invCs[slot] = eq.computeInvC(eq.epsilon, ws);
+  }
+}
+
+function warmStartPointToPoint2DBatch(
+  eqs: readonly PointToPointEquation2D[],
+  h: number,
+  lambda: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    let warm = eq.warmLambda;
+    if (warm === 0 || !isFinite(warm)) continue;
+    const minFDt = eq.minForce * h;
+    const maxFDt = eq.maxForce * h;
+    if (warm < minFDt) warm = minFDt;
+    else if (warm > maxFDt) warm = maxFDt;
+    lambda[eq[EQ_SLOT]] = warm;
+    eq.addToWlambda(warm, ws);
+  }
+}
+
+function warmStartPointToRigid2DBatch(
+  eqs: readonly PointToRigidEquation2D[],
+  h: number,
+  lambda: Float32Array,
+  ws: SolverWorkspace,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    let warm = eq.warmLambda;
+    if (warm === 0 || !isFinite(warm)) continue;
+    const minFDt = eq.minForce * h;
+    const maxFDt = eq.maxForce * h;
+    if (warm < minFDt) warm = minFDt;
+    else if (warm > maxFDt) warm = maxFDt;
+    lambda[eq[EQ_SLOT]] = warm;
+    eq.addToWlambda(warm, ws);
+  }
+}
+
+function finalizePointToPoint2DBatch(
+  eqs: readonly PointToPointEquation2D[],
+  lambda: Float32Array,
+  invDt: number,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    const slot = eq[EQ_SLOT];
+    const l = lambda[slot];
+    eq.warmLambda = isFinite(l) ? l : 0;
+    eq.multiplier = isFinite(l) ? l * invDt : 0;
+  }
+}
+
+function finalizePointToRigid2DBatch(
+  eqs: readonly PointToRigidEquation2D[],
+  lambda: Float32Array,
+  invDt: number,
+): void {
+  for (let i = 0; i < eqs.length; i++) {
+    const eq = eqs[i];
+    if (!eq.enabled) continue;
+    const slot = eq[EQ_SLOT];
+    const l = lambda[slot];
+    eq.warmLambda = isFinite(l) ? l : 0;
+    eq.multiplier = isFinite(l) ? l * invDt : 0;
+  }
+}
+
+/**
+ * Specialized PGS iteration loop for `PointToPointEquation2D` — 2D 2-body
+ * constraints where both bodies are 2D particles. Reads `(nx, ny)` directly
+ * and touches only `vlambda` + `invMassSolve`. No `wlambda` or `invInertia`.
+ *
+ * Per-equation op count vs. the general batch:
+ *  - computeGWlambda: 4 mul-adds instead of 12
+ *  - addToWlambda: 4 linear writes, zero angular work
+ */
+function iteratePointToPoint2DBatch(
+  equations: readonly PointToPointEquation2D[],
+  Bs: Float32Array,
+  invCs: Float32Array,
+  lambda: Float32Array,
+  useZeroRHS: boolean,
+  dt: number,
+  ws: SolverWorkspace,
+): number {
+  const vl = ws.vlambda;
+  const invMassSolve = ws.invMassSolve;
+
+  let deltaTot = 0;
+  const N = equations.length;
+
+  for (let k = 0; k < N; k++) {
+    const eq = equations[k];
+    if (!eq.enabled) continue;
+
+    const slot = eq[EQ_SLOT];
+    const idxA = eq[EQ_INDEX_A];
+    const idxB = eq[EQ_INDEX_B];
+    const iA = idxA * 3;
+    const iB = idxB * 3;
+
+    const nx = eq.nx;
+    const ny = eq.ny;
+
+    const GWlambda = nx * (vl[iB] - vl[iA]) + ny * (vl[iB + 1] - vl[iA + 1]);
+
+    const B = useZeroRHS ? 0 : Bs[slot];
+    const invC = invCs[slot];
+    const lambdaj = lambda[slot];
+    const eps = eq.epsilon;
+
+    let dl = invC * (B - GWlambda - eps * lambdaj);
+    if (!isFinite(dl)) dl = 0;
+
+    const minFDt = eq.minForce * dt;
+    const maxFDt = eq.maxForce * dt;
+    const newTotal = lambdaj + dl;
+    if (newTotal < minFDt) dl = minFDt - lambdaj;
+    else if (newTotal > maxFDt) dl = maxFDt - lambdaj;
+
+    lambda[slot] = lambdaj + dl;
+
+    const iMA = invMassSolve[idxA];
+    const iMB = invMassSolve[idxB];
+
+    vl[iA] -= iMA * nx * dl;
+    vl[iA + 1] -= iMA * ny * dl;
+    vl[iB] += iMB * nx * dl;
+    vl[iB + 1] += iMB * ny * dl;
+
+    deltaTot += dl >= 0 ? dl : -dl;
+  }
+
+  return deltaTot;
+}
+
+/**
+ * Specialized PGS iteration loop for `PointToRigidEquation2D` — 2D 2-body
+ * constraints where body A is a 2D particle (no angular) and body B is a
+ * 2D rigid body (linear + scalar yaw angular). Reads `(nx, ny)` and
+ * `rjCrossN` directly and touches only the Z component of body B's
+ * angular accumulator.
+ *
+ * Per-equation op count vs. the general batch:
+ *  - computeGWlambda: 5 mul-adds instead of 12
+ *  - addToWlambda: skips body-A angular work and reads only the Z column
+ *    of body B's inverse inertia
+ */
+function iteratePointToRigid2DBatch(
+  equations: readonly PointToRigidEquation2D[],
+  Bs: Float32Array,
+  invCs: Float32Array,
+  lambda: Float32Array,
+  useZeroRHS: boolean,
+  dt: number,
+  ws: SolverWorkspace,
+): number {
+  const vl = ws.vlambda;
+  const wl = ws.wlambda;
+  const invMassSolve = ws.invMassSolve;
+  const invInertia = ws.invInertia;
+
+  let deltaTot = 0;
+  const N = equations.length;
+
+  for (let k = 0; k < N; k++) {
+    const eq = equations[k];
+    if (!eq.enabled) continue;
+
+    const slot = eq[EQ_SLOT];
+    const idxA = eq[EQ_INDEX_A];
+    const idxB = eq[EQ_INDEX_B];
+    const iA = idxA * 3;
+    const iB = idxB * 3;
+
+    const nx = eq.nx;
+    const ny = eq.ny;
+    const rjCrossN = eq.rjCrossN;
+
+    const GWlambda =
+      nx * (vl[iB] - vl[iA]) +
+      ny * (vl[iB + 1] - vl[iA + 1]) +
+      rjCrossN * wl[iB + 2];
+
+    const B = useZeroRHS ? 0 : Bs[slot];
+    const invC = invCs[slot];
+    const lambdaj = lambda[slot];
+    const eps = eq.epsilon;
+
+    let dl = invC * (B - GWlambda - eps * lambdaj);
+    if (!isFinite(dl)) dl = 0;
+
+    const minFDt = eq.minForce * dt;
+    const maxFDt = eq.maxForce * dt;
+    const newTotal = lambdaj + dl;
+    if (newTotal < minFDt) dl = minFDt - lambdaj;
+    else if (newTotal > maxFDt) dl = maxFDt - lambdaj;
+
+    lambda[slot] = lambdaj + dl;
+
+    const iMA = invMassSolve[idxA];
+    const iMB = invMassSolve[idxB];
+
+    // Body A linear (-n); body B linear (+n)
+    vl[iA] -= iMA * nx * dl;
+    vl[iA + 1] -= iMA * ny * dl;
+    vl[iB] += iMB * nx * dl;
+    vl[iB + 1] += iMB * ny * dl;
+
+    // Body B angular on Z: wl += invI_col2 * (rjCrossN * dl)
+    const iIB = invInertia[idxB];
+    const g = rjCrossN * dl;
+    wl[iB] += iIB[2] * g;
+    wl[iB + 1] += iIB[5] * g;
+    wl[iB + 2] += iIB[8] * g;
+
+    deltaTot += dl >= 0 ? dl : -dl;
+  }
+
+  return deltaTot;
 }

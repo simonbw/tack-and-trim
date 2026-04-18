@@ -9,7 +9,8 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Body } from "../../core/physics/body/Body";
-import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { DynamicPointMass3D } from "../../core/physics/body/bodyInterfaces";
+import { createPointMass3D } from "../../core/physics/body/bodyFactories";
 import {
   DeckContactConstraint,
   type HullBoundaryData,
@@ -40,7 +41,7 @@ export interface RopeParticleConfig {
 }
 
 export class RopeParticle extends BaseEntity {
-  body: DynamicBody;
+  body: Body & DynamicPointMass3D;
 
   private readonly gravity: number;
 
@@ -57,20 +58,15 @@ export class RopeParticle extends BaseEntity {
   constructor(config: RopeParticleConfig) {
     super();
 
-    this.body = new DynamicBody({
+    this.body = createPointMass3D({
+      motion: "dynamic",
       mass: config.mass,
       position: config.position,
-      fixedRotation: true,
       damping: config.damping,
       allowSleep: false,
-      sixDOF: {
-        rollInertia: 1,
-        pitchInertia: 1,
-        zMass: config.mass,
-        zDamping: config.damping,
-        rollPitchDamping: 0,
-        zPosition: config.zPosition,
-      },
+      zMass: config.mass,
+      zDamping: config.damping,
+      z: config.zPosition,
     });
 
     if (config.initialVelocity) {
@@ -143,7 +139,7 @@ export class RopeParticle extends BaseEntity {
     return constraint instanceof DeckContactConstraint ? constraint : null;
   }
 
-  private applyTerrainFloor(p: DynamicBody): void {
+  private applyTerrainFloor(p: Body & DynamicPointMass3D): void {
     if (!this.hasTerrainFloor) return;
     if (
       this.terrainQuery == null ||

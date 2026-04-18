@@ -33,7 +33,7 @@ export function createProfilerPanel(): StatsPanel {
       const profileStats = profiler.getTopStats(
         TOP_N_PROFILES,
         TOP_N_CHILDREN,
-        "Game.loop",
+        "Game.nextFrame",
       );
       const basicStats = getBasicStats(ctx);
       const asyncStats = asyncProfiler.getStats();
@@ -41,7 +41,7 @@ export function createProfilerPanel(): StatsPanel {
 
       // Find frame total for bar width calculations
       const frameStat = profileStats.find(
-        (s) => s.label === "Game.loop" && s.depth === 0,
+        (s) => s.label === "Game.nextFrame" && s.depth === 0,
       );
       const frameTotalMs = frameStat?.msPerFrame ?? 1000 / 120;
 
@@ -162,7 +162,7 @@ function getBasicStats(ctx: StatsPanelContext) {
     hugeBodyCount: broadphase.hugeBodies?.size ?? 0,
     dynamicBodyCount: world.bodies.dynamic.length,
     kinematicBodyCount: world.bodies.kinematic.length,
-    particleBodyCount: broadphase.particleBodies.size,
+    particleBodyCount: broadphase.pointShapeBodies.size,
     collisions: broadphase.debugData.numCollisions,
   };
 }

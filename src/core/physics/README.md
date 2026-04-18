@@ -6,10 +6,8 @@ A custom 2D rigid body physics engine for game development, featuring constraint
 
 ```
 World
-├── BodyManager         — Manages all bodies with type-specific collections
-│   ├── DynamicBody     — Responds to forces, has mass
-│   ├── StaticBody      — Immovable geometry (terrain, walls)
-│   └── KinematicBody   — Scripted motion (platforms, elevators)
+├── BodyManager         — Manages all bodies, partitioned by shape/motion
+│   └── Body            — Single class tagged by shape (pm2d/rigid2d/pm3d/rigid3d) and motion (static/kinematic/dynamic)
 ├── ConstraintManager   — Manages constraints between bodies
 ├── ContactMaterialManager — Friction/restitution between material pairs
 ├── Broadphase          — Spatial culling (SpatialHashingBroadphase or SAPBroadphase)
@@ -29,75 +27,61 @@ World
 | **Material**        | Identifier for collision properties                                           |
 | **ContactMaterial** | Defines friction/restitution between two materials                            |
 
-## Body Types
+## Bodies
 
-### DynamicBody
+All physics objects are instances of a single `Body` class, tagged by two readonly fields:
 
-Bodies that respond to forces and collisions. Most game objects use this.
+- **`shape`** — one of `"pm2d"`, `"rigid2d"`, `"pm3d"`, `"rigid3d"`. Controls the DOF set (point-mass vs rigid, 2D vs 3D).
+- **`motion`** — one of `"static"`, `"kinematic"`, `"dynamic"`. Controls the role in simulation.
+
+Construct via the factories in `bodyFactories.ts` — they narrow the return type to a motion-appropriate view so callers get the right fields without runtime branching.
+
+### Dynamic bodies
+
+Respond to forces and collisions.
 
 ```typescript
-import DynamicBody from "core/physics/body/DynamicBody";
+import { createRigid2D } from "core/physics/body/bodyFactories";
 import Circle from "core/physics/shapes/Circle";
 
-const ball = new DynamicBody({
+const ball = createRigid2D({
+  motion: "dynamic",
   mass: 1,
   position: [0, 10],
   velocity: [5, 0],
-  damping: 0.1, // Linear velocity damping
-  angularDamping: 0.1, // Angular velocity damping
+  damping: 0.1,
+  angularDamping: 0.1,
 });
 ball.addShape(new Circle({ radius: 0.5 }));
 world.bodies.add(ball);
 ```
 
-Key properties:
+### Static bodies
 
-- `mass` — Total mass (affects acceleration from forces)
-- `velocity` — Current linear velocity
-- `angularVelocity` — Current rotation speed
-- `damping` / `angularDamping` — Velocity decay per second
-- `fixedRotation` — Prevent rotation
-- `fixedX` / `fixedY` — Constrain to axis
-
-### StaticBody
-
-Immovable bodies with infinite mass. Use for terrain, walls, and boundaries.
+Immovable geometry (terrain, walls).
 
 ```typescript
-import StaticBody from "core/physics/body/StaticBody";
-import Box from "core/physics/shapes/Box";
-
-const ground = new StaticBody({ position: [0, -1] });
+const ground = createRigid2D({ motion: "static", position: [0, -1] });
 ground.addShape(new Box({ width: 100, height: 2 }));
 world.bodies.add(ground);
 ```
 
-Static bodies:
+### Kinematic bodies
 
-- Never move (velocity is always zero)
-- Don't respond to forces or impulses
-- Very efficient (excluded from most calculations)
-
-### KinematicBody
-
-Bodies with scripted motion. They move but aren't affected by collisions.
+Scripted motion — set velocity directly; not affected by collisions.
 
 ```typescript
-import KinematicBody from "core/physics/body/KinematicBody";
-
-const platform = new KinematicBody({ position: [0, 5] });
+const platform = createRigid2D({ motion: "kinematic", position: [0, 5] });
 platform.addShape(new Box({ width: 4, height: 0.5 }));
 world.bodies.add(platform);
-
-// In your game loop:
-platform.velocity.set(2, 0); // Move right at 2 units/sec
+platform.velocity.set(2, 0);
 ```
 
-Kinematic bodies:
+### 3D / point-mass variants
 
-- Set velocity directly (not computed from forces)
-- Push dynamic bodies but aren't pushed back
-- Good for moving platforms, elevators, crushers
+- `createPointMass2D` — 2D particle (no rotation).
+- `createPointMass3D` — 3D particle (adds Z).
+- `createRigid3D` — full 6DOF rigid body (adds Z, roll, pitch). Used by the hull.
 
 ## Shapes
 
@@ -204,7 +188,7 @@ constraint.setRelaxation(4); // Higher = more damping
 
 Springs apply forces rather than hard constraints, creating softer connections.
 
-**Note:** Springs require `bodyA` to be a `DynamicBody` since forces are only applied to dynamic bodies. `bodyB` can be any body type.
+**Note:** Springs require `bodyA.motion === "dynamic"` since forces are only applied to dynamic bodies. `bodyB` can be any body.
 
 ### LinearSpring
 
@@ -362,7 +346,8 @@ body.wakeUp();
 Prevent fast-moving bodies from tunneling through thin objects.
 
 ```typescript
-const bullet = new DynamicBody({
+const bullet = createRigid2D({
+  motion: "dynamic",
   mass: 0.1,
   ccdSpeedThreshold: 100, // Enable CCD above this speed
   ccdIterations: 10, // Binary search iterations
@@ -395,11 +380,18 @@ const world = new World({
 ```
 physics/
 ├── body/
-│   ├── Body.ts              — Abstract base class
-│   ├── DynamicBody.ts       — Force-responsive bodies
-│   ├── StaticBody.ts        — Immovable bodies
-│   ├── KinematicBody.ts     — Scripted-motion bodies
-│   └── body-helpers.ts      — Type guards (isDynamic, isStatic, etc.)
+│   ├── Body.ts              — Single Body class (shape + motion tagged)
+│   ├── bodyFactories.ts     — Typed factory functions (createRigid2D, createPointMass3D, …)
+│   ├── bodyInterfaces.ts    — Narrowed structural views per shape/motion
+│   ├── body-helpers.ts      — Type guards (isDynamic, isStatic, isRigid3D, …)
+│   └── SleepBehavior.ts     — Per-body sleep state
+├── systems/
+│   ├── AABBSystem.ts        — AABB recompute
+│   ├── DampingSystem.ts     — Velocity damping
+│   ├── ForceSystem.ts       — Force/impulse application
+│   ├── IntegrationSystem.ts — Position/velocity integration
+│   ├── MassPropertiesSystem.ts
+│   └── SleepSystem.ts
 ├── shapes/
 │   ├── Shape.ts             — Abstract base class
 │   ├── Circle.ts, Box.ts, Convex.ts, Capsule.ts, Line.ts, Plane.ts, Particle.ts, Heightfield.ts
@@ -446,7 +438,7 @@ In the game engine, physics bodies are managed through entities:
 
 ```typescript
 class Ball extends BaseEntity implements Entity {
-  body = new DynamicBody({ mass: 1, position: [0, 10] });
+  body = createRigid2D({ motion: "dynamic", mass: 1, position: [0, 10] });
 
   constructor() {
     super();

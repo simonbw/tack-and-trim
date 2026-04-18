@@ -21,7 +21,6 @@
  */
 
 import type { Body } from "../body/Body";
-import { DynamicBody } from "../body/DynamicBody";
 import { CompatibleVector3, V3, V3d } from "../../Vector3";
 import { Equation } from "../equations/Equation";
 import { PulleyEquation } from "../equations/PulleyEquation";
@@ -109,7 +108,7 @@ export class PulleyConstraint3D extends Constraint {
     this.bodyC = bodyC;
 
     // Wake bodyC too
-    if ((options.wakeUpBodies ?? true) && bodyC instanceof DynamicBody) {
+    if ((options.wakeUpBodies ?? true) && bodyC.motion === "dynamic") {
       bodyC.wakeUp();
     }
 

@@ -1,5 +1,4 @@
 import type { Body } from "../body/Body";
-import type { DynamicBody } from "../body/DynamicBody";
 import { SpringOptions, Spring } from "./Spring";
 
 /** Options for creating a RotationalSpring. */
@@ -14,7 +13,7 @@ export class RotationalSpring extends Spring {
   restAngle: number;
 
   constructor(
-    bodyA: DynamicBody,
+    bodyA: Body,
     bodyB: Body,
     options: RotationalSpringOptions = {},
   ) {

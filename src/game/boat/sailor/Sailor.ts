@@ -1,7 +1,8 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
-import { DynamicBody } from "../../../core/physics/body/DynamicBody";
+import type { Body } from "../../../core/physics/body/Body";
+import { createPointMass3D } from "../../../core/physics/body/bodyFactories";
 import { type HullBoundaryData } from "../../../core/physics/constraints/DeckContactConstraint";
 import { PointToRigidLockConstraint3D } from "../../../core/physics/constraints/PointToRigidLockConstraint3D";
 import { SailorDeckConstraint } from "../../../core/physics/constraints/SailorDeckConstraint";
@@ -11,6 +12,7 @@ import type { StationDef } from "./StationConfig";
 
 /** Sailor mass in lbs — average adult. Affects boat balance via deck constraint reaction. */
 export const SAILOR_MASS = 170;
+
 /** Walking speed in ft/s — cautious walking on a moving boat. */
 export const SAILOR_WALK_SPEED = 4;
 /** Running speed in ft/s — hustling when Shift is held. */
@@ -57,9 +59,9 @@ export type SailorState =
 export class Sailor extends BaseEntity {
   layer = "boat" as const;
 
-  readonly body: DynamicBody;
+  readonly body: Body;
   private readonly stations: readonly StationDef[];
-  private readonly hullBody: DynamicBody;
+  private readonly hullBody: Body;
   private readonly deckConstraint: SailorDeckConstraint;
   /** 3-axis position lock to the current station. Disabled while walking. */
   private readonly stationWeld: PointToRigidLockConstraint3D;
@@ -81,7 +83,7 @@ export class Sailor extends BaseEntity {
   constructor(
     stations: readonly StationDef[],
     initialStationId: string,
-    hullBody: DynamicBody,
+    hullBody: Body,
     getDeckHeight: (localX: number, localY: number) => number | null,
     hullBoundary: HullBoundaryData,
     deckHeight: number,
@@ -97,20 +99,15 @@ export class Sailor extends BaseEntity {
     const worldPos = this.stationWorldPosition(initialStation);
 
     // Create the sailor's physics body — a point particle on the deck
-    this.body = new DynamicBody({
+    this.body = createPointMass3D({
+      motion: "dynamic",
       mass: SAILOR_MASS,
       position: [worldPos.x, worldPos.y],
-      fixedRotation: true,
       damping: 0.1,
       allowSleep: false,
-      sixDOF: {
-        rollInertia: 1,
-        pitchInertia: 1,
-        zMass: SAILOR_MASS,
-        zDamping: 0.9,
-        rollPitchDamping: 0,
-        zPosition: deckHeight + SAILOR_RADIUS,
-      },
+      zMass: SAILOR_MASS,
+      zDamping: 0.9,
+      z: deckHeight + SAILOR_RADIUS,
     });
 
     // Create deck contact constraint — keeps sailor on deck with a

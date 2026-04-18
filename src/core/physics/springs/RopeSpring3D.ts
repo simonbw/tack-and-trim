@@ -1,4 +1,3 @@
-import type { DynamicBody } from "../body/DynamicBody";
 import type { Body } from "../body/Body";
 import { CompatibleVector3, V3, V3d } from "../../Vector3";
 import { Spring, SpringOptions } from "./Spring";
@@ -31,7 +30,7 @@ export class RopeSpring3D extends Spring {
   maxForce: number;
 
   constructor(
-    bodyA: DynamicBody,
+    bodyA: Body,
     bodyB: Body,
     options: RopeSpring3DOptions = {},
   ) {
@@ -138,22 +137,15 @@ export class RopeSpring3D extends Spring {
       this.localAnchorA[2],
     );
 
-    // bodyB might not be DynamicBody — use force/angularForce directly for 2D,
-    // and applyForce3D if available
-    if ("applyForce3D" in bodyB) {
-      (bodyB as DynamicBody).applyForce3D(
-        fx,
-        fy,
-        fz,
-        this.localAnchorB[0],
-        this.localAnchorB[1],
-        this.localAnchorB[2],
-      );
-    } else {
-      bodyB.force[0] += fx;
-      bodyB.force[1] += fy;
-      bodyB.angularForce += rjX * fy - rjY * fx;
-    }
+    // Every body exposes applyForce3D (no-ops z/roll/pitch for non-rigid3d).
+    bodyB.applyForce3D(
+      fx,
+      fy,
+      fz,
+      this.localAnchorB[0],
+      this.localAnchorB[1],
+      this.localAnchorB[2],
+    );
 
     return this;
   }

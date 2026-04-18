@@ -2,7 +2,6 @@ import { BaseEntity } from "../core/entity/BaseEntity";
 import Entity from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 import type { Body } from "../core/physics/body/Body";
-import { StaticBody } from "../core/physics/body/StaticBody";
 
 const MAX_POSITION = 10000;
 const MAX_VELOCITY = 1000;
@@ -30,7 +29,7 @@ export class PhysicsValidator extends BaseEntity {
     }> = [];
 
     for (const body of this.game.world.bodies) {
-      if (body instanceof StaticBody) continue;
+      if (body.motion === "static") continue;
 
       const [x, y] = body.position;
       const [vx, vy] = body.velocity;

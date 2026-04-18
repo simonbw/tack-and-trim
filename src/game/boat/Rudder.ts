@@ -1,7 +1,9 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
-import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import type { DynamicRigid3D } from "../../core/physics/body/bodyInterfaces";
+import type { Body } from "../../core/physics/body/Body";
+import { createRigid3D } from "../../core/physics/body/bodyFactories";
 import { RevoluteConstraint3D } from "../../core/physics/constraints/RevoluteConstraint3D";
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
@@ -30,7 +32,7 @@ const RUDDER_ANGULAR_DAMPING = 0.98;
 export class Rudder extends BaseEntity {
   layer = "boat" as const;
 
-  body: DynamicBody;
+  body: Body & DynamicRigid3D;
   private rudderConstraint: RevoluteConstraint3D;
 
   private steerInput: number = 0; // Current steering input from controller
@@ -95,17 +97,16 @@ export class Rudder extends BaseEntity {
       config.position.y,
       this.rudderZ,
     );
-    this.body = new DynamicBody({
+    this.body = createRigid3D({
+      motion: "dynamic",
       mass: RUDDER_MASS,
       position: [pivotWorldX, pivotWorldY],
       angularDamping: RUDDER_ANGULAR_DAMPING,
       allowSleep: false,
-      sixDOF: {
-        rollInertia: 1,
-        pitchInertia: 1,
-        zMass: RUDDER_MASS,
-        zPosition: pivotWorldZ,
-      },
+      rollInertia: 1,
+      pitchInertia: 1,
+      zMass: RUDDER_MASS,
+      z: pivotWorldZ,
     });
     this.body.angle = hull.body.angle;
 

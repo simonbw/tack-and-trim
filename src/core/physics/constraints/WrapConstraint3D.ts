@@ -26,7 +26,6 @@
  */
 
 import type { Body } from "../body/Body";
-import { DynamicBody } from "../body/DynamicBody";
 import { PulleyEquation } from "../equations/PulleyEquation";
 import { findChordHullCrossing } from "../utils/HullBoundaryGeometry";
 import { Constraint, type ConstraintOptions } from "./Constraint";
@@ -80,7 +79,7 @@ export class WrapConstraint3D extends Constraint {
     this.totalLength = totalLength;
     this.maxForce = options.maxForce ?? Number.MAX_VALUE;
 
-    if ((options.wakeUpBodies ?? true) && hullBody instanceof DynamicBody) {
+    if ((options.wakeUpBodies ?? true) && hullBody.motion === "dynamic") {
       hullBody.wakeUp();
     }
 

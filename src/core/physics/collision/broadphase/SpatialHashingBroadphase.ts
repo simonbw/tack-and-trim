@@ -1,9 +1,6 @@
 import { mod } from "../../../util/MathUtil";
 import type { Body } from "../../body/Body";
-import { isDynamicBody, isKinematicBody } from "../../body/body-helpers";
-import { DynamicBody } from "../../body/DynamicBody";
-import { KinematicBody } from "../../body/KinematicBody";
-import { Particle } from "../../shapes/Particle";
+import { hasOnlyParticleShapes } from "../../body/body-helpers";
 import { World } from "../../world/World";
 import { RayLike, AABB } from "../AABB";
 import { bodiesCanCollide } from "../CollisionHelpers";
@@ -19,9 +16,9 @@ const HUGE: number[] = []; // Sentinel value for huge bodies
  * by only checking bodies within the same cells.
  */
 export class SpatialHashingBroadphase extends Broadphase {
-  particleBodies: Set<DynamicBody> = new Set();
-  dynamicBodies: Set<DynamicBody> = new Set();
-  kinematicBodies: Set<KinematicBody> = new Set();
+  pointShapeBodies: Set<Body> = new Set();
+  dynamicBodies: Set<Body> = new Set();
+  kinematicBodies: Set<Body> = new Set();
   hugeBodies: Set<Body> = new Set();
   partitions: Set<Body>[] = [];
 
@@ -79,13 +76,13 @@ export class SpatialHashingBroadphase extends Broadphase {
   }
 
   onAddBody(body: Body) {
-    if (isDynamicBody(body)) {
-      if (isParticleBody(body)) {
-        this.particleBodies.add(body);
+    if (body.motion === "dynamic") {
+      if (hasOnlyParticleShapes(body)) {
+        this.pointShapeBodies.add(body);
       } else {
         this.dynamicBodies.add(body);
       }
-    } else if (isKinematicBody(body)) {
+    } else if (body.motion === "kinematic") {
       this.kinematicBodies.add(body);
     } else {
       // body is static
@@ -94,10 +91,10 @@ export class SpatialHashingBroadphase extends Broadphase {
   }
 
   onRemoveBody(body: Body) {
-    if (isDynamicBody(body)) {
+    if (body.motion === "dynamic") {
       this.dynamicBodies.delete(body);
-      this.particleBodies.delete(body);
-    } else if (isKinematicBody(body)) {
+      this.pointShapeBodies.delete(body);
+    } else if (body.motion === "kinematic") {
       this.kinematicBodies.delete(body);
     } else {
       // body is static
@@ -146,7 +143,7 @@ export class SpatialHashingBroadphase extends Broadphase {
     for (const dBody of this.dynamicBodies) {
       this.addBodyToHash(dBody);
     }
-    for (const pBody of this.particleBodies) {
+    for (const pBody of this.pointShapeBodies) {
       this.addBodyToHash(pBody);
     }
   }
@@ -158,7 +155,7 @@ export class SpatialHashingBroadphase extends Broadphase {
     for (const dBody of this.dynamicBodies) {
       this.removeBodyFromHash(dBody);
     }
-    for (const pBody of this.particleBodies) {
+    for (const pBody of this.pointShapeBodies) {
       this.removeBodyFromHash(pBody);
     }
   }
@@ -171,7 +168,7 @@ export class SpatialHashingBroadphase extends Broadphase {
     this.addBodiesToHash(this.dynamicBodies);
     // Don't add particles because they can't collide with each other, so we just need to check if they're overlapping anything
 
-    for (const pBody of this.particleBodies) {
+    for (const pBody of this.pointShapeBodies) {
       for (const other of this.aabbQuery(world, pBody.getAABB(), false)) {
         if (bodiesCanCollide(pBody, other)) {
           result.push([pBody, other]);
@@ -341,10 +338,4 @@ export class SpatialHashingBroadphase extends Broadphase {
 
     return resultSet;
   }
-}
-
-// Returns true if this is a dynamic body with only particle shapes
-// Useful because particle bodies cannot collide with each other
-function isParticleBody(body: DynamicBody): boolean {
-  return body.shapes.every((shape) => shape instanceof Particle);
 }

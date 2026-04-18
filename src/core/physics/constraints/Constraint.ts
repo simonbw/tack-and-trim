@@ -1,5 +1,4 @@
 import type { Body } from "../body/Body";
-import { DynamicBody } from "../body/DynamicBody";
 import type { Equation } from "../equations/Equation";
 
 /** Options shared by all constraint types. */
@@ -36,10 +35,10 @@ export abstract class Constraint {
 
     // Wake up dynamic bodies when connected
     if (wakeUpBodies) {
-      if (bodyA instanceof DynamicBody) {
+      if (bodyA.motion === "dynamic") {
         bodyA.wakeUp();
       }
-      if (bodyB instanceof DynamicBody) {
+      if (bodyB.motion === "dynamic") {
         bodyB.wakeUp();
       }
     }

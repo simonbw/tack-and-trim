@@ -13,12 +13,11 @@
 
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { Body } from "../../core/physics/body/Body";
-import type { DynamicBody } from "../../core/physics/body/DynamicBody";
 import type {
   DeckContactConstraint,
   HullBoundaryData,
 } from "../../core/physics/constraints/DeckContactConstraint";
-import { PointToRigidDistanceConstraint3D } from "../../core/physics/constraints/PointToRigidDistanceConstraint3D";
+import { DistanceConstraint3D } from "../../core/physics/constraints/DistanceConstraint3D";
 import { V, V2d } from "../../core/Vector";
 import { CompatibleVector3, V3, V3d } from "../../core/Vector3";
 
@@ -106,7 +105,7 @@ export interface RopePathHint {
 export class Rope extends BaseEntity {
   // The continuous particle chain
   private particleEntities: RopeParticle[];
-  private particles: DynamicBody[];
+  private particles: Body[];
   private chainLinkLength: number;
 
   // Endpoints
@@ -298,11 +297,11 @@ export class Rope extends BaseEntity {
 
     // Endpoint chain constraints (A → P0 and Pn-1 → B). These don't have
     // a neighbor on one side so they're not RopeSegments. Both use
-    // PointToRigidDistanceConstraint3D — the particle is always bodyA
+    // DistanceConstraint3D — the particle is always bodyA
     // (per the shape's convention), and the rigid endpoint carries the
     // local anchor. For the "A → P0" case we swap the natural body order
     // so the particle ends up on side A.
-    const endpointConstraints: PointToRigidDistanceConstraint3D[] = [];
+    const endpointConstraints: DistanceConstraint3D[] = [];
     endpointConstraints.push(
       this.makeEndpointChainConstraint(
         this.particles[0],
@@ -335,16 +334,16 @@ export class Rope extends BaseEntity {
   }
 
   private makeEndpointChainConstraint(
-    particle: DynamicBody,
+    particle: Body,
     rigid: Body,
     localAnchorOnRigid: CompatibleVector3,
     solverOrder: number,
     stiffness: number,
     relaxation: number,
     minLinkFraction: number,
-  ): PointToRigidDistanceConstraint3D {
+  ): DistanceConstraint3D {
     const length = this.chainLinkLength;
-    const c = new PointToRigidDistanceConstraint3D(particle, rigid, {
+    const c = new DistanceConstraint3D(particle, rigid, {
       localAnchorB: localAnchorOnRigid,
       distance: length,
       collideConnected: true,
@@ -424,7 +423,7 @@ export class Rope extends BaseEntity {
   // ---- Public accessors ----
 
   /** Particle bodies, used by Pulley to set up its constraint. */
-  getParticles(): readonly DynamicBody[] {
+  getParticles(): readonly Body[] {
     return this.particles;
   }
 

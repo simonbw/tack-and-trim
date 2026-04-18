@@ -1,16 +1,17 @@
+import { Particle } from "../shapes/Particle";
 import { Body } from "./Body";
-import { DynamicBody } from "./DynamicBody";
-import { KinematicBody } from "./KinematicBody";
-import { StaticBody } from "./StaticBody";
 
-export const isDynamicBody = (body: Body): body is DynamicBody =>
-  body instanceof DynamicBody;
+/**
+ * Returns true if the body has no non-Particle shapes. Particle-vs-Particle
+ * has no narrowphase handler and shapeless bodies can't collide at all, so
+ * either case can skip pairwise broadphase registration with each other —
+ * the broadphase only queries them against everything else.
+ */
+export function hasOnlyParticleShapes(body: Body): boolean {
+  return body.shapes.every((s) => s instanceof Particle);
+}
 
-export const isKinematicBody = (body: Body): body is KinematicBody =>
-  body instanceof KinematicBody;
-
-export const isStaticBody = (body: Body): body is StaticBody =>
-  body instanceof StaticBody;
-
-export const isAwakeDynamicBody = (body: Body): body is DynamicBody =>
-  body instanceof DynamicBody && !body.isSleeping();
+/** True if the body is a dynamic body that is currently awake. */
+export function isAwake(body: Body): boolean {
+  return body.motion === "dynamic" && !body.isSleeping();
+}

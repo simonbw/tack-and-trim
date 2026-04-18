@@ -34,7 +34,7 @@ import { WebGPUTexture, WebGPUTextureManager } from "./WebGPUTextureManager";
 // headroom for cleaner presets without clipping terrain or sunken objects.
 // Depth buffer precision at 330ft range is still ~20µm (24-bit depth).
 export const DEPTH_Z_MIN = -300.0;
-export const DEPTH_Z_MAX = 30.0;
+export const DEPTH_Z_MAX = 100.0;
 const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
 
 // Shape shader: Renders untextured colored primitives with optional depth
@@ -394,6 +394,10 @@ export class WebGPURenderer {
 
     const gpu = getWebGPU();
     const device = this.device;
+    const primitiveState: GPUPrimitiveState = {
+      topology: "triangle-list",
+      ...(gpu.features.depthClipControl ? { unclippedDepth: true } : {}),
+    };
 
     // Create shader module
     const shaderModule = await gpu.createShaderModuleChecked(
@@ -486,7 +490,7 @@ export class WebGPURenderer {
       layout: pipelineLayout,
       vertex: vertexState,
       fragment: fragmentState,
-      primitive: { topology: "triangle-list" },
+      primitive: primitiveState,
       depthStencil: {
         format: DEPTH_FORMAT,
         depthCompare: "always",
@@ -500,7 +504,7 @@ export class WebGPURenderer {
       layout: pipelineLayout,
       vertex: vertexState,
       fragment: fragmentState,
-      primitive: { topology: "triangle-list" },
+      primitive: primitiveState,
       depthStencil: {
         format: DEPTH_FORMAT,
         depthCompare: "greater-equal",
@@ -514,7 +518,7 @@ export class WebGPURenderer {
       layout: pipelineLayout,
       vertex: vertexState,
       fragment: fragmentState,
-      primitive: { topology: "triangle-list" },
+      primitive: primitiveState,
       depthStencil: {
         format: DEPTH_FORMAT,
         depthCompare: "always",
@@ -528,7 +532,7 @@ export class WebGPURenderer {
       layout: pipelineLayout,
       vertex: vertexState,
       fragment: fragmentState,
-      primitive: { topology: "triangle-list" },
+      primitive: primitiveState,
       label: "Shape Pipeline (No Depth)",
     });
 
@@ -551,6 +555,10 @@ export class WebGPURenderer {
 
     const gpu = getWebGPU();
     const device = this.device;
+    const primitiveState: GPUPrimitiveState = {
+      topology: "triangle-list",
+      ...(gpu.features.depthClipControl ? { unclippedDepth: true } : {}),
+    };
 
     // Create shader module
     const shaderModule = await gpu.createShaderModuleChecked(
@@ -668,7 +676,7 @@ export class WebGPURenderer {
       layout: pipelineLayout,
       vertex: vertexState,
       fragment: fragmentState,
-      primitive: { topology: "triangle-list" },
+      primitive: primitiveState,
       depthStencil: {
         format: DEPTH_FORMAT,
         depthCompare: "always",
@@ -682,7 +690,7 @@ export class WebGPURenderer {
       layout: pipelineLayout,
       vertex: vertexState,
       fragment: fragmentState,
-      primitive: { topology: "triangle-list" },
+      primitive: primitiveState,
       depthStencil: {
         format: DEPTH_FORMAT,
         depthCompare: "greater-equal",
@@ -696,7 +704,7 @@ export class WebGPURenderer {
       layout: pipelineLayout,
       vertex: vertexState,
       fragment: fragmentState,
-      primitive: { topology: "triangle-list" },
+      primitive: primitiveState,
       depthStencil: {
         format: DEPTH_FORMAT,
         depthCompare: "always",
@@ -710,7 +718,7 @@ export class WebGPURenderer {
       layout: pipelineLayout,
       vertex: vertexState,
       fragment: fragmentState,
-      primitive: { topology: "triangle-list" },
+      primitive: primitiveState,
       label: "Sprite Pipeline (No Depth)",
     });
 

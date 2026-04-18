@@ -10,9 +10,9 @@ See the comment block at the top of `BoatConfig.ts`. Summary: +X forward, +Y sta
 
 `Boat` owns and wires together:
 
-- **Hull** -- main `DynamicBody`, collision shape, buoyancy, form drag, skin friction, gravity
+- **Hull** -- main dynamic rigid body, collision shape, buoyancy, form drag, skin friction, gravity
 - **Keel** -- lateral resistance hydrofoil (prevents sideslip), applies forces to hull body
-- **Rudder** -- steering hydrofoil, has its own `DynamicBody` + `RevoluteConstraint` to hull
+- **Rudder** -- steering hydrofoil, has its own dynamic rigid body + `RevoluteConstraint` to hull
 - **Rig** -- mast and boom, boom has its own body constrained to mast pivot
 - **Sail** (mainsail, optional jib) -- cloth simulation with per-triangle wind forces
 - **Sheet** (mainsheet, jib sheets) -- spring constraints controlling sail trim angle
@@ -28,7 +28,7 @@ See the comment block at the top of `BoatConfig.ts`. Summary: +X forward, +Y sta
 
 ## 3D Tilt System (6DOF)
 
-The hull body is a `DynamicBody` with 6DOF mode enabled (`SixDOFOptions`). In addition to the standard 2D position, velocity, angle, and angular velocity, it tracks:
+The hull body is a dynamic rigid body with 6DOF mode enabled (`SixDOFOptions`). In addition to the standard 2D position, velocity, angle, and angular velocity, it tracks:
 
 - **z** / **zVelocity** -- vertical position and velocity (heave)
 - **roll** / **rollVelocity** -- heel angle and rate (rotation about the longitudinal axis)
@@ -78,7 +78,7 @@ Both keel and rudder use the shared `computeHydrofoilForces()` function from `fl
 
 The 3D decomposition tilts the lateral (lift) component by hull roll angle: `fz = lateral * sin(roll)`. This means the keel's lateral resistance produces a vertical righting force when heeled, which is the primary righting mechanism for a keelboat.
 
-The keel applies forces to the hull body at its blade midpoint depth. The rudder has its own `DynamicBody` connected to the hull via `RevoluteConstraint`, with player input applied as torque.
+The keel applies forces to the hull body at its blade midpoint depth. The rudder has its own dynamic rigid body connected to the hull via `RevoluteConstraint`, with player input applied as torque.
 
 ### Sail Forces
 Sails use cloth simulation (`ClothSolver`) with per-triangle aerodynamic forces computed in `sail-aerodynamics.ts`. Each triangle gets lift and drag from the relative wind (true wind minus cloth surface velocity), producing natural damping. Forces are applied as 3D vectors to the hull body at configurable z-heights (foot to head of sail).

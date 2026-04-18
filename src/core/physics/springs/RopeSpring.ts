@@ -1,4 +1,3 @@
-import type { DynamicBody } from "../body/DynamicBody";
 import type { Body } from "../body/Body";
 import { LinearSpring, LinearSpringOptions } from "./LinearSpring";
 import { V, V2d } from "../../Vector";
@@ -28,7 +27,7 @@ export class RopeSpring extends LinearSpring {
   maxForce: number;
 
   constructor(
-    bodyA: DynamicBody,
+    bodyA: Body,
     bodyB: Body,
     options: RopeSpringOptions = {},
   ) {

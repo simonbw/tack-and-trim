@@ -619,7 +619,7 @@ export class BoatRenderer extends BaseEntity {
   private renderSheet(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
     sheet: import("./Sheet").Sheet,
-    hullBody: import("../../core/physics/body/DynamicBody").DynamicBody,
+    hullBody: import("../../core/physics/body/Body").Body,
   ) {
     const opacity = sheet.getOpacity();
     if (opacity <= 0) return;

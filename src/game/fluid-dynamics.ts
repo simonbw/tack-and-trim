@@ -1,4 +1,4 @@
-import { DynamicBody } from "../core/physics/body/DynamicBody";
+import { Body } from "../core/physics/body/Body";
 import { degToRad } from "../core/util/MathUtil";
 import { V, V2d } from "../core/Vector";
 import { RHO_WATER, RHO_AIR, LBF_TO_ENGINE } from "./physics-constants";
@@ -63,7 +63,7 @@ const _forceResults: FluidForceResult[] = [
  *          Results are written into elements [0] and [1] of the array.
  */
 export function computeFluidForces(
-  body: DynamicBody,
+  body: Body,
   v1: V2d,
   v2: V2d,
   getLiftMagnitude: ForceMagnitudeFn,
@@ -125,7 +125,7 @@ export function computeFluidForces(
  * Computes forces and applies them directly to the body.
  */
 export function applyFluidForces(
-  body: DynamicBody,
+  body: Body,
   v1: V2d,
   v2: V2d,
   getLiftMagnitude: ForceMagnitudeFn,
@@ -149,7 +149,7 @@ export function applyFluidForces(
 }
 
 function computeFluidForceAtPoint(
-  body: DynamicBody,
+  body: Body,
   localPoint: V2d,
   worldPoint: V2d,
   edge: V2d,
@@ -401,7 +401,7 @@ export interface HydrofoilForceResult {
  * @returns Number of valid results written to the results array
  */
 export function computeHydrofoilForces(
-  body: DynamicBody,
+  body: Body,
   vertices: ReadonlyArray<V2d>,
   roll: number,
   bodyAngle: number,
@@ -484,7 +484,7 @@ export function computeHydrofoilForces(
  * @param rho - Fluid density in slugs/ft³ (default: water)
  */
 export function applySkinFriction(
-  body: DynamicBody,
+  body: Body,
   wettedArea: number,
   frictionCoefficient: number,
   getFluidVelocity: FluidVelocityFn = () => V(0, 0),
@@ -525,7 +525,7 @@ export function applySkinFriction(
  * @returns Force vector {fx, fy, fz} or null if too slow to compute
  */
 export function computeSkinFrictionAtPoint(
-  body: DynamicBody,
+  body: Body,
   worldPoint: V2d,
   area: number,
   frictionCoefficient: number,

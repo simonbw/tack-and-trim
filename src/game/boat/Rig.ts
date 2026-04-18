@@ -1,6 +1,6 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
-import { DynamicBody } from "../../core/physics/body/DynamicBody";
+import { createRigid3D } from "../../core/physics/body/bodyFactories";
 import { RevoluteConstraint3D } from "../../core/physics/constraints/RevoluteConstraint3D";
 import { Box } from "../../core/physics/shapes/Box";
 import { V, V2d } from "../../core/Vector";
@@ -49,15 +49,14 @@ export class Rig extends BaseEntity {
       mastPosition.y,
       this.boomZ,
     );
-    this.body = new DynamicBody({
+    this.body = createRigid3D({
+      motion: "dynamic",
       mass: boomMass,
       position: [mastWorldX, mastWorldY],
-      sixDOF: {
-        rollInertia: 1,
-        pitchInertia: 1,
-        zMass: boomMass,
-        zPosition: mastWorldZ,
-      },
+      rollInertia: 1,
+      pitchInertia: 1,
+      zMass: boomMass,
+      z: mastWorldZ,
     });
     this.body.addShape(new Box({ width: boomLength, height: boomWidth }), [
       -boomLength / 2,

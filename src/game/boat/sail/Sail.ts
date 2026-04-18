@@ -2,7 +2,7 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Body } from "../../../core/physics/body/Body";
-import { DynamicBody } from "../../../core/physics/body/DynamicBody";
+import { createPointMass3D } from "../../../core/physics/body/bodyFactories";
 import { clamp } from "../../../core/util/MathUtil";
 import {
   asyncProfiler,
@@ -86,7 +86,7 @@ export interface SailParams {
   getClewPosition?: () => V2d; // Called each frame for constrained clews
   initialClewPosition?: V2d; // Only used once during construction
   clewConstraint?: { body: Body; localAnchor: V2d };
-  getHullBody?: () => DynamicBody;
+  getHullBody?: () => Body;
 }
 
 const DEFAULT_CONFIG: SailConfig = {
@@ -112,8 +112,8 @@ export class Sail extends BaseEntity {
   tickLayer = "sail" as const;
   tags = ["sail"];
 
-  // Keep bodies/constraints for jib clew coupling (single DynamicBody for sheets)
-  bodies: DynamicBody[];
+  // Keep bodies/constraints for jib clew coupling (single Body for sheets)
+  bodies: Body[];
   constraints: NonNullable<BaseEntity["constraints"]>;
 
   // Hoist state (0 = fully furled, 1 = fully deployed)
@@ -240,7 +240,7 @@ export class Sail extends BaseEntity {
       this.solver.setPinned(this.clewIdx, true);
     }
 
-    // For jib: create a 6DOF DynamicBody for the clew (last vertex of foot row)
+    // For jib: create a 6DOF Body for the clew (last vertex of foot row)
     // to couple with 3D sheet constraints. The clew is pinned in the cloth sim
     // and reaction forces are applied to this body, creating two-way coupling.
     if (sailShape === "triangle") {
@@ -252,21 +252,16 @@ export class Sail extends BaseEntity {
       // Mass is set high enough to stabilize the two-way coupling with the
       // cloth sim (reaction forces feed back with a one-frame delay).
       const clewMass = 5;
-      const clewBody = new DynamicBody({
+      const clewBody = createPointMass3D({
+        motion: "dynamic",
         mass: clewMass,
         position: [cx, cy],
         damping: 0.9,
         collisionResponse: false,
-        fixedRotation: true,
         allowSleep: false,
-        sixDOF: {
-          rollInertia: 1,
-          pitchInertia: 1,
-          zMass: clewMass,
-          zPosition: zFoot,
-          zDamping: 0.9,
-          rollPitchDamping: 0,
-        },
+        zMass: clewMass,
+        z: zFoot,
+        zDamping: 0.9,
       });
       // No collision shape — the clew body is inside the hull polygon
       // and would collide with it. It only needs to participate in
@@ -413,10 +408,10 @@ export class Sail extends BaseEntity {
     return this.config.headConstraint.body;
   }
 
-  /** Get clew body - for jib returns the DynamicBody; for mainsail returns the clew constraint body */
+  /** Get clew body - for jib returns the Body; for mainsail returns the clew constraint body */
   getClew(): Body {
     if (this.bodies.length > 0) {
-      return this.bodies[0]; // jib clew DynamicBody
+      return this.bodies[0]; // jib clew Body
     }
     // Mainsail: clew is on the boom, use clewConstraint body
     return this.config.clewConstraint?.body ?? this.config.headConstraint.body;
@@ -502,7 +497,7 @@ export class Sail extends BaseEntity {
       if (sailShape === "triangle" && this.bodies.length > 0) {
         const hullBody = this.config.getHullBody?.();
         const local = this.config.headLocalPosition;
-        const clewBody = this.bodies[0] as DynamicBody;
+        const clewBody = this.bodies[0] as Body;
         if (hullBody) {
           const [wx, wy, wz] = hullBody.toWorldFrame3D(
             local.x,
@@ -553,7 +548,7 @@ export class Sail extends BaseEntity {
         Math.hypot(clewRx, clewRy, clewRz);
 
       // Tack + head both attach at the mast (headConstraint)
-      const hBody = headConstraint.body as DynamicBody;
+      const hBody = headConstraint.body as Body;
       hBody.applyForce3D(
         tackRx + headRx,
         tackRy + headRy,
@@ -566,7 +561,7 @@ export class Sail extends BaseEntity {
       // Clew reaction forces — apply to constraint body (mainsail: boom)
       // or directly to the clew body (jib: free body constrained by sheets)
       if (clewConstraint) {
-        const cBody = clewConstraint.body as DynamicBody;
+        const cBody = clewConstraint.body as Body;
         cBody.applyForce3D(
           clewRx,
           clewRy,
@@ -576,7 +571,7 @@ export class Sail extends BaseEntity {
           0,
         );
       } else if (sailShape === "triangle" && this.bodies.length > 0) {
-        const cBody = this.bodies[0] as DynamicBody;
+        const cBody = this.bodies[0] as Body;
         cBody.applyForce3D(clewRx, clewRy, clewRz, 0, 0, 0);
       }
 
@@ -597,7 +592,7 @@ export class Sail extends BaseEntity {
       if (this.config.sailShape === "triangle" && this.bodies.length > 0) {
         const hullBody = this.config.getHullBody?.();
         const local = this.config.headLocalPosition;
-        const clewBody = this.bodies[0] as DynamicBody;
+        const clewBody = this.bodies[0] as Body;
         if (hullBody) {
           const [wx, wy, wz] = hullBody.toWorldFrame3D(
             local.x,
@@ -656,7 +651,7 @@ export class Sail extends BaseEntity {
       // The sheet constrains this body, so when trimmed the body moves
       // inward → cloth sim pins the vertex to the new position → wind
       // pushes back via reaction forces → equilibrium.
-      const clewBody = this.bodies[0] as DynamicBody;
+      const clewBody = this.bodies[0] as Body;
       clewX = clewBody.position[0];
       clewY = clewBody.position[1];
       // Z from the body's 6DOF position, minus hull heave (cloth sim frame)
@@ -666,7 +661,7 @@ export class Sail extends BaseEntity {
       // orientation kinematically slaved to the hull (Rig.syncOrientationToHull),
       // so toWorldFrame3D returns the 3D boom end position directly.
       const boomBody = this.config.clewConstraint?.body as
-        | DynamicBody
+        | Body
         | undefined;
       const clewLocal = this.config.clewConstraint?.localAnchor;
       if (boomBody && clewLocal) {
@@ -775,7 +770,7 @@ export class Sail extends BaseEntity {
         // correct 3D position at both endpoints.
         const clewLocal = this.config.clewConstraint?.localAnchor;
         const boomBody = this.config.clewConstraint?.body as
-          | DynamicBody
+          | Body
           | undefined;
         if (boomBody && clewLocal) {
           [x1, y1, z1] = boomBody.toWorldFrame3D(0, 0, zBump);
