@@ -218,6 +218,11 @@ export class Anchor extends BaseEntity {
     this.pulleys.push(winch);
     this.winch = winch;
 
+    // Start fully retracted: minimal working length so the anchor sits at
+    // the bow roller with nearly all the rode wound on the winch side.
+    const bowToWinch = this.bowAttachPoint.distanceTo(winchPoint);
+    winch.setWorkingLength(bowToWinch);
+
     // Anchor body terrain floor
     this.addChild(
       new TerrainFloorConstraint([this.anchorBody], {
