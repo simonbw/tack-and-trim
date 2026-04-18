@@ -153,7 +153,7 @@ export class Game {
     await getWebGPU().init();
     this.webGpuInitialized = true;
 
-    profiler.registerScope("Game.loop", () => asyncProfiler.endFrame());
+    profiler.registerScope("Game.nextFrame", () => asyncProfiler.endFrame());
 
     await this.renderer.init(rendererOptions);
     // IO events don't respect pause state
