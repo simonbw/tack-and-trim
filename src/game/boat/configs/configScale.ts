@@ -136,7 +136,13 @@ export function scaleBoatConfig(
         a.rodeAttachOffset[2] * sz,
       ] as readonly [number, number, number],
     },
-    jib: base.jib ? { ...base.jib } : undefined,
+    jib: base.jib
+      ? {
+          ...base.jib,
+          zFoot: base.jib.zFoot !== undefined ? base.jib.zFoot * sz : undefined,
+          zHead: base.jib.zHead !== undefined ? base.jib.zHead * sz : undefined,
+        }
+      : undefined,
     mainsheet: {
       ...ms,
       hullAttachPoint: V(

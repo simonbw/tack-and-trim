@@ -397,19 +397,23 @@ export class BoatRenderer extends BaseEntity {
     const mastTopZ = rig.getMastTopZ();
     const stays = rig.getStays();
 
-    for (const attach of [
-      stays.forestay,
-      stays.portShroud,
-      stays.starboardShroud,
-      stays.backstay,
-    ]) {
+    // The forestay attaches to the top of the roller furler on the bowsprit,
+    // not the deck — use the jib's zFoot so the furled jib lies on the stay.
+    const forestayZ = this.config.jib?.zFoot ?? stays.deckHeight;
+
+    for (const [attach, bottomZ] of [
+      [stays.forestay, forestayZ],
+      [stays.portShroud, stays.deckHeight],
+      [stays.starboardShroud, stays.deckHeight],
+      [stays.backstay, stays.deckHeight],
+    ] as const) {
       td.line(
         mastPos.x,
         mastPos.y,
         mastTopZ,
         attach.x,
         attach.y,
-        stays.deckHeight,
+        bottomZ,
         0.1,
         0x999999,
       );

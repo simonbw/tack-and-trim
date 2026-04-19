@@ -325,6 +325,8 @@ export const Kestrel: BoatConfig = {
     dragScale: 1.0,
     hoistSpeed: 0.4,
     color: 0xeeeeff,
+    zFoot: 4.0, // top of bowsprit roller drum
+    zHead: 26, // masthead — matches mainsail.zHead so the head meets the forestay top
   },
 
   mainsheet: {

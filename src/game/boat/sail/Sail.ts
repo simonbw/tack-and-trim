@@ -551,10 +551,7 @@ export class Sail extends BaseEntity {
       // worker still runs so cloth positions track the boat, but any reaction
       // it produces is from tracking drag, not sail load — applying it would
       // push the hull/boom for no reason.
-      // DEBUG TOGGLE #2: reaction feedback to rigid bodies disabled.
-      // If mainsail is stable now, the cloth↔rigid feedback loop is the issue.
-      const FEEDBACK_ENABLED = false;
-      if (FEEDBACK_ENABLED && this.hoistAmount > 0) {
+      if (this.hoistAmount > 0) {
         // Tack + head both attach at the mast (headConstraint)
         const hBody = headConstraint.body as Body;
         hBody.applyForce3D(
@@ -730,8 +727,8 @@ export class Sail extends BaseEntity {
       hoistAmount: this.hoistAmount,
       windX,
       windY,
-      liftScale: 0,
-      dragScale: 0,
+      liftScale: effectiveLiftScale,
+      dragScale,
       tackX,
       tackY,
       tackZ,

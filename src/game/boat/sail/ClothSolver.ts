@@ -263,6 +263,47 @@ export class ClothSolver {
     this.prevPositions[i3 + 2] = z;
   }
 
+  /** Set pos and prev separately so the Verlet-implicit velocity is pos-prev. */
+  setPositionAndPrev(
+    index: number,
+    x: number,
+    y: number,
+    z: number,
+    prevX: number,
+    prevY: number,
+    prevZ: number,
+  ): void {
+    const i3 = index * 3;
+    this.positions[i3] = x;
+    this.positions[i3 + 1] = y;
+    this.positions[i3 + 2] = z;
+    this.prevPositions[i3] = prevX;
+    this.prevPositions[i3 + 1] = prevY;
+    this.prevPositions[i3 + 2] = prevZ;
+  }
+
+  /** Blend pos and prev toward target values by t in [0,1]. t=0: no change.
+   *  t=1: snap to target. Used for soft-pinning partially-active cloth verts. */
+  blendTowardTarget(
+    index: number,
+    x: number,
+    y: number,
+    z: number,
+    prevX: number,
+    prevY: number,
+    prevZ: number,
+    t: number,
+  ): void {
+    const i3 = index * 3;
+    const ti = 1 - t;
+    this.positions[i3] = this.positions[i3] * ti + x * t;
+    this.positions[i3 + 1] = this.positions[i3 + 1] * ti + y * t;
+    this.positions[i3 + 2] = this.positions[i3 + 2] * ti + z * t;
+    this.prevPositions[i3] = this.prevPositions[i3] * ti + prevX * t;
+    this.prevPositions[i3 + 1] = this.prevPositions[i3 + 1] * ti + prevY * t;
+    this.prevPositions[i3 + 2] = this.prevPositions[i3 + 2] * ti + prevZ * t;
+  }
+
   /**
    * Snapshot solver state for transfer to a worker.
    * Returns copies of internal arrays for one-time transfer.

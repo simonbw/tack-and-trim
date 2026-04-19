@@ -12,6 +12,8 @@ import type { SailSolveInputs } from "./SailWorkerHandle";
 
 // Gravity in ft/s² (downward in z)
 const GRAVITY_Z = -32.174;
+// Activation band width (in v or u units) over which rows ease in.
+const ACTIVATION_BAND = 0.1;
 
 export class ClothSolverSync implements ClothPositionReader {
   private readonly solver: ClothSolver;
@@ -20,12 +22,17 @@ export class ClothSolverSync implements ClothPositionReader {
   private readonly clewIdx: number;
   private readonly headIdx: number;
   private readonly luffVertices: number[];
+  private readonly luffSet: Set<number>;
   private readonly vertexU: Float64Array;
   private readonly vertexV: Float64Array;
   private readonly vertexChordFrac: Float64Array;
   private readonly furlMode: FurlMode;
   private readonly vertexActive: Uint8Array;
   private readonly prevActive: Uint8Array;
+  private readonly vertexBlend: Float64Array;
+  private readonly restShape: Float64Array;
+  private readonly prevRestShape: Float64Array;
+  private restShapeInitialized = false;
   private solved = false;
 
   // Reaction force accumulators
@@ -58,6 +65,47 @@ export class ClothSolverSync implements ClothPositionReader {
     this.furlMode = furlMode;
     this.vertexActive = new Uint8Array(solver.vertexCount);
     this.prevActive = new Uint8Array(solver.vertexCount);
+    this.vertexBlend = new Float64Array(solver.vertexCount);
+    this.restShape = new Float64Array(solver.vertexCount * 3);
+    this.prevRestShape = new Float64Array(solver.vertexCount * 3);
+    this.luffSet = new Set(luffVertices);
+  }
+
+  private computeBlend(i: number, hoistAmount: number): number {
+    const excess =
+      this.furlMode === "v-cutoff"
+        ? hoistAmount - this.vertexV[i]
+        : this.vertexU[i] - (1 - hoistAmount);
+    if (excess <= 0) return 0;
+    if (excess >= ACTIVATION_BAND) return 1;
+    const t = excess / ACTIVATION_BAND;
+    return t * t * (3 - 2 * t);
+  }
+
+  private computeRestShape(
+    tackX: number,
+    tackY: number,
+    tackZ: number,
+    clewX: number,
+    clewY: number,
+    clewZ: number,
+    headX: number,
+    headY: number,
+    headZ: number,
+  ): void {
+    const out = this.restShape;
+    const vertexCount = this.solver.vertexCount;
+    const chordX = clewX - tackX;
+    const chordY = clewY - tackY;
+    for (let i = 0; i < vertexCount; i++) {
+      const u = this.vertexU[i];
+      const v = this.vertexV[i];
+      const cf = this.vertexChordFrac[i];
+      const i3 = i * 3;
+      out[i3] = tackX + v * (headX - tackX) + u * cf * chordX;
+      out[i3 + 1] = tackY + v * (headY - tackY) + u * cf * chordY;
+      out[i3 + 2] = tackZ + v * (headZ - tackZ);
+    }
   }
 
   hasNewResults(): boolean {
@@ -112,9 +160,8 @@ export class ClothSolverSync implements ClothPositionReader {
     // Update clew pin target
     solver.setPinTarget(this.clewIdx, clewX, clewY, clewZ);
 
-    // Compute active flags and set up furl state
-    this.updateFurlState(
-      hoistAmount,
+    // Compute rest-shape positions and seed prev on the first frame.
+    this.computeRestShape(
       tackX,
       tackY,
       tackZ,
@@ -124,31 +171,39 @@ export class ClothSolverSync implements ClothPositionReader {
       headX,
       headY,
       headZ,
-      clewPinned,
     );
+    if (!this.restShapeInitialized) {
+      this.prevRestShape.set(this.restShape);
+      this.restShapeInitialized = true;
+    }
+
+    // Compute blend weights, luff pins, skipped verts, activation seeding
+    this.updateFurlState(hoistAmount, clewPinned);
 
     const vertexMass = clothMass / vertexCount;
     solver.clearForces();
 
-    // Gravity — only active vertices
+    // Gravity — scaled by blend so partially-active verts ease in
     const gravZ = GRAVITY_Z * vertexMass;
     for (let i = 0; i < vertexCount; i++) {
-      if (this.vertexActive[i]) {
-        solver.applyForce(i, 0, 0, gravZ);
+      const w = this.vertexBlend[i];
+      if (w > 0) {
+        solver.applyForce(i, 0, 0, gravZ * w);
       }
     }
 
-    // Aerodynamic forces — only active triangles
+    // Aerodynamic forces — scaled by minimum blend across triangle
     if (hoistAmount > 0 && (windX !== 0 || windY !== 0)) {
       const invVertexMass = 1 / vertexMass;
       const indices = this.indices;
-      const active = this.vertexActive;
+      const blend = this.vertexBlend;
       for (let t = 0; t < indices.length; t += 3) {
         const i0 = indices[t];
         const i1 = indices[t + 1];
         const i2 = indices[t + 2];
 
-        if (!active[i0] || !active[i1] || !active[i2]) continue;
+        const wTri = Math.min(blend[i0], blend[i1], blend[i2]);
+        if (wTri <= 0) continue;
 
         const [fx, fy, fz] = computeClothWindForce(
           solver,
@@ -161,7 +216,7 @@ export class ClothSolverSync implements ClothPositionReader {
           dragScale,
         );
 
-        const scale = invVertexMass / 3;
+        const scale = (invVertexMass / 3) * wTri;
         const sfx = fx * scale;
         const sfy = fy * scale;
         const sfz = fz * scale;
@@ -194,6 +249,26 @@ export class ClothSolverSync implements ClothPositionReader {
       sumClewRy += solver.getReactionForceY(this.clewIdx);
     }
 
+    // Post-solve soft pin for partially-active verts
+    for (let i = 0; i < vertexCount; i++) {
+      const w = this.vertexBlend[i];
+      if (w <= 0 || w >= 1) continue;
+      const i3 = i * 3;
+      solver.blendTowardTarget(
+        i,
+        this.restShape[i3],
+        this.restShape[i3 + 1],
+        this.restShape[i3 + 2],
+        this.prevRestShape[i3],
+        this.prevRestShape[i3 + 1],
+        this.prevRestShape[i3 + 2],
+        1 - w,
+      );
+    }
+
+    // Store current rest shape for next frame
+    this.prevRestShape.set(this.restShape);
+
     this.luffRx = sumLuffRx;
     this.luffRy = sumLuffRy;
     this.clewRx = sumClewRx;
@@ -202,112 +277,78 @@ export class ClothSolverSync implements ClothPositionReader {
     this.solved = true;
   }
 
-  private updateFurlState(
-    hoistAmount: number,
-    tackX: number,
-    tackY: number,
-    tackZ: number,
-    clewX: number,
-    clewY: number,
-    clewZ: number,
-    headX: number,
-    headY: number,
-    headZ: number,
-    clewPinned: boolean,
-  ): void {
+  private updateFurlState(hoistAmount: number, clewPinned: boolean): void {
     const solver = this.solver;
     const vertexCount = solver.vertexCount;
     const active = this.vertexActive;
+    const blend = this.vertexBlend;
+    const restShape = this.restShape;
+    const prevRestShape = this.prevRestShape;
 
-    // Compute active flags
-    if (this.furlMode === "v-cutoff") {
-      for (let i = 0; i < vertexCount; i++) {
-        active[i] = this.vertexV[i] <= hoistAmount ? 1 : 0;
-      }
-    } else {
-      const wrapThreshold = 1 - hoistAmount;
-      for (let i = 0; i < vertexCount; i++) {
-        active[i] = this.vertexU[i] >= wrapThreshold ? 1 : 0;
-      }
+    // Compute blend weights and active flags
+    for (let i = 0; i < vertexCount; i++) {
+      const w = this.computeBlend(i, hoistAmount);
+      blend[i] = w;
+      active[i] = w > 0 ? 1 : 0;
     }
 
-    // Clear pin and skipped states — we'll set them fresh each frame
+    // Clear pin and skipped states — set fresh each frame
     for (let i = 0; i < vertexCount; i++) {
       solver.setPinned(i, false);
       solver.setSkipped(i, false);
     }
 
-    // Pin active luff vertices
+    // Luff verts: hard-pinned at rest shape (which is exactly the luff line)
     for (const li of this.luffVertices) {
-      if (!active[li]) continue;
-      const v = this.vertexV[li];
-      solver.setPinned(li, true);
-      solver.setPinTarget(
-        li,
-        tackX + v * (headX - tackX),
-        tackY + v * (headY - tackY),
-        tackZ + v * (headZ - tackZ),
-      );
-    }
-
-    // Handle inactive vertices. For v-cutoff (mainsail), skip them AND write
-    // their rest-shape position each frame — keeps the rendered position
-    // continuous with what the active shape expects, so activation has no
-    // visible jump. For u-wrap (jib), pin along the luff.
-    const chordX = clewX - tackX;
-    const chordY = clewY - tackY;
-    for (let i = 0; i < vertexCount; i++) {
-      if (!active[i]) {
-        if (this.furlMode === "v-cutoff") {
-          solver.setSkipped(i, true);
-          const u = this.vertexU[i];
-          const v = this.vertexV[i];
-          const cf = this.vertexChordFrac[i];
-          const luffX = tackX + v * (headX - tackX);
-          const luffY = tackY + v * (headY - tackY);
-          const luffZ = tackZ + v * (headZ - tackZ);
-          solver.resetVertex(
-            i,
-            luffX + u * cf * chordX,
-            luffY + u * cf * chordY,
-            luffZ,
-          );
-        } else {
-          solver.setPinned(i, true);
-          const v = this.vertexV[i];
-          solver.setPinTarget(
-            i,
-            tackX + v * (headX - tackX),
-            tackY + v * (headY - tackY),
-            tackZ + v * (headZ - tackZ),
-          );
-        }
+      const i3 = li * 3;
+      if (active[li]) {
+        solver.setPinned(li, true);
+        solver.setPinTarget(
+          li,
+          restShape[i3],
+          restShape[i3 + 1],
+          restShape[i3 + 2],
+        );
       }
     }
 
-    // Clew pin
-    if (clewPinned && active[this.clewIdx]) {
+    // Non-luff skipped verts: position = rest shape, prev = prev rest shape
+    for (let i = 0; i < vertexCount; i++) {
+      if (this.luffSet.has(i)) continue;
+      if (!active[i]) {
+        solver.setSkipped(i, true);
+        const i3 = i * 3;
+        solver.setPositionAndPrev(
+          i,
+          restShape[i3],
+          restShape[i3 + 1],
+          restShape[i3 + 2],
+          prevRestShape[i3],
+          prevRestShape[i3 + 1],
+          prevRestShape[i3 + 2],
+        );
+      }
+    }
+
+    // Clew pin — only when fully active
+    if (clewPinned && blend[this.clewIdx] >= 1) {
       solver.setPinned(this.clewIdx, true);
     }
 
-    // On inactive→active transition, teleport the vert to its rest-shape world
-    // position (matching mapUVToWorld): luff(v) + u*chordFrac*(clew-tack). This
-    // places the newly-active vert roughly where its active neighbors expect
-    // it via structural constraints, avoiding a snap-and-yank on activation.
+    // Activation seeding: newly-active verts inherit the boat's velocity via
+    // prev = prevRestShape (the previous frame's rest shape tracks boat motion)
     const prevActive = this.prevActive;
     for (let i = 0; i < vertexCount; i++) {
       if (active[i] && !prevActive[i]) {
-        const u = this.vertexU[i];
-        const v = this.vertexV[i];
-        const cf = this.vertexChordFrac[i];
-        const luffX = tackX + v * (headX - tackX);
-        const luffY = tackY + v * (headY - tackY);
-        const luffZ = tackZ + v * (headZ - tackZ);
-        solver.resetVertex(
+        const i3 = i * 3;
+        solver.setPositionAndPrev(
           i,
-          luffX + u * cf * chordX,
-          luffY + u * cf * chordY,
-          luffZ,
+          restShape[i3],
+          restShape[i3 + 1],
+          restShape[i3 + 2],
+          prevRestShape[i3],
+          prevRestShape[i3 + 1],
+          prevRestShape[i3 + 2],
         );
       }
       prevActive[i] = active[i];
