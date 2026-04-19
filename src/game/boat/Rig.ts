@@ -49,12 +49,18 @@ export class Rig extends BaseEntity {
       mastPosition.y,
       this.boomZ,
     );
+    // Moments of inertia about the pivot end (the body's origin is at the
+    // mast, so roll/pitch rotate about the pivot, not the boom's CoM).
+    // For a uniform rod of length L pivoted at one end: I = m L² / 3.
+    // Roll is about the boom's long axis, so it's dominated by width, not length.
+    const pitchInertia = (boomMass * boomLength * boomLength) / 3;
+    const rollInertia = (boomMass * boomWidth * boomWidth) / 3;
     this.body = createRigid3D({
       motion: "dynamic",
       mass: boomMass,
       position: [mastWorldX, mastWorldY],
-      rollInertia: 1,
-      pitchInertia: 1,
+      rollInertia,
+      pitchInertia,
       zMass: boomMass,
       z: mastWorldZ,
     });
@@ -81,7 +87,7 @@ export class Rig extends BaseEntity {
         getHeadPosition: () => this.getMastWorldPosition(),
         headLocalPosition: mastPosition,
         getClewPosition: () => this.getBoomEndWorldPosition(),
-        headConstraint: { body: this.body, localAnchor: V(0, 0) },
+        headConstraint: { body: hull.body, localAnchor: mastPosition },
         clewConstraint: { body: this.body, localAnchor: V(-boomLength, 0) },
         getHullBody: () => this.hull.body,
       }),

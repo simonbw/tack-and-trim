@@ -30,13 +30,13 @@ import { generateSailMesh, SailMeshData } from "./SailMesh";
 import { TellTail } from "./TellTail";
 
 //#tunable { min: 1, max: 100, step: 1 }
-let CLOTH_ITERATIONS: number = 64;
+let CLOTH_ITERATIONS: number = 20;
 
 //#tunable { min: 1, max: 16, step: 1 }
-let CLOTH_SUBSTEPS: number = 8;
+let CLOTH_SUBSTEPS: number = 4;
 
 //#tunable { min: 0, max: 1, step: 0.01 }
-let CONSTRAINT_DAMPING: number = 0.02;
+let CONSTRAINT_DAMPING: number = 0.2;
 
 //#tunable { min: 0.1, max: 50 }
 let CLOTH_MASS: number = 8.0;
@@ -134,6 +134,7 @@ export class Sail extends BaseEntity {
   // Mesh topology for furling
   private readonly vertexU: Float64Array;
   private readonly vertexV: Float64Array;
+  private readonly vertexChordFrac: Float64Array;
   private readonly furlMode: FurlMode;
   private readonly vertexActive: Uint8Array;
 
@@ -189,6 +190,15 @@ export class Sail extends BaseEntity {
     // Extract per-vertex UV from mesh for furling
     this.vertexU = new Float64Array(this.mesh.vertexCount);
     this.vertexV = new Float64Array(this.mesh.vertexCount);
+    this.vertexChordFrac = new Float64Array(this.mesh.vertexCount);
+    const footColCount = this.mesh.colCounts[0];
+    for (let j = 0; j < this.mesh.colCounts.length; j++) {
+      const cf = (this.mesh.colCounts[j] - 1) / Math.max(1, footColCount - 1);
+      const start = this.mesh.rowStarts[j];
+      for (let c = 0; c < this.mesh.colCounts[j]; c++) {
+        this.vertexChordFrac[start + c] = cf;
+      }
+    }
     for (let i = 0; i < this.mesh.vertexCount; i++) {
       this.vertexU[i] = this.mesh.restPositions[i * 2];
       this.vertexV[i] = this.mesh.restPositions[i * 2 + 1];
@@ -327,6 +337,7 @@ export class Sail extends BaseEntity {
       luffVertices: this.mesh.luffVertices,
       vertexU: this.vertexU,
       vertexV: this.vertexV,
+      vertexChordFrac: this.vertexChordFrac,
       furlMode: this.furlMode,
     });
   }
@@ -478,43 +489,32 @@ export class Sail extends BaseEntity {
       );
     }
 
-    // Skip cloth sim processing when fully furled — no sail to simulate.
-    // The hoist ramp above still runs so the player can start hoisting.
-    if (this.hoistAmount <= 0) {
-      // Still consume results so the worker doesn't stall
-      if (this.handle.hasNewResults()) {
-        if (this._clothSolveToken) {
-          asyncProfiler.endAsync(this._clothSolveToken);
-          this._clothSolveToken = null;
-        }
-        this.handle.readReactionForces();
-        this.handle.ackResults();
+    // When fully furled, pin the jib clew body to the tack (where the furled
+    // sail lives), using the hull's full 3D transform so it accounts for
+    // heel/pitch. This runs independently of the cloth sim.
+    if (
+      this.hoistAmount <= 0 &&
+      sailShape === "triangle" &&
+      this.bodies.length > 0
+    ) {
+      const hullBody = this.config.getHullBody?.();
+      const local = this.config.headLocalPosition;
+      const clewBody = this.bodies[0] as Body;
+      if (hullBody) {
+        const [wx, wy, wz] = hullBody.toWorldFrame3D(
+          local.x,
+          local.y,
+          this.config.zFoot,
+        );
+        clewBody.position.set(wx, wy);
+        clewBody.z = wz;
+      } else {
+        const tackPos = this.config.getHeadPosition();
+        clewBody.position.set(tackPos);
+        clewBody.z = this.config.zFoot;
       }
-      this._totalReactionForce = 0;
-
-      // Pin the jib clew body to the tack (where the furled sail lives),
-      // using the hull's full 3D transform so it accounts for heel/pitch.
-      if (sailShape === "triangle" && this.bodies.length > 0) {
-        const hullBody = this.config.getHullBody?.();
-        const local = this.config.headLocalPosition;
-        const clewBody = this.bodies[0] as Body;
-        if (hullBody) {
-          const [wx, wy, wz] = hullBody.toWorldFrame3D(
-            local.x,
-            local.y,
-            this.config.zFoot,
-          );
-          clewBody.position.set(wx, wy);
-          clewBody.z = wz;
-        } else {
-          const tackPos = this.config.getHeadPosition();
-          clewBody.position.set(tackPos);
-          clewBody.z = this.config.zFoot;
-        }
-        clewBody.velocity.set(0, 0);
-        clewBody.zVelocity = 0;
-      }
-      return;
+      clewBody.velocity.set(0, 0);
+      clewBody.zVelocity = 0;
     }
 
     // Read results from the worker's previous solve (one-tick lag)
@@ -547,32 +547,43 @@ export class Sail extends BaseEntity {
         Math.hypot(headRx, headRy, headRz) +
         Math.hypot(clewRx, clewRy, clewRz);
 
-      // Tack + head both attach at the mast (headConstraint)
-      const hBody = headConstraint.body as Body;
-      hBody.applyForce3D(
-        tackRx + headRx,
-        tackRy + headRy,
-        tackRz + headRz,
-        headConstraint.localAnchor.x,
-        headConstraint.localAnchor.y,
-        0,
-      );
-
-      // Clew reaction forces — apply to constraint body (mainsail: boom)
-      // or directly to the clew body (jib: free body constrained by sheets)
-      if (clewConstraint) {
-        const cBody = clewConstraint.body as Body;
-        cBody.applyForce3D(
-          clewRx,
-          clewRy,
-          clewRz,
-          clewConstraint.localAnchor.x,
-          clewConstraint.localAnchor.y,
+      // Only feed reactions into rigid bodies while hoisted. When furled the
+      // worker still runs so cloth positions track the boat, but any reaction
+      // it produces is from tracking drag, not sail load — applying it would
+      // push the hull/boom for no reason.
+      // DEBUG TOGGLE #2: reaction feedback to rigid bodies disabled.
+      // If mainsail is stable now, the cloth↔rigid feedback loop is the issue.
+      const FEEDBACK_ENABLED = false;
+      if (FEEDBACK_ENABLED && this.hoistAmount > 0) {
+        // Tack + head both attach at the mast (headConstraint)
+        const hBody = headConstraint.body as Body;
+        hBody.applyForce3D(
+          tackRx + headRx,
+          tackRy + headRy,
+          tackRz + headRz,
+          headConstraint.localAnchor.x,
+          headConstraint.localAnchor.y,
           0,
         );
-      } else if (sailShape === "triangle" && this.bodies.length > 0) {
-        const cBody = this.bodies[0] as Body;
-        cBody.applyForce3D(clewRx, clewRy, clewRz, 0, 0, 0);
+
+        // Clew reaction forces — apply to constraint body (mainsail: boom)
+        // or directly to the clew body (jib: free body constrained by sheets)
+        if (clewConstraint) {
+          const cBody = clewConstraint.body as Body;
+          cBody.applyForce3D(
+            clewRx,
+            clewRy,
+            clewRz,
+            clewConstraint.localAnchor.x,
+            clewConstraint.localAnchor.y,
+            0,
+          );
+        } else if (sailShape === "triangle" && this.bodies.length > 0) {
+          const cBody = this.bodies[0] as Body;
+          cBody.applyForce3D(clewRx, clewRy, clewRz, 0, 0, 0);
+        }
+      } else {
+        this._totalReactionForce = 0;
       }
 
       this.handle.ackResults();
@@ -586,30 +597,31 @@ export class Sail extends BaseEntity {
    */
   @on("afterPhysicsStep")
   onAfterPhysicsStep(dt: number) {
-    // When fully furled, just pin the jib clew after the solver
-    // (the solver may have dragged it away from the tack via rope constraints)
-    if (this.hoistAmount <= 0) {
-      if (this.config.sailShape === "triangle" && this.bodies.length > 0) {
-        const hullBody = this.config.getHullBody?.();
-        const local = this.config.headLocalPosition;
-        const clewBody = this.bodies[0] as Body;
-        if (hullBody) {
-          const [wx, wy, wz] = hullBody.toWorldFrame3D(
-            local.x,
-            local.y,
-            this.config.zFoot,
-          );
-          clewBody.position.set(wx, wy);
-          clewBody.z = wz;
-        } else {
-          const tackPos = this.config.getHeadPosition();
-          clewBody.position.set(tackPos);
-          clewBody.z = this.config.zFoot;
-        }
-        clewBody.velocity.set(0, 0);
-        clewBody.zVelocity = 0;
+    // When fully furled, re-pin the jib clew body after the physics step
+    // (the solver may have dragged it away from the tack via rope constraints).
+    if (
+      this.hoistAmount <= 0 &&
+      this.config.sailShape === "triangle" &&
+      this.bodies.length > 0
+    ) {
+      const hullBody = this.config.getHullBody?.();
+      const local = this.config.headLocalPosition;
+      const clewBody = this.bodies[0] as Body;
+      if (hullBody) {
+        const [wx, wy, wz] = hullBody.toWorldFrame3D(
+          local.x,
+          local.y,
+          this.config.zFoot,
+        );
+        clewBody.position.set(wx, wy);
+        clewBody.z = wz;
+      } else {
+        const tackPos = this.config.getHeadPosition();
+        clewBody.position.set(tackPos);
+        clewBody.z = this.config.zFoot;
       }
-      return;
+      clewBody.velocity.set(0, 0);
+      clewBody.zVelocity = 0;
     }
 
     const { sailShape, liftScale, dragScale } = this.config;
@@ -660,9 +672,7 @@ export class Sail extends BaseEntity {
       // Mainsail: clew at boom end. The boom body is 6DOF with its
       // orientation kinematically slaved to the hull (Rig.syncOrientationToHull),
       // so toWorldFrame3D returns the 3D boom end position directly.
-      const boomBody = this.config.clewConstraint?.body as
-        | Body
-        | undefined;
+      const boomBody = this.config.clewConstraint?.body as Body | undefined;
       const clewLocal = this.config.clewConstraint?.localAnchor;
       if (boomBody && clewLocal) {
         const [bcx, bcy, bcz] = boomBody.toWorldFrame3D(
@@ -720,8 +730,8 @@ export class Sail extends BaseEntity {
       hoistAmount: this.hoistAmount,
       windX,
       windY,
-      liftScale: effectiveLiftScale,
-      dragScale,
+      liftScale: 0,
+      dragScale: 0,
       tackX,
       tackY,
       tackZ,
@@ -769,9 +779,7 @@ export class Sail extends BaseEntity {
         // is 6DOF, locked to the hull's tilt, so toWorldFrame3D gives the
         // correct 3D position at both endpoints.
         const clewLocal = this.config.clewConstraint?.localAnchor;
-        const boomBody = this.config.clewConstraint?.body as
-          | Body
-          | undefined;
+        const boomBody = this.config.clewConstraint?.body as Body | undefined;
         if (boomBody && clewLocal) {
           [x1, y1, z1] = boomBody.toWorldFrame3D(0, 0, zBump);
           [x2, y2, z2] = boomBody.toWorldFrame3D(

@@ -173,7 +173,8 @@ export function generateSailMesh(config: SailMeshConfig): SailMeshData {
       const bi = Math.round((i / (minCount - 1)) * (botCount - 1));
       const bi2 = Math.round(((i + 1) / (minCount - 1)) * (botCount - 1));
 
-      // Diagonal 1: top[ti] → bot[bi2]
+      // Single shear diagonal per quad — both diagonals would rigid-triangulate
+      // the quad and prevent in-plane shear, making the cloth too stiff.
       const a1 = topStart + ti;
       const b1 = botStart + bi2;
       const key1 = a1 < b1 ? `${a1},${b1}` : `${b1},${a1}`;
@@ -182,17 +183,6 @@ export function generateSailMesh(config: SailMeshConfig): SailMeshData {
         const du = restPositions[b1 * 2] - restPositions[a1 * 2];
         const dv = restPositions[b1 * 2 + 1] - restPositions[a1 * 2 + 1];
         shearConstraints.push([a1, b1, Math.hypot(du, dv)]);
-      }
-
-      // Diagonal 2: top[ti2] → bot[bi]
-      const a2 = topStart + ti2;
-      const b2 = botStart + bi;
-      const key2 = a2 < b2 ? `${a2},${b2}` : `${b2},${a2}`;
-      if (!shearSet.has(key2) && !edgeSet.has(key2)) {
-        shearSet.add(key2);
-        const du = restPositions[b2 * 2] - restPositions[a2 * 2];
-        const dv = restPositions[b2 * 2 + 1] - restPositions[a2 * 2 + 1];
-        shearConstraints.push([a2, b2, Math.hypot(du, dv)]);
       }
     }
   }

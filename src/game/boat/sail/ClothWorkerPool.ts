@@ -27,6 +27,7 @@ export interface ClothWorkerRegistration {
   luffVertices: number[];
   vertexU: Float64Array;
   vertexV: Float64Array;
+  vertexChordFrac: Float64Array;
   furlMode: FurlMode;
 }
 
@@ -62,6 +63,7 @@ export class ClothWorkerPool extends BaseEntity {
         config.luffVertices,
         config.vertexU,
         config.vertexV,
+        config.vertexChordFrac,
         config.furlMode,
       );
     }
@@ -130,6 +132,7 @@ export class ClothWorkerPool extends BaseEntity {
       luffVertices,
       vertexU: new Float64Array(vertexU),
       vertexV: new Float64Array(vertexV),
+      vertexChordFrac: new Float64Array(config.vertexChordFrac),
       furlMode,
     };
 

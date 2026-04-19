@@ -73,8 +73,10 @@ let furlMode: FurlMode;
 let luffVertices: number[];
 let vertexU: Float64Array;
 let vertexV: Float64Array;
+let vertexChordFrac: Float64Array;
 // Per-vertex active flag (reused each frame, allocated once)
 let vertexActive: Uint8Array;
+let prevActive: Uint8Array;
 
 self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
   const msg = e.data;
@@ -91,7 +93,9 @@ self.onmessage = (e: MessageEvent<ClothWorkerMessage>) => {
     luffVertices = msg.luffVertices;
     vertexU = msg.vertexU;
     vertexV = msg.vertexV;
+    vertexChordFrac = msg.vertexChordFrac;
     vertexActive = new Uint8Array(vertexCount);
+    prevActive = new Uint8Array(vertexCount);
 
     // Reconstruct solver from snapshot
     solver = ClothSolver.fromSnapshot({
@@ -160,6 +164,9 @@ function updateFurlState(
   headY: number,
   headZ: number,
   clewPinned: boolean,
+  clewX: number,
+  clewY: number,
+  clewZ: number,
 ): void {
   // Compute per-vertex active flags
   if (furlMode === "v-cutoff") {
@@ -174,9 +181,10 @@ function updateFurlState(
     }
   }
 
-  // Clear all pin states — we'll set them fresh each frame
+  // Clear all pin and skipped states — we'll set them fresh each frame
   for (let i = 0; i < vertexCount; i++) {
     solver.setPinned(i, false);
+    solver.setSkipped(i, false);
   }
 
   // Pin all active luff vertices to the mast/forestay (lerp tack→head by v)
@@ -192,25 +200,68 @@ function updateFurlState(
     );
   }
 
-  // Pin all inactive vertices to the luff at their v-height. This keeps their
-  // positions current as the boat moves, so they enter the simulation smoothly
-  // when they become active (no stale-position explosions).
+  const chordX = clewX - tackX;
+  const chordY = clewY - tackY;
+
+  // Handle inactive vertices. For v-cutoff (mainsail), skip them AND write
+  // their rest-shape position each frame — keeps the rendered position
+  // continuous with what the active shape expects, so activation has no
+  // visible jump. For u-wrap (jib), keep pinning along the luff.
   for (let i = 0; i < vertexCount; i++) {
     if (!vertexActive[i]) {
-      const v = vertexV[i];
-      solver.setPinned(i, true);
-      solver.setPinTarget(
-        i,
-        tackX + v * (headX - tackX),
-        tackY + v * (headY - tackY),
-        tackZ + v * (headZ - tackZ),
-      );
+      if (furlMode === "v-cutoff") {
+        solver.setSkipped(i, true);
+        const u = vertexU[i];
+        const v = vertexV[i];
+        const cf = vertexChordFrac[i];
+        const luffX = tackX + v * (headX - tackX);
+        const luffY = tackY + v * (headY - tackY);
+        const luffZ = tackZ + v * (headZ - tackZ);
+        solver.resetVertex(
+          i,
+          luffX + u * cf * chordX,
+          luffY + u * cf * chordY,
+          luffZ,
+        );
+      } else {
+        solver.setPinned(i, true);
+        const v = vertexV[i];
+        solver.setPinTarget(
+          i,
+          tackX + v * (headX - tackX),
+          tackY + v * (headY - tackY),
+          tackZ + v * (headZ - tackZ),
+        );
+      }
     }
   }
 
   // Clew pin (mainsail boom constraint)
   if (clewPinned && vertexActive[clewIdx]) {
     solver.setPinned(clewIdx, true);
+  }
+
+  // On inactive→active transition, teleport the vert to its rest-shape world
+  // position (matching mapUVToWorld): luff(v) + u*chordFrac*(clew-tack). This
+  // places the newly-active vert roughly where its active neighbors expect
+  // it via structural constraints, avoiding a snap-and-yank on activation.
+  // Also zeros implicit Verlet velocity by setting prev=pos.
+  for (let i = 0; i < vertexCount; i++) {
+    if (vertexActive[i] && !prevActive[i]) {
+      const u = vertexU[i];
+      const v = vertexV[i];
+      const cf = vertexChordFrac[i];
+      const luffX = tackX + v * (headX - tackX);
+      const luffY = tackY + v * (headY - tackY);
+      const luffZ = tackZ + v * (headZ - tackZ);
+      solver.resetVertex(
+        i,
+        luffX + u * cf * chordX,
+        luffY + u * cf * chordY,
+        luffZ,
+      );
+    }
+    prevActive[i] = vertexActive[i];
   }
 }
 
@@ -267,6 +318,9 @@ function solveLoop() {
       headY,
       headZ,
       clewPinned,
+      input[INPUT_CLEW_X],
+      input[INPUT_CLEW_Y],
+      input[INPUT_CLEW_Z],
     );
 
     // Apply forces and run solver

@@ -22,8 +22,10 @@ export class ClothSolverSync implements ClothPositionReader {
   private readonly luffVertices: number[];
   private readonly vertexU: Float64Array;
   private readonly vertexV: Float64Array;
+  private readonly vertexChordFrac: Float64Array;
   private readonly furlMode: FurlMode;
   private readonly vertexActive: Uint8Array;
+  private readonly prevActive: Uint8Array;
   private solved = false;
 
   // Reaction force accumulators
@@ -41,6 +43,7 @@ export class ClothSolverSync implements ClothPositionReader {
     luffVertices: number[],
     vertexU: Float64Array,
     vertexV: Float64Array,
+    vertexChordFrac: Float64Array,
     furlMode: FurlMode,
   ) {
     this.solver = solver;
@@ -51,8 +54,10 @@ export class ClothSolverSync implements ClothPositionReader {
     this.luffVertices = luffVertices;
     this.vertexU = vertexU;
     this.vertexV = vertexV;
+    this.vertexChordFrac = vertexChordFrac;
     this.furlMode = furlMode;
     this.vertexActive = new Uint8Array(solver.vertexCount);
+    this.prevActive = new Uint8Array(solver.vertexCount);
   }
 
   hasNewResults(): boolean {
@@ -113,6 +118,9 @@ export class ClothSolverSync implements ClothPositionReader {
       tackX,
       tackY,
       tackZ,
+      clewX,
+      clewY,
+      clewZ,
       headX,
       headY,
       headZ,
@@ -199,6 +207,9 @@ export class ClothSolverSync implements ClothPositionReader {
     tackX: number,
     tackY: number,
     tackZ: number,
+    clewX: number,
+    clewY: number,
+    clewZ: number,
     headX: number,
     headY: number,
     headZ: number,
@@ -220,9 +231,10 @@ export class ClothSolverSync implements ClothPositionReader {
       }
     }
 
-    // Clear pin states — we'll set them fresh each frame
+    // Clear pin and skipped states — we'll set them fresh each frame
     for (let i = 0; i < vertexCount; i++) {
       solver.setPinned(i, false);
+      solver.setSkipped(i, false);
     }
 
     // Pin active luff vertices
@@ -238,25 +250,67 @@ export class ClothSolverSync implements ClothPositionReader {
       );
     }
 
-    // Pin all inactive vertices to the luff at their v-height. This keeps their
-    // positions current as the boat moves, so they enter the simulation smoothly
-    // when they become active (no stale-position explosions).
+    // Handle inactive vertices. For v-cutoff (mainsail), skip them AND write
+    // their rest-shape position each frame — keeps the rendered position
+    // continuous with what the active shape expects, so activation has no
+    // visible jump. For u-wrap (jib), pin along the luff.
+    const chordX = clewX - tackX;
+    const chordY = clewY - tackY;
     for (let i = 0; i < vertexCount; i++) {
       if (!active[i]) {
-        const v = this.vertexV[i];
-        solver.setPinned(i, true);
-        solver.setPinTarget(
-          i,
-          tackX + v * (headX - tackX),
-          tackY + v * (headY - tackY),
-          tackZ + v * (headZ - tackZ),
-        );
+        if (this.furlMode === "v-cutoff") {
+          solver.setSkipped(i, true);
+          const u = this.vertexU[i];
+          const v = this.vertexV[i];
+          const cf = this.vertexChordFrac[i];
+          const luffX = tackX + v * (headX - tackX);
+          const luffY = tackY + v * (headY - tackY);
+          const luffZ = tackZ + v * (headZ - tackZ);
+          solver.resetVertex(
+            i,
+            luffX + u * cf * chordX,
+            luffY + u * cf * chordY,
+            luffZ,
+          );
+        } else {
+          solver.setPinned(i, true);
+          const v = this.vertexV[i];
+          solver.setPinTarget(
+            i,
+            tackX + v * (headX - tackX),
+            tackY + v * (headY - tackY),
+            tackZ + v * (headZ - tackZ),
+          );
+        }
       }
     }
 
     // Clew pin
     if (clewPinned && active[this.clewIdx]) {
       solver.setPinned(this.clewIdx, true);
+    }
+
+    // On inactive→active transition, teleport the vert to its rest-shape world
+    // position (matching mapUVToWorld): luff(v) + u*chordFrac*(clew-tack). This
+    // places the newly-active vert roughly where its active neighbors expect
+    // it via structural constraints, avoiding a snap-and-yank on activation.
+    const prevActive = this.prevActive;
+    for (let i = 0; i < vertexCount; i++) {
+      if (active[i] && !prevActive[i]) {
+        const u = this.vertexU[i];
+        const v = this.vertexV[i];
+        const cf = this.vertexChordFrac[i];
+        const luffX = tackX + v * (headX - tackX);
+        const luffY = tackY + v * (headY - tackY);
+        const luffZ = tackZ + v * (headZ - tackZ);
+        solver.resetVertex(
+          i,
+          luffX + u * cf * chordX,
+          luffY + u * cf * chordY,
+          luffZ,
+        );
+      }
+      prevActive[i] = active[i];
     }
   }
 

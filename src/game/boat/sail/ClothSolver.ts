@@ -397,16 +397,31 @@ export class ClothSolver {
     // Pin vertices to targets
     this.applyPins();
 
-    // Constraint projection — 3D distances
-    // solveConstraints accumulates displacement into reactionForces for pinned vertices
+    // Constraint projection — 3D distances.
+    // Structural constraints are one-sided (stretch only): real sailcloth
+    // resists stretching but buckles freely under compression. Shear and
+    // bend stay symmetric.
     for (let iter = 0; iter < constraintIterations; iter++) {
-      this.solveConstraints(this.structA, this.structB, this.structRest, 0.5);
-      this.solveConstraints(this.shearA, this.shearB, this.shearRest, 0.5);
+      this.solveConstraints(
+        this.structA,
+        this.structB,
+        this.structRest,
+        0.2,
+        true,
+      );
+      this.solveConstraints(
+        this.shearA,
+        this.shearB,
+        this.shearRest,
+        0.2,
+        false,
+      );
       this.solveConstraints(
         this.bendA,
         this.bendB,
         this.bendRest,
         0.5 * this.bendStiffness,
+        false,
       );
       this.applyPins();
     }
@@ -536,6 +551,7 @@ export class ClothSolver {
     bArr: Int32Array,
     restArr: Float64Array,
     correctionFactor: number,
+    oneSided: boolean,
   ): void {
     const pos = this.positions;
     const prev = this.prevPositions;
@@ -562,6 +578,7 @@ export class ClothSolver {
       const dz = pos[b3 + 2] - pos[a3 + 2];
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (dist < 0.0001) continue;
+      if (oneSided && dist < rest) continue;
 
       const invDist = 1 / dist;
 

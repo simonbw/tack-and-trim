@@ -165,6 +165,7 @@ export interface ClothInitMessage {
   luffVertices: number[];
   vertexU: Float64Array;
   vertexV: Float64Array;
+  vertexChordFrac: Float64Array;
   furlMode: FurlMode;
 }
 
