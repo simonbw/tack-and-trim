@@ -1,5 +1,6 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import Entity from "../../core/entity/Entity";
+import { on } from "../../core/entity/handler";
 import { createRigid3D } from "../../core/physics/body/bodyFactories";
 import { RevoluteConstraint3D } from "../../core/physics/constraints/RevoluteConstraint3D";
 import { Box } from "../../core/physics/shapes/Box";
@@ -7,6 +8,8 @@ import { V, V2d } from "../../core/Vector";
 import { RigConfig } from "./BoatConfig";
 import { Hull } from "./Hull";
 import { Sail } from "./sail/Sail";
+
+const GRAVITY = 32.174; // ft/s²
 
 export class Rig extends BaseEntity {
   layer = "boat" as const;
@@ -17,6 +20,7 @@ export class Rig extends BaseEntity {
   private mastPosition: V2d;
   private boomLength: number;
   private boomWidth: number;
+  private boomMass: number;
   private boomZ: number;
   private mastColor: number;
   private boomColor: number;
@@ -35,6 +39,7 @@ export class Rig extends BaseEntity {
     this.mastPosition = mastPosition;
     this.boomLength = boomLength;
     this.boomWidth = boomWidth;
+    this.boomMass = boomMass;
     this.boomZ = mainsail.zFoot ?? 3;
     this.mastTopZ = mainsail.zHead ?? 20;
     this.mastColor = colors.mast;
@@ -92,6 +97,24 @@ export class Rig extends BaseEntity {
         getHullBody: () => this.hull.body,
       }),
     );
+  }
+
+  @on("tick")
+  onTick() {
+    // Gravity at the boom's CoM (midpoint of the rod along its local x-axis).
+    // The revolute joint locks roll/pitch to the hull, so the resulting
+    // moment transfers through the pivot and heels the hull based on boom
+    // yaw — which is the physically meaningful effect of boom weight.
+    if (this.boomMass > 0) {
+      this.body.applyForce3D(
+        0,
+        0,
+        -this.boomMass * GRAVITY,
+        -this.boomLength / 2,
+        0,
+        0,
+      );
+    }
   }
 
   /** Hull-local mast position. */
