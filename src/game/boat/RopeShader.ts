@@ -154,60 +154,96 @@ fn getCarrierColor(id: u32) -> vec3<f32> {
 // For braid: samples both diagonals with a checkerboard → diamond weave with
 // independent S-laid and Z-laid families.
 
-fn ropePattern(u: f32, v: f32) -> vec4<f32> {
+// Evaluate the procedural pattern at a single (u, v) sample, returning the
+// carrier color for that cell. Cheap — a handful of floor/mod ops.
+fn sampleCarrier(u: f32, v: f32) -> vec3<f32> {
   let cpf = f32(uniforms.carriersPerFamily);
-  // Visible diamonds/stripes across the rope face = half the carriers per family
-  // (the other half is on the far side of the rope).
   let nVisible = cpf * 0.5;
 
-  // Recover physical rope width from twist frequency.
-  // twistFrequency = 2π / (8 * ropeWidth)
+  // Recover physical rope width from twist frequency (2π / (8 * width)).
   let ropeWidth = 2.0 * PI / (8.0 * uniforms.twistFrequency);
 
-  // Map screen u to angular position on the cylinder surface.
-  // asin(u) gives the angle θ where sin(θ) = u (orthographic cylinder
-  // projection), so carriers compress naturally near the rope edges.
-  // su ranges over nVisible across the visible 180° arc.
+  // Orthographic cylinder projection: screen u → surface angle via asin.
   let su = asin(clamp(u, -1.0, 1.0)) * nVisible / PI;
   let sv = v * nVisible / ropeWidth;
-
-  // helixScale = tan(helixAngle). Scales the axial component of both
-  // diagonals, changing diamond aspect ratio. 1.0 = 45° square diamonds;
-  // <1 = shallower braid (tall diamonds); >1 = steeper braid (wide).
   let hs = uniforms.helixScale;
 
-  // First diagonal (all patterns use this one)
   let du = su + sv * hs;
   let ci = floor(du);
-  let sId = ((ci % cpf) + cpf) % cpf;  // S-laid carrier ID: 0..cpf-1
+  let sId = ((ci % cpf) + cpf) % cpf;
 
   var carrierIdx: u32;
-
   if (uniforms.isBraid == 0u) {
-    // Laid: single family, parallel diagonal stripes
     carrierIdx = u32(sId);
   } else {
-    // Braid: second diagonal + weave pattern picks which family is on top
     let dv = -su + sv * hs;
     let cj = floor(dv);
     let period = f32(uniforms.weaveOver + uniforms.weaveUnder);
     let phase = ((ci + cj) % period + period) % period;
     let isOver = phase < f32(uniforms.weaveOver);
     let zId = ((cj % cpf) + cpf) % cpf;
-    // S-laid carriers are indices 0..cpf-1, Z-laid are cpf..2*cpf-1
     if (isOver) {
       carrierIdx = u32(sId);
     } else {
       carrierIdx = u32(zId) + uniforms.carriersPerFamily;
     }
   }
-
-  return vec4<f32>(getCarrierColor(carrierIdx), uniforms.alpha);
+  return getCarrierColor(carrierIdx);
 }
 
+// Adaptive supersampling: evaluate the pattern multiple times per fragment
+// when the strand cells shrink below pixel size, resolving shimmer.
+// Grid dimension N is chosen from the screen-space cell density, so close-up
+// ropes run a single tap and only distant/thin ropes pay for more samples.
+// NMax = 4 → at most 16 taps at the heaviest LOD.
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  return ropePattern(in.uv.x, in.uv.y);
+  let u = in.uv.x;
+  let v = in.uv.y;
+
+  // Derivatives MUST be taken in uniform control flow, so compute them up
+  // front before any data-dependent branching.
+  let dudx = dpdx(u);
+  let dudy = dpdy(u);
+  let dvdx = dpdx(v);
+  let dvdy = dpdy(v);
+
+  // Estimate cells-per-pixel along the dominant pattern diagonal so we can
+  // size the supersample grid. Uses the same coordinate transform as
+  // sampleCarrier(), linearized: d(asin)/du ≈ 1/sqrt(1-u²).
+  let cpf = f32(uniforms.carriersPerFamily);
+  let nVisible = cpf * 0.5;
+  let ropeWidth = 2.0 * PI / (8.0 * uniforms.twistFrequency);
+  let asinScale = 1.0 / sqrt(max(1.0 - u * u, 1e-4));
+  let suPerU = asinScale * nVisible / PI;
+  let svPerV = nVisible / ropeWidth;
+  let hs = uniforms.helixScale;
+  // |d(du)/dx| + |d(du)/dy| — derivative of the first diagonal in screen px.
+  let fwDu = abs(suPerU * dudx + hs * svPerV * dvdx)
+           + abs(suPerU * dudy + hs * svPerV * dvdy);
+  let fwDv = abs(-suPerU * dudx + hs * svPerV * dvdx)
+           + abs(-suPerU * dudy + hs * svPerV * dvdy);
+  let cellsPerPixel = select(fwDu, max(fwDu, fwDv), uniforms.isBraid != 0u);
+
+  // Nyquist: need ~2 samples per cell along the worst axis. With an NxN
+  // grid each tap covers 1/N of a pixel, so we want N ≈ 2*cellsPerPixel.
+  // Clamp to [1, 4]; 4 means 16 taps, reserved for heavily-compressed ropes.
+  let nF = clamp(ceil(2.0 * cellsPerPixel), 1.0, 4.0);
+  let N = i32(nF);
+
+  var acc = vec3<f32>(0.0);
+  let invN = 1.0 / nF;
+  for (var j = 0; j < N; j = j + 1) {
+    let sy = (f32(j) + 0.5) * invN - 0.5;
+    for (var i = 0; i < N; i = i + 1) {
+      let sx = (f32(i) + 0.5) * invN - 0.5;
+      let uu = u + sx * dudx + sy * dudy;
+      let vv = v + sx * dvdx + sy * dvdy;
+      acc = acc + sampleCarrier(uu, vv);
+    }
+  }
+  let color = acc / f32(N * N);
+  return vec4<f32>(color, uniforms.alpha);
 }
 `;
 
