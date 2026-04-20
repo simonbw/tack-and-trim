@@ -182,10 +182,10 @@ export class PlayerBoatController extends BaseEntity {
       this.boat.hull.body.applyForce3D(0, 0, -80000, 0, 3, 0);
     }
     if (io.isKeyDown("KeyI")) {
-      this.boat.hull.body.applyForce3D(0, 0, 80000, 3, 0, 0);
+      this.boat.hull.body.applyForce3D(0, 0, -80000, 3, 0, 0);
     }
     if (io.isKeyDown("KeyK")) {
-      this.boat.hull.body.applyForce3D(0, 0, -80000, 3, 0, 0);
+      this.boat.hull.body.applyForce3D(0, 0, 80000, 3, 0, 0);
     }
     if (io.isKeyDown("Quote")) {
       const rate = shiftHeld ? 0.25 : 0.05;
