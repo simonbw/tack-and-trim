@@ -13,16 +13,14 @@ import {
 } from "../../core/graphics/UniformStruct";
 
 export const WaterFilterUniforms = defineUniformStruct("Params", {
-  // Clip-to-world matrix (stored as 3 vec4s for alignment)
+  // Clip → world for the actual screen.
   cameraMatrix: mat3x3,
+
+  // World → clip for the screen-space water height texture.
+  worldToTexClip: mat3x3,
 
   screenWidth: f32,
   screenHeight: f32,
-
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
 
   time: f32,
   tideHeight: f32,

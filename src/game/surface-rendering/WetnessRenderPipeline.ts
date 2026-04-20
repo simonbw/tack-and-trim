@@ -8,9 +8,9 @@
  * Uses reprojection to maintain wetness state as the camera moves.
  */
 
+import { Matrix3 } from "../../core/graphics/Matrix3";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import { profile } from "../../core/util/Profiler";
-import type { Viewport } from "../wave-physics/WavePhysicsResources";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import {
   createWetnessStateShader,
@@ -38,8 +38,8 @@ export class WetnessRenderPipeline {
   private bindGroupAtoB: GPUBindGroup | null = null;
   private bindGroupBtoA: GPUBindGroup | null = null;
 
-  // Track previous viewport for reprojection
-  private prevViewport: Viewport | null = null;
+  // Previous frame's world→clip transform for reprojection
+  private prevWorldToTexClip: Matrix3 | null = null;
 
   // Uniform buffer for shader params
   private paramsBuffer: GPUBuffer | null = null;
@@ -56,9 +56,6 @@ export class WetnessRenderPipeline {
   private wettingRate = DEFAULT_WETTING_RATE;
   private dryingRate = DEFAULT_DRYING_RATE;
 
-  // Track the last snapped viewport for returning to caller
-  private lastSnappedViewport: Viewport | null = null;
-
   constructor(
     private device: GPUDevice,
     textureWidth: number,
@@ -66,23 +63,6 @@ export class WetnessRenderPipeline {
   ) {
     this.textureWidth = textureWidth;
     this.textureHeight = textureHeight;
-  }
-
-  /**
-   * Snap viewport to texel grid to ensure 1:1 texel mapping between frames.
-   * This prevents blur from sub-pixel sampling during reprojection.
-   */
-  private snapViewportToGrid(viewport: Viewport): Viewport {
-    // Use separate texel sizes for non-square textures
-    const texelWorldSizeX = viewport.width / this.textureWidth;
-    const texelWorldSizeY = viewport.height / this.textureHeight;
-
-    return {
-      left: Math.floor(viewport.left / texelWorldSizeX) * texelWorldSizeX,
-      top: Math.floor(viewport.top / texelWorldSizeY) * texelWorldSizeY,
-      width: viewport.width,
-      height: viewport.height,
-    };
   }
 
   /**
@@ -203,14 +183,20 @@ export class WetnessRenderPipeline {
   }
 
   /**
-   * Update wetness texture with current state for the given viewport.
-   * @param wetnessViewport - The viewport for wetness computation (larger margin)
-   * @param renderViewport - The viewport used for water/terrain textures (smaller margin)
+   * Update wetness texture with current state.
+   *
+   * The wetness texture shares its layout with the water/terrain textures
+   * (same size, same screen-aligned expanded-viewport mapping), so current
+   * texel UV reads directly into water/terrain. Reprojection uses the stored
+   * previous-frame transform.
+   *
+   * @param texClipToWorld - Current frame's clip→world for the wetness texture
+   * @param worldToTexClip - Current frame's world→clip (inverse of above)
    */
   @profile
   update(
-    wetnessViewport: Viewport,
-    renderViewport: Viewport,
+    texClipToWorld: Matrix3,
+    worldToTexClip: Matrix3,
     waterTextureView: GPUTextureView,
     terrainTextureView: GPUTextureView,
     dt: number,
@@ -222,40 +208,22 @@ export class WetnessRenderPipeline {
 
     const device = this.device;
 
-    // Snap wetness viewport to texel grid for 1:1 texel mapping between frames
-    const snappedViewport = this.snapViewportToGrid(wetnessViewport);
-    this.lastSnappedViewport = snappedViewport;
-
     // Recreate bind groups (textures may have changed)
-    // In a more optimized version, we'd track if textures changed
     this.createBindGroups(waterTextureView, terrainTextureView);
 
     if (!this.bindGroupAtoB || !this.bindGroupBtoA) return;
 
-    // Use current snapped viewport as prev if this is the first frame
-    const prevViewport = this.prevViewport ?? snappedViewport;
+    // Use current transform as prev on first frame.
+    const prevWorldToTexClip = this.prevWorldToTexClip ?? worldToTexClip;
 
     // Update params buffer
+    this.uniforms.set.currentTexClipToWorld(texClipToWorld);
+    this.uniforms.set.prevWorldToTexClip(prevWorldToTexClip);
     this.uniforms.set.dt(dt);
     this.uniforms.set.wettingRate(this.wettingRate);
     this.uniforms.set.dryingRate(this.dryingRate);
     this.uniforms.set.textureSizeX(this.textureWidth);
     this.uniforms.set.textureSizeY(this.textureHeight);
-    // Current wetness viewport (snapped to grid)
-    this.uniforms.set.currentViewportLeft(snappedViewport.left);
-    this.uniforms.set.currentViewportTop(snappedViewport.top);
-    this.uniforms.set.currentViewportWidth(snappedViewport.width);
-    this.uniforms.set.currentViewportHeight(snappedViewport.height);
-    // Previous wetness viewport
-    this.uniforms.set.prevViewportLeft(prevViewport.left);
-    this.uniforms.set.prevViewportTop(prevViewport.top);
-    this.uniforms.set.prevViewportWidth(prevViewport.width);
-    this.uniforms.set.prevViewportHeight(prevViewport.height);
-    // Render viewport (for sampling water/terrain textures)
-    this.uniforms.set.renderViewportLeft(renderViewport.left);
-    this.uniforms.set.renderViewportTop(renderViewport.top);
-    this.uniforms.set.renderViewportWidth(renderViewport.width);
-    this.uniforms.set.renderViewportHeight(renderViewport.height);
 
     this.uniforms.uploadTo(this.paramsBuffer);
 
@@ -289,8 +257,8 @@ export class WetnessRenderPipeline {
     // Swap textures for next frame
     this.currentReadTexture = this.currentReadTexture === "A" ? "B" : "A";
 
-    // Store snapped viewport for next frame's reprojection (ensures 1:1 texel mapping)
-    this.prevViewport = { ...snappedViewport };
+    // Store world→clip for next frame's reprojection.
+    this.prevWorldToTexClip = worldToTexClip.clone();
   }
 
   /**
@@ -317,14 +285,6 @@ export class WetnessRenderPipeline {
    */
   getTextureHeight(): number {
     return this.textureHeight;
-  }
-
-  /**
-   * Get the snapped viewport used for the last update.
-   * This should be used by the display shader to correctly map UV coordinates.
-   */
-  getSnappedViewport(): Viewport | null {
-    return this.lastSnappedViewport;
   }
 
   /**
@@ -360,7 +320,7 @@ export class WetnessRenderPipeline {
     this.bindGroupAtoB = null;
     this.bindGroupBtoA = null;
     this.shader = null;
-    this.prevViewport = null;
+    this.prevWorldToTexClip = null;
     this.initialized = false;
   }
 }

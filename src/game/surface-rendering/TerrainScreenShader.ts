@@ -24,21 +24,17 @@ const terrainScreenParamsModule: ShaderModule = {
   preamble: /*wgsl*/ `
 // Terrain screen computation parameters
 struct Params {
+  // clip → world for this texture (screen-aligned, rotation-aware, includes margin)
+  texClipToWorld: mat3x3<f32>,
+
   screenWidth: f32,
   screenHeight: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
 
   // Terrain tile atlas parameters
   atlasTileSize: u32,
   atlasTilesX: u32,
   atlasTilesY: u32,
   atlasWorldUnitsPerTile: f32,
-
-  _padding0: f32,
-  _padding1: f32,
 }
 `,
   bindings: {
@@ -59,16 +55,15 @@ struct Params {
 const terrainScreenComputeModule: ShaderModule = {
   dependencies: [terrainScreenParamsModule],
   code: /*wgsl*/ `
-// Convert pixel coordinates to world position
+// Convert pixel coordinates to world position via the texture's clip→world
+// matrix. Texel (x,y) center maps to clip (2*(x+0.5)/W - 1, 1 - 2*(y+0.5)/H).
 fn pixelToWorld(pixel: vec2<u32>) -> vec2<f32> {
   let uv = vec2<f32>(
-    f32(pixel.x) / params.screenWidth,
-    f32(pixel.y) / params.screenHeight
+    (f32(pixel.x) + 0.5) / params.screenWidth,
+    (f32(pixel.y) + 0.5) / params.screenHeight
   );
-  return vec2<f32>(
-    params.viewportLeft + uv.x * params.viewportWidth,
-    params.viewportTop + uv.y * params.viewportHeight
-  );
+  let clip = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+  return (params.texClipToWorld * vec3<f32>(clip, 1.0)).xy;
 }
 
 // Sample terrain height from tile atlas

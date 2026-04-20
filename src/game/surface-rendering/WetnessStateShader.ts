@@ -9,17 +9,16 @@
  * - R: Wetness value (0 = dry, 1 = fully wet)
  */
 
-import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
+import {
+  defineUniformStruct,
+  f32,
+  mat3x3,
+} from "../../core/graphics/UniformStruct";
 import {
   ComputeShader,
   type ComputeShaderConfig,
 } from "../../core/graphics/webgpu/ComputeShader";
 import type { ShaderModule } from "../../core/graphics/webgpu/ShaderModule";
-import {
-  fn_uvInBounds,
-  fn_uvToWorld,
-  fn_worldToUV,
-} from "../world/shaders/coordinates.wgsl";
 
 // Wetness rates (configurable defaults)
 const DEFAULT_WETTING_RATE = 5.0; // Reach full wet in ~0.25 seconds
@@ -29,25 +28,23 @@ const WORKGROUP_SIZE = [8, 8] as const;
 
 /**
  * Uniform struct for wetness state parameters.
+ *
+ * The wetness, water-height, and terrain-height textures all share the same
+ * screen-aligned expanded-viewport layout, so sampling water/terrain at the
+ * current texel is a direct UV read — no matrix math needed.
+ *
+ * Reprojection still requires two matrices: current clip→world to find the
+ * current texel's world position, and previous world→clip to find where that
+ * world position lived in the prior frame's wetness texture.
  */
 export const WetnessUniforms = defineUniformStruct("Params", {
+  currentTexClipToWorld: mat3x3,
+  prevWorldToTexClip: mat3x3,
   dt: f32,
   wettingRate: f32,
   dryingRate: f32,
   textureSizeX: f32,
   textureSizeY: f32,
-  currentViewportLeft: f32,
-  currentViewportTop: f32,
-  currentViewportWidth: f32,
-  currentViewportHeight: f32,
-  prevViewportLeft: f32,
-  prevViewportTop: f32,
-  prevViewportWidth: f32,
-  prevViewportHeight: f32,
-  renderViewportLeft: f32,
-  renderViewportTop: f32,
-  renderViewportWidth: f32,
-  renderViewportHeight: f32,
 });
 
 /**
@@ -56,29 +53,13 @@ export const WetnessUniforms = defineUniformStruct("Params", {
 const wetnessParamsModule: ShaderModule = {
   preamble: /*wgsl*/ `
 struct Params {
-  // Delta time
+  currentTexClipToWorld: mat3x3<f32>,
+  prevWorldToTexClip: mat3x3<f32>,
   dt: f32,
-  // Wetness change rates
   wettingRate: f32,
   dryingRate: f32,
-  // Texture dimensions
   textureSizeX: f32,
   textureSizeY: f32,
-  // Current wetness viewport (left, top, width, height)
-  currentViewportLeft: f32,
-  currentViewportTop: f32,
-  currentViewportWidth: f32,
-  currentViewportHeight: f32,
-  // Previous wetness viewport for reprojection
-  prevViewportLeft: f32,
-  prevViewportTop: f32,
-  prevViewportWidth: f32,
-  prevViewportHeight: f32,
-  // Render viewport (for sampling water/terrain textures)
-  renderViewportLeft: f32,
-  renderViewportTop: f32,
-  renderViewportWidth: f32,
-  renderViewportHeight: f32,
 }
   `,
   bindings: {
@@ -96,12 +77,7 @@ struct Params {
  * Module containing the compute entry point.
  */
 const wetnessMainModule: ShaderModule = {
-  dependencies: [
-    fn_uvToWorld,
-    fn_worldToUV,
-    fn_uvInBounds,
-    wetnessParamsModule,
-  ],
+  dependencies: [wetnessParamsModule],
   code: /*wgsl*/ `
 // Constants
 const DEFAULT_WETTING_RATE: f32 = ${DEFAULT_WETTING_RATE};
@@ -116,40 +92,21 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     return;
   }
 
-  // Convert texel to UV in current viewport
+  // Current texel UV (shared with water/terrain textures — same layout).
   let uv = vec2<f32>(f32(globalId.x) + 0.5, f32(globalId.y) + 0.5) / vec2<f32>(texSizeX, texSizeY);
 
-  // Convert to world position using current wetness viewport (from module)
-  let worldPos = uvToWorld(
-    uv,
-    params.currentViewportLeft,
-    params.currentViewportTop,
-    params.currentViewportWidth,
-    params.currentViewportHeight
-  );
+  // World position for this texel (needed for reprojection into the
+  // previous frame's wetness texture).
+  let clip = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+  let worldPos = (params.currentTexClipToWorld * vec3<f32>(clip, 1.0)).xy;
 
-  // Convert world position to UV in previous wetness viewport for reprojection (from module)
-  let prevUV = worldToUV(
-    worldPos,
-    params.prevViewportLeft,
-    params.prevViewportTop,
-    params.prevViewportWidth,
-    params.prevViewportHeight
-  );
+  // Reproject to previous wetness texture UV.
+  let prevClip = (params.prevWorldToTexClip * vec3<f32>(worldPos, 1.0)).xy;
+  let prevUV = vec2<f32>((prevClip.x + 1.0) * 0.5, (1.0 - prevClip.y) * 0.5);
 
-  // Convert world position to UV in render viewport for sampling water/terrain (from module)
-  // (water and terrain textures use a different viewport than wetness)
-  let renderUV = worldToUV(
-    worldPos,
-    params.renderViewportLeft,
-    params.renderViewportTop,
-    params.renderViewportWidth,
-    params.renderViewportHeight
-  );
-
-  // Sample water and terrain textures at render viewport UV
-  let waterData = textureSampleLevel(waterTexture, textureSampler, renderUV, 0.0);
-  let terrainData = textureSampleLevel(terrainTexture, textureSampler, renderUV, 0.0);
+  // Water and terrain textures share this texel's UV (same layout).
+  let waterData = textureSampleLevel(waterTexture, textureSampler, uv, 0.0);
+  let terrainData = textureSampleLevel(terrainTexture, textureSampler, uv, 0.0);
 
   // Compute water depth
   let waterSurfaceHeight = waterData.r;
@@ -158,8 +115,8 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   // Get previous wetness with reprojection
   var prevWetness: f32;
-  if (uvInBounds(prevUV)) { // uvInBounds from module
-    // Sample from previous frame at the reprojected UV
+  let inBounds = prevUV.x >= 0.0 && prevUV.x <= 1.0 && prevUV.y >= 0.0 && prevUV.y <= 1.0;
+  if (inBounds) {
     prevWetness = textureSampleLevel(prevWetnessTexture, textureSampler, prevUV, 0.0).r;
   } else {
     // New area entering viewport - initialize based on current water depth

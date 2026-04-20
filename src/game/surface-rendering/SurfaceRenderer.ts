@@ -397,18 +397,15 @@ export class SurfaceRenderer extends BaseEntity {
    * Update uniforms for terrain screen pass.
    */
   private updateTerrainScreenUniforms(
-    viewport: Viewport,
+    texClipToWorld: Matrix3,
     width: number,
     height: number,
   ): void {
     if (!this.terrainScreenUniforms || !this.terrainTileCache) return;
 
+    this.terrainScreenUniforms.set.texClipToWorld(texClipToWorld);
     this.terrainScreenUniforms.set.screenWidth(width);
     this.terrainScreenUniforms.set.screenHeight(height);
-    this.terrainScreenUniforms.set.viewportLeft(viewport.left);
-    this.terrainScreenUniforms.set.viewportTop(viewport.top);
-    this.terrainScreenUniforms.set.viewportWidth(viewport.width);
-    this.terrainScreenUniforms.set.viewportHeight(viewport.height);
 
     // Set terrain tile atlas parameters
     const atlasInfo = this.terrainTileCache.getAtlasInfo();
@@ -424,7 +421,7 @@ export class SurfaceRenderer extends BaseEntity {
    * Update uniforms for water height pass.
    */
   private updateWaterHeightUniforms(
-    viewport: Viewport,
+    texClipToWorld: Matrix3,
     currentTime: number,
     width: number,
     height: number,
@@ -432,12 +429,9 @@ export class SurfaceRenderer extends BaseEntity {
   ): void {
     if (!this.waterHeightUniforms) return;
 
+    this.waterHeightUniforms.set.texClipToWorld(texClipToWorld);
     this.waterHeightUniforms.set.screenWidth(width);
     this.waterHeightUniforms.set.screenHeight(height);
-    this.waterHeightUniforms.set.viewportLeft(viewport.left);
-    this.waterHeightUniforms.set.viewportTop(viewport.top);
-    this.waterHeightUniforms.set.viewportWidth(viewport.width);
-    this.waterHeightUniforms.set.viewportHeight(viewport.height);
     this.waterHeightUniforms.set.time(currentTime);
     this.waterHeightUniforms.set.tideHeight(waterResources.getTideHeight());
     this.waterHeightUniforms.set.numWaves(waterResources.getNumWaves());
@@ -447,23 +441,20 @@ export class SurfaceRenderer extends BaseEntity {
    * Update uniforms for terrain composite pass.
    */
   private updateTerrainCompositeUniforms(
-    expandedViewport: Viewport,
+    clipToWorldMatrix: Matrix3,
+    worldToTexClipMatrix: Matrix3,
     currentTime: number,
     width: number,
     height: number,
-    clipToWorldMatrix: Matrix3,
     waterResources: WaterResources,
     terrainResources: TerrainResources,
   ): void {
     if (!this.terrainCompositeUniforms || !this.terrainTileCache) return;
 
     this.terrainCompositeUniforms.set.cameraMatrix(clipToWorldMatrix);
+    this.terrainCompositeUniforms.set.worldToTexClip(worldToTexClipMatrix);
     this.terrainCompositeUniforms.set.screenWidth(width);
     this.terrainCompositeUniforms.set.screenHeight(height);
-    this.terrainCompositeUniforms.set.viewportLeft(expandedViewport.left);
-    this.terrainCompositeUniforms.set.viewportTop(expandedViewport.top);
-    this.terrainCompositeUniforms.set.viewportWidth(expandedViewport.width);
-    this.terrainCompositeUniforms.set.viewportHeight(expandedViewport.height);
     this.terrainCompositeUniforms.set.time(currentTime);
     this.terrainCompositeUniforms.set.tideHeight(
       waterResources.getTideHeight(),
@@ -483,23 +474,20 @@ export class SurfaceRenderer extends BaseEntity {
    * Update uniforms for water filter pass.
    */
   private updateWaterFilterUniforms(
-    expandedViewport: Viewport,
+    clipToWorldMatrix: Matrix3,
+    worldToTexClipMatrix: Matrix3,
     currentTime: number,
     width: number,
     height: number,
-    clipToWorldMatrix: Matrix3,
     waterResources: WaterResources,
     terrainResources: TerrainResources,
   ): void {
     if (!this.waterFilterUniforms) return;
 
     this.waterFilterUniforms.set.cameraMatrix(clipToWorldMatrix);
+    this.waterFilterUniforms.set.worldToTexClip(worldToTexClipMatrix);
     this.waterFilterUniforms.set.screenWidth(width);
     this.waterFilterUniforms.set.screenHeight(height);
-    this.waterFilterUniforms.set.viewportLeft(expandedViewport.left);
-    this.waterFilterUniforms.set.viewportTop(expandedViewport.top);
-    this.waterFilterUniforms.set.viewportWidth(expandedViewport.width);
-    this.waterFilterUniforms.set.viewportHeight(expandedViewport.height);
     this.waterFilterUniforms.set.time(currentTime);
     this.waterFilterUniforms.set.tideHeight(waterResources.getTideHeight());
     this.waterFilterUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
@@ -660,6 +648,18 @@ export class SurfaceRenderer extends BaseEntity {
     const clipToWorldMatrix = camera.getMatrix().clone().invert();
     clipToWorldMatrix.multiply(clipToScreen);
 
+    // Screen-aligned expanded mapping used by the intermediate textures.
+    // Each screen-space texture's clip[-1,1] covers a 1.2× extension of the
+    // real screen (10% margin each side) so finite-diff normal sampling has
+    // valid data past the screen edge. Same scaling on both axes so the
+    // texel grid stays parallel to the screen pixel grid regardless of
+    // camera rotation.
+    const texScale = 1 + 2 * RENDER_VIEWPORT_MARGIN;
+    const texClipToWorldMatrix = clipToWorldMatrix
+      .clone()
+      .scale(texScale, texScale);
+    const worldToTexClipMatrix = texClipToWorldMatrix.clone().invert();
+
     // === Terrain Tile Cache Update ===
     // Check for terrain changes and invalidate if needed
     this.terrainTileCache.checkInvalidation(terrainResources);
@@ -683,29 +683,29 @@ export class SurfaceRenderer extends BaseEntity {
     const terrainAtlasView = this.terrainTileCache.getAtlasView();
 
     // Update all uniforms
-    this.updateTerrainScreenUniforms(expandedViewport, width, height);
+    this.updateTerrainScreenUniforms(texClipToWorldMatrix, width, height);
     this.updateWaterHeightUniforms(
-      expandedViewport,
+      texClipToWorldMatrix,
       currentTime,
       width,
       height,
       waterResources,
     );
     this.updateTerrainCompositeUniforms(
-      expandedViewport,
+      clipToWorldMatrix,
+      worldToTexClipMatrix,
       currentTime,
       width,
       height,
-      clipToWorldMatrix,
       waterResources,
       terrainResources,
     );
     this.updateWaterFilterUniforms(
-      expandedViewport,
+      clipToWorldMatrix,
+      worldToTexClipMatrix,
       currentTime,
       width,
       height,
-      clipToWorldMatrix,
       waterResources,
       terrainResources,
     );
@@ -754,7 +754,7 @@ export class SurfaceRenderer extends BaseEntity {
         rasterizer.render(
           commandEncoder,
           activeMeshes,
-          expandedViewport,
+          worldToTexClipMatrix,
           this.waveFieldTexture,
           gpuProfiler,
         );
@@ -772,7 +772,7 @@ export class SurfaceRenderer extends BaseEntity {
         commandEncoder,
         waterResources.modifiersBuffer,
         waterResources.getModifierCount(),
-        expandedViewport,
+        worldToTexClipMatrix,
         this.modifierTexture,
         gpuProfiler,
       );
@@ -790,7 +790,7 @@ export class SurfaceRenderer extends BaseEntity {
       if (boat) {
         this.boatAirShader.render(
           this.boatAirTextureView,
-          expandedViewport,
+          worldToTexClipMatrix,
           boat,
         );
       } else {
@@ -827,10 +827,10 @@ export class SurfaceRenderer extends BaseEntity {
       this.waterHeightView &&
       this.terrainHeightView
     ) {
-      // Use same viewport for wetness as for rendering
+      // Wetness texture shares the screen-space layout of water/terrain.
       this.wetnessPipeline.update(
-        expandedViewport,
-        expandedViewport,
+        texClipToWorldMatrix,
+        worldToTexClipMatrix,
         this.waterHeightView,
         this.terrainHeightView,
         event.dt,

@@ -23,6 +23,7 @@ import {
   type FullscreenShaderConfig,
 } from "../../../core/graphics/webgpu/FullscreenShader";
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
+import { Matrix3 } from "../../../core/graphics/Matrix3";
 import { radToDeg } from "../../../core/util/MathUtil";
 import { SurfaceRenderer } from "../../surface-rendering/SurfaceRenderer";
 import { DEFAULT_DEPTH } from "../../world/terrain/TerrainConstants";
@@ -41,12 +42,9 @@ const RENDER_VIEWPORT_MARGIN = 0.1;
  */
 const TerrainHeightDebugUniforms = defineUniformStruct("Params", {
   cameraMatrix: mat3x3,
+  worldToTexClip: mat3x3,
   screenWidth: f32,
   screenHeight: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
 });
 
 /**
@@ -55,17 +53,10 @@ const TerrainHeightDebugUniforms = defineUniformStruct("Params", {
 const terrainHeightDebugParamsModule: ShaderModule = {
   preamble: /*wgsl*/ `
 struct Params {
-  cameraMatrix0: vec4<f32>,
-  cameraMatrix1: vec4<f32>,
-  cameraMatrix2: vec4<f32>,
+  cameraMatrix: mat3x3<f32>,
+  worldToTexClip: mat3x3<f32>,
   screenWidth: f32,
   screenHeight: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
-  _padding0: f32,
-  _padding1: f32,
 }
 `,
   bindings: {
@@ -96,39 +87,26 @@ fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
   return out;
 }
 
-// Get camera matrix from packed vec4s
-fn getCameraMatrix() -> mat3x3<f32> {
-  return mat3x3<f32>(
-    params.cameraMatrix0.xyz,
-    params.cameraMatrix1.xyz,
-    params.cameraMatrix2.xyz
-  );
-}
-
-// Convert clip position to world position using camera matrix
+// Convert clip position to world position using screen clipToWorld.
 fn clipToWorld(clipPos: vec2<f32>) -> vec2<f32> {
-  let screenPos = (clipPos * 0.5 + 0.5) * vec2<f32>(params.screenWidth, params.screenHeight);
-  let cameraMatrix = getCameraMatrix();
-  let worldPosH = cameraMatrix * vec3<f32>(screenPos, 1.0);
-  return worldPosH.xy;
+  return (params.cameraMatrix * vec3<f32>(clipPos, 1.0)).xy;
 }
 
-// Convert world position to UV for height texture sampling
+// World → screen-space texture UV (covers clip[-1,1] of the expanded
+// screen-aligned viewport).
 fn worldToHeightUV(worldPos: vec2<f32>) -> vec2<f32> {
-  return vec2<f32>(
-    (worldPos.x - params.viewportLeft) / params.viewportWidth,
-    (worldPos.y - params.viewportTop) / params.viewportHeight
-  );
+  let clip = (params.worldToTexClip * vec3<f32>(worldPos, 1.0)).xy;
+  return vec2<f32>((clip.x + 1.0) * 0.5, (1.0 - clip.y) * 0.5);
 }
 
 // Sample terrain height at world position
 fn sampleTerrainHeight(worldPos: vec2<f32>) -> f32 {
   let uv = worldToHeightUV(worldPos);
-  let texCoord = vec2<i32>(
-    i32(uv.x * params.screenWidth),
-    i32(uv.y * params.screenHeight)
-  );
-  return textureLoad(heightTexture, texCoord, 0).r;
+  let w = i32(params.screenWidth);
+  let h = i32(params.screenHeight);
+  let tx = clamp(i32(uv.x * params.screenWidth), 0, w - 1);
+  let ty = clamp(i32(uv.y * params.screenHeight), 0, h - 1);
+  return textureLoad(heightTexture, vec2<i32>(tx, ty), 0).r;
 }
 
 // Map height to grayscale (linear from dark to light)
@@ -259,22 +237,6 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
     this.initialized = true;
   }
 
-  /**
-   * Get viewport expanded by the given margin factor (matches SurfaceRenderer).
-   */
-  private getExpandedViewport(margin: number) {
-    const worldViewport = this.game.camera.getWorldViewport();
-    const marginX = worldViewport.width * margin;
-    const marginY = worldViewport.height * margin;
-
-    return {
-      left: worldViewport.left - marginX,
-      top: worldViewport.top - marginY,
-      width: worldViewport.width + marginX * 2,
-      height: worldViewport.height + marginY * 2,
-    };
-  }
-
   @on("render")
   onRender(_event: GameEventMap["render"]): void {
     if (!this.initialized || !this.shader || !this.uniforms) return;
@@ -285,19 +247,24 @@ export class TerrainHeightDebugMode extends DebugRenderMode {
 
     const width = renderer.getWidth();
     const height = renderer.getHeight();
-    const expandedViewport = this.getExpandedViewport(RENDER_VIEWPORT_MARGIN);
 
-    // Get camera matrix (inverted for screen-to-world transform)
-    const cameraMatrix = this.game.camera.getMatrix().clone().invert();
+    // Build clipToWorld (screen) and texClipToWorld (expanded, same as
+    // SurfaceRenderer). worldToTexClip is its inverse.
+    const clipToScreen = new Matrix3();
+    clipToScreen.translate(width / 2, height / 2);
+    clipToScreen.scale(width / 2, height / 2);
+    const clipToWorld = this.game.camera.getMatrix().clone().invert();
+    clipToWorld.multiply(clipToScreen);
+
+    const texScale = 1 + 2 * RENDER_VIEWPORT_MARGIN;
+    const texClipToWorld = clipToWorld.clone().scale(texScale, texScale);
+    const worldToTexClip = texClipToWorld.clone().invert();
 
     // Update uniforms
-    this.uniforms.set.cameraMatrix(cameraMatrix);
+    this.uniforms.set.cameraMatrix(clipToWorld);
+    this.uniforms.set.worldToTexClip(worldToTexClip);
     this.uniforms.set.screenWidth(width);
     this.uniforms.set.screenHeight(height);
-    this.uniforms.set.viewportLeft(expandedViewport.left);
-    this.uniforms.set.viewportTop(expandedViewport.top);
-    this.uniforms.set.viewportWidth(expandedViewport.width);
-    this.uniforms.set.viewportHeight(expandedViewport.height);
 
     this.uniforms.uploadTo(this.uniformBuffer!);
 

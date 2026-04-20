@@ -14,25 +14,20 @@
  * Alpha channel uses max blending to preserve peak breaking intensity.
  */
 
-import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
+import { defineUniformStruct, mat3x3 } from "../../core/graphics/UniformStruct";
+import type { Matrix3 } from "../../core/graphics/Matrix3";
 import { validateShaderModuleCompilation } from "../../core/graphics/webgpu/WebGPUDevice";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
-import type { Viewport } from "./WavePhysicsResources";
 import type { WavefrontMesh } from "./WavefrontMesh";
 
 const RasterizerUniforms = defineUniformStruct("RasterizerParams", {
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
+  // World → clip for the target texture (screen-aligned, rotation-aware).
+  worldToTexClip: mat3x3,
 });
 
 const SHADER_CODE = /*wgsl*/ `
 struct RasterizerParams {
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
+  worldToTexClip: mat3x3<f32>,
 }
 
 @group(0) @binding(0) var<uniform> params: RasterizerParams;
@@ -55,12 +50,11 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-  // World position → NDC using viewport uniforms
-  let ndcX = 2.0 * (in.position.x - params.viewportLeft) / params.viewportWidth - 1.0;
-  let ndcY = 1.0 - 2.0 * (in.position.y - params.viewportTop) / params.viewportHeight;
+  // World position → texture clip (screen-aligned, rotation-aware)
+  let clip = (params.worldToTexClip * vec3<f32>(in.position, 1.0)).xy;
 
   var out: VertexOutput;
-  out.position = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
+  out.position = vec4<f32>(clip, 0.0, 1.0);
   out.amplitudeFactor = in.amplitudeFactor;
   out.turbulence = in.turbulence;
   out.phaseOffset = in.phaseOffset;
@@ -211,13 +205,13 @@ export class WavefrontRasterizer {
    *
    * @param encoder - Command encoder to record into
    * @param meshes - One mesh per wave source
-   * @param viewport - World-space viewport (same as water height shader)
+   * @param worldToTexClip - World → texture clip transform (screen-aligned)
    * @param texture - Target rgba16float 2D array texture
    */
   render(
     encoder: GPUCommandEncoder,
     meshes: readonly WavefrontMesh[],
-    viewport: Viewport,
+    worldToTexClip: Matrix3,
     texture: GPUTexture,
     gpuProfiler?: GPUProfiler | null,
   ): void {
@@ -229,11 +223,8 @@ export class WavefrontRasterizer {
     )
       return;
 
-    // Update viewport uniforms
-    this.uniforms.set.viewportLeft(viewport.left);
-    this.uniforms.set.viewportTop(viewport.top);
-    this.uniforms.set.viewportWidth(viewport.width);
-    this.uniforms.set.viewportHeight(viewport.height);
+    // Update transform uniform
+    this.uniforms.set.worldToTexClip(worldToTexClip);
     this.uniforms.uploadTo(this.uniformBuffer);
 
     // Find first and last non-empty mesh indices for GPU profiling

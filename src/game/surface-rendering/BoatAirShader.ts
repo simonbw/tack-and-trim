@@ -32,10 +32,14 @@
  * identical in both cases.
  */
 
-import { defineUniformStruct, f32 } from "../../core/graphics/UniformStruct";
+import {
+  defineUniformStruct,
+  f32,
+  mat3x3,
+} from "../../core/graphics/UniformStruct";
+import type { Matrix3 } from "../../core/graphics/Matrix3";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import type { Boat } from "../boat/Boat";
-import type { Viewport } from "../wave-physics/WavePhysicsResources";
 
 /** 3 floats per vertex: worldX, worldY, worldZ. */
 export const BOAT_AIR_VERTEX_SIZE = 3;
@@ -48,10 +52,8 @@ const BOAT_AIR_VERTEX_STRIDE = BOAT_AIR_VERTEX_SIZE * 4; // 12 bytes
 export const BOAT_AIR_SENTINEL_LOW = -1e4;
 
 const BoatAirUniforms = defineUniformStruct("BoatAirUniforms", {
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
+  // World → clip for the target texture (screen-aligned, rotation-aware).
+  worldToTexClip: mat3x3,
   turbulence: f32,
 });
 
@@ -71,19 +73,13 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-  // Map world XY into the air texture's viewport-space clip coordinates.
-  // Must match the mapping the water height compute uses when reading the
-  // texture (it samples by uv = pixel/screen, which is also the same
-  // mapping the water filter uses for waterHeightTexture).
-  //
-  // Pixel (0,0) corresponds to world (viewportLeft, viewportTop), and
-  // pixel y increases with world y. WebGPU NDC has +Y pointing UP but
-  // the framebuffer origin is top-left, so clip y = +1 maps to pixel
-  // y = 0 — we flip Y when converting u/v to clip space.
-  let u = (in.worldPos.x - uniforms.viewportLeft) / uniforms.viewportWidth;
-  let v = (in.worldPos.y - uniforms.viewportTop) / uniforms.viewportHeight;
+  // Map world XY into the air texture's clip coordinates (screen-aligned,
+  // rotation-aware). Same matrix feeds every screen-space pass so the
+  // boat air texture, water height texture, and modifier texture share a
+  // texel grid exactly.
+  let clip = (uniforms.worldToTexClip * vec3<f32>(in.worldPos.xy, 1.0)).xy;
   var out: VertexOutput;
-  out.clipPos = vec4<f32>(u * 2.0 - 1.0, 1.0 - v * 2.0, 0.0, 1.0);
+  out.clipPos = vec4<f32>(clip, 0.0, 1.0);
   out.worldZ = in.worldPos.z;
   return out;
 }
@@ -229,7 +225,11 @@ export class BoatAirShader {
    * standalone command encoder + render pass with `loadOp: "clear"` so
    * each frame starts from sentinel everywhere.
    */
-  render(targetView: GPUTextureView, viewport: Viewport, boat: Boat): void {
+  render(
+    targetView: GPUTextureView,
+    worldToTexClip: Matrix3,
+    boat: Boat,
+  ): void {
     if (!bilgePipeline || !deckPipeline || !bindGroupLayout) {
       // Pipelines still initializing — fall back to a clear so the
       // texture isn't garbage. Air substitution will be a no-op this
@@ -258,10 +258,7 @@ export class BoatAirShader {
     }
 
     // Upload uniforms.
-    this.uniforms.set.viewportLeft(viewport.left);
-    this.uniforms.set.viewportTop(viewport.top);
-    this.uniforms.set.viewportWidth(viewport.width);
-    this.uniforms.set.viewportHeight(viewport.height);
+    this.uniforms.set.worldToTexClip(worldToTexClip);
     this.uniforms.set.turbulence(bilgeTurbulence);
     this.uniforms.uploadTo(this.uniformBuffer!);
 

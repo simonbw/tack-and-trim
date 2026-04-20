@@ -19,28 +19,23 @@
 
 import {
   defineUniformStruct,
-  f32,
+  mat3x3,
   u32,
 } from "../../core/graphics/UniformStruct";
+import type { Matrix3 } from "../../core/graphics/Matrix3";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
-import type { Viewport } from "../wave-physics/WavePhysicsResources";
 import { FLOATS_PER_MODIFIER } from "../world/water/WaterResources";
 
 const ModifierRasterizerUniforms = defineUniformStruct("ModifierParams", {
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
+  // World → clip for the target texture (screen-aligned, rotation-aware).
+  worldToTexClip: mat3x3,
   modifierCount: u32,
   floatsPerModifier: u32,
 });
 
 const SHADER_CODE = /*wgsl*/ `
 struct ModifierParams {
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
+  worldToTexClip: mat3x3<f32>,
   modifierCount: u32,
   floatsPerModifier: u32,
 }
@@ -131,12 +126,11 @@ fn vs_main(
   let worldX = centerX + r * cos(angle);
   let worldY = centerY + r * sin(angle);
 
-  // World → NDC
-  let ndcX = 2.0 * (worldX - params.viewportLeft) / params.viewportWidth - 1.0;
-  let ndcY = 1.0 - 2.0 * (worldY - params.viewportTop) / params.viewportHeight;
+  // World → texture clip (screen-aligned)
+  let clip = (params.worldToTexClip * vec3<f32>(worldX, worldY, 1.0)).xy;
 
   var out: VertexOutput;
-  out.position = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
+  out.position = vec4<f32>(clip, 0.0, 1.0);
   out.worldPos = vec2<f32>(worldX, worldY);
   out.instanceIndex = instanceIndex;
   return out;
@@ -302,7 +296,7 @@ export class ModifierRasterizer {
    * @param encoder - Command encoder to record into
    * @param modifiersBuffer - Storage buffer with modifier data (from WaterResources)
    * @param modifierCount - Number of active modifiers
-   * @param viewport - World-space viewport (same as water height shader)
+   * @param worldToTexClip - World → texture clip transform (screen-aligned)
    * @param texture - Target rgba16float 2D texture
    * @param gpuProfiler - Optional GPU profiler for timing
    */
@@ -310,7 +304,7 @@ export class ModifierRasterizer {
     encoder: GPUCommandEncoder,
     modifiersBuffer: GPUBuffer,
     modifierCount: number,
-    viewport: Viewport,
+    worldToTexClip: Matrix3,
     texture: GPUTexture,
     gpuProfiler?: GPUProfiler | null,
   ): void {
@@ -323,10 +317,7 @@ export class ModifierRasterizer {
       return;
 
     // Update uniforms
-    this.uniforms.set.viewportLeft(viewport.left);
-    this.uniforms.set.viewportTop(viewport.top);
-    this.uniforms.set.viewportWidth(viewport.width);
-    this.uniforms.set.viewportHeight(viewport.height);
+    this.uniforms.set.worldToTexClip(worldToTexClip);
     this.uniforms.set.modifierCount(modifierCount);
     this.uniforms.set.floatsPerModifier(FLOATS_PER_MODIFIER);
     this.uniforms.uploadTo(this.uniformBuffer);

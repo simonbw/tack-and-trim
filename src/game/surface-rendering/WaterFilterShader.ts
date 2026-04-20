@@ -30,16 +30,13 @@ import { fn_fractalNoise3D, fn_simplex3D } from "../world/shaders/noise.wgsl";
 const waterFilterParamsModule: ShaderModule = {
   preamble: /*wgsl*/ `
 struct Params {
-  cameraMatrix0: vec4<f32>,
-  cameraMatrix1: vec4<f32>,
-  cameraMatrix2: vec4<f32>,
+  // clip → world for the actual screen
+  cameraMatrix: mat3x3<f32>,
+  // world → clip for the screen-space water height texture
+  worldToTexClip: mat3x3<f32>,
 
   screenWidth: f32,
   screenHeight: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
   time: f32,
   tideHeight: f32,
   hasTerrainData: i32,
@@ -173,20 +170,15 @@ fn depthToZ(d: f32) -> f32 {
 }
 
 fn clipToWorld(clipPos: vec2<f32>) -> vec2<f32> {
-  let m = mat3x3<f32>(
-    params.cameraMatrix0.xyz,
-    params.cameraMatrix1.xyz,
-    params.cameraMatrix2.xyz
-  );
-  let world = m * vec3<f32>(clipPos, 1.0);
+  let world = params.cameraMatrix * vec3<f32>(clipPos, 1.0);
   return world.xy;
 }
 
+// World → screen-space texture UV (covers clip[-1,1] of the expanded,
+// screen-aligned viewport).
 fn worldToHeightUV(worldPos: vec2<f32>) -> vec2<f32> {
-  return vec2<f32>(
-    (worldPos.x - params.viewportLeft) / params.viewportWidth,
-    (worldPos.y - params.viewportTop) / params.viewportHeight
-  );
+  let clip = (params.worldToTexClip * vec3<f32>(worldPos, 1.0)).xy;
+  return vec2<f32>((clip.x + 1.0) * 0.5, (1.0 - clip.y) * 0.5);
 }
 
 fn sampleWaterData(worldPos: vec2<f32>) -> vec2<f32> {
@@ -203,7 +195,8 @@ fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
 }
 
 fn computeWaterNormal(worldPos: vec2<f32>) -> vec3<f32> {
-  let eps = params.viewportWidth / params.screenWidth * 2.0;
+  // World-space eps ≈ 2 screen pixels (see TerrainCompositeShader).
+  let eps = length(params.cameraMatrix[0].xy) * 4.0 / params.screenWidth;
 
   let hL = sampleWaterHeight(worldPos + vec2<f32>(-eps, 0.0));
   let hR = sampleWaterHeight(worldPos + vec2<f32>(eps, 0.0));

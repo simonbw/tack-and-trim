@@ -32,20 +32,13 @@ const waterHeightParamsModule: ShaderModule = {
   preamble: /*wgsl*/ `
 // Water height computation parameters
 struct Params {
+  // clip → world for this texture (screen-aligned, rotation-aware, includes margin)
+  texClipToWorld: mat3x3<f32>,
   screenWidth: f32,
   screenHeight: f32,
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
   time: f32,
   tideHeight: f32,
-  _paddingMC: u32,
   numWaves: u32,
-  _padding0: u32,
-  _padding1: u32,
-  _padding2: u32,
-  _padding3: u32,
 }
 
 // Wave computation constants
@@ -103,16 +96,15 @@ const waterHeightComputeModule: ShaderModule = {
     fn_calculateGerstnerWaves,
   ],
   code: /*wgsl*/ `
-// Convert pixel coordinates to world position
+// Convert pixel coordinates to world position via the texture's clip→world
+// matrix. Texel (x,y) center maps to clip (2*(x+0.5)/W - 1, 1 - 2*(y+0.5)/H).
 fn pixelToWorld(pixel: vec2<u32>) -> vec2<f32> {
   let uv = vec2<f32>(
-    f32(pixel.x) / params.screenWidth,
-    f32(pixel.y) / params.screenHeight
+    (f32(pixel.x) + 0.5) / params.screenWidth,
+    (f32(pixel.y) + 0.5) / params.screenHeight
   );
-  return vec2<f32>(
-    params.viewportLeft + uv.x * params.viewportWidth,
-    params.viewportTop + uv.y * params.viewportHeight
-  );
+  let clip = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+  return (params.texClipToWorld * vec3<f32>(clip, 1.0)).xy;
 }
 
 // Calculate water height and turbulence at a point using wave field texture

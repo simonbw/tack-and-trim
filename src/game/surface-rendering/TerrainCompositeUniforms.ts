@@ -14,18 +14,16 @@ import {
 } from "../../core/graphics/UniformStruct";
 
 export const TerrainCompositeUniforms = defineUniformStruct("Params", {
-  // Clip-to-world matrix (stored as 3 vec4s for alignment)
+  // Clip → world for the actual screen (used for world-position reconstruction).
   cameraMatrix: mat3x3,
+
+  // World → clip for the screen-space height/wetness textures. Converts a
+  // world position into the sample location in those textures.
+  worldToTexClip: mat3x3,
 
   // Screen dimensions
   screenWidth: f32,
   screenHeight: f32,
-
-  // Expanded viewport bounds in world space (for height texture UV lookups)
-  viewportLeft: f32,
-  viewportTop: f32,
-  viewportWidth: f32,
-  viewportHeight: f32,
 
   time: f32,
   tideHeight: f32,
