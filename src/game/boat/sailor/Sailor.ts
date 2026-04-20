@@ -14,9 +14,9 @@ import type { StationDef } from "./StationConfig";
 export const SAILOR_MASS = 170;
 
 /** Walking speed in ft/s — cautious walking on a moving boat. */
-export const SAILOR_WALK_SPEED = 4;
+export const SAILOR_WALK_SPEED = 6;
 /** Running speed in ft/s — hustling when Shift is held. */
-export const SAILOR_RUN_SPEED = 8;
+export const SAILOR_RUN_SPEED = 12;
 /** Proximity radius (ft) for snapping to a station on arrival. */
 export const SAILOR_SNAP_RADIUS = 2.5;
 

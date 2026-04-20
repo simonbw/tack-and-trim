@@ -20,6 +20,7 @@ export class CameraController extends BaseEntity {
   zTarget: number = 8;
   offset = V(0, 0);
   rotateWithBoat = true;
+  pausable = true;
 
   constructor(
     private boat: Boat,
