@@ -2,13 +2,7 @@ import type { LevelName } from "../../resources/resources";
 
 /** Global event types that can be dispatched by the Game and listened to by entities. */
 export type CustomEvents = {
-  /** Fired when the main menu should be shown (e.g. from a sub-menu's back button) */
-  showMainMenu: {};
-
-  /** Fired when the new-game map selection menu should be shown */
-  showNewGameMenu: {};
-
-  /** Fired when player selects a level from the main menu */
+  /** Fired when player selects a level in the main menu (consumed by SaveManager). */
   levelSelected: { levelName: LevelName };
 
   /** Fired when player selects a boat from the boat selection screen */
@@ -75,12 +69,6 @@ export type CustomEvents = {
 
   /** Fired to switch to a different owned boat */
   switchBoat: { boatId: string };
-
-  /** Fired when the shipyard UI opens */
-  openShipyard: {};
-
-  /** Fired when the shipyard UI closes */
-  closeShipyard: {};
 
   /** Fired when the sailor arrives at a station */
   sailorEnteredStation: { stationId: string };

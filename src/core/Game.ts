@@ -15,7 +15,6 @@ import type { Body } from "./physics/body/Body";
 import { createRigid2D } from "./physics/body/bodyFactories";
 import { PhysicsEventMap } from "./physics/events/PhysicsEvents";
 import { World } from "./physics/world/World";
-import type { Modal } from "./ui/Modal";
 import { lerp } from "./util/MathUtil";
 import { asyncProfiler } from "./util/AsyncProfiler";
 import { profile, profiler } from "./util/Profiler";
@@ -55,8 +54,6 @@ export class Game {
   readonly masterGain: GainNode;
   /** Readonly. Whether or not the game is paused */
   paused: boolean = false;
-  /** Stack of currently-open modal overlays. The topmost modal receives Escape. */
-  readonly modalStack: Modal[] = [];
   /** Readonly. Number of frames that have gone by */
   framenumber: number = 0;
   /** Readonly. Number of ticks that have gone by */
@@ -383,7 +380,6 @@ export class Game {
    * @param persistenceThreshold - Entities with persistence level <= this value will be removed (default: 0)
    */
   clearScene(persistenceThreshold = 0) {
-    this.modalStack.length = 0;
     for (const entity of this.entities) {
       if (
         entity.isAdded && // Not already destroyed

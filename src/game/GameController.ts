@@ -8,7 +8,6 @@ import { loadLevel } from "../editor/io/LevelLoader";
 import type { TreeFileData } from "../pipeline/mesh-building/TreeFile";
 import { Boat } from "./boat/Boat";
 import { BoatDebugHUD } from "./boat/BoatDebugHUD";
-import { BoatSelectionScreen } from "./BoatSelectionScreen";
 import { getBoatDef } from "./catalog/BoatCatalog";
 import { PlayerBoatController } from "./boat/PlayerBoatController";
 import { StationHUD } from "./boat/sailor/StationHUD";
@@ -18,7 +17,6 @@ import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
 import { GameOverScreen } from "./GameOverScreen";
 import { MainMenu } from "./MainMenu";
-import { NewGameMenu } from "./NewGameMenu";
 import { PauseMenu } from "./PauseMenu";
 import { MissionHUD } from "./mission/MissionHUD";
 import { MissionManager } from "./mission/MissionManager";
@@ -80,21 +78,6 @@ export class GameController extends BaseEntity {
 
     // Show level select menu (no level loading yet)
     this.game.addEntity(new MainMenu());
-  }
-
-  @on("showMainMenu")
-  onShowMainMenu() {
-    this.game.addEntity(new MainMenu());
-  }
-
-  @on("showNewGameMenu")
-  onShowNewGameMenu() {
-    this.game.addEntity(new NewGameMenu());
-  }
-
-  @on("levelSelected")
-  onLevelSelected({ levelName }: { levelName: LevelName }) {
-    this.game.addEntity(new BoatSelectionScreen(levelName));
   }
 
   @on("boatSelected")
@@ -162,16 +145,19 @@ export class GameController extends BaseEntity {
   }
 
   @on("keyDown")
-  onKeyDown({ key }: { key: string }) {
+  onKeyDown({ key, event }: { key: string; event: KeyboardEvent }) {
     if (key !== "Escape") return;
-    const stack = this.game.modalStack;
-    if (stack.length > 0) {
-      stack[stack.length - 1].onEscape();
-      return;
-    }
-    if (this.currentLevel !== null) {
-      this.game.addEntity(new PauseMenu());
-    }
+    // If any menu already handled Escape (via preventDefault), don't open the
+    // pause menu on top of the action.
+    if (event.defaultPrevented) return;
+    if (this.game.entities.tryGetSingleton(PauseMenu)) return;
+    if (this.game.entities.tryGetSingleton(MainMenu)) return;
+    if (this.portMenu) return;
+    if (this.currentLevel === null) return;
+    // Defer creation so the newly-added PauseMenu doesn't receive the same
+    // keyDown dispatch we're inside — which would destroy it immediately.
+    const game = this.game;
+    queueMicrotask(() => game.addEntity(new PauseMenu()));
   }
 
   @on("boatSunk")

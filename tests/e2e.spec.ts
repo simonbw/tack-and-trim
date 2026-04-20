@@ -62,4 +62,47 @@ test("game initializes, shows main menu, and starts without errors", async ({
   await page.waitForTimeout(500);
 
   expect(issues).toHaveLength(0);
+
+  // --- Assertion: Escape in-game opens the pause menu ---
+  // Wait until gameStart has actually fired (GameController sets this flag).
+  await page.waitForFunction(() => window.DEBUG.gameStarted === true, {
+    timeout: 30000,
+  });
+
+  await page.keyboard.press("Escape");
+  const pauseMenu = page.locator(".pause-menu");
+  await expect(pauseMenu).toBeVisible({ timeout: 3000 });
+  await expect(pauseMenu).toContainText("Paused");
+
+  // --- Assertion: Game is paused while the pause menu is open ---
+  expect(await page.evaluate(() => window.DEBUG.game!.paused)).toBe(true);
+
+  // --- Assertion: Navigate into Settings and see the MSAA option ---
+  // Focus lands on Resume; arrow down 3 times → Settings. Enter to open.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+
+  const settings = page.locator(".settings-panel");
+  await expect(settings).toBeVisible({ timeout: 2000 });
+  await expect(settings).toContainText("Antialiasing");
+  // Pause menu's own button list is no longer rendered while the settings
+  // submenu is active.
+  await expect(pauseMenu.locator(".pause-menu__actions")).toHaveCount(0);
+
+  // --- Assertion: Back button returns to pause menu, still paused ---
+  // Settings has two focusable buttons (the MSAA toggle, then Back).
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(settings).not.toBeVisible({ timeout: 2000 });
+  await expect(pauseMenu.locator(".pause-menu__actions")).toBeVisible();
+  expect(await page.evaluate(() => window.DEBUG.game!.paused)).toBe(true);
+
+  // --- Assertion: Escape from pause menu resumes the game ---
+  await page.keyboard.press("Escape");
+  await expect(pauseMenu).not.toBeVisible({ timeout: 2000 });
+  expect(await page.evaluate(() => window.DEBUG.game!.paused)).toBe(false);
+
+  expect(issues).toHaveLength(0);
 });
