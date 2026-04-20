@@ -19,33 +19,33 @@ import { Matrix3 } from "../../core/graphics/Matrix3";
 import { type UniformInstance } from "../../core/graphics/UniformStruct";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
-import { MAX_WAVE_SOURCES } from "../wave-physics/WavePhysicsManager";
+import type { Boat } from "../boat/Boat";
 import { TimeOfDay } from "../time/TimeOfDay";
+import { MAX_WAVE_SOURCES } from "../wave-physics/WavePhysicsManager";
 import {
   WavePhysicsResources,
   type Viewport,
 } from "../wave-physics/WavePhysicsResources";
 import { TerrainResources } from "../world/terrain/TerrainResources";
 import { WaterResources } from "../world/water/WaterResources";
-import type { Boat } from "../boat/Boat";
-import { BoatAirShader } from "./BoatAirShader";
-import { ModifierRasterizer } from "./ModifierRasterizer";
-import { createWaterHeightShader } from "./WaterHeightShader";
-import { createTerrainCompositeShader } from "./TerrainCompositeShader";
-import { createWaterFilterShader } from "./WaterFilterShader";
-import { createTerrainScreenShader } from "./TerrainScreenShader";
-import { WaterHeightUniforms } from "./WaterHeightUniforms";
-import { TerrainCompositeUniforms } from "./TerrainCompositeUniforms";
-import { WaterFilterUniforms } from "./WaterFilterUniforms";
-import { TerrainScreenUniforms } from "./TerrainScreenUniforms";
-import { LODTerrainTileCache } from "./LODTerrainTileCache";
-import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 import {
-  type BiomeConfig,
-  DEFAULT_BIOME_CONFIG,
   BIOME_BUFFER_SIZE,
+  DEFAULT_BIOME_CONFIG,
   packBiomeBuffer,
+  type BiomeConfig,
 } from "./BiomeConfig";
+import { BoatAirShader } from "./BoatAirShader";
+import { LODTerrainTileCache } from "./LODTerrainTileCache";
+import { ModifierRasterizer } from "./ModifierRasterizer";
+import { createTerrainCompositeShader } from "./TerrainCompositeShader";
+import { TerrainCompositeUniforms } from "./TerrainCompositeUniforms";
+import { createTerrainScreenShader } from "./TerrainScreenShader";
+import { TerrainScreenUniforms } from "./TerrainScreenUniforms";
+import { createWaterFilterShader } from "./WaterFilterShader";
+import { WaterFilterUniforms } from "./WaterFilterUniforms";
+import { createWaterHeightShader } from "./WaterHeightShader";
+import { WaterHeightUniforms } from "./WaterHeightUniforms";
+import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
 // Margin for render viewport expansion
 const RENDER_VIEWPORT_MARGIN = 0.1;
@@ -230,10 +230,11 @@ export class SurfaceRenderer extends BaseEntity {
       this.terrainCompositeUniforms.set.hasTerrainData(0);
       this.waterFilterUniforms.set.hasTerrainData(0);
 
-      // Create samplers
+      // Linear filtering: rgba16float is filterable, so bilinear sampling
+      // smooths water height / normals between texels for free.
       this.heightSampler = device.createSampler({
-        magFilter: "nearest",
-        minFilter: "nearest",
+        magFilter: "linear",
+        minFilter: "linear",
         addressModeU: "clamp-to-edge",
         addressModeV: "clamp-to-edge",
         label: "Height Texture Sampler",
@@ -313,10 +314,12 @@ export class SurfaceRenderer extends BaseEntity {
     });
     this.terrainHeightView = this.terrainHeightTexture.createView();
 
-    // Create water height texture
+    // Create water height texture (R=height, G=turbulence; B/A unused).
+    // rgba16float rather than rg16float because only rgba16float is a
+    // mandatory WebGPU storage format.
     this.waterHeightTexture = device.createTexture({
       size: { width, height },
-      format: "rg32float",
+      format: "rgba16float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       label: "Water Height Texture",
     });

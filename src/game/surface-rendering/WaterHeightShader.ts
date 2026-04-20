@@ -2,7 +2,10 @@
  * Water Height Compute Shader
  *
  * Computes water surface height and turbulence at each pixel using Gerstner
- * waves and modifiers. Output is a two-channel rg32float texture (R=height, G=turbulence).
+ * waves and modifiers. Output is an rgba16float texture (R=height, G=turbulence;
+ * B and A unused). rgba16float is used instead of rg16float because only the
+ * former is a mandatory WebGPU storage format, and instead of rg32float because
+ * fp16 precision is sufficient here and the format is filterable.
  *
  * This is the first pass of the multi-pass surface rendering pipeline.
  */
@@ -80,7 +83,7 @@ const BREAK_NOISE_TIME_SCALE: f32 = 1.2;
       viewDimension: "2d",
       sampleType: "float",
     },
-    outputTexture: { type: "storageTexture", format: "rg32float" },
+    outputTexture: { type: "storageTexture", format: "rgba16float" },
   },
   code: "",
 };

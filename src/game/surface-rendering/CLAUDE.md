@@ -30,7 +30,7 @@ The surface renderer uses a multi-pass pipeline: terrain tile caching, screen-sp
          ┌─────────────────────┐
          │ Pass 2: Water       │
          │ Height Compute      │
-         │ (rg32float tex)     │
+         │ (rgba16float tex)   │
          └────────┬────────────┘
                   │
          ┌────────┴────────────┐
@@ -80,7 +80,7 @@ The surface renderer uses a multi-pass pipeline: terrain tile caching, screen-sp
 1. **Terrain tile cache update** - LODTerrainTileCache selects LOD, renders any missing tiles to atlas
 2. **Pass 1: Terrain Screen** - Sample tile atlas → screen-space r32float terrain height texture
 3. **Wavefront Rasterization** - WavePhysicsResources rasterizes wavefront meshes → rgba16float texture array (one layer per wave source, encoding phase correction, coverage, and turbulence)
-4. **Pass 2: Water Height** - Compute Gerstner waves using wave field texture for per-wave energy/phase/turbulence → rg32float texture (height + turbulence)
+4. **Pass 2: Water Height** - Compute Gerstner waves using wave field texture for per-wave energy/phase/turbulence → rgba16float texture (R=height, G=turbulence)
 5. **Wetness Update** - Update sand wetness via ping-pong compute (optional)
 6. **Pass 3: Surface Composite** - Read height textures, compute normals via finite differences, render with lighting
 

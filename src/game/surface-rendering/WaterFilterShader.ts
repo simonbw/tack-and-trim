@@ -62,9 +62,9 @@ struct Params {
     waterHeightTexture: {
       type: "texture",
       viewDimension: "2d",
-      sampleType: "unfilterable-float",
+      sampleType: "float",
     },
-    heightSampler: { type: "sampler", samplerType: "non-filtering" },
+    heightSampler: { type: "sampler", samplerType: "filtering" },
   },
   code: "",
 };
@@ -183,11 +183,7 @@ fn worldToHeightUV(worldPos: vec2<f32>) -> vec2<f32> {
 
 fn sampleWaterData(worldPos: vec2<f32>) -> vec2<f32> {
   let uv = worldToHeightUV(worldPos);
-  let w = i32(params.screenWidth);
-  let h = i32(params.screenHeight);
-  let tx = clamp(i32(uv.x * params.screenWidth), 0, w - 1);
-  let ty = clamp(i32(uv.y * params.screenHeight), 0, h - 1);
-  return textureLoad(waterHeightTexture, vec2<i32>(tx, ty), 0).rg;
+  return textureSampleLevel(waterHeightTexture, heightSampler, uv, 0.0).rg;
 }
 
 fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
