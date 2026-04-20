@@ -11,6 +11,7 @@
  * - Builds code in correct order: preambles → bindings → code
  */
 
+import { getMSAASampleCount, onMSAAChange } from "./MSAAState";
 import { getWebGPU } from "./WebGPUDevice";
 import { WebGPUFullscreenQuad } from "./WebGPUFullscreenQuad";
 import { Shader } from "./Shader";
@@ -36,6 +37,13 @@ export interface FullscreenShaderConfig {
   /** Depth stencil state for depth buffer interaction (undefined = no depth) */
   depthStencilState?: GPUDepthStencilState;
 
+  /**
+   * Opt out of automatic MSAA tracking. By default FullscreenShader uses
+   * the current main-pass MSAA sample count (from MSAAState) and rebuilds
+   * its pipeline when the user toggles MSAA. Pass true for offscreen uses.
+   */
+  disableMSAA?: boolean;
+
   /** Label for GPU debugging (optional) */
   label?: string;
 }
@@ -48,9 +56,15 @@ export class FullscreenShader extends Shader<BindingsDefinition> {
   private readonly blendState?: GPUBlendState;
   private readonly targetFormat?: GPUTextureFormat;
   private readonly depthStencilState?: GPUDepthStencilState;
+  private readonly disableMSAA: boolean;
 
   private pipeline: GPURenderPipeline | null = null;
   private quad: WebGPUFullscreenQuad | null = null;
+
+  // Cached inputs for sync MSAA rebuild.
+  private shaderModule: GPUShaderModule | null = null;
+  private pipelineLayout: GPUPipelineLayout | null = null;
+  private unsubscribeMSAA: (() => void) | null = null;
 
   constructor(config: FullscreenShaderConfig) {
     super();
@@ -66,6 +80,7 @@ export class FullscreenShader extends Shader<BindingsDefinition> {
       depthCompare: "always",
       depthWriteEnabled: false,
     };
+    this.disableMSAA = config.disableMSAA ?? false;
   }
 
   get label(): string {
@@ -98,7 +113,7 @@ export class FullscreenShader extends Shader<BindingsDefinition> {
     const completeShaderCode =
       this.getMathConstants() + "\n\n" + this.buildCode();
 
-    const shaderModule = await gpu.createShaderModuleChecked(
+    this.shaderModule = await gpu.createShaderModuleChecked(
       completeShaderCode,
       `${this.label} Shader Module`,
     );
@@ -113,20 +128,41 @@ export class FullscreenShader extends Shader<BindingsDefinition> {
       label: `${this.label} Bind Group Layout`,
     });
 
-    const pipelineLayout = device.createPipelineLayout({
+    this.pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
       label: `${this.label} Pipeline Layout`,
     });
 
+    this.rebuildPipeline();
+    this.quad = new WebGPUFullscreenQuad();
+
+    if (!this.disableMSAA) {
+      this.unsubscribeMSAA = onMSAAChange(() => this.rebuildPipeline());
+    }
+  }
+
+  /**
+   * Recreate the render pipeline using cached shader/layout inputs and the
+   * current MSAA sample count. Cheap; called on MSAA toggle.
+   */
+  private rebuildPipeline(): void {
+    const gpu = getWebGPU();
+    const device = gpu.device;
+    if (!this.shaderModule || !this.pipelineLayout) return;
+
+    const multisample: GPUMultisampleState | undefined = this.disableMSAA
+      ? undefined
+      : { count: getMSAASampleCount() };
+
     this.pipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
+      layout: this.pipelineLayout,
       vertex: {
-        module: shaderModule,
+        module: this.shaderModule,
         entryPoint: "vs_main",
         buffers: [WebGPUFullscreenQuad.getVertexBufferLayout()],
       },
       fragment: {
-        module: shaderModule,
+        module: this.shaderModule,
         entryPoint: "fs_main",
         targets: [
           {
@@ -139,11 +175,9 @@ export class FullscreenShader extends Shader<BindingsDefinition> {
         topology: "triangle-list",
       },
       depthStencil: this.depthStencilState,
+      multisample,
       label: `${this.label} Render Pipeline`,
     });
-
-    // Create fullscreen quad
-    this.quad = new WebGPUFullscreenQuad();
   }
 
   /**
@@ -177,9 +211,13 @@ export class FullscreenShader extends Shader<BindingsDefinition> {
    * Clean up resources.
    */
   destroy(): void {
+    this.unsubscribeMSAA?.();
+    this.unsubscribeMSAA = null;
     this.quad?.destroy();
     this.pipeline = null;
     this.bindGroupLayout = null;
+    this.pipelineLayout = null;
+    this.shaderModule = null;
     this.quad = null;
   }
 }

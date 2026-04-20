@@ -1,5 +1,9 @@
 import { AutoPauser } from "../core/AutoPauser";
 import { Game } from "../core/Game";
+import {
+  isMSAAEnabled,
+  setMSAAEnabled,
+} from "../core/graphics/webgpu/MSAAState";
 import { World } from "../core/physics/world/World";
 import "../core/tuning/TunableRegistry"; // Initialize tunable registry early
 import { TuningPanel } from "../core/tuning/TuningPanel";
@@ -17,8 +21,18 @@ import { createSimulationStatsPanel } from "./stats/SimulationStatsPanel";
 // Do this so we can access the game from the console
 declare global {
   interface Window {
-    DEBUG: { game?: Game; gameStarted?: boolean };
+    DEBUG: {
+      game?: Game;
+      gameStarted?: boolean;
+      toggleMSAA?: () => void;
+    };
   }
+}
+
+function toggleMSAA() {
+  const next = !isMSAAEnabled();
+  setMSAAEnabled(next);
+  console.log(`MSAA ${next ? "enabled" : "disabled"}`);
 }
 
 const ticksPerFrame = 1;
@@ -31,7 +45,7 @@ async function main() {
   await game.init({ rendererOptions: { backgroundColor: 0x000010 } });
   game.setGpuTimingEnabled(true);
   // Make the game accessible from the console
-  window.DEBUG = { game };
+  window.DEBUG = { game, toggleMSAA };
 
   // Clean up resources when the page is unloaded
   window.addEventListener("beforeunload", () => game.destroy());

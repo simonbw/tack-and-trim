@@ -19,6 +19,10 @@ import {
   mat3x3,
   type UniformInstance,
 } from "../../../core/graphics/UniformStruct";
+import {
+  getMSAASampleCount,
+  onMSAAChange,
+} from "../../../core/graphics/webgpu/MSAAState";
 import { validateShaderModuleCompilation } from "../../../core/graphics/webgpu/WebGPUDevice";
 import {
   VERTEX_FLOATS,
@@ -233,6 +237,9 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
   > | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private initialized = false;
+  private shaderModule: GPUShaderModule | null = null;
+  private pipelineLayout: GPUPipelineLayout | null = null;
+  private unsubscribeMSAA: (() => void) | null = null;
 
   /** Cached wireframe buffers keyed by source mesh */
   private wireframeCache = new Map<WavefrontMesh, WireframeBuffer>();
@@ -264,12 +271,12 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
 
     const device = this.game.getWebGPUDevice();
 
-    const shaderModule = device.createShaderModule({
+    this.shaderModule = device.createShaderModule({
       code: SHADER_CODE,
       label: "Wavefront Debug Shader",
     });
     await validateShaderModuleCompilation(
-      shaderModule,
+      this.shaderModule,
       SHADER_CODE,
       "Wavefront Debug Shader",
     );
@@ -285,61 +292,13 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
       label: "Wavefront Debug Bind Group Layout",
     });
 
-    const pipelineLayout = device.createPipelineLayout({
+    this.pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
       label: "Wavefront Debug Pipeline Layout",
     });
 
-    this.pipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [
-          {
-            arrayStride: 32, // 8 floats x 4 bytes
-            attributes: [
-              { format: "float32x2", offset: 0, shaderLocation: 0 }, // position
-              { format: "float32", offset: 8, shaderLocation: 1 }, // amplitude
-              { format: "float32", offset: 12, shaderLocation: 2 }, // turbulence
-              { format: "float32", offset: 16, shaderLocation: 3 }, // phaseOffset
-              { format: "float32", offset: 20, shaderLocation: 4 }, // blendWeight
-              { format: "float32x2", offset: 24, shaderLocation: 5 }, // barycentric
-            ],
-          },
-        ],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_main",
-        targets: [
-          {
-            format: this.game.getWebGPUPreferredFormat(),
-            blend: {
-              color: {
-                srcFactor: "src-alpha",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
-              alpha: {
-                srcFactor: "one",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
-            },
-          },
-        ],
-      },
-      primitive: {
-        topology: "triangle-list",
-      },
-      depthStencil: {
-        format: "depth24plus",
-        depthCompare: "always",
-        depthWriteEnabled: false,
-      },
-      label: "Wavefront Debug Pipeline",
-    });
+    this.rebuildPipeline();
+    this.unsubscribeMSAA = onMSAAChange(() => this.rebuildPipeline());
 
     this.uniformBuffer = device.createBuffer({
       size: WavefrontDebugUniforms.byteSize,
@@ -361,6 +320,60 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
     });
 
     this.initialized = true;
+  }
+
+  private rebuildPipeline(): void {
+    if (!this.shaderModule || !this.pipelineLayout) return;
+    const device = this.game.getWebGPUDevice();
+    this.pipeline = device.createRenderPipeline({
+      layout: this.pipelineLayout,
+      vertex: {
+        module: this.shaderModule,
+        entryPoint: "vs_main",
+        buffers: [
+          {
+            arrayStride: 32,
+            attributes: [
+              { format: "float32x2", offset: 0, shaderLocation: 0 },
+              { format: "float32", offset: 8, shaderLocation: 1 },
+              { format: "float32", offset: 12, shaderLocation: 2 },
+              { format: "float32", offset: 16, shaderLocation: 3 },
+              { format: "float32", offset: 20, shaderLocation: 4 },
+              { format: "float32x2", offset: 24, shaderLocation: 5 },
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: this.shaderModule,
+        entryPoint: "fs_main",
+        targets: [
+          {
+            format: this.game.getWebGPUPreferredFormat(),
+            blend: {
+              color: {
+                srcFactor: "src-alpha",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+              alpha: {
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+                operation: "add",
+              },
+            },
+          },
+        ],
+      },
+      primitive: { topology: "triangle-list" },
+      depthStencil: {
+        format: "depth24plus",
+        depthCompare: "always",
+        depthWriteEnabled: false,
+      },
+      multisample: { count: getMSAASampleCount() },
+      label: "Wavefront Debug Pipeline",
+    });
   }
 
   @on("render")
@@ -648,6 +661,8 @@ export class WavefrontMeshDebugMode extends DebugRenderMode {
 
   @on("destroy")
   onDestroy(): void {
+    this.unsubscribeMSAA?.();
+    this.unsubscribeMSAA = null;
     this.uniformBuffer?.destroy();
     for (const cached of this.wireframeCache.values()) {
       cached.buffer.destroy();

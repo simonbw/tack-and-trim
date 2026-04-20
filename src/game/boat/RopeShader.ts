@@ -21,6 +21,10 @@ import {
 } from "../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import {
+  getMSAASampleCount,
+  onMSAAChange,
+} from "../../core/graphics/webgpu/MSAAState";
+import {
   DEPTH_Z_MAX,
   DEPTH_Z_MIN,
   type WebGPURenderer,
@@ -251,6 +255,60 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 let pipelineWithDepth: GPURenderPipeline | null = null;
 let bindGroupLayout: GPUBindGroupLayout | null = null;
 let initPromise: Promise<void> | null = null;
+let shaderModule: GPUShaderModule | null = null;
+let pipelineLayout: GPUPipelineLayout | null = null;
+let msaaSubscribed = false;
+
+function rebuildRopePipeline(): void {
+  if (!shaderModule || !pipelineLayout) return;
+  const gpu = getWebGPU();
+  const device = gpu.device;
+  const vertexBufferLayout: GPUVertexBufferLayout = {
+    arrayStride: ROPE_VERTEX_STRIDE,
+    attributes: [
+      { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
+      { shaderLocation: 1, offset: 8, format: "float32x2" }, // uv
+      { shaderLocation: 2, offset: 16, format: "float32" }, // z
+    ],
+  };
+  pipelineWithDepth = device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: {
+      module: shaderModule,
+      entryPoint: "vs_main",
+      buffers: [vertexBufferLayout],
+    },
+    fragment: {
+      module: shaderModule,
+      entryPoint: "fs_main",
+      targets: [
+        {
+          format: gpu.preferredFormat,
+          blend: {
+            color: {
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+            alpha: {
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+          },
+        },
+      ],
+    },
+    primitive: { topology: "triangle-list" },
+    depthStencil: {
+      format: "depth24plus",
+      depthCompare: "greater-equal",
+      depthWriteEnabled: true,
+    },
+    multisample: { count: getMSAASampleCount() },
+    label: "Rope Pipeline",
+  });
+}
 
 async function ensureInitialized(): Promise<void> {
   if (pipelineWithDepth) return;
@@ -260,7 +318,7 @@ async function ensureInitialized(): Promise<void> {
     const gpu = getWebGPU();
     const device = gpu.device;
 
-    const shaderModule = await gpu.createShaderModuleChecked(
+    shaderModule = await gpu.createShaderModuleChecked(
       ROPE_SHADER_SOURCE,
       "Rope Shader",
     );
@@ -276,56 +334,17 @@ async function ensureInitialized(): Promise<void> {
       label: "Rope Bind Group Layout",
     });
 
-    const pipelineLayout = device.createPipelineLayout({
+    pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [bindGroupLayout],
       label: "Rope Pipeline Layout",
     });
 
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: ROPE_VERTEX_STRIDE,
-      attributes: [
-        { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
-        { shaderLocation: 1, offset: 8, format: "float32x2" }, // uv
-        { shaderLocation: 2, offset: 16, format: "float32" }, // z
-      ],
-    };
+    rebuildRopePipeline();
 
-    pipelineWithDepth = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [vertexBufferLayout],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_main",
-        targets: [
-          {
-            format: gpu.preferredFormat,
-            blend: {
-              color: {
-                srcFactor: "src-alpha",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
-              alpha: {
-                srcFactor: "one",
-                dstFactor: "one-minus-src-alpha",
-                operation: "add",
-              },
-            },
-          },
-        ],
-      },
-      primitive: { topology: "triangle-list" },
-      depthStencil: {
-        format: "depth24plus",
-        depthCompare: "greater-equal",
-        depthWriteEnabled: true,
-      },
-      label: "Rope Pipeline",
-    });
+    if (!msaaSubscribed) {
+      msaaSubscribed = true;
+      onMSAAChange(rebuildRopePipeline);
+    }
   })();
 
   return initPromise;

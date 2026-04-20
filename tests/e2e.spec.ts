@@ -53,4 +53,13 @@ test("game initializes, shows main menu, and starts without errors", async ({
 
   // --- Assertion: No errors after starting the game ---
   expect(issues).toHaveLength(0);
+
+  // --- Assertion: MSAA live toggle works both ways ---
+  // Flip MSAA off, run a few frames, flip back on, run a few more.
+  await page.evaluate(() => window.DEBUG.toggleMSAA!());
+  await page.waitForTimeout(500);
+  await page.evaluate(() => window.DEBUG.toggleMSAA!());
+  await page.waitForTimeout(500);
+
+  expect(issues).toHaveLength(0);
 });

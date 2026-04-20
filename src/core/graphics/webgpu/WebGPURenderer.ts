@@ -19,6 +19,7 @@ import {
   vec3,
 } from "../UniformStruct";
 import { GPUProfiler, GPUProfileSection } from "./GPUProfiler";
+import { getMSAASampleCount, isMSAAEnabled, onMSAAChange } from "./MSAAState";
 import { getWebGPU } from "./WebGPUDevice";
 import { WebGPUTexture, WebGPUTextureManager } from "./WebGPUTextureManager";
 
@@ -36,6 +37,11 @@ import { WebGPUTexture, WebGPUTextureManager } from "./WebGPUTextureManager";
 export const DEPTH_Z_MIN = -300.0;
 export const DEPTH_Z_MAX = 100.0;
 const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
+
+// MSAA sample count at process start. Kept for backwards compatibility; live
+// MSAA-aware code should call getMSAASampleCount() so it stays in sync with
+// runtime toggles. See MSAAState.ts.
+export const MSAA_SAMPLE_COUNT = getMSAASampleCount();
 
 // Shape shader: Renders untextured colored primitives with optional depth
 const shapeShaderSource = /*wgsl*/ `
@@ -217,15 +223,29 @@ export class WebGPURenderer {
   // Depth state
   private depthMode: "none" | "read-write" | "always-write" = "none";
   private inOffscreenPass = false;
+  // MSAA depth render attachment — only exists when MSAA is enabled.
+  private mainDepthTextureMS: GPUTexture | null = null;
+  private mainDepthTextureMSView: GPUTextureView | null = null;
+  // 1x depth — always exists.
+  //   MSAA on:  written by the depth-resolve pass, sampled by overlays.
+  //   MSAA off: the render attachment itself.
   private mainDepthTexture: GPUTexture | null = null;
   private mainDepthTextureView: GPUTextureView | null = null;
-  // Copy of depth buffer for overlay shaders to sample
+  // Separate 1x sampleable copy of the depth buffer. Only used when MSAA is
+  // disabled (then mainDepthTexture is the render attachment and can't be
+  // sampled in the same pass). Populated by copyTextureToTexture.
   private depthCopyTexture: GPUTexture | null = null;
   private depthCopyTextureView: GPUTextureView | null = null;
 
   // Intermediate color buffer — scene renders here, then water filter reads
   // a copy and outputs to the swapchain. Enables the water filter to apply
   // physically-based absorption to already-drawn content.
+  //   MSAA on:  mainColorTextureMS is the render attachment, mainColorTexture
+  //             is its 1x resolve target.
+  //   MSAA off: mainColorTexture is the render attachment directly; the MS
+  //             fields are null.
+  private mainColorTextureMS: GPUTexture | null = null;
+  private mainColorTextureMSView: GPUTextureView | null = null;
   private mainColorTexture: GPUTexture | null = null;
   private mainColorTextureView: GPUTextureView | null = null;
   private colorCopyTexture: GPUTexture | null = null;
@@ -320,6 +340,23 @@ export class WebGPURenderer {
   private currentCommandEncoder: GPUCommandEncoder | null = null;
   private currentRenderPass: GPURenderPassEncoder | null = null;
   private currentRenderTarget: GPUTextureView | null = null;
+  // Resolve target for MSAA — paired with currentRenderTarget. Null in
+  // offscreen passes (which are 1x and don't resolve).
+  private currentResolveTarget: GPUTextureView | null = null;
+
+  // Pipeline used by copyDepthBuffer() to resolve MSAA depth → 1x depth.
+  private depthResolvePipeline: GPURenderPipeline | null = null;
+  private depthResolveBindGroupLayout: GPUBindGroupLayout | null = null;
+
+  // Cached inputs for MSAA-sensitive pipeline rebuilds.
+  private shapeShaderModule: GPUShaderModule | null = null;
+  private shapePipelineLayout: GPUPipelineLayout | null = null;
+  private shapeVertexBufferLayout: GPUVertexBufferLayout | null = null;
+  private spriteShaderModule: GPUShaderModule | null = null;
+  private spritePipelineLayout: GPUPipelineLayout | null = null;
+  private spriteVertexBufferLayout: GPUVertexBufferLayout | null = null;
+  private pipelinePrimitiveState: GPUPrimitiveState | null = null;
+  private unsubscribeMSAA: (() => void) | null = null;
 
   // Track initialization state
   private initialized = false;
@@ -386,6 +423,9 @@ export class WebGPURenderer {
     // Create sprite pipeline and resources
     await this.createSpritePipeline();
 
+    // Listen for runtime MSAA toggles and rebuild textures/pipelines in sync.
+    this.unsubscribeMSAA = onMSAAChange(() => this.rebuildForMSAA());
+
     this.initialized = true;
   }
 
@@ -394,16 +434,18 @@ export class WebGPURenderer {
 
     const gpu = getWebGPU();
     const device = this.device;
-    const primitiveState: GPUPrimitiveState = {
+    this.pipelinePrimitiveState = {
       topology: "triangle-list",
       ...(gpu.features.depthClipControl ? { unclippedDepth: true } : {}),
     };
+    const primitiveState = this.pipelinePrimitiveState;
 
     // Create shader module
     const shaderModule = await gpu.createShaderModuleChecked(
       shapeShaderSource,
       "Shape Shader",
     );
+    this.shapeShaderModule = shaderModule;
 
     // Create uniform buffer
     this.shapeUniformBuffer = device.createBuffer({
@@ -441,6 +483,7 @@ export class WebGPURenderer {
       bindGroupLayouts: [bindGroupLayout],
       label: "Shape Pipeline Layout",
     });
+    this.shapePipelineLayout = pipelineLayout;
 
     // Create vertex buffer layout
     const vertexBufferLayout: GPUVertexBufferLayout = {
@@ -456,6 +499,7 @@ export class WebGPURenderer {
         { shaderLocation: 7, offset: 60, format: "float32x4" }, // zDepth
       ],
     };
+    this.shapeVertexBufferLayout = vertexBufferLayout;
 
     const fragmentState: GPUFragmentState = {
       module: shaderModule,
@@ -485,47 +529,9 @@ export class WebGPURenderer {
       buffers: [vertexBufferLayout],
     };
 
-    // Create pipeline without depth (for layers with depth: "none")
-    this.shapePipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: vertexState,
-      fragment: fragmentState,
-      primitive: primitiveState,
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthCompare: "always",
-        depthWriteEnabled: false,
-      },
-      label: "Shape Pipeline",
-    });
-
-    // Create pipeline with depth (for layers with depth: "read-write")
-    this.shapePipelineDepth = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: vertexState,
-      fragment: fragmentState,
-      primitive: primitiveState,
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthCompare: "greater-equal",
-        depthWriteEnabled: true,
-      },
-      label: "Shape Pipeline (Depth)",
-    });
-
-    // Create pipeline with always-pass + depth write (boat layer: draws on top, writes z for overlay)
-    this.shapePipelineAlwaysWrite = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: vertexState,
-      fragment: fragmentState,
-      primitive: primitiveState,
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthCompare: "always",
-        depthWriteEnabled: true,
-      },
-      label: "Shape Pipeline (Always Write)",
-    });
+    // Depth-attached pipelines (MSAA-sensitive) — extracted so they can be
+    // rebuilt when the MSAA toggle changes.
+    this.rebuildShapeMSAAPipelines();
 
     // Create pipeline without any depthStencil (for offscreen passes without depth attachment)
     this.shapePipelineNoDepth = device.createRenderPipeline({
@@ -555,7 +561,7 @@ export class WebGPURenderer {
 
     const gpu = getWebGPU();
     const device = this.device;
-    const primitiveState: GPUPrimitiveState = {
+    const primitiveState: GPUPrimitiveState = this.pipelinePrimitiveState ?? {
       topology: "triangle-list",
       ...(gpu.features.depthClipControl ? { unclippedDepth: true } : {}),
     };
@@ -565,6 +571,7 @@ export class WebGPURenderer {
       spriteShaderSource,
       "Sprite Shader",
     );
+    this.spriteShaderModule = shaderModule;
 
     // Create uniform buffer
     this.spriteUniformBuffer = device.createBuffer({
@@ -626,6 +633,7 @@ export class WebGPURenderer {
       ],
       label: "Sprite Pipeline Layout",
     });
+    this.spritePipelineLayout = pipelineLayout;
 
     // Create vertex buffer layout
     const vertexBufferLayout: GPUVertexBufferLayout = {
@@ -642,6 +650,7 @@ export class WebGPURenderer {
         { shaderLocation: 8, offset: 68, format: "float32x4" }, // zDepth
       ],
     };
+    this.spriteVertexBufferLayout = vertexBufferLayout;
 
     const fragmentState: GPUFragmentState = {
       module: shaderModule,
@@ -671,47 +680,9 @@ export class WebGPURenderer {
       buffers: [vertexBufferLayout],
     };
 
-    // Create pipeline without depth
-    this.spritePipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: vertexState,
-      fragment: fragmentState,
-      primitive: primitiveState,
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthCompare: "always",
-        depthWriteEnabled: false,
-      },
-      label: "Sprite Pipeline",
-    });
-
-    // Create pipeline with depth
-    this.spritePipelineDepth = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: vertexState,
-      fragment: fragmentState,
-      primitive: primitiveState,
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthCompare: "greater-equal",
-        depthWriteEnabled: true,
-      },
-      label: "Sprite Pipeline (Depth)",
-    });
-
-    // Create pipeline with always-pass + depth write (boat layer)
-    this.spritePipelineAlwaysWrite = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: vertexState,
-      fragment: fragmentState,
-      primitive: primitiveState,
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthCompare: "always",
-        depthWriteEnabled: true,
-      },
-      label: "Sprite Pipeline (Always Write)",
-    });
+    // Depth-attached pipelines (MSAA-sensitive) — extracted so they can be
+    // rebuilt when the MSAA toggle changes.
+    this.rebuildSpriteMSAAPipelines();
 
     // Create pipeline without any depthStencil (for offscreen passes without depth attachment)
     this.spritePipelineNoDepth = device.createRenderPipeline({
@@ -743,6 +714,265 @@ export class WebGPURenderer {
     }
   }
 
+  /** Rebuild the 3 depth-attached shape pipelines at the current MSAA count. */
+  private rebuildShapeMSAAPipelines(): void {
+    if (
+      !this.device ||
+      !this.shapeShaderModule ||
+      !this.shapePipelineLayout ||
+      !this.shapeVertexBufferLayout ||
+      !this.pipelinePrimitiveState
+    )
+      return;
+    const device = this.device;
+    const format = getWebGPU().preferredFormat;
+    const vertexState: GPUVertexState = {
+      module: this.shapeShaderModule,
+      entryPoint: "vs_main",
+      buffers: [this.shapeVertexBufferLayout],
+    };
+    const fragmentState: GPUFragmentState = {
+      module: this.shapeShaderModule,
+      entryPoint: "fs_main",
+      targets: [
+        {
+          format,
+          blend: {
+            color: {
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+            alpha: {
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+          },
+        },
+      ],
+    };
+    const msaa: GPUMultisampleState = { count: getMSAASampleCount() };
+    const base = {
+      layout: this.shapePipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: this.pipelinePrimitiveState,
+      multisample: msaa,
+    };
+    this.shapePipeline = device.createRenderPipeline({
+      ...base,
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "always",
+        depthWriteEnabled: false,
+      },
+      label: "Shape Pipeline",
+    });
+    this.shapePipelineDepth = device.createRenderPipeline({
+      ...base,
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "greater-equal",
+        depthWriteEnabled: true,
+      },
+      label: "Shape Pipeline (Depth)",
+    });
+    this.shapePipelineAlwaysWrite = device.createRenderPipeline({
+      ...base,
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "always",
+        depthWriteEnabled: true,
+      },
+      label: "Shape Pipeline (Always Write)",
+    });
+  }
+
+  /** Rebuild the 3 depth-attached sprite pipelines at the current MSAA count. */
+  private rebuildSpriteMSAAPipelines(): void {
+    if (
+      !this.device ||
+      !this.spriteShaderModule ||
+      !this.spritePipelineLayout ||
+      !this.spriteVertexBufferLayout ||
+      !this.pipelinePrimitiveState
+    )
+      return;
+    const device = this.device;
+    const format = getWebGPU().preferredFormat;
+    const vertexState: GPUVertexState = {
+      module: this.spriteShaderModule,
+      entryPoint: "vs_main",
+      buffers: [this.spriteVertexBufferLayout],
+    };
+    const fragmentState: GPUFragmentState = {
+      module: this.spriteShaderModule,
+      entryPoint: "fs_main",
+      targets: [
+        {
+          format,
+          blend: {
+            color: {
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+            alpha: {
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+          },
+        },
+      ],
+    };
+    const msaa: GPUMultisampleState = { count: getMSAASampleCount() };
+    const base = {
+      layout: this.spritePipelineLayout,
+      vertex: vertexState,
+      fragment: fragmentState,
+      primitive: this.pipelinePrimitiveState,
+      multisample: msaa,
+    };
+    this.spritePipeline = device.createRenderPipeline({
+      ...base,
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "always",
+        depthWriteEnabled: false,
+      },
+      label: "Sprite Pipeline",
+    });
+    this.spritePipelineDepth = device.createRenderPipeline({
+      ...base,
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "greater-equal",
+        depthWriteEnabled: true,
+      },
+      label: "Sprite Pipeline (Depth)",
+    });
+    this.spritePipelineAlwaysWrite = device.createRenderPipeline({
+      ...base,
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "always",
+        depthWriteEnabled: true,
+      },
+      label: "Sprite Pipeline (Always Write)",
+    });
+  }
+
+  /**
+   * Called when the user toggles MSAA on/off. Rebuilds MSAA-sensitive
+   * textures and pipelines so the next frame matches the new sample count.
+   * Safe to call between frames.
+   */
+  private rebuildForMSAA(): void {
+    // Invalidate current render-pass state. The running frame's encoder (if
+    // any) still references old attachments — we'll let it finish on the old
+    // configuration. Next beginFrame will see the new textures.
+    this.ensureMSTextures();
+    this.rebuildShapeMSAAPipelines();
+    this.rebuildSpriteMSAAPipelines();
+    // Depth-resolve pipeline is only needed when MSAA is enabled. Force
+    // recreation so it matches the current multisample state of the MSAA
+    // depth view when that view changes from multisampled → 1x or vice versa.
+    this.depthResolvePipeline = null;
+    this.depthResolveBindGroupLayout = null;
+  }
+
+  /**
+   * Set up MSAA color/depth textures and the off-mode depthCopyTexture to
+   * match the current MSAA state.
+   *
+   * MSAA on:  mainColorTextureMS + mainDepthTextureMS exist; depthCopyTexture
+   *           is unused (resolve pass writes mainDepthTexture directly).
+   * MSAA off: MSAA textures are null; depthCopyTexture exists as a 1x
+   *           copy-destination for copyDepthBuffer's copyTextureToTexture.
+   */
+  private ensureMSTextures(): void {
+    if (!this.device || !this.mainColorTexture || !this.mainDepthTexture)
+      return;
+    const w = this.mainColorTexture.width;
+    const h = this.mainColorTexture.height;
+    const enabled = isMSAAEnabled();
+    const sampleCount = getMSAASampleCount();
+
+    if (enabled) {
+      if (
+        !this.mainColorTextureMS ||
+        this.mainColorTextureMS.width !== w ||
+        this.mainColorTextureMS.height !== h ||
+        this.mainColorTextureMS.sampleCount !== sampleCount
+      ) {
+        this.mainColorTextureMS?.destroy();
+        this.mainColorTextureMS = this.device.createTexture({
+          size: { width: w, height: h },
+          format: getWebGPU().preferredFormat,
+          sampleCount,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+          label: "Main Color Texture (MSAA)",
+        });
+        this.mainColorTextureMSView = this.mainColorTextureMS.createView({
+          label: "Main Color Texture (MSAA) View",
+        });
+      }
+      if (
+        !this.mainDepthTextureMS ||
+        this.mainDepthTextureMS.width !== w ||
+        this.mainDepthTextureMS.height !== h ||
+        this.mainDepthTextureMS.sampleCount !== sampleCount
+      ) {
+        this.mainDepthTextureMS?.destroy();
+        this.mainDepthTextureMS = this.device.createTexture({
+          size: { width: w, height: h },
+          format: DEPTH_FORMAT,
+          sampleCount,
+          usage:
+            GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          label: "Main Depth Texture (MSAA)",
+        });
+        this.mainDepthTextureMSView = this.mainDepthTextureMS.createView({
+          label: "Main Depth Texture (MSAA) View",
+        });
+      }
+      if (this.depthCopyTexture) {
+        this.depthCopyTexture.destroy();
+        this.depthCopyTexture = null;
+        this.depthCopyTextureView = null;
+      }
+    } else {
+      if (this.mainColorTextureMS) {
+        this.mainColorTextureMS.destroy();
+        this.mainColorTextureMS = null;
+        this.mainColorTextureMSView = null;
+      }
+      if (this.mainDepthTextureMS) {
+        this.mainDepthTextureMS.destroy();
+        this.mainDepthTextureMS = null;
+        this.mainDepthTextureMSView = null;
+      }
+      if (
+        !this.depthCopyTexture ||
+        this.depthCopyTexture.width !== w ||
+        this.depthCopyTexture.height !== h
+      ) {
+        this.depthCopyTexture?.destroy();
+        this.depthCopyTexture = this.device.createTexture({
+          size: { width: w, height: h },
+          format: DEPTH_FORMAT,
+          usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+          label: "Depth Copy Texture",
+        });
+        this.depthCopyTextureView = this.depthCopyTexture.createView({
+          label: "Depth Copy Texture View",
+        });
+      }
+    }
+  }
+
   /** Resize the canvas to match the window size */
   resize(
     width: number,
@@ -760,18 +990,29 @@ export class WebGPURenderer {
       this.canvas.style.height = `${height}px`;
     }
 
-    // Recreate depth texture if canvas size changed
+    // Recreate 1x color/depth textures if canvas size changed. MSAA textures
+    // are kept in sync via ensureMSTextures().
     if (
       this.device &&
       (!this.mainDepthTexture ||
         this.mainDepthTexture.width !== w ||
         this.mainDepthTexture.height !== h)
     ) {
+      this.mainDepthTextureMS?.destroy();
+      this.mainDepthTextureMS = null;
+      this.mainDepthTextureMSView = null;
       this.mainDepthTexture?.destroy();
+      this.depthCopyTexture?.destroy();
+      this.depthCopyTexture = null;
+      this.depthCopyTextureView = null;
+
       this.mainDepthTexture = this.device.createTexture({
         size: { width: w, height: h },
         format: DEPTH_FORMAT,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        usage:
+          GPUTextureUsage.RENDER_ATTACHMENT |
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.COPY_SRC,
         label: "Main Depth Texture",
       });
       this.mainDepthTextureView = this.mainDepthTexture.createView({
@@ -779,16 +1020,17 @@ export class WebGPURenderer {
       });
     }
 
-    // Recreate main color texture if canvas size changed. The scene renders
-    // here instead of directly to the swapchain, so the water filter can
-    // read a copy and apply absorption to previously-drawn pixels.
     if (
       this.device &&
       (!this.mainColorTexture ||
         this.mainColorTexture.width !== w ||
         this.mainColorTexture.height !== h)
     ) {
+      this.mainColorTextureMS?.destroy();
+      this.mainColorTextureMS = null;
+      this.mainColorTextureMSView = null;
       this.mainColorTexture?.destroy();
+
       this.mainColorTexture = this.device.createTexture({
         size: { width: w, height: h },
         format: getWebGPU().preferredFormat,
@@ -802,6 +1044,8 @@ export class WebGPURenderer {
         label: "Main Color Texture View",
       });
     }
+
+    this.ensureMSTextures();
 
     // Update view matrix to convert from pixel coords to clip space
     this.viewMatrix.identity();
@@ -870,24 +1114,34 @@ export class WebGPURenderer {
     this.swapchainTexture = this.context.getCurrentTexture();
     this.colorCopied = false;
 
-    // Scene renders to mainColorTexture, not the swapchain. The water filter
-    // (or endFrame fallback) produces the final swapchain contents.
-    this.currentRenderTarget =
-      this.mainColorTextureView ?? this.swapchainTexture.createView();
+    // Scene renders to mainColorTextureMS when MSAA is on (auto-resolves to
+    // mainColorTexture) or directly to mainColorTexture when MSAA is off.
+    // The water filter (or endFrame fallback) produces the final swapchain.
+    if (isMSAAEnabled()) {
+      this.currentRenderTarget =
+        this.mainColorTextureMSView ?? this.swapchainTexture.createView();
+      this.currentResolveTarget = this.mainColorTextureView;
+    } else {
+      this.currentRenderTarget =
+        this.mainColorTextureView ?? this.swapchainTexture.createView();
+      this.currentResolveTarget = null;
+    }
+    const depthView = this.mainDepthTextureMSView ?? this.mainDepthTextureView;
 
     // Begin render pass with depth attachment
     this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
       colorAttachments: [
         {
           view: this.currentRenderTarget,
+          resolveTarget: this.currentResolveTarget ?? undefined,
           loadOp: "clear",
           storeOp: "store",
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
         },
       ],
-      depthStencilAttachment: this.mainDepthTextureView
+      depthStencilAttachment: depthView
         ? {
-            view: this.mainDepthTextureView,
+            view: depthView,
             depthLoadOp: "clear",
             depthStoreOp: "store",
             depthClearValue: 0.0,
@@ -1011,17 +1265,19 @@ export class WebGPURenderer {
       colorAttachments: [
         {
           view: this.currentRenderTarget,
+          resolveTarget: this.currentResolveTarget ?? undefined,
           loadOp: "load",
           storeOp: "store",
         },
       ],
-      depthStencilAttachment: this.mainDepthTextureView
-        ? {
-            view: this.mainDepthTextureView,
-            depthLoadOp: "load",
-            depthStoreOp: "store",
-          }
-        : undefined,
+      depthStencilAttachment:
+        (this.mainDepthTextureMSView ?? this.mainDepthTextureView)
+          ? {
+              view: (this.mainDepthTextureMSView ?? this.mainDepthTextureView)!,
+              depthLoadOp: "load",
+              depthStoreOp: "store",
+            }
+          : undefined,
       timestampWrites,
       label,
     });
@@ -1074,17 +1330,19 @@ export class WebGPURenderer {
       colorAttachments: [
         {
           view: this.currentRenderTarget,
+          resolveTarget: this.currentResolveTarget ?? undefined,
           loadOp: "load",
           storeOp: "store",
         },
       ],
-      depthStencilAttachment: this.mainDepthTextureView
-        ? {
-            view: this.mainDepthTextureView,
-            depthLoadOp: "load",
-            depthStoreOp: "store",
-          }
-        : undefined,
+      depthStencilAttachment:
+        (this.mainDepthTextureMSView ?? this.mainDepthTextureView)
+          ? {
+              view: (this.mainDepthTextureMSView ?? this.mainDepthTextureView)!,
+              depthLoadOp: "load",
+              depthStoreOp: "store",
+            }
+          : undefined,
       label: "Resumed Main Render Pass",
     });
   }
@@ -1229,9 +1487,16 @@ export class WebGPURenderer {
     }
   }
 
-  /** Get a readable copy of the depth buffer (available after copyDepthBuffer is called). */
+  /**
+   * Get a readable copy of the depth buffer (available after copyDepthBuffer
+   * is called). MSAA: returns the resolved 1x depth that the resolve pass
+   * wrote. No MSAA: returns depthCopyTexture which was populated via
+   * copyTextureToTexture from the main depth texture.
+   */
   getDepthCopyTextureView(): GPUTextureView | null {
-    return this.depthCopyTextureView;
+    return isMSAAEnabled()
+      ? this.mainDepthTextureView
+      : this.depthCopyTextureView;
   }
 
   /** Get a readable copy of the scene color (available after copyColorBuffer is called). */
@@ -1240,12 +1505,16 @@ export class WebGPURenderer {
   }
 
   /**
-   * Copy the current depth buffer to a readable texture for use by overlay shaders.
-   * Must be called outside a render pass (flushes and ends the current pass, copies, restarts).
+   * Resolve the MSAA depth buffer to a 1x texture readable by overlay shaders.
+   * Must be called inside a render pass (ends it, runs a resolve pass, restarts).
+   * Under MSAA, copyTextureToTexture from MSAA→1x is not allowed, so we use a
+   * small fullscreen pass that samples the multisampled depth and writes the
+   * nearest sample (min under reverse-Z) to a 1x depth attachment.
    */
   copyDepthBuffer(): void {
     if (
       !this.mainDepthTexture ||
+      !this.mainDepthTextureView ||
       !this.currentCommandEncoder ||
       !this.currentRenderPass ||
       !this.currentRenderTarget
@@ -1255,54 +1524,132 @@ export class WebGPURenderer {
     this.flush();
     this.currentRenderPass.end();
 
-    // Ensure copy destination exists and matches size
-    if (
-      !this.depthCopyTexture ||
-      this.depthCopyTexture.width !== this.mainDepthTexture.width ||
-      this.depthCopyTexture.height !== this.mainDepthTexture.height
-    ) {
-      this.depthCopyTexture?.destroy();
-      this.depthCopyTexture = this.device!.createTexture({
-        size: {
+    if (isMSAAEnabled()) {
+      // MSAA: resolve-pass samples multisampled depth and writes the nearest
+      // sample into mainDepthTexture (1x) for overlay shaders to sample.
+      const pipeline = this.getOrCreateDepthResolvePipeline();
+      const bindGroup = this.device!.createBindGroup({
+        layout: this.depthResolveBindGroupLayout!,
+        entries: [{ binding: 0, resource: this.mainDepthTextureMSView! }],
+        label: "Depth Resolve Bind Group",
+      });
+
+      const resolvePass = this.currentCommandEncoder.beginRenderPass({
+        colorAttachments: [],
+        depthStencilAttachment: {
+          view: this.mainDepthTextureView,
+          depthLoadOp: "clear",
+          depthStoreOp: "store",
+          depthClearValue: 0.0,
+        },
+        label: "Depth Resolve Pass",
+      });
+      resolvePass.setPipeline(pipeline);
+      resolvePass.setBindGroup(0, bindGroup);
+      resolvePass.draw(3);
+      resolvePass.end();
+    } else if (this.depthCopyTexture) {
+      // No MSAA: copy mainDepthTexture → depthCopyTexture so the water filter
+      // can sample it without colliding with the depth render attachment.
+      this.currentCommandEncoder.copyTextureToTexture(
+        { texture: this.mainDepthTexture },
+        { texture: this.depthCopyTexture },
+        {
           width: this.mainDepthTexture.width,
           height: this.mainDepthTexture.height,
         },
-        format: DEPTH_FORMAT,
-        usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
-        label: "Depth Copy Texture",
-      });
-      this.depthCopyTextureView = this.depthCopyTexture.createView({
-        label: "Depth Copy Texture View",
-      });
+      );
     }
 
-    this.currentCommandEncoder.copyTextureToTexture(
-      { texture: this.mainDepthTexture },
-      { texture: this.depthCopyTexture },
-      {
-        width: this.mainDepthTexture.width,
-        height: this.mainDepthTexture.height,
-      },
-    );
-
-    // Restart render pass (preserving framebuffer + depth)
+    // Restart main render pass (preserving framebuffer + depth).
     this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
       colorAttachments: [
         {
           view: this.currentRenderTarget,
+          resolveTarget: this.currentResolveTarget ?? undefined,
           loadOp: "load",
           storeOp: "store",
         },
       ],
-      depthStencilAttachment: this.mainDepthTextureView
-        ? {
-            view: this.mainDepthTextureView,
-            depthLoadOp: "load",
-            depthStoreOp: "store",
-          }
-        : undefined,
-      label: "Post-Depth-Copy Render Pass",
+      depthStencilAttachment:
+        (this.mainDepthTextureMSView ?? this.mainDepthTextureView)
+          ? {
+              view: (this.mainDepthTextureMSView ?? this.mainDepthTextureView)!,
+              depthLoadOp: "load",
+              depthStoreOp: "store",
+            }
+          : undefined,
+      label: "Post-Depth-Resolve Render Pass",
     });
+  }
+
+  private getOrCreateDepthResolvePipeline(): GPURenderPipeline {
+    if (this.depthResolvePipeline) return this.depthResolvePipeline;
+    const device = this.device!;
+
+    const shaderCode = /*wgsl*/ `
+@group(0) @binding(0) var depthTex: texture_depth_multisampled_2d;
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
+  // Fullscreen triangle covering clip space.
+  let x = f32((idx << 1u) & 2u) * 2.0 - 1.0;
+  let y = f32(idx & 2u) * 2.0 - 1.0;
+  return vec4<f32>(x, y, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
+  let xy = vec2<i32>(pos.xy);
+  // Reverse-Z: closer samples have larger depth. We want the nearest sample,
+  // so take the max across all ${MSAA_SAMPLE_COUNT} samples.
+  var d = textureLoad(depthTex, xy, 0);
+  d = max(d, textureLoad(depthTex, xy, 1));
+  d = max(d, textureLoad(depthTex, xy, 2));
+  d = max(d, textureLoad(depthTex, xy, 3));
+  return d;
+}
+`;
+
+    const module = device.createShaderModule({
+      code: shaderCode,
+      label: "Depth Resolve Shader",
+    });
+
+    this.depthResolveBindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: {
+            sampleType: "depth",
+            viewDimension: "2d",
+            multisampled: true,
+          },
+        },
+      ],
+      label: "Depth Resolve Bind Group Layout",
+    });
+
+    const pipelineLayout = device.createPipelineLayout({
+      bindGroupLayouts: [this.depthResolveBindGroupLayout],
+      label: "Depth Resolve Pipeline Layout",
+    });
+
+    this.depthResolvePipeline = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module, entryPoint: "vs_main" },
+      fragment: { module, entryPoint: "fs_main", targets: [] },
+      primitive: { topology: "triangle-list" },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthCompare: "always",
+        depthWriteEnabled: true,
+      },
+      label: "Depth Resolve Pipeline",
+    });
+
+    return this.depthResolvePipeline;
   }
 
   /**
@@ -1353,29 +1700,39 @@ export class WebGPURenderer {
       },
     );
 
-    // Switch render target to the swapchain. Subsequent draws (water filter
-    // and post-water particles) render directly to the final frame output.
-    this.currentRenderTarget = this.swapchainTexture.createView({
+    // Switch render target so subsequent draws (water filter + post-water
+    // particles) end up on the swapchain. MSAA: render into the MSAA color
+    // texture and resolve to swapchain. No MSAA: render to swapchain directly.
+    const swapchainView = this.swapchainTexture.createView({
       label: "Swapchain View",
     });
+    if (isMSAAEnabled()) {
+      this.currentRenderTarget = this.mainColorTextureMSView!;
+      this.currentResolveTarget = swapchainView;
+    } else {
+      this.currentRenderTarget = swapchainView;
+      this.currentResolveTarget = null;
+    }
     this.colorCopied = true;
 
     this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
       colorAttachments: [
         {
           view: this.currentRenderTarget,
+          resolveTarget: this.currentResolveTarget ?? undefined,
           loadOp: "clear",
           storeOp: "store",
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
         },
       ],
-      depthStencilAttachment: this.mainDepthTextureView
-        ? {
-            view: this.mainDepthTextureView,
-            depthLoadOp: "load",
-            depthStoreOp: "store",
-          }
-        : undefined,
+      depthStencilAttachment:
+        (this.mainDepthTextureMSView ?? this.mainDepthTextureView)
+          ? {
+              view: (this.mainDepthTextureMSView ?? this.mainDepthTextureView)!,
+              depthLoadOp: "load",
+              depthStoreOp: "store",
+            }
+          : undefined,
       label: "Post-Color-Copy Render Pass (Swapchain)",
     });
   }
@@ -2027,6 +2384,8 @@ export class WebGPURenderer {
 
   /** Clean up all resources */
   destroy(): void {
+    this.unsubscribeMSAA?.();
+    this.unsubscribeMSAA = null;
     this.textureManager.destroy();
     this.textureBindGroupCache.clear();
 
@@ -2039,8 +2398,10 @@ export class WebGPURenderer {
     this.spriteUniformBuffer?.destroy();
 
     this.mainDepthTexture?.destroy();
+    this.mainDepthTextureMS?.destroy();
     this.depthCopyTexture?.destroy();
     this.mainColorTexture?.destroy();
+    this.mainColorTextureMS?.destroy();
     this.colorCopyTexture?.destroy();
 
     this.initialized = false;

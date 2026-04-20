@@ -18,6 +18,10 @@ import {
 } from "../../../core/graphics/UniformStruct";
 import { getWebGPU } from "../../../core/graphics/webgpu/WebGPUDevice";
 import {
+  getMSAASampleCount,
+  onMSAAChange,
+} from "../../../core/graphics/webgpu/MSAAState";
+import {
   DEPTH_Z_MAX,
   DEPTH_Z_MIN,
   type WebGPURenderer,
@@ -120,46 +124,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 let pipelineWithDepth: GPURenderPipeline | null = null;
 let bindGroupLayout: GPUBindGroupLayout | null = null;
 let initPromise: Promise<void> | null = null;
+let shaderModule: GPUShaderModule | null = null;
+let pipelineLayout: GPUPipelineLayout | null = null;
+let msaaSubscribed = false;
 
-async function ensureInitialized(): Promise<void> {
-  if (pipelineWithDepth) return;
-  if (initPromise) return initPromise;
-
-  initPromise = (async () => {
-    const gpu = getWebGPU();
-    const device = gpu.device;
-
-    const shaderModule = await gpu.createShaderModuleChecked(
-      SAIL_SHADER_SOURCE,
-      "Sail Shader",
-    );
-
-    bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: "uniform" },
-        },
-      ],
-      label: "Sail Bind Group Layout",
-    });
-
-    const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [bindGroupLayout],
-      label: "Sail Pipeline Layout",
-    });
-
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: SAIL_VERTEX_STRIDE,
-      attributes: [
-        { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
-        { shaderLocation: 1, offset: 8, format: "float32x3" }, // normal
-        { shaderLocation: 2, offset: 20, format: "float32" }, // z
-      ],
-    };
-
-    const fragmentState: GPUFragmentState = {
+function rebuildSailPipeline(): void {
+  if (!shaderModule || !pipelineLayout) return;
+  const gpu = getWebGPU();
+  const device = gpu.device;
+  const vertexBufferLayout: GPUVertexBufferLayout = {
+    arrayStride: SAIL_VERTEX_STRIDE,
+    attributes: [
+      { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
+      { shaderLocation: 1, offset: 8, format: "float32x3" }, // normal
+      { shaderLocation: 2, offset: 20, format: "float32" }, // z
+    ],
+  };
+  pipelineWithDepth = device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: {
+      module: shaderModule,
+      entryPoint: "vs_main",
+      buffers: [vertexBufferLayout],
+    },
+    fragment: {
       module: shaderModule,
       entryPoint: "fs_main",
       targets: [
@@ -179,29 +167,53 @@ async function ensureInitialized(): Promise<void> {
           },
         },
       ],
-    };
+    },
+    primitive: { topology: "triangle-list" },
+    depthStencil: {
+      format: "depth24plus",
+      depthCompare: "greater-equal",
+      depthWriteEnabled: true,
+    },
+    multisample: { count: getMSAASampleCount() },
+    label: "Sail Pipeline",
+  });
+}
 
-    const vertexState: GPUVertexState = {
-      module: shaderModule,
-      entryPoint: "vs_main",
-      buffers: [vertexBufferLayout],
-    };
+async function ensureInitialized(): Promise<void> {
+  if (pipelineWithDepth) return;
+  if (initPromise) return initPromise;
 
-    // Pipeline for main render pass (has depth attachment).
-    // Sails use the same depth mode as the boat layer (read-write)
-    // so the surface shader knows the boat is present at sail pixels.
-    pipelineWithDepth = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: vertexState,
-      fragment: fragmentState,
-      primitive: { topology: "triangle-list" },
-      depthStencil: {
-        format: "depth24plus",
-        depthCompare: "greater-equal",
-        depthWriteEnabled: true,
-      },
-      label: "Sail Pipeline",
+  initPromise = (async () => {
+    const gpu = getWebGPU();
+    const device = gpu.device;
+
+    shaderModule = await gpu.createShaderModuleChecked(
+      SAIL_SHADER_SOURCE,
+      "Sail Shader",
+    );
+
+    bindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" },
+        },
+      ],
+      label: "Sail Bind Group Layout",
     });
+
+    pipelineLayout = device.createPipelineLayout({
+      bindGroupLayouts: [bindGroupLayout],
+      label: "Sail Pipeline Layout",
+    });
+
+    rebuildSailPipeline();
+
+    if (!msaaSubscribed) {
+      msaaSubscribed = true;
+      onMSAAChange(rebuildSailPipeline);
+    }
   })();
 
   return initPromise;
