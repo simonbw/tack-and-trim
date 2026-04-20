@@ -67,6 +67,18 @@ export function scaleBoatConfig(
       chord: r.chord * sz,
       // draft intentionally NOT scaled — override per boat
     },
+    helm: base.helm
+      ? {
+          ...base.helm,
+          position: base.helm.position
+            ? V(base.helm.position[0] * sx, base.helm.position[1] * sy)
+            : undefined,
+          radius:
+            base.helm.radius !== undefined
+              ? base.helm.radius * Math.min(sx, sy)
+              : undefined,
+        }
+      : undefined,
     rig: {
       ...rig,
       mastPosition: V(rig.mastPosition[0] * sx, rig.mastPosition[1] * sy),

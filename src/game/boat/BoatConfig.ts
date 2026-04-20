@@ -189,6 +189,28 @@ export interface RudderConfig {
   readonly color: number;
 }
 
+/**
+ * How the helm is controlled visually. Physics and input are identical
+ * either way — this only affects the rendered helm and (for wheels) lets
+ * the visual live somewhere other than the rudder stock.
+ */
+export interface HelmConfig {
+  readonly type: "tiller" | "wheel";
+  /**
+   * Hull-local XY position of the helm visual.
+   * For tillers: defaults to the rudder pivot (stock-mounted tiller).
+   * For wheels: required — the wheel pedestal location in the cockpit.
+   */
+  readonly position?: V2d;
+  /** Wheel rim radius in ft. Only used when type is "wheel". */
+  readonly radius?: number;
+  /**
+   * Visual turns lock-to-lock for the wheel. Larger values make the wheel
+   * visually spin faster than the rudder moves. Default 1.
+   */
+  readonly turns?: number;
+}
+
 export interface GroundingConfig {
   readonly keelFriction: number; // lbf per ft penetration per ft/s
   readonly rudderFriction: number; // lbf per ft penetration per ft/s
@@ -386,6 +408,8 @@ export interface BoatConfig {
   readonly hull: HullConfig;
   readonly keel: KeelConfig;
   readonly rudder: RudderConfig;
+  /** Optional helm visual. If omitted, renders a tiller at the rudder stock. */
+  readonly helm?: HelmConfig;
   readonly rig: RigConfig;
   readonly bowsprit?: BowspritConfig;
   readonly lifelines?: LifelinesConfig;

@@ -1,3 +1,4 @@
+import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { SHAFF_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
@@ -31,6 +32,12 @@ export const ShaffS20 = createBoatConfig(
       draft: 8.0,
       steerAdjustSpeed: 0.75,
       steerAdjustSpeedFast: 1.8,
+    },
+    helm: {
+      type: "wheel",
+      position: V(-18, 0),
+      radius: 2.8,
+      turns: 1.5,
     },
     rig: {
       mainsail: {

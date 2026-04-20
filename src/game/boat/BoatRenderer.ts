@@ -1,6 +1,7 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
+import { lighten } from "../../core/util/ColorUtils";
 import { V } from "../../core/Vector";
 import type { Boat } from "./Boat";
 import type { BoatConfig } from "./BoatConfig";
@@ -176,8 +177,8 @@ export class BoatRenderer extends BaseEntity {
           true,
         );
 
-        // === 5. Tiller ===
-        this.renderTiller(td);
+        // === 5. Helm (tiller or wheel) ===
+        this.renderHelm(td);
 
         // === 6. Bowsprit (cylindrical — screen-width, with round caps) ===
         if (this.boat.bowsprit) {
@@ -301,26 +302,122 @@ export class BoatRenderer extends BaseEntity {
     );
   }
 
+  private renderHelm(td: TiltDraw) {
+    if (this.config.helm?.type === "wheel") {
+      this.renderWheel(td);
+    } else {
+      this.renderTiller(td);
+    }
+  }
+
   private renderTiller(td: TiltDraw) {
     const rudder = this.boat.rudder;
     const tillerAngle = rudder.getTillerAngleOffset();
-    const tillerPos = rudder.getPosition();
+    const basePos = this.config.helm?.position ?? rudder.getPosition();
     const deckZ = this.config.hull.deckHeight;
 
     const cos = Math.cos(tillerAngle);
     const sin = Math.sin(tillerAngle);
-    const tipX = tillerPos.x + 3 * cos;
-    const tipY = tillerPos.y + 3 * sin;
+    const tipX = basePos.x + 3 * cos;
+    const tipY = basePos.y + 3 * sin;
 
     td.line(
-      tillerPos.x,
-      tillerPos.y,
+      basePos.x,
+      basePos.y,
       deckZ,
       tipX,
       tipY,
       deckZ,
       0.25,
       0x886633,
+      1,
+      true,
+    );
+  }
+
+  private renderWheel(td: TiltDraw) {
+    const helm = this.config.helm;
+    if (!helm || helm.type !== "wheel" || !helm.position) return;
+    const rudder = this.boat.rudder;
+    const deckZ = this.config.hull.deckHeight;
+    const radius = helm.radius ?? 1.5;
+    const turns = helm.turns ?? 1;
+    // The wheel rotates faster than the rudder: visually it turns through
+    // `turns` revolutions while the rudder swings from center to full lock.
+    const maxSteer = this.config.rudder.maxSteerAngle;
+    const wheelAngle =
+      rudder.getTillerAngleOffset() * turns * (Math.PI / maxSteer);
+    const cx = helm.position.x;
+    const cy = helm.position.y;
+    // The wheel stands vertical on a pedestal, axis pointing fore-aft.
+    // Its plane is Y-Z (port-starboard × up-down), so from above the rim
+    // is a horizontal line port-starboard. Handles rotate in Y-Z and
+    // appear as bumps extending past that line (when horizontal) or as
+    // dots rising above the rim (when vertical).
+    const axisZ = deckZ + radius + 0.3;
+    const woodColor = this.boat.rig.getBoomColor();
+    const handleColor = lighten(woodColor, 0.25);
+    const hubColor = rudder.getColor();
+    const numSpokes = 8;
+    const rimSegments = 32;
+    const innerR = radius * 0.85;
+    const handleLength = radius * 0.3;
+    const rimWidth = Math.max(0.15, radius * 0.18);
+    const spokeWidth = Math.max(0.08, radius * 0.08);
+    const handleWidth = Math.max(0.12, radius * 0.13);
+
+    // Pedestal post — vertical from deck to wheel axis
+    td.line(cx, cy, deckZ, cx, cy, axisZ, 0.35, 0x2a2a2a, 1, true);
+
+    // Wheel rim — circle in Y-Z plane (all points at x = cx)
+    const rimPts: [number, number][] = [];
+    const rimZs: number[] = [];
+    for (let i = 0; i <= rimSegments; i++) {
+      const a = (i / rimSegments) * Math.PI * 2;
+      rimPts.push([cx, cy + Math.cos(a) * radius]);
+      rimZs.push(axisZ + Math.sin(a) * radius);
+    }
+    td.polyline(rimPts, rimZs, rimWidth, woodColor, 1, true, true);
+
+    // Spokes (hub → inner rim) and handles (rim → tip) in Y-Z plane
+    for (let i = 0; i < numSpokes; i++) {
+      const a = wheelAngle + (i / numSpokes) * Math.PI * 2;
+      const co = Math.cos(a);
+      const si = Math.sin(a);
+      const rimY = cy + co * innerR;
+      const rimZ = axisZ + si * innerR;
+      td.line(cx, cy, axisZ, cx, rimY, rimZ, spokeWidth, woodColor, 1, true);
+
+      const handleBaseY = cy + co * radius;
+      const handleBaseZ = axisZ + si * radius;
+      const handleTipY = cy + co * (radius + handleLength);
+      const handleTipZ = axisZ + si * (radius + handleLength);
+      td.line(
+        cx,
+        handleBaseY,
+        handleBaseZ,
+        cx,
+        handleTipY,
+        handleTipZ,
+        handleWidth,
+        handleColor,
+        1,
+        true,
+      );
+    }
+
+    // Hub — short horizontal axle pointing fore-aft (visible from above as a
+    // short line along X, centered on the wheel axis)
+    const hubHalfLen = radius * 0.15;
+    td.line(
+      cx - hubHalfLen,
+      cy,
+      axisZ,
+      cx + hubHalfLen,
+      cy,
+      axisZ,
+      Math.max(0.2, radius * 0.22),
+      hubColor,
       1,
       true,
     );

@@ -1,3 +1,4 @@
+import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { BHC_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
@@ -30,6 +31,12 @@ export const BhcWeekender = createBoatConfig(
       draft: 4.0,
       steerAdjustSpeed: 0.65,
       steerAdjustSpeedFast: 1.6,
+    },
+    helm: {
+      type: "wheel",
+      position: V(-9, 0),
+      radius: 1.5,
+      turns: 1.5,
     },
     rig: {
       mainsail: {

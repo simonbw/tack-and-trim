@@ -1,3 +1,4 @@
+import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { MAESTRO_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
@@ -31,6 +32,12 @@ export const MaestroOpus = createBoatConfig(
       draft: 8.3,
       steerAdjustSpeed: 0.72,
       steerAdjustSpeedFast: 1.8,
+    },
+    helm: {
+      type: "wheel",
+      position: V(-18.5, 0),
+      radius: 2.9,
+      turns: 1.5,
     },
     rig: {
       mainsail: {
