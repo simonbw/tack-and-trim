@@ -9,10 +9,18 @@ export default defineConfig({
   testMatch: "**/benchmark.spec.ts",
   timeout: 120000,
   use: {
-    headless: true,
+    // Use Chrome's "new headless" (a real browser instance with GPU) rather
+    // than the legacy headless_shell, which falls back to software WebGPU.
+    headless: false,
     baseURL: `http://localhost:${TEST_PORT}`,
     launchOptions: {
-      args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan"],
+      args: [
+        "--headless=new",
+        "--enable-unsafe-webgpu",
+        "--enable-features=Vulkan",
+        "--ignore-gpu-blocklist",
+        "--use-angle=metal",
+      ],
     },
   },
   webServer: {

@@ -10,10 +10,20 @@ export default defineConfig({
   // Exclude benchmark tests from normal runs - use `npx playwright test --grep @benchmark` to run them
   testIgnore: ["**/benchmark.spec.ts"],
   use: {
-    headless: true,
+    // Use Chrome's "new headless" (a real browser instance with GPU) rather
+    // than the legacy headless_shell, which falls back to software WebGPU.
+    // Playwright's `headless: true` still routes to the old shell, so we
+    // launch non-headless and pass --headless=new ourselves.
+    headless: false,
     baseURL: `http://localhost:${TEST_PORT}`,
     launchOptions: {
-      args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan"],
+      args: [
+        "--headless=new",
+        "--enable-unsafe-webgpu",
+        "--enable-features=Vulkan",
+        "--ignore-gpu-blocklist",
+        "--use-angle=metal",
+      ],
     },
   },
   webServer: {

@@ -297,5 +297,8 @@ export class GameController extends BaseEntity {
     if (!isTutorialCompleted()) {
       this.game.addEntity(new TutorialManager());
     }
+
+    // Signal for automated profiling / e2e scripts that gameplay is live.
+    window.DEBUG.gameStarted = true;
   }
 }

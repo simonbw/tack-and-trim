@@ -8,6 +8,7 @@ import { createLeanPanel } from "../core/util/stats-overlay/LeanPanel";
 import { createProfilerPanel } from "../core/util/stats-overlay/ProfilerPanel";
 import { StatsOverlay } from "../core/util/stats-overlay/StatsOverlay";
 import "../fonts.css";
+import { LevelName } from "../../resources/resources";
 import { GameController } from "./GameController";
 import { GamePreloader } from "./GamePreloader";
 import { PhysicsValidator } from "./PhysicsValidator";
@@ -16,7 +17,7 @@ import { createSimulationStatsPanel } from "./stats/SimulationStatsPanel";
 // Do this so we can access the game from the console
 declare global {
   interface Window {
-    DEBUG: { game?: Game };
+    DEBUG: { game?: Game; gameStarted?: boolean };
   }
 }
 
@@ -53,6 +54,14 @@ async function main() {
 
   // GameController handles menu, game state, and spawning gameplay entities
   game.addEntity(new GameController());
+
+  // ?profile=1 skips the menu flow for automated profiling.
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("profile")) {
+    const levelName = (params.get("level") ?? "default") as LevelName;
+    const boatId = params.get("boat") ?? "shaff-s7";
+    game.dispatch("boatSelected", { boatId, levelName });
+  }
 }
 
 window.addEventListener("load", main);
