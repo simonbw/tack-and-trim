@@ -284,7 +284,7 @@ export class Game {
   ) {
     const effectivelyPaused = respectPause && this.paused;
     for (const entity of this.entities.getHandlers(eventName)) {
-      if (entity.isAdded && !(effectivelyPaused && !entity.pausable)) {
+      if (entity.isAdded && !(effectivelyPaused && entity.pausable)) {
         const functionName = eventHandlerName(eventName);
         const handler = entity[functionName];
         if (typeof handler !== "function") {
@@ -433,10 +433,12 @@ export class Game {
 
     this.slowTick(renderDt * this.slowMo);
 
-    this.timeToSimulate = Math.min(
-      this.timeToSimulate + renderDt * this.slowMo,
-      this.tickDuration * this.maxTicksPerFrame,
-    );
+    if (!this.paused) {
+      this.timeToSimulate = Math.min(
+        this.timeToSimulate + renderDt * this.slowMo,
+        this.tickDuration * this.maxTicksPerFrame,
+      );
+    }
 
     // Distribute real audio time evenly across this frame's ticks
     const audioNow = this.audio.currentTime;
@@ -546,7 +548,7 @@ export class Game {
     const promises: Promise<void>[] = [];
 
     for (const entity of this.entities.getTickersOnLayer(layerName)) {
-      if (entity.isAdded && !(effectivelyPaused && !entity.pausable)) {
+      if (entity.isAdded && !(effectivelyPaused && entity.pausable)) {
         const result = entity.onTick?.(tickData);
         // Only collect actual Promises
         if (result && result instanceof Promise) {
@@ -620,11 +622,10 @@ export class Game {
 
   /** Dispatch render event to entities on a specific layer */
   private dispatchRenderForLayer(layerName: LayerName, dt: number, draw: Draw) {
-    const effectivelyPaused = this.paused;
     const renderData = { dt, layer: layerName, draw, camera: draw.camera };
 
     for (const entity of this.entities.getRenderersOnLayer(layerName)) {
-      if (entity.isAdded && !(effectivelyPaused && !entity.pausable)) {
+      if (entity.isAdded) {
         profiler.measure(entity.constructor.name, () => {
           entity.onRender?.(renderData);
         });
