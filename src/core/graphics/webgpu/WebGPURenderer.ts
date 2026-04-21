@@ -1224,6 +1224,33 @@ export class WebGPURenderer {
     this.flushSprites();
   }
 
+  /**
+   * Prepare the shape batch for a tessellator write. Flushes any pending
+   * sprites (for layer ordering) and ensures the batch's
+   * `currentTransformIndex` reflects the latest transform state. Returns
+   * the batch as a VertexSink that tessellators can write through.
+   */
+  prepareShapeSink(): ShapeBatch {
+    if (this.spriteBatch.indexCount > 0) this.flushSprites();
+    this.refreshTransformIndex();
+    return this.shapeBatch;
+  }
+
+  /** Cached tilt projection for the current context, if draw.at({ tilt }) is active. */
+  private currentTiltProjection:
+    | import("../TiltProjection").TiltProjection
+    | null = null;
+
+  getCurrentTilt(): import("../TiltProjection").TiltProjection | null {
+    return this.currentTiltProjection;
+  }
+
+  setCurrentTilt(
+    tilt: import("../TiltProjection").TiltProjection | null,
+  ): void {
+    this.currentTiltProjection = tilt;
+  }
+
   /** Get the current render pass encoder for custom rendering */
   getCurrentRenderPass(): GPURenderPassEncoder | null {
     return this.currentRenderPass;

@@ -1,8 +1,31 @@
 import { clamp } from "../util/MathUtil";
-import { earClipTriangulate } from "../util/Triangulate";
-import { V, V2d } from "../Vector";
+import { V2d } from "../Vector";
 import { Camera2d } from "./Camera2d";
+import { CachedMesh } from "./CachedMesh";
+import { DynamicMesh } from "./DynamicMesh";
 import { PathBuilder } from "./PathBuilder";
+import { tessellateCircle } from "./tessellation/circle";
+import { tessellateLine, tessellateScreenLine } from "./tessellation/line";
+import {
+  tessellateScreenPolyline,
+  tessellateWorldPolyline,
+} from "./tessellation/polyline";
+import {
+  tessellateFillPolygon,
+  tessellateStrokePolygon,
+} from "./tessellation/polygon";
+import {
+  tessellateFillRoundedPolygon,
+  tessellateStrokeRoundedPolygon,
+} from "./tessellation/roundedPolygon";
+import { tessellateScreenCircle } from "./tessellation/screenCircle";
+import {
+  tessellateFillSmoothPolygon,
+  tessellateStrokeSmoothPolygon,
+} from "./tessellation/smoothPolygon";
+import { tessellateSpline } from "./tessellation/spline";
+import { tessellateRect } from "./tessellation/rectangle";
+import { computeTiltProjection } from "./TiltProjection";
 import { WebGPURenderer } from "./webgpu/WebGPURenderer";
 import { WebGPUTexture } from "./webgpu/WebGPUTextureManager";
 
@@ -12,174 +35,12 @@ export { PathBuilder };
 const MIN_CIRCLE_SEGMENTS = 4;
 const MAX_CIRCLE_SEGMENTS = 64;
 
-// Number of circle segments based on radius
 function getCircleSegments(radius: number): number {
   return clamp(
     Math.floor(radius * 4),
     MIN_CIRCLE_SEGMENTS,
     MAX_CIRCLE_SEGMENTS,
   );
-}
-
-// Cache for pre-computed unit circle vertices
-// Key: segment count, Value: array of [cos(angle), sin(angle)] for each vertex
-const circleCache = new Map<number, { cos: Float32Array; sin: Float32Array }>();
-
-// Object pools for shape primitives - reduces GC pressure
-const circleVertexPool = new Map<number, V2d[]>();
-const circleIndexPool = new Map<number, number[]>();
-
-function getCircleVertices(segments: number): {
-  cos: Float32Array;
-  sin: Float32Array;
-} {
-  let cached = circleCache.get(segments);
-  if (!cached) {
-    const cos = new Float32Array(segments + 1);
-    const sin = new Float32Array(segments + 1);
-    for (let i = 0; i <= segments; i++) {
-      const angle = (i / segments) * Math.PI * 2;
-      cos[i] = Math.cos(angle);
-      sin[i] = Math.sin(angle);
-    }
-    cached = { cos, sin };
-    circleCache.set(segments, cached);
-  }
-  return cached;
-}
-
-// Number of segments for a Bézier corner based on offset
-function getCornerSegments(offset: number): number {
-  return clamp(Math.ceil(offset), 4, 12);
-}
-
-/**
- * Build vertices for a rounded polygon using quadratic Bézier corners.
- * Returns the tessellated vertices ready for rendering.
- */
-function buildRoundedPolygonVertices(vertices: V2d[], radius: number): V2d[] {
-  if (vertices.length < 3) return vertices;
-
-  const result: V2d[] = [];
-
-  for (let i = 0; i < vertices.length; i++) {
-    const prev = vertices[(i - 1 + vertices.length) % vertices.length];
-    const curr = vertices[i];
-    const next = vertices[(i + 1) % vertices.length];
-
-    // Edge vectors
-    const toPrev = prev.sub(curr);
-    const toNext = next.sub(curr);
-    const prevLen = toPrev.magnitude;
-    const nextLen = toNext.magnitude;
-
-    // Clamp radius to half the shortest adjacent edge
-    const maxRadius = Math.min(prevLen, nextLen) / 2;
-    const r = Math.min(radius, maxRadius);
-
-    if (r <= 0.001) {
-      // No rounding needed
-      result.push(curr.clone());
-      continue;
-    }
-
-    // Offset points along edges
-    const pStart = curr.add(toPrev.normalize().imul(r));
-    const pEnd = curr.add(toNext.normalize().imul(r));
-
-    // Generate quadratic Bézier curve with curr as control point
-    const segments = getCornerSegments(r);
-    for (let j = 0; j <= segments; j++) {
-      const t = j / segments;
-      const t2 = t * t;
-      const mt = 1 - t;
-      const mt2 = mt * mt;
-
-      // B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2
-      const px = mt2 * pStart.x + 2 * mt * t * curr.x + t2 * pEnd.x;
-      const py = mt2 * pStart.y + 2 * mt * t * curr.y + t2 * pEnd.y;
-      result.push(V(px, py));
-    }
-  }
-
-  return result;
-}
-
-/**
- * Tessellate a Catmull-Rom spline through the given points.
- * @param points Control points the spline passes through
- * @param closed Whether to close the curve back to the start
- * @param tension Curve tightness (0-1, default 0.5)
- * @param segmentsPerSpan Segments per span between control points
- */
-function buildCatmullRomSpline(
-  points: V2d[],
-  closed: boolean,
-  tension: number = 0.5,
-  segmentsPerSpan: number = 8,
-): V2d[] {
-  if (points.length < 2) return points.slice();
-
-  const result: V2d[] = [];
-  const n = points.length;
-
-  // For Catmull-Rom, we need 4 points per segment: P0, P1, P2, P3
-  // The curve is drawn between P1 and P2
-  const segmentCount = closed ? n : n - 1;
-
-  for (let i = 0; i < segmentCount; i++) {
-    // Get the 4 control points for this segment
-    const p0 = points[(i - 1 + n) % n];
-    const p1 = points[i];
-    const p2 = points[(i + 1) % n];
-    const p3 = points[(i + 2) % n];
-
-    // For open splines, handle endpoints specially
-    let actualP0 = p0;
-    let actualP3 = p3;
-    if (!closed) {
-      if (i === 0) {
-        // First segment: extrapolate P0
-        actualP0 = V(2 * p1.x - p2.x, 2 * p1.y - p2.y);
-      }
-      if (i === n - 2) {
-        // Last segment: extrapolate P3
-        actualP3 = V(2 * p2.x - p1.x, 2 * p2.y - p1.y);
-      }
-    }
-
-    // Compute tangents with tension
-    const m1x = tension * (p2.x - actualP0.x);
-    const m1y = tension * (p2.y - actualP0.y);
-    const m2x = tension * (actualP3.x - p1.x);
-    const m2y = tension * (actualP3.y - p1.y);
-
-    // Generate points along this segment
-    for (let j = 0; j < segmentsPerSpan; j++) {
-      const t = j / segmentsPerSpan;
-      const t2 = t * t;
-      const t3 = t2 * t;
-
-      // Hermite basis functions
-      const h00 = 2 * t3 - 3 * t2 + 1;
-      const h10 = t3 - 2 * t2 + t;
-      const h01 = -2 * t3 + 3 * t2;
-      const h11 = t3 - t2;
-
-      const px = h00 * p1.x + h10 * m1x + h01 * p2.x + h11 * m2x;
-      const py = h00 * p1.y + h10 * m1y + h01 * p2.y + h11 * m2y;
-      result.push(V(px, py));
-    }
-  }
-
-  // Add the final point
-  if (closed) {
-    result.push(points[0].clone());
-  } else {
-    result.push(points[n - 1].clone());
-  }
-
-  return result;
 }
 
 /** Options for shape drawing */
@@ -227,18 +88,6 @@ export interface CircleOptions extends DrawOptions {
  * Provides a clean interface for drawing shapes, images, and paths.
  */
 export class Draw {
-  // Pooled arrays for rectangle primitives
-  private readonly _rectVertices: V2d[] = [V(), V(), V(), V()];
-  private readonly _rectIndices: number[] = [0, 1, 2, 0, 2, 3];
-
-  // Pooled arrays for line primitives
-  private readonly _lineVertices: V2d[] = [V(), V(), V(), V()];
-  private readonly _lineIndices: number[] = [0, 1, 2, 0, 2, 3];
-
-  // Pooled arrays for triangle primitives
-  private readonly _triangleVertices: V2d[] = [V(), V(), V()];
-  private readonly _triangleIndices: number[] = [0, 1, 2];
-
   constructor(
     /** The underlying WebGPU renderer */
     readonly renderer: WebGPURenderer,
@@ -277,15 +126,11 @@ export class Draw {
     draw: () => void,
   ): void {
     this.renderer.save();
+    const prevTilt = this.renderer.getCurrentTilt();
 
     if (tilt) {
-      // Get the camera matrix (currentTransform before model composition).
-      // We need its linear part to transform z-coefficients from world → screen space.
       const cam = this.renderer.getTransform();
 
-      // Compose model transform using the full Yaw(A)·Pitch(P)·Roll(R) rotation.
-      // The 2×2 xy-columns of the rotation matrix become the model matrix,
-      // and the z-column becomes the zCoeffs for GPU parallax + depth.
       const a = angle ?? 0;
       const ca = Math.cos(a);
       const sa = Math.sin(a);
@@ -294,17 +139,11 @@ export class Draw {
       const cr = Math.cos(tilt.roll);
       const cp = Math.cos(tilt.pitch);
 
-      // Build the model matrix: camera × translate(pos) × tiltRotation
-      // The tilt rotation xy-columns (from body orientation matrix):
-      //   col0 = [ca*cp,          sa*cp         ]
-      //   col1 = [ca*sp*sr-sa*cr, sa*sp*sr+ca*cr]
       const r00 = ca * cp;
       const r10 = sa * cp;
       const r01 = ca * sp * sr - sa * cr;
       const r11 = sa * sp * sr + ca * cr;
 
-      // Compose: camera × translate(pos) × rotation
-      // M = cam × [r00 r01 px; r10 r11 py; 0 0 1]
       const px = pos.x;
       const py = pos.y;
       const m = this.renderer.getTransform();
@@ -316,27 +155,25 @@ export class Draw {
       m.ty = cam.b * px + cam.d * py + cam.ty;
       this.renderer.setTransform(m);
 
-      // z-column of the rotation (zCoeffs in world space)
       const worldZX = -(ca * sp * cr + sa * sr);
       const worldZY = -(sa * sp * cr - ca * sr);
 
-      // Transform z-coefficients through camera's linear part (rotation+zoom)
       this.renderer.setZCoeffs(
         cam.a * worldZX + cam.c * worldZY,
         cam.b * worldZX + cam.d * worldZY,
       );
 
-      // Z-row of the rotation matrix (R[6], R[7], R[8] in row-major order).
-      // Maps hull-local (x, y, z) → world z contribution for depth.
-      // Note: sp and sr use the body's property values which are negated from
-      // the intrinsic Rz·Ry·Rx angles, so R[6]=sp, R[7]=-(cp*sr), R[8]=cp*cr.
       this.renderer.setZRow(sp, -(cp * sr), cp * cr);
 
-      // Apply z-offset so per-vertex z-values within this context are elevated
-      // from body-local heights to world z-heights (local z + body z = world z).
       if (tilt.zOffset !== undefined) {
         this.renderer.setZ(tilt.zOffset);
       }
+
+      // Make the local-space tilt projection available to screenLine /
+      // screenCircle / etc. Uses the same angle+roll+pitch.
+      this.renderer.setCurrentTilt(
+        computeTiltProjection(a, tilt.roll, tilt.pitch),
+      );
     } else {
       this.renderer.translate(pos);
 
@@ -355,17 +192,16 @@ export class Draw {
 
     draw();
 
+    this.renderer.setCurrentTilt(prevTilt);
     this.renderer.restore();
   }
 
-  /** Set z-height on renderer, returning the previous value for restoration. */
-  private applyZ(z: number | undefined): number {
-    const prev = this.renderer.getZ();
-    if (z !== undefined) {
-      this.renderer.setZ(z);
-    }
-    return prev;
+  /** Submit a cached or dynamic mesh. */
+  mesh(m: CachedMesh | DynamicMesh): void {
+    this.renderer.drawMesh(m);
   }
+
+  // ============ Fills ============
 
   /** Draw a filled rectangle */
   fillRect(
@@ -376,23 +212,124 @@ export class Draw {
     opts?: DrawOptions,
   ): void {
     const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
-    const prevZ = this.applyZ(opts?.z);
-
-    // Reuse pooled arrays - update coordinates in place
-    this._rectVertices[0].set(x, y);
-    this._rectVertices[1].set(x + w, y);
-    this._rectVertices[2].set(x + w, y + h);
-    this._rectVertices[3].set(x, y + h);
-
-    this.renderer.submitTriangles(
-      this._rectVertices,
-      this._rectIndices,
+    const alpha = opts?.alpha ?? 1;
+    const z = opts?.z ?? this.renderer.getZ();
+    tessellateRect(
+      this.renderer.prepareShapeSink(),
+      x,
+      y,
+      w,
+      h,
       color,
       alpha,
+      z,
     );
-    this.renderer.setZ(prevZ);
   }
+
+  /** Draw a filled circle */
+  fillCircle(x: number, y: number, radius: number, opts?: CircleOptions): void {
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    const z = opts?.z ?? this.renderer.getZ();
+    const radiusOnScreen = radius * this.renderer.getCurrentScale();
+    const segments = opts?.segments ?? getCircleSegments(radiusOnScreen);
+    tessellateCircle(
+      this.renderer.prepareShapeSink(),
+      x,
+      y,
+      radius,
+      segments,
+      color,
+      alpha,
+      z,
+    );
+  }
+
+  /** Draw a filled polygon (supports concave polygons) */
+  fillPolygon(vertices: V2d[], opts?: DrawOptions): void {
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    const z = opts?.z ?? this.renderer.getZ();
+    tessellateFillPolygon(
+      this.renderer.prepareShapeSink(),
+      vertices,
+      color,
+      alpha,
+      z,
+    );
+  }
+
+  /** Draw a filled triangle */
+  fillTriangle(
+    v1: V2d | { x: number; y: number },
+    v2: V2d | { x: number; y: number },
+    v3: V2d | { x: number; y: number },
+    opts?: DrawOptions,
+  ): void {
+    this.fillPolygon(
+      [
+        { x: v1.x, y: v1.y } as V2d,
+        { x: v2.x, y: v2.y } as V2d,
+        { x: v3.x, y: v3.y } as V2d,
+      ],
+      opts,
+    );
+  }
+
+  /** Draw a filled rounded rectangle */
+  fillRoundedRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radius: number,
+    opts?: DrawOptions,
+  ): void {
+    const vertices = [
+      { x, y },
+      { x: x + w, y },
+      { x: x + w, y: y + h },
+      { x, y: y + h },
+    ];
+    this.fillRoundedPolygon(vertices as V2d[], radius, opts);
+  }
+
+  /** Draw a filled polygon with rounded corners */
+  fillRoundedPolygon(
+    vertices: V2d[],
+    radius: number,
+    opts?: DrawOptions,
+  ): void {
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    const z = opts?.z ?? this.renderer.getZ();
+    tessellateFillRoundedPolygon(
+      this.renderer.prepareShapeSink(),
+      vertices,
+      radius,
+      color,
+      alpha,
+      z,
+    );
+  }
+
+  /** Draw a filled smooth polygon (Catmull-Rom through the control points). */
+  fillSmoothPolygon(vertices: V2d[], opts?: SmoothOptions): void {
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    const tension = opts?.tension ?? 0.5;
+    const z = opts?.z ?? this.renderer.getZ();
+    tessellateFillSmoothPolygon(
+      this.renderer.prepareShapeSink(),
+      vertices,
+      tension,
+      color,
+      alpha,
+      z,
+    );
+  }
+
+  // ============ Strokes ============
 
   /** Draw a stroked rectangle outline */
   strokeRect(
@@ -402,136 +339,135 @@ export class Draw {
     h: number,
     opts?: LineOptions,
   ): void {
-    const prevZ = this.applyZ(opts?.z);
-    const vertices = [V(x, y), V(x + w, y), V(x + w, y + h), V(x, y + h)];
-    this.strokePolygon(vertices, opts);
-    this.renderer.setZ(prevZ);
+    this.strokePolygon(
+      [
+        { x, y } as V2d,
+        { x: x + w, y } as V2d,
+        { x: x + w, y: y + h } as V2d,
+        { x, y: y + h } as V2d,
+      ],
+      opts,
+    );
   }
 
-  /** Draw a filled circle */
-  fillCircle(x: number, y: number, radius: number, opts?: CircleOptions): void {
-    const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
-    const prevZ = this.applyZ(opts?.z);
-    const radiusOnScreen = radius * this.renderer.getCurrentScale();
-    const segments = opts?.segments ?? getCircleSegments(radiusOnScreen);
-
-    // Get cached unit circle vertices (no trig needed per-call)
-    const cached = getCircleVertices(segments);
-
-    // Get or create pooled arrays for this segment count
-    let vertices = circleVertexPool.get(segments);
-    let indices = circleIndexPool.get(segments);
-
-    if (!vertices) {
-      // First time for this segment count - create arrays
-      vertices = [V(0, 0)]; // Center
-      for (let i = 0; i <= segments; i++) {
-        vertices.push(V());
-      }
-      circleVertexPool.set(segments, vertices);
-    }
-
-    if (!indices) {
-      indices = [];
-      for (let i = 1; i <= segments; i++) {
-        indices.push(0, i, i + 1 > segments ? 1 : i + 1);
-      }
-      circleIndexPool.set(segments, indices);
-    }
-
-    // Update pooled vertices with current position and radius
-    vertices[0].set(x, y); // Center
-    for (let i = 0; i <= segments; i++) {
-      vertices[i + 1].set(
-        x + cached.cos[i] * radius,
-        y + cached.sin[i] * radius,
-      );
-    }
-
-    this.renderer.submitTriangles(vertices, indices, color, alpha);
-    this.renderer.setZ(prevZ);
-  }
-
-  /** Draw a stroked circle outline */
+  /** Draw a stroked circle outline (miter-jointed polyline). */
   strokeCircle(x: number, y: number, radius: number, opts?: LineOptions): void {
     const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
+    const alpha = opts?.alpha ?? 1;
     const width = opts?.width ?? 1;
+    const z = opts?.z ?? this.renderer.getZ();
     const segments = getCircleSegments(radius);
-
-    const path = this.path();
-    for (let i = 0; i <= segments; i++) {
+    const points: [number, number][] = [];
+    for (let i = 0; i < segments; i++) {
       const angle = (i / segments) * Math.PI * 2;
-      const px = x + Math.cos(angle) * radius;
-      const py = y + Math.sin(angle) * radius;
-      if (i === 0) {
-        path.moveTo(px, py);
-      } else {
-        path.lineTo(px, py);
-      }
+      points.push([x + Math.cos(angle) * radius, y + Math.sin(angle) * radius]);
     }
-    path.close().stroke(color, width, alpha);
-  }
-
-  /** Draw a filled polygon (supports concave polygons) */
-  fillPolygon(vertices: V2d[], opts?: DrawOptions): void {
-    const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
-    const prevZ = this.applyZ(opts?.z);
-
-    if (vertices.length < 3) return;
-
-    // Use ear clipping for correct triangulation of concave polygons
-    const indices = earClipTriangulate(vertices);
-    if (!indices) return; // Triangulation failed (degenerate polygon)
-
-    this.renderer.submitTriangles(vertices, indices, color, alpha);
-    this.renderer.setZ(prevZ);
-  }
-
-  /** Draw a filled triangle (pooled for zero allocation) */
-  fillTriangle(
-    v1: V2d | { x: number; y: number },
-    v2: V2d | { x: number; y: number },
-    v3: V2d | { x: number; y: number },
-    opts?: DrawOptions,
-  ): void {
-    const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
-    const prevZ = this.applyZ(opts?.z);
-
-    // Reuse pooled arrays - update coordinates in place
-    this._triangleVertices[0].set(v1.x, v1.y);
-    this._triangleVertices[1].set(v2.x, v2.y);
-    this._triangleVertices[2].set(v3.x, v3.y);
-
-    this.renderer.submitTriangles(
-      this._triangleVertices,
-      this._triangleIndices,
+    tessellateWorldPolyline(
+      this.renderer.prepareShapeSink(),
+      points,
+      z,
+      width,
       color,
       alpha,
+      { closed: true },
     );
-    this.renderer.setZ(prevZ);
   }
 
-  /** Draw a stroked polygon outline */
+  /** Draw a stroked polygon outline (closed) */
   strokePolygon(vertices: V2d[], opts?: LineOptions): void {
     const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
+    const alpha = opts?.alpha ?? 1;
     const width = opts?.width ?? 1;
-    const prevZ = this.applyZ(opts?.z);
-
-    if (vertices.length < 2) return;
-
-    const path = this.path();
-    path.moveTo(vertices[0].x, vertices[0].y);
-    for (let i = 1; i < vertices.length; i++) {
-      path.lineTo(vertices[i].x, vertices[i].y);
-    }
-    path.close().stroke(color, width, alpha);
-    this.renderer.setZ(prevZ);
+    const z = opts?.z ?? this.renderer.getZ();
+    tessellateStrokePolygon(
+      this.renderer.prepareShapeSink(),
+      vertices,
+      width,
+      color,
+      alpha,
+      z,
+    );
   }
+
+  /** Draw a stroked rounded rectangle */
+  strokeRoundedRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radius: number,
+    opts?: LineOptions,
+  ): void {
+    const vertices = [
+      { x, y },
+      { x: x + w, y },
+      { x: x + w, y: y + h },
+      { x, y: y + h },
+    ];
+    this.strokeRoundedPolygon(vertices as V2d[], radius, opts);
+  }
+
+  /** Draw a stroked polygon with rounded corners */
+  strokeRoundedPolygon(
+    vertices: V2d[],
+    radius: number,
+    opts?: LineOptions,
+  ): void {
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    const width = opts?.width ?? 1;
+    const z = opts?.z ?? this.renderer.getZ();
+    tessellateStrokeRoundedPolygon(
+      this.renderer.prepareShapeSink(),
+      vertices,
+      radius,
+      width,
+      color,
+      alpha,
+      z,
+    );
+  }
+
+  /** Draw a stroked smooth polygon (Catmull-Rom). */
+  strokeSmoothPolygon(
+    vertices: V2d[],
+    opts?: SmoothOptions & LineOptions,
+  ): void {
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    const width = opts?.width ?? 1;
+    const tension = opts?.tension ?? 0.5;
+    const z = opts?.z ?? this.renderer.getZ();
+    tessellateStrokeSmoothPolygon(
+      this.renderer.prepareShapeSink(),
+      vertices,
+      tension,
+      width,
+      color,
+      alpha,
+      z,
+    );
+  }
+
+  /** Draw a smooth open curve (spline) through the given points */
+  spline(vertices: V2d[], opts?: SplineOptions): void {
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    const width = opts?.width ?? 1;
+    const tension = opts?.tension ?? 0.5;
+    const z = opts?.z ?? this.renderer.getZ();
+    tessellateSpline(
+      this.renderer.prepareShapeSink(),
+      vertices,
+      tension,
+      width,
+      color,
+      alpha,
+      z,
+    );
+  }
+
+  // ============ Lines ============
 
   /** Draw a line (world-space width - scales with zoom) */
   line(
@@ -542,37 +478,26 @@ export class Draw {
     opts?: LineOptions,
   ): void {
     const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
+    const alpha = opts?.alpha ?? 1;
     const width = opts?.width ?? 1;
-    const prevZ = this.applyZ(opts?.z);
-
-    // Create a quad along the line
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len === 0) return;
-
-    const nx = (-dy / len) * (width / 2);
-    const ny = (dx / len) * (width / 2);
-
-    // Reuse pooled arrays - update coordinates in place
-    this._lineVertices[0].set(x1 + nx, y1 + ny);
-    this._lineVertices[1].set(x2 + nx, y2 + ny);
-    this._lineVertices[2].set(x2 - nx, y2 - ny);
-    this._lineVertices[3].set(x1 - nx, y1 - ny);
-
-    this.renderer.submitTriangles(
-      this._lineVertices,
-      this._lineIndices,
+    const z = opts?.z ?? this.renderer.getZ();
+    tessellateLine(
+      this.renderer.prepareShapeSink(),
+      x1,
+      y1,
+      x2,
+      y2,
+      width,
       color,
       alpha,
+      z,
     );
-    this.renderer.setZ(prevZ);
   }
 
   /**
    * Draw a line with screen-space width (constant pixel width regardless of zoom).
-   * Useful for UI elements and outlines that should always appear the same thickness.
+   * If a tilt context is active, uses tilt-aware screen-width math; otherwise
+   * scales the world-width by the camera zoom.
    */
   screenLine(
     x1: number,
@@ -581,11 +506,121 @@ export class Draw {
     y2: number,
     opts?: LineOptions,
   ): void {
-    const adjustedOpts = opts ? { ...opts } : {};
-    const width = adjustedOpts.width ?? 1;
-    adjustedOpts.width = width / this.camera.z;
-    this.line(x1, y1, x2, y2, adjustedOpts);
+    const tilt = this.renderer.getCurrentTilt();
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    const width = opts?.width ?? 1;
+    const z = opts?.z ?? this.renderer.getZ();
+    if (tilt) {
+      tessellateScreenLine(
+        this.renderer.prepareShapeSink(),
+        x1,
+        y1,
+        z,
+        x2,
+        y2,
+        z,
+        width,
+        tilt,
+        color,
+        alpha,
+      );
+    } else {
+      tessellateLine(
+        this.renderer.prepareShapeSink(),
+        x1,
+        y1,
+        x2,
+        y2,
+        width / this.camera.z,
+        color,
+        alpha,
+        z,
+      );
+    }
   }
+
+  /**
+   * Screen-width polyline with per-vertex z. Requires an active tilt context.
+   */
+  screenPolyline(
+    points: ReadonlyArray<readonly [number, number]>,
+    zPerPoint: ReadonlyArray<number>,
+    width: number,
+    opts?: {
+      color?: number;
+      alpha?: number;
+      closed?: boolean;
+      roundCaps?: boolean;
+    },
+  ): void {
+    const tilt = this.renderer.getCurrentTilt();
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    if (!tilt) {
+      // Fallback: treat as world-width polyline at mean z.
+      tessellateWorldPolyline(
+        this.renderer.prepareShapeSink(),
+        points,
+        zPerPoint,
+        width / this.camera.z,
+        color,
+        alpha,
+        { closed: opts?.closed, roundCaps: opts?.roundCaps },
+      );
+      return;
+    }
+    tessellateScreenPolyline(
+      this.renderer.prepareShapeSink(),
+      points,
+      zPerPoint,
+      width,
+      tilt,
+      color,
+      alpha,
+      { closed: opts?.closed, roundCaps: opts?.roundCaps },
+    );
+  }
+
+  /** Tilt-aware screen-width circle (stays circular on screen under tilt). */
+  screenCircle(
+    x: number,
+    y: number,
+    z: number,
+    radius: number,
+    segments: number,
+    opts?: { color?: number; alpha?: number },
+  ): void {
+    const tilt = this.renderer.getCurrentTilt();
+    const color = opts?.color ?? 0xffffff;
+    const alpha = opts?.alpha ?? 1;
+    if (!tilt) {
+      tessellateCircle(
+        this.renderer.prepareShapeSink(),
+        x,
+        y,
+        radius,
+        segments,
+        color,
+        alpha,
+        z,
+      );
+      return;
+    }
+    tessellateScreenCircle(
+      this.renderer.prepareShapeSink(),
+      x,
+      y,
+      z,
+      radius,
+      segments,
+      tilt,
+      color,
+      alpha,
+    );
+  }
+
+  // ============ Sprites ============
 
   /** Draw a textured image/sprite */
   image(
@@ -594,7 +629,6 @@ export class Draw {
     y: number,
     opts?: ImageOptions,
   ): void {
-    // Convert ImageOptions to SpriteOptions (color -> tint)
     const spriteOpts = opts
       ? {
           rotation: opts.rotation,
@@ -609,6 +643,8 @@ export class Draw {
     this.renderer.drawImage(texture, x, y, spriteOpts);
   }
 
+  // ============ Paths ============
+
   /**
    * Start a new path for complex shapes.
    *
@@ -622,138 +658,5 @@ export class Draw {
    */
   path(): PathBuilder {
     return new PathBuilder(this.renderer);
-  }
-
-  /** Draw a filled rounded rectangle */
-  fillRoundedRect(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    radius: number,
-    opts?: DrawOptions,
-  ): void {
-    const vertices = [V(x, y), V(x + w, y), V(x + w, y + h), V(x, y + h)];
-    this.fillRoundedPolygon(vertices, radius, opts);
-  }
-
-  /** Draw a stroked rounded rectangle */
-  strokeRoundedRect(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    radius: number,
-    opts?: LineOptions,
-  ): void {
-    const vertices = [V(x, y), V(x + w, y), V(x + w, y + h), V(x, y + h)];
-    this.strokeRoundedPolygon(vertices, radius, opts);
-  }
-
-  /** Draw a filled polygon with rounded corners */
-  fillRoundedPolygon(
-    vertices: V2d[],
-    radius: number,
-    opts?: DrawOptions,
-  ): void {
-    const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
-    const prevZ = this.applyZ(opts?.z);
-
-    const roundedVertices = buildRoundedPolygonVertices(vertices, radius);
-    if (roundedVertices.length < 3) return;
-
-    // Simple fan triangulation (works for convex polygons)
-    const indices: number[] = [];
-    for (let i = 1; i < roundedVertices.length - 1; i++) {
-      indices.push(0, i, i + 1);
-    }
-
-    this.renderer.submitTriangles(roundedVertices, indices, color, alpha);
-    this.renderer.setZ(prevZ);
-  }
-
-  /** Draw a stroked polygon with rounded corners */
-  strokeRoundedPolygon(
-    vertices: V2d[],
-    radius: number,
-    opts?: LineOptions,
-  ): void {
-    const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
-    const width = opts?.width ?? 1;
-
-    const roundedVertices = buildRoundedPolygonVertices(vertices, radius);
-    if (roundedVertices.length < 2) return;
-
-    const path = this.path();
-    path.moveTo(roundedVertices[0].x, roundedVertices[0].y);
-    for (let i = 1; i < roundedVertices.length; i++) {
-      path.lineTo(roundedVertices[i].x, roundedVertices[i].y);
-    }
-    path.close().stroke(color, width, alpha);
-  }
-
-  /** Draw a filled smooth polygon using Catmull-Rom spline through control points */
-  fillSmoothPolygon(vertices: V2d[], opts?: SmoothOptions): void {
-    const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
-    const tension = opts?.tension ?? 0.5;
-    const prevZ = this.applyZ(opts?.z);
-
-    const splineVertices = buildCatmullRomSpline(vertices, true, tension);
-    if (splineVertices.length < 3) return;
-
-    // Use ear clipping for proper triangulation of concave polygons
-    const indices = earClipTriangulate(splineVertices);
-
-    // Skip rendering if triangulation failed (self-intersecting or degenerate polygon)
-    if (!indices) return;
-
-    this.renderer.submitTriangles(splineVertices, indices, color, alpha);
-    this.renderer.setZ(prevZ);
-  }
-
-  /** Draw a stroked smooth polygon using Catmull-Rom spline through control points */
-  strokeSmoothPolygon(
-    vertices: V2d[],
-    opts?: SmoothOptions & LineOptions,
-  ): void {
-    const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
-    const width = opts?.width ?? 1;
-    const tension = opts?.tension ?? 0.5;
-    const prevZ = this.applyZ(opts?.z);
-
-    const splineVertices = buildCatmullRomSpline(vertices, true, tension);
-    if (splineVertices.length < 2) return;
-
-    const path = this.path();
-    path.moveTo(splineVertices[0].x, splineVertices[0].y);
-    for (let i = 1; i < splineVertices.length; i++) {
-      path.lineTo(splineVertices[i].x, splineVertices[i].y);
-    }
-    path.close().stroke(color, width, alpha);
-    this.renderer.setZ(prevZ);
-  }
-
-  /** Draw a smooth open curve (spline) through the given points */
-  spline(vertices: V2d[], opts?: SplineOptions): void {
-    const color = opts?.color ?? 0xffffff;
-    const alpha = opts?.alpha ?? 1.0;
-    const width = opts?.width ?? 1;
-    const tension = opts?.tension ?? 0.5;
-    const prevZ = this.applyZ(opts?.z);
-
-    const splineVertices = buildCatmullRomSpline(vertices, false, tension);
-    if (splineVertices.length < 2) return;
-
-    const path = this.path();
-    path.moveTo(splineVertices[0].x, splineVertices[0].y);
-    for (let i = 1; i < splineVertices.length; i++) {
-      path.lineTo(splineVertices[i].x, splineVertices[i].y);
-    }
-    path.stroke(color, width, alpha);
-    this.renderer.setZ(prevZ);
   }
 }
