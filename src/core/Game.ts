@@ -15,6 +15,10 @@ import type { Body } from "./physics/body/Body";
 import { createRigid2D } from "./physics/body/bodyFactories";
 import { PhysicsEventMap } from "./physics/events/PhysicsEvents";
 import { World } from "./physics/world/World";
+import {
+  getMasterVolume,
+  onMasterVolumeChange,
+} from "./sound/MasterVolumeState";
 import { lerp } from "./util/MathUtil";
 import { asyncProfiler } from "./util/AsyncProfiler";
 import { profile, profiler } from "./util/Profiler";
@@ -129,8 +133,18 @@ export class Game {
 
     this.audio = audio ?? new AudioContext();
     this.masterGain = this.audio.createGain();
+    this.masterGain.gain.value = getMasterVolume();
     this.masterGain.connect(this.audio.destination);
+    this.unsubscribeMasterVolume = onMasterVolumeChange((volume) => {
+      this.masterGain.gain.setTargetAtTime(
+        volume,
+        this.audio.currentTime,
+        0.01,
+      );
+    });
   }
+
+  private readonly unsubscribeMasterVolume: () => void;
 
   /** Whether WebGPU has been initialized */
   private webGpuInitialized = false;
@@ -270,6 +284,7 @@ export class Game {
     this.renderer.destroy();
 
     // Close audio context
+    this.unsubscribeMasterVolume();
     this.audio.close();
   }
 

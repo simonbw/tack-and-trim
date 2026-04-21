@@ -65,6 +65,23 @@
   flex: 1;
 }
 
+.settings-panel__option--slider {
+  cursor: default;
+}
+
+.settings-panel__option--slider:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: none;
+}
+
+.settings-panel__slider {
+  pointer-events: auto;
+  flex: 1.2;
+  accent-color: rgba(220, 200, 150, 0.9);
+  cursor: pointer;
+}
+
 .settings-panel__option-value {
   opacity: 0.85;
   font-variant-numeric: tabular-nums;
