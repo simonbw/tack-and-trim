@@ -4,55 +4,55 @@
     "shortLabel": "Game.render",
     "depth": 1,
     "callsPerFrame": 1,
-    "msPerFrame": 0.8722088836410613,
-    "maxMs": 2.0850000381469727
+    "msPerFrame": 0.8878755589701535,
+    "maxMs": 1.7900002002716064
   },
   {
     "label": "Game.nextFrame > Game.render > layer.boat > BoatRenderer",
     "shortLabel": "BoatRenderer",
     "depth": 3,
     "callsPerFrame": 1,
-    "msPerFrame": 0.3246240126177597,
-    "maxMs": 0.6349999904632568
+    "msPerFrame": 0.31997001059669333,
+    "maxMs": 0.6099998950958252
   },
   {
     "label": "Game.nextFrame > Game.render > layer.surface > SurfaceRenderer",
     "shortLabel": "SurfaceRenderer",
     "depth": 3,
     "callsPerFrame": 1,
-    "msPerFrame": 0.26854980692035463,
-    "maxMs": 0.505000114440918
+    "msPerFrame": 0.2891265849507658,
+    "maxMs": 0.5750000476837158
   },
   {
     "label": "Game.nextFrame > Game.render > layer.surface > SurfaceRenderer > WetnessRenderPipeline.update",
     "shortLabel": "WetnessRenderPipeline.update",
     "depth": 4,
     "callsPerFrame": 1,
-    "msPerFrame": 0.022939213781718124,
-    "maxMs": 0.08999991416931152
+    "msPerFrame": 0.022220335147653394,
+    "maxMs": 0.06999993324279785
   },
   {
     "label": "Game.nextFrame > Game.render > layer.hud > DebugRenderer",
     "shortLabel": "DebugRenderer",
     "depth": 3,
     "callsPerFrame": 1,
-    "msPerFrame": 0.005023825382289596,
-    "maxMs": 0.03000020980834961
+    "msPerFrame": 0.005196519100544354,
+    "maxMs": 0.019999980926513672
   },
   {
     "label": "Game.nextFrame > Game.render > layer.windParticles > WindParticles > WindParticles.onRender",
     "shortLabel": "WindParticles.onRender",
     "depth": 4,
     "callsPerFrame": 1,
-    "msPerFrame": 0.007893144931674019,
-    "maxMs": 0.04999995231628418
+    "msPerFrame": 0.007067616361095116,
+    "maxMs": 0.06500005722045898
   },
   {
     "label": "Game.nextFrame > Game.render > layer.debugHud > StatsOverlay > StatsOverlay.onRender",
     "shortLabel": "StatsOverlay.onRender",
     "depth": 4,
     "callsPerFrame": 1,
-    "msPerFrame": 0.0013818448558309026,
-    "maxMs": 0.019999980926513672
+    "msPerFrame": 0.00122804124829266,
+    "maxMs": 0.009999990463256836
   }
 ]
