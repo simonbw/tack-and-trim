@@ -201,6 +201,18 @@ export class Draw {
     this.renderer.drawMesh(m);
   }
 
+  /**
+   * Temporarily override the renderer's z for a single primitive. The
+   * tessellator emits per-vertex z = 0, so the final depth comes from the
+   * transform's zBase; this keeps the old `opts.z`-as-absolute semantics
+   * without double-applying the current z.
+   */
+  private applyZ(z: number | undefined): number {
+    const prev = this.renderer.getZ();
+    if (z !== undefined) this.renderer.setZ(z);
+    return prev;
+  }
+
   // ============ Fills ============
 
   /** Draw a filled rectangle */
@@ -213,7 +225,7 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
-    const z = opts?.z ?? this.renderer.getZ();
+    const prevZ = this.applyZ(opts?.z);
     tessellateRect(
       this.renderer.prepareShapeSink(),
       x,
@@ -222,17 +234,18 @@ export class Draw {
       h,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a filled circle */
   fillCircle(x: number, y: number, radius: number, opts?: CircleOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
-    const z = opts?.z ?? this.renderer.getZ();
     const radiusOnScreen = radius * this.renderer.getCurrentScale();
     const segments = opts?.segments ?? getCircleSegments(radiusOnScreen);
+    const prevZ = this.applyZ(opts?.z);
     tessellateCircle(
       this.renderer.prepareShapeSink(),
       x,
@@ -241,22 +254,24 @@ export class Draw {
       segments,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a filled polygon (supports concave polygons) */
   fillPolygon(vertices: V2d[], opts?: DrawOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
-    const z = opts?.z ?? this.renderer.getZ();
+    const prevZ = this.applyZ(opts?.z);
     tessellateFillPolygon(
       this.renderer.prepareShapeSink(),
       vertices,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a filled triangle */
@@ -302,15 +317,16 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
-    const z = opts?.z ?? this.renderer.getZ();
+    const prevZ = this.applyZ(opts?.z);
     tessellateFillRoundedPolygon(
       this.renderer.prepareShapeSink(),
       vertices,
       radius,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a filled smooth polygon (Catmull-Rom through the control points). */
@@ -318,15 +334,16 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
     const tension = opts?.tension ?? 0.5;
-    const z = opts?.z ?? this.renderer.getZ();
+    const prevZ = this.applyZ(opts?.z);
     tessellateFillSmoothPolygon(
       this.renderer.prepareShapeSink(),
       vertices,
       tension,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   // ============ Strokes ============
@@ -355,22 +372,23 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
     const width = opts?.width ?? 1;
-    const z = opts?.z ?? this.renderer.getZ();
     const segments = getCircleSegments(radius);
     const points: [number, number][] = [];
     for (let i = 0; i < segments; i++) {
       const angle = (i / segments) * Math.PI * 2;
       points.push([x + Math.cos(angle) * radius, y + Math.sin(angle) * radius]);
     }
+    const prevZ = this.applyZ(opts?.z);
     tessellateWorldPolyline(
       this.renderer.prepareShapeSink(),
       points,
-      z,
+      0,
       width,
       color,
       alpha,
       { closed: true },
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a stroked polygon outline (closed) */
@@ -378,15 +396,16 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
     const width = opts?.width ?? 1;
-    const z = opts?.z ?? this.renderer.getZ();
+    const prevZ = this.applyZ(opts?.z);
     tessellateStrokePolygon(
       this.renderer.prepareShapeSink(),
       vertices,
       width,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a stroked rounded rectangle */
@@ -416,7 +435,7 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
     const width = opts?.width ?? 1;
-    const z = opts?.z ?? this.renderer.getZ();
+    const prevZ = this.applyZ(opts?.z);
     tessellateStrokeRoundedPolygon(
       this.renderer.prepareShapeSink(),
       vertices,
@@ -424,8 +443,9 @@ export class Draw {
       width,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a stroked smooth polygon (Catmull-Rom). */
@@ -437,7 +457,7 @@ export class Draw {
     const alpha = opts?.alpha ?? 1;
     const width = opts?.width ?? 1;
     const tension = opts?.tension ?? 0.5;
-    const z = opts?.z ?? this.renderer.getZ();
+    const prevZ = this.applyZ(opts?.z);
     tessellateStrokeSmoothPolygon(
       this.renderer.prepareShapeSink(),
       vertices,
@@ -445,8 +465,9 @@ export class Draw {
       width,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /** Draw a smooth open curve (spline) through the given points */
@@ -455,7 +476,7 @@ export class Draw {
     const alpha = opts?.alpha ?? 1;
     const width = opts?.width ?? 1;
     const tension = opts?.tension ?? 0.5;
-    const z = opts?.z ?? this.renderer.getZ();
+    const prevZ = this.applyZ(opts?.z);
     tessellateSpline(
       this.renderer.prepareShapeSink(),
       vertices,
@@ -463,8 +484,9 @@ export class Draw {
       width,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   // ============ Lines ============
@@ -480,7 +502,7 @@ export class Draw {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
     const width = opts?.width ?? 1;
-    const z = opts?.z ?? this.renderer.getZ();
+    const prevZ = this.applyZ(opts?.z);
     tessellateLine(
       this.renderer.prepareShapeSink(),
       x1,
@@ -490,8 +512,9 @@ export class Draw {
       width,
       color,
       alpha,
-      z,
+      0,
     );
+    this.renderer.setZ(prevZ);
   }
 
   /**

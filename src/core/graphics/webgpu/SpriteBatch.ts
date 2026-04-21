@@ -11,7 +11,8 @@
 export const SPRITE_VERTEX_FLOATS = 9;
 
 export const SPRITE_MAX_VERTICES = 262_144;
-export const SPRITE_MAX_INDICES = SPRITE_MAX_VERTICES * 6;
+// Every sprite is 4 verts → 6 indices, so indices = verts × 1.5.
+export const SPRITE_MAX_INDICES = (SPRITE_MAX_VERTICES / 4) * 6;
 
 const GPU_BUFFER_FLUSH_CAPACITY = 4;
 

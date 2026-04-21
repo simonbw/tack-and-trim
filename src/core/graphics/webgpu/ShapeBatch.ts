@@ -3,7 +3,7 @@ import { VERTEX_STRIDE_FLOATS, VertexSink } from "../tessellation/VertexSink";
 /** Floats per vertex in the new shape format: position(2) + color(4) + z(1). */
 export const SHAPE_VERTEX_FLOATS = VERTEX_STRIDE_FLOATS; // 7
 
-export const MAX_BATCH_VERTICES = 262_144; // 1 MiB of vertex data (256 KiB of tx indices)
+export const MAX_BATCH_VERTICES = 262_144; // ~7 MiB of vertex data (~1 MiB of tx indices)
 export const MAX_BATCH_INDICES = MAX_BATCH_VERTICES * 6;
 
 const GPU_BUFFER_FLUSH_CAPACITY = 4;
@@ -21,6 +21,8 @@ const GPU_BUFFER_FLUSH_CAPACITY = 4;
  * are Uint32.
  */
 export class ShapeBatch implements VertexSink {
+  private static overflowWarned = false;
+
   readonly vertexData: Float32Array;
   readonly indexData: Uint32Array;
   readonly txIndexData: Uint32Array;
@@ -81,6 +83,15 @@ export class ShapeBatch implements VertexSink {
   // VertexSink impl -----------------------------------------------------------
 
   reserveVertices(n: number): { base: number; view: Float32Array } {
+    if (this.vertexCount + n > this.maxVertices) {
+      if (!ShapeBatch.overflowWarned) {
+        ShapeBatch.overflowWarned = true;
+        console.warn(
+          `ShapeBatch: reserveVertices(${n}) would overflow (${this.vertexCount}/${this.maxVertices}); dropping geometry. Caller should flush before exceeding capacity.`,
+        );
+      }
+      return { base: 0, view: this.vertexData.subarray(0, 0) };
+    }
     const base = this.vertexCount;
     const startFloat = base * SHAPE_VERTEX_FLOATS;
     const view = this.vertexData.subarray(
@@ -94,6 +105,15 @@ export class ShapeBatch implements VertexSink {
   }
 
   reserveIndices(n: number): Uint32Array {
+    if (this.indexCount + n > this.maxIndices) {
+      if (!ShapeBatch.overflowWarned) {
+        ShapeBatch.overflowWarned = true;
+        console.warn(
+          `ShapeBatch: reserveIndices(${n}) would overflow (${this.indexCount}/${this.maxIndices}); dropping geometry.`,
+        );
+      }
+      return this.indexData.subarray(0, 0);
+    }
     const start = this.indexCount;
     this.indexCount += n;
     return this.indexData.subarray(start, start + n);

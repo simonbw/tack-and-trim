@@ -61,10 +61,11 @@ export class TransformBuffer {
 
   /**
    * Reset for a new frame. The identity transform at slot 0 is preserved.
+   * `overflowWarned` intentionally persists — if one frame overflows, later
+   * frames usually do too, and we don't want to spam once-per-frame.
    */
   reset(): void {
     this.count = 1;
-    this.overflowWarned = false;
   }
 
   /**

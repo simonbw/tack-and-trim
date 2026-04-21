@@ -296,6 +296,7 @@ export function tessellateScreenPolyline(
   const { r, g, b, a } = unpackColor(color, alpha);
   const halfWidth = width / 2;
   const closed = opts.closed ?? false;
+  const roundJoins = opts.roundJoins ?? false;
   const roundCaps = opts.roundCaps ?? false;
 
   // Unit screen-space perpendicular for a local segment.
@@ -380,7 +381,7 @@ export function tessellateScreenPolyline(
       const mLen = Math.sqrt(mx * mx + my * my);
       const dot = mLen > 0.001 ? s1x * mx + s1y * my : 0;
       const miterScale = dot > 0.1 ? 1 / dot : 10;
-      if (miterScale > 1.05) {
+      if (roundJoins && miterScale > 1.05) {
         const angle1 = Math.atan2(s1y, s1x);
         let angle2 = Math.atan2(s2y, s2x);
         let angleDiff = angle2 - angle1;

@@ -1232,6 +1232,17 @@ export class WebGPURenderer {
    */
   prepareShapeSink(): ShapeBatch {
     if (this.spriteBatch.indexCount > 0) this.flushSprites();
+    // Pre-flush when close to capacity so a single tessellator call can't
+    // straddle the batch limit. The safety margin covers any reasonable
+    // primitive (polylines with round caps, ear-clip on large polygons, etc.).
+    const safetyVerts = 8192;
+    const safetyIndices = safetyVerts * 3;
+    if (
+      this.shapeBatch.vertexCount + safetyVerts > this.shapeBatch.maxVertices ||
+      this.shapeBatch.indexCount + safetyIndices > this.shapeBatch.maxIndices
+    ) {
+      this.flushShapes();
+    }
     this.refreshTransformIndex();
     return this.shapeBatch;
   }
@@ -1855,12 +1866,13 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     this.refreshTransformIndex();
 
     const [r, g, b] = hexToVec3(color);
-    const globalZ = this.currentZ;
+    // Per-vertex z defaults to 0 — zBase in the transform already carries
+    // currentZ. Explicit zValues are local z offsets added on top.
     const { base, view } = this.shapeBatch.reserveVertices(vertices.length);
 
     for (let i = 0; i < vertices.length; i++) {
       const v = vertices[i];
-      const z = zValues !== null ? zValues[i] : globalZ;
+      const z = zValues !== null ? zValues[i] : 0;
       const o = i * SHAPE_VERTEX_FLOATS;
       view[o] = v[0];
       view[o + 1] = v[1];
@@ -1912,7 +1924,8 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
 
     this.refreshTransformIndex();
 
-    const z = this.currentZ;
+    // Per-vertex z defaults to 0 — zBase in the transform already carries
+    // currentZ, so emitting currentZ per-vertex would double-apply.
     const { base, view } = this.shapeBatch.reserveVertices(vertices.length);
     for (let i = 0; i < vertices.length; i++) {
       const v = vertices[i];
@@ -1924,7 +1937,7 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
       view[o + 3] = c[1];
       view[o + 4] = c[2];
       view[o + 5] = c[3];
-      view[o + 6] = z;
+      view[o + 6] = 0;
     }
 
     const idxSlice = this.shapeBatch.reserveIndices(indices.length);
@@ -2098,7 +2111,8 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
       tg,
       tb,
       alpha,
-      this.currentZ,
+      // Per-vertex z=0: zBase in the sprite's transform already carries currentZ.
+      0,
     );
   }
 

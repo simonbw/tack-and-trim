@@ -229,12 +229,14 @@ export class PathBuilder {
       );
       return;
     }
+    // Pass 0 as the per-vertex z: the transform's zBase already carries
+    // currentZ, so emitting currentZ again per-vertex would double-apply.
     tessellatePathFill(
       this.renderer.prepareShapeSink(),
       this.points,
       color,
       alpha,
-      this.renderer.getZ(),
+      0,
     );
   }
 
@@ -254,7 +256,7 @@ export class PathBuilder {
       this.closed && this.points.length >= 3,
       color,
       alpha,
-      this.renderer.getZ(),
+      0,
     );
   }
 }
