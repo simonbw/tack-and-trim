@@ -38,11 +38,20 @@ function toggleMSAA() {
 const ticksPerFrame = 1;
 
 async function main() {
+  const params = new URLSearchParams(window.location.search);
+  // ?autoStart=false keeps the animation loop stopped so the game can be
+  // stepped one frame at a time from the DevTools console via
+  // `window.DEBUG.game.nextFrame()` (or resumed with `game.startLoop()`).
+  const autoStart = params.get("autoStart") !== "false";
+
   const game = new Game({
     ticksPerSecond: 120 * ticksPerFrame,
     world: new World({ substeps: 8, solverConfig: { iterations: 10 } }),
   });
-  await game.init({ rendererOptions: { backgroundColor: 0x000010 } });
+  await game.init({
+    rendererOptions: { backgroundColor: 0x000010 },
+    autoStart,
+  });
   game.setGpuTimingEnabled(true);
   // Make the game accessible from the console
   window.DEBUG = { game, toggleMSAA };
@@ -69,9 +78,10 @@ async function main() {
   // GameController handles menu, game state, and spawning gameplay entities
   game.addEntity(new GameController());
 
-  // ?profile=1 skips the menu flow for automated profiling.
-  const params = new URLSearchParams(window.location.search);
-  if (params.has("profile")) {
+  // ?quickstart=true (or legacy ?profile=1) skips the menu and boots straight
+  // into a level. Combine with ?level=<name>&boat=<id> to pick the level/boat,
+  // and ?autoStart=false to stop at the first frame for tick-by-tick debugging.
+  if (params.has("quickstart") || params.has("profile")) {
     const levelName = (params.get("level") ?? "default") as LevelName;
     const boatId = params.get("boat") ?? "shaff-s7";
     game.dispatch("boatSelected", { boatId, levelName });
