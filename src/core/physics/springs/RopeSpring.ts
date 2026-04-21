@@ -26,11 +26,7 @@ export class RopeSpring extends LinearSpring {
   /** Maximum force magnitude. */
   maxForce: number;
 
-  constructor(
-    bodyA: Body,
-    bodyB: Body,
-    options: RopeSpringOptions = {},
-  ) {
+  constructor(bodyA: Body, bodyB: Body, options: RopeSpringOptions = {}) {
     super(bodyA, bodyB, options);
     this.maxForce = options.maxForce ?? Infinity;
   }
@@ -68,9 +64,12 @@ export class RopeSpring extends LinearSpring {
       // F = - k * ( x - L ) - D * ( u )
       _f.set(_rUnit).imul(-k * (rlen - l) - d * _u.dot(_rUnit));
 
-      // Clamp force magnitude to prevent instability
+      // Clamp force magnitude to prevent instability. Guard forceMag > 0
+      // so the degenerate case (stretched rope but zero computed force —
+      // possible when -k*(rlen-l) cancels the damping term exactly) doesn't
+      // produce a 0/0 = NaN force.
       const forceMag = _f.magnitude;
-      if (forceMag > this.maxForce) {
+      if (forceMag > this.maxForce && forceMag > 0) {
         _f.imul(this.maxForce / forceMag);
       }
 

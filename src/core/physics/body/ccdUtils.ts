@@ -72,6 +72,12 @@ export function integrateToTimeOfImpact(
   const startToEndAngle = body.angularVelocity * dt;
   const len = startToEnd.magnitude;
 
+  // Degenerate case: start == end (zero travel distance despite velocity
+  // above threshold — e.g. dt is 0). Nothing to detect, skip CCD.
+  if (len === 0) {
+    return false;
+  }
+
   let timeOfImpact = 1;
 
   // Raycast to find potential collision (exclude self)

@@ -1,6 +1,7 @@
 import { profile, profiler } from "../../util/Profiler";
 import { CompatibleVector } from "../../Vector";
 import { SleepState } from "../body/Body";
+import { assertAllBodiesFinite } from "../body/assertBodyFinite";
 import { Broadphase } from "../collision/broadphase/Broadphase";
 import { SpatialHashingBroadphase } from "../collision/broadphase/SpatialHashingBroadphase";
 import {
@@ -231,8 +232,11 @@ export class World extends EventEmitter<PhysicsEventMap> {
   step(dt: number): void {
     this.stepping = true;
 
+    assertAllBodiesFinite(this.bodies.dynamicAwake, "at step() entry");
+
     // 1. Apply forces (springs, damping) — once per step
     this.applyForces(dt);
+    assertAllBodiesFinite(this.bodies.dynamicAwake, "after applyForces");
 
     // 2. Broadphase - get potential collision pairs
     const pairsToCheck = this.doBroadphase();
@@ -299,6 +303,10 @@ export class World extends EventEmitter<PhysicsEventMap> {
     //    and zeroes body.force, so the subsequent substep loop only advances
     //    positions from velocity (plus constraint impulses).
     this.integrateForcesToVelocity(dt);
+    assertAllBodiesFinite(
+      this.bodies.dynamicAwake,
+      "after integrateForcesToVelocity",
+    );
 
     // 10. Collect equations once per step (not per substep) and — for the
     //     non-island path — sort + assign workspace indices up front. The
@@ -356,8 +364,16 @@ export class World extends EventEmitter<PhysicsEventMap> {
       totalIter += result.usedIterations;
       if (result.maxIterations > maxIter) maxIter = result.maxIterations;
       totalIslandCount = result.islandCount;
+      assertAllBodiesFinite(
+        this.bodies.dynamicAwake,
+        `after solve (substep ${s})`,
+      );
 
       this.integratePositions(h);
+      assertAllBodiesFinite(
+        this.bodies.dynamicAwake,
+        `after integratePositions (substep ${s})`,
+      );
     }
     this.solverEquationCount = allEquations.length;
     this.solverIslandCount = totalIslandCount;
