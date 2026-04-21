@@ -1,0 +1,58 @@
+[
+  {
+    "label": "Game.nextFrame > Game.render",
+    "shortLabel": "Game.render",
+    "depth": 1,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.700740452190936,
+    "maxMs": 1.2100000381469727
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.surface > SurfaceRenderer",
+    "shortLabel": "SurfaceRenderer",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.2778147467909107,
+    "maxMs": 0.48000001907348633
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.surface > SurfaceRenderer > WetnessRenderPipeline.update",
+    "shortLabel": "WetnessRenderPipeline.update",
+    "depth": 4,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.023179560845446638,
+    "maxMs": 0.08999991416931152
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat > BoatRenderer",
+    "shortLabel": "BoatRenderer",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.17136960301425153,
+    "maxMs": 0.31999993324279785
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > DebugRenderer",
+    "shortLabel": "DebugRenderer",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.004834227940466007,
+    "maxMs": 0.02500009536743164
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.windParticles > WindParticles > WindParticles.onRender",
+    "shortLabel": "WindParticles.onRender",
+    "depth": 4,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.008087992035024732,
+    "maxMs": 0.09500002861022949
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.debugHud > StatsOverlay > StatsOverlay.onRender",
+    "shortLabel": "StatsOverlay.onRender",
+    "depth": 4,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0008029960723865036,
+    "maxMs": 0.04500007629394531
+  }
+]
