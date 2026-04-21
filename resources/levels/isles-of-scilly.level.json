@@ -26,21 +26,59 @@
   "waves": {
     "sources": [
       {
-        "amplitude": 0.4,
-        "wavelength": 200,
-        "direction": 0.8
+        "amplitude": 1.2,
+        "wavelength": 520,
+        "direction": 0.0,
+        "phaseOffset": 0.0
       },
       {
-        "amplitude": 0.15,
-        "wavelength": 20,
-        "direction": 0.8
+        "amplitude": 0.7,
+        "wavelength": 620,
+        "direction": -0.39,
+        "phaseOffset": 1.62
+      },
+      {
+        "amplitude": 0.5,
+        "wavelength": 400,
+        "direction": 0.39,
+        "phaseOffset": 3.24
+      },
+      {
+        "amplitude": 0.3,
+        "wavelength": 900,
+        "direction": -0.18,
+        "phaseOffset": 4.85
+      },
+      {
+        "amplitude": 0.55,
+        "wavelength": 75,
+        "direction": -0.79,
+        "phaseOffset": 0.19
+      },
+      {
+        "amplitude": 0.35,
+        "wavelength": 48,
+        "direction": 0.05,
+        "phaseOffset": 1.81
+      },
+      {
+        "amplitude": 0.22,
+        "wavelength": 22,
+        "direction": -0.75,
+        "phaseOffset": 3.43
+      },
+      {
+        "amplitude": 0.1,
+        "wavelength": 9,
+        "direction": 0.0,
+        "phaseOffset": 5.04
       }
     ]
   },
   "wind": {
     "sources": [
       {
-        "direction": 0.785
+        "direction": -0.79
       }
     ]
   },

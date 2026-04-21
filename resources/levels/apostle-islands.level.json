@@ -28,25 +28,51 @@
   "waves": {
     "sources": [
       {
-        "amplitude": 0.4,
-        "wavelength": 200,
-        "direction": 0.8
+        "amplitude": 0.5,
+        "wavelength": 48,
+        "direction": 0.0,
+        "phaseOffset": 0.0
       },
       {
-        "amplitude": 0.15,
-        "wavelength": 20,
-        "direction": 0.8
+        "amplitude": 0.22,
+        "wavelength": 14,
+        "direction": 0.05,
+        "phaseOffset": 1.62
+      },
+      {
+        "amplitude": 0.3,
+        "wavelength": 55,
+        "direction": -0.79,
+        "phaseOffset": 3.24
+      },
+      {
+        "amplitude": 0.3,
+        "wavelength": 100,
+        "direction": 2.36,
+        "phaseOffset": 4.85
+      },
+      {
+        "amplitude": 0.12,
+        "wavelength": 18,
+        "direction": -0.75,
+        "phaseOffset": 0.19
+      },
+      {
+        "amplitude": 0.07,
+        "wavelength": 6,
+        "direction": 0.1,
+        "phaseOffset": 1.81
       }
     ]
   },
   "wind": {
     "sources": [
       {
-        "direction": 0.785
+        "direction": 0.0
       }
     ]
   },
-  "startPosition": [0, 0],
+  "startPosition": [-68000, 0],
   "trees": {
     "spacing": 35,
     "density": 0.75,

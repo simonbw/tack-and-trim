@@ -23,21 +23,35 @@
   "waves": {
     "sources": [
       {
-        "amplitude": 0.4,
-        "wavelength": 200,
-        "direction": 0.8
+        "amplitude": 0.32,
+        "wavelength": 32,
+        "direction": 0.79,
+        "phaseOffset": 0.0
       },
       {
-        "amplitude": 0.15,
-        "wavelength": 20,
-        "direction": 0.8
+        "amplitude": 0.14,
+        "wavelength": 12,
+        "direction": 0.85,
+        "phaseOffset": 1.62
+      },
+      {
+        "amplitude": 0.18,
+        "wavelength": 22,
+        "direction": 0.0,
+        "phaseOffset": 3.24
+      },
+      {
+        "amplitude": 0.06,
+        "wavelength": 5,
+        "direction": 0.75,
+        "phaseOffset": 4.85
       }
     ]
   },
   "wind": {
     "sources": [
       {
-        "direction": 0.785
+        "direction": 0.6
       }
     ]
   },
