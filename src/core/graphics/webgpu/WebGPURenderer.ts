@@ -8,18 +8,21 @@
  * - Batched rendering with automatic flushing
  */
 
+import { CachedMesh } from "../CachedMesh";
+import { DynamicMesh } from "../DynamicMesh";
 import { hexToVec3 } from "../../util/ColorUtils";
 import { CompatibleVector } from "../../Vector";
 import { Matrix3 } from "../Matrix3";
+import { type Transform, TransformBuffer } from "../TransformBuffer";
 import {
   defineUniformStruct,
-  f32,
   mat3x3,
   type UniformInstance,
-  vec3,
 } from "../UniformStruct";
 import { GPUProfiler, GPUProfileSection } from "./GPUProfiler";
 import { getMSAASampleCount, isMSAAEnabled, onMSAAChange } from "./MSAAState";
+import { SHAPE_VERTEX_FLOATS, ShapeBatch } from "./ShapeBatch";
+import { SPRITE_VERTEX_FLOATS, SpriteBatch } from "./SpriteBatch";
 import { getWebGPU } from "./WebGPUDevice";
 import { WebGPUTexture, WebGPUTextureManager } from "./WebGPUTextureManager";
 
@@ -43,6 +46,19 @@ const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
 // runtime toggles. See MSAAState.ts.
 export const MSAA_SAMPLE_COUNT = getMSAASampleCount();
 
+// Transform struct (std430) shared by shape + sprite shaders.
+// Matches TransformBuffer.ts CPU layout: 16 floats / 64 bytes.
+const transformStructWGSL = /*wgsl*/ `
+struct Transform {
+  modelCol0: vec2<f32>,
+  modelCol1: vec2<f32>,
+  modelCol2: vec2<f32>,
+  zCoeffs:   vec2<f32>,
+  zDepth:    vec4<f32>,  // (zRow.x, zRow.y, zRow.z, zBase)
+  tint:      vec4<f32>,
+}
+`;
+
 // Shape shader: Renders untextured colored primitives with optional depth
 const shapeShaderSource = /*wgsl*/ `
 const Z_MIN: f32 = ${DEPTH_Z_MIN};
@@ -52,15 +68,13 @@ struct Uniforms {
   viewMatrix: mat3x3<f32>,
 }
 
+${transformStructWGSL}
+
 struct VertexInput {
   @location(0) position: vec2<f32>,
   @location(1) color: vec4<f32>,
-  @location(2) modelCol0: vec2<f32>,
-  @location(3) modelCol1: vec2<f32>,
-  @location(4) modelCol2: vec2<f32>,
-  @location(5) z: f32,
-  @location(6) zCoeffs: vec2<f32>,
-  @location(7) zDepth: vec4<f32>,  // (zRow.x, zRow.y, zRow.z, zBase)
+  @location(2) z: f32,
+  @location(3) transformIndex: u32,
 }
 
 struct VertexOutput {
@@ -69,29 +83,26 @@ struct VertexOutput {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var<storage, read> transforms: array<Transform>;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-  // 2D screen position: model matrix transforms hull-local (x,y),
-  // zCoeffs adds parallax from local z-height (z-column of rotation).
-  let worldX = in.modelCol0.x * in.position.x + in.modelCol1.x * in.position.y
-               + in.zCoeffs.x * in.z + in.modelCol2.x;
-  let worldY = in.modelCol0.y * in.position.x + in.modelCol1.y * in.position.y
-               + in.zCoeffs.y * in.z + in.modelCol2.y;
+  let t = transforms[in.transformIndex];
+  let worldX = t.modelCol0.x * in.position.x + t.modelCol1.x * in.position.y
+               + t.zCoeffs.x * in.z + t.modelCol2.x;
+  let worldY = t.modelCol0.y * in.position.x + t.modelCol1.y * in.position.y
+               + t.zCoeffs.y * in.z + t.modelCol2.y;
   let clipPos = uniforms.viewMatrix * vec3<f32>(worldX, worldY, 1.0);
 
-  // Depth: full 3D world z from the rotation's z-row applied to the vertex position.
-  // zDepth is per-vertex (zRow.x, zRow.y, zRow.z, zBase) so depth is always correct
-  // regardless of when the batch is flushed relative to save/restore.
-  let depthZ = in.zDepth.w
-             + in.zDepth.x * in.position.x
-             + in.zDepth.y * in.position.y
-             + in.zDepth.z * in.z;
+  let depthZ = t.zDepth.w
+             + t.zDepth.x * in.position.x
+             + t.zDepth.y * in.position.y
+             + t.zDepth.z * in.z;
   let depth = (depthZ - Z_MIN) / (Z_MAX - Z_MIN);
 
   var out: VertexOutput;
   out.position = vec4<f32>(clipPos.xy, depth, 1.0);
-  out.color = in.color;
+  out.color = in.color * t.tint;
   return out;
 }
 
@@ -110,16 +121,14 @@ struct Uniforms {
   viewMatrix: mat3x3<f32>,
 }
 
+${transformStructWGSL}
+
 struct VertexInput {
   @location(0) position: vec2<f32>,
   @location(1) texCoord: vec2<f32>,
   @location(2) color: vec4<f32>,
-  @location(3) modelCol0: vec2<f32>,
-  @location(4) modelCol1: vec2<f32>,
-  @location(5) modelCol2: vec2<f32>,
-  @location(6) z: f32,
-  @location(7) zCoeffs: vec2<f32>,
-  @location(8) zDepth: vec4<f32>,  // (zRow.x, zRow.y, zRow.z, zBase)
+  @location(3) z: f32,
+  @location(4) transformIndex: u32,
 }
 
 struct VertexOutput {
@@ -130,26 +139,28 @@ struct VertexOutput {
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var textureSampler: sampler;
+@group(0) @binding(2) var<storage, read> transforms: array<Transform>;
 @group(1) @binding(0) var spriteTexture: texture_2d<f32>;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-  let worldX = in.modelCol0.x * in.position.x + in.modelCol1.x * in.position.y
-               + in.zCoeffs.x * in.z + in.modelCol2.x;
-  let worldY = in.modelCol0.y * in.position.x + in.modelCol1.y * in.position.y
-               + in.zCoeffs.y * in.z + in.modelCol2.y;
+  let t = transforms[in.transformIndex];
+  let worldX = t.modelCol0.x * in.position.x + t.modelCol1.x * in.position.y
+               + t.zCoeffs.x * in.z + t.modelCol2.x;
+  let worldY = t.modelCol0.y * in.position.x + t.modelCol1.y * in.position.y
+               + t.zCoeffs.y * in.z + t.modelCol2.y;
   let clipPos = uniforms.viewMatrix * vec3<f32>(worldX, worldY, 1.0);
 
-  let depthZ = in.zDepth.w
-             + in.zDepth.x * in.position.x
-             + in.zDepth.y * in.position.y
-             + in.zDepth.z * in.z;
+  let depthZ = t.zDepth.w
+             + t.zDepth.x * in.position.x
+             + t.zDepth.y * in.position.y
+             + t.zDepth.z * in.z;
   let depth = (depthZ - Z_MIN) / (Z_MAX - Z_MIN);
 
   var out: VertexOutput;
   out.position = vec4<f32>(clipPos.xy, depth, 1.0);
   out.texCoord = in.texCoord;
-  out.color = in.color;
+  out.color = in.color * t.tint;
   return out;
 }
 
@@ -171,22 +182,8 @@ export interface SpriteOptions {
   anchorY?: number; // 0-1, default 0.5
 }
 
-// Batch vertex size includes per-vertex model matrix (6 floats) + z (1) + zCoeffs (2) + zDepth (4)
-const SPRITE_VERTEX_SIZE = 21; // position (2) + texCoord (2) + color (4) + matrix (6) + z (1) + zCoeffs (2) + zDepth (4)
-const SHAPE_VERTEX_SIZE = 19; // position (2) + color (4) + matrix (6) + z (1) + zCoeffs (2) + zDepth (4)
-// Max 65535 vertices because index buffer is Uint16Array (max addressable index = 65535).
-// Using 65536 would allow baseVertex + idx to overflow uint16 and wrap around,
-// causing triangles to reference wrong vertices.
-const MAX_BATCH_VERTICES = 65535;
-const MAX_BATCH_INDICES = MAX_BATCH_VERTICES * 6;
-
-// GPU buffers are sized larger than one batch to support multiple flushes per frame.
-// Each flush writes to a new region so earlier draw calls (recorded but not yet executed)
-// still reference their original data.
-const GPU_BUFFER_FLUSH_CAPACITY = 4;
-
-// Type-safe uniform buffer definition (view matrix only — depth transform
-// is per-vertex via zDepth to avoid flush-timing issues with save/restore).
+// Type-safe uniform buffer definition (view matrix only — per-instance
+// transforms live in the TransformBuffer storage buffer).
 const ViewUniforms = defineUniformStruct("Uniforms", {
   viewMatrix: mat3x3,
 });
@@ -274,36 +271,27 @@ export class WebGPURenderer {
   private currentZRowZ = 1;
   private zStack: number[][] = [];
 
-  // Shape batch resources
-  private shapeVertices: Float32Array;
-  private shapeIndices: Uint16Array;
-  private shapeVertexBuffer: GPUBuffer | null = null;
-  private shapeIndexBuffer: GPUBuffer | null = null;
+  // Batch state — vertex/index CPU + GPU resources live on these classes.
+  private shapeBatch = new ShapeBatch();
+  private spriteBatch = new SpriteBatch();
+
+  // Per-instance transform storage.
+  private transformBuffer = new TransformBuffer();
+  // Pending transform state gets lazily allocated into transformBuffer on
+  // the next submit after any state change. `pendingTransformDirty` marks
+  // that `shapeBatch.currentTransformIndex` / `spriteBatch.currentTransformIndex`
+  // are stale and need to be refreshed.
+  private pendingTransformDirty = true;
+
+  // Shape pipeline / bind-group resources
   private shapeUniformBuffer: GPUBuffer | null = null;
   private shapeBindGroup: GPUBindGroup | null = null;
-  private shapeVertexCount = 0;
-  private shapeIndexCount = 0;
 
-  // GPU buffer write offsets — advanced each flush to avoid overwriting
-  // data that earlier draw calls (recorded but not yet executed) still reference.
-  // Multiple writeBuffer calls to the same offset within a frame would cause
-  // earlier draw calls to read the LAST written data instead of their own.
-  private gpuShapeVertexByteOffset = 0;
-  private gpuShapeIndexByteOffset = 0;
-  private gpuSpriteVertexByteOffset = 0;
-  private gpuSpriteIndexByteOffset = 0;
-
-  // Sprite batch resources
-  private spriteVertices: Float32Array;
-  private spriteIndices: Uint16Array;
-  private spriteVertexBuffer: GPUBuffer | null = null;
-  private spriteIndexBuffer: GPUBuffer | null = null;
+  // Sprite pipeline / bind-group resources
   private spriteUniformBuffer: GPUBuffer | null = null;
   private spriteBindGroupLayout: GPUBindGroupLayout | null = null;
   private spriteTextureBindGroupLayout: GPUBindGroupLayout | null = null;
   private spriteUniformBindGroup: GPUBindGroup | null = null;
-  private spriteVertexCount = 0;
-  private spriteIndexCount = 0;
   private currentTexture: WebGPUTexture | null = null;
   private currentTextureBindGroup: GPUBindGroup | null = null;
   private textureBindGroupCache: Map<WebGPUTexture, GPUBindGroup> = new Map();
@@ -352,9 +340,11 @@ export class WebGPURenderer {
   private shapeShaderModule: GPUShaderModule | null = null;
   private shapePipelineLayout: GPUPipelineLayout | null = null;
   private shapeVertexBufferLayout: GPUVertexBufferLayout | null = null;
+  private shapeTxIndexBufferLayout: GPUVertexBufferLayout | null = null;
   private spriteShaderModule: GPUShaderModule | null = null;
   private spritePipelineLayout: GPUPipelineLayout | null = null;
   private spriteVertexBufferLayout: GPUVertexBufferLayout | null = null;
+  private spriteTxIndexBufferLayout: GPUVertexBufferLayout | null = null;
   private pipelinePrimitiveState: GPUPrimitiveState | null = null;
   private unsubscribeMSAA: (() => void) | null = null;
 
@@ -367,16 +357,8 @@ export class WebGPURenderer {
   constructor(canvas?: HTMLCanvasElement) {
     this.canvas = canvas ?? document.createElement("canvas");
     this.textureManager = new WebGPUTextureManager();
-
-    // Pre-allocate batch buffers
-    this.shapeVertices = new Float32Array(
-      MAX_BATCH_VERTICES * SHAPE_VERTEX_SIZE,
-    );
-    this.shapeIndices = new Uint16Array(MAX_BATCH_INDICES);
-    this.spriteVertices = new Float32Array(
-      MAX_BATCH_VERTICES * SPRITE_VERTEX_SIZE,
-    );
-    this.spriteIndices = new Uint16Array(MAX_BATCH_INDICES);
+    // shapeBatch / spriteBatch / transformBuffer allocate their CPU-side
+    // Float32Array / Uint32Array storage in their own constructors.
   }
 
   private warnOnce(key: string, message: string): void {
@@ -454,7 +436,10 @@ export class WebGPURenderer {
       label: "Shape Uniform Buffer",
     });
 
-    // Create bind group layout
+    // Ensure the transform storage buffer exists before building the bind group.
+    const transformGpuBuffer = this.transformBuffer.ensureGpuBuffer(device);
+
+    // Create bind group layout: uniforms (0), transforms (1).
     const bindGroupLayout = device.createBindGroupLayout({
       entries: [
         {
@@ -462,44 +447,48 @@ export class WebGPURenderer {
           visibility: GPUShaderStage.VERTEX,
           buffer: { type: "uniform" },
         },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: "read-only-storage" },
+        },
       ],
       label: "Shape Bind Group Layout",
     });
 
-    // Create bind group
     this.shapeBindGroup = device.createBindGroup({
       layout: bindGroupLayout,
       entries: [
-        {
-          binding: 0,
-          resource: { buffer: this.shapeUniformBuffer },
-        },
+        { binding: 0, resource: { buffer: this.shapeUniformBuffer } },
+        { binding: 1, resource: { buffer: transformGpuBuffer } },
       ],
       label: "Shape Bind Group",
     });
 
-    // Create pipeline layout
     const pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [bindGroupLayout],
       label: "Shape Pipeline Layout",
     });
     this.shapePipelineLayout = pipelineLayout;
 
-    // Create vertex buffer layout
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: SHAPE_VERTEX_SIZE * 4, // 76 bytes
+    // Two-stream vertex layout: geometry + transformIndex.
+    const geometryStride = SHAPE_VERTEX_FLOATS * 4; // 28 bytes
+    const geometryLayout: GPUVertexBufferLayout = {
+      arrayStride: geometryStride,
       attributes: [
         { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
         { shaderLocation: 1, offset: 8, format: "float32x4" }, // color
-        { shaderLocation: 2, offset: 24, format: "float32x2" }, // modelCol0
-        { shaderLocation: 3, offset: 32, format: "float32x2" }, // modelCol1
-        { shaderLocation: 4, offset: 40, format: "float32x2" }, // modelCol2
-        { shaderLocation: 5, offset: 48, format: "float32" }, // z
-        { shaderLocation: 6, offset: 52, format: "float32x2" }, // zCoeffs
-        { shaderLocation: 7, offset: 60, format: "float32x4" }, // zDepth
+        { shaderLocation: 2, offset: 24, format: "float32" }, // z
       ],
     };
-    this.shapeVertexBufferLayout = vertexBufferLayout;
+    const txIndexLayout: GPUVertexBufferLayout = {
+      arrayStride: 4,
+      attributes: [
+        { shaderLocation: 3, offset: 0, format: "uint32" }, // transformIndex
+      ],
+    };
+    this.shapeVertexBufferLayout = geometryLayout;
+    this.shapeTxIndexBufferLayout = txIndexLayout;
 
     const fragmentState: GPUFragmentState = {
       module: shaderModule,
@@ -526,7 +515,7 @@ export class WebGPURenderer {
     const vertexState: GPUVertexState = {
       module: shaderModule,
       entryPoint: "vs_main",
-      buffers: [vertexBufferLayout],
+      buffers: [geometryLayout, txIndexLayout],
     };
 
     // Depth-attached pipelines (MSAA-sensitive) — extracted so they can be
@@ -542,18 +531,8 @@ export class WebGPURenderer {
       label: "Shape Pipeline (No Depth)",
     });
 
-    // Create vertex and index buffers — sized for multiple flushes per frame
-    this.shapeVertexBuffer = device.createBuffer({
-      size: this.shapeVertices.byteLength * GPU_BUFFER_FLUSH_CAPACITY,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      label: "Shape Vertex Buffer",
-    });
-
-    this.shapeIndexBuffer = device.createBuffer({
-      size: this.shapeIndices.byteLength * GPU_BUFFER_FLUSH_CAPACITY,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-      label: "Shape Index Buffer",
-    });
+    // Allocate batch GPU buffers (vertex, txIndex, index streams).
+    this.shapeBatch.createGpuBuffers(device);
   }
 
   private async createSpritePipeline(): Promise<void> {
@@ -580,7 +559,9 @@ export class WebGPURenderer {
       label: "Sprite Uniform Buffer",
     });
 
-    // Create bind group layout for uniforms and sampler (group 0)
+    const transformGpuBuffer = this.transformBuffer.ensureGpuBuffer(device);
+
+    // Create bind group layout for uniforms + sampler + transforms (group 0)
     this.spriteBindGroupLayout = device.createBindGroupLayout({
       entries: [
         {
@@ -592,6 +573,11 @@ export class WebGPURenderer {
           binding: 1,
           visibility: GPUShaderStage.FRAGMENT,
           sampler: { type: "filtering" },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: "read-only-storage" },
         },
       ],
       label: "Sprite Uniform Bind Group Layout",
@@ -609,23 +595,16 @@ export class WebGPURenderer {
       label: "Sprite Texture Bind Group Layout",
     });
 
-    // Create uniform/sampler bind group
     this.spriteUniformBindGroup = device.createBindGroup({
       layout: this.spriteBindGroupLayout,
       entries: [
-        {
-          binding: 0,
-          resource: { buffer: this.spriteUniformBuffer },
-        },
-        {
-          binding: 1,
-          resource: this.defaultSampler!,
-        },
+        { binding: 0, resource: { buffer: this.spriteUniformBuffer } },
+        { binding: 1, resource: this.defaultSampler! },
+        { binding: 2, resource: { buffer: transformGpuBuffer } },
       ],
       label: "Sprite Uniform Bind Group",
     });
 
-    // Create pipeline layout
     const pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [
         this.spriteBindGroupLayout,
@@ -635,22 +614,25 @@ export class WebGPURenderer {
     });
     this.spritePipelineLayout = pipelineLayout;
 
-    // Create vertex buffer layout
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: SPRITE_VERTEX_SIZE * 4, // 84 bytes
+    // Two-stream vertex layout: geometry (9 floats) + transformIndex (u32).
+    const geometryStride = SPRITE_VERTEX_FLOATS * 4; // 36 bytes
+    const geometryLayout: GPUVertexBufferLayout = {
+      arrayStride: geometryStride,
       attributes: [
         { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
         { shaderLocation: 1, offset: 8, format: "float32x2" }, // texCoord
         { shaderLocation: 2, offset: 16, format: "float32x4" }, // color
-        { shaderLocation: 3, offset: 32, format: "float32x2" }, // modelCol0
-        { shaderLocation: 4, offset: 40, format: "float32x2" }, // modelCol1
-        { shaderLocation: 5, offset: 48, format: "float32x2" }, // modelCol2
-        { shaderLocation: 6, offset: 56, format: "float32" }, // z
-        { shaderLocation: 7, offset: 60, format: "float32x2" }, // zCoeffs
-        { shaderLocation: 8, offset: 68, format: "float32x4" }, // zDepth
+        { shaderLocation: 3, offset: 32, format: "float32" }, // z
       ],
     };
-    this.spriteVertexBufferLayout = vertexBufferLayout;
+    const txIndexLayout: GPUVertexBufferLayout = {
+      arrayStride: 4,
+      attributes: [
+        { shaderLocation: 4, offset: 0, format: "uint32" }, // transformIndex
+      ],
+    };
+    this.spriteVertexBufferLayout = geometryLayout;
+    this.spriteTxIndexBufferLayout = txIndexLayout;
 
     const fragmentState: GPUFragmentState = {
       module: shaderModule,
@@ -677,7 +659,7 @@ export class WebGPURenderer {
     const vertexState: GPUVertexState = {
       module: shaderModule,
       entryPoint: "vs_main",
-      buffers: [vertexBufferLayout],
+      buffers: [geometryLayout, txIndexLayout],
     };
 
     // Depth-attached pipelines (MSAA-sensitive) — extracted so they can be
@@ -693,18 +675,7 @@ export class WebGPURenderer {
       label: "Sprite Pipeline (No Depth)",
     });
 
-    // Create vertex and index buffers — sized for multiple flushes per frame
-    this.spriteVertexBuffer = device.createBuffer({
-      size: this.spriteVertices.byteLength * GPU_BUFFER_FLUSH_CAPACITY,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      label: "Sprite Vertex Buffer",
-    });
-
-    this.spriteIndexBuffer = device.createBuffer({
-      size: this.spriteIndices.byteLength * GPU_BUFFER_FLUSH_CAPACITY,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-      label: "Sprite Index Buffer",
-    });
+    this.spriteBatch.createGpuBuffers(device);
 
     // Initialize GPU profiler if timestamp queries are supported
     const gpuManager = getWebGPU();
@@ -721,6 +692,7 @@ export class WebGPURenderer {
       !this.shapeShaderModule ||
       !this.shapePipelineLayout ||
       !this.shapeVertexBufferLayout ||
+      !this.shapeTxIndexBufferLayout ||
       !this.pipelinePrimitiveState
     )
       return;
@@ -729,7 +701,7 @@ export class WebGPURenderer {
     const vertexState: GPUVertexState = {
       module: this.shapeShaderModule,
       entryPoint: "vs_main",
-      buffers: [this.shapeVertexBufferLayout],
+      buffers: [this.shapeVertexBufferLayout, this.shapeTxIndexBufferLayout],
     };
     const fragmentState: GPUFragmentState = {
       module: this.shapeShaderModule,
@@ -796,6 +768,7 @@ export class WebGPURenderer {
       !this.spriteShaderModule ||
       !this.spritePipelineLayout ||
       !this.spriteVertexBufferLayout ||
+      !this.spriteTxIndexBufferLayout ||
       !this.pipelinePrimitiveState
     )
       return;
@@ -804,7 +777,7 @@ export class WebGPURenderer {
     const vertexState: GPUVertexState = {
       module: this.spriteShaderModule,
       entryPoint: "vs_main",
-      buffers: [this.spriteVertexBufferLayout],
+      buffers: [this.spriteVertexBufferLayout, this.spriteTxIndexBufferLayout],
     };
     const fragmentState: GPUFragmentState = {
       module: this.spriteShaderModule,
@@ -1100,19 +1073,18 @@ export class WebGPURenderer {
     this.depthMode = "none";
     this.inOffscreenPass = false;
 
+    // Reset per-frame transform buffer; slot 0 is the identity root.
+    this.transformBuffer.reset();
+    this.pendingTransformDirty = true;
+
     // Reset batches
-    this.shapeVertexCount = 0;
-    this.shapeIndexCount = 0;
-    this.spriteVertexCount = 0;
-    this.spriteIndexCount = 0;
+    this.shapeBatch.resetBatch();
+    this.shapeBatch.resetFrameOffsets();
+    this.spriteBatch.vertexCount = 0;
+    this.spriteBatch.indexCount = 0;
+    this.spriteBatch.resetFrameOffsets();
     this.currentTexture = null;
     this.currentTextureBindGroup = null;
-
-    // Reset GPU buffer write offsets so each frame starts writing from the beginning
-    this.gpuShapeVertexByteOffset = 0;
-    this.gpuShapeIndexByteOffset = 0;
-    this.gpuSpriteVertexByteOffset = 0;
-    this.gpuSpriteIndexByteOffset = 0;
 
     // Reset stats
     this.drawCallCount = 0;
@@ -1250,6 +1222,44 @@ export class WebGPURenderer {
   flush(): void {
     this.flushShapes();
     this.flushSprites();
+  }
+
+  /**
+   * Prepare the shape batch for a tessellator write. Flushes any pending
+   * sprites (for layer ordering) and ensures the batch's
+   * `currentTransformIndex` reflects the latest transform state. Returns
+   * the batch as a VertexSink that tessellators can write through.
+   */
+  prepareShapeSink(): ShapeBatch {
+    if (this.spriteBatch.indexCount > 0) this.flushSprites();
+    // Pre-flush when close to capacity so a single tessellator call can't
+    // straddle the batch limit. The safety margin covers any reasonable
+    // primitive (polylines with round caps, ear-clip on large polygons, etc.).
+    const safetyVerts = 8192;
+    const safetyIndices = safetyVerts * 3;
+    if (
+      this.shapeBatch.vertexCount + safetyVerts > this.shapeBatch.maxVertices ||
+      this.shapeBatch.indexCount + safetyIndices > this.shapeBatch.maxIndices
+    ) {
+      this.flushShapes();
+    }
+    this.refreshTransformIndex();
+    return this.shapeBatch;
+  }
+
+  /** Cached tilt projection for the current context, if draw.at({ tilt }) is active. */
+  private currentTiltProjection:
+    | import("../TiltProjection").TiltProjection
+    | null = null;
+
+  getCurrentTilt(): import("../TiltProjection").TiltProjection | null {
+    return this.currentTiltProjection;
+  }
+
+  setCurrentTilt(
+    tilt: import("../TiltProjection").TiltProjection | null,
+  ): void {
+    this.currentTiltProjection = tilt;
   }
 
   /** Get the current render pass encoder for custom rendering */
@@ -1414,6 +1424,7 @@ export class WebGPURenderer {
       this.currentZRowY = 0;
       this.currentZRowZ = 1;
     }
+    this.pendingTransformDirty = true;
   }
 
   /** Translate by (x, y) */
@@ -1425,11 +1436,13 @@ export class WebGPURenderer {
     } else {
       this.currentTransform.translate(xOrPos[0], xOrPos[1]);
     }
+    this.pendingTransformDirty = true;
   }
 
   /** Rotate by angle (radians) */
   rotate(radians: number): void {
     this.currentTransform.rotate(radians);
+    this.pendingTransformDirty = true;
   }
 
   /** Scale uniformly or non-uniformly */
@@ -1437,11 +1450,13 @@ export class WebGPURenderer {
   scale(sx: number, sy: number): void;
   scale(sx: number, sy?: number): void {
     this.currentTransform.scale(sx, sy ?? sx);
+    this.pendingTransformDirty = true;
   }
 
   /** Set a specific transform matrix */
   setTransform(matrix: Matrix3): void {
     this.currentTransform.copyFrom(matrix);
+    this.pendingTransformDirty = true;
   }
 
   /** Get the current transform matrix */
@@ -1462,6 +1477,7 @@ export class WebGPURenderer {
   /** Set the z-height for subsequent draw calls. */
   setZ(z: number): void {
     this.currentZ = z;
+    this.pendingTransformDirty = true;
   }
 
   /** Get the current z-height. */
@@ -1473,6 +1489,7 @@ export class WebGPURenderer {
   setZCoeffs(x: number, y: number): void {
     this.currentZCoeffX = x;
     this.currentZCoeffY = y;
+    this.pendingTransformDirty = true;
   }
 
   /**
@@ -1484,6 +1501,7 @@ export class WebGPURenderer {
     this.currentZRowX = x;
     this.currentZRowY = y;
     this.currentZRowZ = z;
+    this.pendingTransformDirty = true;
   }
 
   /** Whether we're currently rendering to an offscreen pass (no depth attachment). */
@@ -1752,6 +1770,47 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     });
   }
 
+  // ============ Transform allocation ============
+
+  /**
+   * Build a Transform struct from the current renderer state. Tint defaults
+   * to white — future callers wanting per-instance tint will set it.
+   */
+  private buildPendingTransform(): Transform {
+    const m = this.currentTransform;
+    return {
+      modelCol0X: m.a,
+      modelCol0Y: m.b,
+      modelCol1X: m.c,
+      modelCol1Y: m.d,
+      modelCol2X: m.tx,
+      modelCol2Y: m.ty,
+      zCoeffX: this.currentZCoeffX,
+      zCoeffY: this.currentZCoeffY,
+      zRowX: this.currentZRowX,
+      zRowY: this.currentZRowY,
+      zRowZ: this.currentZRowZ,
+      zBase: this.currentZ,
+      tintR: 1,
+      tintG: 1,
+      tintB: 1,
+      tintA: 1,
+    };
+  }
+
+  /**
+   * Allocate a new transform-buffer slot if state has changed since the last
+   * submit; otherwise reuse the previously-allocated slot. Both the shape and
+   * sprite batches stamp this slot on newly reserved vertices.
+   */
+  private refreshTransformIndex(): void {
+    if (!this.pendingTransformDirty) return;
+    const idx = this.transformBuffer.alloc(this.buildPendingTransform());
+    this.shapeBatch.currentTransformIndex = idx;
+    this.spriteBatch.currentTransformIndex = idx;
+    this.pendingTransformDirty = false;
+  }
+
   // ============ Core Primitive ============
 
   /**
@@ -1779,22 +1838,23 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     zValues: number[] | null,
   ): void {
     // Flush sprites before drawing shapes (maintains layer ordering)
-    if (this.spriteIndexCount > 0) {
+    if (this.spriteBatch.indexCount > 0) {
       this.flushSprites();
     }
 
-    // Check if we need to flush
+    // Flush if adding this call would overflow the shape batch.
     if (
-      this.shapeVertexCount + vertices.length > MAX_BATCH_VERTICES ||
-      this.shapeIndexCount + indices.length > MAX_BATCH_INDICES
+      this.shapeBatch.vertexCount + vertices.length >
+        this.shapeBatch.maxVertices ||
+      this.shapeBatch.indexCount + indices.length > this.shapeBatch.maxIndices
     ) {
       this.flushShapes();
     }
 
-    // If a single call still exceeds capacity after flush, split into triangle-sized chunks
+    // Split oversize submissions into triangle-sized chunks.
     if (
-      vertices.length > MAX_BATCH_VERTICES ||
-      indices.length > MAX_BATCH_INDICES
+      vertices.length > this.shapeBatch.maxVertices ||
+      indices.length > this.shapeBatch.maxIndices
     ) {
       for (let t = 0; t < indices.length; t += 3) {
         const triIndices = indices.slice(t, t + 3);
@@ -1803,65 +1863,28 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
       return;
     }
 
-    // Extract color components
+    this.refreshTransformIndex();
+
     const [r, g, b] = hexToVec3(color);
-
-    // Extract model matrix components
-    const m = this.currentTransform;
-    const ma = m.a,
-      mb = m.b,
-      mc = m.c,
-      md = m.d,
-      mtx = m.tx,
-      mty = m.ty;
-
-    const baseVertex = this.shapeVertexCount;
-
-    // Extract z state. Per-vertex z is the LOCAL z-height (for parallax via zCoeffs).
-    // zDepth (zRow + zBase) is stored per-vertex so depth is always correct
-    // regardless of when the batch is flushed relative to save/restore.
-    const globalZ = this.currentZ;
-    const zcx = this.currentZCoeffX;
-    const zcy = this.currentZCoeffY;
-    const zrx = this.currentZRowX;
-    const zry = this.currentZRowY;
-    const zrz = this.currentZRowZ;
+    // Per-vertex z defaults to 0 — zBase in the transform already carries
+    // currentZ. Explicit zValues are local z offsets added on top.
+    const { base, view } = this.shapeBatch.reserveVertices(vertices.length);
 
     for (let i = 0; i < vertices.length; i++) {
       const v = vertices[i];
-      const z = zValues !== null ? zValues[i] : globalZ;
-      const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
-      this.shapeVertices.set(
-        [
-          v[0],
-          v[1],
-          r,
-          g,
-          b,
-          alpha,
-          ma,
-          mb,
-          mc,
-          md,
-          mtx,
-          mty,
-          z,
-          zcx,
-          zcy,
-          zrx,
-          zry,
-          zrz,
-          globalZ,
-        ],
-        offset,
-      );
-      this.shapeVertexCount++;
+      const z = zValues !== null ? zValues[i] : 0;
+      const o = i * SHAPE_VERTEX_FLOATS;
+      view[o] = v[0];
+      view[o + 1] = v[1];
+      view[o + 2] = r;
+      view[o + 3] = g;
+      view[o + 4] = b;
+      view[o + 5] = alpha;
+      view[o + 6] = z;
     }
 
-    // Add indices
-    for (const idx of indices) {
-      this.shapeIndices[this.shapeIndexCount++] = baseVertex + idx;
-    }
+    const idxSlice = this.shapeBatch.reserveIndices(indices.length);
+    for (let i = 0; i < indices.length; i++) idxSlice[i] = base + indices[i];
   }
 
   /**
@@ -1876,23 +1899,21 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     indices: number[],
     colors: [number, number, number, number][],
   ): void {
-    // Flush sprites before drawing shapes (maintains layer ordering)
-    if (this.spriteIndexCount > 0) {
+    if (this.spriteBatch.indexCount > 0) {
       this.flushSprites();
     }
 
-    // Check if we need to flush
     if (
-      this.shapeVertexCount + vertices.length > MAX_BATCH_VERTICES ||
-      this.shapeIndexCount + indices.length > MAX_BATCH_INDICES
+      this.shapeBatch.vertexCount + vertices.length >
+        this.shapeBatch.maxVertices ||
+      this.shapeBatch.indexCount + indices.length > this.shapeBatch.maxIndices
     ) {
       this.flushShapes();
     }
 
-    // If a single call still exceeds capacity after flush, split into triangle-sized chunks
     if (
-      vertices.length > MAX_BATCH_VERTICES ||
-      indices.length > MAX_BATCH_INDICES
+      vertices.length > this.shapeBatch.maxVertices ||
+      indices.length > this.shapeBatch.maxIndices
     ) {
       for (let t = 0; t < indices.length; t += 3) {
         const triIndices = indices.slice(t, t + 3);
@@ -1901,147 +1922,102 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
       return;
     }
 
-    // Extract model matrix components
-    const m = this.currentTransform;
-    const ma = m.a,
-      mb = m.b,
-      mc = m.c,
-      md = m.d,
-      mtx = m.tx,
-      mty = m.ty;
+    this.refreshTransformIndex();
 
-    // Extract z state
-    const z = this.currentZ;
-    const zcx = this.currentZCoeffX;
-    const zcy = this.currentZCoeffY;
-    const zrx = this.currentZRowX;
-    const zry = this.currentZRowY;
-    const zrz = this.currentZRowZ;
-
-    const baseVertex = this.shapeVertexCount;
-
-    // Store vertices with per-vertex color, model matrix, and z data
+    // Per-vertex z defaults to 0 — zBase in the transform already carries
+    // currentZ, so emitting currentZ per-vertex would double-apply.
+    const { base, view } = this.shapeBatch.reserveVertices(vertices.length);
     for (let i = 0; i < vertices.length; i++) {
       const v = vertices[i];
       const c = colors[i];
-      const offset = this.shapeVertexCount * SHAPE_VERTEX_SIZE;
-      this.shapeVertices.set(
-        [
-          v[0],
-          v[1],
-          c[0],
-          c[1],
-          c[2],
-          c[3],
-          ma,
-          mb,
-          mc,
-          md,
-          mtx,
-          mty,
-          z,
-          zcx,
-          zcy,
-          zrx,
-          zry,
-          zrz,
-          z,
-        ],
-        offset,
-      );
-      this.shapeVertexCount++;
+      const o = i * SHAPE_VERTEX_FLOATS;
+      view[o] = v[0];
+      view[o + 1] = v[1];
+      view[o + 2] = c[0];
+      view[o + 3] = c[1];
+      view[o + 4] = c[2];
+      view[o + 5] = c[3];
+      view[o + 6] = 0;
     }
 
-    // Add indices
-    for (const idx of indices) {
-      this.shapeIndices[this.shapeIndexCount++] = baseVertex + idx;
+    const idxSlice = this.shapeBatch.reserveIndices(indices.length);
+    for (let i = 0; i < indices.length; i++) idxSlice[i] = base + indices[i];
+  }
+
+  /**
+   * Submit a cached/dynamic mesh — the fast path. Memcpy-grade vertex + tx
+   * upload, O(n) integer-add index rebase. One transform slot amortized
+   * across the whole mesh.
+   */
+  drawMesh(m: CachedMesh | DynamicMesh): void {
+    if (m.vertexCount === 0 || m.indexCount === 0) return;
+
+    if (this.spriteBatch.indexCount > 0) this.flushSprites();
+
+    // A mesh bigger than the batch can't be submitted in one shot. Splitting
+    // is non-trivial (indices reference local vertices); drop with a warning.
+    if (
+      m.vertexCount > this.shapeBatch.maxVertices ||
+      m.indexCount > this.shapeBatch.maxIndices
+    ) {
+      this.warnOnce(
+        "drawMesh-oversize",
+        `drawMesh skipped mesh with ${m.vertexCount} verts / ${m.indexCount} indices (exceeds batch capacity).`,
+      );
+      return;
     }
+
+    if (
+      this.shapeBatch.vertexCount + m.vertexCount >
+        this.shapeBatch.maxVertices ||
+      this.shapeBatch.indexCount + m.indexCount > this.shapeBatch.maxIndices
+    ) {
+      this.flushShapes();
+    }
+
+    this.refreshTransformIndex();
+
+    const { base, view } = this.shapeBatch.reserveVertices(m.vertexCount);
+    // Bulk memcpy the packed vertex stream.
+    view.set(m.vertexData.subarray(0, m.vertexCount * SHAPE_VERTEX_FLOATS), 0);
+
+    const idxSlice = this.shapeBatch.reserveIndices(m.indexCount);
+    for (let i = 0; i < m.indexCount; i++) idxSlice[i] = base + m.indexData[i];
   }
 
   /** Flush the shape batch to the GPU */
   private flushShapes(): void {
-    if (this.shapeIndexCount === 0 || !this.currentRenderPass || !this.device)
+    if (
+      this.shapeBatch.indexCount === 0 ||
+      !this.currentRenderPass ||
+      !this.device
+    )
       return;
 
-    this.drawCallCount++;
-    this.triangleCount += this.shapeIndexCount / 3;
-    this.vertexCount += this.shapeVertexCount;
-
-    // Upload view matrix to uniform buffer
+    // Upload view matrix + the per-frame transform range (includes everything
+    // allocated up through the slots this batch references).
     this.uploadUniforms(this.shapeUniformBuffer!);
+    this.transformBuffer.upload(this.device);
 
-    // Upload vertex data at current GPU offset
-    const vertexData = this.shapeVertices.subarray(
-      0,
-      this.shapeVertexCount * SHAPE_VERTEX_SIZE,
-    );
-    const vertexByteSize = vertexData.byteLength;
-
-    // Upload index data at current GPU offset
-    // WebGPU requires writeBuffer size to be a multiple of 4 bytes.
-    // Uint16 indices may have odd count, so round up to even count.
-    const paddedIndexCount = (this.shapeIndexCount + 1) & ~1;
-    const indexData = this.shapeIndices.subarray(0, paddedIndexCount);
-    const indexByteSize = indexData.byteLength;
-
-    // If we'd exceed the GPU buffer, wrap to 0 (rare fallback)
-    const vertexBufferSize =
-      this.shapeVertices.byteLength * GPU_BUFFER_FLUSH_CAPACITY;
-    const indexBufferSize =
-      this.shapeIndices.byteLength * GPU_BUFFER_FLUSH_CAPACITY;
-    if (
-      this.gpuShapeVertexByteOffset + vertexByteSize > vertexBufferSize ||
-      this.gpuShapeIndexByteOffset + indexByteSize > indexBufferSize
-    ) {
-      this.gpuShapeVertexByteOffset = 0;
-      this.gpuShapeIndexByteOffset = 0;
-    }
-
-    this.device.queue.writeBuffer(
-      this.shapeVertexBuffer!,
-      this.gpuShapeVertexByteOffset,
-      vertexData.buffer,
-      vertexData.byteOffset,
-      vertexByteSize,
-    );
-
-    this.device.queue.writeBuffer(
-      this.shapeIndexBuffer!,
-      this.gpuShapeIndexByteOffset,
-      indexData.buffer,
-      indexData.byteOffset,
-      indexByteSize,
-    );
-
-    // Draw with offsets so each flush reads its own data
-    const shapePipeline = this.inOffscreenPass
+    const pipeline = this.inOffscreenPass
       ? this.shapePipelineNoDepth!
       : this.depthMode === "read-write"
         ? this.shapePipelineDepth!
         : this.depthMode === "always-write"
           ? this.shapePipelineAlwaysWrite!
           : this.shapePipeline!;
-    this.currentRenderPass.setPipeline(shapePipeline);
-    this.currentRenderPass.setBindGroup(0, this.shapeBindGroup!);
-    this.currentRenderPass.setVertexBuffer(
-      0,
-      this.shapeVertexBuffer!,
-      this.gpuShapeVertexByteOffset,
-    );
-    this.currentRenderPass.setIndexBuffer(
-      this.shapeIndexBuffer!,
-      "uint16",
-      this.gpuShapeIndexByteOffset,
-    );
-    this.currentRenderPass.drawIndexed(this.shapeIndexCount);
 
-    // Advance GPU offsets for next flush
-    this.gpuShapeVertexByteOffset += vertexByteSize;
-    this.gpuShapeIndexByteOffset += indexByteSize;
+    const { vertices, triangles } = this.shapeBatch.flush(
+      this.device,
+      this.currentRenderPass,
+      pipeline,
+      this.shapeBindGroup!,
+    );
+    if (vertices === 0) return;
 
-    // Reset CPU batch
-    this.shapeVertexCount = 0;
-    this.shapeIndexCount = 0;
+    this.drawCallCount++;
+    this.triangleCount += triangles;
+    this.vertexCount += vertices;
   }
 
   // ============ Sprite Drawing ============
@@ -2053,12 +2029,7 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     y: number,
     opts: SpriteOptions = {},
   ): void {
-    // Flush shapes before drawing sprites
-    if (this.shapeIndexCount > 0) {
-      this.flushShapes();
-    }
-
-    // Flush if texture changes
+    if (this.shapeBatch.indexCount > 0) this.flushShapes();
     if (this.currentTexture && this.currentTexture !== texture) {
       this.flushSprites();
     }
@@ -2076,7 +2047,10 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     const tw = texture.width;
     const th = texture.height;
 
-    // Build combined transform matrix
+    // Build combined transform (anchor + scale + rotate + translate, then
+    // composed with the current world transform). We allocate a dedicated
+    // instance-transform slot for this quad so it can be positioned
+    // independently without disturbing the caller's transform state.
     const m = this.spriteMatrix;
     m.identity();
     m.translate(x, y);
@@ -2085,87 +2059,61 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     m.translate(-anchorX * tw, -anchorY * th);
     m.premultiply(this.currentTransform);
 
-    // Extract matrix values for per-vertex storage
-    const ma = m.a,
-      mb = m.b,
-      mc = m.c,
-      md = m.d,
-      mtx = m.tx,
-      mty = m.ty;
-
     const tr = ((tint >> 16) & 0xff) / 255;
     const tg = ((tint >> 8) & 0xff) / 255;
     const tb = (tint & 0xff) / 255;
 
-    // Corners and UVs
-    const corners = [
-      [0, 0],
-      [tw, 0],
-      [tw, th],
-      [0, th],
-    ];
-    const uvs = [
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [0, 1],
-    ];
-
-    // Check if we need to flush
+    // Flush if adding the quad would overflow.
     if (
-      this.spriteVertexCount + 4 > MAX_BATCH_VERTICES ||
-      this.spriteIndexCount + 6 > MAX_BATCH_INDICES
+      this.spriteBatch.vertexCount + 4 > this.spriteBatch.maxVertices ||
+      this.spriteBatch.indexCount + 6 > this.spriteBatch.maxIndices
     ) {
       this.flushSprites();
     }
 
-    const baseVertex = this.spriteVertexCount / SPRITE_VERTEX_SIZE;
+    // Allocate a one-off transform slot that carries the sprite's local
+    // matrix and the current z-state. Identity-tint (no per-sprite tint
+    // coloring here — tint is applied to the vertex color RGB).
+    const slot = this.transformBuffer.alloc({
+      modelCol0X: m.a,
+      modelCol0Y: m.b,
+      modelCol1X: m.c,
+      modelCol1Y: m.d,
+      modelCol2X: m.tx,
+      modelCol2Y: m.ty,
+      zCoeffX: this.currentZCoeffX,
+      zCoeffY: this.currentZCoeffY,
+      zRowX: this.currentZRowX,
+      zRowY: this.currentZRowY,
+      zRowZ: this.currentZRowZ,
+      zBase: this.currentZ,
+      tintR: 1,
+      tintG: 1,
+      tintB: 1,
+      tintA: 1,
+    });
+    this.spriteBatch.currentTransformIndex = slot;
 
-    const z = this.currentZ;
-    const zcx = this.currentZCoeffX;
-    const zcy = this.currentZCoeffY;
-    const zrx = this.currentZRowX;
-    const zry = this.currentZRowY;
-    const zrz = this.currentZRowZ;
-
-    for (let i = 0; i < 4; i++) {
-      const offset = this.spriteVertexCount;
-      this.spriteVertices.set(
-        [
-          corners[i][0],
-          corners[i][1],
-          uvs[i][0],
-          uvs[i][1],
-          tr,
-          tg,
-          tb,
-          alpha,
-          ma,
-          mb,
-          mc,
-          md,
-          mtx,
-          mty,
-          z,
-          zcx,
-          zcy,
-          zrx,
-          zry,
-          zrz,
-          z,
-        ],
-        offset,
-      );
-      this.spriteVertexCount += SPRITE_VERTEX_SIZE;
-    }
-
-    // Add indices (two triangles)
-    this.spriteIndices[this.spriteIndexCount++] = baseVertex;
-    this.spriteIndices[this.spriteIndexCount++] = baseVertex + 1;
-    this.spriteIndices[this.spriteIndexCount++] = baseVertex + 2;
-    this.spriteIndices[this.spriteIndexCount++] = baseVertex;
-    this.spriteIndices[this.spriteIndexCount++] = baseVertex + 2;
-    this.spriteIndices[this.spriteIndexCount++] = baseVertex + 3;
+    this.spriteBatch.writeQuad(
+      [
+        [0, 0],
+        [tw, 0],
+        [tw, th],
+        [0, th],
+      ],
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ],
+      tr,
+      tg,
+      tb,
+      alpha,
+      // Per-vertex z=0: zBase in the sprite's transform already carries currentZ.
+      0,
+    );
   }
 
   /** Get or create a bind group for a texture */
@@ -2190,96 +2138,36 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
   /** Flush the sprite batch to the GPU */
   private flushSprites(): void {
     if (
-      this.spriteIndexCount === 0 ||
+      this.spriteBatch.indexCount === 0 ||
       !this.currentTexture ||
       !this.currentRenderPass ||
       !this.device
     )
       return;
 
-    this.drawCallCount++;
-    this.triangleCount += this.spriteIndexCount / 3;
-    this.vertexCount += this.spriteVertexCount / SPRITE_VERTEX_SIZE;
-
-    // Upload view matrix to uniform buffer
     this.uploadUniforms(this.spriteUniformBuffer!);
+    this.transformBuffer.upload(this.device);
 
-    // Upload vertex data at current GPU offset
-    const spriteVertexData = this.spriteVertices.subarray(
-      0,
-      this.spriteVertexCount,
-    );
-    const vertexByteSize = spriteVertexData.byteLength;
-
-    // Upload index data at current GPU offset
-    // WebGPU requires writeBuffer size to be a multiple of 4 bytes.
-    // Uint16 indices may have odd count, so round up to even count.
-    const paddedSpriteIndexCount = (this.spriteIndexCount + 1) & ~1;
-    const spriteIndexData = this.spriteIndices.subarray(
-      0,
-      paddedSpriteIndexCount,
-    );
-    const indexByteSize = spriteIndexData.byteLength;
-
-    // If we'd exceed the GPU buffer, wrap to 0 (rare fallback)
-    const vertexBufferSize =
-      this.spriteVertices.byteLength * GPU_BUFFER_FLUSH_CAPACITY;
-    const indexBufferSize =
-      this.spriteIndices.byteLength * GPU_BUFFER_FLUSH_CAPACITY;
-    if (
-      this.gpuSpriteVertexByteOffset + vertexByteSize > vertexBufferSize ||
-      this.gpuSpriteIndexByteOffset + indexByteSize > indexBufferSize
-    ) {
-      this.gpuSpriteVertexByteOffset = 0;
-      this.gpuSpriteIndexByteOffset = 0;
-    }
-
-    this.device.queue.writeBuffer(
-      this.spriteVertexBuffer!,
-      this.gpuSpriteVertexByteOffset,
-      spriteVertexData.buffer,
-      spriteVertexData.byteOffset,
-      vertexByteSize,
-    );
-
-    this.device.queue.writeBuffer(
-      this.spriteIndexBuffer!,
-      this.gpuSpriteIndexByteOffset,
-      spriteIndexData.buffer,
-      spriteIndexData.byteOffset,
-      indexByteSize,
-    );
-
-    // Draw with offsets so each flush reads its own data
-    const spritePipeline = this.inOffscreenPass
+    const pipeline = this.inOffscreenPass
       ? this.spritePipelineNoDepth!
       : this.depthMode === "read-write"
         ? this.spritePipelineDepth!
         : this.depthMode === "always-write"
           ? this.spritePipelineAlwaysWrite!
           : this.spritePipeline!;
-    this.currentRenderPass.setPipeline(spritePipeline);
-    this.currentRenderPass.setBindGroup(0, this.spriteUniformBindGroup!);
-    this.currentRenderPass.setBindGroup(1, this.currentTextureBindGroup!);
-    this.currentRenderPass.setVertexBuffer(
-      0,
-      this.spriteVertexBuffer!,
-      this.gpuSpriteVertexByteOffset,
-    );
-    this.currentRenderPass.setIndexBuffer(
-      this.spriteIndexBuffer!,
-      "uint16",
-      this.gpuSpriteIndexByteOffset,
-    );
-    this.currentRenderPass.drawIndexed(this.spriteIndexCount);
 
-    // Advance GPU offsets for next flush
-    this.gpuSpriteVertexByteOffset += vertexByteSize;
-    this.gpuSpriteIndexByteOffset += indexByteSize;
+    const { vertices, triangles } = this.spriteBatch.flush(
+      this.device,
+      this.currentRenderPass,
+      pipeline,
+      this.spriteUniformBindGroup!,
+      this.currentTextureBindGroup!,
+    );
+    if (vertices === 0) return;
 
-    // Reset CPU batch
-    this.spriteVertexCount = 0;
-    this.spriteIndexCount = 0;
+    this.drawCallCount++;
+    this.triangleCount += triangles;
+    this.vertexCount += vertices;
   }
 
   /** Upload uniforms (view matrix only — depth transform is per-vertex) */
@@ -2404,12 +2292,11 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     this.textureManager.destroy();
     this.textureBindGroupCache.clear();
 
-    this.shapeVertexBuffer?.destroy();
-    this.shapeIndexBuffer?.destroy();
-    this.shapeUniformBuffer?.destroy();
+    this.shapeBatch.dispose();
+    this.spriteBatch.dispose();
+    this.transformBuffer.dispose();
 
-    this.spriteVertexBuffer?.destroy();
-    this.spriteIndexBuffer?.destroy();
+    this.shapeUniformBuffer?.destroy();
     this.spriteUniformBuffer?.destroy();
 
     this.mainDepthTexture?.destroy();

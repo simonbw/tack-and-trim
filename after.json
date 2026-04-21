@@ -1,0 +1,786 @@
+[
+  {
+    "label": "Game.nextFrame",
+    "shortLabel": "Game.nextFrame",
+    "depth": 0,
+    "callsPerFrame": 1,
+    "msPerFrame": 4.523473344629639,
+    "maxMs": 8.434999942779541
+  },
+  {
+    "label": "Game.nextFrame > World.step",
+    "shortLabel": "World.step",
+    "depth": 1,
+    "callsPerFrame": 1,
+    "msPerFrame": 2.292154242509869,
+    "maxMs": 2.7200000286102295
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve",
+    "shortLabel": "World.solve",
+    "depth": 2,
+    "callsPerFrame": 8,
+    "msPerFrame": 1.209818167363815,
+    "maxMs": 0.25500011444091797
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.iterate",
+    "shortLabel": "Solver.iterate",
+    "depth": 3,
+    "callsPerFrame": 8,
+    "msPerFrame": 0.9445888921270488,
+    "maxMs": 0.21500015258789062
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.iterate > pointToRigid",
+    "shortLabel": "pointToRigid",
+    "depth": 4,
+    "callsPerFrame": 29840,
+    "msPerFrame": 0.37518845919607235,
+    "maxMs": 0.05000019073486328
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.iterate > pointToPoint",
+    "shortLabel": "pointToPoint",
+    "depth": 4,
+    "callsPerFrame": 13120,
+    "msPerFrame": 0.16620335307112208,
+    "maxMs": 0.04999995231628418
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.iterate > general",
+    "shortLabel": "general",
+    "depth": 4,
+    "callsPerFrame": 5519.998929125543,
+    "msPerFrame": 0.05686597391670803,
+    "maxMs": 0.03500008583068848
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.iterate > pulley",
+    "shortLabel": "pulley",
+    "depth": 4,
+    "callsPerFrame": 10720,
+    "msPerFrame": 0.05477091806123569,
+    "maxMs": 0.039999961853027344
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.iterate > pointToPoint2D",
+    "shortLabel": "pointToPoint2D",
+    "depth": 4,
+    "callsPerFrame": 2400,
+    "msPerFrame": 0.03815790809327025,
+    "maxMs": 0.07500004768371582
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.iterate > angular3D",
+    "shortLabel": "angular3D",
+    "depth": 4,
+    "callsPerFrame": 320,
+    "msPerFrame": 0.019903771547366594,
+    "maxMs": 0.08000016212463379
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.iterate > planar2D",
+    "shortLabel": "planar2D",
+    "depth": 4,
+    "callsPerFrame": 5012.23862999299,
+    "msPerFrame": 0.0185045194918414,
+    "maxMs": 0.03000020980834961
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.setup",
+    "shortLabel": "Solver.setup",
+    "depth": 3,
+    "callsPerFrame": 8,
+    "msPerFrame": 0.14397045073680498,
+    "maxMs": 0.07500004768371582
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.warmStart",
+    "shortLabel": "Solver.warmStart",
+    "depth": 3,
+    "callsPerFrame": 8,
+    "msPerFrame": 0.06226297956158085,
+    "maxMs": 0.04500007629394531
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.solve > Solver.finalize",
+    "shortLabel": "Solver.finalize",
+    "depth": 3,
+    "callsPerFrame": 8,
+    "msPerFrame": 0.04112512303546912,
+    "maxMs": 0.039999961853027344
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate",
+    "shortLabel": "World.constraintUpdate",
+    "depth": 2,
+    "callsPerFrame": 8,
+    "msPerFrame": 0.5865252215280743,
+    "maxMs": 0.19499993324279785
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate > DeckContactConstraint",
+    "shortLabel": "DeckContactConstraint",
+    "depth": 3,
+    "callsPerFrame": 848,
+    "msPerFrame": 0.3356767008962917,
+    "maxMs": 0.125
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate > PulleyConstraint3D",
+    "shortLabel": "PulleyConstraint3D",
+    "depth": 3,
+    "callsPerFrame": 248,
+    "msPerFrame": 0.12221047331991827,
+    "maxMs": 0.08500003814697266
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate > DistanceConstraint3D",
+    "shortLabel": "DistanceConstraint3D",
+    "depth": 3,
+    "callsPerFrame": 1336,
+    "msPerFrame": 0.04922323976353848,
+    "maxMs": 0.059999942779541016
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate > WrapConstraint3D",
+    "shortLabel": "WrapConstraint3D",
+    "depth": 3,
+    "callsPerFrame": 824,
+    "msPerFrame": 0.020532184484206916,
+    "maxMs": 0.03000020980834961
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate > DistanceConstraint",
+    "shortLabel": "DistanceConstraint",
+    "depth": 3,
+    "callsPerFrame": 240,
+    "msPerFrame": 0.008173115129313568,
+    "maxMs": 0.029999971389770508
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate > TerrainContactConstraint",
+    "shortLabel": "TerrainContactConstraint",
+    "depth": 3,
+    "callsPerFrame": 120,
+    "msPerFrame": 0.005837638897650605,
+    "maxMs": 0.02500009536743164
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate > RevoluteConstraint3D",
+    "shortLabel": "RevoluteConstraint3D",
+    "depth": 3,
+    "callsPerFrame": 16,
+    "msPerFrame": 0.005326501410806172,
+    "maxMs": 0.04500007629394531
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate > SailorDeckConstraint",
+    "shortLabel": "SailorDeckConstraint",
+    "depth": 3,
+    "callsPerFrame": 8,
+    "msPerFrame": 0.0037238834755696027,
+    "maxMs": 0.019999980926513672
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.constraintUpdate > PointToRigidLockConstraint3D",
+    "shortLabel": "PointToRigidLockConstraint3D",
+    "depth": 3,
+    "callsPerFrame": 8,
+    "msPerFrame": 0.002686522702755595,
+    "maxMs": 0.029999971389770508
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.doBroadphase",
+    "shortLabel": "World.doBroadphase",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.09489443255581358,
+    "maxMs": 0.19000005722045898
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.collectEquations",
+    "shortLabel": "World.collectEquations",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.07319166331629637,
+    "maxMs": 0.125
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.narrowphase",
+    "shortLabel": "World.narrowphase",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0639428460734776,
+    "maxMs": 0.17499995231628418
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.contactEquations",
+    "shortLabel": "World.contactEquations",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.038840872446617825,
+    "maxMs": 0.17499995231628418
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.integratePositions",
+    "shortLabel": "World.integratePositions",
+    "depth": 2,
+    "callsPerFrame": 8,
+    "msPerFrame": 0.031135675013778504,
+    "maxMs": 0.04500007629394531
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.frictionEquations",
+    "shortLabel": "World.frictionEquations",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.023065077594249,
+    "maxMs": 0.059999942779541016
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.updateOverlapTracking",
+    "shortLabel": "World.updateOverlapTracking",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.018025003143774605,
+    "maxMs": 0.04999995231628418
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.applyForces",
+    "shortLabel": "World.applyForces",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.008561340846183665,
+    "maxMs": 0.034999847412109375
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.integrateForcesToVelocity",
+    "shortLabel": "World.integrateForcesToVelocity",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.007333085080372313,
+    "maxMs": 0.029999971389770508
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.emitContactEvents",
+    "shortLabel": "World.emitContactEvents",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.006739897255354491,
+    "maxMs": 0.03000020980834961
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.emitPreSolveAndWakeUp",
+    "shortLabel": "World.emitPreSolveAndWakeUp",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.001429164845792504,
+    "maxMs": 0.019999980926513672
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.emitImpactEvents",
+    "shortLabel": "World.emitImpactEvents",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0013170057838415947,
+    "maxMs": 0.02499985694885254
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.handleCollisionWakeUps",
+    "shortLabel": "World.handleCollisionWakeUps",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0012303628704597735,
+    "maxMs": 0.02500009536743164
+  },
+  {
+    "label": "Game.nextFrame > World.step > World.updateSleeping",
+    "shortLabel": "World.updateSleeping",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0004602197621914293,
+    "maxMs": 0.009999990463256836
+  },
+  {
+    "label": "Game.nextFrame > Game.tick",
+    "shortLabel": "Game.tick",
+    "depth": 1,
+    "callsPerFrame": 1,
+    "msPerFrame": 1.2582198828953735,
+    "maxMs": 4.875
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.main",
+    "shortLabel": "tick.main",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 1.0655624475588672,
+    "maxMs": 1.6700000762939453
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.query",
+    "shortLabel": "tick.query",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.10249976522954009,
+    "maxMs": 3.5950000286102295
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.query > TerrainQueryManager.onTick",
+    "shortLabel": "TerrainQueryManager.onTick",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.09393084417382266,
+    "maxMs": 3.580000162124634
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.query > WaterQueryManager.onTick",
+    "shortLabel": "WaterQueryManager.onTick",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.08658780422192852,
+    "maxMs": 3.575000047683716
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.query > WindQueryManager.onTick",
+    "shortLabel": "WindQueryManager.onTick",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.08592894420530336,
+    "maxMs": 3.575000047683716
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.query > WindQueryManager.awaitMapAsync",
+    "shortLabel": "WindQueryManager.awaitMapAsync",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.06524848979579854,
+    "maxMs": 3.5500001907348633
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.query > WaterQueryManager.awaitMapAsync",
+    "shortLabel": "WaterQueryManager.awaitMapAsync",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.02320650367815759,
+    "maxMs": 3.505000114440918
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.query > TerrainQueryManager.awaitMapAsync",
+    "shortLabel": "TerrainQueryManager.awaitMapAsync",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.012004143123722482,
+    "maxMs": 3.495000123977661
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.query > WaterResources.onTick",
+    "shortLabel": "WaterResources.onTick",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0027821982496581106,
+    "maxMs": 0.019999980926513672
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.effects",
+    "shortLabel": "tick.effects",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.03582897495660592,
+    "maxMs": 0.25500011444091797
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.input",
+    "shortLabel": "tick.input",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.025025048254439342,
+    "maxMs": 0.2350001335144043
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.sail",
+    "shortLabel": "tick.sail",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.00915490051915367,
+    "maxMs": 0.039999961853027344
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.camera",
+    "shortLabel": "tick.camera",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.005269358651665812,
+    "maxMs": 0.029999971389770508
+  },
+  {
+    "label": "Game.nextFrame > Game.tick > tick.environment",
+    "shortLabel": "tick.environment",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0030913388169949907,
+    "maxMs": 0.015000104904174805
+  },
+  {
+    "label": "Game.nextFrame > Game.render",
+    "shortLabel": "Game.render",
+    "depth": 1,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.700740452190936,
+    "maxMs": 1.2100000381469727
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.surface",
+    "shortLabel": "layer.surface",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.2817725280090893,
+    "maxMs": 0.48000001907348633
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.surface > SurfaceRenderer",
+    "shortLabel": "SurfaceRenderer",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.2778147467909107,
+    "maxMs": 0.48000001907348633
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.surface > SurfaceRenderer > WetnessRenderPipeline.update",
+    "shortLabel": "WetnessRenderPipeline.update",
+    "depth": 4,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.023179560845446638,
+    "maxMs": 0.08999991416931152
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat",
+    "shortLabel": "layer.boat",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.2560878189351666,
+    "maxMs": 0.49000000953674316
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat > BoatRenderer",
+    "shortLabel": "BoatRenderer",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.17136960301425153,
+    "maxMs": 0.31999993324279785
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat > Port",
+    "shortLabel": "Port",
+    "depth": 3,
+    "callsPerFrame": 3,
+    "msPerFrame": 0.0482658484868661,
+    "maxMs": 0.13499999046325684
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat > Anchor",
+    "shortLabel": "Anchor",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.007737014181018,
+    "maxMs": 0.04999995231628418
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat > Sailor",
+    "shortLabel": "Sailor",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.004575271285233365,
+    "maxMs": 0.04500007629394531
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat > Sail",
+    "shortLabel": "Sail",
+    "depth": 3,
+    "callsPerFrame": 2,
+    "msPerFrame": 0.003334102624775476,
+    "maxMs": 0.039999961853027344
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat > TellTail",
+    "shortLabel": "TellTail",
+    "depth": 3,
+    "callsPerFrame": 6,
+    "msPerFrame": 0.00210608352935636,
+    "maxMs": 0.020000219345092773
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat > Mooring",
+    "shortLabel": "Mooring",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0012728971702464342,
+    "maxMs": 0.009999990463256836
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.boat > HullDamage",
+    "shortLabel": "HullDamage",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0009093078158562396,
+    "maxMs": 0.005000114440917969
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud",
+    "shortLabel": "layer.hud",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.08417885213582986,
+    "maxMs": 0.21499991416931152
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > TutorialPopup",
+    "shortLabel": "TutorialPopup",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.012471755789965224,
+    "maxMs": 0.07500004768371582
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > MainMenu",
+    "shortLabel": "MainMenu",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.011230058283449312,
+    "maxMs": 0.04500007629394531
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > NavigationHUD",
+    "shortLabel": "NavigationHUD",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.01049371728897651,
+    "maxMs": 0.04999995231628418
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > TuningPanel",
+    "shortLabel": "TuningPanel",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.009429348616465808,
+    "maxMs": 0.04999995231628418
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > StationHUD",
+    "shortLabel": "StationHUD",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.008885858964971212,
+    "maxMs": 0.03500008583068848
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > BoatDebugHUD",
+    "shortLabel": "BoatDebugHUD",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.007836810848573485,
+    "maxMs": 0.06500005722045898
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > DebugRenderer",
+    "shortLabel": "DebugRenderer",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.004834227940466007,
+    "maxMs": 0.02500009536743164
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > TimeOfDayHUD",
+    "shortLabel": "TimeOfDayHUD",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.004575251428346401,
+    "maxMs": 0.020000219345092773
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.hud > MissionHUD",
+    "shortLabel": "MissionHUD",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0020752192348495835,
+    "maxMs": 0.019999980926513672
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.windParticles",
+    "shortLabel": "layer.windParticles",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.01322662380681924,
+    "maxMs": 0.10000014305114746
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.windParticles > WindParticles",
+    "shortLabel": "WindParticles",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.010561557796341759,
+    "maxMs": 0.09500002861022949
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.windParticles > WindParticles > WindParticles.onRender",
+    "shortLabel": "WindParticles.onRender",
+    "depth": 4,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.008087992035024732,
+    "maxMs": 0.09500002861022949
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.debugHud",
+    "shortLabel": "layer.debugHud",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.005630501756293276,
+    "maxMs": 0.04999995231628418
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.debugHud > StatsOverlay",
+    "shortLabel": "StatsOverlay",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.002900579858292179,
+    "maxMs": 0.04500007629394531
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.debugHud > StatsOverlay > StatsOverlay.onRender",
+    "shortLabel": "StatsOverlay.onRender",
+    "depth": 4,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0008029960723865036,
+    "maxMs": 0.04500007629394531
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.trees",
+    "shortLabel": "layer.trees",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.00482761872129025,
+    "maxMs": 0.019999980926513672
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.trees > TreeManager",
+    "shortLabel": "TreeManager",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.001585625310846715,
+    "maxMs": 0.015000104904174805
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.wake",
+    "shortLabel": "layer.wake",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0019320730988725734,
+    "maxMs": 0.019999980926513672
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.foamParticles",
+    "shortLabel": "layer.foamParticles",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0011034415955400098,
+    "maxMs": 0.019999980926513672
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.sprayParticles",
+    "shortLabel": "layer.sprayParticles",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0008783833769870031,
+    "maxMs": 0.02499985694885254
+  },
+  {
+    "label": "Game.nextFrame > Game.render > layer.windViz",
+    "shortLabel": "layer.windViz",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0007950991370339743,
+    "maxMs": 0.010000228881835938
+  },
+  {
+    "label": "Game.nextFrame > Game.afterPhysicsStep",
+    "shortLabel": "Game.afterPhysicsStep",
+    "depth": 1,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.2430141882718103,
+    "maxMs": 0.4249999523162842
+  },
+  {
+    "label": "Game.nextFrame > Game.afterPhysicsStep > QueryCoordinator.onAfterPhysicsStep",
+    "shortLabel": "QueryCoordinator.onAfterPhysicsStep",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.19202075954602163,
+    "maxMs": 0.34999990463256836
+  },
+  {
+    "label": "Game.nextFrame > Game.afterPhysicsStep > QueryCoordinator.onAfterPhysicsStep > WaterQueryManager.collectPoints",
+    "shortLabel": "WaterQueryManager.collectPoints",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.05324427356499027,
+    "maxMs": 0.125
+  },
+  {
+    "label": "Game.nextFrame > Game.afterPhysicsStep > QueryCoordinator.onAfterPhysicsStep > WindQueryManager.collectPoints",
+    "shortLabel": "WindQueryManager.collectPoints",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.04187660112260241,
+    "maxMs": 0.10500001907348633
+  },
+  {
+    "label": "Game.nextFrame > Game.afterPhysicsStep > QueryCoordinator.onAfterPhysicsStep > TerrainQueryManager.collectPoints",
+    "shortLabel": "TerrainQueryManager.collectPoints",
+    "depth": 3,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.006953372801998811,
+    "maxMs": 0.03000020980834961
+  },
+  {
+    "label": "Game.nextFrame > Game.afterPhysicsStep > TerrainQueryManager.onAfterPhysicsStep",
+    "shortLabel": "TerrainQueryManager.onAfterPhysicsStep",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.000827843318956468,
+    "maxMs": 0.014999866485595703
+  },
+  {
+    "label": "Game.nextFrame > Game.afterPhysicsStep > WindQueryManager.onAfterPhysicsStep",
+    "shortLabel": "WindQueryManager.onAfterPhysicsStep",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0005042502775423914,
+    "maxMs": 0.005000114440917969
+  },
+  {
+    "label": "Game.nextFrame > Game.afterPhysicsStep > WaterQueryManager.onAfterPhysicsStep",
+    "shortLabel": "WaterQueryManager.onAfterPhysicsStep",
+    "depth": 2,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.00021274212404192433,
+    "maxMs": 0.005000114440917969
+  },
+  {
+    "label": "Game.nextFrame > Game.slowTick",
+    "shortLabel": "Game.slowTick",
+    "depth": 1,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.002714528132392113,
+    "maxMs": 0.010000228881835938
+  },
+  {
+    "label": "Game.nextFrame > Game.contacts",
+    "shortLabel": "Game.contacts",
+    "depth": 1,
+    "callsPerFrame": 1,
+    "msPerFrame": 0.0013628724322513927,
+    "maxMs": 0.015000104904174805
+  }
+]
