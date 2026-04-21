@@ -45,13 +45,15 @@ import { createWaterFilterShader } from "./WaterFilterShader";
 import { WaterFilterUniforms } from "./WaterFilterUniforms";
 import { createWaterHeightShader } from "./WaterHeightShader";
 import { WaterHeightUniforms } from "./WaterHeightUniforms";
+import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
-// Margin for render viewport expansion
-const RENDER_VIEWPORT_MARGIN = 0.1;
+// World viewport margin for the terrain tile cache. Independent of the
+// texture-pixel margin — this drives which tiles the cache keeps hot.
+const TILE_CACHE_VIEWPORT_MARGIN = 0.1;
 
-// Modifier texture resolution scale (fraction of screen resolution)
-const MODIFIER_RESOLUTION_SCALE = 0.25;
+// Modifier texture resolution scale (fraction of surface texture resolution)
+const MODIFIER_RESOLUTION_SCALE = 1.0 / 2.0;
 
 // Default bio-optical water chemistry. These drive the water filter's
 // absorption/scattering computation. Eventually they should come from the
@@ -287,6 +289,10 @@ export class SurfaceRenderer extends BaseEntity {
 
   /**
    * Ensure intermediate textures exist and match screen size.
+   *
+   * All surface textures are sized (width + 2*margin) × (height + 2*margin)
+   * so that screen pixel (i, j) lines up with texel (i + margin, j + margin)
+   * exactly. See SurfaceConstants.ts.
    */
   private ensureTextures(width: number, height: number): void {
     if (this.lastTextureWidth === width && this.lastTextureHeight === height) {
@@ -294,6 +300,9 @@ export class SurfaceRenderer extends BaseEntity {
     }
 
     const device = this.game.getWebGPUDevice();
+
+    const texW = width + 2 * SURFACE_TEXTURE_MARGIN;
+    const texH = height + 2 * SURFACE_TEXTURE_MARGIN;
 
     // Destroy old textures
     this.terrainHeightTexture?.destroy();
@@ -307,7 +316,7 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Create terrain height texture (screen-space, sampled from tile atlas)
     this.terrainHeightTexture = device.createTexture({
-      size: { width, height },
+      size: { width: texW, height: texH },
       format: "r32float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       label: "Terrain Height Texture",
@@ -318,7 +327,7 @@ export class SurfaceRenderer extends BaseEntity {
     // rgba16float rather than rg16float because only rgba16float is a
     // mandatory WebGPU storage format.
     this.waterHeightTexture = device.createTexture({
-      size: { width, height },
+      size: { width: texW, height: texH },
       format: "rgba16float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       label: "Water Height Texture",
@@ -329,7 +338,7 @@ export class SurfaceRenderer extends BaseEntity {
     // and consumed by WaterHeightShader. R = bilge surface Z, G = deck cap
     // Z, B = bilge turbulence. Cleared each frame to a low sentinel.
     this.boatAirTexture = device.createTexture({
-      size: { width, height },
+      size: { width: texW, height: texH },
       format: "rgba16float",
       usage:
         GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
@@ -339,7 +348,7 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Create wave field texture array (one layer per wave source)
     this.waveFieldTexture = device.createTexture({
-      size: { width, height, depthOrArrayLayers: MAX_WAVE_SOURCES },
+      size: { width: texW, height: texH, depthOrArrayLayers: MAX_WAVE_SOURCES },
       format: "rgba16float",
       usage:
         GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
@@ -351,8 +360,8 @@ export class SurfaceRenderer extends BaseEntity {
     });
 
     // Create modifier texture at reduced resolution (wakes are low-frequency)
-    const modW = Math.max(1, Math.round(width * MODIFIER_RESOLUTION_SCALE));
-    const modH = Math.max(1, Math.round(height * MODIFIER_RESOLUTION_SCALE));
+    const modW = Math.max(1, Math.round(texW * MODIFIER_RESOLUTION_SCALE));
+    const modH = Math.max(1, Math.round(texH * MODIFIER_RESOLUTION_SCALE));
     this.modifierTexture = device.createTexture({
       size: { width: modW, height: modH },
       format: "rgba16float",
@@ -364,8 +373,8 @@ export class SurfaceRenderer extends BaseEntity {
       label: "Modifier Texture View",
     });
 
-    // Recreate wetness pipeline with new texture size
-    this.wetnessPipeline = new WetnessRenderPipeline(device, width, height);
+    // Recreate wetness pipeline with new texture size (shares surface layout)
+    this.wetnessPipeline = new WetnessRenderPipeline(device, texW, texH);
     this.wetnessPipeline.init();
 
     this.lastTextureWidth = width;
@@ -401,14 +410,14 @@ export class SurfaceRenderer extends BaseEntity {
    */
   private updateTerrainScreenUniforms(
     texClipToWorld: Matrix3,
-    width: number,
-    height: number,
+    textureWidth: number,
+    textureHeight: number,
   ): void {
     if (!this.terrainScreenUniforms || !this.terrainTileCache) return;
 
     this.terrainScreenUniforms.set.texClipToWorld(texClipToWorld);
-    this.terrainScreenUniforms.set.screenWidth(width);
-    this.terrainScreenUniforms.set.screenHeight(height);
+    this.terrainScreenUniforms.set.textureWidth(textureWidth);
+    this.terrainScreenUniforms.set.textureHeight(textureHeight);
 
     // Set terrain tile atlas parameters
     const atlasInfo = this.terrainTileCache.getAtlasInfo();
@@ -426,15 +435,15 @@ export class SurfaceRenderer extends BaseEntity {
   private updateWaterHeightUniforms(
     texClipToWorld: Matrix3,
     currentTime: number,
-    width: number,
-    height: number,
+    textureWidth: number,
+    textureHeight: number,
     waterResources: WaterResources,
   ): void {
     if (!this.waterHeightUniforms) return;
 
     this.waterHeightUniforms.set.texClipToWorld(texClipToWorld);
-    this.waterHeightUniforms.set.screenWidth(width);
-    this.waterHeightUniforms.set.screenHeight(height);
+    this.waterHeightUniforms.set.textureWidth(textureWidth);
+    this.waterHeightUniforms.set.textureHeight(textureHeight);
     this.waterHeightUniforms.set.time(currentTime);
     this.waterHeightUniforms.set.tideHeight(waterResources.getTideHeight());
     this.waterHeightUniforms.set.numWaves(waterResources.getNumWaves());
@@ -445,7 +454,6 @@ export class SurfaceRenderer extends BaseEntity {
    */
   private updateTerrainCompositeUniforms(
     clipToWorldMatrix: Matrix3,
-    worldToTexClipMatrix: Matrix3,
     currentTime: number,
     width: number,
     height: number,
@@ -455,9 +463,11 @@ export class SurfaceRenderer extends BaseEntity {
     if (!this.terrainCompositeUniforms || !this.terrainTileCache) return;
 
     this.terrainCompositeUniforms.set.cameraMatrix(clipToWorldMatrix);
-    this.terrainCompositeUniforms.set.worldToTexClip(worldToTexClipMatrix);
     this.terrainCompositeUniforms.set.screenWidth(width);
     this.terrainCompositeUniforms.set.screenHeight(height);
+    this.terrainCompositeUniforms.set.pixelRatio(
+      this.game.getRenderer().getPixelRatio(),
+    );
     this.terrainCompositeUniforms.set.time(currentTime);
     this.terrainCompositeUniforms.set.tideHeight(
       waterResources.getTideHeight(),
@@ -491,6 +501,9 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterFilterUniforms.set.worldToTexClip(worldToTexClipMatrix);
     this.waterFilterUniforms.set.screenWidth(width);
     this.waterFilterUniforms.set.screenHeight(height);
+    this.waterFilterUniforms.set.pixelRatio(
+      this.game.getRenderer().getPixelRatio(),
+    );
     this.waterFilterUniforms.set.time(currentTime);
     this.waterFilterUniforms.set.tideHeight(waterResources.getTideHeight());
     this.waterFilterUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
@@ -531,7 +544,8 @@ export class SurfaceRenderer extends BaseEntity {
       });
     }
 
-    // Water height bind group (uses wave field + modifier + boat air textures)
+    // Water height bind group (pure ocean surface; boat-air substitution
+    // moved to the water filter so the height texture stays continuous).
     if (
       this.waterHeightShader &&
       this.waterHeightUniformBuffer &&
@@ -539,8 +553,7 @@ export class SurfaceRenderer extends BaseEntity {
       this.waveFieldTextureView &&
       this.waveFieldSampler &&
       this.modifierTextureView &&
-      this.modifierSampler &&
-      this.boatAirTextureView
+      this.modifierSampler
     ) {
       this.waterHeightBindGroup = this.waterHeightShader.createBindGroup({
         params: { buffer: this.waterHeightUniformBuffer },
@@ -549,7 +562,6 @@ export class SurfaceRenderer extends BaseEntity {
         modifierSampler: this.modifierSampler,
         waveFieldTexture: this.waveFieldTextureView,
         waveFieldSampler: this.waveFieldSampler,
-        boatAirTexture: this.boatAirTextureView,
         outputTexture: this.waterHeightView,
       });
     }
@@ -560,17 +572,13 @@ export class SurfaceRenderer extends BaseEntity {
       this.terrainCompositeShader &&
       this.terrainCompositeUniformBuffer &&
       this.biomeUniformBuffer &&
-      this.waterHeightView &&
-      this.heightSampler &&
       wetnessTextureView
     ) {
       this.terrainCompositeBindGroup =
         this.terrainCompositeShader.createBindGroup({
           params: { buffer: this.terrainCompositeUniformBuffer },
-          waterHeightTexture: this.waterHeightView,
           terrainTileAtlas: terrainAtlasView,
           wetnessTexture: wetnessTextureView,
-          heightSampler: this.heightSampler,
           biomeParams: { buffer: this.biomeUniformBuffer },
         });
     }
@@ -598,11 +606,13 @@ export class SurfaceRenderer extends BaseEntity {
       this.waterFilterUniformBuffer &&
       this.waterHeightView &&
       this.heightSampler &&
+      this.boatAirTextureView &&
       sceneColorView &&
       sceneDepthView
     ) {
       this.waterFilterBindGroup = this.waterFilterShader.createBindGroup({
         params: { buffer: this.waterFilterUniformBuffer },
+        boatAirTexture: this.boatAirTextureView,
         sceneColorTexture: sceneColorView,
         sceneDepthTexture: sceneDepthView,
         waterHeightTexture: this.waterHeightView,
@@ -622,7 +632,9 @@ export class SurfaceRenderer extends BaseEntity {
 
     const width = renderer.getWidth();
     const height = renderer.getHeight();
-    const expandedViewport = this.getExpandedViewport(RENDER_VIEWPORT_MARGIN);
+    const expandedViewport = this.getExpandedViewport(
+      TILE_CACHE_VIEWPORT_MARGIN,
+    );
 
     // Use TimeOfDay as unified time source
     const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
@@ -651,16 +663,18 @@ export class SurfaceRenderer extends BaseEntity {
     const clipToWorldMatrix = camera.getMatrix().clone().invert();
     clipToWorldMatrix.multiply(clipToScreen);
 
-    // Screen-aligned expanded mapping used by the intermediate textures.
-    // Each screen-space texture's clip[-1,1] covers a 1.2× extension of the
-    // real screen (10% margin each side) so finite-diff normal sampling has
-    // valid data past the screen edge. Same scaling on both axes so the
-    // texel grid stays parallel to the screen pixel grid regardless of
-    // camera rotation.
-    const texScale = 1 + 2 * RENDER_VIEWPORT_MARGIN;
+    // Screen-aligned mapping for the surface textures. Each texture is
+    // (width + 2m) × (height + 2m) texels with a pixel-integer margin, so
+    // screen pixel (i, j) lines up with texel (i + m, j + m) exactly. The
+    // texture's clip[-1,1] covers screen-pixel range [-m, width+m] on X and
+    // [-m, height+m] on Y. Built by scaling the screen clipToWorld by
+    // texW/width (equivalent to texScale in the old 10%-margin form, just
+    // with a pixel-integer margin instead of a fractional one).
+    const texW = width + 2 * SURFACE_TEXTURE_MARGIN;
+    const texH = height + 2 * SURFACE_TEXTURE_MARGIN;
     const texClipToWorldMatrix = clipToWorldMatrix
       .clone()
-      .scale(texScale, texScale);
+      .scale(texW / width, texH / height);
     const worldToTexClipMatrix = texClipToWorldMatrix.clone().invert();
 
     // === Terrain Tile Cache Update ===
@@ -685,18 +699,19 @@ export class SurfaceRenderer extends BaseEntity {
     // Get terrain atlas view for composite shader
     const terrainAtlasView = this.terrainTileCache.getAtlasView();
 
-    // Update all uniforms
-    this.updateTerrainScreenUniforms(texClipToWorldMatrix, width, height);
+    // Update all uniforms. Compute shaders dispatch one invocation per
+    // surface-texture texel, so they receive texW × texH. Fragment shaders
+    // still use screen width/height for pixel-space math (e.g. normal eps).
+    this.updateTerrainScreenUniforms(texClipToWorldMatrix, texW, texH);
     this.updateWaterHeightUniforms(
       texClipToWorldMatrix,
       currentTime,
-      width,
-      height,
+      texW,
+      texH,
       waterResources,
     );
     this.updateTerrainCompositeUniforms(
       clipToWorldMatrix,
-      worldToTexClipMatrix,
       currentTime,
       width,
       height,
@@ -738,8 +753,8 @@ export class SurfaceRenderer extends BaseEntity {
       this.terrainScreenShader.dispatch(
         computePass,
         this.terrainScreenBindGroup,
-        width,
-        height,
+        texW,
+        texH,
       );
       computePass.end();
       device.queue.submit([commandEncoder.finish()]);
@@ -816,8 +831,8 @@ export class SurfaceRenderer extends BaseEntity {
       this.waterHeightShader.dispatch(
         computePass,
         this.waterHeightBindGroup,
-        width,
-        height,
+        texW,
+        texH,
       );
       computePass.end();
       device.queue.submit([commandEncoder.finish()]);

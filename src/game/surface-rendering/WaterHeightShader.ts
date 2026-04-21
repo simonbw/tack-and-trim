@@ -37,8 +37,8 @@ const waterHeightParamsModule: ShaderModule = {
 struct Params {
   // clip → world for this texture (screen-aligned, rotation-aware, includes margin)
   texClipToWorld: mat3x3<f32>,
-  screenWidth: f32,
-  screenHeight: f32,
+  textureWidth: f32,
+  textureHeight: f32,
   time: f32,
   tideHeight: f32,
   numWaves: u32,
@@ -73,16 +73,6 @@ const BREAK_NOISE_TIME_SCALE: f32 = 1.2;
       sampleType: "float",
     },
     waveFieldSampler: { type: "sampler" },
-    // Per-boat air gap texture published by BoatAirShader. Encodes the
-    // bilge surface Z (R), deck cap Z (G), and bilge slosh turbulence (B)
-    // at each pixel inside any hull footprint. Outside hull pixels are at
-    // a low sentinel for both R and G, which makes `airMax > airMin` false
-    // and the substitution a no-op.
-    boatAirTexture: {
-      type: "texture",
-      viewDimension: "2d",
-      sampleType: "float",
-    },
     outputTexture: { type: "storageTexture", format: "rgba16float" },
   },
   code: "",
@@ -103,8 +93,8 @@ const waterHeightComputeModule: ShaderModule = {
 // matrix. Texel (x,y) center maps to clip (2*(x+0.5)/W - 1, 1 - 2*(y+0.5)/H).
 fn pixelToWorld(pixel: vec2<u32>) -> vec2<f32> {
   let uv = vec2<f32>(
-    (f32(pixel.x) + 0.5) / params.screenWidth,
-    (f32(pixel.y) + 0.5) / params.screenHeight
+    (f32(pixel.x) + 0.5) / params.textureWidth,
+    (f32(pixel.y) + 0.5) / params.textureHeight
   );
   let clip = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
   return (params.texClipToWorld * vec3<f32>(clip, 1.0)).xy;
@@ -118,8 +108,8 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
   var phaseCorrections: array<f32, MAX_WAVE_SOURCES>;
 
   let uv = vec2<f32>(
-    (f32(pixel.x) + 0.5) / params.screenWidth,
-    (f32(pixel.y) + 0.5) / params.screenHeight
+    (f32(pixel.x) + 0.5) / params.textureWidth,
+    (f32(pixel.y) + 0.5) / params.textureHeight
   );
 
   var maxTurbulence = 0.0;
@@ -190,24 +180,15 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec2<f32> {
   let modifierHeight = modifierSample.r;
   let modifierTurbulence = modifierSample.a;
 
-  // Combined height = waves + modifiers + tide
+  // Combined height = waves + modifiers + tide. No boat-air substitution
+  // here — the water height texture represents the pure ocean surface, so
+  // its finite-differenced normal has no cliffs at hull edges. Boat-air
+  // substitution happens in WaterFilterShader, where a per-fragment test
+  // against boatAirTexture decides the effective water Z for the
+  // submersion calculation only.
   let height = waveResult.x + modifierHeight + params.tideHeight;
   // Combine wave breaking turbulence with modifier turbulence (e.g. wake foam)
   let totalTurbulence = max(maxTurbulence, modifierTurbulence);
-
-  // Boat air substitution. BoatAirShader publishes per-pixel air gaps
-  // (bilge surface Z, deck cap Z, bilge turbulence). If the ocean surface
-  // would lie inside an air column at this pixel, the actual water surface
-  // here is the bilge level (or sentinel low for a dry hull) — substitute
-  // it. Outside any hull, both R and G are sentinel low so the range test
-  // fails and we fall through to the ocean output.
-  let air = textureSampleLevel(boatAirTexture, modifierSampler, uv, 0.0);
-  let airMin = air.r;
-  let airMax = air.g;
-  let bilgeTurb = air.b;
-  if (airMax > airMin && height >= airMin && height <= airMax) {
-    return vec2<f32>(airMin, bilgeTurb);
-  }
 
   return vec2<f32>(height, totalTurbulence);
 }
@@ -217,7 +198,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let pixel = global_id.xy;
 
   // Bounds check
-  if (pixel.x >= u32(params.screenWidth) || pixel.y >= u32(params.screenHeight)) {
+  if (pixel.x >= u32(params.textureWidth) || pixel.y >= u32(params.textureHeight)) {
     return;
   }
 

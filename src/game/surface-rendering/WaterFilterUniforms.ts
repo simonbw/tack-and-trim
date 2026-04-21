@@ -22,6 +22,11 @@ export const WaterFilterUniforms = defineUniformStruct("Params", {
   screenWidth: f32,
   screenHeight: f32,
 
+  // Device pixel ratio — fragPos.xy is in physical framebuffer pixels, but
+  // the surface textures are sized at logical+margin resolution. Divide
+  // fragPos.xy by this to get logical pixel coords before texel indexing.
+  pixelRatio: f32,
+
   time: f32,
   tideHeight: f32,
   hasTerrainData: i32,

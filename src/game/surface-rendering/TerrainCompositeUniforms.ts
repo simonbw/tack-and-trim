@@ -17,13 +17,14 @@ export const TerrainCompositeUniforms = defineUniformStruct("Params", {
   // Clip → world for the actual screen (used for world-position reconstruction).
   cameraMatrix: mat3x3,
 
-  // World → clip for the screen-space height/wetness textures. Converts a
-  // world position into the sample location in those textures.
-  worldToTexClip: mat3x3,
-
-  // Screen dimensions
+  // Screen dimensions (logical/CSS pixels)
   screenWidth: f32,
   screenHeight: f32,
+
+  // Device pixel ratio — the fragment shader's fragPos.xy is in physical
+  // framebuffer pixels, but the surface textures are sized at logical+margin
+  // resolution. Divide fragPos.xy by this to get logical pixel coords.
+  pixelRatio: f32,
 
   time: f32,
   tideHeight: f32,

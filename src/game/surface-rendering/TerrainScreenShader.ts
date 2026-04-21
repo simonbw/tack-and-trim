@@ -27,8 +27,8 @@ struct Params {
   // clip → world for this texture (screen-aligned, rotation-aware, includes margin)
   texClipToWorld: mat3x3<f32>,
 
-  screenWidth: f32,
-  screenHeight: f32,
+  textureWidth: f32,
+  textureHeight: f32,
 
   // Terrain tile atlas parameters
   atlasTileSize: u32,
@@ -59,8 +59,8 @@ const terrainScreenComputeModule: ShaderModule = {
 // matrix. Texel (x,y) center maps to clip (2*(x+0.5)/W - 1, 1 - 2*(y+0.5)/H).
 fn pixelToWorld(pixel: vec2<u32>) -> vec2<f32> {
   let uv = vec2<f32>(
-    (f32(pixel.x) + 0.5) / params.screenWidth,
-    (f32(pixel.y) + 0.5) / params.screenHeight
+    (f32(pixel.x) + 0.5) / params.textureWidth,
+    (f32(pixel.y) + 0.5) / params.textureHeight
   );
   let clip = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
   return (params.texClipToWorld * vec3<f32>(clip, 1.0)).xy;
@@ -109,7 +109,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let pixel = global_id.xy;
 
   // Bounds check
-  if (pixel.x >= u32(params.screenWidth) || pixel.y >= u32(params.screenHeight)) {
+  if (pixel.x >= u32(params.textureWidth) || pixel.y >= u32(params.textureHeight)) {
     return;
   }
 

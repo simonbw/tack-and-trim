@@ -18,9 +18,9 @@ export const TerrainScreenUniforms = defineUniformStruct("Params", {
   // Covers the screen-aligned expanded viewport (includes rotation).
   texClipToWorld: mat3x3,
 
-  // Screen dimensions (texture size)
-  screenWidth: f32,
-  screenHeight: f32,
+  // Dimensions of the output texture in texels.
+  textureWidth: f32,
+  textureHeight: f32,
 
   // Terrain tile atlas parameters
   atlasTileSize: u32,

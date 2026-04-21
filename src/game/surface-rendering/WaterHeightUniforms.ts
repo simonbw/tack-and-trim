@@ -17,9 +17,9 @@ export const WaterHeightUniforms = defineUniformStruct("Params", {
   // Same layout as TerrainScreenUniforms.texClipToWorld.
   texClipToWorld: mat3x3,
 
-  // Screen dimensions (texture size)
-  screenWidth: f32,
-  screenHeight: f32,
+  // Dimensions of the output texture in texels.
+  textureWidth: f32,
+  textureHeight: f32,
 
   // Time and water params
   time: f32,

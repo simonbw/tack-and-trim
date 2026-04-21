@@ -26,6 +26,7 @@ import {
 import { fn_waterSurfaceLight } from "../world/shaders/lighting.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
 import { fn_fractalNoise3D, fn_simplex3D } from "../world/shaders/noise.wgsl";
+import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
 
 const waterFilterParamsModule: ShaderModule = {
   preamble: /*wgsl*/ `
@@ -37,6 +38,7 @@ struct Params {
 
   screenWidth: f32,
   screenHeight: f32,
+  pixelRatio: f32,
   time: f32,
   tideHeight: f32,
   hasTerrainData: i32,
@@ -60,6 +62,16 @@ struct Params {
       sampleType: "depth",
     },
     waterHeightTexture: {
+      type: "texture",
+      viewDimension: "2d",
+      sampleType: "float",
+    },
+    // Per-boat air gap texture. Encodes bilge surface Z (R), deck cap Z (G),
+    // and bilge slosh turbulence (B) at pixels inside any hull footprint;
+    // sentinel low outside. Used here — not in the water height compute —
+    // so that the water height texture stays a continuous ocean surface
+    // and its finite-differenced normal has no cliffs at hull edges.
+    boatAirTexture: {
       type: "texture",
       viewDimension: "2d",
       sampleType: "float",
@@ -161,6 +173,10 @@ fn computeWaterOptics(chl: f32, cdom: f32, sediment: f32) -> WaterOptics {
 const Z_MIN: f32 = ${DEPTH_Z_MIN};
 const Z_MAX: f32 = ${DEPTH_Z_MAX};
 
+// Integer offset from screen pixel to surface-texture texel (texels are
+// 1:1 with screen pixels, shifted by this margin). See SurfaceConstants.ts.
+const SURFACE_TEXTURE_MARGIN: i32 = ${SURFACE_TEXTURE_MARGIN};
+
 fn mapZToDepth(z: f32) -> f32 {
   return (z - Z_MIN) / (Z_MAX - Z_MIN);
 }
@@ -174,8 +190,10 @@ fn clipToWorld(clipPos: vec2<f32>) -> vec2<f32> {
   return world.xy;
 }
 
-// World → screen-space texture UV (covers clip[-1,1] of the expanded,
-// screen-aligned viewport).
+// World → surface-texture UV. The surface texture is (screen + 2*margin)
+// on each axis with a pixel-integer margin, so worldToTexClip maps the
+// texture's clip[-1,1] over screen pixel range [-m, W+m]. Used by the
+// finite-diff normal sample since eps is non-integer in texel space.
 fn worldToHeightUV(worldPos: vec2<f32>) -> vec2<f32> {
   let clip = (params.worldToTexClip * vec3<f32>(worldPos, 1.0)).xy;
   return vec2<f32>((clip.x + 1.0) * 0.5, (1.0 - clip.y) * 0.5);
@@ -236,10 +254,36 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   let worldPos = clipToWorld(clipPosition);
   let pixelCoord = vec2<i32>(fragPos.xy);
 
-  // Water surface data at this pixel
-  let waterData = sampleWaterData(worldPos);
-  let waterHeight = waterData.x;
-  let turbulence = waterData.y;
+  // Ocean surface data at this pixel — point-sampled at the exact texel
+  // so the submersion test can't pick up a linearly-interpolated value
+  // across a discontinuity. Linear sampling is still used below for
+  // finite-diff normals; that's safe now because the water height texture
+  // is a continuous ocean surface (no substitution cliffs at hull edges).
+  //
+  // fragPos.xy is in physical framebuffer pixels; the surface textures are
+  // sized at logical + margin, so divide by pixelRatio before offsetting.
+  let logicalCoord = vec2<i32>(fragPos.xy / params.pixelRatio);
+  let waterTexel = logicalCoord + vec2<i32>(SURFACE_TEXTURE_MARGIN, SURFACE_TEXTURE_MARGIN);
+  let waterData = textureLoad(waterHeightTexture, waterTexel, 0).rg;
+  let oceanHeight = waterData.x;
+  var turbulence = waterData.y;
+
+  // Boat air substitution. BoatAirShader publishes per-pixel air gaps
+  // (bilge surface Z in R, deck cap Z in G, bilge turbulence in B) at
+  // pixels inside any hull footprint. If the ocean surface would lie
+  // inside an air column at this pixel, the effective water surface here
+  // is the bilge level — substitute it into waterHeight. Outside any
+  // hull, R and G are sentinel low so the range test fails and we fall
+  // through to the ocean value.
+  let airData = textureLoad(boatAirTexture, waterTexel, 0);
+  let airMin = airData.r;
+  let airMax = airData.g;
+  let bilgeTurb = airData.b;
+  var waterHeight = oceanHeight;
+  if (airMax > airMin && oceanHeight >= airMin && oceanHeight <= airMax) {
+    waterHeight = airMin;
+    turbulence = bilgeTurb;
+  }
 
   // Scene info from the frozen copies. Z_MIN is deep enough (-100ft) that the
   // depth buffer can represent every terrain/object z we care to distinguish

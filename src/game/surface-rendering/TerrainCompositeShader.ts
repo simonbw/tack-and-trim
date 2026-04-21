@@ -20,17 +20,17 @@ import {
 } from "../../core/graphics/webgpu/WebGPURenderer";
 import { fn_renderTerrain } from "../world/shaders/terrain-rendering.wgsl";
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
+import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
 
 const terrainCompositeParamsModule: ShaderModule = {
   preamble: /*wgsl*/ `
 struct Params {
   // clip → world for the actual screen
   cameraMatrix: mat3x3<f32>,
-  // world → clip for the screen-space height/wetness textures
-  worldToTexClip: mat3x3<f32>,
 
   screenWidth: f32,
   screenHeight: f32,
+  pixelRatio: f32,
   time: f32,
   tideHeight: f32,
   hasTerrainData: i32,
@@ -43,11 +43,6 @@ struct Params {
 `,
   bindings: {
     params: { type: "uniform", wgslType: "Params" },
-    waterHeightTexture: {
-      type: "texture",
-      viewDimension: "2d",
-      sampleType: "float",
-    },
     terrainTileAtlas: {
       type: "texture",
       viewDimension: "2d",
@@ -58,7 +53,6 @@ struct Params {
       viewDimension: "2d",
       sampleType: "unfilterable-float",
     },
-    heightSampler: { type: "sampler", samplerType: "filtering" },
   },
   code: "",
 };
@@ -93,26 +87,11 @@ fn clipToWorld(clipPos: vec2<f32>) -> vec2<f32> {
   return world.xy;
 }
 
-// World → screen-space texture UV. Texture covers clip[-1,1] of the
-// screen-aligned expanded viewport; the worldToTexClip matrix maps a world
-// position into that clip range.
-fn worldToHeightUV(worldPos: vec2<f32>) -> vec2<f32> {
-  let clip = (params.worldToTexClip * vec3<f32>(worldPos, 1.0)).xy;
-  return vec2<f32>((clip.x + 1.0) * 0.5, (1.0 - clip.y) * 0.5);
-}
-
-fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
-  let uv = worldToHeightUV(worldPos);
-  return textureSampleLevel(waterHeightTexture, heightSampler, uv, 0.0).r;
-}
-
-fn sampleWetness(worldPos: vec2<f32>) -> f32 {
-  let uv = worldToHeightUV(worldPos);
-  let w = i32(params.screenWidth);
-  let h = i32(params.screenHeight);
-  let tx = clamp(i32(uv.x * params.screenWidth), 0, w - 1);
-  let ty = clamp(i32(uv.y * params.screenHeight), 0, h - 1);
-  return textureLoad(wetnessTexture, vec2<i32>(tx, ty), 0).r;
+// Logical pixel (i,j) → wetness texel (i+M, j+M). The wetness texture shares
+// the surface-texture layout: logical + 2*margin with pixel-aligned texels.
+fn sampleWetnessAtLogical(logicalCoord: vec2<i32>) -> f32 {
+  let t = logicalCoord + vec2<i32>(SURFACE_TEXTURE_MARGIN, SURFACE_TEXTURE_MARGIN);
+  return textureLoad(wetnessTexture, t, 0).r;
 }
 
 // Manual bilinear sample of terrain tile atlas (r32float is unfilterable).
@@ -177,6 +156,10 @@ fn computeTerrainNormal(worldPos: vec2<f32>) -> vec3<f32> {
 const Z_MIN: f32 = ${DEPTH_Z_MIN};
 const Z_MAX: f32 = ${DEPTH_Z_MAX};
 
+// Integer offset from screen pixel to surface-texture texel. See
+// SurfaceConstants.ts.
+const SURFACE_TEXTURE_MARGIN: i32 = ${SURFACE_TEXTURE_MARGIN};
+
 fn mapZToDepth(z: f32) -> f32 {
   return (z - Z_MIN) / (Z_MAX - Z_MIN);
 }
@@ -189,6 +172,9 @@ struct FragmentOutput {
 @fragment
 fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec2<f32>) -> FragmentOutput {
   let worldPos = clipToWorld(clipPosition);
+  // fragPos.xy is in physical framebuffer pixels; convert to logical pixel
+  // coords to index the logical-sized wetness texture.
+  let logicalCoord = vec2<i32>(fragPos.xy / params.pixelRatio);
 
   // Nothing to draw if the level has no terrain at all.
   if (params.hasTerrainData == 0) {
@@ -201,7 +187,7 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   // pixels as infinitely deep and all depths would look the same.
   let terrainHeight = sampleTerrainHeight(worldPos);
   let terrainNormal = computeTerrainNormal(worldPos);
-  let wetness = sampleWetness(worldPos);
+  let wetness = sampleWetnessAtLogical(logicalCoord);
 
   let finalColor = renderTerrain(terrainHeight, terrainNormal, worldPos, wetness, params.time);
 

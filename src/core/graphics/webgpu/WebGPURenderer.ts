@@ -1063,6 +1063,21 @@ export class WebGPURenderer {
     return this.canvas.height / this.pixelRatio;
   }
 
+  /** Get physical framebuffer width in device pixels. */
+  getPhysicalWidth(): number {
+    return this.canvas.width;
+  }
+
+  /** Get physical framebuffer height in device pixels. */
+  getPhysicalHeight(): number {
+    return this.canvas.height;
+  }
+
+  /** Get the device pixel ratio that the framebuffer is scaled by. */
+  getPixelRatio(): number {
+    return this.pixelRatio;
+  }
+
   /** Get the current view matrix for custom render pipelines. */
   getViewMatrix(): Matrix3 {
     return this.viewMatrix;
