@@ -6,9 +6,9 @@ import { lerpOrSnap } from "../util/MathUtil";
 import { Matrix3 } from "./Matrix3";
 
 // Bounds for camera position/velocity validation
-const MAX_CAMERA_POSITION = 1_000_000;
-const MAX_CAMERA_VELOCITY = 100_000;
-const MAX_CAMERA_ZOOM = 10_000;
+const MAX_CAMERA_POSITION = 1_000_000_000;
+const MAX_CAMERA_VELOCITY = 1_000_000_000;
+const MAX_CAMERA_ZOOM = 1_000_000;
 
 export interface Viewport {
   readonly top: number;
