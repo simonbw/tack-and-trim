@@ -314,8 +314,12 @@ export class RopeRender {
         continue;
       }
 
-      // Per-drum point-to-circle tangent in each drum's body frame.
-      // (Also the two-drum different-body fallback.)
+      // Per-drum point-to-circle tangent in each drum's body frame. (Also
+      // the two-drum different-body fallback.) computePointTangent's `u`
+      // points from the external point toward the drum; for the enter
+      // tangent that matches rope travel, but for the leave tangent the
+      // rope travels drum→next, so we negate the sign to keep both tangent
+      // points on the same side of the rope path.
       if (rA > 0) {
         const pLocal = nA.body.toLocalFrame3D(nodeX[b], nodeY[b], nodeZ[b]);
         const tp = computePointTangent(
@@ -324,7 +328,7 @@ export class RopeRender {
           laA[0],
           laA[1],
           rA,
-          sA !== 0 ? sA : 1,
+          -(sA !== 0 ? sA : 1),
         );
         leaveLX[a] = tp.tx;
         leaveLY[a] = tp.ty;
