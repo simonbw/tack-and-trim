@@ -11,24 +11,43 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
 import type { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
-import { clamp, lerp } from "../core/util/MathUtil";
+import { lerp } from "../core/util/MathUtil";
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 20;
 const ORBIT_SENSITIVITY = 0.008;
 const PAN_SENSITIVITY = 1.0;
 const ZOOM_FACTOR = 1.08;
+/** Keyboard orbit rate (rad/s). */
+const KEY_ORBIT_SPEED = 1.5;
+/** Keyboard zoom rate (factor/s: zoom multiplies by this^dt). */
+const KEY_ZOOM_SPEED = 3.0;
+
+const ORBIT_ZOOM_KEYS = new Set([
+  "KeyA",
+  "KeyD",
+  "KeyW",
+  "KeyS",
+  "KeyQ",
+  "KeyE",
+  "Equal",
+  "Minus",
+  "NumpadAdd",
+  "NumpadSubtract",
+]);
 
 export class BoatEditorCameraController extends BaseEntity {
-  /** Current orbit angles (yaw = heading, pitch = elevation). */
+  /** Current orbit angles (radians). All three are unbounded. */
   yaw = Math.PI * 0.15;
   pitch = 0.6;
+  roll = 0;
 
   private targetZoom = 6;
   private isPanning = false;
   private isOrbiting = false;
   private lastMouse = { x: 0, y: 0 };
   private spaceDown = false;
+  private heldKeys = new Set<string>();
 
   @on("add")
   onAdd() {
@@ -55,12 +74,30 @@ export class BoatEditorCameraController extends BaseEntity {
   }
 
   @on("tick")
-  onTick() {
+  onTick({ dt }: GameEventMap["tick"]) {
+    // Apply held-key orbit and zoom.
+    const keys = this.heldKeys;
+    const orbit = KEY_ORBIT_SPEED * dt;
+    if (keys.has("KeyA")) this.yaw -= orbit;
+    if (keys.has("KeyD")) this.yaw += orbit;
+    if (keys.has("KeyW")) this.pitch += orbit;
+    if (keys.has("KeyS")) this.pitch -= orbit;
+    if (keys.has("KeyQ")) this.roll -= orbit;
+    if (keys.has("KeyE")) this.roll += orbit;
+    const zoomStep = Math.pow(KEY_ZOOM_SPEED, dt);
+    if (keys.has("Equal") || keys.has("NumpadAdd")) {
+      this.targetZoom = Math.min(this.targetZoom * zoomStep, MAX_ZOOM);
+    }
+    if (keys.has("Minus") || keys.has("NumpadSubtract")) {
+      this.targetZoom = Math.max(this.targetZoom / zoomStep, MIN_ZOOM);
+    }
+
     const cam = this.game!.camera;
     cam.z = lerp(cam.z, this.targetZoom, 0.15);
   }
 
   setPreset(name: "top" | "side" | "bow" | "quarter") {
+    this.roll = 0;
     switch (name) {
       case "top":
         this.yaw = 0;
@@ -100,11 +137,7 @@ export class BoatEditorCameraController extends BaseEntity {
 
     if (this.isOrbiting) {
       this.yaw += dx * ORBIT_SENSITIVITY;
-      this.pitch = clamp(
-        this.pitch - dy * ORBIT_SENSITIVITY,
-        0,
-        Math.PI * 0.48,
-      );
+      this.pitch -= dy * ORBIT_SENSITIVITY;
     } else if (this.isPanning) {
       const cam = this.game!.camera;
       const scale = PAN_SENSITIVITY / cam.z;
@@ -136,9 +169,17 @@ export class BoatEditorCameraController extends BaseEntity {
 
   private handleKeyDown = (e: KeyboardEvent) => {
     if (e.code === "Space") this.spaceDown = true;
+    // Don't steal keys while the user is editing a form field.
+    const target = e.target as HTMLElement | null;
+    if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+    if (ORBIT_ZOOM_KEYS.has(e.code)) {
+      this.heldKeys.add(e.code);
+      e.preventDefault();
+    }
   };
 
   private handleKeyUp = (e: KeyboardEvent) => {
     if (e.code === "Space") this.spaceDown = false;
+    this.heldKeys.delete(e.code);
   };
 }

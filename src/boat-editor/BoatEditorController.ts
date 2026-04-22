@@ -61,7 +61,7 @@ export class BoatEditorController
     this.preview = this.game!.addEntity(
       new BoatPreviewRenderer(this.document.config, this.camera),
     );
-    this.ui = this.game!.addEntity(new BoatEditorUI(this));
+    this.ui = this.game!.addEntity(new BoatEditorUI(this, this.camera));
 
     window.addEventListener("keydown", this.handleKeyDown);
     this.updateTitle();

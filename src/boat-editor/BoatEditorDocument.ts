@@ -3,6 +3,7 @@
  * Wraps a BoatConfig with undo/redo via the Command pattern.
  */
 
+import { V, V2d } from "../core/Vector";
 import { BoatConfig, ShaffS7 } from "../game/boat/BoatConfig";
 
 // ============================================
@@ -187,7 +188,19 @@ function setNestedValue(
   current[keys[keys.length - 1]] = value;
 }
 
-/** JSON round-trip clone. Loses V2d prototypes but that's fine for snapshots. */
+/** Deep clone that preserves V2d instances (needed because the Boat
+ * constructor calls V2d methods like .add() on config vectors). */
 function jsonClone(obj: BoatConfig): BoatConfig {
-  return JSON.parse(JSON.stringify(obj));
+  return deepClone(obj) as BoatConfig;
+}
+
+function deepClone(x: unknown): unknown {
+  if (x === null || typeof x !== "object") return x;
+  if (x instanceof V2d) return V(x[0], x[1]);
+  if (Array.isArray(x)) return x.map(deepClone);
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(x as Record<string, unknown>)) {
+    out[k] = deepClone((x as Record<string, unknown>)[k]);
+  }
+  return out;
 }
