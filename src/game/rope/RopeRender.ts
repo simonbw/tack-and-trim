@@ -3,45 +3,47 @@
  *
  * Converts a capstan-network rope's abstract state (node positions + scalar
  * section lengths/tensions) into a per-section polyline suitable for
- * `tessellateRopeStrip`. Layers: straight-chord / parabolic sag baseline,
- * optional per-section lateral oscillator (decorative liveliness), and
- * a softplus-clamped deck floor so the rope doesn't dip through the hull.
+ * `tessellateRopeStrip`.
  *
- * Strictly visual — no physics feedback. Owned by Sheet/Anchor alongside
- * the RopeNetwork.
+ * Each section is decorated with a small Verlet/PBD particle chain that
+ * lives between the section's two anchor points (or, for sections adjacent
+ * to a winch/block drum, between the precomputed tangent points on the
+ * drums). Gravity makes the chain droop, distance constraints keep its arc
+ * length close to the section's current rest length, and a deck-height
+ * constraint stops the chain from sinking through the hull. The chain is
+ * strictly visual — no physics feedback into the rope network.
  */
-
 import type { Body } from "../../core/physics/body/Body";
 import type { HullBoundaryData } from "../../core/physics/constraints/DeckContactConstraint";
-import { V3d } from "../../core/Vector3";
+import { profiler } from "../../core/util/Profiler";
 import type { RopeNetwork } from "./RopeNetwork";
+import type { FloorFn, ReferenceVelocityFn } from "./RopeParticleChain";
+import { RopeParticleChain } from "./RopeParticleChain";
 
-/** Real-world gravity magnitude for catenary sag (ft/s²). */
-const GRAVITY = 32.2;
-
-/** Number of render samples per foot of section length (pre-clamp). */
-const SAMPLES_PER_FOOT = 4;
-const MIN_SAMPLES_PER_SECTION = 8;
-const MAX_SAMPLES_PER_SECTION = 48;
+/** Number of particles per foot of section (clamped). Stable for a given network. */
+const PARTICLES_PER_FOOT = 4;
+const MIN_PARTICLES_PER_SECTION = 8;
+const MAX_PARTICLES_PER_SECTION = 48;
 
 /** Small number treated as zero. */
 const EPS = 1e-6;
 
-/** Softplus smoothing strength for the deck-floor clamp (feet). */
+/**
+ * Render-time Laplacian smoothing passes applied to each chain's particles
+ * before they feed the renderer's Catmull-Rom spline. Catmull-Rom passes
+ * exactly through its input, so small PBD position jitter would otherwise
+ * show through as wiggles — pre-smoothing irons those out without disturbing
+ * the PBD state (smoothing runs on a scratch copy). Endpoints are kept
+ * fixed so the emitted polyline still meets each drum arc exactly.
+ */
+const RENDER_SMOOTH_PASSES = 5;
+const RENDER_SMOOTH_LAMBDA = 0.5;
+
+/** Softplus smoothing strength for the deck-floor clamp on emitted samples (ft). */
 const FLOOR_SOFTNESS = 0.02;
 
 /** Distance (ft) outside the deck polygon over which the floor tapers to -∞. */
 const FLOOR_EDGE_TAPER = 0.5;
-
-/** Oscillator stiffness coefficients: k = LENGTH_K * length + TENSION_K * tension. */
-const OSC_LENGTH_K = 2;
-const OSC_TENSION_K = 0.15;
-
-/** Oscillator damping (1/s). Target ~critical damping for typical tensions. */
-const OSC_DAMPING = 3.0;
-
-/** Max oscillator ω·dt. Above this, state is frozen to prevent blow-ups. */
-const OSC_MAX_WDT = 0.3;
 
 /**
  * Fixed wrap side for winches. The rope always tangents the drum on the
@@ -73,31 +75,40 @@ export interface RopeRenderConfig {
   blockRadius?: number;
 }
 
-interface SectionRenderState {
-  /** Lateral oscillator displacement (world-space 3D). */
-  oscPos: V3d;
-  oscVel: V3d;
-  /** Stable sample count for this section, set at construction. */
-  sampleCount: number;
-}
-
-function makeState(initialLength: number): SectionRenderState {
-  const sampleCount = clampInt(
-    Math.round(initialLength * SAMPLES_PER_FOOT),
-    MIN_SAMPLES_PER_SECTION,
-    MAX_SAMPLES_PER_SECTION,
-  );
-  return {
-    oscPos: new V3d(0, 0, 0),
-    oscVel: new V3d(0, 0, 0),
-    sampleCount,
-  };
-}
-
 export class RopeRender {
   private readonly network: RopeNetwork;
   private readonly config: RopeRenderConfig;
-  private readonly states: SectionRenderState[];
+  private readonly chains: RopeParticleChain[];
+  private readonly floorFn: FloorFn;
+  /**
+   * Reference-frame velocity function: chain damping pulls rope motion
+   * toward this velocity (the hull's velocity at the sample point, when a
+   * hull body is configured) instead of toward zero world velocity, so the
+   * rope rides with the boat rather than lagging behind it.
+   */
+  private readonly refVelFn: ReferenceVelocityFn | null;
+  /**
+   * Per-chain scratch buffer holding a smoothed copy of chain.pos used only
+   * for sample emission. Keeping this separate from chain.pos means the PBD
+   * state stays authoritative and unsmoothed.
+   */
+  private readonly smoothScratch: Float64Array[] = [];
+
+  // Tangent-point caches reused across update + computeSamples each tick.
+  // World-space leave/enter points per node — degenerate to node center
+  // when the node has no drum radius.
+  private readonly leaveWX: number[] = [];
+  private readonly leaveWY: number[] = [];
+  private readonly leaveWZ: number[] = [];
+  private readonly enterWX: number[] = [];
+  private readonly enterWY: number[] = [];
+  private readonly enterWZ: number[] = [];
+  // Body-local tangent coords, kept around so the drum arc step in
+  // computeSamples can compute sweep angles in the drum's own frame.
+  private readonly leaveLX: number[] = [];
+  private readonly leaveLY: number[] = [];
+  private readonly enterLX: number[] = [];
+  private readonly enterLY: number[] = [];
 
   // Output buffers reused across frames.
   private points: [number, number][] = [];
@@ -107,86 +118,68 @@ export class RopeRender {
   constructor(network: RopeNetwork, config: RopeRenderConfig = {}) {
     this.network = network;
     this.config = config;
-    this.states = [];
+    this.floorFn = (x, y, z) => this.ropeFloor(x, y, z);
+    this.refVelFn = config.hullBody
+      ? buildHullVelocityFn(config.hullBody)
+      : null;
+    this.chains = [];
+    this.refreshTangentPoints();
     for (let i = 0; i < network.getSectionCount(); i++) {
-      const section = network.getSection(i);
-      this.states.push(makeState(section.length));
+      this.chains.push(this.createChainForSection(i));
     }
   }
 
   /** Total render samples across all sections. Stable for a given network. */
   getTotalSampleCount(): number {
     let total = 0;
-    for (let i = 0; i < this.states.length; i++) {
-      // Section 0 contributes full count; subsequent sections skip the shared
-      // first sample (already emitted as previous section's last sample).
-      total +=
-        i === 0 ? this.states[i].sampleCount : this.states[i].sampleCount - 1;
+    for (let i = 0; i < this.chains.length; i++) {
+      total += i === 0 ? this.chains[i].count : this.chains[i].count - 1;
     }
     return total;
   }
 
   /**
-   * Integrate per-section oscillator state. Called each tick by the owner
-   * (Sheet/Anchor). Pure render-state update — no body forces applied.
+   * Step every PBD chain forward one tick. Called each tick by the owning
+   * Sheet/Anchor. Pure render-state update — no body forces applied.
    */
   update(dt: number): void {
+    profiler.start("rope.render.update");
     const n = this.network.getSectionCount();
-    while (this.states.length < n) {
-      this.states.push(
-        makeState(this.network.getSection(this.states.length).length),
-      );
+    while (this.chains.length < n) {
+      this.chains.push(this.createChainForSection(this.chains.length));
     }
+
+    this.refreshTangentPoints();
 
     for (let i = 0; i < n; i++) {
+      const chain = this.chains[i];
       const section = this.network.getSection(i);
-      const state = this.states[i];
-      const L = Math.max(0.01, section.length);
-
-      // Spring stiffness grows with tension and length.
-      const k = OSC_LENGTH_K * L + OSC_TENSION_K * section.tension;
-      const mass = 1.0; // lumped; absolute value is calibrated via k,c
-      const omega = Math.sqrt(k / mass);
-      if (omega * dt > OSC_MAX_WDT) {
-        // Frozen-amplitude regime: reads as "rope goes stiff under shock".
-        state.oscPos[0] = 0;
-        state.oscPos[1] = 0;
-        state.oscPos[2] = 0;
-        state.oscVel[0] = 0;
-        state.oscVel[1] = 0;
-        state.oscVel[2] = 0;
-        continue;
-      }
-
-      // Gravity pull perpendicular to chord contributes to the restoring target.
-      const nA = this.network.getNode(i);
-      const nB = this.network.getNode(i + 1);
-      const dx = nB.worldPos[0] - nA.worldPos[0];
-      const dy = nB.worldPos[1] - nA.worldPos[1];
-      const dz = nB.worldPos[2] - nA.worldPos[2];
-      const chord = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      // Force on the lumped midpoint: restoring spring + damping + gravity perp.
-      // Target equilibrium is zero displacement (catenary baseline handles sag).
-      const ax = -k * state.oscPos[0] - OSC_DAMPING * state.oscVel[0];
-      const ay = -k * state.oscPos[1] - OSC_DAMPING * state.oscVel[1];
-      // Z gets a small gravity nudge proportional to chord-perpendicular factor,
-      // exciting oscillations when the rope is slack or wind drops.
-      const slackFactor = Math.max(0, L - chord) / (L + EPS);
-      const az =
-        -k * state.oscPos[2] -
-        OSC_DAMPING * state.oscVel[2] -
-        GRAVITY * mass * 0.05 * slackFactor;
-      state.oscVel[0] += ax * dt;
-      state.oscVel[1] += ay * dt;
-      state.oscVel[2] += az * dt;
-      state.oscPos[0] += state.oscVel[0] * dt;
-      state.oscPos[1] += state.oscVel[1] * dt;
-      state.oscPos[2] += state.oscVel[2] * dt;
+      chain.setEndpoints(
+        this.leaveWX[i],
+        this.leaveWY[i],
+        this.leaveWZ[i],
+        this.enterWX[i + 1],
+        this.enterWY[i + 1],
+        this.enterWZ[i + 1],
+      );
+      chain.update(section.length, dt, this.floorFn, this.refVelFn);
     }
+    profiler.end("rope.render.update");
   }
 
   /** Compute the rope polyline for this frame. Returns re-used buffers. */
   computeSamples(): {
+    points: [number, number][];
+    z: number[];
+    vPerPoint: number[];
+  } {
+    profiler.start("rope.render.samples");
+    const result = this.computeSamplesInner();
+    profiler.end("rope.render.samples");
+    return result;
+  }
+
+  private computeSamplesInner(): {
     points: [number, number][];
     z: number[];
     vPerPoint: number[];
@@ -201,11 +194,168 @@ export class RopeRender {
       return { points: this.points, z: this.z, vPerPoint: this.vCoords };
     }
 
+    // Refresh tangent points so render geometry tracks any sub-tick body
+    // movement. Chain endpoints are also pinned to the fresh values so the
+    // emitted polyline meets each drum arc exactly.
+    this.refreshTangentPoints();
+
     const nodeCount = network.getNodeCount();
     const winchR = this.config.winchRadius ?? 0;
     const blockR = this.config.blockRadius ?? 0;
+    const radius: number[] = new Array(nodeCount);
+    for (let i = 0; i < nodeCount; i++) {
+      const n = network.getNode(i);
+      radius[i] = n.kind === "winch" ? winchR : n.kind === "block" ? blockR : 0;
+    }
 
-    // Per-node world position and visual drum radius.
+    let vStart = 0;
+    let firstSample = true;
+    for (let si = 0; si < sectionCount; si++) {
+      const section = network.getSection(si);
+      const chain = this.chains[si];
+      const L = section.length;
+
+      // Copy chain positions into a smoothing scratch, snap endpoints to
+      // current tangent points, and run a few Laplacian passes to remove
+      // PBD-induced jitter before the renderer's Catmull-Rom subdivision
+      // interpolates through these points.
+      const ax = this.leaveWX[si];
+      const ay = this.leaveWY[si];
+      const az = this.leaveWZ[si];
+      const bx = this.enterWX[si + 1];
+      const by = this.enterWY[si + 1];
+      const bz = this.enterWZ[si + 1];
+      const smoothed = this.getSmoothScratch(si, chain.count);
+      smoothed.set(chain.pos);
+      smoothed[0] = ax;
+      smoothed[1] = ay;
+      smoothed[2] = az;
+      const lastIdx = (chain.count - 1) * 3;
+      smoothed[lastIdx] = bx;
+      smoothed[lastIdx + 1] = by;
+      smoothed[lastIdx + 2] = bz;
+      laplacianSmooth(
+        smoothed,
+        chain.count,
+        RENDER_SMOOTH_PASSES,
+        RENDER_SMOOTH_LAMBDA,
+      );
+
+      // Emit particle positions. Skip the duplicate shared endpoint at si > 0
+      // (already emitted by the previous section's drum arc, or its last
+      // particle if no drum sat between them).
+      const startI = firstSample ? 0 : 1;
+      const N = chain.count;
+      const segLen = L / (N - 1);
+      let v = vStart + startI * segLen;
+      for (let i = startI; i < N; i++) {
+        const o = i * 3;
+        const px = smoothed[o];
+        const py = smoothed[o + 1];
+        const pz = this.clampToFloor(px, py, smoothed[o + 2]);
+        this.points.push([px, py]);
+        this.z.push(pz);
+        this.vCoords.push(v);
+        v += segLen;
+      }
+      vStart += L;
+      firstSample = false;
+
+      // Wrap arc around drum at node si+1 (if interior drum). The arc is
+      // generated in the drum body's local xy plane at the anchor z and
+      // transformed to world, so it coincides exactly with the hull-local
+      // cheek disks drawn in BoatRenderer regardless of heel.
+      const drumIdx = si + 1;
+      if (
+        drumIdx < nodeCount - 1 &&
+        radius[drumIdx] > 0 &&
+        si + 1 < sectionCount
+      ) {
+        const drumNode = network.getNode(drumIdx);
+        const la = drumNode.localAnchor;
+        const r = radius[drumIdx];
+        const ain = Math.atan2(
+          this.enterLY[drumIdx] - la[1],
+          this.enterLX[drumIdx] - la[0],
+        );
+        const aout = Math.atan2(
+          this.leaveLY[drumIdx] - la[1],
+          this.leaveLX[drumIdx] - la[0],
+        );
+        let delta = aout - ain;
+        while (delta > Math.PI) delta -= 2 * Math.PI;
+        while (delta < -Math.PI) delta += 2 * Math.PI;
+        const arcLen = Math.abs(delta) * r;
+        const nArc = 8;
+        for (let i = 1; i <= nArc; i++) {
+          const t = i / nArc;
+          const a = ain + delta * t;
+          const lx = la[0] + r * Math.cos(a);
+          const ly = la[1] + r * Math.sin(a);
+          const w = drumNode.body.toWorldFrame3D(lx, ly, la[2]);
+          const pz = this.clampToFloor(w[0], w[1], w[2]);
+          this.points.push([w[0], w[1]]);
+          this.z.push(pz);
+          this.vCoords.push(vStart + t * arcLen);
+        }
+        vStart += arcLen;
+      }
+    }
+
+    return { points: this.points, z: this.z, vPerPoint: this.vCoords };
+  }
+
+  // ─── Internals ───────────────────────────────────────────────────
+
+  private getSmoothScratch(idx: number, count: number): Float64Array {
+    const existing = this.smoothScratch[idx];
+    if (existing && existing.length === count * 3) return existing;
+    const buf = new Float64Array(count * 3);
+    this.smoothScratch[idx] = buf;
+    return buf;
+  }
+
+  private createChainForSection(idx: number): RopeParticleChain {
+    const section = this.network.getSection(idx);
+    const count = particleCountFor(section.length);
+    return new RopeParticleChain(
+      count,
+      this.leaveWX[idx],
+      this.leaveWY[idx],
+      this.leaveWZ[idx],
+      this.enterWX[idx + 1],
+      this.enterWY[idx + 1],
+      this.enterWZ[idx + 1],
+      section.length,
+    );
+  }
+
+  /**
+   * Recompute every node's leave/enter tangent points (world + body-local)
+   * from the current node world positions and configured drum radii. Nodes
+   * without a drum degenerate to the node's own world position.
+   */
+  private refreshTangentPoints(): void {
+    const network = this.network;
+    const nodeCount = network.getNodeCount();
+    const sectionCount = network.getSectionCount();
+    const winchR = this.config.winchRadius ?? 0;
+    const blockR = this.config.blockRadius ?? 0;
+
+    // Resize caches on demand.
+    while (this.leaveWX.length < nodeCount) {
+      this.leaveWX.push(0);
+      this.leaveWY.push(0);
+      this.leaveWZ.push(0);
+      this.enterWX.push(0);
+      this.enterWY.push(0);
+      this.enterWZ.push(0);
+      this.leaveLX.push(0);
+      this.leaveLY.push(0);
+      this.enterLX.push(0);
+      this.enterLY.push(0);
+    }
+
     const nodeX: number[] = new Array(nodeCount);
     const nodeY: number[] = new Array(nodeCount);
     const nodeZ: number[] = new Array(nodeCount);
@@ -216,18 +366,20 @@ export class RopeRender {
       nodeY[i] = n.worldPos[1];
       nodeZ[i] = n.worldPos[2];
       radius[i] = n.kind === "winch" ? winchR : n.kind === "block" ? blockR : 0;
+      // Default the tangent points to the node center.
+      this.leaveWX[i] = nodeX[i];
+      this.leaveWY[i] = nodeY[i];
+      this.leaveWZ[i] = nodeZ[i];
+      this.enterWX[i] = nodeX[i];
+      this.enterWY[i] = nodeY[i];
+      this.enterWZ[i] = nodeZ[i];
     }
 
-    // Wrap sign at each interior drum node: determines which side of the
-    // chord the rope's tangent points sit on.
-    //   - Winches: always wrap in a fixed direction (conventionally the rope
-    //     is spooled a set way around a winch drum). Hard-coding the sign
-    //     keeps the wrap stable as the sail clew moves relative to the hull;
-    //     otherwise tiny geometry shifts would flip the wrap side back and
-    //     forth while the boat heels or the sail swings.
-    //   - Blocks: derived from the turn direction of the rope (cross product
-    //     of incoming and outgoing chord in the drum body's disk plane), so
-    //     a free-running block wraps whichever way the rope actually bends.
+    // Wrap sign per interior drum: which side of the chord the rope tangents.
+    //   - Winches: fixed sign so the wrap stays visually consistent as the
+    //     sail clew swings; otherwise tiny geometry shifts flip it.
+    //   - Blocks: derived from incoming/outgoing chord cross product, so a
+    //     free-running block wraps whichever way the rope actually bends.
     const wrapSign: number[] = new Array(nodeCount).fill(0);
     for (let i = 1; i < nodeCount - 1; i++) {
       if (radius[i] <= 0) continue;
@@ -246,28 +398,6 @@ export class RopeRender {
       const dyOut = lc[1] - lb[1];
       const cross = dxIn * dyOut - dyIn * dxOut;
       wrapSign[i] = cross > EPS ? -1 : cross < -EPS ? 1 : 0;
-    }
-
-    // Tangent points per node, in both body-local (for arc angles) and world
-    // (for straight-line sample emission). Zero-radius nodes degenerate to
-    // the node world position with matching body-local entries.
-    const leaveLX: number[] = new Array(nodeCount);
-    const leaveLY: number[] = new Array(nodeCount);
-    const enterLX: number[] = new Array(nodeCount);
-    const enterLY: number[] = new Array(nodeCount);
-    const leaveWX: number[] = new Array(nodeCount);
-    const leaveWY: number[] = new Array(nodeCount);
-    const leaveWZ: number[] = new Array(nodeCount);
-    const enterWX: number[] = new Array(nodeCount);
-    const enterWY: number[] = new Array(nodeCount);
-    const enterWZ: number[] = new Array(nodeCount);
-    for (let i = 0; i < nodeCount; i++) {
-      leaveWX[i] = nodeX[i];
-      leaveWY[i] = nodeY[i];
-      leaveWZ[i] = nodeZ[i];
-      enterWX[i] = nodeX[i];
-      enterWY[i] = nodeY[i];
-      enterWZ[i] = nodeZ[i];
     }
 
     for (let si = 0; si < sectionCount; si++) {
@@ -298,25 +428,25 @@ export class RopeRender {
           sB,
         );
         if (res) {
-          leaveLX[a] = res.tax;
-          leaveLY[a] = res.tay;
+          this.leaveLX[a] = res.tax;
+          this.leaveLY[a] = res.tay;
           const wA = nA.body.toWorldFrame3D(res.tax, res.tay, laA[2]);
-          leaveWX[a] = wA[0];
-          leaveWY[a] = wA[1];
-          leaveWZ[a] = wA[2];
-          enterLX[b] = res.tbx;
-          enterLY[b] = res.tby;
+          this.leaveWX[a] = wA[0];
+          this.leaveWY[a] = wA[1];
+          this.leaveWZ[a] = wA[2];
+          this.enterLX[b] = res.tbx;
+          this.enterLY[b] = res.tby;
           const wB = nB.body.toWorldFrame3D(res.tbx, res.tby, laB[2]);
-          enterWX[b] = wB[0];
-          enterWY[b] = wB[1];
-          enterWZ[b] = wB[2];
+          this.enterWX[b] = wB[0];
+          this.enterWY[b] = wB[1];
+          this.enterWZ[b] = wB[2];
         }
         continue;
       }
 
-      // Per-drum point-to-circle tangent in each drum's body frame. (Also
-      // the two-drum different-body fallback.) computePointTangent's `u`
-      // points from the external point toward the drum; for the enter
+      // Per-drum point-to-circle tangent in each drum's body frame.
+      // (Also the two-drum different-body fallback.) computePointTangent's
+      // `u` points from the external point toward the drum; for the enter
       // tangent that matches rope travel, but for the leave tangent the
       // rope travels drum→next, so we negate the sign to keep both tangent
       // points on the same side of the rope path.
@@ -330,12 +460,12 @@ export class RopeRender {
           rA,
           -(sA !== 0 ? sA : 1),
         );
-        leaveLX[a] = tp.tx;
-        leaveLY[a] = tp.ty;
+        this.leaveLX[a] = tp.tx;
+        this.leaveLY[a] = tp.ty;
         const w = nA.body.toWorldFrame3D(tp.tx, tp.ty, laA[2]);
-        leaveWX[a] = w[0];
-        leaveWY[a] = w[1];
-        leaveWZ[a] = w[2];
+        this.leaveWX[a] = w[0];
+        this.leaveWY[a] = w[1];
+        this.leaveWZ[a] = w[2];
       }
       if (rB > 0) {
         const pLocal = nB.body.toLocalFrame3D(nodeX[a], nodeY[a], nodeZ[a]);
@@ -347,146 +477,47 @@ export class RopeRender {
           rB,
           sB !== 0 ? sB : 1,
         );
-        enterLX[b] = tp.tx;
-        enterLY[b] = tp.ty;
+        this.enterLX[b] = tp.tx;
+        this.enterLY[b] = tp.ty;
         const w = nB.body.toWorldFrame3D(tp.tx, tp.ty, laB[2]);
-        enterWX[b] = w[0];
-        enterWY[b] = w[1];
-        enterWZ[b] = w[2];
+        this.enterWX[b] = w[0];
+        this.enterWY[b] = w[1];
+        this.enterWZ[b] = w[2];
       }
     }
-
-    let vStart = 0;
-    let firstSample = true;
-    for (let si = 0; si < sectionCount; si++) {
-      const section = network.getSection(si);
-      const state = this.states[si];
-      const L = section.length;
-
-      const ax = leaveWX[si];
-      const ay = leaveWY[si];
-      const az = leaveWZ[si];
-      const bx = enterWX[si + 1];
-      const by = enterWY[si + 1];
-      const bz = enterWZ[si + 1];
-
-      const ddx = bx - ax;
-      const ddy = by - ay;
-      const ddz = bz - az;
-      const chord = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
-
-      // Taut threshold: chord ≥ length * 0.995 → render as straight line.
-      const taut = chord >= L * 0.995 || chord < EPS;
-
-      // Sag magnitude using a parabolic arc-length approximation:
-      // for a parabola y = 4h·t(1-t) spanning chord c, arc length ≈ c + 8h²/(3c),
-      // so h ≈ sqrt(3c(L-c)/8). Far more realistic than a V-shape for small
-      // slack, and doesn't explode when L is many times the chord.
-      // Cap sag at chord × 1.2 to prevent tail-coil sections (huge L/c ratio)
-      // from producing absurd V-shapes that the deck clamp can't mask cleanly.
-      let sagMag = 0;
-      if (!taut) {
-        const slack = L - chord;
-        if (slack > 0) {
-          sagMag = Math.sqrt((3 * chord * slack) / 8);
-          const cap = chord * 1.2;
-          if (sagMag > cap) sagMag = cap;
-        }
-      }
-
-      const nSamples = state.sampleCount;
-
-      // Skip the duplicate shared sample at si > 0 (already emitted as the
-      // previous section's last sample, or the preceding drum arc's last sample).
-      const startI = firstSample ? 0 : 1;
-      for (let i = startI; i < nSamples; i++) {
-        const t = i / (nSamples - 1);
-        let px = ax + ddx * t;
-        let py = ay + ddy * t;
-        let pz = az + ddz * t;
-        if (sagMag > EPS) {
-          const peak = 4 * t * (1 - t); // 0 at ends, 1 at midpoint
-          pz -= sagMag * peak;
-        }
-        const oscWeight = 4 * t * (1 - t);
-        px += state.oscPos[0] * oscWeight;
-        py += state.oscPos[1] * oscWeight;
-        pz += state.oscPos[2] * oscWeight;
-        pz = this.clampToFloor(px, py, pz);
-        this.points.push([px, py]);
-        this.z.push(pz);
-        this.vCoords.push(vStart + t * L);
-      }
-      vStart += L;
-      firstSample = false;
-
-      // Wrap arc around drum at node si+1 (if interior drum). The arc is
-      // generated in the drum body's local xy plane at the anchor z and
-      // transformed to world, so it coincides exactly with the hull-local
-      // cheek disks drawn in BoatRenderer regardless of heel.
-      const drumIdx = si + 1;
-      if (
-        drumIdx < nodeCount - 1 &&
-        radius[drumIdx] > 0 &&
-        si + 1 < sectionCount
-      ) {
-        const drumNode = network.getNode(drumIdx);
-        const la = drumNode.localAnchor;
-        const r = radius[drumIdx];
-        const ain = Math.atan2(
-          enterLY[drumIdx] - la[1],
-          enterLX[drumIdx] - la[0],
-        );
-        const aout = Math.atan2(
-          leaveLY[drumIdx] - la[1],
-          leaveLX[drumIdx] - la[0],
-        );
-        let delta = aout - ain;
-        while (delta > Math.PI) delta -= 2 * Math.PI;
-        while (delta < -Math.PI) delta += 2 * Math.PI;
-        const arcLen = Math.abs(delta) * r;
-        const nArc = 8;
-        for (let i = 1; i <= nArc; i++) {
-          const t = i / nArc;
-          const a = ain + delta * t;
-          const lx = la[0] + r * Math.cos(a);
-          const ly = la[1] + r * Math.sin(a);
-          const w = drumNode.body.toWorldFrame3D(lx, ly, la[2]);
-          const pz = this.clampToFloor(w[0], w[1], w[2]);
-          this.points.push([w[0], w[1]]);
-          this.z.push(pz);
-          this.vCoords.push(vStart + t * arcLen);
-        }
-        vStart += arcLen;
-      }
-    }
-
-    return { points: this.points, z: this.z, vPerPoint: this.vCoords };
   }
 
-  /** Clamp a world-space z-value up to the rope floor at (x, y). */
+  /** Clamp a world-space z-value up to the rope floor at (x, y, z). */
   private clampToFloor(x: number, y: number, z: number): number {
-    const floor = this.ropeFloor(x, y);
+    const floor = this.ropeFloor(x, y, z);
     if (!isFinite(floor)) return z;
-    const ropeRadius = this.config.ropeRadius ?? 0.025;
-    const floorPlus = floor + ropeRadius;
-    // Softplus: smoothly transitions between z and floor+r.
-    return softplusAbove(z, floorPlus, FLOOR_SOFTNESS);
+    // Softplus: smoothly transitions between z and floor.
+    return softplusAbove(z, floor, FLOOR_SOFTNESS);
   }
 
   /**
-   * World-space z-value below which rope samples must not dip. Returns -∞
-   * where there is no floor.
+   * World-space z-value below which a rope sample at world (x, y, z) must
+   * not dip. Returns -∞ where there is no floor.
+   *
+   * The hull body tilts in 3D (heel + pitch), so a yaw-only inverse to
+   * hull-local (lx, ly) places the deck lookup at the wrong point and the
+   * returned floor is too low — the rope visibly sinks into the deck. Use
+   * the body's full 3D rotation matrix instead, matching the convention
+   * `DeckContactConstraint` uses for the same query.
    */
-  private ropeFloor(x: number, y: number): number {
+  private ropeFloor(x: number, y: number, z: number): number {
     const hb = this.config.hullBoundary;
     const gd = this.config.getDeckHeight;
     const hull = this.config.hullBody;
     if (!hb || !gd || !hull || hb.levels.length === 0) return -Infinity;
 
-    // Transform to hull-local frame.
-    const lx = this.hullLocalX(hull, x, y);
-    const ly = this.hullLocalY(hull, x, y);
+    const R = hull.orientation;
+    const dx = x - hull.position[0];
+    const dy = y - hull.position[1];
+    const dz = z - hull.z;
+    const lx = R[0] * dx + R[3] * dy + R[6] * dz;
+    const ly = R[1] * dx + R[4] * dy + R[7] * dz;
+    const ropeRadius = this.config.ropeRadius ?? 0.025;
 
     // Use the topmost level (the deck outline at z = deckHeight).
     const deckLevel = hb.levels[hb.levels.length - 1];
@@ -494,7 +525,7 @@ export class RopeRender {
     if (pointInBoundary(deckLevel.vx, deckLevel.vy, lx, ly)) {
       const localFloor = gd(lx, ly);
       if (localFloor == null) return -Infinity;
-      return hull.worldZ(lx, ly, localFloor);
+      return hull.worldZ(lx, ly, localFloor + ropeRadius);
     }
     // Outside the deck polygon but close — taper the floor down rapidly so
     // rope drapes over the gunwale without a hard cliff.
@@ -502,27 +533,62 @@ export class RopeRender {
     if (!edge || edge.distance >= FLOOR_EDGE_TAPER) return -Infinity;
     const localFloor = gd(edge.x, edge.y);
     if (localFloor == null) return -Infinity;
-    const edgeWorldZ = hull.worldZ(edge.x, edge.y, localFloor);
+    const edgeWorldZ = hull.worldZ(edge.x, edge.y, localFloor + ropeRadius);
     const fade = 1 - edge.distance / FLOOR_EDGE_TAPER;
     return edgeWorldZ - (1 - fade) * 1000;
   }
+}
 
-  /** Hull-local X from world (x, y) using the hull body's inverse frame. */
-  private hullLocalX(hull: Body, x: number, y: number): number {
-    const hx = hull.position[0];
-    const hy = hull.position[1];
-    const ca = Math.cos(-hull.angle);
-    const sa = Math.sin(-hull.angle);
-    return (x - hx) * ca - (y - hy) * sa;
-  }
+/**
+ * Build a closure that fills `out` with the hull body's world-frame velocity
+ * at the given world point — linear + angular contribution (ω × r). Used as
+ * the PBD damping reference frame so a rope on a moving/yawing/heeling boat
+ * stays visually attached to the deck instead of lagging in world space.
+ */
+function buildHullVelocityFn(hull: Body): ReferenceVelocityFn {
+  return (x, y, z, out) => {
+    const w = hull.angularVelocity3;
+    const rx = x - hull.position[0];
+    const ry = y - hull.position[1];
+    const rz = z - hull.z;
+    // v = v_linear + ω × r
+    out[0] = hull.velocity[0] + w[1] * rz - w[2] * ry;
+    out[1] = hull.velocity[1] + w[2] * rx - w[0] * rz;
+    out[2] = hull.zVelocity + w[0] * ry - w[1] * rx;
+  };
+}
 
-  private hullLocalY(hull: Body, x: number, y: number): number {
-    const hx = hull.position[0];
-    const hy = hull.position[1];
-    const ca = Math.cos(-hull.angle);
-    const sa = Math.sin(-hull.angle);
-    return (x - hx) * sa + (y - hy) * ca;
+/**
+ * In-place Laplacian smoothing on a flat [x0,y0,z0,x1,y1,z1,…] buffer of
+ * `count` particles. Endpoints (i=0 and i=count-1) are held fixed. Uses
+ * Gauss-Seidel (single forward pass per iteration) since the shift bias
+ * relative to Jacobi is imperceptible for visual rope smoothing.
+ */
+function laplacianSmooth(
+  buf: Float64Array,
+  count: number,
+  passes: number,
+  lambda: number,
+): void {
+  if (count < 3 || passes <= 0) return;
+  const keep = 1 - lambda;
+  const half = lambda * 0.5;
+  for (let p = 0; p < passes; p++) {
+    for (let i = 1; i < count - 1; i++) {
+      const o = i * 3;
+      buf[o] = keep * buf[o] + half * (buf[o - 3] + buf[o + 3]);
+      buf[o + 1] = keep * buf[o + 1] + half * (buf[o - 2] + buf[o + 4]);
+      buf[o + 2] = keep * buf[o + 2] + half * (buf[o - 1] + buf[o + 5]);
+    }
   }
+}
+
+function particleCountFor(length: number): number {
+  return clampInt(
+    Math.round(length * PARTICLES_PER_FOOT),
+    MIN_PARTICLES_PER_SECTION,
+    MAX_PARTICLES_PER_SECTION,
+  );
 }
 
 /**

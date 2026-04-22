@@ -20,6 +20,7 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { GameEventMap } from "../../core/entity/Entity";
 import type { Body } from "../../core/physics/body/Body";
+import { profiler } from "../../core/util/Profiler";
 import { V3d, type CompatibleVector3 } from "../../core/Vector3";
 import {
   type CapstanConfig,
@@ -123,6 +124,7 @@ export class RopeNetwork extends BaseEntity {
 
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]): void {
+    profiler.start("rope.network.tick");
     // 1. Refresh every node's world position from its body.
     for (const node of this.nodes) {
       refreshWorldPos(node);
@@ -153,6 +155,7 @@ export class RopeNetwork extends BaseEntity {
         node.localAnchor[2],
       );
     }
+    profiler.end("rope.network.tick");
   }
 
   // ─── Queries ─────────────────────────────────────────────────────

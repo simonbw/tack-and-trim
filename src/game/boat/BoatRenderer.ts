@@ -2,6 +2,7 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
 import { lighten } from "../../core/util/ColorUtils";
+import { profiler } from "../../core/util/Profiler";
 import { V } from "../../core/Vector";
 import type { Boat } from "./Boat";
 import type { BoatConfig } from "./BoatConfig";
@@ -225,6 +226,7 @@ export class BoatRenderer extends BaseEntity {
     // double-count the tilt.
     const renderer = draw.renderer;
     renderer.flush();
+    profiler.start("rope.render.draw");
     this.renderSheet(renderer, this.boat.mainsheet, hullBody);
     if (this.boat.portJibSheet) {
       this.renderSheet(renderer, this.boat.portJibSheet, hullBody);
@@ -235,6 +237,7 @@ export class BoatRenderer extends BaseEntity {
 
     // === 14. Anchor rode ===
     this.renderRode(renderer);
+    profiler.end("rope.render.draw");
 
     // === 15. Sheet blocks/winches — top cheek + handles (above ropes) ===
     renderer.flush();
@@ -711,7 +714,7 @@ export class BoatRenderer extends BaseEntity {
   }
 
   /** Subdivisions per segment for Catmull-Rom rope smoothing. */
-  private static readonly ROPE_SUBDIVISIONS = 3;
+  private static readonly ROPE_SUBDIVISIONS = 5;
 
   /** Per-sheet smoothing scratch buffers and shader instance. */
   private ropeRenderState = new Map<
