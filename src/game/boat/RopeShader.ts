@@ -118,10 +118,11 @@ struct VertexOutput {
 fn vs_main(in: VertexInput) -> VertexOutput {
   let worldPos = vec3<f32>(in.position, 1.0);
   let clipPos = uniforms.viewMatrix * worldPos;
-  // Depth bias: push rope slightly toward the viewer so it renders above
-  // the deck surface it rests on, avoiding z-fighting from the different
-  // depth computation paths (rope shader vs shape shader with tilt transform).
-  let depth = (in.z - Z_MIN) / (Z_MAX - Z_MIN) + 0.005;
+  // Small depth bias to break z-fighting with deck geometry that sits at
+  // the same world z (different depth computation paths: rope shader vs
+  // shape shader with tilt transform). Kept tiny so deck hardware drawn
+  // above the rope at rope_z + small Δ wins on the depth test.
+  let depth = (in.z - Z_MIN) / (Z_MAX - Z_MIN) + 0.0001;
 
   var out: VertexOutput;
   out.position = vec4<f32>(clipPos.xy, depth, 1.0);

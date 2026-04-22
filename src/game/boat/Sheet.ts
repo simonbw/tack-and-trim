@@ -168,6 +168,11 @@ export class Sheet extends BaseEntity {
       getDeckHeight: this.getDeckHeight,
       hullBoundary: this.hullBoundary,
       ropeRadius: (this.config.ropeDiameter ?? 0.026) / 2,
+      // Rope wrap radius — the groove sits inboard of the cheek disks
+      // (cheek radius is 0.3 ft in BoatRenderer), so the rope hugs a
+      // smaller drum nested inside the visible hardware.
+      winchRadius: 0.18,
+      blockRadius: 0.18,
     });
 
     // Wrap each waypoint with a RopeBlock adapter. Must match by (body, localAnchor).

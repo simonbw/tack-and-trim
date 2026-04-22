@@ -43,6 +43,14 @@ const OSC_DAMPING = 3.0;
 /** Max oscillator ω·dt. Above this, state is frozen to prevent blow-ups. */
 const OSC_MAX_WDT = 0.3;
 
+/**
+ * Fixed wrap side for winches. The rope always tangents the drum on the
+ * +perp side of the chord (looking down at the drum in its body frame),
+ * which visually corresponds to a consistent clockwise spool. Flip to -1
+ * if the wrap reads backwards for a given configuration.
+ */
+const WINCH_WRAP_SIGN = 1;
+
 export interface RopeRenderConfig {
   /** Hull body — floor queries are done in this body's local frame. */
   hullBody?: Body;
@@ -52,6 +60,17 @@ export interface RopeRenderConfig {
   hullBoundary?: HullBoundaryData;
   /** Rope radius for clamp offset (ft). Default 0.025. */
   ropeRadius?: number;
+  /**
+   * Visual drum radius for winch nodes (ft). Sections adjacent to a winch
+   * leave/enter tangent to this drum, and the rope wraps around the drum
+   * between sections. 0 disables (rope passes through node center). Default 0.
+   */
+  winchRadius?: number;
+  /**
+   * Visual sheave radius for block nodes (ft). Same semantics as
+   * `winchRadius` but for free-running blocks. Default 0.
+   */
+  blockRadius?: number;
 }
 
 interface SectionRenderState {
@@ -182,21 +201,175 @@ export class RopeRender {
       return { points: this.points, z: this.z, vPerPoint: this.vCoords };
     }
 
+    const nodeCount = network.getNodeCount();
+    const winchR = this.config.winchRadius ?? 0;
+    const blockR = this.config.blockRadius ?? 0;
+
+    // Per-node world position and visual drum radius.
+    const nodeX: number[] = new Array(nodeCount);
+    const nodeY: number[] = new Array(nodeCount);
+    const nodeZ: number[] = new Array(nodeCount);
+    const radius: number[] = new Array(nodeCount);
+    for (let i = 0; i < nodeCount; i++) {
+      const n = network.getNode(i);
+      nodeX[i] = n.worldPos[0];
+      nodeY[i] = n.worldPos[1];
+      nodeZ[i] = n.worldPos[2];
+      radius[i] = n.kind === "winch" ? winchR : n.kind === "block" ? blockR : 0;
+    }
+
+    // Wrap sign at each interior drum node: determines which side of the
+    // chord the rope's tangent points sit on.
+    //   - Winches: always wrap in a fixed direction (conventionally the rope
+    //     is spooled a set way around a winch drum). Hard-coding the sign
+    //     keeps the wrap stable as the sail clew moves relative to the hull;
+    //     otherwise tiny geometry shifts would flip the wrap side back and
+    //     forth while the boat heels or the sail swings.
+    //   - Blocks: derived from the turn direction of the rope (cross product
+    //     of incoming and outgoing chord in the drum body's disk plane), so
+    //     a free-running block wraps whichever way the rope actually bends.
+    const wrapSign: number[] = new Array(nodeCount).fill(0);
+    for (let i = 1; i < nodeCount - 1; i++) {
+      if (radius[i] <= 0) continue;
+      const node = network.getNode(i);
+      if (node.kind === "winch") {
+        wrapSign[i] = WINCH_WRAP_SIGN;
+        continue;
+      }
+      const body = node.body;
+      const la = body.toLocalFrame3D(nodeX[i - 1], nodeY[i - 1], nodeZ[i - 1]);
+      const lb = body.toLocalFrame3D(nodeX[i], nodeY[i], nodeZ[i]);
+      const lc = body.toLocalFrame3D(nodeX[i + 1], nodeY[i + 1], nodeZ[i + 1]);
+      const dxIn = lb[0] - la[0];
+      const dyIn = lb[1] - la[1];
+      const dxOut = lc[0] - lb[0];
+      const dyOut = lc[1] - lb[1];
+      const cross = dxIn * dyOut - dyIn * dxOut;
+      wrapSign[i] = cross > EPS ? -1 : cross < -EPS ? 1 : 0;
+    }
+
+    // Tangent points per node, in both body-local (for arc angles) and world
+    // (for straight-line sample emission). Zero-radius nodes degenerate to
+    // the node world position with matching body-local entries.
+    const leaveLX: number[] = new Array(nodeCount);
+    const leaveLY: number[] = new Array(nodeCount);
+    const enterLX: number[] = new Array(nodeCount);
+    const enterLY: number[] = new Array(nodeCount);
+    const leaveWX: number[] = new Array(nodeCount);
+    const leaveWY: number[] = new Array(nodeCount);
+    const leaveWZ: number[] = new Array(nodeCount);
+    const enterWX: number[] = new Array(nodeCount);
+    const enterWY: number[] = new Array(nodeCount);
+    const enterWZ: number[] = new Array(nodeCount);
+    for (let i = 0; i < nodeCount; i++) {
+      leaveWX[i] = nodeX[i];
+      leaveWY[i] = nodeY[i];
+      leaveWZ[i] = nodeZ[i];
+      enterWX[i] = nodeX[i];
+      enterWY[i] = nodeY[i];
+      enterWZ[i] = nodeZ[i];
+    }
+
+    for (let si = 0; si < sectionCount; si++) {
+      const a = si;
+      const b = si + 1;
+      const rA = radius[a];
+      const rB = radius[b];
+      if (rA <= 0 && rB <= 0) continue;
+
+      const nA = network.getNode(a);
+      const nB = network.getNode(b);
+      const laA = nA.localAnchor;
+      const laB = nB.localAnchor;
+      const sA = wrapSign[a];
+      const sB = wrapSign[b];
+
+      if (rA > 0 && rB > 0 && nA.body === nB.body) {
+        // Two drums on the same body: proper circle-to-circle tangent in
+        // the shared body's xy plane.
+        const res = computeCircleTangent(
+          laA[0],
+          laA[1],
+          rA,
+          sA,
+          laB[0],
+          laB[1],
+          rB,
+          sB,
+        );
+        if (res) {
+          leaveLX[a] = res.tax;
+          leaveLY[a] = res.tay;
+          const wA = nA.body.toWorldFrame3D(res.tax, res.tay, laA[2]);
+          leaveWX[a] = wA[0];
+          leaveWY[a] = wA[1];
+          leaveWZ[a] = wA[2];
+          enterLX[b] = res.tbx;
+          enterLY[b] = res.tby;
+          const wB = nB.body.toWorldFrame3D(res.tbx, res.tby, laB[2]);
+          enterWX[b] = wB[0];
+          enterWY[b] = wB[1];
+          enterWZ[b] = wB[2];
+        }
+        continue;
+      }
+
+      // Per-drum point-to-circle tangent in each drum's body frame.
+      // (Also the two-drum different-body fallback.)
+      if (rA > 0) {
+        const pLocal = nA.body.toLocalFrame3D(nodeX[b], nodeY[b], nodeZ[b]);
+        const tp = computePointTangent(
+          pLocal[0],
+          pLocal[1],
+          laA[0],
+          laA[1],
+          rA,
+          sA !== 0 ? sA : 1,
+        );
+        leaveLX[a] = tp.tx;
+        leaveLY[a] = tp.ty;
+        const w = nA.body.toWorldFrame3D(tp.tx, tp.ty, laA[2]);
+        leaveWX[a] = w[0];
+        leaveWY[a] = w[1];
+        leaveWZ[a] = w[2];
+      }
+      if (rB > 0) {
+        const pLocal = nB.body.toLocalFrame3D(nodeX[a], nodeY[a], nodeZ[a]);
+        const tp = computePointTangent(
+          pLocal[0],
+          pLocal[1],
+          laB[0],
+          laB[1],
+          rB,
+          sB !== 0 ? sB : 1,
+        );
+        enterLX[b] = tp.tx;
+        enterLY[b] = tp.ty;
+        const w = nB.body.toWorldFrame3D(tp.tx, tp.ty, laB[2]);
+        enterWX[b] = w[0];
+        enterWY[b] = w[1];
+        enterWZ[b] = w[2];
+      }
+    }
+
     let vStart = 0;
+    let firstSample = true;
     for (let si = 0; si < sectionCount; si++) {
       const section = network.getSection(si);
       const state = this.states[si];
-      const nA = network.getNode(si);
-      const nB = network.getNode(si + 1);
-
-      const ax = nA.worldPos[0];
-      const ay = nA.worldPos[1];
-      const az = nA.worldPos[2];
-      const bx = nB.worldPos[0];
-      const by = nB.worldPos[1];
-      const bz = nB.worldPos[2];
-      const chord = section.chord;
       const L = section.length;
+
+      const ax = leaveWX[si];
+      const ay = leaveWY[si];
+      const az = leaveWZ[si];
+      const bx = enterWX[si + 1];
+      const by = enterWY[si + 1];
+      const bz = enterWZ[si + 1];
+
+      const ddx = bx - ax;
+      const ddy = by - ay;
+      const ddz = bz - az;
+      const chord = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
 
       // Taut threshold: chord ≥ length * 0.995 → render as straight line.
       const taut = chord >= L * 0.995 || chord < EPS;
@@ -219,35 +392,69 @@ export class RopeRender {
 
       const nSamples = state.sampleCount;
 
-      // Skip the duplicate shared node at si > 0 (already emitted as previous
-      // section's last sample).
-      const startI = si === 0 ? 0 : 1;
+      // Skip the duplicate shared sample at si > 0 (already emitted as the
+      // previous section's last sample, or the preceding drum arc's last sample).
+      const startI = firstSample ? 0 : 1;
       for (let i = startI; i < nSamples; i++) {
         const t = i / (nSamples - 1);
-        // Chord-interpolated base position.
-        let px = ax + (bx - ax) * t;
-        let py = ay + (by - ay) * t;
-        let pz = az + (bz - az) * t;
-        // Parabolic sag (down in world z).
+        let px = ax + ddx * t;
+        let py = ay + ddy * t;
+        let pz = az + ddz * t;
         if (sagMag > EPS) {
           const peak = 4 * t * (1 - t); // 0 at ends, 1 at midpoint
           pz -= sagMag * peak;
         }
-        // Oscillator displacement: smooth peak at section midpoint.
         const oscWeight = 4 * t * (1 - t);
         px += state.oscPos[0] * oscWeight;
         py += state.oscPos[1] * oscWeight;
         pz += state.oscPos[2] * oscWeight;
-
-        // Deck-floor clamp (render-only).
         pz = this.clampToFloor(px, py, pz);
-
         this.points.push([px, py]);
         this.z.push(pz);
         this.vCoords.push(vStart + t * L);
       }
-
       vStart += L;
+      firstSample = false;
+
+      // Wrap arc around drum at node si+1 (if interior drum). The arc is
+      // generated in the drum body's local xy plane at the anchor z and
+      // transformed to world, so it coincides exactly with the hull-local
+      // cheek disks drawn in BoatRenderer regardless of heel.
+      const drumIdx = si + 1;
+      if (
+        drumIdx < nodeCount - 1 &&
+        radius[drumIdx] > 0 &&
+        si + 1 < sectionCount
+      ) {
+        const drumNode = network.getNode(drumIdx);
+        const la = drumNode.localAnchor;
+        const r = radius[drumIdx];
+        const ain = Math.atan2(
+          enterLY[drumIdx] - la[1],
+          enterLX[drumIdx] - la[0],
+        );
+        const aout = Math.atan2(
+          leaveLY[drumIdx] - la[1],
+          leaveLX[drumIdx] - la[0],
+        );
+        let delta = aout - ain;
+        while (delta > Math.PI) delta -= 2 * Math.PI;
+        while (delta < -Math.PI) delta += 2 * Math.PI;
+        const arcLen = Math.abs(delta) * r;
+        const nArc = 8;
+        for (let i = 1; i <= nArc; i++) {
+          const t = i / nArc;
+          const a = ain + delta * t;
+          const lx = la[0] + r * Math.cos(a);
+          const ly = la[1] + r * Math.sin(a);
+          const w = drumNode.body.toWorldFrame3D(lx, ly, la[2]);
+          const pz = this.clampToFloor(w[0], w[1], w[2]);
+          this.points.push([w[0], w[1]]);
+          this.z.push(pz);
+          this.vCoords.push(vStart + t * arcLen);
+        }
+        vStart += arcLen;
+      }
     }
 
     return { points: this.points, z: this.z, vPerPoint: this.vCoords };
@@ -312,6 +519,77 @@ export class RopeRender {
     const sa = Math.sin(-hull.angle);
     return (x - hx) * sa + (y - hy) * ca;
   }
+}
+
+/**
+ * Tangent point from external point (px, py) to circle centered at (cx, cy)
+ * with radius r, on side `s` (+1 or -1). Returned in the same 2D frame as
+ * the inputs.
+ */
+function computePointTangent(
+  px: number,
+  py: number,
+  cx: number,
+  cy: number,
+  r: number,
+  s: number,
+): { tx: number; ty: number } {
+  const dx = cx - px;
+  const dy = cy - py;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d <= r) return { tx: cx, ty: cy };
+  const ux = dx / d;
+  const uy = dy / d;
+  const perpX = -uy; // 90° CCW of u
+  const perpY = ux;
+  const cosB = r / d;
+  const sinB = Math.sqrt(1 - cosB * cosB);
+  return {
+    tx: cx + r * (s * sinB * perpX - cosB * ux),
+    ty: cy + r * (s * sinB * perpY - cosB * uy),
+  };
+}
+
+/**
+ * Tangent between two circles (A, rA, sA) and (B, rB, sB) where sA/sB are
+ * each ±1 for the drum's wrap side. Chooses external vs internal tangent
+ * from the signs. Returns null if the drums overlap.
+ */
+function computeCircleTangent(
+  ax: number,
+  ay: number,
+  rA: number,
+  sA: number,
+  bx: number,
+  by: number,
+  rB: number,
+  sB: number,
+): { tax: number; tay: number; tbx: number; tby: number } | null {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const c = Math.sqrt(dx * dx + dy * dy);
+  if (c < EPS) return null;
+  const ux = dx / c;
+  const uy = dy / c;
+  const perpX = -uy;
+  const perpY = ux;
+  // Zero sign (shouldn't happen for a radius-bearing drum in normal
+  // geometry) falls back to external with the other end's sign.
+  const effA = sA !== 0 ? sA : sB !== 0 ? sB : 1;
+  const effB = sB !== 0 ? sB : effA;
+  const crossed = effA * effB < 0;
+  const sinAlpha = (rA - (crossed ? -rB : rB)) / c;
+  if (Math.abs(sinAlpha) >= 1) return null;
+  const cosAlpha = Math.sqrt(1 - sinAlpha * sinAlpha);
+  const nx = sinAlpha * ux + cosAlpha * perpX;
+  const ny = sinAlpha * uy + cosAlpha * perpY;
+  const signB = crossed ? -effA : effB;
+  return {
+    tax: ax + rA * effA * nx,
+    tay: ay + rA * effA * ny,
+    tbx: bx + rB * signB * nx,
+    tby: by + rB * signB * ny,
+  };
 }
 
 /** softplus: max(a, b) smoothed with scale ε. */

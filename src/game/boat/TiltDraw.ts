@@ -14,6 +14,7 @@ import type { WebGPURenderer } from "../../core/graphics/webgpu/WebGPURenderer";
 import {
   type MeshContribution,
   type TiltProjection,
+  tessellateCircleToTris,
   tessellateScreenCircle,
   tessellateScreenWidthLine,
   tessellateScreenWidthPolyline,
@@ -95,6 +96,23 @@ export class TiltDraw {
         roundJoins,
       ),
     );
+  }
+
+  /**
+   * Flat filled disk in the hull-local horizontal plane. Unlike `circle`,
+   * this foreshortens naturally under roll/pitch (so deck hardware doesn't
+   * visually grow outboard of the deck when the boat heels).
+   */
+  flatCircle(
+    x: number,
+    y: number,
+    z: number,
+    radius: number,
+    segments: number,
+    color: number,
+    alpha: number = 1,
+  ): void {
+    this.mesh(tessellateCircleToTris(x, y, z, radius, segments, color, alpha));
   }
 
   /** Filled circle with constant screen radius. */

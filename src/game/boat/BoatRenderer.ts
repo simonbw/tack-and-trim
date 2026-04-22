@@ -202,8 +202,8 @@ export class BoatRenderer extends BaseEntity {
         // === 7. Boom (cylindrical — screen-width) ===
         this.renderBoom(td);
 
-        // === 8. Sheet blocks/winches (small circles on deck) ===
-        this.renderBlocks(td);
+        // === 8. Sheet blocks/winches — bottom cheek (below ropes) ===
+        this.renderBlocksPass(td, false);
 
         // === 9. Standing rigging (wires — screen-width) ===
         this.renderStandingRigging(td);
@@ -235,6 +235,24 @@ export class BoatRenderer extends BaseEntity {
 
     // === 14. Anchor rode ===
     this.renderRode(renderer);
+
+    // === 15. Sheet blocks/winches — top cheek + handles (above ropes) ===
+    renderer.flush();
+    draw.at(
+      {
+        pos: V(x, y),
+        angle: hullBody.angle,
+        tilt: {
+          roll: hullBody.roll,
+          pitch: hullBody.pitch,
+          zOffset: hullBody.z,
+        },
+      },
+      () => {
+        const td = new TiltDraw(draw.renderer, tilt);
+        this.renderBlocksPass(td, true);
+      },
+    );
 
     // Bilge water and hull silhouette masking are handled by
     // BoatWaterStampShader in the surface-rendering pass, which stamps
@@ -450,12 +468,17 @@ export class BoatRenderer extends BaseEntity {
     );
   }
 
-  private renderBlocks(td: TiltDraw) {
+  // Blocks and winches are rendered as two circles: a bottom cheek drawn
+  // before the ropes and a top cheek drawn after, so the rope visually
+  // passes through the hardware. Winches also get a handle on top.
+  // The rope has a small depth bias; the top cheek clears it by sitting
+  // ~0.3 ft above the rope anchor plane, and the bottom cheek sits at the
+  // anchor plane so the rope wins against it.
+  private renderBlocksPass(td: TiltDraw, above: boolean) {
     const hullBody = this.boat.hull.body;
-    const hull = this.boat.hull;
-    const fallbackDeckZ = this.config.hull.deckHeight;
-    const hardwareOffset = 0.3; // blocks/winches protrude ~3.6 inches
     const winchRadius = 0.3;
+    const topCheekZ = 0.3;
+    const handleZ = 0.42;
     const sheets = [
       this.boat.mainsheet,
       this.boat.portJibSheet,
@@ -466,24 +489,35 @@ export class BoatRenderer extends BaseEntity {
       for (const wp of sheet.getWaypointInfo()) {
         const [wx, wy, wz] = wp.position;
         const local = hullBody.toLocalFrame3D(wx, wy, wz);
-        const surfaceZ = local[2] + hardwareOffset;
-        td.circle(local[0], local[1], surfaceZ, winchRadius, 32, 0x444444);
-        if (wp.type === "winch") {
-          const handleLen = winchRadius * 1.6;
-          const cos = Math.cos(wp.winchAngle);
-          const sin = Math.sin(wp.winchAngle);
-          td.line(
+        const anchorZ = local[2];
+        if (!above) {
+          td.flatCircle(local[0], local[1], anchorZ, winchRadius, 32, 0x333333);
+        } else {
+          td.flatCircle(
             local[0],
             local[1],
-            surfaceZ + 0.15,
-            local[0] + cos * handleLen,
-            local[1] + sin * handleLen,
-            surfaceZ + 0.15,
-            0.12,
-            0x666666,
-            1,
-            true,
+            anchorZ + topCheekZ,
+            winchRadius,
+            32,
+            0x555555,
           );
+          if (wp.type === "winch") {
+            const handleLen = winchRadius * 1.6;
+            const cos = Math.cos(wp.winchAngle);
+            const sin = Math.sin(wp.winchAngle);
+            td.line(
+              local[0],
+              local[1],
+              anchorZ + handleZ,
+              local[0] + cos * handleLen,
+              local[1] + sin * handleLen,
+              anchorZ + handleZ,
+              0.12,
+              0x777777,
+              1,
+              true,
+            );
+          }
         }
       }
     }
