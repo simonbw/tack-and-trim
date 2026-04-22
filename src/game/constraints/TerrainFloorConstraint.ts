@@ -27,10 +27,7 @@ export class TerrainFloorConstraint extends BaseEntity {
   private waterQuery: WaterQuery;
   private floorFriction: number;
 
-  constructor(
-    bodies: Body[] | readonly Body[],
-    options?: TerrainFloorOptions,
-  ) {
+  constructor(bodies: Body[] | readonly Body[], options?: TerrainFloorOptions) {
     super();
 
     this.constrainedBodies = [...bodies];

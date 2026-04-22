@@ -103,15 +103,11 @@ export type Rigid2DOptions<M extends MotionMode = MotionMode> =
       ? Rigid2DKinematicOpts
       : Rigid2DStaticOpts;
 
-export function createRigid2D(
-  opts: Rigid2DDynamicOpts,
-): Body & DynamicRigid2D;
+export function createRigid2D(opts: Rigid2DDynamicOpts): Body & DynamicRigid2D;
 export function createRigid2D(
   opts: Rigid2DKinematicOpts,
 ): Body & KinematicRigid2D;
-export function createRigid2D(
-  opts: Rigid2DStaticOpts,
-): Body & StaticRigid2D;
+export function createRigid2D(opts: Rigid2DStaticOpts): Body & StaticRigid2D;
 export function createRigid2D(
   opts: Rigid2DOptions,
 ): Body & Rigid2D & MotionView<MotionMode> {
@@ -198,15 +194,11 @@ export type Rigid3DOptions<M extends MotionMode = MotionMode> =
       ? Rigid3DKinematicOpts
       : Rigid3DStaticOpts;
 
-export function createRigid3D(
-  opts: Rigid3DDynamicOpts,
-): Body & DynamicRigid3D;
+export function createRigid3D(opts: Rigid3DDynamicOpts): Body & DynamicRigid3D;
 export function createRigid3D(
   opts: Rigid3DKinematicOpts,
 ): Body & KinematicRigid3D;
-export function createRigid3D(
-  opts: Rigid3DStaticOpts,
-): Body & StaticRigid3D;
+export function createRigid3D(opts: Rigid3DStaticOpts): Body & StaticRigid3D;
 export function createRigid3D(
   opts: Rigid3DOptions,
 ): Body & Rigid3D & MotionView<MotionMode> {

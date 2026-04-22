@@ -105,8 +105,7 @@ export class WaterQueryManager extends QueryManager {
     const tideHeight = waterResources.getTideHeight();
     const modifierCount = waterResources.getModifierCount();
 
-    const tidalResources =
-      this.game.entities.tryGetSingleton(TidalResources);
+    const tidalResources = this.game.entities.tryGetSingleton(TidalResources);
     const packedTideMeshBuffer =
       tidalResources?.getPackedBuffer(this.game.getWebGPUDevice()) ??
       this.placeholderTideMeshBuffer!;

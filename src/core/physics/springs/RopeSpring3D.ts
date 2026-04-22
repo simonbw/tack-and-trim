@@ -29,11 +29,7 @@ export class RopeSpring3D extends Spring {
   restLength: number;
   maxForce: number;
 
-  constructor(
-    bodyA: Body,
-    bodyB: Body,
-    options: RopeSpring3DOptions = {},
-  ) {
+  constructor(bodyA: Body, bodyB: Body, options: RopeSpring3DOptions = {}) {
     super(bodyA, bodyB, options);
 
     this.localAnchorA = options.localAnchorA

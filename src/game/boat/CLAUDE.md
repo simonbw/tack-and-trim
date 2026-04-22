@@ -4,7 +4,7 @@ Physics-based sailing simulation. The `Boat` entity is the parent; all component
 
 ## Coordinate Conventions
 
-See the comment block at the top of `BoatConfig.ts`. Summary: +X forward, +Y starboard, +Z up, Z=0 at waterline. Units are feet, pounds, seconds, radians. Forces use engine units (lbf * 32.174; see `LBF_TO_ENGINE` in `physics-constants.ts`).
+See the comment block at the top of `BoatConfig.ts`. Summary: +X forward, +Y starboard, +Z up, Z=0 at waterline. Units are feet, pounds, seconds, radians. Forces use engine units (lbf \* 32.174; see `LBF_TO_ENGINE` in `physics-constants.ts`).
 
 ## Entity Structure
 
@@ -41,9 +41,11 @@ Configuration lives in `BuoyancyConfig` (mass, inertia, center of gravity) and `
 ## Forces Acting on the Boat
 
 ### Gravity
+
 Applied each tick at the center of gravity: `F_z = -mass * g` at `(0, 0, centerOfGravityZ)`.
 
 ### Buoyancy (Hull)
+
 Per-triangle, applied at each triangle's centroid. Force is purely vertical (+Z):
 
 ```
@@ -55,6 +57,7 @@ where `depth` is average vertex submersion, `area` is triangle area, and `|wnz|`
 Submersion is computed per-vertex (via `WaterQuery` at mesh vertices) and averaged per triangle with a smooth waterline transition band to avoid force discontinuities.
 
 ### Form Drag (Hull)
+
 Pressure-based drag computed per-triangle on the hull mesh. Two regimes:
 
 - **Stagnation** (front-facing triangles, `v . n > 0`): `F = -n * Cp_stag * 0.5 * rho * v^2 * A_projected`. Pushes the surface inward, opposing the impinging flow.
@@ -65,12 +68,15 @@ The relative velocity includes the z-component from roll/pitch rotation (`pointZ
 Energy dissipated by form drag is accumulated in `HullDissipation` and read by `Wake` to modulate wake particle intensity.
 
 ### Skin Friction (Hull)
+
 Viscous drag applied at each submerged triangle centroid via `computeSkinFrictionAtPoint()`. Proportional to wetted area, velocity squared, and the friction coefficient `Cf`. Includes 3D velocity (roll/pitch z-velocity) for vertical drag contribution. Scaled by hull damage.
 
 ### Wind Drag (Hull)
+
 Above-water triangles experience aerodynamic form drag from wind, computed identically to water stagnation pressure but with `RHO_AIR`.
 
 ### Hydrofoil Forces (Keel, Rudder)
+
 Both keel and rudder use the shared `computeHydrofoilForces()` function from `fluid-dynamics.ts`. This computes symmetric foil lift and drag on edge pairs:
 
 - **Lift**: thin airfoil theory (`Cl = 2*pi*sin(alpha)`) with post-stall exponential decay
@@ -81,6 +87,7 @@ The 3D decomposition tilts the lateral (lift) component by hull roll angle: `fz 
 The keel applies forces to the hull body at its blade midpoint depth. The rudder has its own dynamic rigid body connected to the hull via `RevoluteConstraint`, with player input applied as torque.
 
 ### Sail Forces
+
 Sails use cloth simulation (`ClothSolver`) with per-triangle aerodynamic forces computed in `sail-aerodynamics.ts`. Each triangle gets lift and drag from the relative wind (true wind minus cloth surface velocity), producing natural damping. Forces are applied as 3D vectors to the hull body at configurable z-heights (foot to head of sail).
 
 ## Hull Mesh

@@ -19,11 +19,11 @@ Stations are defined per-boat in `BoatConfig.stations` (with `BoatConfig.initial
 
 Default station layout (defined in Kestrel, inherited by all boats):
 
-| Station | steerAxis | primaryAxis | secondaryAxis | actions |
-|---------|-----------|-------------|---------------|---------|
-| Helm    | rudder    | mainsheet   | jibSheets     | --      |
-| Mast    | --        | mainHoist   | --            | bail    |
-| Bow     | --        | jibHoistFurl | --           | anchor, mooring |
+| Station | steerAxis | primaryAxis  | secondaryAxis | actions         |
+| ------- | --------- | ------------ | ------------- | --------------- |
+| Helm    | rudder    | mainsheet    | jibSheets     | --              |
+| Mast    | --        | mainHoist    | --            | bail            |
+| Bow     | --        | jibHoistFurl | --            | anchor, mooring |
 
 ### Walking
 

@@ -25,11 +25,7 @@ export class LinearSpring extends Spring {
   /** Natural length of the spring (no force applied at this length). */
   restLength: number;
 
-  constructor(
-    bodyA: Body,
-    bodyB: Body,
-    options: LinearSpringOptions = {},
-  ) {
+  constructor(bodyA: Body, bodyB: Body, options: LinearSpringOptions = {}) {
     super(bodyA, bodyB, options);
 
     this.localAnchorA = V();

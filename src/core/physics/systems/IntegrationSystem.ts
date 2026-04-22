@@ -66,10 +66,7 @@ const ccdBodyAdapter: {
 // ─── Velocity integration ─────────────────────────────────────────────────
 
 /** 2D point mass: linear only. */
-export function integrateVelocityPointMass2D(
-  body: Body,
-  dt: number,
-): void {
+export function integrateVelocityPointMass2D(body: Body, dt: number): void {
   const f = body.force;
   const v = body.velocity;
   body._skipPositionThisStep = false;
@@ -134,10 +131,7 @@ export function integrateVelocityRigid2D(body: Body, dt: number): void {
 }
 
 /** 3D point mass: linear XY + z. */
-export function integrateVelocityPointMass3D(
-  body: Body,
-  dt: number,
-): void {
+export function integrateVelocityPointMass3D(body: Body, dt: number): void {
   const f = body.force;
   const v = body.velocity;
   body._skipPositionThisStep = false;
@@ -235,10 +229,7 @@ export function integrateVelocityRigid3D(body: Body, dt: number): void {
  * dispatches to the shape-specialized inner loop. Only dynamic bodies
  * integrate velocity; static/kinematic are skipped.
  */
-export function integrateVelocities(
-  bodies: Iterable<Body>,
-  dt: number,
-): void {
+export function integrateVelocities(bodies: Iterable<Body>, dt: number): void {
   for (const body of bodies) {
     if (body.motion !== "dynamic") continue;
     switch (body.shape) {

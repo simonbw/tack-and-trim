@@ -12,11 +12,7 @@ export class RotationalSpring extends Spring {
   /** Target angle between the two bodies (no torque applied at this angle). */
   restAngle: number;
 
-  constructor(
-    bodyA: Body,
-    bodyB: Body,
-    options: RotationalSpringOptions = {},
-  ) {
+  constructor(bodyA: Body, bodyB: Body, options: RotationalSpringOptions = {}) {
     super(bodyA, bodyB, options);
 
     this.restAngle =

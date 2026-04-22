@@ -5,7 +5,7 @@ Concrete `BoatConfig` data for every sailable boat. Parent docs in [`../CLAUDE.m
 ## Files in this folder
 
 - **`Kestrel.ts`** — the 22ft reference hull. Defines complete geometry, deck plan zones, rigging attachment points, damage models, tilt/buoyancy — everything. Every other config starts from Kestrel.
-- **`configScale.ts`** — `scaleBoatConfig(base, sx, sy, sz)` returns a geometrically scaled copy of a base config. Only dimensions scale; masses, inertias, damping, and righting coefficients are *not* scaled and must be supplied per boat.
+- **`configScale.ts`** — `scaleBoatConfig(base, sx, sy, sz)` returns a geometrically scaled copy of a base config. Only dimensions scale; masses, inertias, damping, and righting coefficients are _not_ scaled and must be supplied per boat.
 - **`brandPalettes.ts`** — brand color palettes (`SHAFF_PALETTE`, `BHC_PALETTE`, `MAESTRO_PALETTE`) and `withBrandPalette(base, palette)`, which returns a new base config with hull, deck zones, foils, rig, sails, sheet, bowsprit, and lifelines recolored to match the brand.
 - **`Shaff*.ts`, `Bhc*.ts`, `Maestro*.ts`** — one file per boat model. Each defines an instance via `createBoatConfig(base, overrides)`.
 
@@ -14,7 +14,7 @@ Concrete `BoatConfig` data for every sailable boat. Parent docs in [`../CLAUDE.m
 A typical boat file composes three layers, from inside out:
 
 1. **`scaleBoatConfig(Kestrel, sx, sy, sz)`** — stretches Kestrel's geometry to the target size class. Skip this for boats at or very near Kestrel's 22.5ft LOA.
-2. **`withBrandPalette(..., BRAND_PALETTE)`** — applies the brand's color scheme. This is the *only* place colors should come from; per-boat files must not set any color fields directly.
+2. **`withBrandPalette(..., BRAND_PALETTE)`** — applies the brand's color scheme. This is the _only_ place colors should come from; per-boat files must not set any color fields directly.
 3. **`createBoatConfig(..., { physics overrides })`** — deep-merges the per-boat mass, draft, inertia, damping, righting coefficients, skin friction, and performance tweaks.
 
 ```ts
