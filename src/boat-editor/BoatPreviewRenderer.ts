@@ -4,8 +4,11 @@
  * and reparenting its BoatRenderer child into the preview entity so the
  * renderer gets registered with the game and draws on its own.
  *
- * The camera's orbit (yaw / pitch) is written into the hull body's
- * orientation matrix each render, just before the renderer draws.
+ * The camera orbit (yaw / pitch / roll) is exposed to BoatRenderer two
+ * ways: the hull body's Euler getters are shadowed to return camera
+ * values directly (avoiding atan2 flip at pitch = ±π/2), and the body's
+ * orientation matrix is written each render so toWorldFrame3D-based
+ * helpers (rope rendering, block positions) see the same orientation.
  */
 
 import { BaseEntity } from "../core/entity/BaseEntity";
@@ -28,6 +31,7 @@ export class BoatPreviewRenderer extends BaseEntity {
     this.boat = new Boat(V(0, 0), config);
     this.renderer = findBoatRenderer(this.boat);
     this.addChild(this.renderer, true);
+    this.installPoseOverrides();
   }
 
   setConfig(config: BoatConfig): void {
@@ -37,6 +41,36 @@ export class BoatPreviewRenderer extends BaseEntity {
     this.boat = new Boat(V(0, 0), config);
     this.renderer = findBoatRenderer(this.boat);
     this.addChild(this.renderer, true);
+    this.installPoseOverrides();
+  }
+
+  /**
+   * Shadow the hull body's Euler getters (angle / roll / pitch) with direct
+   * reads of the camera orbit. The class-level getters extract angles from
+   * the orientation matrix via atan2, which suffers a 180° flip whenever
+   * pitch crosses ±π/2 (cos(pitch) goes negative). Bypassing extraction
+   * keeps BoatRenderer's tilt consistent with the water plane at every
+   * orientation.
+   */
+  private installPoseOverrides(): void {
+    const body = this.boat.hull.body;
+    const camera = this.camera;
+    const noop = () => {};
+    Object.defineProperty(body, "angle", {
+      configurable: true,
+      get: () => camera.yaw,
+      set: noop,
+    });
+    Object.defineProperty(body, "roll", {
+      configurable: true,
+      get: () => camera.roll,
+      set: noop,
+    });
+    Object.defineProperty(body, "pitch", {
+      configurable: true,
+      get: () => camera.pitch,
+      set: noop,
+    });
   }
 
   @on("render")
@@ -48,9 +82,8 @@ export class BoatPreviewRenderer extends BaseEntity {
     body.z = 0;
 
     // Write the orientation matrix as Rz(yaw) · Ry(-pitch) · Rx(-roll),
-    // matching draw.at()'s tilt convention so Body's roll/pitch getters
-    // extract the same values we put in (and toWorldFrame3D stays correct
-    // for BoatRenderer helpers that transform per-body points).
+    // matching draw.at()'s tilt convention so toWorldFrame3D maps
+    // body-local points through the same rotation BoatRenderer applies.
     const yaw = this.camera.yaw;
     const pitch = this.camera.pitch;
     const roll = this.camera.roll;
@@ -70,7 +103,6 @@ export class BoatPreviewRenderer extends BaseEntity {
     R[6] = sp;
     R[7] = -cp * sr;
     R[8] = cp * cr;
-    body._angle = yaw;
 
     // Flat water plane beneath the boat for reference. Draw inside the
     // same (yaw, pitch, roll) tilt context so it rotates with the boat.
