@@ -206,11 +206,10 @@ export class TimeOfDay extends BaseEntity {
     const altitude = this.getSunAltitude();
 
     const dayness = smoothstep(-0.1, 0.25, altitude);
-    // Night base: muted cool blue tuned for a full-moon night after LDR tone
-    // mapping. For a moonless night drop to (0.01, 0.02, 0.05).
-    const baseR = lerp(0.06, 0.5, dayness);
-    const baseG = lerp(0.09, 0.7, dayness);
-    const baseB = lerp(0.16, 0.95, dayness);
+    // Night base: bright cool blue for a moonlit night.
+    const baseR = lerp(0.18, 0.5, dayness);
+    const baseG = lerp(0.25, 0.7, dayness);
+    const baseB = lerp(0.45, 0.95, dayness);
 
     // Twilight glow: Gaussian bump centered at the horizon.
     const twilightBump = Math.exp(-altitude * altitude * 40.0);

@@ -301,7 +301,8 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
 
   let submersion = waterHeight - sceneZ;
 
-  let foamColor = vec3<f32>(0.95, 0.98, 1.0);
+  // Foam lit by ambient (sky + sun) so it doesn't glow at night.
+  let foamColor = vec3<f32>(0.95, 0.98, 1.0) * (params.skyColor * 0.5 + params.sunColor);
 
   // Foam from turbulence (wave breaking + wake)
   var turbulenceFoam = 0.0;

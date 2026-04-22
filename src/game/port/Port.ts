@@ -35,7 +35,7 @@ const CLEAT_POST_WIDTH = 0.25;
 const CLEAT_HORN_WIDTH = 0.3;
 
 // Z heights (waterline = 0)
-const DECK_HEIGHT = 1.5;
+const DECK_HEIGHT = 2.5;
 const STRINGER_Z = DECK_HEIGHT - 0.5;
 const PILING_Z = DECK_HEIGHT + 2;
 const CLEAT_BASE_Z = DECK_HEIGHT + 0.05;
