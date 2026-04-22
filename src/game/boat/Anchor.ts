@@ -174,7 +174,14 @@ export class Anchor extends BaseEntity {
     ];
 
     this.rode = this.addChild(
-      new RopeNetwork(nodeSpecs, { totalLength: this.maxRodeLength }),
+      new RopeNetwork(nodeSpecs, {
+        totalLength: this.maxRodeLength,
+        // Anchor rode is long (up to ~100 ft deployed) and expected to be
+        // stretchy nylon that acts as a shock absorber against wave loads.
+        // The stiffer sheet defaults make a long rope behave like a rigid
+        // link, which yanks the anchor body and drives oscillation.
+        solver: { kAxial: 3000, cDamping: 400 },
+      }),
     );
     this.rodeRender = new RopeRender(this.rode, {
       hullBody: this.hull.body,

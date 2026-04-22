@@ -62,7 +62,7 @@ const DEFAULT_CONFIG: SheetConfig = {
   // Hand-winch peak force in lbf. Bounds how much tension the winch can
   // drive into the rope before stalling; prevents a player cranking
   // against a taut sheet from generating runaway yaw torque on the hull.
-  winchForce: 400,
+  winchForce: 250,
   ropeDiameter: 0.026,
 };
 

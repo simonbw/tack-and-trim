@@ -101,9 +101,12 @@ export interface CapstanConfig {
 }
 
 export const DEFAULT_CAPSTAN_CONFIG: CapstanConfig = {
-  kAxial: 2000,
-  cDamping: 200,
-  maxTension: 3000,
+  kAxial: 20000,
+  cDamping: 1500,
+  // Safety rail well above any winch's stall force (the Sheet winch stalls
+  // ~8k engine units, the anchor windlass ~16k). Set high enough that the
+  // winch taper — not this cap — is what actually limits trim tension.
+  maxTension: 30000,
   flowRateCoef: 0.005,
   iterations: 4,
   degenerateChord: 1e-4,
