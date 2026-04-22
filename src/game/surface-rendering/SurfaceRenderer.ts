@@ -482,9 +482,7 @@ export class SurfaceRenderer extends BaseEntity {
       atlasInfo.worldUnitsPerTile,
     );
 
-    if (timeOfDay) {
-      pushSceneLighting(this.terrainCompositeUniforms.set, timeOfDay);
-    }
+    pushSceneLighting(this.terrainCompositeUniforms.set, timeOfDay);
   }
 
   /**
@@ -516,9 +514,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterFilterUniforms.set.cdom(DEFAULT_CDOM);
     this.waterFilterUniforms.set.sediment(DEFAULT_SEDIMENT);
 
-    if (timeOfDay) {
-      pushSceneLighting(this.waterFilterUniforms.set, timeOfDay);
-    }
+    pushSceneLighting(this.waterFilterUniforms.set, timeOfDay);
   }
 
   /**
@@ -650,6 +646,16 @@ export class SurfaceRenderer extends BaseEntity {
     const currentTime = timeOfDay
       ? timeOfDay.getTimeInSeconds()
       : this.game.elapsedUnpausedTime;
+
+    // Push the current ambient illumination to the generic shape pipeline so
+    // every `draw.*` call this frame picks up day/night tinting automatically.
+    // Callers opt out by setting `ignoreLight: true` in DrawOptions.
+    if (timeOfDay) {
+      const [ar, ag, ab] = timeOfDay.getAmbientLight();
+      renderer.setAmbientLight(ar, ag, ab);
+    } else {
+      renderer.setAmbientLight(1, 1, 1);
+    }
 
     // Get resources (these are required - will throw if missing)
     const wavePhysicsResources =

@@ -32,6 +32,22 @@ const INITIAL_VERTEX_CAPACITY = 256;
 const INITIAL_INDEX_CAPACITY = 512;
 
 /**
+ * Options shared by every MeshBuilder primitive. `ignoreLight` bypasses the
+ * shape pipeline's global scene-lighting tint (0..1 vertex scalar) — set it
+ * for UI / debug geometry that must stay at full brightness.
+ */
+interface MeshBuildOptions {
+  color?: number;
+  alpha?: number;
+  z?: number;
+  ignoreLight?: boolean;
+}
+
+function lightAffectedFrom(opts: MeshBuildOptions | undefined): number {
+  return opts?.ignoreLight ? 0 : 1;
+}
+
+/**
  * Builder that accumulates tessellated geometry into a private CPU buffer,
  * then produces an immutable `CachedMesh`.
  *
@@ -122,7 +138,7 @@ export class MeshBuilder implements VertexSink {
     y: number,
     w: number,
     h: number,
-    opts?: { color?: number; alpha?: number; z?: number },
+    opts?: MeshBuildOptions,
   ): this {
     tessellateRect(
       this,
@@ -132,6 +148,7 @@ export class MeshBuilder implements VertexSink {
       h,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -145,7 +162,7 @@ export class MeshBuilder implements VertexSink {
     w: number,
     h: number,
     angle: number,
-    opts?: { color?: number; alpha?: number; z?: number },
+    opts?: MeshBuildOptions,
   ): this {
     tessellateRotatedRect(
       this,
@@ -158,6 +175,7 @@ export class MeshBuilder implements VertexSink {
       angle,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -168,7 +186,7 @@ export class MeshBuilder implements VertexSink {
     y: number,
     radius: number,
     segments: number,
-    opts?: { color?: number; alpha?: number; z?: number },
+    opts?: MeshBuildOptions,
   ): this {
     tessellateCircle(
       this,
@@ -178,6 +196,7 @@ export class MeshBuilder implements VertexSink {
       segments,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -185,13 +204,14 @@ export class MeshBuilder implements VertexSink {
 
   fillPolygon(
     vertices: ReadonlyArray<{ x: number; y: number }>,
-    opts?: { color?: number; alpha?: number; z?: number },
+    opts?: MeshBuildOptions,
   ): this {
     tessellateFillPolygon(
       this,
       vertices,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -200,7 +220,7 @@ export class MeshBuilder implements VertexSink {
   fillRoundedPolygon(
     vertices: V2d[],
     radius: number,
-    opts?: { color?: number; alpha?: number; z?: number },
+    opts?: MeshBuildOptions,
   ): this {
     tessellateFillRoundedPolygon(
       this,
@@ -208,6 +228,7 @@ export class MeshBuilder implements VertexSink {
       radius,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -215,7 +236,7 @@ export class MeshBuilder implements VertexSink {
 
   fillSmoothPolygon(
     vertices: V2d[],
-    opts?: { color?: number; alpha?: number; z?: number; tension?: number },
+    opts?: MeshBuildOptions & { tension?: number },
   ): this {
     tessellateFillSmoothPolygon(
       this,
@@ -223,6 +244,7 @@ export class MeshBuilder implements VertexSink {
       opts?.tension ?? 0.5,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -232,7 +254,7 @@ export class MeshBuilder implements VertexSink {
 
   strokePolygon(
     vertices: V2d[],
-    opts?: { color?: number; alpha?: number; width?: number; z?: number },
+    opts?: MeshBuildOptions & { width?: number },
   ): this {
     tessellateStrokePolygon(
       this,
@@ -240,6 +262,7 @@ export class MeshBuilder implements VertexSink {
       opts?.width ?? 1,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -248,7 +271,7 @@ export class MeshBuilder implements VertexSink {
   strokeRoundedPolygon(
     vertices: V2d[],
     radius: number,
-    opts?: { color?: number; alpha?: number; width?: number; z?: number },
+    opts?: MeshBuildOptions & { width?: number },
   ): this {
     tessellateStrokeRoundedPolygon(
       this,
@@ -257,6 +280,7 @@ export class MeshBuilder implements VertexSink {
       opts?.width ?? 1,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -264,11 +288,8 @@ export class MeshBuilder implements VertexSink {
 
   strokeSmoothPolygon(
     vertices: V2d[],
-    opts?: {
-      color?: number;
-      alpha?: number;
+    opts?: MeshBuildOptions & {
       width?: number;
-      z?: number;
       tension?: number;
     },
   ): this {
@@ -279,6 +300,7 @@ export class MeshBuilder implements VertexSink {
       opts?.width ?? 1,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -286,11 +308,8 @@ export class MeshBuilder implements VertexSink {
 
   spline(
     vertices: V2d[],
-    opts?: {
-      color?: number;
-      alpha?: number;
+    opts?: MeshBuildOptions & {
       width?: number;
-      z?: number;
       tension?: number;
     },
   ): this {
@@ -301,6 +320,7 @@ export class MeshBuilder implements VertexSink {
       opts?.width ?? 1,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -314,7 +334,7 @@ export class MeshBuilder implements VertexSink {
     x2: number,
     y2: number,
     width: number,
-    opts?: { color?: number; alpha?: number; z?: number },
+    opts?: MeshBuildOptions,
   ): this {
     tessellateLine(
       this,
@@ -325,6 +345,7 @@ export class MeshBuilder implements VertexSink {
       width,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.z ?? 0,
     );
     return this;
@@ -334,7 +355,7 @@ export class MeshBuilder implements VertexSink {
     points: ReadonlyArray<readonly [number, number]>,
     zPerPoint: number | ReadonlyArray<number>,
     width: number,
-    opts?: { color?: number; alpha?: number } & PolylineOptions,
+    opts?: Omit<MeshBuildOptions, "z"> & PolylineOptions,
   ): this {
     tessellateWorldPolyline(
       this,
@@ -343,6 +364,7 @@ export class MeshBuilder implements VertexSink {
       width,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       {
         closed: opts?.closed,
         roundJoins: opts?.roundJoins,
@@ -363,7 +385,7 @@ export class MeshBuilder implements VertexSink {
     z2: number,
     width: number,
     tilt: TiltProjection,
-    opts?: { color?: number; alpha?: number; roundCaps?: boolean },
+    opts?: Omit<MeshBuildOptions, "z"> & { roundCaps?: boolean },
   ): this {
     tessellateScreenLine(
       this,
@@ -377,6 +399,7 @@ export class MeshBuilder implements VertexSink {
       tilt,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       opts?.roundCaps ?? false,
     );
     return this;
@@ -387,7 +410,7 @@ export class MeshBuilder implements VertexSink {
     zPerPoint: ReadonlyArray<number>,
     width: number,
     tilt: TiltProjection,
-    opts?: { color?: number; alpha?: number } & PolylineOptions,
+    opts?: Omit<MeshBuildOptions, "z"> & PolylineOptions,
   ): this {
     tessellateScreenPolyline(
       this,
@@ -397,6 +420,7 @@ export class MeshBuilder implements VertexSink {
       tilt,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
       {
         closed: opts?.closed,
         roundJoins: opts?.roundJoins,
@@ -413,7 +437,7 @@ export class MeshBuilder implements VertexSink {
     radius: number,
     segments: number,
     tilt: TiltProjection,
-    opts?: { color?: number; alpha?: number },
+    opts?: Omit<MeshBuildOptions, "z">,
   ): this {
     tessellateScreenCircle(
       this,
@@ -425,6 +449,7 @@ export class MeshBuilder implements VertexSink {
       tilt,
       opts?.color ?? 0xffffff,
       opts?.alpha ?? 1,
+      lightAffectedFrom(opts),
     );
     return this;
   }

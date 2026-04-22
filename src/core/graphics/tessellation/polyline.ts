@@ -24,6 +24,7 @@ export function tessellateWorldPolyline(
   width: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   opts: PolylineOptions = {},
 ): void {
   const n = points.length;
@@ -196,6 +197,7 @@ export function tessellateWorldPolyline(
       g,
       b,
       a,
+      lightAffected,
       z,
     );
     writeVertex(
@@ -207,6 +209,7 @@ export function tessellateWorldPolyline(
       g,
       b,
       a,
+      lightAffected,
       z,
     );
   }
@@ -249,7 +252,18 @@ export function tessellateWorldPolyline(
   let capVertBase = emits.length * 2;
   for (const cap of caps) {
     const center = base + capVertBase;
-    writeVertex(view, capVertBase, cap.cx, cap.cy, r, g, b, a, cap.z);
+    writeVertex(
+      view,
+      capVertBase,
+      cap.cx,
+      cap.cy,
+      r,
+      g,
+      b,
+      a,
+      lightAffected,
+      cap.z,
+    );
     for (let s = 0; s <= cap.capSteps; s++) {
       const angle = cap.perpAngle + (cap.sweep * s) / cap.capSteps;
       writeVertex(
@@ -261,6 +275,7 @@ export function tessellateWorldPolyline(
         g,
         b,
         a,
+        lightAffected,
         cap.z,
       );
       if (s > 0) {
@@ -288,6 +303,7 @@ export function tessellateScreenPolyline(
   tilt: TiltProjection,
   color: number,
   alpha: number,
+  lightAffected: number,
   opts: PolylineOptions = {},
 ): void {
   const n = points.length;
@@ -489,6 +505,7 @@ export function tessellateScreenPolyline(
       g,
       b,
       a,
+      lightAffected,
       z,
     );
     writeVertex(
@@ -500,6 +517,7 @@ export function tessellateScreenPolyline(
       g,
       b,
       a,
+      lightAffected,
       z,
     );
   }
@@ -539,7 +557,18 @@ export function tessellateScreenPolyline(
   for (const cap of caps) {
     const perpAngle = Math.atan2(cap.perpSy, cap.perpSx);
     const center = base + capVertBase;
-    writeVertex(view, capVertBase, cap.cx, cap.cy, r, g, b, a, cap.z);
+    writeVertex(
+      view,
+      capVertBase,
+      cap.cx,
+      cap.cy,
+      r,
+      g,
+      b,
+      a,
+      lightAffected,
+      cap.z,
+    );
     for (let s = 0; s <= capSteps; s++) {
       const angle = perpAngle + (cap.sweep * s) / capSteps;
       const sx = Math.cos(angle);
@@ -554,6 +583,7 @@ export function tessellateScreenPolyline(
         g,
         b,
         a,
+        lightAffected,
         cap.z,
       );
       if (s > 0) {

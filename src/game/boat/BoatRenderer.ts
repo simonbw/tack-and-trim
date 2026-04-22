@@ -6,6 +6,7 @@ import { V } from "../../core/Vector";
 import type { Boat } from "./Boat";
 import type { BoatConfig } from "./BoatConfig";
 import { buildDeckPlanMeshes } from "./deck-plan";
+import { TimeOfDay } from "../time/TimeOfDay";
 import { RopeShaderInstance } from "./RopeShader";
 import {
   type MeshContribution,
@@ -725,17 +726,19 @@ export class BoatRenderer extends BaseEntity {
     const opacity = sheet.getOpacity();
     if (opacity <= 0) return;
 
-    const { points: rawPoints, z: rawZ } = sheet.getRopePointsWithZ();
+    const {
+      points: rawPoints,
+      z: rawZ,
+      vPerPoint,
+    } = sheet.getRopePointsWithZ();
     if (rawPoints.length < 2) return;
 
     const state = this.getRopeRenderState(rawPoints.length, sheet);
 
-    // Compute material v-coordinates: each raw point gets a uniform spacing
-    // based on the rope's rest segment length so the texture sticks to the
-    // rope material instead of sliding with arc length.
-    const segLen = sheet.getRopeSegmentLength();
+    // Use the material-v coordinates supplied by the rope's render layer;
+    // spacing is non-uniform (sections can differ in length).
     for (let i = 0; i < rawPoints.length; i++) {
-      state.rawV[i] = i * segLen;
+      state.rawV[i] = vPerPoint[i];
     }
 
     // Smooth the physics points with Catmull-Rom interpolation
@@ -785,6 +788,7 @@ export class BoatRenderer extends BaseEntity {
       sheet.getRopePattern(),
       opacity,
       width,
+      this.game.entities.tryGetSingleton(TimeOfDay) ?? null,
     );
   }
 
@@ -803,7 +807,7 @@ export class BoatRenderer extends BaseEntity {
   ) {
     const rodeData = this.boat.anchor.getRodePointsWithZ();
     if (!rodeData) return;
-    const { points: rawPoints, z: rawZ } = rodeData;
+    const { points: rawPoints, z: rawZ, vPerPoint } = rodeData;
     if (rawPoints.length < 2) return;
 
     // Lazy-create or recreate if point count changed
@@ -825,10 +829,10 @@ export class BoatRenderer extends BaseEntity {
       };
     }
 
-    // Compute material v-coordinates for rode
-    const segLen = this.boat.anchor.getRodeSegmentLength();
+    // Copy supplied variable-spaced material-v coordinates into the scratch
+    // buffer consumed by subdivideCatmullRom.
     for (let i = 0; i < rawPoints.length; i++) {
-      this.rodeState.rawV[i] = i * segLen;
+      this.rodeState.rawV[i] = vPerPoint[i];
     }
 
     const smoothCount = subdivideCatmullRom(
@@ -867,6 +871,7 @@ export class BoatRenderer extends BaseEntity {
       this.boat.anchor.getRodePattern(),
       1,
       width,
+      this.game.entities.tryGetSingleton(TimeOfDay) ?? null,
     );
   }
 

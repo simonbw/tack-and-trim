@@ -221,7 +221,7 @@ export class PathBuilder {
   }
 
   /** Fill the path with a color */
-  fill(color: number, alpha: number = 1): void {
+  fill(color: number, alpha: number = 1, ignoreLight: boolean = false): void {
     if (this.points.length < 3) {
       this.warnOnce(
         "fill-too-few-points",
@@ -236,12 +236,18 @@ export class PathBuilder {
       this.points,
       color,
       alpha,
+      ignoreLight ? 0 : 1,
       0,
     );
   }
 
   /** Stroke the path outline */
-  stroke(color: number, width: number = 1, alpha: number = 1): void {
+  stroke(
+    color: number,
+    width: number = 1,
+    alpha: number = 1,
+    ignoreLight: boolean = false,
+  ): void {
     if (this.points.length < 2) {
       this.warnOnce(
         "stroke-too-few-points",
@@ -256,6 +262,7 @@ export class PathBuilder {
       this.closed && this.points.length >= 3,
       color,
       alpha,
+      ignoreLight ? 0 : 1,
       0,
     );
   }

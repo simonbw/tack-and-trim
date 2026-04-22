@@ -49,6 +49,12 @@ export interface DrawOptions {
   alpha?: number; // 0-1
   /** Z-height for depth testing. Only meaningful inside a tilt context or on a depth-enabled layer. */
   z?: number;
+  /**
+   * If true, skip the global scene-lighting tint on this primitive — the
+   * color is passed through untouched. Use for UI, HUD, and debug overlays
+   * that must stay at full brightness regardless of time of day.
+   */
+  ignoreLight?: boolean;
 }
 
 /** Options for line drawing */
@@ -81,6 +87,11 @@ export interface ImageOptions {
 export interface CircleOptions extends DrawOptions {
   /** Number of segments to use. If not specified, calculated from radius. */
   segments?: number;
+}
+
+/** Map the `ignoreLight` option to the 0..1 vertex scalar. */
+function lightAffectedFrom(opts: DrawOptions | undefined): number {
+  return opts?.ignoreLight ? 0 : 1;
 }
 
 /**
@@ -225,6 +236,7 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const prevZ = this.applyZ(opts?.z);
     tessellateRect(
       this.renderer.prepareShapeSink(),
@@ -234,6 +246,7 @@ export class Draw {
       h,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -243,6 +256,7 @@ export class Draw {
   fillCircle(x: number, y: number, radius: number, opts?: CircleOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const radiusOnScreen = radius * this.renderer.getCurrentScale();
     const segments = opts?.segments ?? getCircleSegments(radiusOnScreen);
     const prevZ = this.applyZ(opts?.z);
@@ -254,6 +268,7 @@ export class Draw {
       segments,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -263,12 +278,14 @@ export class Draw {
   fillPolygon(vertices: V2d[], opts?: DrawOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const prevZ = this.applyZ(opts?.z);
     tessellateFillPolygon(
       this.renderer.prepareShapeSink(),
       vertices,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -317,6 +334,7 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const prevZ = this.applyZ(opts?.z);
     tessellateFillRoundedPolygon(
       this.renderer.prepareShapeSink(),
@@ -324,6 +342,7 @@ export class Draw {
       radius,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -333,6 +352,7 @@ export class Draw {
   fillSmoothPolygon(vertices: V2d[], opts?: SmoothOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const tension = opts?.tension ?? 0.5;
     const prevZ = this.applyZ(opts?.z);
     tessellateFillSmoothPolygon(
@@ -341,6 +361,7 @@ export class Draw {
       tension,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -371,6 +392,7 @@ export class Draw {
   strokeCircle(x: number, y: number, radius: number, opts?: LineOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const width = opts?.width ?? 1;
     const segments = getCircleSegments(radius);
     const points: [number, number][] = [];
@@ -386,6 +408,7 @@ export class Draw {
       width,
       color,
       alpha,
+      lightAffected,
       { closed: true },
     );
     this.renderer.setZ(prevZ);
@@ -395,6 +418,7 @@ export class Draw {
   strokePolygon(vertices: V2d[], opts?: LineOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const width = opts?.width ?? 1;
     const prevZ = this.applyZ(opts?.z);
     tessellateStrokePolygon(
@@ -403,6 +427,7 @@ export class Draw {
       width,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -434,6 +459,7 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const width = opts?.width ?? 1;
     const prevZ = this.applyZ(opts?.z);
     tessellateStrokeRoundedPolygon(
@@ -443,6 +469,7 @@ export class Draw {
       width,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -455,6 +482,7 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const width = opts?.width ?? 1;
     const tension = opts?.tension ?? 0.5;
     const prevZ = this.applyZ(opts?.z);
@@ -465,6 +493,7 @@ export class Draw {
       width,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -474,6 +503,7 @@ export class Draw {
   spline(vertices: V2d[], opts?: SplineOptions): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const width = opts?.width ?? 1;
     const tension = opts?.tension ?? 0.5;
     const prevZ = this.applyZ(opts?.z);
@@ -484,6 +514,7 @@ export class Draw {
       width,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -501,6 +532,7 @@ export class Draw {
   ): void {
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const width = opts?.width ?? 1;
     const prevZ = this.applyZ(opts?.z);
     tessellateLine(
@@ -512,6 +544,7 @@ export class Draw {
       width,
       color,
       alpha,
+      lightAffected,
       0,
     );
     this.renderer.setZ(prevZ);
@@ -532,6 +565,7 @@ export class Draw {
     const tilt = this.renderer.getCurrentTilt();
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = lightAffectedFrom(opts);
     const width = opts?.width ?? 1;
     const z = opts?.z ?? this.renderer.getZ();
     if (tilt) {
@@ -547,6 +581,7 @@ export class Draw {
         tilt,
         color,
         alpha,
+        lightAffected,
       );
     } else {
       tessellateLine(
@@ -558,6 +593,7 @@ export class Draw {
         width / this.camera.z,
         color,
         alpha,
+        lightAffected,
         z,
       );
     }
@@ -575,11 +611,13 @@ export class Draw {
       alpha?: number;
       closed?: boolean;
       roundCaps?: boolean;
+      ignoreLight?: boolean;
     },
   ): void {
     const tilt = this.renderer.getCurrentTilt();
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = opts?.ignoreLight ? 0 : 1;
     if (!tilt) {
       // Fallback: treat as world-width polyline at mean z.
       tessellateWorldPolyline(
@@ -589,6 +627,7 @@ export class Draw {
         width / this.camera.z,
         color,
         alpha,
+        lightAffected,
         { closed: opts?.closed, roundCaps: opts?.roundCaps },
       );
       return;
@@ -601,6 +640,7 @@ export class Draw {
       tilt,
       color,
       alpha,
+      lightAffected,
       { closed: opts?.closed, roundCaps: opts?.roundCaps },
     );
   }
@@ -612,11 +652,12 @@ export class Draw {
     z: number,
     radius: number,
     segments: number,
-    opts?: { color?: number; alpha?: number },
+    opts?: { color?: number; alpha?: number; ignoreLight?: boolean },
   ): void {
     const tilt = this.renderer.getCurrentTilt();
     const color = opts?.color ?? 0xffffff;
     const alpha = opts?.alpha ?? 1;
+    const lightAffected = opts?.ignoreLight ? 0 : 1;
     if (!tilt) {
       tessellateCircle(
         this.renderer.prepareShapeSink(),
@@ -626,6 +667,7 @@ export class Draw {
         segments,
         color,
         alpha,
+        lightAffected,
         z,
       );
       return;
@@ -640,6 +682,7 @@ export class Draw {
       tilt,
       color,
       alpha,
+      lightAffected,
     );
   }
 

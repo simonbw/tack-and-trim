@@ -17,11 +17,12 @@ export function tessellateScreenCircle(
   tilt: TiltProjection,
   color: number,
   alpha: number,
+  lightAffected: number,
 ): void {
   const { r, g, b, a } = unpackColor(color, alpha);
   const { base, view } = sink.reserveVertices(segments + 2);
 
-  writeVertex(view, 0, cx, cy, r, g, b, a, z);
+  writeVertex(view, 0, cx, cy, r, g, b, a, lightAffected, z);
   for (let i = 0; i <= segments; i++) {
     const angle = (i / segments) * Math.PI * 2;
     const sx = Math.cos(angle) * radius;
@@ -35,6 +36,7 @@ export function tessellateScreenCircle(
       g,
       b,
       a,
+      lightAffected,
       z,
     );
   }

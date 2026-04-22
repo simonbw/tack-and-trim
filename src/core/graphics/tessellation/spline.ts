@@ -12,11 +12,12 @@ export function tessellateSpline(
   width: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const spline = buildCatmullRomOutline(vertices, false, tension);
   if (spline.length < 2) return;
-  tessellateWorldPolyline(sink, spline, z, width, color, alpha, {
+  tessellateWorldPolyline(sink, spline, z, width, color, alpha, lightAffected, {
     closed: false,
   });
 }

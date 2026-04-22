@@ -10,14 +10,15 @@ export function tessellateRect(
   h: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const { r, g, b, a } = unpackColor(color, alpha);
   const { base, view } = sink.reserveVertices(4);
-  writeVertex(view, 0, x, y, r, g, b, a, z);
-  writeVertex(view, 1, x + w, y, r, g, b, a, z);
-  writeVertex(view, 2, x + w, y + h, r, g, b, a, z);
-  writeVertex(view, 3, x, y + h, r, g, b, a, z);
+  writeVertex(view, 0, x, y, r, g, b, a, lightAffected, z);
+  writeVertex(view, 1, x + w, y, r, g, b, a, lightAffected, z);
+  writeVertex(view, 2, x + w, y + h, r, g, b, a, lightAffected, z);
+  writeVertex(view, 3, x, y + h, r, g, b, a, lightAffected, z);
 
   const idx = sink.reserveIndices(6);
   idx[0] = base;
@@ -44,6 +45,7 @@ export function tessellateRotatedRect(
   angle: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const { r, g, b, a } = unpackColor(color, alpha);
@@ -68,6 +70,7 @@ export function tessellateRotatedRect(
       g,
       b,
       a,
+      lightAffected,
       z,
     );
   }

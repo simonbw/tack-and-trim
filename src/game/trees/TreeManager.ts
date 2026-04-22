@@ -208,6 +208,9 @@ export class TreeManager extends BaseEntity {
 
     const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const todSeconds = timeOfDay ? timeOfDay.getTimeInSeconds() : 43200;
+    const ambientLight = timeOfDay
+      ? timeOfDay.getAmbientLight()
+      : ([1, 1, 1] as const);
 
     // Render trees to offscreen texture (separate command encoder, like SurfaceRenderer).
     // This avoids interrupting the main render pass — expensive on tile-based GPUs.
@@ -229,6 +232,7 @@ export class TreeManager extends BaseEntity {
       baseWindY,
       todSeconds,
       camera.z,
+      ambientLight,
       gpuProfiler,
     );
 

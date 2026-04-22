@@ -18,6 +18,7 @@ import {
   defineUniformStruct,
   mat3x3,
   type UniformInstance,
+  vec3,
 } from "../UniformStruct";
 import { GPUProfiler, GPUProfileSection } from "./GPUProfiler";
 import { getMSAASampleCount, isMSAAEnabled, onMSAAChange } from "./MSAAState";
@@ -66,6 +67,7 @@ const Z_MAX: f32 = ${DEPTH_Z_MAX};
 
 struct Uniforms {
   viewMatrix: mat3x3<f32>,
+  ambientLight: vec3<f32>,
 }
 
 ${transformStructWGSL}
@@ -73,8 +75,9 @@ ${transformStructWGSL}
 struct VertexInput {
   @location(0) position: vec2<f32>,
   @location(1) color: vec4<f32>,
-  @location(2) z: f32,
-  @location(3) transformIndex: u32,
+  @location(2) lightAffected: f32,
+  @location(3) z: f32,
+  @location(4) transformIndex: u32,
 }
 
 struct VertexOutput {
@@ -100,9 +103,13 @@ fn vs_main(in: VertexInput) -> VertexOutput {
              + t.zDepth.z * in.z;
   let depth = (depthZ - Z_MIN) / (Z_MAX - Z_MIN);
 
+  // Global scene-lighting tint, gated per-vertex. lightAffected=1 → tinted
+  // by ambientLight; 0 → pass-through (UI/debug geometry).
+  let lightTint = mix(vec3<f32>(1.0), uniforms.ambientLight, in.lightAffected);
+
   var out: VertexOutput;
   out.position = vec4<f32>(clipPos.xy, depth, 1.0);
-  out.color = in.color * t.tint;
+  out.color = in.color * t.tint * vec4<f32>(lightTint, 1.0);
   return out;
 }
 
@@ -182,10 +189,14 @@ export interface SpriteOptions {
   anchorY?: number; // 0-1, default 0.5
 }
 
-// Type-safe uniform buffer definition (view matrix only — per-instance
-// transforms live in the TransformBuffer storage buffer).
+// Type-safe uniform buffer definition (view matrix + global scene lighting
+// — per-instance transforms live in the TransformBuffer storage buffer).
+// ambientLight is the combined sun+sky illumination color pushed each frame
+// by SurfaceRenderer; the shape shader multiplies vertex color by it when
+// the vertex's lightAffected flag is 1 (and passes color through when 0).
 const ViewUniforms = defineUniformStruct("Uniforms", {
   viewMatrix: mat3x3,
+  ambientLight: vec3,
 });
 
 const UNIFORM_BUFFER_SIZE = ViewUniforms.byteSize;
@@ -472,19 +483,20 @@ export class WebGPURenderer {
     this.shapePipelineLayout = pipelineLayout;
 
     // Two-stream vertex layout: geometry + transformIndex.
-    const geometryStride = SHAPE_VERTEX_FLOATS * 4; // 28 bytes
+    const geometryStride = SHAPE_VERTEX_FLOATS * 4; // 32 bytes
     const geometryLayout: GPUVertexBufferLayout = {
       arrayStride: geometryStride,
       attributes: [
         { shaderLocation: 0, offset: 0, format: "float32x2" }, // position
         { shaderLocation: 1, offset: 8, format: "float32x4" }, // color
-        { shaderLocation: 2, offset: 24, format: "float32" }, // z
+        { shaderLocation: 2, offset: 24, format: "float32" }, // lightAffected
+        { shaderLocation: 3, offset: 28, format: "float32" }, // z
       ],
     };
     const txIndexLayout: GPUVertexBufferLayout = {
       arrayStride: 4,
       attributes: [
-        { shaderLocation: 3, offset: 0, format: "uint32" }, // transformIndex
+        { shaderLocation: 4, offset: 0, format: "uint32" }, // transformIndex
       ],
     };
     this.shapeVertexBufferLayout = geometryLayout;
@@ -1880,7 +1892,8 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
       view[o + 3] = g;
       view[o + 4] = b;
       view[o + 5] = alpha;
-      view[o + 6] = z;
+      view[o + 6] = 1; // lightAffected — world geometry always tinted
+      view[o + 7] = z;
     }
 
     const idxSlice = this.shapeBatch.reserveIndices(indices.length);
@@ -1937,7 +1950,8 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
       view[o + 3] = c[1];
       view[o + 4] = c[2];
       view[o + 5] = c[3];
-      view[o + 6] = 0;
+      view[o + 6] = 1; // lightAffected — world geometry always tinted
+      view[o + 7] = 0;
     }
 
     const idxSlice = this.shapeBatch.reserveIndices(indices.length);
@@ -2170,12 +2184,28 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     this.vertexCount += vertices;
   }
 
-  /** Upload uniforms (view matrix only — depth transform is per-vertex) */
+  /** Upload uniforms (view matrix + ambient light). */
   private uploadUniforms(buffer: GPUBuffer): void {
     if (!this.device) return;
 
     this.viewUniforms.set.viewMatrix(this.viewMatrix);
+    this.viewUniforms.set.ambientLight(this.ambientLight);
     this.viewUniforms.uploadTo(buffer);
+  }
+
+  /** Current global scene illumination. Defaults to (1,1,1) — no tint. */
+  private ambientLight: [number, number, number] = [1, 1, 1];
+
+  /**
+   * Set the global scene illumination color. Multiplied into `draw.*`
+   * geometry with `lightAffected=1` (default); bypassed entirely for
+   * geometry with `ignoreLight: true`. Called once per frame by whichever
+   * entity owns the scene lighting (typically SurfaceRenderer).
+   */
+  setAmbientLight(r: number, g: number, b: number): void {
+    this.ambientLight[0] = r;
+    this.ambientLight[1] = g;
+    this.ambientLight[2] = b;
   }
 
   // ============ Texture Generation ============

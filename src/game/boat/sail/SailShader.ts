@@ -322,9 +322,7 @@ export class SailShaderInstance {
     this.combinedMatrix.multiply(renderer.getTransform());
     this.uniforms.set.viewMatrix(this.combinedMatrix);
     this.uniforms.set.baseColor([baseR, baseG, baseB, alpha]);
-    if (timeOfDay) {
-      pushSceneLighting(this.uniforms.set, timeOfDay);
-    }
+    pushSceneLighting(this.uniforms.set, timeOfDay);
     this.uniforms.uploadTo(this.uniformBuffer!);
 
     // Draw

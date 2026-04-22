@@ -13,12 +13,13 @@ export function tessellateCircle(
   segments: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const { r, g, b, a } = unpackColor(color, alpha);
   const { base, view } = sink.reserveVertices(segments + 2);
 
-  writeVertex(view, 0, cx, cy, r, g, b, a, z);
+  writeVertex(view, 0, cx, cy, r, g, b, a, lightAffected, z);
   for (let i = 0; i <= segments; i++) {
     const angle = (i / segments) * Math.PI * 2;
     writeVertex(
@@ -30,6 +31,7 @@ export function tessellateCircle(
       g,
       b,
       a,
+      lightAffected,
       z,
     );
   }
@@ -55,13 +57,14 @@ export function tessellateCircleFromTable(
   sin: Float32Array,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const segments = cos.length - 1;
   const { r, g, b, a } = unpackColor(color, alpha);
   const { base, view } = sink.reserveVertices(segments + 2);
 
-  writeVertex(view, 0, cx, cy, r, g, b, a, z);
+  writeVertex(view, 0, cx, cy, r, g, b, a, lightAffected, z);
   for (let i = 0; i <= segments; i++) {
     writeVertex(
       view,
@@ -72,6 +75,7 @@ export function tessellateCircleFromTable(
       g,
       b,
       a,
+      lightAffected,
       z,
     );
   }

@@ -11,12 +11,13 @@ export function tessellatePathFill(
   points: ReadonlyArray<{ x: number; y: number }>,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   if (points.length < 3) return;
   const arr: [number, number][] = [];
   for (const p of points) arr.push([p.x, p.y]);
-  tessellateFanPolygon(sink, arr, color, alpha, z);
+  tessellateFanPolygon(sink, arr, color, alpha, lightAffected, z);
 }
 
 /**
@@ -31,6 +32,7 @@ export function tessellatePathStroke(
   closed: boolean,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   let pts = points;
@@ -44,5 +46,7 @@ export function tessellatePathStroke(
   if (pts.length < 2) return;
   const arr: [number, number][] = [];
   for (const p of pts) arr.push([p.x, p.y]);
-  tessellateWorldPolyline(sink, arr, z, width, color, alpha, { closed });
+  tessellateWorldPolyline(sink, arr, z, width, color, alpha, lightAffected, {
+    closed,
+  });
 }

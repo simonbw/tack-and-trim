@@ -14,6 +14,7 @@ export function tessellateLine(
   width: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const dx = x2 - x1;
@@ -26,10 +27,10 @@ export function tessellateLine(
 
   const { r, g, b, a } = unpackColor(color, alpha);
   const { base, view } = sink.reserveVertices(4);
-  writeVertex(view, 0, x1 + nx, y1 + ny, r, g, b, a, z);
-  writeVertex(view, 1, x2 + nx, y2 + ny, r, g, b, a, z);
-  writeVertex(view, 2, x2 - nx, y2 - ny, r, g, b, a, z);
-  writeVertex(view, 3, x1 - nx, y1 - ny, r, g, b, a, z);
+  writeVertex(view, 0, x1 + nx, y1 + ny, r, g, b, a, lightAffected, z);
+  writeVertex(view, 1, x2 + nx, y2 + ny, r, g, b, a, lightAffected, z);
+  writeVertex(view, 2, x2 - nx, y2 - ny, r, g, b, a, lightAffected, z);
+  writeVertex(view, 3, x1 - nx, y1 - ny, r, g, b, a, lightAffected, z);
 
   const idx = sink.reserveIndices(6);
   idx[0] = base;
@@ -60,6 +61,7 @@ export function tessellateScreenLine(
   tilt: TiltProjection,
   color: number,
   alpha: number,
+  lightAffected: number,
   roundCaps: boolean = false,
 ): void {
   const dlx = x2 - x1;
@@ -80,10 +82,10 @@ export function tessellateScreenLine(
 
   if (!roundCaps) {
     const { base, view } = sink.reserveVertices(4);
-    writeVertex(view, 0, x1 + nx, y1 + ny, r, g, b, a, z1);
-    writeVertex(view, 1, x2 + nx, y2 + ny, r, g, b, a, z2);
-    writeVertex(view, 2, x2 - nx, y2 - ny, r, g, b, a, z2);
-    writeVertex(view, 3, x1 - nx, y1 - ny, r, g, b, a, z1);
+    writeVertex(view, 0, x1 + nx, y1 + ny, r, g, b, a, lightAffected, z1);
+    writeVertex(view, 1, x2 + nx, y2 + ny, r, g, b, a, lightAffected, z2);
+    writeVertex(view, 2, x2 - nx, y2 - ny, r, g, b, a, lightAffected, z2);
+    writeVertex(view, 3, x1 - nx, y1 - ny, r, g, b, a, lightAffected, z1);
     const idx = sink.reserveIndices(6);
     idx[0] = base;
     idx[1] = base + 1;
@@ -101,10 +103,10 @@ export function tessellateScreenLine(
   const totalIdx = 6 + capSteps * 3 * 2;
   const { base, view } = sink.reserveVertices(totalVerts);
 
-  writeVertex(view, 0, x1 + nx, y1 + ny, r, g, b, a, z1);
-  writeVertex(view, 1, x2 + nx, y2 + ny, r, g, b, a, z2);
-  writeVertex(view, 2, x2 - nx, y2 - ny, r, g, b, a, z2);
-  writeVertex(view, 3, x1 - nx, y1 - ny, r, g, b, a, z1);
+  writeVertex(view, 0, x1 + nx, y1 + ny, r, g, b, a, lightAffected, z1);
+  writeVertex(view, 1, x2 + nx, y2 + ny, r, g, b, a, lightAffected, z2);
+  writeVertex(view, 2, x2 - nx, y2 - ny, r, g, b, a, lightAffected, z2);
+  writeVertex(view, 3, x1 - nx, y1 - ny, r, g, b, a, lightAffected, z1);
 
   const idx = sink.reserveIndices(totalIdx);
   idx[0] = base;
@@ -124,7 +126,7 @@ export function tessellateScreenLine(
     sweep: number,
   ) => {
     const center = base + vStart;
-    writeVertex(view, vStart, cx, cy, r, g, b, a, cz);
+    writeVertex(view, vStart, cx, cy, r, g, b, a, lightAffected, cz);
     for (let s = 0; s <= capSteps; s++) {
       const angle = perpAngle + (sweep * s) / capSteps;
       const sx = Math.cos(angle) * hw;
@@ -138,6 +140,7 @@ export function tessellateScreenLine(
         g,
         b,
         a,
+        lightAffected,
         cz,
       );
       if (s > 0) {

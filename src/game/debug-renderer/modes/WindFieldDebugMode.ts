@@ -209,6 +209,7 @@ export class WindFieldDebugMode extends DebugRenderMode {
       draw.fillCircle(x, y, maxSize * TRIANGLE_WIDTH * 0.5, {
         color: CALM_WIND_COLOR,
         alpha,
+        ignoreLight: true,
       });
       return;
     }
@@ -233,6 +234,7 @@ export class WindFieldDebugMode extends DebugRenderMode {
     draw.fillTriangle(this.triTip, this.triWingUp, this.triWingDown, {
       color: TRIANGLE_COLOR,
       alpha,
+      ignoreLight: true,
     });
   }
 
@@ -250,6 +252,7 @@ export class WindFieldDebugMode extends DebugRenderMode {
       {
         color: DIM_COLOR,
         alpha: DIM_ALPHA,
+        ignoreLight: true,
       },
     );
 

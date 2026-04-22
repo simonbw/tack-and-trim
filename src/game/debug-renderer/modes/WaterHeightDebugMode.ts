@@ -60,6 +60,7 @@ export class WaterHeightDebugMode extends DebugRenderMode {
       {
         color: OVERLAY_COLOR,
         alpha: OVERLAY_ALPHA,
+        ignoreLight: true,
       },
     );
 
@@ -77,10 +78,12 @@ export class WaterHeightDebugMode extends DebugRenderMode {
       color: WAKE_RING_COLOR,
       alpha: WAKE_RING_ALPHA * Math.max(0.1, data.turbulence),
       width: STROKE_WIDTH,
+      ignoreLight: true,
     });
     draw.fillCircle(data.posX, data.posY, WAKE_SOURCE_RADIUS, {
       color: WAKE_SOURCE_COLOR,
       alpha: WAKE_SOURCE_ALPHA,
+      ignoreLight: true,
     });
   }
 

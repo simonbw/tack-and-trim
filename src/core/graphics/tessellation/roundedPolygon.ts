@@ -63,11 +63,12 @@ export function tessellateFillRoundedPolygon(
   radius: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const rounded = buildRoundedPolygonOutline(vertices, radius);
   if (rounded.length < 3) return;
-  tessellateFanPolygon(sink, rounded, color, alpha, z);
+  tessellateFanPolygon(sink, rounded, color, alpha, lightAffected, z);
 }
 
 export function tessellateStrokeRoundedPolygon(
@@ -77,6 +78,7 @@ export function tessellateStrokeRoundedPolygon(
   width: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const rounded = buildRoundedPolygonOutline(vertices, radius);
@@ -87,6 +89,7 @@ export function tessellateStrokeRoundedPolygon(
     width,
     color,
     alpha,
+    lightAffected,
     z,
   );
 }

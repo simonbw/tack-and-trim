@@ -47,16 +47,35 @@ export interface SceneLightingSetters {
 }
 
 /**
- * Push current scene lighting from `TimeOfDay` into a uniform instance.
+ * Midday fallback lighting for contexts without a TimeOfDay entity (the
+ * level editor, preview renderers, tests). Keeps the world looking sane
+ * instead of pitch black.
+ */
+const NOON_SUN_COLOR: readonly [number, number, number] = [1.0, 0.95, 0.85];
+const NOON_SUN_DIRECTION: readonly [number, number, number] = [
+  0.316, 0.211, 0.925,
+];
+const NOON_SKY_COLOR: readonly [number, number, number] = [0.5, 0.7, 0.95];
+
+/**
+ * Push current scene lighting into a uniform instance.
  *
- * Call once per frame, before uploading the uniform buffer. The tuples
- * returned by `TimeOfDay` are cached in place, so this is allocation-free.
+ * Call once per frame, before uploading the uniform buffer. Uses
+ * `TimeOfDay` values when present (tuples are cached in place, so this is
+ * allocation-free), and falls back to noon otherwise so scenes without a
+ * TimeOfDay (editor, previews) still render correctly.
  */
 export function pushSceneLighting(
   setters: SceneLightingSetters,
-  timeOfDay: TimeOfDay,
+  timeOfDay: TimeOfDay | null | undefined,
 ): void {
-  setters.sunColor(timeOfDay.getSunColor());
-  setters.sunDirection(timeOfDay.getSunDirection());
-  setters.skyColor(timeOfDay.getSkyColor());
+  if (timeOfDay) {
+    setters.sunColor(timeOfDay.getSunColor());
+    setters.sunDirection(timeOfDay.getSunDirection());
+    setters.skyColor(timeOfDay.getSkyColor());
+  } else {
+    setters.sunColor(NOON_SUN_COLOR);
+    setters.sunDirection(NOON_SUN_DIRECTION);
+    setters.skyColor(NOON_SKY_COLOR);
+  }
 }

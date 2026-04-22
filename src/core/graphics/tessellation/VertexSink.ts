@@ -2,10 +2,15 @@
  * Consumer interface for primitive tessellators.
  *
  * The shape vertex layout carried through this sink is:
- *   position(2) + color(4) + z(1) = 7 floats = 28 bytes/vertex
+ *   position(2) + color(4) + lightAffected(1) + z(1) = 8 floats = 32 bytes/vertex
  * Transform (modelCol0..2, zCoeffs, zDepth, tint) is applied per-instance
  * in the vertex shader via a storage buffer — no transform data is written
  * through this sink.
+ *
+ * `lightAffected` is a 0..1 scalar that gates the global scene-lighting
+ * tint applied by the shape pipeline. 1 = fully tinted (world objects),
+ * 0 = pass-through (UI, debug overlays). Callers that go through Draw /
+ * MeshBuilder set this via the `ignoreLight` option.
  *
  * Two concrete implementations exist:
  *   - ShapeBatch: writes into the live per-frame GPU batch. `base` is the
@@ -35,10 +40,13 @@ export interface VertexSink {
 }
 
 /** Floats per shape vertex written through a VertexSink. */
-export const VERTEX_STRIDE_FLOATS = 7;
+export const VERTEX_STRIDE_FLOATS = 8;
 
 /**
- * Write one vertex's 7 floats at slot `i` in the reserved view.
+ * Write one vertex's 8 floats at slot `i` in the reserved view.
+ *
+ * `lightAffected` is 0..1 — 1 tints by the global scene lighting, 0 passes
+ * the color through untouched.
  */
 export function writeVertex(
   view: Float32Array,
@@ -49,6 +57,7 @@ export function writeVertex(
   g: number,
   b: number,
   a: number,
+  lightAffected: number,
   z: number,
 ): void {
   const o = i * VERTEX_STRIDE_FLOATS;
@@ -58,5 +67,6 @@ export function writeVertex(
   view[o + 3] = g;
   view[o + 4] = b;
   view[o + 5] = a;
-  view[o + 6] = z;
+  view[o + 6] = lightAffected;
+  view[o + 7] = z;
 }

@@ -76,6 +76,7 @@ export function tessellateFillSmoothPolygon(
   tension: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const spline = buildCatmullRomOutline(vertices, true, tension);
@@ -89,7 +90,18 @@ export function tessellateFillSmoothPolygon(
   const { r, g, b, a } = unpackColor(color, alpha);
   const { base, view } = sink.reserveVertices(spline.length);
   for (let i = 0; i < spline.length; i++) {
-    writeVertex(view, i, spline[i][0], spline[i][1], r, g, b, a, z);
+    writeVertex(
+      view,
+      i,
+      spline[i][0],
+      spline[i][1],
+      r,
+      g,
+      b,
+      a,
+      lightAffected,
+      z,
+    );
   }
   const idxSlice = sink.reserveIndices(indices.length);
   for (let i = 0; i < indices.length; i++) idxSlice[i] = base + indices[i];
@@ -102,6 +114,7 @@ export function tessellateStrokeSmoothPolygon(
   width: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const spline = buildCatmullRomOutline(vertices, true, tension);
@@ -112,6 +125,7 @@ export function tessellateStrokeSmoothPolygon(
     width,
     color,
     alpha,
+    lightAffected,
     z,
   );
 }

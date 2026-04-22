@@ -13,6 +13,7 @@ export function tessellateFillPolygon(
   vertices: ReadonlyArray<{ x: number; y: number }>,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   if (vertices.length < 3) return;
@@ -22,7 +23,18 @@ export function tessellateFillPolygon(
   const { r, g, b, a } = unpackColor(color, alpha);
   const { base, view } = sink.reserveVertices(vertices.length);
   for (let i = 0; i < vertices.length; i++) {
-    writeVertex(view, i, vertices[i].x, vertices[i].y, r, g, b, a, z);
+    writeVertex(
+      view,
+      i,
+      vertices[i].x,
+      vertices[i].y,
+      r,
+      g,
+      b,
+      a,
+      lightAffected,
+      z,
+    );
   }
 
   const idxSlice = sink.reserveIndices(indices.length);
@@ -38,6 +50,7 @@ export function tessellateFanPolygon(
   vertices: ReadonlyArray<readonly [number, number]>,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   const n = vertices.length;
@@ -45,7 +58,18 @@ export function tessellateFanPolygon(
   const { r, g, b, a } = unpackColor(color, alpha);
   const { base, view } = sink.reserveVertices(n);
   for (let i = 0; i < n; i++) {
-    writeVertex(view, i, vertices[i][0], vertices[i][1], r, g, b, a, z);
+    writeVertex(
+      view,
+      i,
+      vertices[i][0],
+      vertices[i][1],
+      r,
+      g,
+      b,
+      a,
+      lightAffected,
+      z,
+    );
   }
   const idxSlice = sink.reserveIndices((n - 2) * 3);
   for (let i = 1; i < n - 1; i++) {
@@ -62,12 +86,13 @@ export function tessellateStrokePolygon(
   width: number,
   color: number,
   alpha: number,
+  lightAffected: number,
   z: number,
 ): void {
   if (vertices.length < 2) return;
   const points: [number, number][] = [];
   for (const v of vertices) points.push([v.x, v.y]);
-  tessellateWorldPolyline(sink, points, z, width, color, alpha, {
+  tessellateWorldPolyline(sink, points, z, width, color, alpha, lightAffected, {
     closed: true,
   });
 }

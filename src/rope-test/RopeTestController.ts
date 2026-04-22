@@ -382,6 +382,7 @@ export class RopeTestController extends BaseEntity {
         this.pattern,
         1,
         rope.width,
+        null,
       );
     }
   }

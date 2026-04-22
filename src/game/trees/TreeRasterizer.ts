@@ -79,6 +79,11 @@ const TreeUniforms = defineUniformStruct("TreeParams", {
   sunDirX: f32,
   sunDirY: f32,
   edgeVertexCount: f32,
+  // Global scene illumination (sun + sky) pushed per-frame from TimeOfDay.
+  // Stored as three f32 fields to match the surrounding flat-struct style.
+  ambientLightR: f32,
+  ambientLightG: f32,
+  ambientLightB: f32,
 });
 
 // Inline the simplex3D and calculateWindVelocity WGSL code
@@ -109,6 +114,9 @@ struct TreeParams {
   sunDirX: f32,
   sunDirY: f32,
   edgeVertexCount: f32,
+  ambientLightR: f32,
+  ambientLightG: f32,
+  ambientLightB: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: TreeParams;
@@ -281,7 +289,8 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  return vec4<f32>(in.color, 1.0);
+  let ambientLight = vec3<f32>(params.ambientLightR, params.ambientLightG, params.ambientLightB);
+  return vec4<f32>(in.color * ambientLight, 1.0);
 }
 `;
 
@@ -463,6 +472,7 @@ export class TreeRasterizer {
     baseWindY: number,
     timeOfDay: number,
     zoom: number,
+    ambientLight: readonly [number, number, number],
   ): void {
     if (
       !this.initialized ||
@@ -497,6 +507,9 @@ export class TreeRasterizer {
     this.uniforms.set.timeOfDay(timeOfDay);
     this.uniforms.set.treeCount(treeCount);
     this.uniforms.set.edgeVertexCount(edgeCount);
+    this.uniforms.set.ambientLightR(ambientLight[0]);
+    this.uniforms.set.ambientLightG(ambientLight[1]);
+    this.uniforms.set.ambientLightB(ambientLight[2]);
 
     // Precompute sun direction on CPU (saves 5 trig ops per fragment)
     const hour = timeOfDay / 3600;
@@ -579,6 +592,7 @@ export class TreeRasterizer {
     baseWindY: number,
     timeOfDay: number,
     zoom: number,
+    ambientLight: readonly [number, number, number],
     gpuProfiler: GPUProfiler | null,
   ): void {
     if (!this.initialized || treeCount === 0) return;
@@ -624,6 +638,7 @@ export class TreeRasterizer {
       baseWindY,
       timeOfDay,
       zoom,
+      ambientLight,
     );
 
     renderPass.end();
