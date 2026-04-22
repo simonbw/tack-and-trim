@@ -22,6 +22,7 @@ const parcel = spawn(
     "src/editor.html",
     "src/boat-editor.html",
     "src/rope-test.html",
+    "src/capstan-test.html",
   ],
   {
     stdio: "inherit",

@@ -10,6 +10,7 @@ import { V, V2d } from "../../core/Vector";
 import { V3d } from "../../core/Vector3";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
 import { WaterQuery } from "../world/water/WaterQuery";
+import { LBF_TO_ENGINE } from "../physics-constants";
 import { RopeBlock } from "../rope/RopeBlock";
 import { RopeNetwork, type RopeNetworkNodeSpec } from "../rope/RopeNetwork";
 import { RopeRender } from "../rope/RopeRender";
@@ -33,6 +34,10 @@ const RODE_COLOR = 0x333322; // Dark rope color
 
 // Winch trim speed for hoisting the anchor
 const WINCH_MAX_SPEED = 2; // ft/s
+// Winch peak hoist force (lbf). Generous — anchor weight + rode friction
+// is well under this; the cap exists to stop the winch from cranking
+// against a nothing-to-pull-in state and generating hull yaw torque.
+const WINCH_MAX_FORCE_LBF = 500;
 
 // Anchor shape constants
 const ANCHOR_COLOR = 0x333333;
@@ -194,6 +199,7 @@ export class Anchor extends BaseEntity {
       new RopeBlock(this.rode, this.hull.body, winchAnchor, {
         mode: "winch",
         frictionCoefficient: 0.3,
+        winchMaxForce: WINCH_MAX_FORCE_LBF * LBF_TO_ENGINE,
       }),
     );
     this.blocks.push(winch);

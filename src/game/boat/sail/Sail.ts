@@ -3,6 +3,7 @@ import { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Body } from "../../../core/physics/body/Body";
 import { createPointMass3D } from "../../../core/physics/body/bodyFactories";
+import { PointToRigidLockConstraint3D } from "../../../core/physics/constraints/PointToRigidLockConstraint3D";
 import { clamp } from "../../../core/util/MathUtil";
 import {
   asyncProfiler,
@@ -140,6 +141,18 @@ export class Sail extends BaseEntity {
 
   // Wind query for aerodynamic forces
   private windQuery: WindQuery;
+
+  /**
+   * Lock constraint pinning the jib clew body to a hull-local anchor when
+   * the sail is fully furled. Replaces the previous kinematic teleport:
+   * with this in place, any force applied to the clew body (e.g., jib-sheet
+   * tension) is transmitted to the hull via the constraint's solver
+   * equations rather than absorbed silently.
+   *
+   * Null for mainsail (boom-clew) or any non-jib config. Disabled while
+   * hoisted so the cloth-sim reactions own the clew position.
+   */
+  private furledLock: PointToRigidLockConstraint3D | null = null;
 
   private config: SailParams & SailConfig;
 
@@ -279,6 +292,28 @@ export class Sail extends BaseEntity {
 
       this.bodies = [clewBody];
       this.constraints = [];
+
+      // Furled-state pin: when the jib is rolled up, the clew sits at the
+      // forestay alongside the head. Modelled as a PointToRigidLock that
+      // stays disabled while hoisted (cloth sim owns the clew then) and
+      // enables once hoistAmount drops to zero. Using a real constraint
+      // here — rather than a kinematic teleport — means rope forces on the
+      // clew body round-trip through the solver into the hull at the pin's
+      // lever arm, preserving Newton's third law on the boat as a whole.
+      const hullBodyForPin = this.config.getHullBody?.();
+      if (hullBodyForPin) {
+        const head = this.config.headLocalPosition;
+        this.furledLock = new PointToRigidLockConstraint3D(
+          clewBody,
+          hullBodyForPin,
+          {
+            localAnchorB: [head.x, head.y, this.config.zFoot],
+            collideConnected: true,
+          },
+        );
+        this.furledLock.disabled = this.hoistAmount > 0;
+        this.constraints.push(this.furledLock);
+      }
     } else {
       this.bodies = [];
       this.constraints = [];
@@ -489,32 +524,14 @@ export class Sail extends BaseEntity {
       );
     }
 
-    // When fully furled, pin the jib clew body to the tack (where the furled
-    // sail lives), using the hull's full 3D transform so it accounts for
-    // heel/pitch. This runs independently of the cloth sim.
-    if (
-      this.hoistAmount <= 0 &&
-      sailShape === "triangle" &&
-      this.bodies.length > 0
-    ) {
-      const hullBody = this.config.getHullBody?.();
-      const local = this.config.headLocalPosition;
-      const clewBody = this.bodies[0] as Body;
-      if (hullBody) {
-        const [wx, wy, wz] = hullBody.toWorldFrame3D(
-          local.x,
-          local.y,
-          this.config.zFoot,
-        );
-        clewBody.position.set(wx, wy);
-        clewBody.z = wz;
-      } else {
-        const tackPos = this.config.getHeadPosition();
-        clewBody.position.set(tackPos);
-        clewBody.z = this.config.zFoot;
-      }
-      clewBody.velocity.set(0, 0);
-      clewBody.zVelocity = 0;
+    // Furled-state pin: enable the lock constraint when the jib is rolled up
+    // so the clew rides at the forestay, disable it otherwise so the cloth
+    // sim's reaction forces own the clew's position. The constraint solver
+    // handles the actual positioning during the physics step — no kinematic
+    // teleport needed, and rope forces on the clew transfer cleanly to the
+    // hull via the pin's lever arm.
+    if (this.furledLock) {
+      this.furledLock.disabled = this.hoistAmount > 0;
     }
 
     // Read results from the worker's previous solve (one-tick lag)
@@ -594,32 +611,10 @@ export class Sail extends BaseEntity {
    */
   @on("afterPhysicsStep")
   onAfterPhysicsStep(dt: number) {
-    // When fully furled, re-pin the jib clew body after the physics step
-    // (the solver may have dragged it away from the tack via rope constraints).
-    if (
-      this.hoistAmount <= 0 &&
-      this.config.sailShape === "triangle" &&
-      this.bodies.length > 0
-    ) {
-      const hullBody = this.config.getHullBody?.();
-      const local = this.config.headLocalPosition;
-      const clewBody = this.bodies[0] as Body;
-      if (hullBody) {
-        const [wx, wy, wz] = hullBody.toWorldFrame3D(
-          local.x,
-          local.y,
-          this.config.zFoot,
-        );
-        clewBody.position.set(wx, wy);
-        clewBody.z = wz;
-      } else {
-        const tackPos = this.config.getHeadPosition();
-        clewBody.position.set(tackPos);
-        clewBody.z = this.config.zFoot;
-      }
-      clewBody.velocity.set(0, 0);
-      clewBody.zVelocity = 0;
-    }
+    // Furled clew pin is now enforced by `furledLock` during the solver
+    // step, so no post-physics teleport is needed. (The constraint
+    // transmits rope forces to the hull correctly; a teleport would
+    // silently discard them.)
 
     const { sailShape, liftScale, dragScale } = this.config;
 

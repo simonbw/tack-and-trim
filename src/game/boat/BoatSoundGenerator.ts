@@ -11,13 +11,15 @@ import type { Sheet } from "./Sheet";
 const MIN_SHEET_INTERVAL = 0.15;
 const MIN_BOOM_INTERVAL = 0.3;
 
-// Sheet snap thresholds
-const SHEET_FORCE_MIN = 1000; // Below this, no sound (filters out constraint bouncing)
-const SHEET_FORCE_MAX = 8000; // Above this, max volume
+// Sheet snap thresholds — peak tension (engine-force units) in the winch's
+// working section. Tuned for the capstan-network rope; calibrate in-game by
+// trimming aggressively and logging the peak.
+const SHEET_FORCE_MIN = 200;
+const SHEET_FORCE_MAX = 1500;
 
-// Boom slam thresholds — force on mainsheet when it catches the boom
-const BOOM_FORCE_MIN = 2000; // Below this, no slam sound
-const BOOM_FORCE_MAX = 10000; // Above this, max volume
+// Boom slam thresholds — same tension signal; gates on mainsheet only.
+const BOOM_FORCE_MIN = 400;
+const BOOM_FORCE_MAX = 2000;
 
 // Volume
 const SHEET_MAX_GAIN = 0.4;
@@ -67,15 +69,10 @@ export class BoatSoundGenerator extends BaseEntity {
   }
 
   private updateSheet(sheet: Sheet, state: SheetState, now: number) {
-    // The sheet's constraint equation is enabled when the rope is at its limit
-    const constraint = sheet.constraints?.[0];
-    if (!constraint) return;
-
-    const equation = constraint.equations[0];
-    if (!equation) return;
-
-    const isActive = equation.enabled;
-    const force = Math.abs(equation.multiplier);
+    // Read the capstan-network's peak working-side tension. The Sheet
+    // suppresses this during spawn transients, so no extra warm-up here.
+    const isActive = sheet.isWorkingTaut();
+    const force = sheet.getWorkingTension();
 
     // Detect transition from slack to taut
     if (isActive && !state.wasActive && force > SHEET_FORCE_MIN) {

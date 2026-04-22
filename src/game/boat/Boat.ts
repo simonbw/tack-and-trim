@@ -18,7 +18,6 @@ import {
   buildBoundaryLevel,
   type HullBoundaryData,
 } from "../../core/physics/constraints/DeckContactConstraint";
-import { buildGunwaleObstacles, type RopeObstacle } from "../rope/RopeObstacle";
 import { Keel } from "./Keel";
 import { Lifelines } from "./Lifelines";
 import { Rig } from "./Rig";
@@ -134,17 +133,6 @@ export class Boat extends BaseEntity {
       config.hull.draft,
     );
 
-    // Gunwale-edge obstacles for segment-level rope collision. Built once
-    // and shared across all rope colliders on this hull.
-    const deckOutline = extractHullOutlineAtZ(
-      this.hull.getPhysicsMesh(),
-      config.hull.deckHeight,
-    );
-    const hullObstacles: RopeObstacle[] = buildGunwaleObstacles(
-      deckOutline,
-      config.hull.deckHeight,
-    );
-
     // Create mainsheet (boom to hull)
     const { hullAttachPoint, boomAttachRatio, winchPoint, ...mainsheetConfig } =
       config.mainsheet;
@@ -182,7 +170,6 @@ export class Boat extends BaseEntity {
         mainsheetWaypoints,
         getDeckHeight,
         hullBoundary,
-        hullObstacles,
       ),
     );
 
@@ -294,7 +281,6 @@ export class Boat extends BaseEntity {
           portWaypoints,
           getDeckHeight,
           hullBoundary,
-          hullObstacles,
         ),
       );
 
@@ -312,7 +298,6 @@ export class Boat extends BaseEntity {
           starboardWaypoints,
           getDeckHeight,
           hullBoundary,
-          hullObstacles,
         ),
       );
       this.starboardJibSheet.release();

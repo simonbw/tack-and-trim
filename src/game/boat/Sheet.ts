@@ -6,10 +6,9 @@ import { clamp } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { V3d } from "../../core/Vector3";
 import { LBF_TO_ENGINE } from "../physics-constants";
-import { Pulley, type PulleyConfig } from "../rope/Pulley";
-import { Rope, RopeConfig, type RopePathHint } from "../rope/Rope";
-import type { RopeObstacle } from "../rope/RopeObstacle";
-import { RopeObstacleCollider } from "../rope/RopeObstacleCollider";
+import { RopeBlock } from "../rope/RopeBlock";
+import { RopeNetwork, type RopeNetworkNodeSpec } from "../rope/RopeNetwork";
+import { RopeRender } from "../rope/RopeRender";
 import type { RopePattern } from "./RopeShader";
 
 export interface SheetConfig {
@@ -27,44 +26,29 @@ export interface SheetConfig {
    * renders as a solid `ropeColor` laid rope.
    */
   ropePattern?: RopePattern;
-  /** Particles per foot of rope. Default 1.5. */
-  particlesPerFoot?: number;
   /**
-   * Rope mass in lbs per foot. Real 5/16" line is ~0.03 lb/ft, but heavier
-   * values improve simulation stability. Default 0.1.
-   */
-  massPerFoot?: number;
-  /** Particle linear damping (0-1). Default 0.05 (low — fluid drag handles
-   *  energy removal via wind/water-relative velocity instead). */
-  ropeDamping?: number;
-  /**
-   * Rope diameter in feet, used for fluid drag area calculation.
-   * Default 0.026 (≈ 5/16 inch, typical small-boat line).
+   * Rope diameter in feet. Default 0.026 (≈ 5/16 inch, typical small-boat
+   * line). Retained for future drag/rendering use; unused by the capstan
+   * solver.
    */
   ropeDiameter?: number;
   /**
-   * Drag coefficient (Cd) for the rope cross-section. Cylinder crossflow
-   * is ~1.2. Increase for braided/fuzzy rope, decrease for smooth line.
-   * Default 1.2.
-   */
-  ropeDragCd?: number;
-  /**
-   * Tailing force in lbf (pounds-force) when trimming at full input.
-   * Represents the mechanical advantage of the winch × crew effort.
-   * Shift-held multiplies the input, simulating grinding harder.
-   * Default 50.
-   */
-  winchForce?: number;
-  /**
    * Maximum rope speed through the winch in ft/s when trimming.
-   * Models the limit of how fast a crew can crank. Force tapers to
-   * zero as rope speed approaches this value. Default 3.
+   * Models the limit of how fast a crew can crank.
+   * Default 3.
    */
   winchMaxSpeed?: number;
   /**
-   * Tailing direction as a hull-local unit vector. The rope exits the
-   * winch in this direction (transformed to world space each frame).
-   * Default (-1, 0) = aft along the hull toward the helm.
+   * Tailing force in lbf. Retained for config compat with the old
+   * force-based winch API and the boat editor UI; the new capstan-network
+   * rope uses `winchMaxSpeed` directly and ignores this field. Slated for
+   * removal in Phase 5.
+   */
+  winchForce?: number;
+  /**
+   * Tailing direction as a hull-local unit vector. Unused by the capstan
+   * solver (direction is implicit in the node ordering); retained for
+   * possible future use by the render layer.
    */
   tailDirection?: V2d;
 }
@@ -74,50 +58,56 @@ const DEFAULT_CONFIG: SheetConfig = {
   maxLength: 35,
   ropeThickness: 0.75,
   ropeColor: 0x444444,
-  particlesPerFoot: 1.5,
-  massPerFoot: 0.1,
-  ropeDamping: 0.05,
-  winchForce: 50,
   winchMaxSpeed: 3,
+  // Hand-winch peak force in lbf. Bounds how much tension the winch can
+  // drive into the rope before stalling; prevents a player cranking
+  // against a taut sheet from generating runaway yaw torque on the hull.
+  winchForce: 400,
   ropeDiameter: 0.026,
-  ropeDragCd: 0.6,
 };
 
 /** Waypoint definition passed to Sheet for creating pulleys/winches. */
 export interface SheetWaypoint {
   body: Body;
   localAnchor: V3d;
-  /** Default "block" — free physics-driven sliding. */
+  /** Default "block" — free-sliding. */
   type?: "block" | "winch";
   /** Coulomb friction coefficient for rope sliding through this block.
    *  0 = frictionless (default). Typical: 0.05–0.3 for a block. */
   frictionCoefficient?: number;
-  /** Sheave/winch drum radius in feet. 0 = point pulley. Default 0. */
+  /**
+   * Sheave/winch drum radius in feet. Retained for compat with the old
+   * API but ignored by the capstan solver (tension redirection is purely
+   * Coulomb — no sheave geometry). Default 0.
+   */
   radius?: number;
 }
 
 /**
  * A single adjustable sheet (rope) connecting a sail to the boat.
  *
- * The rope is a fixed-length continuous particle chain with a free bitter end.
- * Blocks and winches are external Pulley entities that constrain the rope.
+ * The rope is a capstan network: ordered nodes with scalar tensions and
+ * lengths between them. Blocks and winches are interior nodes with friction;
+ * player input adjusts the winch node's length-flow rate and ratchet state.
  */
 export class Sheet extends BaseEntity {
   layer = "boat" as const;
-  private rope: Rope;
+  private rope: RopeNetwork;
+  private render: RopeRender;
 
   private config: SheetConfig;
-  /** The hull body — used to compute the tailing direction toward the helm. */
   private hullBody: Body;
-  /** The winch pulley, or null if no winch waypoint was specified. */
-  private winch: Pulley | null = null;
-  /** All pulleys (blocks and winches) on this sheet. */
-  private pulleys: Pulley[] = [];
+  /** The winch block, or null if no winch waypoint was specified. */
+  private winch: RopeBlock | null = null;
+  /** All blocks and winches on this sheet. */
+  private blocks: RopeBlock[] = [];
   private opacity: number = 1.0;
   /** Cumulative winch handle rotation (radians). */
   private winchAngle: number = 0;
   /** Previous working length, for computing winch rotation delta. */
   private prevWorkingLength: number = -1;
+  /** Tick counter used to suppress spurious snap sounds on spawn. */
+  private tickCount: number = 0;
 
   constructor(
     bodyA: Body,
@@ -126,16 +116,16 @@ export class Sheet extends BaseEntity {
     private localAnchorB: V3d,
     config: Partial<SheetConfig> = {},
     waypoints: SheetWaypoint[] = [],
+    // Rendering-only hull plumbing: the RopeRender uses these to clamp
+    // sample z-values above the deck surface.
     private getDeckHeight?: (localX: number, localY: number) => number | null,
     private hullBoundary?: HullBoundaryData,
-    private hullObstacles?: readonly RopeObstacle[],
   ) {
     super();
-
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.hullBody = bodyB;
 
-    // Compute total path distance for rope length calculation
+    // Compute total path distance so we can size the rope.
     const pathPoints = [
       bodyA.toWorldFrame(V(localAnchorA[0], localAnchorA[1])),
       ...waypoints.map((w) =>
@@ -150,170 +140,119 @@ export class Sheet extends BaseEntity {
       totalPathDist += Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Total rope length: enough for max working length plus tail
+    // Total rope length: enough for max working length plus tail.
     const totalRopeLength = Math.max(
       this.config.maxLength * 1.3,
       totalPathDist * 1.3,
     );
 
-    // Derive particle count and per-particle mass from rope length
-    const particlesPerFt =
-      this.config.particlesPerFoot ?? DEFAULT_CONFIG.particlesPerFoot!;
-    const massPerFt = this.config.massPerFoot ?? DEFAULT_CONFIG.massPerFoot!;
-    const particleCount = Math.max(
-      4,
-      Math.round(totalRopeLength * particlesPerFt),
-    );
-    const particleMass = (totalRopeLength * massPerFt) / particleCount;
-
-    const ropeDiameter =
-      this.config.ropeDiameter ?? DEFAULT_CONFIG.ropeDiameter!;
-    const ropeConfig: RopeConfig = {
-      particleCount,
-      particleMass,
-      damping: this.config.ropeDamping,
-      freeEndB: true,
-      ropeDiameter,
-      // Sheets have a lot of slack tail; a non-zero lower-limit would try
-      // to extend the chain to its natural length and yank both endpoints.
-      minLinkFraction: 0,
-      deckContact:
-        this.getDeckHeight && this.hullBoundary
-          ? {
-              getDeckHeight: this.getDeckHeight,
-              hullBoundary: this.hullBoundary,
-            }
-          : undefined,
-      drag: {
-        airDrag: true,
-        waterDrag: true,
-        ropeDiameter,
-        cdNormal: this.config.ropeDragCd ?? DEFAULT_CONFIG.ropeDragCd!,
-      },
-    };
-
-    // Use waypoint positions as path hints for particle distribution
-    const pathHints: RopePathHint[] = waypoints.map((w) => ({
-      body: w.body,
-      localAnchor: w.localAnchor,
-    }));
+    // Build node specs: [clew endpoint, ...waypoints, tail endpoint].
+    const nodeSpecs: RopeNetworkNodeSpec[] = [
+      { body: bodyA, localAnchor: localAnchorA, kind: "endpoint" },
+      ...waypoints.map(
+        (wp): RopeNetworkNodeSpec => ({
+          body: wp.body,
+          localAnchor: wp.localAnchor,
+          kind: wp.type === "winch" ? "winch" : "block",
+          mu: wp.frictionCoefficient ?? 0,
+        }),
+      ),
+      { body: bodyB, localAnchor: localAnchorB, kind: "endpoint" },
+    ];
 
     this.rope = this.addChild(
-      new Rope(
-        bodyA,
-        localAnchorA,
-        bodyB,
-        localAnchorB,
-        totalRopeLength,
-        ropeConfig,
-        pathHints,
-      ),
+      new RopeNetwork(nodeSpecs, { totalLength: totalRopeLength }),
     );
+    this.render = new RopeRender(this.rope, {
+      hullBody: this.hullBody,
+      getDeckHeight: this.getDeckHeight,
+      hullBoundary: this.hullBoundary,
+      ropeRadius: (this.config.ropeDiameter ?? 0.026) / 2,
+    });
 
-    // Rope-vs-obstacle segment collider (gunwale edges). Only spawned when
-    // the sheet has hull obstacles AND the rope has deck contact (the
-    // collider's gunwale prefilter relies on the per-particle inside flag).
-    if (
-      this.hullObstacles &&
-      this.hullObstacles.length > 0 &&
-      ropeConfig.deckContact
-    ) {
-      this.addChild(
-        new RopeObstacleCollider(this.rope, this.hullBody, this.hullObstacles),
-      );
-    }
-
-    // Create pulleys at waypoints
-    const stiffness = ropeConfig.constraintStiffness;
-    const relaxation = ropeConfig.constraintRelaxation;
+    // Wrap each waypoint with a RopeBlock adapter. Must match by (body, localAnchor).
+    // Winch max-force comes from the config's `winchForce` (lbf, converted
+    // to engine units) so a player cranking against a taut sheet stalls
+    // instead of spiking tension unbounded.
+    const winchMaxForceEngine =
+      this.config.winchForce != null
+        ? this.config.winchForce * LBF_TO_ENGINE
+        : undefined;
     for (const wp of waypoints) {
-      const pulleyConfig: PulleyConfig = {
-        mode: wp.type ?? "block",
-        frictionCoefficient: wp.frictionCoefficient,
-        radius: wp.radius,
-        stiffness,
-        relaxation,
-      };
-      const pulley = this.addChild(
-        new Pulley(this.rope, wp.body, wp.localAnchor, pulleyConfig),
+      const block = this.addChild(
+        new RopeBlock(this.rope, wp.body, wp.localAnchor, {
+          mode: wp.type ?? "block",
+          frictionCoefficient: wp.frictionCoefficient,
+          winchMaxForce: wp.type === "winch" ? winchMaxForceEngine : undefined,
+        }),
       );
-      this.pulleys.push(pulley);
-      if (pulley.type === "winch" && !this.winch) {
-        this.winch = pulley;
+      this.blocks.push(block);
+      if (block.type === "winch" && !this.winch) {
+        this.winch = block;
       }
     }
   }
 
   /**
-   * Get the current working length (rope on the sail side of the winch).
+   * Current material length of rope on the sail side of the winch.
    */
   getWorkingLength(): number {
-    if (!this.winch) return this.rope.getLength();
+    if (!this.winch) return this.rope.getTotalLength();
     return this.winch.getWorkingLength();
   }
 
   /**
    * Adjust sheet length based on player input.
    *
-   * When trimming: ratchet mode (rope can slide in only) + tailing force
-   * on the tail-side particle toward the helm, pulling rope through.
-   * When easing: free mode — rope slides out under sail loads.
-   * When idle (input = 0): ratchet mode — rope locked against easing.
+   * When trimming (input < 0): ratchet + positive flow rate (length flows
+   * working → tail). When easing (input > 0): free mode + zero flow; sail
+   * loads pull rope out naturally. When idle (input = 0): ratchet + zero
+   * flow; rope locked against easing.
    *
    * @param input Negative = trim in, positive = ease out.
-   *   Magnitude controls force: 1 = normal, >1 = grinding harder (shift held).
+   *   Magnitude controls speed: 1 = normal, >1 = grinding harder.
    */
   adjust(input: number): void {
     if (!this.winch) return;
 
     if (input === 0) {
-      // Idle: ratchet prevents the sail from pulling rope out
       this.winch.setMode("ratchet");
+      this.winch.applyTrimRate(0);
       return;
     }
 
-    // Clamp: don't trim shorter than minLength or ease longer than maxLength
     const workingLen = this.winch.getWorkingLength();
-    if (input < 0 && workingLen <= this.config.minLength) return;
-    if (input > 0 && workingLen >= this.config.maxLength) return;
+    if (input < 0 && workingLen <= this.config.minLength) {
+      this.winch.applyTrimRate(0);
+      return;
+    }
+    if (input > 0 && workingLen >= this.config.maxLength) {
+      this.winch.applyTrimRate(0);
+      return;
+    }
+
+    const maxSpeed = this.config.winchMaxSpeed ?? DEFAULT_CONFIG.winchMaxSpeed!;
 
     if (input < 0) {
-      // Trimming: ratchet stays engaged (rope can only shorten on working side)
-      // + apply tailing force to actively pull rope through
+      // Trimming: ratchet + positive flow rate.
       this.winch.setMode("ratchet");
-
-      // Force in engine units: winchForce (lbf) × input magnitude × lbf→engine
-      const forceMag =
-        Math.abs(input) *
-        (this.config.winchForce ?? DEFAULT_CONFIG.winchForce!) *
-        LBF_TO_ENGINE;
-
-      // Tail direction in world space (from hull-local config)
-      const angle = this.hullBody.angle;
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      const td = this.config.tailDirection;
-      // Default: aft along the hull (-1, 0) in local frame
-      const lx = td ? td.x : -1;
-      const ly = td ? td.y : 0;
-      const aftX = cos * lx - sin * ly;
-      const aftY = sin * lx + cos * ly;
-      const maxSpeed =
-        this.config.winchMaxSpeed ?? DEFAULT_CONFIG.winchMaxSpeed!;
-      this.winch.applyForce(forceMag, aftX, aftY, maxSpeed);
+      const rate = Math.min(1, Math.abs(input)) * maxSpeed;
+      this.winch.applyTrimRate(rate);
     } else {
-      // Easing: free mode — sail loads pull the rope out naturally
+      // Easing: free + zero flow. Sail loads carry the rope out on their own.
       this.winch.setMode("free");
+      this.winch.applyTrimRate(0);
     }
   }
 
   /**
-   * Release the sheet for tacking. Releases the winch grip so sail loads
-   * can pull the rope out freely.
+   * Release the sheet for tacking. Clears winch grip so sail loads can pull
+   * rope out freely.
    */
   release(): void {
     if (!this.winch) return;
     this.winch.setMode("free");
+    this.winch.applyTrimRate(0);
   }
 
   getSheetPosition(): number {
@@ -326,19 +265,48 @@ export class Sheet extends BaseEntity {
     return this.getWorkingLength();
   }
 
-  /** Set the visual opacity of the sheet (0 = invisible, 1 = fully visible) */
+  /** Set the visual opacity of the sheet (0 = invisible, 1 = fully visible). */
   setOpacity(opacity: number): void {
     this.opacity = clamp(opacity, 0, 1);
   }
 
-  /** Check if sheet is fully eased out (at max working length) */
+  /** Check if sheet is fully eased out (at max working length). */
   isAtMaxLength(): boolean {
     return this.getSheetPosition() >= 0.99;
   }
 
+  /**
+   * Whether the working-side section is currently under tension. Used by
+   * the sound system to detect sheet snap.
+   */
+  isWorkingTaut(): boolean {
+    if (this.tickCount < 2) return false; // suppress spawn transients
+    return this.getWorkingTension() > 0;
+  }
+
+  /**
+   * Peak tension in sections adjacent to the winch (or the working
+   * endpoint section if no winch). Engine-force units.
+   */
+  getWorkingTension(): number {
+    if (this.winch) {
+      return this.rope.getPeakTensionAt(this.winch.getNodeIndex());
+    }
+    // Fallback: peak across all sections.
+    let peak = 0;
+    for (let i = 0; i < this.rope.getSectionCount(); i++) {
+      peak = Math.max(peak, this.rope.getSectionTension(i));
+    }
+    return peak;
+  }
+
   @on("tick")
-  onTick(): void {
+  onTick({
+    dt,
+  }: import("../../core/entity/Entity").GameEventMap["tick"]): void {
+    this.tickCount++;
     this.updateWinchAngle();
+    this.render.update(dt);
   }
 
   /** Update winch handle rotation based on rope length change. */
@@ -347,18 +315,28 @@ export class Sheet extends BaseEntity {
     const len = this.winch.getWorkingLength();
     if (this.prevWorkingLength >= 0) {
       const delta = this.prevWorkingLength - len;
-      // Geared down: one full handle turn per ~6ft of rope travel
+      // Geared down: one full handle turn per ~6ft of rope travel.
       this.winchAngle += delta / (6 / (2 * Math.PI));
     }
     this.prevWorkingLength = len;
   }
 
-  /** Get world-space rope points with z-values from particle positions. */
+  /**
+   * Get world-space rope render samples: points, z, and per-point material-v
+   * coordinates. Variable-spaced (non-uniform along the rope) — callers must
+   * consume `vPerPoint` rather than multiplying by `getRopeSegmentLength()`.
+   */
   getRopePointsWithZ(): {
     points: [number, number][];
     z: number[];
+    vPerPoint: number[];
   } {
-    return this.rope.getPointsWithZ();
+    return this.render.computeSamples();
+  }
+
+  /** Stable total sample count for this sheet's render (for buffer sizing). */
+  getRopeRenderSampleCount(): number {
+    return this.render.getTotalSampleCount();
   }
 
   /** Get visual opacity. */
@@ -366,12 +344,12 @@ export class Sheet extends BaseEntity {
     return this.opacity;
   }
 
-  /** Z-height at anchor A (body A end). */
+  /** Z-height at anchor A (sail end). */
   getZA(): number {
     return this.localAnchorA[2];
   }
 
-  /** Z-height at anchor B (body B end). */
+  /** Z-height at anchor B (tail end). */
   getZB(): number {
     return this.localAnchorB[2];
   }
@@ -382,16 +360,22 @@ export class Sheet extends BaseEntity {
     type: "block" | "winch";
     winchAngle: number;
   }[] {
-    return this.pulleys.map((p) => ({
-      position: p.getWorldPosition(),
-      type: p.type,
-      winchAngle: p.type === "winch" ? this.winchAngle : 0,
+    return this.blocks.map((b) => ({
+      position: b.getWorldPosition(),
+      type: b.type,
+      winchAngle: b.type === "winch" ? this.winchAngle : 0,
     }));
   }
 
-  /** Rest length of one chain link (uniform segment spacing). */
+  /**
+   * Reference material length per render segment. In the capstan model,
+   * sections are non-uniform, so this returns an average — used only for
+   * material-v spacing in the rope shader.
+   */
   getRopeSegmentLength(): number {
-    return this.rope.getChainLinkLength();
+    const n = this.rope.getNodeCount();
+    if (n < 2) return 1;
+    return this.rope.getTotalLength() / (n - 1);
   }
 
   /** Rope thickness for rendering. */
