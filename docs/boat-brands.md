@@ -15,39 +15,46 @@ Performance-oriented boats built for sailors who want the most speed per dollar.
 
 ### Shaff style guide
 
-A minimalist racing palette: white hulls with black trim, carbon-and-graphite interiors, brushed-aluminum spars, and a single pop of racing red on the mainsheet. Every Shaff should look like it was built in a wind tunnel.
+A "Mermaid" livery inspired by the Zissou palette: teal topsides over a white deck, gold pinstripe and boom, a warm teak bench, brushed-aluminum mast, and a single pop of racing red on the mainsheet. Every Shaff should look like it was built in a wind tunnel — and then painted by someone who read too much Jacques Cousteau.
 
 **Hull exterior**
 
 | Field | Color | Notes |
 | ----- | ----- | ----- |
-| `hull.fill` (deck) | `#f0f0f0` | white gel-coat |
-| `hull.stroke` (gunwale) | `#1a1a1a` | black trim line |
-| `hull.side` (topsides) | `#e8ecf0` | cool white |
-| `hull.bottom` (antifouling) | `#0c1822` | near-black navy |
+| `hull.fill` (deck) | `#ffffff` | white deck |
+| `hull.stroke` (gunwale) | `#e1af00` | gold trim line |
+| `hull.side` (topsides) | `#3b9ab2` | signature mermaid teal |
+| `hull.bottom` (antifouling) | `#1a4552` | deep teal |
 
 **Deck zones**
 
 | Zone | Color | Notes |
 | ---- | ----- | ----- |
-| foredeck | `#d8d8d8` | light gel-coat |
-| cockpit | `#4a4a4a` | graphite nonskid sole |
-| bench | `#2e2e2e` | dark carbon |
-| bulkhead | `#1a1a1a` | carbon black |
-| companionway | `#050505` | black opening |
+| foredeck | `#ffffff` | white |
+| cockpit | `#3b9ab2` | medium teal nonskid sole |
+| bench | `#1a4552` | dark teal |
+| bulkhead | `#ffffff` | white |
+| companionway | `#0f3a47` | dark teal opening |
 
 **Rig, foils, and fittings**
 
 | Field | Color | Notes |
 | ----- | ----- | ----- |
-| `keel.color` / `rudder.color` | `#1a1a1a` | black foils |
+| `keel.color` / `rudder.color` | `#1a4552` | deep teal foils |
 | `rig.colors.mast` | `#888888` | brushed aluminum |
-| `rig.colors.boom` | `#2a2a2a` | black boom |
+| `rig.colors.boom` | `#e1af00` | gold boom |
 | `mainsail.color` / `jib.color` | `#fafafa` | racing white |
-| `mainsheet.ropeColor` | `#ee2222` | racing red |
-| `bowsprit.color` | `#2a2a2a` | black sprit |
+| `bowsprit.color` | `#e1af00` | gold, matching gunwale |
 | `lifelines.tubeColor` | `#cccccc` | stainless |
 | `lifelines.wireColor` | `#888888` | steel wire |
+
+**Running rigging (ropes)**
+
+| Line | Pattern | Notes |
+| ---- | ------- | ----- |
+| `ropes.mainsheet` | 16-plait braid, `#f21a00` + `#ffffff` flecks, 35° | racing red with white flecks |
+| `ropes.jibSheet` | 16-plait braid, `#3b9ab2` + `#e1af00` flecks, 35° | teal with gold flecks |
+| `ropes.anchorRode` | 8-plait braid, alternating `#ebcc2a` / `#3b9ab2`, 40° | poolside yellow-and-teal |
 
 ## BHC
 
@@ -91,10 +98,17 @@ A warm traditional palette: cream decks with brown trim, honey-teak interiors, t
 | `rig.colors.mast` | `#a09080` | tan-gray alloy |
 | `rig.colors.boom` | `#8a6a40` | tan-brown |
 | `mainsail.color` / `jib.color` | `#eeeedd` | cream Dacron |
-| `mainsheet.ropeColor` | `#c9a968` | hemp-toned rope |
 | `bowsprit.color` | `#775533` | classic wood |
 | `lifelines.tubeColor` | `#aaaaaa` | painted alloy |
 | `lifelines.wireColor` | `#777777` | weathered wire |
+
+**Running rigging (ropes)**
+
+| Line | Pattern | Notes |
+| ---- | ------- | ----- |
+| `ropes.mainsheet` | 3-strand laid, `#c9a968` / `#b89050` / `#c9a968`, 38° | classic manila |
+| `ropes.jibSheet` | 16-plait braid, `#d8b878` + `#6a4a1a` flecks, 35° | hemp with brown tracer |
+| `ropes.anchorRode` | 3-strand laid, `#6a4a1a` / `#553818` / `#6a4a1a`, 42° | tarred marline |
 
 ## Maestro
 
@@ -138,11 +152,18 @@ A luxury palette: deep navy topsides under ivory decks, gold gunwales, varnished
 | `rig.colors.mast` | `#bbbbcc` | polished silver |
 | `rig.colors.boom` | `#b09030` | gold boom |
 | `mainsail.color` / `jib.color` | `#f4f2ee` | ivory cloth |
-| `mainsheet.ropeColor` | `#0a1a40` | navy rope |
 | `bowsprit.color` | `#b09030` | gold bowsprit |
 | `lifelines.tubeColor` | `#ccccdd` | polished stainless |
 | `lifelines.wireColor` | `#999999` | steel wire |
 
+**Running rigging (ropes)**
+
+| Line | Pattern | Notes |
+| ---- | ------- | ----- |
+| `ropes.mainsheet` | 16-plait braid, `#0a1a40` + `#b09030` flecks, 32° | navy with gold tracer |
+| `ropes.jibSheet` | 16-plait braid, `#f4f2ee` + `#0a1a40` flecks, 32° | ivory with navy fleck |
+| `ropes.anchorRode` | 8-plait braid, alternating `#0a1a40` / `#b09030`, 40° | navy-and-gold |
+
 ## Applying a brand palette
 
-The palettes above are implemented in [`src/game/boat/configs/brandPalettes.ts`](../src/game/boat/configs/brandPalettes.ts) as `SHAFF_PALETTE`, `BHC_PALETTE`, and `MAESTRO_PALETTE`. Boat configs apply them via `withBrandPalette(baseConfig, palette)` so that individual boat files only carry geometry and physics overrides, never colors. If you add a new boat to an existing brand, use the helper — do not copy colors inline.
+The palettes above are implemented in [`src/game/boat/configs/brandPalettes.ts`](../src/game/boat/configs/brandPalettes.ts) as `SHAFF_PALETTE`, `BHC_PALETTE`, and `MAESTRO_PALETTE`. Boat configs apply them via `withBrandPalette(baseConfig, palette)` so that individual boat files only carry geometry and physics overrides, never colors or rope patterns. Running-rigging patterns are full `RopePattern` objects (`type`, `carriers`, `helixAngle`, optional `weave`) defined on `palette.ropes`; the helper assigns them to `mainsheet.ropePattern`, `jibSheet.ropePattern`, and `anchor.ropePattern` respectively, overwriting anything set on the base. If you add a new boat to an existing brand, use the helper — do not copy colors or rope patterns inline.

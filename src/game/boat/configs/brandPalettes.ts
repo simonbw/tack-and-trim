@@ -1,4 +1,5 @@
 import { BoatConfig } from "../BoatConfig";
+import { RopePattern } from "../RopeShader";
 
 /**
  * Color palette shared by every boat in a given brand. Applied via
@@ -34,8 +35,16 @@ export interface BrandPalette {
   };
   /** Mainsail + jib cloth color. */
   sails: number;
-  /** Mainsheet rope base color. */
-  mainsheet: number;
+  /**
+   * Rope patterns for running rigging and the anchor rode. Each brand picks
+   * its own weave so that boats look identifiable up close as well as at
+   * silhouette distance.
+   */
+  ropes: {
+    mainsheet: RopePattern;
+    jibSheet: RopePattern;
+    anchorRode: RopePattern;
+  };
   /** Bowsprit spar color. */
   bowsprit: number;
   /** Lifeline stanchion tube + wire colors. */
@@ -45,32 +54,62 @@ export interface BrandPalette {
   };
 }
 
-/** Shaff — performance racing. Minimalist white / carbon / racing red. */
+/** Shaff — performance racing in "Mermaid" livery. Teal topsides / gold trim / racing red, inspired by the Zissou palette. */
 export const SHAFF_PALETTE: BrandPalette = {
   hull: {
-    fill: 0xf0f0f0, // white deck
-    stroke: 0x1a1a1a, // black trim
-    side: 0xe8ecf0, // cool white topsides
-    bottom: 0x0c1822, // near-black navy antifouling
+    fill: 0xffffff, // white deck
+    stroke: 0xe1af00, // gold gunwale trim
+    side: 0x3b9ab2, // signature mermaid teal topsides
+    bottom: 0x1a4552, // deep teal antifouling
   },
   deckZones: {
-    foredeck: 0xd8d8d8, // light gel-coat deck
-    cockpit: 0x4a4a4a, // graphite nonskid sole
-    bench: 0x2e2e2e, // dark carbon bench
-    bulkhead: 0x1a1a1a, // carbon black
-    companionway: 0x050505, // black opening
+    foredeck: 0xffffff, // white foredeck
+    cockpit: 0x3b9ab2, // medium teal nonskid sole
+    bench: 0x1a4552, // dark teal bench
+    bulkhead: 0xffffff, // white bulkhead
+    companionway: 0x0f3a47, // dark teal opening
   },
-  foils: 0x1a1a1a, // black foils
+  foils: 0x1a4552, // deep teal foils
   rig: {
     mast: 0x888888, // brushed aluminum
-    boom: 0x2a2a2a, // black boom
+    boom: 0xe1af00, // gold boom
   },
   sails: 0xfafafa, // racing white
-  mainsheet: 0xee2222, // racing red
-  bowsprit: 0x2a2a2a,
+  ropes: {
+    // Racing red 16-plait mainsheet with a pair of white flecks per family.
+    mainsheet: {
+      type: "braid",
+      carriers: [
+        0xf21a00, 0xf21a00, 0xffffff, 0xf21a00, 0xf21a00, 0xf21a00, 0xf21a00,
+        0xf21a00, 0xf21a00, 0xf21a00, 0xffffff, 0xf21a00, 0xf21a00, 0xf21a00,
+        0xf21a00, 0xf21a00,
+      ],
+      helixAngle: 35,
+    },
+    // Teal jib sheets with a gold fleck so the windward trim pops.
+    jibSheet: {
+      type: "braid",
+      carriers: [
+        0x3b9ab2, 0x3b9ab2, 0xe1af00, 0x3b9ab2, 0x3b9ab2, 0x3b9ab2, 0x3b9ab2,
+        0x3b9ab2, 0x3b9ab2, 0x3b9ab2, 0xe1af00, 0x3b9ab2, 0x3b9ab2, 0x3b9ab2,
+        0x3b9ab2, 0x3b9ab2,
+      ],
+      helixAngle: 35,
+    },
+    // Poolside-yellow-and-teal anchor rode.
+    anchorRode: {
+      type: "braid",
+      carriers: [
+        0xebcc2a, 0xebcc2a, 0x3b9ab2, 0x3b9ab2, 0xebcc2a, 0xebcc2a, 0x3b9ab2,
+        0x3b9ab2,
+      ],
+      helixAngle: 40,
+    },
+  },
+  bowsprit: 0xe1af00, // gold, matching the gunwale trim
   lifelines: {
-    tube: 0xcccccc,
-    wire: 0x888888,
+    tube: 0xcccccc, // silver stanchion
+    wire: 0x888888, // steel wire
   },
 };
 
@@ -95,7 +134,30 @@ export const BHC_PALETTE: BrandPalette = {
     boom: 0x8a6a40, // tan-brown
   },
   sails: 0xeeeedd, // cream Dacron
-  mainsheet: 0xc9a968, // hemp-toned rope
+  ropes: {
+    // Classic 3-strand manila mainsheet.
+    mainsheet: {
+      type: "laid",
+      carriers: [0xc9a968, 0xb89050, 0xc9a968],
+      helixAngle: 38,
+    },
+    // Hemp-toned jib sheets with a brown tracer.
+    jibSheet: {
+      type: "braid",
+      carriers: [
+        0xd8b878, 0xd8b878, 0x6a4a1a, 0xd8b878, 0xd8b878, 0xd8b878, 0xd8b878,
+        0xd8b878, 0xd8b878, 0xd8b878, 0x6a4a1a, 0xd8b878, 0xd8b878, 0xd8b878,
+        0xd8b878, 0xd8b878,
+      ],
+      helixAngle: 35,
+    },
+    // Tarred marline anchor rode.
+    anchorRode: {
+      type: "laid",
+      carriers: [0x6a4a1a, 0x553818, 0x6a4a1a],
+      helixAngle: 42,
+    },
+  },
   bowsprit: 0x775533, // classic wood
   lifelines: {
     tube: 0xaaaaaa,
@@ -124,7 +186,37 @@ export const MAESTRO_PALETTE: BrandPalette = {
     boom: 0xb09030, // gold boom
   },
   sails: 0xf4f2ee, // ivory cloth
-  mainsheet: 0x0a1a40, // navy rope
+  ropes: {
+    // Deep navy mainsheet with a thin gold tracer.
+    mainsheet: {
+      type: "braid",
+      carriers: [
+        0x0a1a40, 0x0a1a40, 0xb09030, 0x0a1a40, 0x0a1a40, 0x0a1a40, 0x0a1a40,
+        0x0a1a40, 0x0a1a40, 0x0a1a40, 0xb09030, 0x0a1a40, 0x0a1a40, 0x0a1a40,
+        0x0a1a40, 0x0a1a40,
+      ],
+      helixAngle: 32,
+    },
+    // Ivory jib sheets with a navy fleck.
+    jibSheet: {
+      type: "braid",
+      carriers: [
+        0xf4f2ee, 0xf4f2ee, 0x0a1a40, 0xf4f2ee, 0xf4f2ee, 0xf4f2ee, 0xf4f2ee,
+        0xf4f2ee, 0xf4f2ee, 0xf4f2ee, 0x0a1a40, 0xf4f2ee, 0xf4f2ee, 0xf4f2ee,
+        0xf4f2ee, 0xf4f2ee,
+      ],
+      helixAngle: 32,
+    },
+    // Navy-and-gold anchor rode, ostentatious by design.
+    anchorRode: {
+      type: "braid",
+      carriers: [
+        0x0a1a40, 0x0a1a40, 0xb09030, 0xb09030, 0x0a1a40, 0x0a1a40, 0xb09030,
+        0xb09030,
+      ],
+      helixAngle: 40,
+    },
+  },
   bowsprit: 0xb09030, // gold bowsprit
   lifelines: {
     tube: 0xccccdd,
@@ -185,7 +277,19 @@ export function withBrandPalette(
     jib: base.jib ? { ...base.jib, color: palette.sails } : undefined,
     mainsheet: {
       ...base.mainsheet,
-      ropeColor: palette.mainsheet,
+      ropeColor: palette.ropes.mainsheet.carriers[0],
+      ropePattern: palette.ropes.mainsheet,
+    },
+    jibSheet: base.jibSheet
+      ? {
+          ...base.jibSheet,
+          ropeColor: palette.ropes.jibSheet.carriers[0],
+          ropePattern: palette.ropes.jibSheet,
+        }
+      : undefined,
+    anchor: {
+      ...base.anchor,
+      ropePattern: palette.ropes.anchorRode,
     },
     bowsprit: base.bowsprit
       ? { ...base.bowsprit, color: palette.bowsprit }
