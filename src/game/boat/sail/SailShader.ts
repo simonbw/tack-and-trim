@@ -12,7 +12,6 @@
 import { Matrix3 } from "../../../core/graphics/Matrix3";
 import {
   defineUniformStruct,
-  f32,
   mat3x3,
   vec4,
 } from "../../../core/graphics/UniformStruct";
@@ -26,6 +25,11 @@ import {
   DEPTH_Z_MIN,
   type WebGPURenderer,
 } from "../../../core/graphics/webgpu/WebGPURenderer";
+import {
+  SCENE_LIGHTING_FIELDS,
+  pushSceneLighting,
+} from "../../time/SceneLighting";
+import type { TimeOfDay } from "../../time/TimeOfDay";
 
 /** 6 floats per vertex: position (2) + normal (3) + z (1) */
 export const SAIL_VERTEX_SIZE = 6;
@@ -34,11 +38,10 @@ const SAIL_VERTEX_STRIDE = SAIL_VERTEX_SIZE * 4; // 24 bytes
 const SailUniforms = defineUniformStruct("SailUniforms", {
   viewMatrix: mat3x3,
   baseColor: vec4,
-  time: f32,
+  // Scene lighting (see SceneLighting.ts). Populated from TimeOfDay.
+  ...SCENE_LIGHTING_FIELDS,
 });
 
-// Inline the scene-lighting functions from scene-lighting.wgsl.ts
-// so we don't need the ShaderModule composition system for this one-off pipeline.
 const SAIL_SHADER_SOURCE = /*wgsl*/ `
 ${SailUniforms.wgsl}
 
@@ -72,33 +75,13 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   return out;
 }
 
-// --- Scene lighting (inlined from scene-lighting.wgsl.ts) ---
-
-const SECONDS_PER_HOUR: f32 = 3600.0;
-
-fn getSunDirection(time: f32) -> vec3<f32> {
-  let hour = time / SECONDS_PER_HOUR;
-  let sunPhase = (hour - 6.0) * 3.14159 / 12.0;
-  let elevation = max(sin(sunPhase), 0.0);
-  let azimuth = (hour - 12.0) * 3.14159 / 6.0;
-
-  let x = cos(azimuth) * 0.3 + 0.3;
-  let y = sin(azimuth) * 0.2 + 0.2;
-  let z = elevation * 0.9 + 0.1;
-
-  return normalize(vec3<f32>(x, y, z));
-}
-
-// --- Fragment shader ---
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   // Normalize interpolated normal (interpolation denormalizes)
   let n = normalize(in.normal);
-  let sunDir = getSunDirection(uniforms.time);
 
   // Lambertian diffuse — abs so both sides of sail are lit
-  let diffuse = abs(dot(n, sunDir));
+  let diffuse = abs(dot(n, uniforms.sunDirection));
 
   // Quantize into discrete tones (cel-shading)
   var tone: f32;
@@ -110,11 +93,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     tone = 0.92;      // shadow
   }
 
-  let tintedColor = vec3<f32>(
-    uniforms.baseColor.r * tone,
-    uniforms.baseColor.g * tone,
-    uniforms.baseColor.b * tone,
-  );
+  // Ambient (sky) + directional (sun * cel tone). Sky keeps sails visible
+  // at night as a cool-blue floor; sun warms them at sunrise/sunset and
+  // reads as bright white at midday.
+  let ambient = 0.5;
+  let illumination = uniforms.skyColor * ambient + uniforms.sunColor * tone;
+  let tintedColor = uniforms.baseColor.rgb * illumination;
 
   return vec4<f32>(tintedColor, uniforms.baseColor.a);
 }
@@ -292,7 +276,7 @@ export class SailShaderInstance {
     indexCount: number,
     color: number,
     alpha: number,
-    time: number,
+    timeOfDay: TimeOfDay | null,
   ): void {
     // Kick off async init if not done yet
     if (!pipelineWithDepth) {
@@ -338,7 +322,9 @@ export class SailShaderInstance {
     this.combinedMatrix.multiply(renderer.getTransform());
     this.uniforms.set.viewMatrix(this.combinedMatrix);
     this.uniforms.set.baseColor([baseR, baseG, baseB, alpha]);
-    this.uniforms.set.time(time);
+    if (timeOfDay) {
+      pushSceneLighting(this.uniforms.set, timeOfDay);
+    }
     this.uniforms.uploadTo(this.uniformBuffer!);
 
     // Draw

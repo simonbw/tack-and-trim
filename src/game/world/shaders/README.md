@@ -70,20 +70,17 @@ No need to import or depend on these - they're always available.
 
 ### Lighting
 
-#### `scene-lighting.wgsl.ts`
-
-- **fn_SCENE_LIGHTING** - Global sun direction and color functions based on time of day
-  - `getSunDirection(time)` - Calculate sun direction from time (0-86400 seconds)
-  - `getSunColor(time)` - Calculate sun color from time (warm at sunrise/sunset, bright at midday)
-  - `getSkyColor(time)` - Calculate sky color from time (purple at dawn/dusk, blue at midday)
+Per-frame sun and sky values (direction + color) are computed on the CPU by
+the `TimeOfDay` entity and pushed to every lighting-aware shader as uniform
+fields. See `src/game/time/SceneLighting.ts` for the shared field set used
+across uniform structs.
 
 #### `lighting.wgsl.ts`
 
-- **fn_computeFresnel** - Fresnel effect (Schlick approximation)
-- **fn_computeSpecular** - Phong specular reflection
-- **fn_computeDiffuse** - Lambertian diffuse lighting
-- **fn_renderWaterLighting** - Complete water surface shading
-  - Dependencies: `fn_SCENE_LIGHTING`, `fn_computeFresnel`, `fn_computeSpecular`, `fn_computeDiffuse`
+- **fn_waterSurfaceLight** - Complete water surface shading: Fresnel mix of
+  transmitted light and sky reflection, plus direct sun specular. Takes sun
+  direction, sun color, and sky color as explicit parameters (supplied from
+  the caller's uniform buffer).
 
 ### Geometry
 

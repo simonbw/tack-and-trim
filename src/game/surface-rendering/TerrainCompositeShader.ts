@@ -18,6 +18,7 @@ import {
   DEPTH_Z_MAX,
   DEPTH_Z_MIN,
 } from "../../core/graphics/webgpu/WebGPURenderer";
+import { SCENE_LIGHTING_WGSL_FIELDS } from "../time/SceneLighting";
 import { fn_renderTerrain } from "../world/shaders/terrain-rendering.wgsl";
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
@@ -31,7 +32,6 @@ struct Params {
   screenWidth: f32,
   screenHeight: f32,
   pixelRatio: f32,
-  time: f32,
   tideHeight: f32,
   hasTerrainData: i32,
 
@@ -39,6 +39,9 @@ struct Params {
   atlasTilesX: u32,
   atlasTilesY: u32,
   atlasWorldUnitsPerTile: f32,
+
+  // Scene lighting — populated from TimeOfDay on the CPU each frame.
+  ${SCENE_LIGHTING_WGSL_FIELDS}
 }
 `,
   bindings: {
@@ -189,7 +192,15 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   let terrainNormal = computeTerrainNormal(worldPos);
   let wetness = sampleWetnessAtLogical(logicalCoord);
 
-  let finalColor = renderTerrain(terrainHeight, terrainNormal, worldPos, wetness, params.time);
+  let finalColor = renderTerrain(
+    terrainHeight,
+    terrainNormal,
+    worldPos,
+    wetness,
+    params.sunDirection,
+    params.sunColor,
+    params.skyColor,
+  );
 
   var out: FragmentOutput;
   out.color = vec4<f32>(finalColor, 1.0);

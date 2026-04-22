@@ -3,10 +3,12 @@
  *
  * Replaces the flat sand renderer with biome-aware terrain coloring
  * based on elevation zones, slope, noise variation, and optional snow.
+ *
+ * Scene-lighting values (sun direction, sun color) come from the caller's
+ * uniform buffer — populated once per frame by `TimeOfDay`.
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-import { fn_SCENE_LIGHTING } from "./scene-lighting.wgsl";
 import { fn_simplex3D } from "./noise.wgsl";
 
 /**
@@ -39,9 +41,19 @@ export const fn_renderTerrain: ShaderModule = {
     // normal: surface normal
     // worldPos: world position (for noise sampling)
     // wetness: wetness factor (0.0 = dry, 1.0 = wet)
-    // time: time in seconds since midnight (for sun position)
+    // sunDir: normalized direction toward the sun (from scene lighting)
+    // sunColor: direct sunlight RGB — (0,0,0) at night
+    // skyColor: ambient sky/moonlight RGB — bluish at day, dim blue at night
     // Returns RGB color.
-    fn renderTerrain(height: f32, normal: vec3<f32>, worldPos: vec2<f32>, wetness: f32, time: f32) -> vec3<f32> {
+    fn renderTerrain(
+      height: f32,
+      normal: vec3<f32>,
+      worldPos: vec2<f32>,
+      wetness: f32,
+      sunDir: vec3<f32>,
+      sunColor: vec3<f32>,
+      skyColor: vec3<f32>,
+    ) -> vec3<f32> {
       let zoneCount = biomeParams.zoneCount;
 
       // Multi-scale noise for zone boundary perturbation and within-zone variation.
@@ -111,14 +123,14 @@ export const fn_renderTerrain: ShaderModule = {
       let wetColor = color * 0.75;
       color = mix(color, wetColor, visualWetness);
 
-      // Diffuse lighting
-      let lightDir = getSunDirection(time);
-      let diffuse = max(dot(normal, lightDir), 0.0);
-      let ambient = 0.7;
-      let lightIntensity = ambient + (1.0 - ambient) * diffuse;
-
-      return color * lightIntensity;
+      // Ambient (sky) + directional (sun·normal) illumination. Sky provides
+      // the cool-blue moonlit floor at night; sun adds warm directional
+      // brightness during the day.
+      let diffuse = max(dot(normal, sunDir), 0.0);
+      let ambient = 0.5;
+      let illumination = skyColor * ambient + sunColor * diffuse;
+      return color * illumination;
     }
   `,
-  dependencies: [fn_SCENE_LIGHTING, fn_simplex3D],
+  dependencies: [fn_simplex3D],
 };

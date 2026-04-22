@@ -20,6 +20,7 @@ import { type UniformInstance } from "../../core/graphics/UniformStruct";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
 import type { Boat } from "../boat/Boat";
+import { pushSceneLighting } from "../time/SceneLighting";
 import { TimeOfDay } from "../time/TimeOfDay";
 import { MAX_WAVE_SOURCES } from "../wave-physics/WavePhysicsManager";
 import {
@@ -454,7 +455,7 @@ export class SurfaceRenderer extends BaseEntity {
    */
   private updateTerrainCompositeUniforms(
     clipToWorldMatrix: Matrix3,
-    currentTime: number,
+    timeOfDay: TimeOfDay | undefined,
     width: number,
     height: number,
     waterResources: WaterResources,
@@ -468,7 +469,6 @@ export class SurfaceRenderer extends BaseEntity {
     this.terrainCompositeUniforms.set.pixelRatio(
       this.game.getRenderer().getPixelRatio(),
     );
-    this.terrainCompositeUniforms.set.time(currentTime);
     this.terrainCompositeUniforms.set.tideHeight(
       waterResources.getTideHeight(),
     );
@@ -481,6 +481,10 @@ export class SurfaceRenderer extends BaseEntity {
     this.terrainCompositeUniforms.set.atlasWorldUnitsPerTile(
       atlasInfo.worldUnitsPerTile,
     );
+
+    if (timeOfDay) {
+      pushSceneLighting(this.terrainCompositeUniforms.set, timeOfDay);
+    }
   }
 
   /**
@@ -490,6 +494,7 @@ export class SurfaceRenderer extends BaseEntity {
     clipToWorldMatrix: Matrix3,
     worldToTexClipMatrix: Matrix3,
     currentTime: number,
+    timeOfDay: TimeOfDay | undefined,
     width: number,
     height: number,
     waterResources: WaterResources,
@@ -510,6 +515,10 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterFilterUniforms.set.chlorophyll(DEFAULT_CHLOROPHYLL);
     this.waterFilterUniforms.set.cdom(DEFAULT_CDOM);
     this.waterFilterUniforms.set.sediment(DEFAULT_SEDIMENT);
+
+    if (timeOfDay) {
+      pushSceneLighting(this.waterFilterUniforms.set, timeOfDay);
+    }
   }
 
   /**
@@ -712,7 +721,7 @@ export class SurfaceRenderer extends BaseEntity {
     );
     this.updateTerrainCompositeUniforms(
       clipToWorldMatrix,
-      currentTime,
+      timeOfDay,
       width,
       height,
       waterResources,
@@ -722,6 +731,7 @@ export class SurfaceRenderer extends BaseEntity {
       clipToWorldMatrix,
       worldToTexClipMatrix,
       currentTime,
+      timeOfDay,
       width,
       height,
       waterResources,

@@ -23,6 +23,7 @@ import {
   DEPTH_Z_MAX,
   DEPTH_Z_MIN,
 } from "../../core/graphics/webgpu/WebGPURenderer";
+import { SCENE_LIGHTING_WGSL_FIELDS } from "../time/SceneLighting";
 import { fn_waterSurfaceLight } from "../world/shaders/lighting.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
 import { fn_fractalNoise3D, fn_simplex3D } from "../world/shaders/noise.wgsl";
@@ -47,6 +48,9 @@ struct Params {
   chlorophyll: f32,
   cdom: f32,
   sediment: f32,
+
+  // Scene lighting — populated from TimeOfDay on the CPU each frame.
+  ${SCENE_LIGHTING_WGSL_FIELDS}
 }
 `,
   bindings: {
@@ -356,8 +360,7 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     let absorbed = select(vec3<f32>(0.0), sceneColor * T, scenePresent);
 
     // Inscatter: sky light scattered by the water column toward the viewer.
-    let skyColor = getSkyColor(params.time);
-    let inscatter = waterInscatter(skyColor, scattering, extinction, effectiveSubmersion);
+    let inscatter = waterInscatter(params.skyColor, scattering, extinction, effectiveSubmersion);
 
     // Light arriving at the underside of the water surface
     let transmitted = absorbed + inscatter;
@@ -365,7 +368,14 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     // Surface: Fresnel-weighted mix of transmitted and sky, plus sun specular
     let waterNormal = computeWaterNormal(worldPos);
     let viewDir = vec3<f32>(0.0, 0.0, 1.0);
-    finalColor = waterSurfaceLight(waterNormal, viewDir, transmitted, params.time);
+    finalColor = waterSurfaceLight(
+      waterNormal,
+      viewDir,
+      transmitted,
+      params.sunDirection,
+      params.sunColor,
+      params.skyColor,
+    );
 
     // Shoreline / object-waterline foam: where submersion is tiny.
     // Works uniformly for terrain shores and hull waterlines.

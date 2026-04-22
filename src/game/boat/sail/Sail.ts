@@ -861,10 +861,16 @@ export class Sail extends BaseEntity {
     const { color } = this.config;
     const alpha = 1.0;
 
-    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
-    const time = timeOfDay?.getTimeInSeconds() ?? 43200; // default noon
+    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay) ?? null;
 
-    this.clothRenderer.render(this.handle, draw, color, alpha, time, active);
+    this.clothRenderer.render(
+      this.handle,
+      draw,
+      color,
+      alpha,
+      timeOfDay,
+      active,
+    );
 
     // Draw a line along the leech (trailing edge) to give the sail more definition.
     // Each segment uses the average z of its endpoints so the line sits on the

@@ -7,10 +7,12 @@
  *
  * The transmitted light (absorbed scene + inscatter) is computed by the
  * caller; this module only handles what happens at the water surface.
+ *
+ * Scene-lighting values (sun direction, sun color, sky color) come from
+ * the caller's uniform buffer — populated once per frame by `TimeOfDay`.
  */
 
 import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
-import { fn_SCENE_LIGHTING } from "./scene-lighting.wgsl";
 
 export const fn_waterSurfaceLight: ShaderModule = {
   code: /*wgsl*/ `
@@ -54,12 +56,10 @@ export const fn_waterSurfaceLight: ShaderModule = {
       normal: vec3<f32>,
       viewDir: vec3<f32>,
       transmitted: vec3<f32>,
-      time: f32
+      sunDir: vec3<f32>,
+      sunColor: vec3<f32>,
+      skyColor: vec3<f32>,
     ) -> vec3<f32> {
-      let sunDir = getSunDirection(time);
-      let sunColor = getSunColor(time);
-      let skyColor = getSkyColor(time);
-
       let facing = max(dot(normal, viewDir), 0.0);
       let F = waterFresnel(facing);
 
@@ -72,5 +72,4 @@ export const fn_waterSurfaceLight: ShaderModule = {
       return base + sunColor * specular;
     }
   `,
-  dependencies: [fn_SCENE_LIGHTING],
 };

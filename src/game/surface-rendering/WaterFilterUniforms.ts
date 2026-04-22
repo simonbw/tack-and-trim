@@ -11,6 +11,7 @@ import {
   i32,
   mat3x3,
 } from "../../core/graphics/UniformStruct";
+import { SCENE_LIGHTING_FIELDS } from "../time/SceneLighting";
 
 export const WaterFilterUniforms = defineUniformStruct("Params", {
   // Clip → world for the actual screen.
@@ -40,4 +41,7 @@ export const WaterFilterUniforms = defineUniformStruct("Params", {
   chlorophyll: f32,
   cdom: f32,
   sediment: f32,
+
+  // Scene lighting (see SceneLighting.ts). Populated from TimeOfDay.
+  ...SCENE_LIGHTING_FIELDS,
 });
