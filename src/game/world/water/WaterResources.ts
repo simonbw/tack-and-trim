@@ -47,10 +47,15 @@ export const MAX_MODIFIERS = 16384;
  *   [7]  ringRadius    distance from center to ring peak (ft)
  *   [8]  ringWidth     Gaussian width of ring pulse (ft)
  *   [9]  amplitude     pre-computed height at ring (ft)
- *   [10] turbulence    pre-computed turbulence (0-1)
- *   [11..13] (padding)
+ *   [10] omega         angular frequency of wake wave (rad/s)
  *
- * Slots [11..13] are padding.
+ * Foam (static turbulent blob):
+ *   [5]  posX          center X (ft)
+ *   [6]  posY          center Y (ft)
+ *   [7]  radius        Gaussian width of the blob (ft)
+ *   [8]  intensity     pre-computed foam intensity (0-1)
+ *
+ * Unused slots per-type are zero-padded.
  */
 export const FLOATS_PER_MODIFIER = 14;
 
@@ -188,16 +193,29 @@ export class WaterResources extends BaseEntity {
       this.modifierData[base + 4] = mod.bounds.upperBound.y;
 
       // Pack type-specific data (see FLOATS_PER_MODIFIER comment for layout)
-      // Pack wake data (see FLOATS_PER_MODIFIER comment for layout)
-      this.modifierData[base + 5] = mod.data.posX;
-      this.modifierData[base + 6] = mod.data.posY;
-      this.modifierData[base + 7] = mod.data.ringRadius;
-      this.modifierData[base + 8] = mod.data.ringWidth;
-      this.modifierData[base + 9] = mod.data.amplitude;
-      this.modifierData[base + 10] = mod.data.turbulence;
-      this.modifierData[base + 11] = mod.data.omega;
-      this.modifierData[base + 12] = 0; // padding
-      this.modifierData[base + 13] = 0; // padding
+      const d = mod.data;
+      if (d.type === WaterModifierType.Wake) {
+        this.modifierData[base + 5] = d.posX;
+        this.modifierData[base + 6] = d.posY;
+        this.modifierData[base + 7] = d.ringRadius;
+        this.modifierData[base + 8] = d.ringWidth;
+        this.modifierData[base + 9] = d.amplitude;
+        this.modifierData[base + 10] = d.omega;
+        this.modifierData[base + 11] = 0;
+        this.modifierData[base + 12] = 0;
+        this.modifierData[base + 13] = 0;
+      } else {
+        // Foam
+        this.modifierData[base + 5] = d.posX;
+        this.modifierData[base + 6] = d.posY;
+        this.modifierData[base + 7] = d.radius;
+        this.modifierData[base + 8] = d.intensity;
+        this.modifierData[base + 9] = 0;
+        this.modifierData[base + 10] = 0;
+        this.modifierData[base + 11] = 0;
+        this.modifierData[base + 12] = 0;
+        this.modifierData[base + 13] = 0;
+      }
     }
 
     // Only upload the portion we need

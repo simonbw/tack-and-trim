@@ -90,6 +90,13 @@ fn vs_main(
     let radius = modifiers[base + 5u];
     innerR = max(0.0, radius - 2.0);
     outerR = radius + 2.0;
+  } else if (modType == 5u) {
+    // Foam: filled Gaussian blob centered on source position
+    centerX = modifiers[base + 5u];
+    centerY = modifiers[base + 6u];
+    let radius = modifiers[base + 7u];
+    innerR = 0.0;
+    outerR = radius * 3.0;
   } else {
     // Fallback: filled circle from AABB
     centerX = (minX + maxX) * 0.5;
@@ -139,6 +146,7 @@ fn vs_main(
 // Modifier type discriminators
 const MODIFIER_TYPE_WAKE: u32 = 1u;
 const MODIFIER_TYPE_RIPPLE: u32 = 2u;
+const MODIFIER_TYPE_FOAM: u32 = 5u;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -152,6 +160,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     case MODIFIER_TYPE_RIPPLE: {
       return computeRipple(in.worldPos, base);
     }
+    case MODIFIER_TYPE_FOAM: {
+      return computeFoam(in.worldPos, base);
+    }
     default: {
       return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
@@ -164,7 +175,6 @@ fn computeWake(worldPos: vec2<f32>, base: u32) -> vec4<f32> {
   let ringRadius = modifiers[base + 7u];
   let ringWidth = modifiers[base + 8u];
   let amplitude = modifiers[base + 9u];
-  let turbulence = modifiers[base + 10u];
 
   let dx = worldPos.x - srcX;
   let dy = worldPos.y - srcY;
@@ -173,7 +183,23 @@ fn computeWake(worldPos: vec2<f32>, base: u32) -> vec4<f32> {
   let distFromRing = dist - ringRadius;
   let ring = exp(-(distFromRing * distFromRing) / (ringWidth * ringWidth));
 
-  return vec4<f32>(amplitude * ring, 0.0, 0.0, turbulence * ring);
+  // Wake is height-only — turbulence is the Foam modifier's job.
+  return vec4<f32>(amplitude * ring, 0.0, 0.0, 0.0);
+}
+
+fn computeFoam(worldPos: vec2<f32>, base: u32) -> vec4<f32> {
+  let srcX = modifiers[base + 5u];
+  let srcY = modifiers[base + 6u];
+  let radius = modifiers[base + 7u];
+  let intensity = modifiers[base + 8u];
+
+  let dx = worldPos.x - srcX;
+  let dy = worldPos.y - srcY;
+  let dist2 = dx * dx + dy * dy;
+  let rSq = max(radius * radius, 1e-4);
+
+  let falloff = exp(-dist2 / rSq);
+  return vec4<f32>(0.0, 0.0, 0.0, intensity * falloff);
 }
 
 fn computeRipple(worldPos: vec2<f32>, base: u32) -> vec4<f32> {

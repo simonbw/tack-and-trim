@@ -9,6 +9,8 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
  * Wake modifier module.
  * Expanding ring pulse — all physics pre-computed on CPU.
  * GPU just draws a Gaussian ring at the given radius with given amplitude.
+ * Contributes surface height and orbital velocity only (no turbulence —
+ * that's the Foam modifier's job).
  *
  * Buffer layout at `base`:
  *   [5]  posX        source position X (ft)
@@ -16,8 +18,7 @@ import type { ShaderModule } from "../../../core/graphics/webgpu/ShaderModule";
  *   [7]  ringRadius  distance from center to ring peak (ft)
  *   [8]  ringWidth   Gaussian width of ring pulse (ft)
  *   [9]  amplitude   pre-computed height at ring (ft)
- *   [10] turbulence  pre-computed turbulence (0-1)
- *   [11] omega       angular frequency of wake wave (rad/s)
+ *   [10] omega       angular frequency of wake wave (rad/s)
  */
 export const fn_computeWakeContribution: ShaderModule = {
   code: /*wgsl*/ `
@@ -34,8 +35,7 @@ export const fn_computeWakeContribution: ShaderModule = {
       let ringRadius = modifiers[base + 7u];
       let ringWidth = modifiers[base + 8u];
       let amplitude = modifiers[base + 9u];
-      let turbulence = modifiers[base + 10u];
-      let omega = modifiers[base + 11u];
+      let omega = modifiers[base + 10u];
 
       let dx = worldX - srcX;
       let dy = worldY - srcY;
@@ -58,7 +58,42 @@ export const fn_computeWakeContribution: ShaderModule = {
       let ny = dy * invDist;
       let vRadial = localAmp * omega;
 
-      return vec4<f32>(localAmp, vRadial * nx, vRadial * ny, turbulence * ring);
+      return vec4<f32>(localAmp, vRadial * nx, vRadial * ny, 0.0);
+    }
+  `,
+};
+
+/**
+ * Foam modifier module.
+ * Static Gaussian blob of turbulence, representing flow-separation wake.
+ * Contributes only to the turbulence channel — no height, no velocity.
+ *
+ * Buffer layout at `base`:
+ *   [5]  posX        center X (ft)
+ *   [6]  posY        center Y (ft)
+ *   [7]  radius      Gaussian width of the blob (ft)
+ *   [8]  intensity   pre-computed foam intensity (0-1)
+ */
+export const fn_computeFoamContribution: ShaderModule = {
+  code: /*wgsl*/ `
+    fn computeFoamContribution(
+      worldX: f32,
+      worldY: f32,
+      base: u32,
+      modifiers: ptr<storage, array<f32>, read>
+    ) -> vec4<f32> {
+      let srcX = modifiers[base + 5u];
+      let srcY = modifiers[base + 6u];
+      let radius = modifiers[base + 7u];
+      let intensity = modifiers[base + 8u];
+
+      let dx = worldX - srcX;
+      let dy = worldY - srcY;
+      let dist2 = dx * dx + dy * dy;
+      let rSq = max(radius * radius, 1e-4);
+
+      let falloff = exp(-dist2 / rSq);
+      return vec4<f32>(0.0, 0.0, 0.0, intensity * falloff);
     }
   `,
 };
@@ -170,6 +205,7 @@ export const const_MODIFIER_TYPES: ShaderModule = {
     const MODIFIER_TYPE_RIPPLE: u32 = 2u;
     const MODIFIER_TYPE_CURRENT: u32 = 3u;
     const MODIFIER_TYPE_OBSTACLE: u32 = 4u;
+    const MODIFIER_TYPE_FOAM: u32 = 5u;
   `,
 };
 
@@ -219,6 +255,9 @@ export const fn_getModifierContribution: ShaderModule = {
         case MODIFIER_TYPE_OBSTACLE: {
           return computeObstacleContribution(worldX, worldY, base, modifiers);
         }
+        case MODIFIER_TYPE_FOAM: {
+          return computeFoamContribution(worldX, worldY, base, modifiers);
+        }
         default: {
           return vec4<f32>(0.0, 0.0, 0.0, 0.0);
         }
@@ -231,6 +270,7 @@ export const fn_getModifierContribution: ShaderModule = {
     fn_computeRippleContribution,
     fn_computeCurrentContribution,
     fn_computeObstacleContribution,
+    fn_computeFoamContribution,
   ],
 };
 

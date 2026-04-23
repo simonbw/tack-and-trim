@@ -1,4 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import type { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import {
   createRigid2D,
@@ -39,6 +40,22 @@ const GRAVITY = 32.174; // ft/s²
 const BUOYANCY_FORCE_PER_DEPTH_PER_AREA = RHO_WATER * GRAVITY * GRAVITY;
 // Waterline transition band half-width (ft)
 const WATERLINE_BAND = 0.1;
+
+// Maximum foam particles spawned per hull per tick. Round-robin picks which
+// triangles flush their accumulators; others wait their turn. Total live
+// foam particles ≈ FOAM_EMISSIONS_PER_TICK × tick rate × foam lifetime.
+const FOAM_EMISSIONS_PER_TICK = 4;
+// Triangles whose accumulator hasn't reached this volume are skipped by the
+// round-robin cursor (prevents wasted emissions from barely-active triangles).
+const MIN_FOAM_ACCUM_VOLUME = 0.001; // ft³
+// Cap on how much flux volume a single triangle can have pending emission.
+// Without this, startup transients (hull settling into water, queries
+// warming up) dump a pile into every accumulator, and when the round-robin
+// cursor gets there it paints an over-bright "silhouette" of the hull at
+// the boat's current position. The cap scales `_foamAccumTime` down
+// proportionally so the resulting avgFlux is preserved — we lose the tail
+// of old history, not the current rate.
+const MAX_FOAM_ACCUM_VOLUME = 2.0; // ft³
 
 /**
  * Find the bow (foremost) point from hull geometry.
@@ -230,11 +247,10 @@ function computeHullVolume(data: HullForceData): number {
 }
 
 /**
- * A localized wave-making source on the hull, emitted each tick by triangles
- * that straddle the waterline. `pushFlux` drives coherent ring-wave amplitude
- * (front-facing stagnation flow); `suckFlux` drives foam/turbulence from the
- * separation wake (rear-facing). Fully submerged and fully emerged triangles
- * produce no source — only the waterline intersection band makes waves.
+ * Coherent wave-making source — emitted every tick from triangles straddling
+ * the waterline where the hull is pushing water forward (stagnation flow).
+ * Drives ring-pulse wake particles. Fully submerged and fully emerged
+ * triangles produce no source; only the waterline band radiates surface waves.
  */
 export interface WaveSource {
   /** World-frame source position (ft) */
@@ -242,11 +258,29 @@ export interface WaveSource {
   worldY: number;
   /** Volume-flux magnitude pushed into water (ft³/s). Coherent wave amplitude. */
   pushFlux: number;
-  /** Volume-flux magnitude sucked from wake (ft³/s). Foam/turbulence. */
-  suckFlux: number;
   /** Characteristic horizontal size of the source (ft), sets ring width. */
   halfWidth: number;
   /** Group speed to use for this source's ring expansion (ft/s). */
+  groupSpeed: number;
+}
+
+/**
+ * Foam / turbulent-wake source — emitted via round-robin across all
+ * submerged rear-facing triangles. Each triangle accumulates volume of
+ * displaced (suction) water across ticks; when the cursor lands on it the
+ * accumulator flushes into one foam particle whose intensity reflects the
+ * average flux during accumulation. Keeps steady-state foam density
+ * invariant of how many triangles are currently separating.
+ */
+export interface FoamSource {
+  /** World-frame source position (ft), evaluated at emission time. */
+  worldX: number;
+  worldY: number;
+  /** Time-averaged suction flux over the accumulation period (ft³/s). */
+  avgFlux: number;
+  /** Characteristic horizontal size of the source (ft), sets blob radius. */
+  halfWidth: number;
+  /** Current group speed for intensity calibration (ft/s). */
   groupSpeed: number;
 }
 
@@ -270,6 +304,20 @@ export class Hull extends BaseEntity {
   // Reused across ticks — length is reset, objects are mutated in place.
   private _waveSources: WaveSource[] = [];
   private _waveSourceCount: number = 0;
+
+  // Foam sources emitted via round-robin from the per-triangle accumulator.
+  // Capped at FOAM_EMISSIONS_PER_TICK per tick regardless of how many
+  // triangles are separating — gives a fixed foam particle budget.
+  private _foamSources: FoamSource[] = [];
+  private _foamSourceCount: number = 0;
+
+  // Per-triangle persistent accumulators of suction-flux volume and time
+  // since this triangle's last foam emission. Allocated in constructor to
+  // triCount; reset per-triangle on emission.
+  private _foamAccumVolume!: Float64Array;
+  private _foamAccumTime!: Float64Array;
+  // Round-robin cursor over all physics triangles.
+  private _foamCursor: number = 0;
 
   // Per-triangle force data (precomputed at construction)
   private forceData: HullForceData;
@@ -348,6 +396,10 @@ export class Hull extends BaseEntity {
     // Precompute per-triangle force data
     this.forceData = buildHullForceData(this.mesh);
 
+    // Persistent per-triangle foam accumulators (volume + time since emit).
+    this._foamAccumVolume = new Float64Array(this.forceData.count);
+    this._foamAccumTime = new Float64Array(this.forceData.count);
+
     // Compute enclosed hull volume via divergence theorem: V = (1/3) Σ (c · n) * A
     this.hullVolume = computeHullVolume(this.forceData);
 
@@ -387,6 +439,16 @@ export class Hull extends BaseEntity {
     return this._waveSources[i];
   }
 
+  /** Number of foam sources emitted this tick (0..FOAM_EMISSIONS_PER_TICK). */
+  get foamSourceCount(): number {
+    return this._foamSourceCount;
+  }
+
+  /** Read foam source at index; only valid for i < foamSourceCount. */
+  getFoamSource(i: number): Readonly<FoamSource> {
+    return this._foamSources[i];
+  }
+
   /**
    * Transform body-local mesh vertices to world XY for queries.
    */
@@ -400,7 +462,7 @@ export class Hull extends BaseEntity {
   }
 
   @on("tick")
-  onTick() {
+  onTick({ dt }: GameEventMap["tick"]) {
     const body = this.body;
     const R = body.orientation;
     const fd = this.forceData;
@@ -427,8 +489,9 @@ export class Hull extends BaseEntity {
     const wq = this.waterQuery;
     const wiq = this.windQuery;
 
-    // Reset per-tick wave source list (reuse the backing array + objects)
+    // Reset per-tick wave and foam source lists (reuse the backing arrays).
     this._waveSourceCount = 0;
+    this._foamSourceCount = 0;
 
     // Cache current boat speed — used as the group-velocity scale for all
     // wave sources this tick. Deep-water dispersion: c_g = 0.5 * v for the
@@ -659,32 +722,52 @@ export class Hull extends BaseEntity {
             );
           }
 
-          // Wave-making: triangles straddling the waterline emit wave sources.
-          // Fully submerged / fully emerged triangles don't make surface waves,
-          // so gate on waterFrac being in the transition band. Front-facing
-          // (vDotN > 0) → pushFlux → coherent ring wave; rear-facing (vDotN < 0)
-          // → suckFlux → foam / turbulence from flow separation.
-          if (waterFrac > 0.05 && waterFrac < 0.95 && sourceGroupSpeed > 0.05) {
-            const flux = vDotN * area; // ft³/s, signed
-            const halfWidth = Math.max(Math.sqrt(area), 0.5);
-            // Grow pool lazily; reuse slots across ticks.
-            while (this._waveSources.length <= this._waveSourceCount) {
-              this._waveSources.push({
-                worldX: 0,
-                worldY: 0,
-                pushFlux: 0,
-                suckFlux: 0,
-                halfWidth: 0,
-                groupSpeed: 0,
-              });
+          // Wave-making vs foam emission have different physical gates:
+          //
+          // - Wave-making (front-facing, pushFlux): surface phenomenon, only
+          //   emitted from waterline-straddling triangles. A submerged hull
+          //   chunk doesn't make surface waves; the water just flows around.
+          //   Emitted every tick from every eligible triangle.
+          //
+          // - Foam / turbulence (rear-facing, suckFlux): originates from
+          //   submerged rear-facing triangles too (turbulent wake behind a
+          //   squatting stern is mostly below the surface). Accumulated
+          //   per-triangle and emitted round-robin by the pass below.
+          if (sourceGroupSpeed > 0.05) {
+            const atWaterline = waterFrac > 0.05 && waterFrac < 0.95;
+            const submerged = waterFrac > 0.05;
+
+            if (atWaterline && vDotN > 0) {
+              const pushFlux = vDotN * area;
+              const halfWidth = Math.max(Math.sqrt(area), 0.5);
+              while (this._waveSources.length <= this._waveSourceCount) {
+                this._waveSources.push({
+                  worldX: 0,
+                  worldY: 0,
+                  pushFlux: 0,
+                  halfWidth: 0,
+                  groupSpeed: 0,
+                });
+              }
+              const src = this._waveSources[this._waveSourceCount++];
+              src.worldX = centroidWorldWater.x;
+              src.worldY = centroidWorldWater.y;
+              src.pushFlux = pushFlux;
+              src.halfWidth = halfWidth;
+              src.groupSpeed = sourceGroupSpeed;
             }
-            const src = this._waveSources[this._waveSourceCount++];
-            src.worldX = centroidWorldWater.x;
-            src.worldY = centroidWorldWater.y;
-            src.pushFlux = flux > 0 ? flux : 0;
-            src.suckFlux = flux < 0 ? -flux : 0;
-            src.halfWidth = halfWidth;
-            src.groupSpeed = sourceGroupSpeed;
+
+            if (submerged && vDotN < 0) {
+              this._foamAccumVolume[i] += -vDotN * area * dt;
+              this._foamAccumTime[i] += dt;
+              // Cap accumulator; preserve avgFlux ratio by scaling time.
+              const v = this._foamAccumVolume[i];
+              if (v > MAX_FOAM_ACCUM_VOLUME) {
+                const scale = MAX_FOAM_ACCUM_VOLUME / v;
+                this._foamAccumVolume[i] = MAX_FOAM_ACCUM_VOLUME;
+                this._foamAccumTime[i] *= scale;
+              }
+            }
           }
         }
       }
@@ -751,6 +834,56 @@ export class Hull extends BaseEntity {
             );
           }
         }
+      }
+    }
+
+    // Round-robin foam emission. Advance the cursor forward, skipping
+    // triangles whose accumulator hasn't built up enough volume, and flush
+    // up to FOAM_EMISSIONS_PER_TICK triangles this tick. Each emitted
+    // particle represents the time-averaged suction flux at that triangle
+    // over its accumulation period — intensity is calibrated via avgFlux.
+    const triCount = fd.count;
+    if (triCount > 0) {
+      let emitted = 0;
+      let scanned = 0;
+      while (emitted < FOAM_EMISSIONS_PER_TICK && scanned < triCount) {
+        const idx = this._foamCursor;
+        const vol = this._foamAccumVolume[idx];
+        if (vol >= MIN_FOAM_ACCUM_VOLUME) {
+          const time = this._foamAccumTime[idx];
+          const avgFlux = time > 0 ? vol / time : 0;
+
+          // Transform this triangle's body-local centroid to world frame
+          // at emission time. The water this represents was displaced a
+          // little earlier along the boat's path — for typical tick rates
+          // and boat speeds that offset is sub-foot and visually ignorable.
+          const localX = fd.cx[idx];
+          const localY = fd.cy[idx];
+          const centroidWorld = body.toWorldFrame(V(localX, localY));
+          const halfWidth = Math.max(Math.sqrt(fd.area[idx]), 0.5);
+
+          while (this._foamSources.length <= this._foamSourceCount) {
+            this._foamSources.push({
+              worldX: 0,
+              worldY: 0,
+              avgFlux: 0,
+              halfWidth: 0,
+              groupSpeed: 0,
+            });
+          }
+          const src = this._foamSources[this._foamSourceCount++];
+          src.worldX = centroidWorld.x;
+          src.worldY = centroidWorld.y;
+          src.avgFlux = avgFlux;
+          src.halfWidth = halfWidth;
+          src.groupSpeed = sourceGroupSpeed;
+
+          this._foamAccumVolume[idx] = 0;
+          this._foamAccumTime[idx] = 0;
+          emitted++;
+        }
+        this._foamCursor = (this._foamCursor + 1) % triCount;
+        scanned++;
       }
     }
   }

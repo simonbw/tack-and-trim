@@ -10,7 +10,10 @@
 import type { GameEventMap } from "../../../core/entity/Entity";
 import { on } from "../../../core/entity/handler";
 import type { Draw } from "../../../core/graphics/Draw";
-import type { GPUWaterModifierData } from "../../world/water/WaterModifierBase";
+import {
+  type GPUWaterModifierData,
+  WaterModifierType,
+} from "../../world/water/WaterModifierBase";
 import { WaterQuery } from "../../world/water/WaterQuery";
 import { WaterResources } from "../../world/water/WaterResources";
 import { DebugRenderMode } from "./DebugRenderMode";
@@ -25,6 +28,10 @@ const WAKE_RING_ALPHA = 0.7;
 const WAKE_SOURCE_COLOR = 0xffffff;
 const WAKE_SOURCE_ALPHA = 0.9;
 const WAKE_SOURCE_RADIUS = 2; // world-space ft
+
+// Foam blob
+const FOAM_BLOB_COLOR = 0xffeecc;
+const FOAM_BLOB_ALPHA = 0.5;
 
 const STROKE_WIDTH = 1;
 
@@ -74,17 +81,26 @@ export class WaterHeightDebugMode extends DebugRenderMode {
 
   private drawModifier(mod: GPUWaterModifierData, draw: Draw): void {
     const data = mod.data;
-    draw.strokeCircle(data.posX, data.posY, data.ringRadius, {
-      color: WAKE_RING_COLOR,
-      alpha: WAKE_RING_ALPHA * Math.max(0.1, data.turbulence),
-      width: STROKE_WIDTH,
-      ignoreLight: true,
-    });
-    draw.fillCircle(data.posX, data.posY, WAKE_SOURCE_RADIUS, {
-      color: WAKE_SOURCE_COLOR,
-      alpha: WAKE_SOURCE_ALPHA,
-      ignoreLight: true,
-    });
+    if (data.type === WaterModifierType.Wake) {
+      draw.strokeCircle(data.posX, data.posY, data.ringRadius, {
+        color: WAKE_RING_COLOR,
+        alpha: WAKE_RING_ALPHA * Math.min(1, data.amplitude * 20),
+        width: STROKE_WIDTH,
+        ignoreLight: true,
+      });
+      draw.fillCircle(data.posX, data.posY, WAKE_SOURCE_RADIUS, {
+        color: WAKE_SOURCE_COLOR,
+        alpha: WAKE_SOURCE_ALPHA,
+        ignoreLight: true,
+      });
+    } else {
+      // Foam blob
+      draw.fillCircle(data.posX, data.posY, data.radius, {
+        color: FOAM_BLOB_COLOR,
+        alpha: FOAM_BLOB_ALPHA * data.intensity,
+        ignoreLight: true,
+      });
+    }
   }
 
   getModeName(): string {
@@ -129,12 +145,13 @@ export class WaterHeightDebugMode extends DebugRenderMode {
 
     for (const mod of waterResources.getCachedModifiers()) {
       const data = mod.data;
+      if (data.type !== WaterModifierType.Foam) continue;
       const dx = x - data.posX;
       const dy = y - data.posY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const diff = dist - data.ringRadius;
-      const falloff = Math.exp(-0.5 * (diff / data.ringWidth) ** 2);
-      total += data.turbulence * falloff;
+      const dist2 = dx * dx + dy * dy;
+      const rSq = Math.max(data.radius * data.radius, 1e-4);
+      const falloff = Math.exp(-dist2 / rSq);
+      total += data.intensity * falloff;
     }
 
     return Math.min(1, total);

@@ -5,7 +5,9 @@ import type {
 import { StatsRow } from "../../core/util/stats-overlay/StatsRow";
 import { SurfaceRenderer } from "../surface-rendering/SurfaceRenderer";
 import { TerrainQuery } from "../world/terrain/TerrainQuery";
+import { WaterModifierType } from "../world/water/WaterModifierBase";
 import { WaterQuery } from "../world/water/WaterQuery";
+import { MAX_MODIFIERS, WaterResources } from "../world/water/WaterResources";
 import { WindQuery } from "../world/wind/WindQuery";
 
 interface PhysicsStats {
@@ -33,6 +35,13 @@ interface TerrainCacheStats {
   worldUnitsPerTile: number;
 }
 
+interface ModifierStats {
+  total: number;
+  wake: number;
+  foam: number;
+  other: number;
+}
+
 /**
  * Creates a simulation stats panel showing query counts.
  */
@@ -44,6 +53,7 @@ export function createSimulationStatsPanel(): StatsPanel {
       const physics = getPhysicsStats(ctx);
       const stats = getQueryStats(ctx);
       const terrainCache = getTerrainCacheStats(ctx);
+      const modifiers = getModifierStats(ctx);
 
       return (
         <>
@@ -83,6 +93,37 @@ export function createSimulationStatsPanel(): StatsPanel {
               />
             </div>
           </div>
+
+          {modifiers && (
+            <div className="stats-overlay__section">
+              <div className="stats-overlay__section-title">
+                Water Modifiers
+              </div>
+              <div className="stats-overlay__grid">
+                <StatsRow
+                  label="Total"
+                  value={`${modifiers.total.toLocaleString()} / ${MAX_MODIFIERS.toLocaleString()}`}
+                  color={
+                    modifiers.total >= MAX_MODIFIERS ? "warning" : undefined
+                  }
+                />
+                <StatsRow
+                  label="Wake"
+                  value={modifiers.wake.toLocaleString()}
+                />
+                <StatsRow
+                  label="Foam"
+                  value={modifiers.foam.toLocaleString()}
+                />
+                {modifiers.other > 0 && (
+                  <StatsRow
+                    label="Other"
+                    value={modifiers.other.toLocaleString()}
+                  />
+                )}
+              </div>
+            </div>
+          )}
 
           {terrainCache && (
             <div className="stats-overlay__section">
@@ -129,6 +170,35 @@ function getQueryStats(ctx: StatsPanelContext): QueryStats {
     terrainQueries: terrainQueries.length,
     windPoints: windQueries.reduce((sum, q) => sum + q.results.length, 0),
     windQueries: windQueries.length,
+  };
+}
+
+function getModifierStats(ctx: StatsPanelContext): ModifierStats | null {
+  const waterResources = ctx.game.entities.tryGetSingleton(WaterResources);
+  if (!waterResources) return null;
+
+  let wake = 0;
+  let foam = 0;
+  let other = 0;
+  for (const mod of waterResources.getCachedModifiers()) {
+    switch (mod.data.type) {
+      case WaterModifierType.Wake:
+        wake++;
+        break;
+      case WaterModifierType.Foam:
+        foam++;
+        break;
+      default:
+        other++;
+        break;
+    }
+  }
+
+  return {
+    total: wake + foam + other,
+    wake,
+    foam,
+    other,
   };
 }
 
