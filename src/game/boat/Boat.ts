@@ -12,7 +12,7 @@ import { HullDamage } from "./HullDamage";
 import { RudderDamage } from "./RudderDamage";
 import { SailDamage } from "./SailDamage";
 import { Bowsprit } from "./Bowsprit";
-import { findBowPoint, findSternPoints, Hull, type HullMesh } from "./Hull";
+import { Hull, type HullMesh } from "./Hull";
 import { extractHullOutlineAtZ } from "./hull-profiles";
 import {
   buildBoundaryLevel,
@@ -370,13 +370,9 @@ export class Boat extends BaseEntity {
 
     this.anchor = this.addChild(new Anchor(this.hull, config.anchor));
 
-    // Create wake effects — bow wave (dominant) and stern wave (weaker)
-    const hullVerts = config.hull.vertices;
-    const bowPoint = findBowPoint(hullVerts);
-    const sternPoints = findSternPoints(hullVerts);
-    const sternCenter = sternPoints.port.add(sternPoints.starboard).imul(0.5);
-    this.addChild(new Wake(this, bowPoint, 1.0));
-    this.addChild(new Wake(this, sternCenter, 0.4));
+    // Wake sources are emitted per-tick from waterline-straddling hull
+    // triangles; this single Wake consumes them and spawns ring particles.
+    this.addChild(new Wake(this));
     this.addChild(new BoatSpray(this));
 
     // Create terrain querier for grounding physics

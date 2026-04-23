@@ -1,99 +1,42 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import { on } from "../../core/entity/handler";
 import { GameEventMap } from "../../core/entity/Entity";
-import { V2d } from "../../core/Vector";
+import { on } from "../../core/entity/handler";
 import { Boat } from "./Boat";
 import { WakeParticle } from "./WakeParticle";
 
-const MIN_SPEED = 1; // ft/s — below this, no wake
-
-// Reference dissipation per pound of displacement (ft·lbf/s per lb).
-// Calibrated so that a boat at ~4 kts with moderate form drag produces a
-// dissipation factor of roughly 1.0. Scales with displacement so heavier
-// boats don't peg the wake at maximum.
-const REFERENCE_DISSIPATION_PER_LB = 12.5; // gives 5000 at 400 lb displacement
+// Below this much flux, a source is too weak to be worth spawning a particle.
+const MIN_SOURCE_FLUX = 0.01; // ft³/s
 
 export class Wake extends BaseEntity {
   layer = "wake" as const;
   tickLayer = "effects" as const;
 
-  private lastPos: V2d | null = null;
-
   boat: Boat;
-  private spawnLocal: V2d;
-  private amplitudeScale: number;
-  private waterlineLength: number;
-  private beam: number;
-  private referenceDissipation: number;
 
-  constructor(boat: Boat, spawnLocal: V2d, amplitudeScale: number = 1) {
+  constructor(boat: Boat) {
     super();
     this.boat = boat;
-    this.spawnLocal = spawnLocal;
-    this.amplitudeScale = amplitudeScale;
-
-    // Derive hull dimensions from the deck outline
-    const verts = boat.config.hull.vertices;
-    let minX = Infinity,
-      maxX = -Infinity,
-      minY = Infinity,
-      maxY = -Infinity;
-    for (const v of verts) {
-      if (v.x < minX) minX = v.x;
-      if (v.x > maxX) maxX = v.x;
-      if (v.y < minY) minY = v.y;
-      if (v.y > maxY) maxY = v.y;
-    }
-    this.waterlineLength = maxX - minX;
-    this.beam = maxY - minY;
-    this.referenceDissipation =
-      boat.config.buoyancy.verticalMass * REFERENCE_DISSIPATION_PER_LB;
   }
 
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]) {
-    const speed = this.boat.getVelocity().magnitude;
-    if (speed < MIN_SPEED) return;
-
-    const body = this.boat.hull.body;
-    const pos = body.toWorldFrame(this.spawnLocal);
-
-    // Shift wake spawn position based on heel — heeled boat digs leeward edge in
-    const roll = this.boat.roll;
-    if (Math.abs(roll) > 0.01) {
-      const leewardShift = Math.sin(roll) * this.beam * 0.3;
-      const angle = body.angle;
-      pos[0] -= leewardShift * Math.sin(angle);
-      pos[1] += leewardShift * Math.cos(angle);
+    const hull = this.boat.hull;
+    const count = hull.waveSourceCount;
+    for (let i = 0; i < count; i++) {
+      const src = hull.getWaveSource(i);
+      const totalFlux = src.pushFlux + src.suckFlux;
+      if (totalFlux < MIN_SOURCE_FLUX) continue;
+      this.game.addEntity(
+        new WakeParticle({
+          worldX: src.worldX,
+          worldY: src.worldY,
+          pushFlux: src.pushFlux,
+          suckFlux: src.suckFlux,
+          halfWidth: src.halfWidth,
+          groupSpeed: src.groupSpeed,
+          dt,
+        }),
+      );
     }
-
-    // Actual distance moved since last spawn
-    const spacing = this.lastPos ? this.lastPos.distanceTo(pos) : speed * dt;
-
-    this.lastPos = pos;
-
-    // Increase wake amplitude when heeled (leeward edge digs in more)
-    const heelAmplitudeBoost = 1 + Math.abs(roll) * 0.5;
-
-    // Modulate wake intensity by hull form drag energy dissipation.
-    // More energy lost to pressure drag (bluff shapes, separation) → bigger wake.
-    // Uses sqrt to compress the range: double the drag → ~1.4x the wake.
-    const dissipation = this.boat.hull.getDissipation();
-    const dissipationFactor =
-      dissipation.totalPower > 0
-        ? Math.sqrt(dissipation.totalPower / this.referenceDissipation)
-        : 0;
-    // Clamp to [0.3, 2.0] so wake never vanishes entirely and doesn't blow up
-    const clampedDissipation = Math.min(2.0, Math.max(0.3, dissipationFactor));
-
-    const particle = new WakeParticle(
-      pos,
-      speed,
-      this.waterlineLength,
-      this.beam,
-      spacing,
-      this.amplitudeScale * heelAmplitudeBoost * clampedDissipation,
-    );
-    this.game.addEntity(particle);
   }
 }

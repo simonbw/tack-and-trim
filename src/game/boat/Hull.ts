@@ -230,14 +230,24 @@ function computeHullVolume(data: HullForceData): number {
 }
 
 /**
- * Per-tick energy dissipation summary from hull form drag.
- * Used by the Wake system to modulate wake intensity.
+ * A localized wave-making source on the hull, emitted each tick by triangles
+ * that straddle the waterline. `pushFlux` drives coherent ring-wave amplitude
+ * (front-facing stagnation flow); `suckFlux` drives foam/turbulence from the
+ * separation wake (rear-facing). Fully submerged and fully emerged triangles
+ * produce no source — only the waterline intersection band makes waves.
  */
-export interface HullDissipation {
-  /** Total power dissipated by form drag this tick (ft·lbf/s) */
-  totalPower: number;
-  /** Number of triangles contributing to dissipation */
-  triangleCount: number;
+export interface WaveSource {
+  /** World-frame source position (ft) */
+  worldX: number;
+  worldY: number;
+  /** Volume-flux magnitude pushed into water (ft³/s). Coherent wave amplitude. */
+  pushFlux: number;
+  /** Volume-flux magnitude sucked from wake (ft³/s). Foam/turbulence. */
+  suckFlux: number;
+  /** Characteristic horizontal size of the source (ft), sets ring width. */
+  halfWidth: number;
+  /** Group speed to use for this source's ring expansion (ft/s). */
+  groupSpeed: number;
 }
 
 export class Hull extends BaseEntity {
@@ -256,8 +266,10 @@ export class Hull extends BaseEntity {
   private renderMesh: HullMesh;
   private deckZonesByHeight: readonly DeckZone[];
 
-  // Energy dissipation tracking (updated each tick)
-  private _dissipation: HullDissipation = { totalPower: 0, triangleCount: 0 };
+  // Wave sources collected from waterline-straddling triangles each tick.
+  // Reused across ticks — length is reset, objects are mutated in place.
+  private _waveSources: WaveSource[] = [];
+  private _waveSourceCount: number = 0;
 
   // Per-triangle force data (precomputed at construction)
   private forceData: HullForceData;
@@ -363,11 +375,16 @@ export class Hull extends BaseEntity {
   }
 
   /**
-   * Get form drag energy dissipation from the most recent tick.
-   * Used by Wake to modulate wake intensity based on hull drag.
+   * Number of active wave sources from this tick.
+   * Iterate [0, count) and read via `getWaveSource(i)`.
    */
-  getDissipation(): Readonly<HullDissipation> {
-    return this._dissipation;
+  get waveSourceCount(): number {
+    return this._waveSourceCount;
+  }
+
+  /** Read wave source at index; only valid for i < waveSourceCount. */
+  getWaveSource(i: number): Readonly<WaveSource> {
+    return this._waveSources[i];
   }
 
   /**
@@ -410,9 +427,16 @@ export class Hull extends BaseEntity {
     const wq = this.waterQuery;
     const wiq = this.windQuery;
 
-    // Reset per-tick dissipation accumulator
-    let dissipationPower = 0;
-    let dissipationCount = 0;
+    // Reset per-tick wave source list (reuse the backing array + objects)
+    this._waveSourceCount = 0;
+
+    // Cache current boat speed — used as the group-velocity scale for all
+    // wave sources this tick. Deep-water dispersion: c_g = 0.5 * v for the
+    // hull-wavelength group.
+    const boatSpeed = Math.sqrt(
+      body.velocity[0] * body.velocity[0] + body.velocity[1] * body.velocity[1],
+    );
+    const sourceGroupSpeed = 0.5 * boatSpeed;
 
     // Pressure coefficients for form drag
     const cpStag = this.stagnationCoefficient;
@@ -612,17 +636,6 @@ export class Hull extends BaseEntity {
               localY,
               localZ,
             );
-
-            // Energy dissipation: P = F_drag · v_relative (dot product)
-            // Force is -n * forceMag, relative velocity is (rvxW, rvyW, rvzW)
-            // P = (-wnx*forceMag*rvxW + -wny*forceMag*rvyW + -wnz*forceMag*rvzW)
-            //   = -forceMag * vDotN  (since vDotN = rv · n)
-            // Power dissipated is positive (force opposes motion), so P = forceMag * vDotN
-            // But forceMag is already in engine units; convert back for physical power:
-            // power in ft·lbf/s = forceMag/LBF_TO_ENGINE * vDotN ... but we just want
-            // a consistent energy signal, so keep in engine units for simplicity.
-            dissipationPower += forceMag * vDotN;
-            dissipationCount++;
           } else if (vDotN < 0) {
             // --- Separation/suction pressure (rear-facing triangles) ---
             // In the wake region behind the hull, flow separates and creates a
@@ -644,13 +657,34 @@ export class Hull extends BaseEntity {
               localY,
               localZ,
             );
+          }
 
-            // Energy dissipation: F is +n*forceMag, rv·n = vDotN < 0
-            // P = F · v = forceMag * (wnx*rvxW + wny*rvyW + wnz*rvzW) = forceMag * vDotN
-            // Since vDotN < 0 and forceMag > 0, this is negative (force opposes motion).
-            // Take absolute value for power dissipated.
-            dissipationPower += forceMag * absVDotN;
-            dissipationCount++;
+          // Wave-making: triangles straddling the waterline emit wave sources.
+          // Fully submerged / fully emerged triangles don't make surface waves,
+          // so gate on waterFrac being in the transition band. Front-facing
+          // (vDotN > 0) → pushFlux → coherent ring wave; rear-facing (vDotN < 0)
+          // → suckFlux → foam / turbulence from flow separation.
+          if (waterFrac > 0.05 && waterFrac < 0.95 && sourceGroupSpeed > 0.05) {
+            const flux = vDotN * area; // ft³/s, signed
+            const halfWidth = Math.max(Math.sqrt(area), 0.5);
+            // Grow pool lazily; reuse slots across ticks.
+            while (this._waveSources.length <= this._waveSourceCount) {
+              this._waveSources.push({
+                worldX: 0,
+                worldY: 0,
+                pushFlux: 0,
+                suckFlux: 0,
+                halfWidth: 0,
+                groupSpeed: 0,
+              });
+            }
+            const src = this._waveSources[this._waveSourceCount++];
+            src.worldX = centroidWorldWater.x;
+            src.worldY = centroidWorldWater.y;
+            src.pushFlux = flux > 0 ? flux : 0;
+            src.suckFlux = flux < 0 ? -flux : 0;
+            src.halfWidth = halfWidth;
+            src.groupSpeed = sourceGroupSpeed;
           }
         }
       }
@@ -719,10 +753,6 @@ export class Hull extends BaseEntity {
         }
       }
     }
-
-    // Store per-tick dissipation for Wake to read
-    this._dissipation.totalPower = dissipationPower;
-    this._dissipation.triangleCount = dissipationCount;
   }
 
   /** Deck/fill color. */
