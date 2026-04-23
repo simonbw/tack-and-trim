@@ -355,6 +355,15 @@ export interface BoundingBoxJSON {
 }
 
 /**
+ * A positive quantity that may vary with elevation.
+ *
+ * Either a bare number (uniform at all elevations) or an array of
+ * `[height_ft, value]` breakpoints sorted by height ascending. The pipeline
+ * looks up `interval` piecewise-constant and `simplify` piecewise-linear.
+ */
+export type ElevationScheduleJSON = number | [number, number][];
+
+/**
  * Region configuration for terrain extraction from elevation data.
  * Embedded in the level file to define how terrain is built from geographic data.
  *
@@ -371,8 +380,10 @@ export interface RegionConfigJSON {
   bbox?: BoundingBoxJSON;
   /** Convex polygon as `[lat, lon]` vertices. Mutually exclusive with `bbox`. */
   bounds?: [number, number][];
-  interval: number;
-  simplify: number;
+  /** Contour spacing in feet. Scalar for uniform, schedule for elevation-dependent. */
+  interval: ElevationScheduleJSON;
+  /** Polygon simplification tolerance in feet. Scalar or elevation schedule. */
+  simplify: ElevationScheduleJSON;
   scale: number;
   minPerimeter: number;
   minPoints: number;

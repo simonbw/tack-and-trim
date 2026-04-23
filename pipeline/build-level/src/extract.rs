@@ -6,6 +6,7 @@ use gdal::Dataset;
 use rayon::prelude::*;
 
 use terrain_core::humanize::format_int;
+use terrain_core::level::ElevationSchedule;
 use terrain_core::step::{format_ms, StepView};
 
 use crate::constrained_simplify::constrained_simplify_closed_ring;
@@ -74,9 +75,9 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
 
     view.info(format!("Region: {}", slug));
     view.info(format!(
-        "Settings: interval {}ft, simplify {}ft, scale {}, minPerimeter {}ft, minPoints {}",
-        config.interval,
-        config.simplify,
+        "Settings: interval {}, simplify {}, scale {}, minPerimeter {}ft, minPoints {}",
+        format_schedule(&config.interval, "ft"),
+        format_schedule(&config.simplify, "ft"),
         config.scale,
         config.min_perimeter,
         format_int(config.min_points)
@@ -113,7 +114,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
 
     let effective_bbox = config.effective_bbox();
     let clamped_min = loaded.min_feet.max(DEFAULT_DEPTH);
-    let levels = quantize_levels(clamped_min, loaded.max_feet, config.interval);
+    let levels = quantize_levels(clamped_min, loaded.max_feet, &config.interval);
     let (center_lat, center_lon) = bbox_center(&effective_bbox);
 
     let bbox_min_lon = loaded.origin_lon - loaded.lon_step;
@@ -261,9 +262,10 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
 
             for ring_idx in order {
                 let ring = &all_rings[ring_idx];
+                let tolerance = config.simplify.interp_at(ring.height);
                 let simplified = constrained_simplify_closed_ring(
                     &ring.points,
-                    config.simplify,
+                    tolerance,
                     ring_idx,
                     &seg_index,
                 );
@@ -515,18 +517,86 @@ fn load_merged_grid(merged_path: &Path, view: &StepView) -> Result<LoadedGrid> {
     Ok(loaded)
 }
 
-fn quantize_levels(min: f64, max: f64, interval: f64) -> Vec<f64> {
-    let mut levels = Vec::new();
-    let start = (min / interval).floor() * interval;
-    let end = (max / interval).ceil() * interval;
+/// Generate contour levels across [min, max] using an elevation schedule.
+///
+/// Levels are anchored at 0 ft and walked outward, using `schedule.step_at(h)`
+/// to determine the spacing at each height. This keeps the 0 ft coastline
+/// always on the grid, and makes every band sample at a consistent phase.
+/// One "cap" level is added on each end if min/max don't align exactly with
+/// the grid (needed so the containment tree closes cleanly at boundaries).
+fn quantize_levels(min: f64, max: f64, schedule: &ElevationSchedule) -> Vec<f64> {
+    if !min.is_finite() || !max.is_finite() || min > max {
+        return Vec::new();
+    }
+    let eps = 1e-9;
+    let mut candidates: Vec<f64> = Vec::new();
 
-    let mut level = start;
-    while level <= end + interval * 0.1 {
-        levels.push(round6(level));
-        level += interval;
+    // Upward walk from 0. Sample a bit past max so we have a cap level available.
+    let upper_cap = max + schedule.step_at(max.max(0.0)) * 1.1;
+    let mut level = 0.0f64;
+    while level <= upper_cap + eps {
+        candidates.push(round6(level));
+        let step = schedule.step_at(level);
+        if !(step > 0.0) || !step.is_finite() {
+            break;
+        }
+        level += step;
     }
 
-    levels
+    // Downward walk from 0.
+    let lower_cap = min - schedule.step_at(min.min(0.0) - eps) * 1.1;
+    let mut level = 0.0f64;
+    loop {
+        let step = schedule.step_at(level - eps);
+        if !(step > 0.0) || !step.is_finite() {
+            break;
+        }
+        level -= step;
+        if level < lower_cap - eps {
+            break;
+        }
+        candidates.push(round6(level));
+    }
+
+    candidates.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+
+    let first_in = candidates.iter().position(|&l| l >= min - eps);
+    let last_in = candidates.iter().rposition(|&l| l <= max + eps);
+    let (first, last) = match (first_in, last_in) {
+        (Some(f), Some(l)) if f <= l => (f, l),
+        _ => return Vec::new(),
+    };
+
+    // Extend by one cap on each side if min/max aren't aligned to the grid.
+    let start_idx = if first > 0 && (candidates[first] - min).abs() > eps {
+        first - 1
+    } else {
+        first
+    };
+    let end_idx = if last + 1 < candidates.len() && (candidates[last] - max).abs() > eps {
+        last + 1
+    } else {
+        last
+    };
+
+    candidates[start_idx..=end_idx].to_vec()
+}
+
+fn format_schedule(schedule: &ElevationSchedule, unit: &str) -> String {
+    if schedule.is_scalar() {
+        format!("{}{}", schedule.breakpoints()[0].1, unit)
+    } else {
+        let bps = schedule.breakpoints();
+        let min_h = bps.first().map(|p| p.0).unwrap_or(0.0);
+        let max_h = bps.last().map(|p| p.0).unwrap_or(0.0);
+        format!(
+            "{}-band schedule over {}..{}ft",
+            bps.len(),
+            min_h,
+            max_h
+        )
+    }
 }
 
 fn point_in_polygon(px: f64, py: f64, poly: &[Point]) -> bool {
@@ -733,7 +803,6 @@ fn mask_grid_to_polygon(
     let base_lat = origin_lat + lat_step;
 
     let width = grid.width;
-    let height = grid.height;
 
     use rayon::prelude::*;
 
@@ -771,4 +840,107 @@ fn mask_grid_to_polygon(
     }
 
     (total_masked, min_feet, max_feet)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn schedule_from(pairs: &[(f64, f64)]) -> ElevationSchedule {
+        ElevationSchedule::from_breakpoints(pairs.to_vec()).expect("valid schedule")
+    }
+
+    fn approx_eq(a: &[f64], b: &[f64]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6)
+    }
+
+    #[test]
+    fn scalar_matches_old_uniform_behavior() {
+        let s = ElevationSchedule::scalar(5.0);
+        // Old code for (min=-12, max=17, interval=5): start=-15, end=20 inclusive.
+        let levels = quantize_levels(-12.0, 17.0, &s);
+        let expected = vec![-15.0, -10.0, -5.0, 0.0, 5.0, 10.0, 15.0, 20.0];
+        assert!(approx_eq(&levels, &expected), "got {:?}", levels);
+    }
+
+    #[test]
+    fn scalar_with_aligned_boundaries() {
+        // When min/max land exactly on a grid line, no caps are added.
+        let s = ElevationSchedule::scalar(25.0);
+        let levels = quantize_levels(0.0, 300.0, &s);
+        assert!((levels.first().copied().unwrap_or(f64::NAN) - 0.0).abs() < 1e-6);
+        assert!((levels.last().copied().unwrap_or(f64::NAN) - 300.0).abs() < 1e-6);
+        assert_eq!(levels.len(), 13);
+    }
+
+    #[test]
+    fn scalar_entirely_underwater_range() {
+        let s = ElevationSchedule::scalar(5.0);
+        let levels = quantize_levels(-12.0, -5.0, &s);
+        let expected = vec![-15.0, -10.0, -5.0];
+        assert!(approx_eq(&levels, &expected), "got {:?}", levels);
+    }
+
+    #[test]
+    fn scalar_entirely_above_range() {
+        let s = ElevationSchedule::scalar(25.0);
+        let levels = quantize_levels(5.0, 100.0, &s);
+        // Matches old: start=0, end=100, pushes 0,25,50,75,100
+        let expected = vec![0.0, 25.0, 50.0, 75.0, 100.0];
+        assert!(approx_eq(&levels, &expected), "got {:?}", levels);
+    }
+
+    #[test]
+    fn schedule_dense_near_sea_level() {
+        let s = schedule_from(&[(-300.0, 50.0), (-50.0, 10.0), (0.0, 5.0), (25.0, 25.0)]);
+        let levels = quantize_levels(-300.0, 100.0, &s);
+        // 0 ft must be present.
+        assert!(levels.iter().any(|&l| (l - 0.0).abs() < 1e-6));
+        // Near sea level (0-25) should have 5 ft spacing.
+        let near_zero: Vec<f64> = levels.iter().copied().filter(|&l| (0.0..=25.0).contains(&l)).collect();
+        let expected_near_zero = vec![0.0, 5.0, 10.0, 15.0, 20.0, 25.0];
+        assert!(approx_eq(&near_zero, &expected_near_zero), "near zero: {:?}", near_zero);
+        // Deep water (-50 to -300) should have 50 ft spacing.
+        let deep: Vec<f64> = levels.iter().copied().filter(|&l| l <= -50.0).collect();
+        let expected_deep = vec![-300.0, -250.0, -200.0, -150.0, -100.0, -50.0];
+        assert!(approx_eq(&deep, &expected_deep), "deep: {:?}", deep);
+        // Mid water (-50 to 0) should have 10 ft spacing.
+        let mid: Vec<f64> = levels.iter().copied()
+            .filter(|&l| (-50.0 < l) && (l < 0.0))
+            .collect();
+        let expected_mid = vec![-40.0, -30.0, -20.0, -10.0];
+        assert!(approx_eq(&mid, &expected_mid), "mid: {:?}", mid);
+        // Above 25 ft (up to 100) should have 25 ft spacing.
+        let above: Vec<f64> = levels.iter().copied().filter(|&l| l > 25.0).collect();
+        let expected_above = vec![50.0, 75.0, 100.0];
+        assert!(approx_eq(&above, &expected_above), "above: {:?}", above);
+    }
+
+    #[test]
+    fn schedule_monotonic_ascending() {
+        let s = schedule_from(&[(-300.0, 50.0), (-50.0, 10.0), (0.0, 5.0), (25.0, 25.0)]);
+        let levels = quantize_levels(-300.0, 500.0, &s);
+        for pair in levels.windows(2) {
+            assert!(pair[1] > pair[0], "not strictly increasing: {:?}", pair);
+        }
+    }
+
+    #[test]
+    fn schedule_covers_range() {
+        let s = schedule_from(&[(-300.0, 50.0), (-50.0, 10.0), (0.0, 5.0), (25.0, 25.0)]);
+        let levels = quantize_levels(-250.0, 200.0, &s);
+        // First level should be at or just below min.
+        assert!(levels.first().copied().unwrap() <= -250.0);
+        // Last level should be at or just above max.
+        assert!(levels.last().copied().unwrap() >= 200.0);
+    }
+
+    #[test]
+    fn empty_range_returns_empty() {
+        let s = ElevationSchedule::scalar(5.0);
+        let levels = quantize_levels(10.0, 5.0, &s);
+        assert!(levels.is_empty());
+        let levels = quantize_levels(f64::NAN, 5.0, &s);
+        assert!(levels.is_empty());
+    }
 }

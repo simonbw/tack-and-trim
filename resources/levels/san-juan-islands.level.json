@@ -13,8 +13,18 @@
       "maxLat": 48.75,
       "maxLon": -122.75
     },
-    "interval": 25,
-    "simplify": 5,
+    "interval": [
+      [-300, 50],
+      [-50, 10],
+      [0, 5],
+      [25, 25]
+    ],
+    "simplify": [
+      [-300, 20],
+      [-25, 5],
+      [0, 1],
+      [50, 10]
+    ],
     "scale": 1,
     "minPerimeter": 3000,
     "minPoints": 4,
