@@ -39,21 +39,12 @@ export function OrientationHud({ camera }: OrientationHudProps) {
         <span class="orientation-hud-keys">W S</span>
       </div>
       <div class="orientation-hud-row">
-        <span class="orientation-hud-label">Roll</span>
-        <span class="orientation-hud-value">{fmt(camera.roll)}</span>
-        <span class="orientation-hud-keys">Q E</span>
-      </div>
-      <div class="orientation-hud-row">
         <span class="orientation-hud-label">Zoom</span>
         <span class="orientation-hud-keys">+ −</span>
       </div>
       <button
         class="orientation-hud-reset"
-        onClick={() => {
-          camera.yaw = 0;
-          camera.pitch = 0;
-          camera.roll = 0;
-        }}
+        onClick={() => camera.setPreset("top")}
       >
         Reset
       </button>

@@ -25,6 +25,12 @@ export class BoatPreviewRenderer extends BaseEntity {
   private boat: Boat;
   private renderer: BoatRenderer;
 
+  // draw.at Euler decomposition of the current orbit, refreshed every
+  // render; referenced by the pose overrides and the water-plane tilt.
+  private drawAngle = 0;
+  private drawPitch = 0;
+  private drawRoll = 0;
+
   constructor(config: BoatConfig, camera: BoatEditorCameraController) {
     super();
     this.camera = camera;
@@ -45,30 +51,28 @@ export class BoatPreviewRenderer extends BaseEntity {
   }
 
   /**
-   * Shadow the hull body's Euler getters (angle / roll / pitch) with direct
-   * reads of the camera orbit. The class-level getters extract angles from
-   * the orientation matrix via atan2, which suffers a 180° flip whenever
-   * pitch crosses ±π/2 (cos(pitch) goes negative). Bypassing extraction
-   * keeps BoatRenderer's tilt consistent with the water plane at every
-   * orientation.
+   * Shadow the hull body's Euler getters with the draw.at Z-Y-X
+   * decomposition of the turntable rotation. BoatRenderer passes these
+   * straight to draw.at, so the boat gets rendered with the exact
+   * orientation matrix we wrote into body.orientation.
    */
   private installPoseOverrides(): void {
     const body = this.boat.hull.body;
-    const camera = this.camera;
+    const self = this;
     const noop = () => {};
     Object.defineProperty(body, "angle", {
       configurable: true,
-      get: () => camera.yaw,
-      set: noop,
-    });
-    Object.defineProperty(body, "roll", {
-      configurable: true,
-      get: () => camera.roll,
+      get: () => self.drawAngle,
       set: noop,
     });
     Object.defineProperty(body, "pitch", {
       configurable: true,
-      get: () => camera.pitch,
+      get: () => self.drawPitch,
+      set: noop,
+    });
+    Object.defineProperty(body, "roll", {
+      configurable: true,
+      get: () => self.drawRoll,
       set: noop,
     });
   }
@@ -81,37 +85,47 @@ export class BoatPreviewRenderer extends BaseEntity {
     body.position.set(V(0, 0));
     body.z = 0;
 
-    // Write the orientation matrix as Rz(yaw) · Ry(-pitch) · Rx(-roll),
-    // matching draw.at()'s tilt convention so toWorldFrame3D maps
-    // body-local points through the same rotation BoatRenderer applies.
+    // Turntable rotation: Rx(+pitch) · Rz(yaw). Yaw is applied in the
+    // body frame first (spinning the boat around its mast axis), then
+    // the whole thing tilts around the boat's forward axis toward the
+    // port side as pitch increases. The mast stays upright on screen
+    // regardless of how far you've orbited.
     const yaw = this.camera.yaw;
     const pitch = this.camera.pitch;
-    const roll = this.camera.roll;
     const cy = Math.cos(yaw);
     const sy = Math.sin(yaw);
     const cp = Math.cos(pitch);
     const sp = Math.sin(pitch);
-    const cr = Math.cos(roll);
-    const sr = Math.sin(roll);
     const R = body.orientation;
-    R[0] = cy * cp;
-    R[1] = cy * sp * sr - sy * cr;
-    R[2] = -cy * sp * cr - sy * sr;
-    R[3] = sy * cp;
-    R[4] = sy * sp * sr + cy * cr;
-    R[5] = -sy * sp * cr + cy * sr;
-    R[6] = sp;
-    R[7] = -cp * sr;
-    R[8] = cp * cr;
+    R[0] = cy;
+    R[1] = -sy;
+    R[2] = 0;
+    R[3] = cp * sy;
+    R[4] = cp * cy;
+    R[5] = -sp;
+    R[6] = sp * sy;
+    R[7] = sp * cy;
+    R[8] = cp;
 
-    // Flat water plane beneath the boat for reference. Draw inside the
-    // same (yaw, pitch, roll) tilt context so it rotates with the boat.
+    // Decompose that rotation into draw.at's Z-Y-X Euler triple so we
+    // can pass matching (angle, pitch_da, roll_da) to BoatRenderer and
+    // to the water plane.
+    this.drawAngle = Math.atan2(cp * sy, cy);
+    this.drawPitch = Math.asin(sp * sy);
+    this.drawRoll = Math.atan2(-sp * cy, cp);
+
+    // Flat water plane beneath the boat for reference. Uses the
+    // matching draw.at Euler triple so it rotates with the boat.
     const size = 50;
     draw.at(
       {
         pos: V(0, 0),
-        angle: yaw,
-        tilt: { roll, pitch, zOffset: 0 },
+        angle: this.drawAngle,
+        tilt: {
+          roll: this.drawRoll,
+          pitch: this.drawPitch,
+          zOffset: 0,
+        },
       },
       () => {
         draw.fillRect(-size, -size, size * 2, size * 2, {

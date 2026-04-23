@@ -1,17 +1,21 @@
 /**
- * Orbit-style camera for the boat editor.
+ * Turntable-style orbit camera for the boat editor.
  *
- * Uses the game's tilt projection to simulate 3D orbiting:
- * - Left drag: orbit (adjust yaw and pitch)
+ * Three DOF: yaw (unbounded, rotates around world-up), pitch (clamped
+ * between near-top-down and near-side-view so "up" always stays up),
+ * and zoom. No roll — the camera keeps world Z pointing upward on
+ * screen at every orientation.
+ *
+ * - Left drag: orbit
  * - Middle drag / Space+drag: pan
- * - Scroll: zoom
- * - Preset buttons can animate to specific angles.
+ * - Scroll / +/−: zoom
+ * - WASD: orbit (W arcs higher over the boat, S drops toward horizon)
  */
 
 import { BaseEntity } from "../core/entity/BaseEntity";
 import type { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
-import { lerp } from "../core/util/MathUtil";
+import { clamp, lerp } from "../core/util/MathUtil";
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 20;
@@ -22,14 +26,16 @@ const ZOOM_FACTOR = 1.08;
 const KEY_ORBIT_SPEED = 1.5;
 /** Keyboard zoom rate (factor/s: zoom multiplies by this^dt). */
 const KEY_ZOOM_SPEED = 3.0;
+/** Pitch ∈ [0, π/2 − ε]. 0 is straight down; π/2 is a side view. */
+const PITCH_EPS = 0.01;
+const PITCH_MIN = 0;
+const PITCH_MAX = Math.PI / 2 - PITCH_EPS;
 
 const ORBIT_ZOOM_KEYS = new Set([
   "KeyA",
   "KeyD",
   "KeyW",
   "KeyS",
-  "KeyQ",
-  "KeyE",
   "Equal",
   "Minus",
   "NumpadAdd",
@@ -37,10 +43,10 @@ const ORBIT_ZOOM_KEYS = new Set([
 ]);
 
 export class BoatEditorCameraController extends BaseEntity {
-  /** Current orbit angles (radians). All three are unbounded. */
-  yaw = Math.PI * 0.15;
-  pitch = 0.6;
-  roll = 0;
+  /** Orbit around world-up. Unbounded. */
+  yaw = 0;
+  /** Tilt from top-down (0) toward port (+π/2) or starboard (−π/2). */
+  pitch = 0;
 
   private targetZoom = 6;
   private isPanning = false;
@@ -75,15 +81,13 @@ export class BoatEditorCameraController extends BaseEntity {
 
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]) {
-    // Apply held-key orbit and zoom.
     const keys = this.heldKeys;
     const orbit = KEY_ORBIT_SPEED * dt;
     if (keys.has("KeyA")) this.yaw -= orbit;
     if (keys.has("KeyD")) this.yaw += orbit;
-    if (keys.has("KeyW")) this.pitch += orbit;
-    if (keys.has("KeyS")) this.pitch -= orbit;
-    if (keys.has("KeyQ")) this.roll -= orbit;
-    if (keys.has("KeyE")) this.roll += orbit;
+    // S orbits toward one side (default: port), W toward the other.
+    if (keys.has("KeyW")) this.pitch -= orbit;
+    if (keys.has("KeyS")) this.pitch += orbit;
     const zoomStep = Math.pow(KEY_ZOOM_SPEED, dt);
     if (keys.has("Equal") || keys.has("NumpadAdd")) {
       this.targetZoom = Math.min(this.targetZoom * zoomStep, MAX_ZOOM);
@@ -91,13 +95,13 @@ export class BoatEditorCameraController extends BaseEntity {
     if (keys.has("Minus") || keys.has("NumpadSubtract")) {
       this.targetZoom = Math.max(this.targetZoom / zoomStep, MIN_ZOOM);
     }
+    this.pitch = clamp(this.pitch, PITCH_MIN, PITCH_MAX);
 
     const cam = this.game!.camera;
     cam.z = lerp(cam.z, this.targetZoom, 0.15);
   }
 
   setPreset(name: "top" | "side" | "bow" | "quarter") {
-    this.roll = 0;
     switch (name) {
       case "top":
         this.yaw = 0;
@@ -113,7 +117,7 @@ export class BoatEditorCameraController extends BaseEntity {
         break;
       case "quarter":
         this.yaw = Math.PI * 0.15;
-        this.pitch = 0.6;
+        this.pitch = 0.5;
         break;
     }
   }
@@ -137,7 +141,13 @@ export class BoatEditorCameraController extends BaseEntity {
 
     if (this.isOrbiting) {
       this.yaw += dx * ORBIT_SENSITIVITY;
-      this.pitch -= dy * ORBIT_SENSITIVITY;
+      // Drag down → pitch increases (toward horizon). Matches drag-sky-
+      // down-to-horizon mental model of a turntable camera.
+      this.pitch = clamp(
+        this.pitch + dy * ORBIT_SENSITIVITY,
+        PITCH_MIN,
+        PITCH_MAX,
+      );
     } else if (this.isPanning) {
       const cam = this.game!.camera;
       const scale = PAN_SENSITIVITY / cam.z;
