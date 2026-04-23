@@ -19,8 +19,6 @@ export const LAYERS = {
   surface: new LayerInfo({ depth: "read-write" }),
 
   wake: new LayerInfo(),
-  foamParticles: new LayerInfo(), // Foam on water surface
-  sprayParticles: new LayerInfo(), // Spray particles above wake but below boat
   trees: new LayerInfo(),
 
   windParticles: new LayerInfo(),

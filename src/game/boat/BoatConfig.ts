@@ -145,7 +145,7 @@ export interface DeckPlan {
 
 export interface HullConfig {
   readonly mass: number; // lbs
-  // --- 2D deck polygon (used for collision shape, spray, wake, etc.) ---
+  // --- 2D deck polygon (used for collision shape, wake, etc.) ---
   readonly vertices: V2d[]; // ft, deck/gunwale polygon, counter-clockwise winding (visual/collision)
   // --- Station profile hull shape (lofted into the 3D physics + render mesh) ---
   readonly shape: HullShape;

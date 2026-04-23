@@ -904,7 +904,7 @@ export class SurfaceRenderer extends BaseEntity {
     // === Pass 3b: Water Filter (fragment) ===
     // Applies physically-based absorption to the frozen scene and writes
     // the final composited pixel to the swapchain. Post-water particles
-    // (wake, foam, spray) render on top in their own layers afterward.
+    // (wake) render on top in their own layers afterward.
     const filterPass = renderer.getCurrentRenderPass();
     if (filterPass && this.waterFilterShader && this.waterFilterBindGroup) {
       this.waterFilterShader.render(filterPass, this.waterFilterBindGroup);

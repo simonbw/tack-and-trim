@@ -36,7 +36,7 @@ Extend the day/night lighting system (GitHub issue #146) to all world-space rend
 - `ImageOptions` (sprite path) is **separate** and goes through `SpriteBatch` — not in scope for this PR.
 
 ### World `draw.*` consumers (will pick up lighting automatically)
-Files using `draw.*` to render world content: `SprayParticle.ts`, `FoamParticle.ts`, `WindParticles.ts`, `Buoy.ts`, `Anchor.ts`, `Bilge.ts`, `BoatRenderer.ts`, `HullDamage.ts`, `Sailor.ts`, `TellTail.ts`, `TiltDraw.ts`, `Mooring.ts`, `Port.ts`, `ClothRenderer.ts`, `Sail.ts` (mostly indirectly via `TiltDraw`).
+Files using `draw.*` to render world content: `WindParticles.ts`, `Buoy.ts`, `Anchor.ts`, `Bilge.ts`, `BoatRenderer.ts`, `HullDamage.ts`, `Sailor.ts`, `TellTail.ts`, `TiltDraw.ts`, `Mooring.ts`, `Port.ts`, `ClothRenderer.ts`, `Sail.ts` (mostly indirectly via `TiltDraw`).
 
 ### Draw.* consumers that MUST opt out
 - `src/game/debug-renderer/modes/WaterHeightDebugMode.ts` — `draw.fillRect`, `draw.strokeCircle`, `draw.fillCircle` (debug overlay).
@@ -48,7 +48,7 @@ Files using `draw.*` to render world content: `SprayParticle.ts`, `FoamParticle.
 - Note: React-based HUDs (`TimeOfDayHUD.tsx`, `NavigationHUD.tsx`, `BoatDebugHUD.tsx`, etc.) render through the DOM, not the Draw API — already free.
 
 ### Layers
-`src/config/layers.ts` defines `boat`, `surface`, `wake`, `foamParticles`, `sprayParticles`, `trees`, `windParticles`, `windViz`, `hud`, `debugHud`. **Layer-based opt-out is an explicit non-goal for this PR** (flagged as a future enhancement). Per-call `ignoreLight: true` is the opt-out mechanism.
+`src/config/layers.ts` defines `boat`, `surface`, `wake`, `trees`, `windParticles`, `windViz`, `hud`, `debugHud`. **Layer-based opt-out is an explicit non-goal for this PR** (flagged as a future enhancement). Per-call `ignoreLight: true` is the opt-out mechanism.
 
 ---
 
@@ -196,7 +196,7 @@ These don't share the Draw API pipeline, so they need their own uniform addition
 ### Phase H — Validation
 15. `npm run tsgo` — type check passes.
 16. Manual test (user): run dev server, cycle time of day via the `Period` key (see `TimeOfDay.ts:65`), verify:
-    - Particles (spray, foam, wind) warm/cool with sunlight.
+    - Particles (wind) warm/cool with sunlight.
     - Buoy and anchor change color with time.
     - Rope visibly darkens at night.
     - Trees darken at night.

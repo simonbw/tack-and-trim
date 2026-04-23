@@ -141,12 +141,12 @@ What follows is a catalog of the sounds that matter for this game, organized by 
 **What it sounds like:** A splashy, airy sound of water being thrown aside by the bow. More prominent at higher speeds. Distinct from the general hull sound -- more chaotic and percussive.
 
 **Simulation inputs:**
-- `BoatSpray` particle spawn rate and velocity (already varies with boat speed)
 - Hull speed
 - Wave encounter angle (heading into waves produces more spray than running with them)
 - `WaterQuery` surface height at bow (detecting when the bow punches through a wave crest)
+- Hull foam/wake source intensity at bow-region triangles (from `Hull.ts` -- already drives the shader-based foam)
 
-**How to build it:** Filtered noise with a spiky amplitude envelope. The spray particle system already tracks when and how much spray is being generated -- use its spawn rate as a direct gain control. When the bow meets a wave crest (detectable via water surface height at the bow position rising above the hull), inject a burst of spray sound. High-pass filtered to sit above the hull rushing sound in the frequency spectrum.
+**How to build it:** Filtered noise with a spiky amplitude envelope. Drive the gain from bow-region foam source intensity (the same per-triangle quantity that feeds the shader foam). When the bow meets a wave crest (detectable via water surface height at the bow position rising above the hull), inject a burst of spray sound. High-pass filtered to sit above the hull rushing sound in the frequency spectrum.
 
 **Gameplay connection:** Spray sound increases with speed and roughness of conditions. It's an indicator of how hard the boat is working. Sudden spray bursts when hitting waves give visceral feedback about sea state.
 
@@ -224,7 +224,7 @@ What follows is a catalog of the sounds that matter for this game, organized by 
 
 **Simulation inputs:**
 - Anchor deploy event trigger (state transition: stowed -> deploying)
-- Anchor body velocity at water entry (the `AnchorSplashRipple` already fires spray particles)
+- Anchor body velocity at water entry
 - Rode deployment speed (`rodeDeploySpeed` from config)
 - Current rode length (animation from 0 to `maxRodeLength`)
 

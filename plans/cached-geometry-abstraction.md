@@ -399,8 +399,8 @@ Internally: `Draw.at()` writes a new transform into the current frame's `Transfo
 - `src/game/Buoy.ts`
   - Shared `CachedMesh` in a module-level constant (buoys have identical geometry); each buoy `draw.at({ pos, angle })` + `draw.mesh(BUOY_MESH)`.
 
-- `src/game/WindParticles.ts`, `src/game/SprayParticle.ts`, `src/game/FoamParticle.ts`
-  - Stay immediate-mode. Radius varies per frame, so no caching win; they benefit from the per-vertex transform cost going away.
+- `src/game/WindParticles.ts`
+  - Stays immediate-mode. Radius varies per frame, so no caching win; benefits from the per-vertex transform cost going away.
 
 ### Not migrated (explicitly)
 - `src/core/util/stats-overlay/StatsOverlay.tsx` — React-based HUD, no draw API calls.

@@ -2,7 +2,6 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { Body } from "../../core/physics/body/Body";
 import { ReadonlyV2d, V, V2d } from "../../core/Vector";
 import { V3d } from "../../core/Vector3";
-import { BoatSpray } from "../BoatSpray";
 import { Bilge } from "./Bilge";
 import { BoatConfig, ShaffS7 } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
@@ -373,7 +372,6 @@ export class Boat extends BaseEntity {
     // Wake sources are emitted per-tick from waterline-straddling hull
     // triangles; this single Wake consumes them and spawns ring particles.
     this.addChild(new Wake(this));
-    this.addChild(new BoatSpray(this));
 
     // Create terrain querier for grounding physics
     this.addChild(new BoatGrounding(this));
