@@ -381,6 +381,29 @@ export const BaseBoat: BoatConfig = {
     },
   },
 
+  halyard: {
+    // Classic halyard U-shape: tail cleated on the foredeck FORWARD of the
+    // mast, runs up the forward face to the masthead sheave, wraps ~180°,
+    // and comes back down the aft face to the sail head. Forward-cleat +
+    // aft-head puts the ascending and descending runs on opposite sides of
+    // the pulley so both segments read clearly from above.
+    cleatPoint: V(7.5, 0.2),
+    cleatZ: 2.8,
+    // Sheave sits at the mast centerline, a couple of feet above the sail
+    // head's fully-hoisted position — real masthead hardware keeps the
+    // sheave above the sail track so the head can swing freely. Rendering
+    // extends the mast up to the sheave, producing a visible drop from the
+    // pulley back down to the head.
+    sheaveElevation: 2.0,
+    sheaveRadius: 0.25,
+    // Sail-head shackle rides aft of the mast, along the sail's luff
+    // track — gives the descending segment a substantial XY offset so it
+    // doesn't collapse into the mast cylinder from above.
+    headOffset: V(-0.6, 0),
+    ropeThickness: 0.15,
+    ropeColor: 0xeeeeee,
+  },
+
   rowing: {
     duration: 0.7,
     force: 7000, // lbf

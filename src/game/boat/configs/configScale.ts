@@ -208,6 +208,27 @@ export function scaleBoatConfig(
           maxLength: (js.maxLength ?? 18) * sx,
         }
       : undefined,
+    halyard: {
+      ...base.halyard,
+      cleatPoint: V(
+        base.halyard.cleatPoint[0] * sx,
+        base.halyard.cleatPoint[1] * sy,
+      ),
+      cleatZ: base.halyard.cleatZ * sz,
+      sheaveOffset: base.halyard.sheaveOffset
+        ? V(
+            base.halyard.sheaveOffset[0] * sx,
+            base.halyard.sheaveOffset[1] * sy,
+          )
+        : undefined,
+      sheaveElevation:
+        base.halyard.sheaveElevation !== undefined
+          ? base.halyard.sheaveElevation * sz
+          : undefined,
+      headOffset: base.halyard.headOffset
+        ? V(base.halyard.headOffset[0] * sx, base.halyard.headOffset[1] * sy)
+        : undefined,
+    },
     rowing: {
       ...base.rowing,
       force: base.rowing.force * sx * sy,

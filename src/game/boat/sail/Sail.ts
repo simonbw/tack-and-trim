@@ -490,6 +490,16 @@ export class Sail extends BaseEntity {
     return this.hoistAmount;
   }
 
+  /**
+   * Z-height of the sail head at the current hoist state (ft). Interpolates
+   * from `zFoot` (fully furled — head rides down at the boom) to `zHead`
+   * (fully hoisted — head at the masthead).
+   */
+  getHeadZ(): number {
+    const { zFoot, zHead } = this.config;
+    return zFoot + this.hoistAmount * (zHead - zFoot);
+  }
+
   /** Set hoist direction: 1 = hoisting, -1 = furling, 0 = hold position */
   setHoistInput(direction: -1 | 0 | 1): void {
     this.hoistDirection = direction;

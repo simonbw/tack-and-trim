@@ -44,6 +44,7 @@ export interface BrandPalette {
     mainsheet: RopePattern;
     jibSheet: RopePattern;
     anchorRode: RopePattern;
+    halyard: RopePattern;
   };
   /** Bowsprit spar color. */
   bowsprit: number;
@@ -105,6 +106,17 @@ export const SHAFF_PALETTE: BrandPalette = {
       ],
       helixAngle: 40,
     },
+    // White halyard with a lightweight red tracer — reads clearly against
+    // the teal topsides and matches the racing-red mainsheet at a glance.
+    halyard: {
+      type: "braid",
+      carriers: [
+        0xeeeeee, 0xeeeeee, 0xf21a00, 0xeeeeee, 0xeeeeee, 0xeeeeee, 0xeeeeee,
+        0xeeeeee, 0xeeeeee, 0xeeeeee, 0xf21a00, 0xeeeeee, 0xeeeeee, 0xeeeeee,
+        0xeeeeee, 0xeeeeee,
+      ],
+      helixAngle: 35,
+    },
   },
   bowsprit: 0xe1af00, // gold, matching the gunwale trim
   lifelines: {
@@ -156,6 +168,12 @@ export const BHC_PALETTE: BrandPalette = {
       type: "laid",
       carriers: [0x6a4a1a, 0x553818, 0x6a4a1a],
       helixAngle: 42,
+    },
+    // Classic 3-strand manila halyard — utilitarian cream hemp.
+    halyard: {
+      type: "laid",
+      carriers: [0xd8b878, 0xc9a968, 0xd8b878],
+      helixAngle: 38,
     },
   },
   bowsprit: 0x775533, // classic wood
@@ -215,6 +233,16 @@ export const MAESTRO_PALETTE: BrandPalette = {
         0xb09030,
       ],
       helixAngle: 40,
+    },
+    // Ivory halyard with a fine gold tracer — matches the mainsheet trim.
+    halyard: {
+      type: "braid",
+      carriers: [
+        0xf4f2ee, 0xf4f2ee, 0xb09030, 0xf4f2ee, 0xf4f2ee, 0xf4f2ee, 0xf4f2ee,
+        0xf4f2ee, 0xf4f2ee, 0xf4f2ee, 0xb09030, 0xf4f2ee, 0xf4f2ee, 0xf4f2ee,
+        0xf4f2ee, 0xf4f2ee,
+      ],
+      helixAngle: 32,
     },
   },
   bowsprit: 0xb09030, // gold bowsprit
@@ -290,6 +318,11 @@ export function withBrandPalette(
     anchor: {
       ...base.anchor,
       ropePattern: palette.ropes.anchorRode,
+    },
+    halyard: {
+      ...base.halyard,
+      ropeColor: palette.ropes.halyard.carriers[0],
+      ropePattern: palette.ropes.halyard,
     },
     bowsprit: base.bowsprit
       ? { ...base.bowsprit, color: palette.bowsprit }

@@ -63,6 +63,26 @@ export interface RopeRenderConfig {
   /** Rope radius for clamp offset (ft). Default 0.025. */
   ropeRadius?: number;
   /**
+   * PBD iteration count per chain section. Higher = straighter rope under
+   * tension (halyards). The default (unset) uses RopeParticleChain's own
+   * default, which is tuned for sheet-style catenary droop.
+   */
+  chainIterations?: number;
+  /**
+   * Gravity scale applied to chain particles. 1 (default) = full catenary
+   * droop (sheets, anchor rode). 0 = no gravity — for ropes that should
+   * read as taut lines (halyards). Values in between model partial load.
+   */
+  chainGravityScale?: number;
+  /**
+   * Override the per-section particle count. When unset, count scales
+   * with section length. Set low (e.g. 4–6) for ropes that should read
+   * as taut straight lines — PBD's Gauss-Seidel convergence rate is
+   * roughly (1 − 2π²/N²) per iteration, so dropping N shrinks residual
+   * sag dramatically regardless of iteration count.
+   */
+  particlesPerSection?: number;
+  /**
    * Visual drum radius for winch nodes (ft). Sections adjacent to a winch
    * leave/enter tangent to this drum, and the rope wraps around the drum
    * between sections. 0 disables (rope passes through node center). Default 0.
@@ -317,8 +337,9 @@ export class RopeRender {
 
   private createChainForSection(idx: number): RopeParticleChain {
     const section = this.network.getSection(idx);
-    const count = particleCountFor(section.length);
-    return new RopeParticleChain(
+    const count =
+      this.config.particlesPerSection ?? particleCountFor(section.length);
+    const chain = new RopeParticleChain(
       count,
       this.leaveWX[idx],
       this.leaveWY[idx],
@@ -328,6 +349,13 @@ export class RopeRender {
       this.enterWZ[idx + 1],
       section.length,
     );
+    if (this.config.chainIterations !== undefined) {
+      chain.iterations = this.config.chainIterations;
+    }
+    if (this.config.chainGravityScale !== undefined) {
+      chain.gravityScale = this.config.chainGravityScale;
+    }
+    return chain;
   }
 
   /**

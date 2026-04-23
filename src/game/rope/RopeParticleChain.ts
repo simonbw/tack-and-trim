@@ -16,8 +16,8 @@ const GRAVITY = 32.2;
 /** Per-tick velocity retention (Verlet damping). 1 = none, 0 = total. */
 const DAMPING = 0.94;
 
-/** PBD constraint solve passes per tick. Higher = stiffer chain. */
-const ITERATIONS = 6;
+/** Default PBD constraint solve passes per tick. Higher = stiffer chain. */
+const DEFAULT_ITERATIONS = 6;
 
 /**
  * Floor query: given a world-space sample at (x, y, z), returns the minimum
@@ -46,6 +46,15 @@ export class RopeParticleChain {
   readonly count: number;
   /** Flattened positions [x0,y0,z0,x1,y1,z1,…]. */
   readonly pos: Float64Array;
+  /** PBD constraint solve passes per tick. Higher = stiffer / straighter chain. */
+  iterations: number;
+  /**
+   * Gravity scale factor. 1 = full gravity (sheet/anchor catenary droop).
+   * 0 = no gravity — useful for ropes under load (halyards) that should
+   * read as taut lines rather than catenaries. Values between 0 and 1
+   * model partial tension.
+   */
+  gravityScale: number;
   /** Flattened previous-tick positions (Verlet). */
   private readonly prev: Float64Array;
   /** Per-particle inverse mass; 0 = pinned. */
@@ -62,9 +71,13 @@ export class RopeParticleChain {
     by: number,
     bz: number,
     sectionLength: number,
+    iterations: number = DEFAULT_ITERATIONS,
+    gravityScale: number = 1,
   ) {
     if (count < 2) throw new Error("Particle chain needs >= 2 particles");
     this.count = count;
+    this.iterations = iterations;
+    this.gravityScale = gravityScale;
     this.pos = new Float64Array(count * 3);
     this.prev = new Float64Array(count * 3);
     this.invMass = new Float64Array(count);
@@ -156,7 +169,7 @@ export class RopeParticleChain {
   ): void {
     const N = this.count;
     const restSeg = sectionLength / (N - 1);
-    const gdt2 = GRAVITY * dt * dt;
+    const gdt2 = GRAVITY * dt * dt * this.gravityScale;
     const ref = this.refVelScratch;
 
     // Verlet step on interior particles only; endpoints are held by setEndpoints.
@@ -188,7 +201,7 @@ export class RopeParticleChain {
       this.pos[o + 2] = pz + dz - gdt2;
     }
 
-    for (let iter = 0; iter < ITERATIONS; iter++) {
+    for (let iter = 0; iter < this.iterations; iter++) {
       // Distance constraints, Gauss-Seidel pass forward then backward so
       // the chain can equilibrate from both anchor ends in the same iteration.
       this.solveDistancesForward(restSeg);

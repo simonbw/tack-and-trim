@@ -20,6 +20,7 @@ import {
 } from "../../core/physics/constraints/DeckContactConstraint";
 import { Keel } from "./Keel";
 import { Lifelines } from "./Lifelines";
+import { Halyard } from "./Halyard";
 import { Rig } from "./Rig";
 import { Rudder } from "./Rudder";
 import { Sail } from "./sail/Sail";
@@ -48,6 +49,7 @@ export class Boat extends BaseEntity {
   mainsheet: Sheet;
   portJibSheet: Sheet | null = null;
   starboardJibSheet: Sheet | null = null;
+  mainHalyard: Halyard;
   sailor: Sailor;
 
   readonly config: BoatConfig;
@@ -170,6 +172,46 @@ export class Boat extends BaseEntity {
         mainsheetWaypoints,
         getDeckHeight,
         hullBoundary,
+      ),
+    );
+
+    // Main halyard: 3-node rope that runs from a deck cleat up the mast,
+    // over a sheave block at the masthead, and down to the sail-head
+    // shackle. Physics-inert — the rope network has slack so the capstan
+    // solver never drives the hull.
+    const mastPos = config.rig.mastPosition;
+    const mastTopZ = this.rig.getMastTopZ();
+    const {
+      cleatPoint,
+      cleatZ,
+      sheaveOffset,
+      sheaveElevation,
+      headOffset,
+      ...halyardRender
+    } = config.halyard;
+    const sheaveX = mastPos.x + (sheaveOffset?.x ?? 0);
+    const sheaveY = mastPos.y + (sheaveOffset?.y ?? 0);
+    const sheaveZ = mastTopZ + (sheaveElevation ?? 0.3);
+    const headX = mastPos.x + (headOffset?.x ?? 0);
+    const headY = mastPos.y + (headOffset?.y ?? 0);
+    const mainsail = this.rig.sail;
+    const sailZFoot = config.rig.mainsail.zFoot ?? 3;
+    this.mainHalyard = this.addChild(
+      new Halyard(
+        this.hull.body,
+        new V3d(cleatPoint.x, cleatPoint.y, cleatZ),
+        new V3d(sheaveX, sheaveY, sheaveZ),
+        new V3d(headX, headY, mainsail.getHeadZ()),
+        halyardRender,
+        getDeckHeight,
+        hullBoundary,
+        {
+          getHeadZ: () => mainsail.getHeadZ(),
+          // When fully furled, the head rides at the boom height — that's
+          // the longest the descending run ever gets, so size the rope
+          // for that worst case.
+          minHeadZ: sailZFoot,
+        },
       ),
     );
 

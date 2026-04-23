@@ -300,6 +300,40 @@ export interface MainsheetConfig extends Partial<SheetConfig> {
   readonly winchPoint?: V2d;
 }
 
+export interface HalyardConfig {
+  /** Hull-local cleat position where the halyard tail terminates (ft). */
+  readonly cleatPoint: V2d;
+  /** Z-height of the cleat above the waterline (ft). */
+  readonly cleatZ: number;
+  /**
+   * Hull-local xy offset from the mast centerline for the sheave (block) at
+   * the mast top. The halyard wraps over this block as it transitions from
+   * ascending (tail) to descending (sail head) side. A small forward offset
+   * visually separates the sheave from the mast cylinder. Default `(0, 0)`.
+   */
+  readonly sheaveOffset?: V2d;
+  /**
+   * Sheave height above the mast top (ft). Sheaves typically sit just above
+   * the sail head so the head can be hoisted to its maximum height without
+   * jamming. Default 0.3.
+   */
+  readonly sheaveElevation?: number;
+  /**
+   * Hull-local xy offset from the mast centerline where the halyard
+   * terminates at the sail head. Usually a small aft offset so the rope
+   * runs down the sail's luff side of the mast. Default `(0, 0)`.
+   */
+  readonly headOffset?: V2d;
+  /** Sheave drum radius for the wrap geometry at the mast top (ft). Default 0.12. */
+  readonly sheaveRadius?: number;
+  /** Rope thickness (world ft). Default 0.15 — matches sheet ropes. */
+  readonly ropeThickness?: number;
+  /** Fallback solid color if no ropePattern is specified. */
+  readonly ropeColor?: number;
+  /** Carrier pattern — usually supplied by the brand palette. */
+  readonly ropePattern?: import("./RopeShader").RopePattern;
+}
+
 export interface JibSheetConfig extends Partial<SheetConfig> {
   readonly portAttachPoint: V2d; // ft from hull center (cleat — tail end)
   readonly starboardAttachPoint: V2d; // ft from hull center (cleat — tail end)
@@ -427,6 +461,7 @@ export interface BoatConfig {
   readonly jib?: JibConfig;
   readonly mainsheet: MainsheetConfig;
   readonly jibSheet?: JibSheetConfig;
+  readonly halyard: HalyardConfig;
   readonly rowing: RowingConfig;
   readonly grounding: GroundingConfig;
   readonly tilt: TiltConfig;

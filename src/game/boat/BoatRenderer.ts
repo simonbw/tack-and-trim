@@ -19,6 +19,22 @@ import {
   tessellateRopeStrip,
 } from "./tessellation";
 import { TiltDraw } from "./TiltDraw";
+import type { RopePattern } from "./RopeShader";
+
+/**
+ * A rope-like visual (Sheet, Halyard, …) that exposes a uniform render API.
+ * Sheet adds its own winch/tension queries; those aren't used here.
+ */
+interface RopeVisual {
+  getOpacity(): number;
+  getRopePointsWithZ(): {
+    points: [number, number][];
+    z: number[];
+    vPerPoint: number[];
+  };
+  getRopeThickness(): number;
+  getRopePattern(): RopePattern;
+}
 
 /**
  * Unified boat renderer that collects geometry from all boat components
@@ -234,6 +250,7 @@ export class BoatRenderer extends BaseEntity {
     if (this.boat.starboardJibSheet) {
       this.renderSheet(renderer, this.boat.starboardJibSheet, hullBody);
     }
+    this.renderSheet(renderer, this.boat.mainHalyard, hullBody);
 
     // === 14. Anchor rode ===
     this.renderRode(renderer);
@@ -741,7 +758,7 @@ export class BoatRenderer extends BaseEntity {
 
   /** Per-sheet smoothing scratch buffers and shader instance. */
   private ropeRenderState = new Map<
-    import("./Sheet").Sheet,
+    RopeVisual,
     {
       shader: RopeShaderInstance;
       smoothPoints: [number, number][];
@@ -752,10 +769,7 @@ export class BoatRenderer extends BaseEntity {
     }
   >();
 
-  private getRopeRenderState(
-    rawPointCount: number,
-    sheet: import("./Sheet").Sheet,
-  ) {
+  private getRopeRenderState(rawPointCount: number, sheet: RopeVisual) {
     let state = this.ropeRenderState.get(sheet);
     if (!state || state.rawCount !== rawPointCount) {
       const smoothCount = catmullRomOutputCount(
@@ -780,7 +794,7 @@ export class BoatRenderer extends BaseEntity {
 
   private renderSheet(
     renderer: import("../../core/graphics/webgpu/WebGPURenderer").WebGPURenderer,
-    sheet: import("./Sheet").Sheet,
+    sheet: RopeVisual,
     hullBody: import("../../core/physics/body/Body").Body,
   ) {
     const opacity = sheet.getOpacity();
@@ -941,6 +955,16 @@ export class BoatRenderer extends BaseEntity {
     const mastTopZ = rig.getMastTopZ();
     const mastColor = rig.getMastColor();
 
+    // The physical masthead extends a bit above the sail's fully-hoisted
+    // position so the halyard sheave can sit at the very top. Derive that
+    // height from the halyard config rather than duplicating the offset.
+    const sheaveOffset = this.config.halyard.sheaveOffset;
+    const sheaveDX = sheaveOffset?.x ?? 0;
+    const sheaveDY = sheaveOffset?.y ?? 0;
+    const sheaveElevation = this.config.halyard.sheaveElevation ?? 0;
+    const sheaveRadius = this.config.halyard.sheaveRadius ?? 0.12;
+    const mastShaftTopZ = mastTopZ + sheaveElevation;
+
     // Mast shaft (cylindrical — screen-width, with round caps)
     td.line(
       mastPos.x,
@@ -948,7 +972,7 @@ export class BoatRenderer extends BaseEntity {
       0,
       mastPos.x,
       mastPos.y,
-      mastTopZ,
+      mastShaftTopZ,
       0.4,
       mastColor,
       1,
@@ -957,5 +981,16 @@ export class BoatRenderer extends BaseEntity {
 
     // Boom connection cap
     td.circle(mastPos.x, mastPos.y, rig.getBoomZ() + 0.01, 0.2, 16, mastColor);
+
+    // Masthead sheave — small disc at the halyard block so the pulley
+    // reads as hardware rather than a bare rope bend.
+    td.circle(
+      mastPos.x + sheaveDX,
+      mastPos.y + sheaveDY,
+      mastShaftTopZ + 0.01,
+      sheaveRadius,
+      12,
+      lighten(mastColor, 0.25),
+    );
   }
 }
