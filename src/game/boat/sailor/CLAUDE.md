@@ -28,7 +28,7 @@ Default station layout (defined in `BaseBoat`, inherited by all boats):
 ### Walking
 
 - Press **F** at any station to leave and start walking. Unbound WASD keys do nothing at a station (e.g. A/D at the Mast, where only W/S is bound, have no effect — F is the only way to leave).
-- WASD drives the sailor in hull-local coordinates: W = forward, S = backward, A = port, D = starboard.
+- WASD drives the sailor in **camera-space** directions: W = up on screen, S = down, A = left, D = right. When `rotateWithBoat` is on this matches hull-local forward/back/port/starboard; with a fixed camera the sailor walks toward the pressed screen direction regardless of hull heading.
 - To enter a station, walk within `SAILOR_SNAP_RADIUS` of it and press **F**. The sailor does not auto-snap — entering is always an explicit action.
 
 ### Walking physics

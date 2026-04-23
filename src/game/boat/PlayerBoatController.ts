@@ -75,20 +75,24 @@ export class PlayerBoatController extends BaseEntity {
     // Idle the anchor (no input)
     this.boat.anchor.idle();
 
-    // WASD → hull-local walk velocity. Shift = run.
-    // The deck friction equations' Jacobian sign convention makes a
-    // positive `relativeVelocity` push the sailor along the -tangent
-    // direction, so we negate here: W (forward) = -X motor target, etc.
+    // WASD → walk velocity, interpreted in camera space (W = up on screen).
+    // Screen direction is rotated into hull-local coords via the camera and
+    // hull angles. The deck friction equations' Jacobian sign convention
+    // makes a positive `relativeVelocity` push the sailor along the
+    // -tangent direction, so we negate at the end.
     const running = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
     const speed = running ? SAILOR_RUN_SPEED : SAILOR_WALK_SPEED;
-    let vx = 0;
-    let vy = 0;
-    if (io.isKeyDown("KeyW")) vx -= speed;
-    if (io.isKeyDown("KeyS")) vx += speed;
-    if (io.isKeyDown("KeyD")) vy -= speed;
-    if (io.isKeyDown("KeyA")) vy += speed;
+    let sx = 0;
+    let sy = 0;
+    if (io.isKeyDown("KeyW")) sy -= 1;
+    if (io.isKeyDown("KeyS")) sy += 1;
+    if (io.isKeyDown("KeyA")) sx -= 1;
+    if (io.isKeyDown("KeyD")) sx += 1;
 
-    sailor.setWalkVelocity(vx, vy, speed);
+    const hullAngle = this.boat.hull.getAngle();
+    const cameraAngle = this.game.camera.angle;
+    const local = V(sx, sy).irotate(-cameraAngle - hullAngle);
+    sailor.setWalkVelocity(-local.x * speed, -local.y * speed, speed);
   }
 
   // ── Station mode ────────────────────────────────────────────────
