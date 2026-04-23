@@ -31,8 +31,6 @@ import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
 import { TimeOfDayHUD } from "./TimeOfDayHUD";
 import { TreeManager } from "./trees/TreeManager";
-import { TutorialManager } from "./tutorial/TutorialManager";
-import { isTutorialCompleted } from "./tutorial/tutorialStorage";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindParticles } from "./WindParticles";
 import { WindSoundGenerator } from "./WindSoundGenerator";
@@ -279,10 +277,7 @@ export class GameController extends BaseEntity {
       }
     }
 
-    // Start the tutorial if not already completed
-    if (!isTutorialCompleted()) {
-      this.game.addEntity(new TutorialManager());
-    }
+    // Tutorial disabled for now.
 
     // Signal for automated profiling / e2e scripts that gameplay is live.
     window.DEBUG.gameStarted = true;
