@@ -314,7 +314,7 @@ export class Sailor extends BaseEntity {
     // always reads as a flat 2D circle regardless of roll/pitch.
     const [px, py] = this.body.position;
     draw.fillCircle(px, py, SAILOR_RADIUS, {
-      color: 0xff8800,
+      color: 0xf21a00,
       z: this.body.z,
     });
   }
