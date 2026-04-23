@@ -2,7 +2,7 @@ import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { MAESTRO_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // Swan 60: LOA 61.9ft, beam 16.75ft, draft 9.8ft, disp 52250 lbs, ballast 18078 lbs (34.6%)
 const sx = 2.751; // 61.9 / 22.5
@@ -19,7 +19,7 @@ const sz = sx;
  * Inspired by: Nautor Swan 60 FD (LOA 61.9ft, disp 52250 lbs, ballast 18078 lbs)
  */
 export const MaestroOpus = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), MAESTRO_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), MAESTRO_PALETTE),
   {
     hull: {
       mass: 31672,

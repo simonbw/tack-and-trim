@@ -106,7 +106,21 @@ export function scaleBoatConfig(
           rig.stays.starboardShroud[0] * sx,
           rig.stays.starboardShroud[1] * sy,
         ),
-        backstay: V(rig.stays.backstay[0] * sx, rig.stays.backstay[1] * sy),
+        backstay: {
+          split: V(
+            rig.stays.backstay.split[0] * sx,
+            rig.stays.backstay.split[1] * sy,
+          ),
+          splitZ: rig.stays.backstay.splitZ * sz,
+          port: V(
+            rig.stays.backstay.port[0] * sx,
+            rig.stays.backstay.port[1] * sy,
+          ),
+          starboard: V(
+            rig.stays.backstay.starboard[0] * sx,
+            rig.stays.backstay.starboard[1] * sy,
+          ),
+        },
         deckHeight: rig.stays.deckHeight * sz,
       },
     },

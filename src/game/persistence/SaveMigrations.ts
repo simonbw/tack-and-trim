@@ -8,10 +8,9 @@ const MIGRATIONS: Migration[] = [
     const progression = data.progression as Record<string, unknown> | undefined;
     if (!progression) return data;
 
-    // Map old boat IDs to the Kestrel (closest equivalent)
     const oldToNew: Record<string, string> = {
-      "starter-dinghy": "kestrel",
-      "starter-boat": "kestrel",
+      "starter-dinghy": "shaff-s7",
+      "starter-boat": "shaff-s7",
     };
 
     const currentBoatId = progression.currentBoatId as string;

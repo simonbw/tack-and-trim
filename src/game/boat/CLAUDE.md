@@ -102,6 +102,6 @@ Water and wind are queried at all physics-mesh vertices each frame via `WaterQue
 
 ## Configuration
 
-All boat parameters are data-driven via `BoatConfig` (defined in `BoatConfig.ts`). Concrete configs live in `configs/` (e.g., `Kestrel.ts`, `Osprey.ts`, `Albatross.ts`). Use `createBoatConfig(base, overrides)` for partial customization via deep merge.
+All boat parameters are data-driven via `BoatConfig` (defined in `BoatConfig.ts`). Concrete configs live in `configs/` (e.g., `ShaffS7.ts`, `BhcWeekender.ts`, `MaestroEtude.ts`), all derived from the reference hull in `configs/BaseBoat.ts`. Use `createBoatConfig(base, overrides)` for partial customization via deep merge.
 
 Key config sections: `hull` (mass, vertices, drag coefficients), `keel`/`rudder` (foil geometry), `rig` (mast/boom dimensions, sail configs), `buoyancy` (mass, inertia, CG height), `tilt` (damping, righting coefficients), `bilge` (flooding/sinking), `grounding` (terrain collision friction), `stations` + `initialStationId` (sailor station layout), and damage configs.

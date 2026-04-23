@@ -58,13 +58,13 @@ export function collectSaveData(
 
     progression: {
       money: progression?.getMoney() ?? 0,
-      currentBoatId: progression?.getCurrentBoatId() ?? "kestrel",
+      currentBoatId: progression?.getCurrentBoatId() ?? "shaff-s7",
       ownedBoats: progression
         ? progression.getOwnedBoats().map((boatId) => ({
             boatId,
             purchasedUpgrades: progression.getUpgradesForBoat(boatId),
           }))
-        : [{ boatId: "kestrel", purchasedUpgrades: [] }],
+        : [{ boatId: "shaff-s7", purchasedUpgrades: [] }],
       completedMissions: missionState?.completedMissionIds ?? [],
       currentMission: activeMission
         ? { missionId: activeMission.def.id, state: {} }

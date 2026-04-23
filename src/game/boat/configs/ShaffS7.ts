@@ -1,6 +1,6 @@
 import { createBoatConfig } from "../BoatConfig";
 import { SHAFF_PALETTE, withBrandPalette } from "./brandPalettes";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 /**
  * Shaff S-7 — 21ft performance one-design racer (inspired by J/22)
@@ -11,7 +11,7 @@ import { Kestrel } from "./Kestrel";
  * Inspired by: J/22 (LOA 22.5ft, disp 1790 lbs, ballast 700 lbs, SA 226 sqft)
  */
 export const ShaffS7 = createBoatConfig(
-  withBrandPalette(Kestrel, SHAFF_PALETTE),
+  withBrandPalette(BaseBoat, SHAFF_PALETTE),
   {
     hull: {
       mass: 640,

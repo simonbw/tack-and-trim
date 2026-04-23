@@ -3,11 +3,14 @@ import { V } from "../../../core/Vector";
 import { BoatConfig } from "../BoatConfig";
 
 /**
- * Kestrel - A nimble 22ft daysailer/racer (inspired by J/22)
- * Light, responsive keelboat with a swing keel. Great starter boat
- * that rewards good sail trim and is forgiving of mistakes.
+ * Baseline 22ft keelboat config. Every concrete boat derives from this
+ * via `scaleBoatConfig` (geometry), `withBrandPalette` (colors), and
+ * `createBoatConfig` (per-boat physics overrides). Not shipped as a
+ * playable boat itself — it exists purely as the reference hull.
+ *
+ * Dimensions loosely follow the J/22 (LOA 22.5ft, disp 1790 lbs).
  */
-export const Kestrel: BoatConfig = {
+export const BaseBoat: BoatConfig = {
   hull: {
     mass: 900, // lbs - structural mass for 2D physics
     // 2D collision polygon (deck outline, CCW winding)
@@ -254,7 +257,12 @@ export const Kestrel: BoatConfig = {
       forestay: V(15.4, 0), // at bowsprit tip
       portShroud: V(3.5, 3.3),
       starboardShroud: V(3.5, -3.3),
-      backstay: V(-9.5, 0),
+      backstay: {
+        split: V(-9.0, 0),
+        splitZ: 5.0,
+        port: V(-9.2, 2.3),
+        starboard: V(-9.2, -2.3),
+      },
       deckHeight: 2.5,
     },
   },

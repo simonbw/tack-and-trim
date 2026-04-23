@@ -2,7 +2,7 @@ import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { MAESTRO_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // Jeanneau Sun Odyssey 45: LOA 45ft, beam 14.8ft, draft 6.7ft, disp 22250 lbs, ballast 6504 lbs
 const sx = 2.0; // 45.0 / 22.5
@@ -19,7 +19,7 @@ const sz = sx;
  * Inspired by: Jeanneau Sun Odyssey 45 (LOA 45ft, disp 22250 lbs, SA 1122 sqft)
  */
 export const MaestroFantasia = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), MAESTRO_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), MAESTRO_PALETTE),
   {
     hull: {
       mass: 14246,

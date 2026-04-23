@@ -1,7 +1,7 @@
 import { createBoatConfig } from "../BoatConfig";
 import { MAESTRO_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // J/24: LOA 24ft, beam 8.9ft, draft 4.0ft, disp 3100 lbs, ballast 950 lbs (30.6%)
 const sx = 1.067; // 24.0 / 22.5
@@ -18,7 +18,7 @@ const sz = sx;
  * Inspired by: J/24 (LOA 24ft, disp 3100 lbs, ballast 950 lbs, SA 260 sqft)
  */
 export const MaestroEtude = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), MAESTRO_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), MAESTRO_PALETTE),
   {
     hull: {
       mass: 1700,

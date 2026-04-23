@@ -17,7 +17,7 @@ Stations are defined per-boat in `BoatConfig.stations` (with `BoatConfig.initial
 - **secondaryAxis** (Q/E) -- e.g. `"jibSheets"` at Helm
 - **actions** -- discrete controls like `"anchor"`, `"mooring"`, `"bail"`
 
-Default station layout (defined in Kestrel, inherited by all boats):
+Default station layout (defined in `BaseBoat`, inherited by all boats):
 
 | Station | steerAxis | primaryAxis  | secondaryAxis | actions         |
 | ------- | --------- | ------------ | ------------- | --------------- |

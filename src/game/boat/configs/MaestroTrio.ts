@@ -2,7 +2,7 @@ import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { MAESTRO_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // Dehler 34: LOA 35.1ft, beam 11.8ft, draft 6.4ft, disp 13117 lbs, ballast 4630 lbs (35%)
 const sx = 1.56; // 35.1 / 22.5
@@ -19,7 +19,7 @@ const sz = sx;
  * Inspired by: Dehler 34 (LOA 35.1ft, disp 13117 lbs, ballast 4630 lbs, SA 700 sqft, SA/D 18.5)
  */
 export const MaestroTrio = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), MAESTRO_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), MAESTRO_PALETTE),
   {
     hull: {
       mass: 7587,

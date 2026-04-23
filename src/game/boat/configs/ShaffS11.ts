@@ -2,7 +2,7 @@ import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { SHAFF_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // J/105: LOA 34.5ft, beam 11ft, draft 6.5ft, disp 7750 lbs, ballast 3400 lbs (44%)
 const sx = 1.533; // 34.5 / 22.5
@@ -18,7 +18,7 @@ const sz = sx;
  * Inspired by: J/105 (LOA 34.5ft, disp 7750 lbs, ballast 3400 lbs 44%, SA 581 sqft)
  */
 export const ShaffS11 = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), SHAFF_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), SHAFF_PALETTE),
   {
     hull: {
       mass: 3450,

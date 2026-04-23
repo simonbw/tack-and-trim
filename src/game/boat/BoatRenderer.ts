@@ -540,7 +540,6 @@ export class BoatRenderer extends BaseEntity {
       [stays.forestay, forestayZ],
       [stays.portShroud, stays.deckHeight],
       [stays.starboardShroud, stays.deckHeight],
-      [stays.backstay, stays.deckHeight],
     ] as const) {
       td.line(
         mastPos.x,
@@ -549,6 +548,30 @@ export class BoatRenderer extends BaseEntity {
         attach.x,
         attach.y,
         bottomZ,
+        0.1,
+        0x999999,
+      );
+    }
+
+    const bridle = stays.backstay;
+    td.line(
+      mastPos.x,
+      mastPos.y,
+      mastTopZ,
+      bridle.split.x,
+      bridle.split.y,
+      bridle.splitZ,
+      0.1,
+      0x999999,
+    );
+    for (const corner of [bridle.port, bridle.starboard] as const) {
+      td.line(
+        bridle.split.x,
+        bridle.split.y,
+        bridle.splitZ,
+        corner.x,
+        corner.y,
+        stays.deckHeight,
         0.1,
         0x999999,
       );

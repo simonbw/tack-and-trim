@@ -252,7 +252,17 @@ export interface RigConfig {
     readonly forestay: V2d; // ft, hull-local attachment point for forestay
     readonly portShroud: V2d; // ft, hull-local attachment point for port shroud
     readonly starboardShroud: V2d; // ft, hull-local attachment point for starboard shroud
-    readonly backstay: V2d; // ft, hull-local attachment point for backstay
+    /**
+     * Backstay bridle: runs from the masthead down to the `split` point,
+     * then Y-splits to deck attachments at the two transom corners. Keeps
+     * the backstay clear of the helmsman at the tiller.
+     */
+    readonly backstay: {
+      readonly split: V2d; // ft, hull-local xy of the Y-join above deck
+      readonly splitZ: number; // ft above waterline, z of the Y-join
+      readonly port: V2d; // ft, hull-local port transom attachment
+      readonly starboard: V2d; // ft, hull-local starboard transom attachment
+    };
     readonly deckHeight: number; // ft above waterline, z-height of deck attachment points
   };
 }

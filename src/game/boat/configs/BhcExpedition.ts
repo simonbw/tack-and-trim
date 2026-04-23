@@ -2,7 +2,7 @@ import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { BHC_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // Oyster 575: LOA 58.67ft, beam 16.42ft, draft 8.82ft, disp 58422 lbs, ballast 17855 lbs (30.6%)
 const sx = 2.608; // 58.67 / 22.5
@@ -19,7 +19,7 @@ const sz = sx;
  * Inspired by: Oyster 575 (LOA 58.67ft, disp 58422 lbs, ballast 17855 lbs, SA 2097 sqft)
  */
 export const BhcExpedition = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), BHC_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), BHC_PALETTE),
   {
     hull: {
       mass: 38067,

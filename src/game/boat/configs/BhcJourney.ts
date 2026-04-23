@@ -2,7 +2,7 @@ import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { BHC_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // Catalina 42 MkII: LOA 41.83ft, beam 13.83ft, draft 6.0ft, disp 20500 lbs, ballast 8300 lbs (40%)
 const sx = 1.859; // 41.83 / 22.5
@@ -19,7 +19,7 @@ const sz = sx;
  * Inspired by: Catalina 42 MkII (LOA 41.83ft, disp 20500 lbs, ballast 8300 lbs, SA 797 sqft)
  */
 export const BhcJourney = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), BHC_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), BHC_PALETTE),
   {
     hull: {
       mass: 10700,

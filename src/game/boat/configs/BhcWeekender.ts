@@ -2,7 +2,7 @@ import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { BHC_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // Catalina 30: LOA 29.92ft, beam 10.83ft, draft 5.25ft, disp 10200 lbs, ballast 4200 lbs (41%)
 const sx = 1.33; // 29.92 / 22.5
@@ -18,7 +18,7 @@ const sz = sx;
  * Inspired by: Catalina 30 (LOA 29.92ft, disp 10200 lbs, ballast 4200 lbs, SA ~542 sqft)
  */
 export const BhcWeekender = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), BHC_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), BHC_PALETTE),
   {
     hull: {
       mass: 5100,

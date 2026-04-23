@@ -2,7 +2,7 @@ import { V } from "../../../core/Vector";
 import { createBoatConfig } from "../BoatConfig";
 import { SHAFF_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // Farr 60: LOA 60.25ft, beam 18ft, draft 9.17ft, disp 54000 lbs, ballast 18000 lbs (33%)
 const sx = 2.678; // 60.25 / 22.5
@@ -19,7 +19,7 @@ const sz = sx;
  * Inspired by: Farr 60 (LOA 60.25ft, disp 54000 lbs, ballast 18000 lbs, SA/D 23)
  */
 export const ShaffS20 = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), SHAFF_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), SHAFF_PALETTE),
   {
     hull: {
       mass: 33500,

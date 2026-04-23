@@ -1,7 +1,7 @@
 import { createBoatConfig } from "../BoatConfig";
 import { BHC_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
-import { Kestrel } from "./Kestrel";
+import { BaseBoat } from "./BaseBoat";
 
 // Catalina 22: LOA 21.5ft, beam 7.67ft, draft 5.0ft (swing keel down), disp 2490 lbs, ballast 800 lbs (32%)
 const sx = 0.956; // 21.5 / 22.5
@@ -17,7 +17,7 @@ const sz = sx;
  * Inspired by: Catalina 22 (LOA 21.5ft, disp 2490 lbs, ballast 800 lbs, SA 212 sqft)
  */
 export const BhcDaysailer = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(Kestrel, sx, sy, sz), BHC_PALETTE),
+  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), BHC_PALETTE),
   {
     hull: {
       mass: 1240,
