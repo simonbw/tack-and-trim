@@ -524,7 +524,7 @@ export class Sail extends BaseEntity {
    * Reads results from the previous tick's worker solve and applies reaction forces.
    */
   @on("tick")
-  onTick({ dt }: GameEventMap["tick"]) {
+  async onTick({ dt }: GameEventMap["tick"]) {
     const { hoistSpeed, sailShape } = this.config;
 
     // Ramp hoist amount based on input direction
@@ -543,6 +543,12 @@ export class Sail extends BaseEntity {
     if (this.furledLock) {
       this.furledLock.disabled = this.hoistAmount > 0;
     }
+
+    // Wait for the previous tick's solve to finish, then read its results.
+    // Blocking here (instead of skipping when the worker is slow) keeps the
+    // cloth pipeline at a deterministic one-tick lag — without this, slow
+    // solves would silently drop inputs and skip reaction-force application.
+    await this.handle.awaitResults();
 
     // Read results from the worker's previous solve (one-tick lag)
     if (this.handle.hasNewResults()) {

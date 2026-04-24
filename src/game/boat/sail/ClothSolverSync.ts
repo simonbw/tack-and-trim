@@ -112,6 +112,10 @@ export class ClothSolverSync implements ClothPositionReader {
     return this.solved;
   }
 
+  async awaitResults(): Promise<void> {
+    // Synchronous fallback: writeInputsAndKick already finished the solve.
+  }
+
   readReactionForces(): Float64Array {
     return new Float64Array([
       0,

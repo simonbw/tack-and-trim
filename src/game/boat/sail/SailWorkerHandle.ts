@@ -102,6 +102,35 @@ export class SailWorkerHandle implements ClothPositionReader {
     return Atomics.load(this.control, 0) === CLOTH_DONE;
   }
 
+  /**
+   * Block (asynchronously) until the worker finishes the in-flight solve.
+   * No-op if no solve is in flight (state is IDLE or already DONE), so the
+   * very first tick — before any kick — returns immediately.
+   *
+   * Mirrors `QueryWorkerPool.awaitFrameComplete`: `Atomics.wait` is illegal
+   * on the main thread, so we use `Atomics.waitAsync` and await the promise.
+   * This guarantees the cloth pipeline runs at exactly one-tick lag — kick
+   * after physics in tick N, read at the start of tick N+1 — instead of
+   * silently dropping inputs or reaction forces when the worker can't keep
+   * up with the tick rate.
+   */
+  async awaitResults(): Promise<void> {
+    const { async, value } = Atomics.waitAsync(
+      this.control,
+      0,
+      CLOTH_SOLVING,
+      2000,
+    );
+    if (async) {
+      const result = await value;
+      if (result === "timed-out") {
+        console.warn(
+          "[cloth] worker did not complete within 2s; proceeding without results this tick",
+        );
+      }
+    }
+  }
+
   /** Read accumulated reaction forces. Returns [tackRx, tackRy, headRx, headRy, clewRx, clewRy]. */
   readReactionForces(): Float64Array {
     return this.reactionBuf;
