@@ -34,11 +34,16 @@ import { TreeManager } from "./trees/TreeManager";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindParticles } from "./WindParticles";
 import { WindSoundGenerator } from "./WindSoundGenerator";
-import { QueryCoordinator } from "./world/query/QueryCoordinator";
+import { CpuQueryCoordinator } from "./world/query/CpuQueryCoordinator";
+import { GpuQueryCoordinator } from "./world/query/GpuQueryCoordinator";
+import { getQueryBackend } from "./world/query/QueryBackendState";
+import { CpuTerrainQueryManager } from "./world/terrain/CpuTerrainQueryManager";
 import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
 import { TerrainResources } from "./world/terrain/TerrainResources";
+import { CpuWaterQueryManager } from "./world/water/CpuWaterQueryManager";
 import { WaterQueryManager } from "./world/water/WaterQueryManager";
 import { WaterResources } from "./world/water/WaterResources";
+import { CpuWindQueryManager } from "./world/wind/CpuWindQueryManager";
 import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
 
@@ -107,8 +112,21 @@ export class GameController extends BaseEntity {
     this.startPosition = startPosition ?? V(0, 0);
     this.ports = ports ?? [];
     this.missions = missions ?? [];
+    // Query backend selection.
+    const queryBackend = getQueryBackend();
+    const useCpu = queryBackend === "cpu";
+    if (useCpu) {
+      console.info(
+        "[GameController] CPU query backend enabled — terrain, water, and wind run on worker pool.",
+      );
+    }
+
     this.game.addEntity(new TerrainResources(terrain));
-    this.game.addEntity(new TerrainQueryManager());
+    if (useCpu) {
+      this.game.addEntity(new CpuTerrainQueryManager());
+    } else {
+      this.game.addEntity(new TerrainQueryManager());
+    }
 
     // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
@@ -120,12 +138,20 @@ export class GameController extends BaseEntity {
 
     // 4. Water data system (tide, modifiers, GPU buffers, wave sources)
     this.game.addEntity(new WaterResources(waves));
-    this.game.addEntity(new WaterQueryManager());
+    if (useCpu) {
+      this.game.addEntity(new CpuWaterQueryManager());
+    } else {
+      this.game.addEntity(new WaterQueryManager());
+    }
 
     // 5. Wind data systems
     this.game.addEntity(new WindResources(windmeshData, wind));
-    this.game.addEntity(new WindQueryManager());
-    this.game.addEntity(new QueryCoordinator());
+    if (useCpu) {
+      this.game.addEntity(new CpuWindQueryManager());
+    } else {
+      this.game.addEntity(new WindQueryManager());
+    }
+    this.game.addEntity(new GpuQueryCoordinator());
 
     // 6. Visual entities
     const surfaceRenderer = this.game.addEntity(
@@ -135,6 +161,13 @@ export class GameController extends BaseEntity {
 
     // Wait for critical systems before starting gameplay
     await Promise.all([surfaceRenderer.whenReady(), wavePhysics.whenReady()]);
+
+    // CpuQueryCoordinator spawns workers and snapshots world state
+    // (including the packed wave mesh) on onAdd — so it must run AFTER
+    // wavePhysics.whenReady() resolves.
+    if (useCpu) {
+      this.game.addEntity(new CpuQueryCoordinator());
+    }
 
     // Release rendering and start the game
     surfaceRenderer.setEnabled(true);

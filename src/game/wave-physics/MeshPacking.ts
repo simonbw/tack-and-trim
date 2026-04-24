@@ -279,13 +279,12 @@ function buildSpatialGrid(mesh: WavefrontMesh): MeshGridData {
 }
 
 /**
- * Build a packed mesh GPU buffer from wavefront meshes.
- * Returns null if no meshes are provided.
+ * Build the packed wavefront mesh data as a plain Uint32Array.
+ * Used by both the GPU uploader and the CPU query path.
  */
-export function buildPackedMeshBuffer(
-  device: GPUDevice,
+export function buildPackedMeshData(
   meshes: readonly WavefrontMesh[],
-): GPUBuffer {
+): Uint32Array {
   const numWaves = Math.min(meshes.length, MAX_WAVE_SOURCES);
 
   // Build spatial grids for each mesh
@@ -323,8 +322,10 @@ export function buildPackedMeshBuffer(
   }
   totalU32s += totalGridHeaderU32s + totalGridListU32s;
 
-  // Allocate buffer
-  const data = new ArrayBuffer(totalU32s * 4);
+  // Allocate as SharedArrayBuffer so the CPU query worker pool can share
+  // the packed data across workers without per-worker copies. The buffer
+  // can be hundreds of MB on large maps; duplicating would OOM quickly.
+  const data = new SharedArrayBuffer(totalU32s * 4);
   const u32View = new Uint32Array(data);
   const f32View = new Float32Array(data);
 
@@ -409,15 +410,39 @@ export function buildPackedMeshBuffer(
     );
   }
 
-  // Create GPU buffer
-  const buffer = device.createBuffer({
-    size: Math.max(data.byteLength, 64), // min 64 bytes
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    label: "Packed Wavefront Mesh Buffer",
-  });
-  device.queue.writeBuffer(buffer, 0, data);
+  return u32View;
+}
 
+/** Upload a prebuilt packed mesh Uint32Array into a GPUBuffer. */
+export function uploadPackedMeshBuffer(
+  device: GPUDevice,
+  data: Uint32Array,
+  label = "Packed Wavefront Mesh Buffer",
+): GPUBuffer {
+  const buffer = device.createBuffer({
+    size: Math.max(data.byteLength, 64),
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    label,
+  });
+  device.queue.writeBuffer(
+    buffer,
+    0,
+    data.buffer,
+    data.byteOffset,
+    data.byteLength,
+  );
   return buffer;
+}
+
+/**
+ * Build a packed mesh GPU buffer from wavefront meshes. Wraps
+ * `buildPackedMeshData` + `uploadPackedMeshBuffer` for the common case.
+ */
+export function buildPackedMeshBuffer(
+  device: GPUDevice,
+  meshes: readonly WavefrontMesh[],
+): GPUBuffer {
+  return uploadPackedMeshBuffer(device, buildPackedMeshData(meshes));
 }
 
 // ---------------------------------------------------------------------------
@@ -538,18 +563,27 @@ function logBufferStats(
 }
 
 /**
+ * Placeholder packed mesh data (no wave sources). SAB-backed for
+ * consistency with the populated path.
+ */
+export function createPlaceholderPackedMeshData(): Uint32Array {
+  const sab = new SharedArrayBuffer(
+    GLOBAL_HEADER_U32S * Uint32Array.BYTES_PER_ELEMENT,
+  );
+  const data = new Uint32Array(sab);
+  data[0] = 0; // numWaveSources = 0
+  return data;
+}
+
+/**
  * Create a placeholder packed mesh buffer with numWaveSources = 0.
  */
 export function createPlaceholderPackedMeshBuffer(
   device: GPUDevice,
 ): GPUBuffer {
-  const buffer = device.createBuffer({
-    size: 64,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    label: "Placeholder Packed Mesh Buffer",
-  });
-  const data = new Uint32Array(GLOBAL_HEADER_U32S);
-  data[0] = 0; // numWaveSources = 0
-  device.queue.writeBuffer(buffer, 0, data);
-  return buffer;
+  return uploadPackedMeshBuffer(
+    device,
+    createPlaceholderPackedMeshData(),
+    "Placeholder Packed Mesh Buffer",
+  );
 }

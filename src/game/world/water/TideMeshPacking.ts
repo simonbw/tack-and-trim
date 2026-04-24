@@ -43,9 +43,7 @@ function f32AsU32(f: number): number {
   return new Uint32Array(buf.buffer)[0];
 }
 
-export function packTideMeshBuffer(
-  data: TideMeshFileData,
-): Uint32Array<ArrayBuffer> {
+export function packTideMeshBuffer(data: TideMeshFileData): Uint32Array {
   const {
     tideLevels,
     vertexPositions,
@@ -80,7 +78,9 @@ export function packTideMeshBuffer(
     gridHeaderU32s +
     gridListU32s;
 
-  const buffer = new ArrayBuffer(totalU32s * 4);
+  // SAB-backed so the CPU query worker pool can share without per-worker
+  // copies.
+  const buffer = new SharedArrayBuffer(totalU32s * 4);
   const u32View = new Uint32Array(buffer);
   const f32View = new Float32Array(buffer);
 
@@ -165,8 +165,12 @@ export function packTideMeshBuffer(
   return new Uint32Array(buffer);
 }
 
-export function createPlaceholderTideMeshBuffer(): Uint32Array<ArrayBuffer> {
-  const buffer = new Uint32Array(HEADER_U32S);
+export function createPlaceholderTideMeshBuffer(): Uint32Array {
+  // SAB-backed for consistency with the populated path.
+  const sab = new SharedArrayBuffer(
+    HEADER_U32S * Uint32Array.BYTES_PER_ELEMENT,
+  );
+  const buffer = new Uint32Array(sab);
   // All zeros: tideLevelCount=0, vertexCount=0, triangleCount=0, etc.
   return buffer;
 }

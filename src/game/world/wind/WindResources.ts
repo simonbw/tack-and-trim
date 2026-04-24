@@ -13,8 +13,9 @@ import type { WindConfig } from "./WindSource";
 import { DEFAULT_WIND_CONFIG } from "./WindSource";
 import { MAX_WIND_SOURCES } from "./WindConstants";
 import {
-  buildPackedWindMeshBuffer,
-  createPlaceholderPackedWindMeshBuffer,
+  buildPackedWindMeshData,
+  createPlaceholderPackedWindMeshData,
+  uploadPackedWindMeshBuffer,
 } from "../../wind/WindMeshPacking";
 
 /**
@@ -33,6 +34,7 @@ export class WindResources extends BaseEntity {
   private windMeshData?: WindMeshFileBundle;
   private windConfig: WindConfig;
   private packedWindMeshBuffer: GPUBuffer | null = null;
+  private packedWindMeshRaw: Uint32Array | null = null;
   private sourceWeights: number[];
 
   constructor(windMeshData?: WindMeshFileBundle, windConfig?: WindConfig) {
@@ -51,18 +53,25 @@ export class WindResources extends BaseEntity {
   @on("add")
   onAdd(): void {
     const device = this.game.getWebGPUDevice();
-    if (this.windMeshData) {
-      this.packedWindMeshBuffer = buildPackedWindMeshBuffer(
-        device,
-        this.windMeshData,
-      );
-    } else {
-      this.packedWindMeshBuffer = createPlaceholderPackedWindMeshBuffer(device);
-    }
+    this.packedWindMeshRaw = this.windMeshData
+      ? buildPackedWindMeshData(this.windMeshData)
+      : createPlaceholderPackedWindMeshData();
+    this.packedWindMeshBuffer = uploadPackedWindMeshBuffer(
+      device,
+      this.packedWindMeshRaw,
+    );
   }
 
   getPackedWindMeshBuffer(): GPUBuffer {
     return this.packedWindMeshBuffer!;
+  }
+
+  /**
+   * Raw CPU-side view of the packed wind mesh. Used by the CPU query
+   * backend (worker reads from this via SAB or a postMessage copy).
+   */
+  getPackedWindMeshRaw(): Uint32Array {
+    return this.packedWindMeshRaw!;
   }
 
   getWindMeshData(): WindMeshFileBundle | undefined {

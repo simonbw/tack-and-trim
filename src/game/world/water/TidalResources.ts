@@ -28,7 +28,7 @@ export class TidalResources extends BaseEntity {
   id = "tidalResources";
   tickLayer = "query" as const;
 
-  private packedBuffer: Uint32Array<ArrayBuffer>;
+  private packedBuffer: Uint32Array;
   private gpuBuffer: GPUBuffer | null = null;
   private tidalPhase: number = 0;
   private tidalStrength: number = 1.5; // ft/s max current speed
@@ -61,9 +61,23 @@ export class TidalResources extends BaseEntity {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         label: "tidemesh-packed",
       });
-      device.queue.writeBuffer(this.gpuBuffer, 0, this.packedBuffer);
+      device.queue.writeBuffer(
+        this.gpuBuffer,
+        0,
+        this.packedBuffer.buffer,
+        this.packedBuffer.byteOffset,
+        this.packedBuffer.byteLength,
+      );
     }
     return this.gpuBuffer;
+  }
+
+  /**
+   * Raw CPU-side Uint32Array view of the packed tide mesh data. Used by
+   * the CPU query backend.
+   */
+  getPackedTideMeshRaw(): Uint32Array {
+    return this.packedBuffer;
   }
 
   /**

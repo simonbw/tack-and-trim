@@ -57,8 +57,11 @@ export function packTerrainBuffer(gpuData: {
   const packedSize =
     idwGridDataOffset + idwGridData.length + lookupGridData.length;
 
-  const packed = new Uint32Array(packedSize);
-  const packedFloat = new Float32Array(packed.buffer);
+  // Back with SharedArrayBuffer so the CPU query worker pool can share
+  // the packed data across workers without per-worker copies.
+  const sab = new SharedArrayBuffer(packedSize * Uint32Array.BYTES_PER_ELEMENT);
+  const packed = new Uint32Array(sab);
+  const packedFloat = new Float32Array(sab);
 
   // Write header
   packed[0] = verticesOffset;
@@ -136,6 +139,13 @@ export class TerrainResources extends BaseEntity {
   // Single packed GPU buffer for all terrain data
   packedTerrainBuffer!: GPUBuffer;
 
+  /**
+   * Raw CPU-side view of the packed terrain data — identical bytes to
+   * what's uploaded to `packedTerrainBuffer`. Used by the CPU query
+   * backend. Updated on each upload.
+   */
+  private packedTerrainRaw: Uint32Array | null = null;
+
   // Terrain definition (normalized to CCW winding)
   private terrainDefinition: TerrainDefinition;
 
@@ -196,9 +206,24 @@ export class TerrainResources extends BaseEntity {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: "Packed Terrain Buffer",
     });
-    device.queue.writeBuffer(this.packedTerrainBuffer, 0, packed.buffer);
+    device.queue.writeBuffer(
+      this.packedTerrainBuffer,
+      0,
+      packed.buffer,
+      packed.byteOffset,
+      packed.byteLength,
+    );
+    this.packedTerrainRaw = packed;
 
     this.contourCount = gpuData.contourCount;
+  }
+
+  /**
+   * Raw CPU-side Uint32Array view of the packed terrain data. Used by
+   * the CPU query backend (copied into each worker at init).
+   */
+  getPackedTerrainRaw(): Uint32Array {
+    return this.packedTerrainRaw!;
   }
 
   /**

@@ -92,7 +92,8 @@ test("game initializes, shows main menu, and starts without errors", async ({
   await expect(pauseMenu.locator(".pause-menu__actions")).toHaveCount(0);
 
   // --- Assertion: Back button returns to pause menu, still paused ---
-  // Settings has two focusable buttons (the MSAA toggle, then Back).
+  // Settings has three focusable buttons: MSAA toggle, Query Backend, Back.
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await expect(settings).not.toBeVisible({ timeout: 2000 });

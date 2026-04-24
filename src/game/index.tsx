@@ -17,6 +17,10 @@ import { GameController } from "./GameController";
 import { GamePreloader } from "./GamePreloader";
 import { PhysicsValidator } from "./PhysicsValidator";
 import { createSimulationStatsPanel } from "./stats/SimulationStatsPanel";
+import {
+  runQueryParityCheck,
+  type ParityReport,
+} from "./world/query/QueryParity";
 
 // Do this so we can access the game from the console
 declare global {
@@ -25,6 +29,7 @@ declare global {
       game?: Game;
       gameStarted?: boolean;
       toggleMSAA?: () => void;
+      runQueryParityCheck?: () => Promise<ParityReport>;
     };
   }
 }
@@ -54,7 +59,11 @@ async function main() {
   });
   game.setGpuTimingEnabled(true);
   // Make the game accessible from the console
-  window.DEBUG = { game, toggleMSAA };
+  window.DEBUG = {
+    game,
+    toggleMSAA,
+    runQueryParityCheck: () => runQueryParityCheck(game),
+  };
 
   // Clean up resources when the page is unloaded
   window.addEventListener("beforeunload", () => game.destroy());

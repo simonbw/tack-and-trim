@@ -1,10 +1,10 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import { profile } from "../../../core/util/Profiler";
-import { QueryManager } from "./QueryManager";
+import { GpuQueryManager } from "./GpuQueryManager";
 
 /**
- * Batches all QueryManager GPU dispatches onto a single command encoder
+ * Batches all GpuQueryManager GPU dispatches onto a single command encoder
  * with a single queue.submit() call, reducing CPU overhead from three
  * separate submits.
  *
@@ -12,19 +12,22 @@ import { QueryManager } from "./QueryManager";
  * so this does not enable GPU parallelism between query dispatches.
  * Each manager still creates its own compute pass with its own GPU
  * timestamps for profiling.
+ *
+ * This coordinator is GPU-specific — a CPU/worker query backend will use
+ * its own coordination mechanism (shared-memory atomics, worker pool).
  */
-export class QueryCoordinator extends BaseEntity {
-  id = "queryCoordinator";
+export class GpuQueryCoordinator extends BaseEntity {
+  id = "gpuQueryCoordinator";
   tickLayer = "query" as const;
 
-  private managers: QueryManager[] = [];
+  private managers: GpuQueryManager[] = [];
 
   @on("add")
   onAdd(): void {
     for (const entity of this.game.entities.getTagged("queryManager")) {
-      const manager = entity as QueryManager;
-      manager.coordinated = true;
-      this.managers.push(manager);
+      if (!(entity instanceof GpuQueryManager)) continue;
+      entity.coordinated = true;
+      this.managers.push(entity);
     }
   }
 
@@ -45,7 +48,7 @@ export class QueryCoordinator extends BaseEntity {
     // Phase 2: Record all compute dispatches and copies on one encoder
     const device = this.game.getWebGPUDevice();
     const commandEncoder = device.createCommandEncoder({
-      label: "QueryCoordinator Batch",
+      label: "GpuQueryCoordinator Batch",
     });
 
     for (let i = 0; i < this.managers.length; i++) {

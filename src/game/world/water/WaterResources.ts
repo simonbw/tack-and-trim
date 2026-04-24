@@ -81,8 +81,19 @@ export class WaterResources extends BaseEntity {
   // Wave configuration
   private waveConfig: WaveConfig;
 
-  // CPU-side modifier data array for packing before upload
+  /**
+   * CPU-side modifier data array for packing before upload. Backed by a
+   * SharedArrayBuffer so the CPU query worker can read live updates each
+   * frame without a copy.
+   */
   private modifierData!: Float32Array;
+  private modifierDataSab!: SharedArrayBuffer;
+
+  /**
+   * Wave source parameters as a Float32Array (8 floats per source).
+   * Built once at onAdd — wave sources are level-immutable.
+   */
+  private waveSourceData!: Float32Array;
 
   // Current modifier count (updated each frame)
   private modifierCount: number = 0;
@@ -102,23 +113,48 @@ export class WaterResources extends BaseEntity {
   onAdd({ game }: GameEventMap["add"]): void {
     const device = game.getWebGPUDevice();
     // Create wave data storage buffer (static, uploaded once)
-    const waveData = buildWaveDataFromSources(this.waveConfig.sources);
+    this.waveSourceData = buildWaveDataFromSources(this.waveConfig.sources);
     this.waveDataBuffer = device.createBuffer({
-      size: waveData.byteLength,
+      size: this.waveSourceData.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: "Water Wave Data Buffer (Shared)",
       mappedAtCreation: true,
     });
-    new Float32Array(this.waveDataBuffer.getMappedRange()).set(waveData);
+    new Float32Array(this.waveDataBuffer.getMappedRange()).set(
+      this.waveSourceData,
+    );
     this.waveDataBuffer.unmap();
 
-    // Create modifiers storage buffer (dynamic, updated each frame)
-    this.modifierData = new Float32Array(MAX_MODIFIERS * FLOATS_PER_MODIFIER);
+    // Modifier buffer: SAB-backed so the CPU query worker can read it
+    // live each frame. GPU uploads happen via `device.queue.writeBuffer`
+    // as before — that function copies into GPU memory regardless of
+    // whether the source is a SAB or a plain ArrayBuffer.
+    this.modifierDataSab = new SharedArrayBuffer(
+      MAX_MODIFIERS * FLOATS_PER_MODIFIER * Float32Array.BYTES_PER_ELEMENT,
+    );
+    this.modifierData = new Float32Array(this.modifierDataSab);
     this.modifiersBuffer = device.createBuffer({
       size: this.modifierData.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: "Water Modifiers Buffer (Shared)",
     });
+  }
+
+  /**
+   * SAB-backed view of the current frame's modifier data. Handed to the
+   * query worker pool; readers see updates as soon as `updateModifiers`
+   * writes them each frame.
+   */
+  getModifierDataSab(): SharedArrayBuffer {
+    return this.modifierDataSab;
+  }
+
+  /**
+   * Wave source parameters as a Float32Array (8 floats per source).
+   * Level-immutable.
+   */
+  getWaveSourceData(): Float32Array {
+    return this.waveSourceData;
   }
 
   /**

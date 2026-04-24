@@ -9,8 +9,51 @@ Each subsystem (terrain, water, wind) follows a three-layer pattern:
 | Layer                   | Role                                          | Example             |
 | ----------------------- | --------------------------------------------- | ------------------- |
 | **Resources** entity    | Owns GPU buffers, uploads data                | `WaterResources`    |
-| **QueryManager** entity | Runs GPU compute pipeline, delivers results   | `WaterQueryManager` |
+| **QueryManager** entity | Runs the compute pipeline, delivers results   | `WaterQueryManager` |
 | **Query** entity        | Declares sample points, exposes typed results | `WaterQuery`        |
+
+The `QueryManager` base class (in `query/QueryManager.ts`) is
+backend-independent — it handles query discovery, point collection, and
+result distribution via zero-copy views. There are two backends:
+
+- **GPU** (`GpuQueryManager` + `GpuQueryCoordinator`): WebGPU compute
+  dispatch with double-buffered readback. Concrete managers are
+  `WaterQueryManager`, `TerrainQueryManager`, `WindQueryManager`. The
+  coordinator batches all GPU dispatches onto a single command encoder.
+- **CPU** (`CpuQueryManager` + `CpuQueryCoordinator`): web-worker pool
+  sharing SABs for points, results, params, and frame-mutable state, with
+  (copied-at-init) world state. Concrete managers: `CpuTerrainQueryManager`,
+  `CpuWaterQueryManager`, `CpuWindQueryManager`. The coordinator batches
+  all CPU managers onto one generation bump per frame. Worker count
+  defaults to `max(hardwareConcurrency - 4, 2)` to leave cores for the
+  cloth worker pool and compositor. Each channel holds its own
+  `worldState` (immutable, e.g. packed mesh) and optional `frameStateSab`
+  (mutable, e.g. water modifier data) — dispatch functions can also read
+  other channels' worldState when cross-referencing is needed (water
+  reads terrain for depth sampling).
+
+User preference lives in `query/QueryBackendState.ts` (persisted to
+localStorage). Switching takes effect on next level load. Consumers of
+queries (e.g., `WaterQuery`, `WindQuery`) don't know or care which
+backend is active — the `BaseQuery` contract is identical.
+
+The CPU math modules (`wind-math.ts`, `wind-mesh-math.ts`,
+`terrain-math.ts`, etc.) are the TypeScript ports of the WGSL shaders.
+They live in `query/` so the worker can import them without pulling in
+main-thread-only code.
+
+### Backend parity check
+
+`query/QueryParity.ts` drives a runtime side-by-side comparison of the
+two backends. It installs throwaway queries, waits for the GPU pipeline
+to return, and re-runs the CPU math modules against the same snapshot of
+dispatch uniforms + packed buffers. The GPU managers store a
+`lastCompletedDispatchParams` snapshot (promoted in `onResultsReady`)
+specifically so the harness can correlate query results to the exact
+uniforms that produced them. Invoked from `tests/query-parity.spec.ts`
+via `window.DEBUG.runQueryParityCheck()`. See the spec for the known
+divergences (near-flat water normal sign-flips, f32-vs-f64 simplex
+drift in wind) that the tolerances accept.
 
 Game entities create a Query, add it to the game, and read results each frame. Everything else is automatic -- query discovery, GPU dispatch, and result delivery happen without manual registration.
 

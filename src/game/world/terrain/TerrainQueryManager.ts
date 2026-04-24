@@ -2,7 +2,7 @@ import { on } from "../../../core/entity/handler";
 import type { ComputeShader } from "../../../core/graphics/webgpu/ComputeShader";
 
 import { BaseQuery } from "../query/BaseQuery";
-import { QueryManager } from "../query/QueryManager";
+import { GpuQueryManager } from "../query/GpuQueryManager";
 import { DEFAULT_DEPTH } from "./TerrainConstants";
 import { TerrainQuery } from "./TerrainQuery";
 import { TerrainResultLayout } from "./TerrainQueryResult";
@@ -19,13 +19,42 @@ const MAX_TERRAIN_QUERIES = 2 ** 15;
  *
  * Handles GPU-accelerated terrain sampling for height, normals, and terrain type.
  */
-export class TerrainQueryManager extends QueryManager {
+/**
+ * Snapshot of the parameters the GPU used on its most recent dispatch.
+ * Populated at the end of `dispatchCompute`. Consumed by the CPU/GPU
+ * parity check, which replays the same math on the CPU and diffs.
+ */
+export interface TerrainDispatchParams {
+  contourCount: number;
+  defaultDepth: number;
+  /** Reference to the packed buffer that was bound — not a copy. */
+  packedTerrain: Uint32Array;
+}
+
+export class TerrainQueryManager extends GpuQueryManager {
   id = "terrainQueryManager";
   tickLayer = "query" as const;
 
   private queryShader: ComputeShader | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private uniforms = TerrainQueryUniforms.create();
+
+  /**
+   * Snapshot of the params used by the most recently *completed* dispatch
+   * — i.e., the dispatch that produced the results currently visible to
+   * queries. Promoted from `pendingDispatchParams` in `onResultsReady`.
+   *
+   * Null until at least one dispatch has fully round-tripped.
+   */
+  lastCompletedDispatchParams: TerrainDispatchParams | null = null;
+
+  /** Snapshot of the most recent dispatch; not yet reflected in results. */
+  private pendingDispatchParams: TerrainDispatchParams | null = null;
+
+  protected override onResultsReady(): void {
+    this.lastCompletedDispatchParams = this.pendingDispatchParams;
+    this.pendingDispatchParams = null;
+  }
 
   constructor() {
     super(TerrainResultLayout, MAX_TERRAIN_QUERIES);
@@ -59,11 +88,18 @@ export class TerrainQueryManager extends QueryManager {
 
     const terrainResources = this.game.entities.getSingleton(TerrainResources);
 
+    const contourCount = terrainResources.getContourCount();
     this.uniforms.set.pointCount(pointCount);
-    this.uniforms.set.contourCount(terrainResources.getContourCount());
+    this.uniforms.set.contourCount(contourCount);
     this.uniforms.set.defaultDepth(DEFAULT_DEPTH);
     this.uniforms.set._padding(0);
     this.uniforms.uploadTo(this.uniformBuffer);
+
+    this.pendingDispatchParams = {
+      contourCount,
+      defaultDepth: DEFAULT_DEPTH,
+      packedTerrain: terrainResources.getPackedTerrainRaw(),
+    };
 
     const bindGroup = this.queryShader.createBindGroup({
       params: { buffer: this.uniformBuffer },

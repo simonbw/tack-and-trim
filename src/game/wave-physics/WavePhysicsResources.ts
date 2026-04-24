@@ -82,6 +82,14 @@ export class WavePhysicsResources extends BaseEntity {
   }
 
   /**
+   * Raw CPU-side Uint32Array view of the packed wavefront mesh data.
+   * Used by the CPU query backend.
+   */
+  getPackedMeshRaw(): Uint32Array | null {
+    return this.wavePhysicsManager?.getPackedMeshRaw() ?? null;
+  }
+
+  /**
    * Get the rasterizer for rendering meshes to screen-space texture.
    */
   getRasterizer(): WavefrontRasterizer | null {

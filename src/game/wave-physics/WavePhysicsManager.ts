@@ -9,8 +9,9 @@
 
 import type { WaveSource } from "../world/water/WaveSource";
 import {
-  buildPackedMeshBuffer,
-  createPlaceholderPackedMeshBuffer,
+  buildPackedMeshData,
+  createPlaceholderPackedMeshData,
+  uploadPackedMeshBuffer,
 } from "./MeshPacking";
 import { WavefrontMesh } from "./WavefrontMesh";
 import { WavefrontRasterizer } from "./WavefrontRasterizer";
@@ -35,6 +36,12 @@ export class WavePhysicsManager {
 
   /** Packed mesh buffer for query shader lookup */
   private packedMeshBuffer: GPUBuffer | null = null;
+
+  /**
+   * Raw CPU-side view of the packed mesh data — identical bytes to what's
+   * uploaded to `packedMeshBuffer`. Used by the CPU query backend.
+   */
+  private packedMeshRaw: Uint32Array | null = null;
 
   /** Rasterizer for rendering meshes to screen-space texture */
   private rasterizer: WavefrontRasterizer;
@@ -146,6 +153,14 @@ export class WavePhysicsManager {
   }
 
   /**
+   * Raw CPU-side Uint32Array view of the packed mesh data. Used by the
+   * CPU query backend. Returns null if no active meshes (placeholder path).
+   */
+  getPackedMeshRaw(): Uint32Array | null {
+    return this.packedMeshRaw;
+  }
+
+  /**
    * Get the rasterizer for rendering meshes to screen-space texture.
    */
   getRasterizer(): WavefrontRasterizer {
@@ -181,11 +196,14 @@ export class WavePhysicsManager {
   private rebuildPackedMeshBuffer(): void {
     this.packedMeshBuffer?.destroy();
     const meshes = this.getActiveMeshes();
-    if (meshes.length > 0) {
-      this.packedMeshBuffer = buildPackedMeshBuffer(this.device, meshes);
-    } else {
-      this.packedMeshBuffer = createPlaceholderPackedMeshBuffer(this.device);
-    }
+    this.packedMeshRaw =
+      meshes.length > 0
+        ? buildPackedMeshData(meshes)
+        : createPlaceholderPackedMeshData();
+    this.packedMeshBuffer = uploadPackedMeshBuffer(
+      this.device,
+      this.packedMeshRaw,
+    );
   }
 
   /**

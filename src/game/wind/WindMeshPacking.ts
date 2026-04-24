@@ -171,10 +171,13 @@ function buildSpatialGrid(
   return cellTriLists.map((list) => new Uint32Array(list));
 }
 
-export function buildPackedWindMeshBuffer(
-  device: GPUDevice,
+/**
+ * Build the packed wind mesh data as a plain Uint32Array.
+ * Used by both the GPU uploader and the CPU query path.
+ */
+export function buildPackedWindMeshData(
   bundle: WindMeshFileBundle,
-): GPUBuffer {
+): Uint32Array {
   const numSources = Math.min(bundle.sourceCount, MAX_WIND_SOURCES);
   const {
     gridCols,
@@ -229,7 +232,9 @@ export function buildPackedWindMeshBuffer(
   }
   totalU32s += sharedIndexU32s;
 
-  const data = new ArrayBuffer(totalU32s * 4);
+  // SAB-backed so the CPU query worker pool can share without per-worker
+  // copies.
+  const data = new SharedArrayBuffer(totalU32s * 4);
   const u32View = new Uint32Array(data);
   const f32View = new Float32Array(data);
 
@@ -309,26 +314,53 @@ export function buildPackedWindMeshBuffer(
     }
   }
 
+  return u32View;
+}
+
+/** Upload a prebuilt packed wind mesh Uint32Array into a GPUBuffer. */
+export function uploadPackedWindMeshBuffer(
+  device: GPUDevice,
+  data: Uint32Array,
+  label = "Packed Wind Mesh Buffer",
+): GPUBuffer {
   const buffer = device.createBuffer({
     size: Math.max(data.byteLength, 64),
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    label: "Packed Wind Mesh Buffer",
+    label,
   });
-  device.queue.writeBuffer(buffer, 0, data);
-
+  device.queue.writeBuffer(
+    buffer,
+    0,
+    data.buffer,
+    data.byteOffset,
+    data.byteLength,
+  );
   return buffer;
+}
+
+export function buildPackedWindMeshBuffer(
+  device: GPUDevice,
+  bundle: WindMeshFileBundle,
+): GPUBuffer {
+  return uploadPackedWindMeshBuffer(device, buildPackedWindMeshData(bundle));
+}
+
+/** Placeholder packed wind mesh (no sources). SAB-backed. */
+export function createPlaceholderPackedWindMeshData(): Uint32Array {
+  const sab = new SharedArrayBuffer(
+    GLOBAL_HEADER_U32S * Uint32Array.BYTES_PER_ELEMENT,
+  );
+  const data = new Uint32Array(sab);
+  data[0] = 0; // numWindSources = 0
+  return data;
 }
 
 export function createPlaceholderPackedWindMeshBuffer(
   device: GPUDevice,
 ): GPUBuffer {
-  const buffer = device.createBuffer({
-    size: GLOBAL_HEADER_U32S * 4,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    label: "Placeholder Packed Wind Mesh Buffer",
-  });
-  const data = new Uint32Array(GLOBAL_HEADER_U32S);
-  data[0] = 0; // numWindSources = 0
-  device.queue.writeBuffer(buffer, 0, data);
-  return buffer;
+  return uploadPackedWindMeshBuffer(
+    device,
+    createPlaceholderPackedWindMeshData(),
+    "Placeholder Packed Wind Mesh Buffer",
+  );
 }

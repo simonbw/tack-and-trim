@@ -6,6 +6,10 @@ import {
   getMasterVolume,
   setMasterVolume,
 } from "../core/sound/MasterVolumeState";
+import {
+  getQueryBackend,
+  setQueryBackend,
+} from "./world/query/QueryBackendState";
 import "./SettingsPanel.css";
 
 interface Props {
@@ -17,6 +21,7 @@ interface Props {
 export function SettingsPanel({ onBack, onChange }: Props) {
   const msaa = isMSAAEnabled();
   const volume = getMasterVolume();
+  const queryBackend = getQueryBackend();
   return (
     <div class="settings-panel">
       <div class="settings-panel__title">Settings</div>
@@ -51,6 +56,19 @@ export function SettingsPanel({ onBack, onChange }: Props) {
           </span>
           <span class="settings-panel__option-value">
             {msaa ? "On" : "Off"}
+          </span>
+        </button>
+        <button
+          class="settings-panel__option"
+          onClick={() => {
+            setQueryBackend(queryBackend === "gpu" ? "cpu" : "gpu");
+            onChange();
+          }}
+          title="Requires reloading the level to take effect"
+        >
+          <span class="settings-panel__option-label">Query Backend</span>
+          <span class="settings-panel__option-value">
+            {queryBackend === "gpu" ? "GPU" : "CPU"}
           </span>
         </button>
       </div>
