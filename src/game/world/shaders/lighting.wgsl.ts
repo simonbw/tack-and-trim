@@ -21,21 +21,6 @@ export const fn_waterSurfaceLight: ShaderModule = {
     //    ≈ 0.0204. Real ocean water at normal incidence reflects ~2%.
     const WATER_F0: f32 = 0.02;
 
-    // Effective sun radiance relative to the tone-mapped sky color. In
-    // reality the sun's disc is ~10^4× the sky's luminance; in LDR we
-    // need an explicit scale factor so specular sparkles are visible
-    // against the already-bright sky. This is the one "HDR compensation"
-    // knob in the otherwise-physical surface model.
-    const SUN_INTENSITY: f32 = 12.0;
-
-    // Surface micro-roughness controls how wide the sun glint lobe is.
-    // Real water has tiny ripples from wind that spread the mirror
-    // reflection over a much wider angle than a perfectly flat surface.
-    // Smaller = wider, more sparkle; larger = sharper point highlight.
-    // 64 is broad enough that gentle wave slopes light up visibly when
-    // viewed from above.
-    const WATER_SPECULAR_POWER: f32 = 64.0;
-
     // Schlick Fresnel approximation. 'facing' is dot(normal, viewDir).
     fn waterFresnel(facing: f32) -> f32 {
       let f = clamp(facing, 0.0, 1.0);
@@ -43,31 +28,50 @@ export const fn_waterSurfaceLight: ShaderModule = {
     }
 
     // Composite surface lighting: energy-conserving mix of transmitted
-    // light and sky reflection via Fresnel, plus direct sun specular.
+    // light and a reflection-vector-derived sky color via Fresnel, plus
+    // direct sun specular.
     //
-    //   base = (1 - F) * transmitted + F * sky
-    //   spec = F * SUN_INTENSITY * sunColor * pow(n·h, SPECULAR_POWER)
-    //   out  = base + spec
+    //   reflDir   = reflect(-viewDir, normal)
+    //   pixelSky  = mix(zenithSky, horizonSky, 1 - reflDir.z)
+    //   base      = (1 - F) * transmitted + F * pixelSky
+    //   spec      = F * SUN_INTENSITY * sunColor * pow(n·h, specularPower)
+    //   out       = base + spec
     //
-    // The specular term scales by F so the Fresnel response still shapes
-    // the highlight (brighter toward grazing angles), but SUN_INTENSITY
-    // compensates for LDR so sparkles are actually visible.
+    // The two-tone sky picks horizon color when the wave face tilts
+    // sideways (reflection points toward horizon → warmer, brighter)
+    // and zenith color when the surface is flat (reflection straight up
+    // → cooler, deeper blue).
+    //
+    // specularPower controls the sun glint lobe width and varies per pixel
+    // with local wind speed: low wind → mirror-sharp (~512), high wind →
+    // broad scattered glare (~16). See WaterFilterShader.ts.
     fn waterSurfaceLight(
       normal: vec3<f32>,
       viewDir: vec3<f32>,
       transmitted: vec3<f32>,
       sunDir: vec3<f32>,
       sunColor: vec3<f32>,
-      skyColor: vec3<f32>,
+      zenithSkyColor: vec3<f32>,
+      horizonSkyColor: vec3<f32>,
+      specularPower: f32,
+      sunIntensity: f32,
     ) -> vec3<f32> {
       let facing = max(dot(normal, viewDir), 0.0);
       let F = waterFresnel(facing);
 
-      let base = mix(transmitted, skyColor, F);
+      // Two-tone sky: zenithward reflection → cool blue, horizonward
+      // reflection → warm bright. reflect() flips the incoming -viewDir
+      // about the normal; reflDir.z is +1 for a flat surface and falls
+      // toward 0 as the wave face tilts.
+      let reflDir = reflect(-viewDir, normal);
+      let zenithFactor = clamp(reflDir.z, 0.0, 1.0);
+      let pixelSkyColor = mix(horizonSkyColor, zenithSkyColor, zenithFactor);
+
+      let base = mix(transmitted, pixelSkyColor, F);
 
       let halfway = normalize(sunDir + viewDir);
       let specAngle = max(dot(normal, halfway), 0.0);
-      let specular = pow(specAngle, WATER_SPECULAR_POWER) * F * SUN_INTENSITY;
+      let specular = pow(specAngle, specularPower) * F * sunIntensity;
 
       return base + sunColor * specular;
     }

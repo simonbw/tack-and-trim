@@ -22,6 +22,11 @@ export const SCENE_LIGHTING_FIELDS = {
   sunColor: vec3,
   sunDirection: vec3,
   skyColor: vec3,
+  // Warmer/brighter horizon variant of skyColor. Real skies redden toward
+  // the horizon (longer atmospheric path → more Rayleigh scattering) and
+  // are deepest blue at zenith. Shaders interpolate between these two
+  // based on the reflection vector's z component.
+  horizonSkyColor: vec3,
 } as const;
 
 /**
@@ -37,6 +42,7 @@ export const SCENE_LIGHTING_WGSL_FIELDS = /*wgsl*/ `
   sunColor: vec3<f32>,
   sunDirection: vec3<f32>,
   skyColor: vec3<f32>,
+  horizonSkyColor: vec3<f32>,
 `;
 
 /** Setter surface that any uniform including the scene-lighting fields exposes. */
@@ -44,6 +50,7 @@ export interface SceneLightingSetters {
   sunColor: (v: readonly [number, number, number]) => void;
   sunDirection: (v: readonly [number, number, number]) => void;
   skyColor: (v: readonly [number, number, number]) => void;
+  horizonSkyColor: (v: readonly [number, number, number]) => void;
 }
 
 /**
@@ -56,6 +63,11 @@ const NOON_SUN_DIRECTION: readonly [number, number, number] = [
   0.316, 0.211, 0.925,
 ];
 const NOON_SKY_COLOR: readonly [number, number, number] = [0.5, 0.7, 0.95];
+// Slightly warmer + brighter than zenith — the same hand-tuned tweak the
+// runtime applies (see TimeOfDay.getHorizonSkyColor).
+const NOON_HORIZON_SKY_COLOR: readonly [number, number, number] = [
+  0.7, 0.78, 0.92,
+];
 
 /**
  * Push current scene lighting into a uniform instance.
@@ -73,9 +85,11 @@ export function pushSceneLighting(
     setters.sunColor(timeOfDay.getSunColor());
     setters.sunDirection(timeOfDay.getSunDirection());
     setters.skyColor(timeOfDay.getSkyColor());
+    setters.horizonSkyColor(timeOfDay.getHorizonSkyColor());
   } else {
     setters.sunColor(NOON_SUN_COLOR);
     setters.sunDirection(NOON_SUN_DIRECTION);
     setters.skyColor(NOON_SKY_COLOR);
+    setters.horizonSkyColor(NOON_HORIZON_SKY_COLOR);
   }
 }

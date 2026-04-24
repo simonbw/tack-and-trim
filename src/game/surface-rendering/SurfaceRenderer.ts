@@ -29,6 +29,7 @@ import {
 } from "../wave-physics/WavePhysicsResources";
 import { TerrainResources } from "../world/terrain/TerrainResources";
 import { WaterResources } from "../world/water/WaterResources";
+import { WindResources } from "../world/wind/WindResources";
 import {
   BIOME_BUFFER_SIZE,
   DEFAULT_BIOME_CONFIG,
@@ -46,6 +47,9 @@ import { createWaterFilterShader } from "./WaterFilterShader";
 import { WaterFilterUniforms } from "./WaterFilterUniforms";
 import { createWaterHeightShader } from "./WaterHeightShader";
 import { WaterHeightUniforms } from "./WaterHeightUniforms";
+import { createWindFieldShader } from "./WindFieldShader";
+import { WindFieldUniforms } from "./WindFieldUniforms";
+import { pushWaterTuning } from "./WaterTuning";
 import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
@@ -79,6 +83,7 @@ export class SurfaceRenderer extends BaseEntity {
   // Shaders for each pass
   private terrainScreenShader: ComputeShader | null = null;
   private waterHeightShader: ComputeShader | null = null;
+  private windFieldShader: ComputeShader | null = null;
   private terrainCompositeShader: FullscreenShader | null = null;
   private waterFilterShader: FullscreenShader | null = null;
 
@@ -110,9 +115,16 @@ export class SurfaceRenderer extends BaseEntity {
   private waveFieldTextureView: GPUTextureView | null = null;
   private waveFieldSampler: GPUSampler | null = null;
 
+  // Wind field texture (rgba16float, half-res of surface texture).
+  // Encoding: (velX, velY, speed, 0) in ft/s.
+  private windFieldTexture: GPUTexture | null = null;
+  private windFieldTextureView: GPUTextureView | null = null;
+  private windFieldSampler: GPUSampler | null = null;
+
   // Uniform buffers
   private terrainScreenUniformBuffer: GPUBuffer | null = null;
   private waterHeightUniformBuffer: GPUBuffer | null = null;
+  private windFieldUniformBuffer: GPUBuffer | null = null;
   private terrainCompositeUniformBuffer: GPUBuffer | null = null;
   private waterFilterUniformBuffer: GPUBuffer | null = null;
   private biomeUniformBuffer: GPUBuffer | null = null;
@@ -123,6 +135,9 @@ export class SurfaceRenderer extends BaseEntity {
   > | null = null;
   private waterHeightUniforms: UniformInstance<
     typeof WaterHeightUniforms.fields
+  > | null = null;
+  private windFieldUniforms: UniformInstance<
+    typeof WindFieldUniforms.fields
   > | null = null;
   private terrainCompositeUniforms: UniformInstance<
     typeof TerrainCompositeUniforms.fields
@@ -140,6 +155,8 @@ export class SurfaceRenderer extends BaseEntity {
   // Bind groups (recreated when resources change)
   private terrainScreenBindGroup: GPUBindGroup | null = null;
   private waterHeightBindGroup: GPUBindGroup | null = null;
+  private windFieldBindGroup: GPUBindGroup | null = null;
+  private lastWindMeshBuffer: GPUBuffer | null = null;
   private terrainCompositeBindGroup: GPUBindGroup | null = null;
   private waterFilterBindGroup: GPUBindGroup | null = null;
 
@@ -166,6 +183,7 @@ export class SurfaceRenderer extends BaseEntity {
       // Create shaders
       this.terrainScreenShader = createTerrainScreenShader();
       this.waterHeightShader = createWaterHeightShader();
+      this.windFieldShader = createWindFieldShader();
       this.terrainCompositeShader = createTerrainCompositeShader();
       this.waterFilterShader = createWaterFilterShader();
 
@@ -186,6 +204,7 @@ export class SurfaceRenderer extends BaseEntity {
       await Promise.all([
         this.terrainScreenShader.init(),
         this.waterHeightShader.init(),
+        this.windFieldShader.init(),
         this.terrainCompositeShader.init(),
         this.waterFilterShader.init(),
         this.terrainTileCache.init(),
@@ -203,6 +222,11 @@ export class SurfaceRenderer extends BaseEntity {
         size: WaterHeightUniforms.byteSize,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         label: "Water Height Uniform Buffer",
+      });
+      this.windFieldUniformBuffer = device.createBuffer({
+        size: WindFieldUniforms.byteSize,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: "Wind Field Uniform Buffer",
       });
       this.terrainCompositeUniformBuffer = device.createBuffer({
         size: TerrainCompositeUniforms.byteSize,
@@ -227,6 +251,7 @@ export class SurfaceRenderer extends BaseEntity {
       // Create uniform instances
       this.terrainScreenUniforms = TerrainScreenUniforms.create();
       this.waterHeightUniforms = WaterHeightUniforms.create();
+      this.windFieldUniforms = WindFieldUniforms.create();
       this.terrainCompositeUniforms = TerrainCompositeUniforms.create();
       this.waterFilterUniforms = WaterFilterUniforms.create();
 
@@ -259,6 +284,14 @@ export class SurfaceRenderer extends BaseEntity {
         addressModeU: "clamp-to-edge",
         addressModeV: "clamp-to-edge",
         label: "Modifier Sampler",
+      });
+
+      this.windFieldSampler = device.createSampler({
+        magFilter: "linear",
+        minFilter: "linear",
+        addressModeU: "clamp-to-edge",
+        addressModeV: "clamp-to-edge",
+        label: "Wind Field Sampler",
       });
 
       this.initialized = true;
@@ -311,6 +344,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.waveFieldTexture?.destroy();
     this.modifierTexture?.destroy();
     this.boatAirTexture?.destroy();
+    this.windFieldTexture?.destroy();
 
     // Destroy old wetness pipeline (will be recreated with new size)
     this.wetnessPipeline?.destroy();
@@ -324,9 +358,12 @@ export class SurfaceRenderer extends BaseEntity {
     });
     this.terrainHeightView = this.terrainHeightTexture.createView();
 
-    // Create water height texture (R=height, G=turbulence; B/A unused).
-    // rgba16float rather than rg16float because only rgba16float is a
-    // mandatory WebGPU storage format.
+    // Create water height texture. rgba16float packs 4 channels:
+    // R=height, G=turbulence, B=normalX, A=normalY. The normal is computed
+    // analytically in WaterHeightShader (3-tap finite-diff in world space)
+    // so the filter shader can bilinear-sample a smooth normal field
+    // instead of finite-differencing the height texture (which produces
+    // texel-grid facet artifacts in the specular highlight).
     this.waterHeightTexture = device.createTexture({
       size: { width: texW, height: texH },
       format: "rgba16float",
@@ -374,6 +411,20 @@ export class SurfaceRenderer extends BaseEntity {
       label: "Modifier Texture View",
     });
 
+    // Wind field texture at half-res (wind varies slowly enough that
+    // half-resolution sampling is visually indistinguishable but cheaper).
+    const windW = Math.ceil(texW / 2);
+    const windH = Math.ceil(texH / 2);
+    this.windFieldTexture = device.createTexture({
+      size: { width: windW, height: windH },
+      format: "rgba16float",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      label: "Wind Field Texture",
+    });
+    this.windFieldTextureView = this.windFieldTexture.createView({
+      label: "Wind Field Texture View",
+    });
+
     // Recreate wetness pipeline with new texture size (shares surface layout)
     this.wetnessPipeline = new WetnessRenderPipeline(device, texW, texH);
     this.wetnessPipeline.init();
@@ -384,6 +435,7 @@ export class SurfaceRenderer extends BaseEntity {
     // Force bind group recreation
     this.terrainScreenBindGroup = null;
     this.waterHeightBindGroup = null;
+    this.windFieldBindGroup = null;
     this.terrainCompositeBindGroup = null;
     this.waterFilterBindGroup = null;
   }
@@ -451,6 +503,54 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   /**
+   * Update uniforms for wind field pass. Pulls base velocity + per-source
+   * weights from WindResources. windResources may be null in early frames
+   * before the entity is added; in that case the caller skips the pass.
+   */
+  private updateWindFieldUniforms(
+    texClipToWorld: Matrix3,
+    textureWidth: number,
+    textureHeight: number,
+    currentTime: number,
+    windResources: WindResources | undefined,
+  ): void {
+    if (!this.windFieldUniforms) return;
+
+    this.windFieldUniforms.set.texClipToWorld(texClipToWorld);
+    this.windFieldUniforms.set.textureWidth(textureWidth);
+    this.windFieldUniforms.set.textureHeight(textureHeight);
+    this.windFieldUniforms.set.time(currentTime);
+
+    if (windResources) {
+      const baseWind = windResources.getBaseVelocity();
+      const weights = windResources.getSourceWeights();
+      this.windFieldUniforms.set.baseWindX(baseWind.x);
+      this.windFieldUniforms.set.baseWindY(baseWind.y);
+      this.windFieldUniforms.set.numActiveWindSources(weights.length);
+      this.windFieldUniforms.set.weights0(weights[0] ?? 0);
+      this.windFieldUniforms.set.weights1(weights[1] ?? 0);
+      this.windFieldUniforms.set.weights2(weights[2] ?? 0);
+      this.windFieldUniforms.set.weights3(weights[3] ?? 0);
+      this.windFieldUniforms.set.weights4(weights[4] ?? 0);
+      this.windFieldUniforms.set.weights5(weights[5] ?? 0);
+      this.windFieldUniforms.set.weights6(weights[6] ?? 0);
+      this.windFieldUniforms.set.weights7(weights[7] ?? 0);
+    } else {
+      this.windFieldUniforms.set.baseWindX(0);
+      this.windFieldUniforms.set.baseWindY(0);
+      this.windFieldUniforms.set.numActiveWindSources(0);
+      this.windFieldUniforms.set.weights0(0);
+      this.windFieldUniforms.set.weights1(0);
+      this.windFieldUniforms.set.weights2(0);
+      this.windFieldUniforms.set.weights3(0);
+      this.windFieldUniforms.set.weights4(0);
+      this.windFieldUniforms.set.weights5(0);
+      this.windFieldUniforms.set.weights6(0);
+      this.windFieldUniforms.set.weights7(0);
+    }
+  }
+
+  /**
    * Update uniforms for terrain composite pass.
    */
   private updateTerrainCompositeUniforms(
@@ -514,6 +614,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterFilterUniforms.set.cdom(DEFAULT_CDOM);
     this.waterFilterUniforms.set.sediment(DEFAULT_SEDIMENT);
 
+    pushWaterTuning(this.waterFilterUniforms);
     pushSceneLighting(this.waterFilterUniforms.set, timeOfDay);
   }
 
@@ -598,6 +699,30 @@ export class SurfaceRenderer extends BaseEntity {
     this.lastWaveFieldTextureView = this.waveFieldTextureView;
   }
 
+  private ensureWindFieldBindGroup(windResources: WindResources): void {
+    const windMeshBuffer = windResources.getPackedWindMeshBuffer();
+
+    const needsRebuild =
+      !this.windFieldBindGroup || this.lastWindMeshBuffer !== windMeshBuffer;
+    if (!needsRebuild) return;
+
+    if (
+      !this.windFieldShader ||
+      !this.windFieldUniformBuffer ||
+      !this.windFieldTextureView
+    ) {
+      return;
+    }
+
+    this.windFieldBindGroup = this.windFieldShader.createBindGroup({
+      params: { buffer: this.windFieldUniformBuffer },
+      packedWindMesh: { buffer: windMeshBuffer },
+      outputTexture: this.windFieldTextureView,
+    });
+
+    this.lastWindMeshBuffer = windMeshBuffer;
+  }
+
   /**
    * Rebuild the water filter bind group with current scene color and depth
    * copy views. Called right before the water filter pass.
@@ -612,6 +737,8 @@ export class SurfaceRenderer extends BaseEntity {
       this.waterHeightView &&
       this.heightSampler &&
       this.boatAirTextureView &&
+      this.windFieldTextureView &&
+      this.windFieldSampler &&
       sceneColorView &&
       sceneDepthView
     ) {
@@ -622,6 +749,8 @@ export class SurfaceRenderer extends BaseEntity {
         sceneDepthTexture: sceneDepthView,
         waterHeightTexture: this.waterHeightView,
         heightSampler: this.heightSampler,
+        windFieldTexture: this.windFieldTextureView,
+        windFieldSampler: this.windFieldSampler,
       });
     }
   }
@@ -662,6 +791,7 @@ export class SurfaceRenderer extends BaseEntity {
       this.game.entities.tryGetSingleton(WavePhysicsResources);
     const waterResources = this.game.entities.getSingleton(WaterResources);
     const terrainResources = this.game.entities.getSingleton(TerrainResources);
+    const windResources = this.game.entities.tryGetSingleton(WindResources);
 
     // Ensure intermediate textures
     this.ensureTextures(width, height);
@@ -725,6 +855,15 @@ export class SurfaceRenderer extends BaseEntity {
       texH,
       waterResources,
     );
+    const windTexW = Math.ceil(texW / 2);
+    const windTexH = Math.ceil(texH / 2);
+    this.updateWindFieldUniforms(
+      texClipToWorldMatrix,
+      windTexW,
+      windTexH,
+      currentTime,
+      windResources,
+    );
     this.updateTerrainCompositeUniforms(
       clipToWorldMatrix,
       timeOfDay,
@@ -747,6 +886,7 @@ export class SurfaceRenderer extends BaseEntity {
     // Upload uniforms
     this.terrainScreenUniforms?.uploadTo(this.terrainScreenUniformBuffer!);
     this.waterHeightUniforms?.uploadTo(this.waterHeightUniformBuffer!);
+    this.windFieldUniforms?.uploadTo(this.windFieldUniformBuffer!);
     this.terrainCompositeUniforms?.uploadTo(
       this.terrainCompositeUniformBuffer!,
     );
@@ -754,6 +894,9 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Ensure bind groups
     this.ensureBindGroups(waterResources, terrainAtlasView);
+    if (windResources) {
+      this.ensureWindFieldBindGroup(windResources);
+    }
 
     // === Pass 1: Terrain Screen Compute ===
     // Sample terrain atlas to screen-space texture for water height shader
@@ -771,6 +914,27 @@ export class SurfaceRenderer extends BaseEntity {
         this.terrainScreenBindGroup,
         texW,
         texH,
+      );
+      computePass.end();
+      device.queue.submit([commandEncoder.finish()]);
+    }
+
+    // === Pass 1.25: Wind Field Compute ===
+    // Writes per-texel wind velocity to a half-res screen-space texture
+    // for downstream consumers (water filter ripple shading, whitecaps).
+    if (windResources && this.windFieldShader && this.windFieldBindGroup) {
+      const commandEncoder = device.createCommandEncoder({
+        label: "Wind Field Compute",
+      });
+      const computePass = commandEncoder.beginComputePass({
+        label: "Wind Field Compute Pass",
+        timestampWrites: gpuProfiler?.getComputeTimestampWrites("surface.wind"),
+      });
+      this.windFieldShader.dispatch(
+        computePass,
+        this.windFieldBindGroup,
+        windTexW,
+        windTexH,
       );
       computePass.end();
       device.queue.submit([commandEncoder.finish()]);
@@ -958,6 +1122,7 @@ export class SurfaceRenderer extends BaseEntity {
   onDestroy(): void {
     this.terrainScreenShader?.destroy();
     this.waterHeightShader?.destroy();
+    this.windFieldShader?.destroy();
     this.terrainCompositeShader?.destroy();
     this.waterFilterShader?.destroy();
     this.terrainTileCache?.destroy();
@@ -967,8 +1132,10 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterHeightTexture?.destroy();
     this.waveFieldTexture?.destroy();
     this.modifierTexture?.destroy();
+    this.windFieldTexture?.destroy();
     this.terrainScreenUniformBuffer?.destroy();
     this.waterHeightUniformBuffer?.destroy();
+    this.windFieldUniformBuffer?.destroy();
     this.terrainCompositeUniformBuffer?.destroy();
     this.waterFilterUniformBuffer?.destroy();
     this.biomeUniformBuffer?.destroy();

@@ -11,6 +11,7 @@ import type {
 } from "../../core/physics/body/bodyInterfaces";
 import type { Body } from "../../core/physics/body/Body";
 import { Convex } from "../../core/physics/shapes/Convex";
+import { smoothStep } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import { computeSkinFrictionAtPoint } from "../fluid-dynamics";
 import { LBF_TO_ENGINE, RHO_AIR, RHO_WATER } from "../physics-constants";
@@ -56,6 +57,17 @@ const MIN_FOAM_ACCUM_VOLUME = 0.001; // ft³
 // proportionally so the resulting avgFlux is preserved — we lose the tail
 // of old history, not the current rate.
 const MAX_FOAM_ACCUM_VOLUME = 2.0; // ft³
+
+// Real bows throw an aerated frothy curtain because the forward-facing wedge
+// compresses water and pushes it sideways, while aft/side foam comes from
+// flow separation alone. The bow boost multiplies a separating triangle's
+// avgFlux by up to (1 + BOW_BOOST_MAX) when its centroid sits at the foremost
+// point of the hull, smoothly ramped from midship.
+const BOW_BOOST_MAX = 1.0;
+// Forward speed (ft/s) at which the boost reaches full strength. Below this
+// the boost ramps down to zero — a stationary or barely-moving hull doesn't
+// throw a bow wave.
+const BOW_BOOST_FULL_SPEED = 3.0;
 
 /**
  * Find the bow (foremost) point from hull geometry.
@@ -322,6 +334,10 @@ export class Hull extends BaseEntity {
   // Per-triangle force data (precomputed at construction)
   private forceData: HullForceData;
 
+  // Foremost body-local x of any physics triangle centroid. Used to normalize
+  // the bow-foam boost so the most-forward triangle gets the full boost.
+  private readonly maxForwardCx: number;
+
   /** Enclosed hull volume in cubic feet, computed from mesh geometry via divergence theorem. */
   readonly hullVolume: number;
 
@@ -399,6 +415,15 @@ export class Hull extends BaseEntity {
     // Persistent per-triangle foam accumulators (volume + time since emit).
     this._foamAccumVolume = new Float64Array(this.forceData.count);
     this._foamAccumTime = new Float64Array(this.forceData.count);
+
+    // Cache the foremost triangle centroid x — defines the upper anchor of
+    // the bow-foam boost ramp. Falls back to a small positive value to
+    // avoid division by zero on degenerate hulls.
+    let maxCx = 0;
+    for (let i = 0; i < this.forceData.count; i++) {
+      if (this.forceData.cx[i] > maxCx) maxCx = this.forceData.cx[i];
+    }
+    this.maxForwardCx = Math.max(maxCx, 0.01);
 
     // Compute enclosed hull volume via divergence theorem: V = (1/3) Σ (c · n) * A
     this.hullVolume = computeHullVolume(this.forceData);
@@ -844,6 +869,12 @@ export class Hull extends BaseEntity {
     // over its accumulation period — intensity is calibrated via avgFlux.
     const triCount = fd.count;
     if (triCount > 0) {
+      // Bow-boost speed gate: project world velocity onto the boat's local
+      // forward axis (+X). Below BOW_BOOST_FULL_SPEED the boost ramps down
+      // smoothly, and at zero or reverse speed it disappears entirely.
+      const forwardSpeed = body.velocity[0] * R[0] + body.velocity[1] * R[3];
+      const speedGate = smoothStep(forwardSpeed / BOW_BOOST_FULL_SPEED);
+
       let emitted = 0;
       let scanned = 0;
       while (emitted < FOAM_EMISSIONS_PER_TICK && scanned < triCount) {
@@ -862,6 +893,11 @@ export class Hull extends BaseEntity {
           const centroidWorld = body.toWorldFrame(V(localX, localY));
           const halfWidth = Math.max(Math.sqrt(fd.area[idx]), 0.5);
 
+          // Bow boost: ramp from midship (cx=0) to the foremost triangle
+          // (cx=maxForwardCx). Aft-of-midship triangles get no boost.
+          const bowFrac = smoothStep(localX / this.maxForwardCx);
+          const boost = 1 + BOW_BOOST_MAX * bowFrac * speedGate;
+
           while (this._foamSources.length <= this._foamSourceCount) {
             this._foamSources.push({
               worldX: 0,
@@ -874,7 +910,7 @@ export class Hull extends BaseEntity {
           const src = this._foamSources[this._foamSourceCount++];
           src.worldX = centroidWorld.x;
           src.worldY = centroidWorld.y;
-          src.avgFlux = avgFlux;
+          src.avgFlux = avgFlux * boost;
           src.halfWidth = halfWidth;
           src.groupSpeed = sourceGroupSpeed;
 

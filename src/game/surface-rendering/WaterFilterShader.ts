@@ -26,7 +26,11 @@ import {
 import { SCENE_LIGHTING_WGSL_FIELDS } from "../time/SceneLighting";
 import { fn_waterSurfaceLight } from "../world/shaders/lighting.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
-import { fn_fractalNoise3D, fn_simplex3D } from "../world/shaders/noise.wgsl";
+import {
+  fn_fractalNoise3D,
+  fn_simplex3D,
+  fn_worley2D,
+} from "../world/shaders/noise.wgsl";
 import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
 
 const waterFilterParamsModule: ShaderModule = {
@@ -48,6 +52,27 @@ struct Params {
   chlorophyll: f32,
   cdom: f32,
   sediment: f32,
+
+  // Runtime-tunable knobs (see WaterTuning.ts).
+  glitterAmpCalm: f32,
+  glitterAmpWindy: f32,
+  glitterTime: f32,
+  glitterFreqParallel: f32,
+  glitterFreqPerp: f32,
+  glitterPeakWind: f32,
+  glitterFalloff: f32,
+  specularPowerCalm: f32,
+  specularPowerWindy: f32,
+  sunIntensity: f32,
+  steepnessThresholdCalm: f32,
+  steepnessThresholdWindy: f32,
+  foamCellScale: f32,
+  foamCoverageMax: f32,
+  foamBandWidth: f32,
+  foamEnable: f32,
+  slickAmp: f32,
+  slickWindHigh: f32,
+  horizonBlend: f32,
 
   // Scene lighting — populated from TimeOfDay on the CPU each frame.
   ${SCENE_LIGHTING_WGSL_FIELDS}
@@ -81,6 +106,12 @@ struct Params {
       sampleType: "float",
     },
     heightSampler: { type: "sampler", samplerType: "filtering" },
+    windFieldTexture: {
+      type: "texture",
+      viewDimension: "2d",
+      sampleType: "float",
+    },
+    windFieldSampler: { type: "sampler", samplerType: "filtering" },
   },
   code: "",
 };
@@ -109,6 +140,7 @@ const waterFilterFragmentModule: ShaderModule = {
     fn_hash21,
     fn_simplex3D,
     fn_fractalNoise3D,
+    fn_worley2D,
     fn_waterSurfaceLight,
   ],
   code: /*wgsl*/ `
@@ -196,35 +228,10 @@ fn clipToWorld(clipPos: vec2<f32>) -> vec2<f32> {
 
 // World → surface-texture UV. The surface texture is (screen + 2*margin)
 // on each axis with a pixel-integer margin, so worldToTexClip maps the
-// texture's clip[-1,1] over screen pixel range [-m, W+m]. Used by the
-// finite-diff normal sample since eps is non-integer in texel space.
+// texture's clip[-1,1] over screen pixel range [-m, W+m].
 fn worldToHeightUV(worldPos: vec2<f32>) -> vec2<f32> {
   let clip = (params.worldToTexClip * vec3<f32>(worldPos, 1.0)).xy;
   return vec2<f32>((clip.x + 1.0) * 0.5, (1.0 - clip.y) * 0.5);
-}
-
-fn sampleWaterData(worldPos: vec2<f32>) -> vec2<f32> {
-  let uv = worldToHeightUV(worldPos);
-  return textureSampleLevel(waterHeightTexture, heightSampler, uv, 0.0).rg;
-}
-
-fn sampleWaterHeight(worldPos: vec2<f32>) -> f32 {
-  return sampleWaterData(worldPos).x;
-}
-
-fn computeWaterNormal(worldPos: vec2<f32>) -> vec3<f32> {
-  // World-space eps ≈ 2 screen pixels (see TerrainCompositeShader).
-  let eps = length(params.cameraMatrix[0].xy) * 4.0 / params.screenWidth;
-
-  let hL = sampleWaterHeight(worldPos + vec2<f32>(-eps, 0.0));
-  let hR = sampleWaterHeight(worldPos + vec2<f32>(eps, 0.0));
-  let hD = sampleWaterHeight(worldPos + vec2<f32>(0.0, -eps));
-  let hU = sampleWaterHeight(worldPos + vec2<f32>(0.0, eps));
-
-  let dx = (hR - hL) / (2.0 * eps);
-  let dy = (hU - hD) / (2.0 * eps);
-
-  return normalize(vec3<f32>(-dx, -dy, 1.0));
 }
 
 // Physically motivated inscatter: the amount of sky light scattered toward
@@ -258,27 +265,33 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   let worldPos = clipToWorld(clipPosition);
   let pixelCoord = vec2<i32>(fragPos.xy);
 
-  // Ocean surface data at this pixel — point-sampled at the exact texel
-  // so the submersion test can't pick up a linearly-interpolated value
-  // across a discontinuity. Linear sampling is still used below for
-  // finite-diff normals; that's safe now because the water height texture
-  // is a continuous ocean surface (no substitution cliffs at hull edges).
-  //
-  // fragPos.xy is in physical framebuffer pixels; the surface textures are
-  // sized at logical + margin, so divide by pixelRatio before offsetting.
-  let logicalCoord = vec2<i32>(fragPos.xy / params.pixelRatio);
-  let waterTexel = logicalCoord + vec2<i32>(SURFACE_TEXTURE_MARGIN, SURFACE_TEXTURE_MARGIN);
-  let waterData = textureLoad(waterHeightTexture, waterTexel, 0).rg;
+  // Ocean surface data at this pixel. Bilinear-sampled at the physical
+  // pixel position via worldToHeightUV — the water height texture is at
+  // logical (CSS-pixel) resolution, so on retina/HiDPI displays nearest-
+  // sampling collapses every 2x2 physical block onto one texel and the
+  // foam/turbulence visibly pixelates. Linear sampling is safe here now
+  // that the water height texture stays a continuous ocean surface
+  // (boat-air substitution moved into this shader, below).
+  let waterUV = worldToHeightUV(worldPos);
+  let waterData = textureSampleLevel(waterHeightTexture, heightSampler, waterUV, 0.0);
   let oceanHeight = waterData.x;
   var turbulence = waterData.y;
+  // BA channels carry the analytic surface gradient (dh/dx, dh/dy) computed
+  // in WaterHeightShader via 3-tap world-space finite difference of the
+  // wave evaluator. Bilinear-sampling these here gives a smooth normal
+  // field — no texel-grid facets in the specular highlight.
+  let waterGradient = waterData.ba;
 
   // Boat air substitution. BoatAirShader publishes per-pixel air gaps
   // (bilge surface Z in R, deck cap Z in G, bilge turbulence in B) at
-  // pixels inside any hull footprint. If the ocean surface would lie
-  // inside an air column at this pixel, the effective water surface here
-  // is the bilge level — substitute it into waterHeight. Outside any
-  // hull, R and G are sentinel low so the range test fails and we fall
-  // through to the ocean value.
+  // pixels inside any hull footprint. Sampled with textureLoad (nearest)
+  // because hull edges are real discontinuities — bilinear would smear
+  // the sentinel-low background into hull-interior pixels and break the
+  // air-range test. fragPos.xy is in physical framebuffer pixels; the
+  // surface textures are sized at logical + margin, so divide by
+  // pixelRatio before offsetting.
+  let logicalCoord = vec2<i32>(fragPos.xy / params.pixelRatio);
+  let waterTexel = logicalCoord + vec2<i32>(SURFACE_TEXTURE_MARGIN, SURFACE_TEXTURE_MARGIN);
   let airData = textureLoad(boatAirTexture, waterTexel, 0);
   let airMin = airData.r;
   let airMax = airData.g;
@@ -304,17 +317,50 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   // Foam lit by ambient (sky + sun) so it doesn't glow at night.
   let foamColor = vec3<f32>(0.95, 0.98, 1.0) * (params.skyColor * 0.5 + params.sunColor);
 
-  // Foam from turbulence (wave breaking + wake)
+  // Sample local wind for both steepness-threshold scaling and crest alignment.
+  // Wind texture is co-located with the water height texture (same UV mapping).
+  let windUV0 = worldToHeightUV(worldPos);
+  let windSample0 = textureSampleLevel(windFieldTexture, windFieldSampler, windUV0, 0.0);
+  let windVel0 = windSample0.xy;
+  let windSpeed0 = windSample0.z;
+
+  // Steepness-based whitecaps: real waves break near the Stokes limit (~1/7).
+  // Use the gradient already sampled into waterGradient (waterData.ba) and
+  // only emit on the upwind face (wind-facing crests). Wind-scaled threshold
+  // approximates Monahan's coverage law (cubic-ish in U10) by lowering the
+  // breaking threshold in heavy wind rather than independently scaling
+  // coverage — steepness already rises naturally with wind.
+  let steepness = length(waterGradient);
+  // Hand-tuned: <10 ft/s rare (0.15), 25 ft/s common (0.10), 40 ft/s
+  // frequent (0.07). Stokes limit is ~0.143.
+  let steepnessThreshold = mix(params.steepnessThresholdCalm, params.steepnessThresholdWindy, smoothstep(8.0, 40.0, windSpeed0));
+  var steepnessTurb = 0.0;
+  if (windSpeed0 > 0.5) {
+    let windDir0 = windVel0 / windSpeed0;
+    // Positive on the wind-facing side (gradient points into wind = water
+    // rising as you move into the wind).
+    let upwindFace = -dot(waterGradient, windDir0);
+    let crestFactor = smoothstep(0.0, 0.5, upwindFace);
+    steepnessTurb = smoothstep(steepnessThreshold, steepnessThreshold + 0.08, steepness) * crestFactor;
+  }
+  turbulence = max(turbulence, steepnessTurb);
+
+  // Foam from turbulence (wave breaking + wake) — Worley/cellular noise gives
+  // bubble-cluster topology rather than soft fractal blobs, with crisp edges.
   var turbulenceFoam = 0.0;
-  if (turbulence > 0.0) {
-    let foamNoise = fractalNoise3D(vec3<f32>(
-      worldPos.x * 0.5,
-      worldPos.y * 0.5,
-      params.time * 0.4
-    )) * 0.5 + 0.5;
-    let foamCoverage = (1.0 - exp(-turbulence * 1.0)) * 0.7;
+  if (turbulence > 0.0 && params.foamEnable > 0.0) {
+    // Slow time advection drifts the bubble cells without obvious scrolling.
+    let cellScale = params.foamCellScale;
+    let cellPos = worldPos * cellScale + vec2<f32>(params.time * 0.15, params.time * -0.1);
+    let bubblesCoarse = 1.0 - worley2D(cellPos);
+    let cellPosFine = worldPos * (cellScale * 2.5) + vec2<f32>(50.0 + params.time * -0.2, 50.0 + params.time * 0.18);
+    let bubblesFine = 1.0 - worley2D(cellPosFine);
+    let foamPattern = bubblesCoarse * 0.65 + bubblesFine * 0.35;
+    let foamCoverage = (1.0 - exp(-turbulence * 1.0)) * params.foamCoverageMax;
     let foamThreshold = 1.0 - foamCoverage;
-    turbulenceFoam = smoothstep(foamThreshold - 0.15, foamThreshold, foamNoise) * foamCoverage;
+    // Sharp threshold: real foam transitions over <1cm — keep edges crisp.
+    let halfBand = params.foamBandWidth * 0.5;
+    turbulenceFoam = smoothstep(foamThreshold - halfBand, foamThreshold + halfBand, foamPattern) * foamCoverage * params.foamEnable;
   }
 
   var finalColor: vec3<f32>;
@@ -366,9 +412,90 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     // Light arriving at the underside of the water surface
     let transmitted = absorbed + inscatter;
 
-    // Surface: Fresnel-weighted mix of transmitted and sky, plus sun specular
-    let waterNormal = computeWaterNormal(worldPos);
+    // Surface: Fresnel-weighted mix of transmitted and sky, plus sun specular.
+    // Normal is reconstructed from the bilinear-sampled analytic gradient
+    // (computed exactly per texel in WaterHeightShader) — no finite-diff of
+    // bilinear-interpolated heights, so no texel-grid facet artifacts in
+    // the highlight.
+    var waterNormal = normalize(vec3<f32>(-waterGradient.x, -waterGradient.y, 1.0));
+
+    // -----------------------------------------------------------------
+    // Wind-driven surface shading
+    // -----------------------------------------------------------------
+    // Reuse the wind sample taken earlier for steepness whitecap logic.
+    let windVel = windVel0;
+    let windSpeed = windSpeed0;
+
+    // Glassy slick patches: large slow-moving regions (~100 ft scale,
+    // evolving over ~20s) where below-Beaufort-1 conditions allow the
+    // surface tension to dominate over wind chop. Only forms where wind
+    // is below ~6 ft/s (~3.5 kts), full slick by ~2 ft/s.
+    let slickNoise = simplex3D(vec3<f32>(worldPos.x * 0.01, worldPos.y * 0.01, params.time * 0.05));
+    let lowWindFactor = 1.0 - smoothstep(2.0, params.slickWindHigh, windSpeed);
+    let slickAmount = lowWindFactor * smoothstep(0.0, 0.4, slickNoise) * params.slickAmp;
+
+    // -----------------------------------------------------------------
+    // Sun-aligned high-frequency facet glitter (#27)
+    // -----------------------------------------------------------------
+    // Real sun on water shows a downwind streak of pinprick glints, not
+    // a smooth highlight cone. Each glint is a single wave facet whose
+    // normal happens to align with the half-vector. We simulate this by
+    // perturbing the surface normal *along the sun's in-plane direction*
+    // at very high frequency — pow(n·h, specularPower) then amplifies the
+    // few facets that line up with the sun into bright pinprick highlights.
+    //
+    // Perturbation is along the sun direction only (not isotropic). An
+    // isotropic noise just blurs the highlight; a sun-aligned shear is
+    // what creates the streak-of-glints look. Sub-foot frequency (~1.6 ft
+    // wavelength on the primary octave at 0.6 cycles/ft) ensures many
+    // facets per pixel so individual glints stand out crisply.
+    let sunDir2D = params.sunDirection.xy;
+    let sunDirLen = length(sunDir2D);
+    if (sunDirLen > 0.001) {
+      let sunInPlane = sunDir2D / sunDirLen;
+      let sunPerp = vec2<f32>(-sunInPlane.y, sunInPlane.x);
+      // Coordinates rotated to sun frame. Higher freq across-sun (3.6 c/ft
+      // → ~3 in cross spacing) than along-sun (0.6 c/ft → ~1.6 ft along)
+      // — the resulting facet pattern is short transverse "scales", which
+      // is what produces the elongated streak of glints.
+      let gx = dot(worldPos, sunInPlane);
+      let gy = dot(worldPos, sunPerp);
+      let gFreqParA = params.glitterFreqParallel;
+      let gFreqPerpA = params.glitterFreqPerp;
+      let gFreqParB = gFreqParA * 2.83;
+      let gFreqPerpB = gFreqPerpA * 2.22;
+      let gT = params.time * params.glitterTime;
+      let g1 = simplex3D(vec3<f32>(gx * gFreqParA, gy * gFreqPerpA, gT));
+      let g2 = simplex3D(vec3<f32>(gx * gFreqParB + 100.0, gy * gFreqPerpB + 100.0, gT));
+      let glitterNoise = g1 * 0.65 + g2 * 0.35;
+      // Asymmetric peak curve: glitter ramps from calm value up to peak
+      // around moderate-wind speeds, then falls off in heavier wind
+      // because the surface gets rough/foamy enough that discrete facet
+      // sparkles wash into broad scattered glare. Both edges use
+      // smoothsteps so transitions are soft, and the min() join makes
+      // the falloff start exactly at glitterPeakWind.
+      let factorUp = smoothstep(0.0, params.glitterPeakWind, windSpeed);
+      let factorDown = 1.0 - smoothstep(params.glitterPeakWind, params.glitterPeakWind + params.glitterFalloff, windSpeed);
+      let glitterFactor = min(factorUp, factorDown);
+      let glitterAmp = mix(params.glitterAmpCalm, params.glitterAmpWindy, glitterFactor)
+                       * (1.0 - slickAmount * 0.85);
+      let glitterPerturb = vec3<f32>(sunInPlane * glitterNoise * glitterAmp, 0.0);
+      waterNormal = normalize(waterNormal + glitterPerturb);
+    }
+
+    // Wind-driven specular roughness. Beaufort calibration:
+    //   0 ft/s → 512 (mirror), 35 ft/s (~21 kts, Beaufort 5/6) → 16
+    //   (broad scattered glare). The smoothstep matches the real-world
+    //   transition from glassy through ripple to whitecaps.
+    var specularPower = mix(params.specularPowerCalm, params.specularPowerWindy, smoothstep(0.0, 35.0, windSpeed));
+    // Slick patches stay mirror-sharp regardless of base wind so they
+    // visibly catch the sun like polished glass.
+    specularPower = mix(specularPower, max(specularPower, 1024.0), slickAmount);
+
     let viewDir = vec3<f32>(0.0, 0.0, 1.0);
+    // horizonBlend = 0 collapses the two-tone sky back to a single
+    // zenith color (lets you toggle the horizon-mixing feature off).
+    let effectiveHorizon = mix(params.skyColor, params.horizonSkyColor, params.horizonBlend);
     finalColor = waterSurfaceLight(
       waterNormal,
       viewDir,
@@ -376,6 +503,9 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
       params.sunDirection,
       params.sunColor,
       params.skyColor,
+      effectiveHorizon,
+      specularPower,
+      params.sunIntensity,
     );
 
     // Shoreline / object-waterline foam: where submersion is tiny.

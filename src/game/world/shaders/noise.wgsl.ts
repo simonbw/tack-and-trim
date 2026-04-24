@@ -122,3 +122,41 @@ export const fn_fractalNoise3D: ShaderModule = {
     }
   `,
 };
+
+/**
+ * 2D Worley/cellular noise.
+ *
+ * Provides worley2D(p: vec2<f32>) -> f32
+ * Returns the distance to the nearest seed point (F1) in roughly [0, 1.4].
+ * Use `1 - worley2D(p)` for bright cells with dark cracks (bubble pattern).
+ */
+export const fn_worley2D: ShaderModule = {
+  code: /*wgsl*/ `
+    fn _worley2D_hash22(p: vec2<f32>) -> vec2<f32> {
+      var q = vec3<f32>(
+        dot(p, vec2<f32>(127.1, 311.7)),
+        dot(p, vec2<f32>(269.5, 183.3)),
+        dot(p, vec2<f32>(419.2, 371.9)),
+      );
+      return fract(sin(q.xy) * 43758.5453);
+    }
+
+    fn worley2D(p: vec2<f32>) -> f32 {
+      let cell = floor(p);
+      let frac = p - cell;
+      var minDist = 1.5;
+      for (var j = -1; j <= 1; j = j + 1) {
+        for (var i = -1; i <= 1; i = i + 1) {
+          let neighbor = vec2<f32>(f32(i), f32(j));
+          let seed = _worley2D_hash22(cell + neighbor);
+          let diff = neighbor + seed - frac;
+          let d = dot(diff, diff);
+          if (d < minDist) {
+            minDist = d;
+          }
+        }
+      }
+      return sqrt(minDist);
+    }
+  `,
+};

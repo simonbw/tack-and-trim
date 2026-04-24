@@ -56,6 +56,7 @@ export class TimeOfDay extends BaseEntity {
   private readonly _sunDirection: [number, number, number] = [0, 0, 1];
   private readonly _sunColor: [number, number, number] = [0, 0, 0];
   private readonly _skyColor: [number, number, number] = [0, 0, 0];
+  private readonly _horizonSkyColor: [number, number, number] = [0, 0, 0];
   private readonly _ambientLight: [number, number, number] = [0, 0, 0];
 
   constructor(config: TimeOfDayConfig = {}) {
@@ -221,6 +222,43 @@ export class TimeOfDay extends BaseEntity {
     this._skyColor[1] = baseG + twilightG * twilightBump * 0.35;
     this._skyColor[2] = baseB + twilightB * twilightBump * 0.35;
     return this._skyColor;
+  }
+
+  /**
+   * Sky color along the horizon — warmer and brighter than the zenith
+   * `skyColor`. The horizon line of sight passes through ~30× more
+   * atmosphere than zenith, so Rayleigh + aerosol scattering pushes the
+   * spectrum toward white-orange and brightens it relative to the deep
+   * zenith blue.
+   *
+   * Used as one half of the two-tone sky reflection on the water surface
+   * (the other being `skyColor` for zenith). Twilight is amplified
+   * relative to the zenith because the horizon glow concentrates there.
+   *
+   * Returns a cached tuple — do not store across frames.
+   */
+  getHorizonSkyColor(): readonly [number, number, number] {
+    const altitude = this.getSunAltitude();
+
+    const dayness = smoothstep(-0.1, 0.25, altitude);
+    // Daytime horizon: warmer + brighter than zenith. Real horizon
+    // luminance at noon is ~1.5× zenith and shifted ~10% toward warm.
+    const baseR = lerp(0.25, 0.78, dayness);
+    const baseG = lerp(0.32, 0.82, dayness);
+    const baseB = lerp(0.5, 0.92, dayness);
+
+    // Twilight glow concentrates at the horizon — apply ~3× more bump
+    // than zenith does. This is what produces the classic warm sunset
+    // gradient (deep blue overhead, orange at the horizon).
+    const twilightBump = Math.exp(-altitude * altitude * 40.0);
+    const twilightR = 0.85;
+    const twilightG = 0.45;
+    const twilightB = 0.25;
+
+    this._horizonSkyColor[0] = baseR + twilightR * twilightBump;
+    this._horizonSkyColor[1] = baseG + twilightG * twilightBump;
+    this._horizonSkyColor[2] = baseB + twilightB * twilightBump;
+    return this._horizonSkyColor;
   }
 
   /**

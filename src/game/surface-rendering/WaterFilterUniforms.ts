@@ -42,6 +42,29 @@ export const WaterFilterUniforms = defineUniformStruct("Params", {
   cdom: f32,
   sediment: f32,
 
+  // Runtime-tunable water shader knobs. Populated each frame from
+  // WaterTuning.ts via pushWaterTuning(); exposed in the TuningPanel
+  // (toggle with backslash key) so the surface look can be tuned live.
+  glitterAmpCalm: f32,
+  glitterAmpWindy: f32,
+  glitterTime: f32,
+  glitterFreqParallel: f32,
+  glitterFreqPerp: f32,
+  glitterPeakWind: f32,
+  glitterFalloff: f32,
+  specularPowerCalm: f32,
+  specularPowerWindy: f32,
+  sunIntensity: f32,
+  steepnessThresholdCalm: f32,
+  steepnessThresholdWindy: f32,
+  foamCellScale: f32,
+  foamCoverageMax: f32,
+  foamBandWidth: f32,
+  foamEnable: f32,
+  slickAmp: f32,
+  slickWindHigh: f32,
+  horizonBlend: f32,
+
   // Scene lighting (see SceneLighting.ts). Populated from TimeOfDay.
   ...SCENE_LIGHTING_FIELDS,
 });

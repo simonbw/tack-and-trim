@@ -28,6 +28,7 @@ export class GPUProfiler {
     "surface",
     "surface.water",
     "surface.terrain",
+    "surface.wind",
     "surface.rasterize",
     "surface.modifiers",
     "surface.wetness",
