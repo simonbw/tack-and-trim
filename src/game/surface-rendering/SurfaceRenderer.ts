@@ -19,6 +19,7 @@ import { Matrix3 } from "../../core/graphics/Matrix3";
 import { type UniformInstance } from "../../core/graphics/UniformStruct";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
+import { profiler } from "../../core/util/Profiler";
 import type { Boat } from "../boat/Boat";
 import { pushSceneLighting } from "../time/SceneLighting";
 import { TimeOfDay } from "../time/TimeOfDay";
@@ -766,216 +767,246 @@ export class SurfaceRenderer extends BaseEntity {
 
     const width = renderer.getWidth();
     const height = renderer.getHeight();
-    const expandedViewport = this.getExpandedViewport(
-      TILE_CACHE_VIEWPORT_MARGIN,
+
+    const expandedViewport = profiler.measure("viewport", () =>
+      this.getExpandedViewport(TILE_CACHE_VIEWPORT_MARGIN),
     );
 
-    // Use TimeOfDay as unified time source
-    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
-    const currentTime = timeOfDay
-      ? timeOfDay.getTimeInSeconds()
-      : this.game.elapsedUnpausedTime;
+    const { timeOfDay, currentTime } = profiler.measure("timeOfDay", () => {
+      // Use TimeOfDay as unified time source
+      const tod = this.game.entities.tryGetSingleton(TimeOfDay);
+      const t = tod ? tod.getTimeInSeconds() : this.game.elapsedUnpausedTime;
+      // Push the current ambient illumination to the generic shape pipeline so
+      // every `draw.*` call this frame picks up day/night tinting automatically.
+      // Callers opt out by setting `ignoreLight: true` in DrawOptions.
+      if (tod) {
+        const [ar, ag, ab] = tod.getAmbientLight();
+        renderer.setAmbientLight(ar, ag, ab);
+      } else {
+        renderer.setAmbientLight(1, 1, 1);
+      }
+      return { timeOfDay: tod, currentTime: t };
+    });
 
-    // Push the current ambient illumination to the generic shape pipeline so
-    // every `draw.*` call this frame picks up day/night tinting automatically.
-    // Callers opt out by setting `ignoreLight: true` in DrawOptions.
-    if (timeOfDay) {
-      const [ar, ag, ab] = timeOfDay.getAmbientLight();
-      renderer.setAmbientLight(ar, ag, ab);
-    } else {
-      renderer.setAmbientLight(1, 1, 1);
-    }
+    const {
+      wavePhysicsResources,
+      waterResources,
+      terrainResources,
+      windResources,
+    } = profiler.measure("singletons", () => ({
+      wavePhysicsResources:
+        this.game.entities.tryGetSingleton(WavePhysicsResources),
+      waterResources: this.game.entities.getSingleton(WaterResources),
+      terrainResources: this.game.entities.getSingleton(TerrainResources),
+      windResources: this.game.entities.tryGetSingleton(WindResources),
+    }));
 
-    // Get resources (these are required - will throw if missing)
-    const wavePhysicsResources =
-      this.game.entities.tryGetSingleton(WavePhysicsResources);
-    const waterResources = this.game.entities.getSingleton(WaterResources);
-    const terrainResources = this.game.entities.getSingleton(TerrainResources);
-    const windResources = this.game.entities.tryGetSingleton(WindResources);
+    profiler.measure("ensureTextures", () => {
+      this.ensureTextures(width, height);
+    });
 
-    // Ensure intermediate textures
-    this.ensureTextures(width, height);
+    const { texClipToWorldMatrix, worldToTexClipMatrix, clipToWorldMatrix } =
+      profiler.measure("matrices", () => {
+        // Compute clip-to-world matrix: maps clip space (-1,1) directly to world space.
+        // Composed as: screenToWorld * clipToScreen
+        // Note: clipToScreen does NOT flip Y here. The old UV-based clipToWorld used
+        // uvY = -clipY*0.5+0.5, which combined with the viewport bounds produced a
+        // mapping equivalent to clip(-1,-1)→screen(0,0). The camera inverse already
+        // handles the world Y-up ↔ screen Y-down conversion.
+        const clipToScreen = new Matrix3();
+        clipToScreen.translate(width / 2, height / 2);
+        clipToScreen.scale(width / 2, height / 2);
+        const c2w = camera.getMatrix().clone().invert();
+        c2w.multiply(clipToScreen);
 
-    // Compute clip-to-world matrix: maps clip space (-1,1) directly to world space.
-    // Composed as: screenToWorld * clipToScreen
-    // Note: clipToScreen does NOT flip Y here. The old UV-based clipToWorld used
-    // uvY = -clipY*0.5+0.5, which combined with the viewport bounds produced a
-    // mapping equivalent to clip(-1,-1)→screen(0,0). The camera inverse already
-    // handles the world Y-up ↔ screen Y-down conversion.
-    const clipToScreen = new Matrix3();
-    clipToScreen.translate(width / 2, height / 2);
-    clipToScreen.scale(width / 2, height / 2);
-    const clipToWorldMatrix = camera.getMatrix().clone().invert();
-    clipToWorldMatrix.multiply(clipToScreen);
+        // Screen-aligned mapping for the surface textures.
+        const tw = width + 2 * SURFACE_TEXTURE_MARGIN;
+        const th = height + 2 * SURFACE_TEXTURE_MARGIN;
+        const tc2w = c2w.clone().scale(tw / width, th / height);
+        const w2tc = tc2w.clone().invert();
+        return {
+          clipToWorldMatrix: c2w,
+          texClipToWorldMatrix: tc2w,
+          worldToTexClipMatrix: w2tc,
+        };
+      });
 
-    // Screen-aligned mapping for the surface textures. Each texture is
-    // (width + 2m) × (height + 2m) texels with a pixel-integer margin, so
-    // screen pixel (i, j) lines up with texel (i + m, j + m) exactly. The
-    // texture's clip[-1,1] covers screen-pixel range [-m, width+m] on X and
-    // [-m, height+m] on Y. Built by scaling the screen clipToWorld by
-    // texW/width (equivalent to texScale in the old 10%-margin form, just
-    // with a pixel-integer margin instead of a fractional one).
     const texW = width + 2 * SURFACE_TEXTURE_MARGIN;
     const texH = height + 2 * SURFACE_TEXTURE_MARGIN;
-    const texClipToWorldMatrix = clipToWorldMatrix
-      .clone()
-      .scale(texW / width, texH / height);
-    const worldToTexClipMatrix = texClipToWorldMatrix.clone().invert();
 
     // === Terrain Tile Cache Update ===
-    // Check for terrain changes and invalidate if needed
-    this.terrainTileCache.checkInvalidation(terrainResources);
+    const terrainAtlasView = profiler.measure("terrainTiles", () => {
+      profiler.measure("checkInvalidation", () => {
+        this.terrainTileCache!.checkInvalidation(terrainResources);
+      });
 
-    // Update tile cache and get tiles that need rendering
-    // Pass camera.z (zoom level) for LOD selection
-    const tileRequests = this.terrainTileCache.update(
-      expandedViewport,
-      camera.z,
-      terrainResources,
-    );
+      // Update tile cache and get tiles that need rendering
+      // Pass camera.z (zoom level) for LOD selection
+      const tileRequests = profiler.measure("update", () =>
+        this.terrainTileCache!.update(
+          expandedViewport,
+          camera.z,
+          terrainResources,
+        ),
+      );
 
-    // Render any missing tiles (current LOD + budget-limited adjacent pre-warming)
-    this.terrainTileCache.renderTiles(
-      tileRequests,
-      terrainResources,
-      gpuProfiler ?? undefined,
-    );
+      // Render any missing tiles (current LOD + budget-limited adjacent pre-warming)
+      profiler.measure("renderTiles", () => {
+        this.terrainTileCache!.renderTiles(
+          tileRequests,
+          terrainResources,
+          gpuProfiler ?? undefined,
+        );
+      });
 
-    // Get terrain atlas view for composite shader
-    const terrainAtlasView = this.terrainTileCache.getAtlasView();
+      return this.terrainTileCache!.getAtlasView();
+    });
 
-    // Update all uniforms. Compute shaders dispatch one invocation per
-    // surface-texture texel, so they receive texW × texH. Fragment shaders
-    // still use screen width/height for pixel-space math (e.g. normal eps).
-    this.updateTerrainScreenUniforms(texClipToWorldMatrix, texW, texH);
-    this.updateWaterHeightUniforms(
-      texClipToWorldMatrix,
-      currentTime,
-      texW,
-      texH,
-      waterResources,
-    );
     const windTexW = Math.ceil(texW / 2);
     const windTexH = Math.ceil(texH / 2);
-    this.updateWindFieldUniforms(
-      texClipToWorldMatrix,
-      windTexW,
-      windTexH,
-      currentTime,
-      windResources,
-    );
-    this.updateTerrainCompositeUniforms(
-      clipToWorldMatrix,
-      timeOfDay,
-      width,
-      height,
-      waterResources,
-      terrainResources,
-    );
-    this.updateWaterFilterUniforms(
-      clipToWorldMatrix,
-      worldToTexClipMatrix,
-      currentTime,
-      timeOfDay,
-      width,
-      height,
-      waterResources,
-      terrainResources,
-    );
 
-    // Upload uniforms
-    this.terrainScreenUniforms?.uploadTo(this.terrainScreenUniformBuffer!);
-    this.waterHeightUniforms?.uploadTo(this.waterHeightUniformBuffer!);
-    this.windFieldUniforms?.uploadTo(this.windFieldUniformBuffer!);
-    this.terrainCompositeUniforms?.uploadTo(
-      this.terrainCompositeUniformBuffer!,
-    );
-    this.waterFilterUniforms?.uploadTo(this.waterFilterUniformBuffer!);
+    profiler.measure("uniforms", () => {
+      // Update all uniforms. Compute shaders dispatch one invocation per
+      // surface-texture texel, so they receive texW × texH. Fragment shaders
+      // still use screen width/height for pixel-space math (e.g. normal eps).
+      this.updateTerrainScreenUniforms(texClipToWorldMatrix, texW, texH);
+      this.updateWaterHeightUniforms(
+        texClipToWorldMatrix,
+        currentTime,
+        texW,
+        texH,
+        waterResources,
+      );
+      this.updateWindFieldUniforms(
+        texClipToWorldMatrix,
+        windTexW,
+        windTexH,
+        currentTime,
+        windResources,
+      );
+      this.updateTerrainCompositeUniforms(
+        clipToWorldMatrix,
+        timeOfDay,
+        width,
+        height,
+        waterResources,
+        terrainResources,
+      );
+      this.updateWaterFilterUniforms(
+        clipToWorldMatrix,
+        worldToTexClipMatrix,
+        currentTime,
+        timeOfDay,
+        width,
+        height,
+        waterResources,
+        terrainResources,
+      );
 
-    // Ensure bind groups
-    this.ensureBindGroups(waterResources, terrainAtlasView);
-    if (windResources) {
-      this.ensureWindFieldBindGroup(windResources);
-    }
+      // Upload uniforms
+      this.terrainScreenUniforms?.uploadTo(this.terrainScreenUniformBuffer!);
+      this.waterHeightUniforms?.uploadTo(this.waterHeightUniformBuffer!);
+      this.windFieldUniforms?.uploadTo(this.windFieldUniformBuffer!);
+      this.terrainCompositeUniforms?.uploadTo(
+        this.terrainCompositeUniformBuffer!,
+      );
+      this.waterFilterUniforms?.uploadTo(this.waterFilterUniformBuffer!);
+    });
+
+    profiler.measure("bindGroups", () => {
+      this.ensureBindGroups(waterResources, terrainAtlasView);
+      if (windResources) {
+        this.ensureWindFieldBindGroup(windResources);
+      }
+    });
 
     // === Pass 1: Terrain Screen Compute ===
     // Sample terrain atlas to screen-space texture for water height shader
-    if (this.terrainScreenShader && this.terrainScreenBindGroup) {
-      const commandEncoder = device.createCommandEncoder({
-        label: "Terrain Screen Compute",
-      });
-      const computePass = commandEncoder.beginComputePass({
-        label: "Terrain Screen Compute Pass",
-        timestampWrites:
-          gpuProfiler?.getComputeTimestampWrites("surface.terrain"),
-      });
-      this.terrainScreenShader.dispatch(
-        computePass,
-        this.terrainScreenBindGroup,
-        texW,
-        texH,
-      );
-      computePass.end();
-      device.queue.submit([commandEncoder.finish()]);
-    }
+    profiler.measure("terrainScreen", () => {
+      if (this.terrainScreenShader && this.terrainScreenBindGroup) {
+        const commandEncoder = device.createCommandEncoder({
+          label: "Terrain Screen Compute",
+        });
+        const computePass = commandEncoder.beginComputePass({
+          label: "Terrain Screen Compute Pass",
+          timestampWrites:
+            gpuProfiler?.getComputeTimestampWrites("surface.terrain"),
+        });
+        this.terrainScreenShader.dispatch(
+          computePass,
+          this.terrainScreenBindGroup,
+          texW,
+          texH,
+        );
+        computePass.end();
+        device.queue.submit([commandEncoder.finish()]);
+      }
+    });
 
     // === Pass 1.25: Wind Field Compute ===
     // Writes per-texel wind velocity to a half-res screen-space texture
     // for downstream consumers (water filter ripple shading, whitecaps).
-    if (windResources && this.windFieldShader && this.windFieldBindGroup) {
-      const commandEncoder = device.createCommandEncoder({
-        label: "Wind Field Compute",
-      });
-      const computePass = commandEncoder.beginComputePass({
-        label: "Wind Field Compute Pass",
-        timestampWrites: gpuProfiler?.getComputeTimestampWrites("surface.wind"),
-      });
-      this.windFieldShader.dispatch(
-        computePass,
-        this.windFieldBindGroup,
-        windTexW,
-        windTexH,
-      );
-      computePass.end();
-      device.queue.submit([commandEncoder.finish()]);
-    }
+    profiler.measure("windField", () => {
+      if (windResources && this.windFieldShader && this.windFieldBindGroup) {
+        const commandEncoder = device.createCommandEncoder({
+          label: "Wind Field Compute",
+        });
+        const computePass = commandEncoder.beginComputePass({
+          label: "Wind Field Compute Pass",
+          timestampWrites:
+            gpuProfiler?.getComputeTimestampWrites("surface.wind"),
+        });
+        this.windFieldShader.dispatch(
+          computePass,
+          this.windFieldBindGroup,
+          windTexW,
+          windTexH,
+        );
+        computePass.end();
+        device.queue.submit([commandEncoder.finish()]);
+      }
+    });
 
     // === Pass 1.5: Wave Field Rasterization ===
     // Rasterize wavefront meshes to screen-space texture array
-    if (this.waveFieldTexture && wavePhysicsResources) {
-      const rasterizer = wavePhysicsResources.getRasterizer();
-      if (rasterizer) {
-        const activeMeshes = wavePhysicsResources.getActiveMeshes();
+    profiler.measure("waveField", () => {
+      if (this.waveFieldTexture && wavePhysicsResources) {
+        const rasterizer = wavePhysicsResources.getRasterizer();
+        if (rasterizer) {
+          const activeMeshes = wavePhysicsResources.getActiveMeshes();
+          const commandEncoder = device.createCommandEncoder({
+            label: "Wave Field Rasterization",
+          });
+          rasterizer.render(
+            commandEncoder,
+            activeMeshes,
+            worldToTexClipMatrix,
+            this.waveFieldTexture,
+            gpuProfiler,
+          );
+          device.queue.submit([commandEncoder.finish()]);
+        }
+      }
+    });
+
+    // === Pass 1.75: Modifier Rasterization ===
+    // Rasterize wake/ripple contributions to screen-space texture
+    profiler.measure("modifier", () => {
+      if (this.modifierRasterizer && this.modifierTexture) {
         const commandEncoder = device.createCommandEncoder({
-          label: "Wave Field Rasterization",
+          label: "Modifier Rasterization",
         });
-        rasterizer.render(
+        this.modifierRasterizer.render(
           commandEncoder,
-          activeMeshes,
+          waterResources.modifiersBuffer,
+          waterResources.getModifierCount(),
           worldToTexClipMatrix,
-          this.waveFieldTexture,
+          this.modifierTexture,
           gpuProfiler,
         );
         device.queue.submit([commandEncoder.finish()]);
       }
-    }
-
-    // === Pass 1.75: Modifier Rasterization ===
-    // Rasterize wake/ripple contributions to screen-space texture
-    if (this.modifierRasterizer && this.modifierTexture) {
-      const commandEncoder = device.createCommandEncoder({
-        label: "Modifier Rasterization",
-      });
-      this.modifierRasterizer.render(
-        commandEncoder,
-        waterResources.modifiersBuffer,
-        waterResources.getModifierCount(),
-        worldToTexClipMatrix,
-        this.modifierTexture,
-        gpuProfiler,
-      );
-      device.queue.submit([commandEncoder.finish()]);
-    }
+    });
 
     // === Pass 1.8: Boat Air Rasterization ===
     // Rasterize each boat's air gap (bilge surface Z + deck cap Z) into
@@ -983,40 +1014,44 @@ export class SurfaceRenderer extends BaseEntity {
     // the bilge surface for the ocean wherever the ocean would lie inside
     // an air column. One uniform per-pixel mechanism handles dry boats,
     // wet bilges, partial submersion, and full submersion.
-    if (this.boatAirShader && this.boatAirTextureView) {
-      const boat = this.game.entities.getById("boat") as Boat | undefined;
-      if (boat) {
-        this.boatAirShader.render(
-          this.boatAirTextureView,
-          worldToTexClipMatrix,
-          boat,
-        );
-      } else {
-        // No boat — clear the air texture to "no air anywhere" so the
-        // water height compute's substitution is a no-op.
-        this.boatAirShader.clear(this.boatAirTextureView);
+    profiler.measure("boatAir", () => {
+      if (this.boatAirShader && this.boatAirTextureView) {
+        const boat = this.game.entities.getById("boat") as Boat | undefined;
+        if (boat) {
+          this.boatAirShader.render(
+            this.boatAirTextureView,
+            worldToTexClipMatrix,
+            boat,
+          );
+        } else {
+          // No boat — clear the air texture to "no air anywhere" so the
+          // water height compute's substitution is a no-op.
+          this.boatAirShader.clear(this.boatAirTextureView);
+        }
       }
-    }
+    });
 
     // === Pass 2: Water Height Compute ===
-    if (this.waterHeightShader && this.waterHeightBindGroup) {
-      const commandEncoder = device.createCommandEncoder({
-        label: "Water Height Compute",
-      });
-      const computePass = commandEncoder.beginComputePass({
-        label: "Water Height Compute Pass",
-        timestampWrites:
-          gpuProfiler?.getComputeTimestampWrites("surface.water"),
-      });
-      this.waterHeightShader.dispatch(
-        computePass,
-        this.waterHeightBindGroup,
-        texW,
-        texH,
-      );
-      computePass.end();
-      device.queue.submit([commandEncoder.finish()]);
-    }
+    profiler.measure("waterHeight", () => {
+      if (this.waterHeightShader && this.waterHeightBindGroup) {
+        const commandEncoder = device.createCommandEncoder({
+          label: "Water Height Compute",
+        });
+        const computePass = commandEncoder.beginComputePass({
+          label: "Water Height Compute Pass",
+          timestampWrites:
+            gpuProfiler?.getComputeTimestampWrites("surface.water"),
+        });
+        this.waterHeightShader.dispatch(
+          computePass,
+          this.waterHeightBindGroup,
+          texW,
+          texH,
+        );
+        computePass.end();
+        device.queue.submit([commandEncoder.finish()]);
+      }
+    });
 
     // === Wetness Update Pass ===
     if (
@@ -1042,37 +1077,43 @@ export class SurfaceRenderer extends BaseEntity {
     // Renders above-water terrain into the current mainColorTexture pass.
     // greater-equal depth test: boat pixels already at higher z block terrain.
     // Pixels where waterDepth >= 0 are discarded — water filter handles those.
-    const terrainPass = renderer.getCurrentRenderPass();
-    if (
-      terrainPass &&
-      this.terrainCompositeShader &&
-      this.terrainCompositeBindGroup
-    ) {
-      this.terrainCompositeShader.render(
-        terrainPass,
-        this.terrainCompositeBindGroup,
-      );
-    }
+    profiler.measure("terrainComposite", () => {
+      const terrainPass = renderer.getCurrentRenderPass();
+      if (
+        terrainPass &&
+        this.terrainCompositeShader &&
+        this.terrainCompositeBindGroup
+      ) {
+        this.terrainCompositeShader.render(
+          terrainPass,
+          this.terrainCompositeBindGroup,
+        );
+      }
+    });
 
     // Copy depth and color so the water filter can read the frozen scene.
     // Ordering: terrain composite → copyDepthBuffer → copyColorBuffer.
     // copyColorBuffer switches the active render target from mainColorTexture
     // to the swapchain; subsequent draw calls go to the final frame output.
-    webgpuRenderer.copyDepthBuffer();
-    webgpuRenderer.copyColorBuffer();
+    profiler.measure("copyBuffers", () => {
+      webgpuRenderer.copyDepthBuffer();
+      webgpuRenderer.copyColorBuffer();
 
-    const sceneColorView = webgpuRenderer.getColorCopyTextureView();
-    const sceneDepthView = webgpuRenderer.getDepthCopyTextureView();
-    this.rebuildWaterFilterBindGroup(sceneColorView, sceneDepthView);
+      const sceneColorView = webgpuRenderer.getColorCopyTextureView();
+      const sceneDepthView = webgpuRenderer.getDepthCopyTextureView();
+      this.rebuildWaterFilterBindGroup(sceneColorView, sceneDepthView);
+    });
 
     // === Pass 3b: Water Filter (fragment) ===
     // Applies physically-based absorption to the frozen scene and writes
     // the final composited pixel to the swapchain. Post-water particles
     // (wake) render on top in their own layers afterward.
-    const filterPass = renderer.getCurrentRenderPass();
-    if (filterPass && this.waterFilterShader && this.waterFilterBindGroup) {
-      this.waterFilterShader.render(filterPass, this.waterFilterBindGroup);
-    }
+    profiler.measure("waterFilter", () => {
+      const filterPass = renderer.getCurrentRenderPass();
+      if (filterPass && this.waterFilterShader && this.waterFilterBindGroup) {
+        this.waterFilterShader.render(filterPass, this.waterFilterBindGroup);
+      }
+    });
   }
 
   /**

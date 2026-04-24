@@ -17,7 +17,11 @@ import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import type { Viewport } from "../wave-physics/WavePhysicsResources";
 import type { TerrainResources } from "../world/terrain/TerrainResources";
 import { TerrainTileCache, type VisibleTile } from "./TerrainTileCache";
-import type { TileRequest } from "../../core/graphics/VirtualTextureCache";
+import {
+  unpackTileX,
+  unpackTileY,
+  type TileRequest,
+} from "../../core/graphics/VirtualTextureCache";
 
 const BASE_WORLD_UNITS = 16;
 const SCALE_FACTOR = 4;
@@ -228,14 +232,12 @@ export class LODTerrainTileCache {
         // most useful tiles get rendered first within the budget
         const wu = worldUnitsForLevel(slot.level);
         requests.sort((a, b) => {
-          const [ax, ay] = a.key.split(",");
-          const [bx, by] = b.key.split(",");
           const da =
-            (Number(ax) * wu + wu * 0.5 - cx) ** 2 +
-            (Number(ay) * wu + wu * 0.5 - cy) ** 2;
+            (unpackTileX(a.key) * wu + wu * 0.5 - cx) ** 2 +
+            (unpackTileY(a.key) * wu + wu * 0.5 - cy) ** 2;
           const db =
-            (Number(bx) * wu + wu * 0.5 - cx) ** 2 +
-            (Number(by) * wu + wu * 0.5 - cy) ** 2;
+            (unpackTileX(b.key) * wu + wu * 0.5 - cx) ** 2 +
+            (unpackTileY(b.key) * wu + wu * 0.5 - cy) ** 2;
           return da - db;
         });
         this.adjacentRequests.push({ slot, requests });

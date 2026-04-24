@@ -18,8 +18,8 @@ export type TileStatus = "empty" | "pending" | "ready";
  * Internal tile state tracking.
  */
 interface TileState {
-  /** The tile key occupying this slot */
-  key: string;
+  /** The tile key occupying this slot (packed as (tileX<<16)|(tileY&0xffff)) */
+  key: number;
   status: TileStatus;
   /** Parsed tile coordinates for quick access */
   tileX: number;
@@ -30,8 +30,8 @@ interface TileState {
  * Request to render a tile.
  */
 export interface TileRequest {
-  /** Unique key identifying this tile */
-  key: string;
+  /** Packed tile key: (tileX<<16)|(tileY&0xffff). Coordinates must fit in signed int16. */
+  key: number;
   /** Atlas slot where the tile should be rendered */
   atlasSlot: number;
 }
@@ -40,10 +40,32 @@ export interface TileRequest {
  * Information about a cached tile.
  */
 export interface CachedTile {
-  /** Unique key identifying this tile */
-  key: string;
+  /** Packed tile key */
+  key: number;
   /** Atlas slot containing the tile data */
   atlasSlot: number;
+}
+
+/**
+ * Pack tile coordinates into a single 32-bit int key.
+ * Each coordinate must fit in signed int16 (±32767).
+ */
+export function packTileKey(tileX: number, tileY: number): number {
+  return ((tileX & 0xffff) << 16) | (tileY & 0xffff);
+}
+
+/**
+ * Unpack the X coordinate (sign-extended) from a packed tile key.
+ */
+export function unpackTileX(key: number): number {
+  return key >> 16;
+}
+
+/**
+ * Unpack the Y coordinate (sign-extended) from a packed tile key.
+ */
+export function unpackTileY(key: number): number {
+  return (key << 16) >> 16;
 }
 
 /**
@@ -80,7 +102,7 @@ export class VirtualTextureCache {
   private readonly slots: (TileState | null)[];
 
   /** Map from tile key to slot for quick lookup */
-  private readonly keyToSlot: Map<string, number> = new Map();
+  private readonly keyToSlot: Map<number, number> = new Map();
 
   constructor(config: VirtualTextureCacheConfig) {
     this.tilesX = config.tilesX;
@@ -105,27 +127,20 @@ export class VirtualTextureCache {
   }
 
   /**
-   * Parse tile coordinates from a key.
-   */
-  private parseTileKey(key: string): { tileX: number; tileY: number } {
-    const [x, y] = key.split(",").map(Number);
-    return { tileX: x, tileY: y };
-  }
-
-  /**
    * Request tiles for the current frame.
    *
    * Returns a list of tiles that need to be rendered (status: pending).
    * If a slot is occupied by a different tile, that tile is evicted.
    *
-   * @param keys - Array of tile keys needed this frame (format: "x,y")
+   * @param keys - Array of packed tile keys needed this frame
    * @returns Array of tile requests that need rendering
    */
-  requestTiles(keys: string[]): TileRequest[] {
+  requestTiles(keys: number[]): TileRequest[] {
     const requests: TileRequest[] = [];
 
     for (const key of keys) {
-      const { tileX, tileY } = this.parseTileKey(key);
+      const tileX = unpackTileX(key);
+      const tileY = unpackTileY(key);
       const slot = this.computeSlot(tileX, tileY);
       const existing = this.slots[slot];
 
@@ -161,7 +176,7 @@ export class VirtualTextureCache {
   /**
    * Mark a tile as ready (rendered and available for sampling).
    */
-  markTileReady(key: string): void {
+  markTileReady(key: number): void {
     const slot = this.keyToSlot.get(key);
     if (slot !== undefined) {
       const state = this.slots[slot];
@@ -176,7 +191,7 @@ export class VirtualTextureCache {
    *
    * @returns The cached tile info if ready, null otherwise
    */
-  getTile(key: string): CachedTile | null {
+  getTile(key: number): CachedTile | null {
     const slot = this.keyToSlot.get(key);
     if (slot !== undefined) {
       const state = this.slots[slot];
@@ -190,7 +205,7 @@ export class VirtualTextureCache {
   /**
    * Get the status of a tile.
    */
-  getTileStatus(key: string): TileStatus {
+  getTileStatus(key: number): TileStatus {
     const slot = this.keyToSlot.get(key);
     if (slot !== undefined) {
       const state = this.slots[slot];

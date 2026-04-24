@@ -17,6 +17,9 @@ import {
 } from "../../core/graphics/TileAtlas";
 import {
   VirtualTextureCache,
+  packTileKey,
+  unpackTileX,
+  unpackTileY,
   type TileRequest,
 } from "../../core/graphics/VirtualTextureCache";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
@@ -43,8 +46,8 @@ export interface TerrainTileCacheConfig {
  * Information about a visible tile for rendering.
  */
 export interface VisibleTile {
-  /** Tile key */
-  key: string;
+  /** Packed tile key */
+  key: number;
   /** Tile X index in world grid */
   tileX: number;
   /** Tile Y index in world grid */
@@ -199,7 +202,8 @@ export class TerrainTileCache {
       // the direct-mapped cache.
       if (this.cache.getTileStatus(request.key) !== "pending") continue;
       // Update uniforms for this tile
-      const { tileX, tileY } = this.parseTileKey(request.key);
+      const tileX = unpackTileX(request.key);
+      const tileY = unpackTileY(request.key);
       const { x: atlasX, y: atlasY } = this.atlas.getSlotPixelCoords(
         request.atlasSlot,
       );
@@ -309,8 +313,8 @@ export class TerrainTileCache {
   /**
    * Calculate tile keys for all tiles visible in the viewport.
    */
-  private calculateVisibleTileKeys(viewport: Viewport): string[] {
-    const keys: string[] = [];
+  private calculateVisibleTileKeys(viewport: Viewport): number[] {
+    const keys: number[] = [];
 
     // Calculate tile range that covers viewport (with some margin)
     const margin = this.worldUnitsPerTile * 0.5;
@@ -329,7 +333,7 @@ export class TerrainTileCache {
 
     for (let ty = minTileY; ty < maxTileY; ty++) {
       for (let tx = minTileX; tx < maxTileX; tx++) {
-        keys.push(this.makeTileKey(tx, ty));
+        keys.push(packTileKey(tx, ty));
       }
     }
 
@@ -361,7 +365,7 @@ export class TerrainTileCache {
 
     for (let ty = minTileY; ty < maxTileY; ty++) {
       for (let tx = minTileX; tx < maxTileX; tx++) {
-        const key = this.makeTileKey(tx, ty);
+        const key = packTileKey(tx, ty);
         const cached = this.cache.getTile(key);
         if (cached) {
           this.visibleTiles.push({
@@ -376,21 +380,6 @@ export class TerrainTileCache {
         }
       }
     }
-  }
-
-  /**
-   * Create a tile key from coordinates.
-   */
-  private makeTileKey(tileX: number, tileY: number): string {
-    return `${tileX},${tileY}`;
-  }
-
-  /**
-   * Parse tile coordinates from a key.
-   */
-  private parseTileKey(key: string): { tileX: number; tileY: number } {
-    const [x, y] = key.split(",").map(Number);
-    return { tileX: x, tileY: y };
   }
 
   /**
