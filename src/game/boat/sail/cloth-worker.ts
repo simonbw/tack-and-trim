@@ -48,6 +48,7 @@ import {
   REACTION_CLEW_X,
   REACTION_CLEW_Y,
   REACTION_CLEW_Z,
+  OUTPUT_SOLVE_MS,
   type ClothWorkerMessage,
   type FurlMode,
 } from "./cloth-worker-protocol";
@@ -314,6 +315,8 @@ function solveLoop() {
       if (state !== CLOTH_SOLVING) continue;
     }
 
+    const solveStart = performance.now();
+
     // Read inputs from SAB
     const dt = input[INPUT_DT];
     const substeps = input[INPUT_SUBSTEPS];
@@ -489,6 +492,9 @@ function solveLoop() {
 
     // Flip swap flag
     Atomics.store(control, 1, swapFlag === 0 ? 1 : 0);
+
+    // Record worker-side solve time so main can surface true compute cost
+    reactions[OUTPUT_SOLVE_MS] = performance.now() - solveStart;
 
     // Signal done
     Atomics.store(control, 0, CLOTH_DONE);

@@ -41,6 +41,8 @@ export class ClothSolverSync implements ClothPositionReader {
   private clewRx = 0;
   private clewRy = 0;
 
+  private lastSolveMs = 0;
+
   constructor(
     solver: ClothSolver,
     indices: number[],
@@ -127,11 +129,16 @@ export class ClothSolverSync implements ClothPositionReader {
     ]);
   }
 
+  readSolveMs(): number {
+    return this.lastSolveMs;
+  }
+
   ackResults(): void {
     this.solved = false;
   }
 
   writeInputsAndKick(inputs: SailSolveInputs): void {
+    const solveStart = performance.now();
     const {
       dt,
       substeps,
@@ -278,6 +285,7 @@ export class ClothSolverSync implements ClothPositionReader {
     this.clewRx = sumClewRx;
     this.clewRy = sumClewRy;
 
+    this.lastSolveMs = performance.now() - solveStart;
     this.solved = true;
   }
 

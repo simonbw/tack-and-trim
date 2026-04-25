@@ -9,6 +9,7 @@ import {
   asyncProfiler,
   type AsyncOperationToken,
 } from "../../../core/util/AsyncProfiler";
+import { profiler } from "../../../core/util/Profiler";
 import { V, V2d } from "../../../core/Vector";
 import { TimeOfDay } from "../../time/TimeOfDay";
 import { WindQuery } from "../../world/wind/WindQuery";
@@ -548,12 +549,17 @@ export class Sail extends BaseEntity {
     // Blocking here (instead of skipping when the worker is slow) keeps the
     // cloth pipeline at a deterministic one-tick lag — without this, slow
     // solves would silently drop inputs and skip reaction-force application.
-    await this.handle.awaitResults();
+    await profiler.measure("Cloth.awaitResults", () =>
+      this.handle.awaitResults(),
+    );
 
     // Read results from the worker's previous solve (one-tick lag)
     if (this.handle.hasNewResults()) {
       if (this._clothSolveToken) {
-        asyncProfiler.endAsync(this._clothSolveToken);
+        asyncProfiler.endAsync(
+          this._clothSolveToken,
+          this.handle.readSolveMs(),
+        );
         this._clothSolveToken = null;
       }
       const reactions = this.handle.readReactionForces();

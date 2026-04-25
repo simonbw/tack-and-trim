@@ -41,6 +41,7 @@ import {
   REACTION_CLEW_X,
   REACTION_CLEW_Y,
   REACTION_COUNT,
+  OUTPUT_SOLVE_MS,
 } from "./cloth-worker-protocol";
 
 export interface SailSolveInputs {
@@ -134,6 +135,11 @@ export class SailWorkerHandle implements ClothPositionReader {
   /** Read accumulated reaction forces. Returns [tackRx, tackRy, headRx, headRy, clewRx, clewRy]. */
   readReactionForces(): Float64Array {
     return this.reactionBuf;
+  }
+
+  /** Worker-measured wall-clock time of the last completed solve, in ms. */
+  readSolveMs(): number {
+    return this.reactionBuf[OUTPUT_SOLVE_MS];
   }
 
   /** Acknowledge results — copies current front to prev, swaps front/back, resets state to IDLE. */

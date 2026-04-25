@@ -39,8 +39,7 @@ export const INPUT_HEAD_Z = 18;
 export const INPUT_CLEW_PINNED = 19;
 export const INPUT_COUNT = 20;
 
-// Reaction forces: tack(x,y,z), head(x,y,z), clew(x,y,z) — 9 floats
-export const REACTION_COUNT = 9;
+// Output region: 9 reaction-force floats plus 1 solve-time float = 10 floats
 export const REACTION_TACK_X = 0;
 export const REACTION_TACK_Y = 1;
 export const REACTION_TACK_Z = 2;
@@ -50,6 +49,11 @@ export const REACTION_HEAD_Z = 5;
 export const REACTION_CLEW_X = 6;
 export const REACTION_CLEW_Y = 7;
 export const REACTION_CLEW_Z = 8;
+// Worker-measured wall-clock time spent in the solve, in milliseconds.
+// Used to surface true worker CPU cost on the main thread (since waiting
+// on the worker via Atomics only reveals latency, not compute time).
+export const OUTPUT_SOLVE_MS = 9;
+export const REACTION_COUNT = 10;
 
 /**
  * Compute SAB byte size and region offsets for a given vertex count.
