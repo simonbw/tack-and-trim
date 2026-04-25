@@ -10,6 +10,9 @@
   background-color: rgba(0, 0, 0, 0.7);
   padding: 8px;
   min-width: 32em;
+  max-height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 8px;
