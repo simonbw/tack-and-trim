@@ -36,7 +36,7 @@ import { WindParticles } from "./WindParticles";
 import { WindSoundGenerator } from "./WindSoundGenerator";
 import { CpuQueryCoordinator } from "./world/query/CpuQueryCoordinator";
 import { GpuQueryCoordinator } from "./world/query/GpuQueryCoordinator";
-import { getQueryBackend } from "./world/query/QueryBackendState";
+import { getQueryEngine } from "./world/query/QueryBackendState";
 import { CpuTerrainQueryManager } from "./world/terrain/CpuTerrainQueryManager";
 import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
 import { TerrainResources } from "./world/terrain/TerrainResources";
@@ -112,12 +112,12 @@ export class GameController extends BaseEntity {
     this.startPosition = startPosition ?? V(0, 0);
     this.ports = ports ?? [];
     this.missions = missions ?? [];
-    // Query backend selection.
-    const queryBackend = getQueryBackend();
-    const useCpu = queryBackend === "cpu";
+    // Query engine selection.
+    const queryEngine = getQueryEngine();
+    const useCpu = queryEngine !== "gpu";
     if (useCpu) {
       console.info(
-        "[GameController] CPU query backend enabled — terrain, water, and wind run on worker pool.",
+        `[GameController] CPU query engine (${queryEngine}) enabled — terrain, water, and wind run on worker pool.`,
       );
     }
 

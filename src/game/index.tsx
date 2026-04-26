@@ -21,6 +21,14 @@ import {
   runQueryParityCheck,
   type ParityReport,
 } from "./world/query/QueryParity";
+import {
+  runQueryMicrobench,
+  type MicrobenchReport,
+} from "./world/query/QueryMicrobench";
+import {
+  asyncProfiler,
+  type AsyncProfileStats,
+} from "../core/util/AsyncProfiler";
 
 // Do this so we can access the game from the console
 declare global {
@@ -30,6 +38,19 @@ declare global {
       gameStarted?: boolean;
       toggleMSAA?: () => void;
       runQueryParityCheck?: () => Promise<ParityReport>;
+      runQueryMicrobench?: () => Promise<MicrobenchReport>;
+      getAsyncProfilerStats?: () => AsyncProfileStats[];
+      /**
+       * Most recently submitted per-type point count from the CPU
+       * query coordinator's worker pool (or null if the pool isn't
+       * present). Useful for sanity-checking what workload the
+       * production benchmark is actually measuring.
+       */
+      getLastQueryPointCounts?: () => {
+        terrain: number;
+        water: number;
+        wind: number;
+      } | null;
     };
   }
 }
@@ -63,6 +84,27 @@ async function main() {
     game,
     toggleMSAA,
     runQueryParityCheck: () => runQueryParityCheck(game),
+    runQueryMicrobench: () => runQueryMicrobench(game),
+    getAsyncProfilerStats: () => asyncProfiler.getStats(),
+    getLastQueryPointCounts: () => {
+      const coord = game.entities.getById("cpuQueryCoordinator") as
+        | { getPool?: () => unknown }
+        | undefined;
+      const pool = coord?.getPool?.() as {
+        lastSubmittedPointCounts: {
+          0: number;
+          1: number;
+          2: number;
+        };
+      } | null;
+      if (!pool) return null;
+      // Index by QueryTypeId — terrain=0, water=1, wind=2.
+      return {
+        terrain: pool.lastSubmittedPointCounts[0],
+        water: pool.lastSubmittedPointCounts[1],
+        wind: pool.lastSubmittedPointCounts[2],
+      };
+    },
   };
 
   // Clean up resources when the page is unloaded

@@ -7,8 +7,8 @@ const TEST_PORT = 3456;
 export default defineConfig({
   testDir: "./tests",
   timeout: 60000,
-  // Exclude benchmark tests from normal runs - use `npx playwright test --grep @benchmark` to run them
-  testIgnore: ["**/benchmark.spec.ts"],
+  // Exclude benchmark tests from normal runs — use `npm run benchmark`.
+  testIgnore: ["**/*benchmark.spec.ts"],
   use: {
     // Use Chrome's "new headless" (a real browser instance with GPU) rather
     // than the legacy headless_shell, which falls back to software WebGPU.

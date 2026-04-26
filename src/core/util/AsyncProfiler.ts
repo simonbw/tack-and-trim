@@ -178,10 +178,15 @@ class AsyncProfiler {
   /**
    * End tracking an async operation and record timing.
    * The elapsed time since the token was created becomes the callback time.
+   *
+   * `explicitCallbackMs` overrides the callback-time metric with a
+   * caller-measured value — useful when the work happened off-thread
+   * (e.g. in a worker) and the main thread can't time it directly.
+   * Latency (start → end wall-clock) is still recorded normally.
    */
-  endAsync(token: AsyncOperationToken): void {
+  endAsync(token: AsyncOperationToken, explicitCallbackMs?: number): void {
     if (!this.enabled || !token.timing) return;
-    this.recordCompletion(token.label, token.timing);
+    this.recordCompletion(token.label, token.timing, explicitCallbackMs);
   }
 
   /**
@@ -273,7 +278,11 @@ class AsyncProfiler {
     this.entries.clear();
   }
 
-  private recordCompletion(label: string, timing: AsyncOperationTiming): void {
+  private recordCompletion(
+    label: string,
+    timing: AsyncOperationTiming,
+    explicitCallbackMs?: number,
+  ): void {
     const entry = this.entries.get(label);
     if (!entry) return;
 
@@ -283,8 +292,8 @@ class AsyncProfiler {
     }
 
     const now = performance.now();
-    const callbackMs = now - timing.startTime;
-    const latencyMs = callbackMs;
+    const latencyMs = now - timing.startTime;
+    const callbackMs = explicitCallbackMs ?? latencyMs;
 
     entry.frame.completions++;
     entry.frame.callbackMs += callbackMs;

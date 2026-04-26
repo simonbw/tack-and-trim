@@ -1,14 +1,17 @@
 /**
  * Shared-memory protocol between the main thread and query workers.
  *
- * One pool of workers handles all query types (terrain, water, wind). Each
- * frame the main thread packs a batch of work items into the control SAB
- * and bumps a generation counter; workers wake via `Atomics.wait`, each
- * processes its assigned slice of the batch, and decrements a "remaining"
- * counter. The main thread polls the counter next frame and — once it
- * hits zero — reads results from the per-query-type SABs.
+ * One pool of workers handles all query types (terrain, water, wind).
+ * The pool owns a single `WebAssembly.Memory({shared: true})`. All
+ * per-frame buffers (points, params, results, modifiers) and all
+ * immutable world-state blobs (packed terrain / wave / tide / wind
+ * meshes) live inside that memory at offsets the pool partitions
+ * manually. Both the JS-CPU dispatch path and the wasm dispatch path
+ * read and write the same bytes — no copies.
  *
- * Only zero-copy typed arrays flow across the boundary; no serialization.
+ * A separate small `controlSab` (Int32Array) drives a generation-counter
+ * handshake so workers can `Atomics.wait`/`notify` to synchronize
+ * frames; this is unrelated to the wasm memory.
  */
 
 /**
@@ -27,27 +30,17 @@ export type QueryTypeId =
 /** Number of `Float32Array` elements per query point (x, y). */
 export const STRIDE_PER_POINT = 2;
 
-/**
- * Control SAB layout (Int32Array view).
- *
- * The control block is small (one SAB for the whole pool). It carries
- * per-frame metadata plus synchronization primitives.
- */
+// ---------------------------------------------------------------------------
+// Control SAB layout (Int32Array view).
+// ---------------------------------------------------------------------------
 
 /** Generation counter. Bumped by main thread each frame to signal work. */
 export const CTRL_GENERATION = 0;
 
-/**
- * Remaining workers that haven't finished the current generation's work.
- * Starts at `workerCount` when main thread submits, decremented atomically
- * by each worker as it finishes. Reaches zero when the frame is done.
- */
+/** Remaining workers that haven't finished the current generation's work. */
 export const CTRL_REMAINING = 1;
 
-/**
- * Number of distinct query types with work this frame. The first N entries
- * in the work-item list describe per-type batches.
- */
+/** Number of distinct query types with work this frame. */
 export const CTRL_NUM_TYPES = 2;
 
 /** Reserved for future use (padding to 16-byte alignment). */
@@ -56,9 +49,6 @@ export const CTRL_RESERVED = 3;
 /**
  * Start of the per-query-type descriptors. Each descriptor is 4 Int32
  * entries: [typeId, pointCount, stride, /* reserved * / 0].
- *
- * Up to 3 descriptors (one per query type) so the fixed-size control
- * block holds: 4 header ints + 3 * 4 descriptor ints = 16 ints = 64 bytes.
  */
 export const CTRL_DESCRIPTORS_BASE = 4;
 export const CTRL_DESCRIPTOR_STRIDE = 4;
@@ -72,65 +62,81 @@ export const CTRL_TOTAL_INTS =
   CTRL_DESCRIPTORS_BASE + MAX_DESCRIPTORS * CTRL_DESCRIPTOR_STRIDE;
 
 /**
- * Init message sent once to each worker when it starts. Carries the SAB
- * handles the worker will use for its lifetime. Workers then enter a
- * wait-loop and never need another `postMessage`.
+ * Profiling: each worker writes its per-query-type compute time (ms)
+ * into its own slot of a shared Float32Array on `timingsSab`. Layout
+ * is `[workerIndex * TIMINGS_FLOATS_PER_WORKER + typeId]`.
+ */
+export const TIMINGS_FLOATS_PER_WORKER = MAX_DESCRIPTORS;
+
+/**
+ * Per-channel byte offsets into the pool's shared `WebAssembly.Memory`.
+ * The pool computes these once (in `computePartition`) and ships them
+ * to every worker via `QueryWorkerInitMessage`. Workers build matching
+ * Float32Array views and call `process_*_batch` with these offsets.
+ */
+export interface WasmChannelLayout {
+  pointsPtr: number;
+  pointsBytes: number;
+  paramsPtr: number;
+  paramsBytes: number;
+  resultsPtr: number;
+  resultsBytes: number;
+  /** Modifiers buffer offset (water only). 0 for other types. */
+  modifiersPtr: number;
+  modifiersBytes: number;
+  /**
+   * Per-type packed world-state buffers, in the same order the channel
+   * options provided them. Pointers are byte offsets, lengths are u32
+   * element counts.
+   */
+  worldStatePtrs: number[];
+  worldStateLens: number[];
+  maxPoints: number;
+  resultStride: number;
+}
+
+export interface WasmPartitionLayout {
+  terrain: WasmChannelLayout;
+  water: WasmChannelLayout;
+  wind: WasmChannelLayout;
+  /** Total bytes the partition uses; lower bound for memory's initial size. */
+  totalBytes: number;
+}
+
+/**
+ * Init message sent once to each worker when it starts. Workers then
+ * enter a wait-loop and never need another `postMessage`.
  */
 export interface QueryWorkerInitMessage {
   type: "init";
   workerIndex: number;
   workerCount: number;
   controlSab: SharedArrayBuffer;
+  /** Per-worker per-type compute time (ms), Float32Array-viewed. */
+  timingsSab: SharedArrayBuffer;
   /**
-   * One entry per query type (index by `QueryTypeId`). Each entry holds
-   * the points and results SABs for that query type. Stride for results
-   * is carried in the per-frame descriptor.
+   * Engine selector for the per-point math:
+   *   "js"   — pure-TypeScript ports in `*-math.ts` (the original CPU path)
+   *   "wasm" — Rust→WASM kernel from `pipeline/query-wasm`
    */
-  channels: QueryWorkerChannel[];
-}
-
-export interface QueryWorkerChannel {
-  pointsSab: SharedArrayBuffer;
-  resultsSab: SharedArrayBuffer;
+  cpuEngine: "js" | "wasm";
   /**
-   * Small SAB carrying per-frame uniforms for this query type (time,
-   * base wind, source weights, etc.). Sized generously so query types
-   * don't have to negotiate layout with the pool — each query type
-   * decides its own float layout.
+   * The shared `WebAssembly.Memory` the pool allocated. Workers build
+   * Float32Array views over `wasmMemory.buffer` for the JS dispatch
+   * path, and (when `cpuEngine === "wasm"`) instantiate the wasm
+   * module against this memory so its kernel reads/writes the same
+   * bytes — no copies between JS and wasm.
    */
-  paramsSab: SharedArrayBuffer;
-  /**
-   * Read-only per-query-type world state buffers. Ordering is
-   * query-type-specific:
-   *   - terrain: [packedTerrain]
-   *   - water:   [packedWaveMesh, packedTideMesh]
-   *   - wind:    [packedWindMesh]
-   *
-   * All packed-mesh builders allocate with SharedArrayBuffer, so handing
-   * these views to workers is zero-copy even for large buffers (e.g. the
-   * 500MB-class wave mesh on big maps).
-   */
-  worldState: readonly Uint32Array[];
-  /**
-   * SAB-backed frame-mutable state (e.g. water modifiers). Main thread
-   * writes into it before each submit; workers see live updates.
-   * Interpreted as a Float32Array by consumers.
-   */
-  frameStateSab: SharedArrayBuffer | null;
-  /** Max points this channel's SABs are sized for. */
-  maxPoints: number;
-  /** Floats per result entry. */
-  resultStride: number;
+  wasmMemory: WebAssembly.Memory;
+  /** Precompiled query-wasm module, instantiated per worker. */
+  wasmModule: WebAssembly.Module;
+  /** Byte offsets into `wasmMemory` for every channel. */
+  partition: WasmPartitionLayout;
 }
 
 /**
- * Fixed size of each per-channel params SAB, in Float32 entries.
- *
- * Generous enough to hold scalar uniforms plus small inline tables:
- *   - wind: time, base velocity, 8 source weights, neutral defaults
- *   - water: time, tide, default depth, counts, tidal phase, plus up to
- *     8 wave sources × 8 floats = 64 floats inline.
- * Each query type carves out its own layout from this space.
+ * Fixed size of each per-channel params region, in Float32 entries.
+ * Generous enough to hold scalar uniforms plus small inline tables.
  */
 export const PARAMS_FLOATS_PER_CHANNEL = 128;
 

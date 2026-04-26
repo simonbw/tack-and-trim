@@ -1,5 +1,5 @@
 [workspace]
-members = ["terrain-core", "wavemesh-builder", "build-level"]
+members = ["terrain-core", "wavemesh-builder", "build-level", "query-wasm"]
 resolver = "2"
 
 [profile.release]
@@ -7,3 +7,14 @@ opt-level = 3
 lto = "thin"
 codegen-units = 16
 debug = true
+
+# Tighter, smaller, no-debug build profile for the wasm crate so npm run
+# build-query-wasm produces a minimal artifact suitable for the browser.
+[profile.release-wasm]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = "debuginfo"
+panic = "abort"

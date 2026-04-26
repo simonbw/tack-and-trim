@@ -1,0 +1,10 @@
+[package]
+name = "query-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "WASM kernel for the CPU world-state query backend (water, wind, terrain)."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]

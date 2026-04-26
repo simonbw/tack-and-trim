@@ -7,8 +7,9 @@ import {
   setMasterVolume,
 } from "../core/sound/MasterVolumeState";
 import {
-  getQueryBackend,
-  setQueryBackend,
+  getQueryEngine,
+  setQueryEngine,
+  type QueryEngine,
 } from "./world/query/QueryBackendState";
 import "./SettingsPanel.css";
 
@@ -18,10 +19,17 @@ interface Props {
   onChange: () => void;
 }
 
+const QUERY_ENGINE_CYCLE: QueryEngine[] = ["gpu", "js", "wasm"];
+const QUERY_ENGINE_LABELS: Record<QueryEngine, string> = {
+  gpu: "GPU",
+  js: "JS",
+  wasm: "WASM",
+};
+
 export function SettingsPanel({ onBack, onChange }: Props) {
   const msaa = isMSAAEnabled();
   const volume = getMasterVolume();
-  const queryBackend = getQueryBackend();
+  const queryEngine = getQueryEngine();
   return (
     <div class="settings-panel">
       <div class="settings-panel__title">Settings</div>
@@ -61,14 +69,17 @@ export function SettingsPanel({ onBack, onChange }: Props) {
         <button
           class="settings-panel__option"
           onClick={() => {
-            setQueryBackend(queryBackend === "gpu" ? "cpu" : "gpu");
+            const i = QUERY_ENGINE_CYCLE.indexOf(queryEngine);
+            const next =
+              QUERY_ENGINE_CYCLE[(i + 1) % QUERY_ENGINE_CYCLE.length];
+            setQueryEngine(next);
             onChange();
           }}
-          title="Requires reloading the level to take effect"
+          title="GPU runs WebGPU compute. JS/WASM run the CPU worker pool with the corresponding math kernel. Requires reloading the level to take effect."
         >
-          <span class="settings-panel__option-label">Query Backend</span>
+          <span class="settings-panel__option-label">Query Engine</span>
           <span class="settings-panel__option-value">
-            {queryBackend === "gpu" ? "GPU" : "CPU"}
+            {QUERY_ENGINE_LABELS[queryEngine]}
           </span>
         </button>
       </div>

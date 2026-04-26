@@ -19,3 +19,4 @@ pipeline/**/profile-samply.atos-cache*.json
 pipeline/target/
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+src/game/world/query/generated/

@@ -18,6 +18,7 @@
     "benchmark": "playwright test --config playwright.benchmark.config.ts",
     "build-wavemesh": "cargo build --release --manifest-path pipeline/Cargo.toml -p wavemesh-builder && ./pipeline/target/release/wavemesh-builder",
     "build-wavemesh:compile": "cargo build --release --manifest-path pipeline/Cargo.toml -p wavemesh-builder",
+    "build-query-wasm": "mkdir -p src/game/world/query/generated && (cd pipeline && cargo build --profile release-wasm --target wasm32-unknown-unknown -p query-wasm) && cp pipeline/target/wasm32-unknown-unknown/release-wasm/query_wasm.wasm src/game/world/query/generated/query.wasm",
     "build-level": "cargo build --release --manifest-path pipeline/Cargo.toml -p build-level && ./pipeline/target/release/build-level",
     "profile-wavemesh:samply": "./pipeline/profile-samply.sh -p wavemesh-builder",
     "profile-wavemesh:samply-view": "samply load pipeline/profile-samply.json",

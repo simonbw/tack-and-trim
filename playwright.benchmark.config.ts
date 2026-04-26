@@ -6,7 +6,7 @@ const TEST_PORT = 3456;
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: "**/benchmark.spec.ts",
+  testMatch: "**/*benchmark.spec.ts",
   timeout: 120000,
   use: {
     // Use Chrome's "new headless" (a real browser instance with GPU) rather

@@ -1,2 +1,24 @@
 [build]
 rustflags = ["-C", "force-frame-pointers=yes"]
+
+# wasm32 target features:
+# - simd128: lets the LLVM autovectorizer use SIMD vector types in hot
+#   loops (Gerstner waves, simplex noise).
+# - bulk-memory: fast memcpy/memset intrinsics for buffer initialization.
+# - atomics: prerequisite for `--shared-memory`. We don't use atomics
+#   from wasm code itself; per-worker access patterns are disjoint
+#   (each worker writes to its own slice of the result buffer).
+# - mutable-globals: required for shared-memory code-gen.
+#
+# Linker flags:
+# - --import-memory: the binary imports its linear memory from JS rather
+#   than declaring its own. JS provides one shared `WebAssembly.Memory`
+#   that all workers' wasm instances share.
+# - --shared-memory: marks the imported memory as shared, so JS can
+#   construct it with `shared: true` (a SAB-backed memory).
+# - --max-memory: 4 GiB cap (wasm32 max).
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "target-feature=+simd128,+bulk-memory,+atomics,+mutable-globals",
+  "-C", "link-args=--shared-memory --import-memory --max-memory=4294967296",
+]

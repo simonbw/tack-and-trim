@@ -1,5 +1,5 @@
 import { on } from "../../../core/entity/handler";
-import { profile } from "../../../core/util/Profiler";
+import { profile, profileAsync } from "../../../core/util/Profiler";
 import type { QueryTypeId } from "./query-worker-protocol";
 import { STRIDE_PER_POINT } from "./query-worker-protocol";
 import { QueryManager } from "./QueryManager";
@@ -69,6 +69,7 @@ export abstract class CpuQueryManager extends QueryManager {
    * SAB for this manager's query type. Returns the point count so the
    * coordinator can assemble a single `submit()` across managers.
    */
+  @profile
   collectAndWritePoints(): number {
     if (!this.pool) return 0;
 
@@ -110,14 +111,22 @@ export abstract class CpuQueryManager extends QueryManager {
   }
 
   /**
-   * If a submitted frame is ready, distribute its results to queries.
+   * Block until the in-flight frame's workers have finished, then
+   * distribute results to queries.
+   *
+   * The `await` here is what keeps the query pipeline deterministic:
+   * physics (which runs after this tick handler) always sees results
+   * from exactly the previous tick's submission, regardless of how
+   * long workers took. Mirrors the GPU backend's `await readbackPromise`
+   * in `GpuQueryManager.onTick`.
    */
   @on("tick")
-  @profile
-  onTick(): void {
+  @profileAsync
+  async onTick(): Promise<void> {
     if (!this.frameInFlight) return;
     if (!this.pool || !this.resultsView) return;
-    if (!this.pool.isFrameComplete()) return;
+
+    await this.pool.awaitFrameComplete();
 
     this.distributeResults(this.resultsView);
     this.frameInFlight = false;

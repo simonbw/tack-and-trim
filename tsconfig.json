@@ -12,7 +12,7 @@
     "downlevelIteration": true,
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "lib": ["ES2023", "dom"],
+    "lib": ["ES2024", "dom"],
     "noEmit": true,
     "skipLibCheck": true,
     "strict": true,

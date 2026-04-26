@@ -1,41 +1,92 @@
 /**
- * User preference for which query backend to use (GPU compute vs CPU
- * worker pool). Persists to localStorage so the choice survives reloads.
+ * User preference for which query engine to use. Persists to localStorage so
+ * the choice survives reloads.
  *
- * Only the "gpu" backend exists today; "cpu" is reserved for a future
- * Rust/WASM worker pool implementation.
+ * Three options:
+ * - `"gpu"`: WebGPU compute pipeline.
+ * - `"js"`: CPU worker pool dispatching to the TypeScript math ports.
+ * - `"wasm"`: CPU worker pool dispatching to the Rust→WASM kernel.
+ *
+ * `"js"` and `"wasm"` both use the CPU worker pool and only differ in which
+ * math kernel each worker calls.
  */
 
-export type QueryBackendType = "gpu" | "cpu";
+export type QueryEngine = "gpu" | "js" | "wasm";
+
+/**
+ * The CPU sub-engine type, kept as its own alias because the worker pool
+ * protocol needs to distinguish JS vs WASM independently of GPU.
+ */
+export type CpuQueryEngine = "js" | "wasm";
 
 type Unsubscribe = () => void;
 
-const KEY = "queryBackend";
+const KEY_ENGINE = "queryEngine";
+const KEY_LEGACY_BACKEND = "queryBackend";
+const KEY_LEGACY_CPU_ENGINE = "queryCpuEngine";
+const KEY_WORKER_COUNT = "queryWorkerCount";
 
-function readInitial(): QueryBackendType {
+function readInitialEngine(): QueryEngine {
   if (typeof localStorage === "undefined") return "gpu";
-  const stored = localStorage.getItem(KEY);
-  return stored === "cpu" ? "cpu" : "gpu";
+  const stored = localStorage.getItem(KEY_ENGINE);
+  if (stored === "gpu" || stored === "js" || stored === "wasm") return stored;
+
+  // Migrate from the legacy two-knob storage (queryBackend + queryCpuEngine).
+  const legacyBackend = localStorage.getItem(KEY_LEGACY_BACKEND);
+  const legacyCpuEngine = localStorage.getItem(KEY_LEGACY_CPU_ENGINE);
+  let migrated: QueryEngine = "gpu";
+  if (legacyBackend === "cpu") {
+    migrated = legacyCpuEngine === "wasm" ? "wasm" : "js";
+  }
+  localStorage.setItem(KEY_ENGINE, migrated);
+  localStorage.removeItem(KEY_LEGACY_BACKEND);
+  localStorage.removeItem(KEY_LEGACY_CPU_ENGINE);
+  return migrated;
 }
 
-let current: QueryBackendType = readInitial();
+let currentEngine: QueryEngine = readInitialEngine();
 
 const subscribers = new Set<() => void>();
 
-export function getQueryBackend(): QueryBackendType {
-  return current;
+export function getQueryEngine(): QueryEngine {
+  return currentEngine;
 }
 
-export function setQueryBackend(backend: QueryBackendType): void {
-  if (backend === current) return;
-  current = backend;
+export function setQueryEngine(engine: QueryEngine): void {
+  if (engine === currentEngine) return;
+  currentEngine = engine;
   if (typeof localStorage !== "undefined") {
-    localStorage.setItem(KEY, backend);
+    localStorage.setItem(KEY_ENGINE, engine);
   }
   for (const cb of subscribers) cb();
 }
 
-export function onQueryBackendChange(cb: () => void): Unsubscribe {
+export function onQueryEngineChange(cb: () => void): Unsubscribe {
   subscribers.add(cb);
   return () => subscribers.delete(cb);
+}
+
+/**
+ * Optional override for the CPU worker pool size. `null` means "use
+ * the default heuristic" (`max(hardwareConcurrency - 4, 2)`).
+ *
+ * Mainly useful for benchmarks that want to sweep over different
+ * worker counts without recompiling. Persists to localStorage but
+ * isn't surfaced in the settings UI.
+ */
+export function getQueryWorkerCountOverride(): number | null {
+  if (typeof localStorage === "undefined") return null;
+  const stored = localStorage.getItem(KEY_WORKER_COUNT);
+  if (stored == null) return null;
+  const n = parseInt(stored, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function setQueryWorkerCountOverride(n: number | null): void {
+  if (typeof localStorage === "undefined") return;
+  if (n == null) {
+    localStorage.removeItem(KEY_WORKER_COUNT);
+  } else {
+    localStorage.setItem(KEY_WORKER_COUNT, String(n));
+  }
 }
