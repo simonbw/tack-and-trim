@@ -2,6 +2,7 @@ import { createBoatConfig } from "../BoatConfig";
 import { MAESTRO_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
 import { BaseBoat } from "./BaseBoat";
+import { withMainsailOnly } from "./withMainsailOnly";
 
 // J/24: LOA 24ft, beam 8.9ft, draft 4.0ft, disp 3100 lbs, ballast 950 lbs (30.6%)
 const sx = 1.067; // 24.0 / 22.5
@@ -12,13 +13,16 @@ const sz = sx;
  * Maestro Etude — 24ft premium performance daysailer (inspired by J/24)
  * The smallest Maestro is the most fun. Slightly bigger and heavier than the
  * Shaff S-7, with a deeper feel and better ergonomics. The hull is hand-laid
- * and precisely faired; the sails are cut in-house. Faster than it looks,
- * more comfortable than it has any right to be.
+ * and precisely faired; the single mainsail is cut in-house. Faster than it
+ * looks, more comfortable than it has any right to be.
  *
  * Inspired by: J/24 (LOA 24ft, disp 3100 lbs, ballast 950 lbs, SA 260 sqft)
  */
 export const MaestroEtude = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), MAESTRO_PALETTE),
+  withBrandPalette(
+    scaleBoatConfig(withMainsailOnly(BaseBoat), sx, sy, sz),
+    MAESTRO_PALETTE,
+  ),
   {
     hull: {
       mass: 1700,
@@ -37,10 +41,6 @@ export const MaestroEtude = createBoatConfig(
         liftScale: 1.0,
         dragScale: 0.95,
       },
-    },
-    jib: {
-      liftScale: 1.0,
-      dragScale: 0.95,
     },
     hullDamage: {
       groundingDamageRate: 0.14,

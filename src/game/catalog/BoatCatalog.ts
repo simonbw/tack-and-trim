@@ -130,7 +130,7 @@ export const BOAT_DEFS: readonly BoatDef[] = [
     id: "shaff-s7",
     name: "Shaff S-7",
     description:
-      "A pure one-design racer built for speed over everything else. Tender and demanding — the boat teaches you to sail by punishing mistakes and rewarding precision.",
+      "A stripped-down one-design racer — single mainsail, no jib, no bowsprit, no distractions. Tender and demanding; teaches you to sail by punishing mistakes and rewarding precision.",
     cost: 0,
     baseConfig: ShaffS7,
     displayStats: { speed: 7, stability: 3, durability: 4, maneuverability: 8 },
@@ -182,7 +182,7 @@ export const BOAT_DEFS: readonly BoatDef[] = [
     id: "bhc-daysailer",
     name: "BHC Daysailer",
     description:
-      "The most forgiving boat on the water. Swing keel, comfortable cockpit, basic sails — everything you need, nothing you don't. Great for learning and lazy afternoons.",
+      "The most forgiving boat on the water. Swing keel, comfortable cockpit, single-mainsail rig — everything you need to learn the basics, nothing you don't. Great for lazy afternoons.",
     cost: 0,
     baseConfig: BhcDaysailer,
     displayStats: { speed: 4, stability: 7, durability: 7, maneuverability: 6 },
@@ -239,7 +239,7 @@ export const BOAT_DEFS: readonly BoatDef[] = [
     id: "maestro-etude",
     name: "Maestro Etude",
     description:
-      "The smallest Maestro is the most fun. Hand-laid hull, precision-cut sails, and a deeper feel than anything else in the S class. Faster than it looks.",
+      "The smallest Maestro is the most fun. Hand-laid hull, a precision-cut single mainsail, and a deeper feel than anything else in the S class. Faster than it looks.",
     cost: 600,
     baseConfig: MaestroEtude,
     displayStats: { speed: 7, stability: 6, durability: 6, maneuverability: 7 },

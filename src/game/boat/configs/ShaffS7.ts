@@ -1,17 +1,18 @@
 import { createBoatConfig } from "../BoatConfig";
 import { SHAFF_PALETTE, withBrandPalette } from "./brandPalettes";
 import { BaseBoat } from "./BaseBoat";
+import { withMainsailOnly } from "./withMainsailOnly";
 
 /**
  * Shaff S-7 — 21ft performance one-design racer (inspired by J/22)
  * The entry point to the Shaff lineup. Tender, quick to respond, demanding
- * in gusts but rewarding for skilled sailors. Racing sails, low freeboard,
- * no frills.
+ * in gusts but rewarding for skilled sailors. Single mainsail rig, low
+ * freeboard, no frills.
  *
  * Inspired by: J/22 (LOA 22.5ft, disp 1790 lbs, ballast 700 lbs, SA 226 sqft)
  */
 export const ShaffS7 = createBoatConfig(
-  withBrandPalette(BaseBoat, SHAFF_PALETTE),
+  withBrandPalette(withMainsailOnly(BaseBoat), SHAFF_PALETTE),
   {
     hull: {
       mass: 640,
@@ -29,10 +30,6 @@ export const ShaffS7 = createBoatConfig(
         liftScale: 1.05,
         dragScale: 0.9,
       },
-    },
-    jib: {
-      liftScale: 1.05,
-      dragScale: 0.9,
     },
     hullDamage: {
       groundingDamageRate: 0.2, // racing hull — lighter layup

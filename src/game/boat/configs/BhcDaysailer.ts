@@ -2,6 +2,7 @@ import { createBoatConfig } from "../BoatConfig";
 import { BHC_PALETTE, withBrandPalette } from "./brandPalettes";
 import { scaleBoatConfig } from "./configScale";
 import { BaseBoat } from "./BaseBoat";
+import { withMainsailOnly } from "./withMainsailOnly";
 
 // Catalina 22: LOA 21.5ft, beam 7.67ft, draft 5.0ft (swing keel down), disp 2490 lbs, ballast 800 lbs (32%)
 const sx = 0.956; // 21.5 / 22.5
@@ -11,13 +12,17 @@ const sz = sx;
 /**
  * BHC Daysailer — 21ft swing-keel family daysailer (inspired by Catalina 22)
  * The most approachable boat on the water. The swing keel keeps her stable
- * and forgiving in gusts; basic sails mean you don't need to sweat the
- * trim. Great for learning, lazy afternoons, and keeping everyone aboard happy.
+ * and forgiving in gusts; the single-mainsail rig means you don't need to
+ * sweat the trim. Great for learning, lazy afternoons, and keeping everyone
+ * aboard happy.
  *
  * Inspired by: Catalina 22 (LOA 21.5ft, disp 2490 lbs, ballast 800 lbs, SA 212 sqft)
  */
 export const BhcDaysailer = createBoatConfig(
-  withBrandPalette(scaleBoatConfig(BaseBoat, sx, sy, sz), BHC_PALETTE),
+  withBrandPalette(
+    scaleBoatConfig(withMainsailOnly(BaseBoat), sx, sy, sz),
+    BHC_PALETTE,
+  ),
   {
     hull: {
       mass: 1240,
@@ -36,10 +41,6 @@ export const BhcDaysailer = createBoatConfig(
         liftScale: 0.92, // basic production sails
         dragScale: 1.05,
       },
-    },
-    jib: {
-      liftScale: 0.92,
-      dragScale: 1.05,
     },
     hullDamage: {
       groundingDamageRate: 0.12, // solid gelcoat construction
