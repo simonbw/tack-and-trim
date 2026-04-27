@@ -25,6 +25,7 @@ import { Rudder } from "./Rudder";
 import { Sail } from "./sail/Sail";
 import { Sheet } from "./Sheet";
 import { Wake } from "./Wake";
+import { WindVane } from "./WindVane";
 import { Mooring } from "../port/Mooring";
 import { Anchor } from "./Anchor";
 import { Sailor } from "./sailor/Sailor";
@@ -120,6 +121,7 @@ export class Boat extends BaseEntity {
     );
     this.rudder = this.addChild(new Rudder(this.hull, config.rudder));
     this.rig = this.addChild(new Rig(this.hull, config.rig));
+    this.addChild(new WindVane(this.rig));
 
     if (config.bowsprit) {
       this.bowsprit = this.addChild(new Bowsprit(this, config.bowsprit));
