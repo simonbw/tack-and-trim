@@ -168,6 +168,8 @@ You never need to ask the user if they want you to run the dev server.
 The user always has the dev server running and can test things out if you want them to.
 Don't try to access their running dev server yourself.
 
+Before presenting any feature, change, or fix as done, run `npm test` and confirm it passes. If a test fails, investigate and fix it before reporting back — don't hand off a broken state for the user to discover. The same goes for `npm run tsgo` for type errors.
+
 ### Code Style
 
 - Always use named exports, never default exports.
