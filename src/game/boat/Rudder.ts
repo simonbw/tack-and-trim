@@ -45,6 +45,7 @@ export class Rudder extends BaseEntity {
   private chord: number;
   private maxSteerAngle: number;
   private color: number;
+  private tillerColor: number;
   private rudderZ: number;
   private aspectRatio: number; // AR = span / chord (dimensionless)
 
@@ -80,6 +81,7 @@ export class Rudder extends BaseEntity {
     this.chord = config.chord;
     this.maxSteerAngle = config.maxSteerAngle;
     this.color = config.color;
+    this.tillerColor = config.tillerColor;
     this.rudderZ = -config.draft;
 
     // Aspect ratio = span / chord. Span is the rudder blade depth (draft).
@@ -280,6 +282,11 @@ export class Rudder extends BaseEntity {
   /** Visual color for the rudder blade. */
   getColor(): number {
     return this.color;
+  }
+
+  /** Visual color for the tiller arm above deck. */
+  getTillerColor(): number {
+    return this.tillerColor;
   }
 
   setDamageEffects(

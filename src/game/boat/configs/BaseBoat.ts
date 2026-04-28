@@ -233,6 +233,7 @@ export const BaseBoat: BoatConfig = {
     steerAdjustSpeed: 0.8,
     steerAdjustSpeedFast: 2.0,
     color: 0x4a3a3d,
+    tillerColor: 0x886633,
   },
 
   rig: {

@@ -187,6 +187,8 @@ export interface RudderConfig {
   readonly steerAdjustSpeedFast: number; // rad/s, fast steering rate (typical 1.5-3.0)
   /** Visual color for the rudder blade (hex RGB). */
   readonly color: number;
+  /** Visual color for the tiller arm above deck (hex RGB). */
+  readonly tillerColor: number;
 }
 
 /**

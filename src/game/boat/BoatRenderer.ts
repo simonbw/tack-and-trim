@@ -368,7 +368,7 @@ export class BoatRenderer extends BaseEntity {
       tipY,
       deckZ,
       0.25,
-      rudder.getColor(),
+      rudder.getTillerColor(),
       1,
       true,
     );

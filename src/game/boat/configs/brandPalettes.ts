@@ -28,6 +28,8 @@ export interface BrandPalette {
   };
   /** Keel + rudder blade color. */
   foils: number;
+  /** Tiller arm color. Picked per brand to read against that brand's cockpit sole. */
+  tiller: number;
   /** Mast + boom colors. */
   rig: {
     mast: number;
@@ -73,6 +75,7 @@ export const SHAFF_PALETTE: BrandPalette = {
     companionway: 0x0f3a47, // dark teal opening
   },
   foils: 0x1a4552, // deep teal foils
+  tiller: 0xe1af00, // gold — pops against the teal cockpit sole
   rig: {
     mast: 0x888888, // brushed aluminum
     boom: 0xe1af00, // gold boom
@@ -155,6 +158,7 @@ export const BHC_PALETTE: BrandPalette = {
     companionway: 0x2a1808, // dark mahogany
   },
   foils: 0x5a4030, // stained wood
+  tiller: 0x5a4030, // matches the rudder — the brown-on-honey-teak default disappeared into the cockpit sole
   rig: {
     mast: 0xa09080, // tan-gray alloy
     boom: 0x8a6a40, // tan-brown
@@ -225,6 +229,7 @@ export const MAESTRO_PALETTE: BrandPalette = {
     companionway: 0x0a1028, // navy companionway
   },
   foils: 0x162648, // navy foils
+  tiller: 0xb09030, // gold — matches the boom and reads against the varnished teak sole
   rig: {
     mast: 0xbbbbcc, // polished silver
     boom: 0xb09030, // gold boom
@@ -334,7 +339,11 @@ export function withBrandPalette(
         : undefined,
     },
     keel: { ...base.keel, color: palette.foils },
-    rudder: { ...base.rudder, color: palette.foils },
+    rudder: {
+      ...base.rudder,
+      color: palette.foils,
+      tillerColor: palette.tiller,
+    },
     rig: {
       ...base.rig,
       colors: { mast: palette.rig.mast, boom: palette.rig.boom },
