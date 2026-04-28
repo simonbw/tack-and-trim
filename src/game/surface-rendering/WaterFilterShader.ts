@@ -383,16 +383,12 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     //   - shallowFactor: near-bottom water has more resuspended sediment,
     //     more plankton in the photic zone, more shore-runoff CDOM.
     //     Decays exponentially with water column depth.
-    //   - turbulenceFactor: breaking waves and wakes stir the bottom,
-    //     boosting sediment locally. Turbulence comes from the G channel
-    //     of waterHeightTexture (wake/breakers).
     let depthForMod = select(1000.0, max(submersion, 0.0), scenePresent);
     let shallowFactor = 1.0 + 2.0 * exp(-depthForMod * 0.15);
-    let turbulenceFactor = 1.0 + 3.0 * turbulence;
 
     let localChl = params.chlorophyll * shallowFactor;
     let localCdom = params.cdom * shallowFactor;
-    let localSediment = params.sediment * shallowFactor * turbulenceFactor;
+    let localSediment = params.sediment * shallowFactor;
 
     let optics = computeWaterOptics(localChl, localCdom, localSediment);
     let extinction = optics.extinction;
