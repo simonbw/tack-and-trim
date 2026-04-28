@@ -34,6 +34,11 @@ function getFontConfigFromManifestName(name: string): {
         family: "Spectral",
         descriptors: { style: "normal", weight: "600" },
       };
+    case "spinnakerRegular":
+      return {
+        family: "Spinnaker",
+        descriptors: { style: "normal", weight: "400" },
+      };
     case "tangerineRegular":
       return {
         family: "Tangerine",

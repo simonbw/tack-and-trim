@@ -18,6 +18,7 @@ const fonts = {
   spectralLight: require("url:./fonts/Spectral-Light.woff2"),
   spectralRegular: require("url:./fonts/Spectral-Regular.woff2"),
   spectralSemiBold: require("url:./fonts/Spectral-SemiBold.woff2"),
+  spinnakerRegular: require("url:./fonts/Spinnaker-Regular.woff2"),
   tangerineBold: require("url:./fonts/Tangerine-Bold.woff2"),
   tangerineRegular: require("url:./fonts/Tangerine-Regular.woff2"),
   youngSerifRegular: require("url:./fonts/YoungSerif-Regular.woff2")
