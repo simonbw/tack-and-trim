@@ -27,7 +27,7 @@ export class BoatDebugHUD extends ReactEntity {
       <div
         style={{
           position: "fixed",
-          top: "140px",
+          top: "200px",
           right: "20px",
           color: "white",
           textShadow: "0 0 2px rgba(0, 0, 0, 0.6)",

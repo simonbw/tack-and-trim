@@ -498,6 +498,13 @@ export interface CompassPalette {
   readonly inkSoft: number;
   /** N letter — the brand's accent for due north. */
   readonly north: number;
+  /**
+   * Compass-rose ray pointing to north — typically a distinctive accent.
+   * Omit (along with `rayCardinal`) to render the dial without a rose.
+   */
+  readonly rayNorth?: number;
+  /** Compass-rose rays pointing to E/S/W. Omit to render the dial without a rose. */
+  readonly rayCardinal?: number;
   /** Lubber pointer wedge + center pivot dot. */
   readonly lubber: number;
   /** Heading readout text rendered below the dial. */

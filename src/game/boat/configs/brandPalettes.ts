@@ -131,6 +131,8 @@ export const SHAFF_PALETTE: BrandPalette = {
     ink: 0x1a4552, // deep teal markings on the white face
     inkSoft: 0x1a4552, // same; opacity sets the hierarchy in CSS
     north: 0xebcc2a, // poolside yellow north accent
+    rayNorth: 0xe1af00, // gold N–S diamond
+    rayCardinal: 0x1a4552, // deep teal E–W diamond — sportwatch energy
     lubber: 0xebcc2a, // poolside yellow pointer to match the north accent
     label: 0xfafafa, // racing white readout (sits over the world below)
     font: "var(--font-sans)",
@@ -199,6 +201,8 @@ export const BHC_PALETTE: BrandPalette = {
     ink: 0x2a1808, // dark mahogany ink for tick marks and letters
     inkSoft: 0x8a6538, // honey teak for intercardinals
     north: 0xc9a968, // brass north accent — restrained, not red
+    rayNorth: 0x6a4a1a, // dark teak ray for north — like an inlaid wood star
+    rayCardinal: 0x8a6538, // honey teak rays — match the cockpit nonskid
     lubber: 0x6a4a1a, // brown pointer matching the trim
     label: 0xe8dbb0, // cream readout text on the world below
     font: "var(--font-title)", // Young Serif — chunky, hand-painted-plaque feel
@@ -275,10 +279,11 @@ export const MAESTRO_PALETTE: BrandPalette = {
   compass: {
     bezel: 0xb09030, // gold bezel — the dressy frame
     face: 0x0a1028, // deep navy dial
-    ink: 0xf4f2ee, // ivory ink
-    inkSoft: 0xb4a986, // muted ivory-gold for intercardinals
-    north: 0xb09030, // gold north accent — opulent rather than alarming
-    lubber: 0xf4f2ee, // ivory pointer for high contrast on navy
+    ink: 0xb09030, // gold ink for E/S/W letters and major ticks
+    inkSoft: 0xb4a986, // muted ivory-gold for intercardinals + minor ticks
+    north: 0xf4f2ee, // ivory N — the one exception, the brand's "north star"
+    // No rose — Maestro's dial is restrained, letters and ticks only.
+    lubber: 0xf4f2ee, // ivory pointer pairs with the ivory N
     label: 0xf4f2ee, // ivory readout
     font: "var(--font-display)", // Cormorant Garamond — Italianate display serif
     fontWeight: 400, // light cut for elegant restraint

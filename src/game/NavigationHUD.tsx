@@ -19,6 +19,8 @@ const FALLBACK_COMPASS: CompassPalette = {
   ink: 0xfafafa,
   inkSoft: 0x9aa6b8,
   north: 0xe8463c,
+  rayNorth: 0xe8463c,
+  rayCardinal: 0x9aa6b8,
   lubber: 0xffc45a,
   label: 0xfafafa,
 };
@@ -99,7 +101,9 @@ export class NavigationHUD extends ReactEntity {
     const headingText = headingDegrees.toFixed(0).padStart(3, "0");
 
     const compass = this.getCompassPalette();
-    const compassStyle = {
+    const showRose =
+      compass.rayNorth !== undefined && compass.rayCardinal !== undefined;
+    const compassStyle: Record<string, string> = {
       "--compass-bezel": hexToCss(compass.bezel),
       "--compass-face": hexToCss(compass.face),
       "--compass-ink": hexToCss(compass.ink),
@@ -109,11 +113,18 @@ export class NavigationHUD extends ReactEntity {
       "--compass-label": hexToCss(compass.label),
       "--compass-font": compass.font ?? "var(--font-body)",
       "--compass-font-weight": String(compass.fontWeight ?? 700),
-    } as Record<string, string>;
+    };
+    if (showRose) {
+      compassStyle["--compass-ray-north"] = hexToCss(compass.rayNorth!);
+      compassStyle["--compass-ray-cardinal"] = hexToCss(compass.rayCardinal!);
+    }
 
     return (
       <div className="navigation-hud">
         <div className="navigation-hud__heading" style={compassStyle}>
+          <div className="navigation-hud__heading-label">
+            {`${headingText}° ${headingLabel}`}
+          </div>
           <svg
             className="navigation-hud__compass"
             viewBox="0 0 100 100"
@@ -135,6 +146,18 @@ export class NavigationHUD extends ReactEntity {
               transform={`rotate(${(-headingDegrees).toFixed(2)} 50 50)`}
               className="navigation-hud__compass-card"
             >
+              {showRose && (
+                <>
+                  <polygon
+                    points="70,50 50,47 30,50 50,53"
+                    className="navigation-hud__compass-ray navigation-hud__compass-ray--cardinal"
+                  />
+                  <polygon
+                    points="50,30 53,50 50,70 47,50"
+                    className="navigation-hud__compass-ray navigation-hud__compass-ray--north"
+                  />
+                </>
+              )}
               {COMPASS_TICKS.map((tick) => (
                 <line
                   key={`tick-${tick.bearing}`}
@@ -175,9 +198,6 @@ export class NavigationHUD extends ReactEntity {
               className="navigation-hud__compass-pivot"
             />
           </svg>
-          <div className="navigation-hud__heading-label">
-            {`${headingText}° ${headingLabel}`}
-          </div>
         </div>
 
         {this.isMapOpen && (

@@ -522,6 +522,8 @@ export const BaseBoat: BoatConfig = {
     ink: 0xfafafa,
     inkSoft: 0x9aa6b8,
     north: 0xe8463c,
+    rayNorth: 0xe8463c,
+    rayCardinal: 0x9aa6b8,
     lubber: 0xffc45a,
     label: 0xfafafa,
   },
