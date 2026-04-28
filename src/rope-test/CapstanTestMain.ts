@@ -7,6 +7,7 @@
 
 import { Game } from "../core/Game";
 import { CapstanTestController } from "./CapstanTestController";
+import "../fonts.css";
 
 async function main() {
   const game = new Game({ ticksPerSecond: 120 });

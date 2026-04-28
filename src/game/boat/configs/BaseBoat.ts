@@ -512,4 +512,17 @@ export const BaseBoat: BoatConfig = {
       bowsprit: 2.5,
     },
   },
+
+  // Neutral compass palette overridden by withBrandPalette. Branded boats
+  // never see these colors; this default just keeps the type satisfied for
+  // unbranded paths (BaseBoat itself, the boat editor preview).
+  compass: {
+    bezel: 0xffffff,
+    face: 0x0a1424,
+    ink: 0xfafafa,
+    inkSoft: 0x9aa6b8,
+    north: 0xe8463c,
+    lubber: 0xffc45a,
+    label: 0xfafafa,
+  },
 };

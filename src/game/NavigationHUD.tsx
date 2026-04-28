@@ -2,15 +2,53 @@ import { GameEventMap } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 import { ReactEntity } from "../core/ReactEntity";
 import type { V2d } from "../core/Vector";
+import { Boat } from "./boat/Boat";
+import type { CompassPalette } from "./boat/BoatConfig";
 import { Port } from "./port/Port";
 import { MissionManager } from "./mission/MissionManager";
 import "./NavigationHUD.css";
 import { TerrainResources } from "./world/terrain/TerrainResources";
 
+function hexToCss(color: number): string {
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
+
+const FALLBACK_COMPASS: CompassPalette = {
+  bezel: 0xffffff,
+  face: 0x0a1424,
+  ink: 0xfafafa,
+  inkSoft: 0x9aa6b8,
+  north: 0xe8463c,
+  lubber: 0xffc45a,
+  label: 0xfafafa,
+};
+
 const MAP_MAX_POINTS_PER_CONTOUR = 220;
 const MAP_PADDING_RATIO = 0.06;
 const MIN_MAP_PADDING = 200;
 const CARDINAL_DIRECTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+type CompassLabelKind = "north" | "cardinal" | "intercardinal";
+const COMPASS_LABELS: ReadonlyArray<{
+  bearing: number;
+  text: string;
+  kind: CompassLabelKind;
+}> = [
+  { bearing: 0, text: "N", kind: "north" },
+  { bearing: 45, text: "NE", kind: "intercardinal" },
+  { bearing: 90, text: "E", kind: "cardinal" },
+  { bearing: 135, text: "SE", kind: "intercardinal" },
+  { bearing: 180, text: "S", kind: "cardinal" },
+  { bearing: 225, text: "SW", kind: "intercardinal" },
+  { bearing: 270, text: "W", kind: "cardinal" },
+  { bearing: 315, text: "NW", kind: "intercardinal" },
+];
+
+const COMPASS_TICKS: ReadonlyArray<{ bearing: number; major: boolean }> =
+  Array.from({ length: 36 }, (_, i) => ({
+    bearing: i * 10,
+    major: (i * 10) % 30 === 0,
+  }));
 
 function formatLevelName(levelName: string): string {
   const spaced = levelName.replace(/([A-Z])/g, " $1");
@@ -58,32 +96,87 @@ export class NavigationHUD extends ReactEntity {
         Math.round(headingDegrees / 45) % CARDINAL_DIRECTIONS.length
       ];
 
+    const headingText = headingDegrees.toFixed(0).padStart(3, "0");
+
+    const compass = this.getCompassPalette();
+    const compassStyle = {
+      "--compass-bezel": hexToCss(compass.bezel),
+      "--compass-face": hexToCss(compass.face),
+      "--compass-ink": hexToCss(compass.ink),
+      "--compass-ink-soft": hexToCss(compass.inkSoft),
+      "--compass-north": hexToCss(compass.north),
+      "--compass-lubber": hexToCss(compass.lubber),
+      "--compass-label": hexToCss(compass.label),
+      "--compass-font": compass.font ?? "var(--font-body)",
+      "--compass-font-weight": String(compass.fontWeight ?? 700),
+    } as Record<string, string>;
+
     return (
       <div className="navigation-hud">
-        <div className="navigation-hud__heading">
-          <div className="navigation-hud__heading-ring">
-            <span className="navigation-hud__heading-cardinal navigation-hud__heading-cardinal--n">
-              N
-            </span>
-            <span className="navigation-hud__heading-cardinal navigation-hud__heading-cardinal--e">
-              E
-            </span>
-            <span className="navigation-hud__heading-cardinal navigation-hud__heading-cardinal--s">
-              S
-            </span>
-            <span className="navigation-hud__heading-cardinal navigation-hud__heading-cardinal--w">
-              W
-            </span>
-            <div
-              className="navigation-hud__heading-needle"
-              style={{
-                transform: `translate(-50%, -100%) rotate(${headingDegrees.toFixed(1)}deg)`,
-              }}
+        <div className="navigation-hud__heading" style={compassStyle}>
+          <svg
+            className="navigation-hud__compass"
+            viewBox="0 0 100 100"
+            aria-label={`Heading ${headingText} degrees ${headingLabel}`}
+          >
+            <circle
+              cx="50"
+              cy="50"
+              r="48"
+              className="navigation-hud__compass-bezel"
             />
-            <div className="navigation-hud__heading-dot" />
-          </div>
+            <circle
+              cx="50"
+              cy="50"
+              r="45"
+              className="navigation-hud__compass-face"
+            />
+            <g
+              transform={`rotate(${(-headingDegrees).toFixed(2)} 50 50)`}
+              className="navigation-hud__compass-card"
+            >
+              {COMPASS_TICKS.map((tick) => (
+                <line
+                  key={`tick-${tick.bearing}`}
+                  x1="50"
+                  y1="6"
+                  x2="50"
+                  y2={tick.major ? "12" : "9.5"}
+                  transform={`rotate(${tick.bearing} 50 50)`}
+                  className={
+                    tick.major
+                      ? "navigation-hud__compass-tick navigation-hud__compass-tick--major"
+                      : "navigation-hud__compass-tick navigation-hud__compass-tick--minor"
+                  }
+                />
+              ))}
+              {COMPASS_LABELS.map((label) => (
+                <text
+                  key={`label-${label.text}`}
+                  x="50"
+                  y="24"
+                  text-anchor="middle"
+                  dominant-baseline="central"
+                  transform={`rotate(${label.bearing} 50 50)`}
+                  className={`navigation-hud__compass-label navigation-hud__compass-label--${label.kind}`}
+                >
+                  {label.text}
+                </text>
+              ))}
+            </g>
+            <polygon
+              points="46,0.5 54,0.5 50,7"
+              className="navigation-hud__compass-lubber"
+            />
+            <circle
+              cx="50"
+              cy="50"
+              r="1.6"
+              className="navigation-hud__compass-pivot"
+            />
+          </svg>
           <div className="navigation-hud__heading-label">
-            {`${headingLabel} ${headingDegrees.toFixed(0)}°`}
+            {`${headingText}° ${headingLabel}`}
           </div>
         </div>
 
@@ -163,7 +256,7 @@ export class NavigationHUD extends ReactEntity {
           x="50"
           y="23"
           className="navigation-hud__rose-label"
-          textAnchor="middle"
+          text-anchor="middle"
         >
           N
         </text>
@@ -171,7 +264,7 @@ export class NavigationHUD extends ReactEntity {
           x="79"
           y="54"
           className="navigation-hud__rose-label"
-          textAnchor="middle"
+          text-anchor="middle"
         >
           E
         </text>
@@ -179,7 +272,7 @@ export class NavigationHUD extends ReactEntity {
           x="50"
           y="87"
           className="navigation-hud__rose-label"
-          textAnchor="middle"
+          text-anchor="middle"
         >
           S
         </text>
@@ -187,7 +280,7 @@ export class NavigationHUD extends ReactEntity {
           x="21"
           y="54"
           className="navigation-hud__rose-label"
-          textAnchor="middle"
+          text-anchor="middle"
         >
           W
         </text>
@@ -228,7 +321,7 @@ export class NavigationHUD extends ReactEntity {
               <text
                 x={pos.x.toFixed(1)}
                 y={(pos.y - markerR * 2.2).toFixed(1)}
-                textAnchor="middle"
+                text-anchor="middle"
                 className="navigation-hud__map-port-label"
                 style={{ fontSize: `${fontSize}px` }}
               >
@@ -242,9 +335,15 @@ export class NavigationHUD extends ReactEntity {
   }
 
   private getHeadingDegrees(): number {
-    if (!this.game) return 0;
-    const degrees = (this.game.camera.angle * 180) / Math.PI + 90;
+    const boat = this.game?.entities.getById("boat") as Boat | undefined;
+    if (!boat) return 0;
+    const degrees = (boat.hull.body.angle * 180) / Math.PI + 90;
     return ((degrees % 360) + 360) % 360;
+  }
+
+  private getCompassPalette(): CompassPalette {
+    const boat = this.game?.entities.getById("boat") as Boat | undefined;
+    return boat?.config.compass ?? FALLBACK_COMPASS;
   }
 
   private updateMapCache(): void {

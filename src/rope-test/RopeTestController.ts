@@ -402,7 +402,7 @@ export class RopeTestController extends BaseEntity {
       border: "1px solid #444",
       borderRadius: "8px",
       padding: "16px",
-      fontFamily: "system-ui, sans-serif",
+      fontFamily: "var(--font-system)",
       fontSize: "13px",
       color: "#ccc",
       zIndex: "100",

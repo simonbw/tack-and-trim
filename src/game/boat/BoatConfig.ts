@@ -474,6 +474,46 @@ export interface BoatConfig {
   readonly stations: readonly StationDef[];
   /** Station id where the sailor starts. Must match a station in `stations`. */
   readonly initialStationId: string;
+  /**
+   * Marine compass dial colors shown in the navigation HUD. Set by the brand
+   * palette via `withBrandPalette`; `BaseBoat` ships a neutral default so
+   * unbranded configs (tests, the boat editor preview) still type-check.
+   */
+  readonly compass: CompassPalette;
+}
+
+/**
+ * Color palette for the rotating compass card in the navigation HUD. Brands
+ * choose hues; the HUD applies opacity/contrast in CSS so the dial stays
+ * legible against the world without each palette having to think about it.
+ */
+export interface CompassPalette {
+  /** Outer bezel ring (the "watch frame"). */
+  readonly bezel: number;
+  /** Dial face background — rendered semi-transparent over the world. */
+  readonly face: number;
+  /** Major tick marks + cardinal letters (E/S/W) — the high-contrast ink. */
+  readonly ink: number;
+  /** Minor tick marks + intercardinal letters (NE/SE/SW/NW) — softer ink. */
+  readonly inkSoft: number;
+  /** N letter — the brand's accent for due north. */
+  readonly north: number;
+  /** Lubber pointer wedge + center pivot dot. */
+  readonly lubber: number;
+  /** Heading readout text rendered below the dial. */
+  readonly label: number;
+  /**
+   * CSS font-family stack for compass labels and the heading readout. Brands
+   * that want a custom typographic identity set this; undefined uses the
+   * shared serif default.
+   */
+  readonly font?: string;
+  /**
+   * CSS font-weight for compass labels. Brands using a display serif may want
+   * a lighter cut (e.g. 400) for elegance; default is 700 for legibility on
+   * sturdier faces.
+   */
+  readonly fontWeight?: number | string;
 }
 
 // Re-export boat configs — Shaff

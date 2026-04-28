@@ -39,6 +39,13 @@ function getFontConfigFromManifestName(name: string): {
         family: "Spinnaker",
         descriptors: { style: "normal", weight: "400" },
       };
+    case "cormorantGaramondVariable":
+      // Single variable woff2 covers the full weight axis (300–700);
+      // declaring a range lets CSS pick the right cut for `font-weight`.
+      return {
+        family: "Cormorant Garamond",
+        descriptors: { style: "normal", weight: "300 700" },
+      };
     case "tangerineRegular":
       return {
         family: "Tangerine",

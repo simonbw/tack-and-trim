@@ -1,4 +1,4 @@
-import { BoatConfig } from "../BoatConfig";
+import { BoatConfig, CompassPalette } from "../BoatConfig";
 import { RopePattern } from "../RopeShader";
 
 /**
@@ -53,6 +53,8 @@ export interface BrandPalette {
     tube: number;
     wire: number;
   };
+  /** Marine compass dial colors shown in the navigation HUD. */
+  compass: CompassPalette;
 }
 
 /** Shaff — performance racing in "Mermaid" livery. Teal topsides / gold trim / racing red, inspired by the Zissou palette. */
@@ -123,6 +125,16 @@ export const SHAFF_PALETTE: BrandPalette = {
     tube: 0xcccccc, // silver stanchion
     wire: 0x888888, // steel wire
   },
+  compass: {
+    bezel: 0x1a4552, // deep teal rim — the "dark blue" border
+    face: 0xffffff, // clean white dial
+    ink: 0x1a4552, // deep teal markings on the white face
+    inkSoft: 0x1a4552, // same; opacity sets the hierarchy in CSS
+    north: 0xebcc2a, // poolside yellow north accent
+    lubber: 0xebcc2a, // poolside yellow pointer to match the north accent
+    label: 0xfafafa, // racing white readout (sits over the world below)
+    font: "var(--font-sans)",
+  },
 };
 
 /** BHC — affordable recreational. Warm cream / teak / brown. */
@@ -180,6 +192,16 @@ export const BHC_PALETTE: BrandPalette = {
   lifelines: {
     tube: 0xaaaaaa,
     wire: 0x777777,
+  },
+  compass: {
+    bezel: 0x6a4a1a, // brown leather-like rim
+    face: 0xe8dbb0, // light cream dial — reads like an old paper card
+    ink: 0x2a1808, // dark mahogany ink for tick marks and letters
+    inkSoft: 0x8a6538, // honey teak for intercardinals
+    north: 0xc9a968, // brass north accent — restrained, not red
+    lubber: 0x6a4a1a, // brown pointer matching the trim
+    label: 0xe8dbb0, // cream readout text on the world below
+    font: "var(--font-title)", // Young Serif — chunky, hand-painted-plaque feel
   },
 };
 
@@ -249,6 +271,17 @@ export const MAESTRO_PALETTE: BrandPalette = {
   lifelines: {
     tube: 0xccccdd,
     wire: 0x999999,
+  },
+  compass: {
+    bezel: 0xb09030, // gold bezel — the dressy frame
+    face: 0x0a1028, // deep navy dial
+    ink: 0xf4f2ee, // ivory ink
+    inkSoft: 0xb4a986, // muted ivory-gold for intercardinals
+    north: 0xb09030, // gold north accent — opulent rather than alarming
+    lubber: 0xf4f2ee, // ivory pointer for high contrast on navy
+    label: 0xf4f2ee, // ivory readout
+    font: "var(--font-display)", // Cormorant Garamond — Italianate display serif
+    fontWeight: 400, // light cut for elegant restraint
   },
 };
 
@@ -334,5 +367,6 @@ export function withBrandPalette(
           wireColor: palette.lifelines.wire,
         }
       : undefined,
+    compass: { ...palette.compass },
   };
 }

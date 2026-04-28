@@ -10,11 +10,13 @@ const sounds = {
 export type SoundName = keyof typeof sounds;
 
 const images = {
+  rope1: require("url:./images/rope-1.png"),
   favicon: require("url:./images/favicon.png")
 };
 export type ImageName = keyof typeof images;
 
 const fonts = {
+  cormorantGaramondVariable: require("url:./fonts/CormorantGaramond-Variable.woff2"),
   spectralLight: require("url:./fonts/Spectral-Light.woff2"),
   spectralRegular: require("url:./fonts/Spectral-Regular.woff2"),
   spectralSemiBold: require("url:./fonts/Spectral-SemiBold.woff2"),
@@ -69,6 +71,11 @@ const windmeshes = {
 };
 export type WindmeshName = keyof typeof windmeshes;
 
+const tidemeshes = {
+
+};
+export type TidemeshName = keyof typeof tidemeshes;
+
 const trees = {
   vendoviIsland: "/assets/levels/vendovi-island.trees",
   sanJuanIslands: "/assets/levels/san-juan-islands.trees",
@@ -78,4 +85,4 @@ const trees = {
 };
 export type TreesName = keyof typeof trees;
 
-export const RESOURCES = { sounds, images, fonts, levels, terrains, entityDefs, jsonBlobs, wavemeshes, windmeshes, trees };
+export const RESOURCES = { sounds, images, fonts, levels, terrains, entityDefs, jsonBlobs, wavemeshes, windmeshes, tidemeshes, trees };

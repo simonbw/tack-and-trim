@@ -3,116 +3,99 @@
   inset: 0;
   pointer-events: none;
   z-index: 20;
-  font-family: "Cormorant Garamond", "Garamond", "Times New Roman", serif;
+  font-family: var(--font-body);
 }
 
 .navigation-hud__heading {
   position: fixed;
   top: 20px;
   right: 20px;
-  width: 88px;
+  width: 112px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: #fff;
-  text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
 }
 
-.navigation-hud__heading-ring {
-  position: relative;
-  width: 88px;
-  height: 88px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  background: rgba(8, 14, 28, 0.36);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+.navigation-hud__compass {
+  width: 112px;
+  height: 112px;
+  display: block;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
 }
 
-.navigation-hud__heading-cardinal {
-  position: absolute;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  opacity: 0.85;
+.navigation-hud__compass-bezel {
+  fill: var(--compass-bezel);
+  stroke: rgba(0, 0, 0, 0.45);
+  stroke-width: 0.6;
 }
 
-.navigation-hud__heading-cardinal--n {
-  top: 7px;
-  left: 50%;
-  transform: translateX(-50%);
+.navigation-hud__compass-face {
+  fill: var(--compass-face);
+  stroke: rgba(0, 0, 0, 0.25);
+  stroke-width: 0.3;
 }
 
-.navigation-hud__heading-cardinal--e {
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
+.navigation-hud__compass-tick {
+  stroke-linecap: round;
 }
 
-.navigation-hud__heading-cardinal--s {
-  bottom: 7px;
-  left: 50%;
-  transform: translateX(-50%);
+.navigation-hud__compass-tick--minor {
+  stroke: var(--compass-ink-soft);
+  stroke-opacity: 0.85;
+  stroke-width: 0.5;
 }
 
-.navigation-hud__heading-cardinal--w {
-  left: 8px;
-  top: 50%;
-  transform: translateY(-50%);
+.navigation-hud__compass-tick--major {
+  stroke: var(--compass-ink);
+  stroke-width: 1.2;
 }
 
-.navigation-hud__heading-needle {
-  position: absolute;
-  width: 0;
-  height: 32px;
-  left: 50%;
-  top: 50%;
-  transform-origin: 50% 100%;
+.navigation-hud__compass-label {
+  font-family: var(--compass-font);
+  font-weight: var(--compass-font-weight);
+  fill: var(--compass-ink);
+  letter-spacing: 0;
 }
 
-.navigation-hud__heading-needle::before {
-  content: "";
-  position: absolute;
-  left: -1px;
-  bottom: 0;
-  width: 2px;
-  height: 26px;
-  background: linear-gradient(
-    to top,
-    rgba(245, 245, 245, 0.3),
-    rgba(255, 120, 95, 0.95)
-  );
+.navigation-hud__compass-label--cardinal {
+  font-size: 11.5px;
 }
 
-.navigation-hud__heading-needle::after {
-  content: "";
-  position: absolute;
-  left: -5px;
-  top: -6px;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-bottom: 9px solid rgba(255, 120, 95, 0.95);
+.navigation-hud__compass-label--intercardinal {
+  font-size: 8.5px;
+  fill: var(--compass-ink-soft);
 }
 
-.navigation-hud__heading-dot {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(255, 240, 215, 0.9);
-  border: 1px solid rgba(20, 12, 4, 0.6);
+.navigation-hud__compass-label--north {
+  font-size: 16px;
+  fill: var(--compass-north);
+}
+
+.navigation-hud__compass-lubber {
+  fill: var(--compass-lubber);
+  stroke: rgba(20, 12, 4, 0.6);
+  stroke-width: 0.4;
+  stroke-linejoin: round;
+}
+
+.navigation-hud__compass-pivot {
+  fill: var(--compass-lubber);
+  stroke: rgba(20, 12, 4, 0.6);
+  stroke-width: 0.3;
 }
 
 .navigation-hud__heading-label {
-  min-width: 74px;
+  min-width: 100px;
   text-align: center;
-  font-size: 15px;
+  font-family: var(--compass-font);
+  font-size: 19px;
   line-height: 1;
   letter-spacing: 0.05em;
   opacity: 0.95;
+  font-variant-numeric: tabular-nums;
+  color: var(--compass-label);
 }
 
 .navigation-hud__map-overlay {
@@ -210,7 +193,7 @@
 }
 
 .navigation-hud__rose-label {
-  font-family: "Cormorant Garamond", "Garamond", serif;
+  font-family: var(--font-body);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.07em;

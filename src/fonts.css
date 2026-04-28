@@ -2,6 +2,10 @@
   --font-title: "Young Serif", Georgia, "Times New Roman", serif;
   --font-body: "Spectral", Georgia, "Times New Roman", serif;
   --font-map: "Tangerine", "Young Serif", Georgia, serif;
+  --font-sans: "Spinnaker", "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Cormorant Garamond", "Garamond", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-system: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
 }
 
 html,

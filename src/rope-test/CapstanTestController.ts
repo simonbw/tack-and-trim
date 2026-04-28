@@ -219,7 +219,7 @@ export class CapstanTestController extends BaseEntity {
       border: "1px solid #444",
       borderRadius: "8px",
       padding: "12px 16px",
-      fontFamily: "ui-monospace, monospace",
+      fontFamily: "var(--font-mono)",
       fontSize: "12px",
       color: "#ccc",
       zIndex: "100",

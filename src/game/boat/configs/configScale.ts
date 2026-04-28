@@ -278,5 +278,6 @@ export function scaleBoatConfig(
         bowsprit: base.buoyancy.zHeights.bowsprit * sz,
       },
     },
+    compass: { ...base.compass },
   };
 }
