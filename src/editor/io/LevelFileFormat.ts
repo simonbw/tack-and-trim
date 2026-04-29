@@ -22,6 +22,8 @@ import {
   WindConfig,
   DEFAULT_WIND_CONFIG,
 } from "../../game/world/wind/WindSource";
+import type { WeatherStateConfig } from "../../game/weather/WeatherState";
+import type { WeatherVariability } from "../../game/weather/WeatherDirector";
 
 // ==========================================
 // Editor types
@@ -132,6 +134,31 @@ export interface WindSourceJSON {
 export interface WindConfigJSON {
   /** Array of wind source configurations */
   sources: WindSourceJSON[];
+}
+
+/**
+ * JSON representation of per-level weather settings.
+ * All fields optional; omitted fields fall back to engine defaults.
+ */
+export interface WeatherConfigJSON {
+  /** Wind direction in radians. Combined with `windSpeed` to build windBase. */
+  windDirection?: number;
+  /** Wind speed in ft/s (default 11). */
+  windSpeed?: number;
+  /** Cloud cover 0..1. */
+  cloudCover?: number;
+  /** Rain intensity 0..1. */
+  rainIntensity?: number;
+  /** Multiplier on Gerstner wave amplitude (default 1). */
+  waveAmplitudeScale?: number;
+  /** Gust strength 0..1. */
+  gustiness?: number;
+  /** Slow-drift weather modulation ranges (deviation from baseline, 0..1). */
+  variability?: {
+    cloudCoverRange?: number;
+    rainIntensityRange?: number;
+    gustinessRange?: number;
+  };
 }
 
 /**
@@ -487,6 +514,8 @@ export interface LevelFileJSON {
   waves?: WaveConfigJSON;
   /** Wind configuration (optional, defaults to DEFAULT_WIND_CONFIG) */
   wind?: WindConfigJSON;
+  /** Per-level weather config (cloud cover, rain, gustiness, variability) */
+  weather?: WeatherConfigJSON;
   /** Tree generation configuration (optional) */
   trees?: TreeConfigJSON;
   /** Biome terrain coloring configuration (optional) */
@@ -632,6 +661,71 @@ export function validateLevelFile(data: unknown): LevelFileJSON {
         throw new Error(
           `Invalid level file: wind source ${i} missing direction`,
         );
+      }
+    }
+  }
+
+  // Validate weather if present
+  if (file.weather !== undefined) {
+    if (!file.weather || typeof file.weather !== "object") {
+      throw new Error("Invalid level file: weather must be an object");
+    }
+    const weather = file.weather as Record<string, unknown>;
+    const numericFields: ReadonlyArray<keyof WeatherConfigJSON> = [
+      "windDirection",
+      "windSpeed",
+      "cloudCover",
+      "rainIntensity",
+      "waveAmplitudeScale",
+      "gustiness",
+    ];
+    for (const field of numericFields) {
+      const v = weather[field];
+      if (v !== undefined && typeof v !== "number") {
+        throw new Error(
+          `Invalid level file: weather.${field} must be a number`,
+        );
+      }
+    }
+    const unitFields: ReadonlyArray<keyof WeatherConfigJSON> = [
+      "cloudCover",
+      "rainIntensity",
+      "gustiness",
+    ];
+    for (const field of unitFields) {
+      const v = weather[field] as number | undefined;
+      if (v !== undefined && (v < 0 || v > 1)) {
+        throw new Error(
+          `Invalid level file: weather.${field} must be in [0, 1]`,
+        );
+      }
+    }
+    if (weather.variability !== undefined) {
+      if (!weather.variability || typeof weather.variability !== "object") {
+        throw new Error(
+          "Invalid level file: weather.variability must be an object",
+        );
+      }
+      const variability = weather.variability as Record<string, unknown>;
+      const variabilityFields = [
+        "cloudCoverRange",
+        "rainIntensityRange",
+        "gustinessRange",
+      ] as const;
+      for (const field of variabilityFields) {
+        const v = variability[field];
+        if (v !== undefined) {
+          if (typeof v !== "number") {
+            throw new Error(
+              `Invalid level file: weather.variability.${field} must be a number`,
+            );
+          }
+          if (v < 0 || v > 1) {
+            throw new Error(
+              `Invalid level file: weather.variability.${field} must be in [0, 1]`,
+            );
+          }
+        }
       }
     }
   }
@@ -891,6 +985,14 @@ export interface MissionDef {
 }
 
 /**
+ * Runtime weather data parsed from a level file.
+ */
+export interface WeatherLevelData {
+  config: WeatherStateConfig;
+  variability: WeatherVariability;
+}
+
+/**
  * Result of parsing a level file.
  */
 export interface LevelData {
@@ -906,6 +1008,8 @@ export interface LevelData {
   ports?: PortData[];
   /** Mission definitions for the progression system */
   missions?: MissionDef[];
+  /** Per-level weather (omitted if level has no weather block) */
+  weather?: WeatherLevelData;
 }
 
 /**
@@ -961,6 +1065,45 @@ function missionDefJSONToMissionDef(json: MissionDefJSON): MissionDef {
   };
 }
 
+/** Default wind speed (ft/s) when only `windDirection` is given. */
+const DEFAULT_WEATHER_WIND_SPEED = 11;
+
+/**
+ * Convert weather JSON to runtime data, deriving `windBase` from
+ * `windDirection`/`windSpeed` (or from the wind block) if present. Returns
+ * `undefined` when no weather block is present so callers can fall back to
+ * engine defaults.
+ */
+export function levelFileToWeatherData(
+  file: LevelFileJSON,
+): WeatherLevelData | undefined {
+  if (!file.weather) return undefined;
+  const w = file.weather;
+
+  let direction = w.windDirection;
+  if (direction === undefined && file.wind?.sources?.[0]) {
+    direction = file.wind.sources[0].direction;
+  }
+  let windBase: V2d | undefined;
+  if (direction !== undefined || w.windSpeed !== undefined) {
+    const dir = direction ?? 0;
+    const speed = w.windSpeed ?? DEFAULT_WEATHER_WIND_SPEED;
+    windBase = V(Math.cos(dir) * speed, Math.sin(dir) * speed);
+  }
+
+  const config: WeatherStateConfig = {
+    ...(windBase && { windBase }),
+    ...(w.cloudCover !== undefined && { cloudCover: w.cloudCover }),
+    ...(w.rainIntensity !== undefined && { rainIntensity: w.rainIntensity }),
+    ...(w.waveAmplitudeScale !== undefined && {
+      waveAmplitudeScale: w.waveAmplitudeScale,
+    }),
+    ...(w.gustiness !== undefined && { gustiness: w.gustiness }),
+  };
+  const variability: WeatherVariability = { ...w.variability };
+  return { config, variability };
+}
+
 /**
  * Convert level file JSON to game data structures.
  */
@@ -977,6 +1120,7 @@ export function levelFileToLevelData(file: LevelFileJSON): LevelData {
     startingPortId: file.startingPortId,
     ports: file.ports?.map(portJSONToPortData),
     missions: file.missions?.map(missionDefJSONToMissionDef),
+    weather: levelFileToWeatherData(file),
   };
 }
 
