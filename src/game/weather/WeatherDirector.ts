@@ -2,6 +2,7 @@ import { createNoise2D, type NoiseFunction2D } from "simplex-noise";
 import { BaseEntity } from "../../core/entity/BaseEntity";
 import type { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
+import { clamp } from "../../core/util/MathUtil";
 import { WeatherState, type WeatherStateConfig } from "./WeatherState";
 
 /**
@@ -57,27 +58,23 @@ export class WeatherDirector extends BaseEntity {
 
     const cloudRange = this.variability.cloudCoverRange ?? 0;
     if (cloudRange > 0) {
-      weather.cloudCover = clamp01(
+      weather.cloudCover = clamp(
         this.baselineCloudCover + cloudRange * this.cloudNoise(t, 11.0),
       );
     }
 
     const rainRange = this.variability.rainIntensityRange ?? 0;
     if (rainRange > 0) {
-      weather.rainIntensity = clamp01(
+      weather.rainIntensity = clamp(
         this.baselineRainIntensity + rainRange * this.rainNoise(t, 23.0),
       );
     }
 
     const gustRange = this.variability.gustinessRange ?? 0;
     if (gustRange > 0) {
-      weather.gustiness = clamp01(
+      weather.gustiness = clamp(
         this.baselineGustiness + gustRange * this.gustNoise(t, 41.0),
       );
     }
   }
-}
-
-function clamp01(x: number): number {
-  return x < 0 ? 0 : x > 1 ? 1 : x;
 }

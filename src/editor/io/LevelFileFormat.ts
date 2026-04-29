@@ -5,6 +5,7 @@
  * and wave configuration data.
  */
 
+import { polarToVec } from "../../core/util/MathUtil";
 import { V, V2d } from "../../core/Vector";
 import {
   createContour,
@@ -1086,9 +1087,10 @@ export function levelFileToWeatherData(
   }
   let windBase: V2d | undefined;
   if (direction !== undefined || w.windSpeed !== undefined) {
-    const dir = direction ?? 0;
-    const speed = w.windSpeed ?? DEFAULT_WEATHER_WIND_SPEED;
-    windBase = V(Math.cos(dir) * speed, Math.sin(dir) * speed);
+    windBase = polarToVec(
+      direction ?? 0,
+      w.windSpeed ?? DEFAULT_WEATHER_WIND_SPEED,
+    );
   }
 
   const config: WeatherStateConfig = {

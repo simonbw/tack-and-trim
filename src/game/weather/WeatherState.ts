@@ -16,6 +16,9 @@
 
 import { createNoise2D, type NoiseFunction2D } from "simplex-noise";
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import type { GameEventMap } from "../../core/entity/Entity";
+import { on } from "../../core/entity/handler";
+import { clamp, lerp } from "../../core/util/MathUtil";
 import { V, type V2d } from "../../core/Vector";
 import { TimeOfDay } from "../time/TimeOfDay";
 
@@ -73,6 +76,9 @@ export class WeatherState extends BaseEntity {
   /** Single noise instance shared by speed + angle gust modulation. */
   private readonly gustNoise: NoiseFunction2D = createNoise2D();
 
+  /** Accumulated tick time, used for pause-safe gust modulation. */
+  private elapsed = 0;
+
   // Cached scene-lighting tuples. Getters mutate and return the same tuple
   // each call so the per-frame uniform push is allocation-free.
   private readonly _sunDirection: [number, number, number] = [0, 0, 1];
@@ -102,17 +108,20 @@ export class WeatherState extends BaseEntity {
       this._effectiveWindBase.set(this.windBase);
       return this._effectiveWindBase;
     }
-    const t = performance.now() / 1000;
+    const t = this.elapsed;
     const speedMul =
       1 + this.gustiness * GUST_SPEED_AMPLITUDE * this.gustNoise(t * 0.1, 0);
     const angleDelta =
       this.gustiness * GUST_ANGLE_AMPLITUDE * this.gustNoise(t * 0.07, 7.0);
-    const cos = Math.cos(angleDelta);
-    const sin = Math.sin(angleDelta);
-    const x = this.windBase.x * cos - this.windBase.y * sin;
-    const y = this.windBase.x * sin + this.windBase.y * cos;
-    this._effectiveWindBase.set(x * speedMul, y * speedMul);
-    return this._effectiveWindBase;
+    return this._effectiveWindBase
+      .set(this.windBase)
+      .irotate(angleDelta)
+      .imul(speedMul);
+  }
+
+  @on("tick")
+  onTick({ dt }: GameEventMap["tick"]) {
+    this.elapsed += dt;
   }
 
   /** Convenience: speed of the effective base wind. */
@@ -188,7 +197,7 @@ export class WeatherState extends BaseEntity {
     const g = lerp(0.95, 0.55, warmth) * sunVisible;
     const b = lerp(0.85, 0.25, warmth) * sunVisible;
 
-    const cloudAtten = 1 - CLOUD_SUN_ATTENUATION * clamp01(this.cloudCover);
+    const cloudAtten = 1 - CLOUD_SUN_ATTENUATION * clamp(this.cloudCover);
     this._sunColor[0] = r * cloudAtten;
     this._sunColor[1] = g * cloudAtten;
     this._sunColor[2] = b * cloudAtten;
@@ -214,7 +223,7 @@ export class WeatherState extends BaseEntity {
     const twilightG = 0.28;
     const twilightB = 0.25;
 
-    const cloudBlend = CLOUD_SKY_BLEND * clamp01(this.cloudCover);
+    const cloudBlend = CLOUD_SKY_BLEND * clamp(this.cloudCover);
     this._skyColor[0] = lerp(
       baseR + twilightR * twilightBump * 0.35,
       OVERCAST_GRAY[0],
@@ -253,7 +262,7 @@ export class WeatherState extends BaseEntity {
     const twilightG = 0.45;
     const twilightB = 0.25;
 
-    const cloudBlend = CLOUD_SKY_BLEND * clamp01(this.cloudCover);
+    const cloudBlend = CLOUD_SKY_BLEND * clamp(this.cloudCover);
     this._horizonSkyColor[0] = lerp(
       baseR + twilightR * twilightBump,
       OVERCAST_GRAY[0],
@@ -292,12 +301,4 @@ export class WeatherState extends BaseEntity {
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-function clamp01(x: number): number {
-  return x < 0 ? 0 : x > 1 ? 1 : x;
 }

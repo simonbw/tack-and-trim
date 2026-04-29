@@ -58,7 +58,9 @@ export class RainParticles extends BaseEntity {
     const change = Math.min(Math.abs(diff), maxChange) * Math.sign(diff);
     if (change > 0) {
       for (let i = 0; i < change; i++) {
-        this.particles.push(this.spawnDrop(viewport, weather));
+        const drop = new RainDrop();
+        this.respawn(drop, viewport, weather);
+        this.particles.push(drop);
       }
     } else if (change < 0) {
       this.particles.length = Math.max(0, this.particles.length + change);
@@ -90,9 +92,7 @@ export class RainParticles extends BaseEntity {
         p.pos.x < cullLeft ||
         p.pos.x > cullRight
       ) {
-        const respawn = this.spawnDrop(viewport, weather);
-        p.pos.set(respawn.pos);
-        p.vel.set(respawn.vel);
+        this.respawn(p, viewport, weather);
         continue;
       }
 
@@ -106,11 +106,11 @@ export class RainParticles extends BaseEntity {
     }
   }
 
-  private spawnDrop(
+  private respawn(
+    drop: RainDrop,
     viewport: { left: number; right: number; top: number; width: number },
     weather: WeatherState | null | undefined,
-  ): RainDrop {
-    const drop = new RainDrop();
+  ): void {
     // Bias the spawn band against the wind so streaks blow into the viewport.
     const wind = weather?.getEffectiveWindBase();
     const windX = wind ? wind.x : 0;
@@ -123,6 +123,5 @@ export class RainParticles extends BaseEntity {
     const y = viewport.top - rUniform(0, SPAWN_MARGIN_ABOVE);
     drop.pos.set(x, y);
     drop.vel.set(windX, TERMINAL_VELOCITY);
-    return drop;
   }
 }
