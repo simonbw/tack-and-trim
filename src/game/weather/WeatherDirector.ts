@@ -1,8 +1,8 @@
 import { createNoise2D, type NoiseFunction2D } from "simplex-noise";
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import type { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { clamp } from "../../core/util/MathUtil";
+import { TimeOfDay } from "../time/TimeOfDay";
 import { WeatherState, type WeatherStateConfig } from "./WeatherState";
 
 /**
@@ -29,7 +29,6 @@ export class WeatherDirector extends BaseEntity {
   private readonly cloudNoise: NoiseFunction2D = createNoise2D();
   private readonly rainNoise: NoiseFunction2D = createNoise2D();
   private readonly gustNoise: NoiseFunction2D = createNoise2D();
-  private elapsed = 0;
 
   constructor(baseline: WeatherStateConfig, variability: WeatherVariability) {
     super();
@@ -48,13 +47,15 @@ export class WeatherDirector extends BaseEntity {
   }
 
   @on("tick")
-  onTick({ dt }: GameEventMap["tick"]) {
+  onTick() {
     if (this.isInert()) return;
     const weather = this.game.entities.tryGetSingleton(WeatherState);
     if (!weather) return;
 
-    this.elapsed += dt;
-    const t = this.elapsed * SLOW;
+    const elapsed =
+      this.game.entities.tryGetSingleton(TimeOfDay)?.getTotalElapsedSeconds() ??
+      0;
+    const t = elapsed * SLOW;
 
     const cloudRange = this.variability.cloudCoverRange ?? 0;
     if (cloudRange > 0) {

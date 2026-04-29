@@ -16,8 +16,6 @@
 
 import { createNoise2D, type NoiseFunction2D } from "simplex-noise";
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import type { GameEventMap } from "../../core/entity/Entity";
-import { on } from "../../core/entity/handler";
 import { clamp, lerp } from "../../core/util/MathUtil";
 import { V, type V2d } from "../../core/Vector";
 import { TimeOfDay } from "../time/TimeOfDay";
@@ -76,9 +74,6 @@ export class WeatherState extends BaseEntity {
   /** Single noise instance shared by speed + angle gust modulation. */
   private readonly gustNoise: NoiseFunction2D = createNoise2D();
 
-  /** Accumulated tick time, used for pause-safe gust modulation. */
-  private elapsed = 0;
-
   // Cached scene-lighting tuples. Getters mutate and return the same tuple
   // each call so the per-frame uniform push is allocation-free.
   private readonly _sunDirection: [number, number, number] = [0, 0, 1];
@@ -108,7 +103,9 @@ export class WeatherState extends BaseEntity {
       this._effectiveWindBase.set(this.windBase);
       return this._effectiveWindBase;
     }
-    const t = this.elapsed;
+    const t =
+      this.game.entities.tryGetSingleton(TimeOfDay)?.getTotalElapsedSeconds() ??
+      0;
     const speedMul =
       1 + this.gustiness * GUST_SPEED_AMPLITUDE * this.gustNoise(t * 0.1, 0);
     const angleDelta =
@@ -117,11 +114,6 @@ export class WeatherState extends BaseEntity {
       .set(this.windBase)
       .irotate(angleDelta)
       .imul(speedMul);
-  }
-
-  @on("tick")
-  onTick({ dt }: GameEventMap["tick"]) {
-    this.elapsed += dt;
   }
 
   /** Convenience: speed of the effective base wind. */
