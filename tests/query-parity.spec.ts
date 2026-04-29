@@ -3,10 +3,10 @@ import { test, expect } from "@playwright/test";
 /**
  * CPU ↔ GPU query parity test.
  *
- * Boots the game in its default (GPU) backend, drives a deterministic
- * grid of test points through the GPU pipeline, then runs the CPU math
- * modules on the exact same input snapshot and asserts the results
- * agree field-by-field within tolerance.
+ * Boots the game with the GPU backend, drives a deterministic grid of
+ * test points through the GPU pipeline, then runs the CPU math modules
+ * on the exact same input snapshot and asserts the results agree
+ * field-by-field within tolerance.
  *
  * Per-field tolerances below reflect what's actually achievable given:
  *   - f32 (GPU) vs f64 (CPU) precision drift through simplex noise and
@@ -119,6 +119,9 @@ test("CPU and GPU query backends produce matching results", async ({
     }
   });
 
+  await page.addInitScript(() => {
+    localStorage.setItem("queryEngine", "gpu");
+  });
   await page.goto("/");
 
   await page.waitForFunction(() => window.DEBUG?.game, { timeout: 30000 });

@@ -27,16 +27,18 @@ const KEY_LEGACY_CPU_ENGINE = "queryCpuEngine";
 const KEY_WORKER_COUNT = "queryWorkerCount";
 
 function readInitialEngine(): QueryEngine {
-  if (typeof localStorage === "undefined") return "gpu";
+  if (typeof localStorage === "undefined") return "wasm";
   const stored = localStorage.getItem(KEY_ENGINE);
   if (stored === "gpu" || stored === "js" || stored === "wasm") return stored;
 
   // Migrate from the legacy two-knob storage (queryBackend + queryCpuEngine).
   const legacyBackend = localStorage.getItem(KEY_LEGACY_BACKEND);
   const legacyCpuEngine = localStorage.getItem(KEY_LEGACY_CPU_ENGINE);
-  let migrated: QueryEngine = "gpu";
+  let migrated: QueryEngine = "wasm";
   if (legacyBackend === "cpu") {
     migrated = legacyCpuEngine === "wasm" ? "wasm" : "js";
+  } else if (legacyBackend === "gpu") {
+    migrated = "gpu";
   }
   localStorage.setItem(KEY_ENGINE, migrated);
   localStorage.removeItem(KEY_LEGACY_BACKEND);
