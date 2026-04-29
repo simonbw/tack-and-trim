@@ -23,6 +23,7 @@ export default defineConfig({
         "--enable-features=Vulkan",
         "--ignore-gpu-blocklist",
         "--use-angle=metal",
+        "--mute-audio",
       ],
     },
   },

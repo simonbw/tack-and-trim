@@ -294,6 +294,7 @@ async function main() {
       "--disable-renderer-backgrounding",
       "--disable-backgrounding-occluded-windows",
       "--disable-background-timer-throttling",
+      "--mute-audio",
     ];
     // Use Chrome's "new headless" mode (a real browser instance with GPU),
     // not the legacy headless_shell (software-only WebGPU).
