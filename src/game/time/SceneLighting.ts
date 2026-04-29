@@ -1,18 +1,19 @@
 /**
  * Shared scene-lighting fields for shader uniforms.
  *
- * Every lighting-aware shader receives the same three per-frame values —
- * sun color, sun direction, and sky color — computed once per frame on the
- * CPU by `TimeOfDay`. Each shader spreads these fields into its own uniform
- * struct (both TS and WGSL) and uses `pushSceneLighting` to populate them.
+ * Every lighting-aware shader receives the same per-frame values — sun color,
+ * sun direction, sky color, horizon sky color — computed once per frame on
+ * the CPU by `WeatherState`. Each shader spreads these fields into its own
+ * uniform struct (both TS and WGSL) and uses `pushSceneLighting` to populate
+ * them.
  *
  * Using consistent field names across shaders keeps the lighting vocabulary
- * the same everywhere; values are always derived from `TimeOfDay` so there's
- * one source of truth.
+ * the same everywhere; values are always derived from `WeatherState` so
+ * there's one source of truth.
  */
 
 import { vec3 } from "../../core/graphics/UniformStruct";
-import type { TimeOfDay } from "./TimeOfDay";
+import type { WeatherState } from "../weather/WeatherState";
 
 /**
  * Field definitions for embedding in `defineUniformStruct` calls.
@@ -54,7 +55,7 @@ export interface SceneLightingSetters {
 }
 
 /**
- * Midday fallback lighting for contexts without a TimeOfDay entity (the
+ * Midday fallback lighting for contexts without a WeatherState entity (the
  * level editor, preview renderers, tests). Keeps the world looking sane
  * instead of pitch black.
  */
@@ -64,7 +65,7 @@ const NOON_SUN_DIRECTION: readonly [number, number, number] = [
 ];
 const NOON_SKY_COLOR: readonly [number, number, number] = [0.5, 0.7, 0.95];
 // Slightly warmer + brighter than zenith — the same hand-tuned tweak the
-// runtime applies (see TimeOfDay.getHorizonSkyColor).
+// runtime applies (see WeatherState.getHorizonSkyColor).
 const NOON_HORIZON_SKY_COLOR: readonly [number, number, number] = [
   0.7, 0.78, 0.92,
 ];
@@ -73,19 +74,19 @@ const NOON_HORIZON_SKY_COLOR: readonly [number, number, number] = [
  * Push current scene lighting into a uniform instance.
  *
  * Call once per frame, before uploading the uniform buffer. Uses
- * `TimeOfDay` values when present (tuples are cached in place, so this is
+ * `WeatherState` values when present (tuples are cached in place, so this is
  * allocation-free), and falls back to noon otherwise so scenes without a
- * TimeOfDay (editor, previews) still render correctly.
+ * WeatherState (editor, previews) still render correctly.
  */
 export function pushSceneLighting(
   setters: SceneLightingSetters,
-  timeOfDay: TimeOfDay | null | undefined,
+  weather: WeatherState | null | undefined,
 ): void {
-  if (timeOfDay) {
-    setters.sunColor(timeOfDay.getSunColor());
-    setters.sunDirection(timeOfDay.getSunDirection());
-    setters.skyColor(timeOfDay.getSkyColor());
-    setters.horizonSkyColor(timeOfDay.getHorizonSkyColor());
+  if (weather) {
+    setters.sunColor(weather.getSunColor());
+    setters.sunDirection(weather.getSunDirection());
+    setters.skyColor(weather.getSkyColor());
+    setters.horizonSkyColor(weather.getHorizonSkyColor());
   } else {
     setters.sunColor(NOON_SUN_COLOR);
     setters.sunDirection(NOON_SUN_DIRECTION);

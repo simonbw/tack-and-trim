@@ -23,6 +23,7 @@ import { profiler } from "../../core/util/Profiler";
 import type { Boat } from "../boat/Boat";
 import { pushSceneLighting } from "../time/SceneLighting";
 import { TimeOfDay } from "../time/TimeOfDay";
+import { WeatherState } from "../weather/WeatherState";
 import { MAX_WAVE_SOURCES } from "../wave-physics/WavePhysicsManager";
 import {
   WavePhysicsResources,
@@ -167,6 +168,7 @@ export class SurfaceRenderer extends BaseEntity {
   private lastWaveDataBuffer: GPUBuffer | null = null;
   private lastTerrainAtlasView: GPUTextureView | null = null;
   private lastWaveFieldTextureView: GPUTextureView | null = null;
+  private lastLightsTextureView: GPUTextureView | null = null;
 
   private biomeConfig: BiomeConfig;
 
@@ -501,6 +503,10 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterHeightUniforms.set.time(currentTime);
     this.waterHeightUniforms.set.tideHeight(waterResources.getTideHeight());
     this.waterHeightUniforms.set.numWaves(waterResources.getNumWaves());
+    const weather = this.game.entities.tryGetSingleton(WeatherState);
+    this.waterHeightUniforms.set.waveAmplitudeScale(
+      weather?.waveAmplitudeScale ?? 1.0,
+    );
   }
 
   /**
@@ -523,10 +529,11 @@ export class SurfaceRenderer extends BaseEntity {
     this.windFieldUniforms.set.time(currentTime);
 
     if (windResources) {
-      const baseWind = windResources.getBaseVelocity();
+      const weather = this.game.entities.tryGetSingleton(WeatherState);
+      const baseWind = weather?.getEffectiveWindBase();
       const weights = windResources.getSourceWeights();
-      this.windFieldUniforms.set.baseWindX(baseWind.x);
-      this.windFieldUniforms.set.baseWindY(baseWind.y);
+      this.windFieldUniforms.set.baseWindX(baseWind?.x ?? 0);
+      this.windFieldUniforms.set.baseWindY(baseWind?.y ?? 0);
       this.windFieldUniforms.set.numActiveWindSources(weights.length);
       this.windFieldUniforms.set.weights0(weights[0] ?? 0);
       this.windFieldUniforms.set.weights1(weights[1] ?? 0);
@@ -556,7 +563,7 @@ export class SurfaceRenderer extends BaseEntity {
    */
   private updateTerrainCompositeUniforms(
     clipToWorldMatrix: Matrix3,
-    timeOfDay: TimeOfDay | undefined,
+    weather: WeatherState | undefined,
     width: number,
     height: number,
     waterResources: WaterResources,
@@ -583,7 +590,7 @@ export class SurfaceRenderer extends BaseEntity {
       atlasInfo.worldUnitsPerTile,
     );
 
-    pushSceneLighting(this.terrainCompositeUniforms.set, timeOfDay);
+    pushSceneLighting(this.terrainCompositeUniforms.set, weather);
   }
 
   /**
@@ -593,7 +600,7 @@ export class SurfaceRenderer extends BaseEntity {
     clipToWorldMatrix: Matrix3,
     worldToTexClipMatrix: Matrix3,
     currentTime: number,
-    timeOfDay: TimeOfDay | undefined,
+    weather: WeatherState | undefined,
     width: number,
     height: number,
     waterResources: WaterResources,
@@ -616,7 +623,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterFilterUniforms.set.sediment(DEFAULT_SEDIMENT);
 
     pushWaterTuning(this.waterFilterUniforms);
-    pushSceneLighting(this.waterFilterUniforms.set, timeOfDay);
+    pushSceneLighting(this.waterFilterUniforms.set, weather);
   }
 
   /**
@@ -627,6 +634,7 @@ export class SurfaceRenderer extends BaseEntity {
     terrainAtlasView: GPUTextureView,
   ): void {
     const waveDataBuffer = waterResources.waveDataBuffer;
+    const lightsTextureView = this.game.getRenderer().getLightsTextureView();
 
     const needsRebuild =
       !this.terrainScreenBindGroup ||
@@ -634,7 +642,8 @@ export class SurfaceRenderer extends BaseEntity {
       !this.terrainCompositeBindGroup ||
       this.lastWaveDataBuffer !== waveDataBuffer ||
       this.lastTerrainAtlasView !== terrainAtlasView ||
-      this.lastWaveFieldTextureView !== this.waveFieldTextureView;
+      this.lastWaveFieldTextureView !== this.waveFieldTextureView ||
+      this.lastLightsTextureView !== lightsTextureView;
 
     if (!needsRebuild) return;
 
@@ -679,7 +688,8 @@ export class SurfaceRenderer extends BaseEntity {
       this.terrainCompositeShader &&
       this.terrainCompositeUniformBuffer &&
       this.biomeUniformBuffer &&
-      wetnessTextureView
+      wetnessTextureView &&
+      lightsTextureView
     ) {
       this.terrainCompositeBindGroup =
         this.terrainCompositeShader.createBindGroup({
@@ -687,6 +697,7 @@ export class SurfaceRenderer extends BaseEntity {
           terrainTileAtlas: terrainAtlasView,
           wetnessTexture: wetnessTextureView,
           biomeParams: { buffer: this.biomeUniformBuffer },
+          lightsTexture: lightsTextureView,
         });
     }
 
@@ -698,6 +709,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.lastWaveDataBuffer = waveDataBuffer;
     this.lastTerrainAtlasView = terrainAtlasView;
     this.lastWaveFieldTextureView = this.waveFieldTextureView;
+    this.lastLightsTextureView = lightsTextureView;
   }
 
   private ensureWindFieldBindGroup(windResources: WindResources): void {
@@ -732,6 +744,7 @@ export class SurfaceRenderer extends BaseEntity {
     sceneColorView: GPUTextureView | null,
     sceneDepthView: GPUTextureView | null,
   ): void {
+    const lightsTextureView = this.game.getRenderer().getLightsTextureView();
     if (
       this.waterFilterShader &&
       this.waterFilterUniformBuffer &&
@@ -740,6 +753,7 @@ export class SurfaceRenderer extends BaseEntity {
       this.boatAirTextureView &&
       this.windFieldTextureView &&
       this.windFieldSampler &&
+      lightsTextureView &&
       sceneColorView &&
       sceneDepthView
     ) {
@@ -752,6 +766,7 @@ export class SurfaceRenderer extends BaseEntity {
         heightSampler: this.heightSampler,
         windFieldTexture: this.windFieldTextureView,
         windFieldSampler: this.windFieldSampler,
+        lightsTexture: lightsTextureView,
       });
     }
   }
@@ -772,20 +787,20 @@ export class SurfaceRenderer extends BaseEntity {
       this.getExpandedViewport(TILE_CACHE_VIEWPORT_MARGIN),
     );
 
-    const { timeOfDay, currentTime } = profiler.measure("timeOfDay", () => {
-      // Use TimeOfDay as unified time source
+    const { weather, currentTime } = profiler.measure("timeOfDay", () => {
       const tod = this.game.entities.tryGetSingleton(TimeOfDay);
+      const w = this.game.entities.tryGetSingleton(WeatherState);
       const t = tod ? tod.getTimeInSeconds() : this.game.elapsedUnpausedTime;
       // Push the current ambient illumination to the generic shape pipeline so
       // every `draw.*` call this frame picks up day/night tinting automatically.
       // Callers opt out by setting `ignoreLight: true` in DrawOptions.
-      if (tod) {
-        const [ar, ag, ab] = tod.getAmbientLight();
+      if (w) {
+        const [ar, ag, ab] = w.getAmbientLight();
         renderer.setAmbientLight(ar, ag, ab);
       } else {
         renderer.setAmbientLight(1, 1, 1);
       }
-      return { timeOfDay: tod, currentTime: t };
+      return { weather: w, currentTime: t };
     });
 
     const {
@@ -886,7 +901,7 @@ export class SurfaceRenderer extends BaseEntity {
       );
       this.updateTerrainCompositeUniforms(
         clipToWorldMatrix,
-        timeOfDay,
+        weather,
         width,
         height,
         waterResources,
@@ -896,7 +911,7 @@ export class SurfaceRenderer extends BaseEntity {
         clipToWorldMatrix,
         worldToTexClipMatrix,
         currentTime,
-        timeOfDay,
+        weather,
         width,
         height,
         waterResources,

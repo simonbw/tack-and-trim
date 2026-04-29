@@ -11,7 +11,7 @@ import {
 } from "../../../core/util/AsyncProfiler";
 import { profiler } from "../../../core/util/Profiler";
 import { V, V2d } from "../../../core/Vector";
-import { TimeOfDay } from "../../time/TimeOfDay";
+import { WeatherState } from "../../weather/WeatherState";
 import { WindQuery } from "../../world/wind/WindQuery";
 import { ClothRenderer } from "./ClothRenderer";
 import { ClothSolver } from "./ClothSolver";
@@ -878,16 +878,9 @@ export class Sail extends BaseEntity {
     const { color } = this.config;
     const alpha = 1.0;
 
-    const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay) ?? null;
+    const weather = this.game.entities.tryGetSingleton(WeatherState) ?? null;
 
-    this.clothRenderer.render(
-      this.handle,
-      draw,
-      color,
-      alpha,
-      timeOfDay,
-      active,
-    );
+    this.clothRenderer.render(this.handle, draw, color, alpha, weather, active);
 
     // Draw a line along the leech (trailing edge) to give the sail more definition.
     // Each segment uses the average z of its endpoints so the line sits on the

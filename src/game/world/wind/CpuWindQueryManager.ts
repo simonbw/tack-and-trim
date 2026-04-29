@@ -17,6 +17,7 @@ import type { BaseQuery } from "../query/BaseQuery";
 import { WindQuery } from "./WindQuery";
 import { WindResultLayout } from "./WindQueryResult";
 import { WindResources } from "./WindResources";
+import { WeatherState } from "../../weather/WeatherState";
 
 const MAX_WIND_QUERIES = 2 ** 15;
 
@@ -41,7 +42,8 @@ export class CpuWindQueryManager extends CpuQueryManager {
 
   writeParamsToSab(params: Float32Array): void {
     const windResources = this.game.entities.getSingleton(WindResources);
-    const baseWind = windResources.getBaseVelocity();
+    const weather = this.game.entities.getSingleton(WeatherState);
+    const baseWind = weather.getEffectiveWindBase();
     const weights = windResources.getSourceWeights();
 
     params[WIND_PARAM_TIME] = performance.now() / 1000;

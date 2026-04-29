@@ -56,6 +56,13 @@ struct Params {
       viewDimension: "2d",
       sampleType: "unfilterable-float",
     },
+    // Screen-space dynamic lighting buffer. Same canvas-pixel grid as the
+    // framebuffer, so we can textureLoad by integer fragment position.
+    lightsTexture: {
+      type: "texture",
+      viewDimension: "2d",
+      sampleType: "float",
+    },
   },
   code: "",
 };
@@ -192,7 +199,7 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   let terrainNormal = computeTerrainNormal(worldPos);
   let wetness = sampleWetnessAtLogical(logicalCoord);
 
-  let finalColor = renderTerrain(
+  var finalColor = renderTerrain(
     terrainHeight,
     terrainNormal,
     worldPos,
@@ -201,6 +208,17 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     params.sunColor,
     params.skyColor,
   );
+
+  // Screen-space dynamic lighting contribution. Composited as a screen
+  // blend so a fully-white-at-full-intensity light drives the pixel to
+  // (1,1,1) and not beyond — same saturation contract as the boat
+  // shape shader.
+  let lightSample = clamp(
+    textureLoad(lightsTexture, vec2<i32>(fragPos.xy), 0).rgb,
+    vec3<f32>(0.0),
+    vec3<f32>(1.0),
+  );
+  finalColor = vec3<f32>(1.0) - (vec3<f32>(1.0) - clamp(finalColor, vec3<f32>(0.0), vec3<f32>(1.0))) * (vec3<f32>(1.0) - lightSample);
 
   var out: FragmentOutput;
   out.color = vec4<f32>(finalColor, 1.0);

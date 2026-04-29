@@ -18,6 +18,7 @@ import {
   defineUniformStruct,
   mat3x3,
   type UniformInstance,
+  vec2,
   vec3,
 } from "../UniformStruct";
 import { GPUProfiler, GPUProfileSection } from "./GPUProfiler";
@@ -60,7 +61,11 @@ struct Transform {
 }
 `;
 
-// Shape shader: Renders untextured colored primitives with optional depth
+// Shape shader: Renders untextured colored primitives with optional depth.
+// Lighting is computed in the fragment stage so the screen-space
+// `lightsTexture` can be sampled per-pixel and added to the global
+// `ambientLight` term. Geometry with `lightAffected = 0` (UI/debug) skips
+// the tint entirely.
 const shapeShaderSource = /*wgsl*/ `
 const Z_MIN: f32 = ${DEPTH_Z_MIN};
 const Z_MAX: f32 = ${DEPTH_Z_MAX};
@@ -68,6 +73,7 @@ const Z_MAX: f32 = ${DEPTH_Z_MAX};
 struct Uniforms {
   viewMatrix: mat3x3<f32>,
   ambientLight: vec3<f32>,
+  viewportSize: vec2<f32>,
 }
 
 ${transformStructWGSL}
@@ -83,10 +89,13 @@ struct VertexInput {
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) color: vec4<f32>,
+  @location(1) lightAffected: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> transforms: array<Transform>;
+@group(0) @binding(2) var lightsTexture: texture_2d<f32>;
+@group(0) @binding(3) var lightsSampler: sampler;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
@@ -103,19 +112,29 @@ fn vs_main(in: VertexInput) -> VertexOutput {
              + t.zDepth.z * in.z;
   let depth = (depthZ - Z_MIN) / (Z_MAX - Z_MIN);
 
-  // Global scene-lighting tint, gated per-vertex. lightAffected=1 → tinted
-  // by ambientLight; 0 → pass-through (UI/debug geometry).
-  let lightTint = mix(vec3<f32>(1.0), uniforms.ambientLight, in.lightAffected);
-
   var out: VertexOutput;
   out.position = vec4<f32>(clipPos.xy, depth, 1.0);
-  out.color = in.color * t.tint * vec4<f32>(lightTint, 1.0);
+  // Untinted color carries through; lighting is applied in the fragment
+  // stage so we can sample the screen-space lightsTexture per-pixel.
+  out.color = in.color * t.tint;
+  out.lightAffected = in.lightAffected;
   return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  return in.color;
+  let uv = in.position.xy / uniforms.viewportSize;
+  let added = textureSample(lightsTexture, lightsSampler, uv).rgb;
+  // Combine ambient and the dynamic lights so they can't push illumination
+  // past "fully lit". 1 - (1-a)(1-b) is the standard screen-blend: each
+  // illuminator independently fills in what's still dark, capped at 1.
+  // At full-white light (1,1,1), totalLight saturates at (1,1,1) and the
+  // surface displays its base reflectance — no over-bright halo.
+  let ambient = clamp(uniforms.ambientLight, vec3<f32>(0.0), vec3<f32>(1.0));
+  let light = clamp(added, vec3<f32>(0.0), vec3<f32>(1.0));
+  let totalLight = vec3<f32>(1.0) - (vec3<f32>(1.0) - ambient) * (vec3<f32>(1.0) - light);
+  let lightTint = mix(vec3<f32>(1.0), totalLight, in.lightAffected);
+  return vec4<f32>(in.color.rgb * lightTint, in.color.a);
 }
 `;
 
@@ -194,9 +213,12 @@ export interface SpriteOptions {
 // ambientLight is the combined sun+sky illumination color pushed each frame
 // by SurfaceRenderer; the shape shader multiplies vertex color by it when
 // the vertex's lightAffected flag is 1 (and passes color through when 0).
+// viewportSize is the framebuffer's physical pixel size, used by the shape
+// fragment stage to convert `gl_FragCoord` into UVs for the lightsTexture.
 const ViewUniforms = defineUniformStruct("Uniforms", {
   viewMatrix: mat3x3,
   ambientLight: vec3,
+  viewportSize: vec2,
 });
 
 const UNIFORM_BUFFER_SIZE = ViewUniforms.byteSize;
@@ -297,6 +319,14 @@ export class WebGPURenderer {
   // Shape pipeline / bind-group resources
   private shapeUniformBuffer: GPUBuffer | null = null;
   private shapeBindGroup: GPUBindGroup | null = null;
+  private shapeBindGroupLayout: GPUBindGroupLayout | null = null;
+
+  // Screen-space lights buffer. Cleared and rasterized into each frame by
+  // LightingSystem; sampled by the shape shader's fragment stage and added
+  // to the global ambientLight term. rgba16float so light intensities can
+  // exceed 1.0 without clipping during accumulation.
+  private lightsTexture: GPUTexture | null = null;
+  private lightsTextureView: GPUTextureView | null = null;
 
   // Sprite pipeline / bind-group resources
   private spriteUniformBuffer: GPUBuffer | null = null;
@@ -450,12 +480,13 @@ export class WebGPURenderer {
     // Ensure the transform storage buffer exists before building the bind group.
     const transformGpuBuffer = this.transformBuffer.ensureGpuBuffer(device);
 
-    // Create bind group layout: uniforms (0), transforms (1).
+    // Create bind group layout: uniforms (0), transforms (1),
+    // lightsTexture (2), lightsSampler (3).
     const bindGroupLayout = device.createBindGroupLayout({
       entries: [
         {
           binding: 0,
-          visibility: GPUShaderStage.VERTEX,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
           buffer: { type: "uniform" },
         },
         {
@@ -463,18 +494,27 @@ export class WebGPURenderer {
           visibility: GPUShaderStage.VERTEX,
           buffer: { type: "read-only-storage" },
         },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float" },
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: "filtering" },
+        },
       ],
       label: "Shape Bind Group Layout",
     });
+    this.shapeBindGroupLayout = bindGroupLayout;
 
-    this.shapeBindGroup = device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.shapeUniformBuffer } },
-        { binding: 1, resource: { buffer: transformGpuBuffer } },
-      ],
-      label: "Shape Bind Group",
-    });
+    // Ensure a lightsTexture exists for the bind group. Real size is set
+    // later by resize(); start with a 1x1 placeholder so the bind group is
+    // valid before the first frame.
+    this.ensureLightsTexture(1, 1);
+
+    this.rebuildShapeBindGroup();
 
     const pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [bindGroupLayout],
@@ -850,6 +890,75 @@ export class WebGPURenderer {
   }
 
   /**
+   * (Re)allocate the screen-space lightsTexture at the given physical pixel
+   * size. The shape bind group must be rebuilt afterwards so it points at
+   * the new texture view.
+   */
+  private ensureLightsTexture(width: number, height: number): void {
+    if (!this.device) return;
+    if (
+      this.lightsTexture &&
+      this.lightsTexture.width === width &&
+      this.lightsTexture.height === height
+    ) {
+      return;
+    }
+    this.lightsTexture?.destroy();
+    this.lightsTexture = this.device.createTexture({
+      size: { width, height },
+      format: "rgba16float",
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      label: "Lights Texture",
+    });
+    this.lightsTextureView = this.lightsTexture.createView({
+      label: "Lights Texture View",
+    });
+  }
+
+  /**
+   * Rebuild the shape bind group from the current uniform/transform/lights
+   * state. Cheap; called whenever the lights texture is reallocated.
+   */
+  private rebuildShapeBindGroup(): void {
+    if (
+      !this.device ||
+      !this.shapeBindGroupLayout ||
+      !this.shapeUniformBuffer ||
+      !this.lightsTextureView ||
+      !this.defaultSampler
+    ) {
+      return;
+    }
+    const transformGpuBuffer = this.transformBuffer.ensureGpuBuffer(
+      this.device,
+    );
+    this.shapeBindGroup = this.device.createBindGroup({
+      layout: this.shapeBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.shapeUniformBuffer } },
+        { binding: 1, resource: { buffer: transformGpuBuffer } },
+        { binding: 2, resource: this.lightsTextureView },
+        { binding: 3, resource: this.defaultSampler },
+      ],
+      label: "Shape Bind Group",
+    });
+  }
+
+  /**
+   * Get the screen-space lights texture view. Owned by the renderer and
+   * recreated on resize. LightingSystem renders into this each frame.
+   */
+  getLightsTextureView(): GPUTextureView | null {
+    return this.lightsTextureView;
+  }
+
+  /** Get the screen-space lights GPUTexture, for size queries. */
+  getLightsTexture(): GPUTexture | null {
+    return this.lightsTexture;
+  }
+
+  /**
    * Called when the user toggles MSAA on/off. Rebuilds MSAA-sensitive
    * textures and pipelines so the next frame matches the new sample count.
    * Safe to call between frames.
@@ -1031,6 +1140,16 @@ export class WebGPURenderer {
     }
 
     this.ensureMSTextures();
+
+    // Lights texture follows the canvas's physical pixel size — the shape
+    // shader samples it via gl_FragCoord, which is in framebuffer pixels.
+    if (this.device) {
+      const prevLights = this.lightsTexture;
+      this.ensureLightsTexture(w, h);
+      if (this.lightsTexture !== prevLights) {
+        this.rebuildShapeBindGroup();
+      }
+    }
 
     // Update view matrix to convert from pixel coords to clip space
     this.viewMatrix.identity();
@@ -2184,12 +2303,13 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     this.vertexCount += vertices;
   }
 
-  /** Upload uniforms (view matrix + ambient light). */
+  /** Upload uniforms (view matrix + ambient light + viewport size). */
   private uploadUniforms(buffer: GPUBuffer): void {
     if (!this.device) return;
 
     this.viewUniforms.set.viewMatrix(this.viewMatrix);
     this.viewUniforms.set.ambientLight(this.ambientLight);
+    this.viewUniforms.set.viewportSize([this.canvas.width, this.canvas.height]);
     this.viewUniforms.uploadTo(buffer);
   }
 
@@ -2335,6 +2455,7 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @builtin(frag_depth) f32 {
     this.mainColorTexture?.destroy();
     this.mainColorTextureMS?.destroy();
     this.colorCopyTexture?.destroy();
+    this.lightsTexture?.destroy();
 
     this.initialized = false;
   }

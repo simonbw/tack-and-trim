@@ -7,7 +7,7 @@ import { V } from "../../core/Vector";
 import type { Boat } from "./Boat";
 import type { BoatConfig } from "./BoatConfig";
 import { buildDeckPlanMeshes } from "./deck-plan";
-import { TimeOfDay } from "../time/TimeOfDay";
+import { WeatherState } from "../weather/WeatherState";
 import { RopeShaderInstance } from "./RopeShader";
 import {
   type MeshContribution,
@@ -862,7 +862,7 @@ export class BoatRenderer extends BaseEntity {
       sheet.getRopePattern(),
       opacity,
       width,
-      this.game.entities.tryGetSingleton(TimeOfDay) ?? null,
+      this.game.entities.tryGetSingleton(WeatherState) ?? null,
     );
   }
 
@@ -945,7 +945,7 @@ export class BoatRenderer extends BaseEntity {
       this.boat.anchor.getRodePattern(),
       1,
       width,
-      this.game.entities.tryGetSingleton(TimeOfDay) ?? null,
+      this.game.entities.tryGetSingleton(WeatherState) ?? null,
     );
   }
 

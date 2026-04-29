@@ -16,6 +16,7 @@ import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
 import { GameInitializingScreen } from "./GameInitializingScreen";
 import { GameOverScreen } from "./GameOverScreen";
+import { LightingSystem } from "./lighting/LightingSystem";
 import { MainMenu } from "./MainMenu";
 import { PauseMenu } from "./PauseMenu";
 import { MissionHUD } from "./mission/MissionHUD";
@@ -29,6 +30,7 @@ import { ProgressionManager } from "./progression/ProgressionManager";
 import { parseBiomeConfig } from "./surface-rendering/BiomeConfig";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
+import { WeatherState } from "./weather/WeatherState";
 import { TimeOfDayHUD } from "./TimeOfDayHUD";
 import { TreeManager } from "./trees/TreeManager";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
@@ -130,6 +132,7 @@ export class GameController extends BaseEntity {
 
     // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
+    this.game.addEntity(new WeatherState());
 
     // 3. Wave physics
     const wavePhysics = this.game.addEntity(
@@ -157,10 +160,15 @@ export class GameController extends BaseEntity {
     const surfaceRenderer = this.game.addEntity(
       new SurfaceRenderer(parseBiomeConfig(biome)),
     );
+    const lightingSystem = this.game.addEntity(new LightingSystem());
     this.game.addEntity(new DebugRenderer());
 
     // Wait for critical systems before starting gameplay
-    await Promise.all([surfaceRenderer.whenReady(), wavePhysics.whenReady()]);
+    await Promise.all([
+      surfaceRenderer.whenReady(),
+      wavePhysics.whenReady(),
+      lightingSystem.whenReady(),
+    ]);
 
     // CpuQueryCoordinator spawns workers and snapshots world state
     // (including the packed wave mesh) on onAdd — so it must run AFTER

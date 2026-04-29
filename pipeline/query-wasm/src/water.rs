@@ -44,7 +44,8 @@ const WATER_PARAM_TIDAL_PHASE: usize = 4;
 const WATER_PARAM_TIDAL_STRENGTH: usize = 5;
 // const WATER_PARAM_CONTOUR_COUNT: usize = 6;  // unused — we derive from packed buffer
 // const WATER_PARAM_MODIFIER_COUNT: usize = 7; // passed in directly
-const WATER_PARAM_WAVE_SOURCES_BASE: usize = 8;
+const WATER_PARAM_WAVE_AMPLITUDE_SCALE: usize = 8;
+const WATER_PARAM_WAVE_SOURCES_BASE: usize = 9;
 
 // `WaterConstants.ts` — keep in sync.
 const GERSTNER_STEEPNESS: f32 = 0.7;
@@ -597,6 +598,7 @@ pub fn process_batch(
     let num_waves_param = params[WATER_PARAM_NUM_WAVES] as usize;
     let tidal_phase = params[WATER_PARAM_TIDAL_PHASE];
     let tidal_strength = params[WATER_PARAM_TIDAL_STRENGTH];
+    let wave_amplitude_scale = params[WATER_PARAM_WAVE_AMPLITUDE_SCALE];
 
     let wave_sources = &params[WATER_PARAM_WAVE_SOURCES_BASE..];
     let clamped_num_waves = num_waves_param.min(MAX_WAVE_SOURCES);
@@ -628,12 +630,15 @@ pub fn process_batch(
         );
 
         // Amplitude modulation noise — shared across center/offset normal samples.
-        let amp_mod = 1.0
+        // Global weather amplitude scale folds in here so it cascades through
+        // height/dhdt/velocity uniformly.
+        let amp_mod = (1.0
             + simplex3d(
                 world_x * WAVE_AMP_MOD_SPATIAL_SCALE,
                 world_y * WAVE_AMP_MOD_SPATIAL_SCALE,
                 amp_mod_time,
-            ) * WAVE_AMP_MOD_STRENGTH;
+            ) * WAVE_AMP_MOD_STRENGTH)
+            * wave_amplitude_scale;
 
         // Per-wave energy + phase from the wavefront mesh.
         let mut energy_factors = [0.0_f32; MAX_WAVE_SOURCES];

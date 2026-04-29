@@ -16,6 +16,7 @@ import { WaterQuery } from "./WaterQuery";
 import { WaterResultLayout } from "./WaterQueryResult";
 import { createWaterQueryShader, WaterQueryUniforms } from "./WaterQueryShader";
 import { FLOATS_PER_MODIFIER, WaterResources } from "./WaterResources";
+import { WeatherState } from "../../weather/WeatherState";
 
 const MAX_WATER_QUERIES = 2 ** 15;
 
@@ -41,6 +42,7 @@ export interface WaterDispatchParams {
   numWaves: number;
   tidalPhase: number;
   tidalStrength: number;
+  waveAmplitudeScale: number;
   contourCount: number;
   modifierCount: number;
   /** Snapshot of the first `modifierCount` modifiers. */
@@ -176,7 +178,8 @@ export class WaterQueryManager extends GpuQueryManager {
     this.uniforms.set.numWaves(numWaves);
     this.uniforms.set.tidalPhase(tidalPhase);
     this.uniforms.set.tidalStrength(tidalStrength);
-    this.uniforms.set._padding2(0);
+    const weather = this.game.entities.tryGetSingleton(WeatherState);
+    this.uniforms.set.waveAmplitudeScale(weather?.waveAmplitudeScale ?? 1.0);
     this.uniforms.set._padding3(0);
     this.uniforms.set._padding4(0);
     this.uniforms.uploadTo(this.uniformBuffer);
@@ -205,6 +208,7 @@ export class WaterQueryManager extends GpuQueryManager {
       numWaves,
       tidalPhase,
       tidalStrength,
+      waveAmplitudeScale: weather?.waveAmplitudeScale ?? 1.0,
       contourCount,
       modifierCount,
       modifiers: modifiersCopy,

@@ -14,8 +14,10 @@ import {
   WATER_PARAM_TIDAL_STRENGTH,
   WATER_PARAM_TIDE_HEIGHT,
   WATER_PARAM_TIME,
+  WATER_PARAM_WAVE_AMPLITUDE_SCALE,
   WATER_PARAM_WAVE_SOURCES_BASE,
 } from "../query/water-params";
+import { WeatherState } from "../../weather/WeatherState";
 import type { BaseQuery } from "../query/BaseQuery";
 import { DEFAULT_DEPTH } from "../terrain/TerrainConstants";
 import { TerrainResources } from "../terrain/TerrainResources";
@@ -64,6 +66,8 @@ export class CpuWaterQueryManager extends CpuQueryManager {
       tidalResources?.getTidalStrength() ?? 0;
     params[WATER_PARAM_CONTOUR_COUNT] = terrainResources.getContourCount();
     params[WATER_PARAM_MODIFIER_COUNT] = waterResources.getModifierCount();
+    const weather = this.game.entities.tryGetSingleton(WeatherState);
+    params[WATER_PARAM_WAVE_AMPLITUDE_SCALE] = weather?.waveAmplitudeScale ?? 1;
 
     // Wave sources inline in the params SAB (8 floats per source, up to
     // WATER_PARAM_MAX_WAVES). Copy only the populated slots; the rest

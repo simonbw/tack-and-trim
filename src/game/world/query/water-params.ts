@@ -16,6 +16,7 @@ export const WATER_PARAM_TIDAL_PHASE = 4;
 export const WATER_PARAM_TIDAL_STRENGTH = 5;
 export const WATER_PARAM_CONTOUR_COUNT = 6;
 export const WATER_PARAM_MODIFIER_COUNT = 7;
+export const WATER_PARAM_WAVE_AMPLITUDE_SCALE = 8;
 
 /**
  * Wave source parameters inlined into the params SAB. 8 floats per wave:
@@ -23,7 +24,7 @@ export const WATER_PARAM_MODIFIER_COUNT = 7;
  *  sourceOffsetX, sourceOffsetY]. Must match `buildWaveDataFromSources`
  * in `WaveSource.ts`.
  */
-export const WATER_PARAM_WAVE_SOURCES_BASE = 8;
+export const WATER_PARAM_WAVE_SOURCES_BASE = 9;
 export const WATER_PARAM_FLOATS_PER_WAVE = 8;
 export const WATER_PARAM_MAX_WAVES = 8;
 

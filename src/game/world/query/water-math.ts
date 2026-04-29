@@ -911,6 +911,7 @@ export function writeWaterResult(
   numWaves: number,
   tidalPhase: number,
   tidalStrength: number,
+  waveAmplitudeScale: number,
   packedTerrain: Uint32Array,
   packedWaveMesh: Uint32Array,
   packedTideMesh: Uint32Array,
@@ -954,13 +955,14 @@ export function writeWaterResult(
   //   let ampMod = 1 + simplex3D(x*S, y*S, t) * WAVE_AMP_MOD_STRENGTH;
   const ampModTime = time * WAVE_AMP_MOD_TIME_SCALE;
   const ampMod =
-    1.0 +
-    simplex3D(
-      worldX * WAVE_AMP_MOD_SPATIAL_SCALE,
-      worldY * WAVE_AMP_MOD_SPATIAL_SCALE,
-      ampModTime,
-    ) *
-      WAVE_AMP_MOD_STRENGTH;
+    (1.0 +
+      simplex3D(
+        worldX * WAVE_AMP_MOD_SPATIAL_SCALE,
+        worldY * WAVE_AMP_MOD_SPATIAL_SCALE,
+        ampModTime,
+      ) *
+        WAVE_AMP_MOD_STRENGTH) *
+    waveAmplitudeScale;
 
   // Populate per-wave energy/phase arrays from the wavefront mesh.
   // Matches WaterQueryShader.ts inner loop:

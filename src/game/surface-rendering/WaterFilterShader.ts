@@ -112,6 +112,13 @@ struct Params {
       sampleType: "float",
     },
     windFieldSampler: { type: "sampler", samplerType: "filtering" },
+    // Screen-space dynamic lighting buffer. Sampled by integer fragment
+    // position; the texture is canvas-pixel sized.
+    lightsTexture: {
+      type: "texture",
+      viewDimension: "2d",
+      sampleType: "float",
+    },
   },
   code: "",
 };
@@ -520,6 +527,27 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
     // Write water surface z to depth so post-water particles sort correctly.
     surfaceZ = max(waterHeight, sceneZ);
   }
+
+  // Screen-space dynamic lighting contribution. Screen-blend with the
+  // water optics output so a fully-white-at-full-intensity light caps the
+  // pixel at (1,1,1) — never overshooting full illumination. Same
+  // saturation contract as the boat shape shader and the terrain
+  // composite.
+  let lightSample = clamp(
+    textureLoad(lightsTexture, vec2<i32>(fragPos.xy), 0).rgb,
+    vec3<f32>(0.0),
+    vec3<f32>(1.0),
+  );
+  finalColor = vec3<f32>(1.0) - (vec3<f32>(1.0) - clamp(finalColor, vec3<f32>(0.0), vec3<f32>(1.0))) * (vec3<f32>(1.0) - lightSample);
+
+  // Anti-banding dither at the final stop before quantization. Magnitude
+  // is tied to one quantization step (1/255) so it's imperceptible but
+  // enough to break the 8-bit steps in dim gradients (twilight sky,
+  // absorbed water, foam fade). Time-reseeded so it never settles into a
+  // visible pattern.
+  let ditherSeed = floor(fragPos.xy) + vec2<f32>(params.time * 71.0, params.time * 113.0);
+  let ditherNoise = hash21(ditherSeed) - 0.5;
+  finalColor = finalColor + vec3<f32>(ditherNoise / 255.0);
 
   var out: FragmentOutput;
   out.color = vec4<f32>(finalColor, 1.0);

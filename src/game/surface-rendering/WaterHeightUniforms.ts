@@ -27,4 +27,8 @@ export const WaterHeightUniforms = defineUniformStruct("Params", {
 
   // Wave configuration (from level data)
   numWaves: u32,
+
+  // Multiplier on Gerstner wave amplitude. 1.0 = no change. Driven from
+  // `WeatherState.waveAmplitudeScale`.
+  waveAmplitudeScale: f32,
 });

@@ -56,6 +56,7 @@ import {
   WATER_PARAM_TIDAL_STRENGTH,
   WATER_PARAM_TIDE_HEIGHT,
   WATER_PARAM_TIME,
+  WATER_PARAM_WAVE_AMPLITUDE_SCALE,
   WATER_PARAM_WAVE_SOURCES_BASE,
 } from "./water-params";
 import { writeWindResult } from "./wind-math";
@@ -483,6 +484,7 @@ function runWaterQuery(
   const numWaves = params[WATER_PARAM_NUM_WAVES];
   const tidalPhase = params[WATER_PARAM_TIDAL_PHASE];
   const tidalStrength = params[WATER_PARAM_TIDAL_STRENGTH];
+  const waveAmplitudeScale = params[WATER_PARAM_WAVE_AMPLITUDE_SCALE];
   const modifierCount = params[WATER_PARAM_MODIFIER_COUNT] | 0;
 
   const waveSources = params.subarray(WATER_PARAM_WAVE_SOURCES_BASE);
@@ -507,6 +509,7 @@ function runWaterQuery(
       numWaves,
       tidalPhase,
       tidalStrength,
+      waveAmplitudeScale,
       packedTerrain,
       packedWaveMesh,
       packedTideMesh,

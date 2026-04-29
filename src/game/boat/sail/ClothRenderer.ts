@@ -7,7 +7,7 @@
  */
 
 import type { Draw } from "../../../core/graphics/Draw";
-import type { TimeOfDay } from "../../time/TimeOfDay";
+import type { WeatherState } from "../../weather/WeatherState";
 import { SailShaderInstance, SAIL_VERTEX_SIZE } from "./SailShader";
 
 /** Minimal interface for reading cloth vertex positions. */
@@ -59,7 +59,7 @@ export class ClothRenderer {
     draw: Draw,
     color: number,
     alpha: number,
-    timeOfDay: TimeOfDay | null,
+    weather: WeatherState | null,
     vertexActive?: Uint8Array,
   ): void {
     const n = this.vertexCount;
@@ -168,7 +168,7 @@ export class ClothRenderer {
       activeIndexCount,
       color,
       alpha,
-      timeOfDay,
+      weather,
     );
   }
 

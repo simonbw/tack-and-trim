@@ -42,6 +42,7 @@ struct Params {
   time: f32,
   tideHeight: f32,
   numWaves: u32,
+  waveAmplitudeScale: f32,
 }
 
 // Wave computation constants
@@ -188,12 +189,14 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec4<f32> {
   }
 
   // Amplitude modulation noise (treated as locally constant for the gradient).
+  // Global weather amplitude scale is folded in here so it cascades through
+  // height/dhdt/velocity uniformly.
   let ampModTime = params.time * WAVE_AMP_MOD_TIME_SCALE;
-  let ampMod = 1.0 + simplex3D(vec3<f32>(
+  let ampMod = (1.0 + simplex3D(vec3<f32>(
     worldPos.x * WAVE_AMP_MOD_SPATIAL_SCALE,
     worldPos.y * WAVE_AMP_MOD_SPATIAL_SCALE,
     ampModTime
-  )) * WAVE_AMP_MOD_STRENGTH;
+  )) * WAVE_AMP_MOD_STRENGTH) * params.waveAmplitudeScale;
 
   // World-space finite-difference step. One texel wide in world coords —
   // matches the spatial resolution we'd otherwise get from sampling the

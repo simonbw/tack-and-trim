@@ -7,6 +7,7 @@ import { WindQuery } from "./WindQuery";
 import { WindResultLayout } from "./WindQueryResult";
 import { createWindQueryShader, WindQueryUniforms } from "./WindQueryShader";
 import { WindResources } from "./WindResources";
+import { WeatherState } from "../../weather/WeatherState";
 
 const MAX_WIND_QUERIES = 2 ** 15;
 
@@ -89,7 +90,8 @@ export class WindQueryManager extends GpuQueryManager {
     }
 
     const windResources = this.game.entities.getSingleton(WindResources);
-    const baseWind = windResources.getBaseVelocity();
+    const weather = this.game.entities.getSingleton(WeatherState);
+    const baseWind = weather.getEffectiveWindBase();
     const sourceWeights = windResources.getSourceWeights();
 
     const time = performance.now() / 1000;

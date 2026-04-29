@@ -29,7 +29,7 @@ import {
   SCENE_LIGHTING_FIELDS,
   pushSceneLighting,
 } from "../../time/SceneLighting";
-import type { TimeOfDay } from "../../time/TimeOfDay";
+import type { WeatherState } from "../../weather/WeatherState";
 
 /** 6 floats per vertex: position (2) + normal (3) + z (1) */
 export const SAIL_VERTEX_SIZE = 6;
@@ -38,7 +38,7 @@ const SAIL_VERTEX_STRIDE = SAIL_VERTEX_SIZE * 4; // 24 bytes
 const SailUniforms = defineUniformStruct("SailUniforms", {
   viewMatrix: mat3x3,
   baseColor: vec4,
-  // Scene lighting (see SceneLighting.ts). Populated from TimeOfDay.
+  // Scene lighting (see SceneLighting.ts). Populated from WeatherState.
   ...SCENE_LIGHTING_FIELDS,
 });
 
@@ -276,7 +276,7 @@ export class SailShaderInstance {
     indexCount: number,
     color: number,
     alpha: number,
-    timeOfDay: TimeOfDay | null,
+    weather: WeatherState | null,
   ): void {
     // Kick off async init if not done yet
     if (!pipelineWithDepth) {
@@ -322,7 +322,7 @@ export class SailShaderInstance {
     this.combinedMatrix.multiply(renderer.getTransform());
     this.uniforms.set.viewMatrix(this.combinedMatrix);
     this.uniforms.set.baseColor([baseR, baseG, baseB, alpha]);
-    pushSceneLighting(this.uniforms.set, timeOfDay);
+    pushSceneLighting(this.uniforms.set, weather);
     this.uniforms.uploadTo(this.uniformBuffer!);
 
     // Draw

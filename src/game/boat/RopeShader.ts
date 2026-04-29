@@ -20,7 +20,7 @@ import {
   vec3,
   vec4u,
 } from "../../core/graphics/UniformStruct";
-import type { TimeOfDay } from "../time/TimeOfDay";
+import type { WeatherState } from "../weather/WeatherState";
 import { getWebGPU } from "../../core/graphics/webgpu/WebGPUDevice";
 import {
   getMSAASampleCount,
@@ -80,7 +80,7 @@ const RopeUniforms = defineUniformStruct("RopeUniforms", {
   weaveOver: u32,
   weaveUnder: u32,
   helixScale: f32,
-  // Global scene illumination (sun + sky), pushed per-frame from TimeOfDay.
+  // Global scene illumination (sun + sky), pushed per-frame from WeatherState.
   ambientLight: vec3,
   // 8 × vec4<u32> = 32 carrier slots, packed 0xRRGGBB.
   carriers0: vec4u,
@@ -430,7 +430,7 @@ export class RopeShaderInstance {
     pattern: RopePattern,
     alpha: number,
     ropeWidth: number,
-    timeOfDay: TimeOfDay | null,
+    weather: WeatherState | null,
   ): void {
     if (!pipelineWithDepth) {
       ensureInitialized();
@@ -489,7 +489,7 @@ export class RopeShaderInstance {
     this.uniforms.set.weaveOver(weaveOver);
     this.uniforms.set.weaveUnder(weaveUnder);
     this.uniforms.set.helixScale(helixScale);
-    this.uniforms.set.ambientLight(timeOfDay?.getAmbientLight() ?? [1, 1, 1]);
+    this.uniforms.set.ambientLight(weather?.getAmbientLight() ?? [1, 1, 1]);
 
     // Pack carriers into 8 vec4<u32> slots. Pad with the first color.
     const pad = pattern.carriers[0] ?? 0x888888;

@@ -5,7 +5,7 @@ import { on } from "../../core/entity/handler";
 import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
 import type { TreeFileData } from "../../pipeline/mesh-building/TreeFile";
 import { TimeOfDay } from "../time/TimeOfDay";
-import { WindResources } from "../world/wind/WindResources";
+import { WeatherState } from "../weather/WeatherState";
 import { createTreeCompositeShader } from "./TreeCompositeShader";
 import { TreeRasterizer } from "./TreeRasterizer";
 
@@ -202,14 +202,15 @@ export class TreeManager extends BaseEntity {
     const physicalWidth = renderer.canvas.width;
     const physicalHeight = renderer.canvas.height;
 
-    const windResources = this.game.entities.tryGetSingleton(WindResources);
-    const baseWindX = windResources ? windResources.getBaseVelocity().x : 11;
-    const baseWindY = windResources ? windResources.getBaseVelocity().y : 11;
+    const weather = this.game.entities.tryGetSingleton(WeatherState);
+    const baseWind = weather?.getEffectiveWindBase();
+    const baseWindX = baseWind?.x ?? 11;
+    const baseWindY = baseWind?.y ?? 11;
 
     const timeOfDay = this.game.entities.tryGetSingleton(TimeOfDay);
     const todSeconds = timeOfDay ? timeOfDay.getTimeInSeconds() : 43200;
-    const ambientLight = timeOfDay
-      ? timeOfDay.getAmbientLight()
+    const ambientLight = weather
+      ? weather.getAmbientLight()
       : ([1, 1, 1] as const);
 
     // Render trees to offscreen texture (separate command encoder, like SurfaceRenderer).

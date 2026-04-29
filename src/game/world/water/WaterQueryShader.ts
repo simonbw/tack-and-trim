@@ -52,7 +52,9 @@ export const WaterQueryUniforms = defineUniformStruct("Params", {
   numWaves: u32,
   tidalPhase: f32,
   tidalStrength: f32,
-  _padding2: f32,
+  // Multiplier on Gerstner wave amplitude. 1.0 = no change. Driven from
+  // `WeatherState.waveAmplitudeScale`.
+  waveAmplitudeScale: f32,
   _padding3: f32,
   _padding4: f32,
 });
@@ -74,7 +76,7 @@ struct Params {
   numWaves: u32,
   tidalPhase: f32,
   tidalStrength: f32,
-  _padding2: f32,
+  waveAmplitudeScale: f32,
   _padding3: f32,
   _padding4: f32,
 }
@@ -217,13 +219,14 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     params.defaultDepth
   );
 
-  // Sample amplitude modulation noise
+  // Sample amplitude modulation noise. Global weather amplitude scale is
+  // folded in here so it cascades through height/dhdt/velocity uniformly.
   let ampModTime = params.time * WAVE_AMP_MOD_TIME_SCALE;
-  let ampMod = 1.0 + simplex3D(vec3<f32>(
+  let ampMod = (1.0 + simplex3D(vec3<f32>(
     queryPoint.x * WAVE_AMP_MOD_SPATIAL_SCALE,
     queryPoint.y * WAVE_AMP_MOD_SPATIAL_SCALE,
     ampModTime
-  )) * WAVE_AMP_MOD_STRENGTH;
+  )) * WAVE_AMP_MOD_STRENGTH) * params.waveAmplitudeScale;
 
   // Compute wave result (height + horizontal orbital velocity) using mesh lookup
   let waveResult = computeWaveResultAtPoint(queryPoint, ampMod);

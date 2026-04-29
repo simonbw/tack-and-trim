@@ -31,6 +31,7 @@ import {
 } from "./io/LevelFileFormat";
 import { loadDefaultEditorLevel } from "./io/LevelLoader";
 import { EditorUI } from "./EditorUI";
+import { LightingSystem } from "../game/lighting/LightingSystem";
 import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
 import { WavePhysicsResources } from "../game/wave-physics/WavePhysicsResources";
 import { WaterResources } from "../game/world/water/WaterResources";
@@ -181,6 +182,11 @@ export class EditorController
 
     // Add surface renderer (renders water and terrain visuals)
     this.game.addEntity(new SurfaceRenderer());
+
+    // Lighting system (writes the screen-space lights texture each frame —
+    // the shape shader samples it even when there are no lights, so the
+    // editor still needs a working pipeline).
+    this.game.addEntity(new LightingSystem());
 
     // Add debug visualization
     this.game.addEntity(new DebugRenderer());

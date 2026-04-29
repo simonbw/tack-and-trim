@@ -97,6 +97,7 @@ import {
   WATER_PARAM_TIDAL_STRENGTH,
   WATER_PARAM_MODIFIER_COUNT,
   WATER_PARAM_CONTOUR_COUNT,
+  WATER_PARAM_WAVE_AMPLITUDE_SCALE,
   WATER_PARAM_WAVE_SOURCES_BASE,
   WATER_PARAM_FLOATS_PER_WAVE,
   WATER_PARAM_MAX_WAVES,
@@ -271,6 +272,7 @@ export async function runQueryParityCheck(game: Game): Promise<ParityReport> {
         wSnap.numWaves,
         wSnap.tidalPhase,
         wSnap.tidalStrength,
+        wSnap.waveAmplitudeScale,
         wSnap.packedTerrain,
         wSnap.packedWaveMesh,
         wSnap.packedTideMesh,
@@ -703,6 +705,7 @@ function runWasmWater(
   paramsView[WATER_PARAM_TIDAL_STRENGTH] = wSnap.tidalStrength;
   paramsView[WATER_PARAM_CONTOUR_COUNT] = wSnap.contourCount;
   paramsView[WATER_PARAM_MODIFIER_COUNT] = wSnap.modifierCount;
+  paramsView[WATER_PARAM_WAVE_AMPLITUDE_SCALE] = wSnap.waveAmplitudeScale;
   const numWavesClamped = Math.min(wSnap.numWaves, WATER_PARAM_MAX_WAVES);
   for (let i = 0; i < numWavesClamped; i++) {
     for (let f = 0; f < WATER_PARAM_FLOATS_PER_WAVE; f++) {

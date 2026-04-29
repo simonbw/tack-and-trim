@@ -5,6 +5,7 @@ import { V3d } from "../../core/Vector3";
 import { Bilge } from "./Bilge";
 import { BoatConfig, ShaffS7 } from "./BoatConfig";
 import { BoatGrounding } from "./BoatGrounding";
+import { BoatLight } from "./BoatLight";
 import { BoatRenderer } from "./BoatRenderer";
 import { BoatSoundGenerator } from "./BoatSoundGenerator";
 import { HullDamage } from "./HullDamage";
@@ -435,6 +436,9 @@ export class Boat extends BaseEntity {
 
     // Boat sound effects (sheet snaps, boom slams)
     this.addChild(new BoatSoundGenerator(this));
+
+    // Warm cabin-glow contribution to the screen-space lights texture.
+    this.addChild(new BoatLight(this));
   }
 
   /** Row the boat forward */

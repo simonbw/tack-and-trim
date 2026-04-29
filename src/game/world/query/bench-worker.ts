@@ -48,6 +48,7 @@ import {
   WATER_PARAM_TIDAL_STRENGTH,
   WATER_PARAM_TIDE_HEIGHT,
   WATER_PARAM_TIME,
+  WATER_PARAM_WAVE_AMPLITUDE_SCALE,
   WATER_PARAM_WAVE_SOURCES_BASE,
 } from "./water-params";
 
@@ -423,6 +424,7 @@ function runJsIterations(
     const numWaves = params[WATER_PARAM_NUM_WAVES];
     const tidalPhase = params[WATER_PARAM_TIDAL_PHASE];
     const tidalStrength = params[WATER_PARAM_TIDAL_STRENGTH];
+    const waveAmplitudeScale = params[WATER_PARAM_WAVE_AMPLITUDE_SCALE];
     // modifierCount is supplied by caller (read once at worker init).
     const waveSources = params.subarray(WATER_PARAM_WAVE_SOURCES_BASE);
     for (let it = 0; it < iterations; it++) {
@@ -438,6 +440,7 @@ function runJsIterations(
           numWaves,
           tidalPhase,
           tidalStrength,
+          waveAmplitudeScale,
           ctx.packedTerrain,
           ctx.packedWaveMesh,
           ctx.packedTideMesh,
