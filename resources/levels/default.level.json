@@ -26,6 +26,16 @@
       }
     ]
   },
+  "weather": {
+    "windSpeed": 9,
+    "cloudCover": 0.1,
+    "rainIntensity": 0,
+    "gustiness": 0.1,
+    "variability": {
+      "cloudCoverRange": 0.05,
+      "gustinessRange": 0.05
+    }
+  },
   "startPosition": [40, 710],
   "startingPortId": "bayview-harbor",
   "ports": [
