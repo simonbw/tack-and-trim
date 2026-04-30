@@ -48,11 +48,14 @@ export function collectSaveData(
       },
       bilgeWater: boat.bilge.waterVolume,
       sailor: {
+        // In-transit saves persist the destination — the sailor effectively
+        // teleports to the target on reload, which is acceptable since
+        // transits are short and the alternative (replaying the walk) adds
+        // complexity for no gameplay benefit.
         stationId:
           boat.sailor.state.kind === "atStation"
             ? boat.sailor.state.stationId
-            : null,
-        position: boat.sailor.getLocalPosition(),
+            : boat.sailor.state.targetStationId,
       },
     },
 

@@ -13,11 +13,9 @@ import type { StationDef } from "./StationConfig";
 /** Sailor mass in lbs — average adult. Affects boat balance via deck constraint reaction. */
 export const SAILOR_MASS = 170;
 
-/** Walking speed in ft/s — cautious walking on a moving boat. */
+/** Walking speed in ft/s while transiting between stations. */
 export const SAILOR_WALK_SPEED = 6;
-/** Running speed in ft/s — hustling when Shift is held. */
-export const SAILOR_RUN_SPEED = 12;
-/** Proximity radius (ft) for snapping to a station on arrival. */
+/** Proximity radius (ft) at which the sailor snaps onto the target station. */
 export const SAILOR_SNAP_RADIUS = 2.5;
 
 const SAILOR_RADIUS = 0.8; // ft — visual radius of the orange circle
@@ -54,7 +52,7 @@ const SAILOR_WELD_RAMP_DURATION = 0.3;
 
 export type SailorState =
   | { kind: "atStation"; stationId: string }
-  | { kind: "walking" };
+  | { kind: "transit"; targetStationId: string };
 
 export class Sailor extends BaseEntity {
   layer = "boat" as const;
@@ -63,7 +61,7 @@ export class Sailor extends BaseEntity {
   private readonly stations: readonly StationDef[];
   private readonly hullBody: Body;
   private readonly deckConstraint: SailorDeckConstraint;
-  /** 3-axis position lock to the current station. Disabled while walking. */
+  /** 3-axis position lock to the current station. Disabled while in transit. */
   private readonly stationWeld: PointToRigidLockConstraint3D;
   private readonly deckHeight: number;
 
@@ -134,7 +132,7 @@ export class Sailor extends BaseEntity {
     this.deckConstraint.fixedFrictionForce = sailorWeight * SAILOR_FRICTION;
 
     // 3-axis position lock that holds the sailor at a station's hull-local
-    // anchor while stationed. Disabled while walking. The per-axis maxForce
+    // anchor while stationed. Disabled while in transit. The per-axis maxForce
     // cap bounds activation impulses and limits how hard the weld can yank
     // the hull.
     this.stationWeld = new PointToRigidLockConstraint3D(this.body, hullBody, {
@@ -167,7 +165,7 @@ export class Sailor extends BaseEntity {
     return this._state;
   }
 
-  /** The current station, or null if walking. */
+  /** The current station, or null if in transit. */
   getCurrentStation(): StationDef | null {
     if (this._state.kind === "atStation") {
       return this.getStation(this._state.stationId);
@@ -180,33 +178,44 @@ export class Sailor extends BaseEntity {
     return this._state.kind === "atStation" && this._state.stationId === id;
   }
 
-  /** Leave the current station and begin walking. */
-  beginWalking(): void {
+  /**
+   * Begin (or retarget) an auto-walk to the named station. If already at
+   * that station, no-op. If currently in transit to a different station,
+   * the target switches and the sailor turns toward it without stopping.
+   */
+  goToStation(id: string): void {
+    if (this._state.kind === "atStation" && this._state.stationId === id) {
+      return;
+    }
+    // Validate up front so callers fail fast.
+    this.getStation(id);
+
     if (this._state.kind === "atStation") {
-      const prevStation = this._state.stationId;
-      this._state = { kind: "walking" };
+      const prevStationId = this._state.stationId;
       this.deckConstraint.disabled = false;
       this.stationWeld.disabled = true;
-      this.game.dispatch("sailorLeftStation", { stationId: prevStation });
+      this._state = { kind: "transit", targetStationId: id };
+      this.game.dispatch("sailorLeftStation", { stationId: prevStationId });
+    } else {
+      // Already in transit — just retarget.
+      this._state = { kind: "transit", targetStationId: id };
     }
   }
 
   /**
-   * Set the walk velocity in hull-local coordinates (ft/s), clamped to
-   * `maxSpeed` by magnitude. Only has effect while walking.
+   * Step to the previous (-1) or next (+1) station in the boat's station
+   * order. Clamped at the ends — no wrap-around.
    */
-  setWalkVelocity(localX: number, localY: number, maxSpeed: number): void {
-    if (this._state.kind !== "walking") return;
-
-    const mag = Math.sqrt(localX * localX + localY * localY);
-    if (mag > maxSpeed) {
-      const scale = maxSpeed / mag;
-      localX *= scale;
-      localY *= scale;
-    }
-
-    this.deckConstraint.targetVelocityX = localX;
-    this.deckConstraint.targetVelocityY = localY;
+  goToNeighborStation(delta: 1 | -1): void {
+    const currentId =
+      this._state.kind === "atStation"
+        ? this._state.stationId
+        : this._state.targetStationId;
+    const idx = this.stations.findIndex((s) => s.id === currentId);
+    if (idx < 0) return;
+    const nextIdx = idx + delta;
+    if (nextIdx < 0 || nextIdx >= this.stations.length) return;
+    this.goToStation(this.stations[nextIdx].id);
   }
 
   // ── Tick ─────────────────────────────────────────────────────────
@@ -215,13 +224,36 @@ export class Sailor extends BaseEntity {
   onTick({ dt }: GameEventMap["tick"]): void {
     // Gravity always acts on the sailor body. When stationed, the 3-axis
     // station weld resists gravity and transfers the reaction to the hull
-    // at the station anchor. When walking, the deck constraint handles it.
+    // at the station anchor. In transit, the deck constraint handles it.
     this.body.applyForce3D(0, 0, -SAILOR_GRAVITY * this.body.mass, 0, 0, 0);
     if (this._state.kind === "atStation") {
       this.deckConstraint.targetVelocityX = 0;
       this.deckConstraint.targetVelocityY = 0;
       this.advanceWeldRamp(dt);
+    } else {
+      this.tickTransit();
     }
+  }
+
+  /**
+   * Drive the deck-friction motor straight at the target station each
+   * tick. On arrival within SAILOR_SNAP_RADIUS, snap onto the station.
+   */
+  private tickTransit(): void {
+    if (this._state.kind !== "transit") return;
+    const target = this.getStation(this._state.targetStationId);
+    const [lx, ly] = this.getLocalPosition();
+    const dx = target.position[0] - lx;
+    const dy = target.position[1] - ly;
+    const dist2 = dx * dx + dy * dy;
+    if (dist2 < SAILOR_SNAP_RADIUS * SAILOR_SNAP_RADIUS) {
+      this.snapToStation(target);
+      return;
+    }
+    const dist = Math.sqrt(dist2);
+    const scale = SAILOR_WALK_SPEED / dist;
+    this.deckConstraint.targetVelocityX = dx * scale;
+    this.deckConstraint.targetVelocityY = dy * scale;
   }
 
   private advanceWeldRamp(dt: number): void {
@@ -273,27 +305,8 @@ export class Sailor extends BaseEntity {
     }
   }
 
-  /** Return the station within snapRadius of the sailor, or null. */
-  findNearbyStation(): StationDef | null {
-    const [lx, ly] = this.getLocalPosition();
-    const r2 = SAILOR_SNAP_RADIUS * SAILOR_SNAP_RADIUS;
-    for (const station of this.stations) {
-      const dx = lx - station.position[0];
-      const dy = ly - station.position[1];
-      if (dx * dx + dy * dy < r2) return station;
-    }
-    return null;
-  }
-
-  /** Snap to a nearby station if one is in range. Does nothing otherwise. */
-  snapToNearbyStation(): void {
-    if (this._state.kind !== "walking") return;
-    const near = this.findNearbyStation();
-    if (near) this.snapToStation(near);
-  }
-
   private snapToStation(station: StationDef): void {
-    // Switch from walking to the station weld. No position/velocity
+    // Switch from transit motor to the station weld. No position/velocity
     // teleport — the ramped weld slides the anchor from the sailor's
     // current spot to the station, dragging them along smoothly.
     this.deckConstraint.targetVelocityX = 0;
@@ -346,45 +359,30 @@ export class Sailor extends BaseEntity {
   }
 
   /**
-   * Restore sailor state from a save file.
-   * If stationId is non-null, snaps to that station.
-   * Otherwise, places the sailor at the given hull-local position in walking mode.
+   * Restore sailor state from a save file. Snaps the sailor to the named
+   * station with no pull-in animation. Throws if the station is unknown
+   * (callers should validate / migrate before calling).
    */
-  restoreState(stationId: string | null, position: [number, number]): void {
-    if (stationId) {
-      const station = this.stations.find((s) => s.id === stationId);
-      if (station) {
-        const worldPos = this.stationWorldPosition(station);
-        this.body.position.set(worldPos);
-        this.body.velocity.set(0, 0);
-        this.body.zVelocity = 0;
-        this.deckConstraint.disabled = true;
-        this.stationWeld.localAnchorB.set(
-          station.position[0],
-          station.position[1],
-          this.deckHeight + SAILOR_RADIUS,
-        );
-        this.stationWeld.disabled = false;
-        // Load fully pinned — no pull-in animation on a fresh game.
-        this._weldRampT = 1;
-        this._weldRampStart.set(this.stationWeld.localAnchorB);
-        this._weldRampTarget.set(this.stationWeld.localAnchorB);
-        for (const eq of this.stationWeld.equations) {
-          eq.warmLambda = 0;
-          eq.multiplier = 0;
-        }
-        this._state = { kind: "atStation", stationId };
-        return;
-      }
-    }
-
-    // Walking or unknown station — place at position
-    const [wx, wy] = this.hullBody.toWorldFrame3D(position[0], position[1], 0);
-    this.body.position.set(wx, wy);
+  restoreState(stationId: string): void {
+    const station = this.getStation(stationId);
+    const worldPos = this.stationWorldPosition(station);
+    this.body.position.set(worldPos);
     this.body.velocity.set(0, 0);
     this.body.zVelocity = 0;
-    this.deckConstraint.disabled = false;
-    this.stationWeld.disabled = true;
-    this._state = { kind: "walking" };
+    this.deckConstraint.disabled = true;
+    this.stationWeld.localAnchorB.set(
+      station.position[0],
+      station.position[1],
+      this.deckHeight + SAILOR_RADIUS,
+    );
+    this.stationWeld.disabled = false;
+    this._weldRampT = 1;
+    this._weldRampStart.set(this.stationWeld.localAnchorB);
+    this._weldRampTarget.set(this.stationWeld.localAnchorB);
+    for (const eq of this.stationWeld.equations) {
+      eq.warmLambda = 0;
+      eq.multiplier = 0;
+    }
+    this._state = { kind: "atStation", stationId };
   }
 }

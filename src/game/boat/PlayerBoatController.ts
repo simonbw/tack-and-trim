@@ -7,20 +7,15 @@ import { Port } from "../port/Port";
 import { PortMenu } from "../port/PortMenu";
 import { Boat } from "./Boat";
 import { findBowPoint } from "./Hull";
-import {
-  SAILOR_RUN_SPEED,
-  SAILOR_WALK_SPEED,
-  type Sailor,
-} from "./sailor/Sailor";
 import type { StationDef } from "./sailor/StationConfig";
 
 const DOCK_RANGE = 30; // feet — max distance to dock from bow
 
 /**
  * Maps player input to boat actions. Controls are gated by the sailor's
- * current station: when walking, WASD drives the sailor and all boat
- * controls are inert; when at a station, WASD/QE drive that station's
- * bound controls.
+ * current station: while in transit between stations, all boat controls
+ * are inert; when at a station, WASD/QE drive that station's bound
+ * controls. Z and X cycle to the previous/next station.
  */
 export class PlayerBoatController extends BaseEntity {
   tickLayer = "input" as const;
@@ -52,47 +47,17 @@ export class PlayerBoatController extends BaseEntity {
     // Not at a bail station — ensure bailing is off
     this.boat.bilge.setBailing(false);
 
-    // Sailor is walking — WASD drives walking, boat controls inert
-    if (sailor.state.kind === "walking") {
-      this.onTickWalking(sailor);
+    // Sailor is in transit — boat controls inert, rudder floats
+    if (sailor.state.kind !== "atStation") {
+      this.boat.rudder.setSteer(0);
+      this.game.io.setSteeringWheelForceFeedback(0);
+      this.boat.anchor.idle();
       return;
     }
 
     // Sailor is at a station — dispatch controls based on station bindings
     const station = sailor.getCurrentStation()!;
     this.onTickAtStation(station, dt);
-  }
-
-  // ── Walking mode ────────────────────────────────────────────────
-
-  private onTickWalking(sailor: Sailor): void {
-    const io = this.game.io;
-
-    // Release the rudder — it floats when unattended
-    this.boat.rudder.setSteer(0);
-    io.setSteeringWheelForceFeedback(0);
-
-    // Idle the anchor (no input)
-    this.boat.anchor.idle();
-
-    // WASD → walk velocity, interpreted in camera space (W = up on screen).
-    // Screen direction is rotated into hull-local coords via the camera and
-    // hull angles. The deck friction equations' Jacobian sign convention
-    // makes a positive `relativeVelocity` push the sailor along the
-    // -tangent direction, so we negate at the end.
-    const running = io.isKeyDown("ShiftLeft") || io.isKeyDown("ShiftRight");
-    const speed = running ? SAILOR_RUN_SPEED : SAILOR_WALK_SPEED;
-    let sx = 0;
-    let sy = 0;
-    if (io.isKeyDown("KeyW")) sy -= 1;
-    if (io.isKeyDown("KeyS")) sy += 1;
-    if (io.isKeyDown("KeyA")) sx -= 1;
-    if (io.isKeyDown("KeyD")) sx += 1;
-
-    const hullAngle = this.boat.hull.getAngle();
-    const cameraAngle = this.game.camera.angle;
-    const local = V(sx, sy).irotate(-cameraAngle - hullAngle);
-    sailor.setWalkVelocity(-local.x * speed, -local.y * speed, speed);
   }
 
   // ── Station mode ────────────────────────────────────────────────
@@ -347,14 +312,18 @@ export class PlayerBoatController extends BaseEntity {
 
     const sailor = this.boat.sailor;
 
+    // Z / X cycle stations from any state (in-transit retargets).
+    if (key === "KeyZ") {
+      sailor.goToNeighborStation(-1);
+      return;
+    }
+    if (key === "KeyX") {
+      sailor.goToNeighborStation(+1);
+      return;
+    }
+
     if (sailor.state.kind === "atStation") {
       const station = sailor.getCurrentStation()!;
-
-      // F at any station → leave and start walking
-      if (key === "KeyF") {
-        sailor.beginWalking();
-        return;
-      }
 
       // M at a station with mooring action → dock toggle
       if (key === "KeyM" && station.actions?.includes("mooring")) {
@@ -366,12 +335,6 @@ export class PlayerBoatController extends BaseEntity {
             this.boat.mooring.moorTo(nearbyPort);
           }
         }
-        return;
-      }
-    } else {
-      // Walking — F snaps to a nearby station (auto-snap also runs each tick).
-      if (key === "KeyF") {
-        sailor.snapToNearbyStation();
         return;
       }
     }
