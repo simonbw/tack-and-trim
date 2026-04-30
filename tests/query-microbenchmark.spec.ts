@@ -60,6 +60,9 @@ test("Query microbenchmark: JS vs WASM × worker count, San Juan Islands", async
   await page.waitForTimeout(3000);
 
   const report = await page.evaluate(() => window.DEBUG.runQueryMicrobench!());
+  const liveReport = await page.evaluate(() =>
+    window.DEBUG.runLivePointsMicrobench!(),
+  );
 
   const lines: string[] = [
     `\nMulti-thread microbenchmark — San Juan Islands`,
@@ -131,6 +134,29 @@ test("Query microbenchmark: JS vs WASM × worker count, San Juan Islands", async
       lines.push(`    ${engine.padEnd(6)}${row}`);
     }
     lines.push("");
+  }
+
+  // Live-points report — uses the actual production point set captured
+  // straight off the running game. Each type's per-point cost is
+  // directly comparable to the synthetic-grid wasm cells above; a
+  // matching number means the kernel is the same speed on real
+  // gameplay coordinates as on a uniform grid, while a slower number
+  // means production points hit a heavier code path.
+  lines.push(`\nLive-points bench (workerCount=${liveReport.workerCount})`);
+  lines.push(
+    `  ${"type".padEnd(8)}${pad("points", 8)}${pad("ns/pt", 12)}${pad("wall ms", 10)}`,
+  );
+  for (const t of queryTypes) {
+    const cell = liveReport[t];
+    if (!cell) {
+      lines.push(
+        `  ${t.padEnd(8)}${pad("—", 8)}${pad("—", 12)}${pad("—", 10)}`,
+      );
+      continue;
+    }
+    lines.push(
+      `  ${t.padEnd(8)}${pad(`${cell.pointCount}`, 8)}${pad(cell.meanNsPerPoint.toFixed(1), 12)}${pad(cell.meanWallClockMs.toFixed(2), 10)}`,
+    );
   }
 
   console.log(lines.join("\n"));

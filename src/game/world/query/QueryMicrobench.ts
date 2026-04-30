@@ -28,6 +28,7 @@ import { V, type V2d } from "../../../core/Vector";
 import { TerrainQueryManager } from "../terrain/TerrainQueryManager";
 import { WaterQueryManager } from "../water/WaterQueryManager";
 import { WindQueryManager } from "../wind/WindQueryManager";
+import type { BaseQuery } from "./BaseQuery";
 import {
   PARAMS_FLOATS_PER_CHANNEL,
   STACK_BYTES_PER_WORKER,
@@ -555,5 +556,181 @@ function buildTerrainParams(
   // TERRAIN_PARAM_CONTOUR_COUNT = 0, TERRAIN_PARAM_DEFAULT_DEPTH = 1.
   out[0] = tSnap.contourCount;
   out[1] = tSnap.defaultDepth;
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Live-points bench
+// ---------------------------------------------------------------------------
+
+export interface LivePointsCellStats {
+  pointCount: number;
+  meanWallClockMs: number;
+  meanNsPerPoint: number;
+}
+
+export interface LivePointsReport {
+  workerCount: number;
+  iterationsPerTrial: number;
+  trials: number;
+  water: LivePointsCellStats | null;
+  wind: LivePointsCellStats | null;
+  terrain: LivePointsCellStats | null;
+}
+
+const LIVE_POINTS_QUERY_TAGS: Record<BenchQueryType, string> = {
+  water: "waterQuery",
+  wind: "windQuery",
+  terrain: "terrainQuery",
+};
+
+/**
+ * Variant of `runQueryMicrobench` that uses the *actual* point set the
+ * production query system is dispatching on the current frame, rather
+ * than the synthetic 1024-point uniform grid. Direct apples-to-apples
+ * comparison with the in-game `query.<type>.usPerPt` profiler labels:
+ * if the live-points cells match the in-game per-point cost, the gap
+ * is point-distribution / world-state. If they instead match the
+ * synthetic-grid cells, the gap is in production worker dispatch
+ * (parking, contention, etc.).
+ *
+ * Only runs WASM at one worker count (the production heuristic) and
+ * one iteration per trial — enough cells for a noise-aware mean.
+ */
+export async function runLivePointsMicrobench(
+  game: Game,
+): Promise<LivePointsReport> {
+  const terrainMgr = game.entities.tryGetSingleton(TerrainQueryManager);
+  const waterMgr = game.entities.tryGetSingleton(WaterQueryManager);
+  const windMgr = game.entities.tryGetSingleton(WindQueryManager);
+  if (!terrainMgr || !waterMgr || !windMgr) {
+    throw new Error(
+      "[QueryMicrobench] GPU managers not found — microbench requires the GPU backend.",
+    );
+  }
+  const tSnap = terrainMgr.lastCompletedDispatchParams;
+  const wSnap = waterMgr.lastCompletedDispatchParams;
+  const windSnap = windMgr.lastCompletedDispatchParams;
+  if (!tSnap || !wSnap || !windSnap) {
+    throw new Error(
+      "[QueryMicrobench] GPU dispatch snapshots not yet available — let the game run a few frames first.",
+    );
+  }
+
+  const livePoints: Record<BenchQueryType, V2d[]> = {
+    water: gatherLivePoints(game, "water"),
+    wind: gatherLivePoints(game, "wind"),
+    terrain: gatherLivePoints(game, "terrain"),
+  };
+  console.log(
+    `[QueryMicrobench:live] points captured — water=${livePoints.water.length} wind=${livePoints.wind.length} terrain=${livePoints.terrain.length}`,
+  );
+
+  const hardwareConcurrency =
+    (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4;
+  const workerCount = Math.max(hardwareConcurrency - 4, 2);
+
+  const url = new URL("./generated/query.wasm", import.meta.url);
+  const wasmModule = await WebAssembly.compileStreaming(fetch(url));
+  const probeMemory = new WebAssembly.Memory({
+    initial: 17,
+    maximum: 17,
+    shared: true,
+  });
+  const probe = await WebAssembly.instantiate(wasmModule, {
+    env: { memory: probeMemory },
+  });
+  const heapBase = (probe.exports.__heap_base as WebAssembly.Global)
+    .value as number;
+
+  const paramsByType: Record<BenchQueryType, Float32Array> = {
+    water: buildWaterParams(wSnap),
+    wind: buildWindParams(windSnap),
+    terrain: buildTerrainParams(tSnap),
+  };
+
+  const out: LivePointsReport = {
+    workerCount,
+    iterationsPerTrial: 1,
+    trials: TRIALS,
+    water: null,
+    wind: null,
+    terrain: null,
+  };
+
+  for (const queryType of QUERY_TYPES) {
+    const points = livePoints[queryType];
+    if (points.length === 0) continue;
+    // Each type gets its own memory because the layout depends on point
+    // count (which differs per type for a real frame).
+    const layout = buildLayout(
+      heapBase,
+      points.length,
+      {
+        packedTerrain: tSnap.packedTerrain,
+        packedWaveMesh: wSnap.packedWaveMesh,
+        packedTideMesh: wSnap.packedTideMesh,
+        packedWindMesh: windSnap.packedWindMesh,
+      },
+      workerCount,
+    );
+    const initialPages = Math.ceil(layout.totalBytes / 65536) + 16;
+    const memory = new WebAssembly.Memory({
+      initial: initialPages,
+      maximum: 65536,
+      shared: true,
+    });
+    const buffer = memory.buffer;
+    copyU32If(buffer, layout.packedTerrainPtr, tSnap.packedTerrain);
+    copyU32If(buffer, layout.packedWaveMeshPtr, wSnap.packedWaveMesh);
+    copyU32If(buffer, layout.packedTideMeshPtr, wSnap.packedTideMesh);
+    copyU32If(buffer, layout.packedWindMeshPtr, windSnap.packedWindMesh);
+    writePointsToBuf(buffer, layout.pointsPtr, points);
+    new Float32Array(buffer, layout.paramsPtr, PARAMS_FLOATS_PER_CHANNEL).set(
+      paramsByType[queryType],
+    );
+    if (queryType === "water" && wSnap.modifierCount > 0) {
+      const floats = wSnap.modifierCount * FLOATS_PER_MODIFIER;
+      const modsView = new Float32Array(
+        buffer,
+        layout.modifiersPtr,
+        16384 * FLOATS_PER_MODIFIER,
+      );
+      modsView.set(
+        wSnap.modifiers.subarray(0, Math.min(floats, modsView.length)),
+      );
+    }
+
+    console.log(
+      `[QueryMicrobench:live] cell type=${queryType} points=${points.length} workerCount=${workerCount}`,
+    );
+    const stats = await runCell(
+      memory,
+      wasmModule,
+      layout,
+      "wasm",
+      queryType,
+      workerCount,
+      points.length,
+      1, // iterationsPerTrial — we want each trial to be ONE call so it
+      // matches the in-game cadence (one wasm batch per worker per frame).
+    );
+    out[queryType] = {
+      pointCount: points.length,
+      meanWallClockMs: stats.meanWallClockMs,
+      meanNsPerPoint: stats.meanNsPerPoint,
+    };
+  }
+
+  return out;
+}
+
+function gatherLivePoints(game: Game, queryType: BenchQueryType): V2d[] {
+  const tag = LIVE_POINTS_QUERY_TAGS[queryType];
+  const out: V2d[] = [];
+  for (const e of game.entities.getTagged(tag)) {
+    const q = e as unknown as BaseQuery<unknown>;
+    for (const p of q.points) out.push(p);
+  }
   return out;
 }

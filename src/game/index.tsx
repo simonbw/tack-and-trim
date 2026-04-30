@@ -22,7 +22,9 @@ import {
   type ParityReport,
 } from "./world/query/QueryParity";
 import {
+  runLivePointsMicrobench,
   runQueryMicrobench,
+  type LivePointsReport,
   type MicrobenchReport,
 } from "./world/query/QueryMicrobench";
 import {
@@ -39,6 +41,7 @@ declare global {
       toggleMSAA?: () => void;
       runQueryParityCheck?: () => Promise<ParityReport>;
       runQueryMicrobench?: () => Promise<MicrobenchReport>;
+      runLivePointsMicrobench?: () => Promise<LivePointsReport>;
       getAsyncProfilerStats?: () => AsyncProfileStats[];
       /**
        * Most recently submitted per-type point count from the CPU
@@ -85,6 +88,7 @@ async function main() {
     toggleMSAA,
     runQueryParityCheck: () => runQueryParityCheck(game),
     runQueryMicrobench: () => runQueryMicrobench(game),
+    runLivePointsMicrobench: () => runLivePointsMicrobench(game),
     getAsyncProfilerStats: () => asyncProfiler.getStats(),
     getLastQueryPointCounts: () => {
       const coord = game.entities.getById("cpuQueryCoordinator") as
