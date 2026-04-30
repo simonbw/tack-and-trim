@@ -13,7 +13,9 @@ import { createContour } from "../game/world/terrain/LandMass";
 import { DEFAULT_DEPTH } from "../game/world/terrain/TerrainConstants";
 import { TerrainResources } from "../game/world/terrain/TerrainResources";
 import { TerrainQuery } from "../game/world/terrain/TerrainQuery";
-import { TerrainQueryManager } from "../game/world/terrain/TerrainQueryManager";
+import { CpuTerrainQueryManager } from "../game/world/terrain/CpuTerrainQueryManager";
+import { CpuWaterQueryManager } from "../game/world/water/CpuWaterQueryManager";
+import { CpuQueryCoordinator } from "../game/world/query/CpuQueryCoordinator";
 import { V, V2d } from "../core/Vector";
 import { ContourEditor } from "./ContourEditor";
 import { ContourRenderer } from "./ContourRenderer";
@@ -35,7 +37,6 @@ import { LightingSystem } from "../game/lighting/LightingSystem";
 import { SurfaceRenderer } from "../game/surface-rendering/SurfaceRenderer";
 import { WavePhysicsResources } from "../game/wave-physics/WavePhysicsResources";
 import { WaterResources } from "../game/world/water/WaterResources";
-import { WaterQueryManager } from "../game/world/water/WaterQueryManager";
 import { DebugRenderer } from "../game/debug-renderer/DebugRenderer";
 import { computeSplineCentroid } from "../core/util/Spline";
 
@@ -137,7 +138,7 @@ export class EditorController
   private clipboardContour: EditorContour | null = null;
   private mouseWorldPosition: V2d | null = null;
 
-  // Terrain query for cursor height display (uses 1-frame latency GPU query)
+  // Terrain query for cursor height display (uses 1-frame latency CPU worker query)
   private terrainQuery = this.addChild(
     new TerrainQuery(() => this.getTerrainQueryPoints()),
   );
@@ -170,15 +171,18 @@ export class EditorController
       ),
     );
 
-    // Create TerrainQueryManager for GPU-accelerated terrain queries
-    this.game.addEntity(new TerrainQueryManager());
+    // Create CPU-backed query manager for terrain queries (cursor height etc.)
+    this.game.addEntity(new CpuTerrainQueryManager());
 
     // Add wave physics for shadow-based diffraction
     this.game.addEntity(new WavePhysicsResources());
 
     // Add water system (tide, modifiers, GPU buffers)
     this.game.addEntity(new WaterResources());
-    this.game.addEntity(new WaterQueryManager());
+    this.game.addEntity(new CpuWaterQueryManager());
+
+    // Coordinates the CPU worker pool for terrain/water queries.
+    this.game.addEntity(new CpuQueryCoordinator());
 
     // Add surface renderer (renders water and terrain visuals)
     this.game.addEntity(new SurfaceRenderer());
@@ -331,11 +335,11 @@ export class EditorController
 
   /**
    * Get the terrain height at the current mouse position.
-   * Uses GPU terrain query with 1-frame latency.
+   * Uses CPU worker terrain query with 1-frame latency.
    */
   getTerrainHeightAtMouse(): number | null {
     if (!this.mouseWorldPosition) return null;
-    // Get result from GPU query (1-frame latency)
+    // Get result from terrain query (1-frame latency)
     if (this.terrainQuery.results.length === 0) return null;
     return this.terrainQuery.results[0].height;
   }

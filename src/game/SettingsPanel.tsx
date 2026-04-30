@@ -29,9 +29,8 @@ interface Props {
   onChange: () => void;
 }
 
-const QUERY_ENGINE_CYCLE: QueryEngine[] = ["gpu", "js", "wasm"];
+const QUERY_ENGINE_CYCLE: QueryEngine[] = ["js", "wasm"];
 const QUERY_ENGINE_LABELS: Record<QueryEngine, string> = {
-  gpu: "GPU",
   js: "JS",
   wasm: "WASM",
 };
@@ -101,7 +100,7 @@ export function SettingsPanel({ onBack, onChange }: Props) {
             setQueryEngine(next);
             onChange();
           }}
-          title="GPU runs WebGPU compute. JS/WASM run the CPU worker pool with the corresponding math kernel. Requires reloading the level to take effect."
+          title="JS/WASM run the CPU worker pool with the corresponding math kernel. Requires reloading the level to take effect."
         >
           <span class="settings-panel__option-label">Query Engine</span>
           <span class="settings-panel__option-value">

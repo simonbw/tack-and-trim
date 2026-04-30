@@ -42,20 +42,7 @@ The CPU math modules (`wind-math.ts`, `wind-mesh-math.ts`,
 They live in `query/` so the worker can import them without pulling in
 main-thread-only code.
 
-### Backend parity check
-
-`query/QueryParity.ts` drives a runtime side-by-side comparison of the
-two backends. It installs throwaway queries, waits for the GPU pipeline
-to return, and re-runs the CPU math modules against the same snapshot of
-dispatch uniforms + packed buffers. The GPU managers store a
-`lastCompletedDispatchParams` snapshot (promoted in `onResultsReady`)
-specifically so the harness can correlate query results to the exact
-uniforms that produced them. Invoked from `tests/query-parity.spec.ts`
-via `window.DEBUG.runQueryParityCheck()`. See the spec for the known
-divergences (near-flat water normal sign-flips, f32-vs-f64 simplex
-drift in wind) that the tolerances accept.
-
-Game entities create a Query, add it to the game, and read results each frame. Everything else is automatic -- query discovery, GPU dispatch, and result delivery happen without manual registration.
+Game entities create a Query, add it to the game, and read results each frame. Everything else is automatic -- query discovery, worker dispatch, and result delivery happen without manual registration.
 
 ## Query Lifecycle
 

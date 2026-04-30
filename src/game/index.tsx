@@ -18,16 +18,6 @@ import { GamePreloader } from "./GamePreloader";
 import { PhysicsValidator } from "./PhysicsValidator";
 import { createSimulationStatsPanel } from "./stats/SimulationStatsPanel";
 import {
-  runQueryParityCheck,
-  type ParityReport,
-} from "./world/query/QueryParity";
-import {
-  runLivePointsMicrobench,
-  runQueryMicrobench,
-  type LivePointsReport,
-  type MicrobenchReport,
-} from "./world/query/QueryMicrobench";
-import {
   asyncProfiler,
   type AsyncProfileStats,
 } from "../core/util/AsyncProfiler";
@@ -39,9 +29,6 @@ declare global {
       game?: Game;
       gameStarted?: boolean;
       toggleMSAA?: () => void;
-      runQueryParityCheck?: () => Promise<ParityReport>;
-      runQueryMicrobench?: () => Promise<MicrobenchReport>;
-      runLivePointsMicrobench?: () => Promise<LivePointsReport>;
       getAsyncProfilerStats?: () => AsyncProfileStats[];
       /**
        * Most recently submitted per-type point count from the CPU
@@ -86,9 +73,6 @@ async function main() {
   window.DEBUG = {
     game,
     toggleMSAA,
-    runQueryParityCheck: () => runQueryParityCheck(game),
-    runQueryMicrobench: () => runQueryMicrobench(game),
-    runLivePointsMicrobench: () => runLivePointsMicrobench(game),
     getAsyncProfilerStats: () => asyncProfiler.getStats(),
     getLastQueryPointCounts: () => {
       const coord = game.entities.getById("cpuQueryCoordinator") as

@@ -31,8 +31,7 @@
     "import-terrain": "./bin/build-level build",
     "docs": "typedoc",
     "count-tokens": "tsx ./bin/count-tokens.ts",
-    "profile-game": "tsx ./bin/profile-game.ts",
-    "test:terrain-gpu": "npx tsx tests/terrain-gpu-test.ts"
+    "profile-game": "tsx ./bin/profile-game.ts"
   },
   "repository": {
     "type": "git",

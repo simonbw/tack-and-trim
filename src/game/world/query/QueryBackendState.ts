@@ -2,22 +2,21 @@
  * User preference for which query engine to use. Persists to localStorage so
  * the choice survives reloads.
  *
- * Three options:
- * - `"gpu"`: WebGPU compute pipeline.
- * - `"js"`: CPU worker pool dispatching to the TypeScript math ports.
- * - `"wasm"`: CPU worker pool dispatching to the Rust→WASM kernel.
- *
- * `"js"` and `"wasm"` both use the CPU worker pool and only differ in which
- * math kernel each worker calls.
+ * Both options use the CPU worker pool and only differ in which math
+ * kernel each worker calls:
+ * - `"js"`: TypeScript math ports.
+ * - `"wasm"`: Rust→WASM kernel.
  */
 
-export type QueryEngine = "gpu" | "js" | "wasm";
+export type QueryEngine = "js" | "wasm";
 
 /**
- * The CPU sub-engine type, kept as its own alias because the worker pool
- * protocol needs to distinguish JS vs WASM independently of GPU.
+ * Alias kept for clarity in the worker-pool code: the worker pool
+ * dispatches a kernel choice that's distinct from any larger
+ * "backend" notion. After the GPU backend was retired this is
+ * functionally identical to {@link QueryEngine}.
  */
-export type CpuQueryEngine = "js" | "wasm";
+export type CpuQueryEngine = QueryEngine;
 
 type Unsubscribe = () => void;
 
@@ -29,7 +28,13 @@ const KEY_WORKER_COUNT = "queryWorkerCount";
 function readInitialEngine(): QueryEngine {
   if (typeof localStorage === "undefined") return "wasm";
   const stored = localStorage.getItem(KEY_ENGINE);
-  if (stored === "gpu" || stored === "js" || stored === "wasm") return stored;
+  if (stored === "js" || stored === "wasm") return stored;
+  // Any previously stored "gpu" preference now collapses to "wasm" — the
+  // GPU query backend has been retired.
+  if (stored === "gpu") {
+    localStorage.setItem(KEY_ENGINE, "wasm");
+    return "wasm";
+  }
 
   // Migrate from the legacy two-knob storage (queryBackend + queryCpuEngine).
   const legacyBackend = localStorage.getItem(KEY_LEGACY_BACKEND);
@@ -37,9 +42,8 @@ function readInitialEngine(): QueryEngine {
   let migrated: QueryEngine = "wasm";
   if (legacyBackend === "cpu") {
     migrated = legacyCpuEngine === "wasm" ? "wasm" : "js";
-  } else if (legacyBackend === "gpu") {
-    migrated = "gpu";
   }
+  // Legacy "gpu" backend likewise maps to wasm.
   localStorage.setItem(KEY_ENGINE, migrated);
   localStorage.removeItem(KEY_LEGACY_BACKEND);
   localStorage.removeItem(KEY_LEGACY_CPU_ENGINE);

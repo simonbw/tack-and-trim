@@ -16,12 +16,12 @@ import { TerrainResources } from "./TerrainResources";
 const MAX_TERRAIN_QUERIES = 2 ** 15;
 
 /**
- * CPU (worker-based) peer of TerrainQueryManager.
+ * Worker-pool terrain query manager.
  *
- * Runs the slow-path port of the contour DFS + IDW algorithm inside the
- * worker pool. Skips the GPU's grid acceleration structures (containment
- * grid, IDW grid, lookup grid) — correctness over peak performance for
- * this first cut.
+ * Runs the contour DFS + IDW terrain algorithm inside the CPU worker
+ * pool. Skips the grid acceleration structures (containment grid, IDW
+ * grid, lookup grid) that the older GPU path used — correctness over
+ * peak performance for this first cut.
  */
 export class CpuTerrainQueryManager extends CpuQueryManager {
   id = "terrainQueryManager";
