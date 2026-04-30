@@ -30,6 +30,8 @@ import { ProgressionManager } from "./progression/ProgressionManager";
 import { parseBiomeConfig } from "./surface-rendering/BiomeConfig";
 import { SurfaceRenderer } from "./surface-rendering/SurfaceRenderer";
 import { TimeOfDay } from "./time/TimeOfDay";
+import { RainParticles } from "./weather/RainParticles";
+import { WeatherDirector } from "./weather/WeatherDirector";
 import { WeatherState } from "./weather/WeatherState";
 import { TimeOfDayHUD } from "./TimeOfDayHUD";
 import { TreeManager } from "./trees/TreeManager";
@@ -109,6 +111,7 @@ export class GameController extends BaseEntity {
       startPosition,
       ports,
       missions,
+      weather,
     } = await loadLevel(levelName);
     this.treeData = treeData;
     this.startPosition = startPosition ?? V(0, 0);
@@ -132,7 +135,10 @@ export class GameController extends BaseEntity {
 
     // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
-    this.game.addEntity(new WeatherState());
+    this.game.addEntity(new WeatherState(weather?.config));
+    this.game.addEntity(
+      new WeatherDirector(weather?.config ?? {}, weather?.variability ?? {}),
+    );
 
     // 3. Wave physics
     const wavePhysics = this.game.addEntity(
@@ -285,6 +291,7 @@ export class GameController extends BaseEntity {
 
     // Spawn wind particles and sound
     this.game.addEntity(new WindParticles());
+    this.game.addEntity(new RainParticles());
     this.game.addEntity(new WindSoundGenerator());
 
     // Spawn trees on landmasses from generated .trees file

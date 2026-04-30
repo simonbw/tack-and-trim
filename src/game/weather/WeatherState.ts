@@ -14,13 +14,26 @@
  * `tryGetSingleton` each tick.
  */
 
+import { createNoise2D, type NoiseFunction2D } from "simplex-noise";
 import { BaseEntity } from "../../core/entity/BaseEntity";
+import { clamp, lerp } from "../../core/util/MathUtil";
 import { V, type V2d } from "../../core/Vector";
 import { TimeOfDay } from "../time/TimeOfDay";
 
 /** Default base wind: ~15 ft/s NW breeze, matches prior `WindResources` default. */
 const DEFAULT_WIND_BASE_X = 11;
 const DEFAULT_WIND_BASE_Y = 11;
+
+/** How much gust noise can swing wind speed (fraction of base). */
+const GUST_SPEED_AMPLITUDE = 0.4;
+/** How much gust noise can swing wind angle in radians at full gustiness. */
+const GUST_ANGLE_AMPLITUDE = 0.15;
+/** Cloud cover blends sky toward this neutral gray; gives an overcast feel. */
+const OVERCAST_GRAY: readonly [number, number, number] = [0.5, 0.52, 0.55];
+/** Maximum sky desaturation at full cloud cover. */
+const CLOUD_SKY_BLEND = 0.7;
+/** Max attenuation of direct sun at full cloud cover. */
+const CLOUD_SUN_ATTENUATION = 0.85;
 
 /**
  * Configuration for WeatherState.
@@ -30,6 +43,7 @@ export interface WeatherStateConfig {
   waveAmplitudeScale?: number;
   cloudCover?: number;
   rainIntensity?: number;
+  gustiness?: number;
 }
 
 /**
@@ -45,14 +59,20 @@ export class WeatherState extends BaseEntity {
   /** Multiplier on Gerstner wave amplitude. 1.0 = no change. */
   waveAmplitudeScale: number;
 
-  /** Cloud cover, 0..1. Inert in v1; reserved for sun/sky modulation. */
+  /** Cloud cover, 0..1. Drives sun/sky tinting in lighting getters. */
   cloudCover: number;
 
-  /** Rain intensity, 0..1. Inert in v1; reserved for rain particles. */
+  /** Rain intensity, 0..1. Drives `RainParticles` density. */
   rainIntensity: number;
+
+  /** Gust strength, 0..1. Modulates effective wind speed and angle over time. */
+  gustiness: number;
 
   /** Reusable scratch vector returned by `getEffectiveWindBase`. */
   private readonly _effectiveWindBase: V2d = V(0, 0);
+
+  /** Single noise instance shared by speed + angle gust modulation. */
+  private readonly gustNoise: NoiseFunction2D = createNoise2D();
 
   // Cached scene-lighting tuples. Getters mutate and return the same tuple
   // each call so the per-frame uniform push is allocation-free.
@@ -69,18 +89,31 @@ export class WeatherState extends BaseEntity {
     this.waveAmplitudeScale = config.waveAmplitudeScale ?? 1.0;
     this.cloudCover = config.cloudCover ?? 0;
     this.rainIntensity = config.rainIntensity ?? 0;
+    this.gustiness = config.gustiness ?? 0;
   }
 
   /**
-   * Effective base wind for the dispatch this frame. Today this is just
-   * `windBase`; gust modulation can layer on here later without touching
-   * consumers.
+   * Effective base wind for the dispatch this frame. Layers gust modulation
+   * (speed wobble + angular wobble) on top of `windBase` when `gustiness > 0`.
    *
    * Returns a cached vector — do not store across frames.
    */
   getEffectiveWindBase(): V2d {
-    this._effectiveWindBase.set(this.windBase);
-    return this._effectiveWindBase;
+    if (this.gustiness <= 0) {
+      this._effectiveWindBase.set(this.windBase);
+      return this._effectiveWindBase;
+    }
+    const t =
+      this.game.entities.tryGetSingleton(TimeOfDay)?.getTotalElapsedSeconds() ??
+      0;
+    const speedMul =
+      1 + this.gustiness * GUST_SPEED_AMPLITUDE * this.gustNoise(t * 0.1, 0);
+    const angleDelta =
+      this.gustiness * GUST_ANGLE_AMPLITUDE * this.gustNoise(t * 0.07, 7.0);
+    return this._effectiveWindBase
+      .set(this.windBase)
+      .irotate(angleDelta)
+      .imul(speedMul);
   }
 
   /** Convenience: speed of the effective base wind. */
@@ -156,9 +189,10 @@ export class WeatherState extends BaseEntity {
     const g = lerp(0.95, 0.55, warmth) * sunVisible;
     const b = lerp(0.85, 0.25, warmth) * sunVisible;
 
-    this._sunColor[0] = r;
-    this._sunColor[1] = g;
-    this._sunColor[2] = b;
+    const cloudAtten = 1 - CLOUD_SUN_ATTENUATION * clamp(this.cloudCover);
+    this._sunColor[0] = r * cloudAtten;
+    this._sunColor[1] = g * cloudAtten;
+    this._sunColor[2] = b * cloudAtten;
     return this._sunColor;
   }
 
@@ -181,9 +215,22 @@ export class WeatherState extends BaseEntity {
     const twilightG = 0.28;
     const twilightB = 0.25;
 
-    this._skyColor[0] = baseR + twilightR * twilightBump * 0.35;
-    this._skyColor[1] = baseG + twilightG * twilightBump * 0.35;
-    this._skyColor[2] = baseB + twilightB * twilightBump * 0.35;
+    const cloudBlend = CLOUD_SKY_BLEND * clamp(this.cloudCover);
+    this._skyColor[0] = lerp(
+      baseR + twilightR * twilightBump * 0.35,
+      OVERCAST_GRAY[0],
+      cloudBlend,
+    );
+    this._skyColor[1] = lerp(
+      baseG + twilightG * twilightBump * 0.35,
+      OVERCAST_GRAY[1],
+      cloudBlend,
+    );
+    this._skyColor[2] = lerp(
+      baseB + twilightB * twilightBump * 0.35,
+      OVERCAST_GRAY[2],
+      cloudBlend,
+    );
     return this._skyColor;
   }
 
@@ -207,9 +254,22 @@ export class WeatherState extends BaseEntity {
     const twilightG = 0.45;
     const twilightB = 0.25;
 
-    this._horizonSkyColor[0] = baseR + twilightR * twilightBump;
-    this._horizonSkyColor[1] = baseG + twilightG * twilightBump;
-    this._horizonSkyColor[2] = baseB + twilightB * twilightBump;
+    const cloudBlend = CLOUD_SKY_BLEND * clamp(this.cloudCover);
+    this._horizonSkyColor[0] = lerp(
+      baseR + twilightR * twilightBump,
+      OVERCAST_GRAY[0],
+      cloudBlend,
+    );
+    this._horizonSkyColor[1] = lerp(
+      baseG + twilightG * twilightBump,
+      OVERCAST_GRAY[1],
+      cloudBlend,
+    );
+    this._horizonSkyColor[2] = lerp(
+      baseB + twilightB * twilightBump,
+      OVERCAST_GRAY[2],
+      cloudBlend,
+    );
     return this._horizonSkyColor;
   }
 
@@ -233,8 +293,4 @@ export class WeatherState extends BaseEntity {
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
 }
