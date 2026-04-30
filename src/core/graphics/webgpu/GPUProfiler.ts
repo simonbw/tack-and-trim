@@ -124,6 +124,14 @@ export class GPUProfiler {
       firstData.queryStartIndex = groupData.queryStartIndex;
       lastData.queryEndIndex = groupData.queryEndIndex;
     }
+
+    // Expose globally for debugging / profile scripts (mirrors window.profiler).
+    (window as any).gpuProfiler = this;
+  }
+
+  /** Ordered list of section names, parents before children. */
+  static getSectionNames(): readonly GPUProfileSection[] {
+    return GPUProfiler.SECTIONS;
   }
 
   /**

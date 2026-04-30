@@ -7,7 +7,10 @@ allowed-tools: Bash, Read, Grep, Glob, Edit
 
 # Profile Game
 
-Runs `bin/profile-game.ts` — a headless Chromium harness that loads the game via `?quickstart=true`, waits for gameplay to start, samples `profiler.getStats()` for N seconds, and prints a table of per-label `ms/frame`, `calls/frame`, and `max`.
+Runs `bin/profile-game.ts` — a headless Chromium harness that loads the game via `?quickstart=true`, waits for gameplay to start, samples `profiler.getStats()` and `gpuProfiler.getAllMs()` for N seconds, and prints two tables:
+
+- **CPU Profiler Report** — per-label `ms/frame`, `calls/frame`, and `max` from the CPU `profiler` (instrumented via `profiler.measure` / `@profile` / `profiler.count`).
+- **GPU Profiler Report** — per-section `ms/frame` from the GPU `gpuProfiler` (WebGPU timestamp queries around render and compute passes). Only available when the device supports `timestamp-query`.
 
 ## When to use
 
@@ -42,17 +45,27 @@ Run `npm run profile-game -- --help` for the full list.
 
 ## Reading the output
 
-The table is hierarchical (indented by depth). The auto-instrumented top-level scopes to skim first:
+Both tables are hierarchical (indented by depth).
+
+**CPU Profiler Report** — top-level scopes to skim first:
 
 - `frame` — total wall time per frame. This is the number that matters.
-- `render` — GPU submission + all render-layer work.
+- `render` — CPU-side render submission cost (encoding draw calls, NOT actual GPU execution time — see GPU table for that).
 - `tick` — one physics tick's dispatch cost (there may be multiple ticks/frame at 120 Hz; see `calls/frame`).
 - `physics` — world.step cost.
 - `tick-loop` — total time spent in all ticks for a frame.
 - `layer.<name>` — per render-layer cost (surface, boat, ui, ...).
 - `tick.<name>` — per tick-layer cost.
-- `surface.terrain` / `surface.rasterize` / `surface.water` / `surface.wetness` — GPU pass timings from the surface renderer (requires `setGpuTimingEnabled(true)`, already on in `src/game/index.tsx`).
 - Individual entity class names appear under `layer.<name>` — that's how you find a specific render hot spot.
+
+**GPU Profiler Report** — actual GPU pass timings (timestamp queries):
+
+- `render` — top-level render pass duration on the GPU.
+- `surface` / `surface.terrain` / `surface.rasterize` / `surface.modifiers` / `surface.water` / `surface.wind` / `surface.wetness` — per-pass GPU time inside the surface renderer.
+- `query` / `query.terrain` / `query.water` / `query.wind` — GPU compute time for world-state queries.
+- `trees` — tree rasterization GPU time.
+
+GPU timings are smoothed (EWMA, α=0.95) and reflect what the GPU actually spent in each pass, independent of CPU encoding cost.
 
 Interpret:
 - `ms/frame` = total time spent in that label each frame (summed across all calls).
@@ -91,7 +104,7 @@ The profile labels come from `profiler.measure(...)` / `profiler.count(...)` / t
 - WebGPU must be available; on macOS this uses `--use-angle=metal`. No action needed, just be aware if it fails on a different platform.
 - The profiler resets right after warmup, so `--warmup 0` will include load spikes in the sample.
 - `calls/frame` is averaged over the sample — a value <1 means that label didn't run every frame.
-- If the user cares about GPU-bound work, make sure `surface.*` rows show non-zero `ms/frame`; if they're `0.00` then GPU timing wasn't enabled for that run.
+- If the user cares about GPU-bound work, look at the **GPU Profiler Report** table (separate from the CPU one). If it prints `(GPU timing unavailable — timestamp queries not supported)` then the device/browser doesn't support `timestamp-query` and only CPU numbers are available.
 
 ### Headless on Apple Silicon under-reports CPU-bound work
 

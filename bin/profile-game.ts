@@ -11,6 +11,13 @@ interface ProfileStats {
   maxMs: number;
 }
 
+interface GpuSectionStat {
+  label: string;
+  shortLabel: string;
+  depth: number;
+  msPerFrame: number;
+}
+
 interface Options {
   // When set, reuse an existing server at this URL. When null, spawn our own.
   url: string | null;
@@ -232,7 +239,7 @@ function buildUrl(base: string, opts: Options): string {
 }
 
 function formatTable(stats: ProfileStats[]): string {
-  const lines = ["=== Profiler Report ==="];
+  const lines = ["=== CPU Profiler Report ==="];
   for (const stat of stats) {
     const indent = "  ".repeat(stat.depth);
     const prefix = stat.depth > 0 ? "- " : "";
@@ -249,7 +256,41 @@ function formatTable(stats: ProfileStats[]): string {
       );
     }
   }
-  lines.push("========================");
+  lines.push("===========================");
+  return lines.join("\n");
+}
+
+function buildGpuStats(raw: Record<string, number> | null): GpuSectionStat[] {
+  if (!raw) return [];
+  // Section names use dot separators to imply hierarchy
+  // (e.g. "surface" / "surface.water"). Preserve the order returned by the
+  // profiler so parents come before children.
+  return Object.entries(raw).map(([label, msPerFrame]) => {
+    const parts = label.split(".");
+    return {
+      label,
+      shortLabel: parts[parts.length - 1],
+      depth: parts.length - 1,
+      msPerFrame,
+    };
+  });
+}
+
+function formatGpuTable(stats: GpuSectionStat[]): string {
+  const lines = ["=== GPU Profiler Report ==="];
+  if (stats.length === 0) {
+    lines.push("(GPU timing unavailable — timestamp queries not supported)");
+  } else {
+    for (const stat of stats) {
+      const indent = "  ".repeat(stat.depth);
+      const prefix = stat.depth > 0 ? "- " : "";
+      const label = (indent + prefix + stat.shortLabel).padEnd(30);
+      lines.push(
+        `${label} ms/frame: ${stat.msPerFrame.toFixed(2).padStart(7)}`,
+      );
+    }
+  }
+  lines.push("===========================");
   return lines.join("\n");
 }
 
@@ -329,18 +370,26 @@ async function main() {
       );
 
       await page.waitForTimeout(opts.warmup * 1000);
-      await page.evaluate(() => (window as any).profiler?.reset());
+      await page.evaluate(() => {
+        (window as any).profiler?.reset();
+        (window as any).gpuProfiler?.reset();
+      });
 
       await page.waitForTimeout(opts.duration * 1000);
 
-      const stats = await page.evaluate(
-        () => (window as any).profiler?.getStats() ?? [],
-      );
+      const { cpu, gpu } = await page.evaluate(() => ({
+        cpu: (window as any).profiler?.getStats() ?? [],
+        gpu: (window as any).gpuProfiler?.getAllMs() ?? null,
+      }));
+      const gpuStats = buildGpuStats(gpu);
 
       if (opts.json) {
-        process.stdout.write(JSON.stringify(stats, null, 2) + "\n");
+        process.stdout.write(
+          JSON.stringify({ cpu, gpu: gpuStats }, null, 2) + "\n",
+        );
       } else {
-        process.stdout.write(formatTable(stats) + "\n");
+        process.stdout.write(formatTable(cpu) + "\n");
+        process.stdout.write(formatGpuTable(gpuStats) + "\n");
       }
     } finally {
       await browser.close();
