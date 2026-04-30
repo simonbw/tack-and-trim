@@ -31,6 +31,9 @@ interface Options {
   headless: boolean;
   gameStartTimeout: number;
   serverStartTimeout: number;
+  // Settings to inject into localStorage before the page loads. Format:
+  // key=value, repeatable.
+  localStorage: Record<string, string>;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -45,6 +48,7 @@ function parseArgs(argv: string[]): Options {
     headless: true,
     gameStartTimeout: 60,
     serverStartTimeout: 60,
+    localStorage: {},
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -85,6 +89,14 @@ function parseArgs(argv: string[]): Options {
         break;
       case "--headed":
         opts.headless = false;
+        break;
+      case "--set":
+        {
+          const kv = next();
+          const eq = kv.indexOf("=");
+          if (eq < 0) throw new Error(`--set expects key=value, got ${kv}`);
+          opts.localStorage[kv.slice(0, eq)] = kv.slice(eq + 1);
+        }
         break;
       case "-h":
       case "--help":
@@ -353,6 +365,17 @@ async function main() {
           console.error(`[browser console.error] ${msg.text()}`);
         }
       });
+
+      // Inject localStorage values BEFORE the page loads so that settings
+      // (renderScale, waterQuality, etc.) are picked up by their state
+      // modules' initial reads.
+      if (Object.keys(opts.localStorage).length > 0) {
+        await page.addInitScript((entries: Record<string, string>) => {
+          for (const [k, v] of Object.entries(entries)) {
+            localStorage.setItem(k, v);
+          }
+        }, opts.localStorage);
+      }
 
       const target = buildUrl(baseUrl, opts);
       console.error(`Navigating to ${target}`);
