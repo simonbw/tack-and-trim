@@ -166,7 +166,7 @@ fn computeWaveResultAtPoint(
     ampMod,
   );
 
-  return vec4<f32>(waveResult.x + params.tideHeight, waveResult.y, waveResult.z, waveResult.w);
+  return vec4<f32>(waveResult.height + params.tideHeight, waveResult.velX, waveResult.velY, waveResult.dhdt);
 }
 
 // Height-only helper for finite-difference normals.

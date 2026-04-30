@@ -8,29 +8,30 @@ import { const_MAX_WAVE_SOURCES } from "./wave-constants.wgsl";
 
 /**
  * Gerstner wave calculation function.
- * Two-pass algorithm: first pass computes horizontal displacement,
- * second pass computes height and velocity at displaced position.
  *
- * Each wave gets its own energy factor from the energyFactors array,
- * which combines wavefront mesh terrain interaction.
- * Phase corrections allow wavefront mesh-based phase adjustments per wave.
+ * Two-pass algorithm: first pass computes horizontal displacement, second
+ * pass computes height, time-derivative, horizontal orbital velocity, and
+ * the analytic surface gradient at the displaced sample point.
+ *
+ * The gradient (dhdx, dhdy) is the Lagrangian derivative ∂h/∂s — i.e. with
+ * respect to the back-displaced sample point, not the world position. For
+ * the small steepnesses in use this matches the Eulerian ∂h/∂x to within a
+ * fraction of a percent and skips the chain-rule correction through ∂disp/∂x.
+ * Returning it directly lets callers compute the surface normal without a
+ * 3-tap finite difference (3× the wave evaluations).
  */
 export const fn_calculateGerstnerWaves: ShaderModule = {
   dependencies: [const_MAX_WAVE_SOURCES],
   code: /*wgsl*/ `
-    // Calculate Gerstner waves with per-wave energy factors
-    // worldPos: world position (feet)
-    // time: simulation time (seconds)
-    // waveData: wave parameters (storage buffer, 8 floats per wave)
-    // numWaves: number of waves
-    // steepness: Gerstner steepness factor
-    // energyFactors: per-wave energy multiplier (0.0 = blocked, 1.0 = full)
-    // directionOffsets: per-wave direction offset in radians (from direction bending)
-    // phaseCorrections: per-wave phase correction in radians (from wavefront mesh)
-    // ampMod: amplitude modulation factor (from noise)
-    // Returns vec4<f32>(height, velX, velY, dhdt) — horizontal orbital velocity
-    // in .yz (Gerstner time-derivative of displacement, evaluated at the
-    // back-displaced sample point, with per-wave energy and amp-mod scaling).
+    struct GerstnerWaveResult {
+      height: f32,
+      dhdx: f32,
+      dhdy: f32,
+      velX: f32,
+      velY: f32,
+      dhdt: f32,
+    }
+
     fn calculateGerstnerWaves(
       worldPos: vec2<f32>,
       time: f32,
@@ -41,7 +42,7 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
       directionOffsets: array<f32, MAX_WAVE_SOURCES>,
       phaseCorrections: array<f32, MAX_WAVE_SOURCES>,
       ampMod: f32,
-    ) -> vec4<f32> {
+    ) -> GerstnerWaveResult {
       let x = worldPos.x;
       let y = worldPos.y;
 
@@ -97,14 +98,16 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
         dispY += Q * amplitude * dy * cosPhase;
       }
 
-      // Second pass: compute height, dh/dt, and horizontal orbital velocity
-      // at the displaced-back sample point.
+      // Second pass: compute height, dh/dt, horizontal orbital velocity, and
+      // analytic surface gradient at the displaced sample point.
       let sampleX = x - dispX;
       let sampleY = y - dispY;
       var height = 0.0;
       var dhdt = 0.0;
       var velX = 0.0;
       var velY = 0.0;
+      var dhdx = 0.0;
+      var dhdy = 0.0;
 
       for (var i = 0; i < numWaves; i++) {
         let base = i * 8;
@@ -153,9 +156,18 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
 
         let sinPhase = sin(phase);
         let cosPhase = cos(phase);
+        let ampScaled = amplitude * ampMod;
 
-        height += amplitude * ampMod * sinPhase;
-        dhdt += -amplitude * ampMod * omega * cosPhase;
+        height += ampScaled * sinPhase;
+        dhdt += -ampScaled * omega * cosPhase;
+
+        // Analytic gradient. ∂phase/∂sampleX = k * propDx (true for both
+        // plane and point waves — for point waves propDx is the unit
+        // vector from source to sample, which equals ∂dist/∂sampleX).
+        // ∂h/∂sampleX = A * ampMod * cos(phase) * k * propDx.
+        let kCosAmp = k * cosPhase * ampScaled;
+        dhdx += kCosAmp * propDx;
+        dhdy += kCosAmp * propDy;
 
         // Horizontal orbital velocity (Gerstner time-derivative of displacement).
         // Q * A = steepness / (k * numWaves), independent of amplitude, so the
@@ -166,7 +178,14 @@ export const fn_calculateGerstnerWaves: ShaderModule = {
         velY += velCoeff * propDy;
       }
 
-      return vec4<f32>(height, velX, velY, dhdt);
+      var result: GerstnerWaveResult;
+      result.height = height;
+      result.dhdx = dhdx;
+      result.dhdy = dhdy;
+      result.velX = velX;
+      result.velY = velY;
+      result.dhdt = dhdt;
+      return result;
     }
   `,
 };

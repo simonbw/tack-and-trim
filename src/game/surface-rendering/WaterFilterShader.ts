@@ -8,7 +8,7 @@
  *   absorbed    = sceneColor * T
  *   inscatter   = skyColor * (SCATTERING / EXTINCTION) * (1 - exp(-EXTINCTION * d))
  *   transmitted = absorbed + inscatter
- *   output      = (1 - F) * transmitted + F * sky + sunColor * specular + foam
+ *   output      = (1 - F) * transmitted + F * sky + sunColor * specular
  *
  * No hand-tuned color ramps. The water's apparent color falls out of the
  * absorption + scattering spectra applied to the actual scene and sky.
@@ -26,11 +26,7 @@ import {
 import { SCENE_LIGHTING_WGSL_FIELDS } from "../time/SceneLighting";
 import { fn_waterSurfaceLight } from "../world/shaders/lighting.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
-import {
-  fn_fractalNoise3D,
-  fn_simplex3D,
-  fn_worley2D,
-} from "../world/shaders/noise.wgsl";
+import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
 
 const waterFilterParamsModule: ShaderModule = {
@@ -64,12 +60,6 @@ struct Params {
   specularPowerCalm: f32,
   specularPowerWindy: f32,
   sunIntensity: f32,
-  steepnessThresholdCalm: f32,
-  steepnessThresholdWindy: f32,
-  foamCellScale: f32,
-  foamCoverageMax: f32,
-  foamBandWidth: f32,
-  foamEnable: f32,
   slickAmp: f32,
   slickWindHigh: f32,
   horizonBlend: f32,
@@ -146,8 +136,6 @@ const waterFilterFragmentModule: ShaderModule = {
     waterFilterParamsModule,
     fn_hash21,
     fn_simplex3D,
-    fn_fractalNoise3D,
-    fn_worley2D,
     fn_waterSurfaceLight,
   ],
   code: /*wgsl*/ `
@@ -282,10 +270,8 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   let waterUV = worldToHeightUV(worldPos);
   let waterData = textureSampleLevel(waterHeightTexture, heightSampler, waterUV, 0.0);
   let oceanHeight = waterData.x;
-  var turbulence = waterData.y;
   // BA channels carry the analytic surface gradient (dh/dx, dh/dy) computed
-  // in WaterHeightShader via 3-tap world-space finite difference of the
-  // wave evaluator. Bilinear-sampling these here gives a smooth normal
+  // in WaterHeightShader. Bilinear-sampling these here gives a smooth normal
   // field — no texel-grid facets in the specular highlight.
   let waterGradient = waterData.ba;
 
@@ -302,11 +288,9 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   let airData = textureLoad(boatAirTexture, waterTexel, 0);
   let airMin = airData.r;
   let airMax = airData.g;
-  let bilgeTurb = airData.b;
   var waterHeight = oceanHeight;
   if (airMax > airMin && oceanHeight >= airMin && oceanHeight <= airMax) {
     waterHeight = airMin;
-    turbulence = bilgeTurb;
   }
 
   // Scene info from the frozen copies. Z_MIN is deep enough (-100ft) that the
@@ -321,54 +305,12 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
 
   let submersion = waterHeight - sceneZ;
 
-  // Foam lit by ambient (sky + sun) so it doesn't glow at night.
-  let foamColor = vec3<f32>(0.95, 0.98, 1.0) * (params.skyColor * 0.5 + params.sunColor);
-
-  // Sample local wind for both steepness-threshold scaling and crest alignment.
+  // Sample local wind for specular roughness scaling.
   // Wind texture is co-located with the water height texture (same UV mapping).
   let windUV0 = worldToHeightUV(worldPos);
   let windSample0 = textureSampleLevel(windFieldTexture, windFieldSampler, windUV0, 0.0);
   let windVel0 = windSample0.xy;
   let windSpeed0 = windSample0.z;
-
-  // Steepness-based whitecaps: real waves break near the Stokes limit (~1/7).
-  // Use the gradient already sampled into waterGradient (waterData.ba) and
-  // only emit on the upwind face (wind-facing crests). Wind-scaled threshold
-  // approximates Monahan's coverage law (cubic-ish in U10) by lowering the
-  // breaking threshold in heavy wind rather than independently scaling
-  // coverage — steepness already rises naturally with wind.
-  let steepness = length(waterGradient);
-  // Hand-tuned: <10 ft/s rare (0.15), 25 ft/s common (0.10), 40 ft/s
-  // frequent (0.07). Stokes limit is ~0.143.
-  let steepnessThreshold = mix(params.steepnessThresholdCalm, params.steepnessThresholdWindy, smoothstep(8.0, 40.0, windSpeed0));
-  var steepnessTurb = 0.0;
-  if (windSpeed0 > 0.5) {
-    let windDir0 = windVel0 / windSpeed0;
-    // Positive on the wind-facing side (gradient points into wind = water
-    // rising as you move into the wind).
-    let upwindFace = -dot(waterGradient, windDir0);
-    let crestFactor = smoothstep(0.0, 0.5, upwindFace);
-    steepnessTurb = smoothstep(steepnessThreshold, steepnessThreshold + 0.08, steepness) * crestFactor;
-  }
-  turbulence = max(turbulence, steepnessTurb);
-
-  // Foam from turbulence (wave breaking + wake) — Worley/cellular noise gives
-  // bubble-cluster topology rather than soft fractal blobs, with crisp edges.
-  var turbulenceFoam = 0.0;
-  if (turbulence > 0.0 && params.foamEnable > 0.0) {
-    // Slow time advection drifts the bubble cells without obvious scrolling.
-    let cellScale = params.foamCellScale;
-    let cellPos = worldPos * cellScale + vec2<f32>(params.time * 0.15, params.time * -0.1);
-    let bubblesCoarse = 1.0 - worley2D(cellPos);
-    let cellPosFine = worldPos * (cellScale * 2.5) + vec2<f32>(50.0 + params.time * -0.2, 50.0 + params.time * 0.18);
-    let bubblesFine = 1.0 - worley2D(cellPosFine);
-    let foamPattern = bubblesCoarse * 0.65 + bubblesFine * 0.35;
-    let foamCoverage = (1.0 - exp(-turbulence * 1.0)) * params.foamCoverageMax;
-    let foamThreshold = 1.0 - foamCoverage;
-    // Sharp threshold: real foam transitions over <1cm — keep edges crisp.
-    let halfBand = params.foamBandWidth * 0.5;
-    turbulenceFoam = smoothstep(foamThreshold - halfBand, foamThreshold + halfBand, foamPattern) * foamCoverage * params.foamEnable;
-  }
 
   var finalColor: vec3<f32>;
   var surfaceZ: f32;
@@ -510,19 +452,6 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
       specularPower,
       params.sunIntensity,
     );
-
-    // Shoreline / object-waterline foam: where submersion is tiny.
-    // Works uniformly for terrain shores and hull waterlines.
-    if (scenePresent) {
-      let shorelineThreshold = 0.2;
-      if (submersion < shorelineThreshold) {
-        let foamIntensity = (1.0 - (submersion / shorelineThreshold)) * 0.7;
-        finalColor = mix(finalColor, foamColor, foamIntensity);
-      }
-    }
-
-    // Turbulence foam layered on top of the water
-    finalColor = mix(finalColor, foamColor, turbulenceFoam);
 
     // Write water surface z to depth so post-water particles sort correctly.
     surfaceZ = max(waterHeight, sceneZ);

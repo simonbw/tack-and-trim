@@ -41,24 +41,6 @@ let SPECULAR_POWER_WINDY = 16.0;
 //#tunable("Water/Specular") { min: 0, max: 50, step: 0.5 }
 let SUN_INTENSITY = 18.0;
 
-// --- Steepness-based whitecap source ---
-
-//#tunable("Water/Foam") { min: 0.03, max: 0.4, step: 0.005 }
-let STEEPNESS_THRESHOLD_CALM = 0.15;
-//#tunable("Water/Foam") { min: 0.02, max: 0.3, step: 0.005 }
-let STEEPNESS_THRESHOLD_WINDY = 0.07;
-
-// --- Worley-based foam visualization ---
-
-//#tunable("Water/Foam") { min: 0.1, max: 3, step: 0.05 }
-let FOAM_CELL_SCALE = 0.6;
-//#tunable("Water/Foam") { min: 0, max: 1, step: 0.01 }
-let FOAM_COVERAGE_MAX = 0.85;
-//#tunable("Water/Foam") { min: 0.005, max: 0.2, step: 0.005 }
-let FOAM_BAND_WIDTH = 0.03;
-//#tunable("Water/Foam") { min: 0, max: 1, step: 0.01 }
-let FOAM_ENABLE = 0.0;
-
 // --- Slick patches (low-wind glassy water) ---
 
 //#tunable("Water/Slick") { min: 0, max: 1, step: 0.01 }
@@ -89,14 +71,6 @@ export function pushWaterTuning(
   uniforms.set.specularPowerCalm(SPECULAR_POWER_CALM);
   uniforms.set.specularPowerWindy(SPECULAR_POWER_WINDY);
   uniforms.set.sunIntensity(SUN_INTENSITY);
-
-  uniforms.set.steepnessThresholdCalm(STEEPNESS_THRESHOLD_CALM);
-  uniforms.set.steepnessThresholdWindy(STEEPNESS_THRESHOLD_WINDY);
-
-  uniforms.set.foamCellScale(FOAM_CELL_SCALE);
-  uniforms.set.foamCoverageMax(FOAM_COVERAGE_MAX);
-  uniforms.set.foamBandWidth(FOAM_BAND_WIDTH);
-  uniforms.set.foamEnable(FOAM_ENABLE);
 
   uniforms.set.slickAmp(SLICK_AMP);
   uniforms.set.slickWindHigh(SLICK_WIND_HIGH);

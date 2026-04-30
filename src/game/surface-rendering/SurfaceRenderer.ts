@@ -62,6 +62,14 @@ const TILE_CACHE_VIEWPORT_MARGIN = 0.1;
 // Modifier texture resolution scale (fraction of surface texture resolution)
 const MODIFIER_RESOLUTION_SCALE = 1.0 / 2.0;
 
+// Water-height texture resolution scale. The water filter samples this with
+// linear filtering via worldToTexClip, so reducing the resolution costs
+// some normal/height detail at very high zoom but visually disappears once
+// bilinear interpolation is applied. The analytic gradient stored in the
+// BA channels means bilinear of dh/dx and dh/dy is still smooth — no
+// finite-diff facets in the specular highlight.
+const WATER_HEIGHT_RESOLUTION_SCALE = 1.0 / 2.0;
+
 // Default bio-optical water chemistry. These drive the water filter's
 // absorption/scattering computation. Eventually they should come from the
 // level's BiomeConfig / region file; for now they're clean-coastal defaults.
@@ -361,14 +369,21 @@ export class SurfaceRenderer extends BaseEntity {
     });
     this.terrainHeightView = this.terrainHeightTexture.createView();
 
-    // Create water height texture. rgba16float packs 4 channels:
-    // R=height, G=turbulence, B=normalX, A=normalY. The normal is computed
-    // analytically in WaterHeightShader (3-tap finite-diff in world space)
-    // so the filter shader can bilinear-sample a smooth normal field
-    // instead of finite-differencing the height texture (which produces
-    // texel-grid facet artifacts in the specular highlight).
+    // Create water height texture at reduced resolution. rgba16float packs
+    // 4 channels: R=height, G=turbulence, B=dh/dx, A=dh/dy. The gradient is
+    // computed analytically inside calculateGerstnerWaves so the filter
+    // shader can bilinear-sample a smooth normal field — no finite-diff
+    // facets even at half-res.
+    const waterTexW = Math.max(
+      1,
+      Math.round(texW * WATER_HEIGHT_RESOLUTION_SCALE),
+    );
+    const waterTexH = Math.max(
+      1,
+      Math.round(texH * WATER_HEIGHT_RESOLUTION_SCALE),
+    );
     this.waterHeightTexture = device.createTexture({
-      size: { width: texW, height: texH },
+      size: { width: waterTexW, height: waterTexH },
       format: "rgba16float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       label: "Water Height Texture",
@@ -879,6 +894,14 @@ export class SurfaceRenderer extends BaseEntity {
 
     const windTexW = Math.ceil(texW / 2);
     const windTexH = Math.ceil(texH / 2);
+    const waterTexW = Math.max(
+      1,
+      Math.round(texW * WATER_HEIGHT_RESOLUTION_SCALE),
+    );
+    const waterTexH = Math.max(
+      1,
+      Math.round(texH * WATER_HEIGHT_RESOLUTION_SCALE),
+    );
 
     profiler.measure("uniforms", () => {
       // Update all uniforms. Compute shaders dispatch one invocation per
@@ -888,8 +911,8 @@ export class SurfaceRenderer extends BaseEntity {
       this.updateWaterHeightUniforms(
         texClipToWorldMatrix,
         currentTime,
-        texW,
-        texH,
+        waterTexW,
+        waterTexH,
         waterResources,
       );
       this.updateWindFieldUniforms(
@@ -1060,8 +1083,8 @@ export class SurfaceRenderer extends BaseEntity {
         this.waterHeightShader.dispatch(
           computePass,
           this.waterHeightBindGroup,
-          texW,
-          texH,
+          waterTexW,
+          waterTexH,
         );
         computePass.end();
         device.queue.submit([commandEncoder.finish()]);

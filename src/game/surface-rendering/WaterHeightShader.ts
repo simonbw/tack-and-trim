@@ -101,40 +101,11 @@ fn pixelToWorld(pixel: vec2<u32>) -> vec2<f32> {
   return (params.texClipToWorld * vec3<f32>(clip, 1.0)).xy;
 }
 
-// Helper: evaluate total water surface height at an arbitrary world point.
-// Wave-field corrections are sampled once per pixel and reused for the 3
-// neighbor evaluations below — terrain influence varies smoothly enough at
-// our texel scale that treating it as locally constant is safe and avoids
-// 3× the wave-field samples.
-fn evaluateHeight(
-  worldPos: vec2<f32>,
-  uv: vec2<f32>,
-  energyFactors: array<f32, MAX_WAVE_SOURCES>,
-  directionOffsets: array<f32, MAX_WAVE_SOURCES>,
-  phaseCorrections: array<f32, MAX_WAVE_SOURCES>,
-  ampMod: f32,
-) -> f32 {
-  let waveResult = calculateGerstnerWaves(
-    worldPos,
-    params.time,
-    &waveData,
-    i32(params.numWaves),
-    GERSTNER_STEEPNESS,
-    energyFactors,
-    directionOffsets,
-    phaseCorrections,
-    ampMod,
-  );
-  let modifierSample = textureSampleLevel(modifierTexture, modifierSampler, uv, 0.0);
-  return waveResult.x + modifierSample.r + params.tideHeight;
-}
-
-// Calculate water height + turbulence + analytic surface normal at a texel.
-// Returns vec4(height, turbulence, normalX, normalY). Computing the normal
-// here (via 3-tap world-space finite difference of the wave evaluator)
-// instead of bilinear-sampling height in the filter shader avoids the
-// texel-grid facet artifacts that piecewise-linear bilinear interpolation
-// produces in the specular highlight.
+// Calculate water height + turbulence + analytic surface gradient at a texel.
+// Returns vec4(height, turbulence, dhdx, dhdy). The Gerstner gradient comes
+// from the analytic derivative computed inside calculateGerstnerWaves; the
+// modifier-texture contribution to the gradient comes from a 3-tap finite
+// difference of the (cheap) modifier texture sample.
 fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec4<f32> {
   // Sample wave field texture for per-wave energy, direction offset, and phase correction
   var energyFactors: array<f32, MAX_WAVE_SOURCES>;
@@ -198,11 +169,24 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec4<f32> {
     ampModTime
   )) * WAVE_AMP_MOD_STRENGTH) * params.waveAmplitudeScale;
 
-  // World-space finite-difference step. One texel wide in world coords —
-  // matches the spatial resolution we'd otherwise get from sampling the
-  // height texture, but evaluated *exactly* at the offset position so
-  // there's no piecewise-linear bilinear quirk.
-  //
+  // Single Gerstner evaluation — returns height, dhdt, velocity, AND the
+  // analytic surface gradient (∂h/∂sampleX, ∂h/∂sampleY). Replaces the
+  // previous 3-tap finite-difference (which cost 3× this evaluation).
+  let waveResult = calculateGerstnerWaves(
+    worldPos,
+    params.time,
+    &waveData,
+    i32(params.numWaves),
+    GERSTNER_STEEPNESS,
+    energyFactors,
+    directionOffsets,
+    phaseCorrections,
+    ampMod,
+  );
+
+  // Modifier contribution. We still want its slope captured in the surface
+  // normal, so do a tiny 3-tap on the (cheap) modifier texture only — one
+  // texture sample per tap, no Gerstner re-evaluation.
   // texClipToWorld[0] is the world-per-clip-x column; clip ranges [-1, 1]
   // across textureWidth texels, so 1 texel in clip is 2/textureWidth.
   let texelToWorld = vec2<f32>(
@@ -211,26 +195,24 @@ fn calculateWaterHeight(worldPos: vec2<f32>, pixel: vec2<u32>) -> vec4<f32> {
   ) * vec2<f32>(2.0 / params.textureWidth, 2.0 / params.textureHeight);
   let epsX = max(texelToWorld.x, 0.001);
   let epsY = max(texelToWorld.y, 0.001);
+  let uvStepX = vec2<f32>(1.0 / params.textureWidth, 0.0);
+  let uvStepY = vec2<f32>(0.0, -1.0 / params.textureHeight);
 
-  // Modifier UV step matches the world step. The modifier texture is at
-  // half resolution; bilinear sampling smooths it across our small offset.
-  let uvStepX = vec2<f32>(epsX / length(params.texClipToWorld[0].xy) * 0.5, 0.0);
-  let uvStepY = vec2<f32>(0.0, -epsY / length(params.texClipToWorld[1].xy) * 0.5);
+  let modifier0 = textureSampleLevel(modifierTexture, modifierSampler, uv, 0.0);
+  let modifierX = textureSampleLevel(modifierTexture, modifierSampler, uv + uvStepX, 0.0).r;
+  let modifierY = textureSampleLevel(modifierTexture, modifierSampler, uv + uvStepY, 0.0).r;
 
-  let h0 = evaluateHeight(worldPos, uv, energyFactors, directionOffsets, phaseCorrections, ampMod);
-  let hX = evaluateHeight(worldPos + vec2<f32>(epsX, 0.0), uv + uvStepX, energyFactors, directionOffsets, phaseCorrections, ampMod);
-  let hY = evaluateHeight(worldPos + vec2<f32>(0.0, epsY), uv + uvStepY, energyFactors, directionOffsets, phaseCorrections, ampMod);
+  let modifierDhdx = (modifierX - modifier0.r) / epsX;
+  let modifierDhdy = (modifierY - modifier0.r) / epsY;
 
-  let dhdx = (hX - h0) / epsX;
-  let dhdy = (hY - h0) / epsY;
-
-  // Sample modifier turbulence at center (only need it for the .a channel).
-  let modifierSample = textureSampleLevel(modifierTexture, modifierSampler, uv, 0.0);
-  let totalTurbulence = max(maxTurbulence, modifierSample.a);
+  let totalHeight = waveResult.height + modifier0.r + params.tideHeight;
+  let totalDhdx = waveResult.dhdx + modifierDhdx;
+  let totalDhdy = waveResult.dhdy + modifierDhdy;
+  let totalTurbulence = max(maxTurbulence, modifier0.a);
 
   // Store the raw gradient components; the filter shader rebuilds the
   // unit normal via normalize(vec3(-nx, -ny, 1)).
-  return vec4<f32>(h0, totalTurbulence, dhdx, dhdy);
+  return vec4<f32>(totalHeight, totalTurbulence, totalDhdx, totalDhdy);
 }
 
 @compute @workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]})

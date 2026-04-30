@@ -2,7 +2,6 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { GameEventMap } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { Boat } from "./Boat";
-import { FoamParticle } from "./FoamParticle";
 import { WakeParticle } from "./WakeParticle";
 
 // Below this, a source is too weak to bother spawning a particle for.
@@ -36,22 +35,6 @@ export class Wake extends BaseEntity {
           halfWidth: src.halfWidth,
           groupSpeed: src.groupSpeed,
           dt,
-        }),
-      );
-    }
-
-    // Foam blobs — round-robin throttled, bounded particles/tick.
-    const foamCount = hull.foamSourceCount;
-    for (let i = 0; i < foamCount; i++) {
-      const src = hull.getFoamSource(i);
-      if (src.avgFlux <= MIN_SOURCE_FLUX) continue;
-      this.game.addEntity(
-        new FoamParticle({
-          worldX: src.worldX,
-          worldY: src.worldY,
-          avgFlux: src.avgFlux,
-          halfWidth: src.halfWidth,
-          groupSpeed: src.groupSpeed,
         }),
       );
     }
