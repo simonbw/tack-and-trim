@@ -22,7 +22,6 @@ import {
   CTRL_NEXT_CHUNK_BASE,
   CTRL_NUM_TYPES,
   CTRL_REMAINING,
-  CTRL_RESERVED,
   CTRL_TOTAL_INTS,
   MAX_DESCRIPTORS,
   PARAMS_FLOATS_PER_CHANNEL,
@@ -68,12 +67,19 @@ const QUERY_TYPE_LABELS: Record<QueryTypeId, string> = {
   [QUERY_TYPE_WIND]: "wind",
 };
 
+const ALL_QUERY_TYPES: readonly QueryTypeId[] = [
+  QUERY_TYPE_TERRAIN,
+  QUERY_TYPE_WATER,
+  QUERY_TYPE_WIND,
+];
+
 /**
  * Per-query-type buffer set, all backed by the pool's shared
  * `WebAssembly.Memory`. The `points`/`params`/`results`/`frameState`
  * Float32Array views read and write directly into the same bytes the
- * wasm kernel touches — no copies between the JS protocol and the wasm
- * compute kernel.
+ * wasm kernel touches, so the per-point math path makes no copies.
+ * The coordinator does still copy the modifier table into `frameState`
+ * once per frame, but that's outside the kernel hot path.
  */
 interface PoolChannel {
   /** Byte offsets into `wasmMemory.buffer`. Stay valid for memory's lifetime. */
@@ -400,7 +406,6 @@ export class QueryWorkerPool {
     }
 
     Atomics.store(this.control, CTRL_NUM_TYPES, descriptors.length);
-    Atomics.store(this.control, CTRL_RESERVED, 0);
     Atomics.store(this.control, CTRL_REMAINING, this.workerCount);
 
     this.generation++;
@@ -506,40 +511,17 @@ export class QueryWorkerPool {
       maxComputeEnd - minComputeEnd,
     );
 
-    // Calibration probe — pure-compute, no memory access. Average
-    // (avg + max) across workers so noise from one descheduled worker
-    // doesn't hide the signal. Negative values are sentinels: -1 =
-    // wasm not yet instantiated on that worker, -2 = export missing.
-    let probeSum = 0;
-    let probeCount = 0;
-    let probeMax = 0;
-    let probeNotReady = 0;
-    let probeMissingExport = 0;
+    // Calibration probe. Only one worker writes a non-zero value per
+    // frame (round-robin) — the others write 0. Picking the max picks
+    // out that one sample. A persistent 0 across all workers signals
+    // wasm regressed to the JS-fallback bug we hit once.
+    let probeMs = 0;
     for (let w = 0; w < this.workerCount; w++) {
       const v = t[w * stride + BARRIER_TIMING_CALIBRATION_MS];
-      if (v === -1) probeNotReady++;
-      else if (v === -2) probeMissingExport++;
-      else if (v >= 0) {
-        probeSum += v;
-        if (v > probeMax) probeMax = v;
-        probeCount++;
-      }
+      if (v > probeMs) probeMs = v;
     }
-    if (probeCount > 0) {
-      profiler.recordElapsed(
-        "barrier.calibrationProbeAvg",
-        probeSum / probeCount,
-      );
-      profiler.recordElapsed("barrier.calibrationProbeMax", probeMax);
-    }
-    if (probeNotReady > 0) {
-      profiler.count("barrier.calibrationProbeNotReady", probeNotReady);
-    }
-    if (probeMissingExport > 0) {
-      profiler.count(
-        "barrier.calibrationProbeMissingExport",
-        probeMissingExport,
-      );
+    if (probeMs > 0) {
+      profiler.recordElapsed("barrier.calibrationProbe", probeMs);
     }
 
     this.reportPerTypeWalls(submit);
@@ -564,16 +546,7 @@ export class QueryWorkerPool {
   private reportPerTypeWalls(submit: number): void {
     const t = this.barrierTimingsView;
     const stride = BARRIER_TIMINGS_PER_WORKER;
-    const labels: Record<QueryTypeId, string> = {
-      [QUERY_TYPE_TERRAIN]: "terrain",
-      [QUERY_TYPE_WATER]: "water",
-      [QUERY_TYPE_WIND]: "wind",
-    };
-    for (const typeId of [
-      QUERY_TYPE_TERRAIN,
-      QUERY_TYPE_WATER,
-      QUERY_TYPE_WIND,
-    ] as QueryTypeId[]) {
+    for (const typeId of ALL_QUERY_TYPES) {
       let minStart = Infinity;
       let maxEnd = -Infinity;
       for (let w = 0; w < this.workerCount; w++) {
@@ -586,18 +559,14 @@ export class QueryWorkerPool {
         if (end > maxEnd) maxEnd = end;
       }
       if (minStart === Infinity) continue; // nobody touched this type
-      const label = labels[typeId];
+      const label = QUERY_TYPE_LABELS[typeId];
       profiler.recordElapsed(`barrier.${label}.firstStart`, minStart - submit);
       profiler.recordElapsed(`barrier.${label}.lastEnd`, maxEnd - submit);
     }
   }
 
   private reportFrameTimings(): void {
-    for (const typeId of [
-      QUERY_TYPE_TERRAIN,
-      QUERY_TYPE_WATER,
-      QUERY_TYPE_WIND,
-    ] as QueryTypeId[]) {
+    for (const typeId of ALL_QUERY_TYPES) {
       const token = this.inFlightTokens[typeId];
       if (!token) continue;
       let sumMs = 0;

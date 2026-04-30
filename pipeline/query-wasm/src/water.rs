@@ -19,7 +19,7 @@ use crate::packed::{
     MESH_GRID_MIN_Y_F32, MESH_GRID_ROWS, MESH_GRID_SIN_A_F32, MESH_HEADER_MESH_OFFSETS_BASE,
     MESH_INDEX_OFFSET, MESH_TRIANGLE_COUNT, MESH_VERTEX_OFFSET,
 };
-use crate::terrain_slow::compute_terrain_height;
+use crate::terrain_height::compute_terrain_height;
 use crate::tide::lookup_tidal_flow;
 use crate::world_state::WorldState;
 

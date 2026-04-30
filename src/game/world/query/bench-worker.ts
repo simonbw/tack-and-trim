@@ -30,6 +30,10 @@ import {
   STRIDE_PER_POINT,
 } from "./query-worker-protocol";
 import {
+  TERRAIN_PARAM_CONTOUR_COUNT,
+  TERRAIN_PARAM_DEFAULT_DEPTH,
+} from "./terrain-params";
+import {
   WIND_PARAM_BASE_X,
   WIND_PARAM_BASE_Y,
   WIND_PARAM_INFLUENCE_DIRECTION_OFFSET,
@@ -89,8 +93,8 @@ export type BenchQueryType = "water" | "wind" | "terrain";
  *   [1] remaining  — set to workerCount each round; workers decrement.
  *   [2..N+1] per-worker f32 elapsed ms, viewed as Float32Array.
  */
-const BARRIER_GENERATION = 0;
-const BARRIER_REMAINING = 1;
+export const BARRIER_GENERATION = 0;
+export const BARRIER_REMAINING = 1;
 export const BARRIER_TIMING_BASE = 2;
 
 interface InitMessage {
@@ -292,7 +296,7 @@ async function runWorkerLoop(init: InitMessage): Promise<void> {
 // Per-engine inner loops
 // ---------------------------------------------------------------------------
 
-interface JsContext_Common {
+interface JsBenchContext {
   pointsView: Float32Array;
   paramsView: Float32Array;
   resultsView: Float32Array;
@@ -301,9 +305,6 @@ interface JsContext_Common {
   packedWaveMesh: Uint32Array;
   packedTideMesh: Uint32Array;
   packedWindMesh: Uint32Array | null;
-}
-
-interface JsBenchContext extends JsContext_Common {
   // Pre-extracted scalars from params for the bench loop. The bench
   // never changes params during the hot loop, so caching these
   // matches what production workers would see (params are stable
@@ -475,8 +476,8 @@ function runJsIterations(
     }
   } else if (queryType === "terrain") {
     const stride = 4;
-    const contourCount = params_terrainContourCount(ctx.paramsView);
-    const defaultDepth = ctx.paramsView[1];
+    const contourCount = ctx.paramsView[TERRAIN_PARAM_CONTOUR_COUNT] | 0;
+    const defaultDepth = ctx.paramsView[TERRAIN_PARAM_DEFAULT_DEPTH];
     for (let it = 0; it < iterations; it++) {
       for (let i = sliceStart; i < sliceEnd; i++) {
         const x = ctx.pointsView[i * STRIDE_PER_POINT];
@@ -540,9 +541,4 @@ function runJsIterations(
       }
     }
   }
-}
-
-function params_terrainContourCount(params: Float32Array): number {
-  // TERRAIN_PARAM_CONTOUR_COUNT in `terrain-params.ts` is f32 offset 0.
-  return params[0] | 0;
 }

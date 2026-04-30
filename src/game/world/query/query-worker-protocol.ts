@@ -43,14 +43,11 @@ export const CTRL_REMAINING = 1;
 /** Number of distinct query types with work this frame. */
 export const CTRL_NUM_TYPES = 2;
 
-/** Reserved for future use (padding to 16-byte alignment). */
-export const CTRL_RESERVED = 3;
-
 /**
  * Start of the per-query-type descriptors. Each descriptor is 4 Int32
  * entries: [typeId, pointCount, stride, /* reserved * / 0].
  */
-export const CTRL_DESCRIPTORS_BASE = 4;
+export const CTRL_DESCRIPTORS_BASE = 3;
 export const CTRL_DESCRIPTOR_STRIDE = 4;
 export const CTRL_DESCRIPTOR_TYPE_ID = 0;
 export const CTRL_DESCRIPTOR_POINT_COUNT = 1;
@@ -76,20 +73,20 @@ export const CTRL_TOTAL_INTS = CTRL_NEXT_CHUNK_BASE + MAX_DESCRIPTORS;
 /**
  * Chunk size (number of query points per atomic-grab). Per-frame point
  * counts on real levels are small (water/wind ~200, terrain ~20), so
- * chunks have to be small enough that all workers get multiple chunks
- * per type — otherwise we collapse to one-worker-per-type and lose
- * parallelism. But not too small: each chunk pays a fixed dispatch cost
- * (Float32Array view rebuild + wasm call boundary).
+ * chunks must be small enough that all workers get multiple chunks per
+ * type — otherwise we collapse to one-worker-per-type. Past ~32, the
+ * load imbalance between fastest and slowest worker dominates.
  *
- * Sweep on sanJuanIslands, headless, 6 workers (median of 3 8s runs):
- *   chunk=4    → tick.query = 9.93 ms, terrain = 360 µs/pt summed
- *   chunk=8    → tick.query = 8.71 ms, terrain = 285 µs/pt summed (sweet)
- *   chunk=16   → tick.query = 9.63 ms, imbalance climbs to 3.2 ms
- *   chunk=1024 → tick.query = 43.5 ms, single-worker (no parallelism)
+ * Sweep on sanJuanIslands, headless, 6 workers (median of 3 5s runs):
+ *   chunk=4   → tick.query 0.31 ms, imbalance 0.14 ms
+ *   chunk=8   → tick.query 0.29 ms, imbalance 0.17 ms
+ *   chunk=16  → tick.query 0.29 ms, imbalance 0.37 ms
+ *   chunk=32  → tick.query 0.28 ms, imbalance 0.62 ms
+ *   chunk=64  → tick.query 0.28 ms, imbalance 1.95 ms (visible spikes)
  *
- * The sweet spot moved from 4 to 8 once the lookup grid + IDW grid ports
- * dropped per-point compute by ~10× — the dispatch fixed cost now
- * matters more relative to per-point work.
+ * The kernel is fast enough that dispatch overhead is in the noise;
+ * imbalance is the constraint. 8 keeps imbalance comfortably low while
+ * absorbing some of the per-call overhead of the smallest chunks.
  */
 export const CHUNK_SIZE = 8;
 
@@ -128,19 +125,23 @@ export const BARRIER_TIMING_DECREMENT = 3;
 export const BARRIER_TIMING_TYPE_FIRST_START_BASE = 4; // +0..+2 by typeId
 export const BARRIER_TIMING_TYPE_LAST_END_BASE = 7; // +0..+2 by typeId
 /**
- * Wall time (ms) the worker spent running `calibration_probe` once per
- * frame. Pure-compute, no memory access — slow values here mean the
- * worker is being CPU-throttled / descheduled, not waiting on RAM.
- * Compare with the calibration probe time the bench sees on the same
- * hardware (logged once per microbench run) to separate environment
- * effects from cache effects.
+ * Wall time (ms) the worker spent running `calibration_probe` on the
+ * frames it ran. Pure-compute, no memory access — slow values here mean
+ * the worker is being CPU-throttled / descheduled, not waiting on RAM.
+ * The probe doubles as a canary for the silent JS-fallback bug we hit
+ * once: `wasmExports = null` would leave this slot at 0.
+ *
+ * Workers stagger the probe so only one runs it per frame (round-robin
+ * by `generation % workerCount`). That keeps the fixed-cost overhead
+ * out of the critical path while still sampling every worker over
+ * windows of seconds.
  */
 export const BARRIER_TIMING_CALIBRATION_MS = 10;
 export const BARRIER_TIMINGS_PER_WORKER = 11;
 /**
- * How many iterations of `calibration_probe` to run each frame. Tuned
- * so the probe takes ~50 µs on a P-core (small enough to be cheap,
- * large enough to be measurable above `performance.now()` jitter).
+ * How many iterations of `calibration_probe` to run on probe frames.
+ * Tuned so the probe takes ~20 µs on a P-core — measurable above
+ * `performance.now()` jitter without inflating the critical path.
  */
 export const CALIBRATION_PROBE_ITERATIONS = 5000;
 

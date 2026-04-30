@@ -20,8 +20,45 @@ pub const TERRAIN_HEADER_VERTICES_OFFSET: usize = 0;
 pub const TERRAIN_HEADER_CONTOURS_OFFSET: usize = 1;
 pub const TERRAIN_HEADER_CHILDREN_OFFSET: usize = 2;
 pub const TERRAIN_HEADER_CONTAINMENT_GRID_OFFSET: usize = 3;
-// Slot 4 is the IDW grid offset (not yet ported).
+// Slot 4 is the IDW grid data section base. We don't read it directly
+// — each contour records an absolute `idw_grid_offset` that already
+// points into this section.
 pub const TERRAIN_HEADER_LOOKUP_GRID_OFFSET: usize = 5;
+
+/// Minimum boundary distance for IDW weighting. Distances below this
+/// clamp to a fixed weight to avoid division by zero / runaway weights
+/// near a contour edge. Matches `_IDW_MIN_DIST` in `terrain.wgsl.ts`.
+pub const IDW_MIN_DIST: f32 = 0.1;
+
+#[inline]
+pub fn read_f32(packed: &[u32], idx: usize) -> f32 {
+    f32::from_bits(packed[idx])
+}
+
+/// Squared distance from `(px, py)` to the closest point on segment
+/// `(ax, ay) → (bx, by)`. Used by both terrain queries (water-depth
+/// scalar path and analytical-gradient path) — the gradient path also
+/// wants `(dx, dy)`, so it has its own version that returns those.
+#[inline]
+pub fn point_to_segment_dist_sq(
+    px: f32,
+    py: f32,
+    ax: f32,
+    ay: f32,
+    bx: f32,
+    by: f32,
+) -> f32 {
+    let abx = bx - ax;
+    let aby = by - ay;
+    let length_sq = abx * abx + aby * aby;
+    let (dx, dy) = if length_sq == 0.0 {
+        (px - ax, py - ay)
+    } else {
+        let t = (((px - ax) * abx + (py - ay) * aby) / length_sq).clamp(0.0, 1.0);
+        (px - (ax + t * abx), py - (ay + t * aby))
+    };
+    dx * dx + dy * dy
+}
 
 /// Lookup grid header layout (mirrors `LOOKUP_GRID_HEADER` in
 /// `src/game/world/terrain/TerrainConstants.ts`):
@@ -251,8 +288,7 @@ pub fn contour_bbox(packed: &[u32], contour_index: usize) -> (f32, f32, f32, f32
 }
 
 /// Single-source-of-truth `is_inside_contour` shared by terrain.rs and
-/// terrain_slow.rs (was duplicated, with subtle differences between the
-/// two copies). Mirrors the WGSL fast-path:
+/// terrain_height.rs. Mirrors the WGSL fast-path:
 ///   1. Reject by bbox.
 ///   2. Containment-grid lookup (O(1) for INSIDE/OUTSIDE cells, ~95% of
 ///      queries).

@@ -21,7 +21,7 @@ mod fast_trig;
 mod noise;
 mod packed;
 mod terrain;
-mod terrain_slow;
+mod terrain_height;
 mod tide;
 mod water;
 mod wind;

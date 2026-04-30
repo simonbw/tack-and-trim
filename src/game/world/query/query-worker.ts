@@ -32,6 +32,7 @@ import {
   BARRIER_TIMINGS_PER_WORKER,
   CALIBRATION_PROBE_ITERATIONS,
   CHUNK_SIZE,
+  MAX_DESCRIPTORS,
   CTRL_DESCRIPTORS_BASE,
   CTRL_DESCRIPTOR_POINT_COUNT,
   CTRL_DESCRIPTOR_STRIDE,
@@ -194,14 +195,7 @@ self.onmessage = async (event: MessageEvent<QueryWorkerMessage>) => {
       buildChannelView(buffer, msg.partition.wind),
     ];
 
-    // Instantiate the wasm module against the shared memory and AWAIT
-    // before entering the main loop. `runMainLoop` blocks on
-    // `Atomics.wait`, which freezes the worker's JS event loop — if we
-    // started the loop before awaiting, the `WebAssembly.instantiate`
-    // microtask would never get a chance to run and `wasmExports` would
-    // stay null forever, silently falling back to the JS path for the
-    // entire session. (We hit this exact bug; it cost us ~14× on the
-    // sanJuanIslands query path.)
+    // Must await before entering the main loop — see `instantiateWasm`.
     const stackTop = msg.partition.stackTops[workerIndex];
     try {
       await instantiateWasm(msg.wasmModule, msg.wasmMemory, stackTop);
@@ -271,6 +265,17 @@ function buildChannelView(
   };
 }
 
+/**
+ * Build this worker's `WebAssembly.Instance`, set up its private shadow
+ * stack, and register packed-buffer offsets with the per-instance
+ * `WORLD_STATE` table.
+ *
+ * **Caller must `await` this before entering `runMainLoop`.** The loop
+ * blocks on `Atomics.wait`, which freezes the worker's JS event loop,
+ * so the `WebAssembly.instantiate` Promise (and any other microtask)
+ * cannot resolve until the loop yields. We hit this exact bug once and
+ * silently fell back to the JS path for the entire session.
+ */
 async function instantiateWasm(
   module: WebAssembly.Module,
   memory: WebAssembly.Memory,
@@ -348,7 +353,7 @@ function runMainLoop(): void {
     }
 
     try {
-      processFrame();
+      processFrame(generation);
     } catch (err) {
       console.error("[query-worker] processFrame threw:", err);
     }
@@ -364,38 +369,33 @@ function runMainLoop(): void {
   }
 }
 
-function processFrame(): void {
+function processFrame(generation: number): void {
   if (!control) return;
   if (timings) {
     for (let t = 0; t < TIMINGS_FLOATS_PER_WORKER; t++) {
       timings[timingsBase + t] = 0;
     }
   }
-  // Calibration probe — pure-compute, no memory access. Slow times
-  // here mean the worker is being CPU-descheduled / frequency-
-  // throttled, not blocked on RAM. Sentinel: -1 = wasm not yet
-  // instantiated, -2 = export missing.
   if (barrierTimings) {
-    let probeMs = -1;
-    if (wasmExports) {
-      const fn = (wasmExports as { calibration_probe?: (n: number) => number })
-        .calibration_probe;
-      if (typeof fn !== "function") {
-        probeMs = -2;
-      } else {
-        const probeStart = performance.now();
-        fn(CALIBRATION_PROBE_ITERATIONS);
-        probeMs = performance.now() - probeStart;
-      }
+    // Calibration probe — pure-compute, no memory access. Round-robin
+    // across workers (one per frame) so the per-frame overhead is fixed
+    // at ~20 µs regardless of `workerCount`. A 0 sample for this worker
+    // means "wasn't this worker's turn"; the pool aggregates only the
+    // worker that ran it. If it ever stays 0 across the round-robin
+    // cycle, `wasmExports` got nulled out — the same regression that
+    // cost us 35× before the await-instantiate fix.
+    if (wasmExports && generation % workerCount === workerIndex) {
+      const probeStart = performance.now();
+      wasmExports.calibration_probe(CALIBRATION_PROBE_ITERATIONS);
+      barrierTimings[barrierTimingsBase + BARRIER_TIMING_CALIBRATION_MS] =
+        performance.now() - probeStart;
+    } else {
+      barrierTimings[barrierTimingsBase + BARRIER_TIMING_CALIBRATION_MS] = 0;
     }
-    barrierTimings[barrierTimingsBase + BARRIER_TIMING_CALIBRATION_MS] =
-      probeMs;
-  }
-  if (barrierTimings) {
     barrierTimings[barrierTimingsBase + BARRIER_TIMING_COMPUTE_START] =
       nowOnMainClock();
     // Sentinel 0 = "didn't touch this type this frame". Aggregator skips.
-    for (let t = 0; t < 3; t++) {
+    for (let t = 0; t < MAX_DESCRIPTORS; t++) {
       barrierTimings[
         barrierTimingsBase + BARRIER_TIMING_TYPE_FIRST_START_BASE + t
       ] = 0;

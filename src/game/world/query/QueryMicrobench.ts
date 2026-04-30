@@ -58,6 +58,8 @@ import {
   WIND_PARAM_WEIGHTS_COUNT,
 } from "./wind-params";
 import {
+  BARRIER_GENERATION,
+  BARRIER_REMAINING,
   BARRIER_TIMING_BASE,
   type BenchEngine,
   type BenchLayout,
@@ -101,9 +103,6 @@ export interface MicrobenchReport {
   wind: PerTypeReport;
   terrain: PerTypeReport;
 }
-
-const BARRIER_GENERATION = 0;
-const BARRIER_REMAINING = 1;
 
 /**
  * Run the full multi-thread sweep. Requires the GPU backend to be

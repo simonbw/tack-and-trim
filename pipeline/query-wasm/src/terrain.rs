@@ -10,10 +10,11 @@
 
 use crate::packed::{
     contour_base, contour_idw_grid_offset, contour_point_range, find_deepest_containing_contour,
-    idw_grid_candidate_range, idw_grid_entry, terrain_child_index, terrain_contour_count,
-    terrain_vertex_xy, CONTOUR_BBOX_MAX_X, CONTOUR_BBOX_MAX_Y, CONTOUR_BBOX_MIN_X,
-    CONTOUR_BBOX_MIN_Y, CONTOUR_CHILD_COUNT, CONTOUR_CHILD_START, CONTOUR_HEIGHT,
-    CONTOUR_POINT_COUNT, CONTOUR_POINT_START, IDW_GRID_SIZE, MAX_IDW_CONTOURS,
+    idw_grid_candidate_range, idw_grid_entry, read_f32, terrain_child_index,
+    terrain_contour_count, terrain_vertex_xy, CONTOUR_BBOX_MAX_X, CONTOUR_BBOX_MAX_Y,
+    CONTOUR_BBOX_MIN_X, CONTOUR_BBOX_MIN_Y, CONTOUR_CHILD_COUNT, CONTOUR_CHILD_START,
+    CONTOUR_HEIGHT, CONTOUR_POINT_COUNT, CONTOUR_POINT_START, IDW_GRID_SIZE, IDW_MIN_DIST,
+    MAX_IDW_CONTOURS,
 };
 use crate::world_state::WorldState;
 
@@ -21,14 +22,6 @@ pub const STRIDE_PER_POINT: usize = 2;
 pub const PARAMS_FLOATS_PER_CHANNEL: usize = 128;
 
 const TERRAIN_PARAM_DEFAULT_DEPTH: usize = 1;
-
-const IDW_MIN_DIST: f32 = 0.1;
-const NORMAL_Z: f32 = 1.0;
-
-#[inline]
-fn read_f32(packed: &[u32], idx: usize) -> f32 {
-    f32::from_bits(packed[idx])
-}
 
 /// Distance from `(world_x, world_y)` to the nearest point on the
 /// contour boundary, plus the unit gradient (∂d/∂world). The gradient
@@ -343,12 +336,11 @@ pub fn process_batch(
         let mut normal_y = 0.0_f32;
         let grad_mag = (gx * gx + gy * gy).sqrt();
         if grad_mag > 1.0e-9 {
-            let nx = -gx;
-            let ny = -gy;
-            let nz = NORMAL_Z;
-            let inv_len = 1.0 / (nx * nx + ny * ny + nz * nz).sqrt();
-            normal_x = nx * inv_len;
-            normal_y = ny * inv_len;
+            // World-up convention: surface normal is (-∇h.x, -∇h.y, 1)
+            // before normalisation. Matches the WGSL shader.
+            let inv_len = 1.0 / (gx * gx + gy * gy + 1.0).sqrt();
+            normal_x = -gx * inv_len;
+            normal_y = -gy * inv_len;
         }
 
         let terrain_type = if height >= 0.0 { 1.0 } else { 0.0 };
