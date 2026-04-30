@@ -1,6 +1,15 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
 import { profile, profiler } from "../../../core/util/Profiler";
+import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
+import { TerrainResources } from "../terrain/TerrainResources";
+import { TerrainResultLayout } from "../terrain/TerrainQueryResult";
+import { createPlaceholderTideMeshBuffer } from "../water/TideMeshPacking";
+import { TidalResources } from "../water/TidalResources";
+import { WaterResources } from "../water/WaterResources";
+import { WaterResultLayout } from "../water/WaterQueryResult";
+import { WindResources } from "../wind/WindResources";
+import { WindResultLayout } from "../wind/WindQueryResult";
 import { CpuQueryManager } from "./CpuQueryManager";
 import { getQueryEngine } from "./QueryBackendState";
 import { defaultQueryWorkerCount, QueryWorkerPool } from "./QueryWorkerPool";
@@ -16,15 +25,6 @@ const POINT_COUNT_LABELS: Record<QueryTypeId, string> = {
   [QUERY_TYPE_WATER]: "points.water",
   [QUERY_TYPE_WIND]: "points.wind",
 };
-import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
-import { TerrainResources } from "../terrain/TerrainResources";
-import { TerrainResultLayout } from "../terrain/TerrainQueryResult";
-import { createPlaceholderTideMeshBuffer } from "../water/TideMeshPacking";
-import { TidalResources } from "../water/TidalResources";
-import { WaterResources } from "../water/WaterResources";
-import { WaterResultLayout } from "../water/WaterQueryResult";
-import { WindResources } from "../wind/WindResources";
-import { WindResultLayout } from "../wind/WindQueryResult";
 
 const MAX_WATER_MODIFIERS = 16384;
 const FLOATS_PER_MODIFIER = 14;
@@ -66,6 +66,7 @@ export class CpuQueryCoordinator extends BaseEntity {
    * yet (e.g. on a level without water).
    */
   private modifierSrc: Float32Array | null = null;
+  private waterResources: WaterResources | null = null;
 
   @on("add")
   async onAdd(): Promise<void> {
@@ -117,8 +118,9 @@ export class CpuQueryCoordinator extends BaseEntity {
     // then no managers are coordinated, so no submissions happen.
     await pool.ready;
 
-    if (modifierSab) {
+    if (modifierSab && waterResources) {
       this.modifierSrc = new Float32Array(modifierSab);
+      this.waterResources = waterResources;
     }
 
     for (const entity of this.game.entities.getTagged("queryManager")) {
@@ -139,13 +141,11 @@ export class CpuQueryCoordinator extends BaseEntity {
     // workers consume them. We copy from WaterResources's own SAB
     // (which other systems — e.g. the GPU path — also read) into the
     // pool's wasm-memory region so the WASM kernel can pointer into it.
-    if (this.modifierSrc) {
+    if (this.modifierSrc && this.waterResources) {
       const waterChannel = this.pool.getChannel(QUERY_TYPE_WATER);
       if (waterChannel.frameState) {
-        const waterResources =
-          this.game.entities.tryGetSingleton(WaterResources);
-        const modifierCount = waterResources?.getModifierCount() ?? 0;
-        const floats = modifierCount * FLOATS_PER_MODIFIER;
+        const floats =
+          this.waterResources.getModifierCount() * FLOATS_PER_MODIFIER;
         if (floats > 0) {
           const copy = Math.min(floats, waterChannel.frameState.length);
           waterChannel.frameState.set(this.modifierSrc.subarray(0, copy));

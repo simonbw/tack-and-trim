@@ -75,7 +75,13 @@ const TRIALS = 5;
 // cells without making slow cells take forever.
 const ITERATIONS_PER_TRIAL = 10;
 
+// Mirrors `MAX_WATER_MODIFIERS` and `FLOATS_PER_MODIFIER` in
+// `CpuQueryCoordinator.ts`. Kept local to avoid an import cycle, but
+// the values must agree.
+const MAX_MODIFIERS = 16384;
 const FLOATS_PER_MODIFIER = 14;
+/** Worst-case result stride — water has 6 floats, terrain/wind have 4. */
+const MAX_RESULT_STRIDE = 6;
 const QUERY_TYPES: BenchQueryType[] = ["water", "wind", "terrain"];
 const ENGINES: BenchEngine[] = ["js", "wasm"];
 
@@ -112,95 +118,21 @@ export interface MicrobenchReport {
 export async function runQueryMicrobench(
   game: Game,
 ): Promise<MicrobenchReport> {
-  const terrainMgr = game.entities.tryGetSingleton(TerrainQueryManager);
-  const waterMgr = game.entities.tryGetSingleton(WaterQueryManager);
-  const windMgr = game.entities.tryGetSingleton(WindQueryManager);
-  if (!terrainMgr || !waterMgr || !windMgr) {
-    throw new Error(
-      "[QueryMicrobench] GPU managers not found — microbench requires the GPU backend.",
-    );
-  }
-  const tSnap = terrainMgr.lastCompletedDispatchParams;
-  const wSnap = waterMgr.lastCompletedDispatchParams;
-  const windSnap = windMgr.lastCompletedDispatchParams;
-  if (!tSnap || !wSnap || !windSnap) {
-    throw new Error(
-      "[QueryMicrobench] GPU dispatch snapshots not yet available — let the game run a few frames first.",
-    );
-  }
+  const env = await setupBenchEnvironment(game);
 
   const hardwareConcurrency =
     (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4;
   const workerCounts = pickWorkerCounts(hardwareConcurrency);
 
-  // Compile wasm and probe heap base.
-  const url = new URL("./generated/query.wasm", import.meta.url);
-  const wasmModule = await WebAssembly.compileStreaming(fetch(url));
-  const probeMemory = new WebAssembly.Memory({
-    initial: 17,
-    maximum: 17,
-    shared: true,
-  });
-  const probe = await WebAssembly.instantiate(wasmModule, {
-    env: { memory: probeMemory },
-  });
-  const heapBase = (probe.exports.__heap_base as WebAssembly.Global)
-    .value as number;
-
-  // Build a layout big enough for one shared region + world state.
-  // Reused for every cell — workers in different cells receive the
-  // same memory + offsets. Reserve enough per-worker shadow-stack
-  // regions for the largest cell's worker count.
+  // One memory shared across every cell — workers in different cells
+  // receive the same offsets, so we reserve a per-worker shadow stack
+  // for the largest worker count we'll sweep.
   const points = generateBenchPoints(POINT_COUNT);
-  const maxWorkerCount = Math.max(...workerCounts);
-  const layout = buildLayout(
-    heapBase,
-    points.length,
-    {
-      packedTerrain: tSnap.packedTerrain,
-      packedWaveMesh: wSnap.packedWaveMesh,
-      packedTideMesh: wSnap.packedTideMesh,
-      packedWindMesh: windSnap.packedWindMesh,
-    },
-    maxWorkerCount,
+  const { layout, memory } = allocateBenchMemory(
+    env,
+    points,
+    Math.max(...workerCounts),
   );
-  const initialPages = Math.ceil(layout.totalBytes / 65536) + 16;
-  const memory = new WebAssembly.Memory({
-    initial: initialPages,
-    maximum: 65536,
-    shared: true,
-  });
-
-  // Copy world state into shared memory once.
-  const buffer = memory.buffer;
-  copyU32If(buffer, layout.packedTerrainPtr, tSnap.packedTerrain);
-  copyU32If(buffer, layout.packedWaveMeshPtr, wSnap.packedWaveMesh);
-  copyU32If(buffer, layout.packedTideMeshPtr, wSnap.packedTideMesh);
-  copyU32If(buffer, layout.packedWindMeshPtr, windSnap.packedWindMesh);
-  // Write the deterministic point set once.
-  writePointsToBuf(buffer, layout.pointsPtr, points);
-
-  // For each query type, write its params into the shared params
-  // region. Bench workers cache them at init.
-  const paramsByType: Record<BenchQueryType, Float32Array> = {
-    water: buildWaterParams(wSnap),
-    wind: buildWindParams(windSnap),
-    terrain: buildTerrainParams(tSnap),
-  };
-
-  // Modifier table copy (water only). Bench workers read modifierCount
-  // from params at init and re-use this region every round.
-  if (wSnap.modifierCount > 0) {
-    const floats = wSnap.modifierCount * FLOATS_PER_MODIFIER;
-    const modsView = new Float32Array(
-      buffer,
-      layout.modifiersPtr,
-      16384 * FLOATS_PER_MODIFIER,
-    );
-    modsView.set(
-      wSnap.modifiers.subarray(0, Math.min(floats, modsView.length)),
-    );
-  }
 
   const water: PerTypeReport = { byWorkerCount: {} };
   const wind: PerTypeReport = { byWorkerCount: {} };
@@ -220,14 +152,14 @@ export async function runQueryMicrobench(
         // Write the right params for this query type before workers
         // sample them at init.
         new Float32Array(
-          buffer,
+          memory.buffer,
           layout.paramsPtr,
           PARAMS_FLOATS_PER_CHANNEL,
-        ).set(paramsByType[queryType]);
+        ).set(env.paramsByType[queryType]);
 
         const stats = await runCell(
           memory,
-          wasmModule,
+          env.wasmModule,
           layout,
           engine,
           queryType,
@@ -403,6 +335,113 @@ function pickWorkerCounts(hardwareConcurrency: number): number[] {
 // Layout, points, params helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Shared bench setup — captures dispatch params snapshots from the GPU
+ * managers, compiles the wasm module, probes its `__heap_base`, and
+ * builds the per-type params blocks. Used by both the synthetic-grid
+ * sweep and the live-points bench.
+ */
+interface BenchEnvironment {
+  wasmModule: WebAssembly.Module;
+  heapBase: number;
+  tSnap: NonNullable<TerrainQueryManager["lastCompletedDispatchParams"]>;
+  wSnap: NonNullable<WaterQueryManager["lastCompletedDispatchParams"]>;
+  windSnap: NonNullable<WindQueryManager["lastCompletedDispatchParams"]>;
+  paramsByType: Record<BenchQueryType, Float32Array>;
+}
+
+async function setupBenchEnvironment(game: Game): Promise<BenchEnvironment> {
+  const terrainMgr = game.entities.tryGetSingleton(TerrainQueryManager);
+  const waterMgr = game.entities.tryGetSingleton(WaterQueryManager);
+  const windMgr = game.entities.tryGetSingleton(WindQueryManager);
+  if (!terrainMgr || !waterMgr || !windMgr) {
+    throw new Error(
+      "[QueryMicrobench] GPU managers not found — microbench requires the GPU backend.",
+    );
+  }
+  const tSnap = terrainMgr.lastCompletedDispatchParams;
+  const wSnap = waterMgr.lastCompletedDispatchParams;
+  const windSnap = windMgr.lastCompletedDispatchParams;
+  if (!tSnap || !wSnap || !windSnap) {
+    throw new Error(
+      "[QueryMicrobench] GPU dispatch snapshots not yet available — let the game run a few frames first.",
+    );
+  }
+
+  const url = new URL("./generated/query.wasm", import.meta.url);
+  const wasmModule = await WebAssembly.compileStreaming(fetch(url));
+  // Throwaway instance just to read `__heap_base` — the real workers
+  // get their own Instances against the bench's shared memory below.
+  const probeMemory = new WebAssembly.Memory({
+    initial: 17,
+    maximum: 17,
+    shared: true,
+  });
+  const probe = await WebAssembly.instantiate(wasmModule, {
+    env: { memory: probeMemory },
+  });
+  const heapBase = (probe.exports.__heap_base as WebAssembly.Global)
+    .value as number;
+
+  const paramsByType: Record<BenchQueryType, Float32Array> = {
+    water: buildWaterParams(wSnap),
+    wind: buildWindParams(windSnap),
+    terrain: buildTerrainParams(tSnap),
+  };
+  return { wasmModule, heapBase, tSnap, wSnap, windSnap, paramsByType };
+}
+
+/**
+ * Reserve a fresh shared `WebAssembly.Memory`, build a layout sized to
+ * the given point count + worker count, copy world state in, and write
+ * the points into the shared region. Caller still has to write the
+ * per-type params block before kicking off a cell.
+ */
+function allocateBenchMemory(
+  env: BenchEnvironment,
+  points: readonly V2d[],
+  workerCount: number,
+): { layout: LayoutWithSize; memory: WebAssembly.Memory } {
+  const layout = buildLayout(
+    env.heapBase,
+    points.length,
+    {
+      packedTerrain: env.tSnap.packedTerrain,
+      packedWaveMesh: env.wSnap.packedWaveMesh,
+      packedTideMesh: env.wSnap.packedTideMesh,
+      packedWindMesh: env.windSnap.packedWindMesh,
+    },
+    workerCount,
+  );
+  const initialPages = Math.ceil(layout.totalBytes / 65536) + 16;
+  const memory = new WebAssembly.Memory({
+    initial: initialPages,
+    maximum: 65536,
+    shared: true,
+  });
+  const buffer = memory.buffer;
+  copyU32If(buffer, layout.packedTerrainPtr, env.tSnap.packedTerrain);
+  copyU32If(buffer, layout.packedWaveMeshPtr, env.wSnap.packedWaveMesh);
+  copyU32If(buffer, layout.packedTideMeshPtr, env.wSnap.packedTideMesh);
+  copyU32If(buffer, layout.packedWindMeshPtr, env.windSnap.packedWindMesh);
+  writePointsToBuf(buffer, layout.pointsPtr, points);
+
+  // Modifier table copy (water only). Other types' modifier regions
+  // stay at zero, which the wasm reads as `modifierCount=0` from params.
+  if (env.wSnap.modifierCount > 0) {
+    const floats = env.wSnap.modifierCount * FLOATS_PER_MODIFIER;
+    const modsView = new Float32Array(
+      buffer,
+      layout.modifiersPtr,
+      MAX_MODIFIERS * FLOATS_PER_MODIFIER,
+    );
+    modsView.set(
+      env.wSnap.modifiers.subarray(0, Math.min(floats, modsView.length)),
+    );
+  }
+  return { layout, memory };
+}
+
 function generateBenchPoints(count: number): V2d[] {
   const side = Math.round(Math.sqrt(count));
   const extent = 800;
@@ -455,8 +494,8 @@ function buildLayout(
 
   const pointsPtr = reserve(pointCount * STRIDE_PER_POINT * F32);
   const paramsPtr = reserve(PARAMS_FLOATS_PER_CHANNEL * F32);
-  const resultsPtr = reserve(pointCount * 6 * F32); // sized for water (largest stride)
-  const modifiersPtr = reserve(16384 * FLOATS_PER_MODIFIER * F32);
+  const resultsPtr = reserve(pointCount * MAX_RESULT_STRIDE * F32);
+  const modifiersPtr = reserve(MAX_MODIFIERS * FLOATS_PER_MODIFIER * F32);
 
   const packedTerrainPtr = reserve(worldState.packedTerrain.byteLength);
   const packedWaveMeshPtr = reserve(worldState.packedWaveMesh.byteLength);
@@ -485,24 +524,20 @@ function buildLayout(
 }
 
 function copyU32If(
-  buf: ArrayBufferLike,
+  buf: ArrayBuffer,
   ptr: number,
   src: Uint32Array | null,
 ): void {
   if (!src || src.length === 0 || ptr === 0) return;
-  new Uint32Array(buf as ArrayBuffer, ptr, src.length).set(src);
+  new Uint32Array(buf, ptr, src.length).set(src);
 }
 
 function writePointsToBuf(
-  buf: ArrayBufferLike,
+  buf: ArrayBuffer,
   ptr: number,
   points: readonly V2d[],
 ): void {
-  const view = new Float32Array(
-    buf as ArrayBuffer,
-    ptr,
-    points.length * STRIDE_PER_POINT,
-  );
+  const view = new Float32Array(buf, ptr, points.length * STRIDE_PER_POINT);
   for (let i = 0; i < points.length; i++) {
     view[i * STRIDE_PER_POINT] = points[i].x;
     view[i * STRIDE_PER_POINT + 1] = points[i].y;
@@ -599,22 +634,7 @@ const LIVE_POINTS_QUERY_TAGS: Record<BenchQueryType, string> = {
 export async function runLivePointsMicrobench(
   game: Game,
 ): Promise<LivePointsReport> {
-  const terrainMgr = game.entities.tryGetSingleton(TerrainQueryManager);
-  const waterMgr = game.entities.tryGetSingleton(WaterQueryManager);
-  const windMgr = game.entities.tryGetSingleton(WindQueryManager);
-  if (!terrainMgr || !waterMgr || !windMgr) {
-    throw new Error(
-      "[QueryMicrobench] GPU managers not found — microbench requires the GPU backend.",
-    );
-  }
-  const tSnap = terrainMgr.lastCompletedDispatchParams;
-  const wSnap = waterMgr.lastCompletedDispatchParams;
-  const windSnap = windMgr.lastCompletedDispatchParams;
-  if (!tSnap || !wSnap || !windSnap) {
-    throw new Error(
-      "[QueryMicrobench] GPU dispatch snapshots not yet available — let the game run a few frames first.",
-    );
-  }
+  const env = await setupBenchEnvironment(game);
 
   const livePoints: Record<BenchQueryType, V2d[]> = {
     water: gatherLivePoints(game, "water"),
@@ -628,25 +648,6 @@ export async function runLivePointsMicrobench(
   const hardwareConcurrency =
     (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4;
   const workerCount = Math.max(hardwareConcurrency - 4, 2);
-
-  const url = new URL("./generated/query.wasm", import.meta.url);
-  const wasmModule = await WebAssembly.compileStreaming(fetch(url));
-  const probeMemory = new WebAssembly.Memory({
-    initial: 17,
-    maximum: 17,
-    shared: true,
-  });
-  const probe = await WebAssembly.instantiate(wasmModule, {
-    env: { memory: probeMemory },
-  });
-  const heapBase = (probe.exports.__heap_base as WebAssembly.Global)
-    .value as number;
-
-  const paramsByType: Record<BenchQueryType, Float32Array> = {
-    water: buildWaterParams(wSnap),
-    wind: buildWindParams(windSnap),
-    terrain: buildTerrainParams(tSnap),
-  };
 
   const out: LivePointsReport = {
     workerCount,
@@ -662,57 +663,27 @@ export async function runLivePointsMicrobench(
     if (points.length === 0) continue;
     // Each type gets its own memory because the layout depends on point
     // count (which differs per type for a real frame).
-    const layout = buildLayout(
-      heapBase,
-      points.length,
-      {
-        packedTerrain: tSnap.packedTerrain,
-        packedWaveMesh: wSnap.packedWaveMesh,
-        packedTideMesh: wSnap.packedTideMesh,
-        packedWindMesh: windSnap.packedWindMesh,
-      },
-      workerCount,
-    );
-    const initialPages = Math.ceil(layout.totalBytes / 65536) + 16;
-    const memory = new WebAssembly.Memory({
-      initial: initialPages,
-      maximum: 65536,
-      shared: true,
-    });
-    const buffer = memory.buffer;
-    copyU32If(buffer, layout.packedTerrainPtr, tSnap.packedTerrain);
-    copyU32If(buffer, layout.packedWaveMeshPtr, wSnap.packedWaveMesh);
-    copyU32If(buffer, layout.packedTideMeshPtr, wSnap.packedTideMesh);
-    copyU32If(buffer, layout.packedWindMeshPtr, windSnap.packedWindMesh);
-    writePointsToBuf(buffer, layout.pointsPtr, points);
-    new Float32Array(buffer, layout.paramsPtr, PARAMS_FLOATS_PER_CHANNEL).set(
-      paramsByType[queryType],
-    );
-    if (queryType === "water" && wSnap.modifierCount > 0) {
-      const floats = wSnap.modifierCount * FLOATS_PER_MODIFIER;
-      const modsView = new Float32Array(
-        buffer,
-        layout.modifiersPtr,
-        16384 * FLOATS_PER_MODIFIER,
-      );
-      modsView.set(
-        wSnap.modifiers.subarray(0, Math.min(floats, modsView.length)),
-      );
-    }
+    const { layout, memory } = allocateBenchMemory(env, points, workerCount);
+    new Float32Array(
+      memory.buffer,
+      layout.paramsPtr,
+      PARAMS_FLOATS_PER_CHANNEL,
+    ).set(env.paramsByType[queryType]);
 
     console.log(
       `[QueryMicrobench:live] cell type=${queryType} points=${points.length} workerCount=${workerCount}`,
     );
     const stats = await runCell(
       memory,
-      wasmModule,
+      env.wasmModule,
       layout,
       "wasm",
       queryType,
       workerCount,
       points.length,
-      1, // iterationsPerTrial — we want each trial to be ONE call so it
-      // matches the in-game cadence (one wasm batch per worker per frame).
+      // One call per trial so each trial matches the in-game cadence
+      // (one wasm batch per worker per frame).
+      1,
     );
     out[queryType] = {
       pointCount: points.length,

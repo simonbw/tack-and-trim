@@ -65,7 +65,9 @@ pub unsafe extern "C" fn set_packed_terrain(ptr: *const u32, len_u32: u32) {
     });
 }
 
-/// # Safety: see `set_packed_terrain`.
+/// # Safety
+///
+/// See [`set_packed_terrain`].
 #[no_mangle]
 pub unsafe extern "C" fn set_packed_wave_mesh(ptr: *const u32, len_u32: u32) {
     with_world_state_mut(|s| {
@@ -76,7 +78,9 @@ pub unsafe extern "C" fn set_packed_wave_mesh(ptr: *const u32, len_u32: u32) {
     });
 }
 
-/// # Safety: see `set_packed_terrain`.
+/// # Safety
+///
+/// See [`set_packed_terrain`].
 #[no_mangle]
 pub unsafe extern "C" fn set_packed_tide_mesh(ptr: *const u32, len_u32: u32) {
     with_world_state_mut(|s| {
@@ -87,7 +91,9 @@ pub unsafe extern "C" fn set_packed_tide_mesh(ptr: *const u32, len_u32: u32) {
     });
 }
 
-/// # Safety: see `set_packed_terrain`.
+/// # Safety
+///
+/// See [`set_packed_terrain`].
 #[no_mangle]
 pub unsafe extern "C" fn set_packed_wind_mesh(ptr: *const u32, len_u32: u32) {
     with_world_state_mut(|s| {
@@ -150,7 +156,9 @@ pub unsafe extern "C" fn process_water_batch(
     });
 }
 
-/// # Safety: see `process_water_batch`.
+/// # Safety
+///
+/// See [`process_water_batch`].
 #[no_mangle]
 pub unsafe extern "C" fn process_terrain_batch(
     points_ptr: *const f32,
@@ -198,7 +206,9 @@ pub extern "C" fn calibration_probe(iterations: u32) -> f32 {
     a + b
 }
 
-/// # Safety: see `process_water_batch`.
+/// # Safety
+///
+/// See [`process_water_batch`].
 #[no_mangle]
 pub unsafe extern "C" fn process_wind_batch(
     points_ptr: *const f32,

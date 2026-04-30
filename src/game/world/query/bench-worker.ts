@@ -44,7 +44,6 @@ import {
   WIND_PARAM_WEIGHTS_COUNT,
 } from "./wind-params";
 import {
-  WATER_PARAM_CONTOUR_COUNT,
   WATER_PARAM_DEFAULT_DEPTH,
   WATER_PARAM_MODIFIER_COUNT,
   WATER_PARAM_NUM_WAVES,
@@ -96,6 +95,16 @@ export type BenchQueryType = "water" | "wind" | "terrain";
 export const BARRIER_GENERATION = 0;
 export const BARRIER_REMAINING = 1;
 export const BARRIER_TIMING_BASE = 2;
+
+/**
+ * Worst-case result stride across the three query types — water has 6
+ * floats per result; terrain and wind have 4. The bench layout always
+ * sizes the results region for the worst case so a single shared
+ * buffer can serve any cell.
+ */
+const MAX_RESULT_STRIDE = 6;
+/** Mirrors `MAX_WATER_MODIFIERS * FLOATS_PER_MODIFIER` from `QueryMicrobench`. */
+const MAX_MODIFIER_FLOATS = 16384 * 14;
 
 interface InitMessage {
   type: "init";
@@ -327,16 +336,16 @@ function buildJsContext(
     layout.paramsPtr,
     PARAMS_FLOATS_PER_CHANNEL,
   );
-  // Results buffer is sized for the largest result stride (water=6).
+  // Results buffer is sized for the largest result stride (water).
   const resultsView = new Float32Array(
     buffer,
     layout.resultsPtr,
-    layout.pointCount * 6,
+    layout.pointCount * MAX_RESULT_STRIDE,
   );
   const modifiersView = new Float32Array(
     buffer,
     layout.modifiersPtr,
-    16384 * 14,
+    MAX_MODIFIER_FLOATS,
   );
   const packedTerrain = new Uint32Array(
     buffer,

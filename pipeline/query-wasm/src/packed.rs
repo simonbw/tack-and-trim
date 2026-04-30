@@ -274,6 +274,32 @@ pub fn contour_point_range(packed: &[u32], contour_index: usize) -> (usize, usiz
     )
 }
 
+/// Map `(world_x, world_y)` to the IDW grid cell index for the contour
+/// rooted at `parent_base`. The IDW grid is `IDW_GRID_SIZE × IDW_GRID_SIZE`
+/// cells over the parent's bbox; the same setup is used by both the
+/// scalar-height path and the analytical-gradient path.
+#[inline]
+pub fn idw_cell_index_for_point(
+    packed: &[u32],
+    parent_base: usize,
+    world_x: f32,
+    world_y: f32,
+) -> usize {
+    let bbox_min_x = read_f32(packed, parent_base + CONTOUR_BBOX_MIN_X);
+    let bbox_min_y = read_f32(packed, parent_base + CONTOUR_BBOX_MIN_Y);
+    let bbox_max_x = read_f32(packed, parent_base + CONTOUR_BBOX_MAX_X);
+    let bbox_max_y = read_f32(packed, parent_base + CONTOUR_BBOX_MAX_Y);
+    let grid_size_f = IDW_GRID_SIZE as f32;
+    let max_idx = (IDW_GRID_SIZE - 1) as f32;
+    let col = (((world_x - bbox_min_x) * (grid_size_f / (bbox_max_x - bbox_min_x)))
+        .floor()
+        .clamp(0.0, max_idx)) as usize;
+    let row = (((world_y - bbox_min_y) * (grid_size_f / (bbox_max_y - bbox_min_y)))
+        .floor()
+        .clamp(0.0, max_idx)) as usize;
+    row * IDW_GRID_SIZE + col
+}
+
 /// Read fields the inside-contour test needs without redoing all the
 /// per-field reads in two files.
 #[inline]

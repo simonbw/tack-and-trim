@@ -10,10 +10,9 @@
 
 use crate::packed::{
     contour_base, contour_idw_grid_offset, contour_point_range, find_deepest_containing_contour,
-    idw_grid_candidate_range, idw_grid_entry, read_f32, terrain_child_index,
-    terrain_contour_count, terrain_vertex_xy, CONTOUR_BBOX_MAX_X, CONTOUR_BBOX_MAX_Y,
-    CONTOUR_BBOX_MIN_X, CONTOUR_BBOX_MIN_Y, CONTOUR_CHILD_COUNT, CONTOUR_CHILD_START,
-    CONTOUR_HEIGHT, CONTOUR_POINT_COUNT, CONTOUR_POINT_START, IDW_GRID_SIZE, IDW_MIN_DIST,
+    idw_cell_index_for_point, idw_grid_candidate_range, idw_grid_entry, read_f32,
+    terrain_child_index, terrain_contour_count, terrain_vertex_xy, CONTOUR_CHILD_COUNT,
+    CONTOUR_CHILD_START, CONTOUR_HEIGHT, CONTOUR_POINT_COUNT, CONTOUR_POINT_START, IDW_MIN_DIST,
     MAX_IDW_CONTOURS,
 };
 use crate::world_state::WorldState;
@@ -193,21 +192,7 @@ fn idw_blend_with_gradient_grid(
     parent_height: f32,
     parent_base: usize,
 ) -> (f32, f32, f32) {
-    let bbox_min_x = read_f32(packed, parent_base + CONTOUR_BBOX_MIN_X);
-    let bbox_min_y = read_f32(packed, parent_base + CONTOUR_BBOX_MIN_Y);
-    let bbox_max_x = read_f32(packed, parent_base + CONTOUR_BBOX_MAX_X);
-    let bbox_max_y = read_f32(packed, parent_base + CONTOUR_BBOX_MAX_Y);
-    let bbox_w = bbox_max_x - bbox_min_x;
-    let bbox_h = bbox_max_y - bbox_min_y;
-    let grid_size_f = IDW_GRID_SIZE as f32;
-    let max_idx = (IDW_GRID_SIZE - 1) as f32;
-    let col = (((world_x - bbox_min_x) * (grid_size_f / bbox_w))
-        .floor()
-        .clamp(0.0, max_idx)) as usize;
-    let row = (((world_y - bbox_min_y) * (grid_size_f / bbox_h))
-        .floor()
-        .clamp(0.0, max_idx)) as usize;
-    let cell_index = row * IDW_GRID_SIZE + col;
+    let cell_index = idw_cell_index_for_point(packed, parent_base, world_x, world_y);
     let (entry_start, entry_end) = idw_grid_candidate_range(packed, grid_base, cell_index);
 
     let contour_count = 1 + child_count;
