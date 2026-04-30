@@ -4,6 +4,13 @@ import {
 } from "../../../core/util/AsyncProfiler";
 import { profiler } from "../../../core/util/Profiler";
 import {
+  BARRIER_TIMING_COMPUTE_END,
+  BARRIER_TIMING_COMPUTE_START,
+  BARRIER_TIMING_DECREMENT,
+  BARRIER_TIMING_TYPE_FIRST_START_BASE,
+  BARRIER_TIMING_TYPE_LAST_END_BASE,
+  BARRIER_TIMING_WAKE,
+  BARRIER_TIMINGS_PER_WORKER,
   CTRL_DESCRIPTORS_BASE,
   CTRL_DESCRIPTOR_POINT_COUNT,
   CTRL_DESCRIPTOR_RESERVED,
@@ -11,6 +18,7 @@ import {
   CTRL_DESCRIPTOR_STRIDE_FIELD,
   CTRL_DESCRIPTOR_TYPE_ID,
   CTRL_GENERATION,
+  CTRL_NEXT_CHUNK_BASE,
   CTRL_NUM_TYPES,
   CTRL_REMAINING,
   CTRL_RESERVED,
@@ -22,6 +30,7 @@ import {
   QUERY_TYPE_WIND,
   type QueryTypeId,
   type QueryWorkerInitMessage,
+  STACK_BYTES_PER_WORKER,
   STRIDE_PER_POINT,
   TIMINGS_FLOATS_PER_WORKER,
   type WasmChannelLayout,
@@ -161,6 +170,10 @@ export class QueryWorkerPool {
   private timingsSab: SharedArrayBuffer;
   private timingsView: Float32Array;
 
+  private barrierTimingsSab: SharedArrayBuffer;
+  private barrierTimingsView: Float64Array;
+  private submitTime = 0;
+
   private inFlightTokens: (AsyncOperationToken | null)[] = [null, null, null];
 
   private wasmMemory: WebAssembly.Memory | null = null;
@@ -201,6 +214,13 @@ export class QueryWorkerPool {
     );
     this.timingsView = new Float32Array(this.timingsSab);
 
+    this.barrierTimingsSab = new SharedArrayBuffer(
+      options.workerCount *
+        BARRIER_TIMINGS_PER_WORKER *
+        Float64Array.BYTES_PER_ELEMENT,
+    );
+    this.barrierTimingsView = new Float64Array(this.barrierTimingsSab);
+
     this.ready = this.initAsync(options);
   }
 
@@ -219,7 +239,7 @@ export class QueryWorkerPool {
     // partition above that — overlapping would corrupt the wasm's own
     // statics (e.g. WORLD_STATE) and crash the kernel.
     const heapBase = await probeHeapBase(wasmModule);
-    const partition = computePartition(options, heapBase);
+    const partition = computePartition(options, heapBase, options.workerCount);
     const initialPages = Math.ceil(partition.totalBytes / PAGE_BYTES) + 16;
     const memory = new WebAssembly.Memory({
       initial: initialPages,
@@ -260,6 +280,8 @@ export class QueryWorkerPool {
         workerCount: options.workerCount,
         controlSab: this.controlSab,
         timingsSab: this.timingsSab,
+        barrierTimingsSab: this.barrierTimingsSab,
+        mainTimeOrigin: performance.timeOrigin,
         cpuEngine: options.cpuEngine,
         wasmMemory: memory,
         wasmModule,
@@ -369,11 +391,19 @@ export class QueryWorkerPool {
       );
     }
 
+    // Reset every dynamic-chunk counter, including unused descriptor
+    // slots: workers iterate descriptor slots in order and a stale
+    // counter from last frame would mis-attribute work.
+    for (let i = 0; i < MAX_DESCRIPTORS; i++) {
+      Atomics.store(this.control, CTRL_NEXT_CHUNK_BASE + i, 0);
+    }
+
     Atomics.store(this.control, CTRL_NUM_TYPES, descriptors.length);
     Atomics.store(this.control, CTRL_RESERVED, 0);
     Atomics.store(this.control, CTRL_REMAINING, this.workerCount);
 
     this.generation++;
+    this.submitTime = performance.now();
     Atomics.store(this.control, CTRL_GENERATION, this.generation);
     Atomics.notify(this.control, CTRL_GENERATION, this.workerCount);
 
@@ -401,12 +431,127 @@ export class QueryWorkerPool {
       );
       if (async) await value;
     }
+    const barrierEnd = performance.now();
     profiler.recordElapsed(
       "QueryWorkerPool.awaitFrameComplete",
-      performance.now() - waitStart,
+      barrierEnd - waitStart,
     );
+    this.reportBarrierBreakdown(barrierEnd);
     this.reportFrameTimings();
     this.frameInFlight = false;
+  }
+
+  /**
+   * Decompose the barrier wall time into phases. Each frame the
+   * "critical-path worker" — the one whose finish actually drives
+   * `barrierEnd` — is identified by the latest decrement timestamp;
+   * we attribute the bulk of the barrier to that worker's wake delay
+   * and compute time so the labels sum (within a few hundred µs) to
+   * the `awaitFrameComplete` total:
+   *
+   *   - `barrier.wakeLatency`     — submit → critical worker's wake
+   *                                 (OS scheduler delay before its compute starts)
+   *   - `barrier.workerCompute`   — critical worker's compute_end - compute_start
+   *                                 (actual on-CPU time of the slowest worker)
+   *   - `barrier.notifyToMain`    — critical worker's decrement → main wakes
+   *
+   * Plus one orthogonal load-balance metric:
+   *
+   *   - `barrier.workerImbalance` — max(compute_end) - min(compute_end)
+   *                                 (slack between fastest and slowest worker —
+   *                                 if zero, the barrier could not be improved
+   *                                 by reslicing work)
+   */
+  private reportBarrierBreakdown(barrierEnd: number): void {
+    const submit = this.submitTime;
+    const t = this.barrierTimingsView;
+    const stride = BARRIER_TIMINGS_PER_WORKER;
+
+    let critWake = 0;
+    let critStart = 0;
+    let critEnd = 0;
+    let critDecrement = -Infinity;
+    let maxComputeEnd = -Infinity;
+    let minComputeEnd = Infinity;
+    let anyValid = false;
+    for (let w = 0; w < this.workerCount; w++) {
+      const wake = t[w * stride + BARRIER_TIMING_WAKE];
+      const start = t[w * stride + BARRIER_TIMING_COMPUTE_START];
+      const end = t[w * stride + BARRIER_TIMING_COMPUTE_END];
+      const decrement = t[w * stride + BARRIER_TIMING_DECREMENT];
+      // Workers that didn't run this frame leave stale slots.
+      if (wake < submit) continue;
+      anyValid = true;
+      if (end > maxComputeEnd) maxComputeEnd = end;
+      if (end < minComputeEnd) minComputeEnd = end;
+      if (decrement > critDecrement) {
+        critDecrement = decrement;
+        critWake = wake;
+        critStart = start;
+        critEnd = end;
+      }
+    }
+
+    if (!anyValid) return;
+
+    profiler.recordElapsed("barrier.wakeLatency", critWake - submit);
+    profiler.recordElapsed("barrier.workerCompute", critEnd - critStart);
+    profiler.recordElapsed(
+      "barrier.notifyToMain",
+      Math.max(0, barrierEnd - critDecrement),
+    );
+    profiler.recordElapsed(
+      "barrier.workerImbalance",
+      maxComputeEnd - minComputeEnd,
+    );
+    this.reportPerTypeWalls(submit);
+  }
+
+  /**
+   * For each query type, find when its first chunk started and its last
+   * chunk ended (across all workers that touched it), and report two
+   * labels per type:
+   *
+   *   - `barrier.<type>.firstStart` — submit → first worker arrived at this type
+   *   - `barrier.<type>.lastEnd`    — submit → last chunk for this type completed
+   *
+   * The active span of a type is `lastEnd − firstStart`. With dynamic
+   * chunking, spans across types overlap (worker A finishes type 0 and
+   * starts type 1 while worker B is still on type 0), so the per-type
+   * spans don't sum to the barrier wall — they describe when each type
+   * was *actively in flight on at least one worker*. The `lastEnd` is the
+   * moment that type goes off the critical path, which is what tells you
+   * "type X gates the barrier" or "type Y was already done by 2 ms".
+   */
+  private reportPerTypeWalls(submit: number): void {
+    const t = this.barrierTimingsView;
+    const stride = BARRIER_TIMINGS_PER_WORKER;
+    const labels: Record<QueryTypeId, string> = {
+      [QUERY_TYPE_TERRAIN]: "terrain",
+      [QUERY_TYPE_WATER]: "water",
+      [QUERY_TYPE_WIND]: "wind",
+    };
+    for (const typeId of [
+      QUERY_TYPE_TERRAIN,
+      QUERY_TYPE_WATER,
+      QUERY_TYPE_WIND,
+    ] as QueryTypeId[]) {
+      let minStart = Infinity;
+      let maxEnd = -Infinity;
+      for (let w = 0; w < this.workerCount; w++) {
+        const start =
+          t[w * stride + BARRIER_TIMING_TYPE_FIRST_START_BASE + typeId];
+        const end = t[w * stride + BARRIER_TIMING_TYPE_LAST_END_BASE + typeId];
+        // Sentinel 0 = worker didn't touch this type; ignore.
+        if (start === 0 || start < submit) continue;
+        if (start < minStart) minStart = start;
+        if (end > maxEnd) maxEnd = end;
+      }
+      if (minStart === Infinity) continue; // nobody touched this type
+      const label = labels[typeId];
+      profiler.recordElapsed(`barrier.${label}.firstStart`, minStart - submit);
+      profiler.recordElapsed(`barrier.${label}.lastEnd`, maxEnd - submit);
+    }
   }
 
   private reportFrameTimings(): void {
@@ -486,8 +631,20 @@ async function probeHeapBase(module: WebAssembly.Module): Promise<number> {
 function computePartition(
   options: QueryWorkerPoolOptions,
   heapBase: number,
+  workerCount: number,
 ): WasmPartitionLayout {
   let cursor = heapBase;
+
+  // Per-worker shadow stacks come first so their byte addresses are
+  // small (the wasm `__stack_pointer` is i32, so any address fits, but
+  // grouping them up front keeps the layout easier to reason about).
+  // Each worker's stack grows down from `top` toward `top - STACK_BYTES`.
+  cursor = align(cursor);
+  const stackTops: number[] = [];
+  for (let i = 0; i < workerCount; i++) {
+    cursor += STACK_BYTES_PER_WORKER;
+    stackTops.push(cursor);
+  }
 
   const carve = (spec: ChannelOptions): WasmChannelLayout => {
     const pointsBytes =
@@ -548,6 +705,7 @@ function computePartition(
     terrain,
     water,
     wind,
+    stackTops,
     totalBytes: cursor,
   };
 }

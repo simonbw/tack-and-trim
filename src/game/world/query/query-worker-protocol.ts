@@ -58,8 +58,37 @@ export const CTRL_DESCRIPTOR_STRIDE_FIELD = 2;
 export const CTRL_DESCRIPTOR_RESERVED = 3;
 
 export const MAX_DESCRIPTORS = 3;
-export const CTRL_TOTAL_INTS =
+
+/**
+ * Per-descriptor "next chunk" atomic counter. Workers grab work by
+ * `Atomics.add(control, CTRL_NEXT_CHUNK_BASE + i, 1)`; the returned
+ * index multiplied by `CHUNK_SIZE` gives the start point. This replaces
+ * the static `pointCount / workerCount` slicing with dynamic
+ * work-stealing — fast workers (P-cores) naturally absorb more chunks
+ * than slow ones (E-cores) and per-frame load skew is self-balancing.
+ *
+ * Main resets all `MAX_DESCRIPTORS` slots to 0 in `submit()`.
+ */
+export const CTRL_NEXT_CHUNK_BASE =
   CTRL_DESCRIPTORS_BASE + MAX_DESCRIPTORS * CTRL_DESCRIPTOR_STRIDE;
+export const CTRL_TOTAL_INTS = CTRL_NEXT_CHUNK_BASE + MAX_DESCRIPTORS;
+
+/**
+ * Chunk size (number of query points per atomic-grab). Total per-frame
+ * point counts on real levels are surprisingly small (water/wind
+ * ~200, terrain ~20), so chunk size has to be small enough that
+ * 6 workers each get multiple chunks per type — otherwise we collapse
+ * to one-worker-per-type and lose all parallelism. With water ~50 µs/pt
+ * on complex levels, a 4-point chunk is ~200 µs of compute against
+ * ~100 ns of atomic-add overhead — comfortably above the crossover.
+ * Sweep on sanJuanIslands:
+ *   chunk=128 → 30 ms (bin-packs to 1 worker, broken)
+ *   chunk=32  → 12 ms (overcoarse for 196-point types, still imbalanced)
+ *   chunk=8   →  9.1 ms
+ *   chunk=4   →  8.5 ms (sweet spot)
+ *   chunk=2   →  8.9 ms (atomic overhead starts to bite)
+ */
+export const CHUNK_SIZE = 4;
 
 /**
  * Profiling: each worker writes its per-query-type compute time (ms)
@@ -67,6 +96,35 @@ export const CTRL_TOTAL_INTS =
  * is `[workerIndex * TIMINGS_FLOATS_PER_WORKER + typeId]`.
  */
 export const TIMINGS_FLOATS_PER_WORKER = MAX_DESCRIPTORS;
+
+/**
+ * Per-worker barrier timestamps (Float64, ms from `performance.now()`).
+ * Written by workers each frame and read by main after the barrier resolves
+ * to diagnose the wall-clock gap between worker compute and barrier wait.
+ *
+ * Layout: `[workerIndex * BARRIER_TIMINGS_PER_WORKER + offset]`.
+ *
+ * Slots:
+ *   - WAKE          — when this worker's `Atomics.wait` returned for this frame
+ *   - COMPUTE_START — right before the first per-type dispatch
+ *   - COMPUTE_END   — right after the last per-type dispatch
+ *   - DECREMENT     — right before the worker's `Atomics.sub(REMAINING, 1)`
+ *
+ * Float64 because timestamps are sub-ms-resolution `performance.now()` values
+ * that can be in the millions of ms; Float32 would lose precision.
+ */
+export const BARRIER_TIMING_WAKE = 0;
+export const BARRIER_TIMING_COMPUTE_START = 1;
+export const BARRIER_TIMING_COMPUTE_END = 2;
+export const BARRIER_TIMING_DECREMENT = 3;
+/**
+ * Per-type span: when did this worker's first chunk for type X start, and
+ * when did its last chunk for type X end? Sentinel 0 means the worker
+ * never touched that type this frame (skip when aggregating).
+ */
+export const BARRIER_TIMING_TYPE_FIRST_START_BASE = 4; // +0..+2 by typeId
+export const BARRIER_TIMING_TYPE_LAST_END_BASE = 7; // +0..+2 by typeId
+export const BARRIER_TIMINGS_PER_WORKER = 10;
 
 /**
  * Per-channel byte offsets into the pool's shared `WebAssembly.Memory`.
@@ -99,6 +157,13 @@ export interface WasmPartitionLayout {
   terrain: WasmChannelLayout;
   water: WasmChannelLayout;
   wind: WasmChannelLayout;
+  /**
+   * Per-worker shadow-stack tops (byte addresses, indexed by workerIndex).
+   * Each worker writes this value into its `__stack_pointer` global at
+   * init so its shadow stack lives in its own `[top - STACK_BYTES, top)`
+   * region rather than the linker default. See `STACK_BYTES_PER_WORKER`.
+   */
+  stackTops: number[];
   /** Total bytes the partition uses; lower bound for memory's initial size. */
   totalBytes: number;
 }
@@ -114,6 +179,16 @@ export interface QueryWorkerInitMessage {
   controlSab: SharedArrayBuffer;
   /** Per-worker per-type compute time (ms), Float32Array-viewed. */
   timingsSab: SharedArrayBuffer;
+  /** Per-worker barrier timestamps (ms, Float64Array-viewed). */
+  barrierTimingsSab: SharedArrayBuffer;
+  /**
+   * Main thread's `performance.timeOrigin`. Workers compute their
+   * own offset (`performance.timeOrigin - mainTimeOrigin`) once at init
+   * and add it to every `performance.now()` they record into the
+   * barrier-timings SAB, so the values are comparable to main's
+   * `performance.now()` directly.
+   */
+  mainTimeOrigin: number;
   /**
    * Engine selector for the per-point math:
    *   "js"   — pure-TypeScript ports in `*-math.ts` (the original CPU path)
@@ -139,6 +214,25 @@ export interface QueryWorkerInitMessage {
  * Generous enough to hold scalar uniforms plus small inline tables.
  */
 export const PARAMS_FLOATS_PER_CHANNEL = 128;
+
+/**
+ * Bytes of shadow-stack space reserved per worker in the pool's shared
+ * `WebAssembly.Memory`. Wasm globals (including the shadow-stack pointer
+ * that the linker generates) are per-Instance, but the *memory* the
+ * stack lives in is shared across every Instance. Each worker's
+ * Instance ships with the linker's default `__stack_pointer = 1 MiB`, so
+ * by default every worker's stack frames overlap in `[0, 1 MiB)` — fine
+ * for kernels whose locals fit in wasm registers, fatal for paths that
+ * spill to the shadow stack (any closure with captures, large structs,
+ * etc.). To prevent the overlap, the pool carves a contiguous region of
+ * `workerCount * STACK_BYTES_PER_WORKER` bytes above heap_base and gives
+ * each worker its own slot via the exported `__stack_pointer` global.
+ *
+ * 1 MiB matches the linker's default stack size, which is generous for
+ * our kernels (deepest call chain is the IDW gradient closure inside
+ * `compute_terrain_height_and_gradient`).
+ */
+export const STACK_BYTES_PER_WORKER = 1 << 20;
 
 /** Sent to tell a worker to exit its loop and shut down. */
 export interface QueryWorkerDestroyMessage {

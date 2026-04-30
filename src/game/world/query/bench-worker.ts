@@ -70,6 +70,14 @@ export interface BenchLayout {
   packedWindMeshPtr: number;
   packedWindMeshLen: number;
   pointCount: number;
+  /**
+   * Per-worker shadow-stack tops (byte addresses). Each Instance writes
+   * its assigned slot into `__stack_pointer` at init so concurrent
+   * workers don't smash each other's frames in the linker-default 1 MiB
+   * stack region. See `STACK_BYTES_PER_WORKER` in
+   * `query-worker-protocol.ts`.
+   */
+  stackTops: number[];
 }
 
 export type BenchEngine = "js" | "wasm";
@@ -107,6 +115,13 @@ interface DestroyMessage {
 type WorkerMessage = InitMessage | DestroyMessage;
 
 interface WasmKernelExports {
+  /**
+   * Per-Instance shadow-stack pointer. We write into this at init so
+   * each bench worker's stack lives in its own slot of the shared linear
+   * memory rather than overlapping at the linker default. Exported via
+   * the `--export=__stack_pointer` linker flag.
+   */
+  __stack_pointer: WebAssembly.Global;
   set_packed_terrain(ptr: number, lenU32: number): void;
   set_packed_wave_mesh(ptr: number, lenU32: number): void;
   set_packed_tide_mesh(ptr: number, lenU32: number): void;
@@ -191,6 +206,12 @@ async function runWorkerLoop(init: InitMessage): Promise<void> {
       env: { memory: init.wasmMemory },
     });
     wasmExports = instance.exports as unknown as WasmKernelExports;
+    // Move this Instance's shadow stack into its assigned slot. See
+    // `STACK_BYTES_PER_WORKER` in `query-worker-protocol.ts` for the
+    // why — without this, every Instance starts with the linker default
+    // (`__stack_pointer = 1 MiB`) and concurrent workers smash each
+    // other's frames.
+    wasmExports.__stack_pointer.value = layout.stackTops[init.workerIndex];
     if (layout.packedTerrainLen > 0) {
       wasmExports.set_packed_terrain(
         layout.packedTerrainPtr,

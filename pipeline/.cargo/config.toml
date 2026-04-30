@@ -17,8 +17,16 @@ rustflags = ["-C", "force-frame-pointers=yes"]
 # - --shared-memory: marks the imported memory as shared, so JS can
 #   construct it with `shared: true` (a SAB-backed memory).
 # - --max-memory: 4 GiB cap (wasm32 max).
+# - --export=__stack_pointer: exposes the per-Instance shadow-stack
+#   pointer global so JS can assign each worker its own stack region in
+#   the shared linear memory. Without this, every Instance starts with
+#   the same default __stack_pointer value (1 MiB), so all worker shadow
+#   stacks overlap — fine for kernels that fit in wasm locals, fatal for
+#   any path that spills to the shadow stack (e.g. analytical-IDW
+#   gradient closures), where two concurrent workers smash each other's
+#   frames and trap with "memory access out of bounds".
 [target.wasm32-unknown-unknown]
 rustflags = [
   "-C", "target-feature=+simd128,+bulk-memory,+atomics,+mutable-globals",
-  "-C", "link-args=--shared-memory --import-memory --max-memory=4294967296",
+  "-C", "link-args=--shared-memory --import-memory --max-memory=4294967296 --export=__stack_pointer",
 ]

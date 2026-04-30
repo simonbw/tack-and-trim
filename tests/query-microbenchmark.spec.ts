@@ -33,7 +33,13 @@ test("Query microbenchmark: JS vs WASM × worker count, San Juan Islands", async
     }
   });
 
+  // The microbench reads the GPU managers' `lastCompletedDispatchParams`
+  // as its input snapshot, so it requires the GPU backend to be active.
+  // The default engine is WASM since the recent backend-default change,
+  // so we have to opt in explicitly here.
   await page.goto("/");
+  await page.evaluate(() => localStorage.setItem("queryEngine", "gpu"));
+  await page.reload();
   await page.waitForFunction(() => window.DEBUG?.game, { timeout: 30000 });
   await page.locator(".main-menu").waitFor({ timeout: 30000 });
 

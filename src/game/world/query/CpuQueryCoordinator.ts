@@ -1,10 +1,21 @@
 import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { on } from "../../../core/entity/handler";
-import { profile } from "../../../core/util/Profiler";
+import { profile, profiler } from "../../../core/util/Profiler";
 import { CpuQueryManager } from "./CpuQueryManager";
 import { getQueryEngine } from "./QueryBackendState";
 import { defaultQueryWorkerCount, QueryWorkerPool } from "./QueryWorkerPool";
-import { QUERY_TYPE_WATER, type QueryTypeId } from "./query-worker-protocol";
+import {
+  QUERY_TYPE_TERRAIN,
+  QUERY_TYPE_WATER,
+  QUERY_TYPE_WIND,
+  type QueryTypeId,
+} from "./query-worker-protocol";
+
+const POINT_COUNT_LABELS: Record<QueryTypeId, string> = {
+  [QUERY_TYPE_TERRAIN]: "points.terrain",
+  [QUERY_TYPE_WATER]: "points.water",
+  [QUERY_TYPE_WIND]: "points.wind",
+};
 import { WavePhysicsResources } from "../../wave-physics/WavePhysicsResources";
 import { TerrainResources } from "../terrain/TerrainResources";
 import { TerrainResultLayout } from "../terrain/TerrainQueryResult";
@@ -150,6 +161,7 @@ export class CpuQueryCoordinator extends BaseEntity {
     for (const manager of this.managers) {
       manager.writeParamsForFrame();
       const pointCount = manager.collectAndWritePoints();
+      profiler.count(POINT_COUNT_LABELS[manager.queryType], pointCount);
       if (pointCount > 0) {
         descriptors.push({
           queryType: manager.queryType,

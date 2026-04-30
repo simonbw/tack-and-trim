@@ -28,7 +28,7 @@ That's it — by default it spawns its own isolated dev server on a free port (s
 
 | Flag | Purpose |
 |---|---|
-| `--level <name>` | Level to load. One of the slugs under `resources/levels/` (e.g. `apostle-islands`, `san-juan-islands`, `isles-of-scilly`, `vendovi-island`, `default`). Default: `default`. |
+| `--level <name>` | Level to load. Must match a camelCase key in `RESOURCES.levels` — `apostleIslands`, `sanJuanIslands`, `islesOfScilly`, `vendoviIsland`, `default`. (The kebab-case file slugs under `resources/levels/` will *not* work — the loader keys directly off the camelCase resource map.) Default: `default`. |
 | `--boat <id>` | Boat catalog id. Default: `shaff-s7`. |
 | `--duration <sec>` | Sample window after warmup. Default 5. Use 10+ for noisy signals. |
 | `--warmup <sec>` | Settle time before sampling (discards startup spikes). Default 1. |
@@ -66,11 +66,11 @@ For any perf-sensitive diff, capture both sides and diff the tables:
 
 ```bash
 # After change
-npm run profile-game -- --level san-juan-islands --duration 10 --json > /tmp/after.json
+npm run profile-game -- --level sanJuanIslands --duration 10 --json > /tmp/after.json
 
 # Roll back to the baseline (git stash or checkout the parent commit) and run again
 git stash
-npm run profile-game -- --level san-juan-islands --duration 10 --json > /tmp/before.json
+npm run profile-game -- --level sanJuanIslands --duration 10 --json > /tmp/before.json
 git stash pop
 ```
 
@@ -92,3 +92,13 @@ The profile labels come from `profiler.measure(...)` / `profiler.count(...)` / t
 - The profiler resets right after warmup, so `--warmup 0` will include load spikes in the sample.
 - `calls/frame` is averaged over the sample — a value <1 means that label didn't run every frame.
 - If the user cares about GPU-bound work, make sure `surface.*` rows show non-zero `ms/frame`; if they're `0.00` then GPU timing wasn't enabled for that run.
+
+### Headless on Apple Silicon under-reports CPU-bound work
+
+Default `--headless=new` runs much slower than `--headed` on Apple Silicon Macs — observed ~1.8× longer frame times concentrated entirely in CPU-worker scopes (`QueryWorkerPool.awaitFrameComplete` and the per-manager `onTick` rows). Both modes report the same `navigator.hardwareConcurrency` and spawn the same worker count, so it isn't a thread-count issue. The cause is macOS QoS scheduling: headless Chrome is launched at a lower QoS and its workers get bin-packed onto the **efficiency cores** instead of the **performance cores**, roughly halving per-thread throughput on math-heavy kernels (Gerstner sincos, IDW terrain queries, simplex wind).
+
+Implications:
+- **Treat headless absolute numbers as a worst-case scheduling floor for CPU-bound work** — they do not reflect the user's real-world frame time. The same level that profiles at 20 ms/frame headless can run at ~12 ms/frame headed.
+- **GPU-bound scopes are unaffected** — `surface.*` and other GPU work doesn't go through worker threads, so headless numbers there are representative.
+- **Relative comparisons (before/after) remain valid in either mode** since both sides hit the same scheduler. Just don't mix modes between baseline and post-change.
+- **When the question is "is this fast enough on the user's machine?"**, run with `--headed`. When the question is "did my change make it faster?", either mode is fine as long as you're consistent.

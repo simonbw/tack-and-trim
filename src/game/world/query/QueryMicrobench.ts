@@ -30,6 +30,7 @@ import { WaterQueryManager } from "../water/WaterQueryManager";
 import { WindQueryManager } from "../wind/WindQueryManager";
 import {
   PARAMS_FLOATS_PER_CHANNEL,
+  STACK_BYTES_PER_WORKER,
   STRIDE_PER_POINT,
 } from "./query-worker-protocol";
 import {
@@ -148,14 +149,21 @@ export async function runQueryMicrobench(
 
   // Build a layout big enough for one shared region + world state.
   // Reused for every cell — workers in different cells receive the
-  // same memory + offsets.
+  // same memory + offsets. Reserve enough per-worker shadow-stack
+  // regions for the largest cell's worker count.
   const points = generateBenchPoints(POINT_COUNT);
-  const layout = buildLayout(heapBase, points.length, {
-    packedTerrain: tSnap.packedTerrain,
-    packedWaveMesh: wSnap.packedWaveMesh,
-    packedTideMesh: wSnap.packedTideMesh,
-    packedWindMesh: windSnap.packedWindMesh,
-  });
+  const maxWorkerCount = Math.max(...workerCounts);
+  const layout = buildLayout(
+    heapBase,
+    points.length,
+    {
+      packedTerrain: tSnap.packedTerrain,
+      packedWaveMesh: wSnap.packedWaveMesh,
+      packedTideMesh: wSnap.packedTideMesh,
+      packedWindMesh: windSnap.packedWindMesh,
+    },
+    maxWorkerCount,
+  );
   const initialPages = Math.ceil(layout.totalBytes / 65536) + 16;
   const memory = new WebAssembly.Memory({
     initial: initialPages,
@@ -423,6 +431,7 @@ function buildLayout(
     packedTideMesh: Uint32Array;
     packedWindMesh: Uint32Array | null;
   },
+  maxWorkerCount: number,
 ): LayoutWithSize {
   const ALIGN = 16;
   const align = (n: number): number => (n + ALIGN - 1) & ~(ALIGN - 1);
@@ -434,6 +443,15 @@ function buildLayout(
     cursor += bytes;
     return ptr;
   };
+
+  // Per-worker shadow stacks — see `STACK_BYTES_PER_WORKER`. Each entry
+  // is the stack TOP; SP starts there and grows down by `STACK_BYTES`.
+  cursor = align(cursor);
+  const stackTops: number[] = [];
+  for (let i = 0; i < maxWorkerCount; i++) {
+    cursor += STACK_BYTES_PER_WORKER;
+    stackTops.push(cursor);
+  }
 
   const pointsPtr = reserve(pointCount * STRIDE_PER_POINT * F32);
   const paramsPtr = reserve(PARAMS_FLOATS_PER_CHANNEL * F32);
@@ -461,6 +479,7 @@ function buildLayout(
     packedWindMeshPtr,
     packedWindMeshLen: worldState.packedWindMesh?.length ?? 0,
     pointCount,
+    stackTops,
     totalBytes: cursor,
   };
 }

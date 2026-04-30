@@ -22,12 +22,21 @@
  */
 
 import {
+  BARRIER_TIMING_COMPUTE_END,
+  BARRIER_TIMING_COMPUTE_START,
+  BARRIER_TIMING_DECREMENT,
+  BARRIER_TIMING_TYPE_FIRST_START_BASE,
+  BARRIER_TIMING_TYPE_LAST_END_BASE,
+  BARRIER_TIMING_WAKE,
+  BARRIER_TIMINGS_PER_WORKER,
+  CHUNK_SIZE,
   CTRL_DESCRIPTORS_BASE,
   CTRL_DESCRIPTOR_POINT_COUNT,
   CTRL_DESCRIPTOR_STRIDE,
   CTRL_DESCRIPTOR_STRIDE_FIELD,
   CTRL_DESCRIPTOR_TYPE_ID,
   CTRL_GENERATION,
+  CTRL_NEXT_CHUNK_BASE,
   CTRL_NUM_TYPES,
   CTRL_REMAINING,
   PARAMS_FLOATS_PER_CHANNEL,
@@ -89,6 +98,13 @@ interface ChannelView {
  * is a thin C-ABI shim into `pipeline/query-wasm/src/lib.rs`.
  */
 interface WasmExports {
+  /**
+   * Per-Instance shadow-stack pointer (mutable i32 global). We rewrite
+   * this at init so each worker's stack lives in its own slot of the
+   * shared linear memory rather than overlapping at the linker default.
+   * Exported via the `--export=__stack_pointer` linker flag.
+   */
+  __stack_pointer: WebAssembly.Global;
   query_implementation_mask(): number;
   set_packed_terrain(ptr: number, lenU32: number): void;
   set_packed_wave_mesh(ptr: number, lenU32: number): void;
@@ -142,6 +158,18 @@ let wasmImplementationMask = 0;
 let timings: Float32Array | null = null;
 let timingsBase = 0;
 
+let barrierTimings: Float64Array | null = null;
+let barrierTimingsBase = 0;
+/**
+ * Constant offset (ms) added to every `performance.now()` we record into
+ * the barrier-timings SAB. Set once at init so worker timestamps land on
+ * the main thread's clock and can be diffed with main's `performance.now()`.
+ */
+let timeOriginOffset = 0;
+function nowOnMainClock(): number {
+  return performance.now() + timeOriginOffset;
+}
+
 self.onmessage = (event: MessageEvent<QueryWorkerMessage>) => {
   const msg = event.data;
   if (msg.type === "init") {
@@ -150,6 +178,9 @@ self.onmessage = (event: MessageEvent<QueryWorkerMessage>) => {
     control = new Int32Array(msg.controlSab);
     timings = new Float32Array(msg.timingsSab);
     timingsBase = workerIndex * TIMINGS_FLOATS_PER_WORKER;
+    barrierTimings = new Float64Array(msg.barrierTimingsSab);
+    barrierTimingsBase = workerIndex * BARRIER_TIMINGS_PER_WORKER;
+    timeOriginOffset = performance.timeOrigin - msg.mainTimeOrigin;
     cpuEngine = msg.cpuEngine;
 
     const buffer = msg.wasmMemory.buffer;
@@ -162,7 +193,8 @@ self.onmessage = (event: MessageEvent<QueryWorkerMessage>) => {
     // Instantiate the wasm module against the shared memory. Even when
     // `cpuEngine === "js"`, instantiation is cheap and harmless — we
     // just won't call into the kernel.
-    instantiateWasm(msg.wasmModule, msg.wasmMemory).catch((err) => {
+    const stackTop = msg.partition.stackTops[workerIndex];
+    instantiateWasm(msg.wasmModule, msg.wasmMemory, stackTop).catch((err) => {
       console.error(
         `[query-worker ${workerIndex}] failed to instantiate wasm — falling back to JS for all types`,
         err,
@@ -231,11 +263,19 @@ function buildChannelView(
 async function instantiateWasm(
   module: WebAssembly.Module,
   memory: WebAssembly.Memory,
+  stackTop: number,
 ): Promise<void> {
   const instance = await WebAssembly.instantiate(module, {
     env: { memory },
   });
   const exports = instance.exports as unknown as WasmExports;
+
+  // Move this Instance's shadow stack into its assigned slot. Without
+  // this every worker's `__stack_pointer` starts at the linker default
+  // (1 MiB) and they all push/pop in the same memory region — fine for
+  // kernels whose locals fit in wasm registers, fatal for paths that
+  // spill (e.g. analytical-IDW gradient closures).
+  exports.__stack_pointer.value = stackTop;
 
   // Each Instance has its own per-instance global state (the static
   // mut WORLD_STATE in Rust). Register the packed-buffer offsets with
@@ -291,12 +331,21 @@ function runMainLoop(): void {
     if (generation === lastGeneration) continue;
     lastGeneration = generation;
 
+    if (barrierTimings) {
+      barrierTimings[barrierTimingsBase + BARRIER_TIMING_WAKE] =
+        nowOnMainClock();
+    }
+
     try {
       processFrame();
     } catch (err) {
       console.error("[query-worker] processFrame threw:", err);
     }
 
+    if (barrierTimings) {
+      barrierTimings[barrierTimingsBase + BARRIER_TIMING_DECREMENT] =
+        nowOnMainClock();
+    }
     const prev = Atomics.sub(control, CTRL_REMAINING, 1);
     if (prev === 1) {
       Atomics.notify(control, CTRL_REMAINING, 1);
@@ -311,6 +360,19 @@ function processFrame(): void {
       timings[timingsBase + t] = 0;
     }
   }
+  if (barrierTimings) {
+    barrierTimings[barrierTimingsBase + BARRIER_TIMING_COMPUTE_START] =
+      nowOnMainClock();
+    // Sentinel 0 = "didn't touch this type this frame". Aggregator skips.
+    for (let t = 0; t < 3; t++) {
+      barrierTimings[
+        barrierTimingsBase + BARRIER_TIMING_TYPE_FIRST_START_BASE + t
+      ] = 0;
+      barrierTimings[
+        barrierTimingsBase + BARRIER_TIMING_TYPE_LAST_END_BASE + t
+      ] = 0;
+    }
+  }
   const numTypes = Atomics.load(control, CTRL_NUM_TYPES);
   for (let i = 0; i < numTypes; i++) {
     const base = CTRL_DESCRIPTORS_BASE + i * CTRL_DESCRIPTOR_STRIDE;
@@ -319,23 +381,41 @@ function processFrame(): void {
     const resultStride = control[base + CTRL_DESCRIPTOR_STRIDE_FIELD];
     if (pointCount === 0) continue;
 
-    const [startPoint, endPoint] = sliceForWorker(pointCount);
-    if (startPoint >= endPoint) continue;
+    // Dynamic work-stealing: every worker races on the same atomic
+    // counter, claims a chunk, processes it, and goes back for more.
+    // Fast workers absorb more chunks than slow ones automatically.
+    let elapsedMs = 0;
+    let firstChunk = true;
+    while (true) {
+      const chunkIdx = Atomics.add(control, CTRL_NEXT_CHUNK_BASE + i, 1);
+      const startPoint = chunkIdx * CHUNK_SIZE;
+      if (startPoint >= pointCount) break;
+      const endPoint = Math.min(startPoint + CHUNK_SIZE, pointCount);
 
-    const dispatchStart = performance.now();
-    dispatchQuery(typeId, channels, resultStride, startPoint, endPoint);
-    if (timings) {
-      timings[timingsBase + typeId] = performance.now() - dispatchStart;
+      const dispatchStart = performance.now();
+      if (barrierTimings && firstChunk) {
+        barrierTimings[
+          barrierTimingsBase + BARRIER_TIMING_TYPE_FIRST_START_BASE + typeId
+        ] = nowOnMainClock();
+        firstChunk = false;
+      }
+      dispatchQuery(typeId, channels, resultStride, startPoint, endPoint);
+      const dispatchEndPerf = performance.now();
+      elapsedMs += dispatchEndPerf - dispatchStart;
+      if (barrierTimings) {
+        barrierTimings[
+          barrierTimingsBase + BARRIER_TIMING_TYPE_LAST_END_BASE + typeId
+        ] = nowOnMainClock();
+      }
+    }
+    if (timings && elapsedMs > 0) {
+      timings[timingsBase + typeId] = elapsedMs;
     }
   }
-}
-
-function sliceForWorker(total: number): [number, number] {
-  const base = Math.floor(total / workerCount);
-  const residual = total - base * workerCount;
-  const start = base * workerIndex + Math.min(workerIndex, residual);
-  const mine = base + (workerIndex < residual ? 1 : 0);
-  return [start, start + mine];
+  if (barrierTimings) {
+    barrierTimings[barrierTimingsBase + BARRIER_TIMING_COMPUTE_END] =
+      nowOnMainClock();
+  }
 }
 
 function implementsWasm(typeId: QueryTypeId): boolean {
