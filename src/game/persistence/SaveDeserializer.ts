@@ -26,8 +26,5 @@ export function applySaveData(game: Game, save: SaveFile): void {
   boat.bilge.waterVolume = boatState.bilgeWater;
 
   // Restore sailor state
-  boat.sailor.restoreState(
-    boatState.sailor.stationId,
-    boatState.sailor.position,
-  );
+  boat.sailor.restoreState(boatState.sailor.stationId);
 }

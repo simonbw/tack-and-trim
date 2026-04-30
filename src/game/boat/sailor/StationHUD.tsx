@@ -20,8 +20,8 @@ const AXIS_KEYS: Record<"steer" | "primary" | "secondary", string> = {
 };
 
 /**
- * Always-visible HUD showing the sailor's current station and
- * available controls, or a walking indicator when between stations.
+ * Always-visible HUD showing the sailor's current station and available
+ * controls, or a transit indicator while moving between stations.
  */
 export class StationHUD extends ReactEntity {
   constructor() {
@@ -31,7 +31,7 @@ export class StationHUD extends ReactEntity {
   private renderContent() {
     const boat = this.game?.entities.getById("boat") as Boat | undefined;
     const sailor = boat?.sailor;
-    if (!sailor) return null;
+    if (!boat || !sailor) return null;
 
     return (
       <div
@@ -49,25 +49,20 @@ export class StationHUD extends ReactEntity {
           lineHeight: "1.5",
         }}
       >
-        {sailor.state.kind === "walking"
-          ? this.renderWalking()
-          : this.renderStation(sailor)}
+        {sailor.state.kind === "transit"
+          ? this.renderTransit(boat, sailor)
+          : this.renderStation(boat, sailor)}
       </div>
     );
   }
 
-  private renderWalking() {
-    const boat = this.game?.entities.getById("boat") as Boat | undefined;
-    const sailor = boat?.sailor;
-    const nearStation = sailor?.findNearbyStation() ?? null;
-
-    const bindings: Array<{ keys: string; label: string }> = [
-      { keys: "WASD", label: "Walk" },
-      { keys: "Shift", label: "Run" },
-    ];
-    if (nearStation) {
-      bindings.push({ keys: "F", label: `Enter ${nearStation.name}` });
-    }
+  private renderTransit(boat: Boat, sailor: Sailor) {
+    const state = sailor.state;
+    if (state.kind !== "transit") return null;
+    const target = boat.config.stations.find(
+      (s) => s.id === state.targetStationId,
+    );
+    if (!target) return null;
 
     return (
       <div>
@@ -79,14 +74,14 @@ export class StationHUD extends ReactEntity {
             color: "#ff8800",
           }}
         >
-          Walking
+          → {target.name}
         </div>
-        {this.renderBindingList(bindings)}
+        {this.renderBindingList(this.stationCycleBindings(boat, sailor))}
       </div>
     );
   }
 
-  private renderStation(sailor: Sailor) {
+  private renderStation(boat: Boat, sailor: Sailor) {
     const station = sailor.getCurrentStation();
     if (!station) return null;
 
@@ -102,12 +97,12 @@ export class StationHUD extends ReactEntity {
         >
           {station.name}
         </div>
-        {this.renderBindings(station)}
+        {this.renderBindings(boat, sailor, station)}
       </div>
     );
   }
 
-  private renderBindings(station: StationDef) {
+  private renderBindings(boat: Boat, sailor: Sailor, station: StationDef) {
     const bindings: Array<{ keys: string; label: string }> = [];
 
     if (station.steerAxis) {
@@ -138,9 +133,31 @@ export class StationHUD extends ReactEntity {
     if (station.actions?.includes("bail")) {
       bindings.push({ keys: "B", label: "Bail" });
     }
-    bindings.push({ keys: "F", label: "Leave Station" });
+    bindings.push(...this.stationCycleBindings(boat, sailor));
 
     return this.renderBindingList(bindings);
+  }
+
+  /** Z/X bindings labelled with the neighbor station's name; hidden at endpoints. */
+  private stationCycleBindings(
+    boat: Boat,
+    sailor: Sailor,
+  ): Array<{ keys: string; label: string }> {
+    const stations = boat.config.stations;
+    const state = sailor.state;
+    const currentId =
+      state.kind === "atStation" ? state.stationId : state.targetStationId;
+    const idx = stations.findIndex((s) => s.id === currentId);
+    if (idx < 0) return [];
+
+    const out: Array<{ keys: string; label: string }> = [];
+    if (idx > 0) {
+      out.push({ keys: "Z", label: `Go to ${stations[idx - 1].name}` });
+    }
+    if (idx < stations.length - 1) {
+      out.push({ keys: "X", label: `Go to ${stations[idx + 1].name}` });
+    }
+    return out;
   }
 
   private renderBindingList(bindings: Array<{ keys: string; label: string }>) {

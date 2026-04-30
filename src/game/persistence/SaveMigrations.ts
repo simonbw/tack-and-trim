@@ -47,6 +47,23 @@ const MIGRATIONS: Migration[] = [
     }
     return data;
   },
+  // v3 -> v4: Sailor is always at a station — drop walking position, and
+  // recover walking-state saves by snapping to the helm.
+  (data) => {
+    const boat = data.boat as Record<string, unknown> | undefined;
+    if (!boat) return data;
+    const sailor = boat.sailor as Record<string, unknown> | undefined;
+    if (!sailor) {
+      boat.sailor = { stationId: "helm" };
+      return data;
+    }
+    const stationId =
+      typeof sailor.stationId === "string" && sailor.stationId.length > 0
+        ? sailor.stationId
+        : "helm";
+    boat.sailor = { stationId };
+    return data;
+  },
 ];
 
 /**
