@@ -53,6 +53,10 @@ import { createWindFieldShader } from "./WindFieldShader";
 import { WindFieldUniforms } from "./WindFieldUniforms";
 import { pushWaterTuning } from "./WaterTuning";
 import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
+import {
+  getWaterQualityScale,
+  onWaterQualityChange,
+} from "./WaterQualityState";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
 // World viewport margin for the terrain tile cache. Independent of the
@@ -62,13 +66,12 @@ const TILE_CACHE_VIEWPORT_MARGIN = 0.1;
 // Modifier texture resolution scale (fraction of surface texture resolution)
 const MODIFIER_RESOLUTION_SCALE = 1.0 / 2.0;
 
-// Water-height texture resolution scale. The water filter samples this with
-// linear filtering via worldToTexClip, so reducing the resolution costs
-// some normal/height detail at very high zoom but visually disappears once
-// bilinear interpolation is applied. The analytic gradient stored in the
-// BA channels means bilinear of dh/dx and dh/dy is still smooth — no
-// finite-diff facets in the specular highlight.
-const WATER_HEIGHT_RESOLUTION_SCALE = 1.0 / 2.0;
+// Water-height texture resolution scale comes from the user-facing
+// WaterQualityState (low=0.25 / medium=0.5 / high=1.0). The water filter
+// samples the height texture with linear filtering via worldToTexClip, so
+// reducing the resolution costs some normal/height detail but the analytic
+// gradient stored in the BA channels stays smooth under bilinear interp —
+// no finite-diff facets even at low quality.
 
 // Default bio-optical water chemistry. These drive the water filter's
 // absorption/scattering computation. Eventually they should come from the
@@ -312,10 +315,19 @@ export class SurfaceRenderer extends BaseEntity {
   }
 
   private initPromise: Promise<void> | null = null;
+  private unsubWaterQuality: (() => void) | null = null;
 
   @on("add")
   onAdd() {
     this.initPromise = this.ensureInitialized();
+    // Force a texture rebuild when the user changes water quality.
+    // Zeroing lastTextureWidth makes ensureTextures see a size mismatch
+    // on the next render and recreate the water-height texture (and its
+    // bind group) at the new resolution.
+    this.unsubWaterQuality = onWaterQualityChange(() => {
+      this.lastTextureWidth = 0;
+      this.lastTextureHeight = 0;
+    });
   }
 
   /**
@@ -374,14 +386,8 @@ export class SurfaceRenderer extends BaseEntity {
     // computed analytically inside calculateGerstnerWaves so the filter
     // shader can bilinear-sample a smooth normal field — no finite-diff
     // facets even at half-res.
-    const waterTexW = Math.max(
-      1,
-      Math.round(texW * WATER_HEIGHT_RESOLUTION_SCALE),
-    );
-    const waterTexH = Math.max(
-      1,
-      Math.round(texH * WATER_HEIGHT_RESOLUTION_SCALE),
-    );
+    const waterTexW = Math.max(1, Math.round(texW * getWaterQualityScale()));
+    const waterTexH = Math.max(1, Math.round(texH * getWaterQualityScale()));
     this.waterHeightTexture = device.createTexture({
       size: { width: waterTexW, height: waterTexH },
       format: "rgba16float",
@@ -894,14 +900,8 @@ export class SurfaceRenderer extends BaseEntity {
 
     const windTexW = Math.ceil(texW / 2);
     const windTexH = Math.ceil(texH / 2);
-    const waterTexW = Math.max(
-      1,
-      Math.round(texW * WATER_HEIGHT_RESOLUTION_SCALE),
-    );
-    const waterTexH = Math.max(
-      1,
-      Math.round(texH * WATER_HEIGHT_RESOLUTION_SCALE),
-    );
+    const waterTexW = Math.max(1, Math.round(texW * getWaterQualityScale()));
+    const waterTexH = Math.max(1, Math.round(texH * getWaterQualityScale()));
 
     profiler.measure("uniforms", () => {
       // Update all uniforms. Compute shaders dispatch one invocation per
@@ -1218,5 +1218,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.terrainCompositeUniformBuffer?.destroy();
     this.waterFilterUniformBuffer?.destroy();
     this.biomeUniformBuffer?.destroy();
+    this.unsubWaterQuality?.();
+    this.unsubWaterQuality = null;
   }
 }

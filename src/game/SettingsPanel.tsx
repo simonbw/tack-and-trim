@@ -11,6 +11,11 @@ import {
   setQueryEngine,
   type QueryEngine,
 } from "./world/query/QueryBackendState";
+import {
+  getWaterQuality,
+  setWaterQuality,
+  type WaterQuality,
+} from "./surface-rendering/WaterQualityState";
 import "./SettingsPanel.css";
 
 interface Props {
@@ -26,10 +31,18 @@ const QUERY_ENGINE_LABELS: Record<QueryEngine, string> = {
   wasm: "WASM",
 };
 
+const WATER_QUALITY_CYCLE: WaterQuality[] = ["low", "medium", "high"];
+const WATER_QUALITY_LABELS: Record<WaterQuality, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
+
 export function SettingsPanel({ onBack, onChange }: Props) {
   const msaa = isMSAAEnabled();
   const volume = getMasterVolume();
   const queryEngine = getQueryEngine();
+  const waterQuality = getWaterQuality();
   return (
     <div class="settings-panel">
       <div class="settings-panel__title">Settings</div>
@@ -80,6 +93,22 @@ export function SettingsPanel({ onBack, onChange }: Props) {
           <span class="settings-panel__option-label">Query Engine</span>
           <span class="settings-panel__option-value">
             {QUERY_ENGINE_LABELS[queryEngine]}
+          </span>
+        </button>
+        <button
+          class="settings-panel__option"
+          onClick={() => {
+            const i = WATER_QUALITY_CYCLE.indexOf(waterQuality);
+            const next =
+              WATER_QUALITY_CYCLE[(i + 1) % WATER_QUALITY_CYCLE.length];
+            setWaterQuality(next);
+            onChange();
+          }}
+          title="Water-height texture resolution. Low (¼) is fastest; High (full) is sharpest. Medium is the default."
+        >
+          <span class="settings-panel__option-label">Water Quality</span>
+          <span class="settings-panel__option-value">
+            {WATER_QUALITY_LABELS[waterQuality]}
           </span>
         </button>
       </div>
