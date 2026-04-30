@@ -246,8 +246,13 @@ function getGraphicsStats(ctx: StatsPanelContext) {
   const renderer = ctx.game.getRenderer();
   const rendererStats = renderer?.getStats();
   const gpuTimerSupported = ctx.game.hasGpuTimerSupport();
-  const gpuMs = ctx.game.renderer.getGpuMs();
   const gpuAllMs = ctx.game.renderer.getAllGpuMs();
+  const gpuSectionGroups = gpuAllMs ? groupAndSortGpuSections(gpuAllMs) : [];
+
+  // Top-level GPU time: sum of top-level group wall-clocks. Groups execute
+  // serially on the GPU and don't overlap, so the sum approximates total
+  // instrumented GPU work per frame (vs. just the main render pass).
+  const gpuAvgMs = gpuSectionGroups.reduce((sum, g) => sum + g.total, 0);
 
   return {
     drawCalls: rendererStats?.drawCalls ?? 0,
@@ -259,8 +264,8 @@ function getGraphicsStats(ctx: StatsPanelContext) {
       : "N/A",
     pixelRatio: rendererStats?.pixelRatio ?? 1,
     gpuTimerSupported,
-    gpuAvgMs: gpuMs,
-    gpuSectionGroups: gpuAllMs ? groupAndSortGpuSections(gpuAllMs) : [],
+    gpuAvgMs,
+    gpuSectionGroups,
   };
 }
 

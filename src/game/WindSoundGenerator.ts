@@ -18,7 +18,7 @@ const MIN_FREQUENCY = 200; // Light breeze - low rumble
 const MAX_FREQUENCY = 1200; // Strong wind - more hiss
 
 // Volume
-const MAX_GAIN = 0.08;
+const MAX_GAIN = 0.0008;
 
 /**
  * Generates ambient wind sound driven by the local wind speed.
