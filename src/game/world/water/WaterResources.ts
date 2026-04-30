@@ -16,6 +16,7 @@ import { on } from "../../../core/entity/handler";
 
 import { profile } from "../../../core/util/Profiler";
 import { TimeOfDay } from "../../time/TimeOfDay";
+import type { Viewport } from "../../wave-physics/WavePhysicsResources";
 import {
   type GPUWaterModifierData,
   WaterModifier,
@@ -97,6 +98,24 @@ export class WaterResources extends BaseEntity {
 
   // Current modifier count (updated each frame)
   private modifierCount: number = 0;
+
+  /**
+   * Number of modifiers whose AABB overlaps the current render viewport.
+   * Visible modifiers are packed at the front of the GPU buffer, so the
+   * modifier rasterizer can dispatch only the visible-count of instances
+   * and skip rasterizing wakes whose entire footprint is off-screen.
+   * Modifiers behind this count remain in the buffer for the GPU water
+   * query path to iterate.
+   */
+  private visibleModifierCount: number = 0;
+
+  /**
+   * Last render viewport handed in by SurfaceRenderer. Used to partition
+   * collected modifiers visible-first each tick. Null on the first frame
+   * before SurfaceRenderer has rendered — in that case all modifiers are
+   * treated as visible (no culling).
+   */
+  private renderViewport: Viewport | null = null;
 
   // Tide height offset (updated each tick)
   private tideHeight: number = 0;
@@ -206,6 +225,11 @@ export class WaterResources extends BaseEntity {
   /**
    * Update the modifiers buffer with water modifier data.
    * Returns the actual number of modifiers uploaded.
+   *
+   * Modifiers are partitioned visible-first based on the current render
+   * viewport so the rasterizer can dispatch only `visibleModifierCount`
+   * instances. Off-screen modifiers remain in the buffer (after the
+   * visible ones) for the GPU water query path to read.
    */
   private updateModifiers(modifiers: GPUWaterModifierData[]): number {
     const device = this.game.getWebGPUDevice();
@@ -216,6 +240,39 @@ export class WaterResources extends BaseEntity {
         `Water modifiers (${modifiers.length}) exceeds MAX_MODIFIERS (${MAX_MODIFIERS}), truncating`,
       );
     }
+
+    // Partition visible-first (Lomuto-style in-place). Without a viewport
+    // (first frame), treat every modifier as visible.
+    const viewport = this.renderViewport;
+    let visibleCount = 0;
+    if (viewport) {
+      const left = viewport.left;
+      const right = viewport.left + viewport.width;
+      const top = viewport.top;
+      const bottom = viewport.top + viewport.height;
+      let writeIdx = 0;
+      for (let i = 0; i < modifierCount; i++) {
+        const b = modifiers[i].bounds;
+        const visible = !(
+          b.upperBound.x < left ||
+          b.lowerBound.x > right ||
+          b.upperBound.y < top ||
+          b.lowerBound.y > bottom
+        );
+        if (visible) {
+          if (i !== writeIdx) {
+            const tmp = modifiers[writeIdx];
+            modifiers[writeIdx] = modifiers[i];
+            modifiers[i] = tmp;
+          }
+          writeIdx++;
+        }
+      }
+      visibleCount = writeIdx;
+    } else {
+      visibleCount = modifierCount;
+    }
+    this.visibleModifierCount = visibleCount;
 
     for (let i = 0; i < modifierCount; i++) {
       const mod = modifiers[i];
@@ -289,6 +346,26 @@ export class WaterResources extends BaseEntity {
    */
   getModifierCount(): number {
     return this.modifierCount;
+  }
+
+  /**
+   * Get the number of modifiers visible in the current render viewport.
+   * Visible modifiers are packed at the front of the GPU buffer, so the
+   * modifier rasterizer dispatches this count of instances. Off-screen
+   * modifiers occupy positions [visibleCount, modifierCount) and stay
+   * available to the GPU water query.
+   */
+  getVisibleModifierCount(): number {
+    return this.visibleModifierCount;
+  }
+
+  /**
+   * Inform WaterResources of the current render viewport so the next
+   * tick's modifier upload can partition visible-first. Called from
+   * SurfaceRenderer each frame. Pass null to disable culling.
+   */
+  setRenderViewport(viewport: Viewport | null): void {
+    this.renderViewport = viewport;
   }
 
   /**

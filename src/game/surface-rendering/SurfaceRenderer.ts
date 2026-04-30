@@ -869,6 +869,12 @@ export class SurfaceRenderer extends BaseEntity {
       windResources: this.game.entities.tryGetSingleton(WindResources),
     }));
 
+    // Hand the current render viewport to WaterResources so the next
+    // tick's modifier upload can partition visible-first. Wakes whose
+    // AABB is entirely outside this rect won't be rasterized into the
+    // modifier texture.
+    waterResources.setRenderViewport(expandedViewport);
+
     profiler.measure("ensureTextures", () => {
       this.ensureTextures(width, height);
     });
@@ -1085,7 +1091,7 @@ export class SurfaceRenderer extends BaseEntity {
         this.modifierRasterizer.render(
           commandEncoder,
           waterResources.modifiersBuffer,
-          waterResources.getModifierCount(),
+          waterResources.getVisibleModifierCount(),
           worldToTexClipMatrix,
           this.modifierTexture,
           gpuProfiler,
