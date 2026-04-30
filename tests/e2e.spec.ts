@@ -92,7 +92,9 @@ test("game initializes, shows main menu, and starts without errors", async ({
   await expect(pauseMenu.locator(".pause-menu__actions")).toHaveCount(0);
 
   // --- Assertion: Back button returns to pause menu, still paused ---
-  // Settings has four focusable buttons: MSAA, Query Engine, Water Quality, Back.
+  // Settings has five focusable buttons: MSAA, Query Engine, Water Quality,
+  // Render Resolution, Back.
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");

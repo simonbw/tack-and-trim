@@ -1,4 +1,9 @@
 import {
+  getRenderScale,
+  setRenderScale,
+  type RenderScale,
+} from "../core/graphics/RenderScaleState";
+import {
   isMSAAEnabled,
   setMSAAEnabled,
 } from "../core/graphics/webgpu/MSAAState";
@@ -38,11 +43,19 @@ const WATER_QUALITY_LABELS: Record<WaterQuality, string> = {
   high: "High",
 };
 
+const RENDER_SCALE_CYCLE: RenderScale[] = ["low", "medium", "high"];
+const RENDER_SCALE_LABELS: Record<RenderScale, string> = {
+  low: "Low (50%)",
+  medium: "Medium (75%)",
+  high: "High (100%)",
+};
+
 export function SettingsPanel({ onBack, onChange }: Props) {
   const msaa = isMSAAEnabled();
   const volume = getMasterVolume();
   const queryEngine = getQueryEngine();
   const waterQuality = getWaterQuality();
+  const renderScale = getRenderScale();
   return (
     <div class="settings-panel">
       <div class="settings-panel__title">Settings</div>
@@ -109,6 +122,22 @@ export function SettingsPanel({ onBack, onChange }: Props) {
           <span class="settings-panel__option-label">Water Quality</span>
           <span class="settings-panel__option-value">
             {WATER_QUALITY_LABELS[waterQuality]}
+          </span>
+        </button>
+        <button
+          class="settings-panel__option"
+          onClick={() => {
+            const i = RENDER_SCALE_CYCLE.indexOf(renderScale);
+            const next =
+              RENDER_SCALE_CYCLE[(i + 1) % RENDER_SCALE_CYCLE.length];
+            setRenderScale(next);
+            onChange();
+          }}
+          title="Overall render resolution as a fraction of your display's native pixel density. Low halves the render resolution; High renders at native (default)."
+        >
+          <span class="settings-panel__option-label">Render Resolution</span>
+          <span class="settings-panel__option-value">
+            {RENDER_SCALE_LABELS[renderScale]}
           </span>
         </button>
       </div>

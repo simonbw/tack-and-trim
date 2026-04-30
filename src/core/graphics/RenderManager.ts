@@ -3,6 +3,7 @@ import { V, V2d } from "../Vector";
 import { Camera2d, ViewportProvider } from "./Camera2d";
 import { LayerInfo } from "./LayerInfo";
 import { Matrix3 } from "./Matrix3";
+import { getRenderScaleFactor, onRenderScaleChange } from "./RenderScaleState";
 import { GPUProfiler, GPUProfileSection } from "./webgpu/GPUProfiler";
 import { WebGPURenderer } from "./webgpu/WebGPURenderer";
 
@@ -28,6 +29,7 @@ export class RenderManager implements ViewportProvider {
 
   /** Store reference for cleanup */
   private boundHandleResize: () => void;
+  private unsubRenderScale: () => void;
 
   constructor(
     private layerInfos: Record<LayerName, LayerInfo>,
@@ -40,10 +42,14 @@ export class RenderManager implements ViewportProvider {
 
     this.boundHandleResize = () => this.handleResize();
     window.addEventListener("resize", this.boundHandleResize);
+    // Render scale changes act like a resize: re-run the same path so all
+    // canvas-sized targets get recreated at the new physical pixel count.
+    this.unsubRenderScale = onRenderScaleChange(() => this.handleResize());
   }
 
   destroy(): void {
     window.removeEventListener("resize", this.boundHandleResize);
+    this.unsubRenderScale();
     this.canvas.remove();
     this.renderer.destroy();
   }
@@ -92,7 +98,8 @@ export class RenderManager implements ViewportProvider {
   }
 
   handleResize(): void {
-    this.renderer.resize(window.innerWidth, window.innerHeight);
+    const pixelRatio = window.devicePixelRatio * getRenderScaleFactor();
+    this.renderer.resize(window.innerWidth, window.innerHeight, pixelRatio);
     this.onResize?.(this.getSize());
   }
 

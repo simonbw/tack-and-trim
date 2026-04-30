@@ -57,6 +57,10 @@ import {
   getWaterQualityScale,
   onWaterQualityChange,
 } from "./WaterQualityState";
+import {
+  getRenderScaleFactor,
+  onRenderScaleChange,
+} from "../../core/graphics/RenderScaleState";
 import { WetnessRenderPipeline } from "./WetnessRenderPipeline";
 
 // World viewport margin for the terrain tile cache. Independent of the
@@ -316,18 +320,21 @@ export class SurfaceRenderer extends BaseEntity {
 
   private initPromise: Promise<void> | null = null;
   private unsubWaterQuality: (() => void) | null = null;
+  private unsubRenderScale: (() => void) | null = null;
 
   @on("add")
   onAdd() {
     this.initPromise = this.ensureInitialized();
-    // Force a texture rebuild when the user changes water quality.
-    // Zeroing lastTextureWidth makes ensureTextures see a size mismatch
-    // on the next render and recreate the water-height texture (and its
-    // bind group) at the new resolution.
-    this.unsubWaterQuality = onWaterQualityChange(() => {
+    // Force a texture rebuild when the user changes water quality or
+    // render scale. Zeroing lastTextureWidth makes ensureTextures see a
+    // size mismatch on the next render and recreate the surface textures
+    // (and bind groups) at the new resolution.
+    const invalidate = () => {
       this.lastTextureWidth = 0;
       this.lastTextureHeight = 0;
-    });
+    };
+    this.unsubWaterQuality = onWaterQualityChange(invalidate);
+    this.unsubRenderScale = onRenderScaleChange(invalidate);
   }
 
   /**
@@ -358,8 +365,16 @@ export class SurfaceRenderer extends BaseEntity {
 
     const device = this.game.getWebGPUDevice();
 
+    // Logical (CSS-pixel) coverage including margin. The surface textures
+    // cover this world rectangle; their actual texel resolution is scaled
+    // by the user's Render Resolution setting (surfScale). The boat-air
+    // texture is the exception — it's read by WaterFilterShader via
+    // textureLoad with logical pixel coords, so it stays 1:1 with logical.
     const texW = width + 2 * SURFACE_TEXTURE_MARGIN;
     const texH = height + 2 * SURFACE_TEXTURE_MARGIN;
+    const surfScale = getRenderScaleFactor();
+    const surfTexW = Math.max(1, Math.round(texW * surfScale));
+    const surfTexH = Math.max(1, Math.round(texH * surfScale));
 
     // Destroy old textures
     this.terrainHeightTexture?.destroy();
@@ -374,7 +389,7 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Create terrain height texture (screen-space, sampled from tile atlas)
     this.terrainHeightTexture = device.createTexture({
-      size: { width: texW, height: texH },
+      size: { width: surfTexW, height: surfTexH },
       format: "r32float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       label: "Terrain Height Texture",
@@ -385,9 +400,16 @@ export class SurfaceRenderer extends BaseEntity {
     // 4 channels: R=height, G=turbulence, B=dh/dx, A=dh/dy. The gradient is
     // computed analytically inside calculateGerstnerWaves so the filter
     // shader can bilinear-sample a smooth normal field — no finite-diff
-    // facets even at half-res.
-    const waterTexW = Math.max(1, Math.round(texW * getWaterQualityScale()));
-    const waterTexH = Math.max(1, Math.round(texH * getWaterQualityScale()));
+    // facets even at half-res. WaterQuality scales further on top of
+    // surfScale.
+    const waterTexW = Math.max(
+      1,
+      Math.round(surfTexW * getWaterQualityScale()),
+    );
+    const waterTexH = Math.max(
+      1,
+      Math.round(surfTexH * getWaterQualityScale()),
+    );
     this.waterHeightTexture = device.createTexture({
       size: { width: waterTexW, height: waterTexH },
       format: "rgba16float",
@@ -397,8 +419,10 @@ export class SurfaceRenderer extends BaseEntity {
     this.waterHeightView = this.waterHeightTexture.createView();
 
     // Create boat air texture: per-pixel air gap published by BoatAirShader
-    // and consumed by WaterHeightShader. R = bilge surface Z, G = deck cap
-    // Z, B = bilge turbulence. Cleared each frame to a low sentinel.
+    // and consumed by WaterFilterShader. R = bilge surface Z, G = deck cap
+    // Z, B = bilge turbulence. Cleared each frame to a low sentinel. Kept
+    // at logical (unscaled) resolution because the filter reads it with
+    // textureLoad at logical pixel coords.
     this.boatAirTexture = device.createTexture({
       size: { width: texW, height: texH },
       format: "rgba16float",
@@ -410,7 +434,11 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Create wave field texture array (one layer per wave source)
     this.waveFieldTexture = device.createTexture({
-      size: { width: texW, height: texH, depthOrArrayLayers: MAX_WAVE_SOURCES },
+      size: {
+        width: surfTexW,
+        height: surfTexH,
+        depthOrArrayLayers: MAX_WAVE_SOURCES,
+      },
       format: "rgba16float",
       usage:
         GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
@@ -422,8 +450,8 @@ export class SurfaceRenderer extends BaseEntity {
     });
 
     // Create modifier texture at reduced resolution (wakes are low-frequency)
-    const modW = Math.max(1, Math.round(texW * MODIFIER_RESOLUTION_SCALE));
-    const modH = Math.max(1, Math.round(texH * MODIFIER_RESOLUTION_SCALE));
+    const modW = Math.max(1, Math.round(surfTexW * MODIFIER_RESOLUTION_SCALE));
+    const modH = Math.max(1, Math.round(surfTexH * MODIFIER_RESOLUTION_SCALE));
     this.modifierTexture = device.createTexture({
       size: { width: modW, height: modH },
       format: "rgba16float",
@@ -437,8 +465,8 @@ export class SurfaceRenderer extends BaseEntity {
 
     // Wind field texture at half-res (wind varies slowly enough that
     // half-resolution sampling is visually indistinguishable but cheaper).
-    const windW = Math.ceil(texW / 2);
-    const windH = Math.ceil(texH / 2);
+    const windW = Math.ceil(surfTexW / 2);
+    const windH = Math.ceil(surfTexH / 2);
     this.windFieldTexture = device.createTexture({
       size: { width: windW, height: windH },
       format: "rgba16float",
@@ -450,7 +478,11 @@ export class SurfaceRenderer extends BaseEntity {
     });
 
     // Recreate wetness pipeline with new texture size (shares surface layout)
-    this.wetnessPipeline = new WetnessRenderPipeline(device, texW, texH);
+    this.wetnessPipeline = new WetnessRenderPipeline(
+      device,
+      surfTexW,
+      surfTexH,
+    );
     this.wetnessPipeline.init();
 
     this.lastTextureWidth = width;
@@ -869,6 +901,12 @@ export class SurfaceRenderer extends BaseEntity {
 
     const texW = width + 2 * SURFACE_TEXTURE_MARGIN;
     const texH = height + 2 * SURFACE_TEXTURE_MARGIN;
+    // Surface compute textures are scaled by Render Resolution. Matrix
+    // math (which lives off texW/texH directly) is unscaled because the
+    // texture covers the same world rect regardless of resolution.
+    const surfScale = getRenderScaleFactor();
+    const surfTexW = Math.max(1, Math.round(texW * surfScale));
+    const surfTexH = Math.max(1, Math.round(texH * surfScale));
 
     // === Terrain Tile Cache Update ===
     const terrainAtlasView = profiler.measure("terrainTiles", () => {
@@ -898,16 +936,26 @@ export class SurfaceRenderer extends BaseEntity {
       return this.terrainTileCache!.getAtlasView();
     });
 
-    const windTexW = Math.ceil(texW / 2);
-    const windTexH = Math.ceil(texH / 2);
-    const waterTexW = Math.max(1, Math.round(texW * getWaterQualityScale()));
-    const waterTexH = Math.max(1, Math.round(texH * getWaterQualityScale()));
+    const windTexW = Math.ceil(surfTexW / 2);
+    const windTexH = Math.ceil(surfTexH / 2);
+    const waterTexW = Math.max(
+      1,
+      Math.round(surfTexW * getWaterQualityScale()),
+    );
+    const waterTexH = Math.max(
+      1,
+      Math.round(surfTexH * getWaterQualityScale()),
+    );
 
     profiler.measure("uniforms", () => {
       // Update all uniforms. Compute shaders dispatch one invocation per
       // surface-texture texel, so they receive texW × texH. Fragment shaders
       // still use screen width/height for pixel-space math (e.g. normal eps).
-      this.updateTerrainScreenUniforms(texClipToWorldMatrix, texW, texH);
+      this.updateTerrainScreenUniforms(
+        texClipToWorldMatrix,
+        surfTexW,
+        surfTexH,
+      );
       this.updateWaterHeightUniforms(
         texClipToWorldMatrix,
         currentTime,
@@ -973,8 +1021,8 @@ export class SurfaceRenderer extends BaseEntity {
         this.terrainScreenShader.dispatch(
           computePass,
           this.terrainScreenBindGroup,
-          texW,
-          texH,
+          surfTexW,
+          surfTexH,
         );
         computePass.end();
         device.queue.submit([commandEncoder.finish()]);
@@ -1220,5 +1268,7 @@ export class SurfaceRenderer extends BaseEntity {
     this.biomeUniformBuffer?.destroy();
     this.unsubWaterQuality?.();
     this.unsubWaterQuality = null;
+    this.unsubRenderScale?.();
+    this.unsubRenderScale = null;
   }
 }
