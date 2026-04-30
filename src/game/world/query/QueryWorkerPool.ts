@@ -568,6 +568,19 @@ export class QueryWorkerPool {
       }
       asyncProfiler.endAsync(token, sumMs);
       this.inFlightTokens[typeId] = null;
+      // Per-point CPU cost (µs/pt). Sum across workers of compute time
+      // divided by point count = average per-point cost on whichever
+      // worker handled it, giving an apples-to-apples comparison with
+      // `tests/query-microbenchmark.spec.ts`'s ns/pt numbers (the bench
+      // computes `wallClockMs * 1e6 / (pointCount * iterations)`, which
+      // is the same quantity for a perfectly-balanced cell).
+      const pointCount = this.lastSubmittedPointCounts[typeId];
+      if (pointCount > 0 && sumMs > 0) {
+        profiler.recordElapsed(
+          `query.${QUERY_TYPE_LABELS[typeId]}.usPerPt`,
+          (sumMs * 1000) / pointCount,
+        );
+      }
     }
   }
 

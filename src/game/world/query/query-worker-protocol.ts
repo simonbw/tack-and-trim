@@ -74,21 +74,24 @@ export const CTRL_NEXT_CHUNK_BASE =
 export const CTRL_TOTAL_INTS = CTRL_NEXT_CHUNK_BASE + MAX_DESCRIPTORS;
 
 /**
- * Chunk size (number of query points per atomic-grab). Total per-frame
- * point counts on real levels are surprisingly small (water/wind
- * ~200, terrain ~20), so chunk size has to be small enough that
- * 6 workers each get multiple chunks per type — otherwise we collapse
- * to one-worker-per-type and lose all parallelism. With water ~50 µs/pt
- * on complex levels, a 4-point chunk is ~200 µs of compute against
- * ~100 ns of atomic-add overhead — comfortably above the crossover.
- * Sweep on sanJuanIslands:
- *   chunk=128 → 30 ms (bin-packs to 1 worker, broken)
- *   chunk=32  → 12 ms (overcoarse for 196-point types, still imbalanced)
- *   chunk=8   →  9.1 ms
- *   chunk=4   →  8.5 ms (sweet spot)
- *   chunk=2   →  8.9 ms (atomic overhead starts to bite)
+ * Chunk size (number of query points per atomic-grab). Per-frame point
+ * counts on real levels are small (water/wind ~200, terrain ~20), so
+ * chunks have to be small enough that all workers get multiple chunks
+ * per type — otherwise we collapse to one-worker-per-type and lose
+ * parallelism. But not too small: each chunk pays a fixed dispatch cost
+ * (Float32Array view rebuild + wasm call boundary).
+ *
+ * Sweep on sanJuanIslands, headless, 6 workers (median of 3 8s runs):
+ *   chunk=4    → tick.query = 9.93 ms, terrain = 360 µs/pt summed
+ *   chunk=8    → tick.query = 8.71 ms, terrain = 285 µs/pt summed (sweet)
+ *   chunk=16   → tick.query = 9.63 ms, imbalance climbs to 3.2 ms
+ *   chunk=1024 → tick.query = 43.5 ms, single-worker (no parallelism)
+ *
+ * The sweet spot moved from 4 to 8 once the lookup grid + IDW grid ports
+ * dropped per-point compute by ~10× — the dispatch fixed cost now
+ * matters more relative to per-point work.
  */
-export const CHUNK_SIZE = 4;
+export const CHUNK_SIZE = 8;
 
 /**
  * Profiling: each worker writes its per-query-type compute time (ms)
