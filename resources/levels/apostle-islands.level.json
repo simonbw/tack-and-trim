@@ -72,6 +72,17 @@
       }
     ]
   },
+  "weather": {
+    "windSpeed": 13,
+    "cloudCover": 0.5,
+    "rainIntensity": 0.05,
+    "gustiness": 0.55,
+    "variability": {
+      "cloudCoverRange": 0.3,
+      "rainIntensityRange": 0.15,
+      "gustinessRange": 0.4
+    }
+  },
   "startPosition": [-68000, 0],
   "trees": {
     "spacing": 35,

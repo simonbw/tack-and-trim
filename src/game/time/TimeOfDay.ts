@@ -44,6 +44,9 @@ export class TimeOfDay extends BaseEntity {
   /** Current time in seconds since midnight (0-86400) */
   private timeInSeconds: number;
 
+  /** Monotonic elapsed scaled-time, never wraps. Source for noise/animation. */
+  private totalElapsed = 0;
+
   /** Time scale: game-world seconds per real second */
   private timeScale: number;
 
@@ -60,18 +63,16 @@ export class TimeOfDay extends BaseEntity {
    */
   @on("tick")
   onTick({ dt }: GameEventMap["tick"]) {
+    let scale = this.timeScale;
     if (this.game.io.isKeyDown("Period")) {
-      if (
+      const shift =
         this.game.io.isKeyDown("ShiftLeft") ||
-        this.game.io.isKeyDown("ShiftRight")
-      ) {
-        this.timeInSeconds += dt * this.timeScale * 25000;
-      } else {
-        this.timeInSeconds += dt * this.timeScale * 5000;
-      }
-    } else {
-      this.timeInSeconds += dt * this.timeScale;
+        this.game.io.isKeyDown("ShiftRight");
+      scale *= shift ? 25000 : 5000;
     }
+    const delta = dt * scale;
+    this.timeInSeconds += delta;
+    this.totalElapsed += delta;
 
     // Wrap at 24 hours
     while (this.timeInSeconds >= SECONDS_PER_DAY) {
@@ -94,6 +95,14 @@ export class TimeOfDay extends BaseEntity {
    */
   getTimeInSeconds(): number {
     return this.timeInSeconds;
+  }
+
+  /**
+   * Monotonic scaled elapsed time since the entity was added. Suitable as a
+   * time source for noise / animation that must not jump every game-day.
+   */
+  getTotalElapsedSeconds(): number {
+    return this.totalElapsed;
   }
 
   /**

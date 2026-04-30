@@ -55,6 +55,16 @@
       }
     ]
   },
+  "weather": {
+    "windSpeed": 11,
+    "cloudCover": 0.35,
+    "rainIntensity": 0,
+    "gustiness": 0.25,
+    "variability": {
+      "cloudCoverRange": 0.15,
+      "gustinessRange": 0.15
+    }
+  },
   "startPosition": [-500, 2000],
   "biome": {
     "zones": [

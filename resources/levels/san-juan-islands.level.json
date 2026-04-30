@@ -77,6 +77,17 @@
       }
     ]
   },
+  "weather": {
+    "windSpeed": 14,
+    "cloudCover": 0.4,
+    "rainIntensity": 0.15,
+    "gustiness": 0.5,
+    "variability": {
+      "cloudCoverRange": 0.3,
+      "rainIntensityRange": 0.2,
+      "gustinessRange": 0.3
+    }
+  },
   "startPosition": [0, 0],
   "biome": {
     "zones": [
