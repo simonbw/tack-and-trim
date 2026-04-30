@@ -22,6 +22,7 @@
  */
 
 import {
+  BARRIER_TIMING_CALIBRATION_MS,
   BARRIER_TIMING_COMPUTE_END,
   BARRIER_TIMING_COMPUTE_START,
   BARRIER_TIMING_DECREMENT,
@@ -29,6 +30,7 @@ import {
   BARRIER_TIMING_TYPE_LAST_END_BASE,
   BARRIER_TIMING_WAKE,
   BARRIER_TIMINGS_PER_WORKER,
+  CALIBRATION_PROBE_ITERATIONS,
   CHUNK_SIZE,
   CTRL_DESCRIPTORS_BASE,
   CTRL_DESCRIPTOR_POINT_COUNT,
@@ -106,6 +108,8 @@ interface WasmExports {
    */
   __stack_pointer: WebAssembly.Global;
   query_implementation_mask(): number;
+  /** See `calibration_probe` in `pipeline/query-wasm/src/lib.rs`. */
+  calibration_probe(iterations: number): number;
   set_packed_terrain(ptr: number, lenU32: number): void;
   set_packed_wave_mesh(ptr: number, lenU32: number): void;
   set_packed_tide_mesh(ptr: number, lenU32: number): void;
@@ -170,7 +174,7 @@ function nowOnMainClock(): number {
   return performance.now() + timeOriginOffset;
 }
 
-self.onmessage = (event: MessageEvent<QueryWorkerMessage>) => {
+self.onmessage = async (event: MessageEvent<QueryWorkerMessage>) => {
   const msg = event.data;
   if (msg.type === "init") {
     workerIndex = msg.workerIndex;
@@ -190,16 +194,23 @@ self.onmessage = (event: MessageEvent<QueryWorkerMessage>) => {
       buildChannelView(buffer, msg.partition.wind),
     ];
 
-    // Instantiate the wasm module against the shared memory. Even when
-    // `cpuEngine === "js"`, instantiation is cheap and harmless — we
-    // just won't call into the kernel.
+    // Instantiate the wasm module against the shared memory and AWAIT
+    // before entering the main loop. `runMainLoop` blocks on
+    // `Atomics.wait`, which freezes the worker's JS event loop — if we
+    // started the loop before awaiting, the `WebAssembly.instantiate`
+    // microtask would never get a chance to run and `wasmExports` would
+    // stay null forever, silently falling back to the JS path for the
+    // entire session. (We hit this exact bug; it cost us ~14× on the
+    // sanJuanIslands query path.)
     const stackTop = msg.partition.stackTops[workerIndex];
-    instantiateWasm(msg.wasmModule, msg.wasmMemory, stackTop).catch((err) => {
+    try {
+      await instantiateWasm(msg.wasmModule, msg.wasmMemory, stackTop);
+    } catch (err) {
       console.error(
         `[query-worker ${workerIndex}] failed to instantiate wasm — falling back to JS for all types`,
         err,
       );
-    });
+    }
 
     running = true;
     runMainLoop();
@@ -359,6 +370,26 @@ function processFrame(): void {
     for (let t = 0; t < TIMINGS_FLOATS_PER_WORKER; t++) {
       timings[timingsBase + t] = 0;
     }
+  }
+  // Calibration probe — pure-compute, no memory access. Slow times
+  // here mean the worker is being CPU-descheduled / frequency-
+  // throttled, not blocked on RAM. Sentinel: -1 = wasm not yet
+  // instantiated, -2 = export missing.
+  if (barrierTimings) {
+    let probeMs = -1;
+    if (wasmExports) {
+      const fn = (wasmExports as { calibration_probe?: (n: number) => number })
+        .calibration_probe;
+      if (typeof fn !== "function") {
+        probeMs = -2;
+      } else {
+        const probeStart = performance.now();
+        fn(CALIBRATION_PROBE_ITERATIONS);
+        probeMs = performance.now() - probeStart;
+      }
+    }
+    barrierTimings[barrierTimingsBase + BARRIER_TIMING_CALIBRATION_MS] =
+      probeMs;
   }
   if (barrierTimings) {
     barrierTimings[barrierTimingsBase + BARRIER_TIMING_COMPUTE_START] =

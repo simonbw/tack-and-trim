@@ -127,7 +127,22 @@ export const BARRIER_TIMING_DECREMENT = 3;
  */
 export const BARRIER_TIMING_TYPE_FIRST_START_BASE = 4; // +0..+2 by typeId
 export const BARRIER_TIMING_TYPE_LAST_END_BASE = 7; // +0..+2 by typeId
-export const BARRIER_TIMINGS_PER_WORKER = 10;
+/**
+ * Wall time (ms) the worker spent running `calibration_probe` once per
+ * frame. Pure-compute, no memory access — slow values here mean the
+ * worker is being CPU-throttled / descheduled, not waiting on RAM.
+ * Compare with the calibration probe time the bench sees on the same
+ * hardware (logged once per microbench run) to separate environment
+ * effects from cache effects.
+ */
+export const BARRIER_TIMING_CALIBRATION_MS = 10;
+export const BARRIER_TIMINGS_PER_WORKER = 11;
+/**
+ * How many iterations of `calibration_probe` to run each frame. Tuned
+ * so the probe takes ~50 µs on a P-core (small enough to be cheap,
+ * large enough to be measurable above `performance.now()` jitter).
+ */
+export const CALIBRATION_PROBE_ITERATIONS = 5000;
 
 /**
  * Per-channel byte offsets into the pool's shared `WebAssembly.Memory`.

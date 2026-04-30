@@ -177,6 +177,27 @@ pub unsafe extern "C" fn process_terrain_batch(
     });
 }
 
+/// Pure-compute calibration probe — no memory access beyond the
+/// register state. Runs a fixed-cost arithmetic loop so we can compare
+/// "what does N units of CPU work take in this environment" between the
+/// bench and the production worker pool. Useful for separating CPU
+/// scheduling / frequency effects (which slow this down) from data /
+/// cache effects (which don't).
+///
+/// `iterations` is a tunable so the caller can pick a window long
+/// enough to be measurable but short enough not to bog the frame down.
+/// Returns the final accumulator so the optimiser can't elide the loop.
+#[no_mangle]
+pub extern "C" fn calibration_probe(iterations: u32) -> f32 {
+    let mut a = 1.0_f32;
+    let mut b = 0.5_f32;
+    for _ in 0..iterations {
+        a = a * 1.0000001 + b;
+        b = b * 0.9999999 + a;
+    }
+    a + b
+}
+
 /// # Safety: see `process_water_batch`.
 #[no_mangle]
 pub unsafe extern "C" fn process_wind_batch(

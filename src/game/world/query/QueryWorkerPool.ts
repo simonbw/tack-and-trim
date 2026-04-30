@@ -4,6 +4,7 @@ import {
 } from "../../../core/util/AsyncProfiler";
 import { profiler } from "../../../core/util/Profiler";
 import {
+  BARRIER_TIMING_CALIBRATION_MS,
   BARRIER_TIMING_COMPUTE_END,
   BARRIER_TIMING_COMPUTE_START,
   BARRIER_TIMING_DECREMENT,
@@ -504,6 +505,43 @@ export class QueryWorkerPool {
       "barrier.workerImbalance",
       maxComputeEnd - minComputeEnd,
     );
+
+    // Calibration probe — pure-compute, no memory access. Average
+    // (avg + max) across workers so noise from one descheduled worker
+    // doesn't hide the signal. Negative values are sentinels: -1 =
+    // wasm not yet instantiated on that worker, -2 = export missing.
+    let probeSum = 0;
+    let probeCount = 0;
+    let probeMax = 0;
+    let probeNotReady = 0;
+    let probeMissingExport = 0;
+    for (let w = 0; w < this.workerCount; w++) {
+      const v = t[w * stride + BARRIER_TIMING_CALIBRATION_MS];
+      if (v === -1) probeNotReady++;
+      else if (v === -2) probeMissingExport++;
+      else if (v >= 0) {
+        probeSum += v;
+        if (v > probeMax) probeMax = v;
+        probeCount++;
+      }
+    }
+    if (probeCount > 0) {
+      profiler.recordElapsed(
+        "barrier.calibrationProbeAvg",
+        probeSum / probeCount,
+      );
+      profiler.recordElapsed("barrier.calibrationProbeMax", probeMax);
+    }
+    if (probeNotReady > 0) {
+      profiler.count("barrier.calibrationProbeNotReady", probeNotReady);
+    }
+    if (probeMissingExport > 0) {
+      profiler.count(
+        "barrier.calibrationProbeMissingExport",
+        probeMissingExport,
+      );
+    }
+
     this.reportPerTypeWalls(submit);
   }
 
