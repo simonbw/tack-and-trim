@@ -38,12 +38,12 @@ import { TreeManager } from "./trees/TreeManager";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
 import { WindParticles } from "./WindParticles";
 import { WindSoundGenerator } from "./WindSoundGenerator";
-import { CpuQueryCoordinator } from "./world/query/CpuQueryCoordinator";
-import { CpuTerrainQueryManager } from "./world/terrain/CpuTerrainQueryManager";
+import { QueryWorkerCoordinator } from "./world/query/QueryWorkerCoordinator";
+import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
 import { TerrainResources } from "./world/terrain/TerrainResources";
-import { CpuWaterQueryManager } from "./world/water/CpuWaterQueryManager";
+import { WaterQueryManager } from "./world/water/WaterQueryManager";
 import { WaterResources } from "./world/water/WaterResources";
-import { CpuWindQueryManager } from "./world/wind/CpuWindQueryManager";
+import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
 
 //#tunable("Camera") { min: 0.5, max: 10 }
@@ -114,7 +114,7 @@ export class GameController extends BaseEntity {
     this.missions = missions ?? [];
 
     this.game.addEntity(new TerrainResources(terrain));
-    this.game.addEntity(new CpuTerrainQueryManager());
+    this.game.addEntity(new TerrainQueryManager());
 
     // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
@@ -130,11 +130,11 @@ export class GameController extends BaseEntity {
 
     // 4. Water data system (tide, modifiers, GPU buffers, wave sources)
     this.game.addEntity(new WaterResources(waves));
-    this.game.addEntity(new CpuWaterQueryManager());
+    this.game.addEntity(new WaterQueryManager());
 
     // 5. Wind data systems
     this.game.addEntity(new WindResources(windmeshData, wind));
-    this.game.addEntity(new CpuWindQueryManager());
+    this.game.addEntity(new WindQueryManager());
 
     // 6. Visual entities
     const surfaceRenderer = this.game.addEntity(
@@ -150,10 +150,10 @@ export class GameController extends BaseEntity {
       lightingSystem.whenReady(),
     ]);
 
-    // CpuQueryCoordinator spawns workers and snapshots world state
+    // QueryWorkerCoordinator spawns workers and snapshots world state
     // (including the packed wave mesh) on onAdd — so it must run AFTER
     // wavePhysics.whenReady() resolves.
-    this.game.addEntity(new CpuQueryCoordinator());
+    this.game.addEntity(new QueryWorkerCoordinator());
 
     // Release rendering and start the game
     surfaceRenderer.setEnabled(true);

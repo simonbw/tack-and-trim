@@ -6,8 +6,8 @@
  * per-frame buffers (points, params, results, modifiers) and all
  * immutable world-state blobs (packed terrain / wave / tide / wind
  * meshes) live inside that memory at offsets the pool partitions
- * manually. Both the JS-CPU dispatch path and the wasm dispatch path
- * read and write the same bytes — no copies.
+ * manually. Each worker instantiates the query-wasm module against
+ * this shared memory and reads/writes via integer offsets — no copies.
  *
  * A separate small `controlSab` (Int32Array) drives a generation-counter
  * handshake so workers can `Atomics.wait`/`notify` to synchronize
@@ -128,8 +128,6 @@ export const BARRIER_TIMING_TYPE_LAST_END_BASE = 7; // +0..+2 by typeId
  * Wall time (ms) the worker spent running `calibration_probe` on the
  * frames it ran. Pure-compute, no memory access — slow values here mean
  * the worker is being CPU-throttled / descheduled, not waiting on RAM.
- * The probe doubles as a canary for the silent JS-fallback bug we hit
- * once: `wasmExports = null` would leave this slot at 0.
  *
  * Workers stagger the probe so only one runs it per frame (round-robin
  * by `generation % workerCount`). That keeps the fixed-cost overhead
@@ -209,17 +207,10 @@ export interface QueryWorkerInitMessage {
    */
   mainTimeOrigin: number;
   /**
-   * Engine selector for the per-point math:
-   *   "js"   — pure-TypeScript ports in `*-math.ts` (the original CPU path)
-   *   "wasm" — Rust→WASM kernel from `pipeline/query-wasm`
-   */
-  cpuEngine: "js" | "wasm";
-  /**
-   * The shared `WebAssembly.Memory` the pool allocated. Workers build
-   * Float32Array views over `wasmMemory.buffer` for the JS dispatch
-   * path, and (when `cpuEngine === "wasm"`) instantiate the wasm
-   * module against this memory so its kernel reads/writes the same
-   * bytes — no copies between JS and wasm.
+   * The shared `WebAssembly.Memory` the pool allocated. Workers
+   * instantiate the wasm module against this memory so its kernel
+   * reads/writes the same bytes the main thread populates — no copies
+   * between JS and wasm.
    */
   wasmMemory: WebAssembly.Memory;
   /** Precompiled query-wasm module, instantiated per worker. */

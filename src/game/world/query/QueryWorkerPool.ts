@@ -36,10 +36,6 @@ import {
   type WasmChannelLayout,
   type WasmPartitionLayout,
 } from "./query-worker-protocol";
-import {
-  getQueryWorkerCountOverride,
-  type CpuQueryEngine,
-} from "./QueryBackendState";
 
 /**
  * Lazily compile the query-wasm module the first time anyone asks for it.
@@ -80,6 +76,10 @@ const ALL_QUERY_TYPES: readonly QueryTypeId[] = [
  * wasm kernel touches, so the per-point math path makes no copies.
  * The coordinator does still copy the modifier table into `frameState`
  * once per frame, but that's outside the kernel hot path.
+ *
+ * The pool exposes the points/params/results views to managers (so
+ * they can write inputs and read outputs); the kernel never touches
+ * them through these views, only via the wasm pointers.
  */
 interface PoolChannel {
   /** Byte offsets into `wasmMemory.buffer`. Stay valid for memory's lifetime. */
@@ -103,12 +103,6 @@ interface PoolChannel {
 
 export interface QueryWorkerPoolOptions {
   workerCount: number;
-  /**
-   * Engine each worker uses for per-point math. "js" runs the existing
-   * TypeScript ports (`*-math.ts`); "wasm" routes to the Rust→WASM kernel
-   * which reads and writes the same shared memory directly.
-   */
-  cpuEngine: CpuQueryEngine;
   terrain: ChannelOptions;
   water: ChannelOptions;
   wind: ChannelOptions;
@@ -145,12 +139,9 @@ const align = (n: number): number => (n + ALIGN - 1) & ~(ALIGN - 1);
  * Manages a pool of web workers + a shared `WebAssembly.Memory` they
  * all read and write. The memory is partitioned manually by this pool
  * into per-channel regions (points / params / results / modifiers) plus
- * a tail region holding the immutable world-state buffers.
- *
- * The same shared memory is used regardless of `cpuEngine`:
- *   - JS engine: workers read/write the Float32Array views directly.
- *   - WASM engine: workers also call into a wasm `Instance` that reads
- *     and writes the same bytes via integer offsets — no copies.
+ * a tail region holding the immutable world-state buffers. Each worker
+ * instantiates the query-wasm module against this memory and reads/
+ * writes via integer offsets — no copies between JS and wasm.
  *
  * Lifecycle:
  * 1. `new QueryWorkerPool({...})` returns synchronously with `ready`
@@ -158,7 +149,6 @@ const align = (n: number): number => (n + ALIGN - 1) & ~(ALIGN - 1);
  *    up immediately; everything else (memory, partitioning, workers)
  *    happens inside `ready` once the wasm module finishes compiling.
  * 2. Callers await `ready` before flipping `coordinated` on managers.
- * 3. Submit/await/terminate APIs are unchanged from the SAB-only design.
  */
 export class QueryWorkerPool {
   readonly workerCount: number;
@@ -289,7 +279,6 @@ export class QueryWorkerPool {
         timingsSab: this.timingsSab,
         barrierTimingsSab: this.barrierTimingsSab,
         mainTimeOrigin: performance.timeOrigin,
-        cpuEngine: options.cpuEngine,
         wasmMemory: memory,
         wasmModule,
         partition,
@@ -513,8 +502,7 @@ export class QueryWorkerPool {
 
     // Calibration probe. Only one worker writes a non-zero value per
     // frame (round-robin) — the others write 0. Picking the max picks
-    // out that one sample. A persistent 0 across all workers signals
-    // wasm regressed to the JS-fallback bug we hit once.
+    // out that one sample.
     let probeMs = 0;
     for (let w = 0; w < this.workerCount; w++) {
       const v = t[w * stride + BARRIER_TIMING_CALIBRATION_MS];
@@ -608,10 +596,20 @@ export class QueryWorkerPool {
   }
 }
 
+/**
+ * Optional override for the worker pool size, read from localStorage
+ * (`queryWorkerCount`). Mainly useful for benchmarks that want to
+ * sweep over worker counts without recompiling.
+ */
+function getQueryWorkerCountOverride(): number | null {
+  if (typeof localStorage === "undefined") return null;
+  const stored = localStorage.getItem("queryWorkerCount");
+  if (stored == null) return null;
+  const n = parseInt(stored, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export function defaultQueryWorkerCount(): number {
-  // Benchmark/debug override (set via `setQueryWorkerCountOverride` or
-  // localStorage `queryWorkerCount`). Lets the engines benchmark
-  // sweep worker counts without code changes.
   const override = getQueryWorkerCountOverride();
   if (override != null) return override;
 

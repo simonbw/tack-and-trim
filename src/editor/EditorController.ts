@@ -13,9 +13,9 @@ import { createContour } from "../game/world/terrain/LandMass";
 import { DEFAULT_DEPTH } from "../game/world/terrain/TerrainConstants";
 import { TerrainResources } from "../game/world/terrain/TerrainResources";
 import { TerrainQuery } from "../game/world/terrain/TerrainQuery";
-import { CpuTerrainQueryManager } from "../game/world/terrain/CpuTerrainQueryManager";
-import { CpuWaterQueryManager } from "../game/world/water/CpuWaterQueryManager";
-import { CpuQueryCoordinator } from "../game/world/query/CpuQueryCoordinator";
+import { TerrainQueryManager } from "../game/world/terrain/TerrainQueryManager";
+import { WaterQueryManager } from "../game/world/water/WaterQueryManager";
+import { QueryWorkerCoordinator } from "../game/world/query/QueryWorkerCoordinator";
 import { V, V2d } from "../core/Vector";
 import { ContourEditor } from "./ContourEditor";
 import { ContourRenderer } from "./ContourRenderer";
@@ -171,18 +171,18 @@ export class EditorController
       ),
     );
 
-    // Create CPU-backed query manager for terrain queries (cursor height etc.)
-    this.game.addEntity(new CpuTerrainQueryManager());
+    // Worker-backed query manager for terrain queries (cursor height etc.)
+    this.game.addEntity(new TerrainQueryManager());
 
     // Add wave physics for shadow-based diffraction
     this.game.addEntity(new WavePhysicsResources());
 
     // Add water system (tide, modifiers, GPU buffers)
     this.game.addEntity(new WaterResources());
-    this.game.addEntity(new CpuWaterQueryManager());
+    this.game.addEntity(new WaterQueryManager());
 
-    // Coordinates the CPU worker pool for terrain/water queries.
-    this.game.addEntity(new CpuQueryCoordinator());
+    // Coordinates the worker pool for terrain/water queries.
+    this.game.addEntity(new QueryWorkerCoordinator());
 
     // Add surface renderer (renders water and terrain visuals)
     this.game.addEntity(new SurfaceRenderer());

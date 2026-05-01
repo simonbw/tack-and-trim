@@ -10,8 +10,7 @@ import { WaterResources } from "../water/WaterResources";
 import { WaterResultLayout } from "../water/WaterQueryResult";
 import { WindResources } from "../wind/WindResources";
 import { WindResultLayout } from "../wind/WindQueryResult";
-import { CpuQueryManager } from "./CpuQueryManager";
-import { getQueryEngine } from "./QueryBackendState";
+import { QueryWorkerManager } from "./QueryWorkerManager";
 import { defaultQueryWorkerCount, QueryWorkerPool } from "./QueryWorkerPool";
 import {
   QUERY_TYPE_TERRAIN,
@@ -30,28 +29,27 @@ const MAX_WATER_MODIFIERS = 16384;
 const FLOATS_PER_MODIFIER = 14;
 
 /**
- * Shared buffer sizing per query type. Matches the GPU managers' maxPoints
- * so the CPU path can serve the same peak load without reallocating.
+ * Shared buffer sizing per query type.
  */
 const MAX_POINTS = 2 ** 15;
 
 /**
- * Peer of `GpuQueryCoordinator`: owns a single `QueryWorkerPool` and
- * drives the CPU query managers through one generation bump per frame.
+ * Owns a single `QueryWorkerPool` and drives the query worker managers
+ * through one generation bump per frame.
  *
  * Lifecycle:
- *   onAdd — construct the pool, discover all CpuQueryManager instances,
+ *   onAdd — construct the pool, discover all QueryWorkerManager instances,
  *     inject the pool into each, mark them coordinated.
  *   afterPhysicsStep — for each manager: write params + collect points.
  *     If any manager has work, submit one batch to the pool.
  *   onDestroy — terminate the pool.
  */
-export class CpuQueryCoordinator extends BaseEntity {
-  id = "cpuQueryCoordinator";
+export class QueryWorkerCoordinator extends BaseEntity {
+  id = "queryWorkerCoordinator";
   tickLayer = "query" as const;
 
   private pool: QueryWorkerPool | null = null;
-  private managers: CpuQueryManager[] = [];
+  private managers: QueryWorkerManager[] = [];
 
   /** For diagnostic/benchmark consumers — see `getPool()`. */
   getPool(): QueryWorkerPool | null {
@@ -60,7 +58,7 @@ export class CpuQueryCoordinator extends BaseEntity {
   /**
    * Live view of WaterResources's modifier SAB. Each frame we copy the
    * active prefix into the pool's shared-memory modifier region so the
-   * worker (JS or WASM) reads modifiers directly from there.
+   * worker reads modifiers directly from there.
    *
    * Set after `pool.ready` resolves; null if no WaterResources exists
    * yet (e.g. on a level without water).
@@ -81,16 +79,15 @@ export class CpuQueryCoordinator extends BaseEntity {
       this.game.entities.tryGetSingleton(WavePhysicsResources);
     const waveMeshRaw = wavePhysics?.getPackedMeshRaw() ?? null;
     const tidalResources = this.game.entities.tryGetSingleton(TidalResources);
-    // Mirrors the GPU path: when TidalResources isn't present we fall
-    // back to a placeholder (tideLevelCount=0) so the tidal-flow lookup
-    // returns zero flow at every point.
+    // When TidalResources isn't present we fall back to a placeholder
+    // (tideLevelCount=0) so the tidal-flow lookup returns zero flow at
+    // every point.
     const tideMeshRaw =
       tidalResources?.getPackedTideMeshRaw() ??
       createPlaceholderTideMeshBuffer();
 
     const pool = new QueryWorkerPool({
       workerCount: defaultQueryWorkerCount(),
-      cpuEngine: getQueryEngine() === "wasm" ? "wasm" : "js",
       terrain: {
         maxPoints: MAX_POINTS,
         resultStride: TerrainResultLayout.stride,
@@ -124,7 +121,7 @@ export class CpuQueryCoordinator extends BaseEntity {
     }
 
     for (const entity of this.game.entities.getTagged("queryManager")) {
-      if (!(entity instanceof CpuQueryManager)) continue;
+      if (!(entity instanceof QueryWorkerManager)) continue;
       entity.coordinated = true;
       entity.setPool(pool);
       this.managers.push(entity);
@@ -139,8 +136,8 @@ export class CpuQueryCoordinator extends BaseEntity {
 
     // Stage water modifiers into the pool's shared memory before
     // workers consume them. We copy from WaterResources's own SAB
-    // (which other systems — e.g. the GPU path — also read) into the
-    // pool's wasm-memory region so the WASM kernel can pointer into it.
+    // into the pool's wasm-memory region so the WASM kernel can
+    // pointer into it.
     if (this.modifierSrc && this.waterResources) {
       const waterChannel = this.pool.getChannel(QUERY_TYPE_WATER);
       if (waterChannel.frameState) {

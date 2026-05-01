@@ -1,7 +1,7 @@
 /**
  * Layout of the terrain channel's params SAB (Float32Array offsets).
  *
- * Writer: CpuTerrainQueryManager (main thread).
+ * Writer: TerrainQueryManager (main thread).
  * Reader: query-worker terrain dispatch.
  */
 

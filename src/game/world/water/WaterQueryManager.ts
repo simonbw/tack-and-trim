@@ -1,4 +1,4 @@
-import { CpuQueryManager } from "../query/CpuQueryManager";
+import { QueryWorkerManager } from "../query/QueryWorkerManager";
 import {
   QUERY_TYPE_WATER,
   type QueryTypeId,
@@ -29,16 +29,11 @@ import { WaterResultLayout } from "./WaterQueryResult";
 const MAX_WATER_QUERIES = 2 ** 15;
 
 /**
- * CPU (worker-based) peer of WaterQueryManager. Runs the ported Gerstner
- * wave sum, packed wave mesh lookup, modifier blending, and packed
- * terrain depth sampling on the query worker pool.
- *
- * Limitations this first cut:
- * - Tidal mesh lookup is not ported — tidalPhase / tidalStrength are
- *   passed for parity but the worker treats the flow as zero. `tideHeight`
- *   still modulates surface height identically to the GPU path.
+ * Worker-pool water query manager. Runs the Gerstner wave sum, packed
+ * wave mesh lookup, modifier blending, and packed terrain depth
+ * sampling on the query worker pool.
  */
-export class CpuWaterQueryManager extends CpuQueryManager {
+export class WaterQueryManager extends QueryWorkerManager {
   id = "waterQueryManager";
   tickLayer = "query" as const;
 

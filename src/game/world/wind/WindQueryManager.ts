@@ -1,4 +1,4 @@
-import { CpuQueryManager } from "../query/CpuQueryManager";
+import { QueryWorkerManager } from "../query/QueryWorkerManager";
 import {
   QUERY_TYPE_WIND,
   type QueryTypeId,
@@ -22,11 +22,10 @@ import { WeatherState } from "../../weather/WeatherState";
 const MAX_WIND_QUERIES = 2 ** 15;
 
 /**
- * CPU (worker-based) peer of WindQueryManager. Runs wind noise math +
- * packed wind mesh lookup + source-weight blending on the query worker
- * pool instead of the GPU.
+ * Worker-pool wind query manager. Runs wind noise math + packed wind
+ * mesh lookup + source-weight blending on the query worker pool.
  */
-export class CpuWindQueryManager extends CpuQueryManager {
+export class WindQueryManager extends QueryWorkerManager {
   id = "windQueryManager";
   tickLayer = "query" as const;
 
@@ -49,8 +48,7 @@ export class CpuWindQueryManager extends CpuQueryManager {
     params[WIND_PARAM_TIME] = performance.now() / 1000;
     params[WIND_PARAM_BASE_X] = baseWind.x;
     params[WIND_PARAM_BASE_Y] = baseWind.y;
-    // Fallback values when the mesh lookup misses — match the current
-    // GPU path's neutral defaults.
+    // Fallback values when the mesh lookup misses.
     params[WIND_PARAM_INFLUENCE_SPEED_FACTOR] = 1.0;
     params[WIND_PARAM_INFLUENCE_DIRECTION_OFFSET] = 0.0;
     params[WIND_PARAM_INFLUENCE_TURBULENCE] = 0.0;

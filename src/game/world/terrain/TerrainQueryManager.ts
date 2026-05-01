@@ -1,4 +1,4 @@
-import { CpuQueryManager } from "../query/CpuQueryManager";
+import { QueryWorkerManager } from "../query/QueryWorkerManager";
 import {
   QUERY_TYPE_TERRAIN,
   type QueryTypeId,
@@ -16,14 +16,10 @@ import { TerrainResources } from "./TerrainResources";
 const MAX_TERRAIN_QUERIES = 2 ** 15;
 
 /**
- * Worker-pool terrain query manager.
- *
- * Runs the contour DFS + IDW terrain algorithm inside the CPU worker
- * pool. Skips the grid acceleration structures (containment grid, IDW
- * grid, lookup grid) that the older GPU path used — correctness over
- * peak performance for this first cut.
+ * Worker-pool terrain query manager. Runs the contour DFS + IDW
+ * terrain algorithm inside the query worker pool.
  */
-export class CpuTerrainQueryManager extends CpuQueryManager {
+export class TerrainQueryManager extends QueryWorkerManager {
   id = "terrainQueryManager";
   tickLayer = "query" as const;
 

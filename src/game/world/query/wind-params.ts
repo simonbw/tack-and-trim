@@ -1,7 +1,7 @@
 /**
  * Layout of the wind channel's params SAB (Float32Array offsets).
  *
- * Shared between the main thread (CpuWindQueryManager writes params) and
+ * Shared between the main thread (WindQueryManager writes params) and
  * the worker (query-worker reads them). Keep the offsets stable.
  *
  * The fields with "neutral" comments exist so the port matches the WGSL

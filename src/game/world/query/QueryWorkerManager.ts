@@ -6,31 +6,31 @@ import { QueryManager } from "./QueryManager";
 import { QueryWorkerPool } from "./QueryWorkerPool";
 
 /**
- * CPU-side query manager. Mirrors `GpuQueryManager` but dispatches work
- * to a shared worker pool over SharedArrayBuffers instead of the GPU.
+ * Query manager that dispatches per-point work to the shared
+ * `QueryWorkerPool` over a `WebAssembly.Memory`.
  *
  * Lifecycle per tick:
  *   afterPhysicsStep: collect points, write them into the pool's points
  *     SAB for this manager's query type, then ask the pool to submit the
- *     frame (the pool coalesces submits across all CPU managers onto a
+ *     frame (the pool coalesces submits across all managers onto a
  *     single generation bump).
  *
  *   tick (next frame): if the pool reports the previous frame complete,
  *     read from the pool's results SAB and distribute to queries.
  *
- * One frame of latency, matching the GPU path, so physics consumers see
- * the same async behavior regardless of backend.
+ * One frame of latency, so physics consumers see deterministic async
+ * behavior.
  */
-export abstract class CpuQueryManager extends QueryManager {
+export abstract class QueryWorkerManager extends QueryManager {
   /**
-   * When true, a `CpuQueryCoordinator` is driving the workerpool's
-   * submit/await cycle. The coordinator batches all CPU managers'
+   * When true, a `QueryWorkerCoordinator` is driving the worker pool's
+   * submit/await cycle. The coordinator batches all managers'
    * submissions onto a single generation bump, which is essential —
    * otherwise each manager would race the others into the pool.
    */
   coordinated = false;
 
-  /** Injected by owner (CpuQueryCoordinator or test setup). */
+  /** Injected by owner (QueryWorkerCoordinator or test setup). */
   protected pool: QueryWorkerPool | null = null;
 
   /** Results SAB view handed to `distributeResults` once a frame lands. */
@@ -48,7 +48,7 @@ export abstract class CpuQueryManager extends QueryManager {
   abstract queryType: QueryTypeId;
 
   /**
-   * Called by `CpuQueryCoordinator` on setup to hand over the shared
+   * Called by `QueryWorkerCoordinator` on setup to hand over the shared
    * worker pool. Must be called before the first tick.
    */
   setPool(pool: QueryWorkerPool): void {
@@ -117,8 +117,7 @@ export abstract class CpuQueryManager extends QueryManager {
    * The `await` here is what keeps the query pipeline deterministic:
    * physics (which runs after this tick handler) always sees results
    * from exactly the previous tick's submission, regardless of how
-   * long workers took. Mirrors the GPU backend's `await readbackPromise`
-   * in `GpuQueryManager.onTick`.
+   * long workers took.
    */
   @on("tick")
   @profileAsync
@@ -143,10 +142,10 @@ export abstract class CpuQueryManager extends QueryManager {
   }
 
   /**
-   * Uncoordinated fallback: when no `CpuQueryCoordinator` is present,
-   * each manager submits its own frame. This is a development/test
-   * convenience — production should always use the coordinator so the
-   * worker pool sees one generation bump per frame.
+   * Uncoordinated fallback: when no `QueryWorkerCoordinator` is
+   * present, each manager submits its own frame. This is a
+   * development/test convenience — production should always use the
+   * coordinator so the worker pool sees one generation bump per frame.
    */
   @on("afterPhysicsStep")
   @profile

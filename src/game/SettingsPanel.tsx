@@ -12,11 +12,6 @@ import {
   setMasterVolume,
 } from "../core/sound/MasterVolumeState";
 import {
-  getQueryEngine,
-  setQueryEngine,
-  type QueryEngine,
-} from "./world/query/QueryBackendState";
-import {
   getWaterQuality,
   setWaterQuality,
   type WaterQuality,
@@ -28,12 +23,6 @@ interface Props {
   /** Called after any setting changes so the parent can re-render. */
   onChange: () => void;
 }
-
-const QUERY_ENGINE_CYCLE: QueryEngine[] = ["js", "wasm"];
-const QUERY_ENGINE_LABELS: Record<QueryEngine, string> = {
-  js: "JS",
-  wasm: "WASM",
-};
 
 const WATER_QUALITY_CYCLE: WaterQuality[] = ["low", "medium", "high"];
 const WATER_QUALITY_LABELS: Record<WaterQuality, string> = {
@@ -52,7 +41,6 @@ const RENDER_SCALE_LABELS: Record<RenderScale, string> = {
 export function SettingsPanel({ onBack, onChange }: Props) {
   const msaa = isMSAAEnabled();
   const volume = getMasterVolume();
-  const queryEngine = getQueryEngine();
   const waterQuality = getWaterQuality();
   const renderScale = getRenderScale();
   return (
@@ -89,22 +77,6 @@ export function SettingsPanel({ onBack, onChange }: Props) {
           </span>
           <span class="settings-panel__option-value">
             {msaa ? "On" : "Off"}
-          </span>
-        </button>
-        <button
-          class="settings-panel__option"
-          onClick={() => {
-            const i = QUERY_ENGINE_CYCLE.indexOf(queryEngine);
-            const next =
-              QUERY_ENGINE_CYCLE[(i + 1) % QUERY_ENGINE_CYCLE.length];
-            setQueryEngine(next);
-            onChange();
-          }}
-          title="JS/WASM run the CPU worker pool with the corresponding math kernel. Requires reloading the level to take effect."
-        >
-          <span class="settings-panel__option-label">Query Engine</span>
-          <span class="settings-panel__option-value">
-            {QUERY_ENGINE_LABELS[queryEngine]}
           </span>
         </button>
         <button
