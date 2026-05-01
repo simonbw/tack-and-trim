@@ -15,6 +15,12 @@
  */
 
 import {
+  defineUniformStruct,
+  f32,
+  i32,
+  mat3x3,
+} from "../../core/graphics/UniformStruct";
+import {
   FullscreenShader,
   type FullscreenShaderConfig,
 } from "../../core/graphics/webgpu/FullscreenShader";
@@ -23,11 +29,64 @@ import {
   DEPTH_Z_MAX,
   DEPTH_Z_MIN,
 } from "../../core/graphics/webgpu/WebGPURenderer";
-import { SCENE_LIGHTING_WGSL_FIELDS } from "../time/SceneLighting";
+import {
+  SCENE_LIGHTING_FIELDS,
+  SCENE_LIGHTING_WGSL_FIELDS,
+} from "../time/SceneLighting";
 import { fn_waterSurfaceLight } from "../world/shaders/lighting.wgsl";
 import { fn_hash21 } from "../world/shaders/math.wgsl";
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
+
+export const WaterFilterUniforms = defineUniformStruct("Params", {
+  // Clip → world for the actual screen.
+  cameraMatrix: mat3x3,
+
+  // World → clip for the screen-space water height texture.
+  worldToTexClip: mat3x3,
+
+  screenWidth: f32,
+  screenHeight: f32,
+
+  // Device pixel ratio — fragPos.xy is in physical framebuffer pixels, but
+  // the surface textures are sized at logical+margin resolution. Divide
+  // fragPos.xy by this to get logical pixel coords before texel indexing.
+  pixelRatio: f32,
+
+  time: f32,
+  tideHeight: f32,
+  hasTerrainData: i32,
+
+  // Bio-optical water chemistry (per-level / per-region).
+  // These drive the absorption/scattering calculation in the shader.
+  // Typical ranges:
+  //   chlorophyll: 0.01 (open ocean) – 10 (algal bloom), mg/m³
+  //   cdom:        0.0  – 1.5 (tannic/coastal), normalized
+  //   sediment:    0.0  – 3.0 (turbid estuary), normalized
+  chlorophyll: f32,
+  cdom: f32,
+  sediment: f32,
+
+  // Runtime-tunable water shader knobs. Populated each frame from
+  // WaterTuning.ts via pushWaterTuning(); exposed in the TuningPanel
+  // (toggle with backslash key) so the surface look can be tuned live.
+  glitterAmpCalm: f32,
+  glitterAmpWindy: f32,
+  glitterTime: f32,
+  glitterFreqParallel: f32,
+  glitterFreqPerp: f32,
+  glitterPeakWind: f32,
+  glitterFalloff: f32,
+  specularPowerCalm: f32,
+  specularPowerWindy: f32,
+  sunIntensity: f32,
+  slickAmp: f32,
+  slickWindHigh: f32,
+  horizonBlend: f32,
+
+  // Scene lighting (see SceneLighting.ts). Populated from TimeOfDay.
+  ...SCENE_LIGHTING_FIELDS,
+});
 
 const waterFilterParamsModule: ShaderModule = {
   preamble: /*wgsl*/ `

@@ -25,8 +25,10 @@ import {
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import type { Viewport } from "../wave-physics/WavePhysicsResources";
 import type { TerrainResources } from "../world/terrain/TerrainResources";
-import { createTerrainTileShader } from "./TerrainTileShader";
-import { TerrainTileUniforms } from "./TerrainTileUniforms";
+import {
+  createTerrainTileShader,
+  TerrainTileUniforms,
+} from "./TerrainTileShader";
 import type { UniformInstance } from "../../core/graphics/UniformStruct";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 

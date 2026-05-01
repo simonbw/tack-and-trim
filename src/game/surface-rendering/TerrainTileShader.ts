@@ -9,6 +9,11 @@
  */
 
 import {
+  defineUniformStruct,
+  f32,
+  u32,
+} from "../../core/graphics/UniformStruct";
+import {
   ComputeShader,
   type ComputeShaderConfig,
 } from "../../core/graphics/webgpu/ComputeShader";
@@ -20,6 +25,27 @@ import {
 import { DEFAULT_DEPTH } from "../world/terrain/TerrainConstants";
 
 const WORKGROUP_SIZE = [8, 8] as const;
+
+/**
+ * Uniforms for the terrain tile compute pass.
+ */
+export const TerrainTileUniforms = defineUniformStruct("TileParams", {
+  // Tile pixel size (e.g., 256)
+  tileSize: u32,
+
+  // Atlas slot offset in pixels (where to write in the atlas)
+  atlasOffsetX: u32,
+  atlasOffsetY: u32,
+
+  // Terrain params
+  contourCount: u32,
+
+  // World-space bounds of this tile
+  tileWorldLeft: f32,
+  tileWorldTop: f32,
+  tileWorldWidth: f32,
+  tileWorldHeight: f32,
+});
 
 /**
  * Params module with uniforms and bindings for terrain tile computation.

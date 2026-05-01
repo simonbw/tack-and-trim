@@ -41,16 +41,23 @@ import {
 import { BoatAirShader } from "./BoatAirShader";
 import { LODTerrainTileCache } from "./LODTerrainTileCache";
 import { ModifierRasterizer } from "./ModifierRasterizer";
-import { createTerrainCompositeShader } from "./TerrainCompositeShader";
-import { TerrainCompositeUniforms } from "./TerrainCompositeUniforms";
-import { createTerrainScreenShader } from "./TerrainScreenShader";
-import { TerrainScreenUniforms } from "./TerrainScreenUniforms";
-import { createWaterFilterShader } from "./WaterFilterShader";
-import { WaterFilterUniforms } from "./WaterFilterUniforms";
-import { createWaterHeightShader } from "./WaterHeightShader";
-import { WaterHeightUniforms } from "./WaterHeightUniforms";
-import { createWindFieldShader } from "./WindFieldShader";
-import { WindFieldUniforms } from "./WindFieldUniforms";
+import {
+  createTerrainCompositeShader,
+  TerrainCompositeUniforms,
+} from "./TerrainCompositeShader";
+import {
+  createTerrainScreenShader,
+  TerrainScreenUniforms,
+} from "./TerrainScreenShader";
+import {
+  createWaterFilterShader,
+  WaterFilterUniforms,
+} from "./WaterFilterShader";
+import {
+  createWaterHeightShader,
+  WaterHeightUniforms,
+} from "./WaterHeightShader";
+import { createWindFieldShader, WindFieldUniforms } from "./WindFieldShader";
 import { pushWaterTuning } from "./WaterTuning";
 import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
 import {
