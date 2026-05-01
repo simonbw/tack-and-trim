@@ -13,8 +13,13 @@ import type { StationDef } from "./StationConfig";
 /** Sailor mass in lbs — average adult. Affects boat balance via deck constraint reaction. */
 export const SAILOR_MASS = 170;
 
-/** Walking speed in ft/s while transiting between stations. */
-export const SAILOR_WALK_SPEED = 6;
+/**
+ * Walking speed in ft/s while transiting between stations. Brisk — the
+ * player has no controls during transit, so longer walks feel sluggish.
+ * The weld pull-in scales its duration by `2D / SAILOR_WALK_SPEED`, so
+ * a faster walk also means a shorter, smoother handoff.
+ */
+export const SAILOR_WALK_SPEED = 24;
 /** Proximity radius (ft) at which the sailor snaps onto the target station. */
 export const SAILOR_SNAP_RADIUS = 2.5;
 
@@ -43,12 +48,12 @@ const SAILOR_WELD_FORCE_CAP = 8; // × sailor weight
  */
 const SAILOR_WELD_RELAXATION = 6;
 /**
- * Seconds to slide the weld's hull-local anchor from the sailor's entry
- * position to the actual station position. The constraint stays stiff
- * throughout; only the target moves, so the sailor tracks it without a
- * large position-error impulse at activation.
+ * Floor on the weld ramp duration (seconds). The duration is otherwise
+ * scaled by ramp distance so the anchor's initial velocity matches the
+ * walk speed (no visible pause when handing off from the friction motor),
+ * but a tiny floor keeps very-short ramps from stepping in a single tick.
  */
-const SAILOR_WELD_RAMP_DURATION = 0.3;
+const SAILOR_WELD_RAMP_MIN_DURATION = 0.05;
 
 export type SailorState =
   | { kind: "atStation"; stationId: string }
@@ -77,6 +82,8 @@ export class Sailor extends BaseEntity {
   private readonly _weldRampStart: V3d = new V3d(0, 0, 0);
   /** Hull-local anchor position at the station (end of the slide). */
   private readonly _weldRampTarget: V3d = new V3d(0, 0, 0);
+  /** Duration of the current ramp in seconds; computed per-snap. */
+  private _weldRampDuration: number = SAILOR_WELD_RAMP_MIN_DURATION;
 
   constructor(
     stations: readonly StationDef[],
@@ -238,6 +245,11 @@ export class Sailor extends BaseEntity {
   /**
    * Drive the deck-friction motor straight at the target station each
    * tick. On arrival within SAILOR_SNAP_RADIUS, snap onto the station.
+   *
+   * The friction equations' Jacobian sign convention treats positive
+   * `relativeVelocity` as driving motion in the -tangent direction (see
+   * `SailorDeckConstraint`), so the motor target is the *negation* of
+   * the desired hull-local velocity.
    */
   private tickTransit(): void {
     if (this._state.kind !== "transit") return;
@@ -252,19 +264,22 @@ export class Sailor extends BaseEntity {
     }
     const dist = Math.sqrt(dist2);
     const scale = SAILOR_WALK_SPEED / dist;
-    this.deckConstraint.targetVelocityX = dx * scale;
-    this.deckConstraint.targetVelocityY = dy * scale;
+    this.deckConstraint.targetVelocityX = -dx * scale;
+    this.deckConstraint.targetVelocityY = -dy * scale;
   }
 
   private advanceWeldRamp(dt: number): void {
     if (this._weldRampT >= 1) return;
     this._weldRampT = Math.min(
       1,
-      this._weldRampT + dt / SAILOR_WELD_RAMP_DURATION,
+      this._weldRampT + dt / this._weldRampDuration,
     );
-    // Smoothstep ease so the anchor accelerates in and decelerates out.
+    // Quadratic ease-out: s(t) = 2t - t². Starts at full velocity (s'(0)=2)
+    // so the anchor leaves the sailor's entry point at the same speed they
+    // were walking, then decelerates to 0 at the target — no visible pause
+    // when handing off from the friction motor to the weld.
     const t = this._weldRampT;
-    const eased = t * t * (3 - 2 * t);
+    const eased = t * (2 - t);
     const start = this._weldRampStart;
     const target = this._weldRampTarget;
     this.stationWeld.localAnchorB[0] =
@@ -278,8 +293,10 @@ export class Sailor extends BaseEntity {
   /**
    * Kick off a fresh pull-in ramp toward the given station. Snapshots the
    * sailor's current hull-local 3D position as the slide's start so the
-   * weld activates with zero position error, then lerps the anchor over
-   * `SAILOR_WELD_RAMP_DURATION` to the station's actual local position.
+   * weld activates with zero position error, then eases the anchor over
+   * a duration scaled to the ramp distance — `T = 2D / SAILOR_WALK_SPEED`
+   * — so the quadratic ease-out's initial anchor velocity equals the
+   * walk speed and the handoff is smooth.
    */
   private beginWeldRamp(station: StationDef): void {
     const localStart = this.hullBody.toLocalFrame3D(
@@ -297,6 +314,14 @@ export class Sailor extends BaseEntity {
       this._weldRampStart[0],
       this._weldRampStart[1],
       this._weldRampStart[2],
+    );
+    const dx = this._weldRampTarget[0] - this._weldRampStart[0];
+    const dy = this._weldRampTarget[1] - this._weldRampStart[1];
+    const dz = this._weldRampTarget[2] - this._weldRampStart[2];
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    this._weldRampDuration = Math.max(
+      SAILOR_WELD_RAMP_MIN_DURATION,
+      (2 * dist) / SAILOR_WALK_SPEED,
     );
     this._weldRampT = 0;
     for (const eq of this.stationWeld.equations) {
