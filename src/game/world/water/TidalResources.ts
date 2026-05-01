@@ -1,8 +1,9 @@
 /**
  * Tidal flow resource manager.
  *
- * Singleton entity that loads tidal flow mesh data and provides GPU buffers
- * and tidal state (phase, strength) for query shaders and rendering.
+ * Singleton entity that loads the tidal flow mesh and provides packed
+ * mesh data + tidal state (phase, strength) to the water query worker
+ * pool.
  *
  * Tidal phase advances based on game-world time from TimeOfDay, following
  * a semi-diurnal tidal cycle (~12.42 hours per cycle).

@@ -5,7 +5,8 @@ import type { V2d } from "../../../core/Vector";
  * Abstract base class for world queries.
  *
  * Queries provide a declarative API for sampling world data (terrain, water, wind)
- * at arbitrary points. The QueryManager handles the GPU infrastructure.
+ * at arbitrary points. The QueryManager dispatches to the worker pool and
+ * delivers results back as zero-copy buffer views.
  *
  * Features:
  * - Dynamic point collection via callback
@@ -24,7 +25,7 @@ export abstract class BaseQuery<TView> extends BaseEntity {
   private _pendingPoints: ReadonlyArray<V2d> | undefined;
 
   /**
-   * Float32Array view into the QueryManager's shared data buffer.
+   * Float32Array view into the worker pool's shared results buffer.
    * Contains only this query's result data, starting at offset 0.
    * Updated each frame by QueryManager.
    * @internal
@@ -47,7 +48,7 @@ export abstract class BaseQuery<TView> extends BaseEntity {
 
   /**
    * Get a result view at the given index. Zero-allocation after warmup.
-   * The view reads directly from the GPU result buffer.
+   * The view reads directly from the shared results buffer.
    */
   abstract get(index: number): TView;
 

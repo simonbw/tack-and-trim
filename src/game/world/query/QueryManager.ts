@@ -16,14 +16,13 @@ export interface ResultLayout {
 }
 
 /**
- * Query manager base class shared by all backends (GPU, CPU worker, etc).
+ * Query manager base class.
  *
  * Contains the backend-independent orchestration: query discovery, point
  * collection into a flat packed array, and result distribution via
  * zero-copy `Float32Array` views on a shared data buffer.
  *
- * Backend-specific concerns (dispatch, readback, synchronization) live in
- * subclasses such as `GpuQueryManager`.
+ * Concrete subclass `QueryWorkerManager` adds the worker-pool dispatch.
  */
 export abstract class QueryManager extends BaseEntity {
   tags = ["queryManager"];

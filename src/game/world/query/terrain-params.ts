@@ -5,7 +5,8 @@
  * Reader: query-worker terrain dispatch.
  */
 
-/** f32 — unused by the CPU path today but kept for symmetry with WGSL uniforms. */
+/** f32 — currently unused by the kernel; reserved for future per-frame
+ * params that need contour count without going through world state. */
 export const TERRAIN_PARAM_CONTOUR_COUNT = 0;
 
 /** f32 — default sea-floor depth used when no contour contains the query point. */

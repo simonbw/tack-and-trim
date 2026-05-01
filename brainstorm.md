@@ -1,5 +1,11 @@
 # BRAINSTORMING
 
+**Status:** historical brainstorm, not a roadmap. Last meaningful update: 2024.
+This file is preserved as creative scratchwork. Many of the entries
+below have either been implemented in some form (waves, day/night,
+storms, rope simulation) or remain open ideas — read it as background,
+not a task list.
+
 ## Boat/Sailing Physics
 
 - Inter-sail interactions

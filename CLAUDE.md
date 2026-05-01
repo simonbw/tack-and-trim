@@ -11,7 +11,7 @@ This file provides guidance to Claude Code when working with this 2D sailing gam
 - **Boat** (`boat/`) - Hull, keel, rudder, mainsail, jib, and rigging with physics-based sail simulation
 - **Wind** (`Wind.ts`, `WindParticles.ts`) - Global wind field with procedural variation using simplex noise
 - **Water** (`water/`) - Gerstner wave simulation with currents and wake effects
-- **World** (`world/`) - GPU-accelerated world state queries (terrain height, water surface, wind velocity) via WebGPU compute shaders with double-buffered readback and zero-allocation results. See [`src/game/world/CLAUDE.md`](src/game/world/CLAUDE.md) for architecture details.
+- **World** (`world/`) - World state queries (terrain height, water surface, wind velocity) backed by a WASM kernel running on a pool of web workers over shared memory. Zero-allocation result views. See [`src/game/world/CLAUDE.md`](src/game/world/CLAUDE.md) for architecture details.
 - **Controls** - Station-based: the player is always at a station on the boat (Helm, Mast, Bow). **Z** and **X** cycle to the previous/next station; the sailor auto-walks the deck between them. Each station exposes different controls (e.g. A/D for rudder at the Helm, W/S for hoist at the Mast). See [`src/game/boat/sailor/CLAUDE.md`](src/game/boat/sailor/CLAUDE.md) for details.
 
 ### Terrain Editor (`src/editor/`)

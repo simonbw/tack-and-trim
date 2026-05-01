@@ -1,8 +1,8 @@
 /**
- * CPU-side tide mesh packing for GPU compute shader access.
+ * Tide mesh packing for the query worker pool.
  *
  * Packs tidal flow vertex/index data and spatial grid indices into a single
- * array<u32> buffer.
+ * `Uint32Array` buffer that the WASM kernel reads via integer offsets.
  *
  * Buffer layout:
  * HEADER (16 u32s):

@@ -1,6 +1,29 @@
 # Rust Pipeline Port Plan
 
-Status (2026-03-06): completed. The legacy TypeScript terrain-import implementation under `src/pipeline/terrain-import/` has been removed. This document is retained as historical migration context.
+**Status (2026-04-30): completed and superseded.** Every step described
+below has been ported to Rust and now lives in `pipeline/build-level/`
+(plus `pipeline/wavemesh-builder/` for the wave mesh and
+`pipeline/query-wasm/` for the runtime kernel). The legacy TypeScript
+implementation under `src/pipeline/terrain-import/` was deleted long
+ago. This document is kept only as historical migration context — do
+not treat its priority list as outstanding work.
+
+If you are looking for the current pipeline structure, start at:
+
+- `pipeline/build-level/` — single binary covering download, grid
+  build, contour extraction, level validation, and wave mesh build.
+  Run as `bin/build-level [--level <name>]`.
+- `pipeline/terrain-core/` — shared library crate.
+- `pipeline/wavemesh-builder/` — wave mesh ray-marcher (still a
+  separate crate, invoked from `build-level`).
+- `pipeline/query-wasm/` — runtime WASM kernel for world queries.
+
+The remainder of this file is the original plan, preserved verbatim
+below.
+
+---
+
+## Original Plan (historical)
 
 This document outlined what TypeScript pipeline code remained to be ported to Rust, and how to structure it to maximize code sharing with the existing `wavemesh-builder`.
 
@@ -14,11 +37,11 @@ At the time this plan was written, the remaining TypeScript pipeline lived in `s
 
 | Step | TypeScript file | Status |
 |------|----------------|--------|
-| Download tiles | `download.ts` | Not ported |
-| Merge tiles to grid | `build-grid.ts` | Not ported (shells out to `gdalwarp`) |
-| Extract contours | `extract-contours.ts` | Not ported |
-| Validate level | `validate-level.ts` | Not ported |
-| Run full pipeline | `run-all.ts` | Not ported |
+| Download tiles | `download.ts` | **Done** (ported to `pipeline/build-level/src/download.rs`) |
+| Merge tiles to grid | `build-grid.ts` | **Done** (ported to `pipeline/build-level/src/build_grid.rs`) |
+| Extract contours | `extract-contours.ts` | **Done** (ported to `pipeline/build-level/src/extract.rs` + `marching.rs` + `simplify.rs`) |
+| Validate level | `validate-level.ts` | **Done** (ported to `pipeline/build-level/src/validate.rs`) |
+| Run full pipeline | `run-all.ts` | **Done** (`build-level` is the unified orchestrator) |
 | Build wavemesh | _(npm script)_ | **Done** |
 | Generate asset types | `bin/generate-asset-types.ts` | Not applicable (see below) |
 

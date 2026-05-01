@@ -101,11 +101,11 @@ export class WaterResources extends BaseEntity {
 
   /**
    * Number of modifiers whose AABB overlaps the current render viewport.
-   * Visible modifiers are packed at the front of the GPU buffer, so the
+   * Visible modifiers are packed at the front of the buffer, so the
    * modifier rasterizer can dispatch only the visible-count of instances
    * and skip rasterizing wakes whose entire footprint is off-screen.
-   * Modifiers behind this count remain in the buffer for the GPU water
-   * query path to iterate.
+   * Modifiers behind this count remain in the buffer for the water
+   * query worker to iterate over (it reads them via the SAB view).
    */
   private visibleModifierCount: number = 0;
 
@@ -350,10 +350,10 @@ export class WaterResources extends BaseEntity {
 
   /**
    * Get the number of modifiers visible in the current render viewport.
-   * Visible modifiers are packed at the front of the GPU buffer, so the
+   * Visible modifiers are packed at the front of the buffer, so the
    * modifier rasterizer dispatches this count of instances. Off-screen
    * modifiers occupy positions [visibleCount, modifierCount) and stay
-   * available to the GPU water query.
+   * available to the water query worker.
    */
   getVisibleModifierCount(): number {
     return this.visibleModifierCount;

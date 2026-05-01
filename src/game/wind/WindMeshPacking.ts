@@ -173,7 +173,8 @@ function buildSpatialGrid(
 
 /**
  * Build the packed wind mesh data as a plain Uint32Array.
- * Used by both the GPU uploader and the CPU query path.
+ * Used both by the GPU uploader (rendering path) and by the query
+ * worker pool (which copies the buffer into shared WASM memory).
  */
 export function buildPackedWindMeshData(
   bundle: WindMeshFileBundle,
