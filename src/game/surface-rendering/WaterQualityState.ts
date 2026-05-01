@@ -7,11 +7,9 @@
  * rebuilds the water-height texture and bind groups on change.
  */
 
-type Unsubscribe = () => void;
+import { createPersistedState } from "../../core/state/PersistedState";
 
 export type WaterQuality = "low" | "medium" | "high";
-
-const KEY = "waterQuality";
 
 const SCALES: Record<WaterQuality, number> = {
   low: 0.25,
@@ -19,38 +17,25 @@ const SCALES: Record<WaterQuality, number> = {
   high: 1.0,
 };
 
-function readInitial(): WaterQuality {
-  if (typeof localStorage === "undefined") return "medium";
-  const stored = localStorage.getItem(KEY);
-  if (stored === "low" || stored === "medium" || stored === "high") {
-    return stored;
-  }
-  return "medium";
-}
-
-let currentQuality: WaterQuality = readInitial();
-
-const subscribers = new Set<() => void>();
+const state = createPersistedState<WaterQuality>({
+  key: "waterQuality",
+  default: "medium",
+  validate: (v) => (v === "low" || v === "medium" || v === "high" ? v : null),
+});
 
 export function getWaterQuality(): WaterQuality {
-  return currentQuality;
+  return state.get();
 }
 
 /** Resolution scale (0..1) applied to the water-height texture. */
 export function getWaterQualityScale(): number {
-  return SCALES[currentQuality];
+  return SCALES[state.get()];
 }
 
 export function setWaterQuality(q: WaterQuality): void {
-  if (q === currentQuality) return;
-  currentQuality = q;
-  if (typeof localStorage !== "undefined") {
-    localStorage.setItem(KEY, q);
-  }
-  for (const cb of subscribers) cb();
+  state.set(q);
 }
 
-export function onWaterQualityChange(cb: () => void): Unsubscribe {
-  subscribers.add(cb);
-  return () => subscribers.delete(cb);
+export function onWaterQualityChange(cb: () => void): () => void {
+  return state.subscribe(cb);
 }

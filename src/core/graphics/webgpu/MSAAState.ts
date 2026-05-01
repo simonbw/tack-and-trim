@@ -9,36 +9,27 @@
  * textures at the new sample count as part of its own subscriber.
  */
 
-type Unsubscribe = () => void;
+import { createPersistedState } from "../../state/PersistedState";
 
-const KEY = "msaa";
-
-let currentSampleCount: 1 | 4 =
-  typeof localStorage !== "undefined" && localStorage.getItem(KEY) === "off"
-    ? 1
-    : 4;
-
-const subscribers = new Set<() => void>();
+const state = createPersistedState<boolean>({
+  key: "msaa",
+  default: true,
+  serialize: (v) => (v ? "on" : "off"),
+  validate: (v) => (v === "on" ? true : v === "off" ? false : null),
+});
 
 export function getMSAASampleCount(): 1 | 4 {
-  return currentSampleCount;
+  return state.get() ? 4 : 1;
 }
 
 export function isMSAAEnabled(): boolean {
-  return currentSampleCount > 1;
+  return state.get();
 }
 
 export function setMSAAEnabled(enabled: boolean): void {
-  const next: 1 | 4 = enabled ? 4 : 1;
-  if (next === currentSampleCount) return;
-  currentSampleCount = next;
-  if (typeof localStorage !== "undefined") {
-    localStorage.setItem(KEY, enabled ? "on" : "off");
-  }
-  for (const cb of subscribers) cb();
+  state.set(enabled);
 }
 
-export function onMSAAChange(cb: () => void): Unsubscribe {
-  subscribers.add(cb);
-  return () => subscribers.delete(cb);
+export function onMSAAChange(cb: () => void): () => void {
+  return state.subscribe(cb);
 }
