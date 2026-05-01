@@ -29,7 +29,10 @@ import {
   createTerrainTileShader,
   TerrainTileUniforms,
 } from "./TerrainTileShader";
-import type { UniformInstance } from "../../core/graphics/UniformStruct";
+import {
+  createUniformBuffer,
+  type UniformInstance,
+} from "../../core/graphics/UniformStruct";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 
 /**
@@ -118,11 +121,11 @@ export class TerrainTileCache {
     this.shader = createTerrainTileShader();
 
     // Create uniform buffer and instance
-    this.uniformBuffer = device.createBuffer({
-      size: TerrainTileUniforms.byteSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: "Terrain Tile Uniform Buffer",
-    });
+    this.uniformBuffer = createUniformBuffer(
+      device,
+      TerrainTileUniforms,
+      "Terrain Tile Uniform Buffer",
+    );
     this.uniforms = TerrainTileUniforms.create();
   }
 

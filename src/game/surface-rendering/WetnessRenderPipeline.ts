@@ -9,9 +9,11 @@
  */
 
 import { Matrix3 } from "../../core/graphics/Matrix3";
+import { createUniformBuffer } from "../../core/graphics/UniformStruct";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import { profile } from "../../core/util/Profiler";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
+import { createLinearClampSampler } from "../../core/graphics/webgpu/Samplers";
 import {
   createWetnessStateShader,
   DEFAULT_DRYING_RATE,
@@ -78,20 +80,14 @@ export class WetnessRenderPipeline {
     await this.shader.init();
 
     // Create params buffer
-    this.paramsBuffer = device.createBuffer({
-      size: WetnessUniforms.byteSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: "Wetness Params Buffer",
-    });
+    this.paramsBuffer = createUniformBuffer(
+      device,
+      WetnessUniforms,
+      "Wetness Params Buffer",
+    );
 
     // Create sampler (linear for smooth reprojection)
-    this.sampler = device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-      label: "Wetness Sampler",
-    });
+    this.sampler = createLinearClampSampler(device, "Wetness Sampler");
 
     // Create ping-pong textures (r32float for single channel wetness)
     this.wetnessTextureA = device.createTexture({

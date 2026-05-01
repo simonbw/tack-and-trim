@@ -16,9 +16,13 @@ import { BaseEntity } from "../../core/entity/BaseEntity";
 import { on } from "../../core/entity/handler";
 import type { Draw } from "../../core/graphics/Draw";
 import { Matrix3 } from "../../core/graphics/Matrix3";
-import { type UniformInstance } from "../../core/graphics/UniformStruct";
+import {
+  createUniformBuffer,
+  type UniformInstance,
+} from "../../core/graphics/UniformStruct";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
 import type { FullscreenShader } from "../../core/graphics/webgpu/FullscreenShader";
+import { createLinearClampSampler } from "../../core/graphics/webgpu/Samplers";
 import { profiler } from "../../core/util/Profiler";
 import type { Boat } from "../boat/Boat";
 import { pushSceneLighting } from "../time/SceneLighting";
@@ -238,38 +242,38 @@ export class SurfaceRenderer extends BaseEntity {
       ]);
 
       // Create uniform buffers
-      this.terrainScreenUniformBuffer = device.createBuffer({
-        size: TerrainScreenUniforms.byteSize,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        label: "Terrain Screen Uniform Buffer",
-      });
-      this.waterHeightUniformBuffer = device.createBuffer({
-        size: WaterHeightUniforms.byteSize,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        label: "Water Height Uniform Buffer",
-      });
-      this.windFieldUniformBuffer = device.createBuffer({
-        size: WindFieldUniforms.byteSize,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        label: "Wind Field Uniform Buffer",
-      });
-      this.terrainCompositeUniformBuffer = device.createBuffer({
-        size: TerrainCompositeUniforms.byteSize,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        label: "Terrain Composite Uniform Buffer",
-      });
-      this.waterFilterUniformBuffer = device.createBuffer({
-        size: WaterFilterUniforms.byteSize,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        label: "Water Filter Uniform Buffer",
-      });
+      this.terrainScreenUniformBuffer = createUniformBuffer(
+        device,
+        TerrainScreenUniforms,
+        "Terrain Screen Uniform Buffer",
+      );
+      this.waterHeightUniformBuffer = createUniformBuffer(
+        device,
+        WaterHeightUniforms,
+        "Water Height Uniform Buffer",
+      );
+      this.windFieldUniformBuffer = createUniformBuffer(
+        device,
+        WindFieldUniforms,
+        "Wind Field Uniform Buffer",
+      );
+      this.terrainCompositeUniformBuffer = createUniformBuffer(
+        device,
+        TerrainCompositeUniforms,
+        "Terrain Composite Uniform Buffer",
+      );
+      this.waterFilterUniformBuffer = createUniformBuffer(
+        device,
+        WaterFilterUniforms,
+        "Water Filter Uniform Buffer",
+      );
 
       // Biome uniform buffer — uploaded once per level load
-      this.biomeUniformBuffer = device.createBuffer({
-        size: BIOME_BUFFER_SIZE,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        label: "Biome Uniform Buffer",
-      });
+      this.biomeUniformBuffer = createUniformBuffer(
+        device,
+        { byteSize: BIOME_BUFFER_SIZE },
+        "Biome Uniform Buffer",
+      );
       const biomeData = packBiomeBuffer(this.biomeConfig);
       device.queue.writeBuffer(this.biomeUniformBuffer, 0, biomeData.buffer);
 
@@ -283,41 +287,26 @@ export class SurfaceRenderer extends BaseEntity {
       this.terrainCompositeUniforms.set.hasTerrainData(0);
       this.waterFilterUniforms.set.hasTerrainData(0);
 
-      // Linear filtering: rgba16float is filterable, so bilinear sampling
-      // smooths water height / normals between texels for free.
-      this.heightSampler = device.createSampler({
-        magFilter: "linear",
-        minFilter: "linear",
-        addressModeU: "clamp-to-edge",
-        addressModeV: "clamp-to-edge",
-        label: "Height Texture Sampler",
-      });
-
-      // Create wave field sampler (linear filtering for smooth interpolation)
-      this.waveFieldSampler = device.createSampler({
-        magFilter: "linear",
-        minFilter: "linear",
-        addressModeU: "clamp-to-edge",
-        addressModeV: "clamp-to-edge",
-        label: "Wave Field Sampler",
-      });
-
-      // Create modifier sampler (linear filtering, clamp-to-edge)
-      this.modifierSampler = device.createSampler({
-        magFilter: "linear",
-        minFilter: "linear",
-        addressModeU: "clamp-to-edge",
-        addressModeV: "clamp-to-edge",
-        label: "Modifier Sampler",
-      });
-
-      this.windFieldSampler = device.createSampler({
-        magFilter: "linear",
-        minFilter: "linear",
-        addressModeU: "clamp-to-edge",
-        addressModeV: "clamp-to-edge",
-        label: "Wind Field Sampler",
-      });
+      // All four samplers use linear filtering with clamp-to-edge — the
+      // standard descriptor for screen-space surface textures. rgba16float
+      // is filterable, so bilinear sampling smooths water height / normals
+      // between texels for free.
+      this.heightSampler = createLinearClampSampler(
+        device,
+        "Height Texture Sampler",
+      );
+      this.waveFieldSampler = createLinearClampSampler(
+        device,
+        "Wave Field Sampler",
+      );
+      this.modifierSampler = createLinearClampSampler(
+        device,
+        "Modifier Sampler",
+      );
+      this.windFieldSampler = createLinearClampSampler(
+        device,
+        "Wind Field Sampler",
+      );
 
       this.initialized = true;
     } catch (error) {
