@@ -8,11 +8,8 @@
 use crate::fast_trig::fast_sin_cos;
 use crate::noise::simplex3d;
 use crate::packed::WIND_MESH_FLOATS_PER_VERTEX;
+pub use crate::protocol::{PARAMS_FLOATS_PER_CHANNEL, STRIDE_PER_POINT};
 use crate::world_state::WorldState;
-
-// Layout — must stay in sync with `wind-params.ts` and the WGSL.
-pub const STRIDE_PER_POINT: usize = 2;
-pub const PARAMS_FLOATS_PER_CHANNEL: usize = 128;
 
 const WIND_PARAM_TIME: usize = 0;
 const WIND_PARAM_BASE_X: usize = 1;

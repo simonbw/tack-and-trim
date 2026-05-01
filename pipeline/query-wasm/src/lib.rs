@@ -20,6 +20,7 @@
 mod fast_trig;
 mod noise;
 mod packed;
+mod protocol;
 mod terrain;
 mod terrain_height;
 mod tide;

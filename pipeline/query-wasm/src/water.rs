@@ -19,21 +19,19 @@ use crate::packed::{
     MESH_GRID_MIN_Y_F32, MESH_GRID_ROWS, MESH_GRID_SIN_A_F32, MESH_HEADER_MESH_OFFSETS_BASE,
     MESH_INDEX_OFFSET, MESH_TRIANGLE_COUNT, MESH_VERTEX_OFFSET,
 };
+pub use crate::protocol::{FLOATS_PER_MODIFIER, PARAMS_FLOATS_PER_CHANNEL, STRIDE_PER_POINT};
+use crate::protocol::{MAX_MODIFIERS, MAX_WAVE_SOURCES};
 use crate::terrain_height::compute_terrain_height;
 use crate::tide::lookup_tidal_flow;
 use crate::world_state::WorldState;
 
 // ---------------------------------------------------------------------------
-// Layout constants — must stay in sync with the TypeScript and WGSL sides.
+// Layout constants — `protocol::*` is the single source of truth (auto-
+// generated from `query-worker-protocol.ts` by `build.rs`). Re-exports
+// above keep the existing call sites in `lib.rs` working.
 // ---------------------------------------------------------------------------
 
-pub const STRIDE_PER_POINT: usize = 2;
-pub const PARAMS_FLOATS_PER_CHANNEL: usize = 128;
-pub const FLOATS_PER_MODIFIER: usize = 14;
-
-const MAX_WAVE_SOURCES: usize = 8;
 const FLOATS_PER_WAVE: usize = 8;
-const MAX_MODIFIERS: usize = 16384;
 
 // `water-params.ts` offsets — indices into the params block.
 const WATER_PARAM_TIME: usize = 0;

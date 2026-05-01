@@ -31,6 +31,34 @@ export type QueryTypeId =
 export const STRIDE_PER_POINT = 2;
 
 // ---------------------------------------------------------------------------
+// Shared layout constants — single source of truth for the TS / Rust / WGSL
+// boundary. These are mirrored in Rust at `pipeline/query-wasm/src/protocol.rs`
+// (auto-generated from this file by `pipeline/query-wasm/build.rs`). When you
+// change a value here, run `npm run build-query-wasm` to regenerate the Rust
+// constants. Do not duplicate these values inline elsewhere — re-export from
+// here.
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum number of wave sources used by water mesh / Gerstner shaders.
+ * Used by both the wave physics manager (mesh array sizing) and the
+ * water query pipeline.
+ */
+export const MAX_WAVE_SOURCES = 8;
+
+/**
+ * Maximum number of water modifiers (wakes / foam) per frame. Sized for
+ * the per-frame GPU storage buffer and for the SAB-backed CPU mirror.
+ */
+export const MAX_MODIFIERS = 16384;
+
+/**
+ * Number of `f32` slots per modifier in the modifier buffer. See
+ * `WaterResources.ts` for the per-slot layout.
+ */
+export const FLOATS_PER_MODIFIER = 14;
+
+// ---------------------------------------------------------------------------
 // Control SAB layout (Int32Array view).
 // ---------------------------------------------------------------------------
 

@@ -18,6 +18,10 @@ import { profile } from "../../../core/util/Profiler";
 import { TimeOfDay } from "../../time/TimeOfDay";
 import type { Viewport } from "../../wave-physics/WavePhysicsResources";
 import {
+  FLOATS_PER_MODIFIER,
+  MAX_MODIFIERS,
+} from "../query/query-worker-protocol";
+import {
   type GPUWaterModifierData,
   WaterModifier,
   WaterModifierType,
@@ -28,13 +32,10 @@ import {
   WaveConfig,
 } from "./WaveSource";
 
-/** Maximum number of modifiers that can be processed per frame */
-export const MAX_MODIFIERS = 16384;
-
 /**
- * Number of floats per modifier in the GPU buffer.
- *
- * Buffer layout per modifier (14 floats):
+ * Re-exports of the shared protocol constants. Single source of truth
+ * lives in `query-worker-protocol.ts`. Buffer layout per modifier
+ * (`FLOATS_PER_MODIFIER` floats):
  *   [0]  type          u32 modifier type discriminator (WaterModifierType enum)
  *   [1]  minX          AABB lower bound X (ft) — used for bounds culling
  *   [2]  minY          AABB lower bound Y (ft)
@@ -58,7 +59,7 @@ export const MAX_MODIFIERS = 16384;
  *
  * Unused slots per-type are zero-padded.
  */
-export const FLOATS_PER_MODIFIER = 14;
+export { FLOATS_PER_MODIFIER, MAX_MODIFIERS };
 
 // Tide configuration
 // Semi-diurnal tide: 2 cycles per day (high at 0h & 12h, low at 6h & 18h)

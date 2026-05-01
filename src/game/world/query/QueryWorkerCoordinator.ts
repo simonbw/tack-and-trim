@@ -13,6 +13,8 @@ import { WindResultLayout } from "../wind/WindQueryResult";
 import { QueryWorkerManager } from "./QueryWorkerManager";
 import { defaultQueryWorkerCount, QueryWorkerPool } from "./QueryWorkerPool";
 import {
+  FLOATS_PER_MODIFIER,
+  MAX_MODIFIERS,
   QUERY_TYPE_TERRAIN,
   QUERY_TYPE_WATER,
   QUERY_TYPE_WIND,
@@ -24,9 +26,6 @@ const POINT_COUNT_LABELS: Record<QueryTypeId, string> = {
   [QUERY_TYPE_WATER]: "points.water",
   [QUERY_TYPE_WIND]: "points.wind",
 };
-
-const MAX_WATER_MODIFIERS = 16384;
-const FLOATS_PER_MODIFIER = 14;
 
 /**
  * Shared buffer sizing per query type.
@@ -98,9 +97,7 @@ export class QueryWorkerCoordinator extends BaseEntity {
         resultStride: WaterResultLayout.stride,
         worldState: waveMeshRaw ? [waveMeshRaw, tideMeshRaw] : [],
         frameStateBytes:
-          MAX_WATER_MODIFIERS *
-          FLOATS_PER_MODIFIER *
-          Float32Array.BYTES_PER_ELEMENT,
+          MAX_MODIFIERS * FLOATS_PER_MODIFIER * Float32Array.BYTES_PER_ELEMENT,
       },
       wind: {
         maxPoints: MAX_POINTS,
