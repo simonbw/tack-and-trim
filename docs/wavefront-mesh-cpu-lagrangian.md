@@ -1,5 +1,11 @@
 # CPU Wavefront Marching (Lagrangian) Design
 
+> **Status (2026):** historical design doc. The shipping implementation is
+> the Rust ray-marcher in `pipeline/wavemesh-builder/`, which adopts this
+> Lagrangian approach but runs as an offline build step (not in web
+> workers). Read this doc for the algorithm; read
+> `pipeline/wavemesh-builder/src/marching.rs` for the live code.
+
 ## Overview
 
 A CPU-based wavefront marching algorithm that runs in web workers, constructing one triangle mesh per wave source. The key advantage over GPU marching: the CPU can dynamically insert and remove vertices during construction, adapting resolution to local complexity without preallocating a fixed grid.

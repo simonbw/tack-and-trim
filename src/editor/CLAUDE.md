@@ -100,7 +100,7 @@ Levels are stored as JSON (see `io/LevelFileFormat.ts`):
 
 ```typescript
 {
-  version: 1,
+  version: 2,
   defaultDepth: -50,
   waves: {
     sources: [{

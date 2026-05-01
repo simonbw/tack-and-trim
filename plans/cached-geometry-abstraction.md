@@ -1,5 +1,15 @@
 # Cached Geometry Abstraction
 
+> **Status (2026):** largely implemented — see `plans/README.md`. The
+> `MeshBuilder` / `CachedMesh` / `DynamicMesh` / `VertexSink` types all
+> exist and the per-instance transform path landed. The vertex stride
+> referenced below has since been bumped from 7 to 8 floats (see
+> `plans/global-lighting-everywhere.md` — the extra slot is the
+> `lightAffected` flag). `TiltDraw` is still a separate API surface, so
+> the "dissolve TiltDraw" goal is not fully complete. This document is
+> preserved as the original execution plan; do not treat numeric strides
+> below as authoritative.
+
 Major engine refactor: introduce a first-class retained-mode mesh type that shares tessellation code with the existing immediate-mode `Draw` API, and move per-vertex transform baking to a per-instance storage-buffer model. Outcome: a fluent `MeshBuilder` that mirrors `Draw`, a `CachedMesh` whose submission is effectively `buffer.set(...)`, the dissolution of `TiltDraw` into the base API, and substantial CPU-bandwidth reduction even for immediate-mode frames.
 
 ## Current State

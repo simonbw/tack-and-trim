@@ -1,4 +1,13 @@
-# GPU Wavefront Marching (Lagrangian) -- Design
+# GPU Wavefront Marching (Lagrangian) -- Historical Design
+
+> **Status (2026):** historical design document — **not the current implementation**.
+> The wavefront mesh is built offline in Rust at `pipeline/wavemesh-builder/`,
+> not on the GPU. See `docs/wavefront-mesh-design.md` and
+> `pipeline/wavemesh-builder/README.md` for the current architecture, and
+> `src/game/wave-physics/CLAUDE.md` for the runtime side. The TypeScript
+> `WavefrontMeshBuilder.ts` and `WavefrontMarchShader.ts` referenced below
+> no longer exist. This file is preserved as a record of one design we
+> evaluated; do not treat it as a guide to the live system.
 
 ## Overview
 

@@ -1,5 +1,9 @@
 # Terrain-Seeded Eulerian Mesh Construction
 
+> **Status (2026):** historical design doc — alternative we evaluated but did
+> not ship. The live wavefront mesh is built by the Rust Lagrangian ray
+> marcher in `pipeline/wavemesh-builder/`. Preserved as background.
+
 ## Overview
 
 This approach constructs the wave terrain mesh by seeding vertex positions from existing terrain contour data, then solving for wave properties at those fixed positions using an Eikonal-based fast marching method. Instead of marching wavefronts forward (Lagrangian), we place vertices where they're needed and compute how waves arrive at each vertex (Eulerian).
