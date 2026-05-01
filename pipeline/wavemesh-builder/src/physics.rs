@@ -59,8 +59,6 @@ pub struct InteriorRayResult {
     pub depth: f64,
     pub terrain_grad_x: f64,
     pub terrain_grad_y: f64,
-    pub refracted: bool,
-    pub turn_clamped: bool,
 }
 
 /// Advance an interior ray one step: refraction, position update, energy dissipation.
@@ -92,8 +90,6 @@ pub fn advance_interior_ray(
     let mut dir_x = ray.dir_x;
     let mut dir_y = ray.dir_y;
     let mut abs_d_theta = 0.0;
-    let mut refracted = false;
-    let mut turn_clamped = false;
 
     if depth > 0.0 {
         let tanh_kd = base_speed * base_speed;
@@ -112,10 +108,6 @@ pub fn advance_interior_ray(
             physics.max_turn_per_step_rad,
         );
         abs_d_theta = d_theta.abs();
-        refracted = true;
-        if raw_d_theta.abs() > physics.max_turn_per_step_rad {
-            turn_clamped = true;
-        }
         let cos_d = d_theta.cos();
         let sin_d = d_theta.sin();
         dir_x = ray.dir_x * cos_d - ray.dir_y * sin_d;
@@ -168,7 +160,5 @@ pub fn advance_interior_ray(
         depth: new_depth.max(0.0),
         terrain_grad_x: new_thg.gradient_x,
         terrain_grad_y: new_thg.gradient_y,
-        refracted,
-        turn_clamped,
     })
 }

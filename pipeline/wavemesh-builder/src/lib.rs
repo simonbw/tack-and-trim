@@ -1,13 +1,9 @@
-#![allow(dead_code)]
-
 mod bounds;
 mod config;
 mod decimate;
-mod humanize;
 mod level;
 mod marching;
 mod physics;
-mod post;
 mod refine;
 mod terrain;
 mod triangulate;
@@ -21,7 +17,7 @@ mod tidemesh_file;
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
-use humanize::format_int;
+use terrain_core::humanize::format_int;
 use terrain_core::step::{format_ms, StepView};
 
 use terrain::{ContourLookupGrid, ParsedContour};

@@ -4,6 +4,8 @@
 use anyhow::Context;
 use serde::{Deserialize, Deserializer};
 
+use crate::polygon_math::{point_in_polygon_arr2, signed_area_arr2};
+
 // ── Region config types ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
@@ -820,43 +822,10 @@ fn adaptive_samples_per_segment(control_points: &[[f64; 2]]) -> usize {
 
 // ── Winding normalisation ────────────────────────────────────────────────────
 
-fn signed_area(points: &[[f64; 2]]) -> f64 {
-    let n = points.len();
-    if n < 3 {
-        return 0.0;
-    }
-    let mut area = 0.0;
-    for i in 0..n {
-        let j = (i + 1) % n;
-        area += points[i][0] * points[j][1];
-        area -= points[j][0] * points[i][1];
-    }
-    area / 2.0
-}
-
 fn ensure_ccw(points: &mut [[f64; 2]]) {
-    if signed_area(points) > 0.0 {
+    if signed_area_arr2(points) > 0.0 {
         points.reverse();
     }
-}
-
-// ── Point-in-polygon ─────────────────────────────────────────────────────────
-
-fn point_in_polygon(px: f64, py: f64, polygon: &[[f64; 2]]) -> bool {
-    let n = polygon.len();
-    let mut inside = false;
-    let mut j = n - 1;
-    for i in 0..n {
-        let yi = polygon[i][1];
-        let yj = polygon[j][1];
-        if (yi > py) != (yj > py)
-            && px < (polygon[j][0] - polygon[i][0]) * (py - yi) / (yj - yi) + polygon[i][0]
-        {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
 }
 
 // ── Containment grid (2-bit packed) ──────────────────────────────────────────
@@ -981,7 +950,7 @@ fn build_containment_grid_packed(polygon: &[[f64; 2]], bbox: &BBox) -> Vec<u32> 
             let row = cell / cols;
             let cx = bbox.min_x + (col as f64 + 0.5) * cell_w;
             let cy = bbox.min_y + (row as f64 + 0.5) * cell_h;
-            if point_in_polygon(cx, cy, polygon) {
+            if point_in_polygon_arr2(cx, cy, polygon) {
                 cell_flags[cell] = CELL_INSIDE;
             }
         }
@@ -1366,7 +1335,7 @@ fn build_lookup_grid_packed_gpu(
                     } else {
                         let cx = level_min_x + ((c0 + lc) as f64 + 0.5) * cell_w;
                         let cy = level_min_y + ((r0 + lr) as f64 + 0.5) * cell_h;
-                        if point_in_polygon(cx, cy, polygon) {
+                        if point_in_polygon_arr2(cx, cy, polygon) {
                             results.push(CellClassification {
                                 cell: global_cell as u32,
                                 is_inside: true,
@@ -1559,7 +1528,7 @@ fn is_contour_inside(
     if inner_poly.is_empty() {
         return false;
     }
-    point_in_polygon(inner_poly[0][0], inner_poly[0][1], outer_poly)
+    point_in_polygon_arr2(inner_poly[0][0], inner_poly[0][1], outer_poly)
 }
 
 struct ContourTreeNode {

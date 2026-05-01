@@ -158,8 +158,6 @@ pub fn build_tide_mesh(terrain: &TerrainCPUData, config: &TidemeshConfig) -> Tid
 
 struct ContourPolyline {
     points: Vec<[f64; 2]>,
-    #[allow(dead_code)]
-    height: f64,
 }
 
 fn extract_contour_polylines(
@@ -178,10 +176,7 @@ fn extract_contour_polylines(
             }
         }
         if points.len() >= 3 {
-            polylines.push(ContourPolyline {
-                points,
-                height: c.height as f64,
-            });
+            polylines.push(ContourPolyline { points });
         }
     }
     polylines

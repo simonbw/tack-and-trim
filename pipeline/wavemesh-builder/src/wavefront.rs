@@ -63,11 +63,6 @@ pub struct WavefrontSegment {
 }
 
 impl WavefrontSegment {
-    /// Create an empty segment with the given track lineage info.
-    pub fn new(track_id: i32, parent_track_id: Option<i32>, source_step_index: usize) -> Self {
-        Self::with_capacity(track_id, parent_track_id, source_step_index, 0)
-    }
-
     /// Create a segment pre-allocated for `cap` rays.
     pub fn with_capacity(
         track_id: i32,
@@ -139,11 +134,11 @@ pub struct WaveBounds {
 }
 
 /// A snapshot of a segment track at one march step.
+///
+/// Lineage info (track_id, parent_track_id, source_step_index) lives on the
+/// inner `WavefrontSegment` itself; the snapshot is just a thin newtype.
 #[derive(Clone)]
 pub struct SegmentTrackSnapshot {
-    pub step_index: usize,
-    pub segment_index: usize,
-    pub source_step_index: usize,
     pub segment: WavefrontSegment,
 }
 

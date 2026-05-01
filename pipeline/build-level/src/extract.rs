@@ -7,6 +7,7 @@ use rayon::prelude::*;
 
 use terrain_core::humanize::format_int;
 use terrain_core::level::ElevationSchedule;
+use terrain_core::polygon_math::{point_in_polygon_tuples, ring_perimeter_tuples, signed_area_tuples};
 use terrain_core::step::{format_ms, StepView};
 
 use crate::constrained_simplify::constrained_simplify_closed_ring;
@@ -16,7 +17,7 @@ use crate::region::{
     display_path, grid_cache_dir, load_region_config, resolve_region, terrain_output_path,
 };
 use crate::segment_index::SegmentIndex;
-use crate::simplify::{ring_perimeter, signed_area, Point};
+use crate::simplify::Point;
 use crate::validate::validate_terrain_binary;
 
 const DEFAULT_DEPTH: f64 = -300.0;
@@ -168,7 +169,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
                             bbox.max_y = bbox.max_y.max(fy);
                         }
 
-                        if ring_perimeter(&feet_points) < config.min_perimeter {
+                        if ring_perimeter_tuples(&feet_points) < config.min_perimeter {
                             continue;
                         }
                         if feet_points.len() < config.min_points {
@@ -282,7 +283,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
                     .map(|(x, y)| (x / config.scale, y / config.scale))
                     .collect();
 
-                if signed_area(&scaled) < 0.0 {
+                if signed_area_tuples(&scaled) < 0.0 {
                     scaled.reverse();
                 }
 
@@ -599,25 +600,6 @@ fn format_schedule(schedule: &ElevationSchedule, unit: &str) -> String {
     }
 }
 
-fn point_in_polygon(px: f64, py: f64, poly: &[Point]) -> bool {
-    if poly.len() < 3 {
-        return false;
-    }
-
-    let mut inside = false;
-    let mut j = poly.len() - 1;
-    for i in 0..poly.len() {
-        let (xi, yi) = poly[i];
-        let (xj, yj) = poly[j];
-        if (yi > py) != (yj > py) && px < ((xj - xi) * (py - yi) / (yj - yi)) + xi {
-            inside = !inside;
-        }
-        j = i;
-    }
-
-    inside
-}
-
 fn build_containment_tree(rings: &[RawRing]) -> Vec<ContourNode> {
     fn bbox_contains(outer: RingBBox, inner: RingBBox) -> bool {
         outer.min_x <= inner.min_x
@@ -635,7 +617,7 @@ fn build_containment_tree(rings: &[RawRing]) -> Vec<ContourNode> {
         }
 
         let (px, py) = rings[inner_idx].points[0];
-        point_in_polygon(px, py, &rings[outer_idx].points)
+        point_in_polygon_tuples(px, py, &rings[outer_idx].points)
     }
 
     fn insert_contour(parent: &mut Vec<ContourNode>, new_index: usize, rings: &[RawRing]) {

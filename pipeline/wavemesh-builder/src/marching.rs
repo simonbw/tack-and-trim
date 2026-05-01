@@ -104,8 +104,6 @@ enum RayStepOutcome {
         terrain_grad_x: f64,
         terrain_grad_y: f64,
         is_sentinel: bool,
-        refracted: bool,
-        turn_clamped: bool,
     },
 }
 
@@ -121,7 +119,7 @@ fn advance_track_segment_step(
     lookup_grid: &ContourLookupGrid,
     config: &MeshBuildConfig,
     stats: &mut RefineStats,
-) -> (usize, Vec<WavefrontSegment>, u64, u64) {
+) -> Vec<WavefrontSegment> {
     let next_source_step = segment.source_step_index + 1;
     let src_len = segment.len();
 
@@ -153,8 +151,6 @@ fn advance_track_segment_step(
                         terrain_grad_x: 0.0,
                         terrain_grad_y: 0.0,
                         is_sentinel: true,
-                        refracted: false,
-                        turn_clamped: false,
                     },
                     None => RayStepOutcome::Gap,
                 };
@@ -194,8 +190,6 @@ fn advance_track_segment_step(
                     terrain_grad_x: ir.terrain_grad_x,
                     terrain_grad_y: ir.terrain_grad_y,
                     is_sentinel: false,
-                    refracted: ir.refracted,
-                    turn_clamped: ir.turn_clamped,
                 },
                 None => RayStepOutcome::Gap,
             }
@@ -204,8 +198,6 @@ fn advance_track_segment_step(
 
     // ── Pass 2: sequential assembly with split/flush logic ──────────────────
     let mut raw_segments: Vec<WavefrontSegment> = Vec::new();
-    let mut refracted_count = 0u64;
-    let mut turn_clamped_count = 0u64;
 
     let mut current =
         WavefrontSegment::with_capacity(-1, parent_track_id, next_source_step, src_len);
@@ -237,16 +229,7 @@ fn advance_track_segment_step(
                 terrain_grad_x,
                 terrain_grad_y,
                 is_sentinel,
-                refracted,
-                turn_clamped,
             } => {
-                if *refracted {
-                    refracted_count += 1;
-                }
-                if *turn_clamped {
-                    turn_clamped_count += 1;
-                }
-
                 // Energy ratio check → segment break (skip for sentinels)
                 if !is_sentinel && !current.energy.is_empty() {
                     let prev_e = *current.energy.last().unwrap();
@@ -313,12 +296,7 @@ fn advance_track_segment_step(
         produced.push(seg);
     }
 
-    (
-        next_source_step,
-        produced,
-        refracted_count,
-        turn_clamped_count,
-    )
+    produced
 }
 
 // ── March a single track to completion ───────────────────────────────────────
@@ -327,8 +305,6 @@ type TrackResult = (
     SegmentTrack,
     Vec<WavefrontSegment>, // child seeds
     RefineStats,
-    u64, // refractions
-    u64, // turn clamps
     u64, // marched verts
 );
 
@@ -347,8 +323,6 @@ fn march_single_track(
         splits: 0,
         merges: 0,
     };
-    let mut total_refractions = 0u64;
-    let mut total_clamps = 0u64;
     let mut marched_verts = seed.len() as u64;
 
     let mut track = SegmentTrack {
@@ -356,9 +330,6 @@ fn march_single_track(
         parent_track_id: seed.parent_track_id,
         child_track_ids: vec![],
         snapshots: vec![SegmentTrackSnapshot {
-            step_index: 0,
-            segment_index: 0,
-            source_step_index: seed.source_step_index,
             segment: seed.clone(),
         }],
     };
@@ -373,7 +344,7 @@ fn march_single_track(
     let mut child_seeds: Vec<WavefrontSegment> = Vec::new();
 
     loop {
-        let (next_step, produced, refractions, clamps) = advance_track_segment_step(
+        let produced = advance_track_segment_step(
             &segment,
             Some(track.track_id),
             wp,
@@ -385,8 +356,6 @@ fn march_single_track(
             config,
             &mut stats,
         );
-        total_refractions += refractions;
-        total_clamps += clamps;
 
         if produced.is_empty() {
             break;
@@ -402,9 +371,6 @@ fn march_single_track(
 
             marched_verts += next_seg.len() as u64;
             track.snapshots.push(SegmentTrackSnapshot {
-                step_index: next_step,
-                segment_index: 0,
-                source_step_index: next_seg.source_step_index,
                 segment: next_seg.clone(),
             });
             segment = next_seg;
@@ -421,14 +387,7 @@ fn march_single_track(
         break;
     }
 
-    (
-        track,
-        child_seeds,
-        stats,
-        total_refractions,
-        total_clamps,
-        marched_verts,
-    )
+    (track, child_seeds, stats, marched_verts)
 }
 
 fn post_process_segments(
@@ -653,12 +612,8 @@ fn reorder_tracks_deterministic(mut tracks: Vec<SegmentTrack>) -> Vec<SegmentTra
 pub struct MarchResult {
     pub tracks: Vec<SegmentTrack>,
     pub marched_vertices_before_decimation: u64,
-    pub removed_snapshots: u64,
-    pub removed_vertices: u64,
     pub splits: u64,
     pub merges: u64,
-    pub turn_clamp_count: u64,
-    pub total_refractions: u64,
 }
 
 /// March all wavefronts using rayon::scope_fifo for track-level scheduling
@@ -689,11 +644,7 @@ pub fn march_wavefronts(
     let all_tracks: Mutex<Vec<SegmentTrack>> = Mutex::new(Vec::new());
     let total_splits = AtomicU64::new(0);
     let total_merges = AtomicU64::new(0);
-    let total_refractions = AtomicU64::new(0);
-    let turn_clamp_count = AtomicU64::new(0);
     let marched_verts = AtomicU64::new(0);
-    let removed_snapshots = AtomicU64::new(0);
-    let removed_vertices = AtomicU64::new(0);
 
     // Process a single track end-to-end: march all steps (with par_iter on rays),
     // spawn child tracks first, then queue decimation work.
@@ -710,24 +661,18 @@ pub fn march_wavefronts(
         all_tracks: &'scope Mutex<Vec<SegmentTrack>>,
         total_splits: &'scope AtomicU64,
         total_merges: &'scope AtomicU64,
-        total_refractions: &'scope AtomicU64,
-        turn_clamp_count: &'scope AtomicU64,
         marched_verts: &'scope AtomicU64,
-        removed_snapshots: &'scope AtomicU64,
-        removed_vertices: &'scope AtomicU64,
         progress: Option<&'scope AtomicUsize>,
     ) {
         if seed.track_id < 0 {
             seed.track_id = next_track_id.fetch_add(1, Ordering::Relaxed);
         }
 
-        let (track, child_seeds, stats, refractions, clamped, verts) =
+        let (track, child_seeds, stats, verts) =
             march_single_track(seed, wp, bounds, terrain, contours, lookup_grid, config);
 
         total_splits.fetch_add(stats.splits, Ordering::Relaxed);
         total_merges.fetch_add(stats.merges, Ordering::Relaxed);
-        total_refractions.fetch_add(refractions, Ordering::Relaxed);
-        turn_clamp_count.fetch_add(clamped, Ordering::Relaxed);
         marched_verts.fetch_add(verts, Ordering::Relaxed);
 
         // Assign IDs and spawn child tracks immediately
@@ -752,11 +697,7 @@ pub fn march_wavefronts(
                     all_tracks,
                     total_splits,
                     total_merges,
-                    total_refractions,
-                    turn_clamp_count,
                     marched_verts,
-                    removed_snapshots,
-                    removed_vertices,
                     progress,
                 );
             });
@@ -769,11 +710,8 @@ pub fn march_wavefronts(
         // prioritize frontier expansion before cleanup.
         let tolerance = config.decimation.tolerance;
         s.spawn_fifo(move |_| {
-            let dec = decimate_track_snapshots(final_track, wp, tolerance);
-            removed_snapshots.fetch_add(dec.removed_snapshots, Ordering::Relaxed);
-            removed_vertices.fetch_add(dec.removed_vertices, Ordering::Relaxed);
-
-            all_tracks.lock().unwrap().push(dec.track);
+            let decimated = decimate_track_snapshots(final_track, wp, tolerance);
+            all_tracks.lock().unwrap().push(decimated);
             if let Some(p) = progress {
                 p.fetch_add(1, Ordering::Relaxed);
             }
@@ -795,11 +733,7 @@ pub fn march_wavefronts(
                 &all_tracks,
                 &total_splits,
                 &total_merges,
-                &total_refractions,
-                &turn_clamp_count,
                 &marched_verts,
-                &removed_snapshots,
-                &removed_vertices,
                 progress,
             );
         });
@@ -811,11 +745,7 @@ pub fn march_wavefronts(
     MarchResult {
         tracks,
         marched_vertices_before_decimation: marched_verts.into_inner(),
-        removed_snapshots: removed_snapshots.into_inner(),
-        removed_vertices: removed_vertices.into_inner(),
         splits: total_splits.into_inner(),
         merges: total_merges.into_inner(),
-        turn_clamp_count: turn_clamp_count.into_inner(),
-        total_refractions: total_refractions.into_inner(),
     }
 }

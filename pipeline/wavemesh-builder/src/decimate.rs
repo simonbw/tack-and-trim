@@ -402,29 +402,17 @@ fn keep_mask_for_track(
     keep
 }
 
-/// Result of decimating a single segment track.
-pub struct SingleTrackDecimationResult {
-    pub track: SegmentTrack,
-    pub removed_snapshots: u64,
-    pub removed_vertices: u64,
-}
-
 /// Decimate a track by removing snapshots and vertices that can be linearly
 /// interpolated within the given tolerance.
 pub fn decimate_track_snapshots(
     track: SegmentTrack,
     wp: &WaveParams,
     tolerance: f64,
-) -> SingleTrackDecimationResult {
+) -> SegmentTrack {
     let k = wp.k;
     let pos_tol_sq = (tolerance * wp.wavelength).powi(2);
     let amp_tol = tolerance;
     let phase_tol = tolerance * std::f64::consts::PI;
-
-    let mut verts_before: u64 = 0;
-    for snap in &track.snapshots {
-        verts_before += snap.segment.len() as u64;
-    }
 
     let keep_mask = keep_mask_for_track(
         &track,
@@ -436,8 +424,6 @@ pub fn decimate_track_snapshots(
         phase_tol,
         wp.phase_per_step,
     );
-
-    let removed_snapshots = keep_mask.iter().filter(|&&k| !k).count() as u64;
 
     // Decimate kept snapshots in parallel
     let SegmentTrack {
@@ -459,16 +445,10 @@ pub fn decimate_track_snapshots(
         })
         .collect();
 
-    let verts_after: u64 = snapshots.iter().map(|s| s.segment.len() as u64).sum();
-
-    SingleTrackDecimationResult {
-        track: SegmentTrack {
-            track_id,
-            parent_track_id,
-            child_track_ids,
-            snapshots,
-        },
-        removed_snapshots,
-        removed_vertices: verts_before.saturating_sub(verts_after),
+    SegmentTrack {
+        track_id,
+        parent_track_id,
+        child_track_ids,
+        snapshots,
     }
 }

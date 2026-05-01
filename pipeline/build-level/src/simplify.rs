@@ -1,25 +1,7 @@
+/// 2D point as `(x, y)`. Used as the canonical ring representation in
+/// build-level (extract, marching, segment_index, constrained_simplify).
+///
+/// Geometry helpers (`signed_area`, `ring_perimeter`, `point_in_polygon`,
+/// `segments_intersect`) live in `terrain_core::polygon_math`; this module
+/// only carries the type alias.
 pub type Point = (f64, f64);
-
-pub fn signed_area(points: &[Point]) -> f64 {
-    let mut area = 0.0;
-    for i in 0..points.len() {
-        let (ax, ay) = points[i];
-        let (bx, by) = points[(i + 1) % points.len()];
-        area += ax * by - bx * ay;
-    }
-    area * 0.5
-}
-
-pub fn ring_perimeter(points: &[Point]) -> f64 {
-    if points.len() < 2 {
-        return 0.0;
-    }
-
-    let mut length = 0.0;
-    for i in 0..points.len() {
-        let (ax, ay) = points[i];
-        let (bx, by) = points[(i + 1) % points.len()];
-        length += ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
-    }
-    length
-}

@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use rayon::prelude::*;
 
-use crate::simplify::{signed_area, Point};
+use terrain_core::polygon_math::signed_area_tuples;
+
+use crate::simplify::Point;
 
 pub struct ScalarGrid {
     pub width: usize,
@@ -342,7 +344,7 @@ pub fn build_closed_rings(segs: &MarchSegments) -> Vec<Vec<Point>> {
         }
 
         if closed && scratch.len() >= 3 {
-            if signed_area(&scratch) < 0.0 {
+            if signed_area_tuples(&scratch) < 0.0 {
                 scratch.reverse();
             }
             // Canonicalize startpoint: rotate so lex-smallest (x, y) is first.
