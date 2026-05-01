@@ -112,6 +112,7 @@ purely visual cue.
 ### Mesh Topology
 
 A triangular cloth in normalized UV space:
+
 - **Foot** lies along the u-axis (along the boom).
 - **Luff** lies along the v-axis (up the mast).
 - Rows taper from `footColumns` vertices at v=0 to a single vertex at
@@ -132,6 +133,7 @@ Forces are computed per-triangle using thin airfoil theory.
 stall_penalty`.
 
 Forces applied per triangle:
+
 - Lift perpendicular to flow direction, magnitude `Cl · q · A`
 - Drag opposing flow direction, magnitude `Cd · q · A`
 - `q = ½ρv²` (relative wind), `A` = triangle area scaled by hoist
