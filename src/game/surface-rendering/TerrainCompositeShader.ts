@@ -47,7 +47,6 @@ export const TerrainCompositeUniforms = defineUniformStruct("Params", {
   pixelRatio: f32,
 
   tideHeight: f32,
-  hasTerrainData: i32,
 
   // Terrain tile atlas parameters
   atlasTileSize: u32,
@@ -69,7 +68,6 @@ struct Params {
   screenHeight: f32,
   pixelRatio: f32,
   tideHeight: f32,
-  hasTerrainData: i32,
 
   atlasTileSize: u32,
   atlasTilesX: u32,
@@ -221,11 +219,6 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   // fragPos.xy is in physical framebuffer pixels; convert to logical pixel
   // coords to index the logical-sized wetness texture.
   let logicalCoord = vec2<i32>(fragPos.xy / params.pixelRatio);
-
-  // Nothing to draw if the level has no terrain at all.
-  if (params.hasTerrainData == 0) {
-    discard;
-  }
 
   // Render terrain at every pixel (both above AND below water). The water
   // filter reads the color + depth and applies absorption for submerged

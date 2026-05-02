@@ -89,37 +89,33 @@ export class SurfaceRenderer extends BaseEntity {
   private async ensureInitialized(): Promise<void> {
     if (this.initialized || !this.game) return;
 
-    try {
-      const device = this.game.getWebGPUDevice();
+    const device = this.game.getWebGPUDevice();
 
-      this.textures = new SurfaceTextures(device);
-      this.shaders = new SurfaceShaders(
-        this.game,
-        this.textures,
-        this.biomeConfig,
-      );
+    this.textures = new SurfaceTextures(device);
+    this.shaders = new SurfaceShaders(
+      this.game,
+      this.textures,
+      this.biomeConfig,
+    );
 
-      // LOD terrain tile cache (multiple LOD levels for extreme zoom ranges)
-      // Supports zoom range 0.02 to 1.0+ by using progressively larger world units per tile.
-      this.terrainTileCache = new LODTerrainTileCache(device);
+    // LOD terrain tile cache (multiple LOD levels for extreme zoom ranges)
+    // Supports zoom range 0.02 to 1.0+ by using progressively larger world units per tile.
+    this.terrainTileCache = new LODTerrainTileCache(device);
 
-      // Wetness render pipeline (recreated when textures resize)
-      this.wetnessPipeline = new WetnessRenderPipeline(device, 1, 1);
+    // Wetness render pipeline; resized in step with the surface textures.
+    this.wetnessPipeline = new WetnessRenderPipeline(device, 1, 1);
 
-      this.modifierRasterizer = new ModifierRasterizer(device);
-      this.boatAirShader = new BoatAirShader();
+    this.modifierRasterizer = new ModifierRasterizer(device);
+    this.boatAirShader = new BoatAirShader();
 
-      await Promise.all([
-        this.shaders.init(),
-        this.terrainTileCache.init(),
-        this.wetnessPipeline.init(),
-        this.modifierRasterizer.init(),
-      ]);
+    await Promise.all([
+      this.shaders.init(),
+      this.terrainTileCache.init(),
+      this.wetnessPipeline.init(),
+      this.modifierRasterizer.init(),
+    ]);
 
-      this.initialized = true;
-    } catch (error) {
-      console.error("Failed to initialize SurfaceRenderer:", error);
-    }
+    this.initialized = true;
   }
 
   @on("add")
@@ -160,17 +156,10 @@ export class SurfaceRenderer extends BaseEntity {
     const rebuilt = this.textures.ensure(width, height);
     if (!rebuilt) return;
 
-    const device = this.game.getWebGPUDevice();
     const { surfTexW, surfTexH } = computeSurfaceTextureSizes(width, height);
 
-    // Recreate wetness pipeline with new texture size (shares surface layout)
-    this.wetnessPipeline?.destroy();
-    this.wetnessPipeline = new WetnessRenderPipeline(
-      device,
-      surfTexW,
-      surfTexH,
-    );
-    this.wetnessPipeline.init();
+    // Resize the wetness textures in place (keeps the shader, no async recompile).
+    this.wetnessPipeline?.resize(surfTexW, surfTexH);
 
     // Bind groups reference the now-destroyed texture views; force a rebuild.
     this.shaders.invalidateBindGroups();
@@ -529,8 +518,6 @@ export class SurfaceRenderer extends BaseEntity {
       );
     }
 
-    const webgpuRenderer = this.game.getRenderer();
-
     // === Pass 3a: Terrain Composite (fragment) ===
     // Renders above-water terrain into the current mainColorTexture pass.
     // greater-equal depth test: boat pixels already at higher z block terrain.
@@ -554,11 +541,11 @@ export class SurfaceRenderer extends BaseEntity {
     // copyColorBuffer switches the active render target from mainColorTexture
     // to the swapchain; subsequent draw calls go to the final frame output.
     profiler.measure("copyBuffers", () => {
-      webgpuRenderer.copyDepthBuffer();
-      webgpuRenderer.copyColorBuffer();
+      renderer.copyDepthBuffer();
+      renderer.copyColorBuffer();
 
-      const sceneColorView = webgpuRenderer.getColorCopyTextureView();
-      const sceneDepthView = webgpuRenderer.getDepthCopyTextureView();
+      const sceneColorView = renderer.getColorCopyTextureView();
+      const sceneDepthView = renderer.getDepthCopyTextureView();
       shaders.rebuildWaterFilterBindGroup(sceneColorView, sceneDepthView);
     });
 

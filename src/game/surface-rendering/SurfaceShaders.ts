@@ -184,9 +184,6 @@ export class SurfaceShaders {
     this.terrainCompositeUniforms = TerrainCompositeUniforms.create();
     this.waterFilterUniforms = WaterFilterUniforms.create();
 
-    this.terrainCompositeUniforms.set.hasTerrainData(0);
-    this.waterFilterUniforms.set.hasTerrainData(0);
-
     // All four samplers use linear filtering with clamp-to-edge — the
     // standard descriptor for screen-space surface textures. rgba16float
     // is filterable, so bilinear sampling smooths water height / normals
@@ -332,7 +329,6 @@ export class SurfaceShaders {
     this.terrainCompositeUniforms.set.tideHeight(
       waterResources.getTideHeight(),
     );
-    this.terrainCompositeUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
 
     const atlasInfo = terrainTileCache.getAtlasInfo();
     this.terrainCompositeUniforms.set.atlasTileSize(atlasInfo.tileSize);
@@ -366,7 +362,6 @@ export class SurfaceShaders {
     );
     this.waterFilterUniforms.set.time(currentTime);
     this.waterFilterUniforms.set.tideHeight(waterResources.getTideHeight());
-    this.waterFilterUniforms.set.hasTerrainData(terrainResources ? 1 : 0);
     this.waterFilterUniforms.set.chlorophyll(DEFAULT_CHLOROPHYLL);
     this.waterFilterUniforms.set.cdom(DEFAULT_CDOM);
     this.waterFilterUniforms.set.sediment(DEFAULT_SEDIMENT);

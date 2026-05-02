@@ -55,7 +55,6 @@ export const WaterFilterUniforms = defineUniformStruct("Params", {
 
   time: f32,
   tideHeight: f32,
-  hasTerrainData: i32,
 
   // Bio-optical water chemistry (per-level / per-region).
   // These drive the absorption/scattering calculation in the shader.
@@ -101,7 +100,6 @@ struct Params {
   pixelRatio: f32,
   time: f32,
   tideHeight: f32,
-  hasTerrainData: i32,
 
   // Bio-optical water chemistry (per level/region)
   chlorophyll: f32,
