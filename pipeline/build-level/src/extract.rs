@@ -12,13 +12,15 @@ use terrain_core::step::{format_ms, StepView};
 
 use crate::constrained_simplify::constrained_simplify_closed_ring;
 use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet, point_in_latlon_polygon};
-use crate::marching::{build_block_index, build_closed_rings, march_contours, ScalarGrid};
+use crate::marching_squares::{build_block_index, build_closed_rings, march_contours, ScalarGrid};
 use crate::region::{
     display_path, grid_cache_dir, load_region_config, resolve_region, terrain_output_path,
 };
 use crate::segment_index::SegmentIndex;
-use crate::simplify::Point;
 use crate::validate::validate_terrain_binary;
+
+/// 2D point as `(x, y)`. Canonical ring representation in build-level.
+type Point = (f64, f64);
 
 const DEFAULT_DEPTH: f64 = -300.0;
 

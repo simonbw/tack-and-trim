@@ -1,11 +1,9 @@
 mod bounds;
 mod config;
 mod decimate;
-mod level;
-mod marching;
+mod ray_march;
 mod physics;
 mod refine;
-mod terrain;
 mod triangulate;
 mod wavefront;
 mod wavemesh_file;
@@ -18,9 +16,9 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context};
 use terrain_core::humanize::format_int;
+use terrain_core::level;
 use terrain_core::step::{format_ms, StepView};
-
-use terrain::{ContourLookupGrid, ParsedContour};
+use terrain_core::terrain::{self, ContourLookupGrid, ParsedContour};
 
 pub fn run(level_paths: Vec<String>, output: Option<String>) -> anyhow::Result<()> {
     let config = config::resolve_config();
@@ -231,7 +229,7 @@ fn build_wave_mesh(
     let inner = view.indented();
 
     let wave_bounds = bounds::compute_bounds(terrain, &wave_params, &config.bounds);
-    let first_wf = marching::generate_initial_wavefront(&wave_bounds, &wave_params);
+    let first_wf = ray_march::generate_initial_wavefront(&wave_bounds, &wave_params);
 
     let num_rays = first_wf.len();
     let domain_length = wave_bounds.max_proj - wave_bounds.min_proj;
@@ -242,7 +240,7 @@ fn build_wave_mesh(
         "Marching wavefronts",
         None,
         |progress: Arc<std::sync::atomic::AtomicUsize>| {
-            marching::march_wavefronts(
+            ray_march::march_wavefronts(
                 first_wf,
                 &wave_params,
                 &wave_bounds,

@@ -4,8 +4,8 @@
 //! Delaunay Triangulation, solves for steady-state tidal flow using finite
 //! elements, and produces per-vertex velocity fields for runtime sampling.
 
-use crate::level::TerrainCPUData;
-use crate::terrain::{compute_terrain_height, parse_contours, ContourLookupGrid, ParsedContour};
+use terrain_core::level::TerrainCPUData;
+use terrain_core::terrain::{compute_terrain_height, parse_contours, ContourLookupGrid, ParsedContour};
 
 use nalgebra_sparse::CooMatrix;
 use spade::{ConstrainedDelaunayTriangulation, Point2, Triangulation};

@@ -4,7 +4,8 @@ use rayon::prelude::*;
 
 use terrain_core::polygon_math::signed_area_tuples;
 
-use crate::simplify::Point;
+/// 2D point as `(x, y)`. Canonical ring representation in build-level.
+type Point = (f64, f64);
 
 pub struct ScalarGrid {
     pub width: usize,

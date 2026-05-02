@@ -2,8 +2,8 @@
 //! Mirrors rayStepPhysics.ts.
 
 use crate::config::MeshBuildPhysicsConfig;
-use crate::level::TerrainCPUData;
-use crate::terrain::{compute_terrain_height_and_gradient, ContourLookupGrid, ParsedContour};
+use terrain_core::level::TerrainCPUData;
+use terrain_core::terrain::{compute_terrain_height_and_gradient, ContourLookupGrid, ParsedContour};
 use crate::wavefront::{WaveBounds, WaveParams};
 
 /// Current state of a ray being advanced through the wave field.

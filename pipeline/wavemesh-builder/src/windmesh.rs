@@ -1,5 +1,5 @@
-use crate::level::TerrainCPUData;
-use crate::terrain::{compute_terrain_height_and_gradient, parse_contours};
+use terrain_core::level::TerrainCPUData;
+use terrain_core::terrain::{compute_terrain_height_and_gradient, parse_contours};
 
 pub const WIND_VERTEX_FLOATS: usize = 5;
 

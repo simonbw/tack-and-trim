@@ -1,6 +1,6 @@
 //! Binary .tidemesh output format and FNV-1a input hashing.
 
-use crate::level::TerrainCPUData;
+use terrain_core::level::TerrainCPUData;
 use crate::tidemesh::TideMeshData;
 
 const MAGIC: u32 = 0x4D444954; // "TIDM" little-endian

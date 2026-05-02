@@ -1,6 +1,7 @@
 use terrain_core::polygon_math::segments_intersect_collinear_aware;
 
-use crate::simplify::Point;
+/// 2D point as `(x, y)`. Canonical ring representation in build-level.
+type Point = (f64, f64);
 
 #[derive(Clone, Copy, Debug)]
 struct CellEntry {

@@ -3,10 +3,9 @@ mod constrained_simplify;
 mod download;
 mod extract;
 mod geo;
-mod marching;
+mod marching_squares;
 mod region;
 mod segment_index;
-mod simplify;
 mod trees;
 mod validate;
 

@@ -4,7 +4,7 @@
 //! TypeScript implementation: `src/pipeline/mesh-building/WavemeshFile.ts`.
 //! See also `src/pipeline/CLAUDE.md` for a summary.
 
-use crate::level::{TerrainCPUData, WaveSource};
+use terrain_core::level::{TerrainCPUData, WaveSource};
 use crate::wavefront::WavefrontMeshData;
 
 const MAGIC: u32 = 0x484d5657; // "WVMH" little-endian

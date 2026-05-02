@@ -1,4 +1,4 @@
-use crate::level::TerrainCPUData;
+use terrain_core::level::TerrainCPUData;
 use crate::windmesh::WindMeshData;
 
 const MAGIC: u32 = 0x4d444e57; // "WNDM" little-endian
