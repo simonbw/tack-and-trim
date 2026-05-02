@@ -2,7 +2,7 @@
 //! Mirrors computeBounds.ts.
 
 use crate::config::MeshBuildBoundsConfig;
-use terrain_core::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
+use pipeline_core::level::{TerrainCPUData, FLOATS_PER_CONTOUR};
 use crate::wavefront::{WaveBounds, WaveParams};
 
 /// Compute a wave-aligned bounding box from root terrain contours, with

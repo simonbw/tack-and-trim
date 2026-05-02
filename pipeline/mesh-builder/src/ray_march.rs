@@ -11,8 +11,8 @@ use crate::config::MeshBuildConfig;
 use crate::decimate::decimate_track_snapshots;
 use crate::physics::{advance_interior_ray, advance_sentinel_ray, RayState};
 use crate::refine::{refine_wavefront, RefineStats};
-use terrain_core::level::TerrainCPUData;
-use terrain_core::terrain::{ContourLookupGrid, ParsedContour};
+use pipeline_core::level::TerrainCPUData;
+use pipeline_core::terrain::{ContourLookupGrid, ParsedContour};
 use crate::wavefront::{
     SegmentTrack, SegmentTrackSnapshot, WaveBounds, WaveParams, WavefrontSegment,
 };

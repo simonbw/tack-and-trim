@@ -11,8 +11,8 @@ use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use reqwest::blocking::Client;
 use reqwest::Url;
-use terrain_core::humanize::format_int;
-use terrain_core::step::StepView;
+use pipeline_core::humanize::format_int;
+use pipeline_core::step::StepView;
 
 use crate::geo::{bbox_intersects, normalize_dataset_path, parse_tile_coverage_from_name};
 use crate::region::{

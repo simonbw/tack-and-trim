@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use terrain_core::humanize::format_int;
-use terrain_core::step::{format_ms, StepView};
+use pipeline_core::humanize::format_int;
+use pipeline_core::step::{format_ms, StepView};
 
 use crate::geo::{bbox_intersects, parse_tile_coverage_from_name};
 use crate::region::{

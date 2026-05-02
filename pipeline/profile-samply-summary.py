@@ -342,7 +342,7 @@ def load_wall_clock_ms(profile_path):
         return None
 
 
-PROJECT_CRATE_PREFIXES = ("mesh_builder::", "terrain_import::", "terrain_core::")
+PROJECT_CRATE_PREFIXES = ("mesh_builder::", "terrain_import::", "pipeline_core::")
 
 
 def func_is_project(name):

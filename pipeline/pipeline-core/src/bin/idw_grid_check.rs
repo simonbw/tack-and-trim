@@ -7,18 +7,18 @@
 //!   - terrain_diff.png         — amplified absolute difference between the two
 //!
 //! Usage:
-//!   cargo run -p terrain-core --features image --bin idw-grid-check -- <path-to-level-file> [resolution]
+//!   cargo run -p pipeline-core --features image --bin idw-grid-check -- <path-to-level-file> [resolution]
 //!
 //! Examples:
-//!   cargo run -p terrain-core --features image --bin idw-grid-check -- resources/levels/default.level.json
-//!   cargo run -p terrain-core --features image --bin idw-grid-check -- resources/levels/default.level.json 2048
+//!   cargo run -p pipeline-core --features image --bin idw-grid-check -- resources/levels/default.level.json
+//!   cargo run -p pipeline-core --features image --bin idw-grid-check -- resources/levels/default.level.json 2048
 
 use std::path::Path;
 use std::time::Instant;
 
 use image::{GrayImage, Luma, Rgb, RgbImage};
-use terrain_core::level::{build_terrain_data, parse_level_file, resolve_level_terrain};
-use terrain_core::terrain::{
+use pipeline_core::level::{build_terrain_data, parse_level_file, resolve_level_terrain};
+use pipeline_core::terrain::{
     compute_terrain_height_and_gradient_ex, parse_contours, ParsedContour,
 };
 
@@ -31,8 +31,8 @@ fn main() -> anyhow::Result<()> {
         );
         eprintln!();
         eprintln!("Examples:");
-        eprintln!("  cargo run -p terrain-core --features image --bin idw-grid-check -- resources/levels/default.level.json");
-        eprintln!("  cargo run -p terrain-core --features image --bin idw-grid-check -- resources/levels/default.level.json 2048");
+        eprintln!("  cargo run -p pipeline-core --features image --bin idw-grid-check -- resources/levels/default.level.json");
+        eprintln!("  cargo run -p pipeline-core --features image --bin idw-grid-check -- resources/levels/default.level.json 2048");
         std::process::exit(1);
     }
 
@@ -248,9 +248,9 @@ fn render_height_field(
     render_min_y: f64,
     render_w: f64,
     render_h: f64,
-    terrain: &terrain_core::level::TerrainCPUData,
+    terrain: &pipeline_core::level::TerrainCPUData,
     contours: &[ParsedContour],
-    lookup_grid: &terrain_core::terrain::ContourLookupGrid,
+    lookup_grid: &pipeline_core::terrain::ContourLookupGrid,
     use_idw_grid: bool,
 ) -> Vec<f64> {
     use rayon::prelude::*;

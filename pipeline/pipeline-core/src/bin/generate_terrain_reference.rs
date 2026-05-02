@@ -3,16 +3,16 @@
 //! terrain shader (which operates in f32).
 //!
 //! Usage:
-//!   cargo run -p terrain-core --bin generate-terrain-reference -- <path-to-level-file> <output-json-path>
+//!   cargo run -p pipeline-core --bin generate-terrain-reference -- <path-to-level-file> <output-json-path>
 //!
 //! Example:
-//!   cargo run -p terrain-core --bin generate-terrain-reference -- resources/levels/default.level.json reference.json
+//!   cargo run -p pipeline-core --bin generate-terrain-reference -- resources/levels/default.level.json reference.json
 
 use std::path::Path;
 
 use serde::Serialize;
-use terrain_core::level::{build_terrain_data, parse_level_file, resolve_level_terrain};
-use terrain_core::terrain::{
+use pipeline_core::level::{build_terrain_data, parse_level_file, resolve_level_terrain};
+use pipeline_core::terrain::{
     compute_terrain_height_and_gradient_ex, parse_contours, ParsedContour,
 };
 
@@ -58,7 +58,7 @@ fn main() -> anyhow::Result<()> {
         );
         eprintln!();
         eprintln!("Example:");
-        eprintln!("  cargo run -p terrain-core --bin generate-terrain-reference -- resources/levels/default.level.json reference.json");
+        eprintln!("  cargo run -p pipeline-core --bin generate-terrain-reference -- resources/levels/default.level.json reference.json");
         std::process::exit(1);
     }
 

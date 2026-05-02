@@ -1,5 +1,5 @@
 [package]
-name = "terrain-core"
+name = "pipeline-core"
 version = "0.1.0"
 edition = "2021"
 

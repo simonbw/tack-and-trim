@@ -3,12 +3,12 @@
 use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
-use terrain_core::level::{
+use pipeline_core::level::{
     build_terrain_data, parse_level_file, read_terrain_binary, resolve_level_terrain,
     resolve_terrain_path,
 };
-use terrain_core::step::StepView;
-use terrain_core::trees::{build_tree_buffer, generate_trees, BiomeTreeZones, TreeConfig};
+use pipeline_core::step::StepView;
+use pipeline_core::trees::{build_tree_buffer, generate_trees, BiomeTreeZones, TreeConfig};
 
 /// Default seed for deterministic tree placement.
 const DEFAULT_SEED: u64 = 42;

@@ -148,7 +148,7 @@ Binary `.terrain` format (v2/v3) with magic number `0x4e525254` ("TRRN").
 
 ### Rust module layout
 
-- `pipeline/terrain-core/src/level.rs` — level/region types, JSON parsing, contour tree building
+- `pipeline/pipeline-core/src/level.rs` — level/region types, JSON parsing, contour tree building
 - `pipeline/build-level/src/region.rs` — region config loading (from level files), path helpers
 - `pipeline/build-level/src/download.rs` — CUDEM / USACE / EMODnet tile downloads
 - `pipeline/build-level/src/build_grid.rs` — `gdalwarp` merge step

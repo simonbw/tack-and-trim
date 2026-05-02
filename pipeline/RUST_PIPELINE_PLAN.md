@@ -13,7 +13,7 @@ If you are looking for the current pipeline structure, start at:
 - `pipeline/build-level/` — single binary covering download, grid
   build, contour extraction, level validation, and wave mesh build.
   Run as `bin/build-level [--level <name>]`.
-- `pipeline/terrain-core/` — shared library crate.
+- `pipeline/pipeline-core/` — shared library crate.
 - `pipeline/mesh-builder/` — wave mesh ray-marcher (still a
   separate crate, invoked from `build-level`).
 - `pipeline/query-wasm/` — runtime WASM kernel for world queries.
@@ -180,12 +180,12 @@ Move to a **Cargo workspace** so crates can share code:
 pipeline/
   Cargo.toml            ← workspace root
   mesh-builder/     ← existing binary crate (unchanged externally)
-  terrain-core/         ← new shared library crate
+  pipeline-core/         ← new shared library crate
   terrain-import/       ← new binary crate (steps 1-3 + orchestrator)
   level-validate/       ← new binary crate (or fold into terrain-import)
 ```
 
-### `terrain-core` (shared library)
+### `pipeline-core` (shared library)
 
 Extract the following from `mesh-builder` into a shared crate:
 
@@ -198,22 +198,22 @@ Extract the following from `mesh-builder` into a shared crate:
 | `segment_index.rs` (new) | Spatial grid for segment intersection queries |
 | `wavemesh_file.rs` | Binary format parsing + writing, FNV-1a hashing |
 
-`mesh-builder` would then depend on `terrain-core` instead of containing these modules directly.
+`mesh-builder` would then depend on `pipeline-core` instead of containing these modules directly.
 
 ### `terrain-import` (binary)
 
-New crate, depends on `terrain-core`. Implements:
+New crate, depends on `pipeline-core`. Implements:
 - `download.rs` — tile fetching (CUDEM, USACE, EMODnet)
 - `grid.rs` — tile merging (wraps `gdalwarp` or native reader)
 - `grid_cache.rs` — binary grid cache I/O (port of `grid-cache.ts`)
 - `marching.rs` — marching squares + block index + ring tracer
-- `contrained_simplify.rs` — constrained RDP using `terrain-core::segment_index`
+- `contrained_simplify.rs` — constrained RDP using `pipeline-core::segment_index`
 - `extract.rs` — top-level contour extraction entry point
 - `main.rs` — CLI with `clap` (subcommands: `download`, `build-grid`, `extract`, `validate`, or combined `import`)
 
 ### `level-validate` (binary or subcommand)
 
-Thin CLI over `terrain-core`. May just be a subcommand of `terrain-import`.
+Thin CLI over `pipeline-core`. May just be a subcommand of `terrain-import`.
 
 ---
 
@@ -222,9 +222,9 @@ Thin CLI over `terrain-core`. May just be a subcommand of `terrain-import`.
 Because this is an offline pipeline (not game runtime), migration can be gradual:
 
 1. **Create workspace** — Add `pipeline/Cargo.toml` workspace, move `mesh-builder` in without changing it.
-2. **Extract `terrain-core`** — Refactor shared modules out of `mesh-builder` into the new library crate. All existing functionality preserved; just a restructure.
-3. **Port `level-validate`** — Small, fast win. Reuses `terrain-core` heavily.
-4. **Port `extract-contours`** — High value, no external dependencies. Builds on `terrain-core`.
+2. **Extract `pipeline-core`** — Refactor shared modules out of `mesh-builder` into the new library crate. All existing functionality preserved; just a restructure.
+3. **Port `level-validate`** — Small, fast win. Reuses `pipeline-core` heavily.
+4. **Port `extract-contours`** — High value, no external dependencies. Builds on `pipeline-core`.
 5. **Port `download`** — Straightforward async HTTP. New dependency (`reqwest`/`tokio`).
 6. **Port `build-grid`** — Wrap `gdalwarp` from Rust to unify the CLI, or implement native reader.
 7. **Unify orchestrator** — Single `terrain-import import --region <name>` command runs everything.
@@ -239,6 +239,6 @@ npm scripts (`download-terrain`, `build-terrain-grid`, `extract-terrain-contours
 |-----------|-----------|------------|-------------------------------|
 | Level validator | High | Low | `level.rs`, `terrain.rs` (containment) |
 | Contour extractor | High | Medium | `level.rs`, `ContourTree` |
-| Terrain downloader | Medium | Low-Medium | geo math → `terrain-core` |
+| Terrain downloader | Medium | Low-Medium | geo math → `pipeline-core` |
 | Grid builder | Medium | High (GDAL) | minimal |
 | Pipeline orchestrator | High (once above done) | Low | all of it |

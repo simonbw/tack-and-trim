@@ -249,12 +249,12 @@ dependencies = [
  "gdal",
  "glob",
  "mesh-builder",
+ "pipeline-core",
  "rayon",
  "regex",
  "reqwest",
  "serde",
  "serde_json",
- "terrain-core",
 ]
 
 [[package]]
@@ -1157,12 +1157,12 @@ dependencies = [
  "nalgebra",
  "nalgebra-sparse",
  "num-format",
+ "pipeline-core",
  "rayon",
  "serde",
  "serde_json",
  "spade",
  "tempfile",
- "terrain-core",
 ]
 
 [[package]]
@@ -1381,6 +1381,18 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
+name = "pipeline-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "image",
+ "num-format",
+ "rayon",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "pkg-config"
@@ -2016,18 +2028,6 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "terrain-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "image",
- "num-format",
- "rayon",
- "serde",
- "serde_json",
 ]
 
 [[package]]

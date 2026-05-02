@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use rayon::prelude::*;
 
-use terrain_core::polygon_math::signed_area_tuples;
+use pipeline_core::polygon_math::signed_area_tuples;
 
 /// 2D point as `(x, y)`. Canonical ring representation in build-level.
 type Point = (f64, f64);

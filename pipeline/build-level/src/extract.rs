@@ -5,10 +5,10 @@ use anyhow::{bail, Context, Result};
 use gdal::Dataset;
 use rayon::prelude::*;
 
-use terrain_core::humanize::format_int;
-use terrain_core::level::ElevationSchedule;
-use terrain_core::polygon_math::{point_in_polygon_tuples, ring_perimeter_tuples, signed_area_tuples};
-use terrain_core::step::{format_ms, StepView};
+use pipeline_core::humanize::format_int;
+use pipeline_core::level::ElevationSchedule;
+use pipeline_core::polygon_math::{point_in_polygon_tuples, ring_perimeter_tuples, signed_area_tuples};
+use pipeline_core::step::{format_ms, StepView};
 
 use crate::constrained_simplify::constrained_simplify_closed_ring;
 use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet, point_in_latlon_polygon};
@@ -746,17 +746,17 @@ fn bfs_order(roots: &[ContourNode]) -> Vec<usize> {
 
 /// Build terrain CPU data from polygon contours and write as v2 binary format.
 fn write_terrain_file(output_path: &Path, contours: Vec<TerrainContourJson>) -> Result<()> {
-    let polygon_contours: Vec<terrain_core::level::PolygonContour> = contours
+    let polygon_contours: Vec<pipeline_core::level::PolygonContour> = contours
         .into_iter()
-        .map(|c| terrain_core::level::PolygonContour {
+        .map(|c| pipeline_core::level::PolygonContour {
             height: c.height,
             polygon: c.polygon,
         })
         .collect();
 
     let terrain =
-        terrain_core::level::build_terrain_data_from_polygons(&polygon_contours, DEFAULT_DEPTH);
-    terrain_core::level::write_terrain_binary(output_path, &terrain)?;
+        pipeline_core::level::build_terrain_data_from_polygons(&polygon_contours, DEFAULT_DEPTH);
+    pipeline_core::level::write_terrain_binary(output_path, &terrain)?;
 
     Ok(())
 }

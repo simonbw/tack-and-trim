@@ -4,8 +4,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use terrain_core::humanize::format_int;
-use terrain_core::polygon_math::{point_in_polygon_flat, segments_intersect, signed_area_flat};
+use pipeline_core::humanize::format_int;
+use pipeline_core::polygon_math::{point_in_polygon_flat, segments_intersect, signed_area_flat};
 
 const DEFAULT_DEPTH: f64 = -300.0;
 
@@ -99,11 +99,11 @@ pub fn validate_terrain_binary(terrain_path: &Path) -> Result<ValidationResult> 
     let bytes = fs::read(terrain_path)
         .with_context(|| format!("Failed to read {}", terrain_path.display()))?;
 
-    let terrain = terrain_core::level::read_terrain_binary(&bytes)
+    let terrain = pipeline_core::level::read_terrain_binary(&bytes)
         .with_context(|| format!("Failed to parse terrain binary: {}", terrain_path.display()))?;
 
     let default_depth = terrain.default_depth;
-    let fpc = terrain_core::level::FLOATS_PER_CONTOUR;
+    let fpc = pipeline_core::level::FLOATS_PER_CONTOUR;
     let mut contours = Vec::with_capacity(terrain.contour_count);
 
     for i in 0..terrain.contour_count {

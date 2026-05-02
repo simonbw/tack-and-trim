@@ -4,7 +4,7 @@
 //! - `&[(f64, f64)]` — slice of (x, y) tuples (build-level: extract, simplify)
 //! - `&[f64]` with a `num_points` argument — flat `[x0, y0, x1, y1, …]`
 //!   (build-level: validate, where contours come straight out of the binary)
-//! - `&[[f64; 2]]` — slice of fixed-size arrays (terrain-core: level)
+//! - `&[[f64; 2]]` — slice of fixed-size arrays (pipeline-core: level)
 //!
 //! Rather than force callers to convert to a single shape, this module
 //! provides each helper in every layout it is actually used. The

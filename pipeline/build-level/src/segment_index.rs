@@ -1,4 +1,4 @@
-use terrain_core::polygon_math::segments_intersect_collinear_aware;
+use pipeline_core::polygon_math::segments_intersect_collinear_aware;
 
 /// 2D point as `(x, y)`. Canonical ring representation in build-level.
 type Point = (f64, f64);

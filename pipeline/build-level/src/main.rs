@@ -14,9 +14,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
-use terrain_core::humanize::format_int;
-use terrain_core::level::parse_level_file;
-use terrain_core::step::StepView;
+use pipeline_core::humanize::format_int;
+use pipeline_core::level::parse_level_file;
+use pipeline_core::step::StepView;
 
 use build_grid::run_build_grid;
 use download::run_download;

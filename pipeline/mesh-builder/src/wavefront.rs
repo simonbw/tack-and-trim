@@ -2,7 +2,7 @@
 //! Mirrors marchingTypes.ts, segmentTracks.ts, MeshBuildTypes.ts.
 
 use crate::config::MeshBuildConfig;
-use terrain_core::level::WaveSource;
+use pipeline_core::level::WaveSource;
 
 /// Number of f32 values per vertex in the output mesh buffer.
 pub const VERTEX_FLOATS: usize = 6;

@@ -15,10 +15,10 @@ mod tidemesh_file;
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
-use terrain_core::humanize::format_int;
-use terrain_core::level;
-use terrain_core::step::{format_ms, StepView};
-use terrain_core::terrain::{self, ContourLookupGrid, ParsedContour};
+use pipeline_core::humanize::format_int;
+use pipeline_core::level;
+use pipeline_core::step::{format_ms, StepView};
+use pipeline_core::terrain::{self, ContourLookupGrid, ParsedContour};
 
 pub fn run(level_paths: Vec<String>, output: Option<String>) -> anyhow::Result<()> {
     let config = config::resolve_config();
