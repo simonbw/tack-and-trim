@@ -1,4 +1,4 @@
-import { BOAT_DEFS } from "./catalog/BoatCatalog";
+import { BOAT_DEFS } from "../../catalog/BoatCatalog";
 import "./BoatSelectionScreen.css";
 
 function StatBar({ label, value }: { label: string; value: number }) {

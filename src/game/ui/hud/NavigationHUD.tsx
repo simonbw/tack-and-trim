@@ -1,13 +1,13 @@
-import { GameEventMap } from "../core/entity/Entity";
-import { on } from "../core/entity/handler";
-import { ReactEntity } from "../core/ReactEntity";
-import type { V2d } from "../core/Vector";
-import { Boat } from "./boat/Boat";
-import type { CompassPalette } from "./boat/BoatConfig";
-import { Port } from "./port/Port";
-import { MissionManager } from "./mission/MissionManager";
+import { GameEventMap } from "../../../core/entity/Entity";
+import { on } from "../../../core/entity/handler";
+import { ReactEntity } from "../../../core/ReactEntity";
+import type { V2d } from "../../../core/Vector";
+import { Boat } from "../../boat/Boat";
+import type { CompassPalette } from "../../boat/BoatConfig";
+import { Port } from "../../port/Port";
+import { MissionManager } from "../../mission/MissionManager";
 import "./NavigationHUD.css";
-import { TerrainResources } from "./world/terrain/TerrainResources";
+import { TerrainResources } from "../../world/terrain/TerrainResources";
 
 function hexToCss(color: number): string {
   return `#${color.toString(16).padStart(6, "0")}`;

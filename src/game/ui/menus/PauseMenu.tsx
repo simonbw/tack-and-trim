@@ -1,8 +1,8 @@
-import { ReactEntity } from "../core/ReactEntity";
-import type { GameEventMap } from "../core/entity/Entity";
-import { on } from "../core/entity/handler";
-import { focusFirst, moveFocus } from "../core/util/menuNav";
-import { SaveManager } from "./persistence/SaveManager";
+import { ReactEntity } from "../../../core/ReactEntity";
+import type { GameEventMap } from "../../../core/entity/Entity";
+import { on } from "../../../core/entity/handler";
+import { focusFirst, moveFocus } from "../../../core/util/menuNav";
+import { SaveManager } from "../../persistence/SaveManager";
 import { SettingsPanel } from "./SettingsPanel";
 import "./PauseMenu.css";
 

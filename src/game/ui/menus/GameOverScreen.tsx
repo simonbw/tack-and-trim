@@ -1,9 +1,9 @@
-import { ReactEntity } from "../core/ReactEntity";
-import { on } from "../core/entity/handler";
-import { KeyCode } from "../core/io/Keys";
-import { focusFirst, moveFocus } from "../core/util/menuNav";
-import { SaveManager } from "./persistence/SaveManager";
-import { getMostRecentSave } from "./persistence/SaveStorage";
+import { ReactEntity } from "../../../core/ReactEntity";
+import { on } from "../../../core/entity/handler";
+import { KeyCode } from "../../../core/io/Keys";
+import { focusFirst, moveFocus } from "../../../core/util/menuNav";
+import { SaveManager } from "../../persistence/SaveManager";
+import { getMostRecentSave } from "../../persistence/SaveStorage";
 import "./GameOverScreen.css";
 
 type GameOverAction = "loadSave" | "restart" | "menu";

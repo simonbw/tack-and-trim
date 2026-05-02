@@ -1,5 +1,5 @@
-import type { SaveSlotInfo } from "./persistence/SaveFile";
-import { formatLevelName, formatTimestamp } from "./menuFormatting";
+import type { SaveSlotInfo } from "../../persistence/SaveFile";
+import { formatLevelName, formatTimestamp } from "../../menuFormatting";
 
 interface Props {
   saves: SaveSlotInfo[];

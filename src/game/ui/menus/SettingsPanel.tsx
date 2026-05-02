@@ -2,20 +2,20 @@ import {
   getRenderScale,
   setRenderScale,
   type RenderScale,
-} from "../core/graphics/RenderScaleState";
+} from "../../../core/graphics/RenderScaleState";
 import {
   isMSAAEnabled,
   setMSAAEnabled,
-} from "../core/graphics/webgpu/MSAAState";
+} from "../../../core/graphics/webgpu/MSAAState";
 import {
   getMasterVolume,
   setMasterVolume,
-} from "../core/sound/MasterVolumeState";
+} from "../../../core/sound/MasterVolumeState";
 import {
   getWaterQuality,
   setWaterQuality,
   type WaterQuality,
-} from "./surface-rendering/WaterQualityState";
+} from "../../surface-rendering/WaterQualityState";
 import "./SettingsPanel.css";
 
 interface Props {

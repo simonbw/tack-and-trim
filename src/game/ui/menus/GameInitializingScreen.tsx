@@ -1,4 +1,4 @@
-import { ReactEntity } from "../core/ReactEntity";
+import { ReactEntity } from "../../../core/ReactEntity";
 
 export class GameInitializingScreen extends ReactEntity {
   constructor() {

@@ -89,6 +89,10 @@ git stash pop
 
 Then diff or skim side by side. Keep every variable constant (level, duration, warmup) between runs, and close other CPU-heavy apps — thermal throttling and background work introduce a lot of noise. Run each side twice if the delta you're chasing is small.
 
+### Persisted reference profiles
+
+`profiles/baseline.json`, `profiles/baseline.rendering.json`, `profiles/after.json`, and `profiles/after.rendering.json` are checked-in reference captures. Compare a fresh run against `profiles/baseline.json` when investigating whether a long-standing scope has regressed, and overwrite `profiles/after*.json` when capturing a new post-change snapshot worth committing. See `profiles/README.md`.
+
 ## Drilling into a specific system
 
 The profile labels come from `profiler.measure(...)` / `profiler.count(...)` / the `@profile` decorator scattered through the code. If the user is investigating a specific subsystem and the existing labels aren't granular enough:

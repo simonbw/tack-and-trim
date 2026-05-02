@@ -1,19 +1,19 @@
-import type { LevelName } from "../../resources/resources";
-import { ReactEntity } from "../core/ReactEntity";
-import type { GameEventMap } from "../core/entity/Entity";
-import { on } from "../core/entity/handler";
-import { focusFirst, moveFocus } from "../core/util/menuNav";
+import type { LevelName } from "../../../../resources/resources";
+import { ReactEntity } from "../../../core/ReactEntity";
+import type { GameEventMap } from "../../../core/entity/Entity";
+import { on } from "../../../core/entity/handler";
+import { focusFirst, moveFocus } from "../../../core/util/menuNav";
 import { BoatSelectionPanel } from "./BoatSelectionPanel";
 import { LoadGamePanel } from "./LoadGamePanel";
-import { formatLevelName, formatTimestamp } from "./menuFormatting";
+import { formatLevelName, formatTimestamp } from "../../menuFormatting";
 import { NewGamePanel } from "./NewGamePanel";
-import type { SaveSlotInfo } from "./persistence/SaveFile";
-import { SaveManager } from "./persistence/SaveManager";
+import type { SaveSlotInfo } from "../../persistence/SaveFile";
+import { SaveManager } from "../../persistence/SaveManager";
 import {
   deleteSave,
   getMostRecentSave,
   listSaves,
-} from "./persistence/SaveStorage";
+} from "../../persistence/SaveStorage";
 import { SettingsPanel } from "./SettingsPanel";
 import "./MainMenu.css";
 

@@ -1,9 +1,9 @@
-import { LevelName, RESOURCES } from "../../resources/resources";
+import { LevelName, RESOURCES } from "../../../../resources/resources";
 import type {
   LevelDisplayInfo,
   LevelFileJSON,
-} from "../editor/io/LevelFileFormat";
-import { formatLevelName } from "./menuFormatting";
+} from "../../../editor/io/LevelFileFormat";
+import { formatLevelName } from "../../menuFormatting";
 
 interface LevelEntry {
   name: LevelName;

@@ -14,14 +14,14 @@ import { StationHUD } from "./boat/sailor/StationHUD";
 import { ClothWorkerPool } from "./boat/sail/ClothWorkerPool";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
-import { GameInitializingScreen } from "./GameInitializingScreen";
-import { GameOverScreen } from "./GameOverScreen";
+import { GameInitializingScreen } from "./ui/menus/GameInitializingScreen";
+import { GameOverScreen } from "./ui/menus/GameOverScreen";
 import { LightingSystem } from "./lighting/LightingSystem";
-import { MainMenu } from "./MainMenu";
-import { PauseMenu } from "./PauseMenu";
+import { MainMenu } from "./ui/menus/MainMenu";
+import { PauseMenu } from "./ui/menus/PauseMenu";
 import { MissionHUD } from "./mission/MissionHUD";
 import { MissionManager } from "./mission/MissionManager";
-import { NavigationHUD } from "./NavigationHUD";
+import { NavigationHUD } from "./ui/hud/NavigationHUD";
 import { applySaveData } from "./persistence/SaveDeserializer";
 import { SaveManager } from "./persistence/SaveManager";
 import { Port } from "./port/Port";
@@ -33,10 +33,9 @@ import { TimeOfDay } from "./time/TimeOfDay";
 import { RainParticles } from "./weather/RainParticles";
 import { WeatherDirector } from "./weather/WeatherDirector";
 import { WeatherState } from "./weather/WeatherState";
-import { TimeOfDayHUD } from "./TimeOfDayHUD";
+import { TimeOfDayHUD } from "./ui/hud/TimeOfDayHUD";
 import { TreeManager } from "./trees/TreeManager";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
-import { WindParticles } from "./WindParticles";
 import { WindSoundGenerator } from "./WindSoundGenerator";
 import { QueryWorkerCoordinator } from "./world/query/QueryWorkerCoordinator";
 import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
@@ -261,8 +260,7 @@ export class GameController extends BaseEntity {
     );
     cameraController.setZoomTarget(GAMEPLAY_ZOOM);
 
-    // Spawn wind particles and sound
-    this.game.addEntity(new WindParticles());
+    // Spawn rain particles and wind sound
     this.game.addEntity(new RainParticles());
     this.game.addEntity(new WindSoundGenerator());
 

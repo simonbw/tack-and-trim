@@ -1,5 +1,5 @@
-import { ReactEntity } from "../core/ReactEntity";
-import { TimeOfDay } from "./time/TimeOfDay";
+import { ReactEntity } from "../../../core/ReactEntity";
+import { TimeOfDay } from "../../time/TimeOfDay";
 
 /**
  * HUD element displaying the current game time in the bottom right corner.

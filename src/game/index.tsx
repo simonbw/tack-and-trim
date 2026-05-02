@@ -14,7 +14,7 @@ import { StatsOverlay } from "../core/util/stats-overlay/StatsOverlay";
 import "../fonts.css";
 import { LevelName } from "../../resources/resources";
 import { GameController } from "./GameController";
-import { GamePreloader } from "./GamePreloader";
+import { GamePreloader } from "./ui/menus/GamePreloader";
 import { PhysicsValidator } from "./PhysicsValidator";
 import { createSimulationStatsPanel } from "./stats/SimulationStatsPanel";
 import {
