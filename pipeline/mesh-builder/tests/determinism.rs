@@ -3,7 +3,7 @@ use std::path::Path;
 fn build_to_bytes(level_path: &str) -> Vec<u8> {
     let tmp = tempfile::NamedTempFile::new().expect("failed to create temp file");
     let output_path = tmp.path().to_str().unwrap().to_string();
-    wavemesh_builder::build_wavemesh_for_level(level_path, Some(&output_path))
+    mesh_builder::build_wavemesh_for_level(level_path, Some(&output_path))
         .expect("build failed");
     std::fs::read(&output_path).expect("failed to read output")
 }

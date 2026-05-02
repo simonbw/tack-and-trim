@@ -1,4 +1,4 @@
-# wavemesh-builder
+# mesh-builder
 
 Rust pipeline for building wave propagation meshes from terrain data. Replaces the TS mesh-building pipeline with significantly faster execution.
 

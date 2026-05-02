@@ -10,7 +10,7 @@
 The canonical Rust pipeline lives under `pipeline/`:
 
 - `pipeline/build-level/` for terrain download/extract/validation and mesh building
-- `pipeline/wavemesh-builder/` for wave-mesh generation
+- `pipeline/mesh-builder/` for wave-mesh generation
 
 ## File Layout
 
@@ -168,4 +168,4 @@ Only shared `.wavemesh` format helpers remain in TypeScript:
 - `MeshBuildTypes.ts` — type definitions for wavefront mesh payloads.
 - `WavemeshFile.ts` — binary `.wavemesh` serialization/parsing and input-hash helpers.
 
-All marching/decimation/triangulation logic now lives in `pipeline/wavemesh-builder/` (Rust).
+All marching/decimation/triangulation logic now lives in `pipeline/mesh-builder/` (Rust).

@@ -30,7 +30,7 @@ DEFAULT_PROFILE = SCRIPT_DIR / "profile-samply.json"
 DEFAULT_SYMS = SCRIPT_DIR / "profile-samply.syms.json"
 MACHO_TEXT_BASE = 0x100000000
 
-WORKSPACE_BINARIES = {"wavemesh-builder", "terrain-import"}
+WORKSPACE_BINARIES = {"mesh-builder", "terrain-import"}
 
 
 WRAPPER_SUBSTRINGS = [
@@ -342,7 +342,7 @@ def load_wall_clock_ms(profile_path):
         return None
 
 
-PROJECT_CRATE_PREFIXES = ("wavemesh_builder::", "terrain_import::", "terrain_core::")
+PROJECT_CRATE_PREFIXES = ("mesh_builder::", "terrain_import::", "terrain_core::")
 
 
 def func_is_project(name):
