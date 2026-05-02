@@ -1,6 +1,6 @@
 import type { VNode } from "preact";
 import { LayerName } from "../../../config/layers";
-import Entity, { GameEventMap } from "../../entity/Entity";
+import { Entity, GameEventMap } from "../../entity/Entity";
 import { on } from "../../entity/handler";
 import { ReactEntity } from "../../ReactEntity";
 import { profile } from "../Profiler";

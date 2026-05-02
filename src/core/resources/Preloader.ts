@@ -3,7 +3,7 @@ import { SoundName } from "../../../resources/resources";
 import { Game } from "../Game";
 import { ReactEntity } from "../ReactEntity";
 import { BaseEntity } from "../entity/BaseEntity";
-import Entity from "../entity/Entity";
+import { Entity } from "../entity/Entity";
 import { on } from "../entity/handler";
 import { registerManifestFonts } from "./fonts";
 import { getBiggestSounds, getTotalSoundBytes, loadSound } from "./sounds";

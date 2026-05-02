@@ -30,7 +30,6 @@ export class TidalResources extends BaseEntity {
   tickLayer = "query" as const;
 
   private packedBuffer: Uint32Array;
-  private gpuBuffer: GPUBuffer | null = null;
   private tidalPhase: number = 0;
   private tidalStrength: number = 1.5; // ft/s max current speed
   private loaded: boolean = false;
@@ -47,35 +46,11 @@ export class TidalResources extends BaseEntity {
     const data: TideMeshFileData = await loadTidemeshFromUrl(url);
     this.packedBuffer = packTideMeshBuffer(data);
     this.loaded = true;
-    // GPU buffer will be recreated on next access
-    this.gpuBuffer?.destroy();
-    this.gpuBuffer = null;
   }
 
   /**
-   * Get or create the packed GPU buffer for binding in query/render shaders.
-   */
-  getPackedBuffer(device: GPUDevice): GPUBuffer {
-    if (!this.gpuBuffer) {
-      this.gpuBuffer = device.createBuffer({
-        size: this.packedBuffer.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        label: "tidemesh-packed",
-      });
-      device.queue.writeBuffer(
-        this.gpuBuffer,
-        0,
-        this.packedBuffer.buffer,
-        this.packedBuffer.byteOffset,
-        this.packedBuffer.byteLength,
-      );
-    }
-    return this.gpuBuffer;
-  }
-
-  /**
-   * Raw CPU-side Uint32Array view of the packed tide mesh data. Used by
-   * the CPU query backend.
+   * Raw CPU-side Uint32Array view of the packed tide mesh data, consumed
+   * by the query worker pool.
    */
   getPackedTideMeshRaw(): Uint32Array {
     return this.packedBuffer;
@@ -123,11 +98,5 @@ export class TidalResources extends BaseEntity {
       this.tidalPhase =
         ((timeInSeconds / TIDAL_PERIOD_SECONDS) * Math.PI * 2) % (Math.PI * 2);
     }
-  }
-
-  @on("destroy")
-  onDestroy(): void {
-    this.gpuBuffer?.destroy();
-    this.gpuBuffer = null;
   }
 }

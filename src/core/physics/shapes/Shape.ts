@@ -1,4 +1,4 @@
-import type Entity from "../../entity/Entity";
+import type { Entity } from "../../entity/Entity";
 import { CompatibleVector, V, V2d } from "../../Vector";
 import type { Body } from "../body/Body";
 import { AABB } from "../collision/AABB";

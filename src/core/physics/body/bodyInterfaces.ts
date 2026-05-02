@@ -1,4 +1,4 @@
-import type Entity from "../../entity/Entity";
+import type { Entity } from "../../entity/Entity";
 import type { V2d } from "../../Vector";
 import type { AABB } from "../collision/AABB";
 import type { PhysicsEventMap } from "../events/PhysicsEvents";

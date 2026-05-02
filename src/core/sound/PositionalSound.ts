@@ -1,5 +1,5 @@
 import { SoundName } from "../../../resources/resources";
-import Entity from "../entity/Entity";
+import { Entity } from "../entity/Entity";
 import { Game } from "../Game";
 import { clamp, lerp } from "../util/MathUtil";
 import { V, V2d } from "../Vector";

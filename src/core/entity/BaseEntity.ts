@@ -9,7 +9,7 @@ import { Constraint } from "../physics/constraints/Constraint";
 import { Spring } from "../physics/springs/Spring";
 import { shapeFromDef } from "../physics/utils/ShapeUtils";
 import { clamp } from "../util/MathUtil";
-import Entity, { GameEventMap } from "./Entity";
+import { Entity, GameEventMap } from "./Entity";
 import { on } from "./handler";
 
 /** Base class for lots of stuff in the game. */

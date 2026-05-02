@@ -1,6 +1,6 @@
 import { DEFAULT_LAYER } from "../config/layers";
 import { DEFAULT_TICK_LAYER } from "../config/tickLayers";
-import Entity, { GameEventHandler, GameEventName } from "./entity/Entity";
+import { Entity, GameEventHandler, GameEventName } from "./entity/Entity";
 import { getHandlers } from "./entity/handler";
 import { EntityFilter, hasBody } from "./EntityFilter";
 import { FilterMultiMap } from "./util/FilterListMap";
