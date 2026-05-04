@@ -2,7 +2,7 @@
 
 > **Status (2026):** historical design doc — alternative we evaluated but did
 > not ship. The live wavefront mesh is built by the Rust Lagrangian ray
-> marcher in `pipeline/wavemesh-builder/`. Preserved as background.
+> marcher in `pipeline/mesh-builder/`. Preserved as background.
 
 ## Overview
 

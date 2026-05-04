@@ -1,9 +1,9 @@
 # GPU Wavefront Marching (Lagrangian) -- Historical Design
 
 > **Status (2026):** historical design document — **not the current implementation**.
-> The wavefront mesh is built offline in Rust at `pipeline/wavemesh-builder/`,
+> The wavefront mesh is built offline in Rust at `pipeline/mesh-builder/`,
 > not on the GPU. See `docs/wavefront-mesh-design.md` and
-> `pipeline/wavemesh-builder/README.md` for the current architecture, and
+> `pipeline/mesh-builder/README.md` for the current architecture, and
 > `src/game/wave-physics/CLAUDE.md` for the runtime side. The TypeScript
 > `WavefrontMeshBuilder.ts` and `WavefrontMarchShader.ts` referenced below
 > no longer exist. This file is preserved as a record of one design we
@@ -45,6 +45,7 @@ This design addresses all five.
 The single most important change to the current algorithm: **vertices do not terminate when they hit land.** Instead, they continue marching with amplitude = 0, maintaining their position in the wavefront array. When they exit land back into water, they resume accumulating amplitude based on depth.
 
 This is critical because:
+
 - The mesh must cover the leeward side of islands for diffraction to fill in
 - A wave passing between two islands needs continuous wavefront coverage in the gap and beyond
 - The regular grid structure (fixed vertex count per row) is preserved, which keeps index generation trivial and GPU memory access patterns coherent
@@ -64,6 +65,7 @@ March state (6 floats per vertex):
 ```
 
 The `landDepth` counter replaces the binary terminated flag. It tracks how many consecutive steps a vertex has been inside terrain. This serves two purposes:
+
 1. A vertex with `landDepth > 0` is inside terrain -- its amplitude is 0
 2. When `landDepth` returns to 0 (vertex exits terrain), amplitude rebuilds from the terrain factor at the exit point, modulated by a diffraction-informed amplitude estimate (see Phase 2)
 
@@ -164,6 +166,7 @@ Consider a narrow bay inlet: as the wavefront passes through the gap, only the v
 For a headland (single edge diffraction), only one side has a lit neighbor. The energy fans inward from that edge, creating the classic circular wavefront that wraps around the obstacle.
 
 The cylindrical spreading factor `sqrt(lambda / (2*pi*r))` is physically correct for 2D Huygens-Fresnel diffraction. It gives:
+
 - Strong diffraction (more energy penetration) for long wavelengths
 - Rapid decay for short wavelengths
 - The correct `1/sqrt(r)` distance falloff for cylindrical waves
@@ -223,6 +226,7 @@ Step 60:  The fanned-out wavefront hits coastline behind islands.
 ```
 
 Key behaviors:
+
 - The gap between islands carries full wavefront energy through
 - Diffraction fans energy behind each island from the gap edges
 - Vertices that emerge from Island A's shadow can then interact with additional terrain features downstream
@@ -276,26 +280,29 @@ Diffracted waves have lower amplitude and diverge from the diffraction source, s
 ### Current Implementation (Regular Grid)
 
 The current system uses uniform spacing:
+
 - Vertex spacing: 2 ft along wavefront
 - Step size: wavelength/8 (for wavelength=200ft, step=25ft)
 
 For a typical level with coastline bounds ~2000x2000 ft plus margin:
+
 - Along extent: ~3000 ft at step=25ft -> 120 steps
 - Perp extent: ~3000 ft at spacing=2ft -> 1500 vertices
-- Total: 120 * 1500 = 180,000 vertices
+- Total: 120 \* 1500 = 180,000 vertices
 - Per vertex: 20 bytes (5 floats) = 3.6 MB per mesh
 - With 8 wave sources: 28.8 MB total vertex data
 - Index buffers: 6 indices per quad, 4 bytes each -> ~10.3 MB per mesh
 - **Total: ~112 MB for 8 meshes** (vertex + index)
 
-This fits well within the 128 MB per-mesh target and the 8 million vertex limit (180K * 8 = 1.44M total vertices).
+This fits well within the 128 MB per-mesh target and the 8 million vertex limit (180K \* 8 = 1.44M total vertices).
 
 ### With Diffraction (No Grid Size Change)
 
 The diffraction pass does not add vertices -- it modifies amplitudes of existing vertices. Memory cost is identical to the regular grid.
 
 Construction uses additional temporary buffers:
-- Ping-pong state: 2 * 1500 * 24 bytes = 72 KB (destroyed after construction)
+
+- Ping-pong state: 2 _ 1500 _ 24 bytes = 72 KB (destroyed after construction)
 - Uniform buffer: 64 bytes (destroyed after construction)
 - Staging buffer for CPU readback: 3.6 MB (destroyed after construction)
 
@@ -304,8 +311,9 @@ Construction uses additional temporary buffers:
 ### Scaling to Larger Levels
 
 For a large level with 5000x5000 ft coastline extent:
+
 - Steps: ~280, Vertices: ~3500
-- Total per mesh: 980K vertices * 20 bytes = 19.6 MB
+- Total per mesh: 980K vertices \* 20 bytes = 19.6 MB
 - 8 meshes: ~157 MB vertex data + ~112 MB index data = ~269 MB
 
 This exceeds the budget. Solutions (in order of preference):
@@ -329,6 +337,7 @@ Since diffraction is a hard requirement, this section addresses the specific sce
 A narrow inlet (gap width ~ 1-3 wavelengths) is the canonical diffraction test case.
 
 How the algorithm handles it:
+
 1. The wavefront approaches the inlet. Most vertices hit land and continue with amplitude 0.
 2. Vertices aligned with the inlet pass through at full amplitude.
 3. On each subsequent step, the diffraction pass finds these few active vertices and spreads energy to neighbors.
@@ -337,7 +346,7 @@ How the algorithm handles it:
 
 For a 50 ft gap with wavelength 200 ft (gap = lambda/4): strong diffraction, nearly hemispherical spreading behind the inlet. This matches physical reality -- when the gap is smaller than the wavelength, the wave diffracts broadly.
 
-For a 400 ft gap with wavelength 200 ft (gap = 2*lambda): moderate diffraction at the edges, mostly geometric shadowing in the center. Energy penetrates ~1 wavelength into the geometric shadow region.
+For a 400 ft gap with wavelength 200 ft (gap = 2\*lambda): moderate diffraction at the edges, mostly geometric shadowing in the center. Energy penetrates ~1 wavelength into the geometric shadow region.
 
 ### Headland Diffraction
 
@@ -357,6 +366,7 @@ When two islands create two shadow edges that are both within `DIFFRACTION_KERNE
 ### Diffraction Limitations
 
 This approach is a geometric optics + Huygens-Fresnel hybrid, not a full wave solver. Limitations:
+
 - No coherent interference patterns in the shadow zone (would require tracking phase per diffraction source)
 - Diffraction kernel is finite, so very wide shadow zones (>100 vertices) won't fully fill
 - Diffraction is lateral only (along the wavefront); it doesn't model longitudinal diffraction
@@ -372,6 +382,7 @@ These limitations are acceptable for a sailing game -- the goal is visually plau
 The regular grid already provides resolution via the vertex spacing parameter. Near coastlines, the terrain factor changes rapidly, but this is captured by the per-vertex amplitude values -- linear interpolation across triangles produces smooth gradients even with coarse spacing, because the amplitude change is itself smooth (driven by the `smoothstep` in `computeDampingFactor`).
 
 Enhancement would require:
+
 - Changing vertex counts between rows (breaking the regular grid structure)
 - Variable-length index generation
 - More complex query lookup (can't estimate grid cell from position)
@@ -414,6 +425,7 @@ For Phase 1, ship with the regular grid and no simplification. The memory estima
 ### Shader Bindings
 
 March shader (existing, modified):
+
 ```
 @group(0) @binding(0) var<uniform> params: MarchParams;
 @group(0) @binding(1) var<storage, read_write> meshVertices: array<f32>;
@@ -423,6 +435,7 @@ March shader (existing, modified):
 ```
 
 Diffraction shader (new):
+
 ```
 @group(0) @binding(0) var<uniform> params: DiffractionParams;
 @group(0) @binding(1) var<storage, read_write> meshVertices: array<f32>;
@@ -492,27 +505,32 @@ Expected wall-clock time: 100-500ms depending on GPU. The current implementation
 ## Summary of Changes to Current Implementation
 
 ### WavefrontMarchShader.ts
+
 - Replace binary `terminated` with `landDepth` counter in state
 - Continue marching through land (amplitude 0, constant direction, base step size)
 - Reset when exiting land (resume refraction, recompute terrain factor)
 - Add crossing detection for convergence calculation
 
 ### New: WavefrontDiffractionShader.ts
+
 - New compute shader: reads current step vertices, spreads energy laterally
 - `DIFFRACTION_KERNEL` parameter controls search radius
 - Cylindrical spreading amplitude decay
 - Direction bending toward diffraction source
 
 ### WavefrontMeshBuilder.ts
+
 - Create diffraction shader and its uniform buffer
 - Modify dispatch loop: 2 dispatches per step
 - Add `MAX_LAND_STEPS` parameter
 - (Future) Add row decimation post-pass
 
 ### WavefrontMesh.ts
+
 - No changes needed -- the mesh data structure is unchanged
 
 ### MarchParams uniform
+
 - Add `maxLandSteps: u32` field
 - Replace `terminated`-related padding with `landDepth` state field
 

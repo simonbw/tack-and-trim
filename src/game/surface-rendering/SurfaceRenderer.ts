@@ -335,7 +335,6 @@ export class SurfaceRenderer extends BaseEntity {
         width,
         height,
         waterResources,
-        terrainResources,
         this.terrainTileCache!,
       );
       shaders.updateWaterFilterUniforms(
@@ -346,7 +345,6 @@ export class SurfaceRenderer extends BaseEntity {
         width,
         height,
         waterResources,
-        terrainResources,
       );
 
       shaders.uploadAllUniforms();

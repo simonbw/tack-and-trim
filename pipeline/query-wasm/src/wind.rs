@@ -1,6 +1,4 @@
-//! Wind query — port of `writeWindResult` and the mesh-blended lookup
-//! from `src/game/world/query/wind-math.ts` and
-//! `src/game/world/query/wind-mesh-math.ts`.
+//! Wind query — mesh-blended wind velocity sampling.
 //!
 //! Output layout (`WindResultLayout`):
 //!   `[velocity_x, velocity_y, speed, direction]`
@@ -244,8 +242,7 @@ fn lookup_wind_mesh_blended(
     }
 }
 
-/// Per-point wind velocity. Mirrors `writeWindResult` in
-/// `wind-math.ts`.
+/// Per-point wind velocity.
 #[allow(clippy::too_many_arguments)]
 fn write_wind_result(
     world_x: f32,

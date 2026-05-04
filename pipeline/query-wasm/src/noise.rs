@@ -1,6 +1,4 @@
-//! Simplex noise — port of `simplex3D` from
-//! `src/game/world/query/wind-math.ts` (which itself is a port of the
-//! WGSL Ashima/Gustavson simplex noise).
+//! 3D simplex noise (Ashima/Gustavson formulation).
 //!
 //! Produces values approximately in [-1, 1]. Used for water amplitude
 //! modulation and wind speed/direction variation.

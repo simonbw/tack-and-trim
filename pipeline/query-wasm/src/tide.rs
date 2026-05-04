@@ -1,6 +1,7 @@
-//! Tidal-flow lookup. Mirrors `lookupTidalFlow` in
-//! `src/game/world/query/tidal-math.ts` (which itself is the port of
-//! `fn_lookupTidalFlow` in `tide-mesh-packed.wgsl.ts`).
+//! Tidal-flow lookup against the packed tide mesh.
+//!
+//! The mesh is built offline by the tidemesh stage of `mesh-builder` and
+//! consumed via shared memory; see `world_state.rs` for the buffer ABI.
 
 const HEADER_TIDE_LEVEL_COUNT: usize = 0;
 const HEADER_VERTEX_COUNT: usize = 1;

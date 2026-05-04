@@ -9,8 +9,8 @@
 //! - `src/game/world/shaders/tide-mesh-packed.wgsl.ts`
 //! - `src/game/world/shaders/wind-mesh-packed.wgsl.ts`
 //!
-//! Keep these constants in sync with the WGSL and the TypeScript ports
-//! (`terrain-math.ts`, `water-math.ts`, etc.).
+//! Keep these constants in sync with the WGSL definitions used by the
+//! surface renderer.
 
 // ---------------------------------------------------------------------------
 // Terrain packed-buffer layout (mirrors terrain-packed.wgsl.ts)

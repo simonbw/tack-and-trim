@@ -20,7 +20,6 @@ import type { Game } from "../../core/Game";
 import { pushSceneLighting } from "../time/SceneLighting";
 import type { WeatherState } from "../weather/WeatherState";
 import { WeatherState as WeatherStateClass } from "../weather/WeatherState";
-import { TerrainResources } from "../world/terrain/TerrainResources";
 import { WaterResources } from "../world/water/WaterResources";
 import { WindResources } from "../world/wind/WindResources";
 import {
@@ -315,7 +314,6 @@ export class SurfaceShaders {
     width: number,
     height: number,
     waterResources: WaterResources,
-    terrainResources: TerrainResources,
     terrainTileCache: LODTerrainTileCache,
   ): void {
     if (!this.terrainCompositeUniforms) return;
@@ -349,7 +347,6 @@ export class SurfaceShaders {
     width: number,
     height: number,
     waterResources: WaterResources,
-    terrainResources: TerrainResources,
   ): void {
     if (!this.waterFilterUniforms) return;
 

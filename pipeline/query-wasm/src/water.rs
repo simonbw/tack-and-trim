@@ -1,7 +1,5 @@
-//! Water query — port of `writeWaterResult` and friends from
-//! `src/game/world/query/water-math.ts`.
+//! Water query — Gerstner waves + modifier accumulation + tidal flow.
 //!
-//! Mirrors the WGSL compute shader in `WaterQueryShader.ts`:
 //!   - Gerstner waves (two-pass: horizontal displacement, then height/velocity)
 //!   - Wavefront mesh lookup per wave source (energy + phase corrections)
 //!   - Modifier accumulation (wakes / ripples / currents / foam)
@@ -445,8 +443,7 @@ fn compute_wave_height(
 }
 
 // ---------------------------------------------------------------------------
-// Modifier contributions. Each function mirrors the corresponding WGSL/
-// JS implementation in `water-modifiers.wgsl.ts` / `water-math.ts`.
+// Modifier contributions — wakes, ripples, currents, foam.
 // Returns `(height, vel_x, vel_y, turbulence)`.
 // ---------------------------------------------------------------------------
 

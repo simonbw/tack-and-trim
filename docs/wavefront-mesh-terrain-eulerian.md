@@ -2,7 +2,7 @@
 
 > **Status (2026):** historical design doc — alternative we evaluated but did
 > not ship. The live wavefront mesh is built by the Rust Lagrangian ray
-> marcher in `pipeline/wavemesh-builder/`. Preserved as background.
+> marcher in `pipeline/mesh-builder/`. Preserved as background.
 
 ## Overview
 
@@ -34,6 +34,7 @@ For each coastline contour (`height === 0`), take the pre-sampled polygon vertic
 For contours at other heights (shelves at -40, -20, -10, etc.), also include their sampled vertices. These define where depth changes, which is exactly where refraction and shoaling change the wave properties.
 
 For each terrain vertex, record:
+
 - World position (x, y) from `sampledPolygon`
 - The contour height it came from
 - A "terrain distance" classification (0 = on coastline, distance to nearest coastline for others)
@@ -49,6 +50,7 @@ The outward normal at each coastline vertex is straightforward: with CCW winding
 **1c. Leeward densification (diffraction zones)**
 
 For each coastline contour and wave direction:
+
 1. Classify edges as windward or leeward using the same edge-normal classification from `ShadowGeometry.ts` (`classifyEdges`).
 2. Find shadow region boundaries (the silhouette points where lit transitions to shadow).
 3. Behind each silhouette point, fan out additional vertices into the shadow zone. Place them along arcs at distances `wavelength/4`, `wavelength/2`, `wavelength`, `2*wavelength`, `4*wavelength` from each silhouette point, spanning an angular range of up to 90 degrees into the shadow.
@@ -63,9 +65,10 @@ After placing terrain-derived and shadow-zone vertices, fill the remaining playa
 Strategy: Create a Cartesian grid over the mesh AABB (coastline bounds + 3 wavelengths margin). At each grid point, check if a terrain-seeded vertex already exists within `minSpacing = wavelength / 4`. If not, add a grid vertex. If the grid point is inside land (terrain height > 0), skip it.
 
 **Estimated vertex count for the default level:**
+
 - 2 coastline contours with ~300 vertices each: ~600
 - 7 non-coastline contours with ~200 vertices each: ~1400
-- Near-coastline densification: ~3000 (600 coastline verts * 5 offsets)
+- Near-coastline densification: ~3000 (600 coastline verts \* 5 offsets)
 - Leeward densification: ~2000 (per wave source)
 - Open ocean fill: ~2000 (7000x4000 ft area at 200ft spacing)
 - Total per wave source: ~9000 vertices
@@ -76,12 +79,14 @@ Strategy: Create a Cartesian grid over the mesh AABB (coastline bounds + 3 wavel
 Triangulate the point set using constrained Delaunay triangulation (CDT).
 
 **Constraints:**
+
 - Coastline edges (adjacent vertices in each coastline polygon) are constrained edges. This ensures the triangulation follows coastline geometry exactly rather than creating triangles that cross land boundaries.
 - All contour polygon edges should be constraints, not just coastlines. This preserves the natural terrain structure.
 
 **Implementation:** Use a CPU-based incremental Delaunay triangulation algorithm. For ~9000 points, this takes <50ms on modern hardware. Libraries like `delaunator` (already a common npm package) provide fast Delaunay triangulation in JS; CDT can be implemented as a post-processing step that inserts constraint edges.
 
 **Post-triangulation cleanup:**
+
 - Remove triangles whose centroid is inside land (terrain height > 0). Use the existing `isInsideContour()` logic on the CPU by checking against coastline contour polygons.
 - Remove triangles entirely outside the mesh AABB.
 
@@ -100,6 +105,7 @@ The Eikonal equation governs wavefront propagation through a medium with spatial
 where `T(x)` is the travel time from the wave source to point `x`, and `c(x)` is the local phase speed.
 
 The solution `T(x)` gives us everything we need:
+
 - **Phase offset**: `phaseOffset = omega * T(x) - dot(position, baseWaveDir * k)`, where `omega * T(x)` is the true accumulated phase and the second term is the straight-line prediction.
 - **Direction**: `direction = grad(T) / |grad(T)|` -- the gradient of travel time points along the wave propagation direction.
 - **Amplitude** (via transport equation): Once `T(x)` is known, amplitude follows from the transport equation (conservation of energy flux): `A(x) = A_0 * sqrt(c_0 / c(x)) * sqrt(J_0 / J(x))` where `J` is the Jacobian of the ray map (geometric spreading).
@@ -109,6 +115,7 @@ The solution `T(x)` gives us everything we need:
 FMM solves the Eikonal equation on unstructured meshes by propagating a "known" front through the mesh, vertex by vertex, in travel-time order. This is the standard approach for solving Eikonal equations on triangulated surfaces.
 
 Algorithm:
+
 1. **Initialize**: Classify each vertex as:
    - **Known** if it's on the upwind boundary (first vertices to be reached by the wave). For a planar wave, all vertices on the upwind edge of the mesh AABB are Known, with `T = dot(position, waveDir) / c_deep`.
    - **Inside land** if terrain height > 0 at the vertex position. These are permanently blocked.
@@ -118,12 +125,12 @@ Algorithm:
    a. Extract the Trial vertex with smallest `T`.
    b. Mark it as Known.
    c. For each neighboring vertex that is not Known and not blocked:
-      - Compute a tentative travel time using the Eikonal update on the shared triangle. The update formula for vertex C in triangle (A, B, C) where A and B are Known:
-        ```
-        Solve: |grad(T)| = 1/c_avg
-        ```
-        where `c_avg` is the average wave speed in the triangle (computed from terrain depth at the triangle centroid or at the vertices).
-      - If the tentative T is less than the vertex's current T, update it and add/update it in the priority queue.
+   - Compute a tentative travel time using the Eikonal update on the shared triangle. The update formula for vertex C in triangle (A, B, C) where A and B are Known:
+     ```
+     Solve: |grad(T)| = 1/c_avg
+     ```
+     where `c_avg` is the average wave speed in the triangle (computed from terrain depth at the triangle centroid or at the vertices).
+   - If the tentative T is less than the vertex's current T, update it and add/update it in the priority queue.
 
 3. **Convergence**: The front sweeps from upwind to downwind. Each vertex is finalized exactly once. Total cost: O(N log N) where N is the vertex count.
 
@@ -137,11 +144,12 @@ After FMM completes, each vertex has a travel time `T(x)`. Derive the three outp
 
 - **amplitudeFactor**: This requires solving the transport equation. Two approaches:
 
-  *Option A (geometric spreading)*: Compute the Jacobian of the ray map. In practice, estimate this by comparing the local vertex density to the "expected" density for straight-line propagation. Where vertices cluster (convergence), amplitude increases; where they spread, it decreases. This is approximate but cheap.
+  _Option A (geometric spreading)_: Compute the Jacobian of the ray map. In practice, estimate this by comparing the local vertex density to the "expected" density for straight-line propagation. Where vertices cluster (convergence), amplitude increases; where they spread, it decreases. This is approximate but cheap.
 
-  *Option B (explicit transport equation)*: Solve `div(A^2 * c * grad(T)) = 0` on the mesh using a second FMM-like pass or a linear system. This is exact but more complex.
+  _Option B (explicit transport equation)_: Solve `div(A^2 * c * grad(T)) = 0` on the mesh using a second FMM-like pass or a linear system. This is exact but more complex.
 
-  *Recommended: Option A with terrain-based corrections*. For each vertex:
+  _Recommended: Option A with terrain-based corrections_. For each vertex:
+
   ```
   terrainFactor = computeWaveTerrainFactor(depth, wavelength)  // shoaling + damping
   convergenceFactor = estimated from neighbor spacing vs initial spacing
@@ -171,6 +179,7 @@ In the Eulerian approach, diffraction vertices are already placed during Phase 1
 The FMM produces the correct wavefront geometry behind obstacles, but the basic geometric spreading underestimates diffraction amplitude (it gives the "geometric optics" answer, which goes to zero in the shadow zone). We need to augment it with a diffraction correction.
 
 For each vertex in the shadow zone:
+
 1. Identify the nearest diffraction edge (the silhouette points of the obstacle for this wave direction).
 2. Compute the Fresnel number: `F = sqrt(2 * d_edge / (wavelength * d_behind))` where `d_edge` is the perpendicular distance from the shadow boundary line and `d_behind` is the distance behind the silhouette point along the wave direction.
 3. Apply diffraction amplitude: `A_diffracted = A_incident * D(F)` where `D(F)` is a diffraction coefficient. For single-edge diffraction, `D(F) ~ 0.5` at the shadow boundary, decaying as `1/(sqrt(2*pi*F))` deep into the shadow zone.
@@ -188,11 +197,13 @@ Crucially, this means diffraction is not a separate "add-on" pass -- it's integr
 **Enhancement (adding vertices):**
 
 After the initial solve, identify regions where wave properties change rapidly:
+
 - Compute the gradient of `amplitudeFactor` and `directionOffset` on each triangle.
 - If the gradient magnitude exceeds a threshold, insert a vertex at the triangle centroid or longest edge midpoint.
 - Re-triangulate locally and re-solve the new vertices (using neighbors' known T values as boundary conditions -- a local FMM update).
 
 This is most likely needed:
+
 - At the edges of diffraction zones (amplitude transitions from full to zero)
 - At refraction caustics (direction changes rapidly)
 - Near headlands where convergence is strong
@@ -200,6 +211,7 @@ This is most likely needed:
 **Simplification (removing vertices):**
 
 In open ocean, many vertices will have nearly identical values `(1.0, 0.0, 0.0)`. Edge-collapse simplification:
+
 - For each edge, compute the error from removing it (max attribute difference between actual and interpolated values at the collapsed vertex).
 - Use a priority queue to collapse lowest-error edges first.
 - Stop when the minimum error exceeds a threshold.
@@ -236,6 +248,7 @@ When refraction focuses wave energy (e.g., at a headland where depth contours cu
 - At a true caustic (where `J` goes to zero), the Eikonal equation breaks down and amplitude would go to infinity.
 
 **Handling caustics:**
+
 - Cap `amplitudeFactor` at 2.0 (matching the existing `maxShoaling`).
 - The FMM travel time remains well-defined even at caustics -- it's only the amplitude that becomes singular.
 - In practice, caustics in our game are mild (headlands and curved shelves) and the 2.0 cap is sufficient.
@@ -244,6 +257,7 @@ When refraction focuses wave energy (e.g., at a headland where depth contours cu
 ### 3. Memory estimate
 
 **Per-vertex data:**
+
 - Position: 2 x f32 = 8 bytes
 - Amplitude factor: 1 x f32 = 4 bytes
 - Direction offset: 1 x f32 = 4 bytes
@@ -251,26 +265,31 @@ When refraction focuses wave energy (e.g., at a headland where depth contours cu
 - Total: 20 bytes per vertex (matches the existing `VERTEX_FLOATS = 5` layout)
 
 **Per-triangle data (index buffer):**
+
 - 3 x u32 = 12 bytes per triangle
-- For Delaunay triangulation, triangle count ~ 2 * vertex count
+- For Delaunay triangulation, triangle count ~ 2 \* vertex count
 
 **Per wave source estimates (default level, one swell source):**
+
 - ~9,000 vertices: 180 KB
 - ~18,000 triangles: 216 KB
 - Total: ~396 KB per wave source
 
 **With 8 wave sources:**
-- 8 * 396 KB = 3.2 MB
+
+- 8 \* 396 KB = 3.2 MB
 - Well under the 128 MB per-mesh target and the 8M vertex limit
 
 **Worst case (complex level with many islands, 8 sources):**
+
 - 50,000 vertices per source (many islands, dense coastlines)
-- 8 * 50,000 * 20 bytes = 8 MB for vertices
-- Plus indices: 8 * 100,000 * 12 bytes = 9.6 MB
+- 8 _ 50,000 _ 20 bytes = 8 MB for vertices
+- Plus indices: 8 _ 100,000 _ 12 bytes = 9.6 MB
 - Total: ~18 MB -- still very comfortable
 
 **Construction memory (temporary):**
-- FMM priority queue: 9,000 entries * ~24 bytes = 216 KB
+
+- FMM priority queue: 9,000 entries \* ~24 bytes = 216 KB
 - Adjacency structures: ~500 KB
 - Triangulation working memory: ~500 KB
 - Total temporary: ~1.2 MB (trivial)
@@ -292,6 +311,7 @@ Diffraction is built into the approach from the ground up, not bolted on as an a
 **Narrow bay inlet scenario:**
 
 For a narrow bay inlet (gap between two obstacles or a narrow harbor entrance):
+
 - The inlet sides are both coastlines, so they have dense vertices.
 - Leeward densification places fan vertices behind each side of the inlet.
 - FMM propagates waves through the inlet. Travel time is shortest along the center of the gap.
@@ -300,6 +320,7 @@ For a narrow bay inlet (gap between two obstacles or a narrow harbor entrance):
 - The result: waves appear to originate from the inlet, exactly as desired.
 
 **Limitations:**
+
 - The Fresnel diffraction model is a scalar approximation. It doesn't capture full wave interference patterns (the alternating bright/dark bands of Fraunhofer diffraction). For a game, this is perfectly acceptable -- we want the smooth amplitude envelope, not the interference fringes.
 - Diffraction around very large obstacles (much larger than wavelength) produces very weak diffraction. The model correctly gives near-zero amplitude deep in the shadow zone for large obstacles.
 
@@ -318,12 +339,14 @@ For a narrow bay inlet (gap between two obstacles or a narrow harbor entrance):
 The entire construction runs on the CPU. Unlike the Lagrangian GPU marching approach, this does not require a compute shader dispatch loop.
 
 **Why CPU not GPU:**
+
 - FMM is inherently sequential (process vertices in travel-time order). Parallel FMM variants exist but are complex and the vertex count is small enough (~9000) that CPU performance is fine.
 - Delaunay triangulation is a well-solved CPU problem with mature implementations.
 - Construction is a one-time cost at level load, not per-frame.
 - Existing terrain data (`sampledPolygon`, contour tree) is already on the CPU.
 
 **Estimated construction time:**
+
 - Vertex generation: <5ms (iterating contour polygons + some ray casting)
 - Delaunay triangulation: <20ms for 9000 points (using `delaunator` or similar)
 - Constraint insertion: <10ms
@@ -337,26 +360,28 @@ This is competitive with the GPU wavefront marching approach (~500ms total).
 
 ## Comparison with GPU Wavefront Marching
 
-| Aspect | Lagrangian (current) | Terrain-Seeded Eulerian |
-|--------|---------------------|------------------------|
-| Vertex placement | Uniform grid, refraction moves vertices | Terrain-adaptive, vertices stay fixed |
-| Resolution near coast | Even across mesh | Naturally high from terrain data |
-| Open ocean efficiency | Wastes vertices | Efficient (sparse fill grid) |
-| Diffraction | Requires vertex insertion into wavefront rows | Natural -- pre-placed vertices, solved by FMM |
-| Multiple obstacles | Must handle sequentially per wavefront row | All obstacles handled simultaneously by FMM |
-| Construction platform | GPU compute (dispatch loop) | CPU (single-threaded FMM) |
-| Construction time | ~500ms | ~640ms (similar) |
-| Mesh topology | Regular grid (uniform row x col) | Unstructured triangulation |
-| Query lookup | O(1) grid indexing | O(log N) spatial lookup or rasterize-to-texture |
-| Implementation complexity | Moderate (GPU shader) | Moderate (CPU algorithms) |
+| Aspect                    | Lagrangian (current)                          | Terrain-Seeded Eulerian                         |
+| ------------------------- | --------------------------------------------- | ----------------------------------------------- |
+| Vertex placement          | Uniform grid, refraction moves vertices       | Terrain-adaptive, vertices stay fixed           |
+| Resolution near coast     | Even across mesh                              | Naturally high from terrain data                |
+| Open ocean efficiency     | Wastes vertices                               | Efficient (sparse fill grid)                    |
+| Diffraction               | Requires vertex insertion into wavefront rows | Natural -- pre-placed vertices, solved by FMM   |
+| Multiple obstacles        | Must handle sequentially per wavefront row    | All obstacles handled simultaneously by FMM     |
+| Construction platform     | GPU compute (dispatch loop)                   | CPU (single-threaded FMM)                       |
+| Construction time         | ~500ms                                        | ~640ms (similar)                                |
+| Mesh topology             | Regular grid (uniform row x col)              | Unstructured triangulation                      |
+| Query lookup              | O(1) grid indexing                            | O(log N) spatial lookup or rasterize-to-texture |
+| Implementation complexity | Moderate (GPU shader)                         | Moderate (CPU algorithms)                       |
 
 **Key advantages of the Eulerian approach:**
+
 1. Diffraction is natural, not bolted on
 2. Multiple obstacles are handled globally, not incrementally
 3. Resolution matches terrain complexity automatically
 4. No wasted vertices in open ocean
 
 **Key disadvantages:**
+
 1. Unstructured mesh makes query lookup harder (no O(1) grid indexing)
 2. CPU-bound construction (though fast enough)
 3. Requires a triangulation library
@@ -365,6 +390,7 @@ This is competitive with the GPU wavefront marching approach (~500ms total).
 ## Output Format
 
 The final mesh uses the same per-vertex layout as the existing `WavefrontMesh`:
+
 ```
 5 floats per vertex (20 bytes):
   positionX:       f32

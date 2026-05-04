@@ -1,6 +1,4 @@
-//! Terrain query — port of `writeTerrainResult` from
-//! `src/game/world/query/terrain-math.ts` (which mirrors
-//! `TerrainQueryShader.ts`).
+//! Terrain query — height + normal + type sampling at a world point.
 //!
 //! Output layout (`TerrainResultLayout`):
 //!   `[height, normal_x, normal_y, terrain_type]`

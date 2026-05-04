@@ -1,10 +1,10 @@
 # CPU Wavefront Marching (Lagrangian) Design
 
 > **Status (2026):** historical design doc. The shipping implementation is
-> the Rust ray-marcher in `pipeline/wavemesh-builder/`, which adopts this
+> the Rust ray-marcher in `pipeline/mesh-builder/`, which adopts this
 > Lagrangian approach but runs as an offline build step (not in web
 > workers). Read this doc for the algorithm; read
-> `pipeline/wavemesh-builder/src/marching.rs` for the live code.
+> `pipeline/mesh-builder/src/ray_march.rs` for the live code.
 
 ## Overview
 

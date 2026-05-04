@@ -1152,7 +1152,6 @@ name = "mesh-builder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap",
  "glob",
  "nalgebra",
  "nalgebra-sparse",
