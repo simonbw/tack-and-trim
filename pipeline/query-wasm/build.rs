@@ -121,5 +121,14 @@ fn extract_constant(source: &str, name: &str) -> Option<u64> {
     if digits.is_empty() {
         return None;
     }
+    // Reject expressions like `= 16 * 1024` or `= 1.5` that would silently
+    // truncate to the leading integer. The protocol module is meant to hold
+    // bare integer literals; anything else means we can't faithfully mirror
+    // the value into Rust.
+    let next = rest.chars().next();
+    let terminator_ok = next.map_or(true, |c| c == ';' || c.is_whitespace());
+    if !terminator_ok {
+        return None;
+    }
     digits.parse::<u64>().ok()
 }
