@@ -14,11 +14,11 @@ cargo install samply
 # Profile build-level (default crate):
 ./pipeline/profile-samply.sh
 
-# Profile wavemesh-builder:
-./pipeline/profile-samply.sh -p wavemesh-builder
+# Profile mesh-builder:
+./pipeline/profile-samply.sh -p mesh-builder
 
 # Pass arguments to the binary after --:
-./pipeline/profile-samply.sh -p wavemesh-builder -- --level resources/levels/san-juan-islands.level.json
+./pipeline/profile-samply.sh -p mesh-builder -- --level resources/levels/san-juan-islands.level.json
 
 # See help:
 ./pipeline/profile-samply.sh -h

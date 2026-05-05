@@ -1,5 +1,5 @@
 import { BaseEntity } from "../../core/entity/BaseEntity";
-import Entity from "../../core/entity/Entity";
+import { Entity } from "../../core/entity/Entity";
 import { on } from "../../core/entity/handler";
 import { createRigid3D } from "../../core/physics/body/bodyFactories";
 import { RevoluteConstraint3D } from "../../core/physics/constraints/RevoluteConstraint3D";

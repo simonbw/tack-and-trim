@@ -20,8 +20,14 @@ import type {
   WavefrontMeshData,
 } from "../../pipeline/mesh-building/MeshBuildTypes";
 
-/** Maximum number of wave sources for mesh computation */
-export const MAX_WAVE_SOURCES = 8;
+/**
+ * Maximum number of wave sources for mesh computation.
+ *
+ * Re-exported from the canonical protocol module so the value stays in
+ * sync with TS/Rust/WGSL consumers. See
+ * `src/game/world/query/query-worker-protocol.ts`.
+ */
+export { MAX_WAVE_SOURCES } from "../world/query/query-worker-protocol";
 
 /**
  * Manages analytical wave physics for terrain-wave interaction.

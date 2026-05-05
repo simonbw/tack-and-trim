@@ -3,10 +3,9 @@ mod constrained_simplify;
 mod download;
 mod extract;
 mod geo;
-mod marching;
+mod marching_squares;
 mod region;
 mod segment_index;
-mod simplify;
 mod trees;
 mod validate;
 
@@ -15,9 +14,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
-use terrain_core::humanize::format_int;
-use terrain_core::level::parse_level_file;
-use terrain_core::step::StepView;
+use pipeline_core::humanize::format_int;
+use pipeline_core::level::parse_level_file;
+use pipeline_core::step::StepView;
 
 use build_grid::run_build_grid;
 use download::run_download;
@@ -285,7 +284,7 @@ fn run_wave_mesh_for_level(level_path: &Path, slug: &str, view: &StepView) -> Re
         .ok_or_else(|| anyhow!("Invalid wavemesh output path"))?;
     let inner = view.indented();
     let _s = view.section("build-wavemesh");
-    wavemesh_builder::build_wavemesh_for_level_with_view(
+    mesh_builder::build_wavemesh_for_level_with_view(
         level_path_str,
         Some(output_str),
         Some(&inner),
@@ -304,7 +303,7 @@ fn run_wind_mesh_for_level(level_path: &Path, slug: &str, view: &StepView) -> Re
         .ok_or_else(|| anyhow!("Invalid windmesh output path"))?;
     let inner = view.indented();
     let _s = view.section("build-windmesh");
-    wavemesh_builder::build_windmesh_for_level_with_view(
+    mesh_builder::build_windmesh_for_level_with_view(
         level_path_str,
         Some(output_str),
         Some(&inner),
@@ -353,7 +352,7 @@ fn run_tide_mesh_for_level(level_path: &Path, slug: &str, view: &StepView) -> Re
         .ok_or_else(|| anyhow!("Invalid tidemesh output path"))?;
     let inner = view.indented();
     let _s = view.section("build-tidemesh");
-    wavemesh_builder::build_tidemesh_for_level_with_view(
+    mesh_builder::build_tidemesh_for_level_with_view(
         level_path_str,
         Some(output_str),
         Some(&inner),

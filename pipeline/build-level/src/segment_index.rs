@@ -1,54 +1,12 @@
-use crate::simplify::Point;
+use pipeline_core::polygon_math::segments_intersect_collinear_aware;
+
+/// 2D point as `(x, y)`. Canonical ring representation in build-level.
+type Point = (f64, f64);
 
 #[derive(Clone, Copy, Debug)]
 struct CellEntry {
     contour_index: usize,
     seg_index: usize,
-}
-
-fn segments_intersect(
-    p1x: f64,
-    p1y: f64,
-    p2x: f64,
-    p2y: f64,
-    p3x: f64,
-    p3y: f64,
-    p4x: f64,
-    p4y: f64,
-) -> bool {
-    let d1x = p2x - p1x;
-    let d1y = p2y - p1y;
-    let d2x = p4x - p3x;
-    let d2y = p4y - p3y;
-
-    let denom = d1x * d2y - d1y * d2x;
-    if denom.abs() < 1e-12 {
-        // Segments are parallel — check if they are collinear and overlapping.
-        // Project p3 onto the line through p1→p2: if the perpendicular distance
-        // is near zero, they are collinear.
-        let len_sq = d1x * d1x + d1y * d1y;
-        if len_sq < 1e-24 {
-            return false; // degenerate (zero-length) segment
-        }
-        // Perpendicular distance of p3 from line p1→p2
-        let cross = (p3x - p1x) * d1y - (p3y - p1y) * d1x;
-        if (cross * cross / len_sq) > 1e-6 {
-            return false; // parallel but not collinear
-        }
-        // Collinear: project both segment endpoints onto the p1→p2 axis
-        let t3 = ((p3x - p1x) * d1x + (p3y - p1y) * d1y) / len_sq;
-        let t4 = ((p4x - p1x) * d1x + (p4y - p1y) * d1y) / len_sq;
-        let (t_min, t_max) = if t3 < t4 { (t3, t4) } else { (t4, t3) };
-        let eps = 1e-9;
-        // Overlap exists if the projected range [t_min, t_max] intersects (eps, 1-eps)
-        return t_max > eps && t_min < 1.0 - eps;
-    }
-
-    let t = ((p3x - p1x) * d2y - (p3y - p1y) * d2x) / denom;
-    let u = ((p3x - p1x) * d1y - (p3y - p1y) * d1x) / denom;
-
-    let eps = 1e-9;
-    t > eps && t < 1.0 - eps && u > eps && u < 1.0 - eps
 }
 
 pub struct SegmentIndex {
@@ -171,7 +129,7 @@ impl SegmentIndex {
                     let (p3x, p3y) = points[entry.seg_index];
                     let (p4x, p4y) = points[next];
 
-                    if segments_intersect(ax, ay, bx, by, p3x, p3y, p4x, p4y) {
+                    if segments_intersect_collinear_aware(ax, ay, bx, by, p3x, p3y, p4x, p4y) {
                         return true;
                     }
                 }
@@ -198,13 +156,13 @@ mod tests {
     #[test]
     fn detects_collinear_overlapping_segments() {
         // Horizontal overlap
-        assert!(segments_intersect(0.0, 0.0, 10.0, 0.0, 5.0, 0.0, 15.0, 0.0));
+        assert!(segments_intersect_collinear_aware(0.0, 0.0, 10.0, 0.0, 5.0, 0.0, 15.0, 0.0));
         // One fully inside the other
-        assert!(segments_intersect(0.0, 0.0, 10.0, 0.0, 2.0, 0.0, 8.0, 0.0));
+        assert!(segments_intersect_collinear_aware(0.0, 0.0, 10.0, 0.0, 2.0, 0.0, 8.0, 0.0));
         // Vertical overlap
-        assert!(segments_intersect(5.0, 0.0, 5.0, 10.0, 5.0, 5.0, 5.0, 15.0));
+        assert!(segments_intersect_collinear_aware(5.0, 0.0, 5.0, 10.0, 5.0, 5.0, 5.0, 15.0));
         // Diagonal overlap
-        assert!(segments_intersect(
+        assert!(segments_intersect_collinear_aware(
             0.0, 0.0, 10.0, 10.0, 5.0, 5.0, 15.0, 15.0
         ));
     }
@@ -212,13 +170,13 @@ mod tests {
     #[test]
     fn rejects_collinear_non_overlapping_segments() {
         // Same line but disjoint
-        assert!(!segments_intersect(0.0, 0.0, 3.0, 0.0, 7.0, 0.0, 10.0, 0.0));
+        assert!(!segments_intersect_collinear_aware(0.0, 0.0, 3.0, 0.0, 7.0, 0.0, 10.0, 0.0));
     }
 
     #[test]
     fn rejects_parallel_non_collinear_segments() {
         // Parallel but offset
-        assert!(!segments_intersect(
+        assert!(!segments_intersect_collinear_aware(
             0.0, 0.0, 10.0, 0.0, 0.0, 1.0, 10.0, 1.0
         ));
     }
@@ -226,6 +184,6 @@ mod tests {
     #[test]
     fn rejects_collinear_touching_only_at_endpoint() {
         // Touching at exactly one endpoint (t=1 for first, t=0 for second)
-        assert!(!segments_intersect(0.0, 0.0, 5.0, 0.0, 5.0, 0.0, 10.0, 0.0));
+        assert!(!segments_intersect_collinear_aware(0.0, 0.0, 5.0, 0.0, 5.0, 0.0, 10.0, 0.0));
     }
 }

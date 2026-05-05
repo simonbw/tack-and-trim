@@ -4,7 +4,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use terrain_core::humanize::format_int;
+use pipeline_core::humanize::format_int;
+use pipeline_core::polygon_math::{point_in_polygon_flat, segments_intersect, signed_area_flat};
 
 const DEFAULT_DEPTH: f64 = -300.0;
 
@@ -98,11 +99,11 @@ pub fn validate_terrain_binary(terrain_path: &Path) -> Result<ValidationResult> 
     let bytes = fs::read(terrain_path)
         .with_context(|| format!("Failed to read {}", terrain_path.display()))?;
 
-    let terrain = terrain_core::level::read_terrain_binary(&bytes)
+    let terrain = pipeline_core::level::read_terrain_binary(&bytes)
         .with_context(|| format!("Failed to parse terrain binary: {}", terrain_path.display()))?;
 
     let default_depth = terrain.default_depth;
-    let fpc = terrain_core::level::FLOATS_PER_CONTOUR;
+    let fpc = pipeline_core::level::FLOATS_PER_CONTOUR;
     let mut contours = Vec::with_capacity(terrain.contour_count);
 
     for i in 0..terrain.contour_count {
@@ -299,33 +300,6 @@ fn bbox_contains(outer: BBox, inner: BBox) -> bool {
         && outer.max_y >= inner.max_y
 }
 
-fn segments_intersect(
-    p1x: f64,
-    p1y: f64,
-    p2x: f64,
-    p2y: f64,
-    p3x: f64,
-    p3y: f64,
-    p4x: f64,
-    p4y: f64,
-) -> bool {
-    let d1x = p2x - p1x;
-    let d1y = p2y - p1y;
-    let d2x = p4x - p3x;
-    let d2y = p4y - p3y;
-
-    let denom = d1x * d2y - d1y * d2x;
-    if denom.abs() < 1e-12 {
-        return false;
-    }
-
-    let t = ((p3x - p1x) * d2y - (p3y - p1y) * d2x) / denom;
-    let u = ((p3x - p1x) * d1y - (p3y - p1y) * d1x) / denom;
-
-    let eps = 1e-9;
-    t > eps && t < 1.0 - eps && u > eps && u < 1.0 - eps
-}
-
 fn find_overlaps_with_grid(
     contours: &[LightContour],
     bboxes: &[BBox],
@@ -516,44 +490,12 @@ fn clamp_cell(value: f64, size: usize) -> usize {
     idx.clamp(0, size as isize - 1) as usize
 }
 
-fn point_in_polygon(px: f64, py: f64, poly: &[f64], num_points: usize) -> bool {
-    if num_points < 3 {
-        return false;
-    }
-
-    let mut inside = false;
-    let mut j = num_points - 1;
-    for i in 0..num_points {
-        let xi = poly[i * 2];
-        let yi = poly[i * 2 + 1];
-        let xj = poly[j * 2];
-        let yj = poly[j * 2 + 1];
-
-        if (yi > py) != (yj > py) && px < ((xj - xi) * (py - yi) / (yj - yi)) + xi {
-            inside = !inside;
-        }
-
-        j = i;
-    }
-
-    inside
-}
-
-fn signed_area(points: &[f64], num_points: usize) -> f64 {
-    let mut area = 0.0;
-    for i in 0..num_points {
-        let j = (i + 1) % num_points;
-        area += points[i * 2] * points[j * 2 + 1] - points[j * 2] * points[i * 2 + 1];
-    }
-    area * 0.5
-}
-
 fn ensure_ccw(mut contour: LightContour) -> LightContour {
     if contour.num_points < 3 {
         return contour;
     }
 
-    if signed_area(&contour.points, contour.num_points) >= 0.0 {
+    if signed_area_flat(&contour.points, contour.num_points) >= 0.0 {
         return contour;
     }
 
@@ -594,7 +536,7 @@ fn build_light_contour_tree(contours: &[LightContour], bboxes: &[BBox]) -> (Vec<
             return false;
         }
 
-        point_in_polygon(
+        point_in_polygon_flat(
             inner.points[0],
             inner.points[1],
             &contours[outer_idx].points,

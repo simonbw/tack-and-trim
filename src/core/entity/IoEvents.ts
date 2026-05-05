@@ -1,6 +1,5 @@
 import { ControllerButton } from "../io/Gamepad";
 import { KeyCode } from "../io/Keys";
-import { EventHandler } from "./EventHandler";
 
 export type IoEvents = {
   /** Called when the mouse is left clicked anywhere. */
@@ -32,8 +31,6 @@ export type IoEvents = {
   /** Called when a gamepad is started or stopped being used. */
   inputDeviceChange: { usingGamepad: boolean };
 };
-
-export default interface IOEventHandler extends EventHandler<IoEvents> {}
 
 /** Function type for dispatching IO events. */
 export type IoEventDispatch = <E extends keyof IoEvents>(

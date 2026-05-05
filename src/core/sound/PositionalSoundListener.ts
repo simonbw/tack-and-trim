@@ -1,7 +1,7 @@
 import { Game } from "../Game";
 import { V2d } from "../Vector";
 import { BaseEntity } from "../entity/BaseEntity";
-import Entity from "../entity/Entity";
+import { Entity } from "../entity/Entity";
 import { on } from "../entity/handler";
 import { PositionalSound } from "./PositionalSound";
 

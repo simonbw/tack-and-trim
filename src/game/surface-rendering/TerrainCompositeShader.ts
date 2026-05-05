@@ -10,6 +10,13 @@
  */
 
 import {
+  defineUniformStruct,
+  f32,
+  i32,
+  mat3x3,
+  u32,
+} from "../../core/graphics/UniformStruct";
+import {
   FullscreenShader,
   type FullscreenShaderConfig,
 } from "../../core/graphics/webgpu/FullscreenShader";
@@ -18,10 +25,38 @@ import {
   DEPTH_Z_MAX,
   DEPTH_Z_MIN,
 } from "../../core/graphics/webgpu/WebGPURenderer";
-import { SCENE_LIGHTING_WGSL_FIELDS } from "../time/SceneLighting";
+import {
+  SCENE_LIGHTING_FIELDS,
+  SCENE_LIGHTING_WGSL_FIELDS,
+} from "../time/SceneLighting";
 import { fn_renderTerrain } from "../world/shaders/terrain-rendering.wgsl";
 import { fn_simplex3D } from "../world/shaders/noise.wgsl";
 import { SURFACE_TEXTURE_MARGIN } from "./SurfaceConstants";
+
+export const TerrainCompositeUniforms = defineUniformStruct("Params", {
+  // Clip → world for the actual screen (used for world-position reconstruction).
+  cameraMatrix: mat3x3,
+
+  // Screen dimensions (logical/CSS pixels)
+  screenWidth: f32,
+  screenHeight: f32,
+
+  // Device pixel ratio — the fragment shader's fragPos.xy is in physical
+  // framebuffer pixels, but the surface textures are sized at logical+margin
+  // resolution. Divide fragPos.xy by this to get logical pixel coords.
+  pixelRatio: f32,
+
+  tideHeight: f32,
+
+  // Terrain tile atlas parameters
+  atlasTileSize: u32,
+  atlasTilesX: u32,
+  atlasTilesY: u32,
+  atlasWorldUnitsPerTile: f32,
+
+  // Scene lighting (see SceneLighting.ts). Populated from TimeOfDay.
+  ...SCENE_LIGHTING_FIELDS,
+});
 
 const terrainCompositeParamsModule: ShaderModule = {
   preamble: /*wgsl*/ `
@@ -33,7 +68,6 @@ struct Params {
   screenHeight: f32,
   pixelRatio: f32,
   tideHeight: f32,
-  hasTerrainData: i32,
 
   atlasTileSize: u32,
   atlasTilesX: u32,
@@ -185,11 +219,6 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>, @location(0) clipPosition: vec
   // fragPos.xy is in physical framebuffer pixels; convert to logical pixel
   // coords to index the logical-sized wetness texture.
   let logicalCoord = vec2<i32>(fragPos.xy / params.pixelRatio);
-
-  // Nothing to draw if the level has no terrain at all.
-  if (params.hasTerrainData == 0) {
-    discard;
-  }
 
   // Render terrain at every pixel (both above AND below water). The water
   // filter reads the color + depth and applies absorption for submerged

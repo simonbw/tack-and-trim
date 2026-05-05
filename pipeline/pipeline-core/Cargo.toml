@@ -1,0 +1,21 @@
+[package]
+name = "pipeline-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+image = { version = "0.25", optional = true }
+num-format = "0.4"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "idw-grid-check"
+path = "src/bin/idw_grid_check.rs"
+required-features = ["image"]
+
+[[bin]]
+name = "generate-terrain-reference"
+path = "src/bin/generate_terrain_reference.rs"

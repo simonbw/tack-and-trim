@@ -1,5 +1,7 @@
 use crate::segment_index::SegmentIndex;
-use crate::simplify::Point;
+
+/// 2D point as `(x, y)`. Canonical ring representation in build-level.
+type Point = (f64, f64);
 
 fn perpendicular_distance(point: Point, line_start: Point, line_end: Point) -> f64 {
     let (x, y) = point;

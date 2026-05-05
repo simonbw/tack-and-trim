@@ -1,4 +1,4 @@
-import type Entity from "../../entity/Entity";
+import type { Entity } from "../../entity/Entity";
 import { clamp } from "../../util/MathUtil";
 import { CompatibleVector, V, V2d } from "../../Vector";
 import { CompatibleVector3, V3d } from "../../Vector3";

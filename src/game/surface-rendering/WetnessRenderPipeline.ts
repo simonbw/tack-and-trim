@@ -9,9 +9,11 @@
  */
 
 import { Matrix3 } from "../../core/graphics/Matrix3";
+import { createUniformBuffer } from "../../core/graphics/UniformStruct";
 import type { GPUProfiler } from "../../core/graphics/webgpu/GPUProfiler";
 import { profile } from "../../core/util/Profiler";
 import type { ComputeShader } from "../../core/graphics/webgpu/ComputeShader";
+import { createLinearClampSampler } from "../../core/graphics/webgpu/Samplers";
 import {
   createWetnessStateShader,
   DEFAULT_DRYING_RATE,
@@ -78,20 +80,14 @@ export class WetnessRenderPipeline {
     await this.shader.init();
 
     // Create params buffer
-    this.paramsBuffer = device.createBuffer({
-      size: WetnessUniforms.byteSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: "Wetness Params Buffer",
-    });
+    this.paramsBuffer = createUniformBuffer(
+      device,
+      WetnessUniforms,
+      "Wetness Params Buffer",
+    );
 
     // Create sampler (linear for smooth reprojection)
-    this.sampler = device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-      label: "Wetness Sampler",
-    });
+    this.sampler = createLinearClampSampler(device, "Wetness Sampler");
 
     // Create ping-pong textures (r32float for single channel wetness)
     this.wetnessTextureA = device.createTexture({
@@ -121,6 +117,57 @@ export class WetnessRenderPipeline {
 
     // Bind groups will be created when we have water/terrain textures
     this.initialized = true;
+  }
+
+  /**
+   * Resize the ping-pong textures without recreating the shader. Called when
+   * the surface texture resolution changes (e.g. render-scale or water-quality
+   * setting). Keeps init synchronous — no shader recompile, no race window
+   * where update() silently no-ops on the next frame.
+   */
+  resize(textureWidth: number, textureHeight: number): void {
+    if (!this.initialized) {
+      // Pre-init resize: just record the size; init() will pick it up.
+      this.textureWidth = textureWidth;
+      this.textureHeight = textureHeight;
+      return;
+    }
+
+    this.textureWidth = textureWidth;
+    this.textureHeight = textureHeight;
+
+    this.wetnessTextureA?.destroy();
+    this.wetnessTextureB?.destroy();
+
+    this.wetnessTextureA = this.device.createTexture({
+      size: { width: textureWidth, height: textureHeight },
+      format: "r32float",
+      usage:
+        GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST,
+      label: "Wetness Texture A",
+    });
+    this.wetnessTextureViewA = this.wetnessTextureA.createView();
+
+    this.wetnessTextureB = this.device.createTexture({
+      size: { width: textureWidth, height: textureHeight },
+      format: "r32float",
+      usage:
+        GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST,
+      label: "Wetness Texture B",
+    });
+    this.wetnessTextureViewB = this.wetnessTextureB.createView();
+
+    this.clearTextures();
+
+    // Old bind groups reference the destroyed views; force a rebuild on the
+    // next update().
+    this.bindGroupAtoB = null;
+    this.bindGroupBtoA = null;
+    this.prevWorldToTexClip = null;
   }
 
   /**

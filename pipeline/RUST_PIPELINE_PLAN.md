@@ -1,24 +1,47 @@
 # Rust Pipeline Port Plan
 
-Status (2026-03-06): completed. The legacy TypeScript terrain-import implementation under `src/pipeline/terrain-import/` has been removed. This document is retained as historical migration context.
+**Status (2026-04-30): completed and superseded.** Every step described
+below has been ported to Rust and now lives in `pipeline/build-level/`
+(plus `pipeline/mesh-builder/` for the wave mesh and
+`pipeline/query-wasm/` for the runtime kernel). The legacy TypeScript
+implementation under `src/pipeline/terrain-import/` was deleted long
+ago. This document is kept only as historical migration context — do
+not treat its priority list as outstanding work.
 
-This document outlined what TypeScript pipeline code remained to be ported to Rust, and how to structure it to maximize code sharing with the existing `wavemesh-builder`.
+If you are looking for the current pipeline structure, start at:
+
+- `pipeline/build-level/` — single binary covering download, grid
+  build, contour extraction, level validation, and wave mesh build.
+  Run as `bin/build-level [--level <name>]`.
+- `pipeline/pipeline-core/` — shared library crate.
+- `pipeline/mesh-builder/` — wave mesh ray-marcher (still a
+  separate crate, invoked from `build-level`).
+- `pipeline/query-wasm/` — runtime WASM kernel for world queries.
+
+The remainder of this file is the original plan, preserved verbatim
+below.
+
+---
+
+## Original Plan (historical)
+
+This document outlined what TypeScript pipeline code remained to be ported to Rust, and how to structure it to maximize code sharing with the existing `mesh-builder`.
 
 ## Current State
 
 The pipeline has one Rust implementation today:
 
-- **`pipeline/wavemesh-builder/`** — ray-marching wavefront mesh builder. Takes `.level.json` → produces `.wavemesh`.
+- **`pipeline/mesh-builder/`** — ray-marching wavefront mesh builder. Takes `.level.json` → produces `.wavemesh`.
 
 At the time this plan was written, the remaining TypeScript pipeline lived in `src/pipeline/terrain-import/` and `bin/`:
 
 | Step | TypeScript file | Status |
 |------|----------------|--------|
-| Download tiles | `download.ts` | Not ported |
-| Merge tiles to grid | `build-grid.ts` | Not ported (shells out to `gdalwarp`) |
-| Extract contours | `extract-contours.ts` | Not ported |
-| Validate level | `validate-level.ts` | Not ported |
-| Run full pipeline | `run-all.ts` | Not ported |
+| Download tiles | `download.ts` | **Done** (ported to `pipeline/build-level/src/download.rs`) |
+| Merge tiles to grid | `build-grid.ts` | **Done** (ported to `pipeline/build-level/src/build_grid.rs`) |
+| Extract contours | `extract-contours.ts` | **Done** (ported to `pipeline/build-level/src/extract.rs` + `marching.rs` + `simplify.rs`) |
+| Validate level | `validate-level.ts` | **Done** (ported to `pipeline/build-level/src/validate.rs`) |
+| Run full pipeline | `run-all.ts` | **Done** (`build-level` is the unified orchestrator) |
 | Build wavemesh | _(npm script)_ | **Done** |
 | Generate asset types | `bin/generate-asset-types.ts` | Not applicable (see below) |
 
@@ -40,11 +63,11 @@ At the time this plan was written, the remaining TypeScript pipeline lived in `s
 
 **Source**: `extract-contours.ts` + `worker/` + `util/simplify.ts` + `util/constrained-simplify.ts` + `util/segment-index.ts`
 
-This is the highest-value port. It is compute-intensive (marching squares runs in workers via `SharedArrayBuffer`), and the output (`.level.json`) feeds directly into the existing Rust wavemesh-builder. Porting it would:
+This is the highest-value port. It is compute-intensive (marching squares runs in workers via `SharedArrayBuffer`), and the output (`.level.json`) feeds directly into the existing Rust mesh-builder. Porting it would:
 
 - Eliminate the Node.js worker thread machinery
-- Allow the contour extractor and wavemesh-builder to eventually be one unified binary
-- Naturally share the `ContourTree` and terrain spatial structures already in `wavemesh-builder`
+- Allow the contour extractor and mesh-builder to eventually be one unified binary
+- Naturally share the `ContourTree` and terrain spatial structures already in `mesh-builder`
 
 **Key algorithms to implement in Rust:**
 
@@ -57,7 +80,7 @@ This is the highest-value port. It is compute-intensive (marching squares runs i
 7. **Segment index** (`segment-index.ts`) — Spatial grid for O(1) intersection queries (needed by constrained RDP)
 8. **Level serializer** — Write `.level.json` with the game's coordinate system (geo feet, CCW winding, centered bbox)
 
-**Shareable from `wavemesh-builder`:**
+**Shareable from `mesh-builder`:**
 - `level.rs`: `ContourPoint`, `LevelFileJSON`, coordinate helpers
 - `terrain.rs`: `ContourTree` and DFS traversal (already built for wavemesh; contour extractor also produces a tree)
 - `wavefront.rs` / `bounds.rs`: domain bounds math
@@ -77,7 +100,7 @@ Validates a `.level.json` file for logical consistency: contour overlap, nesting
 3. Self-intersection detection
 4. Nesting validation against contour tree
 
-**Shareable from `wavemesh-builder`:**
+**Shareable from `mesh-builder`:**
 - `level.rs`: deserialization
 - `terrain.rs`: `ContainmentGrid`, winding number algorithm, contour tree
 - Nearly all of this is a thin CLI wrapper around existing code
@@ -101,7 +124,7 @@ Downloads GeoTIFF elevation tiles from NOAA CUDEM, USACE S3, and EMODnet WCS. Cu
 - `tokio` (async runtime)
 - `scraper` or `html5ever` (HTML parsing for CUDEM directory listing)
 
-**Shareable from `wavemesh-builder`:**
+**Shareable from `mesh-builder`:**
 - `util/geo-utils.ts` logic → new `geo.rs` module: lat/lon projection, bbox math, CUDEM filename parsing
 
 ---
@@ -127,7 +150,7 @@ Option 1 is the pragmatic choice unless build portability becomes a requirement.
 3. Reproject + merge overlapping tiles into a single float32 grid
 4. Cache merged grid to binary format (currently `grid-cache.ts` binary format)
 
-**Shareable from `wavemesh-builder`:** minimal (bounds math)
+**Shareable from `mesh-builder`:** minimal (bounds math)
 
 ---
 
@@ -145,7 +168,7 @@ terrain-import --region san-juan-islands
   → build wavemesh → .wavemesh
 ```
 
-The wavemesh-builder's `main.rs` entry point logic (glob levels, run per-source) would be merged or called as a library.
+The mesh-builder's `main.rs` entry point logic (glob levels, run per-source) would be merged or called as a library.
 
 ---
 
@@ -156,15 +179,15 @@ Move to a **Cargo workspace** so crates can share code:
 ```
 pipeline/
   Cargo.toml            ← workspace root
-  wavemesh-builder/     ← existing binary crate (unchanged externally)
-  terrain-core/         ← new shared library crate
+  mesh-builder/     ← existing binary crate (unchanged externally)
+  pipeline-core/         ← new shared library crate
   terrain-import/       ← new binary crate (steps 1-3 + orchestrator)
   level-validate/       ← new binary crate (or fold into terrain-import)
 ```
 
-### `terrain-core` (shared library)
+### `pipeline-core` (shared library)
 
-Extract the following from `wavemesh-builder` into a shared crate:
+Extract the following from `mesh-builder` into a shared crate:
 
 | Module | What to put there |
 |--------|-------------------|
@@ -175,22 +198,22 @@ Extract the following from `wavemesh-builder` into a shared crate:
 | `segment_index.rs` (new) | Spatial grid for segment intersection queries |
 | `wavemesh_file.rs` | Binary format parsing + writing, FNV-1a hashing |
 
-`wavemesh-builder` would then depend on `terrain-core` instead of containing these modules directly.
+`mesh-builder` would then depend on `pipeline-core` instead of containing these modules directly.
 
 ### `terrain-import` (binary)
 
-New crate, depends on `terrain-core`. Implements:
+New crate, depends on `pipeline-core`. Implements:
 - `download.rs` — tile fetching (CUDEM, USACE, EMODnet)
 - `grid.rs` — tile merging (wraps `gdalwarp` or native reader)
 - `grid_cache.rs` — binary grid cache I/O (port of `grid-cache.ts`)
 - `marching.rs` — marching squares + block index + ring tracer
-- `contrained_simplify.rs` — constrained RDP using `terrain-core::segment_index`
+- `contrained_simplify.rs` — constrained RDP using `pipeline-core::segment_index`
 - `extract.rs` — top-level contour extraction entry point
 - `main.rs` — CLI with `clap` (subcommands: `download`, `build-grid`, `extract`, `validate`, or combined `import`)
 
 ### `level-validate` (binary or subcommand)
 
-Thin CLI over `terrain-core`. May just be a subcommand of `terrain-import`.
+Thin CLI over `pipeline-core`. May just be a subcommand of `terrain-import`.
 
 ---
 
@@ -198,10 +221,10 @@ Thin CLI over `terrain-core`. May just be a subcommand of `terrain-import`.
 
 Because this is an offline pipeline (not game runtime), migration can be gradual:
 
-1. **Create workspace** — Add `pipeline/Cargo.toml` workspace, move `wavemesh-builder` in without changing it.
-2. **Extract `terrain-core`** — Refactor shared modules out of `wavemesh-builder` into the new library crate. All existing functionality preserved; just a restructure.
-3. **Port `level-validate`** — Small, fast win. Reuses `terrain-core` heavily.
-4. **Port `extract-contours`** — High value, no external dependencies. Builds on `terrain-core`.
+1. **Create workspace** — Add `pipeline/Cargo.toml` workspace, move `mesh-builder` in without changing it.
+2. **Extract `pipeline-core`** — Refactor shared modules out of `mesh-builder` into the new library crate. All existing functionality preserved; just a restructure.
+3. **Port `level-validate`** — Small, fast win. Reuses `pipeline-core` heavily.
+4. **Port `extract-contours`** — High value, no external dependencies. Builds on `pipeline-core`.
 5. **Port `download`** — Straightforward async HTTP. New dependency (`reqwest`/`tokio`).
 6. **Port `build-grid`** — Wrap `gdalwarp` from Rust to unify the CLI, or implement native reader.
 7. **Unify orchestrator** — Single `terrain-import import --region <name>` command runs everything.
@@ -212,10 +235,10 @@ npm scripts (`download-terrain`, `build-terrain-grid`, `extract-terrain-contours
 
 ## Summary
 
-| Component | Port value | Complexity | Shares with wavemesh-builder |
+| Component | Port value | Complexity | Shares with mesh-builder |
 |-----------|-----------|------------|-------------------------------|
 | Level validator | High | Low | `level.rs`, `terrain.rs` (containment) |
 | Contour extractor | High | Medium | `level.rs`, `ContourTree` |
-| Terrain downloader | Medium | Low-Medium | geo math → `terrain-core` |
+| Terrain downloader | Medium | Low-Medium | geo math → `pipeline-core` |
 | Grid builder | Medium | High (GDAL) | minimal |
 | Pipeline orchestrator | High (once above done) | Low | all of it |

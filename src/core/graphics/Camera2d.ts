@@ -1,6 +1,6 @@
 import { ReadonlyV2d, V, V2d } from "../Vector";
 import { BaseEntity } from "../entity/BaseEntity";
-import Entity, { GameEventMap } from "../entity/Entity";
+import { Entity, GameEventMap } from "../entity/Entity";
 import { on } from "../entity/handler";
 import { lerpOrSnap } from "../util/MathUtil";
 import { Matrix3 } from "./Matrix3";

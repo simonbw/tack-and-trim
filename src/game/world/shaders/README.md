@@ -53,14 +53,13 @@ No need to import or depend on these - they're always available.
 
 #### `noise.wgsl.ts`
 
-- **fn_simplex3D** - 3D simplex noise
-  - `simplex3D(v: vec3<f32>) -> f32` - Returns [-1, 1]
-  - Private helpers: `_simplex3D_mod289_vec3`, `_simplex3D_permute`, etc.
+- **fn_simplex3D** - 3D simplex noise, returns [-1, 1]
+- **fn_fractalNoise3D** - Multi-octave fractal noise
+- **fn_worley2D** - 2D Worley/cellular noise
 
 #### `math.wgsl.ts`
 
-- **fn_hash21** - Hash function for procedural noise
-  - `hash21(p: vec2<f32>) -> f32` - 2D → 1D hash
+- **fn_hash21** - 2D → 1D hash function for procedural noise
 
 #### `coordinates.wgsl.ts`
 
@@ -87,22 +86,12 @@ across uniform structs.
 #### `polygon.wgsl.ts`
 
 - **fn_pointLeftOfSegment** - Winding number test (cross product sign)
-- **fn_pointInPolygon** - Winding number containment test for arbitrary polygons
+- **fn_isInsidePolygon** - Winding number containment test for arbitrary polygons
+- **fn_isInsidePolygonWithBBox** - Containment test with an early-out bbox check
 - **fn_pointToLineSegmentDistanceSq** - Squared distance from point to line segment
+- **fn_distanceToPolygonBoundary** - Minimum distance from a point to a polygon boundary
 
-### Physics
-
-#### `wave-physics.wgsl.ts`
-
-- **fn_computeShoalingFactor** - Green's Law wave shoaling
-- **fn_computeShallowDamping** - Bottom friction damping
-- **fn_computeWaveFrequency** - Wave angular frequency from wavelength
-- **fn_computeWaveNumber** - Wave number from wavelength
-
-#### `wave-terrain.wgsl.ts`
-
-- **fn_computeShoalingFactor** - Green's Law wave shoaling (wave-terrain interaction version)
-- **fn_computeShallowDamping** - Bottom friction damping
+### Waves
 
 #### `wave-constants.wgsl.ts`
 
@@ -117,86 +106,85 @@ across uniform structs.
 Accessor functions for reading wavefront mesh data from a single packed `array<u32>` buffer.
 
 - **struct_MeshHeader** - Per-wave mesh metadata struct
-- **fn_getMeshHeader** - Read mesh header for a wave source
-- **fn_getMeshVertexPos** - Read vertex position from packed buffer
+- **struct_MeshLookupResult** - Result of a mesh lookup (energy, direction, phase, etc.)
+- **fn_getMeshNumWaves**, **fn_getMeshHeader**, **fn_getMeshVertexPos**,
+  **fn_getMeshVertexAttribs**, **fn_getMeshTriangle**, **fn_getMeshGridCell**,
+  **fn_getMeshGridTriIndex** - Buffer accessors
+- **fn_barycentric** - Barycentric interpolation helper
 - **fn_lookupMeshForWave** - Full mesh lookup with spatial grid + barycentric interpolation
-  - Dependencies: `struct_MeshHeader`, `fn_getMeshHeader`, `fn_getMeshVertexPos`
 
 ### Terrain
 
-#### `terrain.wgsl.ts`
-
-- **fn_pointToLineSegmentDistanceSq** - Squared distance from point to segment
-- **fn_pointLeftOfSegment** - Winding number test
-- **fn_computeIDWWeight** - Inverse distance weighting weight
-- **fn_blendIDW** - Blend values using IDW
-- **struct_ContourData** - Contour data structure
-- **fn_isInsideContour** - Fast containment test (winding number only)
-  - Dependencies: `fn_pointLeftOfSegment`, `struct_ContourData`, `fn_getContourData`, `fn_getTerrainVertex`
-- **fn_computeDistanceToBoundary** - Minimum distance to contour boundary
-  - Dependencies: `fn_pointToLineSegmentDistanceSq`, `struct_ContourData`, `fn_getContourData`, `fn_getTerrainVertex`
-- **fn_computeSignedDistance** - Signed distance to contour
-  - Dependencies: `fn_isInsideContour`, `fn_computeDistanceToBoundary`
-- **fn_computeTerrainHeight** - Terrain height using IDW interpolation
-  - Dependencies: `fn_isInsideContour`, `fn_computeDistanceToBoundary`, `fn_getContourData`, `fn_getTerrainChild`
-- **fn_computeTerrainNormal** - Terrain normal via finite differences
-  - Dependencies: `fn_computeTerrainHeight`
+The terrain modules are split across three files for clarity:
 
 #### `terrain-packed.wgsl.ts`
 
 Accessor functions for reading terrain data from a single packed `array<u32>` buffer.
 
+- **struct_ContourData** - Contour data structure
 - **fn_getTerrainVertex** - Read a vertex (vec2<f32>) from the packed buffer
-- **fn_getContourData** - Read a ContourData struct from the packed buffer
-  - Dependencies: `struct_ContourData`
+- **fn_getContourData** - Read a `ContourData` struct from the packed buffer
 - **fn_getTerrainChild** - Read a child contour index from the packed buffer
+- **fn_getContainmentCellFlag** - Read a containment-grid cell flag
+- **fn_getIDWGridCandidateRange**, **fn_getIDWGridEntry** - IDW candidate-edge grid accessors
+- **fn_getLookupGridBaseContour**, **fn_getLookupGridCandidateRange**,
+  **fn_getLookupGridCandidate** - Per-contour lookup-grid accessors
+
+#### `terrain-idw.wgsl.ts`
+
+- **fn_computeIDWWeight** - Inverse-distance-weighting weight
+- **fn_blendIDW** - Blend values via IDW
+
+#### `terrain-containment.wgsl.ts`
+
+- **fn_isInsideContour** - Fast containment test (winding number only)
+- **fn_computeDistanceToBoundary** - Minimum distance to contour boundary
+- **fn_computeSignedDistance** - Signed distance to contour
+- **struct_BoundaryDistanceGradient** - Distance + gradient struct
+- **fn_computeDistanceToBoundaryWithGradient** - Distance and gradient in a single pass
+
+#### `terrain.wgsl.ts`
+
+High-level terrain field functions; pulls in the IDW and containment modules.
+
+- **fn_computeTerrainHeight** - Terrain height via IDW interpolation between contour levels
+- **fn_computeTerrainHeightAndGradient** - Height plus analytical gradient
+- **fn_computeTerrainNormal** - Terrain normal from the gradient
+
+#### `terrain-rendering.wgsl.ts`
+
+- **fn_renderTerrain** - Land/sand/sky composite for the terrain composite pass
 
 ### Wind
 
 #### `wind.wgsl.ts`
 
 - **fn_calculateWindVelocity** - Wind velocity with noise variation
-  - Dependencies: `fn_simplex3D`
 - **struct_WindResult** - Wind query result (velocity, speed, direction)
 - **fn_computeWindAtPoint** - Full wind state at a point
-  - Dependencies: `struct_WindResult`, `fn_calculateWindVelocity`
+
+#### `wind-mesh-packed.wgsl.ts`
+
+Accessor functions for reading the wind mesh from a packed `array<u32>` buffer (analogous to `mesh-packed.wgsl.ts` for waves).
+
+- **struct_WindMeshSourceHeader**, **struct_WindMeshLookupResult**
+- **fn_getWindMeshSourceHeader**, **fn_getWindMeshVertexPos**,
+  **fn_getWindMeshVertexAttribs**, **fn_getWindMeshTriangle**,
+  **fn_getWindMeshGridCell**, **fn_getWindMeshGridTriIndex**
+- **fn_lookupWindMeshForSource** - Single-source mesh lookup
+- **fn_lookupWindMeshBlended** - Multi-source blended lookup
 
 ### Water
 
 #### `water.wgsl.ts`
 
-- **struct_WaveSource** - Wave source data (placeholder)
-- **struct_WaterParams** - Water parameters (placeholder)
-- **fn_calculateWaterData** - Water surface data (placeholder)
+- **struct_WaveSource** - Wave source data
+- **struct_WaterParams** - Water parameters
+- **fn_calculateWaterData** - Water surface data
 - **struct_WaterResult** - Water query result
 - **fn_computeWaterHeightAtPoint** - Water height without normal
-  - Dependencies: `fn_calculateGerstnerWaves`
 - **fn_computeWaterNormal** - Water normal via finite differences
-  - Dependencies: `fn_simplex3D`, `fn_computeWaterHeightAtPoint`
 - **fn_computeWaterAtPoint** - Full water state at a point
-  - Dependencies: `struct_WaterResult`, `fn_simplex3D`, `fn_computeWaterHeightAtPoint`, `fn_computeWaterNormal`
-
-#### `water-modifiers.wgsl.ts`
-
-- **fn_computeWakeContribution** - Wake modifier
-- **fn_computeRippleContribution** - Ripple modifier
-- **fn_computeCurrentContribution** - Current modifier
-- **fn_computeObstacleContribution** - Obstacle modifier
-- **const_MODIFIER_TYPES** - Modifier type constants
-- **fn_getModifierContribution** - Type-discriminating modifier dispatch
-  - Dependencies: `fn_computeWakeContribution`, `fn_computeRippleContribution`, etc.
-- **fn_calculateModifiers** - Accumulate all modifier contributions
-  - Dependencies: `fn_getModifierContribution`
-
-### Rendering
-
-#### `normal-computation.wgsl.ts`
-
-- **fn_computeNormalFromHeightField** - Normal from height texture gradients
-
-#### `sand-rendering.wgsl.ts`
-
-- **fn_renderSand** - Sand surface with wetness
 
 ### Common
 
@@ -231,9 +219,3 @@ Dependencies are automatically resolved - if `fn_simplex3D` has its own dependen
 3. **One export per module** - Easy to find what you need
 4. **Automatic deduplication** - Shared dependencies are only included once
 5. **Type-safe imports** - TypeScript ensures correct module references
-
-## Testing
-
-Test shaders using the module system:
-
-- `src/game/world/shaders/test-module-system.ts` - Demonstrates composition and dependency resolution

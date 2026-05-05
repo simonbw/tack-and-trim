@@ -3,7 +3,7 @@ import { TICK_LAYERS, TickLayerName } from "../config/tickLayers";
 import { ContactList } from "./ContactList";
 import { EntityList } from "./EntityList";
 import { V } from "./Vector";
-import Entity, { GameEventMap } from "./entity/Entity";
+import { Entity, GameEventMap } from "./entity/Entity";
 import { eventHandlerName } from "./entity/EventHandler";
 import { IoEvents } from "./entity/IoEvents";
 import { Draw } from "./graphics/Draw";

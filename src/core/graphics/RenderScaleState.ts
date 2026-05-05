@@ -11,11 +11,9 @@
  * physical pixel count.
  */
 
-type Unsubscribe = () => void;
+import { createPersistedState } from "../state/PersistedState";
 
 export type RenderScale = "low" | "medium" | "high";
-
-const KEY = "renderScale";
 
 const FACTORS: Record<RenderScale, number> = {
   low: 0.5,
@@ -23,38 +21,25 @@ const FACTORS: Record<RenderScale, number> = {
   high: 1.0,
 };
 
-function readInitial(): RenderScale {
-  if (typeof localStorage === "undefined") return "high";
-  const stored = localStorage.getItem(KEY);
-  if (stored === "low" || stored === "medium" || stored === "high") {
-    return stored;
-  }
-  return "high";
-}
-
-let currentScale: RenderScale = readInitial();
-
-const subscribers = new Set<() => void>();
+const state = createPersistedState<RenderScale>({
+  key: "renderScale",
+  default: "high",
+  validate: (v) => (v === "low" || v === "medium" || v === "high" ? v : null),
+});
 
 export function getRenderScale(): RenderScale {
-  return currentScale;
+  return state.get();
 }
 
 /** Multiplier applied to devicePixelRatio when resizing the canvas. */
 export function getRenderScaleFactor(): number {
-  return FACTORS[currentScale];
+  return FACTORS[state.get()];
 }
 
 export function setRenderScale(s: RenderScale): void {
-  if (s === currentScale) return;
-  currentScale = s;
-  if (typeof localStorage !== "undefined") {
-    localStorage.setItem(KEY, s);
-  }
-  for (const cb of subscribers) cb();
+  state.set(s);
 }
 
-export function onRenderScaleChange(cb: () => void): Unsubscribe {
-  subscribers.add(cb);
-  return () => subscribers.delete(cb);
+export function onRenderScaleChange(cb: () => void): () => void {
+  return state.subscribe(cb);
 }

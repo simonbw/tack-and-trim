@@ -10,7 +10,7 @@
 The canonical Rust pipeline lives under `pipeline/`:
 
 - `pipeline/build-level/` for terrain download/extract/validation and mesh building
-- `pipeline/wavemesh-builder/` for wave-mesh generation
+- `pipeline/mesh-builder/` for wave-mesh generation
 
 ## File Layout
 
@@ -148,7 +148,7 @@ Binary `.terrain` format (v2/v3) with magic number `0x4e525254` ("TRRN").
 
 ### Rust module layout
 
-- `pipeline/terrain-core/src/level.rs` — level/region types, JSON parsing, contour tree building
+- `pipeline/pipeline-core/src/level.rs` — level/region types, JSON parsing, contour tree building
 - `pipeline/build-level/src/region.rs` — region config loading (from level files), path helpers
 - `pipeline/build-level/src/download.rs` — CUDEM / USACE / EMODnet tile downloads
 - `pipeline/build-level/src/build_grid.rs` — `gdalwarp` merge step
@@ -168,4 +168,4 @@ Only shared `.wavemesh` format helpers remain in TypeScript:
 - `MeshBuildTypes.ts` — type definitions for wavefront mesh payloads.
 - `WavemeshFile.ts` — binary `.wavemesh` serialization/parsing and input-hash helpers.
 
-All marching/decimation/triangulation logic now lives in `pipeline/wavemesh-builder/` (Rust).
+All marching/decimation/triangulation logic now lives in `pipeline/mesh-builder/` (Rust).

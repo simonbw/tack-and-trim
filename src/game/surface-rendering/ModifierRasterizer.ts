@@ -18,6 +18,7 @@
  */
 
 import {
+  createUniformBuffer,
   defineUniformStruct,
   mat3x3,
   u32,
@@ -280,11 +281,11 @@ export class ModifierRasterizer {
       label: "Modifier Rasterizer Pipeline",
     });
 
-    this.uniformBuffer = device.createBuffer({
-      size: ModifierRasterizerUniforms.byteSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: "Modifier Rasterizer Uniforms",
-    });
+    this.uniformBuffer = createUniformBuffer(
+      device,
+      ModifierRasterizerUniforms,
+      "Modifier Rasterizer Uniforms",
+    );
 
     this.initialized = true;
   }

@@ -1,7 +1,7 @@
 /**
  * Layout of the water channel's params SAB (Float32Array offsets).
  *
- * Writer: CpuWaterQueryManager (main thread).
+ * Writer: WaterQueryManager (main thread).
  * Reader: query-worker water dispatch.
  *
  * Total inline size: 8 scalars + up to 8 wave sources × 8 floats = 72

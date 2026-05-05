@@ -440,3 +440,27 @@ export function defineUniformStruct<T extends Record<string, FieldType>>(
     },
   };
 }
+
+/**
+ * Create a `GPUBufferUsage.UNIFORM | COPY_DST` buffer sized for the given
+ * uniform struct (or any object exposing a `byteSize` field).
+ *
+ * Replaces the very common boilerplate:
+ *
+ *     device.createBuffer({
+ *       size: SomeUniforms.byteSize,
+ *       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+ *       label: "...",
+ *     });
+ */
+export function createUniformBuffer(
+  device: GPUDevice,
+  uniforms: { readonly byteSize: number },
+  label: string,
+): GPUBuffer {
+  return device.createBuffer({
+    size: uniforms.byteSize,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    label,
+  });
+}

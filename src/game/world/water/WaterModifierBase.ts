@@ -2,11 +2,13 @@ import { BaseEntity } from "../../../core/entity/BaseEntity";
 import { AABB } from "../../../core/physics/collision/AABB";
 
 /**
- * Base class for all water modifiers in the GPU-based water system.
+ * Base class for all water modifiers (wakes, ripples, foam, etc.).
  *
- * Water modifiers affect water height and velocity in the analytical water shader.
- * All modifiers export GPU data each frame via getGPUModifierData(), which is
- * written to a unified modifier buffer and processed by the compute shader.
+ * Modifiers affect water height, velocity, and surface foam. Each frame
+ * every active modifier exports its parameters via getGPUModifierData()
+ * into a unified modifier buffer that is read both by the surface
+ * renderer (modifier rasterizer + water filter) and by the water query
+ * worker (for sampling at boat positions).
  */
 export abstract class WaterModifier extends BaseEntity {
   tags = ["waterModifier"];

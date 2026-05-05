@@ -1,5 +1,5 @@
 import { BaseEntity } from "../core/entity/BaseEntity";
-import Entity from "../core/entity/Entity";
+import { Entity } from "../core/entity/Entity";
 import { on } from "../core/entity/handler";
 import type { Body } from "../core/physics/body/Body";
 

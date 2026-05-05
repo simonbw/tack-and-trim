@@ -7,7 +7,7 @@
  */
 
 import type { UniformInstance } from "../../core/graphics/UniformStruct";
-import type { WaterFilterUniforms } from "./WaterFilterUniforms";
+import type { WaterFilterUniforms } from "./WaterFilterShader";
 
 // --- Sun glitter (high-frequency facet sparkle) ---
 // Glitter amplitude follows a wind-speed peak curve: rises from CALM at

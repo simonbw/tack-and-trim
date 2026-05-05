@@ -1,5 +1,9 @@
 # Wave Terrain Mesh -- Grid-Based Eulerian Approach
 
+> **Status (2026):** historical design doc — alternative we evaluated but did
+> not ship. The live wavefront mesh is built by the Rust Lagrangian ray
+> marcher in `pipeline/mesh-builder/`. Preserved as background.
+
 ## Overview
 
 Start with a regular grid covering the entire domain. Compute wave modification properties (amplitude factor, direction offset, phase offset) at every grid vertex using an Eulerian solver. Then apply adaptive simplification (remove vertices in uniform regions) and enhancement (add vertices where values change rapidly) to produce the final mesh.

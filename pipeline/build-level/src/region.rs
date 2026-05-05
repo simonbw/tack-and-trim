@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use terrain_core::level::parse_level_file;
+use pipeline_core::level::parse_level_file;
 
-// Re-export region types from terrain-core so other modules can import from here.
-pub use terrain_core::level::{BoundingBox, DataSourceConfig, RegionConfig};
+// Re-export region types from pipeline-core so other modules can import from here.
+pub use pipeline_core::level::{BoundingBox, DataSourceConfig, RegionConfig};
 
 /// Convention-based path for a region's terrain output file.
 pub fn terrain_output_path(slug: &str) -> PathBuf {

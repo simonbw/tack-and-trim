@@ -1,12 +1,13 @@
 /**
  * Layout of the wind channel's params SAB (Float32Array offsets).
  *
- * Shared between the main thread (CpuWindQueryManager writes params) and
+ * Shared between the main thread (WindQueryManager writes params) and
  * the worker (query-worker reads them). Keep the offsets stable.
  *
- * The fields with "neutral" comments exist so the port matches the WGSL
- * parameter list; the game currently runs these at their neutral values
- * because the wind mesh lookup isn't yet ported to CPU.
+ * The "fallback" fields are the values the kernel uses when the wind
+ * mesh lookup misses — currently fixed at their neutral defaults
+ * (speed factor 1, zero direction offset, zero turbulence) since the
+ * mesh ships with neutral vertex attributes.
  */
 
 export const WIND_PARAM_TIME = 0;

@@ -32,7 +32,7 @@ Runtime wavefront mesh system for terrain-wave interaction. Uses prebuilt triang
 
 ## Key Concepts
 
-**Wavefront marching**: For each wave source, rays march from upwave to downwave through the terrain, building a mesh of wavefront steps. At each step, terrain height determines wave amplitude (energy conservation via shoaling), direction (refraction via Snell's law), phase correction, and breaking state. The canonical builder runs offline in Rust at `pipeline/wavemesh-builder/`.
+**Wavefront marching**: For each wave source, rays march from upwave to downwave through the terrain, building a mesh of wavefront steps. At each step, terrain height determines wave amplitude (energy conservation via shoaling), direction (refraction via Snell's law), phase correction, and breaking state. The canonical builder runs offline in Rust at `pipeline/mesh-builder/`.
 
 **Packed mesh buffer**: All mesh data is packed into a single `array<u32>` GPU buffer for both rendering and query shaders. Global header (16 u32s) followed by per-wave mesh data (header + vertices + indices + spatial grid).
 
@@ -47,7 +47,7 @@ Runtime wavefront mesh system for terrain-wave interaction. Uses prebuilt triang
 
 ## Related: Offline Mesh Building
 
-The mesh building pipeline (marching, decimation, triangulation) runs offline via `npm run build-wavemesh`, which executes the Rust builder in `pipeline/wavemesh-builder/` to produce `.wavemesh` files loaded at runtime by `WavemeshLoader.ts`.
+The mesh building pipeline (marching, decimation, triangulation) runs offline via `npm run build-wavemesh`, which executes the Rust builder in `pipeline/mesh-builder/` to produce `.wavemesh` files loaded at runtime by `WavemeshLoader.ts`.
 
 ## Packed Mesh Buffer Format
 

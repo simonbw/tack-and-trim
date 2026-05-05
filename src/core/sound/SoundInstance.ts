@@ -1,6 +1,6 @@
 import { SoundName } from "../../../resources/resources";
 import { BaseEntity } from "../entity/BaseEntity";
-import Entity from "../entity/Entity";
+import { Entity } from "../entity/Entity";
 import { on } from "../entity/handler";
 import { Game } from "../Game";
 import { getSoundBuffer, hasSoundBuffer } from "../resources/sounds";

@@ -1,6 +1,4 @@
-//! Terrain query — port of `writeTerrainResult` from
-//! `src/game/world/query/terrain-math.ts` (which mirrors
-//! `TerrainQueryShader.ts`).
+//! Terrain query — height + normal + type sampling at a world point.
 //!
 //! Output layout (`TerrainResultLayout`):
 //!   `[height, normal_x, normal_y, terrain_type]`
@@ -15,10 +13,8 @@ use crate::packed::{
     CONTOUR_CHILD_START, CONTOUR_HEIGHT, CONTOUR_POINT_COUNT, CONTOUR_POINT_START, IDW_MIN_DIST,
     MAX_IDW_CONTOURS,
 };
+pub use crate::protocol::{PARAMS_FLOATS_PER_CHANNEL, STRIDE_PER_POINT};
 use crate::world_state::WorldState;
-
-pub const STRIDE_PER_POINT: usize = 2;
-pub const PARAMS_FLOATS_PER_CHANNEL: usize = 128;
 
 const TERRAIN_PARAM_DEFAULT_DEPTH: usize = 1;
 

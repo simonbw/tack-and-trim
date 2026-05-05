@@ -5,19 +5,22 @@ use anyhow::{bail, Context, Result};
 use gdal::Dataset;
 use rayon::prelude::*;
 
-use terrain_core::humanize::format_int;
-use terrain_core::level::ElevationSchedule;
-use terrain_core::step::{format_ms, StepView};
+use pipeline_core::humanize::format_int;
+use pipeline_core::level::ElevationSchedule;
+use pipeline_core::polygon_math::{point_in_polygon_tuples, ring_perimeter_tuples, signed_area_tuples};
+use pipeline_core::step::{format_ms, StepView};
 
 use crate::constrained_simplify::constrained_simplify_closed_ring;
 use crate::geo::{bbox_center, lat_lon_to_feet, meters_to_feet, point_in_latlon_polygon};
-use crate::marching::{build_block_index, build_closed_rings, march_contours, ScalarGrid};
+use crate::marching_squares::{build_block_index, build_closed_rings, march_contours, ScalarGrid};
 use crate::region::{
     display_path, grid_cache_dir, load_region_config, resolve_region, terrain_output_path,
 };
 use crate::segment_index::SegmentIndex;
-use crate::simplify::{ring_perimeter, signed_area, Point};
 use crate::validate::validate_terrain_binary;
+
+/// 2D point as `(x, y)`. Canonical ring representation in build-level.
+type Point = (f64, f64);
 
 const DEFAULT_DEPTH: f64 = -300.0;
 
@@ -168,7 +171,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
                             bbox.max_y = bbox.max_y.max(fy);
                         }
 
-                        if ring_perimeter(&feet_points) < config.min_perimeter {
+                        if ring_perimeter_tuples(&feet_points) < config.min_perimeter {
                             continue;
                         }
                         if feet_points.len() < config.min_points {
@@ -282,7 +285,7 @@ pub fn run_extract(region_arg: Option<&str>, view: &StepView) -> Result<()> {
                     .map(|(x, y)| (x / config.scale, y / config.scale))
                     .collect();
 
-                if signed_area(&scaled) < 0.0 {
+                if signed_area_tuples(&scaled) < 0.0 {
                     scaled.reverse();
                 }
 
@@ -599,25 +602,6 @@ fn format_schedule(schedule: &ElevationSchedule, unit: &str) -> String {
     }
 }
 
-fn point_in_polygon(px: f64, py: f64, poly: &[Point]) -> bool {
-    if poly.len() < 3 {
-        return false;
-    }
-
-    let mut inside = false;
-    let mut j = poly.len() - 1;
-    for i in 0..poly.len() {
-        let (xi, yi) = poly[i];
-        let (xj, yj) = poly[j];
-        if (yi > py) != (yj > py) && px < ((xj - xi) * (py - yi) / (yj - yi)) + xi {
-            inside = !inside;
-        }
-        j = i;
-    }
-
-    inside
-}
-
 fn build_containment_tree(rings: &[RawRing]) -> Vec<ContourNode> {
     fn bbox_contains(outer: RingBBox, inner: RingBBox) -> bool {
         outer.min_x <= inner.min_x
@@ -635,7 +619,7 @@ fn build_containment_tree(rings: &[RawRing]) -> Vec<ContourNode> {
         }
 
         let (px, py) = rings[inner_idx].points[0];
-        point_in_polygon(px, py, &rings[outer_idx].points)
+        point_in_polygon_tuples(px, py, &rings[outer_idx].points)
     }
 
     fn insert_contour(parent: &mut Vec<ContourNode>, new_index: usize, rings: &[RawRing]) {
@@ -762,17 +746,17 @@ fn bfs_order(roots: &[ContourNode]) -> Vec<usize> {
 
 /// Build terrain CPU data from polygon contours and write as v2 binary format.
 fn write_terrain_file(output_path: &Path, contours: Vec<TerrainContourJson>) -> Result<()> {
-    let polygon_contours: Vec<terrain_core::level::PolygonContour> = contours
+    let polygon_contours: Vec<pipeline_core::level::PolygonContour> = contours
         .into_iter()
-        .map(|c| terrain_core::level::PolygonContour {
+        .map(|c| pipeline_core::level::PolygonContour {
             height: c.height,
             polygon: c.polygon,
         })
         .collect();
 
     let terrain =
-        terrain_core::level::build_terrain_data_from_polygons(&polygon_contours, DEFAULT_DEPTH);
-    terrain_core::level::write_terrain_binary(output_path, &terrain)?;
+        pipeline_core::level::build_terrain_data_from_polygons(&polygon_contours, DEFAULT_DEPTH);
+    pipeline_core::level::write_terrain_binary(output_path, &terrain)?;
 
     Ok(())
 }

@@ -14,14 +14,14 @@ import { StationHUD } from "./boat/sailor/StationHUD";
 import { ClothWorkerPool } from "./boat/sail/ClothWorkerPool";
 import { CameraController } from "./CameraController";
 import { DebugRenderer } from "./debug-renderer/DebugRenderer";
-import { GameInitializingScreen } from "./GameInitializingScreen";
-import { GameOverScreen } from "./GameOverScreen";
+import { GameInitializingScreen } from "./ui/menus/GameInitializingScreen";
+import { GameOverScreen } from "./ui/menus/GameOverScreen";
 import { LightingSystem } from "./lighting/LightingSystem";
-import { MainMenu } from "./MainMenu";
-import { PauseMenu } from "./PauseMenu";
+import { MainMenu } from "./ui/menus/MainMenu";
+import { PauseMenu } from "./ui/menus/PauseMenu";
 import { MissionHUD } from "./mission/MissionHUD";
 import { MissionManager } from "./mission/MissionManager";
-import { NavigationHUD } from "./NavigationHUD";
+import { NavigationHUD } from "./ui/hud/NavigationHUD";
 import { applySaveData } from "./persistence/SaveDeserializer";
 import { SaveManager } from "./persistence/SaveManager";
 import { Port } from "./port/Port";
@@ -33,17 +33,16 @@ import { TimeOfDay } from "./time/TimeOfDay";
 import { RainParticles } from "./weather/RainParticles";
 import { WeatherDirector } from "./weather/WeatherDirector";
 import { WeatherState } from "./weather/WeatherState";
-import { TimeOfDayHUD } from "./TimeOfDayHUD";
+import { TimeOfDayHUD } from "./ui/hud/TimeOfDayHUD";
 import { TreeManager } from "./trees/TreeManager";
 import { WavePhysicsResources } from "./wave-physics/WavePhysicsResources";
-import { WindParticles } from "./WindParticles";
 import { WindSoundGenerator } from "./WindSoundGenerator";
-import { CpuQueryCoordinator } from "./world/query/CpuQueryCoordinator";
-import { CpuTerrainQueryManager } from "./world/terrain/CpuTerrainQueryManager";
+import { QueryWorkerCoordinator } from "./world/query/QueryWorkerCoordinator";
+import { TerrainQueryManager } from "./world/terrain/TerrainQueryManager";
 import { TerrainResources } from "./world/terrain/TerrainResources";
-import { CpuWaterQueryManager } from "./world/water/CpuWaterQueryManager";
+import { WaterQueryManager } from "./world/water/WaterQueryManager";
 import { WaterResources } from "./world/water/WaterResources";
-import { CpuWindQueryManager } from "./world/wind/CpuWindQueryManager";
+import { WindQueryManager } from "./world/wind/WindQueryManager";
 import { WindResources } from "./world/wind/WindResources";
 
 //#tunable("Camera") { min: 0.5, max: 10 }
@@ -114,7 +113,7 @@ export class GameController extends BaseEntity {
     this.missions = missions ?? [];
 
     this.game.addEntity(new TerrainResources(terrain));
-    this.game.addEntity(new CpuTerrainQueryManager());
+    this.game.addEntity(new TerrainQueryManager());
 
     // 2. Time system (before water, so tides can query time)
     this.game.addEntity(new TimeOfDay());
@@ -130,11 +129,11 @@ export class GameController extends BaseEntity {
 
     // 4. Water data system (tide, modifiers, GPU buffers, wave sources)
     this.game.addEntity(new WaterResources(waves));
-    this.game.addEntity(new CpuWaterQueryManager());
+    this.game.addEntity(new WaterQueryManager());
 
     // 5. Wind data systems
     this.game.addEntity(new WindResources(windmeshData, wind));
-    this.game.addEntity(new CpuWindQueryManager());
+    this.game.addEntity(new WindQueryManager());
 
     // 6. Visual entities
     const surfaceRenderer = this.game.addEntity(
@@ -150,10 +149,10 @@ export class GameController extends BaseEntity {
       lightingSystem.whenReady(),
     ]);
 
-    // CpuQueryCoordinator spawns workers and snapshots world state
+    // QueryWorkerCoordinator spawns workers and snapshots world state
     // (including the packed wave mesh) on onAdd — so it must run AFTER
     // wavePhysics.whenReady() resolves.
-    this.game.addEntity(new CpuQueryCoordinator());
+    this.game.addEntity(new QueryWorkerCoordinator());
 
     // Release rendering and start the game
     surfaceRenderer.setEnabled(true);
@@ -261,8 +260,7 @@ export class GameController extends BaseEntity {
     );
     cameraController.setZoomTarget(GAMEPLAY_ZOOM);
 
-    // Spawn wind particles and sound
-    this.game.addEntity(new WindParticles());
+    // Spawn rain particles and wind sound
     this.game.addEntity(new RainParticles());
     this.game.addEntity(new WindSoundGenerator());
 

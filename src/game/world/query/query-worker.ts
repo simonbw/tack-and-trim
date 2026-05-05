@@ -2,22 +2,18 @@
  * Query worker entry point.
  *
  * Each worker instance owns:
- * - An index (0..workerCount-1) used to partition the per-frame work
- *   evenly across workers (round-robin-ish slicing).
- * - Float32Array views over a slice of the pool's shared
- *   `WebAssembly.Memory`, one view per channel buffer
- *   (points / params / results / modifiers / per-type packed world state).
- * - When `cpuEngine === "wasm"`, a private `WebAssembly.Instance` of the
- *   query-wasm module instantiated against the same shared memory.
- *   Per-instance state (the `set_packed_*` pointer table) is populated
- *   once at init.
+ * - An index (0..workerCount-1) used to claim chunks from the pool's
+ *   shared work-stealing counter.
+ * - A private `WebAssembly.Instance` of the query-wasm module
+ *   instantiated against the pool's shared memory. Per-instance state
+ *   (the `set_packed_*` pointer table, this worker's shadow stack
+ *   slot) is populated once at init.
  *
  * Main loop: wait-dispatch-decrement on the control SAB. Each frame:
  *   1. `Atomics.wait` until main bumps the generation counter.
  *   2. Read descriptors (which query types have points, how many).
- *   3. For each descriptor, compute this worker's slice and dispatch to
- *      the per-type handler — JS-CPU (`*-math.ts`) or wasm
- *      (`process_*_batch` with pointer arithmetic into shared memory).
+ *   3. For each descriptor, claim chunks of points and dispatch to
+ *      `process_*_batch` with pointer arithmetic into shared memory.
  *   4. Atomically decrement `remaining`; the last worker wakes main.
  */
 
@@ -42,7 +38,6 @@ import {
   CTRL_NEXT_CHUNK_BASE,
   CTRL_NUM_TYPES,
   CTRL_REMAINING,
-  PARAMS_FLOATS_PER_CHANNEL,
   QUERY_TYPE_TERRAIN,
   QUERY_TYPE_WATER,
   QUERY_TYPE_WIND,
@@ -52,49 +47,7 @@ import {
   type QueryWorkerMessage,
   type WasmChannelLayout,
 } from "./query-worker-protocol";
-import type { CpuQueryEngine } from "./QueryBackendState";
-import { writeTerrainResult } from "./terrain-math";
-import {
-  TERRAIN_PARAM_CONTOUR_COUNT,
-  TERRAIN_PARAM_DEFAULT_DEPTH,
-} from "./terrain-params";
-import { writeWaterResult } from "./water-math";
-import {
-  WATER_PARAM_CONTOUR_COUNT,
-  WATER_PARAM_DEFAULT_DEPTH,
-  WATER_PARAM_MODIFIER_COUNT,
-  WATER_PARAM_NUM_WAVES,
-  WATER_PARAM_TIDAL_PHASE,
-  WATER_PARAM_TIDAL_STRENGTH,
-  WATER_PARAM_TIDE_HEIGHT,
-  WATER_PARAM_TIME,
-  WATER_PARAM_WAVE_AMPLITUDE_SCALE,
-  WATER_PARAM_WAVE_SOURCES_BASE,
-} from "./water-params";
-import { writeWindResult } from "./wind-math";
-import { lookupWindMeshBlended } from "./wind-mesh-math";
-import {
-  WIND_PARAM_BASE_X,
-  WIND_PARAM_BASE_Y,
-  WIND_PARAM_INFLUENCE_DIRECTION_OFFSET,
-  WIND_PARAM_INFLUENCE_SPEED_FACTOR,
-  WIND_PARAM_INFLUENCE_TURBULENCE,
-  WIND_PARAM_TIME,
-  WIND_PARAM_WEIGHTS_BASE,
-  WIND_PARAM_WEIGHTS_COUNT,
-} from "./wind-params";
-
-interface ChannelView {
-  points: Float32Array;
-  results: Float32Array;
-  params: Float32Array;
-  frameState: Float32Array | null;
-  /** Per-buffer Uint32 views for each packed world-state blob this type needs. */
-  worldState: readonly Uint32Array[];
-  resultStride: number;
-  /** Byte offsets, used by the wasm dispatch path. */
-  layout: WasmChannelLayout;
-}
+import { WATER_PARAM_MODIFIER_COUNT } from "./water-params";
 
 /**
  * Subset of the wasm `Instance.exports` we actually call. Each export
@@ -108,7 +61,6 @@ interface WasmExports {
    * Exported via the `--export=__stack_pointer` linker flag.
    */
   __stack_pointer: WebAssembly.Global;
-  query_implementation_mask(): number;
   /** See `calibration_probe` in `pipeline/query-wasm/src/lib.rs`. */
   calibration_probe(iterations: number): number;
   set_packed_terrain(ptr: number, lenU32: number): void;
@@ -140,9 +92,11 @@ interface WasmExports {
   ): void;
 }
 
-const WASM_IMPL_BIT_TERRAIN = 1 << 0;
-const WASM_IMPL_BIT_WATER = 1 << 1;
-const WASM_IMPL_BIT_WIND = 1 << 2;
+interface ChannelView {
+  params: Float32Array;
+  resultStride: number;
+  layout: WasmChannelLayout;
+}
 
 let workerIndex = 0;
 let workerCount = 1;
@@ -150,15 +104,7 @@ let control: Int32Array | null = null;
 let channels: ChannelView[] = [];
 let running = false;
 
-/**
- * Engine selector. Workers always *can* execute via the JS path. When
- * `cpuEngine === "wasm"` and `wasmExports` is set, per-type dispatch
- * routes through the wasm kernel for any type whose
- * `query_implementation_mask` bit is set.
- */
-let cpuEngine: CpuQueryEngine = "js";
 let wasmExports: WasmExports | null = null;
-let wasmImplementationMask = 0;
 
 let timings: Float32Array | null = null;
 let timingsBase = 0;
@@ -186,7 +132,6 @@ self.onmessage = async (event: MessageEvent<QueryWorkerMessage>) => {
     barrierTimings = new Float64Array(msg.barrierTimingsSab);
     barrierTimingsBase = workerIndex * BARRIER_TIMINGS_PER_WORKER;
     timeOriginOffset = performance.timeOrigin - msg.mainTimeOrigin;
-    cpuEngine = msg.cpuEngine;
 
     const buffer = msg.wasmMemory.buffer;
     channels = [
@@ -197,14 +142,7 @@ self.onmessage = async (event: MessageEvent<QueryWorkerMessage>) => {
 
     // Must await before entering the main loop — see `instantiateWasm`.
     const stackTop = msg.partition.stackTops[workerIndex];
-    try {
-      await instantiateWasm(msg.wasmModule, msg.wasmMemory, stackTop);
-    } catch (err) {
-      console.error(
-        `[query-worker ${workerIndex}] failed to instantiate wasm — falling back to JS for all types`,
-        err,
-      );
-    }
+    await instantiateWasm(msg.wasmModule, msg.wasmMemory, stackTop);
 
     running = true;
     runMainLoop();
@@ -221,45 +159,13 @@ function buildChannelView(
   buffer: ArrayBuffer,
   layout: WasmChannelLayout,
 ): ChannelView {
-  const points = new Float32Array(
-    buffer,
-    layout.pointsPtr,
-    layout.maxPoints * STRIDE_PER_POINT,
-  );
-  const results = new Float32Array(
-    buffer,
-    layout.resultsPtr,
-    layout.maxPoints * layout.resultStride,
-  );
   const params = new Float32Array(
     buffer,
     layout.paramsPtr,
-    PARAMS_FLOATS_PER_CHANNEL,
+    layout.paramsBytes / Float32Array.BYTES_PER_ELEMENT,
   );
-  const frameState =
-    layout.modifiersPtr !== 0 && layout.modifiersBytes > 0
-      ? new Float32Array(
-          buffer,
-          layout.modifiersPtr,
-          layout.modifiersBytes / Float32Array.BYTES_PER_ELEMENT,
-        )
-      : null;
-  const worldState: Uint32Array[] = [];
-  for (let i = 0; i < layout.worldStatePtrs.length; i++) {
-    worldState.push(
-      new Uint32Array(
-        buffer,
-        layout.worldStatePtrs[i],
-        layout.worldStateLens[i],
-      ),
-    );
-  }
   return {
-    points,
-    results,
     params,
-    frameState,
-    worldState,
     resultStride: layout.resultStride,
     layout,
   };
@@ -273,8 +179,7 @@ function buildChannelView(
  * **Caller must `await` this before entering `runMainLoop`.** The loop
  * blocks on `Atomics.wait`, which freezes the worker's JS event loop,
  * so the `WebAssembly.instantiate` Promise (and any other microtask)
- * cannot resolve until the loop yields. We hit this exact bug once and
- * silently fell back to the JS path for the entire session.
+ * cannot resolve until the loop yields.
  */
 async function instantiateWasm(
   module: WebAssembly.Module,
@@ -325,7 +230,6 @@ async function instantiateWasm(
     );
   }
 
-  wasmImplementationMask = exports.query_implementation_mask();
   wasmExports = exports;
 }
 
@@ -381,9 +285,7 @@ function processFrame(generation: number): void {
     // across workers (one per frame) so the per-frame overhead is fixed
     // at ~20 µs regardless of `workerCount`. A 0 sample for this worker
     // means "wasn't this worker's turn"; the pool aggregates only the
-    // worker that ran it. If it ever stays 0 across the round-robin
-    // cycle, `wasmExports` got nulled out — the same regression that
-    // cost us 35× before the await-instantiate fix.
+    // worker that ran it.
     if (wasmExports && generation % workerCount === workerIndex) {
       const probeStart = performance.now();
       wasmExports.calibration_probe(CALIBRATION_PROBE_ITERATIONS);
@@ -430,7 +332,7 @@ function processFrame(generation: number): void {
         ] = nowOnMainClock();
         firstChunk = false;
       }
-      dispatchQuery(typeId, channels, resultStride, startPoint, endPoint);
+      dispatchWasm(typeId, channels, resultStride, startPoint, endPoint);
       const dispatchEndPerf = performance.now();
       elapsedMs += dispatchEndPerf - dispatchStart;
       if (barrierTimings) {
@@ -449,64 +351,11 @@ function processFrame(generation: number): void {
   }
 }
 
-function implementsWasm(typeId: QueryTypeId): boolean {
-  const bit =
-    typeId === QUERY_TYPE_TERRAIN
-      ? WASM_IMPL_BIT_TERRAIN
-      : typeId === QUERY_TYPE_WATER
-        ? WASM_IMPL_BIT_WATER
-        : WASM_IMPL_BIT_WIND;
-  return (wasmImplementationMask & bit) !== 0;
-}
-
-function dispatchQuery(
-  typeId: QueryTypeId,
-  channels: ChannelView[],
-  resultStride: number,
-  startPoint: number,
-  endPoint: number,
-): void {
-  if (cpuEngine === "wasm" && wasmExports && implementsWasm(typeId)) {
-    dispatchWasm(typeId, channels, resultStride, startPoint, endPoint);
-    return;
-  }
-
-  const channel = channels[typeId];
-  switch (typeId) {
-    case QUERY_TYPE_TERRAIN:
-      runTerrainQuery(
-        channel.points,
-        channel.results,
-        channel.params,
-        channel.worldState[0] ?? null,
-        resultStride,
-        startPoint,
-        endPoint,
-      );
-      break;
-    case QUERY_TYPE_WATER:
-      runWaterQuery(channel, channels, resultStride, startPoint, endPoint);
-      break;
-    case QUERY_TYPE_WIND:
-      runWindQuery(
-        channel.points,
-        channel.results,
-        channel.params,
-        channel.worldState[0] ?? null,
-        resultStride,
-        startPoint,
-        endPoint,
-      );
-      break;
-  }
-}
-
 /**
  * Wasm dispatch — pointer arithmetic into shared memory, no copies.
  *
  * The wasm function reads from `pointsPtr + sliceStart * stride` and
- * writes to `resultsPtr + sliceStart * resultStride`, exactly matching
- * the same Float32Array views the JS dispatch path uses. World-state
+ * writes to `resultsPtr + sliceStart * resultStride`. World-state
  * pointers were uploaded via `set_packed_*` at worker init.
  */
 function dispatchWasm(
@@ -560,167 +409,5 @@ function dispatchWasm(
         resultStride,
       );
       break;
-  }
-}
-
-function zeroResultSlice(
-  results: Float32Array,
-  resultStride: number,
-  startPoint: number,
-  endPoint: number,
-): void {
-  const floatStart = startPoint * resultStride;
-  const floatEnd = endPoint * resultStride;
-  for (let i = floatStart; i < floatEnd; i++) {
-    results[i] = 0;
-  }
-}
-
-const _emptyModifiers = new Float32Array(0);
-const _emptyWaveMesh = new Uint32Array(0);
-const _emptyTerrain = new Uint32Array(0);
-const _emptyTideMesh = new Uint32Array(0);
-
-function runWaterQuery(
-  channel: ChannelView,
-  channels: ChannelView[],
-  resultStride: number,
-  startPoint: number,
-  endPoint: number,
-): void {
-  const params = channel.params;
-  const time = params[WATER_PARAM_TIME];
-  const tideHeight = params[WATER_PARAM_TIDE_HEIGHT];
-  const defaultDepth = params[WATER_PARAM_DEFAULT_DEPTH];
-  const numWaves = params[WATER_PARAM_NUM_WAVES];
-  const tidalPhase = params[WATER_PARAM_TIDAL_PHASE];
-  const tidalStrength = params[WATER_PARAM_TIDAL_STRENGTH];
-  const waveAmplitudeScale = params[WATER_PARAM_WAVE_AMPLITUDE_SCALE];
-  const modifierCount = params[WATER_PARAM_MODIFIER_COUNT] | 0;
-
-  const waveSources = params.subarray(WATER_PARAM_WAVE_SOURCES_BASE);
-
-  const modifiers = channel.frameState ?? _emptyModifiers;
-  const packedWaveMesh = channel.worldState[0] ?? _emptyWaveMesh;
-  const packedTideMesh = channel.worldState[1] ?? _emptyTideMesh;
-  const packedTerrain =
-    channels[QUERY_TYPE_TERRAIN].worldState[0] ?? _emptyTerrain;
-
-  const points = channel.points;
-  const results = channel.results;
-  for (let i = startPoint; i < endPoint; i++) {
-    const worldX = points[i * STRIDE_PER_POINT];
-    const worldY = points[i * STRIDE_PER_POINT + 1];
-    writeWaterResult(
-      worldX,
-      worldY,
-      time,
-      tideHeight,
-      defaultDepth,
-      numWaves,
-      tidalPhase,
-      tidalStrength,
-      waveAmplitudeScale,
-      packedTerrain,
-      packedWaveMesh,
-      packedTideMesh,
-      modifiers,
-      modifierCount,
-      waveSources,
-      results,
-      i * resultStride,
-    );
-  }
-}
-
-function runTerrainQuery(
-  points: Float32Array,
-  results: Float32Array,
-  params: Float32Array,
-  worldState: Uint32Array | null,
-  resultStride: number,
-  startPoint: number,
-  endPoint: number,
-): void {
-  if (!worldState) {
-    zeroResultSlice(results, resultStride, startPoint, endPoint);
-    return;
-  }
-  const contourCount = params[TERRAIN_PARAM_CONTOUR_COUNT];
-  const defaultDepth = params[TERRAIN_PARAM_DEFAULT_DEPTH];
-
-  for (let i = startPoint; i < endPoint; i++) {
-    const worldX = points[i * STRIDE_PER_POINT];
-    const worldY = points[i * STRIDE_PER_POINT + 1];
-    writeTerrainResult(
-      worldX,
-      worldY,
-      worldState,
-      contourCount,
-      defaultDepth,
-      results,
-      i * resultStride,
-    );
-  }
-}
-
-const _windMeshOut = new Float64Array(4);
-const _windWeights = new Float32Array(WIND_PARAM_WEIGHTS_COUNT);
-
-function runWindQuery(
-  points: Float32Array,
-  results: Float32Array,
-  params: Float32Array,
-  worldState: Uint32Array | null,
-  resultStride: number,
-  startPoint: number,
-  endPoint: number,
-): void {
-  const time = params[WIND_PARAM_TIME];
-  const baseX = params[WIND_PARAM_BASE_X];
-  const baseY = params[WIND_PARAM_BASE_Y];
-  const fallbackSpeed = params[WIND_PARAM_INFLUENCE_SPEED_FACTOR];
-  const fallbackDir = params[WIND_PARAM_INFLUENCE_DIRECTION_OFFSET];
-  const fallbackTurb = params[WIND_PARAM_INFLUENCE_TURBULENCE];
-
-  for (let i = 0; i < WIND_PARAM_WEIGHTS_COUNT; i++) {
-    _windWeights[i] = params[WIND_PARAM_WEIGHTS_BASE + i];
-  }
-
-  for (let i = startPoint; i < endPoint; i++) {
-    const worldX = points[i * STRIDE_PER_POINT];
-    const worldY = points[i * STRIDE_PER_POINT + 1];
-
-    let speedFactor = fallbackSpeed;
-    let dirOffset = fallbackDir;
-    let turb = fallbackTurb;
-
-    if (worldState && worldState.length > 0) {
-      lookupWindMeshBlended(
-        worldX,
-        worldY,
-        worldState,
-        _windWeights,
-        _windMeshOut,
-      );
-      if (_windMeshOut[3] > 0) {
-        speedFactor = _windMeshOut[0];
-        dirOffset = _windMeshOut[1];
-        turb = _windMeshOut[2];
-      }
-    }
-
-    writeWindResult(
-      worldX,
-      worldY,
-      time,
-      baseX,
-      baseY,
-      speedFactor,
-      dirOffset,
-      turb,
-      results,
-      i * resultStride,
-    );
   }
 }

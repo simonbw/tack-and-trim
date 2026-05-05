@@ -1,5 +1,13 @@
 # Global Lighting Everywhere
 
+> **Status (2026):** implemented and shipped — see `plans/README.md`. The
+> file references below describe the codebase as it was at the time of
+> writing; in particular the per-pass `*Uniforms.ts` files have since been
+> folded into the matching `*Shader.ts` files (the uniform structs are now
+> exported from those `*Shader.ts` files), and `SceneLighting` is exposed
+> via `src/game/time/SceneLighting.ts`. This document is preserved as a
+> record of how the change was planned; it is not a guide to current code.
+
 Extend the day/night lighting system (GitHub issue #146) to all world-space rendering. CPU owns the sun/sky math; every shader receives a shared `SceneLightingUniform`; the generic `Draw` API pipeline applies the global sun color per-vertex with a 0–1 opt-out flag so UI and debug overlays stay un-tinted.
 
 ---
