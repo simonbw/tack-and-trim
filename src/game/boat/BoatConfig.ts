@@ -153,11 +153,16 @@ export interface HullConfig {
   readonly deckPlan?: DeckPlan;
   // --- Common properties ---
   readonly skinFrictionCoefficient: number; // dimensionless Cf (typically 0.003-0.004)
-  /** Pressure coefficient for front-facing (stagnation) surfaces, dimensionless.
-   * Typical range 0.8-1.0. Default 1.0. */
+  /** Global multiplier on front-facing (stagnation) pressure, dimensionless.
+   * Bernoulli predicts Cp = 1.0 exactly; this scales it down for tuning.
+   * Default 1.0. */
   readonly stagnationCoefficient?: number;
-  /** Pressure coefficient for rear-facing (wake/separation) surfaces, dimensionless.
-   * Higher = more wake drag. Bluff stern ≈ 0.7, tapered stern ≈ 0.3. Default 0.5. */
+  /** Global multiplier on rear-facing pressure, dimensionless. The rear-face
+   * Cp is computed per-triangle from a precomputed direction-dependent
+   * separation factor (issue #125): blends from +0.4 (attached, pressure
+   * recovery → forward force) to -0.42 (separated, wake suction → backward
+   * drag). This coefficient is a global scale on that blend; default 1.0
+   * applies the physically-derived values directly. */
   readonly separationCoefficient?: number;
   readonly draft: number; // ft below waterline (hull bottom)
   readonly deckHeight: number; // ft above waterline (gunwale/deck edge)

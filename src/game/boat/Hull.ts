@@ -69,6 +69,29 @@ const BOW_BOOST_MAX = 1.0;
 // throw a bow wave.
 const BOW_BOOST_FULL_SPEED = 3.0;
 
+// === Direction-dependent rear-face pressure model (issue #125) ===
+// For each rear-facing triangle and each of NUM_FLOW_DIRECTIONS sampled
+// horizontal flow directions, we precompute a separation factor in [0, 1]:
+//   0 = locally streamlined (surface nearly parallel to flow → attached flow,
+//        pressure recovery, slight forward force)
+//   1 = locally broadside (surface nearly perpendicular to flow → fully
+//        separated wake, suction drag)
+// The runtime blends rear-face Cp between +CP_REAR_ATTACHED (forward, pressure
+// recovery) and -CP_REAR_SEPARATED (backward, wake suction).
+const NUM_FLOW_DIRECTIONS = 16;
+// Stern half-angle thresholds: surface-tangent angle from the flow direction.
+// The dot |n·d| equals sin(half-angle) for a rear-facing surface.
+//   below ATTACH_NDD: fully attached (sub-15° taper)
+//   above SEPARATE_NDD: fully separated (>40° turn from flow)
+const ATTACH_NDD = Math.sin((15 * Math.PI) / 180);
+const SEPARATE_NDD = Math.sin((40 * Math.PI) / 180);
+// Pressure coefficients used in the rear-face blend. Attached panels recover
+// a fraction of stagnation pressure (potential flow predicts up to +1.0 at
+// the trailing edge; +0.4 is a reasonable streamlined-hull average). Separated
+// panels suck per Kirchhoff free-streamline theory at -0.42.
+const CP_REAR_ATTACHED = 0.4;
+const CP_REAR_SEPARATED = 0.42;
+
 /**
  * Find the bow (foremost) point from hull geometry.
  * Returns the vertex with the maximum x value.
@@ -150,6 +173,14 @@ interface HullForceData {
   vertexIndices: Uint16Array;
   /** Number of unique vertices in the mesh */
   vertexCount: number;
+  /**
+   * Per-triangle separation factor for each of NUM_FLOW_DIRECTIONS evenly-spaced
+   * horizontal flow directions in body-local frame. Indexed
+   * [tri * NUM_FLOW_DIRECTIONS + dir]. 0 = attached, 1 = fully separated.
+   * Front-facing triangles for a given direction store 0 (the runtime stagnation
+   * branch ignores this value).
+   */
+  separationByDirection: Float32Array;
 }
 
 /**
@@ -175,6 +206,7 @@ function buildHullForceData(mesh: HullMesh): HullForceData {
     area: new Float64Array(triCount),
     vertexIndices: new Uint16Array(allIndices),
     vertexCount: mesh.xyPositions.length,
+    separationByDirection: new Float32Array(triCount * NUM_FLOW_DIRECTIONS),
   };
 
   const pos = mesh.xyPositions;
@@ -237,6 +269,30 @@ function buildHullForceData(mesh: HullMesh): HullForceData {
     data.nx[t] = nx;
     data.ny[t] = ny;
     data.nz[t] = nz;
+  }
+
+  // Precompute per-direction separation factor. For each triangle and each
+  // sampled horizontal flow direction d = (cos θ, sin θ, 0), the rear-face
+  // local taper angle is sin⁻¹(n·d) when n·d > 0. Below ATTACH_NDD (sin 15°)
+  // flow stays attached; above SEPARATE_NDD (sin 40°) it has fully separated.
+  // Vertical normals (e.g. deck/bottom panels) get n·d ≈ 0 → factor = 0 →
+  // they contribute negligibly to horizontal form drag, which matches the
+  // tiny projected area they have for horizontal flow.
+  const sepRange = SEPARATE_NDD - ATTACH_NDD;
+  for (let t = 0; t < triCount; t++) {
+    const nx = data.nx[t];
+    const ny = data.ny[t];
+    for (let k = 0; k < NUM_FLOW_DIRECTIONS; k++) {
+      const angle = (k / NUM_FLOW_DIRECTIONS) * 2 * Math.PI;
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+      const ndd = nx * dx + ny * dy;
+      let factor = 0;
+      if (ndd > 0) {
+        factor = smoothStep((ndd - ATTACH_NDD) / sepRange);
+      }
+      data.separationByDirection[t * NUM_FLOW_DIRECTIONS + k] = factor;
+    }
   }
 
   return data;
@@ -530,6 +586,37 @@ export class Hull extends BaseEntity {
     const cpStag = this.stagnationCoefficient;
     const cpSep = this.separationCoefficient;
 
+    // Bulk flow direction in body-local frame. Used to look up the
+    // precomputed per-triangle separation factor: each triangle has 0 (locally
+    // streamlined for this flow → forward pressure recovery) to 1 (locally
+    // broadside → backward wake suction). Per-triangle vDotN below still
+    // governs front vs rear classification at runtime; this lookup only
+    // shapes the rear-side pressure coefficient.
+    //
+    // Approximation: ignores currents (uses raw boat velocity instead of
+    // boat-vs-water relative velocity). Currents in this game are small
+    // compared to typical sailing speeds, and the lookup table is coarse
+    // (16 directions) so a small misalignment between bulk and per-triangle
+    // flow direction is well within the lerp interpolation tolerance.
+    const flowLocalX = -(R[0] * body.velocity[0] + R[3] * body.velocity[1]);
+    const flowLocalY = -(R[1] * body.velocity[0] + R[4] * body.velocity[1]);
+    const flowSpeedSq = flowLocalX * flowLocalX + flowLocalY * flowLocalY;
+    const sepArr = fd.separationByDirection;
+    let dirIdxA = 0;
+    let dirIdxB = 0;
+    let dirFrac = 0;
+    let useSepLookup = false;
+    if (flowSpeedSq > 0.01) {
+      const flowAngle = Math.atan2(flowLocalY, flowLocalX);
+      const u = (flowAngle + 2 * Math.PI) % (2 * Math.PI);
+      const idxFloat = (u / (2 * Math.PI)) * NUM_FLOW_DIRECTIONS;
+      const idxA = Math.floor(idxFloat) % NUM_FLOW_DIRECTIONS;
+      dirIdxA = idxA;
+      dirIdxB = (idxA + 1) % NUM_FLOW_DIRECTIONS;
+      dirFrac = idxFloat - Math.floor(idxFloat);
+      useSepLookup = true;
+    }
+
     // Depth baseline for buoyancy: the minimum submersion across all mesh
     // vertices. When the hull is fully submerged every vertex has sub > 0, and
     // subtracting this baseline from each triangle's depth keeps individual
@@ -725,18 +812,41 @@ export class Hull extends BaseEntity {
               localZ,
             );
           } else if (vDotN < 0) {
-            // --- Separation/suction pressure (rear-facing triangles) ---
-            // In the wake region behind the hull, flow separates and creates a
-            // low-pressure zone. This suction pulls the surface backward.
-            // F = Cp_sep * 0.5 * rho * v^2 * A_projected
-            // where A_projected = area * |vDotN / speed|
-            // Force direction: along outward normal (+n), pulling surface into the wake.
+            // --- Rear-facing pressure (direction-dependent) ---
+            // Per-triangle separation factor (0=attached, 1=fully separated)
+            // is interpolated between the two flow-direction samples bracketing
+            // the bulk flow heading. Cp blends from +CP_REAR_ATTACHED (positive
+            // surface pressure → surface pushed inward = forward thrust, the
+            // pressure-recovery effect of an attached streamlined stern) to
+            // -CP_REAR_SEPARATED (negative surface pressure → surface pulled
+            // outward = wake suction drag). The result: a tapered stern
+            // recovers some pressure as forward force; a blunt transom or
+            // broadside surface eats wake suction. Drag becomes asymmetric
+            // — forward motion is cheap, backward and sideways are expensive.
+            let sepFactor = 1;
+            if (useSepLookup) {
+              const base = i * NUM_FLOW_DIRECTIONS;
+              sepFactor =
+                sepArr[base + dirIdxA] * (1 - dirFrac) +
+                sepArr[base + dirIdxB] * dirFrac;
+            }
+            const cpRear =
+              CP_REAR_ATTACHED +
+              (-CP_REAR_SEPARATED - CP_REAR_ATTACHED) * sepFactor;
+
             const absVDotN = -vDotN; // positive magnitude
             const aProjected = area * (absVDotN / speedW); // ft²
             const dynamicPressure = 0.5 * RHO_WATER * speedW * speedW; // lbf/ft²
+            // F per area = -Cp * q (positive Cp → force along -n, into the
+            // surface = forward; negative Cp → force along +n, into the wake
+            // = backward drag). cpSep stays as a tunable global multiplier.
             const forceMag =
-              cpSep * dynamicPressure * aProjected * waterFrac * LBF_TO_ENGINE;
-            // Suction force: +n direction (pulling surface into wake = opposing motion)
+              -cpRear *
+              cpSep *
+              dynamicPressure *
+              aProjected *
+              waterFrac *
+              LBF_TO_ENGINE;
             body.applyForce3D(
               wnx * forceMag,
               wny * forceMag,
