@@ -31,7 +31,8 @@
     "import-terrain": "./bin/build-level build",
     "docs": "typedoc",
     "count-tokens": "tsx ./bin/count-tokens.ts",
-    "profile-game": "tsx ./bin/profile-game.ts"
+    "profile-game": "tsx ./bin/profile-game.ts",
+    "bench-sail-aero": "tsx ./bin/bench-sail-aero.ts"
   },
   "repository": {
     "type": "git",
