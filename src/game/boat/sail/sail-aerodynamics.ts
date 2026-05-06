@@ -4,56 +4,58 @@ import type { ClothSolver } from "./ClothSolver";
 
 export const STALL_ANGLE = degToRad(15);
 
-/** Calculate the lift coefficient for a sail at a given angle of attack. */
-function getSailLiftCoefficient(angleOfAttack: number): number {
-  const alpha = Math.abs(angleOfAttack);
-  const effectiveAlpha = alpha > Math.PI / 2 ? Math.PI - alpha : alpha;
-
-  let cl: number;
-  if (effectiveAlpha < STALL_ANGLE) {
-    cl = 2 * Math.PI * Math.sin(effectiveAlpha);
-  } else {
-    const peak = 2 * Math.PI * Math.sin(STALL_ANGLE);
-    const decay = Math.exp(-3 * (effectiveAlpha - STALL_ANGLE));
-    cl = peak * decay;
+/**
+ * Lift coefficient for a sail at a given angle of attack.
+ *
+ * `aoa` is expected in [0, π/2] — the unsigned angle between the wind and the
+ * sail surface. (Callers compute it as `asin(|n · ŵ|)`, so the sign is already
+ * absorbed into the lift *direction* — see `computeClothWindForce`.)
+ *
+ * Pre-stall: thin-airfoil theory, `Cl = 2π·sin(α)`.
+ * Post-stall: exponential decay from the peak at `STALL_ANGLE`.
+ */
+function getSailLiftCoefficient(aoa: number): number {
+  if (aoa < STALL_ANGLE) {
+    return 2 * Math.PI * Math.sin(aoa);
   }
-
-  cl *= Math.sign(Math.cos(angleOfAttack));
-  return cl;
+  const peak = 2 * Math.PI * Math.sin(STALL_ANGLE);
+  return peak * Math.exp(-3 * (aoa - STALL_ANGLE));
 }
 
 /**
- * Compute drag coefficient for a sail segment.
- * Base drag + induced drag + stall penalty.
+ * Drag coefficient for a sail segment at angle of attack `aoa` ∈ [0, π/2].
+ *
+ * Base profile drag + induced drag (quadratic in AOA) + a post-stall penalty.
+ * The induced term is a strip-theory approximation; it does not couple to the
+ * sail's overall aspect ratio.
  */
 function computeDragCoefficient(aoa: number): number {
-  const effectiveAlpha = aoa > Math.PI / 2 ? Math.PI - aoa : aoa;
-
   const baseDrag = 0.02;
-  const inducedDrag = 0.1 * effectiveAlpha * effectiveAlpha;
-  const stallDrag =
-    effectiveAlpha > STALL_ANGLE ? 0.5 * (effectiveAlpha - STALL_ANGLE) : 0;
-
+  const inducedDrag = 0.1 * aoa * aoa;
+  const stallDrag = aoa > STALL_ANGLE ? 0.5 * (aoa - STALL_ANGLE) : 0;
   return baseDrag + inducedDrag + stallDrag;
 }
 
 /**
- * Compute per-triangle wind force for cloth sail simulation.
- * Returns [fx, fy, fz] force to be distributed 1/3 to each vertex.
+ * Compute the per-triangle wind force for cloth sail simulation.
  *
- * Uses the relative wind (true wind minus surface velocity) so that
- * aerodynamic force naturally decays as the cloth catches up to the
- * wind. This provides physical damping that prevents runaway oscillation.
+ * Returns `[fx, fy, fz]`, the total aerodynamic force on the triangle. The
+ * caller is expected to split it 1/3 to each vertex.
  *
- * @param solver - ClothSolver with vertex positions
- * @param i0 - First vertex index
- * @param i1 - Second vertex index
- * @param i2 - Third vertex index
- * @param windX - Apparent wind X (world space)
- * @param windY - Apparent wind Y (world space)
- * @param liftScale - Lift coefficient multiplier
- * @param dragScale - Drag coefficient multiplier
- * @param tickRate - Physics tick rate (Hz) for velocity estimation from Verlet positions
+ * `windX`/`windY` are the world-frame wind sample at the sail. The function
+ * subtracts the centroid's Verlet velocity (estimated from `pos − prevPos`)
+ * to form a *relative* wind. In steady state the cloth is dragged along by
+ * the pinned vertices at hull velocity, so the relative wind approximates
+ * the apparent wind; during transients the same subtraction also damps
+ * cloth flutter, which is what keeps the sim from oscillating.
+ *
+ * @param solver    cloth solver providing positions / prev-positions
+ * @param i0,i1,i2  triangle vertex indices
+ * @param windX     world-frame wind X
+ * @param windY     world-frame wind Y
+ * @param liftScale lift coefficient multiplier
+ * @param dragScale drag coefficient multiplier
+ * @param tickRate  physics tick rate (Hz), for converting Verlet step → velocity
  */
 export function computeClothWindForce(
   solver: ClothSolver,
@@ -66,7 +68,7 @@ export function computeClothWindForce(
   dragScale: number,
   tickRate: number = 120,
 ): [number, number, number] {
-  // Get vertex positions
+  // Vertex positions
   const x0 = solver.getPositionX(i0);
   const y0 = solver.getPositionY(i0);
   const z0 = solver.getZ(i0);
@@ -77,7 +79,7 @@ export function computeClothWindForce(
   const y2 = solver.getPositionY(i2);
   const z2 = solver.getZ(i2);
 
-  // Centroid velocity from Verlet (pos - prevPos) * tickRate
+  // Centroid velocity from Verlet (pos − prevPos) · tickRate, averaged over the 3 verts
   const vx =
     (x0 -
       solver.getPrevPositionX(i0) +
@@ -91,64 +93,59 @@ export function computeClothWindForce(
       (y2 - solver.getPrevPositionY(i2))) *
     (tickRate / 3);
 
-  // Relative wind = true wind - surface velocity
+  // Relative wind = world wind − cloth centroid velocity
   const relX = windX - vx;
   const relY = windY - vy;
   const relSpeed = Math.hypot(relX, relY);
   if (relSpeed < 0.01) return [0, 0, 0];
 
-  // Edge vectors
+  // Edge vectors and 3D face normal
   const e1x = x1 - x0;
   const e1y = y1 - y0;
   const e1z = z1 - z0;
   const e2x = x2 - x0;
   const e2y = y2 - y0;
   const e2z = z2 - z0;
-
-  // 3D cross product → face normal
   const nx = e1y * e2z - e1z * e2y;
   const ny = e1z * e2x - e1x * e2z;
   const nz = e1x * e2y - e1y * e2x;
   const nLen = Math.hypot(nx, ny, nz);
   if (nLen < 0.0001) return [0, 0, 0];
 
-  // Triangle area = 0.5 * |cross product|
   const area = nLen * 0.5;
-
-  // Normalize normal
   const nnx = nx / nLen;
   const nny = ny / nLen;
   const nnz = nz / nLen;
 
-  // Relative wind direction (normalized, treat as 2D with z=0)
+  // Wind direction (treated as 2D, z = 0)
   const wdx = relX / relSpeed;
   const wdy = relY / relSpeed;
 
-  // Angle of attack: angle between wind direction and face normal
-  // dot(wind3d, normal) where wind3d = (wdx, wdy, 0)
-  const dot = wdx * nnx + wdy * nny;
-  // The angle of attack is the complement: cos(aoa) = |dot| means aoa = acos(|dot|)
-  // But for a sail, aoa is angle between wind and the surface plane, not the normal
-  const sinAoa = Math.abs(dot); // sin of angle between wind and surface
+  // Angle of attack: angle between wind and sail surface, in [0, π/2].
+  // sin(α) = |n · ŵ|, taking the absolute value because the cloth's two sides
+  // are aerodynamically symmetric here — lift direction is recovered later
+  // from the projected normal.
+  const sinAoa = Math.abs(wdx * nnx + wdy * nny);
   const aoa = Math.asin(clamp(sinAoa, 0, 1));
 
   // Dynamic pressure from relative wind
   const q = 0.5 * RHO_AIR * relSpeed * relSpeed;
 
-  // Lift and drag coefficients
+  // Coefficients
   const cl = getSailLiftCoefficient(aoa) * liftScale;
   const cd = computeDragCoefficient(aoa) * dragScale;
 
   const liftMag = cl * q * area * LBF_TO_ENGINE;
   const dragMag = cd * q * area * LBF_TO_ENGINE;
 
-  // Drag force: along relative wind direction
+  // Drag along the relative wind direction
   const fdx = wdx * dragMag;
   const fdy = wdy * dragMag;
 
-  // Lift force: perpendicular to wind, in the direction the normal faces
-  // Lift pushes the sail in the direction of the face normal (leeward)
-  // Project normal onto plane perpendicular to wind
+  // Lift along the projection of the face normal onto the plane perpendicular
+  // to the wind. This points into the leeward half-space (whichever side the
+  // sail's +normal currently faces); when the cloth is back-winded its shape
+  // flips and the normal flips with it, so the lift direction follows.
   const normalDotWind = nnx * wdx + nny * wdy;
   let liftDirX = nnx - normalDotWind * wdx;
   let liftDirY = nny - normalDotWind * wdy;

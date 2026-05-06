@@ -70,7 +70,7 @@ The bottom edge of a sail, running from tack to clew.
 An imaginary straight line from the head to the clew of a sail. Used in aerodynamic calculations.
 
 ### Camber
-The curved shape of a sail when filled with wind. More camber generally means more power but also more drag. The code calculates camber to determine lift and drag forces. See `calculateCamber()` in `sail-helpers.ts`.
+The curved shape of a sail when filled with wind. More camber generally means more power but also more drag. In the simulation, camber is emergent: the sail is a cloth mesh (`src/game/boat/sail/`) whose shape comes out of cloth dynamics + per-triangle wind forces, not a separate camber calculation.
 
 ## Lines (Ropes)
 
@@ -182,10 +182,10 @@ The force generated parallel to (in the direction of) airflow. Drag opposes moti
 The angle between the sail (or foil) and the apparent wind. Too little angle = no power. Too much angle = stall. See `angleOfAttack` calculations in the physics code.
 
 ### Stall
-When the angle of attack is too high, airflow separates from the sail surface, causing a sudden loss of lift and increase in drag. Like an airplane wing stalling. The game simulates this with `STALL_ANGLE`. See `isSailStalled()` in `sail-helpers.ts`.
+When the angle of attack is too high, airflow separates from the sail surface, causing a sudden loss of lift and increase in drag. Like an airplane wing stalling. The game simulates this with `STALL_ANGLE` in `src/game/boat/sail/sail-aerodynamics.ts`: pre-stall lift follows thin-airfoil theory; past `STALL_ANGLE` (15°), lift decays exponentially and a stall-drag penalty kicks in.
 
 ### Slot Effect
-The gap between the jib and mainsail accelerates airflow, increasing the effectiveness of the mainsail. This is why a jib can increase overall performance even though it's a small sail. Simulated in `SailWindEffect.ts`.
+The gap between the jib and mainsail accelerates airflow, increasing the effectiveness of the mainsail. This is why a jib can increase overall performance even though it's a small sail. **Not currently simulated** — each sail in the game samples the global wind field independently.
 
 ### Circulation
 In aerodynamics, the circular flow of air around a lifting surface. The game uses circulation calculations to model how sails affect the wind field around them. See `SailWindEffect.ts`.
