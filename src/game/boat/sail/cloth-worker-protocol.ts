@@ -22,22 +22,27 @@ export const INPUT_ITERATIONS = 2;
 export const INPUT_CONSTRAINT_DAMPING = 3;
 export const INPUT_CLOTH_MASS = 4;
 export const INPUT_HOIST_AMOUNT = 5;
+// Apparent wind at the sail (world-frame): true wind minus the boat's
+// 3D velocity at the sail sample point. The Z component is non-zero when
+// the boat is heaving / rolling / pitching, even though the wind field
+// itself has no vertical component.
 export const INPUT_WIND_X = 6;
 export const INPUT_WIND_Y = 7;
-export const INPUT_LIFT_SCALE = 8;
-export const INPUT_DRAG_SCALE = 9;
+export const INPUT_WIND_Z = 8;
+export const INPUT_LIFT_SCALE = 9;
+export const INPUT_DRAG_SCALE = 10;
 // Pin targets: tack(x,y,z), clew(x,y,z), head(x,y,z)
-export const INPUT_TACK_X = 10;
-export const INPUT_TACK_Y = 11;
-export const INPUT_TACK_Z = 12;
-export const INPUT_CLEW_X = 13;
-export const INPUT_CLEW_Y = 14;
-export const INPUT_CLEW_Z = 15;
-export const INPUT_HEAD_X = 16;
-export const INPUT_HEAD_Y = 17;
-export const INPUT_HEAD_Z = 18;
-export const INPUT_CLEW_PINNED = 19;
-export const INPUT_COUNT = 20;
+export const INPUT_TACK_X = 11;
+export const INPUT_TACK_Y = 12;
+export const INPUT_TACK_Z = 13;
+export const INPUT_CLEW_X = 14;
+export const INPUT_CLEW_Y = 15;
+export const INPUT_CLEW_Z = 16;
+export const INPUT_HEAD_X = 17;
+export const INPUT_HEAD_Y = 18;
+export const INPUT_HEAD_Z = 19;
+export const INPUT_CLEW_PINNED = 20;
+export const INPUT_COUNT = 21;
 
 // Output region: 9 reaction-force floats plus 1 solve-time float = 10 floats
 export const REACTION_TACK_X = 0;

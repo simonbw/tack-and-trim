@@ -27,6 +27,7 @@ import {
   INPUT_HOIST_AMOUNT,
   INPUT_WIND_X,
   INPUT_WIND_Y,
+  INPUT_WIND_Z,
   INPUT_LIFT_SCALE,
   INPUT_DRAG_SCALE,
   INPUT_TACK_X,
@@ -326,6 +327,7 @@ function solveLoop() {
     const hoistAmount = input[INPUT_HOIST_AMOUNT];
     const windX = input[INPUT_WIND_X];
     const windY = input[INPUT_WIND_Y];
+    const windZ = input[INPUT_WIND_Z];
     const liftScale = input[INPUT_LIFT_SCALE];
     const dragScale = input[INPUT_DRAG_SCALE];
     const clewPinned = input[INPUT_CLEW_PINNED] !== 0;
@@ -383,7 +385,7 @@ function solveLoop() {
     }
 
     // Aerodynamic forces — scaled by minimum blend weight across the triangle
-    if (hoistAmount > 0 && (windX !== 0 || windY !== 0)) {
+    if (hoistAmount > 0 && (windX !== 0 || windY !== 0 || windZ !== 0)) {
       const invVertexMass = 1 / vertexMass;
       for (let t = 0; t < indices.length; t += 3) {
         const i0 = indices[t];
@@ -403,6 +405,7 @@ function solveLoop() {
           i2,
           windX,
           windY,
+          windZ,
           liftScale,
           dragScale,
         );

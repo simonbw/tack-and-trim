@@ -724,13 +724,40 @@ export class Sail extends BaseEntity {
       headWZ = this.config.zHead;
     }
 
-    // Sample wind
-    let windX = 0,
-      windY = 0;
+    // Apparent wind = world wind − boat velocity at the sail's reference point.
+    // The Z component is non-zero whenever the boat is heaving / rolling /
+    // pitching, even though the wind field itself has no vertical component;
+    // the cloth aero needs the 3D vector to get AOA right on a heeled sail.
+    //
+    // Reference point: tack XY at mid-luff height (body-local). This is close
+    // enough to the sail centroid that ω × r captures the dominant rotational
+    // contribution; we don't need a per-frame centroid recompute.
+    let windX = 0;
+    let windY = 0;
+    let windZ = 0;
     if (this.hoistAmount > 0 && this.windQuery.length > 0) {
       const wind = this.windQuery.get(0).velocity;
-      windX = wind.x;
-      windY = wind.y;
+      if (hullBody) {
+        const sailLocalX = local.x;
+        const sailLocalY = local.y;
+        const sailLocalZ = (this.config.zFoot + this.config.zHead) / 2;
+        // World-frame offset of the reference point from the body COM
+        const R = hullBody.orientation;
+        const rx = R[0] * sailLocalX + R[1] * sailLocalY + R[2] * sailLocalZ;
+        const ry = R[3] * sailLocalX + R[4] * sailLocalY + R[5] * sailLocalZ;
+        const rz = R[6] * sailLocalX + R[7] * sailLocalY + R[8] * sailLocalZ;
+        // Boat velocity at that point: v_com + ω × r (full 3D ω)
+        const w = hullBody.angularVelocity3;
+        const vbx = hullBody.velocity[0] + w[1] * rz - w[2] * ry;
+        const vby = hullBody.velocity[1] + w[2] * rx - w[0] * rz;
+        const vbz = hullBody.zVelocity + w[0] * ry - w[1] * rx;
+        windX = wind.x - vbx;
+        windY = wind.y - vby;
+        windZ = -vbz;
+      } else {
+        windX = wind.x;
+        windY = wind.y;
+      }
     }
 
     // Kick off worker solve and start async profiling
@@ -744,6 +771,7 @@ export class Sail extends BaseEntity {
       hoistAmount: this.hoistAmount,
       windX,
       windY,
+      windZ,
       liftScale: effectiveLiftScale,
       dragScale,
       tackX,

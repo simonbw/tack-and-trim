@@ -148,6 +148,7 @@ export class ClothSolverSync implements ClothPositionReader {
       hoistAmount,
       windX,
       windY,
+      windZ,
       liftScale,
       dragScale,
       tackX,
@@ -204,7 +205,7 @@ export class ClothSolverSync implements ClothPositionReader {
     }
 
     // Aerodynamic forces — scaled by minimum blend across triangle
-    if (hoistAmount > 0 && (windX !== 0 || windY !== 0)) {
+    if (hoistAmount > 0 && (windX !== 0 || windY !== 0 || windZ !== 0)) {
       const invVertexMass = 1 / vertexMass;
       const indices = this.indices;
       const blend = this.vertexBlend;
@@ -223,6 +224,7 @@ export class ClothSolverSync implements ClothPositionReader {
           i2,
           windX,
           windY,
+          windZ,
           liftScale,
           dragScale,
         );

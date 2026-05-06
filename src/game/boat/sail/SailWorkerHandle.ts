@@ -22,6 +22,7 @@ import {
   INPUT_HOIST_AMOUNT,
   INPUT_WIND_X,
   INPUT_WIND_Y,
+  INPUT_WIND_Z,
   INPUT_LIFT_SCALE,
   INPUT_DRAG_SCALE,
   INPUT_TACK_X,
@@ -51,8 +52,12 @@ export interface SailSolveInputs {
   constraintDamping: number;
   clothMass: number;
   hoistAmount: number;
+  /** Apparent wind X at the sail (world-frame): true wind − boat velocity at sample point. */
   windX: number;
+  /** Apparent wind Y at the sail (world-frame). */
   windY: number;
+  /** Apparent wind Z at the sail (world-frame): −boat z-velocity at sample point. */
+  windZ: number;
   liftScale: number;
   dragScale: number;
   tackX: number;
@@ -166,6 +171,7 @@ export class SailWorkerHandle implements ClothPositionReader {
     this.input[INPUT_HOIST_AMOUNT] = inputs.hoistAmount;
     this.input[INPUT_WIND_X] = inputs.windX;
     this.input[INPUT_WIND_Y] = inputs.windY;
+    this.input[INPUT_WIND_Z] = inputs.windZ;
     this.input[INPUT_LIFT_SCALE] = inputs.liftScale;
     this.input[INPUT_DRAG_SCALE] = inputs.dragScale;
     this.input[INPUT_TACK_X] = inputs.tackX;
